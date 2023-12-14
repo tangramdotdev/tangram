@@ -1,0 +1,16 @@
+#!/usr/bin/env zsh
+
+export TANGRAM_ZSHRC_INSTALLED=1
+
+# Create the chpwd hook.
+function tangram_chpwd {
+  type _tangram_deactivate &> /dev/null && _tangram_deactivate
+  source <(tg env zsh)
+}
+
+# Install the hook.
+autoload -Uz add-zsh-hook
+add-zsh-hook chpwd tangram_chpwd
+
+# Run the hook.
+tangram_chpwd

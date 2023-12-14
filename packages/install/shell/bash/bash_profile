@@ -1,0 +1,13 @@
+#!/usr/bin/env bash
+
+export TANGRAM_BASH_PROFILE_INSTALLED="1"
+
+# Determine the tangram path.
+tangram_path="$(dirname "$(dirname "$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")")")"
+
+# Add the tangram bin path to $PATH if it has not been added.
+case ":${PATH}:" in
+	*:"${tangram_path}/bin":*)
+		export PATH="${tangram_path}/bin:$PATH"
+		;;
+esac

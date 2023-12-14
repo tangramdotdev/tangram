@@ -1,0 +1,15 @@
+#!/usr/bin/env bash
+
+export TANGRAM_BASHRC_INSTALLED=1
+
+# Create the chpwd hook.
+function tangram_chpwd {
+  type _tangram_deactivate &> /dev/null && _tangram_deactivate
+  source <(tg env bash)
+}
+
+# Install the hook.
+export PROMPT_COMMAND="tangram_chpwd${PROMPT_COMMAND:+;$PROMPT_COMMAND}"
+
+# Run the hook.
+tangram_chpwd

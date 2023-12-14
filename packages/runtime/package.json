@@ -1,0 +1,10 @@
+{
+	"name": "@tangramdotdev/runtime",
+	"private": true,
+	"scripts": {
+		"build": "node build.js",
+		"check": "tsc && eslint . && prettier --check .",
+		"fmt": "prettier --write ."
+	},
+	"type": "module"
+}

@@ -1,0 +1,65 @@
+// This is copied from VSCode's TypeScript language configuration. See here: <https://github.com/microsoft/vscode/blob/94c9ea46838a9a619aeafb7e8afd1170c967bb55/extensions/typescript-basics/language-configuration.json>.
+{
+	"autoCloseBefore": ";:.,=}])>` \n\t",
+	"autoClosingPairs": [
+		{ "close": "}", "open": "{" },
+		{ "close": "]", "open": "[" },
+		{ "close": ")", "open": "(" },
+		{ "close": "'", "notIn": ["string", "comment"], "open": "'" },
+		{ "close": "\"", "notIn": ["string"], "open": "\"" },
+		{ "close": "`", "notIn": ["string", "comment"], "open": "`" },
+		{ "close": " */", "notIn": ["string"], "open": "/**" }
+	],
+	"brackets": [
+		["{", "}"],
+		["[", "]"],
+		["(", ")"]
+	],
+	"comments": {
+		"blockComment": ["/*", "*/"],
+		"lineComment": "//"
+	},
+	"folding": {
+		"markers": {
+			"end": "^\\s*//\\s*#?endregion\\b",
+			"start": "^\\s*//\\s*#?region\\b"
+		}
+	},
+	"onEnterRules": [
+		// Insert " * " following an opening "/**" and before a closing "*/".
+		{
+			"action": {
+				"appendText": " * ",
+				"indent": "indentOutdent"
+			},
+			"afterText": "^\\s*\\*/$",
+			"beforeText": "^\\s*/\\*\\*(?!/)([^\\*]|\\*(?!/))*$"
+		},
+		// Insert "* " following on opneing "/**" without the closing "*/".
+		{
+			"action": {
+				"appendText": " * ",
+				"indent": "none"
+			},
+			"beforeText": "^\\s*/\\*\\*(?!/)([^\\*]|\\*(?!/))*$"
+		},
+		// Insert "* " following a " * " line.
+		{
+			"action": {
+				"appendText": "* ",
+				"indent": "none"
+			},
+			"beforeText": "^(\\t|[ ])*[ ]\\*([ ]([^\\*]|\\*(?!/))*)?$",
+			"previousLineText": "(?=^(\\s*(/\\*\\*|\\*)).*)(?=(?!(\\s*\\*/)))"
+		}
+	],
+	"surroundingPairs": [
+		["{", "}"],
+		["[", "]"],
+		["(", ")"],
+		["'", "'"],
+		["\"", "\""],
+		["`", "`"],
+		["<", ">"]
+	]
+}

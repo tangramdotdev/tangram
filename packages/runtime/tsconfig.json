@@ -1,0 +1,15 @@
+{
+	"compilerOptions": {
+		"allowImportingTsExtensions": true,
+		"exactOptionalPropertyTypes": true,
+		"lib": ["esnext"],
+		"module": "esnext",
+		"moduleResolution": "bundler",
+		"noEmit": true,
+		"noUncheckedIndexedAccess": true,
+		"noUnusedLocals": true,
+		"strict": true,
+		"target": "esnext",
+		"types": []
+	}
+}

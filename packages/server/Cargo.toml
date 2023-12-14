@@ -1,0 +1,48 @@
+[package]
+name = "tangram_server"
+
+description = { workspace = true }
+edition = { workspace = true }
+homepage = { workspace = true }
+license = { workspace = true }
+publish = false
+repository = { workspace = true }
+version = { workspace = true }
+
+[lints]
+workspace = true
+
+[dependencies]
+async-recursion = { workspace = true }
+async-trait = { workspace = true }
+bytes = { workspace = true }
+derive_more = { workspace = true }
+fnv = { workspace = true }
+futures = { workspace = true }
+http = { workspace = true }
+http-body = { workspace = true }
+http-body-util = { workspace = true }
+hyper = { workspace = true }
+hyper-util = { workspace = true }
+itertools = { workspace = true }
+libc = { workspace = true }
+lmdb-rkv = { workspace = true }
+notify = { workspace = true }
+num = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+serde_urlencoded = { workspace = true }
+tangram_client = { workspace = true }
+tangram_error = { workspace = true }
+tangram_language = { workspace = true }
+tangram_package = { workspace = true }
+tangram_runtime = { workspace = true }
+tangram_vfs = { workspace = true }
+tempfile = { workspace = true }
+tokio = { workspace = true }
+tokio-stream = { workspace = true }
+tokio-util = { workspace = true }
+tracing = { workspace = true }
+url = { workspace = true }
+urlencoding = { workspace = true }
+xattr = { workspace = true }

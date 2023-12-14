@@ -1,0 +1,173 @@
+[workspace]
+default-members = ["packages/cli"]
+members = [
+  "packages/cli",
+  "packages/client",
+  "packages/error",
+  "packages/language",
+  "packages/package",
+  "packages/runtime",
+  "packages/server",
+  "packages/vfs",
+]
+resolver = "2"
+
+[workspace.package]
+authors = ["Tangram <root@tangram.dev"]
+description = "Tangram is a build system and package manager that makes your builds programmable, reproducible, cacheable, and distributable."
+edition = "2021"
+homepage = "https://www.tangram.dev"
+license = "MIT"
+repository = "https://github.com/tangramdotdev/tangram"
+version = "0.0.0"
+
+[workspace.lints.clippy]
+pedantic = "warn"
+items_after_statements = "allow"
+missing_errors_doc = "allow"
+missing_panics_doc = "allow"
+missing_safety_doc = "allow"
+
+[workspace.dependencies]
+async-compression = { version = "0.4", features = ["all"] }
+async-recursion = "1"
+async-trait = "0.1"
+base64 = "0.21"
+bitflags = "2"
+blake3 = "1"
+bs58 = "0.5"
+byteorder = "1"
+bytes = { version = "1", features = ["serde"] }
+clap = { version = "4", features = ["derive", "env"] }
+crossterm = "0.27"
+data-encoding = "2"
+data-encoding-macro = "0.1"
+derive_more = { version = "1.0.0-beta.6", features = ["full"] }
+either = { version = "1", features = ["serde"] }
+fnv = "1"
+futures = "0.3"
+heck = "0.4"
+hex = { version = "0.4", features = ["serde"] }
+http = "1"
+http-body = "1"
+http-body-util = "0.1"
+hyper = { version = "1", features = ["full"] }
+hyper-util = { version = "0.1", features = ["server-auto", "tokio"] }
+im = "15"
+include_dir = "0.7"
+indoc = "2"
+itertools = "0.12"
+libc = "0.2"
+lmdb-rkv = { version = "0.14" }
+lsp-types = { version = "0.95" }
+ndarray = { version = "0.15", features = ["rayon"] }
+notify = "6"
+num = "0.4"
+num-derive = "0.4"
+num-traits = "0.2"
+once_cell = "1"
+pathdiff = "0.2"
+pin-project = "1"
+pretty_assertions = "1"
+proptest = "1"
+rand = "0.8"
+ratatui = "0.24"
+regex = "1"
+reqwest = { version = "0.11", default-features = false, features = [
+  "json",
+  "stream",
+  "rustls-tls",
+] }
+rustls = "0.22"
+rustls-pemfile = "2"
+rustls-pki-types = "1"
+semver = "1"
+serde = { version = "1", features = ["rc", "derive"] }
+serde_json = "1"
+serde_urlencoded = "0.7"
+serde_v8 = { version = "0.147.0" }
+serde_yaml = { version = "0.9" }
+sha2 = "0.10"
+sourcemap = "7"
+swc_core = { version = "0.87", features = [
+  "common",
+  "common_sourcemap",
+  "ecma_ast",
+  "ecma_codegen",
+  "ecma_parser",
+  "ecma_parser_typescript",
+  "ecma_transforms",
+  "ecma_transforms_module",
+  "ecma_transforms_typescript",
+  "ecma_visit",
+] }
+tangram_cli = { path = "packages/cli" }
+tangram_client = { path = "packages/client" }
+tangram_error = { path = "packages/error" }
+tangram_language = { path = "packages/language" }
+tangram_package = { path = "packages/package" }
+tangram_runtime = { path = "packages/runtime" }
+tangram_server = { path = "packages/server" }
+tangram_vfs = { path = "packages/vfs" }
+tar = { version = "0.4" }
+tempfile = "3"
+thiserror = "1"
+tokio = { version = "1", features = ["full"] }
+tokio-rustls = "0.25"
+tokio-stream = { version = "0.1", features = ["full"] }
+tokio-util = { version = "0.7", features = ["full"] }
+toml = { version = "0.8" }
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter", "json"] }
+unicode-segmentation = "1.10.1"
+unicode-width = "0.1.11"
+url = { version = "2", features = ["serde"] }
+urlencoding = "2"
+v8 = { version = "0.82" }
+varint-rs = "2"
+webbrowser = "0.8"
+webpki-roots = "0.26"
+xattr = { version = "1" }
+zerocopy = { version = "0.7", features = ["derive"] }
+zip = { version = "0.6", default-features = false, features = [
+  "aes-crypto",
+  "deflate",
+  "bzip2",
+  "time",
+] }
+
+[profile.dev.package.blake3]
+opt-level = 3
+overflow-checks = false
+
+[profile.dev.package.bzip2]
+opt-level = 3
+overflow-checks = false
+
+[profile.dev.package.digest]
+opt-level = 3
+overflow-checks = false
+
+[profile.dev.package.flate2]
+opt-level = 3
+overflow-checks = false
+
+[profile.dev.package.sha2]
+opt-level = 3
+overflow-checks = false
+
+[profile.dev.package.tar]
+opt-level = 3
+overflow-checks = false
+
+[profile.dev.package.xz2]
+opt-level = 3
+overflow-checks = false
+
+[profile.dev.package.zip]
+opt-level = 3
+overflow-checks = false
+
+[profile.dev.package.zstd]
+opt-level = 3
+overflow-checks = false
