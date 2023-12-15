@@ -2,7 +2,7 @@ use crate::Server;
 use bytes::Bytes;
 use futures::{
 	future::{self},
-	FutureExt, TryStreamExt,
+	stream, FutureExt, StreamExt, TryStreamExt,
 };
 use http_body_util::{BodyExt, StreamBody};
 use hyper_util::rt::{TokioExecutor, TokioIo};
@@ -423,15 +423,26 @@ impl Server {
 		};
 
 		// Create the response.
-		let body = Outgoing::new(StreamBody::new(
-			children
-				.map_ok(|id| {
-					let mut id = serde_json::to_string(&id).unwrap();
-					id.push('\n');
-					hyper::body::Frame::data(Bytes::from(id))
-				})
-				.map_err(Into::into),
-		));
+		let children = children
+			.enumerate()
+			.map(|(i, result)| match result {
+				Ok(id) => Ok((i, id)),
+				Err(error) => Err(error),
+			})
+			.map_ok(|(i, id)| {
+				let mut string = String::new();
+				if i != 0 {
+					string.push(',');
+				}
+				string.push_str(&serde_json::to_string(&id).unwrap());
+				let bytes = Bytes::from(string);
+				hyper::body::Frame::data(bytes)
+			})
+			.map_err(Into::into);
+		let open = stream::once(future::ok(hyper::body::Frame::data(Bytes::from("["))));
+		let close = stream::once(future::ok(hyper::body::Frame::data(Bytes::from("]"))));
+		let children = open.chain(children).chain(close);
+		let body = Outgoing::new(StreamBody::new(children));
 		let response = http::Response::builder()
 			.status(http::StatusCode::OK)
 			.body(body)

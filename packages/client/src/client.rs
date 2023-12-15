@@ -5,16 +5,18 @@ use crate::{
 use async_trait::async_trait;
 use bytes::Bytes;
 use derive_more::TryUnwrap;
-use futures::{stream::BoxStream, StreamExt, TryStreamExt};
+use futures::{
+	stream::{self, BoxStream},
+	StreamExt, TryStreamExt,
+};
 use http_body_util::{BodyExt, BodyStream};
 use itertools::Itertools;
 use std::{path::PathBuf, sync::Arc};
 use tangram_error::{return_error, Error, Result, Wrap, WrapErr};
 use tokio::{
-	io::AsyncBufReadExt,
+	io::{AsyncBufReadExt, AsyncReadExt},
 	net::{TcpStream, UnixStream},
 };
-use tokio_stream::wrappers::LinesStream;
 use tokio_util::io::StreamReader;
 use url::Url;
 
@@ -611,17 +613,50 @@ impl Handle for Client {
 					Ok(Err(_frame)) => None,
 				}
 			})
-			.map_err(|error| std::io::Error::new(std::io::ErrorKind::Other, error));
-		let reader = tokio::io::BufReader::new(StreamReader::new(stream));
-		let children = LinesStream::new(reader.lines())
-			.map_err(|error| error.wrap("Failed to read from the reader."))
-			.map(|line| {
-				let line = line?;
-				let id = serde_json::from_str(&line).wrap_err("Failed to deserialize the ID.")?;
-				Ok(id)
-			})
-			.boxed();
-		Ok(Some(children))
+			.map_err(|error| error.wrap("Failed to read from the body."));
+		let reader = Box::pin(tokio::io::BufReader::new(StreamReader::new(
+			stream.map_err(|error| std::io::Error::new(std::io::ErrorKind::Other, error)),
+		)));
+		let children = stream::try_unfold((true, reader), move |(first, mut reader)| async move {
+			if first {
+				let byte = reader
+					.read_u8()
+					.await
+					.wrap_err("Failed to read from the reader.")?;
+				if byte != b'[' {
+					return_error!("Expected an open bracket.");
+				}
+			}
+			let mut byte = reader
+				.read_u8()
+				.await
+				.wrap_err("Failed to read from the reader.")?;
+			if byte == b']' {
+				return Ok(None);
+			}
+			if !first {
+				if byte != b',' {
+					return_error!("Expected a comma.");
+				}
+				byte = reader
+					.read_u8()
+					.await
+					.wrap_err("Failed to read from the reader.")?;
+			}
+			if byte != b'"' {
+				return_error!("Expected a quotation mark.");
+			}
+			let mut id = Vec::new();
+			reader
+				.read_until(b'"', &mut id)
+				.await
+				.wrap_err("Failed to read from the reader.")?;
+			id.pop();
+			let id = String::from_utf8(id).wrap_err("Failed to deserialize the ID.")?;
+			let id = id.parse().wrap_err("Failed to deserialize the ID.")?;
+			Ok(Some((id, (false, reader))))
+		});
+		Ok(Some(children.boxed()))
 	}
 
 	async fn add_build_child(
@@ -678,9 +713,8 @@ impl Handle for Client {
 					Ok(Err(_frame)) => None,
 				}
 			})
-			.map_err(|error| error.wrap("Failed to read from the body."))
-			.boxed();
-		Ok(Some(log))
+			.map_err(|error| error.wrap("Failed to read from the body."));
+		Ok(Some(log.boxed()))
 	}
 
 	async fn add_build_log(&self, user: Option<&User>, id: &build::Id, bytes: Bytes) -> Result<()> {
