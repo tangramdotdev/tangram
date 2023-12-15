@@ -1,7 +1,7 @@
 use super::PackageArgs;
 use crate::Cli;
 use tangram_client as tg;
-use tangram_error::{return_error, Result};
+use tangram_error::{return_error, Result, WrapErr};
 
 /// Check a package for errors.
 #[derive(Debug, clap::Args)]
@@ -19,11 +19,20 @@ impl Cli {
 		let tg = self.handle().await?;
 		let tg = tg.as_ref();
 
-		// Create the language server.
-		let server = tangram_language::Server::new(tg, tokio::runtime::Handle::current());
+		// Canonicalize the path.
+		let mut package = args.package;
+		if let Some(path) = package.path.as_mut() {
+			*path = tokio::fs::canonicalize(&path)
+				.await
+				.wrap_err("Failed to canonicalize the path.")?
+				.try_into()?;
+		}
 
 		// Get the package.
-		let (package, lock) = tg::package::get_with_lock(tg, &args.package).await?;
+		let (package, lock) = tg::package::get_with_lock(tg, &package).await?;
+
+		// Create the language server.
+		let server = tangram_language::Server::new(tg, tokio::runtime::Handle::current());
 
 		// Check the package for diagnostics.
 		let diagnostics = server

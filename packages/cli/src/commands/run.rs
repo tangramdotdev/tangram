@@ -43,8 +43,17 @@ impl Cli {
 		let tg = self.handle().await?;
 		let tg = tg.as_ref();
 
+		// Canonicalize the path.
+		let mut package = args.package;
+		if let Some(path) = package.path.as_mut() {
+			*path = tokio::fs::canonicalize(&path)
+				.await
+				.wrap_err("Failed to canonicalize the path.")?
+				.try_into()?;
+		}
+
 		// Create the package.
-		let (package, lock) = tg::package::get_with_lock(tg, &args.package).await?;
+		let (package, lock) = tg::package::get_with_lock(tg, &package).await?;
 
 		// Create the target.
 		let env = [(
