@@ -22,9 +22,6 @@ struct Context {
 
 	// A cache of published packages that we know about.
 	published_packages: im::HashMap<tg::package::Metadata, tg::directory::Id>,
-
-	// A table of resolved path dependencies. A flattened representation of PackageWithPathDependencies.
-	path_dependencies: BTreeMap<tg::directory::Id, BTreeMap<tg::Path, tg::directory::Id>>,
 }
 
 /// An error type that can be pretty printed to describe why version solving failed.
@@ -86,6 +83,7 @@ enum Mark {
 #[derive(Debug, Clone)]
 struct Analysis {
 	metadata: tg::package::Metadata,
+	path_dependencies: BTreeMap<tg::Dependency, tg::directory::Id>,
 	dependencies: Vec<tg::Dependency>,
 }
 
@@ -446,14 +444,12 @@ async fn create_lockfile(
 ) -> Result<tg::Lockfile> {
 	// Construct the version solving context and working set.
 	let mut analysis = BTreeMap::new();
-	let mut path_dependencies = BTreeMap::new();
 	let mut working_set = im::Vector::new();
 
 	scan_package_with_path_dependencies(
 		tg,
 		package_with_path_dependencies,
 		&mut analysis,
-		&mut path_dependencies,
 		&mut working_set,
 	)
 	.await?;
@@ -461,7 +457,6 @@ async fn create_lockfile(
 	let mut context = Context {
 		analysis,
 		published_packages,
-		path_dependencies,
 	};
 
 	// Solve.
@@ -488,11 +483,11 @@ async fn create_lockfile(
 	}
 
 	// Create the set of locks for all dependencies.
+	let root_package_id = package_with_path_dependencies.package.id(tg).await?;
 	let mut locks = Vec::new();
-
 	let root = create_lockfile_inner(
 		tg,
-		package_with_path_dependencies,
+		root_package_id,
 		&context,
 		&solution,
 		&mut locks,
@@ -506,65 +501,39 @@ async fn create_lockfile(
 #[async_recursion]
 async fn create_lockfile_inner(
 	tg: &dyn tg::Handle,
-	package_with_path_dependencies: &PackageWithPathDependencies,
+	package: &tg::directory::Id,
 	context: &Context,
 	solution: &Solution,
 	locks: &mut Vec<tg::lockfile::Lock>,
 ) -> Result<usize> {
 	// Get the cached analysis.
-	let package = package_with_path_dependencies.package.id(tg).await?.clone();
+	// let package = package_with_path_dependencies.package.id(tg).await?.clone();
 	let analysis = context
 		.analysis
 		.get(&package)
 		.wrap_err("Missing package in solution.")?;
-	let path_dependencies = context.path_dependencies.get(&package);
-
+	
 	// Recursively create locks.
 	let mut dependencies = BTreeMap::new();
 	for dependency in &analysis.dependencies {
-		let entry = match (dependency.path.as_ref(), path_dependencies) {
-			// Use the path dependencies from the context to check if this is a resolved path dependency.
-			(Some(path), Some(path_dependencies)) if path_dependencies.contains_key(path) => {
-				// Resolve by path.
-				let package_with_path_dependencies = package_with_path_dependencies
-					.path_dependencies
-					.iter()
-					.find_map(|(dependency, pwpd)| {
-						(dependency.path.as_ref().unwrap() == path).then_some(pwpd)
-					})
-					.unwrap();
-				let lock = create_lockfile_inner(
-					tg,
-					package_with_path_dependencies,
-					context,
-					solution,
-					locks,
-				)
-				.await?;
-				tg::lockfile::Entry {
-					package: None,
-					lock,
-				}
-			},
-			_ => {
-				// Resolve by dependant.
-				let dependant = Dependant {
-					package: package.clone(),
-					dependency: dependency.clone(),
-				};
-				let Some(Mark::Permanent(Ok(resolved))) = solution.partial.get(&dependant) else {
-					return_error!("Missing solution for {dependant:?}.");
-				};
-				let pwpd = PackageWithPathDependencies {
-					package: tg::Directory::with_id(resolved.clone()),
-					path_dependencies: BTreeMap::new(),
-				};
-				let lock = create_lockfile_inner(tg, &pwpd, context, solution, locks).await?;
-				tg::lockfile::Entry {
-					package: Some(resolved.clone()),
-					lock,
-				}
-			},
+		// Check if this is resolved as a path dependency.
+		let resolved = if let Some(resolved) = analysis.path_dependencies.get(dependency) {
+			resolved
+		} else {
+			// Resolve by dependant.
+			let dependant = Dependant {
+				package: package.clone(),
+				dependency: dependency.clone(),
+			};
+			let Some(Mark::Permanent(Ok(resolved))) = solution.partial.get(&dependant) else {
+				return_error!("Missing solution for {dependant:?}.");
+			};
+			resolved
+		};
+		let lock = create_lockfile_inner(tg, resolved, context, solution, locks).await?;
+		let entry = tg::lockfile::Entry {
+			package: Some(resolved.clone()),
+			lock,
 		};
 		dependencies.insert(dependency.clone(), entry);
 	}
@@ -585,7 +554,6 @@ async fn scan_package_with_path_dependencies(
 	tg: &dyn tg::Handle,
 	package_with_path_dependencies: &PackageWithPathDependencies,
 	all_analysis: &mut BTreeMap<tg::directory::Id, Analysis>,
-	all_path_dependencies: &mut BTreeMap<tg::directory::Id, BTreeMap<tg::Path, tg::directory::Id>>,
 	working_set: &mut im::Vector<Dependant>,
 ) -> Result<()> {
 	let PackageWithPathDependencies {
@@ -595,11 +563,9 @@ async fn scan_package_with_path_dependencies(
 	let package_id = package.id(tg).await?.clone();
 
 	// Check if we've already visited this dependency.
-	if all_path_dependencies.contains_key(&package_id) {
+	if all_analysis.contains_key(&package_id) {
 		return Ok(());
 	}
-	// Update the path dependencies.
-	all_path_dependencies.insert(package_id.clone(), BTreeMap::new());
 
 	// Get the metadata and dependenencies of this package.
 	let dependency = tg::Dependency::with_id(package_id.clone());
@@ -617,23 +583,19 @@ async fn scan_package_with_path_dependencies(
 	let analysis = Analysis {
 		metadata,
 		dependencies,
+		path_dependencies: BTreeMap::new(),
 	};
 	all_analysis.insert(package_id.clone(), analysis);
 
 	// Recurse.
 	for (dependency, package_with_path_dependencies) in path_dependencies {
-		let path = dependency.path.as_ref().unwrap();
 		let dependency_package_id = package_with_path_dependencies.package.id(tg).await?.clone();
-		all_path_dependencies
-			.get_mut(&package_id)
-			.unwrap()
-			.insert(path.clone(), dependency_package_id);
-
+		let analysis = all_analysis.get_mut(&package_id).unwrap();
+		analysis.path_dependencies.insert(dependency.clone(), dependency_package_id.clone());
 		scan_package_with_path_dependencies(
 			tg,
 			package_with_path_dependencies,
 			all_analysis,
-			all_path_dependencies,
 			working_set,
 		)
 		.await?;
@@ -889,19 +851,22 @@ async fn solve(
 impl Context {
 	// Check if the dependant can be resolved as a path dependency.
 	#[must_use]
-	fn is_path_dependency(&self, dependant: &Dependant) -> bool {
-		self.resolve_path_dependency(dependant).is_some()
+	async fn is_path_dependency(&mut self, tg: &dyn tg::Handle, dependant: &Dependant) -> Result<bool> {
+		Ok(self.resolve_path_dependency(tg, dependant).await?.is_some())
 	}
 
 	#[must_use]
-	fn resolve_path_dependency(&self, dependant: &Dependant) -> Option<tg::directory::Id> {
+	async fn resolve_path_dependency(&mut self, tg: &dyn Handle, dependant: &Dependant) -> Result<Option<tg::directory::Id>> {
 		let Dependant {
 			package,
 			dependency,
 		} = dependant;
-		let path = dependency.path.as_ref()?;
-		let path_dependencies = self.path_dependencies.get(package)?;
-		path_dependencies.get(path).cloned()
+		if dependency.path.is_none() {
+			return Ok(None);
+		};
+
+		let analysis = self.try_get_analysis(tg, package).await?;
+		Ok(analysis.path_dependencies.get(dependency).cloned())
 	}
 
 	// Check if a package satisfies a dependency.
@@ -928,7 +893,7 @@ impl Context {
 		remaining_versions: &mut im::Vector<String>,
 	) -> Result<tg::directory::Id, Error> {
 		// First attempt to resolve this as a path dependency.
-		if let Some(result) = self.resolve_path_dependency(dependant) {
+		if let Ok(Some(result)) = self.resolve_path_dependency(tg, dependant).await {
 			return Ok(result);
 		}
 
@@ -973,16 +938,36 @@ impl Context {
 			let metadata = tg.get_package_metadata(&dependency).await?;
 			let dependencies = tg
 				.get_package_dependencies(&dependency)
-				.await?
-				.into_iter()
-				.filter(|dependency| {
-					!(self.path_dependencies.contains_key(package) && dependency.path.is_some())
-				})
-				.collect();
+				.await?;
+
+			let mut dependencies_ = Vec::new();
+			let mut path_dependencies = BTreeMap::new();
+			for dependency in dependencies {
+				match (dependency.name.as_ref(), dependency.path.as_ref()) {
+					(None, Some(path)) => {
+						let package_source = tg::Directory::with_id(package.clone());
+						let dependency_source = package_source
+							.get(tg, path)
+							.await
+							.wrap_err_with(|| error!("Could not resolve {dependency} within {package}. "))?
+							.try_unwrap_directory()
+							.unwrap()
+							.id(tg)
+							.await?
+							.clone();
+						path_dependencies.insert(dependency.clone(), dependency_source);
+					},
+					_ => (),
+				}
+				dependencies_.push(dependency);
+			}
+
 			let analysis = Analysis {
 				metadata: metadata.clone(),
-				dependencies,
+				dependencies: dependencies_,
+				path_dependencies,
 			};
+
 			self.published_packages
 				.insert(metadata.clone(), package.clone());
 			self.analysis.insert(package.clone(), analysis);
@@ -1016,7 +1001,7 @@ impl Context {
 		dependant: &Dependant,
 	) -> Result<Vec<tg::package::Metadata>> {
 		// If it is a path dependency, we don't care about the versions, which may not exist.
-		if self.is_path_dependency(dependant) {
+		if self.is_path_dependency(tg, dependant).await? {
 			return Ok(Vec::new());
 		};
 		let name = dependant
@@ -1054,12 +1039,9 @@ impl Solution {
 	// If there's an existing solution for this dependant, return it. Path dependencies are ignored.
 	fn get_permanent(
 		&self,
-		context: &Context,
+		_context: &Context,
 		dependant: &Dependant,
 	) -> Option<&Result<tg::directory::Id, Error>> {
-		if context.is_path_dependency(dependant) {
-			return None;
-		}
 		self.permanent.get(dependant.dependency.name.as_ref()?)
 	}
 
@@ -1073,18 +1055,17 @@ impl Solution {
 	/// Mark the dependant permanently, adding it to the list of known solutions and the partial solutions.
 	fn mark_permanently(
 		&self,
-		context: &Context,
+		_context: &Context,
 		dependant: Dependant,
 		complete: Result<tg::directory::Id, Error>,
 	) -> Self {
 		let mut solution = self.clone();
 
 		// Update the global solution.
-		if !context.is_path_dependency(&dependant) {
-			solution
-				.permanent
-				.insert(dependant.dependency.name.clone().unwrap(), complete.clone());
-		}
+		solution
+			.permanent
+			.insert(dependant.dependency.name.clone().unwrap(), complete.clone());
+	
 
 		// Update the local solution.
 		solution
