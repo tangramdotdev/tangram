@@ -57,6 +57,7 @@ tokio-util = { workspace = true }
 tracing = { workspace = true }
 url = { workspace = true }
 urlencoding = { workspace = true }
+uuid = { workspace = true }
 varint-rs = { workspace = true }
 webpki-roots = { workspace = true }
 xattr = { workspace = true }

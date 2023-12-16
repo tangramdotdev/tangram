@@ -62,7 +62,7 @@ pub const TANGRAM_FILE_XATTR_NAME: &str = "user.tangram";
 
 impl Id {
 	pub fn new(bytes: &Bytes) -> Self {
-		Self(crate::Id::new_hashed(id::Kind::File, bytes))
+		Self(crate::Id::new_blake3(id::Kind::File, bytes))
 	}
 }
 

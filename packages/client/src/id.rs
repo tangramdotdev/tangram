@@ -11,7 +11,7 @@ pub enum Id {
 #[derive(Clone, Eq, Hash, Ord, PartialEq, PartialOrd)]
 pub struct V0 {
 	kind: Kind,
-	hash: Hash,
+	body: Body,
 }
 
 #[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
@@ -31,27 +31,28 @@ pub enum Kind {
 }
 
 #[derive(Clone, Eq, Hash, Ord, PartialEq, PartialOrd)]
-pub enum Hash {
-	Random32([u8; 32]),
+pub enum Body {
+	UuidV7([u8; 16]),
 	Blake3([u8; 32]),
 }
 
 const ENCODING: data_encoding::Encoding = data_encoding_macro::new_encoding! {
-	symbols: "abcdefghijklmnopqrstuvwxyz234567",
+	symbols: "0123456789abcdefghjkmnpqrstvwxyz",
 };
 
 impl Id {
 	#[must_use]
-	pub fn new_random(kind: Kind) -> Self {
-		let hash = Hash::Random32(rand::random());
-		Self::V0(V0 { kind, hash })
+	pub fn new_uuidv7(kind: Kind) -> Self {
+		let bytes = uuid::Uuid::now_v7();
+		let body = Body::UuidV7(bytes.into_bytes());
+		Self::V0(V0 { kind, body })
 	}
 
 	#[must_use]
-	pub fn new_hashed(kind: Kind, bytes: &[u8]) -> Self {
+	pub fn new_blake3(kind: Kind, bytes: &[u8]) -> Self {
 		let hash = blake3::hash(bytes);
-		let hash = Hash::Blake3(*hash.as_bytes());
-		Self::V0(V0 { kind, hash })
+		let body = Body::Blake3(*hash.as_bytes());
+		Self::V0(V0 { kind, body })
 	}
 
 	#[must_use]
@@ -75,17 +76,18 @@ impl std::fmt::Display for Id {
 			Self::V0(_) => "0",
 		};
 		let algorithm = match self {
-			Self::V0(v0) => match v0.hash {
-				Hash::Random32(_) => "0",
-				Hash::Blake3(_) => "1",
+			Self::V0(v0) => match v0.body {
+				Body::UuidV7(_) => "0",
+				Body::Blake3(_) => "1",
 			},
 		};
-		let hash = match self {
-			Self::V0(v0) => match v0.hash {
-				Hash::Random32(bytes) | Hash::Blake3(bytes) => ENCODING.encode(&bytes),
+		let body = match self {
+			Self::V0(v0) => match v0.body {
+				Body::UuidV7(bytes) => ENCODING.encode(&bytes),
+				Body::Blake3(bytes) => ENCODING.encode(&bytes),
 			},
 		};
-		write!(f, "{kind}_{version}{algorithm}{hash}")?;
+		write!(f, "{kind}_{version}{algorithm}{body}")?;
 		Ok(())
 	}
 }
@@ -100,27 +102,27 @@ impl std::str::FromStr for Id {
 			return_error!("Invalid version.");
 		}
 		let algorithm = s.chars().nth(5).wrap_err("Invalid ID.")?;
-		let hash = s.get(6..).wrap_err("Invalid ID.")?;
-		let hash = match algorithm {
-			'0' => Hash::Random32(
+		let body = s.get(6..).wrap_err("Invalid ID.")?;
+		let body = match algorithm {
+			'0' => Body::UuidV7(
 				ENCODING
-					.decode(hash.as_bytes())
-					.wrap_err("Invalid hash.")?
+					.decode(body.as_bytes())
+					.wrap_err("Invalid body.")?
 					.try_into()
 					.ok()
-					.wrap_err("Invalid hash.")?,
+					.wrap_err("Invalid body.")?,
 			),
-			'1' => Hash::Blake3(
+			'1' => Body::Blake3(
 				ENCODING
-					.decode(hash.as_bytes())
-					.wrap_err("Invalid hash.")?
+					.decode(body.as_bytes())
+					.wrap_err("Invalid body.")?
 					.try_into()
 					.ok()
-					.wrap_err("Invalid hash.")?,
+					.wrap_err("Invalid body.")?,
 			),
 			_ => return_error!("Invalid ID."),
 		};
-		Ok(Self::V0(V0 { kind, hash }))
+		Ok(Self::V0(V0 { kind, body }))
 	}
 }
 

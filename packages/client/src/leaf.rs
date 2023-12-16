@@ -38,7 +38,7 @@ pub struct Data {
 
 impl Id {
 	pub fn new(bytes: &Bytes) -> Self {
-		Self(crate::Id::new_hashed(id::Kind::Leaf, bytes))
+		Self(crate::Id::new_blake3(id::Kind::Leaf, bytes))
 	}
 }
 

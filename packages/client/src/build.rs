@@ -100,7 +100,7 @@ impl Id {
 	#[allow(clippy::new_without_default)]
 	#[must_use]
 	pub fn new() -> Self {
-		Self(crate::Id::new_random(id::Kind::Build))
+		Self(crate::Id::new_uuidv7(id::Kind::Build))
 	}
 }
 
