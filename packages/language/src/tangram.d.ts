@@ -526,14 +526,15 @@ declare namespace tg {
 			| number
 			| string
 			| Uint8Array
-			| Blob
+			| Mutation
+			| Template
+			| Leaf
+			| Branch
 			| Directory
 			| File
 			| Symlink
 			| Lock
 			| Target
-			| Mutation
-			| Template
 			? T
 			: T extends Array<infer U extends Value>
 				? Array<Unresolved<U>>
@@ -560,7 +561,10 @@ declare namespace tg {
 		| number
 		| string
 		| Uint8Array
-		| Blob
+		| Mutation
+		| Template
+		| Leaf
+		| Branch
 		| Directory
 		| File
 		| Symlink

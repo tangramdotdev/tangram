@@ -615,7 +615,7 @@ pub async fn build(
 
 		artifact.into()
 	} else {
-		tg::Value::Null(())
+		tg::Value::Null
 	};
 
 	Ok(value)

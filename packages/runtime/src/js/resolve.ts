@@ -1,4 +1,3 @@
-import { Blob } from "./blob.ts";
 import { Branch } from "./branch.ts";
 import { Directory } from "./directory.ts";
 import { File } from "./file.ts";
@@ -18,14 +17,15 @@ export type Unresolved<T extends Value> = MaybePromise<
 		| number
 		| string
 		| Uint8Array
-		| Blob
+		| Mutation
+		| Template
+		| Leaf
+		| Branch
 		| Directory
 		| File
 		| Symlink
 		| Lock
 		| Target
-		| Mutation
-		| Template
 		? T
 		: T extends Array<infer U extends Value>
 			? Array<Unresolved<U>>
@@ -40,14 +40,15 @@ export type Resolved<T extends Unresolved<Value>> = T extends
 	| number
 	| string
 	| Uint8Array
-	| Blob
+	| Mutation
+	| Template
+	| Leaf
+	| Branch
 	| Directory
 	| File
 	| Symlink
 	| Lock
 	| Target
-	| Mutation
-	| Template
 	? T
 	: T extends Promise<infer U extends Unresolved<Value>>
 		? Resolved<U>
@@ -67,13 +68,13 @@ export let resolve = async <T extends Unresolved<Value>>(
 		typeof value === "number" ||
 		typeof value === "string" ||
 		value instanceof Uint8Array ||
+		value instanceof Template ||
+		value instanceof Mutation ||
 		value instanceof Leaf ||
 		value instanceof Branch ||
 		value instanceof Directory ||
 		value instanceof File ||
 		value instanceof Symlink ||
-		value instanceof Template ||
-		value instanceof Mutation ||
 		value instanceof Lock ||
 		value instanceof Target
 	) {
