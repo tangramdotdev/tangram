@@ -3,11 +3,14 @@ fn main() {
 	let out_dir_path = std::path::PathBuf::from(std::env::var_os("OUT_DIR").unwrap());
 
 	// Build the JS.
-	println!("cargo:rerun-if-changed=../../node_modules");
+	println!("cargo:rerun-if-changed=../../bun.lockb");
 	println!("cargo:rerun-if-changed=src");
-	std::process::Command::new("npm")
+	std::process::Command::new("bun")
 		.args(["run", "build"])
-		.output()
+		.status()
+		.unwrap()
+		.success()
+		.then_some(())
 		.unwrap();
 
 	// Initialize V8.
