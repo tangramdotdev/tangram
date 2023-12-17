@@ -57,7 +57,8 @@ impl Template {
 
 	pub fn unrender(string: &str) -> Result<Self> {
 		// Create the regex.
-		let regex = r"/\.tangram/artifacts/((?:fil_|dir_|sym_)01[a-z2-7]{52})";
+		let regex =
+			r"/\.tangram/artifacts/((?:fil_|dir_|sym_)01[0123456789abcdefghjkmnpqrstvwxyz]{52})";
 		let regex = regex::Regex::new(regex).unwrap();
 
 		let mut i = 0;
@@ -188,7 +189,7 @@ pub mod component {
 	}
 
 	#[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
-	#[serde(tag = "kind", content = "value", rename_all = "camelCase")]
+	#[serde(rename_all = "snake_case", tag = "kind", content = "value")]
 	pub enum Data {
 		String(String),
 		Artifact(artifact::Id),
