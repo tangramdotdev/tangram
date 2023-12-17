@@ -1875,7 +1875,6 @@ impl ToV8 for tg::Object {
 			Self::Symlink(symlink) => ("symlink", symlink.to_v8(scope)?),
 			Self::Lock(lock) => ("lock", lock.to_v8(scope)?),
 			Self::Target(target) => ("target", target.to_v8(scope)?),
-			Self::Build(_) => unreachable!(),
 		};
 		let object = v8::Object::new(scope);
 		let key = v8::String::new_external_onebyte_static(scope, "kind".as_bytes()).unwrap();

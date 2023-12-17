@@ -1,13 +1,8 @@
 pub use self::data::Data;
-use crate::{id, object, value, Blob, Error, Handle, Result, Target, User, Value, WrapErr};
-use async_recursion::async_recursion;
+use crate::{id, Error, Handle, Result, Target, User, Value, WrapErr};
 use bytes::Bytes;
 use derive_more::{Display, TryUnwrap};
-use futures::{
-	stream::{self, BoxStream, FuturesOrdered},
-	StreamExt, TryStreamExt,
-};
-use std::sync::Arc;
+use futures::{stream::BoxStream, StreamExt, TryStreamExt};
 use tangram_error::return_error;
 
 #[derive(
@@ -27,17 +22,15 @@ pub struct Id(crate::Id);
 
 #[derive(Clone, Debug)]
 pub struct Build {
-	state: Arc<std::sync::RwLock<State>>,
+	id: Id,
 }
 
-type State = object::State<Id, Object>;
-
-#[derive(Clone, Debug)]
-pub struct Object {
-	pub target: Target,
-	pub children: Vec<Build>,
-	pub log: Blob,
-	pub outcome: Outcome,
+#[derive(Clone, Copy, Debug, Eq, PartialEq, serde::Deserialize, serde::Serialize, TryUnwrap)]
+#[try_unwrap(ref)]
+pub enum Status {
+	Queued,
+	Running,
+	Finished,
 }
 
 #[derive(Clone, Debug, serde::Deserialize, TryUnwrap)]
@@ -106,137 +99,25 @@ impl Id {
 
 impl Build {
 	#[must_use]
-	pub fn with_state(state: State) -> Self {
-		Self {
-			state: Arc::new(std::sync::RwLock::new(state)),
-		}
-	}
-
-	#[must_use]
-	pub fn state(&self) -> &std::sync::RwLock<State> {
-		&self.state
-	}
-
-	#[must_use]
 	pub fn with_id(id: Id) -> Self {
-		let state = State::with_id(id);
-		Self {
-			state: Arc::new(std::sync::RwLock::new(state)),
-		}
-	}
-
-	#[must_use]
-	pub fn with_object(object: Object) -> Self {
-		let state = State::with_object(object);
-		Self {
-			state: Arc::new(std::sync::RwLock::new(state)),
-		}
+		Self { id }
 	}
 
 	#[must_use]
 	pub fn id(&self) -> &Id {
-		unsafe { &*(self.state.read().unwrap().id.as_ref().unwrap() as *const Id) }
-	}
-
-	#[must_use]
-	pub fn try_get_loaded_object(&self) -> Option<&Object> {
-		self.state
-			.read()
-			.unwrap()
-			.object
-			.as_ref()
-			.map(|object| unsafe { &*(object as *const Object) })
-	}
-
-	pub async fn object(&self, tg: &dyn Handle) -> Result<&Object> {
-		self.load(tg).await?;
-		Ok(unsafe { &*(self.state.read().unwrap().object.as_ref().unwrap() as *const Object) })
-	}
-
-	pub async fn try_get_object(&self, tg: &dyn Handle) -> Result<Option<&Object>> {
-		if !self.try_load(tg).await? {
-			return Ok(None);
-		}
-		Ok(Some(unsafe {
-			&*(self.state.read().unwrap().object.as_ref().unwrap() as *const Object)
-		}))
-	}
-
-	pub async fn load(&self, tg: &dyn Handle) -> Result<()> {
-		self.try_load(tg)
-			.await?
-			.then_some(())
-			.wrap_err(format!("Failed to load the object with id {}.", self.id()))
-	}
-
-	pub async fn try_load(&self, tg: &dyn Handle) -> Result<bool> {
-		if self.state.read().unwrap().object.is_some() {
-			return Ok(true);
-		}
-		let id = self.state.read().unwrap().id.clone().unwrap();
-		let Some(bytes) = tg.try_get_object(&id.clone().into()).await? else {
-			return Ok(false);
-		};
-		let data = Data::deserialize(&bytes).wrap_err("Failed to deserialize the data.")?;
-		let object = data.try_into()?;
-		self.state.write().unwrap().object.replace(object);
-		Ok(true)
-	}
-
-	#[async_recursion]
-	pub async fn data(&self, tg: &dyn Handle) -> Result<Data> {
-		let object = self.object(tg).await?;
-		let target = object.target.id(tg).await?.clone();
-		let children = object
-			.children
-			.iter()
-			.map(|build| async { Ok::<_, Error>(build.id().clone()) })
-			.collect::<FuturesOrdered<_>>()
-			.try_collect()
-			.await?;
-		let log = object.log.id(tg).await?;
-		let outcome = match &object.outcome {
-			Outcome::Terminated => data::Outcome::Terminated,
-			Outcome::Canceled => data::Outcome::Canceled,
-			Outcome::Failed(error) => data::Outcome::Failed(error.clone()),
-			Outcome::Succeeded(value) => data::Outcome::Succeeded(value.data(tg).await?),
-		};
-		Ok(Data {
-			target,
-			children,
-			log,
-			outcome,
-		})
+		&self.id
 	}
 }
 
 impl Build {
-	pub async fn new(
-		tg: &dyn Handle,
-		id: Id,
-		target: Target,
-		children: Vec<Build>,
-		log: Blob,
-		outcome: Outcome,
-	) -> Result<Self> {
-		let object = Object {
-			target,
-			children,
-			log,
-			outcome,
-		};
-		let build = Self::with_state(State {
-			id: Some(id.clone()),
-			object: Some(object),
-		});
-		let data = build.data(tg).await?;
-		let bytes = data.serialize()?;
-		tg.try_put_object(&id.clone().into(), &bytes)
-			.await
-			.wrap_err("Failed to put the object.")?
-			.ok()
-			.wrap_err("Expected the children to be stored.")?;
-		Ok(build)
+	pub async fn status(&self, tg: &dyn Handle) -> Result<Status> {
+		self.try_get_status(tg)
+			.await?
+			.wrap_err("Failed to get the status.")
+	}
+
+	pub async fn try_get_status(&self, tg: &dyn Handle) -> Result<Option<Status>> {
+		tg.try_get_build_status(self.id()).await
 	}
 
 	pub async fn target(&self, tg: &dyn Handle) -> Result<Target> {
@@ -246,9 +127,6 @@ impl Build {
 	}
 
 	pub async fn try_get_target(&self, tg: &dyn Handle) -> Result<Option<Target>> {
-		if let Some(object) = self.try_get_loaded_object() {
-			return Ok(Some(object.target.clone()));
-		}
 		Ok(tg
 			.try_get_build_target(self.id())
 			.await?
@@ -265,9 +143,6 @@ impl Build {
 		&self,
 		tg: &dyn Handle,
 	) -> Result<Option<BoxStream<'static, Result<Self>>>> {
-		if let Some(object) = self.try_get_loaded_object() {
-			return Ok(Some(stream::iter(object.children.clone()).map(Ok).boxed()));
-		}
 		Ok(tg
 			.try_get_build_children(self.id())
 			.await?
@@ -291,11 +166,6 @@ impl Build {
 		&self,
 		tg: &dyn Handle,
 	) -> Result<Option<BoxStream<'static, Result<Bytes>>>> {
-		if let Some(object) = self.try_get_loaded_object() {
-			let log = object.log.clone();
-			let bytes = log.bytes(tg).await?;
-			return Ok(Some(stream::once(async move { Ok(bytes.into()) }).boxed()));
-		}
 		tg.try_get_build_log(self.id()).await
 	}
 
@@ -312,9 +182,6 @@ impl Build {
 	}
 
 	pub async fn try_get_outcome(&self, tg: &dyn Handle) -> Result<Option<Outcome>> {
-		if let Some(object) = self.try_get_loaded_object() {
-			return Ok(Some(object.outcome.clone()));
-		}
 		tg.try_get_build_outcome(self.id()).await
 	}
 
@@ -377,43 +244,43 @@ impl Data {
 		serde_json::from_reader(bytes.as_ref()).wrap_err("Failed to deserialize the data.")
 	}
 
-	#[must_use]
-	pub fn children(&self) -> Vec<object::Id> {
-		let target = std::iter::once(self.target.clone().into());
-		let children = self.children.iter().cloned().map(Into::into);
-		let log = std::iter::once(self.log.clone().into());
-		let outcome = self
-			.outcome
-			.try_unwrap_succeeded_ref()
-			.ok()
-			.map(value::Data::children)
-			.into_iter()
-			.flatten();
-		std::iter::empty()
-			.chain(target)
-			.chain(children)
-			.chain(log)
-			.chain(outcome)
-			.collect()
-	}
+	// 	#[must_use]
+	// 	pub fn children(&self) -> Vec<object::Id> {
+	// 		let target = std::iter::once(self.target.clone().into());
+	// 		let children = self.children.iter().cloned().map(Into::into);
+	// 		let log = std::iter::once(self.log.clone().into());
+	// 		let outcome = self
+	// 			.outcome
+	// 			.try_unwrap_succeeded_ref()
+	// 			.ok()
+	// 			.map(value::Data::children)
+	// 			.into_iter()
+	// 			.flatten();
+	// 		std::iter::empty()
+	// 			.chain(target)
+	// 			.chain(children)
+	// 			.chain(log)
+	// 			.chain(outcome)
+	// 			.collect()
+	// 	}
 }
 
-impl TryFrom<Data> for Object {
-	type Error = Error;
+// impl TryFrom<Data> for Object {
+// 	type Error = Error;
 
-	fn try_from(data: Data) -> std::result::Result<Self, Self::Error> {
-		let target = Target::with_id(data.target);
-		let children = data.children.into_iter().map(Build::with_id).collect();
-		let log = Blob::with_id(data.log);
-		let outcome = data.outcome.try_into()?;
-		Ok(Self {
-			target,
-			children,
-			log,
-			outcome,
-		})
-	}
-}
+// 	fn try_from(data: Data) -> std::result::Result<Self, Self::Error> {
+// 		let target = Target::with_id(data.target);
+// 		let children = data.children.into_iter().map(Build::with_id).collect();
+// 		let log = Blob::with_id(data.log);
+// 		let outcome = data.outcome.try_into()?;
+// 		Ok(Self {
+// 			target,
+// 			children,
+// 			log,
+// 			outcome,
+// 		})
+// 	}
+// }
 
 impl TryFrom<data::Outcome> for Outcome {
 	type Error = Error;

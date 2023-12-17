@@ -9,13 +9,14 @@ pub struct Database {
 	pub env: lmdb::Environment,
 	pub objects: lmdb::Database,
 	pub assignments: lmdb::Database,
+	pub builds: lmdb::Database,
 }
 
 impl Database {
 	pub fn open(path: &Path) -> Result<Self> {
 		let mut env_builder = lmdb::Environment::new();
 		env_builder.set_map_size(1_099_511_627_776);
-		env_builder.set_max_dbs(2);
+		env_builder.set_max_dbs(3);
 		env_builder.set_max_readers(1024);
 		env_builder.set_flags(lmdb::EnvironmentFlags::NO_SUB_DIR);
 		let env = env_builder
@@ -27,10 +28,14 @@ impl Database {
 		let assignments = env
 			.open_db(Some("assignments"))
 			.wrap_err("Failed to open the assignments database.")?;
+		let builds = env
+			.open_db(Some("builds"))
+			.wrap_err("Failed to open the builds database.")?;
 		let database = Database {
 			env,
 			objects,
 			assignments,
+			builds,
 		};
 		Ok(database)
 	}
@@ -120,6 +125,41 @@ impl Database {
 			lmdb::WriteFlags::empty(),
 		)
 		.wrap_err("Failed to put the assignment.")?;
+
+		// Commit the transaction.
+		txn.commit().wrap_err("Failed to commit the transaction.")?;
+
+		Ok(())
+	}
+
+	pub fn try_get_build(&self, id: &tg::build::Id) -> Result<Option<Bytes>> {
+		let txn = self
+			.env
+			.begin_ro_txn()
+			.wrap_err("Failed to create the transaction.")?;
+		let bytes = match txn.get(self.builds, &id.to_string()) {
+			Ok(bytes) => Bytes::copy_from_slice(bytes),
+			Err(lmdb::Error::NotFound) => return Ok(None),
+			Err(error) => return Err(error.wrap("Failed to get the build.")),
+		};
+		Ok(Some(bytes))
+	}
+
+	pub fn put_build(&self, id: &tg::build::Id, bytes: &Bytes) -> Result<()> {
+		// Create a write transaction.
+		let mut txn = self
+			.env
+			.begin_rw_txn()
+			.wrap_err("Failed to create the transaction.")?;
+
+		// Add the build to the database.
+		txn.put(
+			self.builds,
+			&id.to_string(),
+			&bytes,
+			lmdb::WriteFlags::empty(),
+		)
+		.wrap_err("Failed to put the object.")?;
 
 		// Commit the transaction.
 		txn.commit().wrap_err("Failed to commit the transaction.")?;

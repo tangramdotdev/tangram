@@ -5,6 +5,10 @@ check:
 clean:
 	umount ~/.tangram/artifacts; rm -rf ~/.tangram
 
+fmt:
+	cargo fmt --all
+	npm run --workspaces --if-present fmt
+
 orb_clean:
 	orb sh -c "umount /home/$USER/.tangram/artifacts; rm -rf /home/$USER/.tangram;"
 

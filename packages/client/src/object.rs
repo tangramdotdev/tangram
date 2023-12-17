@@ -1,6 +1,6 @@
 use crate::{
-	branch, build, directory, file, leaf, lock, return_error, symlink, target, Branch, Build,
-	Directory, Error, File, Leaf, Lock, Result, Symlink, Target, WrapErr,
+	branch, directory, file, leaf, lock, return_error, symlink, target, Branch, Directory, Error,
+	File, Leaf, Lock, Result, Symlink, Target, WrapErr,
 };
 use async_recursion::async_recursion;
 use bytes::Bytes;
@@ -17,7 +17,6 @@ pub enum Kind {
 	Symlink,
 	Lock,
 	Target,
-	Build,
 }
 
 /// An object ID.
@@ -32,7 +31,6 @@ pub enum Id {
 	Symlink(symlink::Id),
 	Lock(lock::Id),
 	Target(target::Id),
-	Build(build::Id),
 }
 
 /// An object.
@@ -46,7 +44,6 @@ pub enum Handle {
 	Symlink(Symlink),
 	Lock(Lock),
 	Target(Target),
-	Build(Build),
 }
 
 /// An object.
@@ -60,7 +57,6 @@ pub enum Object {
 	Symlink(symlink::Object),
 	Lock(lock::Object),
 	Target(target::Object),
-	Build(build::Object),
 }
 
 /// Object data.
@@ -73,7 +69,6 @@ pub enum Data {
 	Symlink(symlink::Data),
 	Lock(lock::Data),
 	Target(target::Data),
-	Build(build::Data),
 }
 
 #[derive(Debug)]
@@ -93,7 +88,6 @@ impl Id {
 			Self::Symlink(_) => Kind::Symlink,
 			Self::Lock(_) => Kind::Lock,
 			Self::Target(_) => Kind::Target,
-			Self::Build(_) => Kind::Build,
 		}
 	}
 }
@@ -109,7 +103,6 @@ impl Handle {
 			Id::Symlink(id) => Self::Symlink(Symlink::with_id(id)),
 			Id::Lock(id) => Self::Lock(Lock::with_id(id)),
 			Id::Target(id) => Self::Target(Target::with_id(id)),
-			Id::Build(id) => Self::Build(Build::with_id(id)),
 		}
 	}
 
@@ -123,7 +116,6 @@ impl Handle {
 			Object::Symlink(object) => Self::Symlink(Symlink::with_object(object)),
 			Object::Lock(object) => Self::Lock(Lock::with_object(object)),
 			Object::Target(object) => Self::Target(Target::with_object(object)),
-			Object::Build(object) => Self::Build(Build::with_object(object)),
 		}
 	}
 
@@ -136,7 +128,6 @@ impl Handle {
 			Self::Symlink(object) => object.id(tg).await.cloned().map(Id::Symlink),
 			Self::Lock(object) => object.id(tg).await.cloned().map(Id::Lock),
 			Self::Target(object) => object.id(tg).await.cloned().map(Id::Target),
-			Self::Build(object) => Ok(Id::Build(object.id().clone())),
 		}
 	}
 
@@ -149,7 +140,6 @@ impl Handle {
 			Self::Symlink(object) => object.object(tg).await.cloned().map(Object::Symlink),
 			Self::Lock(object) => object.object(tg).await.cloned().map(Object::Lock),
 			Self::Target(object) => object.object(tg).await.cloned().map(Object::Target),
-			Self::Build(object) => object.object(tg).await.cloned().map(Object::Build),
 		}
 	}
 
@@ -162,7 +152,6 @@ impl Handle {
 			Self::Symlink(object) => object.data(tg).await.map(Data::Symlink),
 			Self::Lock(object) => object.data(tg).await.map(Data::Lock),
 			Self::Target(object) => object.data(tg).await.map(Data::Target),
-			Self::Build(object) => object.data(tg).await.map(Data::Build),
 		}
 	}
 
@@ -205,7 +194,6 @@ impl Data {
 			Self::Symlink(_) => Kind::Symlink,
 			Self::Lock(_) => Kind::Lock,
 			Self::Target(_) => Kind::Target,
-			Self::Build(_) => Kind::Build,
 		}
 	}
 
@@ -219,7 +207,6 @@ impl Data {
 			Self::Symlink(data) => data.children(),
 			Self::Lock(data) => data.children(),
 			Self::Target(data) => data.children(),
-			Self::Build(data) => data.children(),
 		}
 	}
 
@@ -233,7 +220,6 @@ impl Data {
 			Self::Symlink(data) => Ok(data.serialize()?),
 			Self::Lock(data) => Ok(data.serialize()?),
 			Self::Target(data) => Ok(data.serialize()?),
-			Self::Build(data) => Ok(data.serialize()?),
 		}
 	}
 
@@ -246,7 +232,6 @@ impl Data {
 			Kind::Symlink => Ok(Self::Symlink(symlink::Data::deserialize(bytes)?)),
 			Kind::Lock => Ok(Self::Lock(lock::Data::deserialize(bytes)?)),
 			Kind::Target => Ok(Self::Target(target::Data::deserialize(bytes)?)),
-			Kind::Build => Ok(Self::Build(build::Data::deserialize(bytes)?)),
 		}
 	}
 }
@@ -263,7 +248,6 @@ impl TryFrom<Data> for Object {
 			Data::Symlink(data) => Self::Symlink(data.try_into()?),
 			Data::Lock(data) => Self::Lock(data.try_into()?),
 			Data::Target(data) => Self::Target(data.try_into()?),
-			Data::Build(data) => Self::Build(data.try_into()?),
 		})
 	}
 }
@@ -312,7 +296,6 @@ impl From<self::Id> for crate::Id {
 			self::Id::Symlink(id) => id.into(),
 			self::Id::Lock(id) => id.into(),
 			self::Id::Target(id) => id.into(),
-			self::Id::Build(id) => id.into(),
 		}
 	}
 }
@@ -329,7 +312,6 @@ impl TryFrom<crate::Id> for self::Id {
 			crate::id::Kind::Symlink => Ok(Self::Symlink(value.try_into()?)),
 			crate::id::Kind::Lock => Ok(Self::Lock(value.try_into()?)),
 			crate::id::Kind::Target => Ok(Self::Target(value.try_into()?)),
-			crate::id::Kind::Build => Ok(Self::Build(value.try_into()?)),
 			_ => return_error!("Expected an object ID."),
 		}
 	}
@@ -345,7 +327,6 @@ impl std::fmt::Display for Id {
 			Self::Symlink(id) => write!(f, "{id}"),
 			Self::Lock(id) => write!(f, "{id}"),
 			Self::Target(id) => write!(f, "{id}"),
-			Self::Build(id) => write!(f, "{id}"),
 		}
 	}
 }

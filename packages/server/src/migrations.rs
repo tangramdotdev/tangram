@@ -65,7 +65,7 @@ async fn migration_0000(path: &Path) -> Result<()> {
 
 	// Open the database.
 	let mut env_builder = lmdb::Environment::new();
-	env_builder.set_max_dbs(2);
+	env_builder.set_max_dbs(3);
 	env_builder.set_flags(lmdb::EnvironmentFlags::NO_SUB_DIR);
 	let env = env_builder
 		.open(&database_path)
@@ -78,6 +78,10 @@ async fn migration_0000(path: &Path) -> Result<()> {
 	// Create the assignments database.
 	env.create_db("assignments".into(), lmdb::DatabaseFlags::empty())
 		.wrap_err("Failed to create the assignments database.")?;
+
+	// Create the builds database.
+	env.create_db("builds".into(), lmdb::DatabaseFlags::empty())
+		.wrap_err("Failed to create the builds database.")?;
 
 	// Create the artifacts directory.
 	let artifacts_path = path.join("artifacts");

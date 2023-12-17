@@ -1,7 +1,7 @@
 use super::Server;
 use crate::{
-	BuildQueueTaskMessage, BuildState, BuildStateInner, BuildStatus, ChildrenState, LogState,
-	OutcomeState, StopState,
+	BuildQueueTaskMessage, BuildState, BuildStateInner, ChildrenState, LogState, OutcomeState,
+	StopState,
 };
 use async_recursion::async_recursion;
 use bytes::Bytes;
@@ -34,14 +34,16 @@ impl Server {
 					.read()
 					.unwrap()
 					.values()
-					.filter(|state| *state.inner.status.lock().unwrap() == BuildStatus::Building)
+					.filter(|state| {
+						*state.inner.status.lock().unwrap() == tg::build::Status::Running
+					})
 					.all(|state| state.inner.depth != item.depth)
 				{
-					// Set the build's status to building.
+					// Set the build's status to running.
 					{
 						let mut state = self.inner.build_state.write().unwrap();
 						if let Some(state) = state.get_mut(&item.build) {
-							*state.inner.status.lock().unwrap() = BuildStatus::Building;
+							*state.inner.status.lock().unwrap() = tg::build::Status::Running;
 						};
 					}
 
@@ -58,7 +60,7 @@ impl Server {
 						{
 							let mut state = self.inner.build_state.write().unwrap();
 							let state = state.get_mut(&item.build).unwrap();
-							*state.inner.status.lock().unwrap() = BuildStatus::Building;
+							*state.inner.status.lock().unwrap() = tg::build::Status::Running;
 						}
 
 						// Start the build.
@@ -189,14 +191,18 @@ impl Server {
 		let host = target.host(self).await?.clone();
 
 		// Attempt to get the build for the target.
-		if let Some(build_id) = self.try_get_build_for_target(id).await? {
+		'a: {
+			let Some(build_id) = self.try_get_build_for_target(id).await? else {
+				break 'a;
+			};
 			let build = tg::build::Build::with_id(build_id.clone());
-			if let Some(object) = build.try_get_object(self).await? {
-				let retry = retry >= object.outcome.retry();
-				if !retry {
-					return Ok(build_id);
-				}
-			} else {
+			let status = build.status(self).await?;
+			if status != tg::build::Status::Finished {
+				break 'a;
+			}
+			let outcome = build.outcome(self).await?;
+			let retry = retry >= outcome.retry();
+			if !retry {
 				return Ok(build_id);
 			}
 		}
@@ -224,7 +230,7 @@ impl Server {
 		let build_id = tg::build::Id::new();
 
 		// Create the status.
-		let status = std::sync::Mutex::new(BuildStatus::Queued);
+		let status = std::sync::Mutex::new(tg::build::Status::Queued);
 
 		// Create the stop state.
 		let (sender, receiver) = tokio::sync::watch::channel(false);
@@ -423,6 +429,35 @@ impl Server {
 		return_error!("Failed to get a build from the queue.");
 	}
 
+	pub async fn try_get_build_status(
+		&self,
+		id: &tg::build::Id,
+	) -> Result<Option<tg::build::Status>> {
+		// Attempt to get the status from the state.
+		let state = self.inner.build_state.read().unwrap().get(id).cloned();
+		if let Some(state) = state {
+			return Ok(Some(*state.inner.status.lock().unwrap()));
+		}
+
+		// Attempt to get the status from the database.
+		if self.inner.database.try_get_build(id)?.is_some() {
+			return Ok(Some(tg::build::Status::Finished));
+		};
+
+		// Attempt to get the status from the remote.
+		'a: {
+			let Some(remote) = self.inner.remote.as_ref() else {
+				break 'a;
+			};
+			let Some(status) = remote.try_get_build_status(id).await? else {
+				break 'a;
+			};
+			return Ok(Some(status));
+		}
+
+		Ok(None)
+	}
+
 	pub async fn try_get_build_target(&self, id: &tg::build::Id) -> Result<Option<tg::target::Id>> {
 		// Attempt to get the target from the state.
 		let state = self.inner.build_state.read().unwrap().get(id).cloned();
@@ -430,13 +465,13 @@ impl Server {
 			return Ok(Some(state.inner.target.id(self).await?.clone()));
 		}
 
-		// Attempt to get the target from the object.
+		// Attempt to get the target from the database.
 		'a: {
-			let build = tg::Build::with_id(id.clone());
-			let Some(object) = build.try_get_object(self).await? else {
+			let Some(build) = self.inner.database.try_get_build(id)? else {
 				break 'a;
 			};
-			return Ok(Some(object.target.id(self).await?.clone()));
+			let build = tg::build::Data::deserialize(&build)?;
+			return Ok(Some(build.target));
 		}
 
 		// Attempt to get the target from the remote.
@@ -487,15 +522,11 @@ impl Server {
 
 		// Attempt to get the children from the object.
 		'a: {
-			let build = tg::Build::with_id(id.clone());
-			let Some(object) = build.try_get_object(self).await? else {
+			let Some(build) = self.inner.database.try_get_build(id)? else {
 				break 'a;
 			};
-			return Ok(Some(
-				stream::iter(object.children.clone())
-					.map(|build| Ok(build.id().clone()))
-					.boxed(),
-			));
+			let build = tg::build::Data::deserialize(&build)?;
+			return Ok(Some(stream::iter(build.children).map(Ok).boxed()));
 		}
 
 		// Attempt to get the children from the remote.
@@ -607,11 +638,11 @@ impl Server {
 
 		// Attempt to get the log from the object.
 		'a: {
-			let build = tg::Build::with_id(id.clone());
-			let Some(object) = build.try_get_object(self).await? else {
+			let Some(build) = self.inner.database.try_get_build(id)? else {
 				break 'a;
 			};
-			let bytes = object.log.bytes(self).await?;
+			let build = tg::build::Data::deserialize(&build)?;
+			let bytes = tg::Blob::with_id(build.log).bytes(self).await?;
 			return Ok(Some(stream::once(async move { Ok(bytes.into()) }).boxed()));
 		}
 
@@ -710,11 +741,12 @@ impl Server {
 
 		// Attempt to get the outcome from the object.
 		'a: {
-			let build = tg::Build::with_id(id.clone());
-			let Some(object) = build.try_get_object(self).await? else {
+			let Some(build) = self.inner.database.try_get_build(id)? else {
 				break 'a;
 			};
-			return Ok(Some(object.outcome.clone()));
+			let build = tg::build::Data::deserialize(&build)?;
+			let outcome = tg::build::Outcome::try_from(build.outcome)?;
+			return Ok(Some(outcome));
 		}
 
 		// Attempt to await the outcome from the remote.
@@ -822,8 +854,15 @@ impl Server {
 				outcome
 			};
 
-			// Create the build.
-			tg::Build::new(self, id.clone(), target, children, log, outcome.clone()).await?;
+			// Add the build to the database.
+			let build = tg::build::Data {
+				target: target.id(self).await?.clone(),
+				children: children.iter().map(|build| build.id().clone()).collect(),
+				log: log.id(self).await?,
+				outcome: outcome.data(self).await?,
+			};
+			let build = build.serialize()?;
+			self.inner.database.put_build(id, &build)?;
 
 			// Add the assignment to the database.
 			self.inner.database.set_build_for_target(&target_id, id)?;

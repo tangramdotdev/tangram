@@ -89,19 +89,13 @@ struct BuildState {
 
 #[derive(Debug)]
 struct BuildStateInner {
-	status: std::sync::Mutex<BuildStatus>,
+	status: std::sync::Mutex<tg::build::Status>,
 	depth: u64,
 	stop: StopState,
 	target: tg::Target,
 	children: std::sync::Mutex<ChildrenState>,
 	log: Arc<tokio::sync::Mutex<LogState>>,
 	outcome: OutcomeState,
-}
-
-#[derive(Clone, Copy, Debug, Eq, Ord, PartialEq, PartialOrd)]
-pub enum BuildStatus {
-	Queued,
-	Building,
 }
 
 #[derive(Debug)]
@@ -482,6 +476,10 @@ impl tg::Handle for Server {
 		hosts: Option<Vec<tg::System>>,
 	) -> Result<Option<tg::build::queue::Item>> {
 		self.get_build_from_queue(user, hosts).await
+	}
+
+	async fn try_get_build_status(&self, id: &tg::build::Id) -> Result<Option<tg::build::Status>> {
+		self.try_get_build_status(id).await
 	}
 
 	async fn try_get_build_target(&self, id: &tg::build::Id) -> Result<Option<tg::target::Id>> {

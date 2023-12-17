@@ -60,6 +60,15 @@ pub trait Handle: Send + Sync + 'static {
 		hosts: Option<Vec<system::System>>,
 	) -> Result<Option<build::queue::Item>>;
 
+	async fn get_build_status(&self, id: &build::Id) -> Result<build::Status> {
+		Ok(self
+			.try_get_build_status(id)
+			.await?
+			.wrap_err("Failed to get the build.")?)
+	}
+
+	async fn try_get_build_status(&self, id: &build::Id) -> Result<Option<build::Status>>;
+
 	async fn get_build_target(&self, id: &build::Id) -> Result<target::Id> {
 		Ok(self
 			.try_get_build_target(id)

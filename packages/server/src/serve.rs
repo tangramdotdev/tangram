@@ -123,6 +123,10 @@ impl Server {
 				.handle_get_build_queue_item_request(request)
 				.map(Some)
 				.boxed(),
+			(http::Method::GET, ["v1", "builds", _, "status"]) => self
+				.handle_get_build_status_request(request)
+				.map(Some)
+				.boxed(),
 			(http::Method::GET, ["v1", "builds", _, "target"]) => self
 				.handle_get_build_target_request(request)
 				.map(Some)
@@ -381,6 +385,28 @@ impl Server {
 			.body(empty())
 			.unwrap();
 
+		Ok(response)
+	}
+
+	async fn handle_get_build_status_request(
+		&self,
+		request: http::Request<Incoming>,
+	) -> Result<hyper::Response<Outgoing>> {
+		// Get the path params.
+		let path_components: Vec<&str> = request.uri().path().split('/').skip(1).collect();
+		let [_, "builds", id, "status"] = path_components.as_slice() else {
+			return_error!("Unexpected path.");
+		};
+		let id = id.parse().wrap_err("Failed to parse the ID.")?;
+
+		// Attempt to get the build status.
+		let Some(build_id) = self.try_get_build_status(&id).await? else {
+			return Ok(not_found());
+		};
+
+		// Create the response.
+		let body = serde_json::to_vec(&build_id).wrap_err("Failed to serialize the response.")?;
+		let response = http::Response::builder().body(full(body)).unwrap();
 		Ok(response)
 	}
 
