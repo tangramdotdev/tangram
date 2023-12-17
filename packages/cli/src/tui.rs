@@ -1,22 +1,22 @@
+use bytes::Bytes;
 use crossterm as ct;
-use futures::StreamExt;
+use futures::{stream::FusedStream, StreamExt};
 use num::ToPrimitive;
 use ratatui as tui;
 use std::{
-	cell::RefCell,
+	borrow::BorrowMut,
 	collections::VecDeque,
-	rc::{Rc, Weak},
 	sync::{
 		atomic::{AtomicBool, AtomicUsize},
-		Arc,
+		Arc, Weak,
 	},
 };
 use tangram_client as tg;
 use tangram_error::{Result, WrapErr};
 use tg::package::Ext;
+use tokio::io::{AsyncReadExt, AsyncSeekExt, AsyncWriteExt};
 use tui::{style::Stylize, widgets::Widget};
-use unicode_segmentation::UnicodeSegmentation;
-use unicode_width::UnicodeWidthStr;
+use unicode_width::UnicodeWidthChar;
 
 pub struct Tui {
 	#[allow(dead_code)]
@@ -30,14 +30,15 @@ type Backend = tui::backend::CrosstermBackend<std::fs::File>;
 type Terminal = tui::Terminal<Backend>;
 
 struct App {
-	tg: Box<dyn tg::Handle>,
 	direction: tui::layout::Direction,
-	tree: Tree,
+	layout: tui::layout::Layout,
 	log: Log,
+	tg: Box<dyn tg::Handle>,
+	tree: Tree,
 }
 
 struct Tree {
-	rect: Option<tui::layout::Rect>,
+	rect: tui::layout::Rect,
 	root: TreeItem,
 	scroll: usize,
 	selected: TreeItem,
@@ -45,22 +46,26 @@ struct Tree {
 
 #[derive(Clone)]
 struct TreeItem {
-	inner: Rc<RefCell<TreeItemInner>>,
+	inner: Arc<TreeItemInner>,
 }
 
 struct TreeItemInner {
-	tg: Box<dyn tg::Handle>,
 	build: tg::Build,
-	parent: Option<Weak<RefCell<TreeItemInner>>>,
+	children_task: std::sync::Mutex<Option<tokio::task::JoinHandle<()>>>,
 	index: usize,
-	selected: bool,
+	parent: Option<Weak<TreeItemInner>>,
+	state: std::sync::Mutex<TreeItemState>,
+	status_task: std::sync::Mutex<Option<tokio::task::JoinHandle<()>>>,
+	tg: Box<dyn tg::Handle>,
+	title_task: std::sync::Mutex<Option<tokio::task::JoinHandle<()>>>,
+}
+
+struct TreeItemState {
+	children: Option<Vec<TreeItem>>,
 	expanded: bool,
+	selected: bool,
 	status: TreeItemStatus,
 	title: Option<String>,
-	children: Vec<TreeItem>,
-	status_receiver: tokio::sync::oneshot::Receiver<TreeItemStatus>,
-	title_receiver: tokio::sync::oneshot::Receiver<Option<String>>,
-	children_receiver: tokio::sync::mpsc::UnboundedReceiver<tg::Build>,
 }
 
 enum TreeItemStatus {
@@ -72,12 +77,25 @@ enum TreeItemStatus {
 	Succeeded,
 }
 
+#[derive(Clone)]
 struct Log {
-	lines: Vec<String>,
-	receiver: tokio::sync::mpsc::UnboundedReceiver<Result<String>>,
-	rect: Option<tui::layout::Rect>,
-	scroll: Option<usize>,
-	text: String,
+	inner: Arc<LogInner>,
+}
+
+struct LogInner {
+	build: tg::Build,
+	lines: std::sync::Mutex<Vec<String>>,
+	lines_bytes: std::sync::Mutex<Vec<u64>>,
+	lines_file_offset_start: std::sync::Mutex<u64>,
+	rect: tokio::sync::watch::Sender<tui::layout::Rect>,
+	sender: tokio::sync::mpsc::UnboundedSender<LogUpdate>,
+	task: std::sync::Mutex<Option<tokio::task::JoinHandle<()>>>,
+	tg: Box<dyn tg::Handle>,
+}
+
+enum LogUpdate {
+	Up,
+	Down,
 }
 
 static SPINNER_POSITION: AtomicUsize = AtomicUsize::new(0);
@@ -121,10 +139,13 @@ impl Tui {
 			let build = build.clone();
 			let stop = stop.clone();
 			move || {
-				let mut app = App::new(tg.as_ref(), &build);
+				// Create the app.
+				let rect = terminal.get_frame().size();
+				let mut app = App::new(tg.as_ref(), &build, rect);
+
+				// Run the event loop.
 				while !stop.load(std::sync::atomic::Ordering::SeqCst) {
-					// Render.
-					terminal.draw(|frame| app.render(frame.size(), frame.buffer_mut()))?;
+					SPINNER_POSITION.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
 
 					// Wait for and handle an event.
 					if ct::event::poll(std::time::Duration::from_millis(16))? {
@@ -142,8 +163,11 @@ impl Tui {
 						}
 
 						// Handle the event.
-						app.handle_event(&event);
+						app.event(&event);
 					}
+
+					// Render.
+					terminal.draw(|frame| app.render(frame.size(), frame.buffer_mut()))?;
 				}
 				Ok(terminal)
 			}
@@ -186,29 +210,42 @@ impl Tui {
 }
 
 impl App {
-	fn new(tg: &dyn tg::Handle, build: &tg::Build) -> Self {
+	fn new(tg: &dyn tg::Handle, build: &tg::Build, rect: tui::layout::Rect) -> Self {
 		let tg = tg.clone_box();
 		let direction = tui::layout::Direction::Horizontal;
-		let root = TreeItem::new(tg.as_ref(), build, None, 0, true, true);
-		let tree = Tree::new(root);
-		let log = Log::new(tg.as_ref(), build);
+		let layout = tui::layout::Layout::default()
+			.direction(direction)
+			.margin(0)
+			.constraints([
+				tui::layout::Constraint::Percentage(50),
+				tui::layout::Constraint::Length(1),
+				tui::layout::Constraint::Min(1),
+			]);
+		let log = Log::new(tg.as_ref(), build, rect);
+		let root = TreeItem::new(tg.as_ref(), build, None, 0, true);
+		root.expand();
+		let tree = Tree::new(root, rect);
 		Self {
-			tg,
 			direction,
-			tree,
+			layout,
 			log,
+			tg,
+			tree,
 		}
 	}
 
-	fn handle_event(&mut self, event: &ct::event::Event) {
+	fn event(&mut self, event: &ct::event::Event) {
 		match event {
-			ct::event::Event::Key(event) => self.handle_key_event(*event),
-			ct::event::Event::Mouse(event) => self.handle_mouse_event(*event),
+			ct::event::Event::Key(event) => self.key(*event),
+			ct::event::Event::Mouse(event) => self.mouse(*event),
+			ct::event::Event::Resize(width, height) => {
+				self.resize(tui::layout::Rect::new(0, 0, *width, *height));
+			},
 			_ => (),
 		}
 	}
 
-	fn handle_key_event(&mut self, event: ct::event::KeyEvent) {
+	fn key(&mut self, event: ct::event::KeyEvent) {
 		match event.code {
 			ct::event::KeyCode::Char('c')
 				if event.modifiers == ct::event::KeyModifiers::CONTROL =>
@@ -240,16 +277,21 @@ impl App {
 		}
 	}
 
-	fn handle_mouse_event(&mut self, event: ct::event::MouseEvent) {
+	fn mouse(&mut self, event: ct::event::MouseEvent) {
 		match event.kind {
 			ct::event::MouseEventKind::ScrollDown => {
-				self.log.scroll_down();
+				self.log.down();
 			},
 			ct::event::MouseEventKind::ScrollUp => {
-				self.log.scroll_up();
+				self.log.up();
 			},
 			_ => (),
 		}
+	}
+
+	fn resize(&mut self, rect: tui::layout::Rect) {
+		let rects = self.layout.split(rect);
+		self.log.resize(rects[2]);
 	}
 
 	fn down(&mut self) {
@@ -264,47 +306,51 @@ impl App {
 		let expanded_items = self.tree.expanded_items();
 		let previous_selected_index = expanded_items
 			.iter()
-			.position(|item| Rc::ptr_eq(&item.inner, &self.tree.selected.inner))
+			.position(|item| Arc::ptr_eq(&item.inner, &self.tree.selected.inner))
 			.unwrap();
 		let new_selected_index = if down {
 			(previous_selected_index + 1).min(expanded_items.len() - 1)
 		} else {
 			previous_selected_index.saturating_sub(1)
 		};
-		let height = self.tree.rect.unwrap().height.to_usize().unwrap();
+		let height = self.tree.rect.height.to_usize().unwrap();
 		if new_selected_index < self.tree.scroll {
 			self.tree.scroll -= 1;
 		} else if new_selected_index >= self.tree.scroll + height {
 			self.tree.scroll += 1;
 		}
 		let new_selected_item = expanded_items[new_selected_index].clone();
-		self.tree.selected.inner.borrow_mut().selected = false;
-		new_selected_item.inner.borrow_mut().selected = true;
-		self.log = Log::new(self.tg.as_ref(), &new_selected_item.inner.borrow().build);
+		self.tree.selected.inner.state.lock().unwrap().selected = false;
+		new_selected_item.inner.state.lock().unwrap().selected = true;
+		self.log = Log::new(
+			self.tg.as_ref(),
+			&new_selected_item.inner.build,
+			self.log.rect(),
+		);
 		self.tree.selected = new_selected_item;
 	}
 
 	fn expand(&mut self) {
-		self.tree.selected.inner.borrow_mut().expanded = true;
+		self.tree.selected.expand();
 	}
 
 	fn collapse(&mut self) {
-		if self.tree.selected.inner.borrow().expanded {
-			self.tree.selected.inner.borrow_mut().expanded = false;
+		if self.tree.selected.inner.state.lock().unwrap().expanded {
+			self.tree.selected.collapse();
 		} else {
 			let parent = self
 				.tree
 				.selected
 				.inner
-				.borrow_mut()
 				.parent
 				.as_ref()
 				.map(|parent| TreeItem {
 					inner: parent.upgrade().unwrap(),
 				});
 			if let Some(parent) = parent {
-				self.tree.selected.inner.borrow_mut().selected = false;
-				self.log = Log::new(self.tg.as_ref(), &parent.inner.borrow().build);
+				self.tree.selected.inner.state.lock().unwrap().selected = false;
+				parent.inner.state.lock().unwrap().selected = true;
+				self.log = Log::new(self.tg.as_ref(), &parent.inner.build, self.log.rect());
 				self.tree.selected = parent;
 			}
 		}
@@ -318,47 +364,37 @@ impl App {
 	}
 
 	fn cancel(&mut self) {
-		let build = self.tree.selected.inner.borrow().build.clone();
+		let build = self.tree.selected.inner.build.clone();
 		let tg = self.tg.clone_box();
 		tokio::spawn(async move { build.cancel(tg.as_ref()).await.ok() });
 	}
 
 	fn quit(&mut self) {
-		let build = self.tree.root.inner.borrow().build.clone();
+		let build = self.tree.root.inner.build.clone();
 		let tg = self.tg.clone_box();
 		tokio::spawn(async move { build.cancel(tg.as_ref()).await.ok() });
 	}
 
-	fn render(&mut self, rect: tui::layout::Rect, buf: &mut tui::buffer::Buffer) {
-		SPINNER_POSITION.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+	fn render(&self, rect: tui::layout::Rect, buf: &mut tui::buffer::Buffer) {
+		let rects = self.layout.split(rect);
 
-		let layout = tui::layout::Layout::default()
-			.direction(self.direction)
-			.margin(0)
-			.constraints([
-				tui::layout::Constraint::Percentage(50),
-				tui::layout::Constraint::Length(1),
-				tui::layout::Constraint::Min(1),
-			])
-			.split(rect);
+		self.tree.render(rects[0], buf);
 
-		self.tree.render(layout[0], buf);
-
-		let border = match self.direction {
+		let borders = match self.direction {
 			tui::layout::Direction::Horizontal => tui::widgets::Borders::LEFT,
 			tui::layout::Direction::Vertical => tui::widgets::Borders::BOTTOM,
 		};
-		let block = tui::widgets::Block::default().borders(border);
-		block.render(layout[1], buf);
+		let block = tui::widgets::Block::default().borders(borders);
+		block.render(rects[1], buf);
 
-		self.log.render(layout[2], buf);
+		self.log.render(rects[2], buf);
 	}
 }
 
 impl Tree {
-	fn new(root: TreeItem) -> Self {
+	fn new(root: TreeItem, rect: tui::layout::Rect) -> Self {
 		Self {
-			rect: None,
+			rect,
 			root: root.clone(),
 			scroll: 0,
 			selected: root,
@@ -370,8 +406,17 @@ impl Tree {
 		let mut stack = VecDeque::from(vec![self.root.clone()]);
 		while let Some(item) = stack.pop_front() {
 			items.push(item.clone());
-			if item.inner.borrow().expanded {
-				for child in item.inner.borrow().children.iter().rev() {
+			if item.inner.state.lock().unwrap().expanded {
+				for child in item
+					.inner
+					.state
+					.lock()
+					.unwrap()
+					.children
+					.iter()
+					.flatten()
+					.rev()
+				{
 					stack.push_front(child.clone());
 				}
 			}
@@ -379,31 +424,32 @@ impl Tree {
 		items
 	}
 
-	fn update(&mut self, rect: tui::layout::Rect) {
-		self.rect = Some(rect);
-		self.root.update();
-	}
-
-	fn render(&mut self, rect: tui::layout::Rect, buf: &mut tui::buffer::Buffer) {
-		self.update(rect);
-		let layout = tui::layout::Layout::default()
-			.direction(tui::layout::Direction::Vertical)
-			.constraints(
-				(0..rect.height)
-					.map(|_| tui::layout::Constraint::Length(1))
-					.collect::<Vec<_>>(),
-			)
-			.split(rect);
+	fn render(&self, rect: tui::layout::Rect, buf: &mut tui::buffer::Buffer) {
 		let mut stack = VecDeque::from(vec![self.root.clone()]);
 		let mut index = 0;
-		while let Some(mut item) = stack.pop_front() {
-			if item.inner.borrow().expanded {
-				for child in item.inner.borrow().children.iter().rev() {
+		while let Some(item) = stack.pop_front() {
+			if item.inner.state.lock().unwrap().expanded {
+				for child in item
+					.inner
+					.state
+					.lock()
+					.unwrap()
+					.children
+					.iter()
+					.flatten()
+					.rev()
+				{
 					stack.push_front(child.clone());
 				}
 			}
 			if index >= self.scroll && index < self.scroll + rect.height.to_usize().unwrap() {
-				item.render(layout[index - self.scroll], buf);
+				let rect = tui::layout::Rect {
+					x: rect.x,
+					y: rect.y + (index - self.scroll).to_u16().unwrap(),
+					width: rect.width,
+					height: 1,
+				};
+				item.render(rect, buf);
 			}
 			index += 1;
 		}
@@ -414,136 +460,170 @@ impl TreeItem {
 	fn new(
 		tg: &dyn tg::Handle,
 		build: &tg::Build,
-		parent: Option<Weak<RefCell<TreeItemInner>>>,
+		parent: Option<Weak<TreeItemInner>>,
 		index: usize,
 		selected: bool,
-		expanded: bool,
 	) -> Self {
-		let (status_sender, status_receiver) = tokio::sync::oneshot::channel();
-		tokio::task::spawn({
-			let tg = tg.clone_box();
-			let build = build.clone();
-			async move {
-				let status = match build.outcome(tg.as_ref()).await {
-					Err(_) => TreeItemStatus::Unknown,
-					Ok(tg::build::Outcome::Terminated) => TreeItemStatus::Terminated,
-					Ok(tg::build::Outcome::Canceled) => TreeItemStatus::Canceled,
-					Ok(tg::build::Outcome::Failed(_)) => TreeItemStatus::Failed,
-					Ok(tg::build::Outcome::Succeeded(_)) => TreeItemStatus::Succeeded,
-				};
-				status_sender.send(status).ok();
-			}
-		});
-
-		let (title_sender, title_receiver) = tokio::sync::oneshot::channel();
-		tokio::task::spawn({
-			let tg = tg.clone_box();
-			let build = build.clone();
-			async move {
-				let title = title(tg.as_ref(), &build).await.ok().flatten();
-				title_sender.send(title).ok();
-			}
-		});
-
-		let (children_sender, children_receiver) = tokio::sync::mpsc::unbounded_channel();
-		tokio::task::spawn({
-			let tg = tg.clone_box();
-			let build = build.clone();
-			async move {
-				let Ok(mut children) = build.children(tg.as_ref()).await else {
-					return;
-				};
-				while let Some(Ok(child)) = children.next().await {
-					let result = children_sender.send(child);
-					if result.is_err() {
-						break;
-					}
-				}
-			}
-		});
-
-		let inner = Rc::new(RefCell::new(TreeItemInner {
-			tg: tg.clone_box(),
-			build: build.clone(),
-			parent,
-			index,
+		let state = TreeItemState {
+			children: None,
+			expanded: false,
 			selected,
-			expanded,
 			status: TreeItemStatus::Building,
 			title: None,
-			children: Vec::new(),
-			status_receiver,
-			title_receiver,
-			children_receiver,
-		}));
+		};
+		let inner = Arc::new(TreeItemInner {
+			build: build.clone(),
+			children_task: std::sync::Mutex::new(None),
+			index,
+			parent,
+			state: std::sync::Mutex::new(state),
+			status_task: std::sync::Mutex::new(None),
+			tg: tg.clone_box(),
+			title_task: std::sync::Mutex::new(None),
+		});
 
-		Self { inner }
+		let item = Self { inner };
+
+		item.inner
+			.status_task
+			.lock()
+			.unwrap()
+			.replace(tokio::task::spawn({
+				let item = item.clone();
+				async move {
+					let status = match item.inner.build.outcome(item.inner.tg.as_ref()).await {
+						Err(_) => TreeItemStatus::Unknown,
+						Ok(tg::build::Outcome::Terminated) => TreeItemStatus::Terminated,
+						Ok(tg::build::Outcome::Canceled) => TreeItemStatus::Canceled,
+						Ok(tg::build::Outcome::Failed(_)) => TreeItemStatus::Failed,
+						Ok(tg::build::Outcome::Succeeded(_)) => TreeItemStatus::Succeeded,
+					};
+					item.inner.state.lock().unwrap().status = status;
+				}
+			}));
+
+		item.inner
+			.title_task
+			.lock()
+			.unwrap()
+			.replace(tokio::task::spawn({
+				let item = item.clone();
+				async move {
+					let title = title(item.inner.tg.as_ref(), &item.inner.build)
+						.await
+						.ok()
+						.flatten();
+					item.inner.state.lock().unwrap().title = title;
+				}
+			}));
+
+		item
 	}
 
 	fn ancestors(&self) -> Vec<TreeItem> {
 		let mut ancestors = Vec::new();
-		let mut parent = self.inner.borrow().parent.as_ref().map(|parent| TreeItem {
+		let mut parent = self.inner.parent.as_ref().map(|parent| TreeItem {
 			inner: parent.upgrade().unwrap(),
 		});
 		while let Some(parent_) = parent {
 			ancestors.push(parent_.clone());
-			parent = parent_
-				.inner
-				.borrow()
-				.parent
-				.as_ref()
-				.map(|parent| TreeItem {
-					inner: parent.upgrade().unwrap(),
-				});
+			parent = parent_.inner.parent.as_ref().map(|parent| TreeItem {
+				inner: parent.upgrade().unwrap(),
+			});
 		}
 		ancestors
 	}
 
-	fn update(&self) {
-		let status = self.inner.borrow_mut().status_receiver.try_recv();
-		if let Ok(status) = status {
-			self.inner.borrow_mut().status = status;
-		}
-		let title = self.inner.borrow_mut().title_receiver.try_recv();
-		if let Ok(title) = title {
-			self.inner.borrow_mut().title = title;
-		}
-		while let Ok(child) = {
-			let child = self.inner.borrow_mut().children_receiver.try_recv();
-			child
-		} {
-			let tg = self.inner.borrow().tg.clone_box();
-			let parent = Some(Rc::downgrade(&self.inner));
-			let index = self.inner.borrow().children.len();
-			let selected = false;
-			let expanded = false;
-			let child = TreeItem::new(tg.as_ref(), &child, parent, index, selected, expanded);
-			self.inner.borrow_mut().children.push(child);
-		}
-		for child in &self.inner.borrow().children {
-			child.update();
+	fn expand(&self) {
+		self.inner.state.lock().unwrap().expanded = true;
+		self.inner
+			.state
+			.lock()
+			.unwrap()
+			.children
+			.replace(Vec::new());
+		let children_task = tokio::task::spawn({
+			let item = self.clone();
+			async move {
+				let Ok(mut children) = item.inner.build.children(item.inner.tg.as_ref()).await
+				else {
+					return;
+				};
+				while let Some(Ok(child)) = children.next().await {
+					let tg = item.inner.tg.clone_box();
+					let parent = Some(Arc::downgrade(&item.inner));
+					let index = item
+						.inner
+						.state
+						.lock()
+						.unwrap()
+						.children
+						.as_ref()
+						.unwrap()
+						.len();
+					let selected = false;
+					let child = TreeItem::new(tg.as_ref(), &child, parent, index, selected);
+					item.inner
+						.state
+						.lock()
+						.unwrap()
+						.children
+						.as_mut()
+						.unwrap()
+						.push(child);
+				}
+			}
+		});
+		self.inner
+			.children_task
+			.lock()
+			.unwrap()
+			.replace(children_task);
+	}
+
+	fn collapse(&self) {
+		self.inner.state.lock().unwrap().expanded = false;
+		self.inner.state.lock().unwrap().children.take();
+		if let Some(children_task) = self.inner.children_task.lock().unwrap().take() {
+			children_task.abort();
 		}
 	}
 
-	fn render(&mut self, rect: tui::layout::Rect, buf: &mut tui::buffer::Buffer) {
+	fn render(&self, rect: tui::layout::Rect, buf: &mut tui::buffer::Buffer) {
 		let mut prefix = String::new();
 		for item in self.ancestors().iter().rev().skip(1) {
-			let parent = item.inner.borrow().parent.clone().unwrap();
-			let last =
-				item.inner.borrow().index == parent.upgrade().unwrap().borrow().children.len() - 1;
+			let parent = item.inner.parent.clone().unwrap();
+			let parent_children_count = parent
+				.upgrade()
+				.unwrap()
+				.state
+				.lock()
+				.unwrap()
+				.children
+				.as_ref()
+				.map_or(0, Vec::len);
+			let last = item.inner.index == parent_children_count - 1;
 			prefix.push_str(if last { "  " } else { "│ " });
 		}
-		if let Some(parent) = self.inner.borrow().parent.as_ref() {
-			let last =
-				self.inner.borrow().index == parent.upgrade().unwrap().borrow().children.len() - 1;
+		if let Some(parent) = self.inner.parent.as_ref() {
+			let parent_children_count = parent
+				.upgrade()
+				.unwrap()
+				.state
+				.lock()
+				.unwrap()
+				.children
+				.as_ref()
+				.map_or(0, Vec::len);
+			let last = self.inner.index == parent_children_count - 1;
 			prefix.push_str(if last { "└─" } else { "├─" });
 		}
-		let disclosure = if self.inner.borrow().expanded {
+		let disclosure = if self.inner.state.lock().unwrap().expanded {
 			"▼"
 		} else {
 			"▶"
 		};
-		let status = match self.inner.borrow().status {
+		let status = match self.inner.state.lock().unwrap().status {
 			TreeItemStatus::Unknown => "?".yellow(),
 			TreeItemStatus::Building => {
 				let state = SPINNER_POSITION.load(std::sync::atomic::Ordering::SeqCst);
@@ -557,7 +637,9 @@ impl TreeItem {
 		};
 		let title = self
 			.inner
-			.borrow()
+			.state
+			.lock()
+			.unwrap()
 			.title
 			.clone()
 			.unwrap_or_else(|| "<unknown>".to_owned());
@@ -569,7 +651,7 @@ impl TreeItem {
 			" ".into(),
 			title.into(),
 		]);
-		let style = if self.inner.borrow().selected {
+		let style = if self.inner.state.lock().unwrap().selected {
 			tui::style::Style::default()
 				.bg(tui::style::Color::White)
 				.fg(tui::style::Color::Black)
@@ -581,121 +663,410 @@ impl TreeItem {
 	}
 }
 
-impl Log {
-	fn new(tg: &dyn tg::Handle, build: &tg::Build) -> Self {
-		let tg = tg.clone_box();
-		let (sender, receiver) = tokio::sync::mpsc::unbounded_channel();
+impl Drop for TreeItemInner {
+	fn drop(&mut self) {
+		if let Some(task) = self.children_task.lock().unwrap().take() {
+			task.abort();
+		}
+		if let Some(task) = self.status_task.lock().unwrap().take() {
+			task.abort();
+		}
+		if let Some(task) = self.title_task.lock().unwrap().take() {
+			task.abort();
+		}
+	}
+}
 
-		tokio::task::spawn({
-			let build = build.clone();
+impl Log {
+	fn new(tg: &dyn tg::Handle, build: &tg::Build, rect: tui::layout::Rect) -> Self {
+		let tg = tg.clone_box();
+		let lines = std::sync::Mutex::new(Vec::new());
+		let lines_bytes = std::sync::Mutex::new(Vec::new());
+		let (sender, mut receiver) = tokio::sync::mpsc::unbounded_channel();
+		let (rect_sender, mut rect_receiver) = tokio::sync::watch::channel(rect);
+		let inner = Arc::new(LogInner {
+			build: build.clone(),
+			lines,
+			lines_bytes,
+			lines_file_offset_start: std::sync::Mutex::new(0),
+			rect: rect_sender,
+			sender,
+			task: std::sync::Mutex::new(None),
+			tg: tg.clone_box(),
+		});
+		let log = Self { inner };
+		let task = tokio::task::spawn({
+			let log = log.clone();
 			async move {
-				let mut log = match build.log(tg.as_ref()).await {
-					Ok(log) => log,
-					Err(error) => {
-						sender.send(Err(error)).ok();
-						return;
-					},
+				let mut file = tokio::fs::File::from_std(tempfile::tempfile().unwrap());
+				let mut scroll: Option<u64> = None;
+				let Ok(stream) = log.inner.build.log(log.inner.tg.as_ref()).await else {
+					return;
 				};
-				while let Some(message) = log.next().await {
-					let message = message.and_then(|bytes| {
-						String::from_utf8(bytes.to_vec()).wrap_err("Invalid UTF-8.")
-					});
-					if sender.send(message).is_err() {
-						break;
-					}
+				let mut stream = stream.fuse();
+				loop {
+					tokio::select! {
+						Some(bytes) = stream.next(), if !stream.is_terminated() => {
+							let Ok(bytes) = bytes else {
+								return;
+							};
+							let result = log.bytes_impl(&mut file, &mut scroll, &bytes).await;
+							if result.is_err() {
+								return;
+							}
+						},
+						result = receiver.recv() => match result.unwrap() {
+							LogUpdate::Down => {
+								let result = log.down_impl(&mut file, &mut scroll).await;
+								if result.is_err() {
+									return;
+								}
+							}
+							LogUpdate::Up => {
+								let result = log.up_impl(&mut file, &mut scroll).await;
+								if result.is_err() {
+									return;
+								}
+							}
+						},
+						result = rect_receiver.changed() => {
+							result.unwrap();
+							let rect = *rect_receiver.borrow();
+							let result = log.rect_impl(&mut file, &mut scroll, rect).await;
+							if result.is_err() {
+								return;
+							}
+						},
+					};
 				}
 			}
 		});
+		log.inner.task.lock().unwrap().replace(task);
+		log
+	}
 
-		Self {
-			lines: Vec::new(),
-			receiver,
-			rect: None,
-			scroll: None,
-			text: String::new(),
+	async fn bytes_impl(
+		&self,
+		file: &mut tokio::fs::File,
+		scroll: &mut Option<u64>,
+		bytes: &Bytes,
+	) -> Result<()> {
+		file.seek(std::io::SeekFrom::End(0))
+			.await
+			.wrap_err("Failed to seek the log file.")?;
+		file.write_all(bytes)
+			.await
+			.wrap_err("Failed to write to the log file.")?;
+
+		if scroll.is_some() {
+			// We are not tailing, so no need to update the lines.
+			return Ok(());
 		}
-	}
 
-	fn scroll_down(&mut self) {
-		self.scroll_down_by(1);
-	}
+		let max_width = self.inner.rect.borrow().width.to_usize().unwrap();
+		let mut lines = self.inner.lines.lock().unwrap();
+		let mut line = String::new();
+		let mut current_width = 0;
+		let mut lines_file_offset_start = self.inner.lines_file_offset_start.lock().unwrap();
+		let mut lines_bytes = self.inner.lines_bytes.lock().unwrap();
+		let mut current_line_bytes = 0;
 
-	fn scroll_down_by(&mut self, delta: usize) {
-		let height = self.rect.unwrap().height.to_usize().unwrap();
-		self.scroll = if let Some(scroll) = self.scroll {
-			if scroll + delta < self.lines.len().saturating_sub(height) {
-				Some(scroll + delta)
+		for byte in bytes {
+			let char = byte_to_char(*byte);
+			if char == '\n' {
+				if lines.len() == self.inner.rect.borrow().height.to_usize().unwrap() {
+					lines.remove(0);
+					let bytes_removed = lines_bytes.remove(0);
+					*lines_file_offset_start += bytes_removed;
+				}
+				lines.push(line);
+				current_line_bytes += 1;
+				lines_bytes.push(current_line_bytes);
+				line = String::new();
+				current_width = 0;
+				current_line_bytes = 0;
 			} else {
-				None
+				if current_width + char.width().unwrap_or(0) > max_width {
+					if lines.len() == self.inner.rect.borrow().height.to_usize().unwrap() {
+						lines.remove(0);
+						let bytes_removed = lines_bytes.remove(0);
+						*lines_file_offset_start += bytes_removed;
+					}
+					lines.push(line);
+					lines_bytes.push(current_line_bytes);
+					line = String::new();
+					current_width = 0;
+					current_line_bytes = 0;
+				}
+				current_width += char.width().unwrap_or(0);
+				current_line_bytes += 1;
+				line.push(char);
 			}
+		}
+
+		if !line.is_empty() {
+			lines.remove(0);
+			let bytes_removed = lines_bytes.remove(0);
+			*lines_file_offset_start += bytes_removed;
+			lines.push(line);
+			lines_bytes.push(current_line_bytes);
+		}
+
+		Ok(())
+	}
+
+	async fn rect_impl(
+		&self,
+		file: &mut tokio::fs::File,
+		scroll: &mut Option<u64>,
+		rect: tui::layout::Rect,
+	) -> Result<()> {
+		// All the lines need to be recomputed.
+		{
+			let mut lines = self.inner.lines.lock().unwrap();
+			let len = lines.len();
+			lines.drain(0..len);
+
+			let mut lines_bytes = self.inner.lines_bytes.lock().unwrap();
+			let len = lines_bytes.len();
+			lines_bytes.drain(0..len);
+		}
+
+		// Starting at the lines file offset, append lines.
+		let seek = *self.inner.lines_file_offset_start.lock().unwrap();
+		let mut buf = [0u8; 1];
+		let mut current_line_width = 0;
+		let mut current_line_bytes = 0;
+		let max_width = rect.width.to_usize().unwrap();
+		let file_bytes = file.metadata().await.unwrap().len();
+		let mut num_lines = 0;
+
+		let mut line = String::new();
+		for seek in seek..file_bytes {
+			if num_lines == rect.height.to_usize().unwrap() {
+				break;
+			}
+			file.seek(std::io::SeekFrom::Start(seek)).await.unwrap();
+			file.read_exact(buf.as_mut())
+				.await
+				.wrap_err("Failed to read from the log file.")?;
+			let char = byte_to_char(buf[0]);
+			if char == '\n' {
+				current_line_bytes += 1;
+				let mut lines = self.inner.lines.lock().unwrap();
+				lines.push(line);
+				let mut lines_bytes = self.inner.lines_bytes.lock().unwrap();
+				lines_bytes.push(current_line_bytes);
+				line = String::new();
+				num_lines += 1;
+				current_line_bytes = 0;
+				current_line_width = 0;
+				continue;
+			} else if current_line_width + char.width().unwrap_or(0) > max_width {
+				let mut lines = self.inner.lines.lock().unwrap();
+				lines.push(line);
+				let mut lines_bytes = self.inner.lines_bytes.lock().unwrap();
+				lines_bytes.push(current_line_bytes);
+				line = String::new();
+				num_lines += 1;
+				current_line_bytes = 0;
+				current_line_width = 0;
+			}
+			current_line_bytes += 1;
+			line.push(char);
+			current_line_width += char.width().unwrap_or(0);
+		}
+
+		// If there are still not enough lines, prepend lines until we fill the height or we reach the start of the buffer.
+		while *self.inner.lines_file_offset_start.lock().unwrap() > 0
+			&& self.inner.lines.lock().unwrap().len() < rect.height.to_usize().unwrap()
+		{
+			self.prepend_line(file, scroll).await?;
+		}
+
+		// If there are still not enough lines, set scroll to None so we tail.
+		if self.inner.lines.lock().unwrap().len() < rect.height.to_usize().unwrap() {
+			*scroll.borrow_mut() = None;
+		}
+
+		// If there are enough lines but we aren't at the bottom, set scroll so we don't tail.
+		let lines_file_offset_end = *self.inner.lines_file_offset_start.lock().unwrap()
+			+ self.inner.lines_bytes.lock().unwrap().iter().sum::<u64>();
+		if self.inner.lines.lock().unwrap().len() == rect.height.to_usize().unwrap()
+			&& lines_file_offset_end < file_bytes
+		{
+			*scroll.borrow_mut() = Some(*self.inner.lines_file_offset_start.lock().unwrap());
+		}
+
+		Ok(())
+	}
+
+	async fn down_impl(&self, file: &mut tokio::fs::File, scroll: &mut Option<u64>) -> Result<()> {
+		// If lines is equal to height and scroll is none, we are already at the bottom.
+		if scroll.is_none()
+			&& self.inner.lines.lock().unwrap().len().to_u16().unwrap()
+				== self.inner.rect.borrow().height
+		{
+			return Ok(());
+		}
+
+		// If there aren't enough lines to fill the view, we can't scroll down.
+		if self.inner.lines.lock().unwrap().len().to_u16().unwrap()
+			< self.inner.rect.borrow().height
+		{
+			return Ok(());
+		}
+
+		let mut buf = [0; 1];
+		let mut line = String::new();
+		let seek = *self.inner.lines_file_offset_start.lock().unwrap()
+			+ self.inner.lines_bytes.lock().unwrap().iter().sum::<u64>();
+		let max_width = self.inner.rect.borrow().width.to_usize().unwrap();
+		let mut current_line_width = 0;
+		let mut current_line_bytes = 0;
+		let file_bytes = file.metadata().await.unwrap().len();
+
+		for seek in seek..file_bytes {
+			// Read the value at the seek position.
+			file.seek(std::io::SeekFrom::Start(seek))
+				.await
+				.wrap_err("Failed to seek.")?;
+			file.read_exact(&mut buf)
+				.await
+				.wrap_err("Failed to read the bytes")?;
+			let char = byte_to_char(buf[0]);
+			if char == '\n' {
+				current_line_bytes += 1;
+				break;
+			}
+			if current_line_width + char.width().unwrap_or(0) > max_width {
+				break;
+			}
+			line.push(char);
+			current_line_width += char.width().unwrap_or(0);
+			current_line_bytes += 1;
+		}
+
+		let mut lines_file_offset_start = self.inner.lines_file_offset_start.lock().unwrap();
+
+		if current_line_bytes > 0 {
+			// Update the lines.
+			let mut lines = self.inner.lines.lock().unwrap();
+			lines.remove(0);
+			lines.push(line);
+
+			// Update the lines_bytes.
+			let mut lines_bytes = self.inner.lines_bytes.lock().unwrap();
+			let bytes_removed = lines_bytes.remove(0);
+			lines_bytes.push(current_line_bytes);
+			*lines_file_offset_start += bytes_removed;
+		}
+
+		// Update the scroll.
+		if seek == file_bytes {
+			// We are at the bottom.
+			*scroll.borrow_mut() = None;
 		} else {
-			None
-		};
-	}
-
-	fn scroll_up(&mut self) {
-		let height = self.rect.unwrap().height.to_usize().unwrap();
-		self.scroll = Some(
-			self.scroll
-				.unwrap_or_else(|| self.lines.len().saturating_sub(height))
-				.saturating_sub(1),
-		);
-	}
-
-	fn update(&mut self, rect: tui::layout::Rect) {
-		// Update the rect.
-		if self.rect.is_none() {
-			self.rect = Some(rect);
-		} else if self.rect.unwrap() != rect {
-			// If the width has changed, then recompute the lines.
-			if self.rect.unwrap().width != rect.width {
-				self.lines = Vec::new();
-				lines(
-					&mut self.lines,
-					self.text.as_str(),
-					rect.width.to_usize().unwrap(),
-				);
-			}
-			self.rect = Some(rect);
+			*scroll.borrow_mut() = Some(*lines_file_offset_start);
 		}
 
-		// Receive the logs.
-		let width = self.rect.unwrap().width.to_usize().unwrap();
-		if let Ok(message) = self.receiver.try_recv() {
-			match message {
-				Ok(text) => {
-					self.text.push_str(text.as_str());
-					lines(&mut self.lines, text.as_str(), width);
-				},
-				Err(error) => {
-					self.text = error.to_string();
-					self.lines = Vec::new();
-					lines(&mut self.lines, &error.to_string(), width);
-				},
-			}
-		}
+		Ok(())
 	}
 
-	fn render(&mut self, rect: tui::layout::Rect, buf: &mut tui::buffer::Buffer) {
-		self.update(rect);
+	async fn up_impl(&self, file: &mut tokio::fs::File, scroll: &mut Option<u64>) -> Result<()> {
+		if scroll.map_or(false, |scroll| scroll == 0) {
+			return Ok(());
+		}
 
-		// Render the lines.
-		let lines = self
-			.lines
-			.iter()
-			.skip(self.scroll.unwrap_or_else(|| {
-				self.lines
-					.len()
-					.saturating_sub(self.rect.unwrap().height.to_usize().unwrap())
-			}))
-			.take(self.rect.unwrap().height.to_usize().unwrap());
-		for (y, line) in lines.enumerate() {
+		if *self.inner.lines_file_offset_start.lock().unwrap() == 0 {
+			return Ok(());
+		}
+
+		self.prepend_line(file, scroll).await?;
+
+		let mut lines = self.inner.lines.lock().unwrap();
+		let mut lines_bytes = self.inner.lines_bytes.lock().unwrap();
+		lines.pop();
+		lines_bytes.pop();
+
+		// Update the scroll.
+		let lines_file_offset_start = self.inner.lines_file_offset_start.lock().unwrap();
+		*scroll.borrow_mut() = Some(*lines_file_offset_start);
+
+		Ok(())
+	}
+
+	async fn prepend_line(
+		&self,
+		file: &mut tokio::fs::File,
+		_scroll: &mut Option<u64>,
+	) -> Result<()> {
+		let lines_file_offset_start = *self.inner.lines_file_offset_start.lock().unwrap();
+		let max_width = self.inner.rect.borrow().width.to_usize().unwrap();
+		let mut buf = [0u8; 1];
+		let mut line = VecDeque::new();
+		let mut current_line_bytes = 0;
+		let mut current_line_width = 0;
+		for seek in (0..lines_file_offset_start).rev() {
+			file.seek(std::io::SeekFrom::Start(seek)).await.unwrap();
+			file.read_exact(buf.as_mut())
+				.await
+				.wrap_err("Failed to read from the log file.")?;
+			let char = byte_to_char(buf[0]);
+			if char == '\n' && !line.is_empty() {
+				break;
+			}
+			if current_line_width + char.width().unwrap_or(0) > max_width {
+				break;
+			}
+			current_line_bytes += 1;
+			line.push_front(char);
+			current_line_width += char.width().unwrap_or(0);
+		}
+		let mut lines = self.inner.lines.lock().unwrap();
+		let mut lines_file_offset_start = self.inner.lines_file_offset_start.lock().unwrap();
+		let mut lines_bytes = self.inner.lines_bytes.lock().unwrap();
+		let line = line.into_iter().collect::<String>();
+		lines.insert(0, line);
+		lines_bytes.insert(0, current_line_bytes);
+		*lines_file_offset_start -= current_line_bytes;
+
+		Ok(())
+	}
+
+	fn rect(&self) -> tui::layout::Rect {
+		*self.inner.rect.borrow()
+	}
+
+	fn resize(&mut self, rect: tui::layout::Rect) {
+		self.inner.rect.send(rect).unwrap();
+	}
+
+	fn down(&mut self) {
+		self.inner.sender.send(LogUpdate::Down).unwrap();
+	}
+
+	fn up(&mut self) {
+		self.inner.sender.send(LogUpdate::Up).unwrap();
+	}
+
+	fn render(&self, rect: tui::layout::Rect, buf: &mut tui::buffer::Buffer) {
+		let lines = self.inner.lines.lock().unwrap();
+		for (y, line) in lines.iter().enumerate() {
 			buf.set_line(
 				rect.x,
 				rect.y + y.to_u16().unwrap(),
 				&tui::text::Line::raw(line),
-				self.rect.unwrap().width,
+				rect.width,
 			);
+		}
+	}
+}
+
+impl Drop for LogInner {
+	fn drop(&mut self) {
+		if let Some(task) = self.task.lock().unwrap().take() {
+			task.abort();
 		}
 	}
 }
@@ -725,26 +1096,19 @@ async fn title(tg: &dyn tg::Handle, build: &tg::Build) -> Result<Option<String>>
 	Ok(Some(title))
 }
 
-fn lines(lines: &mut Vec<String>, text: &str, width: usize) {
-	if lines.is_empty() {
-		lines.push(String::new());
-	}
-	let mut current_line = lines.last_mut().unwrap();
-	let mut current_line_width = current_line.width();
-	for grapheme in text.graphemes(true) {
-		if grapheme == "\n" {
-			lines.push(String::new());
-			current_line = lines.last_mut().unwrap();
-			current_line_width = 0;
-		} else if current_line_width + grapheme.width() < width {
-			current_line.push_str(grapheme);
-			current_line_width += grapheme.width();
+fn byte_to_char(byte: u8) -> char {
+	if byte.is_ascii_control() {
+		// Display a spaces for a tab character.
+		if byte as char == '\t' {
+			' '
+		} else if byte as char == '\n' {
+			byte as char
 		} else {
-			lines.push(String::new());
-			current_line = lines.last_mut().unwrap();
-			current_line_width = 0;
-			current_line.push_str(grapheme);
-			current_line_width += grapheme.width();
+			'�'
 		}
+	} else if byte.is_ascii() {
+		byte as char
+	} else {
+		'�'
 	}
 }

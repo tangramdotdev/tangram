@@ -36,6 +36,7 @@ tangram_client = { workspace = true }
 tangram_error = { workspace = true }
 tangram_language = { workspace = true }
 tangram_server = { workspace = true }
+tempfile = { workspace = true }
 tokio = { workspace = true }
 tokio-util = { workspace = true }
 tracing = { workspace = true }

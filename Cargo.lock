@@ -3045,6 +3045,7 @@ dependencies = [
  "tangram_error",
  "tangram_language",
  "tangram_server",
+ "tempfile",
  "tokio",
  "tokio-util",
  "tracing",
