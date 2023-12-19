@@ -28,7 +28,7 @@ pub enum Mutation {
 }
 
 #[derive(Debug, Clone, serde::Deserialize, serde::Serialize)]
-#[serde(tag = "kind", rename_all = "camelCase")]
+#[serde(tag = "kind", rename_all = "snake_case")]
 pub enum Data {
 	Unset,
 	Set {
