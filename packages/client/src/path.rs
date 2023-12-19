@@ -70,9 +70,8 @@ impl Path {
 
 		// Add the separator.
 		match self.components.last() {
-			Some(Component::Root) => (),
+			Some(Component::Root) | None => (),
 			Some(_) => self.string.push('/'),
-			None => (),
 		}
 
 		// Add the component.
@@ -119,26 +118,9 @@ impl Path {
 		let mut path = Self::default();
 		for component in self.into_components() {
 			match (component, path.components().last()) {
-				// If any component is root, then the normalized path is root.
-				(Component::Root, _) => {
-					path = Self::with_components(vec![Component::Root]);
-				},
-
-				// Drop any current paths.
-				(Component::Current, _) => (),
-
-				// Flatten any parent paths.
-				(Component::Parent, Some(Component::Normal(_))) => {
-					path.pop();
-				},
-
-				// If the parent is root then skip.
+				(Component::Parent, Some(Component::Normal(_))) => path.pop(),
 				(Component::Parent, Some(Component::Root)) => (),
-
-				// Otherwise add the component.
-				(component, _) => {
-					path.push(component);
-				},
+				(component, _) => path.push(component),
 			}
 		}
 		path
@@ -269,6 +251,6 @@ mod tests {
 		assert_eq!(path.normalize().to_string(), "../bar/baz");
 
 		let path: Path = "./bar/baz".parse().unwrap();
-		assert_eq!(path.normalize().to_string(), "bar/baz");
+		assert_eq!(path.normalize().to_string(), "./bar/baz");
 	}
 }
