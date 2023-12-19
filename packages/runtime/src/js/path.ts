@@ -93,6 +93,12 @@ export class Path {
 				Path.Component.isNormal(lastComponent)
 			) {
 				path.pop();
+			} else if (
+				component === ".." &&
+				lastComponent !== undefined &&
+				Path.Component.isRoot(lastComponent)
+			) {
+				continue;
 			} else {
 				path.push(component);
 			}
