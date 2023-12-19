@@ -28,7 +28,7 @@ pub enum Mutation {
 }
 
 #[derive(Debug, Clone, serde::Deserialize, serde::Serialize)]
-#[serde(tag = "kind", content = "value")]
+#[serde(tag = "kind", rename_all = "snake_case")]
 pub enum Data {
 	Unset,
 	Set {
@@ -45,10 +45,12 @@ pub enum Data {
 	},
 	TemplatePrepend {
 		template: template::Data,
+		#[serde(skip_serializing_if = "Option::is_none")]
 		separator: Option<String>,
 	},
 	TemplateAppend {
 		template: template::Data,
+		#[serde(skip_serializing_if = "Option::is_none")]
 		separator: Option<String>,
 	},
 }
