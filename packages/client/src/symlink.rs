@@ -1,8 +1,8 @@
-use crate::{artifact, id, object, Artifact, Error, Handle, Result, WrapErr};
+use crate::{artifact, id, object, Artifact, Error, Handle, Path, Result, WrapErr};
 use async_recursion::async_recursion;
 use bytes::Bytes;
 use derive_more::Display;
-use std::sync::Arc;
+use std::{str::FromStr, sync::Arc};
 use tangram_error::return_error;
 
 #[derive(
@@ -43,7 +43,7 @@ pub struct Data {
 
 impl Id {
 	pub fn new(bytes: &Bytes) -> Self {
-		Self(crate::Id::new_blake3(id::Kind::Symlink, bytes))
+		Self(crate::Id::new_hashed(id::Kind::Symlink, bytes))
 	}
 }
 
@@ -165,13 +165,50 @@ impl Symlink {
 		self.resolve_from(tg, None).await
 	}
 
-	#[allow(clippy::unused_async)]
+	#[async_recursion]
 	pub async fn resolve_from(
 		&self,
-		_tg: &dyn Handle,
-		_from: Option<Self>,
+		tg: &dyn Handle,
+		from: Option<Self>,
 	) -> Result<Option<Artifact>> {
-		unimplemented!()
+		let mut from_artifact = if let Some(from) = &from {
+			from.artifact(tg).await?.clone()
+		} else {
+			None
+		};
+		if let Some(artifact::Artifact::Symlink(symlink)) = from_artifact {
+			from_artifact = symlink.resolve(tg).await?;
+		}
+		let from_path = if let Some(from) = from {
+			from.path(tg).await?.clone()
+		} else {
+			None
+		};
+		let mut artifact = self.artifact(tg).await?.clone();
+		if let Some(artifact::Artifact::Symlink(symlink)) = artifact {
+			artifact = symlink.resolve(tg).await?;
+		}
+		let path = self.path(tg).await?.clone();
+		if artifact.is_some() && path.is_none() {
+			return Ok(artifact);
+		} else if artifact.is_none() && path.is_some() {
+			if let Some(artifact::Artifact::Directory(directory)) = from_artifact {
+				let path = Path::from_str(&from_path.unwrap_or(String::new()))?
+					.join(Path::from_str("..")?)
+					.join(Path::from_str(&path.unwrap())?)
+					.normalize();
+				return directory.try_get(tg, &path).await;
+			}
+			return_error!("Expected a directory.");
+		} else if artifact.is_some() && path.is_some() {
+			if let Some(artifact::Artifact::Directory(directory)) = artifact {
+				return directory
+					.try_get(tg, &Path::from_str(&path.unwrap())?.normalize())
+					.await;
+			}
+			return_error!("Expected a directory.");
+		}
+		return_error!("Invalid symlink.")
 	}
 }
 
