@@ -636,62 +636,42 @@ async fn solve(
 			last_error: None,
 		};
 
+		// Get the permanent and partial solutions for this edge.
 		let permanent = current_frame.solution.get_permanent(context, &dependant);
-
 		let partial = current_frame.solution.partial.get(&dependant);
+
 		match (permanent, partial) {
 			// Case 0: There is no solution for this package yet.
-			(None, None) => 'a: {
-				// First try and resolve this as a path dependency.
-				if let Ok(Some(resolved)) =
-					context.try_resolve_path_dependency(tg, &dependant).await
-				{
-					next_frame.solution = next_frame.solution.mark_temporarily(dependant, resolved);
-					break 'a;
-				}
+			(None, None) => {
+				// Attempt to override with a path dependency.
+				let package = match context.try_resolve_path_dependency(tg, &dependant).await {
+					Ok(Some(resolved)) => Ok(resolved),
 
-				// Make sure we have a list of versions we can try to resolve.
-				if current_frame.remaining_versions.is_none() {
-					let all_versions = match context.get_all_versions(tg, &dependant).await {
-						Ok(all_versions) => all_versions,
-						Err(e) => {
-							tracing::error!(?dependant, ?e, "Failed to get versions of package.");
+					// If we cannot resolve as a path dependency, attempt to resolve it as a registry dependency.
+					Ok(None) => 'a: {
+						// Make sure we have a list of versions we can try to resolve.
+						if current_frame.remaining_versions.is_none() {
+							match context.get_all_versions(tg, &dependant).await {
+								Ok(versions) => {
+									current_frame.remaining_versions = Some(versions);
+								},
+								Err(e) => break 'a Err(Error::Other(e)),
+							}
+						}
+						context
+							.try_resolve_registry_dependency(
+								tg,
+								&dependant,
+								current_frame.remaining_versions.as_mut().unwrap(),
+							)
+							.await
+					},
+					Err(e) => Err(Error::Other(e)),
+				};
 
-							// We cannot solve this dependency.
-							next_frame.solution = current_frame.solution.mark_permanently(
-								context,
-								dependant,
-								Err(Error::Other(e)),
-							);
-
-							// This is ugly, but writing out the full match statemenet is uglier and we already have a deeply nested tree of branches.
-							break 'a;
-						},
-					};
-					let remaining_versions = all_versions
-						.into_iter()
-						.filter_map(|version| {
-							// TODO: handle the error here. If the published version cannot be parsed then we can continue the loop. If the dependency version cannot be parsed we need to issue a hard error and break out of the match statement.
-							let version = version.version.as_deref()?;
-							Context::matches(version, &dependant.dependency)
-								.ok()?
-								.then_some(version.to_owned())
-						})
-						.collect();
-					current_frame.remaining_versions = Some(remaining_versions);
-				}
-
-				// Try and pick a version.
-				let package = context
-					.try_resolve_registry_dependency(
-						tg,
-						&dependant,
-						current_frame.remaining_versions.as_mut().unwrap(),
-					)
-					.await;
-
+				// Update the working set and solution.
 				match package {
-					// We successfully popped a version.
+					// We successfully got a version.
 					Ok(package) => {
 						next_frame.solution = next_frame
 							.solution
@@ -709,14 +689,10 @@ async fn solve(
 							next_frame.working_set.push_back(dependant);
 						}
 
-						// Update the solution
-						next_frame.solution =
-							next_frame.solution.mark_temporarily(dependant, package);
-
 						// Update the stack. If we backtrack, we use the next version in the version stack.
 						history.push_back(current_frame.clone());
 					},
-
+					// Something went wrong. Mark permanently as an error.
 					Err(e) => {
 						tracing::error!(?dependant, ?e, "No solution exists.");
 						next_frame.solution =
@@ -951,28 +927,25 @@ impl Context {
 
 			// Attempt to resolve path dependencies.
 			for dependency in dependencies {
-				match (dependency.name.as_ref(), dependency.path.as_ref()) {
-					(None, Some(path)) => {
-						if path.is_absolute() {
-							continue;
-						}
-						let path = path.clone().normalize();
-						let Some(dependency_source) =
-							package_source.try_get(tg, &path).await.wrap_err_with(|| {
-								error!("Could not resolve {dependency} within {package}.")
-							})?
-						else {
-							continue;
-						};
-						let dependency_package_id = dependency_source
-							.try_unwrap_directory()
-							.wrap_err_with(|| error!("Expected {path} to refer to a directory."))?
-							.id(tg)
-							.await?
-							.clone();
-						path_dependencies.insert(dependency.clone(), dependency_package_id);
-					},
-					_ => (),
+				if let Some(path) = dependency.path.as_ref() {
+					if path.is_absolute() {
+						continue;
+					}
+					let path = path.clone().normalize();
+					let Some(dependency_source) =
+						package_source.try_get(tg, &path).await.wrap_err_with(|| {
+							error!("Could not resolve {dependency} within {package}.")
+						})?
+					else {
+						continue;
+					};
+					let dependency_package_id = dependency_source
+						.try_unwrap_directory()
+						.wrap_err_with(|| error!("Expected {path} to refer to a directory."))?
+						.id(tg)
+						.await?
+						.clone();
+					path_dependencies.insert(dependency.clone(), dependency_package_id);
 				}
 				dependencies_.push(dependency);
 			}
@@ -1027,29 +1000,25 @@ impl Context {
 		&mut self,
 		tg: &dyn Handle,
 		dependant: &Dependant,
-	) -> Result<Vec<tg::package::Metadata>> {
+	) -> Result<im::Vector<String>> {
 		// If it is a path dependency, we don't care about the versions, which may not exist.
 		if self.is_path_dependency(dependant).unwrap() {
-			return Ok(Vec::new());
+			return Ok(im::Vector::new());
 		};
 
-		let name = dependant
-			.dependency
-			.name
-			.as_ref()
-			.wrap_err("Missing name for dependency.")?
-			.clone();
-		let dependency = tg::Dependency::with_name(name.clone());
+		// Get a list of all the corresponding metadata for versions that satisfy the constraint.
+		let Dependant { dependency, .. } = dependant;
 		let metadata = tg
 			.get_package_versions(&dependency)
 			.await?
 			.into_iter()
-			.map(|version| tg::package::Metadata {
-				name: Some(name.clone()),
-				version: Some(version),
-				description: None,
+			.filter_map(|version| {
+				Context::matches(&version, dependency)
+					.ok()?
+					.then_some(version)
 			})
-			.collect::<Vec<_>>();
+			.collect();
+
 		Ok(metadata)
 	}
 }
