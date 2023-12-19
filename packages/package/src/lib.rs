@@ -1065,7 +1065,7 @@ impl Solution {
 			.insert(dependant.clone(), Mark::Permanent(complete.clone()));
 
 		// If this is not a path dependency then we add it to the global solution.
-		if context.is_path_dependency(&dependant).unwrap() {
+		if !context.is_path_dependency(&dependant).unwrap() {
 			solution
 				.permanent
 				.insert(dependant.dependency.name.clone().unwrap(), complete);
