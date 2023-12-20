@@ -189,6 +189,11 @@ impl Symlink {
 			artifact = symlink.resolve(tg).await?;
 		}
 		let path = self.path(tg).await?.clone();
+
+		if artifact.is_some() && from_artifact.is_some() {
+			return_error!("Expected no `from` value when `artifact` is set.");
+		}
+
 		if artifact.is_some() && path.is_none() {
 			return Ok(artifact);
 		} else if artifact.is_none() && path.is_some() {
