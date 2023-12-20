@@ -514,7 +514,7 @@ async fn create_lockfile_inner(
 	// let package = package_with_path_dependencies.package.id(tg).await?.clone();
 	let analysis = context
 		.analysis
-		.get(&package)
+		.get(package)
 		.wrap_err("Missing package in solution.")?;
 
 	// Recursively create locks.
@@ -710,9 +710,8 @@ async fn solve(
 					Ok(package) => {
 						// Successful caches of the version will be memoized, so it's safe to  unwrap here. Annoyingly, borrowck fails here because it doesn't know that the result holds a mutable reference to the context.
 						let version = context.version(tg, package).await.unwrap().to_owned();
-
-						// Case 1.1: The happy path. Our version is solved and it matches this constraint.
-						match Context::matches(&version, &dependant.dependency) {
+						match dependant.dependency.try_match_version(&version) {
+							// Success: we can use this version.
 							Ok(true) => {
 								next_frame.solution = next_frame.solution.mark_permanently(
 									context,
@@ -720,7 +719,7 @@ async fn solve(
 									Ok(package.clone()),
 								);
 							},
-							// Case 1.3: The unhappy path. We need to fail.
+							// Failure: we need to attempt to backtrack.
 							Ok(false) => {
 								let error = Error::PackageVersionConflict;
 								if let Some(frame_) = try_backtrack(
@@ -739,9 +738,9 @@ async fn solve(
 									);
 								}
 							},
+							// This can only occur if the there is an error parsing the version constraint of this dependency. It cannot be solved, so mark permanently as an error.
 							Err(e) => {
-								tracing::error!(?dependant, ?e, "Existing solution is an error.");
-								next_frame.solution.mark_permanently(
+								next_frame.solution = next_frame.solution.mark_permanently(
 									context,
 									dependant,
 									Err(Error::Other(e)),
@@ -839,7 +838,6 @@ async fn solve(
 
 impl Context {
 	// Attempt to resolve `dependant` as a path dependency.
-	#[must_use]
 	async fn try_resolve_path_dependency(
 		&mut self,
 		tg: &dyn Handle,
@@ -856,24 +854,7 @@ impl Context {
 		Ok(analysis.path_dependencies.get(dependency).cloned())
 	}
 
-	// Check if a package satisfies a dependency.
-	fn matches(version: &str, dependency: &tg::Dependency) -> Result<bool> {
-		let Some(constraint) = dependency.version.as_ref() else {
-			return Ok(true);
-		};
-		let version: semver::Version = version.parse().map_err(|e| {
-			tracing::error!(?e, ?version, "Failed to parse metadata version.");
-			error!("Failed to parse version: {version}.")
-		})?;
-		let constraint: semver::VersionReq = constraint.parse().map_err(|e| {
-			tracing::error!(?e, ?dependency, "Failed to parse dependency version.");
-			error!("Failed to parse version.")
-		})?;
-		Ok(constraint.matches(&version))
-	}
-
 	// Attempt to resolve `dependant` as a registry dependency.
-	#[must_use]
 	async fn try_resolve_registry_dependency(
 		&mut self,
 		tg: &dyn tg::Handle,
@@ -964,7 +945,6 @@ impl Context {
 	}
 
 	// Check if the dependant can be resolved as a path dependency. Returns an error if we haven't analyzed the `dependant.package` yet.
-	#[must_use]
 	fn is_path_dependency(&self, dependant: &Dependant) -> Result<bool> {
 		// We guarantee that the context already knows about the dependant package by the time this function is called.
 		let Some(analysis) = self.analysis.get(&dependant.package) else {
@@ -1008,12 +988,15 @@ impl Context {
 
 		// Get a list of all the corresponding metadata for versions that satisfy the constraint.
 		let Dependant { dependency, .. } = dependant;
+
+		// Filter the versions to only those that satisfy the constraint.
 		let metadata = tg
-			.get_package_versions(&dependency)
+			.get_package_versions(dependency)
 			.await?
 			.into_iter()
 			.filter_map(|version| {
-				Context::matches(&version, dependency)
+				dependency
+					.try_match_version(&version)
 					.ok()?
 					.then_some(version)
 			})

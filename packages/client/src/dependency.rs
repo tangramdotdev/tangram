@@ -80,6 +80,33 @@ impl Dependency {
 			self.version = Some(version);
 		}
 	}
+
+	/// Check if a `version` string satisfies this dependency's `version` constraint.
+	pub fn try_match_version(&self, version: &str) -> Result<bool> {
+		let Some(constraint) = &self.version else {
+			return Ok(true);
+		};
+
+		if constraint.starts_with('/') {
+			let (_, constraint) = constraint.split_at(1);
+			let regex = format!("^{constraint}$");
+			let matched = regex::Regex::new(&regex)
+				.wrap_err("Failed to parse regex.")?
+				.is_match(version);
+			return Ok(matched);
+		}
+
+		if "=<>^~*".chars().any(|ch| constraint.starts_with(ch)) {
+			let req = semver::VersionReq::parse(constraint)
+				.wrap_err("Failed to parse version constraint as semver.")?;
+			let semver =
+				semver::Version::parse(version).wrap_err("Failed to parse version as semver.")?;
+			return Ok(req.matches(&semver));
+		}
+
+		// Fall back on string equality.
+		Ok(constraint == version)
+	}
 }
 
 impl std::fmt::Display for Dependency {
@@ -182,6 +209,15 @@ mod tests {
 		let left = Dependency {
 			id: None,
 			name: Some("foo".into()),
+			path: None,
+			version: Some(r"/1\.2\.*".into()),
+		};
+		let right = r"foo@/1\.2\.*";
+		assert_eq!(left.to_string(), right);
+
+		let left = Dependency {
+			id: None,
+			name: Some("foo".into()),
 			path: Some("path/to/foo".parse().unwrap()),
 			version: Some("1.2.3".into()),
 		};
@@ -246,5 +282,20 @@ mod tests {
 			version: None,
 		};
 		assert_eq!(left, right);
+	}
+
+	#[test]
+	fn matches() {
+		// Semver
+		let dep = Dependency::with_name_and_version("A".into(), "=1.*".into());
+		assert!(dep.try_match_version("1.2.3").unwrap());
+
+		// String comparison.
+		let dep = Dependency::with_name_and_version("A".into(), "1.2".into());
+		assert!(dep.try_match_version("1.2").unwrap());
+
+		// <date>-<major>.<minor> matched with a regex.
+		let dep = Dependency::with_name_and_version("A".into(), "/2024-01-01-3.[0-9]+".into());
+		assert!(dep.try_match_version("2024-01-01-3.1").unwrap());
 	}
 }

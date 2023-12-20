@@ -94,9 +94,8 @@ impl Path {
 		};
 		self.string.truncate(self.string.len() - n);
 		match self.components().last() {
-			Some(Component::Root) => (),
+			None | Some(Component::Root) => (),
 			Some(_) => self.string.truncate(self.string.len() - 1),
-			None => (),
 		}
 	}
 
