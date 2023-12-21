@@ -58,7 +58,7 @@ pub async fn build(
 	_retry: tg::build::Retry,
 	mut stop: tokio::sync::watch::Receiver<bool>,
 	server_directory_path: &Path,
-) -> Result<tg::Value> {
+) -> Result<tg::build::Outcome> {
 	// Get the target.
 	let target = build.target(tg).await?;
 
@@ -532,23 +532,35 @@ pub async fn build(
 		.await
 		.wrap_err("Failed to notify the guest process that it can continue.")?;
 
-	// Receive the exit status of the guest process from the root process.
-	let kind = host_socket
-		.read_u8()
-		.await
-		.wrap_err("Failed to receive the exit status kind from the root process.")?;
-	let value = host_socket
-		.read_i32_le()
-		.await
-		.wrap_err("Failed to receive the exit status value from the root process.")?;
-	let exit_status = match kind {
-		0 => ExitStatus::Code(value),
-		1 => ExitStatus::Signal(value),
-		_ => unreachable!(),
+	// Awit the exit status, killing the child if the stop signal is received.
+	let exit_status = tokio::select! {
+		_ = stop.changed() => {
+			// Stop listening to logs.
+			log_task.abort();
+
+			// Kill the guest and root process. TODO: do we need to kill both, or just the root?
+			unsafe {
+				libc::kill(guest_process_pid, libc::SIGKILL);
+				libc::kill(root_process_pid, libc::SIGKILL);
+			};
+			return Ok(tg::build::Outcome::Canceled);
+		},
+		kind = host_socket.read_u8() => {
+			let kind = kind.wrap_err("failed to receive the exit status kind from the root process.")?;
+			let value = host_socket
+				.read_i32_le()
+				.await
+				.wrap_err("Failed to receive the exit status value from the root process.")?;
+			match kind {
+				0 => ExitStatus::Code(value),
+				1 => ExitStatus::Signal(value),
+				_ => unreachable!(),
+			}
+		}
 	};
 
 	// Create the build task.
-	let task = tokio::task::spawn_blocking(move || {
+	tokio::task::spawn_blocking(move || {
 		let mut status: libc::c_int = 0;
 		let ret = unsafe { libc::waitpid(root_process_pid, &mut status, libc::__WALL) };
 		if ret == -1 {
@@ -568,19 +580,10 @@ pub async fn build(
 			return_error!("The root process did not exit successfully.");
 		}
 		Ok(())
-	});
-
-	// Wait for the task to complete or a stop signal to be received.
-	tokio::select! {
-		_ = stop.changed() => {
-			return_error!("Build was stopped.");
-		}
-		status = task => {
-			status
-				.wrap_err("Failed to join the process task.")?
-				.wrap_err("Failed to run the process.")?;
-		}
-	}
+	})
+	.await
+	.wrap_err("Failed to join the process task.")?
+	.wrap_err("Failed to run the process.")?;
 
 	// Wait for the log task to complete.
 	log_task
@@ -627,7 +630,7 @@ pub async fn build(
 		tg::Value::Null(())
 	};
 
-	Ok(value)
+	Ok(tg::build::Outcome::Succeeded(value))
 }
 
 #[allow(clippy::too_many_lines)]

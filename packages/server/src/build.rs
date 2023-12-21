@@ -327,8 +327,21 @@ impl Server {
 		retry: tg::build::Retry,
 		permit: Option<tokio::sync::OwnedSemaphorePermit>,
 	) -> Result<()> {
+		tracing::info!(?id, "Starting build.");
+
 		let build = tg::Build::with_id(id.clone());
 		let target = build.target(self).await?;
+		let stop = self
+			.inner
+			.build_state
+			.read()
+			.unwrap()
+			.get(id)
+			.unwrap()
+			.inner
+			.stop
+			.receiver
+			.clone();
 
 		// Build the target with the appropriate runtime.
 		let result = match target.host(self).await?.os() {
@@ -346,6 +359,7 @@ impl Server {
 								&build,
 								depth,
 								retry,
+								stop,
 								main_runtime_handle,
 							)
 							.await
@@ -357,7 +371,7 @@ impl Server {
 			tg::system::Os::Darwin => {
 				#[cfg(target_os = "macos")]
 				{
-					tangram_runtime::darwin::build(self, &build, retry, self.path()).await
+					tangram_runtime::darwin::build(self, &build, retry, stop, self.path()).await
 				}
 				#[cfg(not(target_os = "macos"))]
 				{
@@ -367,7 +381,7 @@ impl Server {
 			tg::system::Os::Linux => {
 				#[cfg(target_os = "linux")]
 				{
-					tangram_runtime::linux::build(self, &build, retry, self.path()).await
+					tangram_runtime::linux::build(self, &build, retry, stop, self.path()).await
 				}
 				#[cfg(not(target_os = "linux"))]
 				{
@@ -376,30 +390,35 @@ impl Server {
 			},
 		};
 
-		// If an error occurred, add the error to the build's log.
-		if let Err(error) = result.as_ref() {
+		tracing::info!(?id, ?result, "Build completed.");
+
+		// Create the outcome.
+		let outcome = match result {
+			Ok(outcome) => outcome,
+			Err(error) => tg::build::Outcome::Failed(error),
+		};
+
+		// If theb build failed, add a message to the build's log.
+		if let tg::build::Outcome::Failed(error) = &outcome {
 			build
 				.add_log(self, error.trace().to_string().into())
 				.await?;
 		}
 
-		// Create the outcome.
-		let outcome = match result {
-			Ok(value) => tg::build::Outcome::Succeeded(value),
-			Err(error) => tg::build::Outcome::Failed(error),
-		};
+		// If the build was canceled then it has already been finished.
+		if !outcome.canceled() {
+			// Finish the build.
+			build.finish(self, user, outcome).await?;
 
-		// Finish the build.
-		build.finish(self, user, outcome).await?;
+			// Send a message to the build queue task that the build has finished.
+			self.inner
+				.build_queue_task_sender
+				.send(BuildQueueTaskMessage::BuildFinished)
+				.unwrap();
+		}
 
 		// Drop the permit.
 		drop(permit);
-
-		// Send a message to the build queue task that the build has finished.
-		self.inner
-			.build_queue_task_sender
-			.send(BuildQueueTaskMessage::BuildFinished)
-			.unwrap();
 
 		Ok(())
 	}

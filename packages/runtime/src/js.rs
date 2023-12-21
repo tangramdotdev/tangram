@@ -71,7 +71,7 @@ pub async fn build(
 	retry: tg::build::Retry,
 	stop: tokio::sync::watch::Receiver<bool>,
 	main_runtime_handle: tokio::runtime::Handle,
-) -> Result<tg::Value> {
+) -> Result<tg::build::Outcome> {
 	// Get the target.
 	let target = build.target(tg).await?;
 
@@ -146,8 +146,7 @@ pub async fn build(
 			// First check if we need to stop.
 			match stop.has_changed() {
 				Ok(true) | Err(_) => {
-					tracing::info!("Stop signal received.");
-					return Poll::Ready(Err(error!("Build was stoppped.")));
+					return Poll::Ready(tg::build::Outcome::Canceled);
 				},
 				_ => (),
 			}
@@ -204,10 +203,10 @@ pub async fn build(
 					let output = match from_v8(scope, output) {
 						Ok(output) => output,
 						Err(error) => {
-							return Poll::Ready(Err(error));
+							return Poll::Ready(tg::build::Outcome::Failed(error));
 						},
 					};
-					Ok(output)
+					tg::build::Outcome::Succeeded(output)
 				},
 
 				// If the promise is rejected, then return the error.
@@ -215,7 +214,7 @@ pub async fn build(
 					let exception = promise.result(scope);
 					let state = state.clone();
 					let error = self::error::from_exception(&state, scope, exception);
-					Err(error)
+					tg::build::Outcome::Failed(error)
 				},
 
 				// At this point, the promise must not be pending.
@@ -226,17 +225,17 @@ pub async fn build(
 			let output = match from_v8(scope, value) {
 				Ok(output) => output,
 				Err(error) => {
-					return Poll::Ready(Err(error));
+					return Poll::Ready(tg::build::Outcome::Failed(error));
 				},
 			};
-			Ok(output)
+			tg::build::Outcome::Succeeded(output)
 		};
 
 		Poll::Ready(result)
 	})
 	.await;
 
-	value
+	Ok(value)
 }
 
 /// Implement V8's dynamic import callback.
