@@ -18,6 +18,7 @@ pub async fn build(
 	tg: &dyn tg::Handle,
 	build: &tg::Build,
 	_retry: tg::build::Retry,
+	mut stop: tokio::sync::watch::Receiver<bool>,
 	server_directory_path: &Path,
 ) -> Result<tg::Value> {
 	// Get the target.
@@ -334,11 +335,18 @@ pub async fn build(
 		}
 	});
 
-	// Wait for the child to exit.
-	let status = child
-		.wait()
-		.await
-		.wrap_err("Failed to wait for the process to exit.")?;
+	// Wait for either the child process to exit or the stop signal to be received.
+	let status = tokio::select! {
+		signal = stop.changed() => {
+			if signal.is_ok() && *stop.borrow_and_update() {
+				child_process.kill().await.wrap_err("Failed to kill the process.")?;
+				return_error!("Build stoppped.");
+			}
+		}
+		status = child.wait() => {
+			status.wrap_err("Failed to wait for the process to exit.")?
+		}
+	};
 
 	// Wait for the log task to complete.
 	log_task

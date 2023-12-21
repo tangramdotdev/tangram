@@ -10,7 +10,7 @@ use std::{
 	task::Poll,
 };
 use tangram_client as tg;
-use tangram_error::{Result, WrapErr};
+use tangram_error::{error, Result, WrapErr};
 
 mod convert;
 mod error;
@@ -69,6 +69,7 @@ pub async fn build(
 	build: &tg::Build,
 	depth: u64,
 	retry: tg::build::Retry,
+	stop: tokio::sync::watch::Receiver<bool>,
 	main_runtime_handle: tokio::runtime::Handle,
 ) -> Result<tg::Value> {
 	// Get the target.
@@ -142,6 +143,15 @@ pub async fn build(
 	// Await the output.
 	let value = poll_fn(|cx| {
 		loop {
+			// First check if we need to stop.
+			match stop.has_changed() {
+				Ok(true) | Err(_) => {
+					tracing::info!("Stop signal received.");
+					return Poll::Ready(Err(error!("Build was stoppped.")));
+				},
+				_ => (),
+			}
+
 			// Poll the futures.
 			let (result, promise_resolver) = match state.futures.borrow_mut().poll_next_unpin(cx) {
 				// If there is a result, then resolve or reject the promise.
@@ -224,9 +234,9 @@ pub async fn build(
 
 		Poll::Ready(result)
 	})
-	.await?;
+	.await;
 
-	Ok(value)
+	value
 }
 
 /// Implement V8's dynamic import callback.

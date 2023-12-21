@@ -56,6 +56,7 @@ pub async fn build(
 	tg: &dyn tg::Handle,
 	build: &tg::Build,
 	_retry: tg::build::Retry,
+	mut stop: tokio::sync::watch::Receiver<bool>,
 	server_directory_path: &Path,
 ) -> Result<tg::Value> {
 	// Get the target.
@@ -475,6 +476,7 @@ pub async fn build(
 		root(&context);
 	}
 	drop(context);
+	let root_process_pid: libc::pid_t = ret.try_into().wrap_err("Invalid root process PID.")?;
 
 	// Spawn the log task.
 	let log_task = tokio::task::spawn({
@@ -494,8 +496,6 @@ pub async fn build(
 			}
 		}
 	});
-
-	let root_process_pid: libc::pid_t = ret.try_into().wrap_err("Invalid root process PID.")?;
 
 	// Receive the guest process's PID from the socket.
 	let guest_process_pid: libc::pid_t = host_socket
@@ -547,8 +547,8 @@ pub async fn build(
 		_ => unreachable!(),
 	};
 
-	// Wait for the root process to exit.
-	tokio::task::spawn_blocking(move || {
+	// Create the build task.
+	let task = tokio::task::spawn_blocking(move || {
 		let mut status: libc::c_int = 0;
 		let ret = unsafe { libc::waitpid(root_process_pid, &mut status, libc::__WALL) };
 		if ret == -1 {
@@ -568,10 +568,19 @@ pub async fn build(
 			return_error!("The root process did not exit successfully.");
 		}
 		Ok(())
-	})
-	.await
-	.wrap_err("Failed to join the process task.")?
-	.wrap_err("Failed to run the process.")?;
+	});
+
+	// Wait for the task to complete or a stop signal to be received.
+	tokio::select! {
+		_ = stop.changed() => {
+			return_error!("Build was stopped.");
+		}
+		status = task => {
+			status
+				.wrap_err("Failed to join the process task.")?
+				.wrap_err("Failed to run the process.")?;
+		}
+	}
 
 	// Wait for the log task to complete.
 	log_task
