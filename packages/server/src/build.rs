@@ -390,8 +390,6 @@ impl Server {
 			},
 		};
 
-		tracing::debug!(?id, ?result, "Build returned.");
-
 		// Create the outcome.
 		let outcome = match result {
 			// If there's no result then we can't do anything else. We assume this means the build was canceled and build.finish() was already called.
