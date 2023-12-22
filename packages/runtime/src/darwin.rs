@@ -20,7 +20,7 @@ pub async fn build(
 	_retry: tg::build::Retry,
 	mut stop: tokio::sync::watch::Receiver<bool>,
 	server_directory_path: &Path,
-) -> Result<tg::build::Outcome> {
+) -> Result<Option<tg:Value>> {
 	// Get the target.
 	let target = build.target(tg).await?;
 
@@ -339,7 +339,7 @@ pub async fn build(
 	let status = tokio::select! {
 		_ = stop.changed() => {
 			child.kill().await.wrap_err("Failed to kill the process.")?;
-			return Ok(tg::build::Outcome::Canceled);
+			return Ok(None);
 		}
 		status = child.wait() => {
 			status.wrap_err("Failed to wait for the process to exit.")?
@@ -385,7 +385,7 @@ pub async fn build(
 		tg::Value::Null(())
 	};
 
-	Ok(tg::build::Outcome::Succeeded(value))
+	Ok(Some(value))
 }
 
 extern "C" {

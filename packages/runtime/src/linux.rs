@@ -58,7 +58,7 @@ pub async fn build(
 	_retry: tg::build::Retry,
 	mut stop: tokio::sync::watch::Receiver<bool>,
 	server_directory_path: &Path,
-) -> Result<tg::build::Outcome> {
+) -> Result<Option<tg::Value>> {
 	// Get the target.
 	let target = build.target(tg).await?;
 
@@ -543,7 +543,7 @@ pub async fn build(
 				libc::kill(guest_process_pid, libc::SIGKILL);
 				libc::kill(root_process_pid, libc::SIGKILL);
 			};
-			return Ok(tg::build::Outcome::Canceled);
+			return Ok(None);
 		},
 		kind = host_socket.read_u8() => {
 			let kind = kind.wrap_err("failed to receive the exit status kind from the root process.")?;
@@ -630,7 +630,7 @@ pub async fn build(
 		tg::Value::Null(())
 	};
 
-	Ok(tg::build::Outcome::Succeeded(value))
+	Ok(Some(value))
 }
 
 #[allow(clippy::too_many_lines)]

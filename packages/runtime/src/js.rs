@@ -63,6 +63,7 @@ std::thread_local! {
 	};
 }
 
+/// Start a JS build. Returns Ok(None) if cancelled.
 #[allow(clippy::too_many_lines)]
 pub async fn build(
 	tg: &dyn tg::Handle,
@@ -71,7 +72,7 @@ pub async fn build(
 	retry: tg::build::Retry,
 	stop: tokio::sync::watch::Receiver<bool>,
 	main_runtime_handle: tokio::runtime::Handle,
-) -> Result<tg::build::Outcome> {
+) -> Result<Option<tg::Value>> {
 	// Get the target.
 	let target = build.target(tg).await?;
 
@@ -146,7 +147,7 @@ pub async fn build(
 			// First check if we need to stop.
 			match stop.has_changed() {
 				Ok(true) | Err(_) => {
-					return Poll::Ready(tg::build::Outcome::Canceled);
+					return Poll::Ready(Ok(None));
 				},
 				_ => (),
 			}
@@ -203,10 +204,10 @@ pub async fn build(
 					let output = match from_v8(scope, output) {
 						Ok(output) => output,
 						Err(error) => {
-							return Poll::Ready(tg::build::Outcome::Failed(error));
+							return Poll::Ready(Err(error));
 						},
 					};
-					tg::build::Outcome::Succeeded(output)
+					Ok(Some(output))
 				},
 
 				// If the promise is rejected, then return the error.
@@ -214,7 +215,7 @@ pub async fn build(
 					let exception = promise.result(scope);
 					let state = state.clone();
 					let error = self::error::from_exception(&state, scope, exception);
-					tg::build::Outcome::Failed(error)
+					Err(error)
 				},
 
 				// At this point, the promise must not be pending.
@@ -222,18 +223,18 @@ pub async fn build(
 			}
 		} else {
 			// If the output is not a promise, then return it.
-			let output = match from_v8(scope, value) {
+			let output: tg::Value = match from_v8(scope, value) {
 				Ok(output) => output,
 				Err(error) => {
-					return Poll::Ready(tg::build::Outcome::Failed(error));
+					return Poll::Ready(Err(error));
 				},
 			};
-			tg::build::Outcome::Succeeded(output)
+			Ok(Some(output))
 		};
 
 		Poll::Ready(result)
 	})
-	.await;
+	.await?;
 
 	Ok(value)
 }
