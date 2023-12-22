@@ -337,11 +337,9 @@ pub async fn build(
 
 	// Wait for either the child process to exit or the stop signal to be received.
 	let status = tokio::select! {
-		signal = stop.changed() => {
-			if signal.is_ok() && *stop.borrow_and_update() {
-				child_process.kill().await.wrap_err("Failed to kill the process.")?;
-				return_error!("Build stoppped.");
-			}
+		_ = stop.changed() => {
+			child.kill().await.wrap_err("Failed to kill the process.")?;
+			return Ok(tg::build::Outcome::Canceled);
 		}
 		status = child.wait() => {
 			status.wrap_err("Failed to wait for the process to exit.")?
@@ -387,7 +385,7 @@ pub async fn build(
 		tg::Value::Null(())
 	};
 
-	Ok(value)
+	Ok(tg::build::Outcome::Succeeded(value))
 }
 
 extern "C" {
