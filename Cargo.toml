@@ -86,6 +86,7 @@ serde = { version = "1", features = ["rc", "derive"] }
 serde_json = "1"
 serde_urlencoded = "0.7"
 serde_v8 = { version = "0.147.0" }
+serde_with = "3"
 serde_yaml = { version = "0.9" }
 sha2 = "0.10"
 sourcemap = "7"

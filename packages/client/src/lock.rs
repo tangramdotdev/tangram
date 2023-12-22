@@ -42,10 +42,13 @@ pub struct Entry {
 
 pub mod data {
 	use crate::{directory, Dependency};
+	use serde_with::{serde_as, DisplayFromStr};
 	use std::collections::BTreeMap;
 
+	#[serde_as]
 	#[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
 	pub struct Data {
+		#[serde_as(as = "BTreeMap<DisplayFromStr, _>")]
 		pub dependencies: BTreeMap<Dependency, Entry>,
 	}
 
