@@ -21,7 +21,7 @@ pub async fn build(
 	_retry: tg::build::Retry,
 	mut stop: tokio::sync::watch::Receiver<bool>,
 	server_directory_path: &Path,
-) -> Result<Option<tg::Value>> {
+) -> Result<tg::build::Outcome> {
 	// Get the target.
 	let target = build.target(tg).await?;
 
@@ -340,37 +340,44 @@ pub async fn build(
 	let status = tokio::select! {
 		// If the stop signal is received we need to kill the process and reap its children.
 		_ = stop.changed() => {
-			// Get the pid.
-			if let Some(root_pid) = child.id() {
-				// Recursively collect the child pids.
-				let mut pids = vec![root_pid.to_i32().unwrap()];
-				for i in 0..pids.len() {
-					unsafe {
-						// Get the number of child processes.
-						let ppid = pids[i];
-						let num_children = libc::proc_listchildpids(ppid, std::ptr::null_mut(), 0);
-						if num_children < 0 {
-							return Err(std::io::Error::last_os_error()).wrap_err("Failed to get process children.");
-						}
-						pids.resize(i + num_children.to_usize().unwrap() + 1, 0);
-						// Get the actual child processes.
-						let num_children = libc::proc_listchildpids(ppid, pids[(i+1)..].as_mut_ptr().cast(), num_children);
-						if num_children < 0 {
-							return Err(std::io::Error::last_os_error()).wrap_err("Failed to process children.");
-						}
-						// Note: the number of children returned above may be different than the number returned here so we need to truncate.
-						pids.truncate(i + num_children.to_usize().unwrap() + 1);
+			log_task.abort();
+
+			// If the root_pid is none the child has already been polled to completion.
+			let Some(root_pid) = child.id() else {
+				child.wait().await.wrap_err("Failed to wait on child.")?;
+				return Ok(tg::build::Outcome::Canceled);
+			};
+
+			// Recursively collect the child pids.
+			let mut pids = vec![root_pid.to_i32().unwrap()];
+			let mut i = 0;
+			while i < pids.len() {
+				unsafe {
+					// Get the number of child processes.
+					let ppid = pids[i];
+					let num_children = libc::proc_listchildpids(ppid, std::ptr::null_mut(), 0);
+					if num_children < 0 {
+						return Err(std::io::Error::last_os_error()).wrap_err("Failed to get process children.");
 					}
-				}
-				for pid in pids {
-					unsafe {
-						libc::kill(pid, libc::SIGKILL);
+					pids.resize(i + num_children.to_usize().unwrap() + 1, 0);
+					// Get the actual child processes.
+					let num_children = libc::proc_listchildpids(ppid, pids[(i+1)..].as_mut_ptr().cast(), num_children);
+					if num_children < 0 {
+						return Err(std::io::Error::last_os_error()).wrap_err("Failed to process children.");
 					}
+					// Note: the number of children returned above may be different than the number returned here so we need to truncate.
+					pids.truncate(i + num_children.to_usize().unwrap() + 1);
 				}
-			} else {
-				child.kill().await.wrap_err("Failed to kill the process.")?;
+				i += 1;
 			}
-			return Ok(None);
+			// Kill children from the bottom up.
+			for pid in pids.iter().rev() {
+				unsafe {
+					libc::kill(*pid, libc::SIGKILL);
+				}
+			}
+
+			return Ok(tg::build::Outcome::Canceled);
 		}
 		status = child.wait() => {
 			status.wrap_err("Failed to wait for the process to exit.")?
@@ -416,7 +423,7 @@ pub async fn build(
 		tg::Value::Null(())
 	};
 
-	Ok(Some(value))
+	Ok(tg::build::Outcome::Succeeded(value))
 }
 
 extern "C" {

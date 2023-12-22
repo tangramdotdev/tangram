@@ -393,8 +393,7 @@ impl Server {
 		// Create the outcome.
 		let outcome = match result {
 			// If there's no result then we can't do anything else. We assume this means the build was canceled and build.finish() was already called.
-			Ok(None) => return Ok(()),
-			Ok(Some(value)) => tg::build::Outcome::Succeeded(value),
+			Ok(outcome) => outcome,
 			Err(error) => tg::build::Outcome::Failed(error),
 		};
 
@@ -405,8 +404,8 @@ impl Server {
 				.await?;
 		}
 
-		// Finish the build.
-		build.finish(self, user, outcome).await?;
+		// Finish the build. Ignore any errors that arise.
+		let _ = build.finish(self, user, outcome).await;
 
 		// Drop the permit.
 		drop(permit);

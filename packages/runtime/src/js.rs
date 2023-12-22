@@ -72,7 +72,7 @@ pub async fn build(
 	retry: tg::build::Retry,
 	mut stop: tokio::sync::watch::Receiver<bool>,
 	main_runtime_handle: tokio::runtime::Handle,
-) -> Result<Option<tg::Value>> {
+) -> Result<tg::build::Outcome> {
 	// Get the target.
 	let target = build.target(tg).await?;
 
@@ -146,7 +146,7 @@ pub async fn build(
 	let value = poll_fn(|cx| {
 		loop {
 			if let Poll::Ready(_) = stop_changed.poll_unpin(cx) {
-				return Poll::Ready(Ok(None));
+				return Poll::Ready(Ok(tg::build::Outcome::Canceled));
 			}
 
 			// Poll the futures.
@@ -204,7 +204,7 @@ pub async fn build(
 							return Poll::Ready(Err(error));
 						},
 					};
-					Ok(Some(output))
+					Ok(tg::build::Outcome::Succeeded(output))
 				},
 
 				// If the promise is rejected, then return the error.
@@ -226,7 +226,7 @@ pub async fn build(
 					return Poll::Ready(Err(error));
 				},
 			};
-			Ok(Some(output))
+			Ok(tg::build::Outcome::Succeeded(output))
 		};
 
 		Poll::Ready(result)
