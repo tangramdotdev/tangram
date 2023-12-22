@@ -292,12 +292,6 @@ pub async fn build(
 	// Set up the sandbox.
 	unsafe {
 		command.pre_exec(move || {
-			// Make this the process group leader.
-			let ret = libc::setpgid(0, 0);
-			if ret < 0 {
-				return Err(std::io::Error::last_os_error());
-			}
-
 			// Call `sandbox_init`.
 			let error = std::ptr::null_mut::<*const libc::c_char>();
 			let ret = sandbox_init(profile.as_ptr(), 0, error);

@@ -408,14 +408,14 @@ impl Server {
 		// Finish the build.
 		build.finish(self, user, outcome).await?;
 
+		// Drop the permit.
+		drop(permit);
+
 		// Send a message to the build queue task that the build has finished.
 		self.inner
 			.build_queue_task_sender
 			.send(BuildQueueTaskMessage::BuildFinished)
 			.unwrap();
-
-		// Drop the permit.
-		drop(permit);
 
 		Ok(())
 	}
