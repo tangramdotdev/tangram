@@ -390,32 +390,31 @@ impl Server {
 			},
 		};
 
-		tracing::info!(?id, ?result, "Build completed.");
+		tracing::debug!(?id, ?result, "Build returned.");
 
 		// Create the outcome.
 		let outcome = match result {
-			Ok(outcome) => outcome,
+			// If there's no result then we can't do anything else. We assume this means the build was canceled and build.finish() was already called.
+			Ok(None) => return Ok(()),
+			Ok(Some(value)) => tg::build::Outcome::Succeeded(value),
 			Err(error) => tg::build::Outcome::Failed(error),
 		};
 
-		// If theb build failed, add a message to the build's log.
+		// If the build failed, add a message to the build's log.
 		if let tg::build::Outcome::Failed(error) = &outcome {
 			build
 				.add_log(self, error.trace().to_string().into())
 				.await?;
 		}
 
-		// If the build was canceled then it has already been finished.
-		if !outcome.canceled() {
-			// Finish the build.
-			build.finish(self, user, outcome).await?;
+		// Finish the build.
+		build.finish(self, user, outcome).await?;
 
-			// Send a message to the build queue task that the build has finished.
-			self.inner
-				.build_queue_task_sender
-				.send(BuildQueueTaskMessage::BuildFinished)
-				.unwrap();
-		}
+		// Send a message to the build queue task that the build has finished.
+		self.inner
+			.build_queue_task_sender
+			.send(BuildQueueTaskMessage::BuildFinished)
+			.unwrap();
 
 		// Drop the permit.
 		drop(permit);

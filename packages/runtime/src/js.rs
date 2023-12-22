@@ -2,7 +2,7 @@ use self::{
 	convert::{from_v8, ToV8},
 	syscall::syscall,
 };
-use futures::{future::LocalBoxFuture, stream::FuturesUnordered, StreamExt};
+use futures::{future::LocalBoxFuture, stream::FuturesUnordered, FutureExt, StreamExt};
 use num::ToPrimitive;
 use sourcemap::SourceMap;
 use std::{
@@ -70,7 +70,7 @@ pub async fn build(
 	build: &tg::Build,
 	depth: u64,
 	retry: tg::build::Retry,
-	stop: tokio::sync::watch::Receiver<bool>,
+	mut stop: tokio::sync::watch::Receiver<bool>,
 	main_runtime_handle: tokio::runtime::Handle,
 ) -> Result<Option<tg::Value>> {
 	// Get the target.
@@ -142,14 +142,11 @@ pub async fn build(
 	};
 
 	// Await the output.
+	let mut stop_changed = Box::pin(stop.changed());
 	let value = poll_fn(|cx| {
 		loop {
-			// First check if we need to stop.
-			match stop.has_changed() {
-				Ok(true) | Err(_) => {
-					return Poll::Ready(Ok(None));
-				},
-				_ => (),
+			if let Poll::Ready(_) = stop_changed.poll_unpin(cx) {
+				return Poll::Ready(Ok(None));
 			}
 
 			// Poll the futures.

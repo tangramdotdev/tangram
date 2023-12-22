@@ -20,7 +20,7 @@ pub async fn build(
 	_retry: tg::build::Retry,
 	mut stop: tokio::sync::watch::Receiver<bool>,
 	server_directory_path: &Path,
-) -> Result<Option<tg:Value>> {
+) -> Result<Option<tg: Value>> {
 	// Get the target.
 	let target = build.target(tg).await?;
 

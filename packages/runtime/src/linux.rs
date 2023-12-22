@@ -538,11 +538,12 @@ pub async fn build(
 			// Stop listening to logs.
 			log_task.abort();
 
-			// Kill the guest and root process. TODO: do we need to kill both, or just the root?
-			unsafe {
-				libc::kill(guest_process_pid, libc::SIGKILL);
-				libc::kill(root_process_pid, libc::SIGKILL);
-			};
+			// Kill the root process.
+			let ret = unsafe { libc::kill(root_process_pid, libc::SIGKILL) };
+			if ret != 0 {
+				return Err(std::io::Error::last_os_error())
+					.wrap_err("Failed to kill root process.");
+			}
 			return Ok(None);
 		},
 		kind = host_socket.read_u8() => {
