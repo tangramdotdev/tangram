@@ -72,28 +72,26 @@ pub async fn build(
 	stop: tokio::sync::watch::Receiver<bool>,
 	main_runtime_handle: tokio::runtime::Handle,
 ) -> Result<tg::build::Outcome> {
+	let (tx, rx) = tokio::sync::oneshot::channel();
+
+	// Run the build on a new thread.
 	let tg = tg.clone_box();
 	let build = build.clone();
+	std::thread::spawn(move || {
+		let future = build_inner(
+			tg.as_ref(),
+			&build,
+			depth,
+			retry,
+			stop,
+			main_runtime_handle.clone(),
+		);
+		let result = main_runtime_handle.block_on(future);
+		let _ = tx.send(result);
+	});
 
-	// Spawn a new blocking task that waits for the build thread to join.
-	tokio::task::spawn_blocking(move || {
-		// Run the build on a dedicated thread.
-		std::thread::spawn(move || {
-			let future = build_inner(
-				tg.as_ref(),
-				&build,
-				depth,
-				retry,
-				stop,
-				main_runtime_handle.clone(),
-			);
-			main_runtime_handle.block_on(future)
-		})
-		.join()
-		.map_err(|_| error!("Failed to join the thread."))
-	})
-	.await
-	.wrap_err("Failed to join the task.")??
+	// Await the build result.
+	rx.await.wrap_err("Build thread failed")?
 }
 
 #[allow(clippy::too_many_lines)]
