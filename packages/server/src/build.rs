@@ -327,8 +327,6 @@ impl Server {
 		retry: tg::build::Retry,
 		permit: Option<tokio::sync::OwnedSemaphorePermit>,
 	) -> Result<()> {
-		tracing::info!(?id, "Starting build.");
-
 		let build = tg::Build::with_id(id.clone());
 		let target = build.target(self).await?;
 		let stop = self
