@@ -64,8 +64,40 @@ std::thread_local! {
 }
 
 /// Start a JS build. Returns Ok(None) if cancelled.
-#[allow(clippy::too_many_lines)]
 pub async fn build(
+	tg: &dyn tg::Handle,
+	build: &tg::Build,
+	depth: u64,
+	retry: tg::build::Retry,
+	stop: tokio::sync::watch::Receiver<bool>,
+	main_runtime_handle: tokio::runtime::Handle,
+) -> Result<tg::build::Outcome> {
+	let tg = tg.clone_box();
+	let build = build.clone();
+
+	// Spawn a new blocking task that waits for the build thread to join.
+	tokio::task::spawn_blocking(move || {
+		// Run the build on a dedicated thread.
+		std::thread::spawn(move || {
+			let future = build_inner(
+				tg.as_ref(),
+				&build,
+				depth,
+				retry,
+				stop,
+				main_runtime_handle.clone(),
+			);
+			main_runtime_handle.block_on(future)
+		})
+		.join()
+		.map_err(|_| error!("Failed to join the thread."))
+	})
+	.await
+	.wrap_err("Failed to join the task.")??
+}
+
+#[allow(clippy::too_many_lines)]
+async fn build_inner(
 	tg: &dyn tg::Handle,
 	build: &tg::Build,
 	depth: u64,
