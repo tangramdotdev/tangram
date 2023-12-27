@@ -364,38 +364,6 @@ impl Outcome {
 			Self::Succeeded(value) => data::Outcome::Succeeded(value.data(tg).await?),
 		})
 	}
-
-	pub fn terminated(&self) -> bool {
-		if let Outcome::Terminated = self {
-			true
-		} else {
-			false
-		}
-	}
-
-	pub fn canceled(&self) -> bool {
-		if let Outcome::Canceled = self {
-			true
-		} else {
-			false
-		}
-	}
-
-	pub fn failed(&self) -> bool {
-		if let Outcome::Failed(_) = self {
-			true
-		} else {
-			false
-		}
-	}
-
-	pub fn succeeded(&self) -> bool {
-		if let Outcome::Succeeded(_) = self {
-			true
-		} else {
-			false
-		}
-	}
 }
 
 impl Data {
