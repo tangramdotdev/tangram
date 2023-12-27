@@ -1,11 +1,12 @@
 use crate::{
-	branch, directory, file, leaf, lock, return_error, symlink, target, Branch, Directory, Error,
-	File, Leaf, Lock, Result, Symlink, Target, WrapErr,
+	branch, directory, file, id, leaf, lock, return_error, symlink, target, Branch, Directory,
+	Error, File, Leaf, Lock, Result, Symlink, Target, WrapErr,
 };
 use async_recursion::async_recursion;
 use bytes::Bytes;
-use derive_more::{From, TryInto, TryUnwrap};
+use derive_more::{Display, From, TryInto, TryUnwrap};
 use futures::{stream::FuturesUnordered, TryStreamExt};
+use tangram_error::error;
 
 /// An object kind.
 #[derive(Clone, Copy, Debug)]
@@ -20,7 +21,20 @@ pub enum Kind {
 }
 
 /// An object ID.
-#[derive(Clone, Debug, From, TryInto, TryUnwrap, serde::Deserialize, serde::Serialize)]
+#[derive(
+	Clone,
+	Debug,
+	Display,
+	Eq,
+	From,
+	Hash,
+	Ord,
+	PartialEq,
+	PartialOrd,
+	serde::Deserialize,
+	serde::Serialize,
+	TryUnwrap,
+)]
 #[serde(into = "crate::Id", try_from = "crate::Id")]
 #[try_unwrap(ref)]
 pub enum Id {
@@ -160,24 +174,25 @@ impl Handle {
 		let id = self.id(tg).await?;
 		let data = self.data(tg).await?;
 		let bytes = data.serialize()?;
-		if let Err(missing_children) = remote
+		let missing = remote
 			.try_put_object(&id.clone(), &bytes)
 			.await
-			.wrap_err("Failed to put the object.")?
-		{
-			missing_children
+			.wrap_err("Failed to put the object.")?;
+		if !missing.is_empty() {
+			missing
 				.into_iter()
 				.map(Self::with_id)
 				.map(|object| async move { object.push(tg, remote).await })
 				.collect::<FuturesUnordered<_>>()
 				.try_collect()
 				.await?;
-			remote
+			let missing = remote
 				.try_put_object(&id.clone(), &bytes)
 				.await
-				.wrap_err("Failed to put the object.")?
-				.ok()
-				.wrap_err("Expected all children to be stored.")?;
+				.wrap_err("Failed to put the object.")?;
+			if !missing.is_empty() {
+				return_error!("Expected all children to be stored.");
+			}
 		}
 		Ok(())
 	}
@@ -317,24 +332,41 @@ impl TryFrom<crate::Id> for self::Id {
 	}
 }
 
-impl std::fmt::Display for Id {
-	fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-		match self {
-			Self::Leaf(id) => write!(f, "{id}"),
-			Self::Branch(id) => write!(f, "{id}"),
-			Self::Directory(id) => write!(f, "{id}"),
-			Self::File(id) => write!(f, "{id}"),
-			Self::Symlink(id) => write!(f, "{id}"),
-			Self::Lock(id) => write!(f, "{id}"),
-			Self::Target(id) => write!(f, "{id}"),
-		}
-	}
-}
-
 impl std::str::FromStr for Id {
 	type Err = Error;
 
 	fn from_str(s: &str) -> Result<Self, Self::Err> {
 		crate::Id::from_str(s)?.try_into()
+	}
+}
+
+impl From<Kind> for id::Kind {
+	fn from(value: Kind) -> Self {
+		match value {
+			Kind::Leaf => Self::Leaf,
+			Kind::Branch => Self::Branch,
+			Kind::Directory => Self::Directory,
+			Kind::File => Self::File,
+			Kind::Symlink => Self::Symlink,
+			Kind::Lock => Self::Lock,
+			Kind::Target => Self::Target,
+		}
+	}
+}
+
+impl TryFrom<id::Kind> for Kind {
+	type Error = Error;
+
+	fn try_from(value: id::Kind) -> std::prelude::v1::Result<Self, Self::Error> {
+		match value {
+			id::Kind::Leaf => Ok(Self::Leaf),
+			id::Kind::Branch => Ok(Self::Branch),
+			id::Kind::Directory => Ok(Self::Directory),
+			id::Kind::File => Ok(Self::File),
+			id::Kind::Symlink => Ok(Self::Symlink),
+			id::Kind::Lock => Ok(Self::Lock),
+			id::Kind::Target => Ok(Self::Target),
+			_ => Err(error!("Invalid kind.")),
+		}
 	}
 }

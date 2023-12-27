@@ -7,14 +7,47 @@ use tg::object;
 
 impl Server {
 	pub async fn get_object_exists(&self, id: &object::Id) -> Result<bool> {
+		// 'a: {
+		// 	let txn = self
+		// 		.inner
+		// 		.store
+		// 		.env
+		// 		.begin_ro_txn()
+		// 		.wrap_err("Failed to create the transaction.")?;
+		// 	match txn.get(self.inner.store.objects, &id.to_string()) {
+		// 		Ok(_) => return Ok(true),
+		// 		Err(lmdb::Error::NotFound) => break 'a,
+		// 		Err(error) => return Err(error.wrap("Failed to get the object.")),
+		// 	}
+		// }
+
 		// Check if the object exists in the database.
-		{
-			if self.inner.database.get_object_exists(id)? {
-				return Ok(true);
+		'a: {
+			let db = self.inner.database.pool.get().await;
+			let mut statement = db
+				.prepare_cached(
+					"
+						select count(*) != 0
+						from objects
+						where id = ?1;
+					",
+				)
+				.wrap_err("Failed to prepare the query.")?;
+			let mut rows = statement
+				.query([id.to_string()])
+				.wrap_err("Failed to execute the query.")?;
+			let row = rows
+				.next()
+				.wrap_err("Failed to retrieve the row.")?
+				.wrap_err("Expected a row.")?;
+			let exists = row.get::<_, bool>(0).wrap_err("Expected a bool.")?;
+			if !exists {
+				break 'a;
 			}
+			return Ok(true);
 		}
 
-		// Check if the object exists in the remote.
+		// Check if the object exists on the remote server.
 		'a: {
 			let Some(remote) = self.inner.remote.as_ref() else {
 				break 'a;
@@ -28,12 +61,41 @@ impl Server {
 	}
 
 	pub async fn try_get_object(&self, id: &object::Id) -> Result<Option<Bytes>> {
+		// 'a: {
+		// 	let txn = self
+		// 		.inner
+		// 		.store
+		// 		.env
+		// 		.begin_ro_txn()
+		// 		.wrap_err("Failed to create the transaction.")?;
+		// 	let bytes = match txn.get(self.inner.store.objects, &id.to_string()) {
+		// 		Ok(bytes) => Bytes::copy_from_slice(bytes),
+		// 		Err(lmdb::Error::NotFound) => break 'a,
+		// 		Err(error) => return Err(error.wrap("Failed to get the object.")),
+		// 	};
+		// 	return Ok(Some(bytes));
+		// }
+
 		// Attempt to get the object from the database.
 		'a: {
-			let Some(object) = self.inner.database.try_get_object(id)? else {
+			let db = self.inner.database.pool.get().await;
+			let mut statement = db
+				.prepare_cached(
+					"
+						select bytes
+						from objects
+						where id = ?1;
+					",
+				)
+				.wrap_err("Failed to prepare the query.")?;
+			let mut rows = statement
+				.query([id.to_string()])
+				.wrap_err("Failed to execute the query.")?;
+			let Some(row) = rows.next().wrap_err("Failed to retrieve the row.")? else {
 				break 'a;
 			};
-			return Ok(Some(object));
+			let bytes = row.get::<_, Vec<u8>>(0).wrap_err("Expected bytes.")?.into();
+			return Ok(Some(bytes));
 		}
 
 		'a: {
@@ -41,13 +103,42 @@ impl Server {
 				break 'a;
 			};
 
-			// Get the object from the remote.
+			// Get the object from the remote server.
 			let Some(bytes) = remote.try_get_object(id).await? else {
 				break 'a;
 			};
 
+			// // Add the object to the store.
+			// let mut txn = self
+			// 	.inner
+			// 	.store
+			// 	.env
+			// 	.begin_rw_txn()
+			// 	.wrap_err("Failed to create the transaction.")?;
+			// txn.put(
+			// 	self.inner.store.objects,
+			// 	&id.to_string(),
+			// 	&bytes,
+			// 	lmdb::WriteFlags::empty(),
+			// )
+			// .wrap_err("Failed to put the object.")?;
+			// txn.commit().wrap_err("Failed to commit the transaction.")?;
+
 			// Add the object to the database.
-			self.inner.database.put_object(id, &bytes)?;
+			let db = self.inner.database.pool.get().await;
+			let mut statement = db
+				.prepare_cached(
+					"
+						insert into objects (id, bytes)
+						values (?1, ?2)
+						on conflict (id) do update set bytes = ?2;
+					",
+				)
+				.wrap_err("Failed to prepare the query.")?;
+			let params = rusqlite::params![id.to_string(), bytes.to_vec()];
+			statement
+				.execute(params)
+				.wrap_err("Failed to execute the query.")?;
 
 			return Ok(Some(bytes));
 		}
@@ -55,17 +146,21 @@ impl Server {
 		Ok(None)
 	}
 
-	pub async fn try_put_object(
-		&self,
-		id: &object::Id,
-		bytes: &Bytes,
-	) -> Result<Result<(), Vec<object::Id>>> {
-		// Deserialize the object.
-		let data = object::Data::deserialize(id.kind(), bytes)
-			.wrap_err("Failed to serialize the data.")?;
+	pub async fn try_put_object(&self, id: &object::Id, bytes: &Bytes) -> Result<Vec<object::Id>> {
+		// Deserialize the data.
+		let data = tg::object::Data::deserialize(id.kind(), bytes)
+			.wrap_err("Failed to deserialize the data.")?;
+
+		// Verify the ID.
+		let verified_id: tg::object::Id = tg::Id::new_blake3(data.kind().into(), bytes)
+			.try_into()
+			.unwrap();
+		if id != &verified_id {
+			return_error!("The ID does not match the data.");
+		}
 
 		// Check if there are any missing children.
-		let missing_children = stream::iter(data.children())
+		let missing = stream::iter(data.children())
 			.map(Ok)
 			.try_filter_map(|id| async move {
 				let exists = self.get_object_exists(&id).await?;
@@ -73,14 +168,43 @@ impl Server {
 			})
 			.try_collect::<Vec<_>>()
 			.await?;
-		if !missing_children.is_empty() {
-			return Ok(Err(missing_children));
+		if !missing.is_empty() {
+			return Ok(missing);
 		}
 
-		// Add the object to the database.
-		self.inner.database.put_object(id, bytes)?;
+		// // Add the object to the store.
+		// let mut txn = self
+		// 	.inner
+		// 	.store
+		// 	.env
+		// 	.begin_rw_txn()
+		// 	.wrap_err("Failed to create the transaction.")?;
+		// txn.put(
+		// 	self.inner.store.objects,
+		// 	&id.to_string(),
+		// 	&bytes,
+		// 	lmdb::WriteFlags::empty(),
+		// )
+		// .wrap_err("Failed to put the object.")?;
+		// txn.commit().wrap_err("Failed to commit the transaction.")?;
 
-		Ok(Ok(()))
+		// Add the object to the database.
+		let db = self.inner.database.pool.get().await;
+		let mut statement = db
+			.prepare_cached(
+				"
+						insert into objects (id, bytes)
+						values (?1, ?2)
+						on conflict (id) do update set bytes = ?2;
+				",
+			)
+			.wrap_err("Failed to prepare the query.")?;
+		let params = rusqlite::params![id.to_string(), bytes.to_vec()];
+		statement
+			.execute(params)
+			.wrap_err("Failed to execute the query.")?;
+
+		Ok(vec![])
 	}
 
 	pub async fn push_object(&self, id: &tg::object::Id) -> Result<()> {

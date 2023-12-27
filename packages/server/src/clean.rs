@@ -4,18 +4,16 @@ use tangram_error::{Result, WrapErr};
 
 impl Server {
 	pub async fn clean(&self) -> Result<()> {
-		// Clear the database.
+		// Clear the store.
 		{
 			let mut txn = self
 				.inner
-				.database
+				.store
 				.env
 				.begin_rw_txn()
 				.wrap_err("Failed to begin a transaction.")?;
-			txn.clear_db(self.inner.database.objects)
+			txn.clear_db(self.inner.store.objects)
 				.wrap_err("Failed to clear the objects.")?;
-			txn.clear_db(self.inner.database.assignments)
-				.wrap_err("Failed to clear the assignments.")?;
 			txn.commit().wrap_err("Failed to commit the transaction.")?;
 		}
 

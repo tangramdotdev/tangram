@@ -149,7 +149,7 @@ impl std::fmt::Display for Kind {
 impl std::str::FromStr for Kind {
 	type Err = Error;
 
-	fn from_str(s: &str) -> std::prelude::v1::Result<Self, Self::Err> {
+	fn from_str(s: &str) -> Result<Self, Self::Err> {
 		Ok(match s {
 			"lef" => Kind::Leaf,
 			"bch" => Kind::Branch,

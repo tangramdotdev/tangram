@@ -30,11 +30,7 @@ pub trait Handle: Send + Sync + 'static {
 
 	async fn try_get_object(&self, id: &object::Id) -> Result<Option<Bytes>>;
 
-	async fn try_put_object(
-		&self,
-		id: &object::Id,
-		bytes: &Bytes,
-	) -> Result<Result<(), Vec<object::Id>>>;
+	async fn try_put_object(&self, id: &object::Id, bytes: &Bytes) -> Result<Vec<object::Id>>;
 
 	async fn push_object(&self, id: &object::Id) -> Result<()>;
 
@@ -44,17 +40,17 @@ pub trait Handle: Send + Sync + 'static {
 
 	async fn check_out_artifact(&self, id: &artifact::Id, path: &crate::Path) -> Result<()>;
 
-	async fn try_get_build_for_target(&self, id: &target::Id) -> Result<Option<build::Id>>;
+	async fn try_get_assignment(&self, target_id: &target::Id) -> Result<Option<build::Id>>;
 
-	async fn get_or_create_build_for_target(
+	async fn get_or_create_build(
 		&self,
 		user: Option<&User>,
-		id: &target::Id,
+		target_id: &target::Id,
 		depth: u64,
 		retry: build::Retry,
 	) -> Result<build::Id>;
 
-	async fn get_build_from_queue(
+	async fn try_get_queue_item(
 		&self,
 		user: Option<&User>,
 		hosts: Option<Vec<system::System>>,

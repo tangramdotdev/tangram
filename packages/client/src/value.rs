@@ -90,17 +90,29 @@ pub enum Data {
 }
 
 impl Value {
-	pub fn object(&self) -> Option<object::Handle> {
+	pub fn objects(&self) -> Vec<object::Handle> {
 		match self {
-			Self::Leaf(leaf) => Some(object::Handle::Leaf(leaf.clone())),
-			Self::Branch(branch) => Some(object::Handle::Branch(branch.clone())),
-			Self::Directory(directory) => Some(object::Handle::Directory(directory.clone())),
-			Self::File(file) => Some(object::Handle::File(file.clone())),
-			Self::Symlink(symlink) => Some(object::Handle::Symlink(symlink.clone())),
-			Self::Lock(lock) => Some(object::Handle::Lock(lock.clone())),
-			Self::Target(target) => Some(object::Handle::Target(target.clone())),
-			_ => None,
+			Self::Array(array) => array.iter().flat_map(Self::objects).collect(),
+			Self::Map(map) => map.values().flat_map(Self::objects).collect(),
+			Self::Leaf(leaf) => vec![object::Handle::Leaf(leaf.clone())],
+			Self::Branch(branch) => vec![object::Handle::Branch(branch.clone())],
+			Self::Directory(directory) => vec![object::Handle::Directory(directory.clone())],
+			Self::File(file) => vec![object::Handle::File(file.clone())],
+			Self::Symlink(symlink) => vec![object::Handle::Symlink(symlink.clone())],
+			Self::Lock(lock) => vec![object::Handle::Lock(lock.clone())],
+			Self::Target(target) => vec![object::Handle::Target(target.clone())],
+			_ => vec![],
 		}
+	}
+
+	pub async fn push(&self, tg: &dyn crate::Handle, remote: &dyn crate::Handle) -> Result<()> {
+		self.objects()
+			.iter()
+			.map(|object| object.push(tg, remote))
+			.collect::<FuturesUnordered<_>>()
+			.try_collect()
+			.await?;
+		Ok(())
 	}
 
 	#[async_recursion]

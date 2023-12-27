@@ -4,7 +4,6 @@ use futures::{stream::FusedStream, StreamExt};
 use num::ToPrimitive;
 use ratatui as tui;
 use std::{
-	borrow::BorrowMut,
 	collections::VecDeque,
 	sync::{
 		atomic::{AtomicBool, AtomicUsize},
@@ -886,7 +885,7 @@ impl Log {
 
 		// If there are still not enough lines, set scroll to None so we tail.
 		if self.inner.lines.lock().unwrap().len() < rect.height.to_usize().unwrap() {
-			*scroll.borrow_mut() = None;
+			*scroll = None;
 		}
 
 		// If there are enough lines but we aren't at the bottom, set scroll so we don't tail.
@@ -895,7 +894,7 @@ impl Log {
 		if self.inner.lines.lock().unwrap().len() == rect.height.to_usize().unwrap()
 			&& lines_file_offset_end < file_bytes
 		{
-			*scroll.borrow_mut() = Some(*self.inner.lines_file_offset_start.lock().unwrap());
+			*scroll = Some(*self.inner.lines_file_offset_start.lock().unwrap());
 		}
 
 		Ok(())
@@ -965,9 +964,9 @@ impl Log {
 		// Update the scroll.
 		if seek == file_bytes {
 			// We are at the bottom.
-			*scroll.borrow_mut() = None;
+			*scroll = None;
 		} else {
-			*scroll.borrow_mut() = Some(*lines_file_offset_start);
+			*scroll = Some(*lines_file_offset_start);
 		}
 
 		Ok(())
@@ -991,7 +990,7 @@ impl Log {
 
 		// Update the scroll.
 		let lines_file_offset_start = self.inner.lines_file_offset_start.lock().unwrap();
-		*scroll.borrow_mut() = Some(*lines_file_offset_start);
+		*scroll = Some(*lines_file_offset_start);
 
 		Ok(())
 	}

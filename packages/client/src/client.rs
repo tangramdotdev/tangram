@@ -386,11 +386,7 @@ impl Handle for Client {
 		Ok(Some(bytes))
 	}
 
-	async fn try_put_object(
-		&self,
-		id: &object::Id,
-		bytes: &Bytes,
-	) -> Result<Result<(), Vec<object::Id>>> {
+	async fn try_put_object(&self, id: &object::Id, bytes: &Bytes) -> Result<Vec<object::Id>> {
 		let body = full(bytes.clone());
 		let request = http::request::Builder::default()
 			.method(http::Method::PUT)
@@ -398,20 +394,17 @@ impl Handle for Client {
 			.body(body)
 			.wrap_err("Failed to create the request.")?;
 		let response = self.send(request).await?;
-		if response.status() == http::StatusCode::BAD_REQUEST {
-			let bytes = response
-				.collect()
-				.await
-				.wrap_err("Failed to collect the response body.")?
-				.to_bytes();
-			let missing_children =
-				serde_json::from_slice(&bytes).wrap_err("Failed to deserialize the body.")?;
-			return Ok(Err(missing_children));
-		}
 		if !response.status().is_success() {
 			return_error!("Expected the response's status to be success.");
 		}
-		Ok(Ok(()))
+		let bytes = response
+			.collect()
+			.await
+			.wrap_err("Failed to collect the response body.")?
+			.to_bytes();
+		let missing_children =
+			serde_json::from_slice(&bytes).wrap_err("Failed to deserialize the body.")?;
+		return Ok(missing_children);
 	}
 
 	async fn push_object(&self, id: &object::Id) -> Result<()> {
@@ -479,7 +472,7 @@ impl Handle for Client {
 		Ok(())
 	}
 
-	async fn try_get_build_for_target(&self, id: &target::Id) -> Result<Option<build::Id>> {
+	async fn try_get_assignment(&self, id: &target::Id) -> Result<Option<build::Id>> {
 		let request = http::request::Builder::default()
 			.method(http::Method::GET)
 			.uri(format!("/v1/targets/{id}/build"))
@@ -501,7 +494,7 @@ impl Handle for Client {
 		Ok(Some(id))
 	}
 
-	async fn get_or_create_build_for_target(
+	async fn get_or_create_build(
 		&self,
 		user: Option<&User>,
 		id: &target::Id,
@@ -535,7 +528,7 @@ impl Handle for Client {
 		Ok(id)
 	}
 
-	async fn get_build_from_queue(
+	async fn try_get_queue_item(
 		&self,
 		user: Option<&User>,
 		hosts: Option<Vec<System>>,

@@ -112,15 +112,15 @@ impl Server {
 
 			// Builds
 			(http::Method::GET, ["v1", "targets", _, "build"]) => self
-				.handle_get_build_for_target_request(request)
+				.handle_get_assignment_request(request)
 				.map(Some)
 				.boxed(),
 			(http::Method::POST, ["v1", "targets", _, "build"]) => self
-				.handle_get_or_create_build_for_target_request(request)
+				.handle_get_or_create_build_request(request)
 				.map(Some)
 				.boxed(),
 			(http::Method::GET, ["v1", "builds", "queue"]) => self
-				.handle_get_build_queue_item_request(request)
+				.handle_get_queue_item_request(request)
 				.map(Some)
 				.boxed(),
 			(http::Method::GET, ["v1", "builds", _, "status"]) => self
@@ -280,7 +280,7 @@ impl Server {
 			.unwrap())
 	}
 
-	async fn handle_get_build_queue_item_request(
+	async fn handle_get_queue_item_request(
 		&self,
 		request: http::Request<Incoming>,
 	) -> Result<hyper::Response<Outgoing>> {
@@ -299,7 +299,7 @@ impl Server {
 			None
 		};
 
-		let build_id = self.get_build_from_queue(user.as_ref(), hosts).await?;
+		let build_id = self.try_get_queue_item(user.as_ref(), hosts).await?;
 
 		// Create the response.
 		let body = serde_json::to_vec(&build_id).wrap_err("Failed to serialize the ID.")?;
@@ -307,7 +307,7 @@ impl Server {
 		Ok(response)
 	}
 
-	async fn handle_get_build_for_target_request(
+	async fn handle_get_assignment_request(
 		&self,
 		request: http::Request<Incoming>,
 	) -> Result<http::Response<Outgoing>> {
@@ -318,8 +318,8 @@ impl Server {
 		};
 		let id = id.parse().wrap_err("Failed to parse the ID.")?;
 
-		// Attempt to get the build for the target.
-		let Some(build_id) = self.try_get_build_for_target(&id).await? else {
+		// Attempt to get the assignment.
+		let Some(build_id) = self.try_get_assignment(&id).await? else {
 			return Ok(not_found());
 		};
 
@@ -329,7 +329,7 @@ impl Server {
 		Ok(response)
 	}
 
-	async fn handle_get_or_create_build_for_target_request(
+	async fn handle_get_or_create_build_request(
 		&self,
 		request: http::Request<Incoming>,
 	) -> Result<http::Response<Outgoing>> {
@@ -352,9 +352,9 @@ impl Server {
 		// Get the user.
 		let user = self.try_get_user_from_request(&request).await?;
 
-		// Get or create the build for the target.
+		// Get or create the build.
 		let build_id = self
-			.get_or_create_build_for_target(user.as_ref(), &id, depth, retry)
+			.get_or_create_build(user.as_ref(), &id, depth, retry)
 			.await?;
 
 		// Create the response.
@@ -708,21 +708,16 @@ impl Server {
 			.to_bytes();
 
 		// Put the object.
-		let result = self.try_put_object(&id, &bytes).await?;
+		let missing = self.try_put_object(&id, &bytes).await?;
 
-		// If there are missing children, then return a bad request response.
-		if let Err(missing_children) = result {
-			let body = serde_json::to_vec(&missing_children)
-				.wrap_err("Failed to serialize the missing children.")?;
-			let response = http::Response::builder()
-				.status(http::StatusCode::BAD_REQUEST)
-				.body(full(body))
-				.unwrap();
-			return Ok(response);
-		}
-
-		// Otherwise, return an ok response.
-		Ok(ok())
+		// Create the response.
+		let body =
+			serde_json::to_vec(&missing).wrap_err("Failed to serialize the missing children.")?;
+		let response = http::Response::builder()
+			.status(http::StatusCode::OK)
+			.body(full(body))
+			.unwrap();
+		Ok(response)
 	}
 
 	async fn handle_check_in_artifact_request(

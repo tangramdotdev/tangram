@@ -1,7 +1,7 @@
-pub use self::data::Data;
+pub use self::outcome::Outcome;
 use crate::{id, Error, Handle, Result, Target, User, Value, WrapErr};
 use bytes::Bytes;
-use derive_more::{Display, TryUnwrap};
+use derive_more::Display;
 use futures::{stream::BoxStream, StreamExt, TryStreamExt};
 use tangram_error::return_error;
 
@@ -25,22 +25,38 @@ pub struct Build {
 	id: Id,
 }
 
-#[derive(Clone, Copy, Debug, Eq, PartialEq, serde::Deserialize, serde::Serialize, TryUnwrap)]
-#[try_unwrap(ref)]
+#[derive(Clone, Copy, Debug, Eq, PartialEq, serde::Deserialize, serde::Serialize)]
+#[serde(into = "String", try_from = "String")]
 pub enum Status {
 	Queued,
 	Running,
 	Finished,
 }
 
-#[derive(Clone, Debug, serde::Deserialize, TryUnwrap)]
-#[serde(try_from = "data::Outcome")]
-#[try_unwrap(ref)]
-pub enum Outcome {
-	Terminated,
-	Canceled,
-	Failed(Error),
-	Succeeded(Value),
+pub mod outcome {
+	use crate::{value, Value};
+	use derive_more::TryUnwrap;
+	use tangram_error::Error;
+
+	#[derive(Clone, Debug, serde::Deserialize, TryUnwrap)]
+	#[serde(try_from = "Data")]
+	#[try_unwrap(ref)]
+	pub enum Outcome {
+		Terminated,
+		Canceled,
+		Failed(Error),
+		Succeeded(Value),
+	}
+
+	#[derive(Clone, Debug, serde::Deserialize, serde::Serialize, TryUnwrap)]
+	#[serde(rename_all = "snake_case", tag = "kind", content = "value")]
+	#[try_unwrap(ref)]
+	pub enum Data {
+		Terminated,
+		Canceled,
+		Failed(Error),
+		Succeeded(value::Data),
+	}
 }
 
 #[derive(
@@ -62,31 +78,6 @@ pub enum Retry {
 	Canceled,
 	Failed,
 	Succeeded,
-}
-
-pub mod data {
-	use super::Id;
-	use crate::{blob, target, value};
-	use derive_more::TryUnwrap;
-	use tangram_error::Error;
-
-	#[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
-	pub struct Data {
-		pub target: target::Id,
-		pub children: Vec<Id>,
-		pub log: blob::Id,
-		pub outcome: Outcome,
-	}
-
-	#[derive(Clone, Debug, serde::Deserialize, serde::Serialize, TryUnwrap)]
-	#[serde(rename_all = "camelCase", tag = "kind", content = "value")]
-	#[try_unwrap(ref)]
-	pub enum Outcome {
-		Terminated,
-		Canceled,
-		Failed(Error),
-		Succeeded(value::Data),
-	}
 }
 
 impl Id {
@@ -223,74 +214,25 @@ impl Outcome {
 		}
 	}
 
-	pub async fn data(&self, tg: &dyn Handle) -> Result<data::Outcome> {
+	pub async fn data(&self, tg: &dyn Handle) -> Result<outcome::Data> {
 		Ok(match self {
-			Self::Terminated => data::Outcome::Terminated,
-			Self::Canceled => data::Outcome::Canceled,
-			Self::Failed(error) => data::Outcome::Failed(error.clone()),
-			Self::Succeeded(value) => data::Outcome::Succeeded(value.data(tg).await?),
+			Self::Terminated => outcome::Data::Terminated,
+			Self::Canceled => outcome::Data::Canceled,
+			Self::Failed(error) => outcome::Data::Failed(error.clone()),
+			Self::Succeeded(value) => outcome::Data::Succeeded(value.data(tg).await?),
 		})
 	}
 }
 
-impl Data {
-	pub fn serialize(&self) -> Result<Bytes> {
-		serde_json::to_vec(self)
-			.map(Into::into)
-			.wrap_err("Failed to serialize the data.")
-	}
-
-	pub fn deserialize(bytes: &Bytes) -> Result<Self> {
-		serde_json::from_reader(bytes.as_ref()).wrap_err("Failed to deserialize the data.")
-	}
-
-	// 	#[must_use]
-	// 	pub fn children(&self) -> Vec<object::Id> {
-	// 		let target = std::iter::once(self.target.clone().into());
-	// 		let children = self.children.iter().cloned().map(Into::into);
-	// 		let log = std::iter::once(self.log.clone().into());
-	// 		let outcome = self
-	// 			.outcome
-	// 			.try_unwrap_succeeded_ref()
-	// 			.ok()
-	// 			.map(value::Data::children)
-	// 			.into_iter()
-	// 			.flatten();
-	// 		std::iter::empty()
-	// 			.chain(target)
-	// 			.chain(children)
-	// 			.chain(log)
-	// 			.chain(outcome)
-	// 			.collect()
-	// 	}
-}
-
-// impl TryFrom<Data> for Object {
-// 	type Error = Error;
-
-// 	fn try_from(data: Data) -> std::result::Result<Self, Self::Error> {
-// 		let target = Target::with_id(data.target);
-// 		let children = data.children.into_iter().map(Build::with_id).collect();
-// 		let log = Blob::with_id(data.log);
-// 		let outcome = data.outcome.try_into()?;
-// 		Ok(Self {
-// 			target,
-// 			children,
-// 			log,
-// 			outcome,
-// 		})
-// 	}
-// }
-
-impl TryFrom<data::Outcome> for Outcome {
+impl TryFrom<outcome::Data> for Outcome {
 	type Error = Error;
 
-	fn try_from(data: data::Outcome) -> std::prelude::v1::Result<Self, Self::Error> {
+	fn try_from(data: outcome::Data) -> Result<Self, Self::Error> {
 		match data {
-			data::Outcome::Terminated => Ok(Outcome::Terminated),
-			data::Outcome::Canceled => Ok(Outcome::Canceled),
-			data::Outcome::Failed(error) => Ok(Outcome::Failed(error)),
-			data::Outcome::Succeeded(value) => Ok(Outcome::Succeeded(value.try_into()?)),
+			outcome::Data::Terminated => Ok(Outcome::Terminated),
+			outcome::Data::Canceled => Ok(Outcome::Canceled),
+			outcome::Data::Failed(error) => Ok(Outcome::Failed(error)),
+			outcome::Data::Succeeded(value) => Ok(Outcome::Succeeded(value.try_into()?)),
 		}
 	}
 }
@@ -320,6 +262,43 @@ impl std::str::FromStr for Id {
 	}
 }
 
+impl std::fmt::Display for Status {
+	fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+		match self {
+			Self::Queued => write!(f, "queued"),
+			Self::Running => write!(f, "running"),
+			Self::Finished => write!(f, "finished"),
+		}
+	}
+}
+
+impl std::str::FromStr for Status {
+	type Err = Error;
+
+	fn from_str(s: &str) -> Result<Self, Self::Err> {
+		match s {
+			"queued" => Ok(Self::Queued),
+			"running" => Ok(Self::Running),
+			"finished" => Ok(Self::Finished),
+			_ => return_error!("Invalid value."),
+		}
+	}
+}
+
+impl From<Status> for String {
+	fn from(value: Status) -> Self {
+		value.to_string()
+	}
+}
+
+impl TryFrom<String> for Status {
+	type Error = Error;
+
+	fn try_from(value: String) -> Result<Self, Self::Error> {
+		value.parse()
+	}
+}
+
 impl std::fmt::Display for Retry {
 	fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
 		match self {
@@ -334,13 +313,13 @@ impl std::fmt::Display for Retry {
 impl std::str::FromStr for Retry {
 	type Err = Error;
 
-	fn from_str(s: &str) -> std::prelude::v1::Result<Self, Self::Err> {
+	fn from_str(s: &str) -> Result<Self, Self::Err> {
 		match s {
-			"terminated" => Ok(Retry::Terminated),
-			"canceled" => Ok(Retry::Canceled),
-			"failed" => Ok(Retry::Failed),
-			"succeeded" => Ok(Retry::Succeeded),
-			_ => return_error!("Invalid retry."),
+			"terminated" => Ok(Self::Terminated),
+			"canceled" => Ok(Self::Canceled),
+			"failed" => Ok(Self::Failed),
+			"succeeded" => Ok(Self::Succeeded),
+			_ => return_error!("Invalid value."),
 		}
 	}
 }
@@ -354,7 +333,7 @@ impl From<Retry> for String {
 impl TryFrom<String> for Retry {
 	type Error = Error;
 
-	fn try_from(value: String) -> std::prelude::v1::Result<Self, Self::Error> {
+	fn try_from(value: String) -> Result<Self, Self::Error> {
 		value.parse()
 	}
 }

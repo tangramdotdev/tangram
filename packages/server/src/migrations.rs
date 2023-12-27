@@ -58,30 +58,46 @@ async fn migration_0000(path: &Path) -> Result<()> {
 	let path = path.to_owned();
 
 	// Create the database.
-	let database_path = path.join("database");
-	tokio::fs::File::create(&database_path)
-		.await
+	let db = rusqlite::Connection::open(path.join("database"))
 		.wrap_err("Failed to create the database.")?;
+	db.pragma_update(None, "journal_mode", "WAL")
+		.wrap_err("Failed to set the journal mode.")?;
+	db.execute_batch(
+		"
+			create table objects (
+				id text primary key,
+				bytes blob not null
+			) strict;
 
-	// Open the database.
-	let mut env_builder = lmdb::Environment::new();
-	env_builder.set_max_dbs(3);
-	env_builder.set_flags(lmdb::EnvironmentFlags::NO_SUB_DIR);
-	let env = env_builder
-		.open(&database_path)
-		.wrap_err("Failed to open the database.")?;
+			create table builds (
+				id text primary key,
+				json text not null
+			) strict;
+
+			create table assignments (
+				target text primary key,
+				build text not null
+			) strict;
+		",
+	)
+	.wrap_err("Failed to create the database tables.")?;
+
+	// Create the store.
+	let store_path = path.join("store");
+	tokio::fs::File::create(&store_path)
+		.await
+		.wrap_err("Failed to create the store.")?;
+
+	// Open the store.
+	let env = lmdb::Environment::new()
+		.set_max_dbs(1)
+		.set_flags(lmdb::EnvironmentFlags::NO_SUB_DIR)
+		.open(&store_path)
+		.wrap_err("Failed to open the store.")?;
 
 	// Create the objects database.
 	env.create_db("objects".into(), lmdb::DatabaseFlags::empty())
 		.wrap_err("Failed to create the objects database.")?;
-
-	// Create the assignments database.
-	env.create_db("assignments".into(), lmdb::DatabaseFlags::empty())
-		.wrap_err("Failed to create the assignments database.")?;
-
-	// Create the builds database.
-	env.create_db("builds".into(), lmdb::DatabaseFlags::empty())
-		.wrap_err("Failed to create the builds database.")?;
 
 	// Create the artifacts directory.
 	let artifacts_path = path.join("artifacts");
