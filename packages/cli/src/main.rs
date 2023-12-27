@@ -63,10 +63,19 @@ struct RemoteConfig {
 	url: Option<Url>,
 }
 
-#[tokio::main]
-async fn main() {
-	// Run the main function.
-	let result = main_inner().await;
+fn main() {
+	// Setup tracing.
+	setup_tracing();
+
+	// Initialize V8. Note: this must happen on the main thread.
+	initialize_v8();
+
+	// Initialize the tokio runtime and run the main function.
+	let result = tokio::runtime::Builder::new_multi_thread()
+		.enable_all()
+		.build()
+		.unwrap()
+		.block_on(main_inner());
 
 	// Handle the result.
 	if let Err(error) = result {
@@ -80,12 +89,6 @@ async fn main() {
 }
 
 async fn main_inner() -> Result<()> {
-	// Setup tracing.
-	setup_tracing();
-
-	// Initialize V8.
-	initialize_v8();
-
 	// Parse the arguments.
 	let args = Args::parse();
 
