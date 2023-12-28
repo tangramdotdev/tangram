@@ -544,6 +544,10 @@ pub async fn build(
 				return Err(std::io::Error::last_os_error())
 					.wrap_err("Failed to kill root process.");
 			}
+			unsafe {
+				let mut status = 0;
+				libc::waitpid(root_process_pid, std::ptr::addr_of_mut!(status), 0);
+			}
 			return Ok(tg::build::Outcome::Canceled);
 		},
 		kind = host_socket.read_u8() => {

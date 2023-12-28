@@ -80,7 +80,7 @@ pub async fn build(
 	let tg = tg.clone_box();
 	let build = build.clone();
 	let stop_ = stop.clone();
-	std::thread::spawn(move || {
+	let thread = std::thread::spawn(move || {
 		let isolate = THREAD_LOCAL_ISOLATE.with(Rc::clone);
 		let handle = isolate.borrow().thread_safe_handle();
 		handle_sender.send(handle).unwrap();
@@ -98,7 +98,7 @@ pub async fn build(
 
 	// Await the result of the build or the stop signal, whichever comes first.
 	let isolate = handle_receiver.await.unwrap();
-	tokio::select! {
+	let result = tokio::select! {
 		_ = stop.changed() => {
 			isolate.terminate_execution();
 			Ok(tg::build::Outcome::Canceled)
@@ -106,7 +106,11 @@ pub async fn build(
 		result = result_receiver => {
 			result.wrap_err("Failed to receive outcome.")?
 		}
-	}
+	};
+	thread
+		.join()
+		.map_err(|_| error!("Failed to join thread."))?;
+	result
 }
 
 #[allow(clippy::too_many_lines)]
