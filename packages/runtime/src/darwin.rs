@@ -375,7 +375,7 @@ pub async fn build(
 				unsafe {
 					libc::kill(*pid, libc::SIGKILL);
 					let mut status = 0;
-					libc::waitpid(pid, std::ptr::addr_of_mut!(status), 0);
+					libc::waitpid(*pid, std::ptr::addr_of_mut!(status), 0);
 				}
 			}
 
