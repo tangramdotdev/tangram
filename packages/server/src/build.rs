@@ -345,26 +345,7 @@ impl Server {
 		let result = match target.host(self).await?.os() {
 			tg::system::Os::Js => {
 				// Build the target on the server's local pool because it is a `!Send` future.
-				self.inner
-					.local_pool
-					.spawn_pinned({
-						let server = self.clone();
-						let build = build.clone();
-						let main_runtime_handle = tokio::runtime::Handle::current();
-						move || async move {
-							tangram_runtime::js::build(
-								&server,
-								&build,
-								depth,
-								retry,
-								stop,
-								main_runtime_handle,
-							)
-							.await
-						}
-					})
-					.await
-					.wrap_err("Failed to join the build task.")?
+				tangram_runtime::js::build(self, &build, depth, retry, stop).await
 			},
 			tg::system::Os::Darwin => {
 				#[cfg(target_os = "macos")]

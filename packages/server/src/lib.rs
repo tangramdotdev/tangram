@@ -62,9 +62,6 @@ struct Inner {
 	/// The HTTP server task.
 	task: Task,
 
-	/// A local pool for build JS targets.
-	local_pool: tokio_util::task::LocalPoolHandle,
-
 	/// The lock file.
 	#[allow(dead_code)]
 	lock_file: tokio::fs::File,
@@ -237,11 +234,6 @@ impl Server {
 		// Create the HTTP server task.
 		let task = (std::sync::Mutex::new(None), std::sync::Mutex::new(None));
 
-		// Create the local pool.
-		let local_pool = tokio_util::task::LocalPoolHandle::new(
-			std::thread::available_parallelism().unwrap().get(),
-		);
-
 		// Get the remote.
 		let remote = if let Some(remote) = options.remote {
 			Some(remote.tg)
@@ -268,7 +260,6 @@ impl Server {
 			database,
 			file_descriptor_semaphore,
 			task,
-			local_pool,
 			lock_file,
 			path,
 			remote,
