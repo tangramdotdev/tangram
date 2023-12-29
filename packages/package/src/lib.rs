@@ -642,7 +642,6 @@ async fn scan_package_with_path_dependencies(
 	Ok(())
 }
 
-#[allow(clippy::too_many_lines)]
 async fn solve(
 	tg: &dyn tg::Handle,
 	context: &mut Context,

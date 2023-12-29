@@ -1,20 +1,18 @@
 use super::Server;
-use crate::{
-	Build, ChildrenState, LocalBuildState, LocalBuildStateInner, LocalQueueTaskMessage, LogState,
-	OutcomeState, RemoteBuildState, RemoteBuildStateInner,
-};
+use crate::{Build, Channels, LocalQueueTaskMessage};
 use async_recursion::async_recursion;
 use bytes::Bytes;
 use futures::{
 	stream::{self, BoxStream, FuturesUnordered},
 	StreamExt, TryStreamExt,
 };
+use num::ToPrimitive;
+use rusqlite::params;
 use std::sync::Arc;
 use tangram_client as tg;
-use tangram_error::{return_error, Result, Wrap, WrapErr};
+use tangram_error::{return_error, Error, Result, WrapErr};
 use tg::Handle;
-use tokio::io::{AsyncReadExt, AsyncSeekExt, AsyncWriteExt};
-use tokio_stream::wrappers::BroadcastStream;
+use tokio_stream::wrappers::WatchStream;
 
 impl Server {
 	pub(crate) async fn local_queue_task(
@@ -24,23 +22,56 @@ impl Server {
 		loop {
 			loop {
 				// Get the highest priority item from the queue.
-				let Some(item) = self.inner.local_queue.lock().unwrap().pop() else {
-					break;
+				let item: tg::build::queue::Item = {
+					let db = self.inner.database.pool.get().await;
+					let statement = "
+						delete from queue
+						where rowid in (
+							select rowid
+							from queue
+							order by json->'depth' desc
+							limit 1
+						)
+						returning json;
+					";
+					let mut statement = db
+						.prepare_cached(statement)
+						.wrap_err("Failed to prepare the query.")?;
+					let mut rows = statement
+						.query([])
+						.wrap_err("Failed to execute the query.")?;
+					let Some(row) = rows.next().wrap_err("Failed to get the row.")? else {
+						break;
+					};
+					let json = row.get_unwrap::<_, String>(0);
+					serde_json::from_str(&json).wrap_err("Failed to deserialize the item.")?
 				};
 
 				// If the build is at a unique depth, then start it.
-				let unique = self
-					.inner
-					.local_builds
-					.read()
-					.unwrap()
-					.values()
-					.filter(|state| {
-						*state.inner.status.lock().unwrap() == tg::build::Status::Running
-					})
-					.all(|state| state.inner.item.depth != item.depth);
+				let unique = {
+					let db = self.inner.database.pool.get().await;
+					let statement = "
+						select ?1 not in (
+							select distinct json->'depth'
+							from builds
+							where json->'status' = 'running'
+						);
+					";
+					let mut statement = db
+						.prepare_cached(statement)
+						.wrap_err("Failed to prepare the query.")?;
+					let params = params![item.depth];
+					let mut rows = statement
+						.query(params)
+						.wrap_err("Failed to execute the query.")?;
+					let row = rows
+						.next()
+						.wrap_err("Failed to get the row.")?
+						.wrap_err("Expected one row.")?;
+					row.get::<_, bool>(0).wrap_err("Expected a bool.")?
+				};
 				if unique {
-					self.start_local_build(None, &item.build, item.depth, item.retry, None)
+					self.start_build(None, &item.build, item.depth, item.retry, None)
 						.await?;
 					continue;
 				}
@@ -49,20 +80,27 @@ impl Server {
 				match self.inner.semaphore.clone().try_acquire_owned() {
 					// If a permit is available, then start the build.
 					Ok(permit) => {
-						self.start_local_build(
-							None,
-							&item.build,
-							item.depth,
-							item.retry,
-							Some(permit),
-						)
-						.await?;
+						self.start_build(None, &item.build, item.depth, item.retry, Some(permit))
+							.await?;
 						continue;
 					},
 
 					// If there are no permits available, then add the item back to the queue and break.
 					Err(tokio::sync::TryAcquireError::NoPermits) => {
-						self.inner.local_queue.lock().unwrap().push(item);
+						let json = serde_json::to_string(&item)
+							.wrap_err("Failed to serialize the item.")?;
+						let db = self.inner.database.pool.get().await;
+						let statement = "
+							insert into queue (json)
+							values (?1);
+						";
+						let mut statement = db
+							.prepare_cached(statement)
+							.wrap_err("Failed to prepare the query.")?;
+						let params = params![json];
+						statement
+							.execute(params)
+							.wrap_err("Failed to execute the query.")?;
 						break;
 					},
 
@@ -98,7 +136,24 @@ impl Server {
 		// Loop until the stop message is received.
 		while receiver.try_recv().is_err() {
 			// If the queue is not empty, then sleep and continue.
-			let empty = self.inner.local_queue.lock().unwrap().is_empty();
+			let empty = {
+				let db = self.inner.database.pool.get().await;
+				let statement = "
+					select count(*) = 0
+					from queue;
+				";
+				let mut statement = db
+					.prepare_cached(statement)
+					.wrap_err("Failed to prepare the query.")?;
+				let mut rows = statement
+					.query([])
+					.wrap_err("Failed to execute the query.")?;
+				let row = rows
+					.next()
+					.wrap_err("Failed to get the row.")?
+					.wrap_err("Expected one row.")?;
+				row.get::<_, bool>(0).wrap_err("Expected a bool.")?
+			};
 			if !empty {
 				tokio::time::sleep(std::time::Duration::from_secs(1)).await;
 				continue;
@@ -123,27 +178,14 @@ impl Server {
 				continue;
 			};
 
-			// Create the task state.
-			let task = std::sync::Mutex::new(None);
-
-			// Create the remote build state.
-			let state = RemoteBuildState {
-				inner: Arc::new(RemoteBuildStateInner { task }),
-			};
-			self.inner
-				.remote_builds
-				.write()
-				.unwrap()
-				.insert(item.build.clone(), state.clone());
-
 			// Start the build.
-			self.start_remote_build(None, &item.build, item.depth, item.retry, Some(permit));
+			self.start_build(None, &item.build, item.depth, item.retry, Some(permit))
+				.await?;
 		}
 
 		Ok(())
 	}
 
-	/// Attempt to get the assignment.
 	pub async fn try_get_assignment(
 		&self,
 		target_id: &tg::target::Id,
@@ -151,17 +193,17 @@ impl Server {
 		// Attempt to get the assignment from the database.
 		'a: {
 			let db = self.inner.database.pool.get().await;
+			let statement = "
+				select build 
+				from assignments 
+				where target = ?1;
+			";
 			let mut statement = db
-				.prepare_cached(
-					"
-						select build 
-						from assignments 
-						where target = ?1;
-					",
-				)
+				.prepare_cached(statement)
 				.wrap_err("Failed to prepare the query.")?;
+			let params = params![target_id.to_string()];
 			let mut rows = statement
-				.query([target_id.to_string()])
+				.query(params)
 				.wrap_err("Failed to execute the query.")?;
 			let Some(row) = rows.next().wrap_err("Failed to get the row.")? else {
 				break 'a;
@@ -184,17 +226,17 @@ impl Server {
 
 			// Add the assignment to the database.
 			let db = self.inner.database.pool.get().await;
+			let statement = "
+				insert into assignments (target, build)
+				values (?1, ?2)
+				on conflict (target) do update set build = ?2;
+			";
 			let mut statement = db
-				.prepare_cached(
-					"
-						insert into assignments (target, build)
-						values (?1, ?2)
-						on conflict (target) do update set build = ?2;
-					",
-				)
+				.prepare_cached(statement)
 				.wrap_err("Failed to prepare the query.")?;
+			let params = params![target_id.to_string(), build_id.to_string()];
 			statement
-				.execute([target_id.to_string(), build_id.to_string()])
+				.execute(params)
 				.wrap_err("Failed to execute the query.")?;
 
 			return Ok(Some(build_id));
@@ -203,7 +245,28 @@ impl Server {
 		Ok(None)
 	}
 
-	/// Get or create a build.
+	async fn build_is_local(&self, id: &tg::build::Id) -> Result<bool> {
+		let db = self.inner.database.pool.get().await;
+		let statement = "
+					select count(*) != 0
+					from builds
+					where id = ?1;
+				";
+		let mut statement = db
+			.prepare_cached(statement)
+			.wrap_err("Failed to prepare the query.")?;
+		let params = params![id.to_string()];
+		let mut rows = statement
+			.query(params)
+			.wrap_err("Failed to execute the query.")?;
+		let row = rows
+			.next()
+			.wrap_err("Failed to get the row.")?
+			.wrap_err("Expected one row.")?;
+		let exists = row.get::<_, bool>(0).wrap_err("Expected a bool.")?;
+		Ok(exists)
+	}
+
 	#[allow(clippy::too_many_lines)]
 	pub async fn get_or_create_build(
 		&self,
@@ -254,11 +317,62 @@ impl Server {
 		// Otherwise, create a new build.
 		let build_id = tg::build::Id::new();
 
-		// Create the children state.
-		let children = std::sync::Mutex::new(ChildrenState {
-			children: Vec::new(),
-			sender: Some(tokio::sync::broadcast::channel(1024).0),
+		// Create the channels.
+		let (children, _) = tokio::sync::watch::channel(());
+		let (log, _) = tokio::sync::watch::channel(());
+		let (outcome, _) = tokio::sync::watch::channel(());
+		let channels = Arc::new(Channels {
+			children,
+			log,
+			outcome,
 		});
+		self.inner
+			.channels
+			.write()
+			.unwrap()
+			.insert(build_id.clone(), channels);
+
+		// Add the build to the database.
+		{
+			let build = Build {
+				children: Vec::new(),
+				depth,
+				outcome: None,
+				status: tg::build::Status::Queued,
+				target: target_id.clone(),
+			};
+			let json =
+				serde_json::to_string(&build).wrap_err("Failed to serialize the build data.")?;
+			let db = self.inner.database.pool.get().await;
+			let statement = "
+				insert into builds (id, json)
+				values (?1, ?2);
+			";
+			let mut statement = db
+				.prepare_cached(statement)
+				.wrap_err("Failed to prepare the query.")?;
+			let params = params![build_id.to_string(), json];
+			statement
+				.execute(params)
+				.wrap_err("Failed to execute the query.")?;
+		}
+
+		// Add the assignment to the database.
+		{
+			let db = self.inner.database.pool.get().await;
+			let statement = "
+				insert into assignments (target, build)
+				values (?1, ?2)
+				on conflict (target) do update set build = ?2;
+			";
+			let mut statement = db
+				.prepare_cached(statement)
+				.wrap_err("Failed to prepare the query.")?;
+			let params = params![target_id.to_string(), build_id.to_string()];
+			statement
+				.execute(params)
+				.wrap_err("Failed to execute the query.")?;
+		}
 
 		// Create the item.
 		let item = tg::build::queue::Item {
@@ -268,91 +382,22 @@ impl Server {
 			retry,
 		};
 
-		// Create the log state.
-		let log = tokio::sync::Mutex::new(LogState {
-			file: tokio::fs::File::from_std(
-				tempfile::tempfile().wrap_err("Failed to create the temporary file.")?,
-			),
-			sender: Some(tokio::sync::broadcast::channel(1024).0),
-		});
-
-		// Create the outcome state.
-		let (sender, _) = tokio::sync::watch::channel(None);
-		let outcome = OutcomeState { sender };
-
-		// Create the status state.
-		let status = std::sync::Mutex::new(tg::build::Status::Queued);
-
-		// Create the task state.
-		let task = std::sync::Mutex::new(None);
-
-		// Create the build state.
-		let state = LocalBuildState {
-			inner: Arc::new(LocalBuildStateInner {
-				children,
-				item: item.clone(),
-				log,
-				outcome,
-				status,
-				task,
-			}),
-		};
-		self.inner
-			.local_builds
-			.write()
-			.unwrap()
-			.insert(build_id.clone(), state.clone());
-
-		// Add the build to the database.
+		// Add the item to the queue.
 		{
-			let build = Build {
-				status: tg::build::Status::Queued,
-				target: target_id.clone(),
-				children: Vec::new(),
-				log: None,
-				outcome: None,
-			};
-			let json =
-				serde_json::to_string(&build).wrap_err("Failed to serialize the build data.")?;
+			let json = serde_json::to_string(&item).wrap_err("Failed to serialize the item.")?;
 			let db = self.inner.database.pool.get().await;
+			let statement = "
+				insert into queue (json)
+				values (?1);
+			";
 			let mut statement = db
-				.prepare_cached(
-					"
-						insert into builds (id, json)
-						values (?1, ?2);
-					",
-				)
+				.prepare_cached(statement)
 				.wrap_err("Failed to prepare the query.")?;
-			let params = rusqlite::params![build_id.to_string(), json];
+			let params = params![json];
 			statement
 				.execute(params)
 				.wrap_err("Failed to execute the query.")?;
 		}
-
-		// Add the assignment to the database.
-		{
-			let mut db = self.inner.database.pool.get().await;
-			let txn = db
-				.transaction()
-				.wrap_err("Failed to begin the transaction.")?;
-			let mut statement = txn
-				.prepare_cached(
-					"
-						insert into assignments (target, build)
-						values (?1, ?2)
-						on conflict (target) do update set build = ?2;
-					",
-				)
-				.wrap_err("Failed to prepare the query.")?;
-			statement
-				.execute([target_id.to_string(), build_id.to_string()])
-				.wrap_err("Failed to execute the query.")?;
-			drop(statement);
-			txn.commit().wrap_err("Failed to commit the transaction.")?;
-		}
-
-		// Add the build to the queue.
-		self.inner.local_queue.lock().unwrap().push(item);
 
 		// Send a message to the build queue task that the item has been added.
 		self.inner
@@ -363,7 +408,7 @@ impl Server {
 		Ok(build_id)
 	}
 
-	async fn start_local_build(
+	async fn start_build(
 		&self,
 		user: Option<&tg::User>,
 		id: &tg::build::Id,
@@ -381,68 +426,20 @@ impl Server {
 					.build_task(user.as_ref(), &id, depth, retry, permit)
 					.await
 				{
-					tracing::error!(?error, "The build failed.");
+					let trace = error.trace();
+					tracing::error!(%trace, "The build failed.");
 				}
 			}
 		});
 
-		// Update the state.
-		{
-			let mut state = self.inner.local_builds.write().unwrap();
-			let state = state.get_mut(id).unwrap();
-			*state.inner.status.lock().unwrap() = tg::build::Status::Running;
-			*state.inner.task.lock().unwrap() = Some(task);
-		}
+		// Add the task.
+		self.inner.tasks.write().unwrap().insert(id.clone(), task);
 
-		// Update the database.
-		{
-			let db = self.inner.database.pool.get().await;
-			let mut statement = db
-				.prepare_cached(
-					"
-						update builds
-						set json = json_set(json, '$.status', 'running')
-						where id = ?1;
-					",
-				)
-				.wrap_err("Failed to prepare the query.")?;
-			statement
-				.execute([id.to_string()])
-				.wrap_err("Failed to execute the query.")?;
-		}
+		// Update the status.
+		self.set_build_status(user, id, tg::build::Status::Running)
+			.await?;
 
 		Ok(())
-	}
-
-	fn start_remote_build(
-		&self,
-		user: Option<&tg::User>,
-		id: &tg::build::Id,
-		depth: u64,
-		retry: tg::build::Retry,
-		permit: Option<tokio::sync::OwnedSemaphorePermit>,
-	) {
-		// Spawn the task.
-		let task = tokio::spawn({
-			let server = self.clone();
-			let user = user.cloned();
-			let id = id.clone();
-			async move {
-				if let Err(error) = server
-					.build_task(user.as_ref(), &id, depth, retry, permit)
-					.await
-				{
-					tracing::error!(?error, "The build failed.");
-				}
-			}
-		});
-
-		// Update the state.
-		{
-			let mut state = self.inner.remote_builds.write().unwrap();
-			let state = state.get_mut(id).unwrap();
-			*state.inner.task.lock().unwrap() = Some(task);
-		}
 	}
 
 	async fn build_task(
@@ -553,26 +550,20 @@ impl Server {
 		&self,
 		id: &tg::build::Id,
 	) -> Result<Option<tg::build::Status>> {
-		// Attempt to get the status from a local build.
-		let state = self.inner.local_builds.read().unwrap().get(id).cloned();
-		if let Some(state) = state {
-			return Ok(Some(*state.inner.status.lock().unwrap()));
-		}
-
 		// Attempt to get the status from the database.
 		'a: {
 			let db = self.inner.database.pool.get().await;
+			let statement = "
+				select json_extract(json, '$.status')
+				from builds
+				where id = ?1;
+			";
 			let mut statement = db
-				.prepare_cached(
-					"
-						select json_extract(json, '$.status')
-						from builds
-						where id = ?1;
-					",
-				)
+				.prepare_cached(statement)
 				.wrap_err("Failed to prepare the query.")?;
+			let params = params![id.to_string()];
 			let mut rows = statement
-				.query([id.to_string()])
+				.query(params)
 				.wrap_err("Failed to execute the query.")?;
 			let Some(row) = rows.next().wrap_err("Failed to get the row.")? else {
 				break 'a;
@@ -595,21 +586,60 @@ impl Server {
 		Ok(None)
 	}
 
+	pub async fn set_build_status(
+		&self,
+		user: Option<&tg::User>,
+		id: &tg::build::Id,
+		status: tg::build::Status,
+	) -> Result<()> {
+		// Attempt to set the status of a local build.
+		'a: {
+			let db = self.inner.database.pool.get().await;
+			let statement = "
+				update builds
+				set json = json_set(json, '$.status', 'running')
+				where id = ?1;
+			";
+			let mut statement = db
+				.prepare_cached(statement)
+				.wrap_err("Failed to prepare the query.")?;
+			let params = params![id.to_string()];
+			let n = statement
+				.execute(params)
+				.wrap_err("Failed to execute the query.")?;
+			if n == 0 {
+				break 'a;
+			}
+			return Ok(());
+		}
+
+		// Attempt to set the status of a remote build.
+		'a: {
+			let Some(remote) = self.inner.remote.as_ref() else {
+				break 'a;
+			};
+			remote.set_build_status(user, id, status).await?;
+			return Ok(());
+		}
+
+		return_error!("Failed to find the build.");
+	}
+
 	pub async fn try_get_build_target(&self, id: &tg::build::Id) -> Result<Option<tg::target::Id>> {
 		// Attempt to get the target from the database.
 		'a: {
 			let db = self.inner.database.pool.get().await;
+			let statement = "
+				select json_extract(json, '$.target')
+				from builds
+				where id = ?1;
+			";
 			let mut statement = db
-				.prepare_cached(
-					"
-						select json_extract(json, '$.target')
-						from builds
-						where id = ?1;
-					",
-				)
+				.prepare_cached(statement)
 				.wrap_err("Failed to prepare the query.")?;
+			let params = params![id.to_string()];
 			let mut rows = statement
-				.query([id.to_string()])
+				.query(params)
 				.wrap_err("Failed to execute the query.")?;
 			let Some(row) = rows.next().wrap_err("Failed to get the row.")? else {
 				break 'a;
@@ -632,61 +662,101 @@ impl Server {
 		Ok(None)
 	}
 
+	#[allow(clippy::too_many_lines)]
 	pub async fn try_get_build_children(
 		&self,
 		id: &tg::build::Id,
 	) -> Result<Option<BoxStream<'static, Result<tg::build::Id>>>> {
 		// Attempt to get the children from a local build.
 		'a: {
-			// Get the state.
-			let Some(state) = self.inner.local_builds.read().unwrap().get(id).cloned() else {
+			// Verify the build is local.
+			if !self.build_is_local(id).await? {
 				break 'a;
+			}
+
+			// Create the children stream.
+			struct State {
+				server: Server,
+				id: tg::build::Id,
+				index: usize,
+				first: bool,
+				last: bool,
+				channel: Option<BoxStream<'static, ()>>,
+			}
+			let channels = self.inner.channels.read().unwrap().get(id).cloned();
+			let channel = channels.as_ref().map(|channels| {
+				let children = WatchStream::new(channels.children.subscribe());
+				let outcome = WatchStream::new(channels.outcome.subscribe());
+				stream::select(children, outcome).boxed()
+			});
+			let state = State {
+				server: self.clone(),
+				id: id.clone(),
+				index: 0,
+				first: true,
+				last: false,
+				channel,
 			};
-
-			// Get the children state.
-			let state = state.inner.children.lock().unwrap();
-
-			// Get the old children.
-			let old = stream::iter(state.children.clone()).map(Ok);
-
-			// Get a stream of the new children.
-			let new = if let Some(sender) = state.sender.as_ref() {
-				BroadcastStream::new(sender.subscribe())
-					.map_err(|err| err.wrap("Failed to create the stream."))
-					.boxed()
-			} else {
-				stream::empty().boxed()
-			};
-
-			// Create the complete children stream.
-			let children = old.chain(new).map_ok(|id| id.clone()).boxed();
-
-			return Ok(Some(children));
-		}
-
-		// Attempt to get the children from the database.
-		'a: {
-			let db = self.inner.database.pool.get().await;
-			let mut statement = db
-				.prepare_cached(
-					"
-						select json_extract(json, '$.children')
+			let children = stream::try_unfold(state, |mut state| async move {
+				if state.first {
+					state.first = false;
+				} else if !state.last {
+					let Some(channel) = state.channel.as_mut() else {
+						return_error!("No channel.");
+					};
+					channel.next().await;
+				} else {
+					return Ok(None);
+				}
+				let (status, children) = {
+					let db = state.server.inner.database.pool.get().await;
+					let statement = "
+						select
+							json->>'status' as status,
+							(
+								select coalesce(json_group_array(value), '[]')
+								from (
+									select value
+									from json_each(builds.json->'children')
+									limit -1
+									offset ?1
+								)
+							) as children
 						from builds
-						where id = ?1;
-					",
-				)
-				.wrap_err("Failed to prepare the query.")?;
-			let mut rows = statement
-				.query([id.to_string()])
-				.wrap_err("Failed to execute the query.")?;
-			let Some(row) = rows.next().wrap_err("Failed to get the row.")? else {
-				break 'a;
-			};
-			let children = row.get_unwrap::<_, String>(0);
-			let children: Vec<tg::build::Id> =
-				serde_json::from_str(&children).wrap_err("Failed to deserialize the children.")?;
-			let children = stream::iter(children).map(Ok).boxed();
-			return Ok(Some(children));
+						where id = ?2;
+					";
+					let mut statement = db
+						.prepare_cached(statement)
+						.wrap_err("Failed to prepare the statement.")?;
+					let params = params![state.index.to_i64().unwrap(), state.id.to_string()];
+					let mut rows = statement
+						.query(params)
+						.wrap_err("Failed to execute the statement.")?;
+					let row = rows
+						.next()
+						.wrap_err("Failed to get the row.")?
+						.wrap_err("Expected a row.")?;
+					let status: tg::build::Status = row
+						.get::<_, String>(0)
+						.unwrap()
+						.parse()
+						.wrap_err("Invalid status.")?;
+					let children = row.get::<_, String>(1).unwrap();
+					let children: Vec<tg::build::Id> = serde_json::from_str(&children)
+						.wrap_err("Failed to deseriaize the children.")?;
+					(status, children)
+				};
+				if matches!(status, tg::build::Status::Finished) {
+					state.last = true;
+				}
+				let len = children.len();
+				let children = stream::iter(children).map(Ok);
+				state.index += len;
+				Ok::<_, Error>(Some((children, state)))
+			})
+			.try_flatten();
+
+			return Ok(Some(children.boxed()));
 		}
 
 		// Attempt to get the children from the remote server.
@@ -711,42 +781,30 @@ impl Server {
 	) -> Result<()> {
 		// Attempt to add the child to a local build.
 		'a: {
-			// Get the state.
-			let Some(state) = self
-				.inner
-				.local_builds
-				.read()
-				.unwrap()
-				.get(build_id)
-				.cloned()
-			else {
+			// Verify the build is local.
+			if !self.build_is_local(build_id).await? {
 				break 'a;
-			};
-
-			// Add the child to the state.
-			{
-				let mut state = state.inner.children.lock().unwrap();
-				if let Some(sender) = state.sender.as_ref().cloned() {
-					state.children.push(child_id.clone());
-					sender.send(child_id.clone()).ok();
-				}
 			}
 
 			// Add the child to the build in the database.
 			{
 				let db = self.inner.database.pool.get().await;
+				let statement = "
+					update builds
+					set json = json_set(json, '$.children[#]', ?1)
+					where id = ?2;
+				";
 				let mut statement = db
-					.prepare_cached(
-						"
-							update builds
-							set json = json_set(json, '$.children[#]', ?1)
-							where id = ?2;
-						",
-					)
+					.prepare_cached(statement)
 					.wrap_err("Failed to prepare the query.")?;
 				statement
 					.execute([child_id.to_string(), build_id.to_string()])
 					.wrap_err("Failed to execute the query.")?;
+			}
+
+			// Notify subscribers that a child has been added.
+			if let Some(channels) = self.inner.channels.read().unwrap().get(build_id).cloned() {
+				channels.children.send_replace(());
 			}
 
 			return Ok(());
@@ -770,68 +828,12 @@ impl Server {
 	) -> Result<Option<BoxStream<'static, Result<Bytes>>>> {
 		// Attempt to get the log from a local build.
 		'a: {
-			// Get the state.
-			let Some(state) = self.inner.local_builds.read().unwrap().get(id).cloned() else {
+			// Verify the build is local.
+			if !self.build_is_local(id).await? {
 				break 'a;
-			};
+			}
 
-			// Get the log state.
-			let mut state = state.inner.log.lock().await;
-
-			// Rewind the log.
-			state
-				.file
-				.rewind()
-				.await
-				.wrap_err("Failed to rewind the log file.")?;
-
-			// Read the existing log.
-			let mut old = Vec::new();
-			state
-				.file
-				.read_to_end(&mut old)
-				.await
-				.wrap_err("Failed to read the log.")?;
-			let old = stream::once(async move { Ok(old.into()) });
-
-			// Get the new log stream.
-			let new = if let Some(sender) = state.sender.as_ref() {
-				BroadcastStream::new(sender.subscribe())
-					.map_err(|err| err.wrap("Failed to create the stream."))
-					.boxed()
-			} else {
-				stream::empty().boxed()
-			};
-
-			// Create the log stream.
-			let log = old.chain(new).boxed();
-
-			return Ok(Some(log));
-		}
-
-		// Attempt to get the log from the database.
-		'a: {
-			let log = {
-				let db = self.inner.database.pool.get().await;
-				let mut statement = db
-					.prepare_cached(
-						"
-							select json_extract(json, '$.log')
-							from builds
-							where id = ?1;
-						",
-					)
-					.wrap_err("Failed to prepare the query.")?;
-				let mut rows = statement
-					.query([id.to_string()])
-					.wrap_err("Failed to execute the query.")?;
-				let Some(row) = rows.next().wrap_err("Failed to get the row.")? else {
-					break 'a;
-				};
-				row.get_unwrap::<_, String>(0).parse()?
-			};
-			let bytes = tg::Blob::with_id(log).bytes(self).await?;
-			return Ok(Some(stream::once(async move { Ok(bytes.into()) }).boxed()));
+			return Ok(Some(stream::empty().boxed()));
 		}
 
 		// Attempt to get the log from the remote server.
@@ -856,33 +858,46 @@ impl Server {
 	) -> Result<()> {
 		// Attempt to add the log to a local build.
 		'a: {
-			// Get the state.
-			let Some(state) = self.inner.local_builds.read().unwrap().get(id).cloned() else {
+			// Verify the build is local.
+			if !self.build_is_local(id).await? {
 				break 'a;
-			};
+			}
 
-			// Get the log state.
-			let mut state = state.inner.log.lock().await;
+			// Add the log to the database.
+			{
+				let db = self.inner.database.pool.get().await;
+				let statement = "
+					insert into logs (build, position, bytes)
+					values (
+						?1,
+						(
+							select coalesce(
+								(
+									select position + length(bytes)
+									from logs
+									where build = ?1
+									order by position desc
+									limit 1
+								), 
+								0
+							)
+						),
+						?2
+					);
+				";
+				let mut statement = db
+					.prepare_cached(statement)
+					.wrap_err("Failed to prepare the query.")?;
+				let params = params![id.to_string(), bytes.to_vec()];
+				statement
+					.execute(params)
+					.wrap_err("Failed to execute the query.")?;
+			}
 
-			// Get the log sender.
-			let sender = state.sender.as_ref().cloned().unwrap();
-
-			// Rewind the log.
-			state
-				.file
-				.seek(std::io::SeekFrom::End(0))
-				.await
-				.wrap_err("Failed to seek.")?;
-
-			// Write the log.
-			state
-				.file
-				.write_all(&bytes)
-				.await
-				.wrap_err("Failed to write the log.")?;
-
-			// Send the log.
-			sender.send(bytes).ok();
+			// Notify subscribers that the log has been added to.
+			if let Some(channels) = self.inner.channels.read().unwrap().get(id).cloned() {
+				channels.log.send_replace(());
+			}
 
 			return Ok(());
 		}
@@ -903,53 +918,55 @@ impl Server {
 		&self,
 		id: &tg::build::Id,
 	) -> Result<Option<tg::build::Outcome>> {
-		// Attempt to await the outcome from a local build.
+		// Attempt to get the outcome from a local build.
 		'a: {
-			// Get the state.
-			let Some(state) = self.inner.local_builds.read().unwrap().get(id).cloned() else {
+			// Verify the build is local.
+			if !self.build_is_local(id).await? {
 				break 'a;
-			};
+			}
 
-			return Ok(Some(
-				state
-					.inner
-					.outcome
-					.sender
-					.subscribe()
-					.wait_for(Option::is_some)
-					.await
-					.unwrap()
-					.clone()
-					.unwrap(),
-			));
+			// Get the outcome.
+			let channels = self.inner.channels.read().unwrap().get(id).cloned();
+			let mut subscriber = channels
+				.as_ref()
+				.map(|channels| channels.outcome.subscribe());
+			let mut first = true;
+			loop {
+				if !first {
+					let Some(subscriber) = subscriber.as_mut() else {
+						break 'a;
+					};
+					subscriber.changed().await.unwrap();
+				}
+				first = false;
+				let db = self.inner.database.pool.get().await;
+				let statement = "
+					select coalesce(json_extract(json, '$.outcome'), json('null'))
+					from builds
+					where id = ?1;
+				";
+				let mut statement = db
+					.prepare_cached(statement)
+					.wrap_err("Failed to prepare the query.")?;
+				let params = params![id.to_string()];
+				let mut rows = statement
+					.query(params)
+					.wrap_err("Failed to execute the query.")?;
+				let Some(row) = rows.next().wrap_err("Failed to get the row.")? else {
+					break 'a;
+				};
+				let outcome = row.get_unwrap::<_, String>(0);
+				let outcome: Option<tg::build::outcome::Data> = serde_json::from_str(&outcome)
+					.wrap_err("Failed to deserialize the children.")?;
+				let outcome: Option<tg::build::Outcome> =
+					outcome.map(TryInto::try_into).transpose()?;
+				if let Some(outcome) = outcome {
+					return Ok(Some(outcome));
+				}
+			}
 		}
 
-		// Attempt to get the outcome from the database.
-		'a: {
-			let db = self.inner.database.pool.get().await;
-			let mut statement = db
-				.prepare_cached(
-					"
-						select json_extract(json, '$.outcome')
-						from builds
-						where id = ?1;
-					",
-				)
-				.wrap_err("Failed to prepare the query.")?;
-			let mut rows = statement
-				.query([id.to_string()])
-				.wrap_err("Failed to execute the query.")?;
-			let Some(row) = rows.next().wrap_err("Failed to get the row.")? else {
-				break 'a;
-			};
-			let outcome = row.get_unwrap::<_, String>(0);
-			let outcome: tg::build::outcome::Data =
-				serde_json::from_str(&outcome).wrap_err("Failed to deserialize the children.")?;
-			let outcome = tg::build::Outcome::try_from(outcome)?;
-			return Ok(Some(outcome));
-		}
-
-		// Attempt to await the outcome from the remote server.
+		// Attempt to get the outcome from the remote server.
 		'a: {
 			let Some(remote) = self.inner.remote.as_ref() else {
 				break 'a;
@@ -963,74 +980,76 @@ impl Server {
 		Ok(None)
 	}
 
+	#[allow(clippy::too_many_lines)]
 	#[async_recursion]
-	pub async fn cancel_build(
-		&self,
-		user: Option<&'async_recursion tg::User>,
-		id: &tg::build::Id,
-	) -> Result<()> {
-		// Attempt to cancel a local build.
-		'a: {
-			// Get the state.
-			let Some(state) = self.inner.local_builds.read().unwrap().get(id).cloned() else {
-				break 'a;
-			};
-
-			// Cancel the children.
-			let children = state.inner.children.lock().unwrap().children.clone();
-			children
-				.iter()
-				.map(|child_id| async move { self.cancel_build(user, child_id).await })
-				.collect::<FuturesUnordered<_>>()
-				.try_collect()
-				.await?;
-
-			// Finish the build as canceled.
-			self.finish_build(user, id, tg::build::Outcome::Canceled)
-				.await?;
-
-			return Ok(());
-		}
-
-		// Attempt to cancel a remote build.
-		'a: {
-			let Some(remote) = self.inner.remote.as_ref() else {
-				break 'a;
-			};
-			remote.cancel_build(user, id).await?;
-			return Ok(());
-		}
-
-		return_error!("Failed to find the build.");
-	}
-
 	pub async fn finish_build(
 		&self,
-		user: Option<&tg::User>,
+		user: Option<&'async_recursion tg::User>,
 		id: &tg::build::Id,
 		outcome: tg::build::Outcome,
 	) -> Result<()> {
 		// Attempt to finish a local build.
 		'a: {
-			// Get the state.
-			let Some(state) = self.inner.local_builds.read().unwrap().get(id).cloned() else {
-				break 'a;
-			};
+			// Verify the build is local.
+			{
+				let db = self.inner.database.pool.get().await;
+				let statement = "
+					select count(*) != 0
+					from builds
+					where id = ?1;
+				";
+				let mut statement = db
+					.prepare_cached(statement)
+					.wrap_err("Failed to prepare the query.")?;
+				let params = params![id.to_string()];
+				let mut rows = statement
+					.query(params)
+					.wrap_err("Failed to execute the query.")?;
+				let row = rows
+					.next()
+					.wrap_err("Failed to get the row.")?
+					.wrap_err("Expected one row.")?;
+				let exists = row.get::<_, bool>(0).wrap_err("Expected a bool.")?;
+				if !exists {
+					break 'a;
+				}
+			}
 
 			// Get the children.
-			let children = {
-				let mut state = state.inner.children.lock().unwrap();
-				state.sender.take();
-				state.children.clone()
+			let children: Vec<tg::build::Id> = {
+				let db = self.inner.database.pool.get().await;
+				let statement = "
+					select json_extract(json, '$.children')
+					from builds
+					where id = ?1;
+				";
+				let mut statement = db
+					.prepare_cached(statement)
+					.wrap_err("Failed to prepare the query.")?;
+				let params = params![id.to_string()];
+				let mut rows = statement
+					.query(params)
+					.wrap_err("Failed to execute the query.")?;
+				let Some(row) = rows.next().wrap_err("Failed to get the row.")? else {
+					break 'a;
+				};
+				let children = row.get::<_, String>(0).unwrap();
+				serde_json::from_str(&children).wrap_err("Failed to deserialize the children.")?
 			};
 
-			// Get the log.
-			let log = {
-				let mut state = state.inner.log.lock().await;
-				state.sender.take();
-				state.file.rewind().await.wrap_err("Failed to seek.")?;
-				tg::Blob::with_reader(self, &mut state.file).await?
-			};
+			// If the outcome is canceled, then cancel the children.
+			if matches!(outcome, tg::build::Outcome::Canceled) {
+				children
+					.iter()
+					.map(|child| async move {
+						self.finish_build(user, child, tg::build::Outcome::Canceled)
+							.await?;
+						Ok::<_, Error>(())
+					})
+					.collect::<FuturesUnordered<_>>()
+					.try_collect()
+					.await?;
+			}
 
 			// Check if any of the children have been canceled.
 			let outcome = if children
@@ -1050,40 +1069,34 @@ impl Server {
 			// Update the database.
 			{
 				let status = tg::build::Status::Finished;
-				let log = log.id(self).await?.clone();
 				let outcome = serde_json::to_string(&outcome.data(self).await?)
 					.wrap_err("Failed to serialize the outcome.")?;
 				let db = self.inner.database.pool.get().await;
-				let mut statement = db
-					.prepare_cached(
-						"
-							update builds
-							set json = json_set(
-								json,
-								'$.status', ?1,
-								'$.log', ?2,
-								'$.outcome', json(?3)
-							)
-							where id = ?4;
-						",
+				let statement = "
+					update builds
+					set json = json_set(
+						json,
+						'$.status', ?1,
+						'$.outcome', json(?2)
 					)
+					where id = ?3;
+				";
+				let mut statement = db
+					.prepare_cached(statement)
 					.wrap_err("Failed to prepare the query.")?;
-				let params =
-					rusqlite::params![status.to_string(), log.to_string(), outcome, id.to_string()];
+				let params = params![status.to_string(), outcome, id.to_string()];
 				statement
 					.execute(params)
 					.wrap_err("Failed to execute the query.")?;
 			}
 
-			// Send the outcome.
-			state
-				.inner
-				.outcome
-				.sender
-				.send_replace(Some(outcome.clone()));
+			// Notify subscribers that the outcome has been set.
+			if let Some(channels) = self.inner.channels.read().unwrap().get(id).cloned() {
+				channels.outcome.send_replace(());
+			}
 
-			// Remove the build's state.
-			self.inner.local_builds.write().unwrap().remove(id);
+			// Remove the build's channels.
+			self.inner.channels.write().unwrap().remove(id);
 
 			return Ok(());
 		}
@@ -1103,8 +1116,8 @@ impl Server {
 			// Finish the build.
 			remote.finish_build(user, id, outcome).await?;
 
-			// Remove the build's state.
-			self.inner.remote_builds.write().unwrap().remove(id);
+			// Remove the build's task.
+			self.inner.tasks.write().unwrap().remove(id);
 
 			return Ok(());
 		}

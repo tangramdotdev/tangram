@@ -150,10 +150,6 @@ impl Server {
 				.handle_get_build_outcome_request(request)
 				.map(Some)
 				.boxed(),
-			(http::Method::POST, ["v1", "builds", _, "cancel"]) => self
-				.handle_post_build_cancel_request(request)
-				.map(Some)
-				.boxed(),
 			(http::Method::POST, ["v1", "builds", _, "finish"]) => self
 				.handle_post_build_finish_request(request)
 				.map(Some)
@@ -360,31 +356,6 @@ impl Server {
 		// Create the response.
 		let body = serde_json::to_vec(&build_id).wrap_err("Failed to serialize the response.")?;
 		let response = http::Response::builder().body(full(body)).unwrap();
-		Ok(response)
-	}
-
-	async fn handle_post_build_cancel_request(
-		&self,
-		request: http::Request<Incoming>,
-	) -> Result<hyper::Response<Outgoing>> {
-		// Get the path params.
-		let path_components: Vec<&str> = request.uri().path().split('/').skip(1).collect();
-		let [_, "builds", build_id, "cancel"] = path_components.as_slice() else {
-			return_error!("Unexpected path.");
-		};
-		let build_id = build_id.parse().wrap_err("Failed to parse the ID.")?;
-
-		// Get the user.
-		let user = self.try_get_user_from_request(&request).await?;
-
-		self.cancel_build(user.as_ref(), &build_id).await?;
-
-		// Create the response.
-		let response = http::Response::builder()
-			.status(http::StatusCode::OK)
-			.body(empty())
-			.unwrap();
-
 		Ok(response)
 	}
 
@@ -978,7 +949,7 @@ impl Server {
 			.to_bytes();
 		let package_id = serde_json::from_slice(&bytes).wrap_err("Invalid request.")?;
 
-		// Create the package.
+		// Publish the package.
 		self.publish_package(user.as_ref(), &package_id).await?;
 
 		Ok(ok())

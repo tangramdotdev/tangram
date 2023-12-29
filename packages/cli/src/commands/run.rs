@@ -1,4 +1,3 @@
-use super::{PackageArgs, RunArgs};
 use crate::{
 	tui::{self, Tui},
 	Cli,
@@ -12,6 +11,14 @@ use tangram_error::{Result, Wrap, WrapErr};
 #[command(verbatim_doc_comment)]
 #[command(trailing_var_arg = true)]
 pub struct Args {
+	/// The path to the executable in the artifact to run.
+	#[arg(long)]
+	pub executable_path: Option<tg::Path>,
+
+	/// If this flag is set, the package's lockfile will not be updated.
+	#[arg(long)]
+	pub locked: bool,
+
 	/// Disable the TUI.
 	#[arg(long, default_value = "false")]
 	pub no_tui: bool,
@@ -20,22 +27,16 @@ pub struct Args {
 	#[arg(short, long, default_value = ".")]
 	pub package: tg::Dependency,
 
-	#[command(flatten)]
-	pub package_args: PackageArgs,
-
 	/// The retry strategy to use.
 	#[arg(long, default_value_t)]
 	pub retry: tg::build::Retry,
-
-	#[command(flatten)]
-	pub run_args: RunArgs,
 
 	/// The name of the target to build.
 	#[arg(default_value = "default")]
 	pub target: String,
 
 	/// Arguments to pass to the executable.
-	pub trailing_args: Vec<String>,
+	pub trailing: Vec<String>,
 }
 
 impl Cli {
@@ -63,10 +64,7 @@ impl Cli {
 		.into();
 		let args_ = Vec::new();
 		let host = tg::System::js();
-		let path = tg::package::ROOT_MODULE_FILE_NAME
-			.to_owned()
-			.try_into()
-			.unwrap();
+		let path = tg::package::ROOT_MODULE_FILE_NAME.to_owned().into();
 		let executable = tg::Symlink::new(Some(package.into()), path).into();
 		let target = tg::target::Builder::new(host, executable)
 			.lock(lock)
@@ -119,7 +117,7 @@ impl Cli {
 			.join(artifact.id(tg).await?.to_string());
 
 		// Get the executable path.
-		let executable_path = if let Some(executable_path) = args.run_args.executable_path {
+		let executable_path = if let Some(executable_path) = args.executable_path {
 			// Resolve the argument as a path relative to the artifact.
 			artifact_path.join(PathBuf::from(executable_path.to_string()))
 		} else {
@@ -136,7 +134,7 @@ impl Cli {
 
 		// Exec.
 		Err(std::process::Command::new(executable_path)
-			.args(args.trailing_args)
+			.args(args.trailing)
 			.exec()
 			.wrap("Failed to execute the command."))
 	}

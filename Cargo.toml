@@ -28,6 +28,7 @@ items_after_statements = "allow"
 missing_errors_doc = "allow"
 missing_panics_doc = "allow"
 missing_safety_doc = "allow"
+too_many_lines = "allow"
 
 [workspace.dependencies]
 async-compression = { version = "0.4", features = ["all"] }
@@ -59,7 +60,6 @@ include_dir = "0.7"
 indoc = "2"
 itertools = "0.12"
 libc = "0.2"
-lmdb-rkv = { version = "0.14" }
 lsp-types = { version = "0.95" }
 ndarray = { version = "0.15", features = ["rayon"] }
 notify = "6"

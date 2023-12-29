@@ -68,7 +68,7 @@ struct State {
 	nodes: BTreeMap<u64, Arc<Node>>,
 	clients: BTreeMap<Vec<u8>, ClientData>,
 	index: u64,
-	lock_state: BTreeMap<u64, Arc<tokio::sync::RwLock<LockState>>>,
+	locks: BTreeMap<u64, Arc<tokio::sync::RwLock<LockState>>>,
 }
 
 struct LockState {
@@ -146,7 +146,7 @@ impl Server {
 		let state = tokio::sync::RwLock::new(State {
 			nodes,
 			clients: BTreeMap::new(),
-			lock_state: BTreeMap::new(),
+			locks: BTreeMap::new(),
 			index: 0,
 		});
 		let task = (std::sync::Mutex::new(None), std::sync::Mutex::new(None));
@@ -578,14 +578,14 @@ impl Server {
 
 			// Look up the existing lock state.
 			let index = stateid.index();
-			let Some(lock_state) = state.lock_state.get(&index).cloned() else {
+			let Some(lock_state) = state.locks.get(&index).cloned() else {
 				return CLOSE4res::Error(nfsstat4::NFS4ERR_BAD_STATEID);
 			};
 			let lock_state = lock_state.write().await;
 
 			// Check if there are any outstanding byterange locks.
 			if lock_state.byterange_locks.is_empty() {
-				state.lock_state.remove(&index);
+				state.locks.remove(&index);
 			} else {
 				return CLOSE4res::Error(nfsstat4::NFS4ERR_LOCKS_HELD);
 			}
@@ -699,7 +699,7 @@ impl Server {
 		let state = self.inner.state.read().await;
 
 		// We ignore returning an error here if the lock state does not exist to support erroneous CLOSE requests that clear out state.
-		if let Some(lock_state) = state.lock_state.get(&index) {
+		if let Some(lock_state) = state.locks.get(&index) {
 			// Add the new lock.
 			let mut lock_state = lock_state.write().await;
 			lock_state.byterange_locks.push(range);
@@ -733,7 +733,7 @@ impl Server {
 		// Lookup the reader state.
 		let index = lock_stateid.index();
 		let state = self.inner.state.read().await;
-		if let Some(lock_state) = state.lock_state.get(&index) {
+		if let Some(lock_state) = state.locks.get(&index) {
 			// Remove the lock.
 			let mut lock_state = lock_state.write().await;
 			let Some(index) = lock_state.byterange_locks.iter().position(|r| r == &range) else {
@@ -1064,7 +1064,7 @@ impl Server {
 				.state
 				.write()
 				.await
-				.lock_state
+				.locks
 				.insert(index, Arc::new(tokio::sync::RwLock::new(lock_state)));
 		}
 
@@ -1123,7 +1123,7 @@ impl Server {
 		if arg.seqid != arg.open_stateid.seqid.increment() {
 			tracing::error!(?arg, "Invalid seqid in open.");
 			let mut state = self.inner.state.write().await;
-			state.lock_state.remove(&arg.open_stateid.index());
+			state.locks.remove(&arg.open_stateid.index());
 			return OPEN_CONFIRM4res::Error(nfsstat4::NFS4ERR_BAD_SEQID);
 		}
 		let mut open_stateid = arg.open_stateid;
@@ -1181,7 +1181,7 @@ impl Server {
 		// Check if the lock state exists.
 		let state = self.inner.state.read().await;
 		let index = arg.stateid.index();
-		let lock_state_exists = state.lock_state.contains_key(&index);
+		let lock_state_exists = state.locks.contains_key(&index);
 
 		// This fallback exists for special state ids and any erroneous read.
 		let (data, eof) = if [ANONYMOUS_STATE_ID, READ_BYPASS_STATE_ID].contains(&arg.stateid)
@@ -1204,7 +1204,7 @@ impl Server {
 			let eof = (arg.offset + arg.count.to_u64().unwrap()) >= *file_size;
 			(data, eof)
 		} else {
-			let Some(lock_state) = state.lock_state.get(&index).cloned() else {
+			let Some(lock_state) = state.locks.get(&index).cloned() else {
 				tracing::error!(?arg.stateid, "No reader is registered for the given id. file: {file}.");
 				return READ4res::Error(nfsstat4::NFS4ERR_BAD_STATEID);
 			};

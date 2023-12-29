@@ -65,6 +65,13 @@ pub trait Handle: Send + Sync + 'static {
 
 	async fn try_get_build_status(&self, id: &build::Id) -> Result<Option<build::Status>>;
 
+	async fn set_build_status(
+		&self,
+		user: Option<&User>,
+		id: &build::Id,
+		status: build::Status,
+	) -> Result<()>;
+
 	async fn get_build_target(&self, id: &build::Id) -> Result<target::Id> {
 		Ok(self
 			.try_get_build_target(id)
@@ -108,6 +115,13 @@ pub trait Handle: Send + Sync + 'static {
 		id: &build::Id,
 	) -> Result<Option<BoxStream<'static, Result<Bytes>>>>;
 
+	// async fn try_get_build_log(
+	// 	&self,
+	// 	id: &build::Id,
+	// 	pos: Option<u64>,
+	// 	len: Option<i64>,
+	// ) -> Result<Option<BoxStream<'static, Result<log::Entry>>>>;
+
 	async fn add_build_log(&self, user: Option<&User>, id: &build::Id, bytes: Bytes) -> Result<()>;
 
 	async fn get_build_outcome(&self, id: &build::Id) -> Result<build::Outcome> {
@@ -118,8 +132,6 @@ pub trait Handle: Send + Sync + 'static {
 	}
 
 	async fn try_get_build_outcome(&self, id: &build::Id) -> Result<Option<build::Outcome>>;
-
-	async fn cancel_build(&self, user: Option<&User>, id: &build::Id) -> Result<()>;
 
 	async fn finish_build(
 		&self,

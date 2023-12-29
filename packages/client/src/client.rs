@@ -582,6 +582,30 @@ impl Handle for Client {
 		Ok(id)
 	}
 
+	async fn set_build_status(
+		&self,
+		user: Option<&User>,
+		id: &build::Id,
+		status: build::Status,
+	) -> Result<()> {
+		let mut request = http::request::Builder::default()
+			.method(http::Method::POST)
+			.uri(format!("/v1/builds/{id}/status"));
+		let user = user.or(self.inner.user.as_ref());
+		if let Some(token) = user.and_then(|user| user.token.as_ref()) {
+			request = request.header(http::header::AUTHORIZATION, format!("Bearer {token}"));
+		}
+		let body = serde_json::to_vec(&status).wrap_err("Failed to serialize the body.")?;
+		let request = request
+			.body(full(body))
+			.wrap_err("Failed to create the request.")?;
+		let response = self.send(request).await?;
+		if !response.status().is_success() {
+			return_error!("Expected the response's status to be success.");
+		}
+		Ok(())
+	}
+
 	async fn try_get_build_target(&self, id: &build::Id) -> Result<Option<target::Id>> {
 		let request = http::request::Builder::default()
 			.method(http::Method::GET)
@@ -689,9 +713,6 @@ impl Handle for Client {
 			.body(full(body))
 			.wrap_err("Failed to create the request.")?;
 		let response = self.send(request).await?;
-		if response.status() == http::StatusCode::NOT_FOUND {
-			return Ok(());
-		}
 		if !response.status().is_success() {
 			return_error!("Expected the response's status to be success.");
 		}
@@ -742,9 +763,6 @@ impl Handle for Client {
 			.body(full(body))
 			.wrap_err("Failed to create the request.")?;
 		let response = self.send(request).await?;
-		if response.status() == http::StatusCode::NOT_FOUND {
-			return Ok(());
-		}
 		if !response.status().is_success() {
 			return_error!("Expected the response's status to be success.");
 		}
@@ -774,27 +792,6 @@ impl Handle for Client {
 		Ok(Some(outcome))
 	}
 
-	async fn cancel_build(&self, user: Option<&User>, id: &build::Id) -> Result<()> {
-		let mut request = http::request::Builder::default()
-			.method(http::Method::POST)
-			.uri(format!("/v1/builds/{id}/cancel"));
-		let user = user.or(self.inner.user.as_ref());
-		if let Some(token) = user.and_then(|user| user.token.as_ref()) {
-			request = request.header(http::header::AUTHORIZATION, format!("Bearer {token}"));
-		}
-		let request = request
-			.body(empty())
-			.wrap_err("Failed to create the request.")?;
-		let response = self.send(request).await?;
-		if response.status() == http::StatusCode::NOT_FOUND {
-			return Ok(());
-		}
-		if !response.status().is_success() {
-			return_error!("Expected the response's status to be success.");
-		}
-		Ok(())
-	}
-
 	async fn finish_build(
 		&self,
 		user: Option<&User>,
@@ -814,9 +811,6 @@ impl Handle for Client {
 			.body(full(body))
 			.wrap_err("Failed to create the request.")?;
 		let response = self.send(request).await?;
-		if response.status() == http::StatusCode::NOT_FOUND {
-			return Ok(());
-		}
 		if !response.status().is_success() {
 			return_error!("Expected the response's status to be success.");
 		}

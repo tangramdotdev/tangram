@@ -73,31 +73,27 @@ async fn migration_0000(path: &Path) -> Result<()> {
 				id text primary key,
 				json text not null
 			) strict;
+			create index builds_status on builds ((json->'status'));
+
+			create table logs (
+				build text not null,
+				position int not null,
+				bytes blob not null
+			) strict;
+			create index logs_index on logs (build, position);
 
 			create table assignments (
 				target text primary key,
 				build text not null
 			) strict;
+
+			create table queue (
+				json text not null
+			) strict;
+			create index queue_index on queue ((json->'depth') desc);
 		",
 	)
 	.wrap_err("Failed to create the database tables.")?;
-
-	// Create the store.
-	let store_path = path.join("store");
-	tokio::fs::File::create(&store_path)
-		.await
-		.wrap_err("Failed to create the store.")?;
-
-	// Open the store.
-	let env = lmdb::Environment::new()
-		.set_max_dbs(1)
-		.set_flags(lmdb::EnvironmentFlags::NO_SUB_DIR)
-		.open(&store_path)
-		.wrap_err("Failed to open the store.")?;
-
-	// Create the objects database.
-	env.create_db("objects".into(), lmdb::DatabaseFlags::empty())
-		.wrap_err("Failed to create the objects database.")?;
 
 	// Create the artifacts directory.
 	let artifacts_path = path.join("artifacts");

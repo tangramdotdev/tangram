@@ -1,4 +1,3 @@
-#![allow(clippy::unused_async)]
 use num::ToPrimitive;
 use std::{
 	collections::BTreeMap,
@@ -415,6 +414,7 @@ impl Server {
 		Ok(Response::Flush)
 	}
 
+	#[allow(clippy::unused_async)]
 	async fn handle_batch_forget_request(
 		&self,
 		_header: sys::fuse_in_header,
@@ -423,6 +423,7 @@ impl Server {
 		Ok(Response::None)
 	}
 
+	#[allow(clippy::unused_async)]
 	async fn handle_forget_request(
 		&self,
 		_header: sys::fuse_in_header,
@@ -552,7 +553,6 @@ impl Server {
 		Ok(Response::Init(response))
 	}
 
-	#[allow(clippy::too_many_lines)]
 	async fn handle_lookup_request(
 		&self,
 		header: sys::fuse_in_header,

@@ -39,7 +39,6 @@ pub(super) fn to_exception<'s>(
 	error.to_v8(scope).unwrap()
 }
 
-#[allow(clippy::too_many_lines)]
 pub(super) fn from_exception<'s>(
 	state: &State,
 	scope: &mut v8::HandleScope<'s>,

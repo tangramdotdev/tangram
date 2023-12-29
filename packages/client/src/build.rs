@@ -178,7 +178,7 @@ impl Build {
 
 	pub async fn cancel(&self, tg: &dyn Handle) -> Result<()> {
 		let id = self.id();
-		tg.cancel_build(None, id).await?;
+		tg.finish_build(None, id, Outcome::Canceled).await?;
 		Ok(())
 	}
 
