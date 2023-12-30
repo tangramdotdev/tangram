@@ -10,7 +10,7 @@ impl Server {
 	pub async fn get_object_exists(&self, id: &object::Id) -> Result<bool> {
 		// Check if the object exists in the database.
 		'a: {
-			let db = self.inner.database.pool.get().await;
+			let db = self.inner.database.get().await?;
 			let statement = "
 				select count(*) != 0
 				from objects
@@ -50,7 +50,7 @@ impl Server {
 	pub async fn try_get_object(&self, id: &object::Id) -> Result<Option<Bytes>> {
 		// Attempt to get the object from the database.
 		'a: {
-			let db = self.inner.database.pool.get().await;
+			let db = self.inner.database.get().await?;
 			let statement = "
 				select bytes
 				from objects
@@ -82,7 +82,7 @@ impl Server {
 
 			// Add the object to the database.
 			{
-				let db = self.inner.database.pool.get().await;
+				let db = self.inner.database.get().await?;
 				let statement = "
 					insert into objects (id, bytes)
 					values (?1, ?2)
@@ -131,7 +131,7 @@ impl Server {
 
 		// Add the object to the database.
 		{
-			let db = self.inner.database.pool.get().await;
+			let db = self.inner.database.get().await?;
 			let statement = "
 				insert into objects (id, bytes)
 				values (?1, ?2)

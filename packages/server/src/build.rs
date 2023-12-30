@@ -1,5 +1,5 @@
 use super::Server;
-use crate::{Build, Channels, LocalQueueTaskMessage};
+use crate::{database::Json, Build, Channels, LocalQueueTaskMessage};
 use async_recursion::async_recursion;
 use bytes::Bytes;
 use futures::{
@@ -23,7 +23,7 @@ impl Server {
 			loop {
 				// Get the highest priority item from the queue.
 				let item: tg::build::queue::Item = {
-					let db = self.inner.database.pool.get().await;
+					let db = self.inner.database.get().await?;
 					let statement = "
 						delete from queue
 						where rowid in (
@@ -43,13 +43,14 @@ impl Server {
 					let Some(row) = rows.next().wrap_err("Failed to get the row.")? else {
 						break;
 					};
-					let json = row.get_unwrap::<_, String>(0);
-					serde_json::from_str(&json).wrap_err("Failed to deserialize the item.")?
+					row.get::<_, Json<_>>(0)
+						.wrap_err("Failed to deserialize from row.")?
+						.0
 				};
 
 				// If the build is at a unique depth, then start it.
 				let unique = {
-					let db = self.inner.database.pool.get().await;
+					let db = self.inner.database.get().await?;
 					let statement = "
 						select ?1 not in (
 							select distinct json->'depth'
@@ -87,9 +88,7 @@ impl Server {
 
 					// If there are no permits available, then add the item back to the queue and break.
 					Err(tokio::sync::TryAcquireError::NoPermits) => {
-						let json = serde_json::to_string(&item)
-							.wrap_err("Failed to serialize the item.")?;
-						let db = self.inner.database.pool.get().await;
+						let db = self.inner.database.get().await?;
 						let statement = "
 							insert into queue (json)
 							values (?1);
@@ -97,7 +96,7 @@ impl Server {
 						let mut statement = db
 							.prepare_cached(statement)
 							.wrap_err("Failed to prepare the query.")?;
-						let params = params![json];
+						let params = params![Json(item)];
 						statement
 							.execute(params)
 							.wrap_err("Failed to execute the query.")?;
@@ -137,7 +136,7 @@ impl Server {
 		while receiver.try_recv().is_err() {
 			// If the queue is not empty, then sleep and continue.
 			let empty = {
-				let db = self.inner.database.pool.get().await;
+				let db = self.inner.database.get().await?;
 				let statement = "
 					select count(*) = 0
 					from queue;
@@ -192,7 +191,7 @@ impl Server {
 	) -> Result<Option<tg::build::Id>> {
 		// Attempt to get the assignment from the database.
 		'a: {
-			let db = self.inner.database.pool.get().await;
+			let db = self.inner.database.get().await?;
 			let statement = "
 				select build 
 				from assignments 
@@ -225,7 +224,7 @@ impl Server {
 			};
 
 			// Add the assignment to the database.
-			let db = self.inner.database.pool.get().await;
+			let db = self.inner.database.get().await?;
 			let statement = "
 				insert into assignments (target, build)
 				values (?1, ?2)
@@ -246,7 +245,7 @@ impl Server {
 	}
 
 	async fn build_is_local(&self, id: &tg::build::Id) -> Result<bool> {
-		let db = self.inner.database.pool.get().await;
+		let db = self.inner.database.get().await?;
 		let statement = "
 					select count(*) != 0
 					from builds
@@ -341,9 +340,7 @@ impl Server {
 				status: tg::build::Status::Queued,
 				target: target_id.clone(),
 			};
-			let json =
-				serde_json::to_string(&build).wrap_err("Failed to serialize the build data.")?;
-			let db = self.inner.database.pool.get().await;
+			let db = self.inner.database.get().await?;
 			let statement = "
 				insert into builds (id, json)
 				values (?1, ?2);
@@ -351,7 +348,7 @@ impl Server {
 			let mut statement = db
 				.prepare_cached(statement)
 				.wrap_err("Failed to prepare the query.")?;
-			let params = params![build_id.to_string(), json];
+			let params = params![build_id.to_string(), Json(build)];
 			statement
 				.execute(params)
 				.wrap_err("Failed to execute the query.")?;
@@ -359,7 +356,7 @@ impl Server {
 
 		// Add the assignment to the database.
 		{
-			let db = self.inner.database.pool.get().await;
+			let db = self.inner.database.get().await?;
 			let statement = "
 				insert into assignments (target, build)
 				values (?1, ?2)
@@ -384,8 +381,7 @@ impl Server {
 
 		// Add the item to the queue.
 		{
-			let json = serde_json::to_string(&item).wrap_err("Failed to serialize the item.")?;
-			let db = self.inner.database.pool.get().await;
+			let db = self.inner.database.get().await?;
 			let statement = "
 				insert into queue (json)
 				values (?1);
@@ -393,7 +389,7 @@ impl Server {
 			let mut statement = db
 				.prepare_cached(statement)
 				.wrap_err("Failed to prepare the query.")?;
-			let params = params![json];
+			let params = params![Json(item)];
 			statement
 				.execute(params)
 				.wrap_err("Failed to execute the query.")?;
@@ -552,7 +548,7 @@ impl Server {
 	) -> Result<Option<tg::build::Status>> {
 		// Attempt to get the status from the database.
 		'a: {
-			let db = self.inner.database.pool.get().await;
+			let db = self.inner.database.get().await?;
 			let statement = "
 				select json_extract(json, '$.status')
 				from builds
@@ -594,7 +590,7 @@ impl Server {
 	) -> Result<()> {
 		// Attempt to set the status of a local build.
 		'a: {
-			let db = self.inner.database.pool.get().await;
+			let db = self.inner.database.get().await?;
 			let statement = "
 				update builds
 				set json = json_set(json, '$.status', 'running')
@@ -628,7 +624,7 @@ impl Server {
 	pub async fn try_get_build_target(&self, id: &tg::build::Id) -> Result<Option<tg::target::Id>> {
 		// Attempt to get the target from the database.
 		'a: {
-			let db = self.inner.database.pool.get().await;
+			let db = self.inner.database.get().await?;
 			let statement = "
 				select json_extract(json, '$.target')
 				from builds
@@ -709,7 +705,7 @@ impl Server {
 					return Ok(None);
 				}
 				let (status, children) = {
-					let db = state.server.inner.database.pool.get().await;
+					let db = state.server.inner.database.get().await?;
 					let statement = "
 						select
 							json->>'status' as status,
@@ -741,9 +737,10 @@ impl Server {
 						.unwrap()
 						.parse()
 						.wrap_err("Invalid status.")?;
-					let children = row.get::<_, String>(1).unwrap();
-					let children: Vec<tg::build::Id> = serde_json::from_str(&children)
-						.wrap_err("Failed to deseriaize the children.")?;
+					let children = row
+						.get::<_, Json<Vec<tg::build::Id>>>(1)
+						.wrap_err("Failed to deseriaize the children.")?
+						.0;
 					(status, children)
 				};
 				if matches!(status, tg::build::Status::Finished) {
@@ -788,7 +785,7 @@ impl Server {
 
 			// Add the child to the build in the database.
 			{
-				let db = self.inner.database.pool.get().await;
+				let db = self.inner.database.get().await?;
 				let statement = "
 					update builds
 					set json = json_set(json, '$.children[#]', ?1)
@@ -865,7 +862,7 @@ impl Server {
 
 			// Add the log to the database.
 			{
-				let db = self.inner.database.pool.get().await;
+				let db = self.inner.database.get().await?;
 				let statement = "
 					insert into logs (build, position, bytes)
 					values (
@@ -939,9 +936,9 @@ impl Server {
 					subscriber.changed().await.unwrap();
 				}
 				first = false;
-				let db = self.inner.database.pool.get().await;
+				let db = self.inner.database.get().await?;
 				let statement = "
-					select coalesce(json_extract(json, '$.outcome'), json('null'))
+					select json_extract(json, '$.outcome')
 					from builds
 					where id = ?1;
 				";
@@ -955,11 +952,11 @@ impl Server {
 				let Some(row) = rows.next().wrap_err("Failed to get the row.")? else {
 					break 'a;
 				};
-				let outcome = row.get_unwrap::<_, String>(0);
-				let outcome: Option<tg::build::outcome::Data> = serde_json::from_str(&outcome)
-					.wrap_err("Failed to deserialize the children.")?;
-				let outcome: Option<tg::build::Outcome> =
-					outcome.map(TryInto::try_into).transpose()?;
+				let outcome = row
+					.get::<_, Option<Json<tg::build::outcome::Data>>>(0)
+					.wrap_err("Failed to deserialize the row.")?
+					.map(|value| value.0.try_into())
+					.transpose()?;
 				if let Some(outcome) = outcome {
 					return Ok(Some(outcome));
 				}
@@ -992,7 +989,7 @@ impl Server {
 		'a: {
 			// Verify the build is local.
 			{
-				let db = self.inner.database.pool.get().await;
+				let db = self.inner.database.get().await?;
 				let statement = "
 					select count(*) != 0
 					from builds
@@ -1017,7 +1014,7 @@ impl Server {
 
 			// Get the children.
 			let children: Vec<tg::build::Id> = {
-				let db = self.inner.database.pool.get().await;
+				let db = self.inner.database.get().await?;
 				let statement = "
 					select json_extract(json, '$.children')
 					from builds
@@ -1033,8 +1030,9 @@ impl Server {
 				let Some(row) = rows.next().wrap_err("Failed to get the row.")? else {
 					break 'a;
 				};
-				let children = row.get::<_, String>(0).unwrap();
-				serde_json::from_str(&children).wrap_err("Failed to deserialize the children.")?
+				row.get::<_, Json<_>>(0)
+					.wrap_err("Failed to deserialize the row.")?
+					.0
 			};
 
 			// If the outcome is canceled, then cancel the children.
@@ -1069,9 +1067,8 @@ impl Server {
 			// Update the database.
 			{
 				let status = tg::build::Status::Finished;
-				let outcome = serde_json::to_string(&outcome.data(self).await?)
-					.wrap_err("Failed to serialize the outcome.")?;
-				let db = self.inner.database.pool.get().await;
+				let outcome = outcome.data(self).await?;
+				let db = self.inner.database.get().await?;
 				let statement = "
 					update builds
 					set json = json_set(
@@ -1084,7 +1081,7 @@ impl Server {
 				let mut statement = db
 					.prepare_cached(statement)
 					.wrap_err("Failed to prepare the query.")?;
-				let params = params![status.to_string(), outcome, id.to_string()];
+				let params = params![status.to_string(), Json(outcome), id.to_string()];
 				statement
 					.execute(params)
 					.wrap_err("Failed to execute the query.")?;

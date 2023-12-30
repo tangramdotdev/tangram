@@ -1,3 +1,4 @@
+use self::database::Database;
 use async_trait::async_trait;
 use bytes::Bytes;
 use futures::stream::BoxStream;
@@ -14,6 +15,7 @@ use tg::util::rmrf;
 mod artifact;
 mod build;
 mod clean;
+mod database;
 mod migrations;
 mod object;
 mod package;
@@ -43,10 +45,6 @@ struct Inner {
 		std::sync::RwLock<HashMap<tg::build::Id, tokio::task::JoinHandle<()>, fnv::FnvBuildHasher>>,
 	version: String,
 	vfs: std::sync::Mutex<Option<tangram_vfs::Server>>,
-}
-
-struct Database {
-	pool: tangram_pool::Pool<rusqlite::Connection>,
 }
 
 #[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
@@ -159,14 +157,7 @@ impl Server {
 
 		// Open the database.
 		let database_path = path.join("database");
-		let pool = tangram_pool::Pool::new();
-		let n = std::thread::available_parallelism().unwrap().get();
-		for _ in 0..n {
-			let db = rusqlite::Connection::open(&database_path)
-				.wrap_err("Failed to open the database.")?;
-			pool.put(db).await;
-		}
-		let database = Database { pool };
+		let database = Database::new(&database_path).await?;
 
 		// Create the file system semaphore.
 		let file_descriptor_semaphore = tokio::sync::Semaphore::new(16);
@@ -215,7 +206,7 @@ impl Server {
 
 		// Terminate any running builds.
 		{
-			let db = server.inner.database.pool.get().await;
+			let db = server.inner.database.get().await?;
 			let statement = r#"
 				update builds
 				set json = json_set(

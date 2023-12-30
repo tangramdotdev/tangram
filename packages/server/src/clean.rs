@@ -5,7 +5,7 @@ impl Server {
 	pub async fn clean(&self) -> Result<()> {
 		// Clear the database.
 		{
-			let db = self.inner.database.pool.get().await;
+			let db = self.inner.database.get().await?;
 			db.execute_batch(
 				"
 					delete from objects;
