@@ -1,5 +1,5 @@
 use super::Server;
-use crate::{database::Json, Build, Channels, LocalQueueTaskMessage};
+use crate::{database::Json, Channels, LocalQueueTaskMessage};
 use async_recursion::async_recursion;
 use bytes::Bytes;
 use futures::{
@@ -13,6 +13,15 @@ use tangram_client as tg;
 use tangram_error::{return_error, Error, Result, WrapErr};
 use tg::Handle;
 use tokio_stream::wrappers::WatchStream;
+
+#[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
+struct Build {
+	children: Vec<tg::build::Id>,
+	depth: u64,
+	outcome: Option<tg::build::outcome::Data>,
+	status: tg::build::Status,
+	target: tg::target::Id,
+}
 
 impl Server {
 	pub(crate) async fn local_queue_task(
@@ -55,7 +64,7 @@ impl Server {
 						select ?1 not in (
 							select distinct json->'depth'
 							from builds
-							where json->'status' = 'running'
+							where json->>'status' = 'running'
 						);
 					";
 					let mut statement = db
@@ -207,7 +216,10 @@ impl Server {
 			let Some(row) = rows.next().wrap_err("Failed to get the row.")? else {
 				break 'a;
 			};
-			let id = row.get_unwrap::<_, String>(0).parse()?;
+			let id = row
+				.get::<_, String>(0)
+				.wrap_err("Failed to deserialize the column.")?
+				.parse()?;
 			return Ok(Some(id));
 		}
 
@@ -550,7 +562,7 @@ impl Server {
 		'a: {
 			let db = self.inner.database.get().await?;
 			let statement = "
-				select json_extract(json, '$.status')
+				select json->>'status' as status
 				from builds
 				where id = ?1;
 			";
@@ -564,7 +576,10 @@ impl Server {
 			let Some(row) = rows.next().wrap_err("Failed to get the row.")? else {
 				break 'a;
 			};
-			let status = row.get_unwrap::<_, String>(0).parse()?;
+			let status = row
+				.get::<_, String>(0)
+				.wrap_err("Failed to deserialize the column.")?
+				.parse()?;
 			return Ok(Some(status));
 		}
 
@@ -626,7 +641,7 @@ impl Server {
 		'a: {
 			let db = self.inner.database.get().await?;
 			let statement = "
-				select json_extract(json, '$.target')
+				select json->>'target' as target
 				from builds
 				where id = ?1;
 			";
@@ -640,7 +655,10 @@ impl Server {
 			let Some(row) = rows.next().wrap_err("Failed to get the row.")? else {
 				break 'a;
 			};
-			let target_id = row.get_unwrap::<_, String>(0).parse()?;
+			let target_id = row
+				.get::<_, String>(0)
+				.wrap_err("Failed to deserialize the row.")?
+				.parse()?;
 			return Ok(Some(target_id));
 		}
 
@@ -938,7 +956,7 @@ impl Server {
 				first = false;
 				let db = self.inner.database.get().await?;
 				let statement = "
-					select json_extract(json, '$.outcome')
+					select json->'outcome' as outcome
 					from builds
 					where id = ?1;
 				";

@@ -47,15 +47,6 @@ struct Inner {
 	vfs: std::sync::Mutex<Option<tangram_vfs::Server>>,
 }
 
-#[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
-struct Build {
-	children: Vec<tg::build::Id>,
-	depth: u64,
-	outcome: Option<tg::build::outcome::Data>,
-	status: tg::build::Status,
-	target: tg::target::Id,
-}
-
 struct Channels {
 	children: tokio::sync::watch::Sender<()>,
 	log: tokio::sync::watch::Sender<()>,
