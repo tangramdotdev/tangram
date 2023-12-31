@@ -1,5 +1,5 @@
 use super::Server;
-use crate::{database::Json, params, Channels, LocalQueueTaskMessage};
+use crate::{database::Json, params, Channels};
 use async_recursion::async_recursion;
 use bytes::Bytes;
 use futures::{
@@ -227,17 +227,15 @@ impl Server {
 		}
 
 		// Send a message to the build queue task that the item has been added.
-		self.inner
-			.local_queue_task_sender
-			.send(LocalQueueTaskMessage::Added)
-			.wrap_err("Failed to send the message to the local queue task.")?;
+		self.inner.local_queue_task_wake_sender.send_replace(());
 
 		Ok(build_id)
 	}
 
 	pub(crate) async fn local_queue_task(
 		&self,
-		mut receiver: tokio::sync::mpsc::UnboundedReceiver<LocalQueueTaskMessage>,
+		mut wake_receiver: tokio::sync::watch::Receiver<()>,
+		mut stop_receiver: tokio::sync::watch::Receiver<bool>,
 	) -> Result<()> {
 		loop {
 			loop {
@@ -329,31 +327,32 @@ impl Server {
 				};
 			}
 
-			// Wait for a message on the channel.
-			let message = receiver.recv().await.unwrap();
-			match message {
-				// If this is an added or finished message, then go back to the top.
-				LocalQueueTaskMessage::Added | LocalQueueTaskMessage::Finished => {
+			// Wait for a wake or stop signal.
+			tokio::select! {
+				// If a wake signal is received, the loop again.
+				_ = wake_receiver.changed() => {
 					continue;
-				},
+				}
 
-				// If this is a stop message, then break.
-				LocalQueueTaskMessage::Stop => return Ok(()),
+				// If a stop signal is received, then return.
+				_ = stop_receiver.wait_for(|stop| *stop) => {
+					return Ok(())
+				}
 			}
 		}
 	}
 
 	pub(crate) async fn remote_queue_task(
 		&self,
-		mut receiver: tokio::sync::mpsc::UnboundedReceiver<()>,
+		stop_receiver: tokio::sync::watch::Receiver<bool>,
 	) -> Result<()> {
 		// Get the remote handle.
 		let Some(remote) = self.inner.remote.as_ref() else {
 			return Ok(());
 		};
 
-		// Loop until the stop message is received.
-		while receiver.try_recv().is_err() {
+		// Loop until the stop flag is set.
+		while !*stop_receiver.borrow() {
 			// If the queue is not empty, then sleep and continue.
 			let empty = {
 				let db = self.inner.database.get().await?;
@@ -413,6 +412,10 @@ impl Server {
 		retry: tg::build::Retry,
 		permit: Option<tokio::sync::OwnedSemaphorePermit>,
 	) -> Result<()> {
+		// Update the status.
+		self.set_build_status(user, id, tg::build::Status::Running)
+			.await?;
+
 		// Spawn the task.
 		let task = tokio::spawn({
 			let server = self.clone();
@@ -431,10 +434,6 @@ impl Server {
 
 		// Set the task for the build.
 		self.inner.tasks.write().unwrap().insert(id.clone(), task);
-
-		// Update the status.
-		self.set_build_status(user, id, tg::build::Status::Running)
-			.await?;
 
 		Ok(())
 	}
@@ -515,11 +514,8 @@ impl Server {
 		// Drop the permit.
 		drop(permit);
 
-		// Send a message to the build queue task that the build has finished.
-		self.inner
-			.local_queue_task_sender
-			.send(LocalQueueTaskMessage::Finished)
-			.wrap_err("Failed to send the message to the local queue task.")?;
+		// Wake the local queue task.
+		self.inner.local_queue_task_wake_sender.send_replace(());
 
 		Ok(())
 	}

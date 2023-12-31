@@ -56,13 +56,8 @@ struct Inner {
 	tg: Box<dyn tg::Handle>,
 	path: PathBuf,
 	state: tokio::sync::RwLock<State>,
-	task: Task,
+	task: std::sync::Mutex<Option<tokio::task::JoinHandle<Result<()>>>>,
 }
-
-type Task = (
-	std::sync::Mutex<Option<tokio::task::JoinHandle<Result<()>>>>,
-	std::sync::Mutex<Option<tokio::task::AbortHandle>>,
-);
 
 struct State {
 	nodes: BTreeMap<u64, Arc<Node>>,
@@ -149,7 +144,7 @@ impl Server {
 			locks: BTreeMap::new(),
 			index: 0,
 		});
-		let task = (std::sync::Mutex::new(None), std::sync::Mutex::new(None));
+		let task = std::sync::Mutex::new(None);
 		let server = Self {
 			inner: Arc::new(Inner {
 				tg,
@@ -163,17 +158,15 @@ impl Server {
 		let task = tokio::spawn({
 			let server = server.clone();
 			async move {
-				if let Err(e) = server.serve(port).await {
-					tracing::error!(?e, "NFS server shutdown.");
-					Err(e)
+				if let Err(error) = server.serve(port).await {
+					tracing::error!(?error, "NFS server shutdown.");
+					Err(error)
 				} else {
 					Ok(())
 				}
 			}
 		});
-		let abort = task.abort_handle();
-		server.inner.task.1.lock().unwrap().replace(abort);
-		server.inner.task.0.lock().unwrap().replace(task);
+		server.inner.task.lock().unwrap().replace(task);
 
 		// Mount.
 		Self::mount(path, port).await?;
@@ -231,14 +224,14 @@ impl Server {
 
 	pub fn stop(&self) {
 		// Abort the task.
-		if let Some(handle) = self.inner.task.1.lock().unwrap().as_ref() {
-			handle.abort();
+		if let Some(task) = self.inner.task.lock().unwrap().as_ref() {
+			task.abort_handle().abort();
 		};
 	}
 
 	pub async fn join(&self) -> Result<()> {
 		// Join the task.
-		let task = self.inner.task.0.lock().unwrap().take();
+		let task = self.inner.task.lock().unwrap().take();
 		if let Some(task) = task {
 			match task.await {
 				Ok(result) => Ok(result),

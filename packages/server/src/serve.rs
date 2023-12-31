@@ -9,7 +9,7 @@ use hyper_util::rt::{TokioExecutor, TokioIo};
 use itertools::Itertools;
 use std::{collections::BTreeMap, convert::Infallible};
 use tangram_client as tg;
-use tangram_error::{return_error, Result, WrapErr};
+use tangram_error::{return_error, Error, Result, WrapErr};
 use tg::Handle;
 use tokio::net::{TcpListener, UnixListener};
 use tokio_util::either::Either;
@@ -22,7 +22,14 @@ type Outgoing = http_body_util::combinators::UnsyncBoxBody<
 >;
 
 impl Server {
-	pub async fn serve(self, addr: tg::client::Addr) -> Result<()> {
+	pub async fn serve(
+		self,
+		addr: tg::client::Addr,
+		mut stop_receiver: tokio::sync::watch::Receiver<bool>,
+	) -> Result<()> {
+		// Create the tasks.
+		let mut tasks = tokio::task::JoinSet::new();
+
 		// Create the listener.
 		let listener = match &addr {
 			tg::client::Addr::Inet(inet) => Either::Left(
@@ -40,22 +47,32 @@ impl Server {
 		// Loop forever, accepting connections.
 		loop {
 			// Accept a new connection.
-			let stream = TokioIo::new(match &listener {
-				Either::Left(listener) => Either::Left(
-					listener
-						.accept()
-						.await
-						.wrap_err("Failed to accept a new TCP connection.")?
-						.0,
-				),
-				Either::Right(listener) => Either::Right(
-					listener
-						.accept()
-						.await
-						.wrap_err("Failed to accept a new UNIX connection.")?
-						.0,
-				),
-			});
+			let accept = async {
+				let stream = match &listener {
+					Either::Left(listener) => Either::Left(
+						listener
+							.accept()
+							.await
+							.wrap_err("Failed to accept a new TCP connection.")?
+							.0,
+					),
+					Either::Right(listener) => Either::Right(
+						listener
+							.accept()
+							.await
+							.wrap_err("Failed to accept a new UNIX connection.")?
+							.0,
+					),
+				};
+				Ok::<_, Error>(TokioIo::new(stream))
+			};
+			let stop = stop_receiver.wait_for(|stop| *stop);
+			let stream = tokio::select! {
+				stream = accept => stream?,
+				_ = stop => {
+					break
+				},
+			};
 
 			// Create the service.
 			let service = hyper::service::service_fn({
@@ -66,15 +83,38 @@ impl Server {
 				}
 			});
 
-			// Spawn the connection.
-			tokio::spawn(async move {
-				let builder = hyper_util::server::conn::auto::Builder::new(TokioExecutor::new());
-				let connection = builder.serve_connection(stream, service);
-				if let Err(error) = connection.await {
-					tracing::error!(?error, "Failed to serve the connection.");
+			// Spawn a task to serve the connection.
+			tasks.spawn({
+				let mut stop_receiver = stop_receiver.clone();
+				async move {
+					let builder =
+						hyper_util::server::conn::auto::Builder::new(TokioExecutor::new());
+					let connection = builder.serve_connection(stream, service);
+					tokio::pin!(connection);
+					let result = tokio::select! {
+						result = connection.as_mut() => Some(result),
+						_ = stop_receiver.wait_for(|stop| *stop) => {
+							connection.as_mut().graceful_shutdown();
+							None
+						}
+					};
+					let result = match dbg!(result) {
+						Some(result) => result,
+						None => connection.await,
+					};
+					if let Err(error) = result {
+						tracing::error!(?error, "Failed to serve the connection.");
+					}
 				}
 			});
 		}
+
+		// Join all tasks.
+		while let Some(result) = tasks.join_next().await {
+			result.unwrap();
+		}
+
+		Ok(())
 	}
 
 	async fn try_get_user_from_request(
@@ -252,6 +292,7 @@ impl Server {
 		&self,
 		_request: http::Request<Incoming>,
 	) -> Result<http::Response<Outgoing>> {
+		tokio::time::sleep(std::time::Duration::from_secs(30)).await;
 		let status = self.status().await?;
 		let body = serde_json::to_vec(&status).unwrap();
 		let response = http::Response::builder()
