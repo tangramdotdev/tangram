@@ -55,6 +55,17 @@ where
 	}
 }
 
+impl<'a, T> Guard<'a, T> {
+	pub fn replace(&mut self, object: T) -> T {
+		self.object.replace(object).unwrap()
+	}
+
+	pub fn take(mut self) -> T {
+		self.permit.take().unwrap().forget();
+		self.object.take().unwrap()
+	}
+}
+
 impl<'a, T> std::ops::Deref for Guard<'a, T> {
 	type Target = T;
 
@@ -71,8 +82,9 @@ impl<'a, T> std::ops::DerefMut for Guard<'a, T> {
 
 impl<'a, T> Drop for Guard<'a, T> {
 	fn drop(&mut self) {
-		self.permit.take().unwrap().forget();
-		let object = self.object.take().unwrap();
-		self.sender.send(object).unwrap();
+		if let Some(object) = self.object.take() {
+			self.permit.take().unwrap().forget();
+			self.sender.send(object).unwrap();
+		}
 	}
 }

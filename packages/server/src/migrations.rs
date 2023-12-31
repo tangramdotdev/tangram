@@ -73,6 +73,7 @@ async fn migration_0000(path: &Path) -> Result<()> {
 				id text primary key,
 				json text not null
 			) strict;
+
 			create index builds_status on builds ((json->'status'));
 
 			create table logs (
@@ -80,6 +81,7 @@ async fn migration_0000(path: &Path) -> Result<()> {
 				position int not null,
 				bytes blob not null
 			) strict;
+
 			create index logs_index on logs (build, position);
 
 			create table assignments (
@@ -90,6 +92,7 @@ async fn migration_0000(path: &Path) -> Result<()> {
 			create table queue (
 				json text not null
 			) strict;
+
 			create index queue_index on queue ((json->'depth') desc);
 		",
 	)
