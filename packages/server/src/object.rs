@@ -1,106 +1,111 @@
 use super::Server;
+use crate::params;
 use bytes::Bytes;
 use futures::{stream, StreamExt, TryStreamExt};
-use rusqlite::params;
 use tangram_client as tg;
 use tangram_error::{return_error, Error, Result, WrapErr};
 use tg::object;
 
 impl Server {
 	pub async fn get_object_exists(&self, id: &object::Id) -> Result<bool> {
-		// Check if the object exists in the database.
-		'a: {
-			let db = self.inner.database.get().await?;
-			let statement = "
-				select count(*) != 0
-				from objects
-				where id = ?1;
-			";
-			let mut statement = db
-				.prepare_cached(statement)
-				.wrap_err("Failed to prepare the query.")?;
-			let params = params![id.to_string()];
-			let mut rows = statement
-				.query(params)
-				.wrap_err("Failed to execute the query.")?;
-			let row = rows
-				.next()
-				.wrap_err("Failed to retrieve the row.")?
-				.wrap_err("Expected a row.")?;
-			let exists = row.get::<_, bool>(0).wrap_err("Expected a bool.")?;
-			if !exists {
-				break 'a;
-			}
+		if self.get_object_exists_local(id).await? {
 			return Ok(true);
 		}
-
-		// Check if the object exists on the remote server.
-		'a: {
-			let Some(remote) = self.inner.remote.as_ref() else {
-				break 'a;
-			};
-			if remote.get_object_exists(id).await? {
-				return Ok(true);
-			}
+		if self.get_object_exists_remote(id).await? {
+			return Ok(true);
 		}
-
 		Ok(false)
 	}
 
+	async fn get_object_exists_local(&self, id: &object::Id) -> Result<bool> {
+		let db = self.inner.database.get().await?;
+		let statement = "
+			select count(*) != 0
+			from objects
+			where id = ?1;
+		";
+		let params = params![id.to_string()];
+		let mut statement = db
+			.prepare_cached(statement)
+			.wrap_err("Failed to prepare the query.")?;
+		let mut rows = statement
+			.query(params)
+			.wrap_err("Failed to execute the query.")?;
+		let row = rows
+			.next()
+			.wrap_err("Failed to retrieve the row.")?
+			.wrap_err("Expected a row.")?;
+		let exists = row.get::<_, bool>(0).wrap_err("Expected a bool.")?;
+		Ok(exists)
+	}
+
+	async fn get_object_exists_remote(&self, id: &object::Id) -> Result<bool> {
+		let Some(remote) = self.inner.remote.as_ref() else {
+			return Ok(false);
+		};
+		let exists = remote.get_object_exists(id).await?;
+		Ok(exists)
+	}
+
 	pub async fn try_get_object(&self, id: &object::Id) -> Result<Option<Bytes>> {
-		// Attempt to get the object from the database.
-		'a: {
+		if let Some(bytes) = self.try_get_object_local(id).await? {
+			Ok(Some(bytes))
+		} else if let Some(bytes) = self.try_get_object_remote(id).await? {
+			Ok(Some(bytes))
+		} else {
+			Ok(None)
+		}
+	}
+
+	async fn try_get_object_local(&self, id: &object::Id) -> Result<Option<Bytes>> {
+		let db = self.inner.database.get().await?;
+		let statement = "
+			select bytes
+			from objects
+			where id = ?1;
+		";
+		let params = params![id.to_string()];
+		let mut statement = db
+			.prepare_cached(statement)
+			.wrap_err("Failed to prepare the query.")?;
+		let mut rows = statement
+			.query(params)
+			.wrap_err("Failed to execute the query.")?;
+		let Some(row) = rows.next().wrap_err("Failed to retrieve the row.")? else {
+			return Ok(None);
+		};
+		let bytes = row.get::<_, Vec<u8>>(0).wrap_err("Expected bytes.")?.into();
+		Ok(Some(bytes))
+	}
+
+	async fn try_get_object_remote(&self, id: &object::Id) -> Result<Option<Bytes>> {
+		let Some(remote) = self.inner.remote.as_ref() else {
+			return Ok(None);
+		};
+
+		// Get the object from the remote server.
+		let Some(bytes) = remote.try_get_object(id).await? else {
+			return Ok(None);
+		};
+
+		// Add the object to the database.
+		{
 			let db = self.inner.database.get().await?;
 			let statement = "
-				select bytes
-				from objects
-				where id = ?1;
+				insert into objects (id, bytes)
+				values (?1, ?2)
+				on conflict (id) do update set bytes = ?2;
 			";
+			let params = params![id.to_string(), bytes.to_vec()];
 			let mut statement = db
 				.prepare_cached(statement)
 				.wrap_err("Failed to prepare the query.")?;
-			let params = params![id.to_string()];
-			let mut rows = statement
-				.query(params)
+			statement
+				.execute(params)
 				.wrap_err("Failed to execute the query.")?;
-			let Some(row) = rows.next().wrap_err("Failed to retrieve the row.")? else {
-				break 'a;
-			};
-			let bytes = row.get::<_, Vec<u8>>(0).wrap_err("Expected bytes.")?.into();
-			return Ok(Some(bytes));
 		}
 
-		'a: {
-			let Some(remote) = self.inner.remote.as_ref() else {
-				break 'a;
-			};
-
-			// Get the object from the remote server.
-			let Some(bytes) = remote.try_get_object(id).await? else {
-				break 'a;
-			};
-
-			// Add the object to the database.
-			{
-				let db = self.inner.database.get().await?;
-				let statement = "
-					insert into objects (id, bytes)
-					values (?1, ?2)
-					on conflict (id) do update set bytes = ?2;
-				";
-				let mut statement = db
-					.prepare_cached(statement)
-					.wrap_err("Failed to prepare the query.")?;
-				let params = params![id.to_string(), bytes.to_vec()];
-				statement
-					.execute(params)
-					.wrap_err("Failed to execute the query.")?;
-			}
-
-			return Ok(Some(bytes));
-		}
-
-		Ok(None)
+		Ok(Some(bytes))
 	}
 
 	pub async fn try_put_object(&self, id: &object::Id, bytes: &Bytes) -> Result<Vec<object::Id>> {
@@ -137,10 +142,10 @@ impl Server {
 				values (?1, ?2)
 				on conflict (id) do update set bytes = ?2;
 			";
+			let params = params![id.to_string(), bytes.to_vec()];
 			let mut statement = db
 				.prepare_cached(statement)
 				.wrap_err("Failed to prepare the query.")?;
-			let params = params![id.to_string(), bytes.to_vec()];
 			statement
 				.execute(params)
 				.wrap_err("Failed to execute the query.")?;

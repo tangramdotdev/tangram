@@ -127,6 +127,10 @@ impl Server {
 				.handle_get_build_status_request(request)
 				.map(Some)
 				.boxed(),
+			(http::Method::POST, ["v1", "builds", _, "status"]) => self
+				.handle_post_build_status_request(request)
+				.map(Some)
+				.boxed(),
 			(http::Method::GET, ["v1", "builds", _, "target"]) => self
 				.handle_get_build_target_request(request)
 				.map(Some)
@@ -226,14 +230,14 @@ impl Server {
 		let response = match response {
 			None => http::Response::builder()
 				.status(http::StatusCode::NOT_FOUND)
-				.body(full("Not found."))
+				.body(full("not found"))
 				.unwrap(),
 			Some(Err(error)) => {
 				let trace = error.trace();
 				tracing::error!(%trace);
 				http::Response::builder()
 					.status(http::StatusCode::INTERNAL_SERVER_ERROR)
-					.body(full("Internal server error."))
+					.body(full("internal server error"))
 					.unwrap()
 			},
 			Some(Ok(response)) => response,
@@ -378,6 +382,40 @@ impl Server {
 		// Create the response.
 		let body = serde_json::to_vec(&build_id).wrap_err("Failed to serialize the response.")?;
 		let response = http::Response::builder().body(full(body)).unwrap();
+		Ok(response)
+	}
+
+	async fn handle_post_build_status_request(
+		&self,
+		request: http::Request<Incoming>,
+	) -> Result<hyper::Response<Outgoing>> {
+		// Get the path params.
+		let path_components: Vec<&str> = request.uri().path().split('/').skip(1).collect();
+		let [_, "builds", id, "status"] = path_components.as_slice() else {
+			return_error!("Unexpected path.");
+		};
+		let build_id: tg::build::Id = id.parse().wrap_err("Failed to parse the ID.")?;
+
+		// Get the user.
+		let user = self.try_get_user_from_request(&request).await?;
+
+		// Read the body.
+		let bytes = request
+			.into_body()
+			.collect()
+			.await
+			.wrap_err("Failed to read the body.")?
+			.to_bytes();
+		let status = serde_json::from_slice(&bytes).wrap_err("Failed to deserialize the body.")?;
+
+		self.set_build_status(user.as_ref(), &build_id, status)
+			.await?;
+
+		// Create the response.
+		let response = http::Response::builder()
+			.status(http::StatusCode::OK)
+			.body(empty())
+			.unwrap();
 		Ok(response)
 	}
 
@@ -587,10 +625,10 @@ impl Server {
 			.await
 			.wrap_err("Failed to read the body.")?
 			.to_bytes();
-		let result = serde_json::from_slice(&bytes).wrap_err("Failed to deserialize.")?;
+		let outcome = serde_json::from_slice(&bytes).wrap_err("Failed to deserialize.")?;
 
 		// Finish the build.
-		self.finish_build(user.as_ref(), &build_id, result).await?;
+		self.finish_build(user.as_ref(), &build_id, outcome).await?;
 
 		// Create the response.
 		let response = http::Response::builder()
@@ -1097,7 +1135,7 @@ fn ok() -> http::Response<Outgoing> {
 fn bad_request() -> http::Response<Outgoing> {
 	http::Response::builder()
 		.status(http::StatusCode::BAD_REQUEST)
-		.body(full("Bad request."))
+		.body(full("bad request"))
 		.unwrap()
 }
 
@@ -1106,7 +1144,7 @@ fn bad_request() -> http::Response<Outgoing> {
 fn unauthorized() -> http::Response<Outgoing> {
 	http::Response::builder()
 		.status(http::StatusCode::UNAUTHORIZED)
-		.body(full("Unauthorized."))
+		.body(full("unauthorized"))
 		.unwrap()
 }
 
@@ -1115,6 +1153,6 @@ fn unauthorized() -> http::Response<Outgoing> {
 fn not_found() -> http::Response<Outgoing> {
 	http::Response::builder()
 		.status(http::StatusCode::NOT_FOUND)
-		.body(full("Not found."))
+		.body(full("not found"))
 		.unwrap()
 }

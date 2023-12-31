@@ -47,3 +47,10 @@ where
 		Ok(Self(value))
 	}
 }
+
+#[macro_export]
+macro_rules! params {
+	($($x:expr),* $(,)?) => {
+		&[$(&$x as &(dyn rusqlite::types::ToSql),)*] as &[&(dyn rusqlite::types::ToSql)]
+	};
+}
