@@ -128,6 +128,12 @@ async fn syscall_decompress(
 
 async fn syscall_download(state: Rc<State>, args: (Url, tg::Checksum)) -> Result<tg::Blob> {
 	let (url, checksum) = args;
+	let _permit = state
+		.tg
+		.file_descriptor_semaphore()
+		.acquire()
+		.await
+		.unwrap();
 	let response = reqwest::get(url)
 		.await
 		.wrap_err("Failed to perform the request.")?
