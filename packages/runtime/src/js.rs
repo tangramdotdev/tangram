@@ -43,26 +43,6 @@ struct ModuleInfo {
 	v8_module: v8::Global<v8::Module>,
 }
 
-std::thread_local! {
-	pub static THREAD_LOCAL_ISOLATE: Rc<RefCell<v8::OwnedIsolate>> = {
-		// Create the isolate params.
-		let params = v8::CreateParams::default().snapshot_blob(SNAPSHOT);
-
-		// Create the isolate.
-		let mut isolate = v8::Isolate::new(params);
-
-		// Set the host import module dynamically callback.
-		isolate.set_host_import_module_dynamically_callback(host_import_module_dynamically_callback);
-
-		// Set the host initialize import meta object callback.
-		isolate.set_host_initialize_import_meta_object_callback(
-			host_initialize_import_meta_object_callback,
-		);
-
-		Rc::new(RefCell::new(isolate))
-	};
-}
-
 /// Start a JS build.
 pub async fn build(
 	tg: &dyn tg::Handle,
@@ -70,47 +50,61 @@ pub async fn build(
 	depth: u64,
 	retry: tg::build::Retry,
 	mut stop: tokio::sync::watch::Receiver<bool>,
-) -> Result<tg::build::Outcome> {
-	// Create channels to receive the isolate's thread-safe handle and the result.
-	let (handle_sender, handle_receiver) = tokio::sync::oneshot::channel();
+) -> Result<Option<tg::Value>> {
+	// Create a channel to receive the isolate handle.
+	let (isolate_handle_sender, isolate_handle_receiver) = tokio::sync::oneshot::channel();
+
+	// Create a channel to receive the result.
 	let (result_sender, result_receiver) = tokio::sync::oneshot::channel();
 
-	// Run the JS on a new thread. This guarantees that every JS build has its own isolate, and every isolate has its own thread.
-	let main_runtime_handle = tokio::runtime::Handle::current();
-	let tg = tg.clone_box();
-	let build = build.clone();
-	let stop_ = stop.clone();
-	let thread = std::thread::spawn(move || {
-		let isolate = THREAD_LOCAL_ISOLATE.with(Rc::clone);
-		let handle = isolate.borrow().thread_safe_handle();
-		handle_sender.send(handle).unwrap();
-		let future = build_inner(
-			tg.as_ref(),
-			&build,
-			depth,
-			retry,
-			stop_,
-			main_runtime_handle.clone(),
-		);
-		let result = main_runtime_handle.block_on(future);
-		let _ = result_sender.send(result);
+	let thread = std::thread::spawn({
+		let tg = tg.clone_box();
+		let build = build.clone();
+		let stop = stop.clone();
+		let main_runtime_handle = tokio::runtime::Handle::current();
+		move || {
+			let future = build_inner(
+				tg.as_ref(),
+				&build,
+				depth,
+				retry,
+				stop,
+				main_runtime_handle.clone(),
+				isolate_handle_sender,
+			);
+			let result = main_runtime_handle.block_on(future);
+			result_sender.send(result).ok();
+		}
 	});
 
-	// Await the result of the build or the stop signal, whichever comes first.
-	let isolate = handle_receiver.await.unwrap();
-	let result = tokio::select! {
-		_ = stop.changed() => {
-			isolate.terminate_execution();
-			Ok(tg::build::Outcome::Canceled)
-		}
+	// Wait to receive the isolate handle.
+	let isolate_handle = isolate_handle_receiver
+		.await
+		.wrap_err("Failed to receive the isolate handle.")?;
+
+	// Wait for either the result or the stop signal to be received.
+	let value = tokio::select! {
 		result = result_receiver => {
-			result.wrap_err("Failed to receive outcome.")?
+			result
+				.wrap_err("Failed to receive the result.")?
+				.wrap_err("The build failed.")?
+		}
+
+		() = stop.wait_for(|stop| *stop).map(|_| ()) => {
+			isolate_handle.terminate_execution();
+			thread
+				.join()
+				.map_err(|_| error!("Failed to join the thread."))?;
+			return Ok(None);
 		}
 	};
+
+	// Join the thread.
 	thread
 		.join()
-		.map_err(|_| error!("Failed to join thread."))?;
-	result
+		.map_err(|_| error!("Failed to join the thread."))?;
+
+	Ok(value)
 }
 
 #[allow(clippy::too_many_lines)]
@@ -121,7 +115,27 @@ async fn build_inner(
 	retry: tg::build::Retry,
 	mut stop: tokio::sync::watch::Receiver<bool>,
 	main_runtime_handle: tokio::runtime::Handle,
-) -> Result<tg::build::Outcome> {
+	isolate_handle_sender: tokio::sync::oneshot::Sender<v8::IsolateHandle>,
+) -> Result<Option<tg::Value>> {
+	// Create the isolate params.
+	let params = v8::CreateParams::default().snapshot_blob(SNAPSHOT);
+
+	// Create the isolate.
+	let mut isolate = v8::Isolate::new(params);
+
+	// Set the host import module dynamically callback.
+	isolate.set_host_import_module_dynamically_callback(host_import_module_dynamically_callback);
+
+	// Set the host initialize import meta object callback.
+	isolate.set_host_initialize_import_meta_object_callback(
+		host_initialize_import_meta_object_callback,
+	);
+
+	// Send the isolate handle.
+	isolate_handle_sender
+		.send(isolate.thread_safe_handle())
+		.unwrap();
+
 	// Get the target.
 	let target = build.target(tg).await?;
 
@@ -140,10 +154,7 @@ async fn build_inner(
 	// Create the context.
 	let context = {
 		// Create and enter the context.
-		let isolate = THREAD_LOCAL_ISOLATE.with(Rc::clone);
-		let mut isolate = isolate.borrow_mut();
-		let isolate = isolate.as_mut();
-		let scope = &mut v8::HandleScope::new(isolate);
+		let scope = &mut v8::HandleScope::new(&mut isolate);
 		let context = v8::Context::new(scope);
 		let scope = &mut v8::ContextScope::new(scope, context);
 
@@ -164,10 +175,7 @@ async fn build_inner(
 
 	let value = {
 		// Enter the context.
-		let isolate = THREAD_LOCAL_ISOLATE.with(Rc::clone);
-		let mut isolate = isolate.borrow_mut();
-		let isolate = isolate.as_mut();
-		let scope = &mut v8::HandleScope::new(isolate);
+		let scope = &mut v8::HandleScope::new(&mut isolate);
 		let context = v8::Local::new(scope, context.clone());
 		let scope = &mut v8::ContextScope::new(scope, context);
 
@@ -191,11 +199,12 @@ async fn build_inner(
 	};
 
 	// Await the output.
-	let mut stop_changed = Box::pin(stop.changed());
+	let stop = stop.changed();
+	tokio::pin!(stop);
 	let value = poll_fn(|cx| {
 		loop {
-			if let Poll::Ready(_) = stop_changed.poll_unpin(cx) {
-				return Poll::Ready(Ok(tg::build::Outcome::Canceled));
+			if stop.poll_unpin(cx).is_ready() {
+				return Poll::Ready(Ok(None));
 			}
 
 			// Poll the futures.
@@ -211,10 +220,7 @@ async fn build_inner(
 			};
 
 			// Enter the context.
-			let isolate = THREAD_LOCAL_ISOLATE.with(Rc::clone);
-			let mut isolate = isolate.borrow_mut();
-			let isolate = isolate.as_mut();
-			let scope = &mut v8::HandleScope::new(isolate);
+			let scope = &mut v8::HandleScope::new(&mut isolate);
 			let context = v8::Local::new(scope, context.clone());
 			let scope = &mut v8::ContextScope::new(scope, context);
 
@@ -234,10 +240,7 @@ async fn build_inner(
 		}
 
 		// Get the result from the value.
-		let isolate = THREAD_LOCAL_ISOLATE.with(Rc::clone);
-		let mut isolate = isolate.borrow_mut();
-		let isolate = isolate.as_mut();
-		let scope = &mut v8::HandleScope::new(isolate);
+		let scope = &mut v8::HandleScope::new(&mut isolate);
 		let context = v8::Local::new(scope, context.clone());
 		let scope = &mut v8::ContextScope::new(scope, context);
 		let value = v8::Local::new(scope, value.clone());
@@ -253,7 +256,7 @@ async fn build_inner(
 							return Poll::Ready(Err(error));
 						},
 					};
-					Ok(tg::build::Outcome::Succeeded(output))
+					Ok(Some(output))
 				},
 
 				// If the promise is rejected, then return the error.
@@ -275,7 +278,7 @@ async fn build_inner(
 					return Poll::Ready(Err(error));
 				},
 			};
-			Ok(tg::build::Outcome::Succeeded(output))
+			Ok(Some(output))
 		};
 
 		Poll::Ready(result)

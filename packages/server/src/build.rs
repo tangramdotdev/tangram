@@ -4,7 +4,7 @@ use async_recursion::async_recursion;
 use bytes::Bytes;
 use futures::{
 	stream::{self, BoxStream, FuturesUnordered},
-	StreamExt, TryStreamExt,
+	FutureExt, StreamExt, TryStreamExt,
 };
 use num::ToPrimitive;
 use std::sync::Arc;
@@ -151,10 +151,12 @@ impl Server {
 		let (children, _) = tokio::sync::watch::channel(());
 		let (log, _) = tokio::sync::watch::channel(());
 		let (outcome, _) = tokio::sync::watch::channel(());
+		let (stop, _) = tokio::sync::watch::channel(false);
 		let channels = Arc::new(Channels {
 			children,
 			log,
 			outcome,
+			stop,
 		});
 		self.inner
 			.channels
@@ -335,7 +337,7 @@ impl Server {
 				}
 
 				// If a stop signal is received, then return.
-				_ = stop_receiver.wait_for(|stop| *stop) => {
+				() = stop_receiver.wait_for(|stop| *stop).map(|_| ()) => {
 					return Ok(())
 				}
 			}
@@ -450,15 +452,13 @@ impl Server {
 		let target = build.target(self).await?;
 		let stop = self
 			.inner
-			.build_state
+			.channels
 			.read()
 			.unwrap()
 			.get(id)
 			.unwrap()
-			.inner
 			.stop
-			.receiver
-			.clone();
+			.subscribe();
 
 		// Build the target with the appropriate runtime.
 		let result = match target.host(self).await?.os() {
@@ -490,8 +490,8 @@ impl Server {
 
 		// Create the outcome.
 		let outcome = match result {
-			// If there's no result then we can't do anything else. We assume this means the build was canceled and build.finish() was already called.
-			Ok(outcome) => outcome,
+			Ok(Some(value)) => tg::build::Outcome::Succeeded(value),
+			Ok(None) => tg::build::Outcome::Canceled,
 			Err(error) => tg::build::Outcome::Failed(error),
 		};
 
@@ -502,8 +502,8 @@ impl Server {
 				.await?;
 		}
 
-		// Finish the build. Ignore any errors that arise.
-		let _ = build.finish(self, user, outcome).await;
+		// Finish the build.
+		build.finish(self, user, outcome).await?;
 
 		// Drop the permit.
 		drop(permit);
@@ -806,13 +806,7 @@ impl Server {
 				let db = self.inner.database.get().await?;
 				let statement = "
 					update builds
-					set json = 
-						case
-							when not (json->'children' ? $1) then
-								json_set(json, '$.children[#]', ?1)
-							else
-								json->'children'
-						end
+					set json = json_set(json, '$.children[#]', ?1)
 					where id = ?2;
 				";
 				let mut statement = db

@@ -52,6 +52,7 @@ struct Channels {
 	children: tokio::sync::watch::Sender<()>,
 	log: tokio::sync::watch::Sender<()>,
 	outcome: tokio::sync::watch::Sender<()>,
+	stop: tokio::sync::watch::Sender<bool>,
 }
 
 pub struct Options {
@@ -177,7 +178,6 @@ impl Server {
 			local_queue_task,
 			local_queue_task_stop_sender,
 			local_queue_task_wake_sender,
-			local_task_pool_handle,
 			lock,
 			path,
 			remote,

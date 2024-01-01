@@ -1,6 +1,6 @@
 use crate::util::render;
 use bytes::Bytes;
-use futures::{stream::FuturesOrdered, TryStreamExt};
+use futures::{stream::FuturesOrdered, FutureExt, TryStreamExt};
 use indoc::writedoc;
 use num::ToPrimitive;
 use std::{
@@ -21,7 +21,7 @@ pub async fn build(
 	_retry: tg::build::Retry,
 	mut stop: tokio::sync::watch::Receiver<bool>,
 	server_directory_path: &Path,
-) -> Result<tg::build::Outcome> {
+) -> Result<Option<tg::Value>> {
 	// Get the target.
 	let target = build.target(tg).await?;
 
@@ -336,54 +336,49 @@ pub async fn build(
 		}
 	});
 
-	// Wait for either the child process to exit or the stop signal to be received.
-	let status = tokio::select! {
-		// If the stop signal is received we need to kill the process and reap its children.
-		_ = stop.changed() => {
+	// Wait for either the process to exit or the stop signal to be received.
+	let exit_status = tokio::select! {
+		result = child.wait() => {
+			result.wrap_err("Failed to wait for the process to exit.")?
+		}
+
+		() = stop.wait_for(|stop| *stop).map(|_| ()) => {
+			// Abort the log task.
 			log_task.abort();
 
-			// If the root_pid is none the child has already been polled to completion.
+			// Get the pid of the process.
 			let Some(root_pid) = child.id() else {
-				child.wait().await.wrap_err("Failed to wait on child.")?;
-				return Ok(tg::build::Outcome::Canceled);
+				return Ok(None);
 			};
 
-			// Recursively collect the child pids.
+			// Collect the pids of all transitive child processes.
 			let mut pids = vec![root_pid.to_i32().unwrap()];
 			let mut i = 0;
 			while i < pids.len() {
-				unsafe {
-					// Get the number of child processes.
-					let ppid = pids[i];
-					let num_children = libc::proc_listchildpids(ppid, std::ptr::null_mut(), 0);
-					if num_children < 0 {
-						return Err(std::io::Error::last_os_error()).wrap_err("Failed to get process children.");
-					}
-					pids.resize(i + num_children.to_usize().unwrap() + 1, 0);
-					// Get the actual child processes.
-					let num_children = libc::proc_listchildpids(ppid, pids[(i+1)..].as_mut_ptr().cast(), num_children);
-					if num_children < 0 {
-						return Err(std::io::Error::last_os_error()).wrap_err("Failed to process children.");
-					}
-					// Note: the number of children returned above may be different than the number returned here so we need to truncate.
-					pids.truncate(i + num_children.to_usize().unwrap() + 1);
+				let ppid = pids[i];
+				let n = unsafe { libc::proc_listchildpids(ppid, std::ptr::null_mut(), 0) };
+				if n < 0 {
+					return Err(std::io::Error::last_os_error().wrap("Failed to get the child processes."));
 				}
+				pids.resize(i + n.to_usize().unwrap() + 1, 0);
+				let n = unsafe { libc::proc_listchildpids(ppid, pids[(i+1)..].as_mut_ptr().cast(), n) };
+				if n < 0 {
+					return Err(std::io::Error::last_os_error()).wrap_err("Failed to get the child processes.");
+				}
+				pids.truncate(i + n.to_usize().unwrap() + 1);
 				i += 1;
 			}
-			// Kill children from the bottom up.
+
+			// Kill the child processes from the bottom up.
 			for pid in pids.iter().rev() {
-				unsafe {
-					libc::kill(*pid, libc::SIGKILL);
-					let mut status = 0;
-					libc::waitpid(*pid, std::ptr::addr_of_mut!(status), 0);
-				}
+				unsafe { libc::kill(*pid, libc::SIGKILL) };
+				let mut status = 0;
+				unsafe { libc::waitpid(*pid, std::ptr::addr_of_mut!(status), 0) };
 			}
 
-			return Ok(tg::build::Outcome::Canceled);
+			return Ok(None);
 		}
-		status = child.wait() => {
-			status.wrap_err("Failed to wait for the process to exit.")?
-		}
+
 	};
 
 	// Wait for the log task to complete.
@@ -393,7 +388,7 @@ pub async fn build(
 		.wrap_err("The log task failed.")?;
 
 	// Return an error if the process did not exit successfully.
-	if !status.success() {
+	if !exit_status.success() {
 		return_error!("The process did not exit successfully.");
 	}
 
@@ -425,7 +420,7 @@ pub async fn build(
 		tg::Value::Null
 	};
 
-	Ok(tg::build::Outcome::Succeeded(value))
+	Ok(Some(value))
 }
 
 extern "C" {
