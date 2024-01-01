@@ -1,6 +1,6 @@
 use crate::util::render;
 use bytes::Bytes;
-use futures::{stream::FuturesOrdered, TryStreamExt};
+use futures::{stream::FuturesOrdered, FutureExt, TryStreamExt};
 use indoc::formatdoc;
 use itertools::Itertools;
 use std::{
@@ -56,8 +56,9 @@ pub async fn build(
 	tg: &dyn tg::Handle,
 	build: &tg::Build,
 	_retry: tg::build::Retry,
+	mut stop: tokio::sync::watch::Receiver<bool>,
 	server_directory_path: &Path,
-) -> Result<tg::Value> {
+) -> Result<Option<tg::Value>> {
 	// Get the target.
 	let target = build.target(tg).await?;
 
@@ -475,6 +476,7 @@ pub async fn build(
 		root(&context);
 	}
 	drop(context);
+	let root_process_pid: libc::pid_t = ret.try_into().wrap_err("Invalid root process PID.")?;
 
 	// Spawn the log task.
 	let log_task = tokio::task::spawn({
@@ -494,8 +496,6 @@ pub async fn build(
 			}
 		}
 	});
-
-	let root_process_pid: libc::pid_t = ret.try_into().wrap_err("Invalid root process PID.")?;
 
 	// Receive the guest process's PID from the socket.
 	let guest_process_pid: libc::pid_t = host_socket
@@ -532,30 +532,70 @@ pub async fn build(
 		.await
 		.wrap_err("Failed to notify the guest process that it can continue.")?;
 
-	// Receive the exit status of the guest process from the root process.
-	let kind = host_socket
-		.read_u8()
-		.await
-		.wrap_err("Failed to receive the exit status kind from the root process.")?;
-	let value = host_socket
-		.read_i32_le()
-		.await
-		.wrap_err("Failed to receive the exit status value from the root process.")?;
-	let exit_status = match kind {
-		0 => ExitStatus::Code(value),
-		1 => ExitStatus::Signal(value),
-		_ => unreachable!(),
+	// Wait for either the child process to exit or the stop signal to be received.
+	let exit_status = tokio::select! {
+		kind = host_socket.read_u8() => {
+			let kind = kind.wrap_err("Failed to receive the exit status kind from the root process.")?;
+			let value = host_socket
+				.read_i32_le()
+				.await
+				.wrap_err("Failed to receive the exit status value from the root process.")?;
+			match kind {
+				0 => ExitStatus::Code(value),
+				1 => ExitStatus::Signal(value),
+				_ => unreachable!(),
+			}
+		}
+
+		() = stop.wait_for(|stop| *stop).map(|_| ()) => {
+			// Abort the log task.
+			log_task.abort();
+
+			// Kill the root process.
+			let ret = unsafe { libc::kill(root_process_pid, libc::SIGKILL) };
+			if ret != 0 {
+				return Err(std::io::Error::last_os_error())
+					.wrap_err("Failed to kill the root process.");
+			}
+
+			// Wait for the root process to exit.
+			tokio::task::spawn_blocking(move || {
+				let mut status = 0;
+				let ret = unsafe {
+					libc::waitpid(
+						root_process_pid,
+						std::ptr::addr_of_mut!(status),
+						libc::__WALL
+					)
+				};
+				if ret == -1 {
+					return Err(std::io::Error::last_os_error().wrap("Failed to waitpid."));
+				}
+				Ok(())
+			})
+			.await
+			.wrap_err("Failed to join the root process exit task.")?
+			.wrap_err("Failed to wait for the root process to exit.")?;
+
+			return Ok(tg::build::Outcome::Canceled);
+		},
 	};
 
 	// Wait for the root process to exit.
 	tokio::task::spawn_blocking(move || {
 		let mut status: libc::c_int = 0;
-		let ret = unsafe { libc::waitpid(root_process_pid, &mut status, libc::__WALL) };
+		let ret = unsafe {
+			libc::waitpid(
+				root_process_pid,
+				std::ptr::addr_of_mut!(status),
+				libc::__WALL,
+			)
+		};
 		if ret == -1 {
 			return Err(std::io::Error::last_os_error())
-				.wrap_err("Failed to wait for the root process.");
+				.wrap_err("Failed to wait for the root process to exit.");
 		}
-		let root_process_exit_status = if libc::WIFEXITED(status) {
+		let exit_status = if libc::WIFEXITED(status) {
 			let status = libc::WEXITSTATUS(status);
 			ExitStatus::Code(status)
 		} else if libc::WIFSIGNALED(status) {
@@ -564,14 +604,20 @@ pub async fn build(
 		} else {
 			unreachable!();
 		};
-		if root_process_exit_status != ExitStatus::Code(0) {
-			return_error!("The root process did not exit successfully.");
-		}
+		match exit_status {
+			ExitStatus::Code(0) => (),
+			ExitStatus::Code(code) => {
+				return_error!(r#"The root process exited with code "{code}"."#);
+			},
+			ExitStatus::Signal(signal) => {
+				return_error!(r#"The root process exited with signal "{signal}"."#);
+			},
+		};
 		Ok(())
 	})
 	.await
-	.wrap_err("Failed to join the process task.")?
-	.wrap_err("Failed to run the process.")?;
+	.wrap_err("Failed to join the root process exit task.")?
+	.wrap_err("The root process did not exit successfully.")?;
 
 	// Wait for the log task to complete.
 	log_task
@@ -618,7 +664,7 @@ pub async fn build(
 		tg::Value::Null
 	};
 
-	Ok(value)
+	Ok(tg::build::Outcome::Succeeded(value))
 }
 
 #[allow(clippy::too_many_lines)]

@@ -1,7 +1,8 @@
 use crate::util::render;
 use bytes::Bytes;
-use futures::{stream::FuturesOrdered, TryStreamExt};
+use futures::{stream::FuturesOrdered, FutureExt, TryStreamExt};
 use indoc::writedoc;
+use num::ToPrimitive;
 use std::{
 	collections::BTreeMap,
 	ffi::{CStr, CString},
@@ -18,8 +19,9 @@ pub async fn build(
 	tg: &dyn tg::Handle,
 	build: &tg::Build,
 	_retry: tg::build::Retry,
+	mut stop: tokio::sync::watch::Receiver<bool>,
 	server_directory_path: &Path,
-) -> Result<tg::Value> {
+) -> Result<Option<tg::Value>> {
 	// Get the target.
 	let target = build.target(tg).await?;
 
@@ -334,11 +336,50 @@ pub async fn build(
 		}
 	});
 
-	// Wait for the child to exit.
-	let status = child
-		.wait()
-		.await
-		.wrap_err("Failed to wait for the process to exit.")?;
+	// Wait for either the process to exit or the stop signal to be received.
+	let exit_status = tokio::select! {
+		result = child.wait() => {
+			result.wrap_err("Failed to wait for the process to exit.")?
+		}
+
+		() = stop.wait_for(|stop| *stop).map(|_| ()) => {
+			// Abort the log task.
+			log_task.abort();
+
+			// Get the pid of the process.
+			let Some(root_pid) = child.id() else {
+				return Ok(None);
+			};
+
+			// Collect the pids of all transitive child processes.
+			let mut pids = vec![root_pid.to_i32().unwrap()];
+			let mut i = 0;
+			while i < pids.len() {
+				let ppid = pids[i];
+				let n = unsafe { libc::proc_listchildpids(ppid, std::ptr::null_mut(), 0) };
+				if n < 0 {
+					return Err(std::io::Error::last_os_error().wrap("Failed to get the child processes."));
+				}
+				pids.resize(i + n.to_usize().unwrap() + 1, 0);
+				let n = unsafe { libc::proc_listchildpids(ppid, pids[(i+1)..].as_mut_ptr().cast(), n) };
+				if n < 0 {
+					return Err(std::io::Error::last_os_error()).wrap_err("Failed to get the child processes.");
+				}
+				pids.truncate(i + n.to_usize().unwrap() + 1);
+				i += 1;
+			}
+
+			// Kill the child processes from the bottom up.
+			for pid in pids.iter().rev() {
+				unsafe { libc::kill(*pid, libc::SIGKILL) };
+				let mut status = 0;
+				unsafe { libc::waitpid(*pid, std::ptr::addr_of_mut!(status), 0) };
+			}
+
+			return Ok(None);
+		}
+
+	};
 
 	// Wait for the log task to complete.
 	log_task
@@ -347,7 +388,7 @@ pub async fn build(
 		.wrap_err("The log task failed.")?;
 
 	// Return an error if the process did not exit successfully.
-	if !status.success() {
+	if !exit_status.success() {
 		return_error!("The process did not exit successfully.");
 	}
 
@@ -379,7 +420,7 @@ pub async fn build(
 		tg::Value::Null
 	};
 
-	Ok(value)
+	Ok(Some(value))
 }
 
 extern "C" {

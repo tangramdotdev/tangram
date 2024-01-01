@@ -36,7 +36,6 @@ struct Inner {
 	local_queue_task: std::sync::Mutex<Option<tokio::task::JoinHandle<Result<()>>>>,
 	local_queue_task_stop_sender: tokio::sync::watch::Sender<bool>,
 	local_queue_task_wake_sender: tokio::sync::watch::Sender<()>,
-	local_task_pool_handle: tokio_util::task::LocalPoolHandle,
 	lock: std::sync::Mutex<Option<tokio::fs::File>>,
 	path: PathBuf,
 	remote: Option<Box<dyn tg::Handle>>,
@@ -53,6 +52,7 @@ struct Channels {
 	children: tokio::sync::watch::Sender<()>,
 	log: tokio::sync::watch::Sender<()>,
 	outcome: tokio::sync::watch::Sender<()>,
+	stop: tokio::sync::watch::Sender<bool>,
 }
 
 pub struct Options {
@@ -155,11 +155,6 @@ impl Server {
 		// Create the http task stop channel.
 		let (http_task_stop_sender, http_task_stop_receiver) = tokio::sync::watch::channel(false);
 
-		// Create the local pool.
-		let local_task_pool_handle = tokio_util::task::LocalPoolHandle::new(
-			std::thread::available_parallelism().unwrap().get(),
-		);
-
 		// Get the remote.
 		let remote = if let Some(remote) = options.remote {
 			Some(remote.tg)
@@ -183,7 +178,6 @@ impl Server {
 			local_queue_task,
 			local_queue_task_stop_sender,
 			local_queue_task_wake_sender,
-			local_task_pool_handle,
 			lock,
 			path,
 			remote,

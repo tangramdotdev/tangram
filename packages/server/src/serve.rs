@@ -44,7 +44,6 @@ impl Server {
 
 		tracing::info!("🚀 Serving on {addr:?}.");
 
-		// Loop forever, accepting connections.
 		loop {
 			// Accept a new connection.
 			let accept = async {
@@ -66,10 +65,10 @@ impl Server {
 				};
 				Ok::<_, Error>(TokioIo::new(stream))
 			};
-			let stop = stop_receiver.wait_for(|stop| *stop);
+			let stop = stop_receiver.wait_for(|stop| *stop).map(|_| ());
 			let stream = tokio::select! {
 				stream = accept => stream?,
-				_ = stop => {
+				() = stop => {
 					break
 				},
 			};
@@ -92,13 +91,15 @@ impl Server {
 					let connection = builder.serve_connection(stream, service);
 					tokio::pin!(connection);
 					let result = tokio::select! {
-						result = connection.as_mut() => Some(result),
+						result = connection.as_mut() => {
+							Some(result)
+						},
 						_ = stop_receiver.wait_for(|stop| *stop) => {
 							connection.as_mut().graceful_shutdown();
 							None
 						}
 					};
-					let result = match dbg!(result) {
+					let result = match result {
 						Some(result) => result,
 						None => connection.await,
 					};
@@ -292,7 +293,6 @@ impl Server {
 		&self,
 		_request: http::Request<Incoming>,
 	) -> Result<http::Response<Outgoing>> {
-		tokio::time::sleep(std::time::Duration::from_secs(30)).await;
 		let status = self.status().await?;
 		let body = serde_json::to_vec(&status).unwrap();
 		let response = http::Response::builder()

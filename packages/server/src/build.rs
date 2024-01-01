@@ -4,7 +4,7 @@ use async_recursion::async_recursion;
 use bytes::Bytes;
 use futures::{
 	stream::{self, BoxStream, FuturesUnordered},
-	StreamExt, TryStreamExt,
+	FutureExt, StreamExt, TryStreamExt,
 };
 use num::ToPrimitive;
 use std::sync::Arc;
@@ -151,10 +151,12 @@ impl Server {
 		let (children, _) = tokio::sync::watch::channel(());
 		let (log, _) = tokio::sync::watch::channel(());
 		let (outcome, _) = tokio::sync::watch::channel(());
+		let (stop, _) = tokio::sync::watch::channel(false);
 		let channels = Arc::new(Channels {
 			children,
 			log,
 			outcome,
+			stop,
 		});
 		self.inner
 			.channels
@@ -335,7 +337,7 @@ impl Server {
 				}
 
 				// If a stop signal is received, then return.
-				_ = stop_receiver.wait_for(|stop| *stop) => {
+				() = stop_receiver.wait_for(|stop| *stop).map(|_| ()) => {
 					return Ok(())
 				}
 			}
@@ -448,35 +450,26 @@ impl Server {
 	) -> Result<()> {
 		let build = tg::Build::with_id(id.clone());
 		let target = build.target(self).await?;
+		let stop = self
+			.inner
+			.channels
+			.read()
+			.unwrap()
+			.get(id)
+			.unwrap()
+			.stop
+			.subscribe();
 
 		// Build the target with the appropriate runtime.
 		let result = match target.host(self).await?.os() {
 			tg::system::Os::Js => {
-				// Build the target on the server's local task pool because it is a `!Send` future.
-				self.inner
-					.local_task_pool_handle
-					.spawn_pinned({
-						let server = self.clone();
-						let build = build.clone();
-						let main_runtime_handle = tokio::runtime::Handle::current();
-						move || async move {
-							tangram_runtime::js::build(
-								&server,
-								&build,
-								depth,
-								retry,
-								main_runtime_handle,
-							)
-							.await
-						}
-					})
-					.await
-					.wrap_err("Failed to join the build task.")?
+				// Build the target on the server's local pool because it is a `!Send` future.
+				tangram_runtime::js::build(self, &build, depth, retry, stop).await
 			},
 			tg::system::Os::Darwin => {
 				#[cfg(target_os = "macos")]
 				{
-					tangram_runtime::darwin::build(self, &build, retry, self.path()).await
+					tangram_runtime::darwin::build(self, &build, retry, stop, self.path()).await
 				}
 				#[cfg(not(target_os = "macos"))]
 				{
@@ -486,7 +479,7 @@ impl Server {
 			tg::system::Os::Linux => {
 				#[cfg(target_os = "linux")]
 				{
-					tangram_runtime::linux::build(self, &build, retry, self.path()).await
+					tangram_runtime::linux::build(self, &build, retry, stop, self.path()).await
 				}
 				#[cfg(not(target_os = "linux"))]
 				{
@@ -495,18 +488,19 @@ impl Server {
 			},
 		};
 
-		// If an error occurred, add the error to the build's log.
-		if let Err(error) = result.as_ref() {
+		// Create the outcome.
+		let outcome = match result {
+			Ok(Some(value)) => tg::build::Outcome::Succeeded(value),
+			Ok(None) => tg::build::Outcome::Canceled,
+			Err(error) => tg::build::Outcome::Failed(error),
+		};
+
+		// If the build failed, add a message to the build's log.
+		if let tg::build::Outcome::Failed(error) = &outcome {
 			build
 				.add_log(self, error.trace().to_string().into())
 				.await?;
 		}
-
-		// Create the outcome.
-		let outcome = match result {
-			Ok(value) => tg::build::Outcome::Succeeded(value),
-			Err(error) => tg::build::Outcome::Failed(error),
-		};
 
 		// Finish the build.
 		build.finish(self, user, outcome).await?;
@@ -812,13 +806,7 @@ impl Server {
 				let db = self.inner.database.get().await?;
 				let statement = "
 					update builds
-					set json = 
-						case
-							when not (json->'children' ? $1) then
-								json_set(json, '$.children[#]', ?1)
-							else
-								json->'children'
-						end
+					set json = json_set(json, '$.children[#]', ?1)
 					where id = ?2;
 				";
 				let mut statement = db
