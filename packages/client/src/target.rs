@@ -78,7 +78,7 @@ pub struct Data {
 
 impl Id {
 	pub fn new(bytes: &Bytes) -> Self {
-		Self(crate::Id::new_hashed(id::Kind::Target, bytes))
+		Self(crate::Id::new_blake3(id::Kind::Target, bytes))
 	}
 }
 
@@ -158,11 +158,13 @@ impl Target {
 		let data = self.data(tg).await?;
 		let bytes = data.serialize()?;
 		let id = Id::new(&bytes);
-		tg.try_put_object(&id.clone().into(), &bytes)
+		let missing = tg
+			.try_put_object(&id.clone().into(), &bytes)
 			.await
-			.wrap_err("Failed to put the object.")?
-			.ok()
-			.wrap_err("Expected all children to be stored.")?;
+			.wrap_err("Failed to put the object.")?;
+		if !missing.is_empty() {
+			return_error!("Expected all children to be stored.");
+		}
 		self.state.write().unwrap().id.replace(id);
 		Ok(())
 	}
@@ -260,7 +262,7 @@ impl Target {
 	) -> Result<Build> {
 		let target_id = self.id(tg).await?;
 		let build_id = tg
-			.get_or_create_build_for_target(user, target_id, depth, retry)
+			.get_or_create_build(user, target_id, depth, retry)
 			.await?;
 		let build = Build::with_id(build_id);
 		Ok(build)

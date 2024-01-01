@@ -58,26 +58,45 @@ async fn migration_0000(path: &Path) -> Result<()> {
 	let path = path.to_owned();
 
 	// Create the database.
-	let database_path = path.join("database");
-	tokio::fs::File::create(&database_path)
-		.await
+	let db = rusqlite::Connection::open(path.join("database"))
 		.wrap_err("Failed to create the database.")?;
+	db.pragma_update(None, "journal_mode", "WAL")
+		.wrap_err("Failed to set the journal mode.")?;
+	db.execute_batch(
+		"
+			create table objects (
+				id text primary key,
+				bytes blob not null
+			) strict;
 
-	// Open the database.
-	let mut env_builder = lmdb::Environment::new();
-	env_builder.set_max_dbs(3);
-	env_builder.set_flags(lmdb::EnvironmentFlags::NO_SUB_DIR);
-	let env = env_builder
-		.open(&database_path)
-		.wrap_err("Failed to open the database.")?;
+			create table builds (
+				id text primary key,
+				json text not null
+			) strict;
 
-	// Create the objects database.
-	env.create_db("objects".into(), lmdb::DatabaseFlags::empty())
-		.wrap_err("Failed to create the objects database.")?;
+			create index builds_status on builds ((json->'status'));
 
-	// Create the assignments database.
-	env.create_db("assignments".into(), lmdb::DatabaseFlags::empty())
-		.wrap_err("Failed to create the assignments database.")?;
+			create table logs (
+				build text not null,
+				position int not null,
+				bytes blob not null
+			) strict;
+
+			create index logs_index on logs (build, position);
+
+			create table assignments (
+				target text primary key,
+				build text not null
+			) strict;
+
+			create table queue (
+				json text not null
+			) strict;
+
+			create index queue_index on queue ((json->'depth') desc);
+		",
+	)
+	.wrap_err("Failed to create the database tables.")?;
 
 	// Create the artifacts directory.
 	let artifacts_path = path.join("artifacts");

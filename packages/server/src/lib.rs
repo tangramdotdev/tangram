@@ -1,9 +1,9 @@
+use self::database::Database;
 use async_trait::async_trait;
 use bytes::Bytes;
-use database::Database;
 use futures::stream::BoxStream;
 use std::{
-	collections::{BinaryHeap, HashMap},
+	collections::HashMap,
 	os::fd::AsRawFd,
 	path::{Path, PathBuf},
 	sync::Arc,
@@ -28,133 +28,47 @@ pub struct Server {
 }
 
 struct Inner {
-	/// The build assignments.
-	build_assignments:
-		std::sync::RwLock<HashMap<tg::target::Id, tg::build::Id, fnv::FnvBuildHasher>>,
-
-	/// The build permits.
-	build_permits: Arc<tokio::sync::Semaphore>,
-
-	/// The build queue.
-	build_queue: std::sync::Mutex<BinaryHeap<tg::build::queue::Item>>,
-
-	/// The build queue task.
-	build_queue_task: std::sync::Mutex<Option<tokio::task::JoinHandle<Result<()>>>>,
-
-	/// The build queue task sender.
-	build_queue_task_sender: tokio::sync::mpsc::UnboundedSender<BuildQueueTaskMessage>,
-
-	/// The build queue remote task.
-	build_queue_remote_task: std::sync::Mutex<Option<tokio::task::JoinHandle<Result<()>>>>,
-
-	/// The build queue remote task sender.
-	build_queue_remote_task_sender: tokio::sync::mpsc::UnboundedSender<()>,
-
-	/// The build state.
-	build_state: std::sync::RwLock<HashMap<tg::build::Id, BuildState, fnv::FnvBuildHasher>>,
-
-	/// The database.
+	channels: std::sync::RwLock<HashMap<tg::build::Id, Arc<Channels>, fnv::FnvBuildHasher>>,
 	database: Database,
-
-	/// A semaphore that prevents opening too many file descriptors.
 	file_descriptor_semaphore: tokio::sync::Semaphore,
-
-	/// The HTTP server task.
-	task: Task,
-
-	/// The lock file.
-	#[allow(dead_code)]
-	lock_file: tokio::fs::File,
-
-	/// The path to the directory where the server stores its data.
+	http_task: std::sync::Mutex<Option<tokio::task::JoinHandle<Result<()>>>>,
+	http_task_stop_sender: tokio::sync::watch::Sender<bool>,
+	local_queue_task: std::sync::Mutex<Option<tokio::task::JoinHandle<Result<()>>>>,
+	local_queue_task_stop_sender: tokio::sync::watch::Sender<bool>,
+	local_queue_task_wake_sender: tokio::sync::watch::Sender<()>,
+	lock: std::sync::Mutex<Option<tokio::fs::File>>,
 	path: PathBuf,
-
-	/// A client for communicating with the remote server.
 	remote: Option<Box<dyn tg::Handle>>,
-
-	/// The server's version.
+	remote_queue_task: std::sync::Mutex<Option<tokio::task::JoinHandle<Result<()>>>>,
+	remote_queue_task_stop_sender: tokio::sync::watch::Sender<bool>,
+	semaphore: Arc<tokio::sync::Semaphore>,
+	tasks:
+		std::sync::RwLock<HashMap<tg::build::Id, tokio::task::JoinHandle<()>, fnv::FnvBuildHasher>>,
 	version: String,
-
-	/// The VFS server.
 	vfs: std::sync::Mutex<Option<tangram_vfs::Server>>,
 }
 
-#[derive(Clone, Debug)]
-struct BuildState {
-	inner: Arc<BuildStateInner>,
+struct Channels {
+	children: tokio::sync::watch::Sender<()>,
+	log: tokio::sync::watch::Sender<()>,
+	outcome: tokio::sync::watch::Sender<()>,
 }
-
-#[derive(Debug)]
-struct BuildStateInner {
-	status: std::sync::Mutex<BuildStatus>,
-	depth: u64,
-	stop: StopState,
-	target: tg::Target,
-	children: std::sync::Mutex<ChildrenState>,
-	log: Arc<tokio::sync::Mutex<LogState>>,
-	outcome: OutcomeState,
-}
-
-#[derive(Clone, Copy, Debug, Eq, Ord, PartialEq, PartialOrd)]
-pub enum BuildStatus {
-	Queued,
-	Building,
-}
-
-#[derive(Debug)]
-struct StopState {
-	sender: tokio::sync::watch::Sender<bool>,
-	receiver: tokio::sync::watch::Receiver<bool>,
-}
-
-#[derive(Debug)]
-struct ChildrenState {
-	children: Vec<tg::Build>,
-	sender: Option<tokio::sync::broadcast::Sender<tg::Build>>,
-}
-
-#[derive(Debug)]
-struct LogState {
-	file: tokio::fs::File,
-	sender: Option<tokio::sync::broadcast::Sender<Bytes>>,
-}
-
-#[derive(Debug)]
-struct OutcomeState {
-	sender: tokio::sync::watch::Sender<Option<tg::build::Outcome>>,
-	receiver: tokio::sync::watch::Receiver<Option<tg::build::Outcome>>,
-}
-
-enum BuildQueueTaskMessage {
-	BuildAdded,
-	BuildFinished,
-	Stop,
-}
-
-type Task = (
-	std::sync::Mutex<Option<tokio::task::JoinHandle<Result<()>>>>,
-	std::sync::Mutex<Option<tokio::task::AbortHandle>>,
-);
 
 pub struct Options {
 	pub addr: tg::client::Addr,
-	pub build: Option<BuildOptions>,
 	pub path: PathBuf,
 	pub remote: Option<RemoteOptions>,
 	pub version: String,
 }
 
-pub struct BuildOptions {
-	pub remote: Option<RemoteBuildOptions>,
+pub struct RemoteOptions {
+	pub build: Option<RemoteBuildOptions>,
+	pub tg: Box<dyn tg::Handle>,
 }
 
 pub struct RemoteBuildOptions {
 	pub enable: bool,
 	pub hosts: Option<Vec<tg::System>>,
-}
-
-pub struct RemoteOptions {
-	pub tg: Box<dyn tg::Handle>,
 }
 
 impl Server {
@@ -172,17 +86,18 @@ impl Server {
 			.wrap_err("Failed to create the directory.")?;
 
 		// Acquire an exclusive lock to the path.
-		let lock_file = tokio::fs::OpenOptions::new()
+		let lock = tokio::fs::OpenOptions::new()
 			.read(true)
 			.write(true)
 			.create(true)
 			.open(path.join("lock"))
 			.await
 			.wrap_err("Failed to open the lock file.")?;
-		let ret = unsafe { libc::flock(lock_file.as_raw_fd(), libc::LOCK_EX | libc::LOCK_NB) };
+		let ret = unsafe { libc::flock(lock.as_raw_fd(), libc::LOCK_EX | libc::LOCK_NB) };
 		if ret != 0 {
 			return Err(std::io::Error::last_os_error().wrap("Failed to acquire the lock file."));
 		}
+		let lock = std::sync::Mutex::new(Some(lock));
 
 		// Migrate the path.
 		Self::migrate(&path).await?;
@@ -197,42 +112,47 @@ impl Server {
 			.await
 			.wrap_err("Failed to remove an existing socket file.")?;
 
-		// Create the build assignments.
-		let build_assignments = std::sync::RwLock::new(HashMap::default());
+		// Create the channels.
+		let channels = std::sync::RwLock::new(HashMap::default());
 
-		// Create the build permits.
-		let build_permits = Arc::new(tokio::sync::Semaphore::new(
+		// Create the local queue task.
+		let local_queue_task = std::sync::Mutex::new(None);
+
+		// Create the local queue task wake channel.
+		let (local_queue_task_wake_sender, local_queue_task_wake_receiver) =
+			tokio::sync::watch::channel(());
+
+		// Create the local queue task stop channel.
+		let (local_queue_task_stop_sender, local_queue_task_stop_receiver) =
+			tokio::sync::watch::channel(false);
+
+		// Create the remote queue task.
+		let remote_queue_task = std::sync::Mutex::new(None);
+
+		// Create the remote queue task stop channel.
+		let (remote_queue_task_stop_sender, remote_queue_task_stop_receiver) =
+			tokio::sync::watch::channel(false);
+
+		// Create the semaphore.
+		let semaphore = Arc::new(tokio::sync::Semaphore::new(
 			std::thread::available_parallelism().unwrap().get(),
 		));
 
-		// Create the build queue.
-		let build_queue = std::sync::Mutex::new(BinaryHeap::new());
-
-		// Create the build queue task.
-		let build_queue_task = std::sync::Mutex::new(None);
-
-		// Create the build queue task channel.
-		let (build_queue_task_sender, build_queue_task_receiver) =
-			tokio::sync::mpsc::unbounded_channel();
-
-		// Create the build queue remote task.
-		let build_queue_remote_task = std::sync::Mutex::new(None);
-
-		// Create the build queue remote task channel.
-		let (build_queue_remote_task_sender, build_queue_remote_task_receiver) =
-			tokio::sync::mpsc::unbounded_channel();
-
-		// Create the build state.
-		let build_state = std::sync::RwLock::new(HashMap::default());
+		// Create the tasks.
+		let tasks = std::sync::RwLock::new(HashMap::default());
 
 		// Open the database.
-		let database = Database::open(&path.join("database"))?;
+		let database_path = path.join("database");
+		let database = Database::new(&database_path).await?;
 
 		// Create the file system semaphore.
 		let file_descriptor_semaphore = tokio::sync::Semaphore::new(16);
 
-		// Create the HTTP server task.
-		let task = (std::sync::Mutex::new(None), std::sync::Mutex::new(None));
+		// Create the http task.
+		let http_task = std::sync::Mutex::new(None);
+
+		// Create the http task stop channel.
+		let (http_task_stop_sender, http_task_stop_receiver) = tokio::sync::watch::channel(false);
 
 		// Get the remote.
 		let remote = if let Some(remote) = options.remote {
@@ -244,98 +164,142 @@ impl Server {
 		// Get the version.
 		let version = options.version;
 
-		// Create the VFS.
+		// Create the vfs.
 		let vfs = std::sync::Mutex::new(None);
 
-		// Create the inner.
+		// Create the server.
 		let inner = Arc::new(Inner {
-			build_assignments,
-			build_permits,
-			build_queue,
-			build_queue_task,
-			build_queue_task_sender,
-			build_queue_remote_task,
-			build_queue_remote_task_sender,
-			build_state,
+			channels,
 			database,
 			file_descriptor_semaphore,
-			task,
-			lock_file,
+			http_task,
+			http_task_stop_sender,
+			local_queue_task,
+			local_queue_task_stop_sender,
+			local_queue_task_wake_sender,
+			local_task_pool_handle,
+			lock,
 			path,
 			remote,
+			remote_queue_task,
+			remote_queue_task_stop_sender,
+			semaphore,
+			tasks,
 			version,
 			vfs,
 		});
-
-		// Create the server.
 		let server = Server { inner };
 
-		// Start the VFS server.
+		// Terminate any running builds.
+		{
+			let db = server.inner.database.get().await?;
+			let statement = r#"
+				update builds
+				set json = json_set(
+					json,
+					'$.status',
+					'finished',
+					'$.outcome',
+					'{"kind":"terminated"}'
+				)
+				where json->'status' = 'running';
+			"#;
+			let mut statement = db
+				.prepare_cached(statement)
+				.wrap_err("Failed to prepare the query.")?;
+			statement
+				.execute([])
+				.wrap_err("Failed to execute the query.")?;
+		}
+
+		// Start the vfs.
 		let vfs = tangram_vfs::Server::start(&server, &server.artifacts_path())
 			.await
-			.wrap_err("Failed to start the VFS server.")?;
+			.wrap_err("Failed to start the vfs.")?;
 		server.inner.vfs.lock().unwrap().replace(vfs);
 
 		// Start the build queue task.
 		server
 			.inner
-			.build_queue_task
-			.lock()
-			.unwrap()
-			.replace(tokio::spawn({
-				let server = server.clone();
-				async move { server.run_build_queue(build_queue_task_receiver).await }
-			}));
-
-		// Start the build queue remote task.
-		server
-			.inner
-			.build_queue_remote_task
+			.local_queue_task
 			.lock()
 			.unwrap()
 			.replace(tokio::spawn({
 				let server = server.clone();
 				async move {
-					server
-						.run_build_queue_remote(build_queue_remote_task_receiver)
+					match server
+						.local_queue_task(
+							local_queue_task_wake_receiver,
+							local_queue_task_stop_receiver,
+						)
 						.await
+					{
+						Ok(()) => Ok(()),
+						Err(error) => {
+							tracing::error!(?error);
+							Err(error)
+						},
+					}
 				}
 			}));
 
-		// Start the HTTP server task.
+		// Start the build queue remote task.
+		server
+			.inner
+			.remote_queue_task
+			.lock()
+			.unwrap()
+			.replace(tokio::spawn({
+				let server = server.clone();
+				async move {
+					match server
+						.remote_queue_task(remote_queue_task_stop_receiver)
+						.await
+					{
+						Ok(()) => Ok(()),
+						Err(error) => {
+							tracing::error!(?error);
+							Err(error)
+						},
+					}
+				}
+			}));
+
+		// Start the http task.
 		let task = tokio::spawn({
 			let server = server.clone();
-			async move { server.serve(addr).await }
+			async move {
+				match server.serve(addr, http_task_stop_receiver).await {
+					Ok(()) => Ok(()),
+					Err(error) => {
+						tracing::error!(?error);
+						Err(error)
+					},
+				}
+			}
 		});
-		let abort = task.abort_handle();
-		server.inner.task.0.lock().unwrap().replace(task);
-		server.inner.task.1.lock().unwrap().replace(abort);
+		server.inner.http_task.lock().unwrap().replace(task);
 
 		Ok(server)
 	}
 
 	#[allow(clippy::unused_async, clippy::unnecessary_wraps)]
 	pub async fn stop(&self) -> Result<()> {
-		// Stop the http server task.
-		if let Some(handle) = self.inner.task.1.lock().unwrap().as_ref() {
-			handle.abort();
-		};
+		// Stop the http task.
+		self.inner.http_task_stop_sender.send_replace(true);
 
-		// Stop the build queue remote task.
-		self.inner.build_queue_remote_task_sender.send(()).ok();
+		// Stop the local queue task.
+		self.inner.local_queue_task_stop_sender.send_replace(true);
 
-		// Stop the build queue task.
-		self.inner
-			.build_queue_task_sender
-			.send(BuildQueueTaskMessage::Stop)
-			.unwrap();
+		// Stop the remote queue task.
+		self.inner.remote_queue_task_stop_sender.send_replace(true);
 
 		Ok(())
 	}
 
 	pub async fn join(&self) -> Result<()> {
-		// Join the HTTP server task.
-		let task = self.inner.task.0.lock().unwrap().take();
+		// Join the http task.
+		let task = self.inner.http_task.lock().unwrap().take();
 		if let Some(task) = task {
 			match task.await {
 				Ok(result) => Ok(result),
@@ -346,25 +310,22 @@ impl Server {
 		}
 
 		// Join the build queue remote task.
-		let build_queue_remote_task = self
-			.inner
-			.build_queue_remote_task
-			.lock()
-			.unwrap()
-			.take()
-			.unwrap();
+		let build_queue_remote_task = self.inner.remote_queue_task.lock().unwrap().take().unwrap();
 		build_queue_remote_task.await.unwrap()?;
 
 		// Join the build queue task.
-		let build_queue_task = self.inner.build_queue_task.lock().unwrap().take().unwrap();
+		let build_queue_task = self.inner.local_queue_task.lock().unwrap().take().unwrap();
 		build_queue_task.await.unwrap()?;
 
-		// Join the VFS server.
+		// Join the vfs.
 		let vfs = self.inner.vfs.lock().unwrap().clone();
 		if let Some(vfs) = vfs {
 			vfs.stop();
 			vfs.join().await?;
 		}
+
+		// Release the lock.
+		self.inner.lock.lock().unwrap().take();
 
 		Ok(())
 	}
@@ -432,7 +393,7 @@ impl tg::Handle for Server {
 		&self,
 		id: &tg::object::Id,
 		bytes: &Bytes,
-	) -> Result<Result<(), Vec<tg::object::Id>>> {
+	) -> Result<Vec<tg::object::Id>> {
 		self.try_put_object(id, bytes).await
 	}
 
@@ -452,27 +413,39 @@ impl tg::Handle for Server {
 		self.check_out_artifact(id, path).await
 	}
 
-	async fn try_get_build_for_target(&self, id: &tg::target::Id) -> Result<Option<tg::build::Id>> {
-		self.try_get_build_for_target(id).await
+	async fn try_get_assignment(&self, id: &tg::target::Id) -> Result<Option<tg::build::Id>> {
+		self.try_get_assignment(id).await
 	}
 
-	async fn get_or_create_build_for_target(
+	async fn get_or_create_build(
 		&self,
 		user: Option<&tg::User>,
 		id: &tg::target::Id,
 		depth: u64,
 		retry: tg::build::Retry,
 	) -> Result<tg::build::Id> {
-		self.get_or_create_build_for_target(user, id, depth, retry)
-			.await
+		self.get_or_create_build(user, id, depth, retry).await
 	}
 
-	async fn get_build_from_queue(
+	async fn try_get_queue_item(
 		&self,
 		user: Option<&tg::User>,
 		hosts: Option<Vec<tg::System>>,
 	) -> Result<Option<tg::build::queue::Item>> {
-		self.get_build_from_queue(user, hosts).await
+		self.try_get_queue_item(user, hosts).await
+	}
+
+	async fn try_get_build_status(&self, id: &tg::build::Id) -> Result<Option<tg::build::Status>> {
+		self.try_get_build_status(id).await
+	}
+
+	async fn set_build_status(
+		&self,
+		user: Option<&tg::User>,
+		id: &tg::build::Id,
+		status: tg::build::Status,
+	) -> Result<()> {
+		self.set_build_status(user, id, status).await
 	}
 
 	async fn try_get_build_target(&self, id: &tg::build::Id) -> Result<Option<tg::target::Id>> {
@@ -516,10 +489,6 @@ impl tg::Handle for Server {
 		id: &tg::build::Id,
 	) -> Result<Option<tg::build::Outcome>> {
 		self.try_get_build_outcome(id).await
-	}
-
-	async fn cancel_build(&self, user: Option<&tg::User>, id: &tg::build::Id) -> Result<()> {
-		self.cancel_build(user, id).await
 	}
 
 	async fn finish_build(

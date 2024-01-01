@@ -26,9 +26,9 @@ hyper = { workspace = true }
 hyper-util = { workspace = true }
 itertools = { workspace = true }
 libc = { workspace = true }
-lmdb-rkv = { workspace = true }
 notify = { workspace = true }
 num = { workspace = true }
+rusqlite = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
 serde_urlencoded = { workspace = true }
@@ -36,6 +36,7 @@ tangram_client = { workspace = true }
 tangram_error = { workspace = true }
 tangram_language = { workspace = true }
 tangram_package = { workspace = true }
+tangram_pool = { workspace = true }
 tangram_runtime = { workspace = true }
 tangram_vfs = { workspace = true }
 tempfile = { workspace = true }

@@ -1,22 +1,21 @@
 use super::Server;
-use lmdb::Transaction;
 use tangram_error::{Result, WrapErr};
 
 impl Server {
 	pub async fn clean(&self) -> Result<()> {
 		// Clear the database.
 		{
-			let mut txn = self
-				.inner
-				.database
-				.env
-				.begin_rw_txn()
-				.wrap_err("Failed to begin a transaction.")?;
-			txn.clear_db(self.inner.database.objects)
-				.wrap_err("Failed to clear the objects.")?;
-			txn.clear_db(self.inner.database.assignments)
-				.wrap_err("Failed to clear the assignments.")?;
-			txn.commit().wrap_err("Failed to commit the transaction.")?;
+			let db = self.inner.database.get().await?;
+			db.execute_batch(
+				"
+					delete from objects;
+					delete from builds;
+					delete from logs;
+					delete from assignments;
+					delete from queue;
+				",
+			)
+			.wrap_err("Failed to clear the database.")?;
 		}
 
 		// Clear the temporary path.

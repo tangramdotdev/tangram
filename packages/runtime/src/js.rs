@@ -25,7 +25,7 @@ struct State {
 	depth: u64,
 	futures: RefCell<Futures>,
 	global_source_map: Option<SourceMap>,
-	modules: RefCell<Vec<Module>>,
+	modules: RefCell<Vec<ModuleInfo>>,
 	main_runtime_handle: tokio::runtime::Handle,
 	retry: tg::build::Retry,
 	tg: Box<dyn tg::Handle>,
@@ -35,7 +35,7 @@ type Futures = FuturesUnordered<
 	LocalBoxFuture<'static, (Result<Box<dyn ToV8>>, v8::Global<v8::PromiseResolver>)>,
 >;
 
-struct Module {
+struct ModuleInfo {
 	module: tangram_language::Module,
 	source_map: Option<SourceMap>,
 	metadata: Option<tg::package::Metadata>,
@@ -551,7 +551,7 @@ fn load_module<'s>(
 	let metadata = receiver.recv().unwrap();
 
 	// Cache the module.
-	state.modules.borrow_mut().push(Module {
+	state.modules.borrow_mut().push(ModuleInfo {
 		module: module.clone(),
 		metadata,
 		source_map: Some(source_map),

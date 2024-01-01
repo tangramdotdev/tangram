@@ -51,7 +51,7 @@ const SH_X8664_LINUX: &[u8] = include_bytes!(concat!(
 	"/src/linux/bin/sh_x86_64_linux"
 ));
 
-#[allow(clippy::too_many_lines, clippy::similar_names)]
+#[allow(clippy::similar_names, clippy::too_many_lines)]
 pub async fn build(
 	tg: &dyn tg::Handle,
 	build: &tg::Build,
@@ -632,7 +632,7 @@ pub async fn build(
 
 		artifact.into()
 	} else {
-		tg::Value::Null(())
+		tg::Value::Null
 	};
 
 	Ok(tg::build::Outcome::Succeeded(value))
@@ -760,7 +760,7 @@ fn root(context: &Context) {
 	}
 }
 
-#[allow(clippy::too_many_lines, clippy::similar_names)]
+#[allow(clippy::similar_names)]
 fn guest(context: &Context) {
 	unsafe {
 		// Ask to receive a SIGKILL signal if the host process exits.

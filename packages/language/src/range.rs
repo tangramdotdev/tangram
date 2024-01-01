@@ -37,6 +37,24 @@ impl Range {
 	}
 }
 
+impl From<Range> for lsp::Range {
+	fn from(value: Range) -> Self {
+		Self {
+			start: value.start.into(),
+			end: value.end.into(),
+		}
+	}
+}
+
+impl From<lsp::Range> for Range {
+	fn from(value: lsp::Range) -> Self {
+		Self {
+			start: value.start.into(),
+			end: value.end.into(),
+		}
+	}
+}
+
 #[allow(clippy::ignored_unit_patterns)]
 #[cfg(test)]
 mod tests {
@@ -193,23 +211,5 @@ mod tests {
 				},
 			}
 		);
-	}
-}
-
-impl From<Range> for lsp::Range {
-	fn from(value: Range) -> Self {
-		Self {
-			start: value.start.into(),
-			end: value.end.into(),
-		}
-	}
-}
-
-impl From<lsp::Range> for Range {
-	fn from(value: lsp::Range) -> Self {
-		Self {
-			start: value.start.into(),
-			end: value.end.into(),
-		}
 	}
 }

@@ -1,129 +1,56 @@
-use bytes::Bytes;
-use lmdb::Transaction;
 use std::path::Path;
-use tangram_client as tg;
-use tangram_error::{Result, Wrap, WrapErr};
+use tangram_error::{Result, WrapErr};
 
-#[derive(Debug)]
 pub struct Database {
-	pub env: lmdb::Environment,
-	pub objects: lmdb::Database,
-	pub assignments: lmdb::Database,
+	pool: tangram_pool::Pool<rusqlite::Connection>,
 }
 
 impl Database {
-	pub fn open(path: &Path) -> Result<Self> {
-		let mut env_builder = lmdb::Environment::new();
-		env_builder.set_map_size(1_099_511_627_776);
-		env_builder.set_max_dbs(3);
-		env_builder.set_max_readers(1024);
-		env_builder.set_flags(lmdb::EnvironmentFlags::NO_SUB_DIR);
-		let env = env_builder
-			.open(path)
-			.wrap_err("Failed to open the database.")?;
-		let objects = env
-			.open_db(Some("objects"))
-			.wrap_err("Failed to open the objects database.")?;
-		let assignments = env
-			.open_db(Some("assignments"))
-			.wrap_err("Failed to open the assignments database.")?;
-		let database = Database {
-			env,
-			objects,
-			assignments,
-		};
-		Ok(database)
+	pub async fn new(path: &Path) -> Result<Self> {
+		let pool = tangram_pool::Pool::new();
+		let n = std::thread::available_parallelism().unwrap().get();
+		for _ in 0..n {
+			let db = rusqlite::Connection::open(path).wrap_err("Failed to open the database.")?;
+			pool.put(db).await;
+		}
+		Ok(Database { pool })
 	}
 
-	pub fn get_object_exists(&self, id: &tg::object::Id) -> Result<bool> {
-		let txn = self
-			.env
-			.begin_ro_txn()
-			.wrap_err("Failed to create the transaction.")?;
-		let exists = match txn.get(self.objects, &id.to_string()) {
-			Ok(_) => true,
-			Err(lmdb::Error::NotFound) => false,
-			Err(error) => return Err(error.wrap("Failed to get the object.")),
-		};
-		Ok(exists)
+	pub async fn get(&self) -> Result<tangram_pool::Guard<rusqlite::Connection>> {
+		Ok(self.pool.get().await)
 	}
+}
 
-	pub fn try_get_object(&self, id: &tg::object::Id) -> Result<Option<Bytes>> {
-		let txn = self
-			.env
-			.begin_ro_txn()
-			.wrap_err("Failed to create the transaction.")?;
-		let bytes = match txn.get(self.objects, &id.to_string()) {
-			Ok(bytes) => Bytes::copy_from_slice(bytes),
-			Err(lmdb::Error::NotFound) => return Ok(None),
-			Err(error) => return Err(error.wrap("Failed to get the object.")),
-		};
-		Ok(Some(bytes))
+pub struct Json<T>(pub T);
+
+impl<T> rusqlite::types::ToSql for Json<T>
+where
+	T: serde::Serialize,
+{
+	fn to_sql(&self) -> rusqlite::Result<rusqlite::types::ToSqlOutput<'_>> {
+		let json = serde_json::to_string(&self.0)
+			.map_err(|error| rusqlite::Error::ToSqlConversionFailure(error.into()))?;
+		Ok(rusqlite::types::ToSqlOutput::Owned(
+			rusqlite::types::Value::Text(json),
+		))
 	}
+}
 
-	pub fn put_object(&self, id: &tg::object::Id, bytes: &Bytes) -> Result<()> {
-		// Create a write transaction.
-		let mut txn = self
-			.env
-			.begin_rw_txn()
-			.wrap_err("Failed to create the transaction.")?;
-
-		// Add the object to the database.
-		txn.put(
-			self.objects,
-			&id.to_string(),
-			&bytes,
-			lmdb::WriteFlags::empty(),
-		)
-		.wrap_err("Failed to put the object.")?;
-
-		// Commit the transaction.
-		txn.commit().wrap_err("Failed to commit the transaction.")?;
-
-		Ok(())
+impl<T> rusqlite::types::FromSql for Json<T>
+where
+	T: serde::de::DeserializeOwned,
+{
+	fn column_result(value: rusqlite::types::ValueRef<'_>) -> rusqlite::types::FromSqlResult<Self> {
+		let json = value.as_str()?;
+		let value = serde_json::from_str(json)
+			.map_err(|error| rusqlite::types::FromSqlError::Other(error.into()))?;
+		Ok(Self(value))
 	}
+}
 
-	pub fn try_get_build_for_target(
-		&self,
-		target_id: &tg::target::Id,
-	) -> Result<Option<tg::build::Id>> {
-		let txn = self
-			.env
-			.begin_ro_txn()
-			.wrap_err("Failed to create the transaction.")?;
-		let bytes = match txn.get(self.assignments, &target_id.to_string()) {
-			Ok(bytes) => bytes,
-			Err(lmdb::Error::NotFound) => return Ok(None),
-			Err(error) => return Err(error.wrap("Failed to get the build.")),
-		};
-		let build_id = std::str::from_utf8(bytes).wrap_err("Invalid ID.")?;
-		let build_id = build_id.parse().wrap_err("Invalid ID.")?;
-		Ok(Some(build_id))
-	}
-
-	pub fn set_build_for_target(
-		&self,
-		target_id: &tg::target::Id,
-		build_id: &tg::build::Id,
-	) -> Result<()> {
-		// Create a write transaction.
-		let mut txn = self
-			.env
-			.begin_rw_txn()
-			.wrap_err("Failed to create the transaction.")?;
-
-		// Add the assignment to the database.
-		txn.put(
-			self.assignments,
-			&target_id.to_string(),
-			&build_id.to_string(),
-			lmdb::WriteFlags::empty(),
-		)
-		.wrap_err("Failed to put the assignment.")?;
-
-		// Commit the transaction.
-		txn.commit().wrap_err("Failed to commit the transaction.")?;
-
-		Ok(())
-	}
+#[macro_export]
+macro_rules! params {
+	($($x:expr),* $(,)?) => {
+		&[$(&$x as &(dyn rusqlite::types::ToSql),)*] as &[&(dyn rusqlite::types::ToSql)]
+	};
 }

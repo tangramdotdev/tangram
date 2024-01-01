@@ -524,22 +524,22 @@ impl FromV8 for serde_yaml::Value {
 impl ToV8 for tg::Value {
 	fn to_v8<'a>(&self, scope: &mut v8::HandleScope<'a>) -> Result<v8::Local<'a, v8::Value>> {
 		match self {
-			tg::Value::Null(value) => value.to_v8(scope),
-			tg::Value::Bool(value) => value.to_v8(scope),
-			tg::Value::Number(value) => value.to_v8(scope),
-			tg::Value::String(value) => value.to_v8(scope),
-			tg::Value::Bytes(value) => value.to_v8(scope),
-			tg::Value::Leaf(value) => value.to_v8(scope),
-			tg::Value::Branch(value) => value.to_v8(scope),
-			tg::Value::Directory(value) => value.to_v8(scope),
-			tg::Value::File(value) => value.to_v8(scope),
-			tg::Value::Symlink(value) => value.to_v8(scope),
-			tg::Value::Lock(value) => value.to_v8(scope),
-			tg::Value::Target(value) => value.to_v8(scope),
-			tg::Value::Mutation(value) => value.to_v8(scope),
-			tg::Value::Template(value) => value.to_v8(scope),
-			tg::Value::Array(value) => value.to_v8(scope),
-			tg::Value::Map(value) => value.to_v8(scope),
+			Self::Null => Ok(v8::undefined(scope).into()),
+			Self::Bool(value) => value.to_v8(scope),
+			Self::Number(value) => value.to_v8(scope),
+			Self::String(value) => value.to_v8(scope),
+			Self::Array(value) => value.to_v8(scope),
+			Self::Map(value) => value.to_v8(scope),
+			Self::Bytes(value) => value.to_v8(scope),
+			Self::Mutation(value) => value.to_v8(scope),
+			Self::Template(value) => value.to_v8(scope),
+			Self::Leaf(value) => value.to_v8(scope),
+			Self::Branch(value) => value.to_v8(scope),
+			Self::Directory(value) => value.to_v8(scope),
+			Self::File(value) => value.to_v8(scope),
+			Self::Symlink(value) => value.to_v8(scope),
+			Self::Lock(value) => value.to_v8(scope),
+			Self::Target(value) => value.to_v8(scope),
 		}
 	}
 }
@@ -595,37 +595,37 @@ impl FromV8 for tg::Value {
 		let template = v8::Local::<v8::Function>::try_from(template).unwrap();
 
 		if value.is_null_or_undefined() {
-			Ok(tg::Value::Null(()))
+			Ok(Self::Null)
 		} else if value.is_boolean() {
-			Ok(tg::Value::Bool(from_v8(scope, value)?))
+			Ok(Self::Bool(from_v8(scope, value)?))
 		} else if value.is_number() {
-			Ok(tg::Value::Number(from_v8(scope, value)?))
+			Ok(Self::Number(from_v8(scope, value)?))
 		} else if value.is_string() {
-			Ok(tg::Value::String(from_v8(scope, value)?))
-		} else if value.is_uint8_array() {
-			Ok(tg::Value::Bytes(from_v8(scope, value)?))
-		} else if value.instance_of(scope, leaf.into()).unwrap() {
-			Ok(tg::Value::Leaf(from_v8(scope, value)?))
-		} else if value.instance_of(scope, branch.into()).unwrap() {
-			Ok(tg::Value::Branch(from_v8(scope, value)?))
-		} else if value.instance_of(scope, directory.into()).unwrap() {
-			Ok(tg::Value::Directory(from_v8(scope, value)?))
-		} else if value.instance_of(scope, file.into()).unwrap() {
-			Ok(tg::Value::File(from_v8(scope, value)?))
-		} else if value.instance_of(scope, symlink.into()).unwrap() {
-			Ok(tg::Value::Symlink(from_v8(scope, value)?))
-		} else if value.instance_of(scope, lock.into()).unwrap() {
-			Ok(tg::Value::Lock(from_v8(scope, value)?))
-		} else if value.instance_of(scope, target.into()).unwrap() {
-			Ok(tg::Value::Target(from_v8(scope, value)?))
-		} else if value.instance_of(scope, mutation.into()).unwrap() {
-			Ok(tg::Value::Mutation(from_v8(scope, value)?))
-		} else if value.instance_of(scope, template.into()).unwrap() {
-			Ok(tg::Value::Template(from_v8(scope, value)?))
+			Ok(Self::String(from_v8(scope, value)?))
 		} else if value.is_array() {
-			Ok(tg::Value::Array(from_v8(scope, value)?))
+			Ok(Self::Array(from_v8(scope, value)?))
+		} else if value.is_uint8_array() {
+			Ok(Self::Bytes(from_v8(scope, value)?))
+		} else if value.instance_of(scope, mutation.into()).unwrap() {
+			Ok(Self::Mutation(from_v8(scope, value)?))
+		} else if value.instance_of(scope, template.into()).unwrap() {
+			Ok(Self::Template(from_v8(scope, value)?))
+		} else if value.instance_of(scope, leaf.into()).unwrap() {
+			Ok(Self::Leaf(from_v8(scope, value)?))
+		} else if value.instance_of(scope, branch.into()).unwrap() {
+			Ok(Self::Branch(from_v8(scope, value)?))
+		} else if value.instance_of(scope, directory.into()).unwrap() {
+			Ok(Self::Directory(from_v8(scope, value)?))
+		} else if value.instance_of(scope, file.into()).unwrap() {
+			Ok(Self::File(from_v8(scope, value)?))
+		} else if value.instance_of(scope, symlink.into()).unwrap() {
+			Ok(Self::Symlink(from_v8(scope, value)?))
+		} else if value.instance_of(scope, lock.into()).unwrap() {
+			Ok(Self::Lock(from_v8(scope, value)?))
+		} else if value.instance_of(scope, target.into()).unwrap() {
+			Ok(Self::Target(from_v8(scope, value)?))
 		} else if value.is_object() {
-			Ok(tg::Value::Map(from_v8(scope, value)?))
+			Ok(Self::Map(from_v8(scope, value)?))
 		} else {
 			return_error!("Invalid value.");
 		}
@@ -1875,7 +1875,6 @@ impl ToV8 for tg::Object {
 			Self::Symlink(symlink) => ("symlink", symlink.to_v8(scope)?),
 			Self::Lock(lock) => ("lock", lock.to_v8(scope)?),
 			Self::Target(target) => ("target", target.to_v8(scope)?),
-			Self::Build(_) => unreachable!(),
 		};
 		let object = v8::Object::new(scope);
 		let key = v8::String::new_external_onebyte_static(scope, "kind".as_bytes()).unwrap();

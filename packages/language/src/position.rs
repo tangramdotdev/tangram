@@ -91,6 +91,24 @@ impl Position {
 	}
 }
 
+impl From<Position> for lsp::Position {
+	fn from(value: Position) -> Self {
+		Self {
+			line: value.line,
+			character: value.character,
+		}
+	}
+}
+
+impl From<lsp::Position> for Position {
+	fn from(value: lsp::Position) -> Self {
+		Position {
+			line: value.line,
+			character: value.character,
+		}
+	}
+}
+
 #[allow(clippy::ignored_unit_patterns)]
 #[cfg(test)]
 mod tests {
@@ -169,23 +187,5 @@ mod tests {
 				character: 0
 			}
 		);
-	}
-}
-
-impl From<Position> for lsp::Position {
-	fn from(value: Position) -> Self {
-		Self {
-			line: value.line,
-			character: value.character,
-		}
-	}
-}
-
-impl From<lsp::Position> for Position {
-	fn from(value: lsp::Position) -> Self {
-		Position {
-			line: value.line,
-			character: value.character,
-		}
 	}
 }

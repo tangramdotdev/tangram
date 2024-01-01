@@ -1,4 +1,3 @@
-use super::PackageArgs;
 use crate::Cli;
 use tangram_client as tg;
 use tangram_error::Result;
@@ -11,12 +10,17 @@ pub struct Args {
 	#[arg(short, long)]
 	pub detach: bool,
 
+	/// The path to the executable in the artifact to run.
+	#[arg(long)]
+	pub executable_path: Option<tg::Path>,
+
+	/// If this flag is set, the package's lockfile will not be updated.
+	#[arg(long)]
+	pub locked: bool,
+
 	/// The package to build.
 	#[arg(short, long, default_value = ".")]
 	pub package: tg::Dependency,
-
-	#[command(flatten)]
-	pub package_args: PackageArgs,
 
 	/// The retry strategy to use.
 	#[arg(long, default_value_t)]
@@ -27,11 +31,11 @@ impl Cli {
 	pub async fn command_test(&self, args: Args) -> Result<()> {
 		// Create the build args.
 		let args = super::build::Args {
-			no_tui: false,
 			detach: args.detach,
+			locked: args.locked,
+			no_tui: false,
 			output: None,
 			package: args.package,
-			package_args: args.package_args,
 			retry: args.retry,
 			target: "test".to_owned(),
 		};

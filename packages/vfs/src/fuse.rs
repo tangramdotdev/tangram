@@ -1,4 +1,3 @@
-#![allow(clippy::unused_async)]
 use num::ToPrimitive;
 use std::{
 	collections::BTreeMap,
@@ -21,23 +20,18 @@ pub struct Server {
 }
 
 struct Inner {
-	tg: Box<dyn tg::Handle>,
 	path: std::path::PathBuf,
 	state: tokio::sync::RwLock<State>,
-	task: Task,
+	task: std::sync::Mutex<Option<tokio::task::JoinHandle<Result<()>>>>,
+	tg: Box<dyn tg::Handle>,
 }
-
-type Task = (
-	std::sync::Mutex<Option<tokio::task::JoinHandle<Result<()>>>>,
-	std::sync::Mutex<Option<tokio::task::AbortHandle>>,
-);
 
 /// The server's state.
 struct State {
-	nodes: BTreeMap<NodeId, Arc<Node>>,
 	file_handle_index: u64,
-	node_index: u64,
 	handles: BTreeMap<FileHandle, Arc<tokio::sync::RwLock<FileHandleData>>>,
+	node_index: u64,
+	nodes: BTreeMap<NodeId, Arc<Node>>,
 }
 
 /// A node in the file system.
@@ -140,8 +134,6 @@ enum Response {
 impl Server {
 	pub async fn start(tg: &dyn tg::Handle, path: &Path) -> Result<Self> {
 		// Create the server.
-		let tg = tg.clone_box();
-		let task = (std::sync::Mutex::new(None), std::sync::Mutex::new(None));
 		let root = Arc::new_cyclic(|root| Node {
 			id: ROOT_NODE_ID,
 			parent: root.clone(),
@@ -154,18 +146,20 @@ impl Server {
 		let node_index = 1000;
 		let handles = BTreeMap::default();
 		let state = State {
-			nodes,
 			file_handle_index: reader_index,
-			node_index,
 			handles,
+			node_index,
+			nodes,
 		};
 		let state = tokio::sync::RwLock::new(state);
+		let tg = tg.clone_box();
+		let task = std::sync::Mutex::new(None);
 		let server = Self {
 			inner: Arc::new(Inner {
-				tg,
 				path: path.to_owned(),
 				state,
 				task,
+				tg,
 			}),
 		};
 
@@ -177,22 +171,20 @@ impl Server {
 			let server = server.clone();
 			async move { server.serve(file).await }
 		});
-		let abort = task.abort_handle();
-		server.inner.task.0.lock().unwrap().replace(task);
-		server.inner.task.1.lock().unwrap().replace(abort);
+		server.inner.task.lock().unwrap().replace(task);
 
 		Ok(server)
 	}
 
 	pub fn stop(&self) {
-		if let Some(handle) = self.inner.task.1.lock().unwrap().as_ref() {
-			handle.abort();
+		if let Some(task) = self.inner.task.lock().unwrap().as_ref() {
+			task.abort_handle().abort();
 		};
 	}
 
 	pub async fn join(&self) -> Result<()> {
 		// Join the task.
-		let task = self.inner.task.0.lock().unwrap().take();
+		let task = self.inner.task.lock().unwrap().take();
 		if let Some(task) = task {
 			match task.await {
 				Ok(result) => Ok(result),
@@ -415,6 +407,7 @@ impl Server {
 		Ok(Response::Flush)
 	}
 
+	#[allow(clippy::unused_async)]
 	async fn handle_batch_forget_request(
 		&self,
 		_header: sys::fuse_in_header,
@@ -423,6 +416,7 @@ impl Server {
 		Ok(Response::None)
 	}
 
+	#[allow(clippy::unused_async)]
 	async fn handle_forget_request(
 		&self,
 		_header: sys::fuse_in_header,
@@ -552,7 +546,6 @@ impl Server {
 		Ok(Response::Init(response))
 	}
 
-	#[allow(clippy::too_many_lines)]
 	async fn handle_lookup_request(
 		&self,
 		header: sys::fuse_in_header,

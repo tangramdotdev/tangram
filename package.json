@@ -1,6 +1,5 @@
 {
 	"dependencies": {
-		"@airplane/views": "^2.1.18",
 		"@rushstack/eslint-patch": "^1.2.0",
 		"@types/eslint": "^8.44.3",
 		"@types/node": "^20.8.2",
@@ -8,13 +7,10 @@
 		"@typescript-eslint/parser": "^6.7.4",
 		"@typescript-eslint/typescript-estree": "^6.7.4",
 		"@typescript-eslint/visitor-keys": "^6.7.4",
-		"airplane": "^0.2.85",
 		"esbuild": "^0.19.4",
 		"eslint": "^8.29.0",
 		"eslint-plugin-jsonc": "^2.4.0",
 		"prettier": "^3.0.0",
-		"react": "^18.2.0",
-		"react-dom": "^18.2.0",
 		"typescript": "^5.3.2"
 	},
 	"workspaces": [
@@ -22,9 +18,5 @@
 		"packages/language",
 		"packages/runtime",
 		"packages/vscode"
-	],
-	"devDependencies": {
-		"@types/react": "^18.2.42",
-		"@types/react-dom": "^18.2.17"
-	}
+	]
 }

@@ -109,17 +109,6 @@ impl Cli {
 		// Get the user.
 		let user = self.user().await?;
 
-		// Create the build options.
-		let remote = config
-			.as_ref()
-			.and_then(|config| config.build.as_ref())
-			.and_then(|build| build.remote.clone())
-			.map(|build| tangram_server::RemoteBuildOptions {
-				enable: build.enable,
-				hosts: build.hosts,
-			});
-		let build = Some(tangram_server::BuildOptions { remote });
-
 		// Create the remote options.
 		let url = args
 			.remote
@@ -133,8 +122,17 @@ impl Cli {
 			.tls(tls)
 			.user(user)
 			.build();
+		let build = config
+			.as_ref()
+			.and_then(|config| config.remote.as_ref())
+			.and_then(|remote| remote.build.clone())
+			.map(|build| tangram_server::RemoteBuildOptions {
+				enable: build.enable,
+				hosts: build.hosts,
+			});
 		let remote = tangram_server::RemoteOptions {
 			tg: Box::new(client),
+			build,
 		};
 		let remote = if args.no_remote { None } else { Some(remote) };
 
@@ -143,7 +141,6 @@ impl Cli {
 		// Create the options.
 		let options = tangram_server::Options {
 			addr,
-			build,
 			path,
 			remote,
 			version,

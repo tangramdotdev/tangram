@@ -1,4 +1,3 @@
-use super::PackageArgs;
 use crate::Cli;
 use tangram_client as tg;
 use tangram_error::{return_error, Result, WrapErr};
@@ -7,11 +6,12 @@ use tangram_error::{return_error, Result, WrapErr};
 #[derive(Debug, clap::Args)]
 #[command(verbatim_doc_comment)]
 pub struct Args {
+	/// If this flag is set, the package's lockfile will not be updated.
+	#[arg(long)]
+	pub locked: bool,
+
 	#[arg(short, long, default_value = ".")]
 	pub package: tg::Dependency,
-
-	#[command(flatten)]
-	pub package_args: PackageArgs,
 }
 
 impl Cli {

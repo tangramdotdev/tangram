@@ -1,5 +1,5 @@
-use self::commands::Args;
 use clap::Parser;
+use futures::FutureExt;
 use std::{path::PathBuf, sync::Arc};
 use tangram_client as tg;
 use tangram_error::{return_error, Result, WrapErr};
@@ -20,13 +20,56 @@ struct Cli {
 	version: String,
 }
 
+#[derive(Debug, clap::Parser)]
+#[command(
+	about = env!("CARGO_PKG_DESCRIPTION"),
+	disable_help_subcommand = true,
+	long_version = env!("CARGO_PKG_VERSION"),
+	name = env!("CARGO_CRATE_NAME"),
+	verbatim_doc_comment,
+	version = env!("CARGO_PKG_VERSION"),
+)]
+pub struct Args {
+	#[command(subcommand)]
+	pub command: Command,
+}
+
+#[derive(Debug, clap::Subcommand)]
+pub enum Command {
+	Autoenv(self::commands::autoenv::Args),
+	Build(self::commands::build::Args),
+	Check(self::commands::check::Args),
+	Checkin(self::commands::checkin::Args),
+	Checkout(self::commands::checkout::Args),
+	Checksum(self::commands::checksum::Args),
+	Clean(self::commands::clean::Args),
+	Doc(self::commands::doc::Args),
+	Env(self::commands::env::Args),
+	Exec(self::commands::exec::Args),
+	Fmt(self::commands::fmt::Args),
+	Get(self::commands::get::Args),
+	Init(self::commands::init::Args),
+	Log(self::commands::log::Args),
+	Login(self::commands::login::Args),
+	Lsp(self::commands::lsp::Args),
+	New(self::commands::new::Args),
+	Outdated(self::commands::outdated::Args),
+	Publish(self::commands::publish::Args),
+	Pull(self::commands::pull::Args),
+	Push(self::commands::push::Args),
+	Run(self::commands::run::Args),
+	Search(self::commands::search::Args),
+	Server(self::commands::server::Args),
+	Test(self::commands::test::Args),
+	Tree(self::commands::tree::Args),
+	Update(self::commands::update::Args),
+	Upgrade(self::commands::upgrade::Args),
+}
+
 #[derive(Clone, Debug, Default, serde::Serialize, serde::Deserialize)]
 struct Config {
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	autoenv: Option<AutoenvConfig>,
-
-	#[serde(default, skip_serializing_if = "Option::is_none")]
-	build: Option<BuildConfig>,
 
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	remote: Option<RemoteConfig>,
@@ -39,10 +82,14 @@ struct AutoenvConfig {
 }
 
 #[derive(Clone, Debug, Default, serde::Serialize, serde::Deserialize)]
-struct BuildConfig {
+struct RemoteConfig {
+	/// The remote URL.
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	url: Option<Url>,
+
 	/// Configure remote builds.
 	#[serde(default, skip_serializing_if = "Option::is_none")]
-	remote: Option<RemoteBuildConfig>,
+	build: Option<RemoteBuildConfig>,
 }
 
 #[derive(Clone, Debug, Default, serde::Serialize, serde::Deserialize)]
@@ -54,13 +101,6 @@ struct RemoteBuildConfig {
 	/// Limit remote builds to targets with the specified hosts.
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	hosts: Option<Vec<tg::System>>,
-}
-
-#[derive(Clone, Debug, Default, serde::Serialize, serde::Deserialize)]
-struct RemoteConfig {
-	/// The remote URL.
-	#[serde(default, skip_serializing_if = "Option::is_none")]
-	url: Option<Url>,
 }
 
 fn main() {
@@ -134,7 +174,37 @@ async fn main_inner() -> Result<()> {
 	};
 
 	// Run the command.
-	cli.run(args).await?;
+	match args.command {
+		Command::Autoenv(args) => cli.command_autoenv(args).boxed(),
+		Command::Build(args) => cli.command_build(args).boxed(),
+		Command::Check(args) => cli.command_check(args).boxed(),
+		Command::Checkin(args) => cli.command_checkin(args).boxed(),
+		Command::Checkout(args) => cli.command_checkout(args).boxed(),
+		Command::Checksum(args) => cli.command_checksum(args).boxed(),
+		Command::Clean(args) => cli.command_clean(args).boxed(),
+		Command::Doc(args) => cli.command_doc(args).boxed(),
+		Command::Env(args) => cli.command_env(args).boxed(),
+		Command::Exec(args) => cli.command_exec(args).boxed(),
+		Command::Fmt(args) => cli.command_fmt(args).boxed(),
+		Command::Get(args) => cli.command_get(args).boxed(),
+		Command::Init(args) => cli.command_init(args).boxed(),
+		Command::Log(args) => cli.command_log(args).boxed(),
+		Command::Login(args) => cli.command_login(args).boxed(),
+		Command::Lsp(args) => cli.command_lsp(args).boxed(),
+		Command::New(args) => cli.command_new(args).boxed(),
+		Command::Outdated(args) => cli.command_outdated(args).boxed(),
+		Command::Publish(args) => cli.command_publish(args).boxed(),
+		Command::Pull(args) => cli.command_pull(args).boxed(),
+		Command::Push(args) => cli.command_push(args).boxed(),
+		Command::Run(args) => cli.command_run(args).boxed(),
+		Command::Search(args) => cli.command_search(args).boxed(),
+		Command::Server(args) => cli.command_server(args).boxed(),
+		Command::Test(args) => cli.command_test(args).boxed(),
+		Command::Tree(args) => cli.command_tree(args).boxed(),
+		Command::Update(args) => cli.command_update(args).boxed(),
+		Command::Upgrade(args) => cli.command_upgrade(args).boxed(),
+	}
+	.await?;
 
 	Ok(())
 }

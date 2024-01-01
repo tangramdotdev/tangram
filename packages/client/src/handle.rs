@@ -30,11 +30,7 @@ pub trait Handle: Send + Sync + 'static {
 
 	async fn try_get_object(&self, id: &object::Id) -> Result<Option<Bytes>>;
 
-	async fn try_put_object(
-		&self,
-		id: &object::Id,
-		bytes: &Bytes,
-	) -> Result<Result<(), Vec<object::Id>>>;
+	async fn try_put_object(&self, id: &object::Id, bytes: &Bytes) -> Result<Vec<object::Id>>;
 
 	async fn push_object(&self, id: &object::Id) -> Result<()>;
 
@@ -44,21 +40,37 @@ pub trait Handle: Send + Sync + 'static {
 
 	async fn check_out_artifact(&self, id: &artifact::Id, path: &crate::Path) -> Result<()>;
 
-	async fn try_get_build_for_target(&self, id: &target::Id) -> Result<Option<build::Id>>;
+	async fn try_get_assignment(&self, target_id: &target::Id) -> Result<Option<build::Id>>;
 
-	async fn get_or_create_build_for_target(
+	async fn get_or_create_build(
 		&self,
 		user: Option<&User>,
-		id: &target::Id,
+		target_id: &target::Id,
 		depth: u64,
 		retry: build::Retry,
 	) -> Result<build::Id>;
 
-	async fn get_build_from_queue(
+	async fn try_get_queue_item(
 		&self,
 		user: Option<&User>,
 		hosts: Option<Vec<system::System>>,
 	) -> Result<Option<build::queue::Item>>;
+
+	async fn get_build_status(&self, id: &build::Id) -> Result<build::Status> {
+		Ok(self
+			.try_get_build_status(id)
+			.await?
+			.wrap_err("Failed to get the build.")?)
+	}
+
+	async fn try_get_build_status(&self, id: &build::Id) -> Result<Option<build::Status>>;
+
+	async fn set_build_status(
+		&self,
+		user: Option<&User>,
+		id: &build::Id,
+		status: build::Status,
+	) -> Result<()>;
 
 	async fn get_build_target(&self, id: &build::Id) -> Result<target::Id> {
 		Ok(self
@@ -103,6 +115,13 @@ pub trait Handle: Send + Sync + 'static {
 		id: &build::Id,
 	) -> Result<Option<BoxStream<'static, Result<Bytes>>>>;
 
+	// async fn try_get_build_log(
+	// 	&self,
+	// 	id: &build::Id,
+	// 	pos: Option<u64>,
+	// 	len: Option<i64>,
+	// ) -> Result<Option<BoxStream<'static, Result<log::Entry>>>>;
+
 	async fn add_build_log(&self, user: Option<&User>, id: &build::Id, bytes: Bytes) -> Result<()>;
 
 	async fn get_build_outcome(&self, id: &build::Id) -> Result<build::Outcome> {
@@ -113,8 +132,6 @@ pub trait Handle: Send + Sync + 'static {
 	}
 
 	async fn try_get_build_outcome(&self, id: &build::Id) -> Result<Option<build::Outcome>>;
-
-	async fn cancel_build(&self, user: Option<&User>, id: &build::Id) -> Result<()>;
 
 	async fn finish_build(
 		&self,

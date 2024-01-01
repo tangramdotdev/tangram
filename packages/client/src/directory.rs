@@ -42,7 +42,7 @@ pub struct Data {
 
 impl Id {
 	pub fn new(bytes: &Bytes) -> Self {
-		Self(crate::Id::new_hashed(id::Kind::Directory, bytes))
+		Self(crate::Id::new_blake3(id::Kind::Directory, bytes))
 	}
 }
 
@@ -122,11 +122,13 @@ impl Directory {
 		let data = self.data(tg).await?;
 		let bytes = data.serialize()?;
 		let id = Id::new(&bytes);
-		tg.try_put_object(&id.clone().into(), &bytes)
+		let missing = tg
+			.try_put_object(&id.clone().into(), &bytes)
 			.await
-			.wrap_err("Failed to put the object.")?
-			.ok()
-			.wrap_err("Expected all children to be stored.")?;
+			.wrap_err("Failed to put the object.")?;
+		if !missing.is_empty() {
+			return_error!("Expected all children to be stored.");
+		}
 		self.state.write().unwrap().id.replace(id);
 		Ok(())
 	}

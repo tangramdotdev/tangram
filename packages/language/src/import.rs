@@ -3,8 +3,7 @@ use tangram_client as tg;
 use tangram_error::{return_error, Error, Result, WrapErr};
 
 /// An import in a module.
-#[derive(Debug, Clone, PartialEq, Eq, Hash, serde::Serialize, serde::Deserialize)]
-#[serde(into = "String", try_from = "String")]
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub enum Import {
 	/// An import of a module, such as `import "./module.tg"`.
 	Module(tg::Path),
@@ -21,7 +20,7 @@ impl Import {
 		// Parse the specifier.
 		let import = specifier.parse()?;
 
-		// Apply the attributes.
+		// Merge with the attributes.
 		let import = if let Some(attributes) = attributes {
 			match import {
 				Self::Module(module) => Self::Module(module),
@@ -30,9 +29,9 @@ impl Import {
 						.iter()
 						.map(|(key, value)| (key.clone(), value.clone()))
 						.collect();
-					let params = serde_json::from_value(attributes)
+					let attributes = serde_json::from_value(attributes)
 						.wrap_err("Failed to parse the attributes.")?;
-					dependency.apply_params(params);
+					dependency.merge(attributes);
 					Self::Dependency(dependency)
 				},
 			}

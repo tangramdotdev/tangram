@@ -170,6 +170,11 @@ export class Symlink {
 			artifact = await artifact.resolve();
 		}
 		let path = await this.path();
+
+		if (artifact !== undefined && fromArtifact !== undefined) {
+			throw new Error("Expected no `from` value when `artifact` is set.");
+		}
+
 		if (artifact !== undefined && !path) {
 			return artifact;
 		} else if (artifact === undefined && path) {

@@ -7,37 +7,39 @@ use tangram_error::Result;
 #[command(verbatim_doc_comment)]
 #[command(trailing_var_arg = true)]
 pub struct Args {
-	/// The name of the target to build.
-	#[arg(short, long, default_value = "default")]
-	pub target: String,
+	/// The path to the executable in the artifact to run.
+	#[arg(long)]
+	pub executable_path: Option<tg::Path>,
 
-	#[command(flatten)]
-	pub package_args: super::PackageArgs,
+	/// If this flag is set, the package's lockfile will not be updated.
+	#[arg(long)]
+	pub locked: bool,
+
+	#[arg(default_value = ".")]
+	pub package: tg::Dependency,
 
 	/// The retry strategy to use.
 	#[arg(long, default_value_t)]
 	pub retry: tg::build::Retry,
 
-	#[command(flatten)]
-	pub run_args: super::RunArgs,
+	/// The name of the target to build.
+	#[arg(short, long, default_value = "default")]
+	pub target: String,
 
-	#[arg(default_value = ".")]
-	pub package: tg::Dependency,
-
-	pub trailing_args: Vec<String>,
+	pub trailing: Vec<String>,
 }
 
 impl Cli {
 	pub async fn command_exec(&self, args: Args) -> Result<()> {
 		// Create the run args.
 		let args = super::run::Args {
+			executable_path: args.executable_path,
+			locked: args.locked,
 			no_tui: false,
 			package: args.package,
-			package_args: args.package_args,
 			retry: args.retry,
-			run_args: args.run_args,
 			target: args.target,
-			trailing_args: args.trailing_args,
+			trailing: args.trailing,
 		};
 
 		// Run!

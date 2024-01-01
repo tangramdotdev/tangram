@@ -1,4 +1,3 @@
-use super::PackageArgs;
 use crate::{
 	tui::{self, Tui},
 	Cli,
@@ -15,6 +14,10 @@ pub struct Args {
 	#[arg(short, long)]
 	pub detach: bool,
 
+	/// If this flag is set, the package's lockfile will not be updated.
+	#[arg(long)]
+	pub locked: bool,
+
 	/// Disable the TUI.
 	#[arg(long, default_value = "false")]
 	pub no_tui: bool,
@@ -26,9 +29,6 @@ pub struct Args {
 	/// The package to build.
 	#[arg(short, long, default_value = ".")]
 	pub package: tg::Dependency,
-
-	#[command(flatten)]
-	pub package_args: PackageArgs,
 
 	/// The retry strategy to use.
 	#[arg(long, default_value_t)]
@@ -64,10 +64,7 @@ impl Cli {
 		.into();
 		let args_ = Vec::new();
 		let host = tg::System::js();
-		let path = tg::package::ROOT_MODULE_FILE_NAME
-			.to_owned()
-			.try_into()
-			.unwrap();
+		let path = tg::package::ROOT_MODULE_FILE_NAME.to_owned().into();
 		let executable = tg::Symlink::new(Some(package.into()), path).into();
 		let target = tg::target::Builder::new(host, executable)
 			.lock(lock)

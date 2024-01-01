@@ -56,19 +56,14 @@ struct Inner {
 	tg: Box<dyn tg::Handle>,
 	path: PathBuf,
 	state: tokio::sync::RwLock<State>,
-	task: Task,
+	task: std::sync::Mutex<Option<tokio::task::JoinHandle<Result<()>>>>,
 }
-
-type Task = (
-	std::sync::Mutex<Option<tokio::task::JoinHandle<Result<()>>>>,
-	std::sync::Mutex<Option<tokio::task::AbortHandle>>,
-);
 
 struct State {
 	nodes: BTreeMap<u64, Arc<Node>>,
 	clients: BTreeMap<Vec<u8>, ClientData>,
 	index: u64,
-	lock_state: BTreeMap<u64, Arc<tokio::sync::RwLock<LockState>>>,
+	locks: BTreeMap<u64, Arc<tokio::sync::RwLock<LockState>>>,
 }
 
 struct LockState {
@@ -146,10 +141,10 @@ impl Server {
 		let state = tokio::sync::RwLock::new(State {
 			nodes,
 			clients: BTreeMap::new(),
-			lock_state: BTreeMap::new(),
+			locks: BTreeMap::new(),
 			index: 0,
 		});
-		let task = (std::sync::Mutex::new(None), std::sync::Mutex::new(None));
+		let task = std::sync::Mutex::new(None);
 		let server = Self {
 			inner: Arc::new(Inner {
 				tg,
@@ -163,17 +158,15 @@ impl Server {
 		let task = tokio::spawn({
 			let server = server.clone();
 			async move {
-				if let Err(e) = server.serve(port).await {
-					tracing::error!(?e, "NFS server shutdown.");
-					Err(e)
+				if let Err(error) = server.serve(port).await {
+					tracing::error!(?error, "NFS server shutdown.");
+					Err(error)
 				} else {
 					Ok(())
 				}
 			}
 		});
-		let abort = task.abort_handle();
-		server.inner.task.1.lock().unwrap().replace(abort);
-		server.inner.task.0.lock().unwrap().replace(task);
+		server.inner.task.lock().unwrap().replace(task);
 
 		// Mount.
 		Self::mount(path, port).await?;
@@ -231,14 +224,14 @@ impl Server {
 
 	pub fn stop(&self) {
 		// Abort the task.
-		if let Some(handle) = self.inner.task.1.lock().unwrap().as_ref() {
-			handle.abort();
+		if let Some(task) = self.inner.task.lock().unwrap().as_ref() {
+			task.abort_handle().abort();
 		};
 	}
 
 	pub async fn join(&self) -> Result<()> {
 		// Join the task.
-		let task = self.inner.task.0.lock().unwrap().take();
+		let task = self.inner.task.lock().unwrap().take();
 		if let Some(task) = task {
 			match task.await {
 				Ok(result) => Ok(result),
@@ -578,14 +571,14 @@ impl Server {
 
 			// Look up the existing lock state.
 			let index = stateid.index();
-			let Some(lock_state) = state.lock_state.get(&index).cloned() else {
+			let Some(lock_state) = state.locks.get(&index).cloned() else {
 				return CLOSE4res::Error(nfsstat4::NFS4ERR_BAD_STATEID);
 			};
 			let lock_state = lock_state.write().await;
 
 			// Check if there are any outstanding byterange locks.
 			if lock_state.byterange_locks.is_empty() {
-				state.lock_state.remove(&index);
+				state.locks.remove(&index);
 			} else {
 				return CLOSE4res::Error(nfsstat4::NFS4ERR_LOCKS_HELD);
 			}
@@ -699,7 +692,7 @@ impl Server {
 		let state = self.inner.state.read().await;
 
 		// We ignore returning an error here if the lock state does not exist to support erroneous CLOSE requests that clear out state.
-		if let Some(lock_state) = state.lock_state.get(&index) {
+		if let Some(lock_state) = state.locks.get(&index) {
 			// Add the new lock.
 			let mut lock_state = lock_state.write().await;
 			lock_state.byterange_locks.push(range);
@@ -733,7 +726,7 @@ impl Server {
 		// Lookup the reader state.
 		let index = lock_stateid.index();
 		let state = self.inner.state.read().await;
-		if let Some(lock_state) = state.lock_state.get(&index) {
+		if let Some(lock_state) = state.locks.get(&index) {
 			// Remove the lock.
 			let mut lock_state = lock_state.write().await;
 			let Some(index) = lock_state.byterange_locks.iter().position(|r| r == &range) else {
@@ -1064,7 +1057,7 @@ impl Server {
 				.state
 				.write()
 				.await
-				.lock_state
+				.locks
 				.insert(index, Arc::new(tokio::sync::RwLock::new(lock_state)));
 		}
 
@@ -1123,7 +1116,7 @@ impl Server {
 		if arg.seqid != arg.open_stateid.seqid.increment() {
 			tracing::error!(?arg, "Invalid seqid in open.");
 			let mut state = self.inner.state.write().await;
-			state.lock_state.remove(&arg.open_stateid.index());
+			state.locks.remove(&arg.open_stateid.index());
 			return OPEN_CONFIRM4res::Error(nfsstat4::NFS4ERR_BAD_SEQID);
 		}
 		let mut open_stateid = arg.open_stateid;
@@ -1181,7 +1174,7 @@ impl Server {
 		// Check if the lock state exists.
 		let state = self.inner.state.read().await;
 		let index = arg.stateid.index();
-		let lock_state_exists = state.lock_state.contains_key(&index);
+		let lock_state_exists = state.locks.contains_key(&index);
 
 		// This fallback exists for special state ids and any erroneous read.
 		let (data, eof) = if [ANONYMOUS_STATE_ID, READ_BYPASS_STATE_ID].contains(&arg.stateid)
@@ -1204,7 +1197,7 @@ impl Server {
 			let eof = (arg.offset + arg.count.to_u64().unwrap()) >= *file_size;
 			(data, eof)
 		} else {
-			let Some(lock_state) = state.lock_state.get(&index).cloned() else {
+			let Some(lock_state) = state.locks.get(&index).cloned() else {
 				tracing::error!(?arg.stateid, "No reader is registered for the given id. file: {file}.");
 				return READ4res::Error(nfsstat4::NFS4ERR_BAD_STATEID);
 			};

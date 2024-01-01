@@ -2919,38 +2919,6 @@ impl nfs_resop4 {
 	}
 }
 
-#[cfg(test)]
-mod test {
-	use crate::nfs::{
-		types::{nfs_resop4, nfsstat4, COMPOUND4res},
-		xdr::{self, ToXdr},
-	};
-
-	use super::SETCLIENTID4res;
-
-	#[test]
-	fn setclientid() {
-		let res = SETCLIENTID4res::NFS4_OK(super::SETCLIENTID4resok {
-			clientid: 1007,
-			setclientid_confirm: [0, 0, 0, 0, 0, 0, 3, 239],
-		});
-
-		let compound = COMPOUND4res {
-			status: nfsstat4::NFS4_OK,
-			tag: String::from_utf8(vec![115, 101, 116, 99, 108, 105, 100, 32, 32, 32, 32, 32])
-				.unwrap(),
-			resarray: vec![nfs_resop4::OP_SETCLIENTID(res)],
-		};
-
-		let mut buffer = vec![];
-		let mut encoder = xdr::Encoder::new(&mut buffer);
-		compound
-			.encode(&mut encoder)
-			.expect("Failed to encode result.");
-		println!("{buffer:?}");
-	}
-}
-
 impl std::fmt::Debug for bitmap4 {
 	fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
 		let mut list = f.debug_list();
@@ -3123,3 +3091,35 @@ pub const ALL_ATTRS: [u32; 77] = [
 	FATTR4_SUPPATTR_EXCLCREAT,
 	FATTR4_FS_CHARSET_CAP,
 ];
+
+#[cfg(test)]
+mod test {
+	use crate::nfs::{
+		types::{nfs_resop4, nfsstat4, COMPOUND4res},
+		xdr::{self, ToXdr},
+	};
+
+	use super::SETCLIENTID4res;
+
+	#[test]
+	fn setclientid() {
+		let res = SETCLIENTID4res::NFS4_OK(super::SETCLIENTID4resok {
+			clientid: 1007,
+			setclientid_confirm: [0, 0, 0, 0, 0, 0, 3, 239],
+		});
+
+		let compound = COMPOUND4res {
+			status: nfsstat4::NFS4_OK,
+			tag: String::from_utf8(vec![115, 101, 116, 99, 108, 105, 100, 32, 32, 32, 32, 32])
+				.unwrap(),
+			resarray: vec![nfs_resop4::OP_SETCLIENTID(res)],
+		};
+
+		let mut buffer = vec![];
+		let mut encoder = xdr::Encoder::new(&mut buffer);
+		compound
+			.encode(&mut encoder)
+			.expect("Failed to encode result.");
+		println!("{buffer:?}");
+	}
+}

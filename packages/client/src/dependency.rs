@@ -14,7 +14,6 @@ use tangram_error::WrapErr;
 	serde::Deserialize,
 	serde::Serialize,
 )]
-#[serde(into = "String", try_from = "String")]
 pub struct Dependency {
 	/// The package's ID.
 	pub id: Option<directory::Id>,
@@ -26,21 +25,6 @@ pub struct Dependency {
 	pub path: Option<crate::Path>,
 
 	/// The package's version.
-	pub version: Option<String>,
-}
-
-#[derive(serde::Deserialize, serde::Serialize)]
-pub struct Params {
-	#[serde(skip_serializing_if = "Option::is_none")]
-	pub id: Option<directory::Id>,
-
-	#[serde(skip_serializing_if = "Option::is_none")]
-	pub name: Option<String>,
-
-	#[serde(skip_serializing_if = "Option::is_none")]
-	pub path: Option<crate::Path>,
-
-	#[serde(skip_serializing_if = "Option::is_none")]
 	pub version: Option<String>,
 }
 
@@ -78,17 +62,17 @@ impl Dependency {
 		}
 	}
 
-	pub fn apply_params(&mut self, params: Params) {
-		if let Some(id) = params.id {
+	pub fn merge(&mut self, other: Self) {
+		if let Some(id) = other.id {
 			self.id = Some(id);
 		}
-		if let Some(name) = params.name {
+		if let Some(name) = other.name {
 			self.name = Some(name);
 		}
-		if let Some(path) = params.path {
+		if let Some(path) = other.path {
 			self.path = Some(path);
 		}
-		if let Some(version) = params.version {
+		if let Some(version) = other.version {
 			self.version = Some(version);
 		}
 	}
@@ -114,9 +98,9 @@ impl std::fmt::Display for Dependency {
 			}
 			write!(f, "{path}")?;
 		}
-		let params = serde_urlencoded::to_string(Params::from(dependency)).unwrap();
-		if !params.is_empty() {
-			write!(f, "?{params}")?;
+		let query = serde_urlencoded::to_string(self).unwrap();
+		if !query.is_empty() {
+			write!(f, "?{query}")?;
 		}
 		Ok(())
 	}
@@ -166,19 +150,16 @@ impl std::str::FromStr for Dependency {
 			}
 		}
 
-		// Parse the params from the query.
-		let params = if let Some(query) = query {
-			Some(
-				serde_urlencoded::from_str::<Params>(query)
-					.wrap_err("Failed to deserialize the query.")?,
-			)
+		// Deserialize the query.
+		let query = if let Some(query) = query {
+			Some(serde_urlencoded::from_str(query).wrap_err("Failed to deserialize the query.")?)
 		} else {
 			None
 		};
 
-		// Apply the params.
-		if let Some(params) = params {
-			dependency.apply_params(params);
+		// Merge with the query.
+		if let Some(query) = query {
+			dependency.merge(query);
 		}
 
 		Ok(dependency)
@@ -196,28 +177,6 @@ impl TryFrom<String> for Dependency {
 impl From<Dependency> for String {
 	fn from(value: Dependency) -> Self {
 		value.to_string()
-	}
-}
-
-impl From<Dependency> for Params {
-	fn from(value: Dependency) -> Self {
-		Self {
-			id: value.id,
-			name: value.name,
-			path: value.path,
-			version: value.version,
-		}
-	}
-}
-
-impl From<Params> for Dependency {
-	fn from(value: Params) -> Self {
-		Self {
-			id: value.id,
-			name: value.name,
-			path: value.path,
-			version: value.version,
-		}
 	}
 }
 

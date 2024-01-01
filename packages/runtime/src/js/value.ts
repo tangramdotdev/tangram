@@ -15,17 +15,17 @@ export type Value =
 	| boolean
 	| number
 	| string
+	| Array<Value>
+	| { [key: string]: Value }
 	| Uint8Array
+	| Mutation
+	| Template
 	| Blob
 	| Directory
 	| File
 	| Symlink
 	| Lock
-	| Target
-	| Mutation
-	| Template
-	| Array<Value>
-	| { [key: string]: Value };
+	| Target;
 
 export namespace Value {
 	export let is = (value: unknown): value is Value => {
@@ -34,18 +34,18 @@ export namespace Value {
 			typeof value === "boolean" ||
 			typeof value === "number" ||
 			typeof value === "string" ||
+			value instanceof Array ||
+			typeof value === "object" ||
 			value instanceof Uint8Array ||
+			value instanceof Mutation ||
+			value instanceof Template ||
 			value instanceof Leaf ||
 			value instanceof Branch ||
 			value instanceof Directory ||
 			value instanceof File ||
 			value instanceof Symlink ||
 			value instanceof Lock ||
-			value instanceof Target ||
-			value instanceof Mutation ||
-			value instanceof Template ||
-			value instanceof Array ||
-			typeof value === "object"
+			value instanceof Target
 		);
 	};
 

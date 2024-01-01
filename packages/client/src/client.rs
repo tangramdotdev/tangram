@@ -5,16 +5,18 @@ use crate::{
 use async_trait::async_trait;
 use bytes::Bytes;
 use derive_more::TryUnwrap;
-use futures::{stream::BoxStream, StreamExt, TryStreamExt};
+use futures::{
+	stream::{self, BoxStream},
+	StreamExt, TryStreamExt,
+};
 use http_body_util::{BodyExt, BodyStream};
 use itertools::Itertools;
 use std::{path::PathBuf, sync::Arc};
 use tangram_error::{return_error, Error, Result, Wrap, WrapErr};
 use tokio::{
-	io::AsyncBufReadExt,
+	io::{AsyncBufReadExt, AsyncReadExt},
 	net::{TcpStream, UnixStream},
 };
-use tokio_stream::wrappers::LinesStream;
 use tokio_util::io::StreamReader;
 use url::Url;
 
@@ -384,11 +386,7 @@ impl Handle for Client {
 		Ok(Some(bytes))
 	}
 
-	async fn try_put_object(
-		&self,
-		id: &object::Id,
-		bytes: &Bytes,
-	) -> Result<Result<(), Vec<object::Id>>> {
+	async fn try_put_object(&self, id: &object::Id, bytes: &Bytes) -> Result<Vec<object::Id>> {
 		let body = full(bytes.clone());
 		let request = http::request::Builder::default()
 			.method(http::Method::PUT)
@@ -396,20 +394,17 @@ impl Handle for Client {
 			.body(body)
 			.wrap_err("Failed to create the request.")?;
 		let response = self.send(request).await?;
-		if response.status() == http::StatusCode::BAD_REQUEST {
-			let bytes = response
-				.collect()
-				.await
-				.wrap_err("Failed to collect the response body.")?
-				.to_bytes();
-			let missing_children =
-				serde_json::from_slice(&bytes).wrap_err("Failed to deserialize the body.")?;
-			return Ok(Err(missing_children));
-		}
 		if !response.status().is_success() {
 			return_error!("Expected the response's status to be success.");
 		}
-		Ok(Ok(()))
+		let bytes = response
+			.collect()
+			.await
+			.wrap_err("Failed to collect the response body.")?
+			.to_bytes();
+		let missing_children =
+			serde_json::from_slice(&bytes).wrap_err("Failed to deserialize the body.")?;
+		return Ok(missing_children);
 	}
 
 	async fn push_object(&self, id: &object::Id) -> Result<()> {
@@ -477,7 +472,7 @@ impl Handle for Client {
 		Ok(())
 	}
 
-	async fn try_get_build_for_target(&self, id: &target::Id) -> Result<Option<build::Id>> {
+	async fn try_get_assignment(&self, id: &target::Id) -> Result<Option<build::Id>> {
 		let request = http::request::Builder::default()
 			.method(http::Method::GET)
 			.uri(format!("/v1/targets/{id}/build"))
@@ -499,7 +494,7 @@ impl Handle for Client {
 		Ok(Some(id))
 	}
 
-	async fn get_or_create_build_for_target(
+	async fn get_or_create_build(
 		&self,
 		user: Option<&User>,
 		id: &target::Id,
@@ -533,7 +528,7 @@ impl Handle for Client {
 		Ok(id)
 	}
 
-	async fn get_build_from_queue(
+	async fn try_get_queue_item(
 		&self,
 		user: Option<&User>,
 		hosts: Option<Vec<System>>,
@@ -566,6 +561,49 @@ impl Handle for Client {
 		let item =
 			serde_json::from_slice(&bytes).wrap_err("Failed to deserialize the response body.")?;
 		Ok(item)
+	}
+
+	async fn try_get_build_status(&self, id: &build::Id) -> Result<Option<build::Status>> {
+		let request = http::request::Builder::default()
+			.method(http::Method::GET)
+			.uri(format!("/v1/builds/{id}/status"))
+			.body(empty())
+			.wrap_err("Failed to create the request.")?;
+		let response = self.send(request).await?;
+		if !response.status().is_success() {
+			return_error!("Expected the response's status to be success.");
+		}
+		let bytes = response
+			.collect()
+			.await
+			.wrap_err("Failed to collect the response body.")?
+			.to_bytes();
+		let id = serde_json::from_slice(&bytes).wrap_err("Failed to deserialize the body.")?;
+		Ok(id)
+	}
+
+	async fn set_build_status(
+		&self,
+		user: Option<&User>,
+		id: &build::Id,
+		status: build::Status,
+	) -> Result<()> {
+		let mut request = http::request::Builder::default()
+			.method(http::Method::POST)
+			.uri(format!("/v1/builds/{id}/status"));
+		let user = user.or(self.inner.user.as_ref());
+		if let Some(token) = user.and_then(|user| user.token.as_ref()) {
+			request = request.header(http::header::AUTHORIZATION, format!("Bearer {token}"));
+		}
+		let body = serde_json::to_vec(&status).wrap_err("Failed to serialize the body.")?;
+		let request = request
+			.body(full(body))
+			.wrap_err("Failed to create the request.")?;
+		let response = self.send(request).await?;
+		if !response.status().is_success() {
+			return_error!("Expected the response's status to be success.");
+		}
+		Ok(())
 	}
 
 	async fn try_get_build_target(&self, id: &build::Id) -> Result<Option<target::Id>> {
@@ -611,17 +649,50 @@ impl Handle for Client {
 					Ok(Err(_frame)) => None,
 				}
 			})
-			.map_err(|error| std::io::Error::new(std::io::ErrorKind::Other, error));
-		let reader = tokio::io::BufReader::new(StreamReader::new(stream));
-		let children = LinesStream::new(reader.lines())
-			.map_err(|error| error.wrap("Failed to read from the reader."))
-			.map(|line| {
-				let line = line?;
-				let id = serde_json::from_str(&line).wrap_err("Failed to deserialize the ID.")?;
-				Ok(id)
-			})
-			.boxed();
-		Ok(Some(children))
+			.map_err(|error| error.wrap("Failed to read from the body."));
+		let reader = Box::pin(tokio::io::BufReader::new(StreamReader::new(
+			stream.map_err(|error| std::io::Error::new(std::io::ErrorKind::Other, error)),
+		)));
+		let children = stream::try_unfold((true, reader), move |(first, mut reader)| async move {
+			if first {
+				let byte = reader
+					.read_u8()
+					.await
+					.wrap_err("Failed to read from the reader.")?;
+				if byte != b'[' {
+					return_error!("Expected an open bracket.");
+				}
+			}
+			let mut byte = reader
+				.read_u8()
+				.await
+				.wrap_err("Failed to read from the reader.")?;
+			if byte == b']' {
+				return Ok(None);
+			}
+			if !first {
+				if byte != b',' {
+					return_error!("Expected a comma.");
+				}
+				byte = reader
+					.read_u8()
+					.await
+					.wrap_err("Failed to read from the reader.")?;
+			}
+			if byte != b'"' {
+				return_error!("Expected a quotation mark.");
+			}
+			let mut id = Vec::new();
+			reader
+				.read_until(b'"', &mut id)
+				.await
+				.wrap_err("Failed to read from the reader.")?;
+			id.pop();
+			let id = String::from_utf8(id).wrap_err("Failed to deserialize the ID.")?;
+			let id = id.parse().wrap_err("Failed to deserialize the ID.")?;
+			Ok(Some((id, (false, reader))))
+		});
+		Ok(Some(children.boxed()))
 	}
 
 	async fn add_build_child(
@@ -642,9 +713,6 @@ impl Handle for Client {
 			.body(full(body))
 			.wrap_err("Failed to create the request.")?;
 		let response = self.send(request).await?;
-		if response.status() == http::StatusCode::NOT_FOUND {
-			return Ok(());
-		}
 		if !response.status().is_success() {
 			return_error!("Expected the response's status to be success.");
 		}
@@ -678,9 +746,8 @@ impl Handle for Client {
 					Ok(Err(_frame)) => None,
 				}
 			})
-			.map_err(|error| error.wrap("Failed to read from the body."))
-			.boxed();
-		Ok(Some(log))
+			.map_err(|error| error.wrap("Failed to read from the body."));
+		Ok(Some(log.boxed()))
 	}
 
 	async fn add_build_log(&self, user: Option<&User>, id: &build::Id, bytes: Bytes) -> Result<()> {
@@ -696,9 +763,6 @@ impl Handle for Client {
 			.body(full(body))
 			.wrap_err("Failed to create the request.")?;
 		let response = self.send(request).await?;
-		if response.status() == http::StatusCode::NOT_FOUND {
-			return Ok(());
-		}
 		if !response.status().is_success() {
 			return_error!("Expected the response's status to be success.");
 		}
@@ -728,27 +792,6 @@ impl Handle for Client {
 		Ok(Some(outcome))
 	}
 
-	async fn cancel_build(&self, user: Option<&User>, id: &build::Id) -> Result<()> {
-		let mut request = http::request::Builder::default()
-			.method(http::Method::POST)
-			.uri(format!("/v1/builds/{id}/cancel"));
-		let user = user.or(self.inner.user.as_ref());
-		if let Some(token) = user.and_then(|user| user.token.as_ref()) {
-			request = request.header(http::header::AUTHORIZATION, format!("Bearer {token}"));
-		}
-		let request = request
-			.body(empty())
-			.wrap_err("Failed to create the request.")?;
-		let response = self.send(request).await?;
-		if response.status() == http::StatusCode::NOT_FOUND {
-			return Ok(());
-		}
-		if !response.status().is_success() {
-			return_error!("Expected the response's status to be success.");
-		}
-		Ok(())
-	}
-
 	async fn finish_build(
 		&self,
 		user: Option<&User>,
@@ -768,9 +811,6 @@ impl Handle for Client {
 			.body(full(body))
 			.wrap_err("Failed to create the request.")?;
 		let response = self.send(request).await?;
-		if response.status() == http::StatusCode::NOT_FOUND {
-			return Ok(());
-		}
 		if !response.status().is_success() {
 			return_error!("Expected the response's status to be success.");
 		}

@@ -2,14 +2,14 @@ use crate::Server;
 use bytes::Bytes;
 use futures::{
 	future::{self},
-	FutureExt, TryStreamExt,
+	stream, FutureExt, StreamExt, TryStreamExt,
 };
 use http_body_util::{BodyExt, StreamBody};
 use hyper_util::rt::{TokioExecutor, TokioIo};
 use itertools::Itertools;
 use std::{collections::BTreeMap, convert::Infallible};
 use tangram_client as tg;
-use tangram_error::{return_error, Result, WrapErr};
+use tangram_error::{return_error, Error, Result, WrapErr};
 use tg::Handle;
 use tokio::net::{TcpListener, UnixListener};
 use tokio_util::either::Either;
@@ -22,7 +22,14 @@ type Outgoing = http_body_util::combinators::UnsyncBoxBody<
 >;
 
 impl Server {
-	pub async fn serve(self, addr: tg::client::Addr) -> Result<()> {
+	pub async fn serve(
+		self,
+		addr: tg::client::Addr,
+		mut stop_receiver: tokio::sync::watch::Receiver<bool>,
+	) -> Result<()> {
+		// Create the tasks.
+		let mut tasks = tokio::task::JoinSet::new();
+
 		// Create the listener.
 		let listener = match &addr {
 			tg::client::Addr::Inet(inet) => Either::Left(
@@ -40,22 +47,32 @@ impl Server {
 		// Loop forever, accepting connections.
 		loop {
 			// Accept a new connection.
-			let stream = TokioIo::new(match &listener {
-				Either::Left(listener) => Either::Left(
-					listener
-						.accept()
-						.await
-						.wrap_err("Failed to accept a new TCP connection.")?
-						.0,
-				),
-				Either::Right(listener) => Either::Right(
-					listener
-						.accept()
-						.await
-						.wrap_err("Failed to accept a new UNIX connection.")?
-						.0,
-				),
-			});
+			let accept = async {
+				let stream = match &listener {
+					Either::Left(listener) => Either::Left(
+						listener
+							.accept()
+							.await
+							.wrap_err("Failed to accept a new TCP connection.")?
+							.0,
+					),
+					Either::Right(listener) => Either::Right(
+						listener
+							.accept()
+							.await
+							.wrap_err("Failed to accept a new UNIX connection.")?
+							.0,
+					),
+				};
+				Ok::<_, Error>(TokioIo::new(stream))
+			};
+			let stop = stop_receiver.wait_for(|stop| *stop);
+			let stream = tokio::select! {
+				stream = accept => stream?,
+				_ = stop => {
+					break
+				},
+			};
 
 			// Create the service.
 			let service = hyper::service::service_fn({
@@ -66,15 +83,38 @@ impl Server {
 				}
 			});
 
-			// Spawn the connection.
-			tokio::spawn(async move {
-				let builder = hyper_util::server::conn::auto::Builder::new(TokioExecutor::new());
-				let connection = builder.serve_connection(stream, service);
-				if let Err(error) = connection.await {
-					tracing::error!(?error, "Failed to serve the connection.");
+			// Spawn a task to serve the connection.
+			tasks.spawn({
+				let mut stop_receiver = stop_receiver.clone();
+				async move {
+					let builder =
+						hyper_util::server::conn::auto::Builder::new(TokioExecutor::new());
+					let connection = builder.serve_connection(stream, service);
+					tokio::pin!(connection);
+					let result = tokio::select! {
+						result = connection.as_mut() => Some(result),
+						_ = stop_receiver.wait_for(|stop| *stop) => {
+							connection.as_mut().graceful_shutdown();
+							None
+						}
+					};
+					let result = match dbg!(result) {
+						Some(result) => result,
+						None => connection.await,
+					};
+					if let Err(error) = result {
+						tracing::error!(?error, "Failed to serve the connection.");
+					}
 				}
 			});
 		}
+
+		// Join all tasks.
+		while let Some(result) = tasks.join_next().await {
+			result.unwrap();
+		}
+
+		Ok(())
 	}
 
 	async fn try_get_user_from_request(
@@ -112,15 +152,23 @@ impl Server {
 
 			// Builds
 			(http::Method::GET, ["v1", "targets", _, "build"]) => self
-				.handle_get_build_for_target_request(request)
+				.handle_get_assignment_request(request)
 				.map(Some)
 				.boxed(),
 			(http::Method::POST, ["v1", "targets", _, "build"]) => self
-				.handle_get_or_create_build_for_target_request(request)
+				.handle_get_or_create_build_request(request)
 				.map(Some)
 				.boxed(),
 			(http::Method::GET, ["v1", "builds", "queue"]) => self
-				.handle_get_build_queue_item_request(request)
+				.handle_get_queue_item_request(request)
+				.map(Some)
+				.boxed(),
+			(http::Method::GET, ["v1", "builds", _, "status"]) => self
+				.handle_get_build_status_request(request)
+				.map(Some)
+				.boxed(),
+			(http::Method::POST, ["v1", "builds", _, "status"]) => self
+				.handle_post_build_status_request(request)
 				.map(Some)
 				.boxed(),
 			(http::Method::GET, ["v1", "builds", _, "target"]) => self
@@ -144,10 +192,6 @@ impl Server {
 				.boxed(),
 			(http::Method::GET, ["v1", "builds", _, "outcome"]) => self
 				.handle_get_build_outcome_request(request)
-				.map(Some)
-				.boxed(),
-			(http::Method::POST, ["v1", "builds", _, "cancel"]) => self
-				.handle_post_build_cancel_request(request)
 				.map(Some)
 				.boxed(),
 			(http::Method::POST, ["v1", "builds", _, "finish"]) => self
@@ -226,14 +270,14 @@ impl Server {
 		let response = match response {
 			None => http::Response::builder()
 				.status(http::StatusCode::NOT_FOUND)
-				.body(full("Not found."))
+				.body(full("not found"))
 				.unwrap(),
 			Some(Err(error)) => {
 				let trace = error.trace();
 				tracing::error!(%trace);
 				http::Response::builder()
 					.status(http::StatusCode::INTERNAL_SERVER_ERROR)
-					.body(full("Internal server error."))
+					.body(full("internal server error"))
 					.unwrap()
 			},
 			Some(Ok(response)) => response,
@@ -248,6 +292,7 @@ impl Server {
 		&self,
 		_request: http::Request<Incoming>,
 	) -> Result<http::Response<Outgoing>> {
+		tokio::time::sleep(std::time::Duration::from_secs(30)).await;
 		let status = self.status().await?;
 		let body = serde_json::to_vec(&status).unwrap();
 		let response = http::Response::builder()
@@ -276,7 +321,7 @@ impl Server {
 			.unwrap())
 	}
 
-	async fn handle_get_build_queue_item_request(
+	async fn handle_get_queue_item_request(
 		&self,
 		request: http::Request<Incoming>,
 	) -> Result<hyper::Response<Outgoing>> {
@@ -295,7 +340,7 @@ impl Server {
 			None
 		};
 
-		let build_id = self.get_build_from_queue(user.as_ref(), hosts).await?;
+		let build_id = self.try_get_queue_item(user.as_ref(), hosts).await?;
 
 		// Create the response.
 		let body = serde_json::to_vec(&build_id).wrap_err("Failed to serialize the ID.")?;
@@ -303,7 +348,7 @@ impl Server {
 		Ok(response)
 	}
 
-	async fn handle_get_build_for_target_request(
+	async fn handle_get_assignment_request(
 		&self,
 		request: http::Request<Incoming>,
 	) -> Result<http::Response<Outgoing>> {
@@ -314,8 +359,8 @@ impl Server {
 		};
 		let id = id.parse().wrap_err("Failed to parse the ID.")?;
 
-		// Attempt to get the build for the target.
-		let Some(build_id) = self.try_get_build_for_target(&id).await? else {
+		// Attempt to get the assignment.
+		let Some(build_id) = self.try_get_assignment(&id).await? else {
 			return Ok(not_found());
 		};
 
@@ -325,7 +370,7 @@ impl Server {
 		Ok(response)
 	}
 
-	async fn handle_get_or_create_build_for_target_request(
+	async fn handle_get_or_create_build_request(
 		&self,
 		request: http::Request<Incoming>,
 	) -> Result<http::Response<Outgoing>> {
@@ -348,9 +393,9 @@ impl Server {
 		// Get the user.
 		let user = self.try_get_user_from_request(&request).await?;
 
-		// Get or create the build for the target.
+		// Get or create the build.
 		let build_id = self
-			.get_or_create_build_for_target(user.as_ref(), &id, depth, retry)
+			.get_or_create_build(user.as_ref(), &id, depth, retry)
 			.await?;
 
 		// Create the response.
@@ -359,28 +404,59 @@ impl Server {
 		Ok(response)
 	}
 
-	async fn handle_post_build_cancel_request(
+	async fn handle_get_build_status_request(
 		&self,
 		request: http::Request<Incoming>,
 	) -> Result<hyper::Response<Outgoing>> {
 		// Get the path params.
 		let path_components: Vec<&str> = request.uri().path().split('/').skip(1).collect();
-		let [_, "builds", build_id, "cancel"] = path_components.as_slice() else {
+		let [_, "builds", id, "status"] = path_components.as_slice() else {
 			return_error!("Unexpected path.");
 		};
-		let build_id = build_id.parse().wrap_err("Failed to parse the ID.")?;
+		let id = id.parse().wrap_err("Failed to parse the ID.")?;
+
+		// Attempt to get the build status.
+		let Some(build_id) = self.try_get_build_status(&id).await? else {
+			return Ok(not_found());
+		};
+
+		// Create the response.
+		let body = serde_json::to_vec(&build_id).wrap_err("Failed to serialize the response.")?;
+		let response = http::Response::builder().body(full(body)).unwrap();
+		Ok(response)
+	}
+
+	async fn handle_post_build_status_request(
+		&self,
+		request: http::Request<Incoming>,
+	) -> Result<hyper::Response<Outgoing>> {
+		// Get the path params.
+		let path_components: Vec<&str> = request.uri().path().split('/').skip(1).collect();
+		let [_, "builds", id, "status"] = path_components.as_slice() else {
+			return_error!("Unexpected path.");
+		};
+		let build_id: tg::build::Id = id.parse().wrap_err("Failed to parse the ID.")?;
 
 		// Get the user.
 		let user = self.try_get_user_from_request(&request).await?;
 
-		self.cancel_build(user.as_ref(), &build_id).await?;
+		// Read the body.
+		let bytes = request
+			.into_body()
+			.collect()
+			.await
+			.wrap_err("Failed to read the body.")?
+			.to_bytes();
+		let status = serde_json::from_slice(&bytes).wrap_err("Failed to deserialize the body.")?;
+
+		self.set_build_status(user.as_ref(), &build_id, status)
+			.await?;
 
 		// Create the response.
 		let response = http::Response::builder()
 			.status(http::StatusCode::OK)
 			.body(empty())
 			.unwrap();
-
 		Ok(response)
 	}
 
@@ -423,15 +499,26 @@ impl Server {
 		};
 
 		// Create the response.
-		let body = Outgoing::new(StreamBody::new(
-			children
-				.map_ok(|id| {
-					let mut id = serde_json::to_string(&id).unwrap();
-					id.push('\n');
-					hyper::body::Frame::data(Bytes::from(id))
-				})
-				.map_err(Into::into),
-		));
+		let children = children
+			.enumerate()
+			.map(|(i, result)| match result {
+				Ok(id) => Ok((i, id)),
+				Err(error) => Err(error),
+			})
+			.map_ok(|(i, id)| {
+				let mut string = String::new();
+				if i != 0 {
+					string.push(',');
+				}
+				string.push_str(&serde_json::to_string(&id).unwrap());
+				let bytes = Bytes::from(string);
+				hyper::body::Frame::data(bytes)
+			})
+			.map_err(Into::into);
+		let open = stream::once(future::ok(hyper::body::Frame::data(Bytes::from("["))));
+		let close = stream::once(future::ok(hyper::body::Frame::data(Bytes::from("]"))));
+		let children = open.chain(children).chain(close);
+		let body = Outgoing::new(StreamBody::new(children));
 		let response = http::Response::builder()
 			.status(http::StatusCode::OK)
 			.body(body)
@@ -579,10 +666,10 @@ impl Server {
 			.await
 			.wrap_err("Failed to read the body.")?
 			.to_bytes();
-		let result = serde_json::from_slice(&bytes).wrap_err("Failed to deserialize.")?;
+		let outcome = serde_json::from_slice(&bytes).wrap_err("Failed to deserialize.")?;
 
 		// Finish the build.
-		self.finish_build(user.as_ref(), &build_id, result).await?;
+		self.finish_build(user.as_ref(), &build_id, outcome).await?;
 
 		// Create the response.
 		let response = http::Response::builder()
@@ -671,21 +758,16 @@ impl Server {
 			.to_bytes();
 
 		// Put the object.
-		let result = self.try_put_object(&id, &bytes).await?;
+		let missing = self.try_put_object(&id, &bytes).await?;
 
-		// If there are missing children, then return a bad request response.
-		if let Err(missing_children) = result {
-			let body = serde_json::to_vec(&missing_children)
-				.wrap_err("Failed to serialize the missing children.")?;
-			let response = http::Response::builder()
-				.status(http::StatusCode::BAD_REQUEST)
-				.body(full(body))
-				.unwrap();
-			return Ok(response);
-		}
-
-		// Otherwise, return an ok response.
-		Ok(ok())
+		// Create the response.
+		let body =
+			serde_json::to_vec(&missing).wrap_err("Failed to serialize the missing children.")?;
+		let response = http::Response::builder()
+			.status(http::StatusCode::OK)
+			.body(full(body))
+			.unwrap();
+		Ok(response)
 	}
 
 	async fn handle_check_in_artifact_request(
@@ -946,7 +1028,7 @@ impl Server {
 			.to_bytes();
 		let package_id = serde_json::from_slice(&bytes).wrap_err("Invalid request.")?;
 
-		// Create the package.
+		// Publish the package.
 		self.publish_package(user.as_ref(), &package_id).await?;
 
 		Ok(ok())
@@ -1094,7 +1176,7 @@ fn ok() -> http::Response<Outgoing> {
 fn bad_request() -> http::Response<Outgoing> {
 	http::Response::builder()
 		.status(http::StatusCode::BAD_REQUEST)
-		.body(full("Bad request."))
+		.body(full("bad request"))
 		.unwrap()
 }
 
@@ -1103,7 +1185,7 @@ fn bad_request() -> http::Response<Outgoing> {
 fn unauthorized() -> http::Response<Outgoing> {
 	http::Response::builder()
 		.status(http::StatusCode::UNAUTHORIZED)
-		.body(full("Unauthorized."))
+		.body(full("unauthorized"))
 		.unwrap()
 }
 
@@ -1112,6 +1194,6 @@ fn unauthorized() -> http::Response<Outgoing> {
 fn not_found() -> http::Response<Outgoing> {
 	http::Response::builder()
 		.status(http::StatusCode::NOT_FOUND)
-		.body(full("Not found."))
+		.body(full("not found"))
 		.unwrap()
 }
