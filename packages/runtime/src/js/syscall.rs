@@ -293,19 +293,7 @@ async fn syscall_load(state: Rc<State>, args: (tg::object::Id,)) -> Result<tg::o
 
 fn syscall_log(_scope: &mut v8::HandleScope, state: Rc<State>, args: (String,)) -> Result<()> {
 	let (string,) = args;
-	let (sender, receiver) = std::sync::mpsc::channel();
-	state.main_runtime_handle.spawn({
-		let build = state.build.clone();
-		let tg = state.tg.clone_box();
-		async move {
-			let result = build.add_log(tg.as_ref(), string.into()).await;
-			sender.send(result).unwrap();
-		}
-	});
-	receiver
-		.recv()
-		.unwrap()
-		.wrap_err("Failed to add the log.")?;
+	state.log_sender.send(string).unwrap();
 	Ok(())
 }
 

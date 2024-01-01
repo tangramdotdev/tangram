@@ -10,7 +10,7 @@ use std::{
 	task::Poll,
 };
 use tangram_client as tg;
-use tangram_error::{error, Result, WrapErr};
+use tangram_error::{error, Error, Result, WrapErr};
 
 mod convert;
 mod error;
@@ -25,8 +25,9 @@ struct State {
 	depth: u64,
 	futures: RefCell<Futures>,
 	global_source_map: Option<SourceMap>,
-	modules: RefCell<Vec<ModuleInfo>>,
+	log_sender: tokio::sync::mpsc::UnboundedSender<String>,
 	main_runtime_handle: tokio::runtime::Handle,
+	modules: RefCell<Vec<ModuleInfo>>,
 	retry: tg::build::Retry,
 	tg: Box<dyn tg::Handle>,
 }
@@ -139,16 +140,30 @@ async fn build_inner(
 	// Get the target.
 	let target = build.target(tg).await?;
 
+	// Start the log task.
+	let (log_sender, mut log_receiver) = tokio::sync::mpsc::unbounded_channel::<String>();
+	let log_task = tokio::spawn({
+		let build = build.clone();
+		let tg = tg.clone_box();
+		async move {
+			while let Some(string) = log_receiver.recv().await {
+				build.add_log(tg.as_ref(), string.into()).await?;
+			}
+			Ok::<_, Error>(())
+		}
+	});
+
 	// Create the state.
 	let state = Rc::new(State {
 		build: build.clone(),
-		tg: tg.clone_box(),
 		depth,
 		futures: RefCell::new(FuturesUnordered::new()),
 		global_source_map: Some(SourceMap::from_slice(SOURCE_MAP).unwrap()),
-		modules: RefCell::new(Vec::new()),
+		log_sender,
 		main_runtime_handle,
+		modules: RefCell::new(Vec::new()),
 		retry,
+		tg: tg.clone_box(),
 	});
 
 	// Create the context.
@@ -284,6 +299,12 @@ async fn build_inner(
 		Poll::Ready(result)
 	})
 	.await?;
+
+	// Wait for the log task to complete.
+	log_task
+		.await
+		.wrap_err("Failed to join the log task.")?
+		.wrap_err("The log task failed.")?;
 
 	Ok(value)
 }
