@@ -463,13 +463,19 @@ impl<'de> serde::Deserialize<'de> for Data {
 			where
 				A: serde::de::MapAccess<'de>,
 			{
-				let mut kind: Option<&str> = None;
+				#[derive(serde::Deserialize)]
+				#[serde(field_identifier, rename_all = "snake_case")]
+				enum Field {
+					Kind,
+					Value,
+				}
+				let mut kind: Option<String> = None;
 				let mut value = None;
 				while let Some(key) = map.next_key()? {
 					match key {
-						"kind" => kind = map.next_value()?,
-						"value" => {
-							let Some(kind) = kind else {
+						Field::Kind => kind = Some(map.next_value()?),
+						Field::Value => {
+							let Some(kind) = kind.as_deref() else {
 								return Err(serde::de::Error::missing_field("kind"));
 							};
 							value = Some(match kind {
@@ -489,7 +495,6 @@ impl<'de> serde::Deserialize<'de> for Data {
 								},
 							});
 						},
-						_ => return Err(serde::de::Error::unknown_field(key, &["kind", "value"])),
 					}
 				}
 				let Some(value) = value else {
