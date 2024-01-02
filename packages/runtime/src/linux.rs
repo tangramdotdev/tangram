@@ -577,7 +577,7 @@ pub async fn build(
 			.wrap_err("Failed to join the root process exit task.")?
 			.wrap_err("Failed to wait for the root process to exit.")?;
 
-			return Ok(tg::build::Outcome::Canceled);
+			return Ok(None);
 		},
 	};
 
@@ -664,7 +664,7 @@ pub async fn build(
 		tg::Value::Null
 	};
 
-	Ok(tg::build::Outcome::Succeeded(value))
+	Ok(Some(value))
 }
 
 #[allow(clippy::too_many_lines)]
