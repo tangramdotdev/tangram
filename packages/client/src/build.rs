@@ -1,5 +1,5 @@
 pub use self::outcome::Outcome;
-use crate::{blob, id, object, target, Error, Handle, Result, Target, User, Value, WrapErr};
+use crate::{id, log, Error, Handle, Result, Target, User, Value, WrapErr, object, target, blob};
 use async_recursion::async_recursion;
 use bytes::Bytes;
 use derive_more::Display;
@@ -189,8 +189,13 @@ impl Build {
 		Ok(())
 	}
 
-	pub async fn log(&self, tg: &dyn Handle) -> Result<BoxStream<'static, Result<Bytes>>> {
-		self.try_get_log(tg)
+	pub async fn log(
+		&self,
+		tg: &dyn Handle,
+		pos: Option<u64>,
+		len: Option<i64>,
+	) -> Result<BoxStream<'static, Result<log::Entry>>> {
+		self.try_get_log(tg, pos, len)
 			.await?
 			.wrap_err("Failed to get the build.")
 	}
@@ -198,8 +203,10 @@ impl Build {
 	pub async fn try_get_log(
 		&self,
 		tg: &dyn Handle,
-	) -> Result<Option<BoxStream<'static, Result<Bytes>>>> {
-		tg.try_get_build_log(self.id()).await
+		pos: Option<u64>,
+		len: Option<i64>,
+	) -> Result<Option<BoxStream<'static, Result<log::Entry>>>> {
+		tg.try_get_build_log(self.id(), pos, len).await
 	}
 
 	pub async fn add_log(&self, tg: &dyn Handle, log: Bytes) -> Result<()> {

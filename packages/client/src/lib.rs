@@ -23,6 +23,7 @@ pub mod id;
 pub mod leaf;
 pub mod lock;
 pub mod lockfile;
+pub mod log;
 pub mod mutation;
 pub mod object;
 pub mod package;
