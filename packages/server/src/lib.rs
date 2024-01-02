@@ -20,6 +20,7 @@ mod migrations;
 mod object;
 mod package;
 mod serve;
+mod user;
 
 /// A server.
 #[derive(Clone)]
@@ -373,8 +374,7 @@ impl tg::Handle for Server {
 	}
 
 	async fn stop(&self) -> Result<()> {
-		self.stop().await?;
-		Ok(())
+		self.stop().await
 	}
 
 	async fn clean(&self) -> Result<()> {
@@ -544,29 +544,14 @@ impl tg::Handle for Server {
 	}
 
 	async fn create_login(&self) -> Result<tg::user::Login> {
-		self.inner
-			.remote
-			.as_ref()
-			.wrap_err("The server does not have a remote.")?
-			.create_login()
-			.await
+		self.create_login().await
 	}
 
 	async fn get_login(&self, id: &tg::Id) -> Result<Option<tg::user::Login>> {
-		self.inner
-			.remote
-			.as_ref()
-			.wrap_err("The server does not have a remote.")?
-			.get_login(id)
-			.await
+		self.get_login(id).await
 	}
 
 	async fn get_user_for_token(&self, token: &str) -> Result<Option<tg::user::User>> {
-		self.inner
-			.remote
-			.as_ref()
-			.wrap_err("The server does not have a remote.")?
-			.get_user_for_token(token)
-			.await
+		self.get_user_for_token(token).await
 	}
 }
