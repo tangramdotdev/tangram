@@ -94,7 +94,7 @@ impl Server {
 						result = connection.as_mut() => {
 							Some(result)
 						},
-						_ = stop_receiver.wait_for(|stop| *stop) => {
+						() = stop_receiver.wait_for(|stop| *stop).map(|_| ()) => {
 							connection.as_mut().graceful_shutdown();
 							None
 						}
@@ -141,8 +141,8 @@ impl Server {
 		let path_components = request.uri().path().split('/').skip(1).collect_vec();
 		let response = match (method, path_components.as_slice()) {
 			// Server
-			(http::Method::GET, ["v1", "status"]) => {
-				self.handle_get_status_request(request).map(Some).boxed()
+			(http::Method::GET, ["v1", "health"]) => {
+				self.handle_get_health_request(request).map(Some).boxed()
 			},
 			(http::Method::POST, ["v1", "stop"]) => {
 				self.handle_post_stop_request(request).map(Some).boxed()
@@ -289,7 +289,7 @@ impl Server {
 		response
 	}
 
-	async fn handle_get_status_request(
+	async fn handle_get_health_request(
 		&self,
 		_request: http::Request<Incoming>,
 	) -> Result<http::Response<Outgoing>> {

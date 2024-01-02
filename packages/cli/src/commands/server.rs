@@ -16,11 +16,11 @@ pub struct Args {
 
 #[derive(Debug, clap::Subcommand)]
 pub enum Command {
+	/// Get the server's health.
+	Health,
+
 	/// Start the server.
 	Start,
-
-	/// Get the server's status.
-	Status,
 
 	/// Stop the server.
 	Stop,
@@ -70,15 +70,15 @@ impl Cli {
 	#[allow(clippy::unused_async)]
 	pub async fn command_server(&self, args: Args) -> Result<()> {
 		match args.command {
-			Command::Start => {
-				self.start_server().await?;
-			},
-			Command::Status => {
+			Command::Health => {
 				let addr = tg::client::Addr::Unix(self.path.join("socket"));
 				let client = tg::client::Builder::new(addr).build();
-				let status = client.status().await?;
-				let status = serde_json::to_string_pretty(&status).unwrap();
-				println!("{status}");
+				let health = client.health().await?;
+				let health = serde_json::to_string_pretty(&health).unwrap();
+				println!("{health}");
+			},
+			Command::Start => {
+				self.start_server().await?;
 			},
 			Command::Stop => {
 				let addr = tg::client::Addr::Unix(self.path.join("socket"));

@@ -227,7 +227,7 @@ impl Cli {
 			if !connected {
 				return_error!("Failed to connect to the server.");
 			}
-			if connected && client.status().await?.version != self.version {
+			if connected && client.health().await?.version != self.version {
 				return_error!("The server has different version from the client.");
 			}
 			// Store the client.
@@ -237,7 +237,7 @@ impl Cli {
 		}
 
 		// If the client is connected, check the version.
-		if connected && client.status().await?.version != self.version {
+		if connected && client.health().await?.version != self.version {
 			client.stop().await?;
 			tokio::time::sleep(std::time::Duration::from_millis(1000)).await;
 			client.disconnect().await?;

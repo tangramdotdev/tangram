@@ -1,5 +1,5 @@
 use crate::{
-	artifact, build, directory, lock, object, package, status, system, target, user, Dependency,
+	artifact, build, directory, health, lock, object, package, system, target, user, Dependency,
 	Id, User,
 };
 use async_trait::async_trait;
@@ -13,9 +13,9 @@ pub trait Handle: Send + Sync + 'static {
 
 	fn file_descriptor_semaphore(&self) -> &tokio::sync::Semaphore;
 
-	async fn stop(&self) -> Result<()>;
+	async fn health(&self) -> Result<health::Health>;
 
-	async fn status(&self) -> Result<status::Status>;
+	async fn stop(&self) -> Result<()>;
 
 	async fn clean(&self) -> Result<()>;
 

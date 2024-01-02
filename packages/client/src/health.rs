@@ -1,4 +1,4 @@
 #[derive(Clone, Debug, Default, serde::Deserialize, serde::Serialize)]
-pub struct Status {
+pub struct Health {
 	pub version: String,
 }

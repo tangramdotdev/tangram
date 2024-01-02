@@ -331,8 +331,8 @@ impl Server {
 	}
 
 	#[allow(clippy::unused_async)]
-	async fn status(&self) -> Result<tg::status::Status> {
-		Ok(tg::status::Status {
+	async fn status(&self) -> Result<tg::health::Health> {
+		Ok(tg::health::Health {
 			version: self.inner.version.clone(),
 		})
 	}
@@ -368,7 +368,7 @@ impl tg::Handle for Server {
 		&self.inner.file_descriptor_semaphore
 	}
 
-	async fn status(&self) -> Result<tg::status::Status> {
+	async fn health(&self) -> Result<tg::health::Health> {
 		self.status().await
 	}
 

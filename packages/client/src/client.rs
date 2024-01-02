@@ -1,6 +1,6 @@
 use crate::{
-	artifact, build, directory, lock, object, package, target, user, Dependency, Handle, Id,
-	Runtime, Status, System, User,
+	artifact, build, directory, lock, object, package, target, user, Dependency, Handle, Health,
+	Id, Runtime, System, User,
 };
 use async_trait::async_trait;
 use bytes::Bytes;
@@ -307,10 +307,10 @@ impl Handle for Client {
 		&self.inner.file_descriptor_semaphore
 	}
 
-	async fn status(&self) -> Result<Status> {
+	async fn health(&self) -> Result<Health> {
 		let request = http::request::Builder::default()
 			.method(http::Method::GET)
-			.uri("/v1/status")
+			.uri("/v1/health")
 			.body(empty())
 			.wrap_err("Failed to create the request.")?;
 		let response = self.send(request).await?;
@@ -322,8 +322,8 @@ impl Handle for Client {
 			.await
 			.wrap_err("Failed to collect the response body.")?
 			.to_bytes();
-		let status = serde_json::from_slice(&bytes).wrap_err("Failed to deserialize the body.")?;
-		Ok(status)
+		let health = serde_json::from_slice(&bytes).wrap_err("Failed to deserialize the body.")?;
+		Ok(health)
 	}
 
 	async fn stop(&self) -> Result<()> {
