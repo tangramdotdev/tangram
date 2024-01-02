@@ -25,7 +25,7 @@ struct State {
 	depth: u64,
 	futures: RefCell<Futures>,
 	global_source_map: Option<SourceMap>,
-	log_sender: tokio::sync::mpsc::UnboundedSender<String>,
+	log_sender: RefCell<Option<tokio::sync::mpsc::UnboundedSender<String>>>,
 	main_runtime_handle: tokio::runtime::Handle,
 	modules: RefCell<Vec<ModuleInfo>>,
 	retry: tg::build::Retry,
@@ -159,7 +159,7 @@ async fn build_inner(
 		depth,
 		futures: RefCell::new(FuturesUnordered::new()),
 		global_source_map: Some(SourceMap::from_slice(SOURCE_MAP).unwrap()),
-		log_sender,
+		log_sender: RefCell::new(Some(log_sender)),
 		main_runtime_handle,
 		modules: RefCell::new(Vec::new()),
 		retry,
@@ -301,6 +301,7 @@ async fn build_inner(
 	.await?;
 
 	// Wait for the log task to complete.
+	state.log_sender.borrow_mut().take();
 	log_task
 		.await
 		.wrap_err("Failed to join the log task.")?

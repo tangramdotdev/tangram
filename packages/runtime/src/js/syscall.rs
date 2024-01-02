@@ -293,7 +293,9 @@ async fn syscall_load(state: Rc<State>, args: (tg::object::Id,)) -> Result<tg::o
 
 fn syscall_log(_scope: &mut v8::HandleScope, state: Rc<State>, args: (String,)) -> Result<()> {
 	let (string,) = args;
-	state.log_sender.send(string).unwrap();
+	if let Some(log_sender) = state.log_sender.borrow().as_ref() {
+		log_sender.send(string).unwrap();
+	}
 	Ok(())
 }
 
