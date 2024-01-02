@@ -29,7 +29,7 @@ pub struct Client {
 struct Inner {
 	addr: Addr,
 	file_descriptor_semaphore: tokio::sync::Semaphore,
-	sender: tokio::sync::RwLock<Option<hyper::client::conn::http2::SendRequest<Outgoing>>>,
+	sender: tokio::sync::Mutex<Option<hyper::client::conn::http2::SendRequest<Outgoing>>>,
 	tls: bool,
 	user: Option<User>,
 }
@@ -112,7 +112,7 @@ type Outgoing = http_body_util::combinators::UnsyncBoxBody<
 impl Client {
 	fn new(addr: Addr, tls: bool, user: Option<User>) -> Self {
 		let file_descriptor_semaphore = tokio::sync::Semaphore::new(16);
-		let sender = tokio::sync::RwLock::new(None);
+		let sender = tokio::sync::Mutex::new(None);
 		let inner = Arc::new(Inner {
 			addr,
 			file_descriptor_semaphore,
@@ -123,17 +123,17 @@ impl Client {
 		Self { inner }
 	}
 
-	pub async fn disconnect(&self) -> Result<()> {
-		*self.inner.sender.write().await = None;
-		Ok(())
-	}
-
 	pub async fn connect(&self) -> Result<()> {
 		self.sender().await.map(|_| ())
 	}
 
+	pub async fn disconnect(&self) -> Result<()> {
+		self.inner.sender.lock().await.take();
+		Ok(())
+	}
+
 	async fn sender(&self) -> Result<hyper::client::conn::http2::SendRequest<Outgoing>> {
-		if let Some(sender) = self.inner.sender.read().await.as_ref().cloned() {
+		if let Some(sender) = self.inner.sender.lock().await.as_ref().cloned() {
 			if sender.is_ready() {
 				return Ok(sender);
 			}
@@ -149,11 +149,11 @@ impl Client {
 				self.connect_unix(path).await?;
 			},
 		}
-		Ok(self.inner.sender.read().await.as_ref().cloned().unwrap())
+		Ok(self.inner.sender.lock().await.as_ref().cloned().unwrap())
 	}
 
 	async fn connect_tcp(&self, inet: &Inet) -> Result<()> {
-		let mut sender_guard = self.inner.sender.write().await;
+		let mut sender_guard = self.inner.sender.lock().await;
 
 		// Connect via TCP.
 		let stream = TcpStream::connect(inet.to_string())
@@ -187,7 +187,7 @@ impl Client {
 	}
 
 	async fn connect_tcp_tls(&self, inet: &Inet) -> Result<()> {
-		let mut sender_guard = self.inner.sender.write().await;
+		let mut sender_guard = self.inner.sender.lock().await;
 
 		// Connect via TCP.
 		let stream = TcpStream::connect(inet.to_string())
@@ -230,7 +230,7 @@ impl Client {
 		let io = hyper_util::rt::TokioIo::new(stream);
 		let (mut sender, connection) = hyper::client::conn::http2::handshake(executor, io)
 			.await
-			.wrap_err("Failed to perform the HTTP handshake..")?;
+			.wrap_err("Failed to perform the HTTP handshake.")?;
 
 		// Spawn the connection.
 		tokio::spawn(async move {
@@ -252,7 +252,7 @@ impl Client {
 	}
 
 	async fn connect_unix(&self, path: &std::path::Path) -> Result<()> {
-		let mut sender_guard = self.inner.sender.write().await;
+		let mut sender_guard = self.inner.sender.lock().await;
 
 		// Connect via UNIX.
 		let stream = UnixStream::connect(path)

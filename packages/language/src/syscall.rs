@@ -1,10 +1,10 @@
 #![allow(clippy::needless_pass_by_value, clippy::unnecessary_wraps)]
 
-use crate::{error, Import, Inner, Module};
+use crate::{error, Import, Module, Server};
 use base64::Engine as _;
 use bytes::Bytes;
 use itertools::Itertools;
-use std::{collections::BTreeMap, sync::Arc};
+use std::collections::BTreeMap;
 use tangram_error::{Result, WrapErr};
 
 pub fn syscall<'s>(
@@ -54,23 +54,28 @@ pub fn syscall<'s>(
 
 fn syscall_documents(
 	_scope: &mut v8::HandleScope,
-	state: &Inner,
+	server: Server,
 	_args: (),
 ) -> Result<Vec<Module>> {
-	state.main_runtime_handle.clone().block_on(async move {
-		Ok(state
-			.document_store
-			.documents()
-			.await
-			.into_iter()
-			.map(Module::Document)
-			.collect())
-	})
+	server
+		.inner
+		.main_runtime_handle
+		.clone()
+		.block_on(async move {
+			Ok(server
+				.inner
+				.document_store
+				.documents()
+				.await
+				.into_iter()
+				.map(Module::Document)
+				.collect())
+		})
 }
 
 fn syscall_encoding_base64_decode(
 	_scope: &mut v8::HandleScope,
-	_state: &Inner,
+	_server: Server,
 	args: (String,),
 ) -> Result<Bytes> {
 	let (value,) = args;
@@ -82,7 +87,7 @@ fn syscall_encoding_base64_decode(
 
 fn syscall_encoding_base64_encode(
 	_scope: &mut v8::HandleScope,
-	_state: &Inner,
+	_server: Server,
 	args: (Bytes,),
 ) -> Result<String> {
 	let (value,) = args;
@@ -92,7 +97,7 @@ fn syscall_encoding_base64_encode(
 
 fn syscall_encoding_hex_decode(
 	_scope: &mut v8::HandleScope,
-	_state: &Inner,
+	_server: Server,
 	args: (String,),
 ) -> Result<Bytes> {
 	let (string,) = args;
@@ -102,7 +107,7 @@ fn syscall_encoding_hex_decode(
 
 fn syscall_encoding_hex_encode(
 	_scope: &mut v8::HandleScope,
-	_state: &Inner,
+	_server: Server,
 	args: (Bytes,),
 ) -> Result<String> {
 	let (bytes,) = args;
@@ -112,7 +117,7 @@ fn syscall_encoding_hex_encode(
 
 fn syscall_encoding_json_decode(
 	_scope: &mut v8::HandleScope,
-	_state: &Inner,
+	_server: Server,
 	args: (String,),
 ) -> Result<serde_json::Value> {
 	let (json,) = args;
@@ -122,7 +127,7 @@ fn syscall_encoding_json_decode(
 
 fn syscall_encoding_json_encode(
 	_scope: &mut v8::HandleScope,
-	_state: &Inner,
+	_server: Server,
 	args: (serde_json::Value,),
 ) -> Result<String> {
 	let (value,) = args;
@@ -132,7 +137,7 @@ fn syscall_encoding_json_encode(
 
 fn syscall_encoding_toml_decode(
 	_scope: &mut v8::HandleScope,
-	_state: &Inner,
+	_server: Server,
 	args: (String,),
 ) -> Result<toml::Value> {
 	let (toml,) = args;
@@ -142,7 +147,7 @@ fn syscall_encoding_toml_decode(
 
 fn syscall_encoding_toml_encode(
 	_scope: &mut v8::HandleScope,
-	_state: &Inner,
+	_server: Server,
 	args: (toml::Value,),
 ) -> Result<String> {
 	let (value,) = args;
@@ -152,7 +157,7 @@ fn syscall_encoding_toml_encode(
 
 fn syscall_encoding_utf8_decode(
 	_scope: &mut v8::HandleScope,
-	_state: &Inner,
+	_server: Server,
 	args: (Bytes,),
 ) -> Result<String> {
 	let (bytes,) = args;
@@ -163,7 +168,7 @@ fn syscall_encoding_utf8_decode(
 
 fn syscall_encoding_utf8_encode(
 	_scope: &mut v8::HandleScope,
-	_state: &Inner,
+	_server: Server,
 	args: (String,),
 ) -> Result<Bytes> {
 	let (string,) = args;
@@ -173,7 +178,7 @@ fn syscall_encoding_utf8_encode(
 
 fn syscall_encoding_yaml_decode(
 	_scope: &mut v8::HandleScope,
-	_state: &Inner,
+	_server: Server,
 	args: (String,),
 ) -> Result<serde_yaml::Value> {
 	let (yaml,) = args;
@@ -183,7 +188,7 @@ fn syscall_encoding_yaml_decode(
 
 fn syscall_encoding_yaml_encode(
 	_scope: &mut v8::HandleScope,
-	_state: &Inner,
+	_server: Server,
 	args: (serde_yaml::Value,),
 ) -> Result<String> {
 	let (value,) = args;
@@ -191,7 +196,7 @@ fn syscall_encoding_yaml_encode(
 	Ok(yaml)
 }
 
-fn syscall_log(_scope: &mut v8::HandleScope, _state: &Inner, args: (String,)) -> Result<()> {
+fn syscall_log(_scope: &mut v8::HandleScope, _server: Server, args: (String,)) -> Result<()> {
 	let (string,) = args;
 	tracing::debug!("{string}");
 	Ok(())
@@ -199,52 +204,64 @@ fn syscall_log(_scope: &mut v8::HandleScope, _state: &Inner, args: (String,)) ->
 
 fn syscall_module_load(
 	_scope: &mut v8::HandleScope,
-	state: &Inner,
+	server: Server,
 	args: (Module,),
 ) -> Result<String> {
 	let (module,) = args;
-	state.main_runtime_handle.clone().block_on(async move {
-		let tg = state.tg.as_ref();
-		let text = module
-			.load(tg, Some(&state.document_store))
-			.await
-			.wrap_err_with(|| format!(r#"Failed to load module "{module}"."#))?;
-		Ok(text)
-	})
+	server
+		.inner
+		.main_runtime_handle
+		.clone()
+		.block_on(async move {
+			let tg = server.inner.tg.as_ref();
+			let text = module
+				.load(tg, Some(&server.inner.document_store))
+				.await
+				.wrap_err_with(|| format!(r#"Failed to load module "{module}"."#))?;
+			Ok(text)
+		})
 }
 
 fn syscall_module_resolve(
 	_scope: &mut v8::HandleScope,
-	state: &Inner,
+	server: Server,
 	args: (Module, String, Option<BTreeMap<String, String>>),
 ) -> Result<Module> {
 	let (module, specifier, attributes) = args;
 	let import = Import::with_specifier_and_attributes(&specifier, attributes.as_ref())
 		.wrap_err("Failed to create the import.")?;
-	state.main_runtime_handle.clone().block_on(async move {
-		let tg = state.tg.as_ref();
-		let module = module
-			.resolve(tg, Some(&state.document_store), &import)
-			.await
-			.wrap_err_with(|| {
-				format!(
-					r#"Failed to resolve specifier "{specifier}" relative to module "{module}"."#
-				)
-			})?;
-		Ok(module)
-	})
+	server
+		.inner
+		.main_runtime_handle
+		.clone()
+		.block_on(async move {
+			let tg = server.inner.tg.as_ref();
+			let module = module
+				.resolve(tg, Some(&server.inner.document_store), &import)
+				.await
+				.wrap_err_with(|| {
+					format!(
+						r#"Failed to resolve specifier "{specifier}" relative to module "{module}"."#
+					)
+				})?;
+			Ok(module)
+		})
 }
 
 fn syscall_module_version(
 	_scope: &mut v8::HandleScope,
-	state: &Inner,
+	server: Server,
 	args: (Module,),
 ) -> Result<String> {
 	let (module,) = args;
-	state.main_runtime_handle.clone().block_on(async move {
-		let version = module.version(Some(&state.document_store)).await?;
-		Ok(version.to_string())
-	})
+	server
+		.inner
+		.main_runtime_handle
+		.clone()
+		.block_on(async move {
+			let version = module.version(Some(&server.inner.document_store)).await?;
+			Ok(version.to_string())
+		})
 }
 
 fn syscall_sync<'s, A, T, F>(
@@ -255,13 +272,13 @@ fn syscall_sync<'s, A, T, F>(
 where
 	A: serde::de::DeserializeOwned,
 	T: serde::Serialize,
-	F: FnOnce(&mut v8::HandleScope<'s>, &Inner, A) -> Result<T>,
+	F: FnOnce(&mut v8::HandleScope<'s>, Server, A) -> Result<T>,
 {
 	// Get the context.
 	let context = scope.get_current_context();
 
-	// Get the state.
-	let state = context.get_slot::<Arc<Inner>>(scope).unwrap().clone();
+	// Get the server.
+	let server = context.get_slot::<Server>(scope).unwrap().clone();
 
 	// Collect the args.
 	let args = (1..args.length()).map(|i| args.get(i)).collect_vec();
@@ -271,7 +288,7 @@ where
 	let args = serde_v8::from_v8(scope, args.into()).wrap_err("Failed to deserialize the args.")?;
 
 	// Call the function.
-	let value = f(scope, &state, args)?;
+	let value = f(scope, server, args)?;
 
 	// Serialize the value.
 	let value = serde_v8::to_v8(scope, &value).wrap_err("Failed to serialize the value.")?;

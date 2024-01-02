@@ -88,7 +88,7 @@ impl Server {
 				async move {
 					let builder =
 						hyper_util::server::conn::auto::Builder::new(TokioExecutor::new());
-					let connection = builder.serve_connection(stream, service);
+					let connection = builder.serve_connection_with_upgrades(stream, service);
 					tokio::pin!(connection);
 					let result = tokio::select! {
 						result = connection.as_mut() => {
