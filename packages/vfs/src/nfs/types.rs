@@ -715,6 +715,16 @@ pub struct LOOKUPP4res {
 	pub status: nfsstat4,
 }
 
+#[derive(Clone, Debug)]
+pub struct NVERIFY4args {
+	pub obj_attributes: fattr4,
+}
+
+#[derive(Clone, Debug)]
+pub struct NVERIFY4res {
+	pub status: nfsstat4,
+}
+
 pub const OPEN4_SHARE_ACCESS_READ: u32 = 0x0000_0001;
 pub const OPEN4_SHARE_ACCESS_WRITE: u32 = 0x0000_0002;
 pub const OPEN4_SHARE_ACCESS_BOTH: u32 = 0x0000_0003;
@@ -1211,7 +1221,7 @@ pub enum nfs_argop4 {
 	OP_LOOKUP(LOOKUP4args),
 	OP_LOOKUPP,
 	OP_OPEN(OPEN4args),
-	OP_NVERIFY,
+	OP_NVERIFY(NVERIFY4args),
 	OP_OPENATTR(OPENATTR4args),
 	OP_OPEN_CONFIRM(OPEN_CONFIRM4args),
 	OP_OPEN_DOWNGRADE,
@@ -1253,7 +1263,7 @@ pub enum nfs_resop4 {
 	OP_LOCKU(LOCKU4res),
 	OP_LOOKUP(LOOKUP4res),
 	OP_LOOKUPP(LOOKUPP4res),
-	OP_NVERIFY,
+	OP_NVERIFY(NVERIFY4res),
 	OP_OPEN(OPEN4res),
 	OP_OPENATTR(OPENATTR4res),
 	OP_OPEN_CONFIRM(OPEN_CONFIRM4res),
@@ -2060,6 +2070,22 @@ impl xdr::ToXdr for LOOKUP4res {
 	}
 }
 
+impl xdr::FromXdr for NVERIFY4args {
+	fn decode(decoder: &mut xdr::Decoder<'_>) -> Result<Self, xdr::Error> {
+		let obj_attributes = decoder.decode()?;
+		Ok(Self { obj_attributes })
+	}
+}
+
+impl xdr::ToXdr for NVERIFY4res {
+	fn encode<W>(&self, encoder: &mut xdr::Encoder<W>) -> Result<(), xdr::Error>
+	where
+		W: std::io::Write,
+	{
+		encoder.encode(&self.status)
+	}
+}
+
 impl xdr::ToXdr for LOOKUPP4res {
 	fn encode<W>(&self, encoder: &mut xdr::Encoder<W>) -> Result<(), xdr::Error>
 	where
@@ -2575,7 +2601,7 @@ impl xdr::FromXdr for nfs_argop4 {
 			nfs_opnum4::OP_RENAME => nfs_argop4::OP_RENAME,
 			nfs_opnum4::OP_LINK => nfs_argop4::OP_LINK,
 			nfs_opnum4::OP_LOOKUPP => nfs_argop4::OP_LOOKUPP,
-			nfs_opnum4::OP_NVERIFY => nfs_argop4::OP_NVERIFY,
+			nfs_opnum4::OP_NVERIFY => nfs_argop4::OP_NVERIFY(decoder.decode()?),
 			nfs_opnum4::OP_OPEN_DOWNGRADE => nfs_argop4::OP_OPEN_DOWNGRADE,
 			nfs_opnum4::OP_PUTPUBFH => nfs_argop4::OP_PUTPUBFH,
 			nfs_opnum4::OP_SETATTR => nfs_argop4::OP_SETATTR,
@@ -2663,9 +2689,9 @@ impl xdr::ToXdr for nfs_resop4 {
 				encoder.encode(&nfs_opnum4::OP_LOOKUPP)?;
 				encoder.encode(&res)?;
 			},
-			nfs_resop4::OP_NVERIFY => {
+			nfs_resop4::OP_NVERIFY(res) => {
 				encoder.encode(&nfs_opnum4::OP_NVERIFY)?;
-				encoder.encode(&nfsstat4::NFS4ERR_NOTSUPP)?;
+				encoder.encode(&res)?;
 			},
 			nfs_resop4::OP_OPEN(res) => {
 				encoder.encode(&nfs_opnum4::OP_OPEN)?;
@@ -2881,7 +2907,7 @@ impl nfs_resop4 {
 			nfs_resop4::OP_LOCKU(LOCKU4res::NFS4_OK(_)) => nfsstat4::NFS4_OK,
 			nfs_resop4::OP_LOOKUP(LOOKUP4res { status }) => *status,
 			nfs_resop4::OP_LOOKUPP(res) => res.status,
-			nfs_resop4::OP_NVERIFY => nfsstat4::NFS4ERR_NOTSUPP,
+			nfs_resop4::OP_NVERIFY(res) => res.status,
 			nfs_resop4::OP_OPEN_CONFIRM(OPEN_CONFIRM4res::Error(e)) => *e,
 			nfs_resop4::OP_OPEN_CONFIRM(OPEN_CONFIRM4res::NFS4_OK(_)) => nfsstat4::NFS4_OK,
 			nfs_resop4::OP_OPEN_DOWNGRADE => nfsstat4::NFS4ERR_NOTSUPP,
