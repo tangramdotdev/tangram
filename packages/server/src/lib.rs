@@ -295,6 +295,11 @@ impl Server {
 		// Stop the remote queue task.
 		self.inner.remote_queue_task_stop_sender.send_replace(true);
 
+		// Stop running builds.
+		for channels in self.inner.channels.read().unwrap().values() {
+			channels.stop.send_replace(true);
+		}
+
 		Ok(())
 	}
 
@@ -310,13 +315,13 @@ impl Server {
 			.unwrap()?;
 		}
 
-		// Join the build queue remote task.
-		let build_queue_remote_task = self.inner.remote_queue_task.lock().unwrap().take().unwrap();
-		build_queue_remote_task.await.unwrap()?;
+		// Join the local queue task.
+		let local_queue_task = self.inner.local_queue_task.lock().unwrap().take().unwrap();
+		local_queue_task.await.unwrap()?;
 
-		// Join the build queue task.
-		let build_queue_task = self.inner.local_queue_task.lock().unwrap().take().unwrap();
-		build_queue_task.await.unwrap()?;
+		// Join the remote queue task.
+		let remote_queue_task = self.inner.remote_queue_task.lock().unwrap().take().unwrap();
+		remote_queue_task.await.unwrap()?;
 
 		// Join the vfs.
 		let vfs = self.inner.vfs.lock().unwrap().clone();
@@ -332,7 +337,7 @@ impl Server {
 	}
 
 	#[allow(clippy::unused_async)]
-	async fn status(&self) -> Result<tg::health::Health> {
+	async fn health(&self) -> Result<tg::health::Health> {
 		Ok(tg::health::Health {
 			version: self.inner.version.clone(),
 		})
@@ -370,7 +375,7 @@ impl tg::Handle for Server {
 	}
 
 	async fn health(&self) -> Result<tg::health::Health> {
-		self.status().await
+		self.health().await
 	}
 
 	async fn stop(&self) -> Result<()> {
@@ -456,7 +461,7 @@ impl tg::Handle for Server {
 		&self,
 		id: &tg::build::Id,
 	) -> Result<Option<BoxStream<'static, Result<tg::build::Id>>>> {
-		self.try_get_build_children(id).await
+		self.try_get_build_children(id, None).await
 	}
 
 	async fn add_build_child(
@@ -488,7 +493,7 @@ impl tg::Handle for Server {
 		&self,
 		id: &tg::build::Id,
 	) -> Result<Option<tg::build::Outcome>> {
-		self.try_get_build_outcome(id).await
+		self.try_get_build_outcome(id, None).await
 	}
 
 	async fn finish_build(

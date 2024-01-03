@@ -10,7 +10,6 @@ use itertools::Itertools;
 use std::{collections::BTreeMap, convert::Infallible};
 use tangram_client as tg;
 use tangram_error::{return_error, Error, Result, WrapErr};
-use tg::Handle;
 use tokio::net::{TcpListener, UnixListener};
 use tokio_util::either::Either;
 
@@ -25,7 +24,7 @@ impl Server {
 	pub async fn serve(
 		self,
 		addr: tg::client::Addr,
-		mut stop_receiver: tokio::sync::watch::Receiver<bool>,
+		mut stop: tokio::sync::watch::Receiver<bool>,
 	) -> Result<()> {
 		// Create the tasks.
 		let mut tasks = tokio::task::JoinSet::new();
@@ -65,10 +64,9 @@ impl Server {
 				};
 				Ok::<_, Error>(TokioIo::new(stream))
 			};
-			let stop = stop_receiver.wait_for(|stop| *stop).map(|_| ());
 			let stream = tokio::select! {
 				stream = accept => stream?,
-				() = stop => {
+				() = stop.wait_for(|stop| *stop).map(|_| ()) => {
 					break
 				},
 			};
@@ -76,7 +74,9 @@ impl Server {
 			// Create the service.
 			let service = hyper::service::service_fn({
 				let server = self.clone();
-				move |request| {
+				let stop = stop.clone();
+				move |mut request| {
+					request.extensions_mut().insert(stop.clone());
 					let server = server.clone();
 					async move { Ok::<_, Infallible>(server.handle_request(request).await) }
 				}
@@ -84,7 +84,7 @@ impl Server {
 
 			// Spawn a task to serve the connection.
 			tasks.spawn({
-				let mut stop_receiver = stop_receiver.clone();
+				let mut stop = stop.clone();
 				async move {
 					let builder =
 						hyper_util::server::conn::auto::Builder::new(TokioExecutor::new());
@@ -94,7 +94,7 @@ impl Server {
 						result = connection.as_mut() => {
 							Some(result)
 						},
-						() = stop_receiver.wait_for(|stop| *stop).map(|_| ()) => {
+						() = stop.wait_for(|stop| *stop).map(|_| ()) => {
 							connection.as_mut().graceful_shutdown();
 							None
 						}
@@ -293,8 +293,8 @@ impl Server {
 		&self,
 		_request: http::Request<Incoming>,
 	) -> Result<http::Response<Outgoing>> {
-		let status = self.status().await?;
-		let body = serde_json::to_vec(&status).unwrap();
+		let health = self.health().await?;
+		let body = serde_json::to_vec(&health).unwrap();
 		let response = http::Response::builder()
 			.status(http::StatusCode::OK)
 			.body(full(body))
@@ -494,7 +494,8 @@ impl Server {
 		let id = id.parse().wrap_err("Failed to parse the ID.")?;
 
 		// Attempt to get the children.
-		let Some(children) = self.try_get_build_children(&id).await? else {
+		let stop = request.extensions().get().cloned();
+		let Some(children) = self.try_get_build_children(&id, stop).await? else {
 			return Ok(not_found());
 		};
 
@@ -631,7 +632,8 @@ impl Server {
 		let id = id.parse().wrap_err("Failed to parse the ID.")?;
 
 		// Attempt to get the outcome.
-		let Some(outcome) = self.try_get_build_outcome(&id).await? else {
+		let stop = request.extensions().get().cloned();
+		let Some(outcome) = self.try_get_build_outcome(&id, stop).await? else {
 			return Ok(not_found());
 		};
 

@@ -84,7 +84,7 @@ impl<'a, T> Drop for Guard<'a, T> {
 	fn drop(&mut self) {
 		if let Some(object) = self.object.take() {
 			self.permit.take().unwrap().forget();
-			self.sender.send(object).unwrap();
+			self.sender.send(object).ok();
 		}
 	}
 }

@@ -3,6 +3,7 @@ use crate::{database::Json, params, Channels};
 use async_recursion::async_recursion;
 use bytes::Bytes;
 use futures::{
+	future,
 	stream::{self, BoxStream, FuturesUnordered},
 	FutureExt, StreamExt, TryStreamExt,
 };
@@ -12,6 +13,7 @@ use tangram_client as tg;
 use tangram_error::{return_error, Error, Result, WrapErr};
 use tg::Handle;
 use tokio_stream::wrappers::WatchStream;
+use tokio_util::either::Either;
 
 #[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
 struct Build {
@@ -236,8 +238,8 @@ impl Server {
 
 	pub(crate) async fn local_queue_task(
 		&self,
-		mut wake_receiver: tokio::sync::watch::Receiver<()>,
-		mut stop_receiver: tokio::sync::watch::Receiver<bool>,
+		mut wake: tokio::sync::watch::Receiver<()>,
+		mut stop: tokio::sync::watch::Receiver<bool>,
 	) -> Result<()> {
 		loop {
 			loop {
@@ -332,12 +334,12 @@ impl Server {
 			// Wait for a wake or stop signal.
 			tokio::select! {
 				// If a wake signal is received, the loop again.
-				_ = wake_receiver.changed() => {
+				_ = wake.changed() => {
 					continue;
 				}
 
 				// If a stop signal is received, then return.
-				() = stop_receiver.wait_for(|stop| *stop).map(|_| ()) => {
+				() = stop.wait_for(|stop| *stop).map(|_| ()) => {
 					return Ok(())
 				}
 			}
@@ -668,8 +670,9 @@ impl Server {
 	pub async fn try_get_build_children(
 		&self,
 		id: &tg::build::Id,
+		stop: Option<tokio::sync::watch::Receiver<bool>>,
 	) -> Result<Option<BoxStream<'static, Result<tg::build::Id>>>> {
-		if let Some(children) = self.try_get_build_children_local(id).await? {
+		if let Some(children) = self.try_get_build_children_local(id, stop).await? {
 			Ok(Some(children))
 		} else if let Some(children) = self.try_get_build_children_remote(id).await? {
 			Ok(Some(children))
@@ -681,11 +684,24 @@ impl Server {
 	async fn try_get_build_children_local(
 		&self,
 		id: &tg::build::Id,
+		stop: Option<tokio::sync::watch::Receiver<bool>>,
 	) -> Result<Option<BoxStream<'static, Result<tg::build::Id>>>> {
 		// Verify the build is local.
 		if !self.build_is_local(id).await? {
 			return Ok(None);
 		}
+
+		let channels = self.inner.channels.read().unwrap().get(id).cloned();
+		let children = channels.as_ref().map(|channels| {
+			WatchStream::new(channels.children.subscribe())
+				.fuse()
+				.boxed()
+		});
+		let outcome = channels.as_ref().map(|channels| {
+			WatchStream::new(channels.outcome.subscribe())
+				.fuse()
+				.boxed()
+		});
 
 		// Create the children stream.
 		struct State {
@@ -694,32 +710,31 @@ impl Server {
 			index: usize,
 			first: bool,
 			last: bool,
-			channel: Option<BoxStream<'static, ()>>,
+			children: Option<BoxStream<'static, ()>>,
+			outcome: Option<BoxStream<'static, ()>>,
+			stop: Option<tokio::sync::watch::Receiver<bool>>,
 		}
-		let channels = self.inner.channels.read().unwrap().get(id).cloned();
-		let channel = channels.as_ref().map(|channels| {
-			let children = WatchStream::new(channels.children.subscribe());
-			let outcome = WatchStream::new(channels.outcome.subscribe());
-			stream::select(children, outcome).boxed()
-		});
 		let state = State {
 			server: self.clone(),
 			id: id.clone(),
 			index: 0,
 			first: true,
 			last: false,
-			channel,
+			children,
+			outcome,
+			stop,
 		};
 		let children = stream::try_unfold(state, |mut state| async move {
 			if state.first {
 				state.first = false;
 			} else if !state.last {
-				state
-					.channel
-					.as_mut()
-					.wrap_err("Expected the channel to exist.")?
-					.next()
-					.await;
+				tokio::select! {
+					_ = state.children.as_mut().wrap_err("Expected the channel to exist.")?.next() => {}
+					_ = state.outcome.as_mut().wrap_err("Expected the channel to exist.")?.next() => {}
+					() = state.stop.as_mut().map(|stop| stop.wait_for(|stop| *stop).map(|_| ())).map_or_else(|| Either::Left(future::pending()), Either::Right) => {
+						return_error!("The server was stopped.");
+					}
+				}
 			} else {
 				return Ok(None);
 			}
@@ -932,8 +947,9 @@ impl Server {
 	pub async fn try_get_build_outcome(
 		&self,
 		id: &tg::build::Id,
+		stop: Option<tokio::sync::watch::Receiver<bool>>,
 	) -> Result<Option<tg::build::Outcome>> {
-		if let Some(outcome) = self.try_get_build_outcome_local(id).await? {
+		if let Some(outcome) = self.try_get_build_outcome_local(id, stop).await? {
 			Ok(Some(outcome))
 		} else if let Some(outcome) = self.try_get_build_outcome_remote(id).await? {
 			Ok(Some(outcome))
@@ -945,6 +961,7 @@ impl Server {
 	pub async fn try_get_build_outcome_local(
 		&self,
 		id: &tg::build::Id,
+		mut stop: Option<tokio::sync::watch::Receiver<bool>>,
 	) -> Result<Option<tg::build::Outcome>> {
 		// Verify the build is local.
 		if !self.build_is_local(id).await? {
@@ -953,20 +970,20 @@ impl Server {
 
 		// Get the outcome.
 		let channels = self.inner.channels.read().unwrap().get(id).cloned();
-		let mut channel = channels
+		let mut outcome = channels
 			.as_ref()
-			.map(|channels| channels.outcome.subscribe());
+			.map(|channels| WatchStream::new(channels.outcome.subscribe()));
 		let mut first = true;
 		loop {
 			if first {
 				first = false;
 			} else {
-				channel
-					.as_mut()
-					.wrap_err("Expected a channel.")?
-					.changed()
-					.await
-					.unwrap();
+				tokio::select! {
+					_ = outcome.as_mut().wrap_err("Expected the channel to exist.")?.next() => {}
+					() = stop.as_mut().map(|stop| stop.wait_for(|stop| *stop).map(|_| ())).map_or_else(|| Either::Left(future::pending()), Either::Right) => {
+						return_error!("The server was stopped.");
+					}
+				}
 			}
 			let db = self.inner.database.get().await?;
 			let statement = "

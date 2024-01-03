@@ -168,6 +168,7 @@ impl Tui {
 					// Render.
 					terminal.draw(|frame| app.render(frame.size(), frame.buffer_mut()))?;
 				}
+
 				Ok(terminal)
 			}
 		});
@@ -180,7 +181,6 @@ impl Tui {
 	}
 
 	pub fn stop(&self) {
-		// Set the stop flag.
 		let ordering = std::sync::atomic::Ordering::SeqCst;
 		self.stop.store(true, ordering);
 	}
