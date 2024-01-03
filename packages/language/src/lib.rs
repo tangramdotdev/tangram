@@ -141,13 +141,16 @@ impl Server {
 			workspaces,
 		});
 
+		// Create the server
+		let server = Self { inner };
+
 		// Spawn a thread to handle requests.
 		std::thread::spawn({
-			let inner = inner.clone();
-			move || run_request_handler(inner, request_receiver)
+			let server = server.clone();
+			move || run_request_handler(server, request_receiver)
 		});
 
-		Self { inner }
+		server
 	}
 
 	pub async fn request(&self, request: Request) -> Result<Response> {
@@ -529,7 +532,7 @@ where
 }
 
 /// Run the request handler.
-fn run_request_handler(inner: Arc<Inner>, mut request_receiver: RequestReceiver) {
+fn run_request_handler(server: Server, mut request_receiver: RequestReceiver) {
 	// Create the isolate.
 	let params = v8::CreateParams::default().snapshot_blob(SNAPSHOT);
 	let mut isolate = v8::Isolate::new(params);
@@ -539,8 +542,8 @@ fn run_request_handler(inner: Arc<Inner>, mut request_receiver: RequestReceiver)
 	let context = v8::Context::new(scope);
 	let scope = &mut v8::ContextScope::new(scope, context);
 
-	// Set the inner on the context.
-	context.set_slot(scope, inner);
+	// Set the server on the context.
+	context.set_slot(scope, server);
 
 	// Add the syscall function to the global.
 	let syscall_string =
