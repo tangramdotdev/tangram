@@ -426,10 +426,12 @@ impl tg::Handle for Server {
 		&self,
 		user: Option<&tg::User>,
 		id: &tg::target::Id,
+		parent: Option<tg::build::Id>,
 		depth: u64,
 		retry: tg::build::Retry,
 	) -> Result<tg::build::Id> {
-		self.get_or_create_build(user, id, depth, retry).await
+		self.get_or_create_build(user, id, parent, depth, retry)
+			.await
 	}
 
 	async fn try_get_queue_item(

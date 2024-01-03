@@ -257,12 +257,14 @@ impl Target {
 		&self,
 		tg: &dyn Handle,
 		user: Option<&User>,
+		parent: Option<Build>,
 		depth: u64,
 		retry: build::Retry,
 	) -> Result<Build> {
 		let target_id = self.id(tg).await?;
+		let parent = parent.map(|parent| parent.id().clone());
 		let build_id = tg
-			.get_or_create_build(user, target_id, depth, retry)
+			.get_or_create_build(user, target_id, parent, depth, retry)
 			.await?;
 		let build = Build::with_id(build_id);
 		Ok(build)

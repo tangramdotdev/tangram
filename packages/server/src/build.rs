@@ -104,6 +104,7 @@ impl Server {
 		&self,
 		user: Option<&tg::User>,
 		target_id: &tg::target::Id,
+		parent: Option<tg::build::Id>,
 		depth: u64,
 		retry: tg::build::Retry,
 	) -> Result<tg::build::Id> {
@@ -137,7 +138,7 @@ impl Server {
 				let result = object.push(self, remote.as_ref()).await;
 				if result.is_ok() {
 					if let Ok(build_id) = remote
-						.get_or_create_build(user, target_id, depth, retry)
+						.get_or_create_build(user, target_id, parent.clone(), depth, retry)
 						.await
 					{
 						return Ok(build_id);
@@ -232,6 +233,11 @@ impl Server {
 
 		// Send a message to the build queue task that the item has been added.
 		self.inner.local_queue_task_wake_sender.send_replace(());
+
+		// Add the build to the parent.
+		if let Some(parent) = parent {
+			self.add_build_child(user, &parent, &build_id).await?;
+		}
 
 		Ok(build_id)
 	}

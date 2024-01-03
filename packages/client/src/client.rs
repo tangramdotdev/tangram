@@ -97,6 +97,8 @@ pub struct GetBuildQueueItemSearchParams {
 #[derive(Default, serde::Deserialize, serde::Serialize)]
 pub struct GetOrCreateBuildForTargetSearchParams {
 	#[serde(default)]
+	pub parent: Option<build::Id>,
+	#[serde(default)]
 	pub depth: u64,
 	#[serde(default)]
 	pub retry: build::Retry,
@@ -498,10 +500,15 @@ impl Handle for Client {
 		&self,
 		user: Option<&User>,
 		id: &target::Id,
+		parent: Option<build::Id>,
 		depth: u64,
 		retry: build::Retry,
 	) -> Result<build::Id> {
-		let search_params = GetOrCreateBuildForTargetSearchParams { depth, retry };
+		let search_params = GetOrCreateBuildForTargetSearchParams {
+			parent,
+			depth,
+			retry,
+		};
 		let search_params = serde_urlencoded::to_string(search_params)
 			.wrap_err("Failed to serialize the search params.")?;
 		let uri = format!("/v1/targets/{id}/build?{search_params}");

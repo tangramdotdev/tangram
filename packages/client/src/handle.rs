@@ -46,6 +46,7 @@ pub trait Handle: Send + Sync + 'static {
 		&self,
 		user: Option<&User>,
 		target_id: &target::Id,
+		parent: Option<build::Id>,
 		depth: u64,
 		retry: build::Retry,
 	) -> Result<build::Id>;

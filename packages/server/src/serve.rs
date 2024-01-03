@@ -387,6 +387,7 @@ impl Server {
 		};
 		let search_params: tg::client::GetOrCreateBuildForTargetSearchParams =
 			serde_urlencoded::from_str(query).wrap_err("Failed to parse the search params.")?;
+		let parent = search_params.parent;
 		let depth = search_params.depth;
 		let retry = search_params.retry;
 
@@ -395,7 +396,7 @@ impl Server {
 
 		// Get or create the build.
 		let build_id = self
-			.get_or_create_build(user.as_ref(), &id, depth, retry)
+			.get_or_create_build(user.as_ref(), &id, parent, depth, retry)
 			.await?;
 
 		// Create the response.
