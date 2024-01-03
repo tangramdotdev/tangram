@@ -11,6 +11,8 @@ impl Database {
 		let n = std::thread::available_parallelism().unwrap().get();
 		for _ in 0..n {
 			let db = rusqlite::Connection::open(path).wrap_err("Failed to open the database.")?;
+			db.pragma_update(None, "busy_timeout", "100")
+				.wrap_err("Failed to set the busy timeout.")?;
 			pool.put(db).await;
 		}
 		Ok(Database { pool })

@@ -853,10 +853,10 @@ impl Server {
 		{
 			let db = self.inner.database.get().await?;
 			let statement = "
-					update builds
-					set json = json_set(json, '$.children[#]', ?1)
-					where id = ?2;
-				";
+				update builds
+				set json = json_set(json, '$.children[#]', ?1)
+				where id = ?2;
+			";
 			let mut statement = db
 				.prepare_cached(statement)
 				.wrap_err("Failed to prepare the query.")?;
