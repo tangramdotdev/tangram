@@ -482,7 +482,7 @@ mod tests {
 	#[test]
 	fn test_escape_string() {
 		assert_eq!(escape(r#"quote ""#), r#""quote \"""#);
-		assert_eq!(escape("backslash \""), r#""backslash \\""#);
+		assert_eq!(escape("backslash \\"), r#""backslash \\""#);
 		assert_eq!(escape("newline \n"), r#""newline \n""#);
 		assert_eq!(escape("tab \t"), r#""tab \t""#);
 		assert_eq!(escape("return \r"), r#""return \r""#);

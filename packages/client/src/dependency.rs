@@ -16,15 +16,19 @@ use tangram_error::WrapErr;
 )]
 pub struct Dependency {
 	/// The package's ID.
+	#[serde(skip_serializing_if = "Option::is_none")]
 	pub id: Option<directory::Id>,
 
 	/// The name of the package.
+	#[serde(skip_serializing_if = "Option::is_none")]
 	pub name: Option<String>,
 
 	/// The package's path.
+	#[serde(skip_serializing_if = "Option::is_none")]
 	pub path: Option<crate::Path>,
 
 	/// The package's version.
+	#[serde(skip_serializing_if = "Option::is_none")]
 	pub version: Option<String>,
 }
 
@@ -80,27 +84,28 @@ impl Dependency {
 
 impl std::fmt::Display for Dependency {
 	fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-		let mut dependency = self.clone();
-		if let Some(id) = dependency.id.take() {
-			write!(f, "{id}")?;
-		} else if let Some(name) = dependency.name.take() {
-			write!(f, "{name}")?;
-			if let Some(version) = dependency.version.take() {
-				write!(f, "@{version}")?;
-			}
-		} else if let Some(path) = dependency.path.take() {
-			if path
-				.components()
-				.first()
-				.map_or(false, |component| component.try_unwrap_normal_ref().is_ok())
-			{
-				write!(f, "./")?;
-			}
-			write!(f, "{path}")?;
-		}
-		let query = serde_urlencoded::to_string(self).unwrap();
-		if !query.is_empty() {
-			write!(f, "?{query}")?;
+		match (&self.id, &self.name, &self.version, &self.path) {
+			(Some(id), None, None, None) => {
+				write!(f, "{id}")?;
+			},
+			(None, Some(name), None, None) => write!(f, "{name}")?,
+			(None, Some(name), Some(version), None) => {
+				write!(f, "{name}@{version}")?;
+			},
+			(None, None, None, Some(path)) => {
+				if path
+					.components()
+					.first()
+					.map_or(false, |component| component.try_unwrap_normal_ref().is_ok())
+				{
+					write!(f, "./")?;
+				}
+				write!(f, "{path}")?;
+			},
+			_ => {
+				let json = serde_json::to_string(self).unwrap();
+				write!(f, "{json}")?;
+			},
 		}
 		Ok(())
 	}
@@ -109,60 +114,30 @@ impl std::fmt::Display for Dependency {
 impl std::str::FromStr for Dependency {
 	type Err = Error;
 
-	fn from_str(value: &str) -> Result<Dependency> {
-		let mut dependency = Dependency::default();
-
-		// Split the string.
-		let split = value.split_once('?');
-		let path = match split {
-			Some((path, _)) if !path.is_empty() => Some(path),
-			Some(_) => None,
-			None => (!value.is_empty()).then_some(value),
-		};
-		let query = match split {
-			Some((_, query)) if !query.is_empty() => Some(query),
-			_ => None,
-		};
-
-		// Parse the path.
-		if let Some(path) = path {
-			if let Ok(id) = path.parse() {
-				dependency.id = Some(id);
-			} else if path.starts_with('/') || path.starts_with('.') {
-				dependency.path = Some(path.parse()?);
-			} else {
-				let split = path.split_once('@');
-				let name = match split {
-					Some((name, _)) if !name.is_empty() => Some(name),
-					Some(_) => None,
-					None => (!path.is_empty()).then_some(path),
-				};
-				if let Some(name) = name {
-					dependency.name = Some(name.to_owned());
-				}
-				let version = match split {
-					Some((_, version)) if !version.is_empty() => Some(version),
-					_ => None,
-				};
-				if let Some(version) = version {
-					dependency.version = Some(version.to_owned());
-				}
-			}
-		}
-
-		// Deserialize the query.
-		let query = if let Some(query) = query {
-			Some(serde_urlencoded::from_str(query).wrap_err("Failed to deserialize the query.")?)
+	fn from_str(value: &str) -> Result<Self, Self::Err> {
+		if value.starts_with('{') {
+			serde_json::from_str(value).wrap_err("Failed to deserialize the dependency.")
+		} else if let Ok(id) = value.parse() {
+			Ok(Self {
+				id: Some(id),
+				..Default::default()
+			})
+		} else if value.starts_with('/') || value.starts_with('.') {
+			Ok(Self {
+				path: Some(value.parse()?),
+				..Default::default()
+			})
 		} else {
-			None
-		};
-
-		// Merge with the query.
-		if let Some(query) = query {
-			dependency.merge(query);
+			let (name, version) = match value.split_once('@') {
+				None => (Some(value.to_owned()), None),
+				Some((name, version)) => (Some(name.to_owned()), Some(version.to_owned())),
+			};
+			Ok(Self {
+				name,
+				version,
+				..Default::default()
+			})
 		}
-
-		Ok(dependency)
 	}
 }
 
@@ -210,7 +185,7 @@ mod tests {
 			path: Some("path/to/foo".parse().unwrap()),
 			version: Some("1.2.3".into()),
 		};
-		let right = "foo@1.2.3?path=path%2Fto%2Ffoo";
+		let right = r#"{"name":"foo","path":"path/to/foo","version":"1.2.3"}"#;
 		assert_eq!(left.to_string(), right);
 
 		let left = Dependency {
@@ -243,7 +218,9 @@ mod tests {
 		};
 		assert_eq!(left, right);
 
-		let left: Dependency = "foo@1.2.3?path=path%2Fto%2Ffoo".parse().unwrap();
+		let left: Dependency = r#"{"name":"foo","path":"path/to/foo","version":"1.2.3"}"#
+			.parse()
+			.unwrap();
 		let right = Dependency {
 			id: None,
 			name: Some("foo".into()),
@@ -256,12 +233,12 @@ mod tests {
 		let right = Dependency {
 			id: None,
 			name: None,
-			path: Some("path/to/foo".parse().unwrap()),
+			path: Some("./path/to/foo".parse().unwrap()),
 			version: None,
 		};
 		assert_eq!(left, right);
 
-		let left: Dependency = "?path=path%2Fto%2Ffoo".parse().unwrap();
+		let left: Dependency = r#"{"path":"path/to/foo"}"#.parse().unwrap();
 		let right = Dependency {
 			id: None,
 			name: None,

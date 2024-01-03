@@ -30,6 +30,9 @@ serve_dev:
 serve_release:
 	cargo run --release -- server run
 
+test:
+	cargo test --workspace
+
 tg +ARGS:
 	cargo run -- {{ARGS}}
 
