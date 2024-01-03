@@ -68,10 +68,13 @@ impl Path {
 			self.components.clear();
 		}
 
-		// Add the component.
-		if !self.components.is_empty() {
-			self.string.push('/');
+		// Add the separator.
+		match self.components.last() {
+			Some(Component::Root) | None => (),
+			Some(_) => self.string.push('/'),
 		}
+
+		// Add the component.
 		match &component {
 			Component::Root => self.string.push('/'),
 			Component::Current => self.string.push('.'),
@@ -90,8 +93,9 @@ impl Path {
 			None => 0,
 		};
 		self.string.truncate(self.string.len() - n);
-		if !self.components.is_empty() {
-			self.string.truncate(self.string.len() - 1);
+		match self.components().last() {
+			None | Some(Component::Root) => (),
+			Some(_) => self.string.truncate(self.string.len() - 1),
 		}
 	}
 
@@ -112,12 +116,10 @@ impl Path {
 	pub fn normalize(self) -> Self {
 		let mut path = Self::default();
 		for component in self.into_components() {
-			if component == Component::Parent
-				&& matches!(path.components().last(), Some(Component::Normal(_)))
-			{
-				path.pop();
-			} else {
-				path.push(component);
+			match (component, path.components().last()) {
+				(Component::Parent, Some(Component::Normal(_))) => path.pop(),
+				(Component::Parent, Some(Component::Root)) => (),
+				(component, _) => path.push(component),
 			}
 		}
 		path
@@ -215,8 +217,39 @@ impl TryFrom<PathBuf> for Path {
 	}
 }
 
+impl<'a> TryFrom<&'a std::path::Path> for Path {
+	type Error = Error;
+
+	fn try_from(value: &'a std::path::Path) -> std::prelude::v1::Result<Self, Self::Error> {
+		value
+			.as_os_str()
+			.to_str()
+			.wrap_err("The path must be valid UTF-8.")?
+			.parse()
+	}
+}
+
 impl AsRef<std::path::Path> for Path {
 	fn as_ref(&self) -> &std::path::Path {
 		std::path::Path::new(self.string.as_str())
+	}
+}
+
+#[cfg(test)]
+mod tests {
+	use super::Path;
+	#[test]
+	fn path_normalization() {
+		let path: Path = "/foo/../bar/baz".parse().unwrap();
+		assert_eq!(path.normalize().to_string(), "/bar/baz");
+
+		let path: Path = "/../bar/baz".parse().unwrap();
+		assert_eq!(path.normalize().to_string(), "/bar/baz");
+
+		let path: Path = "../bar/baz".parse().unwrap();
+		assert_eq!(path.normalize().to_string(), "../bar/baz");
+
+		let path: Path = "./bar/baz".parse().unwrap();
+		assert_eq!(path.normalize().to_string(), "./bar/baz");
 	}
 }
