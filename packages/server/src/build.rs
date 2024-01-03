@@ -10,7 +10,7 @@ use futures::{
 use num::ToPrimitive;
 use std::sync::Arc;
 use tangram_client as tg;
-use tangram_error::{return_error, Error, Result, WrapErr};
+use tangram_error::{error, return_error, Error, Result, WrapErr};
 use tg::Handle;
 use tokio_stream::wrappers::WatchStream;
 use tokio_util::either::Either;
@@ -522,22 +522,12 @@ impl Server {
 		Ok(())
 	}
 
+	#[allow(clippy::unused_async)]
 	pub async fn try_get_queue_item(
 		&self,
-		user: Option<&tg::User>,
-		hosts: Option<Vec<tg::System>>,
+		_user: Option<&tg::User>,
+		_hosts: Option<Vec<tg::System>>,
 	) -> Result<Option<tg::build::queue::Item>> {
-		// Attempt to get a build from the remote server's queue.
-		'a: {
-			let Some(remote) = self.inner.remote.as_ref() else {
-				break 'a;
-			};
-			let Some(item) = remote.try_get_queue_item(user, hosts).await? else {
-				break 'a;
-			};
-			return Ok(Some(item));
-		}
-
 		Ok(None)
 	}
 
@@ -600,77 +590,98 @@ impl Server {
 		id: &tg::build::Id,
 		status: tg::build::Status,
 	) -> Result<()> {
-		// Attempt to set the status of a local build.
-		'a: {
-			let db = self.inner.database.get().await?;
-			let statement = "
-				update builds
-				set json = json_set(json, '$.status', 'running')
-				where id = ?1;
-			";
-			let params = params![id.to_string()];
-			let mut statement = db
-				.prepare_cached(statement)
-				.wrap_err("Failed to prepare the query.")?;
-			let n = statement
-				.execute(params)
-				.wrap_err("Failed to execute the query.")?;
-			if n == 0 {
-				break 'a;
-			}
+		if self.try_set_build_status_local(user, id, status).await? {
 			return Ok(());
 		}
-
-		// Attempt to set the status of a remote build.
-		'a: {
-			let Some(remote) = self.inner.remote.as_ref() else {
-				break 'a;
-			};
-			remote.set_build_status(user, id, status).await?;
+		if self.try_set_build_status_remote(user, id, status).await? {
 			return Ok(());
 		}
+		Err(error!("Failed to find the build."))
+	}
 
-		return_error!("Failed to find the build.");
+	async fn try_set_build_status_local(
+		&self,
+		_user: Option<&tg::User>,
+		id: &tg::build::Id,
+		status: tg::build::Status,
+	) -> Result<bool> {
+		let db = self.inner.database.get().await?;
+		let statement = "
+			update builds
+			set json = json_set(json, '$.status', ?1)
+			where id = ?2;
+		";
+		let params = params![status.to_string(), id.to_string()];
+		let mut statement = db
+			.prepare_cached(statement)
+			.wrap_err("Failed to prepare the query.")?;
+		let n = statement
+			.execute(params)
+			.wrap_err("Failed to execute the query.")?;
+		Ok(n > 0)
+	}
+
+	async fn try_set_build_status_remote(
+		&self,
+		user: Option<&tg::User>,
+		id: &tg::build::Id,
+		status: tg::build::Status,
+	) -> Result<bool> {
+		let Some(remote) = self.inner.remote.as_ref() else {
+			return Ok(false);
+		};
+		remote.set_build_status(user, id, status).await?;
+		Ok(true)
 	}
 
 	pub async fn try_get_build_target(&self, id: &tg::build::Id) -> Result<Option<tg::target::Id>> {
-		// Attempt to get the target from the database.
-		'a: {
-			let db = self.inner.database.get().await?;
-			let statement = "
-				select json->>'target' as target
-				from builds
-				where id = ?1;
-			";
-			let params = params![id.to_string()];
-			let mut statement = db
-				.prepare_cached(statement)
-				.wrap_err("Failed to prepare the query.")?;
-			let mut rows = statement
-				.query(params)
-				.wrap_err("Failed to execute the query.")?;
-			let Some(row) = rows.next().wrap_err("Failed to get the row.")? else {
-				break 'a;
-			};
-			let target_id = row
-				.get::<_, String>(0)
-				.wrap_err("Failed to deserialize the column.")?
-				.parse()?;
-			return Ok(Some(target_id));
+		if let Some(target) = self.try_get_build_target_local(id).await? {
+			Ok(Some(target))
+		} else if let Some(target) = self.try_get_build_target_remote(id).await? {
+			Ok(Some(target))
+		} else {
+			Ok(None)
 		}
+	}
 
-		// Attempt to get the target from the remote server.
-		'a: {
-			let Some(remote) = self.inner.remote.as_ref() else {
-				break 'a;
-			};
-			let Some(target_id) = remote.try_get_build_target(id).await? else {
-				break 'a;
-			};
-			return Ok(Some(target_id));
-		}
+	async fn try_get_build_target_local(
+		&self,
+		id: &tg::build::Id,
+	) -> Result<Option<tg::target::Id>> {
+		let db = self.inner.database.get().await?;
+		let statement = "
+			select json->>'target' as target
+			from builds
+			where id = ?1;
+		";
+		let params = params![id.to_string()];
+		let mut statement = db
+			.prepare_cached(statement)
+			.wrap_err("Failed to prepare the query.")?;
+		let mut rows = statement
+			.query(params)
+			.wrap_err("Failed to execute the query.")?;
+		let Some(row) = rows.next().wrap_err("Failed to get the row.")? else {
+			return Ok(None);
+		};
+		let target_id = row
+			.get::<_, String>(0)
+			.wrap_err("Failed to deserialize the column.")?
+			.parse()?;
+		Ok(Some(target_id))
+	}
 
-		Ok(None)
+	async fn try_get_build_target_remote(
+		&self,
+		id: &tg::build::Id,
+	) -> Result<Option<tg::target::Id>> {
+		let Some(remote) = self.inner.remote.as_ref() else {
+			return Ok(None);
+		};
+		let Some(target_id) = remote.try_get_build_target(id).await? else {
+			return Ok(None);
+		};
+		Ok(Some(target_id))
 	}
 
 	pub async fn try_get_build_children(
@@ -815,75 +826,102 @@ impl Server {
 		build_id: &tg::build::Id,
 		child_id: &tg::build::Id,
 	) -> Result<()> {
-		// Attempt to add the child to a local build.
-		'a: {
-			// Verify the build is local.
-			if !self.build_is_local(build_id).await? {
-				break 'a;
-			}
+		if self.add_build_child_local(user, build_id, child_id).await? {
+			return Ok(());
+		}
+		if self
+			.add_build_child_remote(user, build_id, child_id)
+			.await?
+		{
+			return Ok(());
+		}
+		Err(error!("Failed to find the build."))
+	}
 
-			// Add the child to the build in the database.
-			{
-				let db = self.inner.database.get().await?;
-				let statement = "
+	async fn add_build_child_local(
+		&self,
+		_user: Option<&tg::User>,
+		build_id: &tg::build::Id,
+		child_id: &tg::build::Id,
+	) -> Result<bool> {
+		// Verify the build is local.
+		if !self.build_is_local(build_id).await? {
+			return Ok(false);
+		}
+
+		// Add the child to the build in the database.
+		{
+			let db = self.inner.database.get().await?;
+			let statement = "
 					update builds
 					set json = json_set(json, '$.children[#]', ?1)
 					where id = ?2;
 				";
-				let mut statement = db
-					.prepare_cached(statement)
-					.wrap_err("Failed to prepare the query.")?;
-				statement
-					.execute([child_id.to_string(), build_id.to_string()])
-					.wrap_err("Failed to execute the query.")?;
-			}
-
-			// Notify subscribers that a child has been added.
-			if let Some(channels) = self.inner.channels.read().unwrap().get(build_id).cloned() {
-				channels.children.send_replace(());
-			}
-
-			return Ok(());
+			let mut statement = db
+				.prepare_cached(statement)
+				.wrap_err("Failed to prepare the query.")?;
+			statement
+				.execute([child_id.to_string(), build_id.to_string()])
+				.wrap_err("Failed to execute the query.")?;
 		}
 
-		// Attempt to add the child to a remote build.
-		'a: {
-			let Some(remote) = self.inner.remote.as_ref() else {
-				break 'a;
-			};
-			remote.add_build_child(user, build_id, child_id).await?;
-			return Ok(());
+		// Notify subscribers that a child has been added.
+		if let Some(channels) = self.inner.channels.read().unwrap().get(build_id).cloned() {
+			channels.children.send_replace(());
 		}
 
-		return_error!("Failed to find the build.");
+		Ok(true)
+	}
+
+	async fn add_build_child_remote(
+		&self,
+		user: Option<&tg::User>,
+		build_id: &tg::build::Id,
+		child_id: &tg::build::Id,
+	) -> Result<bool> {
+		let Some(remote) = self.inner.remote.as_ref() else {
+			return Ok(false);
+		};
+		remote.add_build_child(user, build_id, child_id).await?;
+		Ok(true)
 	}
 
 	pub async fn try_get_build_log(
 		&self,
 		id: &tg::build::Id,
 	) -> Result<Option<BoxStream<'static, Result<Bytes>>>> {
-		// Attempt to get the log from a local build.
-		'a: {
-			// Verify the build is local.
-			if !self.build_is_local(id).await? {
-				break 'a;
-			}
+		if let Some(log) = self.try_get_build_log_local(id).await? {
+			Ok(Some(log))
+		} else if let Some(log) = self.try_get_build_log_remote(id).await? {
+			Ok(Some(log))
+		} else {
+			Ok(None)
+		}
+	}
 
-			return Ok(Some(stream::empty().boxed()));
+	async fn try_get_build_log_local(
+		&self,
+		id: &tg::build::Id,
+	) -> Result<Option<BoxStream<'static, Result<Bytes>>>> {
+		// Verify the build is local.
+		if !self.build_is_local(id).await? {
+			return Ok(None);
 		}
 
-		// Attempt to get the log from the remote server.
-		'a: {
-			let Some(remote) = self.inner.remote.as_ref() else {
-				break 'a;
-			};
-			let Some(log) = remote.try_get_build_log(id).await? else {
-				break 'a;
-			};
-			return Ok(Some(log));
-		}
+		return Ok(Some(stream::empty().boxed()));
+	}
 
-		Ok(None)
+	async fn try_get_build_log_remote(
+		&self,
+		id: &tg::build::Id,
+	) -> Result<Option<BoxStream<'static, Result<Bytes>>>> {
+		let Some(remote) = self.inner.remote.as_ref() else {
+			return Ok(None);
+		};
+		let Some(log) = remote.try_get_build_log(id).await? else {
+			return Ok(None);
+		};
+		Ok(Some(log))
 	}
 
 	pub async fn add_build_log(
@@ -892,62 +930,76 @@ impl Server {
 		id: &tg::build::Id,
 		bytes: Bytes,
 	) -> Result<()> {
-		// Attempt to add the log to a local build.
-		'a: {
-			// Verify the build is local.
-			if !self.build_is_local(id).await? {
-				break 'a;
-			}
-
-			// Add the log to the database.
-			{
-				let db = self.inner.database.get().await?;
-				let statement = "
-					insert into logs (build, position, bytes)
-					values (
-						?1,
-						(
-							select coalesce(
-								(
-									select position + length(bytes)
-									from logs
-									where build = ?1
-									order by position desc
-									limit 1
-								), 
-								0
-							)
-						),
-						?2
-					);
-				";
-				let params = params![id.to_string(), bytes.to_vec()];
-				let mut statement = db
-					.prepare_cached(statement)
-					.wrap_err("Failed to prepare the query.")?;
-				statement
-					.execute(params)
-					.wrap_err("Failed to execute the query.")?;
-			}
-
-			// Notify subscribers that the log has been added to.
-			if let Some(channels) = self.inner.channels.read().unwrap().get(id).cloned() {
-				channels.log.send_replace(());
-			}
-
+		if self.add_build_log_local(user, id, bytes.clone()).await? {
 			return Ok(());
 		}
-
-		// Attempt to add the log to a remote build.
-		'a: {
-			let Some(remote) = self.inner.remote.as_ref() else {
-				break 'a;
-			};
-			remote.add_build_log(user, id, bytes).await?;
+		if self.add_build_log_remote(user, id, bytes.clone()).await? {
 			return Ok(());
 		}
+		Err(error!("Failed to find the build."))
+	}
 
-		return_error!("Failed to find the build.");
+	async fn add_build_log_local(
+		&self,
+		_user: Option<&tg::User>,
+		id: &tg::build::Id,
+		bytes: Bytes,
+	) -> Result<bool> {
+		// Verify the build is local.
+		if !self.build_is_local(id).await? {
+			return Ok(false);
+		}
+
+		// Add the log to the database.
+		{
+			let db = self.inner.database.get().await?;
+			let statement = "
+				insert into logs (build, position, bytes)
+				values (
+					?1,
+					(
+						select coalesce(
+							(
+								select position + length(bytes)
+								from logs
+								where build = ?1
+								order by position desc
+								limit 1
+							), 
+							0
+						)
+					),
+					?2
+				);
+			";
+			let params = params![id.to_string(), bytes.to_vec()];
+			let mut statement = db
+				.prepare_cached(statement)
+				.wrap_err("Failed to prepare the query.")?;
+			statement
+				.execute(params)
+				.wrap_err("Failed to execute the query.")?;
+		}
+
+		// Notify subscribers that the log has been added to.
+		if let Some(channels) = self.inner.channels.read().unwrap().get(id).cloned() {
+			channels.log.send_replace(());
+		}
+
+		Ok(true)
+	}
+
+	async fn add_build_log_remote(
+		&self,
+		user: Option<&tg::User>,
+		id: &tg::build::Id,
+		bytes: Bytes,
+	) -> Result<bool> {
+		let Some(remote) = self.inner.remote.as_ref() else {
+			return Ok(false);
+		};
+		remote.add_build_log(user, id, bytes).await?;
+		Ok(true)
 	}
 
 	pub async fn try_get_build_outcome(
@@ -964,7 +1016,7 @@ impl Server {
 		}
 	}
 
-	pub async fn try_get_build_outcome_local(
+	async fn try_get_build_outcome_local(
 		&self,
 		id: &tg::build::Id,
 		mut stop: Option<tokio::sync::watch::Receiver<bool>>,
@@ -1018,7 +1070,7 @@ impl Server {
 		}
 	}
 
-	pub async fn try_get_build_outcome_remote(
+	async fn try_get_build_outcome_remote(
 		&self,
 		id: &tg::build::Id,
 	) -> Result<Option<tg::build::Outcome>> {
@@ -1039,141 +1091,161 @@ impl Server {
 		id: &tg::build::Id,
 		outcome: tg::build::Outcome,
 	) -> Result<()> {
-		// Attempt to finish a local build.
-		'a: {
-			// Verify the build is local.
-			{
-				let db = self.inner.database.get().await?;
-				let statement = "
-					select count(*) != 0
-					from builds
-					where id = ?1;
-				";
-				let params = params![id.to_string()];
-				let mut statement = db
-					.prepare_cached(statement)
-					.wrap_err("Failed to prepare the query.")?;
-				let mut rows = statement
-					.query(params)
-					.wrap_err("Failed to execute the query.")?;
-				let row = rows
-					.next()
-					.wrap_err("Failed to get the row.")?
-					.wrap_err("Expected one row.")?;
-				let exists = row.get::<_, bool>(0).wrap_err("Expected a bool.")?;
-				if !exists {
-					break 'a;
-				}
-			}
+		if self
+			.try_finish_build_local(user, id, outcome.clone())
+			.await?
+		{
+			return Ok(());
+		}
+		if self
+			.try_finish_build_remote(user, id, outcome.clone())
+			.await?
+		{
+			return Ok(());
+		}
+		Err(error!("Failed to find the build."))
+	}
 
-			// Get the children.
-			let children: Vec<tg::build::Id> = {
-				let db = self.inner.database.get().await?;
-				let statement = "
-					select json_extract(json, '$.children')
-					from builds
-					where id = ?1;
-				";
-				let params = params![id.to_string()];
-				let mut statement = db
-					.prepare_cached(statement)
-					.wrap_err("Failed to prepare the query.")?;
-				let mut rows = statement
-					.query(params)
-					.wrap_err("Failed to execute the query.")?;
-				let Some(row) = rows.next().wrap_err("Failed to get the row.")? else {
-					break 'a;
-				};
-				row.get::<_, Json<_>>(0)
-					.wrap_err("Failed to deserialize the column.")?
-					.0
+	async fn try_finish_build_local(
+		&self,
+		user: Option<&tg::User>,
+		id: &tg::build::Id,
+		outcome: tg::build::Outcome,
+	) -> Result<bool> {
+		// Verify the build is local.
+		{
+			let db = self.inner.database.get().await?;
+			let statement = "
+				select count(*) != 0
+				from builds
+				where id = ?1;
+			";
+			let params = params![id.to_string()];
+			let mut statement = db
+				.prepare_cached(statement)
+				.wrap_err("Failed to prepare the query.")?;
+			let mut rows = statement
+				.query(params)
+				.wrap_err("Failed to execute the query.")?;
+			let row = rows
+				.next()
+				.wrap_err("Failed to get the row.")?
+				.wrap_err("Expected one row.")?;
+			let exists = row.get::<_, bool>(0).wrap_err("Expected a bool.")?;
+			if !exists {
+				return Ok(false);
+			}
+		}
+
+		// Get the children.
+		let children: Vec<tg::build::Id> = {
+			let db = self.inner.database.get().await?;
+			let statement = "
+				select json_extract(json, '$.children')
+				from builds
+				where id = ?1;
+			";
+			let params = params![id.to_string()];
+			let mut statement = db
+				.prepare_cached(statement)
+				.wrap_err("Failed to prepare the query.")?;
+			let mut rows = statement
+				.query(params)
+				.wrap_err("Failed to execute the query.")?;
+			let Some(row) = rows.next().wrap_err("Failed to get the row.")? else {
+				return Ok(false);
 			};
+			row.get::<_, Json<_>>(0)
+				.wrap_err("Failed to deserialize the column.")?
+				.0
+		};
 
-			// If this build was canceled, then cancel the children.
-			if matches!(outcome, tg::build::Outcome::Canceled) {
-				children
-					.iter()
-					.map(|child| async move {
-						self.finish_build(user, child, tg::build::Outcome::Canceled)
-							.await?;
-						Ok::<_, Error>(())
-					})
-					.collect::<FuturesUnordered<_>>()
-					.try_collect()
-					.await?;
-			}
-
-			// If any of the children were canceled, then this build should be canceled.
-			let outcome = if children
+		// If this build was canceled, then cancel the children.
+		if matches!(outcome, tg::build::Outcome::Canceled) {
+			children
 				.iter()
-				.map(|child_id| self.get_build_outcome(child_id))
+				.map(|child| async move {
+					self.finish_build(user, child, tg::build::Outcome::Canceled)
+						.await?;
+					Ok::<_, Error>(())
+				})
 				.collect::<FuturesUnordered<_>>()
-				.try_collect::<Vec<_>>()
-				.await?
-				.into_iter()
-				.any(|outcome| outcome.try_unwrap_canceled_ref().is_ok())
-			{
-				tg::build::Outcome::Canceled
-			} else {
-				outcome
-			};
-
-			// Update the database.
-			{
-				let status = tg::build::Status::Finished;
-				let outcome = outcome.data(self).await?;
-				let db = self.inner.database.get().await?;
-				let statement = "
-					update builds
-					set json = json_set(
-						json,
-						'$.status', ?1,
-						'$.outcome', json(?2)
-					)
-					where id = ?3;
-				";
-				let params = params![status.to_string(), Json(outcome), id.to_string()];
-				let mut statement = db
-					.prepare_cached(statement)
-					.wrap_err("Failed to prepare the query.")?;
-				statement
-					.execute(params)
-					.wrap_err("Failed to execute the query.")?;
-			}
-
-			// Notify subscribers that the outcome has been set.
-			if let Some(channels) = self.inner.channels.read().unwrap().get(id).cloned() {
-				channels.outcome.send_replace(());
-			}
-
-			// Remove the build's channels.
-			self.inner.channels.write().unwrap().remove(id);
-
-			return Ok(());
+				.try_collect()
+				.await?;
 		}
 
-		// Attempt to finish a remote build.
-		'a: {
-			// Get the remote handle.
-			let Some(remote) = self.inner.remote.as_ref() else {
-				break 'a;
-			};
+		// If any of the children were canceled, then this build should be canceled.
+		let outcome = if children
+			.iter()
+			.map(|child_id| self.get_build_outcome(child_id))
+			.collect::<FuturesUnordered<_>>()
+			.try_collect::<Vec<_>>()
+			.await?
+			.into_iter()
+			.any(|outcome| outcome.try_unwrap_canceled_ref().is_ok())
+		{
+			tg::build::Outcome::Canceled
+		} else {
+			outcome
+		};
 
-			// Push the outcome.
-			if let tg::build::Outcome::Succeeded(value) = &outcome {
-				value.push(self, remote.as_ref()).await?;
-			}
-
-			// Finish the build.
-			remote.finish_build(user, id, outcome).await?;
-
-			// Remove the build's task.
-			self.inner.tasks.write().unwrap().remove(id);
-
-			return Ok(());
+		// Update the database.
+		{
+			let status = tg::build::Status::Finished;
+			let outcome = outcome.data(self).await?;
+			let db = self.inner.database.get().await?;
+			let statement = "
+				update builds
+				set json = json_set(
+					json,
+					'$.status', ?1,
+					'$.outcome', json(?2)
+				)
+				where id = ?3;
+			";
+			let params = params![status.to_string(), Json(outcome), id.to_string()];
+			let mut statement = db
+				.prepare_cached(statement)
+				.wrap_err("Failed to prepare the query.")?;
+			statement
+				.execute(params)
+				.wrap_err("Failed to execute the query.")?;
 		}
 
-		return_error!("Failed to find the build.");
+		// Notify subscribers that the outcome has been set.
+		if let Some(channels) = self.inner.channels.read().unwrap().get(id).cloned() {
+			channels.outcome.send_replace(());
+		}
+
+		// Remove the build's channels.
+		self.inner.channels.write().unwrap().remove(id);
+
+		Ok(true)
+	}
+
+	async fn try_finish_build_remote(
+		&self,
+		user: Option<&tg::User>,
+		id: &tg::build::Id,
+		outcome: tg::build::Outcome,
+	) -> Result<bool> {
+		// Get the remote handle.
+		let Some(remote) = self.inner.remote.as_ref() else {
+			return Ok(false);
+		};
+
+		// Push the outcome.
+		if let tg::build::Outcome::Succeeded(value) = &outcome {
+			value.push(self, remote.as_ref()).await?;
+		}
+
+		// Finish the build.
+		remote.finish_build(user, id, outcome).await?;
+
+		// Remove the build's task.
+		self.inner.tasks.write().unwrap().remove(id);
+
+		Ok(true)
 	}
 
 	async fn build_is_local(&self, id: &tg::build::Id) -> Result<bool> {
