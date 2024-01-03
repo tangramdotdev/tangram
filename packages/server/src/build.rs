@@ -443,7 +443,13 @@ impl Server {
 		});
 
 		// Set the task for the build.
-		self.inner.tasks.write().unwrap().insert(id.clone(), task);
+		self.inner
+			.tasks
+			.lock()
+			.unwrap()
+			.as_mut()
+			.unwrap()
+			.insert(id.clone(), task);
 
 		Ok(())
 	}
@@ -499,7 +505,7 @@ impl Server {
 		// Create the outcome.
 		let outcome = match result {
 			Ok(Some(value)) => tg::build::Outcome::Succeeded(value),
-			Ok(None) => tg::build::Outcome::Canceled,
+			Ok(None) => tg::build::Outcome::Terminated,
 			Err(error) => tg::build::Outcome::Failed(error),
 		};
 
@@ -1243,7 +1249,13 @@ impl Server {
 		remote.finish_build(user, id, outcome).await?;
 
 		// Remove the build's task.
-		self.inner.tasks.write().unwrap().remove(id);
+		self.inner
+			.tasks
+			.lock()
+			.unwrap()
+			.as_mut()
+			.unwrap()
+			.remove(id);
 
 		Ok(true)
 	}

@@ -1,7 +1,10 @@
 use self::database::Database;
 use async_trait::async_trait;
 use bytes::Bytes;
-use futures::stream::BoxStream;
+use futures::{
+	stream::{BoxStream, FuturesUnordered},
+	TryStreamExt,
+};
 use std::{
 	collections::HashMap,
 	os::fd::AsRawFd,
@@ -43,8 +46,11 @@ struct Inner {
 	remote_queue_task: std::sync::Mutex<Option<tokio::task::JoinHandle<Result<()>>>>,
 	remote_queue_task_stop_sender: tokio::sync::watch::Sender<bool>,
 	semaphore: Arc<tokio::sync::Semaphore>,
-	tasks:
-		std::sync::RwLock<HashMap<tg::build::Id, tokio::task::JoinHandle<()>, fnv::FnvBuildHasher>>,
+	shutdown: tokio::sync::watch::Sender<bool>,
+	shutdown_task: std::sync::Mutex<Option<tokio::task::JoinHandle<Result<()>>>>,
+	tasks: std::sync::Mutex<
+		Option<HashMap<tg::build::Id, tokio::task::JoinHandle<()>, fnv::FnvBuildHasher>>,
+	>,
 	version: String,
 	vfs: std::sync::Mutex<Option<tangram_vfs::Server>>,
 }
@@ -117,32 +123,6 @@ impl Server {
 		// Create the channels.
 		let channels = std::sync::RwLock::new(HashMap::default());
 
-		// Create the local queue task.
-		let local_queue_task = std::sync::Mutex::new(None);
-
-		// Create the local queue task wake channel.
-		let (local_queue_task_wake_sender, local_queue_task_wake_receiver) =
-			tokio::sync::watch::channel(());
-
-		// Create the local queue task stop channel.
-		let (local_queue_task_stop_sender, local_queue_task_stop_receiver) =
-			tokio::sync::watch::channel(false);
-
-		// Create the remote queue task.
-		let remote_queue_task = std::sync::Mutex::new(None);
-
-		// Create the remote queue task stop channel.
-		let (remote_queue_task_stop_sender, remote_queue_task_stop_receiver) =
-			tokio::sync::watch::channel(false);
-
-		// Create the semaphore.
-		let semaphore = Arc::new(tokio::sync::Semaphore::new(
-			std::thread::available_parallelism().unwrap().get(),
-		));
-
-		// Create the tasks.
-		let tasks = std::sync::RwLock::new(HashMap::default());
-
 		// Open the database.
 		let database_path = path.join("database");
 		let database = Database::new(&database_path).await?;
@@ -156,12 +136,44 @@ impl Server {
 		// Create the http task stop channel.
 		let (http_task_stop_sender, http_task_stop_receiver) = tokio::sync::watch::channel(false);
 
+		// Create the local queue task.
+		let local_queue_task = std::sync::Mutex::new(None);
+
+		// Create the local queue task wake channel.
+		let (local_queue_task_wake_sender, local_queue_task_wake_receiver) =
+			tokio::sync::watch::channel(());
+
+		// Create the local queue task stop channel.
+		let (local_queue_task_stop_sender, local_queue_task_stop_receiver) =
+			tokio::sync::watch::channel(false);
+
 		// Get the remote.
 		let remote = if let Some(remote) = options.remote {
 			Some(remote.tg)
 		} else {
 			None
 		};
+
+		// Create the remote queue task.
+		let remote_queue_task = std::sync::Mutex::new(None);
+
+		// Create the remote queue task stop channel.
+		let (remote_queue_task_stop_sender, remote_queue_task_stop_receiver) =
+			tokio::sync::watch::channel(false);
+
+		// Create the semaphore.
+		let semaphore = Arc::new(tokio::sync::Semaphore::new(
+			std::thread::available_parallelism().unwrap().get(),
+		));
+
+		// Create the shutdown channel.
+		let (shutdown, _) = tokio::sync::watch::channel(false);
+
+		// Create the shutdown task.
+		let shutdown_task = std::sync::Mutex::new(None);
+
+		// Create the tasks.
+		let tasks = std::sync::Mutex::new(Some(HashMap::default()));
 
 		// Get the version.
 		let version = options.version;
@@ -185,6 +197,8 @@ impl Server {
 			remote_queue_task,
 			remote_queue_task_stop_sender,
 			semaphore,
+			shutdown,
+			shutdown_task,
 			tasks,
 			version,
 			vfs,
@@ -198,10 +212,8 @@ impl Server {
 				update builds
 				set json = json_set(
 					json,
-					'$.status',
-					'finished',
-					'$.outcome',
-					'{"kind":"terminated"}'
+					'$.status', 'finished',
+					'$.outcome', '{"kind":"terminated"}'
 				)
 				where json->'status' = 'running';
 			"#;
@@ -286,53 +298,95 @@ impl Server {
 
 	#[allow(clippy::unused_async, clippy::unnecessary_wraps)]
 	pub async fn stop(&self) -> Result<()> {
-		// Stop the http task.
-		self.inner.http_task_stop_sender.send_replace(true);
+		let server = self.clone();
+		let task = tokio::spawn(async move {
+			// Stop the http task.
+			server.inner.http_task_stop_sender.send_replace(true);
 
-		// Stop the local queue task.
-		self.inner.local_queue_task_stop_sender.send_replace(true);
+			// Stop the local queue task.
+			server.inner.local_queue_task_stop_sender.send_replace(true);
 
-		// Stop the remote queue task.
-		self.inner.remote_queue_task_stop_sender.send_replace(true);
+			// Stop the remote queue task.
+			server
+				.inner
+				.remote_queue_task_stop_sender
+				.send_replace(true);
 
-		// Stop running builds.
-		for channels in self.inner.channels.read().unwrap().values() {
-			channels.stop.send_replace(true);
-		}
+			// Join the http task.
+			let task = server.inner.http_task.lock().unwrap().take();
+			if let Some(task) = task {
+				match task.await {
+					Ok(result) => Ok(result),
+					Err(error) if error.is_cancelled() => Ok(Ok(())),
+					Err(error) => Err(error),
+				}
+				.unwrap()?;
+			}
+
+			// Join the local queue task.
+			let local_queue_task = server
+				.inner
+				.local_queue_task
+				.lock()
+				.unwrap()
+				.take()
+				.unwrap();
+			local_queue_task.await.unwrap()?;
+
+			// Join the remote queue task.
+			let remote_queue_task = server
+				.inner
+				.remote_queue_task
+				.lock()
+				.unwrap()
+				.take()
+				.unwrap();
+			remote_queue_task.await.unwrap()?;
+
+			// Stop running builds.
+			for channels in server.inner.channels.read().unwrap().values() {
+				channels.stop.send_replace(true);
+			}
+
+			// Join running builds.
+			let tasks = server.inner.tasks.lock().unwrap().take().unwrap();
+			tasks
+				.into_values()
+				.collect::<FuturesUnordered<_>>()
+				.try_collect::<Vec<_>>()
+				.await
+				.unwrap();
+
+			// Join the vfs.
+			let vfs = server.inner.vfs.lock().unwrap().clone();
+			if let Some(vfs) = vfs {
+				vfs.stop();
+				vfs.join().await?;
+			}
+
+			// Release the lock.
+			server.inner.lock.lock().unwrap().take();
+
+			Ok(())
+		});
+
+		self.inner.shutdown_task.lock().unwrap().replace(task);
+		self.inner.shutdown.send_replace(true);
 
 		Ok(())
 	}
 
 	pub async fn join(&self) -> Result<()> {
-		// Join the http task.
-		let task = self.inner.http_task.lock().unwrap().take();
+		self.inner
+			.shutdown
+			.subscribe()
+			.wait_for(|shutdown| *shutdown)
+			.await
+			.unwrap();
+		let task = self.inner.shutdown_task.lock().unwrap().take();
 		if let Some(task) = task {
-			match task.await {
-				Ok(result) => Ok(result),
-				Err(error) if error.is_cancelled() => Ok(Ok(())),
-				Err(error) => Err(error),
-			}
-			.unwrap()?;
+			task.await.unwrap()?;
 		}
-
-		// Join the local queue task.
-		let local_queue_task = self.inner.local_queue_task.lock().unwrap().take().unwrap();
-		local_queue_task.await.unwrap()?;
-
-		// Join the remote queue task.
-		let remote_queue_task = self.inner.remote_queue_task.lock().unwrap().take().unwrap();
-		remote_queue_task.await.unwrap()?;
-
-		// Join the vfs.
-		let vfs = self.inner.vfs.lock().unwrap().clone();
-		if let Some(vfs) = vfs {
-			vfs.stop();
-			vfs.join().await?;
-		}
-
-		// Release the lock.
-		self.inner.lock.lock().unwrap().take();
-
 		Ok(())
 	}
 
