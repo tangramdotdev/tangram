@@ -5,10 +5,7 @@ use num::ToPrimitive;
 use ratatui as tui;
 use std::{
 	collections::VecDeque,
-	sync::{
-		atomic::{AtomicBool, AtomicUsize},
-		Arc, Weak,
-	},
+	sync::{Arc, Weak},
 };
 use tangram_client as tg;
 use tangram_error::{Result, WrapErr};
@@ -20,7 +17,7 @@ use unicode_width::UnicodeWidthChar;
 pub struct Tui {
 	#[allow(dead_code)]
 	options: Options,
-	stop: Arc<AtomicBool>,
+	stop: tokio::sync::watch::Sender<bool>,
 	task: Option<tokio::task::JoinHandle<std::io::Result<Terminal>>>,
 }
 
@@ -97,11 +94,7 @@ enum LogUpdate {
 	Down,
 }
 
-static SPINNER_POSITION: AtomicUsize = AtomicUsize::new(0);
-
 const SPINNER: [char; 10] = ['⠋', '⠙', '⠹', '⠸', '⠼', '⠴', '⠦', '⠧', '⠇', '⠏'];
-
-const SPINNER_FRAMES_PER_UPDATE: usize = 4;
 
 #[derive(Clone, Debug, Default)]
 pub struct Options {
@@ -130,22 +123,20 @@ impl Tui {
 		.wrap_err("Failed to setup the terminal.")?;
 
 		// Create the stop flag.
-		let stop = Arc::new(AtomicBool::new(false));
+		let (stop, _) = tokio::sync::watch::channel(false);
 
 		// Spawn the task.
 		let task = tokio::task::spawn_blocking({
 			let tg = tg.clone_box();
 			let build = build.clone();
-			let stop = stop.clone();
+			let stop = stop.subscribe();
 			move || {
 				// Create the app.
 				let rect = terminal.get_frame().size();
 				let mut app = App::new(tg.as_ref(), &build, rect);
 
 				// Run the event loop.
-				while !stop.load(std::sync::atomic::Ordering::SeqCst) {
-					SPINNER_POSITION.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
-
+				while !*stop.borrow() {
 					// Wait for and handle an event.
 					if ct::event::poll(std::time::Duration::from_millis(16))? {
 						let event = ct::event::read()?;
@@ -181,8 +172,7 @@ impl Tui {
 	}
 
 	pub fn stop(&self) {
-		let ordering = std::sync::atomic::Ordering::SeqCst;
-		self.stop.store(true, ordering);
+		self.stop.send_replace(true);
 	}
 
 	pub async fn join(mut self) -> Result<()> {
@@ -625,9 +615,13 @@ impl TreeItem {
 		let status = match self.inner.state.lock().unwrap().status {
 			TreeItemStatus::Unknown => "?".yellow(),
 			TreeItemStatus::Building => {
-				let state = SPINNER_POSITION.load(std::sync::atomic::Ordering::SeqCst);
-				let state = (state / SPINNER_FRAMES_PER_UPDATE) % SPINNER.len();
-				SPINNER[state].to_string().blue()
+				let now = std::time::SystemTime::now()
+					.duration_since(std::time::UNIX_EPOCH)
+					.unwrap()
+					.as_millis();
+				let position = (now / (1000 / 10)) % 10;
+				let position = position.to_usize().unwrap();
+				SPINNER[position].to_string().blue()
 			},
 			TreeItemStatus::Terminated => "⦻".red(),
 			TreeItemStatus::Canceled => "⦻".yellow(),
