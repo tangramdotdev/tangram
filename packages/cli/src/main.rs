@@ -113,6 +113,7 @@ fn main() {
 	// Initialize the tokio runtime and run the main function.
 	let result = tokio::runtime::Builder::new_multi_thread()
 		.enable_all()
+		.disable_lifo_slot()
 		.build()
 		.unwrap()
 		.block_on(main_inner());
