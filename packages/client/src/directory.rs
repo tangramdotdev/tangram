@@ -1,4 +1,6 @@
-use crate::{artifact, id, object, return_error, Artifact, Error, Handle, Result, WrapErr};
+use crate::{
+	artifact, id, object, return_error, Artifact, Error, Handle, Result, Symlink, WrapErr,
+};
 use async_recursion::async_recursion;
 use bytes::Bytes;
 use derive_more::Display;
@@ -202,8 +204,9 @@ impl Directory {
 
 			// If the artifact is a symlink, then resolve it.
 			if let Artifact::Symlink(symlink) = &artifact {
+				let from = Symlink::new(Some(self.clone().into()), Some(current_path.to_string()));
 				match symlink
-					.resolve_from(tg, Some(symlink.clone()))
+					.resolve_from(tg, Some(from))
 					.await
 					.wrap_err("Failed to resolve the symlink.")?
 				{
