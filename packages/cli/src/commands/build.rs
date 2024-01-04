@@ -11,7 +11,7 @@ use tangram_error::{Result, WrapErr};
 #[command(verbatim_doc_comment)]
 pub struct Args {
 	/// If this flag is set, then the command will exit immediately instead of waiting for the build's output.
-	#[arg(short, long)]
+	#[arg(short, long, conflicts_with = "output")]
 	pub detach: bool,
 
 	/// If this flag is set, the package's lockfile will not be updated.
