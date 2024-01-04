@@ -13,6 +13,8 @@ impl Database {
 			let db = rusqlite::Connection::open(path).wrap_err("Failed to open the database.")?;
 			db.pragma_update(None, "busy_timeout", "100")
 				.wrap_err("Failed to set the busy timeout.")?;
+			db.pragma_update(None, "journal_mode", "WAL")
+				.wrap_err("Failed to set the journal mode.")?;
 			pool.put(db).await;
 		}
 		Ok(Database { pool })
