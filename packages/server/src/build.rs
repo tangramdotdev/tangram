@@ -1199,12 +1199,9 @@ impl Server {
 			None => {
 				let db = self.inner.database.get().await?;
 				let statement = "
-					select
-						coalesce(max(position) + length(bytes), 0)
-					from
-						logs
-					where
-						build = ?1
+					select coalesce(max(position) + length(bytes), 0)
+					from logs
+					where build = ?1
 				";
 				let params = params![id.to_string()];
 				let mut statement = db
@@ -1253,21 +1250,16 @@ impl Server {
 						.wrap_err("Failed to get build status.")?;
 					let db = server.inner.database.get().await?;
 					let statement = "
-						select
-							position, bytes
-						from
-							logs
+						select position, bytes
+						from logs
 						where
-							build = ?1 and
-							(
-								position >= ?2 or
-								(
+							build = ?1 and (
+								position >= ?2 or (
 									position < ?2 and
 									position + length(bytes) > ?2
 								)
 							)
-						order by
-							position
+						order by position
 						limit 1
 						offset ?3;
 					";
