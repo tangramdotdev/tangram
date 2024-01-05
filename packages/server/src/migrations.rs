@@ -74,7 +74,7 @@ async fn migration_0000(path: &Path) -> Result<()> {
 				json text not null
 			) strict;
 
-			create index builds_status on builds ((json->'status'));
+			create index builds_status_index on builds ((json->'status'));
 
 			create table logs (
 				build text not null,

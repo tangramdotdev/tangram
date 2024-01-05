@@ -91,6 +91,11 @@ pub struct State<I, O> {
 	pub object: Option<O>,
 }
 
+#[derive(Clone, Debug, Default, serde::Deserialize, serde::Serialize)]
+pub struct PutOutput {
+	pub missing: Vec<Id>,
+}
+
 impl Id {
 	#[must_use]
 	pub fn kind(&self) -> Kind {
@@ -174,23 +179,24 @@ impl Handle {
 		let id = self.id(tg).await?;
 		let data = self.data(tg).await?;
 		let bytes = data.serialize()?;
-		let missing = remote
+		let output = remote
 			.try_put_object(&id.clone(), &bytes)
 			.await
 			.wrap_err("Failed to put the object.")?;
-		if !missing.is_empty() {
-			missing
+		if !output.missing.is_empty() {
+			output
+				.missing
 				.into_iter()
 				.map(Self::with_id)
 				.map(|object| async move { object.push(tg, remote).await })
 				.collect::<FuturesUnordered<_>>()
 				.try_collect()
 				.await?;
-			let missing = remote
+			let output = remote
 				.try_put_object(&id.clone(), &bytes)
 				.await
 				.wrap_err("Failed to put the object.")?;
-			if !missing.is_empty() {
+			if !output.missing.is_empty() {
 				return_error!("Expected all children to be stored.");
 			}
 		}

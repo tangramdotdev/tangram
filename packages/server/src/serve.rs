@@ -140,28 +140,34 @@ impl Server {
 		let method = request.method().clone();
 		let path_components = request.uri().path().split('/').skip(1).collect_vec();
 		let response = match (method, path_components.as_slice()) {
-			// Server
-			(http::Method::GET, ["v1", "health"]) => {
-				self.handle_get_health_request(request).map(Some).boxed()
-			},
-			(http::Method::POST, ["v1", "stop"]) => {
-				self.handle_post_stop_request(request).map(Some).boxed()
-			},
-			(http::Method::POST, ["v1", "clean"]) => {
-				self.handle_post_clean_request(request).map(Some).boxed()
-			},
+			// Artifacts
+			(http::Method::POST, ["v1", "artifacts", "checkin"]) => self
+				.handle_check_in_artifact_request(request)
+				.map(Some)
+				.boxed(),
+			(http::Method::POST, ["v1", "artifacts", "checkout"]) => self
+				.handle_check_out_artifact_request(request)
+				.map(Some)
+				.boxed(),
 
-			// Builds
-			(http::Method::GET, ["v1", "targets", _, "build"]) => self
+			// Assignments
+			(http::Method::GET, ["v1", "assignments", _]) => self
 				.handle_get_assignment_request(request)
 				.map(Some)
 				.boxed(),
-			(http::Method::POST, ["v1", "targets", _, "build"]) => self
+
+			// Builds
+			(http::Method::HEAD, ["v1", "builds", _]) => {
+				self.handle_head_build_request(request).map(Some).boxed()
+			},
+			(http::Method::GET, ["v1", "builds", _]) => {
+				self.handle_get_build_request(request).map(Some).boxed()
+			},
+			(http::Method::PUT, ["v1", "builds", _]) => {
+				self.handle_put_build_request(request).map(Some).boxed()
+			},
+			(http::Method::POST, ["v1", "builds"]) => self
 				.handle_get_or_create_build_request(request)
-				.map(Some)
-				.boxed(),
-			(http::Method::GET, ["v1", "builds", "queue"]) => self
-				.handle_get_queue_item_request(request)
 				.map(Some)
 				.boxed(),
 			(http::Method::GET, ["v1", "builds", _, "status"]) => self
@@ -217,16 +223,6 @@ impl Server {
 				self.handle_pull_object_request(request).map(Some).boxed()
 			},
 
-			// Artifacts
-			(http::Method::POST, ["v1", "artifacts", "checkin"]) => self
-				.handle_check_in_artifact_request(request)
-				.map(Some)
-				.boxed(),
-			(http::Method::POST, ["v1", "artifacts", "checkout"]) => self
-				.handle_check_out_artifact_request(request)
-				.map(Some)
-				.boxed(),
-
 			// Packages
 			(http::Method::GET, ["v1", "packages", "search"]) => self
 				.handle_search_packages_request(request)
@@ -251,6 +247,23 @@ impl Server {
 				.handle_publish_package_request(request)
 				.map(Some)
 				.boxed(),
+
+			// Queue
+			(http::Method::GET, ["v1", "queue"]) => self
+				.handle_get_queue_item_request(request)
+				.map(Some)
+				.boxed(),
+
+			// Server
+			(http::Method::POST, ["v1", "clean"]) => {
+				self.handle_post_clean_request(request).map(Some).boxed()
+			},
+			(http::Method::GET, ["v1", "health"]) => {
+				self.handle_get_health_request(request).map(Some).boxed()
+			},
+			(http::Method::POST, ["v1", "stop"]) => {
+				self.handle_post_stop_request(request).map(Some).boxed()
+			},
 
 			// Users
 			(http::Method::POST, ["v1", "logins"]) => {
@@ -325,9 +338,6 @@ impl Server {
 		&self,
 		request: http::Request<Incoming>,
 	) -> Result<hyper::Response<Outgoing>> {
-		// Get the user.
-		let user = self.try_get_user_from_request(&request).await?;
-
 		// Get the search params.
 		let hosts = if let Some(query) = request.uri().query() {
 			let search_params: tg::client::GetBuildQueueItemSearchParams =
@@ -340,11 +350,15 @@ impl Server {
 			None
 		};
 
+		// Get the user.
+		let user = self.try_get_user_from_request(&request).await?;
+
 		let build_id = self.try_get_queue_item(user.as_ref(), hosts).await?;
 
 		// Create the response.
-		let body = serde_json::to_vec(&build_id).wrap_err("Failed to serialize the ID.")?;
+		let body = serde_json::to_vec(&build_id).wrap_err("Failed to serialize the response.")?;
 		let response = http::Response::builder().body(full(body)).unwrap();
+
 		Ok(response)
 	}
 
@@ -354,7 +368,7 @@ impl Server {
 	) -> Result<http::Response<Outgoing>> {
 		// Get the path params.
 		let path_components: Vec<&str> = request.uri().path().split('/').skip(1).collect();
-		let [_, "targets", id, "build"] = path_components.as_slice() else {
+		let [_, "assignments", id] = path_components.as_slice() else {
 			return_error!("Unexpected path.");
 		};
 		let id = id.parse().wrap_err("Failed to parse the ID.")?;
@@ -367,6 +381,7 @@ impl Server {
 		// Create the response.
 		let body = serde_json::to_vec(&build_id).wrap_err("Failed to serialize the response.")?;
 		let response = http::Response::builder().body(full(body)).unwrap();
+
 		Ok(response)
 	}
 
@@ -376,32 +391,41 @@ impl Server {
 	) -> Result<http::Response<Outgoing>> {
 		// Get the path params.
 		let path_components: Vec<&str> = request.uri().path().split('/').skip(1).collect();
-		let [_, "targets", id, "build"] = path_components.as_slice() else {
+		let [_, "builds"] = path_components.as_slice() else {
 			return_error!("Unexpected path.");
 		};
-		let id = id.parse().wrap_err("Failed to parse the ID.")?;
 
 		// Get the search params.
 		let Some(query) = request.uri().query() else {
 			return Ok(bad_request());
 		};
-		let search_params: tg::client::GetOrCreateBuildForTargetSearchParams =
+		let search_params: tg::client::GetOrCreateBuildSearchParams =
 			serde_urlencoded::from_str(query).wrap_err("Failed to parse the search params.")?;
-		let parent = search_params.parent;
-		let depth = search_params.depth;
-		let retry = search_params.retry;
+		let tg::client::GetOrCreateBuildSearchParams {
+			parent,
+			depth,
+			remote,
+			retry,
+			target,
+		} = search_params;
 
 		// Get the user.
 		let user = self.try_get_user_from_request(&request).await?;
 
 		// Get or create the build.
-		let build_id = self
-			.get_or_create_build(user.as_ref(), &id, parent, depth, retry)
-			.await?;
+		let options = tg::build::Options {
+			depth,
+			parent: parent.map(tg::Build::with_id),
+			remote,
+			retry,
+			user,
+		};
+		let build_id = self.get_or_create_build(&target, options).await?;
 
 		// Create the response.
 		let body = serde_json::to_vec(&build_id).wrap_err("Failed to serialize the response.")?;
 		let response = http::Response::builder().body(full(body)).unwrap();
+
 		Ok(response)
 	}
 
@@ -424,6 +448,7 @@ impl Server {
 		// Create the response.
 		let body = serde_json::to_vec(&build_id).wrap_err("Failed to serialize the response.")?;
 		let response = http::Response::builder().body(full(body)).unwrap();
+
 		Ok(response)
 	}
 
@@ -458,6 +483,7 @@ impl Server {
 			.status(http::StatusCode::OK)
 			.body(empty())
 			.unwrap();
+
 		Ok(response)
 	}
 
@@ -480,6 +506,7 @@ impl Server {
 		// Create the response.
 		let body = serde_json::to_vec(&build_id).wrap_err("Failed to serialize the response.")?;
 		let response = http::Response::builder().body(full(body)).unwrap();
+
 		Ok(response)
 	}
 
@@ -525,6 +552,7 @@ impl Server {
 			.status(http::StatusCode::OK)
 			.body(body)
 			.unwrap();
+
 		Ok(response)
 	}
 
@@ -560,6 +588,7 @@ impl Server {
 			.status(http::StatusCode::OK)
 			.body(empty())
 			.unwrap();
+
 		Ok(response)
 	}
 
@@ -587,6 +616,7 @@ impl Server {
 			.status(http::StatusCode::OK)
 			.body(body)
 			.unwrap();
+
 		Ok(response)
 	}
 
@@ -618,6 +648,7 @@ impl Server {
 			.status(http::StatusCode::OK)
 			.body(empty())
 			.unwrap();
+
 		Ok(response)
 	}
 
@@ -645,6 +676,7 @@ impl Server {
 			.status(http::StatusCode::OK)
 			.body(full(body))
 			.unwrap();
+
 		Ok(response)
 	}
 
@@ -679,6 +711,99 @@ impl Server {
 			.status(http::StatusCode::OK)
 			.body(empty())
 			.unwrap();
+
+		Ok(response)
+	}
+
+	async fn handle_head_build_request(
+		&self,
+		request: http::Request<Incoming>,
+	) -> Result<http::Response<Outgoing>> {
+		// Get the path params.
+		let path_components: Vec<&str> = request.uri().path().split('/').skip(1).collect();
+		let ["v1", "builds", id] = path_components.as_slice() else {
+			return_error!("Unexpected path.")
+		};
+		let Ok(id) = id.parse() else {
+			return Ok(bad_request());
+		};
+
+		// Get whether the build exists.
+		let exists = self.get_build_exists(&id).await?;
+
+		// Create the response.
+		let status = if exists {
+			http::StatusCode::OK
+		} else {
+			http::StatusCode::NOT_FOUND
+		};
+		let response = http::Response::builder()
+			.status(status)
+			.body(empty())
+			.unwrap();
+
+		Ok(response)
+	}
+
+	async fn handle_get_build_request(
+		&self,
+		request: http::Request<Incoming>,
+	) -> Result<hyper::Response<Outgoing>> {
+		// Get the path params.
+		let path_components: Vec<&str> = request.uri().path().split('/').skip(1).collect();
+		let [_, "builds", build_id] = path_components.as_slice() else {
+			return_error!("Unexpected path.");
+		};
+		let build_id = build_id.parse().wrap_err("Failed to parse the ID.")?;
+
+		// Get the build.
+		let Some(build) = self.try_get_build(&build_id).await? else {
+			return Ok(not_found());
+		};
+
+		// Create the response.
+		let body = serde_json::to_string(&build).wrap_err("Failed to serialize the response.")?;
+		let response = http::Response::builder()
+			.status(http::StatusCode::OK)
+			.body(full(body))
+			.unwrap();
+
+		Ok(response)
+	}
+
+	async fn handle_put_build_request(
+		&self,
+		request: http::Request<Incoming>,
+	) -> Result<hyper::Response<Outgoing>> {
+		// Get the path params.
+		let path_components: Vec<&str> = request.uri().path().split('/').skip(1).collect();
+		let ["v1", "builds", build_id] = path_components.as_slice() else {
+			return_error!("Unexpected path.")
+		};
+		let build_id = build_id.parse().wrap_err("Failed to parse the ID.")?;
+
+		// Get the user.
+		let user = self.try_get_user_from_request(&request).await?;
+
+		// Read the body.
+		let bytes = request
+			.into_body()
+			.collect()
+			.await
+			.wrap_err("Failed to read the body.")?
+			.to_bytes();
+		let data = serde_json::from_slice(&bytes).wrap_err("Failed to deserialize the body.")?;
+
+		// Put the build.
+		let missing = self.try_put_build(user.as_ref(), &build_id, &data).await?;
+
+		// Create the response.
+		let body = serde_json::to_vec(&missing).wrap_err("Failed to serialize the response.")?;
+		let response = http::Response::builder()
+			.status(http::StatusCode::OK)
+			.body(full(body))
+			.unwrap();
+
 		Ok(response)
 	}
 
@@ -764,12 +889,12 @@ impl Server {
 		let missing = self.try_put_object(&id, &bytes).await?;
 
 		// Create the response.
-		let body =
-			serde_json::to_vec(&missing).wrap_err("Failed to serialize the missing children.")?;
+		let body = serde_json::to_vec(&missing).wrap_err("Failed to serialize the response.")?;
 		let response = http::Response::builder()
 			.status(http::StatusCode::OK)
 			.body(full(body))
 			.unwrap();
+
 		Ok(response)
 	}
 
@@ -918,7 +1043,7 @@ impl Server {
 		};
 
 		// Create the body.
-		let body = serde_json::to_vec(&body).wrap_err("Failed to serialize the ID.")?;
+		let body = serde_json::to_vec(&body).wrap_err("Failed to serialize the response.")?;
 
 		// Create the response.
 		let response = http::Response::builder().body(full(body)).unwrap();
@@ -942,16 +1067,13 @@ impl Server {
 			.wrap_err("Failed to parse the dependency.")?;
 
 		// Get the package.
-		let source_artifact_hash = self.try_get_package_versions(&dependency).await?;
+		let Some(versions) = self.try_get_package_versions(&dependency).await? else {
+			return Ok(not_found());
+		};
 
 		// Create the response.
-		let response = if let Some(source_artifact_hash) = source_artifact_hash {
-			let body = serde_json::to_vec(&source_artifact_hash)
-				.wrap_err("Failed to serialize the source artifact hash.")?;
-			http::Response::builder().body(full(body)).unwrap()
-		} else {
-			not_found()
-		};
+		let body = serde_json::to_vec(&versions).wrap_err("Failed to serialize the response.")?;
+		let response = http::Response::builder().body(full(body)).unwrap();
 
 		Ok(response)
 	}
@@ -976,10 +1098,8 @@ impl Server {
 			return Ok(not_found());
 		};
 
-		// Create the body.
-		let body = serde_json::to_vec(&metadata).wrap_err("Failed to serialize the metadata.")?;
-
 		// Create the response.
+		let body = serde_json::to_vec(&metadata).wrap_err("Failed to serialize the response.")?;
 		let response = http::Response::builder().body(full(body)).unwrap();
 
 		Ok(response)
@@ -1005,11 +1125,9 @@ impl Server {
 			return Ok(not_found());
 		};
 
-		// Create the body.
-		let body =
-			serde_json::to_vec(&dependencies).wrap_err("Failed to serialize the package.")?;
-
 		// Create the response.
+		let body =
+			serde_json::to_vec(&dependencies).wrap_err("Failed to serialize the response.")?;
 		let response = http::Response::builder().body(full(body)).unwrap();
 
 		Ok(response)
@@ -1050,6 +1168,7 @@ impl Server {
 			.status(200)
 			.body(full(body))
 			.unwrap();
+
 		Ok(response)
 	}
 
@@ -1076,6 +1195,7 @@ impl Server {
 			.status(200)
 			.body(full(response))
 			.unwrap();
+
 		Ok(response)
 	}
 
@@ -1094,11 +1214,12 @@ impl Server {
 		};
 
 		// Create the response.
-		let body = serde_json::to_string(&user).wrap_err("Failed to serialize the user.")?;
+		let body = serde_json::to_string(&user).wrap_err("Failed to serialize the response.")?;
 		let response = http::Response::builder()
 			.status(http::StatusCode::OK)
 			.body(full(body))
 			.unwrap();
+
 		Ok(response)
 	}
 }

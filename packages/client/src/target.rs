@@ -1,6 +1,6 @@
 use crate::{
 	artifact, build, id, lock, object, value, Artifact, Build, Checksum, Directory, Error, Handle,
-	Lock, Result, System, User, Value, WrapErr,
+	Lock, Result, System, Value, WrapErr,
 };
 use bytes::Bytes;
 use derive_more::Display;
@@ -10,7 +10,7 @@ use futures::{
 };
 use itertools::Itertools;
 use std::{collections::BTreeMap, sync::Arc};
-use tangram_error::return_error;
+use tangram_error::{error, return_error};
 
 #[derive(
 	Clone,
@@ -158,11 +158,11 @@ impl Target {
 		let data = self.data(tg).await?;
 		let bytes = data.serialize()?;
 		let id = Id::new(&bytes);
-		let missing = tg
+		let output = tg
 			.try_put_object(&id.clone().into(), &bytes)
 			.await
 			.wrap_err("Failed to put the object.")?;
-		if !missing.is_empty() {
+		if !output.missing.is_empty() {
 			return_error!("Expected all children to be stored.");
 		}
 		self.state.write().unwrap().id.replace(id);
@@ -253,21 +253,24 @@ impl Target {
 		Ok(Some(directory))
 	}
 
-	pub async fn build(
-		&self,
-		tg: &dyn Handle,
-		user: Option<&User>,
-		parent: Option<Build>,
-		depth: u64,
-		retry: build::Retry,
-	) -> Result<Build> {
-		let target_id = self.id(tg).await?;
-		let parent = parent.map(|parent| parent.id().clone());
-		let build_id = tg
-			.get_or_create_build(user, target_id, parent, depth, retry)
-			.await?;
-		let build = Build::with_id(build_id);
-		Ok(build)
+	pub async fn build(&self, tg: &dyn Handle, options: build::Options) -> Result<Value> {
+		let mut attempts = 0;
+		loop {
+			attempts += 1;
+			let build = Build::new(tg, self.clone(), options.clone()).await?;
+			let outcome = build.outcome(tg).await?;
+			match outcome {
+				build::Outcome::Terminated => {
+					if attempts < 3 {
+						continue;
+					}
+					return Err(error!("The build was canceled."));
+				},
+				build::Outcome::Canceled => return Err(error!("The build was canceled.")),
+				build::Outcome::Failed(error) => return Err(error),
+				build::Outcome::Succeeded(value) => return Ok(value),
+			}
+		}
 	}
 }
 

@@ -1,6 +1,6 @@
 use crate::{
-	artifact, build, directory, health, lock, object, package, system, target, user, Dependency,
-	Id, User,
+	artifact, build, directory, health, lock, object, package, target, user, Dependency, Id,
+	System, User,
 };
 use async_trait::async_trait;
 use bytes::Bytes;
@@ -30,7 +30,7 @@ pub trait Handle: Send + Sync + 'static {
 
 	async fn try_get_object(&self, id: &object::Id) -> Result<Option<Bytes>>;
 
-	async fn try_put_object(&self, id: &object::Id, bytes: &Bytes) -> Result<Vec<object::Id>>;
+	async fn try_put_object(&self, id: &object::Id, bytes: &Bytes) -> Result<object::PutOutput>;
 
 	async fn push_object(&self, id: &object::Id) -> Result<()>;
 
@@ -42,19 +42,34 @@ pub trait Handle: Send + Sync + 'static {
 
 	async fn try_get_assignment(&self, target_id: &target::Id) -> Result<Option<build::Id>>;
 
-	async fn get_or_create_build(
+	async fn get_build_exists(&self, id: &build::Id) -> Result<bool>;
+
+	async fn get_build(&self, id: &build::Id) -> Result<build::Data> {
+		Ok(self
+			.try_get_build(id)
+			.await?
+			.wrap_err("Failed to get the build.")?)
+	}
+
+	async fn try_get_build(&self, id: &build::Id) -> Result<Option<build::Data>>;
+
+	async fn try_put_build(
 		&self,
 		user: Option<&User>,
-		target_id: &target::Id,
-		parent: Option<build::Id>,
-		depth: u64,
-		retry: build::Retry,
+		id: &build::Id,
+		data: &build::Data,
+	) -> Result<build::PutOutput>;
+
+	async fn get_or_create_build(
+		&self,
+		target: &target::Id,
+		options: build::Options,
 	) -> Result<build::Id>;
 
 	async fn try_get_queue_item(
 		&self,
 		user: Option<&User>,
-		hosts: Option<Vec<system::System>>,
+		hosts: Option<Vec<System>>,
 	) -> Result<Option<build::queue::Item>>;
 
 	async fn get_build_status(&self, id: &build::Id) -> Result<build::Status> {
@@ -115,13 +130,6 @@ pub trait Handle: Send + Sync + 'static {
 		&self,
 		id: &build::Id,
 	) -> Result<Option<BoxStream<'static, Result<Bytes>>>>;
-
-	// async fn try_get_build_log(
-	// 	&self,
-	// 	id: &build::Id,
-	// 	pos: Option<u64>,
-	// 	len: Option<i64>,
-	// ) -> Result<Option<BoxStream<'static, Result<log::Entry>>>>;
 
 	async fn add_build_log(&self, user: Option<&User>, id: &build::Id, bytes: Bytes) -> Result<()>;
 

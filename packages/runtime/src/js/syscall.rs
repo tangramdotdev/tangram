@@ -78,20 +78,13 @@ async fn syscall_archive(
 
 async fn syscall_build(state: Rc<State>, args: (tg::Target,)) -> Result<tg::Value> {
 	let (target,) = args;
-	let build = target
-		.build(
-			state.tg.as_ref(),
-			None,
-			Some(state.build.clone()),
-			state.depth + 1,
-			state.retry,
-		)
-		.await?;
-	let output = build
-		.outcome(state.tg.as_ref())
-		.await
-		.wrap_err("Failed to get the build outcome.")?
-		.into_result()?;
+	let options = tg::build::Options {
+		parent: Some(state.build.clone()),
+		depth: state.depth + 1,
+		retry: state.retry,
+		..Default::default()
+	};
+	let output = target.build(state.tg.as_ref(), options).await?;
 	Ok(output)
 }
 

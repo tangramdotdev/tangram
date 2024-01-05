@@ -94,14 +94,17 @@ pub struct GetBuildQueueItemSearchParams {
 	pub hosts: Option<String>,
 }
 
-#[derive(Default, serde::Deserialize, serde::Serialize)]
-pub struct GetOrCreateBuildForTargetSearchParams {
+#[derive(serde::Deserialize, serde::Serialize)]
+pub struct GetOrCreateBuildSearchParams {
 	#[serde(default)]
 	pub parent: Option<build::Id>,
 	#[serde(default)]
 	pub depth: u64,
 	#[serde(default)]
+	pub remote: bool,
+	#[serde(default)]
 	pub retry: build::Retry,
+	pub target: target::Id,
 }
 
 type Incoming = hyper::body::Incoming;
@@ -388,7 +391,7 @@ impl Handle for Client {
 		Ok(Some(bytes))
 	}
 
-	async fn try_put_object(&self, id: &object::Id, bytes: &Bytes) -> Result<Vec<object::Id>> {
+	async fn try_put_object(&self, id: &object::Id, bytes: &Bytes) -> Result<object::PutOutput> {
 		let body = full(bytes.clone());
 		let request = http::request::Builder::default()
 			.method(http::Method::PUT)
@@ -404,9 +407,8 @@ impl Handle for Client {
 			.await
 			.wrap_err("Failed to collect the response body.")?
 			.to_bytes();
-		let missing_children =
-			serde_json::from_slice(&bytes).wrap_err("Failed to deserialize the body.")?;
-		return Ok(missing_children);
+		let output = serde_json::from_slice(&bytes).wrap_err("Failed to deserialize the body.")?;
+		return Ok(output);
 	}
 
 	async fn push_object(&self, id: &object::Id) -> Result<()> {
@@ -477,7 +479,7 @@ impl Handle for Client {
 	async fn try_get_assignment(&self, id: &target::Id) -> Result<Option<build::Id>> {
 		let request = http::request::Builder::default()
 			.method(http::Method::GET)
-			.uri(format!("/v1/targets/{id}/build"))
+			.uri(format!("/v1/assignments/{id}"))
 			.body(empty())
 			.wrap_err("Failed to create the request.")?;
 		let response = self.send(request).await?;
@@ -496,26 +498,92 @@ impl Handle for Client {
 		Ok(Some(id))
 	}
 
-	async fn get_or_create_build(
+	async fn get_build_exists(&self, id: &build::Id) -> Result<bool> {
+		let request = http::request::Builder::default()
+			.method(http::Method::HEAD)
+			.uri(format!("/v1/builds/{id}"))
+			.body(empty())
+			.wrap_err("Failed to create the request.")?;
+		let response = self.send(request).await?;
+		if response.status() == http::StatusCode::NOT_FOUND {
+			return Ok(false);
+		}
+		if !response.status().is_success() {
+			return_error!("Expected the response's status to be success.");
+		}
+		Ok(true)
+	}
+
+	async fn try_get_build(&self, id: &build::Id) -> Result<Option<build::Data>> {
+		let request = http::request::Builder::default()
+			.method(http::Method::GET)
+			.uri(format!("/v1/builds/{id}"))
+			.body(empty())
+			.wrap_err("Failed to create the request.")?;
+		let response = self.send(request).await?;
+		if !response.status().is_success() {
+			return_error!("Expected the response's status to be success.");
+		}
+		let bytes = response
+			.collect()
+			.await
+			.wrap_err("Failed to collect the response body.")?
+			.to_bytes();
+		let data = serde_json::from_slice(&bytes).wrap_err("Failed to deserialize the body.")?;
+		Ok(data)
+	}
+
+	async fn try_put_build(
 		&self,
 		user: Option<&User>,
-		id: &target::Id,
-		parent: Option<build::Id>,
-		depth: u64,
-		retry: build::Retry,
+		id: &build::Id,
+		data: &build::Data,
+	) -> Result<build::PutOutput> {
+		let mut request = http::request::Builder::default()
+			.method(http::Method::PUT)
+			.uri(format!("/v1/builds/{id}"));
+		let user = user.or(self.inner.user.as_ref());
+		if let Some(token) = user.and_then(|user| user.token.as_ref()) {
+			request = request.header(http::header::AUTHORIZATION, format!("Bearer {token}"));
+		}
+		let json = serde_json::to_string(&data).wrap_err("Failed to serialize the data.")?;
+		let body = full(json);
+		let request = request
+			.body(body)
+			.wrap_err("Failed to create the request.")?;
+		let response = self.send(request).await?;
+		if !response.status().is_success() {
+			return_error!("Expected the response's status to be success.");
+		}
+		let bytes = response
+			.collect()
+			.await
+			.wrap_err("Failed to collect the response body.")?
+			.to_bytes();
+		let output = serde_json::from_slice(&bytes).wrap_err("Failed to deserialize the body.")?;
+		return Ok(output);
+	}
+
+	async fn get_or_create_build(
+		&self,
+		target: &target::Id,
+		options: build::Options,
 	) -> Result<build::Id> {
-		let search_params = GetOrCreateBuildForTargetSearchParams {
+		let parent = options.parent.map(|parent| parent.id().clone());
+		let search_params = GetOrCreateBuildSearchParams {
 			parent,
-			depth,
-			retry,
+			depth: options.depth,
+			remote: options.remote,
+			retry: options.retry,
+			target: target.clone(),
 		};
 		let search_params = serde_urlencoded::to_string(search_params)
 			.wrap_err("Failed to serialize the search params.")?;
-		let uri = format!("/v1/targets/{id}/build?{search_params}");
+		let uri = format!("/v1/builds?{search_params}");
 		let mut request = http::request::Builder::default()
 			.method(http::Method::POST)
 			.uri(uri);
-		let user = user.or(self.inner.user.as_ref());
+		let user = options.user.as_ref().or(self.inner.user.as_ref());
 		if let Some(token) = user.and_then(|user| user.token.as_ref()) {
 			request = request.header(http::header::AUTHORIZATION, format!("Bearer {token}"));
 		}
@@ -540,7 +608,7 @@ impl Handle for Client {
 		user: Option<&User>,
 		hosts: Option<Vec<System>>,
 	) -> Result<Option<build::queue::Item>> {
-		let mut uri = "/v1/builds/queue".to_owned();
+		let mut uri = "/v1/queue".to_owned();
 		let hosts = hosts.map(|hosts| hosts.iter().map(ToString::to_string).join(","));
 		let search_params = GetBuildQueueItemSearchParams { hosts };
 		let search_params = serde_urlencoded::to_string(&search_params)
@@ -585,8 +653,8 @@ impl Handle for Client {
 			.await
 			.wrap_err("Failed to collect the response body.")?
 			.to_bytes();
-		let id = serde_json::from_slice(&bytes).wrap_err("Failed to deserialize the body.")?;
-		Ok(id)
+		let status = serde_json::from_slice(&bytes).wrap_err("Failed to deserialize the body.")?;
+		Ok(status)
 	}
 
 	async fn set_build_status(

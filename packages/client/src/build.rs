@@ -1,9 +1,13 @@
 pub use self::outcome::Outcome;
-use crate::{id, Error, Handle, Result, Target, User, Value, WrapErr};
+use crate::{blob, id, object, target, Error, Handle, Result, Target, User, Value, WrapErr};
+use async_recursion::async_recursion;
 use bytes::Bytes;
 use derive_more::Display;
-use futures::{stream::BoxStream, StreamExt, TryStreamExt};
-use tangram_error::return_error;
+use futures::{
+	stream::{BoxStream, FuturesUnordered},
+	StreamExt, TryStreamExt,
+};
+use tangram_error::{error, return_error};
 
 #[derive(
 	Clone,
@@ -31,6 +35,37 @@ pub enum Status {
 	Queued,
 	Running,
 	Finished,
+}
+
+#[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
+pub struct Data {
+	pub children: Vec<Id>,
+	pub log: Option<blob::Id>,
+	pub outcome: Option<outcome::Data>,
+	pub status: Status,
+	pub target: target::Id,
+}
+
+#[derive(Clone, Debug, Default)]
+pub struct Options {
+	pub depth: u64,
+	pub parent: Option<Build>,
+	pub remote: bool,
+	pub retry: Retry,
+	pub user: Option<User>,
+}
+
+#[derive(Clone, Debug, Default, serde::Deserialize, serde::Serialize)]
+pub struct PutOutput {
+	pub missing: Missing,
+}
+
+#[derive(Clone, Debug, Default, serde::Deserialize, serde::Serialize)]
+pub struct Missing {
+	pub children: Vec<Id>,
+	pub log: bool,
+	pub outcome: bool,
+	pub target: bool,
 }
 
 pub mod outcome {
@@ -101,6 +136,13 @@ impl Build {
 }
 
 impl Build {
+	pub async fn new(tg: &dyn Handle, target: Target, options: Options) -> Result<Self> {
+		let target_id = target.id(tg).await?;
+		let build_id = tg.get_or_create_build(target_id, options).await?;
+		let build = Build::with_id(build_id);
+		Ok(build)
+	}
+
 	pub async fn status(&self, tg: &dyn Handle) -> Result<Status> {
 		self.try_get_status(tg)
 			.await?
@@ -192,6 +234,63 @@ impl Build {
 		tg.finish_build(user, id, outcome).await?;
 		Ok(())
 	}
+
+	#[async_recursion]
+	pub async fn push(
+		&self,
+		user: Option<&'async_recursion User>,
+		tg: &dyn Handle,
+		remote: &dyn Handle,
+	) -> Result<()> {
+		let data = tg.get_build(&self.id).await?;
+		let output = remote
+			.try_put_build(user, &self.id, &data)
+			.await
+			.wrap_err("Failed to put the object.")?;
+		output
+			.missing
+			.children
+			.iter()
+			.cloned()
+			.map(Self::with_id)
+			.map(|build| async move { build.push(user, tg, remote).await })
+			.collect::<FuturesUnordered<_>>()
+			.try_collect()
+			.await?;
+		if output.missing.log {
+			if let Some(log) = data.log.clone() {
+				object::Handle::with_id(log.into()).push(tg, remote).await?;
+			}
+		}
+		if output.missing.outcome {
+			if let Some(outcome::Data::Succeeded(outcome)) = data.outcome.clone() {
+				Value::try_from(outcome)?.push(tg, remote).await?;
+			}
+		}
+		if output.missing.target {
+			object::Handle::with_id(data.target.clone().into())
+				.push(tg, remote)
+				.await?;
+		}
+		if !output.missing.children.is_empty()
+			|| output.missing.log
+			|| output.missing.outcome
+			|| output.missing.target
+		{
+			let output = remote
+				.try_put_build(user, &self.id, &data)
+				.await
+				.wrap_err("Failed to put the build.")?;
+			if !output.missing.children.is_empty()
+				|| output.missing.log
+				|| output.missing.outcome
+				|| output.missing.target
+			{
+				return Err(error!("Expected all children to be stored."));
+			}
+		}
+		Ok(())
+	}
 }
 
 impl Outcome {
@@ -207,8 +306,8 @@ impl Outcome {
 
 	pub fn into_result(self) -> Result<Value> {
 		match self {
-			Self::Terminated => return_error!("The build was terminated."),
-			Self::Canceled => return_error!("The build was canceled."),
+			Self::Terminated => Err(error!("The build was terminated.")),
+			Self::Canceled => Err(error!("The build was canceled.")),
 			Self::Failed(error) => Err(error),
 			Self::Succeeded(value) => Ok(value),
 		}

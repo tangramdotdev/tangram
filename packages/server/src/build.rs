@@ -15,15 +15,6 @@ use tg::Handle;
 use tokio_stream::wrappers::WatchStream;
 use tokio_util::either::Either;
 
-#[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
-struct Build {
-	children: Vec<tg::build::Id>,
-	depth: u64,
-	outcome: Option<tg::build::outcome::Data>,
-	status: tg::build::Status,
-	target: tg::target::Id,
-}
-
 impl Server {
 	pub async fn try_get_assignment(
 		&self,
@@ -99,14 +90,199 @@ impl Server {
 		Ok(Some(build_id))
 	}
 
+	pub async fn get_build_exists(&self, id: &tg::build::Id) -> Result<bool> {
+		if self.get_build_exists_local(id).await? {
+			return Ok(true);
+		}
+		if self.get_build_exists_remote(id).await? {
+			return Ok(true);
+		}
+		Ok(false)
+	}
+
+	async fn get_build_exists_local(&self, id: &tg::build::Id) -> Result<bool> {
+		let db = self.inner.database.get().await?;
+		let statement = "
+			select count(*) != 0
+			from builds
+			where id = ?1;
+		";
+		let params = params![id.to_string()];
+		let mut statement = db
+			.prepare_cached(statement)
+			.wrap_err("Failed to prepare the query.")?;
+		let mut rows = statement
+			.query(params)
+			.wrap_err("Failed to execute the query.")?;
+		let row = rows
+			.next()
+			.wrap_err("Failed to retrieve the row.")?
+			.wrap_err("Expected a row.")?;
+		let exists = row.get::<_, bool>(0).wrap_err("Expected a bool.")?;
+		Ok(exists)
+	}
+
+	async fn get_build_exists_remote(&self, id: &tg::build::Id) -> Result<bool> {
+		let Some(remote) = self.inner.remote.as_ref() else {
+			return Ok(false);
+		};
+		let exists = remote.get_build_exists(id).await?;
+		Ok(exists)
+	}
+
+	pub async fn try_get_build(&self, id: &tg::build::Id) -> Result<Option<tg::build::Data>> {
+		if let Some(build) = self.try_get_build_local(id).await? {
+			Ok(Some(build))
+		} else if let Some(build) = self.try_get_build_remote(id).await? {
+			Ok(Some(build))
+		} else {
+			Ok(None)
+		}
+	}
+
+	async fn try_get_build_local(&self, id: &tg::build::Id) -> Result<Option<tg::build::Data>> {
+		let db = self.inner.database.get().await?;
+		let statement = "
+			select json
+			from builds
+			where id = ?1;
+		";
+		let params = params![id.to_string()];
+		let mut statement = db
+			.prepare_cached(statement)
+			.wrap_err("Failed to prepare the query.")?;
+		let mut rows = statement
+			.query(params)
+			.wrap_err("Failed to execute the query.")?;
+		let Some(row) = rows.next().wrap_err("Failed to retrieve the row.")? else {
+			return Ok(None);
+		};
+		let build = row
+			.get::<_, Json<tg::build::Data>>(0)
+			.wrap_err("Failed to deserialize the column.")?
+			.0;
+		Ok(Some(build))
+	}
+
+	async fn try_get_build_remote(&self, id: &tg::build::Id) -> Result<Option<tg::build::Data>> {
+		// Get the remote.
+		let Some(remote) = self.inner.remote.as_ref() else {
+			return Ok(None);
+		};
+
+		// Get the build from the remote server.
+		let Some(build) = remote.try_get_build(id).await? else {
+			return Ok(None);
+		};
+
+		// Add the build to the database.
+		{
+			let db = self.inner.database.get().await?;
+			let statement = "
+				insert into builds (id, json)
+				values (?1, ?2)
+				on conflict (id) do update set json = ?2;
+			";
+			let params = params![id.to_string(), Json(build.clone())];
+			let mut statement = db
+				.prepare_cached(statement)
+				.wrap_err("Failed to prepare the query.")?;
+			statement
+				.execute(params)
+				.wrap_err("Failed to execute the query.")?;
+		}
+
+		Ok(Some(build))
+	}
+
+	pub async fn try_put_build(
+		&self,
+		_user: Option<&tg::User>,
+		id: &tg::build::Id,
+		data: &tg::build::Data,
+	) -> Result<tg::build::PutOutput> {
+		// Verify the build is finished.
+		if data.status != tg::build::Status::Finished {
+			return Err(error!("The build is not finished."));
+		}
+
+		// Check if there are any missing children, log, outcome, or target.
+		let children = stream::iter(data.children.clone())
+			.map(Ok)
+			.try_filter_map(|id| async move {
+				let exists = self.get_build_exists(&id).await?;
+				Ok::<_, Error>(if exists { None } else { Some(id) })
+			})
+			.try_collect::<Vec<_>>()
+			.await?;
+		let log = if let Some(log) = &data.log {
+			self.get_object_exists(&log.clone().into()).await?
+		} else {
+			false
+		};
+		let outcome = if let Some(tg::build::outcome::Data::Succeeded(value)) = &data.outcome {
+			stream::iter(value.children())
+				.map(Ok)
+				.and_then(|id| async move { self.get_object_exists(&id).await })
+				.try_all(|exists| async move { exists })
+				.await?
+		} else {
+			false
+		};
+		let target = self.get_object_exists(&data.target.clone().into()).await?;
+		if !children.is_empty() || log || outcome || target {
+			return Ok(tg::build::PutOutput {
+				missing: tg::build::Missing {
+					children,
+					log,
+					outcome,
+					target,
+				},
+			});
+		}
+
+		// Insert the build.
+		{
+			let db = self.inner.database.get().await?;
+			let statement = "
+				insert into builds (id, json)
+				values (?1, ?2)
+				on conflict do update set json = ?2;
+			";
+			let params = params![id.to_string(), Json(data.clone())];
+			let mut statement = db
+				.prepare_cached(statement)
+				.wrap_err("Failed to prepare the query.")?;
+			statement
+				.execute(params)
+				.wrap_err("Failed to execute the query.")?;
+		}
+
+		// Add an assignment if one does not exist.
+		{
+			let db = self.inner.database.get().await?;
+			let statement = "
+				insert into assignments (target, build)
+				values (?1, ?2)
+				on conflict do nothing;
+			";
+			let params = params![data.target.to_string(), id.to_string()];
+			let mut statement = db
+				.prepare_cached(statement)
+				.wrap_err("Failed to prepare the query.")?;
+			statement
+				.execute(params)
+				.wrap_err("Failed to execute the query.")?;
+		}
+
+		Ok(tg::build::PutOutput::default())
+	}
+
 	#[allow(clippy::too_many_lines)]
 	pub async fn get_or_create_build(
 		&self,
-		user: Option<&tg::User>,
 		target_id: &tg::target::Id,
-		parent: Option<tg::build::Id>,
-		depth: u64,
-		retry: tg::build::Retry,
+		options: tg::build::Options,
 	) -> Result<tg::build::Id> {
 		let target = tg::Target::with_id(target_id.clone());
 		let host = target.host(self).await?.clone();
@@ -122,35 +298,62 @@ impl Server {
 				break 'a;
 			}
 			let outcome = build.outcome(self).await?;
-			let retry = retry >= outcome.retry();
-			if !retry {
-				return Ok(build_id);
+			if options.retry >= outcome.retry() {
+				break 'a;
 			}
+			if let Some(parent) = options.parent.as_ref() {
+				self.add_build_child(options.user.as_ref(), parent.id(), &build_id)
+					.await?;
+			}
+			return Ok(build_id);
 		}
 
-		// Decide whether to attempt to escalate the build.
-		let escalate = true;
-
-		// Attempt to escalate the build.
-		if escalate {
-			if let Some(remote) = self.inner.remote.as_ref() {
-				let object = tg::object::Handle::with_id(target_id.clone().into());
-				let result = object.push(self, remote.as_ref()).await;
-				if result.is_ok() {
-					if let Ok(build_id) = remote
-						.get_or_create_build(user, target_id, parent.clone(), depth, retry)
-						.await
-					{
-						return Ok(build_id);
-					}
-				}
+		// If the build has a parent and it is not local, or if the build has no parent and the remote flag is set, then attempt to get or create the build on the remote.
+		'a: {
+			// Determine if the build should be remote.
+			let remote = if let Some(parent) = options.parent.as_ref() {
+				self.build_is_local(parent.id()).await?
+			} else {
+				options.remote
+			};
+			if !remote {
+				break 'a;
 			}
+
+			// Get the remote.
+			let Some(remote) = self.inner.remote.as_ref() else {
+				break 'a;
+			};
+
+			// Push the target.
+			let object = tg::object::Handle::with_id(target_id.clone().into());
+			let Ok(()) = object.push(self, remote.as_ref()).await else {
+				break 'a;
+			};
+
+			// If there is a local assignment, then push the build.
+			if let Some(build_id) = self.try_get_assignment_local(target_id).await? {
+				tg::Build::with_id(build_id.clone())
+					.push(options.user.as_ref(), self, remote.as_ref())
+					.await?;
+			}
+
+			// Get or create the build on the remote.
+			let options = tg::build::Options {
+				remote: false,
+				..options.clone()
+			};
+			let Ok(build_id) = remote.get_or_create_build(target_id, options).await else {
+				break 'a;
+			};
+
+			return Ok(build_id);
 		}
 
 		// Otherwise, create a new build.
 		let build_id = tg::build::Id::new();
 
-		// Create the channels.
+		// Add the build to the channels.
 		let (children, _) = tokio::sync::watch::channel(());
 		let (log, _) = tokio::sync::watch::channel(());
 		let (outcome, _) = tokio::sync::watch::channel(());
@@ -167,21 +370,28 @@ impl Server {
 			.unwrap()
 			.insert(build_id.clone(), channels);
 
+		// Add the build to the depths.
+		self.inner
+			.depths
+			.write()
+			.unwrap()
+			.insert(build_id.clone(), options.depth);
+
 		// Add the build to the database.
 		{
-			let build = Build {
+			let data = tg::build::Data {
 				children: Vec::new(),
-				depth,
+				log: None,
 				outcome: None,
-				status: tg::build::Status::Queued,
 				target: target_id.clone(),
+				status: tg::build::Status::Queued,
 			};
 			let db = self.inner.database.get().await?;
 			let statement = "
 				insert into builds (id, json)
 				values (?1, ?2);
 			";
-			let params = params![build_id.to_string(), Json(build)];
+			let params = params![build_id.to_string(), Json(data)];
 			let mut statement = db
 				.prepare_cached(statement)
 				.wrap_err("Failed to prepare the query.")?;
@@ -211,8 +421,8 @@ impl Server {
 		let item = tg::build::queue::Item {
 			build: build_id.clone(),
 			host,
-			depth,
-			retry,
+			depth: options.depth,
+			retry: options.retry,
 		};
 
 		// Add the item to the queue.
@@ -235,8 +445,9 @@ impl Server {
 		self.inner.local_queue_task_wake_sender.send_replace(());
 
 		// Add the build to the parent.
-		if let Some(parent) = parent {
-			self.add_build_child(user, &parent, &build_id).await?;
+		if let Some(parent) = options.parent.as_ref() {
+			self.add_build_child(options.user.as_ref(), parent.id(), &build_id)
+				.await?;
 		}
 
 		Ok(build_id)
@@ -277,28 +488,13 @@ impl Server {
 				};
 
 				// If the build is at a unique depth, then start it.
-				let unique = {
-					let db = self.inner.database.get().await?;
-					let statement = "
-						select ?1 not in (
-							select distinct json->'depth'
-							from builds
-							where json->>'status' = 'running'
-						);
-					";
-					let params = params![item.depth];
-					let mut statement = db
-						.prepare_cached(statement)
-						.wrap_err("Failed to prepare the query.")?;
-					let mut rows = statement
-						.query(params)
-						.wrap_err("Failed to execute the query.")?;
-					let row = rows
-						.next()
-						.wrap_err("Failed to get the row.")?
-						.wrap_err("Expected one row.")?;
-					row.get::<_, bool>(0).wrap_err("Expected a bool.")?
-				};
+				let unique = self
+					.inner
+					.depths
+					.read()
+					.unwrap()
+					.values()
+					.all(|depth| depth != &item.depth);
 				if unique {
 					self.start_build(None, &item.build, item.depth, item.retry, None)
 						.await?;
@@ -380,7 +576,8 @@ impl Server {
 					.next()
 					.wrap_err("Failed to get the row.")?
 					.wrap_err("Expected one row.")?;
-				row.get::<_, bool>(0).wrap_err("Expected a bool.")?
+				row.get::<_, bool>(0)
+					.wrap_err("Failed to deserialize the column.")?
 			};
 			if !empty {
 				tokio::time::sleep(std::time::Duration::from_secs(1)).await;
@@ -832,11 +1029,14 @@ impl Server {
 		build_id: &tg::build::Id,
 		child_id: &tg::build::Id,
 	) -> Result<()> {
-		if self.add_build_child_local(user, build_id, child_id).await? {
+		if self
+			.try_add_build_child_local(user, build_id, child_id)
+			.await?
+		{
 			return Ok(());
 		}
 		if self
-			.add_build_child_remote(user, build_id, child_id)
+			.try_add_build_child_remote(user, build_id, child_id)
 			.await?
 		{
 			return Ok(());
@@ -844,7 +1044,7 @@ impl Server {
 		Err(error!("Failed to find the build."))
 	}
 
-	async fn add_build_child_local(
+	async fn try_add_build_child_local(
 		&self,
 		_user: Option<&tg::User>,
 		build_id: &tg::build::Id,
@@ -879,7 +1079,7 @@ impl Server {
 		Ok(true)
 	}
 
-	async fn add_build_child_remote(
+	async fn try_add_build_child_remote(
 		&self,
 		user: Option<&tg::User>,
 		build_id: &tg::build::Id,
@@ -888,6 +1088,9 @@ impl Server {
 		let Some(remote) = self.inner.remote.as_ref() else {
 			return Ok(false);
 		};
+		tg::Build::with_id(child_id.clone())
+			.push(user, self, remote.as_ref())
+			.await?;
 		remote.add_build_child(user, build_id, child_id).await?;
 		Ok(true)
 	}
@@ -936,16 +1139,22 @@ impl Server {
 		id: &tg::build::Id,
 		bytes: Bytes,
 	) -> Result<()> {
-		if self.add_build_log_local(user, id, bytes.clone()).await? {
+		if self
+			.try_add_build_log_local(user, id, bytes.clone())
+			.await?
+		{
 			return Ok(());
 		}
-		if self.add_build_log_remote(user, id, bytes.clone()).await? {
+		if self
+			.try_add_build_log_remote(user, id, bytes.clone())
+			.await?
+		{
 			return Ok(());
 		}
 		Err(error!("Failed to find the build."))
 	}
 
-	async fn add_build_log_local(
+	async fn try_add_build_log_local(
 		&self,
 		_user: Option<&tg::User>,
 		id: &tg::build::Id,
@@ -995,7 +1204,7 @@ impl Server {
 		Ok(true)
 	}
 
-	async fn add_build_log_remote(
+	async fn try_add_build_log_remote(
 		&self,
 		user: Option<&tg::User>,
 		id: &tg::build::Id,
@@ -1223,8 +1432,11 @@ impl Server {
 			channels.outcome.send_replace(());
 		}
 
-		// Remove the build's channels.
+		// Remove the build from the channels.
 		self.inner.channels.write().unwrap().remove(id);
+
+		// Remove the build from the depths.
+		self.inner.depths.write().unwrap().remove(id);
 
 		Ok(true)
 	}
@@ -1278,7 +1490,9 @@ impl Server {
 			.next()
 			.wrap_err("Failed to get the row.")?
 			.wrap_err("Expected one row.")?;
-		let exists = row.get::<_, bool>(0).wrap_err("Expected a bool.")?;
+		let exists = row
+			.get::<_, bool>(0)
+			.wrap_err("Failed to deserialize the column.")?;
 		Ok(exists)
 	}
 }

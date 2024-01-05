@@ -1,13 +1,13 @@
 use super::Server;
 use crate::params;
 use bytes::Bytes;
-use futures::{stream, StreamExt, TryStreamExt};
+use futures::{stream, TryStreamExt};
 use tangram_client as tg;
 use tangram_error::{return_error, Error, Result, WrapErr};
-use tg::object;
+use tokio_stream::StreamExt;
 
 impl Server {
-	pub async fn get_object_exists(&self, id: &object::Id) -> Result<bool> {
+	pub async fn get_object_exists(&self, id: &tg::object::Id) -> Result<bool> {
 		if self.get_object_exists_local(id).await? {
 			return Ok(true);
 		}
@@ -17,7 +17,7 @@ impl Server {
 		Ok(false)
 	}
 
-	async fn get_object_exists_local(&self, id: &object::Id) -> Result<bool> {
+	async fn get_object_exists_local(&self, id: &tg::object::Id) -> Result<bool> {
 		let db = self.inner.database.get().await?;
 		let statement = "
 			select count(*) != 0
@@ -35,11 +35,13 @@ impl Server {
 			.next()
 			.wrap_err("Failed to retrieve the row.")?
 			.wrap_err("Expected a row.")?;
-		let exists = row.get::<_, bool>(0).wrap_err("Expected a bool.")?;
+		let exists = row
+			.get::<_, bool>(0)
+			.wrap_err("Failed to deserialize the column.")?;
 		Ok(exists)
 	}
 
-	async fn get_object_exists_remote(&self, id: &object::Id) -> Result<bool> {
+	async fn get_object_exists_remote(&self, id: &tg::object::Id) -> Result<bool> {
 		let Some(remote) = self.inner.remote.as_ref() else {
 			return Ok(false);
 		};
@@ -47,7 +49,7 @@ impl Server {
 		Ok(exists)
 	}
 
-	pub async fn try_get_object(&self, id: &object::Id) -> Result<Option<Bytes>> {
+	pub async fn try_get_object(&self, id: &tg::object::Id) -> Result<Option<Bytes>> {
 		if let Some(bytes) = self.try_get_object_local(id).await? {
 			Ok(Some(bytes))
 		} else if let Some(bytes) = self.try_get_object_remote(id).await? {
@@ -57,7 +59,7 @@ impl Server {
 		}
 	}
 
-	async fn try_get_object_local(&self, id: &object::Id) -> Result<Option<Bytes>> {
+	async fn try_get_object_local(&self, id: &tg::object::Id) -> Result<Option<Bytes>> {
 		let db = self.inner.database.get().await?;
 		let statement = "
 			select bytes
@@ -74,11 +76,15 @@ impl Server {
 		let Some(row) = rows.next().wrap_err("Failed to retrieve the row.")? else {
 			return Ok(None);
 		};
-		let bytes = row.get::<_, Vec<u8>>(0).wrap_err("Expected bytes.")?.into();
+		let bytes = row
+			.get::<_, Vec<u8>>(0)
+			.wrap_err("Failed to deserialize the column.")?
+			.into();
 		Ok(Some(bytes))
 	}
 
-	async fn try_get_object_remote(&self, id: &object::Id) -> Result<Option<Bytes>> {
+	async fn try_get_object_remote(&self, id: &tg::object::Id) -> Result<Option<Bytes>> {
+		// Get the remote.
 		let Some(remote) = self.inner.remote.as_ref() else {
 			return Ok(None);
 		};
@@ -108,7 +114,11 @@ impl Server {
 		Ok(Some(bytes))
 	}
 
-	pub async fn try_put_object(&self, id: &object::Id, bytes: &Bytes) -> Result<Vec<object::Id>> {
+	pub async fn try_put_object(
+		&self,
+		id: &tg::object::Id,
+		bytes: &Bytes,
+	) -> Result<tg::object::PutOutput> {
 		// Deserialize the data.
 		let data = tg::object::Data::deserialize(id.kind(), bytes)
 			.wrap_err("Failed to deserialize the data.")?;
@@ -131,7 +141,7 @@ impl Server {
 			.try_collect::<Vec<_>>()
 			.await?;
 		if !missing.is_empty() {
-			return Ok(missing);
+			return Ok(tg::object::PutOutput { missing });
 		}
 
 		// Add the object to the database.
@@ -151,7 +161,7 @@ impl Server {
 				.wrap_err("Failed to execute the query.")?;
 		}
 
-		Ok(vec![])
+		Ok(tg::object::PutOutput::default())
 	}
 
 	pub async fn push_object(&self, id: &tg::object::Id) -> Result<()> {

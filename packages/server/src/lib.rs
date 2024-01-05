@@ -34,6 +34,7 @@ pub struct Server {
 struct Inner {
 	channels: std::sync::RwLock<HashMap<tg::build::Id, Arc<Channels>, fnv::FnvBuildHasher>>,
 	database: Database,
+	depths: std::sync::RwLock<HashMap<tg::build::Id, u64, fnv::FnvBuildHasher>>,
 	file_descriptor_semaphore: tokio::sync::Semaphore,
 	http_task: std::sync::Mutex<Option<tokio::task::JoinHandle<Result<()>>>>,
 	http_task_stop_sender: tokio::sync::watch::Sender<bool>,
@@ -123,6 +124,9 @@ impl Server {
 		// Create the channels.
 		let channels = std::sync::RwLock::new(HashMap::default());
 
+		// Create the depths.
+		let depths = std::sync::RwLock::new(HashMap::default());
+
 		// Open the database.
 		let database_path = path.join("database");
 		let database = Database::new(&database_path).await?;
@@ -185,6 +189,7 @@ impl Server {
 		let inner = Arc::new(Inner {
 			channels,
 			database,
+			depths,
 			file_descriptor_semaphore,
 			http_task,
 			http_task_stop_sender,
@@ -452,7 +457,7 @@ impl tg::Handle for Server {
 		&self,
 		id: &tg::object::Id,
 		bytes: &Bytes,
-	) -> Result<Vec<tg::object::Id>> {
+	) -> Result<tg::object::PutOutput> {
 		self.try_put_object(id, bytes).await
 	}
 
@@ -476,16 +481,29 @@ impl tg::Handle for Server {
 		self.try_get_assignment(id).await
 	}
 
-	async fn get_or_create_build(
+	async fn get_build_exists(&self, id: &tg::build::Id) -> Result<bool> {
+		self.get_build_exists(id).await
+	}
+
+	async fn try_get_build(&self, id: &tg::build::Id) -> Result<Option<tg::build::Data>> {
+		self.try_get_build(id).await
+	}
+
+	async fn try_put_build(
 		&self,
 		user: Option<&tg::User>,
+		id: &tg::build::Id,
+		data: &tg::build::Data,
+	) -> Result<tg::build::PutOutput> {
+		self.try_put_build(user, id, data).await
+	}
+
+	async fn get_or_create_build(
+		&self,
 		id: &tg::target::Id,
-		parent: Option<tg::build::Id>,
-		depth: u64,
-		retry: tg::build::Retry,
+		options: tg::build::Options,
 	) -> Result<tg::build::Id> {
-		self.get_or_create_build(user, id, parent, depth, retry)
-			.await
+		self.get_or_create_build(id, options).await
 	}
 
 	async fn try_get_queue_item(

@@ -118,11 +118,11 @@ impl Leaf {
 		let data = self.data(tg).await?;
 		let bytes = data.serialize()?;
 		let id = Id::new(&bytes);
-		let missing = tg
+		let output = tg
 			.try_put_object(&id.clone().into(), &bytes)
 			.await
 			.wrap_err("Failed to put the object.")?;
-		if !missing.is_empty() {
+		if !output.missing.is_empty() {
 			return_error!("Expected all children to be stored.");
 		}
 		self.state.write().unwrap().id.replace(id);

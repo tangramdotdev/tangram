@@ -77,7 +77,11 @@ impl Cli {
 		eprintln!("{}", target.id(tg).await?);
 
 		// Build the target.
-		let build = target.build(tg, None, None, 0, args.retry).await?;
+		let options = tg::build::Options {
+			retry: args.retry,
+			..Default::default()
+		};
+		let build = tg::Build::new(tg, target, options).await?;
 
 		// If the detach flag is set, then exit.
 		if args.detach {
