@@ -332,13 +332,6 @@ impl Server {
 				break 'a;
 			};
 
-			// If there is a local assignment, then push the build.
-			if let Some(build_id) = self.try_get_assignment_local(target_id).await? {
-				tg::Build::with_id(build_id.clone())
-					.push(options.user.as_ref(), self, remote.as_ref())
-					.await?;
-			}
-
 			// Get or create the build on the remote.
 			let options = tg::build::Options {
 				remote: false,
