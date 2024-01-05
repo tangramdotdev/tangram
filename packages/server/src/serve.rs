@@ -602,16 +602,27 @@ impl Server {
 			return_error!("Unexpected path.");
 		};
 		let id = id.parse().wrap_err("Failed to parse the ID.")?;
+		let tg::log::Params { pos, len } = match request.uri().query() {
+			Some(query) => {
+				serde_urlencoded::from_str(query).wrap_err("Failed to parse query string.")?
+			},
+			None => tg::log::Params {
+				pos: None,
+				len: None,
+			},
+		};
 
 		// Get the log.
-		let Some(log) = self.try_get_build_log(&id).await? else {
+		let Some(log) = self.try_get_build_log(&id, pos, len).await? else {
 			return Ok(not_found());
 		};
 
 		// Create the response.
-		let body = Outgoing::new(StreamBody::new(
-			log.map_ok(hyper::body::Frame::data).map_err(Into::into),
-		));
+		let body = Outgoing::new(StreamBody::new(log.map(|entry| match entry {
+			Ok(entry) => Ok(hyper::body::Frame::data(entry.to_bytes())),
+			Err(e) => Err(e.into()),
+		})));
+
 		let response = http::Response::builder()
 			.status(http::StatusCode::OK)
 			.body(body)

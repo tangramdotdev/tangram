@@ -1,6 +1,6 @@
 use crate::{
-	artifact, build, directory, lock, object, package, target, user, Dependency, Handle, Health,
-	Id, Runtime, System, User,
+	artifact, build, directory, lock, log, object, package, target, user, Dependency, Handle,
+	Health, Id, Runtime, System, User,
 };
 use async_trait::async_trait;
 use bytes::Bytes;
@@ -797,10 +797,18 @@ impl Handle for Client {
 	async fn try_get_build_log(
 		&self,
 		id: &build::Id,
-	) -> Result<Option<BoxStream<'static, Result<Bytes>>>> {
+		pos: Option<u64>,
+		len: Option<i64>,
+	) -> Result<Option<BoxStream<'static, Result<log::Entry>>>> {
+		let params = serde_urlencoded::to_string(log::Params { pos, len }).unwrap();
+		let uri = if params.is_empty() {
+			format!("/v1/builds/{id}/log")
+		} else {
+			format!("/v1/builds/{id}/log?{params}")
+		};
 		let request = http::request::Builder::default()
 			.method(http::Method::GET)
-			.uri(format!("/v1/builds/{id}/log"))
+			.uri(uri)
 			.body(empty())
 			.wrap_err("Failed to create the request.")?;
 		let response = self
@@ -813,7 +821,7 @@ impl Handle for Client {
 		if !response.status().is_success() {
 			return_error!("Expected the response's status to be success.");
 		}
-		let log = BodyStream::new(response.into_body())
+		let stream = BodyStream::new(response.into_body())
 			.filter_map(|frame| async {
 				match frame.map(http_body::Frame::into_data) {
 					Ok(Ok(bytes)) => Some(Ok(bytes)),
@@ -822,6 +830,15 @@ impl Handle for Client {
 				}
 			})
 			.map_err(|error| error.wrap("Failed to read from the body."));
+		let reader = Box::pin(tokio::io::BufReader::new(StreamReader::new(
+			stream.map_err(|error| std::io::Error::new(std::io::ErrorKind::Other, error)),
+		)));
+		let log = stream::unfold(reader, |mut reader| async move {
+			match log::Entry::read(&mut reader).await {
+				Err(ref e) if e.kind() == std::io::ErrorKind::UnexpectedEof => None,
+				entry => Some((entry.wrap_err("Failed to read entry."), reader)),
+			}
+		});
 		Ok(Some(log.boxed()))
 	}
 

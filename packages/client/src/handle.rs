@@ -1,5 +1,5 @@
 use crate::{
-	artifact, build, directory, health, lock, object, package, target, user, Dependency, Id,
+	artifact, build, directory, health, lock, log, object, package, target, user, Dependency, Id,
 	System, User,
 };
 use async_trait::async_trait;
@@ -119,9 +119,14 @@ pub trait Handle: Send + Sync + 'static {
 		child_id: &build::Id,
 	) -> Result<()>;
 
-	async fn get_build_log(&self, id: &build::Id) -> Result<BoxStream<'static, Result<Bytes>>> {
+	async fn get_build_log(
+		&self,
+		id: &build::Id,
+		pos: Option<u64>,
+		len: Option<i64>,
+	) -> Result<BoxStream<'static, Result<log::Entry>>> {
 		Ok(self
-			.try_get_build_log(id)
+			.try_get_build_log(id, pos, len)
 			.await?
 			.wrap_err("Failed to get the build.")?)
 	}
@@ -129,7 +134,9 @@ pub trait Handle: Send + Sync + 'static {
 	async fn try_get_build_log(
 		&self,
 		id: &build::Id,
-	) -> Result<Option<BoxStream<'static, Result<Bytes>>>>;
+		pos: Option<u64>,
+		len: Option<i64>,
+	) -> Result<Option<BoxStream<'static, Result<log::Entry>>>>;
 
 	async fn add_build_log(&self, user: Option<&User>, id: &build::Id, bytes: Bytes) -> Result<()>;
 

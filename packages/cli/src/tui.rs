@@ -693,17 +693,22 @@ impl Log {
 			async move {
 				let mut file = tokio::fs::File::from_std(tempfile::tempfile().unwrap());
 				let mut scroll: Option<u64> = None;
-				let Ok(stream) = log.inner.build.log(log.inner.tg.as_ref()).await else {
+				let Ok(stream) = log
+					.inner
+					.build
+					.log(log.inner.tg.as_ref(), Some(0), None)
+					.await
+				else {
 					return;
 				};
 				let mut stream = stream.fuse();
 				loop {
 					tokio::select! {
-						Some(bytes) = stream.next(), if !stream.is_terminated() => {
-							let Ok(bytes) = bytes else {
+						Some(entry) = stream.next(), if !stream.is_terminated() => {
+							let Ok(entry) = entry else {
 								return;
 							};
-							let result = log.bytes_impl(&mut file, &mut scroll, &bytes).await;
+							let result = log.bytes_impl(&mut file, &mut scroll, &entry.bytes).await;
 							if result.is_err() {
 								return;
 							}

@@ -550,8 +550,10 @@ impl tg::Handle for Server {
 	async fn try_get_build_log(
 		&self,
 		id: &tg::build::Id,
-	) -> Result<Option<BoxStream<'static, Result<Bytes>>>> {
-		self.try_get_build_log(id).await
+		pos: Option<u64>,
+		len: Option<i64>,
+	) -> Result<Option<BoxStream<'static, Result<tg::log::Entry>>>> {
+		self.try_get_build_log(id, pos, len).await
 	}
 
 	async fn add_build_log(

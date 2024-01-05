@@ -12,6 +12,7 @@ use std::sync::Arc;
 use tangram_client as tg;
 use tangram_error::{error, return_error, Error, Result, WrapErr};
 use tg::Handle;
+use tokio::io::{AsyncReadExt, AsyncSeekExt};
 use tokio_stream::wrappers::WatchStream;
 use tokio_util::either::Either;
 
@@ -35,8 +36,8 @@ impl Server {
 	) -> Result<Option<tg::build::Id>> {
 		let db = self.inner.database.get().await?;
 		let statement = "
-			select build 
-			from assignments 
+			select build
+			from assignments
 			where target = ?1;
 		";
 		let params = params![target_id.to_string()];
@@ -747,6 +748,33 @@ impl Server {
 		}
 	}
 
+	async fn try_get_build_log_data_local(&self, id: &tg::build::Id) -> Result<Option<tg::blob::Id>> {
+		let db = self.inner.database.get().await?;
+		let statement = "
+			select json->>'log' as log
+			from builds
+			where id = ?1;
+		";
+		let params = params![id.to_string()];
+		let mut statement = db
+			.prepare_cached(statement)
+			.wrap_err("Failed to prepare the query.")?;
+		let mut rows = statement
+			.query(params)
+			.wrap_err("Failed to execute the query.")?;
+		let Some(row) = rows.next().wrap_err("Failed to get the row.")? else {
+			return Ok(None);
+		};
+		let Some(log) = row
+			.get::<_, Option<String>>(0)
+			.wrap_err("Failed to deserialize the column.")?
+		else {
+			return Ok(None);
+		};
+		let log = log.parse()?;
+		Ok(Some(log))
+	}
+
 	async fn try_get_build_status_local(
 		&self,
 		id: &tg::build::Id,
@@ -1098,10 +1126,12 @@ impl Server {
 	pub async fn try_get_build_log(
 		&self,
 		id: &tg::build::Id,
-	) -> Result<Option<BoxStream<'static, Result<Bytes>>>> {
-		if let Some(log) = self.try_get_build_log_local(id).await? {
+		pos: Option<u64>,
+		len: Option<i64>,
+	) -> Result<Option<BoxStream<'static, Result<tg::log::Entry>>>> {
+		if let Some(log) = self.try_get_build_log_local(id, pos, len).await? {
 			Ok(Some(log))
-		} else if let Some(log) = self.try_get_build_log_remote(id).await? {
+		} else if let Some(log) = self.try_get_build_log_remote(id, pos, len).await? {
 			Ok(Some(log))
 		} else {
 			Ok(None)
@@ -1111,23 +1141,178 @@ impl Server {
 	async fn try_get_build_log_local(
 		&self,
 		id: &tg::build::Id,
-	) -> Result<Option<BoxStream<'static, Result<Bytes>>>> {
+		pos: Option<u64>,
+		len: Option<i64>,
+	) -> Result<Option<BoxStream<'static, Result<tg::log::Entry>>>> {
 		// Verify the build is local.
 		if !self.build_is_local(id).await? {
 			return Ok(None);
 		}
 
-		return Ok(Some(stream::empty().boxed()));
+		// Check if we have this build's log stored as a blob.
+		if let Some(id) = self.try_get_build_log_data_local(id).await? {
+			let blob = tg::blob::Blob::with_id(id);
+			let mut reader = blob
+				.reader(self)
+				.await
+				.wrap_err("Failed to create blob reader.")?;
+			let pos = pos.unwrap_or(blob.size(self).await?);
+			let (start, end) = match len {
+				Some(len) if len > 0 => (pos, pos.saturating_add(len.to_u64().unwrap())),
+				Some(len) => (pos.saturating_sub(len.abs().to_u64().unwrap()), pos),
+				None => (
+					pos,
+					blob.size(self).await.wrap_err("Failed to get blob size.")?,
+				),
+			};
+			reader
+				.seek(std::io::SeekFrom::Start(start))
+				.await
+				.wrap_err("Failed to seek.")?;
+			let stream = stream::once(async move {
+				let mut bytes = vec![0; (end - start).to_usize().unwrap()];
+				reader
+					.read_exact(&mut bytes)
+					.await
+					.wrap_err("Failed to read blob.")?;
+				let pos = start;
+				let bytes = bytes.into();
+				let mut entry = tg::log::Entry { pos, bytes };
+				if entry.pos < start {
+					let offset = (start - entry.pos).to_usize().unwrap();
+					entry.pos = start;
+					entry.bytes = entry.bytes.slice(offset..);
+				}
+				if (entry.pos + entry.bytes.len().to_u64().unwrap()) > end {
+					let length = (end - entry.pos) as usize;
+					entry.bytes = entry.bytes.slice(0..length);
+				}
+				Ok(entry)
+			})
+			.boxed();
+			return Ok(Some(stream));
+		}
+
+		// Otherwise get the starting position of the log stream. If pos is None, return the end.
+		let start_pos = match pos {
+			Some(pos) => pos,
+			None => {
+				let db = self.inner.database.get().await?;
+				let statement = "
+					select coalesce(max(position) + length(bytes), 0)
+					from logs
+					where build = ?1
+				";
+				let params = params![id.to_string()];
+				let mut statement = db
+					.prepare_cached(statement)
+					.wrap_err("Failed to prepare statement.")?;
+				let mut query = statement
+					.query(params)
+					.wrap_err("Failed to perform query.")?;
+				let row = query
+					.next()
+					.wrap_err("Failed to get row.")?
+					.wrap_err("Expected a row.")?;
+				row.get(0).wrap_err("Expected a position.")?
+			},
+		};
+
+		// Get the start and end positions
+		let (start, end) = match len {
+			None => (start_pos, None),
+			Some(len) if len > 0 => (
+				start_pos,
+				Some(start_pos.saturating_add(len.to_u64().unwrap())),
+			),
+			Some(len) => (start_pos.saturating_sub(len.abs().to_u64().unwrap()), pos), // Note: not Some(start_pos).
+		};
+
+		// Create the stream.
+		let offset = 0;
+		let count = 0;
+		let server = self.clone();
+		let id = id.clone();
+		let stream = stream::try_unfold(
+			(start, end, count, offset, id, server),
+			|(start, end, count, offset, id, server)| async move {
+				// Check if we've reached the end condition.
+				match end {
+					Some(end) if start + count >= end => return Ok(None),
+					_ => (),
+				}
+
+				// Get the next log entry.
+				let mut entry = loop {
+					let build_status = server
+						.get_build_status(&id)
+						.await
+						.wrap_err("Failed to get build status.")?;
+					let db = server.inner.database.get().await?;
+					let statement = "
+						select position, bytes
+						from logs
+						where
+							build = ?1 and (
+								position >= ?2 or (
+									position < ?2 and
+									position + length(bytes) > ?2
+								)
+							)
+						order by position
+						limit 1
+						offset ?3;
+					";
+					let params = params![id.to_string(), start, offset];
+					let mut statement = db
+						.prepare_cached(statement)
+						.wrap_err("Failed to prepare statement.")?;
+					let mut query = statement
+						.query(params)
+						.wrap_err("Failed to perform query.")?;
+					let entry = query.next().wrap_err("Expected a row.")?.map(|row| {
+						let pos = row.get(0).unwrap();
+						let bytes = row.get::<_, Vec<u8>>(1).unwrap().into();
+						tg::log::Entry { pos, bytes }
+					});
+					match (build_status, entry) {
+						(tg::build::Status::Finished, None) => return Ok(None),
+						(_, Some(entry)) => break entry,
+						_ => continue,
+					}
+				};
+
+				// Truncate the entry.
+				if entry.pos < start {
+					let offset = (start - entry.pos).to_usize().unwrap();
+					entry.pos = start;
+					entry.bytes = entry.bytes.slice(offset..);
+				}
+				match end {
+					Some(end) if (entry.pos + entry.bytes.len().to_u64().unwrap()) > end => {
+						let length = (end - entry.pos) as usize;
+						entry.bytes = entry.bytes.slice(0..length);
+					},
+					_ => (),
+				}
+				let offset = offset + 1;
+				let count = count + entry.bytes.len().to_u64().unwrap();
+				Ok(Some((entry, (start, end, count, offset, id, server))))
+			},
+		);
+		Ok(Some(stream.boxed()))
 	}
 
 	async fn try_get_build_log_remote(
 		&self,
 		id: &tg::build::Id,
-	) -> Result<Option<BoxStream<'static, Result<Bytes>>>> {
+		pos: Option<u64>,
+		len: Option<i64>,
+	) -> Result<Option<BoxStream<'static, Result<tg::log::Entry>>>> {
 		let Some(remote) = self.inner.remote.as_ref() else {
 			return Ok(None);
 		};
-		let Some(log) = remote.try_get_build_log(id).await? else {
+		let Some(log) = remote.try_get_build_log(id, pos, len).await? else {
 			return Ok(None);
 		};
 		Ok(Some(log))
@@ -1180,7 +1365,7 @@ impl Server {
 								where build = ?1
 								order by position desc
 								limit 1
-							), 
+							),
 							0
 						)
 					),
