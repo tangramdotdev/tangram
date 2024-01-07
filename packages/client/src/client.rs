@@ -514,7 +514,7 @@ impl Handle for Client {
 		Ok(true)
 	}
 
-	async fn try_get_build(&self, id: &build::Id) -> Result<Option<build::Data>> {
+	async fn try_get_build(&self, id: &build::Id) -> Result<Option<build::State>> {
 		let request = http::request::Builder::default()
 			.method(http::Method::GET)
 			.uri(format!("/v1/builds/{id}"))
@@ -529,15 +529,15 @@ impl Handle for Client {
 			.await
 			.wrap_err("Failed to collect the response body.")?
 			.to_bytes();
-		let data = serde_json::from_slice(&bytes).wrap_err("Failed to deserialize the body.")?;
-		Ok(data)
+		let state = serde_json::from_slice(&bytes).wrap_err("Failed to deserialize the body.")?;
+		Ok(state)
 	}
 
 	async fn try_put_build(
 		&self,
 		user: Option<&User>,
 		id: &build::Id,
-		data: &build::Data,
+		state: &build::State,
 	) -> Result<build::PutOutput> {
 		let mut request = http::request::Builder::default()
 			.method(http::Method::PUT)
@@ -546,7 +546,7 @@ impl Handle for Client {
 		if let Some(token) = user.and_then(|user| user.token.as_ref()) {
 			request = request.header(http::header::AUTHORIZATION, format!("Bearer {token}"));
 		}
-		let json = serde_json::to_string(&data).wrap_err("Failed to serialize the data.")?;
+		let json = serde_json::to_string(&state).wrap_err("Failed to serialize the data.")?;
 		let body = full(json);
 		let request = request
 			.body(body)

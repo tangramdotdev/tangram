@@ -237,51 +237,43 @@ impl Server {
 		server.inner.vfs.lock().unwrap().replace(vfs);
 
 		// Start the build queue task.
-		server
-			.inner
-			.local_queue_task
-			.lock()
-			.unwrap()
-			.replace(tokio::spawn({
-				let server = server.clone();
-				async move {
-					match server
-						.local_queue_task(
-							local_queue_task_wake_receiver,
-							local_queue_task_stop_receiver,
-						)
-						.await
-					{
-						Ok(()) => Ok(()),
-						Err(error) => {
-							tracing::error!(?error);
-							Err(error)
-						},
-					}
+		let task = tokio::spawn({
+			let server = server.clone();
+			async move {
+				let result = server
+					.local_queue_task(
+						local_queue_task_wake_receiver,
+						local_queue_task_stop_receiver,
+					)
+					.await;
+				match result {
+					Ok(()) => Ok(()),
+					Err(error) => {
+						tracing::error!(?error);
+						Err(error)
+					},
 				}
-			}));
+			}
+		});
+		server.inner.local_queue_task.lock().unwrap().replace(task);
 
 		// Start the build queue remote task.
-		server
-			.inner
-			.remote_queue_task
-			.lock()
-			.unwrap()
-			.replace(tokio::spawn({
-				let server = server.clone();
-				async move {
-					match server
-						.remote_queue_task(remote_queue_task_stop_receiver)
-						.await
-					{
-						Ok(()) => Ok(()),
-						Err(error) => {
-							tracing::error!(?error);
-							Err(error)
-						},
-					}
+		let task = tokio::spawn({
+			let server = server.clone();
+			async move {
+				let result = server
+					.remote_queue_task(remote_queue_task_stop_receiver)
+					.await;
+				match result {
+					Ok(()) => Ok(()),
+					Err(error) => {
+						tracing::error!(?error);
+						Err(error)
+					},
 				}
-			}));
+			}
+		});
+		server.inner.remote_queue_task.lock().unwrap().replace(task);
 
 		// Start the http task.
 		let task = tokio::spawn({
@@ -483,7 +475,7 @@ impl tg::Handle for Server {
 		self.get_build_exists(id).await
 	}
 
-	async fn try_get_build(&self, id: &tg::build::Id) -> Result<Option<tg::build::Data>> {
+	async fn try_get_build(&self, id: &tg::build::Id) -> Result<Option<tg::build::State>> {
 		self.try_get_build(id).await
 	}
 
@@ -491,9 +483,9 @@ impl tg::Handle for Server {
 		&self,
 		user: Option<&tg::User>,
 		id: &tg::build::Id,
-		data: &tg::build::Data,
+		state: &tg::build::State,
 	) -> Result<tg::build::PutOutput> {
-		self.try_put_build(user, id, data).await
+		self.try_put_build(user, id, state).await
 	}
 
 	async fn get_or_create_build(

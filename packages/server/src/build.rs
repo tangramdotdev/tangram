@@ -119,7 +119,9 @@ impl Server {
 			.next()
 			.wrap_err("Failed to retrieve the row.")?
 			.wrap_err("Expected a row.")?;
-		let exists = row.get::<_, bool>(0).wrap_err("Expected a bool.")?;
+		let exists = row
+			.get::<_, bool>(0)
+			.wrap_err("Failed to deserialize the column.")?;
 		Ok(exists)
 	}
 
@@ -131,17 +133,17 @@ impl Server {
 		Ok(exists)
 	}
 
-	pub async fn try_get_build(&self, id: &tg::build::Id) -> Result<Option<tg::build::Data>> {
-		if let Some(build) = self.try_get_build_local(id).await? {
-			Ok(Some(build))
-		} else if let Some(build) = self.try_get_build_remote(id).await? {
-			Ok(Some(build))
+	pub async fn try_get_build(&self, id: &tg::build::Id) -> Result<Option<tg::build::State>> {
+		if let Some(state) = self.try_get_build_local(id).await? {
+			Ok(Some(state))
+		} else if let Some(state) = self.try_get_build_remote(id).await? {
+			Ok(Some(state))
 		} else {
 			Ok(None)
 		}
 	}
 
-	async fn try_get_build_local(&self, id: &tg::build::Id) -> Result<Option<tg::build::Data>> {
+	async fn try_get_build_local(&self, id: &tg::build::Id) -> Result<Option<tg::build::State>> {
 		let db = self.inner.database.get().await?;
 		let statement = "
 			select json
@@ -158,21 +160,21 @@ impl Server {
 		let Some(row) = rows.next().wrap_err("Failed to retrieve the row.")? else {
 			return Ok(None);
 		};
-		let build = row
-			.get::<_, Json<tg::build::Data>>(0)
+		let state = row
+			.get::<_, Json<tg::build::State>>(0)
 			.wrap_err("Failed to deserialize the column.")?
 			.0;
-		Ok(Some(build))
+		Ok(Some(state))
 	}
 
-	async fn try_get_build_remote(&self, id: &tg::build::Id) -> Result<Option<tg::build::Data>> {
+	async fn try_get_build_remote(&self, id: &tg::build::Id) -> Result<Option<tg::build::State>> {
 		// Get the remote.
 		let Some(remote) = self.inner.remote.as_ref() else {
 			return Ok(None);
 		};
 
 		// Get the build from the remote server.
-		let Some(build) = remote.try_get_build(id).await? else {
+		let Some(state) = remote.try_get_build(id).await? else {
 			return Ok(None);
 		};
 
@@ -184,7 +186,7 @@ impl Server {
 				values (?1, ?2)
 				on conflict (id) do update set json = ?2;
 			";
-			let params = params![id.to_string(), Json(build.clone())];
+			let params = params![id.to_string(), Json(state.clone())];
 			let mut statement = db
 				.prepare_cached(statement)
 				.wrap_err("Failed to prepare the query.")?;
@@ -193,22 +195,22 @@ impl Server {
 				.wrap_err("Failed to execute the query.")?;
 		}
 
-		Ok(Some(build))
+		Ok(Some(state))
 	}
 
 	pub async fn try_put_build(
 		&self,
 		_user: Option<&tg::User>,
 		id: &tg::build::Id,
-		data: &tg::build::Data,
+		state: &tg::build::State,
 	) -> Result<tg::build::PutOutput> {
 		// Verify the build is finished.
-		if data.status != tg::build::Status::Finished {
+		if state.status != tg::build::Status::Finished {
 			return Err(error!("The build is not finished."));
 		}
 
 		// Check if there are any missing children, log, outcome, or target.
-		let children = stream::iter(data.children.clone())
+		let children = stream::iter(state.children.clone())
 			.map(Ok)
 			.try_filter_map(|id| async move {
 				let exists = self.get_build_exists(&id).await?;
@@ -216,12 +218,12 @@ impl Server {
 			})
 			.try_collect::<Vec<_>>()
 			.await?;
-		let log = if let Some(log) = &data.log {
+		let log = if let Some(log) = &state.log {
 			self.get_object_exists(&log.clone().into()).await?
 		} else {
 			false
 		};
-		let outcome = if let Some(tg::build::outcome::Data::Succeeded(value)) = &data.outcome {
+		let outcome = if let Some(tg::build::outcome::Data::Succeeded(value)) = &state.outcome {
 			stream::iter(value.children())
 				.map(Ok)
 				.and_then(|id| async move { self.get_object_exists(&id).await })
@@ -230,7 +232,7 @@ impl Server {
 		} else {
 			false
 		};
-		let target = self.get_object_exists(&data.target.clone().into()).await?;
+		let target = self.get_object_exists(&state.target.clone().into()).await?;
 		if !children.is_empty() || log || outcome || target {
 			return Ok(tg::build::PutOutput {
 				missing: tg::build::Missing {
@@ -250,7 +252,7 @@ impl Server {
 				values (?1, ?2)
 				on conflict do update set json = ?2;
 			";
-			let params = params![id.to_string(), Json(data.clone())];
+			let params = params![id.to_string(), Json(state.clone())];
 			let mut statement = db
 				.prepare_cached(statement)
 				.wrap_err("Failed to prepare the query.")?;
@@ -267,7 +269,7 @@ impl Server {
 				values (?1, ?2)
 				on conflict do nothing;
 			";
-			let params = params![data.target.to_string(), id.to_string()];
+			let params = params![state.target.to_string(), id.to_string()];
 			let mut statement = db
 				.prepare_cached(statement)
 				.wrap_err("Failed to prepare the query.")?;
@@ -313,7 +315,7 @@ impl Server {
 		'a: {
 			// Determine if the build should be remote.
 			let remote = if let Some(parent) = options.parent.as_ref() {
-				self.build_is_local(parent.id()).await?
+				self.get_build_exists_local(parent.id()).await?
 			} else {
 				options.remote
 			};
@@ -373,7 +375,7 @@ impl Server {
 
 		// Add the build to the database.
 		{
-			let data = tg::build::Data {
+			let state = tg::build::State {
 				children: Vec::new(),
 				log: None,
 				outcome: None,
@@ -385,7 +387,7 @@ impl Server {
 				insert into builds (id, json)
 				values (?1, ?2);
 			";
-			let params = params![build_id.to_string(), Json(data)];
+			let params = params![build_id.to_string(), Json(state)];
 			let mut statement = db
 				.prepare_cached(statement)
 				.wrap_err("Failed to prepare the query.")?;
@@ -931,7 +933,7 @@ impl Server {
 		stop: Option<tokio::sync::watch::Receiver<bool>>,
 	) -> Result<Option<BoxStream<'static, Result<tg::build::Id>>>> {
 		// Verify the build is local.
-		if !self.build_is_local(id).await? {
+		if !self.get_build_exists_local(id).await? {
 			return Ok(None);
 		}
 
@@ -1075,7 +1077,7 @@ impl Server {
 		child_id: &tg::build::Id,
 	) -> Result<bool> {
 		// Verify the build is local.
-		if !self.build_is_local(build_id).await? {
+		if !self.get_build_exists_local(build_id).await? {
 			return Ok(false);
 		}
 
@@ -1142,7 +1144,7 @@ impl Server {
 		len: Option<i64>,
 	) -> Result<Option<BoxStream<'static, Result<tg::log::Entry>>>> {
 		// Verify the build is local.
-		if !self.build_is_local(id).await? {
+		if !self.get_build_exists_local(id).await? {
 			return Ok(None);
 		}
 
@@ -1342,7 +1344,7 @@ impl Server {
 		bytes: Bytes,
 	) -> Result<bool> {
 		// Verify the build is local.
-		if !self.build_is_local(id).await? {
+		if !self.get_build_exists_local(id).await? {
 			return Ok(false);
 		}
 
@@ -1418,7 +1420,7 @@ impl Server {
 		mut stop: Option<tokio::sync::watch::Receiver<bool>>,
 	) -> Result<Option<tg::build::Outcome>> {
 		// Verify the build is local.
-		if !self.build_is_local(id).await? {
+		if !self.get_build_exists_local(id).await? {
 			return Ok(None);
 		}
 
@@ -1556,7 +1558,7 @@ impl Server {
 				.0
 		};
 
-		// If this build was canceled, then cancel the children.
+		// If the build was canceled, then cancel the children.
 		if matches!(outcome, tg::build::Outcome::Canceled) {
 			children
 				.iter()
@@ -1585,7 +1587,7 @@ impl Server {
 			outcome
 		};
 
-		// Update the database.
+		// Update the state.
 		{
 			let status = tg::build::Status::Finished;
 			let outcome = outcome.data(self).await?;
@@ -1651,29 +1653,5 @@ impl Server {
 			.remove(id);
 
 		Ok(true)
-	}
-
-	async fn build_is_local(&self, id: &tg::build::Id) -> Result<bool> {
-		let db = self.inner.database.get().await?;
-		let statement = "
-			select count(*) != 0
-			from builds
-			where id = ?1;
-		";
-		let params = params![id.to_string()];
-		let mut statement = db
-			.prepare_cached(statement)
-			.wrap_err("Failed to prepare the query.")?;
-		let mut rows = statement
-			.query(params)
-			.wrap_err("Failed to execute the query.")?;
-		let row = rows
-			.next()
-			.wrap_err("Failed to get the row.")?
-			.wrap_err("Expected one row.")?;
-		let exists = row
-			.get::<_, bool>(0)
-			.wrap_err("Failed to deserialize the column.")?;
-		Ok(exists)
 	}
 }

@@ -255,11 +255,11 @@ impl Server {
 				.boxed(),
 
 			// Server
-			(http::Method::POST, ["v1", "clean"]) => {
-				self.handle_post_clean_request(request).map(Some).boxed()
-			},
 			(http::Method::GET, ["v1", "health"]) => {
 				self.handle_get_health_request(request).map(Some).boxed()
+			},
+			(http::Method::POST, ["v1", "clean"]) => {
+				self.handle_post_clean_request(request).map(Some).boxed()
 			},
 			(http::Method::POST, ["v1", "stop"]) => {
 				self.handle_post_stop_request(request).map(Some).boxed()
@@ -339,6 +339,9 @@ impl Server {
 		&self,
 		request: http::Request<Incoming>,
 	) -> Result<hyper::Response<Outgoing>> {
+		// Get the user.
+		let user = self.try_get_user_from_request(&request).await?;
+
 		// Get the search params.
 		let hosts = if let Some(query) = request.uri().query() {
 			let search_params: tg::client::GetBuildQueueItemSearchParams =
@@ -350,9 +353,6 @@ impl Server {
 		} else {
 			None
 		};
-
-		// Get the user.
-		let user = self.try_get_user_from_request(&request).await?;
 
 		let build_id = self.try_get_queue_item(user.as_ref(), hosts).await?;
 

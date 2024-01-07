@@ -44,20 +44,20 @@ pub trait Handle: Send + Sync + 'static {
 
 	async fn get_build_exists(&self, id: &build::Id) -> Result<bool>;
 
-	async fn get_build(&self, id: &build::Id) -> Result<build::Data> {
+	async fn get_build(&self, id: &build::Id) -> Result<build::State> {
 		Ok(self
 			.try_get_build(id)
 			.await?
 			.wrap_err("Failed to get the build.")?)
 	}
 
-	async fn try_get_build(&self, id: &build::Id) -> Result<Option<build::Data>>;
+	async fn try_get_build(&self, id: &build::Id) -> Result<Option<build::State>>;
 
 	async fn try_put_build(
 		&self,
 		user: Option<&User>,
 		id: &build::Id,
-		data: &build::Data,
+		state: &build::State,
 	) -> Result<build::PutOutput>;
 
 	async fn get_or_create_build(

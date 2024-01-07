@@ -1,5 +1,5 @@
 pub use self::outcome::Outcome;
-use crate::{id, log, Error, Handle, Result, Target, User, Value, WrapErr, object, target, blob};
+use crate::{blob, id, log, object, target, Error, Handle, Result, Target, User, Value, WrapErr};
 use async_recursion::async_recursion;
 use bytes::Bytes;
 use derive_more::Display;
@@ -38,7 +38,7 @@ pub enum Status {
 }
 
 #[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
-pub struct Data {
+pub struct State {
 	pub children: Vec<Id>,
 	pub log: Option<blob::Id>,
 	pub outcome: Option<outcome::Data>,
@@ -249,9 +249,9 @@ impl Build {
 		tg: &dyn Handle,
 		remote: &dyn Handle,
 	) -> Result<()> {
-		let data = tg.get_build(&self.id).await?;
+		let state = tg.get_build(&self.id).await?;
 		let output = remote
-			.try_put_build(user, &self.id, &data)
+			.try_put_build(user, &self.id, &state)
 			.await
 			.wrap_err("Failed to put the object.")?;
 		output
@@ -265,17 +265,17 @@ impl Build {
 			.try_collect()
 			.await?;
 		if output.missing.log {
-			if let Some(log) = data.log.clone() {
+			if let Some(log) = state.log.clone() {
 				object::Handle::with_id(log.into()).push(tg, remote).await?;
 			}
 		}
 		if output.missing.outcome {
-			if let Some(outcome::Data::Succeeded(outcome)) = data.outcome.clone() {
+			if let Some(outcome::Data::Succeeded(outcome)) = state.outcome.clone() {
 				Value::try_from(outcome)?.push(tg, remote).await?;
 			}
 		}
 		if output.missing.target {
-			object::Handle::with_id(data.target.clone().into())
+			object::Handle::with_id(state.target.clone().into())
 				.push(tg, remote)
 				.await?;
 		}
@@ -285,7 +285,7 @@ impl Build {
 			|| output.missing.target
 		{
 			let output = remote
-				.try_put_build(user, &self.id, &data)
+				.try_put_build(user, &self.id, &state)
 				.await
 				.wrap_err("Failed to put the build.")?;
 			if !output.missing.children.is_empty()
