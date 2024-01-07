@@ -6,7 +6,7 @@ use std::{
 	path::{Path, PathBuf},
 };
 use tangram_client as tg;
-use tangram_error::{error, return_error, Result, WrapErr};
+use tangram_error::{error, Result, WrapErr};
 use tg::Handle;
 
 #[derive(Clone, Debug)]
@@ -490,7 +490,7 @@ async fn create_lockfile(
 			context,
 			solution,
 		};
-		return_error!("{report}");
+		return Err(error!("{report}"));
 	}
 
 	// Create the set of locks for all dependencies.
@@ -530,7 +530,7 @@ async fn create_lockfile_inner(
 				dependency: dependency.clone(),
 			};
 			let Some(Mark::Permanent(Ok(resolved))) = solution.partial.get(&dependant) else {
-				return_error!("Missing solution for {dependant:?}.");
+				return Err(error!("Missing solution for {dependant:?}."));
 			};
 			resolved
 		};
@@ -949,7 +949,7 @@ impl Context {
 		// We guarantee that the context already knows about the dependant package by the time this function is called.
 		let Some(analysis) = self.analysis.get(&dependant.package) else {
 			tracing::error!(?dependant, "Missing analysis.");
-			return_error!("Internal error: {dependant:?} missing analysis.");
+			return Err(error!("Internal error: {dependant:?} missing analysis."));
 		};
 		Ok(analysis
 			.path_dependencies
@@ -1280,6 +1280,6 @@ pub async fn metadata(
 	if let Some(metadata) = analysis.metadata {
 		Ok(metadata)
 	} else {
-		return_error!("Missing package metadata.")
+		Err(error!("Missing package metadata."))
 	}
 }

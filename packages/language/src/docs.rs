@@ -1,4 +1,4 @@
-use crate::{return_error, Module, Result, Server};
+use crate::{error, Module, Result, Server};
 use std::collections::BTreeMap;
 
 #[derive(Debug, serde::Serialize)]
@@ -26,7 +26,7 @@ impl Server {
 
 		// Get the response.
 		let super::Response::Docs(response) = response else {
-			return_error!("Unexpected response type.")
+			return Err(error!("Unexpected response type."))
 		};
 
 		Ok(response)

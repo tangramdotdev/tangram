@@ -1,7 +1,7 @@
 use crate::Cli;
 use indoc::formatdoc;
 use std::path::PathBuf;
-use tangram_error::{return_error, Result, Wrap, WrapErr};
+use tangram_error::{error, Result, Wrap, WrapErr};
 
 /// Initialize a new package.
 #[derive(Debug, clap::Args)]
@@ -22,7 +22,7 @@ impl Cli {
 		match tokio::fs::metadata(&path).await {
 			Ok(metadata) => {
 				if !metadata.is_dir() {
-					return_error!("The path must be a directory.");
+					return Err(error!("The path must be a directory."));
 				}
 			},
 			Err(error) if error.kind() == std::io::ErrorKind::NotFound => {

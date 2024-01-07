@@ -5,7 +5,7 @@ pub use self::{
 	object::Object, path::Path, runtime::Runtime, symlink::Symlink, system::System, target::Target,
 	template::Template, user::User, value::Value,
 };
-use tangram_error::{return_error, Error, Result, Wrap, WrapErr};
+use tangram_error::{error, Error, Result, Wrap, WrapErr};
 
 pub mod artifact;
 pub mod blob;

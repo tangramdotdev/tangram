@@ -1,6 +1,6 @@
 use crate::{
-	branch, directory, file, id, leaf, lock, return_error, symlink, target, Branch, Directory,
-	Error, File, Leaf, Lock, Result, Symlink, Target, WrapErr,
+	branch, directory, file, id, leaf, lock, symlink, target, Branch, Directory, Error, File, Leaf,
+	Lock, Result, Symlink, Target, WrapErr,
 };
 use async_recursion::async_recursion;
 use bytes::Bytes;
@@ -197,7 +197,7 @@ impl Handle {
 				.await
 				.wrap_err("Failed to put the object.")?;
 			if !output.missing.is_empty() {
-				return_error!("Expected all children to be stored.");
+				return Err(error!("Expected all children to be stored."));
 			}
 		}
 		Ok(())
@@ -333,7 +333,7 @@ impl TryFrom<crate::Id> for self::Id {
 			crate::id::Kind::Symlink => Ok(Self::Symlink(value.try_into()?)),
 			crate::id::Kind::Lock => Ok(Self::Lock(value.try_into()?)),
 			crate::id::Kind::Target => Ok(Self::Target(value.try_into()?)),
-			_ => return_error!("Expected an object ID."),
+			_ => Err(error!("Expected an object ID.")),
 		}
 	}
 }

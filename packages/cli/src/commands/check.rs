@@ -1,6 +1,6 @@
 use crate::Cli;
 use tangram_client as tg;
-use tangram_error::{return_error, Result, WrapErr};
+use tangram_error::{error, Result, WrapErr};
 
 /// Check a package for errors.
 #[derive(Debug, clap::Args)]
@@ -65,7 +65,7 @@ impl Cli {
 		}
 
 		if !diagnostics.is_empty() {
-			return_error!("Type checking failed.");
+			return Err(error!("Type checking failed."));
 		}
 
 		Ok(())

@@ -1,5 +1,5 @@
 pub use self::data::Data;
-use crate::{id, object, return_error, Dependency, Directory, Error, Handle, Result, WrapErr};
+use crate::{id, object, error, Dependency, Directory, Error, Handle, Result, WrapErr};
 use async_recursion::async_recursion;
 use bytes::Bytes;
 use derive_more::Display;
@@ -146,7 +146,7 @@ impl Lock {
 			.await
 			.wrap_err("Failed to put the object.")?;
 		if !output.missing.is_empty() {
-			return_error!("Expected all children to be stored.");
+			return Err(error!("Expected all children to be stored."));
 		}
 		self.state.write().unwrap().id.replace(id);
 		Ok(())
@@ -251,7 +251,7 @@ impl TryFrom<crate::Id> for Id {
 
 	fn try_from(value: crate::Id) -> Result<Self, Self::Error> {
 		if value.kind() != id::Kind::Lock {
-			return_error!("Invalid kind.");
+			return Err(error!("Invalid kind."));
 		}
 		Ok(Self(value))
 	}

@@ -1,5 +1,5 @@
-use crate::{return_error, Error, Result, WrapErr};
-use derive_more::{From, Into};
+use crate::{error, Error, Result, WrapErr};
+use derive_more::From;
 
 /// An ID.
 #[derive(Clone, Eq, Hash, Ord, PartialEq, PartialOrd, serde::Deserialize, serde::Serialize)]
@@ -99,7 +99,7 @@ impl std::str::FromStr for Id {
 		let kind = s.get(0..=2).wrap_err("Invalid ID.")?.parse()?;
 		let version = s.chars().nth(4).wrap_err("Invalid ID.")?;
 		if version != '0' {
-			return_error!("Invalid version.");
+			return Err(error!("Invalid version."));
 		}
 		let algorithm = s.chars().nth(5).wrap_err("Invalid ID.")?;
 		let body = s.get(6..).wrap_err("Invalid ID.")?;
@@ -120,7 +120,7 @@ impl std::str::FromStr for Id {
 					.ok()
 					.wrap_err("Invalid body.")?,
 			),
-			_ => return_error!("Invalid ID."),
+			_ => return Err(error!("Invalid ID.")),
 		};
 		Ok(Self::V0(V0 { kind, body }))
 	}
@@ -162,7 +162,7 @@ impl std::str::FromStr for Kind {
 			"usr" => Kind::User,
 			"lgn" => Kind::Login,
 			"tok" => Kind::Token,
-			_ => return_error!("Invalid kind."),
+			_ => return Err(error!("Invalid kind.")),
 		})
 	}
 }

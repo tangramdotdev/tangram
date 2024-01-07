@@ -3,7 +3,7 @@ use num::ToPrimitive;
 use serde_v8::Serializable;
 use std::{collections::BTreeMap, sync::Arc};
 use tangram_client as tg;
-use tangram_error::{return_error, Error, Result, WrapErr};
+use tangram_error::{error, Error, Result, WrapErr};
 use url::Url;
 
 pub fn _to_v8<'a, T>(scope: &mut v8::HandleScope<'a>, value: &T) -> Result<v8::Local<'a, v8::Value>>
@@ -43,7 +43,7 @@ impl FromV8 for () {
 		value: v8::Local<'a, v8::Value>,
 	) -> Result<Self> {
 		if !value.is_null_or_undefined() {
-			return_error!("Expected null or undefined.");
+			return Err(error!("Expected null or undefined."));
 		}
 		Ok(())
 	}
@@ -279,7 +279,7 @@ impl FromV8 for String {
 		value: v8::Local<'a, v8::Value>,
 	) -> Result<Self> {
 		if !value.is_string() {
-			return_error!("Expected a string.");
+			return Err(error!("Expected a string."));
 		}
 		Ok(value.to_rust_string_lossy(scope))
 	}
@@ -627,7 +627,7 @@ impl FromV8 for tg::Value {
 		} else if value.is_object() {
 			Ok(Self::Map(from_v8(scope, value)?))
 		} else {
-			return_error!("Invalid value.");
+			return Err(error!("Invalid value."));
 		}
 	}
 }
@@ -696,7 +696,7 @@ impl FromV8 for tg::Blob {
 		} else if value.instance_of(scope, branch.into()).unwrap() {
 			Self::Branch(from_v8(scope, value)?)
 		} else {
-			return_error!("Expected a leaf or branch.")
+			return Err(error!("Expected a leaf or branch."));
 		};
 
 		Ok(blob)
@@ -739,7 +739,7 @@ impl FromV8 for tg::Leaf {
 		let leaf = v8::Local::<v8::Function>::try_from(leaf).unwrap();
 
 		if !value.instance_of(scope, leaf.into()).unwrap() {
-			return_error!("Expected a leaf.");
+			return Err(error!("Expected a leaf."));
 		}
 		let value = value.to_object(scope).unwrap();
 
@@ -829,7 +829,7 @@ impl FromV8 for tg::Branch {
 		let branch = v8::Local::<v8::Function>::try_from(branch).unwrap();
 
 		if !value.instance_of(scope, branch.into()).unwrap() {
-			return_error!("Expected a branch.");
+			return Err(error!("Expected a branch."));
 		}
 		let value = value.to_object(scope).unwrap();
 
@@ -960,7 +960,7 @@ impl FromV8 for tg::Artifact {
 		} else if value.instance_of(scope, symlink.into()).unwrap() {
 			Self::Symlink(from_v8(scope, value)?)
 		} else {
-			return_error!("Expected a directory, file, or symlink.")
+			return Err(error!("Expected a directory, file, or symlink."));
 		};
 
 		Ok(artifact)
@@ -1005,7 +1005,7 @@ impl FromV8 for tg::Directory {
 		let directory = v8::Local::<v8::Function>::try_from(directory).unwrap();
 
 		if !value.instance_of(scope, directory.into()).unwrap() {
-			return_error!("Expected a directory.");
+			return Err(error!("Expected a directory."));
 		}
 		let value = value.to_object(scope).unwrap();
 
@@ -1095,7 +1095,7 @@ impl FromV8 for tg::File {
 		let file = v8::Local::<v8::Function>::try_from(file).unwrap();
 
 		if !value.instance_of(scope, file.into()).unwrap() {
-			return_error!("Expected a file.");
+			return Err(error!("Expected a file."));
 		}
 		let value = value.to_object(scope).unwrap();
 
@@ -1208,7 +1208,7 @@ impl FromV8 for tg::Symlink {
 		let symlink = v8::Local::<v8::Function>::try_from(symlink).unwrap();
 
 		if !value.instance_of(scope, symlink.into()).unwrap() {
-			return_error!("Expected a symlink.");
+			return Err(error!("Expected a symlink."));
 		}
 		let value = value.to_object(scope).unwrap();
 
@@ -1307,7 +1307,7 @@ impl FromV8 for tg::Lock {
 		let lock = v8::Local::<v8::Function>::try_from(lock).unwrap();
 
 		if !value.instance_of(scope, lock.into()).unwrap() {
-			return_error!("Expected a lock.");
+			return Err(error!("Expected a lock."));
 		}
 		let value = value.to_object(scope).unwrap();
 
@@ -1526,7 +1526,7 @@ impl FromV8 for tg::Mutation {
 		let mutation = v8::Local::<v8::Function>::try_from(mutation).unwrap();
 
 		if !value.instance_of(scope, mutation.into()).unwrap() {
-			return_error!("Expected a mutation.");
+			return Err(error!("Expected a mutation."));
 		}
 		let value = value.to_object(scope).unwrap();
 
@@ -1598,7 +1598,7 @@ impl FromV8 for tg::Mutation {
 					separator,
 				})
 			},
-			_ => return_error!("Invalid mutation kind."),
+			_ => Err(error!("Invalid mutation kind.")),
 		}
 	}
 }
@@ -1641,7 +1641,7 @@ impl FromV8 for tg::Template {
 		let template = v8::Local::<v8::Function>::try_from(template).unwrap();
 
 		if !value.instance_of(scope, template.into()).unwrap() {
-			return_error!("Expected a template.");
+			return Err(error!("Expected a template."));
 		}
 		let value = value.to_object(scope).unwrap();
 
@@ -1690,7 +1690,7 @@ impl FromV8 for tg::Target {
 		let target = v8::Local::<v8::Function>::try_from(target).unwrap();
 
 		if !value.instance_of(scope, target.into()).unwrap() {
-			return_error!("Expected a target.");
+			return Err(error!("Expected a target."));
 		}
 		let value = value.to_object(scope).unwrap();
 
@@ -1843,7 +1843,7 @@ impl FromV8 for tg::template::Component {
 		{
 			Self::Artifact(from_v8(scope, value)?)
 		} else {
-			return_error!("Expected a string or artifact.")
+			return Err(error!("Expected a string or artifact."));
 		};
 
 		Ok(component)
@@ -2077,7 +2077,7 @@ impl FromV8 for Error {
 		let error = v8::Local::<v8::Function>::try_from(error).unwrap();
 
 		if !value.instance_of(scope, error.into()).unwrap() {
-			return_error!("Expected an error.");
+			return Err(error!("Expected an error."));
 		}
 		let value = value.to_object(scope).unwrap();
 

@@ -3,7 +3,7 @@ use crate::params;
 use bytes::Bytes;
 use futures::{stream, TryStreamExt};
 use tangram_client as tg;
-use tangram_error::{return_error, Error, Result, WrapErr};
+use tangram_error::{error, Error, Result, WrapErr};
 use tokio_stream::StreamExt;
 
 impl Server {
@@ -128,7 +128,7 @@ impl Server {
 			.try_into()
 			.unwrap();
 		if id != &verified_id {
-			return_error!("The ID does not match the data.");
+			return Err(error!("The ID does not match the data."));
 		}
 
 		// Check if there are any missing children.
@@ -179,6 +179,6 @@ impl Server {
 
 	#[allow(clippy::unused_async)]
 	pub async fn pull_object(&self, _id: &tg::object::Id) -> Result<()> {
-		return_error!("Not yet implemented.");
+		Err(error!("Not yet implemented."))
 	}
 }

@@ -1,7 +1,7 @@
 use crate::{Result, Sender, Server};
 use lsp_types as lsp;
 use std::path::PathBuf;
-use tangram_error::return_error;
+use tangram_error::error;
 
 impl Server {
 	pub(crate) async fn handle_did_change_workspace_folders(
@@ -44,7 +44,7 @@ impl Server {
 		for uri in added {
 			let package_path = match uri.scheme() {
 				"file" => PathBuf::from(uri.path()),
-				_ => return_error!("Invalid URI for workspace folder."),
+				_ => return Err(error!("Invalid URI for workspace folder.")),
 			};
 			workspaces.insert(package_path);
 		}
@@ -53,7 +53,7 @@ impl Server {
 		for uri in removed {
 			let package_path = match uri.scheme() {
 				"file" => PathBuf::from(uri.path()),
-				_ => return_error!("Invalid URI for workspace folder."),
+				_ => return Err(error!("Invalid URI for workspace folder.")),
 			};
 			workspaces.remove(&package_path);
 		}

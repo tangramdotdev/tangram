@@ -2,7 +2,7 @@ use clap::Parser;
 use futures::FutureExt;
 use std::{path::PathBuf, sync::Arc};
 use tangram_client as tg;
-use tangram_error::{return_error, Result, WrapErr};
+use tangram_error::{error, Result, WrapErr};
 use tg::Handle;
 use tracing_subscriber::prelude::*;
 use url::Url;
@@ -226,10 +226,10 @@ impl Cli {
 		// If this is a debug build, then require that the client is connected and has the same version as the server.
 		if cfg!(debug_assertions) {
 			if !connected {
-				return_error!("Failed to connect to the server.");
+				return Err(error!("Failed to connect to the server."));
 			}
 			if connected && client.health().await?.version != self.version {
-				return_error!("The server has different version from the client.");
+				return Err(error!("The server has different version from the client."));
 			}
 			// Store the client.
 			let client = Arc::new(client);
@@ -259,7 +259,7 @@ impl Cli {
 
 		// If the client is not connected, then return an error.
 		if !connected {
-			return_error!("Failed to connect to the server.");
+			return Err(error!("Failed to connect to the server."));
 		}
 
 		// Store the client.

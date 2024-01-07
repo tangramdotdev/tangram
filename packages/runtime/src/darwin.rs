@@ -11,7 +11,7 @@ use std::{
 	path::Path,
 };
 use tangram_client as tg;
-use tangram_error::{return_error, Error, Result, Wrap, WrapErr};
+use tangram_error::{error, Error, Result, Wrap, WrapErr};
 use tokio::io::AsyncReadExt;
 
 #[allow(clippy::too_many_lines)]
@@ -389,7 +389,7 @@ pub async fn build(
 
 	// Return an error if the process did not exit successfully.
 	if !exit_status.success() {
-		return_error!("The process did not exit successfully.");
+		return Err(error!("The process did not exit successfully."));
 	}
 
 	// Create the output.
@@ -409,7 +409,7 @@ pub async fn build(
 				.await
 				.wrap_err("Failed to compute the checksum.")?;
 			if expected != tg::Checksum::Unsafe && expected != actual {
-				return_error!(
+				error!(
 					r#"The checksum did not match. Expected "{expected}" but got "{actual}"."#
 				);
 			}

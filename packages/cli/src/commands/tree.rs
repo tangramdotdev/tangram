@@ -1,6 +1,6 @@
 use crate::Cli;
 use tangram_client as tg;
-use tangram_error::{return_error, Result};
+use tangram_error::{error, Result};
 
 /// Print the dependency tree of a package.
 #[derive(Debug, clap::Args)]
@@ -13,6 +13,6 @@ pub struct Args {
 impl Cli {
 	#[allow(clippy::unused_async)]
 	pub async fn command_tree(&self, _args: Args) -> Result<()> {
-		return_error!("This command is not yet implemented.");
+		Err(error!("This command is not yet implemented."))
 	}
 }

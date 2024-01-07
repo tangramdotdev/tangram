@@ -10,7 +10,7 @@ use std::{
 	path::{Path, PathBuf},
 };
 use tangram_client as tg;
-use tangram_error::{return_error, Error, Result, Wrap, WrapErr};
+use tangram_error::{error, Error, Result, Wrap, WrapErr};
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 
 /// The home directory guest path.
@@ -607,10 +607,10 @@ pub async fn build(
 		match exit_status {
 			ExitStatus::Code(0) => (),
 			ExitStatus::Code(code) => {
-				return_error!(r#"The root process exited with code "{code}"."#);
+				return Err(error!(r#"The root process exited with code "{code}"."#));
 			},
 			ExitStatus::Signal(signal) => {
-				return_error!(r#"The root process exited with signal "{signal}"."#);
+				return Err(error!(r#"The root process exited with signal "{signal}"."#));
 			},
 		};
 		Ok(())
@@ -629,10 +629,10 @@ pub async fn build(
 	match exit_status {
 		ExitStatus::Code(0) => (),
 		ExitStatus::Code(code) => {
-			return_error!(r#"The process exited with code "{code}"."#);
+			return Err(error!(r#"The process exited with code "{code}"."#));
 		},
 		ExitStatus::Signal(signal) => {
-			return_error!(r#"The process exited with signal "{signal}"."#);
+			return Err(error!(r#"The process exited with signal "{signal}"."#));
 		},
 	};
 
@@ -653,7 +653,7 @@ pub async fn build(
 				.await
 				.wrap_err("Failed to compute the checksum.")?;
 			if expected != tg::Checksum::Unsafe && expected != actual {
-				return_error!(
+				error!(
 					r#"The checksum did not match. Expected "{expected}" but got "{actual}"."#
 				);
 			}

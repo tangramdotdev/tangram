@@ -9,7 +9,7 @@ use std::{
 	collections::{HashSet, VecDeque},
 	os::unix::fs::PermissionsExt,
 };
-use tangram_error::{return_error, Error, Result, WrapErr};
+use tangram_error::{error, Error, Result, WrapErr};
 
 /// An artifact kind.
 #[derive(Clone, Copy, Debug)]
@@ -206,7 +206,9 @@ impl Artifact {
 				.await
 				.wrap_err_with(|| format!(r#"Failed to check in the symlink at path "{path}"."#))?
 		} else {
-			return_error!("The path must point to a directory, file, or symlink.")
+			return Err(error!(
+				"The path must point to a directory, file, or symlink."
+			));
 		};
 
 		Ok(id)
@@ -332,7 +334,7 @@ impl Artifact {
 				.clone();
 			(Some(artifact), Some(path))
 		} else {
-			return_error!("Invalid symlink.");
+			return Err(error!("Invalid symlink."));
 		};
 
 		// Create the symlink.
@@ -530,7 +532,7 @@ impl Artifact {
 
 		// Check that the file has no references.
 		if !file.references(tg).await?.is_empty() {
-			return_error!(r#"Cannot check out a file with references."#);
+			return Err(error!(r#"Cannot check out a file with references."#));
 		}
 
 		Ok(())
@@ -555,7 +557,9 @@ impl Artifact {
 
 		// Render the target.
 		if symlink.artifact(tg).await?.is_some() {
-			return_error!(r#"Cannot check out a symlink which contains an artifact."#);
+			return Err(error!(
+				r#"Cannot check out a symlink which contains an artifact."#
+			));
 		}
 		let target = symlink
 			.path(tg)
@@ -609,7 +613,7 @@ impl TryFrom<crate::Id> for Id {
 			id::Kind::Directory => Ok(Self::Directory(value.try_into()?)),
 			id::Kind::File => Ok(Self::File(value.try_into()?)),
 			id::Kind::Symlink => Ok(Self::Symlink(value.try_into()?)),
-			_ => return_error!("Expected an artifact ID."),
+			_ => Err(error!("Expected an artifact ID.")),
 		}
 	}
 }
@@ -632,7 +636,7 @@ impl TryFrom<object::Id> for Id {
 			object::Id::Directory(value) => Ok(value.into()),
 			object::Id::File(value) => Ok(value.into()),
 			object::Id::Symlink(value) => Ok(value.into()),
-			_ => return_error!("Expected an artifact ID."),
+			_ => Err(error!("Expected an artifact ID.")),
 		}
 	}
 }
@@ -665,7 +669,7 @@ impl TryFrom<Value> for Artifact {
 			Value::Directory(directory) => Ok(Self::Directory(directory)),
 			Value::File(file) => Ok(Self::File(file)),
 			Value::Symlink(symlink) => Ok(Self::Symlink(symlink)),
-			_ => return_error!("Expected an artifact."),
+			_ => Err(error!("Expected an artifact.")),
 		}
 	}
 }

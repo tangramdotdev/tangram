@@ -7,7 +7,7 @@ use futures::{
 	stream::{BoxStream, FuturesUnordered},
 	StreamExt, TryStreamExt,
 };
-use tangram_error::{error, return_error};
+use tangram_error::error;
 
 #[derive(
 	Clone,
@@ -354,7 +354,7 @@ impl TryFrom<crate::Id> for Id {
 
 	fn try_from(value: crate::Id) -> Result<Self, Self::Error> {
 		if value.kind() != id::Kind::Build {
-			return_error!("Invalid kind.");
+			return Err(error!("Invalid kind."));
 		}
 		Ok(Self(value))
 	}
@@ -386,7 +386,7 @@ impl std::str::FromStr for Status {
 			"queued" => Ok(Self::Queued),
 			"running" => Ok(Self::Running),
 			"finished" => Ok(Self::Finished),
-			_ => return_error!("Invalid value."),
+			_ => Err(error!("Invalid value.")),
 		}
 	}
 }
@@ -425,7 +425,7 @@ impl std::str::FromStr for Retry {
 			"canceled" => Ok(Self::Canceled),
 			"failed" => Ok(Self::Failed),
 			"succeeded" => Ok(Self::Succeeded),
-			_ => return_error!("Invalid value."),
+			_ => Err(error!("Invalid value.")),
 		}
 	}
 }

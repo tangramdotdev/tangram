@@ -2,7 +2,7 @@ use crate::{id, object, Error, Handle, Result};
 use bytes::Bytes;
 use derive_more::Display;
 use std::sync::Arc;
-use tangram_error::{return_error, WrapErr};
+use tangram_error::{error, WrapErr};
 
 #[derive(
 	Clone,
@@ -123,7 +123,7 @@ impl Leaf {
 			.await
 			.wrap_err("Failed to put the object.")?;
 		if !output.missing.is_empty() {
-			return_error!("Expected all children to be stored.");
+			return Err(error!("Expected all children to be stored."));
 		}
 		self.state.write().unwrap().id.replace(id);
 		Ok(())
@@ -198,7 +198,7 @@ impl TryFrom<crate::Id> for Id {
 
 	fn try_from(value: crate::Id) -> Result<Self, Self::Error> {
 		if value.kind() != id::Kind::Leaf {
-			return_error!("Invalid kind.");
+			return Err(error!("Invalid kind."));
 		}
 		Ok(Self(value))
 	}

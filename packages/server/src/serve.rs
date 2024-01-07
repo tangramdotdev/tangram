@@ -9,7 +9,7 @@ use hyper_util::rt::{TokioExecutor, TokioIo};
 use itertools::Itertools;
 use std::{collections::BTreeMap, convert::Infallible};
 use tangram_client as tg;
-use tangram_error::{return_error, Error, Result, WrapErr};
+use tangram_error::{error, Error, Result, WrapErr};
 use tokio::net::{TcpListener, UnixListener};
 use tokio_util::either::Either;
 
@@ -370,7 +370,7 @@ impl Server {
 		// Get the path params.
 		let path_components: Vec<&str> = request.uri().path().split('/').skip(1).collect();
 		let [_, "assignments", id] = path_components.as_slice() else {
-			return_error!("Unexpected path.");
+			return Err(error!("Unexpected path."));
 		};
 		let id = id.parse().wrap_err("Failed to parse the ID.")?;
 
@@ -393,7 +393,7 @@ impl Server {
 		// Get the path params.
 		let path_components: Vec<&str> = request.uri().path().split('/').skip(1).collect();
 		let [_, "builds"] = path_components.as_slice() else {
-			return_error!("Unexpected path.");
+			return Err(error!("Unexpected path."));
 		};
 
 		// Get the search params.
@@ -437,7 +437,7 @@ impl Server {
 		// Get the path params.
 		let path_components: Vec<&str> = request.uri().path().split('/').skip(1).collect();
 		let [_, "builds", id, "status"] = path_components.as_slice() else {
-			return_error!("Unexpected path.");
+			return Err(error!("Unexpected path."));
 		};
 		let id = id.parse().wrap_err("Failed to parse the ID.")?;
 
@@ -460,7 +460,7 @@ impl Server {
 		// Get the path params.
 		let path_components: Vec<&str> = request.uri().path().split('/').skip(1).collect();
 		let [_, "builds", id, "status"] = path_components.as_slice() else {
-			return_error!("Unexpected path.");
+			return Err(error!("Unexpected path."));
 		};
 		let build_id: tg::build::Id = id.parse().wrap_err("Failed to parse the ID.")?;
 
@@ -495,7 +495,7 @@ impl Server {
 		// Get the path params.
 		let path_components: Vec<&str> = request.uri().path().split('/').skip(1).collect();
 		let [_, "builds", id, "target"] = path_components.as_slice() else {
-			return_error!("Unexpected path.");
+			return Err(error!("Unexpected path."));
 		};
 		let id = id.parse().wrap_err("Failed to parse the ID.")?;
 
@@ -518,7 +518,7 @@ impl Server {
 		// Get the path params.
 		let path_components: Vec<&str> = request.uri().path().split('/').skip(1).collect();
 		let [_, "builds", id, "children"] = path_components.as_slice() else {
-			return_error!("Unexpected path.");
+			return Err(error!("Unexpected path."));
 		};
 		let id = id.parse().wrap_err("Failed to parse the ID.")?;
 
@@ -564,7 +564,7 @@ impl Server {
 		// Get the path params.
 		let path_components: Vec<&str> = request.uri().path().split('/').skip(1).collect();
 		let [_, "builds", id, "children"] = path_components.as_slice() else {
-			return_error!("Unexpected path.");
+			return Err(error!("Unexpected path."));
 		};
 		let build_id: tg::build::Id = id.parse().wrap_err("Failed to parse the ID.")?;
 
@@ -600,7 +600,7 @@ impl Server {
 		// Get the path params.
 		let path_components: Vec<&str> = request.uri().path().split('/').skip(1).collect();
 		let [_, "builds", id, "log"] = path_components.as_slice() else {
-			return_error!("Unexpected path.");
+			return Err(error!("Unexpected path."));
 		};
 		let id = id.parse().wrap_err("Failed to parse the ID.")?;
 		let tg::log::Params { pos, len } = match request.uri().query() {
@@ -639,7 +639,7 @@ impl Server {
 		// Get the path params.
 		let path_components: Vec<&str> = request.uri().path().split('/').skip(1).collect();
 		let [_, "builds", id, "log"] = path_components.as_slice() else {
-			return_error!("Unexpected path.");
+			return Err(error!("Unexpected path."));
 		};
 		let build_id = id.parse().wrap_err("Failed to parse the ID.")?;
 
@@ -671,7 +671,7 @@ impl Server {
 		// Get the path params.
 		let path_components: Vec<&str> = request.uri().path().split('/').skip(1).collect();
 		let [_, "builds", id, "outcome"] = path_components.as_slice() else {
-			return_error!("Unexpected path.");
+			return Err(error!("Unexpected path."));
 		};
 		let id = id.parse().wrap_err("Failed to parse the ID.")?;
 
@@ -699,7 +699,7 @@ impl Server {
 		// Get the path params.
 		let path_components: Vec<&str> = request.uri().path().split('/').skip(1).collect();
 		let [_, "builds", build_id, "finish"] = path_components.as_slice() else {
-			return_error!("Unexpected path.");
+			return Err(error!("Unexpected path."));
 		};
 		let build_id = build_id.parse().wrap_err("Failed to parse the ID.")?;
 
@@ -734,7 +734,7 @@ impl Server {
 		// Get the path params.
 		let path_components: Vec<&str> = request.uri().path().split('/').skip(1).collect();
 		let ["v1", "builds", id] = path_components.as_slice() else {
-			return_error!("Unexpected path.")
+			return Err(error!("Unexpected path."))
 		};
 		let Ok(id) = id.parse() else {
 			return Ok(bad_request());
@@ -764,7 +764,7 @@ impl Server {
 		// Get the path params.
 		let path_components: Vec<&str> = request.uri().path().split('/').skip(1).collect();
 		let [_, "builds", build_id] = path_components.as_slice() else {
-			return_error!("Unexpected path.");
+			return Err(error!("Unexpected path."));
 		};
 		let build_id = build_id.parse().wrap_err("Failed to parse the ID.")?;
 
@@ -790,7 +790,7 @@ impl Server {
 		// Get the path params.
 		let path_components: Vec<&str> = request.uri().path().split('/').skip(1).collect();
 		let ["v1", "builds", build_id] = path_components.as_slice() else {
-			return_error!("Unexpected path.")
+			return Err(error!("Unexpected path."))
 		};
 		let build_id = build_id.parse().wrap_err("Failed to parse the ID.")?;
 
@@ -826,7 +826,7 @@ impl Server {
 		// Get the path params.
 		let path_components: Vec<&str> = request.uri().path().split('/').skip(1).collect();
 		let ["v1", "objects", id] = path_components.as_slice() else {
-			return_error!("Unexpected path.")
+			return Err(error!("Unexpected path."))
 		};
 		let Ok(id) = id.parse() else {
 			return Ok(bad_request());
@@ -856,7 +856,7 @@ impl Server {
 		// Get the path params.
 		let path_components: Vec<&str> = request.uri().path().split('/').skip(1).collect();
 		let ["v1", "objects", id] = path_components.as_slice() else {
-			return_error!("Unexpected path.")
+			return Err(error!("Unexpected path."))
 		};
 		let Ok(id) = id.parse() else {
 			return Ok(bad_request());
@@ -883,7 +883,7 @@ impl Server {
 		// Get the path params.
 		let path_components: Vec<&str> = request.uri().path().split('/').skip(1).collect();
 		let ["v1", "objects", id] = path_components.as_slice() else {
-			return_error!("Unexpected path.")
+			return Err(error!("Unexpected path."))
 		};
 		let Ok(id) = id.parse() else {
 			return Ok(bad_request());
@@ -961,7 +961,7 @@ impl Server {
 		// Get the path params.
 		let path_components: Vec<&str> = request.uri().path().split('/').skip(1).collect();
 		let ["v1", "objects", id, "push"] = path_components.as_slice() else {
-			return_error!("Unexpected path.")
+			return Err(error!("Unexpected path."))
 		};
 		let Ok(id) = id.parse() else {
 			return Ok(bad_request());
@@ -980,7 +980,7 @@ impl Server {
 		// Get the path params.
 		let path_components: Vec<&str> = request.uri().path().split('/').skip(1).collect();
 		let ["v1", "objects", id, "pull"] = path_components.as_slice() else {
-			return_error!("Unexpected path.")
+			return Err(error!("Unexpected path."))
 		};
 		let Ok(id) = id.parse() else {
 			return Ok(bad_request());
@@ -1020,7 +1020,7 @@ impl Server {
 		// Get the path params.
 		let path_components: Vec<&str> = request.uri().path().split('/').skip(1).collect();
 		let [_, "packages", dependency] = path_components.as_slice() else {
-			return_error!("Unexpected path.");
+			return Err(error!("Unexpected path."));
 		};
 		let dependency =
 			urlencoding::decode(dependency).wrap_err("Failed to decode the dependency.")?;
@@ -1070,7 +1070,7 @@ impl Server {
 		// Get the path params.
 		let path_components: Vec<&str> = request.uri().path().split('/').skip(1).collect();
 		let [_, "packages", dependency, "versions"] = path_components.as_slice() else {
-			return_error!("Unexpected path.");
+			return Err(error!("Unexpected path."));
 		};
 		let dependency =
 			urlencoding::decode(dependency).wrap_err("Failed to decode the dependency.")?;
@@ -1097,7 +1097,7 @@ impl Server {
 		// Get the path params.
 		let path_components: Vec<&str> = request.uri().path().split('/').skip(1).collect();
 		let [_, "packages", dependency, "metadata"] = path_components.as_slice() else {
-			return_error!("Unexpected path.");
+			return Err(error!("Unexpected path."));
 		};
 		let dependency =
 			urlencoding::decode(dependency).wrap_err("Failed to decode the dependency.")?;
@@ -1124,7 +1124,7 @@ impl Server {
 		// Get the path params.
 		let path_components: Vec<&str> = request.uri().path().split('/').skip(1).collect();
 		let [_, "packages", dependency, "dependencies"] = path_components.as_slice() else {
-			return_error!("Unexpected path.");
+			return Err(error!("Unexpected path."));
 		};
 		let dependency =
 			urlencoding::decode(dependency).wrap_err("Failed to decode the dependency.")?;
@@ -1191,7 +1191,7 @@ impl Server {
 		// Get the path params.
 		let path_components: Vec<&str> = request.uri().path().split('/').skip(1).collect();
 		let ["v1", "logins", id] = path_components.as_slice() else {
-			return_error!("Unexpected path.");
+			return Err(error!("Unexpected path."));
 		};
 		let Ok(id) = id.parse() else {
 			return Ok(bad_request());

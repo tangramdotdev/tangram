@@ -12,7 +12,7 @@ use std::{
 	sync::Arc,
 };
 use tangram_client as tg;
-use tangram_error::{return_error, Error, Result, WrapErr};
+use tangram_error::{error, Error, Result, WrapErr};
 use tokio::io::{AsyncBufRead, AsyncBufReadExt, AsyncReadExt, AsyncWriteExt};
 use url::Url;
 
@@ -270,7 +270,7 @@ where
 			break;
 		}
 		if !line.ends_with("\r\n") {
-			return_error!("Unexpected line ending.");
+			return Err(error!("Unexpected line ending."));
 		}
 		let line = &line[..line.len() - 2];
 		if line.is_empty() {

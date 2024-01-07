@@ -1,4 +1,4 @@
-use crate::{return_error, Error};
+use crate::{error, Error};
 
 #[derive(Clone, Debug, Eq, Ord, PartialEq, PartialOrd, serde::Deserialize, serde::Serialize)]
 #[serde(into = "String", try_from = "String")]
@@ -65,7 +65,7 @@ impl System {
 				os: Os::Darwin,
 			}
 		} else {
-			return_error!("Unsupported host system.");
+			return Err(error!("Unsupported host system."));
 		};
 		Ok(host)
 	}
@@ -96,7 +96,7 @@ impl std::str::FromStr for System {
 		let (Some(arch), Some(os), None) =
 			(components.next(), components.next(), components.next())
 		else {
-			return_error!("Unexpected number of components.");
+			return Err(error!("Unexpected number of components."));
 		};
 		let arch = arch.parse()?;
 		let os = os.parse()?;
@@ -138,7 +138,7 @@ impl std::str::FromStr for Arch {
 			"aarch64" => Arch::Aarch64,
 			"js" => Arch::Js,
 			"x86_64" => Arch::X8664,
-			_ => return_error!(r#"Invalid arch "{s}"."#),
+			_ => return Err(error!(r#"Invalid arch "{s}"."#)),
 		};
 		Ok(system)
 	}
@@ -178,7 +178,7 @@ impl std::str::FromStr for Os {
 			"darwin" => Os::Darwin,
 			"js" => Os::Js,
 			"linux" => Os::Linux,
-			_ => return_error!(r#"Invalid os "{s}"."#),
+			_ => return Err(error!(r#"Invalid os "{s}"."#)),
 		};
 		Ok(os)
 	}

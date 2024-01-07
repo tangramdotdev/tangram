@@ -12,7 +12,7 @@ use futures::{
 use http_body_util::{BodyExt, BodyStream};
 use itertools::Itertools;
 use std::{path::PathBuf, sync::Arc};
-use tangram_error::{return_error, Error, Result, Wrap, WrapErr};
+use tangram_error::{error, Error, Result, Wrap, WrapErr};
 use tokio::{
 	io::{AsyncBufReadExt, AsyncReadExt},
 	net::{TcpStream, UnixStream},
@@ -227,7 +227,7 @@ impl Client {
 			.map(|protocol| protocol == b"h2")
 			.unwrap_or_default()
 		{
-			return_error!("Failed to negotiate the HTTP/2 protocol.");
+			return Err(error!("Failed to negotiate the HTTP/2 protocol."));
 		}
 
 		// Perform the HTTP handshake.
@@ -320,7 +320,7 @@ impl Handle for Client {
 			.wrap_err("Failed to create the request.")?;
 		let response = self.send(request).await?;
 		if !response.status().is_success() {
-			return_error!("Expected the response's status to be success.");
+			return Err(error!("Expected the response's status to be success."));
 		}
 		let bytes = response
 			.collect()
@@ -349,7 +349,7 @@ impl Handle for Client {
 			.wrap_err("Failed to create the request.")?;
 		let response = self.send(request).await?;
 		if !response.status().is_success() {
-			return_error!("Expected the response's status to be success.");
+			return Err(error!("Expected the response's status to be success."));
 		}
 		Ok(())
 	}
@@ -365,7 +365,7 @@ impl Handle for Client {
 			return Ok(false);
 		}
 		if !response.status().is_success() {
-			return_error!("Expected the response's status to be success.");
+			return Err(error!("Expected the response's status to be success."));
 		}
 		Ok(true)
 	}
@@ -381,7 +381,7 @@ impl Handle for Client {
 			return Ok(None);
 		}
 		if !response.status().is_success() {
-			return_error!("Expected the response's status to be success.");
+			return Err(error!("Expected the response's status to be success."));
 		}
 		let bytes = response
 			.collect()
@@ -400,7 +400,7 @@ impl Handle for Client {
 			.wrap_err("Failed to create the request.")?;
 		let response = self.send(request).await?;
 		if !response.status().is_success() {
-			return_error!("Expected the response's status to be success.");
+			return Err(error!("Expected the response's status to be success."));
 		}
 		let bytes = response
 			.collect()
@@ -419,7 +419,7 @@ impl Handle for Client {
 			.wrap_err("Failed to create the request.")?;
 		let response = self.send(request).await?;
 		if !response.status().is_success() {
-			return_error!("Expected the response's status to be success.");
+			return Err(error!("Expected the response's status to be success."));
 		}
 		Ok(())
 	}
@@ -432,7 +432,7 @@ impl Handle for Client {
 			.wrap_err("Failed to create the request.")?;
 		let response = self.send(request).await?;
 		if !response.status().is_success() {
-			return_error!("Expected the response's status to be success.");
+			return Err(error!("Expected the response's status to be success."));
 		}
 		Ok(())
 	}
@@ -447,7 +447,7 @@ impl Handle for Client {
 			.wrap_err("Failed to create the request.")?;
 		let response = self.send(request).await?;
 		if !response.status().is_success() {
-			return_error!("Expected the response's status to be success.");
+			return Err(error!("Expected the response's status to be success."));
 		}
 		let bytes = response
 			.collect()
@@ -471,7 +471,7 @@ impl Handle for Client {
 			.wrap_err("Failed to create the request.")?;
 		let response = self.send(request).await?;
 		if !response.status().is_success() {
-			return_error!("Expected the response's status to be success.");
+			return Err(error!("Expected the response's status to be success."));
 		}
 		Ok(())
 	}
@@ -487,7 +487,7 @@ impl Handle for Client {
 			return Ok(None);
 		}
 		if !response.status().is_success() {
-			return_error!("Expected the response's status to be success.");
+			return Err(error!("Expected the response's status to be success."));
 		}
 		let bytes = response
 			.collect()
@@ -509,7 +509,7 @@ impl Handle for Client {
 			return Ok(false);
 		}
 		if !response.status().is_success() {
-			return_error!("Expected the response's status to be success.");
+			return Err(error!("Expected the response's status to be success."));
 		}
 		Ok(true)
 	}
@@ -522,7 +522,7 @@ impl Handle for Client {
 			.wrap_err("Failed to create the request.")?;
 		let response = self.send(request).await?;
 		if !response.status().is_success() {
-			return_error!("Expected the response's status to be success.");
+			return Err(error!("Expected the response's status to be success."));
 		}
 		let bytes = response
 			.collect()
@@ -553,7 +553,7 @@ impl Handle for Client {
 			.wrap_err("Failed to create the request.")?;
 		let response = self.send(request).await?;
 		if !response.status().is_success() {
-			return_error!("Expected the response's status to be success.");
+			return Err(error!("Expected the response's status to be success."));
 		}
 		let bytes = response
 			.collect()
@@ -592,7 +592,7 @@ impl Handle for Client {
 			.wrap_err("Failed to create the request.")?;
 		let response = self.send(request).await?;
 		if !response.status().is_success() {
-			return_error!("Expected the response's status to be success.");
+			return Err(error!("Expected the response's status to be success."));
 		}
 		let bytes = response
 			.collect()
@@ -626,7 +626,7 @@ impl Handle for Client {
 			.wrap_err("Failed to create the request.")?;
 		let response = self.send(request).await?;
 		if !response.status().is_success() {
-			return_error!("Expected the response's status to be success.");
+			return Err(error!("Expected the response's status to be success."));
 		}
 		let bytes = response
 			.collect()
@@ -646,7 +646,7 @@ impl Handle for Client {
 			.wrap_err("Failed to create the request.")?;
 		let response = self.send(request).await?;
 		if !response.status().is_success() {
-			return_error!("Expected the response's status to be success.");
+			return Err(error!("Expected the response's status to be success."));
 		}
 		let bytes = response
 			.collect()
@@ -676,7 +676,7 @@ impl Handle for Client {
 			.wrap_err("Failed to create the request.")?;
 		let response = self.send(request).await?;
 		if !response.status().is_success() {
-			return_error!("Expected the response's status to be success.");
+			return Err(error!("Expected the response's status to be success."));
 		}
 		Ok(())
 	}
@@ -689,7 +689,7 @@ impl Handle for Client {
 			.wrap_err("Failed to create the request.")?;
 		let response = self.send(request).await?;
 		if !response.status().is_success() {
-			return_error!("Expected the response's status to be success.");
+			return Err(error!("Expected the response's status to be success."));
 		}
 		let bytes = response
 			.collect()
@@ -714,7 +714,7 @@ impl Handle for Client {
 			return Ok(None);
 		}
 		if !response.status().is_success() {
-			return_error!("Expected the response's status to be success.");
+			return Err(error!("Expected the response's status to be success."));
 		}
 		let stream = BodyStream::new(response.into_body())
 			.filter_map(|frame| async {
@@ -735,7 +735,7 @@ impl Handle for Client {
 					.await
 					.wrap_err("Failed to read from the reader.")?;
 				if byte != b'[' {
-					return_error!("Expected an open bracket.");
+					return Err(error!("Expected an open bracket."));
 				}
 			}
 			let mut byte = reader
@@ -747,7 +747,7 @@ impl Handle for Client {
 			}
 			if !first {
 				if byte != b',' {
-					return_error!("Expected a comma.");
+					return Err(error!("Expected a comma."));
 				}
 				byte = reader
 					.read_u8()
@@ -755,7 +755,7 @@ impl Handle for Client {
 					.wrap_err("Failed to read from the reader.")?;
 			}
 			if byte != b'"' {
-				return_error!("Expected a quotation mark.");
+				return Err(error!("Expected a quotation mark."));
 			}
 			let mut id = Vec::new();
 			reader
@@ -789,7 +789,7 @@ impl Handle for Client {
 			.wrap_err("Failed to create the request.")?;
 		let response = self.send(request).await?;
 		if !response.status().is_success() {
-			return_error!("Expected the response's status to be success.");
+			return Err(error!("Expected the response's status to be success."));
 		}
 		Ok(())
 	}
@@ -819,7 +819,7 @@ impl Handle for Client {
 			return Ok(None);
 		}
 		if !response.status().is_success() {
-			return_error!("Expected the response's status to be success.");
+			return Err(error!("Expected the response's status to be success."));
 		}
 		let stream = BodyStream::new(response.into_body())
 			.filter_map(|frame| async {
@@ -856,7 +856,7 @@ impl Handle for Client {
 			.wrap_err("Failed to create the request.")?;
 		let response = self.send(request).await?;
 		if !response.status().is_success() {
-			return_error!("Expected the response's status to be success.");
+			return Err(error!("Expected the response's status to be success."));
 		}
 		Ok(())
 	}
@@ -872,7 +872,7 @@ impl Handle for Client {
 			return Ok(None);
 		}
 		if !response.status().is_success() {
-			return_error!("Expected the response's status to be success.");
+			return Err(error!("Expected the response's status to be success."));
 		}
 		let bytes = response
 			.collect()
@@ -904,7 +904,7 @@ impl Handle for Client {
 			.wrap_err("Failed to create the request.")?;
 		let response = self.send(request).await?;
 		if !response.status().is_success() {
-			return_error!("Expected the response's status to be success.");
+			return Err(error!("Expected the response's status to be success."));
 		}
 		Ok(())
 	}
@@ -924,7 +924,7 @@ impl Handle for Client {
 			.wrap_err("Failed to create the request.")?;
 		let response = self.send(request).await?;
 		if !response.status().is_success() {
-			return_error!("Expected the response's status to be success.");
+			return Err(error!("Expected the response's status to be success."));
 		}
 		let bytes = response
 			.collect()
@@ -946,7 +946,7 @@ impl Handle for Client {
 			.wrap_err("Failed to create the request.")?;
 		let response = self.send(request).await?;
 		if !response.status().is_success() {
-			return_error!("Expected the response's status to be success.");
+			return Err(error!("Expected the response's status to be success."));
 		}
 		let bytes = response
 			.collect()
@@ -959,7 +959,7 @@ impl Handle for Client {
 			return Ok(None);
 		};
 		let GetPackageBody::Package(package) = body else {
-			return_error!("Unexpected body.");
+			return Err(error!("Unexpected body."));
 		};
 		Ok(Some(package))
 	}
@@ -985,7 +985,7 @@ impl Handle for Client {
 			return Ok(None);
 		}
 		if !response.status().is_success() {
-			return_error!("Expected the response's status to be success.");
+			return Err(error!("Expected the response's status to be success."));
 		}
 		let bytes = response
 			.collect()
@@ -998,7 +998,7 @@ impl Handle for Client {
 			return Ok(None);
 		};
 		let GetPackageBody::PackageAndLock((package, lock)) = body else {
-			return_error!("Unexpected body.");
+			return Err(error!("Unexpected body."));
 		};
 		Ok(Some((package, lock)))
 	}
@@ -1016,7 +1016,7 @@ impl Handle for Client {
 			.wrap_err("Failed to create the request.")?;
 		let response = self.send(request).await?;
 		if !response.status().is_success() {
-			return_error!("Expected the response's status to be success.");
+			return Err(error!("Expected the response's status to be success."));
 		}
 		let bytes = response
 			.collect()
@@ -1041,7 +1041,7 @@ impl Handle for Client {
 			.wrap_err("Failed to create the request.")?;
 		let response = self.send(request).await?;
 		if !response.status().is_success() {
-			return_error!("Expected the response's status to be success.");
+			return Err(error!("Expected the response's status to be success."));
 		}
 		let bytes = response
 			.collect()
@@ -1066,7 +1066,7 @@ impl Handle for Client {
 			.wrap_err("Failed to create the request.")?;
 		let response = self.send(request).await?;
 		if !response.status().is_success() {
-			return_error!("Expected the response's status to be success.");
+			return Err(error!("Expected the response's status to be success."));
 		}
 		let bytes = response
 			.collect()
@@ -1092,7 +1092,7 @@ impl Handle for Client {
 			.wrap_err("Failed to create the request.")?;
 		let response = self.send(request).await?;
 		if !response.status().is_success() {
-			return_error!("Expected the response's status to be success.");
+			return Err(error!("Expected the response's status to be success."));
 		}
 		Ok(())
 	}
@@ -1105,7 +1105,7 @@ impl Handle for Client {
 			.wrap_err("Failed to create the request.")?;
 		let response = self.send(request).await?;
 		if !response.status().is_success() {
-			return_error!("Expected the response's status to be success.");
+			return Err(error!("Expected the response's status to be success."));
 		}
 		let bytes = response
 			.collect()
@@ -1128,7 +1128,7 @@ impl Handle for Client {
 			.await
 			.wrap_err("Failed to send the request.")?;
 		if !response.status().is_success() {
-			return_error!("Expected the response's status to be success.");
+			return Err(error!("Expected the response's status to be success."));
 		}
 		let bytes = response
 			.collect()
@@ -1149,7 +1149,7 @@ impl Handle for Client {
 			.wrap_err("Failed to create the request.")?;
 		let response = self.send(request).await?;
 		if !response.status().is_success() {
-			return_error!("Expected the response's status to be success.");
+			return Err(error!("Expected the response's status to be success."));
 		}
 		let bytes = response
 			.collect()

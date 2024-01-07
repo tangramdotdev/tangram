@@ -1,4 +1,4 @@
-use crate::{return_error, send_notification, Diagnostic, Module, Sender, Server};
+use crate::{error, send_notification, Diagnostic, Module, Sender, Server};
 use lsp_types as lsp;
 use std::collections::BTreeMap;
 use tangram_error::Result;
@@ -65,7 +65,7 @@ impl Server {
 
 		// Get the response.
 		let super::Response::Diagnostics(response) = response else {
-			return_error!("Unexpected response type.")
+			return Err(error!("Unexpected response type."))
 		};
 
 		// Get the result the response.

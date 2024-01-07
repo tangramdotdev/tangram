@@ -8,7 +8,7 @@ use std::{
 	time::SystemTime,
 };
 use tangram_client as tg;
-use tangram_error::{return_error, Result, WrapErr};
+use tangram_error::{error, Result, WrapErr};
 
 /// A document.
 #[derive(
@@ -186,7 +186,7 @@ impl Document {
 		}
 		if !found {
 			let path = path.display();
-			return_error!(r#"Could not find the package for path "{path}"."#);
+			return Err(error!(r#"Could not find the package for path "{path}"."#));
 		}
 
 		// Get the module path by stripping the package path.
@@ -234,7 +234,7 @@ impl Document {
 		let Some(State::Opened(state)) = documents.get_mut(self) else {
 			let path = self.path();
 			let path = path.display();
-			return_error!(r#"Could not find an open document for the path "{path}"."#);
+			return Err(error!(r#"Could not find an open document for the path "{path}"."#));
 		};
 
 		// Update the version.

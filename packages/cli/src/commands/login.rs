@@ -1,6 +1,6 @@
 use crate::Cli;
 use std::time::{Duration, Instant};
-use tangram_error::{return_error, Result, WrapErr};
+use tangram_error::{error, Result, WrapErr};
 
 /// Log in to Tangram.
 #[derive(Debug, clap::Args)]
@@ -29,7 +29,7 @@ impl Cli {
 		let poll_duration = Duration::from_secs(300);
 		let token = loop {
 			if start_instant.elapsed() >= poll_duration {
-				return_error!("Login timed out. Please try again.");
+				return Err(error!("Login timed out. Please try again."));
 			}
 			let login = tg
 				.get_login(&login.id)

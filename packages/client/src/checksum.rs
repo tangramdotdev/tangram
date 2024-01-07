@@ -1,4 +1,4 @@
-use crate::{return_error, Error, Result, WrapErr};
+use crate::{error, Error, Result, WrapErr};
 use base64::Engine;
 
 #[derive(Clone, Debug, Eq, PartialEq, serde::Deserialize, serde::Serialize)]
@@ -80,7 +80,7 @@ impl std::str::FromStr for Checksum {
 				Checksum::Sha512(base64(bytes)?)
 			},
 			(Algorithm::Sha512, Some(bytes)) if bytes.len() == 128 => Checksum::Sha512(hex(bytes)?),
-			_ => return_error!("Invalid checksum string length."),
+			_ => return Err(error!("Invalid checksum string length.")),
 		})
 	}
 }
@@ -136,7 +136,7 @@ impl std::str::FromStr for Algorithm {
 			"sha256" => Algorithm::Sha256,
 			"sha512" => Algorithm::Sha512,
 			"blake3" => Algorithm::Blake3,
-			_ => return_error!(r#"Invalid algorithm "{s}"."#),
+			_ => return Err(error!(r#"Invalid algorithm "{s}"."#)),
 		};
 		Ok(system)
 	}

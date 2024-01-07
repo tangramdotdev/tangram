@@ -1,6 +1,6 @@
 use std::collections::BTreeMap;
 use tangram_client as tg;
-use tangram_error::{return_error, Error, Result, WrapErr};
+use tangram_error::{error, Error, Result, WrapErr};
 
 /// An import in a module.
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
@@ -65,7 +65,7 @@ impl std::str::FromStr for Import {
 		if value.starts_with('.') {
 			let path: tg::Path = value.parse()?;
 			if path.extension() != Some("tg") {
-				return_error!(r#"The path "{path}" does not have a ".tg" extension."#);
+				return Err(error!(r#"The path "{path}" does not have a ".tg" extension."#));
 			}
 			Ok(Import::Module(path))
 		} else if let Some(value) = value.strip_prefix("tg:") {
@@ -74,7 +74,7 @@ impl std::str::FromStr for Import {
 				.wrap_err_with(|| format!(r#"Failed to parse "{value}" as a dependency."#))?;
 			Ok(Import::Dependency(dependency))
 		} else {
-			return_error!(r#"The import is not valid."#)
+			return Err(error!(r#"The import is not valid."#))
 		}
 	}
 }

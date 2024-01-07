@@ -2,7 +2,7 @@
 
 use super::{
 	convert::{from_v8, FromV8, ToV8},
-	error, State,
+	State,
 };
 use base64::Engine as _;
 use bytes::Bytes;
@@ -10,7 +10,7 @@ use futures::{Future, TryStreamExt};
 use itertools::Itertools;
 use std::rc::Rc;
 use tangram_client as tg;
-use tangram_error::{return_error, Result, WrapErr};
+use tangram_error::{error, Result, WrapErr};
 use tokio_util::io::StreamReader;
 use url::Url;
 
@@ -61,7 +61,7 @@ pub fn syscall<'s>(
 
 		Err(error) => {
 			// Throw an exception.
-			let exception = error::to_exception(scope, &error);
+			let exception = super::error::to_exception(scope, &error);
 			scope.throw_exception(exception);
 		},
 	}
@@ -145,7 +145,9 @@ async fn syscall_download(state: Rc<State>, args: (Url, tg::Checksum)) -> Result
 	let blob = tg::Blob::with_reader(state.tg.as_ref(), StreamReader::new(stream)).await?;
 	let actual = checksum_writer.finalize();
 	if actual != checksum {
-		return_error!(r#"The checksum did not match. Expected "{checksum}" but got "{actual}"."#);
+		return Err(error!(
+			r#"The checksum did not match. Expected "{checksum}" but got "{actual}"."#
+		));
 	}
 	Ok(blob)
 }

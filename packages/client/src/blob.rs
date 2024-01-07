@@ -1,6 +1,5 @@
 use crate::{
-	branch, id, leaf, object, return_error, Artifact, Branch, Error, Handle, Leaf, Result, Value,
-	WrapErr,
+	branch, error, id, leaf, object, Artifact, Branch, Error, Handle, Leaf, Result, Value, WrapErr,
 };
 use bytes::Bytes;
 use derive_more::From;
@@ -298,7 +297,7 @@ impl TryFrom<crate::Id> for Id {
 		match value.kind() {
 			id::Kind::Leaf => Ok(Self::Leaf(value.try_into()?)),
 			id::Kind::Branch => Ok(Self::Branch(value.try_into()?)),
-			_ => return_error!("Expected a blob ID."),
+			_ => Err(error!("Expected a blob ID.")),
 		}
 	}
 }
@@ -319,7 +318,7 @@ impl TryFrom<object::Id> for Id {
 		match value {
 			object::Id::Leaf(value) => Ok(value.into()),
 			object::Id::Branch(value) => Ok(value.into()),
-			_ => return_error!("Expected a blob ID."),
+			_ => Err(error!("Expected a blob ID.")),
 		}
 	}
 }
@@ -355,7 +354,7 @@ impl TryFrom<Value> for Blob {
 		match value {
 			Value::Leaf(leaf) => Ok(Self::Leaf(leaf)),
 			Value::Branch(branch) => Ok(Self::Branch(branch)),
-			_ => return_error!("Expected a blob."),
+			_ => Err(error!("Expected a blob.")),
 		}
 	}
 }
@@ -430,7 +429,7 @@ impl AsyncRead for Reader {
 											reader.set_position(position - current_blob_position);
 											break reader;
 										}
-										return_error!("The position is out of bounds.");
+										return Err(error!("The position is out of bounds."));
 									},
 									Blob::Branch(branch) => {
 										for child in branch.children(tg.as_ref()).await? {
@@ -440,7 +439,7 @@ impl AsyncRead for Reader {
 											}
 											current_blob_position += child.size;
 										}
-										return_error!("The position is out of bounds.");
+										return Err(error!("The position is out of bounds."));
 									},
 								}
 							};
@@ -534,7 +533,7 @@ impl std::str::FromStr for ArchiveFormat {
 		match s {
 			".tar" => Ok(Self::Tar),
 			".zip" => Ok(Self::Zip),
-			_ => return_error!("Invalid format."),
+			_ => Err(error!("Invalid format.")),
 		}
 	}
 }
@@ -575,7 +574,7 @@ impl std::str::FromStr for CompressionFormat {
 			".gz" => Ok(Self::Gz),
 			".xz" => Ok(Self::Xz),
 			".zst" | ".zstd" => Ok(Self::Zstd),
-			_ => return_error!("Invalid compression format."),
+			_ => Err(error!("Invalid compression format.")),
 		}
 	}
 }

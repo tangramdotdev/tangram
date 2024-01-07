@@ -1,6 +1,6 @@
 use crate::{Module, Range, Server};
 use lsp_types as lsp;
-use tangram_error::{return_error, Result};
+use tangram_error::{error, Result};
 
 #[derive(Debug, serde::Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -93,7 +93,7 @@ impl Server {
 
 		// Get the response.
 		let super::Response::Symbols(response) = response else {
-			return_error!("Unexpected response type.")
+			return Err(error!("Unexpected response type."))
 		};
 
 		Ok(response.symbols)

@@ -1,7 +1,7 @@
 use super::Server;
 use futures::FutureExt;
 use std::path::Path;
-use tangram_error::{return_error, Result, Wrap, WrapErr};
+use tangram_error::{error, Result, Wrap, WrapErr};
 
 impl Server {
 	pub async fn migrate(path: &Path) -> Result<()> {
@@ -28,7 +28,7 @@ impl Server {
 		if let Some(version) = version {
 			if version >= migrations.len() {
 				let path = path.display();
-				return_error!(
+				error!(
 					r#"The path "{path}" has run migrations from a newer version of Tangram. Please run `tg upgrade` to upgrade to the latest version of Tangram."#
 				);
 			}

@@ -3,7 +3,7 @@ use async_recursion::async_recursion;
 use bytes::Bytes;
 use derive_more::Display;
 use std::{str::FromStr, sync::Arc};
-use tangram_error::return_error;
+use tangram_error::error;
 
 #[derive(
 	Clone,
@@ -128,7 +128,7 @@ impl Symlink {
 			.await
 			.wrap_err("Failed to put the object.")?;
 		if !output.missing.is_empty() {
-			return_error!("Expected all children to be stored.");
+			return Err(error!("Expected all children to be stored."));
 		}
 		self.state.write().unwrap().id.replace(id);
 		Ok(())
@@ -193,7 +193,7 @@ impl Symlink {
 		let path = self.path(tg).await?.clone();
 
 		if artifact.is_some() && from_artifact.is_some() {
-			return_error!("Expected no `from` value when `artifact` is set.");
+			return Err(error!("Expected no `from` value when `artifact` is set."));
 		}
 
 		if artifact.is_some() && path.is_none() {
@@ -206,16 +206,16 @@ impl Symlink {
 					.normalize();
 				return directory.try_get(tg, &path).await;
 			}
-			return_error!("Expected a directory.");
+			return Err(error!("Expected a directory."));
 		} else if artifact.is_some() && path.is_some() {
 			if let Some(artifact::Artifact::Directory(directory)) = artifact {
 				return directory
 					.try_get(tg, &Path::from_str(&path.unwrap())?.normalize())
 					.await;
 			}
-			return_error!("Expected a directory.");
+			return Err(error!("Expected a directory."));
 		}
-		return_error!("Invalid symlink.")
+		return Err(error!("Invalid symlink."))
 	}
 }
 
@@ -264,7 +264,7 @@ impl TryFrom<crate::Id> for Id {
 
 	fn try_from(value: crate::Id) -> Result<Self, Self::Error> {
 		if value.kind() != id::Kind::Symlink {
-			return_error!("Invalid kind.");
+			return Err(error!("Invalid kind."));
 		}
 		Ok(Self(value))
 	}

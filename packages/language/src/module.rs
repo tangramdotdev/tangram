@@ -1,7 +1,7 @@
 use super::document::Document;
 use derive_more::{TryUnwrap, Unwrap};
 use tangram_client as tg;
-use tangram_error::{return_error, Error, Result, WrapErr};
+use tangram_error::{error, Error, Result, WrapErr};
 use url::Url;
 
 /// A module.
@@ -80,7 +80,7 @@ impl TryFrom<Url> for Module {
 	fn try_from(value: Url) -> Result<Self, Self::Error> {
 		// Ensure the scheme is "tg".
 		if value.scheme() != "tg" {
-			return_error!("The URL has an invalid scheme.");
+			return Err(error!("The URL has an invalid scheme."));
 		}
 
 		// Get the domain.

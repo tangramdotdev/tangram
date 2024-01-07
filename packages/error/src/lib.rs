@@ -216,11 +216,3 @@ macro_rules! error {
 		$crate::Error::with_message(format!($($t)*))
 	}};
 }
-
-#[allow(clippy::module_name_repetitions)]
-#[macro_export]
-macro_rules! return_error {
-	($($t:tt)*) => {{
-		return Err($crate::error!($($t)*).into())
-	}};
-}

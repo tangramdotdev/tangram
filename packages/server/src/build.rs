@@ -10,7 +10,7 @@ use futures::{
 use num::ToPrimitive;
 use std::sync::Arc;
 use tangram_client as tg;
-use tangram_error::{error, return_error, Error, Result, WrapErr};
+use tangram_error::{error, Error, Result, WrapErr};
 use tg::Handle;
 use tokio::io::{AsyncReadExt, AsyncSeekExt};
 use tokio_stream::wrappers::WatchStream;
@@ -680,7 +680,7 @@ impl Server {
 				}
 				#[cfg(not(target_os = "macos"))]
 				{
-					return_error!("Cannot build a darwin target on this host.");
+					return Err(error!("Cannot build a darwin target on this host."));
 				}
 			},
 			tg::system::Os::Linux => {
@@ -690,7 +690,7 @@ impl Server {
 				}
 				#[cfg(not(target_os = "linux"))]
 				{
-					return_error!("Cannot build a linux target on this host.");
+					return Err(error!("Cannot build a linux target on this host."));
 				}
 			},
 		};
@@ -978,7 +978,7 @@ impl Server {
 					_ = state.children.as_mut().wrap_err("Expected the channel to exist.")?.next() => {}
 					_ = state.outcome.as_mut().wrap_err("Expected the channel to exist.")?.next() => {}
 					() = state.stop.as_mut().map(|stop| stop.wait_for(|stop| *stop).map(|_| ())).map_or_else(|| Either::Left(future::pending()), Either::Right) => {
-						return_error!("The server was stopped.");
+						return Err(error!("The server was stopped."));
 					}
 				}
 			} else {
@@ -1437,7 +1437,7 @@ impl Server {
 				tokio::select! {
 					_ = outcome.as_mut().wrap_err("Expected the channel to exist.")?.next() => {}
 					() = stop.as_mut().map(|stop| stop.wait_for(|stop| *stop).map(|_| ())).map_or_else(|| Either::Left(future::pending()), Either::Right) => {
-						return_error!("The server was stopped.");
+						return Err(error!("The server was stopped."));
 					}
 				}
 			}

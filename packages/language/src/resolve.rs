@@ -5,7 +5,7 @@ use crate::{
 	Document, Import, Module,
 };
 use tangram_client as tg;
-use tangram_error::{error, return_error, Result, WrapErr};
+use tangram_error::{error, Result, WrapErr};
 
 impl Module {
 	/// Resolve a module.
@@ -43,7 +43,7 @@ impl Module {
 					.wrap_err("Failed to determine if the path exists.")?;
 				if !exists {
 					let path = module_absolute_path.display();
-					return_error!(r#"Could not find a module at path "{path}"."#);
+					return Err(error!(r#"Could not find a module at path "{path}"."#));
 				}
 
 				// Create the document.
@@ -103,7 +103,7 @@ impl Module {
 
 				// Get the lock entry for the dependency.
 				let Some(entry) = lock.dependencies(tg).await?.get(&dependency) else {
-					return_error!("Could not find the dependency.");
+					return Err(error!("Could not find the dependency."));
 				};
 
 				// Create the module.

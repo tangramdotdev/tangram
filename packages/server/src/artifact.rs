@@ -3,7 +3,7 @@ use async_recursion::async_recursion;
 use futures::{stream::FuturesUnordered, TryStreamExt};
 use std::os::unix::prelude::PermissionsExt;
 use tangram_client as tg;
-use tangram_error::{return_error, Error, Result, WrapErr};
+use tangram_error::{error, Error, Result, WrapErr};
 use tg::Handle;
 
 impl Server {
@@ -30,7 +30,7 @@ impl Server {
 				.await
 				.wrap_err_with(|| format!(r#"Failed to check in the symlink at path "{path}"."#))?
 		} else {
-			return_error!("The path must point to a directory, file, or symlink.")
+			return Err(error!("The path must point to a directory, file, or symlink."))
 		};
 
 		Ok(id)
@@ -157,7 +157,7 @@ impl Server {
 				.clone();
 			(Some(artifact), Some(path))
 		} else {
-			return_error!("Invalid symlink.");
+			return Err(error!("Invalid symlink."));
 		};
 
 		// Create the symlink.
@@ -351,7 +351,7 @@ impl Server {
 
 		// Check that the file has no references.
 		if !file.references(self).await?.is_empty() {
-			return_error!(r#"Cannot check out a file with references."#);
+			return Err(error!(r#"Cannot check out a file with references."#));
 		}
 
 		Ok(())
@@ -376,7 +376,7 @@ impl Server {
 
 		// Render the target.
 		if symlink.artifact(self).await?.is_some() {
-			return_error!(r#"Cannot check out a symlink which contains an artifact."#);
+			return Err(error!(r#"Cannot check out a symlink which contains an artifact."#));
 		}
 		let target = symlink
 			.path(self)

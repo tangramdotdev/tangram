@@ -1,6 +1,6 @@
 use crate::Cli;
 use tangram_client as tg;
-use tangram_error::{return_error, Result};
+use tangram_error::{error, Result};
 
 /// Compute a checksum.
 #[derive(Debug, clap::Args)]
@@ -14,6 +14,6 @@ pub struct Args {
 impl Cli {
 	#[allow(clippy::unused_async)]
 	pub async fn command_checksum(&self, _args: Args) -> Result<()> {
-		return_error!("This command is not yet implemented.");
+		Err(error!("This command is not yet implemented."))
 	}
 }
