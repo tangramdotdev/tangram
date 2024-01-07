@@ -741,7 +741,10 @@ impl Server {
 		}
 	}
 
-	async fn try_get_build_log_data_local(&self, id: &tg::build::Id) -> Result<Option<tg::blob::Id>> {
+	async fn try_get_build_log_data_local(
+		&self,
+		id: &tg::build::Id,
+	) -> Result<Option<tg::blob::Id>> {
 		let db = self.inner.database.get().await?;
 		let statement = "
 			select json->>'log' as log
@@ -1131,6 +1134,7 @@ impl Server {
 		}
 	}
 
+	#[allow(clippy::too_many_lines)]
 	async fn try_get_build_log_local(
 		&self,
 		id: &tg::build::Id,
@@ -1177,7 +1181,7 @@ impl Server {
 					entry.bytes = entry.bytes.slice(offset..);
 				}
 				if (entry.pos + entry.bytes.len().to_u64().unwrap()) > end {
-					let length = (end - entry.pos) as usize;
+					let length = (end - entry.pos).to_usize().unwrap();
 					entry.bytes = entry.bytes.slice(0..length);
 				}
 				Ok(entry)
@@ -1187,28 +1191,27 @@ impl Server {
 		}
 
 		// Otherwise get the starting position of the log stream. If pos is None, return the end.
-		let start_pos = match pos {
-			Some(pos) => pos,
-			None => {
-				let db = self.inner.database.get().await?;
-				let statement = "
+		let start_pos = if let Some(pos) = pos {
+			pos
+		} else {
+			let db = self.inner.database.get().await?;
+			let statement = "
 					select coalesce(max(position) + length(bytes), 0)
 					from logs
 					where build = ?1
 				";
-				let params = params![id.to_string()];
-				let mut statement = db
-					.prepare_cached(statement)
-					.wrap_err("Failed to prepare statement.")?;
-				let mut query = statement
-					.query(params)
-					.wrap_err("Failed to perform query.")?;
-				let row = query
-					.next()
-					.wrap_err("Failed to get row.")?
-					.wrap_err("Expected a row.")?;
-				row.get(0).wrap_err("Expected a position.")?
-			},
+			let params = params![id.to_string()];
+			let mut statement = db
+				.prepare_cached(statement)
+				.wrap_err("Failed to prepare statement.")?;
+			let mut query = statement
+				.query(params)
+				.wrap_err("Failed to perform query.")?;
+			let row = query
+				.next()
+				.wrap_err("Failed to get row.")?
+				.wrap_err("Expected a row.")?;
+			row.get(0).wrap_err("Expected a position.")?
 		};
 
 		// Get the start and end positions
@@ -1283,7 +1286,7 @@ impl Server {
 				}
 				match end {
 					Some(end) if (entry.pos + entry.bytes.len().to_u64().unwrap()) > end => {
-						let length = (end - entry.pos) as usize;
+						let length = (end - entry.pos).to_usize().unwrap();
 						entry.bytes = entry.bytes.slice(0..length);
 					},
 					_ => (),

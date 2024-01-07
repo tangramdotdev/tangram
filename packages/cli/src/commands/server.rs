@@ -156,7 +156,7 @@ impl Cli {
 			let server = server.clone();
 			async move {
 				tokio::signal::ctrl_c().await.ok();
-				server.stop().await.ok();
+				server.stop();
 				tokio::signal::ctrl_c().await.ok();
 				std::process::exit(130);
 			}

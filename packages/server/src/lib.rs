@@ -301,8 +301,7 @@ impl Server {
 		Ok(server)
 	}
 
-	#[allow(clippy::unused_async, clippy::unnecessary_wraps)]
-	pub async fn stop(&self) -> Result<()> {
+	pub fn stop(&self) {
 		let server = self.clone();
 		let task = tokio::spawn(async move {
 			// Stop the http task.
@@ -377,8 +376,6 @@ impl Server {
 
 		self.inner.shutdown_task.lock().unwrap().replace(task);
 		self.inner.shutdown.send_replace(true);
-
-		Ok(())
 	}
 
 	pub async fn join(&self) -> Result<()> {
@@ -438,7 +435,8 @@ impl tg::Handle for Server {
 	}
 
 	async fn stop(&self) -> Result<()> {
-		self.stop().await
+		self.stop();
+		Ok(())
 	}
 
 	async fn clean(&self) -> Result<()> {

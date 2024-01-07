@@ -34,7 +34,7 @@ impl Entry {
 		let pos = self.pos.to_be_bytes();
 		let len = self.bytes.len().to_u64().unwrap().to_be_bytes();
 		pos.into_iter()
-			.chain(len.into_iter())
+			.chain(len)
 			.chain(self.bytes.iter().copied())
 			.collect()
 	}

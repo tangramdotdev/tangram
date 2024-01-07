@@ -315,11 +315,12 @@ impl Server {
 		Ok(response)
 	}
 
+	#[allow(clippy::unnecessary_wraps, clippy::unused_async)]
 	async fn handle_post_stop_request(
 		&self,
 		_request: http::Request<Incoming>,
 	) -> Result<http::Response<Outgoing>> {
-		self.stop().await?;
+		self.stop();
 		Ok(ok())
 	}
 
