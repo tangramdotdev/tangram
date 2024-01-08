@@ -845,7 +845,7 @@ let convertConstructSignatureDeclaration = (
 						: convertType(
 								typeChecker,
 								typeChecker.getTypeAtLocation(parameter),
-						  ),
+							),
 					optional,
 					dotDotDotToken,
 				},
