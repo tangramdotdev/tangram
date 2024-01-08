@@ -312,7 +312,7 @@ impl Server {
 				let db = self.inner.database.get().await?;
 				let statement = "
 					update queue
-					set json = json_set(json, '$.depth', (select max(cast(json->'depth' as int), ?1)))
+					set json = json_set(json, '$.depth', (select json(max(cast(json->'depth' as int), ?1))))
 					where json->>'build' = ?2;
 				";
 				let params = params![options.depth, build_id.to_string()];

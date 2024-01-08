@@ -218,9 +218,9 @@ impl Server {
 				set json = json_set(
 					json,
 					'$.status', 'finished',
-					'$.outcome', '{"kind":"terminated"}'
+					'$.outcome', json('{"kind":"terminated"}')
 				)
-				where json->'status' = 'running';
+				where json->>'status' = 'running';
 			"#;
 			let mut statement = db
 				.prepare_cached(statement)
