@@ -11,10 +11,8 @@ impl Database {
 		let n = std::thread::available_parallelism().unwrap().get();
 		for _ in 0..n {
 			let db = rusqlite::Connection::open(path).wrap_err("Failed to open the database.")?;
-			db.pragma_update(None, "busy_timeout", "100")
+			db.pragma_update(None, "busy_timeout", "99999999")
 				.wrap_err("Failed to set the busy timeout.")?;
-			db.pragma_update(None, "journal_mode", "WAL")
-				.wrap_err("Failed to set the journal mode.")?;
 			pool.put(db).await;
 		}
 		Ok(Database { pool })
