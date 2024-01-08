@@ -210,7 +210,7 @@ impl Server {
 		});
 		let server = Server { inner };
 
-		// Terminate any running builds.
+		// Terminate unfinished builds.
 		{
 			let db = server.inner.database.get().await?;
 			let statement = r#"
@@ -220,7 +220,7 @@ impl Server {
 					'$.status', 'finished',
 					'$.outcome', json('{"kind":"terminated"}')
 				)
-				where json->>'status' = 'running';
+				where json->>'status' != 'finished';
 			"#;
 			let mut statement = db
 				.prepare_cached(statement)
