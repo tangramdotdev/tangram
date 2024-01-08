@@ -54,7 +54,10 @@ pub(super) fn from_exception<'s>(
 	let error = tg.get(scope, error.into()).unwrap();
 	let error = v8::Local::<v8::Function>::try_from(error).unwrap();
 
-	if exception.instance_of(scope, error.into()).unwrap() {
+	if exception
+		.instance_of(scope, error.into())
+		.unwrap_or_default()
+	{
 		return from_v8(scope, exception).unwrap();
 	}
 

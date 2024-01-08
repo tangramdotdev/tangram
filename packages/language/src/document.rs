@@ -234,7 +234,9 @@ impl Document {
 		let Some(State::Opened(state)) = documents.get_mut(self) else {
 			let path = self.path();
 			let path = path.display();
-			return Err(error!(r#"Could not find an open document for the path "{path}"."#));
+			return Err(error!(
+				r#"Could not find an open document for the path "{path}"."#
+			));
 		};
 
 		// Update the version.

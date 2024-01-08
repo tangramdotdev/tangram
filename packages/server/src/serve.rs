@@ -76,9 +76,13 @@ impl Server {
 				let server = self.clone();
 				let stop = stop.clone();
 				move |mut request| {
-					request.extensions_mut().insert(stop.clone());
 					let server = server.clone();
-					async move { Ok::<_, Infallible>(server.handle_request(request).await) }
+					let stop = stop.clone();
+					async move {
+						request.extensions_mut().insert(stop);
+						let response = server.handle_request(request).await;
+						Ok::<_, Infallible>(response)
+					}
 				}
 			});
 
@@ -134,8 +138,14 @@ impl Server {
 	}
 
 	#[allow(clippy::too_many_lines)]
-	async fn handle_request(&self, request: http::Request<Incoming>) -> http::Response<Outgoing> {
-		tracing::info!(method = ?request.method(), path = ?request.uri().path(), "Received request.");
+	async fn handle_request(
+		&self,
+		mut request: http::Request<Incoming>,
+	) -> http::Response<Outgoing> {
+		let id = tg::Id::new_uuidv7(tg::id::Kind::Request);
+		request.extensions_mut().insert(id.clone());
+
+		tracing::info!(?id, method = ?request.method(), path = ?request.uri().path(), "Received request.");
 
 		let method = request.method().clone();
 		let path_components = request.uri().path().split('/').skip(1).collect_vec();
@@ -281,23 +291,27 @@ impl Server {
 		}
 		.await;
 
-		let response = match response {
+		let mut response = match response {
 			None => http::Response::builder()
 				.status(http::StatusCode::NOT_FOUND)
 				.body(full("not found"))
 				.unwrap(),
 			Some(Err(error)) => {
-				let trace = error.trace();
-				tracing::error!(%trace);
+				let body = serde_json::to_string(&error)
+					.unwrap_or_else(|_| "internal server error".to_owned());
 				http::Response::builder()
 					.status(http::StatusCode::INTERNAL_SERVER_ERROR)
-					.body(full("internal server error"))
+					.body(full(body))
 					.unwrap()
 			},
 			Some(Ok(response)) => response,
 		};
 
-		tracing::info!(status = ?response.status(), "Sending response.");
+		let key = http::HeaderName::from_static("x-tangram-request-id");
+		let value = http::HeaderValue::from_str(&id.to_string()).unwrap();
+		response.headers_mut().insert(key, value);
+
+		tracing::info!(?id, status = ?response.status(), "Sending response.");
 
 		response
 	}
@@ -734,7 +748,7 @@ impl Server {
 		// Get the path params.
 		let path_components: Vec<&str> = request.uri().path().split('/').skip(1).collect();
 		let ["v1", "builds", id] = path_components.as_slice() else {
-			return Err(error!("Unexpected path."))
+			return Err(error!("Unexpected path."));
 		};
 		let Ok(id) = id.parse() else {
 			return Ok(bad_request());
@@ -790,7 +804,7 @@ impl Server {
 		// Get the path params.
 		let path_components: Vec<&str> = request.uri().path().split('/').skip(1).collect();
 		let ["v1", "builds", build_id] = path_components.as_slice() else {
-			return Err(error!("Unexpected path."))
+			return Err(error!("Unexpected path."));
 		};
 		let build_id = build_id.parse().wrap_err("Failed to parse the ID.")?;
 
@@ -826,7 +840,7 @@ impl Server {
 		// Get the path params.
 		let path_components: Vec<&str> = request.uri().path().split('/').skip(1).collect();
 		let ["v1", "objects", id] = path_components.as_slice() else {
-			return Err(error!("Unexpected path."))
+			return Err(error!("Unexpected path."));
 		};
 		let Ok(id) = id.parse() else {
 			return Ok(bad_request());
@@ -856,7 +870,7 @@ impl Server {
 		// Get the path params.
 		let path_components: Vec<&str> = request.uri().path().split('/').skip(1).collect();
 		let ["v1", "objects", id] = path_components.as_slice() else {
-			return Err(error!("Unexpected path."))
+			return Err(error!("Unexpected path."));
 		};
 		let Ok(id) = id.parse() else {
 			return Ok(bad_request());
@@ -883,7 +897,7 @@ impl Server {
 		// Get the path params.
 		let path_components: Vec<&str> = request.uri().path().split('/').skip(1).collect();
 		let ["v1", "objects", id] = path_components.as_slice() else {
-			return Err(error!("Unexpected path."))
+			return Err(error!("Unexpected path."));
 		};
 		let Ok(id) = id.parse() else {
 			return Ok(bad_request());
@@ -961,7 +975,7 @@ impl Server {
 		// Get the path params.
 		let path_components: Vec<&str> = request.uri().path().split('/').skip(1).collect();
 		let ["v1", "objects", id, "push"] = path_components.as_slice() else {
-			return Err(error!("Unexpected path."))
+			return Err(error!("Unexpected path."));
 		};
 		let Ok(id) = id.parse() else {
 			return Ok(bad_request());
@@ -980,7 +994,7 @@ impl Server {
 		// Get the path params.
 		let path_components: Vec<&str> = request.uri().path().split('/').skip(1).collect();
 		let ["v1", "objects", id, "pull"] = path_components.as_slice() else {
-			return Err(error!("Unexpected path."))
+			return Err(error!("Unexpected path."));
 		};
 		let Ok(id) = id.parse() else {
 			return Ok(bad_request());

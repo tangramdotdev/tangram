@@ -93,7 +93,7 @@ impl Server {
 
 		// Get the response.
 		let super::Response::Symbols(response) = response else {
-			return Err(error!("Unexpected response type."))
+			return Err(error!("Unexpected response type."));
 		};
 
 		Ok(response.symbols)

@@ -1,5 +1,5 @@
 pub use self::data::Data;
-use crate::{id, object, error, Dependency, Directory, Error, Handle, Result, WrapErr};
+use crate::{error, id, object, Dependency, Directory, Error, Handle, Result, WrapErr};
 use async_recursion::async_recursion;
 use bytes::Bytes;
 use derive_more::Display;

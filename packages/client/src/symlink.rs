@@ -215,7 +215,7 @@ impl Symlink {
 			}
 			return Err(error!("Expected a directory."));
 		}
-		return Err(error!("Invalid symlink."))
+		return Err(error!("Invalid symlink."));
 	}
 }
 

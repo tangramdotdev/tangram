@@ -320,7 +320,14 @@ impl Handle for Client {
 			.wrap_err("Failed to create the request.")?;
 		let response = self.send(request).await?;
 		if !response.status().is_success() {
-			return Err(error!("Expected the response's status to be success."));
+			let bytes = response
+				.collect()
+				.await
+				.wrap_err("Failed to collect the response body.")?
+				.to_bytes();
+			let error = serde_json::from_slice(&bytes)
+				.unwrap_or_else(|_| error!("The request did not succeed."));
+			return Err(error);
 		}
 		let bytes = response
 			.collect()
@@ -349,7 +356,14 @@ impl Handle for Client {
 			.wrap_err("Failed to create the request.")?;
 		let response = self.send(request).await?;
 		if !response.status().is_success() {
-			return Err(error!("Expected the response's status to be success."));
+			let bytes = response
+				.collect()
+				.await
+				.wrap_err("Failed to collect the response body.")?
+				.to_bytes();
+			let error = serde_json::from_slice(&bytes)
+				.unwrap_or_else(|_| error!("The request did not succeed."));
+			return Err(error);
 		}
 		Ok(())
 	}
@@ -365,7 +379,14 @@ impl Handle for Client {
 			return Ok(false);
 		}
 		if !response.status().is_success() {
-			return Err(error!("Expected the response's status to be success."));
+			let bytes = response
+				.collect()
+				.await
+				.wrap_err("Failed to collect the response body.")?
+				.to_bytes();
+			let error = serde_json::from_slice(&bytes)
+				.unwrap_or_else(|_| error!("The request did not succeed."));
+			return Err(error);
 		}
 		Ok(true)
 	}
@@ -381,7 +402,14 @@ impl Handle for Client {
 			return Ok(None);
 		}
 		if !response.status().is_success() {
-			return Err(error!("Expected the response's status to be success."));
+			let bytes = response
+				.collect()
+				.await
+				.wrap_err("Failed to collect the response body.")?
+				.to_bytes();
+			let error = serde_json::from_slice(&bytes)
+				.unwrap_or_else(|_| error!("The request did not succeed."));
+			return Err(error);
 		}
 		let bytes = response
 			.collect()
@@ -400,7 +428,14 @@ impl Handle for Client {
 			.wrap_err("Failed to create the request.")?;
 		let response = self.send(request).await?;
 		if !response.status().is_success() {
-			return Err(error!("Expected the response's status to be success."));
+			let bytes = response
+				.collect()
+				.await
+				.wrap_err("Failed to collect the response body.")?
+				.to_bytes();
+			let error = serde_json::from_slice(&bytes)
+				.unwrap_or_else(|_| error!("The request did not succeed."));
+			return Err(error);
 		}
 		let bytes = response
 			.collect()
@@ -419,7 +454,14 @@ impl Handle for Client {
 			.wrap_err("Failed to create the request.")?;
 		let response = self.send(request).await?;
 		if !response.status().is_success() {
-			return Err(error!("Expected the response's status to be success."));
+			let bytes = response
+				.collect()
+				.await
+				.wrap_err("Failed to collect the response body.")?
+				.to_bytes();
+			let error = serde_json::from_slice(&bytes)
+				.unwrap_or_else(|_| error!("The request did not succeed."));
+			return Err(error);
 		}
 		Ok(())
 	}
@@ -432,7 +474,14 @@ impl Handle for Client {
 			.wrap_err("Failed to create the request.")?;
 		let response = self.send(request).await?;
 		if !response.status().is_success() {
-			return Err(error!("Expected the response's status to be success."));
+			let bytes = response
+				.collect()
+				.await
+				.wrap_err("Failed to collect the response body.")?
+				.to_bytes();
+			let error = serde_json::from_slice(&bytes)
+				.unwrap_or_else(|_| error!("The request did not succeed."));
+			return Err(error);
 		}
 		Ok(())
 	}
@@ -447,7 +496,14 @@ impl Handle for Client {
 			.wrap_err("Failed to create the request.")?;
 		let response = self.send(request).await?;
 		if !response.status().is_success() {
-			return Err(error!("Expected the response's status to be success."));
+			let bytes = response
+				.collect()
+				.await
+				.wrap_err("Failed to collect the response body.")?
+				.to_bytes();
+			let error = serde_json::from_slice(&bytes)
+				.unwrap_or_else(|_| error!("The request did not succeed."));
+			return Err(error);
 		}
 		let bytes = response
 			.collect()
@@ -471,7 +527,14 @@ impl Handle for Client {
 			.wrap_err("Failed to create the request.")?;
 		let response = self.send(request).await?;
 		if !response.status().is_success() {
-			return Err(error!("Expected the response's status to be success."));
+			let bytes = response
+				.collect()
+				.await
+				.wrap_err("Failed to collect the response body.")?
+				.to_bytes();
+			let error = serde_json::from_slice(&bytes)
+				.unwrap_or_else(|_| error!("The request did not succeed."));
+			return Err(error);
 		}
 		Ok(())
 	}
@@ -487,7 +550,14 @@ impl Handle for Client {
 			return Ok(None);
 		}
 		if !response.status().is_success() {
-			return Err(error!("Expected the response's status to be success."));
+			let bytes = response
+				.collect()
+				.await
+				.wrap_err("Failed to collect the response body.")?
+				.to_bytes();
+			let error = serde_json::from_slice(&bytes)
+				.unwrap_or_else(|_| error!("The request did not succeed."));
+			return Err(error);
 		}
 		let bytes = response
 			.collect()
@@ -509,7 +579,14 @@ impl Handle for Client {
 			return Ok(false);
 		}
 		if !response.status().is_success() {
-			return Err(error!("Expected the response's status to be success."));
+			let bytes = response
+				.collect()
+				.await
+				.wrap_err("Failed to collect the response body.")?
+				.to_bytes();
+			let error = serde_json::from_slice(&bytes)
+				.unwrap_or_else(|_| error!("The request did not succeed."));
+			return Err(error);
 		}
 		Ok(true)
 	}
@@ -522,7 +599,14 @@ impl Handle for Client {
 			.wrap_err("Failed to create the request.")?;
 		let response = self.send(request).await?;
 		if !response.status().is_success() {
-			return Err(error!("Expected the response's status to be success."));
+			let bytes = response
+				.collect()
+				.await
+				.wrap_err("Failed to collect the response body.")?
+				.to_bytes();
+			let error = serde_json::from_slice(&bytes)
+				.unwrap_or_else(|_| error!("The request did not succeed."));
+			return Err(error);
 		}
 		let bytes = response
 			.collect()
@@ -553,7 +637,14 @@ impl Handle for Client {
 			.wrap_err("Failed to create the request.")?;
 		let response = self.send(request).await?;
 		if !response.status().is_success() {
-			return Err(error!("Expected the response's status to be success."));
+			let bytes = response
+				.collect()
+				.await
+				.wrap_err("Failed to collect the response body.")?
+				.to_bytes();
+			let error = serde_json::from_slice(&bytes)
+				.unwrap_or_else(|_| error!("The request did not succeed."));
+			return Err(error);
 		}
 		let bytes = response
 			.collect()
@@ -592,7 +683,14 @@ impl Handle for Client {
 			.wrap_err("Failed to create the request.")?;
 		let response = self.send(request).await?;
 		if !response.status().is_success() {
-			return Err(error!("Expected the response's status to be success."));
+			let bytes = response
+				.collect()
+				.await
+				.wrap_err("Failed to collect the response body.")?
+				.to_bytes();
+			let error = serde_json::from_slice(&bytes)
+				.unwrap_or_else(|_| error!("The request did not succeed."));
+			return Err(error);
 		}
 		let bytes = response
 			.collect()
@@ -626,7 +724,14 @@ impl Handle for Client {
 			.wrap_err("Failed to create the request.")?;
 		let response = self.send(request).await?;
 		if !response.status().is_success() {
-			return Err(error!("Expected the response's status to be success."));
+			let bytes = response
+				.collect()
+				.await
+				.wrap_err("Failed to collect the response body.")?
+				.to_bytes();
+			let error = serde_json::from_slice(&bytes)
+				.unwrap_or_else(|_| error!("The request did not succeed."));
+			return Err(error);
 		}
 		let bytes = response
 			.collect()
@@ -646,7 +751,14 @@ impl Handle for Client {
 			.wrap_err("Failed to create the request.")?;
 		let response = self.send(request).await?;
 		if !response.status().is_success() {
-			return Err(error!("Expected the response's status to be success."));
+			let bytes = response
+				.collect()
+				.await
+				.wrap_err("Failed to collect the response body.")?
+				.to_bytes();
+			let error = serde_json::from_slice(&bytes)
+				.unwrap_or_else(|_| error!("The request did not succeed."));
+			return Err(error);
 		}
 		let bytes = response
 			.collect()
@@ -676,7 +788,14 @@ impl Handle for Client {
 			.wrap_err("Failed to create the request.")?;
 		let response = self.send(request).await?;
 		if !response.status().is_success() {
-			return Err(error!("Expected the response's status to be success."));
+			let bytes = response
+				.collect()
+				.await
+				.wrap_err("Failed to collect the response body.")?
+				.to_bytes();
+			let error = serde_json::from_slice(&bytes)
+				.unwrap_or_else(|_| error!("The request did not succeed."));
+			return Err(error);
 		}
 		Ok(())
 	}
@@ -689,7 +808,14 @@ impl Handle for Client {
 			.wrap_err("Failed to create the request.")?;
 		let response = self.send(request).await?;
 		if !response.status().is_success() {
-			return Err(error!("Expected the response's status to be success."));
+			let bytes = response
+				.collect()
+				.await
+				.wrap_err("Failed to collect the response body.")?
+				.to_bytes();
+			let error = serde_json::from_slice(&bytes)
+				.unwrap_or_else(|_| error!("The request did not succeed."));
+			return Err(error);
 		}
 		let bytes = response
 			.collect()
@@ -714,7 +840,14 @@ impl Handle for Client {
 			return Ok(None);
 		}
 		if !response.status().is_success() {
-			return Err(error!("Expected the response's status to be success."));
+			let bytes = response
+				.collect()
+				.await
+				.wrap_err("Failed to collect the response body.")?
+				.to_bytes();
+			let error = serde_json::from_slice(&bytes)
+				.unwrap_or_else(|_| error!("The request did not succeed."));
+			return Err(error);
 		}
 		let stream = BodyStream::new(response.into_body())
 			.filter_map(|frame| async {
@@ -789,7 +922,14 @@ impl Handle for Client {
 			.wrap_err("Failed to create the request.")?;
 		let response = self.send(request).await?;
 		if !response.status().is_success() {
-			return Err(error!("Expected the response's status to be success."));
+			let bytes = response
+				.collect()
+				.await
+				.wrap_err("Failed to collect the response body.")?
+				.to_bytes();
+			let error = serde_json::from_slice(&bytes)
+				.unwrap_or_else(|_| error!("The request did not succeed."));
+			return Err(error);
 		}
 		Ok(())
 	}
@@ -819,7 +959,14 @@ impl Handle for Client {
 			return Ok(None);
 		}
 		if !response.status().is_success() {
-			return Err(error!("Expected the response's status to be success."));
+			let bytes = response
+				.collect()
+				.await
+				.wrap_err("Failed to collect the response body.")?
+				.to_bytes();
+			let error = serde_json::from_slice(&bytes)
+				.unwrap_or_else(|_| error!("The request did not succeed."));
+			return Err(error);
 		}
 		let stream = BodyStream::new(response.into_body())
 			.filter_map(|frame| async {
@@ -856,7 +1003,14 @@ impl Handle for Client {
 			.wrap_err("Failed to create the request.")?;
 		let response = self.send(request).await?;
 		if !response.status().is_success() {
-			return Err(error!("Expected the response's status to be success."));
+			let bytes = response
+				.collect()
+				.await
+				.wrap_err("Failed to collect the response body.")?
+				.to_bytes();
+			let error = serde_json::from_slice(&bytes)
+				.unwrap_or_else(|_| error!("The request did not succeed."));
+			return Err(error);
 		}
 		Ok(())
 	}
@@ -872,7 +1026,14 @@ impl Handle for Client {
 			return Ok(None);
 		}
 		if !response.status().is_success() {
-			return Err(error!("Expected the response's status to be success."));
+			let bytes = response
+				.collect()
+				.await
+				.wrap_err("Failed to collect the response body.")?
+				.to_bytes();
+			let error = serde_json::from_slice(&bytes)
+				.unwrap_or_else(|_| error!("The request did not succeed."));
+			return Err(error);
 		}
 		let bytes = response
 			.collect()
@@ -904,7 +1065,14 @@ impl Handle for Client {
 			.wrap_err("Failed to create the request.")?;
 		let response = self.send(request).await?;
 		if !response.status().is_success() {
-			return Err(error!("Expected the response's status to be success."));
+			let bytes = response
+				.collect()
+				.await
+				.wrap_err("Failed to collect the response body.")?
+				.to_bytes();
+			let error = serde_json::from_slice(&bytes)
+				.unwrap_or_else(|_| error!("The request did not succeed."));
+			return Err(error);
 		}
 		Ok(())
 	}
@@ -924,7 +1092,14 @@ impl Handle for Client {
 			.wrap_err("Failed to create the request.")?;
 		let response = self.send(request).await?;
 		if !response.status().is_success() {
-			return Err(error!("Expected the response's status to be success."));
+			let bytes = response
+				.collect()
+				.await
+				.wrap_err("Failed to collect the response body.")?
+				.to_bytes();
+			let error = serde_json::from_slice(&bytes)
+				.unwrap_or_else(|_| error!("The request did not succeed."));
+			return Err(error);
 		}
 		let bytes = response
 			.collect()
@@ -946,7 +1121,14 @@ impl Handle for Client {
 			.wrap_err("Failed to create the request.")?;
 		let response = self.send(request).await?;
 		if !response.status().is_success() {
-			return Err(error!("Expected the response's status to be success."));
+			let bytes = response
+				.collect()
+				.await
+				.wrap_err("Failed to collect the response body.")?
+				.to_bytes();
+			let error = serde_json::from_slice(&bytes)
+				.unwrap_or_else(|_| error!("The request did not succeed."));
+			return Err(error);
 		}
 		let bytes = response
 			.collect()
@@ -985,7 +1167,14 @@ impl Handle for Client {
 			return Ok(None);
 		}
 		if !response.status().is_success() {
-			return Err(error!("Expected the response's status to be success."));
+			let bytes = response
+				.collect()
+				.await
+				.wrap_err("Failed to collect the response body.")?
+				.to_bytes();
+			let error = serde_json::from_slice(&bytes)
+				.unwrap_or_else(|_| error!("The request did not succeed."));
+			return Err(error);
 		}
 		let bytes = response
 			.collect()
@@ -1016,7 +1205,14 @@ impl Handle for Client {
 			.wrap_err("Failed to create the request.")?;
 		let response = self.send(request).await?;
 		if !response.status().is_success() {
-			return Err(error!("Expected the response's status to be success."));
+			let bytes = response
+				.collect()
+				.await
+				.wrap_err("Failed to collect the response body.")?
+				.to_bytes();
+			let error = serde_json::from_slice(&bytes)
+				.unwrap_or_else(|_| error!("The request did not succeed."));
+			return Err(error);
 		}
 		let bytes = response
 			.collect()
@@ -1041,7 +1237,14 @@ impl Handle for Client {
 			.wrap_err("Failed to create the request.")?;
 		let response = self.send(request).await?;
 		if !response.status().is_success() {
-			return Err(error!("Expected the response's status to be success."));
+			let bytes = response
+				.collect()
+				.await
+				.wrap_err("Failed to collect the response body.")?
+				.to_bytes();
+			let error = serde_json::from_slice(&bytes)
+				.unwrap_or_else(|_| error!("The request did not succeed."));
+			return Err(error);
 		}
 		let bytes = response
 			.collect()
@@ -1066,7 +1269,14 @@ impl Handle for Client {
 			.wrap_err("Failed to create the request.")?;
 		let response = self.send(request).await?;
 		if !response.status().is_success() {
-			return Err(error!("Expected the response's status to be success."));
+			let bytes = response
+				.collect()
+				.await
+				.wrap_err("Failed to collect the response body.")?
+				.to_bytes();
+			let error = serde_json::from_slice(&bytes)
+				.unwrap_or_else(|_| error!("The request did not succeed."));
+			return Err(error);
 		}
 		let bytes = response
 			.collect()
@@ -1092,7 +1302,14 @@ impl Handle for Client {
 			.wrap_err("Failed to create the request.")?;
 		let response = self.send(request).await?;
 		if !response.status().is_success() {
-			return Err(error!("Expected the response's status to be success."));
+			let bytes = response
+				.collect()
+				.await
+				.wrap_err("Failed to collect the response body.")?
+				.to_bytes();
+			let error = serde_json::from_slice(&bytes)
+				.unwrap_or_else(|_| error!("The request did not succeed."));
+			return Err(error);
 		}
 		Ok(())
 	}
@@ -1105,7 +1322,14 @@ impl Handle for Client {
 			.wrap_err("Failed to create the request.")?;
 		let response = self.send(request).await?;
 		if !response.status().is_success() {
-			return Err(error!("Expected the response's status to be success."));
+			let bytes = response
+				.collect()
+				.await
+				.wrap_err("Failed to collect the response body.")?
+				.to_bytes();
+			let error = serde_json::from_slice(&bytes)
+				.unwrap_or_else(|_| error!("The request did not succeed."));
+			return Err(error);
 		}
 		let bytes = response
 			.collect()
@@ -1128,7 +1352,14 @@ impl Handle for Client {
 			.await
 			.wrap_err("Failed to send the request.")?;
 		if !response.status().is_success() {
-			return Err(error!("Expected the response's status to be success."));
+			let bytes = response
+				.collect()
+				.await
+				.wrap_err("Failed to collect the response body.")?
+				.to_bytes();
+			let error = serde_json::from_slice(&bytes)
+				.unwrap_or_else(|_| error!("The request did not succeed."));
+			return Err(error);
 		}
 		let bytes = response
 			.collect()
@@ -1149,7 +1380,14 @@ impl Handle for Client {
 			.wrap_err("Failed to create the request.")?;
 		let response = self.send(request).await?;
 		if !response.status().is_success() {
-			return Err(error!("Expected the response's status to be success."));
+			let bytes = response
+				.collect()
+				.await
+				.wrap_err("Failed to collect the response body.")?
+				.to_bytes();
+			let error = serde_json::from_slice(&bytes)
+				.unwrap_or_else(|_| error!("The request did not succeed."));
+			return Err(error);
 		}
 		let bytes = response
 			.collect()

@@ -46,7 +46,11 @@ impl Artifact {
 				.into(),
 
 			// Otherwise, return an error.
-			_ => return Err(error!("The artifact must be a directory or an executable file.")),
+			_ => {
+				return Err(error!(
+					"The artifact must be a directory or an executable file."
+				))
+			},
 		};
 
 		// Remove references from the bundle directory.

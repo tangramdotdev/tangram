@@ -409,9 +409,7 @@ pub async fn build(
 				.await
 				.wrap_err("Failed to compute the checksum.")?;
 			if expected != tg::Checksum::Unsafe && expected != actual {
-				error!(
-					r#"The checksum did not match. Expected "{expected}" but got "{actual}"."#
-				);
+				error!(r#"The checksum did not match. Expected "{expected}" but got "{actual}"."#);
 			}
 		}
 

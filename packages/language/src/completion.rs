@@ -68,7 +68,7 @@ impl Server {
 
 		// Get the response.
 		let super::Response::Completion(response) = response else {
-			return Err(error!("Unexpected response type."))
+			return Err(error!("Unexpected response type."));
 		};
 
 		Ok(response.entries)

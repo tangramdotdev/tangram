@@ -30,7 +30,9 @@ impl Server {
 				.await
 				.wrap_err_with(|| format!(r#"Failed to check in the symlink at path "{path}"."#))?
 		} else {
-			return Err(error!("The path must point to a directory, file, or symlink."))
+			return Err(error!(
+				"The path must point to a directory, file, or symlink."
+			));
 		};
 
 		Ok(id)
@@ -376,7 +378,9 @@ impl Server {
 
 		// Render the target.
 		if symlink.artifact(self).await?.is_some() {
-			return Err(error!(r#"Cannot check out a symlink which contains an artifact."#));
+			return Err(error!(
+				r#"Cannot check out a symlink which contains an artifact."#
+			));
 		}
 		let target = symlink
 			.path(self)

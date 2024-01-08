@@ -28,6 +28,7 @@ pub enum Kind {
 	User,
 	Login,
 	Token,
+	Request,
 }
 
 #[derive(Clone, Eq, Hash, Ord, PartialEq, PartialOrd)]
@@ -140,6 +141,7 @@ impl std::fmt::Display for Kind {
 			Kind::User => "usr",
 			Kind::Login => "lgn",
 			Kind::Token => "tok",
+			Kind::Request => "req",
 		};
 		write!(f, "{kind}")?;
 		Ok(())
@@ -162,6 +164,7 @@ impl std::str::FromStr for Kind {
 			"usr" => Kind::User,
 			"lgn" => Kind::Login,
 			"tok" => Kind::Token,
+			"req" => Kind::Request,
 			_ => return Err(error!("Invalid kind.")),
 		})
 	}
