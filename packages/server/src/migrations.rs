@@ -93,7 +93,8 @@ async fn migration_0000(path: &Path) -> Result<()> {
 				json text not null
 			) strict;
 
-			create index queue_index on queue ((json->'depth') desc);
+			create index queue_build_index on queue ((json->>'build'));
+			create index queue_depth_index on queue ((json->'depth') desc);
 		",
 	)
 	.wrap_err("Failed to create the database tables.")?;

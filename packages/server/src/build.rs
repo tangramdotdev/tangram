@@ -292,22 +292,47 @@ impl Server {
 
 		// Return an existing build if one exists and it satisfies the retry constraint.
 		'a: {
+			// Get the assigned build.
 			let Some(build_id) = self.try_get_assignment(target_id).await? else {
 				break 'a;
 			};
 			let build = tg::build::Build::with_id(build_id.clone());
+
+			// Verify the build satisfies the retry constraint.
 			let status = build.status(self).await?;
-			if status != tg::build::Status::Finished {
-				break 'a;
+			if status == tg::build::Status::Finished {
+				let outcome = build.outcome(self).await?;
+				if options.retry >= outcome.retry() {
+					break 'a;
+				}
 			}
-			let outcome = build.outcome(self).await?;
-			if options.retry >= outcome.retry() {
-				break 'a;
+
+			// Update the queue with the depth if it is greater.
+			{
+				let db = self.inner.database.get().await?;
+				let statement = "
+					update queue
+					set json = json_set(json, '$.depth', (select max(cast(json->'depth' as int), ?1)))
+					where json->>'build' = ?2;
+				";
+				let params = params![options.depth, build_id.to_string()];
+				let mut statement = db
+					.prepare_cached(statement)
+					.wrap_err("Failed to prepare the query.")?;
+				statement
+					.execute(params)
+					.wrap_err("Failed to execute the query.")?;
 			}
+
+			// Notify the local queue task.
+			self.inner.local_queue_task_wake_sender.send_replace(());
+
+			// Add the build as a child of the parent.
 			if let Some(parent) = options.parent.as_ref() {
 				self.add_build_child(options.user.as_ref(), parent.id(), &build_id)
 					.await?;
 			}
+
 			return Ok(build_id);
 		}
 

@@ -230,6 +230,20 @@ impl Server {
 				.wrap_err("Failed to execute the query.")?;
 		}
 
+		// Empty the queue.
+		{
+			let db = server.inner.database.get().await?;
+			let statement = "
+				delete from queue;
+			";
+			let mut statement = db
+				.prepare_cached(statement)
+				.wrap_err("Failed to prepare the query.")?;
+			statement
+				.execute([])
+				.wrap_err("Failed to execute the query.")?;
+		}
+
 		// Start the vfs.
 		let vfs = tangram_vfs::Server::start(&server, &server.artifacts_path())
 			.await
