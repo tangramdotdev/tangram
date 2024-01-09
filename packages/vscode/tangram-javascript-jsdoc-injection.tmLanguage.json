@@ -8,13 +8,13 @@
 	"repository": {
 		"jsdocbody": {
 			"begin": "(?<=/\\*\\*)([^*]|\\*(?!/))*$",
+			"while": "(^|\\G)\\s*\\*(?!/)(?=([^*]|[*](?!/))*$)",
 			"patterns": [
 				{
-					"include": "source.tg#docblock"
+					"include": "source.tg.js#docblock"
 				}
-			],
-			"while": "(^|\\G)\\s*\\*(?!/)(?=([^*]|[*](?!/))*$)"
+			]
 		}
 	},
-	"scopeName": "documentation.injection.tg"
+	"scopeName": "documentation.injection.tg.js"
 }

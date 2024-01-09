@@ -37,17 +37,16 @@
 					],
 					"scope": "window",
 					"type": "string"
-				},
-				"tangram.tracing": {
-					"default": "",
-					"description": "Set the `TANGRAM_TRACING` environment variable for the Tangram Language Server.",
-					"scope": "window",
-					"type": "string"
 				}
 			},
 			"title": "Tangram"
 		},
 		"configurationDefaults": {
+			"[tangram-javascript]": {
+				"editor.detectIndentation": false,
+				"editor.insertSpaces": false,
+				"editor.tabSize": 2
+			},
 			"[tangram-typescript]": {
 				"editor.detectIndentation": false,
 				"editor.insertSpaces": false,
@@ -57,28 +56,59 @@
 		"grammars": [
 			{
 				"embeddedLanguages": {
+					"source.js": "javascript"
+				},
+				"language": "tangram-javascript",
+				"path": "./tangram-javascript.tmLanguage.json",
+				"scopeName": "source.tg.js"
+			},
+			{
+				"injectTo": [
+					"source.tg.js"
+				],
+				"path": "./tangram-javascript-jsdoc-injection.tmLanguage.json",
+				"scopeName": "documentation.injection.tg.js"
+			},
+			{
+				"embeddedLanguages": {
 					"source.ts": "typescript"
 				},
 				"language": "tangram-typescript",
 				"path": "./tangram-typescript.tmLanguage.json",
-				"scopeName": "source.tg"
+				"scopeName": "source.tg.ts"
 			},
 			{
 				"injectTo": [
-					"source.tg"
+					"source.tg.ts"
 				],
-				"path": "./tangram-jsdoc-injection.tmLanguage.json",
-				"scopeName": "documentation.injection.tg"
+				"path": "./tangram-typescript-jsdoc-injection.tmLanguage.json",
+				"scopeName": "documentation.injection.tg.ts"
 			}
 		],
 		"languages": [
 			{
 				"aliases": [
+					"Tangram JavaScript"
+				],
+				"configuration": "./tangram-javascript-language-configuration.json",
+				"filenames": [
+					"tangram.js"
+				],
+				"extensions": [
+					".tg.js"
+				],
+				"id": "tangram-javascript"
+			},
+			{
+				"aliases": [
 					"Tangram TypeScript"
 				],
-				"configuration": "./language-configuration.json",
+				"configuration": "./tangram-typescript-language-configuration.json",
+				"filenames": [
+					"tangram.ts"
+				],
 				"extensions": [
-					".tg"
+					".tg.ts"
 				],
 				"id": "tangram-typescript"
 			}
@@ -87,7 +117,7 @@
 	"dependencies": {
 		"vscode-languageclient": "^9.0.1"
 	},
-	"description": "Tangram integration and language support for Visual Studio Code.",
+	"description": "Tangram extension for Visual Studio Code.",
 	"devDependencies": {
 		"@types/vscode": "^1.75.0",
 		"@vscode/vsce": "^2.17.0"

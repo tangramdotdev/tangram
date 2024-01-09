@@ -34,16 +34,18 @@ impl Cli {
 		// Create the language server.
 		let server = tangram_language::Server::new(tg, tokio::runtime::Handle::current());
 
+		// Create the root module.
+		let path = tg::package::get_root_module_path(tg, &package).await?;
+		let package = package.id(tg).await?.clone();
+		let lock = lock.id(tg).await?.clone();
+		let root_module = tangram_language::Module::Normal(tangram_language::module::Normal {
+			lock,
+			package,
+			path,
+		});
+
 		// Check the package for diagnostics.
-		let diagnostics = server
-			.check(vec![tangram_language::Module::Normal(
-				tangram_language::module::Normal {
-					package: package.id(tg).await?.clone(),
-					lock: lock.id(tg).await?.clone(),
-					path: tg::package::ROOT_MODULE_FILE_NAME.parse().unwrap(),
-				},
-			)])
-			.await?;
+		let diagnostics = server.check(vec![root_module]).await?;
 
 		// Print the diagnostics.
 		for diagnostic in &diagnostics {

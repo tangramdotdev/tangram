@@ -1,4 +1,4 @@
-use super::{Sender, Server, ROOT_MODULE_FILE_NAME};
+use super::{Sender, Server};
 use crate::{Module, Range};
 use lsp_types as lsp;
 use std::{
@@ -176,12 +176,14 @@ impl Document {
 		let mut found = false;
 		let mut package_path = path.to_owned();
 		while package_path.pop() {
-			if tokio::fs::try_exists(&package_path.join(ROOT_MODULE_FILE_NAME))
-				.await
-				.wrap_err("Failed to determine if the path exists.")?
-			{
-				found = true;
-				break;
+			for root_module_file_name in tg::package::ROOT_MODULE_FILE_NAMES {
+				if tokio::fs::try_exists(&package_path.join(root_module_file_name))
+					.await
+					.wrap_err("Failed to determine if the path exists.")?
+				{
+					found = true;
+					break;
+				}
 			}
 		}
 		if !found {

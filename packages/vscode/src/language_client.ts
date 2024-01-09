@@ -1,3 +1,4 @@
+import * as path from "node:path";
 import * as vscode from "vscode";
 import { OutputChannel } from "vscode";
 import {
@@ -21,16 +22,16 @@ export class TangramLanguageClient {
 			return;
 		}
 
-		// Get the tangram configuration.
 		let tangramConfig = vscode.workspace.getConfiguration("tangram");
 
+		let defaultPath = path.join(process.env["HOME"]!, ".tangram/bin/tg");
+
 		let serverOptions: ServerOptions = {
-			command: tangramConfig.get<string>("path", "tg"),
+			command: tangramConfig.get<string>("path", defaultPath),
 			args: ["lsp"],
 			options: {
 				env: {
 					...process.env,
-					TANGRAM_TRACING: tangramConfig.get<string>("tracing", ""),
 				},
 			},
 		};
@@ -38,7 +39,7 @@ export class TangramLanguageClient {
 			diagnosticCollectionName: "tangram",
 			documentSelector: [
 				{ language: "tangram-typescript", scheme: "file" },
-				{ language: "tangram-typescript", scheme: "tangram" },
+				{ language: "tangram-typescript", scheme: "tg" },
 			],
 			outputChannel: this.outputChannel,
 		};

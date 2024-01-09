@@ -5,6 +5,7 @@ import ts from "typescript";
 
 // Create the TypeScript compiler options.
 export let compilerOptions: ts.CompilerOptions = {
+	allowJs: true,
 	isolatedModules: true,
 	module: ts.ModuleKind.ESNext,
 	noEmit: true,
@@ -105,8 +106,12 @@ export let host: ts.LanguageServiceHost & ts.CompilerHost = {
 			} catch {
 				return { resolvedModule: undefined };
 			}
+			let extension = resolvedFileName.slice(-3);
 			return {
-				resolvedModule: { resolvedFileName, extension: ts.Extension.Ts },
+				resolvedModule: {
+					resolvedFileName,
+					extension,
+				},
 			};
 		});
 	},
@@ -134,7 +139,15 @@ export let fileNameFromModule = (module_: Module): string => {
 		let data = syscall.encoding.hex.encode(
 			syscall.encoding.utf8.encode(syscall.encoding.json.encode(module_)),
 		);
-		return `/${data}.ts`;
+		let extension;
+		if (module_.value.path.endsWith(".js")) {
+			extension = ".js";
+		} else if (module_.value.path.endsWith(".ts")) {
+			extension = ".ts";
+		} else {
+			throw new Error("Invalid extension.");
+		}
+		return `/${data}${extension}`;
 	}
 };
 

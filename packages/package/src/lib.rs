@@ -237,9 +237,11 @@ async fn get_package_with_path_dependencies_for_path_inner(
 	// Create a builder for the package.
 	let mut package = tg::directory::Builder::default();
 
+	// Get the root module path.
+	let root_module_path = tg::package::get_root_module_path_for_path(path).await?;
+
 	// Create a queue of module paths to visit and a visited set.
-	let mut queue: VecDeque<tg::Path> =
-		VecDeque::from(vec![tg::package::ROOT_MODULE_FILE_NAME.parse().unwrap()]);
+	let mut queue: VecDeque<tg::Path> = VecDeque::from(vec![root_module_path]);
 	let mut visited_module_paths: HashSet<tg::Path, fnv::FnvBuildHasher> = HashSet::default();
 
 	// Create the path dependencies.
@@ -1208,9 +1210,11 @@ pub async fn dependencies(
 	// Create the dependencies set.
 	let mut dependencies: BTreeSet<tg::Dependency> = BTreeSet::default();
 
+	// Get the root module path.
+	let root_module_path = tg::package::get_root_module_path(tg, package).await?;
+
 	// Create a queue of module paths to visit and a visited set.
-	let mut queue: VecDeque<tg::Path> =
-		VecDeque::from(vec![tg::package::ROOT_MODULE_FILE_NAME.parse().unwrap()]);
+	let mut queue: VecDeque<tg::Path> = VecDeque::from(vec![root_module_path]);
 	let mut visited: HashSet<tg::Path, fnv::FnvBuildHasher> = HashSet::default();
 
 	// Visit each module.
@@ -1268,7 +1272,7 @@ pub async fn metadata(
 	tg: &dyn tg::Handle,
 	package: &tg::Directory,
 ) -> Result<tg::package::Metadata> {
-	let path = tg::package::ROOT_MODULE_FILE_NAME.parse().unwrap();
+	let path = tg::package::get_root_module_path(tg, package).await?;
 	let file = package
 		.get(tg, &path)
 		.await?

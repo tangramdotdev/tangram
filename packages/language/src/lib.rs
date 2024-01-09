@@ -46,8 +46,6 @@ pub mod version;
 pub mod virtual_text_document;
 pub mod workspace;
 
-pub const ROOT_MODULE_FILE_NAME: &str = "tangram.tg";
-
 const SNAPSHOT: &[u8] = include_bytes!(concat!(env!("OUT_DIR"), "/language.heapsnapshot"));
 
 pub const SOURCE_MAP: &[u8] = include_bytes!(concat!(env!("OUT_DIR"), "/main.js.map"));

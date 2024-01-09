@@ -64,7 +64,7 @@ impl std::str::FromStr for Import {
 	fn from_str(value: &str) -> Result<Self, Self::Err> {
 		if value.starts_with('.') {
 			let path: tg::Path = value.parse()?;
-			if path.extension() != Some("tg") {
+			if !matches!(path.extension(), Some("js" | ".tg.js" | ".tg.ts" | ".ts")) {
 				return Err(error!(
 					r#"The path "{path}" does not have a ".tg" extension."#
 				));

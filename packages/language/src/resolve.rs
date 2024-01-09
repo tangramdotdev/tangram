@@ -1,4 +1,3 @@
-use super::ROOT_MODULE_FILE_NAME;
 use crate::{
 	document,
 	module::{Library, Normal},
@@ -71,8 +70,8 @@ impl Module {
 					.await
 					.wrap_err("Failed to canonicalize the path.")?;
 
-				// The module path is the root module.
-				let module_path = ROOT_MODULE_FILE_NAME.parse().unwrap();
+				// Get the package's root module path.
+				let module_path = tg::package::get_root_module_path_for_path(&package_path).await?;
 
 				// Create the document.
 				let document =
@@ -109,7 +108,7 @@ impl Module {
 				// Create the module.
 				let lock = lock.id(tg).await?.clone();
 				let package = entry.package.id(tg).await?.clone();
-				let path = ROOT_MODULE_FILE_NAME.parse().unwrap();
+				let path = tg::package::get_root_module_path(tg, &entry.package).await?;
 				let module = Self::Normal(Normal {
 					lock,
 					package,
@@ -146,10 +145,13 @@ impl Module {
 					.wrap_err_with(|| format!(r#"Failed to resolve "{dependency}"."#))?;
 
 				// Create the module.
+				let path = tg::package::get_root_module_path(tg, &package).await?;
+				let package = package.id(tg).await?.clone();
+				let lock = lock.id(tg).await?.clone();
 				let module = Module::Normal(Normal {
-					package: package.id(tg).await?.clone(),
-					path: ROOT_MODULE_FILE_NAME.parse().unwrap(),
-					lock: lock.id(tg).await?.clone(),
+					lock,
+					package,
+					path,
 				});
 
 				Ok(module)
