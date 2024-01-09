@@ -6,7 +6,16 @@ use tangram_error::{Result, WrapErr};
 #[derive(Debug, clap::Args)]
 #[command(verbatim_doc_comment)]
 pub struct Args {
+	/// The directory to initialize the package in.
 	pub path: Option<PathBuf>,
+	
+	/// The name of the package. Defaults to the directory name.
+	#[arg(long)]
+	pub name: Option<String>,
+	
+	/// The version of the package. Defaults to "0.0.0".
+	#[arg(long, default_value = "0.0.0")]
+	pub version: String,
 }
 
 impl Cli {
@@ -24,8 +33,12 @@ impl Cli {
 		})?;
 
 		// Init.
-		self.command_init(super::init::Args { path: args.path })
-			.await?;
+		self.command_init(super::init::Args {
+			path: args.path,
+			name: args.name,
+			version: args.version,
+		})
+		.await?;
 
 		Ok(())
 	}
