@@ -64,9 +64,9 @@ impl std::str::FromStr for Import {
 	fn from_str(value: &str) -> Result<Self, Self::Err> {
 		if value.starts_with('.') {
 			let path: tg::Path = value.parse()?;
-			if !matches!(path.extension(), Some("js" | ".tg.js" | ".tg.ts" | ".ts")) {
+			if !matches!(path.extension(), Some("js" | "ts" | "tg.js" | "tg.ts")) {
 				return Err(error!(
-					r#"The path "{path}" does not have a ".tg" extension."#
+					r#"The path "{path}" does not have a valid extension."#
 				));
 			}
 			Ok(Import::Module(path))

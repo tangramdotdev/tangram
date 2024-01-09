@@ -334,16 +334,16 @@ mod tests {
 		let text = r#"
 			export let metadata = { name: "name", version: "version" };
 			import defaultImport from "tg:default_import";
-			import { namedImport } from "./named_import.tg";
+			import { namedImport } from "./named_import.tg.js";
 			import * as namespaceImport from "tg:namespace_import";
-			let dynamicImport = import("./dynamic_import.tg");
+			let dynamicImport = import("./dynamic_import.tg.ts");
 			let include = tg.include("./include.txt");
 			export let nested = tg.target(() => {
 				let nestedDynamicImport = import("tg:nested_dynamic_import");
 				let nestedInclude = tg.include("./nested_include.txt");
 			});
 			export { namedExport } from "tg:named_export";
-			export * as namespaceExport from "./namespace_export.tg";
+			export * as namespaceExport from "./namespace_export.ts";
 		"#;
 		let left = Module::analyze(text.to_owned()).unwrap();
 		let metadata = tg::package::Metadata {
@@ -353,12 +353,12 @@ mod tests {
 		};
 		let imports = [
 			"tg:default_import",
-			"./named_import.tg",
+			"./named_import.tg.js",
 			"tg:namespace_import",
-			"./dynamic_import.tg",
+			"./dynamic_import.tg.ts",
 			"tg:nested_dynamic_import",
 			"tg:named_export",
-			"./namespace_export.tg",
+			"./namespace_export.ts",
 		]
 		.into_iter()
 		.map(|import| import.parse().unwrap())
