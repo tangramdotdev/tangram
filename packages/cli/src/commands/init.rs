@@ -7,7 +7,14 @@ use tangram_error::{error, Result, Wrap, WrapErr};
 #[derive(Debug, clap::Args)]
 #[command(verbatim_doc_comment)]
 pub struct Args {
+	/// The directory to initialize the package in.
 	pub path: Option<PathBuf>,
+	/// The name of the package. Will use the directory name if not provided.
+	#[arg(long)]
+	pub name: Option<String>,
+	/// The version of the package. Will use "0.1.0" if not provided.
+	#[arg(long, default_value = "0.1.0")]
+	pub version: String,
 }
 
 impl Cli {
@@ -34,12 +41,28 @@ impl Cli {
 			Err(error) => return Err(error.wrap("Failed to get the metadata for the path.")),
 		};
 
+		let name = if let Some(name) = args.name {
+			name
+		} else {
+			path.file_name()
+				.ok_or_else(|| error!("The path must have a directory name."))?
+				.to_str()
+				.unwrap()
+				.to_owned()
+		};
+		let version = args.version;
+
 		// Define the files to generate.
 		let mut files = Vec::new();
 		files.push((
-			path.join("tangram.tg"),
+			path.join("tangram.ts"),
 			formatdoc!(
 				r#"
+					export let metadata = {{
+						name: "{name}",
+						version: "{version}",
+					}};
+
 					tg.target("default", () => "Hello, World!");
 				"#,
 			),
