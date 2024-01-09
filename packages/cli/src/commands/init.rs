@@ -9,11 +9,13 @@ use tangram_error::{error, Result, Wrap, WrapErr};
 pub struct Args {
 	/// The directory to initialize the package in.
 	pub path: Option<PathBuf>,
-	/// The name of the package. Will use the directory name if not provided.
+	
+	/// The name of the package. Defaults to the directory name.
 	#[arg(long)]
 	pub name: Option<String>,
-	/// The version of the package. Will use "0.1.0" if not provided.
-	#[arg(long, default_value = "0.1.0")]
+	
+	/// The version of the package. Defaults to "0.0.0".
+	#[arg(long, default_value = "0.0.0")]
 	pub version: String,
 }
 
@@ -41,6 +43,7 @@ impl Cli {
 			Err(error) => return Err(error.wrap("Failed to get the metadata for the path.")),
 		};
 
+		// Get the name and version.
 		let name = if let Some(name) = args.name {
 			name
 		} else {
