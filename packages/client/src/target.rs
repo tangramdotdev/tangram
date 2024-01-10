@@ -142,10 +142,10 @@ impl Target {
 			return Ok(true);
 		}
 		let id = self.state.read().unwrap().id.clone().unwrap();
-		let Some(bytes) = tg.try_get_object(&id.clone().into()).await? else {
+		let Some(output) = tg.try_get_object(&id.clone().into()).await? else {
 			return Ok(false);
 		};
-		let data = Data::deserialize(&bytes).wrap_err("Failed to deserialize the data.")?;
+		let data = Data::deserialize(&output.bytes).wrap_err("Failed to deserialize the data.")?;
 		let object = data.try_into()?;
 		self.state.write().unwrap().object.replace(object);
 		Ok(true)
@@ -253,7 +253,11 @@ impl Target {
 		Ok(Some(directory))
 	}
 
-	pub async fn build(&self, tg: &dyn Handle, options: build::Options) -> Result<Value> {
+	pub async fn build(
+		&self,
+		tg: &dyn Handle,
+		options: build::GetOrCreateOptions,
+	) -> Result<Value> {
 		let mut attempts = 0;
 		loop {
 			attempts += 1;

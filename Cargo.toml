@@ -15,7 +15,7 @@ resolver = "2"
 
 [workspace.package]
 authors = ["Tangram <root@tangram.dev"]
-description = "Tangram is a build system and package manager that makes your builds programmable, reproducible, cacheable, and distributable."
+description = "Tangram is a programmable build system and package manager."
 edition = "2021"
 homepage = "https://www.tangram.dev"
 license = "MIT"
@@ -116,6 +116,7 @@ tangram_vfs = { path = "packages/vfs" }
 tar = { version = "0.4" }
 tempfile = "3"
 thiserror = "1"
+time = { version = "0.3", features = ["formatting", "parsing", "serde"] }
 tokio = { version = "1", features = ["full"] }
 tokio-rustls = "0.25"
 tokio-stream = { version = "0.1", features = ["full"] }

@@ -9,11 +9,11 @@ use tangram_error::{error, Result, Wrap, WrapErr};
 pub struct Args {
 	/// The directory to initialize the package in.
 	pub path: Option<PathBuf>,
-	
+
 	/// The name of the package. Defaults to the directory name.
 	#[arg(long)]
 	pub name: Option<String>,
-	
+
 	/// The version of the package. Defaults to "0.0.0".
 	#[arg(long, default_value = "0.0.0")]
 	pub version: String,
@@ -66,7 +66,7 @@ impl Cli {
 						version: "{version}",
 					}};
 
-					tg.target("default", () => "Hello, World!");
+					export default tg.target(() => tg.file("Hello, World!"));
 				"#,
 			),
 		));

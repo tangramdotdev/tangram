@@ -126,10 +126,10 @@ impl File {
 			return Ok(true);
 		}
 		let id = self.state.read().unwrap().id.clone().unwrap();
-		let Some(bytes) = tg.try_get_object(&id.clone().into()).await? else {
+		let Some(output) = tg.try_get_object(&id.clone().into()).await? else {
 			return Ok(false);
 		};
-		let data = Data::deserialize(&bytes).wrap_err("Failed to deserialize the data.")?;
+		let data = Data::deserialize(&output.bytes).wrap_err("Failed to deserialize the data.")?;
 		let object = data.try_into()?;
 		self.state.write().unwrap().object.replace(object);
 		Ok(true)

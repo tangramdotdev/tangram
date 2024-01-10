@@ -91,7 +91,12 @@ pub struct State<I, O> {
 	pub object: Option<O>,
 }
 
-#[derive(Clone, Debug, Default, serde::Deserialize, serde::Serialize)]
+#[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
+pub struct GetOutput {
+	pub bytes: Bytes,
+}
+
+#[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
 pub struct PutOutput {
 	pub missing: Vec<Id>,
 }

@@ -16,14 +16,14 @@ use tokio_util::either::Either;
 type Incoming = hyper::body::Incoming;
 
 type Outgoing = http_body_util::combinators::UnsyncBoxBody<
-	::bytes::Bytes,
+	Bytes,
 	Box<dyn std::error::Error + Send + Sync + 'static>,
 >;
 
 impl Server {
 	pub async fn serve(
 		self,
-		addr: tg::client::Addr,
+		addr: tg::Addr,
 		mut stop: tokio::sync::watch::Receiver<bool>,
 	) -> Result<()> {
 		// Create the tasks.
@@ -31,12 +31,12 @@ impl Server {
 
 		// Create the listener.
 		let listener = match &addr {
-			tg::client::Addr::Inet(inet) => Either::Left(
+			tg::Addr::Inet(inet) => Either::Left(
 				TcpListener::bind(inet.to_string())
 					.await
 					.wrap_err("Failed to create the TCP listener.")?,
 			),
-			tg::client::Addr::Unix(path) => Either::Right(
+			tg::Addr::Unix(path) => Either::Right(
 				UnixListener::bind(path).wrap_err("Failed to create the UNIX listener.")?,
 			),
 		};
@@ -160,13 +160,10 @@ impl Server {
 				.map(Some)
 				.boxed(),
 
-			// Assignments
-			(http::Method::GET, ["v1", "assignments", _]) => self
-				.handle_get_assignment_request(request)
-				.map(Some)
-				.boxed(),
-
 			// Builds
+			(http::Method::HEAD, ["v1", "builds"]) => {
+				self.handle_get_builds_request(request).map(Some).boxed()
+			},
 			(http::Method::HEAD, ["v1", "builds", _]) => {
 				self.handle_head_build_request(request).map(Some).boxed()
 			},
@@ -316,39 +313,6 @@ impl Server {
 		response
 	}
 
-	async fn handle_get_health_request(
-		&self,
-		_request: http::Request<Incoming>,
-	) -> Result<http::Response<Outgoing>> {
-		let health = self.health().await?;
-		let body = serde_json::to_vec(&health).unwrap();
-		let response = http::Response::builder()
-			.status(http::StatusCode::OK)
-			.body(full(body))
-			.unwrap();
-		Ok(response)
-	}
-
-	#[allow(clippy::unnecessary_wraps, clippy::unused_async)]
-	async fn handle_post_stop_request(
-		&self,
-		_request: http::Request<Incoming>,
-	) -> Result<http::Response<Outgoing>> {
-		self.stop();
-		Ok(ok())
-	}
-
-	async fn handle_post_clean_request(
-		&self,
-		_request: http::Request<Incoming>,
-	) -> Result<http::Response<Outgoing>> {
-		self.clean().await?;
-		Ok(http::Response::builder()
-			.status(http::StatusCode::OK)
-			.body(empty())
-			.unwrap())
-	}
-
 	async fn handle_get_queue_item_request(
 		&self,
 		request: http::Request<Incoming>,
@@ -358,7 +322,7 @@ impl Server {
 
 		// Get the search params.
 		let hosts = if let Some(query) = request.uri().query() {
-			let search_params: tg::client::GetBuildQueueItemSearchParams =
+			let search_params: tg::GetBuildQueueItemSearchParams =
 				serde_urlencoded::from_str(query).wrap_err("Failed to parse the search params.")?;
 			search_params
 				.hosts
@@ -369,29 +333,6 @@ impl Server {
 		};
 
 		let build_id = self.try_get_queue_item(user.as_ref(), hosts).await?;
-
-		// Create the response.
-		let body = serde_json::to_vec(&build_id).wrap_err("Failed to serialize the response.")?;
-		let response = http::Response::builder().body(full(body)).unwrap();
-
-		Ok(response)
-	}
-
-	async fn handle_get_assignment_request(
-		&self,
-		request: http::Request<Incoming>,
-	) -> Result<http::Response<Outgoing>> {
-		// Get the path params.
-		let path_components: Vec<&str> = request.uri().path().split('/').skip(1).collect();
-		let [_, "assignments", id] = path_components.as_slice() else {
-			return Err(error!("Unexpected path."));
-		};
-		let id = id.parse().wrap_err("Failed to parse the ID.")?;
-
-		// Attempt to get the assignment.
-		let Some(build_id) = self.try_get_assignment(&id).await? else {
-			return Ok(not_found());
-		};
 
 		// Create the response.
 		let body = serde_json::to_vec(&build_id).wrap_err("Failed to serialize the response.")?;
@@ -414,9 +355,9 @@ impl Server {
 		let Some(query) = request.uri().query() else {
 			return Ok(bad_request());
 		};
-		let search_params: tg::client::GetOrCreateBuildSearchParams =
+		let search_params: tg::GetOrCreateBuildSearchParams =
 			serde_urlencoded::from_str(query).wrap_err("Failed to parse the search params.")?;
-		let tg::client::GetOrCreateBuildSearchParams {
+		let tg::GetOrCreateBuildSearchParams {
 			parent,
 			depth,
 			remote,
@@ -428,7 +369,7 @@ impl Server {
 		let user = self.try_get_user_from_request(&request).await?;
 
 		// Get or create the build.
-		let options = tg::build::Options {
+		let options = tg::build::GetOrCreateOptions {
 			depth,
 			parent: parent.map(tg::Build::with_id),
 			remote,
@@ -741,6 +682,30 @@ impl Server {
 		Ok(response)
 	}
 
+	async fn handle_get_builds_request(
+		&self,
+		request: http::Request<Incoming>,
+	) -> Result<hyper::Response<Outgoing>> {
+		// Read the search params.
+		let Some(query) = request.uri().query() else {
+			return Ok(bad_request());
+		};
+		let options: tg::build::ListOptions =
+			serde_urlencoded::from_str(query).wrap_err("Failed to parse the search params.")?;
+
+		// Get the builds.
+		let output = self.try_list_builds(options).await?;
+
+		// Create the response.
+		let body = serde_json::to_string(&output).wrap_err("Failed to serialize the response.")?;
+		let response = http::Response::builder()
+			.status(http::StatusCode::OK)
+			.body(full(body))
+			.unwrap();
+
+		Ok(response)
+	}
+
 	async fn handle_head_build_request(
 		&self,
 		request: http::Request<Incoming>,
@@ -877,14 +842,14 @@ impl Server {
 		};
 
 		// Get the object.
-		let Some(bytes) = self.try_get_object(&id).await? else {
+		let Some(output) = self.try_get_object(&id).await? else {
 			return Ok(not_found());
 		};
 
 		// Create the response.
 		let response = http::Response::builder()
 			.status(http::StatusCode::OK)
-			.body(full(bytes))
+			.body(full(output.bytes))
 			.unwrap();
 
 		Ok(response)
@@ -935,7 +900,7 @@ impl Server {
 			.await
 			.wrap_err("Failed to read the body.")?
 			.to_bytes();
-		let body: tg::client::CheckinArtifactBody =
+		let body: tg::CheckinArtifactBody =
 			serde_json::from_slice(&bytes).wrap_err("Failed to deserialize the body.")?;
 
 		// Check in the artifact.
@@ -959,7 +924,7 @@ impl Server {
 			.await
 			.wrap_err("Failed to read the body.")?
 			.to_bytes();
-		let body: tg::client::CheckoutArtifactBody =
+		let body: tg::CheckoutArtifactBody =
 			serde_json::from_slice(&bytes).wrap_err("Failed to deserialize the body.")?;
 
 		// Check out the artifact.
@@ -1014,7 +979,7 @@ impl Server {
 		let Some(query) = request.uri().query() else {
 			return Ok(bad_request());
 		};
-		let search_params: tg::client::SearchPackagesSearchParams =
+		let search_params: tg::SearchPackagesSearchParams =
 			serde_urlencoded::from_str(query).wrap_err("Failed to parse the search params.")?;
 
 		// Perform the search.
@@ -1043,7 +1008,7 @@ impl Server {
 			.wrap_err("Failed to parse the dependency.")?;
 
 		// Get the search params.
-		let search_params: tg::client::GetPackageSearchParams = request
+		let search_params: tg::GetPackageSearchParams = request
 			.uri()
 			.query()
 			.map(|query| {
@@ -1057,11 +1022,11 @@ impl Server {
 		let body = if search_params.lock {
 			self.try_get_package_and_lock(&dependency)
 				.await?
-				.map(tg::client::GetPackageBody::PackageAndLock)
+				.map(tg::GetPackageBody::PackageAndLock)
 		} else {
 			self.try_get_package(&dependency)
 				.await?
-				.map(tg::client::GetPackageBody::Package)
+				.map(tg::GetPackageBody::Package)
 		};
 
 		let Some(body) = body else {
@@ -1181,6 +1146,39 @@ impl Server {
 		Ok(ok())
 	}
 
+	async fn handle_get_health_request(
+		&self,
+		_request: http::Request<Incoming>,
+	) -> Result<http::Response<Outgoing>> {
+		let health = self.health().await?;
+		let body = serde_json::to_vec(&health).unwrap();
+		let response = http::Response::builder()
+			.status(http::StatusCode::OK)
+			.body(full(body))
+			.unwrap();
+		Ok(response)
+	}
+
+	async fn handle_post_clean_request(
+		&self,
+		_request: http::Request<Incoming>,
+	) -> Result<http::Response<Outgoing>> {
+		self.clean().await?;
+		Ok(http::Response::builder()
+			.status(http::StatusCode::OK)
+			.body(empty())
+			.unwrap())
+	}
+
+	#[allow(clippy::unnecessary_wraps, clippy::unused_async)]
+	async fn handle_post_stop_request(
+		&self,
+		_request: http::Request<Incoming>,
+	) -> Result<http::Response<Outgoing>> {
+		self.stop();
+		Ok(ok())
+	}
+
 	async fn handle_create_login_request(
 		&self,
 		_request: http::Request<Incoming>,
@@ -1258,7 +1256,7 @@ fn empty() -> Outgoing {
 }
 
 #[must_use]
-fn full(chunk: impl Into<::bytes::Bytes>) -> Outgoing {
+fn full(chunk: impl Into<Bytes>) -> Outgoing {
 	http_body_util::Full::new(chunk.into())
 		.map_err(Into::into)
 		.boxed_unsync()

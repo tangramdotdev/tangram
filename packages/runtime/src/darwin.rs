@@ -104,7 +104,7 @@ pub async fn build(
 	);
 
 	// Set `$TANGRAM_RUNTIME`
-	let addr = tg::client::Addr::Unix(server_directory_path.join("socket"));
+	let addr = tg::Addr::Unix(server_directory_path.join("socket"));
 	let runtime = tg::Runtime {
 		addr,
 		build: build.id().clone(),

@@ -182,6 +182,15 @@ impl From<Dependency> for String {
 	}
 }
 
+impl From<directory::Id> for Dependency {
+	fn from(value: directory::Id) -> Self {
+		Self {
+			id: Some(value),
+			..Default::default()
+		}
+	}
+}
+
 #[cfg(test)]
 mod tests {
 	use crate::Dependency;

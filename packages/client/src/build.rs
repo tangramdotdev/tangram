@@ -29,43 +29,16 @@ pub struct Build {
 	id: Id,
 }
 
-#[derive(Clone, Copy, Debug, Eq, PartialEq, serde::Deserialize, serde::Serialize)]
-#[serde(into = "String", try_from = "String")]
-pub enum Status {
-	Queued,
-	Running,
-	Finished,
-}
-
 #[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
 pub struct State {
 	pub children: Vec<Id>,
+	pub id: Id,
 	pub log: Option<blob::Id>,
 	pub outcome: Option<outcome::Data>,
 	pub status: Status,
 	pub target: target::Id,
-}
-
-#[derive(Clone, Debug, Default)]
-pub struct Options {
-	pub depth: u64,
-	pub parent: Option<Build>,
-	pub remote: bool,
-	pub retry: Retry,
-	pub user: Option<User>,
-}
-
-#[derive(Clone, Debug, Default, serde::Deserialize, serde::Serialize)]
-pub struct PutOutput {
-	pub missing: Missing,
-}
-
-#[derive(Clone, Debug, Default, serde::Deserialize, serde::Serialize)]
-pub struct Missing {
-	pub children: Vec<Id>,
-	pub log: bool,
-	pub outcome: bool,
-	pub target: bool,
+	#[serde(with = "time::serde::rfc3339")]
+	pub timestamp: time::OffsetDateTime,
 }
 
 pub mod outcome {
@@ -115,6 +88,57 @@ pub enum Retry {
 	Succeeded,
 }
 
+#[derive(Clone, Copy, Debug, Eq, PartialEq, serde::Deserialize, serde::Serialize)]
+#[serde(into = "String", try_from = "String")]
+pub enum Status {
+	Queued,
+	Running,
+	Finished,
+}
+
+#[derive(Clone, Debug, Default)]
+pub struct GetOrCreateOptions {
+	pub depth: u64,
+	pub parent: Option<Build>,
+	pub remote: bool,
+	pub retry: Retry,
+	pub user: Option<User>,
+}
+
+#[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
+pub struct ListOptions {
+	pub limit: u64,
+	pub sort: ListSort,
+	pub target: target::Id,
+}
+
+#[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum ListSort {
+	Timestamp,
+}
+
+#[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
+pub struct ListOutput {
+	pub values: Vec<State>,
+}
+
+#[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
+pub struct GetOutput {
+	pub state: State,
+}
+
+#[derive(Clone, Debug, Default, serde::Deserialize, serde::Serialize)]
+pub struct PutOutput {
+	pub missing: Missing,
+}
+
+#[derive(Clone, Debug, Default, serde::Deserialize, serde::Serialize)]
+pub struct Missing {
+	pub builds: Vec<Id>,
+	pub objects: Vec<object::Id>,
+}
+
 impl Id {
 	#[allow(clippy::new_without_default)]
 	#[must_use]
@@ -136,7 +160,7 @@ impl Build {
 }
 
 impl Build {
-	pub async fn new(tg: &dyn Handle, target: Target, options: Options) -> Result<Self> {
+	pub async fn new(tg: &dyn Handle, target: Target, options: GetOrCreateOptions) -> Result<Self> {
 		let target_id = target.id(tg).await?;
 		let build_id = tg.get_or_create_build(target_id, options).await?;
 		let build = Build::with_id(build_id);
@@ -249,14 +273,14 @@ impl Build {
 		tg: &dyn Handle,
 		remote: &dyn Handle,
 	) -> Result<()> {
-		let state = tg.get_build(&self.id).await?;
+		let GetOutput { state } = tg.get_build(&self.id).await?;
 		let output = remote
 			.try_put_build(user, &self.id, &state)
 			.await
 			.wrap_err("Failed to put the object.")?;
 		output
 			.missing
-			.children
+			.builds
 			.iter()
 			.cloned()
 			.map(Self::with_id)
@@ -264,39 +288,46 @@ impl Build {
 			.collect::<FuturesUnordered<_>>()
 			.try_collect()
 			.await?;
-		if output.missing.log {
-			if let Some(log) = state.log.clone() {
-				object::Handle::with_id(log.into()).push(tg, remote).await?;
-			}
-		}
-		if output.missing.outcome {
-			if let Some(outcome::Data::Succeeded(outcome)) = state.outcome.clone() {
-				Value::try_from(outcome)?.push(tg, remote).await?;
-			}
-		}
-		if output.missing.target {
-			object::Handle::with_id(state.target.clone().into())
-				.push(tg, remote)
-				.await?;
-		}
-		if !output.missing.children.is_empty()
-			|| output.missing.log
-			|| output.missing.outcome
-			|| output.missing.target
-		{
+		output
+			.missing
+			.objects
+			.iter()
+			.cloned()
+			.map(object::Handle::with_id)
+			.map(|object| async move { object.push(tg, remote).await })
+			.collect::<FuturesUnordered<_>>()
+			.try_collect()
+			.await?;
+		if !output.missing.builds.is_empty() || !output.missing.objects.is_empty() {
 			let output = remote
 				.try_put_build(user, &self.id, &state)
 				.await
 				.wrap_err("Failed to put the build.")?;
-			if !output.missing.children.is_empty()
-				|| output.missing.log
-				|| output.missing.outcome
-				|| output.missing.target
-			{
+			if !output.missing.builds.is_empty() || !output.missing.objects.is_empty() {
 				return Err(error!("Expected all children to be stored."));
 			}
 		}
 		Ok(())
+	}
+}
+
+impl State {
+	pub fn objects(&self) -> Vec<object::Id> {
+		let log = self.log.iter().map(|id| id.clone().into());
+		let outcome = self
+			.outcome
+			.as_ref()
+			.map(|outcome| {
+				if let outcome::Data::Succeeded(value) = outcome {
+					value.children()
+				} else {
+					vec![]
+				}
+			})
+			.into_iter()
+			.flatten();
+		let target = std::iter::once(self.target.clone().into());
+		log.chain(outcome).chain(target).collect()
 	}
 }
 

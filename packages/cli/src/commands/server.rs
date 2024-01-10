@@ -2,8 +2,7 @@ use crate::{Cli, API_URL};
 use std::path::PathBuf;
 use tangram_client as tg;
 use tangram_error::{Result, WrapErr};
-use tg::client::Addr;
-use tg::Handle;
+use tg::{Addr, Handle};
 use url::Url;
 
 /// Manage the server.
@@ -71,8 +70,8 @@ impl Cli {
 	pub async fn command_server(&self, args: Args) -> Result<()> {
 		match args.command {
 			Command::Health => {
-				let addr = tg::client::Addr::Unix(self.path.join("socket"));
-				let client = tg::client::Builder::new(addr).build();
+				let addr = tg::Addr::Unix(self.path.join("socket"));
+				let client = tg::Builder::new(addr).build();
 				let health = client.health().await?;
 				let health = serde_json::to_string_pretty(&health).unwrap();
 				println!("{health}");
@@ -81,8 +80,8 @@ impl Cli {
 				self.start_server().await?;
 			},
 			Command::Stop => {
-				let addr = tg::client::Addr::Unix(self.path.join("socket"));
-				let client = tg::client::Builder::new(addr).build();
+				let addr = tg::Addr::Unix(self.path.join("socket"));
+				let client = tg::Builder::new(addr).build();
 				client.stop().await?;
 			},
 			Command::Run(args) => {
@@ -118,7 +117,7 @@ impl Cli {
 				.and_then(|remote| remote.url.clone()))
 			.unwrap_or_else(|| API_URL.parse().unwrap());
 		let tls = url.scheme() == "https";
-		let client = tg::client::Builder::new(url.try_into()?)
+		let client = tg::Builder::new(url.try_into()?)
 			.tls(tls)
 			.user(user)
 			.build();

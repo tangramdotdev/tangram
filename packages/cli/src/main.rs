@@ -218,9 +218,9 @@ impl Cli {
 		}
 
 		// Attempt to connect to the server.
-		let addr = tg::client::Addr::Unix(self.path.join("socket"));
+		let addr = tg::Addr::Unix(self.path.join("socket"));
 		let user = self.user().await?.clone();
-		let client = tg::client::Builder::new(addr).user(user).build();
+		let client = tg::Builder::new(addr).user(user).build();
 		let mut connected = client.connect().await.is_ok();
 
 		// If this is a debug build, then require that the client is connected and has the same version as the server.

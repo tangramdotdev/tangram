@@ -49,7 +49,10 @@ impl Server {
 		Ok(exists)
 	}
 
-	pub async fn try_get_object(&self, id: &tg::object::Id) -> Result<Option<Bytes>> {
+	pub async fn try_get_object(
+		&self,
+		id: &tg::object::Id,
+	) -> Result<Option<tg::object::GetOutput>> {
 		if let Some(bytes) = self.try_get_object_local(id).await? {
 			Ok(Some(bytes))
 		} else if let Some(bytes) = self.try_get_object_remote(id).await? {
@@ -59,7 +62,10 @@ impl Server {
 		}
 	}
 
-	async fn try_get_object_local(&self, id: &tg::object::Id) -> Result<Option<Bytes>> {
+	async fn try_get_object_local(
+		&self,
+		id: &tg::object::Id,
+	) -> Result<Option<tg::object::GetOutput>> {
 		let db = self.inner.database.get().await?;
 		let statement = "
 			select bytes
@@ -80,17 +86,21 @@ impl Server {
 			.get::<_, Vec<u8>>(0)
 			.wrap_err("Failed to deserialize the column.")?
 			.into();
-		Ok(Some(bytes))
+		let output = tg::object::GetOutput { bytes };
+		Ok(Some(output))
 	}
 
-	async fn try_get_object_remote(&self, id: &tg::object::Id) -> Result<Option<Bytes>> {
+	async fn try_get_object_remote(
+		&self,
+		id: &tg::object::Id,
+	) -> Result<Option<tg::object::GetOutput>> {
 		// Get the remote.
 		let Some(remote) = self.inner.remote.as_ref() else {
 			return Ok(None);
 		};
 
 		// Get the object from the remote server.
-		let Some(bytes) = remote.try_get_object(id).await? else {
+		let Some(output) = remote.try_get_object(id).await? else {
 			return Ok(None);
 		};
 
@@ -102,7 +112,7 @@ impl Server {
 				values (?1, ?2)
 				on conflict (id) do update set bytes = ?2;
 			";
-			let params = params![id.to_string(), bytes.to_vec()];
+			let params = params![id.to_string(), output.bytes.to_vec()];
 			let mut statement = db
 				.prepare_cached(statement)
 				.wrap_err("Failed to prepare the query.")?;
@@ -111,7 +121,7 @@ impl Server {
 				.wrap_err("Failed to execute the query.")?;
 		}
 
-		Ok(Some(bytes))
+		Ok(Some(output))
 	}
 
 	pub async fn try_put_object(
@@ -140,12 +150,9 @@ impl Server {
 			})
 			.try_collect::<Vec<_>>()
 			.await?;
-		if !missing.is_empty() {
-			return Ok(tg::object::PutOutput { missing });
-		}
 
-		// Add the object to the database.
-		{
+		// Add the object to the database if there are no missing objects.
+		if missing.is_empty() {
 			let db = self.inner.database.get().await?;
 			let statement = "
 				insert into objects (id, bytes)
@@ -161,7 +168,9 @@ impl Server {
 				.wrap_err("Failed to execute the query.")?;
 		}
 
-		Ok(tg::object::PutOutput::default())
+		let output = tg::object::PutOutput { missing };
+
+		Ok(output)
 	}
 
 	pub async fn push_object(&self, id: &tg::object::Id) -> Result<()> {

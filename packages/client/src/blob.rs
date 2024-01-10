@@ -420,7 +420,7 @@ impl AsyncRead for Reader {
 										let bytes = if let Some(object) = object {
 											object.bytes.clone()
 										} else {
-											tg.get_object(&id.unwrap().into()).await?.clone()
+											tg.get_object(&id.unwrap().into()).await?.bytes.clone()
 										};
 										if position
 											< current_blob_position + bytes.len().to_u64().unwrap()

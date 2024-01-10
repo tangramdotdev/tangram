@@ -15,20 +15,20 @@ pub trait Handle: Send + Sync + 'static {
 
 	async fn health(&self) -> Result<health::Health>;
 
-	async fn stop(&self) -> Result<()>;
-
 	async fn clean(&self) -> Result<()>;
+
+	async fn stop(&self) -> Result<()>;
 
 	async fn get_object_exists(&self, id: &object::Id) -> Result<bool>;
 
-	async fn get_object(&self, id: &object::Id) -> Result<Bytes> {
+	async fn get_object(&self, id: &object::Id) -> Result<object::GetOutput> {
 		Ok(self
 			.try_get_object(id)
 			.await?
 			.wrap_err("Failed to get the object.")?)
 	}
 
-	async fn try_get_object(&self, id: &object::Id) -> Result<Option<Bytes>>;
+	async fn try_get_object(&self, id: &object::Id) -> Result<Option<object::GetOutput>>;
 
 	async fn try_put_object(&self, id: &object::Id, bytes: &Bytes) -> Result<object::PutOutput>;
 
@@ -40,18 +40,18 @@ pub trait Handle: Send + Sync + 'static {
 
 	async fn check_out_artifact(&self, id: &artifact::Id, path: &crate::Path) -> Result<()>;
 
-	async fn try_get_assignment(&self, target_id: &target::Id) -> Result<Option<build::Id>>;
+	async fn try_list_builds(&self, options: build::ListOptions) -> Result<build::ListOutput>;
 
 	async fn get_build_exists(&self, id: &build::Id) -> Result<bool>;
 
-	async fn get_build(&self, id: &build::Id) -> Result<build::State> {
+	async fn get_build(&self, id: &build::Id) -> Result<build::GetOutput> {
 		Ok(self
 			.try_get_build(id)
 			.await?
 			.wrap_err("Failed to get the build.")?)
 	}
 
-	async fn try_get_build(&self, id: &build::Id) -> Result<Option<build::State>>;
+	async fn try_get_build(&self, id: &build::Id) -> Result<Option<build::GetOutput>>;
 
 	async fn try_put_build(
 		&self,
@@ -63,7 +63,7 @@ pub trait Handle: Send + Sync + 'static {
 	async fn get_or_create_build(
 		&self,
 		target: &target::Id,
-		options: build::Options,
+		options: build::GetOrCreateOptions,
 	) -> Result<build::Id>;
 
 	async fn try_get_queue_item(

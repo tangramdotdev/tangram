@@ -62,42 +62,37 @@ async fn migration_0000(path: &Path) -> Result<()> {
 		.wrap_err("Failed to create the database.")?;
 	db.pragma_update(None, "journal_mode", "WAL")
 		.wrap_err("Failed to set the journal mode.")?;
-	db.execute_batch(
-		"
-			create table objects (
-				id text primary key,
-				bytes blob not null
-			) strict;
+	let sql = "
+		create table objects (
+			id text primary key,
+			bytes blob not null
+		) strict;
 
-			create table builds (
-				id text primary key,
-				json text not null
-			) strict;
+		create table builds (
+			id text primary key,
+			json text not null
+		) strict;
 
-			create index builds_status_index on builds ((json->'status'));
+		create index builds_target_index on builds ((json->'target'), (json->'timestamp') desc);
+		create index builds_status_index on builds ((json->'status'));
 
-			create table logs (
-				build text not null,
-				position int not null,
-				bytes blob not null
-			) strict;
+		create table logs (
+			build text not null,
+			position int not null,
+			bytes blob not null
+		) strict;
 
-			create index logs_index on logs (build, position);
+		create index logs_index on logs (build, position);
 
-			create table assignments (
-				target text primary key,
-				build text not null
-			) strict;
+		create table queue (
+			json text not null
+		) strict;
 
-			create table queue (
-				json text not null
-			) strict;
-
-			create index queue_build_index on queue ((json->>'build'));
-			create index queue_depth_index on queue ((json->'depth') desc);
-		",
-	)
-	.wrap_err("Failed to create the database tables.")?;
+		create index queue_build_index on queue ((json->>'build'));
+		create index queue_depth_index on queue ((json->'depth') desc);
+	";
+	db.execute_batch(sql)
+		.wrap_err("Failed to create the database tables.")?;
 
 	// Create the artifacts directory.
 	let artifacts_path = path.join("artifacts");

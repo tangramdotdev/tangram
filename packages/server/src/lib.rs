@@ -64,7 +64,7 @@ struct Channels {
 }
 
 pub struct Options {
-	pub addr: tg::client::Addr,
+	pub addr: tg::Addr,
 	pub path: PathBuf,
 	pub remote: Option<RemoteOptions>,
 	pub version: String,
@@ -210,6 +210,20 @@ impl Server {
 		});
 		let server = Server { inner };
 
+		// Empty the queue.
+		{
+			let db = server.inner.database.get().await?;
+			let statement = "
+				delete from queue;
+			";
+			let mut statement = db
+				.prepare_cached(statement)
+				.wrap_err("Failed to prepare the query.")?;
+			statement
+				.execute([])
+				.wrap_err("Failed to execute the query.")?;
+		}
+
 		// Terminate unfinished builds.
 		{
 			let db = server.inner.database.get().await?;
@@ -222,20 +236,6 @@ impl Server {
 				)
 				where json->>'status' != 'finished';
 			"#;
-			let mut statement = db
-				.prepare_cached(statement)
-				.wrap_err("Failed to prepare the query.")?;
-			statement
-				.execute([])
-				.wrap_err("Failed to execute the query.")?;
-		}
-
-		// Empty the queue.
-		{
-			let db = server.inner.database.get().await?;
-			let statement = "
-				delete from queue;
-			";
 			let mut statement = db
 				.prepare_cached(statement)
 				.wrap_err("Failed to prepare the query.")?;
@@ -453,7 +453,7 @@ impl tg::Handle for Server {
 		self.get_object_exists(id).await
 	}
 
-	async fn try_get_object(&self, id: &tg::object::Id) -> Result<Option<Bytes>> {
+	async fn try_get_object(&self, id: &tg::object::Id) -> Result<Option<tg::object::GetOutput>> {
 		self.try_get_object(id).await
 	}
 
@@ -481,15 +481,18 @@ impl tg::Handle for Server {
 		self.check_out_artifact(id, path).await
 	}
 
-	async fn try_get_assignment(&self, id: &tg::target::Id) -> Result<Option<tg::build::Id>> {
-		self.try_get_assignment(id).await
+	async fn try_list_builds(
+		&self,
+		options: tg::build::ListOptions,
+	) -> Result<tg::build::ListOutput> {
+		self.try_list_builds(options).await
 	}
 
 	async fn get_build_exists(&self, id: &tg::build::Id) -> Result<bool> {
 		self.get_build_exists(id).await
 	}
 
-	async fn try_get_build(&self, id: &tg::build::Id) -> Result<Option<tg::build::State>> {
+	async fn try_get_build(&self, id: &tg::build::Id) -> Result<Option<tg::build::GetOutput>> {
 		self.try_get_build(id).await
 	}
 
@@ -505,7 +508,7 @@ impl tg::Handle for Server {
 	async fn get_or_create_build(
 		&self,
 		id: &tg::target::Id,
-		options: tg::build::Options,
+		options: tg::build::GetOrCreateOptions,
 	) -> Result<tg::build::Id> {
 		self.get_or_create_build(id, options).await
 	}
