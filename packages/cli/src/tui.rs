@@ -1,6 +1,5 @@
-use bytes::Bytes;
 use crossterm as ct;
-use futures::{stream::FusedStream, StreamExt};
+use futures::{stream::FusedStream, StreamExt, TryStreamExt};
 use num::ToPrimitive;
 use ratatui as tui;
 use std::{
@@ -10,9 +9,7 @@ use std::{
 use tangram_client as tg;
 use tangram_error::{Result, WrapErr};
 use tg::package::Ext;
-use tokio::io::{AsyncReadExt, AsyncSeekExt, AsyncWriteExt};
-use tui::{style::Stylize, widgets::Widget};
-use unicode_width::UnicodeWidthChar;
+use tui::{layout::Rect, style::Stylize, widgets::Widget};
 
 pub struct Tui {
 	#[allow(dead_code)]
@@ -79,16 +76,40 @@ struct Log {
 }
 
 struct LogInner {
-	build: tg::Build,
-	lines: std::sync::Mutex<Vec<String>>,
-	lines_bytes: std::sync::Mutex<Vec<u64>>,
-	lines_file_offset_start: std::sync::Mutex<u64>,
-	rect: tokio::sync::watch::Sender<tui::layout::Rect>,
+	// The build we're logging.
+	build: tg::build::Build,
+
+	// The current contents of the log.
+	entries: tokio::sync::Mutex<Vec<LogEntry>>,
+
+	// The bounding box of the log view.
+	rect: tokio::sync::watch::Sender<Rect>,
+
+	// Channel used to send UI events.
 	sender: tokio::sync::mpsc::UnboundedSender<LogUpdate>,
+
+	// The lines of text that will be displayed.
+	lines: std::sync::Mutex<VecDeque<String>>,
+
+	// The log's task
 	task: std::sync::Mutex<Option<tokio::task::JoinHandle<()>>>,
+
+	// The client.
 	tg: Box<dyn tg::Handle>,
 }
 
+// Represents the current state of log's scroll, pointing to a newline character within a log entry.
+#[derive(Clone, Copy, Debug)]
+struct Scroll {
+	entry: usize,
+	newline: Option<usize>,
+}
+
+#[derive(Debug)]
+struct LogEntry {
+	entry: tg::log::Entry,
+	newlines: Vec<usize>,
+}
 enum LogUpdate {
 	Up,
 	Down,
@@ -261,6 +282,12 @@ impl App {
 			},
 			ct::event::KeyCode::Char('r') => {
 				self.rotate();
+			},
+			ct::event::KeyCode::Char('[') => {
+				self.log.up();
+			},
+			ct::event::KeyCode::Char(']') => {
+				self.log.down();
 			},
 			_ => (),
 		}
@@ -670,405 +697,6 @@ impl Drop for TreeItemInner {
 	}
 }
 
-impl Log {
-	fn new(tg: &dyn tg::Handle, build: &tg::Build, rect: tui::layout::Rect) -> Self {
-		let tg = tg.clone_box();
-		let lines = std::sync::Mutex::new(Vec::new());
-		let lines_bytes = std::sync::Mutex::new(Vec::new());
-		let (sender, mut receiver) = tokio::sync::mpsc::unbounded_channel();
-		let (rect_sender, mut rect_receiver) = tokio::sync::watch::channel(rect);
-		let inner = Arc::new(LogInner {
-			build: build.clone(),
-			lines,
-			lines_bytes,
-			lines_file_offset_start: std::sync::Mutex::new(0),
-			rect: rect_sender,
-			sender,
-			task: std::sync::Mutex::new(None),
-			tg: tg.clone_box(),
-		});
-		let log = Self { inner };
-		let task = tokio::task::spawn({
-			let log = log.clone();
-			async move {
-				let mut file = tokio::fs::File::from_std(tempfile::tempfile().unwrap());
-				let mut scroll: Option<u64> = None;
-				let Ok(stream) = log
-					.inner
-					.build
-					.log(log.inner.tg.as_ref(), Some(0), None)
-					.await
-				else {
-					return;
-				};
-				let mut stream = stream.fuse();
-				loop {
-					tokio::select! {
-						Some(entry) = stream.next(), if !stream.is_terminated() => {
-							let Ok(entry) = entry else {
-								return;
-							};
-							let result = log.bytes_impl(&mut file, &mut scroll, &entry.bytes).await;
-							if result.is_err() {
-								return;
-							}
-						},
-						result = receiver.recv() => match result.unwrap() {
-							LogUpdate::Down => {
-								let result = log.down_impl(&mut file, &mut scroll).await;
-								if result.is_err() {
-									return;
-								}
-							}
-							LogUpdate::Up => {
-								let result = log.up_impl(&mut file, &mut scroll).await;
-								if result.is_err() {
-									return;
-								}
-							}
-						},
-						result = rect_receiver.changed() => {
-							result.unwrap();
-							let rect = *rect_receiver.borrow();
-							let result = log.rect_impl(&mut file, &mut scroll, rect).await;
-							if result.is_err() {
-								return;
-							}
-						},
-					};
-				}
-			}
-		});
-		log.inner.task.lock().unwrap().replace(task);
-		log
-	}
-
-	async fn bytes_impl(
-		&self,
-		file: &mut tokio::fs::File,
-		scroll: &mut Option<u64>,
-		bytes: &Bytes,
-	) -> Result<()> {
-		file.seek(std::io::SeekFrom::End(0))
-			.await
-			.wrap_err("Failed to seek the log file.")?;
-		file.write_all(bytes)
-			.await
-			.wrap_err("Failed to write to the log file.")?;
-
-		if scroll.is_some() {
-			// We are not tailing, so no need to update the lines.
-			return Ok(());
-		}
-
-		let max_width = self.inner.rect.borrow().width.to_usize().unwrap();
-		let mut lines = self.inner.lines.lock().unwrap();
-		let mut line = String::new();
-		let mut current_width = 0;
-		let mut lines_file_offset_start = self.inner.lines_file_offset_start.lock().unwrap();
-		let mut lines_bytes = self.inner.lines_bytes.lock().unwrap();
-		let mut current_line_bytes = 0;
-
-		for byte in bytes {
-			let char = byte_to_char(*byte);
-			if char == '\n' {
-				if lines.len() == self.inner.rect.borrow().height.to_usize().unwrap() {
-					lines.remove(0);
-					let bytes_removed = lines_bytes.remove(0);
-					*lines_file_offset_start += bytes_removed;
-				}
-				lines.push(line);
-				current_line_bytes += 1;
-				lines_bytes.push(current_line_bytes);
-				line = String::new();
-				current_width = 0;
-				current_line_bytes = 0;
-			} else {
-				if current_width + char.width().unwrap_or(0) > max_width {
-					if lines.len() == self.inner.rect.borrow().height.to_usize().unwrap() {
-						lines.remove(0);
-						let bytes_removed = lines_bytes.remove(0);
-						*lines_file_offset_start += bytes_removed;
-					}
-					lines.push(line);
-					lines_bytes.push(current_line_bytes);
-					line = String::new();
-					current_width = 0;
-					current_line_bytes = 0;
-				}
-				current_width += char.width().unwrap_or(0);
-				current_line_bytes += 1;
-				line.push(char);
-			}
-		}
-
-		if !line.is_empty() {
-			lines.remove(0);
-			let bytes_removed = lines_bytes.remove(0);
-			*lines_file_offset_start += bytes_removed;
-			lines.push(line);
-			lines_bytes.push(current_line_bytes);
-		}
-
-		Ok(())
-	}
-
-	async fn rect_impl(
-		&self,
-		file: &mut tokio::fs::File,
-		scroll: &mut Option<u64>,
-		rect: tui::layout::Rect,
-	) -> Result<()> {
-		// All the lines need to be recomputed.
-		{
-			let mut lines = self.inner.lines.lock().unwrap();
-			let len = lines.len();
-			lines.drain(0..len);
-
-			let mut lines_bytes = self.inner.lines_bytes.lock().unwrap();
-			let len = lines_bytes.len();
-			lines_bytes.drain(0..len);
-		}
-
-		// Starting at the lines file offset, append lines.
-		let seek = *self.inner.lines_file_offset_start.lock().unwrap();
-		let mut buf = [0u8; 1];
-		let mut current_line_width = 0;
-		let mut current_line_bytes = 0;
-		let max_width = rect.width.to_usize().unwrap();
-		let file_bytes = file.metadata().await.unwrap().len();
-		let mut num_lines = 0;
-
-		let mut line = String::new();
-		for seek in seek..file_bytes {
-			if num_lines == rect.height.to_usize().unwrap() {
-				break;
-			}
-			file.seek(std::io::SeekFrom::Start(seek)).await.unwrap();
-			file.read_exact(buf.as_mut())
-				.await
-				.wrap_err("Failed to read from the log file.")?;
-			let char = byte_to_char(buf[0]);
-			if char == '\n' {
-				current_line_bytes += 1;
-				let mut lines = self.inner.lines.lock().unwrap();
-				lines.push(line);
-				let mut lines_bytes = self.inner.lines_bytes.lock().unwrap();
-				lines_bytes.push(current_line_bytes);
-				line = String::new();
-				num_lines += 1;
-				current_line_bytes = 0;
-				current_line_width = 0;
-				continue;
-			} else if current_line_width + char.width().unwrap_or(0) > max_width {
-				let mut lines = self.inner.lines.lock().unwrap();
-				lines.push(line);
-				let mut lines_bytes = self.inner.lines_bytes.lock().unwrap();
-				lines_bytes.push(current_line_bytes);
-				line = String::new();
-				num_lines += 1;
-				current_line_bytes = 0;
-				current_line_width = 0;
-			}
-			current_line_bytes += 1;
-			line.push(char);
-			current_line_width += char.width().unwrap_or(0);
-		}
-
-		// If there are still not enough lines, prepend lines until we fill the height or we reach the start of the buffer.
-		while *self.inner.lines_file_offset_start.lock().unwrap() > 0
-			&& self.inner.lines.lock().unwrap().len() < rect.height.to_usize().unwrap()
-		{
-			self.prepend_line(file, scroll).await?;
-		}
-
-		// If there are still not enough lines, set scroll to None so we tail.
-		if self.inner.lines.lock().unwrap().len() < rect.height.to_usize().unwrap() {
-			*scroll = None;
-		}
-
-		// If there are enough lines but we aren't at the bottom, set scroll so we don't tail.
-		let lines_file_offset_end = *self.inner.lines_file_offset_start.lock().unwrap()
-			+ self.inner.lines_bytes.lock().unwrap().iter().sum::<u64>();
-		if self.inner.lines.lock().unwrap().len() == rect.height.to_usize().unwrap()
-			&& lines_file_offset_end < file_bytes
-		{
-			*scroll = Some(*self.inner.lines_file_offset_start.lock().unwrap());
-		}
-
-		Ok(())
-	}
-
-	async fn down_impl(&self, file: &mut tokio::fs::File, scroll: &mut Option<u64>) -> Result<()> {
-		// If lines is equal to height and scroll is none, we are already at the bottom.
-		if scroll.is_none()
-			&& self.inner.lines.lock().unwrap().len().to_u16().unwrap()
-				== self.inner.rect.borrow().height
-		{
-			return Ok(());
-		}
-
-		// If there aren't enough lines to fill the view, we can't scroll down.
-		if self.inner.lines.lock().unwrap().len().to_u16().unwrap()
-			< self.inner.rect.borrow().height
-		{
-			return Ok(());
-		}
-
-		let mut buf = [0; 1];
-		let mut line = String::new();
-		let seek = *self.inner.lines_file_offset_start.lock().unwrap()
-			+ self.inner.lines_bytes.lock().unwrap().iter().sum::<u64>();
-		let max_width = self.inner.rect.borrow().width.to_usize().unwrap();
-		let mut current_line_width = 0;
-		let mut current_line_bytes = 0;
-		let file_bytes = file.metadata().await.unwrap().len();
-
-		for seek in seek..file_bytes {
-			// Read the value at the seek position.
-			file.seek(std::io::SeekFrom::Start(seek))
-				.await
-				.wrap_err("Failed to seek.")?;
-			file.read_exact(&mut buf)
-				.await
-				.wrap_err("Failed to read the bytes")?;
-			let char = byte_to_char(buf[0]);
-			if char == '\n' {
-				current_line_bytes += 1;
-				break;
-			}
-			if current_line_width + char.width().unwrap_or(0) > max_width {
-				break;
-			}
-			line.push(char);
-			current_line_width += char.width().unwrap_or(0);
-			current_line_bytes += 1;
-		}
-
-		let mut lines_file_offset_start = self.inner.lines_file_offset_start.lock().unwrap();
-
-		if current_line_bytes > 0 {
-			// Update the lines.
-			let mut lines = self.inner.lines.lock().unwrap();
-			lines.remove(0);
-			lines.push(line);
-
-			// Update the lines_bytes.
-			let mut lines_bytes = self.inner.lines_bytes.lock().unwrap();
-			let bytes_removed = lines_bytes.remove(0);
-			lines_bytes.push(current_line_bytes);
-			*lines_file_offset_start += bytes_removed;
-		}
-
-		// Update the scroll.
-		if seek == file_bytes {
-			// We are at the bottom.
-			*scroll = None;
-		} else {
-			*scroll = Some(*lines_file_offset_start);
-		}
-
-		Ok(())
-	}
-
-	async fn up_impl(&self, file: &mut tokio::fs::File, scroll: &mut Option<u64>) -> Result<()> {
-		if scroll.map_or(false, |scroll| scroll == 0) {
-			return Ok(());
-		}
-
-		if *self.inner.lines_file_offset_start.lock().unwrap() == 0 {
-			return Ok(());
-		}
-
-		self.prepend_line(file, scroll).await?;
-
-		let mut lines = self.inner.lines.lock().unwrap();
-		let mut lines_bytes = self.inner.lines_bytes.lock().unwrap();
-		lines.pop();
-		lines_bytes.pop();
-
-		// Update the scroll.
-		let lines_file_offset_start = self.inner.lines_file_offset_start.lock().unwrap();
-		*scroll = Some(*lines_file_offset_start);
-
-		Ok(())
-	}
-
-	async fn prepend_line(
-		&self,
-		file: &mut tokio::fs::File,
-		_scroll: &mut Option<u64>,
-	) -> Result<()> {
-		let lines_file_offset_start = *self.inner.lines_file_offset_start.lock().unwrap();
-		let max_width = self.inner.rect.borrow().width.to_usize().unwrap();
-		let mut buf = [0u8; 1];
-		let mut line = VecDeque::new();
-		let mut current_line_bytes = 0;
-		let mut current_line_width = 0;
-		for seek in (0..lines_file_offset_start).rev() {
-			file.seek(std::io::SeekFrom::Start(seek)).await.unwrap();
-			file.read_exact(buf.as_mut())
-				.await
-				.wrap_err("Failed to read from the log file.")?;
-			let char = byte_to_char(buf[0]);
-			if char == '\n' && !line.is_empty() {
-				break;
-			}
-			if current_line_width + char.width().unwrap_or(0) > max_width {
-				break;
-			}
-			current_line_bytes += 1;
-			line.push_front(char);
-			current_line_width += char.width().unwrap_or(0);
-		}
-		let mut lines = self.inner.lines.lock().unwrap();
-		let mut lines_file_offset_start = self.inner.lines_file_offset_start.lock().unwrap();
-		let mut lines_bytes = self.inner.lines_bytes.lock().unwrap();
-		let line = line.into_iter().collect::<String>();
-		lines.insert(0, line);
-		lines_bytes.insert(0, current_line_bytes);
-		*lines_file_offset_start -= current_line_bytes;
-
-		Ok(())
-	}
-
-	fn rect(&self) -> tui::layout::Rect {
-		*self.inner.rect.borrow()
-	}
-
-	fn resize(&mut self, rect: tui::layout::Rect) {
-		self.inner.rect.send(rect).unwrap();
-	}
-
-	fn down(&mut self) {
-		self.inner.sender.send(LogUpdate::Down).unwrap();
-	}
-
-	fn up(&mut self) {
-		self.inner.sender.send(LogUpdate::Up).unwrap();
-	}
-
-	fn render(&self, rect: tui::layout::Rect, buf: &mut tui::buffer::Buffer) {
-		let lines = self.inner.lines.lock().unwrap();
-		for (y, line) in lines.iter().enumerate() {
-			buf.set_line(
-				rect.x,
-				rect.y + y.to_u16().unwrap(),
-				&tui::text::Line::raw(line),
-				rect.width,
-			);
-		}
-	}
-}
-
-impl Drop for LogInner {
-	fn drop(&mut self) {
-		if let Some(task) = self.task.lock().unwrap().take() {
-			task.abort();
-		}
-	}
-}
-
 async fn title(tg: &dyn tg::Handle, build: &tg::Build) -> Result<Option<String>> {
 	// Get the target.
 	let target = build.target(tg).await?;
@@ -1094,19 +722,518 @@ async fn title(tg: &dyn tg::Handle, build: &tg::Build) -> Result<Option<String>>
 	Ok(Some(title))
 }
 
-fn byte_to_char(byte: u8) -> char {
-	if byte.is_ascii_control() {
-		// Display a spaces for a tab character.
-		if byte as char == '\t' {
-			' '
-		} else if byte as char == '\n' {
+impl From<tg::log::Entry> for LogEntry {
+	fn from(entry: tg::log::Entry) -> Self {
+		let newlines = entry
+			.bytes
+			.iter()
+			.enumerate()
+			.filter_map(|(pos, byte)| (*byte == b'\n').then_some(pos))
+			.collect::<Vec<_>>();
+		Self { entry, newlines }
+	}
+}
+
+impl Drop for LogInner {
+	fn drop(&mut self) {
+		if let Some(task) = self.task.lock().unwrap().take() {
+			task.abort();
+		}
+	}
+}
+
+impl Log {
+	// Create a new log data stream.
+	fn new(tg: &dyn tg::Handle, build: &tg::Build, rect: Rect) -> Self {
+		let build = build.clone();
+		let entries = tokio::sync::Mutex::new(Vec::new());
+		let tg = tg.clone_box();
+
+		let (sender, mut receiver) = tokio::sync::mpsc::unbounded_channel();
+		let (rect, mut rect_watch) = tokio::sync::watch::channel(rect);
+		let lines = std::sync::Mutex::new(VecDeque::new());
+
+		let log = Log {
+			inner: Arc::new(LogInner {
+				build,
+				entries,
+				lines,
+				rect,
+				sender,
+				task: std::sync::Mutex::new(None),
+				tg,
+			}),
+		};
+
+		// Create the log streaming task.
+		let task = tokio::task::spawn({
+			let log = log.clone();
+			let mut scroll = None;
+			async move {
+				let area = log.rect().area().to_i64().unwrap();
+				let stream = log
+					.inner
+					.build
+					.log(log.inner.tg.as_ref(), None, Some(-3 * area / 2))
+					.await
+					.expect("Failed to get log stream.");
+
+				let mut stream = stream.fuse();
+				loop {
+					tokio::select! {
+						Some(entry) = stream.next(), if !stream.is_terminated() => {
+							let Ok(entry) = entry else {
+								return;
+							};
+							log.add_entry(entry.into()).await;
+						},
+						result = receiver.recv() => match result.unwrap() {
+							LogUpdate::Down => {
+								let result = log.down_impl(&mut scroll).await;
+								if result.is_err() {
+									return;
+								}
+							}
+							LogUpdate::Up => {
+								let result = log.up_impl(&mut scroll).await;
+								if result.is_err() {
+									return;
+								}
+							}
+						},
+						_ = rect_watch.changed() => (),
+					};
+					log.update_lines(scroll).await;
+				}
+			}
+		});
+		log.inner.task.lock().unwrap().replace(task);
+		log
+	}
+
+	// Log a new entry from the stream.
+	async fn add_entry(&self, entry: LogEntry) {
+		// Get some metadata about this log entry.
+		let entry_position = entry.entry.pos;
+		let entry_size = entry.entry.bytes.len().to_u64().unwrap();
+
+		let mut entries = self.inner.entries.lock().await;
+
+		// Short circuit for the common case that we're appending to the log.
+		if entries.is_empty() || entries.last().unwrap().entry.pos < entry.entry.pos {
+			entries.push(entry);
+			return;
+		};
+
+		// Find where this log entry needs to be inserted.
+		let index = entries
+			.iter()
+			.position(|existing| existing.entry.pos > entry.entry.pos)
+			.unwrap();
+		entries.insert(index, entry);
+
+		// Check if we need to truncate the next entry.
+		let next_pos = entry_position + entry_size;
+		let next_entry = &mut entries[index + 1];
+		if next_pos > next_entry.entry.pos {
+			let new_length = next_entry.entry.bytes.len()
+				- (next_pos - next_entry.entry.pos).to_usize().unwrap();
+			next_entry.entry.bytes.truncate(new_length);
+			next_entry.newlines = next_entry
+				.entry
+				.bytes
+				.iter()
+				.enumerate()
+				.filter_map(|(pos, byte)| (*byte == b'\n').then_some(pos))
+				.collect::<Vec<_>>();
+		}
+	}
+
+	// Handle a scroll up event.
+	async fn up_impl(&self, scroll: &mut Option<Scroll>) -> Result<()> {
+		let Some(scroll) = scroll.as_mut() else {
+			let entries = self.inner.entries.lock().await;
+			let lines = self.inner.lines.lock().unwrap();
+			if lines.is_empty() {
+				return Ok(());
+			}
+			*scroll = Some(get_nth_newline_from_end(
+				&entries,
+				self.rect().height.to_usize().unwrap(),
+			));
+			return Ok(());
+		};
+
+		// If we've scrolled to the beginning of the stream, pull in some new results and find the first newline.
+		if scroll.entry == 0 && scroll.newline.is_none() {
+			let pos = self.inner.entries.lock().await[scroll.entry].entry.pos;
+			if pos == 0 {
+				// Nothing to do.
+				return Ok(());
+			}
+			let len = 3 * self.rect().area().to_i64().unwrap() / 2;
+			let stream = self
+				.inner
+				.build
+				.log(self.inner.tg.as_ref(), Some(pos), Some(len))
+				.await?;
+			let entries = stream
+				.try_collect::<Vec<_>>()
+				.await?
+				.into_iter()
+				.map(LogEntry::from)
+				.collect::<Vec<_>>();
+
+			// Update the scroll. Since this is prepended to the entries, the entry index is stable.
+			*scroll = get_nth_newline_from_end(&entries, 1);
+			for entry in entries {
+				self.add_entry(entry).await;
+			}
+			return Ok(());
+		}
+
+		if scroll.newline == Some(0) {
+			if scroll.entry == 0 {
+				scroll.newline = None;
+			} else {
+				let entries = self.inner.entries.lock().await;
+				*scroll = get_nth_newline_from_end(&entries[0..scroll.entry], 1);
+			}
+		}
+		Ok(())
+	}
+
+	// Handle a scroll down event.
+	async fn down_impl(&self, scroll: &mut Option<Scroll>) -> Result<()> {
+		// We're tailing, no work to do.
+		let Some(scroll_state) = *scroll else {
+			return Ok(());
+		};
+
+		let entries = self.inner.entries.lock().await;
+		let height = self.rect().height.to_usize().unwrap();
+
+		// Check if we need to start tailing.
+		let bottom = get_nth_newline_from_start(&entries[scroll_state.entry..], height + 1);
+		if bottom.newline.is_none() {
+			*scroll = None;
+		} else {
+			// Otherwise, scroll by one line.
+			let mut top = get_nth_newline_from_start(&entries[scroll_state.entry..], 1);
+			top.entry += scroll_state.entry + 1;
+			*scroll = Some(top);
+		}
+		Ok(())
+	}
+
+	// Update the rendered lines.
+	async fn update_lines(&self, scroll: Option<Scroll>) {
+		let entries = self.inner.entries.lock().await;
+		if entries.is_empty() {
+			self.inner.lines.lock().unwrap().clear();
+			return;
+		}
+		let height = self.rect().height.to_usize().unwrap();
+		let scroll = scroll.unwrap_or_else(|| get_nth_newline_from_end(&entries, height));
+		let lines = read_lines(&entries, height, scroll.entry, scroll.newline);
+		*self.inner.lines.lock().unwrap() = lines;
+	}
+
+	// Get the bounding box of the log widget.
+	fn rect(&self) -> tui::layout::Rect {
+		*self.inner.rect.borrow()
+	}
+
+	// Issue a scroll up event.
+	fn up(&self) {
+		self.inner.sender.send(LogUpdate::Up).ok();
+	}
+
+	// Issue a scroll down event.
+	fn down(&self) {
+		self.inner.sender.send(LogUpdate::Down).ok();
+	}
+
+	fn resize(&self, rect: Rect) {
+		self.inner.rect.send(rect).ok();
+	}
+
+	fn render(&self, rect: tui::layout::Rect, buf: &mut tui::buffer::Buffer) {
+		let lines = self.inner.lines.lock().unwrap();
+		for (y, line) in (0..rect.height).zip(lines.iter()) {
+			buf.set_line(rect.x, rect.y + y, &tui::text::Line::raw(line), rect.width);
+		}
+	}
+}
+
+// Read through entries starting from the start and return the indices of the entry containing the nth newline character, and the index of that character in the newline table.
+// Preconditions: entries must be non empty and n must be non zero.
+fn get_nth_newline_from_start(entries: &[LogEntry], n: usize) -> Scroll {
+	let mut entry_index = 0;
+	let mut count = 0;
+	loop {
+		let entry = &entries[entry_index];
+		if entry_index == entries.len() - 1 && entry.newlines.is_empty() {
+			return Scroll {
+				entry: entry_index,
+				newline: None,
+			};
+		}
+		count += entry.newlines.len();
+		if count >= n || entry_index == entries.len() - 1 {
+			break;
+		}
+		entry_index += 1;
+	}
+	if count < n {
+		return Scroll {
+			entry: entry_index,
+			newline: None,
+		};
+	}
+	let newline_index = (entries[entry_index].newlines.len() - 1) - (count - n);
+	Scroll {
+		entry: entry_index,
+		newline: Some(newline_index),
+	}
+}
+
+// Read through entries starting from the end and return the indices of the entry containing the nth newline character, and the index of that character in the newline table.
+// Preconditions: entries must be non empty and n must be nonzero.
+fn get_nth_newline_from_end(entries: &[LogEntry], n: usize) -> Scroll {
+	// Get the first entry with a newline.
+	let mut entry_index = entries.len() - 1;
+	let mut count = 0;
+	loop {
+		let entry = &entries[entry_index];
+		if entry_index == 0 && entry.newlines.is_empty() {
+			return Scroll {
+				entry: entry_index,
+				newline: None,
+			};
+		}
+		count += entry.newlines.len();
+		if count >= n || entry_index == 0 {
+			break;
+		}
+		entry_index -= 1;
+	}
+	if count < n {
+		return Scroll {
+			entry: 0,
+			newline: None,
+		};
+	}
+	let newline_index = count - n;
+	Scroll {
+		entry: entry_index,
+		newline: Some(newline_index),
+	}
+}
+
+// Read `count` many lines of text from `entries` starting at a given entry and new line offset.
+fn read_lines(
+	entries: &[LogEntry],
+	count: usize,
+	mut entry_index: usize,
+	mut line_index: Option<usize>,
+) -> VecDeque<String> {
+	// Read <count> number of lines starting at <entry_index> and <line_index>.
+	let mut lines = VecDeque::new();
+
+	// Edge case: handling the first line of the first entry.
+	if line_index.is_none() && !entries[entry_index].newlines.is_empty() {
+		let entry = &entries[entry_index];
+		let end = entry.newlines.first().unwrap();
+		let mut line = String::new();
+		append_log_to_string(&mut line, &entry.entry.bytes[0..*end]);
+		lines.push_back(line);
+		line_index = Some(0);
+	}
+	
+	// Read lines until the buffer is filled.
+	'outer: while lines.len() < count {
+		let mut next_line = String::new();
+		'inner: loop {
+			let entry = &entries[entry_index];
+			if let Some(current_line_index) = line_index {
+				let start = entry.newlines[current_line_index] + 1;
+				if let Some(end) = entry.newlines.get(current_line_index + 1) {
+					append_log_to_string(&mut next_line, &entry.entry.bytes[start..*end]);
+					line_index = Some(current_line_index + 1);
+					break 'inner;
+				}
+				append_log_to_string(&mut next_line, &entry.entry.bytes[start..]);
+				entry_index += 1;
+				if entry_index == entries.len() {
+					lines.push_back(next_line);
+					break 'outer;
+				}
+				let entry = &entries[entry_index];
+				if let Some(first_line) = entry.newlines.first() {
+					append_log_to_string(&mut next_line, &entry.entry.bytes[0..*first_line]);
+					line_index = Some(0);
+					break 'inner;
+				}
+				line_index = None;
+			} else {
+				append_log_to_string(&mut next_line, &entry.entry.bytes);
+				entry_index += 1;
+				if entry_index == entries.len() {
+					lines.push_back(next_line);
+					break 'outer;
+				}
+				let entry = &entries[entry_index];
+				if let Some(first_line) = entry.newlines.first() {
+					append_log_to_string(&mut next_line, &entry.entry.bytes[0..*first_line]);
+					line_index = Some(0);
+					break 'inner;
+				}
+				line_index = None;
+			}
+		}
+		lines.push_back(next_line);
+	}
+	lines
+}
+
+// Append a byte string to a utf8 string, converting non-ascii text to the unknown char.
+fn append_log_to_string(string: &mut String, bytes: &[u8]) {
+	let chars = bytes.iter().map(|byte| {
+		let byte = *byte;
+		if byte.is_ascii_control() {
+			// Display a spaces for a tab character.
+			if byte as char == '\t' {
+				' '
+			} else if byte as char == '\n' {
+				byte as char
+			} else {
+				'�'
+			}
+		} else if byte.is_ascii() {
 			byte as char
 		} else {
 			'�'
 		}
-	} else if byte.is_ascii() {
-		byte as char
-	} else {
-		'�'
+	});
+	string.extend(chars);
+}
+
+#[cfg(test)]
+mod tests {
+	use crate::tui::{get_nth_newline_from_end, get_nth_newline_from_start, read_lines, Scroll};
+	use tangram_client as tg;
+
+	#[test]
+	fn read_overlapping_log_entries() {
+		let entries = [
+			tg::log::Entry {
+				pos: 0,
+				bytes: b"Line 1\nLine".to_vec().into(),
+			},
+			tg::log::Entry {
+				pos: 0,
+				bytes: b" ".to_vec().into(),
+			},
+			tg::log::Entry {
+				pos: 0,
+				bytes: b"2\nLine 3\n".to_vec().into(),
+			},
+			tg::log::Entry {
+				pos: 0,
+				bytes: b"Line 4\n".to_vec().into(),
+			},
+		];
+		let entries = entries
+			.into_iter()
+			.map(super::LogEntry::from)
+			.collect::<Vec<_>>();
+		let lines = read_lines(&entries, 2, 0, Some(0));
+		assert_eq!(lines.len(), 2);
+		assert_eq!(&lines[0], "Line 2");
+		assert_eq!(&lines[1], "Line 3");
+	}
+
+	#[test]
+	fn get_nth_newline() {
+		let entries: Vec<super::LogEntry> = vec![
+			tg::log::Entry {
+				pos: 0,
+				bytes: b";;;;; Begin ;;;;;\n".to_vec().into(),
+			}
+			.into(),
+			tg::log::Entry {
+				pos: 0,
+				bytes: b"Line 1\nLine 2\n".to_vec().into(),
+			}
+			.into(),
+			tg::log::Entry {
+				pos: 0,
+				bytes: b"Line 3\n".to_vec().into(),
+			}
+			.into(),
+			tg::log::Entry {
+				pos: 0,
+				bytes: b"Line 4\n".to_vec().into(),
+			}
+			.into(),
+		];
+		let entries = entries
+			.into_iter()
+			.map(super::LogEntry::from)
+			.collect::<Vec<_>>();
+		let Scroll { entry, newline } = get_nth_newline_from_start(&entries, 3);
+		assert_eq!(entry, 1);
+		assert_eq!(newline, Some(1));
+
+		let Scroll { entry, newline } = get_nth_newline_from_end(&entries, 3);
+		assert_eq!(entry, 1);
+		assert_eq!(newline, Some(1));
+
+		let Scroll { entry, newline } = get_nth_newline_from_end(&entries, 1);
+		assert_eq!(entry, 3);
+		assert_eq!(newline, Some(0));
+
+		let Scroll { entry, newline } = get_nth_newline_from_end(&entries, 2);
+		assert_eq!(entry, 2);
+		assert_eq!(newline, Some(0));
+
+		let Scroll { entry, newline } = get_nth_newline_from_start(&entries, 1);
+		assert_eq!(entry, 0);
+		assert_eq!(newline, Some(0));
+	}
+
+	#[test]
+	fn read_full_log_from_end() {
+		let entries: Vec<super::LogEntry> = vec![
+			tg::log::Entry {
+				pos: 0,
+				bytes: b";;;;; Begin ;;;;;\n".to_vec().into(),
+			}
+			.into(),
+			tg::log::Entry {
+				pos: 0,
+				bytes: b"Line 1\n".to_vec().into(),
+			}
+			.into(),
+			tg::log::Entry {
+				pos: 0,
+				bytes: b"Line 2\n".to_vec().into(),
+			}
+			.into(),
+			tg::log::Entry {
+				pos: 0,
+				bytes: b"Line 3\n".to_vec().into(),
+			}
+			.into(),
+		];
+		let height = 20;
+		let scroll = get_nth_newline_from_end(&entries, height);
+		let lines = read_lines(&entries, height, scroll.entry, scroll.newline);
+		assert_eq!(&lines[0], ";;;;; Begin ;;;;;");
+		assert_eq!(&lines[1], "Line 1");
+		assert_eq!(&lines[2], "Line 2");
+		assert_eq!(&lines[3], "Line 3");
+		assert_eq!(&lines[4], "");
 	}
 }
