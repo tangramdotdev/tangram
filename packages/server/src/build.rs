@@ -373,12 +373,10 @@ impl Server {
 		let (children, _) = tokio::sync::watch::channel(());
 		let (log, _) = tokio::sync::watch::channel(());
 		let (outcome, _) = tokio::sync::watch::channel(());
-		let (stop, _) = tokio::sync::watch::channel(false);
 		let channels = Arc::new(Channels {
 			children,
 			log,
 			outcome,
-			stop,
 		});
 		self.inner
 			.channels
@@ -622,6 +620,11 @@ impl Server {
 		retry: tg::build::Retry,
 		permit: Option<tokio::sync::OwnedSemaphorePermit>,
 	) -> Result<()> {
+		// Add the build to the stops.
+		let (stop_sender, stop_receiver) = tokio::sync::watch::channel(false);
+		let stop = Arc::new(stop_sender);
+		self.inner.stops.write().unwrap().insert(id.clone(), stop);
+
 		// Update the status.
 		self.set_build_status(user, id, tg::build::Status::Running)
 			.await?;
@@ -633,7 +636,7 @@ impl Server {
 			let id = id.clone();
 			async move {
 				if let Err(error) = server
-					.build_task(user.as_ref(), &id, depth, retry, permit)
+					.build_task(user.as_ref(), &id, depth, retry, permit, stop_receiver)
 					.await
 				{
 					let trace = error.trace();
@@ -661,18 +664,10 @@ impl Server {
 		depth: u64,
 		retry: tg::build::Retry,
 		permit: Option<tokio::sync::OwnedSemaphorePermit>,
+		stop: tokio::sync::watch::Receiver<bool>,
 	) -> Result<()> {
 		let build = tg::Build::with_id(id.clone());
 		let target = build.target(self).await?;
-		let stop = self
-			.inner
-			.channels
-			.read()
-			.unwrap()
-			.get(id)
-			.unwrap()
-			.stop
-			.subscribe();
 
 		// Build the target with the appropriate runtime.
 		let result = match target.host(self).await?.os() {
@@ -1628,6 +1623,9 @@ impl Server {
 		// Remove the build from the depths.
 		self.inner.depths.write().unwrap().remove(id);
 
+		// Remove the build from the stops.
+		self.inner.stops.write().unwrap().remove(id);
+
 		Ok(true)
 	}
 
@@ -1658,6 +1656,9 @@ impl Server {
 			.as_mut()
 			.unwrap()
 			.remove(id);
+
+		// Remove the build from the stops.
+		self.inner.stops.write().unwrap().remove(id);
 
 		Ok(true)
 	}
