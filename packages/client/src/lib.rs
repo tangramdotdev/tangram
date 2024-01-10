@@ -175,23 +175,51 @@ impl Client {
 				return Ok(sender);
 			}
 		}
-		match &self.inner.addr {
-			Addr::Inet(inet) if self.inner.tls => {
-				self.connect_tcp_tls(inet).await?;
-			},
-			Addr::Inet(inet) => {
-				self.connect_tcp(inet).await?;
-			},
-			Addr::Unix(path) => {
-				self.connect_unix(path).await?;
-			},
-		}
-		Ok(self.inner.sender.lock().await.as_ref().cloned().unwrap())
+		let mut sender_guard = self.inner.sender.lock().await;
+		let sender = match &self.inner.addr {
+			Addr::Inet(inet) if self.inner.tls => self.connect_h2_tcp_tls(inet).await?,
+			Addr::Inet(inet) => self.connect_h2_tcp(inet).await?,
+			Addr::Unix(path) => self.connect_h2_unix(path).await?,
+		};
+		sender_guard.replace(sender.clone());
+		Ok(sender)
 	}
 
-	async fn connect_tcp(&self, inet: &Inet) -> Result<()> {
-		let mut sender_guard = self.inner.sender.lock().await;
+	async fn _connect_h1_tcp(
+		&self,
+		inet: &Inet,
+	) -> Result<hyper::client::conn::http1::SendRequest<Outgoing>> {
+		// Connect via TCP.
+		let stream = TcpStream::connect(inet.to_string())
+			.await
+			.wrap_err("Failed to create the TCP connection.")?;
 
+		// Perform the HTTP handshake.
+		let io = hyper_util::rt::TokioIo::new(stream);
+		let (mut sender, connection) = hyper::client::conn::http1::handshake(io)
+			.await
+			.wrap_err("Failed to perform the HTTP handshake.")?;
+
+		// Spawn the connection.
+		tokio::spawn(async move {
+			if let Err(error) = connection.await {
+				tracing::error!(error = ?error, "The connection failed.");
+			}
+		});
+
+		// Wait for the sender to be ready.
+		sender
+			.ready()
+			.await
+			.wrap_err("Failed to ready the sender.")?;
+
+		Ok(sender)
+	}
+
+	async fn connect_h2_tcp(
+		&self,
+		inet: &Inet,
+	) -> Result<hyper::client::conn::http2::SendRequest<Outgoing>> {
 		// Connect via TCP.
 		let stream = TcpStream::connect(inet.to_string())
 			.await
@@ -217,15 +245,72 @@ impl Client {
 			.await
 			.wrap_err("Failed to ready the sender.")?;
 
-		// Replace the sender.
-		sender_guard.replace(sender);
-
-		Ok(())
+		Ok(sender)
 	}
 
-	async fn connect_tcp_tls(&self, inet: &Inet) -> Result<()> {
-		let mut sender_guard = self.inner.sender.lock().await;
+	async fn _connect_h1_tcp_tls(
+		&self,
+		inet: &Inet,
+	) -> Result<hyper::client::conn::http1::SendRequest<Outgoing>> {
+		// Connect via TLS over TCP.
+		let stream = self.connect_tcp_tls(inet).await?;
 
+		// Perform the HTTP handshake.
+		let io = hyper_util::rt::TokioIo::new(stream);
+		let (mut sender, connection) = hyper::client::conn::http1::handshake(io)
+			.await
+			.wrap_err("Failed to perform the HTTP handshake.")?;
+
+		// Spawn the connection.
+		tokio::spawn(async move {
+			if let Err(error) = connection.await {
+				tracing::error!(error = ?error, "The connection failed.");
+			}
+		});
+
+		// Wait for the sender to be ready.
+		sender
+			.ready()
+			.await
+			.wrap_err("Failed to ready the sender.")?;
+
+		Ok(sender)
+	}
+
+	async fn connect_h2_tcp_tls(
+		&self,
+		inet: &Inet,
+	) -> Result<hyper::client::conn::http2::SendRequest<Outgoing>> {
+		// Connect via TLS over TCP.
+		let stream = self.connect_tcp_tls(inet).await?;
+
+		// Perform the HTTP handshake.
+		let executor = hyper_util::rt::TokioExecutor::new();
+		let io = hyper_util::rt::TokioIo::new(stream);
+		let (mut sender, connection) = hyper::client::conn::http2::handshake(executor, io)
+			.await
+			.wrap_err("Failed to perform the HTTP handshake.")?;
+
+		// Spawn the connection.
+		tokio::spawn(async move {
+			if let Err(error) = connection.await {
+				tracing::error!(error = ?error, "The connection failed.");
+			}
+		});
+
+		// Wait for the sender to be ready.
+		sender
+			.ready()
+			.await
+			.wrap_err("Failed to ready the sender.")?;
+
+		Ok(sender)
+	}
+
+	async fn connect_tcp_tls(
+		&self,
+		inet: &Inet,
+	) -> Result<tokio_rustls::client::TlsStream<tokio::net::TcpStream>> {
 		// Connect via TCP.
 		let stream = TcpStream::connect(inet.to_string())
 			.await
@@ -262,10 +347,21 @@ impl Client {
 			return Err(error!("Failed to negotiate the HTTP/2 protocol."));
 		}
 
+		Ok(stream)
+	}
+
+	async fn _connect_h1_unix(
+		&self,
+		path: &std::path::Path,
+	) -> Result<hyper::client::conn::http1::SendRequest<Outgoing>> {
+		// Connect via UNIX.
+		let stream = UnixStream::connect(path)
+			.await
+			.wrap_err("Failed to connect to the socket.")?;
+
 		// Perform the HTTP handshake.
-		let executor = hyper_util::rt::TokioExecutor::new();
 		let io = hyper_util::rt::TokioIo::new(stream);
-		let (mut sender, connection) = hyper::client::conn::http2::handshake(executor, io)
+		let (mut sender, connection) = hyper::client::conn::http1::handshake(io)
 			.await
 			.wrap_err("Failed to perform the HTTP handshake.")?;
 
@@ -282,15 +378,13 @@ impl Client {
 			.await
 			.wrap_err("Failed to ready the sender.")?;
 
-		// Replace the sender.
-		sender_guard.replace(sender);
-
-		Ok(())
+		Ok(sender)
 	}
 
-	async fn connect_unix(&self, path: &std::path::Path) -> Result<()> {
-		let mut sender_guard = self.inner.sender.lock().await;
-
+	async fn connect_h2_unix(
+		&self,
+		path: &std::path::Path,
+	) -> Result<hyper::client::conn::http2::SendRequest<Outgoing>> {
 		// Connect via UNIX.
 		let stream = UnixStream::connect(path)
 			.await
@@ -316,10 +410,7 @@ impl Client {
 			.await
 			.wrap_err("Failed to ready the sender.")?;
 
-		// Replace the sender.
-		sender_guard.replace(sender);
-
-		Ok(())
+		Ok(sender)
 	}
 
 	async fn send(
