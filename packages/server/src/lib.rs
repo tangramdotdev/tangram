@@ -49,6 +49,7 @@ struct Inner {
 	semaphore: Arc<tokio::sync::Semaphore>,
 	shutdown: tokio::sync::watch::Sender<bool>,
 	shutdown_task: std::sync::Mutex<Option<tokio::task::JoinHandle<Result<()>>>>,
+	stops: std::sync::RwLock<HashMap<tg::build::Id, Arc<tokio::sync::watch::Sender<bool>>>>,
 	tasks: std::sync::Mutex<
 		Option<HashMap<tg::build::Id, tokio::task::JoinHandle<()>, fnv::FnvBuildHasher>>,
 	>,
@@ -60,7 +61,6 @@ struct Channels {
 	children: tokio::sync::watch::Sender<()>,
 	log: tokio::sync::watch::Sender<()>,
 	outcome: tokio::sync::watch::Sender<()>,
-	stop: tokio::sync::watch::Sender<bool>,
 }
 
 pub struct Options {
@@ -176,6 +176,9 @@ impl Server {
 		// Create the shutdown task.
 		let shutdown_task = std::sync::Mutex::new(None);
 
+		// Create the stops map.
+		let stops = std::sync::RwLock::new(HashMap::new());
+
 		// Create the tasks.
 		let tasks = std::sync::Mutex::new(Some(HashMap::default()));
 
@@ -204,6 +207,7 @@ impl Server {
 			semaphore,
 			shutdown,
 			shutdown_task,
+			stops,
 			tasks,
 			version,
 			vfs,
@@ -340,8 +344,8 @@ impl Server {
 			remote_queue_task.await.unwrap()?;
 
 			// Stop running builds.
-			for channels in server.inner.channels.read().unwrap().values() {
-				channels.stop.send_replace(true);
+			for stop in server.inner.stops.read().unwrap().values() {
+				stop.send_replace(true);
 			}
 
 			// Join running builds.
