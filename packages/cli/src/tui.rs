@@ -859,7 +859,7 @@ impl Log {
 			}
 			*scroll = Some(get_nth_newline_from_end(
 				&entries,
-				self.rect().height.to_usize().unwrap(),
+				self.rect().height.to_usize().unwrap() + 1,
 			));
 			return Ok(());
 		};
@@ -1050,7 +1050,7 @@ fn read_lines(
 		lines.push_back(line);
 		line_index = Some(0);
 	}
-	
+
 	// Read lines until the buffer is filled.
 	'outer: while lines.len() < count {
 		let mut next_line = String::new();
