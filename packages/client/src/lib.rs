@@ -1,9 +1,9 @@
 pub use self::{
 	artifact::Artifact, blob::Blob, branch::Branch, build::Build, checksum::Checksum,
 	dependency::Dependency, directory::Directory, file::File, handle::Handle, health::Health,
-	id::Id, leaf::Leaf, lock::Lock, lockfile::Lockfile, mutation::Mutation, object::Object,
-	path::Path, runtime::Runtime, symlink::Symlink, system::System, target::Target,
-	template::Template, user::User, value::Value,
+	id::Id, leaf::Leaf, lock::Lock, mutation::Mutation, object::Object, path::Path,
+	runtime::Runtime, symlink::Symlink, system::System, target::Target, template::Template,
+	user::User, value::Value,
 };
 use async_trait::async_trait;
 use bytes::Bytes;
@@ -37,7 +37,6 @@ pub mod health;
 pub mod id;
 pub mod leaf;
 pub mod lock;
-pub mod lockfile;
 pub mod log;
 pub mod mutation;
 pub mod object;

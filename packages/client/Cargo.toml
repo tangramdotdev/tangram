@@ -24,6 +24,7 @@ bytes = { workspace = true }
 data-encoding = { workspace = true }
 data-encoding-macro = { workspace = true }
 derive_more = { workspace = true }
+either = { workspace = true }
 fnv = { workspace = true }
 futures = { workspace = true }
 hex = { workspace = true }

@@ -426,7 +426,7 @@ async fn lockfile_matches_inner(
 	let dependencies = dependencies(tg, &package_with_path_dependencies.package).await?;
 
 	// Get the package's lock from the lockfile.
-	let lock = lockfile.locks.get(index).wrap_err("Invalid lockfile.")?;
+	let lock = lockfile.nodes.get(index).wrap_err("Invalid lockfile.")?;
 
 	// Verify that the dependencies match.
 	if !itertools::equal(lock.dependencies.keys(), dependencies.iter()) {
@@ -495,12 +495,12 @@ async fn create_lockfile(
 		return Err(error!("{report}"));
 	}
 
-	// Create the set of locks for all dependencies.
-	let root_package_id = package_with_path_dependencies.package.id(tg).await?;
-	let mut locks = Vec::new();
-	let root = create_lockfile_inner(tg, root_package_id, &context, &solution, &mut locks).await?;
+	// Create the nodes.
+	let root = package_with_path_dependencies.package.id(tg).await?;
+	let mut nodes = Vec::new();
+	let root = create_lockfile_inner(tg, root, &context, &solution, &mut nodes).await?;
 
-	Ok(tg::Lockfile { root, locks })
+	Ok(tg::Lockfile { root, nodes })
 }
 
 #[allow(clippy::only_used_in_recursion)]
@@ -510,16 +510,15 @@ async fn create_lockfile_inner(
 	package: &tg::directory::Id,
 	context: &Context,
 	solution: &Solution,
-	locks: &mut Vec<tg::lockfile::Lock>,
+	nodes: &mut Vec<tg::lockfile::Node>,
 ) -> Result<usize> {
 	// Get the cached analysis.
-	// let package = package_with_path_dependencies.package.id(tg).await?.clone();
 	let analysis = context
 		.analysis
 		.get(package)
 		.wrap_err("Missing package in solution.")?;
 
-	// Recursively create locks.
+	// Recursively create the nodes.
 	let mut dependencies = BTreeMap::new();
 	for dependency in &analysis.dependencies {
 		// Check if this is resolved as a path dependency.
@@ -536,7 +535,7 @@ async fn create_lockfile_inner(
 			};
 			resolved
 		};
-		let lock = create_lockfile_inner(tg, resolved, context, solution, locks).await?;
+		let lock = create_lockfile_inner(tg, resolved, context, solution, nodes).await?;
 		let entry = tg::lockfile::Entry {
 			package: Some(resolved.clone()),
 			lock,
@@ -544,14 +543,15 @@ async fn create_lockfile_inner(
 		dependencies.insert(dependency.clone(), entry);
 	}
 
-	// Insert the lock if it doesn't exist.
-	let lock = tg::lockfile::Lock { dependencies };
-	let index = if let Some(index) = locks.iter().position(|l| l == &lock) {
+	// Insert the node if it doesn't exist.
+	let lock = tg::lockfile::Node { dependencies };
+	let index = if let Some(index) = nodes.iter().position(|l| l == &lock) {
 		index
 	} else {
-		locks.push(lock);
-		locks.len() - 1
+		nodes.push(lock);
+		nodes.len() - 1
 	};
+
 	Ok(index)
 }
 
@@ -1178,7 +1178,7 @@ fn create_lock_inner(
 	lockfile: &tg::Lockfile,
 	index: usize,
 ) -> Result<tg::Lock> {
-	let lock = lockfile.locks.get(index).wrap_err("Invalid lockfile.")?;
+	let lock = lockfile.nodes.get(index).wrap_err("Invalid lockfile.")?;
 	let dependencies = lock
 		.dependencies
 		.iter()
