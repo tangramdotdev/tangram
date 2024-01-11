@@ -1,6 +1,6 @@
 use async_recursion::async_recursion;
+use either::Either;
 use futures::stream::{FuturesUnordered, TryStreamExt};
-use itertools::Itertools;
 use std::{
 	collections::{BTreeMap, BTreeSet, HashSet, VecDeque},
 	path::{Path, PathBuf},
@@ -134,17 +134,17 @@ pub async fn try_get_package_and_lock(
 	let package_with_path_dependencies = get_package_with_path_dependencies(tg, dependency).await?;
 
 	// If this is a path dependency, then attempt to read the lockfile from the path.
-	let lockfile = if let Some(path) = dependency.path.as_ref() {
+	let lock = if let Some(path) = dependency.path.as_ref() {
 		try_read_lockfile_from_path(path).await?
 	} else {
 		None
 	};
 
 	// Verify that the lockfile's dependencies match the package with path dependencies.
-	let lockfile = if let Some(lockfile) = lockfile {
-		let matches = lockfile_matches(tg, &package_with_path_dependencies, &lockfile).await?;
+	let lock = if let Some(lock) = lock {
+		let matches = lock_matches(tg, &package_with_path_dependencies, &lock).await?;
 		if matches {
-			Some(lockfile)
+			Some(lock)
 		} else {
 			None
 		}
@@ -153,8 +153,8 @@ pub async fn try_get_package_and_lock(
 	};
 
 	// Otherwise, create the lockfile.
-	let lockfile_created = lockfile.is_none();
-	let lockfile = if let Some(lockfile) = lockfile {
+	let lock_created = lock.is_none();
+	let lock = if let Some(lockfile) = lock {
 		lockfile
 	} else {
 		create_lockfile(tg, &package_with_path_dependencies).await?
@@ -162,16 +162,19 @@ pub async fn try_get_package_and_lock(
 
 	// If this is a path dependency and the lockfile was created, then write the lockfile.
 	if let Some(path) = dependency.path.as_ref() {
-		if lockfile_created {
-			write_lockfile(path, &lockfile).await?;
+		if lock_created {
+			write_lock(tg, path, &lock).await?;
 		}
 	}
 
+	// Fill in path dependencies. Since we do not support circular dependencies yet, we are allowed to fold the lock into a tree.
+	let lock = resolve_path_dependencies(tg, lock, &package_with_path_dependencies)
+		.await?
+		.fold(tg)
+		.await?;
+
 	// Get the package.
 	let package = package_with_path_dependencies.package.clone();
-
-	// Create the lock.
-	let lock = create_lock(&package_with_path_dependencies, &lockfile)?;
 
 	// Return.
 	Ok(Some((package, lock)))
@@ -371,65 +374,91 @@ async fn get_package_with_path_dependencies_for_path_inner(
 	Ok(package_with_path_dependencies)
 }
 
-async fn try_read_lockfile_from_path(path: &tg::Path) -> Result<Option<tg::Lockfile>> {
+async fn try_read_lockfile_from_path(path: &tg::Path) -> Result<Option<tg::Lock>> {
 	// Canonicalize the path.
 	let path = tokio::fs::canonicalize(PathBuf::from(path.clone()))
 		.await
 		.wrap_err("Failed to canonicalize the path.")?;
 
 	// Attempt to read the lockfile.
-	let lockfile_path = path.join(tg::package::LOCKFILE_FILE_NAME);
-	let exists = tokio::fs::try_exists(&lockfile_path)
+	let path = path.join(tg::package::LOCKFILE_FILE_NAME);
+	let exists = tokio::fs::try_exists(&path)
 		.await
 		.wrap_err("Failed to determine if the lockfile exists.")?;
 	if !exists {
 		return Ok(None);
 	}
-	let lockfile = tokio::fs::read(&lockfile_path)
+	let lock = tokio::fs::read(&path)
 		.await
 		.wrap_err("Failed to read the lockfile.")?;
-	let lockfile: tg::Lockfile =
-		serde_json::from_slice(&lockfile).wrap_err("Failed to deserialize the lockfile.")?;
+	let lock: tg::lock::Data =
+		serde_json::from_slice(&lock).wrap_err("Failed to deserialize the lockfile.")?;
 
-	Ok(Some(lockfile))
+	let root = lock.root;
+	let nodes = lock
+		.nodes
+		.into_iter()
+		.map(|node| {
+			let dependencies = node
+				.dependencies
+				.into_iter()
+				.map(|(dependency, entry)| {
+					let package = entry.package.map(tg::Directory::with_id);
+					let lock = entry.lock.map_right(tg::Lock::with_id);
+					(dependency, tg::lock::Entry { package, lock })
+				})
+				.collect();
+			tg::lock::Node { dependencies }
+		})
+		.collect::<Vec<_>>();
+	let object = tg::lock::Object { root, nodes };
+	let lock = tg::Lock::with_object(object);
+	Ok(Some(lock))
 }
 
-async fn write_lockfile(path: &tg::Path, lockfile: &tg::Lockfile) -> Result<()> {
+async fn write_lock(tg: &dyn tg::Handle, path: &tg::Path, lock: &tg::Lock) -> Result<()> {
 	let package_path = tokio::fs::canonicalize(PathBuf::from(path.clone()))
 		.await
 		.wrap_err("Failed to canonicalize the path.")?;
-	let lockfile_path = package_path.join(tg::package::LOCKFILE_FILE_NAME);
-	let lockfile =
-		serde_json::to_vec_pretty(lockfile).wrap_err("Failed to serialize the lockfile.")?;
-	tokio::fs::write(lockfile_path, lockfile)
+	let lock_path = package_path.join(tg::package::LOCKFILE_FILE_NAME);
+	let lock = lock.data(tg).await?;
+	let lock = serde_json::to_vec_pretty(&lock).wrap_err("Failed to serialize the lockfile.")?;
+	tokio::fs::write(lock_path, lock)
 		.await
 		.wrap_err("Failed to write the lockfile.")?;
 	Ok(())
 }
 
-async fn lockfile_matches(
+async fn lock_matches(
 	tg: &dyn Handle,
 	package_with_path_dependencies: &PackageWithPathDependencies,
-	lockfile: &tg::Lockfile,
+	lock: &tg::Lock,
 ) -> Result<bool> {
-	lockfile_matches_inner(tg, package_with_path_dependencies, lockfile, 0).await
+	let object = lock.object(tg).await?;
+	lockfile_matches_inner(
+		tg,
+		package_with_path_dependencies,
+		&object.nodes,
+		object.root,
+	)
+	.await
 }
 
 #[async_recursion]
 async fn lockfile_matches_inner(
 	tg: &dyn Handle,
 	package_with_path_dependencies: &PackageWithPathDependencies,
-	lockfile: &tg::Lockfile,
+	nodes: &[tg::lock::Node],
 	index: usize,
 ) -> Result<bool> {
 	// Get the package's dependencies.
 	let dependencies = dependencies(tg, &package_with_path_dependencies.package).await?;
 
 	// Get the package's lock from the lockfile.
-	let lock = lockfile.nodes.get(index).wrap_err("Invalid lockfile.")?;
+	let node = nodes.get(index).wrap_err("Invalid lockfile.")?;
 
 	// Verify that the dependencies match.
-	if !itertools::equal(lock.dependencies.keys(), dependencies.iter()) {
+	if !itertools::equal(node.dependencies.keys(), dependencies.iter()) {
 		return Ok(false);
 	}
 
@@ -437,12 +466,15 @@ async fn lockfile_matches_inner(
 	package_with_path_dependencies
 		.path_dependencies
 		.keys()
-		.map(|dependency| {
-			// let dependencies = &dependencies;
-			async move {
-				let index = lock.dependencies.get(dependency).unwrap().lock;
-				lockfile_matches_inner(tg, package_with_path_dependencies, lockfile, index).await
-			}
+		.map(|dependency| async move {
+			let index = *node
+				.dependencies
+				.get(dependency)
+				.unwrap()
+				.lock
+				.as_ref()
+				.unwrap_left();
+			lockfile_matches_inner(tg, package_with_path_dependencies, nodes, index).await
 		})
 		.collect::<FuturesUnordered<_>>()
 		.try_all(|matches| async move { matches })
@@ -454,7 +486,7 @@ async fn lockfile_matches_inner(
 async fn create_lockfile(
 	tg: &dyn tg::Handle,
 	package_with_path_dependencies: &PackageWithPathDependencies,
-) -> Result<tg::Lockfile> {
+) -> Result<tg::Lock> {
 	// Construct the version solving context and working set.
 	let mut analysis = BTreeMap::new();
 	let mut working_set = im::Vector::new();
@@ -500,7 +532,27 @@ async fn create_lockfile(
 	let mut nodes = Vec::new();
 	let root = create_lockfile_inner(tg, root, &context, &solution, &mut nodes).await?;
 
-	Ok(tg::Lockfile { root, nodes })
+	// Convert from data to object and create the lock.
+	let nodes = nodes
+		.into_iter()
+		.map(|node| {
+			let dependencies = node
+				.dependencies
+				.into_iter()
+				.map(|(dependency, lock)| {
+					let package = lock.package.map(tg::Directory::with_id);
+					let lock = lock.lock.map_right(tg::Lock::with_id);
+					let entry = tg::lock::Entry { package, lock };
+					(dependency, entry)
+				})
+				.collect();
+			tg::lock::Node { dependencies }
+		})
+		.collect();
+
+	let object = tg::lock::Object { root, nodes };
+	let lock = tg::Lock::with_object(object);
+	Ok(lock)
 }
 
 #[allow(clippy::only_used_in_recursion)]
@@ -510,7 +562,7 @@ async fn create_lockfile_inner(
 	package: &tg::directory::Id,
 	context: &Context,
 	solution: &Solution,
-	nodes: &mut Vec<tg::lockfile::Node>,
+	nodes: &mut Vec<tg::lock::data::Node>,
 ) -> Result<usize> {
 	// Get the cached analysis.
 	let analysis = context
@@ -522,33 +574,33 @@ async fn create_lockfile_inner(
 	let mut dependencies = BTreeMap::new();
 	for dependency in &analysis.dependencies {
 		// Check if this is resolved as a path dependency.
-		let resolved = if let Some(resolved) = analysis.path_dependencies.get(dependency) {
-			resolved
-		} else {
-			// Resolve by dependant.
-			let dependant = Dependant {
-				package: package.clone(),
-				dependency: dependency.clone(),
+		let (resolved, is_registry_dependency) =
+			if let Some(resolved) = analysis.path_dependencies.get(dependency) {
+				(resolved, false)
+			} else {
+				// Resolve by dependant.
+				let dependant = Dependant {
+					package: package.clone(),
+					dependency: dependency.clone(),
+				};
+				let Some(Mark::Permanent(Ok(resolved))) = solution.partial.get(&dependant) else {
+					return Err(error!("Missing solution for {dependant:?}."));
+				};
+				(resolved, true)
 			};
-			let Some(Mark::Permanent(Ok(resolved))) = solution.partial.get(&dependant) else {
-				return Err(error!("Missing solution for {dependant:?}."));
-			};
-			resolved
-		};
-		let lock = create_lockfile_inner(tg, resolved, context, solution, nodes).await?;
-		let entry = tg::lockfile::Entry {
-			package: Some(resolved.clone()),
-			lock,
-		};
+		let package = is_registry_dependency.then_some(resolved.clone());
+		let lock =
+			Either::Left(create_lockfile_inner(tg, resolved, context, solution, nodes).await?);
+		let entry = tg::lock::data::Entry { package, lock };
 		dependencies.insert(dependency.clone(), entry);
 	}
 
 	// Insert the node if it doesn't exist.
-	let lock = tg::lockfile::Node { dependencies };
-	let index = if let Some(index) = nodes.iter().position(|l| l == &lock) {
+	let node = tg::lock::data::Node { dependencies };
+	let index = if let Some(index) = nodes.iter().position(|l| l == &node) {
 		index
 	} else {
-		nodes.push(lock);
+		nodes.push(node);
 		nodes.len() - 1
 	};
 
@@ -610,6 +662,37 @@ async fn scan_package_with_path_dependencies(
 	}
 
 	Ok(())
+}
+
+async fn resolve_path_dependencies(
+	tg: &dyn tg::Handle,
+	lock: tg::lock::Lock,
+	package_with_path_dependencies: &PackageWithPathDependencies,
+) -> Result<tg::lock::Lock> {
+	let mut object = lock.object(tg).await?.clone();
+	resolve_path_dependencies_inner(
+		package_with_path_dependencies,
+		&mut object.nodes,
+		object.root,
+	);
+	Ok(tg::Lock::with_object(object))
+}
+
+fn resolve_path_dependencies_inner(
+	package_with_path_dependencies: &PackageWithPathDependencies,
+	nodes: &mut [tg::lock::Node],
+	index: usize,
+) {
+	for (dependency, package_with_path_dependencies) in
+		&package_with_path_dependencies.path_dependencies
+	{
+		let Some(entry) = nodes[index].dependencies.get_mut(&dependency) else {
+			continue;
+		};
+		let index = *entry.lock.as_ref().left().unwrap();
+		entry.package = Some(package_with_path_dependencies.package.clone());
+		resolve_path_dependencies_inner(&package_with_path_dependencies, nodes, index);
+	}
 }
 
 async fn solve(
@@ -1164,43 +1247,6 @@ impl std::fmt::Display for Mark {
 			Self::Temporary(version) => write!(f, "Incomplete({version})"),
 		}
 	}
-}
-
-fn create_lock(
-	package_with_path_dependencies: &PackageWithPathDependencies,
-	lockfile: &tg::Lockfile,
-) -> Result<tg::Lock> {
-	create_lock_inner(package_with_path_dependencies, lockfile, lockfile.root)
-}
-
-fn create_lock_inner(
-	package_with_path_dependencies: &PackageWithPathDependencies,
-	lockfile: &tg::Lockfile,
-	index: usize,
-) -> Result<tg::Lock> {
-	let lock = lockfile.nodes.get(index).wrap_err("Invalid lockfile.")?;
-	let dependencies = lock
-		.dependencies
-		.iter()
-		.map(|(dependency, entry)| -> Result<_> {
-			let (package, lock) = if let Some(package) = entry.package.as_ref() {
-				let package = tg::Directory::with_id(package.clone());
-				let lock = create_lock_inner(package_with_path_dependencies, lockfile, entry.lock)?;
-				(package, lock)
-			} else {
-				let package_with_path_dependencies = package_with_path_dependencies
-					.path_dependencies
-					.get(dependency)
-					.wrap_err("Missing path dependency.")?;
-				let package = package_with_path_dependencies.package.clone();
-				let lock = create_lock_inner(package_with_path_dependencies, lockfile, entry.lock)?;
-				(package, lock)
-			};
-			let entry = tg::lock::Entry { package, lock };
-			Ok((dependency.clone(), entry))
-		})
-		.try_collect()?;
-	Ok(tg::Lock::with_object(tg::lock::Object { dependencies }))
 }
 
 pub async fn dependencies(

@@ -19,6 +19,7 @@ v8 = { workspace = true }
 base64 = { workspace = true }
 bytes = { workspace = true }
 derive_more = { workspace = true }
+either = { workspace = true }
 futures = { workspace = true }
 hex = { workspace = true }
 indoc = { workspace = true }

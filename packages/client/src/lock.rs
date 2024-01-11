@@ -199,8 +199,97 @@ impl Lock {
 		tg: &dyn Handle,
 		dependency: &Dependency,
 	) -> Result<Option<(Directory, Lock)>> {
-		todo!()
+		let object = self.object(tg).await?;
+		let root = &object.nodes[object.root];
+		let Entry { package, lock } = root
+			.dependencies
+			.get(dependency)
+			.wrap_err("Failed to lookup dependency in lock.")?;
+
+		// Get the package if it exists.
+		let Some(package) = package else {
+			return Ok(None);
+		};
+
+		// Short circuit if the lock is referred to by id.
+		let index = match lock {
+			Either::Left(index) => *index,
+			Either::Right(lock) => return Ok(Some((package.clone(), lock.clone()))),
+		};
+
+		// Recursively construct a new lock.
+		let mut nodes = vec![];
+		let root = get_lock_inner(&mut nodes, &object, index);
+		let lock = Lock::with_object(Object { root, nodes });
+		Ok(Some((package.clone(), lock)))
 	}
+}
+
+fn get_lock_inner(nodes: &mut Vec<Node>, object: &Object, index: usize) -> usize {
+	let dependencies = object.nodes[index]
+		.dependencies
+		.iter()
+		.map(|(dependency, lock)| {
+			let Entry { package, lock } = lock;
+			let package = package.clone();
+			let lock = lock
+				.as_ref()
+				.map_left(|index| get_lock_inner(nodes, object, *index))
+				.map_right(Lock::clone);
+			let entry = Entry { package, lock };
+			(dependency.clone(), entry)
+		})
+		.collect();
+	let node = Node { dependencies };
+	let index = nodes.len();
+	nodes.push(node);
+	index
+}
+
+impl Lock {
+	pub async fn fold(&self, tg: &dyn Handle) -> Result<Self> {
+		let mut visited = BTreeMap::new();
+		let object = self.object(tg).await?;
+		fold_lock_inner(&object.nodes, object.root, &mut visited)
+	}
+}
+
+fn fold_lock_inner(
+	nodes: &[Node],
+	index: usize,
+	visited: &mut BTreeMap<usize, Option<Lock>>,
+) -> Result<Lock> {
+	match visited.get(&index) {
+		Some(None) => return Err(error!("Cannot fold a lock containing cycles.")),
+		Some(Some(lock)) => return Ok(lock.clone()),
+		None => (),
+	};
+	visited.insert(index, None);
+	let node = &nodes[index];
+	let dependencies = node
+		.dependencies
+		.iter()
+		.filter_map(|(dependency, entry)| {
+			let index = *entry.lock.as_ref().left()?;
+			let lock = match fold_lock_inner(nodes, index, visited) {
+				Ok(lock) => lock,
+				Err(e) => return Some(Err(e)),
+			};
+			let entry = Entry {
+				package: entry.package.clone(),
+				lock: Either::Right(lock),
+			};
+			Some(Ok((dependency.clone(), entry)))
+		})
+		.try_collect()?;
+	let node = Node { dependencies };
+	let object = Object {
+		root: 0,
+		nodes: vec![node],
+	};
+	let lock = Lock::with_object(object);
+	visited.insert(index, Some(lock.clone()));
+	Ok(lock)
 }
 
 impl Node {

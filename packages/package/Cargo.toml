@@ -15,6 +15,7 @@ tangram_server = { workspace = true }
 [dependencies]
 async-recursion = { workspace = true }
 async-trait = { workspace = true }
+either = { workspace = true }
 fnv = { workspace = true }
 futures = { workspace = true }
 im = { workspace = true }
