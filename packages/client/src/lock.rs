@@ -207,9 +207,9 @@ impl Lock {
 			.wrap_err("Failed to lookup dependency in lock.")?;
 
 		// Get the package if it exists.
-		let Some(package) = package else {
-			return Ok(None);
-		};
+		let package = package
+			.as_ref()
+			.wrap_err("Expected a package for dependency.")?;
 
 		// Short circuit if the lock is referred to by id.
 		let index = match lock {
