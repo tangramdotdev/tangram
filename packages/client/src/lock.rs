@@ -3,7 +3,11 @@ use crate::{error, id, object, Dependency, Directory, Error, Handle, Result, Wra
 use async_recursion::async_recursion;
 use bytes::Bytes;
 use derive_more::Display;
-use futures::{stream::FuturesUnordered, TryStreamExt};
+use either::Either;
+use futures::{
+	stream::{FuturesOrdered, FuturesUnordered},
+	TryStreamExt,
+};
 use itertools::Itertools;
 use std::{collections::BTreeMap, sync::Arc};
 
@@ -29,33 +33,55 @@ pub struct Lock {
 
 type State = object::State<Id, Object>;
 
-#[derive(Clone, Debug, Default)]
+#[derive(Clone, Debug)]
 pub struct Object {
+	pub root: usize,
+	pub nodes: Vec<Node>,
+}
+
+#[derive(Clone, Debug, Default)]
+pub struct Node {
 	pub dependencies: BTreeMap<Dependency, Entry>,
 }
 
 #[derive(Clone, Debug)]
 pub struct Entry {
-	pub package: Directory,
-	pub lock: Lock,
+	pub package: Option<Directory>,
+	pub lock: Either<usize, Lock>,
 }
 
 pub mod data {
+	use super::Id;
 	use crate::{directory, Dependency};
+	use either::Either;
 	use serde_with::{serde_as, DisplayFromStr};
 	use std::collections::BTreeMap;
 
 	#[serde_as]
 	#[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
 	pub struct Data {
+		pub root: usize,
+		pub nodes: Vec<Node>,
+	}
+
+	#[serde_as]
+	#[derive(
+		Clone, Debug, Eq, Ord, PartialEq, PartialOrd, serde::Deserialize, serde::Serialize,
+	)]
+	#[serde(transparent)]
+	pub struct Node {
 		#[serde_as(as = "BTreeMap<DisplayFromStr, _>")]
 		pub dependencies: BTreeMap<Dependency, Entry>,
 	}
 
-	#[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
+	#[derive(
+		Clone, Debug, Eq, Ord, PartialEq, PartialOrd, serde::Deserialize, serde::Serialize,
+	)]
 	pub struct Entry {
-		pub package: directory::Id,
-		pub lock: super::Id,
+		#[serde(skip_serializing_if = "Option::is_none")]
+		pub package: Option<directory::Id>,
+		#[serde(with = "either::serde_untagged")]
+		pub lock: Either<usize, Id>,
 	}
 }
 
@@ -155,7 +181,120 @@ impl Lock {
 	#[async_recursion]
 	pub async fn data(&self, tg: &dyn Handle) -> Result<Data> {
 		let object = self.object(tg).await?;
-		let dependencies = object
+		let root = object.root;
+		let nodes = object
+			.nodes
+			.iter()
+			.map(|node| node.data(tg))
+			.collect::<FuturesOrdered<_>>()
+			.try_collect()
+			.await?;
+		Ok(Data { root, nodes })
+	}
+}
+
+impl Lock {
+	pub async fn get(
+		&self,
+		tg: &dyn Handle,
+		dependency: &Dependency,
+	) -> Result<Option<(Directory, Lock)>> {
+		let object = self.object(tg).await?;
+		let root = &object.nodes[object.root];
+		let Entry { package, lock } = root
+			.dependencies
+			.get(dependency)
+			.wrap_err("Failed to lookup dependency in lock.")?;
+
+		// Get the package if it exists.
+		let package = package
+			.as_ref()
+			.wrap_err("Expected a package for dependency.")?;
+
+		// Short circuit if the lock is referred to by id.
+		let index = match lock {
+			Either::Left(index) => *index,
+			Either::Right(lock) => return Ok(Some((package.clone(), lock.clone()))),
+		};
+
+		// Recursively construct a new lock.
+		let mut nodes = vec![];
+		let root = get_lock_inner(&mut nodes, &object, index);
+		let lock = Lock::with_object(Object { root, nodes });
+		Ok(Some((package.clone(), lock)))
+	}
+}
+
+fn get_lock_inner(nodes: &mut Vec<Node>, object: &Object, index: usize) -> usize {
+	let dependencies = object.nodes[index]
+		.dependencies
+		.iter()
+		.map(|(dependency, lock)| {
+			let Entry { package, lock } = lock;
+			let package = package.clone();
+			let lock = lock
+				.as_ref()
+				.map_left(|index| get_lock_inner(nodes, object, *index))
+				.map_right(Lock::clone);
+			let entry = Entry { package, lock };
+			(dependency.clone(), entry)
+		})
+		.collect();
+	let node = Node { dependencies };
+	let index = nodes.len();
+	nodes.push(node);
+	index
+}
+
+impl Lock {
+	pub async fn fold(&self, tg: &dyn Handle) -> Result<Self> {
+		let mut visited = BTreeMap::new();
+		let object = self.object(tg).await?;
+		fold_lock_inner(&object.nodes, object.root, &mut visited)
+	}
+}
+
+fn fold_lock_inner(
+	nodes: &[Node],
+	index: usize,
+	visited: &mut BTreeMap<usize, Option<Lock>>,
+) -> Result<Lock> {
+	match visited.get(&index) {
+		Some(None) => return Err(error!("Cannot fold a lock containing cycles.")),
+		Some(Some(lock)) => return Ok(lock.clone()),
+		None => (),
+	};
+	visited.insert(index, None);
+	let node = &nodes[index];
+	let dependencies = node
+		.dependencies
+		.iter()
+		.filter_map(|(dependency, entry)| {
+			let index = *entry.lock.as_ref().left()?;
+			let lock = match fold_lock_inner(nodes, index, visited) {
+				Ok(lock) => lock,
+				Err(e) => return Some(Err(e)),
+			};
+			let entry = Entry {
+				package: entry.package.clone(),
+				lock: Either::Right(lock),
+			};
+			Some(Ok((dependency.clone(), entry)))
+		})
+		.try_collect()?;
+	let node = Node { dependencies };
+	let object = Object {
+		root: 0,
+		nodes: vec![node],
+	};
+	let lock = Lock::with_object(object);
+	visited.insert(index, Some(lock.clone()));
+	Ok(lock)
+}
+
+impl Node {
+	pub async fn data(&self, tg: &dyn Handle) -> Result<data::Node> {
+		let dependencies = self
 			.dependencies
 			.iter()
 			.map(|(dependency, entry)| async move {
@@ -164,22 +303,21 @@ impl Lock {
 			.collect::<FuturesUnordered<_>>()
 			.try_collect()
 			.await?;
-		Ok(Data { dependencies })
-	}
-}
-
-impl Lock {
-	pub async fn dependencies(&self, tg: &dyn Handle) -> Result<&BTreeMap<Dependency, Entry>> {
-		Ok(&self.object(tg).await?.dependencies)
+		Ok(data::Node { dependencies })
 	}
 }
 
 impl Entry {
 	pub async fn data(&self, tg: &dyn Handle) -> Result<data::Entry> {
-		Ok(data::Entry {
-			package: self.package.id(tg).await?.clone(),
-			lock: self.lock.id(tg).await?.clone(),
-		})
+		let package = match &self.package {
+			Some(package) => Some(package.id(tg).await?.clone()),
+			None => None,
+		};
+		let lock = match &self.lock {
+			Either::Left(index) => Either::Left(*index),
+			Either::Right(lock) => Either::Right(lock.id(tg).await?.clone()),
+		};
+		Ok(data::Entry { package, lock })
 	}
 }
 
@@ -196,18 +334,40 @@ impl Data {
 
 	#[must_use]
 	pub fn children(&self) -> Vec<object::Id> {
-		self.dependencies
-			.values()
-			.flat_map(|entry| [entry.package.clone().into(), entry.lock.clone().into()])
-			.collect()
+		let mut children = Vec::new();
+		for node in &self.nodes {
+			for entry in node.dependencies.values() {
+				if let Some(package) = &entry.package {
+					children.push(package.clone().into());
+				}
+				if let Either::Right(id) = &entry.lock {
+					children.push(id.clone().into());
+				}
+			}
+		}
+		children
 	}
 }
 
 impl TryFrom<Data> for Object {
 	type Error = Error;
 
-	fn try_from(data: Data) -> std::result::Result<Self, Self::Error> {
-		let dependencies = data
+	fn try_from(value: Data) -> std::result::Result<Self, Self::Error> {
+		let root = value.root;
+		let nodes = value
+			.nodes
+			.into_iter()
+			.map(TryInto::try_into)
+			.try_collect()?;
+		Ok(Self { root, nodes })
+	}
+}
+
+impl TryFrom<data::Node> for Node {
+	type Error = Error;
+
+	fn try_from(value: data::Node) -> std::result::Result<Self, Self::Error> {
+		let dependencies = value
 			.dependencies
 			.into_iter()
 			.map(|(dependency, entry)| Ok::<_, Error>((dependency, entry.try_into()?)))
@@ -220,16 +380,27 @@ impl TryFrom<data::Entry> for Entry {
 	type Error = Error;
 
 	fn try_from(value: data::Entry) -> std::result::Result<Self, Self::Error> {
-		Ok(Self {
-			package: Directory::with_id(value.package),
-			lock: Lock::with_id(value.lock),
-		})
+		let package = value.package.map(Directory::with_id);
+		let lock = match value.lock {
+			Either::Left(index) => Either::Left(index),
+			Either::Right(id) => Either::Right(Lock::with_id(id)),
+		};
+		Ok(Self { package, lock })
 	}
 }
 
 impl Default for Lock {
 	fn default() -> Self {
 		Self::with_object(Object::default())
+	}
+}
+
+impl Default for Object {
+	fn default() -> Self {
+		Self {
+			root: 0,
+			nodes: vec![Node::default()],
+		}
 	}
 }
 

@@ -57,8 +57,13 @@ export class Lock {
 		}
 	}
 
-	async dependencies(): Promise<{ [dependency: string]: Lock }> {
-		return (await this.object()).dependencies;
+
+	async root(): Promise<number> {
+		return (await this.object()).root
+	}
+
+	async nodes(): Promise<Array<Lock.Node>> {
+		return (await this.object()).nodes
 	}
 }
 
@@ -72,7 +77,12 @@ export namespace Lock {
 	export type Id = string;
 
 	export type Object_ = {
-		dependencies: { [dependency: string]: Lock };
+		root: number,
+		nodes: Array<Node>,
+	};
+
+	export type Node = {
+		dependencies: { [dependency: string]: Lock | number };
 	};
 
 	export type State = Object_.State<Lock.Id, Lock.Object_>;

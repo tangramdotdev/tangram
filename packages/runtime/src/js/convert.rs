@@ -1,4 +1,5 @@
 use bytes::Bytes;
+use either::Either;
 use num::ToPrimitive;
 use serde_v8::Serializable;
 use std::{collections::BTreeMap, sync::Arc};
@@ -1337,7 +1338,39 @@ impl FromV8 for tg::lock::Id {
 impl ToV8 for tg::lock::Object {
 	fn to_v8<'a>(&self, scope: &mut v8::HandleScope<'a>) -> Result<v8::Local<'a, v8::Value>> {
 		let object = v8::Object::new(scope);
+		let key = v8::String::new_external_onebyte_static(scope, "root".as_bytes()).unwrap();
+		let value = self.root.to_f64().unwrap().to_v8(scope)?;
+		object.set(scope, key.into(), value);
 
+		let key = v8::String::new_external_onebyte_static(scope, "nodes".as_bytes()).unwrap();
+		let value = self.nodes.to_v8(scope)?;
+		object.set(scope, key.into(), value);
+
+		Ok(object.into())
+	}
+}
+
+impl FromV8 for tg::lock::Object {
+	fn from_v8<'a>(
+		scope: &mut v8::HandleScope<'a>,
+		value: v8::Local<'a, v8::Value>,
+	) -> Result<Self> {
+		let value = value.to_object(scope).unwrap();
+		let root = v8::String::new_external_onebyte_static(scope, "root".as_bytes()).unwrap();
+		let root = value.get(scope, root.into()).unwrap();
+		let root = from_v8::<f64>(scope, root)?.to_usize().unwrap();
+
+		let nodes = v8::String::new_external_onebyte_static(scope, "nodes".as_bytes()).unwrap();
+		let nodes = value.get(scope, nodes.into()).unwrap();
+		let nodes = from_v8(scope, nodes)?;
+
+		Ok(Self { root, nodes })
+	}
+}
+
+impl ToV8 for tg::lock::Node {
+	fn to_v8<'a>(&self, scope: &mut v8::HandleScope<'a>) -> Result<v8::Local<'a, v8::Value>> {
+		let object = v8::Object::new(scope);
 		let key =
 			v8::String::new_external_onebyte_static(scope, "dependencies".as_bytes()).unwrap();
 		let value = self
@@ -1347,12 +1380,11 @@ impl ToV8 for tg::lock::Object {
 			.collect::<BTreeMap<_, _>>()
 			.to_v8(scope)?;
 		object.set(scope, key.into(), value);
-
 		Ok(object.into())
 	}
 }
 
-impl FromV8 for tg::lock::Object {
+impl FromV8 for tg::lock::Node {
 	fn from_v8<'a>(
 		scope: &mut v8::HandleScope<'a>,
 		value: v8::Local<'a, v8::Value>,
@@ -1381,7 +1413,10 @@ impl ToV8 for tg::lock::Entry {
 		object.set(scope, key.into(), value);
 
 		let key = v8::String::new_external_onebyte_static(scope, "lock".as_bytes()).unwrap();
-		let value = self.lock.to_v8(scope)?;
+		let value = match self.lock.as_ref() {
+			Either::Left(index) => index.to_f64().unwrap().to_v8(scope)?,
+			Either::Right(lock) => lock.to_string().to_v8(scope)?,
+		};
 		object.set(scope, key.into(), value);
 
 		Ok(object.into())
@@ -1401,7 +1436,11 @@ impl FromV8 for tg::lock::Entry {
 
 		let lock = v8::String::new_external_onebyte_static(scope, "lock".as_bytes()).unwrap();
 		let lock = value.get(scope, lock.into()).unwrap();
-		let lock = from_v8(scope, lock)?;
+		let lock = from_v8::<f64>(scope, lock.clone())
+			.map(Either::Left)
+			.or_else(|_| from_v8::<String>(scope, lock).map(Either::Right))?
+			.map_left(|index| index.to_usize().unwrap())
+			.map_right(|lock| tg::Lock::with_id(lock.parse().unwrap()));
 
 		Ok(Self { package, lock })
 	}

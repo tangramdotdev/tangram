@@ -100,15 +100,16 @@ impl Module {
 				let dependency_ = tg::Dependency::with_path(path);
 				let (_, lock) = tg::package::get_with_lock(tg, &dependency_).await?;
 
-				// Get the lock entry for the dependency.
-				let Some(entry) = lock.dependencies(tg).await?.get(&dependency) else {
-					return Err(error!("Could not find the dependency."));
-				};
+				// Get the package and lock for the dependency.
+				let (package, lock) = lock
+					.get(tg, &dependency)
+					.await?
+					.wrap_err_with(|| format!(r#"Failed to resolve "{dependency}"."#))?;
 
 				// Create the module.
+				let path = tg::package::get_root_module_path(tg, &package).await?;
 				let lock = lock.id(tg).await?.clone();
-				let package = entry.package.id(tg).await?.clone();
-				let path = tg::package::get_root_module_path(tg, &entry.package).await?;
+				let package = package.id(tg).await?.clone();
 				let module = Self::Normal(Normal {
 					lock,
 					package,
@@ -135,13 +136,12 @@ impl Module {
 				}
 
 				// Get this module's lock.
-				let parent_lock = tg::Lock::with_id(module.lock.clone());
+				let lock = tg::Lock::with_id(module.lock.clone());
 
 				// Get the specified package and lock from the dependencies.
-				let dependencies = parent_lock.dependencies(tg).await?;
-				let tg::lock::Entry { package, lock } = dependencies
-					.get(&dependency)
-					.cloned()
+				let (package, lock) = lock
+					.get(tg, &dependency)
+					.await?
 					.wrap_err_with(|| format!(r#"Failed to resolve "{dependency}"."#))?;
 
 				// Create the module.

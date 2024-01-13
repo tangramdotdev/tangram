@@ -3224,6 +3224,7 @@ dependencies = [
  "data-encoding",
  "data-encoding-macro",
  "derive_more 1.0.0-beta.6",
+ "either",
  "fnv",
  "futures",
  "hex",
