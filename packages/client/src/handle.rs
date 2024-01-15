@@ -89,7 +89,7 @@ pub trait Handle: Send + Sync + 'static {
 		&self,
 		id: &build::Id,
 		arg: build::GetLogArg,
-	) -> Result<BoxStream<'static, Result<build::LogEntry>>> {
+	) -> Result<BoxStream<'static, Result<build::LogChunk>>> {
 		Ok(self
 			.try_get_build_log(id, arg)
 			.await?
@@ -100,7 +100,7 @@ pub trait Handle: Send + Sync + 'static {
 		&self,
 		id: &build::Id,
 		arg: build::GetLogArg,
-	) -> Result<Option<BoxStream<'static, Result<build::LogEntry>>>>;
+	) -> Result<Option<BoxStream<'static, Result<build::LogChunk>>>>;
 
 	async fn add_build_log(&self, user: Option<&User>, id: &build::Id, bytes: Bytes) -> Result<()>;
 

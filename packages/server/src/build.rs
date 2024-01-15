@@ -1103,7 +1103,7 @@ impl Server {
 		&self,
 		id: &tg::build::Id,
 		arg: tg::build::GetLogArg,
-	) -> Result<Option<BoxStream<'static, Result<tg::build::LogEntry>>>> {
+	) -> Result<Option<BoxStream<'static, Result<tg::build::LogChunk>>>> {
 		if let Some(log) = self.try_get_build_log_local(id, arg.clone()).await? {
 			Ok(Some(log))
 		} else if let Some(log) = self.try_get_build_log_remote(id, arg.clone()).await? {
@@ -1118,7 +1118,7 @@ impl Server {
 		&self,
 		id: &tg::build::Id,
 		arg: tg::build::GetLogArg,
-	) -> Result<Option<BoxStream<'static, Result<tg::build::LogEntry>>>> {
+	) -> Result<Option<BoxStream<'static, Result<tg::build::LogChunk>>>> {
 		// Verify the build is local.
 		if !self.get_build_exists_local(id).await? {
 			return Ok(None);
@@ -1152,17 +1152,17 @@ impl Server {
 					.wrap_err("Failed to read blob.")?;
 				let pos = start;
 				let bytes = bytes.into();
-				let mut entry = tg::build::LogEntry { pos, bytes };
-				if entry.pos < start {
-					let offset = (start - entry.pos).to_usize().unwrap();
-					entry.pos = start;
-					entry.bytes = entry.bytes.slice(offset..);
+				let mut chunk = tg::build::LogChunk { pos, bytes };
+				if chunk.pos < start {
+					let offset = (start - chunk.pos).to_usize().unwrap();
+					chunk.pos = start;
+					chunk.bytes = chunk.bytes.slice(offset..);
 				}
-				if (entry.pos + entry.bytes.len().to_u64().unwrap()) > end {
-					let length = (end - entry.pos).to_usize().unwrap();
-					entry.bytes = entry.bytes.slice(0..length);
+				if (chunk.pos + chunk.bytes.len().to_u64().unwrap()) > end {
+					let length = (end - chunk.pos).to_usize().unwrap();
+					chunk.bytes = chunk.bytes.slice(0..length);
 				}
-				Ok(entry)
+				Ok(chunk)
 			})
 			.boxed();
 			return Ok(Some(stream));
@@ -1219,8 +1219,8 @@ impl Server {
 					_ => (),
 				}
 
-				// Get the next log entry.
-				let mut entry = loop {
+				// Get the next log chunk.
+				let mut chunk = loop {
 					let build_status = server
 						.get_build_status(&id)
 						.await
@@ -1247,34 +1247,34 @@ impl Server {
 					let mut query = statement
 						.query(params)
 						.wrap_err("Failed to perform query.")?;
-					let entry = query.next().wrap_err("Expected a row.")?.map(|row| {
+					let chunk = query.next().wrap_err("Expected a row.")?.map(|row| {
 						let pos = row.get(0).unwrap();
 						let bytes = row.get::<_, Vec<u8>>(1).unwrap().into();
-						tg::build::LogEntry { pos, bytes }
+						tg::build::LogChunk { pos, bytes }
 					});
-					match (build_status, entry) {
+					match (build_status, chunk) {
 						(tg::build::Status::Finished, None) => return Ok(None),
-						(_, Some(entry)) => break entry,
+						(_, Some(chunk)) => break chunk,
 						_ => continue,
 					}
 				};
 
-				// Truncate the entry.
-				if entry.pos < start {
-					let offset = (start - entry.pos).to_usize().unwrap();
-					entry.pos = start;
-					entry.bytes = entry.bytes.slice(offset..);
+				// Truncate the chunk.
+				if chunk.pos < start {
+					let offset = (start - chunk.pos).to_usize().unwrap();
+					chunk.pos = start;
+					chunk.bytes = chunk.bytes.slice(offset..);
 				}
 				match end {
-					Some(end) if (entry.pos + entry.bytes.len().to_u64().unwrap()) > end => {
-						let length = (end - entry.pos).to_usize().unwrap();
-						entry.bytes = entry.bytes.slice(0..length);
+					Some(end) if (chunk.pos + chunk.bytes.len().to_u64().unwrap()) > end => {
+						let length = (end - chunk.pos).to_usize().unwrap();
+						chunk.bytes = chunk.bytes.slice(0..length);
 					},
 					_ => (),
 				}
 				let offset = offset + 1;
-				let count = count + entry.bytes.len().to_u64().unwrap();
-				Ok(Some((entry, (start, end, count, offset, id, server))))
+				let count = count + chunk.bytes.len().to_u64().unwrap();
+				Ok(Some((chunk, (start, end, count, offset, id, server))))
 			},
 		);
 		Ok(Some(stream.boxed()))
@@ -1314,7 +1314,7 @@ impl Server {
 		&self,
 		id: &tg::build::Id,
 		arg: tg::build::GetLogArg,
-	) -> Result<Option<BoxStream<'static, Result<tg::build::LogEntry>>>> {
+	) -> Result<Option<BoxStream<'static, Result<tg::build::LogChunk>>>> {
 		let Some(remote) = self.inner.remote.as_ref() else {
 			return Ok(None);
 		};

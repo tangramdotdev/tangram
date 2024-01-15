@@ -777,7 +777,7 @@ impl Handle for Client {
 		&self,
 		id: &build::Id,
 		arg: build::GetLogArg,
-	) -> Result<Option<BoxStream<'static, Result<build::LogEntry>>>> {
+	) -> Result<Option<BoxStream<'static, Result<build::LogChunk>>>> {
 		let search_params = serde_urlencoded::to_string(&arg).unwrap();
 		let uri = format!("/builds/{id}/log?{search_params}");
 		let request = http::request::Builder::default()
@@ -832,8 +832,8 @@ impl Handle for Client {
 				.await
 				.wrap_err("Failed to read the bytes.")?;
 			let bytes = bytes.into();
-			let entry = build::LogEntry { pos, bytes };
-			Ok(Some((entry, reader)))
+			let chunk = build::LogChunk { pos, bytes };
+			Ok(Some((chunk, reader)))
 		});
 		Ok(Some(log.boxed()))
 	}

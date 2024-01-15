@@ -520,7 +520,7 @@ impl tg::Handle for Server {
 		&self,
 		id: &tg::build::Id,
 		arg: tg::build::GetLogArg,
-	) -> Result<Option<BoxStream<'static, Result<tg::build::LogEntry>>>> {
+	) -> Result<Option<BoxStream<'static, Result<tg::build::LogChunk>>>> {
 		self.try_get_build_log(id, arg).await
 	}
 
