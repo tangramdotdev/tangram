@@ -55,7 +55,7 @@ pub struct GetLogArg {
 }
 
 #[derive(Clone, Debug, serde::Serialize, serde::Deserialize)]
-pub struct LogEntry {
+pub struct LogChunk {
 	pub pos: u64,
 	pub bytes: Bytes,
 }
@@ -274,7 +274,7 @@ impl Build {
 		&self,
 		tg: &dyn Handle,
 		arg: GetLogArg,
-	) -> Result<BoxStream<'static, Result<LogEntry>>> {
+	) -> Result<BoxStream<'static, Result<LogChunk>>> {
 		self.try_get_log(tg, arg)
 			.await?
 			.wrap_err("Failed to get the build.")
@@ -284,7 +284,7 @@ impl Build {
 		&self,
 		tg: &dyn Handle,
 		arg: GetLogArg,
-	) -> Result<Option<BoxStream<'static, Result<LogEntry>>>> {
+	) -> Result<Option<BoxStream<'static, Result<LogChunk>>>> {
 		tg.try_get_build_log(self.id(), arg).await
 	}
 
