@@ -306,18 +306,18 @@ impl Build {
 
 	pub async fn cancel(&self, tg: &dyn Handle) -> Result<()> {
 		let id = self.id();
-		tg.finish_build(None, id, Outcome::Canceled).await?;
+		tg.set_build_outcome(None, id, Outcome::Canceled).await?;
 		Ok(())
 	}
 
-	pub async fn finish(
+	pub async fn set_outcome(
 		&self,
 		tg: &dyn Handle,
 		user: Option<&User>,
 		outcome: Outcome,
 	) -> Result<()> {
 		let id = self.id();
-		tg.finish_build(user, id, outcome).await?;
+		tg.set_build_outcome(user, id, outcome).await?;
 		Ok(())
 	}
 

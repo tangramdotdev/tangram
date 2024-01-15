@@ -540,13 +540,13 @@ impl tg::Handle for Server {
 		self.try_get_build_outcome(id, None).await
 	}
 
-	async fn finish_build(
+	async fn set_build_outcome(
 		&self,
 		user: Option<&tg::User>,
 		id: &tg::build::Id,
 		outcome: tg::build::Outcome,
 	) -> Result<()> {
-		self.finish_build(user, id, outcome).await
+		self.set_build_outcome(user, id, outcome).await
 	}
 
 	async fn get_object_exists(&self, id: &tg::object::Id) -> Result<bool> {

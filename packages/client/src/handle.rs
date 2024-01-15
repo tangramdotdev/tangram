@@ -113,7 +113,7 @@ pub trait Handle: Send + Sync + 'static {
 
 	async fn try_get_build_outcome(&self, id: &build::Id) -> Result<Option<build::Outcome>>;
 
-	async fn finish_build(
+	async fn set_build_outcome(
 		&self,
 		user: Option<&User>,
 		id: &build::Id,

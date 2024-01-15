@@ -208,9 +208,10 @@ impl Server {
 				.handle_get_build_outcome_request(request)
 				.map(Some)
 				.boxed(),
-			(http::Method::POST, ["builds", _, "finish"]) => {
-				self.handle_finish_build_request(request).map(Some).boxed()
-			},
+			(http::Method::POST, ["builds", _, "outcome"]) => self
+				.handle_set_build_outcome_request(request)
+				.map(Some)
+				.boxed(),
 
 			// Objects
 			(http::Method::HEAD, ["objects", _]) => self
@@ -752,13 +753,13 @@ impl Server {
 		Ok(response)
 	}
 
-	async fn handle_finish_build_request(
+	async fn handle_set_build_outcome_request(
 		&self,
 		request: http::Request<Incoming>,
 	) -> Result<hyper::Response<Outgoing>> {
 		// Get the path params.
 		let path_components: Vec<&str> = request.uri().path().split('/').skip(1).collect();
-		let ["builds", build_id, "finish"] = path_components.as_slice() else {
+		let ["builds", build_id, "outcome"] = path_components.as_slice() else {
 			return Err(error!("Unexpected path."));
 		};
 		let build_id = build_id.parse().wrap_err("Failed to parse the ID.")?;
@@ -775,8 +776,9 @@ impl Server {
 			.to_bytes();
 		let outcome = serde_json::from_slice(&bytes).wrap_err("Failed to deserialize.")?;
 
-		// Finish the build.
-		self.finish_build(user.as_ref(), &build_id, outcome).await?;
+		// Set the outcome.
+		self.set_build_outcome(user.as_ref(), &build_id, outcome)
+			.await?;
 
 		// Create the response.
 		let response = http::Response::builder()

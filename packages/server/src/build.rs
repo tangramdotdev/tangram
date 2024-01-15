@@ -758,8 +758,8 @@ impl Server {
 				.await?;
 		}
 
-		// Finish the build.
-		build.finish(self, None, outcome).await?;
+		// Set the outcome.
+		build.set_outcome(self, None, outcome).await?;
 
 		// Drop the permit.
 		drop(permit);
@@ -1500,20 +1500,20 @@ impl Server {
 
 	#[allow(clippy::too_many_lines)]
 	#[async_recursion]
-	pub async fn finish_build(
+	pub async fn set_build_outcome(
 		&self,
 		user: Option<&'async_recursion tg::User>,
 		id: &tg::build::Id,
 		outcome: tg::build::Outcome,
 	) -> Result<()> {
 		if self
-			.try_finish_build_local(user, id, outcome.clone())
+			.try_set_build_outcome_local(user, id, outcome.clone())
 			.await?
 		{
 			return Ok(());
 		}
 		if self
-			.try_finish_build_remote(user, id, outcome.clone())
+			.try_set_build_outcome_remote(user, id, outcome.clone())
 			.await?
 		{
 			return Ok(());
@@ -1521,7 +1521,7 @@ impl Server {
 		Err(error!("Failed to find the build."))
 	}
 
-	async fn try_finish_build_local(
+	async fn try_set_build_outcome_local(
 		&self,
 		user: Option<&tg::User>,
 		id: &tg::build::Id,
@@ -1532,7 +1532,7 @@ impl Server {
 			return Ok(false);
 		}
 
-		// If the build has already been finished, then return.
+		// If the build is finished, then return.
 		let status = self
 			.try_get_build_status_local(id)
 			.await?
@@ -1569,7 +1569,7 @@ impl Server {
 			children
 				.iter()
 				.map(|child| async move {
-					self.finish_build(user, child, tg::build::Outcome::Canceled)
+					self.set_build_outcome(user, child, tg::build::Outcome::Canceled)
 						.await?;
 					Ok::<_, Error>(())
 				})
@@ -1636,7 +1636,7 @@ impl Server {
 		Ok(true)
 	}
 
-	async fn try_finish_build_remote(
+	async fn try_set_build_outcome_remote(
 		&self,
 		user: Option<&tg::User>,
 		id: &tg::build::Id,
@@ -1652,8 +1652,8 @@ impl Server {
 			value.push(self, remote.as_ref()).await?;
 		}
 
-		// Finish the build.
-		remote.finish_build(user, id, outcome).await?;
+		// Set the outcome.
+		remote.set_build_outcome(user, id, outcome).await?;
 
 		// Remove the build context.
 		self.inner.build_context.write().unwrap().remove(id);

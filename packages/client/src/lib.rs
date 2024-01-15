@@ -894,7 +894,7 @@ impl Handle for Client {
 		Ok(Some(outcome))
 	}
 
-	async fn finish_build(
+	async fn set_build_outcome(
 		&self,
 		user: Option<&User>,
 		id: &build::Id,
@@ -902,7 +902,7 @@ impl Handle for Client {
 	) -> Result<()> {
 		let mut request = http::request::Builder::default()
 			.method(http::Method::POST)
-			.uri(format!("/builds/{id}/finish"));
+			.uri(format!("/builds/{id}/outcome"));
 		let user = user.or(self.inner.user.as_ref());
 		if let Some(token) = user.and_then(|user| user.token.as_ref()) {
 			request = request.header(http::header::AUTHORIZATION, format!("Bearer {token}"));
