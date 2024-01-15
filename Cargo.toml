@@ -122,7 +122,7 @@ unicode-segmentation = "1.10.1"
 unicode-width = "0.1.11"
 url = { version = "2", features = ["serde"] }
 urlencoding = "2"
-uuid = { version = "1", features = ["v7"] }
+uuid = { version = "1", features = ["v4", "v7"] }
 v8 = { version = "0.82" }
 webbrowser = "0.8"
 webpki-roots = "0.26"
