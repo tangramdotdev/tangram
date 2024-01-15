@@ -768,36 +768,76 @@ impl Log {
 					.await
 					.expect("Failed to get log stream.");
 
-				let mut stream = stream.fuse();
+				let mut stream = Some(stream.fuse());
 				loop {
-					tokio::select! {
-						Some(entry) = stream.next(), if !stream.is_terminated() => {
-							let Ok(entry) = entry else {
-								return;
-							};
-							log.add_entry(entry).await;
-						},
-						result = receiver.recv() => match result.unwrap() {
-							LogUpdate::Down => {
-								let result = log.down_impl(&mut scroll).await;
-								if result.is_err() {
+					if let Some(stream_) = stream.as_mut() {
+						tokio::select! {
+							Some(entry) = stream_.next(), if !stream_.is_terminated() => {
+								let Ok(entry) = entry else {
 									return;
+								};
+								log.add_entry(entry).await;
+							},
+							result = receiver.recv() => match result.unwrap() {
+								LogUpdate::Down => {
+									let result = log.down_impl(&mut scroll).await;
+									if result.is_err() {
+										return;
+									}
+									if scroll.is_none() && stream.is_none() {
+										stream = None;
+									}
+								}
+								LogUpdate::Up => {
+									let result = log.up_impl(&mut scroll).await;
+									if result.is_err() {
+										return;
+									}
+								}
+							},
+							_ = rect_watch.changed() => {
+								if let Some(scroll) = scroll.as_mut() {
+									let rect = log.rect();
+									scroll.width = rect.width.to_usize().unwrap();
 								}
 							}
-							LogUpdate::Up => {
-								let result = log.up_impl(&mut scroll).await;
-								if result.is_err() {
-									return;
+						};
+					} else {
+						tokio::select! {
+							result = receiver.recv() => match result.unwrap() {
+								LogUpdate::Down => {
+									let result = log.down_impl(&mut scroll).await;
+									if result.is_err() {
+										return;
+									}
+									if scroll.is_none() && stream.is_none() {
+										stream = None;
+									}
 								}
-							}
-						},
-						_ = rect_watch.changed() => {
-							if let Some(scroll) = scroll.as_mut() {
-								let rect = log.rect();
-								scroll.width = rect.width.to_usize().unwrap();
+								LogUpdate::Up => {
+									let result = log.up_impl(&mut scroll).await;
+									if result.is_err() {
+										return;
+									}
+								}
+							},
+							_ = rect_watch.changed() => {
+								if let Some(scroll) = scroll.as_mut() {
+									let rect = log.rect();
+									scroll.width = rect.width.to_usize().unwrap();
+								}
 							}
 						}
-					};
+						if scroll.is_none() {
+							let stream_ = log
+								.inner
+								.build
+								.log(log.inner.tg.as_ref(), None, Some(-3 * area / 2))
+								.await
+								.expect("Failed to get log stream.");
+							stream = Some(stream_.fuse());
+						}
+					}
 					log.update_lines(scroll).await;
 				}
 			}
