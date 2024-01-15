@@ -22,13 +22,12 @@ const SOURCE_MAP: &[u8] = include_bytes!(concat!(env!("OUT_DIR"), "/main.js.map"
 
 struct State {
 	build: tg::Build,
-	depth: u64,
 	futures: RefCell<Futures>,
 	global_source_map: Option<SourceMap>,
 	log_sender: RefCell<Option<tokio::sync::mpsc::UnboundedSender<String>>>,
 	main_runtime_handle: tokio::runtime::Handle,
 	modules: RefCell<Vec<ModuleInfo>>,
-	retry: tg::build::Retry,
+	options: tg::build::Options,
 	tg: Box<dyn tg::Handle>,
 }
 
@@ -48,8 +47,7 @@ struct ModuleInfo {
 pub async fn build(
 	tg: &dyn tg::Handle,
 	build: &tg::Build,
-	depth: u64,
-	retry: tg::build::Retry,
+	options: &tg::build::Options,
 	mut stop: tokio::sync::watch::Receiver<bool>,
 ) -> Result<Option<tg::Value>> {
 	// Create a channel to receive the isolate handle.
@@ -61,14 +59,14 @@ pub async fn build(
 	let thread = std::thread::spawn({
 		let tg = tg.clone_box();
 		let build = build.clone();
+		let options = options.clone();
 		let stop = stop.clone();
 		let main_runtime_handle = tokio::runtime::Handle::current();
 		move || {
 			let future = build_inner(
 				tg.as_ref(),
 				&build,
-				depth,
-				retry,
+				options,
 				stop,
 				main_runtime_handle.clone(),
 				isolate_handle_sender,
@@ -112,8 +110,7 @@ pub async fn build(
 async fn build_inner(
 	tg: &dyn tg::Handle,
 	build: &tg::Build,
-	depth: u64,
-	retry: tg::build::Retry,
+	options: tg::build::Options,
 	mut stop: tokio::sync::watch::Receiver<bool>,
 	main_runtime_handle: tokio::runtime::Handle,
 	isolate_handle_sender: tokio::sync::oneshot::Sender<v8::IsolateHandle>,
@@ -156,13 +153,12 @@ async fn build_inner(
 	// Create the state.
 	let state = Rc::new(State {
 		build: build.clone(),
-		depth,
 		futures: RefCell::new(FuturesUnordered::new()),
 		global_source_map: Some(SourceMap::from_slice(SOURCE_MAP).unwrap()),
 		log_sender: RefCell::new(Some(log_sender)),
+		options,
 		main_runtime_handle,
 		modules: RefCell::new(Vec::new()),
-		retry,
 		tg: tg.clone_box(),
 	});
 
@@ -569,7 +565,9 @@ fn load_module<'s>(
 		async move {
 			let module = module.unwrap_normal_ref();
 			let package = tg::Directory::with_id(module.package.clone());
-			let metadata = tangram_package::metadata(tg.as_ref(), &package).await.ok();
+			let metadata = tangram_package::get_metadata(tg.as_ref(), &package)
+				.await
+				.ok();
 			sender.send(metadata).unwrap();
 		}
 	});

@@ -24,16 +24,12 @@ struct Context {
 	published_packages: im::HashMap<tg::package::Metadata, tg::directory::Id>,
 }
 
-/// An error type that can be pretty printed to describe why version solving failed.
-struct Report {
-	// List of errors and the corresponding Dependant structures they correspond to.
-	errors: Vec<(Dependant, Error)>,
-
-	// The context, used for formatting.
-	context: Context,
-
-	// The solution structure.
-	solution: Solution,
+// A cached representation of a package's metadata and dependencies.
+#[derive(Debug, Clone)]
+struct Analysis {
+	metadata: tg::package::Metadata,
+	path_dependencies: BTreeMap<tg::Dependency, tg::directory::Id>,
+	dependencies: Vec<tg::Dependency>,
 }
 
 // A stack frame, used for backtracking. Implicitly, a single stack frame corresponds to a single dependant (the top of the working set).
@@ -79,12 +75,16 @@ enum Mark {
 	Permanent(Result<tg::directory::Id, Error>),
 }
 
-// A cached representation of a package's metadata and dependencies.
-#[derive(Debug, Clone)]
-struct Analysis {
-	metadata: tg::package::Metadata,
-	path_dependencies: BTreeMap<tg::Dependency, tg::directory::Id>,
-	dependencies: Vec<tg::Dependency>,
+/// An error type that can be pretty printed to describe why version solving failed.
+struct Report {
+	// List of errors and the corresponding Dependant structures they correspond to.
+	errors: Vec<(Dependant, Error)>,
+
+	// The context, used for formatting.
+	context: Context,
+
+	// The solution structure.
+	solution: Solution,
 }
 
 /// Errors that may arise during version solving.
@@ -95,7 +95,7 @@ enum Error {
 
 	/// A package cycle exists.
 	PackageCycleExists {
-		/// Represents the terminal edge of cycle in the dependency graph.
+		/// The terminal edge of a cycle in the dependency graph.
 		dependant: Dependant,
 	},
 
@@ -115,94 +115,47 @@ enum Error {
 	Other(tangram_error::Error),
 }
 
-/// Resolve `dependency` recursively, returning a package directory.
-pub async fn try_get_package(
-	tg: &dyn tg::Handle,
-	dependency: &tg::Dependency,
-) -> Result<Option<tg::Directory>> {
-	let package_with_path_dependencies = get_package_with_path_dependencies(tg, dependency).await?;
-	let package = package_with_path_dependencies.package;
-	Ok(Some(package))
-}
-
-/// Resolve `dependency` recursively, returning a package directory and lock.
-pub async fn try_get_package_and_lock(
-	tg: &dyn tg::Handle,
-	dependency: &tg::Dependency,
-) -> Result<Option<(tg::Directory, tg::Lock)>> {
-	// Get the package with its path dependencies.
-	let package_with_path_dependencies = get_package_with_path_dependencies(tg, dependency).await?;
-
-	// If this is a path dependency, then attempt to read the lockfile from the path.
-	let lock = if let Some(path) = dependency.path.as_ref() {
-		try_read_lockfile_from_path(path).await?
-	} else {
-		None
-	};
-
-	// Verify that the lockfile's dependencies match the package with path dependencies.
-	let lock = if let Some(lock) = lock {
-		let matches = lock_matches(tg, &package_with_path_dependencies, &lock).await?;
-		if matches {
-			Some(lock)
-		} else {
-			None
-		}
-	} else {
-		None
-	};
-
-	// Otherwise, create the lockfile.
-	let lock_created = lock.is_none();
-	let lock = if let Some(lockfile) = lock {
-		lockfile
-	} else {
-		create_lockfile(tg, &package_with_path_dependencies).await?
-	};
-
-	// If this is a path dependency and the lockfile was created, then write the lockfile.
-	if let Some(path) = dependency.path.as_ref() {
-		if lock_created {
-			write_lock(tg, path, &lock).await?;
-		}
-	}
-
-	// Fill in path dependencies. Since we do not support circular dependencies yet, we are allowed to fold the lock into a tree.
-	let lock = resolve_path_dependencies(tg, lock, &package_with_path_dependencies)
-		.await?
-		.fold(tg)
-		.await?;
-
-	// Get the package.
-	let package = package_with_path_dependencies.package.clone();
-
-	// Return.
-	Ok(Some((package, lock)))
-}
-
-async fn get_package_with_path_dependencies(
+pub async fn get(
 	tg: &dyn tg::Handle,
 	dependency: &tg::Dependency,
 ) -> Result<PackageWithPathDependencies> {
-	if let Some(path) = dependency.path.as_ref().cloned() {
+	try_get(tg, dependency)
+		.await?
+		.wrap_err("Failed to get the package.")
+}
+
+pub async fn try_get(
+	tg: &dyn tg::Handle,
+	dependency: &tg::Dependency,
+) -> Result<Option<PackageWithPathDependencies>> {
+	if let Some(id) = dependency.id.as_ref().cloned() {
+		// If the dependency is a path dependency, then get the package with its path dependencies from the path.
+		Ok(Some(PackageWithPathDependencies {
+			package: tg::Directory::with_id(id),
+			path_dependencies: BTreeMap::default(),
+		}))
+	} else if let Some(path) = dependency.path.as_ref().cloned() {
 		// If the dependency is a path dependency, then get the package with its path dependencies from the path.
 		let path = tokio::fs::canonicalize(PathBuf::from(path))
 			.await
 			.wrap_err("Failed to canonicalize the path.")?;
-		Ok(get_package_with_path_dependencies_for_path(tg, &path).await?)
+		if !tokio::fs::try_exists(&path)
+			.await
+			.wrap_err("Failed to get the metadata for the path.")?
+		{
+			return Ok(None);
+		}
+		let package = get_package_with_path_dependencies_for_path(tg, &path).await?;
+		Ok(Some(package))
 	} else {
 		// If the dependency is a registry dependency, then get the package from the registry and make the path dependencies be empty.
-		let id = tg
-			.try_get_package(dependency)
-			.await?
-			.ok_or(tangram_error::error!(
-				r#"Could not find package "{dependency}"."#
-			))?;
-		let package = tg::Directory::with_id(id.clone());
-		Ok(PackageWithPathDependencies {
+		let Some(package) = tg::package::try_get(tg, dependency).await? else {
+			return Ok(None);
+		};
+		Ok(Some(PackageWithPathDependencies {
 			package,
 			path_dependencies: BTreeMap::default(),
-		})
+		}))
 	}
 }
 
@@ -374,6 +327,139 @@ async fn get_package_with_path_dependencies_for_path_inner(
 	Ok(package_with_path_dependencies)
 }
 
+pub async fn create_lock(
+	tg: &dyn tg::Handle,
+	path: Option<&tg::Path>,
+	package_with_path_dependencies: &PackageWithPathDependencies,
+) -> Result<tg::Lock> {
+	// If this is a path dependency, then attempt to read the lockfile from the path.
+	let lock = if let Some(path) = path {
+		try_read_lockfile_from_path(path).await?
+	} else {
+		None
+	};
+
+	// Verify that the lockfile's dependencies match the package with path dependencies.
+	let lock = if let Some(lock) = lock {
+		let matches = lock_matches(tg, package_with_path_dependencies, &lock).await?;
+		if matches {
+			Some(lock)
+		} else {
+			None
+		}
+	} else {
+		None
+	};
+
+	// Otherwise, create the lockfile.
+	let lock_created = lock.is_none();
+	let lock = if let Some(lockfile) = lock {
+		lockfile
+	} else {
+		create_lockfile(tg, package_with_path_dependencies).await?
+	};
+
+	// If this is a path dependency and the lockfile was created, then write the lockfile.
+	if let Some(path) = path {
+		if lock_created {
+			write_lock(tg, path, &lock).await?;
+		}
+	}
+
+	// Fill in path dependencies.
+	let lock = resolve_path_dependencies(tg, lock, package_with_path_dependencies)
+		.await?
+		.fold(tg)
+		.await?;
+
+	Ok(lock)
+}
+
+pub async fn get_dependencies(
+	tg: &dyn tg::Handle,
+	package: &tg::Directory,
+) -> Result<Vec<tg::Dependency>> {
+	// Create the dependencies set.
+	let mut dependencies: BTreeSet<tg::Dependency> = BTreeSet::default();
+
+	// Get the root module path.
+	let root_module_path = tg::package::get_root_module_path(tg, package).await?;
+
+	// Create a queue of module paths to visit and a visited set.
+	let mut queue: VecDeque<tg::Path> = VecDeque::from(vec![root_module_path]);
+	let mut visited: HashSet<tg::Path, fnv::FnvBuildHasher> = HashSet::default();
+
+	// Visit each module.
+	while let Some(module_path) = queue.pop_front() {
+		// Get the file.
+		let file = package
+			.get(tg, &module_path.clone())
+			.await?
+			.try_unwrap_file()
+			.ok()
+			.wrap_err("Expected the module to be a file.")?;
+		let text = file.text(tg).await?;
+
+		// Analyze the module.
+		let analysis =
+			tangram_language::Module::analyze(text).wrap_err("Failed to analyze the module.")?;
+
+		// Recurse into the dependencies.
+		for import in &analysis.imports {
+			if let tangram_language::Import::Dependency(dependency) = import {
+				let mut dependency = dependency.clone();
+
+				// Normalize the path dependency to be relative to the root.
+				dependency.path = dependency
+					.path
+					.take()
+					.map(|path| module_path.clone().parent().join(path).normalize());
+
+				dependencies.insert(dependency.clone());
+			}
+		}
+
+		// Add the module path to the visited set.
+		visited.insert(module_path.clone());
+
+		// Add the unvisited module imports to the queue.
+		for import in &analysis.imports {
+			if let tangram_language::Import::Module(import) = import {
+				let imported_module_path = module_path
+					.clone()
+					.parent()
+					.join(import.clone())
+					.normalize();
+				if !visited.contains(&imported_module_path) {
+					queue.push_back(imported_module_path);
+				}
+			}
+		}
+	}
+
+	Ok(dependencies.into_iter().collect())
+}
+
+pub async fn get_metadata(
+	tg: &dyn tg::Handle,
+	package: &tg::Directory,
+) -> Result<tg::package::Metadata> {
+	let path = tg::package::get_root_module_path(tg, package).await?;
+	let file = package
+		.get(tg, &path)
+		.await?
+		.try_unwrap_file()
+		.ok()
+		.wrap_err("Expected the module to be a file.")?;
+	let text = file.text(tg).await?;
+	let analysis = tangram_language::Module::analyze(text)?;
+	if let Some(metadata) = analysis.metadata {
+		Ok(metadata)
+	} else {
+		Err(error!("Missing package metadata."))
+	}
+}
+
 async fn try_read_lockfile_from_path(path: &tg::Path) -> Result<Option<tg::Lock>> {
 	// Canonicalize the path.
 	let path = tokio::fs::canonicalize(PathBuf::from(path.clone()))
@@ -452,7 +538,7 @@ async fn lockfile_matches_inner(
 	index: usize,
 ) -> Result<bool> {
 	// Get the package's dependencies.
-	let dependencies = dependencies(tg, &package_with_path_dependencies.package).await?;
+	let dependencies = get_dependencies(tg, &package_with_path_dependencies.package).await?;
 
 	// Get the package's lock from the lockfile.
 	let node = nodes.get(index).wrap_err("Invalid lockfile.")?;
@@ -686,12 +772,12 @@ fn resolve_path_dependencies_inner(
 	for (dependency, package_with_path_dependencies) in
 		&package_with_path_dependencies.path_dependencies
 	{
-		let Some(entry) = nodes[index].dependencies.get_mut(&dependency) else {
+		let Some(entry) = nodes[index].dependencies.get_mut(dependency) else {
 			continue;
 		};
 		let index = *entry.lock.as_ref().left().unwrap();
 		entry.package = Some(package_with_path_dependencies.package.clone());
-		resolve_path_dependencies_inner(&package_with_path_dependencies, nodes, index);
+		resolve_path_dependencies_inner(package_with_path_dependencies, nodes, index);
 	}
 }
 
@@ -962,17 +1048,15 @@ impl Context {
 				return Ok(package.clone());
 			}
 			let dependency = tg::Dependency::with_name_and_version(name.into(), version);
-			match tg.try_get_package(&dependency).await {
-				Err(error) => {
-					tracing::error!(?dependency, "Failed to get an artifact for the package.");
-					return Err(Error::Other(error));
-				},
-				Ok(Some(package)) => {
-					self.published_packages.insert(metadata, package.clone());
-					return Ok(package);
-				},
-				Ok(None) => continue,
-			}
+			let Some(package) = tg::package::try_get(tg, &dependency)
+				.await
+				.map_err(Error::Other)?
+			else {
+				continue;
+			};
+			let id = package.id(tg).await.map_err(Error::Other)?.clone();
+			self.published_packages.insert(metadata, id.clone());
+			return Ok(id);
 		}
 	}
 
@@ -1246,90 +1330,5 @@ impl std::fmt::Display for Mark {
 			Self::Permanent(complete) => write!(f, "Complete({complete:?})"),
 			Self::Temporary(version) => write!(f, "Incomplete({version})"),
 		}
-	}
-}
-
-pub async fn dependencies(
-	tg: &dyn tg::Handle,
-	package: &tg::Directory,
-) -> Result<Vec<tg::Dependency>> {
-	// Create the dependencies set.
-	let mut dependencies: BTreeSet<tg::Dependency> = BTreeSet::default();
-
-	// Get the root module path.
-	let root_module_path = tg::package::get_root_module_path(tg, package).await?;
-
-	// Create a queue of module paths to visit and a visited set.
-	let mut queue: VecDeque<tg::Path> = VecDeque::from(vec![root_module_path]);
-	let mut visited: HashSet<tg::Path, fnv::FnvBuildHasher> = HashSet::default();
-
-	// Visit each module.
-	while let Some(module_path) = queue.pop_front() {
-		// Get the file.
-		let file = package
-			.get(tg, &module_path.clone())
-			.await?
-			.try_unwrap_file()
-			.ok()
-			.wrap_err("Expected the module to be a file.")?;
-		let text = file.text(tg).await?;
-
-		// Analyze the module.
-		let analysis =
-			tangram_language::Module::analyze(text).wrap_err("Failed to analyze the module.")?;
-
-		// Recurse into the dependencies.
-		for import in &analysis.imports {
-			if let tangram_language::Import::Dependency(dependency) = import {
-				let mut dependency = dependency.clone();
-
-				// Normalize the path dependency to be relative to the root.
-				dependency.path = dependency
-					.path
-					.take()
-					.map(|path| module_path.clone().parent().join(path).normalize());
-
-				dependencies.insert(dependency.clone());
-			}
-		}
-
-		// Add the module path to the visited set.
-		visited.insert(module_path.clone());
-
-		// Add the unvisited module imports to the queue.
-		for import in &analysis.imports {
-			if let tangram_language::Import::Module(import) = import {
-				let imported_module_path = module_path
-					.clone()
-					.parent()
-					.join(import.clone())
-					.normalize();
-				if !visited.contains(&imported_module_path) {
-					queue.push_back(imported_module_path);
-				}
-			}
-		}
-	}
-
-	Ok(dependencies.into_iter().collect())
-}
-
-pub async fn metadata(
-	tg: &dyn tg::Handle,
-	package: &tg::Directory,
-) -> Result<tg::package::Metadata> {
-	let path = tg::package::get_root_module_path(tg, package).await?;
-	let file = package
-		.get(tg, &path)
-		.await?
-		.try_unwrap_file()
-		.ok()
-		.wrap_err("Expected the module to be a file.")?;
-	let text = file.text(tg).await?;
-	let analysis = tangram_language::Module::analyze(text)?;
-	if let Some(metadata) = analysis.metadata {
-		Ok(metadata)
-	} else {
-		Err(error!("Missing package metadata."))
 	}
 }

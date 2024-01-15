@@ -1,5 +1,5 @@
 use super::Server;
-use crate::{database::Json, params, Channels};
+use crate::{database::Json, params, BuildContext};
 use async_recursion::async_recursion;
 use bytes::Bytes;
 use futures::{
@@ -18,25 +18,22 @@ use tokio_stream::wrappers::WatchStream;
 use tokio_util::either::Either;
 
 impl Server {
-	pub async fn try_list_builds(
-		&self,
-		options: tg::build::ListOptions,
-	) -> Result<tg::build::ListOutput> {
+	pub async fn try_list_builds(&self, arg: tg::build::ListArg) -> Result<tg::build::ListOutput> {
 		let db = self.inner.database.get().await?;
-		let order = match options.sort {
-			tg::build::ListSort::Timestamp => "json->'timestamp' desc",
+		let order = match arg.sort {
+			tg::build::ListSort::Timestamp => "state->>'timestamp' desc",
 		};
 		let statement = &format!(
 			"
-				select json
+				select state
 				from builds
-				where json->>'target' = ?1
+				where state->>'target' = ?1
 				order by {order}
 				limit ?2
 				offset ?3;
 			"
 		);
-		let params = params![options.target.to_string(), options.limit, 0];
+		let params = params![arg.target.to_string(), arg.limit, 0];
 		let mut statement = db
 			.prepare_cached(statement)
 			.wrap_err("Failed to prepare the query.")?;
@@ -109,7 +106,7 @@ impl Server {
 	) -> Result<Option<tg::build::GetOutput>> {
 		let db = self.inner.database.get().await?;
 		let statement = "
-			select json
+			select state
 			from builds
 			where id = ?1;
 		";
@@ -149,9 +146,9 @@ impl Server {
 		{
 			let db = self.inner.database.get().await?;
 			let statement = "
-				insert into builds (id, json)
+				insert into builds (id, state)
 				values (?1, ?2)
-				on conflict (id) do update set json = ?2;
+				on conflict (id) do update set state = ?2;
 			";
 			let params = params![id.to_string(), Json(output.state.clone())];
 			let mut statement = db
@@ -200,9 +197,9 @@ impl Server {
 		if builds.is_empty() && objects.is_empty() {
 			let db = self.inner.database.get().await?;
 			let statement = "
-				insert into builds (id, json)
+				insert into builds (id, state)
 				values (?1, ?2)
-				on conflict do update set json = ?2;
+				on conflict do update set state = ?2;
 			";
 			let params = params![id.to_string(), Json(state.clone())];
 			let mut statement = db
@@ -223,80 +220,78 @@ impl Server {
 	#[allow(clippy::too_many_lines)]
 	pub async fn get_or_create_build(
 		&self,
-		target_id: &tg::target::Id,
-		options: tg::build::GetOrCreateOptions,
-	) -> Result<tg::build::Id> {
+		user: Option<&tg::User>,
+		arg: tg::build::GetOrCreateArg,
+	) -> Result<tg::build::GetOrCreateOutput> {
 		// Get a local build if one exists that satisfies the retry constraint.
-		let build = {
-			'a: {
-				// Find a build.
-				let list_options = tg::build::ListOptions {
-					limit: 1,
-					sort: tg::build::ListSort::Timestamp,
-					target: target_id.clone(),
-				};
-				let Some(build) = self
-					.try_list_builds(list_options)
-					.await?
-					.values
-					.first()
-					.cloned()
-					.map(|state| tg::Build::with_id(state.id))
-				else {
+		let build = 'a: {
+			// Find a build.
+			let list_arg = tg::build::ListArg {
+				limit: 1,
+				sort: tg::build::ListSort::Timestamp,
+				target: arg.target.clone(),
+			};
+			let Some(build) = self
+				.try_list_builds(list_arg)
+				.await?
+				.values
+				.first()
+				.cloned()
+				.map(|state| tg::Build::with_id(state.id))
+			else {
+				break 'a None;
+			};
+
+			// Verify the build satisfies the retry constraint.
+			let status = build.status(self).await?;
+			if status == tg::build::Status::Finished {
+				let outcome = build.outcome(self).await?;
+				if arg.options.retry >= outcome.retry() {
 					break 'a None;
-				};
-
-				// Verify the build satisfies the retry constraint.
-				let status = build.status(self).await?;
-				if status == tg::build::Status::Finished {
-					let outcome = build.outcome(self).await?;
-					if options.retry >= outcome.retry() {
-						break 'a None;
-					}
 				}
-
-				Some(build)
 			}
+
+			Some(build)
 		};
 
 		// Get a remote build if one exists that satisfies the retry constraint.
-		let build = if let Some(build) = build {
-			Some(build)
-		} else {
-			'a: {
-				// Get the remote.
-				let Some(remote) = self.inner.remote.as_ref() else {
-					break 'a None;
-				};
-
-				// Find a build.
-				let list_options = tg::build::ListOptions {
-					limit: 1,
-					sort: tg::build::ListSort::Timestamp,
-					target: target_id.clone(),
-				};
-				let Some(build) = remote
-					.try_list_builds(list_options)
-					.await?
-					.values
-					.first()
-					.cloned()
-					.map(|state| tg::Build::with_id(state.id))
-				else {
-					break 'a None;
-				};
-
-				// Verify the build satisfies the retry constraint.
-				let status = build.status(self).await?;
-				if status == tg::build::Status::Finished {
-					let outcome = build.outcome(self).await?;
-					if options.retry >= outcome.retry() {
-						break 'a None;
-					}
-				}
-
-				Some(build)
+		let build = 'a: {
+			if let Some(build) = build {
+				break 'a Some(build);
 			}
+
+			// Get the remote.
+			let Some(remote) = self.inner.remote.as_ref() else {
+				break 'a None;
+			};
+
+			// Find a build.
+			let list_arg = tg::build::ListArg {
+				limit: 1,
+				sort: tg::build::ListSort::Timestamp,
+				target: arg.target.clone(),
+			};
+			let Some(build) = remote
+				.try_list_builds(list_arg)
+				.await?
+				.values
+				.first()
+				.cloned()
+				.map(|state| tg::Build::with_id(state.id))
+			else {
+				break 'a None;
+			};
+
+			// Verify the build satisfies the retry constraint.
+			let status = build.status(self).await?;
+			if status == tg::build::Status::Finished {
+				let outcome = build.outcome(self).await?;
+				if arg.options.retry >= outcome.retry() {
+					break 'a None;
+				}
+			}
+
+			Some(build)
 		};
 
 		// If a local or remote build was found that satisfies the retry constraint, then return it.
@@ -306,10 +301,12 @@ impl Server {
 				let db = self.inner.database.get().await?;
 				let statement = "
 					update queue
-					set json = json_set(json, '$.depth', (select json(max(cast(json->'depth' as int), ?1))))
-					where json->>'build' = ?2;
+					set
+						options = json_set(options, '$.depth', (select json(max(depth, ?1)))),
+						depth = (select max(depth, ?1))
+					where build = ?2;
 				";
-				let params = params![options.depth, build.id().to_string()];
+				let params = params![arg.options.depth, build.id().to_string()];
 				let mut statement = db
 					.prepare_cached(statement)
 					.wrap_err("Failed to prepare the query.")?;
@@ -323,21 +320,24 @@ impl Server {
 			}
 
 			// Add the build as a child of the parent.
-			if let Some(parent) = options.parent.as_ref() {
-				self.add_build_child(options.user.as_ref(), parent.id(), build.id())
-					.await?;
+			if let Some(parent) = arg.options.parent.as_ref() {
+				self.add_build_child(user, parent, build.id()).await?;
 			}
 
-			return Ok(build.id().clone());
+			let output = tg::build::GetOrCreateOutput {
+				id: build.id().clone(),
+			};
+
+			return Ok(output);
 		}
 
 		// If the build has a parent and it is not local, or if the build has no parent and the remote flag is set, then attempt to get or create a remote build.
 		'a: {
 			// Determine if the build should be remote.
-			let remote = if let Some(parent) = options.parent.as_ref() {
-				self.get_build_exists_local(parent.id()).await?
+			let remote = if let Some(parent) = arg.options.parent.as_ref() {
+				self.get_build_exists_local(parent).await?
 			} else {
-				options.remote
+				arg.options.remote
 			};
 			if !remote {
 				break 'a;
@@ -349,62 +349,67 @@ impl Server {
 			};
 
 			// Push the target.
-			let object = tg::object::Handle::with_id(target_id.clone().into());
+			let object = tg::object::Handle::with_id(arg.target.clone().into());
 			let Ok(()) = object.push(self, remote.as_ref()).await else {
 				break 'a;
 			};
 
 			// Get or create the build on the remote.
-			let options = tg::build::GetOrCreateOptions {
+			let options = tg::build::Options {
 				remote: false,
-				..options.clone()
+				..arg.options.clone()
 			};
-			let Ok(build_id) = remote.get_or_create_build(target_id, options).await else {
+			let arg = tg::build::GetOrCreateArg {
+				target: arg.target.clone(),
+				options,
+			};
+			let Ok(output) = remote.get_or_create_build(user, arg).await else {
 				break 'a;
 			};
 
-			return Ok(build_id);
+			return Ok(output);
 		}
 
 		// Otherwise, create a new build.
 		let build_id = tg::build::Id::new();
 
-		// Add the build to the channels.
+		// Get the host.
+		let target = tg::Target::with_id(arg.target.clone());
+		let host = target.host(self).await?;
+
+		// Create the build context.
 		let (children, _) = tokio::sync::watch::channel(());
 		let (log, _) = tokio::sync::watch::channel(());
 		let (outcome, _) = tokio::sync::watch::channel(());
-		let channels = Arc::new(Channels {
-			children,
-			log,
-			outcome,
+		let (stop, _) = tokio::sync::watch::channel(false);
+		let context = Arc::new(BuildContext {
+			children: Some(children),
+			depth: arg.options.depth,
+			log: Some(log),
+			outcome: Some(outcome),
+			task: std::sync::Mutex::new(None),
+			stop,
 		});
 		self.inner
-			.channels
+			.build_context
 			.write()
 			.unwrap()
-			.insert(build_id.clone(), channels);
-
-		// Add the build to the depths.
-		self.inner
-			.depths
-			.write()
-			.unwrap()
-			.insert(build_id.clone(), options.depth);
+			.insert(build_id.clone(), context);
 
 		// Add the build to the database.
 		{
 			let state = tg::build::State {
-				id: build_id.clone(),
 				children: Vec::new(),
+				id: build_id.clone(),
 				log: None,
 				outcome: None,
-				target: target_id.clone(),
 				status: tg::build::Status::Queued,
+				target: arg.target.clone(),
 				timestamp: time::OffsetDateTime::now_utc(),
 			};
 			let db = self.inner.database.get().await?;
 			let statement = "
-				insert into builds (id, json)
+				insert into builds (id, state)
 				values (?1, ?2);
 			";
 			let params = params![build_id.to_string(), Json(state)];
@@ -416,24 +421,19 @@ impl Server {
 				.wrap_err("Failed to execute the query.")?;
 		}
 
-		// Create the item.
-		let target = tg::Target::with_id(target_id.clone());
-		let host = target.host(self).await?.clone();
-		let item = tg::build::queue::Item {
-			build: build_id.clone(),
-			host,
-			depth: options.depth,
-			retry: options.retry,
-		};
-
-		// Add the item to the queue.
+		// Add the build to the queue.
 		{
 			let db = self.inner.database.get().await?;
 			let statement = "
-				insert into queue (json)
-				values (?1);
+				insert into queue (build, options, host, depth)
+				values (?1, ?2, ?3, ?4);
 			";
-			let params = params![Json(item)];
+			let params = params![
+				build_id.to_string(),
+				Json(arg.options.clone()),
+				host.to_string(),
+				arg.options.depth,
+			];
 			let mut statement = db
 				.prepare_cached(statement)
 				.wrap_err("Failed to prepare the query.")?;
@@ -442,18 +442,20 @@ impl Server {
 				.wrap_err("Failed to execute the query.")?;
 		}
 
+		// Add the build to the parent.
+		if let Some(parent) = arg.options.parent.as_ref() {
+			self.add_build_child(user, parent, &build_id).await?;
+		}
+
 		// Send a message to the build queue task that the item has been added.
 		self.inner.local_queue_task_wake_sender.send_replace(());
 
-		// Add the build to the parent.
-		if let Some(parent) = options.parent.as_ref() {
-			self.add_build_child(options.user.as_ref(), parent.id(), &build_id)
-				.await?;
-		}
+		let output = tg::build::GetOrCreateOutput { id: build_id };
 
-		Ok(build_id)
+		Ok(output)
 	}
 
+	#[allow(clippy::too_many_lines)]
 	pub(crate) async fn local_queue_task(
 		&self,
 		mut wake: tokio::sync::watch::Receiver<()>,
@@ -462,17 +464,17 @@ impl Server {
 		loop {
 			loop {
 				// Get the highest priority item from the queue.
-				let item: tg::build::queue::Item = {
+				let (id, options, host, depth) = {
 					let db = self.inner.database.get().await?;
 					let statement = "
 						delete from queue
 						where rowid in (
 							select rowid
 							from queue
-							order by json->'depth' desc
+							order by depth desc
 							limit 1
 						)
-						returning json;
+						returning build, options, host, depth;
 					";
 					let mut statement = db
 						.prepare_cached(statement)
@@ -483,42 +485,45 @@ impl Server {
 					let Some(row) = rows.next().wrap_err("Failed to get the row.")? else {
 						break;
 					};
-					row.get::<_, Json<_>>(0)
+					let id = row
+						.get::<_, String>(0)
 						.wrap_err("Failed to deserialize the column.")?
-						.0
+						.parse::<tg::build::Id>()
+						.wrap_err("Failed to parse the ID.")?;
+					let options = row
+						.get::<_, Json<tg::build::Options>>(1)
+						.wrap_err("Failed to deserialize the column.")?
+						.0;
+					let host = row
+						.get::<_, String>(2)
+						.wrap_err("Failed to deserialize the column.")?
+						.parse::<tg::System>()?;
+					let depth = row
+						.get::<_, u64>(3)
+						.wrap_err("Failed to deserialize the column.")?;
+					(id, options, host, depth)
 				};
 
-				// If the build is at a unique depth, then start it.
+				// If the build is at a unique depth or there is a permit available, then start it.
 				let unique = self
 					.inner
-					.depths
+					.build_context
 					.read()
 					.unwrap()
 					.values()
-					.all(|depth| depth != &item.depth);
-				if unique {
-					self.start_build(None, &item.build, item.depth, item.retry, None)
-						.await?;
-					continue;
-				}
-
-				// Otherwise, attempt to acquire a permit for it.
-				match self.inner.semaphore.clone().try_acquire_owned() {
-					// If a permit is available, then start the build.
-					Ok(permit) => {
-						self.start_build(None, &item.build, item.depth, item.retry, Some(permit))
-							.await?;
-						continue;
-					},
-
-					// If there are no permits available, then add the item back to the queue and break.
-					Err(tokio::sync::TryAcquireError::NoPermits) => {
+					.all(|context| context.depth != options.depth);
+				let permit = self.inner.build_semaphore.clone().try_acquire_owned();
+				let permit = match (unique, permit) {
+					(_, Ok(permit)) => Some(permit),
+					(true, Err(tokio::sync::TryAcquireError::NoPermits)) => None,
+					(false, Err(tokio::sync::TryAcquireError::NoPermits)) => {
 						let db = self.inner.database.get().await?;
 						let statement = "
-							insert into queue (json)
-							values (?1);
+							insert into queue (build, options, host, depth)
+							values (?1, ?2, ?3, ?4);
 						";
-						let params = params![Json(item)];
+						let params =
+							params![id.to_string(), Json(options), host.to_string(), depth];
 						let mut statement = db
 							.prepare_cached(statement)
 							.wrap_err("Failed to prepare the query.")?;
@@ -527,16 +532,44 @@ impl Server {
 							.wrap_err("Failed to execute the query.")?;
 						break;
 					},
-
-					Err(tokio::sync::TryAcquireError::Closed) => {
+					(_, Err(tokio::sync::TryAcquireError::Closed)) => {
 						unreachable!()
 					},
 				};
+
+				// Set the build's status to running.
+				self.set_build_status(None, &id, tg::build::Status::Running)
+					.await?;
+
+				// Spawn the task.
+				let task = tokio::spawn({
+					let server = self.clone();
+					let id = id.clone();
+					let options = options.clone();
+					async move {
+						if let Err(error) = server.build(id, options, permit).await {
+							let trace = error.trace();
+							tracing::error!(%trace, "The build failed.");
+						}
+					}
+				});
+
+				// Set the task in the build context.
+				self.inner
+					.build_context
+					.write()
+					.unwrap()
+					.get_mut(&id)
+					.unwrap()
+					.task
+					.lock()
+					.unwrap()
+					.replace(task);
 			}
 
 			// Wait for a wake or stop signal.
 			tokio::select! {
-				// If a wake signal is received, the loop again.
+				// If a wake signal is received, then loop again.
 				_ = wake.changed() => {
 					continue;
 				}
@@ -586,7 +619,7 @@ impl Server {
 			}
 
 			// Get a permit.
-			let permit = match self.inner.semaphore.clone().try_acquire_owned() {
+			let permit = match self.inner.build_semaphore.clone().try_acquire_owned() {
 				Ok(permit) => permit,
 				Err(tokio::sync::TryAcquireError::NoPermits) => {
 					tokio::time::sleep(std::time::Duration::from_secs(1)).await;
@@ -597,88 +630,102 @@ impl Server {
 				},
 			};
 
-			// Attempt to get an item from the remote server's queue. If none is available, then sleep and continue.
-			let Some(item) = remote.try_get_queue_item(None, None).await.ok().flatten() else {
+			// Attempt to get a build from the remote server's queue. If none is available, then sleep and continue.
+			let hosts = vec![
+				tg::System::new(tg::system::Arch::Js, tg::system::Os::Js),
+				tg::System::host()?,
+			];
+			let queue_arg = tg::build::GetBuildFromQueueArg { hosts: Some(hosts) };
+			let Some(tg::build::GetBuildFromQueueOutput { build: id, options }) = remote
+				.try_get_build_from_queue(None, queue_arg)
+				.await
+				.ok()
+				.flatten()
+			else {
 				drop(permit);
 				tokio::time::sleep(std::time::Duration::from_secs(1)).await;
 				continue;
 			};
 
-			// Start the build.
-			self.start_build(None, &item.build, item.depth, item.retry, Some(permit))
+			// Create the build context.
+			let (stop, _) = tokio::sync::watch::channel(false);
+			let context = Arc::new(BuildContext {
+				children: None,
+				depth: options.depth,
+				log: None,
+				outcome: None,
+				task: std::sync::Mutex::new(None),
+				stop,
+			});
+			self.inner
+				.build_context
+				.write()
+				.unwrap()
+				.insert(id.clone(), context);
+
+			// Set the build's status to running.
+			self.set_build_status(None, &id, tg::build::Status::Running)
 				.await?;
+
+			// Spawn the task.
+			let task = tokio::spawn({
+				let server = self.clone();
+				let id = id.clone();
+				let options = options.clone();
+				async move {
+					if let Err(error) = server.build(id, options, Some(permit)).await {
+						let trace = error.trace();
+						tracing::error!(%trace, "The build failed.");
+					}
+				}
+			});
+
+			// Set the task in the build context.
+			self.inner
+				.build_context
+				.write()
+				.unwrap()
+				.get_mut(&id)
+				.unwrap()
+				.task
+				.lock()
+				.unwrap()
+				.replace(task);
 		}
 
 		Ok(())
 	}
 
-	async fn start_build(
+	async fn build(
 		&self,
-		user: Option<&tg::User>,
-		id: &tg::build::Id,
-		depth: u64,
-		retry: tg::build::Retry,
+		id: tg::build::Id,
+		options: tg::build::Options,
 		permit: Option<tokio::sync::OwnedSemaphorePermit>,
-	) -> Result<()> {
-		// Add the build to the stops.
-		let (stop_sender, stop_receiver) = tokio::sync::watch::channel(false);
-		let stop = Arc::new(stop_sender);
-		self.inner.stops.write().unwrap().insert(id.clone(), stop);
-
-		// Update the status.
-		self.set_build_status(user, id, tg::build::Status::Running)
-			.await?;
-
-		// Spawn the task.
-		let task = tokio::spawn({
-			let server = self.clone();
-			let user = user.cloned();
-			let id = id.clone();
-			async move {
-				if let Err(error) = server
-					.build_task(user.as_ref(), &id, depth, retry, permit, stop_receiver)
-					.await
-				{
-					let trace = error.trace();
-					tracing::error!(%trace, "The build failed.");
-				}
-			}
-		});
-
-		// Set the task for the build.
-		self.inner
-			.tasks
-			.lock()
-			.unwrap()
-			.as_mut()
-			.unwrap()
-			.insert(id.clone(), task);
-
-		Ok(())
-	}
-
-	async fn build_task(
-		&self,
-		user: Option<&tg::User>,
-		id: &tg::build::Id,
-		depth: u64,
-		retry: tg::build::Retry,
-		permit: Option<tokio::sync::OwnedSemaphorePermit>,
-		stop: tokio::sync::watch::Receiver<bool>,
 	) -> Result<()> {
 		let build = tg::Build::with_id(id.clone());
 		let target = build.target(self).await?;
+
+		// Get the stop signal.
+		let stop = self
+			.inner
+			.build_context
+			.read()
+			.unwrap()
+			.get(&id)
+			.unwrap()
+			.stop
+			.subscribe();
 
 		// Build the target with the appropriate runtime.
 		let result = match target.host(self).await?.os() {
 			tg::system::Os::Js => {
 				// Build the target on the server's local pool because it is a `!Send` future.
-				tangram_runtime::js::build(self, &build, depth, retry, stop).await
+				tangram_runtime::js::build(self, &build, &options, stop).await
 			},
 			tg::system::Os::Darwin => {
 				#[cfg(target_os = "macos")]
 				{
-					tangram_runtime::darwin::build(self, &build, retry, stop, self.path()).await
+					tangram_runtime::darwin::build(self, &build, &options, stop, self.path()).await
 				}
 				#[cfg(not(target_os = "macos"))]
 				{
@@ -688,7 +735,8 @@ impl Server {
 			tg::system::Os::Linux => {
 				#[cfg(target_os = "linux")]
 				{
-					tangram_runtime::linux::build(self, &build, retry, stop, self.path()).await
+					tangram_runtime::linux::build(self, &build, &item.options, stop, self.path())
+						.await
 				}
 				#[cfg(not(target_os = "linux"))]
 				{
@@ -712,7 +760,7 @@ impl Server {
 		}
 
 		// Finish the build.
-		build.finish(self, user, outcome).await?;
+		build.finish(self, None, outcome).await?;
 
 		// Drop the permit.
 		drop(permit);
@@ -724,11 +772,11 @@ impl Server {
 	}
 
 	#[allow(clippy::unused_async)]
-	pub async fn try_get_queue_item(
+	pub async fn try_get_build_from_queue(
 		&self,
 		_user: Option<&tg::User>,
-		_hosts: Option<Vec<tg::System>>,
-	) -> Result<Option<tg::build::queue::Item>> {
+		_arg: tg::build::GetBuildFromQueueArg,
+	) -> Result<Option<tg::build::GetBuildFromQueueOutput>> {
 		Ok(None)
 	}
 
@@ -745,43 +793,13 @@ impl Server {
 		}
 	}
 
-	async fn try_get_build_log_data_local(
-		&self,
-		id: &tg::build::Id,
-	) -> Result<Option<tg::blob::Id>> {
-		let db = self.inner.database.get().await?;
-		let statement = "
-			select json->>'log' as log
-			from builds
-			where id = ?1;
-		";
-		let params = params![id.to_string()];
-		let mut statement = db
-			.prepare_cached(statement)
-			.wrap_err("Failed to prepare the query.")?;
-		let mut rows = statement
-			.query(params)
-			.wrap_err("Failed to execute the query.")?;
-		let Some(row) = rows.next().wrap_err("Failed to get the row.")? else {
-			return Ok(None);
-		};
-		let Some(log) = row
-			.get::<_, Option<String>>(0)
-			.wrap_err("Failed to deserialize the column.")?
-		else {
-			return Ok(None);
-		};
-		let log = log.parse()?;
-		Ok(Some(log))
-	}
-
 	async fn try_get_build_status_local(
 		&self,
 		id: &tg::build::Id,
 	) -> Result<Option<tg::build::Status>> {
 		let db = self.inner.database.get().await?;
 		let statement = "
-			select json->>'status' as status
+			select state->>'status' as status
 			from builds
 			where id = ?1;
 		";
@@ -839,7 +857,7 @@ impl Server {
 		let db = self.inner.database.get().await?;
 		let statement = "
 			update builds
-			set json = json_set(json, '$.status', ?1)
+			set state = json_set(state, '$.status', ?1)
 			where id = ?2;
 		";
 		let params = params![status.to_string(), id.to_string()];
@@ -881,7 +899,7 @@ impl Server {
 	) -> Result<Option<tg::target::Id>> {
 		let db = self.inner.database.get().await?;
 		let statement = "
-			select json->>'target' as target
+			select state->>'target' as target
 			from builds
 			where id = ?1;
 		";
@@ -939,14 +957,14 @@ impl Server {
 			return Ok(None);
 		}
 
-		let channels = self.inner.channels.read().unwrap().get(id).cloned();
-		let children = channels.as_ref().map(|channels| {
-			WatchStream::new(channels.children.subscribe())
+		let context = self.inner.build_context.read().unwrap().get(id).cloned();
+		let children = context.as_ref().map(|context| {
+			WatchStream::new(context.children.as_ref().unwrap().subscribe())
 				.fuse()
 				.boxed()
 		});
-		let outcome = channels.as_ref().map(|channels| {
-			WatchStream::new(channels.outcome.subscribe())
+		let outcome = context.as_ref().map(|channels| {
+			WatchStream::new(channels.outcome.as_ref().unwrap().subscribe())
 				.fuse()
 				.boxed()
 		});
@@ -990,12 +1008,12 @@ impl Server {
 				let db = state.server.inner.database.get().await?;
 				let statement = "
 					select
-						json->>'status' as status,
+						state->>'status' as status,
 						(
 							select coalesce(json_group_array(value), '[]')
 							from (
 								select value
-								from json_each(builds.json->'children')
+								from json_each(builds.state->'children')
 								limit -1
 								offset ?1
 							)
@@ -1088,7 +1106,7 @@ impl Server {
 			let db = self.inner.database.get().await?;
 			let statement = "
 				update builds
-				set json = json_set(json, '$.children[#]', ?1)
+				set state = json_set(state, '$.children[#]', ?1)
 				where id = ?2;
 			";
 			let mut statement = db
@@ -1100,8 +1118,17 @@ impl Server {
 		}
 
 		// Notify subscribers that a child has been added.
-		if let Some(channels) = self.inner.channels.read().unwrap().get(build_id).cloned() {
-			channels.children.send_replace(());
+		if let Some(children) = self
+			.inner
+			.build_context
+			.read()
+			.unwrap()
+			.get(build_id)
+			.unwrap()
+			.children
+			.as_ref()
+		{
+			children.send_replace(());
 		}
 
 		Ok(true)
@@ -1126,12 +1153,11 @@ impl Server {
 	pub async fn try_get_build_log(
 		&self,
 		id: &tg::build::Id,
-		pos: Option<u64>,
-		len: Option<i64>,
-	) -> Result<Option<BoxStream<'static, Result<tg::log::Entry>>>> {
-		if let Some(log) = self.try_get_build_log_local(id, pos, len).await? {
+		arg: tg::build::GetLogArg,
+	) -> Result<Option<BoxStream<'static, Result<tg::build::LogEntry>>>> {
+		if let Some(log) = self.try_get_build_log_local(id, arg.clone()).await? {
 			Ok(Some(log))
-		} else if let Some(log) = self.try_get_build_log_remote(id, pos, len).await? {
+		} else if let Some(log) = self.try_get_build_log_remote(id, arg.clone()).await? {
 			Ok(Some(log))
 		} else {
 			Ok(None)
@@ -1142,23 +1168,22 @@ impl Server {
 	async fn try_get_build_log_local(
 		&self,
 		id: &tg::build::Id,
-		pos: Option<u64>,
-		len: Option<i64>,
-	) -> Result<Option<BoxStream<'static, Result<tg::log::Entry>>>> {
+		arg: tg::build::GetLogArg,
+	) -> Result<Option<BoxStream<'static, Result<tg::build::LogEntry>>>> {
 		// Verify the build is local.
 		if !self.get_build_exists_local(id).await? {
 			return Ok(None);
 		}
 
-		// Check if we have this build's log stored as a blob.
+		// Check if this build's log is stored as a blob.
 		if let Some(id) = self.try_get_build_log_data_local(id).await? {
 			let blob = tg::blob::Blob::with_id(id);
 			let mut reader = blob
 				.reader(self)
 				.await
 				.wrap_err("Failed to create blob reader.")?;
-			let pos = pos.unwrap_or(blob.size(self).await?);
-			let (start, end) = match len {
+			let pos = arg.pos.unwrap_or(blob.size(self).await?);
+			let (start, end) = match arg.len {
 				Some(len) if len > 0 => (pos, pos.saturating_add(len.to_u64().unwrap())),
 				Some(len) => (pos.saturating_sub(len.abs().to_u64().unwrap()), pos),
 				None => (
@@ -1178,7 +1203,7 @@ impl Server {
 					.wrap_err("Failed to read blob.")?;
 				let pos = start;
 				let bytes = bytes.into();
-				let mut entry = tg::log::Entry { pos, bytes };
+				let mut entry = tg::build::LogEntry { pos, bytes };
 				if entry.pos < start {
 					let offset = (start - entry.pos).to_usize().unwrap();
 					entry.pos = start;
@@ -1195,7 +1220,7 @@ impl Server {
 		}
 
 		// Otherwise get the starting position of the log stream. If pos is None, return the end.
-		let start_pos = if let Some(pos) = pos {
+		let start_pos = if let Some(pos) = arg.pos {
 			pos
 		} else {
 			let db = self.inner.database.get().await?;
@@ -1219,13 +1244,16 @@ impl Server {
 		};
 
 		// Get the start and end positions
-		let (start, end) = match len {
+		let (start, end) = match arg.len {
 			None => (start_pos, None),
 			Some(len) if len > 0 => (
 				start_pos,
 				Some(start_pos.saturating_add(len.to_u64().unwrap())),
 			),
-			Some(len) => (start_pos.saturating_sub(len.abs().to_u64().unwrap()), pos), // Note: not Some(start_pos).
+			Some(len) => (
+				start_pos.saturating_sub(len.abs().to_u64().unwrap()),
+				arg.pos,
+			),
 		};
 
 		// Create the stream.
@@ -1236,7 +1264,7 @@ impl Server {
 		let stream = stream::try_unfold(
 			(start, end, count, offset, id, server),
 			|(start, end, count, offset, id, server)| async move {
-				// Check if we've reached the end condition.
+				// Check if the end has been reached.
 				match end {
 					Some(end) if start + count >= end => return Ok(None),
 					_ => (),
@@ -1247,7 +1275,7 @@ impl Server {
 					let build_status = server
 						.get_build_status(&id)
 						.await
-						.wrap_err("Failed to get build status.")?;
+						.wrap_err("Failed to get the build status.")?;
 					let db = server.inner.database.get().await?;
 					let statement = "
 						select position, bytes
@@ -1273,7 +1301,7 @@ impl Server {
 					let entry = query.next().wrap_err("Expected a row.")?.map(|row| {
 						let pos = row.get(0).unwrap();
 						let bytes = row.get::<_, Vec<u8>>(1).unwrap().into();
-						tg::log::Entry { pos, bytes }
+						tg::build::LogEntry { pos, bytes }
 					});
 					match (build_status, entry) {
 						(tg::build::Status::Finished, None) => return Ok(None),
@@ -1303,16 +1331,45 @@ impl Server {
 		Ok(Some(stream.boxed()))
 	}
 
+	async fn try_get_build_log_data_local(
+		&self,
+		id: &tg::build::Id,
+	) -> Result<Option<tg::blob::Id>> {
+		let db = self.inner.database.get().await?;
+		let statement = "
+			select state->>'log' as log
+			from builds
+			where id = ?1;
+		";
+		let params = params![id.to_string()];
+		let mut statement = db
+			.prepare_cached(statement)
+			.wrap_err("Failed to prepare the query.")?;
+		let mut rows = statement
+			.query(params)
+			.wrap_err("Failed to execute the query.")?;
+		let Some(row) = rows.next().wrap_err("Failed to get the row.")? else {
+			return Ok(None);
+		};
+		let Some(log) = row
+			.get::<_, Option<String>>(0)
+			.wrap_err("Failed to deserialize the column.")?
+		else {
+			return Ok(None);
+		};
+		let log = log.parse()?;
+		Ok(Some(log))
+	}
+
 	async fn try_get_build_log_remote(
 		&self,
 		id: &tg::build::Id,
-		pos: Option<u64>,
-		len: Option<i64>,
-	) -> Result<Option<BoxStream<'static, Result<tg::log::Entry>>>> {
+		arg: tg::build::GetLogArg,
+	) -> Result<Option<BoxStream<'static, Result<tg::build::LogEntry>>>> {
 		let Some(remote) = self.inner.remote.as_ref() else {
 			return Ok(None);
 		};
-		let Some(log) = remote.try_get_build_log(id, pos, len).await? else {
+		let Some(log) = remote.try_get_build_log(id, arg).await? else {
 			return Ok(None);
 		};
 		Ok(Some(log))
@@ -1382,8 +1439,17 @@ impl Server {
 		}
 
 		// Notify subscribers that the log has been added to.
-		if let Some(channels) = self.inner.channels.read().unwrap().get(id).cloned() {
-			channels.log.send_replace(());
+		if let Some(log) = self
+			.inner
+			.build_context
+			.read()
+			.unwrap()
+			.get(id)
+			.unwrap()
+			.log
+			.as_ref()
+		{
+			log.send_replace(());
 		}
 
 		Ok(true)
@@ -1427,10 +1493,10 @@ impl Server {
 		}
 
 		// Get the outcome.
-		let channels = self.inner.channels.read().unwrap().get(id).cloned();
-		let mut outcome = channels
+		let context = self.inner.build_context.read().unwrap().get(id).cloned();
+		let mut outcome = context
 			.as_ref()
-			.map(|channels| WatchStream::new(channels.outcome.subscribe()));
+			.map(|context| WatchStream::new(context.outcome.as_ref().unwrap().subscribe()));
 		let mut first = true;
 		loop {
 			if first {
@@ -1445,7 +1511,7 @@ impl Server {
 			}
 			let db = self.inner.database.get().await?;
 			let statement = "
-				select json->'outcome' as outcome
+				select state->'outcome' as outcome
 				from builds
 				where id = ?1;
 			";
@@ -1513,35 +1579,24 @@ impl Server {
 		outcome: tg::build::Outcome,
 	) -> Result<bool> {
 		// Verify the build is local.
-		{
-			let db = self.inner.database.get().await?;
-			let statement = "
-				select count(*) != 0
-				from builds
-				where id = ?1;
-			";
-			let params = params![id.to_string()];
-			let mut statement = db
-				.prepare_cached(statement)
-				.wrap_err("Failed to prepare the query.")?;
-			let mut rows = statement
-				.query(params)
-				.wrap_err("Failed to execute the query.")?;
-			let row = rows
-				.next()
-				.wrap_err("Failed to get the row.")?
-				.wrap_err("Expected one row.")?;
-			let exists = row.get::<_, bool>(0).wrap_err("Expected a bool.")?;
-			if !exists {
-				return Ok(false);
-			}
+		if !self.get_build_exists_local(id).await? {
+			return Ok(false);
+		}
+
+		// If the build has already been finished, then return.
+		let status = self
+			.try_get_build_status_local(id)
+			.await?
+			.wrap_err("Expected the build to exist.")?;
+		if status == tg::build::Status::Finished {
+			return Ok(true);
 		}
 
 		// Get the children.
 		let children: Vec<tg::build::Id> = {
 			let db = self.inner.database.get().await?;
 			let statement = "
-				select json_extract(json, '$.children')
+				select json_extract(state, '$.children')
 				from builds
 				where id = ?1;
 			";
@@ -1596,8 +1651,8 @@ impl Server {
 			let db = self.inner.database.get().await?;
 			let statement = "
 				update builds
-				set json = json_set(
-					json,
+				set state = json_set(
+					state,
 					'$.status', ?1,
 					'$.outcome', json(?2)
 				)
@@ -1613,18 +1668,21 @@ impl Server {
 		}
 
 		// Notify subscribers that the outcome has been set.
-		if let Some(channels) = self.inner.channels.read().unwrap().get(id).cloned() {
-			channels.outcome.send_replace(());
+		if let Some(outcome) = self
+			.inner
+			.build_context
+			.read()
+			.unwrap()
+			.get(id)
+			.unwrap()
+			.outcome
+			.as_ref()
+		{
+			outcome.send_replace(());
 		}
 
-		// Remove the build from the channels.
-		self.inner.channels.write().unwrap().remove(id);
-
-		// Remove the build from the depths.
-		self.inner.depths.write().unwrap().remove(id);
-
-		// Remove the build from the stops.
-		self.inner.stops.write().unwrap().remove(id);
+		// Remove the build context.
+		self.inner.build_context.write().unwrap().remove(id);
 
 		Ok(true)
 	}
@@ -1648,17 +1706,8 @@ impl Server {
 		// Finish the build.
 		remote.finish_build(user, id, outcome).await?;
 
-		// Remove the build's task.
-		self.inner
-			.tasks
-			.lock()
-			.unwrap()
-			.as_mut()
-			.unwrap()
-			.remove(id);
-
-		// Remove the build from the stops.
-		self.inner.stops.write().unwrap().remove(id);
+		// Remove the build context.
+		self.inner.build_context.write().unwrap().remove(id);
 
 		Ok(true)
 	}

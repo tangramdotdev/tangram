@@ -253,11 +253,7 @@ impl Target {
 		Ok(Some(directory))
 	}
 
-	pub async fn build(
-		&self,
-		tg: &dyn Handle,
-		options: build::GetOrCreateOptions,
-	) -> Result<Value> {
+	pub async fn build(&self, tg: &dyn Handle, options: build::Options) -> Result<Value> {
 		let mut attempts = 0;
 		loop {
 			attempts += 1;

@@ -78,7 +78,7 @@ impl Cli {
 		eprintln!("{}", target.id(tg).await?);
 
 		// Build the target.
-		let options = tg::build::GetOrCreateOptions {
+		let options = tg::build::Options {
 			retry: args.retry,
 			..Default::default()
 		};

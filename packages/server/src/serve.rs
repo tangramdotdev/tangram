@@ -1,12 +1,13 @@
 use crate::Server;
-use bytes::Bytes;
+use bytes::{BufMut, Bytes, BytesMut};
 use futures::{
 	future::{self},
-	stream, FutureExt, StreamExt, TryStreamExt,
+	FutureExt, TryStreamExt,
 };
 use http_body_util::{BodyExt, StreamBody};
 use hyper_util::rt::{TokioExecutor, TokioIo};
 use itertools::Itertools;
+use num::ToPrimitive;
 use std::{collections::BTreeMap, convert::Infallible};
 use tangram_client as tg;
 use tangram_error::{error, Error, Result, WrapErr};
@@ -257,7 +258,7 @@ impl Server {
 
 			// Queue
 			(http::Method::GET, ["v1", "queue"]) => self
-				.handle_get_queue_item_request(request)
+				.handle_get_build_from_queue_request(request)
 				.map(Some)
 				.boxed(),
 
@@ -313,7 +314,7 @@ impl Server {
 		response
 	}
 
-	async fn handle_get_queue_item_request(
+	async fn handle_get_build_from_queue_request(
 		&self,
 		request: http::Request<Incoming>,
 	) -> Result<hyper::Response<Outgoing>> {
@@ -321,21 +322,18 @@ impl Server {
 		let user = self.try_get_user_from_request(&request).await?;
 
 		// Get the search params.
-		let hosts = if let Some(query) = request.uri().query() {
-			let search_params: tg::GetBuildQueueItemSearchParams =
-				serde_urlencoded::from_str(query).wrap_err("Failed to parse the search params.")?;
-			search_params
-				.hosts
-				.map(|hosts| hosts.split(',').map(str::parse).try_collect())
-				.transpose()?
-		} else {
-			None
-		};
+		let arg = request
+			.uri()
+			.query()
+			.map(serde_urlencoded::from_str)
+			.transpose()
+			.wrap_err("Failed to deserialize the search params.")?
+			.unwrap_or_default();
 
-		let build_id = self.try_get_queue_item(user.as_ref(), hosts).await?;
+		let output = self.try_get_build_from_queue(user.as_ref(), arg).await?;
 
 		// Create the response.
-		let body = serde_json::to_vec(&build_id).wrap_err("Failed to serialize the response.")?;
+		let body = serde_json::to_vec(&output).wrap_err("Failed to serialize the response.")?;
 		let response = http::Response::builder().body(full(body)).unwrap();
 
 		Ok(response)
@@ -351,35 +349,23 @@ impl Server {
 			return Err(error!("Unexpected path."));
 		};
 
-		// Get the search params.
-		let Some(query) = request.uri().query() else {
-			return Ok(bad_request());
-		};
-		let search_params: tg::GetOrCreateBuildSearchParams =
-			serde_urlencoded::from_str(query).wrap_err("Failed to parse the search params.")?;
-		let tg::GetOrCreateBuildSearchParams {
-			parent,
-			depth,
-			remote,
-			retry,
-			target,
-		} = search_params;
-
 		// Get the user.
 		let user = self.try_get_user_from_request(&request).await?;
 
+		// Read the body.
+		let bytes = request
+			.into_body()
+			.collect()
+			.await
+			.wrap_err("Failed to read the body.")?
+			.to_bytes();
+		let arg = serde_json::from_slice(&bytes).wrap_err("Failed to deserialize the body.")?;
+
 		// Get or create the build.
-		let options = tg::build::GetOrCreateOptions {
-			depth,
-			parent: parent.map(tg::Build::with_id),
-			remote,
-			retry,
-			user,
-		};
-		let build_id = self.get_or_create_build(&target, options).await?;
+		let output = self.get_or_create_build(user.as_ref(), arg).await?;
 
 		// Create the response.
-		let body = serde_json::to_vec(&build_id).wrap_err("Failed to serialize the response.")?;
+		let body = serde_json::to_vec(&output).wrap_err("Failed to serialize the response.")?;
 		let response = http::Response::builder().body(full(body)).unwrap();
 
 		Ok(response)
@@ -397,12 +383,12 @@ impl Server {
 		let id = id.parse().wrap_err("Failed to parse the ID.")?;
 
 		// Attempt to get the build status.
-		let Some(build_id) = self.try_get_build_status(&id).await? else {
+		let Some(status) = self.try_get_build_status(&id).await? else {
 			return Ok(not_found());
 		};
 
 		// Create the response.
-		let body = serde_json::to_vec(&build_id).wrap_err("Failed to serialize the response.")?;
+		let body = serde_json::to_vec(&status).wrap_err("Failed to serialize the response.")?;
 		let response = http::Response::builder().body(full(body)).unwrap();
 
 		Ok(response)
@@ -454,13 +440,13 @@ impl Server {
 		};
 		let id = id.parse().wrap_err("Failed to parse the ID.")?;
 
-		// Attempt to get the build target.
-		let Some(build_id) = self.try_get_build_target(&id).await? else {
+		// Attempt to get the target.
+		let Some(target_id) = self.try_get_build_target(&id).await? else {
 			return Ok(not_found());
 		};
 
 		// Create the response.
-		let body = serde_json::to_vec(&build_id).wrap_err("Failed to serialize the response.")?;
+		let body = serde_json::to_vec(&target_id).wrap_err("Failed to serialize the response.")?;
 		let response = http::Response::builder().body(full(body)).unwrap();
 
 		Ok(response)
@@ -485,24 +471,14 @@ impl Server {
 
 		// Create the response.
 		let children = children
-			.enumerate()
-			.map(|(i, result)| match result {
-				Ok(id) => Ok((i, id)),
-				Err(error) => Err(error),
-			})
-			.map_ok(|(i, id)| {
-				let mut string = String::new();
-				if i != 0 {
-					string.push(',');
-				}
-				string.push_str(&serde_json::to_string(&id).unwrap());
-				let bytes = Bytes::from(string);
-				hyper::body::Frame::data(bytes)
+			.map_ok(|id| {
+				let mut bytes = BytesMut::new();
+				let string = id.to_string();
+				bytes.put_u64(string.len().to_u64().unwrap());
+				bytes.put(string.as_bytes());
+				hyper::body::Frame::data(bytes.into())
 			})
 			.map_err(Into::into);
-		let open = stream::once(future::ok(hyper::body::Frame::data(Bytes::from("["))));
-		let close = stream::once(future::ok(hyper::body::Frame::data(Bytes::from("]"))));
-		let children = open.chain(children).chain(close);
 		let body = Outgoing::new(StreamBody::new(children));
 		let response = http::Response::builder()
 			.status(http::StatusCode::OK)
@@ -558,26 +534,32 @@ impl Server {
 			return Err(error!("Unexpected path."));
 		};
 		let id = id.parse().wrap_err("Failed to parse the ID.")?;
-		let tg::log::Params { pos, len } = match request.uri().query() {
-			Some(query) => {
-				serde_urlencoded::from_str(query).wrap_err("Failed to parse query string.")?
-			},
-			None => tg::log::Params {
-				pos: None,
-				len: None,
-			},
-		};
+
+		// Get the search params.
+		let arg = request
+			.uri()
+			.query()
+			.map(serde_urlencoded::from_str)
+			.transpose()
+			.wrap_err("Failed to deserialize the search params.")?
+			.unwrap_or_default();
 
 		// Get the log.
-		let Some(log) = self.try_get_build_log(&id, pos, len).await? else {
+		let Some(log) = self.try_get_build_log(&id, arg).await? else {
 			return Ok(not_found());
 		};
 
 		// Create the response.
-		let body = Outgoing::new(StreamBody::new(log.map(|entry| match entry {
-			Ok(entry) => Ok(hyper::body::Frame::data(entry.to_bytes())),
-			Err(e) => Err(e.into()),
-		})));
+		let body = Outgoing::new(StreamBody::new(
+			log.map_ok(|entry| {
+				let mut bytes = BytesMut::new();
+				bytes.put_u64(entry.pos.to_u64().unwrap());
+				bytes.put_u64(entry.bytes.len().to_u64().unwrap());
+				bytes.put(entry.bytes);
+				hyper::body::Frame::data(bytes.into())
+			})
+			.map_err(Into::into),
+		));
 
 		let response = http::Response::builder()
 			.status(http::StatusCode::OK)
@@ -690,11 +672,11 @@ impl Server {
 		let Some(query) = request.uri().query() else {
 			return Ok(bad_request());
 		};
-		let options: tg::build::ListOptions =
-			serde_urlencoded::from_str(query).wrap_err("Failed to parse the search params.")?;
+		let arg = serde_urlencoded::from_str(query)
+			.wrap_err("Failed to deserialize the search params.")?;
 
 		// Get the builds.
-		let output = self.try_list_builds(options).await?;
+		let output = self.try_list_builds(arg).await?;
 
 		// Create the response.
 		let body = serde_json::to_string(&output).wrap_err("Failed to serialize the response.")?;
@@ -748,12 +730,12 @@ impl Server {
 		let build_id = build_id.parse().wrap_err("Failed to parse the ID.")?;
 
 		// Get the build.
-		let Some(build) = self.try_get_build(&build_id).await? else {
+		let Some(state) = self.try_get_build(&build_id).await? else {
 			return Ok(not_found());
 		};
 
 		// Create the response.
-		let body = serde_json::to_string(&build).wrap_err("Failed to serialize the response.")?;
+		let body = serde_json::to_string(&state).wrap_err("Failed to serialize the response.")?;
 		let response = http::Response::builder()
 			.status(http::StatusCode::OK)
 			.body(full(body))
@@ -783,13 +765,13 @@ impl Server {
 			.await
 			.wrap_err("Failed to read the body.")?
 			.to_bytes();
-		let data = serde_json::from_slice(&bytes).wrap_err("Failed to deserialize the body.")?;
+		let state = serde_json::from_slice(&bytes).wrap_err("Failed to deserialize the body.")?;
 
 		// Put the build.
-		let missing = self.try_put_build(user.as_ref(), &build_id, &data).await?;
+		let output = self.try_put_build(user.as_ref(), &build_id, &state).await?;
 
 		// Create the response.
-		let body = serde_json::to_vec(&missing).wrap_err("Failed to serialize the response.")?;
+		let body = serde_json::to_vec(&output).wrap_err("Failed to serialize the response.")?;
 		let response = http::Response::builder()
 			.status(http::StatusCode::OK)
 			.body(full(body))
@@ -877,10 +859,10 @@ impl Server {
 			.to_bytes();
 
 		// Put the object.
-		let missing = self.try_put_object(&id, &bytes).await?;
+		let output = self.try_put_object(&id, &bytes).await?;
 
 		// Create the response.
-		let body = serde_json::to_vec(&missing).wrap_err("Failed to serialize the response.")?;
+		let body = serde_json::to_vec(&output).wrap_err("Failed to serialize the response.")?;
 		let response = http::Response::builder()
 			.status(http::StatusCode::OK)
 			.body(full(body))
@@ -900,14 +882,13 @@ impl Server {
 			.await
 			.wrap_err("Failed to read the body.")?
 			.to_bytes();
-		let body: tg::CheckinArtifactBody =
-			serde_json::from_slice(&bytes).wrap_err("Failed to deserialize the body.")?;
+		let arg = serde_json::from_slice(&bytes).wrap_err("Failed to deserialize the body.")?;
 
 		// Check in the artifact.
-		let id = self.check_in_artifact(&body.path).await?;
+		let output = self.check_in_artifact(arg).await?;
 
 		// Create the response.
-		let body = serde_json::to_vec(&id).wrap_err("Failed to serialize the response.")?;
+		let body = serde_json::to_vec(&output).wrap_err("Failed to serialize the response.")?;
 		let response = http::Response::builder().body(full(body)).unwrap();
 
 		Ok(response)
@@ -924,11 +905,10 @@ impl Server {
 			.await
 			.wrap_err("Failed to read the body.")?
 			.to_bytes();
-		let body: tg::CheckoutArtifactBody =
-			serde_json::from_slice(&bytes).wrap_err("Failed to deserialize the body.")?;
+		let arg = serde_json::from_slice(&bytes).wrap_err("Failed to deserialize the body.")?;
 
 		// Check out the artifact.
-		self.check_out_artifact(&body.artifact, &body.path).await?;
+		self.check_out_artifact(arg).await?;
 
 		Ok(ok())
 	}
@@ -979,14 +959,14 @@ impl Server {
 		let Some(query) = request.uri().query() else {
 			return Ok(bad_request());
 		};
-		let search_params: tg::SearchPackagesSearchParams =
-			serde_urlencoded::from_str(query).wrap_err("Failed to parse the search params.")?;
+		let arg = serde_urlencoded::from_str(query)
+			.wrap_err("Failed to deserialize the search params.")?;
 
 		// Perform the search.
-		let packages = self.search_packages(&search_params.query).await?;
+		let output = self.search_packages(arg).await?;
 
 		// Create the response.
-		let body = serde_json::to_vec(&packages).wrap_err("Failed to serialize the response.")?;
+		let body = serde_json::to_vec(&output).wrap_err("Failed to serialize the response.")?;
 		let response = http::Response::builder().body(full(body)).unwrap();
 
 		Ok(response)
@@ -1008,33 +988,21 @@ impl Server {
 			.wrap_err("Failed to parse the dependency.")?;
 
 		// Get the search params.
-		let search_params: tg::GetPackageSearchParams = request
+		let arg = request
 			.uri()
 			.query()
-			.map(|query| {
-				serde_urlencoded::from_str(query)
-					.wrap_err("Failed to deserialize the search params.")
-			})
-			.transpose()?
+			.map(serde_urlencoded::from_str)
+			.transpose()
+			.wrap_err("Failed to deserialize the search params.")?
 			.unwrap_or_default();
 
 		// Get the package.
-		let body = if search_params.lock {
-			self.try_get_package_and_lock(&dependency)
-				.await?
-				.map(tg::GetPackageBody::PackageAndLock)
-		} else {
-			self.try_get_package(&dependency)
-				.await?
-				.map(tg::GetPackageBody::Package)
-		};
-
-		let Some(body) = body else {
+		let Some(output) = self.try_get_package(&dependency, arg).await? else {
 			return Ok(not_found());
 		};
 
 		// Create the body.
-		let body = serde_json::to_vec(&body).wrap_err("Failed to serialize the response.")?;
+		let body = serde_json::to_vec(&output).wrap_err("Failed to serialize the response.")?;
 
 		// Create the response.
 		let response = http::Response::builder().body(full(body)).unwrap();
@@ -1058,12 +1026,12 @@ impl Server {
 			.wrap_err("Failed to parse the dependency.")?;
 
 		// Get the package.
-		let Some(versions) = self.try_get_package_versions(&dependency).await? else {
+		let Some(output) = self.try_get_package_versions(&dependency).await? else {
 			return Ok(not_found());
 		};
 
 		// Create the response.
-		let body = serde_json::to_vec(&versions).wrap_err("Failed to serialize the response.")?;
+		let body = serde_json::to_vec(&output).wrap_err("Failed to serialize the response.")?;
 		let response = http::Response::builder().body(full(body)).unwrap();
 
 		Ok(response)

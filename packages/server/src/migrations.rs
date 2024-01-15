@@ -63,33 +63,47 @@ async fn migration_0000(path: &Path) -> Result<()> {
 	db.pragma_update(None, "journal_mode", "WAL")
 		.wrap_err("Failed to set the journal mode.")?;
 	let sql = "
-		create table objects (
-			id text primary key,
-			bytes blob not null
-		) strict;
-
 		create table builds (
 			id text primary key,
-			json text not null
+			state text not null
 		) strict;
 
-		create index builds_target_index on builds ((json->'target'), (json->'timestamp') desc);
-		create index builds_status_index on builds ((json->'status'));
+		create index builds_target_timestamp_index on builds ((state->>'target'), (state->>'timestamp') desc);
+		create index builds_status_index on builds ((state->>'status'));
 
 		create table logs (
 			build text not null,
-			position int not null,
+			position integer not null,
 			bytes blob not null
 		) strict;
 
 		create index logs_index on logs (build, position);
 
-		create table queue (
-			json text not null
+		create table objects (
+			id text primary key,
+			bytes blob not null
 		) strict;
 
-		create index queue_build_index on queue ((json->>'build'));
-		create index queue_depth_index on queue ((json->'depth') desc);
+		create table packages (
+			name text primary key
+		) strict;
+
+		create table package_versions (
+			name text not null references packages (name),
+			version text not null,
+			id text not null,
+			primary key (name, version)
+		) strict;
+
+		create table queue (
+			build text not null,
+			options text not null,
+			host text not null,
+			depth integer not null
+		) strict;
+
+		create index queue_build_index on queue (build);
+		create index queue_host_depth_index on queue (host, depth desc);
 	";
 	db.execute_batch(sql)
 		.wrap_err("Failed to create the database tables.")?;

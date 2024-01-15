@@ -78,10 +78,10 @@ async fn syscall_archive(
 
 async fn syscall_build(state: Rc<State>, args: (tg::Target,)) -> Result<tg::Value> {
 	let (target,) = args;
-	let options = tg::build::GetOrCreateOptions {
-		parent: Some(state.build.clone()),
-		depth: state.depth + 1,
-		retry: state.retry,
+	let options = tg::build::Options {
+		depth: state.options.depth + 1,
+		parent: Some(state.build.id().clone()),
+		retry: state.options.retry,
 		..Default::default()
 	};
 	let output = target.build(state.tg.as_ref(), options).await?;

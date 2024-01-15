@@ -1436,11 +1436,13 @@ impl FromV8 for tg::lock::Entry {
 
 		let lock = v8::String::new_external_onebyte_static(scope, "lock".as_bytes()).unwrap();
 		let lock = value.get(scope, lock.into()).unwrap();
-		let lock = from_v8::<f64>(scope, lock.clone())
-			.map(Either::Left)
-			.or_else(|_| from_v8::<String>(scope, lock).map(Either::Right))?
-			.map_left(|index| index.to_usize().unwrap())
-			.map_right(|lock| tg::Lock::with_id(lock.parse().unwrap()));
+		let lock = if let Ok(index) = from_v8::<f64>(scope, lock) {
+			Either::Left(index.to_usize().unwrap())
+		} else if let Ok(id) = from_v8::<tg::lock::Id>(scope, lock) {
+			Either::Right(tg::Lock::with_id(id))
+		} else {
+			return Err(error!("Invalid value."));
+		};
 
 		Ok(Self { package, lock })
 	}

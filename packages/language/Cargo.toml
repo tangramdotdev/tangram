@@ -20,7 +20,6 @@ bytes = { workspace = true }
 futures = { workspace = true }
 indoc = { workspace = true }
 once_cell = { workspace = true }
-pretty_assertions = { workspace = true }
 proptest = { workspace = true }
 tempfile = { workspace = true }
 

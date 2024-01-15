@@ -1,4 +1,4 @@
-use crate::{Dependency, Directory, Handle, Lock};
+use crate::{directory, lock, Dependency, Directory, Handle, Lock};
 use async_trait::async_trait;
 use std::path::Path;
 use tangram_error::{error, Result, WrapErr};
@@ -15,6 +15,22 @@ pub struct Metadata {
 	pub name: Option<String>,
 	pub version: Option<String>,
 	pub description: Option<String>,
+}
+
+#[derive(Debug, Clone, serde::Deserialize, serde::Serialize)]
+pub struct SearchArg {
+	pub query: String,
+}
+
+#[derive(Debug, Clone, Default, serde::Deserialize, serde::Serialize)]
+pub struct GetArg {
+	pub lock: bool,
+}
+
+#[derive(Debug, Clone, serde::Deserialize, serde::Serialize)]
+pub struct GetOutput {
+	pub id: directory::Id,
+	pub lock: Option<lock::Id>,
 }
 
 #[async_trait]
@@ -73,14 +89,24 @@ pub async fn try_get_root_module_path_for_path(path: &Path) -> Result<Option<cra
 }
 
 pub async fn get(tg: &dyn Handle, dependency: &Dependency) -> Result<Directory> {
-	let package = tg.get_package(dependency).await?;
-	let package = Directory::with_id(package);
+	let arg = GetArg { lock: false };
+	let output = tg.get_package(dependency, arg).await?;
+	let package = Directory::with_id(output.id);
+	Ok(package)
+}
+
+pub async fn try_get(tg: &dyn Handle, dependency: &Dependency) -> Result<Option<Directory>> {
+	let arg = GetArg { lock: false };
+	let output = tg.try_get_package(dependency, arg).await?;
+	let package = output.map(|output| Directory::with_id(output.id));
 	Ok(package)
 }
 
 pub async fn get_with_lock(tg: &dyn Handle, dependency: &Dependency) -> Result<(Directory, Lock)> {
-	let (package, lock) = tg.get_package_and_lock(dependency).await?;
-	let package = Directory::with_id(package);
+	let arg = GetArg { lock: true };
+	let output = tg.get_package(dependency, arg).await?;
+	let package = Directory::with_id(output.id);
+	let lock = output.lock.wrap_err("Expected the lock to be set.")?;
 	let lock = Lock::with_id(lock);
 	Ok((package, lock))
 }

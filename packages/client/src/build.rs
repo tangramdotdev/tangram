@@ -1,5 +1,7 @@
 pub use self::outcome::Outcome;
-use crate::{blob, id, log, object, target, Error, Handle, Result, Target, User, Value, WrapErr};
+use crate::{
+	blob, id, object, target, Error, Handle, Result, System, Target, User, Value, WrapErr,
+};
 use async_recursion::async_recursion;
 use bytes::Bytes;
 use derive_more::Display;
@@ -7,6 +9,7 @@ use futures::{
 	stream::{BoxStream, FuturesUnordered},
 	StreamExt, TryStreamExt,
 };
+use itertools::Itertools;
 use tangram_error::error;
 
 #[derive(
@@ -39,6 +42,20 @@ pub struct State {
 	pub target: target::Id,
 	#[serde(with = "time::serde::rfc3339")]
 	pub timestamp: time::OffsetDateTime,
+}
+
+#[derive(Clone, Debug, Default, serde::Serialize, serde::Deserialize)]
+pub struct GetLogArg {
+	#[serde(skip_serializing_if = "Option::is_none")]
+	pub pos: Option<u64>,
+	#[serde(skip_serializing_if = "Option::is_none")]
+	pub len: Option<i64>,
+}
+
+#[derive(Clone, Debug, serde::Serialize, serde::Deserialize)]
+pub struct LogEntry {
+	pub pos: u64,
+	pub bytes: Bytes,
 }
 
 pub mod outcome {
@@ -96,17 +113,16 @@ pub enum Status {
 	Finished,
 }
 
-#[derive(Clone, Debug, Default)]
-pub struct GetOrCreateOptions {
+#[derive(Clone, Debug, Default, serde::Deserialize, serde::Serialize)]
+pub struct Options {
 	pub depth: u64,
-	pub parent: Option<Build>,
+	pub parent: Option<Id>,
 	pub remote: bool,
 	pub retry: Retry,
-	pub user: Option<User>,
 }
 
 #[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
-pub struct ListOptions {
+pub struct ListArg {
 	pub limit: u64,
 	pub sort: ListSort,
 	pub target: target::Id,
@@ -139,6 +155,32 @@ pub struct Missing {
 	pub objects: Vec<object::Id>,
 }
 
+#[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
+pub struct GetOrCreateArg {
+	pub target: target::Id,
+	pub options: Options,
+}
+
+#[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
+pub struct GetOrCreateOutput {
+	pub id: Id,
+}
+
+#[derive(Clone, Debug, Default, serde::Deserialize, serde::Serialize)]
+pub struct GetBuildFromQueueArg {
+	#[serde(
+		deserialize_with = "deserialize_try_get_queue_item_arg_hosts",
+		serialize_with = "serialize_try_get_queue_item_arg_hosts"
+	)]
+	pub hosts: Option<Vec<System>>,
+}
+
+#[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
+pub struct GetBuildFromQueueOutput {
+	pub build: Id,
+	pub options: Options,
+}
+
 impl Id {
 	#[allow(clippy::new_without_default)]
 	#[must_use]
@@ -160,10 +202,14 @@ impl Build {
 }
 
 impl Build {
-	pub async fn new(tg: &dyn Handle, target: Target, options: GetOrCreateOptions) -> Result<Self> {
-		let target_id = target.id(tg).await?;
-		let build_id = tg.get_or_create_build(target_id, options).await?;
-		let build = Build::with_id(build_id);
+	pub async fn new(tg: &dyn Handle, target: Target, options: Options) -> Result<Self> {
+		let id = target.id(tg).await?;
+		let arg = GetOrCreateArg {
+			target: id.clone(),
+			options,
+		};
+		let output = tg.get_or_create_build(None, arg).await?;
+		let build = Build::with_id(output.id);
 		Ok(build)
 	}
 
@@ -216,10 +262,9 @@ impl Build {
 	pub async fn log(
 		&self,
 		tg: &dyn Handle,
-		pos: Option<u64>,
-		len: Option<i64>,
-	) -> Result<BoxStream<'static, Result<log::Entry>>> {
-		self.try_get_log(tg, pos, len)
+		arg: GetLogArg,
+	) -> Result<BoxStream<'static, Result<LogEntry>>> {
+		self.try_get_log(tg, arg)
 			.await?
 			.wrap_err("Failed to get the build.")
 	}
@@ -227,10 +272,9 @@ impl Build {
 	pub async fn try_get_log(
 		&self,
 		tg: &dyn Handle,
-		pos: Option<u64>,
-		len: Option<i64>,
-	) -> Result<Option<BoxStream<'static, Result<log::Entry>>>> {
-		tg.try_get_build_log(self.id(), pos, len).await
+		arg: GetLogArg,
+	) -> Result<Option<BoxStream<'static, Result<LogEntry>>>> {
+		tg.try_get_build_log(self.id(), arg).await
 	}
 
 	pub async fn add_log(&self, tg: &dyn Handle, log: Bytes) -> Result<()> {
@@ -475,35 +519,53 @@ impl TryFrom<String> for Retry {
 	}
 }
 
-pub mod queue {
-	use super::{Id, Retry};
-	use crate::System;
-
-	#[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
-	pub struct Item {
-		pub build: Id,
-		pub host: System,
-		pub depth: u64,
-		pub retry: Retry,
+fn serialize_try_get_queue_item_arg_hosts<S>(
+	value: &Option<Vec<System>>,
+	serializer: S,
+) -> Result<S::Ok, S::Error>
+where
+	S: serde::Serializer,
+{
+	match value {
+		Some(hosts) => serializer.serialize_str(&hosts.iter().join(",")),
+		None => serializer.serialize_unit(),
 	}
+}
 
-	impl PartialOrd for Item {
-		fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
-			Some(self.depth.cmp(&other.depth))
+fn deserialize_try_get_queue_item_arg_hosts<'de, D>(
+	deserializer: D,
+) -> Result<Option<Vec<System>>, D::Error>
+where
+	D: serde::Deserializer<'de>,
+{
+	struct Visitor;
+
+	impl<'de> serde::de::Visitor<'de> for Visitor {
+		type Value = Option<Vec<System>>;
+
+		fn expecting(&self, formatter: &mut std::fmt::Formatter) -> std::fmt::Result {
+			formatter.write_str("a string with comma-separated values or null")
+		}
+
+		fn visit_str<E>(self, value: &str) -> Result<Self::Value, E>
+		where
+			E: serde::de::Error,
+		{
+			let values = value
+				.split(',')
+				.map(std::str::FromStr::from_str)
+				.try_collect()
+				.map_err(|_| serde::de::Error::custom("invalid system"))?;
+			Ok(Some(values))
+		}
+
+		fn visit_none<E>(self) -> Result<Self::Value, E>
+		where
+			E: serde::de::Error,
+		{
+			Ok(None)
 		}
 	}
 
-	impl Ord for Item {
-		fn cmp(&self, other: &Self) -> std::cmp::Ordering {
-			self.depth.cmp(&other.depth)
-		}
-	}
-
-	impl PartialEq for Item {
-		fn eq(&self, other: &Self) -> bool {
-			self.depth == other.depth
-		}
-	}
-
-	impl Eq for Item {}
+	deserializer.deserialize_any(Visitor)
 }

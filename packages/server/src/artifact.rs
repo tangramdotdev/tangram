@@ -8,7 +8,12 @@ use tg::Handle;
 
 impl Server {
 	#[async_recursion]
-	pub async fn check_in_artifact(&self, path: &tg::Path) -> Result<tg::artifact::Id> {
+	pub async fn check_in_artifact(
+		&self,
+		arg: tg::artifact::CheckInArg,
+	) -> Result<tg::artifact::CheckInOutput> {
+		let path = &arg.path;
+
 		// Get the metadata for the file system object at the path.
 		let metadata = tokio::fs::symlink_metadata(path)
 			.await
@@ -35,7 +40,9 @@ impl Server {
 			));
 		};
 
-		Ok(id)
+		let output = tg::artifact::CheckInOutput { id };
+
+		Ok(output)
 	}
 
 	async fn check_in_directory(
@@ -70,7 +77,9 @@ impl Server {
 			.into_iter()
 			.map(|name| async {
 				let path = path.clone().join(name.clone().try_into()?);
-				let artifact = tg::Artifact::with_id(self.check_in_artifact(&path).await?);
+				let arg = tg::artifact::CheckInArg { path };
+				let output = self.check_in_artifact(arg).await?;
+				let artifact = tg::Artifact::with_id(output.id);
 				Ok::<_, Error>((name, artifact))
 			})
 			.collect::<FuturesUnordered<_>>()
@@ -169,8 +178,8 @@ impl Server {
 		Ok(id.into())
 	}
 
-	pub async fn check_out_artifact(&self, id: &tg::artifact::Id, path: &tg::Path) -> Result<()> {
-		let artifact = tg::Artifact::with_id(id.clone());
+	pub async fn check_out_artifact(&self, arg: tg::artifact::CheckOutArg) -> Result<()> {
+		let artifact = tg::Artifact::with_id(arg.artifact);
 
 		// Bundle the artifact.
 		let artifact = artifact
@@ -179,17 +188,21 @@ impl Server {
 			.wrap_err("Failed to bundle the artifact.")?;
 
 		// Check in an existing artifact at the path.
-		let existing_artifact = if tokio::fs::try_exists(path)
+		let existing_artifact = if tokio::fs::try_exists(&arg.path)
 			.await
 			.wrap_err("Failed to determine if the path exists.")?
 		{
-			Some(tg::Artifact::with_id(self.check_in_artifact(path).await?))
+			let arg = tg::artifact::CheckInArg {
+				path: arg.path.clone(),
+			};
+			let output = self.check_in_artifact(arg).await?;
+			Some(tg::Artifact::with_id(output.id))
 		} else {
 			None
 		};
 
 		// Check out the artifact recursively.
-		self.check_out_inner(&artifact, existing_artifact.as_ref(), path)
+		self.check_out_inner(&artifact, existing_artifact.as_ref(), &arg.path)
 			.await?;
 
 		Ok(())

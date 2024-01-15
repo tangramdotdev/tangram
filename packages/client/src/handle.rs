@@ -1,6 +1,5 @@
 use crate::{
-	artifact, build, directory, health, lock, log, object, package, target, user, Dependency, Id,
-	System, User,
+	artifact, build, directory, health, object, package, target, user, Dependency, Id, User,
 };
 use async_trait::async_trait;
 use bytes::Bytes;
@@ -19,28 +18,12 @@ pub trait Handle: Send + Sync + 'static {
 
 	async fn stop(&self) -> Result<()>;
 
-	async fn get_object_exists(&self, id: &object::Id) -> Result<bool>;
+	async fn check_in_artifact(&self, arg: artifact::CheckInArg)
+		-> Result<artifact::CheckInOutput>;
 
-	async fn get_object(&self, id: &object::Id) -> Result<object::GetOutput> {
-		Ok(self
-			.try_get_object(id)
-			.await?
-			.wrap_err("Failed to get the object.")?)
-	}
+	async fn check_out_artifact(&self, arg: artifact::CheckOutArg) -> Result<()>;
 
-	async fn try_get_object(&self, id: &object::Id) -> Result<Option<object::GetOutput>>;
-
-	async fn try_put_object(&self, id: &object::Id, bytes: &Bytes) -> Result<object::PutOutput>;
-
-	async fn push_object(&self, id: &object::Id) -> Result<()>;
-
-	async fn pull_object(&self, id: &object::Id) -> Result<()>;
-
-	async fn check_in_artifact(&self, path: &crate::Path) -> Result<artifact::Id>;
-
-	async fn check_out_artifact(&self, id: &artifact::Id, path: &crate::Path) -> Result<()>;
-
-	async fn try_list_builds(&self, options: build::ListOptions) -> Result<build::ListOutput>;
+	async fn try_list_builds(&self, arg: build::ListArg) -> Result<build::ListOutput>;
 
 	async fn get_build_exists(&self, id: &build::Id) -> Result<bool>;
 
@@ -62,15 +45,15 @@ pub trait Handle: Send + Sync + 'static {
 
 	async fn get_or_create_build(
 		&self,
-		target: &target::Id,
-		options: build::GetOrCreateOptions,
-	) -> Result<build::Id>;
+		user: Option<&User>,
+		arg: build::GetOrCreateArg,
+	) -> Result<build::GetOrCreateOutput>;
 
-	async fn try_get_queue_item(
+	async fn try_get_build_from_queue(
 		&self,
 		user: Option<&User>,
-		hosts: Option<Vec<System>>,
-	) -> Result<Option<build::queue::Item>>;
+		arg: build::GetBuildFromQueueArg,
+	) -> Result<Option<build::GetBuildFromQueueOutput>>;
 
 	async fn get_build_status(&self, id: &build::Id) -> Result<build::Status> {
 		Ok(self
@@ -122,11 +105,10 @@ pub trait Handle: Send + Sync + 'static {
 	async fn get_build_log(
 		&self,
 		id: &build::Id,
-		pos: Option<u64>,
-		len: Option<i64>,
-	) -> Result<BoxStream<'static, Result<log::Entry>>> {
+		arg: build::GetLogArg,
+	) -> Result<BoxStream<'static, Result<build::LogEntry>>> {
 		Ok(self
-			.try_get_build_log(id, pos, len)
+			.try_get_build_log(id, arg)
 			.await?
 			.wrap_err("Failed to get the build.")?)
 	}
@@ -134,9 +116,8 @@ pub trait Handle: Send + Sync + 'static {
 	async fn try_get_build_log(
 		&self,
 		id: &build::Id,
-		pos: Option<u64>,
-		len: Option<i64>,
-	) -> Result<Option<BoxStream<'static, Result<log::Entry>>>>;
+		arg: build::GetLogArg,
+	) -> Result<Option<BoxStream<'static, Result<build::LogEntry>>>>;
 
 	async fn add_build_log(&self, user: Option<&User>, id: &build::Id, bytes: Bytes) -> Result<()>;
 
@@ -156,31 +137,41 @@ pub trait Handle: Send + Sync + 'static {
 		outcome: build::Outcome,
 	) -> Result<()>;
 
-	async fn search_packages(&self, query: &str) -> Result<Vec<String>>;
+	async fn get_object_exists(&self, id: &object::Id) -> Result<bool>;
 
-	async fn get_package(&self, dependency: &Dependency) -> Result<directory::Id> {
+	async fn get_object(&self, id: &object::Id) -> Result<object::GetOutput> {
 		Ok(self
-			.try_get_package(dependency)
+			.try_get_object(id)
+			.await?
+			.wrap_err("Failed to get the object.")?)
+	}
+
+	async fn try_get_object(&self, id: &object::Id) -> Result<Option<object::GetOutput>>;
+
+	async fn try_put_object(&self, id: &object::Id, bytes: &Bytes) -> Result<object::PutOutput>;
+
+	async fn push_object(&self, id: &object::Id) -> Result<()>;
+
+	async fn pull_object(&self, id: &object::Id) -> Result<()>;
+
+	async fn search_packages(&self, arg: package::SearchArg) -> Result<Vec<String>>;
+
+	async fn get_package(
+		&self,
+		dependency: &Dependency,
+		arg: package::GetArg,
+	) -> Result<package::GetOutput> {
+		Ok(self
+			.try_get_package(dependency, arg)
 			.await?
 			.wrap_err("Failed to get the package.")?)
 	}
 
-	async fn try_get_package(&self, dependency: &Dependency) -> Result<Option<directory::Id>>;
-
-	async fn get_package_and_lock(
+	async fn try_get_package(
 		&self,
 		dependency: &Dependency,
-	) -> Result<(directory::Id, lock::Id)> {
-		Ok(self
-			.try_get_package_and_lock(dependency)
-			.await?
-			.wrap_err("Failed to get the package and lock.")?)
-	}
-
-	async fn try_get_package_and_lock(
-		&self,
-		dependency: &Dependency,
-	) -> Result<Option<(directory::Id, lock::Id)>>;
+		arg: package::GetArg,
+	) -> Result<Option<package::GetOutput>>;
 
 	async fn get_package_versions(&self, dependency: &Dependency) -> Result<Vec<String>> {
 		Ok(self

@@ -72,6 +72,22 @@ pub enum Data {
 	Symlink(symlink::Data),
 }
 
+#[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
+pub struct CheckInArg {
+	pub path: crate::Path,
+}
+
+#[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
+pub struct CheckInOutput {
+	pub id: Id,
+}
+
+#[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
+pub struct CheckOutArg {
+	pub artifact: Id,
+	pub path: crate::Path,
+}
+
 impl Artifact {
 	#[must_use]
 	pub fn with_id(id: Id) -> Self {
@@ -101,14 +117,19 @@ impl Artifact {
 
 impl Artifact {
 	pub async fn check_in(tg: &dyn Handle, path: &crate::Path) -> Result<Self> {
-		let id = tg.check_in_artifact(path).await?;
-		let artifact = Self::with_id(id);
+		let arg = CheckInArg { path: path.clone() };
+		let output = tg.check_in_artifact(arg).await?;
+		let artifact = Self::with_id(output.id);
 		Ok(artifact)
 	}
 
 	pub async fn check_out(&self, tg: &dyn Handle, path: &crate::Path) -> Result<()> {
 		let id = self.id(tg).await?;
-		tg.check_out_artifact(&id, path).await?;
+		let arg = CheckOutArg {
+			artifact: id,
+			path: path.clone(),
+		};
+		tg.check_out_artifact(arg).await?;
 		Ok(())
 	}
 

@@ -219,7 +219,7 @@ impl Lock {
 
 		// Recursively construct a new lock.
 		let mut nodes = vec![];
-		let root = get_lock_inner(&mut nodes, &object, index);
+		let root = get_lock_inner(&mut nodes, object, index);
 		let lock = Lock::with_object(Object { root, nodes });
 		Ok(Some((package.clone(), lock)))
 	}

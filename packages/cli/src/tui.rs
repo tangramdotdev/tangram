@@ -107,9 +107,10 @@ struct Scroll {
 
 #[derive(Debug)]
 struct LogEntry {
-	entry: tg::log::Entry,
+	entry: tg::build::LogEntry,
 	newlines: Vec<usize>,
 }
+
 enum LogUpdate {
 	Up,
 	Down,
@@ -722,8 +723,8 @@ async fn title(tg: &dyn tg::Handle, build: &tg::Build) -> Result<Option<String>>
 	Ok(Some(title))
 }
 
-impl From<tg::log::Entry> for LogEntry {
-	fn from(entry: tg::log::Entry) -> Self {
+impl From<tg::build::LogEntry> for LogEntry {
+	fn from(entry: tg::build::LogEntry) -> Self {
 		let newlines = entry
 			.bytes
 			.iter()
@@ -771,10 +772,14 @@ impl Log {
 			let mut scroll = None;
 			async move {
 				let area = log.rect().area().to_i64().unwrap();
+				let arg = tg::build::GetLogArg {
+					pos: None,
+					len: Some(-3 * area / 2),
+				};
 				let stream = log
 					.inner
 					.build
-					.log(log.inner.tg.as_ref(), None, Some(-3 * area / 2))
+					.log(log.inner.tg.as_ref(), arg)
 					.await
 					.expect("Failed to get log stream.");
 
@@ -872,11 +877,11 @@ impl Log {
 				return Ok(());
 			}
 			let len = 3 * self.rect().area().to_i64().unwrap() / 2;
-			let stream = self
-				.inner
-				.build
-				.log(self.inner.tg.as_ref(), Some(pos), Some(len))
-				.await?;
+			let arg = tg::build::GetLogArg {
+				pos: Some(pos),
+				len: Some(len),
+			};
+			let stream = self.inner.build.log(self.inner.tg.as_ref(), arg).await?;
 			let entries = stream
 				.try_collect::<Vec<_>>()
 				.await?
@@ -1126,19 +1131,19 @@ mod tests {
 	#[test]
 	fn read_overlapping_log_entries() {
 		let entries = [
-			tg::log::Entry {
+			tg::build::LogEntry {
 				pos: 0,
 				bytes: b"Line 1\nLine".to_vec().into(),
 			},
-			tg::log::Entry {
+			tg::build::LogEntry {
 				pos: 0,
 				bytes: b" ".to_vec().into(),
 			},
-			tg::log::Entry {
+			tg::build::LogEntry {
 				pos: 0,
 				bytes: b"2\nLine 3\n".to_vec().into(),
 			},
-			tg::log::Entry {
+			tg::build::LogEntry {
 				pos: 0,
 				bytes: b"Line 4\n".to_vec().into(),
 			},
@@ -1156,27 +1161,27 @@ mod tests {
 	#[test]
 	fn get_nth_newline() {
 		let entries: Vec<super::LogEntry> = vec![
-			tg::log::Entry {
+			tg::build::LogEntry {
 				pos: 0,
 				bytes: b";;;;; Begin ;;;;;\n".to_vec().into(),
 			}
 			.into(),
-			tg::log::Entry {
+			tg::build::LogEntry {
 				pos: 0,
 				bytes: b"Line 1\nLine 2\n".to_vec().into(),
 			}
 			.into(),
-			tg::log::Entry {
+			tg::build::LogEntry {
 				pos: 0,
 				bytes: b"Line 3\n".to_vec().into(),
 			}
 			.into(),
-			tg::log::Entry {
+			tg::build::LogEntry {
 				pos: 0,
 				bytes: b"Line 4\n".to_vec().into(),
 			}
 			.into(),
-			tg::log::Entry {
+			tg::build::LogEntry {
 				pos: 0,
 				bytes: b"Line 5 with no newline".to_vec().into(),
 			}
@@ -1218,22 +1223,22 @@ mod tests {
 	#[test]
 	fn read_full_log_from_end() {
 		let entries: Vec<super::LogEntry> = vec![
-			tg::log::Entry {
+			tg::build::LogEntry {
 				pos: 0,
 				bytes: b";;;;; Begin ;;;;;\n".to_vec().into(),
 			}
 			.into(),
-			tg::log::Entry {
+			tg::build::LogEntry {
 				pos: 0,
 				bytes: b"Line 1\n".to_vec().into(),
 			}
 			.into(),
-			tg::log::Entry {
+			tg::build::LogEntry {
 				pos: 0,
 				bytes: b"Line 2\n".to_vec().into(),
 			}
 			.into(),
-			tg::log::Entry {
+			tg::build::LogEntry {
 				pos: 0,
 				bytes: b"Line 3\n".to_vec().into(),
 			}
@@ -1252,32 +1257,32 @@ mod tests {
 	#[test]
 	fn read_partial_log() {
 		let entries: Vec<super::LogEntry> = vec![
-			tg::log::Entry {
+			tg::build::LogEntry {
 				pos: 0,
 				bytes: b"Checking for this...".to_vec().into(),
 			}
 			.into(),
-			tg::log::Entry {
+			tg::build::LogEntry {
 				pos: 0,
 				bytes: b" Yes.\n".to_vec().into(),
 			}
 			.into(),
-			tg::log::Entry {
+			tg::build::LogEntry {
 				pos: 0,
 				bytes: b"Checking for that...".to_vec().into(),
 			}
 			.into(),
-			tg::log::Entry {
+			tg::build::LogEntry {
 				pos: 0,
 				bytes: b" Yes.\n".to_vec().into(),
 			}
 			.into(),
-			tg::log::Entry {
+			tg::build::LogEntry {
 				pos: 0,
 				bytes: b"Checking for the other...".to_vec().into(),
 			}
 			.into(),
-			tg::log::Entry {
+			tg::build::LogEntry {
 				pos: 0,
 				bytes: b" Yes.\n".to_vec().into(),
 			}
@@ -1300,7 +1305,7 @@ mod tests {
 		let height = 25;
 
 		// Tailing.
-		let entries: Vec<tg::log::Entry> = serde_json::from_str(entries).unwrap();
+		let entries: Vec<tg::build::LogEntry> = serde_json::from_str(entries).unwrap();
 		let entries = entries
 			.into_iter()
 			.map(super::LogEntry::from)

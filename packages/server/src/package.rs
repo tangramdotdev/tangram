@@ -1,60 +1,88 @@
+use std::collections::BTreeMap;
+
 use crate::Server;
 use tangram_client as tg;
 use tangram_error::{Result, WrapErr};
-use tg::Handle;
 
 impl Server {
-	pub async fn search_packages(&self, query: &str) -> Result<Vec<String>> {
+	pub async fn search_packages(&self, arg: tg::package::SearchArg) -> Result<Vec<String>> {
 		self.inner
 			.remote
 			.as_ref()
 			.wrap_err("The server does not have a remote.")?
-			.search_packages(query)
+			.search_packages(arg)
 			.await
 	}
 
 	pub async fn try_get_package(
 		&self,
 		dependency: &tg::Dependency,
-	) -> Result<Option<tg::directory::Id>> {
-		// If the dependency has an ID, then return it.
-		if let Some(id) = dependency.id.as_ref() {
-			return Ok(Some(id.clone()));
-		}
+		arg: tg::package::GetArg,
+	) -> Result<Option<tg::package::GetOutput>> {
+		// Attempt to get the package with path dependencies locally.
+		let package_with_path_dependencies = 'a: {
+			let Some(package_with_path_dependencies) =
+				tangram_package::try_get(self, dependency).await?
+			else {
+				break 'a None;
+			};
 
-		// If the dependency has a path, then attempt to get it from the path.
-		if dependency.path.is_some() {
-			if let Some(package) = tangram_package::try_get_package(self, dependency).await? {
-				let package = package.id(self).await?.clone();
-				return Ok(Some(package));
-			}
-		}
-
-		// If the dependency has a name, then attempt to get it from the remote.
-		if dependency.name.is_some() {
-			if let Some(remote) = self.inner.remote.as_ref() {
-				if let Some(package) = remote.try_get_package(dependency).await.ok().flatten() {
-					return Ok(Some(package));
-				}
-			}
-		}
-
-		Ok(None)
-	}
-
-	pub async fn try_get_package_and_lock(
-		&self,
-		dependency: &tg::Dependency,
-	) -> Result<Option<(tg::directory::Id, tg::lock::Id)>> {
-		if let Some((package, lock)) =
-			tangram_package::try_get_package_and_lock(self, dependency).await?
-		{
-			let package = package.id(self).await?.clone();
-			let lock = lock.id(self).await?.clone();
-			return Ok(Some((package, lock)));
+			Some(package_with_path_dependencies)
 		};
 
-		Ok(None)
+		// If the dependency has a name, then attempt to get it from the remote.
+		let package_with_path_dependencies = 'a: {
+			if let Some(package_with_path_dependencies) = package_with_path_dependencies {
+				break 'a Some(package_with_path_dependencies);
+			}
+
+			let Some(remote) = self.inner.remote.as_ref() else {
+				break 'a None;
+			};
+
+			let arg = tg::package::GetArg { lock: false };
+			let Some(output) = remote.try_get_package(dependency, arg).await.ok().flatten() else {
+				break 'a None;
+			};
+
+			let package = tg::Directory::with_id(output.id);
+
+			let package_with_path_dependencies = tangram_package::PackageWithPathDependencies {
+				package,
+				path_dependencies: BTreeMap::default(),
+			};
+
+			Some(package_with_path_dependencies)
+		};
+
+		// If the package was not found, then return `None`.
+		let Some(package_with_path_dependencies) = package_with_path_dependencies else {
+			return Ok(None);
+		};
+
+		// Create the lock if requested.
+		let lock = if arg.lock {
+			let path = dependency.path.as_ref();
+			Some(tangram_package::create_lock(self, path, &package_with_path_dependencies).await?)
+		} else {
+			None
+		};
+
+		// Get the package ID.
+		let id = package_with_path_dependencies
+			.package
+			.id(self)
+			.await?
+			.clone();
+
+		// Get the lock ID.
+		let lock = if let Some(lock) = lock {
+			Some(lock.id(self).await?.clone())
+		} else {
+			None
+		};
+
+		Ok(Some(tg::package::GetOutput { id, lock }))
 	}
 
 	pub async fn try_get_package_versions(
@@ -73,8 +101,13 @@ impl Server {
 		&self,
 		dependency: &tg::Dependency,
 	) -> Result<Option<tg::package::Metadata>> {
-		let package = tg::Directory::with_id(self.get_package(dependency).await?);
-		let metadata = tangram_package::metadata(self, &package).await?;
+		let Some(package_with_path_dependencies) =
+			tangram_package::try_get(self, dependency).await?
+		else {
+			return Ok(None);
+		};
+		let package = package_with_path_dependencies.package;
+		let metadata = tangram_package::get_metadata(self, &package).await?;
 		Ok(Some(metadata))
 	}
 
@@ -82,8 +115,13 @@ impl Server {
 		&self,
 		dependency: &tg::Dependency,
 	) -> Result<Option<Vec<tg::Dependency>>> {
-		let package = tg::Directory::with_id(self.get_package(dependency).await?);
-		let dependencies = tangram_package::dependencies(self, &package).await?;
+		let Some(package_with_path_dependencies) =
+			tangram_package::try_get(self, dependency).await?
+		else {
+			return Ok(None);
+		};
+		let package = package_with_path_dependencies.package;
+		let dependencies = tangram_package::get_dependencies(self, &package).await?;
 		Ok(Some(dependencies))
 	}
 

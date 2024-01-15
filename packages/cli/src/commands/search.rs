@@ -1,4 +1,5 @@
 use crate::Cli;
+use tangram_client as tg;
 use tangram_error::Result;
 
 /// Search for packages.
@@ -14,7 +15,8 @@ impl Cli {
 		let tg = tg.as_ref();
 
 		// Perform the search.
-		let packages = tg.search_packages(&args.query).await?;
+		let arg = tg::package::SearchArg { query: args.query };
+		let packages = tg.search_packages(arg).await?;
 
 		// Print the package names.
 		if packages.is_empty() {

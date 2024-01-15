@@ -18,7 +18,7 @@ use tokio::io::AsyncReadExt;
 pub async fn build(
 	tg: &dyn tg::Handle,
 	build: &tg::Build,
-	_retry: tg::build::Retry,
+	_options: &tg::build::Options,
 	mut stop: tokio::sync::watch::Receiver<bool>,
 	server_directory_path: &Path,
 ) -> Result<Option<tg::Value>> {

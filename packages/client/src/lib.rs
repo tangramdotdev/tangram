@@ -7,17 +7,16 @@ pub use self::{
 };
 use async_trait::async_trait;
 use bytes::Bytes;
-use derive_more::TryUnwrap;
 use futures::{
 	stream::{self, BoxStream},
 	StreamExt, TryStreamExt,
 };
 use http_body_util::{BodyExt, BodyStream};
-use itertools::Itertools;
+use num::ToPrimitive;
 use std::{path::PathBuf, sync::Arc};
 use tangram_error::{error, Error, Result, Wrap, WrapErr};
 use tokio::{
-	io::{AsyncBufReadExt, AsyncReadExt},
+	io::AsyncReadExt,
 	net::{TcpStream, UnixStream},
 };
 use tokio_util::io::StreamReader;
@@ -37,7 +36,6 @@ pub mod health;
 pub mod id;
 pub mod leaf;
 pub mod lock;
-pub mod log;
 pub mod mutation;
 pub mod object;
 pub mod package;
@@ -90,54 +88,6 @@ pub struct Builder {
 	user: Option<User>,
 }
 
-#[derive(serde::Deserialize, serde::Serialize)]
-pub struct CheckinArtifactBody {
-	pub path: crate::Path,
-}
-
-#[derive(serde::Deserialize, serde::Serialize)]
-pub struct CheckoutArtifactBody {
-	pub artifact: artifact::Id,
-	pub path: crate::Path,
-}
-
-#[derive(serde::Deserialize, serde::Serialize)]
-pub struct SearchPackagesSearchParams {
-	pub query: String,
-}
-
-#[derive(Default, serde::Deserialize, serde::Serialize)]
-pub struct GetPackageSearchParams {
-	pub lock: bool,
-}
-
-#[derive(serde::Deserialize, serde::Serialize, TryUnwrap)]
-#[serde(untagged)]
-#[try_unwrap(ref)]
-pub enum GetPackageBody {
-	Package(directory::Id),
-	PackageAndLock((directory::Id, lock::Id)),
-}
-
-#[derive(Default, serde::Deserialize, serde::Serialize)]
-pub struct GetBuildQueueItemSearchParams {
-	#[serde(default)]
-	pub hosts: Option<String>,
-}
-
-#[derive(serde::Deserialize, serde::Serialize)]
-pub struct GetOrCreateBuildSearchParams {
-	#[serde(default)]
-	pub parent: Option<build::Id>,
-	#[serde(default)]
-	pub depth: u64,
-	#[serde(default)]
-	pub remote: bool,
-	#[serde(default)]
-	pub retry: build::Retry,
-	pub target: target::Id,
-}
-
 type Incoming = hyper::body::Incoming;
 
 type Outgoing = http_body_util::combinators::UnsyncBoxBody<
@@ -176,15 +126,15 @@ impl Client {
 		}
 		let mut sender_guard = self.inner.sender.lock().await;
 		let sender = match &self.inner.addr {
-			Addr::Inet(inet) if self.inner.tls => self.connect_h2_tcp_tls(inet).await?,
-			Addr::Inet(inet) => self.connect_h2_tcp(inet).await?,
-			Addr::Unix(path) => self.connect_h2_unix(path).await?,
+			Addr::Inet(inet) if self.inner.tls => self.connect_tcp_tls_h2(inet).await?,
+			Addr::Inet(inet) => self.connect_tcp_h2(inet).await?,
+			Addr::Unix(path) => self.connect_unix_h1(path).await?,
 		};
 		sender_guard.replace(sender.clone());
 		Ok(sender)
 	}
 
-	async fn _connect_h1_tcp(
+	async fn _connect_tcp_h1(
 		&self,
 		inet: &Inet,
 	) -> Result<hyper::client::conn::http1::SendRequest<Outgoing>> {
@@ -215,7 +165,7 @@ impl Client {
 		Ok(sender)
 	}
 
-	async fn connect_h2_tcp(
+	async fn connect_tcp_h2(
 		&self,
 		inet: &Inet,
 	) -> Result<hyper::client::conn::http2::SendRequest<Outgoing>> {
@@ -247,7 +197,7 @@ impl Client {
 		Ok(sender)
 	}
 
-	async fn _connect_h1_tcp_tls(
+	async fn _connect_tcp_tls_h1(
 		&self,
 		inet: &Inet,
 	) -> Result<hyper::client::conn::http1::SendRequest<Outgoing>> {
@@ -276,7 +226,7 @@ impl Client {
 		Ok(sender)
 	}
 
-	async fn connect_h2_tcp_tls(
+	async fn connect_tcp_tls_h2(
 		&self,
 		inet: &Inet,
 	) -> Result<hyper::client::conn::http2::SendRequest<Outgoing>> {
@@ -349,7 +299,7 @@ impl Client {
 		Ok(stream)
 	}
 
-	async fn _connect_h1_unix(
+	async fn _connect_unix_h1(
 		&self,
 		path: &std::path::Path,
 	) -> Result<hyper::client::conn::http1::SendRequest<Outgoing>> {
@@ -380,7 +330,7 @@ impl Client {
 		Ok(sender)
 	}
 
-	async fn connect_h2_unix(
+	async fn connect_unix_h1(
 		&self,
 		path: &std::path::Path,
 	) -> Result<hyper::client::conn::http2::SendRequest<Outgoing>> {
@@ -609,9 +559,11 @@ impl Handle for Client {
 		Ok(())
 	}
 
-	async fn check_in_artifact(&self, path: &crate::Path) -> Result<artifact::Id> {
-		let body = CheckinArtifactBody { path: path.clone() };
-		let body = serde_json::to_string(&body).wrap_err("Failed to serialize the body.")?;
+	async fn check_in_artifact(
+		&self,
+		arg: artifact::CheckInArg,
+	) -> Result<artifact::CheckInOutput> {
+		let body = serde_json::to_string(&arg).wrap_err("Failed to serialize the body.")?;
 		let request = http::request::Builder::default()
 			.method(http::Method::POST)
 			.uri("/v1/artifacts/checkin")
@@ -633,16 +585,12 @@ impl Handle for Client {
 			.await
 			.wrap_err("Failed to collect the response body.")?
 			.to_bytes();
-		let id = serde_json::from_slice(&bytes).wrap_err("Failed to deserialize the body.")?;
-		Ok(id)
+		let output = serde_json::from_slice(&bytes).wrap_err("Failed to deserialize the body.")?;
+		Ok(output)
 	}
 
-	async fn check_out_artifact(&self, id: &artifact::Id, path: &crate::Path) -> Result<()> {
-		let body = CheckoutArtifactBody {
-			artifact: id.clone(),
-			path: path.clone(),
-		};
-		let body = serde_json::to_string(&body).wrap_err("Failed to serialize the body.")?;
+	async fn check_out_artifact(&self, arg: artifact::CheckOutArg) -> Result<()> {
+		let body = serde_json::to_string(&arg).wrap_err("Failed to serialize the body.")?;
 		let request = http::request::Builder::default()
 			.method(http::Method::POST)
 			.uri("/v1/artifacts/checkout")
@@ -662,11 +610,10 @@ impl Handle for Client {
 		Ok(())
 	}
 
-	async fn try_list_builds(&self, options: build::ListOptions) -> Result<build::ListOutput> {
-		let mut uri = "/v1/builds".to_owned();
-		let search_params = serde_urlencoded::to_string(&options)
-			.wrap_err("Failed to serialize the search params.")?;
-		uri.push_str(&format!("?{search_params}"));
+	async fn try_list_builds(&self, arg: build::ListArg) -> Result<build::ListOutput> {
+		let search_params =
+			serde_urlencoded::to_string(&arg).wrap_err("Failed to serialize the search params.")?;
+		let uri = format!("/v1/builds?{search_params}");
 		let request = http::request::Builder::default()
 			.method(http::Method::GET)
 			.uri(uri);
@@ -787,29 +734,19 @@ impl Handle for Client {
 
 	async fn get_or_create_build(
 		&self,
-		target: &target::Id,
-		options: build::GetOrCreateOptions,
-	) -> Result<build::Id> {
-		let parent = options.parent.map(|parent| parent.id().clone());
-		let search_params = GetOrCreateBuildSearchParams {
-			parent,
-			depth: options.depth,
-			remote: options.remote,
-			retry: options.retry,
-			target: target.clone(),
-		};
-		let search_params = serde_urlencoded::to_string(search_params)
-			.wrap_err("Failed to serialize the search params.")?;
-		let uri = format!("/v1/builds?{search_params}");
+		user: Option<&User>,
+		arg: build::GetOrCreateArg,
+	) -> Result<build::GetOrCreateOutput> {
+		let uri = "/v1/builds";
 		let mut request = http::request::Builder::default()
 			.method(http::Method::POST)
 			.uri(uri);
-		let user = options.user.as_ref().or(self.inner.user.as_ref());
 		if let Some(token) = user.and_then(|user| user.token.as_ref()) {
 			request = request.header(http::header::AUTHORIZATION, format!("Bearer {token}"));
 		}
+		let body = serde_json::to_vec(&arg).wrap_err("Failed to serialize the body.")?;
 		let request = request
-			.body(empty())
+			.body(full(body))
 			.wrap_err("Failed to create the request.")?;
 		let response = self.send(request).await?;
 		if !response.status().is_success() {
@@ -831,17 +768,14 @@ impl Handle for Client {
 		Ok(id)
 	}
 
-	async fn try_get_queue_item(
+	async fn try_get_build_from_queue(
 		&self,
 		user: Option<&User>,
-		hosts: Option<Vec<System>>,
-	) -> Result<Option<build::queue::Item>> {
-		let mut uri = "/v1/queue".to_owned();
-		let hosts = hosts.map(|hosts| hosts.iter().map(ToString::to_string).join(","));
-		let search_params = GetBuildQueueItemSearchParams { hosts };
-		let search_params = serde_urlencoded::to_string(&search_params)
-			.wrap_err("Failed to serialize the search params.")?;
-		uri.push_str(&format!("?{search_params}"));
+		arg: build::GetBuildFromQueueArg,
+	) -> Result<Option<build::GetBuildFromQueueOutput>> {
+		let search_params =
+			serde_urlencoded::to_string(&arg).wrap_err("Failed to serialize the search params.")?;
+		let uri = format!("/v1/queue?{search_params}");
 		let mut request = http::request::Builder::default()
 			.method(http::Method::GET)
 			.uri(uri);
@@ -991,44 +925,21 @@ impl Handle for Client {
 		let reader = Box::pin(tokio::io::BufReader::new(StreamReader::new(
 			stream.map_err(|error| std::io::Error::new(std::io::ErrorKind::Other, error)),
 		)));
-		let children = stream::try_unfold((true, reader), move |(first, mut reader)| async move {
-			if first {
-				let byte = reader
-					.read_u8()
-					.await
-					.wrap_err("Failed to read from the reader.")?;
-				if byte != b'[' {
-					return Err(error!("Expected an open bracket."));
-				}
-			}
-			let mut byte = reader
-				.read_u8()
-				.await
-				.wrap_err("Failed to read from the reader.")?;
-			if byte == b']' {
-				return Ok(None);
-			}
-			if !first {
-				if byte != b',' {
-					return Err(error!("Expected a comma."));
-				}
-				byte = reader
-					.read_u8()
-					.await
-					.wrap_err("Failed to read from the reader.")?;
-			}
-			if byte != b'"' {
-				return Err(error!("Expected a quotation mark."));
-			}
-			let mut id = Vec::new();
+		let children = stream::try_unfold(reader, move |mut reader| async move {
+			let len = match reader.read_u64().await {
+				Ok(len) => len,
+				Err(error) if error.kind() == std::io::ErrorKind::UnexpectedEof => return Ok(None),
+				Err(error) => return Err(error.wrap("Failed to read from the body.")),
+			};
+			let mut bytes = vec![0u8; len.to_usize().unwrap()];
 			reader
-				.read_until(b'"', &mut id)
+				.read_exact(&mut bytes)
 				.await
-				.wrap_err("Failed to read from the reader.")?;
-			id.pop();
-			let id = String::from_utf8(id).wrap_err("Failed to deserialize the ID.")?;
-			let id = id.parse().wrap_err("Failed to deserialize the ID.")?;
-			Ok(Some((id, (false, reader))))
+				.wrap_err("Failed to read the bytes.")?;
+			let id = String::from_utf8(bytes)
+				.wrap_err("Failed to deserialize the bytes.")?
+				.parse()?;
+			Ok(Some((id, reader)))
 		});
 		Ok(Some(children.boxed()))
 	}
@@ -1067,15 +978,10 @@ impl Handle for Client {
 	async fn try_get_build_log(
 		&self,
 		id: &build::Id,
-		pos: Option<u64>,
-		len: Option<i64>,
-	) -> Result<Option<BoxStream<'static, Result<log::Entry>>>> {
-		let params = serde_urlencoded::to_string(log::Params { pos, len }).unwrap();
-		let uri = if params.is_empty() {
-			format!("/v1/builds/{id}/log")
-		} else {
-			format!("/v1/builds/{id}/log?{params}")
-		};
+		arg: build::GetLogArg,
+	) -> Result<Option<BoxStream<'static, Result<build::LogEntry>>>> {
+		let search_params = serde_urlencoded::to_string(&arg).unwrap();
+		let uri = format!("/v1/builds/{id}/log?{search_params}");
 		let request = http::request::Builder::default()
 			.method(http::Method::GET)
 			.uri(uri)
@@ -1110,11 +1016,26 @@ impl Handle for Client {
 		let reader = Box::pin(tokio::io::BufReader::new(StreamReader::new(
 			stream.map_err(|error| std::io::Error::new(std::io::ErrorKind::Other, error)),
 		)));
-		let log = stream::unfold(reader, |mut reader| async move {
-			match log::Entry::read(&mut reader).await {
-				Err(ref e) if e.kind() == std::io::ErrorKind::UnexpectedEof => None,
-				entry => Some((entry.wrap_err("Failed to read entry."), reader)),
-			}
+		let log = stream::try_unfold(reader, |mut reader| async move {
+			let pos = match reader.read_u64().await {
+				Ok(pos) => pos,
+				Err(error) if error.kind() == std::io::ErrorKind::UnexpectedEof => return Ok(None),
+				Err(error) => return Err(error.wrap("Failed to read from the body.")),
+			};
+			let len = reader
+				.read_u64()
+				.await
+				.wrap_err("Failed to read the length.")?
+				.to_usize()
+				.unwrap();
+			let mut bytes = vec![0u8; len];
+			reader
+				.read_exact(&mut bytes)
+				.await
+				.wrap_err("Failed to read the bytes.")?;
+			let bytes = bytes.into();
+			let entry = build::LogEntry { pos, bytes };
+			Ok(Some((entry, reader)))
 		});
 		Ok(Some(log.boxed()))
 	}
@@ -1207,14 +1128,10 @@ impl Handle for Client {
 		Ok(())
 	}
 
-	async fn search_packages(&self, query: &str) -> Result<Vec<String>> {
-		let mut uri = "/v1/packages/search".to_owned();
-		let search_params = SearchPackagesSearchParams {
-			query: query.to_owned(),
-		};
-		let search_params = serde_urlencoded::to_string(search_params)
-			.wrap_err("Failed to serialize the search params.")?;
-		uri.push_str(&format!("?{search_params}"));
+	async fn search_packages(&self, arg: package::SearchArg) -> Result<Vec<String>> {
+		let search_params =
+			serde_urlencoded::to_string(arg).wrap_err("Failed to serialize the search params.")?;
+		let uri = format!("/v1/packages/search?{search_params}");
 		let request = http::request::Builder::default()
 			.method(http::Method::GET)
 			.uri(uri)
@@ -1241,52 +1158,16 @@ impl Handle for Client {
 		Ok(response)
 	}
 
-	async fn try_get_package(&self, dependency: &Dependency) -> Result<Option<directory::Id>> {
-		let dependency = dependency.to_string();
-		let dependency = urlencoding::encode(&dependency);
-		let request = http::request::Builder::default()
-			.method(http::Method::GET)
-			.uri(format!("/v1/packages/{dependency}"))
-			.body(empty())
-			.wrap_err("Failed to create the request.")?;
-		let response = self.send(request).await?;
-		if !response.status().is_success() {
-			let bytes = response
-				.collect()
-				.await
-				.wrap_err("Failed to collect the response body.")?
-				.to_bytes();
-			let error = serde_json::from_slice(&bytes)
-				.unwrap_or_else(|_| error!("The request did not succeed."));
-			return Err(error);
-		}
-		let bytes = response
-			.collect()
-			.await
-			.wrap_err("Failed to collect the response body.")?
-			.to_bytes();
-		let body: Option<GetPackageBody> =
-			serde_json::from_slice(&bytes).wrap_err("Failed to deserialize the response body.")?;
-		let Some(body) = body else {
-			return Ok(None);
-		};
-		let GetPackageBody::Package(package) = body else {
-			return Err(error!("Unexpected body."));
-		};
-		Ok(Some(package))
-	}
-
-	async fn try_get_package_and_lock(
+	async fn try_get_package(
 		&self,
 		dependency: &Dependency,
-	) -> Result<Option<(directory::Id, lock::Id)>> {
+		arg: package::GetArg,
+	) -> Result<Option<package::GetOutput>> {
 		let dependency = dependency.to_string();
 		let dependency = urlencoding::encode(&dependency);
-		let mut uri = format!("/v1/packages/{dependency}");
-		let search_params = GetPackageSearchParams { lock: true };
-		let search_params = serde_urlencoded::to_string(&search_params)
-			.wrap_err("Failed to serialize the search params.")?;
-		uri.push_str(&format!("?{search_params}"));
+		let search_params =
+			serde_urlencoded::to_string(&arg).wrap_err("Failed to serialize the search params.")?;
+		let uri = format!("/v1/packages/{dependency}?{search_params}");
 		let request = http::request::Builder::default()
 			.method(http::Method::GET)
 			.uri(uri)
@@ -1311,15 +1192,12 @@ impl Handle for Client {
 			.await
 			.wrap_err("Failed to collect the response body.")?
 			.to_bytes();
-		let body: Option<GetPackageBody> =
+		let output =
 			serde_json::from_slice(&bytes).wrap_err("Failed to deserialize the response body.")?;
-		let Some(body) = body else {
+		let Some(output) = output else {
 			return Ok(None);
 		};
-		let GetPackageBody::PackageAndLock((package, lock)) = body else {
-			return Err(error!("Unexpected body."));
-		};
-		Ok(Some((package, lock)))
+		Ok(Some(output))
 	}
 
 	async fn try_get_package_versions(

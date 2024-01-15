@@ -5,6 +5,7 @@ use futures::{
 	stream::{BoxStream, FuturesUnordered},
 	TryStreamExt,
 };
+use itertools::Itertools;
 use std::{
 	collections::HashMap,
 	os::fd::AsRawFd,
@@ -32,35 +33,34 @@ pub struct Server {
 }
 
 struct Inner {
-	channels: std::sync::RwLock<HashMap<tg::build::Id, Arc<Channels>, fnv::FnvBuildHasher>>,
+	build_context:
+		std::sync::RwLock<HashMap<tg::build::Id, Arc<BuildContext>, fnv::FnvBuildHasher>>,
+	build_semaphore: Arc<tokio::sync::Semaphore>,
 	database: Database,
-	depths: std::sync::RwLock<HashMap<tg::build::Id, u64, fnv::FnvBuildHasher>>,
 	file_descriptor_semaphore: tokio::sync::Semaphore,
 	http_task: std::sync::Mutex<Option<tokio::task::JoinHandle<Result<()>>>>,
 	http_task_stop_sender: tokio::sync::watch::Sender<bool>,
 	local_queue_task: std::sync::Mutex<Option<tokio::task::JoinHandle<Result<()>>>>,
 	local_queue_task_stop_sender: tokio::sync::watch::Sender<bool>,
 	local_queue_task_wake_sender: tokio::sync::watch::Sender<()>,
-	lock: std::sync::Mutex<Option<tokio::fs::File>>,
+	lockfile: std::sync::Mutex<Option<tokio::fs::File>>,
 	path: PathBuf,
 	remote: Option<Box<dyn tg::Handle>>,
 	remote_queue_task: std::sync::Mutex<Option<tokio::task::JoinHandle<Result<()>>>>,
 	remote_queue_task_stop_sender: tokio::sync::watch::Sender<bool>,
-	semaphore: Arc<tokio::sync::Semaphore>,
 	shutdown: tokio::sync::watch::Sender<bool>,
 	shutdown_task: std::sync::Mutex<Option<tokio::task::JoinHandle<Result<()>>>>,
-	stops: std::sync::RwLock<HashMap<tg::build::Id, Arc<tokio::sync::watch::Sender<bool>>>>,
-	tasks: std::sync::Mutex<
-		Option<HashMap<tg::build::Id, tokio::task::JoinHandle<()>, fnv::FnvBuildHasher>>,
-	>,
 	version: String,
 	vfs: std::sync::Mutex<Option<tangram_vfs::Server>>,
 }
 
-struct Channels {
-	children: tokio::sync::watch::Sender<()>,
-	log: tokio::sync::watch::Sender<()>,
-	outcome: tokio::sync::watch::Sender<()>,
+struct BuildContext {
+	children: Option<tokio::sync::watch::Sender<()>>,
+	depth: u64,
+	log: Option<tokio::sync::watch::Sender<()>>,
+	outcome: Option<tokio::sync::watch::Sender<()>>,
+	stop: tokio::sync::watch::Sender<bool>,
+	task: std::sync::Mutex<Option<tokio::task::JoinHandle<()>>>,
 }
 
 pub struct Options {
@@ -94,19 +94,19 @@ impl Server {
 			.await
 			.wrap_err("Failed to create the directory.")?;
 
-		// Acquire an exclusive lock to the path.
-		let lock = tokio::fs::OpenOptions::new()
+		// Acquire the lockfile.
+		let lockfile = tokio::fs::OpenOptions::new()
 			.read(true)
 			.write(true)
 			.create(true)
 			.open(path.join("lock"))
 			.await
-			.wrap_err("Failed to open the lock file.")?;
-		let ret = unsafe { libc::flock(lock.as_raw_fd(), libc::LOCK_EX | libc::LOCK_NB) };
+			.wrap_err("Failed to open the lockfile.")?;
+		let ret = unsafe { libc::flock(lockfile.as_raw_fd(), libc::LOCK_EX | libc::LOCK_NB) };
 		if ret != 0 {
-			return Err(std::io::Error::last_os_error().wrap("Failed to acquire the lock file."));
+			return Err(std::io::Error::last_os_error().wrap("Failed to acquire the lockfile."));
 		}
-		let lock = std::sync::Mutex::new(Some(lock));
+		let lockfile = std::sync::Mutex::new(Some(lockfile));
 
 		// Migrate the path.
 		Self::migrate(&path).await?;
@@ -121,11 +121,13 @@ impl Server {
 			.await
 			.wrap_err("Failed to remove an existing socket file.")?;
 
-		// Create the channels.
-		let channels = std::sync::RwLock::new(HashMap::default());
+		// Create the build context.
+		let build_context = std::sync::RwLock::new(HashMap::default());
 
-		// Create the depths.
-		let depths = std::sync::RwLock::new(HashMap::default());
+		// Create the build semaphore.
+		let build_semaphore = Arc::new(tokio::sync::Semaphore::new(
+			std::thread::available_parallelism().unwrap().get(),
+		));
 
 		// Open the database.
 		let database_path = path.join("database");
@@ -165,22 +167,11 @@ impl Server {
 		let (remote_queue_task_stop_sender, remote_queue_task_stop_receiver) =
 			tokio::sync::watch::channel(false);
 
-		// Create the semaphore.
-		let semaphore = Arc::new(tokio::sync::Semaphore::new(
-			std::thread::available_parallelism().unwrap().get(),
-		));
-
 		// Create the shutdown channel.
 		let (shutdown, _) = tokio::sync::watch::channel(false);
 
 		// Create the shutdown task.
 		let shutdown_task = std::sync::Mutex::new(None);
-
-		// Create the stops map.
-		let stops = std::sync::RwLock::new(HashMap::new());
-
-		// Create the tasks.
-		let tasks = std::sync::Mutex::new(Some(HashMap::default()));
 
 		// Get the version.
 		let version = options.version;
@@ -190,25 +181,22 @@ impl Server {
 
 		// Create the server.
 		let inner = Arc::new(Inner {
-			channels,
+			build_context,
+			build_semaphore,
 			database,
-			depths,
 			file_descriptor_semaphore,
 			http_task,
 			http_task_stop_sender,
 			local_queue_task,
 			local_queue_task_stop_sender,
 			local_queue_task_wake_sender,
-			lock,
+			lockfile,
 			path,
 			remote,
 			remote_queue_task,
 			remote_queue_task_stop_sender,
-			semaphore,
 			shutdown,
 			shutdown_task,
-			stops,
-			tasks,
 			version,
 			vfs,
 		});
@@ -233,12 +221,12 @@ impl Server {
 			let db = server.inner.database.get().await?;
 			let statement = r#"
 				update builds
-				set json = json_set(
-					json,
+				set state = json_set(
+					state,
 					'$.status', 'finished',
 					'$.outcome', json('{"kind":"terminated"}')
 				)
-				where json->>'status' != 'finished';
+				where state->>'status' != 'finished';
 			"#;
 			let mut statement = db
 				.prepare_cached(statement)
@@ -358,18 +346,29 @@ impl Server {
 			remote_queue_task.await.unwrap()?;
 
 			// Stop running builds.
-			for stop in server.inner.stops.read().unwrap().values() {
-				stop.send_replace(true);
+			for context in server.inner.build_context.read().unwrap().values() {
+				context.stop.send_replace(true);
 			}
 
 			// Join running builds.
-			let tasks = server.inner.tasks.lock().unwrap().take().unwrap();
+			let tasks = server
+				.inner
+				.build_context
+				.read()
+				.unwrap()
+				.values()
+				.cloned()
+				.filter_map(|context| context.task.lock().unwrap().take())
+				.collect_vec();
 			tasks
-				.into_values()
+				.into_iter()
 				.collect::<FuturesUnordered<_>>()
 				.try_collect::<Vec<_>>()
 				.await
 				.unwrap();
+
+			// Remove running builds.
+			server.inner.build_context.write().unwrap().clear();
 
 			// Join the vfs.
 			let vfs = server.inner.vfs.lock().unwrap().clone();
@@ -378,8 +377,8 @@ impl Server {
 				vfs.join().await?;
 			}
 
-			// Release the lock.
-			server.inner.lock.lock().unwrap().take();
+			// Release the lockfile.
+			server.inner.lockfile.lock().unwrap().take();
 
 			Ok(())
 		});
@@ -477,19 +476,19 @@ impl tg::Handle for Server {
 		self.pull_object(id).await
 	}
 
-	async fn check_in_artifact(&self, path: &tg::Path) -> Result<tg::artifact::Id> {
-		self.check_in_artifact(path).await
-	}
-
-	async fn check_out_artifact(&self, id: &tg::artifact::Id, path: &tg::Path) -> Result<()> {
-		self.check_out_artifact(id, path).await
-	}
-
-	async fn try_list_builds(
+	async fn check_in_artifact(
 		&self,
-		options: tg::build::ListOptions,
-	) -> Result<tg::build::ListOutput> {
-		self.try_list_builds(options).await
+		arg: tg::artifact::CheckInArg,
+	) -> Result<tg::artifact::CheckInOutput> {
+		self.check_in_artifact(arg).await
+	}
+
+	async fn check_out_artifact(&self, arg: tg::artifact::CheckOutArg) -> Result<()> {
+		self.check_out_artifact(arg).await
+	}
+
+	async fn try_list_builds(&self, args: tg::build::ListArg) -> Result<tg::build::ListOutput> {
+		self.try_list_builds(args).await
 	}
 
 	async fn get_build_exists(&self, id: &tg::build::Id) -> Result<bool> {
@@ -511,18 +510,18 @@ impl tg::Handle for Server {
 
 	async fn get_or_create_build(
 		&self,
-		id: &tg::target::Id,
-		options: tg::build::GetOrCreateOptions,
-	) -> Result<tg::build::Id> {
-		self.get_or_create_build(id, options).await
+		user: Option<&tg::User>,
+		arg: tg::build::GetOrCreateArg,
+	) -> Result<tg::build::GetOrCreateOutput> {
+		self.get_or_create_build(user, arg).await
 	}
 
-	async fn try_get_queue_item(
+	async fn try_get_build_from_queue(
 		&self,
 		user: Option<&tg::User>,
-		hosts: Option<Vec<tg::System>>,
-	) -> Result<Option<tg::build::queue::Item>> {
-		self.try_get_queue_item(user, hosts).await
+		arg: tg::build::GetBuildFromQueueArg,
+	) -> Result<Option<tg::build::GetBuildFromQueueOutput>> {
+		self.try_get_build_from_queue(user, arg).await
 	}
 
 	async fn try_get_build_status(&self, id: &tg::build::Id) -> Result<Option<tg::build::Status>> {
@@ -561,10 +560,9 @@ impl tg::Handle for Server {
 	async fn try_get_build_log(
 		&self,
 		id: &tg::build::Id,
-		pos: Option<u64>,
-		len: Option<i64>,
-	) -> Result<Option<BoxStream<'static, Result<tg::log::Entry>>>> {
-		self.try_get_build_log(id, pos, len).await
+		arg: tg::build::GetLogArg,
+	) -> Result<Option<BoxStream<'static, Result<tg::build::LogEntry>>>> {
+		self.try_get_build_log(id, arg).await
 	}
 
 	async fn add_build_log(
@@ -592,22 +590,16 @@ impl tg::Handle for Server {
 		self.finish_build(user, id, outcome).await
 	}
 
-	async fn search_packages(&self, query: &str) -> Result<Vec<String>> {
-		self.search_packages(query).await
+	async fn search_packages(&self, arg: tg::package::SearchArg) -> Result<Vec<String>> {
+		self.search_packages(arg).await
 	}
 
 	async fn try_get_package(
 		&self,
 		dependency: &tg::Dependency,
-	) -> Result<Option<tg::directory::Id>> {
-		self.try_get_package(dependency).await
-	}
-
-	async fn try_get_package_and_lock(
-		&self,
-		dependency: &tg::Dependency,
-	) -> Result<Option<(tg::directory::Id, tg::lock::Id)>> {
-		self.try_get_package_and_lock(dependency).await
+		arg: tg::package::GetArg,
+	) -> Result<Option<tg::package::GetOutput>> {
+		self.try_get_package(dependency, arg).await
 	}
 
 	async fn try_get_package_versions(
