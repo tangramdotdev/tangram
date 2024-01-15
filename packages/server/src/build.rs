@@ -735,8 +735,7 @@ impl Server {
 			tg::system::Os::Linux => {
 				#[cfg(target_os = "linux")]
 				{
-					tangram_runtime::linux::build(self, &build, &item.options, stop, self.path())
-						.await
+					tangram_runtime::linux::build(self, &build, &options, stop, self.path()).await
 				}
 				#[cfg(not(target_os = "linux"))]
 				{
