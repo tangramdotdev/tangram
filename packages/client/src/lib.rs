@@ -384,181 +384,6 @@ impl Handle for Client {
 		&self.inner.file_descriptor_semaphore
 	}
 
-	async fn health(&self) -> Result<Health> {
-		let request = http::request::Builder::default()
-			.method(http::Method::GET)
-			.uri("/health")
-			.body(empty())
-			.wrap_err("Failed to create the request.")?;
-		let response = self.send(request).await?;
-		if !response.status().is_success() {
-			let bytes = response
-				.collect()
-				.await
-				.wrap_err("Failed to collect the response body.")?
-				.to_bytes();
-			let error = serde_json::from_slice(&bytes)
-				.unwrap_or_else(|_| error!("The request did not succeed."));
-			return Err(error);
-		}
-		let bytes = response
-			.collect()
-			.await
-			.wrap_err("Failed to collect the response body.")?
-			.to_bytes();
-		let health = serde_json::from_slice(&bytes).wrap_err("Failed to deserialize the body.")?;
-		Ok(health)
-	}
-
-	async fn stop(&self) -> Result<()> {
-		let request = http::request::Builder::default()
-			.method(http::Method::POST)
-			.uri("/stop")
-			.body(empty())
-			.wrap_err("Failed to create the request.")?;
-		self.send(request).await.ok();
-		Ok(())
-	}
-
-	async fn clean(&self) -> Result<()> {
-		let request = http::request::Builder::default()
-			.method(http::Method::POST)
-			.uri("/clean")
-			.body(empty())
-			.wrap_err("Failed to create the request.")?;
-		let response = self.send(request).await?;
-		if !response.status().is_success() {
-			let bytes = response
-				.collect()
-				.await
-				.wrap_err("Failed to collect the response body.")?
-				.to_bytes();
-			let error = serde_json::from_slice(&bytes)
-				.unwrap_or_else(|_| error!("The request did not succeed."));
-			return Err(error);
-		}
-		Ok(())
-	}
-
-	async fn get_object_exists(&self, id: &object::Id) -> Result<bool> {
-		let request = http::request::Builder::default()
-			.method(http::Method::HEAD)
-			.uri(format!("/objects/{id}"))
-			.body(empty())
-			.wrap_err("Failed to create the request.")?;
-		let response = self.send(request).await?;
-		if response.status() == http::StatusCode::NOT_FOUND {
-			return Ok(false);
-		}
-		if !response.status().is_success() {
-			let bytes = response
-				.collect()
-				.await
-				.wrap_err("Failed to collect the response body.")?
-				.to_bytes();
-			let error = serde_json::from_slice(&bytes)
-				.unwrap_or_else(|_| error!("The request did not succeed."));
-			return Err(error);
-		}
-		Ok(true)
-	}
-
-	async fn try_get_object(&self, id: &object::Id) -> Result<Option<object::GetOutput>> {
-		let request = http::request::Builder::default()
-			.method(http::Method::GET)
-			.uri(format!("/objects/{id}"))
-			.body(empty())
-			.wrap_err("Failed to create the request.")?;
-		let response = self.send(request).await?;
-		if response.status() == http::StatusCode::NOT_FOUND {
-			return Ok(None);
-		}
-		if !response.status().is_success() {
-			let bytes = response
-				.collect()
-				.await
-				.wrap_err("Failed to collect the response body.")?
-				.to_bytes();
-			let error = serde_json::from_slice(&bytes)
-				.unwrap_or_else(|_| error!("The request did not succeed."));
-			return Err(error);
-		}
-		let bytes = response
-			.collect()
-			.await
-			.wrap_err("Failed to collect the response body.")?
-			.to_bytes();
-		let output = object::GetOutput { bytes };
-		Ok(Some(output))
-	}
-
-	async fn try_put_object(&self, id: &object::Id, bytes: &Bytes) -> Result<object::PutOutput> {
-		let body = full(bytes.clone());
-		let request = http::request::Builder::default()
-			.method(http::Method::PUT)
-			.uri(format!("/objects/{id}"))
-			.body(body)
-			.wrap_err("Failed to create the request.")?;
-		let response = self.send(request).await?;
-		if !response.status().is_success() {
-			let bytes = response
-				.collect()
-				.await
-				.wrap_err("Failed to collect the response body.")?
-				.to_bytes();
-			let error = serde_json::from_slice(&bytes)
-				.unwrap_or_else(|_| error!("The request did not succeed."));
-			return Err(error);
-		}
-		let bytes = response
-			.collect()
-			.await
-			.wrap_err("Failed to collect the response body.")?
-			.to_bytes();
-		let output = serde_json::from_slice(&bytes).wrap_err("Failed to deserialize the body.")?;
-		return Ok(output);
-	}
-
-	async fn push_object(&self, id: &object::Id) -> Result<()> {
-		let request = http::request::Builder::default()
-			.method(http::Method::POST)
-			.uri(format!("/objects/{id}/push"))
-			.body(empty())
-			.wrap_err("Failed to create the request.")?;
-		let response = self.send(request).await?;
-		if !response.status().is_success() {
-			let bytes = response
-				.collect()
-				.await
-				.wrap_err("Failed to collect the response body.")?
-				.to_bytes();
-			let error = serde_json::from_slice(&bytes)
-				.unwrap_or_else(|_| error!("The request did not succeed."));
-			return Err(error);
-		}
-		Ok(())
-	}
-
-	async fn pull_object(&self, id: &object::Id) -> Result<()> {
-		let request = http::request::Builder::default()
-			.method(http::Method::POST)
-			.uri(format!("/objects/{id}/pull"))
-			.body(empty())
-			.wrap_err("Failed to create the request.")?;
-		let response = self.send(request).await?;
-		if !response.status().is_success() {
-			let bytes = response
-				.collect()
-				.await
-				.wrap_err("Failed to collect the response body.")?
-				.to_bytes();
-			let error = serde_json::from_slice(&bytes)
-				.unwrap_or_else(|_| error!("The request did not succeed."));
-			return Err(error);
-		}
-		Ok(())
-	}
-
 	async fn check_in_artifact(
 		&self,
 		arg: artifact::CheckInArg,
@@ -1128,6 +953,125 @@ impl Handle for Client {
 		Ok(())
 	}
 
+	async fn get_object_exists(&self, id: &object::Id) -> Result<bool> {
+		let request = http::request::Builder::default()
+			.method(http::Method::HEAD)
+			.uri(format!("/objects/{id}"))
+			.body(empty())
+			.wrap_err("Failed to create the request.")?;
+		let response = self.send(request).await?;
+		if response.status() == http::StatusCode::NOT_FOUND {
+			return Ok(false);
+		}
+		if !response.status().is_success() {
+			let bytes = response
+				.collect()
+				.await
+				.wrap_err("Failed to collect the response body.")?
+				.to_bytes();
+			let error = serde_json::from_slice(&bytes)
+				.unwrap_or_else(|_| error!("The request did not succeed."));
+			return Err(error);
+		}
+		Ok(true)
+	}
+
+	async fn try_get_object(&self, id: &object::Id) -> Result<Option<object::GetOutput>> {
+		let request = http::request::Builder::default()
+			.method(http::Method::GET)
+			.uri(format!("/objects/{id}"))
+			.body(empty())
+			.wrap_err("Failed to create the request.")?;
+		let response = self.send(request).await?;
+		if response.status() == http::StatusCode::NOT_FOUND {
+			return Ok(None);
+		}
+		if !response.status().is_success() {
+			let bytes = response
+				.collect()
+				.await
+				.wrap_err("Failed to collect the response body.")?
+				.to_bytes();
+			let error = serde_json::from_slice(&bytes)
+				.unwrap_or_else(|_| error!("The request did not succeed."));
+			return Err(error);
+		}
+		let bytes = response
+			.collect()
+			.await
+			.wrap_err("Failed to collect the response body.")?
+			.to_bytes();
+		let output = object::GetOutput { bytes };
+		Ok(Some(output))
+	}
+
+	async fn try_put_object(&self, id: &object::Id, bytes: &Bytes) -> Result<object::PutOutput> {
+		let body = full(bytes.clone());
+		let request = http::request::Builder::default()
+			.method(http::Method::PUT)
+			.uri(format!("/objects/{id}"))
+			.body(body)
+			.wrap_err("Failed to create the request.")?;
+		let response = self.send(request).await?;
+		if !response.status().is_success() {
+			let bytes = response
+				.collect()
+				.await
+				.wrap_err("Failed to collect the response body.")?
+				.to_bytes();
+			let error = serde_json::from_slice(&bytes)
+				.unwrap_or_else(|_| error!("The request did not succeed."));
+			return Err(error);
+		}
+		let bytes = response
+			.collect()
+			.await
+			.wrap_err("Failed to collect the response body.")?
+			.to_bytes();
+		let output = serde_json::from_slice(&bytes).wrap_err("Failed to deserialize the body.")?;
+		return Ok(output);
+	}
+
+	async fn push_object(&self, id: &object::Id) -> Result<()> {
+		let request = http::request::Builder::default()
+			.method(http::Method::POST)
+			.uri(format!("/objects/{id}/push"))
+			.body(empty())
+			.wrap_err("Failed to create the request.")?;
+		let response = self.send(request).await?;
+		if !response.status().is_success() {
+			let bytes = response
+				.collect()
+				.await
+				.wrap_err("Failed to collect the response body.")?
+				.to_bytes();
+			let error = serde_json::from_slice(&bytes)
+				.unwrap_or_else(|_| error!("The request did not succeed."));
+			return Err(error);
+		}
+		Ok(())
+	}
+
+	async fn pull_object(&self, id: &object::Id) -> Result<()> {
+		let request = http::request::Builder::default()
+			.method(http::Method::POST)
+			.uri(format!("/objects/{id}/pull"))
+			.body(empty())
+			.wrap_err("Failed to create the request.")?;
+		let response = self.send(request).await?;
+		if !response.status().is_success() {
+			let bytes = response
+				.collect()
+				.await
+				.wrap_err("Failed to collect the response body.")?
+				.to_bytes();
+			let error = serde_json::from_slice(&bytes)
+				.unwrap_or_else(|_| error!("The request did not succeed."));
+			return Err(error);
+		}
+		Ok(())
+	}
+
 	async fn search_packages(&self, arg: package::SearchArg) -> Result<Vec<String>> {
 		let search_params =
 			serde_urlencoded::to_string(arg).wrap_err("Failed to serialize the search params.")?;
@@ -1319,6 +1263,62 @@ impl Handle for Client {
 				.unwrap_or_else(|_| error!("The request did not succeed."));
 			return Err(error);
 		}
+		Ok(())
+	}
+
+	async fn health(&self) -> Result<Health> {
+		let request = http::request::Builder::default()
+			.method(http::Method::GET)
+			.uri("/health")
+			.body(empty())
+			.wrap_err("Failed to create the request.")?;
+		let response = self.send(request).await?;
+		if !response.status().is_success() {
+			let bytes = response
+				.collect()
+				.await
+				.wrap_err("Failed to collect the response body.")?
+				.to_bytes();
+			let error = serde_json::from_slice(&bytes)
+				.unwrap_or_else(|_| error!("The request did not succeed."));
+			return Err(error);
+		}
+		let bytes = response
+			.collect()
+			.await
+			.wrap_err("Failed to collect the response body.")?
+			.to_bytes();
+		let health = serde_json::from_slice(&bytes).wrap_err("Failed to deserialize the body.")?;
+		Ok(health)
+	}
+
+	async fn clean(&self) -> Result<()> {
+		let request = http::request::Builder::default()
+			.method(http::Method::POST)
+			.uri("/clean")
+			.body(empty())
+			.wrap_err("Failed to create the request.")?;
+		let response = self.send(request).await?;
+		if !response.status().is_success() {
+			let bytes = response
+				.collect()
+				.await
+				.wrap_err("Failed to collect the response body.")?
+				.to_bytes();
+			let error = serde_json::from_slice(&bytes)
+				.unwrap_or_else(|_| error!("The request did not succeed."));
+			return Err(error);
+		}
+		Ok(())
+	}
+
+	async fn stop(&self) -> Result<()> {
+		let request = http::request::Builder::default()
+			.method(http::Method::POST)
+			.uri("/stop")
+			.body(empty())
+			.wrap_err("Failed to create the request.")?;
+		self.send(request).await.ok();
 		Ok(())
 	}
 

@@ -12,12 +12,6 @@ pub trait Handle: Send + Sync + 'static {
 
 	fn file_descriptor_semaphore(&self) -> &tokio::sync::Semaphore;
 
-	async fn health(&self) -> Result<health::Health>;
-
-	async fn clean(&self) -> Result<()>;
-
-	async fn stop(&self) -> Result<()>;
-
 	async fn check_in_artifact(&self, arg: artifact::CheckInArg)
 		-> Result<artifact::CheckInOutput>;
 
@@ -210,6 +204,12 @@ pub trait Handle: Send + Sync + 'static {
 	) -> Result<Option<Vec<Dependency>>>;
 
 	async fn publish_package(&self, user: Option<&User>, id: &directory::Id) -> Result<()>;
+
+	async fn health(&self) -> Result<health::Health>;
+
+	async fn clean(&self) -> Result<()>;
+
+	async fn stop(&self) -> Result<()>;
 
 	async fn create_login(&self) -> Result<user::Login>;
 

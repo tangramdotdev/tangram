@@ -439,43 +439,6 @@ impl tg::Handle for Server {
 		&self.inner.file_descriptor_semaphore
 	}
 
-	async fn health(&self) -> Result<tg::health::Health> {
-		self.health().await
-	}
-
-	async fn stop(&self) -> Result<()> {
-		self.stop();
-		Ok(())
-	}
-
-	async fn clean(&self) -> Result<()> {
-		self.clean().await
-	}
-
-	async fn get_object_exists(&self, id: &tg::object::Id) -> Result<bool> {
-		self.get_object_exists(id).await
-	}
-
-	async fn try_get_object(&self, id: &tg::object::Id) -> Result<Option<tg::object::GetOutput>> {
-		self.try_get_object(id).await
-	}
-
-	async fn try_put_object(
-		&self,
-		id: &tg::object::Id,
-		bytes: &Bytes,
-	) -> Result<tg::object::PutOutput> {
-		self.try_put_object(id, bytes).await
-	}
-
-	async fn push_object(&self, id: &tg::object::Id) -> Result<()> {
-		self.push_object(id).await
-	}
-
-	async fn pull_object(&self, id: &tg::object::Id) -> Result<()> {
-		self.pull_object(id).await
-	}
-
 	async fn check_in_artifact(
 		&self,
 		arg: tg::artifact::CheckInArg,
@@ -590,6 +553,30 @@ impl tg::Handle for Server {
 		self.finish_build(user, id, outcome).await
 	}
 
+	async fn get_object_exists(&self, id: &tg::object::Id) -> Result<bool> {
+		self.get_object_exists(id).await
+	}
+
+	async fn try_get_object(&self, id: &tg::object::Id) -> Result<Option<tg::object::GetOutput>> {
+		self.try_get_object(id).await
+	}
+
+	async fn try_put_object(
+		&self,
+		id: &tg::object::Id,
+		bytes: &Bytes,
+	) -> Result<tg::object::PutOutput> {
+		self.try_put_object(id, bytes).await
+	}
+
+	async fn push_object(&self, id: &tg::object::Id) -> Result<()> {
+		self.push_object(id).await
+	}
+
+	async fn pull_object(&self, id: &tg::object::Id) -> Result<()> {
+		self.pull_object(id).await
+	}
+
 	async fn search_packages(&self, arg: tg::package::SearchArg) -> Result<Vec<String>> {
 		self.search_packages(arg).await
 	}
@@ -625,6 +612,19 @@ impl tg::Handle for Server {
 
 	async fn publish_package(&self, user: Option<&tg::User>, id: &tg::directory::Id) -> Result<()> {
 		self.publish_package(user, id).await
+	}
+
+	async fn health(&self) -> Result<tg::health::Health> {
+		self.health().await
+	}
+
+	async fn clean(&self) -> Result<()> {
+		self.clean().await
+	}
+
+	async fn stop(&self) -> Result<()> {
+		self.stop();
+		Ok(())
 	}
 
 	async fn create_login(&self) -> Result<tg::user::Login> {
