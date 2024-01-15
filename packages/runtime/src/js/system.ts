@@ -1,12 +1,24 @@
 import { assert as assert_ } from "./assert.ts";
 
-export let system = (arg: System.Arg): System => {
-	if (typeof arg === "string") {
-		return arg;
-	} else {
-		let { arch, os } = arg;
-		return `${arch}-${os}` as System;
-	}
+export let system = (...args: Array<System.Arg>): System => {
+	let arch: System.Arch | undefined = undefined;
+	let os: System.Os | undefined = undefined;
+	args.forEach((arg) => {
+		if (System.is(arg)) {
+			arch = System.arch(arg);
+			os = System.os(arg);
+		} else {
+			if (arg.arch !== undefined) {
+				arch = arg.arch;
+			}
+			if (arg.os !== undefined) {
+				os = arg.os;
+			}
+		}
+	});
+	assert_(arch !== undefined, "arch must be defined.");
+	assert_(os !== undefined, "os must be defined.");
+	return `${arch}-${os}` as System;
 };
 
 export type System =
@@ -17,7 +29,7 @@ export type System =
 	| "x86_64-linux";
 
 export declare namespace System {
-	let new_: (arg: System.Arg) => System;
+	let new_: (...args: Array<System.Arg>) => System;
 	export { new_ as new };
 }
 
@@ -25,15 +37,15 @@ export namespace System {
 	export type Arg = System | ArgObject;
 
 	export type ArgObject = {
-		arch: Arch;
-		os: Os;
+		arch?: Arch;
+		os?: Os;
 	};
 
 	export type Arch = "aarch64" | "js" | "x86_64";
 
 	export type Os = "darwin" | "js" | "linux";
-	export let new_ = (arg: System.Arg): System => {
-		return system(arg);
+	export let new_ = (...args: Array<System.Arg>): System => {
+		return system(...args);
 	};
 	System.new = new_;
 

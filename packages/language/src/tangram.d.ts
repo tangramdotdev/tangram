@@ -634,7 +634,7 @@ declare namespace tg {
 	}
 
 	/** Create a system. */
-	export let system: (arg: System.Arg) => System;
+	export let system: (...args: Array<System.Arg>) => System;
 
 	export type System =
 		| "aarch64-darwin"
@@ -647,8 +647,8 @@ declare namespace tg {
 		export type Arg = System | ArgObject;
 
 		type ArgObject = {
-			arch: System.Arch;
-			os: System.Os;
+			arch?: System.Arch;
+			os?: System.Os;
 		};
 
 		export type Arch = "aarch64" | "js" | "x86_64";
@@ -656,7 +656,7 @@ declare namespace tg {
 		export type Os = "darwin" | "js" | "linux";
 
 		/** Create a system. */
-		export let new_: (arg: System.Arg) => System;
+		export let new_: (...args: Array<System.Arg>) => System;
 		export { new_ as new };
 
 		/** Check if a value is a `tg.System`. */
