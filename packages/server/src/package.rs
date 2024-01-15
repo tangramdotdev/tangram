@@ -5,7 +5,10 @@ use tangram_client as tg;
 use tangram_error::{Result, WrapErr};
 
 impl Server {
-	pub async fn search_packages(&self, arg: tg::package::SearchArg) -> Result<Vec<String>> {
+	pub async fn search_packages(
+		&self,
+		arg: tg::package::SearchArg,
+	) -> Result<tg::package::SearchOutput> {
 		self.inner
 			.remote
 			.as_ref()
@@ -40,7 +43,7 @@ impl Server {
 				break 'a None;
 			};
 
-			let arg = tg::package::GetArg { lock: false };
+			let arg = tg::package::GetArg::default();
 			let Some(output) = remote.try_get_package(dependency, arg).await.ok().flatten() else {
 				break 'a None;
 			};
@@ -60,29 +63,44 @@ impl Server {
 			return Ok(None);
 		};
 
+		let package = package_with_path_dependencies.package.clone();
+
+		// Get the dependencies if requested.
+		let dependencies = if arg.dependencies {
+			let dependencies = tangram_package::get_dependencies(self, &package).await?;
+			Some(dependencies)
+		} else {
+			None
+		};
+
 		// Create the lock if requested.
 		let lock = if arg.lock {
 			let path = dependency.path.as_ref();
-			Some(tangram_package::create_lock(self, path, &package_with_path_dependencies).await?)
+			let lock =
+				tangram_package::create_lock(self, path, &package_with_path_dependencies).await?;
+			let id = lock.id(self).await?.clone();
+			Some(id)
+		} else {
+			None
+		};
+
+		// Get the metadata if requested.
+		let metadata = if arg.metadata {
+			let metadata = tangram_package::get_metadata(self, &package).await?;
+			Some(metadata)
 		} else {
 			None
 		};
 
 		// Get the package ID.
-		let id = package_with_path_dependencies
-			.package
-			.id(self)
-			.await?
-			.clone();
+		let id = package.id(self).await?.clone();
 
-		// Get the lock ID.
-		let lock = if let Some(lock) = lock {
-			Some(lock.id(self).await?.clone())
-		} else {
-			None
-		};
-
-		Ok(Some(tg::package::GetOutput { id, lock }))
+		Ok(Some(tg::package::GetOutput {
+			dependencies,
+			id,
+			lock,
+			metadata,
+		}))
 	}
 
 	pub async fn try_get_package_versions(

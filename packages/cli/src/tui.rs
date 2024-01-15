@@ -8,7 +8,6 @@ use std::{
 };
 use tangram_client as tg;
 use tangram_error::{Result, WrapErr};
-use tg::package::Ext;
 use tui::{layout::Rect, style::Stylize, widgets::Widget};
 
 pub struct Tui {
@@ -708,7 +707,7 @@ async fn title(tg: &dyn tg::Handle, build: &tg::Build) -> Result<Option<String>>
 	};
 
 	// Get the metadata.
-	let metadata = package.metadata(tg).await?;
+	let metadata = tg::package::get_metadata(tg, package).await?;
 
 	// Construct the title.
 	let mut title = String::new();

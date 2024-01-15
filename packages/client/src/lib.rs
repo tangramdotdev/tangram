@@ -1045,7 +1045,7 @@ impl Handle for Client {
 		Ok(())
 	}
 
-	async fn search_packages(&self, arg: package::SearchArg) -> Result<Vec<String>> {
+	async fn search_packages(&self, arg: package::SearchArg) -> Result<package::SearchOutput> {
 		let search_params =
 			serde_urlencoded::to_string(arg).wrap_err("Failed to serialize the search params.")?;
 		let uri = format!("/packages/search?{search_params}");
@@ -1147,70 +1147,6 @@ impl Handle for Client {
 		let id =
 			serde_json::from_slice(&bytes).wrap_err("Failed to deserialize the response body.")?;
 		Ok(Some(id))
-	}
-
-	async fn try_get_package_metadata(
-		&self,
-		dependency: &Dependency,
-	) -> Result<Option<package::Metadata>> {
-		let dependency = dependency.to_string();
-		let dependency = urlencoding::encode(&dependency);
-		let request = http::request::Builder::default()
-			.method(http::Method::GET)
-			.uri(format!("/packages/{dependency}/metadata"))
-			.body(empty())
-			.wrap_err("Failed to create the request.")?;
-		let response = self.send(request).await?;
-		if !response.status().is_success() {
-			let bytes = response
-				.collect()
-				.await
-				.wrap_err("Failed to collect the response body.")?
-				.to_bytes();
-			let error = serde_json::from_slice(&bytes)
-				.unwrap_or_else(|_| error!("The request did not succeed."));
-			return Err(error);
-		}
-		let bytes = response
-			.collect()
-			.await
-			.wrap_err("Failed to collect the response body.")?
-			.to_bytes();
-		let response =
-			serde_json::from_slice(&bytes).wrap_err("Failed to deserialize the response body.")?;
-		Ok(response)
-	}
-
-	async fn try_get_package_dependencies(
-		&self,
-		dependency: &Dependency,
-	) -> Result<Option<Vec<Dependency>>> {
-		let dependency = dependency.to_string();
-		let dependency = urlencoding::encode(&dependency);
-		let request = http::request::Builder::default()
-			.method(http::Method::GET)
-			.uri(format!("/packages/{dependency}/dependencies"))
-			.body(empty())
-			.wrap_err("Failed to create the request.")?;
-		let response = self.send(request).await?;
-		if !response.status().is_success() {
-			let bytes = response
-				.collect()
-				.await
-				.wrap_err("Failed to collect the response body.")?
-				.to_bytes();
-			let error = serde_json::from_slice(&bytes)
-				.unwrap_or_else(|_| error!("The request did not succeed."));
-			return Err(error);
-		}
-		let bytes = response
-			.collect()
-			.await
-			.wrap_err("Failed to collect the response body.")?
-			.to_bytes();
-		let response =
-			serde_json::from_slice(&bytes).wrap_err("Failed to deserialize the response body.")?;
-		Ok(response)
 	}
 
 	async fn publish_package(&self, user: Option<&User>, id: &directory::Id) -> Result<()> {

@@ -137,7 +137,7 @@ pub trait Handle: Send + Sync + 'static {
 
 	async fn pull_object(&self, id: &object::Id) -> Result<()>;
 
-	async fn search_packages(&self, arg: package::SearchArg) -> Result<Vec<String>>;
+	async fn search_packages(&self, arg: package::SearchArg) -> Result<package::SearchOutput>;
 
 	async fn get_package(
 		&self,
@@ -167,30 +167,6 @@ pub trait Handle: Send + Sync + 'static {
 		&self,
 		dependency: &Dependency,
 	) -> Result<Option<Vec<String>>>;
-
-	async fn get_package_metadata(&self, dependency: &Dependency) -> Result<package::Metadata> {
-		Ok(self
-			.try_get_package_metadata(dependency)
-			.await?
-			.wrap_err("Failed to get the package metadata.")?)
-	}
-
-	async fn try_get_package_metadata(
-		&self,
-		dependency: &Dependency,
-	) -> Result<Option<package::Metadata>>;
-
-	async fn get_package_dependencies(&self, dependency: &Dependency) -> Result<Vec<Dependency>> {
-		Ok(self
-			.try_get_package_dependencies(dependency)
-			.await?
-			.wrap_err("Failed to get the package dependencies.")?)
-	}
-
-	async fn try_get_package_dependencies(
-		&self,
-		dependency: &Dependency,
-	) -> Result<Option<Vec<Dependency>>>;
 
 	async fn publish_package(&self, user: Option<&User>, id: &directory::Id) -> Result<()>;
 

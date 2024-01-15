@@ -712,9 +712,8 @@ async fn scan_package_with_path_dependencies(
 	}
 
 	// Get the metadata and dependenencies of this package.
-	let dependency = tg::Dependency::with_id(package_id.clone());
-	let metadata = tg.get_package_metadata(&dependency).await?;
-	let dependencies = tg.get_package_dependencies(&dependency).await?;
+	let metadata = get_metadata(tg, package).await?;
+	let dependencies = get_dependencies(tg, package).await?;
 
 	// Convert dependencies to dependants and update the working set.
 	let dependants = dependencies.iter().map(|dependency| Dependant {
@@ -1064,16 +1063,16 @@ impl Context {
 	async fn try_get_analysis(
 		&mut self,
 		tg: &dyn tg::Handle,
-		package: &tg::directory::Id,
+		package_id: &tg::directory::Id,
 	) -> Result<&'_ Analysis> {
-		if !self.analysis.contains_key(package) {
-			let dependency = tg::Dependency::with_id(package.clone());
-			let metadata = tg.get_package_metadata(&dependency).await?;
-			let dependencies = tg.get_package_dependencies(&dependency).await?;
+		if !self.analysis.contains_key(package_id) {
+			let package = tg::Directory::with_id(package_id.clone());
+			let metadata = get_metadata(tg, &package).await?;
+			let dependencies = get_dependencies(tg, &package).await?;
 
 			let mut dependencies_ = Vec::new();
 			let mut path_dependencies = BTreeMap::new();
-			let package_source = tg::Directory::with_id(package.clone());
+			let package_source = tg::Directory::with_id(package_id.clone());
 
 			// Attempt to resolve path dependencies.
 			for dependency in dependencies {
@@ -1084,7 +1083,7 @@ impl Context {
 					let path = path.clone().normalize();
 					let Some(dependency_source) =
 						package_source.try_get(tg, &path).await.wrap_err_with(|| {
-							error!("Could not resolve {dependency} within {package}.")
+							error!("Could not resolve {dependency} within {package_id}.")
 						})?
 					else {
 						continue;
@@ -1107,10 +1106,10 @@ impl Context {
 			};
 
 			self.published_packages
-				.insert(metadata.clone(), package.clone());
-			self.analysis.insert(package.clone(), analysis);
+				.insert(metadata.clone(), package_id.clone());
+			self.analysis.insert(package_id.clone(), analysis);
 		}
-		Ok(self.analysis.get(package).unwrap())
+		Ok(self.analysis.get(package_id).unwrap())
 	}
 
 	// Check if the dependant can be resolved as a path dependency. Returns an error if we haven't analyzed the `dependant.package` yet.

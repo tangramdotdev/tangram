@@ -573,7 +573,10 @@ impl tg::Handle for Server {
 		self.pull_object(id).await
 	}
 
-	async fn search_packages(&self, arg: tg::package::SearchArg) -> Result<Vec<String>> {
+	async fn search_packages(
+		&self,
+		arg: tg::package::SearchArg,
+	) -> Result<tg::package::SearchOutput> {
 		self.search_packages(arg).await
 	}
 
@@ -590,20 +593,6 @@ impl tg::Handle for Server {
 		dependency: &tg::Dependency,
 	) -> Result<Option<Vec<String>>> {
 		self.try_get_package_versions(dependency).await
-	}
-
-	async fn try_get_package_metadata(
-		&self,
-		dependency: &tg::Dependency,
-	) -> Result<Option<tg::package::Metadata>> {
-		self.try_get_package_metadata(dependency).await
-	}
-
-	async fn try_get_package_dependencies(
-		&self,
-		dependency: &tg::Dependency,
-	) -> Result<Option<Vec<tg::Dependency>>> {
-		self.try_get_package_dependencies(dependency).await
 	}
 
 	async fn publish_package(&self, user: Option<&tg::User>, id: &tg::directory::Id) -> Result<()> {

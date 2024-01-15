@@ -5,7 +5,6 @@ use crate::{
 use std::path::PathBuf;
 use tangram_client as tg;
 use tangram_error::{Result, WrapErr};
-use tg::package::Ext;
 
 /// Build a target.
 #[derive(Debug, clap::Args)]
@@ -65,7 +64,7 @@ impl Cli {
 		.into();
 		let args_ = Vec::new();
 		let host = tg::System::js();
-		let path = package.root_module_path(tg).await?;
+		let path = tg::package::get_root_module_path(tg, &package).await?;
 		let executable = tg::Symlink::new(Some(package.into()), Some(path.to_string())).into();
 		let target = tg::target::Builder::new(host, executable)
 			.lock(lock)
