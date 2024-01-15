@@ -516,12 +516,12 @@ impl tg::Handle for Server {
 		self.get_or_create_build(user, arg).await
 	}
 
-	async fn try_get_build_from_queue(
+	async fn try_dequeue_build(
 		&self,
 		user: Option<&tg::User>,
-		arg: tg::build::GetBuildFromQueueArg,
-	) -> Result<Option<tg::build::GetBuildFromQueueOutput>> {
-		self.try_get_build_from_queue(user, arg).await
+		arg: tg::build::DequeueArg,
+	) -> Result<Option<tg::build::DequeueOutput>> {
+		self.try_dequeue_build(user, arg).await
 	}
 
 	async fn try_get_build_status(&self, id: &tg::build::Id) -> Result<Option<tg::build::Status>> {

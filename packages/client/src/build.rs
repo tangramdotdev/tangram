@@ -167,7 +167,7 @@ pub struct GetOrCreateOutput {
 }
 
 #[derive(Clone, Debug, Default, serde::Deserialize, serde::Serialize)]
-pub struct GetBuildFromQueueArg {
+pub struct DequeueArg {
 	#[serde(
 		deserialize_with = "deserialize_try_get_queue_item_arg_hosts",
 		serialize_with = "serialize_try_get_queue_item_arg_hosts"
@@ -176,7 +176,7 @@ pub struct GetBuildFromQueueArg {
 }
 
 #[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
-pub struct GetBuildFromQueueOutput {
+pub struct DequeueOutput {
 	pub build: Id,
 	pub options: Options,
 }

@@ -49,11 +49,11 @@ pub trait Handle: Send + Sync + 'static {
 		arg: build::GetOrCreateArg,
 	) -> Result<build::GetOrCreateOutput>;
 
-	async fn try_get_build_from_queue(
+	async fn try_dequeue_build(
 		&self,
 		user: Option<&User>,
-		arg: build::GetBuildFromQueueArg,
-	) -> Result<Option<build::GetBuildFromQueueOutput>>;
+		arg: build::DequeueArg,
+	) -> Result<Option<build::DequeueOutput>>;
 
 	async fn get_build_status(&self, id: &build::Id) -> Result<build::Status> {
 		Ok(self

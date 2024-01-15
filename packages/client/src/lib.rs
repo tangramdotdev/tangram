@@ -387,7 +387,7 @@ impl Handle for Client {
 	async fn health(&self) -> Result<Health> {
 		let request = http::request::Builder::default()
 			.method(http::Method::GET)
-			.uri("/v1/health")
+			.uri("/health")
 			.body(empty())
 			.wrap_err("Failed to create the request.")?;
 		let response = self.send(request).await?;
@@ -413,7 +413,7 @@ impl Handle for Client {
 	async fn stop(&self) -> Result<()> {
 		let request = http::request::Builder::default()
 			.method(http::Method::POST)
-			.uri("/v1/stop")
+			.uri("/stop")
 			.body(empty())
 			.wrap_err("Failed to create the request.")?;
 		self.send(request).await.ok();
@@ -423,7 +423,7 @@ impl Handle for Client {
 	async fn clean(&self) -> Result<()> {
 		let request = http::request::Builder::default()
 			.method(http::Method::POST)
-			.uri("/v1/clean")
+			.uri("/clean")
 			.body(empty())
 			.wrap_err("Failed to create the request.")?;
 		let response = self.send(request).await?;
@@ -443,7 +443,7 @@ impl Handle for Client {
 	async fn get_object_exists(&self, id: &object::Id) -> Result<bool> {
 		let request = http::request::Builder::default()
 			.method(http::Method::HEAD)
-			.uri(format!("/v1/objects/{id}"))
+			.uri(format!("/objects/{id}"))
 			.body(empty())
 			.wrap_err("Failed to create the request.")?;
 		let response = self.send(request).await?;
@@ -466,7 +466,7 @@ impl Handle for Client {
 	async fn try_get_object(&self, id: &object::Id) -> Result<Option<object::GetOutput>> {
 		let request = http::request::Builder::default()
 			.method(http::Method::GET)
-			.uri(format!("/v1/objects/{id}"))
+			.uri(format!("/objects/{id}"))
 			.body(empty())
 			.wrap_err("Failed to create the request.")?;
 		let response = self.send(request).await?;
@@ -496,7 +496,7 @@ impl Handle for Client {
 		let body = full(bytes.clone());
 		let request = http::request::Builder::default()
 			.method(http::Method::PUT)
-			.uri(format!("/v1/objects/{id}"))
+			.uri(format!("/objects/{id}"))
 			.body(body)
 			.wrap_err("Failed to create the request.")?;
 		let response = self.send(request).await?;
@@ -522,7 +522,7 @@ impl Handle for Client {
 	async fn push_object(&self, id: &object::Id) -> Result<()> {
 		let request = http::request::Builder::default()
 			.method(http::Method::POST)
-			.uri(format!("/v1/objects/{id}/push"))
+			.uri(format!("/objects/{id}/push"))
 			.body(empty())
 			.wrap_err("Failed to create the request.")?;
 		let response = self.send(request).await?;
@@ -542,7 +542,7 @@ impl Handle for Client {
 	async fn pull_object(&self, id: &object::Id) -> Result<()> {
 		let request = http::request::Builder::default()
 			.method(http::Method::POST)
-			.uri(format!("/v1/objects/{id}/pull"))
+			.uri(format!("/objects/{id}/pull"))
 			.body(empty())
 			.wrap_err("Failed to create the request.")?;
 		let response = self.send(request).await?;
@@ -566,7 +566,7 @@ impl Handle for Client {
 		let body = serde_json::to_string(&arg).wrap_err("Failed to serialize the body.")?;
 		let request = http::request::Builder::default()
 			.method(http::Method::POST)
-			.uri("/v1/artifacts/checkin")
+			.uri("/artifacts/checkin")
 			.body(full(body))
 			.wrap_err("Failed to create the request.")?;
 		let response = self.send(request).await?;
@@ -593,7 +593,7 @@ impl Handle for Client {
 		let body = serde_json::to_string(&arg).wrap_err("Failed to serialize the body.")?;
 		let request = http::request::Builder::default()
 			.method(http::Method::POST)
-			.uri("/v1/artifacts/checkout")
+			.uri("/artifacts/checkout")
 			.body(full(body))
 			.wrap_err("Failed to create the request.")?;
 		let response = self.send(request).await?;
@@ -613,7 +613,7 @@ impl Handle for Client {
 	async fn try_list_builds(&self, arg: build::ListArg) -> Result<build::ListOutput> {
 		let search_params =
 			serde_urlencoded::to_string(&arg).wrap_err("Failed to serialize the search params.")?;
-		let uri = format!("/v1/builds?{search_params}");
+		let uri = format!("/builds?{search_params}");
 		let request = http::request::Builder::default()
 			.method(http::Method::GET)
 			.uri(uri);
@@ -644,7 +644,7 @@ impl Handle for Client {
 	async fn get_build_exists(&self, id: &build::Id) -> Result<bool> {
 		let request = http::request::Builder::default()
 			.method(http::Method::HEAD)
-			.uri(format!("/v1/builds/{id}"))
+			.uri(format!("/builds/{id}"))
 			.body(empty())
 			.wrap_err("Failed to create the request.")?;
 		let response = self.send(request).await?;
@@ -667,7 +667,7 @@ impl Handle for Client {
 	async fn try_get_build(&self, id: &build::Id) -> Result<Option<build::GetOutput>> {
 		let request = http::request::Builder::default()
 			.method(http::Method::GET)
-			.uri(format!("/v1/builds/{id}"))
+			.uri(format!("/builds/{id}"))
 			.body(empty())
 			.wrap_err("Failed to create the request.")?;
 		let response = self.send(request).await?;
@@ -702,7 +702,7 @@ impl Handle for Client {
 	) -> Result<build::PutOutput> {
 		let mut request = http::request::Builder::default()
 			.method(http::Method::PUT)
-			.uri(format!("/v1/builds/{id}"));
+			.uri(format!("/builds/{id}"));
 		let user = user.or(self.inner.user.as_ref());
 		if let Some(token) = user.and_then(|user| user.token.as_ref()) {
 			request = request.header(http::header::AUTHORIZATION, format!("Bearer {token}"));
@@ -737,7 +737,7 @@ impl Handle for Client {
 		user: Option<&User>,
 		arg: build::GetOrCreateArg,
 	) -> Result<build::GetOrCreateOutput> {
-		let uri = "/v1/builds";
+		let uri = "/builds";
 		let mut request = http::request::Builder::default()
 			.method(http::Method::POST)
 			.uri(uri);
@@ -768,14 +768,14 @@ impl Handle for Client {
 		Ok(id)
 	}
 
-	async fn try_get_build_from_queue(
+	async fn try_dequeue_build(
 		&self,
 		user: Option<&User>,
-		arg: build::GetBuildFromQueueArg,
-	) -> Result<Option<build::GetBuildFromQueueOutput>> {
+		arg: build::DequeueArg,
+	) -> Result<Option<build::DequeueOutput>> {
 		let search_params =
 			serde_urlencoded::to_string(&arg).wrap_err("Failed to serialize the search params.")?;
-		let uri = format!("/v1/queue?{search_params}");
+		let uri = format!("/queue?{search_params}");
 		let mut request = http::request::Builder::default()
 			.method(http::Method::GET)
 			.uri(uri);
@@ -810,7 +810,7 @@ impl Handle for Client {
 	async fn try_get_build_status(&self, id: &build::Id) -> Result<Option<build::Status>> {
 		let request = http::request::Builder::default()
 			.method(http::Method::GET)
-			.uri(format!("/v1/builds/{id}/status"))
+			.uri(format!("/builds/{id}/status"))
 			.body(empty())
 			.wrap_err("Failed to create the request.")?;
 		let response = self.send(request).await?;
@@ -841,7 +841,7 @@ impl Handle for Client {
 	) -> Result<()> {
 		let mut request = http::request::Builder::default()
 			.method(http::Method::POST)
-			.uri(format!("/v1/builds/{id}/status"));
+			.uri(format!("/builds/{id}/status"));
 		let user = user.or(self.inner.user.as_ref());
 		if let Some(token) = user.and_then(|user| user.token.as_ref()) {
 			request = request.header(http::header::AUTHORIZATION, format!("Bearer {token}"));
@@ -867,7 +867,7 @@ impl Handle for Client {
 	async fn try_get_build_target(&self, id: &build::Id) -> Result<Option<target::Id>> {
 		let request = http::request::Builder::default()
 			.method(http::Method::GET)
-			.uri(format!("/v1/builds/{id}/target"))
+			.uri(format!("/builds/{id}/target"))
 			.body(empty())
 			.wrap_err("Failed to create the request.")?;
 		let response = self.send(request).await?;
@@ -896,7 +896,7 @@ impl Handle for Client {
 	) -> Result<Option<BoxStream<'static, Result<build::Id>>>> {
 		let request = http::request::Builder::default()
 			.method(http::Method::GET)
-			.uri(format!("/v1/builds/{id}/children"))
+			.uri(format!("/builds/{id}/children"))
 			.body(empty())
 			.wrap_err("Failed to create the request.")?;
 		let response = self.send(request).await?;
@@ -952,7 +952,7 @@ impl Handle for Client {
 	) -> Result<()> {
 		let mut request = http::request::Builder::default()
 			.method(http::Method::POST)
-			.uri(format!("/v1/builds/{build_id}/children"));
+			.uri(format!("/builds/{build_id}/children"));
 		let user = user.or(self.inner.user.as_ref());
 		if let Some(token) = user.and_then(|user| user.token.as_ref()) {
 			request = request.header(http::header::AUTHORIZATION, format!("Bearer {token}"));
@@ -981,7 +981,7 @@ impl Handle for Client {
 		arg: build::GetLogArg,
 	) -> Result<Option<BoxStream<'static, Result<build::LogEntry>>>> {
 		let search_params = serde_urlencoded::to_string(&arg).unwrap();
-		let uri = format!("/v1/builds/{id}/log?{search_params}");
+		let uri = format!("/builds/{id}/log?{search_params}");
 		let request = http::request::Builder::default()
 			.method(http::Method::GET)
 			.uri(uri)
@@ -1043,7 +1043,7 @@ impl Handle for Client {
 	async fn add_build_log(&self, user: Option<&User>, id: &build::Id, bytes: Bytes) -> Result<()> {
 		let mut request = http::request::Builder::default()
 			.method(http::Method::POST)
-			.uri(format!("/v1/builds/{id}/log"));
+			.uri(format!("/builds/{id}/log"));
 		let user = user.or(self.inner.user.as_ref());
 		if let Some(token) = user.and_then(|user| user.token.as_ref()) {
 			request = request.header(http::header::AUTHORIZATION, format!("Bearer {token}"));
@@ -1069,7 +1069,7 @@ impl Handle for Client {
 	async fn try_get_build_outcome(&self, id: &build::Id) -> Result<Option<build::Outcome>> {
 		let request = http::request::Builder::default()
 			.method(http::Method::GET)
-			.uri(format!("/v1/builds/{id}/outcome"))
+			.uri(format!("/builds/{id}/outcome"))
 			.body(empty())
 			.wrap_err("Failed to create the request.")?;
 		let response = self.send(request).await?;
@@ -1104,7 +1104,7 @@ impl Handle for Client {
 	) -> Result<()> {
 		let mut request = http::request::Builder::default()
 			.method(http::Method::POST)
-			.uri(format!("/v1/builds/{id}/finish"));
+			.uri(format!("/builds/{id}/finish"));
 		let user = user.or(self.inner.user.as_ref());
 		if let Some(token) = user.and_then(|user| user.token.as_ref()) {
 			request = request.header(http::header::AUTHORIZATION, format!("Bearer {token}"));
@@ -1131,7 +1131,7 @@ impl Handle for Client {
 	async fn search_packages(&self, arg: package::SearchArg) -> Result<Vec<String>> {
 		let search_params =
 			serde_urlencoded::to_string(arg).wrap_err("Failed to serialize the search params.")?;
-		let uri = format!("/v1/packages/search?{search_params}");
+		let uri = format!("/packages/search?{search_params}");
 		let request = http::request::Builder::default()
 			.method(http::Method::GET)
 			.uri(uri)
@@ -1167,7 +1167,7 @@ impl Handle for Client {
 		let dependency = urlencoding::encode(&dependency);
 		let search_params =
 			serde_urlencoded::to_string(&arg).wrap_err("Failed to serialize the search params.")?;
-		let uri = format!("/v1/packages/{dependency}?{search_params}");
+		let uri = format!("/packages/{dependency}?{search_params}");
 		let request = http::request::Builder::default()
 			.method(http::Method::GET)
 			.uri(uri)
@@ -1208,7 +1208,7 @@ impl Handle for Client {
 		let dependency = urlencoding::encode(&dependency);
 		let request = http::request::Builder::default()
 			.method(http::Method::GET)
-			.uri(format!("/v1/packages/{dependency}/versions"))
+			.uri(format!("/packages/{dependency}/versions"))
 			.body(empty())
 			.wrap_err("Failed to create the request.")?;
 		let response = self.send(request).await?;
@@ -1240,7 +1240,7 @@ impl Handle for Client {
 		let dependency = urlencoding::encode(&dependency);
 		let request = http::request::Builder::default()
 			.method(http::Method::GET)
-			.uri(format!("/v1/packages/{dependency}/metadata"))
+			.uri(format!("/packages/{dependency}/metadata"))
 			.body(empty())
 			.wrap_err("Failed to create the request.")?;
 		let response = self.send(request).await?;
@@ -1272,7 +1272,7 @@ impl Handle for Client {
 		let dependency = urlencoding::encode(&dependency);
 		let request = http::request::Builder::default()
 			.method(http::Method::GET)
-			.uri(format!("/v1/packages/{dependency}/dependencies"))
+			.uri(format!("/packages/{dependency}/dependencies"))
 			.body(empty())
 			.wrap_err("Failed to create the request.")?;
 		let response = self.send(request).await?;
@@ -1299,7 +1299,7 @@ impl Handle for Client {
 	async fn publish_package(&self, user: Option<&User>, id: &directory::Id) -> Result<()> {
 		let mut request = http::request::Builder::default()
 			.method(http::Method::POST)
-			.uri("/v1/packages");
+			.uri("/packages");
 		let user = user.or(self.inner.user.as_ref());
 		if let Some(token) = user.and_then(|user| user.token.as_ref()) {
 			request = request.header(http::header::AUTHORIZATION, format!("Bearer {token}"));
@@ -1325,7 +1325,7 @@ impl Handle for Client {
 	async fn create_login(&self) -> Result<user::Login> {
 		let request = http::request::Builder::default()
 			.method(http::Method::POST)
-			.uri("/v1/logins")
+			.uri("/logins")
 			.body(empty())
 			.wrap_err("Failed to create the request.")?;
 		let response = self.send(request).await?;
@@ -1352,7 +1352,7 @@ impl Handle for Client {
 	async fn get_login(&self, id: &Id) -> Result<Option<user::Login>> {
 		let request = http::request::Builder::default()
 			.method(http::Method::GET)
-			.uri(format!("/v1/logins/{id}"))
+			.uri(format!("/logins/{id}"))
 			.body(empty())
 			.wrap_err("Failed to create the request.")?;
 		let response = self
@@ -1382,7 +1382,7 @@ impl Handle for Client {
 	async fn get_user_for_token(&self, token: &str) -> Result<Option<user::User>> {
 		let request = http::request::Builder::default()
 			.method(http::Method::GET)
-			.uri("/v1/user")
+			.uri("/user")
 			.header(http::header::AUTHORIZATION, format!("Bearer {token}"))
 			.body(empty())
 			.wrap_err("Failed to create the request.")?;

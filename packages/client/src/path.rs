@@ -220,7 +220,7 @@ impl TryFrom<PathBuf> for Path {
 impl<'a> TryFrom<&'a std::path::Path> for Path {
 	type Error = Error;
 
-	fn try_from(value: &'a std::path::Path) -> std::prelude::v1::Result<Self, Self::Error> {
+	fn try_from(value: &'a std::path::Path) -> Result<Self, Self::Error> {
 		value
 			.as_os_str()
 			.to_str()

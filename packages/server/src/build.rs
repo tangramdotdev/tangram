@@ -635,9 +635,9 @@ impl Server {
 				tg::System::new(tg::system::Arch::Js, tg::system::Os::Js),
 				tg::System::host()?,
 			];
-			let queue_arg = tg::build::GetBuildFromQueueArg { hosts: Some(hosts) };
-			let Some(tg::build::GetBuildFromQueueOutput { build: id, options }) = remote
-				.try_get_build_from_queue(None, queue_arg)
+			let queue_arg = tg::build::DequeueArg { hosts: Some(hosts) };
+			let Some(tg::build::DequeueOutput { build: id, options }) = remote
+				.try_dequeue_build(None, queue_arg)
 				.await
 				.ok()
 				.flatten()
@@ -772,11 +772,11 @@ impl Server {
 	}
 
 	#[allow(clippy::unused_async)]
-	pub async fn try_get_build_from_queue(
+	pub async fn try_dequeue_build(
 		&self,
 		_user: Option<&tg::User>,
-		_arg: tg::build::GetBuildFromQueueArg,
-	) -> Result<Option<tg::build::GetBuildFromQueueOutput>> {
+		_arg: tg::build::DequeueArg,
+	) -> Result<Option<tg::build::DequeueOutput>> {
 		Ok(None)
 	}
 

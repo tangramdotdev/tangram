@@ -368,7 +368,7 @@ impl From<Kind> for id::Kind {
 impl TryFrom<id::Kind> for Kind {
 	type Error = Error;
 
-	fn try_from(value: id::Kind) -> std::prelude::v1::Result<Self, Self::Error> {
+	fn try_from(value: id::Kind) -> Result<Self, Self::Error> {
 		match value {
 			id::Kind::Leaf => Ok(Self::Leaf),
 			id::Kind::Branch => Ok(Self::Branch),
