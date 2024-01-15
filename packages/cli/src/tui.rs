@@ -829,10 +829,14 @@ impl Log {
 							}
 						}
 						if scroll.is_none() {
+							let arg = tg::build::GetLogArg {
+								pos: None,
+								len: Some(-3 * area / 2),
+							};
 							let stream_ = log
 								.inner
 								.build
-								.log(log.inner.tg.as_ref(), None, Some(-3 * area / 2))
+								.log(log.inner.tg.as_ref(), arg)
 								.await
 								.expect("Failed to get log stream.");
 							stream = Some(stream_.fuse());
