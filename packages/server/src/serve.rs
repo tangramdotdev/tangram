@@ -190,10 +190,6 @@ impl Server {
 				.handle_set_build_status_request(request)
 				.map(Some)
 				.boxed(),
-			(http::Method::GET, ["builds", _, "target"]) => self
-				.handle_get_build_target_request(request)
-				.map(Some)
-				.boxed(),
 			(http::Method::GET, ["builds", _, "children"]) => self
 				.handle_get_build_children_request(request)
 				.map(Some)
@@ -503,14 +499,14 @@ impl Server {
 		// Get the user.
 		let user = self.try_get_user_from_request(&request).await?;
 
-		// Get the search params.
-		let arg = request
-			.uri()
-			.query()
-			.map(serde_urlencoded::from_str)
-			.transpose()
-			.wrap_err("Failed to deserialize the search params.")?
-			.unwrap_or_default();
+		// Read the body.
+		let bytes = request
+			.into_body()
+			.collect()
+			.await
+			.wrap_err("Failed to read the body.")?
+			.to_bytes();
+		let arg = serde_json::from_slice(&bytes).wrap_err("Failed to deserialize the body.")?;
 
 		let output = self.try_dequeue_build(user.as_ref(), arg).await?;
 
@@ -575,29 +571,6 @@ impl Server {
 			.status(http::StatusCode::OK)
 			.body(empty())
 			.unwrap();
-
-		Ok(response)
-	}
-
-	async fn handle_get_build_target_request(
-		&self,
-		request: http::Request<Incoming>,
-	) -> Result<hyper::Response<Outgoing>> {
-		// Get the path params.
-		let path_components: Vec<&str> = request.uri().path().split('/').skip(1).collect();
-		let ["builds", id, "target"] = path_components.as_slice() else {
-			return Err(error!("Unexpected path."));
-		};
-		let id = id.parse().wrap_err("Failed to parse the ID.")?;
-
-		// Attempt to get the target.
-		let Some(target_id) = self.try_get_build_target(&id).await? else {
-			return Ok(not_found());
-		};
-
-		// Create the response.
-		let body = serde_json::to_vec(&target_id).wrap_err("Failed to serialize the response.")?;
-		let response = http::Response::builder().body(full(body)).unwrap();
 
 		Ok(response)
 	}

@@ -500,10 +500,6 @@ impl tg::Handle for Server {
 		self.set_build_status(user, id, status).await
 	}
 
-	async fn try_get_build_target(&self, id: &tg::build::Id) -> Result<Option<tg::target::Id>> {
-		self.try_get_build_target(id).await
-	}
-
 	async fn try_get_build_children(
 		&self,
 		id: &tg::build::Id,

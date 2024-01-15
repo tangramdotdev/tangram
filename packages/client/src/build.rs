@@ -10,6 +10,7 @@ use futures::{
 	StreamExt, TryStreamExt,
 };
 use itertools::Itertools;
+use std::sync::Arc;
 use tangram_error::error;
 
 #[derive(
@@ -30,6 +31,7 @@ pub struct Id(crate::Id);
 #[derive(Clone, Debug)]
 pub struct Build {
 	id: Id,
+	state: Arc<std::sync::RwLock<Option<Arc<State>>>>,
 }
 
 #[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
@@ -192,16 +194,15 @@ impl Id {
 impl Build {
 	#[must_use]
 	pub fn with_id(id: Id) -> Self {
-		Self { id }
+		let state = Arc::new(std::sync::RwLock::new(None));
+		Self { id, state }
 	}
 
 	#[must_use]
 	pub fn id(&self) -> &Id {
 		&self.id
 	}
-}
 
-impl Build {
 	pub async fn new(tg: &dyn Handle, target: Target, options: Options) -> Result<Self> {
 		let id = target.id(tg).await?;
 		let arg = GetOrCreateArg {
@@ -211,6 +212,22 @@ impl Build {
 		let output = tg.get_or_create_build(None, arg).await?;
 		let build = Build::with_id(output.id);
 		Ok(build)
+	}
+
+	pub async fn load(&self, tg: &dyn Handle) -> Result<()> {
+		let state = tg.get_build(self.id()).await?.state;
+		let state = Arc::new(state);
+		self.state.write().unwrap().replace(state);
+		Ok(())
+	}
+
+	pub async fn state(&self, tg: &dyn Handle) -> Result<Arc<State>> {
+		let state = self.state.read().unwrap().clone();
+		if let Some(state) = state {
+			return Ok(state);
+		}
+		self.load(tg).await?;
+		Ok(self.state.read().unwrap().clone().unwrap())
 	}
 
 	pub async fn status(&self, tg: &dyn Handle) -> Result<Status> {
@@ -224,16 +241,10 @@ impl Build {
 	}
 
 	pub async fn target(&self, tg: &dyn Handle) -> Result<Target> {
-		self.try_get_target(tg)
-			.await?
-			.wrap_err("Failed to get the target.")
-	}
-
-	pub async fn try_get_target(&self, tg: &dyn Handle) -> Result<Option<Target>> {
-		Ok(tg
-			.try_get_build_target(self.id())
-			.await?
-			.map(Target::with_id))
+		let state = self.state(tg).await?;
+		let id = state.target.clone();
+		let target = Target::with_id(id);
+		Ok(target)
 	}
 
 	pub async fn children(&self, tg: &dyn Handle) -> Result<BoxStream<'static, Result<Self>>> {

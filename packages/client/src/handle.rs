@@ -1,6 +1,4 @@
-use crate::{
-	artifact, build, directory, health, object, package, target, user, Dependency, Id, User,
-};
+use crate::{artifact, build, directory, health, object, package, user, Dependency, Id, User};
 use async_trait::async_trait;
 use bytes::Bytes;
 use futures::stream::BoxStream;
@@ -64,15 +62,6 @@ pub trait Handle: Send + Sync + 'static {
 		id: &build::Id,
 		status: build::Status,
 	) -> Result<()>;
-
-	async fn get_build_target(&self, id: &build::Id) -> Result<target::Id> {
-		Ok(self
-			.try_get_build_target(id)
-			.await?
-			.wrap_err("Failed to get the build.")?)
-	}
-
-	async fn try_get_build_target(&self, id: &build::Id) -> Result<Option<target::Id>>;
 
 	async fn get_build_children(
 		&self,

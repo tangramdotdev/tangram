@@ -598,18 +598,17 @@ impl Handle for Client {
 		user: Option<&User>,
 		arg: build::DequeueArg,
 	) -> Result<Option<build::DequeueOutput>> {
-		let search_params =
-			serde_urlencoded::to_string(&arg).wrap_err("Failed to serialize the search params.")?;
-		let uri = format!("/queue?{search_params}");
+		let uri = "/builds/dequeue";
 		let mut request = http::request::Builder::default()
-			.method(http::Method::GET)
+			.method(http::Method::POST)
 			.uri(uri);
 		let user = user.or(self.inner.user.as_ref());
 		if let Some(token) = user.and_then(|user| user.token.as_ref()) {
 			request = request.header(http::header::AUTHORIZATION, format!("Bearer {token}"));
 		}
+		let body = serde_json::to_vec(&arg).wrap_err("Failed to serialize the body.")?;
 		let request = request
-			.body(empty())
+			.body(full(body))
 			.wrap_err("Failed to create the request.")?;
 		let response = self.send(request).await?;
 		if !response.status().is_success() {
@@ -687,32 +686,6 @@ impl Handle for Client {
 			return Err(error);
 		}
 		Ok(())
-	}
-
-	async fn try_get_build_target(&self, id: &build::Id) -> Result<Option<target::Id>> {
-		let request = http::request::Builder::default()
-			.method(http::Method::GET)
-			.uri(format!("/builds/{id}/target"))
-			.body(empty())
-			.wrap_err("Failed to create the request.")?;
-		let response = self.send(request).await?;
-		if !response.status().is_success() {
-			let bytes = response
-				.collect()
-				.await
-				.wrap_err("Failed to collect the response body.")?
-				.to_bytes();
-			let error = serde_json::from_slice(&bytes)
-				.unwrap_or_else(|_| error!("The request did not succeed."));
-			return Err(error);
-		}
-		let bytes = response
-			.collect()
-			.await
-			.wrap_err("Failed to collect the response body.")?
-			.to_bytes();
-		let id = serde_json::from_slice(&bytes).wrap_err("Failed to deserialize the body.")?;
-		Ok(id)
 	}
 
 	async fn try_get_build_children(

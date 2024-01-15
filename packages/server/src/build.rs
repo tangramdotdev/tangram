@@ -882,56 +882,6 @@ impl Server {
 		Ok(true)
 	}
 
-	pub async fn try_get_build_target(&self, id: &tg::build::Id) -> Result<Option<tg::target::Id>> {
-		if let Some(target) = self.try_get_build_target_local(id).await? {
-			Ok(Some(target))
-		} else if let Some(target) = self.try_get_build_target_remote(id).await? {
-			Ok(Some(target))
-		} else {
-			Ok(None)
-		}
-	}
-
-	async fn try_get_build_target_local(
-		&self,
-		id: &tg::build::Id,
-	) -> Result<Option<tg::target::Id>> {
-		let db = self.inner.database.get().await?;
-		let statement = "
-			select state->>'target' as target
-			from builds
-			where id = ?1;
-		";
-		let params = params![id.to_string()];
-		let mut statement = db
-			.prepare_cached(statement)
-			.wrap_err("Failed to prepare the query.")?;
-		let mut rows = statement
-			.query(params)
-			.wrap_err("Failed to execute the query.")?;
-		let Some(row) = rows.next().wrap_err("Failed to get the row.")? else {
-			return Ok(None);
-		};
-		let target_id = row
-			.get::<_, String>(0)
-			.wrap_err("Failed to deserialize the column.")?
-			.parse()?;
-		Ok(Some(target_id))
-	}
-
-	async fn try_get_build_target_remote(
-		&self,
-		id: &tg::build::Id,
-	) -> Result<Option<tg::target::Id>> {
-		let Some(remote) = self.inner.remote.as_ref() else {
-			return Ok(None);
-		};
-		let Some(target_id) = remote.try_get_build_target(id).await? else {
-			return Ok(None);
-		};
-		Ok(Some(target_id))
-	}
-
 	pub async fn try_get_build_children(
 		&self,
 		id: &tg::build::Id,
