@@ -137,12 +137,21 @@ impl Cli {
 
 		let version = self.version.clone();
 
+		let vfs = self
+			.config()
+			.await?
+			.and_then(|config| config.vfs)
+			.map(|cfg| tangram_server::VfsOptions {
+				enable: cfg.enable.unwrap_or(true),
+			});
+
 		// Create the options.
 		let options = tangram_server::Options {
 			addr,
 			path,
 			remote,
 			version,
+			vfs,
 		};
 
 		// Start the server.

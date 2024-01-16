@@ -31,6 +31,7 @@ use either::Either;
 use num::ToPrimitive;
 use std::{
 	collections::BTreeMap,
+	os::unix::ffi::OsStrExt,
 	path::{Path, PathBuf},
 	sync::{Arc, Weak},
 };
@@ -105,6 +106,9 @@ enum NodeKind {
 	},
 	NamedAttributeDirectory {
 		children: tokio::sync::RwLock<BTreeMap<String, Arc<Node>>>,
+	},
+	Checkout {
+		path: PathBuf,
 	},
 }
 
@@ -547,6 +551,7 @@ impl Server {
 					ACCESS4_READ
 				}
 			},
+			NodeKind::Checkout { .. } => ACCESS4_READ,
 		};
 
 		let supported = arg.access & access;
@@ -661,6 +666,9 @@ impl Server {
 			NodeKind::NamedAttributeDirectory { children, .. } => {
 				let len = children.read().await.len();
 				FileAttrData::new(file_handle, nfs_ftype4::NF4ATTRDIR, len, O_RX)
+			},
+			NodeKind::Checkout { .. } => {
+				FileAttrData::new(file_handle, nfs_ftype4::NF4LNK, 1, O_RDONLY)
 			},
 		};
 		Some(data)
@@ -836,11 +844,16 @@ impl Server {
 		// Create the child data. This is either an artifact, or a named attribute value.
 		let child_data = match &parent_node.kind {
 			NodeKind::Root { .. } => {
-				let id = name.parse().map_err(|e| {
+				let id = name.parse::<tg::artifact::Id>().map_err(|e| {
 					tracing::error!(?e, ?name, "Failed to parse artifact ID.");
 					nfsstat4::NFS4ERR_NOENT
 				})?;
-				Either::Left(tg::Artifact::with_id(id))
+				let path = self.inner.path.join("../checkouts").join(id.to_string());
+				if matches!(tokio::fs::try_exists(&path).await, Ok(true)) {
+					Either::Left(Either::Left(path))
+				} else {
+					Either::Left(Either::Right(tg::Artifact::with_id(id)))
+				}
 			},
 
 			NodeKind::Directory { directory, .. } => {
@@ -854,7 +867,7 @@ impl Server {
 				let Some(entry) = entries.get(name) else {
 					return Ok(None);
 				};
-				Either::Left(entry.clone())
+				Either::Left(Either::Right(entry.clone()))
 			},
 
 			NodeKind::NamedAttributeDirectory { .. } => {
@@ -898,7 +911,8 @@ impl Server {
 		let node_id = self.next_node_id().await;
 		let attributes = tokio::sync::RwLock::new(None);
 		let kind = match child_data {
-			Either::Left(tg::Artifact::Directory(directory)) => {
+			Either::Left(Either::Left(path)) => NodeKind::Checkout { path },
+			Either::Left(Either::Right(tg::Artifact::Directory(directory))) => {
 				let children = tokio::sync::RwLock::new(BTreeMap::default());
 				NodeKind::Directory {
 					directory,
@@ -906,7 +920,7 @@ impl Server {
 					attributes,
 				}
 			},
-			Either::Left(tg::Artifact::File(file)) => {
+			Either::Left(Either::Right(tg::Artifact::File(file))) => {
 				let size = file.size(self.inner.tg.as_ref()).await.map_err(|e| {
 					tracing::error!(?e, "Failed to get size of file's contents.");
 					nfsstat4::NFS4ERR_IO
@@ -917,7 +931,7 @@ impl Server {
 					attributes,
 				}
 			},
-			Either::Left(tg::Artifact::Symlink(symlink)) => NodeKind::Symlink {
+			Either::Left(Either::Right(tg::Artifact::Symlink(symlink))) => NodeKind::Symlink {
 				symlink,
 				attributes,
 			},
@@ -1312,6 +1326,10 @@ impl Server {
 		let Some(node) = self.get_node(fh).await else {
 			return READLINK4res::Error(nfsstat4::NFS4ERR_NOENT);
 		};
+		if let NodeKind::Checkout { path } = &node.kind {
+			let link = path.as_os_str().as_bytes().to_owned();
+			return READLINK4res::NFS4_OK(READLINK4resok { link });
+		}
 		let NodeKind::Symlink { symlink, .. } = &node.kind else {
 			return READLINK4res::Error(nfsstat4::NFS4ERR_INVAL);
 		};

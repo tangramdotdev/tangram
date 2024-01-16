@@ -725,6 +725,22 @@ impl Server {
 			tg::system::Os::Darwin => {
 				#[cfg(target_os = "macos")]
 				{
+					// If there's no VFS, perform an internal checkout on the target.
+					if self.inner.vfs.lock().unwrap().is_none() {
+						target
+							.data(self)
+							.await?
+							.children()
+							.into_iter()
+							.filter_map(|id| id.try_into().ok())
+							.map(|id| async move {
+								let artifact = tg::Artifact::with_id(id);
+								artifact.check_out(self, None).await
+							})
+							.collect::<FuturesUnordered<_>>()
+							.try_collect::<Vec<_>>()
+							.await?;
+					}
 					tangram_runtime::darwin::build(self, &build, &options, stop, self.path()).await
 				}
 				#[cfg(not(target_os = "macos"))]
@@ -735,6 +751,22 @@ impl Server {
 			tg::system::Os::Linux => {
 				#[cfg(target_os = "linux")]
 				{
+					// If there's no VFS, perform an internal checkout on the target.
+					if self.inner.vfs.lock().unwrap().is_none() {
+						target
+							.data(self)
+							.await?
+							.children()
+							.into_iter()
+							.filter_map(|id| id.try_into().ok())
+							.map(|id| async move {
+								let artifact = tg::Artifact::with_id(id);
+								artifact.check_out(self, None).await
+							})
+							.collect::<FuturesUnordered<_>>()
+							.try_collect::<Vec<_>>()
+							.await?;
+					}
 					tangram_runtime::linux::build(self, &build, &options, stop, self.path()).await
 				}
 				#[cfg(not(target_os = "linux"))]

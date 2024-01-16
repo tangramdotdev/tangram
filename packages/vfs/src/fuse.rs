@@ -1,10 +1,11 @@
+use either::Either;
 use num::ToPrimitive;
 use std::{
 	collections::BTreeMap,
 	ffi::CString,
 	io::SeekFrom,
 	os::{fd::FromRawFd, unix::prelude::OsStrExt},
-	path::Path,
+	path::{Path, PathBuf},
 	sync::{Arc, Weak},
 };
 use tangram_client as tg;
@@ -65,6 +66,9 @@ enum NodeKind {
 	},
 	Symlink {
 		symlink: tg::Symlink,
+	},
+	Checkout {
+		path: PathBuf,
 	},
 }
 
@@ -594,6 +598,7 @@ impl Server {
 				}
 			},
 			NodeKind::Symlink { .. } => FileHandleData::Symlink,
+			NodeKind::Checkout { .. } => FileHandleData::Symlink,
 		};
 		let file_handle_data = Arc::new(tokio::sync::RwLock::new(file_handle_data));
 
@@ -775,8 +780,14 @@ impl Server {
 		let node = self.get_node(node_id).await?;
 
 		// Get the symlink.
-		let NodeKind::Symlink { symlink } = &node.kind else {
-			return Err(libc::EIO);
+		let symlink = match &node.kind {
+			NodeKind::Symlink { symlink } => symlink,
+			NodeKind::Checkout { path } => {
+				let target =
+					CString::new(path.as_os_str().as_bytes().to_vec()).map_err(|_| libc::EIO)?;
+				return Ok(Response::ReadLink(target));
+			},
+			_ => return Err(libc::EINVAL),
 		};
 
 		// Render the target.
@@ -875,11 +886,16 @@ impl Server {
 			_ => return Err(libc::EIO),
 		}
 
-		// Get the child artifact.
-		let child_artifact = match &parent_node.kind {
+		// Get the child artifact or checkout path if it exists.
+		let child = match &parent_node.kind {
 			NodeKind::Root { .. } => {
-				let id = name.parse().map_err(|_| libc::ENOENT)?;
-				tg::Artifact::with_id(id)
+				let id = name.parse::<tg::artifact::Id>().map_err(|_| libc::ENOENT)?;
+				let checkout_path = self.inner.path.join("../checkouts").join(id.to_string());
+				if matches!(tokio::fs::try_exists(&checkout_path).await, Ok(true)) {
+					Either::Left(checkout_path)
+				} else {
+					Either::Right(tg::Artifact::with_id(id))
+				}
 			},
 
 			NodeKind::Directory { directory, .. } => {
@@ -887,7 +903,8 @@ impl Server {
 					.entries(self.inner.tg.as_ref())
 					.await
 					.map_err(|_| libc::EIO)?;
-				entries.get(name).ok_or(libc::ENOENT)?.clone()
+				let artifact = entries.get(name).ok_or(libc::ENOENT)?.clone();
+				Either::Right(artifact)
 			},
 
 			_ => return Err(libc::EIO),
@@ -895,22 +912,23 @@ impl Server {
 
 		// Create the child node.
 		let node_id = self.next_node_id().await;
-		let kind = match child_artifact {
-			tg::Artifact::Directory(directory) => {
+		let kind = match child {
+			Either::Left(path) => NodeKind::Checkout { path },
+			Either::Right(tg::Artifact::Directory(directory)) => {
 				let children = tokio::sync::RwLock::new(BTreeMap::default());
 				NodeKind::Directory {
 					directory,
 					children,
 				}
 			},
-			tg::Artifact::File(file) => {
+			Either::Right(tg::Artifact::File(file)) => {
 				let size = file
 					.size(self.inner.tg.as_ref())
 					.await
 					.map_err(|_| libc::EIO)?;
 				NodeKind::File { file, size }
 			},
-			tg::Artifact::Symlink(symlink) => NodeKind::Symlink { symlink },
+			Either::Right(tg::Artifact::Symlink(symlink)) => NodeKind::Symlink { symlink },
 		};
 		let child_node = Node {
 			id: node_id,
@@ -1086,6 +1104,7 @@ impl Node {
 			NodeKind::Root { .. } | NodeKind::Directory { .. } => libc::S_IFDIR as _,
 			NodeKind::File { .. } => libc::S_IFREG as _,
 			NodeKind::Symlink { .. } => libc::S_IFLNK as _,
+			NodeKind::Checkout { .. } => libc::S_IFLNK as _,
 		}
 	}
 
@@ -1097,13 +1116,17 @@ impl Node {
 				libc::S_IFREG | 0o444 | (if executable { 0o111 } else { 0o000 })
 			},
 			NodeKind::Symlink { .. } => libc::S_IFLNK | 0o444,
+			NodeKind::Checkout { .. } => libc::S_IFLNK | 0o444,
 		};
 		Ok(mode as _)
 	}
 
 	fn size(&self) -> u64 {
 		match &self.kind {
-			NodeKind::Root { .. } | NodeKind::Directory { .. } | NodeKind::Symlink { .. } => 0,
+			NodeKind::Root { .. }
+			| NodeKind::Directory { .. }
+			| NodeKind::Symlink { .. }
+			| NodeKind::Checkout { .. } => 0,
 			NodeKind::File { size, .. } => *size,
 		}
 	}

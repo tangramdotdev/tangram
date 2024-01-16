@@ -132,7 +132,7 @@ async fn syscall_download(state: Rc<State>, args: (Url, tg::Checksum)) -> Result
 		.acquire()
 		.await
 		.unwrap();
-	let response = reqwest::get(url)
+	let response = reqwest::get(url.clone())
 		.await
 		.wrap_err("Failed to perform the request.")?
 		.error_for_status()
