@@ -114,6 +114,12 @@ async fn migration_0000(path: &Path) -> Result<()> {
 		.await
 		.wrap_err("Failed to create the artifacts directory.")?;
 
+	// Create the checkouts directory.
+	let checkouts_path = path.join("checkouts");
+	tokio::fs::create_dir_all(&checkouts_path)
+		.await
+		.wrap_err("Failed to create the checkouts directory.")?;
+
 	// Create the tmp directory.
 	let tmp_path = path.join("tmp");
 	tokio::fs::create_dir_all(&tmp_path)

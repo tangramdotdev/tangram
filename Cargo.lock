@@ -3381,6 +3381,7 @@ dependencies = [
  "tracing",
  "url",
  "urlencoding",
+ "uuid",
  "xattr",
 ]
 

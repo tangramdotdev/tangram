@@ -47,4 +47,5 @@ tokio-util = { workspace = true }
 tracing = { workspace = true }
 url = { workspace = true }
 urlencoding = { workspace = true }
+uuid = { workspace = true }
 xattr = { workspace = true }

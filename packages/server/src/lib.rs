@@ -419,6 +419,11 @@ impl Server {
 	}
 
 	#[must_use]
+	pub fn checkouts_path(&self) -> PathBuf {
+		self.path().join("checkouts")
+	}
+
+	#[must_use]
 	pub fn database_path(&self) -> PathBuf {
 		self.path().join("database")
 	}

@@ -120,7 +120,7 @@ impl Cli {
 			let artifact = tg::Artifact::try_from(output.clone())
 				.wrap_err("Expected the output to be an artifact.")?;
 			artifact
-				.check_out(tg, &path.try_into()?)
+				.check_out(tg, Some(&path.try_into()?))
 				.await
 				.wrap_err("Failed to check out the artifact.")?;
 		}
