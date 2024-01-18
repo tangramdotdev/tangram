@@ -314,7 +314,9 @@ pub async fn build(
 	};
 
 	// Spawn the child.
-	let mut child = command.spawn().wrap_err("Failed to spawn the process.")?;
+	let mut child = command
+		.spawn()
+		.wrap_err_with(|| format!("Failed to spawn the process ({executable})."))?;
 
 	// Create the log task.
 	let mut stdout = child.stdout.take().unwrap();

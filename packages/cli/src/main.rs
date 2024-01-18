@@ -73,6 +73,9 @@ struct Config {
 
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	remote: Option<RemoteConfig>,
+
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	vfs: Option<VfsConfig>,
 }
 
 #[derive(Clone, Debug, Default, serde::Serialize, serde::Deserialize)]
@@ -90,6 +93,12 @@ struct RemoteConfig {
 	/// Configure remote builds.
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	build: Option<RemoteBuildConfig>,
+}
+
+#[derive(Clone, Debug, Default, serde::Serialize, serde::Deserialize)]
+struct VfsConfig {
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	enable: Option<bool>,
 }
 
 #[derive(Clone, Debug, Default, serde::Serialize, serde::Deserialize)]

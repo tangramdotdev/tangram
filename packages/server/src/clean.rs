@@ -25,6 +25,14 @@ impl Server {
 			.await
 			.wrap_err("Failed to recreate the temporary directory.")?;
 
+		// Clean the checkouts directory.
+		tokio::fs::remove_dir_all(self.checkouts_path())
+			.await
+			.wrap_err("Failed to remove the temporary directory.")?;
+		tokio::fs::create_dir_all(self.checkouts_path())
+			.await
+			.wrap_err("Failed to recreate the temporary directory.")?;
+
 		Ok(())
 	}
 }

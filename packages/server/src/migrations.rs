@@ -108,12 +108,6 @@ async fn migration_0000(path: &Path) -> Result<()> {
 	db.execute_batch(sql)
 		.wrap_err("Failed to create the database tables.")?;
 
-	// Create the artifacts directory.
-	let artifacts_path = path.join("artifacts");
-	tokio::fs::create_dir_all(&artifacts_path)
-		.await
-		.wrap_err("Failed to create the artifacts directory.")?;
-
 	// Create the checkouts directory.
 	let checkouts_path = path.join("checkouts");
 	tokio::fs::create_dir_all(&checkouts_path)

@@ -68,6 +68,7 @@ pub struct Options {
 	pub path: PathBuf,
 	pub remote: Option<RemoteOptions>,
 	pub version: String,
+	pub vfs: Option<VfsOptions>,
 }
 
 pub struct RemoteOptions {
@@ -78,6 +79,10 @@ pub struct RemoteOptions {
 pub struct RemoteBuildOptions {
 	pub enable: bool,
 	pub hosts: Option<Vec<tg::System>>,
+}
+
+pub struct VfsOptions {
+	pub enable: bool,
 }
 
 impl Server {
@@ -126,7 +131,7 @@ impl Server {
 
 		// Create the build semaphore.
 		let build_semaphore = Arc::new(tokio::sync::Semaphore::new(
-			std::thread::available_parallelism().unwrap().get(),
+			std::thread::available_parallelism().unwrap().get() * 2,
 		));
 
 		// Open the database.
@@ -236,11 +241,28 @@ impl Server {
 				.wrap_err("Failed to execute the query.")?;
 		}
 
-		// Start the vfs.
-		let vfs = tangram_vfs::Server::start(&server, &server.artifacts_path())
-			.await
-			.wrap_err("Failed to start the vfs.")?;
-		server.inner.vfs.lock().unwrap().replace(vfs);
+		// Remove the artifacts directory if it exists.
+		let artifacts_path = server.artifacts_path();
+		if matches!(tokio::fs::try_exists(&artifacts_path).await, Ok(true)) {
+			tg::util::rmrf(&artifacts_path)
+				.await
+				.wrap_err("Failed to remove the artifacts path.")?;
+		}
+		if options.vfs.map(|opt| opt.enable).unwrap_or(true) {
+			// Create the artifacts directory.
+			tokio::fs::create_dir_all(&artifacts_path)
+				.await
+				.wrap_err("Failed to create the artifacts directory.")?;
+			// Start the VFS server.
+			let vfs = tangram_vfs::Server::start(&server, &artifacts_path)
+				.await
+				.wrap_err("Failed to start the vfs.")?;
+			server.inner.vfs.lock().unwrap().replace(vfs);
+		} else {
+			tokio::fs::symlink("checkouts", artifacts_path)
+				.await
+				.wrap_err("Failed to link artifacts directory to check outs directory.")?;
+		}
 
 		// Start the build queue task.
 		let task = tokio::spawn({
