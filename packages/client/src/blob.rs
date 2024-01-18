@@ -1,7 +1,7 @@
 use crate::{
 	branch, error, id, leaf, object, Artifact, Branch, Error, Handle, Leaf, Result, Value, WrapErr,
 };
-use bytes::Bytes;
+use bytes::{Buf, Bytes};
 use derive_more::From;
 use futures::{
 	future::BoxFuture,
@@ -499,7 +499,17 @@ impl AsyncSeek for Reader {
 				"Attempted to seek to a position beyond the end of the blob.",
 			));
 		}
-		*this.state = State::Empty;
+		if let State::Full(cursor) = this.state {
+			let leaf_position = position.to_i64().unwrap()
+				- (this.position.to_i64().unwrap() - cursor.position().to_i64().unwrap());
+			if leaf_position >= 0 && leaf_position < cursor.get_ref().len().to_i64().unwrap() {
+				cursor.set_position(leaf_position.to_u64().unwrap());
+			} else {
+				*this.state = State::Empty;
+			}
+		} else {
+			*this.state = State::Empty;
+		}
 		*this.position = position;
 		Ok(())
 	}
