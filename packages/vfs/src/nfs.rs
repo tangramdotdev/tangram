@@ -536,7 +536,9 @@ impl Server {
 			NodeKind::Root { .. }
 			| NodeKind::Directory { .. }
 			| NodeKind::NamedAttributeDirectory { .. } => ACCESS4_EXECUTE | ACCESS4_READ | ACCESS4_LOOKUP,
-			NodeKind::Symlink { .. } | NodeKind::NamedAttribute { .. } => ACCESS4_READ,
+			NodeKind::Symlink { .. }
+			| NodeKind::NamedAttribute { .. }
+			| NodeKind::Checkout { .. } => ACCESS4_READ,
 			NodeKind::File { file, .. } => {
 				let is_executable = match file.executable(self.inner.tg.as_ref()).await {
 					Ok(b) => b,
@@ -551,7 +553,6 @@ impl Server {
 					ACCESS4_READ
 				}
 			},
-			NodeKind::Checkout { .. } => ACCESS4_READ,
 		};
 
 		let supported = arg.access & access;
@@ -656,7 +657,7 @@ impl Server {
 					mode,
 				)
 			},
-			NodeKind::Symlink { .. } => {
+			NodeKind::Symlink { .. } | NodeKind::Checkout { .. } => {
 				FileAttrData::new(file_handle, nfs_ftype4::NF4LNK, 1, O_RDONLY)
 			},
 			NodeKind::NamedAttribute { data } => {
@@ -666,9 +667,6 @@ impl Server {
 			NodeKind::NamedAttributeDirectory { children, .. } => {
 				let len = children.read().await.len();
 				FileAttrData::new(file_handle, nfs_ftype4::NF4ATTRDIR, len, O_RX)
-			},
-			NodeKind::Checkout { .. } => {
-				FileAttrData::new(file_handle, nfs_ftype4::NF4LNK, 1, O_RDONLY)
 			},
 		};
 		Some(data)

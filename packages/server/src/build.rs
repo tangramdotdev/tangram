@@ -383,6 +383,7 @@ impl Server {
 		let (outcome, _) = tokio::sync::watch::channel(());
 		let (stop, _) = tokio::sync::watch::channel(false);
 		let context = Arc::new(BuildContext {
+			build: build_id.clone(),
 			children: Some(children),
 			depth: arg.options.depth,
 			log: Some(log),
@@ -511,7 +512,9 @@ impl Server {
 					.read()
 					.unwrap()
 					.values()
+					.filter(|context| context.build != id)
 					.all(|context| context.depth != options.depth);
+
 				let permit = self.inner.build_semaphore.clone().try_acquire_owned();
 				let permit = match (unique, permit) {
 					(_, Ok(permit)) => Some(permit),
@@ -650,6 +653,7 @@ impl Server {
 			// Create the build context.
 			let (stop, _) = tokio::sync::watch::channel(false);
 			let context = Arc::new(BuildContext {
+				build: id.clone(),
 				children: None,
 				depth: options.depth,
 				log: None,

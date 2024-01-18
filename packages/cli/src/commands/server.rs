@@ -135,6 +135,13 @@ impl Cli {
 		};
 		let remote = if args.no_remote { None } else { Some(remote) };
 
+		// Create the build options.
+		let max_concurrency = config
+			.as_ref()
+			.and_then(|config| config.build.as_ref())
+			.and_then(|build| build.max_concurrency);
+		let build = tangram_server::BuildOptions { max_concurrency };
+
 		let version = self.version.clone();
 
 		let vfs = self
@@ -148,6 +155,7 @@ impl Cli {
 		// Create the options.
 		let options = tangram_server::Options {
 			addr,
+			build,
 			path,
 			remote,
 			version,

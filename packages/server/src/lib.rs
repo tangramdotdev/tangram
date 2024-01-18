@@ -55,6 +55,7 @@ struct Inner {
 }
 
 struct BuildContext {
+	build: tg::build::Id,
 	children: Option<tokio::sync::watch::Sender<()>>,
 	depth: u64,
 	log: Option<tokio::sync::watch::Sender<()>>,
@@ -65,10 +66,15 @@ struct BuildContext {
 
 pub struct Options {
 	pub addr: tg::Addr,
+	pub build: BuildOptions,
 	pub path: PathBuf,
 	pub remote: Option<RemoteOptions>,
 	pub version: String,
 	pub vfs: Option<VfsOptions>,
+}
+
+pub struct BuildOptions {
+	pub max_concurrency: Option<usize>,
 }
 
 pub struct RemoteOptions {
@@ -130,9 +136,11 @@ impl Server {
 		let build_context = std::sync::RwLock::new(HashMap::default());
 
 		// Create the build semaphore.
-		let build_semaphore = Arc::new(tokio::sync::Semaphore::new(
-			std::thread::available_parallelism().unwrap().get() * 2,
-		));
+		let permits = options
+			.build
+			.max_concurrency
+			.unwrap_or_else(|| std::thread::available_parallelism().unwrap().get());
+		let build_semaphore = Arc::new(tokio::sync::Semaphore::new(permits));
 
 		// Open the database.
 		let database_path = path.join("database");
@@ -248,7 +256,8 @@ impl Server {
 				.await
 				.wrap_err("Failed to remove the artifacts path.")?;
 		}
-		if options.vfs.map(|opt| opt.enable).unwrap_or(true) {
+		let vfs = options.vfs.map_or(true, |opt| opt.enable);
+		if vfs {
 			// Create the artifacts directory.
 			tokio::fs::create_dir_all(&artifacts_path)
 				.await
