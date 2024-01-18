@@ -542,7 +542,7 @@ impl Server {
 			let attributes = tg::file::Attributes { references };
 			let attributes =
 				serde_json::to_vec(&attributes).wrap_err("Failed to serialize attributes.")?;
-			xattr::set(&path, tg::file::TANGRAM_FILE_XATTR_NAME, &attributes)
+			xattr::set(path, tg::file::TANGRAM_FILE_XATTR_NAME, &attributes)
 				.wrap_err("Failed to set attributes as an xattr.")?;
 		}
 

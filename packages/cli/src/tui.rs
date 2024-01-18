@@ -729,6 +729,7 @@ impl Drop for LogInner {
 
 impl Log {
 	// Create a new log data stream.
+	#[allow(clippy::too_many_lines)]
 	fn new(tg: &dyn tg::Handle, build: &tg::Build, rect: Rect) -> Self {
 		let build = build.clone();
 		let chunks = tokio::sync::Mutex::new(Vec::new());
@@ -1240,6 +1241,7 @@ mod tests {
 		assert_eq!(&lines[3], "d... ");
 	}
 
+	#[allow(clippy::too_many_lines)]
 	#[test]
 	fn tailing() {
 		let chunks = vec![

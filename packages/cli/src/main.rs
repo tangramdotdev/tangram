@@ -72,6 +72,9 @@ struct Config {
 	autoenv: Option<AutoenvConfig>,
 
 	#[serde(default, skip_serializing_if = "Option::is_none")]
+	build: Option<BuildConfig>,
+
+	#[serde(default, skip_serializing_if = "Option::is_none")]
 	remote: Option<RemoteConfig>,
 
 	#[serde(default, skip_serializing_if = "Option::is_none")]
@@ -82,6 +85,13 @@ struct Config {
 struct AutoenvConfig {
 	#[serde(default, skip_serializing_if = "Vec::is_empty")]
 	paths: Vec<PathBuf>,
+}
+
+#[derive(Clone, Debug, Default, serde::Serialize, serde::Deserialize)]
+struct BuildConfig {
+	/// The maximum number of concurrent builds.
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	max_concurrency: Option<usize>,
 }
 
 #[derive(Clone, Debug, Default, serde::Serialize, serde::Deserialize)]
@@ -96,12 +106,6 @@ struct RemoteConfig {
 }
 
 #[derive(Clone, Debug, Default, serde::Serialize, serde::Deserialize)]
-struct VfsConfig {
-	#[serde(default, skip_serializing_if = "Option::is_none")]
-	enable: Option<bool>,
-}
-
-#[derive(Clone, Debug, Default, serde::Serialize, serde::Deserialize)]
 struct RemoteBuildConfig {
 	/// Enable remote builds.
 	#[serde(default, skip_serializing_if = "std::ops::Not::not")]
@@ -110,6 +114,12 @@ struct RemoteBuildConfig {
 	/// Limit remote builds to targets with the specified hosts.
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	hosts: Option<Vec<tg::System>>,
+}
+
+#[derive(Clone, Debug, Default, serde::Serialize, serde::Deserialize)]
+struct VfsConfig {
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	enable: Option<bool>,
 }
 
 fn main() {
