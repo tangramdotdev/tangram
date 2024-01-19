@@ -1452,6 +1452,14 @@ impl stateid4 {
 	pub fn is_lock_set(&self) -> bool {
 		u32::from_be_bytes(self.other[8..12].try_into().unwrap()) == 1
 	}
+
+	pub fn is_valid(&self) -> bool {
+		if [0, u64::MAX].contains(&self.index()) {
+			[0, u32::MAX].contains(&self.seqid.0)
+		} else {
+			true
+		}
+	}
 }
 
 impl seqid4 {

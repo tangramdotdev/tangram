@@ -146,7 +146,7 @@ impl Server {
 			nodes,
 			clients: BTreeMap::new(),
 			locks: BTreeMap::new(),
-			index: 0,
+			index: 1,
 		});
 		let task = std::sync::Mutex::new(None);
 		let server = Self {
@@ -199,7 +199,9 @@ impl Server {
 
 		tokio::process::Command::new("mount_nfs")
 			.arg("-o")
-			.arg(format!("tcp,vers=4.0,namedattr,port={port}"))
+			.arg(format!(
+				"rsize=65536,nocallback,tcp,vers=4.0,namedattr,port={port}"
+			))
 			.arg("Tangram:/")
 			.arg(path)
 			.stdout(std::process::Stdio::null())
@@ -1046,8 +1048,29 @@ impl Server {
 		// Create the stateid.
 		let index = {
 			let mut state = self.inner.state.write().await;
+
+			// In the extremely unlikely event that the client has more files open then we can represent, return an error.
+			if state.locks.len() == usize::MAX - 2 {
+				tracing::error!("Failed to create the file reader.");
+				return OPEN4res::Error(nfsstat4::NFS4ERR_IO);
+			}
+
+			// Get the next index and update the state's index.
 			let index = state.index;
-			state.index += 1;
+
+			// The values 0 and u64::MAX are sential values for the other field of stateid, so skip them.
+			loop {
+				if state.index == u64::MAX - 1 {
+					state.index = 1
+				} else {
+					state.index += 1;
+				}
+				state.index += 1;
+				if !state.locks.contains_key(&state.index) {
+					break;
+				}
+			}
+
 			index
 		};
 
@@ -1189,6 +1212,13 @@ impl Server {
 		let state = self.inner.state.read().await;
 		let index = arg.stateid.index();
 		let lock_state_exists = state.locks.contains_key(&index);
+
+		// RFC 7530: If a stateid value is used that has all zeros or all ones in the "other" field but does not match one of the cases above, the server MUST return the error NFS4ERR_BAD_STATEID.
+		// https://datatracker.ietf.org/doc/html/rfc7530#section-9.1.4.3
+		if !arg.stateid.is_valid() {
+			tracing::error!(?arg, "Invalid stateid.");
+			return READ4res::Error(nfsstat4::NFS4ERR_BAD_STATEID);
+		}
 
 		// This fallback exists for special state ids and any erroneous read.
 		let (data, eof) = if [ANONYMOUS_STATE_ID, READ_BYPASS_STATE_ID].contains(&arg.stateid)
