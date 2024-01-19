@@ -17,6 +17,7 @@ async-recursion = { workspace = true }
 async-trait = { workspace = true }
 bytes = { workspace = true }
 derive_more = { workspace = true }
+filetime = { workspace = true }
 fnv = { workspace = true }
 futures = { workspace = true }
 http = { workspace = true }
