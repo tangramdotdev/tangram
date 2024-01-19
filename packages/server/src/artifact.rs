@@ -470,6 +470,20 @@ impl Server {
 				self.check_out_symlink_internal(symlink, path).await?
 			},
 		};
+
+		// Clear the file system object's timestamps.
+		tokio::task::spawn_blocking({
+			let path = path.clone();
+			move || {
+				let epoch = filetime::FileTime::from_unix_time(0, 0);
+				filetime::set_symlink_file_times(path, epoch, epoch)
+					.wrap_err("Failed to set the file system object's timestamps.")?;
+				Ok::<_, Error>(())
+			}
+		})
+		.await
+		.unwrap()?;
+
 		Ok(path)
 	}
 
