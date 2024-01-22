@@ -1,7 +1,7 @@
 use crate::Server;
 use async_recursion::async_recursion;
 use futures::{stream::FuturesUnordered, TryStreamExt};
-use std::os::unix::prelude::PermissionsExt;
+use std::{os::unix::prelude::PermissionsExt, time::SystemTime};
 use tangram_client as tg;
 use tangram_error::{error, Error, Result, WrapErr};
 use tg::Handle;
@@ -475,8 +475,12 @@ impl Server {
 		tokio::task::spawn_blocking({
 			let path = path.clone();
 			move || {
-				let epoch = filetime::FileTime::from_unix_time(0, 0);
-				filetime::set_symlink_file_times(path, epoch, epoch)
+				let epoch = std::fs::FileTimes::new()
+					.set_accessed(SystemTime::UNIX_EPOCH)
+					.set_modified(SystemTime::UNIX_EPOCH);
+				let file = std::fs::File::open(&path)
+					.wrap_err_with(|| format!("Failed to open {path:#?}."))?;
+				file.set_times(epoch)
 					.wrap_err("Failed to set the file system object's timestamps.")?;
 				Ok::<_, Error>(())
 			}
