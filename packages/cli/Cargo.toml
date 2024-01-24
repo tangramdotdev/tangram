@@ -24,6 +24,7 @@ rand = { workspace = true }
 bytes = { workspace = true }
 clap = { workspace = true }
 crossterm = { workspace = true }
+either = { workspace = true }
 futures = { workspace = true }
 indoc = { workspace = true }
 itertools = { workspace = true }

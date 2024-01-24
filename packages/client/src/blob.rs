@@ -1,7 +1,7 @@
 use crate::{
 	branch, error, id, leaf, object, Artifact, Branch, Error, Handle, Leaf, Result, Value, WrapErr,
 };
-use bytes::{Buf, Bytes};
+use bytes::Bytes;
 use derive_more::From;
 use futures::{
 	future::BoxFuture,

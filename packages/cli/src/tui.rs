@@ -1,4 +1,5 @@
 use crossterm as ct;
+use either::Either;
 use futures::{stream::FusedStream, StreamExt, TryStreamExt};
 use num::ToPrimitive;
 use ratatui as tui;
@@ -9,7 +10,6 @@ use std::{
 use tangram_client as tg;
 use tangram_error::{Result, WrapErr};
 use tui::{layout::Rect, style::Stylize, widgets::Widget};
-use unicode_width::UnicodeWidthChar;
 
 pub struct Tui {
 	#[allow(dead_code)]
@@ -99,11 +99,12 @@ struct LogInner {
 }
 
 // Represents the current state of log's scroll, pointing to a newline character within a log chunk.
-#[derive(Copy, Clone, Debug)]
+#[derive(Clone, Debug)]
 struct Scroll {
 	width: usize,
 	chunk: usize,
 	byte: usize,
+	cursor: unicode_segmentation::GraphemeCursor,
 }
 
 enum LogUpdate {
@@ -754,8 +755,8 @@ impl Log {
 		// Create the log streaming task.
 		let task = tokio::task::spawn({
 			let log = log.clone();
-			let mut scroll = None;
 			async move {
+				let mut scroll = None;
 				let area = log.rect().area().to_i64().unwrap();
 				let arg = tg::build::GetLogArg {
 					pos: None,
@@ -842,7 +843,7 @@ impl Log {
 							stream = Some(stream_.fuse());
 						}
 					}
-					log.update_lines(scroll).await;
+					log.update_lines(scroll.clone()).await;
 				}
 			}
 		});
@@ -868,7 +869,7 @@ impl Log {
 		let index = chunks
 			.iter()
 			.position(|existing| existing.pos > chunk.pos)
-			.unwrap();
+			.unwrap_or(chunks.len() - 1);
 		chunks.insert(index, chunk);
 
 		// Check if we need to truncate the next chunk.
@@ -877,7 +878,11 @@ impl Log {
 		if next_pos > next_chunk.pos {
 			let new_length =
 				next_chunk.bytes.len() - (next_pos - next_chunk.pos).to_usize().unwrap();
-			next_chunk.bytes.truncate(new_length);
+			if new_length > 0 {
+				next_chunk.bytes.truncate(new_length);
+			} else {
+				chunks.remove(index + 1);
+			}
 		}
 	}
 
@@ -892,25 +897,23 @@ impl Log {
 			if chunks.is_empty() {
 				return Ok(());
 			}
-			let mut scroll_ = Scroll::new(
+			let mut inner = Scroll::new(
 				width,
 				chunks.len() - 1,
-				chunks.last().unwrap().bytes.len() - 1,
+				chunks.last().unwrap().bytes.len(),
+				&chunks,
 			);
-			scroll_.scroll_up(height, &chunks);
-			*scroll = Some(scroll_);
+			inner.scroll_up(height + 2, &chunks);
+			scroll.replace(inner);
 			return Ok(());
 		};
 
-		// If we've scrolled to the beginning of the stream, pull in some new results and find the first newline.
-		if scroll.chunk == 0 && scroll.byte == 0 {
-			// If we're at position 0, we can't pull in any more log data so bail.
-			let pos = self.inner.chunks.lock().await[scroll.chunk].pos;
+		// Attempt to scroll up by one, and pull in new data if necessary.
+		if scroll.scroll_up(2, &self.inner.chunks.lock().await) == 0 {
+			let pos = self.inner.chunks.lock().await.first().unwrap().pos;
 			if pos == 0 {
 				return Ok(());
 			}
-
-			// Pull in 3 * area / 2 bytes from the log.
 			let len = 3 * self.rect().area().to_i64().unwrap() / 2;
 			let arg = tg::build::GetLogArg {
 				pos: Some(pos),
@@ -938,34 +941,23 @@ impl Log {
 			let byte = (scroll_pos - chunks[chunk].pos).to_usize().unwrap();
 			scroll.chunk = chunk;
 			scroll.byte = byte;
-			return Ok(());
+			scroll.scroll_up(2, &chunks);
 		}
 
-		// Note: scroll by two to avoid potential off-by-one error if the last char of the previous line is a linefeed.
-		let chunks = self.inner.chunks.lock().await;
-		scroll.scroll_up(2, &chunks);
 		Ok(())
 	}
 
 	// Handle a scroll down event.
 	async fn down_impl(&self, scroll: &mut Option<Scroll>) -> Result<()> {
-		let rect = self.rect();
-		let height = rect.height.to_usize().unwrap();
 		let chunks = self.inner.chunks.lock().await;
-		*scroll = match *scroll {
-			Some(mut scroll) => {
-				scroll.scroll_down(height, &chunks);
-				if scroll.chunk == chunks.len() - 1
-					&& scroll.byte == chunks[scroll.chunk].bytes.len() - 1
-				{
-					None
-				} else {
-					scroll.scroll_up(height - 1, &chunks);
-					Some(scroll)
-				}
-			},
-			None => return Ok(()),
-		};
+		let height = self.rect().height.to_usize().unwrap();
+		let is_tailing = scroll.as_mut().map_or(true, |scroll| {
+			scroll.scroll_down(1, &chunks);
+			scroll.clone().scroll_down(height, &chunks) < height
+		});
+		if is_tailing {
+			scroll.take();
+		}
 		Ok(())
 	}
 
@@ -983,13 +975,13 @@ impl Log {
 		let width = rect.width.to_usize().unwrap();
 		let scroll = scroll.unwrap_or_else(|| {
 			let chunk = chunks.len() - 1;
-			let byte = chunks.last().unwrap().bytes.len() - 1;
-			let mut scroll = Scroll::new(width, chunk, byte);
-			scroll.scroll_up(height, &chunks);
+			let byte = chunks.last().unwrap().bytes.len();
+			let mut scroll = Scroll::new(width, chunk, byte, chunks.as_ref());
+			scroll.scroll_up(height + 1, &chunks);
 			scroll
 		});
 
-		let lines = scroll.read_lines(height, &chunks);
+		let lines = scroll.read_lines(height + 1, &chunks);
 		*self.inner.lines.lock().unwrap() = lines;
 	}
 
@@ -1020,151 +1012,403 @@ impl Log {
 	}
 }
 
-fn byte_to_char(byte: u8) -> char {
-	if byte.is_ascii_control() {
-		// Display a spaces for a tab character.
-		if byte as char == '\t' {
-			' '
-		} else if byte as char == '\n' {
-			byte as char
-		} else {
-			'�'
+impl Scroll {
+	fn new(width: usize, chunk: usize, byte: usize, chunks: &[tg::build::LogChunk]) -> Self {
+		let offset = chunks[chunk].pos.to_usize().unwrap() + byte;
+		let length = chunks
+			.last()
+			.map(|chunk| chunk.pos.to_usize().unwrap() + chunk.bytes.len())
+			.unwrap();
+		let cursor = unicode_segmentation::GraphemeCursor::new(offset, length, true);
+		Self {
+			width,
+			chunk,
+			byte,
+			cursor,
 		}
-	} else if byte.is_ascii() {
-		byte as char
-	} else {
-		'�'
+	}
+
+	// Increment the scroll position by one UTF8 grapheme cluster and add the intermediate results to end of the buffer. Returns Some(true) if successful, Some(false) if additional pre-context is required, or `None` if we receive invalid UTF-8.
+	#[allow(clippy::too_many_lines)]
+	fn advance(
+		&mut self,
+		forward: bool,                  // Advance forward if true, backward if false.
+		chunks: &[tg::build::LogChunk], // The chunks to use as a corpus.
+		buffer: &mut Vec<u8>,           // The output buffer to write to.
+	) -> Option<bool> {
+		let (old_chunk, old_byte) = (self.chunk, self.byte);
+		loop {
+			// Handle boundary conditions.
+			if self.is_at_end(chunks) && forward {
+				break;
+			}
+
+			// Get the current chunk and utf8 string at a current position.
+			let (utf8_str, chunk_start) = self.get_utf8_str(chunks)?;
+			let utf8: &str = utf8_str
+				.as_ref()
+				.map_left(|l| *l)
+				.map_right(AsRef::<str>::as_ref)
+				.either_into();
+
+			// Advance the cursor by one grapheme in the desired direction.
+			let result = if forward {
+				self.cursor.next_boundary(utf8, chunk_start)
+			} else {
+				self.cursor.prev_boundary(utf8, chunk_start)
+			};
+
+			match result {
+				Ok(Some(new_pos)) => {
+					// Update the chunk if necessary.
+					if new_pos < chunks[self.chunk].pos.to_usize().unwrap()
+						|| new_pos
+							>= chunks[self.chunk].pos.to_usize().unwrap()
+								+ chunks[self.chunk].bytes.len()
+					{
+						self.chunk = chunks
+							.iter()
+							.enumerate()
+							.find_map(|(idx, chunk)| {
+								(new_pos >= chunk.pos.to_usize().unwrap()
+									&& new_pos < chunk.pos.to_usize().unwrap() + chunk.bytes.len())
+								.then_some(idx)
+							})
+							.unwrap_or(chunks.len() - 1);
+					}
+					self.byte = new_pos - chunks[self.chunk].pos.to_usize().unwrap();
+					break;
+				},
+				Ok(None) => {
+					if forward {
+						self.byte = chunks[self.chunk].bytes.len();
+					} else {
+						self.byte = chunks[self.chunk].first_codepoint().unwrap();
+					}
+					break;
+				},
+				Err(unicode_segmentation::GraphemeIncomplete::NextChunk) => {
+					debug_assert!(forward);
+					let last_codepoint = chunks[self.chunk].last_codepoint().unwrap();
+					if self.byte == last_codepoint {
+						self.chunk += 1;
+						self.byte = chunks[self.chunk].first_codepoint().unwrap();
+					} else {
+						self.byte = last_codepoint;
+					}
+				},
+				Err(unicode_segmentation::GraphemeIncomplete::PrevChunk) => {
+					debug_assert!(!forward);
+					let first_codepoint = chunks[self.chunk].first_codepoint().unwrap();
+					if self.byte == first_codepoint {
+						if self.chunk == 0 {
+							return Some(false);
+						}
+						self.chunk -= 1;
+						self.byte = chunks[self.chunk].last_codepoint().unwrap();
+					} else {
+						self.byte = chunks[self.chunk].prev_codepoint(self.byte).unwrap();
+					}
+				},
+				Err(unicode_segmentation::GraphemeIncomplete::PreContext(end)) => {
+					let Some((string, start)) = self.get_pre_context(chunks, end) else {
+						return Some(false);
+					};
+					self.cursor.provide_context(string, start);
+				},
+				_ => unreachable!(),
+			}
+		}
+
+		// Append this grapheme to the end of the buffer, accounting for overlap.
+		let (new_chunk, new_byte) = (self.chunk, self.byte);
+		if forward {
+			if new_chunk == old_chunk {
+				let bytes = &chunks[new_chunk].bytes[old_byte..new_byte];
+				buffer.extend_from_slice(bytes);
+			} else {
+				let bytes = &chunks[old_chunk].bytes[old_byte..];
+				buffer.extend_from_slice(bytes);
+				let bytes = &chunks[new_chunk].bytes[..new_byte];
+				buffer.extend_from_slice(bytes);
+			}
+		} else {
+			let mid = buffer.len();
+			if new_chunk == old_chunk {
+				let bytes = &chunks[new_chunk].bytes[new_byte..old_byte];
+				buffer.extend_from_slice(bytes);
+			} else {
+				let bytes = &chunks[new_chunk].bytes[new_byte..];
+				buffer.extend_from_slice(bytes);
+				let bytes = &chunks[old_chunk].bytes[..old_byte];
+				buffer.extend_from_slice(bytes);
+			}
+			buffer.rotate_left(mid);
+		}
+		Some(true)
+	}
+
+	fn is_at_end(&self, chunks: &[tg::build::LogChunk]) -> bool {
+		let chunk = &chunks[self.chunk];
+		self.byte == chunk.bytes.len()
+	}
+
+	fn is_at_start(&self, chunks: &[tg::build::LogChunk]) -> bool {
+		self.chunk == 0 && chunks[self.chunk].first_codepoint() == Some(self.byte)
+	}
+
+	/// Scroll down by `height` num lines, wrapping on grapheme clusters, and return the number of lines that were scrolled.
+	fn scroll_down(&mut self, height: usize, chunks: &[tg::build::LogChunk]) -> usize {
+		let mut buffer = Vec::with_capacity(3 * self.width / 2);
+
+		// Advance the cursor by `height` number of lines, accounting for word wrap.
+		let mut count = 0;
+		let mut last_width = 0;
+		while count < height {
+			if self.is_at_end(chunks) {
+				return count;
+			}
+
+			// Advance the cursor by width, or until we hit a newline.
+			buffer.clear();
+			let mut width = 0;
+			let skip = loop {
+				if self.advance(true, chunks, &mut buffer).is_none() {
+					return count;
+				}
+				width += 1;
+				if buffer.ends_with(b"\n") {
+					break last_width == self.width && width == 1;
+				} else if width == self.width {
+					break false;
+				}
+			};
+
+			// If we hit a new line, and the last line's width was equal to the word wrap size, then we have to skip this line.
+			last_width = width;
+			if !skip {
+				count += 1;
+			}
+		}
+		height
+	}
+
+	/// Scroll up by height num lines, wrapping on grapheme clusters, returning the number of lines scrolled.
+	fn scroll_up(&mut self, height: usize, chunks: &[tg::build::LogChunk]) -> usize {
+		let mut buffer = Vec::with_capacity(3 * self.width / 2);
+		let mut last_line_wrapped = false;
+		for count in 0..height {
+			buffer.clear();
+			let mut width = 0;
+			last_line_wrapped = loop {
+				if matches!(self.advance(false, chunks, &mut buffer), Some(false) | None) {
+					return count;
+				}
+				if buffer.starts_with(b"\n") || buffer.starts_with(b"\r\n") {
+					break false;
+				}
+				width += 1;
+				if width == self.width {
+					break true;
+				}
+			};
+			if self.is_at_start(chunks) {
+				return count;
+			}
+		}
+
+		// Make sure to advance by one grapheme cluster if the start of the last line was a newline character.
+		// TODO: remove this allocation
+		if !last_line_wrapped {
+			let mut buffer = Vec::with_capacity(4);
+			self.advance(true, chunks, &mut buffer);
+		}
+		height
+	}
+
+	fn read_lines(&self, count: usize, chunks: &[tg::build::LogChunk]) -> Vec<String> {
+		let mut scroll = self.clone();
+
+		let mut lines = Vec::with_capacity(count);
+		let mut buffer = Vec::with_capacity(3 * self.width / 2);
+
+		let mut last_line_length = 0;
+		let mut n = 0;
+		while n < count {
+			if scroll.is_at_end(chunks) {
+				break;
+			}
+
+			// Read at most `width` graphemes.
+			let mut width = 0;
+			buffer.clear();
+			let skip = loop {
+				if scroll.advance(true, chunks, &mut buffer).is_none() {
+					// Handle invalid utf8.
+					buffer.extend_from_slice("�".as_bytes());
+					if let Some(next_codepoint) = chunks[scroll.chunk].next_codepoint(scroll.byte) {
+						scroll.byte = next_codepoint;
+					} else {
+						scroll.byte += 1;
+						if scroll.byte == chunks[scroll.chunk].bytes.len()
+							&& scroll.chunk < chunks.len() - 1
+						{
+							scroll.chunk += 1;
+						}
+						let pos = chunks[scroll.chunk].pos.to_usize().unwrap() + scroll.byte;
+						scroll.cursor.set_cursor(pos);
+					}
+				}
+
+				// Check if we need to break out of the loop. If the last line width was equal to scroll.width and the buffer is just one newline, it means we can skip the line.
+				width += 1;
+				if buffer.ends_with(b"\r\n") {
+					buffer.shrink_to(buffer.len() - 2);
+					break last_line_length == scroll.width && width == 1;
+				} else if buffer.ends_with(b"\n") {
+					buffer.pop();
+					break last_line_length == scroll.width && width == 1;
+				} else if width == scroll.width {
+					break false;
+				}
+			};
+			last_line_length = width;
+			if !skip {
+				let line = String::from_utf8(buffer.clone()).unwrap();
+				lines.push(line.replace('\t', " "));
+				n += 1;
+			}
+		}
+
+		lines
+	}
+
+	// Get the UTF8-validated string that contains the current scroll position.
+	fn get_utf8_str<'a>(
+		&self,
+		chunks: &'a [tg::build::LogChunk], // The chunks to use as a corpus.
+	) -> Option<(Either<&'a str, String>, usize)> {
+		let first_codepoint = chunks[self.chunk].first_codepoint()?;
+		let last_codepoint = chunks[self.chunk].last_codepoint()?;
+
+		// Special case: we're reading past the end of the buffer.
+		if self.is_at_end(chunks) {
+			let chunk = chunks.last().unwrap();
+			let chunk_start = chunk.pos.to_usize().unwrap() + chunk.bytes.len();
+			Some((Either::Left(""), chunk_start))
+		} else if self.byte == last_codepoint {
+			let first_byte = chunks[self.chunk].bytes[self.byte];
+			let mut buf = Vec::with_capacity(4);
+			let num_bytes = if 0b1111_0000 & first_byte == 0b1111_0000 {
+				4
+			} else if 0b1110_0000 & first_byte == 0b1110_0000 {
+				3
+			} else if 0b1100_0000 & first_byte == 0b1100_0000 {
+				2
+			} else {
+				1
+			};
+			for n in 0..num_bytes {
+				if self.byte + n < chunks[self.chunk].bytes.len() {
+					buf.push(chunks[self.chunk].bytes[self.byte + n]);
+				} else {
+					let byte = self.byte + n - chunks[self.chunk].bytes.len();
+					buf.push(chunks[self.chunk + 1].bytes[byte]);
+				}
+			}
+			let chunk_start = chunks[self.chunk].pos.to_usize().unwrap() + self.byte;
+			let string = String::from_utf8(buf).ok()?;
+			Some((Either::Right(string), chunk_start))
+		} else {
+			let bytes = &chunks[self.chunk].bytes[first_codepoint..last_codepoint];
+			let utf8 = std::str::from_utf8(bytes).ok()?;
+			let chunk_start = chunks[self.chunk].pos.to_usize().unwrap() + first_codepoint;
+			Some((Either::Left(utf8), chunk_start))
+		}
+	}
+
+	// Helper: get a utf8 string that ends at `end`.
+	fn get_pre_context<'a>(
+		&self,
+		chunks: &'a [tg::build::LogChunk],
+		end: usize,
+	) -> Option<(&'a str, usize)> {
+		let chunk = chunks[..=self.chunk]
+			.iter()
+			.rev()
+			.find(|chunk| chunk.pos.to_usize().unwrap() < end)?;
+		let end_byte = end - chunk.pos.to_usize().unwrap();
+		for start_byte in 0..chunk.bytes.len() {
+			let bytes = &chunk.bytes[start_byte..end_byte];
+			if let Ok(string) = std::str::from_utf8(bytes) {
+				return Some((string, chunk.pos.to_usize().unwrap() + start_byte));
+			}
+		}
+		None
 	}
 }
 
-impl Scroll {
-	fn new(width: usize, chunk: usize, byte: usize) -> Self {
-		Self { width, chunk, byte }
-	}
+// Helper to track start/end codepoints in a buffer.
+trait ChunkExt {
+	fn first_codepoint(&self) -> Option<usize>;
+	fn last_codepoint(&self) -> Option<usize>;
+	fn next_codepoint(&self, byte: usize) -> Option<usize>;
+	fn prev_codepoint(&self, byte: usize) -> Option<usize>;
+}
 
-	fn inc(&mut self, chunks: &[tg::build::LogChunk]) {
-		if self.chunk == chunks.len() - 1 && self.byte == chunks[self.chunk].bytes.len() - 1 {
-			return;
-		}
-		if self.byte == chunks[self.chunk].bytes.len() - 1 {
-			self.byte = 0;
-			self.chunk += 1;
-		} else {
-			self.byte += 1;
-		}
-	}
-
-	fn dec(&mut self, chunks: &[tg::build::LogChunk]) {
-		if self.chunk == 0 && self.byte == 0 {
-			return;
-		}
-		if self.byte == 0 {
-			self.chunk -= 1;
-			self.byte = chunks[self.chunk].bytes.len() - 1;
-		} else {
-			self.byte -= 1;
-		}
-		debug_assert!(self.byte <= chunks[self.chunk].bytes.len());
-	}
-
-	fn scroll_up(&mut self, height: usize, chunks: &[tg::build::LogChunk]) {
-		for h in 0..height {
-			if self.chunk == 0 && self.byte == 0 {
-				break;
-			}
-			let mut width = 0;
-			while !(self.chunk == 0 && self.byte == 0) {
-				let chunk = &chunks[self.chunk];
-				let byte = chunk.bytes[self.byte];
-				let char = byte_to_char(byte);
-				if char == '\n' {
-					// Hack to workaround off-by-one error in case we scroll back to a newline character.
-					if h != height - 1 {
-						self.dec(chunks);
-					}
-					break;
-				} else if width + char.width().unwrap_or(0) > self.width {
-					break;
-				}
-				width += char.width().unwrap_or(0);
-				self.dec(chunks);
-			}
-		}
-		// Cursors should always point to the first character of a line and not the line feed characters that precede them.
-		if chunks[self.chunk].bytes[self.byte] == b'\n' {
-			self.inc(chunks);
-		}
-	}
-
-	fn scroll_down(&mut self, height: usize, chunks: &[tg::build::LogChunk]) {
-		for _ in 0..height {
-			if self.chunk == chunks.len() - 1 && self.byte == chunks[self.chunk].bytes.len() - 1 {
-				break;
-			}
-			let mut width = 0;
-			while !(self.chunk == chunks.len() - 1
-				&& self.byte == chunks[self.chunk].bytes.len() - 1)
+impl ChunkExt for tg::build::LogChunk {
+	fn first_codepoint(&self) -> Option<usize> {
+		for (i, byte) in self.bytes.iter().enumerate() {
+			if *byte & 0b1111_0000 == 0b1111_0000
+				|| *byte & 0b1110_0000 == 0b1110_0000
+				|| *byte & 0b1100_0000 == 0b1100_0000
+				|| *byte & 0b1000_0000 == 0b0000_0000
 			{
-				let chunk = &chunks[self.chunk];
-				let char = byte_to_char(chunk.bytes[self.byte]);
-				if char == '\n' {
-					self.inc(chunks);
-					break;
-				} else if width + char.width().unwrap_or(0) > self.width {
-					break;
-				}
-				width += char.width().unwrap_or(0);
-				self.inc(chunks);
+				return Some(i);
 			}
 		}
+		None
 	}
 
-	fn read_lines(&self, height: usize, chunks: &[tg::build::LogChunk]) -> Vec<String> {
-		let mut chunk = self.chunk;
-		let mut byte = self.byte;
-		let mut lines = Vec::with_capacity(height);
-		'outer: for _ in 0..height {
-			if chunk == chunks.len() - 1 && byte == chunks[chunk].bytes.len() - 1 {
-				break;
-			}
-			let mut buf = String::with_capacity(3 * self.width / 2);
-			let mut width = 0;
-			while chunk < chunks.len() && byte < chunks[chunk].bytes.len() {
-				let char = byte_to_char(chunks[chunk].bytes[byte]);
-
-				// If we hit a linefeed, add the buffer to the list of lines and continue the outer loop.
-				if char == '\n' {
-					lines.push(buf);
-					if byte == chunks[chunk].bytes.len() - 1 {
-						byte = 0;
-						chunk += 1;
-					} else {
-						byte += 1;
-					}
-					continue 'outer;
-				}
-				// If we need to wrap, add the buffer but do not eat the current character.
-				else if width + char.width().unwrap_or(0) > self.width {
-					lines.push(buf);
-					continue 'outer;
-				}
-				// Otherwise, add the character to the buffer and keep eating.
-				buf.push(char);
-				width += char.width().unwrap_or(0);
-				if byte == chunks[chunk].bytes.len() - 1 {
-					byte = 0;
-					chunk += 1;
-				} else {
-					byte += 1;
-				}
-				// Edge case: EOF
-				if chunk == chunks.len() {
-					lines.push(buf);
-					break 'outer;
-				}
+	fn last_codepoint(&self) -> Option<usize> {
+		for (i, byte) in self.bytes.iter().rev().enumerate() {
+			if *byte & 0b1111_0000 == 0b1111_0000
+				|| *byte & 0b1110_0000 == 0b1110_0000
+				|| *byte & 0b1100_0000 == 0b1100_0000
+				|| *byte & 0b1000_0000 == 0b0000_0000
+			{
+				return Some(self.bytes.len() - 1 - i);
 			}
 		}
-		lines
+		None
+	}
+
+	fn next_codepoint(&self, byte: usize) -> Option<usize> {
+		for i in byte..self.bytes.len() {
+			let byte = self.bytes[i];
+			if byte & 0b1111_0000 == 0b1111_0000
+				|| byte & 0b1110_0000 == 0b1110_0000
+				|| byte & 0b1100_0000 == 0b1100_0000
+				|| byte & 0b1000_0000 == 0b0000_0000
+			{
+				return Some(i);
+			}
+		}
+		None
+	}
+
+	fn prev_codepoint(&self, byte: usize) -> Option<usize> {
+		for i in (0..byte).rev() {
+			let byte = self.bytes[i];
+			if byte & 0b1111_0000 == 0b1111_0000
+				|| byte & 0b1110_0000 == 0b1110_0000
+				|| byte & 0b1100_0000 == 0b1100_0000
+				|| byte & 0b1000_0000 == 0b0000_0000
+			{
+				return Some(i);
+			}
+		}
+		None
 	}
 }
 
@@ -1181,7 +1425,7 @@ mod tests {
 				bytes: b"11".to_vec().into(),
 			},
 			tg::build::LogChunk {
-				pos: 3,
+				pos: 2,
 				bytes: b"\n\n22\n".to_vec().into(),
 			},
 			tg::build::LogChunk {
@@ -1193,18 +1437,30 @@ mod tests {
 				bytes: b"344".to_vec().into(),
 			},
 		];
-		let mut iter = Scroll::new(2, chunks.len() - 1, chunks.last().unwrap().bytes.len() - 1);
+		let mut scroll = Scroll::new(
+			2,
+			chunks.len() - 1,
+			chunks.last().unwrap().bytes.len(),
+			&chunks,
+		);
 
 		// Word wrap.
-		iter.scroll_up(2, &chunks);
-		let lines = iter.read_lines(4, &chunks);
+		scroll.scroll_up(2, &chunks);
+		assert_eq!(scroll.chunk, 2);
+		assert_eq!(scroll.byte, 0);
+
+		let lines = scroll.read_lines(4, &chunks);
 		assert_eq!(lines.len(), 2);
 		assert_eq!(&lines[0], "33");
 		assert_eq!(&lines[1], "44");
 
 		// Empty lines.
-		iter.scroll_up(5, &chunks);
-		let lines = iter.read_lines(5, &chunks);
+		scroll.scroll_up(5, &chunks);
+		assert_eq!(scroll.chunk, 0);
+		assert_eq!(scroll.byte, 0);
+		assert_eq!(scroll.cursor.cur_cursor(), 0);
+
+		let lines = scroll.read_lines(5, &chunks);
 		assert_eq!(lines.len(), 5);
 		assert_eq!(&lines[0], "11");
 		assert_eq!(&lines[1], "");
@@ -1213,8 +1469,8 @@ mod tests {
 		assert_eq!(&lines[4], "44");
 
 		// Scrolling down.
-		iter.scroll_down(2, &chunks);
-		let lines = iter.read_lines(5, &chunks);
+		scroll.scroll_down(2, &chunks);
+		let lines = scroll.read_lines(5, &chunks);
 		assert_eq!(lines.len(), 3);
 		assert_eq!(&lines[0], "22");
 		assert_eq!(&lines[1], "33");
@@ -1225,20 +1481,19 @@ mod tests {
 		[{"pos":0,"bytes":[99,104,101,99,107,105,110,103,32,102,111,114,32,97,32,66,83,68,45,99,111,109,112,97,116,105,98,108,101,32,105,110,115,116,97,108,108,46,46,46,32]},{"pos":41,"bytes":[47,46,116,97,110,103,114,97,109,47,97,114,116,105,102,97,99,116,115,47,100,105,114,95,48,49,113,119,104,120,104,122,51,99,50,52,52,114,57,53,103,56,102,114,114,102,116,52,122,98,115,97,120,113,97,53,102,106,112,104,100,119,57,57,110,112,50,50,112,50,49,119,112,113,107,50,48,48,47,98,105,110,47,105,110,115,116,97,108,108,32,45,99,10,99,104,101,99,107,105,110,103,32,119,104,101,116,104,101,114,32,98,117,105,108,100,32,101,110,118,105,114,111,110,109,101,110,116,32,105,115,32,115,97,110,101,46,46,46,32]},{"pos":181,"bytes":[121,101,115,10]},{"pos":185,"bytes":[99,104,101,99,107,105,110,103,32,102,111,114,32,97,32,114,97,99,101,45,102,114,101,101,32,109,107,100,105,114,32,45,112,46,46,46,32]},{"pos":222,"bytes":[47,46,116,97,110,103,114,97,109,47,97,114,116,105,102,97,99,116,115,47,100,105,114,95,48,49,53,120,56,106,53,53,115,121,109,55,107,56,52,122,112,57,114,109,114,53,106,120,57,48,56,50,107,97,115,107,48,122,116,121,106,107,100,54,98,49,52,113,112,112,55,102,120,49,99,118,101,48,47,98,117,105,108,100,45,97,117,120,47,105,110,115,116,97,108,108,45,115,104,32,45,99,32,45,100,10]},{"pos":328,"bytes":[99,104,101,99,107,105,110,103,32,102,111,114,32,103,97,119,107,46,46,46,32,110,111,10,99,104,101,99,107,105,110,103,32,102,111,114,32,109,97,119,107,46,46,46,32,110,111,10,99,104,101,99,107,105,110,103,32,102,111,114,32,110,97,119,107,46,46,46,32,110,111,10,99,104,101,99,107,105,110,103,32,102,111,114,32,97,119,107,46,46,46,32,97,119,107,10,99,104,101,99,107,105,110,103,32,119,104,101,116,104,101,114,32,109,97,107,101,32,115,101,116,115,32,36,40,77,65,75,69,41,46,46,46,32]},{"pos":462,"bytes":[110,111,10]},{"pos":465,"bytes":[99,104,101,99,107,105,110,103,32,119,104,101,116,104,101,114,32,109,97,107,101,32,115,117,112,112,111,114,116,115,32,110,101,115,116,101,100,32,118,97,114,105,97,98,108,101,115,46,46,46,32]},{"pos":516,"bytes":[110,111,10]},{"pos":519,"bytes":[99,104,101,99,107,105,110,103,32,119,104,101,116,104,101,114,32,109,97,107,101,32,115,117,112,112,111,114,116,115,32,116,104,101,32,105,110,99,108,117,100,101,32,100,105,114,101,99,116,105,118,101,46,46,46,32]},{"pos":575,"bytes":[110,111,10]},{"pos":578,"bytes":[99,104,101,99,107,105,110,103,32,102,111,114,32,103,99,99,46,46,46,32]},{"pos":598,"bytes":[103,99,99,10]},{"pos":602,"bytes":[99,104,101,99,107,105,110,103,32,119,104,101,116,104,101,114,32,116,104,101,32,67,32,99,111,109,112,105,108,101,114,32,119,111,114,107,115,46,46,46,32]},{"pos":643,"bytes":[121,101,115,10,99,104,101,99,107,105,110,103,32,102,111,114,32,67,32,99,111,109,112,105,108,101,114,32,100,101,102,97,117,108,116,32,111,117,116,112,117,116,32,102,105,108,101,32,110,97,109,101,46,46,46,32,97,46,111,117,116,10]},{"pos":705,"bytes":[99,104,101,99,107,105,110,103,32,102,111,114,32,115,117,102,102,105,120,32,111,102,32,101,120,101,99,117,116,97,98,108,101,115,46,46,46,32]},{"pos":743,"bytes":[10]},{"pos":744,"bytes":[99,104,101,99,107,105,110,103,32,119,104,101,116,104,101,114,32,119,101,32,97,114,101,32,99,114,111,115,115,32,99,111,109,112,105,108,105,110,103,46,46,46,32]},{"pos":787,"bytes":[110,111,10]},{"pos":790,"bytes":[99,104,101,99,107,105,110,103,32,102,111,114,32,115,117,102,102,105,120,32,111,102,32,111,98,106,101,99,116,32,102,105,108,101,115,46,46,46,32]},{"pos":829,"bytes":[111,10,99,104,101,99,107,105,110,103,32,119,104,101,116,104,101,114,32,116,104,101,32,99,111,109,112,105,108,101,114,32,115,117,112,112,111,114,116,115,32,71,78,85,32,67,46,46,46,32]},{"pos":879,"bytes":[121,101,115,10]},{"pos":883,"bytes":[99,104,101,99,107,105,110,103,32,119,104,101,116,104,101,114,32,103,99,99,32,97,99,99,101,112,116,115,32,45,103,46,46,46,32]},{"pos":918,"bytes":[121,101,115,10]},{"pos":922,"bytes":[99,104,101,99,107,105,110,103,32,102,111,114,32,103,99,99,32,111,112,116,105,111,110,32,116,111,32,101,110,97,98,108,101,32,67,49,49,32,102,101,97,116,117,114,101,115,46,46,46,32]},{"pos":972,"bytes":[110,111,110,101,32,110,101,101,100,101,100,10]},{"pos":984,"bytes":[99,104,101,99,107,105,110,103,32,119,104,101,116,104,101,114,32,103,99,99,32,117,110,100,101,114,115,116,97,110,100,115,32,45,99,32,97,110,100,32,45,111,32,116,111,103,101,116,104,101,114,46,46,46,32]},{"pos":1039,"bytes":[121,101,115,10]},{"pos":1043,"bytes":[99,104,101,99,107,105,110,103,32,119,104,101,116,104,101,114,32,116,104,101,32,99,111,109,112,105,108,101,114,32,105,115,32,99,108,97,110,103,46,46,46,32]},{"pos":1085,"bytes":[110,111,10,99,104,101,99,107,105,110,103,32,102,111,114,32,99,111,109,112,105,108,101,114,32,111,112,116,105,111,110,32,110,101,101,100,101,100,32,119,104,101,110,32,99,104,101,99,107,105,110,103,32,102,111,114,32,100,101,99,108,97,114,97,116,105,111,110,115,46,46,46,32]},{"pos":1158,"bytes":[110,111,110,101,10,99,104,101,99,107,105,110,103,32,100,101,112,101,110,100,101,110,99,121,32,115,116,121,108,101,32,111,102,32,103,99,99,46,46,46,32,110,111,110,101,10,99,104,101,99,107,105,110,103,32,102,111,114,32,115,116,100,105,111,46,104,46,46,46,32]},{"pos":1228,"bytes":[121,101,115,10]},{"pos":1232,"bytes":[99,104,101,99,107,105,110,103,32,102,111,114,32,115,116,100,108,105,98,46,104,46,46,46,32]},{"pos":1257,"bytes":[121,101,115,10]},{"pos":1261,"bytes":[99,104,101,99,107,105,110,103,32,102,111,114,32,115,116,114,105,110,103,46,104,46,46,46,32]},{"pos":1286,"bytes":[121,101,115,10]},{"pos":1290,"bytes":[99,104,101,99,107,105,110,103,32,102,111,114,32,105,110,116,116,121,112,101,115,46,104,46,46,46,32]},{"pos":1317,"bytes":[121,101,115,10]},{"pos":1321,"bytes":[99,104,101,99,107,105,110,103,32,102,111,114,32,115,116,100,105,110,116,46,104,46,46,46,32]},{"pos":1346,"bytes":[121,101,115,10]},{"pos":1350,"bytes":[99,104,101,99,107,105,110,103,32,102,111,114,32,115,116,114,105,110,103,115,46,104,46,46,46,32]},{"pos":1376,"bytes":[121,101,115,10]},{"pos":1380,"bytes":[99,104,101,99,107,105,110,103,32,102,111,114,32,115,121,115,47,115,116,97,116,46,104,46,46,46,32]},{"pos":1407,"bytes":[121,101,115,10]},{"pos":1411,"bytes":[99,104,101,99,107,105,110,103,32,102,111,114,32,115,121,115,47,116,121,112,101,115,46,104,46,46,46,32]},{"pos":1439,"bytes":[121,101,115,10]},{"pos":1443,"bytes":[99,104,101,99,107,105,110,103,32,102,111,114,32,117,110,105,115,116,100,46,104,46,46,46,32]},{"pos":1468,"bytes":[121,101,115,10]},{"pos":1472,"bytes":[99,104,101,99,107,105,110,103,32,102,111,114,32,119,99,104,97,114,46,104,46,46,46,32]},{"pos":1496,"bytes":[121,101,115,10]},{"pos":1500,"bytes":[99,104,101,99,107,105,110,103,32,102,111,114,32,109,105,110,105,120,47,99,111,110,102,105,103,46,104,46,46,46,32]},{"pos":1531,"bytes":[110,111,10]},{"pos":1534,"bytes":[99,104,101,99,107,105,110,103,32,102,111,114,32,115,121,115,47,112,97,114,97,109,46,104,46,46,46,32]},{"pos":1562,"bytes":[121,101,115,10]},{"pos":1566,"bytes":[99,104,101,99,107,105,110,103,32,102,111,114,32,115,116,100,98,111,111,108,46,104,46,46,46,32]},{"pos":1592,"bytes":[121,101,115,10]},{"pos":1596,"bytes":[99,104,101,99,107,105,110,103,32,102,111,114,32,118,102,111,114,107,46,104,46,46,46,32]},{"pos":1620,"bytes":[110,111,10]},{"pos":1623,"bytes":[99,104,101,99,107,105,110,103,32,119,104,101,116,104,101,114,32,105,116,32,105,115,32,115,97,102,101,32,116,111,32,100,101,102,105,110,101,32,95,95,69,88,84,69,78,83,73,79,78,83,95,95,46,46,46,32]},{"pos":1679,"bytes":[121,101,115,10,99,104,101,99,107,105,110,103,32,119,104,101,116,104,101,114,32,95,88,79,80,69,78,95,83,79,85,82,67,69,32,115,104,111,117,108,100,32,98,101,32,100,101,102,105,110,101,100,46,46,46,32]},{"pos":1735,"bytes":[110,111,10]},{"pos":1738,"bytes":[99,104,101,99,107,105,110,103,32,102,111,114,32,103,99,99,46,46,46,32,40,99,97,99,104,101,100,41,32,103,99,99,10]},{"pos":1771,"bytes":[99,104,101,99,107,105,110,103,32,119,104,101,116,104,101,114,32,116,104,101,32,99,111,109,112,105,108,101,114,32,115,117,112,112,111,114,116,115,32,71,78,85,32,67,46,46,46,32,40,99,97,99,104,101,100,41,32]},{"pos":1828,"bytes":[121,101,115,10,99,104,101,99,107,105,110,103,32,119,104,101,116,104,101,114,32,103,99,99,32,97,99,99,101,112,116,115,32,45,103,46,46,46,32,40,99,97,99,104,101,100,41,32,121,101,115,10,99,104,101,99,107,105,110,103,32,102,111,114,32,103,99,99,32,111,112,116,105,111,110,32,116,111,32,101,110,97,98,108,101,32,67,49,49,32,102,101,97,116,117,114,101,115,46,46,46,32,40,99,97,99,104,101,100,41,32,110,111,110,101,32,110,101,101,100,101,100,10,99,104,101,99,107,105,110,103,32,119,104,101,116,104,101,114,32,103,99,99,32,117,110,100,101,114,115,116,97,110,100,115,32,45,99,32,97,110,100,32,45,111,32,116,111,103,101,116,104,101,114,46,46,46,32,40,99,97,99,104,101,100,41,32,121,101,115,10,99,104,101,99,107,105,110,103,32,119,104,101,116,104,101,114,32,116,104,101,32,99,111,109,112,105,108,101,114,32,105,115,32,99,108,97,110,103,46,46,46,32,40,99,97,99,104,101,100,41,32,110,111,10,99,104,101,99,107,105,110,103,32,102,111,114,32,99,111,109,112,105,108,101,114,32,111,112,116,105,111,110,32,110,101,101,100,101,100,32,119,104,101,110,32,99,104,101,99,107,105,110,103,32,102,111,114,32,100,101,99,108,97,114,97,116,105,111,110,115,46,46,46,32,40,99,97,99,104,101,100,41,32,110,111,110,101,10,99,104,101,99,107,105,110,103,32,100,101,112,101,110,100,101,110,99,121,32,115,116,121,108,101,32,111,102,32,103,99,99,46,46,46,32,40,99,97,99,104,101,100,41,32,110,111,110,101,10,99,104,101,99,107,105,110,103,32,102,111,114,32,103,43,43,46,46,46,32]},{"pos":2227,"bytes":[103,43,43,10]},{"pos":2231,"bytes":[99,104,101,99,107,105,110,103,32,119,104,101,116,104,101,114,32,116,104,101,32,99,111,109,112,105,108,101,114,32,115,117,112,112,111,114,116,115,32,71,78,85,32,67,43,43,46,46,46,32]},{"pos":2281,"bytes":[121,101,115,10]},{"pos":2285,"bytes":[99,104,101,99,107,105,110,103,32,119,104,101,116,104,101,114,32,103,43,43,32,97,99,99,101,112,116,115,32,45,103,46,46,46,32]},{"pos":2320,"bytes":[121,101,115,10]},{"pos":2324,"bytes":[99,104,101,99,107,105,110,103,32,102,111,114,32,103,43,43,32,111,112,116,105,111,110,32,116,111,32,101,110,97,98,108,101,32,67,43,43,49,49,32,102,101,97,116,117,114,101,115,46,46,46,32]},{"pos":2376,"bytes":[110,111,110,101,32,110,101,101,100,101,100,10]},{"pos":2388,"bytes":[99,104,101,99,107,105,110,103,32,100,101,112,101,110,100,101,110,99,121,32,115,116,121,108,101,32,111,102,32,103,43,43,46,46,46,32,110,111,110,101,10]},{"pos":2429,"bytes":[99,104,101,99,107,105,110,103,32,98,117,105,108,100,32,115,121,115,116,101,109,32,116,121,112,101,46,46,46,32]},{"pos":2459,"bytes":[120,56,54,95,54,52,45,112,99,45,108,105,110,117,120,45,103,110,117,10]},{"pos":2479,"bytes":[99,104,101,99,107,105,110,103,32,104,111,115,116,32,115,121,115,116,101,109,32,116,121,112,101,46,46,46,32,120,56,54,95,54,52,45,112,99,45,108,105,110,117,120,45,103,110,117,10,99,104,101,99,107,105,110,103,32,104,111,119,32,116,111,32,114,117,110,32,116,104,101,32,67,32,112,114,101,112,114,111,99,101,115,115,111,114,46,46,46,32]},{"pos":2570,"bytes":[103,99,99,32,45,69,10]},{"pos":2577,"bytes":[99,104,101,99,107,105,110,103,32,102,111,114,32,103,114,101,112,32,116,104,97,116,32,104,97,110,100,108,101,115,32,108,111,110,103,32,108,105,110,101,115,32,97,110,100,32,45,101,46,46,46,32]},{"pos":2629,"bytes":[47,46,116,97,110,103,114,97,109,47,97,114,116,105,102,97,99,116,115,47,100,105,114,95,48,49,113,119,104,120,104,122,51,99,50,52,52,114,57,53,103,56,102,114,114,102,116,52,122,98,115,97,120,113,97,53,102,106,112,104,100,119,57,57,110,112,50,50,112,50,49,119,112,113,107,50,48,48,47,98,105,110,47,103,114,101,112,10]},{"pos":2717,"bytes":[99,104,101,99,107,105,110,103,32,102,111,114,32,101,103,114,101,112,46,46,46,32,47,46,116,97,110,103,114,97,109,47,97,114,116,105,102,97,99,116,115,47,100,105,114,95,48,49,113,119,104,120,104,122,51,99,50,52,52,114,57,53,103,56,102,114,114,102,116,52,122,98,115,97,120,113,97,53,102,106,112,104,100,119,57,57,110,112,50,50,112,50,49,119,112,113,107,50,48,48,47,98,105,110,47,103,114,101,112,32,45,69,10,99,104,101,99,107,105,110,103,32,102,111,114,32,77,105,110,105,120,32,65,109,115,116,101,114,100,97,109,32,99,111,109,112,105,108,101,114,46,46,46,32]},{"pos":2871,"bytes":[110,111,10]},{"pos":2874,"bytes":[99,104,101,99,107,105,110,103,32,102,111,114,32,97,114,46,46,46,32,97,114,10,99,104,101,99,107,105,110,103,32,102,111,114,32,114,97,110,108,105,98,46,46,46,32,114,97,110,108,105,98,10,99,104,101,99,107,105,110,103,32,102,111,114,32,103,99,99,32,111,112,116,105,111,110,32,116,111,32,101,110,97,98,108,101,32,108,97,114,103,101,32,102,105,108,101,32,115,117,112,112,111,114,116,46,46,46,32]},{"pos":2982,"bytes":[110,111,110,101,32,110,101,101,100,101,100,10]},{"pos":2994,"bytes":[99,104,101,99,107,105,110,103,32,102,111,114,32,115,105,122,101,95,116,46,46,46,32]},{"pos":3017,"bytes":[121,101,115,10,99,104,101,99,107,105,110,103,32,102,111,114,32,119,111,114,107,105,110,103,32,97,108,108,111,99,97,46,104,46,46,46,32]},{"pos":3054,"bytes":[121,101,115,10]},{"pos":3058,"bytes":[99,104,101,99,107,105,110,103,32,102,111,114,32,97,108,108,111,99,97,46,46,46,32,121,101,115,10,99,104,101,99,107,105,110,103,32,102,111,114,32,101,97,99,99,101,115,115,46,46,46,32]},{"pos":3109,"bytes":[121,101,115,10]},{"pos":3113,"bytes":[99,104,101,99,107,105,110,103,32,102,111,114,32,103,99,99,32,111,112,116,105,111,110,115,32,110,101,101,100,101,100,32,116,111,32,100,101,116,101,99,116,32,97,108,108,32,117,110,100,101,99,108,97,114,101,100,32,102,117,110,99,116,105,111,110,115,46,46,46,32]},{"pos":3183,"bytes":[110,111,110,101,32,110,101,101,100,101,100,10]},{"pos":3195,"bytes":[99,104,101,99,107,105,110,103,32,104,111,115,116,32,67,80,85,32,97,110,100,32,67,32,65,66,73,46,46,46,32]},{"pos":3226,"bytes":[120,56,54,95,54,52,10]},{"pos":3233,"bytes":[99,104,101,99,107,105,110,103,32,102,111,114,32,67,32,99,111,109,112,105,108,101,114,32,111,112,116,105,111,110,32,116,111,32,97,108,108,111,119,32,119,97,114,110,105,110,103,115,46,46,46,32]},{"pos":3285,"bytes":[45,87,110,111,45,101,114,114,111,114,10]},{"pos":3296,"bytes":[99,104,101,99,107,105,110,103,32,102,111,114,32,97,108,108,111,99,97,32,97,115,32,97,32,99,111,109,112,105,108,101,114,32,98,117,105,108,116,45,105,110,46,46,46,32]},{"pos":3342,"bytes":[121,101,115,10]},{"pos":3346,"bytes":[99,104,101,99,107,105,110,103,32,102,111,114,32,103,101,116,108,111,97,100,97,118,103,46,46,46,32]},{"pos":3373,"bytes":[121,101,115,10]},{"pos":3377,"bytes":[99,104,101,99,107,105,110,103,32,102,111,114,32,115,121,115,47,108,111,97,100,97,118,103,46,104,46,46,46,32]},{"pos":3407,"bytes":[110,111,10]},{"pos":3410,"bytes":[99,104,101,99,107,105,110,103,32,119,104,101,116,104,101,114,32,103,101,116,108,111,97,100,97,118,103,32,105,115,32,100,101,99,108,97,114,101,100,46,46,46,32]},{"pos":3453,"bytes":[121,101,115,10]},{"pos":3457,"bytes":[99,104,101,99,107,105,110,103,32,105,102,32,115,121,115,116,101,109,32,108,105,98,99,32,104,97,115,32,119,111,114,107,105,110,103,32,71,78,85,32,103,108,111,98,46,46,46,32]},{"pos":3505,"bytes":[110,111,10]},{"pos":3508,"bytes":[99,104,101,99,107,105,110,103,32,119,104,101,116,104,101,114,32,115,121,115,116,101,109,32,117,115,101,115,32,77,83,68,79,83,45,115,116,121,108,101,32,112,97,116,104,115,46,46,46,32]},{"pos":3558,"bytes":[110,111,10]},{"pos":3561,"bytes":[99,104,101,99,107,105,110,103,32,102,111,114,32,98,111,111,108,44,32,116,114,117,101,44,32,102,97,108,115,101,46,46,46,32]},{"pos":3595,"bytes":[110,111,10]},{"pos":3598,"bytes":[99,104,101,99,107,105,110,103,32,102,111,114,32,114,97,110,108,105,98,46,46,46,32,40,99,97,99,104,101,100,41,32,114,97,110,108,105,98,10,99,104,101,99,107,105,110,103,32,104,111,119,32,116,111,32,114,117,110,32,116,104,101,32,67,32,112,114,101,112,114,111,99,101,115,115,111,114,46,46,46,32,103,99,99,32,45,69,10]},{"pos":3686,"bytes":[99,104,101,99,107,105,110,103,32,102,111,114,32,97,114,46,46,46,32]},{"pos":3705,"bytes":[97,114,10,99,104,101,99,107,105,110,103,32,102,111,114,32,112,101,114,108,46,46,46,32,112,101,114,108,10,99,104,101,99,107,105,110,103,32,119,104,101,116,104,101,114,32,98,121,116,101,32,111,114,100,101,114,105,110,103,32,105,115,32,98,105,103,101,110,100,105,97,110,46,46,46,32]},{"pos":3781,"bytes":[110,111,10,99,104,101,99,107,105,110,103,32,102,111,114,32,97,32,115,101,100,32,116,104,97,116,32,100,111,101,115,32,110,111,116,32,116,114,117,110,99,97,116,101,32,111,117,116,112,117,116,46,46,46,32]},{"pos":3836,"bytes":[47,46,116,97,110,103,114,97,109,47,97,114,116,105,102,97,99,116,115,47,100,105,114,95,48,49,113,119,104,120,104,122,51,99,50,52,52,114,57,53,103,56,102,114,114,102,116,52,122,98,115,97,120,113,97,53,102,106,112,104,100,119,57,57,110,112,50,50,112,50,49,119,112,113,107,50,48,48,47,98,105,110,47,115,101,100,10]},{"pos":3923,"bytes":[99,104,101,99,107,105,110,103,32,119,104,101,116,104,101,114,32,78,76,83,32,105,115,32,114,101,113,117,101,115,116,101,100,46,46,46,32,121,101,115,10]},{"pos":3964,"bytes":[99,104,101,99,107,105,110,103,32,102,111,114,32,109,115,103,102,109,116,46,46,46,32]},{"pos":3987,"bytes":[110,111,10,99,104,101,99,107,105,110,103,32,102,111,114,32,103,109,115,103,102,109,116,46,46,46,32,58,10]},{"pos":4016,"bytes":[99,104,101,99,107,105,110,103,32,102,111,114,32,120,103,101,116,116,101,120,116,46,46,46,32]},{"pos":4041,"bytes":[110,111,10]},{"pos":4044,"bytes":[99,104,101,99,107,105,110,103,32,102,111,114,32,109,115,103,109,101,114,103,101,46,46,46,32]},{"pos":4069,"bytes":[110,111,10,99,104,101,99,107,105,110,103,32,102,111,114,32,108,100,32,117,115,101,100,32,98,121,32,103,99,99,46,46,46,32]},{"pos":4103,"bytes":[47,46,116,97,110,103,114,97,109,47,97,114,116,105,102,97,99,116,115,47,100,105,114,95,48,49,98,50,110,50,99,118,49,118,113,48,112,116,54,120,104,119,115,51,107,51,106,98,55,99,100,98,54,116,114,116,48,50,114,56,107,121,99,119,103,120,119,103,121,55,98,112,102,118,110,102,101,48,47,108,100,10]},{"pos":4185,"bytes":[99,104,101,99,107,105,110,103,32,105,102,32,116,104,101,32,108,105,110,107,101,114,32,40,47,46,116,97,110,103,114,97,109,47,97,114,116,105,102,97,99,116,115,47,100,105,114,95,48,49,98,50,110,50,99,118,49,118,113,48,112,116,54,120,104,119,115,51,107,51,106,98,55,99,100,98,54,116,114,116,48,50,114,56,107,121,99,119,103,120,119,103,121,55,98,112,102,118,110,102,101,48,47,108,100,41,32,105,115,32,71,78,85,32,108,100,46,46,46,32]},{"pos":4305,"bytes":[121,101,115,10]},{"pos":4309,"bytes":[99,104,101,99,107,105,110,103,32,102,111,114,32,115,104,97,114,101,100,32,108,105,98,114,97,114,121,32,114,117,110,32,112,97,116,104,32,111,114,105,103,105,110,46,46,46,32]},{"pos":4356,"bytes":[100,111,110,101,10]},{"pos":4361,"bytes":[99,104,101,99,107,105,110,103,32,102,111,114,32,67,70,80,114,101,102,101,114,101,110,99,101,115,67,111,112,121,65,112,112,86,97,108,117,101,46,46,46,32]},{"pos":4403,"bytes":[110,111,10]},{"pos":4406,"bytes":[99,104,101,99,107,105,110,103,32,102,111,114,32,67,70,76,111,99,97,108,101,67,111,112,121,67,117,114,114,101,110,116,46,46,46,32]},{"pos":4442,"bytes":[110,111,10]},{"pos":4445,"bytes":[99,104,101,99,107,105,110,103,32,102,111,114,32,71,78,85,32,103,101,116,116,101,120,116,32,105,110,32,108,105,98,99,46,46,46,32]},{"pos":4481,"bytes":[110,111,10]},{"pos":4484,"bytes":[99,104,101,99,107,105,110,103,32,102,111,114,32,105,99,111,110,118,46,46,46,32]},{"pos":4506,"bytes":[121,101,115,10,99,104,101,99,107,105,110,103,32,102,111,114,32,119,111,114,107,105,110,103,32,105,99,111,110,118,46,46,46,32]},{"pos":4540,"bytes":[121,101,115,10]},{"pos":4544,"bytes":[99,104,101,99,107,105,110,103,32,102,111,114,32,71,78,85,32,103,101,116,116,101,120,116,32,105,110,32,108,105,98,105,110,116,108,46,46,46,32]},{"pos":4583,"bytes":[110,111,10]},{"pos":4586,"bytes":[99,104,101,99,107,105,110,103,32,119,104,101,116,104,101,114,32,116,111,32,117,115,101,32,78,76,83,46,46,46,32,110,111,10,99,104,101,99,107,105,110,103,32,102,111,114,32,108,105,98,114,97,114,121,32,99,111,110,116,97,105,110,105,110,103,32,115,116,114,101,114,114,111,114,46,46,46,32]},{"pos":4664,"bytes":[110,111,110,101,32,114,101,113,117,105,114,101,100,10]},{"pos":4678,"bytes":[99,104,101,99,107,105,110,103,32,102,111,114,32,108,105,98,114,97,114,121,32,99,111,110,116,97,105,110,105,110,103,32,103,101,116,112,119,110,97,109,46,46,46,32]},{"pos":4722,"bytes":[110,111,110,101,32,114,101,113,117,105,114,101,100,10]},{"pos":4736,"bytes":[99,104,101,99,107,105,110,103,32,102,111,114,32,100,105,114,101,110,116,46,104,32,116,104,97,116,32,100,101,102,105,110,101,115,32,68,73,82,46,46,46,32]},{"pos":4778,"bytes":[121,101,115,10]},{"pos":4782,"bytes":[99,104,101,99,107,105,110,103,32,102,111,114,32,108,105,98,114,97,114,121,32,99,111,110,116,97,105,110,105,110,103,32,111,112,101,110,100,105,114,46,46,46,32]},{"pos":4825,"bytes":[110,111,110,101,32,114,101,113,117,105,114,101,100,10]},{"pos":4839,"bytes":[99,104,101,99,107,105,110,103,32,119,104,101,116,104,101,114,32,115,116,97,116,32,102,105,108,101,45,109,111,100,101,32,109,97,99,114,111,115,32,97,114,101,32,98,114,111,107,101,110,46,46,46,32]},{"pos":4892,"bytes":[110,111,10]},{"pos":4895,"bytes":[99,104,101,99,107,105,110,103,32,102,111,114,32,115,116,100,108,105,98,46,104,46,46,46,32,40,99,97,99,104,101,100,41,32,121,101,115,10,99,104,101,99,107,105,110,103,32,102,111,114,32,115,116,114,105,110,103,46,104,46,46,46,32,40,99,97,99,104,101,100,41,32,121,101,115,10,99,104,101,99,107,105,110,103,32,102,111,114,32,115,116,114,105,110,103,115,46,104,46,46,46,32,40,99,97,99,104,101,100,41,32,121,101,115,10,99,104,101,99,107,105,110,103,32,102,111,114,32,108,111,99,97,108,101,46,104,46,46,46,32]},{"pos":5035,"bytes":[121,101,115,10]},{"pos":5039,"bytes":[99,104,101,99,107,105,110,103,32,102,111,114,32,117,110,105,115,116,100,46,104,46,46,46,32,40,99,97,99,104,101,100,41,32,121,101,115,10,99,104,101,99,107,105,110,103,32,102,111,114,32,108,105,109,105,116,115,46,104,46,46,46,32]},{"pos":5102,"bytes":[121,101,115,10]},{"pos":5106,"bytes":[99,104,101,99,107,105,110,103,32,102,111,114,32,109,101,109,111,114,121,46,104,46,46,46,32]},{"pos":5131,"bytes":[121,101,115,10]},{"pos":5135,"bytes":[99,104,101,99,107,105,110,103,32,102,111,114,32,115,121,115,47,112,97,114,97,109,46,104,46,46,46,32,40,99,97,99,104,101,100,41,32,121,101,115,10,99,104,101,99,107,105,110,103,32,102,111,114,32,115,121,115,47,114,101,115,111,117,114,99,101,46,104,46,46,46,32]},{"pos":5207,"bytes":[121,101,115,10]},{"pos":5211,"bytes":[99,104,101,99,107,105,110,103,32,102,111,114,32,115,121,115,47,116,105,109,101,98,46,104,46,46,46,32]},{"pos":5239,"bytes":[121,101,115,10]},{"pos":5243,"bytes":[99,104,101,99,107,105,110,103,32,102,111,114,32,115,121,115,47,116,105,109,101,46,104,46,46,46,32]},{"pos":5270,"bytes":[121,101,115,10]},{"pos":5274,"bytes":[99,104,101,99,107,105,110,103,32,102,111,114,32,115,121,115,47,115,101,108,101,99,116,46,104,46,46,46,32]},{"pos":5303,"bytes":[121,101,115,10]},{"pos":5307,"bytes":[99,104,101,99,107,105,110,103,32,102,111,114,32,115,121,115,47,102,105,108,101,46,104,46,46,46,32]},{"pos":5334,"bytes":[121,101,115,10]},{"pos":5338,"bytes":[99,104,101,99,107,105,110,103,32,102,111,114,32,102,99,110,116,108,46,104,46,46,46,32]},{"pos":5362,"bytes":[121,101,115,10]},{"pos":5366,"bytes":[99,104,101,99,107,105,110,103,32,102,111,114,32,115,112,97,119,110,46,104,46,46,46,32]},{"pos":5390,"bytes":[121,101,115,10]},{"pos":5394,"bytes":[99,104,101,99,107,105,110,103,32,102,111,114,32,97,110,32,65,78,83,73,32,67,45,99,111,110,102,111,114,109,105,110,103,32,99,111,110,115,116,46,46,46,32]},{"pos":5437,"bytes":[121,101,115,10,99,104,101,99,107,105,110,103,32,102,111,114,32,117,105,100,95,116,32,105,110,32,115,121,115,47,116,121,112,101,115,46,104,46,46,46,32]},{"pos":5478,"bytes":[121,101,115,10]},{"pos":5482,"bytes":[99,104,101,99,107,105,110,103,32,102,111,114,32,112,105,100,95,116,46,46,46,32]},{"pos":5504,"bytes":[121,101,115,10]},{"pos":5508,"bytes":[99,104,101,99,107,105,110,103,32,102,111,114,32,111,102,102,95,116,46,46,46,32]},{"pos":5530,"bytes":[121,101,115,10]},{"pos":5534,"bytes":[99,104,101,99,107,105,110,103,32,102,111,114,32,115,105,122,101,95,116,46,46,46,32,40,99,97,99,104,101,100,41,32,121,101,115,10,99,104,101,99,107,105,110,103,32,102,111,114,32,115,115,105,122,101,95,116,46,46,46,32]},{"pos":5594,"bytes":[121,101,115,10]},{"pos":5598,"bytes":[99,104,101,99,107,105,110,103,32,102,111,114,32,117,110,115,105,103,110,101,100,32,108,111,110,103,32,108,111,110,103,32,105,110,116,46,46,46,32]},{"pos":5637,"bytes":[121,101,115,10]},{"pos":5641,"bytes":[99,104,101,99,107,105,110,103,32,102,111,114,32,108,111,110,103,32,108,111,110,103,32,105,110,116,46,46,46,32]},{"pos":5671,"bytes":[121,101,115,10]},{"pos":5675,"bytes":[99,104,101,99,107,105,110,103,32,102,111,114,32,105,110,116,109,97,120,95,116,46,46,46,32]},{"pos":5700,"bytes":[121,101,115,10]},{"pos":5704,"bytes":[99,104,101,99,107,105,110,103,32,102,111,114,32,117,105,110,116,109,97,120,95,116,46,46,46,32]},{"pos":5730,"bytes":[121,101,115,10]},{"pos":5734,"bytes":[99,104,101,99,107,105,110,103,32,102,111,114,32,115,105,103,95,97,116,111,109,105,99,95,116,46,46,46,32]},{"pos":5763,"bytes":[121,101,115,10]},{"pos":5767,"bytes":[99,104,101,99,107,105,110,103,32,102,111,114,32,110,97,110,111,115,101,99,111,110,100,115,32,102,105,101,108,100,32,111,102,32,115,116,114,117,99,116,32,115,116,97,116,46,46,46,32]},{"pos":5816,"bytes":[115,116,95,109,116,105,109,46,116,118,95,110,115,101,99,10]},{"pos":5832,"bytes":[99,104,101,99,107,105,110,103,32,119,104,101,116,104,101,114,32,116,111,32,117,115,101,32,104,105,103,104,32,114,101,115,111,108,117,116,105,111,110,32,102,105,108,101,32,116,105,109,101,115,116,97,109,112,115,46,46,46,32]},{"pos":5891,"bytes":[121,101,115,10]},{"pos":5895,"bytes":[99,104,101,99,107,105,110,103,32,102,111,114,32,108,105,98,114,97,114,121,32,99,111,110,116,97,105,110,105,110,103,32,99,108,111,99,107,95,103,101,116,116,105,109,101,46,46,46,32]},{"pos":5944,"bytes":[110,111,110,101,32,114,101,113,117,105,114,101,100,10]},{"pos":5958,"bytes":[99,104,101,99,107,105,110,103,32,102,111,114,32,115,116,97,110,100,97,114,100,32,103,101,116,116,105,109,101,111,102,100,97,121,46,46,46,32]},{"pos":5996,"bytes":[121,101,115,10]},{"pos":6000,"bytes":[99,104,101,99,107,105,110,103,32,102,111,114,32,115,116,114,116,111,108,108,46,46,46,32]},{"pos":6024,"bytes":[121,101,115,10]},{"pos":6028,"bytes":[99,104,101,99,107,105,110,103,32,102,111,114,32,115,116,114,100,117,112,46,46,46,32]},{"pos":6051,"bytes":[121,101,115,10]},{"pos":6055,"bytes":[99,104,101,99,107,105,110,103,32,102,111,114,32,115,116,114,110,100,117,112,46,46,46,32]},{"pos":6079,"bytes":[121,101,115,10]},{"pos":6083,"bytes":[99,104,101,99,107,105,110,103,32,102,111,114,32,115,116,112,99,112,121,46,46,46,32]},{"pos":6106,"bytes":[121,101,115,10]},{"pos":6110,"bytes":[99,104,101,99,107,105,110,103,32,102,111,114,32,109,101,109,114,99,104,114,46,46,46,32]},{"pos":6134,"bytes":[121,101,115,10]},{"pos":6138,"bytes":[99,104,101,99,107,105,110,103,32,102,111,114,32,109,101,109,112,99,112,121,46,46,46,32]},{"pos":6162,"bytes":[121,101,115,10]},{"pos":6166,"bytes":[99,104,101,99,107,105,110,103,32,102,111,114,32,117,109,97,115,107,46,46,46,32]},{"pos":6188,"bytes":[121,101,115,10]},{"pos":6192,"bytes":[99,104,101,99,107,105,110,103,32,102,111,114,32,109,107,115,116,101,109,112,46,46,46,32]},{"pos":6216,"bytes":[121,101,115,10]},{"pos":6220,"bytes":[99,104,101,99,107,105,110,103,32,102,111,114,32,109,107,116,101,109,112,46,46,46,32]},{"pos":6243,"bytes":[121,101,115,10]},{"pos":6247,"bytes":[99,104,101,99,107,105,110,103,32,102,111,114,32,102,100,111,112,101,110,46,46,46,32]},{"pos":6270,"bytes":[121,101,115,10]},{"pos":6274,"bytes":[99,104,101,99,107,105,110,103,32,102,111,114,32,100,117,112,46,46,46,32]},{"pos":6294,"bytes":[121,101,115,10]},{"pos":6298,"bytes":[99,104,101,99,107,105,110,103,32,102,111,114,32,100,117,112,50,46,46,46,32]},{"pos":6319,"bytes":[121,101,115,10]},{"pos":6323,"bytes":[99,104,101,99,107,105,110,103,32,102,111,114,32,103,101,116,99,119,100,46,46,46,32]},{"pos":6346,"bytes":[121,101,115,10]},{"pos":6350,"bytes":[99,104,101,99,107,105,110,103,32,102,111,114,32,114,101,97,108,112,97,116,104,46,46,46,32]},{"pos":6375,"bytes":[121,101,115,10]},{"pos":6379,"bytes":[99,104,101,99,107,105,110,103,32,102,111,114,32,115,105,103,115,101,116,109,97,115,107,46,46,46,32]},{"pos":6406,"bytes":[110,111,10]},{"pos":6409,"bytes":[99,104,101,99,107,105,110,103,32,102,111,114,32,115,105,103,97,99,116,105,111,110,46,46,46,32]},{"pos":6435,"bytes":[121,101,115,10]},{"pos":6439,"bytes":[99,104,101,99,107,105,110,103,32,102,111,114,32,103,101,116,103,114,111,117,112,115,46,46,46,32]},{"pos":6465,"bytes":[121,101,115,10]},{"pos":6469,"bytes":[99,104,101,99,107,105,110,103,32,102,111,114,32,115,101,116,101,117,105,100,46,46,46,32]},{"pos":6493,"bytes":[121,101,115,10]},{"pos":6497,"bytes":[99,104,101,99,107,105,110,103,32,102,111,114,32,115,101,116,101,103,105,100,46,46,46,32]},{"pos":6521,"bytes":[121,101,115,10]},{"pos":6525,"bytes":[99,104,101,99,107,105,110,103,32,102,111,114,32,115,101,116,108,105,110,101,98,117,102,46,46,46,32]},{"pos":6552,"bytes":[121,101,115,10]},{"pos":6556,"bytes":[99,104,101,99,107,105,110,103,32,102,111,114,32,115,101,116,114,101,117,105,100,46,46,46,32]}]
 		"#;
 		let chunks: Vec<tg::build::LogChunk> = serde_json::from_str(chunks).unwrap();
-		let height = 4;
+		let height = 2;
 		let width = 20;
 
 		let mut iter = Scroll::new(
 			width,
 			chunks.len() - 1,
-			chunks.last().unwrap().bytes.len() - 1,
+			chunks.last().unwrap().bytes.len(),
+			&chunks,
 		);
 		iter.scroll_up(height, &chunks);
 		let lines = iter.read_lines(height, &chunks);
-		assert_eq!(&lines[0], "checking for setline");
-		assert_eq!(&lines[1], "buf... yes");
-		assert_eq!(&lines[2], "checking for setreui");
-		assert_eq!(&lines[3], "d... ");
+		assert_eq!(&lines[0], "checking for setreui");
+		assert_eq!(&lines[1], "d... ");
 	}
 
 	#[allow(clippy::too_many_lines)]
@@ -1346,9 +1601,142 @@ mod tests {
 		let width = 189;
 		let chunk = chunks.len() - 1;
 		let byte = chunks.last().unwrap().bytes.len() - 1;
-		let mut scroll = Scroll::new(width, chunk, byte);
+		let mut scroll = Scroll::new(width, chunk, byte, &chunks);
 		scroll.scroll_up(height, &chunks);
 		let lines = scroll.read_lines(height, &chunks);
 		assert_eq!(lines.len(), chunks.len());
+	}
+
+	#[test]
+	fn simple_tailing() {
+		let chunks = vec![
+			tg::build::LogChunk {
+				pos: 0,
+				bytes: b"\"0\"\n".to_vec().into(),
+			},
+			tg::build::LogChunk {
+				pos: 4,
+				bytes: b"\"1\"\n".to_vec().into(),
+			},
+			tg::build::LogChunk {
+				pos: 8,
+				bytes: b"\"2\"\n".to_vec().into(),
+			},
+			tg::build::LogChunk {
+				pos: 12,
+				bytes: b"\"3\"\n".to_vec().into(),
+			},
+		];
+		let mut scroll = Scroll::new(
+			10,
+			chunks.len() - 1,
+			chunks.last().unwrap().bytes.len(),
+			&chunks,
+		);
+		scroll.scroll_up(3, &chunks);
+		assert_eq!(scroll.chunk, 2);
+		assert_eq!(scroll.byte, 0);
+		let lines = scroll.read_lines(3, &chunks);
+		assert_eq!(&lines[0], "\"2\"");
+		assert_eq!(&lines[1], "\"3\"");
+	}
+
+	#[test]
+	fn scroll_up() {
+		use tg::build::LogChunk;
+		let chunks = [
+			LogChunk {
+				pos: 0,
+				bytes: b"\"0\"\n".to_vec().into(),
+			},
+			LogChunk {
+				pos: 4,
+				bytes: b"\"1\"\n".to_vec().into(),
+			},
+			LogChunk {
+				pos: 8,
+				bytes: b"\"2\"\n".to_vec().into(),
+			},
+			LogChunk {
+				pos: 12,
+				bytes: b"\"3\"\n".to_vec().into(),
+			},
+			LogChunk {
+				pos: 16,
+				bytes: b"\"4\"\n".to_vec().into(),
+			},
+			LogChunk {
+				pos: 20,
+				bytes: b"\"5\"\n".to_vec().into(),
+			},
+			LogChunk {
+				pos: 24,
+				bytes: b"\"6\"\n".to_vec().into(),
+			},
+			LogChunk {
+				pos: 28,
+				bytes: b"\"7\"\n".to_vec().into(),
+			},
+			LogChunk {
+				pos: 32,
+				bytes: b"\"8\"\n".to_vec().into(),
+			},
+			LogChunk {
+				pos: 36,
+				bytes: b"\"9\"\n".to_vec().into(),
+			},
+			LogChunk {
+				pos: 40,
+				bytes: b"\"10\"\n".to_vec().into(),
+			},
+			LogChunk {
+				pos: 45,
+				bytes: b"\"11\"\n".to_vec().into(),
+			},
+			LogChunk {
+				pos: 50,
+				bytes: b"\"12\"\n".to_vec().into(),
+			},
+			LogChunk {
+				pos: 55,
+				bytes: b"\"13\"\n".to_vec().into(),
+			},
+			LogChunk {
+				pos: 60,
+				bytes: b"\"14\"\n".to_vec().into(),
+			},
+			LogChunk {
+				pos: 65,
+				bytes: b"\"15\"\n".to_vec().into(),
+			},
+			LogChunk {
+				pos: 70,
+				bytes: b"\"16\"\n".to_vec().into(),
+			},
+			LogChunk {
+				pos: 75,
+				bytes: b"\"17\"\n".to_vec().into(),
+			},
+			LogChunk {
+				pos: 80,
+				bytes: b"\"18\"\n".to_vec().into(),
+			},
+			LogChunk {
+				pos: 85,
+				bytes: b"\"19\"\n".to_vec().into(),
+			},
+			LogChunk {
+				pos: 90,
+				bytes: b"\"20\"\n".to_vec().into(),
+			},
+		];
+		let mut inner = Scroll::new(
+			40,
+			chunks.len() - 1,
+			chunks.last().unwrap().bytes.len(),
+			&chunks,
+		);
+		let height = 6;
+		inner.scroll_up(height + 2, &chunks);
 	}
 }
