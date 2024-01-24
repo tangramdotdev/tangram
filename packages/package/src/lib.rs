@@ -197,7 +197,7 @@ async fn get_package_with_path_dependencies_for_path_inner(
 	let root_module_path = tg::package::get_root_module_path_for_path(path).await?;
 
 	// Create a queue of module paths to visit and a visited set.
-	let mut queue: VecDeque<tg::Path> = VecDeque::from(vec![root_module_path]);
+	let mut queue = VecDeque::from(vec![root_module_path]);
 	let mut visited_module_paths: HashSet<tg::Path, fnv::FnvBuildHasher> = HashSet::default();
 
 	// Create the path dependencies.
@@ -302,7 +302,9 @@ async fn get_package_with_path_dependencies_for_path_inner(
 					.parent()
 					.join(import.clone())
 					.normalize();
-				if !visited_module_paths.contains(&imported_module_path) {
+				if !visited_module_paths.contains(&imported_module_path)
+					&& !queue.contains(&imported_module_path)
+				{
 					queue.push_back(imported_module_path);
 				}
 			}
