@@ -16,10 +16,6 @@ workspace = true
 name = "tg"
 path = "src/main.rs"
 
-[build-dependencies]
-hex = { workspace = true }
-rand = { workspace = true }
-
 [dependencies]
 bytes = { workspace = true }
 clap = { workspace = true }

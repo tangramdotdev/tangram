@@ -28,7 +28,7 @@ impl Cli {
 		};
 
 		// Check out the artifact.
-		let artifact = tg::Artifact::with_id(args.id);
+		let artifact = tg::Artifact::with_id(args.id.clone());
 		let path = if let Some(path) = &args.path {
 			Some(path.clone().try_into()?)
 		} else {
@@ -38,6 +38,13 @@ impl Cli {
 			.check_out(tg, path.as_ref())
 			.await
 			.wrap_err("Failed to check out the artifact.")?;
+
+		// Print the path.
+		let path = args
+			.path
+			.clone()
+			.unwrap_or_else(|| self.path.join(format!("artifacts/{}", args.id)));
+		println!("{}", path.display());
 
 		Ok(())
 	}

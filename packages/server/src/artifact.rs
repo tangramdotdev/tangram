@@ -1,9 +1,14 @@
 use crate::Server;
 use async_recursion::async_recursion;
 use futures::{stream::FuturesUnordered, TryStreamExt};
+use http_body_util::BodyExt;
 use std::{os::unix::prelude::PermissionsExt, time::SystemTime};
 use tangram_client as tg;
 use tangram_error::{error, Error, Result, WrapErr};
+use tangram_util::{
+	fs::rmrf,
+	http::{full, ok, Incoming, Outgoing},
+};
 use tg::Handle;
 
 impl Server {
@@ -274,7 +279,7 @@ impl Server {
 					.map(|(name, _)| async move {
 						if !directory.entries(self).await?.contains_key(name) {
 							let entry_path = path.clone().join(name.parse()?);
-							tg::util::rmrf(&entry_path).await?;
+							rmrf(&entry_path).await?;
 						}
 						Ok::<_, Error>(())
 					})
@@ -285,7 +290,7 @@ impl Server {
 
 			// If there is an existing artifact at the path and it is not a directory, then remove it, create a directory, and continue.
 			Some(_) => {
-				tg::util::rmrf(path).await?;
+				rmrf(path).await?;
 				tokio::fs::create_dir_all(path)
 					.await
 					.wrap_err("Failed to create the directory.")?;
@@ -340,7 +345,7 @@ impl Server {
 		match &existing_artifact {
 			// If there is an existing file system object at the path, then remove it and continue.
 			Some(_) => {
-				tg::util::rmrf(path).await?;
+				rmrf(path).await?;
 			},
 
 			// If there is no file system object at this path, then continue.
@@ -385,7 +390,7 @@ impl Server {
 		match &existing_artifact {
 			// If there is an existing file system object at the path, then remove it and continue.
 			Some(_) => {
-				tg::util::rmrf(&path).await?;
+				rmrf(&path).await?;
 			},
 
 			// If there is no file system object at this path, then continue.
@@ -424,35 +429,32 @@ impl Server {
 			return Ok(());
 		}
 
-		let temp_path = self
-			.tmp_path()
-			.join(uuid::Uuid::new_v4().to_string())
-			.try_into()?;
+		let tmp = self.create_tmp();
+		let tmp = tmp.path.clone().try_into()?;
 
 		match artifact {
 			tg::Artifact::Directory(directory) => {
-				self.check_out_directory_internal(directory, &temp_path)
-					.await?
+				self.check_out_directory_internal(directory, &tmp).await?
 			},
-			tg::Artifact::File(file) => self.check_out_file_internal(file, &temp_path).await?,
+			tg::Artifact::File(file) => self.check_out_file_internal(file, &tmp).await?,
 			tg::Artifact::Symlink(symlink) => {
-				self.check_out_symlink_internal(symlink, &temp_path).await?
+				self.check_out_symlink_internal(symlink, &tmp).await?
 			},
 		};
 
 		// Rename the file.
-		match std::fs::rename(&temp_path, &path) {
+		match std::fs::rename(&tmp, &path) {
 			Ok(()) => Ok(()),
 			Err(ref error)
 				if matches!(error.raw_os_error(), Some(libc::ENOTEMPTY | libc::EEXIST)) =>
 			{
 				// If the rename fails we need to clean up the temp path.
-				tg::util::rmrf(&temp_path).await?;
+				rmrf(&tmp).await?;
 				Ok(())
 			},
 			Err(error) => Err(error),
 		}
-		.wrap_err_with(|| format!("Failed to rename {temp_path} to {path:#?}."))
+		.wrap_err_with(|| format!("Failed to rename {tmp} to {path:#?}."))
 	}
 
 	#[async_recursion]
@@ -495,19 +497,15 @@ impl Server {
 		tokio::fs::create_dir_all(path)
 			.await
 			.wrap_err("Failed to create the check out directory.")?;
-		// Recurse into the entries.
 		directory
 			.entries(self)
 			.await?
 			.iter()
-			.map(|(name, artifact)| {
-				async {
-					// Recurse.
-					let entry_path = path.clone().join(name.parse()?);
-					self.check_out_internal_inner_inner(artifact, &entry_path)
-						.await?;
-					Ok::<_, Error>(())
-				}
+			.map(|(name, artifact)| async {
+				let entry_path = path.clone().join(name.parse()?);
+				self.check_out_internal_inner_inner(artifact, &entry_path)
+					.await?;
+				Ok::<_, Error>(())
 			})
 			.collect::<FuturesUnordered<_>>()
 			.try_collect()
@@ -531,10 +529,8 @@ impl Server {
 			.await
 			.wrap_err("Failed to check out file references.")?;
 
-		// Copy the blob to the path.
+		// Copy the file.
 		let permit = self.file_descriptor_semaphore().acquire().await;
-
-		// Create a temp file to write to.
 		let mut temp = tokio::fs::File::create(path)
 			.await
 			.wrap_err("Failed to create the file to write to.")?;
@@ -551,7 +547,7 @@ impl Server {
 				.wrap_err("Failed to set the permissions.")?;
 		}
 
-		// Set the xattrs on the file.
+		// Set the extended attributes.
 		if !references.is_empty() {
 			let attributes = tg::file::Attributes { references };
 			let attributes =
@@ -568,11 +564,9 @@ impl Server {
 		symlink: &tg::Symlink,
 		path: &tg::Path,
 	) -> Result<tg::Path> {
-		let mut src = String::new();
-
-		// Check out the artifact.
-		let artifact = symlink.artifact(self).await?;
-		if let Some(artifact) = artifact {
+		// Render the target.
+		let mut target = String::new();
+		if let Some(artifact) = symlink.artifact(self).await? {
 			self.check_out_internal_inner(artifact).await?;
 			let checkouts_path = tg::Path::try_from(self.checkouts_path())
 				.unwrap()
@@ -585,18 +579,62 @@ impl Server {
 				)))
 				.collect::<Vec<_>>();
 			let relative_path = tg::Path::with_components(components);
-			src.push_str(&relative_path.to_string());
-			src.push('/');
+			target.push_str(&relative_path.to_string());
+			target.push('/');
+		}
+		if let Some(path) = symlink.path(self).await? {
+			target.push_str(path);
 		}
 
-		if let Some(path) = symlink.path(self).await? {
-			src.push_str(path);
-		}
-		let dst = path.to_string();
-		tokio::fs::symlink(&src, &dst)
+		// Create the symlink.
+		tokio::fs::symlink(&target, path)
 			.await
-			.wrap_err_with(|| format!("Failed to create symlink to {src} at {path}"))?;
+			.wrap_err("Failed to create the symlink")?;
 
 		Ok(path.to_owned())
+	}
+}
+
+impl Server {
+	pub async fn handle_check_in_artifact_request(
+		&self,
+		request: http::Request<Incoming>,
+	) -> Result<http::Response<Outgoing>> {
+		// Read the body.
+		let bytes = request
+			.into_body()
+			.collect()
+			.await
+			.wrap_err("Failed to read the body.")?
+			.to_bytes();
+		let arg = serde_json::from_slice(&bytes).wrap_err("Failed to deserialize the body.")?;
+
+		// Check in the artifact.
+		let output = self.check_in_artifact(arg).await?;
+
+		// Create the response.
+		let body = serde_json::to_vec(&output).wrap_err("Failed to serialize the response.")?;
+		let response = http::Response::builder().body(full(body)).unwrap();
+
+		Ok(response)
+	}
+
+	pub async fn handle_check_out_artifact_request(
+		&self,
+		request: http::Request<Incoming>,
+	) -> Result<http::Response<Outgoing>> {
+		// Read the body.
+		let bytes = request
+			.into_body()
+			.collect()
+			.await
+			.wrap_err("Failed to read the body.")?
+			.to_bytes();
+		let arg = serde_json::from_slice(&bytes).wrap_err("Failed to deserialize the body.")?;
+
+		// Check out the artifact.
+		self.check_out_artifact(arg).await?;
+
+		Ok(ok())
 	}
 }

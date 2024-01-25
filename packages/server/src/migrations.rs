@@ -60,7 +60,7 @@ async fn migration_0000(path: &Path) -> Result<()> {
 	// Create the database.
 	let db = rusqlite::Connection::open(path.join("database"))
 		.wrap_err("Failed to create the database.")?;
-	db.pragma_update(None, "journal_mode", "WAL")
+	db.pragma_update(None, "journal_mode", "wal")
 		.wrap_err("Failed to set the journal mode.")?;
 	let sql = "
 		create table builds (
@@ -71,39 +71,42 @@ async fn migration_0000(path: &Path) -> Result<()> {
 		create index builds_target_timestamp_index on builds ((state->>'target'), (state->>'timestamp') desc);
 		create index builds_status_index on builds ((state->>'status'));
 
-		create table logs (
+		create table build_children (
+			id text,
+			child text
+		);
+
+		create index build_children_child_index on build_children (child);
+
+		create table build_logs (
 			build text not null,
-			position integer not null,
-			bytes blob not null
+			offset integer not null,
+			data blob not null
 		) strict;
 
-		create index logs_index on logs (build, position);
+		create index build_logs_index on build_logs (build, offset);
 
-		create table objects (
-			id text primary key,
-			bytes blob not null
-		) strict;
-
-		create table packages (
-			name text primary key
-		) strict;
-
-		create table package_versions (
-			name text not null references packages (name),
-			version text not null,
-			id text not null,
-			primary key (name, version)
-		) strict;
-
-		create table queue (
+		create table build_queue (
 			build text not null,
 			options text not null,
 			host text not null,
 			depth integer not null
 		) strict;
 
-		create index queue_build_index on queue (build);
-		create index queue_host_depth_index on queue (host, depth desc);
+		create index build_queue_build_index on build_queue (build);
+		create index build_queue_host_depth_index on build_queue (host, depth desc);
+
+		create table objects (
+			id text primary key,
+			bytes blob not null
+		) strict;
+
+		create table object_children (
+			id text,
+			child text
+		);
+
+		create index object_children_child_index on object_children (child);
 	";
 	db.execute_batch(sql)
 		.wrap_err("Failed to create the database tables.")?;

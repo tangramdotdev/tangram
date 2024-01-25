@@ -77,13 +77,16 @@ declare global {
 		format: Blob.ArchiveFormat,
 	): Promise<Artifact>;
 
-	function syscall(syscall: "load", id: Object_.Id): Promise<Object_>;
+	function syscall(syscall: "load", id: Object_.Id): Promise<Object_.Object_>;
 
 	function syscall(syscall: "log", value: string): void;
 
 	function syscall(syscall: "read", blob: Blob): Promise<Uint8Array>;
 
-	function syscall(syscall: "store", object: Object_): Promise<Object_.Id>;
+	function syscall(
+		syscall: "store",
+		object: Object_.Object_,
+	): Promise<Object_.Id>;
 
 	function syscall(syscall: "sleep", duration: number): Promise<void>;
 }
@@ -288,7 +291,7 @@ export let log = (value: string) => {
 	}
 };
 
-export let load = async (id: Object_.Id): Promise<Object_> => {
+export let load = async (id: Object_.Id): Promise<Object_.Object_> => {
 	try {
 		return await syscall("load", id);
 	} catch (cause) {
@@ -304,7 +307,7 @@ export let read = async (blob: Blob): Promise<Uint8Array> => {
 	}
 };
 
-export let store = async (object: Object_): Promise<Object_.Id> => {
+export let store = async (object: Object_.Object_): Promise<Object_.Id> => {
 	try {
 		return await syscall("store", object);
 	} catch (cause) {

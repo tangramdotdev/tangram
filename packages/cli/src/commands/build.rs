@@ -35,7 +35,7 @@ pub struct Args {
 	pub retry: tg::build::Retry,
 
 	/// The name of the target to build.
-	#[arg(default_value = "default")]
+	#[arg(short, long, default_value = "default")]
 	pub target: String,
 }
 

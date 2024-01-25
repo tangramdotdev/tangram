@@ -26,12 +26,11 @@ tempfile = { workspace = true }
 [dependencies]
 async-recursion = { workspace = true }
 async-trait = { workspace = true }
-base64 = { workspace = true }
 bytes = { workspace = true }
+data-encoding = { workspace = true }
 derive_more = { workspace = true }
 fnv = { workspace = true }
 futures = { workspace = true }
-hex = { workspace = true }
 im = { workspace = true }
 include_dir = { workspace = true }
 itertools = { workspace = true }

@@ -3,7 +3,6 @@ use futures::FutureExt;
 use std::{path::PathBuf, sync::Arc};
 use tangram_client as tg;
 use tangram_error::{error, Result, WrapErr};
-use tg::Handle;
 use tracing_subscriber::prelude::*;
 use url::Url;
 
@@ -45,7 +44,6 @@ pub enum Command {
 	Clean(self::commands::clean::Args),
 	Doc(self::commands::doc::Args),
 	Env(self::commands::env::Args),
-	Exec(self::commands::exec::Args),
 	Fmt(self::commands::fmt::Args),
 	Get(self::commands::get::Args),
 	Init(self::commands::init::Args),
@@ -91,7 +89,7 @@ struct AutoenvConfig {
 struct BuildConfig {
 	/// The maximum number of concurrent builds.
 	#[serde(default, skip_serializing_if = "Option::is_none")]
-	max_concurrency: Option<usize>,
+	permits: Option<usize>,
 }
 
 #[derive(Clone, Debug, Default, serde::Serialize, serde::Deserialize)]
@@ -204,7 +202,6 @@ async fn main_inner() -> Result<()> {
 		Command::Clean(args) => cli.command_clean(args).boxed(),
 		Command::Doc(args) => cli.command_doc(args).boxed(),
 		Command::Env(args) => cli.command_env(args).boxed(),
-		Command::Exec(args) => cli.command_exec(args).boxed(),
 		Command::Fmt(args) => cli.command_fmt(args).boxed(),
 		Command::Get(args) => cli.command_get(args).boxed(),
 		Command::Init(args) => cli.command_init(args).boxed(),

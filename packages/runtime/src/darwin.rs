@@ -18,7 +18,7 @@ use tokio::io::AsyncReadExt;
 pub async fn build(
 	tg: &dyn tg::Handle,
 	build: &tg::Build,
-	_options: &tg::build::Options,
+	options: &tg::build::Options,
 	mut stop: tokio::sync::watch::Receiver<bool>,
 	server_directory_path: &Path,
 ) -> Result<Option<tg::Value>> {
@@ -108,6 +108,7 @@ pub async fn build(
 	let runtime = tg::Runtime {
 		addr,
 		build: build.id().clone(),
+		options: options.clone(),
 	};
 	env.insert(
 		"TANGRAM_RUNTIME".to_owned(),
@@ -301,7 +302,7 @@ pub async fn build(
 				let error = *error;
 				let _message = CStr::from_ptr(error);
 				sandbox_free_error(error);
-				return Err(std::io::Error::from(std::io::ErrorKind::Other));
+				return Err(std::io::Error::last_os_error());
 			}
 
 			// Redirect stderr to stdout.

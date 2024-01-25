@@ -2,23 +2,23 @@ use std::path::Path;
 use tangram_error::{Result, WrapErr};
 
 pub struct Database {
-	pool: tangram_pool::Pool<rusqlite::Connection>,
+	pool: tangram_util::pool::Pool<rusqlite::Connection>,
 }
 
 impl Database {
 	pub async fn new(path: &Path) -> Result<Self> {
-		let pool = tangram_pool::Pool::new();
+		let pool = tangram_util::pool::Pool::new();
 		let n = std::thread::available_parallelism().unwrap().get();
 		for _ in 0..n {
 			let db = rusqlite::Connection::open(path).wrap_err("Failed to open the database.")?;
-			db.pragma_update(None, "busy_timeout", "99999999")
+			db.pragma_update(None, "busy_timeout", "86400000")
 				.wrap_err("Failed to set the busy timeout.")?;
 			pool.put(db).await;
 		}
 		Ok(Database { pool })
 	}
 
-	pub async fn get(&self) -> Result<tangram_pool::Guard<rusqlite::Connection>> {
+	pub async fn get(&self) -> Result<tangram_util::pool::Guard<rusqlite::Connection>> {
 		Ok(self.pool.get().await)
 	}
 }

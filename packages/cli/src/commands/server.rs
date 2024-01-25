@@ -2,7 +2,7 @@ use crate::{Cli, API_URL};
 use std::path::PathBuf;
 use tangram_client as tg;
 use tangram_error::{Result, WrapErr};
-use tg::{Addr, Handle};
+use tg::Addr;
 use url::Url;
 
 /// Manage the server.
@@ -41,28 +41,17 @@ pub struct RunArgs {
 	#[arg(long)]
 	pub path: Option<PathBuf>,
 
-	/// Run without a remote.
-	#[arg(long, default_value = "false")]
-	pub no_remote: bool,
-
 	/// The URL of the remote server.
 	#[arg(long)]
 	pub remote: Option<Url>,
 
-	/// The Builder settings.
-	#[command(flatten)]
-	pub builder: Option<BuilderArgs>,
-}
-
-#[derive(Debug, clap::Args)]
-pub struct BuilderArgs {
-	/// Enable the builder.
+	/// Disable the remote server.
 	#[arg(long, default_value = "false")]
-	enable_builder: Option<bool>,
+	pub no_remote: bool,
 
-	/// The host the builder should run builds for.
-	#[arg(long)]
-	hosts: Option<Vec<tg::System>>,
+	/// Disable the VFS.
+	#[arg(long, default_value = "false")]
+	pub no_vfs: bool,
 }
 
 impl Cli {
@@ -136,21 +125,28 @@ impl Cli {
 		let remote = if args.no_remote { None } else { Some(remote) };
 
 		// Create the build options.
-		let max_concurrency = config
+		let permits = config
 			.as_ref()
 			.and_then(|config| config.build.as_ref())
-			.and_then(|build| build.max_concurrency);
-		let build = tangram_server::BuildOptions { max_concurrency };
+			.and_then(|build| build.permits);
+		let build = tangram_server::BuildOptions { permits };
 
 		let version = self.version.clone();
 
-		let vfs = self
+		// Create the vfs options.
+		let mut vfs = self
 			.config()
 			.await?
 			.and_then(|config| config.vfs)
-			.map(|cfg| tangram_server::VfsOptions {
-				enable: cfg.enable.unwrap_or(true),
-			});
+			.map_or_else(
+				|| tangram_server::VfsOptions { enable: true },
+				|vfs| tangram_server::VfsOptions {
+					enable: vfs.enable.unwrap_or(true),
+				},
+			);
+		if args.no_vfs {
+			vfs.enable = false;
+		};
 
 		// Create the options.
 		let options = tangram_server::Options {
@@ -167,7 +163,7 @@ impl Cli {
 			.await
 			.wrap_err("Failed to create the server.")?;
 
-		// Wait for the server to stop or stop it with an interrupt signal.
+		// Stop the server if an an interrupt signal is received.
 		tokio::spawn({
 			let server = server.clone();
 			async move {
@@ -178,6 +174,7 @@ impl Cli {
 			}
 		});
 
+		// Join the server.
 		server.join().await.wrap_err("Failed to join the server.")?;
 
 		Ok(())

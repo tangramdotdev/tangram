@@ -44,8 +44,8 @@ const ENCODING: data_encoding::Encoding = data_encoding_macro::new_encoding! {
 impl Id {
 	#[must_use]
 	pub fn new_uuidv7(kind: Kind) -> Self {
-		let bytes = uuid::Uuid::now_v7();
-		let body = Body::UuidV7(bytes.into_bytes());
+		let uuid = uuid::Uuid::now_v7();
+		let body = Body::UuidV7(uuid.into_bytes());
 		Self::V0(V0 { kind, body })
 	}
 
@@ -84,8 +84,8 @@ impl std::fmt::Display for Id {
 		};
 		let body = match self {
 			Self::V0(v0) => match v0.body {
-				Body::UuidV7(bytes) => ENCODING.encode(&bytes),
-				Body::Blake3(bytes) => ENCODING.encode(&bytes),
+				Body::UuidV7(body) => ENCODING.encode(&body),
+				Body::Blake3(body) => ENCODING.encode(&body),
 			},
 		};
 		write!(f, "{kind}_{version}{algorithm}{body}")?;

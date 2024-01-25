@@ -7,13 +7,13 @@ import { Symlink } from "./symlink.ts";
 import { Target } from "./target.ts";
 
 export type Object_ =
-	| { kind: "leaf"; value: Leaf.Object_ }
-	| { kind: "branch"; value: Branch.Object_ }
-	| { kind: "directory"; value: Directory.Object_ }
-	| { kind: "file"; value: File.Object_ }
-	| { kind: "symlink"; value: Symlink.Object_ }
-	| { kind: "lock"; value: Lock.Object_ }
-	| { kind: "target"; value: Target.Object_ };
+	| Leaf
+	| Branch
+	| Directory
+	| File
+	| Symlink
+	| Lock
+	| Target;
 
 export namespace Object_ {
 	export type Id = string;
@@ -26,6 +26,15 @@ export namespace Object_ {
 		| "symlink"
 		| "lock"
 		| "target";
+
+	export type Object_ =
+		| { kind: "leaf"; value: Leaf.Object_ }
+		| { kind: "branch"; value: Branch.Object_ }
+		| { kind: "directory"; value: Directory.Object_ }
+		| { kind: "file"; value: File.Object_ }
+		| { kind: "symlink"; value: Symlink.Object_ }
+		| { kind: "lock"; value: Lock.Object_ }
+		| { kind: "target"; value: Target.Object_ };
 
 	export type State<I, O> = {
 		id?: I | undefined;

@@ -1,15 +1,18 @@
+use crate as tg;
 use crate::{
-	checksum, directory, file, id, object, symlink, util, Blob, Checksum, Directory, File, Handle,
-	Symlink, Template, Value,
+	checksum, directory, file, id, object, symlink, Blob, Checksum, Client, Directory, File,
+	Handle, Symlink, Template, Value,
 };
 use async_recursion::async_recursion;
 use derive_more::{From, TryInto, TryUnwrap};
 use futures::stream::{FuturesOrdered, FuturesUnordered, TryStreamExt};
+use http_body_util::BodyExt;
 use std::{
 	collections::{HashSet, VecDeque},
 	os::unix::fs::PermissionsExt,
 };
 use tangram_error::{error, Error, Result, WrapErr};
+use tangram_util::{fs::rmrf, http::full};
 
 /// An artifact kind.
 #[derive(Clone, Copy, Debug)]
@@ -453,7 +456,7 @@ impl Artifact {
 					.map(|(name, _)| async move {
 						if !directory.entries(tg).await?.contains_key(name) {
 							let entry_path = path.clone().join(name.parse()?);
-							util::rmrf(&entry_path).await?;
+							rmrf(&entry_path).await?;
 						}
 						Ok::<_, Error>(())
 					})
@@ -464,7 +467,7 @@ impl Artifact {
 
 			// If there is an existing artifact at the path and it is not a directory, then remove it, create a directory, and continue.
 			Some(_) => {
-				util::rmrf(path).await?;
+				rmrf(path).await?;
 				tokio::fs::create_dir_all(path)
 					.await
 					.wrap_err("Failed to create the directory.")?;
@@ -524,7 +527,7 @@ impl Artifact {
 		match &existing_artifact {
 			// If there is an existing file system object at the path, then remove it and continue.
 			Some(_) => {
-				util::rmrf(path).await?;
+				rmrf(path).await?;
 			},
 
 			// If there is no file system object at this path, then continue.
@@ -569,7 +572,7 @@ impl Artifact {
 		match &existing_artifact {
 			// If there is an existing file system object at the path, then remove it and continue.
 			Some(_) => {
-				util::rmrf(&path).await?;
+				rmrf(&path).await?;
 			},
 
 			// If there is no file system object at this path, then continue.
@@ -594,6 +597,65 @@ impl Artifact {
 			.await
 			.wrap_err("Failed to create the symlink")?;
 
+		Ok(())
+	}
+}
+
+impl Client {
+	pub async fn check_in_artifact(
+		&self,
+		arg: tg::artifact::CheckInArg,
+	) -> Result<tg::artifact::CheckInOutput> {
+		let method = http::Method::POST;
+		let uri = "/artifacts/checkin";
+		let body = serde_json::to_string(&arg).wrap_err("Failed to serialize the body.")?;
+		let body = full(body);
+		let request = http::request::Builder::default()
+			.method(method)
+			.uri(uri)
+			.body(body)
+			.wrap_err("Failed to create the request.")?;
+		let response = self.send(request).await?;
+		if !response.status().is_success() {
+			let bytes = response
+				.collect()
+				.await
+				.wrap_err("Failed to collect the response body.")?
+				.to_bytes();
+			let error = serde_json::from_slice(&bytes)
+				.unwrap_or_else(|_| error!("The request did not succeed."));
+			return Err(error);
+		}
+		let bytes = response
+			.collect()
+			.await
+			.wrap_err("Failed to collect the response body.")?
+			.to_bytes();
+		let output = serde_json::from_slice(&bytes).wrap_err("Failed to deserialize the body.")?;
+		Ok(output)
+	}
+
+	pub async fn check_out_artifact(&self, arg: tg::artifact::CheckOutArg) -> Result<()> {
+		let method = http::Method::POST;
+		let uri = "/artifacts/checkout";
+		let body = serde_json::to_string(&arg).wrap_err("Failed to serialize the body.")?;
+		let body = full(body);
+		let request = http::request::Builder::default()
+			.method(method)
+			.uri(uri)
+			.body(body)
+			.wrap_err("Failed to create the request.")?;
+		let response = self.send(request).await?;
+		if !response.status().is_success() {
+			let bytes = response
+				.collect()
+				.await
+				.wrap_err("Failed to collect the response body.")?
+				.to_bytes();
+			let error = serde_json::from_slice(&bytes)
+				.unwrap_or_else(|_| error!("The request did not succeed."));
+			return Err(error);
+		}
 		Ok(())
 	}
 }
@@ -672,13 +734,32 @@ impl std::fmt::Display for Artifact {
 	}
 }
 
-impl From<Artifact> for Value {
+impl From<Artifact> for object::Handle {
 	fn from(value: Artifact) -> Self {
 		match value {
-			Artifact::Directory(directory) => directory.into(),
-			Artifact::File(file) => file.into(),
-			Artifact::Symlink(symlink) => symlink.into(),
+			Artifact::Directory(directory) => Self::Directory(directory),
+			Artifact::File(file) => Self::File(file),
+			Artifact::Symlink(symlink) => Self::Symlink(symlink),
 		}
+	}
+}
+
+impl TryFrom<object::Handle> for Artifact {
+	type Error = Error;
+
+	fn try_from(value: object::Handle) -> Result<Self, Self::Error> {
+		match value {
+			object::Handle::Directory(directory) => Ok(Self::Directory(directory)),
+			object::Handle::File(file) => Ok(Self::File(file)),
+			object::Handle::Symlink(symlink) => Ok(Self::Symlink(symlink)),
+			_ => Err(error!("Expected an artifact.")),
+		}
+	}
+}
+
+impl From<Artifact> for Value {
+	fn from(value: Artifact) -> Self {
+		object::Handle::from(value).into()
 	}
 }
 
@@ -686,11 +767,8 @@ impl TryFrom<Value> for Artifact {
 	type Error = Error;
 
 	fn try_from(value: Value) -> Result<Self, Self::Error> {
-		match value {
-			Value::Directory(directory) => Ok(Self::Directory(directory)),
-			Value::File(file) => Ok(Self::File(file)),
-			Value::Symlink(symlink) => Ok(Self::Symlink(symlink)),
-			_ => Err(error!("Expected an artifact.")),
-		}
+		object::Handle::try_from(value)
+			.wrap_err("Invalid value.")?
+			.try_into()
 	}
 }

@@ -1,25 +1,18 @@
 pub use self::{
 	artifact::Artifact, blob::Blob, branch::Branch, build::Build, checksum::Checksum,
-	dependency::Dependency, directory::Directory, file::File, handle::Handle, health::Health,
-	id::Id, leaf::Leaf, lock::Lock, mutation::Mutation, object::Object, path::Path,
-	runtime::Runtime, symlink::Symlink, system::System, target::Target, template::Template,
-	user::User, value::Value,
+	dependency::Dependency, directory::Directory, file::File, handle::Handle, id::Id, leaf::Leaf,
+	lock::Lock, mutation::Mutation, object::Handle as Object, path::Path, server::Health,
+	symlink::Symlink, system::System, target::Target, template::Template, user::Login, user::User,
+	value::Value,
 };
+use crate as tg;
 use async_trait::async_trait;
 use bytes::Bytes;
-use futures::{
-	stream::{self, BoxStream},
-	StreamExt, TryStreamExt,
-};
-use http_body_util::{BodyExt, BodyStream};
-use num::ToPrimitive;
+use futures::stream::BoxStream;
 use std::{path::PathBuf, sync::Arc};
-use tangram_error::{error, Error, Result, Wrap, WrapErr};
-use tokio::{
-	io::AsyncReadExt,
-	net::{TcpStream, UnixStream},
-};
-use tokio_util::io::StreamReader;
+use tangram_error::{error, Error, Result, WrapErr};
+use tangram_util::http::empty;
+use tokio::net::{TcpStream, UnixStream};
 use url::Url;
 
 pub mod artifact;
@@ -32,7 +25,6 @@ pub mod dependency;
 pub mod directory;
 pub mod file;
 pub mod handle;
-pub mod health;
 pub mod id;
 pub mod leaf;
 pub mod lock;
@@ -40,13 +32,12 @@ pub mod mutation;
 pub mod object;
 pub mod package;
 pub mod path;
-pub mod runtime;
+pub mod server;
 pub mod symlink;
 pub mod system;
 pub mod target;
 pub mod template;
 pub mod user;
-pub mod util;
 pub mod value;
 
 #[derive(Debug, Clone)]
@@ -57,8 +48,12 @@ pub struct Client {
 #[derive(Debug)]
 struct Inner {
 	addr: Addr,
+	build: Option<tg::build::Id>,
 	file_descriptor_semaphore: tokio::sync::Semaphore,
-	sender: tokio::sync::Mutex<Option<hyper::client::conn::http2::SendRequest<Outgoing>>>,
+	options: Option<tg::build::Options>,
+	sender: tokio::sync::Mutex<
+		Option<hyper::client::conn::http2::SendRequest<tangram_util::http::Outgoing>>,
+	>,
 	tls: bool,
 	user: Option<User>,
 }
@@ -66,8 +61,8 @@ struct Inner {
 #[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
 #[serde(rename_all = "snake_case", tag = "kind", content = "value")]
 pub enum Addr {
-	Inet(Inet),
 	Unix(PathBuf),
+	Inet(Inet),
 }
 
 #[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
@@ -84,29 +79,53 @@ pub enum Host {
 
 pub struct Builder {
 	addr: Addr,
+	build: Option<build::Id>,
+	options: Option<build::Options>,
 	tls: Option<bool>,
 	user: Option<User>,
 }
 
-type Incoming = hyper::body::Incoming;
-
-type Outgoing = http_body_util::combinators::UnsyncBoxBody<
-	Bytes,
-	Box<dyn std::error::Error + Send + Sync + 'static>,
->;
+#[derive(Debug, Clone, serde::Deserialize, serde::Serialize)]
+pub struct Runtime {
+	pub addr: Addr,
+	pub build: build::Id,
+	pub options: build::Options,
+}
 
 impl Client {
-	fn new(addr: Addr, tls: bool, user: Option<User>) -> Self {
+	pub fn with_runtime() -> Result<Self> {
+		let json = std::env::var("TANGRAM_RUNTIME")
+			.wrap_err("Failed to get the TANGRAM_RUNTIME environment variable.")?;
+		let runtime = serde_json::from_str::<Runtime>(&json)
+			.wrap_err("Failed to deserialize the TANGRAM_RUNTIME environment variable.")?;
+		let addr = runtime.addr;
+		let build = Some(runtime.build);
 		let file_descriptor_semaphore = tokio::sync::Semaphore::new(16);
+		let options = Some(runtime.options);
 		let sender = tokio::sync::Mutex::new(None);
+		let tls = false;
+		let user = None;
 		let inner = Arc::new(Inner {
 			addr,
+			build,
 			file_descriptor_semaphore,
+			options,
 			sender,
 			tls,
 			user,
 		});
-		Self { inner }
+		let client = Client { inner };
+		Ok(client)
+	}
+
+	#[must_use]
+	pub fn build(&self) -> Option<&build::Id> {
+		self.inner.build.as_ref()
+	}
+
+	#[must_use]
+	pub fn options(&self) -> Option<&build::Options> {
+		self.inner.options.as_ref()
 	}
 
 	pub async fn connect(&self) -> Result<()> {
@@ -118,34 +137,85 @@ impl Client {
 		Ok(())
 	}
 
-	async fn sender(&self) -> Result<hyper::client::conn::http2::SendRequest<Outgoing>> {
+	async fn sender(
+		&self,
+	) -> Result<hyper::client::conn::http2::SendRequest<tangram_util::http::Outgoing>> {
 		if let Some(sender) = self.inner.sender.lock().await.as_ref().cloned() {
 			if sender.is_ready() {
 				return Ok(sender);
 			}
 		}
 		let mut sender_guard = self.inner.sender.lock().await;
-		let sender = match &self.inner.addr {
-			Addr::Inet(inet) if self.inner.tls => self.connect_tcp_tls_h2(inet).await?,
-			Addr::Inet(inet) => self.connect_tcp_h2(inet).await?,
-			Addr::Unix(path) => self.connect_unix_h1(path).await?,
-		};
+		let sender = self.connect_h2().await?;
 		sender_guard.replace(sender.clone());
 		Ok(sender)
 	}
 
-	async fn _connect_tcp_h1(
+	#[allow(dead_code)]
+	async fn connect_h1(
 		&self,
-		inet: &Inet,
-	) -> Result<hyper::client::conn::http1::SendRequest<Outgoing>> {
-		// Connect via TCP.
-		let stream = TcpStream::connect(inet.to_string())
+	) -> Result<hyper::client::conn::http1::SendRequest<tangram_util::http::Outgoing>> {
+		Ok(match &self.inner.addr {
+			Addr::Unix(path) => self.connect_unix_h1(path).await?,
+			Addr::Inet(inet) if self.inner.tls => self.connect_tcp_tls_h1(inet).await?,
+			Addr::Inet(inet) => self.connect_tcp_h1(inet).await?,
+		})
+	}
+
+	async fn connect_h2(
+		&self,
+	) -> Result<hyper::client::conn::http2::SendRequest<tangram_util::http::Outgoing>> {
+		Ok(match &self.inner.addr {
+			Addr::Unix(path) => self.connect_unix_h2(path).await?,
+			Addr::Inet(inet) if self.inner.tls => self.connect_tcp_tls_h2(inet).await?,
+			Addr::Inet(inet) => self.connect_tcp_h2(inet).await?,
+		})
+	}
+
+	async fn connect_unix_h1(
+		&self,
+		path: &std::path::Path,
+	) -> Result<hyper::client::conn::http1::SendRequest<tangram_util::http::Outgoing>> {
+		// Connect via UNIX.
+		let stream = UnixStream::connect(path)
 			.await
-			.wrap_err("Failed to create the TCP connection.")?;
+			.wrap_err("Failed to connect to the socket.")?;
 
 		// Perform the HTTP handshake.
 		let io = hyper_util::rt::TokioIo::new(stream);
 		let (mut sender, connection) = hyper::client::conn::http1::handshake(io)
+			.await
+			.wrap_err("Failed to perform the HTTP handshake.")?;
+
+		// Spawn the connection.
+		tokio::spawn(async move {
+			if let Err(error) = connection.with_upgrades().await {
+				tracing::error!(error = ?error, "The connection failed.");
+			}
+		});
+
+		// Wait for the sender to be ready.
+		sender
+			.ready()
+			.await
+			.wrap_err("Failed to ready the sender.")?;
+
+		Ok(sender)
+	}
+
+	async fn connect_unix_h2(
+		&self,
+		path: &std::path::Path,
+	) -> Result<hyper::client::conn::http2::SendRequest<tangram_util::http::Outgoing>> {
+		// Connect via UNIX.
+		let stream = UnixStream::connect(path)
+			.await
+			.wrap_err("Failed to connect to the socket.")?;
+
+		// Perform the HTTP handshake.
+		let executor = hyper_util::rt::TokioExecutor::new();
+		let io = hyper_util::rt::TokioIo::new(stream);
+		let (mut sender, connection) = hyper::client::conn::http2::handshake(executor, io)
 			.await
 			.wrap_err("Failed to perform the HTTP handshake.")?;
 
@@ -165,10 +235,41 @@ impl Client {
 		Ok(sender)
 	}
 
+	async fn connect_tcp_h1(
+		&self,
+		inet: &Inet,
+	) -> Result<hyper::client::conn::http1::SendRequest<tangram_util::http::Outgoing>> {
+		// Connect via TCP.
+		let stream = TcpStream::connect(inet.to_string())
+			.await
+			.wrap_err("Failed to create the TCP connection.")?;
+
+		// Perform the HTTP handshake.
+		let io = hyper_util::rt::TokioIo::new(stream);
+		let (mut sender, connection) = hyper::client::conn::http1::handshake(io)
+			.await
+			.wrap_err("Failed to perform the HTTP handshake.")?;
+
+		// Spawn the connection.
+		tokio::spawn(async move {
+			if let Err(error) = connection.with_upgrades().await {
+				tracing::error!(error = ?error, "The connection failed.");
+			}
+		});
+
+		// Wait for the sender to be ready.
+		sender
+			.ready()
+			.await
+			.wrap_err("Failed to ready the sender.")?;
+
+		Ok(sender)
+	}
+
 	async fn connect_tcp_h2(
 		&self,
 		inet: &Inet,
-	) -> Result<hyper::client::conn::http2::SendRequest<Outgoing>> {
+	) -> Result<hyper::client::conn::http2::SendRequest<tangram_util::http::Outgoing>> {
 		// Connect via TCP.
 		let stream = TcpStream::connect(inet.to_string())
 			.await
@@ -197,10 +298,10 @@ impl Client {
 		Ok(sender)
 	}
 
-	async fn _connect_tcp_tls_h1(
+	async fn connect_tcp_tls_h1(
 		&self,
 		inet: &Inet,
-	) -> Result<hyper::client::conn::http1::SendRequest<Outgoing>> {
+	) -> Result<hyper::client::conn::http1::SendRequest<tangram_util::http::Outgoing>> {
 		// Connect via TLS over TCP.
 		let stream = self.connect_tcp_tls(inet).await?;
 
@@ -212,7 +313,7 @@ impl Client {
 
 		// Spawn the connection.
 		tokio::spawn(async move {
-			if let Err(error) = connection.await {
+			if let Err(error) = connection.with_upgrades().await {
 				tracing::error!(error = ?error, "The connection failed.");
 			}
 		});
@@ -229,7 +330,7 @@ impl Client {
 	async fn connect_tcp_tls_h2(
 		&self,
 		inet: &Inet,
-	) -> Result<hyper::client::conn::http2::SendRequest<Outgoing>> {
+	) -> Result<hyper::client::conn::http2::SendRequest<tangram_util::http::Outgoing>> {
 		// Connect via TLS over TCP.
 		let stream = self.connect_tcp_tls(inet).await?;
 
@@ -290,8 +391,7 @@ impl Client {
 			.get_ref()
 			.1
 			.alpn_protocol()
-			.map(|protocol| protocol == b"h2")
-			.unwrap_or_default()
+			.map_or(false, |protocol| protocol == b"h2")
 		{
 			return Err(error!("Failed to negotiate the HTTP/2 protocol."));
 		}
@@ -299,78 +399,73 @@ impl Client {
 		Ok(stream)
 	}
 
-	async fn _connect_unix_h1(
-		&self,
-		path: &std::path::Path,
-	) -> Result<hyper::client::conn::http1::SendRequest<Outgoing>> {
-		// Connect via UNIX.
-		let stream = UnixStream::connect(path)
-			.await
-			.wrap_err("Failed to connect to the socket.")?;
-
-		// Perform the HTTP handshake.
-		let io = hyper_util::rt::TokioIo::new(stream);
-		let (mut sender, connection) = hyper::client::conn::http1::handshake(io)
-			.await
-			.wrap_err("Failed to perform the HTTP handshake.")?;
-
-		// Spawn the connection.
-		tokio::spawn(async move {
-			if let Err(error) = connection.await {
-				tracing::error!(error = ?error, "The connection failed.");
-			}
-		});
-
-		// Wait for the sender to be ready.
-		sender
-			.ready()
-			.await
-			.wrap_err("Failed to ready the sender.")?;
-
-		Ok(sender)
-	}
-
-	async fn connect_unix_h1(
-		&self,
-		path: &std::path::Path,
-	) -> Result<hyper::client::conn::http2::SendRequest<Outgoing>> {
-		// Connect via UNIX.
-		let stream = UnixStream::connect(path)
-			.await
-			.wrap_err("Failed to connect to the socket.")?;
-
-		// Perform the HTTP handshake.
-		let executor = hyper_util::rt::TokioExecutor::new();
-		let io = hyper_util::rt::TokioIo::new(stream);
-		let (mut sender, connection) = hyper::client::conn::http2::handshake(executor, io)
-			.await
-			.wrap_err("Failed to perform the HTTP handshake.")?;
-
-		// Spawn the connection.
-		tokio::spawn(async move {
-			if let Err(error) = connection.await {
-				tracing::error!(error = ?error, "The connection failed.");
-			}
-		});
-
-		// Wait for the sender to be ready.
-		sender
-			.ready()
-			.await
-			.wrap_err("Failed to ready the sender.")?;
-
-		Ok(sender)
-	}
-
 	async fn send(
 		&self,
-		request: http::request::Request<Outgoing>,
-	) -> Result<http::Response<Incoming>> {
+		request: http::request::Request<tangram_util::http::Outgoing>,
+	) -> Result<http::Response<tangram_util::http::Incoming>> {
 		self.sender()
 			.await?
 			.send_request(request)
 			.await
 			.wrap_err("Failed to send the request.")
+	}
+}
+
+impl Builder {
+	#[must_use]
+	pub fn new(addr: Addr) -> Self {
+		Self {
+			addr,
+			build: None,
+			options: None,
+			tls: None,
+			user: None,
+		}
+	}
+
+	#[must_use]
+	pub fn build_(mut self, build: build::Id) -> Self {
+		self.build = Some(build);
+		self
+	}
+
+	#[must_use]
+	pub fn options(mut self, options: build::Options) -> Self {
+		self.options = Some(options);
+		self
+	}
+
+	#[must_use]
+	pub fn tls(mut self, tls: bool) -> Self {
+		self.tls = Some(tls);
+		self
+	}
+
+	#[must_use]
+	pub fn user(mut self, user: Option<User>) -> Self {
+		self.user = user;
+		self
+	}
+
+	#[must_use]
+	pub fn build(self) -> Client {
+		let addr = self.addr;
+		let build = self.build;
+		let file_descriptor_semaphore = tokio::sync::Semaphore::new(16);
+		let options = self.options;
+		let sender = tokio::sync::Mutex::new(None);
+		let tls = self.tls.unwrap_or(false);
+		let user = self.user;
+		let inner = Arc::new(Inner {
+			addr,
+			build,
+			file_descriptor_semaphore,
+			options,
+			sender,
+			tls,
+			user,
+		});
+		Client { inner }
 	}
 }
 
@@ -386,934 +481,192 @@ impl Handle for Client {
 
 	async fn check_in_artifact(
 		&self,
-		arg: artifact::CheckInArg,
-	) -> Result<artifact::CheckInOutput> {
-		let body = serde_json::to_string(&arg).wrap_err("Failed to serialize the body.")?;
-		let request = http::request::Builder::default()
-			.method(http::Method::POST)
-			.uri("/artifacts/checkin")
-			.body(full(body))
-			.wrap_err("Failed to create the request.")?;
-		let response = self.send(request).await?;
-		if !response.status().is_success() {
-			let bytes = response
-				.collect()
-				.await
-				.wrap_err("Failed to collect the response body.")?
-				.to_bytes();
-			let error = serde_json::from_slice(&bytes)
-				.unwrap_or_else(|_| error!("The request did not succeed."));
-			return Err(error);
-		}
-		let bytes = response
-			.collect()
-			.await
-			.wrap_err("Failed to collect the response body.")?
-			.to_bytes();
-		let output = serde_json::from_slice(&bytes).wrap_err("Failed to deserialize the body.")?;
-		Ok(output)
+		arg: tg::artifact::CheckInArg,
+	) -> Result<tg::artifact::CheckInOutput> {
+		self.check_in_artifact(arg).await
 	}
 
-	async fn check_out_artifact(&self, arg: artifact::CheckOutArg) -> Result<()> {
-		let body = serde_json::to_string(&arg).wrap_err("Failed to serialize the body.")?;
-		let request = http::request::Builder::default()
-			.method(http::Method::POST)
-			.uri("/artifacts/checkout")
-			.body(full(body))
-			.wrap_err("Failed to create the request.")?;
-		let response = self.send(request).await?;
-		if !response.status().is_success() {
-			let bytes = response
-				.collect()
-				.await
-				.wrap_err("Failed to collect the response body.")?
-				.to_bytes();
-			let error = serde_json::from_slice(&bytes)
-				.unwrap_or_else(|_| error!("The request did not succeed."));
-			return Err(error);
-		}
-		Ok(())
+	async fn check_out_artifact(&self, arg: tg::artifact::CheckOutArg) -> Result<()> {
+		self.check_out_artifact(arg).await
 	}
 
-	async fn try_list_builds(&self, arg: build::ListArg) -> Result<build::ListOutput> {
-		let search_params =
-			serde_urlencoded::to_string(&arg).wrap_err("Failed to serialize the search params.")?;
-		let uri = format!("/builds?{search_params}");
-		let request = http::request::Builder::default()
-			.method(http::Method::GET)
-			.uri(uri);
-		let request = request
-			.body(empty())
-			.wrap_err("Failed to create the request.")?;
-		let response = self.send(request).await?;
-		if !response.status().is_success() {
-			let bytes = response
-				.collect()
-				.await
-				.wrap_err("Failed to collect the response body.")?
-				.to_bytes();
-			let error = serde_json::from_slice(&bytes)
-				.unwrap_or_else(|_| error!("The request did not succeed."));
-			return Err(error);
-		}
-		let bytes = response
-			.collect()
-			.await
-			.wrap_err("Failed to collect the response body.")?
-			.to_bytes();
-		let output =
-			serde_json::from_slice(&bytes).wrap_err("Failed to deserialize the response body.")?;
-		Ok(output)
+	async fn try_list_builds(&self, arg: tg::build::ListArg) -> Result<tg::build::ListOutput> {
+		self.try_list_builds(arg).await
 	}
 
-	async fn get_build_exists(&self, id: &build::Id) -> Result<bool> {
-		let request = http::request::Builder::default()
-			.method(http::Method::HEAD)
-			.uri(format!("/builds/{id}"))
-			.body(empty())
-			.wrap_err("Failed to create the request.")?;
-		let response = self.send(request).await?;
-		if response.status() == http::StatusCode::NOT_FOUND {
-			return Ok(false);
-		}
-		if !response.status().is_success() {
-			let bytes = response
-				.collect()
-				.await
-				.wrap_err("Failed to collect the response body.")?
-				.to_bytes();
-			let error = serde_json::from_slice(&bytes)
-				.unwrap_or_else(|_| error!("The request did not succeed."));
-			return Err(error);
-		}
-		Ok(true)
+	async fn get_build_exists(&self, id: &tg::build::Id) -> Result<bool> {
+		self.get_build_exists(id).await
 	}
 
-	async fn try_get_build(&self, id: &build::Id) -> Result<Option<build::GetOutput>> {
-		let request = http::request::Builder::default()
-			.method(http::Method::GET)
-			.uri(format!("/builds/{id}"))
-			.body(empty())
-			.wrap_err("Failed to create the request.")?;
-		let response = self.send(request).await?;
-		if response.status() == http::StatusCode::NOT_FOUND {
-			return Ok(None);
-		}
-		if !response.status().is_success() {
-			let bytes = response
-				.collect()
-				.await
-				.wrap_err("Failed to collect the response body.")?
-				.to_bytes();
-			let error = serde_json::from_slice(&bytes)
-				.unwrap_or_else(|_| error!("The request did not succeed."));
-			return Err(error);
-		}
-		let bytes = response
-			.collect()
-			.await
-			.wrap_err("Failed to collect the response body.")?
-			.to_bytes();
-		let state = serde_json::from_slice(&bytes).wrap_err("Failed to deserialize the body.")?;
-		let output = build::GetOutput { state };
-		Ok(Some(output))
+	async fn try_get_build(&self, id: &tg::build::Id) -> Result<Option<tg::build::GetOutput>> {
+		self.try_get_build(id).await
 	}
 
 	async fn try_put_build(
 		&self,
-		user: Option<&User>,
-		id: &build::Id,
-		state: &build::State,
-	) -> Result<build::PutOutput> {
-		let mut request = http::request::Builder::default()
-			.method(http::Method::PUT)
-			.uri(format!("/builds/{id}"));
-		let user = user.or(self.inner.user.as_ref());
-		if let Some(token) = user.and_then(|user| user.token.as_ref()) {
-			request = request.header(http::header::AUTHORIZATION, format!("Bearer {token}"));
-		}
-		let json = serde_json::to_string(&state).wrap_err("Failed to serialize the data.")?;
-		let body = full(json);
-		let request = request
-			.body(body)
-			.wrap_err("Failed to create the request.")?;
-		let response = self.send(request).await?;
-		if !response.status().is_success() {
-			let bytes = response
-				.collect()
-				.await
-				.wrap_err("Failed to collect the response body.")?
-				.to_bytes();
-			let error = serde_json::from_slice(&bytes)
-				.unwrap_or_else(|_| error!("The request did not succeed."));
-			return Err(error);
-		}
-		let bytes = response
-			.collect()
-			.await
-			.wrap_err("Failed to collect the response body.")?
-			.to_bytes();
-		let output = serde_json::from_slice(&bytes).wrap_err("Failed to deserialize the body.")?;
-		return Ok(output);
+		user: Option<&tg::User>,
+		id: &tg::build::Id,
+		state: &tg::build::State,
+	) -> Result<tg::build::PutOutput> {
+		self.try_put_build(user, id, state).await
 	}
 
 	async fn get_or_create_build(
 		&self,
-		user: Option<&User>,
-		arg: build::GetOrCreateArg,
-	) -> Result<build::GetOrCreateOutput> {
-		let uri = "/builds";
-		let mut request = http::request::Builder::default()
-			.method(http::Method::POST)
-			.uri(uri);
-		if let Some(token) = user.and_then(|user| user.token.as_ref()) {
-			request = request.header(http::header::AUTHORIZATION, format!("Bearer {token}"));
-		}
-		let body = serde_json::to_vec(&arg).wrap_err("Failed to serialize the body.")?;
-		let request = request
-			.body(full(body))
-			.wrap_err("Failed to create the request.")?;
-		let response = self.send(request).await?;
-		if !response.status().is_success() {
-			let bytes = response
-				.collect()
-				.await
-				.wrap_err("Failed to collect the response body.")?
-				.to_bytes();
-			let error = serde_json::from_slice(&bytes)
-				.unwrap_or_else(|_| error!("The request did not succeed."));
-			return Err(error);
-		}
-		let bytes = response
-			.collect()
-			.await
-			.wrap_err("Failed to collect the response body.")?
-			.to_bytes();
-		let id = serde_json::from_slice(&bytes).wrap_err("Failed to deserialize the body.")?;
-		Ok(id)
+		user: Option<&tg::User>,
+		arg: tg::build::GetOrCreateArg,
+	) -> Result<tg::build::GetOrCreateOutput> {
+		self.get_or_create_build(user, arg).await
 	}
 
 	async fn try_dequeue_build(
 		&self,
 		user: Option<&User>,
-		arg: build::DequeueArg,
-	) -> Result<Option<build::DequeueOutput>> {
-		let uri = "/builds/dequeue";
-		let mut request = http::request::Builder::default()
-			.method(http::Method::POST)
-			.uri(uri);
-		let user = user.or(self.inner.user.as_ref());
-		if let Some(token) = user.and_then(|user| user.token.as_ref()) {
-			request = request.header(http::header::AUTHORIZATION, format!("Bearer {token}"));
-		}
-		let body = serde_json::to_vec(&arg).wrap_err("Failed to serialize the body.")?;
-		let request = request
-			.body(full(body))
-			.wrap_err("Failed to create the request.")?;
-		let response = self.send(request).await?;
-		if !response.status().is_success() {
-			let bytes = response
-				.collect()
-				.await
-				.wrap_err("Failed to collect the response body.")?
-				.to_bytes();
-			let error = serde_json::from_slice(&bytes)
-				.unwrap_or_else(|_| error!("The request did not succeed."));
-			return Err(error);
-		}
-		let bytes = response
-			.collect()
-			.await
-			.wrap_err("Failed to collect the response body.")?
-			.to_bytes();
-		let item =
-			serde_json::from_slice(&bytes).wrap_err("Failed to deserialize the response body.")?;
-		Ok(item)
+		arg: tg::build::queue::DequeueArg,
+	) -> Result<Option<tg::build::queue::DequeueOutput>> {
+		self.try_dequeue_build(user, arg).await
 	}
 
-	async fn try_get_build_status(&self, id: &build::Id) -> Result<Option<build::Status>> {
-		let request = http::request::Builder::default()
-			.method(http::Method::GET)
-			.uri(format!("/builds/{id}/status"))
-			.body(empty())
-			.wrap_err("Failed to create the request.")?;
-		let response = self.send(request).await?;
-		if !response.status().is_success() {
-			let bytes = response
-				.collect()
-				.await
-				.wrap_err("Failed to collect the response body.")?
-				.to_bytes();
-			let error = serde_json::from_slice(&bytes)
-				.unwrap_or_else(|_| error!("The request did not succeed."));
-			return Err(error);
-		}
-		let bytes = response
-			.collect()
-			.await
-			.wrap_err("Failed to collect the response body.")?
-			.to_bytes();
-		let status = serde_json::from_slice(&bytes).wrap_err("Failed to deserialize the body.")?;
-		Ok(status)
+	async fn try_get_build_status(
+		&self,
+		id: &tg::build::Id,
+		arg: tg::build::status::GetArg,
+	) -> Result<Option<BoxStream<'static, Result<tg::build::Status>>>> {
+		self.try_get_build_status(id, arg).await
 	}
 
 	async fn set_build_status(
 		&self,
-		user: Option<&User>,
-		id: &build::Id,
-		status: build::Status,
+		user: Option<&tg::User>,
+		id: &tg::build::Id,
+		status: tg::build::Status,
 	) -> Result<()> {
-		let mut request = http::request::Builder::default()
-			.method(http::Method::POST)
-			.uri(format!("/builds/{id}/status"));
-		let user = user.or(self.inner.user.as_ref());
-		if let Some(token) = user.and_then(|user| user.token.as_ref()) {
-			request = request.header(http::header::AUTHORIZATION, format!("Bearer {token}"));
-		}
-		let body = serde_json::to_vec(&status).wrap_err("Failed to serialize the body.")?;
-		let request = request
-			.body(full(body))
-			.wrap_err("Failed to create the request.")?;
-		let response = self.send(request).await?;
-		if !response.status().is_success() {
-			let bytes = response
-				.collect()
-				.await
-				.wrap_err("Failed to collect the response body.")?
-				.to_bytes();
-			let error = serde_json::from_slice(&bytes)
-				.unwrap_or_else(|_| error!("The request did not succeed."));
-			return Err(error);
-		}
-		Ok(())
+		self.set_build_status(user, id, status).await
 	}
 
 	async fn try_get_build_children(
 		&self,
-		id: &build::Id,
-	) -> Result<Option<BoxStream<'static, Result<build::Id>>>> {
-		let request = http::request::Builder::default()
-			.method(http::Method::GET)
-			.uri(format!("/builds/{id}/children"))
-			.body(empty())
-			.wrap_err("Failed to create the request.")?;
-		let response = self.send(request).await?;
-		if response.status() == http::StatusCode::NOT_FOUND {
-			return Ok(None);
-		}
-		if !response.status().is_success() {
-			let bytes = response
-				.collect()
-				.await
-				.wrap_err("Failed to collect the response body.")?
-				.to_bytes();
-			let error = serde_json::from_slice(&bytes)
-				.unwrap_or_else(|_| error!("The request did not succeed."));
-			return Err(error);
-		}
-		let stream = BodyStream::new(response.into_body())
-			.filter_map(|frame| async {
-				match frame.map(http_body::Frame::into_data) {
-					Ok(Ok(bytes)) => Some(Ok(bytes)),
-					Err(e) => Some(Err(e)),
-					Ok(Err(_frame)) => None,
-				}
-			})
-			.map_err(|error| error.wrap("Failed to read from the body."));
-		let reader = Box::pin(tokio::io::BufReader::new(StreamReader::new(
-			stream.map_err(|error| std::io::Error::new(std::io::ErrorKind::Other, error)),
-		)));
-		let children = stream::try_unfold(reader, move |mut reader| async move {
-			let len = match reader.read_u64().await {
-				Ok(len) => len,
-				Err(error) if error.kind() == std::io::ErrorKind::UnexpectedEof => return Ok(None),
-				Err(error) => return Err(error.wrap("Failed to read from the body.")),
-			};
-			let mut bytes = vec![0u8; len.to_usize().unwrap()];
-			reader
-				.read_exact(&mut bytes)
-				.await
-				.wrap_err("Failed to read the bytes.")?;
-			let id = String::from_utf8(bytes)
-				.wrap_err("Failed to deserialize the bytes.")?
-				.parse()?;
-			Ok(Some((id, reader)))
-		});
-		Ok(Some(children.boxed()))
+		id: &tg::build::Id,
+		arg: tg::build::children::GetArg,
+	) -> Result<Option<BoxStream<'static, Result<tg::build::children::Chunk>>>> {
+		self.try_get_build_children(id, arg).await
 	}
 
 	async fn add_build_child(
 		&self,
-		user: Option<&User>,
-		build_id: &build::Id,
-		child_id: &build::Id,
+		user: Option<&tg::User>,
+		build_id: &tg::build::Id,
+		child_id: &tg::build::Id,
 	) -> Result<()> {
-		let mut request = http::request::Builder::default()
-			.method(http::Method::POST)
-			.uri(format!("/builds/{build_id}/children"));
-		let user = user.or(self.inner.user.as_ref());
-		if let Some(token) = user.and_then(|user| user.token.as_ref()) {
-			request = request.header(http::header::AUTHORIZATION, format!("Bearer {token}"));
-		}
-		let body = serde_json::to_vec(&child_id).wrap_err("Failed to serialize the body.")?;
-		let request = request
-			.body(full(body))
-			.wrap_err("Failed to create the request.")?;
-		let response = self.send(request).await?;
-		if !response.status().is_success() {
-			let bytes = response
-				.collect()
-				.await
-				.wrap_err("Failed to collect the response body.")?
-				.to_bytes();
-			let error = serde_json::from_slice(&bytes)
-				.unwrap_or_else(|_| error!("The request did not succeed."));
-			return Err(error);
-		}
-		Ok(())
+		self.add_build_child(user, build_id, child_id).await
 	}
 
 	async fn try_get_build_log(
 		&self,
-		id: &build::Id,
-		arg: build::GetLogArg,
-	) -> Result<Option<BoxStream<'static, Result<build::LogChunk>>>> {
-		let search_params = serde_urlencoded::to_string(&arg).unwrap();
-		let uri = format!("/builds/{id}/log?{search_params}");
-		let request = http::request::Builder::default()
-			.method(http::Method::GET)
-			.uri(uri)
-			.body(empty())
-			.wrap_err("Failed to create the request.")?;
-		let response = self
-			.send(request)
-			.await
-			.wrap_err("Failed to send the request.")?;
-		if response.status() == http::StatusCode::NOT_FOUND {
-			return Ok(None);
-		}
-		if !response.status().is_success() {
-			let bytes = response
-				.collect()
-				.await
-				.wrap_err("Failed to collect the response body.")?
-				.to_bytes();
-			let error = serde_json::from_slice(&bytes)
-				.unwrap_or_else(|_| error!("The request did not succeed."));
-			return Err(error);
-		}
-		let stream = BodyStream::new(response.into_body())
-			.filter_map(|frame| async {
-				match frame.map(http_body::Frame::into_data) {
-					Ok(Ok(bytes)) => Some(Ok(bytes)),
-					Err(e) => Some(Err(e)),
-					Ok(Err(_frame)) => None,
-				}
-			})
-			.map_err(|error| error.wrap("Failed to read from the body."));
-		let reader = Box::pin(tokio::io::BufReader::new(StreamReader::new(
-			stream.map_err(|error| std::io::Error::new(std::io::ErrorKind::Other, error)),
-		)));
-		let log = stream::try_unfold(reader, |mut reader| async move {
-			let pos = match reader.read_u64().await {
-				Ok(pos) => pos,
-				Err(error) if error.kind() == std::io::ErrorKind::UnexpectedEof => return Ok(None),
-				Err(error) => return Err(error.wrap("Failed to read from the body.")),
-			};
-			let len = reader
-				.read_u64()
-				.await
-				.wrap_err("Failed to read the length.")?
-				.to_usize()
-				.unwrap();
-			let mut bytes = vec![0u8; len];
-			reader
-				.read_exact(&mut bytes)
-				.await
-				.wrap_err("Failed to read the bytes.")?;
-			let bytes = bytes.into();
-			let chunk = build::LogChunk { pos, bytes };
-			Ok(Some((chunk, reader)))
-		});
-		Ok(Some(log.boxed()))
+		id: &tg::build::Id,
+		arg: tg::build::log::GetArg,
+	) -> Result<Option<BoxStream<'static, Result<tg::build::log::Chunk>>>> {
+		self.try_get_build_log(id, arg).await
 	}
 
-	async fn add_build_log(&self, user: Option<&User>, id: &build::Id, bytes: Bytes) -> Result<()> {
-		let mut request = http::request::Builder::default()
-			.method(http::Method::POST)
-			.uri(format!("/builds/{id}/log"));
-		let user = user.or(self.inner.user.as_ref());
-		if let Some(token) = user.and_then(|user| user.token.as_ref()) {
-			request = request.header(http::header::AUTHORIZATION, format!("Bearer {token}"));
-		}
-		let body = bytes;
-		let request = request
-			.body(full(body))
-			.wrap_err("Failed to create the request.")?;
-		let response = self.send(request).await?;
-		if !response.status().is_success() {
-			let bytes = response
-				.collect()
-				.await
-				.wrap_err("Failed to collect the response body.")?
-				.to_bytes();
-			let error = serde_json::from_slice(&bytes)
-				.unwrap_or_else(|_| error!("The request did not succeed."));
-			return Err(error);
-		}
-		Ok(())
+	async fn add_build_log(
+		&self,
+		user: Option<&tg::User>,
+		id: &tg::build::Id,
+		bytes: Bytes,
+	) -> Result<()> {
+		self.add_build_log(user, id, bytes).await
 	}
 
-	async fn try_get_build_outcome(&self, id: &build::Id) -> Result<Option<build::Outcome>> {
-		let request = http::request::Builder::default()
-			.method(http::Method::GET)
-			.uri(format!("/builds/{id}/outcome"))
-			.body(empty())
-			.wrap_err("Failed to create the request.")?;
-		let response = self.send(request).await?;
-		if response.status() == http::StatusCode::NOT_FOUND {
-			return Ok(None);
-		}
-		if !response.status().is_success() {
-			let bytes = response
-				.collect()
-				.await
-				.wrap_err("Failed to collect the response body.")?
-				.to_bytes();
-			let error = serde_json::from_slice(&bytes)
-				.unwrap_or_else(|_| error!("The request did not succeed."));
-			return Err(error);
-		}
-		let bytes = response
-			.collect()
-			.await
-			.wrap_err("Failed to collect the response body.")?
-			.to_bytes();
-		let outcome =
-			serde_json::from_slice(&bytes).wrap_err("Failed to deserialize the response body.")?;
-		Ok(Some(outcome))
+	async fn try_get_build_outcome(
+		&self,
+		id: &tg::build::Id,
+		arg: tg::build::outcome::GetArg,
+	) -> Result<Option<Option<tg::build::Outcome>>> {
+		self.try_get_build_outcome(id, arg).await
 	}
 
 	async fn set_build_outcome(
 		&self,
-		user: Option<&User>,
-		id: &build::Id,
-		outcome: build::Outcome,
+		user: Option<&tg::User>,
+		id: &tg::build::Id,
+		outcome: tg::build::Outcome,
 	) -> Result<()> {
-		let mut request = http::request::Builder::default()
-			.method(http::Method::POST)
-			.uri(format!("/builds/{id}/outcome"));
-		let user = user.or(self.inner.user.as_ref());
-		if let Some(token) = user.and_then(|user| user.token.as_ref()) {
-			request = request.header(http::header::AUTHORIZATION, format!("Bearer {token}"));
-		}
-		let outcome = outcome.data(self).await?;
-		let body = serde_json::to_vec(&outcome).wrap_err("Failed to serialize the body.")?;
-		let request = request
-			.body(full(body))
-			.wrap_err("Failed to create the request.")?;
-		let response = self.send(request).await?;
-		if !response.status().is_success() {
-			let bytes = response
-				.collect()
-				.await
-				.wrap_err("Failed to collect the response body.")?
-				.to_bytes();
-			let error = serde_json::from_slice(&bytes)
-				.unwrap_or_else(|_| error!("The request did not succeed."));
-			return Err(error);
-		}
-		Ok(())
+		self.set_build_outcome(user, id, outcome).await
 	}
 
-	async fn get_object_exists(&self, id: &object::Id) -> Result<bool> {
-		let request = http::request::Builder::default()
-			.method(http::Method::HEAD)
-			.uri(format!("/objects/{id}"))
-			.body(empty())
-			.wrap_err("Failed to create the request.")?;
-		let response = self.send(request).await?;
-		if response.status() == http::StatusCode::NOT_FOUND {
-			return Ok(false);
-		}
-		if !response.status().is_success() {
-			let bytes = response
-				.collect()
-				.await
-				.wrap_err("Failed to collect the response body.")?
-				.to_bytes();
-			let error = serde_json::from_slice(&bytes)
-				.unwrap_or_else(|_| error!("The request did not succeed."));
-			return Err(error);
-		}
-		Ok(true)
+	async fn get_object_exists(&self, id: &tg::object::Id) -> Result<bool> {
+		self.get_object_exists(id).await
 	}
 
-	async fn try_get_object(&self, id: &object::Id) -> Result<Option<object::GetOutput>> {
-		let request = http::request::Builder::default()
-			.method(http::Method::GET)
-			.uri(format!("/objects/{id}"))
-			.body(empty())
-			.wrap_err("Failed to create the request.")?;
-		let response = self.send(request).await?;
-		if response.status() == http::StatusCode::NOT_FOUND {
-			return Ok(None);
-		}
-		if !response.status().is_success() {
-			let bytes = response
-				.collect()
-				.await
-				.wrap_err("Failed to collect the response body.")?
-				.to_bytes();
-			let error = serde_json::from_slice(&bytes)
-				.unwrap_or_else(|_| error!("The request did not succeed."));
-			return Err(error);
-		}
-		let bytes = response
-			.collect()
-			.await
-			.wrap_err("Failed to collect the response body.")?
-			.to_bytes();
-		let output = object::GetOutput { bytes };
-		Ok(Some(output))
+	async fn try_get_object(&self, id: &tg::object::Id) -> Result<Option<tg::object::GetOutput>> {
+		self.try_get_object(id).await
 	}
 
-	async fn try_put_object(&self, id: &object::Id, bytes: &Bytes) -> Result<object::PutOutput> {
-		let body = full(bytes.clone());
-		let request = http::request::Builder::default()
-			.method(http::Method::PUT)
-			.uri(format!("/objects/{id}"))
-			.body(body)
-			.wrap_err("Failed to create the request.")?;
-		let response = self.send(request).await?;
-		if !response.status().is_success() {
-			let bytes = response
-				.collect()
-				.await
-				.wrap_err("Failed to collect the response body.")?
-				.to_bytes();
-			let error = serde_json::from_slice(&bytes)
-				.unwrap_or_else(|_| error!("The request did not succeed."));
-			return Err(error);
-		}
-		let bytes = response
-			.collect()
-			.await
-			.wrap_err("Failed to collect the response body.")?
-			.to_bytes();
-		let output = serde_json::from_slice(&bytes).wrap_err("Failed to deserialize the body.")?;
-		return Ok(output);
+	async fn try_put_object(
+		&self,
+		id: &tg::object::Id,
+		bytes: &Bytes,
+	) -> Result<tg::object::PutOutput> {
+		self.try_put_object(id, bytes).await
 	}
 
-	async fn push_object(&self, id: &object::Id) -> Result<()> {
-		let request = http::request::Builder::default()
-			.method(http::Method::POST)
-			.uri(format!("/objects/{id}/push"))
-			.body(empty())
-			.wrap_err("Failed to create the request.")?;
-		let response = self.send(request).await?;
-		if !response.status().is_success() {
-			let bytes = response
-				.collect()
-				.await
-				.wrap_err("Failed to collect the response body.")?
-				.to_bytes();
-			let error = serde_json::from_slice(&bytes)
-				.unwrap_or_else(|_| error!("The request did not succeed."));
-			return Err(error);
-		}
-		Ok(())
+	async fn push_object(&self, id: &tg::object::Id) -> Result<()> {
+		self.push_object(id).await
 	}
 
-	async fn pull_object(&self, id: &object::Id) -> Result<()> {
-		let request = http::request::Builder::default()
-			.method(http::Method::POST)
-			.uri(format!("/objects/{id}/pull"))
-			.body(empty())
-			.wrap_err("Failed to create the request.")?;
-		let response = self.send(request).await?;
-		if !response.status().is_success() {
-			let bytes = response
-				.collect()
-				.await
-				.wrap_err("Failed to collect the response body.")?
-				.to_bytes();
-			let error = serde_json::from_slice(&bytes)
-				.unwrap_or_else(|_| error!("The request did not succeed."));
-			return Err(error);
-		}
-		Ok(())
+	async fn pull_object(&self, id: &tg::object::Id) -> Result<()> {
+		self.pull_object(id).await
 	}
 
-	async fn search_packages(&self, arg: package::SearchArg) -> Result<package::SearchOutput> {
-		let search_params =
-			serde_urlencoded::to_string(arg).wrap_err("Failed to serialize the search params.")?;
-		let uri = format!("/packages/search?{search_params}");
-		let request = http::request::Builder::default()
-			.method(http::Method::GET)
-			.uri(uri)
-			.body(empty())
-			.wrap_err("Failed to create the request.")?;
-		let response = self.send(request).await?;
-		if !response.status().is_success() {
-			let bytes = response
-				.collect()
-				.await
-				.wrap_err("Failed to collect the response body.")?
-				.to_bytes();
-			let error = serde_json::from_slice(&bytes)
-				.unwrap_or_else(|_| error!("The request did not succeed."));
-			return Err(error);
-		}
-		let bytes = response
-			.collect()
-			.await
-			.wrap_err("Failed to collect the response body.")?
-			.to_bytes();
-		let response =
-			serde_json::from_slice(&bytes).wrap_err("Failed to deserialize the response body.")?;
-		Ok(response)
+	async fn search_packages(
+		&self,
+		arg: tg::package::SearchArg,
+	) -> Result<tg::package::SearchOutput> {
+		self.search_packages(arg).await
 	}
 
 	async fn try_get_package(
 		&self,
-		dependency: &Dependency,
-		arg: package::GetArg,
-	) -> Result<Option<package::GetOutput>> {
-		let dependency = dependency.to_string();
-		let dependency = urlencoding::encode(&dependency);
-		let search_params =
-			serde_urlencoded::to_string(&arg).wrap_err("Failed to serialize the search params.")?;
-		let uri = format!("/packages/{dependency}?{search_params}");
-		let request = http::request::Builder::default()
-			.method(http::Method::GET)
-			.uri(uri)
-			.body(empty())
-			.wrap_err("Failed to create the request.")?;
-		let response = self.send(request).await?;
-		if response.status() == http::StatusCode::NOT_FOUND {
-			return Ok(None);
-		}
-		if !response.status().is_success() {
-			let bytes = response
-				.collect()
-				.await
-				.wrap_err("Failed to collect the response body.")?
-				.to_bytes();
-			let error = serde_json::from_slice(&bytes)
-				.unwrap_or_else(|_| error!("The request did not succeed."));
-			return Err(error);
-		}
-		let bytes = response
-			.collect()
-			.await
-			.wrap_err("Failed to collect the response body.")?
-			.to_bytes();
-		let output =
-			serde_json::from_slice(&bytes).wrap_err("Failed to deserialize the response body.")?;
-		let Some(output) = output else {
-			return Ok(None);
-		};
-		Ok(Some(output))
+		dependency: &tg::Dependency,
+		arg: tg::package::GetArg,
+	) -> Result<Option<tg::package::GetOutput>> {
+		self.try_get_package(dependency, arg).await
 	}
 
 	async fn try_get_package_versions(
 		&self,
-		dependency: &Dependency,
+		dependency: &tg::Dependency,
 	) -> Result<Option<Vec<String>>> {
-		let dependency = dependency.to_string();
-		let dependency = urlencoding::encode(&dependency);
-		let request = http::request::Builder::default()
-			.method(http::Method::GET)
-			.uri(format!("/packages/{dependency}/versions"))
-			.body(empty())
-			.wrap_err("Failed to create the request.")?;
-		let response = self.send(request).await?;
-		if !response.status().is_success() {
-			let bytes = response
-				.collect()
-				.await
-				.wrap_err("Failed to collect the response body.")?
-				.to_bytes();
-			let error = serde_json::from_slice(&bytes)
-				.unwrap_or_else(|_| error!("The request did not succeed."));
-			return Err(error);
-		}
-		let bytes = response
-			.collect()
-			.await
-			.wrap_err("Failed to collect the response body.")?
-			.to_bytes();
-		let id =
-			serde_json::from_slice(&bytes).wrap_err("Failed to deserialize the response body.")?;
-		Ok(Some(id))
+		self.try_get_package_versions(dependency).await
 	}
 
-	async fn publish_package(&self, user: Option<&User>, id: &directory::Id) -> Result<()> {
-		let mut request = http::request::Builder::default()
-			.method(http::Method::POST)
-			.uri("/packages");
-		let user = user.or(self.inner.user.as_ref());
-		if let Some(token) = user.and_then(|user| user.token.as_ref()) {
-			request = request.header(http::header::AUTHORIZATION, format!("Bearer {token}"));
-		}
-		let body = serde_json::to_vec(&id).wrap_err("Failed to serialize the body.")?;
-		let request = request
-			.body(full(body))
-			.wrap_err("Failed to create the request.")?;
-		let response = self.send(request).await?;
-		if !response.status().is_success() {
-			let bytes = response
-				.collect()
-				.await
-				.wrap_err("Failed to collect the response body.")?
-				.to_bytes();
-			let error = serde_json::from_slice(&bytes)
-				.unwrap_or_else(|_| error!("The request did not succeed."));
-			return Err(error);
-		}
-		Ok(())
+	async fn publish_package(&self, user: Option<&tg::User>, id: &tg::directory::Id) -> Result<()> {
+		self.publish_package(user, id).await
 	}
 
-	async fn health(&self) -> Result<Health> {
-		let request = http::request::Builder::default()
-			.method(http::Method::GET)
-			.uri("/health")
-			.body(empty())
-			.wrap_err("Failed to create the request.")?;
-		let response = self.send(request).await?;
-		if !response.status().is_success() {
-			let bytes = response
-				.collect()
-				.await
-				.wrap_err("Failed to collect the response body.")?
-				.to_bytes();
-			let error = serde_json::from_slice(&bytes)
-				.unwrap_or_else(|_| error!("The request did not succeed."));
-			return Err(error);
-		}
-		let bytes = response
-			.collect()
-			.await
-			.wrap_err("Failed to collect the response body.")?
-			.to_bytes();
-		let health = serde_json::from_slice(&bytes).wrap_err("Failed to deserialize the body.")?;
-		Ok(health)
+	async fn health(&self) -> Result<tg::Health> {
+		self.health().await
 	}
 
 	async fn clean(&self) -> Result<()> {
-		let request = http::request::Builder::default()
-			.method(http::Method::POST)
-			.uri("/clean")
-			.body(empty())
-			.wrap_err("Failed to create the request.")?;
-		let response = self.send(request).await?;
-		if !response.status().is_success() {
-			let bytes = response
-				.collect()
-				.await
-				.wrap_err("Failed to collect the response body.")?
-				.to_bytes();
-			let error = serde_json::from_slice(&bytes)
-				.unwrap_or_else(|_| error!("The request did not succeed."));
-			return Err(error);
-		}
-		Ok(())
+		self.clean().await
 	}
 
 	async fn stop(&self) -> Result<()> {
-		let request = http::request::Builder::default()
-			.method(http::Method::POST)
-			.uri("/stop")
-			.body(empty())
-			.wrap_err("Failed to create the request.")?;
-		self.send(request).await.ok();
-		Ok(())
+		self.stop().await
 	}
 
-	async fn create_login(&self) -> Result<user::Login> {
-		let request = http::request::Builder::default()
-			.method(http::Method::POST)
-			.uri("/logins")
-			.body(empty())
-			.wrap_err("Failed to create the request.")?;
-		let response = self.send(request).await?;
-		if !response.status().is_success() {
-			let bytes = response
-				.collect()
-				.await
-				.wrap_err("Failed to collect the response body.")?
-				.to_bytes();
-			let error = serde_json::from_slice(&bytes)
-				.unwrap_or_else(|_| error!("The request did not succeed."));
-			return Err(error);
-		}
-		let bytes = response
-			.collect()
-			.await
-			.wrap_err("Failed to collect the response body.")?
-			.to_bytes();
-		let response =
-			serde_json::from_slice(&bytes).wrap_err("Failed to deserialize the response body.")?;
-		Ok(response)
+	async fn create_login(&self) -> Result<tg::user::Login> {
+		self.create_login().await
 	}
 
-	async fn get_login(&self, id: &Id) -> Result<Option<user::Login>> {
-		let request = http::request::Builder::default()
-			.method(http::Method::GET)
-			.uri(format!("/logins/{id}"))
-			.body(empty())
-			.wrap_err("Failed to create the request.")?;
-		let response = self
-			.send(request)
-			.await
-			.wrap_err("Failed to send the request.")?;
-		if !response.status().is_success() {
-			let bytes = response
-				.collect()
-				.await
-				.wrap_err("Failed to collect the response body.")?
-				.to_bytes();
-			let error = serde_json::from_slice(&bytes)
-				.unwrap_or_else(|_| error!("The request did not succeed."));
-			return Err(error);
-		}
-		let bytes = response
-			.collect()
-			.await
-			.wrap_err("Failed to collect the response body.")?
-			.to_bytes();
-		let response =
-			serde_json::from_slice(&bytes).wrap_err("Failed to deserialize the response body.")?;
-		Ok(response)
+	async fn get_login(&self, id: &tg::Id) -> Result<Option<tg::Login>> {
+		self.get_login(id).await
 	}
 
-	async fn get_user_for_token(&self, token: &str) -> Result<Option<user::User>> {
-		let request = http::request::Builder::default()
-			.method(http::Method::GET)
-			.uri("/user")
-			.header(http::header::AUTHORIZATION, format!("Bearer {token}"))
-			.body(empty())
-			.wrap_err("Failed to create the request.")?;
-		let response = self.send(request).await?;
-		if !response.status().is_success() {
-			let bytes = response
-				.collect()
-				.await
-				.wrap_err("Failed to collect the response body.")?
-				.to_bytes();
-			let error = serde_json::from_slice(&bytes)
-				.unwrap_or_else(|_| error!("The request did not succeed."));
-			return Err(error);
-		}
-		let bytes = response
-			.collect()
-			.await
-			.wrap_err("Failed to collect the response body.")?
-			.to_bytes();
-		let response =
-			serde_json::from_slice(&bytes).wrap_err("Failed to deserialize the response body.")?;
-		Ok(response)
+	async fn get_user_for_token(&self, token: &str) -> Result<Option<tg::User>> {
+		self.get_user_for_token(token).await
 	}
 }
 
@@ -1321,11 +674,11 @@ impl Addr {
 	#[must_use]
 	pub fn is_local(&self) -> bool {
 		match &self {
+			Addr::Unix(_) => true,
 			Addr::Inet(inet) => match &inet.host {
 				Host::Domain(domain) => domain == "localhost",
 				Host::Ip(ip) => ip.is_loopback(),
 			},
-			Addr::Unix(_) => true,
 		}
 	}
 }
@@ -1333,8 +686,8 @@ impl Addr {
 impl std::fmt::Display for Addr {
 	fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
 		match self {
-			Addr::Inet(inet) => write!(f, "{inet}"),
 			Addr::Unix(path) => write!(f, "unix:{}", path.display()),
+			Addr::Inet(inet) => write!(f, "{inet}"),
 		}
 	}
 }
@@ -1402,57 +755,4 @@ impl TryFrom<Url> for Addr {
 		let port = value.port_or_known_default().wrap_err("Invalid URL.")?;
 		Ok(Addr::Inet(Inet { host, port }))
 	}
-}
-impl Builder {
-	#[must_use]
-	pub fn new(addr: Addr) -> Self {
-		Self {
-			addr,
-			tls: None,
-			user: None,
-		}
-	}
-
-	#[must_use]
-	pub fn with_runtime(runtime: Runtime) -> Self {
-		Self::new(runtime.addr)
-	}
-
-	pub fn with_runtime_json(runtime_json: &impl AsRef<str>) -> Result<Self> {
-		let runtime: Runtime = serde_json::from_str(runtime_json.as_ref())
-			.wrap_err("Malformed TANGRAM_RUNTIME json string")?;
-		Ok(Self::with_runtime(runtime))
-	}
-
-	#[must_use]
-	pub fn tls(mut self, tls: bool) -> Self {
-		self.tls = Some(tls);
-		self
-	}
-
-	#[must_use]
-	pub fn user(mut self, user: Option<User>) -> Self {
-		self.user = user;
-		self
-	}
-
-	#[must_use]
-	pub fn build(self) -> Client {
-		let tls = self.tls.unwrap_or(false);
-		Client::new(self.addr, tls, self.user)
-	}
-}
-
-#[must_use]
-pub fn empty() -> Outgoing {
-	http_body_util::Empty::new()
-		.map_err(Into::into)
-		.boxed_unsync()
-}
-
-#[must_use]
-pub fn full(chunk: impl Into<Bytes>) -> Outgoing {
-	http_body_util::Full::new(chunk.into())
-		.map_err(Into::into)
-		.boxed_unsync()
 }

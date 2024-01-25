@@ -12,10 +12,10 @@ use tangram_error::{Result, Wrap, WrapErr};
 #[command(trailing_var_arg = true)]
 pub struct Args {
 	/// The path to the executable in the artifact to run.
-	#[arg(long)]
-	pub executable_path: Option<tg::Path>,
+	#[arg(short = 'x', long)]
+	pub executable: Option<tg::Path>,
 
-	/// If this flag is set, the package's lockfile will not be updated.
+	/// If this flag is set, then the package's lockfile will not be updated.
 	#[arg(long)]
 	pub locked: bool,
 
@@ -32,7 +32,7 @@ pub struct Args {
 	pub retry: tg::build::Retry,
 
 	/// The name of the target to build.
-	#[arg(default_value = "default")]
+	#[arg(short, long, default_value = "default")]
 	pub target: String,
 
 	/// Arguments to pass to the executable.
@@ -121,7 +121,7 @@ impl Cli {
 			.join(artifact.id(tg).await?.to_string());
 
 		// Get the executable path.
-		let executable_path = if let Some(executable_path) = args.executable_path {
+		let executable_path = if let Some(executable_path) = args.executable {
 			// Resolve the argument as a path relative to the artifact.
 			artifact_path.join(PathBuf::from(executable_path.to_string()))
 		} else {

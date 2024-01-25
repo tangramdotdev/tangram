@@ -1,12 +1,15 @@
+use crate as tg;
 use crate::{
-	branch, directory, file, id, leaf, lock, symlink, target, Branch, Directory, Error, File, Leaf,
-	Lock, Result, Symlink, Target, WrapErr,
+	branch, directory, file, id, leaf, lock, symlink, target, Branch, Client, Directory, Error,
+	File, Leaf, Lock, Result, Symlink, Target, WrapErr,
 };
 use async_recursion::async_recursion;
 use bytes::Bytes;
 use derive_more::{Display, From, TryInto, TryUnwrap};
 use futures::{stream::FuturesUnordered, TryStreamExt};
+use http_body_util::BodyExt;
 use tangram_error::error;
+use tangram_util::http::{empty, full};
 
 /// An object kind.
 #[derive(Clone, Copy, Debug)]
@@ -262,19 +265,145 @@ impl Data {
 	}
 }
 
-impl TryFrom<Data> for Object {
-	type Error = Error;
+impl Client {
+	pub async fn get_object_exists(&self, id: &tg::object::Id) -> Result<bool> {
+		let method = http::Method::HEAD;
+		let uri = format!("/objects/{id}");
+		let body = empty();
+		let request = http::request::Builder::default()
+			.method(method)
+			.uri(uri)
+			.body(body)
+			.wrap_err("Failed to create the request.")?;
+		let response = self.send(request).await?;
+		if response.status() == http::StatusCode::NOT_FOUND {
+			return Ok(false);
+		}
+		if !response.status().is_success() {
+			let bytes = response
+				.collect()
+				.await
+				.wrap_err("Failed to collect the response body.")?
+				.to_bytes();
+			let error = serde_json::from_slice(&bytes)
+				.unwrap_or_else(|_| error!("The request did not succeed."));
+			return Err(error);
+		}
+		Ok(true)
+	}
 
-	fn try_from(data: Data) -> std::result::Result<Self, Self::Error> {
-		Ok(match data {
-			Data::Leaf(data) => Self::Leaf(data.try_into()?),
-			Data::Branch(data) => Self::Branch(data.try_into()?),
-			Data::Directory(data) => Self::Directory(data.try_into()?),
-			Data::File(data) => Self::File(data.try_into()?),
-			Data::Symlink(data) => Self::Symlink(data.try_into()?),
-			Data::Lock(data) => Self::Lock(data.try_into()?),
-			Data::Target(data) => Self::Target(data.try_into()?),
-		})
+	pub async fn try_get_object(
+		&self,
+		id: &tg::object::Id,
+	) -> Result<Option<tg::object::GetOutput>> {
+		let method = http::Method::GET;
+		let uri = format!("/objects/{id}");
+		let body = empty();
+		let request = http::request::Builder::default()
+			.method(method)
+			.uri(uri)
+			.body(body)
+			.wrap_err("Failed to create the request.")?;
+		let response = self.send(request).await?;
+		if response.status() == http::StatusCode::NOT_FOUND {
+			return Ok(None);
+		}
+		if !response.status().is_success() {
+			let bytes = response
+				.collect()
+				.await
+				.wrap_err("Failed to collect the response body.")?
+				.to_bytes();
+			let error = serde_json::from_slice(&bytes)
+				.unwrap_or_else(|_| error!("The request did not succeed."));
+			return Err(error);
+		}
+		let bytes = response
+			.collect()
+			.await
+			.wrap_err("Failed to collect the response body.")?
+			.to_bytes();
+		let output = tg::object::GetOutput { bytes };
+		Ok(Some(output))
+	}
+
+	pub async fn try_put_object(
+		&self,
+		id: &tg::object::Id,
+		bytes: &Bytes,
+	) -> Result<tg::object::PutOutput> {
+		let method = http::Method::PUT;
+		let uri = format!("/objects/{id}");
+		let body = full(bytes.clone());
+		let request = http::request::Builder::default()
+			.method(method)
+			.uri(uri)
+			.body(body)
+			.wrap_err("Failed to create the request.")?;
+		let response = self.send(request).await?;
+		if !response.status().is_success() {
+			let bytes = response
+				.collect()
+				.await
+				.wrap_err("Failed to collect the response body.")?
+				.to_bytes();
+			let error = serde_json::from_slice(&bytes)
+				.unwrap_or_else(|_| error!("The request did not succeed."));
+			return Err(error);
+		}
+		let bytes = response
+			.collect()
+			.await
+			.wrap_err("Failed to collect the response body.")?
+			.to_bytes();
+		let output = serde_json::from_slice(&bytes).wrap_err("Failed to deserialize the body.")?;
+		Ok(output)
+	}
+
+	pub async fn push_object(&self, id: &tg::object::Id) -> Result<()> {
+		let method = http::Method::POST;
+		let uri = format!("/objects/{id}/push");
+		let body = empty();
+		let request = http::request::Builder::default()
+			.method(method)
+			.uri(uri)
+			.body(body)
+			.wrap_err("Failed to create the request.")?;
+		let response = self.send(request).await?;
+		if !response.status().is_success() {
+			let bytes = response
+				.collect()
+				.await
+				.wrap_err("Failed to collect the response body.")?
+				.to_bytes();
+			let error = serde_json::from_slice(&bytes)
+				.unwrap_or_else(|_| error!("The request did not succeed."));
+			return Err(error);
+		}
+		Ok(())
+	}
+
+	pub async fn pull_object(&self, id: &tg::object::Id) -> Result<()> {
+		let method = http::Method::POST;
+		let uri = format!("/objects/{id}/pull");
+		let body = empty();
+		let request = http::request::Builder::default()
+			.method(method)
+			.uri(uri)
+			.body(body)
+			.wrap_err("Failed to create the request.")?;
+		let response = self.send(request).await?;
+		if !response.status().is_success() {
+			let bytes = response
+				.collect()
+				.await
+				.wrap_err("Failed to collect the response body.")?
+				.to_bytes();
+			let error = serde_json::from_slice(&bytes)
+				.unwrap_or_else(|_| error!("The request did not succeed."));
+			return Err(error);
+		}
+		Ok(())
 	}
 }
 
@@ -379,5 +508,50 @@ impl TryFrom<id::Kind> for Kind {
 			id::Kind::Target => Ok(Self::Target),
 			_ => Err(error!("Invalid kind.")),
 		}
+	}
+}
+
+impl TryFrom<Data> for Object {
+	type Error = Error;
+
+	fn try_from(data: Data) -> std::result::Result<Self, Self::Error> {
+		Ok(match data {
+			Data::Leaf(data) => Self::Leaf(data.try_into()?),
+			Data::Branch(data) => Self::Branch(data.try_into()?),
+			Data::Directory(data) => Self::Directory(data.try_into()?),
+			Data::File(data) => Self::File(data.try_into()?),
+			Data::Symlink(data) => Self::Symlink(data.try_into()?),
+			Data::Lock(data) => Self::Lock(data.try_into()?),
+			Data::Target(data) => Self::Target(data.try_into()?),
+		})
+	}
+}
+
+impl std::fmt::Display for Handle {
+	fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+		match self {
+			Self::Leaf(leaf) => {
+				write!(f, "{leaf}")?;
+			},
+			Self::Branch(branch) => {
+				write!(f, "{branch}")?;
+			},
+			Self::Directory(directory) => {
+				write!(f, "{directory}")?;
+			},
+			Self::File(file) => {
+				write!(f, "{file}")?;
+			},
+			Self::Symlink(symlink) => {
+				write!(f, "{symlink}")?;
+			},
+			Self::Lock(lock) => {
+				write!(f, "{lock}")?;
+			},
+			Self::Target(target) => {
+				write!(f, "{target}")?;
+			},
+		}
+		Ok(())
 	}
 }

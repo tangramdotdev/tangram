@@ -4,6 +4,7 @@ import { File } from "./file.ts";
 import { Leaf } from "./leaf.ts";
 import { Lock } from "./lock.ts";
 import { Mutation } from "./mutation.ts";
+import { Object_ } from "./object.ts";
 import { Symlink } from "./symlink.ts";
 import { Target } from "./target.ts";
 import { Template } from "./template.ts";
@@ -16,16 +17,10 @@ export type Unresolved<T extends Value> = MaybePromise<
 		| boolean
 		| number
 		| string
+		| Object_
 		| Uint8Array
 		| Mutation
 		| Template
-		| Leaf
-		| Branch
-		| Directory
-		| File
-		| Symlink
-		| Lock
-		| Target
 		? T
 		: T extends Array<infer U extends Value>
 			? Array<Unresolved<U>>
@@ -39,16 +34,10 @@ export type Resolved<T extends Unresolved<Value>> = T extends
 	| boolean
 	| number
 	| string
+	| Object_
 	| Uint8Array
 	| Mutation
 	| Template
-	| Leaf
-	| Branch
-	| Directory
-	| File
-	| Symlink
-	| Lock
-	| Target
 	? T
 	: T extends Promise<infer U extends Unresolved<Value>>
 		? Resolved<U>
@@ -67,16 +56,16 @@ export let resolve = async <T extends Unresolved<Value>>(
 		typeof value === "boolean" ||
 		typeof value === "number" ||
 		typeof value === "string" ||
-		value instanceof Uint8Array ||
-		value instanceof Template ||
-		value instanceof Mutation ||
 		value instanceof Leaf ||
 		value instanceof Branch ||
 		value instanceof Directory ||
 		value instanceof File ||
 		value instanceof Symlink ||
 		value instanceof Lock ||
-		value instanceof Target
+		value instanceof Target ||
+		value instanceof Uint8Array ||
+		value instanceof Template ||
+		value instanceof Mutation
 	) {
 		return value as unknown as Resolved<T>;
 	} else if (value instanceof Array) {

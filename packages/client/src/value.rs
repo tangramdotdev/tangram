@@ -1,8 +1,4 @@
-use crate::{
-	branch, directory, file, leaf, lock, mutation, object, symlink, target, template, Branch,
-	Directory, Error, File, Handle, Leaf, Lock, Mutation, Result, Symlink, Target, Template,
-	WrapErr,
-};
+use crate::{mutation, object, template, Error, Handle, Mutation, Result, Template, WrapErr};
 use async_recursion::async_recursion;
 use bytes::Bytes;
 use derive_more::{From, TryInto, TryUnwrap};
@@ -37,6 +33,9 @@ pub enum Value {
 	/// A map value.
 	Map(BTreeMap<String, Value>),
 
+	/// An object value.
+	Object(object::Handle),
+
 	/// A bytes value.
 	Bytes(Bytes),
 
@@ -45,27 +44,6 @@ pub enum Value {
 
 	/// A template value.
 	Template(Template),
-
-	/// A leaf value.
-	Leaf(Leaf),
-
-	/// A branch value.
-	Branch(Branch),
-
-	/// A directory value.
-	Directory(Directory),
-
-	/// A file value.
-	File(File),
-
-	/// A symlink value.
-	Symlink(Symlink),
-
-	/// A lock value.
-	Lock(Lock),
-
-	/// A target value.
-	Target(Target),
 }
 
 /// Value data.
@@ -77,16 +55,10 @@ pub enum Data {
 	String(String),
 	Array(Vec<Data>),
 	Map(BTreeMap<String, Data>),
+	Object(object::Id),
 	Bytes(Bytes),
 	Mutation(mutation::Data),
 	Template(template::Data),
-	Leaf(leaf::Id),
-	Branch(branch::Id),
-	Directory(directory::Id),
-	File(file::Id),
-	Symlink(symlink::Id),
-	Lock(lock::Id),
-	Target(target::Id),
 }
 
 impl Value {
@@ -94,13 +66,9 @@ impl Value {
 		match self {
 			Self::Array(array) => array.iter().flat_map(Self::objects).collect(),
 			Self::Map(map) => map.values().flat_map(Self::objects).collect(),
-			Self::Leaf(leaf) => vec![object::Handle::Leaf(leaf.clone())],
-			Self::Branch(branch) => vec![object::Handle::Branch(branch.clone())],
-			Self::Directory(directory) => vec![object::Handle::Directory(directory.clone())],
-			Self::File(file) => vec![object::Handle::File(file.clone())],
-			Self::Symlink(symlink) => vec![object::Handle::Symlink(symlink.clone())],
-			Self::Lock(lock) => vec![object::Handle::Lock(lock.clone())],
-			Self::Target(target) => vec![object::Handle::Target(target.clone())],
+			Self::Object(object) => vec![object.clone()],
+			Self::Template(template) => template.objects(),
+			Self::Mutation(mutation) => mutation.objects(),
 			_ => vec![],
 		}
 	}
@@ -139,16 +107,10 @@ impl Value {
 					.try_collect()
 					.await?,
 			),
+			Self::Object(object) => Data::Object(object.id(tg).await?.clone()),
 			Self::Bytes(bytes) => Data::Bytes(bytes.clone()),
 			Self::Mutation(mutation) => Data::Mutation(mutation.data(tg).await?.clone()),
 			Self::Template(template) => Data::Template(template.data(tg).await?.clone()),
-			Self::Leaf(leaf) => Data::Leaf(leaf.id(tg).await?.clone()),
-			Self::Branch(branch) => Data::Branch(branch.id(tg).await?.clone()),
-			Self::Directory(directory) => Data::Directory(directory.id(tg).await?.clone()),
-			Self::File(file) => Data::File(file.id(tg).await?.clone()),
-			Self::Symlink(symlink) => Data::Symlink(symlink.id(tg).await?.clone()),
-			Self::Lock(lock) => Data::Lock(lock.id(tg).await?.clone()),
-			Self::Target(target) => Data::Target(target.id(tg).await?.clone()),
 		};
 		Ok(data)
 	}
@@ -175,13 +137,7 @@ impl Data {
 			Self::Map(map) => map.values().flat_map(Self::children).collect(),
 			Self::Mutation(mutation) => mutation.children(),
 			Self::Template(template) => template.children(),
-			Self::Leaf(id) => vec![id.clone().into()],
-			Self::Branch(id) => vec![id.clone().into()],
-			Self::Directory(id) => vec![id.clone().into()],
-			Self::File(id) => vec![id.clone().into()],
-			Self::Symlink(id) => vec![id.clone().into()],
-			Self::Lock(id) => vec![id.clone().into()],
-			Self::Target(id) => vec![id.clone().into()],
+			Self::Object(id) => vec![id.clone()],
 		}
 	}
 }
@@ -227,35 +183,17 @@ impl std::fmt::Display for Value {
 				}
 				write!(f, "}}")?;
 			},
-			Self::Bytes(bytes) => {
-				write!(f, "{}", hex::encode(bytes))?;
+			Self::Object(object) => {
+				write!(f, "{object}")?;
+			},
+			Self::Bytes(_) => {
+				write!(f, "(bytes)")?;
 			},
 			Self::Mutation(mutation) => {
 				write!(f, "{mutation}")?;
 			},
 			Self::Template(template) => {
 				write!(f, "{template}")?;
-			},
-			Self::Leaf(leaf) => {
-				write!(f, "{leaf}")?;
-			},
-			Self::Branch(branch) => {
-				write!(f, "{branch}")?;
-			},
-			Self::Directory(directory) => {
-				write!(f, "{directory}")?;
-			},
-			Self::File(file) => {
-				write!(f, "{file}")?;
-			},
-			Self::Symlink(symlink) => {
-				write!(f, "{symlink}")?;
-			},
-			Self::Lock(lock) => {
-				write!(f, "{lock}")?;
-			},
-			Self::Target(target) => {
-				write!(f, "{target}")?;
 			},
 		}
 		Ok(())
@@ -279,16 +217,10 @@ impl TryFrom<Data> for Value {
 					.map(|(key, value)| Ok::<_, Error>((key, value.try_into()?)))
 					.try_collect()?,
 			),
+			Data::Object(id) => Self::Object(object::Handle::with_id(id)),
 			Data::Bytes(bytes) => Self::Bytes(bytes),
 			Data::Mutation(mutation) => Self::Mutation(mutation.try_into()?),
 			Data::Template(template) => Self::Template(template.try_into()?),
-			Data::Leaf(id) => Self::Leaf(Leaf::with_id(id)),
-			Data::Branch(id) => Self::Branch(Branch::with_id(id)),
-			Data::Directory(id) => Self::Directory(Directory::with_id(id)),
-			Data::File(id) => Self::File(File::with_id(id)),
-			Data::Symlink(id) => Self::Symlink(Symlink::with_id(id)),
-			Data::Lock(id) => Self::Lock(Lock::with_id(id)),
-			Data::Target(id) => Self::Target(Target::with_id(id)),
 		})
 	}
 }
@@ -320,7 +252,7 @@ impl serde::Serialize for Data {
 			Self::Bytes(value) => {
 				let mut map = serializer.serialize_map(Some(2))?;
 				map.serialize_entry("kind", "bytes")?;
-				map.serialize_entry("value", value)?;
+				map.serialize_entry("value", &data_encoding::BASE64.encode(value))?;
 				map.end()
 			},
 			Self::Mutation(value) => {
@@ -335,45 +267,9 @@ impl serde::Serialize for Data {
 				map.serialize_entry("value", value)?;
 				map.end()
 			},
-			Self::Leaf(value) => {
+			Self::Object(value) => {
 				let mut map = serializer.serialize_map(Some(2))?;
-				map.serialize_entry("kind", "leaf")?;
-				map.serialize_entry("value", value)?;
-				map.end()
-			},
-			Self::Branch(value) => {
-				let mut map = serializer.serialize_map(Some(2))?;
-				map.serialize_entry("kind", "branch")?;
-				map.serialize_entry("value", value)?;
-				map.end()
-			},
-			Self::Directory(value) => {
-				let mut map = serializer.serialize_map(Some(2))?;
-				map.serialize_entry("kind", "directory")?;
-				map.serialize_entry("value", value)?;
-				map.end()
-			},
-			Self::File(value) => {
-				let mut map = serializer.serialize_map(Some(2))?;
-				map.serialize_entry("kind", "file")?;
-				map.serialize_entry("value", value)?;
-				map.end()
-			},
-			Self::Symlink(value) => {
-				let mut map = serializer.serialize_map(Some(2))?;
-				map.serialize_entry("kind", "symlink")?;
-				map.serialize_entry("value", value)?;
-				map.end()
-			},
-			Self::Lock(value) => {
-				let mut map = serializer.serialize_map(Some(2))?;
-				map.serialize_entry("kind", "lock")?;
-				map.serialize_entry("value", value)?;
-				map.end()
-			},
-			Self::Target(value) => {
-				let mut map = serializer.serialize_map(Some(2))?;
-				map.serialize_entry("kind", "target")?;
+				map.serialize_entry("kind", "object")?;
 				map.serialize_entry("value", value)?;
 				map.end()
 			},
@@ -480,16 +376,15 @@ impl<'de> serde::Deserialize<'de> for Data {
 							};
 							value = Some(match kind {
 								"map" => Data::Map(map.next_value()?),
-								"bytes" => Data::Bytes(map.next_value()?),
+								"object" => Data::Object(map.next_value()?),
+								"bytes" => Data::Bytes(
+									data_encoding::BASE64
+										.decode(map.next_value::<String>()?.as_bytes())
+										.map_err(serde::de::Error::custom)?
+										.into(),
+								),
 								"mutation" => Data::Mutation(map.next_value()?),
 								"template" => Data::Template(map.next_value()?),
-								"leaf" => Data::Leaf(map.next_value()?),
-								"branch" => Data::Branch(map.next_value()?),
-								"directory" => Data::Directory(map.next_value()?),
-								"file" => Data::File(map.next_value()?),
-								"symlink" => Data::Symlink(map.next_value()?),
-								"lock" => Data::Lock(map.next_value()?),
-								"target" => Data::Target(map.next_value()?),
 								_ => {
 									return Err(serde::de::Error::unknown_variant(kind, &["kind"]))
 								},

@@ -97,6 +97,19 @@ impl Mutation {
 			},
 		})
 	}
+
+	pub fn objects(&self) -> Vec<object::Handle> {
+		match self {
+			Self::Unset => vec![],
+			Self::Set { value } | Self::SetIfUnset { value } => value.objects(),
+			Self::ArrayPrepend { values } | Self::ArrayAppend { values } => {
+				values.iter().flat_map(Value::objects).collect()
+			},
+			Self::TemplatePrepend { template, .. } | Self::TemplateAppend { template, .. } => {
+				template.objects()
+			},
+		}
+	}
 }
 
 impl Data {
@@ -153,7 +166,7 @@ impl TryFrom<Data> for Mutation {
 
 impl std::fmt::Display for Mutation {
 	fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-		write!(f, "(tg.mutation)")?;
+		write!(f, "(mutation)")?;
 		Ok(())
 	}
 }

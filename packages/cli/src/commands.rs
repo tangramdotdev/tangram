@@ -7,7 +7,6 @@ pub mod checksum;
 pub mod clean;
 pub mod doc;
 pub mod env;
-pub mod exec;
 pub mod fmt;
 pub mod get;
 pub mod init;

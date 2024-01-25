@@ -8,8 +8,8 @@ use tangram_error::Result;
 #[command(trailing_var_arg = true)]
 pub struct Args {
 	/// The path to the executable in the artifact to run.
-	#[arg(long)]
-	pub executable_path: Option<tg::Path>,
+	#[arg(short = 'x', long)]
+	pub executable: Option<tg::Path>,
 
 	/// If this flag is set, the package's lockfile will not be updated.
 	#[arg(long)]
@@ -31,7 +31,7 @@ impl Cli {
 	pub async fn command_env(&self, args: Args) -> Result<()> {
 		// Create the run args.
 		let args = super::run::Args {
-			executable_path: args.executable_path,
+			executable: args.executable,
 			locked: args.locked,
 			no_tui: false,
 			package: args.package,

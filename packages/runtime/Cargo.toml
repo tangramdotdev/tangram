@@ -16,12 +16,11 @@ workspace = true
 v8 = { workspace = true }
 
 [dependencies]
-base64 = { workspace = true }
 bytes = { workspace = true }
 derive_more = { workspace = true }
+data-encoding = { workspace = true }
 either = { workspace = true }
 futures = { workspace = true }
-hex = { workspace = true }
 indoc = { workspace = true }
 itertools = { workspace = true }
 libc = { workspace = true }

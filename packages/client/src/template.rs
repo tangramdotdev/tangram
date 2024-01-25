@@ -29,6 +29,13 @@ impl Template {
 			})
 	}
 
+	#[must_use]
+	pub fn objects(&self) -> Vec<object::Handle> {
+		self.artifacts()
+			.map(|artifact| artifact.clone().into())
+			.collect()
+	}
+
 	pub fn try_render_sync<'a, F>(&'a self, mut f: F) -> Result<String>
 	where
 		F: (FnMut(&'a Component) -> Result<Cow<'a, str>>) + 'a,

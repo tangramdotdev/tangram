@@ -17,6 +17,14 @@ impl Server {
 			.wrap_err("Failed to clear the database.")?;
 		}
 
+		// Clean the checkouts directory.
+		tokio::fs::remove_dir_all(self.checkouts_path())
+			.await
+			.wrap_err("Failed to remove the checkouts directory.")?;
+		tokio::fs::create_dir_all(self.checkouts_path())
+			.await
+			.wrap_err("Failed to recreate the checkouts directory.")?;
+
 		// Clean the temporary directory.
 		tokio::fs::remove_dir_all(self.tmp_path())
 			.await

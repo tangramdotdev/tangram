@@ -525,16 +525,10 @@ declare namespace tg {
 			| boolean
 			| number
 			| string
+			| Object_
 			| Uint8Array
 			| Mutation
 			| Template
-			| Leaf
-			| Branch
-			| Directory
-			| File
-			| Symlink
-			| Lock
-			| Target
 			? T
 			: T extends Array<infer U extends Value>
 				? Array<Unresolved<U>>
@@ -560,17 +554,10 @@ declare namespace tg {
 		| boolean
 		| number
 		| string
+		| Object_
 		| Uint8Array
 		| Mutation
 		| Template
-		| Leaf
-		| Branch
-		| Directory
-		| File
-		| Symlink
-		| Template
-		| Lock
-		| Target
 		? T
 		: T extends Array<infer U extends Unresolved<Value>>
 			? Array<Resolved<U>>
@@ -825,16 +812,11 @@ declare namespace tg {
 		| boolean
 		| number
 		| string
+		| Array<infer _U extends Value>
+		| Object_
 		| Uint8Array
-		| Blob
-		| Directory
-		| File
-		| Symlink
-		| Lock
-		| Target
 		| Mutation
 		| Template
-		| Array<infer _U extends Value>
 		? T
 		: T extends { [key: string]: Value }
 			? MutationMap<T>
@@ -850,23 +832,27 @@ declare namespace tg {
 		[K in keyof T]?: MaybeMutation<T[K]>;
 	};
 
+	export type Object_ =
+		| Leaf
+		| Branch
+		| Directory
+		| File
+		| Symlink
+		| Lock
+		| Target;
+
 	/** The union of all types that can be used as the input or output of Tangram targets. */
 	export type Value =
 		| undefined
 		| boolean
 		| number
 		| string
-		| Uint8Array
-		| Blob
-		| Directory
-		| File
-		| Symlink
-		| Lock
-		| Target
-		| Mutation
-		| Template
 		| Array<Value>
-		| { [key: string]: Value };
+		| { [key: string]: Value }
+		| Object_
+		| Uint8Array
+		| Mutation
+		| Template;
 
 	export namespace Value {
 		export type Id = string;

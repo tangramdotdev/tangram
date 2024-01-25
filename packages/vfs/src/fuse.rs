@@ -597,8 +597,7 @@ impl Server {
 					reader,
 				}
 			},
-			NodeKind::Symlink { .. } => FileHandleData::Symlink,
-			NodeKind::Checkout { .. } => FileHandleData::Symlink,
+			NodeKind::Symlink { .. } | NodeKind::Checkout { .. }  => FileHandleData::Symlink,
 		};
 		let file_handle_data = Arc::new(tokio::sync::RwLock::new(file_handle_data));
 
@@ -1103,8 +1102,7 @@ impl Node {
 		match &self.kind {
 			NodeKind::Root { .. } | NodeKind::Directory { .. } => libc::S_IFDIR as _,
 			NodeKind::File { .. } => libc::S_IFREG as _,
-			NodeKind::Symlink { .. } => libc::S_IFLNK as _,
-			NodeKind::Checkout { .. } => libc::S_IFLNK as _,
+			NodeKind::Symlink { .. } | NodeKind::Checkout { .. } => libc::S_IFLNK as _,
 		}
 	}
 
@@ -1115,8 +1113,7 @@ impl Node {
 				let executable = file.executable(tg).await.map_err(|_| libc::EIO)?;
 				libc::S_IFREG | 0o444 | (if executable { 0o111 } else { 0o000 })
 			},
-			NodeKind::Symlink { .. } => libc::S_IFLNK | 0o444,
-			NodeKind::Checkout { .. } => libc::S_IFLNK | 0o444,
+			NodeKind::Symlink { .. } | NodeKind::Checkout { .. }  => libc::S_IFLNK | 0o444,
 		};
 		Ok(mode as _)
 	}

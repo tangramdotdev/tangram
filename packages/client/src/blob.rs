@@ -338,12 +338,30 @@ impl std::fmt::Display for Blob {
 	}
 }
 
-impl From<Blob> for Value {
+impl From<Blob> for object::Handle {
 	fn from(value: Blob) -> Self {
 		match value {
-			Blob::Leaf(leaf) => leaf.into(),
-			Blob::Branch(branch) => branch.into(),
+			Blob::Leaf(leaf) => Self::Leaf(leaf),
+			Blob::Branch(branch) => Self::Branch(branch),
 		}
+	}
+}
+
+impl TryFrom<object::Handle> for Blob {
+	type Error = Error;
+
+	fn try_from(value: object::Handle) -> Result<Self, Self::Error> {
+		match value {
+			object::Handle::Leaf(leaf) => Ok(Self::Leaf(leaf)),
+			object::Handle::Branch(branch) => Ok(Self::Branch(branch)),
+			_ => Err(error!("Expected a blob.")),
+		}
+	}
+}
+
+impl From<Blob> for Value {
+	fn from(value: Blob) -> Self {
+		object::Handle::from(value).into()
 	}
 }
 
@@ -351,11 +369,9 @@ impl TryFrom<Value> for Blob {
 	type Error = Error;
 
 	fn try_from(value: Value) -> Result<Self, Self::Error> {
-		match value {
-			Value::Leaf(leaf) => Ok(Self::Leaf(leaf)),
-			Value::Branch(branch) => Ok(Self::Branch(branch)),
-			_ => Err(error!("Expected a blob.")),
-		}
+		object::Handle::try_from(value)
+			.wrap_err("Invalid value.")?
+			.try_into()
 	}
 }
 
@@ -453,10 +469,7 @@ impl AsyncRead for Reader {
 				State::Reading(future) => match future.as_mut().poll(cx) {
 					Poll::Pending => return Poll::Pending,
 					Poll::Ready(Err(error)) => {
-						return Poll::Ready(Err(std::io::Error::new(
-							std::io::ErrorKind::Other,
-							error,
-						)))
+						return Poll::Ready(Err(std::io::Error::other(error)))
 					},
 					Poll::Ready(Ok(data)) => {
 						*this.state = State::Full(data);

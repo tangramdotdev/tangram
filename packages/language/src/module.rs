@@ -59,7 +59,8 @@ pub struct Normal {
 impl From<Module> for Url {
 	fn from(value: Module) -> Self {
 		// Serialize and encode the module.
-		let data = hex::encode(serde_json::to_string(&value).unwrap());
+		let data =
+			data_encoding::HEXLOWER.encode(serde_json::to_string(&value).unwrap().as_bytes());
 
 		let path = match value {
 			Module::Library(library) => library.path.to_string(),
@@ -87,7 +88,9 @@ impl TryFrom<Url> for Module {
 		let data = value.domain().wrap_err("The URL must have a domain.")?;
 
 		// Decode the data.
-		let data = hex::decode(data).wrap_err("Failed to deserialize the path as hex.")?;
+		let data = data_encoding::HEXLOWER
+			.decode(data.as_bytes())
+			.wrap_err("Failed to deserialize the path.")?;
 
 		// Deserialize the data.
 		let module = serde_json::from_slice(&data).wrap_err("Failed to deserialize the module.")?;

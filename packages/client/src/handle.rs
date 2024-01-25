@@ -1,4 +1,4 @@
-use crate::{artifact, build, directory, health, object, package, user, Dependency, Id, User};
+use crate as tg;
 use async_trait::async_trait;
 use bytes::Bytes;
 use futures::stream::BoxStream;
@@ -10,86 +10,98 @@ pub trait Handle: Send + Sync + 'static {
 
 	fn file_descriptor_semaphore(&self) -> &tokio::sync::Semaphore;
 
-	async fn check_in_artifact(&self, arg: artifact::CheckInArg)
-		-> Result<artifact::CheckInOutput>;
+	async fn check_in_artifact(
+		&self,
+		arg: tg::artifact::CheckInArg,
+	) -> Result<tg::artifact::CheckInOutput>;
 
-	async fn check_out_artifact(&self, arg: artifact::CheckOutArg) -> Result<()>;
+	async fn check_out_artifact(&self, arg: tg::artifact::CheckOutArg) -> Result<()>;
 
-	async fn try_list_builds(&self, arg: build::ListArg) -> Result<build::ListOutput>;
+	async fn try_list_builds(&self, arg: tg::build::ListArg) -> Result<tg::build::ListOutput>;
 
-	async fn get_build_exists(&self, id: &build::Id) -> Result<bool>;
+	async fn get_build_exists(&self, id: &tg::build::Id) -> Result<bool>;
 
-	async fn get_build(&self, id: &build::Id) -> Result<build::GetOutput> {
+	async fn get_build(&self, id: &tg::build::Id) -> Result<tg::build::GetOutput> {
 		Ok(self
 			.try_get_build(id)
 			.await?
 			.wrap_err("Failed to get the build.")?)
 	}
 
-	async fn try_get_build(&self, id: &build::Id) -> Result<Option<build::GetOutput>>;
+	async fn try_get_build(&self, id: &tg::build::Id) -> Result<Option<tg::build::GetOutput>>;
 
 	async fn try_put_build(
 		&self,
-		user: Option<&User>,
-		id: &build::Id,
-		state: &build::State,
-	) -> Result<build::PutOutput>;
+		user: Option<&tg::User>,
+		id: &tg::build::Id,
+		state: &tg::build::State,
+	) -> Result<tg::build::PutOutput>;
 
 	async fn get_or_create_build(
 		&self,
-		user: Option<&User>,
-		arg: build::GetOrCreateArg,
-	) -> Result<build::GetOrCreateOutput>;
+		user: Option<&tg::User>,
+		arg: tg::build::GetOrCreateArg,
+	) -> Result<tg::build::GetOrCreateOutput>;
 
 	async fn try_dequeue_build(
 		&self,
-		user: Option<&User>,
-		arg: build::DequeueArg,
-	) -> Result<Option<build::DequeueOutput>>;
+		user: Option<&tg::User>,
+		arg: tg::build::queue::DequeueArg,
+	) -> Result<Option<tg::build::queue::DequeueOutput>>;
 
-	async fn get_build_status(&self, id: &build::Id) -> Result<build::Status> {
+	async fn get_build_status(
+		&self,
+		id: &tg::build::Id,
+		arg: tg::build::status::GetArg,
+	) -> Result<BoxStream<'static, Result<tg::build::Status>>> {
 		Ok(self
-			.try_get_build_status(id)
+			.try_get_build_status(id, arg)
 			.await?
 			.wrap_err("Failed to get the build.")?)
 	}
 
-	async fn try_get_build_status(&self, id: &build::Id) -> Result<Option<build::Status>>;
+	async fn try_get_build_status(
+		&self,
+		id: &tg::build::Id,
+		arg: tg::build::status::GetArg,
+	) -> Result<Option<BoxStream<'static, Result<tg::build::Status>>>>;
 
 	async fn set_build_status(
 		&self,
-		user: Option<&User>,
-		id: &build::Id,
-		status: build::Status,
+		user: Option<&tg::User>,
+		id: &tg::build::Id,
+		status: tg::build::Status,
 	) -> Result<()>;
 
 	async fn get_build_children(
 		&self,
-		id: &build::Id,
-	) -> Result<BoxStream<'static, Result<build::Id>>> {
+		id: &tg::build::Id,
+		arg: tg::build::children::GetArg,
+	) -> Result<BoxStream<'static, Result<tg::build::children::Chunk>>> {
 		Ok(self
-			.try_get_build_children(id)
+			.try_get_build_children(id, arg)
 			.await?
 			.wrap_err("Failed to get the build.")?)
 	}
 
 	async fn try_get_build_children(
 		&self,
-		id: &build::Id,
-	) -> Result<Option<BoxStream<'static, Result<build::Id>>>>;
+		id: &tg::build::Id,
+		arg: tg::build::children::GetArg,
+	) -> Result<Option<BoxStream<'static, Result<tg::build::children::Chunk>>>>;
 
 	async fn add_build_child(
 		&self,
-		user: Option<&User>,
-		id: &build::Id,
-		child_id: &build::Id,
+		user: Option<&tg::User>,
+		id: &tg::build::Id,
+		child_id: &tg::build::Id,
 	) -> Result<()>;
 
 	async fn get_build_log(
 		&self,
-		id: &build::Id,
-		arg: build::GetLogArg,
-	) -> Result<BoxStream<'static, Result<build::LogChunk>>> {
+		id: &tg::build::Id,
+		arg: tg::build::log::GetArg,
+	) -> Result<BoxStream<'static, Result<tg::build::log::Chunk>>> {
 		Ok(self
 			.try_get_build_log(id, arg)
 			.await?
@@ -98,52 +110,72 @@ pub trait Handle: Send + Sync + 'static {
 
 	async fn try_get_build_log(
 		&self,
-		id: &build::Id,
-		arg: build::GetLogArg,
-	) -> Result<Option<BoxStream<'static, Result<build::LogChunk>>>>;
+		id: &tg::build::Id,
+		arg: tg::build::log::GetArg,
+	) -> Result<Option<BoxStream<'static, Result<tg::build::log::Chunk>>>>;
 
-	async fn add_build_log(&self, user: Option<&User>, id: &build::Id, bytes: Bytes) -> Result<()>;
+	async fn add_build_log(
+		&self,
+		user: Option<&tg::User>,
+		id: &tg::build::Id,
+		bytes: Bytes,
+	) -> Result<()>;
 
-	async fn get_build_outcome(&self, id: &build::Id) -> Result<build::Outcome> {
+	async fn get_build_outcome(
+		&self,
+		id: &tg::build::Id,
+		arg: tg::build::outcome::GetArg,
+	) -> Result<Option<tg::build::Outcome>> {
 		Ok(self
-			.try_get_build_outcome(id)
+			.try_get_build_outcome(id, arg)
 			.await?
 			.wrap_err("Failed to get the build.")?)
 	}
 
-	async fn try_get_build_outcome(&self, id: &build::Id) -> Result<Option<build::Outcome>>;
+	async fn try_get_build_outcome(
+		&self,
+		id: &tg::build::Id,
+		arg: tg::build::outcome::GetArg,
+	) -> Result<Option<Option<tg::build::Outcome>>>;
 
 	async fn set_build_outcome(
 		&self,
-		user: Option<&User>,
-		id: &build::Id,
-		outcome: build::Outcome,
+		user: Option<&tg::User>,
+		id: &tg::build::Id,
+		outcome: tg::build::Outcome,
 	) -> Result<()>;
 
-	async fn get_object_exists(&self, id: &object::Id) -> Result<bool>;
+	async fn get_object_exists(&self, id: &tg::object::Id) -> Result<bool>;
 
-	async fn get_object(&self, id: &object::Id) -> Result<object::GetOutput> {
+	async fn get_object(&self, id: &tg::object::Id) -> Result<tg::object::GetOutput> {
 		Ok(self
 			.try_get_object(id)
 			.await?
 			.wrap_err("Failed to get the object.")?)
 	}
 
-	async fn try_get_object(&self, id: &object::Id) -> Result<Option<object::GetOutput>>;
+	async fn try_get_object(&self, id: &tg::object::Id) -> Result<Option<tg::object::GetOutput>>;
 
-	async fn try_put_object(&self, id: &object::Id, bytes: &Bytes) -> Result<object::PutOutput>;
+	async fn try_put_object(
+		&self,
+		id: &tg::object::Id,
+		bytes: &Bytes,
+	) -> Result<tg::object::PutOutput>;
 
-	async fn push_object(&self, id: &object::Id) -> Result<()>;
+	async fn push_object(&self, id: &tg::object::Id) -> Result<()>;
 
-	async fn pull_object(&self, id: &object::Id) -> Result<()>;
+	async fn pull_object(&self, id: &tg::object::Id) -> Result<()>;
 
-	async fn search_packages(&self, arg: package::SearchArg) -> Result<package::SearchOutput>;
+	async fn search_packages(
+		&self,
+		arg: tg::package::SearchArg,
+	) -> Result<tg::package::SearchOutput>;
 
 	async fn get_package(
 		&self,
-		dependency: &Dependency,
-		arg: package::GetArg,
-	) -> Result<package::GetOutput> {
+		dependency: &tg::Dependency,
+		arg: tg::package::GetArg,
+	) -> Result<tg::package::GetOutput> {
 		Ok(self
 			.try_get_package(dependency, arg)
 			.await?
@@ -152,11 +184,11 @@ pub trait Handle: Send + Sync + 'static {
 
 	async fn try_get_package(
 		&self,
-		dependency: &Dependency,
-		arg: package::GetArg,
-	) -> Result<Option<package::GetOutput>>;
+		dependency: &tg::Dependency,
+		arg: tg::package::GetArg,
+	) -> Result<Option<tg::package::GetOutput>>;
 
-	async fn get_package_versions(&self, dependency: &Dependency) -> Result<Vec<String>> {
+	async fn get_package_versions(&self, dependency: &tg::Dependency) -> Result<Vec<String>> {
 		Ok(self
 			.try_get_package_versions(dependency)
 			.await?
@@ -165,20 +197,20 @@ pub trait Handle: Send + Sync + 'static {
 
 	async fn try_get_package_versions(
 		&self,
-		dependency: &Dependency,
+		dependency: &tg::Dependency,
 	) -> Result<Option<Vec<String>>>;
 
-	async fn publish_package(&self, user: Option<&User>, id: &directory::Id) -> Result<()>;
+	async fn publish_package(&self, user: Option<&tg::User>, id: &tg::directory::Id) -> Result<()>;
 
-	async fn health(&self) -> Result<health::Health>;
+	async fn health(&self) -> Result<tg::server::Health>;
 
 	async fn clean(&self) -> Result<()>;
 
 	async fn stop(&self) -> Result<()>;
 
-	async fn create_login(&self) -> Result<user::Login>;
+	async fn create_login(&self) -> Result<tg::user::Login>;
 
-	async fn get_login(&self, id: &Id) -> Result<Option<user::Login>>;
+	async fn get_login(&self, id: &tg::Id) -> Result<Option<tg::user::Login>>;
 
-	async fn get_user_for_token(&self, token: &str) -> Result<Option<User>>;
+	async fn get_user_for_token(&self, token: &str) -> Result<Option<tg::User>>;
 }

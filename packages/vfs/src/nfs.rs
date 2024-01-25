@@ -1061,7 +1061,7 @@ impl Server {
 			// The values 0 and u64::MAX are sential values for the other field of stateid, so skip them.
 			loop {
 				if state.index == u64::MAX - 1 {
-					state.index = 1
+					state.index = 1;
 				} else {
 					state.index += 1;
 				}

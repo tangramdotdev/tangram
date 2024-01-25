@@ -51,13 +51,13 @@ pub struct Data {
 	pub references: Vec<artifact::Id>,
 }
 
-/// Data represented as an xattr either on the local file system or VFS.
+/// The extended attributes of files.
 #[derive(serde::Serialize, serde::Deserialize, Debug, Clone)]
 pub struct Attributes {
 	pub references: Vec<artifact::Id>,
 }
 
-/// The name of the [`Attributes`] xattr.
+/// The extended attributes key used to store the [`Attributes`].
 pub const TANGRAM_FILE_XATTR_NAME: &str = "user.tangram";
 
 impl Id {

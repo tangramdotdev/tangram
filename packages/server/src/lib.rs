@@ -2,10 +2,13 @@ use self::database::Database;
 use async_trait::async_trait;
 use bytes::Bytes;
 use futures::{
+	future,
 	stream::{BoxStream, FuturesUnordered},
-	TryStreamExt,
+	FutureExt, TryStreamExt,
 };
+use hyper_util::rt::{TokioExecutor, TokioIo};
 use itertools::Itertools;
+use std::convert::Infallible;
 use std::{
 	collections::HashMap,
 	os::fd::AsRawFd,
@@ -13,8 +16,11 @@ use std::{
 	sync::Arc,
 };
 use tangram_client as tg;
-use tangram_error::{Result, Wrap, WrapErr};
-use tg::util::rmrf;
+use tangram_error::{Error, Result, Wrap, WrapErr};
+use tangram_util::fs::rmrf;
+use tangram_util::http::{full, get_token, Incoming, Outgoing};
+use tokio::net::{TcpListener, UnixListener};
+use tokio_util::either::Either;
 
 mod artifact;
 mod build;
@@ -23,7 +29,7 @@ mod database;
 mod migrations;
 mod object;
 mod package;
-mod serve;
+mod server;
 mod user;
 
 /// A server.
@@ -59,9 +65,13 @@ struct BuildContext {
 	children: Option<tokio::sync::watch::Sender<()>>,
 	depth: u64,
 	log: Option<tokio::sync::watch::Sender<()>>,
-	outcome: Option<tokio::sync::watch::Sender<()>>,
+	status: Option<tokio::sync::watch::Sender<()>>,
 	stop: tokio::sync::watch::Sender<bool>,
 	task: std::sync::Mutex<Option<tokio::task::JoinHandle<()>>>,
+}
+
+struct Tmp {
+	path: PathBuf,
 }
 
 pub struct Options {
@@ -70,11 +80,11 @@ pub struct Options {
 	pub path: PathBuf,
 	pub remote: Option<RemoteOptions>,
 	pub version: String,
-	pub vfs: Option<VfsOptions>,
+	pub vfs: VfsOptions,
 }
 
 pub struct BuildOptions {
-	pub max_concurrency: Option<usize>,
+	pub permits: Option<usize>,
 }
 
 pub struct RemoteOptions {
@@ -138,7 +148,7 @@ impl Server {
 		// Create the build semaphore.
 		let permits = options
 			.build
-			.max_concurrency
+			.permits
 			.unwrap_or_else(|| std::thread::available_parallelism().unwrap().get());
 		let build_semaphore = Arc::new(tokio::sync::Semaphore::new(permits));
 
@@ -219,7 +229,7 @@ impl Server {
 		{
 			let db = server.inner.database.get().await?;
 			let statement = "
-				delete from queue;
+				delete from build_queue;
 			";
 			let mut statement = db
 				.prepare_cached(statement)
@@ -249,28 +259,28 @@ impl Server {
 				.wrap_err("Failed to execute the query.")?;
 		}
 
-		// Remove the artifacts directory if it exists.
+		// Start the VFS if necessary and set up the checkouts directory.
 		let artifacts_path = server.artifacts_path();
-		if matches!(tokio::fs::try_exists(&artifacts_path).await, Ok(true)) {
-			tg::util::rmrf(&artifacts_path)
-				.await
-				.wrap_err("Failed to remove the artifacts path.")?;
-		}
-		let vfs = options.vfs.map_or(true, |opt| opt.enable);
-		if vfs {
+		rmrf(&artifacts_path)
+			.await
+			.wrap_err("Failed to remove the artifacts directory.")?;
+		if options.vfs.enable {
 			// Create the artifacts directory.
 			tokio::fs::create_dir_all(&artifacts_path)
 				.await
 				.wrap_err("Failed to create the artifacts directory.")?;
+
 			// Start the VFS server.
 			let vfs = tangram_vfs::Server::start(&server, &artifacts_path)
 				.await
-				.wrap_err("Failed to start the vfs.")?;
+				.wrap_err("Failed to start the VFS.")?;
+
 			server.inner.vfs.lock().unwrap().replace(vfs);
 		} else {
+			// Create a symlink from the artifacts directory to the checkouts directory.
 			tokio::fs::symlink("checkouts", artifacts_path)
 				.await
-				.wrap_err("Failed to link artifacts directory to check outs directory.")?;
+				.wrap_err("Failed to create a symlink from the artifacts directory to the checkouts directory.")?;
 		}
 
 		// Start the build queue task.
@@ -433,8 +443,8 @@ impl Server {
 	}
 
 	#[allow(clippy::unused_async)]
-	async fn health(&self) -> Result<tg::health::Health> {
-		Ok(tg::health::Health {
+	async fn health(&self) -> Result<tg::server::Health> {
+		Ok(tg::server::Health {
 			version: self.inner.version.clone(),
 		})
 	}
@@ -462,6 +472,300 @@ impl Server {
 	#[must_use]
 	pub fn tmp_path(&self) -> PathBuf {
 		self.path().join("tmp")
+	}
+
+	fn create_tmp(&self) -> Tmp {
+		const ENCODING: data_encoding::Encoding = data_encoding_macro::new_encoding! {
+			symbols: "0123456789abcdefghjkmnpqrstvwxyz",
+		};
+		let id = uuid::Uuid::now_v7();
+		let id = ENCODING.encode(&id.into_bytes());
+		let path = self.tmp_path().join(id);
+		Tmp { path }
+	}
+}
+
+impl Server {
+	pub async fn serve(
+		self,
+		addr: tg::Addr,
+		mut stop: tokio::sync::watch::Receiver<bool>,
+	) -> Result<()> {
+		// Create the tasks.
+		let mut tasks = tokio::task::JoinSet::new();
+
+		// Create the listener.
+		let listener = match &addr {
+			tg::Addr::Inet(inet) => Either::Left(
+				TcpListener::bind(inet.to_string())
+					.await
+					.wrap_err("Failed to create the TCP listener.")?,
+			),
+			tg::Addr::Unix(path) => Either::Right(
+				UnixListener::bind(path).wrap_err("Failed to create the UNIX listener.")?,
+			),
+		};
+
+		tracing::info!("🚀 Serving on {addr:?}.");
+
+		loop {
+			// Accept a new connection.
+			let accept = async {
+				let stream = match &listener {
+					Either::Left(listener) => Either::Left(
+						listener
+							.accept()
+							.await
+							.wrap_err("Failed to accept a new TCP connection.")?
+							.0,
+					),
+					Either::Right(listener) => Either::Right(
+						listener
+							.accept()
+							.await
+							.wrap_err("Failed to accept a new UNIX connection.")?
+							.0,
+					),
+				};
+				Ok::<_, Error>(TokioIo::new(stream))
+			};
+			let stream = tokio::select! {
+				stream = accept => stream?,
+				() = stop.wait_for(|stop| *stop).map(|_| ()) => {
+					break
+				},
+			};
+
+			// Create the service.
+			let service = hyper::service::service_fn({
+				let server = self.clone();
+				let stop = stop.clone();
+				move |mut request| {
+					let server = server.clone();
+					let stop = stop.clone();
+					async move {
+						request.extensions_mut().insert(stop);
+						let response = server.handle_request(request).await;
+						Ok::<_, Infallible>(response)
+					}
+				}
+			});
+
+			// Spawn a task to serve the connection.
+			tasks.spawn({
+				let mut stop = stop.clone();
+				async move {
+					let builder =
+						hyper_util::server::conn::auto::Builder::new(TokioExecutor::new());
+					let connection = builder.serve_connection_with_upgrades(stream, service);
+					tokio::pin!(connection);
+					let result = tokio::select! {
+						result = connection.as_mut() => {
+							Some(result)
+						},
+						() = stop.wait_for(|stop| *stop).map(|_| ()) => {
+							connection.as_mut().graceful_shutdown();
+							None
+						}
+					};
+					let result = match result {
+						Some(result) => result,
+						None => connection.await,
+					};
+					if let Err(error) = result {
+						tracing::error!(?error, "Failed to serve the connection.");
+					}
+				}
+			});
+		}
+
+		// Join all tasks.
+		while let Some(result) = tasks.join_next().await {
+			result.unwrap();
+		}
+
+		Ok(())
+	}
+
+	async fn try_get_user_from_request(
+		&self,
+		request: &http::Request<Incoming>,
+	) -> Result<Option<tg::user::User>> {
+		// Get the token.
+		let Some(token) = get_token(request, None) else {
+			return Ok(None);
+		};
+
+		// Get the user.
+		let user = self.get_user_for_token(&token).await?;
+
+		Ok(user)
+	}
+
+	#[allow(clippy::too_many_lines)]
+	async fn handle_request(
+		&self,
+		mut request: http::Request<Incoming>,
+	) -> http::Response<Outgoing> {
+		let id = tg::Id::new_uuidv7(tg::id::Kind::Request);
+		request.extensions_mut().insert(id.clone());
+
+		tracing::info!(?id, method = ?request.method(), path = ?request.uri().path(), "Received request.");
+
+		let method = request.method().clone();
+		let path_components = request.uri().path().split('/').skip(1).collect_vec();
+		let response = match (method, path_components.as_slice()) {
+			// Artifacts
+			(http::Method::POST, ["artifacts", "checkin"]) => self
+				.handle_check_in_artifact_request(request)
+				.map(Some)
+				.boxed(),
+			(http::Method::POST, ["artifacts", "checkout"]) => self
+				.handle_check_out_artifact_request(request)
+				.map(Some)
+				.boxed(),
+
+			// Builds
+			(http::Method::GET, ["builds"]) => {
+				self.handle_list_builds_request(request).map(Some).boxed()
+			},
+			(http::Method::HEAD, ["builds", _]) => self
+				.handle_get_build_exists_request(request)
+				.map(Some)
+				.boxed(),
+			(http::Method::GET, ["builds", _]) => {
+				self.handle_get_build_request(request).map(Some).boxed()
+			},
+			(http::Method::PUT, ["builds", _]) => {
+				self.handle_put_build_request(request).map(Some).boxed()
+			},
+			(http::Method::POST, ["builds"]) => self
+				.handle_get_or_create_build_request(request)
+				.map(Some)
+				.boxed(),
+			(http::Method::POST, ["builds", "dequeue"]) => {
+				self.handle_dequeue_build_request(request).map(Some).boxed()
+			},
+			(http::Method::GET, ["builds", _, "status"]) => self
+				.handle_get_build_status_request(request)
+				.map(Some)
+				.boxed(),
+			(http::Method::POST, ["builds", _, "status"]) => self
+				.handle_set_build_status_request(request)
+				.map(Some)
+				.boxed(),
+			(http::Method::GET, ["builds", _, "children"]) => self
+				.handle_get_build_children_request(request)
+				.map(Some)
+				.boxed(),
+			(http::Method::POST, ["builds", _, "children"]) => self
+				.handle_add_build_child_request(request)
+				.map(Some)
+				.boxed(),
+			(http::Method::GET, ["builds", _, "log"]) => {
+				self.handle_get_build_log_request(request).map(Some).boxed()
+			},
+			(http::Method::POST, ["builds", _, "log"]) => {
+				self.handle_add_build_log_request(request).map(Some).boxed()
+			},
+			(http::Method::GET, ["builds", _, "outcome"]) => self
+				.handle_get_build_outcome_request(request)
+				.map(Some)
+				.boxed(),
+			(http::Method::POST, ["builds", _, "outcome"]) => self
+				.handle_set_build_outcome_request(request)
+				.map(Some)
+				.boxed(),
+
+			// Objects
+			(http::Method::HEAD, ["objects", _]) => self
+				.handle_get_object_exists_request(request)
+				.map(Some)
+				.boxed(),
+			(http::Method::GET, ["objects", _]) => {
+				self.handle_get_object_request(request).map(Some).boxed()
+			},
+			(http::Method::PUT, ["objects", _]) => {
+				self.handle_put_object_request(request).map(Some).boxed()
+			},
+			(http::Method::POST, ["objects", _, "push"]) => {
+				self.handle_push_object_request(request).map(Some).boxed()
+			},
+			(http::Method::POST, ["objects", _, "pull"]) => {
+				self.handle_pull_object_request(request).map(Some).boxed()
+			},
+
+			// Packages
+			(http::Method::GET, ["packages", "search"]) => self
+				.handle_search_packages_request(request)
+				.map(Some)
+				.boxed(),
+			(http::Method::GET, ["packages", _]) => {
+				self.handle_get_package_request(request).map(Some).boxed()
+			},
+			(http::Method::GET, ["packages", _, "versions"]) => self
+				.handle_get_package_versions_request(request)
+				.map(Some)
+				.boxed(),
+			(http::Method::GET, ["packages", _, "metadata"]) => self
+				.handle_get_package_metadata_request(request)
+				.map(Some)
+				.boxed(),
+			(http::Method::GET, ["packages", _, "dependencies"]) => self
+				.handle_get_package_dependencies_request(request)
+				.map(Some)
+				.boxed(),
+			(http::Method::POST, ["packages"]) => self
+				.handle_publish_package_request(request)
+				.map(Some)
+				.boxed(),
+
+			// Server
+			(http::Method::GET, ["health"]) => {
+				self.handle_health_request(request).map(Some).boxed()
+			},
+			(http::Method::POST, ["clean"]) => self.handle_clean_request(request).map(Some).boxed(),
+			(http::Method::POST, ["stop"]) => self.handle_stop_request(request).map(Some).boxed(),
+
+			// Users
+			(http::Method::POST, ["logins"]) => {
+				self.handle_create_login_request(request).map(Some).boxed()
+			},
+			(http::Method::GET, ["logins", _]) => {
+				self.handle_get_login_request(request).map(Some).boxed()
+			},
+			(http::Method::GET, ["user"]) => self
+				.handle_get_user_for_token_request(request)
+				.map(Some)
+				.boxed(),
+
+			(_, _) => future::ready(None).boxed(),
+		}
+		.await;
+
+		let mut response = match response {
+			None => http::Response::builder()
+				.status(http::StatusCode::NOT_FOUND)
+				.body(full("not found"))
+				.unwrap(),
+			Some(Err(error)) => {
+				let body = serde_json::to_string(&error)
+					.unwrap_or_else(|_| "internal server error".to_owned());
+				http::Response::builder()
+					.status(http::StatusCode::INTERNAL_SERVER_ERROR)
+					.body(full(body))
+					.unwrap()
+			},
+			Some(Ok(response)) => response,
+		};
+
+		let key = http::HeaderName::from_static("x-tangram-request-id");
+		let value = http::HeaderValue::from_str(&id.to_string()).unwrap();
+		response.headers_mut().insert(key, value);
+
+		tracing::info!(?id, status = ?response.status(), "Sending response.");
+
+		response
 	}
 }
 
@@ -518,13 +822,17 @@ impl tg::Handle for Server {
 	async fn try_dequeue_build(
 		&self,
 		user: Option<&tg::User>,
-		arg: tg::build::DequeueArg,
-	) -> Result<Option<tg::build::DequeueOutput>> {
+		arg: tg::build::queue::DequeueArg,
+	) -> Result<Option<tg::build::queue::DequeueOutput>> {
 		self.try_dequeue_build(user, arg).await
 	}
 
-	async fn try_get_build_status(&self, id: &tg::build::Id) -> Result<Option<tg::build::Status>> {
-		self.try_get_build_status(id).await
+	async fn try_get_build_status(
+		&self,
+		id: &tg::build::Id,
+		arg: tg::build::status::GetArg,
+	) -> Result<Option<BoxStream<'static, Result<tg::build::Status>>>> {
+		self.try_get_build_status(id, arg, None).await
 	}
 
 	async fn set_build_status(
@@ -539,8 +847,9 @@ impl tg::Handle for Server {
 	async fn try_get_build_children(
 		&self,
 		id: &tg::build::Id,
-	) -> Result<Option<BoxStream<'static, Result<tg::build::Id>>>> {
-		self.try_get_build_children(id, None).await
+		arg: tg::build::children::GetArg,
+	) -> Result<Option<BoxStream<'static, Result<tg::build::children::Chunk>>>> {
+		self.try_get_build_children(id, arg, None).await
 	}
 
 	async fn add_build_child(
@@ -555,9 +864,9 @@ impl tg::Handle for Server {
 	async fn try_get_build_log(
 		&self,
 		id: &tg::build::Id,
-		arg: tg::build::GetLogArg,
-	) -> Result<Option<BoxStream<'static, Result<tg::build::LogChunk>>>> {
-		self.try_get_build_log(id, arg).await
+		arg: tg::build::log::GetArg,
+	) -> Result<Option<BoxStream<'static, Result<tg::build::log::Chunk>>>> {
+		self.try_get_build_log(id, arg, None).await
 	}
 
 	async fn add_build_log(
@@ -572,8 +881,9 @@ impl tg::Handle for Server {
 	async fn try_get_build_outcome(
 		&self,
 		id: &tg::build::Id,
-	) -> Result<Option<tg::build::Outcome>> {
-		self.try_get_build_outcome(id, None).await
+		arg: tg::build::outcome::GetArg,
+	) -> Result<Option<Option<tg::build::Outcome>>> {
+		self.try_get_build_outcome(id, arg, None).await
 	}
 
 	async fn set_build_outcome(
@@ -635,7 +945,7 @@ impl tg::Handle for Server {
 		self.publish_package(user, id).await
 	}
 
-	async fn health(&self) -> Result<tg::health::Health> {
+	async fn health(&self) -> Result<tg::server::Health> {
 		self.health().await
 	}
 
@@ -658,5 +968,19 @@ impl tg::Handle for Server {
 
 	async fn get_user_for_token(&self, token: &str) -> Result<Option<tg::user::User>> {
 		self.get_user_for_token(token).await
+	}
+}
+
+impl std::ops::Deref for Tmp {
+	type Target = Path;
+
+	fn deref(&self) -> &Self::Target {
+		&self.path
+	}
+}
+
+impl Drop for Tmp {
+	fn drop(&mut self) {
+		tokio::spawn(rmrf(self.path.clone()));
 	}
 }

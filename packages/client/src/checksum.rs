@@ -1,5 +1,5 @@
 use crate::{error, Error, Result, WrapErr};
-use base64::Engine;
+use sha2::Digest;
 
 #[derive(Clone, Debug, Eq, PartialEq, serde::Deserialize, serde::Serialize)]
 #[serde(into = "String", try_from = "String")]
@@ -39,8 +39,10 @@ impl Checksum {
 impl std::fmt::Display for Checksum {
 	fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
 		match self {
-			Checksum::Blake3(bytes) | Checksum::Sha256(bytes) | Checksum::Sha512(bytes) => {
-				write!(f, "{}:{}", self.algorithm(), hex::encode(bytes))?;
+			Checksum::Blake3(body) | Checksum::Sha256(body) | Checksum::Sha512(body) => {
+				let algorithm = self.algorithm();
+				let body = data_encoding::HEXLOWER.encode(body);
+				write!(f, "{algorithm}:{body}")?;
 			},
 			Checksum::Unsafe => write!(f, "unsafe")?,
 		}
@@ -68,36 +70,51 @@ impl std::str::FromStr for Checksum {
 
 		Ok(match (algorithm, components.next()) {
 			(Algorithm::Unsafe, None) => Checksum::Unsafe,
-			(Algorithm::Blake3, Some(bytes)) if bytes.len() == 44 => {
-				Checksum::Blake3(base64(bytes)?)
+			(Algorithm::Blake3, Some(body)) if body.len() == 44 => {
+				let body = data_encoding::BASE64
+					.decode(body.as_bytes())
+					.wrap_err("Invalid body.")?
+					.into();
+				Checksum::Blake3(body)
 			},
-			(Algorithm::Blake3, Some(bytes)) if bytes.len() == 64 => Checksum::Blake3(hex(bytes)?),
-			(Algorithm::Sha256, Some(bytes)) if bytes.len() == 44 => {
-				Checksum::Sha256(base64(bytes)?)
+			(Algorithm::Blake3, Some(body)) if body.len() == 64 => {
+				let body = data_encoding::HEXLOWER
+					.decode(body.as_bytes())
+					.wrap_err("Invalid body.")?
+					.into();
+				Checksum::Blake3(body)
 			},
-			(Algorithm::Sha256, Some(bytes)) if bytes.len() == 64 => Checksum::Sha256(hex(bytes)?),
-			(Algorithm::Sha512, Some(bytes)) if bytes.len() == 88 => {
-				Checksum::Sha512(base64(bytes)?)
+			(Algorithm::Sha256, Some(body)) if body.len() == 44 => {
+				let body = data_encoding::BASE64
+					.decode(body.as_bytes())
+					.wrap_err("Invalid body.")?
+					.into();
+				Checksum::Sha256(body)
 			},
-			(Algorithm::Sha512, Some(bytes)) if bytes.len() == 128 => Checksum::Sha512(hex(bytes)?),
+			(Algorithm::Sha256, Some(body)) if body.len() == 64 => {
+				let body = data_encoding::HEXLOWER
+					.decode(body.as_bytes())
+					.wrap_err("Invalid body.")?
+					.into();
+				Checksum::Sha256(body)
+			},
+			(Algorithm::Sha512, Some(body)) if body.len() == 88 => {
+				let body = data_encoding::BASE64
+					.decode(body.as_bytes())
+					.wrap_err("Invalid body.")?
+					.into();
+				Checksum::Sha512(body)
+			},
+			(Algorithm::Sha512, Some(body)) if body.len() == 128 => {
+				let body = data_encoding::HEXLOWER
+					.decode(body.as_bytes())
+					.wrap_err("Invalid body.")?
+					.into();
+				Checksum::Sha512(body)
+			},
 			_ => return Err(error!("Invalid checksum string length.")),
 		})
 	}
-}
-
-fn base64(bytes: impl AsRef<[u8]>) -> Result<Box<[u8]>> {
-	Ok(base64::engine::general_purpose::STANDARD
-		.decode(bytes)
-		.ok()
-		.wrap_err("Invalid base64 string.")?
-		.into_boxed_slice())
-}
-
-fn hex(bytes: impl AsRef<[u8]>) -> Result<Box<[u8]>> {
-	Ok(hex::decode(bytes.as_ref())
-		.ok()
-		.wrap_err("Invalid hex string.")?
-		.into_boxed_slice())
 }
 
 impl From<Checksum> for String {
@@ -160,8 +177,8 @@ impl TryFrom<String> for Algorithm {
 pub enum Writer {
 	Unsafe,
 	Blake3(Box<blake3::Hasher>),
-	Sha256(sha2::Sha256),
-	Sha512(sha2::Sha512),
+	Sha256(Box<sha2::Sha256>),
+	Sha512(Box<sha2::Sha512>),
 }
 
 impl Writer {
@@ -170,22 +187,22 @@ impl Writer {
 		match algorithm {
 			Algorithm::Unsafe => Writer::Unsafe,
 			Algorithm::Blake3 => Writer::Blake3(Box::new(blake3::Hasher::new())),
-			Algorithm::Sha256 => Writer::Sha256(sha2::Sha256::default()),
-			Algorithm::Sha512 => Writer::Sha512(sha2::Sha512::default()),
+			Algorithm::Sha256 => Writer::Sha256(Box::new(sha2::Sha256::new())),
+			Algorithm::Sha512 => Writer::Sha512(Box::new(sha2::Sha512::new())),
 		}
 	}
 
 	pub fn update(&mut self, data: impl AsRef<[u8]>) {
 		match self {
 			Writer::Unsafe => (),
-			Writer::Blake3(hasher) => {
-				hasher.update(data.as_ref());
+			Writer::Blake3(blake3) => {
+				blake3.update(data.as_ref());
 			},
 			Writer::Sha256(sha256) => {
-				sha2::Digest::update(sha256, data);
+				sha2::Digest::update(sha256.as_mut(), data);
 			},
 			Writer::Sha512(sha512) => {
-				sha2::Digest::update(sha512, data);
+				sha2::Digest::update(sha512.as_mut(), data);
 			},
 		}
 	}
@@ -199,11 +216,11 @@ impl Writer {
 				Checksum::Blake3(value.as_bytes().as_slice().into())
 			},
 			Writer::Sha256(sha256) => {
-				let value = sha2::Digest::finalize(sha256);
+				let value = sha2::Digest::finalize(*sha256);
 				Checksum::Sha256(value.as_slice().into())
 			},
 			Writer::Sha512(sha512) => {
-				let value = sha2::Digest::finalize(sha512);
+				let value = sha2::Digest::finalize(*sha512);
 				Checksum::Sha512(value.as_slice().into())
 			},
 		}

@@ -2,8 +2,10 @@ use super::Server;
 use crate::params;
 use bytes::Bytes;
 use futures::{stream, TryStreamExt};
+use http_body_util::BodyExt;
 use tangram_client as tg;
 use tangram_error::{error, Error, Result, WrapErr};
+use tangram_util::http::{bad_request, empty, full, not_found, ok, Incoming, Outgoing};
 use tokio_stream::StreamExt;
 
 impl Server {
@@ -189,5 +191,136 @@ impl Server {
 	#[allow(clippy::unused_async)]
 	pub async fn pull_object(&self, _id: &tg::object::Id) -> Result<()> {
 		Err(error!("Not yet implemented."))
+	}
+}
+
+impl Server {
+	pub async fn handle_get_object_exists_request(
+		&self,
+		request: http::Request<Incoming>,
+	) -> Result<http::Response<Outgoing>> {
+		// Get the path params.
+		let path_components: Vec<&str> = request.uri().path().split('/').skip(1).collect();
+		let ["objects", id] = path_components.as_slice() else {
+			return Err(error!("Unexpected path."));
+		};
+		let Ok(id) = id.parse() else {
+			return Ok(bad_request());
+		};
+
+		// Get whether the object exists.
+		let exists = self.get_object_exists(&id).await?;
+
+		// Create the response.
+		let status = if exists {
+			http::StatusCode::OK
+		} else {
+			http::StatusCode::NOT_FOUND
+		};
+		let response = http::Response::builder()
+			.status(status)
+			.body(empty())
+			.unwrap();
+
+		Ok(response)
+	}
+
+	pub async fn handle_get_object_request(
+		&self,
+		request: http::Request<Incoming>,
+	) -> Result<http::Response<Outgoing>> {
+		// Get the path params.
+		let path_components: Vec<&str> = request.uri().path().split('/').skip(1).collect();
+		let ["objects", id] = path_components.as_slice() else {
+			return Err(error!("Unexpected path."));
+		};
+		let Ok(id) = id.parse() else {
+			return Ok(bad_request());
+		};
+
+		// Get the object.
+		let Some(output) = self.try_get_object(&id).await? else {
+			return Ok(not_found());
+		};
+
+		// Create the response.
+		let response = http::Response::builder()
+			.status(http::StatusCode::OK)
+			.body(full(output.bytes))
+			.unwrap();
+
+		Ok(response)
+	}
+
+	pub async fn handle_put_object_request(
+		&self,
+		request: http::Request<Incoming>,
+	) -> Result<http::Response<Outgoing>> {
+		// Get the path params.
+		let path_components: Vec<&str> = request.uri().path().split('/').skip(1).collect();
+		let ["objects", id] = path_components.as_slice() else {
+			return Err(error!("Unexpected path."));
+		};
+		let Ok(id) = id.parse() else {
+			return Ok(bad_request());
+		};
+
+		// Read the body.
+		let bytes = request
+			.into_body()
+			.collect()
+			.await
+			.wrap_err("Failed to read the body.")?
+			.to_bytes();
+
+		// Put the object.
+		let output = self.try_put_object(&id, &bytes).await?;
+
+		// Create the response.
+		let body = serde_json::to_vec(&output).wrap_err("Failed to serialize the response.")?;
+		let response = http::Response::builder()
+			.status(http::StatusCode::OK)
+			.body(full(body))
+			.unwrap();
+
+		Ok(response)
+	}
+
+	pub async fn handle_push_object_request(
+		&self,
+		request: http::Request<Incoming>,
+	) -> Result<http::Response<Outgoing>> {
+		// Get the path params.
+		let path_components: Vec<&str> = request.uri().path().split('/').skip(1).collect();
+		let ["objects", id, "push"] = path_components.as_slice() else {
+			return Err(error!("Unexpected path."));
+		};
+		let Ok(id) = id.parse() else {
+			return Ok(bad_request());
+		};
+
+		// Push the object.
+		self.push_object(&id).await?;
+
+		Ok(ok())
+	}
+
+	pub async fn handle_pull_object_request(
+		&self,
+		request: http::Request<Incoming>,
+	) -> Result<http::Response<Outgoing>> {
+		// Get the path params.
+		let path_components: Vec<&str> = request.uri().path().split('/').skip(1).collect();
+		let ["objects", id, "pull"] = path_components.as_slice() else {
+			return Err(error!("Unexpected path."));
+		};
+		let Ok(id) = id.parse() else {
+			return Ok(bad_request());
+		};
+
+		// Pull the object.
+		self.pull_object(&id).await?;
+
+		Ok(ok())
 	}
 }

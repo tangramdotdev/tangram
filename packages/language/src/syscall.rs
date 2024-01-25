@@ -1,7 +1,6 @@
 #![allow(clippy::needless_pass_by_value, clippy::unnecessary_wraps)]
 
 use crate::{error, Import, Module, Server};
-use base64::Engine as _;
 use bytes::Bytes;
 use itertools::Itertools;
 use std::collections::BTreeMap;
@@ -79,8 +78,8 @@ fn syscall_encoding_base64_decode(
 	args: (String,),
 ) -> Result<Bytes> {
 	let (value,) = args;
-	let bytes = base64::engine::general_purpose::STANDARD_NO_PAD
-		.decode(value)
+	let bytes = data_encoding::BASE64
+		.decode(value.as_bytes())
 		.wrap_err("Failed to decode the bytes.")?;
 	Ok(bytes.into())
 }
@@ -91,7 +90,7 @@ fn syscall_encoding_base64_encode(
 	args: (Bytes,),
 ) -> Result<String> {
 	let (value,) = args;
-	let encoded = base64::engine::general_purpose::STANDARD_NO_PAD.encode(value);
+	let encoded = data_encoding::BASE64.encode(&value);
 	Ok(encoded)
 }
 
@@ -101,7 +100,9 @@ fn syscall_encoding_hex_decode(
 	args: (String,),
 ) -> Result<Bytes> {
 	let (string,) = args;
-	let bytes = hex::decode(string).wrap_err("Failed to decode the string as hex.")?;
+	let bytes = data_encoding::HEXLOWER
+		.decode(string.as_bytes())
+		.wrap_err("Failed to decode the string as hex.")?;
 	Ok(bytes.into())
 }
 
@@ -111,7 +112,7 @@ fn syscall_encoding_hex_encode(
 	args: (Bytes,),
 ) -> Result<String> {
 	let (bytes,) = args;
-	let hex = hex::encode(bytes);
+	let hex = data_encoding::HEXLOWER.encode(&bytes);
 	Ok(hex)
 }
 

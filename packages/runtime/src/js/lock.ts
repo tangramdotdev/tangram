@@ -57,13 +57,12 @@ export class Lock {
 		}
 	}
 
-
 	async root(): Promise<number> {
-		return (await this.object()).root
+		return (await this.object()).root;
 	}
 
 	async nodes(): Promise<Array<Lock.Node>> {
-		return (await this.object()).nodes
+		return (await this.object()).nodes;
 	}
 }
 
@@ -77,8 +76,8 @@ export namespace Lock {
 	export type Id = string;
 
 	export type Object_ = {
-		root: number,
-		nodes: Array<Node>,
+		root: number;
+		nodes: Array<Node>;
 	};
 
 	export type Node = {

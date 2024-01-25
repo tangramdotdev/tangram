@@ -6,9 +6,9 @@ members = [
   "packages/error",
   "packages/language",
   "packages/package",
-  "packages/pool",
   "packages/runtime",
   "packages/server",
+  "packages/util",
   "packages/vfs",
 ]
 resolver = "2"
@@ -34,7 +34,6 @@ too_many_lines = "allow"
 async-compression = { version = "0.4", features = ["all"] }
 async-recursion = "1"
 async-trait = "0.1"
-base64 = "0.21"
 bitflags = "2"
 blake3 = "1"
 bytes = { version = "1", features = ["serde"] }
@@ -47,7 +46,6 @@ either = { version = "1", features = ["serde"] }
 filetime = "0.2"
 fnv = "1"
 futures = "0.3"
-hex = { version = "0.4", features = ["serde"] }
 http = "1"
 http-body = "1"
 http-body-util = "0.1"
@@ -59,6 +57,7 @@ indoc = "2"
 itertools = "0.12"
 libc = "0.2"
 lsp-types = { version = "0.95" }
+mime = "0.3"
 notify = "6"
 num = "0.4"
 num-derive = "0.4"
@@ -82,12 +81,12 @@ semver = "1"
 serde = { version = "1", features = ["rc", "derive"] }
 serde_json = "1"
 serde_urlencoded = "0.7"
-serde_v8 = { version = "0.154" }
+serde_v8 = { version = "0.156" }
 serde_with = "3"
 serde_yaml = { version = "0.9" }
 sha2 = "0.10"
 sourcemap = "7"
-swc_core = { version = "0.87", features = [
+swc_core = { version = "0.88", features = [
   "common",
   "common_sourcemap",
   "ecma_ast",
@@ -104,9 +103,9 @@ tangram_client = { path = "packages/client" }
 tangram_error = { path = "packages/error" }
 tangram_language = { path = "packages/language" }
 tangram_package = { path = "packages/package" }
-tangram_pool = { path = "packages/pool" }
 tangram_runtime = { path = "packages/runtime" }
 tangram_server = { path = "packages/server" }
+tangram_util = { path = "packages/util" }
 tangram_vfs = { path = "packages/vfs" }
 tar = { version = "0.4" }
 tempfile = "3"
@@ -123,8 +122,8 @@ unicode-segmentation = "1.10.1"
 unicode-width = "0.1.11"
 url = { version = "2", features = ["serde"] }
 urlencoding = "2"
-uuid = { version = "1", features = ["v4", "v7"] }
-v8 = { version = "0.82" }
+uuid = { version = "1", features = ["v7"] }
+v8 = { version = "0.83" }
 webbrowser = "0.8"
 webpki-roots = "0.26"
 xattr = { version = "1" }
