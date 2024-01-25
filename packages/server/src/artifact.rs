@@ -475,13 +475,9 @@ impl Server {
 		tokio::task::spawn_blocking({
 			let path = path.clone();
 			move || {
-				let epoch = std::fs::FileTimes::new()
-					.set_accessed(SystemTime::UNIX_EPOCH)
-					.set_modified(SystemTime::UNIX_EPOCH);
-				let file = std::fs::File::open(&path)
-					.wrap_err_with(|| format!("Failed to open {path:#?}."))?;
-				file.set_times(epoch)
-					.wrap_err("Failed to set the file system object's timestamps.")?;
+				let epoch = filetime::FileTime::from_system_time(SystemTime::UNIX_EPOCH);
+				filetime::set_symlink_file_times(&path, epoch, epoch)
+					.wrap_err_with(|| format!("Failed to set the timestamps for {path:#?}."))?;
 				Ok::<_, Error>(())
 			}
 		})
