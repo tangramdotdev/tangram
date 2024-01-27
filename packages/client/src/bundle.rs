@@ -38,7 +38,7 @@ impl Artifact {
 			// If the artifact is a directory, use it as is.
 			Artifact::Directory(directory) => directory.clone().into(),
 
-			// If the artifact is an executable file, create a directory and place the executable at `.tangram/run`.
+			// If the artifact is an executable file, then create a directory and place the executable at `.tangram/run`.
 			Artifact::File(file) if file.executable(tg).await? => directory::Builder::default()
 				.add(tg, &TANGRAM_RUN_PATH, file.clone().into())
 				.await?
@@ -113,7 +113,7 @@ impl Artifact {
 				let artifact = symlink.artifact(tg).await?;
 				let path = symlink.path(tg).await?;
 				if let Some(artifact) = artifact {
-					for _ in 0..depth {
+					for _ in 0..depth - 1 {
 						target.push_str("../");
 					}
 					target.push_str(

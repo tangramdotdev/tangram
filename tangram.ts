@@ -4,7 +4,6 @@ export let metadata = {
 };
 
 export default tg.target(async () => {
-	// return [f(), g(), h()];
 	await f();
 	await g();
 	await h();

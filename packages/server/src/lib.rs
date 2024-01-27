@@ -971,10 +971,8 @@ impl tg::Handle for Server {
 	}
 }
 
-impl std::ops::Deref for Tmp {
-	type Target = Path;
-
-	fn deref(&self) -> &Self::Target {
+impl AsRef<Path> for Tmp {
+	fn as_ref(&self) -> &Path {
 		&self.path
 	}
 }

@@ -2,7 +2,7 @@ use crate::Server;
 use async_recursion::async_recursion;
 use futures::{stream::FuturesUnordered, TryStreamExt};
 use http_body_util::BodyExt;
-use std::{os::unix::prelude::PermissionsExt, time::SystemTime};
+use std::os::unix::prelude::PermissionsExt;
 use tangram_client as tg;
 use tangram_error::{error, Error, Result, WrapErr};
 use tangram_util::{
@@ -12,7 +12,6 @@ use tangram_util::{
 use tg::Handle;
 
 impl Server {
-	#[async_recursion]
 	pub async fn check_in_artifact(
 		&self,
 		arg: tg::artifact::CheckInArg,
@@ -50,6 +49,7 @@ impl Server {
 		Ok(output)
 	}
 
+	#[async_recursion]
 	async fn check_in_directory(
 		&self,
 		path: &tg::Path,
@@ -184,8 +184,8 @@ impl Server {
 	}
 
 	pub async fn check_out_artifact(&self, arg: tg::artifact::CheckOutArg) -> Result<()> {
+		let artifact = tg::Artifact::with_id(arg.artifact);
 		if let Some(path) = &arg.path {
-			let artifact = tg::Artifact::with_id(arg.artifact);
 			// Bundle the artifact.
 			let artifact = artifact
 				.bundle(self)
@@ -204,23 +204,57 @@ impl Server {
 				None
 			};
 
-			// Check out the artifact recursively.
-			self.check_out_inner(&artifact, existing_artifact.as_ref(), path)
+			// Perform the checkout.
+			self.check_out_inner(path, &artifact, existing_artifact.as_ref(), false, 0)
 				.await?;
-		} else {
-			// Check out the artifact recursively.
-			let artifact = tg::Artifact::with_id(arg.artifact);
-			self.check_out_internal_inner(&artifact).await?;
-		}
 
-		Ok(())
+			Ok(())
+		} else {
+			// Get the path in the checkouts directory.
+			let id = artifact.id(self).await?;
+			let path = self.checkouts_path().join(id.to_string());
+
+			// If there is already a file system object at the path, then return.
+			if tokio::fs::try_exists(&path)
+				.await
+				.wrap_err("Failed to stat the path.")?
+			{
+				return Ok(());
+			}
+
+			// Create a tmp path.
+			let tmp = self.create_tmp();
+
+			// Perform the checkout.
+			self.check_out_inner(&tmp.path.clone().try_into()?, &artifact, None, true, 0)
+				.await?;
+
+			// Move the checkout to the checkouts directory.
+			match std::fs::rename(&tmp, &path) {
+				Ok(()) => Ok(()),
+				// If the entry in the checkouts directory exists, then remove the checkout at the tmp path.
+				Err(ref error)
+					if matches!(error.raw_os_error(), Some(libc::ENOTEMPTY | libc::EEXIST)) =>
+				{
+					rmrf(&tmp).await?;
+					Ok(())
+				},
+				Err(error) => Err(error),
+			}
+			.wrap_err("Failed to move the checkout to the checkouts directory.")?;
+
+			Ok(())
+		}
 	}
 
+	#[async_recursion]
 	async fn check_out_inner(
 		&self,
-		artifact: &tg::Artifact,
-		existing_artifact: Option<&tg::Artifact>,
 		path: &tg::Path,
+		artifact: &tg::Artifact,
+		existing_artifact: Option<&'async_recursion tg::Artifact>,
+		internal: bool,
+		depth: usize,
 	) -> Result<()> {
 		// If the artifact is the same as the existing artifact, then return.
 		let id = artifact.id(self).await?;
@@ -236,7 +270,7 @@ impl Server {
 		// Call the appropriate function for the artifact's type.
 		match artifact {
 			tg::Artifact::Directory(directory) => {
-				self.check_out_directory(existing_artifact, directory, path)
+				self.check_out_directory(path, directory, existing_artifact, internal, depth)
 					.await
 					.wrap_err_with(|| {
 						format!(r#"Failed to check out directory "{id}" to "{path}"."#)
@@ -244,13 +278,13 @@ impl Server {
 			},
 
 			tg::Artifact::File(file) => {
-				self.check_out_file(existing_artifact, file, path)
+				self.check_out_file(path, file, existing_artifact, internal, depth)
 					.await
 					.wrap_err_with(|| format!(r#"Failed to check out file "{id}" to "{path}"."#))?;
 			},
 
 			tg::Artifact::Symlink(symlink) => {
-				self.check_out_symlink(existing_artifact, symlink, path)
+				self.check_out_symlink(path, symlink, existing_artifact, internal, depth)
 					.await
 					.wrap_err_with(|| {
 						format!(r#"Failed to check out symlink "{id}" to "{path}"."#)
@@ -258,15 +292,29 @@ impl Server {
 			},
 		}
 
+		// If this is an internal checkout, then set the file system object's modified time to the epoch.
+		tokio::task::spawn_blocking({
+			let path = path.clone();
+			move || {
+				let epoch = filetime::FileTime::from_system_time(std::time::SystemTime::UNIX_EPOCH);
+				filetime::set_symlink_file_times(path, epoch, epoch)
+					.wrap_err("Failed to set the modified time.")?;
+				Ok::<_, Error>(())
+			}
+		})
+		.await
+		.unwrap()?;
+
 		Ok(())
 	}
 
-	#[async_recursion]
 	async fn check_out_directory(
 		&self,
-		existing_artifact: Option<&'async_recursion tg::Artifact>,
-		directory: &tg::Directory,
 		path: &tg::Path,
+		directory: &tg::Directory,
+		existing_artifact: Option<&tg::Artifact>,
+		internal: bool,
+		depth: usize,
 	) -> Result<()> {
 		// Handle an existing artifact at the path.
 		match existing_artifact {
@@ -322,8 +370,14 @@ impl Server {
 
 					// Recurse.
 					let entry_path = path.clone().join(name.parse()?);
-					self.check_out_inner(artifact, existing_artifact.as_ref(), &entry_path)
-						.await?;
+					self.check_out_inner(
+						&entry_path,
+						artifact,
+						existing_artifact.as_ref(),
+						internal,
+						depth + 1,
+					)
+					.await?;
 
 					Ok::<_, Error>(())
 				}
@@ -337,9 +391,11 @@ impl Server {
 
 	async fn check_out_file(
 		&self,
-		existing_artifact: Option<&tg::Artifact>,
-		file: &tg::File,
 		path: &tg::Path,
+		file: &tg::File,
+		existing_artifact: Option<&tg::Artifact>,
+		internal: bool,
+		_depth: usize,
 	) -> Result<()> {
 		// Handle an existing artifact at the path.
 		match &existing_artifact {
@@ -352,7 +408,40 @@ impl Server {
 			None => (),
 		};
 
-		// Copy the blob to the path.
+		// Check out the file's references.
+		let references = file
+			.references(self)
+			.await
+			.wrap_err("Failed to get the file's references.")?
+			.iter()
+			.map(|artifact| artifact.id(self))
+			.collect::<FuturesUnordered<_>>()
+			.try_collect::<Vec<_>>()
+			.await
+			.wrap_err("Failed to get the file's references.")?;
+		if !references.is_empty() {
+			if !internal {
+				return Err(error!(
+					r#"Cannot perform an external check out of a file with references."#
+				));
+			}
+			references
+				.iter()
+				.map(|artifact| async {
+					let arg = tg::artifact::CheckOutArg {
+						artifact: artifact.clone(),
+						path: None,
+					};
+					self.check_out_artifact(arg).await?;
+					Ok::<_, Error>(())
+				})
+				.collect::<FuturesUnordered<_>>()
+				.try_collect::<Vec<_>>()
+				.await
+				.wrap_err("Failed to check out the file's references.")?;
+		}
+
+		// Create the file.
 		let permit = self.file_descriptor_semaphore().acquire().await;
 		tokio::io::copy(
 			&mut file.reader(self).await?,
@@ -361,7 +450,7 @@ impl Server {
 				.wrap_err("Failed to create the file.")?,
 		)
 		.await
-		.wrap_err("Failed to copy the blob.")?;
+		.wrap_err("Failed to write the bytes.")?;
 		drop(permit);
 
 		// Make the file executable if necessary.
@@ -372,9 +461,13 @@ impl Server {
 				.wrap_err("Failed to set the permissions.")?;
 		}
 
-		// Check that the file has no references.
-		if !file.references(self).await?.is_empty() {
-			return Err(error!(r#"Cannot check out a file with references."#));
+		// Set the extended attributes if necessary.
+		if internal && !references.is_empty() {
+			let attributes = tg::file::Attributes { references };
+			let attributes =
+				serde_json::to_vec(&attributes).wrap_err("Failed to serialize attributes.")?;
+			xattr::set(path, tg::file::TANGRAM_FILE_XATTR_NAME, &attributes)
+				.wrap_err("Failed to set attributes as an xattr.")?;
 		}
 
 		Ok(())
@@ -382,9 +475,11 @@ impl Server {
 
 	async fn check_out_symlink(
 		&self,
-		existing_artifact: Option<&tg::Artifact>,
-		symlink: &tg::Symlink,
 		path: &tg::Path,
+		symlink: &tg::Symlink,
+		existing_artifact: Option<&tg::Artifact>,
+		internal: bool,
+		depth: usize,
 	) -> Result<()> {
 		// Handle an existing artifact at the path.
 		match &existing_artifact {
@@ -397,18 +492,37 @@ impl Server {
 			None => (),
 		};
 
-		// Render the target.
-		if symlink.artifact(self).await?.is_some() {
-			return Err(error!(
-				r#"Cannot check out a symlink which contains an artifact."#
-			));
+		// Check out the symlink's artifact if necessary.
+		if let Some(artifact) = symlink.artifact(self).await? {
+			if !internal {
+				return Err(error!(
+					r#"Cannot perform an external check out of a symlink with an artifact."#
+				));
+			}
+			let arg = tg::artifact::CheckOutArg {
+				artifact: artifact.id(self).await?.clone(),
+				path: None,
+			};
+			self.check_out_artifact(arg).await?;
 		}
-		let target = symlink
-			.path(self)
-			.await?
-			.as_ref()
-			.cloned()
-			.unwrap_or_default();
+
+		// Render the target.
+		let mut target = String::new();
+		let artifact = symlink.artifact(self).await?;
+		let path_ = symlink.path(self).await?;
+		if let Some(artifact) = artifact {
+			for _ in 0..depth {
+				target.push_str("../");
+			}
+			target.push_str("../../.tangram/artifacts/");
+			target.push_str(&artifact.id(self).await?.to_string());
+		}
+		if artifact.is_some() && path_.is_some() {
+			target.push('/');
+		}
+		if let Some(path) = path_ {
+			target.push_str(path);
+		}
 
 		// Create the symlink.
 		tokio::fs::symlink(target, path)
@@ -416,182 +530,6 @@ impl Server {
 			.wrap_err("Failed to create the symlink")?;
 
 		Ok(())
-	}
-
-	#[async_recursion]
-	async fn check_out_internal_inner(&self, artifact: &tg::Artifact) -> Result<()> {
-		let id = artifact.id(self).await?;
-		let path = self.checkouts_path().join(id.to_string());
-		if tokio::fs::try_exists(&path)
-			.await
-			.wrap_err_with(|| format!("Failed to stat {path:#?}."))?
-		{
-			return Ok(());
-		}
-
-		let tmp = self.create_tmp();
-		let tmp = tmp.path.clone().try_into()?;
-
-		match artifact {
-			tg::Artifact::Directory(directory) => {
-				self.check_out_directory_internal(directory, &tmp).await?
-			},
-			tg::Artifact::File(file) => self.check_out_file_internal(file, &tmp).await?,
-			tg::Artifact::Symlink(symlink) => {
-				self.check_out_symlink_internal(symlink, &tmp).await?
-			},
-		};
-
-		// Rename the file.
-		match std::fs::rename(&tmp, &path) {
-			Ok(()) => Ok(()),
-			Err(ref error)
-				if matches!(error.raw_os_error(), Some(libc::ENOTEMPTY | libc::EEXIST)) =>
-			{
-				// If the rename fails we need to clean up the temp path.
-				rmrf(&tmp).await?;
-				Ok(())
-			},
-			Err(error) => Err(error),
-		}
-		.wrap_err_with(|| format!("Failed to rename {tmp} to {path:#?}."))
-	}
-
-	#[async_recursion]
-	async fn check_out_internal_inner_inner(
-		&self,
-		artifact: &tg::Artifact,
-		path: &tg::Path,
-	) -> Result<tg::Path> {
-		let path = match artifact {
-			tg::Artifact::Directory(directory) => {
-				self.check_out_directory_internal(directory, path).await?
-			},
-			tg::Artifact::File(file) => self.check_out_file_internal(file, path).await?,
-			tg::Artifact::Symlink(symlink) => {
-				self.check_out_symlink_internal(symlink, path).await?
-			},
-		};
-
-		// Clear the file system object's timestamps.
-		tokio::task::spawn_blocking({
-			let path = path.clone();
-			move || {
-				let epoch = filetime::FileTime::from_system_time(SystemTime::UNIX_EPOCH);
-				filetime::set_symlink_file_times(&path, epoch, epoch)
-					.wrap_err_with(|| format!("Failed to set the timestamps for {path:#?}."))?;
-				Ok::<_, Error>(())
-			}
-		})
-		.await
-		.unwrap()?;
-
-		Ok(path)
-	}
-
-	async fn check_out_directory_internal(
-		&self,
-		directory: &tg::Directory,
-		path: &tg::Path,
-	) -> Result<tg::Path> {
-		tokio::fs::create_dir_all(path)
-			.await
-			.wrap_err("Failed to create the check out directory.")?;
-		directory
-			.entries(self)
-			.await?
-			.iter()
-			.map(|(name, artifact)| async {
-				let entry_path = path.clone().join(name.parse()?);
-				self.check_out_internal_inner_inner(artifact, &entry_path)
-					.await?;
-				Ok::<_, Error>(())
-			})
-			.collect::<FuturesUnordered<_>>()
-			.try_collect()
-			.await?;
-		Ok(path.to_owned())
-	}
-
-	async fn check_out_file_internal(&self, file: &tg::File, path: &tg::Path) -> Result<tg::Path> {
-		// Check out the file's references.
-		let references = file
-			.references(self)
-			.await
-			.wrap_err("Failed to get references.")?
-			.iter()
-			.map(|artifact| async {
-				self.check_out_internal_inner(artifact).await?;
-				artifact.id(self).await
-			})
-			.collect::<FuturesUnordered<_>>()
-			.try_collect::<Vec<_>>()
-			.await
-			.wrap_err("Failed to check out file references.")?;
-
-		// Copy the file.
-		let permit = self.file_descriptor_semaphore().acquire().await;
-		let mut temp = tokio::fs::File::create(path)
-			.await
-			.wrap_err("Failed to create the file to write to.")?;
-		tokio::io::copy(&mut file.reader(self).await?, &mut temp)
-			.await
-			.wrap_err("Failed to copy the blob.")?;
-		drop(permit);
-
-		// Make the file executable if necessary.
-		if file.executable(self).await? {
-			let permissions = std::fs::Permissions::from_mode(0o755);
-			tokio::fs::set_permissions(&path, permissions)
-				.await
-				.wrap_err("Failed to set the permissions.")?;
-		}
-
-		// Set the extended attributes.
-		if !references.is_empty() {
-			let attributes = tg::file::Attributes { references };
-			let attributes =
-				serde_json::to_vec(&attributes).wrap_err("Failed to serialize attributes.")?;
-			xattr::set(path, tg::file::TANGRAM_FILE_XATTR_NAME, &attributes)
-				.wrap_err("Failed to set attributes as an xattr.")?;
-		}
-
-		Ok(path.to_owned())
-	}
-
-	async fn check_out_symlink_internal(
-		&self,
-		symlink: &tg::Symlink,
-		path: &tg::Path,
-	) -> Result<tg::Path> {
-		// Render the target.
-		let mut target = String::new();
-		if let Some(artifact) = symlink.artifact(self).await? {
-			self.check_out_internal_inner(artifact).await?;
-			let checkouts_path = tg::Path::try_from(self.checkouts_path())
-				.unwrap()
-				.normalize();
-			let num_parents = path.components().len() - checkouts_path.components().len() - 1;
-			let components = std::iter::once(tg::path::Component::Current)
-				.chain(std::iter::repeat(tg::path::Component::Parent).take(num_parents))
-				.chain(std::iter::once(tg::path::Component::Normal(
-					artifact.to_string(),
-				)))
-				.collect::<Vec<_>>();
-			let relative_path = tg::Path::with_components(components);
-			target.push_str(&relative_path.to_string());
-			target.push('/');
-		}
-		if let Some(path) = symlink.path(self).await? {
-			target.push_str(path);
-		}
-
-		// Create the symlink.
-		tokio::fs::symlink(&target, path)
-			.await
-			.wrap_err("Failed to create the symlink")?;
-
-		Ok(path.to_owned())
 	}
 }
 
