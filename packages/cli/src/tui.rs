@@ -1464,22 +1464,18 @@ mod tests {
 			tg::build::log::Chunk {
 				offset: 0,
 				data: b"11".to_vec().into(),
-				end: false,
 			},
 			tg::build::log::Chunk {
 				offset: 2,
 				data: b"\n\n22\n".to_vec().into(),
-				end: false,
 			},
 			tg::build::log::Chunk {
 				offset: 7,
 				data: b"3".to_vec().into(),
-				end: false,
 			},
 			tg::build::log::Chunk {
 				offset: 8,
 				data: b"344".to_vec().into(),
-				end: false,
 			},
 		];
 		let mut scroll = Scroll::new(
@@ -1529,122 +1525,98 @@ mod tests {
 			tg::build::log::Chunk {
 				offset: 0,
 				data: b"\"log line 0\"\n".to_vec().into(),
-				end: false,
 			},
 			tg::build::log::Chunk {
 				offset: 13,
 				data: b"\"log line 1\"\n".to_vec().into(),
-				end: false,
 			},
 			tg::build::log::Chunk {
 				offset: 26,
 				data: b"\"log line 2\"\n".to_vec().into(),
-				end: false,
 			},
 			tg::build::log::Chunk {
 				offset: 39,
 				data: b"\"log line 3\"\n".to_vec().into(),
-				end: false,
 			},
 			tg::build::log::Chunk {
 				offset: 52,
 				data: b"\"log line 4\"\n".to_vec().into(),
-				end: false,
 			},
 			tg::build::log::Chunk {
 				offset: 65,
 				data: b"\"log line 5\"\n".to_vec().into(),
-				end: false,
 			},
 			tg::build::log::Chunk {
 				offset: 78,
 				data: b"\"log line 6\"\n".to_vec().into(),
-				end: false,
 			},
 			tg::build::log::Chunk {
 				offset: 91,
 				data: b"\"log line 7\"\n".to_vec().into(),
-				end: false,
 			},
 			tg::build::log::Chunk {
 				offset: 104,
 				data: b"\"log line 8\"\n".to_vec().into(),
-				end: false,
 			},
 			tg::build::log::Chunk {
 				offset: 117,
 				data: b"\"log line 9\"\n".to_vec().into(),
-				end: false,
 			},
 			tg::build::log::Chunk {
 				offset: 130,
 				data: b"\"log line 10\"\n".to_vec().into(),
-				end: false,
 			},
 			tg::build::log::Chunk {
 				offset: 144,
 				data: b"\"log line 11\"\n".to_vec().into(),
-				end: false,
 			},
 			tg::build::log::Chunk {
 				offset: 158,
 				data: b"\"log line 12\"\n".to_vec().into(),
-				end: false,
 			},
 			tg::build::log::Chunk {
 				offset: 172,
 				data: b"\"log line 13\"\n".to_vec().into(),
-				end: false,
 			},
 			tg::build::log::Chunk {
 				offset: 186,
 				data: b"\"log line 14\"\n".to_vec().into(),
-				end: false,
 			},
 			tg::build::log::Chunk {
 				offset: 200,
 				data: b"\"log line 15\"\n".to_vec().into(),
-				end: false,
 			},
 			tg::build::log::Chunk {
 				offset: 214,
 				data: b"\"log line 16\"\n".to_vec().into(),
-				end: false,
 			},
 			tg::build::log::Chunk {
 				offset: 228,
 				data: b"\"log line 17\"\n".to_vec().into(),
-				end: false,
 			},
 			tg::build::log::Chunk {
 				offset: 242,
 				data: b"\"log line 18\"\n".to_vec().into(),
-				end: false,
 			},
 			tg::build::log::Chunk {
 				offset: 256,
 				data: b"\"log line 19\"\n".to_vec().into(),
-				end: false,
 			},
 			tg::build::log::Chunk {
 				offset: 270,
 				data: b"\"log line 20\"\n".to_vec().into(),
-				end: false,
 			},
 			tg::build::log::Chunk {
 				offset: 284,
 				data: b"\"log line 21\"\n".to_vec().into(),
-				end: false,
 			},
 			tg::build::log::Chunk {
 				offset: 298,
 				data: b"\"log line 22\"\n".to_vec().into(),
-				end: false,
 			},
 			tg::build::log::Chunk {
 				offset: 312,
 				data: b"\"log line 23\"\n".to_vec().into(),
-				end: false,
 			},
 		];
 		let height = 40;
@@ -1663,22 +1635,18 @@ mod tests {
 			tg::build::log::Chunk {
 				offset: 0,
 				data: b"\"0\"\n".to_vec().into(),
-				end: false,
 			},
 			tg::build::log::Chunk {
 				offset: 4,
 				data: b"\"1\"\n".to_vec().into(),
-				end: false,
 			},
 			tg::build::log::Chunk {
 				offset: 8,
 				data: b"\"2\"\n".to_vec().into(),
-				end: false,
 			},
 			tg::build::log::Chunk {
 				offset: 12,
 				data: b"\"3\"\n".to_vec().into(),
-				end: true,
 			},
 		];
 		let mut scroll = Scroll::new(
@@ -1702,107 +1670,86 @@ mod tests {
 			tg::build::log::Chunk {
 				offset: 0,
 				data: b"\"0\"\n".to_vec().into(),
-				end: false,
 			},
 			tg::build::log::Chunk {
 				offset: 4,
 				data: b"\"1\"\n".to_vec().into(),
-				end: false,
 			},
 			tg::build::log::Chunk {
 				offset: 8,
 				data: b"\"2\"\n".to_vec().into(),
-				end: false,
 			},
 			tg::build::log::Chunk {
 				offset: 12,
 				data: b"\"3\"\n".to_vec().into(),
-				end: false,
 			},
 			tg::build::log::Chunk {
 				offset: 16,
 				data: b"\"4\"\n".to_vec().into(),
-				end: false,
 			},
 			tg::build::log::Chunk {
 				offset: 20,
 				data: b"\"5\"\n".to_vec().into(),
-				end: false,
 			},
 			tg::build::log::Chunk {
 				offset: 24,
 				data: b"\"6\"\n".to_vec().into(),
-				end: false,
 			},
 			tg::build::log::Chunk {
 				offset: 28,
 				data: b"\"7\"\n".to_vec().into(),
-				end: false,
 			},
 			tg::build::log::Chunk {
 				offset: 32,
 				data: b"\"8\"\n".to_vec().into(),
-				end: false,
 			},
 			tg::build::log::Chunk {
 				offset: 36,
 				data: b"\"9\"\n".to_vec().into(),
-				end: false,
 			},
 			tg::build::log::Chunk {
 				offset: 40,
 				data: b"\"10\"\n".to_vec().into(),
-				end: false,
 			},
 			tg::build::log::Chunk {
 				offset: 45,
 				data: b"\"11\"\n".to_vec().into(),
-				end: false,
 			},
 			tg::build::log::Chunk {
 				offset: 50,
 				data: b"\"12\"\n".to_vec().into(),
-				end: false,
 			},
 			tg::build::log::Chunk {
 				offset: 55,
 				data: b"\"13\"\n".to_vec().into(),
-				end: false,
 			},
 			tg::build::log::Chunk {
 				offset: 60,
 				data: b"\"14\"\n".to_vec().into(),
-				end: false,
 			},
 			tg::build::log::Chunk {
 				offset: 65,
 				data: b"\"15\"\n".to_vec().into(),
-				end: false,
 			},
 			tg::build::log::Chunk {
 				offset: 70,
 				data: b"\"16\"\n".to_vec().into(),
-				end: false,
 			},
 			tg::build::log::Chunk {
 				offset: 75,
 				data: b"\"17\"\n".to_vec().into(),
-				end: false,
 			},
 			tg::build::log::Chunk {
 				offset: 80,
 				data: b"\"18\"\n".to_vec().into(),
-				end: false,
 			},
 			tg::build::log::Chunk {
 				offset: 85,
 				data: b"\"19\"\n".to_vec().into(),
-				end: false,
 			},
 			tg::build::log::Chunk {
 				offset: 90,
 				data: b"\"20\"\n".to_vec().into(),
-				end: true,
 			},
 		];
 		let mut inner = Scroll::new(

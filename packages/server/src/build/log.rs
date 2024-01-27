@@ -467,7 +467,6 @@ impl AsyncRead for DatabaseReader {
 		let this = self.get_mut();
 		loop {
 			match &mut this.read_state {
-				// There is no state. Create a new future.
 				State::Empty => {
 					let limit = (buf.capacity() - buf.filled().len()).to_u64().unwrap();
 					let future =
@@ -496,7 +495,6 @@ impl AsyncRead for DatabaseReader {
 						return std::task::Poll::Ready(Ok(()));
 					},
 				},
-				// We've polled a buffer already.
 				State::Full(reader) => {
 					let data = reader.get_ref();
 					let position = reader.position().to_usize().unwrap();
@@ -674,7 +672,6 @@ fn poll_read_impl(
 	let server = server.clone();
 	let id = id.clone();
 	let future = async move {
-		// Get the chunk that overlaps the current position of the reader.
 		let db = server.inner.database.get().await?;
 		let statement = "
 			select offset, data
@@ -709,6 +706,7 @@ fn poll_read_impl(
 		}
 
 		let data = Bytes::from(data);
+
 		Ok(Some(ReadSuccess { data, row_offset }))
 	};
 	future.boxed()
