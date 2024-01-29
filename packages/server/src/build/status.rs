@@ -256,9 +256,8 @@ impl Server {
 			return Err(error!("The accept header must be set."));
 		};
 
-		// Attempt to get the children.
 		let stop = request.extensions().get().cloned();
-		let Some(children) = self.try_get_build_status(&id, arg, stop).await? else {
+		let Some(stream) = self.try_get_build_status(&id, arg, stop).await? else {
 			return Ok(not_found());
 		};
 
@@ -269,7 +268,7 @@ impl Server {
 		};
 
 		// Create the body.
-		let body = children
+		let body = stream
 			.map_ok(|chunk| {
 				let data = serde_json::to_string(&chunk).unwrap();
 				let event = tangram_util::sse::Event::with_data(data);

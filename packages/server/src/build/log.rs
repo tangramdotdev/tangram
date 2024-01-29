@@ -153,6 +153,11 @@ impl Server {
 					return Ok(None);
 				}
 
+				let read = state.lock().await.read;
+				if length.is_some_and(|length| read >= length.abs().to_u64().unwrap()) {
+					return Ok(None);
+				}
+
 				let Some(()) = events.next().await else {
 					return Ok(None);
 				};
@@ -693,7 +698,7 @@ impl Server {
 		};
 
 		// Get the log.
-		let Some(log) = self.try_get_build_log(&id, arg, None).await? else {
+		let Some(stream) = self.try_get_build_log(&id, arg, None).await? else {
 			return Ok(not_found());
 		};
 
@@ -704,7 +709,7 @@ impl Server {
 		};
 
 		// Create the body.
-		let body = log
+		let body = stream
 			.map_ok(|chunk| {
 				let data = serde_json::to_string(&chunk).unwrap();
 				let event = tangram_util::sse::Event::with_data(data);
