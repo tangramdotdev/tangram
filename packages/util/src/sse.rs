@@ -1,4 +1,4 @@
-use futures::{stream, Stream};
+use futures::{stream, Stream, StreamExt};
 use std::pin::Pin;
 use tokio::io::{AsyncBufReadExt, AsyncRead};
 
@@ -40,7 +40,7 @@ pub struct Decoder<'a> {
 impl<'a> Decoder<'a> {
 	pub fn new(reader: impl AsyncRead + Unpin + Send + 'a) -> Self {
 		let lines = tokio::io::BufReader::new(reader).lines();
-		let stream = Box::pin(stream::try_unfold(lines, |mut lines| async move {
+		let stream = stream::try_unfold(lines, |mut lines| async move {
 			let mut event = Event {
 				data: String::new(),
 				event: None,
@@ -85,7 +85,8 @@ impl<'a> Decoder<'a> {
 					_ => (),
 				}
 			}
-		}));
+		})
+		.boxed();
 		Self { stream }
 	}
 }

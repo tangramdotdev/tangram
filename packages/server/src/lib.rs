@@ -1,4 +1,5 @@
 use self::database::Database;
+pub use self::options::Options;
 use async_trait::async_trait;
 use bytes::Bytes;
 use futures::{
@@ -8,17 +9,19 @@ use futures::{
 };
 use hyper_util::rt::{TokioExecutor, TokioIo};
 use itertools::Itertools;
-use std::convert::Infallible;
 use std::{
 	collections::HashMap,
+	convert::Infallible,
 	os::fd::AsRawFd,
 	path::{Path, PathBuf},
 	sync::Arc,
 };
 use tangram_client as tg;
 use tangram_error::{Error, Result, Wrap, WrapErr};
-use tangram_util::fs::rmrf;
-use tangram_util::http::{full, get_token, Incoming, Outgoing};
+use tangram_util::{
+	fs::rmrf,
+	http::{full, get_token, Incoming, Outgoing},
+};
 use tokio::net::{TcpListener, UnixListener};
 use tokio_util::either::Either;
 
@@ -28,6 +31,7 @@ mod clean;
 mod database;
 mod migrations;
 mod object;
+pub mod options;
 mod package;
 mod server;
 mod user;
@@ -74,38 +78,11 @@ struct Tmp {
 	path: PathBuf,
 }
 
-pub struct Options {
-	pub addr: tg::Addr,
-	pub build: BuildOptions,
-	pub path: PathBuf,
-	pub remote: Option<RemoteOptions>,
-	pub version: String,
-	pub vfs: VfsOptions,
-}
-
-pub struct BuildOptions {
-	pub permits: Option<usize>,
-}
-
-pub struct RemoteOptions {
-	pub build: Option<RemoteBuildOptions>,
-	pub tg: Box<dyn tg::Handle>,
-}
-
-pub struct RemoteBuildOptions {
-	pub enable: bool,
-	pub hosts: Option<Vec<tg::System>>,
-}
-
-pub struct VfsOptions {
-	pub enable: bool,
-}
-
 impl Server {
 	#[allow(clippy::too_many_lines)]
 	pub async fn start(options: Options) -> Result<Server> {
-		// Get the addr.
-		let addr = options.addr;
+		// Get the address.
+		let address = options.address;
 
 		// Get the path.
 		let path = options.path;
@@ -133,7 +110,7 @@ impl Server {
 		Self::migrate(&path).await?;
 
 		// Write the PID file.
-		tokio::fs::write(&path.join("server.pid"), std::process::id().to_string())
+		tokio::fs::write(&path.join("pid"), std::process::id().to_string())
 			.await
 			.wrap_err("Failed to write the PID file.")?;
 
@@ -326,7 +303,7 @@ impl Server {
 		let task = tokio::spawn({
 			let server = server.clone();
 			async move {
-				match server.serve(addr, http_task_stop_receiver).await {
+				match server.serve(address, http_task_stop_receiver).await {
 					Ok(()) => Ok(()),
 					Err(error) => {
 						tracing::error!(?error);
@@ -488,25 +465,25 @@ impl Server {
 impl Server {
 	pub async fn serve(
 		self,
-		addr: tg::Addr,
+		address: tg::Address,
 		mut stop: tokio::sync::watch::Receiver<bool>,
 	) -> Result<()> {
 		// Create the tasks.
 		let mut tasks = tokio::task::JoinSet::new();
 
 		// Create the listener.
-		let listener = match &addr {
-			tg::Addr::Inet(inet) => Either::Left(
+		let listener = match &address {
+			tg::Address::Unix(path) => Either::Left(
+				UnixListener::bind(path).wrap_err("Failed to create the UNIX listener.")?,
+			),
+			tg::Address::Inet(inet) => Either::Right(
 				TcpListener::bind(inet.to_string())
 					.await
 					.wrap_err("Failed to create the TCP listener.")?,
 			),
-			tg::Addr::Unix(path) => Either::Right(
-				UnixListener::bind(path).wrap_err("Failed to create the UNIX listener.")?,
-			),
 		};
 
-		tracing::info!("🚀 Serving on {addr:?}.");
+		tracing::info!("🚀 Serving on {address:?}.");
 
 		loop {
 			// Accept a new connection.
@@ -516,14 +493,14 @@ impl Server {
 						listener
 							.accept()
 							.await
-							.wrap_err("Failed to accept a new TCP connection.")?
+							.wrap_err("Failed to accept a new connection.")?
 							.0,
 					),
 					Either::Right(listener) => Either::Right(
 						listener
 							.accept()
 							.await
-							.wrap_err("Failed to accept a new UNIX connection.")?
+							.wrap_err("Failed to accept a new connection.")?
 							.0,
 					),
 				};

@@ -1,12 +1,13 @@
+use self::config::Config;
 use clap::Parser;
 use futures::FutureExt;
 use std::{path::PathBuf, sync::Arc};
 use tangram_client as tg;
 use tangram_error::{error, Result, WrapErr};
 use tracing_subscriber::prelude::*;
-use url::Url;
 
 mod commands;
+mod config;
 mod tui;
 
 pub const API_URL: &str = "https://api.tangram.dev";
@@ -62,62 +63,6 @@ pub enum Command {
 	Tree(self::commands::tree::Args),
 	Update(self::commands::update::Args),
 	Upgrade(self::commands::upgrade::Args),
-}
-
-#[derive(Clone, Debug, Default, serde::Serialize, serde::Deserialize)]
-struct Config {
-	#[serde(default, skip_serializing_if = "Option::is_none")]
-	autoenv: Option<AutoenvConfig>,
-
-	#[serde(default, skip_serializing_if = "Option::is_none")]
-	build: Option<BuildConfig>,
-
-	#[serde(default, skip_serializing_if = "Option::is_none")]
-	remote: Option<RemoteConfig>,
-
-	#[serde(default, skip_serializing_if = "Option::is_none")]
-	vfs: Option<VfsConfig>,
-}
-
-#[derive(Clone, Debug, Default, serde::Serialize, serde::Deserialize)]
-struct AutoenvConfig {
-	#[serde(default, skip_serializing_if = "Vec::is_empty")]
-	paths: Vec<PathBuf>,
-}
-
-#[derive(Clone, Debug, Default, serde::Serialize, serde::Deserialize)]
-struct BuildConfig {
-	/// The maximum number of concurrent builds.
-	#[serde(default, skip_serializing_if = "Option::is_none")]
-	permits: Option<usize>,
-}
-
-#[derive(Clone, Debug, Default, serde::Serialize, serde::Deserialize)]
-struct RemoteConfig {
-	/// The remote URL.
-	#[serde(default, skip_serializing_if = "Option::is_none")]
-	url: Option<Url>,
-
-	/// Configure remote builds.
-	#[serde(default, skip_serializing_if = "Option::is_none")]
-	build: Option<RemoteBuildConfig>,
-}
-
-#[derive(Clone, Debug, Default, serde::Serialize, serde::Deserialize)]
-struct RemoteBuildConfig {
-	/// Enable remote builds.
-	#[serde(default, skip_serializing_if = "std::ops::Not::not")]
-	enable: bool,
-
-	/// Limit remote builds to targets with the specified hosts.
-	#[serde(default, skip_serializing_if = "Option::is_none")]
-	hosts: Option<Vec<tg::System>>,
-}
-
-#[derive(Clone, Debug, Default, serde::Serialize, serde::Deserialize)]
-struct VfsConfig {
-	#[serde(default, skip_serializing_if = "Option::is_none")]
-	enable: Option<bool>,
 }
 
 fn main() {
@@ -234,9 +179,9 @@ impl Cli {
 		}
 
 		// Attempt to connect to the server.
-		let addr = tg::Addr::Unix(self.path.join("socket"));
+		let address = tg::Address::Unix(self.path.join("socket"));
 		let user = self.user().await?.clone();
-		let client = tg::Builder::new(addr).user(user).build();
+		let client = tg::Builder::new(address).user(user).build();
 		let mut connected = client.connect().await.is_ok();
 
 		// If this is a debug build, then require that the client is connected and has the same version as the server.

@@ -791,8 +791,8 @@ impl Log {
 				let mut scroll = None;
 				let area = log.rect().area().to_i64().unwrap();
 				let arg = tg::build::log::GetArg {
-					limit: Some(-3 * area / 2),
-					offset: None,
+					length: Some(-3 * area / 2),
+					position: None,
 					size: None,
 					timeout: None,
 				};
@@ -865,8 +865,8 @@ impl Log {
 						}
 						if scroll.is_none() {
 							let arg = tg::build::log::GetArg {
-								limit: Some(-3 * area / 2),
-								offset: None,
+								length: Some(-3 * area / 2),
+								position: None,
 								size: None,
 								timeout: None,
 							};
@@ -890,13 +890,13 @@ impl Log {
 	// Log a new chunk from the stream.
 	async fn add_chunk(&self, chunk: tg::build::log::Chunk) {
 		// Get some metadata about this log chunk.
-		let chunk_position = chunk.offset;
-		let chunk_size = chunk.data.len().to_u64().unwrap();
+		let chunk_position = chunk.position;
+		let chunk_size = chunk.bytes.len().to_u64().unwrap();
 
 		let mut chunks = self.inner.chunks.lock().await;
 
 		// Short circuit for the common case that we're appending to the log.
-		if chunks.is_empty() || chunks.last().unwrap().offset < chunk.offset {
+		if chunks.is_empty() || chunks.last().unwrap().position < chunk.position {
 			chunks.push(chunk);
 			return;
 		};
@@ -904,18 +904,18 @@ impl Log {
 		// Find where this log chunk needs to be inserted.
 		let index = chunks
 			.iter()
-			.position(|existing| existing.offset > chunk.offset)
+			.position(|existing| existing.position > chunk.position)
 			.unwrap_or(chunks.len() - 1);
 		chunks.insert(index, chunk);
 
 		// Check if we need to truncate the next chunk.
 		let next_pos = chunk_position + chunk_size;
 		let next_chunk = &mut chunks[index + 1];
-		if next_pos > next_chunk.offset {
+		if next_pos > next_chunk.position {
 			let new_length =
-				next_chunk.data.len() - (next_pos - next_chunk.offset).to_usize().unwrap();
+				next_chunk.bytes.len() - (next_pos - next_chunk.position).to_usize().unwrap();
 			if new_length > 0 {
-				next_chunk.data.truncate(new_length);
+				next_chunk.bytes.truncate(new_length);
 			} else {
 				chunks.remove(index + 1);
 			}
@@ -936,7 +936,7 @@ impl Log {
 			let mut inner = Scroll::new(
 				width,
 				chunks.len() - 1,
-				chunks.last().unwrap().data.len(),
+				chunks.last().unwrap().bytes.len(),
 				&chunks,
 			);
 			inner.scroll_up(height + 2, &chunks);
@@ -946,14 +946,14 @@ impl Log {
 
 		// Attempt to scroll up by one, and pull in new data if necessary.
 		if scroll.scroll_up(2, &self.inner.chunks.lock().await) == 0 {
-			let pos = self.inner.chunks.lock().await.first().unwrap().offset;
+			let pos = self.inner.chunks.lock().await.first().unwrap().position;
 			if pos == 0 {
 				return Ok(());
 			}
 			let len = 3 * self.rect().area().to_i64().unwrap() / 2;
 			let arg = tg::build::log::GetArg {
-				limit: Some(len),
-				offset: Some(pos),
+				length: Some(len),
+				position: Some(pos),
 				size: None,
 				timeout: None,
 			};
@@ -973,11 +973,11 @@ impl Log {
 			let chunk = chunks
 				.iter()
 				.position(|e| {
-					e.offset <= scroll_pos
-						&& (e.offset + e.data.len().to_u64().unwrap()) >= scroll_pos
+					e.position <= scroll_pos
+						&& (e.position + e.bytes.len().to_u64().unwrap()) >= scroll_pos
 				})
 				.unwrap();
-			let byte = (scroll_pos - chunks[chunk].offset).to_usize().unwrap();
+			let byte = (scroll_pos - chunks[chunk].position).to_usize().unwrap();
 			scroll.chunk = chunk;
 			scroll.byte = byte;
 			scroll.scroll_up(2, &chunks);
@@ -1014,7 +1014,7 @@ impl Log {
 		let width = rect.width.to_usize().unwrap();
 		let scroll = scroll.unwrap_or_else(|| {
 			let chunk = chunks.len() - 1;
-			let byte = chunks.last().unwrap().data.len();
+			let byte = chunks.last().unwrap().bytes.len();
 			let mut scroll = Scroll::new(width, chunk, byte, chunks.as_ref());
 			scroll.scroll_up(height + 1, &chunks);
 			scroll
@@ -1053,10 +1053,10 @@ impl Log {
 
 impl Scroll {
 	fn new(width: usize, chunk: usize, byte: usize, chunks: &[tg::build::log::Chunk]) -> Self {
-		let offset = chunks[chunk].offset.to_usize().unwrap() + byte;
+		let offset = chunks[chunk].position.to_usize().unwrap() + byte;
 		let length = chunks
 			.last()
-			.map(|chunk| chunk.offset.to_usize().unwrap() + chunk.data.len())
+			.map(|chunk| chunk.position.to_usize().unwrap() + chunk.bytes.len())
 			.unwrap();
 		let cursor = unicode_segmentation::GraphemeCursor::new(offset, length, true);
 		Self {
@@ -1100,28 +1100,28 @@ impl Scroll {
 			match result {
 				Ok(Some(new_pos)) => {
 					// Update the chunk if necessary.
-					if new_pos < chunks[self.chunk].offset.to_usize().unwrap()
+					if new_pos < chunks[self.chunk].position.to_usize().unwrap()
 						|| new_pos
-							>= chunks[self.chunk].offset.to_usize().unwrap()
-								+ chunks[self.chunk].data.len()
+							>= chunks[self.chunk].position.to_usize().unwrap()
+								+ chunks[self.chunk].bytes.len()
 					{
 						self.chunk = chunks
 							.iter()
 							.enumerate()
 							.find_map(|(idx, chunk)| {
-								(new_pos >= chunk.offset.to_usize().unwrap()
+								(new_pos >= chunk.position.to_usize().unwrap()
 									&& new_pos
-										< chunk.offset.to_usize().unwrap() + chunk.data.len())
+										< chunk.position.to_usize().unwrap() + chunk.bytes.len())
 								.then_some(idx)
 							})
 							.unwrap_or(chunks.len() - 1);
 					}
-					self.byte = new_pos - chunks[self.chunk].offset.to_usize().unwrap();
+					self.byte = new_pos - chunks[self.chunk].position.to_usize().unwrap();
 					break;
 				},
 				Ok(None) => {
 					if forward {
-						self.byte = chunks[self.chunk].data.len();
+						self.byte = chunks[self.chunk].bytes.len();
 					} else {
 						self.byte = chunks[self.chunk].first_codepoint().unwrap();
 					}
@@ -1164,23 +1164,23 @@ impl Scroll {
 		let (new_chunk, new_byte) = (self.chunk, self.byte);
 		if forward {
 			if new_chunk == old_chunk {
-				let bytes = &chunks[new_chunk].data[old_byte..new_byte];
+				let bytes = &chunks[new_chunk].bytes[old_byte..new_byte];
 				buffer.extend_from_slice(bytes);
 			} else {
-				let bytes = &chunks[old_chunk].data[old_byte..];
+				let bytes = &chunks[old_chunk].bytes[old_byte..];
 				buffer.extend_from_slice(bytes);
-				let bytes = &chunks[new_chunk].data[..new_byte];
+				let bytes = &chunks[new_chunk].bytes[..new_byte];
 				buffer.extend_from_slice(bytes);
 			}
 		} else {
 			let mid = buffer.len();
 			if new_chunk == old_chunk {
-				let bytes = &chunks[new_chunk].data[new_byte..old_byte];
+				let bytes = &chunks[new_chunk].bytes[new_byte..old_byte];
 				buffer.extend_from_slice(bytes);
 			} else {
-				let bytes = &chunks[new_chunk].data[new_byte..];
+				let bytes = &chunks[new_chunk].bytes[new_byte..];
 				buffer.extend_from_slice(bytes);
-				let bytes = &chunks[old_chunk].data[..old_byte];
+				let bytes = &chunks[old_chunk].bytes[..old_byte];
 				buffer.extend_from_slice(bytes);
 			}
 			buffer.rotate_left(mid);
@@ -1190,7 +1190,7 @@ impl Scroll {
 
 	fn is_at_end(&self, chunks: &[tg::build::log::Chunk]) -> bool {
 		let chunk = &chunks[self.chunk];
-		self.byte == chunk.data.len()
+		self.byte == chunk.bytes.len()
 	}
 
 	fn is_at_start(&self, chunks: &[tg::build::log::Chunk]) -> bool {
@@ -1291,12 +1291,12 @@ impl Scroll {
 						scroll.byte = next_codepoint;
 					} else {
 						scroll.byte += 1;
-						if scroll.byte == chunks[scroll.chunk].data.len()
+						if scroll.byte == chunks[scroll.chunk].bytes.len()
 							&& scroll.chunk < chunks.len() - 1
 						{
 							scroll.chunk += 1;
 						}
-						let pos = chunks[scroll.chunk].offset.to_usize().unwrap() + scroll.byte;
+						let pos = chunks[scroll.chunk].position.to_usize().unwrap() + scroll.byte;
 						scroll.cursor.set_cursor(pos);
 					}
 				}
@@ -1335,10 +1335,10 @@ impl Scroll {
 		// Special case: we're reading past the end of the buffer.
 		if self.is_at_end(chunks) {
 			let chunk = chunks.last().unwrap();
-			let chunk_start = chunk.offset.to_usize().unwrap() + chunk.data.len();
+			let chunk_start = chunk.position.to_usize().unwrap() + chunk.bytes.len();
 			Some((Either::Left(""), chunk_start))
 		} else if self.byte == last_codepoint {
-			let first_byte = chunks[self.chunk].data[self.byte];
+			let first_byte = chunks[self.chunk].bytes[self.byte];
 			let mut buf = Vec::with_capacity(4);
 			let num_bytes = if 0b1111_0000 & first_byte == 0b1111_0000 {
 				4
@@ -1350,20 +1350,20 @@ impl Scroll {
 				1
 			};
 			for n in 0..num_bytes {
-				if self.byte + n < chunks[self.chunk].data.len() {
-					buf.push(chunks[self.chunk].data[self.byte + n]);
+				if self.byte + n < chunks[self.chunk].bytes.len() {
+					buf.push(chunks[self.chunk].bytes[self.byte + n]);
 				} else {
-					let byte = self.byte + n - chunks[self.chunk].data.len();
-					buf.push(chunks[self.chunk + 1].data[byte]);
+					let byte = self.byte + n - chunks[self.chunk].bytes.len();
+					buf.push(chunks[self.chunk + 1].bytes[byte]);
 				}
 			}
-			let chunk_start = chunks[self.chunk].offset.to_usize().unwrap() + self.byte;
+			let chunk_start = chunks[self.chunk].position.to_usize().unwrap() + self.byte;
 			let string = String::from_utf8(buf).ok()?;
 			Some((Either::Right(string), chunk_start))
 		} else {
-			let bytes = &chunks[self.chunk].data[first_codepoint..last_codepoint];
+			let bytes = &chunks[self.chunk].bytes[first_codepoint..last_codepoint];
 			let utf8 = std::str::from_utf8(bytes).ok()?;
-			let chunk_start = chunks[self.chunk].offset.to_usize().unwrap() + first_codepoint;
+			let chunk_start = chunks[self.chunk].position.to_usize().unwrap() + first_codepoint;
 			Some((Either::Left(utf8), chunk_start))
 		}
 	}
@@ -1377,12 +1377,12 @@ impl Scroll {
 		let chunk = chunks[..=self.chunk]
 			.iter()
 			.rev()
-			.find(|chunk| chunk.offset.to_usize().unwrap() < end)?;
-		let end_byte = end - chunk.offset.to_usize().unwrap();
-		for start_byte in 0..chunk.data.len() {
-			let bytes = &chunk.data[start_byte..end_byte];
+			.find(|chunk| chunk.position.to_usize().unwrap() < end)?;
+		let end_byte = end - chunk.position.to_usize().unwrap();
+		for start_byte in 0..chunk.bytes.len() {
+			let bytes = &chunk.bytes[start_byte..end_byte];
 			if let Ok(string) = std::str::from_utf8(bytes) {
-				return Some((string, chunk.offset.to_usize().unwrap() + start_byte));
+				return Some((string, chunk.position.to_usize().unwrap() + start_byte));
 			}
 		}
 		None
@@ -1399,7 +1399,7 @@ trait ChunkExt {
 
 impl ChunkExt for tg::build::log::Chunk {
 	fn first_codepoint(&self) -> Option<usize> {
-		for (i, byte) in self.data.iter().enumerate() {
+		for (i, byte) in self.bytes.iter().enumerate() {
 			if *byte & 0b1111_0000 == 0b1111_0000
 				|| *byte & 0b1110_0000 == 0b1110_0000
 				|| *byte & 0b1100_0000 == 0b1100_0000
@@ -1412,21 +1412,21 @@ impl ChunkExt for tg::build::log::Chunk {
 	}
 
 	fn last_codepoint(&self) -> Option<usize> {
-		for (i, byte) in self.data.iter().rev().enumerate() {
+		for (i, byte) in self.bytes.iter().rev().enumerate() {
 			if *byte & 0b1111_0000 == 0b1111_0000
 				|| *byte & 0b1110_0000 == 0b1110_0000
 				|| *byte & 0b1100_0000 == 0b1100_0000
 				|| *byte & 0b1000_0000 == 0b0000_0000
 			{
-				return Some(self.data.len() - 1 - i);
+				return Some(self.bytes.len() - 1 - i);
 			}
 		}
 		None
 	}
 
 	fn next_codepoint(&self, byte: usize) -> Option<usize> {
-		for i in byte..self.data.len() {
-			let byte = self.data[i];
+		for i in byte..self.bytes.len() {
+			let byte = self.bytes[i];
 			if byte & 0b1111_0000 == 0b1111_0000
 				|| byte & 0b1110_0000 == 0b1110_0000
 				|| byte & 0b1100_0000 == 0b1100_0000
@@ -1440,7 +1440,7 @@ impl ChunkExt for tg::build::log::Chunk {
 
 	fn prev_codepoint(&self, byte: usize) -> Option<usize> {
 		for i in (0..byte).rev() {
-			let byte = self.data[i];
+			let byte = self.bytes[i];
 			if byte & 0b1111_0000 == 0b1111_0000
 				|| byte & 0b1110_0000 == 0b1110_0000
 				|| byte & 0b1100_0000 == 0b1100_0000
@@ -1462,26 +1462,26 @@ mod tests {
 	fn scrolling_logic() {
 		let chunks = vec![
 			tg::build::log::Chunk {
-				offset: 0,
-				data: b"11".to_vec().into(),
+				position: 0,
+				bytes: b"11".to_vec().into(),
 			},
 			tg::build::log::Chunk {
-				offset: 2,
-				data: b"\n\n22\n".to_vec().into(),
+				position: 2,
+				bytes: b"\n\n22\n".to_vec().into(),
 			},
 			tg::build::log::Chunk {
-				offset: 7,
-				data: b"3".to_vec().into(),
+				position: 7,
+				bytes: b"3".to_vec().into(),
 			},
 			tg::build::log::Chunk {
-				offset: 8,
-				data: b"344".to_vec().into(),
+				position: 8,
+				bytes: b"344".to_vec().into(),
 			},
 		];
 		let mut scroll = Scroll::new(
 			2,
 			chunks.len() - 1,
-			chunks.last().unwrap().data.len(),
+			chunks.last().unwrap().bytes.len(),
 			&chunks,
 		);
 
@@ -1523,106 +1523,106 @@ mod tests {
 	fn tailing() {
 		let chunks = vec![
 			tg::build::log::Chunk {
-				offset: 0,
-				data: b"\"log line 0\"\n".to_vec().into(),
+				position: 0,
+				bytes: b"\"log line 0\"\n".to_vec().into(),
 			},
 			tg::build::log::Chunk {
-				offset: 13,
-				data: b"\"log line 1\"\n".to_vec().into(),
+				position: 13,
+				bytes: b"\"log line 1\"\n".to_vec().into(),
 			},
 			tg::build::log::Chunk {
-				offset: 26,
-				data: b"\"log line 2\"\n".to_vec().into(),
+				position: 26,
+				bytes: b"\"log line 2\"\n".to_vec().into(),
 			},
 			tg::build::log::Chunk {
-				offset: 39,
-				data: b"\"log line 3\"\n".to_vec().into(),
+				position: 39,
+				bytes: b"\"log line 3\"\n".to_vec().into(),
 			},
 			tg::build::log::Chunk {
-				offset: 52,
-				data: b"\"log line 4\"\n".to_vec().into(),
+				position: 52,
+				bytes: b"\"log line 4\"\n".to_vec().into(),
 			},
 			tg::build::log::Chunk {
-				offset: 65,
-				data: b"\"log line 5\"\n".to_vec().into(),
+				position: 65,
+				bytes: b"\"log line 5\"\n".to_vec().into(),
 			},
 			tg::build::log::Chunk {
-				offset: 78,
-				data: b"\"log line 6\"\n".to_vec().into(),
+				position: 78,
+				bytes: b"\"log line 6\"\n".to_vec().into(),
 			},
 			tg::build::log::Chunk {
-				offset: 91,
-				data: b"\"log line 7\"\n".to_vec().into(),
+				position: 91,
+				bytes: b"\"log line 7\"\n".to_vec().into(),
 			},
 			tg::build::log::Chunk {
-				offset: 104,
-				data: b"\"log line 8\"\n".to_vec().into(),
+				position: 104,
+				bytes: b"\"log line 8\"\n".to_vec().into(),
 			},
 			tg::build::log::Chunk {
-				offset: 117,
-				data: b"\"log line 9\"\n".to_vec().into(),
+				position: 117,
+				bytes: b"\"log line 9\"\n".to_vec().into(),
 			},
 			tg::build::log::Chunk {
-				offset: 130,
-				data: b"\"log line 10\"\n".to_vec().into(),
+				position: 130,
+				bytes: b"\"log line 10\"\n".to_vec().into(),
 			},
 			tg::build::log::Chunk {
-				offset: 144,
-				data: b"\"log line 11\"\n".to_vec().into(),
+				position: 144,
+				bytes: b"\"log line 11\"\n".to_vec().into(),
 			},
 			tg::build::log::Chunk {
-				offset: 158,
-				data: b"\"log line 12\"\n".to_vec().into(),
+				position: 158,
+				bytes: b"\"log line 12\"\n".to_vec().into(),
 			},
 			tg::build::log::Chunk {
-				offset: 172,
-				data: b"\"log line 13\"\n".to_vec().into(),
+				position: 172,
+				bytes: b"\"log line 13\"\n".to_vec().into(),
 			},
 			tg::build::log::Chunk {
-				offset: 186,
-				data: b"\"log line 14\"\n".to_vec().into(),
+				position: 186,
+				bytes: b"\"log line 14\"\n".to_vec().into(),
 			},
 			tg::build::log::Chunk {
-				offset: 200,
-				data: b"\"log line 15\"\n".to_vec().into(),
+				position: 200,
+				bytes: b"\"log line 15\"\n".to_vec().into(),
 			},
 			tg::build::log::Chunk {
-				offset: 214,
-				data: b"\"log line 16\"\n".to_vec().into(),
+				position: 214,
+				bytes: b"\"log line 16\"\n".to_vec().into(),
 			},
 			tg::build::log::Chunk {
-				offset: 228,
-				data: b"\"log line 17\"\n".to_vec().into(),
+				position: 228,
+				bytes: b"\"log line 17\"\n".to_vec().into(),
 			},
 			tg::build::log::Chunk {
-				offset: 242,
-				data: b"\"log line 18\"\n".to_vec().into(),
+				position: 242,
+				bytes: b"\"log line 18\"\n".to_vec().into(),
 			},
 			tg::build::log::Chunk {
-				offset: 256,
-				data: b"\"log line 19\"\n".to_vec().into(),
+				position: 256,
+				bytes: b"\"log line 19\"\n".to_vec().into(),
 			},
 			tg::build::log::Chunk {
-				offset: 270,
-				data: b"\"log line 20\"\n".to_vec().into(),
+				position: 270,
+				bytes: b"\"log line 20\"\n".to_vec().into(),
 			},
 			tg::build::log::Chunk {
-				offset: 284,
-				data: b"\"log line 21\"\n".to_vec().into(),
+				position: 284,
+				bytes: b"\"log line 21\"\n".to_vec().into(),
 			},
 			tg::build::log::Chunk {
-				offset: 298,
-				data: b"\"log line 22\"\n".to_vec().into(),
+				position: 298,
+				bytes: b"\"log line 22\"\n".to_vec().into(),
 			},
 			tg::build::log::Chunk {
-				offset: 312,
-				data: b"\"log line 23\"\n".to_vec().into(),
+				position: 312,
+				bytes: b"\"log line 23\"\n".to_vec().into(),
 			},
 		];
 		let height = 40;
 		let width = 189;
 		let chunk = chunks.len() - 1;
-		let byte = chunks.last().unwrap().data.len() - 1;
+		let byte = chunks.last().unwrap().bytes.len() - 1;
 		let mut scroll = Scroll::new(width, chunk, byte, &chunks);
 		scroll.scroll_up(height, &chunks);
 		let lines = scroll.read_lines(height, &chunks);
@@ -1633,26 +1633,26 @@ mod tests {
 	fn simple_tailing() {
 		let chunks = vec![
 			tg::build::log::Chunk {
-				offset: 0,
-				data: b"\"0\"\n".to_vec().into(),
+				position: 0,
+				bytes: b"\"0\"\n".to_vec().into(),
 			},
 			tg::build::log::Chunk {
-				offset: 4,
-				data: b"\"1\"\n".to_vec().into(),
+				position: 4,
+				bytes: b"\"1\"\n".to_vec().into(),
 			},
 			tg::build::log::Chunk {
-				offset: 8,
-				data: b"\"2\"\n".to_vec().into(),
+				position: 8,
+				bytes: b"\"2\"\n".to_vec().into(),
 			},
 			tg::build::log::Chunk {
-				offset: 12,
-				data: b"\"3\"\n".to_vec().into(),
+				position: 12,
+				bytes: b"\"3\"\n".to_vec().into(),
 			},
 		];
 		let mut scroll = Scroll::new(
 			10,
 			chunks.len() - 1,
-			chunks.last().unwrap().data.len(),
+			chunks.last().unwrap().bytes.len(),
 			&chunks,
 		);
 		scroll.scroll_up(3, &chunks);
@@ -1668,94 +1668,94 @@ mod tests {
 	fn scroll_up() {
 		let chunks = [
 			tg::build::log::Chunk {
-				offset: 0,
-				data: b"\"0\"\n".to_vec().into(),
+				position: 0,
+				bytes: b"\"0\"\n".to_vec().into(),
 			},
 			tg::build::log::Chunk {
-				offset: 4,
-				data: b"\"1\"\n".to_vec().into(),
+				position: 4,
+				bytes: b"\"1\"\n".to_vec().into(),
 			},
 			tg::build::log::Chunk {
-				offset: 8,
-				data: b"\"2\"\n".to_vec().into(),
+				position: 8,
+				bytes: b"\"2\"\n".to_vec().into(),
 			},
 			tg::build::log::Chunk {
-				offset: 12,
-				data: b"\"3\"\n".to_vec().into(),
+				position: 12,
+				bytes: b"\"3\"\n".to_vec().into(),
 			},
 			tg::build::log::Chunk {
-				offset: 16,
-				data: b"\"4\"\n".to_vec().into(),
+				position: 16,
+				bytes: b"\"4\"\n".to_vec().into(),
 			},
 			tg::build::log::Chunk {
-				offset: 20,
-				data: b"\"5\"\n".to_vec().into(),
+				position: 20,
+				bytes: b"\"5\"\n".to_vec().into(),
 			},
 			tg::build::log::Chunk {
-				offset: 24,
-				data: b"\"6\"\n".to_vec().into(),
+				position: 24,
+				bytes: b"\"6\"\n".to_vec().into(),
 			},
 			tg::build::log::Chunk {
-				offset: 28,
-				data: b"\"7\"\n".to_vec().into(),
+				position: 28,
+				bytes: b"\"7\"\n".to_vec().into(),
 			},
 			tg::build::log::Chunk {
-				offset: 32,
-				data: b"\"8\"\n".to_vec().into(),
+				position: 32,
+				bytes: b"\"8\"\n".to_vec().into(),
 			},
 			tg::build::log::Chunk {
-				offset: 36,
-				data: b"\"9\"\n".to_vec().into(),
+				position: 36,
+				bytes: b"\"9\"\n".to_vec().into(),
 			},
 			tg::build::log::Chunk {
-				offset: 40,
-				data: b"\"10\"\n".to_vec().into(),
+				position: 40,
+				bytes: b"\"10\"\n".to_vec().into(),
 			},
 			tg::build::log::Chunk {
-				offset: 45,
-				data: b"\"11\"\n".to_vec().into(),
+				position: 45,
+				bytes: b"\"11\"\n".to_vec().into(),
 			},
 			tg::build::log::Chunk {
-				offset: 50,
-				data: b"\"12\"\n".to_vec().into(),
+				position: 50,
+				bytes: b"\"12\"\n".to_vec().into(),
 			},
 			tg::build::log::Chunk {
-				offset: 55,
-				data: b"\"13\"\n".to_vec().into(),
+				position: 55,
+				bytes: b"\"13\"\n".to_vec().into(),
 			},
 			tg::build::log::Chunk {
-				offset: 60,
-				data: b"\"14\"\n".to_vec().into(),
+				position: 60,
+				bytes: b"\"14\"\n".to_vec().into(),
 			},
 			tg::build::log::Chunk {
-				offset: 65,
-				data: b"\"15\"\n".to_vec().into(),
+				position: 65,
+				bytes: b"\"15\"\n".to_vec().into(),
 			},
 			tg::build::log::Chunk {
-				offset: 70,
-				data: b"\"16\"\n".to_vec().into(),
+				position: 70,
+				bytes: b"\"16\"\n".to_vec().into(),
 			},
 			tg::build::log::Chunk {
-				offset: 75,
-				data: b"\"17\"\n".to_vec().into(),
+				position: 75,
+				bytes: b"\"17\"\n".to_vec().into(),
 			},
 			tg::build::log::Chunk {
-				offset: 80,
-				data: b"\"18\"\n".to_vec().into(),
+				position: 80,
+				bytes: b"\"18\"\n".to_vec().into(),
 			},
 			tg::build::log::Chunk {
-				offset: 85,
-				data: b"\"19\"\n".to_vec().into(),
+				position: 85,
+				bytes: b"\"19\"\n".to_vec().into(),
 			},
 			tg::build::log::Chunk {
-				offset: 90,
-				data: b"\"20\"\n".to_vec().into(),
+				position: 90,
+				bytes: b"\"20\"\n".to_vec().into(),
 			},
 		];
 		let mut inner = Scroll::new(
 			40,
 			chunks.len() - 1,
-			chunks.last().unwrap().data.len(),
+			chunks.last().unwrap().bytes.len(),
 			&chunks,
 		);
 		let height = 6;

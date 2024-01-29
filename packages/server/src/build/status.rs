@@ -9,7 +9,6 @@ use tangram_client as tg;
 use tangram_error::{error, Error, Result, WrapErr};
 use tangram_util::http::{empty, not_found, Incoming, Outgoing};
 use tokio_stream::wrappers::WatchStream;
-use tokio_util::either::Either;
 
 impl Server {
 	pub async fn try_get_build_status(
@@ -44,39 +43,42 @@ impl Server {
 			return Ok(None);
 		}
 
-		// Create the stream.
+		// Create the event stream.
 		let context = self.inner.build_context.read().unwrap().get(id).cloned();
-		let status = context.as_ref().map_or_else(
-			|| stream::empty().boxed(),
-			|context| {
-				WatchStream::from_changes(context.status.as_ref().unwrap().subscribe()).boxed()
-			},
+		let status = context
+			.as_ref()
+			.map_or_else(
+				|| stream::empty().left_stream(),
+				|context| {
+					WatchStream::from_changes(context.status.as_ref().unwrap().subscribe())
+						.right_stream()
+				},
+			)
+			.chain(stream::pending());
+		let timeout = arg.timeout.map_or_else(
+			|| future::pending().left_future(),
+			|timeout| tokio::time::sleep(timeout).right_future(),
 		);
-		let timeout = arg
-			.timeout
-			.map(|timeout| tokio::time::sleep(timeout).boxed())
-			.map_or_else(|| Either::Left(future::pending()), Either::Right);
-		let stop = stop
-			.map(|mut stop| async move { stop.wait_for(|stop| *stop).map(|_| ()).await })
-			.map_or_else(|| Either::Left(future::pending()), Either::Right);
-		let stream = stream::once(future::ready(()))
-			.chain(status)
-			.take_until(timeout)
-			.take_until(stop)
+		let stop = stop.map_or_else(
+			|| future::pending().left_future(),
+			|mut stop| async move { stop.wait_for(|stop| *stop).map(|_| ()).await }.right_future(),
+		);
+		let events = stream::once(future::ready(()))
+			.chain(status.take_until(timeout).take_until(stop))
 			.boxed();
 
 		// Create the output.
 		let server = self.clone();
 		let id = id.clone();
 		let mut previous = None;
-		let output = stream::try_unfold(
-			(server, id, stream),
-			move |(server, id, mut stream)| async move {
-				let Some(()) = stream.next().await else {
+		let stream = stream::try_unfold(
+			(server, id, events),
+			move |(server, id, mut events)| async move {
+				let Some(()) = events.next().await else {
 					return Ok(None);
 				};
 				let status = server.try_get_build_status_local_inner(&id).await?;
-				Ok::<_, Error>(Some((status, (server, id, stream))))
+				Ok::<_, Error>(Some((status, (server, id, events))))
 			},
 		)
 		.try_filter(move |status| {
@@ -86,7 +88,7 @@ impl Server {
 		})
 		.boxed();
 
-		Ok(Some(output))
+		Ok(Some(stream))
 	}
 
 	pub async fn try_get_build_status_local_inner(
@@ -163,6 +165,7 @@ impl Server {
 			return Ok(false);
 		}
 
+		// Update the database.
 		{
 			let db = self.inner.database.get().await?;
 			let statement = "
@@ -179,7 +182,7 @@ impl Server {
 				.wrap_err("Failed to execute the query.")?;
 		}
 
-		// Notify subscribers that the status has been updated.
+		// Send the event.
 		if let Some(status) = self
 			.inner
 			.build_context

@@ -6,11 +6,10 @@ use derive_more::From;
 use futures::{
 	future::BoxFuture,
 	stream::{self, StreamExt},
-	TryStreamExt,
+	FutureExt, TryStreamExt,
 };
 use num::ToPrimitive;
-use pin_project::pin_project;
-use std::{io::Cursor, pin::Pin, task::Poll};
+use std::{io::Cursor, pin::Pin};
 use tokio::io::{AsyncRead, AsyncReadExt, AsyncSeek};
 use tokio_util::io::SyncIoBridge;
 
@@ -376,32 +375,31 @@ impl TryFrom<Value> for Blob {
 }
 
 /// A blob reader.
-#[pin_project]
 pub struct Reader {
 	blob: Blob,
-	tg: Box<dyn Handle>,
+	cursor: Option<Cursor<Bytes>>,
 	position: u64,
+	read: Option<BoxFuture<'static, Result<Option<Cursor<Bytes>>>>>,
 	size: u64,
-	state: State,
+	tg: Box<dyn Handle>,
 }
 
-pub enum State {
-	Empty,
-	Reading(BoxFuture<'static, Result<Cursor<Bytes>>>),
-	Full(Cursor<Bytes>),
-}
-
-unsafe impl Sync for State {}
+unsafe impl Sync for Reader {}
 
 impl Reader {
 	pub async fn new(tg: &dyn Handle, blob: Blob) -> Result<Self> {
+		let cursor = None;
+		let position = 0;
+		let read = None;
 		let size = blob.size(tg).await?;
+		let tg = tg.clone_box();
 		Ok(Self {
 			blob,
-			tg: tg.clone_box(),
-			position: 0,
+			cursor,
+			position,
+			read,
 			size,
-			state: State::Empty,
+			tg,
 		})
 	}
 }
@@ -411,127 +409,128 @@ impl AsyncRead for Reader {
 		self: std::pin::Pin<&mut Self>,
 		cx: &mut std::task::Context<'_>,
 		buf: &mut tokio::io::ReadBuf<'_>,
-	) -> Poll<std::io::Result<()>> {
-		let this = self.project();
-		loop {
-			match this.state {
-				State::Empty => {
-					if *this.position == *this.size {
-						return Poll::Ready(Ok(()));
-					}
-					let future = {
-						let blob = this.blob.clone();
-						let tg = this.tg.clone_box();
-						let position = *this.position;
-						async move {
-							let mut current_blob = blob.clone();
-							let mut current_blob_position = 0;
-							let bytes = 'outer: loop {
-								match current_blob {
-									Blob::Leaf(leaf) => {
-										let (id, object) = {
-											let state = leaf.state().read().unwrap();
-											(state.id.clone(), state.object.clone())
-										};
-										let bytes = if let Some(object) = object {
-											object.bytes.clone()
-										} else {
-											tg.get_object(&id.unwrap().into()).await?.bytes.clone()
-										};
-										if position
-											< current_blob_position + bytes.len().to_u64().unwrap()
-										{
-											let mut reader = Cursor::new(bytes.clone());
-											reader.set_position(position - current_blob_position);
-											break reader;
-										}
-										return Err(error!("The position is out of bounds."));
-									},
-									Blob::Branch(branch) => {
-										for child in branch.children(tg.as_ref()).await? {
-											if position < current_blob_position + child.size {
-												current_blob = child.blob.clone();
-												continue 'outer;
-											}
-											current_blob_position += child.size;
-										}
-										return Err(error!("The position is out of bounds."));
-									},
-								}
-							};
-							Ok(bytes)
-						}
-					};
-					let future = Box::pin(future);
-					*this.state = State::Reading(future);
-				},
+	) -> std::task::Poll<std::io::Result<()>> {
+		let this = self.get_mut();
 
-				State::Reading(future) => match future.as_mut().poll(cx) {
-					Poll::Pending => return Poll::Pending,
-					Poll::Ready(Err(error)) => {
-						return Poll::Ready(Err(std::io::Error::other(error)))
-					},
-					Poll::Ready(Ok(data)) => {
-						*this.state = State::Full(data);
-					},
-				},
+		// Create the read future if necessary.
+		if this.cursor.is_none() && this.read.is_none() {
+			let tg = this.tg.clone_box();
+			let blob = this.blob.clone();
+			let position = this.position;
+			let read = async move { poll_read_inner(tg, blob, position).await }.boxed();
+			this.read.replace(read);
+		}
 
-				State::Full(reader) => {
-					let data = reader.get_ref();
-					let position = reader.position().to_usize().unwrap();
-					let n = std::cmp::min(buf.remaining(), data.len() - position);
-					buf.put_slice(&data[position..position + n]);
-					*this.position += n as u64;
-					let position = position + n;
-					reader.set_position(position as u64);
-					if position == reader.get_ref().len() {
-						*this.state = State::Empty;
-					}
-					return Poll::Ready(Ok(()));
+		// Poll the read future if necessary.
+		if let Some(read) = this.read.as_mut() {
+			match read.as_mut().poll(cx) {
+				std::task::Poll::Pending => return std::task::Poll::Pending,
+				std::task::Poll::Ready(Err(error)) => {
+					this.read.take();
+					return std::task::Poll::Ready(Err(std::io::Error::other(error)));
+				},
+				std::task::Poll::Ready(Ok(None)) => {
+					this.read.take();
+					return std::task::Poll::Ready(Ok(()));
+				},
+				std::task::Poll::Ready(Ok(Some(cursor))) => {
+					this.read.take();
+					this.cursor.replace(cursor);
 				},
 			};
+		}
+
+		// Read.
+		let cursor = this.cursor.as_mut().unwrap();
+		let bytes = cursor.get_ref();
+		let position = cursor.position().to_usize().unwrap();
+		let n = std::cmp::min(buf.remaining(), bytes.len() - position);
+		buf.put_slice(&bytes[position..position + n]);
+		this.position += n as u64;
+		let position = position + n;
+		cursor.set_position(position as u64);
+		if position == cursor.get_ref().len() {
+			this.cursor.take();
+		}
+		std::task::Poll::Ready(Ok(()))
+	}
+}
+
+async fn poll_read_inner(
+	tg: Box<dyn Handle>,
+	blob: Blob,
+	position: u64,
+) -> Result<Option<Cursor<Bytes>>> {
+	let mut current_blob = blob.clone();
+	let mut current_blob_position = 0;
+	'a: loop {
+		match current_blob {
+			Blob::Leaf(leaf) => {
+				let (id, object) = {
+					let state = leaf.state().read().unwrap();
+					(state.id.clone(), state.object.clone())
+				};
+				let bytes = if let Some(object) = object {
+					object.bytes.clone()
+				} else {
+					tg.get_object(&id.unwrap().into()).await?.bytes.clone()
+				};
+				if position < current_blob_position + bytes.len().to_u64().unwrap() {
+					let mut cursor = Cursor::new(bytes.clone());
+					cursor.set_position(position - current_blob_position);
+					break Ok(Some(cursor));
+				}
+				return Ok(None);
+			},
+			Blob::Branch(branch) => {
+				for child in branch.children(tg.as_ref()).await? {
+					if position < current_blob_position + child.size {
+						current_blob = child.blob.clone();
+						continue 'a;
+					}
+					current_blob_position += child.size;
+				}
+				return Ok(None);
+			},
 		}
 	}
 }
 
 impl AsyncSeek for Reader {
-	fn start_seek(self: Pin<&mut Self>, position: std::io::SeekFrom) -> std::io::Result<()> {
-		let this = self.project();
-		let position = match position {
-			std::io::SeekFrom::Start(position) => position.to_i64().unwrap(),
-			std::io::SeekFrom::End(position) => this.size.to_i64().unwrap() + position,
-			std::io::SeekFrom::Current(position) => this.position.to_i64().unwrap() + position,
+	fn start_seek(self: Pin<&mut Self>, seek: std::io::SeekFrom) -> std::io::Result<()> {
+		let this = self.get_mut();
+		this.read.take();
+		let position = match seek {
+			std::io::SeekFrom::Start(seek) => seek.to_i64().unwrap(),
+			std::io::SeekFrom::End(seek) => this.size.to_i64().unwrap() + seek,
+			std::io::SeekFrom::Current(seek) => this.position.to_i64().unwrap() + seek,
 		};
-		let position = position.to_u64().ok_or(std::io::Error::new(
-			std::io::ErrorKind::InvalidInput,
+		let position = position.to_u64().ok_or(std::io::Error::other(
 			"Attempted to seek to a negative or overflowing position.",
 		))?;
-		if position > *this.size {
-			return Err(std::io::Error::new(
-				std::io::ErrorKind::InvalidInput,
-				"Attempted to seek to a position beyond the end of the blob.",
+		if position > this.size {
+			return Err(std::io::Error::other(
+				"Attempted to seek to a position beyond the end.",
 			));
 		}
-		if let State::Full(cursor) = this.state {
+		if let Some(cursor) = this.cursor.as_mut() {
 			let leaf_position = position.to_i64().unwrap()
 				- (this.position.to_i64().unwrap() - cursor.position().to_i64().unwrap());
 			if leaf_position >= 0 && leaf_position < cursor.get_ref().len().to_i64().unwrap() {
 				cursor.set_position(leaf_position.to_u64().unwrap());
 			} else {
-				*this.state = State::Empty;
+				this.cursor.take();
 			}
-		} else {
-			*this.state = State::Empty;
 		}
-		*this.position = position;
+		this.position = position;
 		Ok(())
 	}
 
 	fn poll_complete(
 		self: Pin<&mut Self>,
 		_cx: &mut std::task::Context<'_>,
-	) -> Poll<std::io::Result<u64>> {
-		Poll::Ready(Ok(self.position))
+	) -> std::task::Poll<std::io::Result<u64>> {
+		std::task::Poll::Ready(Ok(self.position))
 	}
 }
 

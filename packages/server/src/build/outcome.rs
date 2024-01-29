@@ -10,7 +10,6 @@ use tangram_client as tg;
 use tangram_error::{error, Error, Result, WrapErr};
 use tangram_util::http::{empty, full, not_found, Incoming, Outgoing};
 use tokio_stream::wrappers::WatchStream;
-use tokio_util::either::Either;
 
 impl Server {
 	pub async fn try_get_build_outcome(
@@ -42,30 +41,34 @@ impl Server {
 			return Ok(None);
 		}
 
-		// Get the outcome.
+		// Create the event stream.
+		let context = self.inner.build_context.read().unwrap().get(id).cloned();
+		let status = context
+			.as_ref()
+			.map_or_else(
+				|| stream::empty().boxed(),
+				|context| {
+					WatchStream::from_changes(context.status.as_ref().unwrap().subscribe()).boxed()
+				},
+			)
+			.chain(stream::pending());
+		let timeout = arg.timeout.map_or_else(
+			|| future::pending().left_future(),
+			|timeout| tokio::time::sleep(timeout).right_future(),
+		);
+		let stop = stop.map_or_else(
+			|| future::pending().left_future(),
+			|mut stop| async move { stop.wait_for(|stop| *stop).map(|_| ()).await }.right_future(),
+		);
+		let events = stream::once(future::ready(()))
+			.chain(status.take_until(timeout).take_until(stop))
+			.boxed();
+
+		// Create the stream.
 		let server = self.clone();
 		let id = id.clone();
-		let context = self.inner.build_context.read().unwrap().get(&id).cloned();
-		let status = context.as_ref().map_or_else(
-			|| stream::empty().boxed(),
-			|context| {
-				WatchStream::from_changes(context.status.as_ref().unwrap().subscribe()).boxed()
-			},
-		);
-		let timeout = arg
-			.timeout
-			.map(|timeout| tokio::time::sleep(timeout).boxed())
-			.map_or_else(|| Either::Left(future::pending()), Either::Right);
-		let stop = stop
-			.map(|mut stop| async move { stop.wait_for(|stop| *stop).map(|_| ()).await })
-			.map_or_else(|| Either::Left(future::pending()), Either::Right);
-		let stream = stream::once(future::ready(()))
-			.chain(status)
-			.take_until(timeout)
-			.take_until(stop)
-			.boxed();
 		let mut stream = stream::try_unfold(
-			(server, id, stream),
+			(server, id, events),
 			move |(server, id, mut stream)| async move {
 				let Some(()) = stream.next().await else {
 					return Ok(None);
@@ -76,6 +79,8 @@ impl Server {
 		)
 		.try_filter_map(|outcome| future::ready(Ok(outcome)))
 		.boxed();
+
+		// Get the outcome.
 		let outcome = stream.try_next().await?;
 
 		Ok(Some(outcome))

@@ -11,7 +11,6 @@ use tangram_client as tg;
 use tangram_error::{error, Error, Result, WrapErr};
 use tangram_util::http::{empty, not_found, Incoming, Outgoing};
 use tokio_stream::wrappers::WatchStream;
-use tokio_util::either::Either;
 
 impl Server {
 	pub async fn try_get_build_children(
@@ -35,6 +34,7 @@ impl Server {
 		}
 	}
 
+	#[allow(clippy::too_many_lines)]
 	async fn try_get_build_children_local(
 		&self,
 		id: &tg::build::Id,
@@ -48,45 +48,74 @@ impl Server {
 
 		// Create the event stream.
 		let context = self.inner.build_context.read().unwrap().get(id).cloned();
-		let children = context.as_ref().map_or_else(
-			|| stream::empty().boxed(),
-			|context| {
-				WatchStream::from_changes(context.children.as_ref().unwrap().subscribe()).boxed()
-			},
+		let children = context
+			.as_ref()
+			.map_or_else(
+				|| stream::empty().left_stream(),
+				|context| {
+					WatchStream::from_changes(context.children.as_ref().unwrap().subscribe())
+						.right_stream()
+				},
+			)
+			.chain(stream::pending());
+		let finished = {
+			let server = self.clone();
+			let id = id.clone();
+			async move {
+				let arg = tg::build::status::GetArg::default();
+				server
+					.try_get_build_status_local(&id, arg, None)
+					.await?
+					.wrap_err("Expected the build to exist.")?
+					.try_filter_map(|status| {
+						future::ready(Ok(if status == tg::build::Status::Finished {
+							Some(())
+						} else {
+							None
+						}))
+					})
+					.try_next()
+					.await
+			}
+		};
+		let timeout = arg.timeout.map_or_else(
+			|| future::pending().left_future(),
+			|timeout| tokio::time::sleep(timeout).right_future(),
 		);
-		let status = context.as_ref().map_or_else(
-			|| stream::empty().boxed(),
-			|context| {
-				WatchStream::from_changes(context.status.as_ref().unwrap().subscribe()).boxed()
-			},
+		let stop = stop.map_or_else(
+			|| future::pending().left_future(),
+			|mut stop| async move { stop.wait_for(|stop| *stop).map(|_| ()).await }.right_future(),
 		);
-		let timeout = arg
-			.timeout
-			.map(|timeout| tokio::time::sleep(timeout).boxed())
-			.map_or_else(|| Either::Left(future::pending()), Either::Right);
-		let stop = stop
-			.map(|mut stop| async move { stop.wait_for(|stop| *stop).map(|_| ()).await })
-			.map_or_else(|| Either::Left(future::pending()), Either::Right);
 		let events = stream::once(future::ready(()))
-			.chain(stream::select(children, status))
-			.take_until(timeout)
-			.take_until(stop)
+			.chain(
+				children
+					.take_until(finished)
+					.chain(stream::once(future::ready(())))
+					.take_until(timeout)
+					.take_until(stop),
+			)
 			.boxed();
 
-		// Get the offset and limit.
-		let offset = if let Some(offset) = arg.offset {
-			offset
+		// Get the position.
+		let position = if let Some(position) = arg.position {
+			position
 		} else {
-			self.try_get_build_children_local_current_offset(id).await?
+			self.try_get_build_children_local_current_position(id)
+				.await?
 		};
-		let limit = arg.limit.unwrap_or(u64::MAX);
+
+		// Get the length.
+		let length = arg.length;
+
+		// Get the size.
+		let size = arg.size.unwrap_or(10);
 
 		// Create the stream.
 		struct State {
-			offset: u64,
-			limit: u64,
+			position: u64,
+			read: u64,
 		}
-		let state = State { offset, limit };
+		let state = State { position, read: 0 };
 		let state = Arc::new(tokio::sync::Mutex::new(state));
 		let stream = stream::try_unfold(
 			(self.clone(), id.clone(), events, state),
@@ -94,33 +123,52 @@ impl Server {
 				let Some(()) = events.next().await else {
 					return Ok(None);
 				};
-				let chunks = stream::try_unfold(
+
+				// Create the stream.
+				let stream = stream::try_unfold(
 					(server.clone(), id.clone(), state.clone(), false),
-					|(server, id, state, end)| async move {
+					move |(server, id, state, end)| async move {
 						if end {
 							return Ok(None);
 						}
+
+						// Lock the state.
 						let mut state_ = state.lock().await;
+
+						// Determine the size.
+						let size = match length {
+							None => size,
+							Some(length) => size.min(length - state_.read),
+						};
+
+						// Read the chunk.
 						let chunk = server
-							.try_get_build_children_local_inner(&id, state_.offset, state_.limit)
+							.try_get_build_children_local_inner(&id, state_.position, size)
 							.await?;
-						let len = chunk.data.len().to_u64().unwrap();
-						state_.offset += len;
-						state_.limit -= len;
+						let read = chunk.data.len().to_u64().unwrap();
+
+						// Update the state.
+						state_.position += read;
+						state_.read += read;
+
 						drop(state_);
+
+						// If the chunk is empty, then only return it if the build is finished and the position is at the end.
 						if chunk.data.is_empty() {
-							if server
-								.try_get_build_children_local_end(&id, chunk.offset)
-								.await?
-							{
+							let end = server
+								.try_get_build_children_local_end(&id, chunk.position)
+								.await?;
+							if end {
 								return Ok::<_, Error>(Some((chunk, (server, id, state, true))));
 							}
 							return Ok(None);
 						}
+
 						Ok::<_, Error>(Some((chunk, (server, id, state, false))))
 					},
 				);
-				Ok::<_, Error>(Some((chunks, (server, id, events, state))))
+
+				Ok::<_, Error>(Some((stream, (server, id, events, state))))
 			},
 		)
 		.try_flatten()
@@ -129,7 +177,10 @@ impl Server {
 		Ok(Some(stream))
 	}
 
-	async fn try_get_build_children_local_current_offset(&self, id: &tg::build::Id) -> Result<u64> {
+	async fn try_get_build_children_local_current_position(
+		&self,
+		id: &tg::build::Id,
+	) -> Result<u64> {
 		let db = self.inner.database.get().await?;
 		let statement = "
 			select json_array_length(state->'children')
@@ -157,7 +208,7 @@ impl Server {
 	async fn try_get_build_children_local_end(
 		&self,
 		id: &tg::build::Id,
-		offset: u64,
+		position: u64,
 	) -> Result<bool> {
 		let db = self.inner.database.get().await?;
 		let statement = "
@@ -166,7 +217,7 @@ impl Server {
 			where id = ?2;
 		";
 		let id = id.to_string();
-		let params = params![offset, id];
+		let params = params![position, id];
 		let mut statement = db
 			.prepare_cached(statement)
 			.wrap_err("Failed to prepare the statement.")?;
@@ -186,8 +237,8 @@ impl Server {
 	async fn try_get_build_children_local_inner(
 		&self,
 		id: &tg::build::Id,
-		offset: u64,
-		limit: u64,
+		position: u64,
+		length: u64,
 	) -> Result<tg::build::children::Chunk> {
 		let db = self.inner.database.get().await?;
 		let statement = "
@@ -204,9 +255,8 @@ impl Server {
 			from builds
 			where id = ?3;
 		";
-		let limit = limit.min(10);
 		let id = id.to_string();
-		let params = params![limit, offset, id];
+		let params = params![length, position, id];
 		let mut statement = db
 			.prepare_cached(statement)
 			.wrap_err("Failed to prepare the statement.")?;
@@ -222,7 +272,7 @@ impl Server {
 			.wrap_err("Failed to deseriaize the column.")?
 			.0;
 		let chunk = tg::build::children::Chunk {
-			offset,
+			position,
 			data: children,
 		};
 		Ok(chunk)

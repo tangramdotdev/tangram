@@ -47,7 +47,7 @@ pub struct Client {
 
 #[derive(Debug)]
 struct Inner {
-	addr: Addr,
+	address: Address,
 	build: Option<tg::build::Id>,
 	file_descriptor_semaphore: tokio::sync::Semaphore,
 	options: Option<tg::build::Options>,
@@ -60,7 +60,7 @@ struct Inner {
 
 #[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
 #[serde(rename_all = "snake_case", tag = "kind", content = "value")]
-pub enum Addr {
+pub enum Address {
 	Unix(PathBuf),
 	Inet(Inet),
 }
@@ -78,7 +78,7 @@ pub enum Host {
 }
 
 pub struct Builder {
-	addr: Addr,
+	address: Address,
 	build: Option<build::Id>,
 	options: Option<build::Options>,
 	tls: Option<bool>,
@@ -87,7 +87,7 @@ pub struct Builder {
 
 #[derive(Debug, Clone, serde::Deserialize, serde::Serialize)]
 pub struct Runtime {
-	pub addr: Addr,
+	pub address: Address,
 	pub build: build::Id,
 	pub options: build::Options,
 }
@@ -98,7 +98,7 @@ impl Client {
 			.wrap_err("Failed to get the TANGRAM_RUNTIME environment variable.")?;
 		let runtime = serde_json::from_str::<Runtime>(&json)
 			.wrap_err("Failed to deserialize the TANGRAM_RUNTIME environment variable.")?;
-		let addr = runtime.addr;
+		let address = runtime.address;
 		let build = Some(runtime.build);
 		let file_descriptor_semaphore = tokio::sync::Semaphore::new(16);
 		let options = Some(runtime.options);
@@ -106,7 +106,7 @@ impl Client {
 		let tls = false;
 		let user = None;
 		let inner = Arc::new(Inner {
-			addr,
+			address,
 			build,
 			file_descriptor_semaphore,
 			options,
@@ -155,20 +155,20 @@ impl Client {
 	async fn connect_h1(
 		&self,
 	) -> Result<hyper::client::conn::http1::SendRequest<tangram_util::http::Outgoing>> {
-		Ok(match &self.inner.addr {
-			Addr::Unix(path) => self.connect_unix_h1(path).await?,
-			Addr::Inet(inet) if self.inner.tls => self.connect_tcp_tls_h1(inet).await?,
-			Addr::Inet(inet) => self.connect_tcp_h1(inet).await?,
+		Ok(match &self.inner.address {
+			Address::Unix(path) => self.connect_unix_h1(path).await?,
+			Address::Inet(inet) if self.inner.tls => self.connect_tcp_tls_h1(inet).await?,
+			Address::Inet(inet) => self.connect_tcp_h1(inet).await?,
 		})
 	}
 
 	async fn connect_h2(
 		&self,
 	) -> Result<hyper::client::conn::http2::SendRequest<tangram_util::http::Outgoing>> {
-		Ok(match &self.inner.addr {
-			Addr::Unix(path) => self.connect_unix_h2(path).await?,
-			Addr::Inet(inet) if self.inner.tls => self.connect_tcp_tls_h2(inet).await?,
-			Addr::Inet(inet) => self.connect_tcp_h2(inet).await?,
+		Ok(match &self.inner.address {
+			Address::Unix(path) => self.connect_unix_h2(path).await?,
+			Address::Inet(inet) if self.inner.tls => self.connect_tcp_tls_h2(inet).await?,
+			Address::Inet(inet) => self.connect_tcp_h2(inet).await?,
 		})
 	}
 
@@ -413,9 +413,9 @@ impl Client {
 
 impl Builder {
 	#[must_use]
-	pub fn new(addr: Addr) -> Self {
+	pub fn new(address: Address) -> Self {
 		Self {
-			addr,
+			address,
 			build: None,
 			options: None,
 			tls: None,
@@ -449,7 +449,7 @@ impl Builder {
 
 	#[must_use]
 	pub fn build(self) -> Client {
-		let addr = self.addr;
+		let address = self.address;
 		let build = self.build;
 		let file_descriptor_semaphore = tokio::sync::Semaphore::new(16);
 		let options = self.options;
@@ -457,7 +457,7 @@ impl Builder {
 		let tls = self.tls.unwrap_or(false);
 		let user = self.user;
 		let inner = Arc::new(Inner {
-			addr,
+			address,
 			build,
 			file_descriptor_semaphore,
 			options,
@@ -670,12 +670,12 @@ impl Handle for Client {
 	}
 }
 
-impl Addr {
+impl Address {
 	#[must_use]
 	pub fn is_local(&self) -> bool {
 		match &self {
-			Addr::Unix(_) => true,
-			Addr::Inet(inet) => match &inet.host {
+			Address::Unix(_) => true,
+			Address::Inet(inet) => match &inet.host {
 				Host::Domain(domain) => domain == "localhost",
 				Host::Ip(ip) => ip.is_loopback(),
 			},
@@ -683,11 +683,11 @@ impl Addr {
 	}
 }
 
-impl std::fmt::Display for Addr {
+impl std::fmt::Display for Address {
 	fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
 		match self {
-			Addr::Unix(path) => write!(f, "unix:{}", path.display()),
-			Addr::Inet(inet) => write!(f, "{inet}"),
+			Address::Unix(path) => write!(f, "unix:{}", path.display()),
+			Address::Inet(inet) => write!(f, "{inet}"),
 		}
 	}
 }
@@ -707,7 +707,7 @@ impl std::fmt::Display for Host {
 	}
 }
 
-impl std::str::FromStr for Addr {
+impl std::str::FromStr for Address {
 	type Err = Error;
 
 	fn from_str(s: &str) -> Result<Self, Self::Err> {
@@ -719,14 +719,14 @@ impl std::str::FromStr for Addr {
 			.wrap_err("Failed to parse the host.")?;
 		if matches!(&host, Host::Domain(hostname) if hostname == "unix") {
 			let path = parts.next().wrap_err("Expected a path.")?;
-			Ok(Addr::Unix(path.into()))
+			Ok(Address::Unix(path.into()))
 		} else {
 			let port = parts
 				.next()
 				.wrap_err("Expected a port.")?
 				.parse()
 				.wrap_err("Failed to parse the port.")?;
-			Ok(Addr::Inet(Inet { host, port }))
+			Ok(Address::Inet(Inet { host, port }))
 		}
 	}
 }
@@ -743,7 +743,7 @@ impl std::str::FromStr for Host {
 	}
 }
 
-impl TryFrom<Url> for Addr {
+impl TryFrom<Url> for Address {
 	type Error = Error;
 
 	fn try_from(value: Url) -> Result<Self, Self::Error> {
@@ -753,6 +753,6 @@ impl TryFrom<Url> for Addr {
 			.parse()
 			.wrap_err("Invalid URL.")?;
 		let port = value.port_or_known_default().wrap_err("Invalid URL.")?;
-		Ok(Addr::Inet(Inet { host, port }))
+		Ok(Address::Inet(Inet { host, port }))
 	}
 }

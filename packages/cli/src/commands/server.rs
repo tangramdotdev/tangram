@@ -2,7 +2,7 @@ use crate::{Cli, API_URL};
 use std::path::PathBuf;
 use tangram_client as tg;
 use tangram_error::{Result, WrapErr};
-use tg::Addr;
+use tg::Address;
 use url::Url;
 
 /// Manage the server.
@@ -35,7 +35,7 @@ pub enum Command {
 pub struct RunArgs {
 	/// The address to bind to.
 	#[arg(long)]
-	pub address: Option<Addr>,
+	pub address: Option<Address>,
 
 	/// The path where Tangram should store its data. The default is `$HOME/.tangram`.
 	#[arg(long)]
@@ -59,8 +59,8 @@ impl Cli {
 	pub async fn command_server(&self, args: Args) -> Result<()> {
 		match args.command {
 			Command::Health => {
-				let addr = tg::Addr::Unix(self.path.join("socket"));
-				let client = tg::Builder::new(addr).build();
+				let address = tg::Address::Unix(self.path.join("socket"));
+				let client = tg::Builder::new(address).build();
 				let health = client.health().await?;
 				let health = serde_json::to_string_pretty(&health).unwrap();
 				println!("{health}");
@@ -69,8 +69,8 @@ impl Cli {
 				self.start_server().await?;
 			},
 			Command::Stop => {
-				let addr = tg::Addr::Unix(self.path.join("socket"));
-				let client = tg::Builder::new(addr).build();
+				let address = tg::Address::Unix(self.path.join("socket"));
+				let client = tg::Builder::new(address).build();
 				client.stop().await?;
 			},
 			Command::Run(args) => {
@@ -88,8 +88,8 @@ impl Cli {
 			self.path.clone()
 		};
 
-		// Get the addr.
-		let addr = args.address.unwrap_or(Addr::Unix(path.join("socket")));
+		// Get the address.
+		let address = args.address.unwrap_or(Address::Unix(path.join("socket")));
 
 		// Get the config.
 		let config = self.config().await?;
@@ -114,11 +114,11 @@ impl Cli {
 			.as_ref()
 			.and_then(|config| config.remote.as_ref())
 			.and_then(|remote| remote.build.clone())
-			.map(|build| tangram_server::RemoteBuildOptions {
-				enable: build.enable,
+			.map(|build| tangram_server::options::RemoteBuild {
+				enable: build.enable.unwrap_or(false),
 				hosts: build.hosts,
 			});
-		let remote = tangram_server::RemoteOptions {
+		let remote = tangram_server::options::Remote {
 			tg: Box::new(client),
 			build,
 		};
@@ -129,7 +129,7 @@ impl Cli {
 			.as_ref()
 			.and_then(|config| config.build.as_ref())
 			.and_then(|build| build.permits);
-		let build = tangram_server::BuildOptions { permits };
+		let build = tangram_server::options::Build { permits };
 
 		let version = self.version.clone();
 
@@ -139,8 +139,8 @@ impl Cli {
 			.await?
 			.and_then(|config| config.vfs)
 			.map_or_else(
-				|| tangram_server::VfsOptions { enable: true },
-				|vfs| tangram_server::VfsOptions {
+				|| tangram_server::options::Vfs { enable: true },
+				|vfs| tangram_server::options::Vfs {
 					enable: vfs.enable.unwrap_or(true),
 				},
 			);
@@ -150,7 +150,7 @@ impl Cli {
 
 		// Create the options.
 		let options = tangram_server::Options {
-			addr,
+			address,
 			build,
 			path,
 			remote,

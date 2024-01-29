@@ -5,7 +5,7 @@ use super::{
 	State,
 };
 use bytes::Bytes;
-use futures::{Future, TryStreamExt};
+use futures::{Future, FutureExt, TryStreamExt};
 use itertools::Itertools;
 use std::rc::Rc;
 use tangram_client as tg;
@@ -394,8 +394,8 @@ where
 				.map(|value| Box::new(value) as Box<dyn ToV8>);
 			(result, promise_resolver)
 		}
+		.boxed_local()
 	};
-	let future = Box::pin(future);
 
 	// Add the future to the context's futures.
 	state.futures.borrow_mut().push(future);

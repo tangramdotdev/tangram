@@ -11,10 +11,10 @@ use tokio_util::io::StreamReader;
 #[derive(Clone, Debug, Default, serde::Serialize, serde::Deserialize)]
 pub struct GetArg {
 	#[serde(skip_serializing_if = "Option::is_none")]
-	pub limit: Option<i64>,
+	pub length: Option<i64>,
 
 	#[serde(skip_serializing_if = "Option::is_none")]
-	pub offset: Option<u64>,
+	pub position: Option<u64>,
 
 	#[serde(skip_serializing_if = "Option::is_none")]
 	pub size: Option<u64>,
@@ -26,8 +26,8 @@ pub struct GetArg {
 
 #[derive(Clone, Debug, serde::Serialize, serde::Deserialize)]
 pub struct Chunk {
-	pub offset: u64,
-	pub data: Bytes,
+	pub position: u64,
+	pub bytes: Bytes,
 }
 
 impl Client {

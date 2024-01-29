@@ -80,11 +80,11 @@ async fn migration_0000(path: &Path) -> Result<()> {
 
 		create table build_logs (
 			build text not null,
-			offset integer not null,
-			data blob not null
+			position integer not null,
+			bytes blob not null
 		) strict;
 
-		create index build_logs_index on build_logs (build, offset);
+		create index build_logs_index on build_logs (build, position);
 
 		create table build_queue (
 			build text not null,
