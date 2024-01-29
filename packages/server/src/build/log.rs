@@ -418,7 +418,7 @@ impl Server {
 }
 
 impl Reader {
-	async fn new(server: &Server, id: &tg::build::Id) -> Result<Self> {
+	pub async fn new(server: &Server, id: &tg::build::Id) -> Result<Self> {
 		let build = server
 			.try_get_build_local(id)
 			.await?

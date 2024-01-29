@@ -214,6 +214,24 @@ impl Server {
 		Ok(output)
 	}
 
+	pub async fn push_build(&self, user: Option<&tg::User>, id: &tg::build::Id) -> Result<()> {
+		let remote = self
+			.inner
+			.remote
+			.as_ref()
+			.wrap_err("The server does not have a remote.")?;
+		tg::Build::with_id(id.clone())
+			.push(user, self, remote.as_ref())
+			.await
+			.wrap_err("Failed to push the build.")?;
+		Ok(())
+	}
+
+	#[allow(clippy::unused_async)]
+	pub async fn pull_build(&self, _id: &tg::build::Id) -> Result<()> {
+		Err(error!("Not yet implemented."))
+	}
+
 	#[allow(clippy::too_many_lines)]
 	pub async fn get_or_create_build(
 		&self,

@@ -538,6 +538,54 @@ impl Client {
 		Ok(output)
 	}
 
+	pub async fn push_build(&self, user: Option<&tg::User>, id: &tg::build::Id) -> Result<()> {
+		let method = http::Method::POST;
+		let uri = format!("/builds/{id}/push");
+		let body = empty();
+		let mut request = http::request::Builder::default().method(method).uri(uri);
+		if let Some(token) = user.and_then(|user| user.token.as_ref()) {
+			request = request.header(http::header::AUTHORIZATION, format!("Bearer {token}"));
+		}
+		let request = request
+			.body(body)
+			.wrap_err("Failed to create the request.")?;
+		let response = self.send(request).await?;
+		if !response.status().is_success() {
+			let bytes = response
+				.collect()
+				.await
+				.wrap_err("Failed to collect the response body.")?
+				.to_bytes();
+			let error = serde_json::from_slice(&bytes)
+				.unwrap_or_else(|_| error!("The request did not succeed."));
+			return Err(error);
+		}
+		Ok(())
+	}
+
+	pub async fn pull_build(&self, id: &tg::build::Id) -> Result<()> {
+		let method = http::Method::POST;
+		let uri = format!("/builds/{id}/pull");
+		let body = empty();
+		let request = http::request::Builder::default()
+			.method(method)
+			.uri(uri)
+			.body(body)
+			.wrap_err("Failed to create the request.")?;
+		let response = self.send(request).await?;
+		if !response.status().is_success() {
+			let bytes = response
+				.collect()
+				.await
+				.wrap_err("Failed to collect the response body.")?
+				.to_bytes();
+			let error = serde_json::from_slice(&bytes)
+				.unwrap_or_else(|_| error!("The request did not succeed."));
+			return Err(error);
+		}
+		Ok(())
+	}
+
 	pub async fn get_or_create_build(
 		&self,
 		user: Option<&tg::User>,

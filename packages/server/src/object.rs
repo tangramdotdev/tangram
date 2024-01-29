@@ -184,7 +184,7 @@ impl Server {
 		tg::object::Handle::with_id(id.clone())
 			.push(self, remote.as_ref())
 			.await
-			.wrap_err("Failed to push the package.")?;
+			.wrap_err("Failed to push the object.")?;
 		Ok(())
 	}
 

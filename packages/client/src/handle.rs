@@ -37,6 +37,10 @@ pub trait Handle: Send + Sync + 'static {
 		state: &tg::build::State,
 	) -> Result<tg::build::PutOutput>;
 
+	async fn push_build(&self, user: Option<&tg::User>, id: &tg::build::Id) -> Result<()>;
+
+	async fn pull_build(&self, id: &tg::build::Id) -> Result<()>;
+
 	async fn get_or_create_build(
 		&self,
 		user: Option<&tg::User>,

@@ -788,6 +788,14 @@ impl tg::Handle for Server {
 		self.try_put_build(user, id, state).await
 	}
 
+	async fn push_build(&self, user: Option<&tg::User>, id: &tg::build::Id) -> Result<()> {
+		self.push_build(user, id).await
+	}
+
+	async fn pull_build(&self, id: &tg::build::Id) -> Result<()> {
+		self.pull_build(id).await
+	}
+
 	async fn get_or_create_build(
 		&self,
 		user: Option<&tg::User>,

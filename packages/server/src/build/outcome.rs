@@ -1,3 +1,4 @@
+use super::log;
 use crate::{database::Json, params, Server};
 use async_recursion::async_recursion;
 use futures::{future, stream::FuturesUnordered, TryFutureExt, TryStreamExt};
@@ -154,7 +155,7 @@ impl Server {
 		let children = {
 			let db = self.inner.database.get().await?;
 			let statement = "
-				select json_extract(state, '$.children')
+				select state->'children'
 				from builds
 				where id = ?1;
 			";
@@ -165,9 +166,10 @@ impl Server {
 			let mut rows = statement
 				.query(params)
 				.wrap_err("Failed to execute the query.")?;
-			let Some(row) = rows.next().wrap_err("Failed to get the row.")? else {
-				return Ok(false);
-			};
+			let row = rows
+				.next()
+				.wrap_err("Failed to get the row.")?
+				.wrap_err("Expected the row to exist.")?;
 			row.get::<_, Json<Vec<tg::build::Id>>>(0)
 				.wrap_err("Failed to deserialize the column.")?
 				.0
@@ -207,6 +209,9 @@ impl Server {
 			outcome
 		};
 
+		// Create a blob from the log.
+		let log = tg::Blob::with_reader(self, log::Reader::new(self, id).await?).await?;
+
 		// Update the state.
 		{
 			let status = tg::build::Status::Finished;
@@ -217,11 +222,17 @@ impl Server {
 				set state = json_set(
 					state,
 					'$.status', ?1,
-					'$.outcome', json(?2)
+					'$.outcome', json(?2),
+					'$.log', json(?3)
 				)
-				where id = ?3;
+				where id = ?4;
 			";
-			let params = params![status.to_string(), Json(outcome), id.to_string()];
+			let params = params![
+				status.to_string(),
+				Json(outcome),
+				log.to_string(),
+				id.to_string()
+			];
 			let mut statement = db
 				.prepare_cached(statement)
 				.wrap_err("Failed to prepare the query.")?;
