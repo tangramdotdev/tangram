@@ -27,6 +27,10 @@ pub struct GetArg {
 #[derive(Clone, Debug, serde::Serialize, serde::Deserialize)]
 pub struct Chunk {
 	pub position: u64,
+	#[serde(
+		deserialize_with = "deserialize_chunk_bytes",
+		serialize_with = "serialize_chunk_bytes"
+	)]
 	pub bytes: Bytes,
 }
 
@@ -119,4 +123,40 @@ impl Client {
 		}
 		Ok(())
 	}
+}
+
+fn serialize_chunk_bytes<S>(value: &Bytes, serializer: S) -> Result<S::Ok, S::Error>
+where
+	S: serde::Serializer,
+{
+	let string = data_encoding::BASE64.encode(value);
+	serializer.serialize_str(&string)
+}
+
+fn deserialize_chunk_bytes<'de, D>(deserializer: D) -> Result<Bytes, D::Error>
+where
+	D: serde::Deserializer<'de>,
+{
+	struct Visitor;
+
+	impl<'de> serde::de::Visitor<'de> for Visitor {
+		type Value = Bytes;
+
+		fn expecting(&self, formatter: &mut std::fmt::Formatter) -> std::fmt::Result {
+			formatter.write_str("a base64 encoded string")
+		}
+
+		fn visit_str<E>(self, value: &str) -> Result<Self::Value, E>
+		where
+			E: serde::de::Error,
+		{
+			let bytes = data_encoding::BASE64
+				.decode(value.as_bytes())
+				.map_err(|_| serde::de::Error::custom("invalid string"))?
+				.into();
+			Ok(bytes)
+		}
+	}
+
+	deserializer.deserialize_any(Visitor)
 }
