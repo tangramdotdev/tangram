@@ -1,6 +1,6 @@
 use crossterm as ct;
 use either::Either;
-use futures::{stream::FusedStream, StreamExt, TryStreamExt};
+use futures::{StreamExt, TryStreamExt};
 use num::ToPrimitive;
 use ratatui as tui;
 use std::{
@@ -78,24 +78,30 @@ struct Log {
 
 struct LogInner {
 	// The build we're logging.
-	build: tg::build::Build,
+	build: tg::Build,
 
-	// The current contents of the log.
+	// A buffer of log chunks.
 	chunks: tokio::sync::Mutex<Vec<tg::build::log::Chunk>>,
 
-	// The bounding box of the log view.
-	rect: tokio::sync::watch::Sender<Rect>,
-
 	// Channel used to send UI events.
-	sender: tokio::sync::mpsc::UnboundedSender<LogUpdate>,
+	event_sender: tokio::sync::mpsc::UnboundedSender<LogEvent>,
 
 	// The lines of text that will be displayed.
 	lines: std::sync::Mutex<Vec<String>>,
 
-	// The log's task
-	task: std::sync::Mutex<Option<tokio::task::JoinHandle<()>>>,
+	// The log streaming task.
+	log_task: std::sync::Mutex<Option<tokio::task::JoinHandle<()>>>,
 
-	// The client.
+	// The event handler task.
+	event_task: std::sync::Mutex<Option<tokio::task::JoinHandle<()>>>,
+
+	// The bounding box of the log view.
+	rect: tokio::sync::watch::Sender<Rect>,
+
+	// The current state of the log's scrolling position.
+	scroll: tokio::sync::Mutex<Option<Scroll>>,
+
+	// The handle.
 	tg: Box<dyn tg::Handle>,
 }
 
@@ -108,9 +114,9 @@ struct Scroll {
 	cursor: unicode_segmentation::GraphemeCursor,
 }
 
-enum LogUpdate {
-	Up,
-	Down,
+enum LogEvent {
+	ScrollUp,
+	ScrollDown,
 }
 
 const SPINNER: [char; 10] = ['⠋', '⠙', '⠹', '⠸', '⠼', '⠴', '⠦', '⠧', '⠇', '⠏'];
@@ -754,7 +760,10 @@ async fn title(tg: &dyn tg::Handle, build: &tg::Build) -> Result<Option<String>>
 
 impl Drop for LogInner {
 	fn drop(&mut self) {
-		if let Some(task) = self.task.lock().unwrap().take() {
+		if let Some(task) = self.event_task.lock().unwrap().take() {
+			task.abort();
+		}
+		if let Some(task) = self.log_task.lock().unwrap().take() {
 			task.abort();
 		}
 	}
@@ -764,166 +773,61 @@ impl Log {
 	// Create a new log data stream.
 	#[allow(clippy::too_many_lines)]
 	fn new(tg: &dyn tg::Handle, build: &tg::Build, rect: Rect) -> Self {
+		let tg = tg.clone_box();
 		let build = build.clone();
 		let chunks = tokio::sync::Mutex::new(Vec::new());
-		let tg = tg.clone_box();
-
-		let (sender, mut receiver) = tokio::sync::mpsc::unbounded_channel();
-		let (rect, mut rect_watch) = tokio::sync::watch::channel(rect);
+		let (event_sender, mut event_receiver) = tokio::sync::mpsc::unbounded_channel();
 		let lines = std::sync::Mutex::new(Vec::new());
+		let (rect, mut rect_receiver) = tokio::sync::watch::channel(rect);
 
 		let log = Log {
 			inner: Arc::new(LogInner {
 				build,
 				chunks,
+				event_sender,
+				event_task: std::sync::Mutex::new(None),
 				lines,
+				log_task: std::sync::Mutex::new(None),
 				rect,
-				sender,
-				task: std::sync::Mutex::new(None),
+				scroll: tokio::sync::Mutex::new(None),
 				tg,
 			}),
 		};
 
-		// Create the log task.
-		let task = tokio::task::spawn({
+		// Create the event handler task.
+		let event_task = tokio::task::spawn({
 			let log = log.clone();
 			async move {
-				let mut scroll = None;
-				let area = log.rect().area().to_i64().unwrap();
-				let arg = tg::build::log::GetArg {
-					length: Some(-3 * area / 2),
-					position: None,
-					size: None,
-					timeout: None,
-				};
-				let stream = log
-					.inner
-					.build
-					.log(log.inner.tg.as_ref(), arg)
-					.await
-					.expect("Failed to get log stream.");
-
-				let mut stream = Some(stream.fuse());
+				log.update_log_stream(None).await.unwrap();
 				loop {
-					if let Some(stream_) = stream.as_mut() {
-						tokio::select! {
-							Some(chunk) = stream_.next(), if !stream_.is_terminated() => {
-								let Ok(chunk) = chunk else {
-									return;
-								};
-								log.add_chunk(chunk).await;
-							},
-							result = receiver.recv() => match result.unwrap() {
-								LogUpdate::Down => {
-									let result = log.down_impl(&mut scroll).await;
-									if result.is_err() {
-										return;
-									}
-									if scroll.is_none() && stream.is_none() {
-										stream = None;
-									}
-								}
-								LogUpdate::Up => {
-									let result = log.up_impl(&mut scroll).await;
-									if result.is_err() {
-										return;
-									}
-								}
-							},
-							_ = rect_watch.changed() => {
-								if let Some(scroll) = scroll.as_mut() {
-									let rect = log.rect();
-									scroll.width = rect.width.to_usize().unwrap();
-								}
+					tokio::select! {
+						event = event_receiver.recv() => match event.unwrap() {
+							LogEvent::ScrollDown => {
+								log.down_impl().await.ok();
 							}
-						};
-					} else {
-						tokio::select! {
-							result = receiver.recv() => match result.unwrap() {
-								LogUpdate::Down => {
-									let result = log.down_impl(&mut scroll).await;
-									if result.is_err() {
-										return;
-									}
-									if scroll.is_none() && stream.is_none() {
-										stream = None;
-									}
-								}
-								LogUpdate::Up => {
-									let result = log.up_impl(&mut scroll).await;
-									if result.is_err() {
-										return;
-									}
-								}
-							},
-							_ = rect_watch.changed() => {
-								if let Some(scroll) = scroll.as_mut() {
-									let rect = log.rect();
-									scroll.width = rect.width.to_usize().unwrap();
-								}
+							LogEvent::ScrollUp => {
+								log.up_impl().await.ok();
 							}
-						}
-						if scroll.is_none() {
-							let arg = tg::build::log::GetArg {
-								length: Some(-3 * area / 2),
-								position: None,
-								size: None,
-								timeout: None,
-							};
-							let stream_ = log
-								.inner
-								.build
-								.log(log.inner.tg.as_ref(), arg)
-								.await
-								.expect("Failed to get log stream.");
-							stream = Some(stream_.fuse());
-						}
+						},
+						_ = rect_receiver.changed() => {
+							let mut scroll = log.inner.scroll.lock().await;
+							if let Some(scroll) = scroll.as_mut() {
+								let rect = log.rect();
+								scroll.width = rect.width.to_usize().unwrap();
+							}
+						},
 					}
-					log.update_lines(scroll.clone()).await;
+					log.update_lines().await;
 				}
 			}
 		});
-		log.inner.task.lock().unwrap().replace(task);
+		log.inner.event_task.lock().unwrap().replace(event_task);
 		log
 	}
 
-	// Log a new chunk from the stream.
-	async fn add_chunk(&self, chunk: tg::build::log::Chunk) {
-		// Get some metadata about this log chunk.
-		let chunk_position = chunk.position;
-		let chunk_size = chunk.bytes.len().to_u64().unwrap();
-
-		let mut chunks = self.inner.chunks.lock().await;
-
-		// Short circuit for the common case that we're appending to the log.
-		if chunks.is_empty() || chunks.last().unwrap().position < chunk.position {
-			chunks.push(chunk);
-			return;
-		};
-
-		// Find where this log chunk needs to be inserted.
-		let index = chunks
-			.iter()
-			.position(|existing| existing.position > chunk.position)
-			.unwrap_or(chunks.len() - 1);
-		chunks.insert(index, chunk);
-
-		// Check if we need to truncate the next chunk.
-		let next_pos = chunk_position + chunk_size;
-		let next_chunk = &mut chunks[index + 1];
-		if next_pos > next_chunk.position {
-			let new_length =
-				next_chunk.bytes.len() - (next_pos - next_chunk.position).to_usize().unwrap();
-			if new_length > 0 {
-				next_chunk.bytes.truncate(new_length);
-			} else {
-				chunks.remove(index + 1);
-			}
-		}
-	}
-
 	// Handle a scroll up event.
-	async fn up_impl(&self, scroll: &mut Option<Scroll>) -> Result<()> {
+	async fn up_impl(&self) -> Result<()> {
+		let mut scroll = self.inner.scroll.lock().await;
 		let rect = self.rect();
 		let height = rect.height.to_usize().unwrap();
 		let width = rect.width.to_usize().unwrap();
@@ -945,41 +849,20 @@ impl Log {
 		};
 
 		// Attempt to scroll up by one, and pull in new data if necessary.
-		if scroll.scroll_up(2, &self.inner.chunks.lock().await) == 0 {
-			let pos = self.inner.chunks.lock().await.first().unwrap().position;
-			if pos == 0 {
+		let chunks = self.inner.chunks.lock().await;
+		if scroll.scroll_up(2, &chunks) == 0 {
+			let position = chunks.first().unwrap().position;
+			if position == 0 {
 				return Ok(());
 			}
-			let len = 3 * self.rect().area().to_i64().unwrap() / 2;
-			let arg = tg::build::log::GetArg {
-				length: Some(len),
-				position: Some(pos),
-				size: None,
-				timeout: None,
-			};
-			let new_chunks = self
-				.inner
-				.build
-				.log(self.inner.tg.as_ref(), arg)
-				.await?
-				.try_collect::<Vec<_>>()
-				.await?;
-			for chunk in new_chunks {
-				self.add_chunk(chunk).await;
-			}
+			drop(chunks);
 
-			let scroll_pos = pos + scroll.byte.to_u64().unwrap();
+			// Update the chunks.
+			let area = self.rect().area().to_u64().unwrap();
+			self.update_log_stream(Some(3 * area / 2)).await?;
+
+			// Scroll up.
 			let chunks = self.inner.chunks.lock().await;
-			let chunk = chunks
-				.iter()
-				.position(|e| {
-					e.position <= scroll_pos
-						&& (e.position + e.bytes.len().to_u64().unwrap()) >= scroll_pos
-				})
-				.unwrap();
-			let byte = (scroll_pos - chunks[chunk].position).to_usize().unwrap();
-			scroll.chunk = chunk;
-			scroll.byte = byte;
 			scroll.scroll_up(2, &chunks);
 		}
 
@@ -987,41 +870,174 @@ impl Log {
 	}
 
 	// Handle a scroll down event.
-	async fn down_impl(&self, scroll: &mut Option<Scroll>) -> Result<()> {
+	async fn down_impl(&self) -> Result<()> {
+		let mut scroll = self.inner.scroll.lock().await;
 		let chunks = self.inner.chunks.lock().await;
 		let height = self.rect().height.to_usize().unwrap();
 		let is_tailing = scroll.as_mut().map_or(true, |scroll| {
 			scroll.scroll_down(1, &chunks);
 			scroll.clone().scroll_down(height, &chunks) < height
 		});
+		drop(chunks);
 		if is_tailing {
 			scroll.take();
+			self.update_log_stream(None).await?;
 		}
 		Ok(())
 	}
 
 	// Update the rendered lines.
-	async fn update_lines(&self, scroll: Option<Scroll>) {
-		let chunks = self.inner.chunks.lock().await;
-		if chunks.is_empty() {
-			self.inner.lines.lock().unwrap().clear();
-			return;
+	async fn update_lines(&self) {
+		loop {
+			let scroll = self.inner.scroll.lock().await.clone();
+			let chunks = self.inner.chunks.lock().await;
+			if chunks.is_empty() {
+				self.inner.lines.lock().unwrap().clear();
+				return;
+			}
+
+			// Get enough lines to fill the rectangle
+			let rect = self.rect();
+			let height = rect.height.to_usize().unwrap();
+			let width = rect.width.to_usize().unwrap();
+			let scroll = scroll.unwrap_or_else(|| {
+				let chunk = chunks.len() - 1;
+				let byte = chunks.last().unwrap().bytes.len();
+				let mut scroll = Scroll::new(width, chunk, byte, &chunks);
+				scroll.scroll_up(height + 1, &chunks);
+				scroll
+			});
+			
+			// Update the list of lines and break out if successful.
+			if let Some(lines) = scroll.read_lines(height + 1, &chunks) {
+				*self.inner.lines.lock().unwrap() = lines;
+				break;
+			}
+
+			// Otherwise update the log and loop back around.
+			drop(chunks);
+			self.prepend_to_log(3 * rect.area().to_u64().unwrap() / 2)
+				.await
+				.ok();
 		}
+	}
 
-		// Get enough lines to fill the rectangle
-		let rect = self.rect();
-		let height = rect.height.to_usize().unwrap();
-		let width = rect.width.to_usize().unwrap();
-		let scroll = scroll.unwrap_or_else(|| {
-			let chunk = chunks.len() - 1;
-			let byte = chunks.last().unwrap().bytes.len();
-			let mut scroll = Scroll::new(width, chunk, byte, chunks.as_ref());
-			scroll.scroll_up(height + 1, &chunks);
-			scroll
+	// Add `length` num bytes to the front of the log without resetting the log stream.
+	async fn prepend_to_log(&self, length: u64) -> Result<()> {
+		let position = self
+			.inner
+			.chunks
+			.lock()
+			.await
+			.first()
+			.map(|chunk| chunk.position);
+		let length = position.map_or(-length.to_i64().unwrap(), |position| {
+			length.min(position).to_i64().unwrap()
 		});
+		let length = Some(-length);
+		let stream = self
+			.inner
+			.build
+			.log(
+				self.inner.tg.as_ref(),
+				tg::build::log::GetArg {
+					length,
+					position,
+					..Default::default()
+				},
+			)
+			.await?;
 
-		let lines = scroll.read_lines(height + 1, &chunks);
-		*self.inner.lines.lock().unwrap() = lines;
+		// Prepend the received chunks to the log.
+		let new_chunks = stream.try_collect::<Vec<_>>().await?;
+		let mut old_chunks = self.inner.chunks.lock().await;
+		let mid = old_chunks.len();
+		old_chunks.extend_from_slice(&new_chunks);
+		old_chunks.rotate_left(mid);
+
+		// Update the scroll.
+		let mut scroll = self.inner.scroll.lock().await;
+		if let Some(scroll) = scroll.as_mut() {
+			let position = old_chunks.first().unwrap().position;
+			let scroll_pos = position + scroll.byte.to_u64().unwrap();
+			let chunk = old_chunks
+				.iter()
+				.position(|e| {
+					e.position <= scroll_pos
+						&& (e.position + e.bytes.len().to_u64().unwrap()) >= scroll_pos
+				})
+				.unwrap();
+			let byte = (scroll_pos - old_chunks[chunk].position)
+				.to_usize()
+				.unwrap();
+			scroll.chunk = chunk;
+			scroll.byte = byte;
+		}
+		Ok(())
+	}
+
+	// Update the log stream. If prepend is Some, the tailing stream is destroyed and bytes are appended to the the front.
+	async fn update_log_stream(&self, prepend: Option<u64>) -> Result<()> {
+		// Check if this log stream has reached eof.
+		let is_stream_ended = self
+			.inner
+			.chunks
+			.lock()
+			.await
+			.last()
+			.is_some_and(|chunk| chunk.bytes.is_empty());
+
+		// If the caller requested additional chunks at the head, create a stream and immediately drain it.
+		if let Some(additional_in_front) = prepend {
+			// Abort the task if necessary.
+			if let Some(task) = self.inner.log_task.lock().unwrap().take() {
+				task.abort();
+			}
+			self.prepend_to_log(additional_in_front).await?;
+		} else if !is_stream_ended {
+			// The caller requested us to start tailing. Check if there is an existing task running and bail if it exists.
+			if self.inner.log_task.lock().unwrap().is_some() {
+				return Ok(());
+			}
+
+			// Create a new stream.
+			let position = self
+				.inner
+				.chunks
+				.lock()
+				.await
+				.last()
+				.map(|chunk| chunk.position);
+			let mut stream = self
+				.inner
+				.build
+				.log(
+					self.inner.tg.as_ref(),
+					tg::build::log::GetArg {
+						position,
+						..Default::default()
+					},
+				)
+				.await?;
+
+			// Spawn a task to append new chunks from the stream.
+			let log = self.clone();
+			let log_task = tokio::task::spawn(async move {
+				while let Some(chunk) = stream.next().await {
+					let Ok(chunk) = chunk else {
+						break;
+					};
+					let end = chunk.bytes.is_empty();
+					log.inner.chunks.lock().await.push(chunk);
+					log.update_lines().await;
+					if end {
+						break;
+					}
+				}
+			});
+			self.inner.log_task.lock().unwrap().replace(log_task);
+		}
+		Ok(())
 	}
 
 	// Get the bounding box of the log widget.
@@ -1031,24 +1047,31 @@ impl Log {
 
 	// Issue a scroll up event.
 	fn up(&self) {
-		self.inner.sender.send(LogUpdate::Up).ok();
+		self.inner.event_sender.send(LogEvent::ScrollUp).ok();
 	}
 
 	// Issue a scroll down event.
 	fn down(&self) {
-		self.inner.sender.send(LogUpdate::Down).ok();
+		self.inner.event_sender.send(LogEvent::ScrollDown).ok();
 	}
 
+	// Issue a resize event.
 	fn resize(&self, rect: Rect) {
 		self.inner.rect.send(rect).ok();
 	}
 
+	// Render the log.
 	fn render(&self, rect: tui::layout::Rect, buf: &mut tui::buffer::Buffer) {
 		let lines = self.inner.lines.lock().unwrap();
 		for (y, line) in (0..rect.height).zip(lines.iter()) {
 			buf.set_line(rect.x, rect.y + y, &tui::text::Line::raw(line), rect.width);
 		}
 	}
+}
+
+enum ScrollError {
+	InvalidUtf,
+	NeedsPreContext,
 }
 
 impl Scroll {
@@ -1074,7 +1097,7 @@ impl Scroll {
 		forward: bool,                    // Advance forward if true, backward if false.
 		chunks: &[tg::build::log::Chunk], // The chunks to use as a corpus.
 		buffer: &mut Vec<u8>,             // The output buffer to write to.
-	) -> Option<bool> {
+	) -> std::result::Result<(), ScrollError> {
 		let (old_chunk, old_byte) = (self.chunk, self.byte);
 		loop {
 			// Handle boundary conditions.
@@ -1083,7 +1106,9 @@ impl Scroll {
 			}
 
 			// Get the current chunk and utf8 string at a current position.
-			let (utf8_str, chunk_start) = self.get_utf8_str(chunks)?;
+			let (utf8_str, chunk_start) =
+				self.get_utf8_str(chunks).ok_or(ScrollError::InvalidUtf)?;
+
 			let utf8: &str = utf8_str
 				.as_ref()
 				.map_left(|l| *l)
@@ -1142,7 +1167,7 @@ impl Scroll {
 					let first_codepoint = chunks[self.chunk].first_codepoint().unwrap();
 					if self.byte == first_codepoint {
 						if self.chunk == 0 {
-							return Some(false);
+							return Err(ScrollError::NeedsPreContext);
 						}
 						self.chunk -= 1;
 						self.byte = chunks[self.chunk].last_codepoint().unwrap();
@@ -1152,7 +1177,7 @@ impl Scroll {
 				},
 				Err(unicode_segmentation::GraphemeIncomplete::PreContext(end)) => {
 					let Some((string, start)) = self.get_pre_context(chunks, end) else {
-						return Some(false);
+						return Err(ScrollError::NeedsPreContext);
 					};
 					self.cursor.provide_context(string, start);
 				},
@@ -1185,7 +1210,7 @@ impl Scroll {
 			}
 			buffer.rotate_left(mid);
 		}
-		Some(true)
+		Ok(())
 	}
 
 	fn is_at_end(&self, chunks: &[tg::build::log::Chunk]) -> bool {
@@ -1213,7 +1238,7 @@ impl Scroll {
 			buffer.clear();
 			let mut width = 0;
 			let skip = loop {
-				if self.advance(true, chunks, &mut buffer).is_none() {
+				if self.advance(true, chunks, &mut buffer).is_err() {
 					return count;
 				}
 				width += 1;
@@ -1241,7 +1266,7 @@ impl Scroll {
 			buffer.clear();
 			let mut width = 0;
 			last_line_wrapped = loop {
-				if matches!(self.advance(false, chunks, &mut buffer), Some(false) | None) {
+				if self.advance(false, chunks, &mut buffer).is_err() {
 					return count;
 				}
 				if buffer.starts_with(b"\n") || buffer.starts_with(b"\r\n") {
@@ -1261,13 +1286,13 @@ impl Scroll {
 		// TODO: remove this allocation
 		if !last_line_wrapped {
 			let mut buffer = Vec::with_capacity(4);
-			self.advance(true, chunks, &mut buffer);
+			self.advance(true, chunks, &mut buffer).ok();
 		}
 
 		height
 	}
 
-	fn read_lines(&self, count: usize, chunks: &[tg::build::log::Chunk]) -> Vec<String> {
+	fn read_lines(&self, count: usize, chunks: &[tg::build::log::Chunk]) -> Option<Vec<String>> {
 		let mut scroll = self.clone();
 
 		let mut lines = Vec::with_capacity(count);
@@ -1284,23 +1309,29 @@ impl Scroll {
 			let mut width = 0;
 			buffer.clear();
 			let skip = loop {
-				if scroll.advance(true, chunks, &mut buffer).is_none() {
-					// Handle invalid utf8.
-					buffer.extend_from_slice("�".as_bytes());
-					if let Some(next_codepoint) = chunks[scroll.chunk].next_codepoint(scroll.byte) {
-						scroll.byte = next_codepoint;
-					} else {
-						scroll.byte += 1;
-						if scroll.byte == chunks[scroll.chunk].bytes.len()
-							&& scroll.chunk < chunks.len() - 1
+				match scroll.advance(true, chunks, &mut buffer) {
+					Ok(()) => (),
+					Err(ScrollError::NeedsPreContext) => return None,
+					Err(ScrollError::InvalidUtf) => {
+						// Handle invalid utf8.
+						buffer.extend_from_slice("�".as_bytes());
+						if let Some(next_codepoint) =
+							chunks[scroll.chunk].next_codepoint(scroll.byte)
 						{
-							scroll.chunk += 1;
+							scroll.byte = next_codepoint;
+						} else {
+							scroll.byte += 1;
+							if scroll.byte == chunks[scroll.chunk].bytes.len()
+								&& scroll.chunk < chunks.len() - 1
+							{
+								scroll.chunk += 1;
+							}
+							let pos =
+								chunks[scroll.chunk].position.to_usize().unwrap() + scroll.byte;
+							scroll.cursor.set_cursor(pos);
 						}
-						let pos = chunks[scroll.chunk].position.to_usize().unwrap() + scroll.byte;
-						scroll.cursor.set_cursor(pos);
-					}
+					},
 				}
-
 				// Check if we need to break out of the loop. If the last line width was equal to scroll.width and the buffer is just one newline, it means we can skip the line.
 				width += 1;
 				if buffer.ends_with(b"\r\n") {
@@ -1320,8 +1351,7 @@ impl Scroll {
 				n += 1;
 			}
 		}
-
-		lines
+		Some(lines)
 	}
 
 	// Get the UTF8-validated string that contains the current scroll position.
@@ -1490,7 +1520,7 @@ mod tests {
 		assert_eq!(scroll.chunk, 2);
 		assert_eq!(scroll.byte, 0);
 
-		let lines = scroll.read_lines(4, &chunks);
+		let lines = scroll.read_lines(4, &chunks).unwrap();
 		assert_eq!(lines.len(), 2);
 		assert_eq!(&lines[0], "33");
 		assert_eq!(&lines[1], "44");
@@ -1501,7 +1531,7 @@ mod tests {
 		assert_eq!(scroll.byte, 0);
 		assert_eq!(scroll.cursor.cur_cursor(), 0);
 
-		let lines = scroll.read_lines(5, &chunks);
+		let lines = scroll.read_lines(5, &chunks).unwrap();
 		assert_eq!(lines.len(), 5);
 		assert_eq!(&lines[0], "11");
 		assert_eq!(&lines[1], "");
@@ -1511,7 +1541,7 @@ mod tests {
 
 		// Scrolling down.
 		scroll.scroll_down(2, &chunks);
-		let lines = scroll.read_lines(5, &chunks);
+		let lines = scroll.read_lines(5, &chunks).unwrap();
 		assert_eq!(lines.len(), 3);
 		assert_eq!(&lines[0], "22");
 		assert_eq!(&lines[1], "33");
@@ -1625,7 +1655,7 @@ mod tests {
 		let byte = chunks.last().unwrap().bytes.len() - 1;
 		let mut scroll = Scroll::new(width, chunk, byte, &chunks);
 		scroll.scroll_up(height, &chunks);
-		let lines = scroll.read_lines(height, &chunks);
+		let lines = scroll.read_lines(height, &chunks).unwrap();
 		assert_eq!(lines.len(), chunks.len());
 	}
 
@@ -1658,7 +1688,7 @@ mod tests {
 		scroll.scroll_up(3, &chunks);
 		assert_eq!(scroll.chunk, 2);
 		assert_eq!(scroll.byte, 0);
-		let lines = scroll.read_lines(3, &chunks);
+		let lines = scroll.read_lines(3, &chunks).unwrap();
 		assert_eq!(&lines[0], "\"2\"");
 		assert_eq!(&lines[1], "\"3\"");
 	}
@@ -1760,5 +1790,40 @@ mod tests {
 		);
 		let height = 6;
 		inner.scroll_up(height + 2, &chunks);
+	}
+
+	#[test]
+	fn incomplete() {
+		let chunks = [
+			tg::build::log::Chunk {
+				position: 114,
+				bytes: b"\"doing stuff 6...\"\n".to_vec().into(),
+			},
+			tg::build::log::Chunk {
+				position: 133,
+				bytes: b"\"doing stuff 7...\"\n".to_vec().into(),
+			},
+			tg::build::log::Chunk {
+				position: 152,
+				bytes: b"\"doing stuff 8...\"\n".to_vec().into(),
+			},
+			tg::build::log::Chunk {
+				position: 171,
+				bytes: b"\"doing stuff 9...\"\n".to_vec().into(),
+			},
+			tg::build::log::Chunk {
+				position: 190,
+				bytes: b"\"doing stuff 10...\"\n".to_vec().into(),
+			},
+		];
+		let chunk = chunks.len() - 1;
+		let width = 80;
+		let height = 26;
+		let byte = chunks.last().unwrap().bytes.len();
+		let mut scroll = Scroll::new(width, chunk, byte, &chunks);
+		scroll.scroll_up(height + 1, &chunks);
+
+		let lines = scroll.read_lines(height, &chunks);
+		assert!(lines.is_none());
 	}
 }
