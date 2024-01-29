@@ -2,7 +2,7 @@ use crate::{database::Json, params, Server};
 use futures::{
 	future,
 	stream::{self, BoxStream},
-	FutureExt, StreamExt, TryStreamExt,
+	FutureExt, StreamExt, TryFutureExt, TryStreamExt,
 };
 use http_body_util::{BodyExt, StreamBody};
 use num::ToPrimitive;
@@ -75,8 +75,10 @@ impl Server {
 						}))
 					})
 					.try_next()
+					.map_ok(|option| option.is_some())
 					.await
 			}
+			.shared()
 		};
 		let timeout = arg.timeout.map_or_else(
 			|| future::pending().left_future(),
@@ -88,11 +90,12 @@ impl Server {
 		);
 		let events = stream::once(future::ready(()))
 			.chain(
-				children
-					.take_until(finished)
-					.chain(stream::once(future::ready(())))
-					.take_until(timeout)
-					.take_until(stop),
+				stream::select(
+					children.take_until(finished.clone()),
+					stream::once(finished.clone().map(|_| ())),
+				)
+				.take_until(timeout)
+				.take_until(stop),
 			)
 			.boxed();
 
@@ -118,11 +121,32 @@ impl Server {
 		let state = State { position, read: 0 };
 		let state = Arc::new(tokio::sync::Mutex::new(state));
 		let stream = stream::try_unfold(
-			(self.clone(), id.clone(), events, state),
-			move |(server, id, mut events, state)| async move {
+			(self.clone(), id.clone(), events, state, false),
+			move |(server, id, mut events, state, mut end)| async move {
+				if end {
+					return Ok(None);
+				}
+
 				let Some(()) = events.next().await else {
 					return Ok(None);
 				};
+
+				let status = server
+					.try_get_build_status_local(
+						&id,
+						tg::build::status::GetArg {
+							timeout: Some(std::time::Duration::ZERO),
+						},
+						None,
+					)
+					.await?
+					.wrap_err("Expected the build to exist.")?
+					.try_next()
+					.await?
+					.wrap_err("Expected the status to exist.")?;
+				if status == tg::build::Status::Finished {
+					end = true;
+				}
 
 				// Create the stream.
 				let stream = stream::try_unfold(
@@ -168,7 +192,7 @@ impl Server {
 					},
 				);
 
-				Ok::<_, Error>(Some((stream, (server, id, events, state))))
+				Ok::<_, Error>(Some((stream, (server, id, events, state, end))))
 			},
 		)
 		.try_flatten()

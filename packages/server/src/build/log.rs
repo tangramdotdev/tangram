@@ -147,11 +147,32 @@ impl Server {
 		let server = self.clone();
 		let id = id.clone();
 		let stream = stream::try_unfold(
-			(events, server, id, state),
-			move |(mut events, server, id, state)| async move {
+			(events, server, id, state, false),
+			move |(mut events, server, id, state, mut end)| async move {
+				if end {
+					return Ok(None);
+				}
+
 				let Some(()) = events.next().await else {
 					return Ok(None);
 				};
+
+				let status = server
+					.try_get_build_status_local(
+						&id,
+						tg::build::status::GetArg {
+							timeout: Some(std::time::Duration::ZERO),
+						},
+						None,
+					)
+					.await?
+					.wrap_err("Expected the build to exist.")?
+					.try_next()
+					.await?
+					.wrap_err("Expected the status to exist.")?;
+				if status == tg::build::Status::Finished {
+					end = true;
+				}
 
 				// Create the stream.
 				let stream = stream::try_unfold(
@@ -238,7 +259,7 @@ impl Server {
 					},
 				);
 
-				Ok::<_, Error>(Some((stream, (events, server, id, state))))
+				Ok::<_, Error>(Some((stream, (events, server, id, state, end))))
 			},
 		)
 		.try_flatten()

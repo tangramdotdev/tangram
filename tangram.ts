@@ -11,7 +11,7 @@ export default tg.target(async () => {
 
 export let f = tg.target(async () => {
 	console.log("starting");
-	for (let i = 0; i < 5; i++) {
+	for (let i = 0; i < 10; i++) {
 		await tg.sleep(1);
 		console.log(`print ${i + 1}`);
 	}
@@ -20,7 +20,7 @@ export let f = tg.target(async () => {
 
 export let g = tg.target(async () => {
 	console.log("starting");
-	for (let i = 0; i < 5; i++) {
+	for (let i = 0; i < 10; i++) {
 		await tg.sleep(1);
 		console.log(`print ${i + 1}`);
 	}
@@ -29,7 +29,7 @@ export let g = tg.target(async () => {
 
 export let h = tg.target(async () => {
 	console.log("starting");
-	for (let i = 0; i < 5; i++) {
+	for (let i = 0; i < 10; i++) {
 		await tg.sleep(1);
 		console.log(`print ${i + 1}`);
 	}

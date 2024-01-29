@@ -1,15 +1,10 @@
 use crate::{database::Json, params, Server};
 use async_recursion::async_recursion;
-use futures::{
-	future,
-	stream::{self, FuturesUnordered},
-	FutureExt, StreamExt, TryStreamExt,
-};
+use futures::{future, stream::FuturesUnordered, TryFutureExt, TryStreamExt};
 use http_body_util::BodyExt;
 use tangram_client as tg;
 use tangram_error::{error, Error, Result, WrapErr};
 use tangram_util::http::{empty, full, not_found, Incoming, Outgoing};
-use tokio_stream::wrappers::WatchStream;
 
 impl Server {
 	pub async fn try_get_build_outcome(
@@ -41,77 +36,54 @@ impl Server {
 			return Ok(None);
 		}
 
-		// Create the event stream.
-		let context = self.inner.build_context.read().unwrap().get(id).cloned();
-		let status = context
-			.as_ref()
-			.map_or_else(
-				|| stream::empty().boxed(),
-				|context| {
-					WatchStream::from_changes(context.status.as_ref().unwrap().subscribe()).boxed()
-				},
-			)
-			.chain(stream::pending());
-		let timeout = arg.timeout.map_or_else(
-			|| future::pending().left_future(),
-			|timeout| tokio::time::sleep(timeout).right_future(),
-		);
-		let stop = stop.map_or_else(
-			|| future::pending().left_future(),
-			|mut stop| async move { stop.wait_for(|stop| *stop).map(|_| ()).await }.right_future(),
-		);
-		let events = stream::once(future::ready(()))
-			.chain(status.take_until(timeout).take_until(stop))
-			.boxed();
-
-		// Create the stream.
-		let server = self.clone();
-		let id = id.clone();
-		let mut stream = stream::try_unfold(
-			(server, id, events),
-			move |(server, id, mut stream)| async move {
-				let Some(()) = stream.next().await else {
-					return Ok(None);
-				};
-				let outcome = server.try_get_build_outcome_local_inner(&id).await?;
-				Ok::<_, Error>(Some((outcome, (server, id, stream))))
-			},
-		)
-		.try_filter_map(|outcome| future::ready(Ok(outcome)))
-		.boxed();
+		// Wait for the build to finish.
+		let arg = tg::build::status::GetArg {
+			timeout: arg.timeout,
+		};
+		let finished = self
+			.try_get_build_status_local(id, arg, stop)
+			.await?
+			.wrap_err("Expected the build to exist.")?
+			.try_filter_map(|status| {
+				future::ready(Ok(if status == tg::build::Status::Finished {
+					Some(())
+				} else {
+					None
+				}))
+			})
+			.try_next()
+			.map_ok(|option| option.is_some())
+			.await?;
+		if !finished {
+			return Ok(Some(None));
+		}
 
 		// Get the outcome.
-		let outcome = stream.try_next().await?;
+		let outcome = {
+			let db = self.inner.database.get().await?;
+			let statement = "
+				select state->'outcome' as outcome
+				from builds
+				where id = ?1;
+			";
+			let params = params![id.to_string()];
+			let mut statement = db
+				.prepare_cached(statement)
+				.wrap_err("Failed to prepare the query.")?;
+			let mut rows = statement
+				.query(params)
+				.wrap_err("Failed to execute the query.")?;
+			let row = rows
+				.next()
+				.wrap_err("Failed to get the row.")?
+				.wrap_err("Expected a row.")?;
+			row.get::<_, Json<Option<tg::build::Outcome>>>(0)
+				.wrap_err("Failed to deserialize the column.")?
+				.0
+				.wrap_err("Expected the outcome to be set.")?
+		};
 
-		Ok(Some(outcome))
-	}
-
-	async fn try_get_build_outcome_local_inner(
-		&self,
-		id: &tg::build::Id,
-	) -> Result<Option<tg::build::Outcome>> {
-		let db = self.inner.database.get().await?;
-		let statement = "
-			select state->'outcome' as outcome
-			from builds
-			where id = ?1;
-		";
-		let params = params![id.to_string()];
-		let mut statement = db
-			.prepare_cached(statement)
-			.wrap_err("Failed to prepare the query.")?;
-		let mut rows = statement
-			.query(params)
-			.wrap_err("Failed to execute the query.")?;
-		let row = rows
-			.next()
-			.wrap_err("Failed to get the row.")?
-			.wrap_err("Expected a row.")?;
-		let outcome = row
-			.get::<_, Json<Option<tg::build::Outcome>>>(0)
-			.wrap_err("Failed to deserialize the column.")?
-			.0;
-		Ok(outcome)
+		Ok(Some(Some(outcome)))
 	}
 
 	async fn try_get_build_outcome_remote(

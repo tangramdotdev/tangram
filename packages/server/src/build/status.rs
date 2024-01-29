@@ -67,18 +67,24 @@ impl Server {
 			.chain(status.take_until(timeout).take_until(stop))
 			.boxed();
 
-		// Create the output.
+		// Create the stream.
 		let server = self.clone();
 		let id = id.clone();
 		let mut previous = None;
 		let stream = stream::try_unfold(
-			(server, id, events),
-			move |(server, id, mut events)| async move {
+			(server, id, events, false),
+			move |(server, id, mut events, mut end)| async move {
+				if end {
+					return Ok(None);
+				}
 				let Some(()) = events.next().await else {
 					return Ok(None);
 				};
 				let status = server.try_get_build_status_local_inner(&id).await?;
-				Ok::<_, Error>(Some((status, (server, id, events))))
+				if status == tg::build::Status::Finished {
+					end = true;
+				}
+				Ok::<_, Error>(Some((status, (server, id, events, end))))
 			},
 		)
 		.try_filter(move |status| {
