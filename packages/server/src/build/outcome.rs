@@ -224,7 +224,7 @@ impl Server {
 					state,
 					'$.status', ?1,
 					'$.outcome', json(?2),
-					'$.log', json(?3)
+					'$.log', ?3
 				)
 				where id = ?4;
 			";
