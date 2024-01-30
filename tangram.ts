@@ -35,3 +35,13 @@ export let h = tg.target(async () => {
 	}
 	return "Hello, World!";
 });
+
+export let logLoop = tg.target(async () => {
+	let n = 0;
+	while (true) {
+		console.log(`doing stuff ${n}...`);
+		n++;
+		await tg.sleep(1);
+	}
+	return n;
+});

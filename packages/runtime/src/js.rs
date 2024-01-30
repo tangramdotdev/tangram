@@ -10,7 +10,7 @@ use std::{
 	task::Poll,
 };
 use tangram_client as tg;
-use tangram_error::{error, Error, Result, WrapErr};
+use tangram_error::{error, Result, WrapErr};
 
 mod convert;
 mod error;
@@ -144,9 +144,8 @@ async fn build_inner(
 		let tg = tg.clone_box();
 		async move {
 			while let Some(string) = log_receiver.recv().await {
-				build.add_log(tg.as_ref(), string.into()).await?;
+				build.add_log(tg.as_ref(), string.into()).await.ok();
 			}
-			Ok::<_, Error>(())
 		}
 	});
 
@@ -298,10 +297,7 @@ async fn build_inner(
 
 	// Wait for the log task to complete.
 	state.log_sender.borrow_mut().take();
-	log_task
-		.await
-		.wrap_err("Failed to join the log task.")?
-		.wrap_err("The log task failed.")?;
+	log_task.await.wrap_err("Failed to join the log task.")?;
 
 	Ok(value)
 }
