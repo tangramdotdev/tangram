@@ -211,6 +211,7 @@ impl Server {
 
 		// Create a blob from the log.
 		let log = tg::Blob::with_reader(self, log::Reader::new(self, id).await?).await?;
+		let log = log.id(self).await?;
 
 		// Update the state.
 		{
