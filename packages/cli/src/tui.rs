@@ -84,6 +84,9 @@ struct LogInner {
 	// A buffer of log chunks.
 	chunks: tokio::sync::Mutex<Vec<tg::build::log::Chunk>>,
 
+	// Whether we've reached eof or not.
+	eof: std::sync::atomic::AtomicBool,
+
 	// Channel used to send UI events.
 	event_sender: tokio::sync::mpsc::UnboundedSender<LogEvent>,
 
@@ -91,10 +94,13 @@ struct LogInner {
 	lines: std::sync::Mutex<Vec<String>>,
 
 	// The log streaming task.
-	log_task: std::sync::Mutex<Option<tokio::task::JoinHandle<()>>>,
+	log_task: std::sync::Mutex<Option<tokio::task::JoinHandle<Result<()>>>>,
+
+	// A watch to be notified when new logs are received from the log task.
+	log_watch: tokio::sync::Mutex<Option<tokio::sync::watch::Receiver<()>>>,
 
 	// The event handler task.
-	event_task: std::sync::Mutex<Option<tokio::task::JoinHandle<()>>>,
+	event_task: std::sync::Mutex<Option<tokio::task::JoinHandle<Result<()>>>>,
 
 	// The bounding box of the log view.
 	rect: tokio::sync::watch::Sender<Rect>,
@@ -782,10 +788,12 @@ impl Log {
 			inner: Arc::new(LogInner {
 				build,
 				chunks,
+				eof: std::sync::atomic::AtomicBool::new(false),
 				event_sender,
 				event_task: std::sync::Mutex::new(None),
 				lines,
 				log_task: std::sync::Mutex::new(None),
+				log_watch: tokio::sync::Mutex::new(None),
 				rect,
 				scroll: tokio::sync::Mutex::new(None),
 				tg,
@@ -796,8 +804,17 @@ impl Log {
 		let event_task = tokio::task::spawn({
 			let log = log.clone();
 			async move {
-				log.update_log_stream(None).await.unwrap();
+				log.update_log_stream(false).await?;
+				log.update_log_stream(true).await?;
 				loop {
+					let log_receiver = log.inner.log_watch.lock().await.clone();
+					let log_receiver = async move {
+						if let Some(mut log_receiver) = log_receiver {
+							log_receiver.changed().await.ok()
+						} else {
+							std::future::pending().await
+						}
+					};
 					tokio::select! {
 						event = event_receiver.recv() => match event.unwrap() {
 							LogEvent::ScrollDown => {
@@ -807,6 +824,7 @@ impl Log {
 								log.up_impl().await.ok();
 							}
 						},
+						_ = log_receiver => (),
 						_ = rect_receiver.changed() => {
 							let mut scroll = log.inner.scroll.lock().await;
 							if let Some(scroll) = scroll.as_mut() {
@@ -815,7 +833,7 @@ impl Log {
 							}
 						},
 					}
-					log.update_lines().await;
+					log.update_lines().await?;
 				}
 			}
 		});
@@ -823,75 +841,115 @@ impl Log {
 		log
 	}
 
+	fn is_complete(&self) -> bool {
+		self.inner.eof.load(std::sync::atomic::Ordering::SeqCst)
+	}
+
 	// Handle a scroll up event.
 	async fn up_impl(&self) -> Result<()> {
-		let mut scroll = self.inner.scroll.lock().await;
-		let rect = self.rect();
-		let height = rect.height.to_usize().unwrap();
-		let width = rect.width.to_usize().unwrap();
-
-		let Some(scroll) = scroll.as_mut() else {
+		let height = if self.inner.scroll.lock().await.is_none() {
 			let chunks = self.inner.chunks.lock().await;
 			if chunks.is_empty() {
 				return Ok(());
 			}
-			let mut inner = Scroll::new(
+			let rect = self.rect();
+			let width = rect.width.to_usize().unwrap();
+
+			let inner = Scroll::new(
 				width,
 				chunks.len() - 1,
 				chunks.last().unwrap().bytes.len(),
 				&chunks,
 			);
-			inner.scroll_up(height + 2, &chunks);
-			scroll.replace(inner);
-			return Ok(());
+			self.inner.scroll.lock().await.replace(inner);
+			rect.height.to_usize().unwrap() + 3 // height + 1 + 2
+		} else {
+			2
 		};
 
-		// Attempt to scroll up by one, and pull in new data if necessary.
-		let chunks = self.inner.chunks.lock().await;
-		if scroll.scroll_up(2, &chunks) == 0 {
-			let position = chunks.first().unwrap().position;
-			if position == 0 {
-				return Ok(());
-			}
-			drop(chunks);
-
-			// Update the chunks.
-			let area = self.rect().area().to_u64().unwrap();
-			self.update_log_stream(Some(3 * area / 2)).await?;
-
-			// Scroll up.
+		loop {
 			let chunks = self.inner.chunks.lock().await;
-			scroll.scroll_up(2, &chunks);
+			let mut scroll = self.inner.scroll.lock().await;
+			match scroll.as_mut().unwrap().scroll_up(height, &chunks) {
+				Ok(_) => {
+					break;
+				},
+				Err(ScrollError::PrependChunks) => {
+					drop(scroll);
+					drop(chunks);
+					self.update_log_stream(false).await?;
+				},
+				Err(ScrollError::AppendChunks) => {
+					drop(scroll);
+					drop(chunks);
+					self.update_log_stream(true).await?;
+				},
+				Err(ScrollError::InvalidUtf) => {},
+			}
 		}
-
 		Ok(())
 	}
 
 	// Handle a scroll down event.
 	async fn down_impl(&self) -> Result<()> {
-		let mut scroll = self.inner.scroll.lock().await;
-		let chunks = self.inner.chunks.lock().await;
 		let height = self.rect().height.to_usize().unwrap();
-		let is_tailing = scroll.as_mut().map_or(true, |scroll| {
-			scroll.scroll_down(1, &chunks);
-			scroll.clone().scroll_down(height, &chunks) < height
-		});
-		drop(chunks);
-		if is_tailing {
-			scroll.take();
-			self.update_log_stream(None).await?;
+		loop {
+			let Some(mut scroll) = self.inner.scroll.lock().await.clone() else {
+				break;
+			};
+
+			let chunks = self.inner.chunks.lock().await;
+
+			// Attempt to scroll down by `height + 1` many lines non-destructively.
+			match scroll.scroll_down(height + 1, &chunks) {
+				// If we weren't able to scroll down all the way and we're at eof, there's no work to do.
+				Ok(count) if count < height && self.is_complete() => {
+					break;
+				},
+
+				// If we weren't able to scroll down all the way we need to start tailing.
+				Ok(count) if count < height => {
+					drop(chunks);
+					self.update_log_stream(true).await?;
+					self.inner.scroll.lock().await.take();
+				},
+
+				// Otherwise destructively scroll down by 1 line.
+				Ok(_) => {
+					self.inner
+						.scroll
+						.lock()
+						.await
+						.as_mut()
+						.unwrap()
+						.scroll_down(1, &chunks)
+						.unwrap();
+					break;
+				},
+				Err(ScrollError::PrependChunks) => {
+					drop(chunks);
+					self.update_log_stream(false).await?;
+				},
+				Err(ScrollError::AppendChunks) => {
+					drop(chunks);
+					self.update_log_stream(true).await?;
+					self.inner.scroll.lock().await.take();
+				},
+				Err(ScrollError::InvalidUtf) => {},
+			}
 		}
+
 		Ok(())
 	}
 
 	// Update the rendered lines.
-	async fn update_lines(&self) {
+	async fn update_lines(&self) -> Result<()> {
 		loop {
 			let scroll = self.inner.scroll.lock().await.clone();
 			let chunks = self.inner.chunks.lock().await;
 			if chunks.is_empty() {
 				self.inner.lines.lock().unwrap().clear();
-				return;
+				return Ok(());
 			}
 
 			// Get enough lines to fill the rectangle
@@ -902,38 +960,57 @@ impl Log {
 				let chunk = chunks.len() - 1;
 				let byte = chunks.last().unwrap().bytes.len();
 				let mut scroll = Scroll::new(width, chunk, byte, &chunks);
-				scroll.scroll_up(height + 1, &chunks);
+				scroll.scroll_up(height + 1, &chunks).unwrap();
 				scroll
 			});
 
 			// Update the list of lines and break out if successful.
-			if let Some(lines) = scroll.read_lines(height + 1, &chunks) {
-				*self.inner.lines.lock().unwrap() = lines;
-				break;
+			match scroll.read_lines(height + 1, &chunks) {
+				Ok(lines) => {
+					*self.inner.lines.lock().unwrap() = lines;
+					break;
+				},
+				Err(ScrollError::PrependChunks) => {
+					drop(chunks);
+					self.update_log_stream(false).await?;
+				},
+				Err(ScrollError::AppendChunks) => {
+					drop(chunks);
+					self.update_log_stream(true).await?;
+				},
+				Err(ScrollError::InvalidUtf) => (),
 			}
-
-			// Otherwise update the log and loop back around.
-			drop(chunks);
-			self.prepend_to_log(3 * rect.area().to_u64().unwrap() / 2)
-				.await
-				.ok();
 		}
+
+		Ok(())
 	}
 
-	// Add `length` num bytes to the front of the log without resetting the log stream.
-	async fn prepend_to_log(&self, length: u64) -> Result<()> {
-		let position = self
-			.inner
-			.chunks
-			.lock()
-			.await
-			.first()
-			.map(|chunk| chunk.position);
-		let length = position.map_or(-length.to_i64().unwrap(), |position| {
-			length.min(position).to_i64().unwrap()
-		});
-		let length = Some(-length);
-		let stream = self
+	// Update the log stream. If prepend is Some, the tailing stream is destroyed and bytes are appended to the the front.
+	async fn update_log_stream(&self, append: bool) -> Result<()> {
+		// If we're appending and the task already exists, just wait for more data to be available.
+		if append && self.inner.log_watch.lock().await.is_some() {
+			let mut watch = self.inner.log_watch.lock().await.clone().unwrap();
+			watch.changed().await.ok();
+			return Ok(());
+		}
+
+		// Compute position and length.
+		let area = self.rect().area().to_i64().unwrap();
+		let mut chunks = self.inner.chunks.lock().await;
+		let (position, length) = if append {
+			let position = chunks
+				.last()
+				.map(|chunk| chunk.position + chunk.bytes.len().to_u64().unwrap());
+			let length = Some(3 * area / 2);
+			(position, length)
+		} else {
+			let position = chunks.first().map(|chunk| chunk.position);
+			let length = Some(-3 * area / 2);
+			(position, length)
+		};
+
+		// Create the stream.
+		let mut stream = self
 			.inner
 			.build
 			.log(
@@ -946,94 +1023,43 @@ impl Log {
 			)
 			.await?;
 
-		// Prepend the received chunks to the log.
-		let new_chunks = stream.try_collect::<Vec<_>>().await?;
-		let mut old_chunks = self.inner.chunks.lock().await;
-		let mid = old_chunks.len();
-		old_chunks.extend_from_slice(&new_chunks);
-		old_chunks.rotate_left(mid);
-
-		// Update the scroll.
-		let mut scroll = self.inner.scroll.lock().await;
-		if let Some(scroll) = scroll.as_mut() {
-			let position = old_chunks.first().unwrap().position;
-			let scroll_pos = position + scroll.byte.to_u64().unwrap();
-			let chunk = old_chunks
-				.iter()
-				.position(|e| {
-					e.position <= scroll_pos
-						&& (e.position + e.bytes.len().to_u64().unwrap()) >= scroll_pos
-				})
-				.unwrap();
-			let byte = (scroll_pos - old_chunks[chunk].position)
-				.to_usize()
-				.unwrap();
-			scroll.chunk = chunk;
-			scroll.byte = byte;
-		}
-		Ok(())
-	}
-
-	// Update the log stream. If prepend is Some, the tailing stream is destroyed and bytes are appended to the the front.
-	async fn update_log_stream(&self, prepend: Option<u64>) -> Result<()> {
-		// Check if this log stream has reached eof.
-		let is_stream_ended = self
-			.inner
-			.chunks
-			.lock()
-			.await
-			.last()
-			.is_some_and(|chunk| chunk.bytes.is_empty());
-
-		// If the caller requested additional chunks at the head, create a stream and immediately drain it.
-		if let Some(additional_in_front) = prepend {
-			// Abort the task if necessary.
+		// Spawn the log task if necessary.
+		if append && chunks.last().map_or(true, |chunk| !chunk.bytes.is_empty()) {
+			drop(chunks);
+			let log = self.clone();
+			let (tx, rx) = tokio::sync::watch::channel(());
+			let task = tokio::spawn(async move {
+				while let Some(chunk) = stream.try_next().await? {
+					let mut chunks = log.inner.chunks.lock().await;
+					if chunk.bytes.is_empty() {
+						log.inner
+							.eof
+							.store(true, std::sync::atomic::Ordering::SeqCst);
+						break;
+					}
+					chunks.push(chunk);
+					drop(chunks);
+					tx.send(()).ok();
+				}
+				log.inner.log_watch.lock().await.take();
+				Ok::<_, tangram_error::Error>(())
+			});
+			self.inner.log_task.lock().unwrap().replace(task);
+			self.inner.log_watch.lock().await.replace(rx);
+		} else {
 			if let Some(task) = self.inner.log_task.lock().unwrap().take() {
 				task.abort();
 			}
-			self.prepend_to_log(additional_in_front).await?;
-		} else if !is_stream_ended {
-			// The caller requested us to start tailing. Check if there is an existing task running and bail if it exists.
-			if self.inner.log_task.lock().unwrap().is_some() {
-				return Ok(());
+
+			// Drain the stream and prepend the chunks.
+			let new_chunks = stream.try_collect::<Vec<_>>().await?;
+			let mid = chunks.len();
+			chunks.extend_from_slice(&new_chunks);
+			chunks.rotate_left(mid);
+			let mut scroll = self.inner.scroll.lock().await;
+			if let Some(scroll) = scroll.as_mut() {
+				scroll.chunk += mid;
 			}
-
-			// Create a new stream.
-			let position = self
-				.inner
-				.chunks
-				.lock()
-				.await
-				.last()
-				.map(|chunk| chunk.position);
-			let mut stream = self
-				.inner
-				.build
-				.log(
-					self.inner.tg.as_ref(),
-					tg::build::log::GetArg {
-						position,
-						..Default::default()
-					},
-				)
-				.await?;
-
-			// Spawn a task to append new chunks from the stream.
-			let log = self.clone();
-			let log_task = tokio::task::spawn(async move {
-				while let Some(chunk) = stream.next().await {
-					let Ok(chunk) = chunk else {
-						break;
-					};
-					let end = chunk.bytes.is_empty();
-					log.inner.chunks.lock().await.push(chunk);
-					log.update_lines().await;
-					if end {
-						break;
-					}
-				}
-			});
-			self.inner.log_task.lock().unwrap().replace(log_task);
 		}
 		Ok(())
 	}
@@ -1067,9 +1093,11 @@ impl Log {
 	}
 }
 
+#[derive(Debug)]
 enum ScrollError {
 	InvalidUtf,
-	NeedsPreContext,
+	PrependChunks,
+	AppendChunks,
 }
 
 impl Scroll {
@@ -1154,6 +1182,9 @@ impl Scroll {
 					debug_assert!(forward);
 					let last_codepoint = chunks[self.chunk].last_codepoint().unwrap();
 					if self.byte == last_codepoint {
+						if self.chunk == chunks.len() - 1 {
+							return Err(ScrollError::AppendChunks);
+						}
 						self.chunk += 1;
 						self.byte = chunks[self.chunk].first_codepoint().unwrap();
 					} else {
@@ -1165,7 +1196,7 @@ impl Scroll {
 					let first_codepoint = chunks[self.chunk].first_codepoint().unwrap();
 					if self.byte == first_codepoint {
 						if self.chunk == 0 {
-							return Err(ScrollError::NeedsPreContext);
+							return Err(ScrollError::PrependChunks);
 						}
 						self.chunk -= 1;
 						self.byte = chunks[self.chunk].last_codepoint().unwrap();
@@ -1175,7 +1206,7 @@ impl Scroll {
 				},
 				Err(unicode_segmentation::GraphemeIncomplete::PreContext(end)) => {
 					let Some((string, start)) = self.get_pre_context(chunks, end) else {
-						return Err(ScrollError::NeedsPreContext);
+						return Err(ScrollError::PrependChunks);
 					};
 					self.cursor.provide_context(string, start);
 				},
@@ -1221,7 +1252,11 @@ impl Scroll {
 	}
 
 	/// Scroll down by `height` num lines, wrapping on grapheme clusters, and return the number of lines that were scrolled.
-	fn scroll_down(&mut self, height: usize, chunks: &[tg::build::log::Chunk]) -> usize {
+	fn scroll_down(
+		&mut self,
+		height: usize,
+		chunks: &[tg::build::log::Chunk],
+	) -> std::result::Result<usize, ScrollError> {
 		let mut buffer = Vec::with_capacity(3 * self.width / 2);
 
 		// Advance the cursor by `height` number of lines, accounting for word wrap.
@@ -1229,16 +1264,14 @@ impl Scroll {
 		let mut last_width = 0;
 		while count < height {
 			if self.is_at_end(chunks) {
-				return count;
+				return Ok(count);
 			}
 
 			// Advance the cursor by width, or until we hit a newline.
 			buffer.clear();
 			let mut width = 0;
 			let skip = loop {
-				if self.advance(true, chunks, &mut buffer).is_err() {
-					return count;
-				}
+				self.advance(true, chunks, &mut buffer)?;
 				width += 1;
 				if buffer.ends_with(b"\n") {
 					break last_width == self.width && width == 1;
@@ -1253,20 +1286,22 @@ impl Scroll {
 				count += 1;
 			}
 		}
-		height
+		Ok(height)
 	}
 
 	/// Scroll up by height num lines, wrapping on grapheme clusters, returning the number of lines scrolled.
-	fn scroll_up(&mut self, height: usize, chunks: &[tg::build::log::Chunk]) -> usize {
+	fn scroll_up(
+		&mut self,
+		height: usize,
+		chunks: &[tg::build::log::Chunk],
+	) -> std::result::Result<usize, ScrollError> {
 		let mut buffer = Vec::with_capacity(3 * self.width / 2);
 		let mut last_line_wrapped = false;
 		for count in 0..height {
 			buffer.clear();
 			let mut width = 0;
 			last_line_wrapped = loop {
-				if self.advance(false, chunks, &mut buffer).is_err() {
-					return count;
-				}
+				self.advance(false, chunks, &mut buffer)?;
 				if buffer.starts_with(b"\n") || buffer.starts_with(b"\r\n") {
 					break false;
 				}
@@ -1276,7 +1311,7 @@ impl Scroll {
 				}
 			};
 			if self.is_at_start(chunks) {
-				return count;
+				return Ok(count);
 			}
 		}
 
@@ -1287,10 +1322,14 @@ impl Scroll {
 			self.advance(true, chunks, &mut buffer).ok();
 		}
 
-		height
+		Ok(height)
 	}
 
-	fn read_lines(&self, count: usize, chunks: &[tg::build::log::Chunk]) -> Option<Vec<String>> {
+	fn read_lines(
+		&self,
+		count: usize,
+		chunks: &[tg::build::log::Chunk],
+	) -> std::result::Result<Vec<String>, ScrollError> {
 		let mut scroll = self.clone();
 
 		let mut lines = Vec::with_capacity(count);
@@ -1309,7 +1348,6 @@ impl Scroll {
 			let skip = loop {
 				match scroll.advance(true, chunks, &mut buffer) {
 					Ok(()) => (),
-					Err(ScrollError::NeedsPreContext) => return None,
 					Err(ScrollError::InvalidUtf) => {
 						// Handle invalid utf8.
 						buffer.extend_from_slice("�".as_bytes());
@@ -1329,6 +1367,7 @@ impl Scroll {
 							scroll.cursor.set_cursor(pos);
 						}
 					},
+					Err(e) => return Err(e),
 				}
 				// Check if we need to break out of the loop. If the last line width was equal to scroll.width and the buffer is just one newline, it means we can skip the line.
 				width += 1;
@@ -1349,7 +1388,7 @@ impl Scroll {
 				n += 1;
 			}
 		}
-		Some(lines)
+		Ok(lines)
 	}
 
 	// Get the UTF8-validated string that contains the current scroll position.
@@ -1357,15 +1396,16 @@ impl Scroll {
 		&self,
 		chunks: &'a [tg::build::log::Chunk], // The chunks to use as a corpus.
 	) -> Option<(Either<&'a str, String>, usize)> {
-		let first_codepoint = chunks[self.chunk].first_codepoint()?;
-		let last_codepoint = chunks[self.chunk].last_codepoint()?;
-
 		// Special case: we're reading past the end of the buffer.
 		if self.is_at_end(chunks) {
 			let chunk = chunks.last().unwrap();
 			let chunk_start = chunk.position.to_usize().unwrap() + chunk.bytes.len();
-			Some((Either::Left(""), chunk_start))
-		} else if self.byte == last_codepoint {
+			return Some((Either::Left(""), chunk_start));
+		}
+
+		let first_codepoint = chunks[self.chunk].first_codepoint()?;
+		let last_codepoint = chunks[self.chunk].last_codepoint()?;
+		if self.byte == last_codepoint {
 			let first_byte = chunks[self.chunk].bytes[self.byte];
 			let mut buf = Vec::with_capacity(4);
 			let num_bytes = if 0b1111_0000 & first_byte == 0b1111_0000 {
@@ -1514,7 +1554,7 @@ mod tests {
 		);
 
 		// Word wrap.
-		scroll.scroll_up(2, &chunks);
+		scroll.scroll_up(2, &chunks).unwrap();
 		assert_eq!(scroll.chunk, 2);
 		assert_eq!(scroll.byte, 0);
 
@@ -1524,7 +1564,7 @@ mod tests {
 		assert_eq!(&lines[1], "44");
 
 		// Empty lines.
-		scroll.scroll_up(5, &chunks);
+		scroll.scroll_up(5, &chunks).unwrap();
 		assert_eq!(scroll.chunk, 0);
 		assert_eq!(scroll.byte, 0);
 		assert_eq!(scroll.cursor.cur_cursor(), 0);
@@ -1538,7 +1578,7 @@ mod tests {
 		assert_eq!(&lines[4], "44");
 
 		// Scrolling down.
-		scroll.scroll_down(2, &chunks);
+		scroll.scroll_down(2, &chunks).unwrap();
 		let lines = scroll.read_lines(5, &chunks).unwrap();
 		assert_eq!(lines.len(), 3);
 		assert_eq!(&lines[0], "22");
@@ -1652,7 +1692,7 @@ mod tests {
 		let chunk = chunks.len() - 1;
 		let byte = chunks.last().unwrap().bytes.len() - 1;
 		let mut scroll = Scroll::new(width, chunk, byte, &chunks);
-		scroll.scroll_up(height, &chunks);
+		scroll.scroll_up(height, &chunks).unwrap();
 		let lines = scroll.read_lines(height, &chunks).unwrap();
 		assert_eq!(lines.len(), chunks.len());
 	}
@@ -1683,7 +1723,7 @@ mod tests {
 			chunks.last().unwrap().bytes.len(),
 			&chunks,
 		);
-		scroll.scroll_up(3, &chunks);
+		scroll.scroll_up(3, &chunks).unwrap();
 		assert_eq!(scroll.chunk, 2);
 		assert_eq!(scroll.byte, 0);
 		let lines = scroll.read_lines(3, &chunks).unwrap();
@@ -1787,7 +1827,7 @@ mod tests {
 			&chunks,
 		);
 		let height = 6;
-		inner.scroll_up(height + 2, &chunks);
+		inner.scroll_up(height + 2, &chunks).ok();
 	}
 
 	#[test]
@@ -1819,9 +1859,9 @@ mod tests {
 		let height = 26;
 		let byte = chunks.last().unwrap().bytes.len();
 		let mut scroll = Scroll::new(width, chunk, byte, &chunks);
-		scroll.scroll_up(height + 1, &chunks);
+		scroll.scroll_up(height + 1, &chunks).ok();
 
 		let lines = scroll.read_lines(height, &chunks);
-		assert!(lines.is_none());
+		assert!(lines.is_err());
 	}
 }

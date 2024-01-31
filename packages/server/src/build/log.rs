@@ -148,9 +148,13 @@ impl Server {
 					return Ok(None);
 				}
 
-				let read = state.lock().await.read;
-				if length.is_some_and(|length| read >= length.abs().to_u64().unwrap()) {
-					return Ok(None);
+				if let Some(length) = length {
+					let state = state.lock().await;
+					if (state.read >= length.abs().to_u64().unwrap())
+						|| (state.reader.position() == 0 && length < 0)
+					{
+						return Ok(None);
+					}
 				}
 
 				let Some(()) = events.next().await else {
@@ -248,10 +252,10 @@ impl Server {
 								drop(state_);
 								return Ok::<_, Error>(Some((chunk, (server, id, state, true))));
 							}
+							
 							drop(state_);
 							return Ok(None);
 						}
-
 						drop(state_);
 						Ok::<_, Error>(Some((chunk, (server, id, state, end))))
 					},
