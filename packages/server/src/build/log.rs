@@ -252,6 +252,7 @@ impl Server {
 								drop(state_);
 								return Ok::<_, Error>(Some((chunk, (server, id, state, true))));
 							}
+							
 							drop(state_);
 							return Ok(None);
 						}
