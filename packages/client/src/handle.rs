@@ -57,9 +57,10 @@ pub trait Handle: Send + Sync + 'static {
 		&self,
 		id: &tg::build::Id,
 		arg: tg::build::status::GetArg,
+		stop: Option<tokio::sync::watch::Receiver<bool>>,
 	) -> Result<BoxStream<'static, Result<tg::build::Status>>> {
 		Ok(self
-			.try_get_build_status(id, arg)
+			.try_get_build_status(id, arg, stop)
 			.await?
 			.wrap_err("Failed to get the build.")?)
 	}
@@ -68,6 +69,7 @@ pub trait Handle: Send + Sync + 'static {
 		&self,
 		id: &tg::build::Id,
 		arg: tg::build::status::GetArg,
+		stop: Option<tokio::sync::watch::Receiver<bool>>,
 	) -> Result<Option<BoxStream<'static, Result<tg::build::Status>>>>;
 
 	async fn set_build_status(
@@ -81,9 +83,10 @@ pub trait Handle: Send + Sync + 'static {
 		&self,
 		id: &tg::build::Id,
 		arg: tg::build::children::GetArg,
+		stop: Option<tokio::sync::watch::Receiver<bool>>,
 	) -> Result<BoxStream<'static, Result<tg::build::children::Chunk>>> {
 		Ok(self
-			.try_get_build_children(id, arg)
+			.try_get_build_children(id, arg, stop)
 			.await?
 			.wrap_err("Failed to get the build.")?)
 	}
@@ -92,6 +95,7 @@ pub trait Handle: Send + Sync + 'static {
 		&self,
 		id: &tg::build::Id,
 		arg: tg::build::children::GetArg,
+		stop: Option<tokio::sync::watch::Receiver<bool>>,
 	) -> Result<Option<BoxStream<'static, Result<tg::build::children::Chunk>>>>;
 
 	async fn add_build_child(
@@ -105,9 +109,10 @@ pub trait Handle: Send + Sync + 'static {
 		&self,
 		id: &tg::build::Id,
 		arg: tg::build::log::GetArg,
+		stop: Option<tokio::sync::watch::Receiver<bool>>,
 	) -> Result<BoxStream<'static, Result<tg::build::log::Chunk>>> {
 		Ok(self
-			.try_get_build_log(id, arg)
+			.try_get_build_log(id, arg, stop)
 			.await?
 			.wrap_err("Failed to get the build.")?)
 	}
@@ -116,6 +121,7 @@ pub trait Handle: Send + Sync + 'static {
 		&self,
 		id: &tg::build::Id,
 		arg: tg::build::log::GetArg,
+		stop: Option<tokio::sync::watch::Receiver<bool>>,
 	) -> Result<Option<BoxStream<'static, Result<tg::build::log::Chunk>>>>;
 
 	async fn add_build_log(
@@ -129,9 +135,10 @@ pub trait Handle: Send + Sync + 'static {
 		&self,
 		id: &tg::build::Id,
 		arg: tg::build::outcome::GetArg,
+		stop: Option<tokio::sync::watch::Receiver<bool>>,
 	) -> Result<Option<tg::build::Outcome>> {
 		Ok(self
-			.try_get_build_outcome(id, arg)
+			.try_get_build_outcome(id, arg, stop)
 			.await?
 			.wrap_err("Failed to get the build.")?)
 	}
@@ -140,6 +147,7 @@ pub trait Handle: Send + Sync + 'static {
 		&self,
 		id: &tg::build::Id,
 		arg: tg::build::outcome::GetArg,
+		stop: Option<tokio::sync::watch::Receiver<bool>>,
 	) -> Result<Option<Option<tg::build::Outcome>>>;
 
 	async fn set_build_outcome(

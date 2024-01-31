@@ -1,16 +1,12 @@
 use crate as tg;
 use crate::Client;
 use http_body_util::BodyExt;
-use itertools::Itertools;
 use tangram_error::{error, Result, WrapErr};
 use tangram_util::http::full;
 
 #[derive(Clone, Debug, Default, serde::Deserialize, serde::Serialize)]
 pub struct DequeueArg {
-	#[serde(
-		deserialize_with = "deserialize_dequeue_arg_hosts",
-		serialize_with = "serialize_dequeue_arg_hosts"
-	)]
+	#[serde(default)]
 	pub hosts: Option<Vec<tg::System>>,
 }
 
@@ -58,55 +54,4 @@ impl Client {
 			serde_json::from_slice(&bytes).wrap_err("Failed to deserialize the response body.")?;
 		Ok(item)
 	}
-}
-
-fn serialize_dequeue_arg_hosts<S>(
-	value: &Option<Vec<tg::System>>,
-	serializer: S,
-) -> Result<S::Ok, S::Error>
-where
-	S: serde::Serializer,
-{
-	match value {
-		Some(hosts) => serializer.serialize_str(&hosts.iter().join(",")),
-		None => serializer.serialize_unit(),
-	}
-}
-
-fn deserialize_dequeue_arg_hosts<'de, D>(
-	deserializer: D,
-) -> Result<Option<Vec<tg::System>>, D::Error>
-where
-	D: serde::Deserializer<'de>,
-{
-	struct Visitor;
-
-	impl<'de> serde::de::Visitor<'de> for Visitor {
-		type Value = Option<Vec<tg::System>>;
-
-		fn expecting(&self, formatter: &mut std::fmt::Formatter) -> std::fmt::Result {
-			formatter.write_str("a string with comma-separated values or null")
-		}
-
-		fn visit_str<E>(self, value: &str) -> Result<Self::Value, E>
-		where
-			E: serde::de::Error,
-		{
-			let values = value
-				.split(',')
-				.map(std::str::FromStr::from_str)
-				.try_collect()
-				.map_err(|_| serde::de::Error::custom("invalid system"))?;
-			Ok(Some(values))
-		}
-
-		fn visit_none<E>(self) -> Result<Self::Value, E>
-		where
-			E: serde::de::Error,
-		{
-			Ok(None)
-		}
-	}
-
-	deserializer.deserialize_any(Visitor)
 }

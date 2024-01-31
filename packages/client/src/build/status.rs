@@ -1,6 +1,6 @@
 use crate as tg;
 use crate::Client;
-use futures::{stream::BoxStream, StreamExt, TryStreamExt};
+use futures::{future, stream::BoxStream, FutureExt, StreamExt, TryStreamExt};
 use http_body_util::{BodyExt, BodyStream};
 use serde_with::serde_as;
 use tangram_error::{error, Error, Result, Wrap, WrapErr};
@@ -28,6 +28,7 @@ impl Client {
 		&self,
 		id: &tg::build::Id,
 		arg: tg::build::status::GetArg,
+		stop: Option<tokio::sync::watch::Receiver<bool>>,
 	) -> Result<Option<BoxStream<'static, Result<tg::build::Status>>>> {
 		let method = http::Method::GET;
 		let search_params = serde_urlencoded::to_string(&arg).unwrap();
@@ -63,6 +64,10 @@ impl Client {
 			})
 			.map_err(|error| error.wrap("Failed to read from the body."));
 		let reader = Box::pin(StreamReader::new(stream.map_err(std::io::Error::other)));
+		let stop = stop.map_or_else(
+			|| future::pending().left_future(),
+			|mut stop| async move { stop.wait_for(|stop| *stop).map(|_| ()).await }.right_future(),
+		);
 		let output = tangram_util::sse::Decoder::new(reader)
 			.map(|result| {
 				let event = result.wrap_err("Failed to read an event.")?;
@@ -70,6 +75,7 @@ impl Client {
 					.wrap_err("Failed to deserialize the event data.")?;
 				Ok::<_, Error>(chunk)
 			})
+			.take_until(stop)
 			.boxed();
 		Ok(Some(output))
 	}

@@ -402,6 +402,14 @@ impl Reader {
 			tg,
 		})
 	}
+
+	pub fn position(&self) -> u64 {
+		self.position
+	}
+
+	pub fn end(&self) -> bool {
+		self.position == self.size
+	}
 }
 
 impl AsyncRead for Reader {

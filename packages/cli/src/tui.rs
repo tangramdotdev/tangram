@@ -62,6 +62,7 @@ struct TreeItemState {
 }
 
 enum TreeItemIndicator {
+	Empty,
 	Errored,
 	Queued,
 	Running,
@@ -488,7 +489,7 @@ impl TreeItem {
 		let state = TreeItemState {
 			children: None,
 			expanded: false,
-			indicator: TreeItemIndicator::Running,
+			indicator: TreeItemIndicator::Empty,
 			selected,
 			title: None,
 		};
@@ -589,14 +590,11 @@ impl TreeItem {
 		let children_task = tokio::task::spawn({
 			let item = self.clone();
 			async move {
-				let Ok(mut children) = item
-					.inner
-					.build
-					.children(
-						item.inner.tg.as_ref(),
-						tg::build::children::GetArg::default(),
-					)
-					.await
+				let arg = tg::build::children::GetArg {
+					position: Some(0),
+					..Default::default()
+				};
+				let Ok(mut children) = item.inner.build.children(item.inner.tg.as_ref(), arg).await
 				else {
 					return;
 				};
@@ -675,6 +673,7 @@ impl TreeItem {
 			"▶"
 		};
 		let indicator = match self.inner.state.lock().unwrap().indicator {
+			TreeItemIndicator::Empty => " ".red(),
 			TreeItemIndicator::Errored => "!".red(),
 			TreeItemIndicator::Queued => "⟳".yellow(),
 			TreeItemIndicator::Running => {
@@ -770,7 +769,6 @@ impl Drop for LogInner {
 }
 
 impl Log {
-	// Create a new log data stream.
 	#[allow(clippy::too_many_lines)]
 	fn new(tg: &dyn tg::Handle, build: &tg::Build, rect: Rect) -> Self {
 		let tg = tg.clone_box();
@@ -907,7 +905,7 @@ impl Log {
 				scroll.scroll_up(height + 1, &chunks);
 				scroll
 			});
-			
+
 			// Update the list of lines and break out if successful.
 			if let Some(lines) = scroll.read_lines(height + 1, &chunks) {
 				*self.inner.lines.lock().unwrap() = lines;
@@ -1040,27 +1038,27 @@ impl Log {
 		Ok(())
 	}
 
-	// Get the bounding box of the log widget.
+	/// Get the bounding box of the log widget.
 	fn rect(&self) -> tui::layout::Rect {
 		*self.inner.rect.borrow()
 	}
 
-	// Issue a scroll up event.
+	/// Issue a scroll up event.
 	fn up(&self) {
 		self.inner.event_sender.send(LogEvent::ScrollUp).ok();
 	}
 
-	// Issue a scroll down event.
+	/// Issue a scroll down event.
 	fn down(&self) {
 		self.inner.event_sender.send(LogEvent::ScrollDown).ok();
 	}
 
-	// Issue a resize event.
+	/// Issue a resize event.
 	fn resize(&self, rect: Rect) {
 		self.inner.rect.send(rect).ok();
 	}
 
-	// Render the log.
+	/// Render the log.
 	fn render(&self, rect: tui::layout::Rect, buf: &mut tui::buffer::Buffer) {
 		let lines = self.inner.lines.lock().unwrap();
 		for (y, line) in (0..rect.height).zip(lines.iter()) {
@@ -1090,7 +1088,7 @@ impl Scroll {
 		}
 	}
 
-	// Increment the scroll position by one UTF8 grapheme cluster and add the intermediate results to end of the buffer. Returns Some(true) if successful, Some(false) if additional pre-context is required, or `None` if we receive invalid UTF-8.
+	/// Increment the scroll position by one UTF8 grapheme cluster and add the intermediate results to end of the buffer. Returns Some(true) if successful, Some(false) if additional pre-context is required, or `None` if we receive invalid UTF-8.
 	#[allow(clippy::too_many_lines)]
 	fn advance(
 		&mut self,

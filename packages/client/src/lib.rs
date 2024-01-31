@@ -539,8 +539,9 @@ impl Handle for Client {
 		&self,
 		id: &tg::build::Id,
 		arg: tg::build::status::GetArg,
+		stop: Option<tokio::sync::watch::Receiver<bool>>,
 	) -> Result<Option<BoxStream<'static, Result<tg::build::Status>>>> {
-		self.try_get_build_status(id, arg).await
+		self.try_get_build_status(id, arg, stop).await
 	}
 
 	async fn set_build_status(
@@ -556,8 +557,9 @@ impl Handle for Client {
 		&self,
 		id: &tg::build::Id,
 		arg: tg::build::children::GetArg,
+		stop: Option<tokio::sync::watch::Receiver<bool>>,
 	) -> Result<Option<BoxStream<'static, Result<tg::build::children::Chunk>>>> {
-		self.try_get_build_children(id, arg).await
+		self.try_get_build_children(id, arg, stop).await
 	}
 
 	async fn add_build_child(
@@ -573,8 +575,9 @@ impl Handle for Client {
 		&self,
 		id: &tg::build::Id,
 		arg: tg::build::log::GetArg,
+		stop: Option<tokio::sync::watch::Receiver<bool>>,
 	) -> Result<Option<BoxStream<'static, Result<tg::build::log::Chunk>>>> {
-		self.try_get_build_log(id, arg).await
+		self.try_get_build_log(id, arg, stop).await
 	}
 
 	async fn add_build_log(
@@ -590,8 +593,9 @@ impl Handle for Client {
 		&self,
 		id: &tg::build::Id,
 		arg: tg::build::outcome::GetArg,
+		stop: Option<tokio::sync::watch::Receiver<bool>>,
 	) -> Result<Option<Option<tg::build::Outcome>>> {
-		self.try_get_build_outcome(id, arg).await
+		self.try_get_build_outcome(id, arg, stop).await
 	}
 
 	async fn set_build_outcome(

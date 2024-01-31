@@ -1,4 +1,4 @@
-use crate::{database::Json, params, Server};
+use crate::{database::Json, params, Http, Server};
 use futures::{
 	future,
 	stream::{self, BoxStream},
@@ -316,14 +316,9 @@ impl Server {
 		let Some(remote) = self.inner.remote.as_ref() else {
 			return Ok(None);
 		};
-		let Some(stream) = remote.try_get_build_children(id, arg).await? else {
+		let Some(stream) = remote.try_get_build_children(id, arg, stop).await? else {
 			return Ok(None);
 		};
-		let stop = stop.map_or_else(
-			|| future::pending().boxed(),
-			|mut stop| async move { stop.wait_for(|s| *s).map(|_| ()).await }.boxed(),
-		);
-		let stream = stream.take_until(stop).boxed();
 		Ok(Some(stream))
 	}
 
@@ -409,7 +404,7 @@ impl Server {
 	}
 }
 
-impl Server {
+impl Http {
 	pub async fn handle_get_build_children_request(
 		&self,
 		request: http::Request<Incoming>,
@@ -447,7 +442,7 @@ impl Server {
 		};
 
 		let stop = request.extensions().get().cloned();
-		let Some(stream) = self.try_get_build_children(&id, arg, stop).await? else {
+		let Some(stream) = self.inner.tg.try_get_build_children(&id, arg, stop).await? else {
 			return Ok(not_found());
 		};
 
@@ -502,7 +497,9 @@ impl Server {
 			serde_json::from_slice(&bytes).wrap_err("Failed to deserialize the body.")?;
 
 		// Add the build child.
-		self.add_build_child(user.as_ref(), &build_id, &child_id)
+		self.inner
+			.tg
+			.add_build_child(user.as_ref(), &build_id, &child_id)
 			.await?;
 
 		// Create the response.

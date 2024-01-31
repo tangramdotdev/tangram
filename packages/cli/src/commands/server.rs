@@ -110,14 +110,19 @@ impl Cli {
 			.tls(tls)
 			.user(user)
 			.build();
+		let host = tg::System::host()?;
 		let build = config
 			.as_ref()
 			.and_then(|config| config.remote.as_ref())
-			.and_then(|remote| remote.build.clone())
-			.map(|build| tangram_server::options::RemoteBuild {
-				enable: build.enable.unwrap_or(false),
-				hosts: build.hosts,
-			});
+			.and_then(|remote| remote.build.clone());
+		let enable = build
+			.as_ref()
+			.and_then(|build| build.enable)
+			.unwrap_or(false);
+		let hosts = build
+			.and_then(|build| build.hosts)
+			.unwrap_or_else(|| vec![tg::System::js(), host.clone()]);
+		let build = tangram_server::options::RemoteBuild { enable, hosts };
 		let remote = tangram_server::options::Remote {
 			tg: Box::new(client),
 			build,
@@ -128,7 +133,8 @@ impl Cli {
 		let permits = config
 			.as_ref()
 			.and_then(|config| config.build.as_ref())
-			.and_then(|build| build.permits);
+			.and_then(|build| build.permits)
+			.unwrap_or_else(|| std::thread::available_parallelism().unwrap().get());
 		let build = tangram_server::options::Build { permits };
 
 		let version = self.version.clone();

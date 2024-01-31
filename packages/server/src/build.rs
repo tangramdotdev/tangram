@@ -1,12 +1,12 @@
 use super::Server;
-use crate::{database::Json, params, BuildContext};
+use crate::{database::Json, params, BuildContext, Http};
 use futures::{stream, StreamExt, TryStreamExt};
 use http_body_util::BodyExt;
 use itertools::Itertools;
 use std::sync::Arc;
 use tangram_client as tg;
 use tangram_error::{error, Error, Result, WrapErr};
-use tangram_util::http::{bad_request, empty, full, not_found, Incoming, Outgoing};
+use tangram_util::http::{bad_request, empty, full, not_found, ok, Incoming, Outgoing};
 
 mod children;
 mod log;
@@ -476,7 +476,7 @@ impl Server {
 	}
 }
 
-impl Server {
+impl Http {
 	pub async fn handle_list_builds_request(
 		&self,
 		request: http::Request<Incoming>,
@@ -488,7 +488,7 @@ impl Server {
 		let arg = serde_urlencoded::from_str(query)
 			.wrap_err("Failed to deserialize the search params.")?;
 
-		let output = self.try_list_builds(arg).await?;
+		let output = self.inner.tg.try_list_builds(arg).await?;
 
 		// Create the response.
 		let body = serde_json::to_string(&output).wrap_err("Failed to serialize the response.")?;
@@ -514,7 +514,7 @@ impl Server {
 		};
 
 		// Get whether the build exists.
-		let exists = self.get_build_exists(&id).await?;
+		let exists = self.inner.tg.get_build_exists(&id).await?;
 
 		// Create the response.
 		let status = if exists {
@@ -542,7 +542,7 @@ impl Server {
 		let build_id = build_id.parse().wrap_err("Failed to parse the ID.")?;
 
 		// Get the build.
-		let Some(state) = self.try_get_build(&build_id).await? else {
+		let Some(state) = self.inner.tg.try_get_build(&build_id).await? else {
 			return Ok(not_found());
 		};
 
@@ -580,7 +580,11 @@ impl Server {
 		let state = serde_json::from_slice(&bytes).wrap_err("Failed to deserialize the body.")?;
 
 		// Put the build.
-		let output = self.try_put_build(user.as_ref(), &build_id, &state).await?;
+		let output = self
+			.inner
+			.tg
+			.try_put_build(user.as_ref(), &build_id, &state)
+			.await?;
 
 		// Create the response.
 		let body = serde_json::to_vec(&output).wrap_err("Failed to serialize the response.")?;
@@ -590,6 +594,47 @@ impl Server {
 			.unwrap();
 
 		Ok(response)
+	}
+
+	pub async fn handle_push_build_request(
+		&self,
+		request: http::Request<Incoming>,
+	) -> Result<http::Response<Outgoing>> {
+		// Get the path params.
+		let path_components: Vec<&str> = request.uri().path().split('/').skip(1).collect();
+		let ["builds", id, "push"] = path_components.as_slice() else {
+			return Err(error!("Unexpected path."));
+		};
+		let Ok(id) = id.parse() else {
+			return Ok(bad_request());
+		};
+
+		// Get the user.
+		let user = self.try_get_user_from_request(&request).await?;
+
+		// Push the build.
+		self.inner.tg.push_build(user.as_ref(), &id).await?;
+
+		Ok(ok())
+	}
+
+	pub async fn handle_pull_build_request(
+		&self,
+		request: http::Request<Incoming>,
+	) -> Result<http::Response<Outgoing>> {
+		// Get the path params.
+		let path_components: Vec<&str> = request.uri().path().split('/').skip(1).collect();
+		let ["build", id, "pull"] = path_components.as_slice() else {
+			return Err(error!("Unexpected path."));
+		};
+		let Ok(id) = id.parse() else {
+			return Ok(bad_request());
+		};
+
+		// Pull the build.
+		self.inner.tg.pull_build(&id).await?;
+
+		Ok(ok())
 	}
 
 	pub async fn handle_get_or_create_build_request(
@@ -615,7 +660,11 @@ impl Server {
 		let arg = serde_json::from_slice(&bytes).wrap_err("Failed to deserialize the body.")?;
 
 		// Get or create the build.
-		let output = self.get_or_create_build(user.as_ref(), arg).await?;
+		let output = self
+			.inner
+			.tg
+			.get_or_create_build(user.as_ref(), arg)
+			.await?;
 
 		// Create the response.
 		let body = serde_json::to_vec(&output).wrap_err("Failed to serialize the response.")?;

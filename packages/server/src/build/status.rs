@@ -1,4 +1,4 @@
-use crate::{params, Server};
+use crate::{params, Http, Server};
 use futures::{
 	future,
 	stream::{self, BoxStream},
@@ -134,14 +134,9 @@ impl Server {
 		let Some(remote) = self.inner.remote.as_ref() else {
 			return Ok(None);
 		};
-		let Some(stream) = remote.try_get_build_status(id, arg).await? else {
+		let Some(stream) = remote.try_get_build_status(id, arg, stop).await? else {
 			return Ok(None);
 		};
-		let stop = stop.map_or_else(
-			|| future::pending().boxed(),
-			|mut stop| async move { stop.wait_for(|s| *s).map(|_| ()).await }.boxed(),
-		);
-		let stream = stream.take_until(stop).boxed();
 		Ok(Some(stream))
 	}
 
@@ -219,7 +214,7 @@ impl Server {
 	}
 }
 
-impl Server {
+impl Http {
 	pub async fn handle_get_build_status_request(
 		&self,
 		request: http::Request<Incoming>,
@@ -257,7 +252,7 @@ impl Server {
 		};
 
 		let stop = request.extensions().get().cloned();
-		let Some(stream) = self.try_get_build_status(&id, arg, stop).await? else {
+		let Some(stream) = self.inner.tg.try_get_build_status(&id, arg, stop).await? else {
 			return Ok(not_found());
 		};
 
@@ -310,7 +305,9 @@ impl Server {
 			.to_bytes();
 		let status = serde_json::from_slice(&bytes).wrap_err("Failed to deserialize the body.")?;
 
-		self.set_build_status(user.as_ref(), &build_id, status)
+		self.inner
+			.tg
+			.set_build_status(user.as_ref(), &build_id, status)
 			.await?;
 
 		// Create the response.

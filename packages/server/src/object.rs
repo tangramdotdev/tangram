@@ -1,5 +1,5 @@
 use super::Server;
-use crate::params;
+use crate::{params, Http};
 use bytes::Bytes;
 use futures::{stream, TryStreamExt};
 use http_body_util::BodyExt;
@@ -194,7 +194,7 @@ impl Server {
 	}
 }
 
-impl Server {
+impl Http {
 	pub async fn handle_get_object_exists_request(
 		&self,
 		request: http::Request<Incoming>,
@@ -209,7 +209,7 @@ impl Server {
 		};
 
 		// Get whether the object exists.
-		let exists = self.get_object_exists(&id).await?;
+		let exists = self.inner.tg.get_object_exists(&id).await?;
 
 		// Create the response.
 		let status = if exists {
@@ -239,7 +239,7 @@ impl Server {
 		};
 
 		// Get the object.
-		let Some(output) = self.try_get_object(&id).await? else {
+		let Some(output) = self.inner.tg.try_get_object(&id).await? else {
 			return Ok(not_found());
 		};
 
@@ -274,7 +274,7 @@ impl Server {
 			.to_bytes();
 
 		// Put the object.
-		let output = self.try_put_object(&id, &bytes).await?;
+		let output = self.inner.tg.try_put_object(&id, &bytes).await?;
 
 		// Create the response.
 		let body = serde_json::to_vec(&output).wrap_err("Failed to serialize the response.")?;
@@ -300,7 +300,7 @@ impl Server {
 		};
 
 		// Push the object.
-		self.push_object(&id).await?;
+		self.inner.tg.push_object(&id).await?;
 
 		Ok(ok())
 	}
@@ -319,7 +319,7 @@ impl Server {
 		};
 
 		// Pull the object.
-		self.pull_object(&id).await?;
+		self.inner.tg.pull_object(&id).await?;
 
 		Ok(ok())
 	}

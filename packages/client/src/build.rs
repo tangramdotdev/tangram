@@ -204,7 +204,7 @@ impl Build {
 		tg: &dyn Handle,
 		arg: status::GetArg,
 	) -> Result<Option<BoxStream<'static, Result<Status>>>> {
-		tg.try_get_build_status(self.id(), arg).await
+		tg.try_get_build_status(self.id(), arg, None).await
 	}
 
 	pub async fn target(&self, tg: &dyn Handle) -> Result<Target> {
@@ -230,7 +230,7 @@ impl Build {
 		arg: children::GetArg,
 	) -> Result<Option<BoxStream<'static, Result<Self>>>> {
 		Ok(tg
-			.try_get_build_children(self.id(), arg)
+			.try_get_build_children(self.id(), arg, None)
 			.await?
 			.map(|stream| {
 				stream
@@ -264,7 +264,7 @@ impl Build {
 		tg: &dyn Handle,
 		arg: log::GetArg,
 	) -> Result<Option<BoxStream<'static, Result<log::Chunk>>>> {
-		tg.try_get_build_log(self.id(), arg).await
+		tg.try_get_build_log(self.id(), arg, None).await
 	}
 
 	pub async fn add_log(&self, tg: &dyn Handle, log: Bytes) -> Result<()> {
@@ -294,7 +294,7 @@ impl Build {
 		tg: &dyn Handle,
 		arg: outcome::GetArg,
 	) -> Result<Option<Option<Outcome>>> {
-		tg.try_get_build_outcome(self.id(), arg).await
+		tg.try_get_build_outcome(self.id(), arg, None).await
 	}
 
 	pub async fn cancel(&self, tg: &dyn Handle) -> Result<()> {

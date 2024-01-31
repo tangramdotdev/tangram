@@ -1,4 +1,4 @@
-use crate::Server;
+use crate::{Http, Server};
 use http_body_util::BodyExt;
 use std::collections::BTreeMap;
 use tangram_client as tg;
@@ -164,7 +164,7 @@ impl Server {
 	}
 }
 
-impl Server {
+impl Http {
 	pub async fn handle_search_packages_request(
 		&self,
 		request: http::Request<Incoming>,
@@ -177,7 +177,7 @@ impl Server {
 			.wrap_err("Failed to deserialize the search params.")?;
 
 		// Perform the search.
-		let output = self.search_packages(arg).await?;
+		let output = self.inner.tg.search_packages(arg).await?;
 
 		// Create the response.
 		let body = serde_json::to_vec(&output).wrap_err("Failed to serialize the response.")?;
@@ -211,7 +211,7 @@ impl Server {
 			.unwrap_or_default();
 
 		// Get the package.
-		let Some(output) = self.try_get_package(&dependency, arg).await? else {
+		let Some(output) = self.inner.tg.try_get_package(&dependency, arg).await? else {
 			return Ok(not_found());
 		};
 
@@ -240,67 +240,12 @@ impl Server {
 			.wrap_err("Failed to parse the dependency.")?;
 
 		// Get the package.
-		let Some(output) = self.try_get_package_versions(&dependency).await? else {
+		let Some(output) = self.inner.tg.try_get_package_versions(&dependency).await? else {
 			return Ok(not_found());
 		};
 
 		// Create the response.
 		let body = serde_json::to_vec(&output).wrap_err("Failed to serialize the response.")?;
-		let response = http::Response::builder().body(full(body)).unwrap();
-
-		Ok(response)
-	}
-
-	pub async fn handle_get_package_metadata_request(
-		&self,
-		request: http::Request<Incoming>,
-	) -> Result<http::Response<Outgoing>> {
-		// Get the path params.
-		let path_components: Vec<&str> = request.uri().path().split('/').skip(1).collect();
-		let ["packages", dependency, "metadata"] = path_components.as_slice() else {
-			return Err(error!("Unexpected path."));
-		};
-		let dependency =
-			urlencoding::decode(dependency).wrap_err("Failed to decode the dependency.")?;
-		let dependency = dependency
-			.parse()
-			.wrap_err("Failed to parse the dependency.")?;
-
-		// Get the package metadata.
-		let Some(metadata) = self.try_get_package_metadata(&dependency).await? else {
-			return Ok(not_found());
-		};
-
-		// Create the response.
-		let body = serde_json::to_vec(&metadata).wrap_err("Failed to serialize the response.")?;
-		let response = http::Response::builder().body(full(body)).unwrap();
-
-		Ok(response)
-	}
-
-	pub async fn handle_get_package_dependencies_request(
-		&self,
-		request: http::Request<Incoming>,
-	) -> Result<http::Response<Outgoing>> {
-		// Get the path params.
-		let path_components: Vec<&str> = request.uri().path().split('/').skip(1).collect();
-		let ["packages", dependency, "dependencies"] = path_components.as_slice() else {
-			return Err(error!("Unexpected path."));
-		};
-		let dependency =
-			urlencoding::decode(dependency).wrap_err("Failed to decode the dependency.")?;
-		let dependency = dependency
-			.parse()
-			.wrap_err("Failed to parse the dependency.")?;
-
-		// Get the package dependencies.
-		let Some(dependencies) = self.try_get_package_dependencies(&dependency).await? else {
-			return Ok(not_found());
-		};
-
-		// Create the response.
-		let body =
-			serde_json::to_vec(&dependencies).wrap_err("Failed to serialize the response.")?;
 		let response = http::Response::builder().body(full(body)).unwrap();
 
 		Ok(response)
@@ -323,7 +268,10 @@ impl Server {
 		let package_id = serde_json::from_slice(&bytes).wrap_err("Invalid request.")?;
 
 		// Publish the package.
-		self.publish_package(user.as_ref(), &package_id).await?;
+		self.inner
+			.tg
+			.publish_package(user.as_ref(), &package_id)
+			.await?;
 
 		Ok(ok())
 	}

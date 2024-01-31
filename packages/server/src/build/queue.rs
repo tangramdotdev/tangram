@@ -1,4 +1,4 @@
-use crate::{database::Json, params, BuildContext, Server};
+use crate::{database::Json, params, BuildContext, Http, Server};
 use futures::{stream::FuturesUnordered, FutureExt, TryStreamExt};
 use http_body_util::BodyExt;
 use std::sync::Arc;
@@ -367,7 +367,7 @@ impl Server {
 	}
 }
 
-impl Server {
+impl Http {
 	pub async fn handle_dequeue_build_request(
 		&self,
 		request: http::Request<Incoming>,
@@ -384,8 +384,7 @@ impl Server {
 			.to_bytes();
 		let arg = serde_json::from_slice(&bytes).wrap_err("Failed to deserialize the body.")?;
 
-		// Attempt to dequeue the build.
-		let Some(output) = self.try_dequeue_build(user.as_ref(), arg).await? else {
+		let Some(output) = self.inner.tg.try_dequeue_build(user.as_ref(), arg).await? else {
 			return Ok(not_found());
 		};
 

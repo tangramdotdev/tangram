@@ -1,5 +1,5 @@
 use super::log;
-use crate::{database::Json, params, Server};
+use crate::{database::Json, params, Http, Server};
 use async_recursion::async_recursion;
 use futures::{future, stream::FuturesUnordered, TryFutureExt, TryStreamExt};
 use http_body_util::BodyExt;
@@ -15,11 +15,14 @@ impl Server {
 		stop: Option<tokio::sync::watch::Receiver<bool>>,
 	) -> Result<Option<Option<tg::build::Outcome>>> {
 		if let Some(outcome) = self
-			.try_get_build_outcome_local(id, arg.clone(), stop)
+			.try_get_build_outcome_local(id, arg.clone(), stop.clone())
 			.await?
 		{
 			Ok(Some(outcome))
-		} else if let Some(outcome) = self.try_get_build_outcome_remote(id, arg.clone()).await? {
+		} else if let Some(outcome) = self
+			.try_get_build_outcome_remote(id, arg.clone(), stop.clone())
+			.await?
+		{
 			Ok(Some(outcome))
 		} else {
 			Ok(None)
@@ -91,11 +94,12 @@ impl Server {
 		&self,
 		id: &tg::build::Id,
 		arg: tg::build::outcome::GetArg,
+		stop: Option<tokio::sync::watch::Receiver<bool>>,
 	) -> Result<Option<Option<tg::build::Outcome>>> {
 		let Some(remote) = self.inner.remote.as_ref() else {
 			return Ok(None);
 		};
-		let Some(outcome) = remote.try_get_build_outcome(id, arg).await? else {
+		let Some(outcome) = remote.try_get_build_outcome(id, arg, stop).await? else {
 			return Ok(None);
 		};
 		Ok(Some(outcome))
@@ -288,7 +292,7 @@ impl Server {
 	}
 }
 
-impl Server {
+impl Http {
 	pub async fn handle_get_build_outcome_request(
 		&self,
 		request: http::Request<Incoming>,
@@ -309,15 +313,14 @@ impl Server {
 			.wrap_err("Failed to deserialize the search params.")?
 			.unwrap_or_default();
 
-		// Attempt to get the outcome.
 		let stop = request.extensions().get().cloned();
-		let Some(outcome) = self.try_get_build_outcome(&id, arg, stop).await? else {
+		let Some(outcome) = self.inner.tg.try_get_build_outcome(&id, arg, stop).await? else {
 			return Ok(not_found());
 		};
 
 		// Create the body.
 		let outcome = if let Some(outcome) = outcome {
-			Some(outcome.data(self).await?)
+			Some(outcome.data(self.inner.tg.as_ref()).await?)
 		} else {
 			None
 		};
@@ -356,7 +359,10 @@ impl Server {
 		let outcome = serde_json::from_slice(&bytes).wrap_err("Failed to deserialize the body.")?;
 
 		// Set the outcome.
-		self.set_build_outcome(user.as_ref(), &id, outcome).await?;
+		self.inner
+			.tg
+			.set_build_outcome(user.as_ref(), &id, outcome)
+			.await?;
 
 		// Create the response.
 		let response = http::Response::builder()

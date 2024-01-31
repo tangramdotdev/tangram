@@ -71,13 +71,6 @@ async fn migration_0000(path: &Path) -> Result<()> {
 		create index builds_target_timestamp_index on builds ((state->>'target'), (state->>'timestamp') desc);
 		create index builds_status_index on builds ((state->>'status'));
 
-		create table build_children (
-			id text,
-			child text
-		);
-
-		create index build_children_child_index on build_children (child);
-
 		create table build_logs (
 			build text not null,
 			position integer not null,
@@ -100,13 +93,6 @@ async fn migration_0000(path: &Path) -> Result<()> {
 			id text primary key,
 			bytes blob not null
 		) strict;
-
-		create table object_children (
-			id text,
-			child text
-		);
-
-		create index object_children_child_index on object_children (child);
 	";
 	db.execute_batch(sql)
 		.wrap_err("Failed to create the database tables.")?;

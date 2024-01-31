@@ -8,10 +8,10 @@ impl Server {
 			let db = self.inner.database.get().await?;
 			db.execute_batch(
 				"
-					delete from objects;
 					delete from builds;
-					delete from logs;
-					delete from queue;
+					delete from build_logs;
+					delete from build_queue;
+					delete from objects;
 				",
 			)
 			.wrap_err("Failed to clear the database.")?;

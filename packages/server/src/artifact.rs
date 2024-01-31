@@ -1,4 +1,4 @@
-use crate::Server;
+use crate::{Http, Server};
 use async_recursion::async_recursion;
 use futures::{stream::FuturesUnordered, TryStreamExt};
 use http_body_util::BodyExt;
@@ -533,7 +533,7 @@ impl Server {
 	}
 }
 
-impl Server {
+impl Http {
 	pub async fn handle_check_in_artifact_request(
 		&self,
 		request: http::Request<Incoming>,
@@ -547,8 +547,7 @@ impl Server {
 			.to_bytes();
 		let arg = serde_json::from_slice(&bytes).wrap_err("Failed to deserialize the body.")?;
 
-		// Check in the artifact.
-		let output = self.check_in_artifact(arg).await?;
+		let output = self.inner.tg.check_in_artifact(arg).await?;
 
 		// Create the response.
 		let body = serde_json::to_vec(&output).wrap_err("Failed to serialize the response.")?;
@@ -570,8 +569,7 @@ impl Server {
 			.to_bytes();
 		let arg = serde_json::from_slice(&bytes).wrap_err("Failed to deserialize the body.")?;
 
-		// Check out the artifact.
-		self.check_out_artifact(arg).await?;
+		self.inner.tg.check_out_artifact(arg).await?;
 
 		Ok(ok())
 	}

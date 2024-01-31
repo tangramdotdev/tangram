@@ -48,8 +48,7 @@ struct Inner {
 	build_semaphore: Arc<tokio::sync::Semaphore>,
 	database: Database,
 	file_descriptor_semaphore: tokio::sync::Semaphore,
-	http_task: std::sync::Mutex<Option<tokio::task::JoinHandle<Result<()>>>>,
-	http_task_stop_sender: tokio::sync::watch::Sender<bool>,
+	http: std::sync::Mutex<Option<Http>>,
 	local_queue_task: std::sync::Mutex<Option<tokio::task::JoinHandle<Result<()>>>>,
 	local_queue_task_stop_sender: tokio::sync::watch::Sender<bool>,
 	local_queue_task_wake_sender: tokio::sync::watch::Sender<()>,
@@ -72,6 +71,17 @@ struct BuildContext {
 	status: Option<tokio::sync::watch::Sender<()>>,
 	stop: tokio::sync::watch::Sender<bool>,
 	task: std::sync::Mutex<Option<tokio::task::JoinHandle<()>>>,
+}
+
+#[derive(Clone)]
+struct Http {
+	inner: Arc<HttpInner>,
+}
+
+struct HttpInner {
+	tg: Box<dyn tg::Handle>,
+	task: std::sync::Mutex<Option<tokio::task::JoinHandle<Result<()>>>>,
+	stop: tokio::sync::watch::Sender<bool>,
 }
 
 struct Tmp {
@@ -123,10 +133,7 @@ impl Server {
 		let build_context = std::sync::RwLock::new(HashMap::default());
 
 		// Create the build semaphore.
-		let permits = options
-			.build
-			.permits
-			.unwrap_or_else(|| std::thread::available_parallelism().unwrap().get());
+		let permits = options.build.permits;
 		let build_semaphore = Arc::new(tokio::sync::Semaphore::new(permits));
 
 		// Open the database.
@@ -136,11 +143,8 @@ impl Server {
 		// Create the file system semaphore.
 		let file_descriptor_semaphore = tokio::sync::Semaphore::new(16);
 
-		// Create the http task.
-		let http_task = std::sync::Mutex::new(None);
-
-		// Create the http task stop channel.
-		let (http_task_stop_sender, http_task_stop_receiver) = tokio::sync::watch::channel(false);
+		// Create the http server.
+		let http = std::sync::Mutex::new(None);
 
 		// Create the local queue task.
 		let local_queue_task = std::sync::Mutex::new(None);
@@ -154,11 +158,7 @@ impl Server {
 			tokio::sync::watch::channel(false);
 
 		// Get the remote.
-		let remote = if let Some(remote) = options.remote {
-			Some(remote.tg)
-		} else {
-			None
-		};
+		let remote = options.remote.as_ref().map(|remote| remote.tg.clone_box());
 
 		// Create the remote queue task.
 		let remote_queue_task = std::sync::Mutex::new(None);
@@ -185,8 +185,7 @@ impl Server {
 			build_semaphore,
 			database,
 			file_descriptor_semaphore,
-			http_task,
-			http_task_stop_sender,
+			http,
 			local_queue_task,
 			local_queue_task_stop_sender,
 			local_queue_task_wake_sender,
@@ -202,20 +201,6 @@ impl Server {
 		});
 		let server = Server { inner };
 
-		// Empty the queue.
-		{
-			let db = server.inner.database.get().await?;
-			let statement = "
-				delete from build_queue;
-			";
-			let mut statement = db
-				.prepare_cached(statement)
-				.wrap_err("Failed to prepare the query.")?;
-			statement
-				.execute([])
-				.wrap_err("Failed to execute the query.")?;
-		}
-
 		// Terminate unfinished builds.
 		{
 			let db = server.inner.database.get().await?;
@@ -228,6 +213,20 @@ impl Server {
 				)
 				where state->>'status' != 'finished';
 			"#;
+			let mut statement = db
+				.prepare_cached(statement)
+				.wrap_err("Failed to prepare the query.")?;
+			statement
+				.execute([])
+				.wrap_err("Failed to execute the query.")?;
+		}
+
+		// Empty the build queue.
+		{
+			let db = server.inner.database.get().await?;
+			let statement = "
+				delete from build_queue;
+			";
 			let mut statement = db
 				.prepare_cached(statement)
 				.wrap_err("Failed to prepare the query.")?;
@@ -282,37 +281,36 @@ impl Server {
 		server.inner.local_queue_task.lock().unwrap().replace(task);
 
 		// Start the build queue remote task.
-		let task = tokio::spawn({
-			let server = server.clone();
-			async move {
-				let result = server
-					.remote_queue_task(remote_queue_task_stop_receiver)
-					.await;
-				match result {
-					Ok(()) => Ok(()),
-					Err(error) => {
-						tracing::error!(?error);
-						Err(error)
-					},
+		if options
+			.remote
+			.as_ref()
+			.map_or(false, |remote| remote.build.enable)
+		{
+			let task = tokio::spawn({
+				let server = server.clone();
+				async move {
+					let result = server
+						.remote_queue_task(remote_queue_task_stop_receiver)
+						.await;
+					match result {
+						Ok(()) => Ok(()),
+						Err(error) => {
+							tracing::error!(?error);
+							Err(error)
+						},
+					}
 				}
-			}
-		});
-		server.inner.remote_queue_task.lock().unwrap().replace(task);
+			});
+			server.inner.remote_queue_task.lock().unwrap().replace(task);
+		}
 
-		// Start the http task.
-		let task = tokio::spawn({
-			let server = server.clone();
-			async move {
-				match server.serve(address, http_task_stop_receiver).await {
-					Ok(()) => Ok(()),
-					Err(error) => {
-						tracing::error!(?error);
-						Err(error)
-					},
-				}
-			}
-		});
-		server.inner.http_task.lock().unwrap().replace(task);
+		// Start the http server.
+		server
+			.inner
+			.http
+			.lock()
+			.unwrap()
+			.replace(Http::start(&server, address));
 
 		Ok(server)
 	}
@@ -320,8 +318,10 @@ impl Server {
 	pub fn stop(&self) {
 		let server = self.clone();
 		let task = tokio::spawn(async move {
-			// Stop the http task.
-			server.inner.http_task_stop_sender.send_replace(true);
+			// Stop the http server.
+			if let Some(http) = server.inner.http.lock().unwrap().as_ref() {
+				http.stop();
+			}
 
 			// Stop the local queue task.
 			server.inner.local_queue_task_stop_sender.send_replace(true);
@@ -332,36 +332,23 @@ impl Server {
 				.remote_queue_task_stop_sender
 				.send_replace(true);
 
-			// Join the http task.
-			let task = server.inner.http_task.lock().unwrap().take();
-			if let Some(task) = task {
-				match task.await {
-					Ok(result) => Ok(result),
-					Err(error) if error.is_cancelled() => Ok(Ok(())),
-					Err(error) => Err(error),
-				}
-				.unwrap()?;
+			// Join the http server.
+			let http = server.inner.http.lock().unwrap().take();
+			if let Some(http) = http {
+				http.join().await?;
 			}
 
 			// Join the local queue task.
-			let local_queue_task = server
-				.inner
-				.local_queue_task
-				.lock()
-				.unwrap()
-				.take()
-				.unwrap();
-			local_queue_task.await.unwrap()?;
+			let local_queue_task = server.inner.local_queue_task.lock().unwrap().take();
+			if let Some(local_queue_task) = local_queue_task {
+				local_queue_task.await.unwrap()?;
+			}
 
 			// Join the remote queue task.
-			let remote_queue_task = server
-				.inner
-				.remote_queue_task
-				.lock()
-				.unwrap()
-				.take()
-				.unwrap();
-			remote_queue_task.await.unwrap()?;
+			let remote_queue_task = server.inner.remote_queue_task.lock().unwrap().take();
+			if let Some(remote_queue_task) = remote_queue_task {
+				remote_queue_task.await.unwrap()?;
+			}
 
 			// Stop running builds.
 			for context in server.inner.build_context.read().unwrap().values() {
@@ -388,7 +375,7 @@ impl Server {
 			// Remove running builds.
 			server.inner.build_context.write().unwrap().clear();
 
-			// Join the vfs.
+			// Join the vfs server.
 			let vfs = server.inner.vfs.lock().unwrap().clone();
 			if let Some(vfs) = vfs {
 				vfs.stop();
@@ -462,8 +449,48 @@ impl Server {
 	}
 }
 
-impl Server {
-	pub async fn serve(
+impl Http {
+	fn start(tg: &dyn tg::Handle, address: tg::Address) -> Self {
+		let tg = tg.clone_box();
+		let task = std::sync::Mutex::new(None);
+		let (stop_sender, stop_receiver) = tokio::sync::watch::channel(false);
+		let stop = stop_sender;
+		let inner = Arc::new(HttpInner { tg, task, stop });
+		let server = Self { inner };
+		let task = tokio::spawn({
+			let server = server.clone();
+			async move {
+				match server.serve(address, stop_receiver).await {
+					Ok(()) => Ok(()),
+					Err(error) => {
+						tracing::error!(?error);
+						Err(error)
+					},
+				}
+			}
+		});
+		server.inner.task.lock().unwrap().replace(task);
+		server
+	}
+
+	fn stop(&self) {
+		self.inner.stop.send_replace(true);
+	}
+
+	async fn join(&self) -> Result<()> {
+		let task = self.inner.task.lock().unwrap().take();
+		if let Some(task) = task {
+			match task.await {
+				Ok(result) => Ok(result),
+				Err(error) if error.is_cancelled() => Ok(Ok(())),
+				Err(error) => Err(error),
+			}
+			.unwrap()?;
+		}
+		Ok(())
+	}
+
+	async fn serve(
 		self,
 		address: tg::Address,
 		mut stop: tokio::sync::watch::Receiver<bool>,
@@ -574,7 +601,7 @@ impl Server {
 		};
 
 		// Get the user.
-		let user = self.get_user_for_token(&token).await?;
+		let user = self.inner.tg.get_user_for_token(&token).await?;
 
 		Ok(user)
 	}
@@ -615,6 +642,12 @@ impl Server {
 			},
 			(http::Method::PUT, ["builds", _]) => {
 				self.handle_put_build_request(request).map(Some).boxed()
+			},
+			(http::Method::POST, ["builds", _, "push"]) => {
+				self.handle_push_build_request(request).map(Some).boxed()
+			},
+			(http::Method::POST, ["builds", _, "pull"]) => {
+				self.handle_pull_build_request(request).map(Some).boxed()
 			},
 			(http::Method::POST, ["builds"]) => self
 				.handle_get_or_create_build_request(request)
@@ -682,14 +715,6 @@ impl Server {
 			},
 			(http::Method::GET, ["packages", _, "versions"]) => self
 				.handle_get_package_versions_request(request)
-				.map(Some)
-				.boxed(),
-			(http::Method::GET, ["packages", _, "metadata"]) => self
-				.handle_get_package_metadata_request(request)
-				.map(Some)
-				.boxed(),
-			(http::Method::GET, ["packages", _, "dependencies"]) => self
-				.handle_get_package_dependencies_request(request)
 				.map(Some)
 				.boxed(),
 			(http::Method::POST, ["packages"]) => self
@@ -816,8 +841,9 @@ impl tg::Handle for Server {
 		&self,
 		id: &tg::build::Id,
 		arg: tg::build::status::GetArg,
+		stop: Option<tokio::sync::watch::Receiver<bool>>,
 	) -> Result<Option<BoxStream<'static, Result<tg::build::Status>>>> {
-		self.try_get_build_status(id, arg, None).await
+		self.try_get_build_status(id, arg, stop).await
 	}
 
 	async fn set_build_status(
@@ -833,8 +859,9 @@ impl tg::Handle for Server {
 		&self,
 		id: &tg::build::Id,
 		arg: tg::build::children::GetArg,
+		stop: Option<tokio::sync::watch::Receiver<bool>>,
 	) -> Result<Option<BoxStream<'static, Result<tg::build::children::Chunk>>>> {
-		self.try_get_build_children(id, arg, None).await
+		self.try_get_build_children(id, arg, stop).await
 	}
 
 	async fn add_build_child(
@@ -850,8 +877,9 @@ impl tg::Handle for Server {
 		&self,
 		id: &tg::build::Id,
 		arg: tg::build::log::GetArg,
+		stop: Option<tokio::sync::watch::Receiver<bool>>,
 	) -> Result<Option<BoxStream<'static, Result<tg::build::log::Chunk>>>> {
-		self.try_get_build_log(id, arg, None).await
+		self.try_get_build_log(id, arg, stop).await
 	}
 
 	async fn add_build_log(
@@ -867,8 +895,9 @@ impl tg::Handle for Server {
 		&self,
 		id: &tg::build::Id,
 		arg: tg::build::outcome::GetArg,
+		stop: Option<tokio::sync::watch::Receiver<bool>>,
 	) -> Result<Option<Option<tg::build::Outcome>>> {
-		self.try_get_build_outcome(id, arg, None).await
+		self.try_get_build_outcome(id, arg, stop).await
 	}
 
 	async fn set_build_outcome(

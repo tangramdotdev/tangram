@@ -11,17 +11,17 @@ pub struct Options {
 }
 
 pub struct Build {
-	pub permits: Option<usize>,
+	pub permits: usize,
 }
 
 pub struct Remote {
-	pub build: Option<RemoteBuild>,
+	pub build: RemoteBuild,
 	pub tg: Box<dyn tg::Handle>,
 }
 
 pub struct RemoteBuild {
 	pub enable: bool,
-	pub hosts: Option<Vec<tg::System>>,
+	pub hosts: Vec<tg::System>,
 }
 
 pub struct Vfs {

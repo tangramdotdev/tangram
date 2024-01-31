@@ -1,6 +1,7 @@
 use crate as tg;
 use crate::{value, Client, Value};
 use derive_more::TryUnwrap;
+use futures::{future, FutureExt};
 use http_body_util::BodyExt;
 use serde_with::serde_as;
 use tangram_error::{error, Error, Result, WrapErr};
@@ -39,6 +40,7 @@ impl Client {
 		&self,
 		id: &tg::build::Id,
 		arg: tg::build::outcome::GetArg,
+		stop: Option<tokio::sync::watch::Receiver<bool>>,
 	) -> Result<Option<Option<tg::build::Outcome>>> {
 		let method = http::Method::GET;
 		let search_params = serde_urlencoded::to_string(&arg).unwrap();
@@ -64,13 +66,31 @@ impl Client {
 				.unwrap_or_else(|_| error!("The request did not succeed."));
 			return Err(error);
 		}
-		let bytes = response
-			.collect()
-			.await
-			.wrap_err("Failed to collect the response body.")?
-			.to_bytes();
-		let outcome =
-			serde_json::from_slice(&bytes).wrap_err("Failed to deserialize the response body.")?;
+		let stop = stop.map_or_else(
+			|| future::pending().left_future(),
+			|mut stop| async move { stop.wait_for(|stop| *stop).map(|_| ()).await }.right_future(),
+		);
+		let outcome = async move {
+			let bytes = response
+				.collect()
+				.await
+				.wrap_err("Failed to collect the response body.")?
+				.to_bytes();
+			let outcome = serde_json::from_slice(&bytes)
+				.wrap_err("Failed to deserialize the response body.")?;
+			Ok(outcome)
+		}
+		.fuse();
+		let stop = stop.map(|()| Ok(None)).fuse();
+		tokio::pin!(outcome);
+		tokio::pin!(stop);
+		#[allow(clippy::match_same_arms)]
+		let outcome = match future::try_select(outcome, stop).await {
+			Ok(future::Either::Left((outcome, _))) => outcome,
+			Ok(future::Either::Right((outcome, _))) => outcome,
+			Err(future::Either::Left((error, _))) => return Err(error),
+			Err(future::Either::Right((error, _))) => return Err(error),
+		};
 		Ok(Some(outcome))
 	}
 

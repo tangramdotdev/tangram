@@ -1,4 +1,4 @@
-use crate::{params, Server};
+use crate::{params, Http, Server};
 use bytes::{Bytes, BytesMut};
 use futures::{
 	future::{self, BoxFuture},
@@ -27,6 +27,8 @@ pub struct DatabaseReader {
 	seek: Option<BoxFuture<'static, Result<u64>>>,
 	server: Server,
 }
+
+unsafe impl Sync for DatabaseReader {}
 
 impl Server {
 	pub async fn try_get_build_log(
@@ -114,18 +116,16 @@ impl Server {
 		// Create the reader.
 		let mut reader = Reader::new(self, id).await?;
 
-		// Seek the reader and get the position.
-		let position = if let Some(position) = arg.position {
-			reader
-				.seek(std::io::SeekFrom::Start(position))
-				.await
-				.wrap_err("Failed to seek the stream.")?
+		// Seek the reader.
+		let seek = if let Some(position) = arg.position {
+			std::io::SeekFrom::Start(position)
 		} else {
-			reader
-				.seek(std::io::SeekFrom::End(0))
-				.await
-				.wrap_err("Failed to seek the stream.")?
+			std::io::SeekFrom::End(0)
 		};
+		reader
+			.seek(seek)
+			.await
+			.wrap_err("Failed to seek the stream.")?;
 
 		// Get the length.
 		let length = arg.length;
@@ -135,15 +135,10 @@ impl Server {
 
 		// Create the stream.
 		struct State {
-			position: u64,
 			read: u64,
 			reader: Reader,
 		}
-		let state = Arc::new(tokio::sync::Mutex::new(State {
-			position,
-			read: 0,
-			reader,
-		}));
+		let state = Arc::new(tokio::sync::Mutex::new(State { read: 0, reader }));
 		let server = self.clone();
 		let id = id.clone();
 		let stream = stream::try_unfold(
@@ -198,7 +193,7 @@ impl Server {
 									size.min(length.abs().to_u64().unwrap() - state_.read)
 								} else {
 									size.min(length.abs().to_u64().unwrap() - state_.read)
-										.min(state_.position)
+										.min(state_.reader.position())
 								}
 							},
 						};
@@ -206,7 +201,7 @@ impl Server {
 						// Seek if necessary.
 						if length.is_some_and(|length| length < 0) {
 							let seek = std::io::SeekFrom::Current(-size.to_i64().unwrap());
-							state_.position = state_
+							state_
 								.reader
 								.seek(seek)
 								.await
@@ -214,6 +209,7 @@ impl Server {
 						}
 
 						// Read the chunk.
+						let position = state_.reader.position();
 						let mut data = vec![0u8; size.to_usize().unwrap()];
 						let mut read = 0;
 						while read < data.len() {
@@ -229,37 +225,34 @@ impl Server {
 						}
 						data.truncate(read);
 						let chunk = tg::build::log::Chunk {
-							position: state_.position,
+							position,
 							bytes: data.into(),
 						};
 
 						// Update the state.
-						state_.position += read.to_u64().unwrap();
 						state_.read += read.to_u64().unwrap();
 
 						// Seek if necessary.
 						if length.is_some_and(|length| length < 0) {
 							let seek = std::io::SeekFrom::Current(-read.to_i64().unwrap());
-							state_.position = state_
+							state_
 								.reader
 								.seek(seek)
 								.await
 								.wrap_err("Failed to seek the reader.")?;
 						}
 
-						drop(state_);
-
 						// If the chunk is empty, then only return it if the build is finished and the position is at the end.
 						if chunk.bytes.is_empty() {
-							let end = server
-								.try_get_build_log_local_end(&id, chunk.position)
-								.await?;
-							if end {
+							if state_.reader.end().await? {
+								drop(state_);
 								return Ok::<_, Error>(Some((chunk, (server, id, state, true))));
 							}
+							drop(state_);
 							return Ok(None);
 						}
 
+						drop(state_);
 						Ok::<_, Error>(Some((chunk, (server, id, state, end))))
 					},
 				);
@@ -273,36 +266,6 @@ impl Server {
 		Ok(Some(stream))
 	}
 
-	async fn try_get_build_log_local_end(&self, id: &tg::build::Id, position: u64) -> Result<bool> {
-		let db = self.inner.database.get().await?;
-		let statement = "
-			select (
-				select state->>'status' = 'finished'
-				from builds
-				where id = ?1
-			) and (
-				select ?2 >= coalesce(max(position) + length(bytes), 0)
-				from build_logs
-				where build = ?1
-			);
-		";
-		let mut statement = db
-			.prepare_cached(statement)
-			.wrap_err("Failed to prepare the statement.")?;
-		let params = params![id.to_string(), position];
-		let mut rows = statement
-			.query(params)
-			.wrap_err("Failed to execute the statement.")?;
-		let row = rows
-			.next()
-			.wrap_err("Failed to get row.")?
-			.wrap_err("Expected a row.")?;
-		let end = row
-			.get::<_, bool>(0)
-			.wrap_err("Failed to deserialize the column.")?;
-		Ok(end)
-	}
-
 	async fn try_get_build_log_remote(
 		&self,
 		id: &tg::build::Id,
@@ -312,14 +275,9 @@ impl Server {
 		let Some(remote) = self.inner.remote.as_ref() else {
 			return Ok(None);
 		};
-		let Some(log) = remote.try_get_build_log(id, arg).await? else {
+		let Some(log) = remote.try_get_build_log(id, arg, stop).await? else {
 			return Ok(None);
 		};
-		let stop = stop.map_or_else(
-			|| future::pending().boxed(),
-			|mut stop| async move { stop.wait_for(|s| *s).map(|_| ()).await }.boxed(),
-		);
-		let log = log.take_until(stop).boxed();
 		Ok(Some(log))
 	}
 
@@ -419,17 +377,31 @@ impl Server {
 
 impl Reader {
 	pub async fn new(server: &Server, id: &tg::build::Id) -> Result<Self> {
-		let build = server
+		let output = server
 			.try_get_build_local(id)
 			.await?
-			.wrap_err("Expected a local build.")?;
-		if let Some(log) = build.state.log {
+			.wrap_err("Expected the build to exist.")?;
+		if let Some(log) = output.state.log {
 			let blob = tg::Blob::with_id(log);
 			let reader = blob.reader(server).await?;
 			Ok(Self::Blob(reader))
 		} else {
 			let reader = DatabaseReader::new(server, id);
 			Ok(Self::Database(reader))
+		}
+	}
+
+	pub fn position(&self) -> u64 {
+		match self {
+			Reader::Blob(reader) => reader.position(),
+			Reader::Database(reader) => reader.position(),
+		}
+	}
+
+	pub async fn end(&self) -> Result<bool> {
+		match self {
+			Reader::Blob(reader) => Ok(reader.end()),
+			Reader::Database(reader) => reader.end().await,
 		}
 	}
 }
@@ -450,6 +422,49 @@ impl DatabaseReader {
 			seek,
 			server,
 		}
+	}
+
+	fn position(&self) -> u64 {
+		self.position
+	}
+
+	pub async fn end(&self) -> Result<bool> {
+		let db = self.server.inner.database.get().await?;
+		let statement = "
+			select (
+				select state->>'status' = 'finished'
+				from builds
+				where id = ?1
+			) and (
+				select coalesce(
+					(
+						select ?2 >= position + length(bytes)
+						from build_logs
+						where build = ?1 and position = (
+							select max(position) 
+							from build_logs
+							where build = ?1
+						)
+					),
+					true
+				)
+			);
+		";
+		let mut statement = db
+			.prepare_cached(statement)
+			.wrap_err("Failed to prepare the statement.")?;
+		let params = params![self.id.to_string(), self.position];
+		let mut rows = statement
+			.query(params)
+			.wrap_err("Failed to execute the statement.")?;
+		let row = rows
+			.next()
+			.wrap_err("Failed to get row.")?
+			.wrap_err("Expected a row.")?;
+		let end = row
+			.get::<_, bool>(0)
+			.wrap_err("Failed to deserialize the column.")?;
+		Ok(end)
 	}
 }
 
@@ -629,9 +644,18 @@ async fn poll_seek_inner(
 ) -> Result<u64> {
 	let db = server.inner.database.get().await?;
 	let statement = "
-		select coalesce(max(position) + length(bytes), 0)
-		from build_logs
-		where build = ?1;
+		select coalesce(
+			(
+				select position + length(bytes)
+				from build_logs
+				where build = ?1 and position = (
+					select max(position) 
+					from build_logs
+					where build = ?1
+				)
+			),
+			0
+		);
 	";
 	let params = params![id.to_string()];
 	let mut statement = db
@@ -660,7 +684,7 @@ async fn poll_seek_inner(
 	Ok(position)
 }
 
-impl Server {
+impl Http {
 	pub async fn handle_get_build_log_request(
 		&self,
 		request: http::Request<Incoming>,
@@ -697,8 +721,8 @@ impl Server {
 			return Err(error!("The accept header must be set."));
 		};
 
-		// Get the log.
-		let Some(stream) = self.try_get_build_log(&id, arg, None).await? else {
+		let stop = request.extensions().get().cloned();
+		let Some(stream) = self.inner.tg.try_get_build_log(&id, arg, stop).await? else {
 			return Ok(not_found());
 		};
 
@@ -750,7 +774,10 @@ impl Server {
 			.wrap_err("Failed to read the body.")?
 			.to_bytes();
 
-		self.add_build_log(user.as_ref(), &build_id, bytes).await?;
+		self.inner
+			.tg
+			.add_build_log(user.as_ref(), &build_id, bytes)
+			.await?;
 
 		let response = http::Response::builder()
 			.status(http::StatusCode::OK)

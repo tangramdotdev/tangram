@@ -1,4 +1,4 @@
-use crate::Server;
+use crate::{Http, Server};
 use tangram_client as tg;
 use tangram_error::{error, Result, WrapErr};
 use tangram_util::http::{bad_request, full, get_token, unauthorized, Incoming, Outgoing};
@@ -32,13 +32,13 @@ impl Server {
 	}
 }
 
-impl Server {
+impl Http {
 	pub async fn handle_create_login_request(
 		&self,
 		_request: http::Request<Incoming>,
 	) -> Result<http::Response<Outgoing>> {
 		// Create the login.
-		let login = self.create_login().await?;
+		let login = self.inner.tg.create_login().await?;
 
 		// Create the response.
 		let body = serde_json::to_string(&login).wrap_err("Failed to serialize the response.")?;
@@ -64,7 +64,7 @@ impl Server {
 		};
 
 		// Get the login.
-		let login = self.get_login(&id).await?;
+		let login = self.inner.tg.get_login(&id).await?;
 
 		// Create the response.
 		let response =
@@ -87,7 +87,7 @@ impl Server {
 		};
 
 		// Authenticate the user.
-		let Some(user) = self.get_user_for_token(token.as_str()).await? else {
+		let Some(user) = self.inner.tg.get_user_for_token(token.as_str()).await? else {
 			return Ok(unauthorized());
 		};
 

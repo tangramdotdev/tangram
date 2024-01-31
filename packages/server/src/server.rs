@@ -1,13 +1,13 @@
-use crate::Server;
+use crate::Http;
 use tangram_error::Result;
 use tangram_util::http::{empty, full, ok, Incoming, Outgoing};
 
-impl Server {
+impl Http {
 	pub async fn handle_health_request(
 		&self,
 		_request: http::Request<Incoming>,
 	) -> Result<http::Response<Outgoing>> {
-		let health = self.health().await?;
+		let health = self.inner.tg.health().await?;
 		let body = serde_json::to_vec(&health).unwrap();
 		let response = http::Response::builder()
 			.status(http::StatusCode::OK)
@@ -20,7 +20,7 @@ impl Server {
 		&self,
 		_request: http::Request<Incoming>,
 	) -> Result<http::Response<Outgoing>> {
-		self.clean().await?;
+		self.inner.tg.clean().await?;
 		Ok(http::Response::builder()
 			.status(http::StatusCode::OK)
 			.body(empty())

@@ -1,7 +1,7 @@
 #!/bin/bash
 
-# Set the Tangram version.
-version="0.1.0"
+# Set the version.
+version="0.0.0"
 
 # Exit if any command fails.
 set -e
