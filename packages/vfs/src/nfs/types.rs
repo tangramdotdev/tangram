@@ -1247,6 +1247,95 @@ pub enum nfs_argop4 {
 	Unimplemented(nfs_opnum4),
 }
 
+impl nfs_argop4 {
+	pub fn name(&self) -> &'static str {
+		match self {
+			Self::OP_ACCESS(_) => "ACCESS",
+			Self::OP_CLOSE(_) => "CLOSE",
+			Self::OP_COMMIT => "COMMIT",
+			Self::OP_CREATE => "CREATE",
+			Self::OP_DELEGPURGE => "DELEGPURGE",
+			Self::OP_DELEGRETURN => "DELEGRETURN",
+			Self::OP_GETATTR(_) => "GETATTR",
+			Self::OP_GETFH => "GETFH",
+			Self::OP_LINK => "LINK",
+			Self::OP_LOCK(_) => "LOCK",
+			Self::OP_LOCKT(_) => "LOCKT",
+			Self::OP_LOCKU(_) => "LOCKU",
+			Self::OP_LOOKUP(_) => "LOOKUP",
+			Self::OP_LOOKUPP => "LOOKUPP",
+			Self::OP_OPEN(_) => "OPEN",
+			Self::OP_NVERIFY(_) => "NVERIFY",
+			Self::OP_OPENATTR(_) => "OPENATTR",
+			Self::OP_OPEN_CONFIRM(_) => "OPEN_CONFIRM",
+			Self::OP_OPEN_DOWNGRADE => "OPEN_DOWNGRADE",
+			Self::OP_PUTFH(_) => "PUTFH",
+			Self::OP_PUTPUBFH => "PUTPUBFH",
+			Self::OP_PUTROOTFH => "PUTROOTFH",
+			Self::OP_READ(_) => "READ",
+			Self::OP_READDIR(_) => "READDIR",
+			Self::OP_READLINK => "READLINK",
+			Self::OP_REMOVE => "REMOVE",
+			Self::OP_RENAME => "RENAME",
+			Self::OP_RENEW(_) => "RENEW",
+			Self::OP_RESTOREFH => "RESTOREFH",
+			Self::OP_SAVEFH => "SAVEFH",
+			Self::OP_SECINFO(_) => "SECINFO",
+			Self::OP_SETATTR => "SETATTR",
+			Self::OP_SETCLIENTID(_) => "SETCLIENTID",
+			Self::OP_SETCLIENTID_CONFIRM(_) => "SETCLIENTID_CONFIRM",
+			Self::OP_VERIFY => "VERIFY",
+			Self::OP_WRITE => "WRITE",
+			Self::OP_RELEASE_LOCKOWNER(_) => "RELEASE_LOCKOWNER",
+			Self::OP_ILLEGAL => "ILLEGAL",
+			Self::Unimplemented(_) => "Unimplemented",
+		}
+	}
+
+	pub fn opnum(&self) -> nfs_opnum4 {
+		match self {
+			Self::OP_ACCESS(_) => nfs_opnum4::OP_ACCESS,
+			Self::OP_CLOSE(_) => nfs_opnum4::OP_CLOSE,
+			Self::OP_COMMIT => nfs_opnum4::OP_COMMIT,
+			Self::OP_CREATE => nfs_opnum4::OP_CREATE,
+			Self::OP_DELEGPURGE => nfs_opnum4::OP_DELEGPURGE,
+			Self::OP_DELEGRETURN => nfs_opnum4::OP_DELEGRETURN,
+			Self::OP_GETATTR(_) => nfs_opnum4::OP_GETATTR,
+			Self::OP_GETFH => nfs_opnum4::OP_GETFH,
+			Self::OP_LINK => nfs_opnum4::OP_LINK,
+			Self::OP_LOCK(_) => nfs_opnum4::OP_LOCK,
+			Self::OP_LOCKT(_) => nfs_opnum4::OP_LOCKT,
+			Self::OP_LOCKU(_) => nfs_opnum4::OP_LOCKU,
+			Self::OP_LOOKUP(_) => nfs_opnum4::OP_LOOKUP,
+			Self::OP_LOOKUPP => nfs_opnum4::OP_LOOKUPP,
+			Self::OP_OPEN(_) => nfs_opnum4::OP_OPEN,
+			Self::OP_NVERIFY(_) => nfs_opnum4::OP_NVERIFY,
+			Self::OP_OPENATTR(_) => nfs_opnum4::OP_OPENATTR,
+			Self::OP_OPEN_CONFIRM(_) => nfs_opnum4::OP_OPEN_CONFIRM,
+			Self::OP_OPEN_DOWNGRADE => nfs_opnum4::OP_OPEN_DOWNGRADE,
+			Self::OP_PUTFH(_) => nfs_opnum4::OP_PUTFH,
+			Self::OP_PUTPUBFH => nfs_opnum4::OP_PUTPUBFH,
+			Self::OP_PUTROOTFH => nfs_opnum4::OP_PUTROOTFH,
+			Self::OP_READ(_) => nfs_opnum4::OP_READ,
+			Self::OP_READDIR(_) => nfs_opnum4::OP_READDIR,
+			Self::OP_READLINK => nfs_opnum4::OP_READLINK,
+			Self::OP_REMOVE => nfs_opnum4::OP_REMOVE,
+			Self::OP_RENAME => nfs_opnum4::OP_RENAME,
+			Self::OP_RENEW(_) => nfs_opnum4::OP_RENEW,
+			Self::OP_RESTOREFH => nfs_opnum4::OP_RESTOREFH,
+			Self::OP_SAVEFH => nfs_opnum4::OP_SAVEFH,
+			Self::OP_SECINFO(_) => nfs_opnum4::OP_SECINFO,
+			Self::OP_SETATTR => nfs_opnum4::OP_SETATTR,
+			Self::OP_SETCLIENTID(_) => nfs_opnum4::OP_SETCLIENTID,
+			Self::OP_SETCLIENTID_CONFIRM(_) => nfs_opnum4::OP_SETCLIENTID_CONFIRM,
+			Self::OP_VERIFY => nfs_opnum4::OP_VERIFY,
+			Self::OP_WRITE => nfs_opnum4::OP_WRITE,
+			Self::OP_RELEASE_LOCKOWNER(_) => nfs_opnum4::OP_RELEASE_LOCKOWNER,
+			Self::OP_ILLEGAL => nfs_opnum4::OP_ILLEGAL,
+			Self::Unimplemented(op) => *op,
+		}
+	}
+}
 #[derive(Clone, Debug)]
 pub enum nfs_resop4 {
 	OP_ACCESS(ACCESS4res),
@@ -1288,6 +1377,7 @@ pub enum nfs_resop4 {
 	OP_RELEASE_LOCKOWNER(RELEASE_LOCKOWNER4res),
 	OP_ILLEGAL(ILLEGAL4res),
 	Unknown(nfs_opnum4),
+	Timeout(nfs_opnum4),
 }
 
 impl xdr::FromXdr for nfs_ftype4 {
@@ -2797,6 +2887,10 @@ impl xdr::ToXdr for nfs_resop4 {
 				encoder.encode(opnum)?;
 				encoder.encode(&nfsstat4::NFS4ERR_NOTSUPP)?;
 			},
+			nfs_resop4::Timeout(opnum) => {
+				encoder.encode(opnum)?;
+				encoder.encode(&nfsstat4::NFS4ERR_DELAY)?;
+			},
 		}
 		Ok(())
 	}
@@ -2949,6 +3043,7 @@ impl nfs_resop4 {
 			nfs_resop4::OP_WRITE => nfsstat4::NFS4ERR_PERM,
 			nfs_resop4::OP_RELEASE_LOCKOWNER(RELEASE_LOCKOWNER4res { status }) => *status,
 			nfs_resop4::Unknown(_) => nfsstat4::NFS4ERR_NOTSUPP,
+			nfs_resop4::Timeout(_) => nfsstat4::NFS4ERR_DELAY,
 		}
 	}
 }

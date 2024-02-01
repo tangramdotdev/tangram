@@ -1,16 +1,17 @@
 use either::Either;
+use fnv::FnvBuildHasher;
 use num::ToPrimitive;
 use std::{
-	collections::BTreeMap,
+	collections::HashMap,
 	ffi::CString,
-	io::SeekFrom,
+	io::{Read, SeekFrom, Write},
 	os::{fd::FromRawFd, unix::prelude::OsStrExt},
 	path::{Path, PathBuf},
 	sync::{Arc, Weak},
 };
 use tangram_client as tg;
 use tangram_error::{Result, Wrap, WrapErr};
-use tokio::io::{AsyncReadExt, AsyncSeekExt, AsyncWriteExt};
+use tokio::io::{AsyncReadExt, AsyncSeekExt};
 use zerocopy::{AsBytes, FromBytes};
 mod sys;
 
@@ -20,23 +21,20 @@ pub struct Server {
 	inner: Arc<Inner>,
 }
 
+type Map<K, V> = HashMap<K, V, FnvBuildHasher>;
+
 struct Inner {
 	path: std::path::PathBuf,
-	state: tokio::sync::RwLock<State>,
 	task: std::sync::Mutex<Option<tokio::task::JoinHandle<Result<()>>>>,
 	tg: Box<dyn tg::Handle>,
-}
-
-/// The server's state.
-struct State {
-	file_handle_index: u64,
-	handles: BTreeMap<FileHandle, Arc<tokio::sync::RwLock<FileHandleData>>>,
-	node_index: u64,
-	nodes: BTreeMap<NodeId, Arc<Node>>,
+	nodes: parking_lot::RwLock<Map<NodeId, Arc<Node>>>,
+	node_index: std::sync::atomic::AtomicU64,
+	handles: parking_lot::RwLock<Map<FileHandle, Arc<tokio::sync::RwLock<FileHandleData>>>>,
+	handle_index: std::sync::atomic::AtomicU64,
 }
 
 /// A node in the file system.
-#[derive(Clone, Copy, Debug, Eq, Ord, PartialEq, PartialOrd)]
+#[derive(Clone, Copy, Debug, Eq, Ord, PartialEq, PartialOrd, Hash)]
 struct NodeId(u64);
 
 /// The root node has ID 1.
@@ -54,11 +52,11 @@ struct Node {
 #[derive(Debug)]
 enum NodeKind {
 	Root {
-		children: tokio::sync::RwLock<BTreeMap<String, Arc<Node>>>,
+		children: parking_lot::RwLock<Map<String, Arc<Node>>>,
 	},
 	Directory {
 		directory: tg::Directory,
-		children: tokio::sync::RwLock<BTreeMap<String, Arc<Node>>>,
+		children: parking_lot::RwLock<Vec<(String, Arc<Node>)>>,
 	},
 	File {
 		file: tg::File,
@@ -142,38 +140,36 @@ impl Server {
 			id: ROOT_NODE_ID,
 			parent: root.clone(),
 			kind: NodeKind::Root {
-				children: tokio::sync::RwLock::new(BTreeMap::default()),
+				children: parking_lot::RwLock::new(Map::default()),
 			},
 		});
-		let nodes = [(ROOT_NODE_ID, root)].into();
-		let reader_index = 0;
-		let node_index = 1000;
-		let handles = BTreeMap::default();
-		let state = State {
-			file_handle_index: reader_index,
-			handles,
-			node_index,
-			nodes,
-		};
-		let state = tokio::sync::RwLock::new(state);
+		let nodes = [(ROOT_NODE_ID, root)].into_iter().collect::<Map<_, _>>();
+		let nodes = parking_lot::RwLock::new(nodes);
+		let node_index = std::sync::atomic::AtomicU64::new(1000);
+		let handles = parking_lot::RwLock::new(Map::default());
+		let handle_index = std::sync::atomic::AtomicU64::new(0);
 		let tg = tg.clone_box();
 		let task = std::sync::Mutex::new(None);
 		let server = Self {
 			inner: Arc::new(Inner {
 				path: path.to_owned(),
-				state,
 				task,
 				tg,
+				node_index,
+				nodes,
+				handle_index,
+				handles,
 			}),
 		};
 
 		// Mount.
-		let file = Self::mount(path).await?;
+		let fuse_file = Self::mount(path).await?;
+		// let fuse_file = tokio::fs::File::from_std(fuse_file);
 
 		// Spawn the task.
 		let task = tokio::spawn({
 			let server = server.clone();
-			async move { server.serve(file).await }
+			async move { server.serve(fuse_file).await }
 		});
 		server.inner.task.lock().unwrap().replace(task);
 
@@ -205,163 +201,172 @@ impl Server {
 	}
 
 	#[allow(clippy::too_many_lines)]
-	async fn serve(&self, fuse_file: std::fs::File) -> Result<()> {
-		let mut fuse_file = tokio::fs::File::from_std(fuse_file);
-
+	async fn serve(&self, mut fuse_file: std::fs::File) -> Result<()> {
 		// Create a buffer to read requests into.
 		let mut request_buffer = vec![0u8; 1024 * 1024 + 4096];
 
 		// Handle each request.
-		loop {
-			// Read a request from the FUSE file.
-			let request_size = match fuse_file.read(request_buffer.as_mut()).await {
-				Ok(request_size) => request_size,
+		let server = self.clone();
+		tokio::task::spawn_blocking(move || {
+			loop {
+				// Read a request from the FUSE file.
+				let request_size = match fuse_file.read(request_buffer.as_mut()) {
+					Ok(request_size) => request_size,
 
-				// Handle an error reading the request from the FUSE file.
-				Err(error) => match error.raw_os_error() {
-					// If the error is ENOENT, EINTR, or EAGAIN, then continue.
-					Some(libc::ENOENT | libc::EINTR | libc::EAGAIN) => continue,
+					// Handle an error reading the request from the FUSE file.
+					Err(error) => match error.raw_os_error() {
+						// If the error is ENOENT, EINTR, or EAGAIN, then continue.
+						Some(libc::ENOENT | libc::EINTR | libc::EAGAIN) => continue,
 
-					// If the error is ENODEV, then the FUSE file has been unmounted.
-					Some(libc::ENODEV) => return Ok(()),
+						// If the error is ENODEV, then the FUSE file has been unmounted.
+						Some(libc::ENODEV) => return Ok(()),
 
-					// Otherwise, return the error.
-					_ => return Err(error.wrap("Failed to read the request.")),
-				},
-			};
-			let request_bytes = &request_buffer[..request_size];
-
-			// Deserialize the request.
-			let request_header = sys::fuse_in_header::read_from_prefix(request_bytes)
-				.wrap_err("Failed to deserialize the request header.")?;
-			let request_header_len = std::mem::size_of::<sys::fuse_in_header>();
-			let request_data = &request_bytes[request_header_len..];
-			let request_data = match request_header.opcode {
-				sys::fuse_opcode::FUSE_DESTROY => {
-					break;
-				},
-				sys::fuse_opcode::FUSE_FLUSH => RequestData::Flush(read_data(request_data)?),
-				sys::fuse_opcode::FUSE_FORGET => RequestData::Forget(read_data(request_data)?),
-				sys::fuse_opcode::FUSE_BATCH_FORGET => {
-					RequestData::BatchForget(read_data(request_data)?)
-				},
-				sys::fuse_opcode::FUSE_GETATTR => RequestData::GetAttr(read_data(request_data)?),
-				sys::fuse_opcode::FUSE_INIT => RequestData::Init(read_data(request_data)?),
-				sys::fuse_opcode::FUSE_LOOKUP => {
-					let data = CString::from_vec_with_nul(request_data.to_owned())
-						.wrap_err("Failed to deserialize the request.")?;
-					RequestData::Lookup(data)
-				},
-				sys::fuse_opcode::FUSE_OPEN => RequestData::Open(read_data(request_data)?),
-				sys::fuse_opcode::FUSE_OPENDIR => RequestData::OpenDir(read_data(request_data)?),
-				sys::fuse_opcode::FUSE_READ => RequestData::Read(read_data(request_data)?),
-				sys::fuse_opcode::FUSE_READDIR => RequestData::ReadDir(read_data(request_data)?),
-				sys::fuse_opcode::FUSE_READDIRPLUS => {
-					RequestData::ReadDirPlus(read_data(request_data)?)
-				},
-				sys::fuse_opcode::FUSE_READLINK => RequestData::ReadLink,
-				sys::fuse_opcode::FUSE_RELEASE => RequestData::Release(read_data(request_data)?),
-				sys::fuse_opcode::FUSE_RELEASEDIR => {
-					RequestData::ReleaseDir(read_data(request_data)?)
-				},
-				sys::fuse_opcode::FUSE_GETXATTR => {
-					let (fuse_getxattr_in, name) =
-						request_data.split_at(std::mem::size_of::<sys::fuse_getxattr_in>());
-					let fuse_getxattr_in = read_data(fuse_getxattr_in)?;
-					let name = CString::from_vec_with_nul(name.to_owned())
-						.wrap_err("Failed to deserialize the request.")?;
-					RequestData::GetXattr(fuse_getxattr_in, name)
-				},
-				sys::fuse_opcode::FUSE_LISTXATTR => {
-					RequestData::ListXattr(read_data(request_data)?)
-				},
-				_ => RequestData::Unsupported(request_header.opcode),
-			};
-			let request = Request {
-				header: request_header,
-				data: request_data,
-			};
-
-			// Spawn a task to handle the request.
-			let mut fuse_file = fuse_file
-				.try_clone()
-				.await
-				.wrap_err("Failed to clone the FUSE file.")?;
-			let server = self.clone();
-			tokio::spawn(async move {
-				// Handle the request and get the response.
-				let unique = request.header.unique;
-				// Edge case: Don't send a reply if the kernel sends a FUSE_FORGET/FUSE_BATCH_FORGET request. We don't support these requests anyway (we cannot forget inodes, and duplicate inodes pointing to the same artifact are OK).
-				if [
-					sys::fuse_opcode::FUSE_FORGET,
-					sys::fuse_opcode::FUSE_BATCH_FORGET,
-				]
-				.contains(&request.header.opcode)
-				{
-					tracing::warn!(?request, "Ignoring FORGET/FORGET_BATCH request.");
-					return;
-				}
-
-				let result = server.handle_request(request).await;
-				if let Err(e) = &result {
-					tracing::error!(?e, "Request failed.");
-				}
-
-				// Serialize the response.
-				let response_bytes = match result {
-					Err(error) => {
-						let len = std::mem::size_of::<sys::fuse_out_header>();
-						let header = sys::fuse_out_header {
-							unique,
-							len: len.to_u32().unwrap(),
-							error: -error,
-						};
-						header.as_bytes().to_owned()
-					},
-					Ok(data) => {
-						let data_bytes = match &data {
-							Response::Flush
-							| Response::None
-							| Response::Release
-							| Response::ReleaseDir => &[],
-							Response::GetAttr(data) => data.as_bytes(),
-							Response::Init(data) => data.as_bytes(),
-							Response::Lookup(data) => data.as_bytes(),
-							Response::Open(data) | Response::OpenDir(data) => data.as_bytes(),
-							Response::Read(data)
-							| Response::ReadDir(data)
-							| Response::ReadDirPlus(data)
-							| Response::GetXattr(data)
-							| Response::ListXattr(data) => data.as_bytes(),
-							Response::ReadLink(data) => data.as_bytes(),
-						};
-						let len = std::mem::size_of::<sys::fuse_out_header>() + data_bytes.len();
-						let header = sys::fuse_out_header {
-							unique,
-							len: len.to_u32().unwrap(),
-							error: 0,
-						};
-						let mut buffer = header.as_bytes().to_owned();
-						buffer.extend_from_slice(data_bytes);
-						buffer
+						// Otherwise, return the error.
+						_ => return Err(error.wrap("Failed to read the request.")),
 					},
 				};
+				let request_bytes = &request_buffer[..request_size];
 
-				// Write the response.
-				match fuse_file.write_all(&response_bytes).await {
-					Ok(()) => (),
-					Err(error) => {
-						tracing::error!(?error, "Failed to write the response.");
+				// Deserialize the request.
+				let request_header = sys::fuse_in_header::read_from_prefix(request_bytes)
+					.wrap_err("Failed to deserialize the request header.")?;
+				let request_header_len = std::mem::size_of::<sys::fuse_in_header>();
+				let request_data = &request_bytes[request_header_len..];
+				let request_data = match request_header.opcode {
+					sys::fuse_opcode::FUSE_DESTROY => {
+						break;
 					},
+					sys::fuse_opcode::FUSE_FLUSH => RequestData::Flush(read_data(request_data)?),
+					sys::fuse_opcode::FUSE_FORGET => RequestData::Forget(read_data(request_data)?),
+					sys::fuse_opcode::FUSE_BATCH_FORGET => {
+						RequestData::BatchForget(read_data(request_data)?)
+					},
+					sys::fuse_opcode::FUSE_GETATTR => {
+						RequestData::GetAttr(read_data(request_data)?)
+					},
+					sys::fuse_opcode::FUSE_INIT => RequestData::Init(read_data(request_data)?),
+					sys::fuse_opcode::FUSE_LOOKUP => {
+						let data = CString::from_vec_with_nul(request_data.to_owned())
+							.wrap_err("Failed to deserialize the request.")?;
+						RequestData::Lookup(data)
+					},
+					sys::fuse_opcode::FUSE_OPEN => RequestData::Open(read_data(request_data)?),
+					sys::fuse_opcode::FUSE_OPENDIR => {
+						RequestData::OpenDir(read_data(request_data)?)
+					},
+					sys::fuse_opcode::FUSE_READ => RequestData::Read(read_data(request_data)?),
+					sys::fuse_opcode::FUSE_READDIR => {
+						RequestData::ReadDir(read_data(request_data)?)
+					},
+					sys::fuse_opcode::FUSE_READDIRPLUS => {
+						RequestData::ReadDirPlus(read_data(request_data)?)
+					},
+					sys::fuse_opcode::FUSE_READLINK => RequestData::ReadLink,
+					sys::fuse_opcode::FUSE_RELEASE => {
+						RequestData::Release(read_data(request_data)?)
+					},
+					sys::fuse_opcode::FUSE_RELEASEDIR => {
+						RequestData::ReleaseDir(read_data(request_data)?)
+					},
+					sys::fuse_opcode::FUSE_GETXATTR => {
+						let (fuse_getxattr_in, name) =
+							request_data.split_at(std::mem::size_of::<sys::fuse_getxattr_in>());
+						let fuse_getxattr_in = read_data(fuse_getxattr_in)?;
+						let name = CString::from_vec_with_nul(name.to_owned())
+							.wrap_err("Failed to deserialize the request.")?;
+						RequestData::GetXattr(fuse_getxattr_in, name)
+					},
+					sys::fuse_opcode::FUSE_LISTXATTR => {
+						RequestData::ListXattr(read_data(request_data)?)
+					},
+					_ => RequestData::Unsupported(request_header.opcode),
 				};
-			});
-		}
+				let request = Request {
+					header: request_header,
+					data: request_data,
+				};
+
+				// Spawn a task to handle the request.
+				let mut fuse_file = fuse_file
+					.try_clone()
+					.wrap_err("Failed to clone the FUSE file.")?;
+				let server = server.clone();
+				tokio::spawn(async move {
+					// Handle the request and get the response.
+					let unique = request.header.unique;
+					// Edge case: Don't send a reply if the kernel sends a FUSE_FORGET/FUSE_BATCH_FORGET request. We don't support these requests anyway (we cannot forget inodes, and duplicate inodes pointing to the same artifact are OK).
+					if [
+						sys::fuse_opcode::FUSE_FORGET,
+						sys::fuse_opcode::FUSE_BATCH_FORGET,
+					]
+					.contains(&request.header.opcode)
+					{
+						tracing::warn!(?request, "Ignoring FORGET/FORGET_BATCH request.");
+						return;
+					}
+
+					let result = server.handle_request(request).await;
+					if let Err(e) = &result {
+						tracing::error!(?e, "Request failed.");
+					}
+
+					// Serialize the response.
+					let response_bytes = match result {
+						Err(error) => {
+							let len = std::mem::size_of::<sys::fuse_out_header>();
+							let header = sys::fuse_out_header {
+								unique,
+								len: len.to_u32().unwrap(),
+								error: -error,
+							};
+							header.as_bytes().to_owned()
+						},
+						Ok(data) => {
+							let data_bytes = match &data {
+								Response::Flush
+								| Response::None
+								| Response::Release
+								| Response::ReleaseDir => &[],
+								Response::GetAttr(data) => data.as_bytes(),
+								Response::Init(data) => data.as_bytes(),
+								Response::Lookup(data) => data.as_bytes(),
+								Response::Open(data) | Response::OpenDir(data) => data.as_bytes(),
+								Response::Read(data)
+								| Response::ReadDir(data)
+								| Response::ReadDirPlus(data)
+								| Response::GetXattr(data)
+								| Response::ListXattr(data) => data.as_bytes(),
+								Response::ReadLink(data) => data.as_bytes(),
+							};
+							let len =
+								std::mem::size_of::<sys::fuse_out_header>() + data_bytes.len();
+							let header = sys::fuse_out_header {
+								unique,
+								len: len.to_u32().unwrap(),
+								error: 0,
+							};
+							let mut buffer = header.as_bytes().to_owned();
+							buffer.extend_from_slice(data_bytes);
+							buffer
+						},
+					};
+
+					// Write the response.
+					match fuse_file.write_all(&response_bytes) {
+						Ok(()) => (),
+						Err(error) => {
+							tracing::error!(?error, "Failed to write the response.");
+						},
+					};
+				});
+			}
+			Ok(())
+		});
 
 		Ok(())
 	}
 
 	/// Handle a request.
-	#[tracing::instrument(skip(self))]
 	async fn handle_request(&self, request: Request) -> Result<Response, i32> {
 		match request.data {
 			RequestData::Flush(data) => self.handle_flush_request(request.header, data).await,
@@ -604,16 +609,20 @@ impl Server {
 		// Add the file handle to the state.
 		let file_handle = self.next_file_handle().await;
 		self.inner
-			.state
-			.write()
-			.await
 			.handles
+			.write()
 			.insert(file_handle, file_handle_data);
 
 		// Create the response.
+		let open_flags = if matches!(&node.kind, NodeKind::Directory { .. }) {
+			sys::FOPEN_CACHE_DIR | sys::FOPEN_KEEP_CACHE
+		} else {
+			sys::FOPEN_NOFLUSH | sys::FOPEN_KEEP_CACHE
+		};
+
 		let response = sys::fuse_open_out {
 			fh: file_handle.0,
-			open_flags: 0,
+			open_flags,
 			padding: 0,
 		};
 
@@ -644,16 +653,15 @@ impl Server {
 		let file_handle = FileHandle(data.fh);
 		let file_handle_data = self
 			.inner
-			.state
-			.read()
-			.await
 			.handles
+			.read()
 			.get(&file_handle)
 			.ok_or(libc::ENOENT)?
 			.clone();
 
 		// Get the reader, sanity checking that the file handle was not corrupted.
 		let mut file_handle_data = file_handle_data.write().await;
+
 		let blob_reader = match &mut *file_handle_data {
 			FileHandleData::File { node, .. } if node.0 != node_id.0 => {
 				tracing::error!(?file_handle, ?node, "File handle corrupted.");
@@ -823,7 +831,7 @@ impl Server {
 		data: sys::fuse_release_in,
 	) -> Result<Response, i32> {
 		let file_handle = FileHandle(data.fh);
-		self.inner.state.write().await.handles.remove(&file_handle);
+		self.inner.handles.write().remove(&file_handle);
 		Ok(Response::Release)
 	}
 
@@ -833,7 +841,7 @@ impl Server {
 		data: sys::fuse_release_in,
 	) -> Result<Response, i32> {
 		let file_handle = FileHandle(data.fh);
-		self.inner.state.write().await.handles.remove(&file_handle);
+		self.inner.handles.write().remove(&file_handle);
 		Ok(Response::ReleaseDir)
 	}
 
@@ -851,8 +859,7 @@ impl Server {
 	}
 
 	async fn get_node(&self, node_id: NodeId) -> Result<Arc<Node>, i32> {
-		let state = self.inner.state.read().await;
-		let Some(node) = state.nodes.get(&node_id).cloned() else {
+		let Some(node) = self.inner.nodes.read().get(&node_id).cloned() else {
 			return Err(libc::ENOENT);
 		};
 		Ok(node)
@@ -876,12 +883,20 @@ impl Server {
 
 		// If the child already exists, then return it.
 		match &parent_node.kind {
-			NodeKind::Root { children } | NodeKind::Directory { children, .. } => {
-				if let Some(child) = children.read().await.get(name).cloned() {
+			NodeKind::Root { children } => {
+				if let Some(child) = children.read().get(name).cloned() {
 					return Ok(child);
 				}
 			},
-
+			NodeKind::Directory { children, .. } => {
+				let child = children
+					.read()
+					.iter()
+					.find_map(|(path_, node)| (path_.as_str() == name).then_some(node.clone()));
+				if let Some(child) = child {
+					return Ok(child);
+				}
+			},
 			_ => return Err(libc::EIO),
 		}
 
@@ -889,12 +904,12 @@ impl Server {
 		let child = match &parent_node.kind {
 			NodeKind::Root { .. } => {
 				let id = name.parse::<tg::artifact::Id>().map_err(|_| libc::ENOENT)?;
-				let checkout_path = Path::new("../checkouts").join(id.to_string());
-				if tokio::fs::try_exists(&self.inner.path.join(&checkout_path))
+				let path = Path::new("../checkouts").join(id.to_string());
+				let exists = tokio::fs::symlink_metadata(self.inner.path.join(&path))
 					.await
-					.unwrap_or(false)
-				{
-					Either::Left(checkout_path)
+					.is_ok();
+				if exists {
+					Either::Left(path)
 				} else {
 					Either::Right(tg::Artifact::with_id(id))
 				}
@@ -917,7 +932,7 @@ impl Server {
 		let kind = match child {
 			Either::Left(path) => NodeKind::Checkout { path },
 			Either::Right(tg::Artifact::Directory(directory)) => {
-				let children = tokio::sync::RwLock::new(BTreeMap::default());
+				let children = parking_lot::RwLock::new(Vec::default());
 				NodeKind::Directory {
 					directory,
 					children,
@@ -941,22 +956,19 @@ impl Server {
 
 		// Add the child node to the parent node.
 		match &parent_node.kind {
-			NodeKind::Root { children } | NodeKind::Directory { children, .. } => {
-				children
-					.write()
-					.await
-					.insert(name.to_owned(), child_node.clone());
+			NodeKind::Root { children } => {
+				children.write().insert(name.to_owned(), child_node.clone());
 			},
-
+			NodeKind::Directory { children, .. } => {
+				children.write().push((name.to_owned(), child_node.clone()));
+			},
 			_ => return Err(libc::EIO),
 		}
 
 		// Add the child node to the nodes.
 		self.inner
-			.state
-			.write()
-			.await
 			.nodes
+			.write()
 			.insert(child_node.id, child_node.clone());
 
 		Ok(child_node)
@@ -964,18 +976,20 @@ impl Server {
 
 	// Create a new NodeId.
 	async fn next_node_id(&self) -> NodeId {
-		let mut state = self.inner.state.write().await;
-		let node_id = state.node_index;
-		state.node_index += 1;
+		let node_id = self
+			.inner
+			.node_index
+			.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
 		NodeId(node_id)
 	}
 
 	// Create a new reader id.
 	async fn next_file_handle(&self) -> FileHandle {
-		let mut state = self.inner.state.write().await;
-		let reader_id = state.file_handle_index;
-		state.file_handle_index += 1;
-		FileHandle(reader_id)
+		let handle = self
+			.inner
+			.handle_index
+			.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+		FileHandle(handle)
 	}
 
 	#[allow(clippy::similar_names)]
@@ -1084,7 +1098,8 @@ impl Server {
 				libc::fcntl(fd, libc::F_SETFD, libc::FD_CLOEXEC);
 			}
 
-			Ok(std::fs::File::from_raw_fd(fd))
+			let file = std::fs::File::from_raw_fd(fd);
+			Ok(file)
 		}
 	}
 
