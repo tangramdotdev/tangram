@@ -852,10 +852,10 @@ impl Server {
 				let path = std::path::PathBuf::from_str("../checkouts")
 					.unwrap()
 					.join(id.to_string());
-				if matches!(
-					tokio::fs::try_exists(&self.inner.path.join(&path)).await,
-					Ok(true)
-				) {
+				if tokio::fs::try_exists(&self.inner.path.join(&path))
+					.await
+					.unwrap_or(false)
+				{
 					Either::Left(Either::Left(path))
 				} else {
 					Either::Left(Either::Right(tg::Artifact::with_id(id)))
