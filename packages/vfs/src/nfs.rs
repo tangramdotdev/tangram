@@ -848,8 +848,13 @@ impl Server {
 					tracing::error!(?e, ?name, "Failed to parse artifact ID.");
 					nfsstat4::NFS4ERR_NOENT
 				})?;
-				let path = self.inner.path.join("../checkouts").join(id.to_string());
-				if matches!(tokio::fs::try_exists(&path).await, Ok(true)) {
+				let path = std::path::PathBuf::from_str("../checkouts")
+					.unwrap()
+					.join(id.to_string());
+				if matches!(
+					tokio::fs::try_exists(&self.inner.path.join(&path)).await,
+					Ok(true)
+				) {
 					Either::Left(Either::Left(path))
 				} else {
 					Either::Left(Either::Right(tg::Artifact::with_id(id)))
