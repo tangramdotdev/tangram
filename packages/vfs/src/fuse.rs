@@ -6,6 +6,7 @@ use std::{
 	io::SeekFrom,
 	os::{fd::FromRawFd, unix::prelude::OsStrExt},
 	path::{Path, PathBuf},
+	str::FromStr,
 	sync::{Arc, Weak},
 };
 use tangram_client as tg;
@@ -889,8 +890,13 @@ impl Server {
 		let child = match &parent_node.kind {
 			NodeKind::Root { .. } => {
 				let id = name.parse::<tg::artifact::Id>().map_err(|_| libc::ENOENT)?;
-				let checkout_path = self.inner.path.join("../checkouts").join(id.to_string());
-				if matches!(tokio::fs::try_exists(&checkout_path).await, Ok(true)) {
+				let checkout_path = std::path::PathBuf::from_str("../checkouts")
+					.unwrap()
+					.join(id.to_string());
+				if tokio::fs::try_exists(&self.inner.path.join(&checkout_path))
+					.await
+					.unwrap_or(false)
+				{
 					Either::Left(checkout_path)
 				} else {
 					Either::Right(tg::Artifact::with_id(id))
