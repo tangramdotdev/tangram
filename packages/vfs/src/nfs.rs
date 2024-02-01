@@ -33,6 +33,7 @@ use std::{
 	collections::BTreeMap,
 	os::unix::ffi::OsStrExt,
 	path::{Path, PathBuf},
+	str::FromStr,
 	sync::{Arc, Weak},
 };
 use tangram_client as tg;
