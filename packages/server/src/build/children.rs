@@ -204,6 +204,11 @@ impl Server {
 			},
 		)
 		.try_flatten()
+		.map_err(|error| {
+			let trace = error.trace();
+			tracing::error!("{trace}");
+			error
+		})
 		.boxed();
 
 		Ok(Some(stream))
@@ -309,7 +314,7 @@ impl Server {
 					.prepare_cached(statement)
 					.await
 					.wrap_err("Failed to prepare the statement.")?;
-				let params = postgres_params![id.to_string(), position.to_i64().unwrap()];
+				let params = postgres_params![position.to_i64().unwrap(), id.to_string()];
 				let rows = db
 					.query(&statement, params)
 					.await
@@ -333,16 +338,15 @@ impl Server {
 			Database::Sqlite(database) => {
 				let db = database.get().await?;
 				let statement = "
-					select
-						(
-							select coalesce(json_group_array(value), '[]')
-							from (
-								select value
-								from json_each(builds.state->'children')
-								limit ?1
-								offset ?2
-							)
-						) as children
+					select (
+						select coalesce(json_group_array(value), '[]')
+						from (
+							select value
+							from json_each(builds.state->'children')
+							limit ?1
+							offset ?2
+						)
+					) as children
 					from builds
 					where id = ?3;
 				";
@@ -372,16 +376,15 @@ impl Server {
 			Database::Postgres(database) => {
 				let db = database.get().await?;
 				let statement = "
-					select
-						(
-							select coalesce(json_agg(value), '[]')
-							from (
-								select value
-								from json_array_elements(builds.state->'children')
-								limit $1
-								offset $2
-							)
-						) as children
+					select (
+						select coalesce(json_agg(value), '[]')
+						from (
+							select value
+							from json_array_elements(builds.state->'children')
+							limit $1
+							offset $2
+						)
+					) as children
 					from builds
 					where id = $3;
 				";

@@ -256,6 +256,7 @@ impl Server {
 							drop(state_);
 							return Ok(None);
 						}
+
 						drop(state_);
 						Ok::<_, Error>(Some((chunk, (server, id, state, end))))
 					},
@@ -812,10 +813,10 @@ async fn poll_seek_inner(
 					(
 						select position + length(bytes)
 						from build_logs
-						where build = ?1 and position = (
+						where build = $1 and position = (
 							select max(position)
 							from build_logs
-							where build = ?1
+							where build = $1
 						)
 					),
 					0

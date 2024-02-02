@@ -1,9 +1,10 @@
 use crate::{
-	database::{Database, SqliteJson},
-	sqlite_params, BuildContext, Http, Server,
+	database::{Database, PostgresJson, SqliteJson},
+	postgres_params, sqlite_params, BuildContext, Http, Server,
 };
 use futures::{stream::FuturesUnordered, FutureExt, TryStreamExt};
 use http_body_util::BodyExt;
+use num::ToPrimitive;
 use std::sync::Arc;
 use tangram_client as tg;
 use tangram_error::{error, Result, WrapErr};
@@ -34,8 +35,8 @@ impl Server {
 							let db = database.get().await?;
 							let statement = "
 								delete from build_queue
-								where rowid in (
-									select rowid
+								where build in (
+									select build
 									from build_queue
 									order by depth desc
 									limit 1
@@ -70,8 +71,48 @@ impl Server {
 							(id, options, host, depth)
 						},
 
-						Database::Postgres(_) => {
-							unimplemented!()
+						Database::Postgres(database) => {
+							let db = database.get().await?;
+							let statement = "
+								delete from build_queue
+								where build in (
+									select build
+									from build_queue
+									order by depth desc
+									limit 1
+								)
+								returning build, options, host, depth;
+							";
+							let statement = db
+								.prepare_cached(statement)
+								.await
+								.wrap_err("Failed to prepare the query.")?;
+							let rows = db
+								.query(&statement, &[])
+								.await
+								.wrap_err("Failed to execute the query.")?;
+							let Some(row) = rows.first() else {
+								break;
+							};
+							let id = row
+								.try_get::<_, String>(0)
+								.wrap_err("Failed to deserialize the column.")?
+								.parse::<tg::build::Id>()
+								.wrap_err("Failed to parse the ID.")?;
+							let options = row
+								.try_get::<_, PostgresJson<tg::build::Options>>(1)
+								.wrap_err("Failed to deserialize the column.")?
+								.0;
+							let host = row
+								.try_get::<_, String>(2)
+								.wrap_err("Failed to deserialize the column.")?
+								.parse::<tg::System>()?;
+							let depth = row
+								.try_get::<_, i64>(3)
+								.wrap_err("Failed to deserialize the column.")?
+								.to_u64()
+								.unwrap();
+							(id, options, host, depth)
 						},
 					}
 				};
@@ -112,8 +153,25 @@ impl Server {
 									.wrap_err("Failed to execute the query.")?;
 							},
 
-							Database::Postgres(_) => {
-								unimplemented!()
+							Database::Postgres(database) => {
+								let db = database.get().await?;
+								let statement = "
+									insert into build_queue (build, options, host, depth)
+									values (?1, ?2, ?3, ?4);
+								";
+								let params = postgres_params![
+									id.to_string(),
+									PostgresJson(options),
+									host.to_string(),
+									depth.to_i64().unwrap(),
+								];
+								let statement = db
+									.prepare_cached(statement)
+									.await
+									.wrap_err("Failed to prepare the query.")?;
+								db.execute(&statement, params)
+									.await
+									.wrap_err("Failed to execute the query.")?;
 							},
 						}
 						break;
@@ -168,6 +226,7 @@ impl Server {
 		}
 	}
 
+	#[allow(clippy::too_many_lines)]
 	pub(crate) async fn remote_queue_task(
 		&self,
 		stop_receiver: tokio::sync::watch::Receiver<bool>,
@@ -201,8 +260,23 @@ impl Server {
 						.wrap_err("Failed to deserialize the column.")?
 				},
 
-				Database::Postgres(_) => {
-					unimplemented!()
+				Database::Postgres(database) => {
+					let db = database.get().await?;
+					let statement = "
+						select count(*) = 0
+						from build_queue;
+					";
+					let statement = db
+						.prepare_cached(statement)
+						.await
+						.wrap_err("Failed to prepare the query.")?;
+					let rows = db
+						.query(&statement, &[])
+						.await
+						.wrap_err("Failed to execute the query.")?;
+					let row = rows.first().wrap_err("Expected one row.")?;
+					row.try_get::<_, bool>(0)
+						.wrap_err("Failed to deserialize the column.")?
 				},
 			};
 			if !empty {

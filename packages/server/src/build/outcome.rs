@@ -286,16 +286,16 @@ impl Server {
 					update builds
 					set state = json_set(
 						state,
-						'$.status', ?1,
+						'$.status', json(?1),
 						'$.outcome', json(?2),
-						'$.log', ?3
+						'$.log', json(?3)
 					)
 					where id = ?4;
 				";
 				let params = sqlite_params![
-					status.to_string(),
+					SqliteJson(status.to_string()),
 					SqliteJson(outcome),
-					log.to_string(),
+					SqliteJson(log.to_string()),
 					id.to_string()
 				];
 				let mut statement = db
@@ -313,16 +313,16 @@ impl Server {
 				let statement = "
 					update builds
 					set state = state || json_build_object(
-						'status', $1,
+						'status', $1::json,
 						'outcome', $2::json,
-						'log', $3
+						'log', $3::json
 					)
 					where id = $4;
 				";
 				let params = postgres_params![
-					status.to_string(),
+					PostgresJson(status.to_string()),
 					PostgresJson(outcome),
-					log.to_string(),
+					PostgresJson(log.to_string()),
 					id.to_string()
 				];
 				let statement = db
