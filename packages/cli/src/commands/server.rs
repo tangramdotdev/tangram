@@ -98,7 +98,7 @@ impl Cli {
 			.as_ref()
 			.and_then(|config| config.build.as_ref())
 			.and_then(|build| build.enable)
-			.unwrap_or(false);
+			.unwrap_or(true);
 		let permits = config
 			.as_ref()
 			.and_then(|config| config.build.as_ref())
