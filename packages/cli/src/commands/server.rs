@@ -90,7 +90,21 @@ impl Cli {
 		// Get the address.
 		let address = args
 			.address
+			.or(config.as_ref().and_then(|config| config.address.clone()))
 			.unwrap_or(Address::Unix(default_path().join("socket")));
+
+		// Create the build options.
+		let enable = config
+			.as_ref()
+			.and_then(|config| config.build.as_ref())
+			.and_then(|build| build.enable)
+			.unwrap_or(false);
+		let permits = config
+			.as_ref()
+			.and_then(|config| config.build.as_ref())
+			.and_then(|build| build.permits)
+			.unwrap_or_else(|| std::thread::available_parallelism().unwrap().get());
+		let build = tangram_server::options::Build { enable, permits };
 
 		// Create the database options.
 		let url = config
@@ -143,31 +157,23 @@ impl Cli {
 		let tls = url.scheme() == "https";
 		let client = tg::Builder::new(url.try_into()?).tls(tls).build();
 		let host = tg::System::host()?;
-		let build = config
+		let build_ = config
 			.as_ref()
 			.and_then(|config| config.remote.as_ref())
 			.and_then(|remote| remote.build.clone());
-		let enable = build
+		let enable = build_
 			.as_ref()
 			.and_then(|build| build.enable)
 			.unwrap_or(false);
-		let hosts = build
+		let hosts = build_
 			.and_then(|build| build.hosts)
 			.unwrap_or_else(|| vec![tg::System::js(), host.clone()]);
-		let build = tangram_server::options::RemoteBuild { enable, hosts };
+		let build_ = tangram_server::options::RemoteBuild { enable, hosts };
 		let remote = tangram_server::options::Remote {
 			tg: Box::new(client),
-			build,
+			build: build_,
 		};
 		let remote = if args.no_remote { None } else { Some(remote) };
-
-		// Create the build options.
-		let permits = config
-			.as_ref()
-			.and_then(|config| config.build.as_ref())
-			.and_then(|build| build.permits)
-			.unwrap_or_else(|| std::thread::available_parallelism().unwrap().get());
-		let build = tangram_server::options::Build { permits };
 
 		// Get the URL.
 		let url = config.as_ref().and_then(|config| config.url.clone());

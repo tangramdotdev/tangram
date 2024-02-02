@@ -279,7 +279,7 @@ impl Cli {
 			let home = std::env::var("HOME")
 				.wrap_err("Failed to get the HOME environment variable.")
 				.unwrap();
-			PathBuf::from(home).join("tangram/config.json")
+			PathBuf::from(home).join(".config/tangram/config.json")
 		});
 		let exists = tokio::fs::try_exists(&path)
 			.await
@@ -300,7 +300,7 @@ impl Cli {
 		self.config.write().unwrap().replace(config.clone());
 		let home =
 			std::env::var("HOME").wrap_err("Failed to get the HOME environment variable.")?;
-		let path = PathBuf::from(home).join("tangram/config.json");
+		let path = PathBuf::from(home).join(".config/tangram/config.json");
 		let config =
 			serde_json::to_string_pretty(&config).wrap_err("Failed to serialize the config.")?;
 		tokio::fs::write(path, &config)
@@ -315,7 +315,7 @@ impl Cli {
 		}
 		let home =
 			std::env::var("HOME").wrap_err("Failed to get the HOME environment variable.")?;
-		let path = PathBuf::from(home).join("tangram/user.json");
+		let path = PathBuf::from(home).join(".config/tangram/user.json");
 		let exists = tokio::fs::try_exists(&path)
 			.await
 			.wrap_err("Failed to check if the user file exists.")?;
@@ -335,7 +335,7 @@ impl Cli {
 		self.user.write().unwrap().replace(user.clone());
 		let home =
 			std::env::var("HOME").wrap_err("Failed to get the HOME environment variable.")?;
-		let path = PathBuf::from(home).join("tangram/user.json");
+		let path = PathBuf::from(home).join(".config/tangram/user.json");
 		let user = serde_json::to_string_pretty(&user.clone())
 			.wrap_err("Failed to serialize the user.")?;
 		tokio::fs::write(path, &user)

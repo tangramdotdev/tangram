@@ -17,6 +17,7 @@ pub struct Options {
 
 #[derive(Clone, Debug)]
 pub struct Build {
+	pub enable: bool,
 	pub permits: usize,
 }
 

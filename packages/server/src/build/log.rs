@@ -1,4 +1,4 @@
-use crate::{database::Database, sqlite_params, Http, Server};
+use crate::{database::Database, postgres_params, sqlite_params, Http, Server};
 use bytes::{Bytes, BytesMut};
 use futures::{
 	future::{self, BoxFuture},
@@ -252,7 +252,7 @@ impl Server {
 								drop(state_);
 								return Ok::<_, Error>(Some((chunk, (server, id, state, true))));
 							}
-							
+
 							drop(state_);
 							return Ok(None);
 						}
@@ -349,8 +349,35 @@ impl Server {
 					.wrap_err("Failed to execute the query.")?;
 			},
 
-			Database::Postgres(_) => {
-				unimplemented!()
+			Database::Postgres(database) => {
+				let db = database.get().await?;
+				let statement = "
+					insert into build_logs (build, position, bytes)
+					values (
+						$1,
+						(
+							select coalesce(
+								(
+									select position + length(bytes)
+									from build_logs
+									where build = $1
+									order by position desc
+									limit 1
+								),
+								0
+							)
+						),
+						$2
+					);
+				";
+				let params = postgres_params![id.to_string(), bytes.to_vec()];
+				let statement = db
+					.prepare_cached(statement)
+					.await
+					.wrap_err("Failed to prepare the query.")?;
+				db.execute(&statement, params)
+					.await
+					.wrap_err("Failed to execute the query.")?;
 			},
 		}
 
@@ -479,8 +506,42 @@ impl DatabaseReader {
 				Ok(end)
 			},
 
-			Database::Postgres(_) => {
-				unimplemented!()
+			Database::Postgres(database) => {
+				let db = database.get().await?;
+				let statement = "
+					select (
+						select state->>'status' = 'finished'
+						from builds
+						where id = $1
+					) and (
+						select coalesce(
+							(
+								select $2 >= position + length(bytes)
+								from build_logs
+								where build = $1 and position = (
+									select max(position)
+									from build_logs
+									where build = $1
+								)
+							),
+							true
+						)
+					);
+				";
+				let statement = db
+					.prepare_cached(statement)
+					.await
+					.wrap_err("Failed to prepare the statement.")?;
+				let params = postgres_params![self.id.to_string(), self.position.to_i64().unwrap()];
+				let rows = db
+					.query(&statement, params)
+					.await
+					.wrap_err("Failed to execute the statement.")?;
+				let row = rows.into_iter().next().wrap_err("Expected a row.")?;
+				let end = row
+					.try_get::<_, bool>(0)
+					.wrap_err("Failed to deserialize the column.")?;
+				Ok(end)
 			},
 		}
 	}
@@ -601,8 +662,12 @@ async fn poll_read_inner(
 				.wrap_err("Failed to perform query.")?;
 			let mut bytes = BytesMut::with_capacity(length.to_usize().unwrap());
 			while let Some(row) = rows.next().wrap_err("Failed to get the row.")? {
-				let row_position = row.get::<_, u64>(0).unwrap();
-				let row_bytes = row.get::<_, Vec<u8>>(1).unwrap();
+				let row_position = row
+					.get::<_, u64>(0)
+					.wrap_err("Failed to deserialize the column.")?;
+				let row_bytes = row
+					.get::<_, Vec<u8>>(1)
+					.wrap_err("Failed to deserialize the column.")?;
 				if row_position < position {
 					let start = (position - row_position).to_usize().unwrap();
 					bytes.extend_from_slice(&row_bytes[start..]);
@@ -614,8 +679,49 @@ async fn poll_read_inner(
 			Ok(Some(cursor))
 		},
 
-		Database::Postgres(_) => {
-			unimplemented!()
+		Database::Postgres(database) => {
+			let db = database.get().await?;
+			let statement = "
+				select position, bytes
+				from build_logs
+				where build = $1 and (
+					($2 < position and $2 + $3 > position) or
+					($2 >= position and $2 < position + length(bytes))
+				)
+				order by position;
+			";
+			let params = postgres_params![
+				id.to_string(),
+				position.to_i64().unwrap(),
+				length.to_i64().unwrap(),
+			];
+			let statement = db
+				.prepare_cached(statement)
+				.await
+				.wrap_err("Failed to prepare statement.")?;
+			let rows = db
+				.query(&statement, params)
+				.await
+				.wrap_err("Failed to perform query.")?;
+			let mut bytes = BytesMut::with_capacity(length.to_usize().unwrap());
+			for row in rows {
+				let row_position = row
+					.try_get::<_, i64>(0)
+					.wrap_err("Failed to deserialize the column.")?
+					.to_u64()
+					.unwrap();
+				let row_bytes = row
+					.try_get::<_, Vec<u8>>(1)
+					.wrap_err("Failed to deserialize the column.")?;
+				if row_position < position {
+					let start = (position - row_position).to_usize().unwrap();
+					bytes.extend_from_slice(&row_bytes[start..]);
+				} else {
+					bytes.extend_from_slice(&row_bytes);
+				}
+			}
+			let cursor = Cursor::new(bytes.into());
+			Ok(Some(cursor))
 		},
 	}
 }
@@ -699,8 +805,38 @@ async fn poll_seek_inner(
 				.wrap_err("Failed to deserialize the column.")?
 		},
 
-		Database::Postgres(_) => {
-			unimplemented!()
+		Database::Postgres(database) => {
+			let db = database.get().await?;
+			let statement = "
+				select coalesce(
+					(
+						select position + length(bytes)
+						from build_logs
+						where build = ?1 and position = (
+							select max(position)
+							from build_logs
+							where build = ?1
+						)
+					),
+					0
+				);
+			";
+			let params = postgres_params![id.to_string()];
+			let statement = db
+				.prepare_cached(statement)
+				.await
+				.wrap_err("Failed to prepare the statement.")?;
+			let rows = db
+				.query(&statement, params)
+				.await
+				.wrap_err("Failed to execute the statement.")?;
+			rows.into_iter()
+				.next()
+				.wrap_err("Expected a row.")?
+				.try_get::<_, i64>(0)
+				.wrap_err("Failed to deserialize the column.")?
+				.to_u64()
+				.unwrap()
 		},
 	};
 
@@ -713,7 +849,7 @@ async fn poll_seek_inner(
 		"Attempted to seek to a negative or overflowing position.",
 	))?;
 	if position > end {
-		return Err(error!("Attempted to seek to a position beyond the end.",));
+		return Err(error!("Attempted to seek to a position beyond the end."));
 	}
 	Ok(position)
 }

@@ -262,8 +262,20 @@ impl Server {
 					.wrap_err("Failed to execute the query.")?;
 			},
 
-			Database::Postgres(_) => {
-				unimplemented!()
+			Database::Postgres(database) => {
+				let db = database.get().await?;
+				let statement = "
+					upsert into builds (id, state)
+					values ($1, $2);
+				";
+				let params = postgres_params![id.to_string(), PostgresJson(output.state.clone())];
+				let statement = db
+					.prepare_cached(statement)
+					.await
+					.wrap_err("Failed to prepare the query.")?;
+				db.execute(&statement, params)
+					.await
+					.wrap_err("Failed to execute the query.")?;
 			},
 		}
 

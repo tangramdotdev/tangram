@@ -1,10 +1,13 @@
+use serde_with::serde_as;
 use std::path::PathBuf;
 use tangram_client as tg;
 use url::Url;
 
+#[serde_as]
 #[derive(Clone, Debug, Default, serde::Serialize, serde::Deserialize)]
 pub struct Config {
 	#[serde(default, skip_serializing_if = "Option::is_none")]
+	#[serde_as(as = "Option<serde_with::DisplayFromStr>")]
 	pub address: Option<tg::Address>,
 
 	#[serde(default, skip_serializing_if = "Option::is_none")]
@@ -43,6 +46,10 @@ pub struct Autoenv {
 
 #[derive(Clone, Debug, Default, serde::Serialize, serde::Deserialize)]
 pub struct Build {
+	/// Enable builds.
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub enable: Option<bool>,
+
 	/// The maximum number of concurrent builds.
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub permits: Option<usize>,

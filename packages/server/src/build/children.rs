@@ -1,6 +1,6 @@
 use crate::{
-	database::{Database, SqliteJson},
-	sqlite_params, Http, Server,
+	database::{Database, PostgresJson, SqliteJson},
+	postgres_params, sqlite_params, Http, Server,
 };
 use futures::{
 	future,
@@ -239,8 +239,30 @@ impl Server {
 				Ok(count)
 			},
 
-			Database::Postgres(_) => {
-				unimplemented!()
+			Database::Postgres(database) => {
+				let db = database.get().await?;
+				let statement = "
+					select json_array_length(state->'children')
+					from builds
+					where id = $1;
+				";
+				let id = id.to_string();
+				let params = postgres_params![id];
+				let statement = db
+					.prepare_cached(statement)
+					.await
+					.wrap_err("Failed to prepare the statement.")?;
+				let rows = db
+					.query(&statement, params)
+					.await
+					.wrap_err("Failed to execute the statement.")?;
+				let row = rows.into_iter().next().wrap_err("Expected a row.")?;
+				let count = row
+					.try_get::<_, i64>(0)
+					.wrap_err("Failed to deseriaize the column.")?
+					.to_u64()
+					.unwrap();
+				Ok(count)
 			},
 		}
 	}
@@ -254,10 +276,10 @@ impl Server {
 			Database::Sqlite(database) => {
 				let db = database.get().await?;
 				let statement = "
-							select state->>'status' = 'finished' and ?1 = json_array_length(state->'children') as end
-							from builds
-							where id = ?2;
-						";
+					select state->>'status' = 'finished' and ?1 = json_array_length(state->'children') as end
+					from builds
+					where id = ?2;
+				";
 				let id = id.to_string();
 				let params = sqlite_params![position, id];
 				let mut statement = db
@@ -277,8 +299,26 @@ impl Server {
 			},
 
 			Database::Postgres(database) => {
-				let _db = database.get().await?;
-				unimplemented!()
+				let db = database.get().await?;
+				let statement = "
+					select state->>'status' = 'finished' and $1 = json_array_length(state->'children') as end
+					from builds
+					where id = $2;
+				";
+				let statement = db
+					.prepare_cached(statement)
+					.await
+					.wrap_err("Failed to prepare the statement.")?;
+				let params = postgres_params![id.to_string(), position.to_i64().unwrap()];
+				let rows = db
+					.query(&statement, params)
+					.await
+					.wrap_err("Failed to execute the statement.")?;
+				let row = rows.into_iter().next().wrap_err("Expected a row.")?;
+				let end = row
+					.try_get::<_, bool>(0)
+					.wrap_err("Failed to deserialize the column.")?;
+				Ok(end)
 			},
 		}
 	}
@@ -329,8 +369,43 @@ impl Server {
 				Ok(chunk)
 			},
 
-			Database::Postgres(_) => {
-				unimplemented!()
+			Database::Postgres(database) => {
+				let db = database.get().await?;
+				let statement = "
+					select
+						(
+							select coalesce(json_agg(value), '[]')
+							from (
+								select value
+								from json_array_elements(builds.state->'children')
+								limit $1
+								offset $2
+							)
+						) as children
+					from builds
+					where id = $3;
+				";
+				let id = id.to_string();
+				let params =
+					postgres_params![length.to_i64().unwrap(), position.to_i64().unwrap(), id];
+				let statement = db
+					.prepare_cached(statement)
+					.await
+					.wrap_err("Failed to prepare the statement.")?;
+				let rows = db
+					.query(&statement, params)
+					.await
+					.wrap_err("Failed to execute the statement.")?;
+				let row = rows.into_iter().next().wrap_err("Expected a row.")?;
+				let children = row
+					.try_get::<_, PostgresJson<Vec<tg::build::Id>>>(0)
+					.wrap_err("Failed to deseriaize the column.")?
+					.0;
+				let chunk = tg::build::children::Chunk {
+					position,
+					data: children,
+				};
+				Ok(chunk)
 			},
 		}
 	}
@@ -386,6 +461,7 @@ impl Server {
 		match &self.inner.database {
 			Database::Sqlite(database) => {
 				let db = database.get().await?;
+				// TODO Do not add the child if it already exists.
 				let statement = "
 					update builds
 					set state = json_set(state, '$.children[#]', ?1)
@@ -399,8 +475,30 @@ impl Server {
 					.wrap_err("Failed to execute the query.")?;
 			},
 
-			Database::Postgres(_) => {
-				unimplemented!()
+			Database::Postgres(database) => {
+				let db = database.get().await?;
+				let statement = "
+					update builds
+					set state = json_set(
+						state,
+						'{children}',
+						case
+							when not (state->'children' ? $1) then
+								state->'children' || json_build_array($1)
+							else
+								state->'children'
+						end
+					)
+					where id = $2;
+				";
+				let params = postgres_params![child_id.to_string(), build_id.to_string()];
+				let statement = db
+					.prepare_cached(statement)
+					.await
+					.wrap_err("Failed to prepare the statement.")?;
+				db.execute(&statement, params)
+					.await
+					.wrap_err("Failed to execute the statement.")?;
 			},
 		}
 

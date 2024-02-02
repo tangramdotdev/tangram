@@ -29,6 +29,7 @@ num = { workspace = true }
 ratatui = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
+serde_with = { workspace = true }
 tangram_client = { workspace = true }
 tangram_error = { workspace = true }
 tangram_language = { workspace = true }

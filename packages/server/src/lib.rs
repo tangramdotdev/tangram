@@ -302,25 +302,27 @@ impl Server {
 		}
 
 		// Start the build queue task.
-		let task = tokio::spawn({
-			let server = server.clone();
-			async move {
-				let result = server
-					.local_queue_task(
-						local_queue_task_wake_receiver,
-						local_queue_task_stop_receiver,
-					)
-					.await;
-				match result {
-					Ok(()) => Ok(()),
-					Err(error) => {
-						tracing::error!(?error);
-						Err(error)
-					},
+		if options.build.enable {
+			let task = tokio::spawn({
+				let server = server.clone();
+				async move {
+					let result = server
+						.local_queue_task(
+							local_queue_task_wake_receiver,
+							local_queue_task_stop_receiver,
+						)
+						.await;
+					match result {
+						Ok(()) => Ok(()),
+						Err(error) => {
+							tracing::error!(?error);
+							Err(error)
+						},
+					}
 				}
-			}
-		});
-		server.inner.local_queue_task.lock().unwrap().replace(task);
+			});
+			server.inner.local_queue_task.lock().unwrap().replace(task);
+		}
 
 		// Start the build queue remote task.
 		if options

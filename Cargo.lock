@@ -3505,6 +3505,7 @@ dependencies = [
  "ratatui",
  "serde",
  "serde_json",
+ "serde_with",
  "tangram_client",
  "tangram_error",
  "tangram_language",
