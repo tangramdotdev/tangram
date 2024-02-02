@@ -1,4 +1,7 @@
-use crate::{database::Json, params, Http, Server};
+use crate::{
+	database::{Database, SqliteJson},
+	sqlite_params, Http, Server,
+};
 use futures::{
 	future,
 	stream::{self, BoxStream},
@@ -210,28 +213,36 @@ impl Server {
 		&self,
 		id: &tg::build::Id,
 	) -> Result<u64> {
-		let db = self.inner.database.get().await?;
-		let statement = "
-			select json_array_length(state->'children')
-			from builds
-			where id = ?1;
-		";
-		let id = id.to_string();
-		let params = params![id];
-		let mut statement = db
-			.prepare_cached(statement)
-			.wrap_err("Failed to prepare the statement.")?;
-		let mut rows = statement
-			.query(params)
-			.wrap_err("Failed to execute the statement.")?;
-		let row = rows
-			.next()
-			.wrap_err("Failed to get the row.")?
-			.wrap_err("Expected a row.")?;
-		let count = row
-			.get::<_, u64>(0)
-			.wrap_err("Failed to deseriaize the column.")?;
-		Ok(count)
+		match &self.inner.database {
+			Database::Sqlite(database) => {
+				let db = database.get().await?;
+				let statement = "
+					select json_array_length(state->'children')
+					from builds
+					where id = ?1;
+				";
+				let id = id.to_string();
+				let params = sqlite_params![id];
+				let mut statement = db
+					.prepare_cached(statement)
+					.wrap_err("Failed to prepare the statement.")?;
+				let mut rows = statement
+					.query(params)
+					.wrap_err("Failed to execute the statement.")?;
+				let row = rows
+					.next()
+					.wrap_err("Failed to get the row.")?
+					.wrap_err("Expected a row.")?;
+				let count = row
+					.get::<_, u64>(0)
+					.wrap_err("Failed to deseriaize the column.")?;
+				Ok(count)
+			},
+
+			Database::Postgres(_) => {
+				unimplemented!()
+			},
+		}
 	}
 
 	async fn try_get_build_children_local_end(
@@ -239,28 +250,37 @@ impl Server {
 		id: &tg::build::Id,
 		position: u64,
 	) -> Result<bool> {
-		let db = self.inner.database.get().await?;
-		let statement = "
-			select state->>'status' = 'finished' and ?1 = json_array_length(state->'children') as end
-			from builds
-			where id = ?2;
-		";
-		let id = id.to_string();
-		let params = params![position, id];
-		let mut statement = db
-			.prepare_cached(statement)
-			.wrap_err("Failed to prepare the statement.")?;
-		let mut rows = statement
-			.query(params)
-			.wrap_err("Failed to execute the statement.")?;
-		let row = rows
-			.next()
-			.wrap_err("Failed to get the row.")?
-			.wrap_err("Expected a row.")?;
-		let end = row
-			.get::<_, bool>(0)
-			.wrap_err("Failed to deseriaize the column.")?;
-		Ok(end)
+		match &self.inner.database {
+			Database::Sqlite(database) => {
+				let db = database.get().await?;
+				let statement = "
+							select state->>'status' = 'finished' and ?1 = json_array_length(state->'children') as end
+							from builds
+							where id = ?2;
+						";
+				let id = id.to_string();
+				let params = sqlite_params![position, id];
+				let mut statement = db
+					.prepare_cached(statement)
+					.wrap_err("Failed to prepare the statement.")?;
+				let mut rows = statement
+					.query(params)
+					.wrap_err("Failed to execute the statement.")?;
+				let row = rows
+					.next()
+					.wrap_err("Failed to get the row.")?
+					.wrap_err("Expected a row.")?;
+				let end = row
+					.get::<_, bool>(0)
+					.wrap_err("Failed to deseriaize the column.")?;
+				Ok(end)
+			},
+
+			Database::Postgres(database) => {
+				let _db = database.get().await?;
+				unimplemented!()
+			},
+		}
 	}
 
 	async fn try_get_build_children_local_inner(
@@ -269,42 +289,50 @@ impl Server {
 		position: u64,
 		length: u64,
 	) -> Result<tg::build::children::Chunk> {
-		let db = self.inner.database.get().await?;
-		let statement = "
-			select
-				(
-					select coalesce(json_group_array(value), '[]')
-					from (
-						select value
-						from json_each(builds.state->'children')
-						limit ?1
-						offset ?2
-					)
-				) as children
-			from builds
-			where id = ?3;
-		";
-		let id = id.to_string();
-		let params = params![length, position, id];
-		let mut statement = db
-			.prepare_cached(statement)
-			.wrap_err("Failed to prepare the statement.")?;
-		let mut rows = statement
-			.query(params)
-			.wrap_err("Failed to execute the statement.")?;
-		let row = rows
-			.next()
-			.wrap_err("Failed to get the row.")?
-			.wrap_err("Expected a row.")?;
-		let children = row
-			.get::<_, Json<Vec<tg::build::Id>>>(0)
-			.wrap_err("Failed to deseriaize the column.")?
-			.0;
-		let chunk = tg::build::children::Chunk {
-			position,
-			data: children,
-		};
-		Ok(chunk)
+		match &self.inner.database {
+			Database::Sqlite(database) => {
+				let db = database.get().await?;
+				let statement = "
+					select
+						(
+							select coalesce(json_group_array(value), '[]')
+							from (
+								select value
+								from json_each(builds.state->'children')
+								limit ?1
+								offset ?2
+							)
+						) as children
+					from builds
+					where id = ?3;
+				";
+				let id = id.to_string();
+				let params = sqlite_params![length, position, id];
+				let mut statement = db
+					.prepare_cached(statement)
+					.wrap_err("Failed to prepare the statement.")?;
+				let mut rows = statement
+					.query(params)
+					.wrap_err("Failed to execute the statement.")?;
+				let row = rows
+					.next()
+					.wrap_err("Failed to get the row.")?
+					.wrap_err("Expected a row.")?;
+				let children = row
+					.get::<_, SqliteJson<Vec<tg::build::Id>>>(0)
+					.wrap_err("Failed to deseriaize the column.")?
+					.0;
+				let chunk = tg::build::children::Chunk {
+					position,
+					data: children,
+				};
+				Ok(chunk)
+			},
+
+			Database::Postgres(_) => {
+				unimplemented!()
+			},
+		}
 	}
 
 	async fn try_get_build_children_remote(
@@ -355,19 +383,25 @@ impl Server {
 		}
 
 		// Add the child to the build in the database.
-		{
-			let db = self.inner.database.get().await?;
-			let statement = "
-				update builds
-				set state = json_set(state, '$.children[#]', ?1)
-				where id = ?2;
-			";
-			let mut statement = db
-				.prepare_cached(statement)
-				.wrap_err("Failed to prepare the query.")?;
-			statement
-				.execute([child_id.to_string(), build_id.to_string()])
-				.wrap_err("Failed to execute the query.")?;
+		match &self.inner.database {
+			Database::Sqlite(database) => {
+				let db = database.get().await?;
+				let statement = "
+					update builds
+					set state = json_set(state, '$.children[#]', ?1)
+					where id = ?2;
+				";
+				let mut statement = db
+					.prepare_cached(statement)
+					.wrap_err("Failed to prepare the query.")?;
+				statement
+					.execute([child_id.to_string(), build_id.to_string()])
+					.wrap_err("Failed to execute the query.")?;
+			},
+
+			Database::Postgres(_) => {
+				unimplemented!()
+			},
 		}
 
 		// Notify subscribers that a child has been added.

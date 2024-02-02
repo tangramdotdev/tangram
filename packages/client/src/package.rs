@@ -12,20 +12,6 @@ pub const ROOT_MODULE_FILE_NAMES: &[&str] =
 /// The file name of the lockfile in a package.
 pub const LOCKFILE_FILE_NAME: &str = "tangram.lock";
 
-#[derive(Clone, Debug, Default, PartialEq, Eq, Hash, serde::Deserialize, serde::Serialize)]
-pub struct Metadata {
-	pub name: Option<String>,
-	pub version: Option<String>,
-	pub description: Option<String>,
-}
-
-#[derive(Debug, Clone, serde::Deserialize, serde::Serialize)]
-pub struct SearchArg {
-	pub query: String,
-}
-
-pub type SearchOutput = Vec<String>;
-
 #[derive(Debug, Clone, Default, serde::Deserialize, serde::Serialize)]
 pub struct GetArg {
 	pub dependencies: bool,
@@ -40,6 +26,20 @@ pub struct GetOutput {
 	pub lock: Option<lock::Id>,
 	pub metadata: Option<Metadata>,
 }
+
+#[derive(Clone, Debug, Default, PartialEq, Eq, Hash, serde::Deserialize, serde::Serialize)]
+pub struct Metadata {
+	pub name: Option<String>,
+	pub version: Option<String>,
+	pub description: Option<String>,
+}
+
+#[derive(Debug, Clone, serde::Deserialize, serde::Serialize)]
+pub struct SearchArg {
+	pub query: String,
+}
+
+pub type SearchOutput = Vec<String>;
 
 pub async fn get(tg: &dyn Handle, dependency: &Dependency) -> Result<Directory> {
 	try_get(tg, dependency)

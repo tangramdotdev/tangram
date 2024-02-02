@@ -1,4 +1,4 @@
-use crate::{Cli, API_URL};
+use crate::{default_path, Cli, API_URL};
 use std::path::PathBuf;
 use tangram_client as tg;
 use tangram_error::{Result, WrapErr};
@@ -37,6 +37,10 @@ pub struct RunArgs {
 	#[arg(long)]
 	pub address: Option<Address>,
 
+	/// The path to the config file.
+	#[arg(long)]
+	pub config: Option<PathBuf>,
+
 	/// The path where Tangram should store its data. The default is `$HOME/.tangram`.
 	#[arg(long)]
 	pub path: Option<PathBuf>,
@@ -59,8 +63,7 @@ impl Cli {
 	pub async fn command_server(&self, args: Args) -> Result<()> {
 		match args.command {
 			Command::Health => {
-				let address = tg::Address::Unix(self.path.join("socket"));
-				let client = tg::Builder::new(address).build();
+				let client = tg::Builder::new(self.address.clone()).build();
 				let health = client.health().await?;
 				let health = serde_json::to_string_pretty(&health).unwrap();
 				println!("{health}");
@@ -69,8 +72,7 @@ impl Cli {
 				self.start_server().await?;
 			},
 			Command::Stop => {
-				let address = tg::Address::Unix(self.path.join("socket"));
-				let client = tg::Builder::new(address).build();
+				let client = tg::Builder::new(self.address.clone()).build();
 				client.stop().await?;
 			},
 			Command::Run(args) => {
@@ -80,22 +82,55 @@ impl Cli {
 		Ok(())
 	}
 
+	#[allow(clippy::too_many_lines)]
 	async fn command_server_run(&self, args: RunArgs) -> Result<()> {
-		// Get the path.
-		let path = if let Some(path) = args.path.clone() {
-			path
-		} else {
-			self.path.clone()
-		};
+		// Get the config.
+		let config = self.config(args.config).await?;
 
 		// Get the address.
-		let address = args.address.unwrap_or(Address::Unix(path.join("socket")));
+		let address = args
+			.address
+			.unwrap_or(Address::Unix(default_path().join("socket")));
 
-		// Get the config.
-		let config = self.config().await?;
+		// Create the database options.
+		let url = config
+			.as_ref()
+			.and_then(|config| config.database.as_ref())
+			.and_then(|database| database.url.clone());
+		let max_connections = config
+			.as_ref()
+			.and_then(|config| config.database.as_ref())
+			.and_then(|database| database.max_connections)
+			.unwrap_or(std::thread::available_parallelism().unwrap().get());
+		let database = tangram_server::options::Database {
+			url,
+			max_connections,
+		};
 
-		// Get the user.
-		let user = self.user().await?;
+		// Create the oauth options.
+		let oauth = config
+			.as_ref()
+			.and_then(|config| config.oauth.as_ref())
+			.map(|oauth| {
+				let github =
+					oauth
+						.github
+						.as_ref()
+						.map(|client| tangram_server::options::OauthClient {
+							client_id: client.client_id.clone(),
+							client_secret: client.client_secret.clone(),
+							auth_url: client.auth_url.clone(),
+							token_url: client.token_url.clone(),
+						});
+				tangram_server::options::Oauth { github }
+			})
+			.unwrap_or_default();
+
+		// Get the path.
+		let path = args
+			.path
+			.or(config.as_ref().and_then(|config| config.path.clone()))
+			.unwrap_or(default_path());
 
 		// Create the remote options.
 		let url = args
@@ -106,10 +141,7 @@ impl Cli {
 				.and_then(|remote| remote.url.clone()))
 			.unwrap_or_else(|| API_URL.parse().unwrap());
 		let tls = url.scheme() == "https";
-		let client = tg::Builder::new(url.try_into()?)
-			.tls(tls)
-			.user(user)
-			.build();
+		let client = tg::Builder::new(url.try_into()?).tls(tls).build();
 		let host = tg::System::host()?;
 		let build = config
 			.as_ref()
@@ -137,13 +169,15 @@ impl Cli {
 			.unwrap_or_else(|| std::thread::available_parallelism().unwrap().get());
 		let build = tangram_server::options::Build { permits };
 
+		// Get the URL.
+		let url = config.as_ref().and_then(|config| config.url.clone());
+
 		let version = self.version.clone();
 
 		// Create the vfs options.
-		let mut vfs = self
-			.config()
-			.await?
-			.and_then(|config| config.vfs)
+		let mut vfs = config
+			.as_ref()
+			.and_then(|config| config.vfs.as_ref())
 			.map_or_else(
 				|| tangram_server::options::Vfs { enable: true },
 				|vfs| tangram_server::options::Vfs {
@@ -154,14 +188,21 @@ impl Cli {
 			vfs.enable = false;
 		};
 
+		// Get the WWW URL.
+		let www = config.as_ref().and_then(|config| config.www.clone());
+
 		// Create the options.
 		let options = tangram_server::Options {
 			address,
 			build,
+			database,
+			oauth,
 			path,
 			remote,
+			url,
 			version,
 			vfs,
+			www,
 		};
 
 		// Start the server.

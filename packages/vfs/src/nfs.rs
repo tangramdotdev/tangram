@@ -33,7 +33,6 @@ use std::{
 	collections::BTreeMap,
 	os::unix::ffi::OsStrExt,
 	path::{Path, PathBuf},
-	str::FromStr,
 	sync::{Arc, Weak},
 };
 use tangram_client as tg;
@@ -849,9 +848,7 @@ impl Server {
 					tracing::error!(?e, ?name, "Failed to parse artifact ID.");
 					nfsstat4::NFS4ERR_NOENT
 				})?;
-				let path = std::path::PathBuf::from_str("../checkouts")
-					.unwrap()
-					.join(id.to_string());
+				let path = Path::new("../checkouts").join(id.to_string());
 				if tokio::fs::try_exists(&self.inner.path.join(&path))
 					.await
 					.unwrap_or(false)

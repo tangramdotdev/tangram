@@ -119,7 +119,7 @@ impl Artifact {
 					target.push_str(
 						&TANGRAM_ARTIFACTS_PATH
 							.clone()
-							.join(artifact.id(tg).await?.to_string().parse().unwrap())
+							.join(artifact.id(tg).await?.to_string())
 							.to_string(),
 					);
 				}

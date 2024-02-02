@@ -5,30 +5,27 @@ check:
 clean:
 	umount ~/.tangram/artifacts; rm -rf ~/.tangram
 
+cleano:
+	orb sh -c "umount /home/$USER/.tangram/artifacts; rm -rf /home/$USER/.tangram;"
+
 fmt:
 	cargo fmt --all
 	npm run --workspaces --if-present fmt
 
-orb_clean:
-	orb sh -c "umount /home/$USER/.tangram/artifacts; rm -rf /home/$USER/.tangram;"
-
-orb_serve_dev:
-	cargo build --target aarch64-unknown-linux-gnu && orb sh -c "./target/aarch64-unknown-linux-gnu/debug/tg server run"
-
-orb_serve_release:
-	cargo build --target aarch64-unknown-linux-gnu --release && orb sh -c "./target/aarch64-unknown-linux-gnu/release/tg server run"
-
-orb_tg +ARGS:
-	cargo build --target aarch64-unknown-linux-gnu && orb sh -c "./target/aarch64-unknown-linux-gnu/debug/tg {{ARGS}}"
-
-orb_tgr +ARGS:
-	cargo build --target aarch64-unknown-linux-gnu --release && orb sh -c "./target/aarch64-unknown-linux-gnu/release/tg {{ARGS}}"
-
-serve_dev:
-	cargo run -- server run
-
-serve_release:
-	cargo run --release -- server run
+release:
+	#!/bin/sh
+	cargo build --release \
+		--target aarch64-apple-darwin \
+		--target aarch64-unknown-linux-gnu \
+		--target x86_64-apple-darwin \
+		--target x86_64-unknown-linux-gnu
+	for target in "aarch64-darwin aarch64-linux x86_64-darwin x86_64-linux"; do
+		dir=$(mktemp -d)
+		mkdir -p "${dir}/bin"
+		cp "target/release/${target}/tg" "${dir}/bin/tg"
+		cp -r "packages/install/shell" "${dir}/shell"
+		tar -czf "tangram_${target}.tar.gz" -C "${dir}" .
+	done
 
 test:
 	cargo test --workspace
@@ -38,3 +35,9 @@ tg +ARGS:
 
 tgr +ARGS:
 	cargo run --release -- {{ARGS}}
+
+tgo +ARGS:
+	cargo build --target aarch64-unknown-linux-gnu && orb sh -c "./target/aarch64-unknown-linux-gnu/debug/tg {{ARGS}}"
+
+tgor +ARGS:
+	cargo build --release --target aarch64-unknown-linux-gnu && orb sh -c "./target/aarch64-unknown-linux-gnu/release/tg {{ARGS}}"

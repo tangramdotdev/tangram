@@ -38,17 +38,17 @@ zshrc_path="${HOME}/.zshrc"
 
 # Detect the host.
 case "$(uname -m) $(uname -s)" in
-	"x86_64 Linux")
-		host="amd64_linux"
-		;;
-	"x86_64 Darwin")
-		host="amd64_macos"
+	"aarch64 Darwin" | "arm64 Darwin")
+		host="aarch64-darwin"
 		;;
 	"aarch64 Linux" | "arm64 Linux")
-		host="arm64_linux"
+		host="aarch64-linux"
 		;;
-	"aarch64 Darwin" | "arm64 Darwin")
-		host="arm64_macos"
+	"x86_64 Darwin")
+		host="x8_64-darwin"
+		;;
+	"x86_64 Linux")
+		host="x86_64-linux"
 		;;
 	*)
 		error "Tangram does not support your combination of architecture and operating system: ""$(uname -m)" "$(uname -s)""."
@@ -80,7 +80,7 @@ fi
 curl --fail --progress-bar --output "${tarball_path}" "${url}"
 
 # Untar the tarball into the Tangram path.
-tar -C "${tangram_path}" -xf "${tarball_path}"
+tar -xf "${tarball_path}" -C "${tangram_path}"
 
 # Remove the tarball.
 rm "${tarball_path}"

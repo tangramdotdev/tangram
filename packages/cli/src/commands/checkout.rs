@@ -40,10 +40,15 @@ impl Cli {
 			.wrap_err("Failed to check out the artifact.")?;
 
 		// Print the path.
-		let path = args
-			.path
-			.clone()
-			.unwrap_or_else(|| self.path.join(format!("artifacts/{}", args.id)));
+		let path = if let Some(path) = args.path.clone() {
+			path
+		} else {
+			tg.path()
+				.wrap_err("Failed to get the server path.")?
+				.join("artifacts")
+				.join(args.id.to_string())
+				.into()
+		};
 		println!("{}", path.display());
 
 		Ok(())

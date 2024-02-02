@@ -1,4 +1,7 @@
-use crate::{database::Json, params, BuildContext, Http, Server};
+use crate::{
+	database::{Database, SqliteJson},
+	sqlite_params, BuildContext, Http, Server,
+};
 use futures::{stream::FuturesUnordered, FutureExt, TryStreamExt};
 use http_body_util::BodyExt;
 use std::sync::Arc;
@@ -26,43 +29,51 @@ impl Server {
 			loop {
 				// Get the highest priority item from the queue.
 				let (id, options, host, depth) = {
-					let db = self.inner.database.get().await?;
-					let statement = "
-						delete from build_queue
-						where rowid in (
-							select rowid
-							from build_queue
-							order by depth desc
-							limit 1
-						)
-						returning build, options, host, depth;
-					";
-					let mut statement = db
-						.prepare_cached(statement)
-						.wrap_err("Failed to prepare the query.")?;
-					let mut rows = statement
-						.query([])
-						.wrap_err("Failed to execute the query.")?;
-					let Some(row) = rows.next().wrap_err("Failed to get the row.")? else {
-						break;
-					};
-					let id = row
-						.get::<_, String>(0)
-						.wrap_err("Failed to deserialize the column.")?
-						.parse::<tg::build::Id>()
-						.wrap_err("Failed to parse the ID.")?;
-					let options = row
-						.get::<_, Json<tg::build::Options>>(1)
-						.wrap_err("Failed to deserialize the column.")?
-						.0;
-					let host = row
-						.get::<_, String>(2)
-						.wrap_err("Failed to deserialize the column.")?
-						.parse::<tg::System>()?;
-					let depth = row
-						.get::<_, u64>(3)
-						.wrap_err("Failed to deserialize the column.")?;
-					(id, options, host, depth)
+					match &self.inner.database {
+						Database::Sqlite(database) => {
+							let db = database.get().await?;
+							let statement = "
+								delete from build_queue
+								where rowid in (
+									select rowid
+									from build_queue
+									order by depth desc
+									limit 1
+								)
+								returning build, options, host, depth;
+							";
+							let mut statement = db
+								.prepare_cached(statement)
+								.wrap_err("Failed to prepare the query.")?;
+							let mut rows = statement
+								.query([])
+								.wrap_err("Failed to execute the query.")?;
+							let Some(row) = rows.next().wrap_err("Failed to get the row.")? else {
+								break;
+							};
+							let id = row
+								.get::<_, String>(0)
+								.wrap_err("Failed to deserialize the column.")?
+								.parse::<tg::build::Id>()
+								.wrap_err("Failed to parse the ID.")?;
+							let options = row
+								.get::<_, SqliteJson<tg::build::Options>>(1)
+								.wrap_err("Failed to deserialize the column.")?
+								.0;
+							let host = row
+								.get::<_, String>(2)
+								.wrap_err("Failed to deserialize the column.")?
+								.parse::<tg::System>()?;
+							let depth = row
+								.get::<_, u64>(3)
+								.wrap_err("Failed to deserialize the column.")?;
+							(id, options, host, depth)
+						},
+
+						Database::Postgres(_) => {
+							unimplemented!()
+						},
+					}
 				};
 
 				// If the build is at a unique depth or there is a permit available, then start it.
@@ -80,19 +91,31 @@ impl Server {
 					(_, Ok(permit)) => Some(permit),
 					(true, Err(tokio::sync::TryAcquireError::NoPermits)) => None,
 					(false, Err(tokio::sync::TryAcquireError::NoPermits)) => {
-						let db = self.inner.database.get().await?;
-						let statement = "
-							insert into build_queue (build, options, host, depth)
-							values (?1, ?2, ?3, ?4);
-						";
-						let params =
-							params![id.to_string(), Json(options), host.to_string(), depth];
-						let mut statement = db
-							.prepare_cached(statement)
-							.wrap_err("Failed to prepare the query.")?;
-						statement
-							.execute(params)
-							.wrap_err("Failed to execute the query.")?;
+						match &self.inner.database {
+							Database::Sqlite(database) => {
+								let db = database.get().await?;
+								let statement = "
+									insert into build_queue (build, options, host, depth)
+									values (?1, ?2, ?3, ?4);
+								";
+								let params = sqlite_params![
+									id.to_string(),
+									SqliteJson(options),
+									host.to_string(),
+									depth,
+								];
+								let mut statement = db
+									.prepare_cached(statement)
+									.wrap_err("Failed to prepare the query.")?;
+								statement
+									.execute(params)
+									.wrap_err("Failed to execute the query.")?;
+							},
+
+							Database::Postgres(_) => {
+								unimplemented!()
+							},
+						}
 						break;
 					},
 					(_, Err(tokio::sync::TryAcquireError::Closed)) => {
@@ -157,24 +180,30 @@ impl Server {
 		// Loop until the stop flag is set.
 		while !*stop_receiver.borrow() {
 			// If the queue is not empty, then sleep and continue.
-			let empty = {
-				let db = self.inner.database.get().await?;
-				let statement = "
-					select count(*) = 0
-					from build_queue;
-				";
-				let mut statement = db
-					.prepare_cached(statement)
-					.wrap_err("Failed to prepare the query.")?;
-				let mut rows = statement
-					.query([])
-					.wrap_err("Failed to execute the query.")?;
-				let row = rows
-					.next()
-					.wrap_err("Failed to get the row.")?
-					.wrap_err("Expected one row.")?;
-				row.get::<_, bool>(0)
-					.wrap_err("Failed to deserialize the column.")?
+			let empty = match &self.inner.database {
+				Database::Sqlite(database) => {
+					let db = database.get().await?;
+					let statement = "
+						select count(*) = 0
+						from build_queue;
+					";
+					let mut statement = db
+						.prepare_cached(statement)
+						.wrap_err("Failed to prepare the query.")?;
+					let mut rows = statement
+						.query([])
+						.wrap_err("Failed to execute the query.")?;
+					let row = rows
+						.next()
+						.wrap_err("Failed to get the row.")?
+						.wrap_err("Expected one row.")?;
+					row.get::<_, bool>(0)
+						.wrap_err("Failed to deserialize the column.")?
+				},
+
+				Database::Postgres(_) => {
+					unimplemented!()
+				},
 			};
 			if !empty {
 				tokio::time::sleep(std::time::Duration::from_secs(1)).await;

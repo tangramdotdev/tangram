@@ -1,5 +1,8 @@
 use super::log;
-use crate::{database::Json, params, Http, Server};
+use crate::{
+	database::{Database, PostgresJson, SqliteJson},
+	postgres_params, sqlite_params, Http, Server,
+};
 use async_recursion::async_recursion;
 use futures::{future, stream::FuturesUnordered, TryFutureExt, TryStreamExt};
 use http_body_util::BodyExt;
@@ -64,27 +67,54 @@ impl Server {
 
 		// Get the outcome.
 		let outcome = {
-			let db = self.inner.database.get().await?;
-			let statement = "
-				select state->'outcome' as outcome
-				from builds
-				where id = ?1;
-			";
-			let params = params![id.to_string()];
-			let mut statement = db
-				.prepare_cached(statement)
-				.wrap_err("Failed to prepare the query.")?;
-			let mut rows = statement
-				.query(params)
-				.wrap_err("Failed to execute the query.")?;
-			let row = rows
-				.next()
-				.wrap_err("Failed to get the row.")?
-				.wrap_err("Expected a row.")?;
-			row.get::<_, Json<Option<tg::build::Outcome>>>(0)
-				.wrap_err("Failed to deserialize the column.")?
-				.0
-				.wrap_err("Expected the outcome to be set.")?
+			match &self.inner.database {
+				Database::Sqlite(database) => {
+					let db = database.get().await?;
+					let statement = "
+						select state->'outcome' as outcome
+						from builds
+						where id = ?1;
+					";
+					let params = sqlite_params![id.to_string()];
+					let mut statement = db
+						.prepare_cached(statement)
+						.wrap_err("Failed to prepare the query.")?;
+					let mut rows = statement
+						.query(params)
+						.wrap_err("Failed to execute the query.")?;
+					let row = rows
+						.next()
+						.wrap_err("Failed to get the row.")?
+						.wrap_err("Expected a row.")?;
+					row.get::<_, SqliteJson<Option<tg::build::Outcome>>>(0)
+						.wrap_err("Failed to deserialize the column.")?
+						.0
+						.wrap_err("Expected the outcome to be set.")?
+				},
+
+				Database::Postgres(database) => {
+					let db = database.get().await?;
+					let statement = "
+						select state->'outcome' as outcome
+						from builds
+						where id = $1;
+					";
+					let params = postgres_params![id.to_string()];
+					let statement = db
+						.prepare_cached(statement)
+						.await
+						.wrap_err("Failed to prepare the query.")?;
+					let rows = db
+						.query(&statement, params)
+						.await
+						.wrap_err("Failed to execute the query.")?;
+					let row = rows.into_iter().next().wrap_err("Expected a row.")?;
+					row.try_get::<_, PostgresJson<Option<tg::build::Outcome>>>(0)
+						.wrap_err("Failed to deserialize the column.")?
+						.0
+						.wrap_err("Expected the outcome to be set.")?
+				},
+			}
 		};
 
 		Ok(Some(Some(outcome)))
@@ -157,26 +187,55 @@ impl Server {
 
 		// Get the children.
 		let children = {
-			let db = self.inner.database.get().await?;
-			let statement = "
-				select state->'children'
-				from builds
-				where id = ?1;
-			";
-			let params = params![id.to_string()];
-			let mut statement = db
-				.prepare_cached(statement)
-				.wrap_err("Failed to prepare the query.")?;
-			let mut rows = statement
-				.query(params)
-				.wrap_err("Failed to execute the query.")?;
-			let row = rows
-				.next()
-				.wrap_err("Failed to get the row.")?
-				.wrap_err("Expected the row to exist.")?;
-			row.get::<_, Json<Vec<tg::build::Id>>>(0)
-				.wrap_err("Failed to deserialize the column.")?
-				.0
+			match &self.inner.database {
+				Database::Sqlite(database) => {
+					let db = database.get().await?;
+					let statement = "
+						select state->'children'
+						from builds
+						where id = ?1;
+					";
+					let params = sqlite_params![id.to_string()];
+					let mut statement = db
+						.prepare_cached(statement)
+						.wrap_err("Failed to prepare the query.")?;
+					let mut rows = statement
+						.query(params)
+						.wrap_err("Failed to execute the query.")?;
+					let row = rows
+						.next()
+						.wrap_err("Failed to get the row.")?
+						.wrap_err("Expected the row to exist.")?;
+					row.get::<_, SqliteJson<Vec<tg::build::Id>>>(0)
+						.wrap_err("Failed to deserialize the column.")?
+						.0
+				},
+
+				Database::Postgres(database) => {
+					let db = database.get().await?;
+					let statement = "
+						select state->'children'
+						from builds
+						where id = $1;
+					";
+					let params = postgres_params![id.to_string()];
+					let statement = db
+						.prepare_cached(statement)
+						.await
+						.wrap_err("Failed to prepare the query.")?;
+					let rows = db
+						.query(&statement, params)
+						.await
+						.wrap_err("Failed to execute the query.")?;
+					let row = rows
+						.into_iter()
+						.next()
+						.wrap_err("Expected the row to exist.")?;
+					row.try_get::<_, PostgresJson<Vec<tg::build::Id>>>(0)
+						.wrap_err("Failed to deserialize the column.")?
+						.0
+				},
+			}
 		};
 
 		// If the build was canceled, then cancel the children.
@@ -218,32 +277,62 @@ impl Server {
 		let log = log.id(self).await?;
 
 		// Update the state.
-		{
-			let status = tg::build::Status::Finished;
-			let outcome = outcome.data(self).await?;
-			let db = self.inner.database.get().await?;
-			let statement = "
-				update builds
-				set state = json_set(
-					state,
-					'$.status', ?1,
-					'$.outcome', json(?2),
-					'$.log', ?3
-				)
-				where id = ?4;
-			";
-			let params = params![
-				status.to_string(),
-				Json(outcome),
-				log.to_string(),
-				id.to_string()
-			];
-			let mut statement = db
-				.prepare_cached(statement)
-				.wrap_err("Failed to prepare the query.")?;
-			statement
-				.execute(params)
-				.wrap_err("Failed to execute the query.")?;
+		match &self.inner.database {
+			Database::Sqlite(database) => {
+				let db = database.get().await?;
+				let status = tg::build::Status::Finished;
+				let outcome = outcome.data(self).await?;
+				let statement = "
+					update builds
+					set state = json_set(
+						state,
+						'$.status', ?1,
+						'$.outcome', json(?2),
+						'$.log', ?3
+					)
+					where id = ?4;
+				";
+				let params = sqlite_params![
+					status.to_string(),
+					SqliteJson(outcome),
+					log.to_string(),
+					id.to_string()
+				];
+				let mut statement = db
+					.prepare_cached(statement)
+					.wrap_err("Failed to prepare the query.")?;
+				statement
+					.execute(params)
+					.wrap_err("Failed to execute the query.")?;
+			},
+
+			Database::Postgres(database) => {
+				let db = database.get().await?;
+				let status = tg::build::Status::Finished;
+				let outcome = outcome.data(self).await?;
+				let statement = "
+					update builds
+					set state = state || json_build_object(
+						'status', $1,
+						'outcome', $2::json,
+						'log', $3
+					)
+					where id = $4;
+				";
+				let params = postgres_params![
+					status.to_string(),
+					PostgresJson(outcome),
+					log.to_string(),
+					id.to_string()
+				];
+				let statement = db
+					.prepare_cached(statement)
+					.await
+					.wrap_err("Failed to prepare the query.")?;
+				db.execute(&statement, params)
+					.await
+					.wrap_err("Failed to execute the query.")?;
+			},
 		}
 
 		// Notify subscribers that the status has been updated.

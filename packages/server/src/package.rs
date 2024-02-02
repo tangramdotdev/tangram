@@ -1,40 +1,132 @@
-use crate::{Http, Server};
-use http_body_util::BodyExt;
-use std::collections::BTreeMap;
+use crate::{database::Database, postgres_params, Http, Server};
+use async_recursion::async_recursion;
+use std::{
+	collections::{BTreeMap, HashSet, VecDeque},
+	path::{Path, PathBuf},
+};
 use tangram_client as tg;
 use tangram_error::{error, Result, WrapErr};
-use tangram_util::http::{bad_request, full, not_found, ok, Incoming, Outgoing};
+use tangram_util::http::{full, not_found, Incoming, Outgoing};
+
+mod dependencies;
+mod lock;
+mod metadata;
+mod publish;
+mod search;
+mod versions;
+
+#[allow(clippy::module_name_repetitions)]
+#[derive(Clone, Debug)]
+struct PackageWithPathDependencies {
+	package: tg::Directory,
+	path_dependencies: BTreeMap<tg::Dependency, PackageWithPathDependencies>,
+}
 
 impl Server {
-	pub async fn search_packages(
-		&self,
-		arg: tg::package::SearchArg,
-	) -> Result<tg::package::SearchOutput> {
-		self.inner
-			.remote
-			.as_ref()
-			.wrap_err("The server does not have a remote.")?
-			.search_packages(arg)
-			.await
-	}
-
+	#[allow(clippy::too_many_lines)]
 	pub async fn try_get_package(
 		&self,
 		dependency: &tg::Dependency,
 		arg: tg::package::GetArg,
 	) -> Result<Option<tg::package::GetOutput>> {
-		// Attempt to get the package with path dependencies locally.
+		// If the dependency has an ID, then use it.
 		let package_with_path_dependencies = 'a: {
-			let Some(package_with_path_dependencies) =
-				tangram_package::try_get(self, dependency).await?
-			else {
+			let Some(id) = dependency.id.as_ref().cloned() else {
 				break 'a None;
 			};
+			Some(PackageWithPathDependencies {
+				package: tg::Directory::with_id(id),
+				path_dependencies: BTreeMap::default(),
+			})
+		};
 
+		// If the dependency has a path, then attempt to get the package with path dependency with the path.
+		let package_with_path_dependencies = 'a: {
+			if let Some(package_with_path_dependencies) = package_with_path_dependencies {
+				break 'a Some(package_with_path_dependencies);
+			}
+			let Some(path) = dependency.path.as_ref().cloned() else {
+				break 'a None;
+			};
+			// If the dependency is a path dependency, then get the package with its path dependencies from the path.
+			let path = tokio::fs::canonicalize(PathBuf::from(path))
+				.await
+				.wrap_err("Failed to canonicalize the path.")?;
+			if !tokio::fs::try_exists(&path)
+				.await
+				.wrap_err("Failed to get the metadata for the path.")?
+			{
+				return Ok(None);
+			}
+			let package_with_path_dependencies = self
+				.get_package_with_path_dependencies_with_path(&path)
+				.await?;
 			Some(package_with_path_dependencies)
 		};
 
-		// If the dependency has a name, then attempt to get it from the remote.
+		// Attempt to get the package from the database.
+		let package_with_path_dependencies = 'a: {
+			if let Some(package_with_path_dependencies) = package_with_path_dependencies {
+				break 'a Some(package_with_path_dependencies);
+			}
+
+			// The dependency must have a name.
+			let name = dependency
+				.name
+				.as_ref()
+				.wrap_err("Expected the dependency to have a name.")?;
+
+			// Get the versions.
+			let Database::Postgres(database) = &self.inner.database else {
+				return Err(error!("unimplemented"));
+			};
+			let db = database.get().await?;
+			let statement = "
+				select version, id
+				from package_versions
+				where name = $1;
+			";
+			let params = postgres_params![name];
+			let statement = db
+				.prepare_cached(statement)
+				.await
+				.wrap_err("Failed to prepare the statement.")?;
+			let rows = db
+				.query(&statement, params)
+				.await
+				.wrap_err("Failed to execute the statement.")?;
+			let mut versions = rows
+				.into_iter()
+				.map(|row| (row.get::<_, String>(0), row.get::<_, String>(1)))
+				.map(|(version, id)| {
+					let version = version.parse().wrap_err("Invalid version.")?;
+					let id = id.parse()?;
+					Ok((version, id))
+				})
+				.collect::<Result<Vec<(semver::Version, tg::directory::Id)>>>()?;
+
+			// Find the latest compatible version.
+			versions.sort_unstable_by_key(|(version, _)| version.clone());
+			versions.reverse();
+			let package = if let Some(version) = dependency.version.as_ref() {
+				let req: semver::VersionReq = version.parse().wrap_err("Invalid version.")?;
+				versions
+					.iter()
+					.find(|(version, _)| req.matches(version))
+					.map(|(_, id)| tg::Directory::with_id(id.clone()))
+			} else {
+				versions
+					.last()
+					.map(|(_, id)| tg::Directory::with_id(id.clone()))
+			};
+
+			package.map(|package| PackageWithPathDependencies {
+				package,
+				path_dependencies: BTreeMap::default(),
+			})
+		};
+
+		// Attempt to get the package from the remote.
 		let package_with_path_dependencies = 'a: {
 			if let Some(package_with_path_dependencies) = package_with_path_dependencies {
 				break 'a Some(package_with_path_dependencies);
@@ -51,7 +143,7 @@ impl Server {
 
 			let package = tg::Directory::with_id(output.id);
 
-			let package_with_path_dependencies = tangram_package::PackageWithPathDependencies {
+			let package_with_path_dependencies = PackageWithPathDependencies {
 				package,
 				path_dependencies: BTreeMap::default(),
 			};
@@ -64,11 +156,12 @@ impl Server {
 			return Ok(None);
 		};
 
+		// Get the package.
 		let package = package_with_path_dependencies.package.clone();
 
 		// Get the dependencies if requested.
 		let dependencies = if arg.dependencies {
-			let dependencies = tangram_package::get_dependencies(self, &package).await?;
+			let dependencies = self.get_package_dependencies(&package).await?;
 			Some(dependencies)
 		} else {
 			None
@@ -77,8 +170,9 @@ impl Server {
 		// Create the lock if requested.
 		let lock = if arg.lock {
 			let path = dependency.path.as_ref();
-			let lock =
-				tangram_package::create_lock(self, path, &package_with_path_dependencies).await?;
+			let lock = self
+				.get_or_create_package_lock(path, &package_with_path_dependencies)
+				.await?;
 			let id = lock.id(self).await?.clone();
 			Some(id)
 		} else {
@@ -87,7 +181,7 @@ impl Server {
 
 		// Get the metadata if requested.
 		let metadata = if arg.metadata {
-			let metadata = tangram_package::get_metadata(self, &package).await?;
+			let metadata = self.get_package_metadata(&package).await?;
 			Some(metadata)
 		} else {
 			None
@@ -104,88 +198,179 @@ impl Server {
 		}))
 	}
 
-	pub async fn try_get_package_versions(
+	async fn get_package_with_path_dependencies_with_path(
 		&self,
-		dependency: &tg::Dependency,
-	) -> Result<Option<Vec<String>>> {
-		self.inner
-			.remote
-			.as_ref()
-			.wrap_err("The server does not have a remote.")?
-			.try_get_package_versions(dependency)
+		path: &Path,
+	) -> tangram_error::Result<PackageWithPathDependencies> {
+		let mut visited = BTreeMap::default();
+		self.get_package_with_path_dependencies_with_path_inner(path, &mut visited)
 			.await
 	}
 
-	pub async fn try_get_package_metadata(
+	#[allow(clippy::too_many_lines)]
+	#[async_recursion]
+	async fn get_package_with_path_dependencies_with_path_inner(
 		&self,
-		dependency: &tg::Dependency,
-	) -> Result<Option<tg::package::Metadata>> {
-		let Some(package_with_path_dependencies) =
-			tangram_package::try_get(self, dependency).await?
-		else {
-			return Ok(None);
+		path: &Path,
+		visited: &mut BTreeMap<PathBuf, Option<PackageWithPathDependencies>>,
+	) -> tangram_error::Result<PackageWithPathDependencies> {
+		// Check if the path has already been visited.
+		match visited.get(path) {
+			Some(Some(package_with_path_dependencies)) => {
+				return Ok(package_with_path_dependencies.clone())
+			},
+			Some(None) => {
+				return Err(tangram_error::error!(
+					"The package has a circular path dependency."
+				))
+			},
+			None => (),
+		}
+
+		// Add the path to the visited set with `None` to detect circular dependencies.
+		visited.insert(path.to_owned(), None);
+
+		// Create a builder for the package.
+		let mut package = tg::directory::Builder::default();
+
+		// Get the root module path.
+		let root_module_path = tg::package::get_root_module_path_for_path(path).await?;
+
+		// Create a queue of module paths to visit and a visited set.
+		let mut queue = VecDeque::from(vec![root_module_path]);
+		let mut visited_module_paths: HashSet<tg::Path, fnv::FnvBuildHasher> = HashSet::default();
+
+		// Create the path dependencies.
+		let mut path_dependencies = BTreeMap::default();
+
+		// Visit each module.
+		while let Some(module_path) = queue.pop_front() {
+			// Get the module's absolute path.
+			let module_absolute_path = path.join(module_path.to_string());
+			let module_absolute_path = tokio::fs::canonicalize(&module_absolute_path)
+				.await
+				.wrap_err("Failed to canonicalize the module path.")?;
+
+			// Add the module to the package directory.
+			let artifact =
+				tg::Artifact::check_in(self, &module_absolute_path.clone().try_into()?).await?;
+			package = package.add(self, &module_path, artifact).await?;
+
+			// Get the module's text.
+			let text = tokio::fs::read_to_string(&module_absolute_path)
+				.await
+				.wrap_err("Failed to read the module.")?;
+
+			// Analyze the module.
+			let analysis = tangram_language::Module::analyze(text)
+				.wrap_err("Failed to analyze the module.")?;
+
+			// Handle the includes.
+			for include_path in analysis.includes {
+				// Get the included artifact's path in the package.
+				let included_artifact_path = module_path
+					.clone()
+					.parent()
+					.join(include_path.clone())
+					.normalize();
+
+				// Get the included artifact's path.
+				let included_artifact_absolute_path =
+					path.join(included_artifact_path.to_string()).try_into()?;
+
+				// Check in the artifact at the included path.
+				let included_artifact =
+					tg::Artifact::check_in(self, &included_artifact_absolute_path).await?;
+
+				// Add the included artifact to the directory.
+				package = package
+					.add(self, &included_artifact_path, included_artifact)
+					.await?;
+			}
+
+			// Recurse into the path dependencies.
+			for import in &analysis.imports {
+				if let tangram_language::Import::Dependency(
+					dependency @ tg::Dependency { path: Some(_), .. },
+				) = import
+				{
+					// Make the dependency path relative to the package.
+					let mut dependency = dependency.clone();
+					dependency.path.replace(
+						module_path
+							.clone()
+							.parent()
+							.join(dependency.path.as_ref().unwrap().clone())
+							.normalize(),
+					);
+
+					// Get the dependency's absolute path.
+					let dependency_path = path.join(dependency.path.as_ref().unwrap().to_string());
+					let dependency_absolute_path = tokio::fs::canonicalize(&dependency_path)
+						.await
+						.wrap_err("Failed to canonicalize the dependency path.")?;
+
+					// Recurse into the path dependency.
+					let child = self
+						.get_package_with_path_dependencies_with_path_inner(
+							&dependency_absolute_path,
+							visited,
+						)
+						.await?;
+
+					// Check if this is a child of the root and add it if necessary.
+					if let Ok(subpath) = dependency_absolute_path.strip_prefix(path) {
+						let subpath = subpath.try_into()?;
+						package = package
+							.add(self, &subpath, child.package.clone().into())
+							.await?;
+					}
+
+					// Insert the path dependency.
+					path_dependencies.insert(dependency, child);
+				}
+			}
+
+			// Add the module path to the visited set.
+			visited_module_paths.insert(module_path.clone());
+
+			// Add the unvisited path imports to the queue.
+			for import in &analysis.imports {
+				if let tangram_language::Import::Module(import) = import {
+					let imported_module_path = module_path
+						.clone()
+						.parent()
+						.join(import.clone())
+						.normalize();
+					if !visited_module_paths.contains(&imported_module_path)
+						&& !queue.contains(&imported_module_path)
+					{
+						queue.push_back(imported_module_path);
+					}
+				}
+			}
+		}
+
+		// Create the package.
+		let package = package.build();
+
+		// Create the package with path dependencies.
+		let package_with_path_dependencies = PackageWithPathDependencies {
+			package,
+			path_dependencies,
 		};
-		let package = package_with_path_dependencies.package;
-		let metadata = tangram_package::get_metadata(self, &package).await?;
-		Ok(Some(metadata))
-	}
 
-	pub async fn try_get_package_dependencies(
-		&self,
-		dependency: &tg::Dependency,
-	) -> Result<Option<Vec<tg::Dependency>>> {
-		let Some(package_with_path_dependencies) =
-			tangram_package::try_get(self, dependency).await?
-		else {
-			return Ok(None);
-		};
-		let package = package_with_path_dependencies.package;
-		let dependencies = tangram_package::get_dependencies(self, &package).await?;
-		Ok(Some(dependencies))
-	}
+		// Mark the package with path dependencies as visited.
+		visited.insert(
+			path.to_owned(),
+			Some(package_with_path_dependencies.clone()),
+		);
 
-	pub async fn publish_package(
-		&self,
-		user: Option<&tg::User>,
-		id: &tg::directory::Id,
-	) -> Result<()> {
-		// Push the package.
-		self.push_object(&id.clone().into()).await?;
-
-		// Publish the package.
-		let remote = self
-			.inner
-			.remote
-			.as_ref()
-			.wrap_err("The server does not have a remote.")?;
-		remote.publish_package(user, id).await?;
-
-		Ok(())
+		Ok(package_with_path_dependencies)
 	}
 }
 
 impl Http {
-	pub async fn handle_search_packages_request(
-		&self,
-		request: http::Request<Incoming>,
-	) -> Result<http::Response<Outgoing>> {
-		// Read the search params.
-		let Some(query) = request.uri().query() else {
-			return Ok(bad_request());
-		};
-		let arg = serde_urlencoded::from_str(query)
-			.wrap_err("Failed to deserialize the search params.")?;
-
-		// Perform the search.
-		let output = self.inner.tg.search_packages(arg).await?;
-
-		// Create the response.
-		let body = serde_json::to_vec(&output).wrap_err("Failed to serialize the response.")?;
-		let response = http::Response::builder().body(full(body)).unwrap();
-
-		Ok(response)
-	}
-
 	pub async fn handle_get_package_request(
 		&self,
 		request: http::Request<Incoming>,
@@ -222,57 +407,5 @@ impl Http {
 		let response = http::Response::builder().body(full(body)).unwrap();
 
 		Ok(response)
-	}
-
-	pub async fn handle_get_package_versions_request(
-		&self,
-		request: http::Request<Incoming>,
-	) -> Result<http::Response<Outgoing>> {
-		// Get the path params.
-		let path_components: Vec<&str> = request.uri().path().split('/').skip(1).collect();
-		let ["packages", dependency, "versions"] = path_components.as_slice() else {
-			return Err(error!("Unexpected path."));
-		};
-		let dependency =
-			urlencoding::decode(dependency).wrap_err("Failed to decode the dependency.")?;
-		let dependency = dependency
-			.parse()
-			.wrap_err("Failed to parse the dependency.")?;
-
-		// Get the package.
-		let Some(output) = self.inner.tg.try_get_package_versions(&dependency).await? else {
-			return Ok(not_found());
-		};
-
-		// Create the response.
-		let body = serde_json::to_vec(&output).wrap_err("Failed to serialize the response.")?;
-		let response = http::Response::builder().body(full(body)).unwrap();
-
-		Ok(response)
-	}
-
-	pub async fn handle_publish_package_request(
-		&self,
-		request: http::Request<Incoming>,
-	) -> Result<http::Response<Outgoing>> {
-		// Get the user.
-		let user = self.try_get_user_from_request(&request).await?;
-
-		// Read the body.
-		let bytes = request
-			.into_body()
-			.collect()
-			.await
-			.wrap_err("Failed to read the body.")?
-			.to_bytes();
-		let package_id = serde_json::from_slice(&bytes).wrap_err("Invalid request.")?;
-
-		// Publish the package.
-		self.inner
-			.tg
-			.publish_package(user.as_ref(), &package_id)
-			.await?;
-
-		Ok(ok())
 	}
 }

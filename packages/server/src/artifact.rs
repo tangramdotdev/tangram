@@ -81,7 +81,7 @@ impl Server {
 		let entries = names
 			.into_iter()
 			.map(|name| async {
-				let path = path.clone().join(name.clone().try_into()?);
+				let path = path.clone().join(&name);
 				let arg = tg::artifact::CheckInArg { path };
 				let output = self.check_in_artifact(arg).await?;
 				let artifact = tg::Artifact::with_id(output.id);
@@ -326,7 +326,7 @@ impl Server {
 					.iter()
 					.map(|(name, _)| async move {
 						if !directory.entries(self).await?.contains_key(name) {
-							let entry_path = path.clone().join(name.parse()?);
+							let entry_path = path.clone().join(name);
 							rmrf(&entry_path).await?;
 						}
 						Ok::<_, Error>(())
@@ -369,7 +369,7 @@ impl Server {
 					};
 
 					// Recurse.
-					let entry_path = path.clone().join(name.parse()?);
+					let entry_path = path.clone().join(name);
 					self.check_out_inner(
 						&entry_path,
 						artifact,

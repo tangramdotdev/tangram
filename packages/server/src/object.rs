@@ -1,5 +1,5 @@
 use super::Server;
-use crate::{params, Http};
+use crate::{database::Database, postgres_params, sqlite_params, Http};
 use bytes::Bytes;
 use futures::{stream, TryStreamExt};
 use http_body_util::BodyExt;
@@ -20,27 +20,51 @@ impl Server {
 	}
 
 	async fn get_object_exists_local(&self, id: &tg::object::Id) -> Result<bool> {
-		let db = self.inner.database.get().await?;
-		let statement = "
-			select count(*) != 0
-			from objects
-			where id = ?1;
-		";
-		let params = params![id.to_string()];
-		let mut statement = db
-			.prepare_cached(statement)
-			.wrap_err("Failed to prepare the query.")?;
-		let mut rows = statement
-			.query(params)
-			.wrap_err("Failed to execute the query.")?;
-		let row = rows
-			.next()
-			.wrap_err("Failed to retrieve the row.")?
-			.wrap_err("Expected a row.")?;
-		let exists = row
-			.get::<_, bool>(0)
-			.wrap_err("Failed to deserialize the column.")?;
-		Ok(exists)
+		match &self.inner.database {
+			Database::Sqlite(database) => {
+				let db = database.get().await?;
+				let statement = "
+					select count(*) != 0
+					from objects
+					where id = ?1;
+				";
+				let params = sqlite_params![id.to_string()];
+				let mut statement = db
+					.prepare_cached(statement)
+					.wrap_err("Failed to prepare the query.")?;
+				let mut rows = statement
+					.query(params)
+					.wrap_err("Failed to execute the query.")?;
+				let row = rows
+					.next()
+					.wrap_err("Failed to retrieve the row.")?
+					.wrap_err("Expected a row.")?;
+				let exists = row
+					.get::<_, bool>(0)
+					.wrap_err("Failed to deserialize the column.")?;
+				Ok(exists)
+			},
+
+			Database::Postgres(database) => {
+				let db = database.get().await?;
+				let statement = "
+					select count(*) != 0
+					from objects
+					where id = $1;
+				";
+				let params = postgres_params![id.to_string()];
+				let statement = db
+					.prepare_cached(statement)
+					.await
+					.wrap_err("Failed to prepare the statement.")?;
+				let row = db
+					.query_one(&statement, params)
+					.await
+					.wrap_err("Failed to execute the statement.")?;
+				let exists = row.get(0);
+				Ok(exists)
+			},
+		}
 	}
 
 	async fn get_object_exists_remote(&self, id: &tg::object::Id) -> Result<bool> {
@@ -68,28 +92,56 @@ impl Server {
 		&self,
 		id: &tg::object::Id,
 	) -> Result<Option<tg::object::GetOutput>> {
-		let db = self.inner.database.get().await?;
-		let statement = "
-			select bytes
-			from objects
-			where id = ?1;
-		";
-		let params = params![id.to_string()];
-		let mut statement = db
-			.prepare_cached(statement)
-			.wrap_err("Failed to prepare the query.")?;
-		let mut rows = statement
-			.query(params)
-			.wrap_err("Failed to execute the query.")?;
-		let Some(row) = rows.next().wrap_err("Failed to retrieve the row.")? else {
-			return Ok(None);
-		};
-		let bytes = row
-			.get::<_, Vec<u8>>(0)
-			.wrap_err("Failed to deserialize the column.")?
-			.into();
-		let output = tg::object::GetOutput { bytes };
-		Ok(Some(output))
+		match &self.inner.database {
+			Database::Sqlite(database) => {
+				let db = database.get().await?;
+				let statement = "
+					select bytes
+					from objects
+					where id = ?1;
+				";
+				let params = sqlite_params![id.to_string()];
+				let mut statement = db
+					.prepare_cached(statement)
+					.wrap_err("Failed to prepare the query.")?;
+				let mut rows = statement
+					.query(params)
+					.wrap_err("Failed to execute the query.")?;
+				let Some(row) = rows.next().wrap_err("Failed to retrieve the row.")? else {
+					return Ok(None);
+				};
+				let bytes = row
+					.get::<_, Vec<u8>>(0)
+					.wrap_err("Failed to deserialize the column.")?
+					.into();
+				let output = tg::object::GetOutput { bytes };
+				Ok(Some(output))
+			},
+
+			Database::Postgres(database) => {
+				let db = database.get().await?;
+				let statement = "
+					select bytes
+					from objects
+					where id = $1;
+				";
+				let params = postgres_params![id.to_string()];
+				let statement = db
+					.prepare_cached(statement)
+					.await
+					.wrap_err("Failed to prepare the statement.")?;
+				let Some(row) = db
+					.query_opt(&statement, params)
+					.await
+					.wrap_err("Failed to execute the statement.")?
+				else {
+					return Ok(None);
+				};
+				let bytes = row.get::<_, Vec<u8>>(0).into();
+				let output = tg::object::GetOutput { bytes };
+				Ok(Some(output))
+			},
+		}
 	}
 
 	async fn try_get_object_remote(
@@ -107,20 +159,38 @@ impl Server {
 		};
 
 		// Add the object to the database.
-		{
-			let db = self.inner.database.get().await?;
-			let statement = "
-				insert into objects (id, bytes)
-				values (?1, ?2)
-				on conflict (id) do update set bytes = ?2;
-			";
-			let params = params![id.to_string(), output.bytes.to_vec()];
-			let mut statement = db
-				.prepare_cached(statement)
-				.wrap_err("Failed to prepare the query.")?;
-			statement
-				.execute(params)
-				.wrap_err("Failed to execute the query.")?;
+		match &self.inner.database {
+			Database::Sqlite(database) => {
+				let db = database.get().await?;
+				let statement = "
+					insert into objects (id, bytes)
+					values (?1, ?2)
+					on conflict (id) do update set bytes = ?2;
+				";
+				let params = sqlite_params![id.to_string(), output.bytes.to_vec()];
+				let mut statement = db
+					.prepare_cached(statement)
+					.wrap_err("Failed to prepare the query.")?;
+				statement
+					.execute(params)
+					.wrap_err("Failed to execute the query.")?;
+			},
+
+			Database::Postgres(database) => {
+				let db = database.get().await?;
+				let statement = "
+					upsert into objects (id, bytes)
+					values ($1, $2);
+				";
+				let params = postgres_params![id.to_string(), output.bytes.to_vec()];
+				let statement = db
+					.prepare_cached(statement)
+					.await
+					.wrap_err("Failed to prepare the statement.")?;
+				db.execute(&statement, params)
+					.await
+					.wrap_err("Failed to execute the statement.")?;
+			},
 		}
 
 		Ok(Some(output))
@@ -155,19 +225,39 @@ impl Server {
 
 		// Add the object to the database if there are no missing objects.
 		if missing.is_empty() {
-			let db = self.inner.database.get().await?;
-			let statement = "
-				insert into objects (id, bytes)
-				values (?1, ?2)
-				on conflict (id) do update set bytes = ?2;
-			";
-			let params = params![id.to_string(), bytes.to_vec()];
-			let mut statement = db
-				.prepare_cached(statement)
-				.wrap_err("Failed to prepare the query.")?;
-			statement
-				.execute(params)
-				.wrap_err("Failed to execute the query.")?;
+			match &self.inner.database {
+				Database::Sqlite(database) => {
+					let db = database.get().await?;
+					let statement = "
+						insert into objects (id, bytes)
+						values (?1, ?2)
+						on conflict (id) do update set bytes = ?2;
+					";
+					let params = sqlite_params![id.to_string(), bytes.to_vec()];
+					let mut statement = db
+						.prepare_cached(statement)
+						.wrap_err("Failed to prepare the query.")?;
+					statement
+						.execute(params)
+						.wrap_err("Failed to execute the query.")?;
+				},
+
+				Database::Postgres(database) => {
+					let db = database.get().await?;
+					let statement = "
+						upsert into objects (id, bytes)
+						values ($1, $2);
+					";
+					let params = postgres_params![id.to_string(), bytes.to_vec()];
+					let statement = db
+						.prepare_cached(statement)
+						.await
+						.wrap_err("Failed to prepare the statement.")?;
+					db.execute(&statement, params)
+						.await
+						.wrap_err("Failed to execute the statement.")?;
+				},
+			}
 		}
 
 		let output = tg::object::PutOutput { missing };

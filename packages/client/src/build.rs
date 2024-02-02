@@ -100,13 +100,13 @@ pub struct Options {
 #[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
 pub struct ListArg {
 	pub limit: u64,
-	pub sort: ListSort,
+	pub order: ListOrder,
 	pub target: target::Id,
 }
 
 #[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
 #[serde(rename_all = "snake_case")]
-pub enum ListSort {
+pub enum ListOrder {
 	Timestamp,
 }
 
@@ -495,8 +495,7 @@ impl Client {
 			.await
 			.wrap_err("Failed to collect the response body.")?
 			.to_bytes();
-		let state = serde_json::from_slice(&bytes).wrap_err("Failed to deserialize the body.")?;
-		let output = tg::build::GetOutput { state };
+		let output = serde_json::from_slice(&bytes).wrap_err("Failed to deserialize the body.")?;
 		Ok(Some(output))
 	}
 

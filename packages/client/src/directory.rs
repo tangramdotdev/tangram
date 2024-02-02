@@ -186,7 +186,7 @@ impl Directory {
 			};
 
 			// Update the current path.
-			current_path = current_path.join(component.clone().into());
+			current_path = current_path.join(component.clone());
 
 			// Get the entry. If it doesn't exist, return `None`.
 			let name = component

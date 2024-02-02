@@ -1,8 +1,12 @@
 use super::Server;
-use crate::{database::Json, params, BuildContext, Http};
+use crate::{
+	database::{Database, PostgresJson, SqliteJson},
+	postgres_params, sqlite_params, BuildContext, Http,
+};
 use futures::{stream, StreamExt, TryStreamExt};
 use http_body_util::BodyExt;
 use itertools::Itertools;
+use num::ToPrimitive;
 use std::sync::Arc;
 use tangram_client as tg;
 use tangram_error::{error, Error, Result, WrapErr};
@@ -16,33 +20,80 @@ mod status;
 
 impl Server {
 	pub async fn try_list_builds(&self, arg: tg::build::ListArg) -> Result<tg::build::ListOutput> {
-		let db = self.inner.database.get().await?;
-		let order = match arg.sort {
-			tg::build::ListSort::Timestamp => "state->>'timestamp' desc",
-		};
-		let statement = &format!(
-			"
-				select state
-				from builds
-				where state->>'target' = ?1
-				order by {order}
-				limit ?2
-				offset ?3;
-			"
-		);
-		let params = params![arg.target.to_string(), arg.limit, 0];
-		let mut statement = db
-			.prepare_cached(statement)
-			.wrap_err("Failed to prepare the query.")?;
-		let rows = statement
-			.query(params)
-			.wrap_err("Failed to execute the query.")?;
-		let values = rows
-			.and_then(|row| row.get::<_, Json<tg::build::State>>(0).map(|json| json.0))
-			.try_collect()
-			.wrap_err("Failed to deserialize the rows.")?;
-		let output = tg::build::ListOutput { values };
-		Ok(output)
+		match &self.inner.database {
+			Database::Sqlite(database) => {
+				let db = database.get().await?;
+				let order = match arg.order {
+					tg::build::ListOrder::Timestamp => "state->>'timestamp' desc",
+				};
+				let statement = &format!(
+					"
+						select state
+						from builds
+						where state->>'target' = ?1
+						order by {order}
+						limit ?2
+						offset ?3;
+					"
+				);
+				let params = sqlite_params![arg.target.to_string(), arg.limit, 0];
+				let mut statement = db
+					.prepare_cached(statement)
+					.wrap_err("Failed to prepare the query.")?;
+				let rows = statement
+					.query(params)
+					.wrap_err("Failed to execute the query.")?;
+				let values = rows
+					.and_then(|row| {
+						row.get::<_, SqliteJson<tg::build::State>>(0)
+							.map(|json| json.0)
+					})
+					.try_collect()
+					.wrap_err("Failed to deserialize the column.")?;
+				let output = tg::build::ListOutput { values };
+				Ok(output)
+			},
+
+			Database::Postgres(database) => {
+				let db = database.get().await?;
+				let order = match arg.order {
+					tg::build::ListOrder::Timestamp => "state->>'timestamp' desc",
+				};
+				let statement = &format!(
+					"
+						select state
+						from builds
+						where state->>'target' = $1
+						order by {order}
+						limit $2
+						offset $3;
+					"
+				);
+				let params = postgres_params![
+					arg.target.to_string(),
+					arg.limit.to_i64().unwrap(),
+					0.to_i64().unwrap()
+				];
+				let statement = db
+					.prepare_cached(statement)
+					.await
+					.wrap_err("Failed to prepare the query.")?;
+				let rows = db
+					.query(&statement, params)
+					.await
+					.wrap_err("Failed to execute the query.")?;
+				let values = rows
+					.into_iter()
+					.map(|row| {
+						row.try_get::<_, PostgresJson<tg::build::State>>(0)
+							.map(|json| json.0)
+					})
+					.try_collect()
+					.wrap_err("Failed to deserialize the rows.")?;
+				let output = tg::build::ListOutput { values };
+				Ok(output)
+			},
+		}
 	}
 
 	pub async fn get_build_exists(&self, id: &tg::build::Id) -> Result<bool> {
@@ -56,27 +107,53 @@ impl Server {
 	}
 
 	pub(crate) async fn get_build_exists_local(&self, id: &tg::build::Id) -> Result<bool> {
-		let db = self.inner.database.get().await?;
-		let statement = "
-			select count(*) != 0
-			from builds
-			where id = ?1;
-		";
-		let params = params![id.to_string()];
-		let mut statement = db
-			.prepare_cached(statement)
-			.wrap_err("Failed to prepare the query.")?;
-		let mut rows = statement
-			.query(params)
-			.wrap_err("Failed to execute the query.")?;
-		let row = rows
-			.next()
-			.wrap_err("Failed to retrieve the row.")?
-			.wrap_err("Expected a row.")?;
-		let exists = row
-			.get::<_, bool>(0)
-			.wrap_err("Failed to deserialize the column.")?;
-		Ok(exists)
+		match &self.inner.database {
+			Database::Sqlite(database) => {
+				let db = database.get().await?;
+				let statement = "
+					select count(*) != 0
+					from builds
+					where id = ?1;
+				";
+				let params = sqlite_params![id.to_string()];
+				let mut statement = db
+					.prepare_cached(statement)
+					.wrap_err("Failed to prepare the query.")?;
+				let mut rows = statement
+					.query(params)
+					.wrap_err("Failed to execute the query.")?;
+				let row = rows
+					.next()
+					.wrap_err("Failed to retrieve the row.")?
+					.wrap_err("Expected a row.")?;
+				let exists = row
+					.get::<_, bool>(0)
+					.wrap_err("Failed to deserialize the column.")?;
+				Ok(exists)
+			},
+
+			Database::Postgres(database) => {
+				let db = database.get().await?;
+				let statement = "
+					select count(*) != 0
+					from builds
+					where id = $1;
+				";
+				let params = postgres_params![id.to_string()];
+				let statement = db
+					.prepare_cached(statement)
+					.await
+					.wrap_err("Failed to prepare the query.")?;
+				let row = db
+					.query_one(&statement, params)
+					.await
+					.wrap_err("Failed to execute the query.")?;
+				let exists = row
+					.try_get::<_, bool>(0)
+					.wrap_err("Failed to deserialize the column.")?;
+				Ok(exists)
+			},
+		}
 	}
 
 	async fn get_build_exists_remote(&self, id: &tg::build::Id) -> Result<bool> {
@@ -101,28 +178,56 @@ impl Server {
 		&self,
 		id: &tg::build::Id,
 	) -> Result<Option<tg::build::GetOutput>> {
-		let db = self.inner.database.get().await?;
-		let statement = "
-			select state
-			from builds
-			where id = ?1;
-		";
-		let params = params![id.to_string()];
-		let mut statement = db
-			.prepare_cached(statement)
-			.wrap_err("Failed to prepare the query.")?;
-		let mut rows = statement
-			.query(params)
-			.wrap_err("Failed to execute the query.")?;
-		let Some(row) = rows.next().wrap_err("Failed to retrieve the row.")? else {
-			return Ok(None);
-		};
-		let state = row
-			.get::<_, Json<tg::build::State>>(0)
-			.wrap_err("Failed to deserialize the column.")?
-			.0;
-		let output = tg::build::GetOutput { state };
-		Ok(Some(output))
+		match &self.inner.database {
+			Database::Sqlite(database) => {
+				let db = database.get().await?;
+				let statement = "
+					select state
+					from builds
+					where id = ?1;
+				";
+				let params = sqlite_params![id.to_string()];
+				let mut statement = db
+					.prepare_cached(statement)
+					.wrap_err("Failed to prepare the query.")?;
+				let mut rows = statement
+					.query(params)
+					.wrap_err("Failed to execute the query.")?;
+				let Some(row) = rows.next().wrap_err("Failed to retrieve the row.")? else {
+					return Ok(None);
+				};
+				let state = row
+					.get::<_, SqliteJson<tg::build::State>>(0)
+					.wrap_err("Failed to deserialize the column.")?
+					.0;
+				let output = tg::build::GetOutput { state };
+				Ok(Some(output))
+			},
+
+			Database::Postgres(database) => {
+				let db = database.get().await?;
+				let statement = "
+					select state
+					from builds
+					where id = $1;
+				";
+				let params = postgres_params![id.to_string()];
+				let statement = db
+					.prepare_cached(statement)
+					.await
+					.wrap_err("Failed to prepare the query.")?;
+				let row = db
+					.query_one(&statement, params)
+					.await
+					.wrap_err("Failed to execute the query.")?;
+				let state = row
+					.try_get::<_, PostgresJson<tg::build::State>>(0)
+					.wrap_err("Failed to deserialize the column.")?
+					.0;
+				let output = tg::build::GetOutput { state };
+				Ok(Some(output))
+			},
+		}
 	}
 
 	async fn try_get_build_remote(
@@ -140,20 +245,26 @@ impl Server {
 		};
 
 		// Add the build to the database.
-		{
-			let db = self.inner.database.get().await?;
-			let statement = "
-				insert into builds (id, state)
-				values (?1, ?2)
-				on conflict (id) do update set state = ?2;
-			";
-			let params = params![id.to_string(), Json(output.state.clone())];
-			let mut statement = db
-				.prepare_cached(statement)
-				.wrap_err("Failed to prepare the query.")?;
-			statement
-				.execute(params)
-				.wrap_err("Failed to execute the query.")?;
+		match &self.inner.database {
+			Database::Sqlite(database) => {
+				let db = database.get().await?;
+				let statement = "
+					insert into builds (id, state)
+					values (?1, ?2)
+					on conflict (id) do update set state = ?2;
+				";
+				let params = sqlite_params![id.to_string(), SqliteJson(output.state.clone())];
+				let mut statement = db
+					.prepare_cached(statement)
+					.wrap_err("Failed to prepare the query.")?;
+				statement
+					.execute(params)
+					.wrap_err("Failed to execute the query.")?;
+			},
+
+			Database::Postgres(_) => {
+				unimplemented!()
+			},
 		}
 
 		Ok(Some(output))
@@ -192,19 +303,39 @@ impl Server {
 
 		// Insert the build if there are no missing builds or objects.
 		if builds.is_empty() && objects.is_empty() {
-			let db = self.inner.database.get().await?;
-			let statement = "
-				insert into builds (id, state)
-				values (?1, ?2)
-				on conflict do update set state = ?2;
-			";
-			let params = params![id.to_string(), Json(state.clone())];
-			let mut statement = db
-				.prepare_cached(statement)
-				.wrap_err("Failed to prepare the query.")?;
-			statement
-				.execute(params)
-				.wrap_err("Failed to execute the query.")?;
+			match &self.inner.database {
+				Database::Sqlite(database) => {
+					let db = database.get().await?;
+					let statement = "
+						insert into builds (id, state)
+						values (?1, ?2)
+						on conflict do update set state = ?2;
+					";
+					let params = sqlite_params![id.to_string(), SqliteJson(state.clone())];
+					let mut statement = db
+						.prepare_cached(statement)
+						.wrap_err("Failed to prepare the query.")?;
+					statement
+						.execute(params)
+						.wrap_err("Failed to execute the query.")?;
+				},
+
+				Database::Postgres(database) => {
+					let db = database.get().await?;
+					let statement = "
+						upsert into builds (id, state)
+						values ($1, $2);
+					";
+					let params = postgres_params![id.to_string(), PostgresJson(state.clone())];
+					let statement = db
+						.prepare_cached(statement)
+						.await
+						.wrap_err("Failed to prepare the query.")?;
+					db.execute(&statement, params)
+						.await
+						.wrap_err("Failed to execute the query.")?;
+				},
+			}
 		}
 
 		let output = tg::build::PutOutput {
@@ -243,7 +374,7 @@ impl Server {
 			// Find a build.
 			let list_arg = tg::build::ListArg {
 				limit: 1,
-				sort: tg::build::ListSort::Timestamp,
+				order: tg::build::ListOrder::Timestamp,
 				target: arg.target.clone(),
 			};
 			let Some(build) = self
@@ -285,7 +416,7 @@ impl Server {
 			// Find a build.
 			let list_arg = tg::build::ListArg {
 				limit: 1,
-				sort: tg::build::ListSort::Timestamp,
+				order: tg::build::ListOrder::Timestamp,
 				target: arg.target.clone(),
 			};
 			let Some(build) = remote
@@ -316,23 +447,49 @@ impl Server {
 		// If a local or remote build was found that satisfies the retry constraint, then return it.
 		if let Some(build) = build {
 			// Update the queue with the depth if it is greater.
-			let updated = {
-				let db = self.inner.database.get().await?;
-				let statement = "
-					update build_queue
-					set
-						options = json_set(options, '$.depth', (select json(max(depth, ?1)))),
-						depth = (select max(depth, ?1))
-					where build = ?2;
-				";
-				let params = params![arg.options.depth, build.id().to_string()];
-				let mut statement = db
-					.prepare_cached(statement)
-					.wrap_err("Failed to prepare the query.")?;
-				let n = statement
-					.execute(params)
-					.wrap_err("Failed to execute the query.")?;
-				n > 0
+			let updated = match &self.inner.database {
+				Database::Sqlite(database) => {
+					let db = database.get().await?;
+					let statement = "
+						update build_queue
+						set
+							options = json_set(options, '$.depth', (select json(max(depth, ?1)))),
+							depth = (select max(depth, ?1))
+						where build = ?2;
+					";
+					let params = sqlite_params![arg.options.depth, build.id().to_string()];
+					let mut statement = db
+						.prepare_cached(statement)
+						.wrap_err("Failed to prepare the query.")?;
+					let n = statement
+						.execute(params)
+						.wrap_err("Failed to execute the query.")?;
+					n > 0
+				},
+
+				Database::Postgres(database) => {
+					let db = database.get().await?;
+					let statement = "
+						update build_queue
+						set 
+							options = json_set(options, '{depth}', (select to_json(greatest(depth, $1)))),
+							depth = (select greatest(depth, $1))
+						where build = $2;
+					";
+					let params = postgres_params![
+						arg.options.depth.to_i64().unwrap(),
+						build.id().to_string()
+					];
+					let statement = db
+						.prepare_cached(statement)
+						.await
+						.wrap_err("Failed to prepare the statement.")?;
+					let n = db
+						.execute(&statement, params)
+						.await
+						.wrap_err("Failed to execute the statement.")?;
+					n > 0
+				},
 			};
 			if updated {
 				self.inner.local_queue_task_wake_sender.send_replace(());
@@ -417,49 +574,91 @@ impl Server {
 			.insert(build_id.clone(), context);
 
 		// Add the build to the database.
-		{
-			let state = tg::build::State {
-				children: Vec::new(),
-				id: build_id.clone(),
-				log: None,
-				outcome: None,
-				status: tg::build::Status::Queued,
-				target: arg.target.clone(),
-				timestamp: time::OffsetDateTime::now_utc(),
-			};
-			let db = self.inner.database.get().await?;
-			let statement = "
-				insert into builds (id, state)
-				values (?1, ?2);
-			";
-			let params = params![build_id.to_string(), Json(state)];
-			let mut statement = db
-				.prepare_cached(statement)
-				.wrap_err("Failed to prepare the query.")?;
-			statement
-				.execute(params)
-				.wrap_err("Failed to execute the query.")?;
+		let state = tg::build::State {
+			children: Vec::new(),
+			id: build_id.clone(),
+			log: None,
+			outcome: None,
+			status: tg::build::Status::Queued,
+			target: arg.target.clone(),
+			timestamp: time::OffsetDateTime::now_utc(),
+		};
+		match &self.inner.database {
+			Database::Sqlite(database) => {
+				let db = database.get().await?;
+				let statement = "
+					insert into builds (id, state)
+					values (?1, ?2);
+				";
+				let params = sqlite_params![build_id.to_string(), SqliteJson(state)];
+				let mut statement = db
+					.prepare_cached(statement)
+					.wrap_err("Failed to prepare the query.")?;
+				statement
+					.execute(params)
+					.wrap_err("Failed to execute the query.")?;
+			},
+
+			Database::Postgres(database) => {
+				let db = database.get().await?;
+				let statement = "
+					insert into builds (id, state)
+					values ($1, $2);
+				";
+				let params = postgres_params![build_id.to_string(), PostgresJson(state)];
+				let statement = db
+					.prepare_cached(statement)
+					.await
+					.wrap_err("Failed to prepare the statement.")?;
+				db.execute(&statement, params)
+					.await
+					.wrap_err("Failed to execute the statement.")?;
+			},
 		}
 
 		// Add the build to the queue.
-		{
-			let db = self.inner.database.get().await?;
-			let statement = "
-				insert into build_queue (build, options, host, depth)
-				values (?1, ?2, ?3, ?4);
-			";
-			let params = params![
-				build_id.to_string(),
-				Json(arg.options.clone()),
-				host.to_string(),
-				arg.options.depth,
-			];
-			let mut statement = db
-				.prepare_cached(statement)
-				.wrap_err("Failed to prepare the query.")?;
-			statement
-				.execute(params)
-				.wrap_err("Failed to execute the query.")?;
+
+		match &self.inner.database {
+			Database::Sqlite(database) => {
+				let db = database.get().await?;
+				let statement = "
+					insert into build_queue (build, options, host, depth)
+					values (?1, ?2, ?3, ?4);
+				";
+				let params = sqlite_params![
+					build_id.to_string(),
+					SqliteJson(arg.options.clone()),
+					host.to_string(),
+					arg.options.depth,
+				];
+				let mut statement = db
+					.prepare_cached(statement)
+					.wrap_err("Failed to prepare the query.")?;
+				statement
+					.execute(params)
+					.wrap_err("Failed to execute the query.")?;
+			},
+
+			Database::Postgres(database) => {
+				let db = database.get().await?;
+				let statement = "
+					insert into build_queue (build, options, host, depth)
+					values ($1, $2, $3, $4);
+				";
+				let params = postgres_params![
+					build_id.to_string(),
+					PostgresJson(arg.options.clone()),
+					host.to_string(),
+					arg.options.depth.to_i64().unwrap(),
+				];
+				let statement = db
+					.prepare_cached(statement)
+					.await
+					.wrap_err("Failed to prepare the statement.")?;
+				db.execute(&statement, params)
+					.await
+					.wrap_err("Failed to execute the statement.")?;
+			},
 		}
 
 		// Add the build to the parent.

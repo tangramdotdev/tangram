@@ -3,10 +3,13 @@ use async_trait::async_trait;
 use bytes::Bytes;
 use futures::stream::BoxStream;
 use tangram_error::{Result, WrapErr};
+use url::Url;
 
 #[async_trait]
 pub trait Handle: Send + Sync + 'static {
 	fn clone_box(&self) -> Box<dyn Handle>;
+
+	fn path(&self) -> Option<tg::Path>;
 
 	fn file_descriptor_semaphore(&self) -> &tokio::sync::Semaphore;
 
@@ -225,4 +228,8 @@ pub trait Handle: Send + Sync + 'static {
 	async fn get_login(&self, id: &tg::Id) -> Result<Option<tg::user::Login>>;
 
 	async fn get_user_for_token(&self, token: &str) -> Result<Option<tg::User>>;
+
+	async fn create_oauth_url(&self, id: &tg::Id) -> Result<Url>;
+
+	async fn complete_login(&self, id: &tg::Id, code: String) -> Result<()>;
 }

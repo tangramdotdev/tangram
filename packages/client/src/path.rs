@@ -101,12 +101,12 @@ impl Path {
 
 	#[must_use]
 	pub fn parent(self) -> Self {
-		self.join(Component::Parent.into())
+		self.join(Component::Parent)
 	}
 
 	#[must_use]
-	pub fn join(mut self, other: Self) -> Self {
-		for component in other.into_components() {
+	pub fn join(mut self, other: impl Into<Self>) -> Self {
+		for component in other.into().into_components() {
 			self.push(component);
 		}
 		self
@@ -179,11 +179,21 @@ impl From<Path> for String {
 	}
 }
 
-impl TryFrom<String> for Path {
-	type Error = Error;
+impl From<String> for Path {
+	fn from(value: String) -> Self {
+		value.parse().unwrap()
+	}
+}
 
-	fn try_from(value: String) -> Result<Self, Self::Error> {
-		value.parse()
+impl From<&String> for Path {
+	fn from(value: &String) -> Self {
+		value.parse().unwrap()
+	}
+}
+
+impl From<&str> for Path {
+	fn from(value: &str) -> Self {
+		value.parse().unwrap()
 	}
 }
 
@@ -232,6 +242,12 @@ impl<'a> TryFrom<&'a std::path::Path> for Path {
 impl AsRef<std::path::Path> for Path {
 	fn as_ref(&self) -> &std::path::Path {
 		std::path::Path::new(self.string.as_str())
+	}
+}
+
+impl AsRef<std::ffi::OsStr> for Path {
+	fn as_ref(&self) -> &std::ffi::OsStr {
+		std::path::Path::new(self.string.as_str()).as_os_str()
 	}
 }
 

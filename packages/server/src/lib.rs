@@ -24,6 +24,7 @@ use tangram_util::{
 };
 use tokio::net::{TcpListener, UnixListener};
 use tokio_util::either::Either;
+use url::Url;
 
 mod artifact;
 mod build;
@@ -53,14 +54,17 @@ struct Inner {
 	local_queue_task_stop_sender: tokio::sync::watch::Sender<bool>,
 	local_queue_task_wake_sender: tokio::sync::watch::Sender<()>,
 	lockfile: std::sync::Mutex<Option<tokio::fs::File>>,
+	oauth: OAuth,
 	path: PathBuf,
 	remote: Option<Box<dyn tg::Handle>>,
 	remote_queue_task: std::sync::Mutex<Option<tokio::task::JoinHandle<Result<()>>>>,
 	remote_queue_task_stop_sender: tokio::sync::watch::Sender<bool>,
 	shutdown: tokio::sync::watch::Sender<bool>,
 	shutdown_task: std::sync::Mutex<Option<tokio::task::JoinHandle<Result<()>>>>,
+	url: Option<Url>,
 	version: String,
 	vfs: std::sync::Mutex<Option<tangram_vfs::Server>>,
+	www: Option<Url>,
 }
 
 struct BuildContext {
@@ -71,6 +75,11 @@ struct BuildContext {
 	status: Option<tokio::sync::watch::Sender<()>>,
 	stop: tokio::sync::watch::Sender<bool>,
 	task: std::sync::Mutex<Option<tokio::task::JoinHandle<()>>>,
+}
+
+#[derive(Debug)]
+struct OAuth {
+	github: Option<oauth2::basic::BasicClient>,
 }
 
 #[derive(Clone)]
@@ -136,9 +145,13 @@ impl Server {
 		let permits = options.build.permits;
 		let build_semaphore = Arc::new(tokio::sync::Semaphore::new(permits));
 
-		// Open the database.
-		let database_path = path.join("database");
-		let database = Database::new(&database_path).await?;
+		// Create the database.
+		let database = if let Some(url) = options.database.url {
+			Database::new_postgres(url).await?
+		} else {
+			let database_path = path.join("database");
+			Database::new_sqlite(database_path).await?
+		};
 
 		// Create the file system semaphore.
 		let file_descriptor_semaphore = tokio::sync::Semaphore::new(16);
@@ -157,6 +170,26 @@ impl Server {
 		let (local_queue_task_stop_sender, local_queue_task_stop_receiver) =
 			tokio::sync::watch::channel(false);
 
+		// Create the oauth clients.
+		let github = if let Some(oauth) = options.oauth.github {
+			let client_id = oauth2::ClientId::new(oauth.client_id.clone());
+			let client_secret = oauth2::ClientSecret::new(oauth.client_secret.clone());
+			let auth_url = oauth2::AuthUrl::new(oauth.auth_url.clone())
+				.wrap_err("Failed to create the auth URL.")?;
+			let token_url = oauth2::TokenUrl::new(oauth.token_url.clone())
+				.wrap_err("Failed to create the token URL.")?;
+			let oauth_client = oauth2::basic::BasicClient::new(
+				client_id,
+				Some(client_secret),
+				auth_url,
+				Some(token_url),
+			);
+			Some(oauth_client)
+		} else {
+			None
+		};
+		let oauth = OAuth { github };
+
 		// Get the remote.
 		let remote = options.remote.as_ref().map(|remote| remote.tg.clone_box());
 
@@ -173,11 +206,17 @@ impl Server {
 		// Create the shutdown task.
 		let shutdown_task = std::sync::Mutex::new(None);
 
+		// Get the URL.
+		let url = options.url;
+
 		// Get the version.
 		let version = options.version;
 
 		// Create the vfs.
 		let vfs = std::sync::Mutex::new(None);
+
+		// Get the WWW URL.
+		let www = options.www;
 
 		// Create the server.
 		let inner = Arc::new(Inner {
@@ -190,20 +229,23 @@ impl Server {
 			local_queue_task_stop_sender,
 			local_queue_task_wake_sender,
 			lockfile,
+			oauth,
 			path,
 			remote,
 			remote_queue_task,
 			remote_queue_task_stop_sender,
 			shutdown,
 			shutdown_task,
+			url,
 			version,
 			vfs,
+			www,
 		});
 		let server = Server { inner };
 
 		// Terminate unfinished builds.
-		{
-			let db = server.inner.database.get().await?;
+		if let Database::Sqlite(database) = &server.inner.database {
+			let db = database.get().await?;
 			let statement = r#"
 				update builds
 				set state = json_set(
@@ -222,8 +264,8 @@ impl Server {
 		}
 
 		// Empty the build queue.
-		{
-			let db = server.inner.database.get().await?;
+		if let Database::Sqlite(database) = &server.inner.database {
+			let db = database.get().await?;
 			let statement = "
 				delete from build_queue;
 			";
@@ -740,6 +782,14 @@ impl Http {
 				.handle_get_user_for_token_request(request)
 				.map(Some)
 				.boxed(),
+			(http::Method::GET, ["login"]) => self
+				.handle_create_oauth_url_request(request)
+				.map(Some)
+				.boxed(),
+			(http::Method::GET, ["oauth", _]) => self
+				.handle_oauth_callback_request(request)
+				.map(Some)
+				.boxed(),
 
 			(_, _) => future::ready(None).boxed(),
 		}
@@ -775,6 +825,10 @@ impl Http {
 impl tg::Handle for Server {
 	fn clone_box(&self) -> Box<dyn tg::Handle> {
 		Box::new(self.clone())
+	}
+
+	fn path(&self) -> Option<tg::Path> {
+		None
 	}
 
 	fn file_descriptor_semaphore(&self) -> &tokio::sync::Semaphore {
@@ -982,6 +1036,14 @@ impl tg::Handle for Server {
 
 	async fn get_user_for_token(&self, token: &str) -> Result<Option<tg::user::User>> {
 		self.get_user_for_token(token).await
+	}
+
+	async fn create_oauth_url(&self, id: &tg::Id) -> Result<Url> {
+		self.create_oauth_url(id).await
+	}
+
+	async fn complete_login(&self, id: &tg::Id, code: String) -> Result<()> {
+		self.complete_login(id, code).await
 	}
 }
 

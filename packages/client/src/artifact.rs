@@ -269,7 +269,7 @@ impl Artifact {
 		let entries = names
 			.into_iter()
 			.map(|name| async {
-				let path = path.clone().join(name.clone().try_into()?);
+				let path = path.clone().join(name.clone());
 				let artifact = Artifact::with_id(Self::check_in_local(tg, &path).await?);
 				Ok::<_, Error>((name, artifact))
 			})
@@ -455,7 +455,7 @@ impl Artifact {
 					.iter()
 					.map(|(name, _)| async move {
 						if !directory.entries(tg).await?.contains_key(name) {
-							let entry_path = path.clone().join(name.parse()?);
+							let entry_path = path.clone().join(name);
 							rmrf(&entry_path).await?;
 						}
 						Ok::<_, Error>(())
@@ -498,7 +498,7 @@ impl Artifact {
 					};
 
 					// Recurse.
-					let entry_path = path.clone().join(name.parse()?);
+					let entry_path = path.clone().join(name);
 					Self::check_out_local_inner(
 						tg,
 						artifact,

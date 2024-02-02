@@ -1,11 +1,12 @@
 use super::Server;
+use crate::database::Database;
 use tangram_error::{Result, WrapErr};
 
 impl Server {
 	pub async fn clean(&self) -> Result<()> {
 		// Clean the database.
-		{
-			let db = self.inner.database.get().await?;
+		if let Database::Sqlite(database) = &self.inner.database {
+			let db = database.get().await?;
 			db.execute_batch(
 				"
 					delete from builds;

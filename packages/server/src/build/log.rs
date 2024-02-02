@@ -1,4 +1,4 @@
-use crate::{params, Http, Server};
+use crate::{database::Database, sqlite_params, Http, Server};
 use bytes::{Bytes, BytesMut};
 use futures::{
 	future::{self, BoxFuture},
@@ -318,34 +318,40 @@ impl Server {
 		}
 
 		// Add the log to the database.
-		{
-			let db = self.inner.database.get().await?;
-			let statement = "
-				insert into build_logs (build, position, bytes)
-				values (
-					?1,
-					(
-						select coalesce(
-							(
-								select position + length(bytes)
-								from build_logs
-								where build = ?1
-								order by position desc
-								limit 1
-							),
-							0
-						)
-					),
-					?2
-				);
-			";
-			let params = params![id.to_string(), bytes.to_vec()];
-			let mut statement = db
-				.prepare_cached(statement)
-				.wrap_err("Failed to prepare the query.")?;
-			statement
-				.execute(params)
-				.wrap_err("Failed to execute the query.")?;
+		match &self.inner.database {
+			Database::Sqlite(database) => {
+				let db = database.get().await?;
+				let statement = "
+					insert into build_logs (build, position, bytes)
+					values (
+						?1,
+						(
+							select coalesce(
+								(
+									select position + length(bytes)
+									from build_logs
+									where build = ?1
+									order by position desc
+									limit 1
+								),
+								0
+							)
+						),
+						?2
+					);
+				";
+				let params = sqlite_params![id.to_string(), bytes.to_vec()];
+				let mut statement = db
+					.prepare_cached(statement)
+					.wrap_err("Failed to prepare the query.")?;
+				statement
+					.execute(params)
+					.wrap_err("Failed to execute the query.")?;
+			},
+
+			Database::Postgres(_) => {
+				unimplemented!()
+			},
 		}
 
 		// Notify subscribers that the log has been added to.
@@ -433,42 +439,50 @@ impl DatabaseReader {
 	}
 
 	pub async fn end(&self) -> Result<bool> {
-		let db = self.server.inner.database.get().await?;
-		let statement = "
-			select (
-				select state->>'status' = 'finished'
-				from builds
-				where id = ?1
-			) and (
-				select coalesce(
-					(
-						select ?2 >= position + length(bytes)
-						from build_logs
-						where build = ?1 and position = (
-							select max(position) 
-							from build_logs
-							where build = ?1
+		match &self.server.inner.database {
+			Database::Sqlite(database) => {
+				let db = database.get().await?;
+				let statement = "
+					select (
+						select state->>'status' = 'finished'
+						from builds
+						where id = ?1
+					) and (
+						select coalesce(
+							(
+								select ?2 >= position + length(bytes)
+								from build_logs
+								where build = ?1 and position = (
+									select max(position)
+									from build_logs
+									where build = ?1
+								)
+							),
+							true
 						)
-					),
-					true
-				)
-			);
-		";
-		let mut statement = db
-			.prepare_cached(statement)
-			.wrap_err("Failed to prepare the statement.")?;
-		let params = params![self.id.to_string(), self.position];
-		let mut rows = statement
-			.query(params)
-			.wrap_err("Failed to execute the statement.")?;
-		let row = rows
-			.next()
-			.wrap_err("Failed to get row.")?
-			.wrap_err("Expected a row.")?;
-		let end = row
-			.get::<_, bool>(0)
-			.wrap_err("Failed to deserialize the column.")?;
-		Ok(end)
+					);
+				";
+				let mut statement = db
+					.prepare_cached(statement)
+					.wrap_err("Failed to prepare the statement.")?;
+				let params = sqlite_params![self.id.to_string(), self.position];
+				let mut rows = statement
+					.query(params)
+					.wrap_err("Failed to execute the statement.")?;
+				let row = rows
+					.next()
+					.wrap_err("Failed to get row.")?
+					.wrap_err("Expected a row.")?;
+				let end = row
+					.get::<_, bool>(0)
+					.wrap_err("Failed to deserialize the column.")?;
+				Ok(end)
+			},
+
+			Database::Postgres(_) => {
+				unimplemented!()
+			},
+		}
 	}
 }
 
@@ -566,36 +580,44 @@ async fn poll_read_inner(
 	position: u64,
 	length: u64,
 ) -> Result<Option<Cursor<Bytes>>> {
-	let db = server.inner.database.get().await?;
-	let statement = "
-		select position, bytes
-		from build_logs
-		where build = ?1 and (
-			(?2 < position and ?2 + ?3 > position) or
-			(?2 >= position and ?2 < position + length(bytes))
-		)
-		order by position;
-	";
-	let params = params![id.to_string(), position, length];
-	let mut statement = db
-		.prepare_cached(statement)
-		.wrap_err("Failed to prepare statement.")?;
-	let mut rows = statement
-		.query(params)
-		.wrap_err("Failed to perform query.")?;
-	let mut bytes = BytesMut::with_capacity(length.to_usize().unwrap());
-	while let Some(row) = rows.next().wrap_err("Failed to get the row.")? {
-		let row_position = row.get::<_, u64>(0).unwrap();
-		let row_bytes = row.get::<_, Vec<u8>>(1).unwrap();
-		if row_position < position {
-			let start = (position - row_position).to_usize().unwrap();
-			bytes.extend_from_slice(&row_bytes[start..]);
-		} else {
-			bytes.extend_from_slice(&row_bytes);
-		}
+	match &server.inner.database {
+		Database::Sqlite(database) => {
+			let db = database.get().await?;
+			let statement = "
+				select position, bytes
+				from build_logs
+				where build = ?1 and (
+					(?2 < position and ?2 + ?3 > position) or
+					(?2 >= position and ?2 < position + length(bytes))
+				)
+				order by position;
+			";
+			let params = sqlite_params![id.to_string(), position, length];
+			let mut statement = db
+				.prepare_cached(statement)
+				.wrap_err("Failed to prepare statement.")?;
+			let mut rows = statement
+				.query(params)
+				.wrap_err("Failed to perform query.")?;
+			let mut bytes = BytesMut::with_capacity(length.to_usize().unwrap());
+			while let Some(row) = rows.next().wrap_err("Failed to get the row.")? {
+				let row_position = row.get::<_, u64>(0).unwrap();
+				let row_bytes = row.get::<_, Vec<u8>>(1).unwrap();
+				if row_position < position {
+					let start = (position - row_position).to_usize().unwrap();
+					bytes.extend_from_slice(&row_bytes[start..]);
+				} else {
+					bytes.extend_from_slice(&row_bytes);
+				}
+			}
+			let cursor = Cursor::new(bytes.into());
+			Ok(Some(cursor))
+		},
+
+		Database::Postgres(_) => {
+			unimplemented!()
+		},
 	}
-	let cursor = Cursor::new(bytes.into());
-	Ok(Some(cursor))
 }
 
 impl AsyncSeek for DatabaseReader {
@@ -646,34 +668,42 @@ async fn poll_seek_inner(
 	position: u64,
 	seek: std::io::SeekFrom,
 ) -> Result<u64> {
-	let db = server.inner.database.get().await?;
-	let statement = "
-		select coalesce(
-			(
-				select position + length(bytes)
-				from build_logs
-				where build = ?1 and position = (
-					select max(position) 
-					from build_logs
-					where build = ?1
-				)
-			),
-			0
-		);
-	";
-	let params = params![id.to_string()];
-	let mut statement = db
-		.prepare_cached(statement)
-		.wrap_err("Failed to prepare the statement.")?;
-	let mut rows = statement
-		.query(params)
-		.wrap_err("Failed to execute the statement.")?;
-	let end = rows
-		.next()
-		.wrap_err("Failed to get the row.")?
-		.wrap_err("Expected a row.")?
-		.get::<_, u64>(0)
-		.wrap_err("Failed to deserialize the column.")?;
+	let end = match &server.inner.database {
+		Database::Sqlite(database) => {
+			let db = database.get().await?;
+			let statement = "
+				select coalesce(
+					(
+						select position + length(bytes)
+						from build_logs
+						where build = ?1 and position = (
+							select max(position)
+							from build_logs
+							where build = ?1
+						)
+					),
+					0
+				);
+			";
+			let params = sqlite_params![id.to_string()];
+			let mut statement = db
+				.prepare_cached(statement)
+				.wrap_err("Failed to prepare the statement.")?;
+			let mut rows = statement
+				.query(params)
+				.wrap_err("Failed to execute the statement.")?;
+			rows.next()
+				.wrap_err("Failed to get the row.")?
+				.wrap_err("Expected a row.")?
+				.get::<_, u64>(0)
+				.wrap_err("Failed to deserialize the column.")?
+		},
+
+		Database::Postgres(_) => {
+			unimplemented!()
+		},
+	};
+
 	let position = match seek {
 		std::io::SeekFrom::Start(seek) => seek.to_i64().unwrap(),
 		std::io::SeekFrom::End(seek) => end.to_i64().unwrap() + seek,

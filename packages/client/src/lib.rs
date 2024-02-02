@@ -475,6 +475,13 @@ impl Handle for Client {
 		Box::new(self.clone())
 	}
 
+	fn path(&self) -> Option<tg::Path> {
+		match &self.inner.address {
+			tg::Address::Unix(path) => path.clone().try_into().ok(),
+			tg::Address::Inet(_) => None,
+		}
+	}
+
 	fn file_descriptor_semaphore(&self) -> &tokio::sync::Semaphore {
 		&self.inner.file_descriptor_semaphore
 	}
@@ -680,6 +687,14 @@ impl Handle for Client {
 	async fn get_user_for_token(&self, token: &str) -> Result<Option<tg::User>> {
 		self.get_user_for_token(token).await
 	}
+
+	async fn create_oauth_url(&self, _id: &tg::Id) -> Result<Url> {
+		Err(error!("unimplemented"))
+	}
+
+	async fn complete_login(&self, _id: &tg::Id, _code: String) -> Result<()> {
+		Err(error!("unimplemented"))
+	}
 }
 
 impl Address {
@@ -723,18 +738,15 @@ impl std::str::FromStr for Address {
 	type Err = Error;
 
 	fn from_str(s: &str) -> Result<Self, Self::Err> {
-		let mut parts = s.splitn(2, ':');
-		let host = parts
-			.next()
-			.wrap_err("Expected a host.")?
-			.parse()
-			.wrap_err("Failed to parse the host.")?;
+		let (host, port) = s
+			.split_once(':')
+			.map_or((s, None), |(host, port)| (host, Some(port)));
+		let host = host.parse().wrap_err("Failed to parse the host.")?;
 		if matches!(&host, Host::Domain(hostname) if hostname == "unix") {
-			let path = parts.next().wrap_err("Expected a path.")?;
+			let path = port.wrap_err("Expected a path.")?;
 			Ok(Address::Unix(path.into()))
 		} else {
-			let port = parts
-				.next()
+			let port = port
 				.wrap_err("Expected a port.")?
 				.parse()
 				.wrap_err("Failed to parse the port.")?;

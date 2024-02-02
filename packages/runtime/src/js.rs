@@ -561,9 +561,7 @@ fn load_module<'s>(
 		async move {
 			let module = module.unwrap_normal_ref();
 			let package = tg::Directory::with_id(module.package.clone());
-			let metadata = tangram_package::get_metadata(tg.as_ref(), &package)
-				.await
-				.ok();
+			let metadata = tg::package::get_metadata(tg.as_ref(), &package).await.ok();
 			sender.send(metadata).unwrap();
 		}
 	});

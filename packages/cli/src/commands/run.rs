@@ -2,7 +2,7 @@ use crate::{
 	tui::{self, Tui},
 	Cli,
 };
-use std::{os::unix::process::CommandExt, path::PathBuf};
+use std::os::unix::process::CommandExt;
 use tangram_client as tg;
 use tangram_error::{Result, Wrap, WrapErr};
 
@@ -115,15 +115,16 @@ impl Cli {
 			.wrap_err("Expected the output to be an artifact.")?;
 
 		// Get the path to the artifact.
-		let artifact_path: PathBuf = self
-			.path
+		let artifact_path = tg
+			.path()
+			.wrap_err("Failed to get the server path.")?
 			.join("artifacts")
 			.join(artifact.id(tg).await?.to_string());
 
 		// Get the executable path.
 		let executable_path = if let Some(executable_path) = args.executable {
 			// Resolve the argument as a path relative to the artifact.
-			artifact_path.join(PathBuf::from(executable_path.to_string()))
+			artifact_path.join(executable_path)
 		} else {
 			match artifact {
 				// If the artifact is a file or symlink, then the executable path should be the artifact itself.
