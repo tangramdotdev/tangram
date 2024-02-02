@@ -38,6 +38,35 @@ impl Client {
 		Ok(health)
 	}
 
+	pub async fn path(&self) -> Result<Option<crate::Path>> {
+		let method = http::Method::GET;
+		let uri = "/path";
+		let body = empty();
+		let request = http::request::Builder::default()
+			.method(method)
+			.uri(uri)
+			.body(body)
+			.wrap_err("Failed to create the request.")?;
+		let response = self.send(request).await?;
+		if !response.status().is_success() {
+			let bytes = response
+				.collect()
+				.await
+				.wrap_err("Failed to collect the response body.")?
+				.to_bytes();
+			let error = serde_json::from_slice(&bytes)
+				.unwrap_or_else(|_| error!("The request did not succeed."));
+			return Err(error);
+		}
+		let bytes = response
+			.collect()
+			.await
+			.wrap_err("Failed to collect the response body.")?
+			.to_bytes();
+		let path = serde_json::from_slice(&bytes).wrap_err("Failed to deserialize the body.")?;
+		Ok(path)
+	}
+
 	pub async fn clean(&self) -> Result<()> {
 		let method = http::Method::POST;
 		let uri = "/clean";

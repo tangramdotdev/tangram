@@ -450,36 +450,24 @@ impl Server {
 		Ok(())
 	}
 
-	#[allow(clippy::unused_async)]
-	async fn health(&self) -> Result<tg::server::Health> {
-		Ok(tg::server::Health {
-			version: self.inner.version.clone(),
-		})
-	}
-
-	#[must_use]
-	pub fn path(&self) -> &Path {
-		&self.inner.path
-	}
-
 	#[must_use]
 	pub fn artifacts_path(&self) -> PathBuf {
-		self.path().join("artifacts")
+		self.inner.path.join("artifacts")
 	}
 
 	#[must_use]
 	pub fn checkouts_path(&self) -> PathBuf {
-		self.path().join("checkouts")
+		self.inner.path.join("checkouts")
 	}
 
 	#[must_use]
 	pub fn database_path(&self) -> PathBuf {
-		self.path().join("database")
+		self.inner.path.join("database")
 	}
 
 	#[must_use]
 	pub fn tmp_path(&self) -> PathBuf {
-		self.path().join("tmp")
+		self.inner.path.join("tmp")
 	}
 
 	fn create_tmp(&self) -> Tmp {
@@ -770,6 +758,7 @@ impl Http {
 			(http::Method::GET, ["health"]) => {
 				self.handle_health_request(request).map(Some).boxed()
 			},
+			(http::Method::GET, ["path"]) => self.handle_path_request(request).map(Some).boxed(),
 			(http::Method::POST, ["clean"]) => self.handle_clean_request(request).map(Some).boxed(),
 			(http::Method::POST, ["stop"]) => self.handle_stop_request(request).map(Some).boxed(),
 
@@ -829,8 +818,8 @@ impl tg::Handle for Server {
 		Box::new(self.clone())
 	}
 
-	fn path(&self) -> Option<tg::Path> {
-		None
+	async fn path(&self) -> Result<Option<tg::Path>> {
+		self.path().await
 	}
 
 	fn file_descriptor_semaphore(&self) -> &tokio::sync::Semaphore {

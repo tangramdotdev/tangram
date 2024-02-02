@@ -475,11 +475,8 @@ impl Handle for Client {
 		Box::new(self.clone())
 	}
 
-	fn path(&self) -> Option<tg::Path> {
-		match &self.inner.address {
-			tg::Address::Unix(path) => path.clone().try_into().ok(),
-			tg::Address::Inet(_) => None,
-		}
+	async fn path(&self) -> Result<Option<tg::Path>> {
+		self.path().await
 	}
 
 	fn file_descriptor_semaphore(&self) -> &tokio::sync::Semaphore {

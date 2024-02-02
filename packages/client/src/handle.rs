@@ -9,7 +9,7 @@ use url::Url;
 pub trait Handle: Send + Sync + 'static {
 	fn clone_box(&self) -> Box<dyn Handle>;
 
-	fn path(&self) -> Option<tg::Path>;
+	async fn path(&self) -> Result<Option<tg::Path>>;
 
 	fn file_descriptor_semaphore(&self) -> &tokio::sync::Semaphore;
 

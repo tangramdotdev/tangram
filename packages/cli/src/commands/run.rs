@@ -117,6 +117,8 @@ impl Cli {
 		// Get the path to the artifact.
 		let artifact_path = tg
 			.path()
+			.await
+			.wrap_err("Failed to get the server path.")?
 			.wrap_err("Failed to get the server path.")?
 			.join("artifacts")
 			.join(artifact.id(tg).await?.to_string());

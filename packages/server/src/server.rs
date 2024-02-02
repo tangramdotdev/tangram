@@ -1,6 +1,21 @@
-use crate::Http;
+use crate::{Http, Server};
+use tangram_client as tg;
 use tangram_error::Result;
 use tangram_util::http::{empty, full, ok, Incoming, Outgoing};
+
+impl Server {
+	#[allow(clippy::unused_async)]
+	pub async fn health(&self) -> Result<tg::server::Health> {
+		Ok(tg::server::Health {
+			version: self.inner.version.clone(),
+		})
+	}
+
+	#[allow(clippy::unused_async)]
+	pub async fn path(&self) -> Result<Option<tg::Path>> {
+		Ok(Some(self.inner.path.clone().try_into()?))
+	}
+}
 
 impl Http {
 	pub async fn handle_health_request(
@@ -14,6 +29,18 @@ impl Http {
 			.body(full(body))
 			.unwrap();
 		Ok(response)
+	}
+
+	pub async fn handle_path_request(
+		&self,
+		_request: http::Request<Incoming>,
+	) -> Result<http::Response<Outgoing>> {
+		let path = self.inner.tg.path().await?;
+		let body = serde_json::to_string(&path).unwrap();
+		Ok(http::Response::builder()
+			.status(http::StatusCode::OK)
+			.body(full(body))
+			.unwrap())
 	}
 
 	pub async fn handle_clean_request(

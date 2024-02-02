@@ -44,6 +44,8 @@ impl Cli {
 			path
 		} else {
 			tg.path()
+				.await
+				.wrap_err("Failed to get the server path.")?
 				.wrap_err("Failed to get the server path.")?
 				.join("artifacts")
 				.join(args.id.to_string())
