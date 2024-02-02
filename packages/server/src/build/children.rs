@@ -204,11 +204,6 @@ impl Server {
 			},
 		)
 		.try_flatten()
-		.map_err(|error| {
-			let trace = error.trace();
-			tracing::error!("{trace}");
-			error
-		})
 		.boxed();
 
 		Ok(Some(stream))
@@ -589,6 +584,11 @@ impl Http {
 
 		// Create the body.
 		let body = stream
+			.map_err(|error| {
+				let trace = error.trace();
+				tracing::error!("{trace}");
+				error
+			})
 			.map_ok(|chunk| {
 				let data = serde_json::to_string(&chunk).unwrap();
 				let event = tangram_util::sse::Event::with_data(data);
