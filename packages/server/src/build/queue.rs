@@ -361,7 +361,8 @@ impl Server {
 							.try_collect::<Vec<_>>()
 							.await?;
 					}
-					tangram_runtime::linux::build(self, &build, &options, stop, self.path()).await
+					tangram_runtime::linux::build(self, &build, &options, stop, &self.inner.path)
+						.await
 				}
 				#[cfg(not(target_os = "linux"))]
 				{
