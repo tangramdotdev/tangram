@@ -86,25 +86,38 @@ impl Cli {
 		// Print the build ID.
 		eprintln!("{}", build.id());
 
-		// Create the TUI.
-		let tui = !args.no_tui;
-		let tui = if tui {
-			Tui::start(tg, &build, tui::Options::default()).await.ok()
-		} else {
-			None
+		// Attempt to get the build's outcome with zero timeout.
+		let arg = tg::build::outcome::GetArg {
+			timeout: Some(std::time::Duration::ZERO),
 		};
+		let outcome = build
+			.get_outcome(tg, arg)
+			.await
+			.wrap_err("Failed to get the build outcome.")?;
 
-		// Wait for the build's outcome.
-		let outcome = build.outcome(tg).await;
+		// If the outcome is not immediatey available, then wait for it while showing the TUI if enabled.
+		let outcome = if let Some(outcome) = outcome {
+			outcome
+		} else {
+			// Create the TUI.
+			let tui = !args.no_tui;
+			let tui = if tui {
+				Tui::start(tg, &build, tui::Options::default()).await.ok()
+			} else {
+				None
+			};
 
-		// Stop the TUI.
-		if let Some(tui) = tui {
-			tui.stop();
-			tui.join().await?;
-		}
+			// Wait for the build's outcome.
+			let outcome = build.outcome(tg).await;
 
-		// Handle for an error that occurred while waiting for the build's outcome.
-		let outcome = outcome.wrap_err("Failed to get the build outcome.")?;
+			// Stop the TUI.
+			if let Some(tui) = tui {
+				tui.stop();
+				tui.join().await?;
+			}
+
+			outcome.wrap_err("Failed to get the build outcome.")?
+		};
 
 		// Handle a failed build.
 		let output = outcome.into_result().wrap_err("The build failed.")?;
