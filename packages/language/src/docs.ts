@@ -230,6 +230,7 @@ type PredicateType = {
 
 type ReferenceType = {
 	location: Location;
+	isExported: boolean;
 	name: string;
 	fullyQualifiedName: string;
 	typeArguments: Array<Type>;
@@ -299,10 +300,23 @@ export let handle = (request: Request): Response => {
 		exports_ = typeChecker.getExportsOfModule(symbol);
 	}
 
+	let packageExports = exports_;
+	let thisModule = typescript.moduleFromFileName(sourceFile.fileName);
+	for (let export_ of exports_) {
+		packageExports.push(
+			...getExportedSymbols(typeChecker, packageExports, thisModule, export_),
+		);
+	}
+
 	// Convert the exports.
 	let exports: { [key: string]: Symbol } = {};
 	for (let export_ of exports_) {
-		exports[export_.getName()] = convertSymbol(typeChecker, export_);
+		exports[export_.getName()] = convertSymbol(
+			typeChecker,
+			packageExports,
+			thisModule,
+			export_,
+		);
 	}
 
 	return {
@@ -310,8 +324,51 @@ export let handle = (request: Request): Response => {
 	};
 };
 
+let getExportedSymbols = (
+	typeChecker: ts.TypeChecker,
+	packageExports: Array<ts.Symbol>,
+	thisModule: Module,
+	export_: ts.Symbol,
+): Array<ts.Symbol> => {
+	let exports_: Array<ts.Symbol> = [];
+	let symbolFlags = export_.getFlags();
+
+	// Namespace.
+	if (
+		ts.SymbolFlags.NamespaceModule & symbolFlags ||
+		ts.SymbolFlags.ValueModule & symbolFlags
+	) {
+		let exports = typeChecker.getExportsOfModule(export_);
+		for (let export_ of exports) {
+			exports_.push(
+				...getExportedSymbols(typeChecker, packageExports, thisModule, export_),
+			);
+		}
+		exports_.push(...exports);
+	}
+
+	// Alias.
+	if (ts.SymbolFlags.Alias & symbolFlags) {
+		return getExportedSymbols(
+			typeChecker,
+			packageExports,
+			thisModule,
+			getAliasedSymbolIfAliased(
+				typeChecker,
+				packageExports,
+				thisModule,
+				export_,
+			),
+		);
+	}
+
+	return exports_;
+};
+
 let convertSymbol = (
 	typeChecker: ts.TypeChecker,
+	packageExports: Array<ts.Symbol>,
+	thisModule: Module,
 	moduleExport: ts.Symbol,
 ): Symbol => {
 	// Get the flags.
@@ -327,7 +384,12 @@ let convertSymbol = (
 		// A ValueModule is a module that contains values.
 		declarations.push({
 			kind: "namespace",
-			value: convertModuleSymbol(typeChecker, moduleExport),
+			value: convertModuleSymbol(
+				typeChecker,
+				packageExports,
+				thisModule,
+				moduleExport,
+			),
 		});
 	}
 
@@ -338,7 +400,12 @@ let convertSymbol = (
 	) {
 		declarations.push({
 			kind: "class",
-			value: convertClassSymbol(typeChecker, moduleExport),
+			value: convertClassSymbol(
+				typeChecker,
+				packageExports,
+				thisModule,
+				moduleExport,
+			),
 		});
 	}
 
@@ -346,7 +413,12 @@ let convertSymbol = (
 	if (ts.SymbolFlags.Variable & symbolFlags) {
 		declarations.push({
 			kind: "variable",
-			value: convertVariableSymbol(typeChecker, moduleExport),
+			value: convertVariableSymbol(
+				typeChecker,
+				packageExports,
+				thisModule,
+				moduleExport,
+			),
 		});
 	}
 
@@ -354,6 +426,8 @@ let convertSymbol = (
 	if (ts.SymbolFlags.Function & symbolFlags) {
 		let functionDeclarations: Array<Declaration> = convertFunctionSymbol(
 			typeChecker,
+			packageExports,
+			thisModule,
 			moduleExport,
 		).map((functionDeclaration) => ({
 			kind: "function",
@@ -366,7 +440,12 @@ let convertSymbol = (
 	if (ts.SymbolFlags.TypeAlias & symbolFlags) {
 		declarations.push({
 			kind: "type",
-			value: convertTypeAliasSymbol(typeChecker, moduleExport),
+			value: convertTypeAliasSymbol(
+				typeChecker,
+				packageExports,
+				thisModule,
+				moduleExport,
+			),
 		});
 	}
 
@@ -374,7 +453,14 @@ let convertSymbol = (
 	if (ts.SymbolFlags.Alias & symbolFlags) {
 		let symbol = convertSymbol(
 			typeChecker,
-			getAliasedSymbolIfAliased(typeChecker, moduleExport),
+			packageExports,
+			thisModule,
+			getAliasedSymbolIfAliased(
+				typeChecker,
+				packageExports,
+				thisModule,
+				moduleExport,
+			),
 		);
 		declarations.push(...symbol.declarations);
 	}
@@ -383,6 +469,8 @@ let convertSymbol = (
 	if (ts.SymbolFlags.Enum & symbolFlags) {
 		let enumDeclarations: Array<Declaration> = convertEnumSymbol(
 			typeChecker,
+			packageExports,
+			thisModule,
 			moduleExport,
 		).map((enumDeclaration) => ({
 			kind: "enum",
@@ -398,6 +486,8 @@ let convertSymbol = (
 	) {
 		let interfaceDeclarations: Array<Declaration> = convertInterfaceSymbol(
 			typeChecker,
+			packageExports,
+			thisModule,
 			moduleExport,
 		).map((interfaceDeclaration) => ({
 			kind: "interface",
@@ -413,7 +503,12 @@ let convertSymbol = (
 	) {
 		declarations.push({
 			kind: "variable",
-			value: convertDefaultExportSymbol(typeChecker, moduleExport),
+			value: convertDefaultExportSymbol(
+				typeChecker,
+				packageExports,
+				thisModule,
+				moduleExport,
+			),
 		});
 	}
 
@@ -423,6 +518,8 @@ let convertSymbol = (
 // ModuleSymbol.
 let convertModuleSymbol = (
 	typeChecker: ts.TypeChecker,
+	packageExports: Array<ts.Symbol>,
+	thisModule: Module,
 	symbol: ts.Symbol,
 ): NamespaceDeclaration => {
 	// Convert the exports of the namespace.
@@ -433,6 +530,8 @@ let convertModuleSymbol = (
 		if (flags & ts.SymbolFlags.ModuleMember) {
 			exports[namespaceExport.getName()] = convertSymbol(
 				typeChecker,
+				packageExports,
+				thisModule,
 				namespaceExport,
 			);
 		}
@@ -440,10 +539,14 @@ let convertModuleSymbol = (
 
 	// Convert the declaration locations.
 	let declaration = symbol.declarations?.filter((declaration) => {
-		return declaration.kind === ts.SyntaxKind.ModuleDeclaration;
+		return (
+			declaration.kind === ts.SyntaxKind.ModuleDeclaration ||
+			declaration.kind === ts.SyntaxKind.SourceFile
+		);
 	})?.[0];
 	if (!declaration) {
-		throw new Error();
+		let kind = symbol.declarations?.[0]?.kind;
+		throw new Error(kind ? ts.SyntaxKind[kind] : "");
 	}
 
 	return {
@@ -456,6 +559,8 @@ let convertModuleSymbol = (
 // ClassSymbol.
 let convertClassSymbol = (
 	typeChecker: ts.TypeChecker,
+	packageExports: Array<ts.Symbol>,
+	thisModule: Module,
 	symbol: ts.Symbol,
 ): ClassDeclaration => {
 	// Get the class declaration.
@@ -473,7 +578,12 @@ let convertClassSymbol = (
 	for (let instanceProperty of typeChecker.getPropertiesOfType(instanceType)) {
 		if (instanceProperty.flags & ts.SymbolFlags.ClassMember) {
 			properties.push(
-				convertClassPropertySymbol(typeChecker, instanceProperty),
+				convertClassPropertySymbol(
+					typeChecker,
+					packageExports,
+					thisModule,
+					instanceProperty,
+				),
 			);
 		}
 	}
@@ -485,7 +595,14 @@ let convertClassSymbol = (
 		if (staticProperty.flags & ts.SymbolFlags.Prototype) continue;
 
 		if (staticProperty.flags & ts.SymbolFlags.ClassMember) {
-			properties.push(convertClassPropertySymbol(typeChecker, staticProperty));
+			properties.push(
+				convertClassPropertySymbol(
+					typeChecker,
+					packageExports,
+					thisModule,
+					staticProperty,
+				),
+			);
 		}
 	}
 
@@ -493,7 +610,12 @@ let convertClassSymbol = (
 	let constructSignature = staticType
 		.getConstructSignatures()
 		.map((signature) => {
-			return convertConstructSignature(typeChecker, signature);
+			return convertConstructSignature(
+				typeChecker,
+				packageExports,
+				thisModule,
+				signature,
+			);
 		})[0]!;
 
 	return {
@@ -507,6 +629,8 @@ let convertClassSymbol = (
 // VariableSymbol.
 let convertVariableSymbol = (
 	typeChecker: ts.TypeChecker,
+	packageExports: Array<ts.Symbol>,
+	thisModule: Module,
 	symbol: ts.Symbol,
 ): VariableDeclaration => {
 	// Get the declaration.
@@ -520,9 +644,19 @@ let convertVariableSymbol = (
 	// Convert the declaration.
 	let type: Type;
 	if (ts.isVariableDeclaration(declaration) && declaration.type) {
-		type = convertTypeNode(typeChecker, declaration.type);
+		type = convertTypeNode(
+			typeChecker,
+			packageExports,
+			thisModule,
+			declaration.type,
+		);
 	} else {
-		type = convertType(typeChecker, typeChecker.getTypeOfSymbol(symbol));
+		type = convertType(
+			typeChecker,
+			packageExports,
+			thisModule,
+			typeChecker.getTypeOfSymbol(symbol),
+		);
 	}
 
 	return {
@@ -535,6 +669,8 @@ let convertVariableSymbol = (
 // DefaultExport.
 let convertDefaultExportSymbol = (
 	typeChecker: ts.TypeChecker,
+	packageExports: Array<ts.Symbol>,
+	thisModule: Module,
 	symbol: ts.Symbol,
 ): DefaultExportDeclaration => {
 	let declaration = symbol.valueDeclaration;
@@ -542,7 +678,12 @@ let convertDefaultExportSymbol = (
 		throw new Error();
 	}
 	// Convert the declaration.
-	let type = convertType(typeChecker, typeChecker.getTypeOfSymbol(symbol));
+	let type = convertType(
+		typeChecker,
+		packageExports,
+		thisModule,
+		typeChecker.getTypeOfSymbol(symbol),
+	);
 
 	return {
 		location: convertLocation(declaration),
@@ -554,6 +695,8 @@ let convertDefaultExportSymbol = (
 // FunctionSymbol.
 let convertFunctionSymbol = (
 	typeChecker: ts.TypeChecker,
+	packageExports: Array<ts.Symbol>,
+	thisModule: Module,
 	symbol: ts.Symbol,
 ): Array<FunctionDeclaration> => {
 	// Get the declarations.
@@ -566,13 +709,20 @@ let convertFunctionSymbol = (
 
 	// Convert the declarations.
 	return declarations?.map((declaration) =>
-		convertFunctionDeclaration(typeChecker, declaration),
+		convertFunctionDeclaration(
+			typeChecker,
+			packageExports,
+			thisModule,
+			declaration,
+		),
 	);
 };
 
 // FunctionDeclaration.
 let convertFunctionDeclaration = (
 	typeChecker: ts.TypeChecker,
+	packageExports: Array<ts.Symbol>,
+	thisModule: Module,
 	declaration: ts.FunctionDeclaration,
 ): FunctionDeclaration => {
 	// Get the parameters.
@@ -591,8 +741,13 @@ let convertFunctionDeclaration = (
 				parameter.name.getText(),
 				{
 					type: parameter?.type
-						? convertTypeNode(typeChecker, parameter.type)
-						: convertType(typeChecker, type),
+						? convertTypeNode(
+								typeChecker,
+								packageExports,
+								thisModule,
+								parameter.type,
+							)
+						: convertType(typeChecker, packageExports, thisModule, type),
 					optional,
 					dotDotDotToken,
 				},
@@ -609,7 +764,12 @@ let convertFunctionDeclaration = (
 				let type = typeChecker.getTypeAtLocation(typeParameter);
 				return [
 					typeParameter.name.getText(),
-					convertTypeParameterType(typeChecker, type),
+					convertTypeParameterType(
+						typeChecker,
+						packageExports,
+						thisModule,
+						type,
+					),
 				];
 			}),
 		);
@@ -625,12 +785,27 @@ let convertFunctionDeclaration = (
 	if (predicate) {
 		returnType = {
 			kind: "predicate",
-			value: convertTypePredicate(typeChecker, predicate),
+			value: convertTypePredicate(
+				typeChecker,
+				packageExports,
+				thisModule,
+				predicate,
+			),
 		};
 	} else if (declaration.type) {
-		returnType = convertTypeNode(typeChecker, declaration.type);
+		returnType = convertTypeNode(
+			typeChecker,
+			packageExports,
+			thisModule,
+			declaration.type,
+		);
 	} else {
-		returnType = convertType(typeChecker, signature.getReturnType());
+		returnType = convertType(
+			typeChecker,
+			packageExports,
+			thisModule,
+			signature.getReturnType(),
+		);
 	}
 
 	// Get the symbol.
@@ -651,6 +826,8 @@ let convertFunctionDeclaration = (
 // TypeAliasSymbol.
 let convertTypeAliasSymbol = (
 	typeChecker: ts.TypeChecker,
+	packageExports: Array<ts.Symbol>,
+	thisModule: Module,
 	symbol: ts.Symbol,
 ): TypeDeclaration => {
 	// Get the declaration.
@@ -662,10 +839,20 @@ let convertTypeAliasSymbol = (
 	}
 
 	// Convert the declaration.
-	let type = convertTypeNode(typeChecker, declaration.type);
+	let type = convertTypeNode(
+		typeChecker,
+		packageExports,
+		thisModule,
+		declaration.type,
+	);
 	let typeParameters = declaration.typeParameters?.map((typeParameter) => [
 		typeParameter.name.getText(),
-		convertTypeParameterNode(typeChecker, typeParameter),
+		convertTypeParameterNode(
+			typeChecker,
+			packageExports,
+			thisModule,
+			typeParameter,
+		),
 	]);
 
 	return {
@@ -679,6 +866,8 @@ let convertTypeAliasSymbol = (
 // EnumSymbol.
 let convertEnumSymbol = (
 	typeChecker: ts.TypeChecker,
+	packageExports: Array<ts.Symbol>,
+	thisModule: Module,
 	symbol: ts.Symbol,
 ): Array<EnumDeclaration> => {
 	// Get the declarations.
@@ -699,6 +888,8 @@ let convertEnumSymbol = (
 			}
 			members[enumMemberSymbol.getName()] = convertEnumMemberSymbol(
 				typeChecker,
+				packageExports,
+				thisModule,
 				enumMemberSymbol,
 			);
 		}
@@ -713,6 +904,8 @@ let convertEnumSymbol = (
 // InterfaceSymbol.
 let convertInterfaceSymbol = (
 	typeChecker: ts.TypeChecker,
+	packageExports: Array<ts.Symbol>,
+	thisModule: Module,
 	symbol: ts.Symbol,
 ): Array<InterfaceDeclaration> => {
 	// Get the declarations.
@@ -729,7 +922,9 @@ let convertInterfaceSymbol = (
 			.filter((d): d is ts.IndexSignatureDeclaration =>
 				ts.isIndexSignatureDeclaration(d),
 			)
-			.map((member) => convertIndexSignature(typeChecker, member))?.[0];
+			.map((member) =>
+				convertIndexSignature(typeChecker, packageExports, thisModule, member),
+			)?.[0];
 
 		// Get the construct signatures.
 		let constructSignatures = declaration.members
@@ -737,7 +932,12 @@ let convertInterfaceSymbol = (
 				ts.isConstructSignatureDeclaration(d),
 			)
 			.map((member) => {
-				return convertConstructSignatureDeclaration(typeChecker, member);
+				return convertConstructSignatureDeclaration(
+					typeChecker,
+					packageExports,
+					thisModule,
+					member,
+				);
 			});
 
 		// Get the members.
@@ -747,7 +947,7 @@ let convertInterfaceSymbol = (
 				.map((member) => {
 					return [
 						member.name?.getText(),
-						convertTypeElement(typeChecker, member),
+						convertTypeElement(typeChecker, packageExports, thisModule, member),
 					];
 				}),
 		);
@@ -765,13 +965,25 @@ let convertInterfaceSymbol = (
 // IndexSignature.
 let convertIndexSignature = (
 	typeChecker: ts.TypeChecker,
+	packageExports: Array<ts.Symbol>,
+	thisModule: Module,
 	declaration: ts.IndexSignatureDeclaration,
 ): IndexSignature => {
 	let parameter = declaration.parameters[0]!;
-	let key = convertParameterNode(typeChecker, parameter);
+	let key = convertParameterNode(
+		typeChecker,
+		packageExports,
+		thisModule,
+		parameter,
+	);
 	return {
 		name: parameter.name.getText(),
-		type: convertTypeNode(typeChecker, declaration.type),
+		type: convertTypeNode(
+			typeChecker,
+			packageExports,
+			thisModule,
+			declaration.type,
+		),
 		key,
 	};
 };
@@ -779,6 +991,8 @@ let convertIndexSignature = (
 // ConstructSignature.
 let convertConstructSignature = (
 	typeChecker: ts.TypeChecker,
+	packageExports: Array<ts.Symbol>,
+	thisModule: Module,
 	signature: ts.Signature,
 ): ConstructSignature => {
 	// Get the parameters.
@@ -798,8 +1012,18 @@ let convertConstructSignature = (
 				parameter.getName(),
 				{
 					type: declaration?.type
-						? convertTypeNode(typeChecker, declaration.type)
-						: convertType(typeChecker, typeChecker.getTypeOfSymbol(parameter)),
+						? convertTypeNode(
+								typeChecker,
+								packageExports,
+								thisModule,
+								declaration.type,
+							)
+						: convertType(
+								typeChecker,
+								packageExports,
+								thisModule,
+								typeChecker.getTypeOfSymbol(parameter),
+							),
 					optional,
 					dotDotDotToken,
 				},
@@ -813,9 +1037,19 @@ let convertConstructSignature = (
 		| undefined;
 	let returnType: Type;
 	if (declaration?.type) {
-		returnType = convertTypeNode(typeChecker, declaration.type);
+		returnType = convertTypeNode(
+			typeChecker,
+			packageExports,
+			thisModule,
+			declaration.type,
+		);
 	} else {
-		returnType = convertType(typeChecker, signature.getReturnType());
+		returnType = convertType(
+			typeChecker,
+			packageExports,
+			thisModule,
+			signature.getReturnType(),
+		);
 	}
 
 	return { parameters, return: returnType };
@@ -824,6 +1058,8 @@ let convertConstructSignature = (
 // ConstructSignatureDeclaration.
 let convertConstructSignatureDeclaration = (
 	typeChecker: ts.TypeChecker,
+	packageExports: Array<ts.Symbol>,
+	thisModule: Module,
 	declaration: ts.ConstructSignatureDeclaration,
 ): ConstructSignature => {
 	// Get the parameters.
@@ -841,9 +1077,16 @@ let convertConstructSignatureDeclaration = (
 				parameter.name.getText(),
 				{
 					type: parameter.type
-						? convertTypeNode(typeChecker, parameter.type)
+						? convertTypeNode(
+								typeChecker,
+								packageExports,
+								thisModule,
+								parameter.type,
+							)
 						: convertType(
 								typeChecker,
+								packageExports,
+								thisModule,
 								typeChecker.getTypeAtLocation(parameter),
 							),
 					optional,
@@ -856,10 +1099,15 @@ let convertConstructSignatureDeclaration = (
 	// Get the return type.
 	let returnType: Type;
 	if (declaration.type) {
-		returnType = convertTypeNode(typeChecker, declaration.type);
+		returnType = convertTypeNode(
+			typeChecker,
+			packageExports,
+			thisModule,
+			declaration.type,
+		);
 	} else {
 		let type = typeChecker.getTypeAtLocation(declaration);
-		returnType = convertType(typeChecker, type);
+		returnType = convertType(typeChecker, packageExports, thisModule, type);
 	}
 
 	return { parameters, return: returnType };
@@ -868,12 +1116,14 @@ let convertConstructSignatureDeclaration = (
 // TypeElement.
 let convertTypeElement = (
 	typeChecker: ts.TypeChecker,
+	packageExports: Array<ts.Symbol>,
+	thisModule: Module,
 	member: ts.TypeElement,
 ): InterfaceProperty => {
 	// Get the type.
 	let type = typeChecker.getTypeAtLocation(member);
 	return {
-		type: convertType(typeChecker, type),
+		type: convertType(typeChecker, packageExports, thisModule, type),
 		readonly:
 			(ts.getCombinedModifierFlags(member) & ts.ModifierFlags.Readonly) !== 0,
 	};
@@ -882,6 +1132,8 @@ let convertTypeElement = (
 // EnumMemberSymbol.
 let convertEnumMemberSymbol = (
 	typeChecker: ts.TypeChecker,
+	_packageExports: Array<ts.Symbol>,
+	_thisModule: Module,
 	symbol: ts.Symbol,
 ): EnumMemberValue => {
 	// Get the declaration.
@@ -912,10 +1164,17 @@ let convertEnumMemberSymbol = (
 // ClassPropertySymbol.
 let convertClassPropertySymbol = (
 	typeChecker: ts.TypeChecker,
+	packageExports: Array<ts.Symbol>,
+	thisModule: Module,
 	property: ts.Symbol,
 ): ClassProperty => {
 	let flags = ts.getCombinedModifierFlags(property.valueDeclaration!);
-	let type = convertType(typeChecker, typeChecker.getTypeOfSymbol(property));
+	let type = convertType(
+		typeChecker,
+		packageExports,
+		thisModule,
+		typeChecker.getTypeOfSymbol(property),
+	);
 	return {
 		name: property.getName(),
 		comment: convertComment(typeChecker, property.valueDeclaration!, property),
@@ -925,47 +1184,83 @@ let convertClassPropertySymbol = (
 	};
 };
 
-let convertType = (typeChecker: ts.TypeChecker, type: ts.Type): Type => {
+let convertType = (
+	typeChecker: ts.TypeChecker,
+	packageExports: Array<ts.Symbol>,
+	thisModule: Module,
+	type: ts.Type,
+): Type => {
 	let node = typeChecker.typeToTypeNode(
 		type,
 		undefined,
 		ts.NodeBuilderFlags.IgnoreErrors,
 	)!;
 	if (node.kind === ts.SyntaxKind.ArrayType) {
-		return { kind: "array", value: convertArrayType(typeChecker, type) };
+		return {
+			kind: "array",
+			value: convertArrayType(typeChecker, packageExports, thisModule, type),
+		};
 	} else if (node.kind === ts.SyntaxKind.FunctionType) {
-		return { kind: "function", value: convertFunctionType(typeChecker, type) };
+		return {
+			kind: "function",
+			value: convertFunctionType(typeChecker, packageExports, thisModule, type),
+		};
 	} else if (node.kind === ts.SyntaxKind.IndexedAccessType) {
 		return {
 			kind: "indexed_access",
 			value: convertIndexedAccessType(
 				typeChecker,
+				packageExports,
+				thisModule,
 				type as ts.IndexedAccessType,
 			),
 		};
 	} else if (node.kind === ts.SyntaxKind.IntersectionType) {
 		return {
 			kind: "intersection",
-			value: convertIntersectionType(typeChecker, type as ts.IntersectionType),
+			value: convertIntersectionType(
+				typeChecker,
+				packageExports,
+				thisModule,
+				type as ts.IntersectionType,
+			),
 		};
 	} else if (keywordSet.has(node.kind)) {
 		return { kind: "keyword", value: convertKeywordType(node.kind) };
 	} else if (node.kind === ts.SyntaxKind.LiteralType) {
 		return {
 			kind: "literal",
-			value: convertLiteralTypeNode(typeChecker, node as ts.LiteralTypeNode),
+			value: convertLiteralTypeNode(
+				typeChecker,
+				packageExports,
+				thisModule,
+				node as ts.LiteralTypeNode,
+			),
 		};
 	} else if (node.kind === ts.SyntaxKind.TypeLiteral) {
-		return { kind: "object", value: convertObjectType(typeChecker, type) };
+		return {
+			kind: "object",
+			value: convertObjectType(typeChecker, packageExports, thisModule, type),
+		};
 	} else if (node.kind === ts.SyntaxKind.TypeReference) {
 		return {
 			kind: "reference",
-			value: convertTypeReferenceType(typeChecker, type),
+			value: convertTypeReferenceType(
+				typeChecker,
+				packageExports,
+				thisModule,
+				type,
+			),
 		};
 	} else if (node.kind === ts.SyntaxKind.TupleType) {
 		return {
 			kind: "tuple",
-			value: convertTupleType(typeChecker, type as ts.TupleType),
+			value: convertTupleType(
+				typeChecker,
+				packageExports,
+				thisModule,
+				type as ts.TupleType,
+			),
 		};
 	} else if (node.kind === ts.SyntaxKind.UnionType) {
 		return {
@@ -980,11 +1275,15 @@ let convertType = (typeChecker: ts.TypeChecker, type: ts.Type): Type => {
 // ArrayType.
 let convertArrayType = (
 	typeChecker: ts.TypeChecker,
+	packageExports: Array<ts.Symbol>,
+	thisModule: Module,
 	type: ts.Type,
 ): ArrayType => {
 	return {
 		type: convertType(
 			typeChecker,
+			packageExports,
+			thisModule,
 			typeChecker.getTypeArguments(type as ts.TypeReference)[0]!,
 		),
 	};
@@ -993,6 +1292,8 @@ let convertArrayType = (
 // FunctionType.
 let convertFunctionType = (
 	typeChecker: ts.TypeChecker,
+	packageExports: Array<ts.Symbol>,
+	thisModule: Module,
 	type: ts.Type,
 ): FunctionType => {
 	let signatures = type.getCallSignatures().map((signature) => {
@@ -1025,8 +1326,18 @@ let convertFunctionType = (
 					parameter.getName(),
 					{
 						type: parameterDeclaration?.type
-							? convertTypeNode(typeChecker, parameterDeclaration.type)
-							: convertType(typeChecker, parameterType),
+							? convertTypeNode(
+									typeChecker,
+									packageExports,
+									thisModule,
+									parameterDeclaration.type,
+								)
+							: convertType(
+									typeChecker,
+									packageExports,
+									thisModule,
+									parameterType,
+								),
 						optional,
 						dotDotDotToken,
 					},
@@ -1041,7 +1352,12 @@ let convertFunctionType = (
 			typeParameters = Object.fromEntries(
 				callSignatureTypeParameters.map((typeParameter) => [
 					typeParameter.symbol.getName(),
-					convertTypeParameterType(typeChecker, typeParameter),
+					convertTypeParameterType(
+						typeChecker,
+						packageExports,
+						thisModule,
+						typeParameter,
+					),
 				]),
 			);
 		}
@@ -1051,12 +1367,27 @@ let convertFunctionType = (
 		if (predicate) {
 			returnType = {
 				kind: "predicate",
-				value: convertTypePredicate(typeChecker, predicate),
+				value: convertTypePredicate(
+					typeChecker,
+					packageExports,
+					thisModule,
+					predicate,
+				),
 			};
 		} else if (declaration.type) {
-			returnType = convertTypeNode(typeChecker, declaration.type);
+			returnType = convertTypeNode(
+				typeChecker,
+				packageExports,
+				thisModule,
+				declaration.type,
+			);
 		} else {
-			returnType = convertType(typeChecker, signature.getReturnType());
+			returnType = convertType(
+				typeChecker,
+				packageExports,
+				thisModule,
+				signature.getReturnType(),
+			);
 		}
 		return {
 			location: convertLocation(declaration),
@@ -1074,21 +1405,37 @@ let convertFunctionType = (
 // IndexedAccessType.
 let convertIndexedAccessType = (
 	typeChecker: ts.TypeChecker,
+	packageExports: Array<ts.Symbol>,
+	thisModule: Module,
 	type: ts.IndexedAccessType,
 ): IndexedAccessType => {
 	return {
-		objectType: convertType(typeChecker, type.objectType),
-		indexType: convertType(typeChecker, type.indexType),
+		objectType: convertType(
+			typeChecker,
+			packageExports,
+			thisModule,
+			type.objectType,
+		),
+		indexType: convertType(
+			typeChecker,
+			packageExports,
+			thisModule,
+			type.indexType,
+		),
 	};
 };
 
 // IntersectionType
 let convertIntersectionType = (
 	typeChecker: ts.TypeChecker,
+	packageExports: Array<ts.Symbol>,
+	thisModule: Module,
 	type: ts.IntersectionType,
 ): IntersectionType => {
 	return {
-		types: type.types.map((type) => convertType(typeChecker, type)),
+		types: type.types.map((type) =>
+			convertType(typeChecker, packageExports, thisModule, type),
+		),
 	};
 };
 
@@ -1126,6 +1473,8 @@ let convertKeywordType = (kind: ts.SyntaxKind): KeywordType => {
 // ObjectType.
 let convertObjectType = (
 	typeChecker: ts.TypeChecker,
+	packageExports: Array<ts.Symbol>,
+	thisModule: Module,
 	type: ts.Type,
 ): ObjectType => {
 	// Get the index signature.
@@ -1134,7 +1483,12 @@ let convertObjectType = (
 	if (indexSymbol) {
 		let declaration =
 			indexSymbol.declarations![0]! as ts.IndexSignatureDeclaration;
-		indexSignature = convertIndexSignature(typeChecker, declaration);
+		indexSignature = convertIndexSignature(
+			typeChecker,
+			packageExports,
+			thisModule,
+			declaration,
+		);
 	}
 
 	// Get the construct signatures.
@@ -1143,6 +1497,8 @@ let convertObjectType = (
 		assert(ts.isConstructSignatureDeclaration(signatureDeclaration));
 		return convertConstructSignatureDeclaration(
 			typeChecker,
+			packageExports,
+			thisModule,
 			signatureDeclaration,
 		);
 	});
@@ -1153,9 +1509,19 @@ let convertObjectType = (
 		let declaration = property.getDeclarations()?.[0]!;
 		let type: Type;
 		if (ts.isPropertySignature(declaration) && declaration.type) {
-			type = convertTypeNode(typeChecker, declaration.type);
+			type = convertTypeNode(
+				typeChecker,
+				packageExports,
+				thisModule,
+				declaration.type,
+			);
 		} else {
-			type = convertType(typeChecker, typeChecker.getTypeOfSymbol(property));
+			type = convertType(
+				typeChecker,
+				packageExports,
+				thisModule,
+				typeChecker.getTypeOfSymbol(property),
+			);
 		}
 		let optional = false;
 		if (property.flags & ts.SymbolFlags.Optional) {
@@ -1175,31 +1541,43 @@ let convertObjectType = (
 // TupleType.
 let convertTupleType = (
 	typeChecker: ts.TypeChecker,
+	packageExports: Array<ts.Symbol>,
+	thisModule: Module,
 	type: ts.TupleType,
 ): TupleType => {
 	return {
 		types: typeChecker
 			.getTypeArguments(type)
-			.map((type) => convertType(typeChecker, type)),
+			.map((type) =>
+				convertType(typeChecker, packageExports, thisModule, type),
+			),
 	};
 };
 
 // TypeParameter.
 let convertTypeParameterType = (
 	typeChecker: ts.TypeChecker,
+	packageExports: Array<ts.Symbol>,
+	thisModule: Module,
 	type: ts.Type,
 ): TypeParameter => {
 	let constraint = type.getConstraint();
 	let default_ = type.getDefault();
 	return {
-		constraint: constraint ? convertType(typeChecker, constraint) : undefined,
-		default: default_ ? convertType(typeChecker, default_) : undefined,
+		constraint: constraint
+			? convertType(typeChecker, packageExports, thisModule, constraint)
+			: undefined,
+		default: default_
+			? convertType(typeChecker, packageExports, thisModule, default_)
+			: undefined,
 	};
 };
 
 // TypePredicate.
 let convertTypePredicate = (
 	typeChecker: ts.TypeChecker,
+	packageExports: Array<ts.Symbol>,
+	thisModule: Module,
 	type: ts.TypePredicate,
 ): PredicateType => {
 	let asserts =
@@ -1207,7 +1585,9 @@ let convertTypePredicate = (
 		type.kind === ts.TypePredicateKind.AssertsThis;
 	return {
 		name: type.parameterName ?? "this",
-		type: type.type ? convertType(typeChecker, type.type) : undefined,
+		type: type.type
+			? convertType(typeChecker, packageExports, thisModule, type.type)
+			: undefined,
 		asserts,
 	};
 };
@@ -1215,39 +1595,73 @@ let convertTypePredicate = (
 // TypeReferenceType.
 let convertTypeReferenceType = (
 	typeChecker: ts.TypeChecker,
+	packageExports: Array<ts.Symbol>,
+	thisModule: Module,
 	type: ts.Type,
 ): ReferenceType => {
 	let isTypeParameter = (type.flags & ts.TypeFlags.TypeParameter) !== 0;
 	if (type.aliasSymbol) {
 		let aliasSymbol = type.aliasSymbol;
 		let typeArguments = type.aliasTypeArguments?.map((typeArgument) =>
-			convertType(typeChecker, typeArgument),
+			convertType(typeChecker, packageExports, thisModule, typeArgument),
 		);
 		let declaration = aliasSymbol.declarations![0]!;
-		let fullyQualifiedName = typeChecker.getFullyQualifiedName(aliasSymbol);
+		let fullyQualifiedName = getFullyQualifiedName(
+			typeChecker,
+			declaration,
+			aliasSymbol,
+		);
 		return {
 			name: aliasSymbol.getName(),
 			fullyQualifiedName,
 			location: convertLocation(declaration),
 			typeArguments: typeArguments ?? [],
 			isTypeParameter,
+			isExported: isExported(
+				typeChecker,
+				packageExports,
+				thisModule,
+				aliasSymbol,
+				declaration,
+			),
 		};
 	} else {
 		let typeArguments = typeChecker
 			.getTypeArguments(type as ts.TypeReference)
 			.map((typeArgument) => {
-				return convertType(typeChecker, typeArgument);
+				return convertType(
+					typeChecker,
+					packageExports,
+					thisModule,
+					typeArgument,
+				);
 			});
 		let symbol = type.symbol;
 		let declaration = symbol.declarations![0]!;
-		let name = getAliasedSymbolIfAliased(typeChecker, symbol).getName();
-		let fullyQualifiedName = typeChecker.getFullyQualifiedName(symbol);
+		let name = getAliasedSymbolIfAliased(
+			typeChecker,
+			packageExports,
+			thisModule,
+			symbol,
+		).getName();
+		let fullyQualifiedName = getFullyQualifiedName(
+			typeChecker,
+			declaration,
+			symbol,
+		);
 		return {
 			name,
 			fullyQualifiedName,
 			location: convertLocation(declaration),
 			typeArguments: typeArguments ?? [],
 			isTypeParameter,
+			isExported: isExported(
+				typeChecker,
+				packageExports,
+				thisModule,
+				symbol,
+				declaration,
+			),
 		};
 	}
 };
@@ -1269,72 +1683,172 @@ let convertUnionType = (
 
 let convertTypeNode = (
 	typeChecker: ts.TypeChecker,
+	packageExports: Array<ts.Symbol>,
+	thisModule: Module,
 	node: ts.TypeNode,
 ): Type => {
 	if (ts.isArrayTypeNode(node)) {
-		return { kind: "array", value: convertArrayTypeNode(typeChecker, node) };
+		return {
+			kind: "array",
+			value: convertArrayTypeNode(
+				typeChecker,
+				packageExports,
+				thisModule,
+				node,
+			),
+		};
 	} else if (ts.isConditionalTypeNode(node)) {
 		return {
 			kind: "conditional",
-			value: convertConditionalTypeNode(typeChecker, node),
+			value: convertConditionalTypeNode(
+				typeChecker,
+				packageExports,
+				thisModule,
+				node,
+			),
 		};
 	} else if (ts.isFunctionTypeNode(node)) {
 		return {
 			kind: "function",
-			value: convertFunctionTypeNode(typeChecker, node),
+			value: convertFunctionTypeNode(
+				typeChecker,
+				packageExports,
+				thisModule,
+				node,
+			),
 		};
 	} else if (ts.isInferTypeNode(node)) {
-		return { kind: "infer", value: convertInferTypeNode(typeChecker, node) };
+		return {
+			kind: "infer",
+			value: convertInferTypeNode(
+				typeChecker,
+				packageExports,
+				thisModule,
+				node,
+			),
+		};
 	} else if (ts.isIndexedAccessTypeNode(node)) {
 		return {
 			kind: "indexed_access",
-			value: convertIndexedAccessTypeNode(typeChecker, node),
+			value: convertIndexedAccessTypeNode(
+				typeChecker,
+				packageExports,
+				thisModule,
+				node,
+			),
 		};
 	} else if (ts.isIntersectionTypeNode(node)) {
 		return {
 			kind: "intersection",
-			value: convertIntersectionTypeNode(typeChecker, node),
+			value: convertIntersectionTypeNode(
+				typeChecker,
+				packageExports,
+				thisModule,
+				node,
+			),
 		};
 	} else if (keywordSet.has(node.kind)) {
 		return { kind: "keyword", value: convertKeywordType(node.kind) };
 	} else if (ts.isLiteralTypeNode(node)) {
 		return {
 			kind: "literal",
-			value: convertLiteralTypeNode(typeChecker, node),
+			value: convertLiteralTypeNode(
+				typeChecker,
+				packageExports,
+				thisModule,
+				node,
+			),
 		};
 	} else if (ts.isMappedTypeNode(node)) {
-		return { kind: "mapped", value: convertMappedTypeNode(typeChecker, node) };
+		return {
+			kind: "mapped",
+			value: convertMappedTypeNode(
+				typeChecker,
+				packageExports,
+				thisModule,
+				node,
+			),
+		};
 	} else if (ts.isTypeLiteralNode(node)) {
-		return { kind: "object", value: convertObjectTypeNode(typeChecker, node) };
+		return {
+			kind: "object",
+			value: convertObjectTypeNode(
+				typeChecker,
+				packageExports,
+				thisModule,
+				node,
+			),
+		};
 	} else if (ts.isTypePredicateNode(node)) {
 		return {
 			kind: "predicate",
-			value: convertTypePredicateNode(typeChecker, node),
+			value: convertTypePredicateNode(
+				typeChecker,
+				packageExports,
+				thisModule,
+				node,
+			),
 		};
 	} else if (ts.isTypeReferenceNode(node)) {
 		return {
 			kind: "reference",
-			value: convertTypeReferenceTypeNode(typeChecker, node),
+			value: convertTypeReferenceTypeNode(
+				typeChecker,
+				packageExports,
+				thisModule,
+				node,
+			),
 		};
 	} else if (ts.isTemplateLiteralTypeNode(node)) {
 		return {
 			kind: "template_literal",
-			value: convertTemplateLiteralTypeNode(typeChecker, node),
+			value: convertTemplateLiteralTypeNode(
+				typeChecker,
+				packageExports,
+				thisModule,
+				node,
+			),
 		};
 	} else if (ts.isTupleTypeNode(node)) {
-		return { kind: "tuple", value: convertTupleTypeNode(typeChecker, node) };
+		return {
+			kind: "tuple",
+			value: convertTupleTypeNode(
+				typeChecker,
+				packageExports,
+				thisModule,
+				node,
+			),
+		};
 	} else if (ts.isTypeOperatorNode(node)) {
 		return {
 			kind: "type_operator",
-			value: convertTypeOperatorNode(typeChecker, node),
+			value: convertTypeOperatorNode(
+				typeChecker,
+				packageExports,
+				thisModule,
+				node,
+			),
 		};
 	} else if (ts.isTypeQueryNode(node)) {
 		return {
 			kind: "type_query",
-			value: convertTypeQueryNode(typeChecker, node),
+			value: convertTypeQueryNode(
+				typeChecker,
+				packageExports,
+				thisModule,
+				node,
+			),
 		};
 	} else if (ts.isUnionTypeNode(node)) {
-		return { kind: "union", value: convertUnionTypeNode(typeChecker, node) };
+		return {
+			kind: "union",
+			value: convertUnionTypeNode(
+				typeChecker,
+				packageExports,
+				thisModule,
+				node,
+			),
+		};
 	} else {
 		let type = typeChecker.getTypeFromTypeNode(node);
 		return { kind: "other", value: typeChecker.typeToString(type) };
@@ -1344,38 +1858,74 @@ let convertTypeNode = (
 // ArrayTypeNode.
 let convertArrayTypeNode = (
 	typeChecker: ts.TypeChecker,
+	packageExports: Array<ts.Symbol>,
+	thisModule: Module,
 	node: ts.ArrayTypeNode,
 ): ArrayType => {
 	return {
-		type: convertTypeNode(typeChecker, node.elementType),
+		type: convertTypeNode(
+			typeChecker,
+			packageExports,
+			thisModule,
+			node.elementType,
+		),
 	};
 };
 
 // ConditionalTypeNode.
 let convertConditionalTypeNode = (
 	typeChecker: ts.TypeChecker,
+	packageExports: Array<ts.Symbol>,
+	thisModule: Module,
 	node: ts.ConditionalTypeNode,
 ): ConditionalType => {
 	return {
-		checkType: convertTypeNode(typeChecker, node.checkType),
-		extendsType: convertTypeNode(typeChecker, node.extendsType),
-		trueType: convertTypeNode(typeChecker, node.trueType),
-		falseType: convertTypeNode(typeChecker, node.falseType),
+		checkType: convertTypeNode(
+			typeChecker,
+			packageExports,
+			thisModule,
+			node.checkType,
+		),
+		extendsType: convertTypeNode(
+			typeChecker,
+			packageExports,
+			thisModule,
+			node.extendsType,
+		),
+		trueType: convertTypeNode(
+			typeChecker,
+			packageExports,
+			thisModule,
+			node.trueType,
+		),
+		falseType: convertTypeNode(
+			typeChecker,
+			packageExports,
+			thisModule,
+			node.falseType,
+		),
 	};
 };
 
 // FunctionTypeNode.
 let convertFunctionTypeNode = (
 	typeChecker: ts.TypeChecker,
+	packageExports: Array<ts.Symbol>,
+	thisModule: Module,
 	node: ts.FunctionTypeNode,
 ): FunctionType => {
 	let parameters = node.parameters?.map((parameter) => [
 		parameter.name.getText(),
-		convertParameterNode(typeChecker, parameter),
+		convertParameterNode(typeChecker, packageExports, thisModule, parameter),
 	]);
 	let typeParameters = node.typeParameters?.map((typeParameter) => [
 		typeParameter.name.getText(),
-		convertTypeParameterNode(typeChecker, typeParameter),
+		convertTypeParameterNode(
+			typeChecker,
+			packageExports,
+			thisModule,
+			typeParameter,
+		),
 	]);
 	return {
 		signatures: [
@@ -1383,7 +1933,12 @@ let convertFunctionTypeNode = (
 				location: convertLocation(node),
 				parameters: Object.fromEntries(parameters ?? []),
 				typeParameters: Object.fromEntries(typeParameters || []),
-				return: convertTypeNode(typeChecker, node.type),
+				return: convertTypeNode(
+					typeChecker,
+					packageExports,
+					thisModule,
+					node.type,
+				),
 			},
 		],
 	};
@@ -1392,23 +1947,39 @@ let convertFunctionTypeNode = (
 // IndexedAccessTypeNode.
 let convertIndexedAccessTypeNode = (
 	typeChecker: ts.TypeChecker,
+	packageExports: Array<ts.Symbol>,
+	thisModule: Module,
 	node: ts.IndexedAccessTypeNode,
 ): IndexedAccessType => {
 	return {
-		objectType: convertTypeNode(typeChecker, node.objectType),
-		indexType: convertTypeNode(typeChecker, node.indexType),
+		objectType: convertTypeNode(
+			typeChecker,
+			packageExports,
+			thisModule,
+			node.objectType,
+		),
+		indexType: convertTypeNode(
+			typeChecker,
+			packageExports,
+			thisModule,
+			node.indexType,
+		),
 	};
 };
 
 // InferTypeNode.
 let convertInferTypeNode = (
 	typeChecker: ts.TypeChecker,
+	packageExports: Array<ts.Symbol>,
+	thisModule: Module,
 	node: ts.InferTypeNode,
 ): InferType => {
 	return {
 		typeParameter: {
 			[node.typeParameter.name.getText()]: convertTypeParameterNode(
 				typeChecker,
+				packageExports,
+				thisModule,
 				node.typeParameter,
 			),
 		},
@@ -1418,16 +1989,22 @@ let convertInferTypeNode = (
 // IntersectionTypeNode.
 let convertIntersectionTypeNode = (
 	typeChecker: ts.TypeChecker,
+	packageExports: Array<ts.Symbol>,
+	thisModule: Module,
 	node: ts.IntersectionTypeNode,
 ): IntersectionType => {
 	return {
-		types: node.types.map((node) => convertTypeNode(typeChecker, node)),
+		types: node.types.map((node) =>
+			convertTypeNode(typeChecker, packageExports, thisModule, node),
+		),
 	};
 };
 
 // LiteralTypeNode.
 let convertLiteralTypeNode = (
 	_typeChecker: ts.TypeChecker,
+	packageExports: Array<ts.Symbol>,
+	thisModule: Module,
 	node: ts.LiteralTypeNode,
 ): LiteralType => {
 	if (node.literal.kind === ts.SyntaxKind.StringLiteral) {
@@ -1462,14 +2039,21 @@ let convertLiteralTypeNode = (
 // MappedTypeNode.
 let convertMappedTypeNode = (
 	typeChecker: ts.TypeChecker,
+	packageExports: Array<ts.Symbol>,
+	thisModule: Module,
 	node: ts.MappedTypeNode,
 ): MappedType => {
 	return {
-		type: convertTypeNode(typeChecker, node.type!),
-		constraint: convertTypeNode(typeChecker, node.typeParameter.constraint!),
+		type: convertTypeNode(typeChecker, packageExports, thisModule, node.type!),
+		constraint: convertTypeNode(
+			typeChecker,
+			packageExports,
+			thisModule,
+			node.typeParameter.constraint!,
+		),
 		typeParameterName: node.typeParameter.name.text,
 		nameType: node.nameType
-			? convertTypeNode(typeChecker, node.nameType)
+			? convertTypeNode(typeChecker, packageExports, thisModule, node.nameType)
 			: undefined,
 	};
 };
@@ -1477,35 +2061,51 @@ let convertMappedTypeNode = (
 // ObjectTypeNode.
 let convertObjectTypeNode = (
 	typeChecker: ts.TypeChecker,
+	packageExports: Array<ts.Symbol>,
+	thisModule: Module,
 	node: ts.TypeLiteralNode,
 ): ObjectType => {
 	let type = typeChecker.getTypeAtLocation(node);
-	return convertObjectType(typeChecker, type);
+	return convertObjectType(typeChecker, packageExports, thisModule, type);
 };
 
 // ParameterNode.
 let convertParameterNode = (
 	typeChecker: ts.TypeChecker,
+	packageExports: Array<ts.Symbol>,
+	thisModule: Module,
 	node: ts.ParameterDeclaration,
 ): Parameter => {
 	return {
 		optional: node.questionToken ? true : false,
 		dotDotDotToken: node.dotDotDotToken ? true : false,
 		type: node.type
-			? convertTypeNode(typeChecker, node.type)
-			: convertType(typeChecker, typeChecker.getTypeAtLocation(node)),
+			? convertTypeNode(typeChecker, packageExports, thisModule, node.type)
+			: convertType(
+					typeChecker,
+					packageExports,
+					thisModule,
+					typeChecker.getTypeAtLocation(node),
+				),
 	};
 };
 
 // TemplateLiteralTypeNode.
 let convertTemplateLiteralTypeNode = (
 	typeChecker: ts.TypeChecker,
+	packageExports: Array<ts.Symbol>,
+	thisModule: Module,
 	node: ts.TemplateLiteralTypeNode,
 ): TemplateLiteralType => {
 	return {
 		head: node.head.text,
 		templateSpans: node.templateSpans.map((span) =>
-			convertTemplateLiteralTypeSpan(typeChecker, span),
+			convertTemplateLiteralTypeSpan(
+				typeChecker,
+				packageExports,
+				thisModule,
+				span,
+			),
 		),
 	};
 };
@@ -1513,10 +2113,12 @@ let convertTemplateLiteralTypeNode = (
 // TemplateLiteralTypeSpan.
 let convertTemplateLiteralTypeSpan = (
 	typeChecker: ts.TypeChecker,
+	packageExports: Array<ts.Symbol>,
+	thisModule: Module,
 	node: ts.TemplateLiteralTypeSpan,
 ): TemplateLiteralTypeSpan => {
 	return {
-		type: convertTypeNode(typeChecker, node.type),
+		type: convertTypeNode(typeChecker, packageExports, thisModule, node.type),
 		literal: node.literal.text,
 	};
 };
@@ -1524,24 +2126,35 @@ let convertTemplateLiteralTypeSpan = (
 // TupleTypeNode.
 let convertTupleTypeNode = (
 	typeChecker: ts.TypeChecker,
+	packageExports: Array<ts.Symbol>,
+	thisModule: Module,
 	node: ts.TupleTypeNode,
 ): TupleType => {
 	return {
-		types: node.elements.map((node) => convertTypeNode(typeChecker, node)),
+		types: node.elements.map((node) =>
+			convertTypeNode(typeChecker, packageExports, thisModule, node),
+		),
 	};
 };
 
 // TypeParameterNode.
 let convertTypeParameterNode = (
 	typeChecker: ts.TypeChecker,
+	packageExports: Array<ts.Symbol>,
+	thisModule: Module,
 	node: ts.TypeParameterDeclaration,
 ): TypeParameter => {
 	return {
 		constraint: node.constraint
-			? convertTypeNode(typeChecker, node.constraint)
+			? convertTypeNode(
+					typeChecker,
+					packageExports,
+					thisModule,
+					node.constraint,
+				)
 			: undefined,
 		default: node.default
-			? convertTypeNode(typeChecker, node.default)
+			? convertTypeNode(typeChecker, packageExports, thisModule, node.default)
 			: undefined,
 	};
 };
@@ -1549,12 +2162,16 @@ let convertTypeParameterNode = (
 // TypePredicateNode.
 let convertTypePredicateNode = (
 	typeChecker: ts.TypeChecker,
+	packageExports: Array<ts.Symbol>,
+	thisModule: Module,
 	node: ts.TypePredicateNode,
 ): PredicateType => {
 	let asserts = node.assertsModifier !== undefined;
 	return {
 		name: node.parameterName.getText(),
-		type: node.type ? convertTypeNode(typeChecker, node.type) : undefined,
+		type: node.type
+			? convertTypeNode(typeChecker, packageExports, thisModule, node.type)
+			: undefined,
 		asserts,
 	};
 };
@@ -1567,21 +2184,30 @@ let operatorToName = {
 };
 let convertTypeOperatorNode = (
 	typeChecker: ts.TypeChecker,
+	packageExports: Array<ts.Symbol>,
+	thisModule: Module,
 	node: ts.TypeOperatorNode,
 ): TypeOperatorType => {
 	return {
 		operator: operatorToName[node.operator],
-		type: convertTypeNode(typeChecker, node.type),
+		type: convertTypeNode(typeChecker, packageExports, thisModule, node.type),
 	};
 };
 
 // TypeQueryNode.
 let convertTypeQueryNode = (
 	typeChecker: ts.TypeChecker,
+	packageExports: Array<ts.Symbol>,
+	thisModule: Module,
 	node: ts.TypeQueryNode,
 ): TypeQueryType => {
 	let symbol = typeChecker.getSymbolAtLocation(node.exprName)!;
-	symbol = getAliasedSymbolIfAliased(typeChecker, symbol);
+	symbol = getAliasedSymbolIfAliased(
+		typeChecker,
+		packageExports,
+		thisModule,
+		symbol,
+	);
 	return {
 		name: node.exprName.getText(),
 	};
@@ -1590,33 +2216,55 @@ let convertTypeQueryNode = (
 // TypeReferenceTypeNode.
 let convertTypeReferenceTypeNode = (
 	typeChecker: ts.TypeChecker,
+	packageExports: Array<ts.Symbol>,
+	thisModule: Module,
 	node: ts.TypeReferenceNode,
 ): ReferenceType => {
 	let symbol = typeChecker.getSymbolAtLocation(node.typeName)!;
-	let resolved = getAliasedSymbolIfAliased(typeChecker, symbol);
+	let resolved = getAliasedSymbolIfAliased(
+		typeChecker,
+		packageExports,
+		thisModule,
+		symbol,
+	);
 	let typeArguments = node.typeArguments?.map((typeArgument) =>
-		convertTypeNode(typeChecker, typeArgument),
+		convertTypeNode(typeChecker, packageExports, thisModule, typeArgument),
 	);
 	let declaration = resolved.declarations![0]!;
 	let isTypeParameter = ts.isTypeParameterDeclaration(declaration);
 	let name = resolved.getName();
-	let fullyQualifiedName = typeChecker.getFullyQualifiedName(symbol);
+	let fullyQualifiedName = getFullyQualifiedName(
+		typeChecker,
+		declaration,
+		symbol,
+	);
 	return {
 		location: convertLocation(declaration),
 		name,
 		fullyQualifiedName,
 		typeArguments: typeArguments ?? [],
 		isTypeParameter,
+		isExported: isExported(
+			typeChecker,
+			packageExports,
+			thisModule,
+			symbol,
+			declaration,
+		),
 	};
 };
 
 // UnionTypeNode.
 let convertUnionTypeNode = (
 	typeChecker: ts.TypeChecker,
+	packageExports: Array<ts.Symbol>,
+	thisModule: Module,
 	node: ts.UnionTypeNode,
 ): UnionType => {
 	return {
-		types: node.types.map((node) => convertTypeNode(typeChecker, node)),
+		types: node.types.map((node) =>
+			convertTypeNode(typeChecker, packageExports, thisModule, node),
+		),
 	};
 };
 
@@ -1649,8 +2297,45 @@ let convertLocation = (node: ts.Node): Location => {
 	};
 };
 
+function isExported(
+	typeChecker: ts.TypeChecker,
+	packageExports: Array<ts.Symbol>,
+	thisModule: Module,
+	symbol: ts.Symbol,
+	node: ts.Node,
+) {
+	// If the symbol is not from our package, then it is exported.
+	let module_ = typescript.moduleFromFileName(node.getSourceFile().fileName);
+	// If the symbol is from a library file, then it is exported.
+	if (module_.kind == "library") {
+		return true;
+	} else if (module_.kind == "normal" && thisModule.kind == "normal") {
+		// If the symbol is from a different package, then it is exported.
+		if (module_.value.package !== thisModule.value.package) {
+			return true;
+		}
+	}
+
+	// Go through all globalExports to see if our symbol is there.
+	return packageExports.some((export_) => {
+		let isExported = false;
+		// If the export_ is an alias.
+		if ((export_.flags & ts.SymbolFlags.Alias) !== 0) {
+			isExported = typeChecker.getAliasedSymbol(export_) == symbol;
+		}
+		// If the symbol is an alias.
+		if ((symbol.flags & ts.SymbolFlags.Alias) !== 0) {
+			isExported =
+				isExported || typeChecker.getAliasedSymbol(symbol) == export_;
+		}
+		return isExported || export_ == symbol;
+	});
+}
+
 function getAliasedSymbolIfAliased(
 	typeChecker: ts.TypeChecker,
+	_packageExports: Array<ts.Symbol>,
+	_thisModule: Module,
 	symbol: ts.Symbol,
 ) {
 	if ((symbol.flags & ts.SymbolFlags.Alias) !== 0) {
@@ -1676,4 +2361,21 @@ let convertComment = (
 		text: text ?? "",
 		tags: [],
 	};
+};
+
+let getFullyQualifiedName = (
+	_typeChecker: ts.TypeChecker,
+	declaration: ts.Node,
+	symbol: ts.Symbol,
+) => {
+	let parent = declaration.parent;
+	let fqn = [];
+	while (parent) {
+		if ((parent as ts.NamedDeclaration).name) {
+			fqn.push((parent as ts.NamedDeclaration).name?.getText());
+		}
+		parent = parent.parent;
+	}
+	fqn.push(symbol.getName());
+	return fqn.join(".");
 };
