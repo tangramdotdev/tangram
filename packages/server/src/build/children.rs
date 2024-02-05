@@ -15,7 +15,7 @@ use tangram_util::{
 	http::{empty, not_found, Incoming, Outgoing},
 	iter::IterExt,
 };
-use tokio_stream::wrappers::WatchStream;
+use tokio_stream::wrappers::{IntervalStream, WatchStream};
 
 impl Server {
 	pub async fn try_get_build_children(
@@ -97,6 +97,9 @@ impl Server {
 			}
 			.shared()
 		};
+		let interval =
+			IntervalStream::new(tokio::time::interval(std::time::Duration::from_secs(60)))
+				.map(|_| ());
 		let timeout = arg.timeout.map_or_else(
 			|| future::pending().left_future(),
 			|timeout| tokio::time::sleep(timeout).right_future(),
@@ -107,12 +110,11 @@ impl Server {
 		);
 		let events = stream::once(future::ready(()))
 			.chain(
-				stream::select(
-					children.take_until(finished.clone()),
-					stream::once(finished.clone().map(|_| ())),
-				)
-				.take_until(timeout)
-				.take_until(stop),
+				stream::select(children, interval)
+					.take_until(finished)
+					.chain(stream::once(future::ready(())))
+					.take_until(timeout)
+					.take_until(stop),
 			)
 			.boxed();
 

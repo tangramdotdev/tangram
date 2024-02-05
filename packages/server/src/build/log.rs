@@ -12,7 +12,7 @@ use tangram_client as tg;
 use tangram_error::{error, Error, Result, WrapErr};
 use tangram_util::http::{empty, not_found, Incoming, Outgoing};
 use tokio::io::{AsyncRead, AsyncReadExt, AsyncSeek, AsyncSeekExt};
-use tokio_stream::wrappers::WatchStream;
+use tokio_stream::wrappers::{IntervalStream, WatchStream};
 
 pub enum Reader {
 	Blob(tg::blob::Reader),
@@ -108,6 +108,9 @@ impl Server {
 					.await
 			}
 		};
+		let interval =
+			IntervalStream::new(tokio::time::interval(std::time::Duration::from_secs(60)))
+				.map(|_| ());
 		let timeout = arg.timeout.map_or_else(
 			|| future::pending().left_future(),
 			|timeout| tokio::time::sleep(timeout).right_future(),
@@ -118,7 +121,8 @@ impl Server {
 		);
 		let events = stream::once(future::ready(()))
 			.chain(
-				log.take_until(finished)
+				stream::select(log, interval)
+					.take_until(finished)
 					.chain(stream::once(future::ready(())))
 					.take_until(timeout)
 					.take_until(stop),

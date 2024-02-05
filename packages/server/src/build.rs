@@ -81,7 +81,7 @@ impl Server {
 				let outcome = outcome.map(|outcome| outcome.0);
 				let status = status.parse()?;
 				let target = target.parse()?;
-				let timestamp = time::OffsetDateTime::parse(dbg!(&timestamp), &Rfc3339)
+				let timestamp = time::OffsetDateTime::parse(&timestamp, &Rfc3339)
 					.wrap_err("Failed to parse the timestamp.")?;
 				let output = tg::build::GetOutput {
 					id,

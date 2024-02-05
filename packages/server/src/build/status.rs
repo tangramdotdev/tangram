@@ -9,7 +9,7 @@ use http_body_util::{BodyExt, StreamBody};
 use tangram_client as tg;
 use tangram_error::{error, Error, Result, WrapErr};
 use tangram_util::http::{empty, not_found, Incoming, Outgoing};
-use tokio_stream::wrappers::WatchStream;
+use tokio_stream::wrappers::{IntervalStream, WatchStream};
 
 impl Server {
 	pub async fn try_get_build_status(
@@ -68,6 +68,9 @@ impl Server {
 					.right_stream()
 			},
 		};
+		let interval =
+			IntervalStream::new(tokio::time::interval(std::time::Duration::from_secs(60)))
+				.map(|_| ());
 		let timeout = arg.timeout.map_or_else(
 			|| future::pending().left_future(),
 			|timeout| tokio::time::sleep(timeout).right_future(),
@@ -77,16 +80,19 @@ impl Server {
 			|mut stop| async move { stop.wait_for(|stop| *stop).map(|_| ()).await }.right_future(),
 		);
 		let events = stream::once(future::ready(()))
-			.chain(status.take_until(timeout).take_until(stop))
+			.chain(
+				stream::select(status, interval)
+					.take_until(timeout)
+					.take_until(stop),
+			)
 			.boxed();
 
 		// Create the stream.
 		let server = self.clone();
 		let id = id.clone();
-		let mut previous = None;
 		let stream = stream::try_unfold(
-			(server, id, events, false),
-			move |(server, id, mut events, mut end)| async move {
+			(server, id, events, None, false),
+			move |(server, id, mut events, mut previous, mut end)| async move {
 				if end {
 					return Ok(None);
 				}
@@ -94,17 +100,23 @@ impl Server {
 					return Ok(None);
 				};
 				let status = server.try_get_build_status_local_inner(&id).await?;
+				if Some(status) == previous {
+					return Ok::<_, Error>(Some((
+						stream::iter(None),
+						(server, id, events, previous, end),
+					)));
+				}
+				previous = Some(status);
 				if status == tg::build::Status::Finished {
 					end = true;
 				}
-				Ok::<_, Error>(Some((status, (server, id, events, end))))
+				Ok::<_, Error>(Some((
+					stream::iter(Some(Ok(status))),
+					(server, id, events, previous, end),
+				)))
 			},
 		)
-		.try_filter(move |status| {
-			let output = Some(*status) != previous;
-			previous = Some(*status);
-			future::ready(output)
-		})
+		.try_flatten()
 		.boxed();
 
 		Ok(Some(stream))
