@@ -79,29 +79,19 @@ fn main() {
 	// Setup tracing.
 	setup_tracing();
 
-	// Initialize V8. Note: this must happen on the main thread.
+	// Initialize V8. This must happen on the main thread.
 	initialize_v8();
 
-	// Initialize the tokio runtime and run the main function.
-	let result = tokio::runtime::Builder::new_multi_thread()
+	// Create the tokio runtime and run the main function.
+	tokio::runtime::Builder::new_multi_thread()
 		.enable_all()
 		.disable_lifo_slot()
 		.build()
 		.unwrap()
 		.block_on(main_inner());
-
-	// Handle the result.
-	if let Err(error) = result {
-		// Print the error trace.
-		eprintln!("An error occurred.");
-		eprintln!("{}", error.trace());
-
-		// Exit with a non-zero code.
-		std::process::exit(1);
-	}
 }
 
-async fn main_inner() -> Result<()> {
+async fn main_inner() {
 	// Parse the arguments.
 	let args = Args::parse();
 
@@ -113,8 +103,6 @@ async fn main_inner() -> Result<()> {
 	// Create the container for the client.
 	let tg = tokio::sync::Mutex::new(None);
 
-	// Get the path.
-
 	// Create the config.
 	let config = std::sync::RwLock::new(None);
 
@@ -123,14 +111,17 @@ async fn main_inner() -> Result<()> {
 
 	// Get the version.
 	let version = if cfg!(debug_assertions) {
-		let executable_path =
-			std::env::current_exe().wrap_err("Failed to get the current executable path.")?;
+		let executable_path = std::env::current_exe()
+			.wrap_err("Failed to get the current executable path.")
+			.unwrap();
 		let metadata = tokio::fs::metadata(&executable_path)
 			.await
-			.wrap_err("Failed to get the executable metadata.")?;
+			.wrap_err("Failed to get the executable metadata.")
+			.unwrap();
 		metadata
 			.modified()
-			.wrap_err("Failed to get the executable modified time.")?
+			.wrap_err("Failed to get the executable modified time.")
+			.unwrap()
 			.duration_since(std::time::SystemTime::UNIX_EPOCH)
 			.unwrap()
 			.as_secs()
@@ -149,7 +140,7 @@ async fn main_inner() -> Result<()> {
 	};
 
 	// Run the command.
-	match args.command {
+	let result = match args.command {
 		Command::Autoenv(args) => cli.command_autoenv(args).boxed(),
 		Command::Build(args) => cli.command_build(args).boxed(),
 		Command::Check(args) => cli.command_check(args).boxed(),
@@ -178,9 +169,28 @@ async fn main_inner() -> Result<()> {
 		Command::Update(args) => cli.command_update(args).boxed(),
 		Command::Upgrade(args) => cli.command_upgrade(args).boxed(),
 	}
-	.await?;
+	.await;
 
-	Ok(())
+	// if let Some(client) = cli
+	// 	.tg
+	// 	.lock()
+	// 	.await
+	// 	.as_ref()
+	// 	.and_then(|tg| tg.as_ref().downcast_ref::<tg::Client>())
+	// {
+	// 	client.stop();
+	// 	client.join().await.unwrap();
+	// }
+
+	// Handle the result.
+	if let Err(error) = result {
+		// Print the error trace.
+		eprintln!("An error occurred.");
+		eprintln!("{}", error.trace());
+
+		// Exit with a non-zero code.
+		std::process::exit(1);
+	}
 }
 
 impl Cli {

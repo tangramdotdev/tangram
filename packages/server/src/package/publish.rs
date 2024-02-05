@@ -13,10 +13,7 @@ impl Server {
 		if let Some(remote) = self.inner.remote.as_ref() {
 			self.push_object(&id.clone().into()).await?;
 			remote.publish_package(user, id).await?;
-		}
-
-		if !self.user_is_admin(user) {
-			return Err(error!("Unauthorized."));
+			return Ok(());
 		}
 
 		// Get the package.
@@ -41,7 +38,7 @@ impl Server {
 		let Database::Postgres(database) = &self.inner.database else {
 			return Err(error!("unimplemented"));
 		};
-		let db = database.get().await?;
+		let connection = database.get().await?;
 
 		// Create the package if it does not exist.
 		let statement = "
@@ -49,11 +46,11 @@ impl Server {
 			values ($1)
 		";
 		let params = postgres_params![name];
-		let statement = db
+		let statement = connection
 			.prepare_cached(statement)
 			.await
 			.wrap_err("Failed to prepare the statement.")?;
-		db.execute(&statement, params)
+		connection.execute(&statement, params)
 			.await
 			.wrap_err("Failed to execute the statement.")?;
 
@@ -63,11 +60,11 @@ impl Server {
 			values ($1, $2, $3);
 		";
 		let params = postgres_params![name, version, id.to_string()];
-		let statement = db
+		let statement = connection
 			.prepare_cached(statement)
 			.await
 			.wrap_err("Failed to prepare the statement.")?;
-		db.execute(&statement, params)
+		connection.execute(&statement, params)
 			.await
 			.wrap_err("Failed to execute the statement.")?;
 

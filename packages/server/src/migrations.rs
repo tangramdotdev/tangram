@@ -58,18 +58,35 @@ async fn migration_0000(path: &Path) -> Result<()> {
 	let path = path.to_owned();
 
 	// Create the database.
-	let db = rusqlite::Connection::open(path.join("database"))
+	let connection = rusqlite::Connection::open(path.join("database"))
 		.wrap_err("Failed to create the database.")?;
-	db.pragma_update(None, "journal_mode", "wal")
+	connection
+		.pragma_update(None, "journal_mode", "wal")
 		.wrap_err("Failed to set the journal mode.")?;
 	let sql = "
 		create table builds (
 			id text primary key,
-			state text not null
+			children text,
+			log text,
+			outcome text,
+			status text not null,
+			target text not null,
+			timestamp text not null
 		) strict;
 
-		create index builds_target_timestamp_index on builds ((state->>'target'), (state->>'timestamp') desc);
-		create index builds_status_index on builds ((state->>'status'));
+		create index builds_status_index on builds (status);
+
+		create index builds_target_timestamp_index on builds (target, timestamp desc);
+
+		create table build_children (
+			build text,
+			position integer,
+			child text
+		) strict;
+
+		create unique index build_children_index on build_children (build, child);
+
+		create index build_children_child_index on build_children (child);
 
 		create table build_logs (
 			build text not null,
@@ -77,7 +94,7 @@ async fn migration_0000(path: &Path) -> Result<()> {
 			bytes blob not null
 		) strict;
 
-		create index build_logs_index on build_logs (build, position);
+		create unique index build_logs_index on build_logs (build, position);
 
 		create table build_queue (
 			build text not null,
@@ -86,7 +103,8 @@ async fn migration_0000(path: &Path) -> Result<()> {
 			depth integer not null
 		) strict;
 
-		create index build_queue_build_index on build_queue (build);
+		create unique index build_queue_build_index on build_queue (build);
+
 		create index build_queue_host_depth_index on build_queue (host, depth desc);
 
 		create table objects (
@@ -94,7 +112,8 @@ async fn migration_0000(path: &Path) -> Result<()> {
 			bytes blob not null
 		) strict;
 	";
-	db.execute_batch(sql)
+	connection
+		.execute_batch(sql)
 		.wrap_err("Failed to create the database tables.")?;
 
 	// Create the checkouts directory.

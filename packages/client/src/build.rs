@@ -9,7 +9,6 @@ use futures::{
 	StreamExt, TryStreamExt,
 };
 use http_body_util::BodyExt;
-use std::sync::Arc;
 use tangram_error::{error, Error, Result};
 use tangram_util::http::{empty, full};
 
@@ -37,35 +36,6 @@ pub struct Id(crate::Id);
 #[derive(Clone, Debug)]
 pub struct Build {
 	id: Id,
-	state: Arc<std::sync::RwLock<Option<Arc<State>>>>,
-}
-
-#[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
-pub struct State {
-	/// The build's children.
-	#[serde(default)]
-	pub children: Vec<Id>,
-
-	/// The build's ID.
-	pub id: Id,
-
-	/// The build's log.
-	#[serde(default)]
-	pub log: Option<blob::Id>,
-
-	/// The build's outcome.
-	#[serde(default)]
-	pub outcome: Option<outcome::Data>,
-
-	/// The build's status.
-	pub status: Status,
-
-	/// The build's target.
-	pub target: target::Id,
-
-	/// The build's timestamp.
-	#[serde(with = "time::serde::rfc3339")]
-	pub timestamp: time::OffsetDateTime,
 }
 
 #[derive(
@@ -112,12 +82,63 @@ pub enum ListOrder {
 
 #[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
 pub struct ListOutput {
-	pub values: Vec<State>,
+	pub items: Vec<GetOutput>,
 }
 
 #[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
 pub struct GetOutput {
-	pub state: State,
+	/// The build's ID.
+	pub id: Id,
+
+	/// The build's children.
+	#[serde(default)]
+	pub children: Option<Vec<Id>>,
+
+	/// The build's log.
+	#[serde(default)]
+	pub log: Option<blob::Id>,
+
+	/// The build's outcome.
+	#[serde(default)]
+	pub outcome: Option<outcome::Data>,
+
+	/// The build's status.
+	pub status: Status,
+
+	/// The build's target.
+	pub target: target::Id,
+
+	/// The build's timestamp.
+	#[serde(with = "time::serde::rfc3339")]
+	pub timestamp: time::OffsetDateTime,
+}
+
+#[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
+pub struct PutArg {
+	/// The build's ID.
+	pub id: Id,
+
+	/// The build's children.
+	#[serde(default)]
+	pub children: Option<Vec<Id>>,
+
+	/// The build's log.
+	#[serde(default)]
+	pub log: Option<blob::Id>,
+
+	/// The build's outcome.
+	#[serde(default)]
+	pub outcome: Option<outcome::Data>,
+
+	/// The build's status.
+	pub status: Status,
+
+	/// The build's target.
+	pub target: target::Id,
+
+	/// The build's timestamp.
+	#[serde(with = "time::serde::rfc3339")]
+	pub timestamp: time::OffsetDateTime,
 }
 
 #[derive(Clone, Debug, Default, serde::Deserialize, serde::Serialize)]
@@ -153,8 +174,7 @@ impl Id {
 impl Build {
 	#[must_use]
 	pub fn with_id(id: Id) -> Self {
-		let state = Arc::new(std::sync::RwLock::new(None));
-		Self { id, state }
+		Self { id }
 	}
 
 	#[must_use]
@@ -171,22 +191,6 @@ impl Build {
 		let output = tg.get_or_create_build(None, arg).await?;
 		let build = Build::with_id(output.id);
 		Ok(build)
-	}
-
-	pub async fn load(&self, tg: &dyn Handle) -> Result<()> {
-		let state = tg.get_build(self.id()).await?.state;
-		let state = Arc::new(state);
-		self.state.write().unwrap().replace(state);
-		Ok(())
-	}
-
-	pub async fn state(&self, tg: &dyn Handle) -> Result<Arc<State>> {
-		let state = self.state.read().unwrap().clone();
-		if let Some(state) = state {
-			return Ok(state);
-		}
-		self.load(tg).await?;
-		Ok(self.state.read().unwrap().clone().unwrap())
 	}
 
 	pub async fn status(
@@ -208,10 +212,18 @@ impl Build {
 	}
 
 	pub async fn target(&self, tg: &dyn Handle) -> Result<Target> {
-		let state = self.state(tg).await?;
-		let id = state.target.clone();
+		self.try_get_target(tg)
+			.await?
+			.wrap_err("Failed to get the build.")
+	}
+
+	pub async fn try_get_target(&self, tg: &dyn Handle) -> Result<Option<Target>> {
+		let Some(output) = tg.try_get_build(&self.id).await? else {
+			return Ok(None);
+		};
+		let id = output.target.clone();
 		let target = Target::with_id(id);
-		Ok(target)
+		Ok(Some(target))
 	}
 
 	pub async fn children(
@@ -235,7 +247,7 @@ impl Build {
 			.map(|stream| {
 				stream
 					.map_ok(|chunk| {
-						stream::iter(chunk.data.into_iter().map(Build::with_id).map(Ok))
+						stream::iter(chunk.items.into_iter().map(Build::with_id).map(Ok))
 					})
 					.try_flatten()
 					.boxed()
@@ -321,13 +333,21 @@ impl Build {
 		tg: &dyn Handle,
 		remote: &dyn Handle,
 	) -> Result<()> {
-		let GetOutput { state } = tg.get_build(&self.id).await?;
-		let output = remote
-			.try_put_build(user, &self.id, &state)
+		let output = tg.get_build(&self.id).await?;
+		let arg = PutArg {
+			id: output.id,
+			children: output.children,
+			log: output.log,
+			outcome: output.outcome,
+			status: output.status,
+			target: output.target,
+			timestamp: output.timestamp,
+		};
+		let PutOutput { missing } = remote
+			.try_put_build(user, &self.id, &arg)
 			.await
 			.wrap_err("Failed to put the object.")?;
-		output
-			.missing
+		missing
 			.builds
 			.iter()
 			.cloned()
@@ -336,8 +356,7 @@ impl Build {
 			.collect::<FuturesUnordered<_>>()
 			.try_collect()
 			.await?;
-		output
-			.missing
+		missing
 			.objects
 			.iter()
 			.cloned()
@@ -346,12 +365,12 @@ impl Build {
 			.collect::<FuturesUnordered<_>>()
 			.try_collect()
 			.await?;
-		if !output.missing.builds.is_empty() || !output.missing.objects.is_empty() {
-			let output = remote
-				.try_put_build(user, &self.id, &state)
+		if !missing.builds.is_empty() || !missing.objects.is_empty() {
+			let PutOutput { missing } = remote
+				.try_put_build(user, &self.id, &arg)
 				.await
 				.wrap_err("Failed to put the build.")?;
-			if !output.missing.builds.is_empty() || !output.missing.objects.is_empty() {
+			if !missing.builds.is_empty() || !missing.objects.is_empty() {
 				return Err(error!("Expected all children to be stored."));
 			}
 		}
@@ -359,7 +378,27 @@ impl Build {
 	}
 }
 
-impl State {
+impl GetOutput {
+	pub fn objects(&self) -> Vec<object::Id> {
+		let log = self.log.iter().map(|id| id.clone().into());
+		let outcome = self
+			.outcome
+			.as_ref()
+			.map(|outcome| {
+				if let outcome::Data::Succeeded(value) = outcome {
+					value.children()
+				} else {
+					vec![]
+				}
+			})
+			.into_iter()
+			.flatten();
+		let target = std::iter::once(self.target.clone().into());
+		log.chain(outcome).chain(target).collect()
+	}
+}
+
+impl PutArg {
 	pub fn objects(&self) -> Vec<object::Id> {
 		let log = self.log.iter().map(|id| id.clone().into());
 		let outcome = self
@@ -410,7 +449,7 @@ impl Outcome {
 }
 
 impl Client {
-	pub async fn try_list_builds(&self, arg: tg::build::ListArg) -> Result<tg::build::ListOutput> {
+	pub async fn list_builds(&self, arg: tg::build::ListArg) -> Result<tg::build::ListOutput> {
 		let method = http::Method::GET;
 		let search_params =
 			serde_urlencoded::to_string(&arg).wrap_err("Failed to serialize the search params.")?;
@@ -503,7 +542,7 @@ impl Client {
 		&self,
 		user: Option<&tg::User>,
 		id: &tg::build::Id,
-		state: &tg::build::State,
+		arg: &tg::build::PutArg,
 	) -> Result<tg::build::PutOutput> {
 		let method = http::Method::PUT;
 		let uri = format!("/builds/{id}");
@@ -512,7 +551,7 @@ impl Client {
 		if let Some(token) = user.and_then(|user| user.token.as_ref()) {
 			request = request.header(http::header::AUTHORIZATION, format!("Bearer {token}"));
 		}
-		let json = serde_json::to_string(&state).wrap_err("Failed to serialize the data.")?;
+		let json = serde_json::to_string(&arg).wrap_err("Failed to serialize the data.")?;
 		let body = full(json);
 		let request = request
 			.body(body)
@@ -603,8 +642,8 @@ impl Client {
 		if let Some(token) = user.and_then(|user| user.token.as_ref()) {
 			request = request.header(http::header::AUTHORIZATION, format!("Bearer {token}"));
 		}
-		let body = serde_json::to_vec(&arg).wrap_err("Failed to serialize the body.")?;
-		let body = full(body);
+		let json = serde_json::to_vec(&arg).wrap_err("Failed to serialize the body.")?;
+		let body = full(json);
 		let request = request
 			.body(body)
 			.wrap_err("Failed to create the request.")?;

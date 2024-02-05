@@ -16,7 +16,7 @@ impl Server {
 		let Database::Postgres(database) = &self.inner.database else {
 			return Err(error!("unimplemented"));
 		};
-		let db = database.get().await?;
+		let connection = database.get().await?;
 
 		// The dependency must have a name.
 		let name = dependency
@@ -31,11 +31,11 @@ impl Server {
 			where name = $1;
 		";
 		let params = postgres_params![name];
-		let statement = db
+		let statement = connection
 			.prepare_cached(statement)
 			.await
 			.wrap_err("Failed to prepare the statement.")?;
-		let row = db
+		let row = connection
 			.query_one(&statement, params)
 			.await
 			.wrap_err("Failed to execute the statement.")?;
@@ -51,11 +51,11 @@ impl Server {
 			where name = $1;
 		";
 		let params = postgres_params![name];
-		let statement = db
+		let statement = connection
 			.prepare_cached(statement)
 			.await
 			.wrap_err("Failed to prepare the statement.")?;
-		let rows = db
+		let rows = connection
 			.query(&statement, params)
 			.await
 			.wrap_err("Failed to execute the statement.")?;

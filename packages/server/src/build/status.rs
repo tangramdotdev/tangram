@@ -1,7 +1,4 @@
-use crate::{
-	database::{Database, PostgresJson},
-	postgres_params, sqlite_params, Http, Server,
-};
+use crate::{database::Database, postgres_params, sqlite_params, Http, Server};
 use futures::{
 	future,
 	stream::{self, BoxStream},
@@ -47,7 +44,7 @@ impl Server {
 		}
 
 		// Create the event stream.
-		let context = self.inner.build_context.read().unwrap().get(id).cloned();
+		let context = self.inner.build_state.read().unwrap().get(id).cloned();
 		let status = context
 			.as_ref()
 			.map_or_else(
@@ -106,19 +103,19 @@ impl Server {
 	) -> Result<tg::build::Status> {
 		match &self.inner.database {
 			Database::Sqlite(database) => {
-				let db = database.get().await?;
+				let connection = database.get().await?;
 				let statement = "
-					select state->>'status' as status
+					select status
 					from builds
 					where id = ?1;
 				";
 				let params = sqlite_params![id.to_string()];
-				let mut statement = db
+				let mut statement = connection
 					.prepare_cached(statement)
 					.wrap_err("Failed to prepare the query.")?;
 				let rows = &mut statement
 					.query(params)
-					.wrap_err("Failed to execute the query.")?;
+					.wrap_err("Failed to execute the statement.")?;
 				let row = rows
 					.next()
 					.wrap_err("Failed to get the row.")?
@@ -131,18 +128,18 @@ impl Server {
 			},
 
 			Database::Postgres(database) => {
-				let db = database.get().await?;
+				let connection = database.get().await?;
 				let statement = "
-					select state->>'status' as status
+					select status
 					from builds
 					where id = $1;
 				";
 				let params = postgres_params![id.to_string()];
-				let statement = db
+				let statement = connection
 					.prepare_cached(statement)
 					.await
 					.wrap_err("Failed to prepare the statement.")?;
-				let rows = db
+				let rows = connection
 					.query(&statement, params)
 					.await
 					.wrap_err("Failed to execute the statement.")?;
@@ -201,34 +198,34 @@ impl Server {
 		// Update the database.
 		match &self.inner.database {
 			Database::Sqlite(database) => {
-				let db = database.get().await?;
+				let connection = database.get().await?;
 				let statement = "
 					update builds
-					set state = json_set(state, '$.status', ?1)
+					set status = ?1
 					where id = ?2;
 				";
 				let params = sqlite_params![status.to_string(), id.to_string()];
-				let mut statement = db
+				let mut statement = connection
 					.prepare_cached(statement)
 					.wrap_err("Failed to prepare the query.")?;
 				statement
 					.execute(params)
-					.wrap_err("Failed to execute the query.")?;
+					.wrap_err("Failed to execute the statement.")?;
 			},
 
 			Database::Postgres(database) => {
-				let db = database.get().await?;
+				let connection = database.get().await?;
 				let statement = "
 					update builds
-					set state = json_set(state, '{status}', $1)
+					set status = $1
 					where id = $2;
 				";
-				let params = postgres_params![PostgresJson(status), id.to_string()];
-				let statement = db
+				let params = postgres_params![status.to_string(), id.to_string()];
+				let statement = connection
 					.prepare_cached(statement)
 					.await
 					.wrap_err("Failed to prepare the statement.")?;
-				db.execute(&statement, params)
+				connection.execute(&statement, params)
 					.await
 					.wrap_err("Failed to execute the statement.")?;
 			},
@@ -237,7 +234,7 @@ impl Server {
 		// Send the event.
 		if let Some(status) = self
 			.inner
-			.build_context
+			.build_state
 			.read()
 			.unwrap()
 			.get(id)

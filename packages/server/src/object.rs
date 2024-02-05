@@ -22,19 +22,19 @@ impl Server {
 	async fn get_object_exists_local(&self, id: &tg::object::Id) -> Result<bool> {
 		match &self.inner.database {
 			Database::Sqlite(database) => {
-				let db = database.get().await?;
+				let connection = database.get().await?;
 				let statement = "
 					select count(*) != 0
 					from objects
 					where id = ?1;
 				";
 				let params = sqlite_params![id.to_string()];
-				let mut statement = db
+				let mut statement = connection
 					.prepare_cached(statement)
 					.wrap_err("Failed to prepare the query.")?;
 				let mut rows = statement
 					.query(params)
-					.wrap_err("Failed to execute the query.")?;
+					.wrap_err("Failed to execute the statement.")?;
 				let row = rows
 					.next()
 					.wrap_err("Failed to retrieve the row.")?
@@ -46,18 +46,18 @@ impl Server {
 			},
 
 			Database::Postgres(database) => {
-				let db = database.get().await?;
+				let connection = database.get().await?;
 				let statement = "
 					select count(*) != 0
 					from objects
 					where id = $1;
 				";
 				let params = postgres_params![id.to_string()];
-				let statement = db
+				let statement = connection
 					.prepare_cached(statement)
 					.await
 					.wrap_err("Failed to prepare the statement.")?;
-				let row = db
+				let row = connection
 					.query_one(&statement, params)
 					.await
 					.wrap_err("Failed to execute the statement.")?;
@@ -94,19 +94,19 @@ impl Server {
 	) -> Result<Option<tg::object::GetOutput>> {
 		match &self.inner.database {
 			Database::Sqlite(database) => {
-				let db = database.get().await?;
+				let connection = database.get().await?;
 				let statement = "
 					select bytes
 					from objects
 					where id = ?1;
 				";
 				let params = sqlite_params![id.to_string()];
-				let mut statement = db
+				let mut statement = connection
 					.prepare_cached(statement)
 					.wrap_err("Failed to prepare the query.")?;
 				let mut rows = statement
 					.query(params)
-					.wrap_err("Failed to execute the query.")?;
+					.wrap_err("Failed to execute the statement.")?;
 				let Some(row) = rows.next().wrap_err("Failed to retrieve the row.")? else {
 					return Ok(None);
 				};
@@ -119,18 +119,18 @@ impl Server {
 			},
 
 			Database::Postgres(database) => {
-				let db = database.get().await?;
+				let connection = database.get().await?;
 				let statement = "
 					select bytes
 					from objects
 					where id = $1;
 				";
 				let params = postgres_params![id.to_string()];
-				let statement = db
+				let statement = connection
 					.prepare_cached(statement)
 					.await
 					.wrap_err("Failed to prepare the statement.")?;
-				let Some(row) = db
+				let Some(row) = connection
 					.query_opt(&statement, params)
 					.await
 					.wrap_err("Failed to execute the statement.")?
@@ -161,33 +161,33 @@ impl Server {
 		// Add the object to the database.
 		match &self.inner.database {
 			Database::Sqlite(database) => {
-				let db = database.get().await?;
+				let connection = database.get().await?;
 				let statement = "
 					insert into objects (id, bytes)
 					values (?1, ?2)
 					on conflict (id) do update set bytes = ?2;
 				";
 				let params = sqlite_params![id.to_string(), output.bytes.to_vec()];
-				let mut statement = db
+				let mut statement = connection
 					.prepare_cached(statement)
 					.wrap_err("Failed to prepare the query.")?;
 				statement
 					.execute(params)
-					.wrap_err("Failed to execute the query.")?;
+					.wrap_err("Failed to execute the statement.")?;
 			},
 
 			Database::Postgres(database) => {
-				let db = database.get().await?;
+				let connection = database.get().await?;
 				let statement = "
 					upsert into objects (id, bytes)
 					values ($1, $2);
 				";
 				let params = postgres_params![id.to_string(), output.bytes.to_vec()];
-				let statement = db
+				let statement = connection
 					.prepare_cached(statement)
 					.await
 					.wrap_err("Failed to prepare the statement.")?;
-				db.execute(&statement, params)
+				connection.execute(&statement, params)
 					.await
 					.wrap_err("Failed to execute the statement.")?;
 			},
@@ -227,33 +227,33 @@ impl Server {
 		if missing.is_empty() {
 			match &self.inner.database {
 				Database::Sqlite(database) => {
-					let db = database.get().await?;
+					let connection = database.get().await?;
 					let statement = "
 						insert into objects (id, bytes)
 						values (?1, ?2)
 						on conflict (id) do update set bytes = ?2;
 					";
 					let params = sqlite_params![id.to_string(), bytes.to_vec()];
-					let mut statement = db
+					let mut statement = connection
 						.prepare_cached(statement)
 						.wrap_err("Failed to prepare the query.")?;
 					statement
 						.execute(params)
-						.wrap_err("Failed to execute the query.")?;
+						.wrap_err("Failed to execute the statement.")?;
 				},
 
 				Database::Postgres(database) => {
-					let db = database.get().await?;
+					let connection = database.get().await?;
 					let statement = "
 						upsert into objects (id, bytes)
 						values ($1, $2);
 					";
 					let params = postgres_params![id.to_string(), bytes.to_vec()];
-					let statement = db
+					let statement = connection
 						.prepare_cached(statement)
 						.await
 						.wrap_err("Failed to prepare the statement.")?;
-					db.execute(&statement, params)
+					connection.execute(&statement, params)
 						.await
 						.wrap_err("Failed to execute the statement.")?;
 				},

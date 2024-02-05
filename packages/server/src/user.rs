@@ -38,17 +38,17 @@ impl Server {
 		let Database::Postgres(database) = &self.inner.database else {
 			return Err(error!("unimplemented"));
 		};
-		let db = database.get().await?;
+		let connection = database.get().await?;
 		let statement = "
 			insert into logins (id, url)
 			values ($1, $2);
 		";
 		let params = postgres_params![id.to_string(), url.to_string()];
-		let statement = db
+		let statement = connection
 			.prepare_cached(statement)
 			.await
 			.wrap_err("Failed to prepare the statement.")?;
-		db.execute(&statement, params)
+		connection.execute(&statement, params)
 			.await
 			.wrap_err("Failed to execute the statement.")?;
 
@@ -63,18 +63,18 @@ impl Server {
 		let Database::Postgres(database) = &self.inner.database else {
 			return Err(error!("unimplemented"));
 		};
-		let db = database.get().await?;
+		let connection = database.get().await?;
 		let statement = "
 			select id, url, token
 			from logins
 			where id = $1;
 		";
 		let params = postgres_params![id.to_string()];
-		let statement = db
+		let statement = connection
 			.prepare_cached(statement)
 			.await
 			.wrap_err("Failed to prepare the statement.")?;
-		let Some(row) = db
+		let Some(row) = connection
 			.query_opt(&statement, params)
 			.await
 			.wrap_err("Failed to execute the statement.")?
@@ -99,7 +99,7 @@ impl Server {
 		let Database::Postgres(database) = &self.inner.database else {
 			return Err(error!("unimplemented"));
 		};
-		let db = database.get().await?;
+		let connection = database.get().await?;
 		let statement = "
 			select users.id, users.email, tokens.token
 			from users
@@ -107,11 +107,11 @@ impl Server {
 			where tokens.token = $1;
 		";
 		let params = postgres_params![token];
-		let statement = db
+		let statement = connection
 			.prepare_cached(statement)
 			.await
 			.wrap_err("Failed to prepare the statement.")?;
-		let row = db
+		let row = connection
 			.query_opt(&statement, params)
 			.await
 			.wrap_err("Failed to execute the statement.")?;
@@ -224,18 +224,18 @@ impl Server {
 			Database::Sqlite(_) => return Err(error!("unimplemented")),
 
 			Database::Postgres(database) => {
-				let db = database.get().await?;
+				let connection = database.get().await?;
 				let statement = "
 					update logins
 					set token = $1
 					where id = $2;
 				";
 				let params = postgres_params![token.to_string(), login_id.to_string()];
-				let statement = db
+				let statement = connection
 					.prepare_cached(statement)
 					.await
 					.wrap_err("Failed to prepare the statement.")?;
-				db.execute(&statement, params)
+				connection.execute(&statement, params)
 					.await
 					.wrap_err("Failed to execute the statement.")?;
 			},
@@ -248,7 +248,7 @@ impl Server {
 		let Database::Postgres(database) = &self.inner.database else {
 			return Err(error!("unimplemented"));
 		};
-		let db = database.get().await?;
+		let connection = database.get().await?;
 
 		// Retrieve a user with the specified email, or create one if one does not exist.
 		let statement = "
@@ -257,11 +257,11 @@ impl Server {
 			where email = $1;
 		";
 		let params = postgres_params![email];
-		let statement = db
+		let statement = connection
 			.prepare_cached(statement)
 			.await
 			.wrap_err("Failed to prepare the statement.")?;
-		let row = db
+		let row = connection
 			.query_opt(&statement, params)
 			.await
 			.wrap_err("Failed to execute the statement.")?;
@@ -274,11 +274,11 @@ impl Server {
 				values ($1, $2);
 			";
 			let params = postgres_params![id.to_string(), email];
-			let statement = db
+			let statement = connection
 				.prepare_cached(statement)
 				.await
 				.wrap_err("Failed to prepare the statement.")?;
-			db.execute(&statement, params)
+			connection.execute(&statement, params)
 				.await
 				.wrap_err("Failed to execute the statement.")?;
 			id
@@ -291,11 +291,11 @@ impl Server {
 			values ($1, $2);
 		";
 		let params = postgres_params![id.to_string(), token.to_string()];
-		let statement = db
+		let statement = connection
 			.prepare_cached(statement)
 			.await
 			.wrap_err("Failed to prepare the statement.")?;
-		db.execute(&statement, params)
+		connection.execute(&statement, params)
 			.await
 			.wrap_err("Failed to execute the statement.")?;
 

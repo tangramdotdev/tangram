@@ -78,20 +78,20 @@ impl Server {
 
 			// Get the versions.
 			let Database::Postgres(database) = &self.inner.database else {
-				return Err(error!("unimplemented"));
+				break 'a None;
 			};
-			let db = database.get().await?;
+			let connection = database.get().await?;
 			let statement = "
 				select version, id
 				from package_versions
 				where name = $1;
 			";
 			let params = postgres_params![name];
-			let statement = db
+			let statement = connection
 				.prepare_cached(statement)
 				.await
 				.wrap_err("Failed to prepare the statement.")?;
-			let rows = db
+			let rows = connection
 				.query(&statement, params)
 				.await
 				.wrap_err("Failed to execute the statement.")?;

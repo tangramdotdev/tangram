@@ -65,7 +65,7 @@ impl Server {
 		}
 
 		// Create the event stream.
-		let context = self.inner.build_context.read().unwrap().get(id).cloned();
+		let context = self.inner.build_state.read().unwrap().get(id).cloned();
 		let log = context
 			.as_ref()
 			.map_or_else(
@@ -321,7 +321,7 @@ impl Server {
 		// Add the log to the database.
 		match &self.inner.database {
 			Database::Sqlite(database) => {
-				let db = database.get().await?;
+				let connection = database.get().await?;
 				let statement = "
 					insert into build_logs (build, position, bytes)
 					values (
@@ -342,16 +342,16 @@ impl Server {
 					);
 				";
 				let params = sqlite_params![id.to_string(), bytes.to_vec()];
-				let mut statement = db
+				let mut statement = connection
 					.prepare_cached(statement)
 					.wrap_err("Failed to prepare the query.")?;
 				statement
 					.execute(params)
-					.wrap_err("Failed to execute the query.")?;
+					.wrap_err("Failed to execute the statement.")?;
 			},
 
 			Database::Postgres(database) => {
-				let db = database.get().await?;
+				let connection = database.get().await?;
 				let statement = "
 					insert into build_logs (build, position, bytes)
 					values (
@@ -372,20 +372,21 @@ impl Server {
 					);
 				";
 				let params = postgres_params![id.to_string(), bytes.to_vec()];
-				let statement = db
+				let statement = connection
 					.prepare_cached(statement)
 					.await
 					.wrap_err("Failed to prepare the query.")?;
-				db.execute(&statement, params)
+				connection
+					.execute(&statement, params)
 					.await
-					.wrap_err("Failed to execute the query.")?;
+					.wrap_err("Failed to execute the statement.")?;
 			},
 		}
 
-		// Notify subscribers that the log has been added to.
+		// Send the event.
 		if let Some(log) = self
 			.inner
-			.build_context
+			.build_state
 			.read()
 			.unwrap()
 			.get(id)
@@ -419,7 +420,7 @@ impl Reader {
 			.try_get_build_local(id)
 			.await?
 			.wrap_err("Expected the build to exist.")?;
-		if let Some(log) = output.state.log {
+		if let Some(log) = output.log {
 			let blob = tg::Blob::with_id(log);
 			let reader = blob.reader(server).await?;
 			Ok(Self::Blob(reader))
@@ -469,10 +470,10 @@ impl DatabaseReader {
 	pub async fn end(&self) -> Result<bool> {
 		match &self.server.inner.database {
 			Database::Sqlite(database) => {
-				let db = database.get().await?;
+				let connection = database.get().await?;
 				let statement = "
 					select (
-						select state->>'status' = 'finished'
+						select status = 'finished'
 						from builds
 						where id = ?1
 					) and (
@@ -490,7 +491,7 @@ impl DatabaseReader {
 						)
 					);
 				";
-				let mut statement = db
+				let mut statement = connection
 					.prepare_cached(statement)
 					.wrap_err("Failed to prepare the statement.")?;
 				let params = sqlite_params![self.id.to_string(), self.position];
@@ -508,10 +509,10 @@ impl DatabaseReader {
 			},
 
 			Database::Postgres(database) => {
-				let db = database.get().await?;
+				let connection = database.get().await?;
 				let statement = "
 					select (
-						select state->>'status' = 'finished'
+						select status = 'finished'
 						from builds
 						where id = $1
 					) and (
@@ -529,12 +530,12 @@ impl DatabaseReader {
 						)
 					);
 				";
-				let statement = db
+				let statement = connection
 					.prepare_cached(statement)
 					.await
 					.wrap_err("Failed to prepare the statement.")?;
 				let params = postgres_params![self.id.to_string(), self.position.to_i64().unwrap()];
-				let rows = db
+				let rows = connection
 					.query(&statement, params)
 					.await
 					.wrap_err("Failed to execute the statement.")?;
@@ -644,7 +645,7 @@ async fn poll_read_inner(
 ) -> Result<Option<Cursor<Bytes>>> {
 	match &server.inner.database {
 		Database::Sqlite(database) => {
-			let db = database.get().await?;
+			let connection = database.get().await?;
 			let statement = "
 				select position, bytes
 				from build_logs
@@ -655,7 +656,7 @@ async fn poll_read_inner(
 				order by position;
 			";
 			let params = sqlite_params![id.to_string(), position, length];
-			let mut statement = db
+			let mut statement = connection
 				.prepare_cached(statement)
 				.wrap_err("Failed to prepare statement.")?;
 			let mut rows = statement
@@ -664,8 +665,10 @@ async fn poll_read_inner(
 			let mut bytes = BytesMut::with_capacity(length.to_usize().unwrap());
 			while let Some(row) = rows.next().wrap_err("Failed to get the row.")? {
 				let row_position = row
-					.get::<_, u64>(0)
-					.wrap_err("Failed to deserialize the column.")?;
+					.get::<_, i64>(0)
+					.wrap_err("Failed to deserialize the column.")?
+					.to_u64()
+					.unwrap();
 				let row_bytes = row
 					.get::<_, Vec<u8>>(1)
 					.wrap_err("Failed to deserialize the column.")?;
@@ -681,7 +684,7 @@ async fn poll_read_inner(
 		},
 
 		Database::Postgres(database) => {
-			let db = database.get().await?;
+			let connection = database.get().await?;
 			let statement = "
 				select position, bytes
 				from build_logs
@@ -696,11 +699,11 @@ async fn poll_read_inner(
 				position.to_i64().unwrap(),
 				length.to_i64().unwrap(),
 			];
-			let statement = db
+			let statement = connection
 				.prepare_cached(statement)
 				.await
 				.wrap_err("Failed to prepare statement.")?;
-			let rows = db
+			let rows = connection
 				.query(&statement, params)
 				.await
 				.wrap_err("Failed to perform query.")?;
@@ -777,7 +780,7 @@ async fn poll_seek_inner(
 ) -> Result<u64> {
 	let end = match &server.inner.database {
 		Database::Sqlite(database) => {
-			let db = database.get().await?;
+			let connection = database.get().await?;
 			let statement = "
 				select coalesce(
 					(
@@ -793,7 +796,7 @@ async fn poll_seek_inner(
 				);
 			";
 			let params = sqlite_params![id.to_string()];
-			let mut statement = db
+			let mut statement = connection
 				.prepare_cached(statement)
 				.wrap_err("Failed to prepare the statement.")?;
 			let mut rows = statement
@@ -802,12 +805,14 @@ async fn poll_seek_inner(
 			rows.next()
 				.wrap_err("Failed to get the row.")?
 				.wrap_err("Expected a row.")?
-				.get::<_, u64>(0)
+				.get::<_, i64>(0)
 				.wrap_err("Failed to deserialize the column.")?
+				.to_u64()
+				.unwrap()
 		},
 
 		Database::Postgres(database) => {
-			let db = database.get().await?;
+			let connection = database.get().await?;
 			let statement = "
 				select coalesce(
 					(
@@ -823,11 +828,11 @@ async fn poll_seek_inner(
 				);
 			";
 			let params = postgres_params![id.to_string()];
-			let statement = db
+			let statement = connection
 				.prepare_cached(statement)
 				.await
 				.wrap_err("Failed to prepare the statement.")?;
-			let rows = db
+			let rows = connection
 				.query(&statement, params)
 				.await
 				.wrap_err("Failed to execute the statement.")?;

@@ -6,8 +6,8 @@ impl Server {
 	pub async fn clean(&self) -> Result<()> {
 		// Clean the database.
 		if let Database::Sqlite(database) = &self.inner.database {
-			let db = database.get().await?;
-			db.execute_batch(
+			let connection = database.get().await?;
+			connection.execute_batch(
 				"
 					delete from builds;
 					delete from build_logs;

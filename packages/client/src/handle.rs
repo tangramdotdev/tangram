@@ -20,7 +20,7 @@ pub trait Handle: Send + Sync + 'static {
 
 	async fn check_out_artifact(&self, arg: tg::artifact::CheckOutArg) -> Result<()>;
 
-	async fn try_list_builds(&self, arg: tg::build::ListArg) -> Result<tg::build::ListOutput>;
+	async fn list_builds(&self, arg: tg::build::ListArg) -> Result<tg::build::ListOutput>;
 
 	async fn get_build_exists(&self, id: &tg::build::Id) -> Result<bool>;
 
@@ -37,7 +37,7 @@ pub trait Handle: Send + Sync + 'static {
 		&self,
 		user: Option<&tg::User>,
 		id: &tg::build::Id,
-		state: &tg::build::State,
+		arg: &tg::build::PutArg,
 	) -> Result<tg::build::PutOutput>;
 
 	async fn push_build(&self, user: Option<&tg::User>, id: &tg::build::Id) -> Result<()>;

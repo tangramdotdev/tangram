@@ -27,7 +27,7 @@ pub struct GetArg {
 #[derive(Clone, Debug, Default, serde::Serialize, serde::Deserialize)]
 pub struct Chunk {
 	pub position: u64,
-	pub data: Vec<Id>,
+	pub items: Vec<Id>,
 }
 
 impl Client {

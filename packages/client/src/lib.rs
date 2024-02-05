@@ -494,8 +494,8 @@ impl Handle for Client {
 		self.check_out_artifact(arg).await
 	}
 
-	async fn try_list_builds(&self, arg: tg::build::ListArg) -> Result<tg::build::ListOutput> {
-		self.try_list_builds(arg).await
+	async fn list_builds(&self, arg: tg::build::ListArg) -> Result<tg::build::ListOutput> {
+		self.list_builds(arg).await
 	}
 
 	async fn get_build_exists(&self, id: &tg::build::Id) -> Result<bool> {
@@ -510,9 +510,9 @@ impl Handle for Client {
 		&self,
 		user: Option<&tg::User>,
 		id: &tg::build::Id,
-		state: &tg::build::State,
+		arg: &tg::build::PutArg,
 	) -> Result<tg::build::PutOutput> {
-		self.try_put_build(user, id, state).await
+		self.try_put_build(user, id, arg).await
 	}
 
 	async fn push_build(&self, user: Option<&tg::User>, id: &tg::build::Id) -> Result<()> {

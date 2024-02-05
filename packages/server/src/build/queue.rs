@@ -1,6 +1,6 @@
 use crate::{
 	database::{Database, PostgresJson, SqliteJson},
-	postgres_params, sqlite_params, BuildContext, Http, Server,
+	postgres_params, sqlite_params, BuildState, Http, Server,
 };
 use futures::{stream::FuturesUnordered, FutureExt, TryStreamExt};
 use http_body_util::BodyExt;
@@ -32,7 +32,7 @@ impl Server {
 				let (id, options, host, depth) = {
 					match &self.inner.database {
 						Database::Sqlite(database) => {
-							let db = database.get().await?;
+							let connection = database.get().await?;
 							let statement = "
 								delete from build_queue
 								where build in (
@@ -43,12 +43,12 @@ impl Server {
 								)
 								returning build, options, host, depth;
 							";
-							let mut statement = db
+							let mut statement = connection
 								.prepare_cached(statement)
 								.wrap_err("Failed to prepare the query.")?;
 							let mut rows = statement
 								.query([])
-								.wrap_err("Failed to execute the query.")?;
+								.wrap_err("Failed to execute the statement.")?;
 							let Some(row) = rows.next().wrap_err("Failed to get the row.")? else {
 								break;
 							};
@@ -66,13 +66,15 @@ impl Server {
 								.wrap_err("Failed to deserialize the column.")?
 								.parse::<tg::System>()?;
 							let depth = row
-								.get::<_, u64>(3)
-								.wrap_err("Failed to deserialize the column.")?;
+								.get::<_, i64>(3)
+								.wrap_err("Failed to deserialize the column.")?
+								.to_u64()
+								.unwrap();
 							(id, options, host, depth)
 						},
 
 						Database::Postgres(database) => {
-							let db = database.get().await?;
+							let connection = database.get().await?;
 							let statement = "
 								delete from build_queue
 								where build in (
@@ -83,14 +85,14 @@ impl Server {
 								)
 								returning build, options, host, depth;
 							";
-							let statement = db
+							let statement = connection
 								.prepare_cached(statement)
 								.await
 								.wrap_err("Failed to prepare the query.")?;
-							let rows = db
+							let rows = connection
 								.query(&statement, &[])
 								.await
-								.wrap_err("Failed to execute the query.")?;
+								.wrap_err("Failed to execute the statement.")?;
 							let Some(row) = rows.first() else {
 								break;
 							};
@@ -120,12 +122,12 @@ impl Server {
 				// If the build is at a unique depth or there is a permit available, then start it.
 				let unique = self
 					.inner
-					.build_context
+					.build_state
 					.read()
 					.unwrap()
-					.values()
-					.filter(|context| context.build != id)
-					.all(|context| context.depth != options.depth);
+					.iter()
+					.filter(|(build, _)| **build != id)
+					.all(|(_, state)| state.depth != options.depth);
 
 				let permit = self.inner.build_semaphore.clone().try_acquire_owned();
 				let permit = match (unique, permit) {
@@ -134,7 +136,7 @@ impl Server {
 					(false, Err(tokio::sync::TryAcquireError::NoPermits)) => {
 						match &self.inner.database {
 							Database::Sqlite(database) => {
-								let db = database.get().await?;
+								let connection = database.get().await?;
 								let statement = "
 									insert into build_queue (build, options, host, depth)
 									values (?1, ?2, ?3, ?4);
@@ -145,16 +147,16 @@ impl Server {
 									host.to_string(),
 									depth,
 								];
-								let mut statement = db
+								let mut statement = connection
 									.prepare_cached(statement)
 									.wrap_err("Failed to prepare the query.")?;
 								statement
 									.execute(params)
-									.wrap_err("Failed to execute the query.")?;
+									.wrap_err("Failed to execute the statement.")?;
 							},
 
 							Database::Postgres(database) => {
-								let db = database.get().await?;
+								let connection = database.get().await?;
 								let statement = "
 									insert into build_queue (build, options, host, depth)
 									values (?1, ?2, ?3, ?4);
@@ -165,13 +167,13 @@ impl Server {
 									host.to_string(),
 									depth.to_i64().unwrap(),
 								];
-								let statement = db
+								let statement = connection
 									.prepare_cached(statement)
 									.await
 									.wrap_err("Failed to prepare the query.")?;
-								db.execute(&statement, params)
+								connection.execute(&statement, params)
 									.await
-									.wrap_err("Failed to execute the query.")?;
+									.wrap_err("Failed to execute the statement.")?;
 							},
 						}
 						break;
@@ -200,7 +202,7 @@ impl Server {
 
 				// Set the task in the build context.
 				self.inner
-					.build_context
+					.build_state
 					.write()
 					.unwrap()
 					.get_mut(&id)
@@ -241,17 +243,17 @@ impl Server {
 			// If the queue is not empty, then sleep and continue.
 			let empty = match &self.inner.database {
 				Database::Sqlite(database) => {
-					let db = database.get().await?;
+					let connection = database.get().await?;
 					let statement = "
 						select count(*) = 0
 						from build_queue;
 					";
-					let mut statement = db
+					let mut statement = connection
 						.prepare_cached(statement)
 						.wrap_err("Failed to prepare the query.")?;
 					let mut rows = statement
 						.query([])
-						.wrap_err("Failed to execute the query.")?;
+						.wrap_err("Failed to execute the statement.")?;
 					let row = rows
 						.next()
 						.wrap_err("Failed to get the row.")?
@@ -261,19 +263,19 @@ impl Server {
 				},
 
 				Database::Postgres(database) => {
-					let db = database.get().await?;
+					let connection = database.get().await?;
 					let statement = "
 						select count(*) = 0
 						from build_queue;
 					";
-					let statement = db
+					let statement = connection
 						.prepare_cached(statement)
 						.await
 						.wrap_err("Failed to prepare the query.")?;
-					let rows = db
+					let rows = connection
 						.query(&statement, &[])
 						.await
-						.wrap_err("Failed to execute the query.")?;
+						.wrap_err("Failed to execute the statement.")?;
 					let row = rows.first().wrap_err("Expected one row.")?;
 					row.try_get::<_, bool>(0)
 						.wrap_err("Failed to deserialize the column.")?
@@ -315,8 +317,7 @@ impl Server {
 
 			// Create the build context.
 			let (stop, _) = tokio::sync::watch::channel(false);
-			let context = Arc::new(BuildContext {
-				build: id.clone(),
+			let context = Arc::new(BuildState {
 				children: None,
 				depth: options.depth,
 				log: None,
@@ -325,7 +326,7 @@ impl Server {
 				task: std::sync::Mutex::new(None),
 			});
 			self.inner
-				.build_context
+				.build_state
 				.write()
 				.unwrap()
 				.insert(id.clone(), context);
@@ -349,7 +350,7 @@ impl Server {
 
 			// Set the task in the build context.
 			self.inner
-				.build_context
+				.build_state
 				.write()
 				.unwrap()
 				.get_mut(&id)
@@ -375,7 +376,7 @@ impl Server {
 		// Get the stop signal.
 		let stop = self
 			.inner
-			.build_context
+			.build_state
 			.read()
 			.unwrap()
 			.get(&id)

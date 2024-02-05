@@ -31,6 +31,7 @@ too_many_lines = "allow"
 
 [workspace.dependencies]
 async-compression = { version = "0.4", features = ["all"] }
+async-nats = "0.33"
 async-recursion = "1"
 async-trait = "0.1"
 bitflags = "2"

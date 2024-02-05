@@ -1,18 +1,19 @@
-use crate::{
-	database::{Database, PostgresJson, SqliteJson},
-	postgres_params, sqlite_params, Http, Server,
-};
+use crate::{database::Database, postgres_params, sqlite_params, Http, Server};
 use futures::{
 	future,
 	stream::{self, BoxStream},
 	FutureExt, StreamExt, TryFutureExt, TryStreamExt,
 };
 use http_body_util::{BodyExt, StreamBody};
+use itertools::Itertools;
 use num::ToPrimitive;
 use std::sync::Arc;
 use tangram_client as tg;
-use tangram_error::{error, Error, Result, WrapErr};
-use tangram_util::http::{empty, not_found, Incoming, Outgoing};
+use tangram_error::{error, Error, Result, Wrap, WrapErr};
+use tangram_util::{
+	http::{empty, not_found, Incoming, Outgoing},
+	iter::IterExt,
+};
 use tokio_stream::wrappers::WatchStream;
 
 impl Server {
@@ -50,7 +51,7 @@ impl Server {
 		}
 
 		// Create the event stream.
-		let context = self.inner.build_context.read().unwrap().get(id).cloned();
+		let context = self.inner.build_state.read().unwrap().get(id).cloned();
 		let children = context
 			.as_ref()
 			.map_or_else(
@@ -177,7 +178,7 @@ impl Server {
 						let chunk = server
 							.try_get_build_children_local_inner(&id, state_.position, size)
 							.await?;
-						let read = chunk.data.len().to_u64().unwrap();
+						let read = chunk.items.len().to_u64().unwrap();
 
 						// Update the state.
 						state_.position += read;
@@ -186,7 +187,7 @@ impl Server {
 						drop(state_);
 
 						// If the chunk is empty, then only return it if the build is finished and the position is at the end.
-						if chunk.data.is_empty() {
+						if chunk.items.is_empty() {
 							let end = server
 								.try_get_build_children_local_end(&id, chunk.position)
 								.await?;
@@ -215,15 +216,15 @@ impl Server {
 	) -> Result<u64> {
 		match &self.inner.database {
 			Database::Sqlite(database) => {
-				let db = database.get().await?;
+				let connection = database.get().await?;
 				let statement = "
-					select json_array_length(state->'children')
-					from builds
-					where id = ?1;
+					select count(*)
+					from build_children
+					where build = ?1;
 				";
 				let id = id.to_string();
 				let params = sqlite_params![id];
-				let mut statement = db
+				let mut statement = connection
 					.prepare_cached(statement)
 					.wrap_err("Failed to prepare the statement.")?;
 				let mut rows = statement
@@ -234,25 +235,27 @@ impl Server {
 					.wrap_err("Failed to get the row.")?
 					.wrap_err("Expected a row.")?;
 				let count = row
-					.get::<_, u64>(0)
-					.wrap_err("Failed to deseriaize the column.")?;
+					.get::<_, i64>(0)
+					.wrap_err("Failed to deseriaize the column.")?
+					.to_u64()
+					.unwrap();
 				Ok(count)
 			},
 
 			Database::Postgres(database) => {
-				let db = database.get().await?;
+				let connection = database.get().await?;
 				let statement = "
-					select json_array_length(state->'children')
-					from builds
-					where id = $1;
+					select count(*)
+					from build_children
+					where build = ?1;
 				";
 				let id = id.to_string();
 				let params = postgres_params![id];
-				let statement = db
+				let statement = connection
 					.prepare_cached(statement)
 					.await
 					.wrap_err("Failed to prepare the statement.")?;
-				let rows = db
+				let rows = connection
 					.query(&statement, params)
 					.await
 					.wrap_err("Failed to execute the statement.")?;
@@ -274,15 +277,20 @@ impl Server {
 	) -> Result<bool> {
 		match &self.inner.database {
 			Database::Sqlite(database) => {
-				let db = database.get().await?;
+				let connection = database.get().await?;
 				let statement = "
-					select state->>'status' = 'finished' and ?1 = json_array_length(state->'children') as end
-					from builds
-					where id = ?2;
+					select (
+						select status = 'finished'
+						from builds
+						where id = ?1
+					) and (
+						select ?2 >= count(*)
+						from build_children
+						where build = ?1
+					);
 				";
-				let id = id.to_string();
-				let params = sqlite_params![position, id];
-				let mut statement = db
+				let params = sqlite_params![id.to_string(), position.to_i64().unwrap()];
+				let mut statement = connection
 					.prepare_cached(statement)
 					.wrap_err("Failed to prepare the statement.")?;
 				let mut rows = statement
@@ -299,18 +307,24 @@ impl Server {
 			},
 
 			Database::Postgres(database) => {
-				let db = database.get().await?;
+				let connection = database.get().await?;
 				let statement = "
-					select state->>'status' = 'finished' and $1 = json_array_length(state->'children') as end
-					from builds
-					where id = $2;
+					select (
+						select status = 'finished'
+						from builds
+						where id = $1
+					) and (
+						select $2 >= count(*)
+						from build_children
+						where build = $1
+					);
 				";
-				let statement = db
+				let statement = connection
 					.prepare_cached(statement)
 					.await
 					.wrap_err("Failed to prepare the statement.")?;
-				let params = postgres_params![position.to_i64().unwrap(), id.to_string()];
-				let rows = db
+				let params = postgres_params![id.to_string(), position.to_i64().unwrap()];
+				let rows = connection
 					.query(&statement, params)
 					.await
 					.wrap_err("Failed to execute the statement.")?;
@@ -331,77 +345,68 @@ impl Server {
 	) -> Result<tg::build::children::Chunk> {
 		match &self.inner.database {
 			Database::Sqlite(database) => {
-				let db = database.get().await?;
+				let connection = database.get().await?;
 				let statement = "
-					select (
-						select coalesce(json_group_array(value), '[]')
-						from (
-							select value
-							from json_each(builds.state->'children')
-							limit ?1
-							offset ?2
-						)
-					) as children
-					from builds
-					where id = ?3;
+					select child
+					from build_children
+					where build = ?1
+					order by position
+					limit ?2
+					offset ?3
 				";
-				let id = id.to_string();
-				let params = sqlite_params![length, position, id];
-				let mut statement = db
+				let params = sqlite_params![
+					id.to_string(),
+					length.to_i64().unwrap(),
+					position.to_i64().unwrap(),
+				];
+				let mut statement = connection
 					.prepare_cached(statement)
 					.wrap_err("Failed to prepare the statement.")?;
-				let mut rows = statement
+				let children = statement
 					.query(params)
-					.wrap_err("Failed to execute the statement.")?;
-				let row = rows
-					.next()
-					.wrap_err("Failed to get the row.")?
-					.wrap_err("Expected a row.")?;
-				let children = row
-					.get::<_, SqliteJson<Vec<tg::build::Id>>>(0)
-					.wrap_err("Failed to deseriaize the column.")?
-					.0;
+					.wrap_err("Failed to execute the statement.")?
+					.and_then(|row| row.get::<_, String>(0))
+					.map_err(|error| error.wrap("Failed to deserialize the rows."))
+					.and_then(|id| id.parse())
+					.try_collect()?;
 				let chunk = tg::build::children::Chunk {
 					position,
-					data: children,
+					items: children,
 				};
 				Ok(chunk)
 			},
 
 			Database::Postgres(database) => {
-				let db = database.get().await?;
+				let connection = database.get().await?;
 				let statement = "
-					select (
-						select coalesce(json_agg(value), '[]')
-						from (
-							select value
-							from json_array_elements(builds.state->'children')
-							limit $1
-							offset $2
-						)
-					) as children
-					from builds
-					where id = $3;
+					select child
+					from build_children
+					where build = $1
+					order by position
+					limit $2
+					offset $3
 				";
-				let id = id.to_string();
-				let params =
-					postgres_params![length.to_i64().unwrap(), position.to_i64().unwrap(), id];
-				let statement = db
+				let params = postgres_params![
+					id.to_string(),
+					length.to_i64().unwrap(),
+					position.to_i64().unwrap(),
+				];
+				let statement = connection
 					.prepare_cached(statement)
 					.await
 					.wrap_err("Failed to prepare the statement.")?;
-				let rows = db
+				let children = connection
 					.query(&statement, params)
 					.await
-					.wrap_err("Failed to execute the statement.")?;
-				let row = rows.into_iter().next().wrap_err("Expected a row.")?;
-				let children = row
-					.try_get::<_, PostgresJson<Vec<tg::build::Id>>>(0)
-					.wrap_err("Failed to deseriaize the column.")?
-					.0;
+					.wrap_err("Failed to execute the statement.")?
+					.into_iter()
+					.map(|row| row.try_get::<_, String>(0))
+					.map_err(|error| error.wrap("Failed to deserialize the rows."))
+					.and_then(|row| row.parse())
+					.try_collect()?;
 				let chunk = tg::build::children::Chunk {
 					position,
-					data: children,
+					items: children,
 				};
 				Ok(chunk)
 			},
@@ -455,55 +460,47 @@ impl Server {
 			return Ok(false);
 		}
 
-		// Add the child to the build in the database.
+		// Add the child to the database.
 		match &self.inner.database {
 			Database::Sqlite(database) => {
-				let db = database.get().await?;
-				// TODO Do not add the child if it already exists.
+				let connection = database.get().await?;
 				let statement = "
-					update builds
-					set state = json_set(state, '$.children[#]', ?1)
-					where id = ?2;
+					insert into build_children (build, position, child)
+					values (?1, (select coalesce(max(position) + 1, 0) from build_children where build = ?1), ?2)
+					on conflict (build, child) do nothing;
 				";
-				let mut statement = db
+				let params = sqlite_params![build_id.to_string(), child_id.to_string()];
+				let mut statement = connection
 					.prepare_cached(statement)
 					.wrap_err("Failed to prepare the query.")?;
 				statement
-					.execute([child_id.to_string(), build_id.to_string()])
-					.wrap_err("Failed to execute the query.")?;
+					.execute(params)
+					.wrap_err("Failed to execute the statement.")?;
 			},
 
 			Database::Postgres(database) => {
-				let db = database.get().await?;
+				let connection = database.get().await?;
 				let statement = "
-					update builds
-					set state = json_set(
-						state,
-						'{children}',
-						case
-							when not (state->'children' ? $1) then
-								state->'children' || json_build_array($1)
-							else
-								state->'children'
-						end
-					)
-					where id = $2;
+					insert into build_children (build, position, child)
+					values ($1, (select coalesce(max(position) + 1, 0) from build_children where build = $1), $2)
+					on conflict (build, child) do nothing;
 				";
-				let params = postgres_params![child_id.to_string(), build_id.to_string()];
-				let statement = db
+				let params = postgres_params![build_id.to_string(), child_id.to_string()];
+				let statement = connection
 					.prepare_cached(statement)
 					.await
 					.wrap_err("Failed to prepare the statement.")?;
-				db.execute(&statement, params)
+				connection
+					.execute(&statement, params)
 					.await
 					.wrap_err("Failed to execute the statement.")?;
 			},
 		}
 
-		// Notify subscribers that a child has been added.
+		// Send the event.
 		if let Some(children) = self
 			.inner
-			.build_context
+			.build_state
 			.read()
 			.unwrap()
 			.get(build_id)

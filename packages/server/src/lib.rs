@@ -1,5 +1,6 @@
 use self::database::Database;
 pub use self::options::Options;
+// use async_nats as nats;
 use async_trait::async_trait;
 use bytes::Bytes;
 use futures::{
@@ -44,9 +45,8 @@ pub struct Server {
 }
 
 struct Inner {
-	build_context:
-		std::sync::RwLock<HashMap<tg::build::Id, Arc<BuildContext>, fnv::FnvBuildHasher>>,
 	build_semaphore: Arc<tokio::sync::Semaphore>,
+	build_state: std::sync::RwLock<HashMap<tg::build::Id, Arc<BuildState>, fnv::FnvBuildHasher>>,
 	database: Database,
 	file_descriptor_semaphore: tokio::sync::Semaphore,
 	http: std::sync::Mutex<Option<Http>>,
@@ -67,15 +67,32 @@ struct Inner {
 	www: Option<Url>,
 }
 
-struct BuildContext {
-	build: tg::build::Id,
-	children: Option<tokio::sync::watch::Sender<()>>,
+struct BuildState {
 	depth: u64,
-	log: Option<tokio::sync::watch::Sender<()>>,
-	status: Option<tokio::sync::watch::Sender<()>>,
 	stop: tokio::sync::watch::Sender<bool>,
 	task: std::sync::Mutex<Option<tokio::task::JoinHandle<()>>>,
+
+	children: Option<tokio::sync::watch::Sender<()>>,
+	log: Option<tokio::sync::watch::Sender<()>>,
+	status: Option<tokio::sync::watch::Sender<()>>,
 }
+
+// enum Messenger {
+// 	Local(LocalMessenger),
+// 	Nats(nats::Client),
+// }
+
+// struct LocalMessenger {
+// 	builds: std::sync::RwLock<
+// 		HashMap<tg::build::Id, Arc<LocalMessengerBuildChannels>, fnv::FnvBuildHasher>,
+// 	>,
+// }
+
+// struct LocalMessengerBuildChannels {
+// 	children: tokio::sync::watch::Sender<()>,
+// 	log: tokio::sync::watch::Sender<()>,
+// 	status: tokio::sync::watch::Sender<()>,
+// }
 
 #[derive(Debug)]
 struct OAuth {
@@ -220,7 +237,7 @@ impl Server {
 
 		// Create the server.
 		let inner = Arc::new(Inner {
-			build_context,
+			build_state: build_context,
 			build_semaphore,
 			database,
 			file_descriptor_semaphore,
@@ -245,36 +262,36 @@ impl Server {
 
 		// Terminate unfinished builds.
 		if let Database::Sqlite(database) = &server.inner.database {
-			let db = database.get().await?;
+			let connection = database.get().await?;
 			let statement = r#"
 				update builds
-				set state = json_set(
-					state,
-					'$.status', 'finished',
-					'$.outcome', json('{"kind":"terminated"}')
-				)
-				where state->>'status' != 'finished';
+				set
+					outcome = json('{"kind":"terminated"}'),
+					status = 'finished'
+				where status != 'finished';
 			"#;
-			let mut statement = db
+			let mut statement = connection
 				.prepare_cached(statement)
 				.wrap_err("Failed to prepare the query.")?;
+			let params = sqlite_params![];
 			statement
-				.execute([])
-				.wrap_err("Failed to execute the query.")?;
+				.execute(params)
+				.wrap_err("Failed to execute the statement.")?;
 		}
 
 		// Empty the build queue.
 		if let Database::Sqlite(database) = &server.inner.database {
-			let db = database.get().await?;
+			let connection = database.get().await?;
 			let statement = "
 				delete from build_queue;
 			";
-			let mut statement = db
+			let mut statement = connection
 				.prepare_cached(statement)
 				.wrap_err("Failed to prepare the query.")?;
+			let params = sqlite_params![];
 			statement
-				.execute([])
-				.wrap_err("Failed to execute the query.")?;
+				.execute(params)
+				.wrap_err("Failed to execute the statement.")?;
 		}
 
 		// Start the VFS if necessary and set up the checkouts directory.
@@ -395,14 +412,14 @@ impl Server {
 			}
 
 			// Stop running builds.
-			for context in server.inner.build_context.read().unwrap().values() {
+			for context in server.inner.build_state.read().unwrap().values() {
 				context.stop.send_replace(true);
 			}
 
 			// Join running builds.
 			let tasks = server
 				.inner
-				.build_context
+				.build_state
 				.read()
 				.unwrap()
 				.values()
@@ -417,7 +434,7 @@ impl Server {
 				.unwrap();
 
 			// Remove running builds.
-			server.inner.build_context.write().unwrap().clear();
+			server.inner.build_state.write().unwrap().clear();
 
 			// Join the vfs server.
 			let vfs = server.inner.vfs.lock().unwrap().clone();
@@ -837,8 +854,8 @@ impl tg::Handle for Server {
 		self.check_out_artifact(arg).await
 	}
 
-	async fn try_list_builds(&self, args: tg::build::ListArg) -> Result<tg::build::ListOutput> {
-		self.try_list_builds(args).await
+	async fn list_builds(&self, args: tg::build::ListArg) -> Result<tg::build::ListOutput> {
+		self.list_builds(args).await
 	}
 
 	async fn get_build_exists(&self, id: &tg::build::Id) -> Result<bool> {
@@ -853,9 +870,9 @@ impl tg::Handle for Server {
 		&self,
 		user: Option<&tg::User>,
 		id: &tg::build::Id,
-		state: &tg::build::State,
+		arg: &tg::build::PutArg,
 	) -> Result<tg::build::PutOutput> {
-		self.try_put_build(user, id, state).await
+		self.try_put_build(user, id, arg).await
 	}
 
 	async fn push_build(&self, user: Option<&tg::User>, id: &tg::build::Id) -> Result<()> {

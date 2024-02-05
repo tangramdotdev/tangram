@@ -16,7 +16,7 @@ impl Server {
 		let Database::Postgres(database) = &self.inner.database else {
 			return Err(error!("unimplemented"));
 		};
-		let db = database.get().await?;
+		let connection = database.get().await?;
 
 		// Get the search results.
 		let statement = "
@@ -25,11 +25,11 @@ impl Server {
 			where name like $1 || '%';
 		";
 		let params = postgres_params![arg.query];
-		let statement = db
+		let statement = connection
 			.prepare_cached(statement)
 			.await
 			.wrap_err("Failed to prepare the statement.")?;
-		let rows = db
+		let rows = connection
 			.query(&statement, params)
 			.await
 			.wrap_err("Failed to execute the statement.")?;
