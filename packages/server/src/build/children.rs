@@ -119,11 +119,21 @@ impl Server {
 			.boxed();
 
 		// Get the position.
-		let position = if let Some(position) = arg.position {
-			position
-		} else {
-			self.try_get_build_children_local_current_position(id)
+		let position = match arg.position {
+			Some(std::io::SeekFrom::Start(seek)) => seek,
+			Some(std::io::SeekFrom::End(seek) | std::io::SeekFrom::Current(seek)) => self
+				.try_get_build_children_local_current_position(id)
 				.await?
+				.to_i64()
+				.unwrap()
+				.checked_add(seek)
+				.wrap_err("Invalid offset.")?
+				.to_u64()
+				.wrap_err("Invalid offset.")?,
+			None => {
+				self.try_get_build_children_local_current_position(id)
+					.await?
+			},
 		};
 
 		// Get the length.

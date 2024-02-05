@@ -596,10 +596,7 @@ impl TreeItem {
 		let children_task = tokio::task::spawn({
 			let item = self.clone();
 			async move {
-				let arg = tg::build::children::GetArg {
-					position: Some(0),
-					..Default::default()
-				};
+				let arg = tg::build::children::GetArg::default();
 				let Ok(mut children) = item.inner.build.children(item.inner.tg.as_ref(), arg).await
 				else {
 					return;
