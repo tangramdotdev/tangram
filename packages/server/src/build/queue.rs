@@ -128,7 +128,6 @@ impl Server {
 					.iter()
 					.filter(|(build, _)| **build != id)
 					.all(|(_, state)| state.depth != options.depth);
-
 				let permit = self.inner.build_semaphore.clone().try_acquire_owned();
 				let permit = match (unique, permit) {
 					(_, Ok(permit)) => Some(permit),
@@ -159,7 +158,7 @@ impl Server {
 								let connection = database.get().await?;
 								let statement = "
 									insert into build_queue (build, options, host, depth)
-									values (?1, ?2, ?3, ?4);
+									values ($1, $2, $3, $4);
 								";
 								let params = postgres_params![
 									id.to_string(),
