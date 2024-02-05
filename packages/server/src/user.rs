@@ -48,7 +48,8 @@ impl Server {
 			.prepare_cached(statement)
 			.await
 			.wrap_err("Failed to prepare the statement.")?;
-		connection.execute(&statement, params)
+		connection
+			.execute(&statement, params)
 			.await
 			.wrap_err("Failed to execute the statement.")?;
 
@@ -235,7 +236,8 @@ impl Server {
 					.prepare_cached(statement)
 					.await
 					.wrap_err("Failed to prepare the statement.")?;
-				connection.execute(&statement, params)
+				connection
+					.execute(&statement, params)
 					.await
 					.wrap_err("Failed to execute the statement.")?;
 			},
@@ -265,7 +267,7 @@ impl Server {
 			.query_opt(&statement, params)
 			.await
 			.wrap_err("Failed to execute the statement.")?;
-		let id = if let Some(row) = row {
+		let user_id = if let Some(row) = row {
 			row.get::<_, String>(0).parse()?
 		} else {
 			let id = tg::Id::new_uuidv7(tg::id::Kind::User);
@@ -278,49 +280,50 @@ impl Server {
 				.prepare_cached(statement)
 				.await
 				.wrap_err("Failed to prepare the statement.")?;
-			connection.execute(&statement, params)
+			connection
+				.execute(&statement, params)
 				.await
 				.wrap_err("Failed to execute the statement.")?;
 			id
 		};
 
 		// Create a token.
-		let token = tg::Id::new_uuidv7(tg::id::Kind::Token);
+		let id = tg::Id::new_uuidv7(tg::id::Kind::Token);
 		let statement = "
-			insert into tokens (user_id, token)
+			insert into tokens (id, user_id)
 			values ($1, $2);
 		";
-		let params = postgres_params![id.to_string(), token.to_string()];
+		let params = postgres_params![id.to_string(), user_id.to_string()];
 		let statement = connection
 			.prepare_cached(statement)
 			.await
 			.wrap_err("Failed to prepare the statement.")?;
-		connection.execute(&statement, params)
+		connection
+			.execute(&statement, params)
 			.await
 			.wrap_err("Failed to execute the statement.")?;
 
 		let user = tg::user::User {
-			id,
+			id: user_id,
 			email: email.to_owned(),
-			token: Some(token.clone()),
+			token: Some(id.clone()),
 		};
 
-		Ok((user, token))
+		Ok((user, id))
 	}
 
 	#[must_use]
 	pub fn user_is_admin(&self, user: Option<&tg::user::User>) -> bool {
+		if cfg!(debug_assertions) {
+			return true;
+		}
 		const ADMINS: [&str; 4] = [
 			"david@yamnitsky.com",
 			"isabella.tromba@gmail.com",
 			"ben@deciduously.com",
 			"mike@hilgendorf.audio",
 		];
-		if self.inner.remote.is_some() || cfg!(debug_assertions) {
-			true
-		} else {
-			user.map_or(false, |user| ADMINS.contains(&user.email.as_str()))
-		}
+		user.map_or(false, |user| ADMINS.contains(&user.email.as_str()))
 	}
 }
 

@@ -187,7 +187,8 @@ impl Server {
 					.prepare_cached(statement)
 					.await
 					.wrap_err("Failed to prepare the statement.")?;
-				connection.execute(&statement, params)
+				connection
+					.execute(&statement, params)
 					.await
 					.wrap_err("Failed to execute the statement.")?;
 			},
@@ -253,7 +254,8 @@ impl Server {
 						.prepare_cached(statement)
 						.await
 						.wrap_err("Failed to prepare the statement.")?;
-					connection.execute(&statement, params)
+					connection
+						.execute(&statement, params)
 						.await
 						.wrap_err("Failed to execute the statement.")?;
 				},

@@ -7,15 +7,16 @@ impl Server {
 		// Clean the database.
 		if let Database::Sqlite(database) = &self.inner.database {
 			let connection = database.get().await?;
-			connection.execute_batch(
-				"
+			connection
+				.execute_batch(
+					"
 					delete from builds;
 					delete from build_logs;
 					delete from build_queue;
 					delete from objects;
 				",
-			)
-			.wrap_err("Failed to clear the database.")?;
+				)
+				.wrap_err("Failed to clear the database.")?;
 		}
 
 		// Clean the checkouts directory.
