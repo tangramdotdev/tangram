@@ -1,4 +1,4 @@
-use crate::{database::Database, postgres_params, sqlite_params, Http, Server};
+use crate::{database::Database, postgres_params, sqlite_params, Http, Messenger, Server};
 use bytes::{Bytes, BytesMut};
 use futures::{
 	future::{self, BoxFuture},
@@ -65,17 +65,29 @@ impl Server {
 		}
 
 		// Create the event stream.
-		let context = self.inner.build_state.read().unwrap().get(id).cloned();
-		let log = context
-			.as_ref()
-			.map_or_else(
-				|| stream::empty().left_stream(),
-				|context| {
-					WatchStream::from_changes(context.log.as_ref().unwrap().subscribe())
-						.right_stream()
-				},
-			)
-			.chain(stream::pending());
+		let log = match &self.inner.messenger {
+			Messenger::Local(local) => {
+				let channels = local.builds.read().unwrap().get(id).cloned();
+				channels
+					.map_or_else(
+						|| stream::empty().left_stream(),
+						|channels| {
+							WatchStream::from_changes(channels.log.subscribe()).right_stream()
+						},
+					)
+					.chain(stream::pending())
+					.left_stream()
+			},
+			Messenger::Nats(nats) => {
+				let subject = format!("builds.{id}.log");
+				nats.client
+					.subscribe(subject)
+					.await
+					.wrap_err("Failed to subscribe.")?
+					.map(|_| ())
+					.right_stream()
+			},
+		};
 		let finished = {
 			let server = self.clone();
 			let id = id.clone();
@@ -384,17 +396,19 @@ impl Server {
 		}
 
 		// Send the event.
-		if let Some(log) = self
-			.inner
-			.build_state
-			.read()
-			.unwrap()
-			.get(id)
-			.unwrap()
-			.log
-			.as_ref()
-		{
-			log.send_replace(());
+		match &self.inner.messenger {
+			Messenger::Local(local) => {
+				if let Some(channels) = local.builds.read().unwrap().get(id) {
+					channels.log.send_replace(());
+				}
+			},
+			Messenger::Nats(nats) => {
+				let subject = format!("builds.{id}.log");
+				nats.client
+					.publish(subject, Bytes::new())
+					.await
+					.wrap_err("Failed to publish the message.")?;
+			},
 		}
 
 		Ok(true)

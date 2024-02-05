@@ -171,7 +171,8 @@ impl Server {
 									.prepare_cached(statement)
 									.await
 									.wrap_err("Failed to prepare the query.")?;
-								connection.execute(&statement, params)
+								connection
+									.execute(&statement, params)
 									.await
 									.wrap_err("Failed to execute the statement.")?;
 							},
@@ -200,7 +201,7 @@ impl Server {
 					}
 				});
 
-				// Set the task in the build context.
+				// Set the task in the build state.
 				self.inner
 					.build_state
 					.write()
@@ -315,13 +316,10 @@ impl Server {
 				continue;
 			};
 
-			// Create the build context.
+			// Create the build state.
 			let (stop, _) = tokio::sync::watch::channel(false);
-			let context = Arc::new(BuildState {
-				children: None,
+			let state = Arc::new(BuildState {
 				depth: options.depth,
-				log: None,
-				status: None,
 				stop,
 				task: std::sync::Mutex::new(None),
 			});
@@ -329,7 +327,7 @@ impl Server {
 				.build_state
 				.write()
 				.unwrap()
-				.insert(id.clone(), context);
+				.insert(id.clone(), state);
 
 			// Set the build's status to running.
 			self.set_build_status(None, &id, tg::build::Status::Running)
@@ -348,7 +346,7 @@ impl Server {
 				}
 			});
 
-			// Set the task in the build context.
+			// Set the task in the build state.
 			self.inner
 				.build_state
 				.write()

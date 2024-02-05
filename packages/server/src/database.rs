@@ -37,8 +37,8 @@ impl Database {
 		Ok(Self::Sqlite(Sqlite::new(path).await?))
 	}
 
-	pub async fn new_postgres(url: Url) -> Result<Self> {
-		Ok(Self::Postgres(Postgres::new(url).await?))
+	pub async fn new_postgres(url: Url, max_connections: usize) -> Result<Self> {
+		Ok(Self::Postgres(Postgres::new(url, max_connections).await?))
 	}
 }
 
@@ -61,10 +61,9 @@ impl Sqlite {
 }
 
 impl Postgres {
-	pub async fn new(url: Url) -> Result<Self> {
-		let n = std::thread::available_parallelism().unwrap().get();
+	pub async fn new(url: Url, max_connections: usize) -> Result<Self> {
 		let pool = tangram_util::pool::Pool::new();
-		for _ in 0..n {
+		for _ in 0..max_connections {
 			let client = PostgresConnection::connect(&url).await?;
 			pool.put(client).await;
 		}

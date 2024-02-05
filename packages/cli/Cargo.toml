@@ -22,6 +22,7 @@ clap = { workspace = true }
 crossterm = { workspace = true }
 either = { workspace = true }
 futures = { workspace = true }
+indicatif = { workspace = true }
 indoc = { workspace = true }
 itertools = { workspace = true }
 libc = { workspace = true }

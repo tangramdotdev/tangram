@@ -107,19 +107,44 @@ impl Cli {
 		let build = tangram_server::options::Build { enable, permits };
 
 		// Create the database options.
-		let url = config
+		let database = config
 			.as_ref()
 			.and_then(|config| config.database.as_ref())
-			.and_then(|database| database.url.clone());
-		let max_connections = config
+			.map_or_else(
+				|| tangram_server::options::Database::Sqlite,
+				|database| match database {
+					crate::config::Database::Sqlite => tangram_server::options::Database::Sqlite,
+					crate::config::Database::Postgres(postgres) => {
+						let url = postgres.url.clone();
+						let max_connections = postgres
+							.max_connections
+							.unwrap_or_else(|| std::thread::available_parallelism().unwrap().get());
+						tangram_server::options::Database::Postgres(
+							tangram_server::options::PostgresDatabase {
+								url,
+								max_connections,
+							},
+						)
+					},
+				},
+			);
+
+		// Create the messenger options.
+		let messenger = config
 			.as_ref()
-			.and_then(|config| config.database.as_ref())
-			.and_then(|database| database.max_connections)
-			.unwrap_or(std::thread::available_parallelism().unwrap().get());
-		let database = tangram_server::options::Database {
-			url,
-			max_connections,
-		};
+			.and_then(|config| config.messenger.as_ref())
+			.map_or_else(
+				|| tangram_server::options::Messenger::Local,
+				|messenger| match messenger {
+					crate::config::Messenger::Local => tangram_server::options::Messenger::Local,
+					crate::config::Messenger::Nats(nats) => {
+						let url = nats.url.clone();
+						tangram_server::options::Messenger::Nats(
+							tangram_server::options::NatsMessenger { url },
+						)
+					},
+				},
+			);
 
 		// Create the oauth options.
 		let oauth = config
@@ -202,6 +227,7 @@ impl Cli {
 			address,
 			build,
 			database,
+			messenger,
 			oauth,
 			path,
 			remote,

@@ -20,6 +20,9 @@ pub struct Config {
 	pub database: Option<Database>,
 
 	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub messenger: Option<Messenger>,
+
+	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub oauth: Option<Oauth>,
 
 	#[serde(default, skip_serializing_if = "Option::is_none")]
@@ -56,14 +59,34 @@ pub struct Build {
 }
 
 #[derive(Clone, Debug, Default, serde::Serialize, serde::Deserialize)]
-pub struct Database {
-	/// The database URL.
-	#[serde(default, skip_serializing_if = "Option::is_none")]
-	pub url: Option<Url>,
+#[serde(tag = "kind", rename_all = "snake_case")]
+pub enum Database {
+	#[default]
+	Sqlite,
+	Postgres(PostgresDatabase),
+}
+
+#[derive(Clone, Debug, serde::Serialize, serde::Deserialize)]
+pub struct PostgresDatabase {
+	/// The URL.
+	pub url: Url,
 
 	/// The maximum number of connections.
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub max_connections: Option<usize>,
+}
+
+#[derive(Clone, Debug, Default, serde::Serialize, serde::Deserialize)]
+#[serde(tag = "kind", rename_all = "snake_case")]
+pub enum Messenger {
+	#[default]
+	Local,
+	Nats(NatsMessenger),
+}
+
+#[derive(Clone, Debug, serde::Serialize, serde::Deserialize)]
+pub struct NatsMessenger {
+	pub url: Url,
 }
 
 #[derive(Clone, Debug, Default, serde::Serialize, serde::Deserialize)]

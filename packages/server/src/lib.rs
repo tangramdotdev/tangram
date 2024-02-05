@@ -1,6 +1,6 @@
 use self::database::Database;
 pub use self::options::Options;
-// use async_nats as nats;
+use async_nats as nats;
 use async_trait::async_trait;
 use bytes::Bytes;
 use futures::{
@@ -54,6 +54,7 @@ struct Inner {
 	local_queue_task_stop_sender: tokio::sync::watch::Sender<bool>,
 	local_queue_task_wake_sender: tokio::sync::watch::Sender<()>,
 	lockfile: std::sync::Mutex<Option<tokio::fs::File>>,
+	messenger: Messenger,
 	oauth: OAuth,
 	path: PathBuf,
 	remote: Option<Box<dyn tg::Handle>>,
@@ -71,28 +72,28 @@ struct BuildState {
 	depth: u64,
 	stop: tokio::sync::watch::Sender<bool>,
 	task: std::sync::Mutex<Option<tokio::task::JoinHandle<()>>>,
-
-	children: Option<tokio::sync::watch::Sender<()>>,
-	log: Option<tokio::sync::watch::Sender<()>>,
-	status: Option<tokio::sync::watch::Sender<()>>,
 }
 
-// enum Messenger {
-// 	Local(LocalMessenger),
-// 	Nats(nats::Client),
-// }
+enum Messenger {
+	Local(LocalMessenger),
+	Nats(NatsMessenger),
+}
 
-// struct LocalMessenger {
-// 	builds: std::sync::RwLock<
-// 		HashMap<tg::build::Id, Arc<LocalMessengerBuildChannels>, fnv::FnvBuildHasher>,
-// 	>,
-// }
+struct LocalMessenger {
+	builds: std::sync::RwLock<
+		HashMap<tg::build::Id, Arc<LocalMessengerBuildChannels>, fnv::FnvBuildHasher>,
+	>,
+}
 
-// struct LocalMessengerBuildChannels {
-// 	children: tokio::sync::watch::Sender<()>,
-// 	log: tokio::sync::watch::Sender<()>,
-// 	status: tokio::sync::watch::Sender<()>,
-// }
+struct LocalMessengerBuildChannels {
+	children: tokio::sync::watch::Sender<()>,
+	log: tokio::sync::watch::Sender<()>,
+	status: tokio::sync::watch::Sender<()>,
+}
+
+struct NatsMessenger {
+	client: nats::Client,
+}
 
 #[derive(Debug)]
 struct OAuth {
@@ -155,19 +156,35 @@ impl Server {
 			.await
 			.wrap_err("Failed to remove an existing socket file.")?;
 
-		// Create the build context.
-		let build_context = std::sync::RwLock::new(HashMap::default());
+		// Create the build state.
+		let build_state = std::sync::RwLock::new(HashMap::default());
 
 		// Create the build semaphore.
 		let permits = options.build.permits;
 		let build_semaphore = Arc::new(tokio::sync::Semaphore::new(permits));
 
 		// Create the database.
-		let database = if let Some(url) = options.database.url {
-			Database::new_postgres(url).await?
-		} else {
-			let database_path = path.join("database");
-			Database::new_sqlite(database_path).await?
+		let database = match options.database {
+			self::options::Database::Sqlite => {
+				let database_path = path.join("database");
+				Database::new_sqlite(database_path).await?
+			},
+			self::options::Database::Postgres(postgres) => {
+				Database::new_postgres(postgres.url, postgres.max_connections).await?
+			},
+		};
+
+		// Create the database.
+		let messenger = match options.messenger {
+			self::options::Messenger::Local => Messenger::Local(LocalMessenger {
+				builds: std::sync::RwLock::new(HashMap::default()),
+			}),
+			self::options::Messenger::Nats(nats) => {
+				let client = nats::connect(nats.url.to_string())
+					.await
+					.wrap_err("Failed to create the NATS client.")?;
+				Messenger::Nats(NatsMessenger { client })
+			},
 		};
 
 		// Create the file system semaphore.
@@ -237,8 +254,8 @@ impl Server {
 
 		// Create the server.
 		let inner = Arc::new(Inner {
-			build_state: build_context,
 			build_semaphore,
+			build_state,
 			database,
 			file_descriptor_semaphore,
 			http,
@@ -246,6 +263,7 @@ impl Server {
 			local_queue_task_stop_sender,
 			local_queue_task_wake_sender,
 			lockfile,
+			messenger,
 			oauth,
 			path,
 			remote,

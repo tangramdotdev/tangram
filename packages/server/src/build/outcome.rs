@@ -1,9 +1,10 @@
 use super::log;
 use crate::{
 	database::{Database, PostgresJson, SqliteJson},
-	postgres_params, sqlite_params, Http, Server,
+	postgres_params, sqlite_params, Http, Messenger, Server,
 };
 use async_recursion::async_recursion;
+use bytes::Bytes;
 use futures::{future, stream::FuturesUnordered, TryFutureExt, TryStreamExt};
 use http_body_util::BodyExt;
 use itertools::Itertools;
@@ -339,21 +340,28 @@ impl Server {
 		}
 
 		// Send the event.
-		if let Some(status) = self
-			.inner
-			.build_state
-			.read()
-			.unwrap()
-			.get(id)
-			.unwrap()
-			.status
-			.as_ref()
-		{
-			status.send_replace(());
+		match &self.inner.messenger {
+			Messenger::Local(local) => {
+				if let Some(channels) = local.builds.read().unwrap().get(id) {
+					channels.status.send_replace(());
+				}
+			},
+			Messenger::Nats(nats) => {
+				let subject = format!("builds.{id}.status");
+				nats.client
+					.publish(subject, Bytes::new())
+					.await
+					.wrap_err("Failed to publish the message.")?;
+			},
 		}
 
-		// Remove the build context.
+		// Remove the build state.
 		self.inner.build_state.write().unwrap().remove(id);
+
+		// Remove the build channels if the messenger is local.
+		if let Messenger::Local(local) = &self.inner.messenger {
+			local.builds.write().unwrap().remove(id);
+		}
 
 		Ok(true)
 	}
@@ -377,7 +385,7 @@ impl Server {
 		// Set the outcome.
 		remote.set_build_outcome(user, id, outcome).await?;
 
-		// Remove the build context.
+		// Remove the build state.
 		self.inner.build_state.write().unwrap().remove(id);
 
 		Ok(true)

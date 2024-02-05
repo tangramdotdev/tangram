@@ -1,4 +1,5 @@
-use crate::{database::Database, postgres_params, sqlite_params, Http, Server};
+use crate::{database::Database, postgres_params, sqlite_params, Http, Messenger, Server};
+use bytes::Bytes;
 use futures::{
 	future,
 	stream::{self, BoxStream},
@@ -51,17 +52,29 @@ impl Server {
 		}
 
 		// Create the event stream.
-		let context = self.inner.build_state.read().unwrap().get(id).cloned();
-		let children = context
-			.as_ref()
-			.map_or_else(
-				|| stream::empty().left_stream(),
-				|context| {
-					WatchStream::from_changes(context.children.as_ref().unwrap().subscribe())
-						.right_stream()
-				},
-			)
-			.chain(stream::pending());
+		let children = match &self.inner.messenger {
+			Messenger::Local(local) => {
+				let channels = local.builds.read().unwrap().get(id).cloned();
+				channels
+					.map_or_else(
+						|| stream::empty().left_stream(),
+						|channels| {
+							WatchStream::from_changes(channels.children.subscribe()).right_stream()
+						},
+					)
+					.chain(stream::pending())
+					.left_stream()
+			},
+			Messenger::Nats(nats) => {
+				let subject = format!("builds.{id}.children");
+				nats.client
+					.subscribe(subject)
+					.await
+					.wrap_err("Failed to subscribe.")?
+					.map(|_| ())
+					.right_stream()
+			},
+		};
 		let finished = {
 			let server = self.clone();
 			let id = id.clone();
@@ -498,17 +511,19 @@ impl Server {
 		}
 
 		// Send the event.
-		if let Some(children) = self
-			.inner
-			.build_state
-			.read()
-			.unwrap()
-			.get(build_id)
-			.unwrap()
-			.children
-			.as_ref()
-		{
-			children.send_replace(());
+		match &self.inner.messenger {
+			Messenger::Local(local) => {
+				if let Some(channels) = local.builds.read().unwrap().get(build_id) {
+					channels.children.send_replace(());
+				}
+			},
+			Messenger::Nats(nats) => {
+				let subject = format!("builds.{build_id}.children");
+				nats.client
+					.publish(subject, Bytes::new())
+					.await
+					.wrap_err("Failed to publish the message.")?;
+			},
 		}
 
 		Ok(true)

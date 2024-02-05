@@ -1,7 +1,7 @@
 use super::Server;
 use crate::{
 	database::{Database, Postgres, PostgresJson, Sqlite, SqliteJson},
-	postgres_params, sqlite_params, BuildState, Http,
+	postgres_params, sqlite_params, BuildState, Http, LocalMessengerBuildChannels, Messenger,
 };
 use futures::{
 	stream::{self, FuturesUnordered},
@@ -832,25 +832,35 @@ impl Server {
 		let target = tg::Target::with_id(arg.target.clone());
 		let host = target.host(self).await?;
 
-		// Create the build context.
-		let (children, _) = tokio::sync::watch::channel(());
-		let (log, _) = tokio::sync::watch::channel(());
-		let (status, _) = tokio::sync::watch::channel(());
+		// Create the build state.
 		let (stop, _) = tokio::sync::watch::channel(false);
-		let context = Arc::new(BuildState {
+		let state = Arc::new(BuildState {
 			depth: arg.options.depth,
 			stop,
 			task: std::sync::Mutex::new(None),
-
-			children: Some(children),
-			log: Some(log),
-			status: Some(status),
 		});
 		self.inner
 			.build_state
 			.write()
 			.unwrap()
-			.insert(build_id.clone(), context);
+			.insert(build_id.clone(), state);
+
+		// Create the build channels if the messenger is local.
+		if let Messenger::Local(messenger) = &self.inner.messenger {
+			let (children, _) = tokio::sync::watch::channel(());
+			let (log, _) = tokio::sync::watch::channel(());
+			let (status, _) = tokio::sync::watch::channel(());
+			let channels = Arc::new(LocalMessengerBuildChannels {
+				children,
+				log,
+				status,
+			});
+			messenger
+				.builds
+				.write()
+				.unwrap()
+				.insert(build_id.clone(), channels);
+		}
 
 		// Insert the build.
 		let put_arg = tg::build::PutArg {
@@ -989,12 +999,12 @@ impl Http {
 		let build_id = build_id.parse().wrap_err("Failed to parse the ID.")?;
 
 		// Get the build.
-		let Some(state) = self.inner.tg.try_get_build(&build_id).await? else {
+		let Some(output) = self.inner.tg.try_get_build(&build_id).await? else {
 			return Ok(not_found());
 		};
 
 		// Create the response.
-		let body = serde_json::to_string(&state).wrap_err("Failed to serialize the response.")?;
+		let body = serde_json::to_string(&output).wrap_err("Failed to serialize the response.")?;
 		let response = http::Response::builder()
 			.status(http::StatusCode::OK)
 			.body(full(body))
@@ -1024,13 +1034,13 @@ impl Http {
 			.await
 			.wrap_err("Failed to read the body.")?
 			.to_bytes();
-		let state = serde_json::from_slice(&bytes).wrap_err("Failed to deserialize the body.")?;
+		let arg = serde_json::from_slice(&bytes).wrap_err("Failed to deserialize the body.")?;
 
 		// Put the build.
 		let output = self
 			.inner
 			.tg
-			.try_put_build(user.as_ref(), &build_id, &state)
+			.try_put_build(user.as_ref(), &build_id, &arg)
 			.await?;
 
 		// Create the response.
@@ -1039,6 +1049,42 @@ impl Http {
 			.status(http::StatusCode::OK)
 			.body(full(body))
 			.unwrap();
+
+		Ok(response)
+	}
+
+	pub async fn handle_get_or_create_build_request(
+		&self,
+		request: http::Request<Incoming>,
+	) -> Result<http::Response<Outgoing>> {
+		// Get the path params.
+		let path_components: Vec<&str> = request.uri().path().split('/').skip(1).collect();
+		let ["builds"] = path_components.as_slice() else {
+			return Err(error!("Unexpected path."));
+		};
+
+		// Get the user.
+		let user = self.try_get_user_from_request(&request).await?;
+
+		// Read the body.
+		let bytes = request
+			.into_body()
+			.collect()
+			.await
+			.wrap_err("Failed to read the body.")?
+			.to_bytes();
+		let arg = serde_json::from_slice(&bytes).wrap_err("Failed to deserialize the body.")?;
+
+		// Get or create the build.
+		let output = self
+			.inner
+			.tg
+			.get_or_create_build(user.as_ref(), arg)
+			.await?;
+
+		// Create the response.
+		let body = serde_json::to_vec(&output).wrap_err("Failed to serialize the response.")?;
+		let response = http::Response::builder().body(full(body)).unwrap();
 
 		Ok(response)
 	}
@@ -1082,41 +1128,5 @@ impl Http {
 		self.inner.tg.pull_build(&id).await?;
 
 		Ok(ok())
-	}
-
-	pub async fn handle_get_or_create_build_request(
-		&self,
-		request: http::Request<Incoming>,
-	) -> Result<http::Response<Outgoing>> {
-		// Get the path params.
-		let path_components: Vec<&str> = request.uri().path().split('/').skip(1).collect();
-		let ["builds"] = path_components.as_slice() else {
-			return Err(error!("Unexpected path."));
-		};
-
-		// Get the user.
-		let user = self.try_get_user_from_request(&request).await?;
-
-		// Read the body.
-		let bytes = request
-			.into_body()
-			.collect()
-			.await
-			.wrap_err("Failed to read the body.")?
-			.to_bytes();
-		let arg = serde_json::from_slice(&bytes).wrap_err("Failed to deserialize the body.")?;
-
-		// Get or create the build.
-		let output = self
-			.inner
-			.tg
-			.get_or_create_build(user.as_ref(), arg)
-			.await?;
-
-		// Create the response.
-		let body = serde_json::to_vec(&output).wrap_err("Failed to serialize the response.")?;
-		let response = http::Response::builder().body(full(body)).unwrap();
-
-		Ok(response)
 	}
 }

@@ -6,6 +6,7 @@ pub struct Options {
 	pub address: tg::Address,
 	pub build: Build,
 	pub database: Database,
+	pub messenger: Messenger,
 	pub oauth: Oauth,
 	pub path: PathBuf,
 	pub remote: Option<Remote>,
@@ -22,9 +23,26 @@ pub struct Build {
 }
 
 #[derive(Clone, Debug)]
-pub struct Database {
-	pub url: Option<Url>,
+pub enum Database {
+	Sqlite,
+	Postgres(PostgresDatabase),
+}
+
+#[derive(Clone, Debug)]
+pub struct PostgresDatabase {
+	pub url: Url,
 	pub max_connections: usize,
+}
+
+#[derive(Clone, Debug)]
+pub enum Messenger {
+	Local,
+	Nats(NatsMessenger),
+}
+
+#[derive(Clone, Debug)]
+pub struct NatsMessenger {
+	pub url: Url,
 }
 
 #[derive(Clone, Debug, Default)]
