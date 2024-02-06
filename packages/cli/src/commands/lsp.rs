@@ -8,11 +8,10 @@ pub struct Args {}
 
 impl Cli {
 	pub async fn command_lsp(&self, _args: Args) -> Result<()> {
-		let tg = self.handle().await?;
-		let tg = tg.as_ref();
+		let client = &self.client().await?;
 
 		// Create the language server.
-		let server = tangram_language::Server::new(tg, tokio::runtime::Handle::current());
+		let server = tangram_language::Server::new(client, tokio::runtime::Handle::current());
 
 		// Run the language server.
 		server.serve().await?;

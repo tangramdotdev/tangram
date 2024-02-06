@@ -41,8 +41,7 @@ pub struct Args {
 
 impl Cli {
 	pub async fn command_run(&self, args: Args) -> Result<()> {
-		let tg = self.handle().await?;
-		let tg = tg.as_ref();
+		let client = &self.client().await?;
 
 		// Canonicalize the path.
 		let mut package = args.package;
@@ -54,7 +53,7 @@ impl Cli {
 		}
 
 		// Create the package.
-		let (package, lock) = tg::package::get_with_lock(tg, &package).await?;
+		let (package, lock) = tg::package::get_with_lock(client, &package).await?;
 
 		// Create the target.
 		let env = [(
@@ -64,7 +63,7 @@ impl Cli {
 		.into();
 		let args_ = Vec::new();
 		let host = tg::System::js();
-		let path = tg::package::get_root_module_path(tg, &package).await?;
+		let path = tg::package::get_root_module_path(client, &package).await?;
 		let executable = tg::Symlink::new(Some(package.into()), Some(path.to_string())).into();
 		let target = tg::target::Builder::new(host, executable)
 			.lock(lock)
@@ -74,14 +73,14 @@ impl Cli {
 			.build();
 
 		// Print the target ID.
-		eprintln!("{}", target.id(tg).await?);
+		eprintln!("{}", target.id(client).await?);
 
 		// Build the target.
 		let options = tg::build::Options {
 			retry: args.retry,
 			..Default::default()
 		};
-		let build = tg::Build::new(tg, target, options).await?;
+		let build = tg::Build::new(client, target, options).await?;
 
 		// Print the build ID.
 		eprintln!("{}", build.id());
@@ -91,7 +90,7 @@ impl Cli {
 			timeout: Some(std::time::Duration::ZERO),
 		};
 		let outcome = build
-			.get_outcome(tg, arg)
+			.get_outcome(client, arg)
 			.await
 			.wrap_err("Failed to get the build outcome.")?;
 
@@ -102,13 +101,15 @@ impl Cli {
 			// Create the TUI.
 			let tui = !args.no_tui;
 			let tui = if tui {
-				Tui::start(tg, &build, tui::Options::default()).await.ok()
+				Tui::start(client, &build, tui::Options::default())
+					.await
+					.ok()
 			} else {
 				None
 			};
 
 			// Wait for the build's outcome.
-			let outcome = build.outcome(tg).await;
+			let outcome = build.outcome(client).await;
 
 			// Stop the TUI.
 			if let Some(tui) = tui {
@@ -128,13 +129,13 @@ impl Cli {
 			.wrap_err("Expected the output to be an artifact.")?;
 
 		// Get the path to the artifact.
-		let artifact_path = tg
+		let artifact_path = client
 			.path()
 			.await
 			.wrap_err("Failed to get the server path.")?
 			.wrap_err("Failed to get the server path.")?
 			.join("artifacts")
-			.join(artifact.id(tg).await?.to_string());
+			.join(artifact.id(client).await?.to_string());
 
 		// Get the executable path.
 		let executable_path = if let Some(executable_path) = args.executable {

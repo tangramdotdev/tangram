@@ -13,12 +13,11 @@ pub struct Args {
 impl Cli {
 	#[allow(clippy::unused_async)]
 	pub async fn command_get(&self, args: Args) -> Result<()> {
-		let tg = self.handle().await?;
-		let tg = tg.as_ref();
+		let client = &self.client().await?;
 
 		// Get the data.
 		let handle = tg::object::Handle::with_id(args.id);
-		let data = handle.data(tg).await?;
+		let data = handle.data(client).await?;
 
 		// Serialize the data.
 		let data = data.serialize().wrap_err("Failed to serialize the data.")?;

@@ -8,11 +8,10 @@ pub struct Args {}
 
 impl Cli {
 	pub async fn command_clean(&self, _args: Args) -> Result<()> {
-		let tg = self.handle().await?;
-		let tg = tg.as_ref();
+		let client = &self.client().await?;
 
 		// Clean.
-		tg.clean().await?;
+		client.clean().await?;
 
 		Ok(())
 	}

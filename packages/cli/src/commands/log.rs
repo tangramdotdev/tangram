@@ -16,11 +16,12 @@ pub struct Args {
 impl Cli {
 	#[allow(clippy::unused_async)]
 	pub async fn command_log(&self, args: Args) -> Result<()> {
-		let tg = self.handle().await?;
-		let tg = tg.as_ref();
+		let client = &self.client().await?;
+
 		let build = tg::Build::with_id(args.id);
-		let tui = Tui::start(tg, &build, tui::Options { exit: true }).await?;
+		let tui = Tui::start(client, &build, tui::Options { exit: true }).await?;
 		tui.join().await?;
+
 		Ok(())
 	}
 }

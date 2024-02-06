@@ -13,20 +13,20 @@ pub struct Args {
 impl Cli {
 	#[allow(clippy::unused_async)]
 	pub async fn command_publish(&self, args: Args) -> Result<()> {
-		let tg = self.handle().await?;
-		let tg = tg.as_ref();
+		let client = &self.client().await?;
 
 		// Get the user.
 		let user = self.user().await?;
 
 		// Create the package.
-		let (package, _) = tg::package::get_with_lock(tg, &args.package).await?;
+		let (package, _) = tg::package::get_with_lock(client, &args.package).await?;
 
 		// Get the package ID.
-		let id = package.id(tg).await?;
+		let id = package.id(client).await?;
 
 		// Publish the package.
-		tg.publish_package(user.as_ref(), id)
+		client
+			.publish_package(user.as_ref(), id)
 			.await
 			.wrap_err("Failed to publish the package.")?;
 

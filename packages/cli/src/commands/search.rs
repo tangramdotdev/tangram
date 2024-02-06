@@ -11,12 +11,11 @@ pub struct Args {
 
 impl Cli {
 	pub async fn command_search(&self, args: Args) -> Result<()> {
-		let tg = self.handle().await?;
-		let tg = tg.as_ref();
+		let client = &self.client().await?;
 
 		// Perform the search.
 		let arg = tg::package::SearchArg { query: args.query };
-		let packages = tg.search_packages(arg).await?;
+		let packages = client.search_packages(arg).await?;
 
 		// Print the package names.
 		if packages.is_empty() {

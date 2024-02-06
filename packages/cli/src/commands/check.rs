@@ -16,8 +16,7 @@ pub struct Args {
 
 impl Cli {
 	pub async fn command_check(&self, args: Args) -> Result<()> {
-		let tg = self.handle().await?;
-		let tg = tg.as_ref();
+		let client = &self.client().await?;
 
 		// Canonicalize the path.
 		let mut package = args.package;
@@ -29,15 +28,15 @@ impl Cli {
 		}
 
 		// Get the package.
-		let (package, lock) = tg::package::get_with_lock(tg, &package).await?;
+		let (package, lock) = tg::package::get_with_lock(client, &package).await?;
 
 		// Create the language server.
-		let server = tangram_language::Server::new(tg, tokio::runtime::Handle::current());
+		let server = tangram_language::Server::new(client, tokio::runtime::Handle::current());
 
 		// Create the root module.
-		let path = tg::package::get_root_module_path(tg, &package).await?;
-		let package = package.id(tg).await?.clone();
-		let lock = lock.id(tg).await?.clone();
+		let path = tg::package::get_root_module_path(client, &package).await?;
+		let package = package.id(client).await?.clone();
+		let lock = lock.id(client).await?.clone();
 		let root_module = tangram_language::Module::Normal(tangram_language::module::Normal {
 			lock,
 			package,

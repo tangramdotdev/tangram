@@ -20,11 +20,10 @@ pub struct Args {
 
 impl Cli {
 	pub async fn command_doc(&self, args: Args) -> Result<()> {
-		let tg = self.handle().await?;
-		let tg = tg.as_ref();
+		let client = &self.client().await?;
 
 		// Create the language server.
-		let server = tangram_language::Server::new(tg, tokio::runtime::Handle::current());
+		let server = tangram_language::Server::new(client, tokio::runtime::Handle::current());
 
 		let module = if args.runtime {
 			let path: tg::Path = "tangram.d.ts".parse().unwrap();
@@ -32,10 +31,10 @@ impl Cli {
 				path: path.clone(),
 			})
 		} else {
-			let (package, lock) = tg::package::get_with_lock(tg, &args.package).await?;
-			let path = tg::package::get_root_module_path(tg, &package).await?;
-			let package = package.id(tg).await?.clone();
-			let lock = lock.id(tg).await?.clone();
+			let (package, lock) = tg::package::get_with_lock(client, &args.package).await?;
+			let path = tg::package::get_root_module_path(client, &package).await?;
+			let package = package.id(client).await?.clone();
+			let lock = lock.id(client).await?.clone();
 			tangram_language::Module::Normal(tangram_language::module::Normal {
 				package,
 				path: path.clone(),

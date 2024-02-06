@@ -13,8 +13,7 @@ pub struct Args {
 
 impl Cli {
 	pub async fn command_checkin(&self, args: Args) -> Result<()> {
-		let tg = self.handle().await?;
-		let tg = tg.as_ref();
+		let client = &self.client().await?;
 
 		// Get the path.
 		let mut path = std::env::current_dir().wrap_err("Failed to get the working directory.")?;
@@ -23,10 +22,10 @@ impl Cli {
 		}
 
 		// Perform the checkin.
-		let artifact = tg::Artifact::check_in(tg, &path.try_into()?).await?;
+		let artifact = tg::Artifact::check_in(client, &path.try_into()?).await?;
 
 		// Print the ID.
-		let id = artifact.id(tg).await?;
+		let id = artifact.id(client).await?;
 		println!("{id}");
 
 		Ok(())

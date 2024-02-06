@@ -12,14 +12,13 @@ pub struct Args {
 impl Cli {
 	#[allow(clippy::unused_async)]
 	pub async fn command_push(&self, args: Args) -> Result<()> {
-		let tg = self.handle().await?;
-		let tg = tg.as_ref();
+		let client = &self.client().await?;
 
 		#[allow(clippy::same_functions_in_if_condition)]
 		if let Ok(id) = args.id.clone().try_into() {
-			tg.push_build(None, &id).await?;
+			client.push_build(None, &id).await?;
 		} else if let Ok(id) = args.id.clone().try_into() {
-			tg.push_object(&id).await?;
+			client.push_object(&id).await?;
 		} else {
 			return Err(error!("Expected a build ID or an object ID."));
 		}

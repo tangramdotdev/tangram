@@ -12,11 +12,10 @@ pub struct Args {
 impl Cli {
 	#[allow(clippy::unused_async)]
 	pub async fn command_pull(&self, args: Args) -> Result<()> {
-		let tg = self.handle().await?;
-		let tg = tg.as_ref();
+		let client = &self.client().await?;
 
 		// Pull the object.
-		tg.pull_object(&args.id).await?;
+		client.pull_object(&args.id).await?;
 
 		Ok(())
 	}

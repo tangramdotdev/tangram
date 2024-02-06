@@ -1,7 +1,7 @@
 use self::config::Config;
 use clap::Parser;
 use futures::FutureExt;
-use std::{path::PathBuf, sync::Arc};
+use std::path::PathBuf;
 use tangram_client as tg;
 use tangram_error::{error, Result, WrapErr};
 use tracing_subscriber::prelude::*;
@@ -14,9 +14,7 @@ pub const API_URL: &str = "https://api.tangram.dev";
 
 struct Cli {
 	address: tg::Address,
-	tg: tokio::sync::Mutex<Option<Arc<dyn tg::Handle>>>,
-	config: std::sync::RwLock<Option<Config>>,
-	user: std::sync::RwLock<Option<tg::User>>,
+	client: tokio::sync::Mutex<Option<tg::Client>>,
 	version: String,
 }
 
@@ -100,14 +98,8 @@ async fn main_inner() {
 		.address
 		.unwrap_or_else(|| tg::Address::Unix(default_path().join("socket")));
 
-	// Create the container for the client.
-	let tg = tokio::sync::Mutex::new(None);
-
-	// Create the config.
-	let config = std::sync::RwLock::new(None);
-
-	// Create the user.
-	let user = std::sync::RwLock::new(None);
+	// Create the client.
+	let client = tokio::sync::Mutex::new(None);
 
 	// Get the version.
 	let version = if cfg!(debug_assertions) {
@@ -133,9 +125,7 @@ async fn main_inner() {
 	// Create the CLI.
 	let cli = Cli {
 		address,
-		tg,
-		config,
-		user,
+		client,
 		version,
 	};
 
@@ -171,17 +161,6 @@ async fn main_inner() {
 	}
 	.await;
 
-	// if let Some(client) = cli
-	// 	.tg
-	// 	.lock()
-	// 	.await
-	// 	.as_ref()
-	// 	.and_then(|tg| tg.as_ref().downcast_ref::<tg::Client>())
-	// {
-	// 	client.stop();
-	// 	client.join().await.unwrap();
-	// }
-
 	// Handle the result.
 	if let Err(error) = result {
 		// Print the error trace.
@@ -194,10 +173,10 @@ async fn main_inner() {
 }
 
 impl Cli {
-	async fn handle(&self) -> Result<Arc<dyn tg::Handle>> {
-		// If the handle is already initialized, return it.
-		if let Some(tg) = self.tg.lock().await.as_ref().cloned() {
-			return Ok(tg);
+	async fn client(&self) -> Result<tg::Client> {
+		// If the client is already initialized, then return it.
+		if let Some(client) = self.client.lock().await.as_ref().cloned() {
+			return Ok(client);
 		}
 
 		// Attempt to connect to the server.
@@ -214,8 +193,7 @@ impl Cli {
 				return Err(error!("The server has different version from the client."));
 			}
 			// Store the client.
-			let client = Arc::new(client);
-			*self.tg.lock().await = Some(client.clone());
+			*self.client.lock().await = Some(client.clone());
 			return Ok(client);
 		}
 
@@ -245,8 +223,7 @@ impl Cli {
 		}
 
 		// Store the client.
-		let client = Arc::new(client);
-		*self.tg.lock().await = Some(client.clone());
+		*self.client.lock().await = Some(client.clone());
 
 		Ok(client)
 	}
@@ -282,9 +259,6 @@ impl Cli {
 	}
 
 	pub async fn config(&self, path: Option<PathBuf>) -> Result<Option<Config>> {
-		if let Some(config) = self.config.read().unwrap().as_ref() {
-			return Ok(Some(config.clone()));
-		}
 		let path = path.unwrap_or_else(|| {
 			let home = std::env::var("HOME")
 				.wrap_err("Failed to get the HOME environment variable.")
@@ -302,12 +276,10 @@ impl Cli {
 		} else {
 			None
 		};
-		*self.config.write().unwrap() = config.clone();
 		Ok(config)
 	}
 
 	pub async fn save_config(&self, config: Config) -> Result<()> {
-		self.config.write().unwrap().replace(config.clone());
 		let home =
 			std::env::var("HOME").wrap_err("Failed to get the HOME environment variable.")?;
 		let path = PathBuf::from(home).join(".config/tangram/config.json");
@@ -320,9 +292,6 @@ impl Cli {
 	}
 
 	pub async fn user(&self) -> Result<Option<tg::User>> {
-		if let Some(user) = self.user.read().unwrap().as_ref() {
-			return Ok(Some(user.clone()));
-		}
 		let home =
 			std::env::var("HOME").wrap_err("Failed to get the HOME environment variable.")?;
 		let path = PathBuf::from(home).join(".config/tangram/user.json");
@@ -337,12 +306,10 @@ impl Cli {
 		} else {
 			None
 		};
-		*self.user.write().unwrap() = user.clone();
 		Ok(user)
 	}
 
 	pub async fn save_user(&self, user: tg::User) -> Result<()> {
-		self.user.write().unwrap().replace(user.clone());
 		let home =
 			std::env::var("HOME").wrap_err("Failed to get the HOME environment variable.")?;
 		let path = PathBuf::from(home).join(".config/tangram/user.json");
