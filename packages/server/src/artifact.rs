@@ -395,7 +395,7 @@ impl Server {
 		file: &tg::File,
 		existing_artifact: Option<&tg::Artifact>,
 		internal: bool,
-		_depth: usize,
+		depth: usize,
 	) -> Result<()> {
 		// Handle an existing artifact at the path.
 		match &existing_artifact {
@@ -439,6 +439,19 @@ impl Server {
 				.try_collect::<Vec<_>>()
 				.await
 				.wrap_err("Failed to check out the file's references.")?;
+		}
+
+		if internal && depth > 0 {
+			let arg = tg::artifact::CheckOutArg {
+				artifact: file.id(self).await?.clone().into(),
+				path: None,
+			};
+			self.check_out_artifact(arg).await?;
+			let dst = self.artifacts_path().join(file.id(self).await?.to_string());
+			tokio::fs::hard_link(dst, path)
+				.await
+				.wrap_err("Failed to create the hard link.")?;
+			return Ok(());
 		}
 
 		// Create the file.
