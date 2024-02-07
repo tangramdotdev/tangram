@@ -4007,8 +4007,10 @@ name = "tangram_vfs"
 version = "0.0.0"
 dependencies = [
  "either",
+ "fnv",
  "libc",
  "num",
+ "parking_lot",
  "serde",
  "serde_json",
  "tangram_client",
