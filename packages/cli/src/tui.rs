@@ -5,7 +5,11 @@ use num::ToPrimitive;
 use ratatui as tui;
 use std::{
 	collections::VecDeque,
-	sync::{Arc, Weak},
+	io::SeekFrom,
+	sync::{
+		atomic::{AtomicBool, AtomicU64, Ordering},
+		Arc, Weak,
+	},
 };
 use tangram_client as tg;
 use tangram_error::{Result, WrapErr};
@@ -85,7 +89,7 @@ struct LogInner {
 	chunks: tokio::sync::Mutex<Vec<tg::build::log::Chunk>>,
 
 	// Whether we've reached eof or not.
-	eof: std::sync::atomic::AtomicBool,
+	eof: AtomicBool,
 
 	// Channel used to send UI events.
 	event_sender: tokio::sync::mpsc::UnboundedSender<LogEvent>,
@@ -98,6 +102,9 @@ struct LogInner {
 
 	// A watch to be notified when new logs are received from the log task.
 	log_watch: tokio::sync::Mutex<Option<tokio::sync::watch::Receiver<()>>>,
+
+	// The maximum position of the log we've seen so far.
+	max_position: AtomicU64,
 
 	// The event handler task.
 	event_task: std::sync::Mutex<Option<tokio::task::JoinHandle<Result<()>>>>,
@@ -596,7 +603,10 @@ impl TreeItem {
 		let children_task = tokio::task::spawn({
 			let item = self.clone();
 			async move {
-				let arg = tg::build::children::GetArg::default();
+				let arg = tg::build::children::GetArg {
+					position: Some(SeekFrom::Start(0)),
+					..Default::default()
+				};
 				let Ok(mut children) = item.inner.build.children(item.inner.tg.as_ref(), arg).await
 				else {
 					return;
@@ -785,12 +795,13 @@ impl Log {
 			inner: Arc::new(LogInner {
 				build,
 				chunks,
-				eof: std::sync::atomic::AtomicBool::new(false),
+				eof: AtomicBool::new(false),
 				event_sender,
 				event_task: std::sync::Mutex::new(None),
 				lines,
 				log_task: std::sync::Mutex::new(None),
 				log_watch: tokio::sync::Mutex::new(None),
+				max_position: AtomicU64::new(0),
 				rect,
 				scroll: tokio::sync::Mutex::new(None),
 				tg,
@@ -801,8 +812,7 @@ impl Log {
 		let event_task = tokio::task::spawn({
 			let log = log.clone();
 			async move {
-				log.update_log_stream(false).await?;
-				log.update_log_stream(true).await?;
+				log.init().await?;
 				loop {
 					let log_receiver = log.inner.log_watch.lock().await.clone();
 					let log_receiver = async move {
@@ -838,8 +848,40 @@ impl Log {
 		log
 	}
 
+	async fn init(&self) -> Result<()> {
+		let tg = self.inner.tg.as_ref();
+		let position = Some(std::io::SeekFrom::End(0));
+
+		// Get at least one chunk.
+		let chunk = self
+			.inner
+			.build
+			.log(
+				tg,
+				tg::build::log::GetArg {
+					position,
+					..Default::default()
+				},
+			)
+			.await?
+			.try_next()
+			.await?
+			.wrap_err("Failed to get a log chunk.")?;
+		let max_position = chunk.position + chunk.bytes.len().to_u64().unwrap();
+		self.inner
+			.max_position
+			.store(max_position, Ordering::Relaxed);
+
+		// Seed the front of the log.
+		self.update_log_stream(false).await?;
+
+		// Start tailing if necessary.
+		self.update_log_stream(true).await?;
+		Ok(())
+	}
+
 	fn is_complete(&self) -> bool {
-		self.inner.eof.load(std::sync::atomic::Ordering::SeqCst)
+		self.inner.eof.load(Ordering::SeqCst)
 	}
 
 	// Handle a scroll up event.
@@ -994,16 +1036,32 @@ impl Log {
 		// Compute position and length.
 		let area = self.rect().area().to_i64().unwrap();
 		let mut chunks = self.inner.chunks.lock().await;
+		let max_position = self.inner.max_position.load(Ordering::Relaxed);
 		let (position, length) = if append {
-			let position = chunks
+			let last_position = chunks
 				.last()
 				.map(|chunk| chunk.position + chunk.bytes.len().to_u64().unwrap());
-			let length = Some(3 * area / 2);
-			(position, length)
+			match last_position {
+				Some(position) if position == max_position => {
+					(Some(SeekFrom::Start(position)), None)
+				},
+				Some(position) => (Some(SeekFrom::Start(position)), Some(3 * area / 2)),
+				None => (None, None),
+			}
 		} else {
 			let position = chunks.first().map(|chunk| chunk.position);
-			let length = Some(-3 * area / 2);
-			(position, length)
+
+			let length = (3 * area / 2).to_u64().unwrap();
+			match position {
+				Some(position) if position >= length => {
+					(Some(SeekFrom::Start(0)), Some(position.to_i64().unwrap()))
+				},
+				Some(position) => (
+					Some(SeekFrom::Start(position)),
+					Some(-length.to_i64().unwrap()),
+				),
+				None => (None, Some(-length.to_i64().unwrap())),
+			}
 		};
 
 		// Create the stream.
@@ -1029,11 +1087,13 @@ impl Log {
 				while let Some(chunk) = stream.try_next().await? {
 					let mut chunks = log.inner.chunks.lock().await;
 					if chunk.bytes.is_empty() {
-						log.inner
-							.eof
-							.store(true, std::sync::atomic::Ordering::SeqCst);
+						log.inner.eof.store(true, Ordering::SeqCst);
 						break;
 					}
+					let max_position = chunk.position + chunk.bytes.len().to_u64().unwrap();
+					log.inner
+						.max_position
+						.fetch_max(max_position, Ordering::AcqRel);
 					chunks.push(chunk);
 					drop(chunks);
 					tx.send(()).ok();
