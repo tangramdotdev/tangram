@@ -1,32 +1,31 @@
-use crate::nfs::types::nfs_opnum4;
-
 use self::types::{
 	bitmap4, cb_client4, change_info4, dirlist4, entry4, fattr4, fs_locations4, fsid4, length4,
-	locker4, nfs_argop4, nfs_client_id4, nfs_fh4, nfs_ftype4, nfs_lock_type4, nfs_resop4, nfsace4,
-	nfsstat4, nfstime4, offset4, open_claim4, open_delegation4, open_delegation_type4, pathname4,
-	specdata4, stateid4, verifier4, ACCESS4args, ACCESS4res, ACCESS4resok, CLOSE4args, CLOSE4res,
-	COMPOUND4res, GETATTR4args, GETATTR4res, GETATTR4resok, GETFH4res, GETFH4resok, LOCK4args,
-	LOCK4res, LOCK4resok, LOCKT4args, LOCKT4res, LOCKU4args, LOCKU4res, LOOKUP4args, LOOKUP4res,
-	LOOKUPP4res, NVERIFY4res, OPEN4args, OPEN4res, OPEN4resok, OPENATTR4args, OPENATTR4res,
-	OPEN_CONFIRM4args, OPEN_CONFIRM4res, OPEN_CONFIRM4resok, PUTFH4args, PUTFH4res, READ4args,
-	READ4res, READ4resok, READDIR4args, READDIR4res, READDIR4resok, READLINK4res, READLINK4resok,
-	RELEASE_LOCKOWNER4args, RELEASE_LOCKOWNER4res, RENEW4args, RENEW4res, RESTOREFH4res,
-	SAVEFH4res, SECINFO4args, SECINFO4res, SETCLIENTID4args, SETCLIENTID4res, SETCLIENTID4resok,
-	SETCLIENTID_CONFIRM4args, SETCLIENTID_CONFIRM4res, ACCESS4_EXECUTE, ACCESS4_LOOKUP,
-	ACCESS4_READ, ANONYMOUS_STATE_ID, FATTR4_ACL, FATTR4_ACLSUPPORT, FATTR4_ARCHIVE,
-	FATTR4_CANSETTIME, FATTR4_CASE_INSENSITIVE, FATTR4_CASE_PRESERVING, FATTR4_CHANGE,
-	FATTR4_CHOWN_RESTRICTED, FATTR4_FH_EXPIRE_TYPE, FATTR4_FILEHANDLE, FATTR4_FILEID,
-	FATTR4_FILES_AVAIL, FATTR4_FILES_FREE, FATTR4_FILES_TOTAL, FATTR4_FSID, FATTR4_FS_LOCATIONS,
-	FATTR4_HIDDEN, FATTR4_HOMOGENEOUS, FATTR4_LEASE_TIME, FATTR4_LINK_SUPPORT, FATTR4_MAXFILESIZE,
-	FATTR4_MAXLINK, FATTR4_MAXNAME, FATTR4_MAXREAD, FATTR4_MAXWRITE, FATTR4_MIMETYPE, FATTR4_MODE,
-	FATTR4_MOUNTED_ON_FILEID, FATTR4_NAMED_ATTR, FATTR4_NO_TRUNC, FATTR4_NUMLINKS, FATTR4_OWNER,
-	FATTR4_OWNER_GROUP, FATTR4_QUOTA_AVAIL_HARD, FATTR4_QUOTA_AVAIL_SOFT, FATTR4_QUOTA_USED,
-	FATTR4_RAWDEV, FATTR4_RDATTR_ERROR, FATTR4_SIZE, FATTR4_SPACE_AVAIL, FATTR4_SPACE_FREE,
-	FATTR4_SPACE_TOTAL, FATTR4_SPACE_USED, FATTR4_SUPPORTED_ATTRS, FATTR4_SYMLINK_SUPPORT,
-	FATTR4_SYSTEM, FATTR4_TIME_ACCESS, FATTR4_TIME_BACKUP, FATTR4_TIME_CREATE, FATTR4_TIME_DELTA,
-	FATTR4_TIME_METADATA, FATTR4_TIME_MODIFY, FATTR4_TYPE, FATTR4_UNIQUE_HANDLES, MODE4_RGRP,
-	MODE4_ROTH, MODE4_RUSR, MODE4_XGRP, MODE4_XOTH, MODE4_XUSR, NFS4_VERIFIER_SIZE, NFS_PROG,
-	NFS_VERS, OPEN4_RESULT_CONFIRM, OPEN4_RESULT_LOCKTYPE_POSIX, OPEN4_SHARE_ACCESS_BOTH,
+	locker4, nfs_argop4, nfs_client_id4, nfs_fh4, nfs_ftype4, nfs_lock_type4, nfs_opnum4,
+	nfs_resop4, nfsace4, nfsstat4, nfstime4, offset4, open_claim4, open_delegation4,
+	open_delegation_type4, pathname4, specdata4, stateid4, verifier4, ACCESS4args, ACCESS4res,
+	ACCESS4resok, CLOSE4args, CLOSE4res, COMPOUND4res, GETATTR4args, GETATTR4res, GETATTR4resok,
+	GETFH4res, GETFH4resok, LOCK4args, LOCK4res, LOCK4resok, LOCKT4args, LOCKT4res, LOCKU4args,
+	LOCKU4res, LOOKUP4args, LOOKUP4res, LOOKUPP4res, NVERIFY4res, OPEN4args, OPEN4res, OPEN4resok,
+	OPENATTR4args, OPENATTR4res, OPEN_CONFIRM4args, OPEN_CONFIRM4res, OPEN_CONFIRM4resok,
+	PUTFH4args, PUTFH4res, READ4args, READ4res, READ4resok, READDIR4args, READDIR4res,
+	READDIR4resok, READLINK4res, READLINK4resok, RELEASE_LOCKOWNER4args, RELEASE_LOCKOWNER4res,
+	RENEW4args, RENEW4res, RESTOREFH4res, SAVEFH4res, SECINFO4args, SECINFO4res, SETCLIENTID4args,
+	SETCLIENTID4res, SETCLIENTID4resok, SETCLIENTID_CONFIRM4args, SETCLIENTID_CONFIRM4res,
+	ACCESS4_EXECUTE, ACCESS4_LOOKUP, ACCESS4_READ, ANONYMOUS_STATE_ID, FATTR4_ACL,
+	FATTR4_ACLSUPPORT, FATTR4_ARCHIVE, FATTR4_CANSETTIME, FATTR4_CASE_INSENSITIVE,
+	FATTR4_CASE_PRESERVING, FATTR4_CHANGE, FATTR4_CHOWN_RESTRICTED, FATTR4_FH_EXPIRE_TYPE,
+	FATTR4_FILEHANDLE, FATTR4_FILEID, FATTR4_FILES_AVAIL, FATTR4_FILES_FREE, FATTR4_FILES_TOTAL,
+	FATTR4_FSID, FATTR4_FS_LOCATIONS, FATTR4_HIDDEN, FATTR4_HOMOGENEOUS, FATTR4_LEASE_TIME,
+	FATTR4_LINK_SUPPORT, FATTR4_MAXFILESIZE, FATTR4_MAXLINK, FATTR4_MAXNAME, FATTR4_MAXREAD,
+	FATTR4_MAXWRITE, FATTR4_MIMETYPE, FATTR4_MODE, FATTR4_MOUNTED_ON_FILEID, FATTR4_NAMED_ATTR,
+	FATTR4_NO_TRUNC, FATTR4_NUMLINKS, FATTR4_OWNER, FATTR4_OWNER_GROUP, FATTR4_QUOTA_AVAIL_HARD,
+	FATTR4_QUOTA_AVAIL_SOFT, FATTR4_QUOTA_USED, FATTR4_RAWDEV, FATTR4_RDATTR_ERROR, FATTR4_SIZE,
+	FATTR4_SPACE_AVAIL, FATTR4_SPACE_FREE, FATTR4_SPACE_TOTAL, FATTR4_SPACE_USED,
+	FATTR4_SUPPORTED_ATTRS, FATTR4_SYMLINK_SUPPORT, FATTR4_SYSTEM, FATTR4_TIME_ACCESS,
+	FATTR4_TIME_BACKUP, FATTR4_TIME_CREATE, FATTR4_TIME_DELTA, FATTR4_TIME_METADATA,
+	FATTR4_TIME_MODIFY, FATTR4_TYPE, FATTR4_UNIQUE_HANDLES, MODE4_RGRP, MODE4_ROTH, MODE4_RUSR,
+	MODE4_XGRP, MODE4_XOTH, MODE4_XUSR, NFS4_VERIFIER_SIZE, NFS_PROG, NFS_VERS,
+	OPEN4_RESULT_CONFIRM, OPEN4_RESULT_LOCKTYPE_POSIX, OPEN4_SHARE_ACCESS_BOTH,
 	OPEN4_SHARE_ACCESS_WRITE, READ_BYPASS_STATE_ID, RPC_VERS,
 };
 use either::Either;
@@ -366,7 +365,7 @@ impl Server {
 				}
 
 				let reply = match call.proc {
-					0 => self.handle_null(),
+					0 => Self::handle_null(),
 					1 => {
 						self.handle_compound(message.xid, call.cred, call.verf, decoder)
 							.await
@@ -393,7 +392,7 @@ impl Server {
 		Ok(None)
 	}
 
-	fn handle_null(&self) -> rpc::ReplyBody {
+	fn handle_null() -> rpc::ReplyBody {
 		rpc::success(None, ())
 	}
 
@@ -546,7 +545,7 @@ impl Server {
 			nfs_argop4::OP_READLINK => nfs_resop4::OP_READLINK(self.handle_readlink(ctx).await),
 			nfs_argop4::OP_REMOVE => nfs_resop4::OP_REMOVE,
 			nfs_argop4::OP_RENAME => nfs_resop4::OP_RENAME,
-			nfs_argop4::OP_RENEW(arg) => nfs_resop4::OP_RENEW(self.handle_renew(arg)),
+			nfs_argop4::OP_RENEW(arg) => nfs_resop4::OP_RENEW(Self::handle_renew(arg)),
 			nfs_argop4::OP_RESTOREFH => {
 				nfs_resop4::OP_RESTOREFH(Self::handle_restore_file_handle(ctx))
 			},
@@ -748,7 +747,7 @@ impl Server {
 		Some(data)
 	}
 
-	async fn handle_lock(&self, ctx: &mut Context, arg: LOCK4args) -> LOCK4res {
+	async fn handle_lock(&self, _ctx: &mut Context, arg: LOCK4args) -> LOCK4res {
 		// Required overflow check.
 		if ![0, u64::MAX].contains(&arg.length) && (u64::MAX - arg.offset > arg.length) {
 			return LOCK4res::Error(nfsstat4::NFS4ERR_INVAL);
@@ -787,7 +786,8 @@ impl Server {
 		LOCK4res::NFS4_OK(resok)
 	}
 
-	async fn handle_lockt(&self, ctx: &mut Context, arg: LOCKT4args) -> LOCKT4res {
+	#[allow(clippy::unused_async)]
+	async fn handle_lockt(&self, _ctx: &mut Context, arg: LOCKT4args) -> LOCKT4res {
 		if ![0, u64::MAX].contains(&arg.length) && (u64::MAX - arg.offset > arg.length) {
 			return LOCKT4res::Error(nfsstat4::NFS4ERR_INVAL);
 		};
@@ -800,7 +800,7 @@ impl Server {
 		LOCKT4res::NFS4_OK
 	}
 
-	async fn handle_locku(&self, ctx: &mut Context, arg: LOCKU4args) -> LOCKU4res {
+	async fn handle_locku(&self, _ctx: &mut Context, arg: LOCKU4args) -> LOCKU4res {
 		let range = (arg.offset, arg.length);
 		let mut lock_stateid = arg.lock_stateid;
 
@@ -1204,7 +1204,7 @@ impl Server {
 
 	async fn handle_open_confirm(
 		&self,
-		ctx: &mut Context,
+		_ctx: &mut Context,
 		arg: OPEN_CONFIRM4args,
 	) -> OPEN_CONFIRM4res {
 		if arg.seqid != arg.open_stateid.seqid.increment() {
@@ -1275,7 +1275,7 @@ impl Server {
 
 		// This fallback exists for special state ids and any erroneous read.
 		let (data, eof) = if [ANONYMOUS_STATE_ID, READ_BYPASS_STATE_ID].contains(&arg.stateid)
-			|| !lock_state.is_some()
+			|| lock_state.is_none()
 		{
 			// We need to create a reader just for this request.
 			let Ok(mut reader) = file.reader(self.inner.tg.as_ref()).await else {
@@ -1437,7 +1437,7 @@ impl Server {
 		})
 	}
 
-	fn handle_renew(&self, arg: RENEW4args) -> RENEW4res {
+	fn handle_renew(_arg: RENEW4args) -> RENEW4res {
 		RENEW4res {
 			status: nfsstat4::NFS4_OK,
 		}
@@ -1513,15 +1513,16 @@ impl Server {
 				};
 			}
 		}
-		return SETCLIENTID_CONFIRM4res {
+		SETCLIENTID_CONFIRM4res {
 			status: nfsstat4::NFS4ERR_STALE_CLIENTID,
-		};
+		}
 	}
 
+	#[allow(clippy::unused_async)]
 	async fn handle_release_lockowner(
 		&self,
-		context: &mut Context,
-		arg: RELEASE_LOCKOWNER4args,
+		_context: &mut Context,
+		_arg: RELEASE_LOCKOWNER4args,
 	) -> RELEASE_LOCKOWNER4res {
 		RELEASE_LOCKOWNER4res {
 			status: nfsstat4::NFS4_OK,
