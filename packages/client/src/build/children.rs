@@ -14,7 +14,8 @@ pub struct GetArg {
 	pub length: Option<u64>,
 
 	#[serde(skip_serializing_if = "Option::is_none")]
-	pub position: Option<u64>,
+	#[serde_as(as = "Option<crate::util::SeekFromString>")]
+	pub position: Option<std::io::SeekFrom>,
 
 	#[serde(skip_serializing_if = "Option::is_none")]
 	pub size: Option<u64>,

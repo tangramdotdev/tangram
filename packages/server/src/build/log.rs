@@ -134,9 +134,9 @@ impl Server {
 
 		// Seek the reader.
 		let seek = if let Some(position) = arg.position {
-			std::io::SeekFrom::Start(position)
+			position
 		} else {
-			std::io::SeekFrom::End(0)
+			std::io::SeekFrom::Start(0)
 		};
 		reader
 			.seek(seek)
