@@ -348,6 +348,10 @@ impl App {
 		} else {
 			previous_selected_index.saturating_sub(1)
 		};
+		if new_selected_index == previous_selected_index {
+			return;
+		}
+
 		let height = self.tree.rect.height.to_usize().unwrap();
 		if new_selected_index < self.tree.scroll {
 			self.tree.scroll -= 1;
@@ -1032,6 +1036,10 @@ impl Log {
 			watch.changed().await.ok();
 			return Ok(());
 		}
+		// Otherwise abort any existing log task.
+		if let Some(task) = self.inner.log_task.lock().unwrap().take() {
+			task.abort();
+		}
 
 		// Compute position and length.
 		let area = self.rect().area().to_i64().unwrap();
@@ -1104,10 +1112,6 @@ impl Log {
 			self.inner.log_task.lock().unwrap().replace(task);
 			self.inner.log_watch.lock().await.replace(rx);
 		} else {
-			if let Some(task) = self.inner.log_task.lock().unwrap().take() {
-				task.abort();
-			}
-
 			// Drain the stream and prepend the chunks.
 			let new_chunks = stream.try_collect::<Vec<_>>().await?;
 			let mid = chunks.len();
