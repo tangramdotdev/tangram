@@ -45,3 +45,11 @@ impl Server {
 		}
 	}
 }
+
+pub async fn unmount(path: &Path) -> Result<()> {
+	#[cfg(target_os = "linux")]
+	fuse::Server::unmount(path).await?;
+	#[cfg(target_os = "macos")]
+	nfs::Server::unmount(path).await?;
+	Ok(())
+}

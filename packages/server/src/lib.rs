@@ -314,14 +314,13 @@ impl Server {
 
 		// Start the VFS if necessary and set up the checkouts directory.
 		let artifacts_path = server.artifacts_path();
+		tangram_vfs::unmount(&artifacts_path).await.ok();
 		if options.vfs.enable {
-			// Create the artifacts directory if it doesn't exist.
-			if matches!(tokio::fs::try_exists(&artifacts_path).await, Ok(false)) {
-				tokio::fs::create_dir_all(&artifacts_path)
-					.await
-					.wrap_err("Failed to create the artifacts directory.")?;
-			}
-
+			// Create the artifacts directory.
+			tokio::fs::create_dir_all(&artifacts_path)
+				.await
+				.wrap_err("Failed to create the artifacts directory.")?;
+	
 			// Start the VFS server.
 			let vfs = tangram_vfs::Server::start(&server, &artifacts_path)
 				.await
@@ -329,12 +328,10 @@ impl Server {
 
 			server.inner.vfs.lock().unwrap().replace(vfs);
 		} else {
-			// Remove the artifacts directory if it exists.
-			if matches!(tokio::fs::try_exists(&artifacts_path).await, Ok(true)) {
-				rmrf(&artifacts_path)
-					.await
-					.wrap_err("Failed to remove the artifacts directory.")?;
-			}
+			// Remove the artifacts directory.
+			rmrf(&artifacts_path)
+				.await
+				.wrap_err("Failed to remove the artifacts directory.")?;
 
 			// Create a symlink from the artifacts directory to the checkouts directory.
 			tokio::fs::symlink("checkouts", artifacts_path)
