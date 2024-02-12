@@ -1007,7 +1007,7 @@ impl Server {
 			let uid = libc::getuid();
 			let gid = libc::getgid();
 			let options = format!(
-				"rootmode=40755,user_id={uid},group_id={gid},default_permissions,auto_unmount\0"
+				"rootmode=40755,user_id={uid},group_id={gid},default_permissions\0"
 			);
 
 			let mut fds = [0, 0];
