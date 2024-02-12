@@ -1001,7 +1001,6 @@ impl Server {
 
 	#[allow(clippy::similar_names)]
 	async fn mount(path: &Path) -> Result<std::fs::File> {
-		Self::unmount(path).await?;
 		unsafe {
 			// Setup the arguments.
 			let uid = libc::getuid();
@@ -1110,7 +1109,7 @@ impl Server {
 		}
 	}
 
-	async fn unmount(path: &Path) -> Result<()> {
+	pub async fn unmount(path: &Path) -> Result<()> {
 		tokio::process::Command::new("/usr/bin/fusermount3")
 			.arg("-q")
 			.arg("-u")

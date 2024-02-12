@@ -198,8 +198,6 @@ impl Server {
 	}
 
 	async fn mount(path: &Path, port: u16) -> crate::Result<()> {
-		Self::unmount(path).await?;
-
 		tokio::process::Command::new("dns-sd")
 			.args([
 				"-P",
@@ -235,7 +233,7 @@ impl Server {
 		Ok(())
 	}
 
-	async fn unmount(path: &Path) -> Result<()> {
+	pub async fn unmount(path: &Path) -> Result<()> {
 		tokio::process::Command::new("umount")
 			.arg("-f")
 			.arg(path)
