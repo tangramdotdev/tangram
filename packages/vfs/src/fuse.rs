@@ -361,7 +361,9 @@ impl Server {
 				});
 			}
 			Ok(())
-		});
+		})
+		.await
+		.wrap_err("Failed to join task.")??;
 
 		Ok(())
 	}
@@ -825,6 +827,7 @@ impl Server {
 		Ok(Response::ReadLink(target))
 	}
 
+	#[allow(clippy::unused_async)]
 	async fn handle_release_request(
 		&self,
 		_header: sys::fuse_in_header,
@@ -835,6 +838,7 @@ impl Server {
 		Ok(Response::Release)
 	}
 
+	#[allow(clippy::unused_async)]
 	async fn handle_release_dir_request(
 		&self,
 		_header: sys::fuse_in_header,
@@ -858,6 +862,7 @@ impl Server {
 		Err(libc::ENOSYS)
 	}
 
+	#[allow(clippy::unused_async)]
 	async fn get_node(&self, node_id: NodeId) -> Result<Arc<Node>, i32> {
 		let Some(node) = self.inner.nodes.read().get(&node_id).cloned() else {
 			return Err(libc::ENOENT);
@@ -975,6 +980,7 @@ impl Server {
 	}
 
 	// Create a new NodeId.
+	#[allow(clippy::unused_async)]
 	async fn next_node_id(&self) -> NodeId {
 		let node_id = self
 			.inner
@@ -984,6 +990,7 @@ impl Server {
 	}
 
 	// Create a new reader id.
+	#[allow(clippy::unused_async)]
 	async fn next_file_handle(&self) -> FileHandle {
 		let handle = self
 			.inner
@@ -1104,10 +1111,12 @@ impl Server {
 	}
 
 	async fn unmount(path: &Path) -> Result<()> {
-		tokio::process::Command::new("fusermount3")
+		tokio::process::Command::new("/usr/bin/fusermount3")
 			.arg("-q")
 			.arg("-u")
 			.arg(path)
+			.stdout(std::process::Stdio::null())
+			.stderr(std::process::Stdio::null())
 			.status()
 			.await
 			.wrap_err("Failed to execute the unmount command.")?;
