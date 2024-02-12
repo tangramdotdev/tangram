@@ -91,18 +91,18 @@ pub async fn build(
 
 		() = stop.wait_for(|stop| *stop).map(|_| ()) => {
 			isolate_handle.terminate_execution();
-			thread
-				.join()
-				.map_err(|_| error!("Failed to join the thread."))?;
+			tokio::task::spawn_blocking(move || {
+				thread.join()
+			}).await.wrap_err("Failed to spawn task.")?.map_err(|_| error!("Failed to join the thread."))?;
 			return Ok(None);
 		}
 	};
 
 	// Join the thread.
-	thread
-		.join()
+	tokio::task::spawn_blocking(move || thread.join())
+		.await
+		.wrap_err("Failed to spawn task.")?
 		.map_err(|_| error!("Failed to join the thread."))?;
-
 	Ok(value)
 }
 
@@ -298,7 +298,6 @@ async fn build_inner(
 	// Wait for the log task to complete.
 	state.log_sender.borrow_mut().take();
 	log_task.await.wrap_err("Failed to join the log task.")?;
-
 	Ok(value)
 }
 
