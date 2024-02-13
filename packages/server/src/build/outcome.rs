@@ -273,6 +273,7 @@ impl Server {
 		} else {
 			outcome
 		};
+		let outcome = outcome.data(self).await?;
 
 		// Create a blob from the log.
 		let log = tg::Blob::with_reader(self, log::Reader::new(self, id).await?).await?;
@@ -281,9 +282,8 @@ impl Server {
 		// Update the state.
 		match &self.inner.database {
 			Database::Sqlite(database) => {
-				let connection = database.get().await?;
 				let status = tg::build::Status::Finished;
-				let outcome = outcome.data(self).await?;
+				let connection = database.get().await?;
 				let statement = "
 					update builds
 					set
@@ -309,9 +309,8 @@ impl Server {
 			},
 
 			Database::Postgres(database) => {
-				let connection = database.get().await?;
 				let status = tg::build::Status::Finished;
-				let outcome = outcome.data(self).await?;
+				let connection = database.get().await?;
 				let statement = "
 					update builds
 					set
