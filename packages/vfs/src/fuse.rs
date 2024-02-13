@@ -167,10 +167,8 @@ impl Server {
 		// let fuse_file = tokio::fs::File::from_std(fuse_file);
 
 		// Spawn the task.
-		let task = tokio::spawn({
-			let server = server.clone();
-			async move { server.serve(fuse_file).await }
-		});
+		let server_ = server.clone();
+		let task = tokio::task::spawn_blocking(move || server_.serve(fuse_file));
 		server.inner.task.lock().unwrap().replace(task);
 
 		Ok(server)
@@ -201,170 +199,154 @@ impl Server {
 	}
 
 	#[allow(clippy::too_many_lines)]
-	async fn serve(&self, mut fuse_file: std::fs::File) -> Result<()> {
+	fn serve(&self, mut fuse_file: std::fs::File) -> Result<()> {
 		// Create a buffer to read requests into.
 		let mut request_buffer = vec![0u8; 1024 * 1024 + 4096];
 
 		// Handle each request.
-		let server = self.clone();
-		tokio::task::spawn_blocking(move || {
-			loop {
-				// Read a request from the FUSE file.
-				let request_size = match fuse_file.read(request_buffer.as_mut()) {
-					Ok(request_size) => request_size,
+		loop {
+			// Read a request from the FUSE file.
+			let request_size = match fuse_file.read(request_buffer.as_mut()) {
+				Ok(request_size) => request_size,
 
-					// Handle an error reading the request from the FUSE file.
-					Err(error) => match error.raw_os_error() {
-						// If the error is ENOENT, EINTR, or EAGAIN, then continue.
-						Some(libc::ENOENT | libc::EINTR | libc::EAGAIN) => continue,
+				// Handle an error reading the request from the FUSE file.
+				Err(error) => match error.raw_os_error() {
+					// If the error is ENOENT, EINTR, or EAGAIN, then continue.
+					Some(libc::ENOENT | libc::EINTR | libc::EAGAIN) => continue,
 
-						// If the error is ENODEV, then the FUSE file has been unmounted.
-						Some(libc::ENODEV) => return Ok(()),
+					// If the error is ENODEV, then the FUSE file has been unmounted.
+					Some(libc::ENODEV) => return Ok(()),
 
-						// Otherwise, return the error.
-						_ => return Err(error.wrap("Failed to read the request.")),
+					// Otherwise, return the error.
+					_ => return Err(error.wrap("Failed to read the request.")),
+				},
+			};
+			let request_bytes = &request_buffer[..request_size];
+
+			// Deserialize the request.
+			let request_header = sys::fuse_in_header::read_from_prefix(request_bytes)
+				.wrap_err("Failed to deserialize the request header.")?;
+			let request_header_len = std::mem::size_of::<sys::fuse_in_header>();
+			let request_data = &request_bytes[request_header_len..];
+			let request_data = match request_header.opcode {
+				sys::fuse_opcode::FUSE_DESTROY => {
+					break;
+				},
+				sys::fuse_opcode::FUSE_FLUSH => RequestData::Flush(read_data(request_data)?),
+				sys::fuse_opcode::FUSE_FORGET => RequestData::Forget(read_data(request_data)?),
+				sys::fuse_opcode::FUSE_BATCH_FORGET => {
+					RequestData::BatchForget(read_data(request_data)?)
+				},
+				sys::fuse_opcode::FUSE_GETATTR => RequestData::GetAttr(read_data(request_data)?),
+				sys::fuse_opcode::FUSE_INIT => RequestData::Init(read_data(request_data)?),
+				sys::fuse_opcode::FUSE_LOOKUP => {
+					let data = CString::from_vec_with_nul(request_data.to_owned())
+						.wrap_err("Failed to deserialize the request.")?;
+					RequestData::Lookup(data)
+				},
+				sys::fuse_opcode::FUSE_OPEN => RequestData::Open(read_data(request_data)?),
+				sys::fuse_opcode::FUSE_OPENDIR => RequestData::OpenDir(read_data(request_data)?),
+				sys::fuse_opcode::FUSE_READ => RequestData::Read(read_data(request_data)?),
+				sys::fuse_opcode::FUSE_READDIR => RequestData::ReadDir(read_data(request_data)?),
+				sys::fuse_opcode::FUSE_READDIRPLUS => {
+					RequestData::ReadDirPlus(read_data(request_data)?)
+				},
+				sys::fuse_opcode::FUSE_READLINK => RequestData::ReadLink,
+				sys::fuse_opcode::FUSE_RELEASE => RequestData::Release(read_data(request_data)?),
+				sys::fuse_opcode::FUSE_RELEASEDIR => {
+					RequestData::ReleaseDir(read_data(request_data)?)
+				},
+				sys::fuse_opcode::FUSE_GETXATTR => {
+					let (fuse_getxattr_in, name) =
+						request_data.split_at(std::mem::size_of::<sys::fuse_getxattr_in>());
+					let fuse_getxattr_in = read_data(fuse_getxattr_in)?;
+					let name = CString::from_vec_with_nul(name.to_owned())
+						.wrap_err("Failed to deserialize the request.")?;
+					RequestData::GetXattr(fuse_getxattr_in, name)
+				},
+				sys::fuse_opcode::FUSE_LISTXATTR => {
+					RequestData::ListXattr(read_data(request_data)?)
+				},
+				_ => RequestData::Unsupported(request_header.opcode),
+			};
+			let request = Request {
+				header: request_header,
+				data: request_data,
+			};
+
+			// Spawn a task to handle the request.
+			let mut fuse_file = fuse_file
+				.try_clone()
+				.wrap_err("Failed to clone the FUSE file.")?;
+			let server = self.clone();
+			tokio::spawn(async move {
+				// Handle the request and get the response.
+				let unique = request.header.unique;
+				// Edge case: Don't send a reply if the kernel sends a FUSE_FORGET/FUSE_BATCH_FORGET request. We don't support these requests anyway (we cannot forget inodes, and duplicate inodes pointing to the same artifact are OK).
+				if [
+					sys::fuse_opcode::FUSE_FORGET,
+					sys::fuse_opcode::FUSE_BATCH_FORGET,
+				]
+				.contains(&request.header.opcode)
+				{
+					tracing::warn!(?request, "Ignoring FORGET/FORGET_BATCH request.");
+					return;
+				}
+
+				let result = server.handle_request(request).await;
+				if let Err(e) = &result {
+					tracing::error!(?e, "Request failed.");
+				}
+
+				// Serialize the response.
+				let response_bytes = match result {
+					Err(error) => {
+						let len = std::mem::size_of::<sys::fuse_out_header>();
+						let header = sys::fuse_out_header {
+							unique,
+							len: len.to_u32().unwrap(),
+							error: -error,
+						};
+						header.as_bytes().to_owned()
+					},
+					Ok(data) => {
+						let data_bytes = match &data {
+							Response::Flush
+							| Response::None
+							| Response::Release
+							| Response::ReleaseDir => &[],
+							Response::GetAttr(data) => data.as_bytes(),
+							Response::Init(data) => data.as_bytes(),
+							Response::Lookup(data) => data.as_bytes(),
+							Response::Open(data) | Response::OpenDir(data) => data.as_bytes(),
+							Response::Read(data)
+							| Response::ReadDir(data)
+							| Response::ReadDirPlus(data)
+							| Response::GetXattr(data)
+							| Response::ListXattr(data) => data.as_bytes(),
+							Response::ReadLink(data) => data.as_bytes(),
+						};
+						let len = std::mem::size_of::<sys::fuse_out_header>() + data_bytes.len();
+						let header = sys::fuse_out_header {
+							unique,
+							len: len.to_u32().unwrap(),
+							error: 0,
+						};
+						let mut buffer = header.as_bytes().to_owned();
+						buffer.extend_from_slice(data_bytes);
+						buffer
 					},
 				};
-				let request_bytes = &request_buffer[..request_size];
 
-				// Deserialize the request.
-				let request_header = sys::fuse_in_header::read_from_prefix(request_bytes)
-					.wrap_err("Failed to deserialize the request header.")?;
-				let request_header_len = std::mem::size_of::<sys::fuse_in_header>();
-				let request_data = &request_bytes[request_header_len..];
-				let request_data = match request_header.opcode {
-					sys::fuse_opcode::FUSE_DESTROY => {
-						break;
+				// Write the response.
+				match fuse_file.write_all(&response_bytes) {
+					Ok(()) => (),
+					Err(error) => {
+						tracing::error!(?error, "Failed to write the response.");
 					},
-					sys::fuse_opcode::FUSE_FLUSH => RequestData::Flush(read_data(request_data)?),
-					sys::fuse_opcode::FUSE_FORGET => RequestData::Forget(read_data(request_data)?),
-					sys::fuse_opcode::FUSE_BATCH_FORGET => {
-						RequestData::BatchForget(read_data(request_data)?)
-					},
-					sys::fuse_opcode::FUSE_GETATTR => {
-						RequestData::GetAttr(read_data(request_data)?)
-					},
-					sys::fuse_opcode::FUSE_INIT => RequestData::Init(read_data(request_data)?),
-					sys::fuse_opcode::FUSE_LOOKUP => {
-						let data = CString::from_vec_with_nul(request_data.to_owned())
-							.wrap_err("Failed to deserialize the request.")?;
-						RequestData::Lookup(data)
-					},
-					sys::fuse_opcode::FUSE_OPEN => RequestData::Open(read_data(request_data)?),
-					sys::fuse_opcode::FUSE_OPENDIR => {
-						RequestData::OpenDir(read_data(request_data)?)
-					},
-					sys::fuse_opcode::FUSE_READ => RequestData::Read(read_data(request_data)?),
-					sys::fuse_opcode::FUSE_READDIR => {
-						RequestData::ReadDir(read_data(request_data)?)
-					},
-					sys::fuse_opcode::FUSE_READDIRPLUS => {
-						RequestData::ReadDirPlus(read_data(request_data)?)
-					},
-					sys::fuse_opcode::FUSE_READLINK => RequestData::ReadLink,
-					sys::fuse_opcode::FUSE_RELEASE => {
-						RequestData::Release(read_data(request_data)?)
-					},
-					sys::fuse_opcode::FUSE_RELEASEDIR => {
-						RequestData::ReleaseDir(read_data(request_data)?)
-					},
-					sys::fuse_opcode::FUSE_GETXATTR => {
-						let (fuse_getxattr_in, name) =
-							request_data.split_at(std::mem::size_of::<sys::fuse_getxattr_in>());
-						let fuse_getxattr_in = read_data(fuse_getxattr_in)?;
-						let name = CString::from_vec_with_nul(name.to_owned())
-							.wrap_err("Failed to deserialize the request.")?;
-						RequestData::GetXattr(fuse_getxattr_in, name)
-					},
-					sys::fuse_opcode::FUSE_LISTXATTR => {
-						RequestData::ListXattr(read_data(request_data)?)
-					},
-					_ => RequestData::Unsupported(request_header.opcode),
 				};
-				let request = Request {
-					header: request_header,
-					data: request_data,
-				};
-
-				// Spawn a task to handle the request.
-				let mut fuse_file = fuse_file
-					.try_clone()
-					.wrap_err("Failed to clone the FUSE file.")?;
-				let server = server.clone();
-				tokio::spawn(async move {
-					// Handle the request and get the response.
-					let unique = request.header.unique;
-					// Edge case: Don't send a reply if the kernel sends a FUSE_FORGET/FUSE_BATCH_FORGET request. We don't support these requests anyway (we cannot forget inodes, and duplicate inodes pointing to the same artifact are OK).
-					if [
-						sys::fuse_opcode::FUSE_FORGET,
-						sys::fuse_opcode::FUSE_BATCH_FORGET,
-					]
-					.contains(&request.header.opcode)
-					{
-						tracing::warn!(?request, "Ignoring FORGET/FORGET_BATCH request.");
-						return;
-					}
-
-					let result = server.handle_request(request).await;
-					if let Err(e) = &result {
-						tracing::error!(?e, "Request failed.");
-					}
-
-					// Serialize the response.
-					let response_bytes = match result {
-						Err(error) => {
-							let len = std::mem::size_of::<sys::fuse_out_header>();
-							let header = sys::fuse_out_header {
-								unique,
-								len: len.to_u32().unwrap(),
-								error: -error,
-							};
-							header.as_bytes().to_owned()
-						},
-						Ok(data) => {
-							let data_bytes = match &data {
-								Response::Flush
-								| Response::None
-								| Response::Release
-								| Response::ReleaseDir => &[],
-								Response::GetAttr(data) => data.as_bytes(),
-								Response::Init(data) => data.as_bytes(),
-								Response::Lookup(data) => data.as_bytes(),
-								Response::Open(data) | Response::OpenDir(data) => data.as_bytes(),
-								Response::Read(data)
-								| Response::ReadDir(data)
-								| Response::ReadDirPlus(data)
-								| Response::GetXattr(data)
-								| Response::ListXattr(data) => data.as_bytes(),
-								Response::ReadLink(data) => data.as_bytes(),
-							};
-							let len =
-								std::mem::size_of::<sys::fuse_out_header>() + data_bytes.len();
-							let header = sys::fuse_out_header {
-								unique,
-								len: len.to_u32().unwrap(),
-								error: 0,
-							};
-							let mut buffer = header.as_bytes().to_owned();
-							buffer.extend_from_slice(data_bytes);
-							buffer
-						},
-					};
-
-					// Write the response.
-					match fuse_file.write_all(&response_bytes) {
-						Ok(()) => (),
-						Err(error) => {
-							tracing::error!(?error, "Failed to write the response.");
-						},
-					};
-				});
-			}
-			Ok(())
-		})
-		.await
-		.wrap_err("Failed to join task.")??;
-
+			});
+		}
 		Ok(())
 	}
 
@@ -1005,9 +987,8 @@ impl Server {
 			// Setup the arguments.
 			let uid = libc::getuid();
 			let gid = libc::getgid();
-			let options = format!(
-				"rootmode=40755,user_id={uid},group_id={gid},default_permissions\0"
-			);
+			let options =
+				format!("rootmode=40755,user_id={uid},group_id={gid},default_permissions\0");
 
 			let mut fds = [0, 0];
 			let ret = libc::socketpair(libc::AF_UNIX, libc::SOCK_STREAM, 0, fds.as_mut_ptr());
