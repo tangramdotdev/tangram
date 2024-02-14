@@ -68,6 +68,12 @@ pub async fn build(
 
 	// Create a tempdir for the root.
 	let server_directory_temp_path = server_directory_host_path.join("tmp");
+
+	// Create the toplevel tempdir if it does not exist.
+	tokio::fs::create_dir_all(&server_directory_temp_path)
+		.await
+		.wrap_err("Failed to create the server temp directory.")?;
+
 	let root_directory_tempdir = tempfile::TempDir::new_in(&server_directory_temp_path)
 		.wrap_err("Failed to create temporary directory.")?;
 	let root_directory_host_path = root_directory_tempdir.path().to_owned();
