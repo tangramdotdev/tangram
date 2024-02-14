@@ -165,9 +165,9 @@ impl Server {
 
 		// Create the database.
 		let database = match options.database {
-			self::options::Database::Sqlite => {
+			self::options::Database::Sqlite(sqlite) => {
 				let database_path = path.join("database");
-				Database::new_sqlite(database_path).await?
+				Database::new_sqlite(database_path, sqlite.max_connections).await?
 			},
 			self::options::Database::Postgres(postgres) => {
 				Database::new_postgres(postgres.url, postgres.max_connections).await?
@@ -320,7 +320,7 @@ impl Server {
 			tokio::fs::create_dir_all(&artifacts_path)
 				.await
 				.wrap_err("Failed to create the artifacts directory.")?;
-	
+
 			// Start the VFS server.
 			let vfs = tangram_vfs::Server::start(&server, &artifacts_path)
 				.await

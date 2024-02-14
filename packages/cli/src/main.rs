@@ -80,8 +80,14 @@ fn main() {
 	// Initialize V8. This must happen on the main thread.
 	initialize_v8();
 
+	let worker_threads = std::env::var("TANGRAM_WORKER_THREADS")
+		.ok()
+		.and_then(|n| n.parse().ok())
+		.unwrap_or(std::thread::available_parallelism().unwrap().get());
+
 	// Create the tokio runtime and run the main function.
 	tokio::runtime::Builder::new_multi_thread()
+		.worker_threads(worker_threads)
 		.enable_all()
 		.disable_lifo_slot()
 		.build()

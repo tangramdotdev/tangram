@@ -58,12 +58,24 @@ pub struct Build {
 	pub permits: Option<usize>,
 }
 
-#[derive(Clone, Debug, Default, serde::Serialize, serde::Deserialize)]
+#[derive(Clone, Debug, serde::Serialize, serde::Deserialize)]
 #[serde(tag = "kind", rename_all = "snake_case")]
 pub enum Database {
-	#[default]
-	Sqlite,
+	Sqlite(SqliteDatabase),
 	Postgres(PostgresDatabase),
+}
+
+impl Default for Database {
+	fn default() -> Self {
+		Self::Sqlite(SqliteDatabase::default())
+	}
+}
+
+#[derive(Clone, Default, Debug, serde::Serialize, serde::Deserialize)]
+pub struct SqliteDatabase {
+	/// The maximum number of connections.
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub max_connections: Option<usize>,
 }
 
 #[derive(Clone, Debug, serde::Serialize, serde::Deserialize)]

@@ -107,13 +107,26 @@ impl Cli {
 		let build = tangram_server::options::Build { enable, permits };
 
 		// Create the database options.
-		let database = config
+		let database: tangram_server::options::Database = config
 			.as_ref()
 			.and_then(|config| config.database.as_ref())
 			.map_or_else(
-				|| tangram_server::options::Database::Sqlite,
+				|| {
+					tangram_server::options::Database::Sqlite(
+						tangram_server::options::SqliteDatabase {
+							max_connections: std::thread::available_parallelism().unwrap().get(),
+						},
+					)
+				},
 				|database| match database {
-					crate::config::Database::Sqlite => tangram_server::options::Database::Sqlite,
+					crate::config::Database::Sqlite(sqlite) => {
+						let max_connections = sqlite
+							.max_connections
+							.unwrap_or_else(|| std::thread::available_parallelism().unwrap().get());
+						tangram_server::options::Database::Sqlite(
+							tangram_server::options::SqliteDatabase { max_connections },
+						)
+					},
 					crate::config::Database::Postgres(postgres) => {
 						let url = postgres.url.clone();
 						let max_connections = postgres

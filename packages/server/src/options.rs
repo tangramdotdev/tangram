@@ -24,8 +24,13 @@ pub struct Build {
 
 #[derive(Clone, Debug)]
 pub enum Database {
-	Sqlite,
+	Sqlite(SqliteDatabase),
 	Postgres(PostgresDatabase),
+}
+
+#[derive(Clone, Debug)]
+pub struct SqliteDatabase {
+	pub max_connections: usize,
 }
 
 #[derive(Clone, Debug)]

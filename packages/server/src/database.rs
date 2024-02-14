@@ -1,3 +1,4 @@
+use itertools::Itertools;
 use rusqlite as sqlite;
 use std::{
 	collections::HashMap,
@@ -33,8 +34,8 @@ pub struct PostgresConnection {
 }
 
 impl Database {
-	pub async fn new_sqlite(path: PathBuf) -> Result<Self> {
-		Ok(Self::Sqlite(Sqlite::new(path).await?))
+	pub async fn new_sqlite(path: PathBuf, max_connections: usize) -> Result<Self> {
+		Ok(Self::Sqlite(Sqlite::new(path, max_connections).await?))
 	}
 
 	pub async fn new_postgres(url: Url, max_connections: usize) -> Result<Self> {
@@ -43,13 +44,12 @@ impl Database {
 }
 
 impl Sqlite {
-	pub async fn new(path: PathBuf) -> Result<Self> {
-		let n = std::thread::available_parallelism().unwrap().get();
-		let pool = tangram_util::pool::Pool::new();
-		for _ in 0..n {
-			let connection = SqliteConnection::connect(&path)?;
-			pool.put(connection).await;
-		}
+	#[allow(clippy::unused_async)]
+	pub async fn new(path: PathBuf, max_connections: usize) -> Result<Self> {
+		let connections = (0..max_connections)
+			.map(|_| SqliteConnection::connect(&path))
+			.try_collect()?;
+		let pool = tangram_util::pool::Pool::new(connections);
 		let database = Sqlite { pool };
 		Ok(database)
 	}
@@ -62,11 +62,12 @@ impl Sqlite {
 
 impl Postgres {
 	pub async fn new(url: Url, max_connections: usize) -> Result<Self> {
-		let pool = tangram_util::pool::Pool::new();
+		let mut connections = Vec::with_capacity(max_connections);
 		for _ in 0..max_connections {
-			let client = PostgresConnection::connect(&url).await?;
-			pool.put(client).await;
+			let connection = PostgresConnection::connect(&url).await?;
+			connections.push(connection);
 		}
+		let pool = tangram_util::pool::Pool::new(connections);
 		let database = Self { pool, url };
 		Ok(database)
 	}

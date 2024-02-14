@@ -1,68 +1,45 @@
-use std::{collections::VecDeque, sync::Arc};
+use std::sync::Arc;
 
+/// An object pool backed by a bounded mpsc channel.
 pub struct Pool<T> {
-	semaphore: Arc<tokio::sync::Semaphore>,
-	objects: Arc<tokio::sync::Mutex<VecDeque<T>>>,
-	sender: tokio::sync::mpsc::UnboundedSender<T>,
+	// The channel's sender.
+	sender: tokio::sync::mpsc::Sender<T>,
+
+	// The channel's receiver, wrapped in Arc<Mutex<_>> to provide mpmc semantics.
+	receiver: Arc<tokio::sync::Mutex<tokio::sync::mpsc::Receiver<T>>>,
 }
 
 pub struct Guard<'a, T> {
-	permit: Option<tokio::sync::SemaphorePermit<'a>>,
 	object: Option<T>,
-	sender: tokio::sync::mpsc::UnboundedSender<T>,
+	pool: &'a Pool<T>, // The borrow here forbids the guard from outliving the pool.
 }
 
-impl<T> Pool<T>
-where
-	T: Send + 'static,
-{
-	#[allow(clippy::new_without_default)]
+impl<T> Pool<T> {
+	/// Initialize the pool with a vector of objects.
 	#[must_use]
-	pub fn new() -> Self {
-		let semaphore = Arc::new(tokio::sync::Semaphore::new(0));
-		let objects = Arc::new(tokio::sync::Mutex::new(VecDeque::new()));
-		let (sender, mut receiver) = tokio::sync::mpsc::unbounded_channel();
-		tokio::spawn({
-			let semaphore = semaphore.clone();
-			let objects = objects.clone();
-			async move {
-				while let Some(object) = receiver.recv().await {
-					objects.lock().await.push_back(object);
-					semaphore.add_permits(1);
-				}
-			}
-		});
-		Self {
-			semaphore,
-			objects,
-			sender,
+	pub fn new(objects: Vec<T>) -> Self {
+		let capacity = objects.len();
+		let (sender, receiver) = tokio::sync::mpsc::channel(capacity);
+		for object in objects {
+			sender.try_send(object).unwrap();
 		}
+		let receiver = Arc::new(tokio::sync::Mutex::new(receiver));
+		Self { sender, receiver }
 	}
 
-	pub async fn get(&self) -> Guard<'_, T> {
-		let permit = self.semaphore.acquire().await.unwrap();
-		let object = self.objects.lock().await.pop_front().unwrap();
+	pub async fn get(&self) -> Guard<T> {
+		// We rely on the fact that tokio::sync::mutex is fair to allow concurrent callers to get()to make progress. It is safe to call .unwrap() because the channel cannot be closed until self is dropped.
+		let object = self.receiver.lock().await.recv().await.unwrap();
 		Guard {
-			permit: Some(permit),
 			object: Some(object),
-			sender: self.sender.clone(),
+			pool: self,
 		}
-	}
-
-	pub async fn put(&self, object: T) {
-		self.objects.lock().await.push_back(object);
-		self.semaphore.add_permits(1);
 	}
 }
 
 impl<'a, T> Guard<'a, T> {
 	pub fn replace(&mut self, object: T) -> T {
 		self.object.replace(object).unwrap()
-	}
-
-	pub fn take(mut self) -> T {
-		self.permit.take().unwrap().forget();
-		self.object.take().unwrap()
 	}
 }
 
@@ -83,8 +60,8 @@ impl<'a, T> std::ops::DerefMut for Guard<'a, T> {
 impl<'a, T> Drop for Guard<'a, T> {
 	fn drop(&mut self) {
 		if let Some(object) = self.object.take() {
-			self.permit.take().unwrap().forget();
-			self.sender.send(object).ok();
+			// This unwrap is safe, since it's not possible for the underlying channel to be full until the object wrapped by this guard is dropped.
+			self.pool.sender.try_send(object).unwrap();
 		}
 	}
 }
