@@ -29,19 +29,19 @@ pub async fn build(
 	let artifacts_directory_path = server_directory_path.join("artifacts");
 
 	// Create a tempdir for the root.
-	let server_directory_tmp_path = server_directory_path.join("tmp");
+	let server_directory_temp_path = server_directory_path.join("tmp");
 
 	// Create the toplevel tempdir if it does not exist.
 	tokio::fs::create_dir_all(&server_directory_temp_path)
 		.await
 		.wrap_err("Failed to create the server temp directory.")?;
 
-	let root_directory_tempdir = tempfile::TempDir::new_in(&server_directory_tmp_path)
+	let root_directory_tempdir = tempfile::TempDir::new_in(&server_directory_temp_path)
 		.wrap_err("Failed to create the temporary directory.")?;
 	let root_directory_path = root_directory_tempdir.path().to_owned();
 
 	// Create a tempdir for the output.
-	let output_tempdir = tempfile::TempDir::new_in(&server_directory_tmp_path)
+	let output_tempdir = tempfile::TempDir::new_in(&server_directory_temp_path)
 		.wrap_err("Failed to create the temporary directory.")?;
 
 	// Create the output parent directory.
