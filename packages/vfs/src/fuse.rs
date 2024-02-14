@@ -164,7 +164,6 @@ impl Server {
 
 		// Mount.
 		let fuse_file = Self::mount(path).await?;
-		// let fuse_file = tokio::fs::File::from_std(fuse_file);
 
 		// Spawn the task.
 		let server_ = server.clone();
@@ -181,20 +180,8 @@ impl Server {
 	}
 
 	pub async fn join(&self) -> Result<()> {
-		// Join the task.
-		let task = self.inner.task.lock().unwrap().take();
-		if let Some(task) = task {
-			match task.await {
-				Ok(result) => Ok(result),
-				Err(error) if error.is_cancelled() => Ok(Ok(())),
-				Err(error) => Err(error),
-			}
-			.unwrap()?;
-		}
-
 		// Unmount.
 		Self::unmount(&self.inner.path).await?;
-
 		Ok(())
 	}
 
