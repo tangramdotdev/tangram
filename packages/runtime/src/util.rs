@@ -1,6 +1,6 @@
 use std::path::Path;
 use tangram_client as tg;
-use tangram_error::{error, Result, WrapErr};
+use tangram_error::Result;
 
 /// Render a value.
 pub async fn render(
@@ -32,29 +32,4 @@ pub async fn render(
 	} else {
 		Ok("<tangram value>".to_owned())
 	}
-}
-
-/// Ensure a directory exists.
-pub(crate) async fn ensure_dir_exists(path: impl AsRef<Path>) -> Result<()> {
-	let path = path.as_ref();
-	match tokio::fs::symlink_metadata(path).await {
-		Ok(metadata) => {
-			if !metadata.is_dir() {
-				return Err(error!(
-					r#"The path "{}" exists but is not a directory."#,
-					path.display()
-				));
-			}
-		},
-		Err(error) => {
-			if error.kind() != std::io::ErrorKind::NotFound {
-				return Err(error)
-					.wrap_err("Failed to determine the metadata of the server temp path.");
-			}
-			tokio::fs::create_dir_all(path)
-				.await
-				.wrap_err("Failed to create the server temp path.")?;
-		},
-	}
-	Ok(())
 }

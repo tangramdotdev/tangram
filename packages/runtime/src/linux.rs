@@ -1,4 +1,4 @@
-use crate::util::{ensure_dir_exists, render};
+use crate::util::render;
 use bytes::Bytes;
 use futures::{stream::FuturesOrdered, FutureExt, TryStreamExt};
 use indoc::formatdoc;
@@ -70,7 +70,9 @@ pub async fn build(
 	let server_directory_temp_path = server_directory_host_path.join("tmp");
 
 	// Create the toplevel tempdir if it does not exist.
-	ensure_dir_exists(&server_directory_temp_path).await?;
+	tokio::fs::create_dir_all(&server_directory_temp_path)
+		.await
+		.wrap_err("Failed to create the server temp directory.")?;
 
 	let root_directory_tempdir = tempfile::TempDir::new_in(&server_directory_temp_path)
 		.wrap_err("Failed to create temporary directory.")?;
