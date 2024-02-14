@@ -1,4 +1,4 @@
-use crate::util::render;
+use crate::util::{ensure_dir_exists, render};
 use bytes::Bytes;
 use futures::{stream::FuturesOrdered, FutureExt, TryStreamExt};
 use indoc::formatdoc;
@@ -68,6 +68,10 @@ pub async fn build(
 
 	// Create a tempdir for the root.
 	let server_directory_temp_path = server_directory_host_path.join("tmp");
+
+	// Create the toplevel tempdir if it does not exist.
+	ensure_dir_exists(&server_directory_temp_path).await?;
+
 	let root_directory_tempdir = tempfile::TempDir::new_in(&server_directory_temp_path)
 		.wrap_err("Failed to create temporary directory.")?;
 	let root_directory_host_path = root_directory_tempdir.path().to_owned();
