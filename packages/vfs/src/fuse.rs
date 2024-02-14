@@ -186,10 +186,22 @@ impl Server {
 		// Unmount.
 		Self::unmount(&self.inner.path).await?;
 
+		// Join the task.
+		let task = self.inner.task.lock().unwrap().take();
+		if let Some(task) = task {
+			match task.await {
+				Ok(result) => Ok(result),
+				Err(error) if error.is_cancelled() => Ok(Ok(())),
+				Err(error) => Err(error),
+			}
+			.unwrap()?;
+		}
+
 		// Close /dev/fuse.
 		unsafe {
 			libc::close(self.inner.dev_fuse_fd);
 		}
+
 		Ok(())
 	}
 
