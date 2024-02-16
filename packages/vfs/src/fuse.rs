@@ -4,8 +4,8 @@ use num::ToPrimitive;
 use std::{
 	collections::HashMap,
 	ffi::CString,
-	io::{Read, SeekFrom, Write},
-	os::{fd::FromRawFd, unix::prelude::OsStrExt},
+	io::SeekFrom,
+	os::unix::prelude::OsStrExt,
 	path::{Path, PathBuf},
 	sync::{Arc, Weak},
 };
@@ -31,6 +31,7 @@ struct Inner {
 	node_index: std::sync::atomic::AtomicU64,
 	handles: parking_lot::RwLock<Map<FileHandle, Arc<tokio::sync::RwLock<FileHandleData>>>>,
 	handle_index: std::sync::atomic::AtomicU64,
+	dev_fuse_fd: std::os::fd::RawFd,
 }
 
 /// A node in the file system.
@@ -150,6 +151,10 @@ impl Server {
 		let handle_index = std::sync::atomic::AtomicU64::new(0);
 		let tg = tg.clone_box();
 		let task = std::sync::Mutex::new(None);
+
+		// Mount.
+		let dev_fuse_fd = Self::mount(path).await?;
+
 		let server = Self {
 			inner: Arc::new(Inner {
 				path: path.to_owned(),
@@ -159,15 +164,13 @@ impl Server {
 				nodes,
 				handle_index,
 				handles,
+				dev_fuse_fd,
 			}),
 		};
 
-		// Mount.
-		let fuse_file = Self::mount(path).await?;
-
 		// Spawn the task.
 		let server_ = server.clone();
-		let task = tokio::task::spawn_blocking(move || server_.serve(fuse_file));
+		let task = tokio::task::spawn_blocking(move || server_.serve());
 		server.inner.task.lock().unwrap().replace(task);
 
 		Ok(server)
@@ -182,32 +185,37 @@ impl Server {
 	pub async fn join(&self) -> Result<()> {
 		// Unmount.
 		Self::unmount(&self.inner.path).await?;
+
+		// Close /dev/fuse.
+		unsafe {
+			libc::close(self.inner.dev_fuse_fd);
+		}
 		Ok(())
 	}
 
 	#[allow(clippy::too_many_lines)]
-	fn serve(&self, mut fuse_file: std::fs::File) -> Result<()> {
+	fn serve(&self) -> Result<()> {
 		// Create a buffer to read requests into.
 		let mut request_buffer = vec![0u8; 1024 * 1024 + 4096];
 
 		// Handle each request.
 		loop {
-			// Read a request from the FUSE file.
-			let request_size = match fuse_file.read(request_buffer.as_mut()) {
-				Ok(request_size) => request_size,
-
-				// Handle an error reading the request from the FUSE file.
-				Err(error) => match error.raw_os_error() {
-					// If the error is ENOENT, EINTR, or EAGAIN, then continue.
-					Some(libc::ENOENT | libc::EINTR | libc::EAGAIN) => continue,
-
-					// If the error is ENODEV, then the FUSE file has been unmounted.
-					Some(libc::ENODEV) => return Ok(()),
-
-					// Otherwise, return the error.
-					_ => return Err(error.wrap("Failed to read the request.")),
-				},
+			let request_size = unsafe {
+				libc::read(
+					self.inner.dev_fuse_fd,
+					request_buffer.as_mut_ptr().cast(),
+					request_buffer.len(),
+				)
 			};
+			if request_size < 0 {
+				let error = std::io::Error::last_os_error();
+				match error.raw_os_error() {
+					Some(libc::ENOENT | libc::EINTR | libc::EAGAIN) => continue,
+					Some(libc::ENODEV) => return Ok(()),
+					_ => return Err(error.wrap("Failed to read the request")),
+				}
+			}
+			let request_size = request_size.to_usize().unwrap();
 			let request_bytes = &request_buffer[..request_size];
 
 			// Deserialize the request.
@@ -262,9 +270,6 @@ impl Server {
 			};
 
 			// Spawn a task to handle the request.
-			let mut fuse_file = fuse_file
-				.try_clone()
-				.wrap_err("Failed to clone the FUSE file.")?;
 			let server = self.clone();
 			tokio::spawn(async move {
 				// Handle the request and get the response.
@@ -286,7 +291,7 @@ impl Server {
 				}
 
 				// Serialize the response.
-				let response_bytes = match result {
+				match result {
 					Err(error) => {
 						let len = std::mem::size_of::<sys::fuse_out_header>();
 						let header = sys::fuse_out_header {
@@ -294,10 +299,17 @@ impl Server {
 							len: len.to_u32().unwrap(),
 							error: -error,
 						};
-						header.as_bytes().to_owned()
+						let header = header.as_bytes();
+						let iov = [libc::iovec {
+							iov_base: header.as_bytes().as_ptr() as *mut _,
+							iov_len: header.len(),
+						}];
+						unsafe {
+							libc::writev(server.inner.dev_fuse_fd, iov.as_ptr(), 1);
+						}
 					},
 					Ok(data) => {
-						let data_bytes = match &data {
+						let data = match &data {
 							Response::Flush
 							| Response::None
 							| Response::Release
@@ -313,23 +325,26 @@ impl Server {
 							| Response::ListXattr(data) => data.as_bytes(),
 							Response::ReadLink(data) => data.as_bytes(),
 						};
-						let len = std::mem::size_of::<sys::fuse_out_header>() + data_bytes.len();
+						let len = std::mem::size_of::<sys::fuse_out_header>() + data.len();
 						let header = sys::fuse_out_header {
 							unique,
 							len: len.to_u32().unwrap(),
 							error: 0,
 						};
-						let mut buffer = header.as_bytes().to_owned();
-						buffer.extend_from_slice(data_bytes);
-						buffer
-					},
-				};
-
-				// Write the response.
-				match fuse_file.write_all(&response_bytes) {
-					Ok(()) => (),
-					Err(error) => {
-						tracing::error!(?error, "Failed to write the response.");
+						let header = header.as_bytes();
+						let iov = [
+							libc::iovec {
+								iov_base: header.as_bytes().as_ptr() as *mut _,
+								iov_len: header.len(),
+							},
+							libc::iovec {
+								iov_base: data.as_bytes().as_ptr() as *mut _,
+								iov_len: data.len(),
+							},
+						];
+						unsafe {
+							libc::writev(server.inner.dev_fuse_fd, iov.as_ptr(), 2);
+						}
 					},
 				};
 			});
@@ -378,7 +393,7 @@ impl Server {
 		}
 	}
 
-	#[allow(clippy::unused_async)]
+	#[allow(clippy::unused_async, clippy::no_effect_underscore_binding)]
 	async fn handle_flush_request(
 		&self,
 		_header: sys::fuse_in_header,
@@ -387,7 +402,7 @@ impl Server {
 		Ok(Response::Flush)
 	}
 
-	#[allow(clippy::unused_async)]
+	#[allow(clippy::unused_async, clippy::no_effect_underscore_binding)]
 	async fn handle_batch_forget_request(
 		&self,
 		_header: sys::fuse_in_header,
@@ -396,7 +411,7 @@ impl Server {
 		Ok(Response::None)
 	}
 
-	#[allow(clippy::unused_async)]
+	#[allow(clippy::unused_async, clippy::no_effect_underscore_binding)]
 	async fn handle_forget_request(
 		&self,
 		_header: sys::fuse_in_header,
@@ -503,7 +518,7 @@ impl Server {
 		}
 	}
 
-	#[allow(clippy::unused_async)]
+	#[allow(clippy::unused_async, clippy::no_effect_underscore_binding)]
 	async fn handle_init_request(
 		&self,
 		_header: sys::fuse_in_header,
@@ -796,7 +811,7 @@ impl Server {
 		Ok(Response::ReadLink(target))
 	}
 
-	#[allow(clippy::unused_async)]
+	#[allow(clippy::unused_async, clippy::no_effect_underscore_binding)]
 	async fn handle_release_request(
 		&self,
 		_header: sys::fuse_in_header,
@@ -968,8 +983,8 @@ impl Server {
 		FileHandle(handle)
 	}
 
-	#[allow(clippy::similar_names)]
-	async fn mount(path: &Path) -> Result<std::fs::File> {
+	#[allow(clippy::similar_names, clippy::unused_async)]
+	async fn mount(path: &Path) -> Result<std::os::unix::io::RawFd> {
 		unsafe {
 			// Setup the arguments.
 			let uid = libc::getuid();
@@ -1072,8 +1087,7 @@ impl Server {
 				libc::fcntl(fd, libc::F_SETFD, libc::FD_CLOEXEC);
 			}
 
-			let file = std::fs::File::from_raw_fd(fd);
-			Ok(file)
+			Ok(fd)
 		}
 	}
 
