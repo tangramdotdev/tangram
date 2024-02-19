@@ -127,6 +127,33 @@ async fn migration_0000(path: &Path) -> Result<()> {
 		create unique index object_children_index on object_children (object, child);
 
 		create index object_children_child_index on object_children (child);
+
+		create table packages (
+			name text primary key
+		) strict;
+
+		create table package_versions (
+			name text not null references packages (name),
+			version text not null,
+			id text not null,
+			primary key (name, version)
+		) strict;
+
+		create table users (
+			id text primary key,
+			email text not null
+		) strict;
+
+		create table tokens (
+			id text primary key,
+			user_id text not null references users (id)
+		) strict;
+
+		create table logins (
+			id text primary key,
+			url text not null,
+			token text references tokens (id)
+		) strict;
 	";
 	connection
 		.execute_batch(sql)

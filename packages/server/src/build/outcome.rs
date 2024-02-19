@@ -414,7 +414,7 @@ impl Server {
 						log = $3,
 						outcome = $4,
 						status = $5,
-						status = $6
+						weight = $6
 					where id = $7;
 				";
 				let children = PostgresJson(children);

@@ -14,6 +14,7 @@ pub struct Args {
 }
 
 #[derive(Debug, clap::Subcommand)]
+#[command(verbatim_doc_comment)]
 pub enum Command {
 	/// Get the server's health.
 	Health,

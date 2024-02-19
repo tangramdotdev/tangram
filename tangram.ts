@@ -1,6 +1,5 @@
 export default tg.target(async () => {
-	await foo();
-	await bar();
+	return Promise.all([foo(), bar()]);
 });
 
 export let foo = tg.target(async () => {

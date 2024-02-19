@@ -10,8 +10,7 @@ use tokio::io::{AsyncReadExt, AsyncWriteExt};
 
 /// Manage builds.
 #[derive(Debug, clap::Args)]
-#[command(args_conflicts_with_subcommands = true)]
-#[command(verbatim_doc_comment)]
+#[command(args_conflicts_with_subcommands = true, verbatim_doc_comment)]
 pub struct Args {
 	#[clap(flatten)]
 	pub args: NewArgs,
@@ -20,6 +19,7 @@ pub struct Args {
 }
 
 #[derive(Debug, clap::Subcommand)]
+#[command(verbatim_doc_comment)]
 pub enum Command {
 	/// Get or create a build.
 	New(NewArgs),

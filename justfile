@@ -3,9 +3,12 @@ check:
 	npm run --workspaces --if-present check
 
 clean:
+	rm -rf node_modules target
+
+clean_path:
 	umount ~/.tangram/artifacts; rm -rf ~/.tangram
 
-cleano:
+clean_path_orb:
 	orb sh -c "umount /home/$USER/.tangram/artifacts; rm -rf /home/$USER/.tangram;"
 
 fmt:
