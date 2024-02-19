@@ -297,7 +297,6 @@ where
 	Ok(message)
 }
 
-#[allow(clippy::too_many_lines)]
 async fn handle_message(server: &Server, sender: &Sender, message: jsonrpc::Message) {
 	match message {
 		// Handle a request.
@@ -492,10 +491,12 @@ where
 	let params = serde_json::from_value(request.params.unwrap_or(serde_json::Value::Null))
 		.wrap_err("Failed to deserialize the request params.")
 		.unwrap();
-	let result = handler(sender.clone(), params).await;
-	if let Err(error) = result {
-		tracing::error!("{error}");
-	}
+	handler(sender.clone(), params)
+		.await
+		.inspect_err(|error| {
+			tracing::error!("{error}");
+		})
+		.ok();
 }
 
 fn send_response<T>(

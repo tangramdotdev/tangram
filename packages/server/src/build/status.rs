@@ -1,5 +1,4 @@
-use crate::{database::Database, postgres_params, sqlite_params, Http, Messenger, Server};
-use bytes::Bytes;
+use crate::{database::Database, postgres_params, sqlite_params, Http, Server};
 use futures::{
 	future,
 	stream::{self, BoxStream},
@@ -9,7 +8,8 @@ use http_body_util::{BodyExt, StreamBody};
 use tangram_client as tg;
 use tangram_error::{error, Error, Result, WrapErr};
 use tangram_util::http::{empty, not_found, Incoming, Outgoing};
-use tokio_stream::wrappers::{IntervalStream, WatchStream};
+use time::format_description::well_known::Rfc3339;
+use tokio_stream::wrappers::IntervalStream;
 
 impl Server {
 	pub async fn try_get_build_status(
@@ -45,29 +45,7 @@ impl Server {
 		}
 
 		// Create the event stream.
-		let status = match &self.inner.messenger {
-			Messenger::Local(local) => {
-				let channels = local.builds.read().unwrap().get(id).cloned();
-				channels
-					.map_or_else(
-						|| stream::empty().left_stream(),
-						|channels| {
-							WatchStream::from_changes(channels.status.subscribe()).right_stream()
-						},
-					)
-					.chain(stream::pending())
-					.left_stream()
-			},
-			Messenger::Nats(nats) => {
-				let subject = format!("builds.{id}.status");
-				nats.client
-					.subscribe(subject)
-					.await
-					.wrap_err("Failed to subscribe.")?
-					.map(|_| ())
-					.right_stream()
-			},
-		};
+		let status = self.inner.messenger.subscribe_to_build_status(id).await?;
 		let interval =
 			IntervalStream::new(tokio::time::interval(std::time::Duration::from_secs(60)))
 				.map(|_| ());
@@ -220,16 +198,34 @@ impl Server {
 			return Ok(false);
 		}
 
+		// Create the timestamp.
+		let timestamp_column = match status {
+			tg::build::Status::Created => "created_at",
+			tg::build::Status::Queued => "queued_at",
+			tg::build::Status::Started => "started_at",
+			tg::build::Status::Finished => "finished_at",
+		};
+		let timestamp = time::OffsetDateTime::now_utc();
+
 		// Update the database.
 		match &self.inner.database {
 			Database::Sqlite(database) => {
 				let connection = database.get().await?;
-				let statement = "
-					update builds
-					set status = ?1
-					where id = ?2;
-				";
-				let params = sqlite_params![status.to_string(), id.to_string()];
+				let statement = &format!(
+					"
+						update builds
+						set 
+							status = ?1,
+							{timestamp_column} = ?2 
+						where id = ?3;
+					"
+				);
+				let status = status.to_string();
+				let timestamp = timestamp
+					.format(&Rfc3339)
+					.wrap_err("Failed to format the timestamp.")?;
+				let id = id.to_string();
+				let params = sqlite_params![status, timestamp, id];
 				let mut statement = connection
 					.prepare_cached(statement)
 					.wrap_err("Failed to prepare the query.")?;
@@ -240,12 +236,21 @@ impl Server {
 
 			Database::Postgres(database) => {
 				let connection = database.get().await?;
-				let statement = "
-					update builds
-					set status = $1
-					where id = $2;
-				";
-				let params = postgres_params![status.to_string(), id.to_string()];
+				let statement = &format!(
+					"
+						update builds
+						set 
+							status = $1,
+							{timestamp_column} = $2 
+						where id = $3;
+					"
+				);
+				let status = status.to_string();
+				let timestamp = time::OffsetDateTime::now_utc()
+					.format(&Rfc3339)
+					.wrap_err("Failed to format the timestamp.")?;
+				let id = id.to_string();
+				let params = postgres_params![status, timestamp, id];
 				let statement = connection
 					.prepare_cached(statement)
 					.await
@@ -257,21 +262,8 @@ impl Server {
 			},
 		}
 
-		// Send the event.
-		match &self.inner.messenger {
-			Messenger::Local(local) => {
-				if let Some(channels) = local.builds.read().unwrap().get(id) {
-					channels.status.send_replace(());
-				}
-			},
-			Messenger::Nats(nats) => {
-				let subject = format!("builds.{id}.status");
-				nats.client
-					.publish(subject, Bytes::new())
-					.await
-					.wrap_err("Failed to publish the message.")?;
-			},
-		}
+		// Publish the message.
+		self.inner.messenger.publish_to_build_status(id).await?;
 
 		Ok(true)
 	}

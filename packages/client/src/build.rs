@@ -1,6 +1,6 @@
 pub use self::{outcome::Outcome, status::Status};
 use crate as tg;
-use crate::{blob, id, object, target, Client, Handle, Target, User, Value, WrapErr};
+use crate::{blob, id, object, target, Client, Handle, System, Target, User, Value};
 use async_recursion::async_recursion;
 use bytes::Bytes;
 use derive_more::Display;
@@ -9,13 +9,12 @@ use futures::{
 	StreamExt, TryStreamExt,
 };
 use http_body_util::BodyExt;
-use tangram_error::{error, Error, Result};
+use tangram_error::{error, Error, Result, WrapErr};
 use tangram_util::http::{empty, full};
 
 pub mod children;
 pub mod log;
 pub mod outcome;
-pub mod queue;
 pub mod status;
 
 #[derive(
@@ -59,25 +58,20 @@ pub enum Retry {
 	Succeeded,
 }
 
-#[derive(Clone, Debug, Default, serde::Deserialize, serde::Serialize)]
-pub struct Options {
-	pub depth: u64,
-	pub parent: Option<Id>,
-	pub remote: bool,
-	pub retry: Retry,
-}
-
 #[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
 pub struct ListArg {
-	pub limit: u64,
-	pub order: ListOrder,
-	pub target: target::Id,
+	pub limit: Option<u64>,
+	pub order: Option<Order>,
+	pub status: Option<Status>,
+	pub target: Option<target::Id>,
 }
 
 #[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
-#[serde(rename_all = "snake_case")]
-pub enum ListOrder {
-	Timestamp,
+pub enum Order {
+	#[serde(rename = "created_at")]
+	CreatedAt,
+	#[serde(rename = "created_at.desc")]
+	CreatedAtDesc,
 }
 
 #[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
@@ -87,75 +81,64 @@ pub struct ListOutput {
 
 #[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
 pub struct GetOutput {
-	/// The build's ID.
 	pub id: Id,
-
-	/// The build's children.
 	#[serde(default)]
 	pub children: Option<Vec<Id>>,
-
-	/// The build's log.
+	#[serde(default)]
+	pub descendants: Option<u64>,
+	pub host: System,
 	#[serde(default)]
 	pub log: Option<blob::Id>,
-
-	/// The build's outcome.
 	#[serde(default)]
 	pub outcome: Option<outcome::Data>,
-
-	/// The build's status.
+	pub retry: Retry,
 	pub status: Status,
-
-	/// The build's target.
 	pub target: target::Id,
-
-	/// The build's timestamp.
+	#[serde(default)]
+	pub weight: Option<u64>,
 	#[serde(with = "time::serde::rfc3339")]
-	pub timestamp: time::OffsetDateTime,
+	pub created_at: time::OffsetDateTime,
+	#[serde(default, with = "time::serde::rfc3339::option")]
+	pub queued_at: Option<time::OffsetDateTime>,
+	#[serde(default, with = "time::serde::rfc3339::option")]
+	pub started_at: Option<time::OffsetDateTime>,
+	#[serde(default, with = "time::serde::rfc3339::option")]
+	pub finished_at: Option<time::OffsetDateTime>,
 }
 
 #[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
 pub struct PutArg {
-	/// The build's ID.
 	pub id: Id,
-
-	/// The build's children.
 	#[serde(default)]
 	pub children: Option<Vec<Id>>,
-
-	/// The build's log.
+	#[serde(default)]
+	pub descendants: Option<u64>,
+	pub host: System,
 	#[serde(default)]
 	pub log: Option<blob::Id>,
-
-	/// The build's outcome.
 	#[serde(default)]
 	pub outcome: Option<outcome::Data>,
-
-	/// The build's status.
+	pub retry: Retry,
 	pub status: Status,
-
-	/// The build's target.
 	pub target: target::Id,
-
-	/// The build's timestamp.
+	#[serde(default)]
+	pub weight: Option<u64>,
 	#[serde(with = "time::serde::rfc3339")]
-	pub timestamp: time::OffsetDateTime,
-}
-
-#[derive(Clone, Debug, Default, serde::Deserialize, serde::Serialize)]
-pub struct PutOutput {
-	pub missing: Missing,
-}
-
-#[derive(Clone, Debug, Default, serde::Deserialize, serde::Serialize)]
-pub struct Missing {
-	pub builds: Vec<Id>,
-	pub objects: Vec<object::Id>,
+	pub created_at: time::OffsetDateTime,
+	#[serde(default, with = "time::serde::rfc3339::option")]
+	pub queued_at: Option<time::OffsetDateTime>,
+	#[serde(default, with = "time::serde::rfc3339::option")]
+	pub started_at: Option<time::OffsetDateTime>,
+	#[serde(default, with = "time::serde::rfc3339::option")]
+	pub finished_at: Option<time::OffsetDateTime>,
 }
 
 #[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
 pub struct GetOrCreateArg {
+	pub parent: Option<Id>,
+	pub remote: bool,
+	pub retry: Retry,
 	pub target: target::Id,
-	pub options: Options,
 }
 
 #[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
@@ -182,48 +165,10 @@ impl Build {
 		&self.id
 	}
 
-	pub async fn new(tg: &dyn Handle, target: Target, options: Options) -> Result<Self> {
-		let id = target.id(tg).await?;
-		let arg = GetOrCreateArg {
-			target: id.clone(),
-			options,
-		};
+	pub async fn new(tg: &dyn Handle, arg: GetOrCreateArg) -> Result<Self> {
 		let output = tg.get_or_create_build(None, arg).await?;
 		let build = Build::with_id(output.id);
 		Ok(build)
-	}
-
-	pub async fn status(
-		&self,
-		tg: &dyn Handle,
-		arg: status::GetArg,
-	) -> Result<BoxStream<'static, Result<Status>>> {
-		self.try_get_status(tg, arg)
-			.await?
-			.wrap_err("Failed to get the build.")
-	}
-
-	pub async fn try_get_status(
-		&self,
-		tg: &dyn Handle,
-		arg: status::GetArg,
-	) -> Result<Option<BoxStream<'static, Result<Status>>>> {
-		tg.try_get_build_status(self.id(), arg, None).await
-	}
-
-	pub async fn target(&self, tg: &dyn Handle) -> Result<Target> {
-		self.try_get_target(tg)
-			.await?
-			.wrap_err("Failed to get the build.")
-	}
-
-	pub async fn try_get_target(&self, tg: &dyn Handle) -> Result<Option<Target>> {
-		let Some(output) = tg.try_get_build(&self.id).await? else {
-			return Ok(None);
-		};
-		let id = output.target.clone();
-		let target = Target::with_id(id);
-		Ok(Some(target))
 	}
 
 	pub async fn children(
@@ -326,6 +271,52 @@ impl Build {
 		Ok(())
 	}
 
+	pub async fn retry(&self, tg: &dyn Handle) -> Result<Retry> {
+		self.try_get_retry(tg)
+			.await?
+			.wrap_err("Failed to get the build.")
+	}
+
+	pub async fn try_get_retry(&self, tg: &dyn Handle) -> Result<Option<Retry>> {
+		let Some(output) = tg.try_get_build(&self.id).await? else {
+			return Ok(None);
+		};
+		Ok(Some(output.retry))
+	}
+
+	pub async fn status(
+		&self,
+		tg: &dyn Handle,
+		arg: status::GetArg,
+	) -> Result<BoxStream<'static, Result<Status>>> {
+		self.try_get_status(tg, arg)
+			.await?
+			.wrap_err("Failed to get the build.")
+	}
+
+	pub async fn try_get_status(
+		&self,
+		tg: &dyn Handle,
+		arg: status::GetArg,
+	) -> Result<Option<BoxStream<'static, Result<Status>>>> {
+		tg.try_get_build_status(self.id(), arg, None).await
+	}
+
+	pub async fn target(&self, tg: &dyn Handle) -> Result<Target> {
+		self.try_get_target(tg)
+			.await?
+			.wrap_err("Failed to get the build.")
+	}
+
+	pub async fn try_get_target(&self, tg: &dyn Handle) -> Result<Option<Target>> {
+		let Some(output) = tg.try_get_build(&self.id).await? else {
+			return Ok(None);
+		};
+		let id = output.target.clone();
+		let target = Target::with_id(id);
+		Ok(Some(target))
+	}
+
 	#[async_recursion]
 	pub async fn push(
 		&self,
@@ -337,27 +328,29 @@ impl Build {
 		let arg = PutArg {
 			id: output.id,
 			children: output.children,
+			descendants: output.descendants,
+			host: output.host,
 			log: output.log,
 			outcome: output.outcome,
+			retry: output.retry,
 			status: output.status,
 			target: output.target,
-			timestamp: output.timestamp,
+			weight: output.weight,
+			created_at: output.created_at,
+			queued_at: output.queued_at,
+			started_at: output.started_at,
+			finished_at: output.finished_at,
 		};
-		let PutOutput { missing } = remote
-			.try_put_build(user, &self.id, &arg)
-			.await
-			.wrap_err("Failed to put the object.")?;
-		missing
-			.builds
+		arg.children
 			.iter()
+			.flatten()
 			.cloned()
 			.map(Self::with_id)
 			.map(|build| async move { build.push(user, tg, remote).await })
 			.collect::<FuturesUnordered<_>>()
 			.try_collect()
 			.await?;
-		missing
-			.objects
+		arg.objects()
 			.iter()
 			.cloned()
 			.map(object::Handle::with_id)
@@ -365,16 +358,16 @@ impl Build {
 			.collect::<FuturesUnordered<_>>()
 			.try_collect()
 			.await?;
-		if !missing.builds.is_empty() || !missing.objects.is_empty() {
-			let PutOutput { missing } = remote
-				.try_put_build(user, &self.id, &arg)
-				.await
-				.wrap_err("Failed to put the build.")?;
-			if !missing.builds.is_empty() || !missing.objects.is_empty() {
-				return Err(error!("Expected all children to be stored."));
-			}
-		}
+		remote
+			.put_build(user, &self.id, &arg)
+			.await
+			.wrap_err("Failed to put the object.")?;
 		Ok(())
+	}
+
+	#[async_recursion]
+	pub async fn pull(&self, _tg: &dyn Handle, _remote: &dyn Handle) -> Result<()> {
+		Err(error!("Not yet implemented."))
 	}
 }
 
@@ -538,12 +531,12 @@ impl Client {
 		Ok(Some(output))
 	}
 
-	pub async fn try_put_build(
+	pub async fn put_build(
 		&self,
 		user: Option<&tg::User>,
 		id: &tg::build::Id,
 		arg: &tg::build::PutArg,
-	) -> Result<tg::build::PutOutput> {
+	) -> Result<()> {
 		let method = http::Method::PUT;
 		let uri = format!("/builds/{id}");
 		let mut request = http::request::Builder::default().method(method).uri(uri);
@@ -567,13 +560,7 @@ impl Client {
 				.unwrap_or_else(|_| error!("The request did not succeed."));
 			return Err(error);
 		}
-		let bytes = response
-			.collect()
-			.await
-			.wrap_err("Failed to collect the response body.")?
-			.to_bytes();
-		let output = serde_json::from_slice(&bytes).wrap_err("Failed to deserialize the body.")?;
-		Ok(output)
+		Ok(())
 	}
 
 	pub async fn push_build(&self, user: Option<&tg::User>, id: &tg::build::Id) -> Result<()> {
@@ -709,8 +696,9 @@ impl std::str::FromStr for Id {
 impl std::fmt::Display for Status {
 	fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
 		match self {
+			Self::Created => write!(f, "created"),
 			Self::Queued => write!(f, "queued"),
-			Self::Running => write!(f, "running"),
+			Self::Started => write!(f, "started"),
 			Self::Finished => write!(f, "finished"),
 		}
 	}
@@ -721,8 +709,9 @@ impl std::str::FromStr for Status {
 
 	fn from_str(s: &str) -> Result<Self, Self::Err> {
 		match s {
+			"created" => Ok(Self::Created),
 			"queued" => Ok(Self::Queued),
-			"running" => Ok(Self::Running),
+			"started" => Ok(Self::Started),
 			"finished" => Ok(Self::Finished),
 			_ => Err(error!("Invalid value.")),
 		}

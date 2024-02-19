@@ -285,7 +285,6 @@ impl Server {
 		// Construct the version solving context and working set.
 		let mut analysis = BTreeMap::new();
 		let mut working_set = im::Vector::new();
-
 		self.analyze_package_with_path_dependencies(
 			package_with_path_dependencies,
 			&mut analysis,
@@ -301,7 +300,7 @@ impl Server {
 		// Solve.
 		let solution = self.solve(&mut context, working_set).await?;
 
-		// Create the error report.
+		// Collect the errors.
 		let errors = solution
 			.partial
 			.iter()
@@ -321,14 +320,12 @@ impl Server {
 			return Err(error!("{report}"));
 		}
 
-		// Create the nodes.
+		// Create the lock.
 		let root = package_with_path_dependencies.package.id(self).await?;
 		let mut nodes = Vec::new();
 		let root = self
 			.create_lock_inner(root, &context, &solution, &mut nodes)
 			.await?;
-
-		// Convert from data to object and create the lock.
 		let nodes = nodes
 			.into_iter()
 			.map(|node| {
@@ -345,7 +342,6 @@ impl Server {
 				tg::lock::Node { dependencies }
 			})
 			.collect();
-
 		let object = tg::lock::Object { root, nodes };
 		let lock = tg::Lock::with_object(object);
 
@@ -497,7 +493,6 @@ impl Server {
 		}
 	}
 
-	#[allow(clippy::too_many_lines)]
 	async fn solve(
 		&self,
 		context: &mut Context,
@@ -750,7 +745,7 @@ impl Context {
 	// Attempt to resolve `dependant` as a registry dependency.
 	async fn try_resolve_registry_dependency(
 		&mut self,
-		tg: &dyn tg::Handle,
+		server: &Server,
 		dependant: &Dependant,
 		remaining_versions: &mut im::Vector<String>,
 	) -> Result<tg::directory::Id, Error> {
@@ -770,13 +765,13 @@ impl Context {
 				return Ok(package.clone());
 			}
 			let dependency = tg::Dependency::with_name_and_version(name.into(), version);
-			let Some(package) = tg::package::try_get(tg, &dependency)
+			let Some(package) = tg::package::try_get(server, &dependency)
 				.await
 				.map_err(Error::Other)?
 			else {
 				continue;
 			};
-			let id = package.id(tg).await.map_err(Error::Other)?.clone();
+			let id = package.id(server).await.map_err(Error::Other)?.clone();
 			self.published_packages.insert(metadata, id.clone());
 			return Ok(id);
 		}
@@ -871,7 +866,7 @@ impl Context {
 	// Lookup all the versions we might use to solve this dependant.
 	async fn get_all_versions(
 		&mut self,
-		tg: &dyn tg::Handle,
+		server: &Server,
 		dependant: &Dependant,
 	) -> Result<im::Vector<String>> {
 		// If it is a path dependency, we don't care about the versions, which may not exist.
@@ -883,9 +878,10 @@ impl Context {
 		let Dependant { dependency, .. } = dependant;
 
 		// Filter the versions to only those that satisfy the constraint.
-		let metadata = tg
-			.get_package_versions(dependency)
+		let metadata = server
+			.try_get_package_versions(dependency)
 			.await?
+			.wrap_err("Expected the package to exist.")?
 			.into_iter()
 			.filter_map(|version| {
 				dependency
@@ -900,11 +896,11 @@ impl Context {
 }
 
 fn try_backtrack(history: &im::Vector<Frame>, package: &str, error: Error) -> Option<Frame> {
-	let idx = history
+	let index = history
 		.iter()
 		.take_while(|frame| !frame.solution.contains(package))
 		.count();
-	let mut frame = history.get(idx).cloned()?;
+	let mut frame = history.get(index).cloned()?;
 	frame.last_error = Some(error);
 	Some(frame)
 }
@@ -983,12 +979,10 @@ impl Report {
 			package,
 			dependency,
 		} = dependant;
-
 		let metadata = &self.context.analysis.get(package).unwrap().metadata;
 		let name = metadata.name.as_ref().unwrap();
 		let version = metadata.version.as_ref().unwrap();
 		write!(f, "{name} @ {version} requires {dependency}, but ")?;
-
 		match error {
 			Error::PackageCycleExists { dependant } => {
 				let metadata = &self
@@ -999,12 +993,12 @@ impl Report {
 					.metadata;
 				let name = metadata.name.as_ref().unwrap();
 				let version = metadata.version.as_ref().unwrap();
-				writeln!(f, "{name}@{version}, which creates a cycle.")?;
+				writeln!(f, "{name}@{version}, which creates a cycle")?;
 			},
 			Error::PackageVersionConflict => {
 				writeln!(
 					f,
-					"no version could be found that satisfies the constraints."
+					"no version could be found that satisfies the constraints"
 				)?;
 				let shared_dependants = self
 					.solution
@@ -1043,14 +1037,5 @@ impl Report {
 			},
 		}
 		Ok(())
-	}
-}
-
-impl std::fmt::Display for Mark {
-	fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-		match self {
-			Self::Permanent(complete) => write!(f, "Complete({complete:?})"),
-			Self::Temporary(version) => write!(f, "Incomplete({version})"),
-		}
 	}
 }

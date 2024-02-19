@@ -14,6 +14,7 @@ pub mod log;
 pub mod login;
 pub mod lsp;
 pub mod new;
+pub mod object;
 pub mod outdated;
 pub mod publish;
 pub mod pull;

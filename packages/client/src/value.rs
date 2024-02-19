@@ -278,7 +278,6 @@ impl serde::Serialize for Data {
 }
 
 impl<'de> serde::Deserialize<'de> for Data {
-	#[allow(clippy::too_many_lines)]
 	fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
 	where
 		D: serde::Deserializer<'de>,

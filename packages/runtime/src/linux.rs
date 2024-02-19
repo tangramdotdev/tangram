@@ -51,11 +51,9 @@ const SH_X8664_LINUX: &[u8] = include_bytes!(concat!(
 	"/src/linux/bin/sh_x86_64_linux"
 ));
 
-#[allow(clippy::similar_names, clippy::too_many_lines)]
 pub async fn build(
 	tg: &dyn tg::Handle,
 	build: &tg::Build,
-	options: &tg::build::Options,
 	mut stop: tokio::sync::watch::Receiver<bool>,
 	server_directory_path: &Path,
 ) -> Result<Option<tg::Value>> {
@@ -66,14 +64,13 @@ pub async fn build(
 	let server_directory_host_path = server_directory_path;
 	let server_directory_guest_path = PathBuf::from(SERVER_DIRECTORY_GUEST_PATH);
 
-	// Create a tempdir for the root.
+	// Get the server temp directory path.
 	let server_directory_temp_path = server_directory_host_path.join("tmp");
-
-	// Create the toplevel tempdir if it does not exist.
 	tokio::fs::create_dir_all(&server_directory_temp_path)
 		.await
 		.wrap_err("Failed to create the server temp directory.")?;
 
+	// Create a tempdir for the root.
 	let root_directory_tempdir = tempfile::TempDir::new_in(&server_directory_temp_path)
 		.wrap_err("Failed to create temporary directory.")?;
 	let root_directory_host_path = root_directory_tempdir.path().to_owned();
@@ -204,7 +201,6 @@ pub async fn build(
 	let runtime = tg::Runtime {
 		address,
 		build: build.id().clone(),
-		options: options.clone(),
 	};
 	env.insert(
 		"TANGRAM_RUNTIME".to_owned(),
@@ -672,7 +668,6 @@ pub async fn build(
 	Ok(Some(value))
 }
 
-#[allow(clippy::too_many_lines)]
 fn root(context: &Context) {
 	unsafe {
 		// Ask to receive a SIGKILL signal if the host process exits.
@@ -794,7 +789,6 @@ fn root(context: &Context) {
 	}
 }
 
-#[allow(clippy::similar_names)]
 fn guest(context: &Context) {
 	unsafe {
 		// Ask to receive a SIGKILL signal if the host process exits.

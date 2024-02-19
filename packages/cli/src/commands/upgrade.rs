@@ -7,7 +7,6 @@ use tangram_error::{Result, WrapErr};
 pub struct Args {}
 
 impl Cli {
-	#[allow(clippy::unused_async)]
 	pub async fn command_upgrade(&self, _args: Args) -> Result<()> {
 		tokio::process::Command::new("/bin/sh")
 			.args(["-c", "curl -sSL https://www.tangram.dev/install.sh | sh"])

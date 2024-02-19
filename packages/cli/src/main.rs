@@ -9,6 +9,7 @@ use tracing_subscriber::prelude::*;
 mod commands;
 mod config;
 mod tui;
+mod util;
 
 pub const API_URL: &str = "https://api.tangram.dev";
 
@@ -53,6 +54,7 @@ pub enum Command {
 	Login(self::commands::login::Args),
 	Lsp(self::commands::lsp::Args),
 	New(self::commands::new::Args),
+	Object(self::commands::object::Args),
 	Outdated(self::commands::outdated::Args),
 	Publish(self::commands::publish::Args),
 	Pull(self::commands::pull::Args),
@@ -148,6 +150,7 @@ async fn main_inner() {
 		Command::Lsp(args) => cli.command_lsp(args).boxed(),
 		Command::New(args) => cli.command_new(args).boxed(),
 		Command::Outdated(args) => cli.command_outdated(args).boxed(),
+		Command::Object(args) => cli.command_object(args).boxed(),
 		Command::Publish(args) => cli.command_publish(args).boxed(),
 		Command::Pull(args) => cli.command_pull(args).boxed(),
 		Command::Push(args) => cli.command_push(args).boxed(),
@@ -241,12 +244,13 @@ impl Cli {
 		tokio::fs::create_dir_all(&path)
 			.await
 			.wrap_err("Failed to create the server path.")?;
-		let stdout = tokio::fs::File::create(path.join("stdout"))
+		let stdout = tokio::fs::File::create(path.join("log"))
 			.await
-			.wrap_err("Failed to create the server stdout file.")?;
-		let stderr = tokio::fs::File::create(path.join("stderr"))
+			.wrap_err("Failed to create the server log file.")?;
+		let stderr = stdout
+			.try_clone()
 			.await
-			.wrap_err("Failed to create the server stderr file.")?;
+			.wrap_err("Failed to clone the server log file.")?;
 		tokio::process::Command::new(executable)
 			.args(["server", "run"])
 			.current_dir(&path)

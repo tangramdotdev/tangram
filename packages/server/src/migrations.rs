@@ -67,16 +67,23 @@ async fn migration_0000(path: &Path) -> Result<()> {
 		create table builds (
 			id text primary key,
 			children text,
+			descendants integer,
+			host text not null,
 			log text,
 			outcome text,
+			retry text not null,
 			status text not null,
 			target text not null,
-			timestamp text not null
+			weight integer,
+			created_at text not null,
+			queued_at text,
+			started_at text,
+			finished_at text
 		) strict;
 
-		create index builds_status_index on builds (status);
+		create index builds_status_created_at_index on builds (status, created_at);
 
-		create index builds_target_timestamp_index on builds (target, timestamp desc);
+		create index builds_target_created_at_index on builds (target, created_at desc);
 
 		create table build_children (
 			build text,
@@ -96,21 +103,30 @@ async fn migration_0000(path: &Path) -> Result<()> {
 
 		create unique index build_logs_index on build_logs (build, position);
 
-		create table build_queue (
+		create table build_objects (
 			build text not null,
-			options text not null,
-			host text not null,
-			depth integer not null
+			object text not null
 		) strict;
 
-		create unique index build_queue_build_index on build_queue (build);
+		create unique index build_objects_index on build_objects (build, object);
 
-		create index build_queue_host_depth_index on build_queue (host, depth desc);
+		create index build_objects_child_index on build_objects (object);
 
 		create table objects (
 			id text primary key,
-			bytes blob not null
+			bytes blob not null,
+			complete integer not null,
+			weight integer
 		) strict;
+
+		create table object_children (
+			object text not null,
+			child text not null
+		) strict;
+
+		create unique index object_children_index on object_children (object, child);
+
+		create index object_children_child_index on object_children (child);
 	";
 	connection
 		.execute_batch(sql)

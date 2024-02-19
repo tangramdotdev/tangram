@@ -208,7 +208,6 @@ impl Blob {
 		Ok(blob)
 	}
 
-	#[allow(clippy::unused_async)]
 	pub async fn archive(
 		_tg: &dyn Handle,
 		_artifact: &Artifact,

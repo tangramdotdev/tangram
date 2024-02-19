@@ -1744,7 +1744,6 @@ impl xdr::ToXdr for nfstime4 {
 }
 
 impl xdr::FromXdr for nfstime4 {
-	#[allow(clippy::similar_names)]
 	fn decode(decoder: &mut xdr::Decoder<'_>) -> Result<Self, xdr::Error> {
 		let seconds = decoder.decode()?;
 		let nseconds = decoder.decode()?;
@@ -2725,7 +2724,6 @@ impl xdr::FromXdr for COMPOUND4args {
 }
 
 impl xdr::ToXdr for nfs_resop4 {
-	#[allow(clippy::too_many_lines)]
 	fn encode<W>(&self, encoder: &mut xdr::Encoder<W>) -> Result<(), xdr::Error>
 	where
 		W: std::io::Write,

@@ -75,7 +75,7 @@ export let host: ts.LanguageServiceHost & ts.CompilerHost = {
 	},
 
 	readFile: () => {
-		throw new Error("Unimplemented.");
+		throw new Error();
 	},
 
 	resolveModuleNameLiterals: (imports, module) => {
@@ -121,7 +121,7 @@ export let host: ts.LanguageServiceHost & ts.CompilerHost = {
 	},
 
 	writeFile: () => {
-		throw new Error("Unimplemented.");
+		throw new Error();
 	},
 };
 

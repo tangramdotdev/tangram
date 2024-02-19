@@ -59,7 +59,6 @@ pub struct RunArgs {
 }
 
 impl Cli {
-	#[allow(clippy::unused_async)]
 	pub async fn command_server(&self, args: Args) -> Result<()> {
 		match args.command {
 			Command::Health => {
@@ -82,7 +81,6 @@ impl Cli {
 		Ok(())
 	}
 
-	#[allow(clippy::too_many_lines)]
 	async fn command_server_run(&self, args: RunArgs) -> Result<()> {
 		// Get the config.
 		let config = self.config(args.config).await?;

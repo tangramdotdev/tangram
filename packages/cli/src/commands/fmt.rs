@@ -11,7 +11,6 @@ pub struct Args {
 }
 
 impl Cli {
-	#[allow(clippy::unused_async)]
 	pub async fn command_fmt(&self, _args: Args) -> Result<()> {
 		Err(error!("Not yet implemented."))
 	}

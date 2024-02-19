@@ -32,6 +32,11 @@ pub struct PostgresConnection {
 	task: tokio::task::JoinHandle<()>,
 }
 
+pub struct PostgresTransaction<'a> {
+	statements: &'a tokio::sync::Mutex<HashMap<String, postgres::Statement, fnv::FnvBuildHasher>>,
+	transaction: postgres::Transaction<'a>,
+}
+
 impl Database {
 	pub async fn new_sqlite(path: PathBuf) -> Result<Self> {
 		Ok(Self::Sqlite(Sqlite::new(path).await?))
@@ -54,7 +59,7 @@ impl Sqlite {
 		Ok(database)
 	}
 
-	pub async fn get(&self) -> Result<tangram_util::pool::Guard<'_, SqliteConnection>> {
+	pub async fn get(&self) -> Result<tangram_util::pool::Guard<SqliteConnection>> {
 		let connection = self.pool.get().await;
 		Ok(connection)
 	}
@@ -71,7 +76,7 @@ impl Postgres {
 		Ok(database)
 	}
 
-	pub async fn get(&self) -> Result<tangram_util::pool::Guard<'_, PostgresConnection>> {
+	pub async fn get(&self) -> Result<tangram_util::pool::Guard<PostgresConnection>> {
 		let mut connection = self.pool.get().await;
 		if connection.is_closed() {
 			connection.replace(PostgresConnection::connect(&self.url).await?);
@@ -96,9 +101,12 @@ impl PostgresConnection {
 			.await
 			.wrap_err("Failed to connect to the database.")?;
 		let task = tokio::spawn(async move {
-			if let Err(error) = connection.await {
-				tracing::error!(?error);
-			}
+			connection
+				.await
+				.inspect_err(|error| {
+					tracing::error!(?error);
+				})
+				.ok();
 		});
 		let statements = tokio::sync::Mutex::new(HashMap::default());
 		let client = Self {
@@ -131,6 +139,36 @@ impl PostgresConnection {
 			.insert(query, statement.clone());
 		Ok(statement)
 	}
+
+	pub async fn transaction(&mut self) -> Result<PostgresTransaction<'_>, postgres::Error> {
+		let transaction = self.client.transaction().await?;
+		Ok(PostgresTransaction {
+			statements: &self.statements,
+			transaction,
+		})
+	}
+}
+
+impl<'a> PostgresTransaction<'a> {
+	pub async fn prepare_cached(
+		&self,
+		query: impl Into<String>,
+	) -> Result<postgres::Statement, postgres::Error> {
+		let query = query.into();
+		if let Some(statement) = self.statements.lock().await.get(&query) {
+			return Ok(statement.clone());
+		}
+		let statement = self.transaction.prepare(&query).await?;
+		self.statements
+			.lock()
+			.await
+			.insert(query, statement.clone());
+		Ok(statement)
+	}
+
+	pub async fn commit(self) -> Result<(), postgres::Error> {
+		self.transaction.commit().await
+	}
 }
 
 impl std::ops::Deref for SqliteConnection {
@@ -158,6 +196,20 @@ impl std::ops::Deref for PostgresConnection {
 impl std::ops::DerefMut for PostgresConnection {
 	fn deref_mut(&mut self) -> &mut Self::Target {
 		&mut self.client
+	}
+}
+
+impl<'a> std::ops::Deref for PostgresTransaction<'a> {
+	type Target = postgres::Transaction<'a>;
+
+	fn deref(&self) -> &Self::Target {
+		&self.transaction
+	}
+}
+
+impl<'a> std::ops::DerefMut for PostgresTransaction<'a> {
+	fn deref_mut(&mut self) -> &mut Self::Target {
+		&mut self.transaction
 	}
 }
 

@@ -4,6 +4,7 @@ use derive_more::TryUnwrap;
 use futures::{future, FutureExt};
 use http_body_util::BodyExt;
 use serde_with::serde_as;
+use std::pin::pin;
 use tangram_error::{error, Error, Result, WrapErr};
 use tangram_util::http::{empty, full};
 
@@ -82,10 +83,8 @@ impl Client {
 		}
 		.fuse();
 		let stop = stop.map(|()| Ok(None)).fuse();
-		tokio::pin!(outcome);
-		tokio::pin!(stop);
 		#[allow(clippy::match_same_arms)]
-		let outcome = match future::try_select(outcome, stop).await {
+		let outcome = match future::try_select(pin!(outcome), pin!(stop)).await {
 			Ok(future::Either::Left((outcome, _))) => outcome,
 			Ok(future::Either::Right((outcome, _))) => outcome,
 			Err(future::Either::Left((error, _))) => return Err(error),

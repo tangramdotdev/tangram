@@ -193,7 +193,6 @@ impl Server {
 		Ok(())
 	}
 
-	#[allow(clippy::too_many_lines)]
 	fn serve(&self) -> Result<()> {
 		// Create a buffer to read requests into.
 		let mut request_buffer = vec![0u8; 1024 * 1024 + 4096];
@@ -285,10 +284,9 @@ impl Server {
 					return;
 				}
 
-				let result = server.handle_request(request).await;
-				if let Err(e) = &result {
-					tracing::error!(?e, "Request failed.");
-				}
+				let result = server.handle_request(request).await.inspect_err(|error| {
+					tracing::error!(?error, "Request failed.");
+				});
 
 				// Serialize the response.
 				match result {
@@ -393,7 +391,6 @@ impl Server {
 		}
 	}
 
-	#[allow(clippy::unused_async, clippy::no_effect_underscore_binding)]
 	async fn handle_flush_request(
 		&self,
 		_header: sys::fuse_in_header,
@@ -402,7 +399,6 @@ impl Server {
 		Ok(Response::Flush)
 	}
 
-	#[allow(clippy::unused_async, clippy::no_effect_underscore_binding)]
 	async fn handle_batch_forget_request(
 		&self,
 		_header: sys::fuse_in_header,
@@ -411,7 +407,6 @@ impl Server {
 		Ok(Response::None)
 	}
 
-	#[allow(clippy::unused_async, clippy::no_effect_underscore_binding)]
 	async fn handle_forget_request(
 		&self,
 		_header: sys::fuse_in_header,
@@ -518,7 +513,6 @@ impl Server {
 		}
 	}
 
-	#[allow(clippy::unused_async, clippy::no_effect_underscore_binding)]
 	async fn handle_init_request(
 		&self,
 		_header: sys::fuse_in_header,
@@ -562,7 +556,6 @@ impl Server {
 		Ok(Response::Lookup(response))
 	}
 
-	#[allow(clippy::similar_names)]
 	async fn handle_open_request(
 		&self,
 		header: sys::fuse_in_header,
@@ -682,7 +675,6 @@ impl Server {
 		Ok(Response::Read(bytes))
 	}
 
-	#[allow(clippy::unused_async)]
 	async fn handle_read_dir_request(
 		&self,
 		header: sys::fuse_in_header,
@@ -766,7 +758,6 @@ impl Server {
 		})
 	}
 
-	#[allow(clippy::unused_async)]
 	async fn handle_read_link_request(&self, header: sys::fuse_in_header) -> Result<Response, i32> {
 		// Get the node.
 		let node_id = NodeId(header.nodeid);
@@ -811,7 +802,6 @@ impl Server {
 		Ok(Response::ReadLink(target))
 	}
 
-	#[allow(clippy::unused_async, clippy::no_effect_underscore_binding)]
 	async fn handle_release_request(
 		&self,
 		_header: sys::fuse_in_header,
@@ -822,7 +812,6 @@ impl Server {
 		Ok(Response::Release)
 	}
 
-	#[allow(clippy::unused_async)]
 	async fn handle_release_dir_request(
 		&self,
 		_header: sys::fuse_in_header,
@@ -833,7 +822,6 @@ impl Server {
 		Ok(Response::ReleaseDir)
 	}
 
-	#[allow(clippy::unused_async)]
 	async fn handle_unsupported_request(
 		&self,
 		_header: sys::fuse_in_header,
@@ -846,7 +834,6 @@ impl Server {
 		Err(libc::ENOSYS)
 	}
 
-	#[allow(clippy::unused_async)]
 	async fn get_node(&self, node_id: NodeId) -> Result<Arc<Node>, i32> {
 		let Some(node) = self.inner.nodes.read().get(&node_id).cloned() else {
 			return Err(libc::ENOENT);
@@ -964,7 +951,6 @@ impl Server {
 	}
 
 	// Create a new NodeId.
-	#[allow(clippy::unused_async)]
 	async fn next_node_id(&self) -> NodeId {
 		let node_id = self
 			.inner
@@ -974,7 +960,6 @@ impl Server {
 	}
 
 	// Create a new reader id.
-	#[allow(clippy::unused_async)]
 	async fn next_file_handle(&self) -> FileHandle {
 		let handle = self
 			.inner
@@ -983,7 +968,6 @@ impl Server {
 		FileHandle(handle)
 	}
 
-	#[allow(clippy::similar_names, clippy::unused_async)]
 	async fn mount(path: &Path) -> Result<std::os::unix::io::RawFd> {
 		unsafe {
 			// Setup the arguments.

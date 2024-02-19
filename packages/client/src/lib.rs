@@ -51,7 +51,6 @@ struct Inner {
 	address: Address,
 	build: Option<tg::build::Id>,
 	file_descriptor_semaphore: tokio::sync::Semaphore,
-	options: Option<tg::build::Options>,
 	sender: tokio::sync::Mutex<
 		Option<hyper::client::conn::http2::SendRequest<tangram_util::http::Outgoing>>,
 	>,
@@ -81,7 +80,6 @@ pub enum Host {
 pub struct Builder {
 	address: Address,
 	build: Option<build::Id>,
-	options: Option<build::Options>,
 	tls: Option<bool>,
 	user: Option<User>,
 }
@@ -90,7 +88,6 @@ pub struct Builder {
 pub struct Runtime {
 	pub address: Address,
 	pub build: build::Id,
-	pub options: build::Options,
 }
 
 impl Client {
@@ -102,7 +99,6 @@ impl Client {
 		let address = runtime.address;
 		let build = Some(runtime.build);
 		let file_descriptor_semaphore = tokio::sync::Semaphore::new(16);
-		let options = Some(runtime.options);
 		let sender = tokio::sync::Mutex::new(None);
 		let tls = false;
 		let user = None;
@@ -110,7 +106,6 @@ impl Client {
 			address,
 			build,
 			file_descriptor_semaphore,
-			options,
 			sender,
 			tls,
 			user,
@@ -122,11 +117,6 @@ impl Client {
 	#[must_use]
 	pub fn build(&self) -> Option<&build::Id> {
 		self.inner.build.as_ref()
-	}
-
-	#[must_use]
-	pub fn options(&self) -> Option<&build::Options> {
-		self.inner.options.as_ref()
 	}
 
 	pub async fn connect(&self) -> Result<()> {
@@ -190,9 +180,13 @@ impl Client {
 
 		// Spawn the connection.
 		tokio::spawn(async move {
-			if let Err(error) = connection.with_upgrades().await {
-				tracing::error!(error = ?error, "The connection failed.");
-			}
+			connection
+				.with_upgrades()
+				.await
+				.inspect_err(|error| {
+					tracing::error!(error = ?error, "The connection failed.");
+				})
+				.ok();
 		});
 
 		// Wait for the sender to be ready.
@@ -222,9 +216,12 @@ impl Client {
 
 		// Spawn the connection.
 		tokio::spawn(async move {
-			if let Err(error) = connection.await {
-				tracing::error!(error = ?error, "The connection failed.");
-			}
+			connection
+				.await
+				.inspect_err(|error| {
+					tracing::error!(error = ?error, "The connection failed.");
+				})
+				.ok();
 		});
 
 		// Wait for the sender to be ready.
@@ -253,9 +250,13 @@ impl Client {
 
 		// Spawn the connection.
 		tokio::spawn(async move {
-			if let Err(error) = connection.with_upgrades().await {
-				tracing::error!(error = ?error, "The connection failed.");
-			}
+			connection
+				.with_upgrades()
+				.await
+				.inspect_err(|error| {
+					tracing::error!(error = ?error, "The connection failed.");
+				})
+				.ok();
 		});
 
 		// Wait for the sender to be ready.
@@ -285,9 +286,12 @@ impl Client {
 
 		// Spawn the connection.
 		tokio::spawn(async move {
-			if let Err(error) = connection.await {
-				tracing::error!(error = ?error, "The connection failed.");
-			}
+			connection
+				.await
+				.inspect_err(|error| {
+					tracing::error!(error = ?error, "The connection failed.");
+				})
+				.ok();
 		});
 
 		// Wait for the sender to be ready.
@@ -314,9 +318,13 @@ impl Client {
 
 		// Spawn the connection.
 		tokio::spawn(async move {
-			if let Err(error) = connection.with_upgrades().await {
-				tracing::error!(error = ?error, "The connection failed.");
-			}
+			connection
+				.with_upgrades()
+				.await
+				.inspect_err(|error| {
+					tracing::error!(error = ?error, "The connection failed.");
+				})
+				.ok();
 		});
 
 		// Wait for the sender to be ready.
@@ -344,9 +352,12 @@ impl Client {
 
 		// Spawn the connection.
 		tokio::spawn(async move {
-			if let Err(error) = connection.await {
-				tracing::error!(error = ?error, "The connection failed.");
-			}
+			connection
+				.await
+				.inspect_err(|error| {
+					tracing::error!(error = ?error, "The connection failed.");
+				})
+				.ok();
 		});
 
 		// Wait for the sender to be ready.
@@ -418,7 +429,6 @@ impl Builder {
 		Self {
 			address,
 			build: None,
-			options: None,
 			tls: None,
 			user: None,
 		}
@@ -427,12 +437,6 @@ impl Builder {
 	#[must_use]
 	pub fn build_(mut self, build: build::Id) -> Self {
 		self.build = Some(build);
-		self
-	}
-
-	#[must_use]
-	pub fn options(mut self, options: build::Options) -> Self {
-		self.options = Some(options);
 		self
 	}
 
@@ -453,7 +457,6 @@ impl Builder {
 		let address = self.address;
 		let build = self.build;
 		let file_descriptor_semaphore = tokio::sync::Semaphore::new(16);
-		let options = self.options;
 		let sender = tokio::sync::Mutex::new(None);
 		let tls = self.tls.unwrap_or(false);
 		let user = self.user;
@@ -461,7 +464,6 @@ impl Builder {
 			address,
 			build,
 			file_descriptor_semaphore,
-			options,
 			sender,
 			tls,
 			user,
@@ -499,21 +501,17 @@ impl Handle for Client {
 		self.list_builds(arg).await
 	}
 
-	async fn get_build_exists(&self, id: &tg::build::Id) -> Result<bool> {
-		self.get_build_exists(id).await
-	}
-
 	async fn try_get_build(&self, id: &tg::build::Id) -> Result<Option<tg::build::GetOutput>> {
 		self.try_get_build(id).await
 	}
 
-	async fn try_put_build(
+	async fn put_build(
 		&self,
 		user: Option<&tg::User>,
 		id: &tg::build::Id,
 		arg: &tg::build::PutArg,
-	) -> Result<tg::build::PutOutput> {
-		self.try_put_build(user, id, arg).await
+	) -> Result<()> {
+		self.put_build(user, id, arg).await
 	}
 
 	async fn push_build(&self, user: Option<&tg::User>, id: &tg::build::Id) -> Result<()> {
@@ -530,14 +528,6 @@ impl Handle for Client {
 		arg: tg::build::GetOrCreateArg,
 	) -> Result<tg::build::GetOrCreateOutput> {
 		self.get_or_create_build(user, arg).await
-	}
-
-	async fn try_dequeue_build(
-		&self,
-		user: Option<&User>,
-		arg: tg::build::queue::DequeueArg,
-	) -> Result<Option<tg::build::queue::DequeueOutput>> {
-		self.try_dequeue_build(user, arg).await
 	}
 
 	async fn try_get_build_status(
@@ -612,20 +602,16 @@ impl Handle for Client {
 		self.set_build_outcome(user, id, outcome).await
 	}
 
-	async fn get_object_exists(&self, id: &tg::object::Id) -> Result<bool> {
-		self.get_object_exists(id).await
-	}
-
 	async fn try_get_object(&self, id: &tg::object::Id) -> Result<Option<tg::object::GetOutput>> {
 		self.try_get_object(id).await
 	}
 
-	async fn try_put_object(
+	async fn put_object(
 		&self,
 		id: &tg::object::Id,
-		bytes: &Bytes,
+		arg: &tg::object::PutArg,
 	) -> Result<tg::object::PutOutput> {
-		self.try_put_object(id, bytes).await
+		self.put_object(id, arg).await
 	}
 
 	async fn push_object(&self, id: &tg::object::Id) -> Result<()> {

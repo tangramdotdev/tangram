@@ -189,7 +189,6 @@ impl swc::ecma::visit::VisitMut for TargetVisitor {
 }
 
 impl TargetVisitor {
-	#[allow(clippy::too_many_lines)]
 	fn visit_call(&mut self, n: &mut ast::CallExpr, export_name: Option<String>) {
 		// Check if this is a call to tg.target.
 		let Some(callee) = n.callee.as_expr().and_then(|expr| expr.as_member()) else {

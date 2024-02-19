@@ -1,9 +1,8 @@
-use crate::{database::Database, postgres_params, sqlite_params, Http, Messenger, Server};
-use bytes::Bytes;
+use crate::{database::Database, postgres_params, sqlite_params, Http, Server};
 use futures::{
 	future,
 	stream::{self, BoxStream},
-	FutureExt, StreamExt, TryFutureExt, TryStreamExt,
+	stream_select, FutureExt, StreamExt, TryStreamExt,
 };
 use http_body_util::{BodyExt, StreamBody};
 use itertools::Itertools;
@@ -15,7 +14,7 @@ use tangram_util::{
 	http::{empty, not_found, Incoming, Outgoing},
 	iter::IterExt,
 };
-use tokio_stream::wrappers::{IntervalStream, WatchStream};
+use tokio_stream::wrappers::IntervalStream;
 
 impl Server {
 	pub async fn try_get_build_children(
@@ -39,7 +38,6 @@ impl Server {
 		}
 	}
 
-	#[allow(clippy::too_many_lines)]
 	async fn try_get_build_children_local(
 		&self,
 		id: &tg::build::Id,
@@ -52,51 +50,8 @@ impl Server {
 		}
 
 		// Create the event stream.
-		let children = match &self.inner.messenger {
-			Messenger::Local(local) => {
-				let channels = local.builds.read().unwrap().get(id).cloned();
-				channels
-					.map_or_else(
-						|| stream::empty().left_stream(),
-						|channels| {
-							WatchStream::from_changes(channels.children.subscribe()).right_stream()
-						},
-					)
-					.chain(stream::pending())
-					.left_stream()
-			},
-			Messenger::Nats(nats) => {
-				let subject = format!("builds.{id}.children");
-				nats.client
-					.subscribe(subject)
-					.await
-					.wrap_err("Failed to subscribe.")?
-					.map(|_| ())
-					.right_stream()
-			},
-		};
-		let finished = {
-			let server = self.clone();
-			let id = id.clone();
-			async move {
-				let arg = tg::build::status::GetArg::default();
-				server
-					.try_get_build_status_local(&id, arg, None)
-					.await?
-					.wrap_err("Expected the build to exist.")?
-					.try_filter_map(|status| {
-						future::ready(Ok(if status == tg::build::Status::Finished {
-							Some(())
-						} else {
-							None
-						}))
-					})
-					.try_next()
-					.map_ok(|option| option.is_some())
-					.await
-			}
-			.shared()
-		};
+		let children = self.inner.messenger.subscribe_to_build_children(id).await?;
+		let status = self.inner.messenger.subscribe_to_build_status(id).await?;
 		let interval =
 			IntervalStream::new(tokio::time::interval(std::time::Duration::from_secs(60)))
 				.map(|_| ());
@@ -110,9 +65,7 @@ impl Server {
 		);
 		let events = stream::once(future::ready(()))
 			.chain(
-				stream::select(children, interval)
-					.take_until(finished)
-					.chain(stream::once(future::ready(())))
+				stream_select!(children, status, interval)
 					.take_until(timeout)
 					.take_until(stop),
 			)
@@ -261,7 +214,7 @@ impl Server {
 					.wrap_err("Expected a row.")?;
 				let count = row
 					.get::<_, i64>(0)
-					.wrap_err("Failed to deseriaize the column.")?
+					.wrap_err("Failed to deserialize the column.")?
 					.to_u64()
 					.unwrap();
 				Ok(count)
@@ -272,7 +225,7 @@ impl Server {
 				let statement = "
 					select count(*)
 					from build_children
-					where build = ?1;
+					where build = $1;
 				";
 				let id = id.to_string();
 				let params = postgres_params![id];
@@ -287,7 +240,7 @@ impl Server {
 				let row = rows.into_iter().next().wrap_err("Expected a row.")?;
 				let count = row
 					.try_get::<_, i64>(0)
-					.wrap_err("Failed to deseriaize the column.")?
+					.wrap_err("Failed to deserialiize the column.")?
 					.to_u64()
 					.unwrap();
 				Ok(count)
@@ -327,7 +280,7 @@ impl Server {
 					.wrap_err("Expected a row.")?;
 				let end = row
 					.get::<_, bool>(0)
-					.wrap_err("Failed to deseriaize the column.")?;
+					.wrap_err("Failed to deserialize the column.")?;
 				Ok(end)
 			},
 
@@ -522,21 +475,11 @@ impl Server {
 			},
 		}
 
-		// Send the event.
-		match &self.inner.messenger {
-			Messenger::Local(local) => {
-				if let Some(channels) = local.builds.read().unwrap().get(build_id) {
-					channels.children.send_replace(());
-				}
-			},
-			Messenger::Nats(nats) => {
-				let subject = format!("builds.{build_id}.children");
-				nats.client
-					.publish(subject, Bytes::new())
-					.await
-					.wrap_err("Failed to publish the message.")?;
-			},
-		}
+		// Publish the message.
+		self.inner
+			.messenger
+			.publish_to_build_children(build_id)
+			.await?;
 
 		Ok(true)
 	}

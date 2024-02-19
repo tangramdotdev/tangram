@@ -181,12 +181,14 @@ impl Server {
 		let task = tokio::spawn({
 			let server = server.clone();
 			async move {
-				if let Err(error) = server.serve(port).await {
-					tracing::error!(?error, "NFS server shutdown.");
-					Err(error)
-				} else {
-					Ok(())
-				}
+				server
+					.serve(port)
+					.await
+					.inspect_err(|error| {
+						tracing::error!(?error, "NFS server shutdown.");
+					})
+					.ok();
+				Ok(())
 			}
 		});
 		server.inner.task.lock().unwrap().replace(task);
@@ -283,9 +285,13 @@ impl Server {
 			tracing::info!(?addr, "Accepted client connection.");
 			let server = self.clone();
 			tokio::spawn(async move {
-				if let Err(error) = server.handle_connection(conn).await {
-					tracing::error!(?addr, ?error, "The connection was closed.");
-				}
+				server
+					.handle_connection(conn)
+					.await
+					.inspect_err(|error| {
+						tracing::error!(?addr, ?error, "The connection was closed.");
+					})
+					.ok();
 			});
 		}
 	}
@@ -381,7 +387,7 @@ impl Server {
 	}
 
 	// Check if credential and verification are valid.
-	#[allow(clippy::unused_async, clippy::unnecessary_wraps)]
+	#[allow(clippy::unnecessary_wraps)]
 	async fn handle_auth(
 		&self,
 		_cred: rpc::Auth,
@@ -395,7 +401,6 @@ impl Server {
 	}
 
 	// See <https://datatracker.ietf.org/doc/html/rfc7530#section-17.2>.
-	#[allow(clippy::too_many_lines)]
 	async fn handle_compound(
 		&self,
 		xid: u32,
@@ -705,7 +710,6 @@ impl Server {
 		})
 	}
 
-	#[allow(clippy::similar_names)]
 	async fn get_file_attr_data(&self, file_handle: nfs_fh4) -> Option<FileAttrData> {
 		let node = self.get_node(file_handle).await?;
 		let data = match &node.kind {
@@ -784,7 +788,6 @@ impl Server {
 		LOCK4res::NFS4_OK(resok)
 	}
 
-	#[allow(clippy::unused_async)]
 	async fn handle_lockt(&self, _ctx: &mut Context, arg: LOCKT4args) -> LOCKT4res {
 		if ![0, u64::MAX].contains(&arg.length) && (u64::MAX - arg.offset > arg.length) {
 			return LOCKT4res::Error(nfsstat4::NFS4ERR_INVAL);
@@ -868,7 +871,6 @@ impl Server {
 		Ok(Some(nfs_fh4(node.id)))
 	}
 
-	#[allow(clippy::too_many_lines)]
 	async fn get_or_create_child_node(
 		&self,
 		parent_node: Arc<Node>,
@@ -1516,7 +1518,6 @@ impl Server {
 		}
 	}
 
-	#[allow(clippy::unused_async)]
 	async fn handle_release_lockowner(
 		&self,
 		_context: &mut Context,

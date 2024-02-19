@@ -121,12 +121,13 @@ impl Branch {
 		let data = self.data(tg).await?;
 		let bytes = data.serialize()?;
 		let id = Id::new(&bytes);
+		let arg = object::PutArg { bytes };
 		let output = tg
-			.try_put_object(&id.clone().into(), &bytes)
+			.put_object(&id.clone().into(), &arg)
 			.await
 			.wrap_err("Failed to put the object.")?;
-		if !output.missing.is_empty() {
-			return Err(error!("Expected all children to be stored."));
+		if !output.incomplete.is_empty() {
+			return Err(error!("Expected the object to be complete."));
 		}
 		self.state.write().unwrap().id.replace(id);
 		Ok(())

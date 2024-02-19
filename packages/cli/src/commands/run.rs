@@ -76,11 +76,13 @@ impl Cli {
 		eprintln!("{}", target.id(client).await?);
 
 		// Build the target.
-		let options = tg::build::Options {
+		let arg = tg::build::GetOrCreateArg {
+			parent: None,
+			remote: false,
 			retry: args.retry,
-			..Default::default()
+			target: target.id(client).await?.clone(),
 		};
-		let build = tg::Build::new(client, target, options).await?;
+		let build = tg::Build::new(client, arg).await?;
 
 		// Print the build ID.
 		eprintln!("{}", build.id());

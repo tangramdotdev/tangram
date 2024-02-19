@@ -158,12 +158,13 @@ impl Target {
 		let data = self.data(tg).await?;
 		let bytes = data.serialize()?;
 		let id = Id::new(&bytes);
+		let arg = object::PutArg { bytes };
 		let output = tg
-			.try_put_object(&id.clone().into(), &bytes)
+			.put_object(&id.clone().into(), &arg)
 			.await
 			.wrap_err("Failed to put the object.")?;
-		if !output.missing.is_empty() {
-			return Err(error!("Expected all children to be stored."));
+		if !output.incomplete.is_empty() {
+			return Err(error!("Expected the object to be complete."));
 		}
 		self.state.write().unwrap().id.replace(id);
 		Ok(())
@@ -253,11 +254,11 @@ impl Target {
 		Ok(Some(directory))
 	}
 
-	pub async fn build(&self, tg: &dyn Handle, options: build::Options) -> Result<Value> {
+	pub async fn build(&self, tg: &dyn Handle, arg: build::GetOrCreateArg) -> Result<Value> {
 		let mut attempts = 0;
 		loop {
 			attempts += 1;
-			let build = Build::new(tg, self.clone(), options.clone()).await?;
+			let build = Build::new(tg, arg.clone()).await?;
 			let outcome = build.outcome(tg).await?;
 			match outcome {
 				build::Outcome::Terminated => {

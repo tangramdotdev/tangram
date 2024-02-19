@@ -30,7 +30,7 @@ pub struct Args {
 impl Cli {
 	pub async fn command_test(&self, args: Args) -> Result<()> {
 		// Create the build args.
-		let args = super::build::Args {
+		let args = super::build::NewArgs {
 			detach: args.detach,
 			locked: args.locked,
 			no_tui: false,
@@ -38,6 +38,10 @@ impl Cli {
 			package: args.package,
 			retry: args.retry,
 			target: "test".to_owned(),
+		};
+		let args = super::build::Args {
+			args,
+			command: None,
 		};
 
 		// Build!

@@ -130,7 +130,6 @@ impl Server {
 		Ok(Some(user))
 	}
 
-	#[allow(clippy::unused_async)]
 	pub async fn create_oauth_url(&self, login_id: &tg::Id) -> Result<Url> {
 		// Create the redirect URL.
 		let mut redirect_url = self
@@ -396,7 +395,6 @@ impl Http {
 		Ok(response)
 	}
 
-	#[allow(clippy::unused_async)]
 	pub async fn handle_create_oauth_url_request(
 		&self,
 		request: http::Request<Incoming>,

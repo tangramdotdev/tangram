@@ -8,7 +8,6 @@ use tangram_error::{error, Result, WrapErr};
 
 impl Module {
 	/// Resolve a module.
-	#[allow(clippy::too_many_lines)]
 	pub async fn resolve(
 		&self,
 		tg: &dyn tg::Handle,

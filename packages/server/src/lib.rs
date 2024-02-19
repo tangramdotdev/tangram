@@ -1,8 +1,9 @@
-use self::database::Database;
 pub use self::options::Options;
+use self::{database::Database, messenger::Messenger};
 use async_nats as nats;
 use async_trait::async_trait;
 use bytes::Bytes;
+use either::Either;
 use futures::{
 	future,
 	stream::{BoxStream, FuturesUnordered},
@@ -15,6 +16,7 @@ use std::{
 	convert::Infallible,
 	os::fd::AsRawFd,
 	path::{Path, PathBuf},
+	pin::pin,
 	sync::Arc,
 };
 use tangram_client as tg;
@@ -24,13 +26,13 @@ use tangram_util::{
 	http::{full, get_token, Incoming, Outgoing},
 };
 use tokio::net::{TcpListener, UnixListener};
-use tokio_util::either::Either;
 use url::Url;
 
 mod artifact;
 mod build;
 mod clean;
 mod database;
+mod messenger;
 mod migrations;
 mod object;
 pub mod options;
@@ -45,21 +47,18 @@ pub struct Server {
 }
 
 struct Inner {
+	build_queue_task: std::sync::Mutex<Option<tokio::task::JoinHandle<Result<()>>>>,
+	build_queue_task_stop: tokio::sync::watch::Sender<bool>,
 	build_semaphore: Arc<tokio::sync::Semaphore>,
 	build_state: std::sync::RwLock<HashMap<tg::build::Id, Arc<BuildState>, fnv::FnvBuildHasher>>,
 	database: Database,
 	file_descriptor_semaphore: tokio::sync::Semaphore,
 	http: std::sync::Mutex<Option<Http>>,
-	local_queue_task: std::sync::Mutex<Option<tokio::task::JoinHandle<Result<()>>>>,
-	local_queue_task_stop_sender: tokio::sync::watch::Sender<bool>,
-	local_queue_task_wake_sender: tokio::sync::watch::Sender<()>,
 	lockfile: std::sync::Mutex<Option<tokio::fs::File>>,
 	messenger: Messenger,
 	oauth: OAuth,
 	path: PathBuf,
 	remote: Option<Box<dyn tg::Handle>>,
-	remote_queue_task: std::sync::Mutex<Option<tokio::task::JoinHandle<Result<()>>>>,
-	remote_queue_task_stop_sender: tokio::sync::watch::Sender<bool>,
 	shutdown: tokio::sync::watch::Sender<bool>,
 	shutdown_task: std::sync::Mutex<Option<tokio::task::JoinHandle<Result<()>>>>,
 	url: Option<Url>,
@@ -69,31 +68,14 @@ struct Inner {
 }
 
 struct BuildState {
-	depth: u64,
+	permit: Arc<tokio::sync::Mutex<Option<Permit>>>,
 	stop: tokio::sync::watch::Sender<bool>,
 	task: std::sync::Mutex<Option<tokio::task::JoinHandle<()>>>,
 }
 
-enum Messenger {
-	Local(LocalMessenger),
-	Nats(NatsMessenger),
-}
-
-struct LocalMessenger {
-	builds: std::sync::RwLock<
-		HashMap<tg::build::Id, Arc<LocalMessengerBuildChannels>, fnv::FnvBuildHasher>,
-	>,
-}
-
-struct LocalMessengerBuildChannels {
-	children: tokio::sync::watch::Sender<()>,
-	log: tokio::sync::watch::Sender<()>,
-	status: tokio::sync::watch::Sender<()>,
-}
-
-struct NatsMessenger {
-	client: nats::Client,
-}
+struct Permit(
+	Either<tokio::sync::OwnedSemaphorePermit, tokio::sync::OwnedMutexGuard<Option<Self>>>,
+);
 
 #[derive(Debug)]
 struct OAuth {
@@ -116,7 +98,6 @@ struct Tmp {
 }
 
 impl Server {
-	#[allow(clippy::too_many_lines)]
 	pub async fn start(options: Options) -> Result<Server> {
 		// Get the address.
 		let address = options.address;
@@ -156,6 +137,13 @@ impl Server {
 			.await
 			.wrap_err("Failed to remove an existing socket file.")?;
 
+		// Create the build queue task.
+		let build_queue_task = std::sync::Mutex::new(None);
+
+		// Create the build queue task stop channel.
+		let (build_queue_task_stop, build_queue_task_stop_receiver) =
+			tokio::sync::watch::channel(false);
+
 		// Create the build state.
 		let build_state = std::sync::RwLock::new(HashMap::default());
 
@@ -176,14 +164,12 @@ impl Server {
 
 		// Create the database.
 		let messenger = match options.messenger {
-			self::options::Messenger::Local => Messenger::Local(LocalMessenger {
-				builds: std::sync::RwLock::new(HashMap::default()),
-			}),
+			self::options::Messenger::Local => Messenger::new_channel(),
 			self::options::Messenger::Nats(nats) => {
 				let client = nats::connect(nats.url.to_string())
 					.await
 					.wrap_err("Failed to create the NATS client.")?;
-				Messenger::Nats(NatsMessenger { client })
+				Messenger::new_nats(client)
 			},
 		};
 
@@ -192,17 +178,6 @@ impl Server {
 
 		// Create the http server.
 		let http = std::sync::Mutex::new(None);
-
-		// Create the local queue task.
-		let local_queue_task = std::sync::Mutex::new(None);
-
-		// Create the local queue task wake channel.
-		let (local_queue_task_wake_sender, local_queue_task_wake_receiver) =
-			tokio::sync::watch::channel(());
-
-		// Create the local queue task stop channel.
-		let (local_queue_task_stop_sender, local_queue_task_stop_receiver) =
-			tokio::sync::watch::channel(false);
 
 		// Create the oauth clients.
 		let github = if let Some(oauth) = options.oauth.github {
@@ -227,13 +202,6 @@ impl Server {
 		// Get the remote.
 		let remote = options.remote.as_ref().map(|remote| remote.tg.clone_box());
 
-		// Create the remote queue task.
-		let remote_queue_task = std::sync::Mutex::new(None);
-
-		// Create the remote queue task stop channel.
-		let (remote_queue_task_stop_sender, remote_queue_task_stop_receiver) =
-			tokio::sync::watch::channel(false);
-
 		// Create the shutdown channel.
 		let (shutdown, _) = tokio::sync::watch::channel(false);
 
@@ -254,21 +222,18 @@ impl Server {
 
 		// Create the server.
 		let inner = Arc::new(Inner {
+			build_queue_task,
+			build_queue_task_stop,
 			build_semaphore,
 			build_state,
 			database,
 			file_descriptor_semaphore,
 			http,
-			local_queue_task,
-			local_queue_task_stop_sender,
-			local_queue_task_wake_sender,
 			lockfile,
 			messenger,
 			oauth,
 			path,
 			remote,
-			remote_queue_task,
-			remote_queue_task_stop_sender,
 			shutdown,
 			shutdown_task,
 			url,
@@ -297,21 +262,6 @@ impl Server {
 				.wrap_err("Failed to execute the statement.")?;
 		}
 
-		// Empty the build queue.
-		if let Database::Sqlite(database) = &server.inner.database {
-			let connection = database.get().await?;
-			let statement = "
-				delete from build_queue;
-			";
-			let mut statement = connection
-				.prepare_cached(statement)
-				.wrap_err("Failed to prepare the query.")?;
-			let params = sqlite_params![];
-			statement
-				.execute(params)
-				.wrap_err("Failed to execute the statement.")?;
-		}
-
 		// Start the VFS if necessary and set up the checkouts directory.
 		let artifacts_path = server.artifacts_path();
 		tangram_vfs::unmount(&artifacts_path).await.ok();
@@ -320,7 +270,7 @@ impl Server {
 			tokio::fs::create_dir_all(&artifacts_path)
 				.await
 				.wrap_err("Failed to create the artifacts directory.")?;
-	
+
 			// Start the VFS server.
 			let vfs = tangram_vfs::Server::start(&server, &artifacts_path)
 				.await
@@ -345,10 +295,7 @@ impl Server {
 				let server = server.clone();
 				async move {
 					let result = server
-						.local_queue_task(
-							local_queue_task_wake_receiver,
-							local_queue_task_stop_receiver,
-						)
+						.build_queue_task(build_queue_task_stop_receiver)
 						.await;
 					match result {
 						Ok(()) => Ok(()),
@@ -359,31 +306,7 @@ impl Server {
 					}
 				}
 			});
-			server.inner.local_queue_task.lock().unwrap().replace(task);
-		}
-
-		// Start the build queue remote task.
-		if options
-			.remote
-			.as_ref()
-			.map_or(false, |remote| remote.build.enable)
-		{
-			let task = tokio::spawn({
-				let server = server.clone();
-				async move {
-					let result = server
-						.remote_queue_task(remote_queue_task_stop_receiver)
-						.await;
-					match result {
-						Ok(()) => Ok(()),
-						Err(error) => {
-							tracing::error!(?error);
-							Err(error)
-						},
-					}
-				}
-			});
-			server.inner.remote_queue_task.lock().unwrap().replace(task);
+			server.inner.build_queue_task.lock().unwrap().replace(task);
 		}
 
 		// Start the http server.
@@ -405,14 +328,8 @@ impl Server {
 				http.stop();
 			}
 
-			// Stop the local queue task.
-			server.inner.local_queue_task_stop_sender.send_replace(true);
-
-			// Stop the remote queue task.
-			server
-				.inner
-				.remote_queue_task_stop_sender
-				.send_replace(true);
+			// Stop the build queue task.
+			server.inner.build_queue_task_stop.send_replace(true);
 
 			// Join the http server.
 			let http = server.inner.http.lock().unwrap().take();
@@ -420,24 +337,18 @@ impl Server {
 				http.join().await?;
 			}
 
-			// Join the local queue task.
-			let local_queue_task = server.inner.local_queue_task.lock().unwrap().take();
+			// Join the build queue task.
+			let local_queue_task = server.inner.build_queue_task.lock().unwrap().take();
 			if let Some(local_queue_task) = local_queue_task {
 				local_queue_task.await.unwrap()?;
 			}
 
-			// Join the remote queue task.
-			let remote_queue_task = server.inner.remote_queue_task.lock().unwrap().take();
-			if let Some(remote_queue_task) = remote_queue_task {
-				remote_queue_task.await.unwrap()?;
-			}
-
-			// Stop running builds.
+			// Stop all builds.
 			for context in server.inner.build_state.read().unwrap().values() {
 				context.stop.send_replace(true);
 			}
 
-			// Join running builds.
+			// Join all builds.
 			let tasks = server
 				.inner
 				.build_state
@@ -454,7 +365,7 @@ impl Server {
 				.await
 				.unwrap();
 
-			// Remove running builds.
+			// Clear all build state.
 			server.inner.build_state.write().unwrap().clear();
 
 			// Join the vfs server.
@@ -570,10 +481,10 @@ impl Http {
 
 		// Create the listener.
 		let listener = match &address {
-			tg::Address::Unix(path) => Either::Left(
+			tg::Address::Unix(path) => tokio_util::either::Either::Left(
 				UnixListener::bind(path).wrap_err("Failed to create the UNIX listener.")?,
 			),
-			tg::Address::Inet(inet) => Either::Right(
+			tg::Address::Inet(inet) => tokio_util::either::Either::Right(
 				TcpListener::bind(inet.to_string())
 					.await
 					.wrap_err("Failed to create the TCP listener.")?,
@@ -586,27 +497,29 @@ impl Http {
 			// Accept a new connection.
 			let accept = async {
 				let stream = match &listener {
-					Either::Left(listener) => Either::Left(
+					tokio_util::either::Either::Left(listener) => tokio_util::either::Either::Left(
 						listener
 							.accept()
 							.await
 							.wrap_err("Failed to accept a new connection.")?
 							.0,
 					),
-					Either::Right(listener) => Either::Right(
-						listener
-							.accept()
-							.await
-							.wrap_err("Failed to accept a new connection.")?
-							.0,
-					),
+					tokio_util::either::Either::Right(listener) => {
+						tokio_util::either::Either::Right(
+							listener
+								.accept()
+								.await
+								.wrap_err("Failed to accept a new connection.")?
+								.0,
+						)
+					},
 				};
 				Ok::<_, Error>(TokioIo::new(stream))
 			};
 			let stream = tokio::select! {
 				stream = accept => stream?,
 				() = stop.wait_for(|stop| *stop).map(|_| ()) => {
-					break
+					break;
 				},
 			};
 
@@ -631,8 +544,8 @@ impl Http {
 				async move {
 					let builder =
 						hyper_util::server::conn::auto::Builder::new(TokioExecutor::new());
-					let connection = builder.serve_connection_with_upgrades(stream, service);
-					tokio::pin!(connection);
+					let mut connection =
+						pin!(builder.serve_connection_with_upgrades(stream, service));
 					let result = tokio::select! {
 						result = connection.as_mut() => {
 							Some(result)
@@ -676,7 +589,6 @@ impl Http {
 		Ok(user)
 	}
 
-	#[allow(clippy::too_many_lines)]
 	async fn handle_request(
 		&self,
 		mut request: http::Request<Incoming>,
@@ -703,10 +615,6 @@ impl Http {
 			(http::Method::GET, ["builds"]) => {
 				self.handle_list_builds_request(request).map(Some).boxed()
 			},
-			(http::Method::HEAD, ["builds", _]) => self
-				.handle_get_build_exists_request(request)
-				.map(Some)
-				.boxed(),
 			(http::Method::GET, ["builds", _]) => {
 				self.handle_get_build_request(request).map(Some).boxed()
 			},
@@ -723,9 +631,6 @@ impl Http {
 				.handle_get_or_create_build_request(request)
 				.map(Some)
 				.boxed(),
-			(http::Method::POST, ["builds", "dequeue"]) => {
-				self.handle_dequeue_build_request(request).map(Some).boxed()
-			},
 			(http::Method::GET, ["builds", _, "status"]) => self
 				.handle_get_build_status_request(request)
 				.map(Some)
@@ -758,10 +663,6 @@ impl Http {
 				.boxed(),
 
 			// Objects
-			(http::Method::HEAD, ["objects", _]) => self
-				.handle_get_object_exists_request(request)
-				.map(Some)
-				.boxed(),
 			(http::Method::GET, ["objects", _]) => {
 				self.handle_get_object_request(request).map(Some).boxed()
 			},
@@ -879,21 +780,17 @@ impl tg::Handle for Server {
 		self.list_builds(args).await
 	}
 
-	async fn get_build_exists(&self, id: &tg::build::Id) -> Result<bool> {
-		self.get_build_exists(id).await
-	}
-
 	async fn try_get_build(&self, id: &tg::build::Id) -> Result<Option<tg::build::GetOutput>> {
 		self.try_get_build(id).await
 	}
 
-	async fn try_put_build(
+	async fn put_build(
 		&self,
 		user: Option<&tg::User>,
 		id: &tg::build::Id,
 		arg: &tg::build::PutArg,
-	) -> Result<tg::build::PutOutput> {
-		self.try_put_build(user, id, arg).await
+	) -> Result<()> {
+		self.put_build(user, id, arg).await
 	}
 
 	async fn push_build(&self, user: Option<&tg::User>, id: &tg::build::Id) -> Result<()> {
@@ -910,14 +807,6 @@ impl tg::Handle for Server {
 		arg: tg::build::GetOrCreateArg,
 	) -> Result<tg::build::GetOrCreateOutput> {
 		self.get_or_create_build(user, arg).await
-	}
-
-	async fn try_dequeue_build(
-		&self,
-		user: Option<&tg::User>,
-		arg: tg::build::queue::DequeueArg,
-	) -> Result<Option<tg::build::queue::DequeueOutput>> {
-		self.try_dequeue_build(user, arg).await
 	}
 
 	async fn try_get_build_status(
@@ -992,20 +881,16 @@ impl tg::Handle for Server {
 		self.set_build_outcome(user, id, outcome).await
 	}
 
-	async fn get_object_exists(&self, id: &tg::object::Id) -> Result<bool> {
-		self.get_object_exists(id).await
-	}
-
 	async fn try_get_object(&self, id: &tg::object::Id) -> Result<Option<tg::object::GetOutput>> {
 		self.try_get_object(id).await
 	}
 
-	async fn try_put_object(
+	async fn put_object(
 		&self,
 		id: &tg::object::Id,
-		bytes: &Bytes,
+		arg: &tg::object::PutArg,
 	) -> Result<tg::object::PutOutput> {
-		self.try_put_object(id, bytes).await
+		self.put_object(id, arg).await
 	}
 
 	async fn push_object(&self, id: &tg::object::Id) -> Result<()> {

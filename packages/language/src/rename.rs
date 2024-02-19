@@ -18,7 +18,6 @@ pub struct Response {
 }
 
 impl Server {
-	#[allow(clippy::similar_names)]
 	pub(super) async fn handle_rename_request(
 		&self,
 		params: lsp::RenameParams,

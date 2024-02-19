@@ -207,7 +207,6 @@ impl xdr::ToXdr for CallBody {
 }
 
 impl xdr::FromXdr for CallBody {
-	#[allow(clippy::similar_names)]
 	fn decode(decoder: &mut xdr::Decoder<'_>) -> Result<Self, xdr::Error> {
 		let rpcvers = decoder.decode_uint()?;
 		let prog = decoder.decode_uint()?;

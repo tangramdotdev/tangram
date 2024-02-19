@@ -6,8 +6,8 @@ use futures::{future::LocalBoxFuture, stream::FuturesUnordered, FutureExt, Strea
 use num::ToPrimitive;
 use sourcemap::SourceMap;
 use std::{
-	cell::RefCell, collections::BTreeMap, future::poll_fn, num::NonZeroI32, rc::Rc, str::FromStr,
-	task::Poll,
+	cell::RefCell, collections::BTreeMap, future::poll_fn, num::NonZeroI32, pin::pin, rc::Rc,
+	str::FromStr, task::Poll,
 };
 use tangram_client as tg;
 use tangram_error::{error, Result, WrapErr};
@@ -27,7 +27,6 @@ struct State {
 	log_sender: RefCell<Option<tokio::sync::mpsc::UnboundedSender<String>>>,
 	main_runtime_handle: tokio::runtime::Handle,
 	modules: RefCell<Vec<ModuleInfo>>,
-	options: tg::build::Options,
 	tg: Box<dyn tg::Handle>,
 }
 
@@ -47,7 +46,6 @@ struct ModuleInfo {
 pub async fn build(
 	tg: &dyn tg::Handle,
 	build: &tg::Build,
-	options: &tg::build::Options,
 	mut stop: tokio::sync::watch::Receiver<bool>,
 ) -> Result<Option<tg::Value>> {
 	// Create a channel to receive the isolate handle.
@@ -59,14 +57,12 @@ pub async fn build(
 	let thread = std::thread::spawn({
 		let tg = tg.clone_box();
 		let build = build.clone();
-		let options = options.clone();
 		let stop = stop.clone();
 		let main_runtime_handle = tokio::runtime::Handle::current();
 		move || {
 			let future = build_inner(
 				tg.as_ref(),
 				&build,
-				options,
 				stop,
 				main_runtime_handle.clone(),
 				isolate_handle_sender,
@@ -103,14 +99,13 @@ pub async fn build(
 		.await
 		.wrap_err("Failed to spawn task.")?
 		.map_err(|_| error!("Failed to join the thread."))?;
+
 	Ok(value)
 }
 
-#[allow(clippy::too_many_lines)]
 async fn build_inner(
 	tg: &dyn tg::Handle,
 	build: &tg::Build,
-	options: tg::build::Options,
 	mut stop: tokio::sync::watch::Receiver<bool>,
 	main_runtime_handle: tokio::runtime::Handle,
 	isolate_handle_sender: tokio::sync::oneshot::Sender<v8::IsolateHandle>,
@@ -155,7 +150,6 @@ async fn build_inner(
 		futures: RefCell::new(FuturesUnordered::new()),
 		global_source_map: Some(SourceMap::from_slice(SOURCE_MAP).unwrap()),
 		log_sender: RefCell::new(Some(log_sender)),
-		options,
 		main_runtime_handle,
 		modules: RefCell::new(Vec::new()),
 		tg: tg.clone_box(),
@@ -209,8 +203,7 @@ async fn build_inner(
 	};
 
 	// Await the output.
-	let stop = stop.changed();
-	tokio::pin!(stop);
+	let mut stop = pin!(stop.changed());
 	let value = poll_fn(|cx| {
 		loop {
 			if stop.poll_unpin(cx).is_ready() {
@@ -452,7 +445,6 @@ fn resolve_module(
 }
 
 /// Load a module.
-#[allow(clippy::too_many_lines)]
 fn load_module<'s>(
 	scope: &mut v8::HandleScope<'s>,
 	module: &tangram_language::Module,

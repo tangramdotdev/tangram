@@ -11,8 +11,8 @@ impl Server {
 				.execute_batch(
 					"
 					delete from builds;
+					delete from build_children;
 					delete from build_logs;
-					delete from build_queue;
 					delete from objects;
 				",
 				)

@@ -14,7 +14,6 @@ pub struct Args {
 }
 
 impl Cli {
-	#[allow(clippy::unused_async)]
 	pub async fn command_log(&self, args: Args) -> Result<()> {
 		let client = &self.client().await?;
 

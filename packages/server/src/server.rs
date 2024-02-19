@@ -4,14 +4,12 @@ use tangram_error::Result;
 use tangram_util::http::{empty, full, ok, Incoming, Outgoing};
 
 impl Server {
-	#[allow(clippy::unused_async)]
 	pub async fn health(&self) -> Result<tg::server::Health> {
 		Ok(tg::server::Health {
 			version: self.inner.version.clone(),
 		})
 	}
 
-	#[allow(clippy::unused_async)]
 	pub async fn path(&self) -> Result<Option<tg::Path>> {
 		Ok(Some(self.inner.path.clone().try_into()?))
 	}
@@ -54,7 +52,7 @@ impl Http {
 			.unwrap())
 	}
 
-	#[allow(clippy::unnecessary_wraps, clippy::unused_async)]
+	#[allow(clippy::unnecessary_wraps)]
 	pub async fn handle_stop_request(
 		&self,
 		_request: http::Request<Incoming>,

@@ -10,8 +10,9 @@ use tokio_util::io::StreamReader;
 #[derive(Clone, Copy, Debug, Eq, PartialEq, serde::Deserialize, serde::Serialize)]
 #[serde(into = "String", try_from = "String")]
 pub enum Status {
+	Created,
 	Queued,
-	Running,
+	Started,
 	Finished,
 }
 

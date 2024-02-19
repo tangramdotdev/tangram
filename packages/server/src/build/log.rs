@@ -1,9 +1,9 @@
-use crate::{database::Database, postgres_params, sqlite_params, Http, Messenger, Server};
+use crate::{database::Database, postgres_params, sqlite_params, Http, Server};
 use bytes::{Bytes, BytesMut};
 use futures::{
 	future::{self, BoxFuture},
 	stream::{self, BoxStream},
-	FutureExt, StreamExt, TryStreamExt,
+	stream_select, FutureExt, StreamExt, TryStreamExt,
 };
 use http_body_util::{BodyExt, StreamBody};
 use num::ToPrimitive;
@@ -12,7 +12,7 @@ use tangram_client as tg;
 use tangram_error::{error, Error, Result, WrapErr};
 use tangram_util::http::{empty, not_found, Incoming, Outgoing};
 use tokio::io::{AsyncRead, AsyncReadExt, AsyncSeek, AsyncSeekExt};
-use tokio_stream::wrappers::{IntervalStream, WatchStream};
+use tokio_stream::wrappers::IntervalStream;
 
 pub enum Reader {
 	Blob(tg::blob::Reader),
@@ -52,7 +52,6 @@ impl Server {
 		}
 	}
 
-	#[allow(clippy::too_many_lines)]
 	async fn try_get_build_log_local(
 		&self,
 		id: &tg::build::Id,
@@ -65,49 +64,8 @@ impl Server {
 		}
 
 		// Create the event stream.
-		let log = match &self.inner.messenger {
-			Messenger::Local(local) => {
-				let channels = local.builds.read().unwrap().get(id).cloned();
-				channels
-					.map_or_else(
-						|| stream::empty().left_stream(),
-						|channels| {
-							WatchStream::from_changes(channels.log.subscribe()).right_stream()
-						},
-					)
-					.chain(stream::pending())
-					.left_stream()
-			},
-			Messenger::Nats(nats) => {
-				let subject = format!("builds.{id}.log");
-				nats.client
-					.subscribe(subject)
-					.await
-					.wrap_err("Failed to subscribe.")?
-					.map(|_| ())
-					.right_stream()
-			},
-		};
-		let finished = {
-			let server = self.clone();
-			let id = id.clone();
-			async move {
-				let arg = tg::build::status::GetArg::default();
-				server
-					.try_get_build_status_local(&id, arg, None)
-					.await?
-					.wrap_err("Expected the build to exist.")?
-					.try_filter_map(|status| {
-						future::ready(Ok(if status == tg::build::Status::Finished {
-							Some(())
-						} else {
-							None
-						}))
-					})
-					.try_next()
-					.await
-			}
-		};
+		let log = self.inner.messenger.subscribe_to_build_log(id).await?;
+		let status = self.inner.messenger.subscribe_to_build_status(id).await?;
 		let interval =
 			IntervalStream::new(tokio::time::interval(std::time::Duration::from_secs(60)))
 				.map(|_| ());
@@ -121,9 +79,7 @@ impl Server {
 		);
 		let events = stream::once(future::ready(()))
 			.chain(
-				stream::select(log, interval)
-					.take_until(finished)
-					.chain(stream::once(future::ready(())))
+				stream_select!(log, status, interval)
 					.take_until(timeout)
 					.take_until(stop),
 			)
@@ -399,21 +355,8 @@ impl Server {
 			},
 		}
 
-		// Send the event.
-		match &self.inner.messenger {
-			Messenger::Local(local) => {
-				if let Some(channels) = local.builds.read().unwrap().get(id) {
-					channels.log.send_replace(());
-				}
-			},
-			Messenger::Nats(nats) => {
-				let subject = format!("builds.{id}.log");
-				nats.client
-					.publish(subject, Bytes::new())
-					.await
-					.wrap_err("Failed to publish the message.")?;
-			},
-		}
+		// Publish the message.
+		self.inner.messenger.publish_to_build_log(id).await?;
 
 		Ok(true)
 	}

@@ -1,13 +1,13 @@
 use super::log;
 use crate::{
 	database::{Database, PostgresJson, SqliteJson},
-	postgres_params, sqlite_params, Http, Messenger, Server,
+	postgres_params, sqlite_params, Http, Server,
 };
 use async_recursion::async_recursion;
-use bytes::Bytes;
 use futures::{future, stream::FuturesUnordered, TryFutureExt, TryStreamExt};
 use http_body_util::BodyExt;
 use itertools::Itertools;
+use num::ToPrimitive;
 use tangram_client as tg;
 use tangram_error::{error, Error, Result, Wrap, WrapErr};
 use tangram_util::{
@@ -71,55 +71,53 @@ impl Server {
 		}
 
 		// Get the outcome.
-		let outcome = {
-			match &self.inner.database {
-				Database::Sqlite(database) => {
-					let connection = database.get().await?;
-					let statement = "
-						select outcome
-						from builds
-						where id = ?1;
-					";
-					let params = sqlite_params![id.to_string()];
-					let mut statement = connection
-						.prepare_cached(statement)
-						.wrap_err("Failed to prepare the query.")?;
-					let mut rows = statement
-						.query(params)
-						.wrap_err("Failed to execute the statement.")?;
-					let row = rows
-						.next()
-						.wrap_err("Failed to get the row.")?
-						.wrap_err("Expected a row.")?;
-					row.get::<_, SqliteJson<Option<tg::build::Outcome>>>(0)
-						.wrap_err("Failed to deserialize the column.")?
-						.0
-						.wrap_err("Expected the outcome to be set.")?
-				},
+		let outcome = match &self.inner.database {
+			Database::Sqlite(database) => {
+				let connection = database.get().await?;
+				let statement = "
+					select outcome
+					from builds
+					where id = ?1;
+				";
+				let params = sqlite_params![id.to_string()];
+				let mut statement = connection
+					.prepare_cached(statement)
+					.wrap_err("Failed to prepare the query.")?;
+				let mut rows = statement
+					.query(params)
+					.wrap_err("Failed to execute the statement.")?;
+				let row = rows
+					.next()
+					.wrap_err("Failed to get the row.")?
+					.wrap_err("Expected a row.")?;
+				row.get::<_, SqliteJson<Option<tg::build::Outcome>>>(0)
+					.wrap_err("Failed to deserialize the column.")?
+					.0
+					.wrap_err("Expected the outcome to be set.")?
+			},
 
-				Database::Postgres(database) => {
-					let connection = database.get().await?;
-					let statement = "
-						select outcome
-						from builds
-						where id = $1;
-					";
-					let params = postgres_params![id.to_string()];
-					let statement = connection
-						.prepare_cached(statement)
-						.await
-						.wrap_err("Failed to prepare the query.")?;
-					let rows = connection
-						.query(&statement, params)
-						.await
-						.wrap_err("Failed to execute the statement.")?;
-					let row = rows.into_iter().next().wrap_err("Expected a row.")?;
-					row.try_get::<_, PostgresJson<Option<tg::build::Outcome>>>(0)
-						.wrap_err("Failed to deserialize the column.")?
-						.0
-						.wrap_err("Expected the outcome to be set.")?
-				},
-			}
+			Database::Postgres(database) => {
+				let connection = database.get().await?;
+				let statement = "
+					select outcome
+					from builds
+					where id = $1;
+				";
+				let params = postgres_params![id.to_string()];
+				let statement = connection
+					.prepare_cached(statement)
+					.await
+					.wrap_err("Failed to prepare the query.")?;
+				let rows = connection
+					.query(&statement, params)
+					.await
+					.wrap_err("Failed to execute the statement.")?;
+				let row = rows.into_iter().next().wrap_err("Expected a row.")?;
+				row.try_get::<_, PostgresJson<Option<tg::build::Outcome>>>(0)
+					.wrap_err("Failed to deserialize the column.")?
+					.0
+					.wrap_err("Expected the outcome to be set.")?
+			},
 		};
 
 		Ok(Some(Some(outcome)))
@@ -140,7 +138,6 @@ impl Server {
 		Ok(Some(outcome))
 	}
 
-	#[allow(clippy::too_many_lines)]
 	#[async_recursion]
 	pub async fn set_build_outcome(
 		&self,
@@ -163,7 +160,6 @@ impl Server {
 		Err(error!("Failed to get the build."))
 	}
 
-	#[allow(clippy::too_many_lines)]
 	async fn try_set_build_outcome_local(
 		&self,
 		user: Option<&tg::User>,
@@ -279,7 +275,102 @@ impl Server {
 		let log = tg::Blob::with_reader(self, log::Reader::new(self, id).await?).await?;
 		let log = log.id(self).await?;
 
-		// Update the state.
+		// Add the log to the build objects.
+		match &self.inner.database {
+			Database::Sqlite(database) => {
+				let connection = database.get().await?;
+				let statement = "
+					insert into build_objects (build, object)
+					values (?1, ?2)
+					on conflict (build, object) do nothing;
+				";
+				let build = id.to_string();
+				let object = log.to_string();
+				let params = sqlite_params![build, object];
+				let mut statement = connection
+					.prepare_cached(statement)
+					.wrap_err("Failed to prepare the query.")?;
+				statement
+					.execute(params)
+					.wrap_err("Failed to execute the statement.")?;
+			},
+
+			Database::Postgres(database) => {
+				let connection = database.get().await?;
+				let statement = "
+					insert into build_objects (build, object)
+					values ($1, $2)
+					on conflict (build, object) do nothing;
+				";
+				let build = id.to_string();
+				let object = log.to_string();
+				let params = postgres_params![build, object];
+				let statement = connection
+					.prepare_cached(statement)
+					.await
+					.wrap_err("Failed to prepare the query.")?;
+				connection
+					.execute(&statement, params)
+					.await
+					.wrap_err("Failed to execute the statement.")?;
+			},
+		}
+
+		// Add the outcome's children to the build objects.
+		let objects = outcome
+			.try_unwrap_succeeded_ref()
+			.map(tg::value::Data::children)
+			.into_iter()
+			.flatten();
+		match &self.inner.database {
+			Database::Sqlite(database) => {
+				let connection = database.get().await?;
+				for object in objects {
+					let statement = "
+						insert into build_objects (build, object)
+						values (?1, ?2)
+						on conflict (build, object) do nothing;
+					";
+					let build = id.to_string();
+					let object = object.to_string();
+					let params = sqlite_params![build, object];
+					let mut statement = connection
+						.prepare_cached(statement)
+						.wrap_err("Failed to prepare the query.")?;
+					statement
+						.execute(params)
+						.wrap_err("Failed to execute the statement.")?;
+				}
+			},
+
+			Database::Postgres(database) => {
+				let connection = database.get().await?;
+				for object in objects {
+					let statement = "
+						insert into build_objects (build, object)
+						values ($1, $2)
+						on conflict (build, object) do nothing;
+					";
+					let build = id.to_string();
+					let object = object.to_string();
+					let params = postgres_params![build, object];
+					let statement = connection
+						.prepare_cached(statement)
+						.await
+						.wrap_err("Failed to prepare the query.")?;
+					connection
+						.execute(&statement, params)
+						.await
+						.wrap_err("Failed to execute the statement.")?;
+				}
+			},
+		}
+
+		// TODO
+		let weight: u64 = 0;
+		let descendants: u64 = 0;
+
+		// Update the build.
 		match &self.inner.database {
 			Database::Sqlite(database) => {
 				let status = tg::build::Status::Finished;
@@ -288,18 +379,22 @@ impl Server {
 					update builds
 					set
 						children = ?1,
-						log = ?2,
-						outcome = ?3,
-						status = ?4
-					where id = ?5;
+						descendants = ?2,
+						log = ?3,
+						outcome = ?4,
+						status = ?5,
+						weight = ?6
+					where id = ?7;
 				";
-				let params = sqlite_params![
-					SqliteJson(children),
-					log.to_string(),
-					SqliteJson(outcome),
-					status.to_string(),
-					id.to_string()
-				];
+				let children = SqliteJson(children);
+				let descendants = descendants.to_i64().unwrap();
+				let log = log.to_string();
+				let outcome = SqliteJson(outcome);
+				let status = status.to_string();
+				let weight = weight.to_i64().unwrap();
+				let id = id.to_string();
+				let params =
+					sqlite_params![children, descendants, log, outcome, status, weight, id];
 				let mut statement = connection
 					.prepare_cached(statement)
 					.wrap_err("Failed to prepare the query.")?;
@@ -315,18 +410,22 @@ impl Server {
 					update builds
 					set
 						children = $1,
-						log = $2,
-						outcome = $3,
-						status = $4
-					where id = $5;
+						descendants = $2,
+						log = $3,
+						outcome = $4,
+						status = $5,
+						status = $6
+					where id = $7;
 				";
-				let params = postgres_params![
-					PostgresJson(children),
-					log.to_string(),
-					PostgresJson(outcome),
-					status.to_string(),
-					id.to_string()
-				];
+				let children = PostgresJson(children);
+				let descendants = descendants.to_i64().unwrap();
+				let log = log.to_string();
+				let outcome = PostgresJson(outcome);
+				let status = status.to_string();
+				let weight = weight.to_i64().unwrap();
+				let id = id.to_string();
+				let params =
+					postgres_params![children, descendants, log, outcome, status, weight, id];
 				let statement = connection
 					.prepare_cached(statement)
 					.await
@@ -338,29 +437,11 @@ impl Server {
 			},
 		}
 
-		// Send the event.
-		match &self.inner.messenger {
-			Messenger::Local(local) => {
-				if let Some(channels) = local.builds.read().unwrap().get(id) {
-					channels.status.send_replace(());
-				}
-			},
-			Messenger::Nats(nats) => {
-				let subject = format!("builds.{id}.status");
-				nats.client
-					.publish(subject, Bytes::new())
-					.await
-					.wrap_err("Failed to publish the message.")?;
-			},
-		}
+		// Publish the message.
+		self.inner.messenger.publish_to_build_status(id).await?;
 
 		// Remove the build state.
 		self.inner.build_state.write().unwrap().remove(id);
-
-		// Remove the build channels if the messenger is local.
-		if let Messenger::Local(local) = &self.inner.messenger {
-			local.builds.write().unwrap().remove(id);
-		}
 
 		Ok(true)
 	}

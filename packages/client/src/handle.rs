@@ -22,8 +22,6 @@ pub trait Handle: Send + Sync + 'static {
 
 	async fn list_builds(&self, arg: tg::build::ListArg) -> Result<tg::build::ListOutput>;
 
-	async fn get_build_exists(&self, id: &tg::build::Id) -> Result<bool>;
-
 	async fn get_build(&self, id: &tg::build::Id) -> Result<tg::build::GetOutput> {
 		Ok(self
 			.try_get_build(id)
@@ -33,12 +31,12 @@ pub trait Handle: Send + Sync + 'static {
 
 	async fn try_get_build(&self, id: &tg::build::Id) -> Result<Option<tg::build::GetOutput>>;
 
-	async fn try_put_build(
+	async fn put_build(
 		&self,
 		user: Option<&tg::User>,
 		id: &tg::build::Id,
 		arg: &tg::build::PutArg,
-	) -> Result<tg::build::PutOutput>;
+	) -> Result<()>;
 
 	async fn push_build(&self, user: Option<&tg::User>, id: &tg::build::Id) -> Result<()>;
 
@@ -49,12 +47,6 @@ pub trait Handle: Send + Sync + 'static {
 		user: Option<&tg::User>,
 		arg: tg::build::GetOrCreateArg,
 	) -> Result<tg::build::GetOrCreateOutput>;
-
-	async fn try_dequeue_build(
-		&self,
-		user: Option<&tg::User>,
-		arg: tg::build::queue::DequeueArg,
-	) -> Result<Option<tg::build::queue::DequeueOutput>>;
 
 	async fn get_build_status(
 		&self,
@@ -160,8 +152,6 @@ pub trait Handle: Send + Sync + 'static {
 		outcome: tg::build::Outcome,
 	) -> Result<()>;
 
-	async fn get_object_exists(&self, id: &tg::object::Id) -> Result<bool>;
-
 	async fn get_object(&self, id: &tg::object::Id) -> Result<tg::object::GetOutput> {
 		Ok(self
 			.try_get_object(id)
@@ -171,10 +161,10 @@ pub trait Handle: Send + Sync + 'static {
 
 	async fn try_get_object(&self, id: &tg::object::Id) -> Result<Option<tg::object::GetOutput>>;
 
-	async fn try_put_object(
+	async fn put_object(
 		&self,
 		id: &tg::object::Id,
-		bytes: &Bytes,
+		arg: &tg::object::PutArg,
 	) -> Result<tg::object::PutOutput>;
 
 	async fn push_object(&self, id: &tg::object::Id) -> Result<()>;

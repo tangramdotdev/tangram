@@ -1,33 +1,27 @@
-use crate::Cli;
+use crate::{util::build_or_object_id, Cli};
+use either::Either;
 use tangram_client as tg;
-use tangram_error::{Result, WrapErr};
-use tokio::io::AsyncWriteExt;
+use tangram_error::Result;
 
-/// Get an object.
+/// Get a build or an object.
 #[derive(Debug, clap::Args)]
 #[command(verbatim_doc_comment)]
 pub struct Args {
-	pub id: tg::object::Id,
+	#[clap(value_parser = build_or_object_id)]
+	pub id: Either<tg::build::Id, tg::object::Id>,
 }
 
 impl Cli {
-	#[allow(clippy::unused_async)]
 	pub async fn command_get(&self, args: Args) -> Result<()> {
-		let client = &self.client().await?;
-
-		// Get the data.
-		let handle = tg::object::Handle::with_id(args.id);
-		let data = handle.data(client).await?;
-
-		// Serialize the data.
-		let data = data.serialize().wrap_err("Failed to serialize the data.")?;
-
-		// Write the data to stdout.
-		tokio::io::stdout()
-			.write_all(&data)
-			.await
-			.wrap_err("Failed to write the data.")?;
-
+		match args.id {
+			Either::Left(id) => {
+				self.command_build_get(super::build::GetArgs { id }).await?;
+			},
+			Either::Right(id) => {
+				self.command_object_get(super::object::GetArgs { id })
+					.await?;
+			},
+		}
 		Ok(())
 	}
 }

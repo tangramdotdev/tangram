@@ -14,11 +14,9 @@ use tangram_client as tg;
 use tangram_error::{error, Error, Result, Wrap, WrapErr};
 use tokio::io::AsyncReadExt;
 
-#[allow(clippy::too_many_lines)]
 pub async fn build(
 	tg: &dyn tg::Handle,
 	build: &tg::Build,
-	options: &tg::build::Options,
 	mut stop: tokio::sync::watch::Receiver<bool>,
 	server_directory_path: &Path,
 ) -> Result<Option<tg::Value>> {
@@ -28,10 +26,8 @@ pub async fn build(
 	// Get the artifacts path.
 	let artifacts_directory_path = server_directory_path.join("artifacts");
 
-	// Create a tempdir for the root.
+	// Get the server temp directory path.
 	let server_directory_temp_path = server_directory_path.join("tmp");
-
-	// Create the toplevel tempdir if it does not exist.
 	tokio::fs::create_dir_all(&server_directory_temp_path)
 		.await
 		.wrap_err("Failed to create the server temp directory.")?;
@@ -114,7 +110,6 @@ pub async fn build(
 	let runtime = tg::Runtime {
 		address,
 		build: build.id().clone(),
-		options: options.clone(),
 	};
 	env.insert(
 		"TANGRAM_RUNTIME".to_owned(),

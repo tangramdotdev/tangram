@@ -137,7 +137,6 @@ impl Artifact {
 	}
 
 	/// Compute an artifact's checksum.
-	#[allow(clippy::unused_async)]
 	pub async fn checksum(
 		&self,
 		_tg: &dyn Handle,

@@ -97,11 +97,18 @@ pub struct State<I, O> {
 #[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
 pub struct GetOutput {
 	pub bytes: Bytes,
+	pub complete: bool,
+	pub weight: Option<u64>,
+}
+
+#[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
+pub struct PutArg {
+	pub bytes: Bytes,
 }
 
 #[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
 pub struct PutOutput {
-	pub missing: Vec<Id>,
+	pub incomplete: Vec<Id>,
 }
 
 impl Id {
@@ -187,27 +194,41 @@ impl Handle {
 		let id = self.id(tg).await?;
 		let data = self.data(tg).await?;
 		let bytes = data.serialize()?;
+		let arg = PutArg { bytes };
 		let output = remote
-			.try_put_object(&id.clone(), &bytes)
+			.put_object(&id.clone(), &arg)
 			.await
 			.wrap_err("Failed to put the object.")?;
-		if !output.missing.is_empty() {
-			output
-				.missing
-				.into_iter()
-				.map(Self::with_id)
-				.map(|object| async move { object.push(tg, remote).await })
-				.collect::<FuturesUnordered<_>>()
-				.try_collect()
-				.await?;
-			let output = remote
-				.try_put_object(&id.clone(), &bytes)
-				.await
-				.wrap_err("Failed to put the object.")?;
-			if !output.missing.is_empty() {
-				return Err(error!("Expected all children to be stored."));
-			}
-		}
+		output
+			.incomplete
+			.into_iter()
+			.map(Self::with_id)
+			.map(|object| async move { object.push(tg, remote).await })
+			.collect::<FuturesUnordered<_>>()
+			.try_collect()
+			.await?;
+		Ok(())
+	}
+
+	#[async_recursion]
+	pub async fn pull(&self, tg: &dyn crate::Handle, remote: &dyn crate::Handle) -> Result<()> {
+		let id = self.id(tg).await?;
+		let output = remote
+			.get_object(&id)
+			.await
+			.wrap_err("Failed to put the object.")?;
+		let arg = tg::object::PutArg {
+			bytes: output.bytes,
+		};
+		let output = tg.put_object(&id, &arg).await?;
+		output
+			.incomplete
+			.into_iter()
+			.map(Self::with_id)
+			.map(|object| async move { object.pull(tg, remote).await })
+			.collect::<FuturesUnordered<_>>()
+			.try_collect()
+			.await?;
 		Ok(())
 	}
 }
@@ -318,23 +339,45 @@ impl Client {
 				.unwrap_or_else(|_| error!("The request did not succeed."));
 			return Err(error);
 		}
+		let complete = response
+			.headers()
+			.get("x-tangram-object-complete")
+			.wrap_err("The complete header must be set.")?;
+		let complete = complete
+			.to_str()
+			.wrap_err("The complete header must be a string.")?;
+		let complete = serde_json::from_str(complete)
+			.wrap_err("Failed to deserialize the complete header.")?;
+		let weight = response
+			.headers()
+			.get("x-tangram-object-weight")
+			.wrap_err("The weight header must be set.")?;
+		let weight = weight
+			.to_str()
+			.wrap_err("The weight header must be a string.")?;
+		let weight =
+			serde_json::from_str(weight).wrap_err("Failed to deserialize the weight header.")?;
 		let bytes = response
 			.collect()
 			.await
 			.wrap_err("Failed to collect the response body.")?
 			.to_bytes();
-		let output = tg::object::GetOutput { bytes };
+		let output = tg::object::GetOutput {
+			bytes,
+			complete,
+			weight,
+		};
 		Ok(Some(output))
 	}
 
-	pub async fn try_put_object(
+	pub async fn put_object(
 		&self,
 		id: &tg::object::Id,
-		bytes: &Bytes,
+		arg: &tg::object::PutArg,
 	) -> Result<tg::object::PutOutput> {
 		let method = http::Method::PUT;
 		let uri = format!("/objects/{id}");
-		let body = full(bytes.clone());
+		let body = full(arg.bytes.clone());
 		let request = http::request::Builder::default()
 			.method(method)
 			.uri(uri)
@@ -477,6 +520,20 @@ impl std::str::FromStr for Id {
 
 	fn from_str(s: &str) -> Result<Self, Self::Err> {
 		crate::Id::from_str(s)?.try_into()
+	}
+}
+
+impl Display for Kind {
+	fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+		write!(f, "{}", tg::id::Kind::from(*self))
+	}
+}
+
+impl std::str::FromStr for Kind {
+	type Err = Error;
+
+	fn from_str(s: &str) -> Result<Self, Self::Err> {
+		tg::id::Kind::from_str(s)?.try_into()
 	}
 }
 

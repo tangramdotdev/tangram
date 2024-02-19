@@ -68,8 +68,9 @@ struct TreeItemState {
 enum TreeItemIndicator {
 	Empty,
 	Errored,
+	Created,
 	Queued,
-	Running,
+	Started,
 	Terminated,
 	Canceled,
 	Failed,
@@ -541,11 +542,14 @@ impl TreeItem {
 						break;
 					};
 					match status {
+						tg::build::Status::Created => {
+							item.inner.state.lock().unwrap().indicator = TreeItemIndicator::Created;
+						},
 						tg::build::Status::Queued => {
 							item.inner.state.lock().unwrap().indicator = TreeItemIndicator::Queued;
 						},
-						tg::build::Status::Running => {
-							item.inner.state.lock().unwrap().indicator = TreeItemIndicator::Running;
+						tg::build::Status::Started => {
+							item.inner.state.lock().unwrap().indicator = TreeItemIndicator::Started;
 						},
 						tg::build::Status::Finished => {
 							break;
@@ -692,8 +696,8 @@ impl TreeItem {
 		let indicator = match self.inner.state.lock().unwrap().indicator {
 			TreeItemIndicator::Empty => " ".red(),
 			TreeItemIndicator::Errored => "!".red(),
-			TreeItemIndicator::Queued => "⟳".yellow(),
-			TreeItemIndicator::Running => {
+			TreeItemIndicator::Created | TreeItemIndicator::Queued => "⟳".yellow(),
+			TreeItemIndicator::Started => {
 				let now = std::time::SystemTime::now()
 					.duration_since(std::time::UNIX_EPOCH)
 					.unwrap()
@@ -786,7 +790,6 @@ impl Drop for LogInner {
 }
 
 impl Log {
-	#[allow(clippy::too_many_lines)]
 	fn new(tg: &dyn tg::Handle, build: &tg::Build, rect: Rect) -> Self {
 		let tg = tg.clone_box();
 		let build = build.clone();
@@ -1178,7 +1181,6 @@ impl Scroll {
 	}
 
 	/// Increment the scroll position by one UTF8 grapheme cluster and add the intermediate results to end of the buffer. Returns Some(true) if successful, Some(false) if additional pre-context is required, or `None` if we receive invalid UTF-8.
-	#[allow(clippy::too_many_lines)]
 	fn advance(
 		&mut self,
 		forward: bool,                    // Advance forward if true, backward if false.
@@ -1377,7 +1379,6 @@ impl Scroll {
 		}
 
 		// Make sure to advance by one grapheme cluster if the start of the last line was a newline character.
-		// TODO: remove this allocation
 		if !last_line_wrapped {
 			let mut buffer = Vec::with_capacity(4);
 			self.advance(true, chunks, &mut buffer).ok();
@@ -1647,7 +1648,6 @@ mod tests {
 		assert_eq!(&lines[2], "44");
 	}
 
-	#[allow(clippy::too_many_lines)]
 	#[test]
 	fn tailing() {
 		let chunks = vec![
@@ -1792,7 +1792,6 @@ mod tests {
 		assert_eq!(&lines[1], "\"3\"");
 	}
 
-	#[allow(clippy::too_many_lines)]
 	#[test]
 	fn scroll_up() {
 		let chunks = [

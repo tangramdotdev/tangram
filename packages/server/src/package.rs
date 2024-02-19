@@ -23,7 +23,6 @@ struct PackageWithPathDependencies {
 }
 
 impl Server {
-	#[allow(clippy::too_many_lines)]
 	pub async fn try_get_package(
 		&self,
 		dependency: &tg::Dependency,
@@ -207,7 +206,6 @@ impl Server {
 			.await
 	}
 
-	#[allow(clippy::too_many_lines)]
 	#[async_recursion]
 	async fn get_package_with_path_dependencies_with_path_inner(
 		&self,

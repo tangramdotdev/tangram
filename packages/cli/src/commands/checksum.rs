@@ -12,7 +12,6 @@ pub struct Args {
 }
 
 impl Cli {
-	#[allow(clippy::unused_async)]
 	pub async fn command_checksum(&self, _args: Args) -> Result<()> {
 		Err(error!("This command is not yet implemented."))
 	}
