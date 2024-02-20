@@ -15,25 +15,20 @@ pub struct Args {
 #[derive(Debug, clap::Subcommand)]
 #[command(verbatim_doc_comment)]
 pub enum Command {
-	/// Get an object.
 	Get(GetArgs),
-
-	/// Put an object.
 	Put(PutArgs),
-
-	/// Push an object.
 	Push(PushArgs),
-
-	/// Pull an object.
 	Pull(PullArgs),
 }
 
+/// Get an object.
 #[derive(Debug, clap::Args)]
 #[command(verbatim_doc_comment)]
 pub struct GetArgs {
 	pub id: tg::object::Id,
 }
 
+/// Put an object.
 #[derive(Debug, clap::Args)]
 #[command(verbatim_doc_comment)]
 pub struct PutArgs {
@@ -43,12 +38,14 @@ pub struct PutArgs {
 	kind: tg::object::Kind,
 }
 
+/// Push an object.
 #[derive(Debug, clap::Args)]
 #[command(verbatim_doc_comment)]
 pub struct PushArgs {
 	pub id: tg::object::Id,
 }
 
+/// Pull an object.
 #[derive(Debug, clap::Args)]
 #[command(verbatim_doc_comment)]
 pub struct PullArgs {

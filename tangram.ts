@@ -1,5 +1,6 @@
 export default tg.target(async () => {
-	return Promise.all([foo(), bar()]);
+	// return Promise.all([tg.sleep(60), (async () => { throw new Error() })()]);
+	return await Promise.all([foo(), bar()]);
 });
 
 export let foo = tg.target(async () => {

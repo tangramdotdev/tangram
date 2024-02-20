@@ -9,7 +9,7 @@ use http_body_util::BodyExt;
 use itertools::Itertools;
 use num::ToPrimitive;
 use tangram_client as tg;
-use tangram_error::{error, Error, Result, Wrap, WrapErr};
+use tangram_error::{error, Result, Wrap, WrapErr};
 use tangram_util::{
 	http::{empty, full, not_found, Incoming, Outgoing},
 	iter::IterExt,
@@ -236,22 +236,21 @@ impl Server {
 			}
 		};
 
-		// If the build was canceled, then cancel the children.
+		// If the build was terminated or canceled, then terminate or cancel the children.
 		if matches!(outcome, tg::build::Outcome::Canceled) {
 			children
 				.iter()
-				.map(|child| async move {
-					self.set_build_outcome(user, child, tg::build::Outcome::Canceled)
-						.await?;
-					Ok::<_, Error>(())
+				.map(|child| {
+					let outcome = outcome.clone();
+					async move { self.set_build_outcome(user, child, outcome.clone()).await }
 				})
 				.collect::<FuturesUnordered<_>>()
 				.try_collect()
 				.await?;
 		}
 
-		// If any of the children were canceled, then this build should be canceled.
-		let outcome = if children
+		// Get the children outcomes.
+		let children_outcomes = children
 			.iter()
 			.map(|child_id| async move {
 				self.try_get_build_outcome(child_id, tg::build::outcome::GetArg::default(), None)
@@ -261,8 +260,16 @@ impl Server {
 			})
 			.collect::<FuturesUnordered<_>>()
 			.try_collect::<Vec<_>>()
-			.await?
-			.into_iter()
+			.await?;
+
+		// If any of the children were canceled, then this build should be canceled.
+		let outcome = if children_outcomes
+			.iter()
+			.any(|outcome| outcome.try_unwrap_terminated_ref().is_ok())
+		{
+			tg::build::Outcome::Terminated
+		} else if children_outcomes
+			.iter()
 			.any(|outcome| outcome.try_unwrap_canceled_ref().is_ok())
 		{
 			tg::build::Outcome::Canceled
@@ -366,9 +373,11 @@ impl Server {
 			},
 		}
 
-		// TODO
-		let weight: u64 = 0;
+		// Compute the descendants.
 		let descendants: u64 = 0;
+
+		// Compute the weight.
+		let weight: u64 = 0;
 
 		// Update the build.
 		match &self.inner.database {
@@ -440,9 +449,6 @@ impl Server {
 		// Publish the message.
 		self.inner.messenger.publish_to_build_status(id).await?;
 
-		// Remove the build state.
-		self.inner.build_state.write().unwrap().remove(id);
-
 		Ok(true)
 	}
 
@@ -464,9 +470,6 @@ impl Server {
 
 		// Set the outcome.
 		remote.set_build_outcome(user, id, outcome).await?;
-
-		// Remove the build state.
-		self.inner.build_state.write().unwrap().remove(id);
 
 		Ok(true)
 	}

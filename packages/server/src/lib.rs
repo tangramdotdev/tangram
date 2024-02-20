@@ -516,9 +516,10 @@ impl Http {
 				};
 				Ok::<_, Error>(TokioIo::new(stream))
 			};
-			let stream = tokio::select! {
-				stream = accept => stream?,
-				() = stop.wait_for(|stop| *stop).map(|_| ()) => {
+			let stop_ = stop.wait_for(|stop| *stop).map(|_| ());
+			let stream = match future::select(pin!(accept), pin!(stop_)).await {
+				future::Either::Left((result, _)) => result?,
+				future::Either::Right(((), _)) => {
 					break;
 				},
 			};
@@ -544,20 +545,14 @@ impl Http {
 				async move {
 					let builder =
 						hyper_util::server::conn::auto::Builder::new(TokioExecutor::new());
-					let mut connection =
-						pin!(builder.serve_connection_with_upgrades(stream, service));
-					let result = tokio::select! {
-						result = connection.as_mut() => {
-							Some(result)
-						},
-						() = stop.wait_for(|stop| *stop).map(|_| ()) => {
+					let connection = builder.serve_connection_with_upgrades(stream, service);
+					let stop = stop.wait_for(|stop| *stop).map(|_| ());
+					let result = match future::select(pin!(connection), pin!(stop)).await {
+						future::Either::Left((result, _)) => result,
+						future::Either::Right(((), mut connection)) => {
 							connection.as_mut().graceful_shutdown();
-							None
-						}
-					};
-					let result = match result {
-						Some(result) => result,
-						None => connection.await,
+							connection.await
+						},
 					};
 					if let Err(error) = result {
 						tracing::error!(?error, "Failed to serve the connection.");

@@ -86,6 +86,7 @@ fn main() {
 	tokio::runtime::Builder::new_multi_thread()
 		.enable_all()
 		.disable_lifo_slot()
+		.worker_threads(1)
 		.build()
 		.unwrap()
 		.block_on(main_inner());
@@ -348,20 +349,19 @@ fn initialize_v8() {
 }
 
 fn setup_tracing() {
-	// Create the env layer.
-	let tracing_env_filter = std::env::var("TANGRAM_TRACING").ok();
-	let env_layer = tracing_env_filter
-		.map(|env_filter| tracing_subscriber::filter::EnvFilter::try_new(env_filter).unwrap());
-
-	// If tracing is enabled, create and initialize the subscriber.
-	if let Some(env_layer) = env_layer {
-		let format_layer = tracing_subscriber::fmt::layer()
+	let console_layer = std::env::var("TANGRAM_TOKIO_CONSOLE")
+		.ok()
+		.map(|_| console_subscriber::spawn());
+	let fmt_layer = std::env::var("TANGRAM_TRACING").ok().map(|env| {
+		let filter = tracing_subscriber::filter::EnvFilter::try_new(env).unwrap();
+		tracing_subscriber::fmt::layer()
 			.compact()
 			.with_span_events(tracing_subscriber::fmt::format::FmtSpan::NEW)
-			.with_writer(std::io::stderr);
-		let subscriber = tracing_subscriber::registry()
-			.with(env_layer)
-			.with(format_layer);
-		subscriber.init();
-	}
+			.with_writer(std::io::stderr)
+			.with_filter(filter)
+	});
+	tracing_subscriber::registry()
+		.with(console_layer)
+		.with(fmt_layer)
+		.init();
 }

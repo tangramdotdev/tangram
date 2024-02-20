@@ -14,16 +14,9 @@ pub struct Args {
 
 #[derive(Debug, clap::Subcommand)]
 pub enum Command {
-	/// Add an autoenv path.
 	Add(AddArgs),
-
-	/// Get the autoenv path for a path.
 	Get(GetArgs),
-
-	/// List autoenv paths.
 	List(ListArgs),
-
-	/// Remove an autoenv path.
 	Remove(RemoveArgs),
 }
 

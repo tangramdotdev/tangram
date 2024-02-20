@@ -1,6 +1,6 @@
 use crate::util::render;
 use bytes::Bytes;
-use futures::{stream::FuturesOrdered, FutureExt, TryStreamExt};
+use futures::{future, stream::FuturesOrdered, FutureExt, TryStreamExt};
 use indoc::writedoc;
 use num::ToPrimitive;
 use std::{
@@ -9,6 +9,7 @@ use std::{
 	fmt::Write,
 	os::unix::prelude::OsStrExt,
 	path::Path,
+	pin::pin,
 };
 use tangram_client as tg;
 use tangram_error::{error, Error, Result, Wrap, WrapErr};
@@ -340,34 +341,41 @@ pub async fn build(
 		}
 	});
 
-	// Wait for either the process to exit or the stop signal to be received.
-	let exit_status = tokio::select! {
-		result = child.wait() => {
-			result.wrap_err("Failed to wait for the process to exit.")?
-		}
+	// Get the child's pid.
+	let Some(pid) = child.id() else {
+		return Ok(None);
+	};
 
-		() = stop.wait_for(|stop| *stop).map(|_| ()) => {
+	// Wait for either the process to exit or the stop signal to be received.
+	let exit_status = child.wait();
+	let stop = stop.wait_for(|stop| *stop).map(|_| ());
+	let exit_status = match future::select(pin!(exit_status), pin!(stop)).await {
+		future::Either::Left((result, _)) => {
+			result.wrap_err("Failed to wait for the process to exit.")?
+		},
+
+		future::Either::Right(((), _)) => {
 			// Abort the log task.
 			log_task.abort();
 
-			// Get the pid of the process.
-			let Some(root_pid) = child.id() else {
-				return Ok(None);
-			};
-
 			// Collect the pids of all transitive child processes.
-			let mut pids = vec![root_pid.to_i32().unwrap()];
+			let mut pids = vec![pid.to_i32().unwrap()];
 			let mut i = 0;
 			while i < pids.len() {
 				let ppid = pids[i];
 				let n = unsafe { libc::proc_listchildpids(ppid, std::ptr::null_mut(), 0) };
 				if n < 0 {
-					return Err(std::io::Error::last_os_error().wrap("Failed to get the child processes."));
+					return Err(
+						std::io::Error::last_os_error().wrap("Failed to get the child processes.")
+					);
 				}
 				pids.resize(i + n.to_usize().unwrap() + 1, 0);
-				let n = unsafe { libc::proc_listchildpids(ppid, pids[(i+1)..].as_mut_ptr().cast(), n) };
+				let n = unsafe {
+					libc::proc_listchildpids(ppid, pids[(i + 1)..].as_mut_ptr().cast(), n)
+				};
 				if n < 0 {
-					return Err(std::io::Error::last_os_error()).wrap_err("Failed to get the child processes.");
+					return Err(std::io::Error::last_os_error())
+						.wrap_err("Failed to get the child processes.");
 				}
 				pids.truncate(i + n.to_usize().unwrap() + 1);
 				i += 1;
@@ -381,8 +389,7 @@ pub async fn build(
 			}
 
 			return Ok(None);
-		}
-
+		},
 	};
 
 	// Wait for the log task to complete.

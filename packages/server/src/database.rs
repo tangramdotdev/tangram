@@ -49,7 +49,7 @@ impl Database {
 
 impl Sqlite {
 	pub async fn new(path: PathBuf) -> Result<Self> {
-		let n = std::thread::available_parallelism().unwrap().get();
+		let n = 1;
 		let pool = tangram_util::pool::Pool::new();
 		for _ in 0..n {
 			let connection = SqliteConnection::connect(&path)?;

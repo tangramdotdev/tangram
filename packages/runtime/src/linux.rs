@@ -1,6 +1,6 @@
 use crate::util::render;
 use bytes::Bytes;
-use futures::{stream::FuturesOrdered, FutureExt, TryStreamExt};
+use futures::{future, stream::FuturesOrdered, FutureExt, TryStreamExt};
 use indoc::formatdoc;
 use itertools::Itertools;
 use std::{
@@ -8,6 +8,7 @@ use std::{
 	ffi::CString,
 	os::{fd::AsRawFd, unix::ffi::OsStrExt},
 	path::{Path, PathBuf},
+	pin::pin,
 };
 use tangram_client as tg;
 use tangram_error::{error, Error, Result, Wrap, WrapErr};
@@ -535,22 +536,15 @@ pub async fn build(
 		.await
 		.wrap_err("Failed to notify the guest process that it can continue.")?;
 
-	// Wait for either the child process to exit or the stop signal to be received.
-	let exit_status = tokio::select! {
-		kind = host_socket.read_u8() => {
-			let kind = kind.wrap_err("Failed to receive the exit status kind from the root process.")?;
-			let value = host_socket
-				.read_i32_le()
-				.await
-				.wrap_err("Failed to receive the exit status value from the root process.")?;
-			match kind {
-				0 => ExitStatus::Code(value),
-				1 => ExitStatus::Signal(value),
-				_ => unreachable!(),
-			}
-		}
+	// Wait for either the guest process to exit or the stop signal to be received.
+	let readable = host_socket.readable();
+	let stop = stop.wait_for(|stop| *stop).map(|_| ());
+	match future::select(pin!(readable), pin!(stop)).await {
+		future::Either::Left((result, _)) => {
+			result.wrap_err("Failed to read from the host socket.")?;
+		},
 
-		() = stop.wait_for(|stop| *stop).map(|_| ()) => {
+		future::Either::Right(((), _)) => {
 			// Abort the log task.
 			log_task.abort();
 
@@ -568,7 +562,7 @@ pub async fn build(
 					libc::waitpid(
 						root_process_pid,
 						std::ptr::addr_of_mut!(status),
-						libc::__WALL
+						libc::__WALL,
 					)
 				};
 				if ret == -1 {
@@ -582,6 +576,21 @@ pub async fn build(
 
 			return Ok(None);
 		},
+	};
+
+	// Read the exit status from the host socket.
+	let kind = host_socket
+		.read_u8()
+		.await
+		.wrap_err("Failed to receive the exit status kind from the root process.")?;
+	let value = host_socket
+		.read_i32_le()
+		.await
+		.wrap_err("Failed to receive the exit status value from the root process.")?;
+	let exit_status = match kind {
+		0 => ExitStatus::Code(value),
+		1 => ExitStatus::Signal(value),
+		_ => unreachable!(),
 	};
 
 	// Wait for the root process to exit.

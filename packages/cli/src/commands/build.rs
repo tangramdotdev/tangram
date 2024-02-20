@@ -21,19 +21,10 @@ pub struct Args {
 #[derive(Debug, clap::Subcommand)]
 #[command(verbatim_doc_comment)]
 pub enum Command {
-	/// Get or create a build.
 	New(NewArgs),
-
-	/// Get a build.
 	Get(GetArgs),
-
-	/// Put a build.
 	Put(PutArgs),
-
-	/// Push a build.
 	Push(PushArgs),
-
-	/// Pull a build.
 	Pull(PullArgs),
 }
 
@@ -70,12 +61,14 @@ pub struct NewArgs {
 	pub target: String,
 }
 
+/// Get a build.
 #[derive(Debug, clap::Args)]
 #[command(verbatim_doc_comment)]
 pub struct GetArgs {
 	pub id: tg::build::Id,
 }
 
+/// Put a build.
 #[derive(Debug, clap::Args)]
 #[command(verbatim_doc_comment)]
 pub struct PutArgs {
@@ -83,12 +76,14 @@ pub struct PutArgs {
 	pub json: Option<String>,
 }
 
+/// Push a build.
 #[derive(Debug, clap::Args)]
 #[command(verbatim_doc_comment)]
 pub struct PushArgs {
 	pub id: tg::build::Id,
 }
 
+/// Pull a build.
 #[derive(Debug, clap::Args)]
 #[command(verbatim_doc_comment)]
 pub struct PullArgs {

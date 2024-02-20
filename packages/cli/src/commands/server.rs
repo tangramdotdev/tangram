@@ -16,23 +16,20 @@ pub struct Args {
 #[derive(Debug, clap::Subcommand)]
 #[command(verbatim_doc_comment)]
 pub enum Command {
-	/// Get the server's health.
-	Health,
-
-	/// Start the server.
-	Start,
-
-	/// Stop the server.
-	Stop,
-
-	/// Run the server.
+	Health(HealthArgs),
 	Run(RunArgs),
+	Start(StartArgs),
+	Stop(StopArgs),
 }
+
+/// Get the server's health.
+#[derive(Debug, clap::Args)]
+#[command(verbatim_doc_comment)]
+pub struct HealthArgs {}
 
 /// Run a server.
 #[derive(Debug, clap::Args)]
 #[command(verbatim_doc_comment)]
-#[allow(clippy::struct_excessive_bools)]
 pub struct RunArgs {
 	/// The address to bind to.
 	#[arg(long)]
@@ -59,19 +56,29 @@ pub struct RunArgs {
 	pub no_vfs: bool,
 }
 
+/// Start the server.
+#[derive(Debug, clap::Args)]
+#[command(verbatim_doc_comment)]
+pub struct StartArgs {}
+
+/// Stop the server.
+#[derive(Debug, clap::Args)]
+#[command(verbatim_doc_comment)]
+pub struct StopArgs {}
+
 impl Cli {
 	pub async fn command_server(&self, args: Args) -> Result<()> {
 		match args.command {
-			Command::Health => {
+			Command::Health(_) => {
 				let client = tg::Builder::new(self.address.clone()).build();
 				let health = client.health().await?;
 				let health = serde_json::to_string_pretty(&health).unwrap();
 				println!("{health}");
 			},
-			Command::Start => {
+			Command::Start(_) => {
 				self.start_server().await?;
 			},
-			Command::Stop => {
+			Command::Stop(_) => {
 				let client = tg::Builder::new(self.address.clone()).build();
 				client.stop().await?;
 			},

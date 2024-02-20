@@ -80,15 +80,13 @@ impl Client {
 			let outcome = serde_json::from_slice(&bytes)
 				.wrap_err("Failed to deserialize the response body.")?;
 			Ok(outcome)
-		}
-		.fuse();
-		let stop = stop.map(|()| Ok(None)).fuse();
-		#[allow(clippy::match_same_arms)]
+		};
+		let stop = stop.map(|()| Ok(None));
 		let outcome = match future::try_select(pin!(outcome), pin!(stop)).await {
-			Ok(future::Either::Left((outcome, _))) => outcome,
-			Ok(future::Either::Right((outcome, _))) => outcome,
-			Err(future::Either::Left((error, _))) => return Err(error),
-			Err(future::Either::Right((error, _))) => return Err(error),
+			Ok(future::Either::Left((outcome, _)) | future::Either::Right((outcome, _))) => outcome,
+			Err(future::Either::Left((error, _)) | future::Either::Right((error, _))) => {
+				return Err(error)
+			},
 		};
 		Ok(Some(outcome))
 	}

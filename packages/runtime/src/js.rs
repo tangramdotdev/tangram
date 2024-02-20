@@ -2,7 +2,11 @@ use self::{
 	convert::{from_v8, ToV8},
 	syscall::syscall,
 };
-use futures::{future::LocalBoxFuture, stream::FuturesUnordered, FutureExt, StreamExt};
+use futures::{
+	future::{self, LocalBoxFuture},
+	stream::FuturesUnordered,
+	FutureExt, StreamExt,
+};
 use num::ToPrimitive;
 use sourcemap::SourceMap;
 use std::{
@@ -54,16 +58,14 @@ pub async fn build(
 	// Create a channel to receive the result.
 	let (result_sender, result_receiver) = tokio::sync::oneshot::channel();
 
-	let thread = std::thread::spawn({
+	std::thread::spawn({
 		let tg = tg.clone_box();
 		let build = build.clone();
-		let stop = stop.clone();
 		let main_runtime_handle = tokio::runtime::Handle::current();
 		move || {
 			let future = build_inner(
 				tg.as_ref(),
 				&build,
-				stop,
 				main_runtime_handle.clone(),
 				isolate_handle_sender,
 			);
@@ -77,39 +79,29 @@ pub async fn build(
 		.await
 		.wrap_err("Failed to receive the isolate handle.")?;
 
-	// Wait for either the result or the stop signal to be received.
-	let value = tokio::select! {
-		result = result_receiver => {
-			result
-				.wrap_err("Failed to receive the result.")?
-				.wrap_err("The build failed.")?
-		}
-
-		() = stop.wait_for(|stop| *stop).map(|_| ()) => {
+	// Wait for the result.
+	let result = result_receiver;
+	let stop = stop.wait_for(|stop| *stop).map(|_| ());
+	let value = match future::select(pin!(result), pin!(stop)).await {
+		future::Either::Left((result, _)) => result
+			.wrap_err("Failed to receive the result.")?
+			.wrap_err("The build failed.")?,
+		future::Either::Right(((), result)) => {
 			isolate_handle.terminate_execution();
-			tokio::task::spawn_blocking(move || {
-				thread.join()
-			}).await.wrap_err("Failed to spawn task.")?.map_err(|_| error!("Failed to join the thread."))?;
+			result.await.wrap_err("Failed to receive the result.")?.ok();
 			return Ok(None);
-		}
+		},
 	};
 
-	// Join the thread.
-	tokio::task::spawn_blocking(move || thread.join())
-		.await
-		.wrap_err("Failed to spawn task.")?
-		.map_err(|_| error!("Failed to join the thread."))?;
-
-	Ok(value)
+	Ok(Some(value))
 }
 
 async fn build_inner(
 	tg: &dyn tg::Handle,
 	build: &tg::Build,
-	mut stop: tokio::sync::watch::Receiver<bool>,
 	main_runtime_handle: tokio::runtime::Handle,
 	isolate_handle_sender: tokio::sync::oneshot::Sender<v8::IsolateHandle>,
-) -> Result<Option<tg::Value>> {
+) -> Result<tg::Value> {
 	// Create the isolate params.
 	let params = v8::CreateParams::default().snapshot_blob(SNAPSHOT);
 
@@ -203,13 +195,8 @@ async fn build_inner(
 	};
 
 	// Await the output.
-	let mut stop = pin!(stop.changed());
 	let value = poll_fn(|cx| {
 		loop {
-			if stop.poll_unpin(cx).is_ready() {
-				return Poll::Ready(Ok(None));
-			}
-
 			// Poll the futures.
 			let (result, promise_resolver) = match state.futures.borrow_mut().poll_next_unpin(cx) {
 				// If there is a result, then resolve or reject the promise.
@@ -259,7 +246,7 @@ async fn build_inner(
 							return Poll::Ready(Err(error));
 						},
 					};
-					Ok(Some(output))
+					Ok(output)
 				},
 
 				// If the promise is rejected, then return the error.
@@ -270,8 +257,8 @@ async fn build_inner(
 					Err(error)
 				},
 
-				// At this point, the promise must not be pending.
-				v8::PromiseState::Pending => unreachable!(),
+				// At this point, if the promise is pending, it must be because execution was terminated.
+				v8::PromiseState::Pending => Err(error!("Execution was terminated.")),
 			}
 		} else {
 			// If the output is not a promise, then return it.
@@ -281,7 +268,7 @@ async fn build_inner(
 					return Poll::Ready(Err(error));
 				},
 			};
-			Ok(Some(output))
+			Ok(output)
 		};
 
 		Poll::Ready(result)
@@ -291,6 +278,7 @@ async fn build_inner(
 	// Wait for the log task to complete.
 	state.log_sender.borrow_mut().take();
 	log_task.await.wrap_err("Failed to join the log task.")?;
+
 	Ok(value)
 }
 

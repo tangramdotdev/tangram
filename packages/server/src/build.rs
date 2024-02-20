@@ -109,9 +109,9 @@ impl Server {
 							future::pending().right_future()
 						};
 
-						tokio::select! {
-							permit = semaphore => permit,
-							permit = parent => permit,
+						match future::select(pin!(semaphore), pin!(parent)).await {
+							future::Either::Left((permit, _))
+							| future::Either::Right((permit, _)) => permit,
 						}
 					};
 
@@ -239,6 +239,9 @@ impl Server {
 
 					// Set the outcome.
 					build.set_outcome(&server, None, outcome).await?;
+
+					// Remove the build state.
+					server.inner.build_state.write().unwrap().remove(&id);
 
 					Ok::<_, Error>(())
 				}

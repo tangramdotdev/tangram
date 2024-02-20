@@ -19,6 +19,7 @@ path = "src/main.rs"
 [dependencies]
 bytes = { workspace = true }
 clap = { workspace = true }
+console-subscriber = { workspace = true }
 crossterm = { workspace = true }
 either = { workspace = true }
 futures = { workspace = true }
