@@ -884,6 +884,8 @@ declare namespace tg {
 			target: Triple;
 		}>;
 
+		export let toString: (value: Triple) => string;
+
 		/** Get a triple's vendor, if known. */
 		export let vendor: (value: Triple) => string | undefined;
 	}

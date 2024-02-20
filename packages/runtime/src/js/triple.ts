@@ -279,6 +279,10 @@ export namespace Triple {
 		return { host: build, target: host };
 	};
 
+	export let toString = (value: Triple): string => {
+		return value.data;
+	};
+
 	export let vendor = (value: Triple): string | undefined => {
 		return value.vendor;
 	};
