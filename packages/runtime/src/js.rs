@@ -30,7 +30,7 @@ struct State {
 	global_source_map: Option<SourceMap>,
 	log_sender: RefCell<Option<tokio::sync::mpsc::UnboundedSender<String>>>,
 	main_runtime_handle: tokio::runtime::Handle,
-	modules: RefCell<Vec<ModuleInfo>>,
+	modules: RefCell<Vec<Module>>,
 	tg: Box<dyn tg::Handle>,
 }
 
@@ -38,7 +38,8 @@ type Futures = FuturesUnordered<
 	LocalBoxFuture<'static, (Result<Box<dyn ToV8>>, v8::Global<v8::PromiseResolver>)>,
 >;
 
-struct ModuleInfo {
+#[allow(clippy::struct_field_names)]
+struct Module {
 	module: tangram_language::Module,
 	source_map: Option<SourceMap>,
 	metadata: Option<tg::package::Metadata>,
@@ -556,7 +557,7 @@ fn load_module<'s>(
 	let metadata = receiver.recv().unwrap();
 
 	// Cache the module.
-	state.modules.borrow_mut().push(ModuleInfo {
+	state.modules.borrow_mut().push(Module {
 		module: module.clone(),
 		metadata,
 		source_map: Some(source_map),

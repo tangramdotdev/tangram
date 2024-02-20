@@ -255,22 +255,13 @@ impl Target {
 	}
 
 	pub async fn build(&self, tg: &dyn Handle, arg: build::GetOrCreateArg) -> Result<Value> {
-		let mut attempts = 0;
-		loop {
-			attempts += 1;
-			let build = Build::new(tg, arg.clone()).await?;
-			let outcome = build.outcome(tg).await?;
-			match outcome {
-				build::Outcome::Terminated => {
-					if attempts < 3 {
-						continue;
-					}
-					return Err(error!("The build was canceled."));
-				},
-				build::Outcome::Canceled => return Err(error!("The build was canceled.")),
-				build::Outcome::Failed(error) => return Err(error),
-				build::Outcome::Succeeded(value) => return Ok(value),
-			}
+		let build = Build::new(tg, arg.clone()).await?;
+		let outcome = build.outcome(tg).await?;
+		match outcome {
+			build::Outcome::Terminated => Err(error!("The build was terminated.")),
+			build::Outcome::Canceled => Err(error!("The build was canceled.")),
+			build::Outcome::Failed(error) => Err(error),
+			build::Outcome::Succeeded(value) => Ok(value),
 		}
 	}
 }
