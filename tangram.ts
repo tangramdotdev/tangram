@@ -1,20 +1,11 @@
 export default tg.target(async () => {
 	// return Promise.all([tg.sleep(60), (async () => { throw new Error() })()]);
-	return await Promise.all([foo(), bar()]);
+	return await Promise.all([foo(5), foo(6), foo(7), foo(8), foo(9)]);
 });
 
-export let foo = tg.target(async () => {
+export let foo = tg.target(async (n: number) => {
 	console.log("starting");
-	for (let i = 0; i < 5; i++) {
-		await tg.sleep(1);
-		console.log(`print ${i + 1}`);
-	}
-	return "Hello, World!";
-});
-
-export let bar = tg.target(async () => {
-	console.log("starting");
-	for (let i = 0; i < 5; i++) {
+	for (let i = 0; i < n; i++) {
 		await tg.sleep(1);
 		console.log(`print ${i + 1}`);
 	}

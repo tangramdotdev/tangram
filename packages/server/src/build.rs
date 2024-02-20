@@ -34,6 +34,9 @@ impl Server {
 	}
 
 	async fn build_queue_task_inner(&self) -> Result<()> {
+		// Subscribe to messages that builds were created.
+		let mut subscription = self.inner.messenger.subscribe_to_build_created().await?;
+
 		loop {
 			// If the messenger is nats, then wait for a permit.
 			let permit = match self.inner.messenger.kind() {
@@ -48,12 +51,7 @@ impl Server {
 			};
 
 			// Wait for a message that a build was created.
-			self.inner
-				.messenger
-				.subscribe_to_build_created()
-				.await?
-				.next()
-				.await;
+			subscription.next().await;
 
 			// Attempt to get a build.
 			let arg = tg::build::ListArg {
@@ -68,15 +66,18 @@ impl Server {
 			};
 			let id = build.id.clone();
 
+			// Update the build's status to queued.
+			let result = self
+				.set_build_status(None, &id, tg::build::Status::Queued)
+				.await;
+			if result.is_err() {
+				continue;
+			}
+
 			let task = tokio::spawn({
 				let server = self.clone();
 				let id = id.clone();
 				async move {
-					// Update the status to queued.
-					server
-						.set_build_status(None, &id, tg::build::Status::Queued)
-						.await?;
-
 					// If the build does not have a permit, then wait for one, either from the semaphore or one of the build's parents.
 					let permit = if let Some(permit) = permit {
 						Permit(Either::Left(permit))
@@ -126,7 +127,7 @@ impl Server {
 						.clone();
 					state.permit.lock().await.replace(permit);
 
-					// Update the status to started.
+					// Update the build's status to started.
 					server
 						.set_build_status(None, &id, tg::build::Status::Started)
 						.await?;

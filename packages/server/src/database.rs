@@ -38,8 +38,8 @@ pub struct PostgresTransaction<'a> {
 }
 
 impl Database {
-	pub async fn new_sqlite(path: PathBuf) -> Result<Self> {
-		Ok(Self::Sqlite(Sqlite::new(path).await?))
+	pub async fn new_sqlite(path: PathBuf, max_connections: usize) -> Result<Self> {
+		Ok(Self::Sqlite(Sqlite::new(path, max_connections).await?))
 	}
 
 	pub async fn new_postgres(url: Url, max_connections: usize) -> Result<Self> {
@@ -48,10 +48,9 @@ impl Database {
 }
 
 impl Sqlite {
-	pub async fn new(path: PathBuf) -> Result<Self> {
-		let n = 1;
+	pub async fn new(path: PathBuf, max_connections: usize) -> Result<Self> {
 		let pool = tangram_util::pool::Pool::new();
-		for _ in 0..n {
+		for _ in 0..max_connections {
 			let connection = SqliteConnection::connect(&path)?;
 			pool.put(connection).await;
 		}

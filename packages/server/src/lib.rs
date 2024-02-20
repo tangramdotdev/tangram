@@ -153,9 +153,9 @@ impl Server {
 
 		// Create the database.
 		let database = match options.database {
-			self::options::Database::Sqlite => {
+			self::options::Database::Sqlite(sqlite) => {
 				let database_path = path.join("database");
-				Database::new_sqlite(database_path).await?
+				Database::new_sqlite(database_path, sqlite.max_connections).await?
 			},
 			self::options::Database::Postgres(postgres) => {
 				Database::new_postgres(postgres.url, postgres.max_connections).await?

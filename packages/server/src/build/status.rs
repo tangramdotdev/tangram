@@ -198,14 +198,26 @@ impl Server {
 			return Ok(false);
 		}
 
-		// Create the timestamp.
+		// The status cannot be set to created.
+		if status == tg::build::Status::Created {
+			return Err(error!("The status cannot be set to created."));
+		}
+
+		// Get the previous status.
+		let previous_status = match status {
+			tg::build::Status::Created => unreachable!(),
+			tg::build::Status::Queued => tg::build::Status::Created,
+			tg::build::Status::Started => tg::build::Status::Queued,
+			tg::build::Status::Finished => tg::build::Status::Started,
+		};
+
+		// Get the timestamp column.
 		let timestamp_column = match status {
-			tg::build::Status::Created => "created_at",
+			tg::build::Status::Created => unreachable!(),
 			tg::build::Status::Queued => "queued_at",
 			tg::build::Status::Started => "started_at",
 			tg::build::Status::Finished => "finished_at",
 		};
-		let timestamp = time::OffsetDateTime::now_utc();
 
 		// Update the database.
 		match &self.inner.database {
@@ -217,21 +229,25 @@ impl Server {
 						set 
 							status = ?1,
 							{timestamp_column} = ?2 
-						where id = ?3;
+						where id = ?3 and status = ?4;
 					"
 				);
 				let status = status.to_string();
-				let timestamp = timestamp
+				let timestamp = time::OffsetDateTime::now_utc()
 					.format(&Rfc3339)
 					.wrap_err("Failed to format the timestamp.")?;
 				let id = id.to_string();
-				let params = sqlite_params![status, timestamp, id];
+				let previous_status = previous_status.to_string();
+				let params = sqlite_params![status, timestamp, id, previous_status];
 				let mut statement = connection
 					.prepare_cached(statement)
 					.wrap_err("Failed to prepare the query.")?;
-				statement
+				let n = statement
 					.execute(params)
 					.wrap_err("Failed to execute the statement.")?;
+				if n == 0 {
+					return Err(error!("Cannot set the build's status."));
+				}
 			},
 
 			Database::Postgres(database) => {
@@ -242,7 +258,7 @@ impl Server {
 						set 
 							status = $1,
 							{timestamp_column} = $2 
-						where id = $3;
+						where id = $3 and status = $4;
 					"
 				);
 				let status = status.to_string();
@@ -250,15 +266,19 @@ impl Server {
 					.format(&Rfc3339)
 					.wrap_err("Failed to format the timestamp.")?;
 				let id = id.to_string();
-				let params = postgres_params![status, timestamp, id];
+				let previous_status = previous_status.to_string();
+				let params = postgres_params![status, timestamp, id, previous_status];
 				let statement = connection
 					.prepare_cached(statement)
 					.await
 					.wrap_err("Failed to prepare the statement.")?;
-				connection
+				let n = connection
 					.execute(&statement, params)
 					.await
 					.wrap_err("Failed to execute the statement.")?;
+				if n == 0 {
+					return Err(error!("Cannot set the build's status."));
+				}
 			},
 		}
 
