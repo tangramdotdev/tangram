@@ -237,7 +237,10 @@ impl Server {
 		};
 
 		// If the build was terminated or canceled, then terminate or cancel the children.
-		if matches!(outcome, tg::build::Outcome::Canceled) {
+		if matches!(
+			outcome,
+			tg::build::Outcome::Canceled | tg::build::Outcome::Terminated
+		) {
 			children
 				.iter()
 				.map(|child| {
