@@ -39,7 +39,7 @@ impl Triple {
 		let os_str = os.to_string();
 		let data = format!("{arch_str}-{os_str}");
 		let maybe_arch = Arch::from_str(&arch_str).ok();
-		let maybe_os = Os::from_str(&os_str).ok();
+		let maybe_os = Os::parse_name(&os_str);
 		Triple {
 			data,
 			arch: maybe_arch,
@@ -99,9 +99,12 @@ impl Triple {
 		if let Some(environment) = self.environment() {
 			let environment = environment.to_string();
 			for component in components {
-				if component.contains(&environment) {
+				if component.starts_with(&environment) {
 					// Strip the environment prefix.
-					return Some(component.strip_prefix(&environment).unwrap());
+					let suffix = component.strip_prefix(&environment).unwrap();
+					if !suffix.is_empty() {
+						return Some(suffix);
+					}
 				}
 			}
 		}
@@ -125,9 +128,12 @@ impl Triple {
 		if let Some(os) = self.os() {
 			let os = os.to_string();
 			for component in components {
-				if component.contains(&os) {
+				if component.starts_with(&os) {
 					// Strip the os prefix.
-					return Some(component.strip_prefix(&os).unwrap());
+					let suffix = component.strip_prefix(&os).unwrap();
+					if !suffix.is_empty() {
+						return Some(suffix);
+					}
 				}
 			}
 		}
@@ -170,11 +176,11 @@ impl std::str::FromStr for Triple {
 			// The positions are unambiguous, just assign them.
 			vendor = Some(components[1].to_string());
 			os = Os::from_str(components[2]).ok();
-			environment = Environment::from_str(components[3]).ok();
+			environment = Environment::parse_name(components[3]);
 		} else {
 			// We have to try to figure it out. The second component could be either a vendor or an OS.
 			if let Some(component) = components.get(1) {
-				if let Ok(parsed) = component.parse::<Os>() {
+				if let Some(parsed) = Os::parse_name(component) {
 					os = Some(parsed);
 				} else {
 					vendor = Some((*component).to_string());
@@ -182,9 +188,9 @@ impl std::str::FromStr for Triple {
 			}
 			if let Some(component) = components.get(2) {
 				if os.is_none() {
-					os = Os::from_str(component).ok();
+					os = Os::parse_name(component);
 				} else {
-					environment = Environment::from_str(component).ok();
+					environment = Environment::parse_name(component);
 				}
 			}
 		}
@@ -253,6 +259,19 @@ impl TryFrom<String> for Arch {
 	}
 }
 
+impl Environment {
+	#[must_use]
+	pub fn parse_name(s: &str) -> Option<Self> {
+		let all = vec!["gnu", "musl"];
+		for name in all {
+			if s.starts_with(name) {
+				return Some(Environment::from_str(name).unwrap());
+			}
+		}
+		None
+	}
+}
+
 impl std::fmt::Display for Environment {
 	fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
 		let environment = match self {
@@ -288,6 +307,19 @@ impl TryFrom<String> for Environment {
 
 	fn try_from(value: String) -> std::result::Result<Self, Self::Error> {
 		value.parse()
+	}
+}
+
+impl Os {
+	#[must_use]
+	pub fn parse_name(s: &str) -> Option<Self> {
+		let all = vec!["darwin", "linux"];
+		for name in all {
+			if s.starts_with(name) {
+				return Some(Os::from_str(name).unwrap());
+			}
+		}
+		None
 	}
 }
 
@@ -364,7 +396,7 @@ mod tests {
 
 		let triple = Triple::from_str("x86_64-linux").unwrap();
 		assert_eq!(triple.arch(), Some(Arch::X8664));
-		assert_eq!(triple.os(), Some(Os::Darwin));
+		assert_eq!(triple.os(), Some(Os::Linux));
 	}
 
 	#[test]
