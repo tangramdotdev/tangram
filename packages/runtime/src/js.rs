@@ -62,11 +62,13 @@ pub async fn build(
 		let tg = tg.clone_box();
 		let build = build.clone();
 		let main_runtime_handle = tokio::runtime::Handle::current();
+		let stop = stop.clone();
 		move || {
 			let future = build_inner(
 				tg.as_ref(),
 				&build,
 				main_runtime_handle.clone(),
+				stop,
 				isolate_handle_sender,
 			);
 			let result = main_runtime_handle.block_on(future);
@@ -100,6 +102,7 @@ async fn build_inner(
 	tg: &dyn tg::Handle,
 	build: &tg::Build,
 	main_runtime_handle: tokio::runtime::Handle,
+	mut stop: tokio::sync::watch::Receiver<bool>,
 	isolate_handle_sender: tokio::sync::oneshot::Sender<v8::IsolateHandle>,
 ) -> Result<tg::Value> {
 	// Create the isolate params.
@@ -195,8 +198,14 @@ async fn build_inner(
 	};
 
 	// Await the output.
+	let mut stop = pin!(stop.wait_for(|b| *b));
 	let value = poll_fn(|cx| {
 		loop {
+			// Check if this build was stopped and exit early to avoid waiting on futures that may never resolve.
+			if matches!(stop.poll_unpin(cx), Poll::Ready(_)) {
+				return Poll::Ready(Err(error!("Execution was terminated.")));
+			}
+
 			// Poll the futures.
 			let (result, promise_resolver) = match state.futures.borrow_mut().poll_next_unpin(cx) {
 				// If there is a result, then resolve or reject the promise.
