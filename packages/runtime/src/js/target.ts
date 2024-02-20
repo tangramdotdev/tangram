@@ -12,7 +12,7 @@ import { Unresolved } from "./resolve.ts";
 import { Symlink, symlink } from "./symlink.ts";
 import * as syscall from "./syscall.ts";
 import { Template } from "./template.ts";
-import { Triple } from "./triple.ts";
+import { Triple, triple } from "./triple.ts";
 import {
 	MaybeNestedArray,
 	MaybePromise,
@@ -92,7 +92,7 @@ export function target<
 		// Create the target.
 		return new Target({
 			object: {
-				host: "js-js",
+				host: triple("js"),
 				executable,
 				lock,
 				name: arg.name,
@@ -198,7 +198,7 @@ export class Target<
 							: await mutation({
 									kind: "array_append",
 									values: flatten([arg.env]),
-							  });
+								});
 					}
 					if (arg.args !== undefined) {
 						object.args = Mutation.is(arg.args)
@@ -206,7 +206,7 @@ export class Target<
 							: (object.args = await mutation({
 									kind: "array_append",
 									values: [...arg.args],
-							  }));
+								}));
 					}
 					return {
 						...arg,
