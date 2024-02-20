@@ -1,6 +1,6 @@
 pub use self::{outcome::Outcome, status::Status};
 use crate as tg;
-use crate::{blob, id, object, target, Client, Handle, System, Target, User, Value};
+use crate::{blob, id, object, target, Client, Handle, Target, Triple, User, Value};
 use async_recursion::async_recursion;
 use bytes::Bytes;
 use derive_more::Display;
@@ -83,7 +83,9 @@ pub struct GetOutput {
 	pub id: Id,
 	#[serde(default)]
 	pub children: Option<Vec<Id>>,
-	pub host: System,
+	#[serde(default)]
+	pub descendants: Option<u64>,
+	pub host: Triple,
 	#[serde(default)]
 	pub log: Option<blob::Id>,
 	#[serde(default)]
@@ -108,7 +110,9 @@ pub struct PutArg {
 	pub id: Id,
 	#[serde(default)]
 	pub children: Option<Vec<Id>>,
-	pub host: System,
+	#[serde(default)]
+	pub descendants: Option<u64>,
+	pub host: Triple,
 	#[serde(default)]
 	pub log: Option<blob::Id>,
 	#[serde(default)]

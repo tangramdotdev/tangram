@@ -2,7 +2,7 @@ pub use self::{
 	artifact::Artifact, blob::Blob, branch::Branch, build::Build, checksum::Checksum,
 	dependency::Dependency, directory::Directory, file::File, handle::Handle, id::Id, leaf::Leaf,
 	lock::Lock, mutation::Mutation, object::Handle as Object, path::Path, server::Health,
-	symlink::Symlink, system::System, target::Target, template::Template, user::Login, user::User,
+	symlink::Symlink, target::Target, template::Template, triple::Triple, user::Login, user::User,
 	value::Value,
 };
 use crate as tg;
@@ -34,9 +34,9 @@ pub mod package;
 pub mod path;
 pub mod server;
 pub mod symlink;
-pub mod system;
 pub mod target;
 pub mod template;
+pub mod triple;
 pub mod user;
 mod util;
 pub mod value;

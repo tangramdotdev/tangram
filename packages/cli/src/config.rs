@@ -128,7 +128,7 @@ pub struct RemoteBuild {
 
 	/// Limit remote builds to targets with the specified hosts.
 	#[serde(default, skip_serializing_if = "Option::is_none")]
-	pub hosts: Option<Vec<tg::System>>,
+	pub hosts: Option<Vec<tg::Triple>>,
 }
 
 #[derive(Clone, Debug, Default, serde::Serialize, serde::Deserialize)]

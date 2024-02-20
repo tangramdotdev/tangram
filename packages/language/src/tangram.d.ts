@@ -531,10 +531,10 @@ declare namespace tg {
 			| Template
 			? T
 			: T extends Array<infer U extends Value>
-				? Array<Unresolved<U>>
-				: T extends { [key: string]: Value }
-					? { [K in keyof T]: Unresolved<T[K]> }
-					: never
+			  ? Array<Unresolved<U>>
+			  : T extends { [key: string]: Value }
+			    ? { [K in keyof T]: Unresolved<T[K]> }
+			    : never
 	>;
 
 	/**
@@ -560,12 +560,12 @@ declare namespace tg {
 		| Template
 		? T
 		: T extends Array<infer U extends Unresolved<Value>>
-			? Array<Resolved<U>>
-			: T extends { [key: string]: Unresolved<Value> }
-				? { [K in keyof T]: Resolved<T[K]> }
-				: T extends Promise<infer U extends Unresolved<Value>>
-					? Resolved<U>
-					: never;
+		  ? Array<Resolved<U>>
+		  : T extends { [key: string]: Unresolved<Value> }
+		    ? { [K in keyof T]: Resolved<T[K]> }
+		    : T extends Promise<infer U extends Unresolved<Value>>
+		      ? Resolved<U>
+		      : never;
 
 	/** Sleep for the specified duration in seconds. */
 	export let sleep: (duration: number) => Promise<void>;
@@ -620,48 +620,6 @@ declare namespace tg {
 		export type Id = string;
 	}
 
-	/** Create a system. */
-	export let system: (...args: Array<System.Arg>) => System;
-
-	export type System =
-		| "aarch64-darwin"
-		| "aarch64-linux"
-		| "js-js"
-		| "x86_64-darwin"
-		| "x86_64-linux";
-
-	export namespace System {
-		export type Arg = System | ArgObject;
-
-		type ArgObject = {
-			arch?: System.Arch;
-			os?: System.Os;
-		};
-
-		export type Arch = "aarch64" | "js" | "x86_64";
-
-		export type Os = "darwin" | "js" | "linux";
-
-		/** Create a system. */
-		export let new_: (...args: Array<System.Arg>) => System;
-		export { new_ as new };
-
-		/** Check if a value is a `tg.System`. */
-		export let is: (value: unknown) => value is System;
-
-		/** Expect that a value is a `tg.System`. */
-		export let expect: (value: unknown) => System;
-
-		/** Assert that a value is a `tg.System`. */
-		export let assert: (value: unknown) => asserts value is System;
-
-		/** Get a system's arch. */
-		export let arch: (value: System) => Arch;
-
-		/** Get a system's OS. */
-		export let os: (value: System) => Os;
-	}
-
 	/** Create a target. */
 	export function target<
 		A extends Array<Value> = Array<Value>,
@@ -713,7 +671,7 @@ declare namespace tg {
 		lock(): Promise<string | undefined>;
 
 		/** Get this target's host. */
-		host(): Promise<System>;
+		host(): Promise<Triple>;
 
 		/** Get this target's executable. */
 		executable(): Promise<Artifact>;
@@ -746,7 +704,7 @@ declare namespace tg {
 
 		type ArgObject = {
 			/** The system to build the target on. */
-			host?: System;
+			host?: Triple;
 
 			/** The target's executable. */
 			executable?: Artifact;
@@ -819,8 +777,8 @@ declare namespace tg {
 		| Template
 		? T
 		: T extends { [key: string]: Value }
-			? MutationMap<T>
-			: never;
+		  ? MutationMap<T>
+		  : never;
 
 	export type MaybeNestedArray<T> = T | Array<MaybeNestedArray<T>>;
 
@@ -831,6 +789,48 @@ declare namespace tg {
 	> = {
 		[K in keyof T]?: MaybeMutation<T[K]>;
 	};
+
+	/** Create a triple. */
+	export let triple: (...args: Array<Triple.Arg>) => Triple;
+
+	export type Triple =
+		| "aarch64-darwin"
+		| "aarch64-linux"
+		| "js-js"
+		| "x86_64-darwin"
+		| "x86_64-linux";
+
+	export namespace Triple {
+		export type Arg = Triple | ArgObject;
+
+		type ArgObject = {
+			arch?: Triple.Arch;
+			os?: Triple.Os;
+		};
+
+		export type Arch = "aarch64" | "js" | "x86_64";
+
+		export type Os = "darwin" | "js" | "linux";
+
+		/** Create a system. */
+		export let new_: (...args: Array<Triple.Arg>) => Triple;
+		export { new_ as new };
+
+		/** Check if a value is a `tg.Triple`. */
+		export let is: (value: unknown) => value is Triple;
+
+		/** Expect that a value is a `tg.Triple`. */
+		export let expect: (value: unknown) => Triple;
+
+		/** Assert that a value is a `tg.Triple`. */
+		export let assert: (value: unknown) => asserts value is Triple;
+
+		/** Get a system's arch. */
+		export let arch: (value: Triple) => Arch;
+
+		/** Get a system's OS. */
+		export let os: (value: Triple) => Os;
+	}
 
 	export type Object_ =
 		| Leaf

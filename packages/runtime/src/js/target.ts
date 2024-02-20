@@ -11,8 +11,8 @@ import { Object_ } from "./object.ts";
 import { Unresolved } from "./resolve.ts";
 import { Symlink, symlink } from "./symlink.ts";
 import * as syscall from "./syscall.ts";
-import { System } from "./system.ts";
 import { Template } from "./template.ts";
+import { Triple } from "./triple.ts";
 import {
 	MaybeNestedArray,
 	MaybePromise,
@@ -159,7 +159,7 @@ export class Target<
 		R extends Value = Value,
 	>(...args: Args<Target.Arg>): Promise<Target<A, R>> {
 		type Apply = {
-			host?: System;
+			host?: Triple;
 			executable?: Artifact;
 			lock?: Lock | undefined;
 			name?: string | undefined;
@@ -184,7 +184,7 @@ export class Target<
 					arg instanceof Template
 				) {
 					return {
-						host: (await getCurrent().env())["TANGRAM_HOST"] as System,
+						host: (await getCurrent().env())["TANGRAM_HOST"] as Triple,
 						executable: await symlink("/bin/sh"),
 						args: ["-c", arg],
 					};
@@ -198,7 +198,7 @@ export class Target<
 							: await mutation({
 									kind: "array_append",
 									values: flatten([arg.env]),
-								});
+							  });
 					}
 					if (arg.args !== undefined) {
 						object.args = Mutation.is(arg.args)
@@ -206,7 +206,7 @@ export class Target<
 							: (object.args = await mutation({
 									kind: "array_append",
 									values: [...arg.args],
-								}));
+							  }));
 					}
 					return {
 						...arg,
@@ -278,7 +278,7 @@ export class Target<
 		}
 	}
 
-	async host(): Promise<System> {
+	async host(): Promise<Triple> {
 		return (await this.object()).host;
 	}
 
@@ -324,7 +324,7 @@ export namespace Target {
 		| Array<Arg>;
 
 	export type ArgObject = {
-		host?: System;
+		host?: Triple;
 		executable?: Artifact;
 		lock?: Lock | undefined;
 		name?: string | undefined;
@@ -336,7 +336,7 @@ export namespace Target {
 	export type Id = string;
 
 	export type Object_ = {
-		host: System;
+		host: Triple;
 		executable: Artifact;
 		lock: Lock | undefined;
 		name: string | undefined;
