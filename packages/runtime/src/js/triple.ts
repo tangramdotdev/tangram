@@ -194,16 +194,22 @@ export namespace Triple {
 		assert_(Triple.is(value));
 	};
 
-	export let arch = (value: Triple): Arch | undefined => {
+	export let arch = (value: Triple): Arch => {
+		let ret = value.arch;
+		if (ret === undefined) {
+			throw new Error("Expected arch");
+		}
+		return ret;
+	};
+
+	export let tryArch = (value: Triple): Arch | undefined => {
 		return value.arch;
 	};
 
 	/** Construct a new Triple striping the vendor environment, and OS version. */
 	export let archAndOs = (value: Triple): Triple => {
 		let arch = Triple.arch(value);
-		assert_(arch !== undefined, "Expected arch");
 		let os = Triple.os(value);
-		assert_(os !== undefined, "Expected os");
 		return Triple.new({ arch, os });
 	};
 
@@ -258,7 +264,15 @@ export namespace Triple {
 		return s;
 	};
 
-	export let os = (value: Triple): Os | undefined => {
+	export let os = (value: Triple): Os => {
+		let ret = value.os;
+		if (ret === undefined) {
+			throw new Error("Expected OS");
+		}
+		return ret;
+	};
+
+	export let tryOs = (value: Triple): Os | undefined => {
 		return value.os;
 	};
 

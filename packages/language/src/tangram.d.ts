@@ -852,7 +852,10 @@ declare namespace tg {
 		export let assert: (value: unknown) => asserts value is Triple;
 
 		/** Get a triple's arch, if known. */
-		export let arch: (value: Triple) => Arch | undefined;
+		export let arch: (value: Triple) => Arch;
+
+		/** Get a triple's arch, if known. */
+		export let tryArch: (value: Triple) => Arch | undefined;
 
 		/** Construct a new Triple striping the vendor environment, and OS version. */
 		export let archAndOs: (value: Triple) => Triple;
@@ -870,7 +873,10 @@ declare namespace tg {
 		export let normalized: (value: Triple) => string | undefined;
 
 		/** Get a system's OS, if known. */
-		export let os: (value: Triple) => Os | undefined;
+		export let os: (value: Triple) => Os;
+
+		/** Get a system's OS, if known. */
+		export let tryOs: (value: Triple) => Os | undefined;
 
 		/** Get a triple's OS version, if known. */
 		export let osVersion: (value: Triple) => string | undefined;
@@ -884,6 +890,7 @@ declare namespace tg {
 			target: Triple;
 		}>;
 
+		/** Retrieve the underlying string. */
 		export let toString: (value: Triple) => string;
 
 		/** Get a triple's vendor, if known. */
