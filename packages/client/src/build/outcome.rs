@@ -12,7 +12,6 @@ use tangram_util::http::{empty, full};
 #[serde(try_from = "Data")]
 #[try_unwrap(ref)]
 pub enum Outcome {
-	Terminated,
 	Canceled,
 	Failed(Error),
 	Succeeded(Value),
@@ -22,7 +21,6 @@ pub enum Outcome {
 #[serde(rename_all = "snake_case", tag = "kind", content = "value")]
 #[try_unwrap(ref)]
 pub enum Data {
-	Terminated,
 	Canceled,
 	Failed(Error),
 	Succeeded(value::Data),

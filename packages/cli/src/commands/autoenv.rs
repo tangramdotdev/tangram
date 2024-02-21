@@ -67,7 +67,7 @@ impl Cli {
 			.wrap_err("Failed to canonicalize the path.")?;
 
 		// Get the config.
-		let mut config = self.config(None).await?.unwrap_or_default();
+		let mut config = self.config.clone().unwrap_or_default();
 
 		// Add the autoenv path.
 		let mut autoenv = config.autoenv.unwrap_or_default();
@@ -75,14 +75,16 @@ impl Cli {
 		config.autoenv = Some(autoenv);
 
 		// Save the config.
-		self.save_config(config).await?;
+		tokio::task::spawn_blocking(move || Self::write_config(&config, None))
+			.await
+			.unwrap()?;
 
 		Ok(())
 	}
 
 	async fn command_autoenv_get(&self, _args: GetArgs) -> Result<()> {
 		// Get the config.
-		let config = self.config(None).await?.unwrap_or_default();
+		let config = self.config.clone().unwrap_or_default();
 
 		// Get the working directory path.
 		let working_directory_path =
@@ -111,11 +113,10 @@ impl Cli {
 	}
 
 	async fn command_autoenv_list(&self, _args: ListArgs) -> Result<()> {
-		// Get the config.
-		let config = self.config(None).await?;
-
 		// Get the autoenv paths.
-		let autoenv_paths = config
+		let autoenv_paths = self
+			.config
+			.as_ref()
 			.as_ref()
 			.and_then(|config| config.autoenv.as_ref())
 			.map(|autoenv| autoenv.paths.clone())
@@ -137,7 +138,7 @@ impl Cli {
 
 	async fn command_autoenv_remove(&self, args: RemoveArgs) -> Result<()> {
 		// Get the config.
-		let mut config = self.config(None).await?.unwrap_or_default();
+		let mut config = self.config.clone().unwrap_or_default();
 
 		// Get the path.
 		let mut path = std::env::current_dir().wrap_err("Failed to get the working directory.")?;
@@ -156,7 +157,9 @@ impl Cli {
 		}
 
 		// Write the config.
-		self.save_config(config).await?;
+		tokio::task::spawn_blocking(move || Self::write_config(&config, None))
+			.await
+			.unwrap()?;
 
 		Ok(())
 	}

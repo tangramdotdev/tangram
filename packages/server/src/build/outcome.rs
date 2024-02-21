@@ -236,11 +236,8 @@ impl Server {
 			}
 		};
 
-		// If the build was terminated or canceled, then terminate or cancel the children.
-		if matches!(
-			outcome,
-			tg::build::Outcome::Canceled | tg::build::Outcome::Terminated
-		) {
+		// If the build was canceled, then cancel the children.
+		if matches!(outcome, tg::build::Outcome::Canceled) {
 			children
 				.iter()
 				.map(|child| {
@@ -267,11 +264,6 @@ impl Server {
 
 		// If any of the children were canceled, then this build should be canceled.
 		let outcome = if children_outcomes
-			.iter()
-			.any(|outcome| outcome.try_unwrap_terminated_ref().is_ok())
-		{
-			tg::build::Outcome::Terminated
-		} else if children_outcomes
 			.iter()
 			.any(|outcome| outcome.try_unwrap_canceled_ref().is_ok())
 		{
@@ -376,11 +368,63 @@ impl Server {
 			},
 		}
 
-		// Compute the descendants.
-		let descendants: u64 = 0;
-
 		// Compute the weight.
-		let weight: u64 = 0;
+		let weight = match &self.inner.database {
+			Database::Sqlite(database) => {
+				let connection = database.get().await?;
+				let statement = "
+					select coalesce(sum(weight), 0)
+					from objects
+					where id in (
+						select object
+						from build_objects
+						where build = ?1
+					);
+				";
+				let params = sqlite_params![id.to_string()];
+				let mut statement = connection
+					.prepare_cached(statement)
+					.wrap_err("Failed to prepare the query.")?;
+				let mut rows = statement
+					.query(params)
+					.wrap_err("Failed to execute the statement.")?;
+				let row = rows
+					.next()
+					.wrap_err("Failed to get the row.")?
+					.wrap_err("Expected a row.")?;
+				row.get::<_, i64>(0)
+					.wrap_err("Failed to deserialize the column.")?
+					.to_u64()
+					.unwrap()
+			},
+
+			Database::Postgres(database) => {
+				let connection = database.get().await?;
+				let statement = "
+					select coalesce(sum(weight), 0)
+					from objects
+					where id in (
+						select object
+						from build_objects
+						where build = ?1
+					);
+				";
+				let params = postgres_params![id.to_string()];
+				let statement = connection
+					.prepare_cached(statement)
+					.await
+					.wrap_err("Failed to prepare the query.")?;
+				let rows = connection
+					.query(&statement, params)
+					.await
+					.wrap_err("Failed to execute the statement.")?;
+				let row = rows.into_iter().next().wrap_err("Expected a row.")?;
+				row.try_get::<_, i64>(0)
+					.wrap_err("Failed to deserialize the column.")?
+					.to_u64()
+					.unwrap()
+			},
+		};
 
 		// Update the build.
 		match &self.inner.database {
@@ -391,22 +435,19 @@ impl Server {
 					update builds
 					set
 						children = ?1,
-						descendants = ?2,
-						log = ?3,
-						outcome = ?4,
-						status = ?5,
-						weight = ?6
-					where id = ?7;
+						log = ?2,
+						outcome = ?3,
+						status = ?4,
+						weight = ?5
+					where id = ?6;
 				";
 				let children = SqliteJson(children);
-				let descendants = descendants.to_i64().unwrap();
 				let log = log.to_string();
 				let outcome = SqliteJson(outcome);
 				let status = status.to_string();
 				let weight = weight.to_i64().unwrap();
 				let id = id.to_string();
-				let params =
-					sqlite_params![children, descendants, log, outcome, status, weight, id];
+				let params = sqlite_params![children, log, outcome, status, weight, id];
 				let mut statement = connection
 					.prepare_cached(statement)
 					.wrap_err("Failed to prepare the query.")?;
@@ -422,22 +463,19 @@ impl Server {
 					update builds
 					set
 						children = $1,
-						descendants = $2,
-						log = $3,
-						outcome = $4,
-						status = $5,
-						weight = $6
-					where id = $7;
+						log = $2,
+						outcome = $3,
+						status = $4,
+						weight = $5
+					where id = $6;
 				";
 				let children = PostgresJson(children);
-				let descendants = descendants.to_i64().unwrap();
 				let log = log.to_string();
 				let outcome = PostgresJson(outcome);
 				let status = status.to_string();
 				let weight = weight.to_i64().unwrap();
 				let id = id.to_string();
-				let params =
-					postgres_params![children, descendants, log, outcome, status, weight, id];
+				let params = postgres_params![children, log, outcome, status, weight, id];
 				let statement = connection
 					.prepare_cached(statement)
 					.await

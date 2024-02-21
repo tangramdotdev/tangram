@@ -67,7 +67,6 @@ async fn migration_0000(path: &Path) -> Result<()> {
 		create table builds (
 			id text primary key,
 			children text,
-			descendants integer,
 			host text not null,
 			log text,
 			outcome text,

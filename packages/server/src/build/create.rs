@@ -160,7 +160,6 @@ impl Server {
 		let put_arg = tg::build::PutArg {
 			id: build_id.clone(),
 			children: None,
-			descendants: None,
 			host: host.clone(),
 			log: None,
 			outcome: None,

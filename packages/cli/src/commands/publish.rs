@@ -14,9 +14,6 @@ impl Cli {
 	pub async fn command_publish(&self, args: Args) -> Result<()> {
 		let client = &self.client().await?;
 
-		// Get the user.
-		let user = self.user().await?;
-
 		// Create the package.
 		let (package, _) = tg::package::get_with_lock(client, &args.package).await?;
 
@@ -25,7 +22,7 @@ impl Cli {
 
 		// Publish the package.
 		client
-			.publish_package(user.as_ref(), id)
+			.publish_package(self.user.as_ref(), id)
 			.await
 			.wrap_err("Failed to publish the package.")?;
 

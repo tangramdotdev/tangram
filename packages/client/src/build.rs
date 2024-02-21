@@ -51,7 +51,6 @@ pub struct Build {
 )]
 #[serde(into = "String", try_from = "String")]
 pub enum Retry {
-	Terminated,
 	#[default]
 	Canceled,
 	Failed,
@@ -84,8 +83,6 @@ pub struct GetOutput {
 	pub id: Id,
 	#[serde(default)]
 	pub children: Option<Vec<Id>>,
-	#[serde(default)]
-	pub descendants: Option<u64>,
 	pub host: System,
 	#[serde(default)]
 	pub log: Option<blob::Id>,
@@ -111,8 +108,6 @@ pub struct PutArg {
 	pub id: Id,
 	#[serde(default)]
 	pub children: Option<Vec<Id>>,
-	#[serde(default)]
-	pub descendants: Option<u64>,
 	pub host: System,
 	#[serde(default)]
 	pub log: Option<blob::Id>,
@@ -328,7 +323,6 @@ impl Build {
 		let arg = PutArg {
 			id: output.id,
 			children: output.children,
-			descendants: output.descendants,
 			host: output.host,
 			log: output.log,
 			outcome: output.outcome,
@@ -415,7 +409,6 @@ impl Outcome {
 	#[must_use]
 	pub fn retry(&self) -> Retry {
 		match self {
-			Self::Terminated => Retry::Terminated,
 			Self::Canceled => Retry::Canceled,
 			Self::Failed(_) => Retry::Failed,
 			Self::Succeeded(_) => Retry::Succeeded,
@@ -424,7 +417,6 @@ impl Outcome {
 
 	pub fn into_result(self) -> Result<Value> {
 		match self {
-			Self::Terminated => Err(error!("The build was terminated.")),
 			Self::Canceled => Err(error!("The build was canceled.")),
 			Self::Failed(error) => Err(error),
 			Self::Succeeded(value) => Ok(value),
@@ -433,7 +425,6 @@ impl Outcome {
 
 	pub async fn data(&self, tg: &dyn Handle) -> Result<outcome::Data> {
 		Ok(match self {
-			Self::Terminated => outcome::Data::Terminated,
 			Self::Canceled => outcome::Data::Canceled,
 			Self::Failed(error) => outcome::Data::Failed(error.clone()),
 			Self::Succeeded(value) => outcome::Data::Succeeded(value.data(tg).await?),
@@ -634,7 +625,6 @@ impl TryFrom<outcome::Data> for Outcome {
 
 	fn try_from(data: outcome::Data) -> Result<Self, Self::Error> {
 		match data {
-			outcome::Data::Terminated => Ok(Outcome::Terminated),
 			outcome::Data::Canceled => Ok(Outcome::Canceled),
 			outcome::Data::Failed(error) => Ok(Outcome::Failed(error)),
 			outcome::Data::Succeeded(value) => Ok(Outcome::Succeeded(value.try_into()?)),
@@ -709,7 +699,6 @@ impl TryFrom<String> for Status {
 impl std::fmt::Display for Retry {
 	fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
 		match self {
-			Self::Terminated => write!(f, "terminated"),
 			Self::Canceled => write!(f, "canceled"),
 			Self::Failed => write!(f, "failed"),
 			Self::Succeeded => write!(f, "succeeded"),
@@ -722,7 +711,6 @@ impl std::str::FromStr for Retry {
 
 	fn from_str(s: &str) -> Result<Self, Self::Err> {
 		match s {
-			"terminated" => Ok(Self::Terminated),
 			"canceled" => Ok(Self::Canceled),
 			"failed" => Ok(Self::Failed),
 			"succeeded" => Ok(Self::Succeeded),

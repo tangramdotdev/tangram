@@ -47,7 +47,6 @@ impl Server {
 				select
 					id,
 					children,
-					descendants,
 					host,
 					log,
 					outcome,
@@ -82,22 +81,20 @@ impl Server {
 			.and_then(|row| {
 				let id = row.get::<_, String>(0)?;
 				let children = row.get::<_, Option<SqliteJson<Vec<tg::build::Id>>>>(1)?;
-				let descendants = row.get::<_, Option<i64>>(2)?;
-				let host = row.get::<_, String>(3)?;
-				let log = row.get::<_, Option<String>>(4)?;
-				let outcome = row.get::<_, Option<SqliteJson<tg::build::outcome::Data>>>(5)?;
-				let retry = row.get::<_, String>(6)?;
-				let status = row.get::<_, String>(7)?;
-				let target = row.get::<_, String>(8)?;
-				let weight = row.get::<_, Option<i64>>(9)?;
-				let created_at = row.get::<_, String>(10)?;
-				let queued_at = row.get::<_, Option<String>>(11)?;
-				let started_at = row.get::<_, Option<String>>(12)?;
-				let finished_at = row.get::<_, Option<String>>(13)?;
+				let host = row.get::<_, String>(2)?;
+				let log = row.get::<_, Option<String>>(3)?;
+				let outcome = row.get::<_, Option<SqliteJson<tg::build::outcome::Data>>>(4)?;
+				let retry = row.get::<_, String>(5)?;
+				let status = row.get::<_, String>(6)?;
+				let target = row.get::<_, String>(7)?;
+				let weight = row.get::<_, Option<i64>>(8)?;
+				let created_at = row.get::<_, String>(9)?;
+				let queued_at = row.get::<_, Option<String>>(10)?;
+				let started_at = row.get::<_, Option<String>>(11)?;
+				let finished_at = row.get::<_, Option<String>>(12)?;
 				Ok::<_, sqlite::Error>((
 					id,
 					children,
-					descendants,
 					host,
 					log,
 					outcome,
@@ -116,7 +113,6 @@ impl Server {
 				let (
 					id,
 					children,
-					descendants,
 					host,
 					log,
 					outcome,
@@ -131,7 +127,6 @@ impl Server {
 				) = row;
 				let id = id.parse()?;
 				let children = children.map(|children| children.0);
-				let descendants = descendants.map(|descendants| descendants.to_u64().unwrap());
 				let host = host.parse()?;
 				let log = log.map(|log| log.parse()).transpose()?;
 				let outcome = outcome.map(|outcome| outcome.0);
@@ -162,7 +157,6 @@ impl Server {
 				let output = tg::build::GetOutput {
 					id,
 					children,
-					descendants,
 					host,
 					log,
 					outcome,
@@ -207,7 +201,6 @@ impl Server {
 				select
 					id,
 					children,
-					descendants,
 					host,
 					log,
 					outcome,
@@ -245,23 +238,21 @@ impl Server {
 			.map(|row| {
 				let id = row.try_get::<_, String>(0)?;
 				let children = row.try_get::<_, Option<PostgresJson<Vec<tg::build::Id>>>>(1)?;
-				let descendants = row.try_get::<_, Option<i64>>(2)?;
-				let host = row.try_get::<_, String>(3)?;
-				let log = row.try_get::<_, Option<String>>(4)?;
+				let host = row.try_get::<_, String>(2)?;
+				let log = row.try_get::<_, Option<String>>(3)?;
 				let outcome =
-					row.try_get::<_, Option<PostgresJson<tg::build::outcome::Data>>>(5)?;
-				let retry = row.try_get::<_, String>(6)?;
-				let status = row.try_get::<_, String>(7)?;
-				let target = row.try_get::<_, String>(8)?;
-				let weight = row.try_get::<_, Option<i64>>(9)?;
-				let created_at = row.try_get::<_, String>(10)?;
-				let queued_at = row.try_get::<_, Option<String>>(11)?;
-				let started_at = row.try_get::<_, Option<String>>(12)?;
-				let finished_at = row.try_get::<_, Option<String>>(13)?;
+					row.try_get::<_, Option<PostgresJson<tg::build::outcome::Data>>>(4)?;
+				let retry = row.try_get::<_, String>(5)?;
+				let status = row.try_get::<_, String>(6)?;
+				let target = row.try_get::<_, String>(7)?;
+				let weight = row.try_get::<_, Option<i64>>(8)?;
+				let created_at = row.try_get::<_, String>(9)?;
+				let queued_at = row.try_get::<_, Option<String>>(10)?;
+				let started_at = row.try_get::<_, Option<String>>(11)?;
+				let finished_at = row.try_get::<_, Option<String>>(12)?;
 				Ok::<_, postgres::Error>((
 					id,
 					children,
-					descendants,
 					host,
 					log,
 					outcome,
@@ -280,7 +271,6 @@ impl Server {
 				let (
 					id,
 					children,
-					descendants,
 					host,
 					log,
 					outcome,
@@ -295,7 +285,6 @@ impl Server {
 				) = row;
 				let id = id.parse()?;
 				let children = children.map(|children| children.0);
-				let descendants = descendants.map(|descendants| descendants.to_u64().unwrap());
 				let host = host.parse()?;
 				let log = log.map(|log| log.parse()).transpose()?;
 				let outcome = outcome.map(|outcome| outcome.0);
@@ -326,7 +315,6 @@ impl Server {
 				let output = tg::build::GetOutput {
 					id,
 					children,
-					descendants,
 					host,
 					log,
 					outcome,

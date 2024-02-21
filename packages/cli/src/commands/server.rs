@@ -2,7 +2,6 @@ use crate::{default_path, Cli, API_URL};
 use std::path::PathBuf;
 use tangram_client as tg;
 use tangram_error::{Result, WrapErr};
-use tg::Address;
 use url::Url;
 
 /// Manage the server.
@@ -33,13 +32,13 @@ pub struct HealthArgs {}
 pub struct RunArgs {
 	/// The address to bind to.
 	#[arg(long)]
-	pub address: Option<Address>,
+	pub address: Option<tg::Address>,
 
 	/// The path to the config file.
 	#[arg(long)]
 	pub config: Option<PathBuf>,
 
-	/// The path where Tangram should store its data. The default is `$HOME/.tangram`.
+	/// The path where the server should store its data. The default is `$HOME/.tangram`.
 	#[arg(long)]
 	pub path: Option<PathBuf>,
 
@@ -91,13 +90,18 @@ impl Cli {
 
 	async fn command_server_run(&self, args: RunArgs) -> Result<()> {
 		// Get the config.
-		let config = self.config(args.config).await?;
+		let config = tokio::task::spawn_blocking({
+			let config = args.config.clone();
+			|| Self::read_config(config)
+		})
+		.await
+		.unwrap()?;
 
 		// Get the address.
 		let address = args
 			.address
 			.or(config.as_ref().and_then(|config| config.address.clone()))
-			.unwrap_or(Address::Unix(default_path().join("socket")));
+			.unwrap_or(tg::Address::Unix(default_path().join("socket")));
 
 		// Create the build options.
 		let enable = config

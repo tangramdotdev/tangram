@@ -982,7 +982,7 @@ impl Server {
 
 	async fn mount(path: &Path) -> Result<std::os::unix::io::RawFd> {
 		unsafe {
-			// Setup the arguments.
+			// Set up the arguments.
 			let uid = libc::getuid();
 			let gid = libc::getgid();
 			let options =

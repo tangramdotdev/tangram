@@ -71,7 +71,6 @@ enum TreeItemIndicator {
 	Created,
 	Queued,
 	Started,
-	Terminated,
 	Canceled,
 	Failed,
 	Succeeded,
@@ -160,7 +159,7 @@ impl Tui {
 			ct::event::EnableMouseCapture,
 			ct::terminal::EnterAlternateScreen,
 		)
-		.wrap_err("Failed to setup the terminal.")?;
+		.wrap_err("Failed to set up the terminal.")?;
 
 		// Create the stop flag.
 		let (stop, _) = tokio::sync::watch::channel(false);
@@ -561,7 +560,6 @@ impl TreeItem {
 					return;
 				};
 				let indicator = match outcome {
-					tg::build::Outcome::Terminated => TreeItemIndicator::Terminated,
 					tg::build::Outcome::Canceled => TreeItemIndicator::Canceled,
 					tg::build::Outcome::Failed(_) => TreeItemIndicator::Failed,
 					tg::build::Outcome::Succeeded(_) => TreeItemIndicator::Succeeded,
@@ -706,7 +704,6 @@ impl TreeItem {
 				let position = position.to_usize().unwrap();
 				SPINNER[position].to_string().blue()
 			},
-			TreeItemIndicator::Terminated => "⦻".red(),
 			TreeItemIndicator::Canceled => "⦻".yellow(),
 			TreeItemIndicator::Failed => "✗".red(),
 			TreeItemIndicator::Succeeded => "✓".green(),

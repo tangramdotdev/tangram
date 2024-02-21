@@ -258,7 +258,6 @@ impl Target {
 		let build = Build::new(tg, arg.clone()).await?;
 		let outcome = build.outcome(tg).await?;
 		match outcome {
-			build::Outcome::Terminated => Err(error!("The build was terminated.")),
 			build::Outcome::Canceled => Err(error!("The build was canceled.")),
 			build::Outcome::Failed(error) => Err(error),
 			build::Outcome::Succeeded(value) => Ok(value),

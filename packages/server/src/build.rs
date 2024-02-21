@@ -227,7 +227,7 @@ impl Server {
 					// Create the outcome.
 					let outcome = match result {
 						Ok(Some(value)) => tg::build::Outcome::Succeeded(value),
-						Ok(None) => tg::build::Outcome::Terminated,
+						Ok(None) => tg::build::Outcome::Canceled,
 						Err(error) => tg::build::Outcome::Failed(error),
 					};
 

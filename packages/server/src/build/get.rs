@@ -39,7 +39,6 @@ impl Server {
 			select
 				id,
 				children,
-				descendants,
 				host,
 				log,
 				outcome,
@@ -70,45 +69,41 @@ impl Server {
 		let children = row
 			.get::<_, Option<SqliteJson<Vec<tg::build::Id>>>>(1)
 			.wrap_err("Failed to deserialize the column.")?;
-		let descendants = row
-			.get::<_, Option<i64>>(2)
-			.wrap_err("Failed to deserialize the column.")?;
 		let host = row
-			.get::<_, String>(3)
+			.get::<_, String>(2)
 			.wrap_err("Failed to deserialize the column.")?;
 		let log = row
-			.get::<_, Option<String>>(4)
+			.get::<_, Option<String>>(3)
 			.wrap_err("Failed to deserialize the column.")?;
 		let outcome = row
-			.get::<_, Option<SqliteJson<tg::build::outcome::Data>>>(5)
+			.get::<_, Option<SqliteJson<tg::build::outcome::Data>>>(4)
 			.wrap_err("Failed to deserialize the column.")?;
 		let retry = row
-			.get::<_, String>(6)
+			.get::<_, String>(5)
 			.wrap_err("Failed to deserialize the column.")?;
 		let status = row
-			.get::<_, String>(7)
+			.get::<_, String>(6)
 			.wrap_err("Failed to deserialize the column.")?;
 		let target = row
-			.get::<_, String>(8)
+			.get::<_, String>(7)
 			.wrap_err("Failed to deserialize the column.")?;
 		let weight = row
-			.get::<_, Option<i64>>(9)
+			.get::<_, Option<i64>>(8)
 			.wrap_err("Failed to deserialize the column.")?;
 		let created_at = row
-			.get::<_, String>(10)
+			.get::<_, String>(9)
 			.wrap_err("Failed to deserialize the column.")?;
 		let queued_at = row
-			.get::<_, Option<String>>(11)
+			.get::<_, Option<String>>(10)
 			.wrap_err("Failed to deserialize the column.")?;
 		let started_at = row
-			.get::<_, Option<String>>(12)
+			.get::<_, Option<String>>(11)
 			.wrap_err("Failed to deserialize the column.")?;
 		let finished_at = row
-			.get::<_, Option<String>>(13)
+			.get::<_, Option<String>>(12)
 			.wrap_err("Failed to deserialize the column.")?;
 		let id = id.parse()?;
 		let children = children.map(|children| children.0);
-		let descendants = descendants.map(|descendants| descendants.to_u64().unwrap());
 		let host = host.parse()?;
 		let log = log.map(|log| log.parse()).transpose()?;
 		let outcome = outcome.map(|outcome| outcome.0);
@@ -139,7 +134,6 @@ impl Server {
 		let output = tg::build::GetOutput {
 			id,
 			children,
-			descendants,
 			host,
 			log,
 			outcome,
@@ -165,7 +159,6 @@ impl Server {
 			select
 				id,
 				children,
-				descendants,
 				host,
 				log,
 				outcome,
@@ -195,45 +188,41 @@ impl Server {
 		let children = row
 			.try_get::<_, Option<PostgresJson<Vec<tg::build::Id>>>>(1)
 			.wrap_err("Failed to deserialize the column.")?;
-		let descendants = row
-			.try_get::<_, Option<i64>>(2)
-			.wrap_err("Failed to deserialize the column.")?;
 		let host = row
-			.try_get::<_, String>(3)
+			.try_get::<_, String>(2)
 			.wrap_err("Failed to deserialize the column.")?;
 		let log = row
-			.try_get::<_, Option<String>>(4)
+			.try_get::<_, Option<String>>(3)
 			.wrap_err("Failed to deserialize the column.")?;
 		let outcome = row
-			.try_get::<_, Option<PostgresJson<tg::build::outcome::Data>>>(5)
+			.try_get::<_, Option<PostgresJson<tg::build::outcome::Data>>>(4)
 			.wrap_err("Failed to deserialize the column.")?;
 		let retry = row
-			.try_get::<_, String>(6)
+			.try_get::<_, String>(5)
 			.wrap_err("Failed to deserialize the column.")?;
 		let status = row
-			.try_get::<_, String>(7)
+			.try_get::<_, String>(6)
 			.wrap_err("Failed to deserialize the column.")?;
 		let target = row
-			.try_get::<_, String>(8)
+			.try_get::<_, String>(7)
 			.wrap_err("Failed to deserialize the column.")?;
 		let weight = row
-			.try_get::<_, Option<i64>>(9)
+			.try_get::<_, Option<i64>>(8)
 			.wrap_err("Failed to deserialize the column.")?;
 		let created_at = row
-			.try_get::<_, String>(10)
+			.try_get::<_, String>(9)
 			.wrap_err("Failed to deserialize the column.")?;
 		let queued_at = row
-			.try_get::<_, Option<String>>(11)
+			.try_get::<_, Option<String>>(10)
 			.wrap_err("Failed to deserialize the column.")?;
 		let started_at = row
-			.try_get::<_, Option<String>>(12)
+			.try_get::<_, Option<String>>(11)
 			.wrap_err("Failed to deserialize the column.")?;
 		let finished_at = row
-			.try_get::<_, Option<String>>(13)
+			.try_get::<_, Option<String>>(12)
 			.wrap_err("Failed to deserialize the column.")?;
 		let id = id.parse()?;
 		let children = children.map(|children| children.0);
-		let descendants = descendants.map(|descendants| descendants.to_u64().unwrap());
 		let host = host.parse()?;
 		let log = log.map(|log| log.parse()).transpose()?;
 		let outcome = outcome.map(|outcome| outcome.0);
@@ -264,7 +253,6 @@ impl Server {
 		let output = tg::build::GetOutput {
 			id,
 			children,
-			descendants,
 			host,
 			log,
 			outcome,
@@ -299,7 +287,6 @@ impl Server {
 			let arg = tg::build::PutArg {
 				id: output.id.clone(),
 				children: output.children.clone(),
-				descendants: output.descendants,
 				host: output.host.clone(),
 				log: output.log.clone(),
 				outcome: output.outcome.clone(),

@@ -48,7 +48,9 @@ impl Cli {
 			.wrap_err("Expected the user to exist.")?;
 
 		// Save the user.
-		self.save_user(user).await?;
+		tokio::task::spawn_blocking(move || Self::write_user(&user, None))
+			.await
+			.unwrap()?;
 
 		eprintln!("You have successfully logged in.");
 

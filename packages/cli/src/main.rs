@@ -3,7 +3,7 @@ use clap::Parser;
 use futures::FutureExt;
 use std::path::PathBuf;
 use tangram_client as tg;
-use tangram_error::{error, Result, WrapErr};
+use tangram_error::{error, Result, Wrap, WrapErr};
 use tracing_subscriber::prelude::*;
 
 mod commands;
@@ -15,7 +15,9 @@ pub const API_URL: &str = "https://api.tangram.dev";
 
 struct Cli {
 	address: tg::Address,
+	config: Option<Config>,
 	client: tokio::sync::Mutex<Option<tg::Client>>,
+	user: Option<tg::User>,
 	version: String,
 }
 
@@ -29,8 +31,13 @@ struct Cli {
 	version = env!("CARGO_PKG_VERSION"),
 )]
 struct Args {
-	#[clap(long)]
+	/// The address to connect to.
+	#[arg(long)]
 	address: Option<tg::Address>,
+
+	/// The path to the config file.
+	#[arg(long)]
+	config: Option<PathBuf>,
 
 	#[command(subcommand)]
 	command: Command,
@@ -76,25 +83,26 @@ fn default_path() -> PathBuf {
 }
 
 fn main() {
-	// Setup tracing.
-	setup_tracing();
-
-	// Initialize V8. This must happen on the main thread.
-	initialize_v8();
-
-	// Create the tokio runtime and run the main function.
-	tokio::runtime::Builder::new_multi_thread()
-		.enable_all()
-		.disable_lifo_slot()
-		.worker_threads(1)
-		.build()
-		.unwrap()
-		.block_on(main_inner());
+	let result = main_inner();
+	if let Err(error) = result {
+		eprintln!("An error occurred.");
+		eprintln!("{}", error.trace());
+		std::process::exit(1);
+	}
 }
 
-async fn main_inner() {
+fn main_inner() -> Result<()> {
 	// Parse the arguments.
 	let args = Args::parse();
+
+	// Read the config.
+	let config = Cli::read_config(args.config)?;
+
+	// Read the user.
+	let user = Cli::read_user(None)?;
+
+	// Initialize V8.
+	initialize_v8();
 
 	// Get the address.
 	let address = args
@@ -109,8 +117,7 @@ async fn main_inner() {
 		let executable_path = std::env::current_exe()
 			.wrap_err("Failed to get the current executable path.")
 			.unwrap();
-		let metadata = tokio::fs::metadata(&executable_path)
-			.await
+		let metadata = std::fs::metadata(executable_path)
 			.wrap_err("Failed to get the executable metadata.")
 			.unwrap();
 		metadata
@@ -128,12 +135,17 @@ async fn main_inner() {
 	// Create the CLI.
 	let cli = Cli {
 		address,
+		config,
 		client,
+		user,
 		version,
 	};
 
+	// Set up tracing.
+	set_up_tracing();
+
 	// Run the command.
-	let result = match args.command {
+	let future = match args.command {
 		Command::Autoenv(args) => cli.command_autoenv(args).boxed(),
 		Command::Build(args) => cli.command_build(args).boxed(),
 		Command::Check(args) => cli.command_check(args).boxed(),
@@ -162,18 +174,14 @@ async fn main_inner() {
 		Command::Tree(args) => cli.command_tree(args).boxed(),
 		Command::Update(args) => cli.command_update(args).boxed(),
 		Command::Upgrade(args) => cli.command_upgrade(args).boxed(),
-	}
-	.await;
+	};
 
-	// Handle the result.
-	if let Err(error) = result {
-		// Print the error trace.
-		eprintln!("An error occurred.");
-		eprintln!("{}", error.trace());
-
-		// Exit with a non-zero code.
-		std::process::exit(1);
-	}
+	// Create the tokio runtime and block on the future.
+	let mut builder = tokio::runtime::Builder::new_multi_thread();
+	builder.enable_all();
+	builder.disable_lifo_slot();
+	let runtime = builder.build().unwrap();
+	runtime.block_on(future)
 }
 
 impl Cli {
@@ -184,7 +192,7 @@ impl Cli {
 		}
 
 		// Attempt to connect to the server.
-		let user = self.user().await?.clone();
+		let user = self.user.clone();
 		let client = tg::Builder::new(self.address.clone()).user(user).build();
 		let mut connected = client.connect().await.is_ok();
 
@@ -237,8 +245,7 @@ impl Cli {
 		let executable =
 			std::env::current_exe().wrap_err("Failed to get the current executable path.")?;
 		let path = self
-			.config(None)
-			.await?
+			.config
 			.as_ref()
 			.and_then(|config| config.path.clone())
 			.unwrap_or_else(default_path);
@@ -263,66 +270,51 @@ impl Cli {
 		Ok(())
 	}
 
-	pub async fn config(&self, path: Option<PathBuf>) -> Result<Option<Config>> {
-		let path = path.unwrap_or_else(|| {
-			let home = std::env::var("HOME")
-				.wrap_err("Failed to get the HOME environment variable.")
-				.unwrap();
-			PathBuf::from(home).join(".config/tangram/config.json")
-		});
-		let exists = tokio::fs::try_exists(&path)
-			.await
-			.wrap_err("Failed to check if the config file exists.")?;
-		let config = if exists {
-			let config = tokio::fs::read_to_string(path)
-				.await
-				.wrap_err("Failed to read the config file.")?;
-			Some(serde_json::from_str(&config).wrap_err("Failed to deserialize the config.")?)
-		} else {
-			None
+	fn read_config(path: Option<PathBuf>) -> Result<Option<Config>> {
+		let home = std::env::var("HOME")
+			.wrap_err("Failed to get the HOME environment variable.")
+			.unwrap();
+		let path = path.unwrap_or_else(|| PathBuf::from(home).join(".config/tangram/config.json"));
+		let config = match std::fs::read_to_string(path) {
+			Ok(config) => config,
+			Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(None),
+			Err(error) => return Err(error.wrap("Failed to read the config file.")),
 		};
-		Ok(config)
+		let config = serde_json::from_str(&config).wrap_err("Failed to deserialize the config.")?;
+		Ok(Some(config))
 	}
 
-	pub async fn save_config(&self, config: Config) -> Result<()> {
+	fn write_config(config: &Config, path: Option<PathBuf>) -> Result<()> {
 		let home =
 			std::env::var("HOME").wrap_err("Failed to get the HOME environment variable.")?;
-		let path = PathBuf::from(home).join(".config/tangram/config.json");
+		let path = path.unwrap_or_else(|| PathBuf::from(home).join(".config/tangram/config.json"));
 		let config =
 			serde_json::to_string_pretty(&config).wrap_err("Failed to serialize the config.")?;
-		tokio::fs::write(path, &config)
-			.await
-			.wrap_err("Failed to save the config.")?;
+		std::fs::write(path, config).wrap_err("Failed to save the config.")?;
 		Ok(())
 	}
 
-	pub async fn user(&self) -> Result<Option<tg::User>> {
-		let home =
-			std::env::var("HOME").wrap_err("Failed to get the HOME environment variable.")?;
-		let path = PathBuf::from(home).join(".config/tangram/user.json");
-		let exists = tokio::fs::try_exists(&path)
-			.await
-			.wrap_err("Failed to check if the user file exists.")?;
-		let user = if exists {
-			let config = tokio::fs::read_to_string(path)
-				.await
-				.wrap_err("Failed to read the user file.")?;
-			Some(serde_json::from_str(&config).wrap_err("Failed to deserialize the user.")?)
-		} else {
-			None
+	fn read_user(path: Option<PathBuf>) -> Result<Option<tg::User>> {
+		let home = std::env::var("HOME")
+			.wrap_err("Failed to get the HOME environment variable.")
+			.unwrap();
+		let path = path.unwrap_or_else(|| PathBuf::from(home).join(".config/tangram/user.json"));
+		let user = match std::fs::read_to_string(path) {
+			Ok(user) => user,
+			Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(None),
+			Err(error) => return Err(error.wrap("Failed to read the user file.")),
 		};
-		Ok(user)
+		let user = serde_json::from_str(&user).wrap_err("Failed to deserialize the user.")?;
+		Ok(Some(user))
 	}
 
-	pub async fn save_user(&self, user: tg::User) -> Result<()> {
+	fn write_user(user: &tg::User, path: Option<PathBuf>) -> Result<()> {
 		let home =
 			std::env::var("HOME").wrap_err("Failed to get the HOME environment variable.")?;
-		let path = PathBuf::from(home).join(".config/tangram/user.json");
+		let path = path.unwrap_or_else(|| PathBuf::from(home).join(".config/tangram/user.json"));
 		let user = serde_json::to_string_pretty(&user.clone())
 			.wrap_err("Failed to serialize the user.")?;
-		tokio::fs::write(path, &user)
-			.await
-			.wrap_err("Failed to save the user.")?;
+		std::fs::write(path, user).wrap_err("Failed to save the user.")?;
 		Ok(())
 	}
 }
@@ -348,7 +340,7 @@ fn initialize_v8() {
 	v8::V8::initialize();
 }
 
-fn setup_tracing() {
+fn set_up_tracing() {
 	let console_layer = std::env::var("TANGRAM_TOKIO_CONSOLE")
 		.ok()
 		.map(|_| console_subscriber::spawn());

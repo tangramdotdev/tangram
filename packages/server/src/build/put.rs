@@ -100,11 +100,8 @@ impl Server {
 			.wrap_err("Failed to execute the statement.")?;
 
 		// Add the objects.
-		let objects = arg
-			.log
-			.clone()
-			.map(Into::into)
-			.into_iter()
+		let objects = std::iter::empty()
+			.chain(arg.log.clone().map(Into::into))
 			.chain(
 				arg.outcome
 					.as_ref()
@@ -136,7 +133,6 @@ impl Server {
 			insert into builds (
 				id,
 				children,
-				descendants,
 				host,
 				log,
 				outcome,
@@ -162,30 +158,25 @@ impl Server {
 				?10,
 				?11,
 				?12,
-				?13,
-				?14
+				?13
 			)
 			on conflict do update set 
 				id = ?1,
 				children = ?2,
-				descendants = ?3,
-				host = ?4,
-				log = ?5,
-				outcome = ?6,
-				retry = ?7,
-				status = ?8,
-				target = ?9,
-				weight = ?10,
-				created_at = ?11,
-				queued_at = ?12,
-				started_at = ?13,
-				finished_at = ?14;
+				host = ?3,
+				log = ?4,
+				outcome = ?5,
+				retry = ?6,
+				status = ?7,
+				target = ?8,
+				weight = ?9,
+				created_at = ?10,
+				queued_at = ?11,
+				started_at = ?12,
+				finished_at = ?13;
 		";
 		let id = id.to_string();
 		let children = arg.children.clone().map(SqliteJson);
-		let descendants = arg
-			.descendants
-			.map(|descendants| descendants.to_i64().unwrap());
 		let host = arg.host.to_string();
 		let log = arg.log.as_ref().map(ToString::to_string);
 		let outcome = arg.outcome.clone().map(SqliteJson);
@@ -224,7 +215,6 @@ impl Server {
 		let params = sqlite_params![
 			id,
 			children,
-			descendants,
 			host,
 			log,
 			outcome,
@@ -364,7 +354,6 @@ impl Server {
 			upsert into builds (
 				id,
 				children,
-				descendants,
 				host,
 				log,
 				outcome,
@@ -390,15 +379,11 @@ impl Server {
 				$10,
 				$11,
 				$12,
-				$13,
-				$14
+				$13
 			);
 		";
 		let id = id.to_string();
 		let children = arg.children.clone().map(PostgresJson);
-		let descendants = arg
-			.descendants
-			.map(|descendants| descendants.to_i64().unwrap());
 		let host = arg.host.to_string();
 		let log = arg.log.as_ref().map(ToString::to_string);
 		let outcome = arg.outcome.clone().map(PostgresJson);
@@ -437,7 +422,6 @@ impl Server {
 		let params = postgres_params![
 			id,
 			children,
-			descendants,
 			host,
 			log,
 			outcome,
