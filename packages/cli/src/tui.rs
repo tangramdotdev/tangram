@@ -361,6 +361,7 @@ impl App {
 		let new_selected_item = expanded_items[new_selected_index].clone();
 		self.tree.selected.inner.state.lock().unwrap().selected = false;
 		new_selected_item.inner.state.lock().unwrap().selected = true;
+		self.log.stop();
 		self.log = Log::new(
 			self.tg.as_ref(),
 			&new_selected_item.inner.build,
@@ -389,6 +390,7 @@ impl App {
 			if let Some(parent) = parent {
 				self.tree.selected.inner.state.lock().unwrap().selected = false;
 				parent.inner.state.lock().unwrap().selected = true;
+				self.log.stop();
 				self.log = Log::new(self.tg.as_ref(), &parent.inner.build, self.log.rect());
 				self.tree.selected = parent;
 			}
@@ -642,18 +644,35 @@ impl TreeItem {
 				}
 			}
 		});
-		self.inner
+		let children_task = self
+			.inner
 			.children_task
 			.lock()
 			.unwrap()
 			.replace(children_task);
+		if let Some(task) = children_task {
+			task.abort();
+		}
 	}
 
 	fn collapse(&self) {
 		self.inner.state.lock().unwrap().expanded = false;
-		self.inner.state.lock().unwrap().children.take();
 		if let Some(children_task) = self.inner.children_task.lock().unwrap().take() {
 			children_task.abort();
+		}
+
+		let children = self
+			.inner
+			.state
+			.lock()
+			.unwrap()
+			.children
+			.take()
+			.into_iter()
+			.flatten();
+		for child in children {
+			child.stop();
+			child.collapse();
 		}
 	}
 
@@ -734,6 +753,18 @@ impl TreeItem {
 		let paragraph = tui::widgets::Paragraph::new(title).style(style);
 		paragraph.render(rect, buf);
 	}
+
+	fn stop(&self) {
+		if let Some(task) = self.inner.children_task.lock().unwrap().take() {
+			task.abort();
+		}
+		if let Some(task) = self.inner.indicator_task.lock().unwrap().take() {
+			task.abort();
+		}
+		if let Some(task) = self.inner.title_task.lock().unwrap().take() {
+			task.abort();
+		}
+	}
 }
 
 impl Drop for TreeItemInner {
@@ -760,18 +791,17 @@ async fn title(tg: &dyn tg::Handle, build: &tg::Build) -> Result<Option<String>>
 	};
 
 	// Get the metadata.
-	let metadata = tg::package::get_metadata(tg, package).await?;
+	let metadata = tg::package::get_metadata(tg, package).await.ok();
 
-	// Construct the title.
 	let mut title = String::new();
-	title.push_str(metadata.name.as_deref().unwrap_or("<unknown>"));
-	if let Some(version) = &metadata.version {
-		title.push_str(&format!("@{version}"));
+	if let Some(metadata) = metadata {
+		title.push_str(metadata.name.as_deref().unwrap_or("<unknown>"));
+		if let Some(version) = &metadata.version {
+			title.push_str(&format!("@{version}"));
+		}
 	}
-	if let Some(name) = target.name(tg).await? {
-		title.push_str(&format!(":{name}"));
-	}
-
+	let name = target.name(tg).await?;
+	title.push_str(name.as_deref().unwrap_or("<unknown>"));
 	Ok(Some(title))
 }
 
@@ -882,6 +912,15 @@ impl Log {
 		// Start tailing if necessary.
 		self.update_log_stream(true).await?;
 		Ok(())
+	}
+
+	fn stop(&self) {
+		if let Some(task) = self.inner.log_task.lock().unwrap().take() {
+			task.abort();
+		}
+		if let Some(task) = self.inner.event_task.lock().unwrap().take() {
+			task.abort();
+		}
 	}
 
 	fn is_complete(&self) -> bool {
