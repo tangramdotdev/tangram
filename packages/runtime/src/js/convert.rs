@@ -1605,8 +1605,10 @@ impl ToV8 for tg::Target {
 
 		let state = self.state().read().unwrap().to_v8(scope)?;
 
-		let instance = target.new_instance(scope, &[state]).unwrap();
-
+		// target.new_instance invokes the target's constructor function, which will throw if this method is called after the isolate's terminate_execution handler has been called.
+		let instance = target
+			.new_instance(scope, &[state])
+			.wrap_err("Failed to create target instance.")?;
 		Ok(instance.into())
 	}
 }

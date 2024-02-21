@@ -85,6 +85,7 @@ rusqlite = { version = "0.30", features = ["blob", "bundled"] }
 rustls = "0.22"
 rustls-pemfile = "2"
 rustls-pki-types = "1"
+scopeguard = "1"
 semver = "1"
 serde = { version = "1", features = ["rc", "derive"] }
 serde_json = "1"

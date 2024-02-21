@@ -4163,6 +4163,7 @@ dependencies = [
  "lsp-types",
  "num",
  "reqwest",
+ "scopeguard",
  "serde",
  "serde_json",
  "serde_v8",

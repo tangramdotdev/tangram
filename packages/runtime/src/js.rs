@@ -10,8 +10,8 @@ use futures::{
 use num::ToPrimitive;
 use sourcemap::SourceMap;
 use std::{
-	cell::RefCell, collections::BTreeMap, future::poll_fn, num::NonZeroI32, pin::pin, rc::Rc,
-	str::FromStr, task::Poll,
+	cell::RefCell, collections::BTreeMap, future::poll_fn, num::NonZeroI32, rc::Rc, str::FromStr,
+	task::Poll,
 };
 use tangram_client as tg;
 use tangram_error::{error, Result, WrapErr};
@@ -48,22 +48,17 @@ struct Module {
 }
 
 /// Start a JS build.
-pub async fn build(
-	tg: &dyn tg::Handle,
-	build: &tg::Build,
-	mut stop: tokio::sync::watch::Receiver<bool>,
-) -> Result<Option<tg::Value>> {
+pub async fn build(tg: &dyn tg::Handle, build: &tg::Build) -> Result<tg::Value> {
 	// Create a channel to receive the isolate handle.
 	let (isolate_handle_sender, isolate_handle_receiver) = tokio::sync::oneshot::channel();
 
 	// Create a channel to receive the result.
 	let (result_sender, result_receiver) = tokio::sync::oneshot::channel();
-
-	std::thread::spawn({
+	let (dropped_send, mut dropped_recv) = tokio::sync::watch::channel(false);
+	let thread = std::thread::spawn({
 		let tg = tg.clone_box();
 		let build = build.clone();
 		let main_runtime_handle = tokio::runtime::Handle::current();
-		let mut stop = stop.clone();
 		move || {
 			let future = build_inner(
 				tg.as_ref(),
@@ -72,36 +67,27 @@ pub async fn build(
 				isolate_handle_sender,
 			)
 			.boxed_local();
-			let stop = stop.wait_for(|stop| *stop).map(|_| ()).boxed();
-			let future = future::select(future, stop);
+			let dropped = dropped_recv.wait_for(|stop| *stop).map(|_| ()).boxed();
+			let future = future::select(future, dropped);
 			let result = match main_runtime_handle.block_on(future) {
 				future::Either::Left((result, _)) => result,
-				future::Either::Right(_) => Err(error!("The build was stopped.")),
+				future::Either::Right(_) => Err(error!("The build was dropped.")),
 			};
 			result_sender.send(result).ok();
 		}
 	});
 
 	// Wait to receive the isolate handle.
-	let isolate_handle = isolate_handle_receiver
-		.await
-		.wrap_err("Failed to receive the isolate handle.")?;
+	let isolate_handle = isolate_handle_receiver.await.unwrap();
 
-	// Wait for the result.
-	let result = result_receiver;
-	let stop = stop.wait_for(|stop| *stop).map(|_| ());
-	let value = match future::select(pin!(result), pin!(stop)).await {
-		future::Either::Left((result, _)) => result
-			.wrap_err("Failed to receive the result.")?
-			.wrap_err("The build failed.")?,
-		future::Either::Right(((), result)) => {
+	scopeguard::defer! {
+		if dropped_send.send(true).is_ok() {
 			isolate_handle.terminate_execution();
-			result.await.wrap_err("Failed to receive the result.")?.ok();
-			return Ok(None);
-		},
+		}
+		thread.join().ok();
 	};
 
-	Ok(Some(value))
+	result_receiver.await.unwrap()
 }
 
 async fn build_inner(
@@ -196,7 +182,7 @@ async fn build_inner(
 
 		// Call the start function.
 		let undefined = v8::undefined(scope);
-		let target = target.to_v8(scope).unwrap();
+		let target = target.to_v8(scope)?;
 		let value = start.call(scope, undefined.into(), &[target]).unwrap();
 
 		v8::Global::new(scope, value)

@@ -1,6 +1,6 @@
 use crate::util::render;
 use bytes::Bytes;
-use futures::{future, stream::FuturesOrdered, FutureExt, TryStreamExt};
+use futures::{stream::FuturesOrdered, TryStreamExt};
 use indoc::writedoc;
 use num::ToPrimitive;
 use std::{
@@ -9,7 +9,6 @@ use std::{
 	fmt::Write,
 	os::unix::prelude::OsStrExt,
 	path::Path,
-	pin::pin,
 };
 use tangram_client as tg;
 use tangram_error::{error, Error, Result, Wrap, WrapErr};
@@ -18,9 +17,8 @@ use tokio::io::AsyncReadExt;
 pub async fn build(
 	tg: &dyn tg::Handle,
 	build: &tg::Build,
-	mut stop: tokio::sync::watch::Receiver<bool>,
 	server_directory_path: &Path,
-) -> Result<Option<tg::Value>> {
+) -> Result<tg::Value> {
 	// Get the target.
 	let target = build.target(tg).await?;
 
@@ -341,56 +339,45 @@ pub async fn build(
 		}
 	});
 
-	// Get the child's pid.
-	let Some(pid) = child.id() else {
-		return Ok(None);
-	};
+	// Reap any children that are spawned on exit.
+	let pid = child.id().unwrap();
+	scopeguard::defer! {
+		let mut pids = vec![pid.to_i32().unwrap()];
+		let mut i = 0;
+		while i < pids.len() {
+			let ppid = pids[i];
+			let n = unsafe { libc::proc_listchildpids(ppid, std::ptr::null_mut(), 0) };
+			if n < 0 {
+				let error = std::io::Error::last_os_error();
+				tracing::error!(?pid, ?error, "Failed to get child pids.");
+				return;
+			}
+
+			pids.resize(i + n.to_usize().unwrap() + 1, 0);
+			let n = unsafe {
+				libc::proc_listchildpids(ppid, pids[(i + 1)..].as_mut_ptr().cast(), n)
+			};
+			if n < 0 {
+				let error = std::io::Error::last_os_error();
+				tracing::error!(?pid, ?error, "Failed to child processes.");
+			}
+			pids.truncate(i + n.to_usize().unwrap() + 1);
+			i += 1;
+		}
+
+		// Kill the child processes from the bottom up.
+		for pid in pids.iter().rev() {
+			unsafe { libc::kill(*pid, libc::SIGKILL) };
+			let mut status = 0;
+			unsafe { libc::waitpid(*pid, std::ptr::addr_of_mut!(status), 0) };
+		}
+	}
 
 	// Wait for either the process to exit or the stop signal to be received.
-	let exit_status = child.wait();
-	let stop = stop.wait_for(|stop| *stop).map(|_| ());
-	let exit_status = match future::select(pin!(exit_status), pin!(stop)).await {
-		future::Either::Left((result, _)) => {
-			result.wrap_err("Failed to wait for the process to exit.")?
-		},
-
-		future::Either::Right(((), _)) => {
-			// Abort the log task.
-			log_task.abort();
-
-			// Collect the pids of all transitive child processes.
-			let mut pids = vec![pid.to_i32().unwrap()];
-			let mut i = 0;
-			while i < pids.len() {
-				let ppid = pids[i];
-				let n = unsafe { libc::proc_listchildpids(ppid, std::ptr::null_mut(), 0) };
-				if n < 0 {
-					return Err(
-						std::io::Error::last_os_error().wrap("Failed to get the child processes.")
-					);
-				}
-				pids.resize(i + n.to_usize().unwrap() + 1, 0);
-				let n = unsafe {
-					libc::proc_listchildpids(ppid, pids[(i + 1)..].as_mut_ptr().cast(), n)
-				};
-				if n < 0 {
-					return Err(std::io::Error::last_os_error())
-						.wrap_err("Failed to get the child processes.");
-				}
-				pids.truncate(i + n.to_usize().unwrap() + 1);
-				i += 1;
-			}
-
-			// Kill the child processes from the bottom up.
-			for pid in pids.iter().rev() {
-				unsafe { libc::kill(*pid, libc::SIGKILL) };
-				let mut status = 0;
-				unsafe { libc::waitpid(*pid, std::ptr::addr_of_mut!(status), 0) };
-			}
-
-			return Ok(None);
-		},
-	};
+	let exit_status = child
+		.wait()
+		.await
+		.wrap_err("Failed to wait for the process to exit.")?;
 
 	// Wait for the log task to complete.
 	log_task
@@ -429,7 +416,7 @@ pub async fn build(
 		tg::Value::Null
 	};
 
-	Ok(Some(value))
+	Ok(value)
 }
 
 extern "C" {
