@@ -243,13 +243,13 @@ impl Server {
 		});
 		let server = Server { inner };
 
-		// Terminate unfinished builds.
+		// Cancel unfinished builds.
 		if let Database::Sqlite(database) = &server.inner.database {
 			let connection = database.get().await?;
 			let statement = r#"
 				update builds
 				set
-					outcome = json('{"kind":"terminated"}'),
+					outcome = json('{"kind":"canceled"}'),
 					status = 'finished'
 				where status != 'finished';
 			"#;
