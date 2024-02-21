@@ -1,6 +1,6 @@
 use crate::{
 	artifact, build, id, lock, object, value, Artifact, Build, Checksum, Directory, Error, Handle,
-	Lock, Result, System, Value, WrapErr,
+	Lock, Result, Triple, Value, WrapErr,
 };
 use bytes::Bytes;
 use derive_more::Display;
@@ -38,7 +38,7 @@ type State = object::State<Id, Object>;
 #[derive(Clone, Debug)]
 pub struct Object {
 	/// The system to build the target on.
-	pub host: System,
+	pub host: Triple,
 
 	/// The target's executable.
 	pub executable: Artifact,
@@ -62,7 +62,7 @@ pub struct Object {
 /// Target data.
 #[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
 pub struct Data {
-	pub host: System,
+	pub host: Triple,
 	pub executable: artifact::Id,
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub lock: Option<lock::Id>,
@@ -212,7 +212,7 @@ impl Target {
 }
 
 impl Target {
-	pub async fn host(&self, tg: &dyn Handle) -> Result<&System> {
+	pub async fn host(&self, tg: &dyn Handle) -> Result<&Triple> {
 		Ok(&self.object(tg).await?.host)
 	}
 
@@ -341,7 +341,7 @@ impl std::str::FromStr for Id {
 
 #[derive(Clone, Debug)]
 pub struct Builder {
-	host: System,
+	host: Triple,
 	executable: Artifact,
 	lock: Option<Lock>,
 	name: Option<String>,
@@ -352,7 +352,7 @@ pub struct Builder {
 
 impl Builder {
 	#[must_use]
-	pub fn new(host: System, executable: Artifact) -> Self {
+	pub fn new(host: Triple, executable: Artifact) -> Self {
 		Self {
 			host,
 			executable,
@@ -365,7 +365,7 @@ impl Builder {
 	}
 
 	#[must_use]
-	pub fn host(mut self, host: System) -> Self {
+	pub fn host(mut self, host: Triple) -> Self {
 		self.host = host;
 		self
 	}

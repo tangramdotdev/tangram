@@ -204,7 +204,7 @@ impl Cli {
 			.unwrap_or_else(|| API_URL.parse().unwrap());
 		let tls = url.scheme() == "https";
 		let client = tg::Builder::new(url.try_into()?).tls(tls).build();
-		let host = tg::System::host()?;
+		let host = tg::Triple::host()?;
 		let build_ = config
 			.as_ref()
 			.and_then(|config| config.remote.as_ref())
@@ -215,7 +215,7 @@ impl Cli {
 			.unwrap_or(false);
 		let hosts = build_
 			.and_then(|build| build.hosts)
-			.unwrap_or_else(|| vec![tg::System::js(), host.clone()]);
+			.unwrap_or_else(|| vec![tg::Triple::js(), host.clone()]);
 		let build_ = tangram_server::options::RemoteBuild { enable, hosts };
 		let remote = tangram_server::options::Remote {
 			tg: Box::new(client),

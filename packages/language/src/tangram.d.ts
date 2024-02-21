@@ -620,48 +620,6 @@ declare namespace tg {
 		export type Id = string;
 	}
 
-	/** Create a system. */
-	export let system: (...args: Array<System.Arg>) => System;
-
-	export type System =
-		| "aarch64-darwin"
-		| "aarch64-linux"
-		| "js-js"
-		| "x86_64-darwin"
-		| "x86_64-linux";
-
-	export namespace System {
-		export type Arg = System | ArgObject;
-
-		type ArgObject = {
-			arch?: System.Arch;
-			os?: System.Os;
-		};
-
-		export type Arch = "aarch64" | "js" | "x86_64";
-
-		export type Os = "darwin" | "js" | "linux";
-
-		/** Create a system. */
-		export let new_: (...args: Array<System.Arg>) => System;
-		export { new_ as new };
-
-		/** Check if a value is a `tg.System`. */
-		export let is: (value: unknown) => value is System;
-
-		/** Expect that a value is a `tg.System`. */
-		export let expect: (value: unknown) => System;
-
-		/** Assert that a value is a `tg.System`. */
-		export let assert: (value: unknown) => asserts value is System;
-
-		/** Get a system's arch. */
-		export let arch: (value: System) => Arch;
-
-		/** Get a system's OS. */
-		export let os: (value: System) => Os;
-	}
-
 	/** Create a target. */
 	export function target<
 		A extends Array<Value> = Array<Value>,
@@ -713,7 +671,7 @@ declare namespace tg {
 		lock(): Promise<string | undefined>;
 
 		/** Get this target's host. */
-		host(): Promise<System>;
+		host(): Promise<Triple>;
 
 		/** Get this target's executable. */
 		executable(): Promise<Artifact>;
@@ -746,7 +704,7 @@ declare namespace tg {
 
 		type ArgObject = {
 			/** The system to build the target on. */
-			host?: System;
+			host?: Triple.Arg;
 
 			/** The target's executable. */
 			executable?: Artifact;
@@ -831,6 +789,113 @@ declare namespace tg {
 	> = {
 		[K in keyof T]?: MaybeMutation<T[K]>;
 	};
+
+	/** Create a triple. */
+	export let triple: (arg: Triple.Arg) => Triple;
+
+	export type Triple = {
+		/** The original triple string. */
+		string: string;
+		/** The known architecture, if any. */
+		arch?: Triple.Arch;
+		/** The known environment, if any. */
+		environment?: Triple.Environment;
+		/** The known OS, if any. */
+		os?: Triple.Os;
+		/** The vendor, if any. */
+		vendor?: string;
+	};
+
+	export namespace Triple {
+		export type Arg = Triple | ArgObject | string;
+
+		type ArgObject = {
+			arch?: string;
+			vendor?: string;
+			os?: string;
+			environment?: string;
+		};
+
+		export namespace Arg {
+			export let is: (value: unknown) => value is Triple.Arg;
+		}
+
+		export type HostArg =
+			| Triple.Arg
+			| {
+					host?: Triple.Arg;
+			  };
+
+		/** Known architectures. */
+		export type Arch = "aarch64" | "js" | "x86_64";
+
+		/** Known environments. */
+		export type Environment = "gnu" | "musl";
+
+		/** Known operating systems. */
+		export type Os = "darwin" | "linux";
+
+		/** Create a triple. */
+		export let new_: (...args: Array<Triple.Arg>) => Triple;
+		export { new_ as new };
+
+		/** Check if a triple is equal to another triple. */
+		export let eq: (a: Triple, b: Triple) => boolean;
+
+		/** Check if a value is a `tg.Triple`. */
+		export let is: (value: unknown) => value is Triple;
+
+		/** Expect that a value is a `tg.Triple`. */
+		export let expect: (value: unknown) => Triple;
+
+		/** Assert that a value is a `tg.Triple`. */
+		export let assert: (value: unknown) => asserts value is Triple;
+
+		/** Get a triple's arch, if known. */
+		export let arch: (value: Triple) => Arch;
+
+		/** Get a triple's arch, if known. */
+		export let tryArch: (value: Triple) => Arch | undefined;
+
+		/** Construct a new Triple striping the vendor environment, and OS version. */
+		export let archAndOs: (value: Triple) => Triple;
+
+		/** Get a triple's environment, if present and known. */
+		export let environment: (value: Triple) => Environment | undefined;
+
+		/** Get a triple's environment version, if present. */
+		export let environmentVersion: (value: Triple) => string | undefined;
+
+		/** Get the current host triple of the running target. */
+		export let host: (arg?: Triple.HostArg) => Promise<Triple>;
+
+		/** Retrieve this triple as a normalized string of form ARCH-VENDOR-OS or ARCH-VENDOR-OS-ENVIRONMENT, if possible. */
+		export let normalized: (value: Triple) => string | undefined;
+
+		/** Get a system's OS, if known. */
+		export let os: (value: Triple) => Os;
+
+		/** Get a system's OS, if known. */
+		export let tryOs: (value: Triple) => Os | undefined;
+
+		/** Get a triple's OS version, if known. */
+		export let osVersion: (value: Triple) => string | undefined;
+
+		/** Rotate build -> host, host -> target. */
+		export let rotate: (arg?: {
+			build?: Triple.Arg;
+			host?: Triple.Arg;
+		}) => Promise<{
+			host: Triple;
+			target: Triple;
+		}>;
+
+		/** Retrieve the underlying string. */
+		export let toString: (value: Triple) => string;
+
+		/** Get a triple's vendor, if known. */
+		export let vendor: (value: Triple) => string | undefined;
+	}
 
 	export type Object_ =
 		| Leaf

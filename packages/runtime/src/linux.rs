@@ -82,10 +82,15 @@ pub async fn build(
 	// Add `/usr/bin/env` and `/bin/sh` to the root.
 	let env_path = root_directory_host_path.join("usr/bin/env");
 	let sh_path = root_directory_host_path.join("bin/sh");
-	let (env_bytes, sh_bytes) = match target.host(tg).await?.arch() {
-		tg::system::Arch::Aarch64 => (ENV_AARCH64_LINUX, SH_AARCH64_LINUX),
-		tg::system::Arch::Js => unreachable!(),
-		tg::system::Arch::X8664 => (ENV_X8664_LINUX, SH_X8664_LINUX),
+	let (env_bytes, sh_bytes) = match target
+		.host(tg)
+		.await?
+		.arch()
+		.ok_or(error!("Unrecognized target arch"))?
+	{
+		tg::triple::Arch::Aarch64 => (ENV_AARCH64_LINUX, SH_AARCH64_LINUX),
+		tg::triple::Arch::Js => unreachable!(),
+		tg::triple::Arch::X8664 => (ENV_X8664_LINUX, SH_X8664_LINUX),
 	};
 	tokio::fs::create_dir_all(&env_path.parent().unwrap())
 		.await

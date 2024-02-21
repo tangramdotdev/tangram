@@ -147,12 +147,17 @@ impl Server {
 						.subscribe();
 
 					// Build the target with the appropriate runtime.
-					let result = match target.host(&server).await?.os() {
-						tg::system::Os::Js => {
+					let triple = target.host(&server).await?;
+					let result = match triple.os() {
+						None => {
+							// Ensure the arch is JS.
+							if triple.arch() != Some(tg::triple::Arch::Js) {
+								return Err(error!("Expected JS arch."));
+							}
 							// Build the target on the server's local pool because it is a `!Send` future.
 							tangram_runtime::js::build(&server, &build, stop).await
 						},
-						tg::system::Os::Darwin => {
+						Some(tg::triple::Os::Darwin) => {
 							#[cfg(target_os = "macos")]
 							{
 								// If the VFS is disabled, then perform an internal checkout.
@@ -187,7 +192,7 @@ impl Server {
 								return Err(error!("Cannot build a darwin target on this host."));
 							}
 						},
-						tg::system::Os::Linux => {
+						Some(tg::triple::Os::Linux) => {
 							#[cfg(target_os = "linux")]
 							{
 								// If the VFS is disabled, then perform an internal checkout.

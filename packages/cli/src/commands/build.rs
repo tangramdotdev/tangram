@@ -130,11 +130,11 @@ impl Cli {
 		// Create the target.
 		let env = [(
 			"TANGRAM_HOST".to_owned(),
-			tg::System::host()?.to_string().into(),
+			tg::Triple::host()?.to_string().into(),
 		)]
 		.into();
 		let args_ = Vec::new();
-		let host = tg::System::js();
+		let host = tg::Triple::js();
 		let path = tg::package::get_root_module_path(client, &package).await?;
 		let executable = tg::Symlink::new(Some(package.into()), Some(path.to_string())).into();
 		let target = tg::target::Builder::new(host, executable)

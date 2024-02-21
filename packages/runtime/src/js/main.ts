@@ -17,9 +17,9 @@ import { resolve } from "./resolve.ts";
 import { sleep } from "./sleep.ts";
 import { start } from "./start.ts";
 import { Symlink, symlink } from "./symlink.ts";
-import { System, system } from "./system.ts";
 import { Target, build, getCurrent, target } from "./target.ts";
 import { Template, template } from "./template.ts";
+import { Triple, triple } from "./triple.ts";
 import { Value } from "./value.ts";
 
 Object.defineProperties(Error, {
@@ -58,7 +58,7 @@ Object.assign(tg, {
 	Lock,
 	Mutation,
 	Symlink,
-	System,
+	Triple,
 	Target,
 	Template,
 	Value,
@@ -79,9 +79,9 @@ Object.assign(tg, {
 	sleep,
 	start,
 	symlink,
-	system,
 	target,
 	template,
+	triple,
 	unimplemented,
 	unreachable,
 });
