@@ -795,7 +795,7 @@ declare namespace tg {
 
 	export type Triple = {
 		/** The original triple string. */
-		data: string;
+		string: string;
 		/** The known architecture, if any. */
 		arch?: Triple.Arch;
 		/** The known environment, if any. */

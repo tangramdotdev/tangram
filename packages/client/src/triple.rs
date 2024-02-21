@@ -7,7 +7,7 @@ use std::str::FromStr;
 )]
 #[serde(into = "String", try_from = "String")]
 pub struct Triple {
-	data: String,
+	string: String,
 	arch: Option<Arch>,
 	os: Option<Os>,
 	vendor: Option<String>,
@@ -41,7 +41,7 @@ impl Triple {
 		let maybe_arch = Arch::from_str(&arch_str).ok();
 		let maybe_os = Os::parse_name(&os_str);
 		Triple {
-			data,
+			string: data,
 			arch: maybe_arch,
 			os: maybe_os,
 			vendor: None,
@@ -52,7 +52,7 @@ impl Triple {
 	#[must_use]
 	pub fn js() -> Triple {
 		Triple {
-			data: "js".to_string(),
+			string: "js".to_string(),
 			arch: Some(Arch::Js),
 			os: None,
 			vendor: None,
@@ -91,7 +91,7 @@ impl Triple {
 	#[must_use]
 	pub fn environment_version(&self) -> Option<&str> {
 		// Split data
-		let components = self.data.split('-').collect_vec();
+		let components = self.string.split('-').collect_vec();
 		if components.len() < 3 {
 			return None;
 		}
@@ -120,7 +120,7 @@ impl Triple {
 	#[must_use]
 	pub fn os_version(&self) -> Option<&str> {
 		// Split data
-		let components = self.data.split('-').collect_vec();
+		let components = self.string.split('-').collect_vec();
 		if components.len() == 1 {
 			return None;
 		}
@@ -148,7 +148,7 @@ impl Triple {
 
 impl std::fmt::Display for Triple {
 	fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-		write!(f, "{}", self.data)
+		write!(f, "{}", self.string)
 	}
 }
 
@@ -196,7 +196,7 @@ impl std::str::FromStr for Triple {
 		}
 
 		Ok(Triple {
-			data: s.to_string(),
+			string: s.to_string(),
 			arch,
 			vendor,
 			os,

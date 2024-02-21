@@ -83,8 +83,6 @@ pub struct GetOutput {
 	pub id: Id,
 	#[serde(default)]
 	pub children: Option<Vec<Id>>,
-	#[serde(default)]
-	pub descendants: Option<u64>,
 	pub host: Triple,
 	#[serde(default)]
 	pub log: Option<blob::Id>,
@@ -110,8 +108,6 @@ pub struct PutArg {
 	pub id: Id,
 	#[serde(default)]
 	pub children: Option<Vec<Id>>,
-	#[serde(default)]
-	pub descendants: Option<u64>,
 	pub host: Triple,
 	#[serde(default)]
 	pub log: Option<blob::Id>,

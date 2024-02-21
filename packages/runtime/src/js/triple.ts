@@ -2,14 +2,14 @@ import { assert as assert_, unreachable } from "./assert.ts";
 import { getCurrent } from "./target.ts";
 
 export let triple = (arg: Triple.Arg): Triple => {
-	let data = "";
+	let string = "";
 	let arch = undefined;
 	let os = undefined;
 	let vendor = undefined;
 	let environment = undefined;
 
 	if (typeof arg === "string") {
-		data = arg;
+		string = arg;
 		let parts = arg.split("-");
 		if (parts.length > 4) {
 			throw new Error(`Invalid triple: ${arg}`);
@@ -42,33 +42,33 @@ export let triple = (arg: Triple.Arg): Triple => {
 		return arg;
 	} else {
 		if (arg.arch) {
-			data += `${arg.arch}`;
+			string += `${arg.arch}`;
 			arch = Triple.parseArch(arg.arch);
 		}
 		if (arg.vendor) {
-			if (data.length > 0) {
-				data += "-";
+			if (string.length > 0) {
+				string += "-";
 			}
-			data += `${arg.vendor}`;
+			string += `${arg.vendor}`;
 			vendor = arg.vendor;
 		}
 		if (arg.os) {
-			if (data.length > 0) {
-				data += "-";
+			if (string.length > 0) {
+				string += "-";
 			}
-			data += `${arg.os}`;
+			string += `${arg.os}`;
 			os = Triple.parseOs(arg.os);
 		}
 		if (arg.environment) {
-			if (data.length > 0) {
-				data += "-";
+			if (string.length > 0) {
+				string += "-";
 			}
-			data += `${arg.environment}`;
+			string += `${arg.environment}`;
 			environment = Triple.parseEnvironment(arg.environment);
 		}
 	}
 	return {
-		data,
+		string,
 		arch,
 		vendor,
 		os,
@@ -78,7 +78,7 @@ export let triple = (arg: Triple.Arg): Triple => {
 
 export type Triple = {
 	/** The original triple string. */
-	data: string;
+	string: string;
 	/** The known architecture, if any. */
 	arch?: Triple.Arch | undefined;
 	/** The known environment, if any. */
@@ -173,15 +173,15 @@ export namespace Triple {
 	Triple.new = new_;
 
 	export let eq = (a: Triple, b: Triple): boolean => {
-		return a.data === b.data;
+		return a.string === b.string;
 	};
 
 	export let is = (value: unknown): value is Triple => {
 		return (
 			typeof value === "object" &&
 			value !== null &&
-			"data" in value &&
-			typeof value.data === "string"
+			"string" in value &&
+			typeof value.string === "string"
 		);
 	};
 
@@ -212,7 +212,7 @@ export namespace Triple {
 	};
 
 	export let environmentVersion = (value: Triple): string | undefined => {
-		let parts = value.data.split("-");
+		let parts = value.string.split("-");
 		for (let part of parts) {
 			for (let env of environments) {
 				if (part.startsWith(env)) {
@@ -243,9 +243,17 @@ export namespace Triple {
 		let os = Triple.os(value) ?? "unknown";
 		let vendor = Triple.vendor(value) ?? "unknown";
 		let s = `${arch}-${vendor}-${os}`;
+		let osVersion = Triple.osVersion(value);
+		if (osVersion) {
+			s += `${osVersion}`;
+		}
 		let env = Triple.environment(value);
 		if (env) {
 			s += `-${env}`;
+		}
+		let envVersion = Triple.environmentVersion(value);
+		if (envVersion) {
+			s += `${envVersion}`;
 		}
 		return s;
 	};
@@ -255,7 +263,7 @@ export namespace Triple {
 	};
 
 	export let osVersion = (value: Triple): string | undefined => {
-		let parts = value.data.split("-");
+		let parts = value.string.split("-");
 		for (let part of parts) {
 			for (let os of oss) {
 				if (part.startsWith(os)) {
@@ -280,7 +288,7 @@ export namespace Triple {
 	};
 
 	export let toString = (value: Triple): string => {
-		return value.data;
+		return value.string;
 	};
 
 	export let vendor = (value: Triple): string | undefined => {
