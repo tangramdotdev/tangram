@@ -704,7 +704,7 @@ declare namespace tg {
 
 		type ArgObject = {
 			/** The system to build the target on. */
-			host?: Triple;
+			host?: Triple.Arg;
 
 			/** The target's executable. */
 			executable?: Artifact;
