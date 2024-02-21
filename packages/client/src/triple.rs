@@ -410,8 +410,8 @@ mod tests {
 		assert_eq!(triple.arch(), Some(Arch::Aarch64));
 		assert_eq!(triple.vendor(), Some("apple".to_string()));
 		assert_eq!(triple.os(), Some(Os::Darwin));
-
 		assert_eq!(triple.os_version(), Some("23.3.0"));
+
 		let triple = Triple::from_str("x86_64-linux-gnu").unwrap();
 		assert_eq!(triple.arch(), Some(Arch::X8664));
 		assert_eq!(triple.os(), Some(Os::Linux));
@@ -438,16 +438,22 @@ mod tests {
 	#[test]
 	fn test_environment_version() {
 		let triple = Triple::from_str("x86_64-linux-gnu").unwrap();
+		assert_eq!(triple.environment(), Some(Environment::Gnu));
 		assert_eq!(triple.environment_version(), None);
+
 		let triple = Triple::from_str("x86_64-linux-gnu2.39").unwrap();
+		assert_eq!(triple.environment(), Some(Environment::Gnu));
 		assert_eq!(triple.environment_version(), Some("2.39"));
 	}
 
 	#[test]
 	fn test_os_version() {
 		let triple = Triple::from_str("aarch64-apple-darwin").unwrap();
+		assert_eq!(triple.os(), Some(Os::Darwin));
 		assert_eq!(triple.os_version(), None);
+
 		let triple = Triple::from_str("aarch64-apple-darwin22.3.0").unwrap();
+		assert_eq!(triple.os(), Some(Os::Darwin));
 		assert_eq!(triple.os_version(), Some("22.3.0"));
 	}
 }
