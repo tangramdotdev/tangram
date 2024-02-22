@@ -236,8 +236,11 @@ impl Server {
 			}
 		};
 
-		// If the build was canceled, then cancel the children.
+		// If the build was canceled, then cancel the children and stop the build if it is running.
 		if matches!(outcome, tg::build::Outcome::Canceled) {
+			if let Some(state) = self.inner.build_state.read().unwrap().get(id) {
+				state.stop.send_replace(true);
+			}
 			children
 				.iter()
 				.map(|child| {
