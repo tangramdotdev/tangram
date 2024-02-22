@@ -435,11 +435,12 @@ pub async fn build(
 
 	// Create the log socket pair.
 	let (log_send, mut log_recv) =
-		tokio::net::UnixStream::pair().wrap_err("Failed to create stdout socket.")?;
+		tokio::net::UnixStream::pair()
+			.wrap_err("Failed to create stdout socket.")?;
 	let log = log_send
 		.into_std()
 		.wrap_err("Failed to convert the log sender.")?;
-	log.set_nonblocking(true)
+	log.set_nonblocking(false)
 		.wrap_err("Failed to set the log socket as non-blocking.")?;
 
 	// Create the context.
