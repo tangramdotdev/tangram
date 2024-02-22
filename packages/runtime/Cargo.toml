@@ -30,6 +30,7 @@ reqwest = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
 toml = { workspace = true }
+scopeguard = { workspace = true }
 serde_v8 = { workspace = true }
 serde_yaml = { workspace = true }
 sourcemap = { workspace = true }

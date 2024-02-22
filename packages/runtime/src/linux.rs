@@ -1,6 +1,6 @@
 use crate::util::render;
 use bytes::Bytes;
-use futures::{future, stream::FuturesOrdered, FutureExt, TryStreamExt};
+use futures::{stream::FuturesOrdered, TryStreamExt};
 use indoc::formatdoc;
 use itertools::Itertools;
 use std::{
@@ -8,7 +8,6 @@ use std::{
 	ffi::CString,
 	os::{fd::AsRawFd, unix::ffi::OsStrExt},
 	path::{Path, PathBuf},
-	pin::pin,
 };
 use tangram_client as tg;
 use tangram_error::{error, Error, Result, Wrap, WrapErr};
@@ -55,9 +54,8 @@ const SH_X8664_LINUX: &[u8] = include_bytes!(concat!(
 pub async fn build(
 	tg: &dyn tg::Handle,
 	build: &tg::Build,
-	mut stop: tokio::sync::watch::Receiver<bool>,
 	server_directory_path: &Path,
-) -> Result<Option<tg::Value>> {
+) -> Result<tg::Value> {
 	// Get the target.
 	let target = build.target(tg).await?;
 
@@ -441,6 +439,8 @@ pub async fn build(
 	let log = log_send
 		.into_std()
 		.wrap_err("Failed to convert the log sender.")?;
+	log.set_nonblocking(true)
+		.wrap_err("Failed to set the log socket as non-blocking.")?;
 
 	// Create the context.
 	let context = Context {
@@ -486,6 +486,30 @@ pub async fn build(
 	}
 	drop(context);
 	let root_process_pid: libc::pid_t = ret.try_into().wrap_err("Invalid root process PID.")?;
+
+	// Add a scope guard to kill the process when the containing future is dropped.
+	scopeguard::defer! {
+		let ret = unsafe { libc::kill(root_process_pid, libc::SIGKILL) };
+		if ret != 0 {
+			tracing::error!(?ret, "Failed to kill root process.");
+			return;
+		}
+		// Wait for the root process to exit.
+		tokio::task::spawn_blocking(move || {
+			let mut status = 0;
+			let ret = unsafe {
+				libc::waitpid(
+					root_process_pid,
+					std::ptr::addr_of_mut!(status),
+					libc::__WALL,
+				)
+			};
+			if ret == -1 {
+				let error =std::io::Error::last_os_error();
+				tracing::error!(?error, "Failed to wait for root process.");
+			}
+		});
+	};
 
 	// Spawn the log task.
 	let log_task = tokio::task::spawn({
@@ -542,46 +566,10 @@ pub async fn build(
 		.wrap_err("Failed to notify the guest process that it can continue.")?;
 
 	// Wait for either the guest process to exit or the stop signal to be received.
-	let readable = host_socket.readable();
-	let stop = stop.wait_for(|stop| *stop).map(|_| ());
-	match future::select(pin!(readable), pin!(stop)).await {
-		future::Either::Left((result, _)) => {
-			result.wrap_err("Failed to read from the host socket.")?;
-		},
-
-		future::Either::Right(((), _)) => {
-			// Abort the log task.
-			log_task.abort();
-
-			// Kill the root process.
-			let ret = unsafe { libc::kill(root_process_pid, libc::SIGKILL) };
-			if ret != 0 {
-				return Err(std::io::Error::last_os_error())
-					.wrap_err("Failed to kill the root process.");
-			}
-
-			// Wait for the root process to exit.
-			tokio::task::spawn_blocking(move || {
-				let mut status = 0;
-				let ret = unsafe {
-					libc::waitpid(
-						root_process_pid,
-						std::ptr::addr_of_mut!(status),
-						libc::__WALL,
-					)
-				};
-				if ret == -1 {
-					return Err(std::io::Error::last_os_error().wrap("Failed to waitpid."));
-				}
-				Ok(())
-			})
-			.await
-			.wrap_err("Failed to join the root process exit task.")?
-			.wrap_err("Failed to wait for the root process to exit.")?;
-
-			return Ok(None);
-		},
-	};
+	host_socket
+		.readable()
+		.await
+		.wrap_err("Failed to read from the host socket.")?;
 
 	// Read the exit status from the host socket.
 	let kind = host_socket
@@ -679,7 +667,7 @@ pub async fn build(
 		tg::Value::Null
 	};
 
-	Ok(Some(value))
+	Ok(value)
 }
 
 fn root(context: &Context) {

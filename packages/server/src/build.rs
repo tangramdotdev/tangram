@@ -76,184 +76,30 @@ impl Server {
 
 			let task = tokio::spawn({
 				let server = self.clone();
-				let id = id.clone();
+				let build = tg::Build::with_id(build.id.clone());
+				let mut stop = self
+					.inner
+					.build_state
+					.read()
+					.unwrap()
+					.get(build.id())
+					.unwrap()
+					.stop
+					.subscribe();
 				async move {
-					// If the build does not have a permit, then wait for one, either from the semaphore or one of the build's parents.
-					let permit = if let Some(permit) = permit {
-						Permit(Either::Left(permit))
-					} else {
-						let semaphore = server
-							.inner
-							.build_semaphore
-							.clone()
-							.acquire_owned()
-							.map(|result| Permit(Either::Left(result.unwrap())));
-
-						let parent = server.try_get_build_parent(&id).await?;
-						let state = parent.and_then(|parent| {
-							server
-								.inner
-								.build_state
-								.read()
-								.unwrap()
-								.get(&parent)
-								.cloned()
-						});
-						let parent = if let Some(state) = state {
-							state
-								.permit
-								.clone()
-								.lock_owned()
-								.map(|guard| Permit(Either::Right(guard)))
-								.left_future()
-						} else {
-							future::pending().right_future()
-						};
-
-						match future::select(pin!(semaphore), pin!(parent)).await {
-							future::Either::Left((permit, _))
-							| future::Either::Right((permit, _)) => permit,
-						}
+					let outcome = server.start_build(build.clone(), permit);
+					let stop = stop.wait_for(|b| *b);
+					let outcome = match future::select(pin!(outcome), pin!(stop)).await {
+						future::Either::Left((outcome, _)) => outcome?,
+						future::Either::Right(_) => tg::build::Outcome::Canceled,
 					};
-
-					// Set the permit in the build state.
-					let state = server
-						.inner
-						.build_state
-						.write()
-						.unwrap()
-						.get_mut(&id)
-						.unwrap()
-						.clone();
-					state.permit.lock().await.replace(permit);
-
-					// Update the build's status to started.
-					server
-						.set_build_status(None, &id, tg::build::Status::Started)
-						.await?;
-
-					let build = tg::Build::with_id(id.clone());
-					let target = build.target(&server).await?;
-
-					// Get the stop receiver.
-					let stop = server
-						.inner
-						.build_state
-						.read()
-						.unwrap()
-						.get(&id)
-						.unwrap()
-						.stop
-						.subscribe();
-
-					// Build the target with the appropriate runtime.
-					let triple = target.host(&server).await?;
-					let result = match triple.os() {
-						None => {
-							// Ensure the arch is JS.
-							if triple.arch() != Some(tg::triple::Arch::Js) {
-								return Err(error!("Expected JS arch."));
-							}
-							// Build the target on the server's local pool because it is a `!Send` future.
-							tangram_runtime::js::build(&server, &build, stop).await
-						},
-						Some(tg::triple::Os::Darwin) => {
-							#[cfg(target_os = "macos")]
-							{
-								// If the VFS is disabled, then perform an internal checkout.
-								if server.inner.vfs.lock().unwrap().is_none() {
-									target
-										.data(&server)
-										.await?
-										.children()
-										.into_iter()
-										.filter_map(|id| id.try_into().ok())
-										.map(|id| {
-											let server = server.clone();
-											async move {
-												let artifact = tg::Artifact::with_id(id);
-												artifact.check_out(&server, None).await
-											}
-										})
-										.collect::<FuturesUnordered<_>>()
-										.try_collect::<Vec<_>>()
-										.await?;
-								}
-								tangram_runtime::darwin::build(
-									&server,
-									&build,
-									stop,
-									&server.inner.path,
-								)
-								.await
-							}
-							#[cfg(not(target_os = "macos"))]
-							{
-								return Err(error!("Cannot build a darwin target on this host."));
-							}
-						},
-						Some(tg::triple::Os::Linux) => {
-							#[cfg(target_os = "linux")]
-							{
-								// If the VFS is disabled, then perform an internal checkout.
-								if server.inner.vfs.lock().unwrap().is_none() {
-									target
-										.data(&server)
-										.await?
-										.children()
-										.into_iter()
-										.filter_map(|id| id.try_into().ok())
-										.map(|id| {
-											let server = server.clone();
-											async move {
-												let artifact = tg::Artifact::with_id(id);
-												artifact.check_out(&server, None).await
-											}
-										})
-										.collect::<FuturesUnordered<_>>()
-										.try_collect::<Vec<_>>()
-										.await?;
-								}
-								tangram_runtime::linux::build(
-									&server,
-									&build,
-									stop,
-									&server.inner.path,
-								)
-								.await
-							}
-							#[cfg(not(target_os = "linux"))]
-							{
-								return Err(error!("Cannot build a linux target on this host."));
-							}
-						},
-					};
-
-					// Create the outcome.
-					let outcome = match result {
-						Ok(Some(value)) => tg::build::Outcome::Succeeded(value),
-						Ok(None) => tg::build::Outcome::Canceled,
-						Err(error) => tg::build::Outcome::Failed(error),
-					};
-
-					// If the build failed, add a message to the build's log.
-					if let tg::build::Outcome::Failed(error) = &outcome {
-						build
-							.add_log(&server, error.trace().to_string().into())
-							.await?;
-					}
-
-					// Set the outcome.
 					build.set_outcome(&server, None, outcome).await?;
-
-					// Remove the build state.
-					server.inner.build_state.write().unwrap().remove(&id);
-
+					server.inner.build_state.write().unwrap().remove(build.id());
 					Ok::<_, Error>(())
 				}
 				.inspect_err(|error| {
 					let trace = error.trace();
-					tracing::error!(%trace, "The build task failed.");
+					tracing::error!(%trace, "Failed to run build.");
 				})
 				.map(|_| ())
 			});
@@ -270,6 +116,137 @@ impl Server {
 				.unwrap()
 				.replace(task);
 		}
+	}
+
+	async fn start_build(
+		&self,
+		build: tg::Build,
+		permit: Option<tokio::sync::OwnedSemaphorePermit>,
+	) -> Result<tg::build::Outcome> {
+		let id = build.id();
+
+		// If the build does not have a permit, then wait for one, either from the semaphore or one of the build's parents. We must handle the stop signal here to ensure the task isn't blocked waiting for a permit when it is stopped.
+		let permit = if let Some(permit) = permit {
+			Permit(Either::Left(permit))
+		} else {
+			let semaphore = self
+				.inner
+				.build_semaphore
+				.clone()
+				.acquire_owned()
+				.map(|result| Permit(Either::Left(result.unwrap())));
+			let parent = self.try_get_build_parent(id).await?;
+			let state = parent
+				.and_then(|parent| self.inner.build_state.read().unwrap().get(&parent).cloned());
+			let parent = if let Some(state) = state {
+				state
+					.permit
+					.clone()
+					.lock_owned()
+					.map(|guard| Permit(Either::Right(guard)))
+					.left_future()
+			} else {
+				future::pending().right_future()
+			};
+			match future::select(pin!(semaphore), pin!(parent)).await {
+				future::Either::Left((permit, _)) | future::Either::Right((permit, _)) => permit,
+			}
+		};
+
+		// Set the permit in the build state.
+		let state = self
+			.inner
+			.build_state
+			.write()
+			.unwrap()
+			.get_mut(id)
+			.unwrap()
+			.clone();
+		state.permit.lock().await.replace(permit);
+
+		// Update the build's status to started.
+		self.set_build_status(None, id, tg::build::Status::Started)
+			.await?;
+
+		let build = tg::Build::with_id(id.clone());
+		let target = build.target(self).await?;
+
+		// Build the target with the appropriate runtime.
+		let triple = target.host(self).await?;
+		let result = match triple.os() {
+			None => {
+				// Ensure the arch is JS.
+				if triple.arch() != Some(tg::triple::Arch::Js) {
+					return Err(error!("Expected JS arch."));
+				}
+				// Build the target on the server's local pool because it is a `!Send` future.
+				tangram_runtime::js::build(self, &build).await
+			},
+			Some(tg::triple::Os::Darwin) => {
+				#[cfg(target_os = "macos")]
+				{
+					// If the VFS is disabled, then perform an internal checkout.
+					if self.inner.vfs.lock().unwrap().is_none() {
+						target
+							.data(self)
+							.await?
+							.children()
+							.into_iter()
+							.filter_map(|id| id.try_into().ok())
+							.map(|id| async move {
+								let artifact = tg::Artifact::with_id(id);
+								artifact.check_out(self, None).await
+							})
+							.collect::<FuturesUnordered<_>>()
+							.try_collect::<Vec<_>>()
+							.await?;
+					}
+					tangram_runtime::darwin::build(self, &build, &self.inner.path).await
+				}
+				#[cfg(not(target_os = "macos"))]
+				{
+					return Err(error!("Cannot build a darwin target on this host."));
+				}
+			},
+			Some(tg::triple::Os::Linux) => {
+				#[cfg(target_os = "linux")]
+				{
+					// If the VFS is disabled, then perform an internal checkout.
+					if self.inner.vfs.lock().unwrap().is_none() {
+						target
+							.data(self)
+							.await?
+							.children()
+							.into_iter()
+							.filter_map(|id| id.try_into().ok())
+							.map(|id| async move {
+								let artifact = tg::Artifact::with_id(id);
+								artifact.check_out(self, None).await
+							})
+							.collect::<FuturesUnordered<_>>()
+							.try_collect::<Vec<_>>()
+							.await?;
+					}
+					tangram_runtime::linux::build(self, &build, &self.inner.path).await
+				}
+				#[cfg(not(target_os = "linux"))]
+				{
+					return Err(error!("Cannot build a linux target on this host."));
+				}
+			},
+		};
+
+		// Create the outcome.
+		let outcome = match result {
+			Ok(value) => tg::build::Outcome::Succeeded(value),
+			Err(error) => {
+				build
+					.add_log(self, error.trace().to_string().into())
+					.await?;
+				tg::build::Outcome::Failed(error)
+			},
+		};
+		Ok(outcome)
 	}
 
 	async fn try_get_build_parent(&self, id: &tg::build::Id) -> Result<Option<tg::build::Id>> {

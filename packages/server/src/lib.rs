@@ -363,7 +363,7 @@ impl Server {
 				.collect::<FuturesUnordered<_>>()
 				.try_collect::<Vec<_>>()
 				.await
-				.unwrap();
+				.ok();
 
 			// Clear all build state.
 			server.inner.build_state.write().unwrap().clear();
