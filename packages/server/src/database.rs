@@ -1,3 +1,4 @@
+use itertools::Itertools;
 use rusqlite as sqlite;
 use std::{
 	collections::HashMap,
@@ -49,11 +50,10 @@ impl Database {
 
 impl Sqlite {
 	pub async fn new(path: PathBuf, max_connections: usize) -> Result<Self> {
-		let pool = tangram_util::pool::Pool::new();
-		for _ in 0..max_connections {
-			let connection = SqliteConnection::connect(&path)?;
-			pool.put(connection).await;
-		}
+		let connections = (0..max_connections)
+			.map(|_| SqliteConnection::connect(&path))
+			.try_collect()?;
+		let pool = tangram_util::pool::Pool::new(connections);
 		let database = Sqlite { pool };
 		Ok(database)
 	}
@@ -66,11 +66,12 @@ impl Sqlite {
 
 impl Postgres {
 	pub async fn new(url: Url, max_connections: usize) -> Result<Self> {
-		let pool = tangram_util::pool::Pool::new();
+		let mut connections = Vec::with_capacity(max_connections);
 		for _ in 0..max_connections {
 			let client = PostgresConnection::connect(&url).await?;
-			pool.put(client).await;
+			connections.push(client);
 		}
+		let pool = tangram_util::pool::Pool::new(connections);
 		let database = Self { pool, url };
 		Ok(database)
 	}

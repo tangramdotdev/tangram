@@ -42,6 +42,7 @@ blake3 = "1"
 bytes = { version = "1", features = ["serde"] }
 clap = { version = "4", features = ["derive", "env"] }
 console-subscriber = "0.2"
+crossbeam = "0.8"
 crossterm = "0.27"
 data-encoding = "2"
 data-encoding-macro = "0.1"
