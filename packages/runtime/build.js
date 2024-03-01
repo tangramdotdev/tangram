@@ -5,8 +5,8 @@ assert(process.env["OUT_DIR"]);
 
 await esbuild.build({
 	bundle: true,
-	entryPoints: ["./src/js/main.ts"],
+	entryPoints: ["./src/main.ts"],
 	minify: true,
-	outfile: process.env["OUT_DIR"] + "/main.js",
+	outfile: process.env["OUT_DIR"] + "/runtime.js",
 	sourcemap: true,
 });

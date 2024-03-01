@@ -236,37 +236,40 @@ impl Server {
 			}
 		};
 
-		// If the build was canceled, then cancel the children and stop the build if it is running.
+		// If the build was canceled, then stop the build and cancel the children.
 		if matches!(outcome, tg::build::Outcome::Canceled) {
 			if let Some(state) = self.inner.build_state.read().unwrap().get(id) {
 				state.stop.send_replace(true);
 			}
 			children
 				.iter()
-				.map(|child| {
-					let outcome = outcome.clone();
-					async move { self.set_build_outcome(user, child, outcome.clone()).await }
+				.map(|child| async move {
+					self.set_build_outcome(user, child, tg::build::Outcome::Canceled)
+						.await
 				})
 				.collect::<FuturesUnordered<_>>()
 				.try_collect()
 				.await?;
 		}
 
-		// Get the children outcomes.
-		let children_outcomes = children
+		// If any of the finished children were canceled, then this build should be canceled.
+		let finished_children_outcomes = children
 			.iter()
 			.map(|child_id| async move {
-				self.try_get_build_outcome(child_id, tg::build::outcome::GetArg::default(), None)
+				let arg = tg::build::outcome::GetArg {
+					timeout: Some(std::time::Duration::ZERO),
+				};
+				self.try_get_build_outcome(child_id, arg, None)
 					.await?
-					.wrap_err("Failed to get the build.")?
-					.wrap_err("Failed to get the outcome.")
+					.wrap_err("Failed to get the build.")
 			})
 			.collect::<FuturesUnordered<_>>()
 			.try_collect::<Vec<_>>()
-			.await?;
-
-		// If any of the children were canceled, then this build should be canceled.
-		let outcome = if children_outcomes
+			.await?
+			.into_iter()
+			.flatten()
+			.collect_vec();
+		let outcome = if finished_children_outcomes
 			.iter()
 			.any(|outcome| outcome.try_unwrap_canceled_ref().is_ok())
 		{
@@ -274,6 +277,8 @@ impl Server {
 		} else {
 			outcome
 		};
+
+		// Get the outcome data.
 		let outcome = outcome.data(self).await?;
 
 		// Create a blob from the log.

@@ -325,7 +325,7 @@ fn initialize_v8() {
 	struct IcuData([u8; 10_631_872]);
 	static ICU_DATA: IcuData = IcuData(*include_bytes!(concat!(
 		env!("CARGO_MANIFEST_DIR"),
-		"/../language/src/icudtl.dat"
+		"/../../packages/server/src/language/icudtl.dat"
 	)));
 	v8::icu::set_common_data_73(&ICU_DATA.0).unwrap();
 

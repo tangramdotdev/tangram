@@ -12,6 +12,12 @@ version = { workspace = true }
 [lints]
 workspace = true
 
+[build-dependencies]
+v8 = { workspace = true }
+
+[dev-dependencies]
+proptest = { workspace = true }
+
 [dependencies]
 async-nats = { workspace = true }
 async-recursion = { workspace = true }
@@ -30,34 +36,44 @@ http-body-util = { workspace = true }
 hyper = { workspace = true }
 hyper-util = { workspace = true }
 im = { workspace = true }
+include_dir = { workspace = true }
+indoc = { workspace = true }
 itertools = { workspace = true }
 libc = { workspace = true }
+lsp-types = { workspace = true }
 mime = { workspace = true }
 notify = { workspace = true }
 num = { workspace = true }
 oauth2 = { workspace = true }
 octocrab = { workspace = true }
+parking_lot = { workspace = true }
 pin-project = { workspace = true }
 rand = { workspace = true }
+reqwest = { workspace = true }
 rusqlite = { workspace = true }
+scopeguard = { workspace = true }
 semver = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
 serde_urlencoded = { workspace = true }
+serde_v8 = { workspace = true }
+serde_yaml = { workspace = true }
+sourcemap = { workspace = true }
+swc_core = { workspace = true }
 tangram_client = { workspace = true }
 tangram_error = { workspace = true }
-tangram_language = { workspace = true }
-tangram_runtime = { workspace = true }
 tangram_util = { workspace = true }
-tangram_vfs = { workspace = true }
 tempfile = { workspace = true }
 time = { workspace = true }
 tokio = { workspace = true }
 tokio-postgres = { workspace = true }
 tokio-stream = { workspace = true }
 tokio-util = { workspace = true }
+toml = { workspace = true }
 tracing = { workspace = true }
 url = { workspace = true }
 urlencoding = { workspace = true }
 uuid = { workspace = true }
+v8 = { workspace = true }
 xattr = { workspace = true }
+zerocopy = { workspace = true }

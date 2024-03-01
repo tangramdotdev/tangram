@@ -260,7 +260,7 @@ impl Server {
 				.wrap_err("Failed to read the module.")?;
 
 			// Analyze the module.
-			let analysis = tangram_language::Module::analyze(text)
+			let analysis = crate::language::Module::analyze(text)
 				.wrap_err("Failed to analyze the module.")?;
 
 			// Handle the includes.
@@ -288,7 +288,7 @@ impl Server {
 
 			// Recurse into the path dependencies.
 			for import in &analysis.imports {
-				if let tangram_language::Import::Dependency(
+				if let crate::language::Import::Dependency(
 					dependency @ tg::Dependency { path: Some(_), .. },
 				) = import
 				{
@@ -334,7 +334,7 @@ impl Server {
 
 			// Add the unvisited path imports to the queue.
 			for import in &analysis.imports {
-				if let tangram_language::Import::Module(import) = import {
+				if let crate::language::Import::Module(import) = import {
 					let imported_module_path = module_path
 						.clone()
 						.parent()

@@ -31,13 +31,13 @@ impl Cli {
 		let (package, lock) = tg::package::get_with_lock(client, &package).await?;
 
 		// Create the language server.
-		let server = tangram_language::Server::new(client, tokio::runtime::Handle::current());
+		let server = tangram_server::language::Server::new(client, tokio::runtime::Handle::current());
 
 		// Create the root module.
 		let path = tg::package::get_root_module_path(client, &package).await?;
 		let package = package.id(client).await?.clone();
 		let lock = lock.id(client).await?.clone();
-		let root_module = tangram_language::Module::Normal(tangram_language::module::Normal {
+		let root_module = tangram_server::language::Module::Normal(tangram_server::language::module::Normal {
 			lock,
 			package,
 			path,
@@ -49,7 +49,7 @@ impl Cli {
 		// Print the diagnostics.
 		for diagnostic in &diagnostics {
 			// Get the diagnostic location and message.
-			let tangram_language::Diagnostic {
+			let tangram_server::language::Diagnostic {
 				location, message, ..
 			} = diagnostic;
 

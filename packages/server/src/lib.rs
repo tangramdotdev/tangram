@@ -32,13 +32,16 @@ mod artifact;
 mod build;
 mod clean;
 mod database;
+pub mod language;
 mod messenger;
 mod migrations;
 mod object;
 pub mod options;
 mod package;
+mod runtime;
 mod server;
 mod user;
+mod vfs;
 
 /// A server.
 #[derive(Clone)]
@@ -54,6 +57,7 @@ struct Inner {
 	database: Database,
 	file_descriptor_semaphore: tokio::sync::Semaphore,
 	http: std::sync::Mutex<Option<Http>>,
+	local_pool_handle: tokio_util::task::LocalPoolHandle,
 	lockfile: std::sync::Mutex<Option<tokio::fs::File>>,
 	messenger: Messenger,
 	oauth: OAuth,
@@ -63,7 +67,7 @@ struct Inner {
 	shutdown_task: std::sync::Mutex<Option<tokio::task::JoinHandle<Result<()>>>>,
 	url: Option<Url>,
 	version: String,
-	vfs: std::sync::Mutex<Option<tangram_vfs::Server>>,
+	vfs: std::sync::Mutex<Option<self::vfs::Server>>,
 	www: Option<Url>,
 }
 
@@ -179,6 +183,11 @@ impl Server {
 		// Create the http server.
 		let http = std::sync::Mutex::new(None);
 
+		// Create the local pool.
+		let local_pool_handle = tokio_util::task::LocalPoolHandle::new(
+			std::thread::available_parallelism().unwrap().get(),
+		);
+
 		// Create the oauth clients.
 		let github = if let Some(oauth) = options.oauth.github {
 			let client_id = oauth2::ClientId::new(oauth.client_id.clone());
@@ -229,6 +238,7 @@ impl Server {
 			database,
 			file_descriptor_semaphore,
 			http,
+			local_pool_handle,
 			lockfile,
 			messenger,
 			oauth,
@@ -264,7 +274,7 @@ impl Server {
 
 		// Start the VFS if necessary and set up the checkouts directory.
 		let artifacts_path = server.artifacts_path();
-		tangram_vfs::unmount(&artifacts_path).await.ok();
+		self::vfs::unmount(&artifacts_path).await.ok();
 		if options.vfs.enable {
 			// Create the artifacts directory.
 			tokio::fs::create_dir_all(&artifacts_path)
@@ -272,7 +282,7 @@ impl Server {
 				.wrap_err("Failed to create the artifacts directory.")?;
 
 			// Start the VFS server.
-			let vfs = tangram_vfs::Server::start(&server, &artifacts_path)
+			let vfs = self::vfs::Server::start(&server, &artifacts_path)
 				.await
 				.wrap_err("Failed to start the VFS.")?;
 
@@ -591,7 +601,7 @@ impl Http {
 		let id = tg::Id::new_uuidv7(tg::id::Kind::Request);
 		request.extensions_mut().insert(id.clone());
 
-		tracing::info!(?id, method = ?request.method(), path = ?request.uri().path(), "Received request.");
+		// tracing::info!(?id, method = ?request.method(), path = ?request.uri().path(), "Received request.");
 
 		let method = request.method().clone();
 		let path_components = request.uri().path().split('/').skip(1).collect_vec();
@@ -740,7 +750,7 @@ impl Http {
 		let value = http::HeaderValue::from_str(&id.to_string()).unwrap();
 		response.headers_mut().insert(key, value);
 
-		tracing::info!(?id, status = ?response.status(), "Sending response.");
+		// tracing::info!(?id, status = ?response.status(), "Sending response.");
 
 		response
 	}

@@ -4,11 +4,8 @@ members = [
   "packages/cli",
   "packages/client",
   "packages/error",
-  "packages/language",
-  "packages/runtime",
   "packages/server",
   "packages/util",
-  "packages/vfs",
 ]
 resolver = "2"
 
@@ -82,7 +79,7 @@ reqwest = { version = "0.11", default-features = false, features = [
   "stream",
   "rustls-tls",
 ] }
-rusqlite = { version = "0.30", features = ["blob", "bundled"] }
+rusqlite = { version = "0.31", features = ["blob", "bundled"] }
 rustls = "0.22"
 rustls-pemfile = "2"
 rustls-pki-types = "1"
@@ -91,7 +88,7 @@ semver = "1"
 serde = { version = "1", features = ["rc", "derive"] }
 serde_json = "1"
 serde_urlencoded = "0.7"
-serde_v8 = { version = "0.171" }
+serde_v8 = { version = "0.175" }
 serde_with = "3"
 serde_yaml = { version = "0.9" }
 sha2 = "0.10"
@@ -111,11 +108,8 @@ swc_core = { version = "0.90", features = [
 tangram_cli = { path = "packages/cli" }
 tangram_client = { path = "packages/client" }
 tangram_error = { path = "packages/error" }
-tangram_language = { path = "packages/language" }
-tangram_runtime = { path = "packages/runtime" }
 tangram_server = { path = "packages/server" }
 tangram_util = { path = "packages/util" }
-tangram_vfs = { path = "packages/vfs" }
 tar = { version = "0.4" }
 tempfile = "3"
 thiserror = "1"

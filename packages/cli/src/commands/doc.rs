@@ -23,11 +23,11 @@ impl Cli {
 		let client = &self.client().await?;
 
 		// Create the language server.
-		let server = tangram_language::Server::new(client, tokio::runtime::Handle::current());
+		let server = tangram_server::language::Server::new(client, tokio::runtime::Handle::current());
 
 		let module = if args.runtime {
 			let path: tg::Path = "tangram.d.ts".parse().unwrap();
-			tangram_language::Module::Library(tangram_language::module::Library {
+			tangram_server::language::Module::Library(tangram_server::language::module::Library {
 				path: path.clone(),
 			})
 		} else {
@@ -35,7 +35,7 @@ impl Cli {
 			let path = tg::package::get_root_module_path(client, &package).await?;
 			let package = package.id(client).await?.clone();
 			let lock = lock.id(client).await?.clone();
-			tangram_language::Module::Normal(tangram_language::module::Normal {
+			tangram_server::language::Module::Normal(tangram_server::language::module::Normal {
 				package,
 				path: path.clone(),
 				lock,

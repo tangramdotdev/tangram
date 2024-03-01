@@ -180,7 +180,7 @@ impl Server {
 					return Err(error!("Expected JS arch."));
 				}
 				// Build the target on the server's local pool because it is a `!Send` future.
-				tangram_runtime::js::build(self, &build).await
+				crate::runtime::js::build(self, &build).await
 			},
 			Some(tg::triple::Os::Darwin) => {
 				#[cfg(target_os = "macos")]
@@ -201,7 +201,7 @@ impl Server {
 							.try_collect::<Vec<_>>()
 							.await?;
 					}
-					tangram_runtime::darwin::build(self, &build, &self.inner.path).await
+					crate::runtime::darwin::build(self, &build, &self.inner.path).await
 				}
 				#[cfg(not(target_os = "macos"))]
 				{
@@ -227,7 +227,7 @@ impl Server {
 							.try_collect::<Vec<_>>()
 							.await?;
 					}
-					tangram_runtime::linux::build(self, &build, &self.inner.path).await
+					crate::runtime::linux::build(self, &build, &self.inner.path).await
 				}
 				#[cfg(not(target_os = "linux"))]
 				{

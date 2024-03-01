@@ -11,7 +11,7 @@ impl Cli {
 		let client = &self.client().await?;
 
 		// Create the language server.
-		let server = tangram_language::Server::new(client, tokio::runtime::Handle::current());
+		let server = tangram_server::language::Server::new(client, tokio::runtime::Handle::current());
 
 		// Run the language server.
 		server.serve().await?;
