@@ -1,11 +1,13 @@
-use super::{Module, Position, Result, Server};
+use super::Server;
 use lsp_types as lsp;
+use tangram_client as tg;
+use tangram_error::Result;
 
 #[derive(Debug, serde::Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Request {
-	pub module: Module,
-	pub position: Position,
+	pub module: tg::Module,
+	pub position: tg::Position,
 }
 
 #[derive(Debug, serde::Deserialize)]
@@ -45,7 +47,11 @@ impl Server {
 		Ok(Some(hover))
 	}
 
-	pub async fn hover(&self, module: &Module, position: Position) -> Result<Option<String>> {
+	pub async fn hover(
+		&self,
+		module: &tg::Module,
+		position: tg::Position,
+	) -> Result<Option<String>> {
 		// Create the request.
 		let request = super::Request::Hover(Request {
 			module: module.clone(),

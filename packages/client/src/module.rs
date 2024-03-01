@@ -1,6 +1,6 @@
 use super::document::Document;
+use crate as tg;
 use derive_more::{TryUnwrap, Unwrap};
-use tangram_client as tg;
 use tangram_error::{error, Error, Result, WrapErr};
 use url::Url;
 

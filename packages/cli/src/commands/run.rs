@@ -40,12 +40,11 @@ pub struct Args {
 }
 
 impl Cli {
-	pub async fn command_run(&self, args: Args) -> Result<()> {
+	pub async fn command_run(&self, mut args: Args) -> Result<()> {
 		let client = &self.client().await?;
 
 		// Canonicalize the path.
-		let mut package = args.package;
-		if let Some(path) = package.path.as_mut() {
+		if let Some(path) = args.package.path.as_mut() {
 			*path = tokio::fs::canonicalize(&path)
 				.await
 				.wrap_err("Failed to canonicalize the path.")?
@@ -53,7 +52,7 @@ impl Cli {
 		}
 
 		// Create the package.
-		let (package, lock) = tg::package::get_with_lock(client, &package).await?;
+		let (package, lock) = tg::package::get_with_lock(client, &args.package).await?;
 
 		// Create the target.
 		let env = [(

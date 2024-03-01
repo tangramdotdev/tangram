@@ -2,9 +2,9 @@ use super::{
 	convert::{from_v8, ToV8},
 	State,
 };
-use crate::language::Module;
 use num::ToPrimitive;
 use std::{str::FromStr, sync::Arc};
+use tangram_client as tg;
 use tangram_error::Error;
 
 #[derive(Debug, serde::Deserialize)]
@@ -155,7 +155,7 @@ fn get_location(
 		return Some(location);
 	}
 
-	if let Some(module) = file.and_then(|resource_name| Module::from_str(resource_name).ok()) {
+	if let Some(module) = file.and_then(|resource_name| tg::Module::from_str(resource_name).ok()) {
 		let Some(line) = line else {
 			return None;
 		};

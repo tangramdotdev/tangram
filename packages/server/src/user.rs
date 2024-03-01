@@ -332,14 +332,14 @@ impl Http {
 		_request: http::Request<Incoming>,
 	) -> Result<http::Response<Outgoing>> {
 		// Create the login.
-		let login = self.inner.tg.create_login().await?;
+		let output = self.inner.tg.create_login().await?;
+
+		// Create the body.
+		let body = serde_json::to_vec(&output).wrap_err("Failed to serialize the body.")?;
+		let body = full(body);
 
 		// Create the response.
-		let body = serde_json::to_string(&login).wrap_err("Failed to serialize the response.")?;
-		let response = http::Response::builder()
-			.status(200)
-			.body(full(body))
-			.unwrap();
+		let response = http::Response::builder().status(200).body(body).unwrap();
 
 		Ok(response)
 	}
@@ -358,15 +358,14 @@ impl Http {
 		};
 
 		// Get the login.
-		let login = self.inner.tg.get_login(&id).await?;
+		let output = self.inner.tg.get_login(&id).await?;
+
+		// Create the body.
+		let body = serde_json::to_vec(&output).wrap_err("Failed to serialize the body.")?;
+		let body = full(body);
 
 		// Create the response.
-		let response =
-			serde_json::to_string(&login).wrap_err("Failed to serialize the response.")?;
-		let response = http::Response::builder()
-			.status(200)
-			.body(full(response))
-			.unwrap();
+		let response = http::Response::builder().status(200).body(body).unwrap();
 
 		Ok(response)
 	}
@@ -381,15 +380,18 @@ impl Http {
 		};
 
 		// Authenticate the user.
-		let Some(user) = self.inner.tg.get_user_for_token(token.as_str()).await? else {
+		let Some(output) = self.inner.tg.get_user_for_token(token.as_str()).await? else {
 			return Ok(unauthorized());
 		};
 
+		// Create the body.
+		let body = serde_json::to_vec(&output).wrap_err("Failed to serialize the body.")?;
+		let body = full(body);
+
 		// Create the response.
-		let body = serde_json::to_string(&user).wrap_err("Failed to serialize the response.")?;
 		let response = http::Response::builder()
 			.status(http::StatusCode::OK)
-			.body(full(body))
+			.body(body)
 			.unwrap();
 
 		Ok(response)

@@ -1,9 +1,10 @@
 #![allow(clippy::needless_pass_by_value, clippy::unnecessary_wraps)]
 
-use super::{Import, Module, Server};
+use super::Server;
 use bytes::Bytes;
 use itertools::Itertools;
 use std::collections::BTreeMap;
+use tangram_client as tg;
 use tangram_error::{Result, WrapErr};
 
 pub fn syscall<'s>(
@@ -55,19 +56,17 @@ fn syscall_documents(
 	_scope: &mut v8::HandleScope,
 	server: Server,
 	_args: (),
-) -> Result<Vec<Module>> {
+) -> Result<Vec<tg::Module>> {
 	server
 		.inner
 		.main_runtime_handle
 		.clone()
 		.block_on(async move {
 			Ok(server
-				.inner
-				.document_store
-				.documents()
+				.get_documents()
 				.await
 				.into_iter()
-				.map(Module::Document)
+				.map(tg::Module::Document)
 				.collect())
 		})
 }
@@ -206,7 +205,7 @@ fn syscall_log(_scope: &mut v8::HandleScope, _server: Server, args: (String,)) -
 fn syscall_module_load(
 	_scope: &mut v8::HandleScope,
 	server: Server,
-	args: (Module,),
+	args: (tg::Module,),
 ) -> Result<String> {
 	let (module,) = args;
 	server
@@ -214,9 +213,8 @@ fn syscall_module_load(
 		.main_runtime_handle
 		.clone()
 		.block_on(async move {
-			let tg = server.inner.tg.as_ref();
-			let text = module
-				.load(tg, Some(&server.inner.document_store))
+			let text = server
+				.load_module(&module)
 				.await
 				.wrap_err_with(|| format!(r#"Failed to load module "{module}"."#))?;
 			Ok(text)
@@ -226,19 +224,18 @@ fn syscall_module_load(
 fn syscall_module_resolve(
 	_scope: &mut v8::HandleScope,
 	server: Server,
-	args: (Module, String, Option<BTreeMap<String, String>>),
-) -> Result<Module> {
+	args: (tg::Module, String, Option<BTreeMap<String, String>>),
+) -> Result<tg::Module> {
 	let (module, specifier, attributes) = args;
-	let import = Import::with_specifier_and_attributes(&specifier, attributes.as_ref())
+	let import = tg::Import::with_specifier_and_attributes(&specifier, attributes.as_ref())
 		.wrap_err("Failed to create the import.")?;
 	server
 		.inner
 		.main_runtime_handle
 		.clone()
 		.block_on(async move {
-			let tg = server.inner.tg.as_ref();
-			let module = module
-				.resolve(tg, Some(&server.inner.document_store), &import)
+			let module = server
+				.resolve_module(&module, &import)
 				.await
 				.wrap_err_with(|| {
 					format!(
@@ -252,7 +249,7 @@ fn syscall_module_resolve(
 fn syscall_module_version(
 	_scope: &mut v8::HandleScope,
 	server: Server,
-	args: (Module,),
+	args: (tg::Module,),
 ) -> Result<String> {
 	let (module,) = args;
 	server
@@ -260,7 +257,7 @@ fn syscall_module_version(
 		.main_runtime_handle
 		.clone()
 		.block_on(async move {
-			let version = module.version(Some(&server.inner.document_store)).await?;
+			let version = server.get_module_version(&module).await?;
 			Ok(version.to_string())
 		})
 }

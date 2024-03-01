@@ -1,30 +1,25 @@
-use super::{
-	document,
-	module::{Library, Normal},
-	Document, Import, Module,
-};
+use super::Server;
 use tangram_client as tg;
 use tangram_error::{error, Result, WrapErr};
 
-impl Module {
-	/// Resolve a module.
-	pub async fn resolve(
+impl Server {
+	/// Resolve an import from a module.
+	pub async fn resolve_module(
 		&self,
-		tg: &dyn tg::Handle,
-		document_store: Option<&document::Store>,
-		import: &Import,
-	) -> Result<Self> {
-		match (self, import) {
-			(Self::Library(module), Import::Module(path)) => {
+		module: &tg::Module,
+		import: &tg::Import,
+	) -> Result<tg::Module> {
+		match (module, import) {
+			(tg::Module::Library(module), tg::Import::Module(path)) => {
 				let path = module.path.clone().parent().join(path.clone()).normalize();
-				Ok(Self::Library(Library { path }))
+				Ok(tg::Module::Library(tg::module::Library { path }))
 			},
 
-			(Self::Library(_), Import::Dependency(_)) => Err(error!(
+			(tg::Module::Library(_), tg::Import::Dependency(_)) => Err(error!(
 				r#"Cannot resolve a dependency import from a library module."#
 			)),
 
-			(Self::Document(document), Import::Module(path)) => {
+			(tg::Module::Document(document), tg::Import::Module(path)) => {
 				// Resolve the module path.
 				let package_path = document.package_path.clone();
 				let module_path = document
@@ -44,17 +39,16 @@ impl Module {
 					return Err(error!(r#"Could not find a module at path "{path}"."#));
 				}
 
-				// Create the document.
-				let document =
-					Document::new(document_store.unwrap(), package_path, module_path).await?;
+				// Get or create the document.
+				let document = self.get_document(package_path, module_path).await?;
 
 				// Create the module.
-				let module = Self::Document(document);
+				let module = tg::Module::Document(document);
 
 				Ok(module)
 			},
 
-			(Self::Document(document), Import::Dependency(dependency))
+			(tg::Module::Document(document), tg::Import::Dependency(dependency))
 				if dependency.path.is_some() =>
 			{
 				// Resolve the package path.
@@ -72,17 +66,16 @@ impl Module {
 				// Get the package's root module path.
 				let module_path = tg::package::get_root_module_path_for_path(&package_path).await?;
 
-				// Create the document.
-				let document =
-					Document::new(document_store.unwrap(), package_path, module_path).await?;
+				// Get or create the document.
+				let document = self.get_document(package_path, module_path).await?;
 
 				// Create the module.
-				let module = Self::Document(document);
+				let module = tg::Module::Document(document);
 
 				Ok(module)
 			},
 
-			(Self::Document(document), Import::Dependency(dependency)) => {
+			(tg::Module::Document(document), tg::Import::Dependency(dependency)) => {
 				// Make the dependency path relative to the package.
 				let mut dependency = dependency.clone();
 				if let Some(path) = dependency.path.as_mut() {
@@ -97,19 +90,20 @@ impl Module {
 				// Get the lock for the document's package.
 				let path = document.package_path.clone().try_into()?;
 				let dependency_ = tg::Dependency::with_path(path);
-				let (_, lock) = tg::package::get_with_lock(tg, &dependency_).await?;
+				let (_, lock) =
+					tg::package::get_with_lock(&self.inner.server, &dependency_).await?;
 
 				// Get the package and lock for the dependency.
 				let (package, lock) = lock
-					.get(tg, &dependency)
+					.get(&self.inner.server, &dependency)
 					.await?
 					.wrap_err_with(|| format!(r#"Failed to resolve "{dependency}"."#))?;
 
 				// Create the module.
-				let path = tg::package::get_root_module_path(tg, &package).await?;
-				let lock = lock.id(tg).await?.clone();
-				let package = package.id(tg).await?.clone();
-				let module = Self::Normal(Normal {
+				let path = tg::package::get_root_module_path(&self.inner.server, &package).await?;
+				let lock = lock.id(&self.inner.server).await?.clone();
+				let package = package.id(&self.inner.server).await?.clone();
+				let module = tg::Module::Normal(tg::module::Normal {
 					lock,
 					package,
 					path,
@@ -118,16 +112,16 @@ impl Module {
 				Ok(module)
 			},
 
-			(Self::Normal(module), Import::Module(path)) => {
+			(tg::Module::Normal(module), tg::Import::Module(path)) => {
 				let path = module.path.clone().parent().join(path.clone()).normalize();
-				Ok(Self::Normal(Normal {
+				Ok(tg::Module::Normal(tg::module::Normal {
 					package: module.package.clone(),
 					path,
 					lock: module.lock.clone(),
 				}))
 			},
 
-			(Self::Normal(module), Import::Dependency(dependency)) => {
+			(tg::Module::Normal(module), tg::Import::Dependency(dependency)) => {
 				// Make the dependency path relative to the package.
 				let mut dependency = dependency.clone();
 				if let Some(path) = dependency.path.as_mut() {
@@ -139,15 +133,15 @@ impl Module {
 
 				// Get the specified package and lock from the dependencies.
 				let (package, lock) = lock
-					.get(tg, &dependency)
+					.get(&self.inner.server, &dependency)
 					.await?
 					.wrap_err_with(|| format!(r#"Failed to resolve "{dependency}"."#))?;
 
 				// Create the module.
-				let path = tg::package::get_root_module_path(tg, &package).await?;
-				let package = package.id(tg).await?.clone();
-				let lock = lock.id(tg).await?.clone();
-				let module = Module::Normal(Normal {
+				let path = tg::package::get_root_module_path(&self.inner.server, &package).await?;
+				let package = package.id(&self.inner.server).await?.clone();
+				let lock = lock.id(&self.inner.server).await?.clone();
+				let module = tg::Module::Normal(tg::module::Normal {
 					lock,
 					package,
 					path,

@@ -1,5 +1,5 @@
+use crate as tg;
 use std::collections::BTreeMap;
-use tangram_client as tg;
 use tangram_error::{error, Error, Result, WrapErr};
 
 /// An import in a module.

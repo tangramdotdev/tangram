@@ -1,11 +1,12 @@
-use super::{Module, Range, Server};
+use super::Server;
 use lsp_types as lsp;
+use tangram_client as tg;
 use tangram_error::{error, Result};
 
 #[derive(Debug, serde::Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Request {
-	pub module: Module,
+	pub module: tg::Module,
 }
 
 #[derive(Debug, serde::Deserialize)]
@@ -21,8 +22,8 @@ pub struct Symbol {
 	pub detail: Option<String>,
 	pub kind: Kind,
 	pub tags: Vec<Tag>,
-	pub range: Range,
-	pub selection_range: Range,
+	pub range: tg::Range,
+	pub selection_range: tg::Range,
 	pub children: Option<Vec<Self>>,
 }
 
@@ -63,26 +64,7 @@ pub enum Tag {
 }
 
 impl Server {
-	pub(super) async fn handle_symbols_request(
-		&self,
-		params: lsp::DocumentSymbolParams,
-	) -> Result<Option<lsp::DocumentSymbolResponse>> {
-		// Get the module.
-		let module = self.module_for_url(&params.text_document.uri).await?;
-
-		// Get the document symbols.
-		let symbols = self.symbols(&module).await?;
-		let Some(symbols) = symbols else {
-			return Ok(None);
-		};
-
-		// Convert the symbols.
-		let symbols = symbols.into_iter().map(collect_symbol_tree).collect();
-
-		Ok(Some(lsp::DocumentSymbolResponse::Nested(symbols)))
-	}
-
-	pub async fn symbols(&self, module: &Module) -> Result<Option<Vec<Symbol>>> {
+	pub async fn symbols(&self, module: &tg::Module) -> Result<Option<Vec<Symbol>>> {
 		// Create the request.
 		let request = super::Request::Symbols(Request {
 			module: module.clone(),
@@ -180,5 +162,26 @@ fn collect_symbol_tree(symbol: Symbol) -> lsp::DocumentSymbol {
 		selection_range,
 		children,
 		deprecated: None,
+	}
+}
+
+impl Server {
+	pub(super) async fn handle_symbols_request(
+		&self,
+		params: lsp::DocumentSymbolParams,
+	) -> Result<Option<lsp::DocumentSymbolResponse>> {
+		// Get the module.
+		let module = self.module_for_url(&params.text_document.uri).await?;
+
+		// Get the document symbols.
+		let symbols = self.symbols(&module).await?;
+		let Some(symbols) = symbols else {
+			return Ok(None);
+		};
+
+		// Convert the symbols.
+		let symbols = symbols.into_iter().map(collect_symbol_tree).collect();
+
+		Ok(Some(lsp::DocumentSymbolResponse::Nested(symbols)))
 	}
 }

@@ -1,18 +1,43 @@
-use super::{Location, Module, Position, Server};
+use super::Server;
 use lsp_types as lsp;
+use tangram_client as tg;
 use tangram_error::{error, Result};
 
 #[derive(Debug, serde::Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Request {
-	pub module: Module,
-	pub position: Position,
+	pub module: tg::Module,
+	pub position: tg::Position,
 }
 
 #[derive(Debug, serde::Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Response {
-	pub locations: Option<Vec<Location>>,
+	pub locations: Option<Vec<tg::Location>>,
+}
+
+impl Server {
+	pub async fn definition(
+		&self,
+		module: &tg::Module,
+		position: tg::Position,
+	) -> Result<Option<Vec<tg::Location>>> {
+		// Create the request.
+		let request = super::Request::Definition(Request {
+			module: module.clone(),
+			position,
+		});
+
+		// Perform the request.
+		let response = self.request(request).await?;
+
+		// Get the response.
+		let super::Response::Definition(response) = response else {
+			return Err(error!("Unexpected response type."));
+		};
+
+		Ok(response.locations)
+	}
 }
 
 impl Server {
@@ -47,27 +72,5 @@ impl Server {
 		let response = lsp::GotoDefinitionResponse::Array(locations);
 
 		Ok(Some(response))
-	}
-
-	pub async fn definition(
-		&self,
-		module: &Module,
-		position: Position,
-	) -> Result<Option<Vec<Location>>> {
-		// Create the request.
-		let request = super::Request::Definition(Request {
-			module: module.clone(),
-			position,
-		});
-
-		// Perform the request.
-		let response = self.request(request).await?;
-
-		// Get the response.
-		let super::Response::Definition(response) = response else {
-			return Err(error!("Unexpected response type."));
-		};
-
-		Ok(response.locations)
 	}
 }

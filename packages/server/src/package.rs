@@ -6,7 +6,7 @@ use std::{
 };
 use tangram_client as tg;
 use tangram_error::{error, Result, WrapErr};
-use tangram_util::http::{full, not_found, Incoming, Outgoing};
+use tangram_util::http::{empty, full, not_found, Incoming, Outgoing};
 
 mod dependencies;
 mod lock;
@@ -260,7 +260,7 @@ impl Server {
 				.wrap_err("Failed to read the module.")?;
 
 			// Analyze the module.
-			let analysis = crate::language::Module::analyze(text)
+			let analysis = crate::language::Server::analyze_module(text)
 				.wrap_err("Failed to analyze the module.")?;
 
 			// Handle the includes.
@@ -288,9 +288,8 @@ impl Server {
 
 			// Recurse into the path dependencies.
 			for import in &analysis.imports {
-				if let crate::language::Import::Dependency(
-					dependency @ tg::Dependency { path: Some(_), .. },
-				) = import
+				if let tg::Import::Dependency(dependency @ tg::Dependency { path: Some(_), .. }) =
+					import
 				{
 					// Make the dependency path relative to the package.
 					let mut dependency = dependency.clone();
@@ -334,7 +333,7 @@ impl Server {
 
 			// Add the unvisited path imports to the queue.
 			for import in &analysis.imports {
-				if let crate::language::Import::Module(import) = import {
+				if let tg::Import::Module(import) = import {
 					let imported_module_path = module_path
 						.clone()
 						.parent()
@@ -365,6 +364,76 @@ impl Server {
 		);
 
 		Ok(package_with_path_dependencies)
+	}
+
+	pub async fn check_package(&self, dependency: &tg::Dependency) -> Result<Vec<tg::Diagnostic>> {
+		// Get the package.
+		let (package, lock) = tg::package::get_with_lock(self, dependency).await?;
+
+		// Create the root module.
+		let path = tg::package::get_root_module_path(self, &package).await?;
+		let package = package.id(self).await?.clone();
+		let lock = lock.id(self).await?.clone();
+		let module = tg::Module::Normal(tg::module::Normal {
+			lock,
+			package,
+			path,
+		});
+
+		// Create the language server.
+		let language_server = crate::language::Server::new(self, tokio::runtime::Handle::current());
+
+		// Get the diagnostics.
+		let diagnostics = language_server.check(vec![module]).await?;
+
+		Ok(diagnostics)
+	}
+
+	pub async fn format_package(&self, _dependency: &tg::Dependency) -> Result<()> {
+		Err(error!("Not yet implemented."))
+	}
+
+	pub async fn get_runtime_doc(&self) -> Result<serde_json::Value> {
+		// Create the module.
+		let module = tg::Module::Library(tg::module::Library {
+			path: "tangram.d.ts".parse().unwrap(),
+		});
+
+		// Create the language server.
+		let language_server = crate::language::Server::new(self, tokio::runtime::Handle::current());
+
+		// Get the doc.
+		let doc = language_server.doc(&module).await?;
+
+		Ok(doc)
+	}
+
+	pub async fn try_get_package_doc(
+		&self,
+		dependency: &tg::Dependency,
+	) -> Result<Option<serde_json::Value>> {
+		// Get the package.
+		let Some((package, lock)) = tg::package::try_get_with_lock(self, dependency).await? else {
+			return Ok(None);
+		};
+
+		// Create the module.
+		let path = tg::package::get_root_module_path(self, &package).await?;
+		let package = package.id(self).await?.clone();
+		let lock = lock.id(self).await?.clone();
+		let module = tg::Module::Normal(tg::module::Normal {
+			lock,
+			package,
+			path,
+		});
+
+		// Create the language server.
+		let language_server = crate::language::Server::new(self, tokio::runtime::Handle::current());
+
+		// Get the doc.
+		let doc = language_server.doc(&module).await?;
+
+		Ok(Some(doc))
 	}
 }
 
@@ -399,10 +468,110 @@ impl Http {
 		};
 
 		// Create the body.
-		let body = serde_json::to_vec(&output).wrap_err("Failed to serialize the response.")?;
+		let body = serde_json::to_vec(&output).wrap_err("Failed to serialize the body.")?;
+		let body = full(body);
 
 		// Create the response.
-		let response = http::Response::builder().body(full(body)).unwrap();
+		let response = http::Response::builder().body(body).unwrap();
+
+		Ok(response)
+	}
+
+	pub async fn handle_check_package_request(
+		&self,
+		request: http::Request<Incoming>,
+	) -> Result<http::Response<Outgoing>> {
+		// Get the path params.
+		let path_components: Vec<&str> = request.uri().path().split('/').skip(1).collect();
+		let ["packages", dependency, "check"] = path_components.as_slice() else {
+			return Err(error!("Unexpected path."));
+		};
+		let dependency =
+			urlencoding::decode(dependency).wrap_err("Failed to decode the dependency.")?;
+		let dependency = dependency
+			.parse()
+			.wrap_err("Failed to parse the dependency.")?;
+
+		// Check the package.
+		let output = self.inner.tg.check_package(&dependency).await?;
+
+		// Create the body.
+		let body = serde_json::to_vec(&output).wrap_err("Failed to serialize the body.")?;
+		let body = full(body);
+
+		// Create the response.
+		let response = http::Response::builder().body(body).unwrap();
+
+		Ok(response)
+	}
+
+	pub async fn handle_format_package_request(
+		&self,
+		request: http::Request<Incoming>,
+	) -> Result<http::Response<Outgoing>> {
+		// Get the path params.
+		let path_components: Vec<&str> = request.uri().path().split('/').skip(1).collect();
+		let ["packages", dependency, "format"] = path_components.as_slice() else {
+			return Err(error!("Unexpected path."));
+		};
+		let dependency =
+			urlencoding::decode(dependency).wrap_err("Failed to decode the dependency.")?;
+		let dependency = dependency
+			.parse()
+			.wrap_err("Failed to parse the dependency.")?;
+
+		// Format the package.
+		self.inner.tg.check_package(&dependency).await?;
+
+		// Create the response.
+		let response = http::Response::builder().body(empty()).unwrap();
+
+		Ok(response)
+	}
+
+	pub async fn handle_get_runtime_doc_request(
+		&self,
+		_request: http::Request<Incoming>,
+	) -> Result<http::Response<Outgoing>> {
+		// Get the doc.
+		let output = self.inner.tg.get_runtime_doc().await?;
+
+		// Create the body.
+		let body = serde_json::to_vec(&output).wrap_err("Failed to serialize the body.")?;
+		let body = full(body);
+
+		// Create the response.
+		let response = http::Response::builder().body(body).unwrap();
+
+		Ok(response)
+	}
+
+	pub async fn handle_get_package_doc_request(
+		&self,
+		request: http::Request<Incoming>,
+	) -> Result<http::Response<Outgoing>> {
+		// Get the path params.
+		let path_components: Vec<&str> = request.uri().path().split('/').skip(1).collect();
+		let ["packages", dependency, "doc"] = path_components.as_slice() else {
+			return Err(error!("Unexpected path."));
+		};
+		let dependency =
+			urlencoding::decode(dependency).wrap_err("Failed to decode the dependency.")?;
+		let dependency = dependency
+			.parse()
+			.wrap_err("Failed to parse the dependency.")?;
+
+		// Get the doc.
+		let Some(output) = self.inner.tg.try_get_package_doc(&dependency).await? else {
+			return Ok(not_found());
+		};
+
+		// Create the body.
+		let body = serde_json::to_vec(&output).wrap_err("Failed to serialize the body.")?;
+		let body = full(body);
+
+		// Create the response.
+		let response = http::Response::builder().body(body).unwrap();
 
 		Ok(response)
 	}

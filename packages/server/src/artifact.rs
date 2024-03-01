@@ -560,11 +560,15 @@ impl Http {
 			.to_bytes();
 		let arg = serde_json::from_slice(&bytes).wrap_err("Failed to deserialize the body.")?;
 
+		// Check in the artifact.
 		let output = self.inner.tg.check_in_artifact(arg).await?;
 
+		// Create the body.
+		let body = serde_json::to_vec(&output).wrap_err("Failed to serialize the body.")?;
+		let body = full(body);
+
 		// Create the response.
-		let body = serde_json::to_vec(&output).wrap_err("Failed to serialize the response.")?;
-		let response = http::Response::builder().body(full(body)).unwrap();
+		let response = http::Response::builder().body(body).unwrap();
 
 		Ok(response)
 	}
@@ -582,6 +586,7 @@ impl Http {
 			.to_bytes();
 		let arg = serde_json::from_slice(&bytes).wrap_err("Failed to deserialize the body.")?;
 
+		// Check output the artifact.
 		self.inner.tg.check_out_artifact(arg).await?;
 
 		Ok(ok())

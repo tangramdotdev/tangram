@@ -1,20 +1,21 @@
-use super::{Location, Module, Position, Server};
+use super::Server;
 use lsp_types as lsp;
 use std::collections::HashMap;
+use tangram_client as tg;
 use tangram_error::{error, Result};
 use url::Url;
 
 #[derive(Debug, serde::Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Request {
-	pub module: Module,
-	pub position: Position,
+	pub module: tg::Module,
+	pub position: tg::Position,
 }
 
 #[derive(Debug, serde::Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Response {
-	pub locations: Option<Vec<Location>>,
+	pub locations: Option<Vec<tg::Location>>,
 }
 
 impl Server {
@@ -43,10 +44,7 @@ impl Server {
 		let mut document_changes = HashMap::<Url, lsp::TextDocumentEdit>::new();
 		for location in locations {
 			// Get the version.
-			let version = location
-				.module
-				.version(Some(&self.inner.document_store))
-				.await?;
+			let version = self.get_module_version(&location.module).await?;
 
 			// Create the URI.
 			let uri = self.url_for_module(&location.module);
@@ -87,9 +85,9 @@ impl Server {
 
 	pub async fn rename(
 		&self,
-		module: &Module,
-		position: Position,
-	) -> Result<Option<Vec<Location>>> {
+		module: &tg::Module,
+		position: tg::Position,
+	) -> Result<Option<Vec<tg::Location>>> {
 		// Create the request.
 		let request = super::Request::Rename(Request {
 			module: module.clone(),

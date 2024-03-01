@@ -1,10 +1,10 @@
-use super::Location;
+use crate as tg;
 use lsp_types as lsp;
 
 #[derive(Clone, Debug, serde::Serialize, serde::Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Diagnostic {
-	pub location: Option<Location>,
+	pub location: Option<tg::Location>,
 	pub severity: Severity,
 	pub message: String,
 }

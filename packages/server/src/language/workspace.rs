@@ -4,34 +4,6 @@ use std::path::PathBuf;
 use tangram_error::{error, Result};
 
 impl Server {
-	pub(crate) async fn handle_did_change_workspace_folders(
-		&self,
-		sender: Sender,
-		params: lsp::DidChangeWorkspaceFoldersParams,
-	) -> Result<()> {
-		// Collect the added and removed workspaces.
-		let added = params
-			.event
-			.added
-			.into_iter()
-			.map(|folder| folder.uri)
-			.collect();
-		let removed = params
-			.event
-			.removed
-			.into_iter()
-			.map(|folder| folder.uri)
-			.collect();
-
-		// Update the workspaces.
-		self.update_workspaces(added, removed).await?;
-
-		// Update the diagnostics.
-		self.update_diagnostics(&sender).await?;
-
-		Ok(())
-	}
-
 	pub(crate) async fn update_workspaces(
 		&self,
 		added: Vec<lsp::Url>,
@@ -57,6 +29,36 @@ impl Server {
 			};
 			workspaces.remove(&package_path);
 		}
+
+		Ok(())
+	}
+}
+
+impl Server {
+	pub(crate) async fn handle_did_change_workspace_folders(
+		&self,
+		sender: Sender,
+		params: lsp::DidChangeWorkspaceFoldersParams,
+	) -> Result<()> {
+		// Collect the added and removed workspaces.
+		let added = params
+			.event
+			.added
+			.into_iter()
+			.map(|folder| folder.uri)
+			.collect();
+		let removed = params
+			.event
+			.removed
+			.into_iter()
+			.map(|folder| folder.uri)
+			.collect();
+
+		// Update the workspaces.
+		self.update_workspaces(added, removed).await?;
+
+		// Update the diagnostics.
+		self.update_diagnostics(&sender).await?;
 
 		Ok(())
 	}

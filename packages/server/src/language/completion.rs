@@ -1,12 +1,13 @@
-use super::{Module, Position, Server};
+use super::Server;
 use lsp_types as lsp;
+use tangram_client as tg;
 use tangram_error::{error, Result};
 
 #[derive(Debug, serde::Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Request {
-	pub module: Module,
-	pub position: Position,
+	pub module: tg::Module,
+	pub position: tg::Position,
 }
 
 #[derive(Debug, serde::Deserialize)]
@@ -19,6 +20,30 @@ pub struct Response {
 #[serde(rename_all = "camelCase")]
 pub struct Entry {
 	pub name: String,
+}
+
+impl Server {
+	pub async fn completion(
+		&self,
+		module: &tg::Module,
+		position: tg::Position,
+	) -> Result<Option<Vec<Entry>>> {
+		// Create the request.
+		let request = super::Request::Completion(Request {
+			module: module.clone(),
+			position,
+		});
+
+		// Perform the request.
+		let response = self.request(request).await?;
+
+		// Get the response.
+		let super::Response::Completion(response) = response else {
+			return Err(error!("Unexpected response type."));
+		};
+
+		Ok(response.entries)
+	}
 }
 
 impl Server {
@@ -50,27 +75,5 @@ impl Server {
 			.collect();
 
 		Ok(Some(lsp::CompletionResponse::Array(entries)))
-	}
-
-	pub async fn completion(
-		&self,
-		module: &Module,
-		position: Position,
-	) -> Result<Option<Vec<Entry>>> {
-		// Create the request.
-		let request = super::Request::Completion(Request {
-			module: module.clone(),
-			position,
-		});
-
-		// Perform the request.
-		let response = self.request(request).await?;
-
-		// Get the response.
-		let super::Response::Completion(response) = response else {
-			return Err(error!("Unexpected response type."));
-		};
-
-		Ok(response.entries)
 	}
 }

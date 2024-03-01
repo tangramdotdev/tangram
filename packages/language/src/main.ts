@@ -2,7 +2,7 @@ import * as check from "./check.ts";
 import * as completion from "./completion.ts";
 import * as definition from "./definition.ts";
 import * as diagnostics from "./diagnostics.ts";
-import * as docs from "./docs.ts";
+import * as doc from "./doc.ts";
 import { Error as Error_, prepareStackTrace } from "./error.ts";
 import * as format from "./format.ts";
 import * as hover from "./hover.ts";
@@ -24,7 +24,7 @@ type Request =
 	| { kind: "completion"; request: completion.Request }
 	| { kind: "definition"; request: definition.Request }
 	| { kind: "diagnostics"; request: diagnostics.Request }
-	| { kind: "docs"; request: docs.Request }
+	| { kind: "doc"; request: doc.Request }
 	| { kind: "format"; request: format.Request }
 	| { kind: "hover"; request: hover.Request }
 	| { kind: "references"; request: references.Request }
@@ -36,7 +36,7 @@ type Response =
 	| { kind: "completion"; response: completion.Response }
 	| { kind: "definition"; response: definition.Response }
 	| { kind: "diagnostics"; response: diagnostics.Response }
-	| { kind: "docs"; response: docs.Response }
+	| { kind: "doc"; response: doc.Response }
 	| { kind: "format"; response: format.Response }
 	| { kind: "hover"; response: hover.Response }
 	| { kind: "references"; response: references.Response }
@@ -61,9 +61,9 @@ let handle = async ({ kind, request }: Request): Promise<Response> => {
 			let response = diagnostics.handle(request);
 			return { kind: "diagnostics", response };
 		}
-		case "docs": {
-			let response = docs.handle(request);
-			return { kind: "docs", response };
+		case "doc": {
+			let response = doc.handle(request);
+			return { kind: "doc", response };
 		}
 		case "format": {
 			let response = await format.handle(request);

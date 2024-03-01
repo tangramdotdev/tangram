@@ -270,7 +270,7 @@ impl Cli {
 			let server = server.clone();
 			async move {
 				tokio::signal::ctrl_c().await.ok();
-				server.stop();
+				server.stop().await.ok();
 				tokio::signal::ctrl_c().await.ok();
 				std::process::exit(130);
 			}

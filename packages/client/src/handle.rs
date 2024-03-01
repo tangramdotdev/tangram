@@ -3,6 +3,7 @@ use async_trait::async_trait;
 use bytes::Bytes;
 use futures::stream::BoxStream;
 use tangram_error::{Result, WrapErr};
+use tokio::io::{AsyncRead, AsyncWrite};
 use url::Url;
 
 #[async_trait]
@@ -197,7 +198,7 @@ pub trait Handle: Send + Sync + 'static {
 		Ok(self
 			.try_get_package_versions(dependency)
 			.await?
-			.wrap_err("Failed to get the package versions.")?)
+			.wrap_err("Failed to get the package.")?)
 	}
 
 	async fn try_get_package_versions(
@@ -206,6 +207,30 @@ pub trait Handle: Send + Sync + 'static {
 	) -> Result<Option<Vec<String>>>;
 
 	async fn publish_package(&self, user: Option<&tg::User>, id: &tg::directory::Id) -> Result<()>;
+
+	async fn check_package(&self, dependency: &tg::Dependency) -> Result<Vec<tg::Diagnostic>>;
+
+	async fn format_package(&self, dependency: &tg::Dependency) -> Result<()>;
+
+	async fn get_runtime_doc(&self) -> Result<serde_json::Value>;
+
+	async fn get_package_doc(&self, dependency: &tg::Dependency) -> Result<serde_json::Value> {
+		Ok(self
+			.try_get_package_doc(dependency)
+			.await?
+			.wrap_err("Failed to get the package.")?)
+	}
+
+	async fn try_get_package_doc(
+		&self,
+		dependency: &tg::Dependency,
+	) -> Result<Option<serde_json::Value>>;
+
+	async fn lsp(
+		&self,
+		input: Box<dyn AsyncRead + Send + Unpin + 'static>,
+		output: Box<dyn AsyncWrite + Send + Unpin + 'static>,
+	) -> Result<()>;
 
 	async fn health(&self) -> Result<tg::server::Health>;
 

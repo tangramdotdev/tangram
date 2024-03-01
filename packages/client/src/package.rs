@@ -195,7 +195,7 @@ impl Client {
 				.wrap_err("Failed to collect the response body.")?
 				.to_bytes();
 			let error = serde_json::from_slice(&bytes)
-				.unwrap_or_else(|_| error!("The request did not succeed."));
+				.unwrap_or_else(|_| error!("Failed to deserialize the error."));
 			return Err(error);
 		}
 		let bytes = response
@@ -203,9 +203,9 @@ impl Client {
 			.await
 			.wrap_err("Failed to collect the response body.")?
 			.to_bytes();
-		let response =
+		let output =
 			serde_json::from_slice(&bytes).wrap_err("Failed to deserialize the response body.")?;
-		Ok(response)
+		Ok(output)
 	}
 
 	pub async fn try_get_package(
@@ -236,7 +236,7 @@ impl Client {
 				.wrap_err("Failed to collect the response body.")?
 				.to_bytes();
 			let error = serde_json::from_slice(&bytes)
-				.unwrap_or_else(|_| error!("The request did not succeed."));
+				.unwrap_or_else(|_| error!("Failed to deserialize the error."));
 			return Err(error);
 		}
 		let bytes = response
@@ -274,7 +274,7 @@ impl Client {
 				.wrap_err("Failed to collect the response body.")?
 				.to_bytes();
 			let error = serde_json::from_slice(&bytes)
-				.unwrap_or_else(|_| error!("The request did not succeed."));
+				.unwrap_or_else(|_| error!("Failed to deserialize the error."));
 			return Err(error);
 		}
 		let bytes = response
@@ -282,9 +282,9 @@ impl Client {
 			.await
 			.wrap_err("Failed to collect the response body.")?
 			.to_bytes();
-		let id =
+		let output =
 			serde_json::from_slice(&bytes).wrap_err("Failed to deserialize the response body.")?;
-		Ok(Some(id))
+		Ok(Some(output))
 	}
 
 	pub async fn publish_package(
@@ -312,9 +312,127 @@ impl Client {
 				.wrap_err("Failed to collect the response body.")?
 				.to_bytes();
 			let error = serde_json::from_slice(&bytes)
-				.unwrap_or_else(|_| error!("The request did not succeed."));
+				.unwrap_or_else(|_| error!("Failed to deserialize the error."));
 			return Err(error);
 		}
 		Ok(())
+	}
+
+	pub async fn check_package(&self, dependency: &tg::Dependency) -> Result<Vec<tg::Diagnostic>> {
+		let method = http::Method::POST;
+		let dependency = dependency.to_string();
+		let dependency = urlencoding::encode(&dependency);
+		let uri = format!("/packages/{dependency}/check");
+		let request = http::request::Builder::default().method(method).uri(uri);
+		let body = empty();
+		let request = request
+			.body(body)
+			.wrap_err("Failed to create the request.")?;
+		let response = self.send(request).await?;
+		if !response.status().is_success() {
+			let bytes = response
+				.collect()
+				.await
+				.wrap_err("Failed to collect the response body.")?
+				.to_bytes();
+			let error = serde_json::from_slice(&bytes)
+				.unwrap_or_else(|_| error!("Failed to deserialize the error."));
+			return Err(error);
+		}
+		let bytes = response
+			.collect()
+			.await
+			.wrap_err("Failed to collect the response body.")?
+			.to_bytes();
+		let output =
+			serde_json::from_slice(&bytes).wrap_err("Failed to deserialize the response body.")?;
+		Ok(output)
+	}
+
+	pub async fn format_package(&self, dependency: &tg::Dependency) -> Result<()> {
+		let method = http::Method::POST;
+		let dependency = dependency.to_string();
+		let dependency = urlencoding::encode(&dependency);
+		let uri = format!("/packages/{dependency}/format");
+		let request = http::request::Builder::default().method(method).uri(uri);
+		let body = empty();
+		let request = request
+			.body(body)
+			.wrap_err("Failed to create the request.")?;
+		let response = self.send(request).await?;
+		if !response.status().is_success() {
+			let bytes = response
+				.collect()
+				.await
+				.wrap_err("Failed to collect the response body.")?
+				.to_bytes();
+			let error = serde_json::from_slice(&bytes)
+				.unwrap_or_else(|_| error!("Failed to deserialize the error."));
+			return Err(error);
+		}
+		Ok(())
+	}
+
+	pub async fn get_runtime_doc(&self) -> Result<serde_json::Value> {
+		let method = http::Method::GET;
+		let uri = "/runtime/js/doc";
+		let request = http::request::Builder::default().method(method).uri(uri);
+		let body = empty();
+		let request = request
+			.body(body)
+			.wrap_err("Failed to create the request.")?;
+		let response = self.send(request).await?;
+		if !response.status().is_success() {
+			let bytes = response
+				.collect()
+				.await
+				.wrap_err("Failed to collect the response body.")?
+				.to_bytes();
+			let error = serde_json::from_slice(&bytes)
+				.unwrap_or_else(|_| error!("Failed to deserialize the error."));
+			return Err(error);
+		}
+		let bytes = response
+			.collect()
+			.await
+			.wrap_err("Failed to collect the response body.")?
+			.to_bytes();
+		let output =
+			serde_json::from_slice(&bytes).wrap_err("Failed to deserialize the response body.")?;
+		Ok(output)
+	}
+
+	pub async fn try_get_package_doc(
+		&self,
+		dependency: &tg::Dependency,
+	) -> Result<Option<serde_json::Value>> {
+		let method = http::Method::GET;
+		let dependency = dependency.to_string();
+		let dependency = urlencoding::encode(&dependency);
+		let uri = format!("/packages/{dependency}/doc");
+		let request = http::request::Builder::default().method(method).uri(uri);
+		let body = empty();
+		let request = request
+			.body(body)
+			.wrap_err("Failed to create the request.")?;
+		let response = self.send(request).await?;
+		if !response.status().is_success() {
+			let bytes = response
+				.collect()
+				.await
+				.wrap_err("Failed to collect the response body.")?
+				.to_bytes();
+			let error = serde_json::from_slice(&bytes)
+				.unwrap_or_else(|_| error!("Failed to deserialize the error."));
+			return Err(error);
+		}
+		let bytes = response
+			.collect()
+			.await
+			.wrap_err("Failed to collect the response body.")?
+			.to_bytes();
+		let output =
+			serde_json::from_slice(&bytes).wrap_err("Failed to deserialize the response body.")?;
+		Ok(output)
 	}
 }

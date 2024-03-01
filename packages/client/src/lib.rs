@@ -1,9 +1,10 @@
 pub use self::{
 	artifact::Artifact, blob::Blob, branch::Branch, build::Build, checksum::Checksum,
-	dependency::Dependency, directory::Directory, file::File, handle::Handle, id::Id, leaf::Leaf,
-	lock::Lock, mutation::Mutation, object::Handle as Object, path::Path, server::Health,
-	symlink::Symlink, target::Target, template::Template, triple::Triple, user::Login, user::User,
-	value::Value,
+	dependency::Dependency, diagnostic::Diagnostic, directory::Directory, document::Document,
+	file::File, handle::Handle, id::Id, import::Import, leaf::Leaf, location::Location, lock::Lock,
+	module::Module, mutation::Mutation, object::Handle as Object, path::Path, position::Position,
+	range::Range, server::Health, symlink::Symlink, target::Target, template::Template,
+	triple::Triple, user::Login, user::User, value::Value,
 };
 use crate as tg;
 use async_trait::async_trait;
@@ -12,7 +13,10 @@ use futures::stream::BoxStream;
 use std::{path::PathBuf, sync::Arc};
 use tangram_error::{error, Error, Result, WrapErr};
 use tangram_util::http::empty;
-use tokio::net::{TcpStream, UnixStream};
+use tokio::{
+	io::{AsyncRead, AsyncWrite},
+	net::{TcpStream, UnixStream},
+};
 use url::Url;
 
 pub mod artifact;
@@ -22,16 +26,24 @@ pub mod build;
 pub mod bundle;
 pub mod checksum;
 pub mod dependency;
+pub mod diagnostic;
 pub mod directory;
+pub mod document;
 pub mod file;
 pub mod handle;
 pub mod id;
+pub mod import;
+pub mod language;
 pub mod leaf;
+pub mod location;
 pub mod lock;
+pub mod module;
 pub mod mutation;
 pub mod object;
 pub mod package;
 pub mod path;
+pub mod position;
+pub mod range;
 pub mod server;
 pub mod symlink;
 pub mod target;
@@ -142,7 +154,6 @@ impl Client {
 		Ok(sender)
 	}
 
-	#[allow(dead_code)]
 	async fn connect_h1(
 		&self,
 	) -> Result<hyper::client::conn::http1::SendRequest<tangram_util::http::Outgoing>> {
@@ -646,6 +657,33 @@ impl Handle for Client {
 
 	async fn publish_package(&self, user: Option<&tg::User>, id: &tg::directory::Id) -> Result<()> {
 		self.publish_package(user, id).await
+	}
+
+	async fn check_package(&self, dependency: &tg::Dependency) -> Result<Vec<tg::Diagnostic>> {
+		self.check_package(dependency).await
+	}
+
+	async fn format_package(&self, dependency: &tg::Dependency) -> Result<()> {
+		self.format_package(dependency).await
+	}
+
+	async fn get_runtime_doc(&self) -> Result<serde_json::Value> {
+		self.get_runtime_doc().await
+	}
+
+	async fn try_get_package_doc(
+		&self,
+		dependency: &tg::Dependency,
+	) -> Result<Option<serde_json::Value>> {
+		self.try_get_package_doc(dependency).await
+	}
+
+	async fn lsp(
+		&self,
+		input: Box<dyn AsyncRead + Send + Unpin + 'static>,
+		output: Box<dyn AsyncWrite + Send + Unpin + 'static>,
+	) -> Result<()> {
+		self.lsp(input, output).await
 	}
 
 	async fn health(&self) -> Result<tg::Health> {

@@ -15,7 +15,7 @@ impl Server {
 			.ok()
 			.wrap_err("Expected the module to be a file.")?;
 		let text = file.text(self).await?;
-		let analysis = crate::language::Module::analyze(text)?;
+		let analysis = crate::language::Server::analyze_module(text)?;
 		if let Some(metadata) = analysis.metadata {
 			Ok(metadata)
 		} else {

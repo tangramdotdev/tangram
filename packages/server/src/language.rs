@@ -1,10 +1,7 @@
 use self::syscall::syscall;
-pub use self::{
-	diagnostic::Diagnostic, document::Document, import::Import, location::Location, module::Module,
-	position::Position, range::Range,
-};
+use crate::Http;
 use derive_more::Unwrap;
-use futures::{future, Future, FutureExt};
+use futures::{future, Future, FutureExt, TryFutureExt};
 use lsp_types as lsp;
 use std::{
 	collections::{BTreeSet, HashMap},
@@ -13,29 +10,26 @@ use std::{
 };
 use tangram_client as tg;
 use tangram_error::{error, Error, Result, WrapErr};
-use tokio::io::{AsyncBufRead, AsyncBufReadExt, AsyncReadExt, AsyncWriteExt};
+use tangram_util::http::{empty, Incoming, Outgoing};
+use tokio::io::{
+	AsyncBufRead, AsyncBufReadExt, AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt,
+};
 use url::Url;
 
 pub mod analyze;
 pub mod check;
 pub mod completion;
 pub mod definition;
-pub mod diagnostic;
 pub mod diagnostics;
-pub mod docs;
+pub mod doc;
 pub mod document;
 pub mod error;
 pub mod format;
 pub mod hover;
-pub mod import;
 pub mod initialize;
 pub mod jsonrpc;
 pub mod load;
-pub mod location;
-pub mod module;
 pub mod parse;
-pub mod position;
-pub mod range;
 pub mod references;
 pub mod rename;
 pub mod resolve;
@@ -59,23 +53,29 @@ pub struct Server {
 }
 
 struct Inner {
-	/// The Tangram handle.
-	tg: Box<dyn tg::Handle>,
-
 	/// The published diagnostics.
-	diagnostics: Arc<tokio::sync::RwLock<Vec<Diagnostic>>>,
+	diagnostics: tokio::sync::RwLock<Vec<tg::Diagnostic>>,
 
-	/// The document store.
-	document_store: document::Store,
-
-	/// The request sender.
-	request_sender: RequestSender,
+	/// The documents.
+	documents: tokio::sync::RwLock<HashMap<tg::Document, tg::document::State, fnv::FnvBuildHasher>>,
 
 	/// A handle to the main tokio runtime.
 	main_runtime_handle: tokio::runtime::Handle,
 
+	/// The request receiver.
+	request_receiver: std::sync::Mutex<Option<RequestReceiver>>,
+
+	/// The request sender.
+	request_sender: RequestSender,
+
+	/// The Tangram server.
+	server: crate::Server,
+
+	/// The request handler thread.
+	thread: std::sync::Mutex<Option<std::thread::JoinHandle<()>>>,
+
 	/// The workspaces.
-	workspaces: Arc<tokio::sync::RwLock<BTreeSet<PathBuf>>>,
+	workspaces: tokio::sync::RwLock<BTreeSet<PathBuf>>,
 }
 
 #[derive(Debug, serde::Serialize)]
@@ -85,7 +85,7 @@ pub enum Request {
 	Completion(completion::Request),
 	Definition(definition::Request),
 	Diagnostics(diagnostics::Request),
-	Docs(docs::Request),
+	Doc(doc::Request),
 	Format(format::Request),
 	Hover(hover::Request),
 	References(references::Request),
@@ -100,7 +100,7 @@ pub enum Response {
 	Completion(completion::Response),
 	Definition(definition::Response),
 	Diagnostics(diagnostics::Response),
-	Docs(docs::Response),
+	Doc(doc::Response),
 	Format(format::Response),
 	Hover(hover::Response),
 	References(references::Response),
@@ -115,43 +115,51 @@ pub type _ResponseReceiver = tokio::sync::oneshot::Receiver<Result<Response>>;
 
 impl Server {
 	#[must_use]
-	pub fn new(tg: &dyn tg::Handle, main_runtime_handle: tokio::runtime::Handle) -> Self {
+	pub fn new(server: &crate::Server, main_runtime_handle: tokio::runtime::Handle) -> Self {
 		// Create the published diagnostics.
-		let diagnostics = Arc::new(tokio::sync::RwLock::new(Vec::new()));
+		let diagnostics = tokio::sync::RwLock::new(Vec::new());
 
-		// Create the document store.
-		let document_store = document::Store::default();
+		// Create the documents.
+		let documents = tokio::sync::RwLock::new(HashMap::default());
 
 		// Create the request sender and receiver.
 		let (request_sender, request_receiver) =
 			tokio::sync::mpsc::unbounded_channel::<(Request, ResponseSender)>();
 
+		// Create the thread.
+		let thread = std::sync::Mutex::new(None);
+
 		// Create the workspaces.
-		let workspaces = Arc::new(tokio::sync::RwLock::new(BTreeSet::new()));
+		let workspaces = tokio::sync::RwLock::new(BTreeSet::new());
 
 		// Create the inner.
 		let inner = Arc::new(Inner {
-			tg: tg.clone_box(),
 			diagnostics,
-			document_store,
-			request_sender,
+			documents,
 			main_runtime_handle,
+			request_receiver: std::sync::Mutex::new(Some(request_receiver)),
+			request_sender,
+			server: server.clone(),
+			thread,
 			workspaces,
 		});
 
-		// Create the server
-		let server = Self { inner };
-
-		// Spawn a thread to handle requests.
-		std::thread::spawn({
-			let server = server.clone();
-			move || run_request_handler(server, request_receiver)
-		});
-
-		server
+		Self { inner }
 	}
 
 	pub async fn request(&self, request: Request) -> Result<Response> {
+		// Spawn the request handler thread if necessary.
+		{
+			let mut thread = self.inner.thread.lock().unwrap();
+			if thread.is_none() {
+				let request_receiver = self.inner.request_receiver.lock().unwrap().take().unwrap();
+				thread.replace(std::thread::spawn({
+					let server = self.clone();
+					move || run_request_handler(server, request_receiver)
+				}));
+			}
+		}
+
 		// Create a oneshot channel for the response.
 		let (response_sender, response_receiver) = tokio::sync::oneshot::channel();
 
@@ -169,9 +177,13 @@ impl Server {
 		Ok(response)
 	}
 
-	pub async fn serve(self) -> Result<()> {
-		let mut stdin = tokio::io::BufReader::new(tokio::io::stdin());
-		let mut stdout = tokio::io::BufWriter::new(tokio::io::stdout());
+	pub async fn serve(
+		self,
+		input: impl AsyncRead + Send + Unpin + 'static,
+		output: impl AsyncWrite + Send + Unpin + 'static,
+	) -> Result<()> {
+		let mut input = tokio::io::BufReader::new(input);
+		let mut output = tokio::io::BufWriter::new(output);
 
 		// Create a channel to send outgoing messages.
 		let (outgoing_message_sender, mut outgoing_message_receiver) =
@@ -183,15 +195,15 @@ impl Server {
 				let body = serde_json::to_string(&outgoing_message)
 					.wrap_err("Failed to serialize the message.")?;
 				let head = format!("Content-Length: {}\r\n\r\n", body.len());
-				stdout
+				output
 					.write_all(head.as_bytes())
 					.await
 					.wrap_err("Failed to write the head.")?;
-				stdout
+				output
 					.write_all(body.as_bytes())
 					.await
 					.wrap_err("Failed to write the body.")?;
-				stdout.flush().await.wrap_err("Failed to flush stdout.")?;
+				output.flush().await.wrap_err("Failed to flush stdout.")?;
 			}
 			Ok::<_, Error>(())
 		});
@@ -199,7 +211,7 @@ impl Server {
 		// Read incoming messages.
 		loop {
 			// Read a message.
-			let message = read_incoming_message(&mut stdin).await?;
+			let message = read_incoming_message(&mut input).await?;
 
 			// If the message is the exit notification, then break.
 			if matches!(message,
@@ -227,22 +239,58 @@ impl Server {
 		Ok(())
 	}
 
-	pub async fn module_for_url(&self, url: &Url) -> Result<Module> {
+	pub async fn module_for_url(&self, url: &Url) -> Result<tg::Module> {
 		match url.scheme() {
 			"file" => {
-				let document =
-					Document::for_path(&self.inner.document_store, Path::new(url.path())).await?;
-				let module = Module::Document(document);
+				// Find the package path by searching the path's ancestors for a root module.
+				let path = Path::new(url.path());
+				let mut found = false;
+				let mut package_path = path.to_owned();
+				while package_path.pop() {
+					for root_module_file_name in tg::package::ROOT_MODULE_FILE_NAMES {
+						if tokio::fs::try_exists(&package_path.join(root_module_file_name))
+							.await
+							.wrap_err("Failed to determine if the path exists.")?
+						{
+							found = true;
+							break;
+						}
+					}
+				}
+				if !found {
+					let path = path.display();
+					return Err(error!(r#"Could not find the package for path "{path}"."#));
+				}
+
+				// Get the module path by stripping the package path.
+				let module_path: tg::Path = path
+					.strip_prefix(&package_path)
+					.unwrap()
+					.to_owned()
+					.into_os_string()
+					.into_string()
+					.ok()
+					.wrap_err("The module path was not valid UTF-8.")?
+					.parse()
+					.wrap_err("Failed to parse the module path.")?;
+
+				// Get or create the document.
+				let document = self.get_document(package_path, module_path).await?;
+
+				// Create the module.
+				let module = tg::Module::Document(document);
+
 				Ok(module)
 			},
 			_ => url.clone().try_into(),
 		}
 	}
 
+	#[allow(clippy::unused_self)]
 	#[must_use]
-	pub fn url_for_module(&self, module: &Module) -> Url {
+	pub fn url_for_module(&self, module: &tg::Module) -> Url {
 		match module {
-			Module::Document(document) => {
+			tg::Module::Document(document) => {
 				let path = document.package_path.join(document.path.to_string());
 				let path = path.display();
 				format!("file://{path}").parse().unwrap()
@@ -605,5 +653,57 @@ fn run_request_handler(server: Server, mut request_receiver: RequestReceiver) {
 
 		// Send the response.
 		response_sender.send(Ok(response)).unwrap();
+	}
+}
+
+impl crate::Server {
+	pub async fn lsp(
+		&self,
+		input: Box<dyn AsyncRead + Send + Unpin + 'static>,
+		output: Box<dyn AsyncWrite + Send + Unpin + 'static>,
+	) -> Result<()> {
+		let language_server = crate::language::Server::new(self, tokio::runtime::Handle::current());
+		language_server.serve(input, output).await?;
+		Ok(())
+	}
+}
+
+impl Http {
+	pub async fn handle_lsp_request(
+		&self,
+		request: http::Request<Incoming>,
+	) -> Result<http::Response<Outgoing>> {
+		if !request
+			.headers()
+			.get(http::header::UPGRADE)
+			.is_some_and(|value| value == "lsp")
+		{
+			return Err(error!("Expected an upgrade header."));
+		}
+
+		tokio::spawn({
+			let server = self.clone();
+			async move {
+				let io = hyper::upgrade::on(request)
+					.await
+					.wrap_err("Failed to perform the upgrade.")?;
+				let io = hyper_util::rt::TokioIo::new(io);
+				let (input, output) = tokio::io::split(io);
+				let input = Box::new(input);
+				let output = Box::new(output);
+				server.inner.tg.lsp(input, output).await?;
+				Ok::<_, Error>(())
+			}
+			.inspect_err(|error| tracing::error!(?error))
+		});
+
+		// Create the response.
+		let response = http::Response::builder()
+			.status(http::StatusCode::SWITCHING_PROTOCOLS)
+			.header(http::header::UPGRADE, "lsp")
+			.body(empty())
+			.unwrap();
+
+		Ok(response)
 	}
 }

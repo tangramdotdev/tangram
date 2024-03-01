@@ -15,41 +15,24 @@ pub struct Args {
 }
 
 impl Cli {
-	pub async fn command_check(&self, args: Args) -> Result<()> {
+	pub async fn command_check(&self, mut args: Args) -> Result<()> {
 		let client = &self.client().await?;
 
-		// Canonicalize the path.
-		let mut package = args.package;
-		if let Some(path) = package.path.as_mut() {
+		// Canonicalize the package path.
+		if let Some(path) = args.package.path.as_mut() {
 			*path = tokio::fs::canonicalize(&path)
 				.await
 				.wrap_err("Failed to canonicalize the path.")?
 				.try_into()?;
 		}
 
-		// Get the package.
-		let (package, lock) = tg::package::get_with_lock(client, &package).await?;
-
-		// Create the language server.
-		let server = tangram_server::language::Server::new(client, tokio::runtime::Handle::current());
-
-		// Create the root module.
-		let path = tg::package::get_root_module_path(client, &package).await?;
-		let package = package.id(client).await?.clone();
-		let lock = lock.id(client).await?.clone();
-		let root_module = tangram_server::language::Module::Normal(tangram_server::language::module::Normal {
-			lock,
-			package,
-			path,
-		});
-
-		// Check the package for diagnostics.
-		let diagnostics = server.check(vec![root_module]).await?;
+		// Check the package.
+		let diagnostics = client.check_package(&args.package).await?;
 
 		// Print the diagnostics.
 		for diagnostic in &diagnostics {
 			// Get the diagnostic location and message.
-			let tangram_server::language::Diagnostic {
+			let tg::Diagnostic {
 				location, message, ..
 			} = diagnostic;
 

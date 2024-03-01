@@ -1,4 +1,4 @@
-use super::{parse, Module};
+use super::Server;
 use std::rc::Rc;
 use swc::ecma::{ast, visit::VisitMutWith};
 use swc_core as swc;
@@ -16,15 +16,15 @@ pub struct Error {
 	column: usize,
 }
 
-impl Module {
-	pub fn transpile(text: String) -> Result<Output> {
+impl Server {
+	pub fn transpile_module(text: String) -> Result<Output> {
 		let globals = swc::common::Globals::default();
 		swc::common::GLOBALS.set(&globals, move || {
 			// Parse the text.
-			let parse::Output {
+			let super::parse::Output {
 				mut program,
 				source_map,
-			} = Module::parse(text)?;
+			} = Self::parse_module(text)?;
 
 			let unresolved_mark = swc::common::Mark::new();
 			let top_level_mark = swc::common::Mark::new();
@@ -405,7 +405,9 @@ mod tests {
 				export default tg.target(() => {});
 			"
 		);
-		let left = Module::transpile(text.to_owned()).unwrap().transpiled_text;
+		let left = Server::transpile_module(text.to_owned())
+			.unwrap()
+			.transpiled_text;
 		let right = indoc!(
 			r#"
 				export default tg.target({
@@ -425,7 +427,9 @@ mod tests {
 				export let named = tg.target(() => {});
 			"
 		);
-		let left = Module::transpile(text.to_owned()).unwrap().transpiled_text;
+		let left = Server::transpile_module(text.to_owned())
+			.unwrap()
+			.transpiled_text;
 		let right = indoc!(
 			r#"
 				export let named = tg.target({
@@ -445,7 +449,9 @@ mod tests {
 				tg.target("named", () => {});
 			"#
 		);
-		let left = Module::transpile(text.to_owned()).unwrap().transpiled_text;
+		let left = Server::transpile_module(text.to_owned())
+			.unwrap()
+			.transpiled_text;
 		let right = indoc!(
 			r#"
 				tg.target({
@@ -465,7 +471,9 @@ mod tests {
 				tg.include("./hello_world.txt");
 			"#
 		);
-		let left = Module::transpile(text.to_owned()).unwrap().transpiled_text;
+		let left = Server::transpile_module(text.to_owned())
+			.unwrap()
+			.transpiled_text;
 		let right = indoc!(
 			r#"
 				tg.include({

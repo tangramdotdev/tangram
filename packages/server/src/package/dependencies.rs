@@ -30,12 +30,12 @@ impl Server {
 			let text = file.text(self).await?;
 
 			// Analyze the module.
-			let analysis = crate::language::Module::analyze(text)
+			let analysis = crate::language::Server::analyze_module(text)
 				.wrap_err("Failed to analyze the module.")?;
 
 			// Recurse into the dependencies.
 			for import in &analysis.imports {
-				if let crate::language::Import::Dependency(dependency) = import {
+				if let tg::Import::Dependency(dependency) = import {
 					let mut dependency = dependency.clone();
 
 					// Normalize the path dependency to be relative to the root.
@@ -53,7 +53,7 @@ impl Server {
 
 			// Add the unvisited module imports to the queue.
 			for import in &analysis.imports {
-				if let crate::language::Import::Module(import) = import {
+				if let tg::Import::Module(import) = import {
 					let imported_module_path = module_path
 						.clone()
 						.parent()

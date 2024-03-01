@@ -1,4 +1,4 @@
-use super::{parse, Import, Module};
+use super::Server;
 use itertools::Itertools;
 use std::{
 	collections::{BTreeMap, HashSet},
@@ -12,7 +12,7 @@ use tangram_error::{error, Result, WrapErr};
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Analysis {
 	pub metadata: Option<tg::package::Metadata>,
-	pub imports: HashSet<Import, fnv::FnvBuildHasher>,
+	pub imports: HashSet<tg::Import, fnv::FnvBuildHasher>,
 	pub includes: HashSet<tg::Path, fnv::FnvBuildHasher>,
 }
 
@@ -22,13 +22,14 @@ pub struct Error {
 	pub column: usize,
 }
 
-impl Module {
-	pub fn analyze(text: String) -> Result<Analysis> {
+impl Server {
+	/// Analyze a module.
+	pub fn analyze_module(text: String) -> Result<Analysis> {
 		// Parse the text.
-		let parse::Output {
+		let super::parse::Output {
 			program,
 			source_map,
-		} = Module::parse(text).wrap_err("Failed to parse the module.")?;
+		} = Self::parse_module(text).wrap_err("Failed to parse the module.")?;
 
 		// Create the visitor and visit the module.
 		let mut visitor = Visitor::new(source_map);
@@ -83,7 +84,7 @@ struct Visitor {
 	source_map: Rc<swc::common::SourceMap>,
 	errors: Vec<Error>,
 	metadata: Option<tg::package::Metadata>,
-	imports: HashSet<Import, fnv::FnvBuildHasher>,
+	imports: HashSet<tg::Import, fnv::FnvBuildHasher>,
 	includes: HashSet<tg::Path, fnv::FnvBuildHasher>,
 }
 
@@ -265,7 +266,7 @@ impl Visitor {
 		};
 
 		// Parse the import.
-		let Ok(import) = Import::with_specifier_and_attributes(specifier, attributes.as_ref())
+		let Ok(import) = tg::Import::with_specifier_and_attributes(specifier, attributes.as_ref())
 		else {
 			let loc = self.source_map.lookup_char_pos(span.lo());
 			self.errors
@@ -344,7 +345,7 @@ mod tests {
 			export { namedExport } from "tg:named_export";
 			export * as namespaceExport from "./namespace_export.ts";
 		"#;
-		let left = Module::analyze(text.to_owned()).unwrap();
+		let left = Server::analyze_module(text.to_owned()).unwrap();
 		let metadata = tg::package::Metadata {
 			name: Some("name".to_owned()),
 			version: Some("version".to_owned()),

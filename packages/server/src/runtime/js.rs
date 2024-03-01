@@ -29,6 +29,7 @@ struct State {
 	build: tg::Build,
 	futures: RefCell<Futures>,
 	global_source_map: Option<SourceMap>,
+	language_server: crate::language::Server,
 	log_sender: RefCell<Option<tokio::sync::mpsc::UnboundedSender<String>>>,
 	main_runtime_handle: tokio::runtime::Handle,
 	modules: RefCell<Vec<Module>>,
@@ -42,7 +43,7 @@ type Futures = FuturesUnordered<
 
 #[allow(clippy::struct_field_names)]
 struct Module {
-	module: crate::language::Module,
+	module: tg::Module,
 	source_map: Option<SourceMap>,
 	metadata: Option<tg::package::Metadata>,
 	v8_identity_hash: NonZeroI32,
@@ -109,6 +110,7 @@ async fn build_inner(
 		build: build.clone(),
 		futures: RefCell::new(FuturesUnordered::new()),
 		global_source_map: Some(SourceMap::from_slice(SOURCE_MAP).unwrap()),
+		language_server: crate::language::Server::new(server, main_runtime_handle.clone()),
 		log_sender: RefCell::new(Some(log_sender)),
 		main_runtime_handle,
 		modules: RefCell::new(Vec::new()),
@@ -311,7 +313,7 @@ fn host_import_module_dynamically_callback<'s>(
 	// Get the module.
 	let module = if resource_name == "[global]" {
 		let module = specifier.to_rust_string_lossy(scope);
-		match crate::language::Module::from_str(&module) {
+		match tg::Module::from_str(&module) {
 			Ok(module) => module,
 			Err(error) => {
 				let exception = error::to_exception(scope, &error);
@@ -321,7 +323,7 @@ fn host_import_module_dynamically_callback<'s>(
 		}
 	} else {
 		// Get the module.
-		let module = match crate::language::Module::from_str(&resource_name) {
+		let module = match tg::Module::from_str(&resource_name) {
 			Ok(module) => module,
 			Err(error) => {
 				let exception = error::to_exception(scope, &error);
@@ -414,19 +416,19 @@ fn resolve_module_callback<'s>(
 /// Resolve a module.
 fn resolve_module(
 	scope: &mut v8::HandleScope,
-	module: &crate::language::Module,
-	import: &crate::language::Import,
-) -> Option<crate::language::Module> {
+	module: &tg::Module,
+	import: &tg::Import,
+) -> Option<tg::Module> {
 	let context = scope.get_current_context();
 	let state = context.get_slot::<Rc<State>>(scope).unwrap().clone();
 
 	let (sender, receiver) = std::sync::mpsc::channel();
 	state.main_runtime_handle.spawn({
-		let server = state.server.clone();
+		let language_server = state.language_server.clone();
 		let module = module.clone();
 		let import = import.clone();
 		async move {
-			let module = module.resolve(&server, None, &import).await;
+			let module = language_server.resolve_module(&module, &import).await;
 			sender.send(module).unwrap();
 		}
 	});
@@ -449,7 +451,7 @@ fn resolve_module(
 /// Load a module.
 fn load_module<'s>(
 	scope: &mut v8::HandleScope<'s>,
-	module: &crate::language::Module,
+	module: &tg::Module,
 ) -> Option<v8::Local<'s, v8::Module>> {
 	// Get the context and state.
 	let context = scope.get_current_context();
@@ -492,10 +494,10 @@ fn load_module<'s>(
 	// Load the module.
 	let (sender, receiver) = std::sync::mpsc::channel();
 	state.main_runtime_handle.spawn({
-		let server = state.server.clone();
+		let language_server = state.language_server.clone();
 		let module = module.clone();
 		async move {
-			let result = module.load(&server, None).await;
+			let result = language_server.load_module(&module).await;
 			sender.send(result).unwrap();
 		}
 	});
@@ -516,7 +518,9 @@ fn load_module<'s>(
 	let crate::language::transpile::Output {
 		transpiled_text,
 		source_map,
-	} = match crate::language::Module::transpile(text).wrap_err("Failed to transpile the module.") {
+	} = match crate::language::Server::transpile_module(text)
+		.wrap_err("Failed to transpile the module.")
+	{
 		Ok(output) => output,
 		Err(error) => {
 			let exception = error::to_exception(scope, &error);
@@ -633,7 +637,7 @@ fn parse_import<'s>(
 	scope: &mut v8::HandleScope<'s>,
 	specifier: v8::Local<'s, v8::String>,
 	attributes: v8::Local<'s, v8::FixedArray>,
-) -> Option<crate::language::Import> {
+) -> Option<tg::Import> {
 	match parse_import_inner(scope, specifier, attributes) {
 		Ok(import) => Some(import),
 		Err(error) => {
@@ -648,7 +652,7 @@ fn parse_import_inner<'s>(
 	scope: &mut v8::HandleScope<'s>,
 	specifier: v8::Local<'s, v8::String>,
 	attributes: v8::Local<'s, v8::FixedArray>,
-) -> Result<crate::language::Import> {
+) -> Result<tg::Import> {
 	// Get the specifier.
 	let specifier = specifier.to_rust_string_lossy(scope);
 
@@ -679,8 +683,7 @@ fn parse_import_inner<'s>(
 	};
 
 	// Parse the import.
-	let import =
-		crate::language::Import::with_specifier_and_attributes(&specifier, attributes.as_ref())?;
+	let import = tg::Import::with_specifier_and_attributes(&specifier, attributes.as_ref())?;
 
 	Ok(import)
 }

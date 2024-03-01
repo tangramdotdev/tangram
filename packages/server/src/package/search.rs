@@ -54,9 +54,12 @@ impl Http {
 		// Perform the search.
 		let output = self.inner.tg.search_packages(arg).await?;
 
+		// Create the body.
+		let body = serde_json::to_vec(&output).wrap_err("Failed to serialize the body.")?;
+		let body = full(body);
+
 		// Create the response.
-		let body = serde_json::to_vec(&output).wrap_err("Failed to serialize the response.")?;
-		let response = http::Response::builder().body(full(body)).unwrap();
+		let response = http::Response::builder().body(body).unwrap();
 
 		Ok(response)
 	}

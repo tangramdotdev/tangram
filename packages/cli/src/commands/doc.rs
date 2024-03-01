@@ -19,37 +19,33 @@ pub struct Args {
 }
 
 impl Cli {
-	pub async fn command_doc(&self, args: Args) -> Result<()> {
+	pub async fn command_doc(&self, mut args: Args) -> Result<()> {
 		let client = &self.client().await?;
 
-		// Create the language server.
-		let server = tangram_server::language::Server::new(client, tokio::runtime::Handle::current());
+		// Canonicalize the package path.
+		if let Some(path) = args.package.path.as_mut() {
+			*path = tokio::fs::canonicalize(&path)
+				.await
+				.wrap_err("Failed to canonicalize the path.")?
+				.try_into()?;
+		}
 
-		let module = if args.runtime {
-			let path: tg::Path = "tangram.d.ts".parse().unwrap();
-			tangram_server::language::Module::Library(tangram_server::language::module::Library {
-				path: path.clone(),
-			})
+		// Get the doc.
+		let doc = if args.runtime {
+			client.get_runtime_doc().await?
 		} else {
-			let (package, lock) = tg::package::get_with_lock(client, &args.package).await?;
-			let path = tg::package::get_root_module_path(client, &package).await?;
-			let package = package.id(client).await?.clone();
-			let lock = lock.id(client).await?.clone();
-			tangram_server::language::Module::Normal(tangram_server::language::module::Normal {
-				package,
-				path: path.clone(),
-				lock,
-			})
+			client
+				.try_get_package_doc(&args.package)
+				.await?
+				.wrap_err("Failed to get the package.")?
 		};
 
-		// Get the docs.
-		let docs = server.docs(&module).await?;
+		// Serialize the output.
+		let output =
+			serde_json::to_string_pretty(&doc).wrap_err("Failed to serialize the output.")?;
 
-		// Serialize the docs to json.
-		let json = serde_json::to_string_pretty(&docs).wrap_err("Failed to serialize the docs.")?;
-
-		// Print the json.
-		println!("{json}");
+		// Print the output.
+		println!("{output}");
 
 		Ok(())
 	}

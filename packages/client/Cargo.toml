@@ -12,6 +12,9 @@ version = { workspace = true }
 [lints]
 workspace = true
 
+[dev-dependencies]
+proptest = { workspace = true }
+
 [dependencies]
 async-compression = { workspace = true }
 async-recursion = { workspace = true }
@@ -32,6 +35,7 @@ hyper-util = { workspace = true }
 include_dir = { workspace = true }
 indoc = { workspace = true }
 itertools = { workspace = true }
+lsp-types = { workspace = true }
 mime = { workspace = true }
 num = { workspace = true }
 once_cell = { workspace = true }

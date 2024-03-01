@@ -349,11 +349,14 @@ impl Http {
 
 		let output = self.inner.tg.list_builds(arg).await?;
 
+		// Create the body.
+		let body = serde_json::to_vec(&output).wrap_err("Failed to serialize the body.")?;
+		let body = full(body);
+
 		// Create the response.
-		let body = serde_json::to_string(&output).wrap_err("Failed to serialize the response.")?;
 		let response = http::Response::builder()
 			.status(http::StatusCode::OK)
-			.body(full(body))
+			.body(body)
 			.unwrap();
 
 		Ok(response)

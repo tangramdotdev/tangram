@@ -25,14 +25,17 @@ use tangram_util::{
 	fs::rmrf,
 	http::{full, get_token, Incoming, Outgoing},
 };
-use tokio::net::{TcpListener, UnixListener};
+use tokio::{
+	io::{AsyncRead, AsyncWrite},
+	net::{TcpListener, UnixListener},
+};
 use url::Url;
 
 mod artifact;
 mod build;
 mod clean;
 mod database;
-pub mod language;
+mod language;
 mod messenger;
 mod migrations;
 mod object;
@@ -330,7 +333,8 @@ impl Server {
 		Ok(server)
 	}
 
-	pub fn stop(&self) {
+	#[allow(clippy::unused_async)]
+	pub async fn stop(&self) -> Result<()> {
 		let server = self.clone();
 		let task = tokio::spawn(async move {
 			// Stop the http server.
@@ -393,6 +397,8 @@ impl Server {
 
 		self.inner.shutdown_task.lock().unwrap().replace(task);
 		self.inner.shutdown.send_replace(true);
+
+		Ok(())
 	}
 
 	pub async fn join(&self) -> Result<()> {
@@ -601,7 +607,7 @@ impl Http {
 		let id = tg::Id::new_uuidv7(tg::id::Kind::Request);
 		request.extensions_mut().insert(id.clone());
 
-		// tracing::info!(?id, method = ?request.method(), path = ?request.uri().path(), "Received request.");
+		tracing::trace!(?id, method = ?request.method(), path = ?request.uri().path(), "Received request.");
 
 		let method = request.method().clone();
 		let path_components = request.uri().path().split('/').skip(1).collect_vec();
@@ -681,6 +687,9 @@ impl Http {
 				self.handle_pull_object_request(request).map(Some).boxed()
 			},
 
+			// Language
+			(http::Method::POST, ["lsp"]) => self.handle_lsp_request(request).map(Some).boxed(),
+
 			// Packages
 			(http::Method::GET, ["packages", "search"]) => self
 				.handle_search_packages_request(request)
@@ -695,6 +704,21 @@ impl Http {
 				.boxed(),
 			(http::Method::POST, ["packages"]) => self
 				.handle_publish_package_request(request)
+				.map(Some)
+				.boxed(),
+			(http::Method::POST, ["packages", _, "check"]) => {
+				self.handle_check_package_request(request).map(Some).boxed()
+			},
+			(http::Method::POST, ["packages", _, "format"]) => self
+				.handle_format_package_request(request)
+				.map(Some)
+				.boxed(),
+			(http::Method::GET, ["runtime", "js", "doc"]) => self
+				.handle_get_runtime_doc_request(request)
+				.map(Some)
+				.boxed(),
+			(http::Method::GET, ["packages", _, "doc"]) => self
+				.handle_get_package_doc_request(request)
 				.map(Some)
 				.boxed(),
 
@@ -750,7 +774,7 @@ impl Http {
 		let value = http::HeaderValue::from_str(&id.to_string()).unwrap();
 		response.headers_mut().insert(key, value);
 
-		// tracing::info!(?id, status = ?response.status(), "Sending response.");
+		tracing::trace!(?id, status = ?response.status(), "Sending response.");
 
 		response
 	}
@@ -932,6 +956,33 @@ impl tg::Handle for Server {
 		self.publish_package(user, id).await
 	}
 
+	async fn check_package(&self, dependency: &tg::Dependency) -> Result<Vec<tg::Diagnostic>> {
+		self.check_package(dependency).await
+	}
+
+	async fn format_package(&self, dependency: &tg::Dependency) -> Result<()> {
+		self.format_package(dependency).await
+	}
+
+	async fn get_runtime_doc(&self) -> Result<serde_json::Value> {
+		self.get_runtime_doc().await
+	}
+
+	async fn try_get_package_doc(
+		&self,
+		dependency: &tg::Dependency,
+	) -> Result<Option<serde_json::Value>> {
+		self.try_get_package_doc(dependency).await
+	}
+
+	async fn lsp(
+		&self,
+		input: Box<dyn AsyncRead + Send + Unpin + 'static>,
+		output: Box<dyn AsyncWrite + Send + Unpin + 'static>,
+	) -> Result<()> {
+		self.lsp(input, output).await
+	}
+
 	async fn health(&self) -> Result<tg::server::Health> {
 		self.health().await
 	}
@@ -941,8 +992,7 @@ impl tg::Handle for Server {
 	}
 
 	async fn stop(&self) -> Result<()> {
-		self.stop();
-		Ok(())
+		self.stop().await
 	}
 
 	async fn create_login(&self) -> Result<tg::user::Login> {

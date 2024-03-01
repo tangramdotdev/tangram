@@ -1,4 +1,4 @@
-use super::Module;
+use super::Server;
 use std::rc::Rc;
 use swc_core as swc;
 use tangram_error::{error, Result};
@@ -8,8 +8,9 @@ pub struct Output {
 	pub source_map: Rc<swc::common::SourceMap>,
 }
 
-impl Module {
-	pub fn parse(text: String) -> Result<Output> {
+impl Server {
+	/// Parse a module.
+	pub fn parse_module(text: String) -> Result<Output> {
 		// Create the parser.
 		let source_map = Rc::new(swc::common::SourceMap::default());
 		let source_file = source_map.new_source_file(swc::common::FileName::Anon, text);

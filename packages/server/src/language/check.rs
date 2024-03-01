@@ -1,21 +1,22 @@
-use super::{Diagnostic, Module, Server};
+use super::Server;
+use tangram_client as tg;
 use tangram_error::Result;
 
 #[derive(Debug, serde::Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Request {
-	pub modules: Vec<Module>,
+	pub modules: Vec<tg::Module>,
 }
 
 #[derive(Debug, serde::Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Response {
-	pub diagnostics: Vec<Diagnostic>,
+	pub diagnostics: Vec<tg::Diagnostic>,
 }
 
 impl Server {
 	/// Get all diagnostics for the provided modules.
-	pub async fn check(&self, modules: Vec<Module>) -> Result<Vec<Diagnostic>> {
+	pub async fn check(&self, modules: Vec<tg::Module>) -> Result<Vec<tg::Diagnostic>> {
 		// Create the request.
 		let request = super::Request::Check(Request { modules });
 
