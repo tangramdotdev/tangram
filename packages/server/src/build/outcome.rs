@@ -285,6 +285,43 @@ impl Server {
 		let log = tg::Blob::with_reader(self, log::Reader::new(self, id).await?).await?;
 		let log = log.id(self).await?;
 
+		// Remove the build log.
+		match &self.inner.database {
+			Database::Sqlite(database) => {
+				let connection = database.get().await?;
+				let statement = "
+					delete from build_logs
+					where build = ?1;
+				";
+				let build = id.to_string();
+				let params = sqlite_params![build];
+				let mut statement = connection
+					.prepare_cached(statement)
+					.wrap_err("Failed to prepare the query.")?;
+				statement
+					.execute(params)
+					.wrap_err("Failed to execute the statement.")?;
+			},
+
+			Database::Postgres(database) => {
+				let connection = database.get().await?;
+				let statement = "
+					delete from build_logs
+					where build = $1;
+				";
+				let build = id.to_string();
+				let params = postgres_params![build];
+				let statement = connection
+					.prepare_cached(statement)
+					.await
+					.wrap_err("Failed to prepare the query.")?;
+				connection
+					.execute(&statement, params)
+					.await
+					.wrap_err("Failed to execute the statement.")?;
+			},
+		}
+
 		// Add the log to the build objects.
 		match &self.inner.database {
 			Database::Sqlite(database) => {
