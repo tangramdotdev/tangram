@@ -1,6 +1,6 @@
 use crate::{database, Http, Server};
 use async_recursion::async_recursion;
-use futures::{future::LocalBoxFuture, stream::FuturesUnordered, FutureExt, TryStreamExt};
+use futures::{stream::FuturesUnordered, TryStreamExt};
 use http_body_util::BodyExt;
 use std::os::unix::prelude::PermissionsExt;
 use tangram_client as tg;
@@ -19,21 +19,26 @@ impl Server {
 		let path = arg.path;
 
 		let server = self.clone();
-		let id = self
+		let task = self
 			.inner
 			.local_pool_handle
 			.spawn_pinned(move || async move {
 				// Get the database and create a transaction.
-				let mut database = server.inner.database.get().await?;
-				let txn = database.transaction().await?;
+				let mut connection = server.inner.database.get().await?;
+				let txn = connection.transaction().await?;
+
+				// Check in the artifact and commit the transaction.
 				let id = server.check_in_artifact_inner(&path, &txn).await?;
 				txn.commit().await?;
-				eprintln!("checked in {path}");
-				Ok::<_, tangram_error::Error>(id)
-			})
-			.await
-			.wrap_err("Failed to spawn ")??;
 
+				Ok::<_, tangram_error::Error>(id)
+			});
+
+		let abort = task.abort_handle();
+		scopeguard::defer! {
+			abort.abort();
+		}
+		let id = task.await.wrap_err("Failed to join check in task.")??;
 		let output = tg::artifact::CheckInOutput { id };
 
 		Ok(output)
@@ -69,54 +74,52 @@ impl Server {
 		}
 	}
 
-	fn check_in_directory<'a>(
+	#[async_recursion(?Send)]
+	async fn check_in_directory<'a>(
 		&'a self,
 		path: &'a tg::Path,
 		_metadata: &'a std::fs::Metadata,
 		txn: &'a database::Transaction<'_>,
-	) -> LocalBoxFuture<'a, Result<tg::artifact::Id>> {
-		async move {
-			let names = {
-				let _permit = self.file_descriptor_semaphore().acquire().await;
-				let mut read_dir = tokio::fs::read_dir(path)
-					.await
-					.wrap_err("Failed to read the directory.")?;
-				let mut names = Vec::new();
-				while let Some(entry) = read_dir
-					.next_entry()
-					.await
-					.wrap_err("Failed to get the directory entry.")?
-				{
-					let name = entry
-						.file_name()
-						.to_str()
-						.wrap_err("All file names must be valid UTF-8.")?
-						.to_owned();
-					names.push(name);
-				}
-				names
-			};
+	) -> Result<tg::artifact::Id> {
+		let names = {
+			let _permit = self.file_descriptor_semaphore().acquire().await;
+			let mut read_dir = tokio::fs::read_dir(path)
+				.await
+				.wrap_err("Failed to read the directory.")?;
+			let mut names = Vec::new();
+			while let Some(entry) = read_dir
+				.next_entry()
+				.await
+				.wrap_err("Failed to get the directory entry.")?
+			{
+				let name = entry
+					.file_name()
+					.to_str()
+					.wrap_err("All file names must be valid UTF-8.")?
+					.to_owned();
+				names.push(name);
+			}
+			names
+		};
 
-			// Recurse into the directory's entries.
-			let entries = names
-				.into_iter()
-				.map(|name| async {
-					let path = path.clone().join(&name);
-					let id = self.check_in_artifact_inner(&path, txn).await?;
-					Ok::<_, Error>((name, id))
-				})
-				.collect::<FuturesUnordered<_>>()
-				.try_collect()
-				.await?;
+		// Recurse into the directory's entries.
+		let entries = names
+			.into_iter()
+			.map(|name| async {
+				let path = path.clone().join(&name);
+				let id = self.check_in_artifact_inner(&path, txn).await?;
+				Ok::<_, Error>((name, id))
+			})
+			.collect::<FuturesUnordered<_>>()
+			.try_collect()
+			.await?;
 
-			// Create the directory.
-			let data = tg::directory::Data { entries };
-			let id = tg::directory::Id::new(&data.serialize()?);
-			self.put_complete_object_with_transaction(id.clone().into(), data.into(), txn)
-				.await?;
-			Ok(id.into())
-		}
-		.boxed_local()
+		// Create the directory.
+		let data = tg::directory::Data { entries };
+		let id = tg::directory::Id::new(&data.serialize()?);
+		self.put_complete_object_with_transaction(id.clone().into(), data.into(), txn)
+			.await?;
+		Ok(id.into())
 	}
 
 	async fn check_in_file(
