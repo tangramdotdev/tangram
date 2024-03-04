@@ -549,30 +549,6 @@ impl Server {
 				.wrap_err("Failed to execute the statement.")?;
 		}
 
-		// Set the weight, and assume any parents are going to also be complete.
-		let statement = "
-			update objects
-			set
-				weight = (select length(bytes) + (
-					select coalesce(sum(weight), 0)
-					from objects
-					where id in (
-						select child
-						from object_children
-						where object = ?1
-					)
-				))
-			where id = ?1;
-		";
-		let id = id.to_string();
-		let params = sqlite_params![id];
-		let mut statement = txn
-			.prepare_cached(statement)
-			.wrap_err("Failed to prepare the query.")?;
-		statement
-			.execute(params)
-			.wrap_err("Failed to execute the statement.")?;
-
 		Ok(())
 	}
 
@@ -625,31 +601,6 @@ impl Server {
 				.await
 				.wrap_err("Failed to execute the statement.")?;
 		}
-
-		// Set the weight, and assume parents are also complete.
-		let statement = "
-				update objects
-				set
-					weight = (select length(bytes) + (
-						select coalesce(sum(weight), 0)
-						from objects
-						where id in (
-							select child
-							from object_children
-							where object = $1
-						)
-					))
-				where id = $1;
-			";
-		let id = id.to_string();
-		let params = postgres_params![id];
-		let statement = txn
-			.prepare_cached(statement)
-			.await
-			.wrap_err("Failed to prepare the query.")?;
-		txn.execute(&statement, params)
-			.await
-			.wrap_err("Failed to execute the statement.")?;
 
 		Ok(())
 	}
