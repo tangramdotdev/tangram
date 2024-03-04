@@ -33,22 +33,22 @@ const WORKING_DIRECTORY_GUEST_PATH: &str = "/home/tangram/work";
 
 const ENV_AARCH64_LINUX: &[u8] = include_bytes!(concat!(
 	env!("CARGO_MANIFEST_DIR"),
-	"/src/linux/bin/env_aarch64_linux"
+	"/src/runtime/linux/bin/env_aarch64_linux"
 ));
 
 const ENV_X8664_LINUX: &[u8] = include_bytes!(concat!(
 	env!("CARGO_MANIFEST_DIR"),
-	"/src/linux/bin/env_x86_64_linux"
+	"/src/runtime/linux/bin/env_x86_64_linux"
 ));
 
 const SH_AARCH64_LINUX: &[u8] = include_bytes!(concat!(
 	env!("CARGO_MANIFEST_DIR"),
-	"/src/linux/bin/sh_aarch64_linux"
+	"/src/runtime/linux/bin/sh_aarch64_linux"
 ));
 
 const SH_X8664_LINUX: &[u8] = include_bytes!(concat!(
 	env!("CARGO_MANIFEST_DIR"),
-	"/src/linux/bin/sh_x86_64_linux"
+	"/src/runtime/linux/bin/sh_x86_64_linux"
 ));
 
 pub async fn build(
