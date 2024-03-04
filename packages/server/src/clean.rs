@@ -1,13 +1,12 @@
 use super::Server;
-use crate::database::Database;
+use crate::database::Connection;
 use tangram_error::{Result, WrapErr};
 
 impl Server {
 	pub async fn clean(&self) -> Result<()> {
 		// Clean the database.
-		if let Database::Sqlite(database) = &self.inner.database {
-			let connection = database.get().await?;
-			connection
+		if let Connection::Sqlite(database) = self.inner.database.get().await? {
+			database
 				.execute_batch(
 					"
 					delete from builds;
@@ -32,14 +31,6 @@ impl Server {
 			.await
 			.wrap_err("Failed to remove the temporary directory.")?;
 		tokio::fs::create_dir_all(self.tmp_path())
-			.await
-			.wrap_err("Failed to recreate the temporary directory.")?;
-
-		// Clean the checkouts directory.
-		tokio::fs::remove_dir_all(self.checkouts_path())
-			.await
-			.wrap_err("Failed to remove the temporary directory.")?;
-		tokio::fs::create_dir_all(self.checkouts_path())
 			.await
 			.wrap_err("Failed to recreate the temporary directory.")?;
 

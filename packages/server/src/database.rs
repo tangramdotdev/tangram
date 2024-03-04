@@ -23,6 +23,11 @@ pub struct Postgres {
 	url: Url,
 }
 
+pub enum Connection {
+	Sqlite(tangram_util::pool::Guard<SqliteConnection>),
+	Postgres(tangram_util::pool::Guard<PostgresConnection>),
+}
+
 pub struct SqliteConnection {
 	connection: sqlite::Connection,
 }
@@ -31,6 +36,11 @@ pub struct PostgresConnection {
 	client: postgres::Client,
 	statements: tokio::sync::Mutex<HashMap<String, postgres::Statement, fnv::FnvBuildHasher>>,
 	task: tokio::task::JoinHandle<()>,
+}
+
+pub enum Transaction<'a> {
+	Sqlite(rusqlite::Transaction<'a>),
+	Postgres(PostgresTransaction<'a>),
 }
 
 pub struct PostgresTransaction<'a> {
@@ -45,6 +55,13 @@ impl Database {
 
 	pub async fn new_postgres(url: Url, max_connections: usize) -> Result<Self> {
 		Ok(Self::Postgres(Postgres::new(url, max_connections).await?))
+	}
+
+	pub async fn get(&self) -> Result<Connection> {
+		match self {
+			Database::Sqlite(database) => Ok(Connection::Sqlite(database.get().await?)),
+			Database::Postgres(database) => Ok(Connection::Postgres(database.get().await?)),
+		}
 	}
 }
 
@@ -82,6 +99,24 @@ impl Postgres {
 			connection.replace(PostgresConnection::connect(&self.url).await?);
 		}
 		Ok(connection)
+	}
+}
+
+impl Connection {
+	pub async fn transaction(&mut self) -> Result<Transaction<'_>> {
+		match self {
+			Self::Sqlite(database) => Ok(Transaction::Sqlite(
+				database
+					.transaction()
+					.wrap_err("Failed to get sqlite transaction.")?,
+			)),
+			Self::Postgres(database) => Ok(Transaction::Postgres(
+				database
+					.transaction()
+					.await
+					.wrap_err("Failed to get postgres transaction.")?,
+			)),
+		}
 	}
 }
 
@@ -146,6 +181,20 @@ impl PostgresConnection {
 			statements: &self.statements,
 			transaction,
 		})
+	}
+}
+
+impl<'a> Transaction<'a> {
+	pub async fn commit(self) -> Result<()> {
+		match self {
+			Self::Sqlite(txn) => txn
+				.commit()
+				.wrap_err("Failed to commit sqlite transaction."),
+			Self::Postgres(txn) => txn
+				.commit()
+				.await
+				.wrap_err("Failed to commit postgres transaction."),
+		}
 	}
 }
 
