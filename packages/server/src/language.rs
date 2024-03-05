@@ -2,6 +2,7 @@ use self::syscall::syscall;
 use crate::Http;
 use derive_more::Unwrap;
 use futures::{future, Future, FutureExt, TryFutureExt};
+use http_body_util::BodyExt;
 use lsp_types as lsp;
 use std::{
 	collections::{BTreeSet, HashMap},
@@ -10,7 +11,7 @@ use std::{
 };
 use tangram_client as tg;
 use tangram_error::{error, Error, Result, WrapErr};
-use tangram_util::http::{empty, Incoming, Outgoing};
+use tangram_util::http::{empty, full, Incoming, Outgoing};
 use tokio::io::{
 	AsyncBufRead, AsyncBufReadExt, AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt,
 };
@@ -657,6 +658,12 @@ fn run_request_handler(server: Server, mut request_receiver: RequestReceiver) {
 }
 
 impl crate::Server {
+	pub async fn format(&self, text: String) -> Result<String> {
+		let language_server = crate::language::Server::new(self, tokio::runtime::Handle::current());
+		let text = language_server.format(text).await?;
+		Ok(text)
+	}
+
 	pub async fn lsp(
 		&self,
 		input: Box<dyn AsyncRead + Send + Unpin + 'static>,
@@ -669,6 +676,35 @@ impl crate::Server {
 }
 
 impl Http {
+	pub async fn handle_format_request(
+		&self,
+		request: http::Request<Incoming>,
+	) -> Result<http::Response<Outgoing>> {
+		// Read the body.
+		let bytes = request
+			.into_body()
+			.collect()
+			.await
+			.wrap_err("Failed to read the body.")?
+			.to_bytes();
+		let text = String::from_utf8(bytes.to_vec())
+			.wrap_err("Failed to deserialize the request body.")?;
+
+		// Format the text.
+		let text = self.inner.tg.format(text).await?;
+
+		// Create the body.
+		let body = full(text.into_bytes());
+
+		// Create the response.
+		let response = http::Response::builder()
+			.status(http::StatusCode::OK)
+			.body(body)
+			.unwrap();
+
+		Ok(response)
+	}
+
 	pub async fn handle_lsp_request(
 		&self,
 		request: http::Request<Incoming>,

@@ -689,6 +689,9 @@ impl Http {
 			},
 
 			// Language
+			(http::Method::POST, ["format"]) => {
+				self.handle_format_request(request).map(Some).boxed()
+			},
 			(http::Method::POST, ["lsp"]) => self.handle_lsp_request(request).map(Some).boxed(),
 
 			// Packages
@@ -911,6 +914,18 @@ impl tg::Handle for Server {
 		self.set_build_outcome(user, id, outcome).await
 	}
 
+	async fn format(&self, text: String) -> Result<String> {
+		self.format(text).await
+	}
+
+	async fn lsp(
+		&self,
+		input: Box<dyn AsyncRead + Send + Unpin + 'static>,
+		output: Box<dyn AsyncWrite + Send + Unpin + 'static>,
+	) -> Result<()> {
+		self.lsp(input, output).await
+	}
+
 	async fn try_get_object(&self, id: &tg::object::Id) -> Result<Option<tg::object::GetOutput>> {
 		self.try_get_object(id).await
 	}
@@ -974,14 +989,6 @@ impl tg::Handle for Server {
 		dependency: &tg::Dependency,
 	) -> Result<Option<serde_json::Value>> {
 		self.try_get_package_doc(dependency).await
-	}
-
-	async fn lsp(
-		&self,
-		input: Box<dyn AsyncRead + Send + Unpin + 'static>,
-		output: Box<dyn AsyncWrite + Send + Unpin + 'static>,
-	) -> Result<()> {
-		self.lsp(input, output).await
 	}
 
 	async fn health(&self) -> Result<tg::server::Health> {

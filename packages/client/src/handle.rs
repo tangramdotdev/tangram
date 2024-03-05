@@ -153,6 +153,14 @@ pub trait Handle: Send + Sync + 'static {
 		outcome: tg::build::Outcome,
 	) -> Result<()>;
 
+	async fn format(&self, text: String) -> Result<String>;
+
+	async fn lsp(
+		&self,
+		input: Box<dyn AsyncRead + Send + Unpin + 'static>,
+		output: Box<dyn AsyncWrite + Send + Unpin + 'static>,
+	) -> Result<()>;
+
 	async fn get_object(&self, id: &tg::object::Id) -> Result<tg::object::GetOutput> {
 		Ok(self
 			.try_get_object(id)
@@ -225,12 +233,6 @@ pub trait Handle: Send + Sync + 'static {
 		&self,
 		dependency: &tg::Dependency,
 	) -> Result<Option<serde_json::Value>>;
-
-	async fn lsp(
-		&self,
-		input: Box<dyn AsyncRead + Send + Unpin + 'static>,
-		output: Box<dyn AsyncWrite + Send + Unpin + 'static>,
-	) -> Result<()>;
 
 	async fn health(&self) -> Result<tg::server::Health>;
 

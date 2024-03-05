@@ -2,10 +2,39 @@ use crate::Client;
 use futures::{future, TryFutureExt};
 use http_body_util::BodyExt;
 use tangram_error::{error, Result, Wrap, WrapErr};
-use tangram_util::http::empty;
+use tangram_util::http::{empty, full};
 use tokio::io::{AsyncRead, AsyncWrite};
 
 impl Client {
+	pub async fn format(&self, text: String) -> Result<String> {
+		let method = http::Method::POST;
+		let uri = "/format";
+		let request = http::request::Builder::default().method(method).uri(uri);
+		let body = full(text);
+		let request = request
+			.body(body)
+			.wrap_err("Failed to create the request.")?;
+		let response = self.send(request).await?;
+		if !response.status().is_success() {
+			let bytes = response
+				.collect()
+				.await
+				.wrap_err("Failed to collect the response body.")?
+				.to_bytes();
+			let error = serde_json::from_slice(&bytes)
+				.unwrap_or_else(|_| error!("Failed to deserialize the error."));
+			return Err(error);
+		}
+		let bytes = response
+			.collect()
+			.await
+			.wrap_err("Failed to collect the response body.")?
+			.to_bytes();
+		let text = String::from_utf8(bytes.to_vec())
+			.wrap_err("Failed to deserialize the response body.")?;
+		Ok(text)
+	}
+
 	pub async fn lsp(
 		&self,
 		mut input: Box<dyn AsyncRead + Send + Unpin + 'static>,
