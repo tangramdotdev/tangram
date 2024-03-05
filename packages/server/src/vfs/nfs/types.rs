@@ -1,6 +1,7 @@
 #![allow(non_camel_case_types, dead_code, clippy::match_same_arms)]
 
 use super::xdr;
+use bytes::Bytes;
 use num::ToPrimitive;
 
 // RPC constants.
@@ -985,7 +986,7 @@ pub struct READ4args {
 #[derive(Debug, Clone)]
 pub struct READ4resok {
 	pub eof: bool,
-	pub data: Vec<u8>,
+	pub data: Bytes,
 }
 
 #[derive(Debug, Clone)]

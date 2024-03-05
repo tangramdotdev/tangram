@@ -4,7 +4,7 @@ use tangram_error::Result;
 
 /// Render a value.
 pub async fn render(
-	tg: &dyn tg::Handle,
+	server: &crate::Server,
 	value: &tg::Value,
 	artifacts_path: &Path,
 ) -> Result<String> {
@@ -12,7 +12,7 @@ pub async fn render(
 		Ok(string.clone())
 	} else if let Ok(artifact) = tg::Artifact::try_from(value.clone()) {
 		Ok(artifacts_path
-			.join(artifact.id(tg).await?.to_string())
+			.join(artifact.id(server).await?.to_string())
 			.into_os_string()
 			.into_string()
 			.unwrap())
@@ -22,7 +22,7 @@ pub async fn render(
 				match component {
 					tg::template::Component::String(string) => Ok(string.clone()),
 					tg::template::Component::Artifact(artifact) => Ok(artifacts_path
-						.join(artifact.id(tg).await?.to_string())
+						.join(artifact.id(server).await?.to_string())
 						.into_os_string()
 						.into_string()
 						.unwrap()),

@@ -15,7 +15,7 @@ use tangram_error::{error, Error, Result, Wrap, WrapErr};
 use tokio::io::AsyncReadExt;
 
 pub async fn build(
-	tg: &dyn tg::Handle,
+	tg: &crate::Server,
 	build: &tg::Build,
 	server_directory_path: &Path,
 ) -> Result<tg::Value> {
@@ -323,7 +323,7 @@ pub async fn build(
 	let mut stdout = child.stdout.take().unwrap();
 	let log_task = tokio::task::spawn({
 		let build = build.clone();
-		let tg = tg.clone_box();
+		let tg = tg.clone();
 		async move {
 			let mut buf = [0; 512];
 			loop {
@@ -332,7 +332,7 @@ pub async fn build(
 					Ok(0) => return Ok(()),
 					Ok(size) => {
 						let log = Bytes::copy_from_slice(&buf[0..size]);
-						build.add_log(tg.as_ref(), log).await?;
+						build.add_log(&tg, log).await?;
 					},
 				}
 			}

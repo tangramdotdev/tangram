@@ -1,5 +1,4 @@
 use std::path::Path;
-use tangram_client as tg;
 use tangram_error::Result;
 
 #[cfg(target_os = "linux")]
@@ -16,14 +15,14 @@ pub enum Server {
 }
 
 impl Server {
-	pub async fn start(tg: &dyn tg::Handle, path: &Path) -> Result<Self> {
+	pub async fn start(server: &crate::Server, path: &Path) -> Result<Self> {
 		#[cfg(target_os = "linux")]
 		{
-			Ok(Self::Fuse(fuse::Server::start(tg, path).await?))
+			Ok(Self::Fuse(fuse::Server::start(server, path).await?))
 		}
 		#[cfg(target_os = "macos")]
 		{
-			Ok(Self::Nfs(nfs::Server::start(tg, path, 8437).await?))
+			Ok(Self::Nfs(nfs::Server::start(server, path, 8437).await?))
 		}
 	}
 

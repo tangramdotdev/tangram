@@ -1,3 +1,5 @@
+use crate::blob;
+
 use self::types::{
 	bitmap4, cb_client4, change_info4, dirlist4, entry4, fattr4, fs_locations4, fsid4, length4,
 	locker4, nfs_argop4, nfs_client_id4, nfs_fh4, nfs_ftype4, nfs_lock_type4, nfs_opnum4,
@@ -28,6 +30,7 @@ use self::types::{
 	OPEN4_RESULT_CONFIRM, OPEN4_RESULT_LOCKTYPE_POSIX, OPEN4_SHARE_ACCESS_BOTH,
 	OPEN4_SHARE_ACCESS_WRITE, READ_BYPASS_STATE_ID, RPC_VERS,
 };
+use bytes::Bytes;
 use either::Either;
 use fnv::FnvBuildHasher;
 use num::ToPrimitive;
@@ -41,7 +44,7 @@ use std::{
 use tangram_client as tg;
 use tangram_error::{Result, WrapErr};
 use tokio::{
-	io::{AsyncReadExt, AsyncSeekExt},
+	io::AsyncSeekExt,
 	net::{TcpListener, TcpStream},
 };
 
@@ -58,7 +61,7 @@ pub struct Server {
 }
 
 struct Inner {
-	tg: Box<dyn tg::Handle>,
+	server: crate::Server,
 	path: PathBuf,
 	task: std::sync::Mutex<Option<tokio::task::JoinHandle<Result<()>>>>,
 	clients: tokio::sync::RwLock<Map<Vec<u8>, Arc<tokio::sync::RwLock<ClientData>>>>,
@@ -70,7 +73,7 @@ struct Inner {
 }
 
 struct LockState {
-	reader: Option<tg::blob::Reader>,
+	reader: Option<blob::Reader>,
 	fh: nfs_fh4,
 	byterange_locks: Vec<(offset4, length4)>,
 }
@@ -150,9 +153,9 @@ impl fmt::Display for Context {
 }
 
 impl Server {
-	pub async fn start(tg: &dyn tg::Handle, path: &Path, port: u16) -> Result<Self> {
+	pub async fn start(server: &crate::Server, path: &Path, port: u16) -> Result<Self> {
 		// Create the server.
-		let tg = tg.clone_box();
+		let server = server.clone();
 		let root = Arc::new_cyclic(|root| Node {
 			id: 0,
 			parent: root.clone(),
@@ -165,7 +168,7 @@ impl Server {
 		let task = std::sync::Mutex::new(None);
 		let server = Self {
 			inner: Arc::new(Inner {
-				tg,
+				server,
 				path: path.to_owned(),
 				nodes: tokio::sync::RwLock::new(nodes),
 				node_index: std::sync::atomic::AtomicU64::new(1000),
@@ -460,19 +463,19 @@ impl Server {
 						.unwrap();
 					let id: Option<tg::artifact::Id> = match &node.kind {
 						NodeKind::File { file, .. } => file
-							.id(self.inner.tg.as_ref())
+							.id(&self.inner.server)
 							.await
 							.ok()
 							.cloned()
 							.map(tg::artifact::Id::from),
 						NodeKind::Directory { directory, .. } => directory
-							.id(self.inner.tg.as_ref())
+							.id(&self.inner.server)
 							.await
 							.ok()
 							.cloned()
 							.map(tg::artifact::Id::from),
 						NodeKind::Symlink { symlink, .. } => symlink
-							.id(self.inner.tg.as_ref())
+							.id(&self.inner.server)
 							.await
 							.ok()
 							.cloned()
@@ -623,7 +626,7 @@ impl Server {
 			| NodeKind::NamedAttribute { .. }
 			| NodeKind::Checkout { .. } => ACCESS4_READ,
 			NodeKind::File { file, .. } => {
-				let is_executable = match file.executable(self.inner.tg.as_ref()).await {
+				let is_executable = match file.executable(&self.inner.server).await {
 					Ok(b) => b,
 					Err(e) => {
 						tracing::error!(?e, "Failed to lookup executable bit for file.");
@@ -719,7 +722,7 @@ impl Server {
 				FileAttrData::new(file_handle, nfs_ftype4::NF4DIR, len, O_RX)
 			},
 			NodeKind::File { file, size, .. } => {
-				let is_executable = match file.executable(self.inner.tg.as_ref()).await {
+				let is_executable = match file.executable(&self.inner.server).await {
 					Ok(b) => b,
 					Err(e) => {
 						tracing::error!(?e, "Failed to lookup executable bit for file.");
@@ -917,13 +920,10 @@ impl Server {
 			},
 
 			NodeKind::Directory { directory, .. } => {
-				let entries = directory
-					.entries(self.inner.tg.as_ref())
-					.await
-					.map_err(|e| {
-						tracing::error!(?e, ?name, "Failed to get directory entries.");
-						nfsstat4::NFS4ERR_IO
-					})?;
+				let entries = directory.entries(&self.inner.server).await.map_err(|e| {
+					tracing::error!(?e, ?name, "Failed to get directory entries.");
+					nfsstat4::NFS4ERR_IO
+				})?;
 				let Some(entry) = entries.get(name) else {
 					return Ok(None);
 				};
@@ -943,7 +943,7 @@ impl Server {
 				let NodeKind::File { file, .. } = &grandparent_node.kind else {
 					return Ok(None);
 				};
-				let file_references = match file.references(self.inner.tg.as_ref()).await {
+				let file_references = match file.references(&self.inner.server).await {
 					Ok(references) => references,
 					Err(e) => {
 						tracing::error!(?e, "Failed to get file references.");
@@ -952,7 +952,7 @@ impl Server {
 				};
 				let mut references = Vec::new();
 				for artifact in file_references {
-					let id = artifact.id(self.inner.tg.as_ref()).await.map_err(|e| {
+					let id = artifact.id(&self.inner.server).await.map_err(|e| {
 						tracing::error!(?e, ?artifact, "Failed to get artifact ID.");
 						nfsstat4::NFS4ERR_IO
 					})?;
@@ -981,7 +981,7 @@ impl Server {
 				}
 			},
 			Either::Left(Either::Right(tg::Artifact::File(file))) => {
-				let size = file.size(self.inner.tg.as_ref()).await.map_err(|e| {
+				let size = file.size(&self.inner.server).await.map_err(|e| {
 					tracing::error!(?e, "Failed to get size of file's contents.");
 					nfsstat4::NFS4ERR_IO
 				})?;
@@ -1126,7 +1126,10 @@ impl Server {
 		let stateid = stateid4::new(arg.seqid, index, false);
 
 		if let NodeKind::File { file, .. } = &self.get_node(fh).await.unwrap().kind {
-			let Ok(reader) = file.reader(self.inner.tg.as_ref()).await else {
+			let Ok(blob) = file.contents(&self.inner.server).await else {
+				return OPEN4res::Error(nfsstat4::NFS4ERR_IO);
+			};
+			let Ok(reader) = blob::Reader::new(&self.inner.server, blob.clone()).await else {
 				tracing::error!("Failed to create the file reader.");
 				return OPEN4res::Error(nfsstat4::NFS4ERR_IO);
 			};
@@ -1184,7 +1187,7 @@ impl Server {
 			};
 		};
 		if file
-			.references(self.inner.tg.as_ref())
+			.references(&self.inner.server)
 			.await
 			.map_or(true, <[tg::Artifact]>::is_empty)
 		{
@@ -1239,7 +1242,7 @@ impl Server {
 				// Once an OPEN is done, named attributes may be examined and changed by normal READ and WRITE operations using the filehandles and stateids returned by OPEN
 				let len = data.len().min(arg.count.to_usize().unwrap());
 				let offset = arg.offset.to_usize().unwrap().min(len);
-				let data = data[offset..len].to_vec();
+				let data: Bytes = data[offset..len].to_vec().into();
 				let eof = (offset + len) == data.len();
 				let res = READ4resok { eof, data };
 				return READ4res::NFS4_OK(res);
@@ -1251,7 +1254,7 @@ impl Server {
 		if arg.offset >= *file_size {
 			return READ4res::NFS4_OK(READ4resok {
 				eof: true,
-				data: vec![],
+				data: Bytes::new(),
 			});
 		}
 
@@ -1274,11 +1277,14 @@ impl Server {
 		}
 
 		// This fallback exists for special state ids and any erroneous read.
-		let (data, eof) = if [ANONYMOUS_STATE_ID, READ_BYPASS_STATE_ID].contains(&arg.stateid)
+		let (mut data, eof) = if [ANONYMOUS_STATE_ID, READ_BYPASS_STATE_ID].contains(&arg.stateid)
 			|| lock_state.is_none()
 		{
 			// We need to create a reader just for this request.
-			let Ok(mut reader) = file.reader(self.inner.tg.as_ref()).await else {
+			let Ok(blob) = file.contents(&self.inner.server).await else {
+				return READ4res::Error(nfsstat4::NFS4ERR_IO);
+			};
+			let Ok(mut reader) = blob::Reader::new(&self.inner.server, blob.clone()).await else {
 				tracing::error!("Failed to create the file reader.");
 				return READ4res::Error(nfsstat4::NFS4ERR_IO);
 			};
@@ -1286,11 +1292,11 @@ impl Server {
 				tracing::error!(?e, "Failed to seek.");
 				return READ4res::Error(e.into());
 			}
-			let mut data = vec![0u8; read_size];
-			if let Err(e) = reader.read_exact(&mut data).await {
-				tracing::error!(?e, "Failed to read from the file.");
-				return READ4res::Error(e.into());
-			}
+			let Ok(data) = reader.get_bytes().await else {
+				tracing::error!("Failed to read from the file.");
+				return READ4res::Error(nfsstat4::NFS4ERR_IO);
+			};
+			let data = data.unwrap_or_default();
 			let eof = (arg.offset + arg.count.to_u64().unwrap()) >= *file_size;
 			(data, eof)
 		} else {
@@ -1305,15 +1311,16 @@ impl Server {
 				tracing::error!(?e, "Failed to seek.");
 				return READ4res::Error(e.into());
 			}
-			let mut data = vec![0; read_size];
-			if let Err(e) = reader.read_exact(&mut data).await {
-				tracing::error!(?e, "Failed to read.");
-				return READ4res::Error(e.into());
-			}
+			let Ok(data) = reader.get_bytes().await else {
+				tracing::error!("Failed to read from the file.");
+				return READ4res::Error(nfsstat4::NFS4ERR_IO);
+			};
+			let data = data.unwrap_or_default();
 
 			let eof = (arg.offset + arg.count.to_u64().unwrap()) >= *file_size;
 			(data, eof)
 		};
+		data.truncate(read_size);
 		READ4res::NFS4_OK(READ4resok { eof, data })
 	}
 
@@ -1332,7 +1339,7 @@ impl Server {
 		let entries = match &node.kind {
 			NodeKind::Root { .. } => Vec::default(),
 			NodeKind::Directory { directory, .. } => {
-				let Ok(entries) = directory.entries(self.inner.tg.as_ref()).await else {
+				let Ok(entries) = directory.entries(&self.inner.server).await else {
 					return READDIR4res::Error(nfsstat4::NFS4ERR_IO);
 				};
 				entries.keys().cloned().collect::<Vec<_>>()
@@ -1411,14 +1418,14 @@ impl Server {
 			return READLINK4res::Error(nfsstat4::NFS4ERR_INVAL);
 		};
 		let mut target = String::new();
-		let Ok(artifact) = symlink.artifact(self.inner.tg.as_ref()).await else {
+		let Ok(artifact) = symlink.artifact(&self.inner.server).await else {
 			return READLINK4res::Error(nfsstat4::NFS4ERR_IO);
 		};
-		let Ok(path) = symlink.path(self.inner.tg.as_ref()).await else {
+		let Ok(path) = symlink.path(&self.inner.server).await else {
 			return READLINK4res::Error(nfsstat4::NFS4ERR_IO);
 		};
 		if let Some(artifact) = artifact {
-			let Ok(id) = artifact.id(self.inner.tg.as_ref()).await else {
+			let Ok(id) = artifact.id(&self.inner.server).await else {
 				return READLINK4res::Error(nfsstat4::NFS4ERR_IO);
 			};
 			for _ in 0..node.depth() - 1 {

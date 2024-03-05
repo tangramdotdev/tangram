@@ -1,3 +1,4 @@
+use bytes::Bytes;
 use num::ToPrimitive;
 
 pub struct Encoder<W> {
@@ -291,6 +292,21 @@ impl FromXdr for Vec<u8> {
 }
 
 impl ToXdr for Vec<u8> {
+	fn encode<W>(&self, encoder: &mut Encoder<W>) -> Result<(), Error>
+	where
+		W: std::io::Write,
+	{
+		encoder.encode_opaque(self)
+	}
+}
+
+impl FromXdr for Bytes {
+	fn decode(decoder: &mut Decoder<'_>) -> Result<Self, Error> {
+		decoder.decode_opaque().map(|b| b.to_vec().into())
+	}
+}
+
+impl ToXdr for Bytes {
 	fn encode<W>(&self, encoder: &mut Encoder<W>) -> Result<(), Error>
 	where
 		W: std::io::Write,

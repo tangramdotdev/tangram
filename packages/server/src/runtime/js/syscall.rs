@@ -142,7 +142,10 @@ async fn syscall_download(state: Rc<State>, args: (Url, tg::Checksum)) -> Result
 		.bytes_stream()
 		.map_err(std::io::Error::other)
 		.inspect_ok(|chunk| checksum_writer.update(chunk));
-	let blob = tg::Blob::with_reader(&state.server, StreamReader::new(stream)).await?;
+	let blob = state
+		.server
+		.create_blob_with_reader(StreamReader::new(stream))
+		.await?;
 	let actual = checksum_writer.finalize();
 	if actual != checksum {
 		return Err(error!(

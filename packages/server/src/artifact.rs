@@ -134,7 +134,7 @@ impl Server {
 			.await
 			.wrap_err("Failed to open the file.")?;
 		let contents = self
-			.create_blob_with_reader(file, txn)
+			.create_blob_with_reader_and_transaction(file, txn)
 			.await
 			.wrap_err("Failed to create the contents.")?;
 		drop(permit);
