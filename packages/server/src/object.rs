@@ -1,6 +1,6 @@
 use super::Server;
 use crate::{
-	database::{Database, Postgres, Sqlite},
+	database::{self, Database, Postgres, Sqlite},
 	postgres_params, sqlite_params, Http,
 };
 use async_recursion::async_recursion;
@@ -482,6 +482,127 @@ impl Server {
 		let output = tg::object::PutOutput { incomplete };
 
 		Ok(output)
+	}
+
+	pub async fn put_complete_object_with_transaction(
+		&self,
+		id: tg::object::Id,
+		data: tg::object::Data,
+		txn: &database::Transaction<'_>,
+	) -> Result<()> {
+		match txn {
+			database::Transaction::Sqlite(txn) => {
+				self.put_complete_object_with_transaction_sqlite(&id, &data, txn)
+					.await
+			},
+			database::Transaction::Postgres(txn) => {
+				self.put_complete_object_with_transaction_postgres(&id, &data, txn)
+					.await
+			},
+		}
+	}
+
+	pub async fn put_complete_object_with_transaction_sqlite(
+		&self,
+		id: &tg::object::Id,
+		data: &tg::object::Data,
+		txn: &rusqlite::Transaction<'_>,
+	) -> Result<()> {
+		// Serialize the object.
+		let bytes = data.serialize()?.to_vec();
+
+		// Add the object.
+		{
+			let statement = "
+				insert into objects (id, bytes, complete, weight)
+				values (?1, ?2, true, null)
+				on conflict (id) do update set complete = true
+			";
+			let id = id.to_string();
+			let params = sqlite_params![id, bytes];
+			let mut statement = txn
+				.prepare_cached(statement)
+				.wrap_err("Failed to prepare the query.")?;
+			let n = statement
+				.execute(params)
+				.wrap_err("Failed to execute the statement.")?;
+			if n == 0 {
+				return Ok(());
+			}
+		}
+
+		// Add the children.
+		for child in data.children() {
+			let statement = "
+				insert into object_children (object, child)
+				values (?1, ?2)
+				on conflict (object, child) do nothing;
+			";
+			let object = id.to_string();
+			let child = child.to_string();
+			let params = sqlite_params![object, child];
+			let mut statement = txn
+				.prepare_cached(statement)
+				.wrap_err("Failed to prepare the query.")?;
+			statement
+				.execute(params)
+				.wrap_err("Failed to execute the statement.")?;
+		}
+
+		Ok(())
+	}
+
+	pub async fn put_complete_object_with_transaction_postgres(
+		&self,
+		id: &tg::object::Id,
+		data: &tg::object::Data,
+		txn: &database::PostgresTransaction<'_>,
+	) -> Result<()> {
+		// Serialize the object.
+		let bytes = data.serialize()?.to_vec();
+
+		// Add the object.
+		{
+			let statement = "
+				insert into objects (id, bytes, complete, weight)
+				values ($1, $2, true, null)
+				on conflict (id) do update set complete = true
+			";
+			let id = id.to_string();
+			let params = postgres_params![id, bytes];
+			let statement = txn
+				.prepare_cached(statement)
+				.await
+				.wrap_err("Failed to prepare the query.")?;
+			let n = txn
+				.execute(&statement, params)
+				.await
+				.wrap_err("Failed to execute the statement.")?;
+			if n == 0 {
+				return Ok(());
+			}
+		}
+
+		// Add the children.
+		for child in data.children() {
+			let statement = "
+				insert into object_children (object, child)
+				values ($1, $2)
+				on conflict (object, child) do nothing;
+			";
+			let object = id.to_string();
+			let child = child.to_string();
+			let params = postgres_params![object, child];
+			let statement = txn
+				.prepare(statement)
+				.await
+				.wrap_err("Failed to prepare the query.")?;
+			txn.execute(&statement, params)
+				.await
+				.wrap_err("Failed to execute the statement.")?;
+		}
+
+		Ok(())
 	}
 
 	pub async fn push_object(&self, id: &tg::object::Id) -> Result<()> {

@@ -32,6 +32,7 @@ use tokio::{
 use url::Url;
 
 mod artifact;
+mod blob;
 mod build;
 mod clean;
 mod database;

@@ -1,4 +1,4 @@
-use crate::{Http, Server};
+use crate::{database, Http, Server};
 use async_recursion::async_recursion;
 use futures::{stream::FuturesUnordered, TryStreamExt};
 use http_body_util::BodyExt;
@@ -16,46 +16,71 @@ impl Server {
 		&self,
 		arg: tg::artifact::CheckInArg,
 	) -> Result<tg::artifact::CheckInOutput> {
-		let path = &arg.path;
+		let path = arg.path;
 
-		// Get the metadata for the file system object at the path.
-		let metadata = tokio::fs::symlink_metadata(path)
-			.await
-			.wrap_err_with(|| format!(r#"Failed to get the metadata for the path "{path}"."#))?;
+		let server = self.clone();
+		let task = self
+			.inner
+			.local_pool_handle
+			.spawn_pinned(move || async move {
+				// Get the database and create a transaction.
+				let mut connection = server.inner.database.get().await?;
+				let txn = connection.transaction().await?;
 
-		// Call the appropriate function for the file system object at the path.
-		let id = if metadata.is_dir() {
-			self.check_in_directory(path, &metadata)
-				.await
-				.wrap_err_with(|| {
-					format!(r#"Failed to check in the directory at path "{path}"."#)
-				})?
-		} else if metadata.is_file() {
-			self.check_in_file(path, &metadata)
-				.await
-				.wrap_err_with(|| format!(r#"Failed to check in the file at path "{path}"."#))?
-		} else if metadata.is_symlink() {
-			self.check_in_symlink(path, &metadata)
-				.await
-				.wrap_err_with(|| format!(r#"Failed to check in the symlink at path "{path}"."#))?
-		} else {
-			return Err(error!(
-				"The path must point to a directory, file, or symlink."
-			));
-		};
+				// Check in the artifact and commit the transaction.
+				let id = server.check_in_artifact_inner(&path, &txn).await?;
+				txn.commit().await?;
 
+				Ok::<_, tangram_error::Error>(id)
+			});
+
+		let abort = task.abort_handle();
+		scopeguard::defer! {
+			abort.abort();
+		}
+		let id = task.await.wrap_err("Failed to join check in task.")??;
 		let output = tg::artifact::CheckInOutput { id };
 
 		Ok(output)
 	}
 
-	#[async_recursion]
-	async fn check_in_directory(
+	async fn check_in_artifact_inner(
 		&self,
 		path: &tg::Path,
-		_metadata: &std::fs::Metadata,
+		txn: &database::Transaction<'_>,
 	) -> Result<tg::artifact::Id> {
-		// Read the contents of the directory.
+		// Get the metadata for the file system object at the path.
+		let metadata = tokio::fs::symlink_metadata(&path)
+			.await
+			.wrap_err_with(|| format!(r#"Failed to get the metadata for the path "{path}"."#))?;
+
+		// Call the appropriate function for the file system object at the path.
+		if metadata.is_dir() {
+			self.check_in_directory(path, &metadata, txn)
+				.await
+				.wrap_err_with(|| format!(r#"Failed to check in the directory at path "{path}"."#))
+		} else if metadata.is_file() {
+			self.check_in_file(path, &metadata, txn)
+				.await
+				.wrap_err_with(|| format!(r#"Failed to check in the file at path "{path}"."#))
+		} else if metadata.is_symlink() {
+			self.check_in_symlink(path, &metadata, txn)
+				.await
+				.wrap_err_with(|| format!(r#"Failed to check in the symlink at path "{path}"."#))
+		} else {
+			Err(error!(
+				"The path must point to a directory, file, or symlink."
+			))
+		}
+	}
+
+	#[async_recursion(?Send)]
+	async fn check_in_directory<'a>(
+		&'a self,
+		path: &'a tg::Path,
+		_metadata: &'a std::fs::Metadata,
+		txn: &'a database::Transaction<'_>,
+	) -> Result<tg::artifact::Id> {
 		let names = {
 			let _permit = self.file_descriptor_semaphore().acquire().await;
 			let mut read_dir = tokio::fs::read_dir(path)
@@ -82,19 +107,18 @@ impl Server {
 			.into_iter()
 			.map(|name| async {
 				let path = path.clone().join(&name);
-				let arg = tg::artifact::CheckInArg { path };
-				let output = self.check_in_artifact(arg).await?;
-				let artifact = tg::Artifact::with_id(output.id);
-				Ok::<_, Error>((name, artifact))
+				let id = self.check_in_artifact_inner(&path, txn).await?;
+				Ok::<_, Error>((name, id))
 			})
 			.collect::<FuturesUnordered<_>>()
 			.try_collect()
 			.await?;
 
 		// Create the directory.
-		let directory = tg::Directory::new(entries);
-		let id = directory.id(self).await?.clone();
-
+		let data = tg::directory::Data { entries };
+		let id = tg::directory::Id::new(&data.serialize()?);
+		self.put_complete_object_with_transaction(id.clone().into(), data.into(), txn)
+			.await?;
 		Ok(id.into())
 	}
 
@@ -102,13 +126,15 @@ impl Server {
 		&self,
 		path: &tg::Path,
 		metadata: &std::fs::Metadata,
+		txn: &database::Transaction<'_>,
 	) -> Result<tg::artifact::Id> {
 		// Create the blob.
 		let permit = self.file_descriptor_semaphore().acquire().await;
 		let file = tokio::fs::File::open(path)
 			.await
 			.wrap_err("Failed to open the file.")?;
-		let contents = tg::Blob::with_reader(self, file)
+		let contents = self
+			.create_blob_with_reader(file, txn)
 			.await
 			.wrap_err("Failed to create the contents.")?;
 		drop(permit);
@@ -126,12 +152,19 @@ impl Server {
 			.map(|attributes| attributes.references)
 			.unwrap_or_default()
 			.into_iter()
-			.map(tg::Artifact::with_id)
 			.collect();
 
 		// Create the file.
-		let file = tg::File::new(contents, executable, references);
-		let id = file.id(self).await?.clone();
+		let data = tg::file::Data {
+			contents,
+			executable,
+			references,
+		};
+
+		// Get the data and ID without putting the object.
+		let id = tg::file::Id::new(&data.serialize()?);
+		self.put_complete_object_with_transaction(id.clone().into(), data.into(), txn)
+			.await?;
 
 		Ok(id.into())
 	}
@@ -140,6 +173,7 @@ impl Server {
 		&self,
 		path: &tg::Path,
 		_metadata: &std::fs::Metadata,
+		txn: &database::Transaction<'_>,
 	) -> Result<tg::artifact::Id> {
 		// Read the target from the symlink.
 		let target = tokio::fs::read_link(path)
@@ -165,7 +199,8 @@ impl Server {
 				.try_unwrap_artifact_ref()
 				.ok()
 				.wrap_err("Invalid sylink.")?
-				.clone();
+				.id(self)
+				.await?;
 			let path = target.components[1]
 				.try_unwrap_string_ref()
 				.ok()
@@ -177,8 +212,10 @@ impl Server {
 		};
 
 		// Create the symlink.
-		let symlink = tg::Symlink::new(artifact, path);
-		let id = symlink.id(self).await?.clone();
+		let data = tg::symlink::Data { artifact, path };
+		let id = tg::symlink::Id::new(&data.serialize()?);
+		self.put_complete_object_with_transaction(id.clone().into(), data.into(), txn)
+			.await?;
 
 		Ok(id.into())
 	}
@@ -560,15 +597,11 @@ impl Http {
 			.to_bytes();
 		let arg = serde_json::from_slice(&bytes).wrap_err("Failed to deserialize the body.")?;
 
-		// Check in the artifact.
 		let output = self.inner.tg.check_in_artifact(arg).await?;
 
-		// Create the body.
-		let body = serde_json::to_vec(&output).wrap_err("Failed to serialize the body.")?;
-		let body = full(body);
-
 		// Create the response.
-		let response = http::Response::builder().body(body).unwrap();
+		let body = serde_json::to_vec(&output).wrap_err("Failed to serialize the response.")?;
+		let response = http::Response::builder().body(full(body)).unwrap();
 
 		Ok(response)
 	}
@@ -586,7 +619,7 @@ impl Http {
 			.to_bytes();
 		let arg = serde_json::from_slice(&bytes).wrap_err("Failed to deserialize the body.")?;
 
-		// Check output the artifact.
+		// Check out the artifact.
 		self.inner.tg.check_out_artifact(arg).await?;
 
 		Ok(ok())
