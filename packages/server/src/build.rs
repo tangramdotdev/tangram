@@ -99,7 +99,7 @@ impl Server {
 				}
 				.inspect_err(|error| {
 					let trace = error.trace();
-					tracing::error!(%trace, "Failed to run build.");
+					tracing::error!(%trace, "Failed to run the build.");
 				})
 				.map(|_| ())
 			});

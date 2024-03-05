@@ -14,6 +14,7 @@ use tangram_util::{
 	http::{empty, full, not_found, Incoming, Outgoing},
 	iter::IterExt,
 };
+use time::format_description::well_known::Rfc3339;
 
 impl Server {
 	pub async fn try_get_build_outcome(
@@ -252,8 +253,8 @@ impl Server {
 				.await?;
 		}
 
-		// If any of the finished children were canceled, then this build should be canceled.
-		let finished_children_outcomes = children
+		// If any of the children were canceled, then this build should be canceled.
+		let outcomes = children
 			.iter()
 			.map(|child_id| async move {
 				let arg = tg::build::outcome::GetArg {
@@ -261,15 +262,13 @@ impl Server {
 				};
 				self.try_get_build_outcome(child_id, arg, None)
 					.await?
-					.wrap_err("Failed to get the build.")
+					.wrap_err("Failed to get the build.")?
+					.wrap_err("Expected the build to be finished.")
 			})
 			.collect::<FuturesUnordered<_>>()
 			.try_collect::<Vec<_>>()
-			.await?
-			.into_iter()
-			.flatten()
-			.collect_vec();
-		let outcome = if finished_children_outcomes
+			.await?;
+		let outcome = if outcomes
 			.iter()
 			.any(|outcome| outcome.try_unwrap_canceled_ref().is_ok())
 		{
@@ -437,7 +436,6 @@ impl Server {
 		// Update the build.
 		match &self.inner.database {
 			Database::Sqlite(database) => {
-				let status = tg::build::Status::Finished;
 				let connection = database.get().await?;
 				let statement = "
 					update builds
@@ -446,16 +444,19 @@ impl Server {
 						log = ?2,
 						outcome = ?3,
 						status = ?4,
-						weight = ?5
-					where id = ?6;
+						weight = ?5,
+						finished_at = ?6
+					where id = ?7;
 				";
 				let children = SqliteJson(children);
 				let log = log.to_string();
 				let outcome = SqliteJson(outcome);
-				let status = status.to_string();
+				let status = tg::build::Status::Finished.to_string();
 				let weight = weight.to_i64().unwrap();
+				let finished_at = time::OffsetDateTime::now_utc().format(&Rfc3339).unwrap();
 				let id = id.to_string();
-				let params = sqlite_params![children, log, outcome, status, weight, id];
+				let params =
+					sqlite_params![children, log, outcome, status, weight, finished_at, id];
 				let mut statement = connection
 					.prepare_cached(statement)
 					.wrap_err("Failed to prepare the query.")?;
@@ -465,7 +466,6 @@ impl Server {
 			},
 
 			Database::Postgres(database) => {
-				let status = tg::build::Status::Finished;
 				let connection = database.get().await?;
 				let statement = "
 					update builds
@@ -474,16 +474,19 @@ impl Server {
 						log = $2,
 						outcome = $3,
 						status = $4,
-						weight = $5
-					where id = $6;
+						weight = $5,
+						finished_at = $6
+					where id = $7;
 				";
 				let children = PostgresJson(children);
 				let log = log.to_string();
 				let outcome = PostgresJson(outcome);
-				let status = status.to_string();
+				let status = tg::build::Status::Finished.to_string();
 				let weight = weight.to_i64().unwrap();
+				let finished_at = time::OffsetDateTime::now_utc().format(&Rfc3339).unwrap();
 				let id = id.to_string();
-				let params = postgres_params![children, log, outcome, status, weight, id];
+				let params =
+					postgres_params![children, log, outcome, status, weight, finished_at, id];
 				let statement = connection
 					.prepare_cached(statement)
 					.await

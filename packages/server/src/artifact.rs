@@ -191,14 +191,14 @@ impl Server {
 			let path = target.components[0]
 				.try_unwrap_string_ref()
 				.ok()
-				.wrap_err("Invalid sylink.")?
+				.wrap_err("Invalid symlink.")?
 				.clone();
 			(None, Some(path))
 		} else if target.components.len() == 2 {
 			let artifact = target.components[0]
 				.try_unwrap_artifact_ref()
 				.ok()
-				.wrap_err("Invalid sylink.")?
+				.wrap_err("Invalid symlink.")?
 				.id(self)
 				.await?;
 			let path = target.components[1]

@@ -107,10 +107,10 @@ impl Value {
 					.try_collect()
 					.await?,
 			),
-			Self::Object(object) => Data::Object(object.id(tg).await?.clone()),
+			Self::Object(object) => Data::Object(object.id(tg).await?),
 			Self::Bytes(bytes) => Data::Bytes(bytes.clone()),
-			Self::Mutation(mutation) => Data::Mutation(mutation.data(tg).await?.clone()),
-			Self::Template(template) => Data::Template(template.data(tg).await?.clone()),
+			Self::Mutation(mutation) => Data::Mutation(mutation.data(tg).await?),
+			Self::Template(template) => Data::Template(template.data(tg).await?),
 		};
 		Ok(data)
 	}
