@@ -98,6 +98,9 @@ fn main_inner() -> Result<()> {
 	// Read the config.
 	let config = Cli::read_config(args.config)?;
 
+	// Ensure the file descriptor limit is high enough for the configured semaphore count.
+	ensure_open_fd_rlimit(&config)?;
+
 	// Read the user.
 	let user = Cli::read_user(None)?;
 
@@ -317,6 +320,40 @@ impl Cli {
 		std::fs::write(path, user).wrap_err("Failed to save the user.")?;
 		Ok(())
 	}
+}
+
+fn ensure_open_fd_rlimit(config: &Option<Config>) -> Result<()> {
+	// Resolve the file descriptor limit from the config, falling back to the default if not set.
+	let file_descriptor_permits = config
+		.as_ref()
+		.and_then(|config| config.build.as_ref())
+		.and_then(|build| build.file_descriptor_permits)
+		.unwrap_or(tg::DEFAULT_FILE_DESCRIPTOR_PERMITS) as u64;
+
+	// Inspect the current limit.
+	let original_fd_rlimit = unsafe {
+		let mut rlimit = std::mem::MaybeUninit::uninit();
+		let result = libc::getrlimit(libc::RLIMIT_NOFILE, rlimit.as_mut_ptr());
+		if result != 0 {
+			return Err(error!("Failed to get the file descriptor limit."));
+		}
+		rlimit.assume_init()
+	};
+
+	// If the current limit is less than the desired limit, then set the limit.
+	if file_descriptor_permits > original_fd_rlimit.rlim_cur {
+		let new_fd_rlimit = libc::rlimit {
+			rlim_cur: file_descriptor_permits,
+			rlim_max: file_descriptor_permits.max(original_fd_rlimit.rlim_max),
+		};
+		unsafe {
+			let result = libc::setrlimit(libc::RLIMIT_NOFILE, &new_fd_rlimit);
+			if result != 0 {
+				return Err(error!("Failed to set the file descriptor limit."));
+			}
+		}
+	}
+	Ok(())
 }
 
 fn initialize_v8() {

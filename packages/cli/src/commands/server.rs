@@ -109,12 +109,21 @@ impl Cli {
 			.and_then(|config| config.build.as_ref())
 			.and_then(|build| build.enable)
 			.unwrap_or(true);
+		let file_descriptor_semaphore_count = config
+			.as_ref()
+			.and_then(|config| config.build.as_ref())
+			.and_then(|build| build.file_descriptor_permits)
+			.unwrap_or(tg::DEFAULT_FILE_DESCRIPTOR_PERMITS);
 		let permits = config
 			.as_ref()
 			.and_then(|config| config.build.as_ref())
 			.and_then(|build| build.permits)
 			.unwrap_or_else(|| std::thread::available_parallelism().unwrap().get());
-		let build = tangram_server::options::Build { enable, permits };
+		let build = tangram_server::options::Build {
+			enable,
+			file_descriptor_permits: file_descriptor_semaphore_count,
+			permits,
+		};
 
 		// Create the database options.
 		let database = config

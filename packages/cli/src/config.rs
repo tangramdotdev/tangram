@@ -49,6 +49,10 @@ pub struct Autoenv {
 
 #[derive(Clone, Debug, Default, serde::Serialize, serde::Deserialize)]
 pub struct Build {
+	/// Set file descriptor semaphore count.
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub file_descriptor_permits: Option<usize>,
+
 	/// Enable builds.
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub enable: Option<bool>,

@@ -19,6 +19,7 @@ pub struct Options {
 #[derive(Clone, Debug)]
 pub struct Build {
 	pub enable: bool,
+	pub file_descriptor_permits: usize,
 	pub permits: usize,
 }
 
