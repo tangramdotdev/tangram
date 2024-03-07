@@ -332,7 +332,7 @@ fn ensure_open_fd_rlimit(config: &Option<Config>) -> Result<()> {
 	// Set the soft limit to the configured value, and the max limit to the max allowed value.
 	let new_fd_rlimit = libc::rlimit {
 		rlim_cur: file_descriptor_permits,
-		rlim_max: libc::RLIM_INFINITY,
+		rlim_max: file_descriptor_permits,
 	};
 	let result = unsafe { libc::setrlimit(libc::RLIMIT_NOFILE, &new_fd_rlimit) };
 	if result != 0 {
