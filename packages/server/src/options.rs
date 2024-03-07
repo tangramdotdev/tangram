@@ -6,6 +6,7 @@ pub struct Options {
 	pub address: tg::Address,
 	pub build: Build,
 	pub database: Database,
+	pub file_descriptor_permits: usize,
 	pub messenger: Messenger,
 	pub oauth: Oauth,
 	pub path: PathBuf,
@@ -19,7 +20,6 @@ pub struct Options {
 #[derive(Clone, Debug)]
 pub struct Build {
 	pub enable: bool,
-	pub file_descriptor_permits: usize,
 	pub permits: usize,
 }
 

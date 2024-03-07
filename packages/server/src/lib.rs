@@ -183,7 +183,7 @@ impl Server {
 
 		// Create the file system semaphore.
 		let file_descriptor_semaphore =
-			tokio::sync::Semaphore::new(options.build.file_descriptor_permits);
+			tokio::sync::Semaphore::new(options.file_descriptor_permits);
 
 		// Create the http server.
 		let http = std::sync::Mutex::new(None);
