@@ -47,7 +47,7 @@ pub struct Config {
 #[derive(Clone, Debug, Default, serde::Serialize, serde::Deserialize)]
 pub struct Advanced {
 	#[serde(default, skip_serializing_if = "Option::is_none")]
-	pub file_descriptor_limit: Option<usize>,
+	pub file_descriptor_limit: Option<u64>,
 
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub file_descriptor_semaphore_size: Option<usize>,
