@@ -941,3 +941,14 @@ declare let console: {
 	/** Write to the log. */
 	log: (...args: Array<unknown>) => void;
 };
+
+interface ImportAttributes {
+	id?: string;
+	name?: string;
+	path?: string;
+	version?: string;
+}
+
+interface ImportMeta {
+	url: string;
+}

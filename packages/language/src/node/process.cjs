@@ -1,5 +1,6 @@
 module.exports = {
-	env: {},
 	cwd: () => "",
-	versions: { node: "0.0.0" },
+	env: {},
+	version: "20.0.0",
+	versions: { node: "20.0.0" },
 };
