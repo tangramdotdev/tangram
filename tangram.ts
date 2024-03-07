@@ -1,5 +1,3 @@
-import "tangram:../packages/std" with { name: "bar" };
-
 export default tg.target(async () => {
 	return await Promise.all([foo(5), foo(6), foo(7), foo(8), foo(9)]);
 });
