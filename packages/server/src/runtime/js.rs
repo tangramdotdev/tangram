@@ -122,7 +122,13 @@ async fn build_inner(
 	let params = v8::CreateParams::default().snapshot_blob(SNAPSHOT);
 
 	// Create the isolate.
-	let mut isolate = v8::Isolate::new(params);
+	let mut isolate = scopeguard::guard(v8::Isolate::new(params), |mut isolate| unsafe {
+		isolate.enter();
+	});
+	unsafe { isolate.exit() };
+
+	// Enter the isolate.
+	unsafe { isolate.enter() };
 
 	// Send the isolate handle.
 	isolate_handle_sender.send_replace(Some(isolate.thread_safe_handle()));
@@ -141,7 +147,7 @@ async fn build_inner(
 	// Create the context.
 	let context = {
 		// Create the context.
-		let scope = &mut v8::HandleScope::new(&mut isolate);
+		let scope = &mut v8::HandleScope::new(isolate.as_mut());
 		let context = v8::Context::new(scope);
 		let scope = &mut v8::ContextScope::new(scope, context);
 
@@ -163,7 +169,7 @@ async fn build_inner(
 	// Call the start function.
 	let value = {
 		// Create a scope for the context.
-		let scope = &mut v8::HandleScope::new(&mut isolate);
+		let scope = &mut v8::HandleScope::new(isolate.as_mut());
 		let context = v8::Local::new(scope, context.clone());
 		let scope = &mut v8::ContextScope::new(scope, context);
 
@@ -188,6 +194,9 @@ async fn build_inner(
 		v8::Global::new(scope, value)
 	};
 
+	// Exit the isolate.
+	unsafe { isolate.exit() };
+
 	// Run the event loop.
 	let future = poll_fn(|cx| {
 		loop {
@@ -206,7 +215,7 @@ async fn build_inner(
 
 					{
 						// Create a scope for the context.
-						let scope = &mut v8::HandleScope::new(&mut isolate);
+						let scope = &mut v8::HandleScope::new(isolate.as_mut());
 						let context = v8::Local::new(scope, context.clone());
 						let scope = &mut v8::ContextScope::new(scope, context);
 
@@ -237,7 +246,7 @@ async fn build_inner(
 					// Get the result.
 					let result = {
 						// Create a scope for the context.
-						let scope = &mut v8::HandleScope::new(&mut isolate);
+						let scope = &mut v8::HandleScope::new(isolate.as_mut());
 						let context = v8::Local::new(scope, context.clone());
 						let scope = &mut v8::ContextScope::new(scope, context);
 
