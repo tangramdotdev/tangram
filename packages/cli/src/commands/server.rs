@@ -106,7 +106,7 @@ impl Cli {
 		// Get the file descriptor semaphore size.
 		let file_descriptor_semaphore_size = config
 			.as_ref()
-			.and_then(|config| config.advanced)
+			.and_then(|config| config.advanced.as_ref())
 			.and_then(|advanced| advanced.file_descriptor_semaphore_size)
 			.unwrap_or(1024);
 
