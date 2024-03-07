@@ -159,7 +159,8 @@ impl Server {
 		// Insert the build.
 		let put_arg = tg::build::PutArg {
 			id: build_id.clone(),
-			children: None,
+			children: Vec::new(),
+			count: None,
 			host: host.clone(),
 			log: None,
 			outcome: None,

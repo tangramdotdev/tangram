@@ -813,8 +813,12 @@ impl tg::Handle for Server {
 		self.list_builds(args).await
 	}
 
-	async fn try_get_build(&self, id: &tg::build::Id) -> Result<Option<tg::build::GetOutput>> {
-		self.try_get_build(id).await
+	async fn try_get_build(
+		&self,
+		id: &tg::build::Id,
+		arg: tg::build::GetArg,
+	) -> Result<Option<tg::build::GetOutput>> {
+		self.try_get_build(id, arg).await
 	}
 
 	async fn put_build(

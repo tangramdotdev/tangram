@@ -31,7 +31,7 @@ impl Server {
 				let id = server.check_in_artifact_inner(&path, &txn).await?;
 				txn.commit().await?;
 
-				Ok::<_, tangram_error::Error>(id)
+				Ok::<_, Error>(id)
 			});
 
 		let abort = task.abort_handle();
@@ -198,9 +198,16 @@ impl Server {
 			let artifact = target.components[0]
 				.try_unwrap_artifact_ref()
 				.ok()
-				.wrap_err("Invalid symlink.")?
-				.id(self)
-				.await?;
+				.wrap_err("Invalid symlink.")?;
+			let artifact = match artifact {
+				tg::Artifact::Directory(directory) => {
+					directory.state().read().unwrap().id.clone().unwrap().into()
+				},
+				tg::Artifact::File(file) => file.state().read().unwrap().id.clone().unwrap().into(),
+				tg::Artifact::Symlink(symlink) => {
+					symlink.state().read().unwrap().id.clone().unwrap().into()
+				},
+			};
 			let path = target.components[1]
 				.try_unwrap_string_ref()
 				.ok()

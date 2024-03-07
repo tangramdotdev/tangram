@@ -43,7 +43,7 @@ impl Server {
 		// Create the package if it does not exist.
 		let statement = "
 			upsert into packages (name)
-			values ($1)
+			values ($1);
 		";
 		let params = postgres_params![name];
 		let statement = connection

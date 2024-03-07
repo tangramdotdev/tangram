@@ -97,13 +97,15 @@ pub struct State<I, O> {
 #[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
 pub struct GetOutput {
 	pub bytes: Bytes,
-	pub complete: bool,
+	pub count: Option<u64>,
 	pub weight: Option<u64>,
 }
 
 #[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
 pub struct PutArg {
 	pub bytes: Bytes,
+	pub count: Option<u64>,
+	pub weight: Option<u64>,
 }
 
 #[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
@@ -194,7 +196,11 @@ impl Handle {
 		let id = self.id(tg).await?;
 		let data = self.data(tg).await?;
 		let bytes = data.serialize()?;
-		let arg = PutArg { bytes };
+		let arg = PutArg {
+			bytes,
+			count: None,
+			weight: None,
+		};
 		let output = remote
 			.put_object(&id.clone(), &arg)
 			.await
@@ -219,6 +225,8 @@ impl Handle {
 			.wrap_err("Failed to put the object.")?;
 		let arg = tg::object::PutArg {
 			bytes: output.bytes,
+			count: None,
+			weight: None,
 		};
 		let output = tg.put_object(&id, &arg).await?;
 		output
@@ -313,24 +321,6 @@ impl Client {
 				.unwrap_or_else(|_| error!("The request did not succeed."));
 			return Err(error);
 		}
-		let complete = response
-			.headers()
-			.get("x-tangram-object-complete")
-			.wrap_err("The complete header must be set.")?;
-		let complete = complete
-			.to_str()
-			.wrap_err("The complete header must be a string.")?;
-		let complete = serde_json::from_str(complete)
-			.wrap_err("Failed to deserialize the complete header.")?;
-		let weight = response
-			.headers()
-			.get("x-tangram-object-weight")
-			.wrap_err("The weight header must be set.")?;
-		let weight = weight
-			.to_str()
-			.wrap_err("The weight header must be a string.")?;
-		let weight =
-			serde_json::from_str(weight).wrap_err("Failed to deserialize the weight header.")?;
 		let bytes = response
 			.collect()
 			.await
@@ -338,8 +328,8 @@ impl Client {
 			.to_bytes();
 		let output = tg::object::GetOutput {
 			bytes,
-			complete,
-			weight,
+			count: None,
+			weight: None,
 		};
 		Ok(Some(output))
 	}

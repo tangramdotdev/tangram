@@ -220,7 +220,8 @@ impl Cli {
 
 	pub async fn command_build_get(&self, args: GetArgs) -> Result<()> {
 		let client = &self.client().await?;
-		let output = client.get_build(&args.id).await?;
+		let arg = tg::build::GetArg::default();
+		let output = client.get_build(&args.id, arg).await?;
 		let json = serde_json::to_string(&output).wrap_err("Failed to serialize the output.")?;
 		tokio::io::stdout()
 			.write_all(json.as_bytes())

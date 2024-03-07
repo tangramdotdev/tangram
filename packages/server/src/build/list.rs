@@ -46,7 +46,7 @@ impl Server {
 			"
 				select
 					id,
-					children,
+					count,
 					host,
 					log,
 					outcome,
@@ -80,7 +80,7 @@ impl Server {
 			.wrap_err("Failed to execute the statment.")?
 			.and_then(|row| {
 				let id = row.get::<_, String>(0)?;
-				let children = row.get::<_, Option<SqliteJson<Vec<tg::build::Id>>>>(1)?;
+				let count = row.get::<_, Option<i64>>(1)?;
 				let host = row.get::<_, String>(2)?;
 				let log = row.get::<_, Option<String>>(3)?;
 				let outcome = row.get::<_, Option<SqliteJson<tg::build::outcome::Data>>>(4)?;
@@ -94,7 +94,7 @@ impl Server {
 				let finished_at = row.get::<_, Option<String>>(12)?;
 				Ok::<_, sqlite::Error>((
 					id,
-					children,
+					count,
 					host,
 					log,
 					outcome,
@@ -112,7 +112,7 @@ impl Server {
 			.and_then(|row| {
 				let (
 					id,
-					children,
+					count,
 					host,
 					log,
 					outcome,
@@ -126,7 +126,7 @@ impl Server {
 					finished_at,
 				) = row;
 				let id = id.parse()?;
-				let children = children.map(|children| children.0);
+				let count = count.map(|count| count.to_u64().unwrap());
 				let host = host.parse()?;
 				let log = log.map(|log| log.parse()).transpose()?;
 				let outcome = outcome.map(|outcome| outcome.0);
@@ -156,7 +156,7 @@ impl Server {
 					.transpose()?;
 				let output = tg::build::GetOutput {
 					id,
-					children,
+					count,
 					host,
 					log,
 					outcome,
@@ -200,7 +200,7 @@ impl Server {
 			"
 				select
 					id,
-					children,
+					count,
 					host,
 					log,
 					outcome,
@@ -237,7 +237,7 @@ impl Server {
 			.into_iter()
 			.map(|row| {
 				let id = row.try_get::<_, String>(0)?;
-				let children = row.try_get::<_, Option<PostgresJson<Vec<tg::build::Id>>>>(1)?;
+				let count = row.try_get::<_, Option<i64>>(1)?;
 				let host = row.try_get::<_, String>(2)?;
 				let log = row.try_get::<_, Option<String>>(3)?;
 				let outcome =
@@ -252,7 +252,7 @@ impl Server {
 				let finished_at = row.try_get::<_, Option<String>>(12)?;
 				Ok::<_, postgres::Error>((
 					id,
-					children,
+					count,
 					host,
 					log,
 					outcome,
@@ -270,7 +270,7 @@ impl Server {
 			.and_then(|row| {
 				let (
 					id,
-					children,
+					count,
 					host,
 					log,
 					outcome,
@@ -284,7 +284,7 @@ impl Server {
 					finished_at,
 				) = row;
 				let id = id.parse()?;
-				let children = children.map(|children| children.0);
+				let count = count.map(|count| count.to_u64().unwrap());
 				let host = host.parse()?;
 				let log = log.map(|log| log.parse()).transpose()?;
 				let outcome = outcome.map(|outcome| outcome.0);
@@ -314,7 +314,7 @@ impl Server {
 					.transpose()?;
 				let output = tg::build::GetOutput {
 					id,
-					children,
+					count,
 					host,
 					log,
 					outcome,

@@ -108,13 +108,13 @@ impl Connection {
 			Self::Sqlite(database) => Ok(Transaction::Sqlite(
 				database
 					.transaction()
-					.wrap_err("Failed to get sqlite transaction.")?,
+					.wrap_err("Failed to create the transaction.")?,
 			)),
 			Self::Postgres(database) => Ok(Transaction::Postgres(
 				database
 					.transaction()
 					.await
-					.wrap_err("Failed to get postgres transaction.")?,
+					.wrap_err("Failed to create the transaction.")?,
 			)),
 		}
 	}
@@ -125,7 +125,10 @@ impl SqliteConnection {
 		let connection = sqlite::Connection::open(path).wrap_err("Failed to open the database.")?;
 		connection
 			.pragma_update(None, "busy_timeout", "86400000")
-			.wrap_err("Failed to set the busy timeout.")?;
+			.wrap_err("Failed to set the pragma.")?;
+		connection
+			.pragma_update(None, "synchronous", "off")
+			.wrap_err("Failed to set the pragma.")?;
 		Ok(Self { connection })
 	}
 }
@@ -187,13 +190,11 @@ impl PostgresConnection {
 impl<'a> Transaction<'a> {
 	pub async fn commit(self) -> Result<()> {
 		match self {
-			Self::Sqlite(txn) => txn
-				.commit()
-				.wrap_err("Failed to commit sqlite transaction."),
+			Self::Sqlite(txn) => txn.commit().wrap_err("Failed to commit the transaction."),
 			Self::Postgres(txn) => txn
 				.commit()
 				.await
-				.wrap_err("Failed to commit postgres transaction."),
+				.wrap_err("Failed to commit the transaction."),
 		}
 	}
 }

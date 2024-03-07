@@ -78,53 +78,75 @@ pub struct ListOutput {
 	pub items: Vec<GetOutput>,
 }
 
+#[derive(Clone, Debug, Default, serde::Deserialize, serde::Serialize)]
+pub struct GetArg {}
+
 #[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
 pub struct GetOutput {
 	pub id: Id,
-	#[serde(default)]
-	pub children: Option<Vec<Id>>,
+	#[serde(skip_serializing_if = "Option::is_none")]
+	pub count: Option<u64>,
 	pub host: Triple,
-	#[serde(default)]
+	#[serde(skip_serializing_if = "Option::is_none")]
 	pub log: Option<blob::Id>,
-	#[serde(default)]
+	#[serde(skip_serializing_if = "Option::is_none")]
 	pub outcome: Option<outcome::Data>,
 	pub retry: Retry,
 	pub status: Status,
 	pub target: target::Id,
-	#[serde(default)]
+	#[serde(skip_serializing_if = "Option::is_none")]
 	pub weight: Option<u64>,
 	#[serde(with = "time::serde::rfc3339")]
 	pub created_at: time::OffsetDateTime,
-	#[serde(default, with = "time::serde::rfc3339::option")]
+	#[serde(
+		skip_serializing_if = "Option::is_none",
+		with = "time::serde::rfc3339::option"
+	)]
 	pub queued_at: Option<time::OffsetDateTime>,
-	#[serde(default, with = "time::serde::rfc3339::option")]
+	#[serde(
+		skip_serializing_if = "Option::is_none",
+		with = "time::serde::rfc3339::option"
+	)]
 	pub started_at: Option<time::OffsetDateTime>,
-	#[serde(default, with = "time::serde::rfc3339::option")]
+	#[serde(
+		skip_serializing_if = "Option::is_none",
+		with = "time::serde::rfc3339::option"
+	)]
 	pub finished_at: Option<time::OffsetDateTime>,
 }
 
 #[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
 pub struct PutArg {
 	pub id: Id,
-	#[serde(default)]
-	pub children: Option<Vec<Id>>,
+	pub children: Vec<Id>,
+	#[serde(skip_serializing_if = "Option::is_none")]
+	pub count: Option<u64>,
 	pub host: Triple,
-	#[serde(default)]
+	#[serde(skip_serializing_if = "Option::is_none")]
 	pub log: Option<blob::Id>,
-	#[serde(default)]
+	#[serde(skip_serializing_if = "Option::is_none")]
 	pub outcome: Option<outcome::Data>,
 	pub retry: Retry,
 	pub status: Status,
 	pub target: target::Id,
-	#[serde(default)]
+	#[serde(skip_serializing_if = "Option::is_none")]
 	pub weight: Option<u64>,
 	#[serde(with = "time::serde::rfc3339")]
 	pub created_at: time::OffsetDateTime,
-	#[serde(default, with = "time::serde::rfc3339::option")]
+	#[serde(
+		skip_serializing_if = "Option::is_none",
+		with = "time::serde::rfc3339::option"
+	)]
 	pub queued_at: Option<time::OffsetDateTime>,
-	#[serde(default, with = "time::serde::rfc3339::option")]
+	#[serde(
+		skip_serializing_if = "Option::is_none",
+		with = "time::serde::rfc3339::option"
+	)]
 	pub started_at: Option<time::OffsetDateTime>,
-	#[serde(default, with = "time::serde::rfc3339::option")]
+	#[serde(
+		skip_serializing_if = "Option::is_none",
+		with = "time::serde::rfc3339::option"
+	)]
 	pub finished_at: Option<time::OffsetDateTime>,
 }
 
@@ -273,7 +295,8 @@ impl Build {
 	}
 
 	pub async fn try_get_retry(&self, tg: &dyn Handle) -> Result<Option<Retry>> {
-		let Some(output) = tg.try_get_build(&self.id).await? else {
+		let arg = tg::build::GetArg::default();
+		let Some(output) = tg.try_get_build(&self.id, arg).await? else {
 			return Ok(None);
 		};
 		Ok(Some(output.retry))
@@ -304,7 +327,8 @@ impl Build {
 	}
 
 	pub async fn try_get_target(&self, tg: &dyn Handle) -> Result<Option<Target>> {
-		let Some(output) = tg.try_get_build(&self.id).await? else {
+		let arg = tg::build::GetArg::default();
+		let Some(output) = tg.try_get_build(&self.id, arg).await? else {
 			return Ok(None);
 		};
 		let id = output.target.clone();
@@ -319,10 +343,23 @@ impl Build {
 		tg: &dyn Handle,
 		remote: &dyn Handle,
 	) -> Result<()> {
-		let output = tg.get_build(&self.id).await?;
+		let arg = tg::build::GetArg::default();
+		let output = tg.get_build(&self.id, arg).await?;
+		let arg = tg::build::children::GetArg {
+			timeout: Some(std::time::Duration::ZERO),
+			..Default::default()
+		};
+		let children = tg
+			.get_build_children(&self.id, arg, None)
+			.await?
+			.map_ok(|chunk| stream::iter(chunk.items).map(Ok::<_, Error>))
+			.try_flatten()
+			.try_collect()
+			.await?;
 		let arg = PutArg {
 			id: output.id,
-			children: output.children,
+			children,
+			count: output.count,
 			host: output.host,
 			log: output.log,
 			outcome: output.outcome,
@@ -337,7 +374,6 @@ impl Build {
 		};
 		arg.children
 			.iter()
-			.flatten()
 			.cloned()
 			.map(Self::with_id)
 			.map(|build| async move { build.push(user, tg, remote).await })
@@ -464,9 +500,15 @@ impl Client {
 		Ok(output)
 	}
 
-	pub async fn try_get_build(&self, id: &tg::build::Id) -> Result<Option<tg::build::GetOutput>> {
+	pub async fn try_get_build(
+		&self,
+		id: &tg::build::Id,
+		arg: tg::build::GetArg,
+	) -> Result<Option<tg::build::GetOutput>> {
 		let method = http::Method::GET;
-		let uri = format!("/builds/{id}");
+		let search_params =
+			serde_urlencoded::to_string(&arg).wrap_err("Failed to serialize the search params.")?;
+		let uri = format!("/builds/{id}?{search_params}");
 		let body = empty();
 		let request = http::request::Builder::default()
 			.method(method)

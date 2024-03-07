@@ -23,14 +23,22 @@ pub trait Handle: Send + Sync + 'static {
 
 	async fn list_builds(&self, arg: tg::build::ListArg) -> Result<tg::build::ListOutput>;
 
-	async fn get_build(&self, id: &tg::build::Id) -> Result<tg::build::GetOutput> {
+	async fn get_build(
+		&self,
+		id: &tg::build::Id,
+		arg: tg::build::GetArg,
+	) -> Result<tg::build::GetOutput> {
 		Ok(self
-			.try_get_build(id)
+			.try_get_build(id, arg)
 			.await?
 			.wrap_err("Failed to get the build.")?)
 	}
 
-	async fn try_get_build(&self, id: &tg::build::Id) -> Result<Option<tg::build::GetOutput>>;
+	async fn try_get_build(
+		&self,
+		id: &tg::build::Id,
+		arg: tg::build::GetArg,
+	) -> Result<Option<tg::build::GetOutput>>;
 
 	async fn put_build(
 		&self,

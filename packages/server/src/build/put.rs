@@ -47,80 +47,21 @@ impl Server {
 		arg: &tg::build::PutArg,
 		database: &Sqlite,
 	) -> Result<()> {
-		let connection = database.get().await?;
+		let mut connection = database.get().await?;
+
+		// Begin a transaction.
+		let txn = connection
+			.transaction()
+			.wrap_err("Failed to begin the transaction.")?;
 
 		// Delete any existing children.
-		let statement = "
-			delete from build_children
-			where build = ?1;
-		";
-		let params = sqlite_params![id.to_string()];
-		let mut statement = connection
-			.prepare_cached(statement)
-			.wrap_err("Failed to prepare the query.")?;
-		statement
-			.execute(params)
-			.wrap_err("Failed to execute the statement.")?;
-
-		// Insert the children.
-		let statement = "
-			insert into build_children (build, position, child)
-			values (?1, ?2, ?3);
-		";
-		let mut statement = connection
-			.prepare_cached(statement)
-			.wrap_err("Failed to prepare the query.")?;
-		arg.children
-			.iter()
-			.flatten()
-			.enumerate()
-			.map(|(position, child)| {
-				let build = id.to_string();
-				let position = position.to_i64().unwrap();
-				let child = child.to_string();
-				let params = sqlite_params![build, position, child];
-				statement
-					.execute(params)
-					.wrap_err("Failed to execute the statement.")?;
-				Ok::<_, Error>(())
-			})
-			.try_collect()?;
-
-		// Delete any existing objects.
-		let statement = "
-			delete from build_objects
-			where build = ?1;
-		";
-		let params = sqlite_params![id.to_string()];
-		let mut statement = connection
-			.prepare_cached(statement)
-			.wrap_err("Failed to prepare the query.")?;
-		statement
-			.execute(params)
-			.wrap_err("Failed to execute the statement.")?;
-
-		// Add the objects.
-		let objects = std::iter::empty()
-			.chain(arg.log.clone().map(Into::into))
-			.chain(
-				arg.outcome
-					.as_ref()
-					.and_then(|outcome| outcome.try_unwrap_succeeded_ref().ok())
-					.map(tg::value::Data::children)
-					.into_iter()
-					.flatten(),
-			)
-			.chain(std::iter::once(arg.target.clone().into()));
-		for object in objects {
+		{
 			let statement = "
-				insert into build_objects (build, object)
-				values (?1, ?2)
-				on conflict (build, object) do nothing;
+				delete from build_children
+				where build = ?1;
 			";
-			let build = id.to_string();
-			let object = object.to_string();
-			let params = sqlite_params![build, object];
-			let mut statement = connection
+			let params = sqlite_params![id.to_string()];
+			let mut statement = txn
 				.prepare_cached(statement)
 				.wrap_err("Failed to prepare the query.")?;
 			statement
@@ -128,11 +69,169 @@ impl Server {
 				.wrap_err("Failed to execute the statement.")?;
 		}
 
+		// Insert the children.
+		{
+			let statement = "
+				insert into build_children (build, position, child)
+				values (?1, ?2, ?3);
+			";
+			let mut statement = txn
+				.prepare_cached(statement)
+				.wrap_err("Failed to prepare the query.")?;
+			arg.children
+				.iter()
+				.enumerate()
+				.map(|(position, child)| {
+					let build = id.to_string();
+					let position = position.to_i64().unwrap();
+					let child = child.to_string();
+					let params = sqlite_params![build, position, child];
+					statement
+						.execute(params)
+						.wrap_err("Failed to execute the statement.")?;
+					Ok::<_, Error>(())
+				})
+				.try_collect()?;
+		}
+
+		// Delete any existing objects.
+		{
+			let statement = "
+				delete from build_objects
+				where build = ?1;
+			";
+			let params = sqlite_params![id.to_string()];
+			let mut statement = txn
+				.prepare_cached(statement)
+				.wrap_err("Failed to prepare the query.")?;
+			statement
+				.execute(params)
+				.wrap_err("Failed to execute the statement.")?;
+		}
+
+		// Add the objects.
+		{
+			let statement = "
+				insert into build_objects (build, object)
+				values (?1, ?2);
+			";
+			let mut statement = txn
+				.prepare_cached(statement)
+				.wrap_err("Failed to prepare the query.")?;
+			let objects = std::iter::empty()
+				.chain(arg.log.clone().map(Into::into))
+				.chain(
+					arg.outcome
+						.as_ref()
+						.and_then(|outcome| outcome.try_unwrap_succeeded_ref().ok())
+						.map(tg::value::Data::children)
+						.into_iter()
+						.flatten(),
+				)
+				.chain(std::iter::once(arg.target.clone().into()));
+			for object in objects {
+				let build = id.to_string();
+				let object = object.to_string();
+				let params = sqlite_params![build, object];
+				statement
+					.execute(params)
+					.wrap_err("Failed to execute the statement.")?;
+			}
+		}
+
 		// Insert the build.
-		let statement = "
-			insert into builds (
+		{
+			let statement = "
+				insert into builds (
+					id,
+					complete,
+					count,
+					host,
+					log,
+					outcome,
+					retry,
+					status,
+					target,
+					weight,
+					created_at,
+					queued_at,
+					started_at,
+					finished_at
+				)
+				values (
+					?1,
+					?2,
+					?3,
+					?4,
+					?5,
+					?6,
+					?7,
+					?8,
+					?9,
+					?10,
+					?11,
+					?12,
+					?13,
+					?14
+				)
+				on conflict do update set 
+					id = ?1,
+					complete = ?2,
+					count = ?3,
+					host = ?4,
+					log = ?5,
+					outcome = ?6,
+					retry = ?7,
+					status = ?8,
+					target = ?9,
+					weight = ?10,
+					created_at = ?11,
+					queued_at = ?12,
+					started_at = ?13,
+					finished_at = ?14;
+			";
+			let id = id.to_string();
+			let complete = false;
+			let count: Option<i64> = None;
+			let host = arg.host.to_string();
+			let log = arg.log.as_ref().map(ToString::to_string);
+			let outcome = arg.outcome.clone().map(SqliteJson);
+			let retry = arg.retry.to_string();
+			let status = arg.status.to_string();
+			let target = arg.target.to_string();
+			let weight = arg.weight.map(|weight| weight.to_i64().unwrap());
+			let created_at = arg
+				.created_at
+				.format(&Rfc3339)
+				.wrap_err("Failed to format the created_at timestamp.")?;
+			let queued_at = arg
+				.queued_at
+				.map(|timestamp| {
+					timestamp
+						.format(&Rfc3339)
+						.wrap_err("Failed to format the queued_at timestamp.")
+				})
+				.transpose()?;
+			let started_at = arg
+				.started_at
+				.map(|timestamp| {
+					timestamp
+						.format(&Rfc3339)
+						.wrap_err("Failed to format the started_at timestamp.")
+				})
+				.transpose()?;
+			let finished_at = arg
+				.finished_at
+				.map(|timestamp| {
+					timestamp
+						.format(&Rfc3339)
+						.wrap_err("Failed to format the finished_at timestamp.")
+				})
+				.transpose()?;
+			let params = sqlite_params![
 				id,
-				children,
+				complete,
+				count,
 				host,
 				log,
 				outcome,
@@ -143,96 +242,18 @@ impl Server {
 				created_at,
 				queued_at,
 				started_at,
-				finished_at
-			)
-			values (
-				?1,
-				?2,
-				?3,
-				?4,
-				?5,
-				?6,
-				?7,
-				?8,
-				?9,
-				?10,
-				?11,
-				?12,
-				?13
-			)
-			on conflict do update set 
-				id = ?1,
-				children = ?2,
-				host = ?3,
-				log = ?4,
-				outcome = ?5,
-				retry = ?6,
-				status = ?7,
-				target = ?8,
-				weight = ?9,
-				created_at = ?10,
-				queued_at = ?11,
-				started_at = ?12,
-				finished_at = ?13;
-		";
-		let id = id.to_string();
-		let children = arg.children.clone().map(SqliteJson);
-		let host = arg.host.to_string();
-		let log = arg.log.as_ref().map(ToString::to_string);
-		let outcome = arg.outcome.clone().map(SqliteJson);
-		let retry = arg.retry.to_string();
-		let status = arg.status.to_string();
-		let target = arg.target.to_string();
-		let weight = arg.weight.map(|weight| weight.to_i64().unwrap());
-		let created_at = arg
-			.created_at
-			.format(&Rfc3339)
-			.wrap_err("Failed to format the created_at timestamp.")?;
-		let queued_at = arg
-			.queued_at
-			.map(|timestamp| {
-				timestamp
-					.format(&Rfc3339)
-					.wrap_err("Failed to format the queued_at timestamp.")
-			})
-			.transpose()?;
-		let started_at = arg
-			.started_at
-			.map(|timestamp| {
-				timestamp
-					.format(&Rfc3339)
-					.wrap_err("Failed to format the started_at timestamp.")
-			})
-			.transpose()?;
-		let finished_at = arg
-			.finished_at
-			.map(|timestamp| {
-				timestamp
-					.format(&Rfc3339)
-					.wrap_err("Failed to format the finished_at timestamp.")
-			})
-			.transpose()?;
-		let params = sqlite_params![
-			id,
-			children,
-			host,
-			log,
-			outcome,
-			retry,
-			status,
-			target,
-			weight,
-			created_at,
-			queued_at,
-			started_at,
-			finished_at
-		];
-		let mut statement = connection
-			.prepare_cached(statement)
-			.wrap_err("Failed to prepare the query.")?;
-		statement
-			.execute(params)
-			.wrap_err("Failed to execute the statement.")?;
+				finished_at,
+			];
+			let mut statement = txn
+				.prepare_cached(statement)
+				.wrap_err("Failed to prepare the query.")?;
+			statement
+				.execute(params)
+				.wrap_err("Failed to execute the statement.")?;
+		}
+
+		// Commit the transaction.
+		txn.commit().wrap_err("Failed to commit the transaction.")?;
 
 		Ok(())
 	}
@@ -243,117 +264,201 @@ impl Server {
 		arg: &tg::build::PutArg,
 		database: &Postgres,
 	) -> Result<()> {
-		let connection = Arc::new(database.get().await?);
+		let mut connection = database.get().await?;
+
+		// Begin a transaction.
+		let txn = Arc::new(
+			connection
+				.transaction()
+				.await
+				.wrap_err("Failed to begin the transaction.")?,
+		);
 
 		// Delete any existing children.
-		let statement = "
-			delete from build_children
-			where build = $1;
-		";
-		let params = postgres_params![id.to_string()];
-		let statement = connection
-			.prepare_cached(statement)
-			.await
-			.wrap_err("Failed to prepare the query.")?;
-		connection
-			.execute(&statement, params)
-			.await
-			.wrap_err("Failed to execute the statement.")?;
+		{
+			let statement = "
+				delete from build_children
+				where build = $1;
+			";
+			let params = postgres_params![id.to_string()];
+			let statement = txn
+				.prepare_cached(statement)
+				.await
+				.wrap_err("Failed to prepare the query.")?;
+			txn.execute(&statement, params)
+				.await
+				.wrap_err("Failed to execute the statement.")?;
+		}
 
 		// Insert the children.
-		let statement = "
-			insert into build_children (build, position, child)
-			values ($1, $2, $3);
-		";
-		let statement = connection
-			.prepare_cached(statement)
-			.await
-			.wrap_err("Failed to prepare the query.")?;
-		arg.children
-			.iter()
-			.flatten()
-			.enumerate()
-			.map(|(position, child)| {
-				let connection = connection.clone();
-				let statement = statement.clone();
-				async move {
-					let build = id.to_string();
-					let position = position.to_i64().unwrap();
-					let child = child.to_string();
-					let params = postgres_params![build, position, child];
-					connection
-						.execute(&statement, params)
-						.await
-						.wrap_err("Failed to execute the statement.")?;
-					Ok::<_, Error>(())
-				}
-			})
-			.collect::<FuturesUnordered<_>>()
-			.try_collect()
-			.await?;
+		{
+			let statement = "
+				insert into build_children (build, position, child)
+				values ($1, $2, $3);
+			";
+			let statement = txn
+				.prepare_cached(statement)
+				.await
+				.wrap_err("Failed to prepare the query.")?;
+			arg.children
+				.iter()
+				.enumerate()
+				.map(|(position, child)| {
+					let txn = txn.clone();
+					let statement = statement.clone();
+					async move {
+						let build = id.to_string();
+						let position = position.to_i64().unwrap();
+						let child = child.to_string();
+						let params = postgres_params![build, position, child];
+						txn.execute(&statement, params)
+							.await
+							.wrap_err("Failed to execute the statement.")?;
+						Ok::<_, Error>(())
+					}
+				})
+				.collect::<FuturesUnordered<_>>()
+				.try_collect()
+				.await?;
+		}
 
 		// Delete any existing objects.
-		let statement = "
-			delete from build_objects
-			where build = $1;
-		";
-		let params = postgres_params![id.to_string()];
-		let statement = connection
-			.prepare_cached(statement)
-			.await
-			.wrap_err("Failed to prepare the query.")?;
-		connection
-			.execute(&statement, params)
-			.await
-			.wrap_err("Failed to execute the statement.")?;
+		{
+			let statement = "
+				delete from build_objects
+				where build = $1;
+			";
+			let params = postgres_params![id.to_string()];
+			let statement = txn
+				.prepare_cached(statement)
+				.await
+				.wrap_err("Failed to prepare the query.")?;
+			txn.execute(&statement, params)
+				.await
+				.wrap_err("Failed to execute the statement.")?;
+		}
 
 		// Add the objects.
-		let objects = arg
-			.log
-			.clone()
-			.map(Into::into)
-			.into_iter()
-			.chain(
-				arg.outcome
-					.as_ref()
-					.and_then(|outcome| outcome.try_unwrap_succeeded_ref().ok())
-					.map(tg::value::Data::children)
-					.into_iter()
-					.flatten(),
-			)
-			.chain(std::iter::once(arg.target.clone().into()));
-		objects
-			.map(|object| {
-				let connection = connection.clone();
-				async move {
-					let statement = "
-					insert into build_objects (build, object)
-					values ($1, $2)
-					on conflict (build, object) do nothing;
-				";
-					let build = id.to_string();
-					let object = object.to_string();
-					let params = postgres_params![build, object];
-					let statement = connection
-						.prepare_cached(statement)
-						.await
-						.wrap_err("Failed to prepare the query.")?;
-					connection
-						.execute(&statement, params)
-						.await
-						.wrap_err("Failed to execute the statement.")?;
-					Ok::<_, Error>(())
-				}
-			})
-			.collect::<FuturesUnordered<_>>()
-			.try_collect()
-			.await?;
+		{
+			let statement = "
+				insert into build_objects (build, object)
+				values ($1, $2);
+			";
+			let statement = txn
+				.prepare_cached(statement)
+				.await
+				.wrap_err("Failed to prepare the query.")?;
+			let objects = arg
+				.log
+				.clone()
+				.map(Into::into)
+				.into_iter()
+				.chain(
+					arg.outcome
+						.as_ref()
+						.and_then(|outcome| outcome.try_unwrap_succeeded_ref().ok())
+						.map(tg::value::Data::children)
+						.into_iter()
+						.flatten(),
+				)
+				.chain(std::iter::once(arg.target.clone().into()));
+			objects
+				.map(|object| {
+					let txn = txn.clone();
+					let statement = statement.clone();
+					async move {
+						let build = id.to_string();
+						let object = object.to_string();
+						let params = postgres_params![build, object];
+						txn.execute(&statement, params)
+							.await
+							.wrap_err("Failed to execute the statement.")?;
+						Ok::<_, Error>(())
+					}
+				})
+				.collect::<FuturesUnordered<_>>()
+				.try_collect()
+				.await?;
+		}
 
 		// Insert the build.
-		let statement = "
-			upsert into builds (
+		{
+			let statement = "
+				upsert into builds (
+					id,
+					complete,
+					count,
+					host,
+					log,
+					outcome,
+					retry,
+					status,
+					target,
+					weight,
+					created_at,
+					queued_at,
+					started_at,
+					finished_at
+				)
+				values (
+					$1,
+					$2,
+					$3,
+					$4,
+					$5,
+					$6,
+					$7,
+					$8,
+					$9,
+					$10,
+					$11,
+					$12,
+					$13,
+					$14
+				);
+			";
+			let id = id.to_string();
+			let complete = false;
+			let count: Option<i64> = None;
+			let host = arg.host.to_string();
+			let log = arg.log.as_ref().map(ToString::to_string);
+			let outcome = arg.outcome.clone().map(PostgresJson);
+			let retry = arg.retry.to_string();
+			let status = arg.status.to_string();
+			let target = arg.target.to_string();
+			let weight = arg.weight.map(|weight| weight.to_i64().unwrap());
+			let created_at = arg
+				.created_at
+				.format(&Rfc3339)
+				.wrap_err("Failed to format the created_at timestamp.")?;
+			let queued_at = arg
+				.queued_at
+				.map(|timestamp| {
+					timestamp
+						.format(&Rfc3339)
+						.wrap_err("Failed to format the queued_at timestamp.")
+				})
+				.transpose()?;
+			let started_at = arg
+				.started_at
+				.map(|timestamp| {
+					timestamp
+						.format(&Rfc3339)
+						.wrap_err("Failed to format the started_at timestamp.")
+				})
+				.transpose()?;
+			let finished_at = arg
+				.finished_at
+				.map(|timestamp| {
+					timestamp
+						.format(&Rfc3339)
+						.wrap_err("Failed to format the finished_at timestamp.")
+				})
+				.transpose()?;
+			let params = postgres_params![
 				id,
-				children,
+				complete,
+				count,
 				host,
 				log,
 				outcome,
@@ -365,83 +470,22 @@ impl Server {
 				queued_at,
 				started_at,
 				finished_at
-			)
-			values (
-				$1,
-				$2,
-				$3,
-				$4,
-				$5,
-				$6,
-				$7,
-				$8,
-				$9,
-				$10,
-				$11,
-				$12,
-				$13
-			);
-		";
-		let id = id.to_string();
-		let children = arg.children.clone().map(PostgresJson);
-		let host = arg.host.to_string();
-		let log = arg.log.as_ref().map(ToString::to_string);
-		let outcome = arg.outcome.clone().map(PostgresJson);
-		let retry = arg.retry.to_string();
-		let status = arg.status.to_string();
-		let target = arg.target.to_string();
-		let weight = arg.weight.map(|weight| weight.to_i64().unwrap());
-		let created_at = arg
-			.created_at
-			.format(&Rfc3339)
-			.wrap_err("Failed to format the created_at timestamp.")?;
-		let queued_at = arg
-			.queued_at
-			.map(|timestamp| {
-				timestamp
-					.format(&Rfc3339)
-					.wrap_err("Failed to format the queued_at timestamp.")
-			})
-			.transpose()?;
-		let started_at = arg
-			.started_at
-			.map(|timestamp| {
-				timestamp
-					.format(&Rfc3339)
-					.wrap_err("Failed to format the started_at timestamp.")
-			})
-			.transpose()?;
-		let finished_at = arg
-			.finished_at
-			.map(|timestamp| {
-				timestamp
-					.format(&Rfc3339)
-					.wrap_err("Failed to format the finished_at timestamp.")
-			})
-			.transpose()?;
-		let params = postgres_params![
-			id,
-			children,
-			host,
-			log,
-			outcome,
-			retry,
-			status,
-			target,
-			weight,
-			created_at,
-			queued_at,
-			started_at,
-			finished_at
-		];
-		let statement = connection
-			.prepare_cached(statement)
+			];
+			let statement = txn
+				.prepare_cached(statement)
+				.await
+				.wrap_err("Failed to prepare the query.")?;
+			txn.execute(&statement, params)
+				.await
+				.wrap_err("Failed to execute the statement.")?;
+		}
+
+		// Commit the transaction.
+		Arc::into_inner(txn)
+			.unwrap()
+			.commit()
 			.await
-			.wrap_err("Failed to prepare the query.")?;
-		connection
-			.execute(&statement, params)
-			.await
-			.wrap_err("Failed to execute the statement.")?;
+			.wrap_err("Failed to commit the transaction.")?;
 
 		Ok(())
 	}

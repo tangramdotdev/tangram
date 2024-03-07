@@ -26,7 +26,7 @@ pub struct File {
 	state: Arc<std::sync::RwLock<State>>,
 }
 
-type State = object::State<Id, Object>;
+pub type State = object::State<Id, Object>;
 
 /// A file value.
 #[derive(Clone, Debug)]
@@ -142,14 +142,14 @@ impl File {
 		let data = self.data(tg).await?;
 		let bytes = data.serialize()?;
 		let id = Id::new(&bytes);
-		let arg = object::PutArg { bytes };
-		let output = tg
-			.put_object(&id.clone().into(), &arg)
+		let arg = object::PutArg {
+			bytes,
+			count: None,
+			weight: None,
+		};
+		tg.put_object(&id.clone().into(), &arg)
 			.await
 			.wrap_err("Failed to put the object.")?;
-		if !output.incomplete.is_empty() {
-			return Err(error!("Expected the object to be complete."));
-		}
 		self.state.write().unwrap().id.replace(id);
 		Ok(())
 	}

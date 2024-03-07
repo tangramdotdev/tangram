@@ -66,7 +66,8 @@ async fn migration_0000(path: &Path) -> Result<()> {
 	let sql = "
 		create table builds (
 			id text primary key,
-			children text,
+			complete integer not null,
+			count integer,
 			host text not null,
 			log text,
 			outcome text,
@@ -90,7 +91,9 @@ async fn migration_0000(path: &Path) -> Result<()> {
 			child text
 		) strict;
 
-		create unique index build_children_index on build_children (build, child);
+		create unique index build_children_index on build_children (build, position);
+
+		create unique index build_children_build_child_index on build_children (build, child);
 
 		create index build_children_child_index on build_children (child);
 
@@ -114,7 +117,9 @@ async fn migration_0000(path: &Path) -> Result<()> {
 		create table objects (
 			id text primary key,
 			bytes blob not null,
+			children integer not null,
 			complete integer not null,
+			count integer,
 			weight integer
 		) strict;
 

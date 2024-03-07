@@ -375,18 +375,16 @@ impl Server {
 			},
 		}
 
-		// Compute the weight.
-		let weight = match &self.inner.database {
+		// Compute the count.
+		let count = match &self.inner.database {
 			Database::Sqlite(database) => {
 				let connection = database.get().await?;
 				let statement = "
-					select coalesce(sum(weight), 0)
-					from objects
-					where id in (
-						select object
-						from build_objects
+					select 1 + (
+						select count(*)
+						from build_children
 						where build = ?1
-					);
+					) as count;
 				";
 				let params = sqlite_params![id.to_string()];
 				let mut statement = connection
@@ -408,13 +406,89 @@ impl Server {
 			Database::Postgres(database) => {
 				let connection = database.get().await?;
 				let statement = "
-					select coalesce(sum(weight), 0)
-					from objects
-					where id in (
-						select object
-						from build_objects
-						where build = ?1
-					);
+					select 1 + (
+						select count(*)
+						from build_children
+						where build = $1
+					) as count;
+				";
+				let params = postgres_params![id.to_string()];
+				let statement = connection
+					.prepare_cached(statement)
+					.await
+					.wrap_err("Failed to prepare the query.")?;
+				let rows = connection
+					.query(&statement, params)
+					.await
+					.wrap_err("Failed to execute the statement.")?;
+				let row = rows.into_iter().next().wrap_err("Expected a row.")?;
+				row.try_get::<_, i64>(0)
+					.wrap_err("Failed to deserialize the column.")?
+					.to_u64()
+					.unwrap()
+			},
+		};
+
+		// Compute the weight.
+		let weight = match &self.inner.database {
+			Database::Sqlite(database) => {
+				let connection = database.get().await?;
+				let statement = "
+					select (
+						select sum(weight)
+						from objects
+						where id in (
+							select object
+							from build_objects
+							where build = ?1
+						)
+					) + (
+						select sum(weight)
+						from builds
+						where id in (
+							select child
+							from build_children
+							where build = ?1
+						)
+					) as weight;
+				";
+				let params = sqlite_params![id.to_string()];
+				let mut statement = connection
+					.prepare_cached(statement)
+					.wrap_err("Failed to prepare the query.")?;
+				let mut rows = statement
+					.query(params)
+					.wrap_err("Failed to execute the statement.")?;
+				let row = rows
+					.next()
+					.wrap_err("Failed to get the row.")?
+					.wrap_err("Expected a row.")?;
+				row.get::<_, i64>(0)
+					.wrap_err("Failed to deserialize the column.")?
+					.to_u64()
+					.unwrap()
+			},
+
+			Database::Postgres(database) => {
+				let connection = database.get().await?;
+				let statement = "
+					select (
+						select sum(weight)
+						from objects
+						where id in (
+							select object
+							from build_objects
+							where build = $1
+						)
+					) + (
+						select sum(weight)
+						from builds
+						where id in (
+							select child
+							from build_children
+							where build = $1
+						)
+					) as weight;
 				";
 				let params = postgres_params![id.to_string()];
 				let statement = connection
@@ -440,7 +514,7 @@ impl Server {
 				let statement = "
 					update builds
 					set
-						children = ?1,
+						count = ?1,
 						log = ?2,
 						outcome = ?3,
 						status = ?4,
@@ -448,15 +522,14 @@ impl Server {
 						finished_at = ?6
 					where id = ?7;
 				";
-				let children = SqliteJson(children);
+				let count = count.to_i64().unwrap();
 				let log = log.to_string();
 				let outcome = SqliteJson(outcome);
 				let status = tg::build::Status::Finished.to_string();
 				let weight = weight.to_i64().unwrap();
 				let finished_at = time::OffsetDateTime::now_utc().format(&Rfc3339).unwrap();
 				let id = id.to_string();
-				let params =
-					sqlite_params![children, log, outcome, status, weight, finished_at, id];
+				let params = sqlite_params![count, log, outcome, status, weight, finished_at, id];
 				let mut statement = connection
 					.prepare_cached(statement)
 					.wrap_err("Failed to prepare the query.")?;
@@ -470,7 +543,7 @@ impl Server {
 				let statement = "
 					update builds
 					set
-						children = $1,
+						count = $1,
 						log = $2,
 						outcome = $3,
 						status = $4,
@@ -478,15 +551,14 @@ impl Server {
 						finished_at = $6
 					where id = $7;
 				";
-				let children = PostgresJson(children);
+				let count = count.to_i64().unwrap();
 				let log = log.to_string();
 				let outcome = PostgresJson(outcome);
 				let status = tg::build::Status::Finished.to_string();
 				let weight = weight.to_i64().unwrap();
 				let finished_at = time::OffsetDateTime::now_utc().format(&Rfc3339).unwrap();
 				let id = id.to_string();
-				let params =
-					postgres_params![children, log, outcome, status, weight, finished_at, id];
+				let params = postgres_params![count, log, outcome, status, weight, finished_at, id];
 				let statement = connection
 					.prepare_cached(statement)
 					.await
@@ -510,12 +582,12 @@ impl Server {
 		id: &tg::build::Id,
 		outcome: tg::build::Outcome,
 	) -> Result<bool> {
-		// Get the remote handle.
+		// Get the remote.
 		let Some(remote) = self.inner.remote.as_ref() else {
 			return Ok(false);
 		};
 
-		// Push the output if the build succeeded.
+		// Push the output.
 		if let tg::build::Outcome::Succeeded(value) = &outcome {
 			value.push(self, remote.as_ref()).await?;
 		}
