@@ -1,6 +1,7 @@
 use self::config::Config;
 use clap::Parser;
 use futures::FutureExt;
+use num::ToPrimitive;
 use std::path::PathBuf;
 use tangram_client as tg;
 use tangram_error::{error, Result, Wrap, WrapErr};
@@ -97,6 +98,9 @@ fn main_inner() -> Result<()> {
 
 	// Read the config.
 	let config = Cli::read_config(args.config)?;
+
+	// Set the file descriptor limit.
+	set_file_descriptor_limit(&config)?;
 
 	// Read the user.
 	let user = Cli::read_user(None)?;
@@ -317,6 +321,25 @@ impl Cli {
 		std::fs::write(path, user).wrap_err("Failed to save the user.")?;
 		Ok(())
 	}
+}
+
+fn set_file_descriptor_limit(config: &Option<Config>) -> Result<()> {
+	if let Some(file_descriptor_limit) = config
+		.as_ref()
+		.and_then(|config| config.advanced.as_ref())
+		.and_then(|advanced| advanced.file_descriptor_limit)
+	{
+		let file_descriptor_limit = file_descriptor_limit.to_u64().unwrap();
+		let new_fd_rlimit = libc::rlimit {
+			rlim_cur: file_descriptor_limit,
+			rlim_max: file_descriptor_limit,
+		};
+		let ret = unsafe { libc::setrlimit(libc::RLIMIT_NOFILE, &new_fd_rlimit) };
+		if ret != 0 {
+			return Err(error!("Failed to set the file descriptor limit."));
+		}
+	}
+	Ok(())
 }
 
 fn initialize_v8() {

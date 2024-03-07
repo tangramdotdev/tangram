@@ -103,18 +103,28 @@ impl Cli {
 			.or(config.as_ref().and_then(|config| config.address.clone()))
 			.unwrap_or(tg::Address::Unix(default_path().join("socket")));
 
+		// Get the file descriptor semaphore size.
+		let file_descriptor_semaphore_size = config
+			.as_ref()
+			.and_then(|config| config.advanced.as_ref())
+			.and_then(|advanced| advanced.file_descriptor_semaphore_size)
+			.unwrap_or(1024);
+
 		// Create the build options.
 		let enable = config
 			.as_ref()
 			.and_then(|config| config.build.as_ref())
 			.and_then(|build| build.enable)
 			.unwrap_or(true);
-		let permits = config
+		let max_concurrency = config
 			.as_ref()
 			.and_then(|config| config.build.as_ref())
-			.and_then(|build| build.permits)
+			.and_then(|build| build.max_concurrency)
 			.unwrap_or_else(|| std::thread::available_parallelism().unwrap().get());
-		let build = tangram_server::options::Build { enable, permits };
+		let build = tangram_server::options::Build {
+			enable,
+			max_concurrency,
+		};
 
 		// Create the database options.
 		let database = config
@@ -250,6 +260,7 @@ impl Cli {
 			address,
 			build,
 			database,
+			file_descriptor_semaphore_size,
 			messenger,
 			oauth,
 			path,
