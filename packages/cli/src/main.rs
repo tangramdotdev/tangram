@@ -98,8 +98,8 @@ fn main_inner() -> Result<()> {
 	// Read the config.
 	let config = Cli::read_config(args.config)?;
 
-	// Ensure the file descriptor limit is high enough for the configured semaphore count.
-	ensure_open_fd_rlimit(&config)?;
+	// Set the file descriptor limit.
+	set_file_descriptor_limit(&config)?;
 
 	// Read the user.
 	let user = Cli::read_user(None)?;
@@ -322,21 +322,19 @@ impl Cli {
 	}
 }
 
-fn ensure_open_fd_rlimit(config: &Option<Config>) -> Result<()> {
-	// Resolve the file descriptor limit from the config, falling back to the default if not set.
-	let file_descriptor_permits = config
+fn set_file_descriptor_limit(config: &Option<Config>) -> Result<()> {
+	if let Some(file_descriptor_permits) = config
 		.as_ref()
 		.and_then(|config| config.file_descriptor_permits)
-		.unwrap_or(tg::DEFAULT_FILE_DESCRIPTOR_PERMITS) as u64;
-
-	// Set the soft limit to the configured value, and the max limit to the max allowed value.
-	let new_fd_rlimit = libc::rlimit {
-		rlim_cur: file_descriptor_permits,
-		rlim_max: file_descriptor_permits,
-	};
-	let result = unsafe { libc::setrlimit(libc::RLIMIT_NOFILE, &new_fd_rlimit) };
-	if result != 0 {
-		return Err(error!("Failed to set the file descriptor limit."));
+	{
+		let new_fd_rlimit = libc::rlimit {
+			rlim_cur: file_descriptor_permits,
+			rlim_max: file_descriptor_permits,
+		};
+		let ret = unsafe { libc::setrlimit(libc::RLIMIT_NOFILE, &new_fd_rlimit) };
+		if ret != 0 {
+			return Err(error!("Failed to set the file descriptor limit."));
+		}
 	}
 	Ok(())
 }

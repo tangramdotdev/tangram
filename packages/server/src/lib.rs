@@ -156,8 +156,7 @@ impl Server {
 		let build_state = std::sync::RwLock::new(HashMap::default());
 
 		// Create the build semaphore.
-		let permits = options.build.permits;
-		let build_semaphore = Arc::new(tokio::sync::Semaphore::new(permits));
+		let build_semaphore = Arc::new(tokio::sync::Semaphore::new(options.build.max_concurrency));
 
 		// Create the database.
 		let database = match options.database {
@@ -183,7 +182,7 @@ impl Server {
 
 		// Create the file system semaphore.
 		let file_descriptor_semaphore =
-			tokio::sync::Semaphore::new(options.file_descriptor_permits);
+			tokio::sync::Semaphore::new(options.file_descriptor_semaphore_size);
 
 		// Create the http server.
 		let http = std::sync::Mutex::new(None);

@@ -102,8 +102,6 @@ pub struct Runtime {
 	pub build: build::Id,
 }
 
-pub const DEFAULT_FILE_DESCRIPTOR_PERMITS: usize = 1024;
-
 impl Client {
 	pub fn with_runtime() -> Result<Self> {
 		let json = std::env::var("TANGRAM_RUNTIME")

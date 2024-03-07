@@ -11,6 +11,9 @@ pub struct Config {
 	pub address: Option<tg::Address>,
 
 	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub advanced: Option<Advanced>,
+
+	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub autoenv: Option<Autoenv>,
 
 	#[serde(default, skip_serializing_if = "Option::is_none")]
@@ -18,9 +21,6 @@ pub struct Config {
 
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub database: Option<Database>,
-
-	#[serde(default, skip_serializing_if = "Option::is_none")]
-	pub file_descriptor_permits: Option<usize>,
 
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub messenger: Option<Messenger>,
@@ -45,6 +45,15 @@ pub struct Config {
 }
 
 #[derive(Clone, Debug, Default, serde::Serialize, serde::Deserialize)]
+pub struct Advanced {
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub file_descriptor_limit: Option<usize>,
+
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub file_descriptor_semaphore_size: Option<usize>,
+}
+
+#[derive(Clone, Debug, Default, serde::Serialize, serde::Deserialize)]
 pub struct Autoenv {
 	#[serde(default, skip_serializing_if = "Vec::is_empty")]
 	pub paths: Vec<PathBuf>,
@@ -58,7 +67,7 @@ pub struct Build {
 
 	/// The maximum number of concurrent builds.
 	#[serde(default, skip_serializing_if = "Option::is_none")]
-	pub permits: Option<usize>,
+	pub max_concurrency: Option<usize>,
 }
 
 #[derive(Clone, Debug, serde::Serialize, serde::Deserialize)]
