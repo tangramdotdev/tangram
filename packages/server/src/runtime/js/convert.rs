@@ -861,7 +861,9 @@ impl ToV8 for tg::Leaf {
 
 		let state = self.state().read().unwrap().to_v8(scope)?;
 
-		let instance = leaf.new_instance(scope, &[state]).unwrap();
+		let instance = leaf
+			.new_instance(scope, &[state])
+			.wrap_err("The constructor failed.")?;
 
 		Ok(instance.into())
 	}
@@ -951,7 +953,9 @@ impl ToV8 for tg::Branch {
 
 		let state = self.state().read().unwrap().to_v8(scope)?;
 
-		let instance = branch.new_instance(scope, &[state]).unwrap();
+		let instance = branch
+			.new_instance(scope, &[state])
+			.wrap_err("The constructor failed.")?;
 
 		Ok(instance.into())
 	}
@@ -1126,7 +1130,9 @@ impl ToV8 for tg::Directory {
 
 		let state = self.state().read().unwrap().to_v8(scope)?;
 
-		let instance = directory.new_instance(scope, &[state]).unwrap();
+		let instance = directory
+			.new_instance(scope, &[state])
+			.wrap_err("The constructor failed.")?;
 
 		Ok(instance.into())
 	}
@@ -1217,7 +1223,9 @@ impl ToV8 for tg::File {
 
 		let state = self.state().read().unwrap().to_v8(scope)?;
 
-		let instance = file.new_instance(scope, &[state]).unwrap();
+		let instance = file
+			.new_instance(scope, &[state])
+			.wrap_err("The constructor failed.")?;
 
 		Ok(instance.into())
 	}
@@ -1330,7 +1338,9 @@ impl ToV8 for tg::Symlink {
 
 		let state = self.state().read().unwrap().to_v8(scope)?;
 
-		let instance = symlink.new_instance(scope, &[state]).unwrap();
+		let instance = symlink
+			.new_instance(scope, &[state])
+			.wrap_err("The constructor failed.")?;
 
 		Ok(instance.into())
 	}
@@ -1429,7 +1439,9 @@ impl ToV8 for tg::Lock {
 
 		let state = self.state().read().unwrap().to_v8(scope)?;
 
-		let instance = lock.new_instance(scope, &[state]).unwrap();
+		let instance = lock
+			.new_instance(scope, &[state])
+			.wrap_err("The constructor failed.")?;
 
 		Ok(instance.into())
 	}
@@ -1605,7 +1617,9 @@ impl ToV8 for tg::Target {
 
 		let state = self.state().read().unwrap().to_v8(scope)?;
 
-		let instance = target.new_instance(scope, &[state]).unwrap();
+		let instance = target
+			.new_instance(scope, &[state])
+			.wrap_err("The constructor failed.")?;
 
 		Ok(instance.into())
 	}
@@ -1867,7 +1881,9 @@ impl ToV8 for tg::Mutation {
 		let mutation = tg.get(scope, mutation.into()).unwrap();
 		let mutation = v8::Local::<v8::Function>::try_from(mutation).unwrap();
 
-		let instance = mutation.new_instance(scope, &[object.into()]).unwrap();
+		let instance = mutation
+			.new_instance(scope, &[object.into()])
+			.wrap_err("The constructor failed.")?;
 		Ok(instance.into())
 	}
 }
@@ -1981,7 +1997,9 @@ impl ToV8 for tg::Template {
 
 		let components = self.components.to_v8(scope)?;
 
-		let instance = template.new_instance(scope, &[components]).unwrap();
+		let instance = template
+			.new_instance(scope, &[components])
+			.wrap_err("The constructor failed.")?;
 
 		Ok(instance.into())
 	}
@@ -2159,7 +2177,7 @@ impl ToV8 for Error {
 
 		let instance = error
 			.new_instance(scope, &[message, location, stack, source])
-			.unwrap();
+			.wrap_err("The constructor failed.")?;
 
 		Ok(instance.into())
 	}
