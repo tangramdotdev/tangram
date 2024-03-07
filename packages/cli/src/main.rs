@@ -334,11 +334,9 @@ fn ensure_open_fd_rlimit(config: &Option<Config>) -> Result<()> {
 		rlim_cur: file_descriptor_permits,
 		rlim_max: libc::RLIM_INFINITY,
 	};
-	unsafe {
-		let result = libc::setrlimit(libc::RLIMIT_NOFILE, &new_fd_rlimit);
-		if result != 0 {
-			return Err(error!("Failed to set the file descriptor limit."));
-		}
+	let result = unsafe { libc::setrlimit(libc::RLIMIT_NOFILE, &new_fd_rlimit) };
+	if result != 0 {
+		return Err(error!("Failed to set the file descriptor limit."));
 	}
 	Ok(())
 }
