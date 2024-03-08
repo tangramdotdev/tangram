@@ -285,7 +285,6 @@ impl Server {
 		id: &tg::build::Id,
 		bytes: Bytes,
 	) -> Result<bool> {
-		eprint!("{}", String::from_utf8_lossy(&bytes));
 		// Verify the build is local.
 		if !self.get_build_exists_local(id).await? {
 			return Ok(false);
