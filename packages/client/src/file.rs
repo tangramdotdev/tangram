@@ -205,6 +205,10 @@ impl File {
 		self.contents(tg).await?.reader(tg).await
 	}
 
+	pub async fn cursor(&self, tg: &dyn Handle) -> Result<blob::Cursor> {
+		self.contents(tg).await?.cursor(tg).await
+	}
+
 	pub async fn size(&self, tg: &dyn Handle) -> Result<u64> {
 		self.contents(tg).await?.size(tg).await
 	}

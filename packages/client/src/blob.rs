@@ -9,7 +9,7 @@ use futures::{
 	FutureExt, TryStreamExt,
 };
 use num::ToPrimitive;
-use std::{io::Cursor, pin::Pin};
+use std::pin::Pin;
 use tokio::io::{AsyncRead, AsyncReadExt, AsyncSeek};
 use tokio_util::io::SyncIoBridge;
 
@@ -147,6 +147,10 @@ impl Blob {
 
 	pub async fn reader(&self, tg: &dyn Handle) -> Result<Reader> {
 		Reader::new(tg, self.clone()).await
+	}
+
+	pub async fn cursor(&self, tg: &dyn Handle) -> Result<Cursor> {
+		Cursor::new(tg, self.clone()).await
 	}
 
 	pub async fn bytes(&self, tg: &dyn Handle) -> Result<Vec<u8>> {
@@ -376,9 +380,9 @@ impl TryFrom<Value> for Blob {
 /// A blob reader.
 pub struct Reader {
 	blob: Blob,
-	cursor: Option<Cursor<Bytes>>,
+	cursor: Option<std::io::Cursor<Bytes>>,
 	position: u64,
-	read: Option<BoxFuture<'static, Result<Option<Cursor<Bytes>>>>>,
+	read: Option<BoxFuture<'static, Result<Option<std::io::Cursor<Bytes>>>>>,
 	size: u64,
 	tg: Box<dyn Handle>,
 }
@@ -424,7 +428,8 @@ impl AsyncRead for Reader {
 			let tg = this.tg.clone_box();
 			let blob = this.blob.clone();
 			let position = this.position;
-			let read = async move { poll_read_inner(tg, blob, position).await }.boxed();
+			let read =
+				async move { get_bytes_at_position(tg.as_ref(), &blob, position).await }.boxed();
 			this.read.replace(read);
 		}
 
@@ -463,11 +468,11 @@ impl AsyncRead for Reader {
 	}
 }
 
-async fn poll_read_inner(
-	tg: Box<dyn Handle>,
-	blob: Blob,
+async fn get_bytes_at_position(
+	tg: &dyn Handle,
+	blob: &Blob,
 	position: u64,
-) -> Result<Option<Cursor<Bytes>>> {
+) -> Result<Option<std::io::Cursor<Bytes>>> {
 	let mut current_blob = blob.clone();
 	let mut current_blob_position = 0;
 	'a: loop {
@@ -483,14 +488,14 @@ async fn poll_read_inner(
 					tg.get_object(&id.unwrap().into()).await?.bytes.clone()
 				};
 				if position < current_blob_position + bytes.len().to_u64().unwrap() {
-					let mut cursor = Cursor::new(bytes.clone());
+					let mut cursor = std::io::Cursor::new(bytes.clone());
 					cursor.set_position(position - current_blob_position);
 					break Ok(Some(cursor));
 				}
 				return Ok(None);
 			},
 			Blob::Branch(branch) => {
-				for child in branch.children(tg.as_ref()).await? {
+				for child in branch.children(tg).await? {
 					if position < current_blob_position + child.size {
 						current_blob = child.blob.clone();
 						continue 'a;
@@ -619,5 +624,108 @@ impl TryFrom<String> for CompressionFormat {
 
 	fn try_from(value: String) -> Result<Self, Self::Error> {
 		value.parse()
+	}
+}
+
+/// A cursor around the bytes of the blob. This is like [Reader], but does not require additional copying into a user-supplied buffer.
+pub struct Cursor {
+	blob: Blob,
+	cursor: Option<std::io::Cursor<Bytes>>,
+	position: u64,
+	size: u64,
+	tg: Box<dyn Handle>,
+}
+
+impl Cursor {
+	/// Create a new blob cursor.
+	pub async fn new(tg: &dyn Handle, blob: Blob) -> Result<Self> {
+		let cursor = None;
+		let position = 0;
+		let size = blob.size(tg).await?;
+		let tg = tg.clone_box();
+		Ok(Self {
+			blob,
+			cursor,
+			position,
+			size,
+			tg,
+		})
+	}
+
+	/// Get at least `count` many bytes and advance the cursor. This is guaranteed to return at least `count` bytes, unless there are not enough bytes left in the blob. When reaching the end of the blob, this method returns None.
+	pub async fn advance(&mut self, count: usize) -> Result<Option<Bytes>> {
+		let Some(bytes) = self.advance_inner(count).await? else {
+			return Ok(None);
+		};
+		if bytes.len() == count {
+			return Ok(Some(bytes));
+		}
+
+		// If the size of the buffer returned was less than the size requested, but we haven't reached the end of the blob, then we need to copy into a newly allocated buffer to uphold the API contract.
+		let mut bytes = bytes.to_vec();
+		bytes.reserve(count - bytes.len());
+		while bytes.len() < count {
+			let Some(additional) = self.advance_inner(count - bytes.len()).await? else {
+				break;
+			};
+			bytes.extend_from_slice(additional.as_ref());
+		}
+		Ok(Some(bytes.into()))
+	}
+
+	async fn advance_inner(&mut self, count: usize) -> Result<Option<Bytes>> {
+		// Create the cursor if necessary.
+		if self.cursor.is_none() {
+			let Some(cursor) =
+				get_bytes_at_position(self.tg.as_ref(), &self.blob, self.position).await?
+			else {
+				return Ok(None);
+			};
+			self.cursor.replace(cursor);
+		}
+
+		// Get the bytes and number that we can read.
+		let cursor = self.cursor.as_mut().unwrap();
+		let bytes = cursor.get_ref();
+		let position = cursor.position().to_usize().unwrap();
+		let n = std::cmp::min(count, bytes.len() - position);
+		let bytes = cursor.get_ref().slice(position..position + n);
+
+		// Advance the position.
+		self.position += n.to_u64().unwrap();
+		let position = position + n;
+		cursor.set_position(position.to_u64().unwrap());
+		if position == cursor.get_ref().len() {
+			self.cursor.take();
+		}
+		Ok(Some(bytes))
+	}
+
+	/// Seek to a different position within the blob.
+	pub fn seek(&mut self, seek: std::io::SeekFrom) -> std::io::Result<()> {
+		let position = match seek {
+			std::io::SeekFrom::Start(seek) => seek.to_i64().unwrap(),
+			std::io::SeekFrom::End(seek) => self.size.to_i64().unwrap() + seek,
+			std::io::SeekFrom::Current(seek) => self.position.to_i64().unwrap() + seek,
+		};
+		let position = position.to_u64().ok_or(std::io::Error::other(
+			"Attempted to seek to a negative or overflowing position.",
+		))?;
+		if position > self.size {
+			return Err(std::io::Error::other(
+				"Attempted to seek to a position beyond the end.",
+			));
+		}
+		if let Some(cursor) = self.cursor.as_mut() {
+			let leaf_position = position.to_i64().unwrap()
+				- (self.position.to_i64().unwrap() - cursor.position().to_i64().unwrap());
+			if leaf_position >= 0 && leaf_position < cursor.get_ref().len().to_i64().unwrap() {
+				cursor.set_position(leaf_position.to_u64().unwrap());
+			} else {
+				self.cursor.take();
+			}
+		}
+		self.position = position;
+		Ok(())
 	}
 }

@@ -1,4 +1,3 @@
-use crate::blob;
 use bytes::Bytes;
 use either::Either;
 use fnv::FnvBuildHasher;
@@ -13,7 +12,6 @@ use std::{
 };
 use tangram_client as tg;
 use tangram_error::{Result, Wrap, WrapErr};
-use tokio::io::AsyncSeekExt;
 use zerocopy::{AsBytes, FromBytes};
 
 mod sys;
@@ -81,7 +79,10 @@ struct FileHandle(u64);
 /// The data associated with a file handle.
 enum FileHandleData {
 	Directory,
-	File { node: NodeId, reader: blob::Reader },
+	File {
+		node: NodeId,
+		cursor: tg::blob::Cursor,
+	},
 	Symlink,
 }
 
@@ -586,13 +587,13 @@ impl Server {
 			},
 			NodeKind::Directory { .. } => FileHandleData::Directory,
 			NodeKind::File { file, .. } => {
-				let contents = file.contents(&self.inner.server).await.map_err(|_| libc::EIO)?;
-				let reader = blob::Reader::new(&self.inner.server, contents.clone())
+				let cursor = file
+					.cursor(&self.inner.server)
 					.await
 					.map_err(|_| libc::EIO)?;
 				FileHandleData::File {
 					node: node_id,
-					reader,
+					cursor,
 				}
 			},
 			NodeKind::Symlink { .. } | NodeKind::Checkout { .. } => FileHandleData::Symlink,
@@ -655,30 +656,31 @@ impl Server {
 		// Get the reader, sanity checking that the file handle was not corrupted.
 		let mut file_handle_data = file_handle_data.write().await;
 
-		let blob_reader = match &mut *file_handle_data {
+		let blob_cursor = match &mut *file_handle_data {
 			FileHandleData::File { node, .. } if node.0 != node_id.0 => {
 				tracing::error!(?file_handle, ?node, "File handle corrupted.");
 				return Err(libc::EIO);
 			},
-			FileHandleData::File { reader, .. } => reader,
+			FileHandleData::File { cursor, .. } => cursor,
 			FileHandleData::Directory => return Err(libc::EISDIR),
 			FileHandleData::Symlink => return Err(libc::EINVAL),
 		};
 
 		// Seek to the offset.
-		blob_reader
+		blob_cursor
 			.seek(SeekFrom::Start(data.offset))
-			.await
+			.inspect_err(|e| tracing::error!(?e, "Failed to seek."))
 			.map_err(|_| libc::EIO)?;
 
 		// Read.
-		let bytes = blob_reader.get_bytes().await.map_err(|_| libc::EIO)?;
-		if let Some(mut bytes) = bytes {
-			bytes.truncate(data.size.to_usize().unwrap());
-			Ok(Response::Read(bytes))
-		} else {
-			Ok(Response::Read(Bytes::new()))
-		}
+		let read_size = data.size.to_usize().unwrap();
+		let bytes = blob_cursor
+			.advance(read_size)
+			.await
+			.inspect_err(|e| tracing::error!(?e, "Failed to advance blob cursor."))
+			.map_err(|_| libc::EIO)?
+			.unwrap_or_default();
+		Ok(Response::Read(bytes))
 	}
 
 	async fn handle_read_dir_request(
