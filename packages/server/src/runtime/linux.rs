@@ -137,17 +137,17 @@ pub async fn build(
 	let _artifacts_directory_host_path = server_directory_host_path.join("artifacts");
 	let artifacts_directory_guest_path = server_directory_guest_path.join("artifacts");
 
-	// Create the host and guest paths for the proxy server socket.
-	let proxy_server_socket_host_path = server_directory_host_path.join("socket");
-	let proxy_server_socket_guest_path = server_directory_guest_path.join("socket");
-
 	// Create the host and guest paths for the home directory, with inner .tangram directory.
 	let home_directory_host_path =
 		root_directory_host_path.join(HOME_DIRECTORY_GUEST_PATH.strip_prefix('/').unwrap());
 	let home_directory_guest_path = PathBuf::from(HOME_DIRECTORY_GUEST_PATH);
-	tokio::fs::create_dir_all(&home_directory_host_path)
+	tokio::fs::create_dir_all(&home_directory_host_path.join(".tangram"))
 		.await
 		.wrap_err("Failed to create the home directory.")?;
+
+	// Create the host and guest paths for the proxy server socket.
+	let proxy_server_socket_host_path = home_directory_host_path.join(".tangram/socket");
+	let proxy_server_socket_guest_path = home_directory_guest_path.join(".tangram/socket");
 
 	// Create the host and guest paths for the working directory.
 	let working_directory_host_path =
