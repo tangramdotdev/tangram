@@ -397,10 +397,9 @@ impl Server {
 					.next()
 					.wrap_err("Failed to get the row.")?
 					.wrap_err("Expected a row.")?;
-				row.get::<_, i64>(0)
+				row.get::<_, Option<i64>>(0)
 					.wrap_err("Failed to deserialize the column.")?
-					.to_u64()
-					.unwrap()
+					.map(|count| count.to_u64().unwrap())
 			},
 
 			Database::Postgres(database) => {
@@ -422,10 +421,9 @@ impl Server {
 					.await
 					.wrap_err("Failed to execute the statement.")?;
 				let row = rows.into_iter().next().wrap_err("Expected a row.")?;
-				row.try_get::<_, i64>(0)
+				row.try_get::<_, Option<i64>>(0)
 					.wrap_err("Failed to deserialize the column.")?
-					.to_u64()
-					.unwrap()
+					.map(|count| count.to_u64().unwrap())
 			},
 		};
 
@@ -463,10 +461,9 @@ impl Server {
 					.next()
 					.wrap_err("Failed to get the row.")?
 					.wrap_err("Expected a row.")?;
-				row.get::<_, i64>(0)
+				row.get::<_, Option<i64>>(0)
 					.wrap_err("Failed to deserialize the column.")?
-					.to_u64()
-					.unwrap()
+					.map(|weight| weight.to_u64().unwrap())
 			},
 
 			Database::Postgres(database) => {
@@ -500,10 +497,9 @@ impl Server {
 					.await
 					.wrap_err("Failed to execute the statement.")?;
 				let row = rows.into_iter().next().wrap_err("Expected a row.")?;
-				row.try_get::<_, i64>(0)
+				row.try_get::<_, Option<i64>>(0)
 					.wrap_err("Failed to deserialize the column.")?
-					.to_u64()
-					.unwrap()
+					.map(|weight| weight.to_u64().unwrap())
 			},
 		};
 
@@ -522,11 +518,11 @@ impl Server {
 						finished_at = ?6
 					where id = ?7;
 				";
-				let count = count.to_i64().unwrap();
+				let count = count.map(|count| count.to_i64().unwrap());
 				let log = log.to_string();
 				let outcome = SqliteJson(outcome);
 				let status = tg::build::Status::Finished.to_string();
-				let weight = weight.to_i64().unwrap();
+				let weight = weight.map(|weight| weight.to_i64().unwrap());
 				let finished_at = time::OffsetDateTime::now_utc().format(&Rfc3339).unwrap();
 				let id = id.to_string();
 				let params = sqlite_params![count, log, outcome, status, weight, finished_at, id];
@@ -551,11 +547,11 @@ impl Server {
 						finished_at = $6
 					where id = $7;
 				";
-				let count = count.to_i64().unwrap();
+				let count = count.map(|count| count.to_i64().unwrap());
 				let log = log.to_string();
 				let outcome = PostgresJson(outcome);
 				let status = tg::build::Status::Finished.to_string();
-				let weight = weight.to_i64().unwrap();
+				let weight = weight.map(|weight| weight.to_i64().unwrap());
 				let finished_at = time::OffsetDateTime::now_utc().format(&Rfc3339).unwrap();
 				let id = id.to_string();
 				let params = postgres_params![count, log, outcome, status, weight, finished_at, id];
