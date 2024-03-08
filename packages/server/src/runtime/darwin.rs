@@ -1,4 +1,4 @@
-use super::util::render;
+use super::{proxy::Proxy, util::render};
 use bytes::Bytes;
 use futures::{stream::FuturesOrdered, TryStreamExt};
 use indoc::writedoc;
@@ -8,19 +8,17 @@ use std::{
 	ffi::{CStr, CString},
 	fmt::Write,
 	os::unix::prelude::OsStrExt,
-	path::Path,
 };
 use tangram_client as tg;
 use tangram_error::{error, Error, Result, Wrap, WrapErr};
 use tokio::io::AsyncReadExt;
 
-pub async fn build(
-	tg: &dyn tg::Handle,
-	build: &tg::Build,
-	server_directory_path: &Path,
-) -> Result<tg::Value> {
+pub async fn build(tg: &dyn tg::Handle, build: &tg::Build) -> Result<tg::Value> {
 	// Get the target.
 	let target = build.target(tg).await?;
+
+	// Get the server directory path.
+	let server_directory_path: std::path::PathBuf = tg.path().await?.unwrap().into();
 
 	// Get the artifacts path.
 	let artifacts_directory_path = server_directory_path.join("artifacts");
@@ -104,16 +102,18 @@ pub async fn build(
 		output_path.to_str().unwrap().to_owned(),
 	);
 
-	// Set `$TANGRAM_RUNTIME`
-	let address = tg::Address::Unix(server_directory_path.join("socket"));
-	let runtime = tg::Runtime {
-		address,
-		build: build.id().clone(),
-	};
+	// Set `$TANGRAM_ADDRESS`
+	let proxy_server_socket_path = home_directory_path.join(".tangram/socket");
 	env.insert(
-		"TANGRAM_RUNTIME".to_owned(),
-		serde_json::to_string(&runtime).unwrap(),
+		"TANGRAM_ADDRESS".to_owned(),
+		proxy_server_socket_path.display().to_string(),
 	);
+
+	// Create a proxied server handle and start listening on a new socket.
+	let proxy_server_address = tg::Address::Unix(proxy_server_socket_path.clone());
+	let proxy_server = Proxy::start(tg.clone_box().into(), build.id(), proxy_server_address)
+		.await
+		.wrap_err("Failed to start proxy server")?;
 
 	// Create the sandbox profile.
 	let mut profile = String::new();
@@ -178,6 +178,9 @@ pub async fn build(
 				(literal "/usr/bin/env")
 				(literal "/bin/sh")
 				(literal "/bin/bash")
+				(literal "/usr/bin/curl")
+				(literal "/usr/bin/stat")
+				(literal "/usr/bin/tee")
 			)
 
 			;; Support Rosetta.
@@ -232,6 +235,17 @@ pub async fn build(
 		.unwrap();
 	}
 
+	// Allow read and write access to the server address path.
+	writedoc!(
+		profile,
+		r#"
+			(allow file-read* (subpath {0}))
+			(allow file-write* (subpath {0}))
+		"#,
+		escape(proxy_server_socket_path.display().to_string().as_bytes())
+	)
+	.unwrap();
+
 	// Allow read access to the artifacts directory.
 	writedoc!(
 		profile,
@@ -241,7 +255,7 @@ pub async fn build(
 			(allow file-read* (subpath {0}))
 			(allow file-write* (subpath {0}))
 		"#,
-		escape(server_directory_path.as_os_str().as_bytes())
+		escape(artifacts_directory_path.as_os_str().as_bytes())
 	)
 	.unwrap();
 
@@ -382,6 +396,9 @@ pub async fn build(
 		.await
 		.wrap_err("Failed to join the log task.")?
 		.wrap_err("The log task failed.")?;
+
+	// Stop the proxy server.
+	proxy_server.stop().await?;
 
 	// Return an error if the process did not exit successfully.
 	if !exit_status.success() {

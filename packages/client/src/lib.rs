@@ -103,20 +103,18 @@ pub struct Runtime {
 }
 
 impl Client {
-	pub fn with_runtime() -> Result<Self> {
-		let json = std::env::var("TANGRAM_RUNTIME")
-			.wrap_err("Failed to get the TANGRAM_RUNTIME environment variable.")?;
-		let runtime = serde_json::from_str::<Runtime>(&json)
-			.wrap_err("Failed to deserialize the TANGRAM_RUNTIME environment variable.")?;
-		let address = runtime.address;
-		let build = Some(runtime.build);
-		let file_descriptor_semaphore = tokio::sync::Semaphore::new(16);
+	pub fn with_env() -> Result<Self> {
+		let address = std::env::var("TANGRAM_ADDRESS")
+			.wrap_err("Failed to get the TANGRAM_ADDRESS environment variable.")?
+			.parse()
+			.wrap_err("Could not parse an address from TANGRAM_ADDRESS environment variable.")?;
+		let file_descriptor_semaphore = tokio::sync::Semaphore::new(32);
 		let sender = tokio::sync::Mutex::new(None);
 		let tls = false;
 		let user = None;
 		let inner = Arc::new(Inner {
 			address,
-			build,
+			build: None,
 			file_descriptor_semaphore,
 			sender,
 			tls,

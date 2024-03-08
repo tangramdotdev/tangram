@@ -1,4 +1,5 @@
 use super::util::render;
+use crate::runtime::proxy::Proxy;
 use bytes::Bytes;
 use futures::{stream::FuturesOrdered, TryStreamExt};
 use indoc::formatdoc;
@@ -136,7 +137,11 @@ pub async fn build(
 	let _artifacts_directory_host_path = server_directory_host_path.join("artifacts");
 	let artifacts_directory_guest_path = server_directory_guest_path.join("artifacts");
 
-	// Create the host and guest paths for the home directory.
+	// Create the host and guest paths for the proxy server socket.
+	let proxy_server_socket_host_path = server_directory_host_path.join(".socket");
+	let proxy_server_socket_guest_path = server_directory_guest_path.join("socket");
+
+	// Create the host and guest paths for the home directory, with inner .tangram directory.
 	let home_directory_host_path =
 		root_directory_host_path.join(HOME_DIRECTORY_GUEST_PATH.strip_prefix('/').unwrap());
 	let home_directory_guest_path = PathBuf::from(HOME_DIRECTORY_GUEST_PATH);
@@ -201,15 +206,17 @@ pub async fn build(
 	);
 
 	// Set `$TANGRAM_RUNTIME`
-	let address = tg::Address::Unix(server_directory_guest_path.join("socket"));
-	let runtime = tg::Runtime {
-		address,
-		build: build.id().clone(),
-	};
+	let proxy_server_guest_address = tg::Address::Unix(proxy_server_socket_guest_path);
 	env.insert(
-		"TANGRAM_RUNTIME".to_owned(),
-		serde_json::to_string(&runtime).unwrap(),
+		"TANGRAM_ADDRESS".to_owned(),
+		proxy_server_guest_address.to_string(),
 	);
+
+	// Create proxy server.
+	let proxy_server_host_address = tg::Address::Unix(proxy_server_socket_host_path);
+	let proxy_server = Proxy::start(tg.clone_box().into(), build.id(), proxy_server_host_address)
+		.await
+		.wrap_err("Could not create proxy server")?;
 
 	// Create /etc.
 	tokio::fs::create_dir_all(root_directory_host_path.join("etc"))
@@ -637,6 +644,12 @@ pub async fn build(
 			return Err(error!(r#"The process exited with signal "{signal}"."#));
 		},
 	};
+
+	// Stop the proxy server.
+	proxy_server
+		.stop()
+		.await
+		.wrap_err("Failed to stop the proxy server.")?;
 
 	// Create the output.
 	let value = if tokio::fs::try_exists(&output_host_path)
