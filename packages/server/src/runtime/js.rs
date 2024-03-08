@@ -625,20 +625,13 @@ extern "C" fn promise_reject_callback(message: v8::PromiseRejectMessage) {
 
 	match message.get_event() {
 		v8::PromiseRejectEvent::PromiseRejectWithNoHandler => {
-			tracing::info!("PromiseRejectWithNoHandler");
 			let exception = message.get_promise().result(scope);
 			let error = error::from_exception(&state, scope, exception);
 			state.rejection.send_replace(Some(error));
 		},
-		v8::PromiseRejectEvent::PromiseHandlerAddedAfterReject => {
-			tracing::info!("PromiseHandlerAddedAfterReject");
-		},
-		v8::PromiseRejectEvent::PromiseRejectAfterResolved => {
-			tracing::info!("PromiseRejectAfterResolved");
-		},
-		v8::PromiseRejectEvent::PromiseResolveAfterResolved => {
-			tracing::info!("PromiseResolveAfterResolved");
-		},
+		v8::PromiseRejectEvent::PromiseHandlerAddedAfterReject
+		| v8::PromiseRejectEvent::PromiseRejectAfterResolved
+		| v8::PromiseRejectEvent::PromiseResolveAfterResolved => {},
 	}
 }
 

@@ -4,7 +4,7 @@ use futures::{stream::FuturesUnordered, TryStreamExt};
 use http_body_util::BodyExt;
 use std::os::unix::prelude::PermissionsExt;
 use tangram_client as tg;
-use tangram_error::{error, Error, Result, WrapErr};
+use tangram_error::{error, Error, Result, Wrap, WrapErr};
 use tangram_util::{
 	fs::rmrf,
 	http::{full, ok, Incoming, Outgoing},
@@ -269,23 +269,25 @@ impl Server {
 			// Create a tmp path.
 			let tmp = self.create_tmp();
 
-			// Perform the checkout.
+			// Perform the checkout to the tmp path.
 			self.check_out_inner(&tmp.path.clone().try_into()?, &artifact, None, true, 0)
 				.await?;
 
 			// Move the checkout to the checkouts directory.
-			match std::fs::rename(&tmp, &path) {
-				Ok(()) => Ok(()),
+			match tokio::fs::rename(&tmp, &path).await {
+				Ok(()) => (),
 				// If the entry in the checkouts directory exists, then remove the checkout at the tmp path.
 				Err(ref error)
 					if matches!(error.raw_os_error(), Some(libc::ENOTEMPTY | libc::EEXIST)) =>
 				{
 					rmrf(&tmp).await?;
-					Ok(())
 				},
-				Err(error) => Err(error),
-			}
-			.wrap_err("Failed to move the checkout to the checkouts directory.")?;
+				Err(error) => {
+					return Err(
+						error.wrap("Failed to move the checkout to the checkouts directory.")
+					);
+				},
+			};
 
 			Ok(())
 		}
@@ -387,6 +389,7 @@ impl Server {
 					.await
 					.wrap_err("Failed to create the directory.")?;
 			},
+
 			// If there is no artifact at this path, then create a directory.
 			None => {
 				tokio::fs::create_dir_all(path)
@@ -491,8 +494,8 @@ impl Server {
 				path: None,
 			};
 			self.check_out_artifact(arg).await?;
-			let dst = self.artifacts_path().join(file.id(self).await?.to_string());
-			tokio::fs::hard_link(dst, path)
+			let src = self.artifacts_path().join(file.id(self).await?.to_string());
+			tokio::fs::hard_link(&src, path)
 				.await
 				.wrap_err("Failed to create the hard link.")?;
 			return Ok(());
