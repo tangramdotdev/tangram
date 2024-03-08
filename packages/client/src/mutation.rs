@@ -45,12 +45,12 @@ pub enum Data {
 	},
 	TemplatePrepend {
 		template: template::Data,
-		#[serde(skip_serializing_if = "Option::is_none")]
+		#[serde(default, skip_serializing_if = "Option::is_none")]
 		separator: Option<String>,
 	},
 	TemplateAppend {
 		template: template::Data,
-		#[serde(skip_serializing_if = "Option::is_none")]
+		#[serde(default, skip_serializing_if = "Option::is_none")]
 		separator: Option<String>,
 	},
 }

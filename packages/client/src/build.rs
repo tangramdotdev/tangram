@@ -84,31 +84,34 @@ pub struct GetArg {}
 #[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
 pub struct GetOutput {
 	pub id: Id,
-	#[serde(skip_serializing_if = "Option::is_none")]
+	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub count: Option<u64>,
 	pub host: Triple,
-	#[serde(skip_serializing_if = "Option::is_none")]
+	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub log: Option<blob::Id>,
-	#[serde(skip_serializing_if = "Option::is_none")]
+	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub outcome: Option<outcome::Data>,
 	pub retry: Retry,
 	pub status: Status,
 	pub target: target::Id,
-	#[serde(skip_serializing_if = "Option::is_none")]
+	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub weight: Option<u64>,
 	#[serde(with = "time::serde::rfc3339")]
 	pub created_at: time::OffsetDateTime,
 	#[serde(
+		default,
 		skip_serializing_if = "Option::is_none",
 		with = "time::serde::rfc3339::option"
 	)]
 	pub queued_at: Option<time::OffsetDateTime>,
 	#[serde(
+		default,
 		skip_serializing_if = "Option::is_none",
 		with = "time::serde::rfc3339::option"
 	)]
 	pub started_at: Option<time::OffsetDateTime>,
 	#[serde(
+		default,
 		skip_serializing_if = "Option::is_none",
 		with = "time::serde::rfc3339::option"
 	)]
@@ -119,31 +122,34 @@ pub struct GetOutput {
 pub struct PutArg {
 	pub id: Id,
 	pub children: Vec<Id>,
-	#[serde(skip_serializing_if = "Option::is_none")]
+	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub count: Option<u64>,
 	pub host: Triple,
-	#[serde(skip_serializing_if = "Option::is_none")]
+	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub log: Option<blob::Id>,
-	#[serde(skip_serializing_if = "Option::is_none")]
+	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub outcome: Option<outcome::Data>,
 	pub retry: Retry,
 	pub status: Status,
 	pub target: target::Id,
-	#[serde(skip_serializing_if = "Option::is_none")]
+	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub weight: Option<u64>,
 	#[serde(with = "time::serde::rfc3339")]
 	pub created_at: time::OffsetDateTime,
 	#[serde(
+		default,
 		skip_serializing_if = "Option::is_none",
 		with = "time::serde::rfc3339::option"
 	)]
 	pub queued_at: Option<time::OffsetDateTime>,
 	#[serde(
+		default,
 		skip_serializing_if = "Option::is_none",
 		with = "time::serde::rfc3339::option"
 	)]
 	pub started_at: Option<time::OffsetDateTime>,
 	#[serde(
+		default,
 		skip_serializing_if = "Option::is_none",
 		with = "time::serde::rfc3339::option"
 	)]

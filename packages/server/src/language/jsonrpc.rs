@@ -20,7 +20,7 @@ pub struct Request {
 	pub jsonrpc: String,
 	pub id: Id,
 	pub method: String,
-	#[serde(skip_serializing_if = "Option::is_none")]
+	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub params: Option<serde_json::Value>,
 }
 
@@ -28,9 +28,9 @@ pub struct Request {
 pub struct Response {
 	pub jsonrpc: String,
 	pub id: Id,
-	#[serde(skip_serializing_if = "Option::is_none")]
+	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub result: Option<serde_json::Value>,
-	#[serde(skip_serializing_if = "Option::is_none")]
+	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub error: Option<ResponseError>,
 }
 
@@ -62,6 +62,6 @@ pub enum ResponseErrorCode {
 pub struct Notification {
 	pub jsonrpc: String,
 	pub method: String,
-	#[serde(skip_serializing_if = "Option::is_none")]
+	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub params: Option<serde_json::Value>,
 }

@@ -16,19 +16,19 @@ use tangram_error::WrapErr;
 )]
 pub struct Dependency {
 	/// The package's ID.
-	#[serde(skip_serializing_if = "Option::is_none")]
+	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub id: Option<directory::Id>,
 
 	/// The name of the package.
-	#[serde(skip_serializing_if = "Option::is_none")]
+	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub name: Option<String>,
 
 	/// The package's path.
-	#[serde(skip_serializing_if = "Option::is_none")]
+	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub path: Option<crate::Path>,
 
 	/// The package's version.
-	#[serde(skip_serializing_if = "Option::is_none")]
+	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub version: Option<String>,
 }
 

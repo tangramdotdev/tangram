@@ -10,17 +10,17 @@ use tokio_util::io::StreamReader;
 #[serde_as]
 #[derive(Clone, Debug, Default, serde::Serialize, serde::Deserialize)]
 pub struct GetArg {
-	#[serde(skip_serializing_if = "Option::is_none")]
+	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub length: Option<i64>,
 
-	#[serde(skip_serializing_if = "Option::is_none")]
+	#[serde(default, skip_serializing_if = "Option::is_none")]
 	#[serde_as(as = "Option<crate::util::SeekFromString>")]
 	pub position: Option<std::io::SeekFrom>,
 
-	#[serde(skip_serializing_if = "Option::is_none")]
+	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub size: Option<u64>,
 
-	#[serde(skip_serializing_if = "Option::is_none")]
+	#[serde(default, skip_serializing_if = "Option::is_none")]
 	#[serde_as(as = "Option<serde_with::DurationSeconds>")]
 	pub timeout: Option<std::time::Duration>,
 }

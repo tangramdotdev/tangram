@@ -78,7 +78,7 @@ pub mod data {
 		Clone, Debug, Eq, Ord, PartialEq, PartialOrd, serde::Deserialize, serde::Serialize,
 	)]
 	pub struct Entry {
-		#[serde(skip_serializing_if = "Option::is_none")]
+		#[serde(default, skip_serializing_if = "Option::is_none")]
 		pub package: Option<directory::Id>,
 		#[serde(with = "either::serde_untagged")]
 		pub lock: Either<usize, Id>,

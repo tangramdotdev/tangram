@@ -9,11 +9,11 @@ pub type Result<T, E = Error> = std::result::Result<T, E>;
 #[error("{message}")]
 pub struct Error {
 	pub message: String,
-	#[serde(skip_serializing_if = "Option::is_none")]
+	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub location: Option<Location>,
-	#[serde(skip_serializing_if = "Option::is_none")]
+	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub stack: Option<Vec<Location>>,
-	#[serde(skip_serializing_if = "Option::is_none")]
+	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub source: Option<Arc<Error>>,
 }
 
