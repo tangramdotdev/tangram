@@ -8,17 +8,19 @@ use std::{
 	ffi::{CStr, CString},
 	fmt::Write,
 	os::unix::prelude::OsStrExt,
+	path::Path,
 };
 use tangram_client as tg;
 use tangram_error::{error, Error, Result, Wrap, WrapErr};
 use tokio::io::AsyncReadExt;
 
-pub async fn build(tg: &dyn tg::Handle, build: &tg::Build) -> Result<tg::Value> {
+pub async fn build(
+	tg: &dyn tg::Handle,
+	build: &tg::Build,
+	server_directory_path: &Path,
+) -> Result<tg::Value> {
 	// Get the target.
 	let target = build.target(tg).await?;
-
-	// Get the server directory path.
-	let server_directory_path: std::path::PathBuf = tg.path().await?.unwrap().into();
 
 	// Get the artifacts path.
 	let artifacts_directory_path = server_directory_path.join("artifacts");
