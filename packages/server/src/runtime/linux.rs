@@ -138,7 +138,7 @@ pub async fn build(
 	let artifacts_directory_guest_path = server_directory_guest_path.join("artifacts");
 
 	// Create the host and guest paths for the proxy server socket.
-	let proxy_server_socket_host_path = server_directory_host_path.join(".socket");
+	let proxy_server_socket_host_path = server_directory_host_path.join("socket");
 	let proxy_server_socket_guest_path = server_directory_guest_path.join("socket");
 
 	// Create the host and guest paths for the home directory, with inner .tangram directory.

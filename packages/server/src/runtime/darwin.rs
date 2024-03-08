@@ -103,17 +103,20 @@ pub async fn build(tg: &dyn tg::Handle, build: &tg::Build) -> Result<tg::Value> 
 	);
 
 	// Set `$TANGRAM_ADDRESS`
+	tokio::fs::create_dir_all(home_directory_path.join(".tangram"))
+		.await
+		.wrap_err("Failed to create the guest .tangram directory.")?;
 	let proxy_server_socket_path = home_directory_path.join(".tangram/socket");
+	let proxy_server_address = tg::Address::Unix(proxy_server_socket_path.clone());
 	env.insert(
 		"TANGRAM_ADDRESS".to_owned(),
-		proxy_server_socket_path.display().to_string(),
+		proxy_server_address.to_string(),
 	);
 
 	// Create a proxied server handle and start listening on a new socket.
-	let proxy_server_address = tg::Address::Unix(proxy_server_socket_path.clone());
 	let proxy_server = Proxy::start(tg.clone_box().into(), build.id(), proxy_server_address)
 		.await
-		.wrap_err("Failed to start proxy server")?;
+		.wrap_err("Could not create proxy server")?;
 
 	// Create the sandbox profile.
 	let mut profile = String::new();
@@ -178,9 +181,6 @@ pub async fn build(tg: &dyn tg::Handle, build: &tg::Build) -> Result<tg::Value> 
 				(literal "/usr/bin/env")
 				(literal "/bin/sh")
 				(literal "/bin/bash")
-				(literal "/usr/bin/curl")
-				(literal "/usr/bin/stat")
-				(literal "/usr/bin/tee")
 			)
 
 			;; Support Rosetta.
@@ -234,17 +234,6 @@ pub async fn build(tg: &dyn tg::Handle, build: &tg::Build) -> Result<tg::Value> 
 		)
 		.unwrap();
 	}
-
-	// Allow read and write access to the server address path.
-	writedoc!(
-		profile,
-		r#"
-			(allow file-read* (subpath {0}))
-			(allow file-write* (subpath {0}))
-		"#,
-		escape(proxy_server_socket_path.display().to_string().as_bytes())
-	)
-	.unwrap();
 
 	// Allow read access to the artifacts directory.
 	writedoc!(

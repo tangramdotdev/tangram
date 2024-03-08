@@ -201,7 +201,7 @@ impl Server {
 							.try_collect::<Vec<_>>()
 							.await?;
 					}
-					crate::runtime::darwin::build(self, &build, &self.inner.path).await
+					crate::runtime::darwin::build(self, &build).await
 				}
 				#[cfg(not(target_os = "macos"))]
 				{
