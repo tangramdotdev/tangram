@@ -6,12 +6,12 @@ use tangram_util::http::{empty, full, ok, Incoming, Outgoing};
 impl Server {
 	pub async fn health(&self) -> Result<tg::server::Health> {
 		Ok(tg::server::Health {
-			version: self.inner.version.clone(),
+			version: self.inner.options.version.clone(),
 		})
 	}
 
 	pub async fn path(&self) -> Result<Option<tg::Path>> {
-		Ok(Some(self.inner.path.clone().try_into()?))
+		Ok(Some(self.inner.options.path.clone().try_into()?))
 	}
 }
 

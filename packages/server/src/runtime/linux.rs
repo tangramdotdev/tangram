@@ -77,7 +77,7 @@ pub async fn build(server: &Server, build: &tg::Build) -> Result<tg::Value> {
 	}
 
 	// Get the server directory path.
-	let server_directory_host_path = server.inner.path.clone();
+	let server_directory_host_path = server.inner.options.path.clone();
 	let server_directory_guest_path = PathBuf::from(SERVER_DIRECTORY_GUEST_PATH);
 
 	// Get the server temp directory path.
@@ -549,6 +549,15 @@ pub async fn build(server: &Server, build: &tg::Build) -> Result<tg::Value> {
 					Ok(0) => return Ok(()),
 					Ok(size) => {
 						let log = Bytes::copy_from_slice(&buf[0..size]);
+						if server.inner.options.write_build_logs_to_stderr {
+							tokio::io::stderr()
+								.write_all(&log)
+								.await
+								.inspect_err(|e| {
+									tracing::error!(?e, "Failed to write build log to stderr.");
+								})
+								.ok();
+						}
 						build.add_log(&server, log).await?;
 					},
 				}
