@@ -494,7 +494,7 @@ impl Server {
 				path: None,
 			};
 			self.check_out_artifact(arg).await?;
-			let src = self.artifacts_path().join(file.id(self).await?.to_string());
+			let src = self.checkouts_path().join(file.id(self).await?.to_string());
 			tokio::fs::hard_link(&src, path)
 				.await
 				.wrap_err("Failed to create the hard link.")?;
