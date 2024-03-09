@@ -61,7 +61,6 @@ pub struct Client {
 #[derive(Debug)]
 struct Inner {
 	address: Address,
-	build: Option<tg::build::Id>,
 	file_descriptor_semaphore: tokio::sync::Semaphore,
 	sender: tokio::sync::Mutex<
 		Option<hyper::client::conn::http2::SendRequest<tangram_util::http::Outgoing>>,
@@ -91,7 +90,6 @@ pub enum Host {
 
 pub struct Builder {
 	address: Address,
-	build: Option<build::Id>,
 	tls: Option<bool>,
 	user: Option<User>,
 }
@@ -103,20 +101,17 @@ pub struct Runtime {
 }
 
 impl Client {
-	pub fn with_runtime() -> Result<Self> {
-		let json = std::env::var("TANGRAM_RUNTIME")
-			.wrap_err("Failed to get the TANGRAM_RUNTIME environment variable.")?;
-		let runtime = serde_json::from_str::<Runtime>(&json)
-			.wrap_err("Failed to deserialize the TANGRAM_RUNTIME environment variable.")?;
-		let address = runtime.address;
-		let build = Some(runtime.build);
-		let file_descriptor_semaphore = tokio::sync::Semaphore::new(16);
+	pub fn with_env() -> Result<Self> {
+		let address = std::env::var("TANGRAM_ADDRESS")
+			.wrap_err("Failed to get the TANGRAM_ADDRESS environment variable.")?
+			.parse()
+			.wrap_err("Could not parse an address from TANGRAM_ADDRESS environment variable.")?;
+		let file_descriptor_semaphore = tokio::sync::Semaphore::new(32);
 		let sender = tokio::sync::Mutex::new(None);
 		let tls = false;
 		let user = None;
 		let inner = Arc::new(Inner {
 			address,
-			build,
 			file_descriptor_semaphore,
 			sender,
 			tls,
@@ -124,11 +119,6 @@ impl Client {
 		});
 		let client = Client { inner };
 		Ok(client)
-	}
-
-	#[must_use]
-	pub fn build(&self) -> Option<&build::Id> {
-		self.inner.build.as_ref()
 	}
 
 	pub async fn connect(&self) -> Result<()> {
@@ -439,16 +429,9 @@ impl Builder {
 	pub fn new(address: Address) -> Self {
 		Self {
 			address,
-			build: None,
 			tls: None,
 			user: None,
 		}
-	}
-
-	#[must_use]
-	pub fn build_(mut self, build: build::Id) -> Self {
-		self.build = Some(build);
-		self
 	}
 
 	#[must_use]
@@ -466,14 +449,12 @@ impl Builder {
 	#[must_use]
 	pub fn build(self) -> Client {
 		let address = self.address;
-		let build = self.build;
 		let file_descriptor_semaphore = tokio::sync::Semaphore::new(16);
 		let sender = tokio::sync::Mutex::new(None);
 		let tls = self.tls.unwrap_or(false);
 		let user = self.user;
 		let inner = Arc::new(Inner {
 			address,
-			build,
 			file_descriptor_semaphore,
 			sender,
 			tls,

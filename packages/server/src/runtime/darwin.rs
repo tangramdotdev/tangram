@@ -1,6 +1,10 @@
-use super::util::render;
+use super::{proxy::Proxy, util::render};
+use crate::Server;
 use bytes::Bytes;
-use futures::{stream::FuturesOrdered, TryStreamExt};
+use futures::{
+	stream::{FuturesOrdered, FuturesUnordered},
+	TryStreamExt,
+};
 use indoc::writedoc;
 use num::ToPrimitive;
 use std::{
@@ -8,25 +12,37 @@ use std::{
 	ffi::{CStr, CString},
 	fmt::Write,
 	os::unix::prelude::OsStrExt,
-	path::Path,
 };
 use tangram_client as tg;
 use tangram_error::{error, Error, Result, Wrap, WrapErr};
 use tokio::io::AsyncReadExt;
 
-pub async fn build(
-	tg: &dyn tg::Handle,
-	build: &tg::Build,
-	server_directory_path: &Path,
-) -> Result<tg::Value> {
+pub async fn build(server: &Server, build: &tg::Build) -> Result<tg::Value> {
 	// Get the target.
-	let target = build.target(tg).await?;
+	let target = build.target(server).await?;
+
+	// If the VFS is disabled, then perform an internal checkout of the target's references.
+	if server.inner.vfs.lock().unwrap().is_none() {
+		target
+			.data(server)
+			.await?
+			.children()
+			.into_iter()
+			.filter_map(|id| id.try_into().ok())
+			.map(|id| async move {
+				let artifact = tg::Artifact::with_id(id);
+				artifact.check_out(server, None).await
+			})
+			.collect::<FuturesUnordered<_>>()
+			.try_collect::<Vec<_>>()
+			.await?;
+	}
 
 	// Get the artifacts path.
-	let artifacts_directory_path = server_directory_path.join("artifacts");
+	let artifacts_directory_path = server.inner.path.join("artifacts");
 
 	// Get the server temp directory path.
-	let server_directory_temp_path = server_directory_path.join("tmp");
+	let server_directory_temp_path = server.inner.path.join("tmp");
 	tokio::fs::create_dir_all(&server_directory_temp_path)
 		.await
 		.wrap_err("Failed to create the server temp directory.")?;
@@ -61,16 +77,21 @@ pub async fn build(
 		.wrap_err("Failed to create the working directory.")?;
 
 	// Render the executable.
-	let executable = target.executable(tg).await?;
-	let executable = render(tg, &executable.clone().into(), &artifacts_directory_path).await?;
+	let executable = target.executable(server).await?;
+	let executable = render(
+		server,
+		&executable.clone().into(),
+		&artifacts_directory_path,
+	)
+	.await?;
 
 	// Render the env.
-	let env = target.env(tg).await?;
+	let env = target.env(server).await?;
 	let mut env: BTreeMap<String, String> = env
 		.iter()
 		.map(|(key, value)| async {
 			let key = key.clone();
-			let value = render(tg, value, &artifacts_directory_path).await?;
+			let value = render(server, value, &artifacts_directory_path).await?;
 			Ok::<_, Error>((key, value))
 		})
 		.collect::<FuturesOrdered<_>>()
@@ -78,11 +99,11 @@ pub async fn build(
 		.await?;
 
 	// Render the args.
-	let args = target.args(tg).await?;
+	let args = target.args(server).await?;
 	let args: Vec<String> = args
 		.iter()
 		.map(|value| async {
-			let value = render(tg, value, &artifacts_directory_path).await?;
+			let value = render(server, value, &artifacts_directory_path).await?;
 			Ok::<_, Error>(value)
 		})
 		.collect::<FuturesOrdered<_>>()
@@ -90,7 +111,7 @@ pub async fn build(
 		.await?;
 
 	// Enable the network if a checksum was provided.
-	let network_enabled = target.checksum(tg).await?.is_some();
+	let network_enabled = target.checksum(server).await?.is_some();
 
 	// Set `$HOME`.
 	env.insert(
@@ -104,16 +125,21 @@ pub async fn build(
 		output_path.to_str().unwrap().to_owned(),
 	);
 
-	// Set `$TANGRAM_RUNTIME`
-	let address = tg::Address::Unix(server_directory_path.join("socket"));
-	let runtime = tg::Runtime {
-		address,
-		build: build.id().clone(),
-	};
+	// Set `$TANGRAM_ADDRESS`
+	tokio::fs::create_dir_all(home_directory_path.join(".tangram"))
+		.await
+		.wrap_err("Failed to create the guest .tangram directory.")?;
+	let proxy_server_socket_path = home_directory_path.join(".tangram/socket");
+	let proxy_server_address = tg::Address::Unix(proxy_server_socket_path.clone());
 	env.insert(
-		"TANGRAM_RUNTIME".to_owned(),
-		serde_json::to_string(&runtime).unwrap(),
+		"TANGRAM_ADDRESS".to_owned(),
+		proxy_server_address.to_string(),
 	);
+
+	// Create a proxied server handle and start listening on a new socket.
+	let proxy = Proxy::start(server, build.id(), proxy_server_address)
+		.await
+		.wrap_err("Could not create proxy server")?;
 
 	// Create the sandbox profile.
 	let mut profile = String::new();
@@ -241,7 +267,7 @@ pub async fn build(
 			(allow file-read* (subpath {0}))
 			(allow file-write* (subpath {0}))
 		"#,
-		escape(server_directory_path.as_os_str().as_bytes())
+		escape(artifacts_directory_path.as_os_str().as_bytes())
 	)
 	.unwrap();
 
@@ -323,7 +349,7 @@ pub async fn build(
 	let mut stdout = child.stdout.take().unwrap();
 	let log_task = tokio::task::spawn({
 		let build = build.clone();
-		let tg = tg.clone_box();
+		let server = server.clone();
 		async move {
 			let mut buf = [0; 512];
 			loop {
@@ -332,7 +358,7 @@ pub async fn build(
 					Ok(0) => return Ok(()),
 					Ok(size) => {
 						let log = Bytes::copy_from_slice(&buf[0..size]);
-						build.add_log(tg.as_ref(), log).await?;
+						build.add_log(&server, log).await?;
 					},
 				}
 			}
@@ -383,6 +409,10 @@ pub async fn build(
 		.wrap_err("Failed to join the log task.")?
 		.wrap_err("The log task failed.")?;
 
+	// Stop and join the proxy server.
+	proxy.stop();
+	proxy.join().await?;
+
 	// Return an error if the process did not exit successfully.
 	if !exit_status.success() {
 		return Err(error!("The process did not exit successfully."));
@@ -394,14 +424,14 @@ pub async fn build(
 		.wrap_err("Failed to determine if the path exists.")?
 	{
 		// Check in the output.
-		let artifact = tg::Artifact::check_in(tg, &output_path.clone().try_into()?)
+		let artifact = tg::Artifact::check_in(server, &output_path.clone().try_into()?)
 			.await
 			.wrap_err("Failed to check in the output.")?;
 
 		// Verify the checksum if one was provided.
-		if let Some(expected) = target.checksum(tg).await?.clone() {
+		if let Some(expected) = target.checksum(server).await?.clone() {
 			let actual = artifact
-				.checksum(tg, expected.algorithm())
+				.checksum(server, expected.algorithm())
 				.await
 				.wrap_err("Failed to compute the checksum.")?;
 			if expected != tg::Checksum::Unsafe && expected != actual {
