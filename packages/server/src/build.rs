@@ -1,7 +1,7 @@
 use super::Server;
 use crate::{database::Database, postgres_params, sqlite_params, Permit};
 use either::Either;
-use futures::{future, stream::FuturesUnordered, FutureExt, StreamExt, TryFutureExt, TryStreamExt};
+use futures::{future, FutureExt, StreamExt, TryFutureExt};
 use std::pin::pin;
 use tangram_client as tg;
 use tangram_error::{error, Error, Result, WrapErr};
@@ -185,23 +185,7 @@ impl Server {
 			Some(tg::triple::Os::Darwin) => {
 				#[cfg(target_os = "macos")]
 				{
-					// If the VFS is disabled, then perform an internal checkout.
-					if self.inner.vfs.lock().unwrap().is_none() {
-						target
-							.data(self)
-							.await?
-							.children()
-							.into_iter()
-							.filter_map(|id| id.try_into().ok())
-							.map(|id| async move {
-								let artifact = tg::Artifact::with_id(id);
-								artifact.check_out(self, None).await
-							})
-							.collect::<FuturesUnordered<_>>()
-							.try_collect::<Vec<_>>()
-							.await?;
-					}
-					crate::runtime::darwin::build(self, &build, &self.inner.path).await
+					crate::runtime::darwin::build(self, &build).await
 				}
 				#[cfg(not(target_os = "macos"))]
 				{
@@ -211,23 +195,7 @@ impl Server {
 			Some(tg::triple::Os::Linux) => {
 				#[cfg(target_os = "linux")]
 				{
-					// If the VFS is disabled, then perform an internal checkout.
-					if self.inner.vfs.lock().unwrap().is_none() {
-						target
-							.data(self)
-							.await?
-							.children()
-							.into_iter()
-							.filter_map(|id| id.try_into().ok())
-							.map(|id| async move {
-								let artifact = tg::Artifact::with_id(id);
-								artifact.check_out(self, None).await
-							})
-							.collect::<FuturesUnordered<_>>()
-							.try_collect::<Vec<_>>()
-							.await?;
-					}
-					crate::runtime::linux::build(self, &build, &self.inner.path).await
+					crate::runtime::linux::build(self, &build).await
 				}
 				#[cfg(not(target_os = "linux"))]
 				{

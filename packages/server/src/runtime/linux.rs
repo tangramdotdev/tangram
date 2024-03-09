@@ -1,7 +1,10 @@
 use super::util::render;
-use crate::runtime::proxy::Proxy;
+use crate::{runtime::proxy::Proxy, Server};
 use bytes::Bytes;
-use futures::{stream::FuturesOrdered, TryStreamExt};
+use futures::{
+	stream::{FuturesOrdered, FuturesUnordered},
+	TryStreamExt,
+};
 use indoc::formatdoc;
 use itertools::Itertools;
 use std::{
@@ -52,16 +55,29 @@ const SH_X8664_LINUX: &[u8] = include_bytes!(concat!(
 	"/src/runtime/linux/bin/sh_x86_64_linux"
 ));
 
-pub async fn build(
-	tg: &dyn tg::Handle,
-	build: &tg::Build,
-	server_directory_path: &Path,
-) -> Result<tg::Value> {
+pub async fn build(server: &Server, build: &tg::Build) -> Result<tg::Value> {
 	// Get the target.
-	let target = build.target(tg).await?;
+	let target = build.target(server).await?;
+
+	// If the VFS is disabled, then perform an internal checkout of the target's references.
+	if server.inner.vfs.lock().unwrap().is_none() {
+		target
+			.data(server)
+			.await?
+			.children()
+			.into_iter()
+			.filter_map(|id| id.try_into().ok())
+			.map(|id| async move {
+				let artifact = tg::Artifact::with_id(id);
+				artifact.check_out(server, None).await
+			})
+			.collect::<FuturesUnordered<_>>()
+			.try_collect::<Vec<_>>()
+			.await?;
+	}
 
 	// Get the server directory path.
-	let server_directory_host_path = server_directory_path;
+	let server_directory_host_path = server.inner.path.clone();
 	let server_directory_guest_path = PathBuf::from(SERVER_DIRECTORY_GUEST_PATH);
 
 	// Get the server temp directory path.
@@ -82,7 +98,7 @@ pub async fn build(
 	let env_path = root_directory_host_path.join("usr/bin/env");
 	let sh_path = root_directory_host_path.join("bin/sh");
 	let (env_bytes, sh_bytes) = match target
-		.host(tg)
+		.host(server)
 		.await?
 		.arch()
 		.ok_or(error!("Unrecognized target arch"))?
@@ -157,21 +173,21 @@ pub async fn build(
 		.wrap_err("Failed to create the working directory.")?;
 
 	// Render the executable.
-	let executable = target.executable(tg).await?;
+	let executable = target.executable(server).await?;
 	let executable = render(
-		tg,
+		server,
 		&executable.clone().into(),
 		&artifacts_directory_guest_path,
 	)
 	.await?;
 
 	// Render the env.
-	let env = target.env(tg).await?;
+	let env = target.env(server).await?;
 	let mut env: BTreeMap<String, String> = env
 		.iter()
 		.map(|(key, value)| async {
 			let key = key.clone();
-			let value = render(tg, value, &artifacts_directory_guest_path).await?;
+			let value = render(server, value, &artifacts_directory_guest_path).await?;
 			Ok::<_, Error>((key, value))
 		})
 		.collect::<FuturesOrdered<_>>()
@@ -179,11 +195,11 @@ pub async fn build(
 		.await?;
 
 	// Render the args.
-	let args = target.args(tg).await?;
+	let args = target.args(server).await?;
 	let args: Vec<String> = args
 		.iter()
 		.map(|value| async {
-			let value = render(tg, value, &artifacts_directory_guest_path).await?;
+			let value = render(server, value, &artifacts_directory_guest_path).await?;
 			Ok::<_, Error>(value)
 		})
 		.collect::<FuturesOrdered<_>>()
@@ -191,7 +207,7 @@ pub async fn build(
 		.await?;
 
 	// Enable the network if a checksum was provided.
-	let network_enabled = target.checksum(tg).await?.is_some();
+	let network_enabled = target.checksum(server).await?.is_some();
 
 	// Set `$HOME`.
 	env.insert(
@@ -214,9 +230,9 @@ pub async fn build(
 
 	// Create proxy server.
 	let proxy_server_host_address = tg::Address::Unix(proxy_server_socket_host_path);
-	let proxy_server = Proxy::start(tg.clone_box().into(), build.id(), proxy_server_host_address)
+	let proxy_server = Proxy::start(server, build.id(), proxy_server_host_address)
 		.await
-		.wrap_err("Could not create proxy server")?;
+		.wrap_err("Failed to create the proxy server.")?;
 
 	// Create /etc.
 	tokio::fs::create_dir_all(root_directory_host_path.join("etc"))
@@ -524,7 +540,7 @@ pub async fn build(
 	// Spawn the log task.
 	let log_task = tokio::task::spawn({
 		let build = build.clone();
-		let tg = tg.clone_box();
+		let server = server.clone();
 		async move {
 			let mut buf = vec![0; 512];
 			loop {
@@ -533,7 +549,7 @@ pub async fn build(
 					Ok(0) => return Ok(()),
 					Ok(size) => {
 						let log = Bytes::copy_from_slice(&buf[0..size]);
-						build.add_log(tg.as_ref(), log).await?;
+						build.add_log(&server, log).await?;
 					},
 				}
 			}
@@ -645,9 +661,10 @@ pub async fn build(
 		},
 	};
 
-	// Stop the proxy server.
+	// Stop and join the proxy server.
+	proxy_server.stop();
 	proxy_server
-		.stop()
+		.join()
 		.await
 		.wrap_err("Failed to stop the proxy server.")?;
 
@@ -657,14 +674,14 @@ pub async fn build(
 		.wrap_err("Failed to determine in the path exists.")?
 	{
 		// Check in the output.
-		let artifact = tg::Artifact::check_in(tg, &output_host_path.clone().try_into()?)
+		let artifact = tg::Artifact::check_in(server, &output_host_path.clone().try_into()?)
 			.await
 			.wrap_err("Failed to check in the output.")?;
 
 		// Verify the checksum if one was provided.
-		if let Some(expected) = target.checksum(tg).await?.clone() {
+		if let Some(expected) = target.checksum(server).await?.clone() {
 			let actual = artifact
-				.checksum(tg, expected.algorithm())
+				.checksum(server, expected.algorithm())
 				.await
 				.wrap_err("Failed to compute the checksum.")?;
 			if expected != tg::Checksum::Unsafe && expected != actual {

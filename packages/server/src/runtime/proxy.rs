@@ -4,8 +4,7 @@ use bytes::Bytes;
 use futures::stream::BoxStream;
 use std::sync::Arc;
 use tangram_client as tg;
-use tangram_error::{error, Result, WrapErr};
-use tangram_util::fs::rmrf;
+use tangram_error::{error, Result};
 use tokio::io::{AsyncRead, AsyncWrite};
 use url::Url;
 
@@ -15,9 +14,11 @@ pub struct Proxy {
 }
 
 pub struct Inner {
+	build: tg::build::Id,
 	http: std::sync::Mutex<Option<Http>>,
-	parent_build_id: tg::build::Id,
-	parent_server: Arc<dyn tg::Handle>,
+	server: crate::Server,
+	shutdown: tokio::sync::watch::Sender<bool>,
+	shutdown_task: std::sync::Mutex<Option<tokio::task::JoinHandle<Result<()>>>>,
 }
 
 #[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
@@ -27,62 +28,50 @@ pub struct GetOrCreateProxiedArg {
 	pub target: tg::target::Id,
 }
 
-impl From<GetOrCreateProxiedArg> for tg::build::GetOrCreateArg {
-	fn from(arg: GetOrCreateProxiedArg) -> Self {
-		tg::build::GetOrCreateArg {
-			parent: None,
-			remote: arg.remote,
-			retry: arg.retry,
-			target: arg.target,
-		}
-	}
-}
-
 impl Proxy {
 	pub async fn start(
-		parent_server: Arc<dyn tg::Handle>,
-		build_id: &tg::build::Id,
+		server: &crate::Server,
+		build: &tg::build::Id,
 		address: tg::Address,
 	) -> Result<Self> {
 		// Create an owned copy of the parent build id to be used in the proxy server.
-		let parent_build_id = build_id.clone();
+		let build = build.clone();
 
 		// Set up a mutex to store an HTTP server.
 		let http = std::sync::Mutex::new(None);
 
+		// Create the shutdown channel.
+		let (shutdown, _) = tokio::sync::watch::channel(false);
+
+		// Create the shutdown task.
+		let shutdown_task = std::sync::Mutex::new(None);
+
 		// Construct the proxy server.
 		let inner = Inner {
+			build,
 			http,
-			parent_build_id,
-			parent_server,
+			server: server.clone(),
+			shutdown,
+			shutdown_task,
 		};
 		let proxy = Proxy {
 			inner: Arc::new(inner),
 		};
 
-		// Remove an existing socket file.
-		if let tg::Address::Unix(ref address_path) = address {
-			rmrf(address_path)
-				.await
-				.wrap_err("Failed to remove existing socket file")?;
-
-			// Start the HTTP server.
-			proxy
-				.inner
-				.http
-				.lock()
-				.unwrap()
-				.replace(Http::start(&proxy, address));
-		} else {
-			return Err(error!("Expected Unix address, got {:?}", address));
-		}
+		// Start the HTTP server.
+		proxy
+			.inner
+			.http
+			.lock()
+			.unwrap()
+			.replace(Http::start(&proxy, address));
 
 		Ok(proxy)
 	}
 
-	pub async fn stop(&self) -> Result<()> {
+	pub fn stop(&self) {
 		let server = self.clone();
-		tokio::spawn(async move {
+		let task = tokio::spawn(async move {
 			// Stop the http server.
 			if let Some(http) = server.inner.http.lock().unwrap().as_ref() {
 				http.stop();
@@ -96,23 +85,39 @@ impl Proxy {
 
 			Ok::<_, tangram_error::Error>(())
 		});
+		self.inner.shutdown_task.lock().unwrap().replace(task);
+		self.inner.shutdown.send_replace(true);
+	}
 
+	pub async fn join(&self) -> Result<()> {
+		self.inner
+			.shutdown
+			.subscribe()
+			.wait_for(|shutdown| *shutdown)
+			.await
+			.unwrap();
+		let task = self.inner.shutdown_task.lock().unwrap().take();
+		if let Some(task) = task {
+			task.await.unwrap()?;
+		}
 		Ok(())
 	}
 
 	pub async fn get_or_create_build_proxied(
 		&self,
 		user: Option<&tg::User>,
-		arg: GetOrCreateProxiedArg,
+		arg: tg::build::GetOrCreateArg,
 	) -> Result<tg::build::GetOrCreateOutput> {
+		if arg.parent.is_some() {
+			return Err(error!("Using proxied server, parent should be set to None"));
+		}
 		let arg = tg::build::GetOrCreateArg {
-			parent: Some(self.inner.parent_build_id.clone()),
-			..arg.into()
+			parent: Some(self.inner.build.clone()),
+			remote: arg.remote,
+			retry: arg.retry,
+			target: arg.target,
 		};
-		self.inner
-			.parent_server
-			.get_or_create_build(user, arg)
-			.await
+		self.inner.server.get_or_create_build(user, arg).await
 	}
 }
 
@@ -123,7 +128,7 @@ impl tg::Handle for Proxy {
 	}
 
 	async fn path(&self) -> Result<Option<tg::Path>> {
-		self.inner.parent_server.path().await
+		self.inner.server.path().await
 	}
 
 	async fn format(&self, _text: String) -> Result<String> {
@@ -131,22 +136,22 @@ impl tg::Handle for Proxy {
 	}
 
 	fn file_descriptor_semaphore(&self) -> &tokio::sync::Semaphore {
-		self.inner.parent_server.file_descriptor_semaphore()
+		self.inner.server.file_descriptor_semaphore()
 	}
 
 	async fn check_in_artifact(
 		&self,
 		arg: tg::artifact::CheckInArg,
 	) -> Result<tg::artifact::CheckInOutput> {
-		self.inner.parent_server.check_in_artifact(arg).await
+		self.inner.server.check_in_artifact(arg).await
 	}
 
 	async fn check_out_artifact(&self, arg: tg::artifact::CheckOutArg) -> Result<()> {
-		self.inner.parent_server.check_out_artifact(arg).await
+		self.inner.server.check_out_artifact(arg).await
 	}
 
 	async fn list_builds(&self, arg: tg::build::ListArg) -> Result<tg::build::ListOutput> {
-		self.inner.parent_server.list_builds(arg).await
+		self.inner.server.list_builds(arg).await
 	}
 
 	async fn try_get_build(
@@ -154,7 +159,7 @@ impl tg::Handle for Proxy {
 		id: &tg::build::Id,
 		arg: tg::build::GetArg,
 	) -> Result<Option<tg::build::GetOutput>> {
-		self.inner.parent_server.try_get_build(id, arg).await
+		self.inner.server.try_get_build(id, arg).await
 	}
 
 	async fn put_build(
@@ -163,15 +168,15 @@ impl tg::Handle for Proxy {
 		id: &tg::build::Id,
 		arg: &tg::build::PutArg,
 	) -> Result<()> {
-		self.inner.parent_server.put_build(user, id, arg).await
+		self.inner.server.put_build(user, id, arg).await
 	}
 
 	async fn push_build(&self, user: Option<&tg::User>, id: &tg::build::Id) -> Result<()> {
-		self.inner.parent_server.push_build(user, id).await
+		self.inner.server.push_build(user, id).await
 	}
 
 	async fn pull_build(&self, id: &tg::build::Id) -> Result<()> {
-		self.inner.parent_server.pull_build(id).await
+		self.inner.server.pull_build(id).await
 	}
 
 	async fn get_or_create_build(
@@ -179,14 +184,6 @@ impl tg::Handle for Proxy {
 		user: Option<&tg::User>,
 		arg: tg::build::GetOrCreateArg,
 	) -> Result<tg::build::GetOrCreateOutput> {
-		if arg.parent.is_some() {
-			return Err(error!("Using proxied server, parent should be set to None"));
-		}
-		let arg = GetOrCreateProxiedArg {
-			remote: arg.remote,
-			retry: arg.retry,
-			target: arg.target,
-		};
 		self.get_or_create_build_proxied(user, arg).await
 	}
 
@@ -196,10 +193,7 @@ impl tg::Handle for Proxy {
 		arg: tg::build::status::GetArg,
 		stop: Option<tokio::sync::watch::Receiver<bool>>,
 	) -> Result<Option<BoxStream<'static, Result<tg::build::Status>>>> {
-		self.inner
-			.parent_server
-			.try_get_build_status(id, arg, stop)
-			.await
+		self.inner.server.try_get_build_status(id, arg, stop).await
 	}
 
 	async fn set_build_status(
@@ -208,10 +202,7 @@ impl tg::Handle for Proxy {
 		id: &tg::build::Id,
 		status: tg::build::Status,
 	) -> Result<()> {
-		self.inner
-			.parent_server
-			.set_build_status(user, id, status)
-			.await
+		self.inner.server.set_build_status(user, id, status).await
 	}
 
 	async fn try_get_build_children(
@@ -221,7 +212,7 @@ impl tg::Handle for Proxy {
 		stop: Option<tokio::sync::watch::Receiver<bool>>,
 	) -> Result<Option<BoxStream<'static, Result<tg::build::children::Chunk>>>> {
 		self.inner
-			.parent_server
+			.server
 			.try_get_build_children(id, arg, stop)
 			.await
 	}
@@ -233,7 +224,7 @@ impl tg::Handle for Proxy {
 		child_id: &tg::build::Id,
 	) -> Result<()> {
 		self.inner
-			.parent_server
+			.server
 			.add_build_child(user, build_id, child_id)
 			.await
 	}
@@ -244,10 +235,7 @@ impl tg::Handle for Proxy {
 		arg: tg::build::log::GetArg,
 		stop: Option<tokio::sync::watch::Receiver<bool>>,
 	) -> Result<Option<BoxStream<'static, Result<tg::build::log::Chunk>>>> {
-		self.inner
-			.parent_server
-			.try_get_build_log(id, arg, stop)
-			.await
+		self.inner.server.try_get_build_log(id, arg, stop).await
 	}
 
 	async fn add_build_log(
@@ -256,10 +244,7 @@ impl tg::Handle for Proxy {
 		build_id: &tg::build::Id,
 		bytes: Bytes,
 	) -> Result<()> {
-		self.inner
-			.parent_server
-			.add_build_log(user, build_id, bytes)
-			.await
+		self.inner.server.add_build_log(user, build_id, bytes).await
 	}
 
 	async fn try_get_build_outcome(
@@ -268,10 +253,7 @@ impl tg::Handle for Proxy {
 		arg: tg::build::outcome::GetArg,
 		stop: Option<tokio::sync::watch::Receiver<bool>>,
 	) -> Result<Option<Option<tg::build::Outcome>>> {
-		self.inner
-			.parent_server
-			.try_get_build_outcome(id, arg, stop)
-			.await
+		self.inner.server.try_get_build_outcome(id, arg, stop).await
 	}
 
 	async fn set_build_outcome(
@@ -280,14 +262,11 @@ impl tg::Handle for Proxy {
 		id: &tg::build::Id,
 		outcome: tg::build::Outcome,
 	) -> Result<()> {
-		self.inner
-			.parent_server
-			.set_build_outcome(user, id, outcome)
-			.await
+		self.inner.server.set_build_outcome(user, id, outcome).await
 	}
 
 	async fn try_get_object(&self, id: &tg::object::Id) -> Result<Option<tg::object::GetOutput>> {
-		self.inner.parent_server.try_get_object(id).await
+		self.inner.server.try_get_object(id).await
 	}
 
 	async fn put_object(
@@ -295,15 +274,15 @@ impl tg::Handle for Proxy {
 		id: &tg::object::Id,
 		arg: &tg::object::PutArg,
 	) -> Result<tg::object::PutOutput> {
-		self.inner.parent_server.put_object(id, arg).await
+		self.inner.server.put_object(id, arg).await
 	}
 
 	async fn push_object(&self, id: &tg::object::Id) -> Result<()> {
-		self.inner.parent_server.push_object(id).await
+		self.inner.server.push_object(id).await
 	}
 
 	async fn pull_object(&self, id: &tg::object::Id) -> Result<()> {
-		self.inner.parent_server.pull_object(id).await
+		self.inner.server.pull_object(id).await
 	}
 
 	async fn search_packages(
@@ -364,7 +343,7 @@ impl tg::Handle for Proxy {
 	}
 
 	async fn health(&self) -> Result<tg::server::Health> {
-		self.inner.parent_server.health().await
+		self.inner.server.health().await
 	}
 
 	async fn clean(&self) -> Result<()> {
