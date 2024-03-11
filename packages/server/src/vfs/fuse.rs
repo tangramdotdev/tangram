@@ -11,9 +11,9 @@ use std::{
 };
 use tangram_client as tg;
 use tangram_error::{Result, Wrap, WrapErr};
+use tangram_vfs::fuse::sys;
 use tokio::io::{AsyncReadExt, AsyncSeekExt};
 use zerocopy::{AsBytes, FromBytes};
-mod sys;
 
 /// A FUSE server.
 #[derive(Clone)]

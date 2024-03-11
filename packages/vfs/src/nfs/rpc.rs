@@ -426,6 +426,7 @@ where
 	Ok(())
 }
 
+#[must_use]
 pub fn success<T>(verf: Option<Auth>, value: T) -> ReplyBody
 where
 	T: xdr::ToXdr,
@@ -436,11 +437,13 @@ where
 	ReplyBody::Accepted(ReplyAccepted { verf, stat })
 }
 
+#[must_use]
 pub fn error(verf: Option<Auth>, reason: ReplyAcceptedStat) -> ReplyBody {
 	let verf = verf.unwrap_or_default();
 	ReplyBody::Accepted(ReplyAccepted { verf, stat: reason })
 }
 
+#[must_use]
 pub fn reject(reason: ReplyRejected) -> ReplyBody {
 	ReplyBody::Rejected(reason)
 }

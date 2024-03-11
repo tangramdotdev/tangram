@@ -1,33 +1,3 @@
-use self::types::{
-	bitmap4, cb_client4, change_info4, dirlist4, entry4, fattr4, fs_locations4, fsid4, length4,
-	locker4, nfs_argop4, nfs_client_id4, nfs_fh4, nfs_ftype4, nfs_lock_type4, nfs_opnum4,
-	nfs_resop4, nfsace4, nfsstat4, nfstime4, offset4, open_claim4, open_delegation4,
-	open_delegation_type4, pathname4, specdata4, stateid4, verifier4, ACCESS4args, ACCESS4res,
-	ACCESS4resok, CLOSE4args, CLOSE4res, COMPOUND4res, GETATTR4args, GETATTR4res, GETATTR4resok,
-	GETFH4res, GETFH4resok, LOCK4args, LOCK4res, LOCK4resok, LOCKT4args, LOCKT4res, LOCKU4args,
-	LOCKU4res, LOOKUP4args, LOOKUP4res, LOOKUPP4res, NVERIFY4res, OPEN4args, OPEN4res, OPEN4resok,
-	OPENATTR4args, OPENATTR4res, OPEN_CONFIRM4args, OPEN_CONFIRM4res, OPEN_CONFIRM4resok,
-	PUTFH4args, PUTFH4res, READ4args, READ4res, READ4resok, READDIR4args, READDIR4res,
-	READDIR4resok, READLINK4res, READLINK4resok, RELEASE_LOCKOWNER4args, RELEASE_LOCKOWNER4res,
-	RENEW4args, RENEW4res, RESTOREFH4res, SAVEFH4res, SECINFO4args, SECINFO4res, SETCLIENTID4args,
-	SETCLIENTID4res, SETCLIENTID4resok, SETCLIENTID_CONFIRM4args, SETCLIENTID_CONFIRM4res,
-	ACCESS4_EXECUTE, ACCESS4_LOOKUP, ACCESS4_READ, ANONYMOUS_STATE_ID, FATTR4_ACL,
-	FATTR4_ACLSUPPORT, FATTR4_ARCHIVE, FATTR4_CANSETTIME, FATTR4_CASE_INSENSITIVE,
-	FATTR4_CASE_PRESERVING, FATTR4_CHANGE, FATTR4_CHOWN_RESTRICTED, FATTR4_FH_EXPIRE_TYPE,
-	FATTR4_FILEHANDLE, FATTR4_FILEID, FATTR4_FILES_AVAIL, FATTR4_FILES_FREE, FATTR4_FILES_TOTAL,
-	FATTR4_FSID, FATTR4_FS_LOCATIONS, FATTR4_HIDDEN, FATTR4_HOMOGENEOUS, FATTR4_LEASE_TIME,
-	FATTR4_LINK_SUPPORT, FATTR4_MAXFILESIZE, FATTR4_MAXLINK, FATTR4_MAXNAME, FATTR4_MAXREAD,
-	FATTR4_MAXWRITE, FATTR4_MIMETYPE, FATTR4_MODE, FATTR4_MOUNTED_ON_FILEID, FATTR4_NAMED_ATTR,
-	FATTR4_NO_TRUNC, FATTR4_NUMLINKS, FATTR4_OWNER, FATTR4_OWNER_GROUP, FATTR4_QUOTA_AVAIL_HARD,
-	FATTR4_QUOTA_AVAIL_SOFT, FATTR4_QUOTA_USED, FATTR4_RAWDEV, FATTR4_RDATTR_ERROR, FATTR4_SIZE,
-	FATTR4_SPACE_AVAIL, FATTR4_SPACE_FREE, FATTR4_SPACE_TOTAL, FATTR4_SPACE_USED,
-	FATTR4_SUPPORTED_ATTRS, FATTR4_SYMLINK_SUPPORT, FATTR4_SYSTEM, FATTR4_TIME_ACCESS,
-	FATTR4_TIME_BACKUP, FATTR4_TIME_CREATE, FATTR4_TIME_DELTA, FATTR4_TIME_METADATA,
-	FATTR4_TIME_MODIFY, FATTR4_TYPE, FATTR4_UNIQUE_HANDLES, MODE4_RGRP, MODE4_ROTH, MODE4_RUSR,
-	MODE4_XGRP, MODE4_XOTH, MODE4_XUSR, NFS4_VERIFIER_SIZE, NFS_PROG, NFS_VERS,
-	OPEN4_RESULT_CONFIRM, OPEN4_RESULT_LOCKTYPE_POSIX, OPEN4_SHARE_ACCESS_BOTH,
-	OPEN4_SHARE_ACCESS_WRITE, READ_BYPASS_STATE_ID, RPC_VERS,
-};
 use either::Either;
 use fnv::FnvBuildHasher;
 use num::ToPrimitive;
@@ -40,14 +10,46 @@ use std::{
 };
 use tangram_client as tg;
 use tangram_error::{Result, WrapErr};
+use tangram_vfs::nfs::{
+	rpc,
+	types::{
+		bitmap4, cb_client4, change_info4, dirlist4, entry4, fattr4, fs_locations4, fsid4, length4,
+		locker4, nfs_argop4, nfs_client_id4, nfs_fh4, nfs_ftype4, nfs_lock_type4, nfs_opnum4,
+		nfs_resop4, nfsace4, nfsstat4, nfstime4, offset4, open_claim4, open_delegation4,
+		open_delegation_type4, pathname4, specdata4, stateid4, verifier4, ACCESS4args, ACCESS4res,
+		ACCESS4resok, CLOSE4args, CLOSE4res, COMPOUND4args, COMPOUND4res, GETATTR4args,
+		GETATTR4res, GETATTR4resok, GETFH4res, GETFH4resok, ILLEGAL4res, LOCK4args, LOCK4res,
+		LOCK4resok, LOCKT4args, LOCKT4res, LOCKU4args, LOCKU4res, LOOKUP4args, LOOKUP4res,
+		LOOKUPP4res, NVERIFY4res, OPEN4args, OPEN4res, OPEN4resok, OPENATTR4args, OPENATTR4res,
+		OPEN_CONFIRM4args, OPEN_CONFIRM4res, OPEN_CONFIRM4resok, PUTFH4args, PUTFH4res,
+		PUTPUBFH4res, PUTROOTFH4res, READ4args, READ4res, READ4resok, READDIR4args, READDIR4res,
+		READDIR4resok, READLINK4res, READLINK4resok, RELEASE_LOCKOWNER4args, RELEASE_LOCKOWNER4res,
+		RENEW4args, RENEW4res, RESTOREFH4res, SAVEFH4res, SECINFO4args, SECINFO4res,
+		SETCLIENTID4args, SETCLIENTID4res, SETCLIENTID4resok, SETCLIENTID_CONFIRM4args,
+		SETCLIENTID_CONFIRM4res, ACCESS4_EXECUTE, ACCESS4_LOOKUP, ACCESS4_READ, ANONYMOUS_STATE_ID,
+		FATTR4_ACL, FATTR4_ACLSUPPORT, FATTR4_ARCHIVE, FATTR4_CANSETTIME, FATTR4_CASE_INSENSITIVE,
+		FATTR4_CASE_PRESERVING, FATTR4_CHANGE, FATTR4_CHOWN_RESTRICTED, FATTR4_FH_EXPIRE_TYPE,
+		FATTR4_FILEHANDLE, FATTR4_FILEID, FATTR4_FILES_AVAIL, FATTR4_FILES_FREE,
+		FATTR4_FILES_TOTAL, FATTR4_FSID, FATTR4_FS_LOCATIONS, FATTR4_HIDDEN, FATTR4_HOMOGENEOUS,
+		FATTR4_LEASE_TIME, FATTR4_LINK_SUPPORT, FATTR4_MAXFILESIZE, FATTR4_MAXLINK, FATTR4_MAXNAME,
+		FATTR4_MAXREAD, FATTR4_MAXWRITE, FATTR4_MIMETYPE, FATTR4_MODE, FATTR4_MOUNTED_ON_FILEID,
+		FATTR4_NAMED_ATTR, FATTR4_NO_TRUNC, FATTR4_NUMLINKS, FATTR4_OWNER, FATTR4_OWNER_GROUP,
+		FATTR4_QUOTA_AVAIL_HARD, FATTR4_QUOTA_AVAIL_SOFT, FATTR4_QUOTA_USED, FATTR4_RAWDEV,
+		FATTR4_RDATTR_ERROR, FATTR4_SIZE, FATTR4_SPACE_AVAIL, FATTR4_SPACE_FREE,
+		FATTR4_SPACE_TOTAL, FATTR4_SPACE_USED, FATTR4_SUPPORTED_ATTRS, FATTR4_SYMLINK_SUPPORT,
+		FATTR4_SYSTEM, FATTR4_TIME_ACCESS, FATTR4_TIME_BACKUP, FATTR4_TIME_CREATE,
+		FATTR4_TIME_DELTA, FATTR4_TIME_METADATA, FATTR4_TIME_MODIFY, FATTR4_TYPE,
+		FATTR4_UNIQUE_HANDLES, MODE4_RGRP, MODE4_ROTH, MODE4_RUSR, MODE4_XGRP, MODE4_XOTH,
+		MODE4_XUSR, NFS4_VERIFIER_SIZE, NFS_PROG, NFS_VERS, OPEN4_RESULT_CONFIRM,
+		OPEN4_RESULT_LOCKTYPE_POSIX, OPEN4_SHARE_ACCESS_BOTH, OPEN4_SHARE_ACCESS_WRITE,
+		READ_BYPASS_STATE_ID, RPC_VERS,
+	},
+	xdr,
+};
 use tokio::{
 	io::{AsyncReadExt, AsyncSeekExt},
 	net::{TcpListener, TcpStream},
 };
-
-mod rpc;
-mod types;
-mod xdr;
 
 const ROOT: nfs_fh4 = nfs_fh4(0);
 type Map<K, V> = HashMap<K, V, FnvBuildHasher>;
@@ -409,7 +411,7 @@ impl Server {
 		decoder: &mut xdr::Decoder<'_>,
 	) -> rpc::ReplyBody {
 		// Deserialize the arguments up front.
-		let args = match decoder.decode::<types::COMPOUND4args>() {
+		let args = match decoder.decode::<COMPOUND4args>() {
 			Ok(args) => args,
 			Err(e) => {
 				tracing::error!(?e, "Failed to decode COMPOUND args.");
@@ -424,7 +426,7 @@ impl Server {
 		};
 
 		// Handle the operations.
-		let types::COMPOUND4args {
+		let COMPOUND4args {
 			tag,
 			minorversion,
 			argarray,
@@ -496,7 +498,7 @@ impl Server {
 
 	async fn handle_arg(&self, ctx: &mut Context, arg: nfs_argop4) -> nfs_resop4 {
 		match arg {
-			nfs_argop4::OP_ILLEGAL => nfs_resop4::OP_ILLEGAL(types::ILLEGAL4res {
+			nfs_argop4::OP_ILLEGAL => nfs_resop4::OP_ILLEGAL(ILLEGAL4res {
 				status: nfsstat4::NFS4ERR_OP_ILLEGAL,
 			}),
 			nfs_argop4::OP_ACCESS(arg) => nfs_resop4::OP_ACCESS(self.handle_access(ctx, arg).await),
@@ -531,13 +533,13 @@ impl Server {
 			},
 			nfs_argop4::OP_PUTPUBFH => {
 				Self::handle_put_file_handle(ctx, &PUTFH4args { object: ROOT });
-				nfs_resop4::OP_PUTPUBFH(types::PUTPUBFH4res {
+				nfs_resop4::OP_PUTPUBFH(PUTPUBFH4res {
 					status: nfsstat4::NFS4_OK,
 				})
 			},
 			nfs_argop4::OP_PUTROOTFH => {
 				Self::handle_put_file_handle(ctx, &PUTFH4args { object: ROOT });
-				nfs_resop4::OP_PUTROOTFH(types::PUTROOTFH4res {
+				nfs_resop4::OP_PUTROOTFH(PUTROOTFH4res {
 					status: nfsstat4::NFS4_OK,
 				})
 			},
@@ -568,7 +570,7 @@ impl Server {
 			nfs_argop4::OP_RELEASE_LOCKOWNER(arg) => {
 				nfs_resop4::OP_RELEASE_LOCKOWNER(self.handle_release_lockowner(ctx, arg).await)
 			},
-			nfs_argop4::Unimplemented(arg) => types::nfs_resop4::Unknown(arg),
+			nfs_argop4::Unimplemented(arg) => nfs_resop4::Unknown(arg),
 		}
 	}
 

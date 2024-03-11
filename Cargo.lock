@@ -4223,6 +4223,7 @@ dependencies = [
  "tangram_client",
  "tangram_error",
  "tangram_util",
+ "tangram_vfs",
  "tempfile",
  "time",
  "tokio",
@@ -4253,6 +4254,16 @@ dependencies = [
  "hyper-util",
  "tangram_error",
  "tokio",
+]
+
+[[package]]
+name = "tangram_vfs"
+version = "0.0.0"
+dependencies = [
+ "num",
+ "tokio",
+ "tracing",
+ "zerocopy",
 ]
 
 [[package]]

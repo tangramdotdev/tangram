@@ -1248,6 +1248,7 @@ pub enum nfs_argop4 {
 }
 
 impl nfs_argop4 {
+	#[must_use]
 	pub fn name(&self) -> &'static str {
 		match self {
 			Self::OP_ACCESS(_) => "ACCESS",
@@ -1292,6 +1293,7 @@ impl nfs_argop4 {
 		}
 	}
 
+	#[must_use]
 	pub fn opnum(&self) -> nfs_opnum4 {
 		match self {
 			Self::OP_ACCESS(_) => nfs_opnum4::OP_ACCESS,
@@ -1526,6 +1528,7 @@ impl xdr::FromXdr for stateid4 {
 }
 
 impl stateid4 {
+	#[must_use]
 	pub fn new(seqid: seqid4, index: u64, is_lock_set: bool) -> Self {
 		let is_lock_set = u32::from(is_lock_set);
 		let mut other = [0; NFS4_OTHER_SIZE];
@@ -1535,14 +1538,17 @@ impl stateid4 {
 		Self { seqid, other }
 	}
 
+	#[must_use]
 	pub fn index(&self) -> u64 {
 		u64::from_be_bytes(self.other[0..8].try_into().unwrap())
 	}
 
+	#[must_use]
 	pub fn is_lock_set(&self) -> bool {
 		u32::from_be_bytes(self.other[8..12].try_into().unwrap()) == 1
 	}
 
+	#[must_use]
 	pub fn is_valid(&self) -> bool {
 		if [0, u64::MAX].contains(&self.index()) {
 			[0, u32::MAX].contains(&self.seqid.0)
@@ -1553,6 +1559,7 @@ impl stateid4 {
 }
 
 impl seqid4 {
+	#[must_use]
 	pub fn increment(self) -> Self {
 		if self.0 == u32::MAX {
 			Self(1)
@@ -2915,12 +2922,14 @@ impl bitmap4 {
 		self.0[word] |= 1 << (bit % 32);
 	}
 
+	#[must_use]
 	pub fn get(&self, bit: usize) -> bool {
 		let word = self.0.get(bit / 32).copied().unwrap_or(0);
 		let flag = 1 & (word >> (bit % 32));
 		flag != 0
 	}
 
+	#[must_use]
 	pub fn intersection(&self, rhs: &Self) -> Self {
 		let sz = self.0.len().max(rhs.0.len());
 		let mut new = vec![0; sz];
@@ -2934,6 +2943,8 @@ impl bitmap4 {
 }
 
 impl nfstime4 {
+	#[allow(clippy::new_without_default)]
+	#[must_use]
 	pub fn new() -> nfstime4 {
 		nfstime4 {
 			seconds: 0,
@@ -2941,6 +2952,7 @@ impl nfstime4 {
 		}
 	}
 
+	#[must_use]
 	pub fn now() -> nfstime4 {
 		let now = std::time::SystemTime::now();
 		let dur = now.duration_since(std::time::UNIX_EPOCH).unwrap();
@@ -2981,6 +2993,7 @@ impl From<std::io::Error> for nfsstat4 {
 }
 
 impl nfs_resop4 {
+	#[must_use]
 	pub fn status(&self) -> nfsstat4 {
 		match self {
 			nfs_resop4::OP_ACCESS(ACCESS4res::Error(e)) => *e,

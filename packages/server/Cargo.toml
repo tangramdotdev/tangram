@@ -63,6 +63,7 @@ swc_core = { workspace = true }
 tangram_client = { workspace = true }
 tangram_error = { workspace = true }
 tangram_util = { workspace = true }
+tangram_vfs = { workspace = true }
 tempfile = { workspace = true }
 time = { workspace = true }
 tokio = { workspace = true }
