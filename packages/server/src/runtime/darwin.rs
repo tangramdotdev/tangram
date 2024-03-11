@@ -15,7 +15,7 @@ use std::{
 };
 use tangram_client as tg;
 use tangram_error::{error, Error, Result, Wrap, WrapErr};
-use tokio::io::AsyncReadExt;
+use tokio::io::{AsyncReadExt, AsyncWriteExt};
 
 pub async fn build(server: &Server, build: &tg::Build) -> Result<tg::Value> {
 	// Get the target.
@@ -39,10 +39,10 @@ pub async fn build(server: &Server, build: &tg::Build) -> Result<tg::Value> {
 	}
 
 	// Get the artifacts path.
-	let artifacts_directory_path = server.inner.path.join("artifacts");
+	let artifacts_directory_path = server.inner.options.path.join("artifacts");
 
 	// Get the server temp directory path.
-	let server_directory_temp_path = server.inner.path.join("tmp");
+	let server_directory_temp_path = server.inner.options.path.join("tmp");
 	tokio::fs::create_dir_all(&server_directory_temp_path)
 		.await
 		.wrap_err("Failed to create the server temp directory.")?;
@@ -358,6 +358,15 @@ pub async fn build(server: &Server, build: &tg::Build) -> Result<tg::Value> {
 					Ok(0) => return Ok(()),
 					Ok(size) => {
 						let log = Bytes::copy_from_slice(&buf[0..size]);
+						if server.inner.options.write_build_logs_to_stderr {
+							tokio::io::stderr()
+								.write_all(&log)
+								.await
+								.inspect_err(|e| {
+									tracing::error!(?e, "Failed to write build log to stderr.");
+								})
+								.ok();
+						}
 						build.add_log(&server, log).await?;
 					},
 				}

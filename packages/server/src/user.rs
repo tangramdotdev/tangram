@@ -20,6 +20,7 @@ impl Server {
 		// Create the URL.
 		let mut url = self
 			.inner
+			.options
 			.www
 			.as_ref()
 			.wrap_err("Expected the WWW URL to be set.")?
@@ -134,6 +135,7 @@ impl Server {
 		// Create the redirect URL.
 		let mut redirect_url = self
 			.inner
+			.options
 			.url
 			.as_ref()
 			.wrap_err("Expected the URL to be set.")?

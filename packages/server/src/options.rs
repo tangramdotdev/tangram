@@ -10,10 +10,12 @@ pub struct Options {
 	pub messenger: Messenger,
 	pub oauth: Oauth,
 	pub path: PathBuf,
+	pub preserve_temp_directories: bool,
 	pub remote: Option<Remote>,
 	pub url: Option<Url>,
 	pub version: String,
 	pub vfs: Vfs,
+	pub write_build_logs_to_stderr: bool,
 	pub www: Option<Url>,
 }
 

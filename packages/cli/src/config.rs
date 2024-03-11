@@ -51,6 +51,12 @@ pub struct Advanced {
 
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub file_descriptor_semaphore_size: Option<usize>,
+
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub preserve_temp_directories: Option<bool>,
+
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub write_build_logs_to_stderr: Option<bool>,
 }
 
 #[derive(Clone, Debug, Default, serde::Serialize, serde::Deserialize)]

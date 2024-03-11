@@ -16,6 +16,7 @@ use std::{
 };
 use tangram_client as tg;
 use tangram_error::{error, Error, Result, Wrap, WrapErr};
+use tokio::io::AsyncWriteExt;
 
 mod convert;
 mod error;
@@ -100,6 +101,15 @@ async fn build_inner(
 		let server = server.clone();
 		async move {
 			while let Some(string) = log_receiver.recv().await {
+				if server.inner.options.write_build_logs_to_stderr {
+					tokio::io::stderr()
+						.write_all(string.as_bytes())
+						.await
+						.inspect_err(|e| {
+							tracing::error!(?e, "Failed to write build log to stderr.");
+						})
+						.ok();
+				}
 				build.add_log(&server, string.into()).await.ok();
 			}
 		}

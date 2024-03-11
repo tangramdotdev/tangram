@@ -65,14 +65,11 @@ struct Inner {
 	lockfile: std::sync::Mutex<Option<tokio::fs::File>>,
 	messenger: Messenger,
 	oauth: OAuth,
-	path: PathBuf,
+	options: Options,
 	remote: Option<Box<dyn tg::Handle>>,
 	shutdown: tokio::sync::watch::Sender<bool>,
 	shutdown_task: std::sync::Mutex<Option<tokio::task::JoinHandle<Result<()>>>>,
-	url: Option<Url>,
-	version: String,
 	vfs: std::sync::Mutex<Option<self::vfs::Server>>,
-	www: Option<Url>,
 }
 
 struct BuildState {
@@ -103,18 +100,19 @@ struct HttpInner {
 
 struct Tmp {
 	path: PathBuf,
+	preserve: bool,
 }
 
 impl Server {
 	pub async fn start(options: Options) -> Result<Server> {
 		// Get the address.
-		let address = options.address;
+		let address = options.address.clone();
 
 		// Get the path.
-		let path = options.path;
+		let path = &options.path;
 
 		// Ensure the path exists.
-		tokio::fs::create_dir_all(&path)
+		tokio::fs::create_dir_all(path)
 			.await
 			.wrap_err("Failed to create the directory.")?;
 
@@ -133,7 +131,7 @@ impl Server {
 		let lockfile = std::sync::Mutex::new(Some(lockfile));
 
 		// Migrate the path.
-		Self::migrate(&path).await?;
+		Self::migrate(path).await?;
 
 		// Write the PID file.
 		tokio::fs::write(&path.join("pid"), std::process::id().to_string())
@@ -159,18 +157,18 @@ impl Server {
 		let build_semaphore = Arc::new(tokio::sync::Semaphore::new(options.build.max_concurrency));
 
 		// Create the database.
-		let database = match options.database {
+		let database = match &options.database {
 			self::options::Database::Sqlite(sqlite) => {
 				let database_path = path.join("database");
 				Database::new_sqlite(database_path, sqlite.max_connections).await?
 			},
 			self::options::Database::Postgres(postgres) => {
-				Database::new_postgres(postgres.url, postgres.max_connections).await?
+				Database::new_postgres(postgres.url.clone(), postgres.max_connections).await?
 			},
 		};
 
 		// Create the database.
-		let messenger = match options.messenger {
+		let messenger = match &options.messenger {
 			self::options::Messenger::Local => Messenger::new_channel(),
 			self::options::Messenger::Nats(nats) => {
 				let client = nats::connect(nats.url.to_string())
@@ -193,7 +191,7 @@ impl Server {
 		);
 
 		// Create the oauth clients.
-		let github = if let Some(oauth) = options.oauth.github {
+		let github = if let Some(oauth) = &options.oauth.github {
 			let client_id = oauth2::ClientId::new(oauth.client_id.clone());
 			let client_secret = oauth2::ClientSecret::new(oauth.client_secret.clone());
 			let auth_url = oauth2::AuthUrl::new(oauth.auth_url.clone())
@@ -221,17 +219,8 @@ impl Server {
 		// Create the shutdown task.
 		let shutdown_task = std::sync::Mutex::new(None);
 
-		// Get the URL.
-		let url = options.url;
-
-		// Get the version.
-		let version = options.version;
-
 		// Create the vfs.
 		let vfs = std::sync::Mutex::new(None);
-
-		// Get the WWW URL.
-		let www = options.www;
 
 		// Create the server.
 		let inner = Arc::new(Inner {
@@ -246,14 +235,11 @@ impl Server {
 			lockfile,
 			messenger,
 			oauth,
-			path,
+			options,
 			remote,
 			shutdown,
 			shutdown_task,
-			url,
-			version,
 			vfs,
-			www,
 		});
 		let server = Server { inner };
 
@@ -279,7 +265,7 @@ impl Server {
 		// Start the VFS if necessary and set up the checkouts directory.
 		let artifacts_path = server.artifacts_path();
 		self::vfs::unmount(&artifacts_path).await.ok();
-		if options.vfs.enable {
+		if server.inner.options.vfs.enable {
 			// Create the artifacts directory.
 			tokio::fs::create_dir_all(&artifacts_path)
 				.await
@@ -304,7 +290,7 @@ impl Server {
 		}
 
 		// Start the build queue task.
-		if options.build.enable {
+		if server.inner.options.build.enable {
 			let task = tokio::spawn({
 				let server = server.clone();
 				async move {
@@ -414,22 +400,22 @@ impl Server {
 
 	#[must_use]
 	pub fn artifacts_path(&self) -> PathBuf {
-		self.inner.path.join("artifacts")
+		self.inner.options.path.join("artifacts")
 	}
 
 	#[must_use]
 	pub fn checkouts_path(&self) -> PathBuf {
-		self.inner.path.join("checkouts")
+		self.inner.options.path.join("checkouts")
 	}
 
 	#[must_use]
 	pub fn database_path(&self) -> PathBuf {
-		self.inner.path.join("database")
+		self.inner.options.path.join("database")
 	}
 
 	#[must_use]
 	pub fn tmp_path(&self) -> PathBuf {
-		self.inner.path.join("tmp")
+		self.inner.options.path.join("tmp")
 	}
 
 	fn create_tmp(&self) -> Tmp {
@@ -439,7 +425,8 @@ impl Server {
 		let id = uuid::Uuid::now_v7();
 		let id = ENCODING.encode(&id.into_bytes());
 		let path = self.tmp_path().join(id);
-		Tmp { path }
+		let preserve = self.inner.options.preserve_temp_directories;
+		Tmp { path, preserve }
 	}
 }
 
@@ -1033,6 +1020,8 @@ impl AsRef<Path> for Tmp {
 
 impl Drop for Tmp {
 	fn drop(&mut self) {
-		tokio::spawn(rmrf(self.path.clone()));
+		if !self.preserve {
+			tokio::spawn(rmrf(self.path.clone()));
+		}
 	}
 }

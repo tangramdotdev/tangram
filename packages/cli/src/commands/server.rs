@@ -255,6 +255,19 @@ impl Cli {
 		// Get the WWW URL.
 		let www = config.as_ref().and_then(|config| config.www.clone());
 
+		// Get the server's advanced options.
+		let preserve_temp_directories = config
+			.as_ref()
+			.and_then(|config| config.advanced.as_ref())
+			.and_then(|advanced| advanced.preserve_temp_directories)
+			.unwrap_or(false);
+
+		let write_build_logs_to_stderr = config
+			.as_ref()
+			.and_then(|config| config.advanced.as_ref())
+			.and_then(|advanced| advanced.write_build_logs_to_stderr)
+			.unwrap_or(false);
+
 		// Create the options.
 		let options = tangram_server::Options {
 			address,
@@ -264,10 +277,12 @@ impl Cli {
 			messenger,
 			oauth,
 			path,
+			preserve_temp_directories,
 			remote,
 			url,
 			version,
 			vfs,
+			write_build_logs_to_stderr,
 			www,
 		};
 
