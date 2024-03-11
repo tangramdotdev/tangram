@@ -7,6 +7,7 @@ use super::{
 use bytes::Bytes;
 use futures::{Future, FutureExt, TryStreamExt};
 use itertools::Itertools;
+use num::ToPrimitive;
 use std::rc::Rc;
 use tangram_client as tg;
 use tangram_error::{error, Result, WrapErr};
@@ -137,12 +138,62 @@ async fn syscall_download(state: Rc<State>, args: (Url, tg::Checksum)) -> Result
 		.wrap_err("Failed to perform the request.")?
 		.error_for_status()
 		.wrap_err("Expected a sucess status.")?;
+
+	// Spawn a task to log progress.
+	let content_length = response.content_length();
+	let (log_sender, mut log_receiver) = tokio::sync::watch::channel(0);
+	let task = tokio::spawn({
+		let url = url.clone();
+		let server = state.server.clone();
+		let build = state.build.clone();
+		async move {
+			let mut interval = tokio::time::interval(std::time::Duration::from_millis(500));
+			loop {
+				// Get the current number of bytes read from the watch.
+				let bytes_read = *log_receiver.borrow();
+				let message =
+					if let Some(content_length) = content_length {
+						let percent =
+							100.0 * bytes_read.to_f64().unwrap() / content_length.to_f64().unwrap();
+						format!("Downloading \"{url}\": {bytes_read} of {content_length} {percent:.2}%\n")
+					} else {
+						format!("Downloading \"{url}\": {bytes_read}\n")
+					};
+				build.add_log(&server, message.into()).await?;
+
+				// Wait for the interval to tick and more data to be available.
+				let (status, _) = tokio::join!(log_receiver.changed(), interval.tick());
+				if status.is_err() {
+					break;
+				}
+			}
+			Ok::<_, tangram_error::Error>(())
+		}
+	});
+	scopeguard::defer! {
+		task.abort();
+	};
+
+	// Create a stream of chunks.
 	let mut checksum_writer = tg::checksum::Writer::new(checksum.algorithm());
+	let mut bytes_read = 0;
 	let stream = response
 		.bytes_stream()
 		.map_err(std::io::Error::other)
-		.inspect_ok(|chunk| checksum_writer.update(chunk));
+		.inspect_ok(|chunk| {
+			bytes_read += chunk.len().to_u64().unwrap();
+			log_sender.send_replace(bytes_read);
+			checksum_writer.update(chunk);
+		});
+
+	// Create the blob and validate.
 	let blob = tg::Blob::with_reader(&state.server, StreamReader::new(stream)).await?;
+
+	// Update the log task with the full content length so it can display 100%.
+	if let Some(content_length) = content_length {
+		log_sender.send_replace(content_length);
+	}
+
 	let actual = checksum_writer.finalize();
 	if actual != checksum {
 		return Err(error!(
