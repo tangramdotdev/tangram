@@ -4,8 +4,10 @@ members = [
   "packages/cli",
   "packages/client",
   "packages/error",
+  "packages/fuse",
+  "packages/nfs",  
   "packages/server",
-  "packages/util",
+  "packages/util", 
 ]
 resolver = "2"
 
@@ -112,6 +114,8 @@ tangram_client = { path = "packages/client" }
 tangram_error = { path = "packages/error" }
 tangram_server = { path = "packages/server" }
 tangram_util = { path = "packages/util" }
+tangram_fuse = { path = "packages/fuse" }
+tangram_nfs = { path = "packages/nfs" }
 tar = { version = "0.4" }
 tempfile = "3"
 thiserror = "1"

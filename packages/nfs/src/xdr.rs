@@ -102,6 +102,7 @@ impl From<std::io::Error> for Error {
 }
 
 impl<'d> Decoder<'d> {
+	#[must_use]
 	pub fn from_bytes(input: &'d [u8]) -> Self {
 		Self { input }
 	}

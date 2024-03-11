@@ -4175,6 +4175,23 @@ dependencies = [
 ]
 
 [[package]]
+name = "tangram_fuse"
+version = "0.0.0"
+dependencies = [
+ "num",
+ "zerocopy",
+]
+
+[[package]]
+name = "tangram_nfs"
+version = "0.0.0"
+dependencies = [
+ "num",
+ "tokio",
+ "tracing",
+]
+
+[[package]]
 name = "tangram_server"
 version = "0.0.0"
 dependencies = [
@@ -4222,6 +4239,8 @@ dependencies = [
  "swc_core",
  "tangram_client",
  "tangram_error",
+ "tangram_fuse",
+ "tangram_nfs",
  "tangram_util",
  "tempfile",
  "time",
