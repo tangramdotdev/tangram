@@ -47,6 +47,7 @@ struct Args {
 pub enum Command {
 	Autoenv(self::commands::autoenv::Args),
 	Build(self::commands::build::Args),
+	Cat(self::commands::cat::Args),
 	Check(self::commands::check::Args),
 	Checkin(self::commands::checkin::Args),
 	Checkout(self::commands::checkout::Args),
@@ -149,6 +150,7 @@ fn main_inner() -> Result<()> {
 	let future = match args.command {
 		Command::Autoenv(args) => cli.command_autoenv(args).boxed(),
 		Command::Build(args) => cli.command_build(args).boxed(),
+		Command::Cat(args) => cli.command_cat(args).boxed(),
 		Command::Check(args) => cli.command_check(args).boxed(),
 		Command::Checkin(args) => cli.command_checkin(args).boxed(),
 		Command::Checkout(args) => cli.command_checkout(args).boxed(),

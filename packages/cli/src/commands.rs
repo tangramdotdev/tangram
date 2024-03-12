@@ -1,5 +1,6 @@
 pub mod autoenv;
 pub mod build;
+pub mod cat;
 pub mod check;
 pub mod checkin;
 pub mod checkout;
