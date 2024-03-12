@@ -49,16 +49,20 @@ pub struct NewArgs {
 	pub output: Option<PathBuf>,
 
 	/// The package to build.
-	#[arg(short, long, default_value = ".")]
-	pub package: tg::Dependency,
+	#[arg(short, long)]
+	pub package: Option<tg::Dependency>,
 
 	/// The retry strategy to use.
 	#[arg(long, default_value_t)]
 	pub retry: tg::build::Retry,
 
 	/// The name of the target to build.
-	#[arg(short, long, default_value = "default")]
-	pub target: String,
+	#[arg(short, long)]
+	pub target: Option<String>,
+
+	/// The ID of an existing target to build.
+	#[arg(long, conflicts_with_all = &["target", "package"], value_name = "ID")]
+	pub target_id: Option<tg::target::Id>,
 }
 
 /// Get a build.
@@ -112,36 +116,43 @@ impl Cli {
 		Ok(())
 	}
 
-	pub async fn command_build_build(&self, mut args: NewArgs) -> Result<()> {
+	pub async fn command_build_build(&self, args: NewArgs) -> Result<()> {
 		let client = &self.client().await?;
 
-		// Canonicalize the path.
-		if let Some(path) = args.package.path.as_mut() {
-			*path = tokio::fs::canonicalize(&path)
-				.await
-				.wrap_err("Failed to canonicalize the path.")?
-				.try_into()?;
-		}
+		let target = if let Some(id) = args.target_id {
+			tg::Target::with_id(id)
+		} else {
+			let mut package = args.package.unwrap_or(".".parse().unwrap());
+			let target = args.target.unwrap_or("default".parse().unwrap());
 
-		// Create the package.
-		let (package, lock) = tg::package::get_with_lock(client, &args.package).await?;
+			// Canonicalize the path.
+			if let Some(path) = package.path.as_mut() {
+				*path = tokio::fs::canonicalize(&path)
+					.await
+					.wrap_err("Failed to canonicalize the path.")?
+					.try_into()?;
+			}
 
-		// Create the target.
-		let env = [(
-			"TANGRAM_HOST".to_owned(),
-			tg::Triple::host()?.to_string().into(),
-		)]
-		.into();
-		let args_ = Vec::new();
-		let host = tg::Triple::js();
-		let path = tg::package::get_root_module_path(client, &package).await?;
-		let executable = tg::Symlink::new(Some(package.into()), Some(path.to_string())).into();
-		let target = tg::target::Builder::new(host, executable)
-			.lock(lock)
-			.name(args.target.clone())
-			.env(env)
-			.args(args_)
-			.build();
+			// Create the package.
+			let (package, lock) = tg::package::get_with_lock(client, &package).await?;
+
+			// Create the target.
+			let env = [(
+				"TANGRAM_HOST".to_owned(),
+				tg::Triple::host()?.to_string().into(),
+			)]
+			.into();
+			let args_ = Vec::new();
+			let host = tg::Triple::js();
+			let path = tg::package::get_root_module_path(client, &package).await?;
+			let executable = tg::Symlink::new(Some(package.into()), Some(path.to_string())).into();
+			tg::target::Builder::new(host, executable)
+				.lock(lock)
+				.name(target.clone())
+				.env(env)
+				.args(args_)
+				.build()
+		};
 
 		// Print the target ID.
 		eprintln!("{}", target.id(client).await?);
