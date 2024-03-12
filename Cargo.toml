@@ -74,7 +74,9 @@ octocrab = "0.35"
 once_cell = "1"
 parking_lot = "0.12"
 pin-project = "1"
+proc-macro2 = "1"
 proptest = "1"
+quote = "1"
 rand = "0.8"
 ratatui = "0.26"
 regex = "1"
@@ -97,6 +99,7 @@ serde_with = "3"
 serde_yaml = { version = "0.9" }
 sha2 = "0.10"
 sourcemap = "7"
+syn = "2"
 swc_core = { version = "0.90", features = [
   "common",
   "common_sourcemap",
@@ -112,6 +115,7 @@ swc_core = { version = "0.90", features = [
 tangram_cli = { path = "packages/cli" }
 tangram_client = { path = "packages/client" }
 tangram_error = { path = "packages/error" }
+tangram_error_macros = { path = "packages/error_macros" }
 tangram_server = { path = "packages/server" }
 tangram_util = { path = "packages/util" }
 tangram_fuse = { path = "packages/fuse" }

@@ -2219,12 +2219,13 @@ impl FromV8 for Error {
 		let source = v8::String::new_external_onebyte_static(scope, "source".as_bytes()).unwrap();
 		let source = value.get(scope, source.into()).unwrap();
 		let source = from_v8::<Option<Error>>(scope, source)?.map(|error| Arc::new(error) as _);
-
+		let values = BTreeMap::new();
 		Ok(Error {
 			message,
 			location,
 			stack,
 			source,
+			values,
 		})
 	}
 }

@@ -15,3 +15,4 @@ workspace = true
 [dependencies]
 serde = { workspace = true }
 thiserror = { workspace = true }
+tangram_error_macros = { workspace = true }

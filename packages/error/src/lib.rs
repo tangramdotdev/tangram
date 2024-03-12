@@ -1,4 +1,5 @@
-use std::sync::Arc;
+use std::{collections::BTreeMap, sync::Arc};
+pub use tangram_error_macros::error;
 use thiserror::Error;
 
 /// A result alias that defaults to `Error` as the error type.
@@ -6,7 +7,13 @@ pub type Result<T, E = Error> = std::result::Result<T, E>;
 
 /// An error.
 #[derive(Clone, Debug, Error, serde::Deserialize, serde::Serialize)]
-#[error("{message}")]
+#[error("{message}.{}",
+	values
+		.iter()
+		.map(|(name, text)| format!(" {name}={text}"))
+		.collect::<Vec<_>>()
+		.join(",")
+)]
 pub struct Error {
 	pub message: String,
 	#[serde(default, skip_serializing_if = "Option::is_none")]
@@ -15,6 +22,8 @@ pub struct Error {
 	pub stack: Option<Vec<Location>>,
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub source: Option<Arc<Error>>,
+	#[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+	pub values: BTreeMap<String, String>,
 }
 
 /// An error location.
@@ -71,6 +80,7 @@ impl Error {
 			location: Some(std::panic::Location::caller().into()),
 			stack: None,
 			source: None,
+			values: BTreeMap::new(),
 		}
 	}
 
@@ -99,6 +109,7 @@ impl From<Box<dyn std::error::Error + Send + Sync + 'static>> for Error {
 				location: None,
 				stack: None,
 				source: error.source().map(Into::into).map(Arc::new),
+				values: BTreeMap::new(),
 			},
 		}
 	}
@@ -111,6 +122,7 @@ impl From<&(dyn std::error::Error + 'static)> for Error {
 			location: None,
 			stack: None,
 			source: value.source().map(Into::into).map(Arc::new),
+			values: BTreeMap::new(),
 		}
 	}
 }
@@ -131,6 +143,7 @@ where
 			location: Some(std::panic::Location::caller().into()),
 			stack: None,
 			source: Some(Arc::new(self.into().into())),
+			values: BTreeMap::new(),
 		}
 	}
 }
@@ -152,6 +165,7 @@ where
 				location: Some(std::panic::Location::caller().into()),
 				stack: None,
 				source: Some(Arc::new(error.into().into())),
+				values: BTreeMap::new(),
 			}),
 		}
 	}
@@ -171,6 +185,7 @@ impl<T> WrapErr<T, Error> for Option<T> {
 				location: Some(std::panic::Location::caller().into()),
 				stack: None,
 				source: None,
+				values: BTreeMap::new(),
 			}),
 		}
 	}
@@ -210,9 +225,17 @@ impl std::fmt::Display for Location {
 	}
 }
 
-#[macro_export]
-macro_rules! error {
-	($($t:tt)*) => {{
-		$crate::Error::with_message(format!($($t)*))
-	}};
+#[cfg(test)]
+mod tests {
+	use super::error;
+	use crate as tangram_error;
+	#[test]
+	fn test_error_macro() {
+		let foo = "foo";
+		let bar = "bar";
+		let baz = "baz";
+		let error = error!(?foo, %bar, ?baz, "{} bar {baz}", foo);
+		eprintln!("{error:#?}");
+		eprintln!("{error}");
+	}
 }
