@@ -115,7 +115,6 @@ swc_core = { version = "0.90", features = [
 tangram_cli = { path = "packages/cli" }
 tangram_client = { path = "packages/client" }
 tangram_error = { path = "packages/error" }
-tangram_error_macros = { path = "packages/error_macros" }
 tangram_server = { path = "packages/server" }
 tangram_util = { path = "packages/util" }
 tangram_fuse = { path = "packages/fuse" }

@@ -1,5 +1,4 @@
 use std::{collections::BTreeMap, sync::Arc};
-pub use tangram_error_macros::error;
 use thiserror::Error;
 
 /// A result alias that defaults to `Error` as the error type.
@@ -67,25 +66,6 @@ pub trait WrapErr<T, E>: Sized {
 }
 
 impl Error {
-	/// Create a new error with a given message.
-	#[track_caller]
-	pub fn with_message(message: impl std::fmt::Display) -> Self {
-		Self {
-			message: message.to_string(),
-			location: Some(std::panic::Location::caller().into()),
-			stack: None,
-			source: None,
-			values: BTreeMap::new(),
-		}
-	}
-
-	/// Add a source to an error, replacing the current source.
-	pub fn with_source(mut self, source: impl std::error::Error + Send + Sync + 'static) -> Self {
-		let source: Box<dyn std::error::Error + Send + Sync> = Box::new(source);
-		self.source.replace(Arc::new(source.into()));
-		self
-	}
-
 	/// Construct a [Trace] from an error, which can be used to display a helpful error trace.
 	#[must_use]
 	pub fn trace(&self) -> Trace {
@@ -245,10 +225,77 @@ impl std::fmt::Display for Location {
 	}
 }
 
+#[doc(hidden)]
+pub mod support {
+	use std::{collections::BTreeMap, sync::Arc};
+
+	#[derive(Default)]
+	pub struct Builder {
+		pub source: Option<Box<dyn std::error::Error + Send + Sync>>,
+		pub stack: Option<Vec<crate::Location>>,
+		pub values: BTreeMap<String, String>,
+		pub message: Option<String>,
+		pub location: Option<crate::Location>,
+	}
+
+	impl From<Builder> for crate::Error {
+		fn from(value: Builder) -> Self {
+			Self {
+				message: value.message.unwrap(),
+				source: value.source.map(|e| Arc::new(e.into())),
+				stack: value.stack,
+				values: value.values,
+				location: value.location,
+			}
+		}
+	}
+}
+
+#[macro_export]
+macro_rules! error {
+	({ $error:ident }, %$name:ident, $($arg:tt)*) => {
+		$error.values.insert(stringify!($name).to_owned(), $name.to_string());
+		$crate::error!({ $error }, $($arg)*)
+	};
+	({ $error:ident }, ?$name:ident, $($arg:tt)*) => {
+		$error.values.insert(stringify!($name).to_owned(), format!("{:?}", $name));
+		$crate::error!({ $error }, $($arg)*)
+	};
+	({ $error:ident }, source=$source:expr, $($arg:tt)*) => {
+		$error.source.replace(std::sync::Arc::new({
+			let source: Box<dyn std::error::Error + Send + Sync + 'static> = Box::new($source);
+			source.into()
+		}));
+		$crate::error!({ $error }, $($arg)*)
+	};
+	({ $error:ident }, stack = $stack:expr, $($arg:tt)*) => {
+		$error.stack.replace($stack);
+		$crate::error!({ $error }, $($arg)*)
+	};
+	({ $error:ident }, $($arg:tt)*) => {
+		$error.message = format!($($arg)*);
+	};
+	($($arg:tt)*) => {{
+		let mut __error = $crate::Error {
+			message: String::new(),
+			location: Some($crate::Location {
+				source: file!().to_owned(),
+				line: line!() - 1,
+				column: column!() - 1,
+			}),
+			source: None,
+			stack: None,
+			values: std::collections::BTreeMap::new(),
+		};
+		$crate::error!({ __error }, $($arg)*);
+		$crate::Error::from(__error)
+	}};
+}
+
 #[cfg(test)]
 mod tests {
-	use super::error;
-	use crate::{self as tangram_error, Location};
+	use crate::{error, Location};
+
 	#[test]
 	fn test_error_macro() {
 		let foo = "foo";
