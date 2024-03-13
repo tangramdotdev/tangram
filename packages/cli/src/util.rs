@@ -14,7 +14,7 @@ pub fn build_or_object_id(s: &str) -> Result<Either<tg::build::Id, tg::object::I
 }
 
 pub fn print_error(mut error: &tangram_error::Error) {
-	eprintln!("{}:", style("Error:").red());
+	eprintln!("{}:", style("Error").red());
 	let mut first = true;
 	loop {
 		if !first {
@@ -38,7 +38,7 @@ pub fn print_error(mut error: &tangram_error::Error) {
 			eprintln!();
 			let name = style(name).blue();
 			let value = style(value).green();
-			eprintln!("   {name} = {value}");
+			eprint!("   {name} = {value}");
 		}
 		for location in stack.iter().flatten() {
 			eprintln!();
