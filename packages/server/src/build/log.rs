@@ -882,10 +882,9 @@ impl Http {
 
 		// Create the body.
 		let body = stream
-			.map_err(|error| {
+			.inspect_err(|error| {
 				let trace = error.trace();
-				tracing::error!("{trace}");
-				error
+				tracing::error!(%trace, "Failed to get log chunk.");
 			})
 			.map_ok(|chunk| {
 				let data = serde_json::to_string(&chunk).unwrap();
