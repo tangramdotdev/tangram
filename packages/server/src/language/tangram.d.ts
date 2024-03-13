@@ -483,10 +483,16 @@ declare namespace tg {
 			  };
 	}
 
+	/** Create a lock. */
+	export let lock: (...args: Args<Lock.Arg>) => Promise<Lock>;
+
 	/** A lock. */
 	export class Lock {
 		/** Get a lock with an ID. */
 		static withId(id: Lock.Id): Lock;
+
+		/** Create a lock. */
+		static new(...args: Args<Lock.Arg>): Promise<Lock>;
 
 		/** Check if a value is a `tg.Lock`. */
 		static is(value: unknown): value is Lock;
@@ -502,6 +508,12 @@ declare namespace tg {
 	}
 
 	export namespace Lock {
+		export type Arg = Lock | ArgObject | Array<Arg>;
+
+		export type ArgObject = {
+			dependencies?: { [dependency: string]: Lock.Arg };
+		};
+
 		export type Id = string;
 	}
 
@@ -531,10 +543,10 @@ declare namespace tg {
 			| Template
 			? T
 			: T extends Array<infer U extends Value>
-				? Array<Unresolved<U>>
-				: T extends { [key: string]: Value }
-					? { [K in keyof T]: Unresolved<T[K]> }
-					: never
+			  ? Array<Unresolved<U>>
+			  : T extends { [key: string]: Value }
+			    ? { [K in keyof T]: Unresolved<T[K]> }
+			    : never
 	>;
 
 	/**
@@ -560,12 +572,12 @@ declare namespace tg {
 		| Template
 		? T
 		: T extends Array<infer U extends Unresolved<Value>>
-			? Array<Resolved<U>>
-			: T extends { [key: string]: Unresolved<Value> }
-				? { [K in keyof T]: Resolved<T[K]> }
-				: T extends Promise<infer U extends Unresolved<Value>>
-					? Resolved<U>
-					: never;
+		  ? Array<Resolved<U>>
+		  : T extends { [key: string]: Unresolved<Value> }
+		    ? { [K in keyof T]: Resolved<T[K]> }
+		    : T extends Promise<infer U extends Unresolved<Value>>
+		      ? Resolved<U>
+		      : never;
 
 	/** Sleep for the specified duration in seconds. */
 	export let sleep: (duration: number) => Promise<void>;
@@ -777,8 +789,8 @@ declare namespace tg {
 		| Template
 		? T
 		: T extends { [key: string]: Value }
-			? MutationMap<T>
-			: never;
+		  ? MutationMap<T>
+		  : never;
 
 	export type MaybeNestedArray<T> = T | Array<MaybeNestedArray<T>>;
 
