@@ -1,6 +1,6 @@
 use crate::Cli;
 use tangram_client as tg;
-use tangram_error::{error, Result, WrapErr};
+use tangram_error::{error, Result};
 
 /// Write the contents of a list of objects to stdout.
 #[derive(Debug, clap::Args)]
@@ -27,7 +27,7 @@ impl Cli {
 					let blob = file
 						.contents(tg)
 						.await
-						.wrap_err("Failed to get file contents.")?
+						.map_err(|error| error!(source = error, "Failed to get file contents."))?
 						.clone();
 					break 'a blob;
 				}
@@ -38,11 +38,16 @@ impl Cli {
 			let mut reader = blob
 				.reader(tg)
 				.await
-				.wrap_err("Failed to create the blob reader.")?;
+				.map_err(|error| error!(source = error, "Failed to create the blob reader."))?;
 			let mut writer = tokio::io::stdout();
 			tokio::io::copy(&mut reader, &mut writer)
 				.await
-				.wrap_err("Failed to write the blob contents to stdout.")?;
+				.map_err(|error| {
+					error!(
+						source = error,
+						"Failed to write the blob contents to stdout."
+					)
+				})?;
 		}
 
 		Ok(())

@@ -44,6 +44,7 @@ struct Args {
 }
 
 #[derive(Debug, clap::Subcommand)]
+#[allow(clippy::large_enum_variant)]
 pub enum Command {
 	Autoenv(self::commands::autoenv::Args),
 	Build(self::commands::build::Args),
