@@ -9,7 +9,7 @@ use std::{
 	sync::{Arc, Weak},
 };
 use tangram_client as tg;
-use tangram_error::{Result, WrapErr};
+use tangram_error::{error, Result};
 use tangram_nfs::{
 	rpc,
 	types::{
@@ -232,7 +232,7 @@ impl Server {
 			.map_err(|error| error!(source = error, "Failed to mount."))?
 			.success()
 			.then_some(())
-			.map_err(|error| error!(source = error, "Failed to mount the VFS."))?;
+			.ok_or_else(|| error!("Failed to mount the VFS."))?;
 
 		Ok(())
 	}

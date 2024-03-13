@@ -14,7 +14,7 @@ use std::{
 	os::unix::prelude::OsStrExt,
 };
 use tangram_client as tg;
-use tangram_error::{error, Error, Result, Wrap, WrapErr};
+use tangram_error::{error, Error, Result};
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 
 pub async fn build(server: &Server, build: &tg::Build) -> Result<tg::Value> {
@@ -358,7 +358,7 @@ pub async fn build(server: &Server, build: &tg::Build) -> Result<tg::Value> {
 	// Spawn the child.
 	let mut child = command
 		.spawn()
-		.wrap_err_with(|| format!("Failed to spawn the process ({executable})."))?;
+		.map_err(|error| error!(source = error, %executable, "Failed to spawn the process."))?;
 
 	// Create the log task.
 	let mut stdout = child.stdout.take().unwrap();
@@ -369,7 +369,9 @@ pub async fn build(server: &Server, build: &tg::Build) -> Result<tg::Value> {
 			let mut buf = [0; 512];
 			loop {
 				match stdout.read(&mut buf).await {
-					Err(error) => return Err(error.wrap("Failed to read from the log.")),
+					Err(error) => {
+						return Err(error!(source = error, "Failed to read from the log."))
+					},
 					Ok(0) => return Ok(()),
 					Ok(size) => {
 						let log = Bytes::copy_from_slice(&buf[0..size]);
@@ -459,7 +461,11 @@ pub async fn build(server: &Server, build: &tg::Build) -> Result<tg::Value> {
 				.await
 				.map_err(|error| error!(source = error, "Failed to compute the checksum."))?;
 			if expected != tg::Checksum::Unsafe && expected != actual {
-				error!(r#"The checksum did not match. Expected "{expected}" but got "{actual}"."#);
+				return Err(error!(
+					%expected,
+					%actual,
+					"The checksum did not match."
+				));
 			}
 		}
 

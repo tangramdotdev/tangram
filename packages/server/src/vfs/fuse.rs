@@ -10,8 +10,8 @@ use std::{
 	sync::{Arc, Weak},
 };
 use tangram_client as tg;
-use tangram_fuse::sys;
 use tangram_error::{error, Result};
+use tangram_fuse::sys;
 use tokio::io::{AsyncReadExt, AsyncSeekExt};
 use zerocopy::{AsBytes, FromBytes};
 
