@@ -72,7 +72,11 @@ async fn syscall_archive(
 	args: (tg::Artifact, tg::blob::ArchiveFormat),
 ) -> Result<tg::Blob> {
 	let (artifact, format) = args;
-	let blob = tg::Blob::archive(&state.server, &artifact, format).await?;
+	let blob = tg::Blob::archive(&state.server, &artifact, format)
+		.await
+		.map_err(
+			|error| error!(source = error,  %artifact, %format, "Failed to archive the artifact."),
+		)?;
 	Ok(blob)
 }
 
@@ -84,13 +88,19 @@ async fn syscall_build(state: Rc<State>, args: (tg::Target,)) -> Result<tg::Valu
 		retry: state.build.retry(&state.server).await?,
 		target: target.id(&state.server).await?.clone(),
 	};
-	let output = target.build(&state.server, arg).await?;
+	let output = target
+		.build(&state.server, arg)
+		.await
+		.map_err(|error| error!(source = error, %target, "Failed to build the target."))?;
 	Ok(output)
 }
 
 async fn syscall_bundle(state: Rc<State>, args: (tg::Artifact,)) -> Result<tg::Artifact> {
 	let (artifact,) = args;
-	let artifact = artifact.bundle(&state.server).await?;
+	let artifact = artifact
+		.bundle(&state.server)
+		.await
+		.map_err(|error| error!(source = error, %artifact, "Failed to bundle the artifact."))?;
 	Ok(artifact)
 }
 
@@ -111,7 +121,10 @@ async fn syscall_compress(
 	args: (tg::Blob, tg::blob::CompressionFormat),
 ) -> Result<tg::Blob> {
 	let (blob, format) = args;
-	let blob = blob.compress(&state.server, format).await?;
+	let blob = blob
+		.compress(&state.server, format)
+		.await
+		.map_err(|error| error!(source = error, %blob, %format, "Failed to compress the blob."))?;
 	Ok(blob)
 }
 
@@ -270,7 +283,7 @@ fn syscall_encoding_json_encode(
 ) -> Result<String> {
 	let (value,) = args;
 	let json = serde_json::to_string(&value)
-		.map_err(|error| error!(source = error, "Failed to encode the value."))?;
+		.map_err(|error| error!(source = error, %value, "Failed to encode the value."))?;
 	Ok(json)
 }
 
@@ -344,7 +357,10 @@ async fn syscall_extract(
 	args: (tg::Blob, tg::blob::ArchiveFormat),
 ) -> Result<tg::Artifact> {
 	let (blob, format) = args;
-	let artifact = blob.extract(&state.server, format).await?;
+	let artifact = blob
+		.extract(&state.server, format)
+		.await
+		.map_err(|error| error!(source = error, %blob, %format, "Failed to extract the blob."))?;
 	Ok(artifact)
 }
 
@@ -363,7 +379,10 @@ fn syscall_log(_scope: &mut v8::HandleScope, state: Rc<State>, args: (String,)) 
 
 async fn syscall_read(state: Rc<State>, args: (tg::Blob,)) -> Result<Bytes> {
 	let (blob,) = args;
-	let bytes = blob.bytes(&state.server).await?;
+	let bytes = blob
+		.bytes(&state.server)
+		.await
+		.map_err(|error| error!(source = error, %blob, "Failed to read the blob."))?;
 	Ok(bytes.into())
 }
 
