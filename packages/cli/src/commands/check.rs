@@ -1,6 +1,6 @@
 use crate::Cli;
 use tangram_client as tg;
-use tangram_error::{error, Result, WrapErr};
+use tangram_error::{error, Result};
 
 /// Check a package for errors.
 #[derive(Debug, clap::Args)]
@@ -22,7 +22,7 @@ impl Cli {
 		if let Some(path) = args.package.path.as_mut() {
 			*path = tokio::fs::canonicalize(&path)
 				.await
-				.wrap_err("Failed to canonicalize the path.")?
+				.map_err(|error| error!(source = error, "Failed to canonicalize the path."))?
 				.try_into()?;
 		}
 

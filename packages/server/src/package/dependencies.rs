@@ -1,7 +1,7 @@
 use crate::Server;
 use std::collections::{BTreeSet, HashSet, VecDeque};
 use tangram_client as tg;
-use tangram_error::{Result, WrapErr};
+use tangram_error::{error, Result};
 
 impl Server {
 	pub(super) async fn get_package_dependencies(
@@ -26,12 +26,12 @@ impl Server {
 				.await?
 				.try_unwrap_file()
 				.ok()
-				.wrap_err("Expected the module to be a file.")?;
-			let text = file.text(self).await?;
+				.ok_or_else(|| error!("Expected the module to be a file."))?;
+			let text: String = file.text(self).await?;
 
 			// Analyze the module.
 			let analysis = crate::language::Server::analyze_module(text)
-				.wrap_err("Failed to analyze the module.")?;
+				.map_err(|error| error!(source = error, "Failed to analyze the module."))?;
 
 			// Recurse into the dependencies.
 			for import in &analysis.imports {

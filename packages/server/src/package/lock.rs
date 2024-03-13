@@ -5,7 +5,7 @@ use either::Either;
 use futures::{stream::FuturesUnordered, TryStreamExt};
 use std::collections::BTreeMap;
 use tangram_client as tg;
-use tangram_error::{error, Result, WrapErr};
+use tangram_error::{error, Result};
 
 // Mutable state used during the version solving algorithm to cache package metadata and published packages.
 struct Context {
@@ -166,21 +166,24 @@ impl Server {
 		// Canonicalize the path.
 		let path = tokio::fs::canonicalize(path)
 			.await
-			.wrap_err("Failed to canonicalize the path.")?;
+			.map_err(|error| error!(source = error, "Failed to canonicalize the path."))?;
 
 		// Attempt to read the lockfile.
 		let path = path.join(tg::package::LOCKFILE_FILE_NAME);
-		let exists = tokio::fs::try_exists(&path)
-			.await
-			.wrap_err("Failed to determine if the lockfile exists.")?;
+		let exists = tokio::fs::try_exists(&path).await.map_err(|error| {
+			error!(
+				source = error,
+				"Failed to determine if the lockfile exists."
+			)
+		})?;
 		if !exists {
 			return Ok(None);
 		}
 		let lock = tokio::fs::read(&path)
 			.await
-			.wrap_err("Failed to read the lockfile.")?;
-		let lock: tg::lock::Data =
-			serde_json::from_slice(&lock).wrap_err("Failed to deserialize the lockfile.")?;
+			.map_err(|error| error!(source = error, "Failed to read the lockfile."))?;
+		let lock: tg::lock::Data = serde_json::from_slice(&lock)
+			.map_err(|error| error!(source = error, "Failed to deserialize the lockfile."))?;
 
 		let root = lock.root;
 		let nodes = lock
@@ -207,14 +210,14 @@ impl Server {
 	async fn write_lock_to_path(&self, path: &tg::Path, lock: &tg::Lock) -> Result<()> {
 		let package_path = tokio::fs::canonicalize(path)
 			.await
-			.wrap_err("Failed to canonicalize the path.")?;
+			.map_err(|error| error!(source = error, "Failed to canonicalize the path."))?;
 		let lock_path = package_path.join(tg::package::LOCKFILE_FILE_NAME);
 		let lock = lock.data(self).await?;
-		let lock =
-			serde_json::to_vec_pretty(&lock).wrap_err("Failed to serialize the lockfile.")?;
+		let lock = serde_json::to_vec_pretty(&lock)
+			.map_err(|error| error!(source = error, "Failed to serialize the lockfile."))?;
 		tokio::fs::write(lock_path, lock)
 			.await
-			.wrap_err("Failed to write the lockfile.")?;
+			.map_err(|error| error!(source = error, "Failed to write the lockfile."))?;
 		Ok(())
 	}
 
@@ -245,7 +248,9 @@ impl Server {
 			.await?;
 
 		// Get the package's lock from the lockfile.
-		let node = nodes.get(index).wrap_err("Invalid lockfile.")?;
+		let node = nodes
+			.get(index)
+			.ok_or_else(|| error!("Invalid lockfile."))?;
 
 		// Verify that the dependencies match.
 		if !itertools::equal(node.dependencies.keys(), dependencies.iter()) {
@@ -361,7 +366,7 @@ impl Server {
 		let analysis = context
 			.analysis
 			.get(package)
-			.wrap_err("Missing package in solution.")?;
+			.ok_or_else(|| error!("Missing package in solution."))?;
 
 		// Recursively create the nodes.
 		let mut dependencies = BTreeMap::new();
@@ -378,7 +383,7 @@ impl Server {
 					dependency: dependency.clone(),
 				};
 				let Some(Mark::Permanent(Ok(resolved))) = solution.partial.get(&dependant) else {
-					return Err(error!("Missing solution for {dependant:?}."));
+					return Err(error!(?dependant, "Missing solution."));
 				};
 				(resolved, true)
 			};
@@ -799,18 +804,16 @@ impl Context {
 						continue;
 					}
 					let path = path.clone().normalize();
-					let Some(dependency_source) = package_source
-						.try_get(server, &path)
-						.await
-						.wrap_err_with(|| {
-							error!("Could not resolve {dependency} within {package_id}.")
-						})?
+					let Some(dependency_source) =
+						package_source.try_get(server, &path).await.map_err(
+							|error| error!(source = error, %dependency, %package_id, "Could not resolve dependency."),
+						)?
 					else {
 						continue;
 					};
 					let dependency_package_id = dependency_source
 						.try_unwrap_directory()
-						.wrap_err_with(|| error!("Expected {path} to refer to a directory."))?
+						.map_err(|error| error!(source = error, %path, "Expected a directory."))?
 						.id(server)
 						.await?
 						.clone();
@@ -837,7 +840,7 @@ impl Context {
 		// We guarantee that the context already knows about the dependant package by the time this function is called.
 		let Some(analysis) = self.analysis.get(&dependant.package) else {
 			tracing::error!(?dependant, "Missing analysis.");
-			return Err(error!("Internal error: {dependant:?} missing analysis."));
+			return Err(error!(?dependant, "Internal error: missing analysis."));
 		};
 		Ok(analysis
 			.path_dependencies
@@ -860,7 +863,7 @@ impl Context {
 			.metadata
 			.version
 			.as_deref()
-			.wrap_err("Missing version for package.")
+			.ok_or_else(|| error!(%package, "Missing version in package metadata."))
 	}
 
 	// Lookup all the versions we might use to solve this dependant.
@@ -881,7 +884,7 @@ impl Context {
 		let metadata = server
 			.try_get_package_versions(dependency)
 			.await?
-			.wrap_err("Expected the package to exist.")?
+			.ok_or_else(|| error!(%dependency, "Package does not exist."))?
 			.into_iter()
 			.filter_map(|version| {
 				dependency

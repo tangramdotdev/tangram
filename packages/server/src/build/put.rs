@@ -8,7 +8,7 @@ use itertools::Itertools;
 use num::ToPrimitive;
 use std::sync::Arc;
 use tangram_client as tg;
-use tangram_error::{error, Error, Result, WrapErr};
+use tangram_error::{error, Error, Result};
 use tangram_util::http::{empty, Incoming, Outgoing};
 use time::format_description::well_known::Rfc3339;
 
@@ -21,7 +21,8 @@ impl Server {
 	) -> Result<()> {
 		// Verify the build is finished.
 		if arg.status != tg::build::Status::Finished {
-			return Err(error!("The build is not finished."));
+			let status = arg.status;
+			return Err(error!(%status, "The build is not finished."));
 		}
 
 		// Insert the build.
@@ -52,7 +53,7 @@ impl Server {
 		// Begin a transaction.
 		let txn = connection
 			.transaction()
-			.wrap_err("Failed to begin the transaction.")?;
+			.map_err(|error| error!(source = error, "Failed to begin the transaction."))?;
 
 		// Delete any existing children.
 		{
@@ -63,10 +64,10 @@ impl Server {
 			let params = sqlite_params![id.to_string()];
 			let mut statement = txn
 				.prepare_cached(statement)
-				.wrap_err("Failed to prepare the query.")?;
+				.map_err(|error| error!(source = error, "Failed to prepare the query."))?;
 			statement
 				.execute(params)
-				.wrap_err("Failed to execute the statement.")?;
+				.map_err(|error| error!(source = error, "Failed to execute the statement."))?;
 		}
 
 		// Insert the children.
@@ -77,7 +78,7 @@ impl Server {
 			";
 			let mut statement = txn
 				.prepare_cached(statement)
-				.wrap_err("Failed to prepare the query.")?;
+				.map_err(|error| error!(source = error, "Failed to prepare the query."))?;
 			arg.children
 				.iter()
 				.enumerate()
@@ -86,9 +87,9 @@ impl Server {
 					let position = position.to_i64().unwrap();
 					let child = child.to_string();
 					let params = sqlite_params![build, position, child];
-					statement
-						.execute(params)
-						.wrap_err("Failed to execute the statement.")?;
+					statement.execute(params).map_err(|error| {
+						error!(source = error, "Failed to execute the statement.")
+					})?;
 					Ok::<_, Error>(())
 				})
 				.try_collect()?;
@@ -103,10 +104,10 @@ impl Server {
 			let params = sqlite_params![id.to_string()];
 			let mut statement = txn
 				.prepare_cached(statement)
-				.wrap_err("Failed to prepare the query.")?;
+				.map_err(|error| error!(source = error, "Failed to prepare the query."))?;
 			statement
 				.execute(params)
-				.wrap_err("Failed to execute the statement.")?;
+				.map_err(|error| error!(source = error, "Failed to execute the statement."))?;
 		}
 
 		// Add the objects.
@@ -117,7 +118,7 @@ impl Server {
 			";
 			let mut statement = txn
 				.prepare_cached(statement)
-				.wrap_err("Failed to prepare the query.")?;
+				.map_err(|error| error!(source = error, "Failed to prepare the query."))?;
 			let objects = std::iter::empty()
 				.chain(arg.log.clone().map(Into::into))
 				.chain(
@@ -135,7 +136,7 @@ impl Server {
 				let params = sqlite_params![build, object];
 				statement
 					.execute(params)
-					.wrap_err("Failed to execute the statement.")?;
+					.map_err(|error| error!(source = error, "Failed to execute the statement."))?;
 			}
 		}
 
@@ -200,32 +201,34 @@ impl Server {
 			let status = arg.status.to_string();
 			let target = arg.target.to_string();
 			let weight = arg.weight.map(|weight| weight.to_i64().unwrap());
-			let created_at = arg
-				.created_at
-				.format(&Rfc3339)
-				.wrap_err("Failed to format the created_at timestamp.")?;
+			let created_at = arg.created_at.format(&Rfc3339).map_err(|error| {
+				error!(source = error, "Failed to format the created_at timestamp.")
+			})?;
 			let queued_at = arg
 				.queued_at
 				.map(|timestamp| {
-					timestamp
-						.format(&Rfc3339)
-						.wrap_err("Failed to format the queued_at timestamp.")
+					timestamp.format(&Rfc3339).map_err(|error| {
+						error!(source = error, "Failed to format the queued_at timestamp.")
+					})
 				})
 				.transpose()?;
 			let started_at = arg
 				.started_at
 				.map(|timestamp| {
-					timestamp
-						.format(&Rfc3339)
-						.wrap_err("Failed to format the started_at timestamp.")
+					timestamp.format(&Rfc3339).map_err(|error| {
+						error!(source = error, "Failed to format the started_at timestamp.")
+					})
 				})
 				.transpose()?;
 			let finished_at = arg
 				.finished_at
 				.map(|timestamp| {
-					timestamp
-						.format(&Rfc3339)
-						.wrap_err("Failed to format the finished_at timestamp.")
+					timestamp.format(&Rfc3339).map_err(|error| {
+						error!(
+							source = error,
+							"Failed to format the finished_at timestamp."
+						)
+					})
 				})
 				.transpose()?;
 			let params = sqlite_params![
@@ -246,14 +249,15 @@ impl Server {
 			];
 			let mut statement = txn
 				.prepare_cached(statement)
-				.wrap_err("Failed to prepare the query.")?;
+				.map_err(|error| error!(source = error, "Failed to prepare the query."))?;
 			statement
 				.execute(params)
-				.wrap_err("Failed to execute the statement.")?;
+				.map_err(|error| error!(source = error, "Failed to execute the statement."))?;
 		}
 
 		// Commit the transaction.
-		txn.commit().wrap_err("Failed to commit the transaction.")?;
+		txn.commit()
+			.map_err(|error| error!(source = error, "Failed to commit the transaction."))?;
 
 		Ok(())
 	}
@@ -271,7 +275,7 @@ impl Server {
 			connection
 				.transaction()
 				.await
-				.wrap_err("Failed to begin the transaction.")?,
+				.map_err(|error| error!(source = error, "Failed to begin the transaction."))?,
 		);
 
 		// Delete any existing children.
@@ -284,10 +288,10 @@ impl Server {
 			let statement = txn
 				.prepare_cached(statement)
 				.await
-				.wrap_err("Failed to prepare the query.")?;
+				.map_err(|error| error!(source = error, "Failed to prepare the query."))?;
 			txn.execute(&statement, params)
 				.await
-				.wrap_err("Failed to execute the statement.")?;
+				.map_err(|error| error!(source = error, "Failed to execute the statement."))?;
 		}
 
 		// Insert the children.
@@ -299,7 +303,7 @@ impl Server {
 			let statement = txn
 				.prepare_cached(statement)
 				.await
-				.wrap_err("Failed to prepare the query.")?;
+				.map_err(|error| error!(source = error, "Failed to prepare the query."))?;
 			arg.children
 				.iter()
 				.enumerate()
@@ -311,9 +315,9 @@ impl Server {
 						let position = position.to_i64().unwrap();
 						let child = child.to_string();
 						let params = postgres_params![build, position, child];
-						txn.execute(&statement, params)
-							.await
-							.wrap_err("Failed to execute the statement.")?;
+						txn.execute(&statement, params).await.map_err(|error| {
+							error!(source = error, "Failed to execute the statement.")
+						})?;
 						Ok::<_, Error>(())
 					}
 				})
@@ -332,10 +336,10 @@ impl Server {
 			let statement = txn
 				.prepare_cached(statement)
 				.await
-				.wrap_err("Failed to prepare the query.")?;
+				.map_err(|error| error!(source = error, "Failed to prepare the query."))?;
 			txn.execute(&statement, params)
 				.await
-				.wrap_err("Failed to execute the statement.")?;
+				.map_err(|error| error!(source = error, "Failed to execute the statement."))?;
 		}
 
 		// Add the objects.
@@ -347,7 +351,7 @@ impl Server {
 			let statement = txn
 				.prepare_cached(statement)
 				.await
-				.wrap_err("Failed to prepare the query.")?;
+				.map_err(|error| error!(source = error, "Failed to prepare the query."))?;
 			let objects = arg
 				.log
 				.clone()
@@ -370,9 +374,9 @@ impl Server {
 						let build = id.to_string();
 						let object = object.to_string();
 						let params = postgres_params![build, object];
-						txn.execute(&statement, params)
-							.await
-							.wrap_err("Failed to execute the statement.")?;
+						txn.execute(&statement, params).await.map_err(|error| {
+							error!(source = error, "Failed to execute the statement.")
+						})?;
 						Ok::<_, Error>(())
 					}
 				})
@@ -427,32 +431,34 @@ impl Server {
 			let status = arg.status.to_string();
 			let target = arg.target.to_string();
 			let weight = arg.weight.map(|weight| weight.to_i64().unwrap());
-			let created_at = arg
-				.created_at
-				.format(&Rfc3339)
-				.wrap_err("Failed to format the created_at timestamp.")?;
+			let created_at = arg.created_at.format(&Rfc3339).map_err(|error| {
+				error!(source = error, "Failed to format the created_at timestamp.")
+			})?;
 			let queued_at = arg
 				.queued_at
 				.map(|timestamp| {
-					timestamp
-						.format(&Rfc3339)
-						.wrap_err("Failed to format the queued_at timestamp.")
+					timestamp.format(&Rfc3339).map_err(|error| {
+						error!(source = error, "Failed to format the queued_at timestamp.")
+					})
 				})
 				.transpose()?;
 			let started_at = arg
 				.started_at
 				.map(|timestamp| {
-					timestamp
-						.format(&Rfc3339)
-						.wrap_err("Failed to format the started_at timestamp.")
+					timestamp.format(&Rfc3339).map_err(|error| {
+						error!(source = error, "Failed to format the started_at timestamp.")
+					})
 				})
 				.transpose()?;
 			let finished_at = arg
 				.finished_at
 				.map(|timestamp| {
-					timestamp
-						.format(&Rfc3339)
-						.wrap_err("Failed to format the finished_at timestamp.")
+					timestamp.format(&Rfc3339).map_err(|error| {
+						error!(
+							source = error,
+							"Failed to format the finished_at timestamp."
+						)
+					})
 				})
 				.transpose()?;
 			let params = postgres_params![
@@ -474,10 +480,10 @@ impl Server {
 			let statement = txn
 				.prepare_cached(statement)
 				.await
-				.wrap_err("Failed to prepare the query.")?;
+				.map_err(|error| error!(source = error, "Failed to prepare the query."))?;
 			txn.execute(&statement, params)
 				.await
-				.wrap_err("Failed to execute the statement.")?;
+				.map_err(|error| error!(source = error, "Failed to execute the statement."))?;
 		}
 
 		// Commit the transaction.
@@ -485,7 +491,7 @@ impl Server {
 			.unwrap()
 			.commit()
 			.await
-			.wrap_err("Failed to commit the transaction.")?;
+			.map_err(|error| error!(source = error, "Failed to commit the transaction."))?;
 
 		Ok(())
 	}
@@ -499,9 +505,12 @@ impl Http {
 		// Get the path params.
 		let path_components: Vec<&str> = request.uri().path().split('/').skip(1).collect();
 		let ["builds", build_id] = path_components.as_slice() else {
-			return Err(error!("Unexpected path."));
+			let path = request.uri().path();
+			return Err(error!(%path, "Unexpected path."));
 		};
-		let build_id = build_id.parse().wrap_err("Failed to parse the ID.")?;
+		let build_id = build_id
+			.parse()
+			.map_err(|error| error!(source = error, "Failed to parse the ID."))?;
 
 		// Get the user.
 		let user = self.try_get_user_from_request(&request).await?;
@@ -511,9 +520,10 @@ impl Http {
 			.into_body()
 			.collect()
 			.await
-			.wrap_err("Failed to read the body.")?
+			.map_err(|error| error!(source = error, "Failed to read the body."))?
 			.to_bytes();
-		let arg = serde_json::from_slice(&bytes).wrap_err("Failed to deserialize the body.")?;
+		let arg = serde_json::from_slice(&bytes)
+			.map_err(|error| error!(source = error, "Failed to deserialize the body."))?;
 
 		// Put the build.
 		self.inner

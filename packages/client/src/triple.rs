@@ -162,7 +162,8 @@ impl std::str::FromStr for Triple {
 
 		let components = s.split('-').collect_vec();
 		if components.len() > 4 {
-			return Err(error!("Invalid triple: {s}"));
+			let triple = s;
+			return Err(error!(%triple, "Invalid triple."));
 		}
 
 		// Use the first component as the architecture.
@@ -239,7 +240,7 @@ impl std::str::FromStr for Arch {
 			"aarch64" | "arm64" => Arch::Aarch64,
 			"js" => Arch::Js,
 			"x86_64" => Arch::X8664,
-			_ => return Err(error!("Unknown architecture.")),
+			arch => return Err(error!(%arch, "Unknown architecture.")),
 		};
 		Ok(system)
 	}
@@ -290,7 +291,7 @@ impl std::str::FromStr for Environment {
 		let os = match s {
 			"gnu" => Environment::Gnu,
 			"musl" => Environment::Musl,
-			_ => return Err(error!("Unknown environment.")),
+			environment => return Err(error!(%environment, "Unknown environment.")),
 		};
 		Ok(os)
 	}
@@ -341,7 +342,7 @@ impl std::str::FromStr for Os {
 		let os = match s {
 			"darwin" => Os::Darwin,
 			"linux" => Os::Linux,
-			_ => return Err(error!("Unknown OS.")),
+			os => return Err(error!(%os, "Unknown OS.")),
 		};
 		Ok(os)
 	}

@@ -2,7 +2,7 @@ use crate::Cli;
 use futures::FutureExt;
 use itertools::Itertools;
 use std::path::PathBuf;
-use tangram_error::{Result, WrapErr};
+use tangram_error::{error, Result};
 
 /// Manage autoenv paths.
 #[derive(Debug, clap::Args)]
@@ -58,13 +58,14 @@ impl Cli {
 
 	async fn command_autoenv_add(&self, args: AddArgs) -> Result<()> {
 		// Get the path.
-		let mut path = std::env::current_dir().wrap_err("Failed to get the working directory.")?;
+		let mut path = std::env::current_dir()
+			.map_err(|error| error!(source = error, "Failed to get the working directory."))?;
 		if let Some(path_arg) = &args.path {
 			path.push(path_arg);
 		}
 		let path = tokio::fs::canonicalize(&path)
 			.await
-			.wrap_err("Failed to canonicalize the path.")?;
+			.map_err(|error| error!(source = error, "Failed to canonicalize the path."))?;
 
 		// Get the config.
 		let mut config = self.config.clone().unwrap_or_default();
@@ -87,8 +88,8 @@ impl Cli {
 		let config = self.config.clone().unwrap_or_default();
 
 		// Get the working directory path.
-		let working_directory_path =
-			std::env::current_dir().wrap_err("Failed to get the working directory.")?;
+		let working_directory_path = std::env::current_dir()
+			.map_err(|error| error!(source = error, "Failed to get the working directory."))?;
 
 		// Get the autoenv path for the working directory path.
 		let Some(autoenv) = config.autoenv.as_ref() else {
@@ -141,13 +142,14 @@ impl Cli {
 		let mut config = self.config.clone().unwrap_or_default();
 
 		// Get the path.
-		let mut path = std::env::current_dir().wrap_err("Failed to get the working directory.")?;
+		let mut path = std::env::current_dir()
+			.map_err(|error| error!(source = error, "Failed to get the working directory."))?;
 		if let Some(path_arg) = &args.path {
 			path.push(path_arg);
 		}
 		let path = tokio::fs::canonicalize(&path)
 			.await
-			.wrap_err("Failed to canonicalize the path.")?;
+			.map_err(|error| error!(source = error, "Failed to canonicalize the path."))?;
 
 		// Remove the autoenv path.
 		if let Some(autoenv) = config.autoenv.as_mut() {

@@ -14,7 +14,7 @@ use std::{
 	path::{Path, PathBuf},
 };
 use tangram_client as tg;
-use tangram_error::{error, Error, Result, Wrap, WrapErr};
+use tangram_error::{error, Error, Result};
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 
 /// The home directory guest path.
@@ -84,15 +84,20 @@ pub async fn build(server: &Server, build: &tg::Build) -> Result<tg::Value> {
 	let server_directory_temp_path = server_directory_host_path.join("tmp");
 	tokio::fs::create_dir_all(&server_directory_temp_path)
 		.await
-		.wrap_err("Failed to create the server temp directory.")?;
+		.map_err(|error| {
+			error!(
+				source = error,
+				"Failed to create the server temp directory."
+			)
+		})?;
 
 	// Create a tempdir for the root.
 	let root_directory_tempdir = tempfile::TempDir::new_in(&server_directory_temp_path)
-		.wrap_err("Failed to create temporary directory.")?;
+		.map_err(|error| error!(source = error, "Failed to create temporary directory."))?;
 	let root_directory_host_path = root_directory_tempdir.path().to_owned();
 	tokio::fs::create_dir_all(&root_directory_host_path)
 		.await
-		.wrap_err("Failed to create the root directory.")?;
+		.map_err(|error| error!(source = error, "Failed to create the root directory."))?;
 
 	// Add `/usr/bin/env` and `/bin/sh` to the root.
 	let env_path = root_directory_host_path.join("usr/bin/env");
@@ -109,41 +114,46 @@ pub async fn build(server: &Server, build: &tg::Build) -> Result<tg::Value> {
 	};
 	tokio::fs::create_dir_all(&env_path.parent().unwrap())
 		.await
-		.wrap_err("Failed to create the directory.")?;
+		.map_err(|error| error!(source = error, "Failed to create the directory."))?;
 	tokio::fs::OpenOptions::new()
 		.write(true)
 		.create(true)
 		.mode(0o755)
 		.open(&env_path)
 		.await
-		.wrap_err("Failed to open the file.")?
+		.map_err(|error| error!(source = error, "Failed to open the file."))?
 		.write_all(env_bytes)
 		.await
-		.wrap_err("Failed to write the buffer.")?;
+		.map_err(|error| error!(source = error, "Failed to write the buffer."))?;
 	tokio::fs::create_dir_all(&sh_path.parent().unwrap())
 		.await
-		.wrap_err("Failed to create the directory.")?;
+		.map_err(|error| error!(source = error, "Failed to create the directory."))?;
 	tokio::fs::OpenOptions::new()
 		.write(true)
 		.create(true)
 		.mode(0o755)
 		.open(&sh_path)
 		.await
-		.wrap_err("Failed to open the file.")?
+		.map_err(|error| error!(source = error, "Failed to open the file."))?
 		.write_all(sh_bytes)
 		.await
-		.wrap_err("Failed to write the buffer.")?;
+		.map_err(|error| error!(source = error, "Failed to write the buffer."))?;
 
 	// Create a tempdir for the output.
 	let output_tempdir = tempfile::TempDir::new_in(&server_directory_temp_path)
-		.wrap_err("Failed to create the temporary directory.")?;
+		.map_err(|error| error!(source = error, "Failed to create the temporary directory."))?;
 
 	// Create the host and guest paths for the output parent directory.
 	let output_parent_directory_host_path = output_tempdir.path().to_owned();
 	let output_parent_directory_guest_path = PathBuf::from(OUTPUT_PARENT_DIRECTORY_GUEST_PATH);
 	tokio::fs::create_dir_all(&output_parent_directory_host_path)
 		.await
-		.wrap_err("Failed to create the output parent directory.")?;
+		.map_err(|error| {
+			error!(
+				source = error,
+				"Failed to create the output parent directory."
+			)
+		})?;
 
 	// Create the host and guest paths for the output.
 	let output_host_path = output_parent_directory_host_path.join("output");
@@ -159,7 +169,7 @@ pub async fn build(server: &Server, build: &tg::Build) -> Result<tg::Value> {
 	let home_directory_guest_path = PathBuf::from(HOME_DIRECTORY_GUEST_PATH);
 	tokio::fs::create_dir_all(&home_directory_host_path.join(".tangram"))
 		.await
-		.wrap_err("Failed to create the home directory.")?;
+		.map_err(|error| error!(source = error, "Failed to create the home directory."))?;
 
 	// Create the host and guest paths for the proxy server socket.
 	let proxy_server_socket_host_path = home_directory_host_path.join(".tangram/socket");
@@ -170,7 +180,7 @@ pub async fn build(server: &Server, build: &tg::Build) -> Result<tg::Value> {
 		root_directory_host_path.join(WORKING_DIRECTORY_GUEST_PATH.strip_prefix('/').unwrap());
 	tokio::fs::create_dir_all(&working_directory_host_path)
 		.await
-		.wrap_err("Failed to create the working directory.")?;
+		.map_err(|error| error!(source = error, "Failed to create the working directory."))?;
 
 	// Render the executable.
 	let executable = target.executable(server).await?;
@@ -232,12 +242,12 @@ pub async fn build(server: &Server, build: &tg::Build) -> Result<tg::Value> {
 	let proxy_server_host_address = tg::Address::Unix(proxy_server_socket_host_path);
 	let proxy_server = Proxy::start(server, build.id(), proxy_server_host_address)
 		.await
-		.wrap_err("Failed to create the proxy server.")?;
+		.map_err(|error| error!(source = error, "Failed to create the proxy server."))?;
 
 	// Create /etc.
 	tokio::fs::create_dir_all(root_directory_host_path.join("etc"))
 		.await
-		.wrap_err("Failed to create /etc.")?;
+		.map_err(|error| error!(source = error, "Failed to create /etc."))?;
 
 	// Create /etc/passwd.
 	tokio::fs::write(
@@ -251,7 +261,7 @@ pub async fn build(server: &Server, build: &tg::Build) -> Result<tg::Value> {
 		),
 	)
 	.await
-	.wrap_err("Failed to create /etc/passwd.")?;
+	.map_err(|error| error!(source = error, "Failed to create /etc/passwd."))?;
 
 	// Create /etc/group.
 	tokio::fs::write(
@@ -263,7 +273,7 @@ pub async fn build(server: &Server, build: &tg::Build) -> Result<tg::Value> {
 		),
 	)
 	.await
-	.wrap_err("Failed to create /etc/group.")?;
+	.map_err(|error| error!(source = error, "Failed to create /etc/group."))?;
 
 	// Create /etc/nsswitch.conf.
 	tokio::fs::write(
@@ -277,7 +287,7 @@ pub async fn build(server: &Server, build: &tg::Build) -> Result<tg::Value> {
 		),
 	)
 	.await
-	.wrap_err("Failed to create /etc/nsswitch.conf.")?;
+	.map_err(|error| error!(source = error, "Failed to create /etc/nsswitch.conf."))?;
 
 	// If network access is enabled, then copy /etc/resolv.conf from the host.
 	if network_enabled {
@@ -286,18 +296,18 @@ pub async fn build(server: &Server, build: &tg::Build) -> Result<tg::Value> {
 			root_directory_host_path.join("etc/resolv.conf"),
 		)
 		.await
-		.wrap_err("Failed to copy /etc/resolv.conf.")?;
+		.map_err(|error| error!(source = error, "Failed to copy /etc/resolv.conf."))?;
 	}
 
 	// Create the socket.
-	let (mut host_socket, guest_socket) =
-		tokio::net::UnixStream::pair().wrap_err("Failed to create the socket pair.")?;
+	let (mut host_socket, guest_socket) = tokio::net::UnixStream::pair()
+		.map_err(|error| error!(source = error, "Failed to create the socket pair."))?;
 	let guest_socket = guest_socket
 		.into_std()
-		.wrap_err("Failed to convert the Unix Stream.")?;
+		.map_err(|error| error!(source = error, "Failed to convert the Unix Stream."))?;
 	guest_socket
 		.set_nonblocking(false)
-		.wrap_err("Failed to set nonblocking mode.")?;
+		.map_err(|error| error!(source = error, "Failed to set nonblocking mode."))?;
 
 	// Create the mounts.
 	let mut mounts = Vec::new();
@@ -309,7 +319,12 @@ pub async fn build(server: &Server, build: &tg::Build) -> Result<tg::Value> {
 	let dev_target_path = root_directory_host_path.join(dev_guest_path.strip_prefix("/").unwrap());
 	tokio::fs::create_dir_all(&dev_target_path)
 		.await
-		.wrap_err(r#"Failed to create the mountpoint for "/dev"."#)?;
+		.map_err(|error| {
+			error!(
+				source = error,
+				r#"Failed to create the mountpoint for "/dev"."#
+			)
+		})?;
 	let dev_source_path = CString::new(dev_source_path.as_os_str().as_bytes()).unwrap();
 	let dev_target_path = CString::new(dev_target_path.as_os_str().as_bytes()).unwrap();
 	mounts.push(Mount {
@@ -329,7 +344,12 @@ pub async fn build(server: &Server, build: &tg::Build) -> Result<tg::Value> {
 		root_directory_host_path.join(proc_guest_path.strip_prefix("/").unwrap());
 	tokio::fs::create_dir_all(&proc_target_path)
 		.await
-		.wrap_err(r#"Failed to create the mount point for "/proc"."#)?;
+		.map_err(|error| {
+			error!(
+				source = error,
+				r#"Failed to create the mount point for "/proc"."#
+			)
+		})?;
 	let proc_source_path = CString::new(proc_source_path.as_os_str().as_bytes()).unwrap();
 	let proc_target_path = CString::new(proc_target_path.as_os_str().as_bytes()).unwrap();
 	mounts.push(Mount {
@@ -348,7 +368,12 @@ pub async fn build(server: &Server, build: &tg::Build) -> Result<tg::Value> {
 	let tmp_target_path = root_directory_host_path.join(tmp_guest_path.strip_prefix("/").unwrap());
 	tokio::fs::create_dir_all(&tmp_target_path)
 		.await
-		.wrap_err(r#"Failed to create the mount point for "/tmp"."#)?;
+		.map_err(|error| {
+			error!(
+				source = error,
+				r#"Failed to create the mount point for "/tmp"."#
+			)
+		})?;
 	let tmp_source_path = CString::new(tmp_source_path.as_os_str().as_bytes()).unwrap();
 	let tmp_target_path = CString::new(tmp_target_path.as_os_str().as_bytes()).unwrap();
 	mounts.push(Mount {
@@ -366,7 +391,12 @@ pub async fn build(server: &Server, build: &tg::Build) -> Result<tg::Value> {
 		root_directory_host_path.join(server_directory_guest_path.strip_prefix("/").unwrap());
 	tokio::fs::create_dir_all(&server_directory_target_path)
 		.await
-		.wrap_err("Failed to create the mount point for the tangram directory.")?;
+		.map_err(|error| {
+			error!(
+				source = error,
+				"Failed to create the mount point for the tangram directory."
+			)
+		})?;
 	let server_directory_source_path =
 		CString::new(server_directory_source_path.as_os_str().as_bytes()).unwrap();
 	let server_directory_target_path =
@@ -405,7 +435,12 @@ pub async fn build(server: &Server, build: &tg::Build) -> Result<tg::Value> {
 	);
 	tokio::fs::create_dir_all(&output_parent_directory_target_path)
 		.await
-		.wrap_err("Failed to create the mount point for the output parent directory.")?;
+		.map_err(|error| {
+			error!(
+				source = error,
+				"Failed to create the mount point for the output parent directory."
+			)
+		})?;
 	let output_parent_directory_source_path =
 		CString::new(output_parent_directory_source_path.as_os_str().as_bytes()).unwrap();
 	let output_parent_directory_target_path =
@@ -420,8 +455,8 @@ pub async fn build(server: &Server, build: &tg::Build) -> Result<tg::Value> {
 	});
 
 	// Create the executable.
-	let executable =
-		CString::new(executable).wrap_err("The executable is not a valid C string.")?;
+	let executable = CString::new(executable)
+		.map_err(|error| error!(source = error, "The executable is not a valid C string."))?;
 
 	// Create `envp`.
 	let env = env
@@ -440,7 +475,7 @@ pub async fn build(server: &Server, build: &tg::Build) -> Result<tg::Value> {
 		.into_iter()
 		.map(CString::new)
 		.try_collect()
-		.wrap_err("Failed to convert the args.")?;
+		.map_err(|error| error!(source = error, "Failed to convert the args."))?;
 	let mut argv = Vec::with_capacity(1 + args.len() + 1);
 	argv.push(executable.clone());
 	for arg in args {
@@ -450,20 +485,34 @@ pub async fn build(server: &Server, build: &tg::Build) -> Result<tg::Value> {
 
 	// Get the root directory host path as a C string.
 	let root_directory_host_path = CString::new(root_directory_host_path.as_os_str().as_bytes())
-		.wrap_err("The root directory host path is not a valid C string.")?;
+		.map_err(|error| {
+			error!(
+				source = error,
+				"The root directory host path is not a valid C string."
+			)
+		})?;
 
 	// Get the working directory guest path as a C string.
-	let working_directory_guest_path = CString::new(WORKING_DIRECTORY_GUEST_PATH)
-		.wrap_err("The working directory is not a valid C string.")?;
+	let working_directory_guest_path =
+		CString::new(WORKING_DIRECTORY_GUEST_PATH).map_err(|error| {
+			error!(
+				source = error,
+				"The working directory is not a valid C string."
+			)
+		})?;
 
 	// Create the log socket pair.
-	let (log_send, mut log_recv) =
-		tokio::net::UnixStream::pair().wrap_err("Failed to create stdout socket.")?;
+	let (log_send, mut log_recv) = tokio::net::UnixStream::pair()
+		.map_err(|error| error!(source = error, "Failed to create stdout socket."))?;
 	let log = log_send
 		.into_std()
-		.wrap_err("Failed to convert the log sender.")?;
-	log.set_nonblocking(false)
-		.wrap_err("Failed to set the log socket as non-blocking.")?;
+		.map_err(|error| error!(source = error, "Failed to convert the log sender."))?;
+	log.set_nonblocking(false).map_err(|error| {
+		error!(
+			source = error,
+			"Failed to set the log socket as non-blocking."
+		)
+	})?;
 
 	// Create the context.
 	let context = Context {
@@ -480,7 +529,9 @@ pub async fn build(server: &Server, build: &tg::Build) -> Result<tg::Value> {
 
 	// Spawn the root process.
 	let clone_flags = libc::CLONE_NEWUSER;
-	let clone_flags = clone_flags.try_into().wrap_err("Invalid clone flags.")?;
+	let clone_flags = clone_flags
+		.try_into()
+		.map_err(|error| error!(source = error, "Invalid clone flags."))?;
 	let mut clone_args = libc::clone_args {
 		flags: clone_flags,
 		stack: 0,
@@ -502,13 +553,18 @@ pub async fn build(server: &Server, build: &tg::Build) -> Result<tg::Value> {
 		)
 	};
 	if ret == -1 {
-		return Err(std::io::Error::last_os_error().wrap("Failed to spawn the root process."));
+		return Err(error!(
+			source = std::io::Error::last_os_error(),
+			"Failed to spawn the root process."
+		));
 	}
 	if ret == 0 {
 		root(&context);
 	}
 	drop(context);
-	let root_process_pid: libc::pid_t = ret.try_into().wrap_err("Invalid root process PID.")?;
+	let root_process_pid: libc::pid_t = ret
+		.try_into()
+		.map_err(|error| error!(source = error, "Invalid root process PID."))?;
 
 	// If this future is dropped, then kill the root process.
 	scopeguard::defer! {
@@ -545,7 +601,9 @@ pub async fn build(server: &Server, build: &tg::Build) -> Result<tg::Value> {
 			let mut buf = vec![0; 512];
 			loop {
 				match log_recv.read(&mut buf).await {
-					Err(error) => return Err(error.wrap("Failed to read from the log.")),
+					Err(error) => {
+						return Err(error!(source = error, "Failed to read from the log."))
+					},
 					Ok(0) => return Ok(()),
 					Ok(size) => {
 						let log = Bytes::copy_from_slice(&buf[0..size]);
@@ -566,10 +624,12 @@ pub async fn build(server: &Server, build: &tg::Build) -> Result<tg::Value> {
 	});
 
 	// Receive the guest process's PID from the socket.
-	let guest_process_pid: libc::pid_t = host_socket
-		.read_i32_le()
-		.await
-		.wrap_err("Failed to receive the PID of the guest process from the socket.")?;
+	let guest_process_pid: libc::pid_t = host_socket.read_i32_le().await.map_err(|error| {
+		error!(
+			source = error,
+			"Failed to receive the PID of the guest process from the socket."
+		)
+	})?;
 
 	// Write the guest process's UID map.
 	let uid = unsafe { libc::getuid() };
@@ -578,12 +638,12 @@ pub async fn build(server: &Server, build: &tg::Build) -> Result<tg::Value> {
 		format!("{TANGRAM_UID} {uid} 1\n"),
 	)
 	.await
-	.wrap_err("Failed to set the UID map.")?;
+	.map_err(|error| error!(source = error, "Failed to set the UID map."))?;
 
 	// Deny setgroups to the process.
 	tokio::fs::write(format!("/proc/{guest_process_pid}/setgroups"), "deny")
 		.await
-		.wrap_err("Failed to disable setgroups.")?;
+		.map_err(|error| error!(source = error, "Failed to disable setgroups."))?;
 
 	// Write the guest process's GID map.
 	let gid = unsafe { libc::getgid() };
@@ -592,23 +652,29 @@ pub async fn build(server: &Server, build: &tg::Build) -> Result<tg::Value> {
 		format!("{TANGRAM_GID} {gid} 1\n"),
 	)
 	.await
-	.wrap_err("Failed to set the GID map.")?;
+	.map_err(|error| error!(source = error, "Failed to set the GID map."))?;
 
 	// Notify the guest process that it can continue.
-	host_socket
-		.write_u8(1)
-		.await
-		.wrap_err("Failed to notify the guest process that it can continue.")?;
+	host_socket.write_u8(1).await.map_err(|error| {
+		error!(
+			source = error,
+			"Failed to notify the guest process that it can continue."
+		)
+	})?;
 
 	// Read the exit status from the host socket.
-	let kind = host_socket
-		.read_u8()
-		.await
-		.wrap_err("Failed to receive the exit status kind from the root process.")?;
-	let value = host_socket
-		.read_i32_le()
-		.await
-		.wrap_err("Failed to receive the exit status value from the root process.")?;
+	let kind = host_socket.read_u8().await.map_err(|error| {
+		error!(
+			source = error,
+			"Failed to receive the exit status kind from the root process."
+		)
+	})?;
+	let value = host_socket.read_i32_le().await.map_err(|error| {
+		error!(
+			source = error,
+			"Failed to receive the exit status value from the root process."
+		)
+	})?;
 	let exit_status = match kind {
 		0 => ExitStatus::Code(value),
 		1 => ExitStatus::Signal(value),
@@ -626,8 +692,12 @@ pub async fn build(server: &Server, build: &tg::Build) -> Result<tg::Value> {
 			)
 		};
 		if ret == -1 {
-			return Err(std::io::Error::last_os_error())
-				.wrap_err("Failed to wait for the root process to exit.");
+			return Err(std::io::Error::last_os_error()).map_err(|error| {
+				error!(
+					source = error,
+					"Failed to wait for the root process to exit."
+				)
+			});
 		}
 		let exit_status = if libc::WIFEXITED(status) {
 			let status = libc::WEXITSTATUS(status);
@@ -644,20 +714,27 @@ pub async fn build(server: &Server, build: &tg::Build) -> Result<tg::Value> {
 				return Err(error!(r#"The root process exited with code "{code}"."#));
 			},
 			ExitStatus::Signal(signal) => {
-				return Err(error!(r#"The root process exited with signal "{signal}"."#));
+				return Err(error!(
+					r#"The root process was terminated with signal "{signal}"."#
+				));
 			},
 		};
 		Ok(())
 	})
 	.await
-	.wrap_err("Failed to join the root process exit task.")?
-	.wrap_err("The root process did not exit successfully.")?;
+	.map_err(|error| error!(source = error, "Failed to join the root process exit task."))?
+	.map_err(|error| {
+		error!(
+			source = error,
+			"The root process did not exit successfully."
+		)
+	})?;
 
 	// Wait for the log task to complete.
 	log_task
 		.await
-		.wrap_err("Failed to join the log task.")?
-		.wrap_err("The log task failed.")?;
+		.map_err(|error| error!(source = error, "Failed to join the log task."))?
+		.map_err(|error| error!(source = error, "The log task failed."))?;
 
 	// Handle the guest process's exit status.
 	match exit_status {
@@ -675,26 +752,26 @@ pub async fn build(server: &Server, build: &tg::Build) -> Result<tg::Value> {
 	proxy_server
 		.join()
 		.await
-		.wrap_err("Failed to stop the proxy server.")?;
+		.map_err(|error| error!(source = error, "Failed to stop the proxy server."))?;
 
 	// Create the output.
 	let value = if tokio::fs::try_exists(&output_host_path)
 		.await
-		.wrap_err("Failed to determine in the path exists.")?
+		.map_err(|error| error!(source = error, "Failed to determine in the path exists."))?
 	{
 		// Check in the output.
 		let artifact = tg::Artifact::check_in(server, &output_host_path.clone().try_into()?)
 			.await
-			.wrap_err("Failed to check in the output.")?;
+			.map_err(|error| error!(source = error, "Failed to check in the output."))?;
 
 		// Verify the checksum if one was provided.
 		if let Some(expected) = target.checksum(server).await?.clone() {
 			let actual = artifact
 				.checksum(server, expected.algorithm())
 				.await
-				.wrap_err("Failed to compute the checksum.")?;
+				.map_err(|error| error!(source = error, "Failed to compute the checksum."))?;
 			if expected != tg::Checksum::Unsafe && expected != actual {
-				error!(r#"The checksum did not match. Expected "{expected}" but got "{actual}"."#);
+				return Err(error!(%actual, %expected, "The checksum did not match."));
 			}
 		}
 

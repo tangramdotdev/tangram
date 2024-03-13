@@ -15,7 +15,7 @@ use std::{
 	str::FromStr, task::Poll,
 };
 use tangram_client as tg;
-use tangram_error::{error, Error, Result, Wrap, WrapErr};
+use tangram_error::{error, Error, Result};
 use tokio::io::AsyncWriteExt;
 
 mod convert;
@@ -197,7 +197,7 @@ async fn build_inner(
 		let undefined = v8::undefined(scope);
 		let target = target
 			.to_v8(scope)
-			.wrap_err("Failed to serialize the target.")?;
+			.map_err(|error| error!(source = error, "Failed to serialize the target."))?;
 		let value = start.call(scope, undefined.into(), &[target]).unwrap();
 
 		// Make the value global.
@@ -305,14 +305,20 @@ async fn build_inner(
 		.map(|result| result.map(|option| option.as_ref().unwrap().clone()));
 	let result = match future::select(pin!(future), pin!(rejection)).await {
 		future::Either::Left((result, _)) => result,
-		future::Either::Right((result, _)) => Err(result
-			.unwrap()
-			.wrap("An unhandled promise rejection occurred.")),
+		future::Either::Right((result, _)) => {
+			let error = result.unwrap();
+			Err(error!(
+				source = error,
+				"An unhandled promise rejection occurred."
+			))
+		},
 	};
 
 	// Join the log task.
 	state.log_sender.borrow_mut().take().unwrap();
-	log_task.await.wrap_err("Failed to join the log task.")?;
+	log_task
+		.await
+		.map_err(|error| error!(source = error, "Failed to join the log task."))?;
 
 	result
 }
@@ -403,9 +409,8 @@ fn resolve_module_callback<'s>(
 		.iter()
 		.find(|module| module.v8_identity_hash == identity_hash)
 		.map(|module| module.module.clone())
-		.wrap_err_with(|| {
-			format!(r#"Unable to find the module with identity hash "{identity_hash}"."#)
-		}) {
+		.ok_or_else(|| error!(%identity_hash, "Unable to find the module with identity hash."))
+	{
 		Ok(module) => module,
 		Err(error) => {
 			let exception = error::to_exception(scope, &error);
@@ -452,11 +457,9 @@ fn resolve_module(
 		}
 	});
 
-	let module = match receiver
-		.recv()
-		.unwrap()
-		.wrap_err_with(|| format!(r#"Failed to resolve "{import}" relative to "{module}"."#))
-	{
+	let module = match receiver.recv().unwrap().map_err(
+		|error| error!(source = error, %import, %module, "Failed to resolve import relative to module."),
+	) {
 		Ok(module) => module,
 		Err(error) => {
 			let exception = error::to_exception(scope, &error);
@@ -523,7 +526,7 @@ fn load_module<'s>(
 	let text = match receiver
 		.recv()
 		.unwrap()
-		.wrap_err_with(|| format!(r#"Failed to load module "{module}"."#))
+		.map_err(|error| error!(source = error, %module, "Failed to load module."))
 	{
 		Ok(text) => text,
 		Err(error) => {
@@ -538,7 +541,7 @@ fn load_module<'s>(
 		transpiled_text,
 		source_map,
 	} = match crate::language::Server::transpile_module(text)
-		.wrap_err("Failed to transpile the module.")
+		.map_err(|error| error!(source = error, "Failed to transpile the module."))
 	{
 		Ok(output) => output,
 		Err(error) => {
@@ -550,7 +553,7 @@ fn load_module<'s>(
 
 	// Parse the source map.
 	let source_map = match SourceMap::from_slice(source_map.as_bytes())
-		.wrap_err("Failed to parse the source map.")
+		.map_err(|error| error!(source = error, "Failed to parse the source map."))
 	{
 		Ok(source_map) => source_map,
 		Err(error) => {
@@ -675,16 +678,16 @@ fn parse_import_inner<'s>(
 		while i < attributes.length() % 2 {
 			let key = attributes
 				.get(scope, i)
-				.wrap_err("Failed to get the key.")?;
-			let key =
-				v8::Local::<v8::Value>::try_from(key).wrap_err("Failed to convert the key.")?;
+				.ok_or_else(|| error!("Failed to get the key."))?;
+			let key = v8::Local::<v8::Value>::try_from(key)
+				.map_err(|error| error!(source = error, "Failed to convert the key."))?;
 			let key = key.to_rust_string_lossy(scope);
 			i += 1;
 			let value = attributes
 				.get(scope, i)
-				.wrap_err("Failed to get the value.")?;
-			let value =
-				v8::Local::<v8::Value>::try_from(value).wrap_err("Failed to convert the value.")?;
+				.ok_or_else(|| error!("Failed to get the value."))?;
+			let value = v8::Local::<v8::Value>::try_from(value)
+				.map_err(|error| error!(source = error, "Failed to convert the value."))?;
 			let value = value.to_rust_string_lossy(scope);
 			i += 1;
 			map.insert(key, value);

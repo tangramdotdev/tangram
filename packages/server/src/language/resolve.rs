@@ -1,6 +1,6 @@
 use super::Server;
 use tangram_client as tg;
-use tangram_error::{error, Result, WrapErr};
+use tangram_error::{error, Result};
 
 impl Server {
 	/// Resolve an import from a module.
@@ -31,12 +31,15 @@ impl Server {
 
 				// Ensure that the module exists.
 				let module_absolute_path = package_path.join(module_path.to_string());
-				let exists = tokio::fs::try_exists(&module_absolute_path)
-					.await
-					.wrap_err("Failed to determine if the path exists.")?;
+				let exists =
+					tokio::fs::try_exists(&module_absolute_path)
+						.await
+						.map_err(|error| {
+							error!(source = error, "Failed to determine if the path exists.")
+						})?;
 				if !exists {
 					let path = module_absolute_path.display();
-					return Err(error!(r#"Could not find a module at path "{path}"."#));
+					return Err(error!(%path, "Could not find a module."));
 				}
 
 				// Get or create the document.
@@ -61,7 +64,7 @@ impl Server {
 				let package_path = document.package_path.join(dependency_path.to_string());
 				let package_path = tokio::fs::canonicalize(package_path)
 					.await
-					.wrap_err("Failed to canonicalize the path.")?;
+					.map_err(|error| error!(source = error, "Failed to canonicalize the path."))?;
 
 				// Get the package's root module path.
 				let module_path = tg::package::get_root_module_path_for_path(&package_path).await?;
@@ -97,7 +100,7 @@ impl Server {
 				let (package, lock) = lock
 					.get(&self.inner.server, &dependency)
 					.await?
-					.wrap_err_with(|| format!(r#"Failed to resolve "{dependency}"."#))?;
+					.ok_or_else(|| error!(%dependency, "Failed to resolve dependency."))?;
 
 				// Create the module.
 				let path = tg::package::get_root_module_path(&self.inner.server, &package).await?;
@@ -135,7 +138,7 @@ impl Server {
 				let (package, lock) = lock
 					.get(&self.inner.server, &dependency)
 					.await?
-					.wrap_err_with(|| format!(r#"Failed to resolve "{dependency}"."#))?;
+					.ok_or_else(|| error!(%dependency, "Failed to resolve dependency."))?;
 
 				// Create the module.
 				let path = tg::package::get_root_module_path(&self.inner.server, &package).await?;

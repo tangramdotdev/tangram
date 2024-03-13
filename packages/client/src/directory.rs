@@ -1,4 +1,4 @@
-use crate::{artifact, id, object, Artifact, Error, Handle, Result, Symlink, WrapErr};
+use crate::{artifact, id, object, Artifact, Error, Handle, Result, Symlink};
 use async_recursion::async_recursion;
 use bytes::Bytes;
 use derive_more::Display;
@@ -98,7 +98,7 @@ impl Directory {
 		self.try_load(tg)
 			.await?
 			.then_some(())
-			.wrap_err("Failed to load the object.")
+			.ok_or_else(|| error!("Failed to load the object."))
 	}
 
 	pub async fn try_load(&self, tg: &dyn Handle) -> Result<bool> {
@@ -109,7 +109,8 @@ impl Directory {
 		let Some(output) = tg.try_get_object(&id.clone().into()).await? else {
 			return Ok(false);
 		};
-		let data = Data::deserialize(&output.bytes).wrap_err("Failed to deserialize the data.")?;
+		let data = Data::deserialize(&output.bytes)
+			.map_err(|error| error!(source = error, "Failed to deserialize the data."))?;
 		let object = data.try_into()?;
 		self.state.write().unwrap().object.replace(object);
 		Ok(true)
@@ -129,7 +130,7 @@ impl Directory {
 		};
 		tg.put_object(&id.clone().into(), &arg)
 			.await
-			.wrap_err("Failed to put the object.")?;
+			.map_err(|error| error!(source = error, "Failed to put the object."))?;
 		self.state.write().unwrap().id.replace(id);
 		Ok(())
 	}
@@ -168,7 +169,7 @@ impl Directory {
 		let artifact = self
 			.try_get(tg, path)
 			.await?
-			.wrap_err("Failed to get the artifact.")?;
+			.ok_or_else(|| error!("Failed to get the artifact."))?;
 		Ok(artifact)
 	}
 
@@ -193,7 +194,7 @@ impl Directory {
 			let name = component
 				.try_unwrap_normal_ref()
 				.ok()
-				.wrap_err("The path must contain only normal components.")?;
+				.ok_or_else(|| error!("The path must contain only normal components."))?;
 			let Some(entry) = directory.entries(tg).await?.get(name).cloned() else {
 				return Ok(None);
 			};
@@ -207,7 +208,7 @@ impl Directory {
 				match symlink
 					.resolve_from(tg, Some(from))
 					.await
-					.wrap_err("Failed to resolve the symlink.")?
+					.map_err(|error| error!(source = error, "Failed to resolve the symlink."))?
 				{
 					Some(resolved) => artifact = resolved,
 					None => return Ok(None),
@@ -223,11 +224,12 @@ impl Data {
 	pub fn serialize(&self) -> Result<Bytes> {
 		serde_json::to_vec(self)
 			.map(Into::into)
-			.wrap_err("Failed to serialize the data.")
+			.map_err(|error| error!(source = error, "Failed to serialize the data."))
 	}
 
 	pub fn deserialize(bytes: &Bytes) -> Result<Self> {
-		serde_json::from_reader(bytes.as_ref()).wrap_err("Failed to deserialize the data.")
+		serde_json::from_reader(bytes.as_ref())
+			.map_err(|error| error!(source = error, "Failed to deserialize the data."))
 	}
 
 	#[must_use]
@@ -267,7 +269,7 @@ impl TryFrom<crate::Id> for Id {
 
 	fn try_from(value: crate::Id) -> Result<Self, Self::Error> {
 		if value.kind() != id::Kind::Directory {
-			return Err(error!("Invalid kind."));
+			return Err(error!(%value, "Invalid kind."));
 		}
 		Ok(Self(value))
 	}
@@ -304,10 +306,10 @@ impl Builder {
 			.components()
 			.iter()
 			.nth(0)
-			.wrap_err("Expected the path to have at least one component.")?
+			.ok_or_else(|| error!("Expected the path to have at least one component."))?
 			.try_unwrap_normal_ref()
 			.ok()
-			.wrap_err("The path must contain only normal components.")?;
+			.ok_or_else(|| error!("The path must contain only normal components."))?;
 
 		// Collect the trailing path.
 		let trailing_path: crate::Path = path.components().iter().skip(1).cloned().collect();
@@ -320,7 +322,7 @@ impl Builder {
 				child
 					.try_unwrap_directory_ref()
 					.ok()
-					.wrap_err("Expected the artifact to be a directory.")?
+					.ok_or_else(|| error!("Expected the artifact to be a directory."))?
 					.builder(tg)
 					.await?
 			} else {
@@ -348,10 +350,10 @@ impl Builder {
 			.components()
 			.iter()
 			.nth(0)
-			.wrap_err("Expected the path to have at least one component.")?
+			.ok_or_else(|| error!("Expected the path to have at least one component."))?
 			.try_unwrap_normal_ref()
 			.ok()
-			.wrap_err("The path must contain only normal components.")?;
+			.ok_or_else(|| error!("The path must contain only normal components."))?;
 
 		// Collect the trailing path.
 		let trailing_path: crate::Path = path.components().iter().skip(1).cloned().collect();
@@ -365,11 +367,11 @@ impl Builder {
 				child
 					.try_unwrap_directory_ref()
 					.ok()
-					.wrap_err("Expected the artifact to be a directory.")?
+					.ok_or_else(|| error!("Expected the artifact to be a directory."))?
 					.builder(tg)
 					.await?
 			} else {
-				return Err(error!("The path does not exist."));
+				return Err(error!(%path, "The path does not exist."));
 			};
 
 			// Recurse.

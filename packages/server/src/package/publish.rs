@@ -1,7 +1,7 @@
 use crate::{database::Database, postgres_params, Http, Server};
 use http_body_util::BodyExt;
 use tangram_client as tg;
-use tangram_error::{error, Result, WrapErr};
+use tangram_error::{error, Result};
 use tangram_util::http::{ok, Incoming, Outgoing};
 
 impl Server {
@@ -26,12 +26,12 @@ impl Server {
 		let name = metadata
 			.name
 			.as_ref()
-			.wrap_err("The package must have a name.")?
+			.ok_or_else(|| error!(%id, "The package must have a name."))?
 			.as_str();
 		let version = metadata
 			.version
 			.as_ref()
-			.wrap_err("The package must have a version.")?
+			.ok_or_else(|| error!(%id, "The package must have a version."))?
 			.as_str();
 
 		// Get a database connection.
@@ -49,11 +49,11 @@ impl Server {
 		let statement = connection
 			.prepare_cached(statement)
 			.await
-			.wrap_err("Failed to prepare the statement.")?;
+			.map_err(|error| error!(source = error, "Failed to prepare the statement."))?;
 		connection
 			.execute(&statement, params)
 			.await
-			.wrap_err("Failed to execute the statement.")?;
+			.map_err(|error| error!(source = error, "Failed to execute the statement."))?;
 
 		// Create the package version.
 		let statement = "
@@ -64,11 +64,11 @@ impl Server {
 		let statement = connection
 			.prepare_cached(statement)
 			.await
-			.wrap_err("Failed to prepare the statement.")?;
+			.map_err(|error| error!(source = error, "Failed to prepare the statement."))?;
 		connection
 			.execute(&statement, params)
 			.await
-			.wrap_err("Failed to execute the statement.")?;
+			.map_err(|error| error!(source = error, "Failed to execute the statement."))?;
 
 		Ok(())
 	}
@@ -87,9 +87,10 @@ impl Http {
 			.into_body()
 			.collect()
 			.await
-			.wrap_err("Failed to read the body.")?
+			.map_err(|error| error!(source = error, "Failed to read the body."))?
 			.to_bytes();
-		let package_id = serde_json::from_slice(&bytes).wrap_err("Invalid request.")?;
+		let package_id = serde_json::from_slice(&bytes)
+			.map_err(|error| error!(source = error, "Invalid request."))?;
 
 		// Publish the package.
 		self.inner

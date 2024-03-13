@@ -1,6 +1,6 @@
 use crate::Server;
 use tangram_client as tg;
-use tangram_error::{error, Result, WrapErr};
+use tangram_error::{error, Result};
 
 impl Server {
 	pub async fn get_package_metadata(
@@ -13,13 +13,13 @@ impl Server {
 			.await?
 			.try_unwrap_file()
 			.ok()
-			.wrap_err("Expected the module to be a file.")?;
+			.ok_or_else(|| error!(%path, "Expected the module to be a file."))?;
 		let text = file.text(self).await?;
 		let analysis = crate::language::Server::analyze_module(text)?;
 		if let Some(metadata) = analysis.metadata {
 			Ok(metadata)
 		} else {
-			Err(error!("Missing package metadata."))
+			Err(error!(?path, "Missing package metadata."))
 		}
 	}
 }

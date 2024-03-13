@@ -12,7 +12,7 @@ use std::{
 	},
 };
 use tangram_client as tg;
-use tangram_error::{Result, WrapErr};
+use tangram_error::{error, Result};
 use tui::{layout::Rect, style::Stylize, widgets::Widget};
 
 pub struct Tui {
@@ -148,18 +148,19 @@ impl Tui {
 			.write(true)
 			.open("/dev/tty")
 			.await
-			.wrap_err("Failed to open /dev/tty.")?;
+			.map_err(|error| error!(source = error, "Failed to open /dev/tty."))?;
 		let tty = tty.into_std().await;
 		let backend = Backend::new(tty);
-		let mut terminal =
-			Terminal::new(backend).wrap_err("Failed to create the terminal backend.")?;
-		ct::terminal::enable_raw_mode().wrap_err("Failed to enable the terminal's raw mode")?;
+		let mut terminal = Terminal::new(backend)
+			.map_err(|error| error!(source = error, "Failed to create the terminal backend."))?;
+		ct::terminal::enable_raw_mode()
+			.map_err(|error| error!(source = error, "Failed to enable the terminal's raw mode"))?;
 		ct::execute!(
 			terminal.backend_mut(),
 			ct::event::EnableMouseCapture,
 			ct::terminal::EnterAlternateScreen,
 		)
-		.wrap_err("Failed to set up the terminal.")?;
+		.map_err(|error| error!(source = error, "Failed to set up the terminal."))?;
 
 		// Create the stop flag.
 		let (stop, _) = tokio::sync::watch::channel(false);
@@ -221,17 +222,24 @@ impl Tui {
 		};
 
 		// Join the task and get the terminal.
-		let mut terminal = task.await.unwrap().wrap_err("The task did not succeed.")?;
+		let mut terminal = task
+			.await
+			.unwrap()
+			.map_err(|error| error!(source = error, "The task did not succeed."))?;
 
 		// Reset the terminal.
-		terminal.clear().wrap_err("Failed to clear the terminal.")?;
+		terminal
+			.clear()
+			.map_err(|error| error!(source = error, "Failed to clear the terminal."))?;
 		ct::execute!(
 			terminal.backend_mut(),
 			ct::event::DisableMouseCapture,
 			ct::terminal::LeaveAlternateScreen
 		)
-		.wrap_err("Failed to reset the terminal.")?;
-		ct::terminal::disable_raw_mode().wrap_err("Failed to disable the terminal's raw mode.")?;
+		.map_err(|error| error!(source = error, "Failed to reset the terminal."))?;
+		ct::terminal::disable_raw_mode().map_err(|error| {
+			error!(source = error, "Failed to disable the terminal's raw mode.")
+		})?;
 
 		Ok(())
 	}
@@ -900,7 +908,7 @@ impl Log {
 			.await?
 			.try_next()
 			.await?
-			.wrap_err("Failed to get a log chunk.")?;
+			.ok_or_else(|| error!("Failed to get a log chunk."))?;
 		let max_position = chunk.position + chunk.bytes.len().to_u64().unwrap();
 		self.inner
 			.max_position

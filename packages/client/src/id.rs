@@ -1,5 +1,5 @@
-use crate::{error, Error, Result, WrapErr};
 use derive_more::From;
+use tangram_error::{error, Error, Result};
 
 /// An ID.
 #[derive(Clone, Eq, Hash, Ord, PartialEq, PartialOrd, serde::Deserialize, serde::Serialize)]
@@ -96,32 +96,41 @@ impl std::fmt::Display for Id {
 impl std::str::FromStr for Id {
 	type Err = Error;
 
-	fn from_str(s: &str) -> Result<Self, Self::Err> {
-		let kind = s.get(0..=2).wrap_err("Invalid ID.")?.parse()?;
-		let version = s.chars().nth(4).wrap_err("Invalid ID.")?;
+	fn from_str(id: &str) -> Result<Self, Self::Err> {
+		let kind = id
+			.get(0..=2)
+			.ok_or_else(|| error!(%id, "Invalid ID."))?
+			.parse()?;
+		let version = id
+			.chars()
+			.nth(4)
+			.ok_or_else(|| error!(%id, "Invalid ID."))?;
 		if version != '0' {
-			return Err(error!("Invalid version."));
+			return Err(error!(%version, "Invalid version."));
 		}
-		let algorithm = s.chars().nth(5).wrap_err("Invalid ID.")?;
-		let body = s.get(6..).wrap_err("Invalid ID.")?;
+		let algorithm = id
+			.chars()
+			.nth(5)
+			.ok_or_else(|| error!(%id, "Invalid ID."))?;
+		let body = id.get(6..).ok_or_else(|| error!(%id, "Invalid ID."))?;
 		let body = match algorithm {
 			'0' => Body::UuidV7(
 				ENCODING
 					.decode(body.as_bytes())
-					.wrap_err("Invalid body.")?
+					.map_err(|error| error!(source = error, "Invalid body."))?
 					.try_into()
 					.ok()
-					.wrap_err("Invalid body.")?,
+					.ok_or_else(|| error!("Invalid body."))?,
 			),
 			'1' => Body::Blake3(
 				ENCODING
 					.decode(body.as_bytes())
-					.wrap_err("Invalid body.")?
+					.map_err(|error| error!(source = error, "Invalid body."))?
 					.try_into()
 					.ok()
-					.wrap_err("Invalid body.")?,
+					.ok_or_else(|| error!("Invalid body."))?,
 			),
-			_ => return Err(error!("Invalid ID.")),
+			_ => return Err(error!(%id, "Invalid ID.")),
 		};
 		Ok(Self::V0(V0 { kind, body }))
 	}
@@ -165,7 +174,7 @@ impl std::str::FromStr for Kind {
 			"lgn" => Kind::Login,
 			"tok" => Kind::Token,
 			"req" => Kind::Request,
-			_ => return Err(error!("Invalid kind.")),
+			kind => return Err(error!(%kind, "Invalid kind.")),
 		})
 	}
 }

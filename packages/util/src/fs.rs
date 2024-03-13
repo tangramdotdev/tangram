@@ -1,5 +1,5 @@
 use std::path::Path;
-use tangram_error::{Result, Wrap, WrapErr};
+use tangram_error::{error, Result};
 
 pub async fn rmrf(path: impl AsRef<Path>) -> Result<()> {
 	let path = path.as_ref();
@@ -14,18 +14,21 @@ pub async fn rmrf(path: impl AsRef<Path>) -> Result<()> {
 		},
 
 		Err(error) => {
-			return Err(error.wrap("Failed to get the metadata for the path."));
+			let path = path.display();
+			return Err(error!(source = error, %path, "Failed to get the metadata for the path."));
 		},
 	};
 
 	if metadata.is_dir() {
-		tokio::fs::remove_dir_all(path)
-			.await
-			.wrap_err("Failed to remove the directory.")?;
+		tokio::fs::remove_dir_all(path).await.map_err(|error| {
+			let path = path.display();
+			error!(source = error, %path, "Failed to remove the directory.")
+		})?;
 	} else {
-		tokio::fs::remove_file(path)
-			.await
-			.wrap_err("Failed to remove the file.")?;
+		tokio::fs::remove_file(path).await.map_err(|error| {
+			let path = path.display();
+			error!(source = error, %path, "Failed to remove the file.")
+		})?;
 	};
 
 	Ok(())

@@ -1,7 +1,7 @@
 use crate::{default_path, Cli, API_URL};
 use std::path::PathBuf;
 use tangram_client as tg;
-use tangram_error::{Result, WrapErr};
+use tangram_error::{error, Result};
 use url::Url;
 
 /// Manage the server.
@@ -289,7 +289,7 @@ impl Cli {
 		// Start the server.
 		let server = tangram_server::Server::start(options)
 			.await
-			.wrap_err("Failed to create the server.")?;
+			.map_err(|error| error!(source = error, "Failed to create the server."))?;
 
 		// Stop the server if an an interrupt signal is received.
 		tokio::spawn({
@@ -303,7 +303,10 @@ impl Cli {
 		});
 
 		// Join the server.
-		server.join().await.wrap_err("Failed to join the server.")?;
+		server
+			.join()
+			.await
+			.map_err(|error| error!(source = error, "Failed to join the server."))?;
 
 		Ok(())
 	}

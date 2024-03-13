@@ -4,7 +4,7 @@ use std::{
 	collections::HashMap,
 	path::{Path, PathBuf},
 };
-use tangram_error::{Result, WrapErr};
+use tangram_error::{error, Result};
 use tokio_postgres as postgres;
 pub use tokio_postgres::types::Json as PostgresJson;
 use url::Url;
@@ -105,16 +105,16 @@ impl Postgres {
 impl Connection {
 	pub async fn transaction(&mut self) -> Result<Transaction<'_>> {
 		match self {
-			Self::Sqlite(database) => Ok(Transaction::Sqlite(
-				database
-					.transaction()
-					.wrap_err("Failed to create the transaction.")?,
-			)),
+			Self::Sqlite(database) => {
+				Ok(Transaction::Sqlite(database.transaction().map_err(
+					|error| error!(source = error, "Failed to create the transaction."),
+				)?))
+			},
 			Self::Postgres(database) => Ok(Transaction::Postgres(
 				database
 					.transaction()
 					.await
-					.wrap_err("Failed to create the transaction.")?,
+					.map_err(|error| error!(source = error, "Failed to create the transaction."))?,
 			)),
 		}
 	}
@@ -122,13 +122,14 @@ impl Connection {
 
 impl SqliteConnection {
 	pub fn connect(path: &Path) -> Result<Self> {
-		let connection = sqlite::Connection::open(path).wrap_err("Failed to open the database.")?;
+		let connection = sqlite::Connection::open(path)
+			.map_err(|error| error!(source = error, "Failed to open the database."))?;
 		connection
 			.pragma_update(None, "busy_timeout", "86400000")
-			.wrap_err("Failed to set the pragma.")?;
+			.map_err(|error| error!(source = error, "Failed to set the pragma."))?;
 		connection
 			.pragma_update(None, "synchronous", "off")
-			.wrap_err("Failed to set the pragma.")?;
+			.map_err(|error| error!(source = error, "Failed to set the pragma."))?;
 		Ok(Self { connection })
 	}
 }
@@ -137,7 +138,7 @@ impl PostgresConnection {
 	pub async fn connect(url: &Url) -> Result<Self> {
 		let (client, connection) = postgres::connect(url.as_str(), postgres::NoTls)
 			.await
-			.wrap_err("Failed to connect to the database.")?;
+			.map_err(|error| error!(source = error, "Failed to connect to the database."))?;
 		let task = tokio::spawn(async move {
 			connection
 				.await
@@ -158,7 +159,9 @@ impl PostgresConnection {
 	#[allow(dead_code)]
 	pub async fn join(self) -> Result<()> {
 		drop(self.client);
-		self.task.await.wrap_err("Failed to join the task.")?;
+		self.task
+			.await
+			.map_err(|error| error!(source = error, "Failed to join the task."))?;
 		Ok(())
 	}
 
@@ -190,11 +193,13 @@ impl PostgresConnection {
 impl<'a> Transaction<'a> {
 	pub async fn commit(self) -> Result<()> {
 		match self {
-			Self::Sqlite(txn) => txn.commit().wrap_err("Failed to commit the transaction."),
+			Self::Sqlite(txn) => txn
+				.commit()
+				.map_err(|error| error!(source = error, "Failed to commit the transaction.")),
 			Self::Postgres(txn) => txn
 				.commit()
 				.await
-				.wrap_err("Failed to commit the transaction."),
+				.map_err(|error| error!(source = error, "Failed to commit the transaction.")),
 		}
 	}
 }

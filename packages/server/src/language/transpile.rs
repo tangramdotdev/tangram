@@ -2,7 +2,7 @@ use super::Server;
 use std::rc::Rc;
 use swc::ecma::{ast, visit::VisitMutWith};
 use swc_core as swc;
-use tangram_error::{Result, WrapErr};
+use tangram_error::{error, Result};
 
 #[derive(Debug)]
 pub struct Output {
@@ -83,18 +83,18 @@ impl Server {
 			// Emit the module.
 			emitter
 				.emit_program(&program)
-				.wrap_err("Failed to emit the program.")?;
+				.map_err(|error| error!(source = error, "Failed to emit the program."))?;
 			let transpiled_text = String::from_utf8(transpiled_text)
-				.wrap_err("Failed to convert bytes to string.")?;
+				.map_err(|error| error!(source = error, "Failed to convert bytes to string."))?;
 
 			// Create the source map.
 			let mut output_source_map = Vec::new();
 			source_map
 				.build_source_map(&source_mappings)
 				.to_writer(&mut output_source_map)
-				.wrap_err("Failed to create the source map.")?;
+				.map_err(|error| error!(source = error, "Failed to create the source map."))?;
 			let source_map = String::from_utf8(output_source_map)
-				.wrap_err("Failed to convert bytes to string.")?;
+				.map_err(|error| error!(source = error, "Failed to convert bytes to string."))?;
 
 			// Create the output.
 			let output = Output {

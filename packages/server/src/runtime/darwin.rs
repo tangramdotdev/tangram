@@ -14,7 +14,7 @@ use std::{
 	os::unix::prelude::OsStrExt,
 };
 use tangram_client as tg;
-use tangram_error::{error, Error, Result, Wrap, WrapErr};
+use tangram_error::{error, Error, Result};
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 
 pub async fn build(server: &Server, build: &tg::Build) -> Result<tg::Value> {
@@ -45,21 +45,31 @@ pub async fn build(server: &Server, build: &tg::Build) -> Result<tg::Value> {
 	let server_directory_temp_path = server.inner.options.path.join("tmp");
 	tokio::fs::create_dir_all(&server_directory_temp_path)
 		.await
-		.wrap_err("Failed to create the server temp directory.")?;
+		.map_err(|error| {
+			error!(
+				source = error,
+				"Failed to create the server temp directory."
+			)
+		})?;
 
 	let root_directory_tempdir = tempfile::TempDir::new_in(&server_directory_temp_path)
-		.wrap_err("Failed to create the temporary directory.")?;
+		.map_err(|error| error!(source = error, "Failed to create the temporary directory."))?;
 	let root_directory_path = root_directory_tempdir.path().to_owned();
 
 	// Create a tempdir for the output.
 	let output_tempdir = tempfile::TempDir::new_in(&server_directory_temp_path)
-		.wrap_err("Failed to create the temporary directory.")?;
+		.map_err(|error| error!(source = error, "Failed to create the temporary directory."))?;
 
 	// Create the output parent directory.
 	let output_parent_directory_path = output_tempdir.path().to_owned();
 	tokio::fs::create_dir_all(&output_parent_directory_path)
 		.await
-		.wrap_err("Failed to create the output parent directory.")?;
+		.map_err(|error| {
+			error!(
+				source = error,
+				"Failed to create the output parent directory."
+			)
+		})?;
 
 	// Create the output path.
 	let output_path = output_parent_directory_path.join("output");
@@ -68,13 +78,13 @@ pub async fn build(server: &Server, build: &tg::Build) -> Result<tg::Value> {
 	let home_directory_path = root_directory_path.join("Users/tangram");
 	tokio::fs::create_dir_all(&home_directory_path)
 		.await
-		.wrap_err("Failed to create the home directory.")?;
+		.map_err(|error| error!(source = error, "Failed to create the home directory."))?;
 
 	// Create the working directory.
 	let working_directory_path = root_directory_path.join("Users/tangram/work");
 	tokio::fs::create_dir_all(&working_directory_path)
 		.await
-		.wrap_err("Failed to create the working directory.")?;
+		.map_err(|error| error!(source = error, "Failed to create the working directory."))?;
 
 	// Render the executable.
 	let executable = target.executable(server).await?;
@@ -128,7 +138,12 @@ pub async fn build(server: &Server, build: &tg::Build) -> Result<tg::Value> {
 	// Set `$TANGRAM_ADDRESS`
 	tokio::fs::create_dir_all(home_directory_path.join(".tangram"))
 		.await
-		.wrap_err("Failed to create the guest .tangram directory.")?;
+		.map_err(|error| {
+			error!(
+				source = error,
+				"Failed to create the guest .tangram directory."
+			)
+		})?;
 	let proxy_server_socket_path = home_directory_path.join(".tangram/socket");
 	let proxy_server_address = tg::Address::Unix(proxy_server_socket_path.clone());
 	env.insert(
@@ -139,7 +154,7 @@ pub async fn build(server: &Server, build: &tg::Build) -> Result<tg::Value> {
 	// Create a proxied server handle and start listening on a new socket.
 	let proxy = Proxy::start(server, build.id(), proxy_server_address)
 		.await
-		.wrap_err("Could not create proxy server")?;
+		.map_err(|error| error!(source = error, "Could not create proxy server"))?;
 
 	// Create the sandbox profile.
 	let mut profile = String::new();
@@ -343,7 +358,7 @@ pub async fn build(server: &Server, build: &tg::Build) -> Result<tg::Value> {
 	// Spawn the child.
 	let mut child = command
 		.spawn()
-		.wrap_err_with(|| format!("Failed to spawn the process ({executable})."))?;
+		.map_err(|error| error!(source = error, %executable, "Failed to spawn the process."))?;
 
 	// Create the log task.
 	let mut stdout = child.stdout.take().unwrap();
@@ -354,7 +369,9 @@ pub async fn build(server: &Server, build: &tg::Build) -> Result<tg::Value> {
 			let mut buf = [0; 512];
 			loop {
 				match stdout.read(&mut buf).await {
-					Err(error) => return Err(error.wrap("Failed to read from the log.")),
+					Err(error) => {
+						return Err(error!(source = error, "Failed to read from the log."))
+					},
 					Ok(0) => return Ok(()),
 					Ok(size) => {
 						let log = Bytes::copy_from_slice(&buf[0..size]);
@@ -410,13 +427,13 @@ pub async fn build(server: &Server, build: &tg::Build) -> Result<tg::Value> {
 	let exit_status = child
 		.wait()
 		.await
-		.wrap_err("Failed to wait for the process to exit.")?;
+		.map_err(|error| error!(source = error, "Failed to wait for the process to exit."))?;
 
 	// Wait for the log task to complete.
 	log_task
 		.await
-		.wrap_err("Failed to join the log task.")?
-		.wrap_err("The log task failed.")?;
+		.map_err(|error| error!(source = error, "Failed to join the log task."))?
+		.map_err(|error| error!(source = error, "The log task failed."))?;
 
 	// Stop and join the proxy server.
 	proxy.stop();
@@ -430,21 +447,25 @@ pub async fn build(server: &Server, build: &tg::Build) -> Result<tg::Value> {
 	// Create the output.
 	let value = if tokio::fs::try_exists(&output_path)
 		.await
-		.wrap_err("Failed to determine if the path exists.")?
+		.map_err(|error| error!(source = error, "Failed to determine if the path exists."))?
 	{
 		// Check in the output.
 		let artifact = tg::Artifact::check_in(server, &output_path.clone().try_into()?)
 			.await
-			.wrap_err("Failed to check in the output.")?;
+			.map_err(|error| error!(source = error, "Failed to check in the output."))?;
 
 		// Verify the checksum if one was provided.
 		if let Some(expected) = target.checksum(server).await?.clone() {
 			let actual = artifact
 				.checksum(server, expected.algorithm())
 				.await
-				.wrap_err("Failed to compute the checksum.")?;
+				.map_err(|error| error!(source = error, "Failed to compute the checksum."))?;
 			if expected != tg::Checksum::Unsafe && expected != actual {
-				error!(r#"The checksum did not match. Expected "{expected}" but got "{actual}"."#);
+				return Err(error!(
+					%expected,
+					%actual,
+					"The checksum did not match."
+				));
 			}
 		}
 

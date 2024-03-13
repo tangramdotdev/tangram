@@ -1,8 +1,8 @@
-use crate::{id, object, Error, Handle, Result};
+use crate::{id, object, Handle};
 use bytes::Bytes;
 use derive_more::Display;
 use std::sync::Arc;
-use tangram_error::{error, WrapErr};
+use tangram_error::{error, Error, Result};
 
 #[derive(
 	Clone,
@@ -94,7 +94,7 @@ impl Leaf {
 		self.try_load(tg)
 			.await?
 			.then_some(())
-			.wrap_err("Failed to load the object.")
+			.ok_or_else(|| error!("Failed to load the object."))
 	}
 
 	pub async fn try_load(&self, tg: &dyn Handle) -> Result<bool> {
@@ -105,7 +105,8 @@ impl Leaf {
 		let Some(output) = tg.try_get_object(&id.clone().into()).await? else {
 			return Ok(false);
 		};
-		let data = Data::deserialize(&output.bytes).wrap_err("Failed to deserialize the data.")?;
+		let data = Data::deserialize(&output.bytes)
+			.map_err(|error| error!(source = error, "Failed to deserialize the data."))?;
 		let object = data.try_into()?;
 		self.state.write().unwrap().object.replace(object);
 		Ok(true)
@@ -125,7 +126,7 @@ impl Leaf {
 		};
 		tg.put_object(&id.clone().into(), &arg)
 			.await
-			.wrap_err("Failed to put the object.")?;
+			.map_err(|error| error!(source = error, "Failed to put the object."))?;
 		self.state.write().unwrap().id.replace(id);
 		Ok(())
 	}
@@ -199,7 +200,7 @@ impl TryFrom<crate::Id> for Id {
 
 	fn try_from(value: crate::Id) -> Result<Self, Self::Error> {
 		if value.kind() != id::Kind::Leaf {
-			return Err(error!("Invalid kind."));
+			return Err(error!(%value, "Invalid kind."));
 		}
 		Ok(Self(value))
 	}

@@ -9,7 +9,7 @@ use http_body_util::BodyExt;
 use itertools::Itertools;
 use num::ToPrimitive;
 use tangram_client as tg;
-use tangram_error::{error, Result, Wrap, WrapErr};
+use tangram_error::{error, Result};
 use tangram_util::{
 	http::{empty, full, not_found, Incoming, Outgoing},
 	iter::IterExt,
@@ -56,7 +56,7 @@ impl Server {
 		let finished = self
 			.try_get_build_status_local(id, arg, stop)
 			.await?
-			.wrap_err("Expected the build to exist.")?
+			.ok_or_else(|| error!("Expected the build to exist."))?
 			.try_filter_map(|status| {
 				future::ready(Ok(if status == tg::build::Status::Finished {
 					Some(())
@@ -83,18 +83,18 @@ impl Server {
 				let params = sqlite_params![id.to_string()];
 				let mut statement = connection
 					.prepare_cached(statement)
-					.wrap_err("Failed to prepare the query.")?;
+					.map_err(|error| error!(source = error, "Failed to prepare the query."))?;
 				let mut rows = statement
 					.query(params)
-					.wrap_err("Failed to execute the statement.")?;
+					.map_err(|error| error!(source = error, "Failed to execute the statement."))?;
 				let row = rows
 					.next()
-					.wrap_err("Failed to get the row.")?
-					.wrap_err("Expected a row.")?;
+					.map_err(|error| error!(source = error, "Failed to get the row."))?
+					.ok_or_else(|| error!("Expected a row."))?;
 				row.get::<_, SqliteJson<Option<tg::build::Outcome>>>(0)
-					.wrap_err("Failed to deserialize the column.")?
+					.map_err(|error| error!(source = error, "Failed to deserialize the column."))?
 					.0
-					.wrap_err("Expected the outcome to be set.")?
+					.ok_or_else(|| error!("Expected the outcome to be set."))?
 			},
 
 			Database::Postgres(database) => {
@@ -108,16 +108,19 @@ impl Server {
 				let statement = connection
 					.prepare_cached(statement)
 					.await
-					.wrap_err("Failed to prepare the query.")?;
+					.map_err(|error| error!(source = error, "Failed to prepare the query."))?;
 				let rows = connection
 					.query(&statement, params)
 					.await
-					.wrap_err("Failed to execute the statement.")?;
-				let row = rows.into_iter().next().wrap_err("Expected a row.")?;
+					.map_err(|error| error!(source = error, "Failed to execute the statement."))?;
+				let row = rows
+					.into_iter()
+					.next()
+					.ok_or_else(|| error!("Expected a row."))?;
 				row.try_get::<_, PostgresJson<Option<tg::build::Outcome>>>(0)
-					.wrap_err("Failed to deserialize the column.")?
+					.map_err(|error| error!(source = error, "Failed to deserialize the column."))?
 					.0
-					.wrap_err("Expected the outcome to be set.")?
+					.ok_or_else(|| error!("Expected the outcome to be set."))?
 			},
 		};
 
@@ -179,10 +182,10 @@ impl Server {
 		let status = self
 			.try_get_build_status_local(id, arg, None)
 			.await?
-			.wrap_err("Expected the build to exist.")?
+			.ok_or_else(|| error!("Expected the build to exist."))?
 			.try_next()
 			.await?
-			.wrap_err("Failed to get the status.")?;
+			.ok_or_else(|| error!("Failed to get the status."))?;
 		if status == tg::build::Status::Finished {
 			return Ok(true);
 		}
@@ -201,13 +204,13 @@ impl Server {
 					let params = sqlite_params![id.to_string()];
 					let mut statement = connection
 						.prepare_cached(statement)
-						.wrap_err("Failed to prepare the query.")?;
-					let rows = statement
-						.query(params)
-						.wrap_err("Failed to execute the statement.")?;
+						.map_err(|error| error!(source = error, "Failed to prepare the query."))?;
+					let rows = statement.query(params).map_err(|error| {
+						error!(source = error, "Failed to execute the statement.")
+					})?;
 					let rows = rows
 						.and_then(|row| row.get::<_, String>(0))
-						.map_err(|error| error.wrap("Failed to deserialize the rows."));
+						.map_err(|error| error!(source = error, "Failed to deserialize the rows."));
 					rows.and_then(|id| id.parse()).try_collect()?
 				},
 
@@ -223,15 +226,17 @@ impl Server {
 					let statement = connection
 						.prepare_cached(statement)
 						.await
-						.wrap_err("Failed to prepare the query.")?;
+						.map_err(|error| error!(source = error, "Failed to prepare the query."))?;
 					let rows = connection
 						.query(&statement, params)
 						.await
-						.wrap_err("Failed to execute the statement.")?;
+						.map_err(|error| {
+							error!(source = error, "Failed to execute the statement.")
+						})?;
 					let rows = rows
 						.into_iter()
 						.map(|row| row.try_get::<_, String>(0))
-						.map_err(|error| error.wrap("Failed to deserialize the rows."));
+						.map_err(|error| error!(source = error, "Failed to deserialize the rows."));
 					rows.and_then(|id| id.parse()).try_collect()?
 				},
 			}
@@ -262,8 +267,8 @@ impl Server {
 				};
 				self.try_get_build_outcome(child_id, arg, None)
 					.await?
-					.wrap_err("Failed to get the build.")?
-					.wrap_err("Expected the build to be finished.")
+					.ok_or_else(|| error!(%child_id, "Failed to get the build."))?
+					.ok_or_else(|| error!(%child_id, "Expected the build to be finished."))
 			})
 			.collect::<FuturesUnordered<_>>()
 			.try_collect::<Vec<_>>()
@@ -298,10 +303,10 @@ impl Server {
 				let params = sqlite_params![build, object];
 				let mut statement = connection
 					.prepare_cached(statement)
-					.wrap_err("Failed to prepare the query.")?;
+					.map_err(|error| error!(source = error, "Failed to prepare the query."))?;
 				statement
 					.execute(params)
-					.wrap_err("Failed to execute the statement.")?;
+					.map_err(|error| error!(source = error, "Failed to execute the statement."))?;
 			},
 
 			Database::Postgres(database) => {
@@ -317,11 +322,11 @@ impl Server {
 				let statement = connection
 					.prepare_cached(statement)
 					.await
-					.wrap_err("Failed to prepare the query.")?;
+					.map_err(|error| error!(source = error, "Failed to prepare the query."))?;
 				connection
 					.execute(&statement, params)
 					.await
-					.wrap_err("Failed to execute the statement.")?;
+					.map_err(|error| error!(source = error, "Failed to execute the statement."))?;
 			},
 		}
 
@@ -345,10 +350,10 @@ impl Server {
 					let params = sqlite_params![build, object];
 					let mut statement = connection
 						.prepare_cached(statement)
-						.wrap_err("Failed to prepare the query.")?;
-					statement
-						.execute(params)
-						.wrap_err("Failed to execute the statement.")?;
+						.map_err(|error| error!(source = error, "Failed to prepare the query."))?;
+					statement.execute(params).map_err(|error| {
+						error!(source = error, "Failed to execute the statement.")
+					})?;
 				}
 			},
 
@@ -366,11 +371,13 @@ impl Server {
 					let statement = connection
 						.prepare_cached(statement)
 						.await
-						.wrap_err("Failed to prepare the query.")?;
+						.map_err(|error| error!(source = error, "Failed to prepare the query."))?;
 					connection
 						.execute(&statement, params)
 						.await
-						.wrap_err("Failed to execute the statement.")?;
+						.map_err(|error| {
+							error!(source = error, "Failed to execute the statement.")
+						})?;
 				}
 			},
 		}
@@ -389,16 +396,16 @@ impl Server {
 				let params = sqlite_params![id.to_string()];
 				let mut statement = connection
 					.prepare_cached(statement)
-					.wrap_err("Failed to prepare the query.")?;
+					.map_err(|error| error!(source = error, "Failed to prepare the query."))?;
 				let mut rows = statement
 					.query(params)
-					.wrap_err("Failed to execute the statement.")?;
+					.map_err(|error| error!(source = error, "Failed to execute the statement."))?;
 				let row = rows
 					.next()
-					.wrap_err("Failed to get the row.")?
-					.wrap_err("Expected a row.")?;
+					.map_err(|error| error!(source = error, "Failed to get the row."))?
+					.ok_or_else(|| error!("Expected a row."))?;
 				row.get::<_, Option<i64>>(0)
-					.wrap_err("Failed to deserialize the column.")?
+					.map_err(|error| error!(source = error, "Failed to deserialize the column."))?
 					.map(|count| count.to_u64().unwrap())
 			},
 
@@ -415,14 +422,17 @@ impl Server {
 				let statement = connection
 					.prepare_cached(statement)
 					.await
-					.wrap_err("Failed to prepare the query.")?;
+					.map_err(|error| error!(source = error, "Failed to prepare the query."))?;
 				let rows = connection
 					.query(&statement, params)
 					.await
-					.wrap_err("Failed to execute the statement.")?;
-				let row = rows.into_iter().next().wrap_err("Expected a row.")?;
+					.map_err(|error| error!(source = error, "Failed to execute the statement."))?;
+				let row = rows
+					.into_iter()
+					.next()
+					.ok_or_else(|| error!("Expected a row."))?;
 				row.try_get::<_, Option<i64>>(0)
-					.wrap_err("Failed to deserialize the column.")?
+					.map_err(|error| error!(source = error, "Failed to deserialize the column."))?
 					.map(|count| count.to_u64().unwrap())
 			},
 		};
@@ -453,16 +463,16 @@ impl Server {
 				let params = sqlite_params![id.to_string()];
 				let mut statement = connection
 					.prepare_cached(statement)
-					.wrap_err("Failed to prepare the query.")?;
+					.map_err(|error| error!(source = error, "Failed to prepare the query."))?;
 				let mut rows = statement
 					.query(params)
-					.wrap_err("Failed to execute the statement.")?;
+					.map_err(|error| error!(source = error, "Failed to execute the statement."))?;
 				let row = rows
 					.next()
-					.wrap_err("Failed to get the row.")?
-					.wrap_err("Expected a row.")?;
+					.map_err(|error| error!(source = error, "Failed to get the row."))?
+					.ok_or_else(|| error!("Expected a row."))?;
 				row.get::<_, Option<i64>>(0)
-					.wrap_err("Failed to deserialize the column.")?
+					.map_err(|error| error!(source = error, "Failed to deserialize the column."))?
 					.map(|weight| weight.to_u64().unwrap())
 			},
 
@@ -491,14 +501,17 @@ impl Server {
 				let statement = connection
 					.prepare_cached(statement)
 					.await
-					.wrap_err("Failed to prepare the query.")?;
+					.map_err(|error| error!(source = error, "Failed to prepare the query."))?;
 				let rows = connection
 					.query(&statement, params)
 					.await
-					.wrap_err("Failed to execute the statement.")?;
-				let row = rows.into_iter().next().wrap_err("Expected a row.")?;
+					.map_err(|error| error!(source = error, "Failed to execute the statement."))?;
+				let row = rows
+					.into_iter()
+					.next()
+					.ok_or_else(|| error!("Expected a row."))?;
 				row.try_get::<_, Option<i64>>(0)
-					.wrap_err("Failed to deserialize the column.")?
+					.map_err(|error| error!(source = error, "Failed to deserialize the column."))?
 					.map(|weight| weight.to_u64().unwrap())
 			},
 		};
@@ -528,10 +541,10 @@ impl Server {
 				let params = sqlite_params![count, log, outcome, status, weight, finished_at, id];
 				let mut statement = connection
 					.prepare_cached(statement)
-					.wrap_err("Failed to prepare the query.")?;
+					.map_err(|error| error!(source = error, "Failed to prepare the query."))?;
 				statement
 					.execute(params)
-					.wrap_err("Failed to execute the statement.")?;
+					.map_err(|error| error!(source = error, "Failed to execute the statement."))?;
 			},
 
 			Database::Postgres(database) => {
@@ -558,11 +571,11 @@ impl Server {
 				let statement = connection
 					.prepare_cached(statement)
 					.await
-					.wrap_err("Failed to prepare the query.")?;
+					.map_err(|error| error!(source = error, "Failed to prepare the query."))?;
 				connection
 					.execute(&statement, params)
 					.await
-					.wrap_err("Failed to execute the statement.")?;
+					.map_err(|error| error!(source = error, "Failed to execute the statement."))?;
 			},
 		}
 
@@ -603,9 +616,12 @@ impl Http {
 		// Get the path params.
 		let path_components: Vec<&str> = request.uri().path().split('/').skip(1).collect();
 		let ["builds", id, "outcome"] = path_components.as_slice() else {
-			return Err(error!("Unexpected path."));
+			let path = request.uri().path();
+			return Err(error!(%path, "Unexpected path."));
 		};
-		let id = id.parse().wrap_err("Failed to parse the ID.")?;
+		let id = id
+			.parse()
+			.map_err(|error| error!(source = error, "Failed to parse the ID."))?;
 
 		// Get the search params.
 		let arg = request
@@ -613,7 +629,7 @@ impl Http {
 			.query()
 			.map(serde_urlencoded::from_str)
 			.transpose()
-			.wrap_err("Failed to deserialize the search params.")?
+			.map_err(|error| error!(source = error, "Failed to deserialize the search params."))?
 			.unwrap_or_default();
 
 		let stop = request.extensions().get().cloned();
@@ -627,7 +643,8 @@ impl Http {
 		} else {
 			None
 		};
-		let body = serde_json::to_vec(&outcome).wrap_err("Failed to serialize the body.")?;
+		let body = serde_json::to_vec(&outcome)
+			.map_err(|error| error!(source = error, "Failed to serialize the body."))?;
 		let body = full(body);
 
 		// Create the response.
@@ -648,7 +665,9 @@ impl Http {
 		let ["builds", id, "outcome"] = path_components.as_slice() else {
 			return Err(error!("Unexpected path."));
 		};
-		let id = id.parse().wrap_err("Failed to parse the ID.")?;
+		let id = id
+			.parse()
+			.map_err(|error| error!(source = error, "Failed to parse the ID."))?;
 
 		// Get the user.
 		let user = self.try_get_user_from_request(&request).await?;
@@ -658,9 +677,10 @@ impl Http {
 			.into_body()
 			.collect()
 			.await
-			.wrap_err("Failed to read the body.")?
+			.map_err(|error| error!(source = error, "Failed to read the body."))?
 			.to_bytes();
-		let outcome = serde_json::from_slice(&bytes).wrap_err("Failed to deserialize the body.")?;
+		let outcome = serde_json::from_slice(&bytes)
+			.map_err(|error| error!(source = error, "Failed to deserialize the body."))?;
 
 		// Set the outcome.
 		self.inner

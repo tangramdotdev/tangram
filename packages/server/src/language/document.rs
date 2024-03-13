@@ -2,7 +2,7 @@ use super::{Sender, Server};
 use lsp_types as lsp;
 use std::path::PathBuf;
 use tangram_client as tg;
-use tangram_error::{error, Result, WrapErr};
+use tangram_error::{error, Result};
 
 impl Server {
 	/// Get all the server's documents.
@@ -32,10 +32,10 @@ impl Server {
 		if !documents.contains_key(&document) {
 			let metadata = tokio::fs::metadata(&path)
 				.await
-				.wrap_err("Failed to get the metadata.")?;
-			let modified = metadata
-				.modified()
-				.wrap_err("Failed to get the last modification time.")?;
+				.map_err(|error| error!(source = error, "Failed to get the metadata."))?;
+			let modified = metadata.modified().map_err(|error| {
+				error!(source = error, "Failed to get the last modification time.")
+			})?;
 			let state = tg::document::State::Closed(tg::document::Closed {
 				version: 0,
 				modified,
@@ -79,7 +79,8 @@ impl Server {
 			let path = document.path();
 			let path = path.display();
 			return Err(error!(
-				r#"Could not find an open document for the path "{path}"."#
+				%path,
+				"Could not find an open document."
 			));
 		};
 
@@ -122,10 +123,10 @@ impl Server {
 			tg::document::State::Closed(closed) => {
 				let metadata = tokio::fs::metadata(document.path())
 					.await
-					.wrap_err("Failed to get the metadata.")?;
-				let modified = metadata
-					.modified()
-					.wrap_err("Failed to get the last modification time.")?;
+					.map_err(|error| error!(source = error, "Failed to get the metadata."))?;
+				let modified = metadata.modified().map_err(|error| {
+					error!(source = error, "Failed to get the last modification time.")
+				})?;
 				if modified > closed.modified {
 					closed.modified = modified;
 					closed.version += 1;
@@ -146,7 +147,7 @@ impl Server {
 		let text = match document {
 			tg::document::State::Closed(_) => tokio::fs::read_to_string(&path)
 				.await
-				.wrap_err("Failed to read the file.")?,
+				.map_err(|error| error!(source = error, "Failed to read the file."))?,
 			tg::document::State::Opened(opened) => opened.text.clone(),
 		};
 		Ok(text)

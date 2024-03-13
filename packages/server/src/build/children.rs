@@ -9,7 +9,7 @@ use itertools::Itertools;
 use num::ToPrimitive;
 use std::sync::Arc;
 use tangram_client as tg;
-use tangram_error::{error, Error, Result, Wrap, WrapErr};
+use tangram_error::{error, Error, Result};
 use tangram_util::{
 	http::{empty, not_found, Incoming, Outgoing},
 	iter::IterExt,
@@ -80,9 +80,9 @@ impl Server {
 				.to_i64()
 				.unwrap()
 				.checked_add(seek)
-				.wrap_err("Invalid offset.")?
+				.ok_or_else(|| error!("Invalid offset."))?
 				.to_u64()
-				.wrap_err("Invalid offset.")?,
+				.ok_or_else(|| error!("Invalid offset."))?,
 			None => {
 				self.try_get_build_children_local_current_position(id)
 					.await?
@@ -127,10 +127,10 @@ impl Server {
 						None,
 					)
 					.await?
-					.wrap_err("Expected the build to exist.")?
+					.ok_or_else(|| error!("Expected the build to exist."))?
 					.try_next()
 					.await?
-					.wrap_err("Expected the status to exist.")?;
+					.ok_or_else(|| error!("Expected the status to exist."))?;
 				if status == tg::build::Status::Finished {
 					end = true;
 				}
@@ -204,17 +204,17 @@ impl Server {
 				let params = sqlite_params![id];
 				let mut statement = connection
 					.prepare_cached(statement)
-					.wrap_err("Failed to prepare the statement.")?;
+					.map_err(|error| error!(source = error, "Failed to prepare the statement."))?;
 				let mut rows = statement
 					.query(params)
-					.wrap_err("Failed to execute the statement.")?;
+					.map_err(|error| error!(source = error, "Failed to execute the statement."))?;
 				let row = rows
 					.next()
-					.wrap_err("Failed to get the row.")?
-					.wrap_err("Expected a row.")?;
+					.map_err(|error| error!(source = error, "Failed to get the row."))?
+					.ok_or_else(|| error!("Expected a row."))?;
 				let count = row
 					.get::<_, i64>(0)
-					.wrap_err("Failed to deserialize the column.")?
+					.map_err(|error| error!(source = error, "Failed to deserialize the column."))?
 					.to_u64()
 					.unwrap();
 				Ok(count)
@@ -232,15 +232,18 @@ impl Server {
 				let statement = connection
 					.prepare_cached(statement)
 					.await
-					.wrap_err("Failed to prepare the statement.")?;
+					.map_err(|error| error!(source = error, "Failed to prepare the statement."))?;
 				let rows = connection
 					.query(&statement, params)
 					.await
-					.wrap_err("Failed to execute the statement.")?;
-				let row = rows.into_iter().next().wrap_err("Expected a row.")?;
+					.map_err(|error| error!(source = error, "Failed to execute the statement."))?;
+				let row = rows
+					.into_iter()
+					.next()
+					.ok_or_else(|| error!("Expected a row."))?;
 				let count = row
 					.try_get::<_, i64>(0)
-					.wrap_err("Failed to deserialiize the column.")?
+					.map_err(|error| error!(source = error, "Failed to deserialiize the column."))?
 					.to_u64()
 					.unwrap();
 				Ok(count)
@@ -270,17 +273,17 @@ impl Server {
 				let params = sqlite_params![id.to_string(), position.to_i64().unwrap()];
 				let mut statement = connection
 					.prepare_cached(statement)
-					.wrap_err("Failed to prepare the statement.")?;
+					.map_err(|error| error!(source = error, "Failed to prepare the statement."))?;
 				let mut rows = statement
 					.query(params)
-					.wrap_err("Failed to execute the statement.")?;
+					.map_err(|error| error!(source = error, "Failed to execute the statement."))?;
 				let row = rows
 					.next()
-					.wrap_err("Failed to get the row.")?
-					.wrap_err("Expected a row.")?;
+					.map_err(|error| error!(source = error, "Failed to get the row."))?
+					.ok_or_else(|| error!("Expected a row."))?;
 				let end = row
 					.get::<_, bool>(0)
-					.wrap_err("Failed to deserialize the column.")?;
+					.map_err(|error| error!(source = error, "Failed to deserialize the column."))?;
 				Ok(end)
 			},
 
@@ -300,16 +303,19 @@ impl Server {
 				let statement = connection
 					.prepare_cached(statement)
 					.await
-					.wrap_err("Failed to prepare the statement.")?;
+					.map_err(|error| error!(source = error, "Failed to prepare the statement."))?;
 				let params = postgres_params![id.to_string(), position.to_i64().unwrap()];
 				let rows = connection
 					.query(&statement, params)
 					.await
-					.wrap_err("Failed to execute the statement.")?;
-				let row = rows.into_iter().next().wrap_err("Expected a row.")?;
+					.map_err(|error| error!(source = error, "Failed to execute the statement."))?;
+				let row = rows
+					.into_iter()
+					.next()
+					.ok_or_else(|| error!("Expected a row."))?;
 				let end = row
 					.try_get::<_, bool>(0)
-					.wrap_err("Failed to deserialize the column.")?;
+					.map_err(|error| error!(source = error, "Failed to deserialize the column."))?;
 				Ok(end)
 			},
 		}
@@ -339,12 +345,12 @@ impl Server {
 				];
 				let mut statement = connection
 					.prepare_cached(statement)
-					.wrap_err("Failed to prepare the statement.")?;
+					.map_err(|error| error!(source = error, "Failed to prepare the statement."))?;
 				let children = statement
 					.query(params)
-					.wrap_err("Failed to execute the statement.")?
+					.map_err(|error| error!(source = error, "Failed to execute the statement."))?
 					.and_then(|row| row.get::<_, String>(0))
-					.map_err(|error| error.wrap("Failed to deserialize the rows."))
+					.map_err(|error| error!(source = error, "Failed to deserialize the rows."))
 					.and_then(|id| id.parse())
 					.try_collect()?;
 				let chunk = tg::build::children::Chunk {
@@ -372,14 +378,14 @@ impl Server {
 				let statement = connection
 					.prepare_cached(statement)
 					.await
-					.wrap_err("Failed to prepare the statement.")?;
+					.map_err(|error| error!(source = error, "Failed to prepare the statement."))?;
 				let children = connection
 					.query(&statement, params)
 					.await
-					.wrap_err("Failed to execute the statement.")?
+					.map_err(|error| error!(source = error, "Failed to execute the statement."))?
 					.into_iter()
 					.map(|row| row.try_get::<_, String>(0))
-					.map_err(|error| error.wrap("Failed to deserialize the rows."))
+					.map_err(|error| error!(source = error, "Failed to deserialize the rows."))
 					.and_then(|row| row.parse())
 					.try_collect()?;
 				let chunk = tg::build::children::Chunk {
@@ -450,10 +456,10 @@ impl Server {
 				let params = sqlite_params![build_id.to_string(), child_id.to_string()];
 				let mut statement = connection
 					.prepare_cached(statement)
-					.wrap_err("Failed to prepare the query.")?;
+					.map_err(|error| error!(source = error, "Failed to prepare the query."))?;
 				statement
 					.execute(params)
-					.wrap_err("Failed to execute the statement.")?;
+					.map_err(|error| error!(source = error, "Failed to execute the statement."))?;
 			},
 
 			Database::Postgres(database) => {
@@ -467,11 +473,11 @@ impl Server {
 				let statement = connection
 					.prepare_cached(statement)
 					.await
-					.wrap_err("Failed to prepare the statement.")?;
+					.map_err(|error| error!(source = error, "Failed to prepare the statement."))?;
 				connection
 					.execute(&statement, params)
 					.await
-					.wrap_err("Failed to execute the statement.")?;
+					.map_err(|error| error!(source = error, "Failed to execute the statement."))?;
 			},
 		}
 
@@ -509,9 +515,12 @@ impl Http {
 		// Get the path params.
 		let path_components: Vec<&str> = request.uri().path().split('/').skip(1).collect();
 		let ["builds", id, "children"] = path_components.as_slice() else {
-			return Err(error!("Unexpected path."));
+			let uri = request.uri();
+			return Err(error!(%uri, "Unexpected path."));
 		};
-		let id = id.parse().wrap_err("Failed to parse the ID.")?;
+		let id = id
+			.parse()
+			.map_err(|error| error!(source = error, "Failed to parse the ID."))?;
 
 		// Get the search params.
 		let arg = request
@@ -519,7 +528,7 @@ impl Http {
 			.query()
 			.map(serde_urlencoded::from_str)
 			.transpose()
-			.wrap_err("Failed to deserialize the search params.")?
+			.map_err(|error| error!(source = error, "Failed to deserialize the search params."))?
 			.unwrap_or_default();
 
 		// Get the accept header.
@@ -527,10 +536,12 @@ impl Http {
 			.headers()
 			.get(http::header::ACCEPT)
 			.map(|accept| {
-				let accept = accept.to_str().wrap_err("Invalid content type.")?;
+				let accept = accept
+					.to_str()
+					.map_err(|error| error!(source = error, "Invalid content type."))?;
 				let accept = accept
 					.parse::<mime::Mime>()
-					.wrap_err("Invalid content type.")?;
+					.map_err(|error| error!(source = error, "Invalid content type."))?;
 				Ok::<_, Error>(accept)
 			})
 			.transpose()?;
@@ -546,15 +557,14 @@ impl Http {
 		// Choose the content type.
 		let content_type = match (accept.type_(), accept.subtype()) {
 			(mime::TEXT, mime::EVENT_STREAM) => mime::TEXT_EVENT_STREAM,
-			_ => return Err(error!("Invalid accept header.")),
+			(header, subtype) => return Err(error!(%header, %subtype, "Invalid accept header.")),
 		};
 
 		// Create the body.
 		let body = stream
-			.map_err(|error| {
+			.inspect_err(|error| {
 				let trace = error.trace();
-				tracing::error!("{trace}");
-				error
+				tracing::error!(%trace, "Failed to get child build.");
 			})
 			.map_ok(|chunk| {
 				let data = serde_json::to_string(&chunk).unwrap();
@@ -581,9 +591,12 @@ impl Http {
 		// Get the path params.
 		let path_components: Vec<&str> = request.uri().path().split('/').skip(1).collect();
 		let ["builds", id, "children"] = path_components.as_slice() else {
-			return Err(error!("Unexpected path."));
+			let path = request.uri().path();
+			return Err(error!(%path, "Unexpected path."));
 		};
-		let build_id: tg::build::Id = id.parse().wrap_err("Failed to parse the ID.")?;
+		let build_id: tg::build::Id = id
+			.parse()
+			.map_err(|error| error!(source = error, "Failed to parse the ID."))?;
 
 		// Get the user.
 		let user = self.try_get_user_from_request(&request).await?;
@@ -593,10 +606,10 @@ impl Http {
 			.into_body()
 			.collect()
 			.await
-			.wrap_err("Failed to read the body.")?
+			.map_err(|error| error!(source = error, "Failed to read the body."))?
 			.to_bytes();
-		let child_id =
-			serde_json::from_slice(&bytes).wrap_err("Failed to deserialize the body.")?;
+		let child_id = serde_json::from_slice(&bytes)
+			.map_err(|error| error!(source = error, "Failed to deserialize the body."))?;
 
 		// Add the build child.
 		self.inner

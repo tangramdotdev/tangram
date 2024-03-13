@@ -4,7 +4,7 @@ use crate::{
 };
 use std::os::unix::process::CommandExt;
 use tangram_client as tg;
-use tangram_error::{Result, Wrap, WrapErr};
+use tangram_error::{error, Result};
 
 /// Build the specified target from a package and execute a command from its output.
 #[derive(Debug, clap::Args)]
@@ -47,7 +47,7 @@ impl Cli {
 		if let Some(path) = args.package.path.as_mut() {
 			*path = tokio::fs::canonicalize(&path)
 				.await
-				.wrap_err("Failed to canonicalize the path.")?
+				.map_err(|error| error!(source = error, %path, "Failed to canonicalize the path."))?
 				.try_into()?;
 		}
 
@@ -93,7 +93,7 @@ impl Cli {
 		let outcome = build
 			.get_outcome(client, arg)
 			.await
-			.wrap_err("Failed to get the build outcome.")?;
+			.map_err(|error| error!(source = error, "Failed to get the build outcome."))?;
 
 		// If the outcome is not immediatey available, then wait for it while showing the TUI if enabled.
 		let outcome = if let Some(outcome) = outcome {
@@ -118,23 +118,25 @@ impl Cli {
 				tui.join().await?;
 			}
 
-			outcome.wrap_err("Failed to get the build outcome.")?
+			outcome.map_err(|error| error!(source = error, "Failed to get the build outcome."))?
 		};
 
 		// Handle a failed build.
-		let output = outcome.into_result().wrap_err("The build failed.")?;
+		let output = outcome
+			.into_result()
+			.map_err(|error| error!(source = error, "The build failed."))?;
 
 		// Get the output artifact.
 		let artifact: tg::Artifact = output
 			.try_into()
-			.wrap_err("Expected the output to be an artifact.")?;
+			.map_err(|error| error!(source = error, "Expected the output to be an artifact."))?;
 
 		// Get the path to the artifact.
 		let artifact_path = client
 			.path()
 			.await
-			.wrap_err("Failed to get the server path.")?
-			.wrap_err("Failed to get the server path.")?
+			.map_err(|error| error!(source = error, "Failed to get the server path."))?
+			.ok_or_else(|| error!("Failed to get the server path."))?
 			.join("artifacts")
 			.join(artifact.id(client).await?.to_string());
 
@@ -155,9 +157,9 @@ impl Cli {
 		};
 
 		// Exec.
-		Err(std::process::Command::new(executable_path)
+		let error = std::process::Command::new(&executable_path)
 			.args(args.trailing)
-			.exec()
-			.wrap("Failed to execute the command."))
+			.exec();
+		Err(error!(source = error, %executable_path, "Failed to execute the command."))
 	}
 }

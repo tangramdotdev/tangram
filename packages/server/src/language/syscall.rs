@@ -5,7 +5,7 @@ use bytes::Bytes;
 use itertools::Itertools;
 use std::collections::BTreeMap;
 use tangram_client as tg;
-use tangram_error::{Result, WrapErr};
+use tangram_error::{error, Result};
 
 pub fn syscall<'s>(
 	scope: &mut v8::HandleScope<'s>,
@@ -79,7 +79,7 @@ fn syscall_encoding_base64_decode(
 	let (value,) = args;
 	let bytes = data_encoding::BASE64
 		.decode(value.as_bytes())
-		.wrap_err("Failed to decode the bytes.")?;
+		.map_err(|error| error!(source = error, "Failed to decode the bytes."))?;
 	Ok(bytes.into())
 }
 
@@ -101,7 +101,7 @@ fn syscall_encoding_hex_decode(
 	let (string,) = args;
 	let bytes = data_encoding::HEXLOWER
 		.decode(string.as_bytes())
-		.wrap_err("Failed to decode the string as hex.")?;
+		.map_err(|error| error!(source = error, "Failed to decode the string as hex."))?;
 	Ok(bytes.into())
 }
 
@@ -121,7 +121,8 @@ fn syscall_encoding_json_decode(
 	args: (String,),
 ) -> Result<serde_json::Value> {
 	let (json,) = args;
-	let value = serde_json::from_str(&json).wrap_err("Failed to decode the string as json.")?;
+	let value = serde_json::from_str(&json)
+		.map_err(|error| error!(source = error, "Failed to decode the string as json."))?;
 	Ok(value)
 }
 
@@ -131,7 +132,8 @@ fn syscall_encoding_json_encode(
 	args: (serde_json::Value,),
 ) -> Result<String> {
 	let (value,) = args;
-	let json = serde_json::to_string(&value).wrap_err("Failed to encode the value.")?;
+	let json = serde_json::to_string(&value)
+		.map_err(|error| error!(source = error, "Failed to encode the value."))?;
 	Ok(json)
 }
 
@@ -141,7 +143,8 @@ fn syscall_encoding_toml_decode(
 	args: (String,),
 ) -> Result<toml::Value> {
 	let (toml,) = args;
-	let value = toml::from_str(&toml).wrap_err("Failed to decode the string as toml.")?;
+	let value = toml::from_str(&toml)
+		.map_err(|error| error!(source = error, "Failed to decode the string as toml."))?;
 	Ok(value)
 }
 
@@ -151,7 +154,8 @@ fn syscall_encoding_toml_encode(
 	args: (toml::Value,),
 ) -> Result<String> {
 	let (value,) = args;
-	let toml = toml::to_string(&value).wrap_err("Failed to encode the value.")?;
+	let toml = toml::to_string(&value)
+		.map_err(|error| error!(source = error, "Failed to encode the value."))?;
 	Ok(toml)
 }
 
@@ -161,8 +165,8 @@ fn syscall_encoding_utf8_decode(
 	args: (Bytes,),
 ) -> Result<String> {
 	let (bytes,) = args;
-	let string =
-		String::from_utf8(bytes.into()).wrap_err("Failed to decode the bytes as UTF-8.")?;
+	let string = String::from_utf8(bytes.into())
+		.map_err(|error| error!(source = error, "Failed to decode the bytes as UTF-8."))?;
 	Ok(string)
 }
 
@@ -182,7 +186,8 @@ fn syscall_encoding_yaml_decode(
 	args: (String,),
 ) -> Result<serde_yaml::Value> {
 	let (yaml,) = args;
-	let value = serde_yaml::from_str(&yaml).wrap_err("Failed to decode the string as yaml.")?;
+	let value = serde_yaml::from_str(&yaml)
+		.map_err(|error| error!(source = error, "Failed to decode the string as yaml."))?;
 	Ok(value)
 }
 
@@ -192,7 +197,8 @@ fn syscall_encoding_yaml_encode(
 	args: (serde_yaml::Value,),
 ) -> Result<String> {
 	let (value,) = args;
-	let yaml = serde_yaml::to_string(&value).wrap_err("Failed to encode the value.")?;
+	let yaml = serde_yaml::to_string(&value)
+		.map_err(|error| error!(source = error, "Failed to encode the value."))?;
 	Ok(yaml)
 }
 
@@ -216,7 +222,7 @@ fn syscall_module_load(
 			let text = server
 				.load_module(&module)
 				.await
-				.wrap_err_with(|| format!(r#"Failed to load module "{module}"."#))?;
+				.map_err(|error| error!(source = error, %module, "Failed to load the module."))?;
 			Ok(text)
 		})
 }
@@ -228,7 +234,7 @@ fn syscall_module_resolve(
 ) -> Result<tg::Module> {
 	let (module, specifier, attributes) = args;
 	let import = tg::Import::with_specifier_and_attributes(&specifier, attributes.as_ref())
-		.wrap_err("Failed to create the import.")?;
+		.map_err(|error| error!(source = error, "Failed to create the import."))?;
 	server
 		.inner
 		.main_runtime_handle
@@ -237,9 +243,12 @@ fn syscall_module_resolve(
 			let module = server
 				.resolve_module(&module, &import)
 				.await
-				.wrap_err_with(|| {
-					format!(
-						r#"Failed to resolve specifier "{specifier}" relative to module "{module}"."#
+				.map_err(|error| {
+					error!(
+						source = error,
+						%specifier,
+						%module,
+						"Failed to resolve specifier relative to the module."
 					)
 				})?;
 			Ok(module)
@@ -283,13 +292,15 @@ where
 	let args = v8::Array::new_with_elements(scope, args.as_slice());
 
 	// Deserialize the args.
-	let args = serde_v8::from_v8(scope, args.into()).wrap_err("Failed to deserialize the args.")?;
+	let args = serde_v8::from_v8(scope, args.into())
+		.map_err(|error| error!(source = error, "Failed to deserialize the args."))?;
 
 	// Call the function.
 	let value = f(scope, server, args)?;
 
 	// Serialize the value.
-	let value = serde_v8::to_v8(scope, &value).wrap_err("Failed to serialize the value.")?;
+	let value = serde_v8::to_v8(scope, &value)
+		.map_err(|error| error!(source = error, "Failed to serialize the value."))?;
 
 	Ok(value)
 }

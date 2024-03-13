@@ -1,4 +1,4 @@
-use crate::{mutation, object, template, Error, Handle, Mutation, Result, Template, WrapErr};
+use crate::{mutation, object, template, Handle, Mutation, Template};
 use async_recursion::async_recursion;
 use bytes::Bytes;
 use derive_more::{From, TryInto, TryUnwrap};
@@ -9,6 +9,7 @@ use futures::{
 use itertools::Itertools;
 use num::ToPrimitive;
 use std::collections::BTreeMap;
+use tangram_error::{error, Error, Result};
 
 /// A value.
 #[derive(Clone, Debug, From, TryInto, serde::Deserialize, TryUnwrap)]
@@ -120,11 +121,12 @@ impl Data {
 	pub fn serialize(&self) -> Result<Bytes> {
 		serde_json::to_vec(self)
 			.map(Into::into)
-			.wrap_err("Failed to serialize the data.")
+			.map_err(|error| error!(source = error, "Failed to serialize the data."))
 	}
 
 	pub fn deserialize(bytes: &Bytes) -> Result<Self> {
-		serde_json::from_reader(bytes.as_ref()).wrap_err("Failed to deserialize the data.")
+		serde_json::from_reader(bytes.as_ref())
+			.map_err(|error| error!(source = error, "Failed to deserialize the data."))
 	}
 
 	#[must_use]

@@ -1,7 +1,6 @@
-use crate::{Error, Result};
 use derive_more::{TryUnwrap, Unwrap};
 use std::path::PathBuf;
-use tangram_error::WrapErr;
+use tangram_error::{error, Error, Result};
 
 /// Any path.
 #[derive(
@@ -222,7 +221,7 @@ impl TryFrom<PathBuf> for Path {
 		value
 			.as_os_str()
 			.to_str()
-			.wrap_err("The path must be valid UTF-8.")?
+			.ok_or_else(|| error!("The path must be valid UTF-8."))?
 			.parse()
 	}
 }
@@ -234,7 +233,10 @@ impl<'a> TryFrom<&'a std::path::Path> for Path {
 		value
 			.as_os_str()
 			.to_str()
-			.wrap_err("The path must be valid UTF-8.")?
+			.ok_or_else(|| {
+				let path = value.display();
+				error!(%path, "The path must be valid UTF-8.")
+			})?
 			.parse()
 	}
 }

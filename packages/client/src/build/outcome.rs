@@ -5,7 +5,7 @@ use futures::{future, FutureExt};
 use http_body_util::BodyExt;
 use serde_with::serde_as;
 use std::pin::pin;
-use tangram_error::{error, Error, Result, WrapErr};
+use tangram_error::{error, Error, Result};
 use tangram_util::http::{empty, full};
 
 #[derive(Clone, Debug, serde::Deserialize, TryUnwrap)]
@@ -50,7 +50,7 @@ impl Client {
 			.uri(uri)
 			.header(http::header::ACCEPT, mime::APPLICATION_JSON.to_string())
 			.body(body)
-			.wrap_err("Failed to create the request.")?;
+			.map_err(|error| error!(source = error, "Failed to create the request."))?;
 		let response = self.send(request).await?;
 		if response.status() == http::StatusCode::NOT_FOUND {
 			return Ok(None);
@@ -59,7 +59,7 @@ impl Client {
 			let bytes = response
 				.collect()
 				.await
-				.wrap_err("Failed to collect the response body.")?
+				.map_err(|error| error!(source = error, "Failed to collect the response body."))?
 				.to_bytes();
 			let error = serde_json::from_slice(&bytes)
 				.unwrap_or_else(|_| error!("The request did not succeed."));
@@ -73,10 +73,11 @@ impl Client {
 			let bytes = response
 				.collect()
 				.await
-				.wrap_err("Failed to collect the response body.")?
+				.map_err(|error| error!(source = error, "Failed to collect the response body."))?
 				.to_bytes();
-			let outcome = serde_json::from_slice(&bytes)
-				.wrap_err("Failed to deserialize the response body.")?;
+			let outcome = serde_json::from_slice(&bytes).map_err(|error| {
+				error!(source = error, "Failed to deserialize the response body.")
+			})?;
 			Ok(outcome)
 		};
 		let stop = stop.map(|()| Ok(None));
@@ -103,17 +104,18 @@ impl Client {
 			request = request.header(http::header::AUTHORIZATION, format!("Bearer {token}"));
 		}
 		let outcome = outcome.data(self).await?;
-		let body = serde_json::to_vec(&outcome).wrap_err("Failed to serialize the body.")?;
+		let body = serde_json::to_vec(&outcome)
+			.map_err(|error| error!(source = error, "Failed to serialize the body."))?;
 		let body = full(body);
 		let request = request
 			.body(body)
-			.wrap_err("Failed to create the request.")?;
+			.map_err(|error| error!(source = error, "Failed to create the request."))?;
 		let response = self.send(request).await?;
 		if !response.status().is_success() {
 			let bytes = response
 				.collect()
 				.await
-				.wrap_err("Failed to collect the response body.")?
+				.map_err(|error| error!(source = error, "Failed to collect the response body."))?
 				.to_bytes();
 			let error = serde_json::from_slice(&bytes)
 				.unwrap_or_else(|_| error!("The request did not succeed."));

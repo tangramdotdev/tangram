@@ -7,7 +7,7 @@ members = [
   "packages/fuse",
   "packages/nfs",  
   "packages/server",
-  "packages/util", 
+  "packages/util",
 ]
 resolver = "2"
 

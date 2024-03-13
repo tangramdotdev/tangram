@@ -3,7 +3,7 @@ use super::{
 	State,
 };
 use num::ToPrimitive;
-use std::{str::FromStr, sync::Arc};
+use std::{collections::BTreeMap, str::FromStr, sync::Arc};
 use tangram_client as tg;
 use tangram_error::Error;
 
@@ -116,13 +116,14 @@ pub(super) fn from_exception<'s>(
 		.and_then(|value| value.to_object(scope))
 		.map(|cause| from_exception(state, scope, cause.into()))
 		.map(|error| Arc::new(error) as _);
-
+	let values = BTreeMap::new();
 	// Create the error.
 	Error {
 		message,
 		location,
 		stack,
 		source,
+		values,
 	}
 }
 

@@ -5,7 +5,7 @@ use crate::{
 use http_body_util::BodyExt;
 use itertools::Itertools;
 use tangram_client as tg;
-use tangram_error::{error, Result, Wrap, WrapErr};
+use tangram_error::{error, Result};
 use tangram_util::{
 	http::{bad_request, full, Incoming, Outgoing},
 	iter::IterExt,
@@ -44,16 +44,16 @@ impl Server {
 			let params = sqlite_params![id, bytes];
 			let mut statement = connection
 				.prepare_cached(statement)
-				.wrap_err("Failed to prepare the query.")?;
+				.map_err(|error| error!(source = error, "Failed to prepare the query."))?;
 			let mut rows = statement
 				.query(params)
-				.wrap_err("Failed to execute the statement.")?;
+				.map_err(|error| error!(source = error, "Failed to execute the statement."))?;
 			let row = rows
 				.next()
-				.wrap_err("Failed to retrieve the row.")?
-				.wrap_err("Expected a row.")?;
+				.map_err(|error| error!(source = error, "Failed to retrieve the row."))?
+				.ok_or_else(|| error!("Expected a row."))?;
 			row.get::<_, bool>(0)
-				.wrap_err("Failed to deserialize the column.")?
+				.map_err(|error| error!(source = error, "Failed to deserialize the column."))?
 		};
 
 		// Find the incomplete children.
@@ -68,17 +68,17 @@ impl Server {
 			let params = sqlite_params![id];
 			let mut statement = connection
 				.prepare_cached(statement)
-				.wrap_err("Failed to prepare the query.")?;
+				.map_err(|error| error!(source = error, "Failed to prepare the query."))?;
 			let rows = statement
 				.query(params)
-				.wrap_err("Failed to execute the statement.")?;
+				.map_err(|error| error!(source = error, "Failed to execute the statement."))?;
 			rows.and_then(|row| row.get::<_, String>(0))
-				.map_err(|error| error.wrap("Failed to deserialize the rows."))
+				.map_err(|error| error!(source = error, "Failed to deserialize the rows."))
 				.and_then(|id| id.parse())
 				.try_collect()?
 		} else {
 			let data = tg::object::Data::deserialize(id.kind(), &arg.bytes)
-				.wrap_err("Failed to deserialize the data.")?;
+				.map_err(|error| error!(source = error, "Failed to deserialize the data."))?;
 			data.children()
 		};
 
@@ -108,14 +108,17 @@ impl Server {
 			let statement = connection
 				.prepare_cached(statement)
 				.await
-				.wrap_err("Failed to prepare the query.")?;
+				.map_err(|error| error!(source = error, "Failed to prepare the query."))?;
 			let rows = connection
 				.query(&statement, params)
 				.await
-				.wrap_err("Failed to execute the statement.")?;
-			let row = rows.into_iter().next().wrap_err("Expected a row.")?;
+				.map_err(|error| error!(source = error, "Failed to execute the statement."))?;
+			let row = rows
+				.into_iter()
+				.next()
+				.ok_or_else(|| error!("Expected a row."))?;
 			row.try_get::<_, bool>(0)
-				.wrap_err("Failed to deserialize the column.")?
+				.map_err(|error| error!(source = error, "Failed to deserialize the column."))?
 		};
 
 		// Find the incomplete children.
@@ -131,19 +134,19 @@ impl Server {
 			let statement = connection
 				.prepare_cached(statement)
 				.await
-				.wrap_err("Failed to prepare the query.")?;
+				.map_err(|error| error!(source = error, "Failed to prepare the query."))?;
 			let rows = connection
 				.query(&statement, params)
 				.await
-				.wrap_err("Failed to execute the statement.")?;
+				.map_err(|error| error!(source = error, "Failed to execute the statement."))?;
 			rows.into_iter()
 				.map(|row| row.try_get::<_, String>(0))
-				.map_err(|error| error.wrap("Failed to deserialize the rows."))
+				.map_err(|error| error!(source = error, "Failed to deserialize the rows."))
 				.and_then(|id| id.parse())
 				.try_collect()?
 		} else {
 			let data = tg::object::Data::deserialize(id.kind(), &arg.bytes)
-				.wrap_err("Failed to deserialize the data.")?;
+				.map_err(|error| error!(source = error, "Failed to deserialize the data."))?;
 			data.children()
 		};
 
@@ -190,10 +193,10 @@ impl Server {
 			let params = sqlite_params![id, bytes];
 			let mut statement = txn
 				.prepare_cached(statement)
-				.wrap_err("Failed to prepare the query.")?;
+				.map_err(|error| error!(source = error, "Failed to prepare the query."))?;
 			statement
 				.execute(params)
-				.wrap_err("Failed to execute the statement.")?;
+				.map_err(|error| error!(source = error, "Failed to execute the statement."))?;
 		}
 
 		Ok(())
@@ -220,10 +223,10 @@ impl Server {
 			let statement = txn
 				.prepare_cached(statement)
 				.await
-				.wrap_err("Failed to prepare the query.")?;
+				.map_err(|error| error!(source = error, "Failed to prepare the query."))?;
 			txn.execute(&statement, params)
 				.await
-				.wrap_err("Failed to execute the statement.")?;
+				.map_err(|error| error!(source = error, "Failed to execute the statement."))?;
 		}
 
 		Ok(())
@@ -238,7 +241,8 @@ impl Http {
 		// Get the path params.
 		let path_components: Vec<&str> = request.uri().path().split('/').skip(1).collect();
 		let ["objects", id] = path_components.as_slice() else {
-			return Err(error!("Unexpected path."));
+			let path = request.uri().path();
+			return Err(error!(%path, "Unexpected path."));
 		};
 		let Ok(id) = id.parse() else {
 			return Ok(bad_request());
@@ -249,7 +253,7 @@ impl Http {
 			.into_body()
 			.collect()
 			.await
-			.wrap_err("Failed to read the body.")?
+			.map_err(|error| error!(source = error, "Failed to read the body."))?
 			.to_bytes();
 
 		// Put the object.
@@ -261,7 +265,8 @@ impl Http {
 		let output = self.inner.tg.put_object(&id, &arg).await?;
 
 		// Create the body.
-		let body = serde_json::to_vec(&output).wrap_err("Failed to serialize the body.")?;
+		let body = serde_json::to_vec(&output)
+			.map_err(|error| error!(source = error, "Failed to serialize the body."))?;
 		let body = full(body);
 
 		// Create the response.

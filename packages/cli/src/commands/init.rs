@@ -1,7 +1,7 @@
 use crate::Cli;
 use indoc::formatdoc;
 use std::path::PathBuf;
-use tangram_error::{error, Result, Wrap, WrapErr};
+use tangram_error::{error, Result};
 
 /// Initialize a new package.
 #[derive(Debug, clap::Args)]
@@ -22,7 +22,8 @@ pub struct Args {
 impl Cli {
 	pub async fn command_init(&self, args: Args) -> Result<()> {
 		// Get the path.
-		let mut path = std::env::current_dir().wrap_err("Failed to get the working directory.")?;
+		let mut path = std::env::current_dir()
+			.map_err(|error| error!(source = error, "Failed to get the working directory."))?;
 		if let Some(path_arg) = &args.path {
 			path.push(path_arg);
 		}
@@ -31,16 +32,21 @@ impl Cli {
 		match tokio::fs::metadata(&path).await {
 			Ok(metadata) => {
 				if !metadata.is_dir() {
-					return Err(error!("The path must be a directory."));
+					return Err(error!(?path, "The path must be a directory."));
 				}
 			},
 			Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
-				tokio::fs::create_dir_all(&path).await.wrap_err_with(|| {
+				tokio::fs::create_dir_all(&path).await.map_err(|error| {
 					let path = path.display();
-					format!(r#"Failed to create the directory at "{path}"."#)
+					error!(source = error, %path, "Failed to create the directory.")
 				})?;
 			},
-			Err(error) => return Err(error.wrap("Failed to get the metadata for the path.")),
+			Err(error) => {
+				let path = path.display();
+				return Err(
+					error!(source = error, %path, "Failed to get the metadata for the path."),
+				);
+			},
 		};
 
 		// Get the name and version.
@@ -48,7 +54,7 @@ impl Cli {
 			name
 		} else {
 			path.file_name()
-				.ok_or_else(|| error!("The path must have a directory name."))?
+				.ok_or_else(|| error!(?path, "The path must have a directory name."))?
 				.to_str()
 				.unwrap()
 				.to_owned()
@@ -73,9 +79,10 @@ impl Cli {
 
 		// Write the files.
 		for (path, contents) in files {
-			tokio::fs::write(&path, &contents)
-				.await
-				.wrap_err("Failed to write the file.")?;
+			tokio::fs::write(&path, &contents).await.map_err(|error| {
+				let path = path.display();
+				error!(source = error, %path, "Failed to write the file.")
+			})?;
 		}
 
 		Ok(())
