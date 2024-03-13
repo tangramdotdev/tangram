@@ -85,8 +85,7 @@ fn default_path() -> PathBuf {
 fn main() {
 	let result = main_inner();
 	if let Err(error) = result {
-		eprintln!("An error occurred.");
-		eprintln!("{}", error.trace());
+		util::print_error(&error);
 		std::process::exit(1);
 	}
 }

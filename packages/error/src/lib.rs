@@ -125,32 +125,6 @@ impl std::fmt::Display for Location {
 	}
 }
 
-#[doc(hidden)]
-pub mod support {
-	use std::{collections::BTreeMap, sync::Arc};
-
-	#[derive(Default)]
-	pub struct Builder {
-		pub source: Option<Box<dyn std::error::Error + Send + Sync>>,
-		pub stack: Option<Vec<crate::Location>>,
-		pub values: BTreeMap<String, String>,
-		pub message: Option<String>,
-		pub location: Option<crate::Location>,
-	}
-
-	impl From<Builder> for crate::Error {
-		fn from(value: Builder) -> Self {
-			Self {
-				message: value.message.unwrap(),
-				source: value.source.map(|e| Arc::new(e.into())),
-				stack: value.stack,
-				values: value.values,
-				location: value.location,
-			}
-		}
-	}
-}
-
 #[macro_export]
 macro_rules! error {
 	({ $error:ident }, %$name:ident, $($arg:tt)*) => {
