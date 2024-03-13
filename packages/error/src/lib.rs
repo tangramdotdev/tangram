@@ -137,8 +137,8 @@ impl std::fmt::Display for Location {
 /// error!("Error message with interpolation. {}", 42);
 ///
 /// let name = "value";
-/// error!(%name, "Error message witha associated value (pretty printed).");
-/// error!(?name, "Error message witha associated value (debug printed).");
+/// error!(%name, "Error message with a named value (pretty printed).");
+/// error!(?name, "Error message with a named value (debug printed).");
 ///
 /// let error = std::io::Error::last_os_error();
 /// error!(source = error, "An error that wraps an existing error.");
