@@ -8,13 +8,22 @@ pub type Result<T, E = Error> = std::result::Result<T, E>;
 #[derive(Clone, Debug, Error, serde::Deserialize, serde::Serialize)]
 #[error("{message}")]
 pub struct Error {
+	/// The error's message.
 	pub message: String,
+
+	/// The optional location of where the error occurred.
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub location: Option<Location>,
+
+	/// An optional stack trace associated with the error.
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub stack: Option<Vec<Location>>,
+
+	/// An optional error that this error wraps.
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub source: Option<Arc<Error>>,
+
+	/// A map of key/value pairs of context associated with the error.
 	#[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
 	pub values: BTreeMap<String, String>,
 }
@@ -76,12 +85,7 @@ impl From<&(dyn std::error::Error + 'static)> for Error {
 
 impl<'a> std::fmt::Display for Trace<'a> {
 	fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-		let none = "\x1b[0m";
-		let red = "\x1b[31m";
-		let green = "\x1b[32m";
-		let blue = "\x1b[34m";
-		let cyan = "\x1b[36m";
-		writeln!(f, "{red}error:{none}")?;
+		writeln!(f, "Error:")?;
 		let mut error = self.0;
 		let mut first = true;
 		loop {
@@ -89,7 +93,7 @@ impl<'a> std::fmt::Display for Trace<'a> {
 				writeln!(f)?;
 			}
 			first = false;
-			write!(f, "{red}->{none}")?;
+			write!(f, "->")?;
 			let Error {
 				message,
 				location,
@@ -99,15 +103,15 @@ impl<'a> std::fmt::Display for Trace<'a> {
 			} = error;
 			write!(f, " {message}")?;
 			if let Some(location) = &location {
-				write!(f, " {cyan}{location}{none}")?;
+				write!(f, " {location}")?;
 			}
 			for (name, value) in values {
 				writeln!(f)?;
-				write!(f, "   {blue}{name}{none} = {green}{value}{none}")?;
+				write!(f, "   {name} = {value}")?;
 			}
 			for location in stack.iter().flatten() {
 				writeln!(f)?;
-				write!(f, "   {cyan}{location}{none}")?;
+				write!(f, "   {location}")?;
 			}
 			if let Some(source) = &source {
 				error = source;
@@ -125,6 +129,29 @@ impl std::fmt::Display for Location {
 	}
 }
 
+/// Generate an [Error].
+///
+/// Usage:
+/// ```rust
+/// error!("Error message.");
+/// error!("Error message with interpolation. {}", 42);
+///
+/// let name = "value";
+/// error!(%name, "Error message witha associated value (pretty printed).");
+/// error!(?name, "Error message witha associated value (debug printed).");
+///
+/// let error = std::io::Error::last_os_error();
+/// error!(source = error, "An error that wraps an existing error.");
+///
+/// let stack_trace = vec![
+///     Location {
+///         file: "foo.rs".into(),
+///         line: 123,
+///         column: 456,
+///     }
+/// ];
+/// error!(stack = stack_trace, An error with a custom stack trace.")
+/// ```
 #[macro_export]
 macro_rules! error {
 	({ $error:ident }, %$name:ident, $($arg:tt)*) => {
@@ -171,18 +198,21 @@ mod tests {
 	use crate::{error, Location};
 
 	#[test]
-	fn test_error_macro() {
+	fn error_macro() {
 		let foo = "foo";
 		let bar = "bar";
 		let baz = "baz";
 		let error = error!(?foo, %bar, ?baz, "{} bar {baz}", foo);
 		let trace = error.trace().to_string();
-		eprintln!("{trace}");
+		assert_eq!(trace, "Error:\n-> foo bar baz packages/error/src/lib.rs:196:15\n   bar = bar\n   baz = \"baz\"\n   foo = \"foo\"");
 
 		let source = std::io::Error::other("Unexpected error.");
 		let error = error!(source = source, "An error occurred.");
 		let trace = error.trace().to_string();
-		eprintln!("{trace}");
+		assert_eq!(
+			trace,
+			"Error:\n-> An error occurred. packages/error/src/lib.rs:201:15\n-> Unexpected error."
+		);
 
 		let stack = vec![Location {
 			source: "foobar.rs".to_owned(),
@@ -191,6 +221,9 @@ mod tests {
 		}];
 		let error = error!(stack = stack, "An error occurred.");
 		let trace = error.trace().to_string();
-		eprintln!("{trace}");
+		assert_eq!(
+			trace,
+			"Error:\n-> An error occurred. packages/error/src/lib.rs:210:15\n   foobar.rs:124:457"
+		);
 	}
 }

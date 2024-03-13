@@ -362,7 +362,7 @@ impl Http {
 		let body = stream
 			.inspect_err(|error| {
 				let trace = error.trace();
-				tracing::error!(%trace, "Failed to get build status.")
+				tracing::error!(%trace, "Failed to get build status.");
 			})
 			.map_ok(|chunk| {
 				let data = serde_json::to_string(&chunk).unwrap();
