@@ -10,8 +10,8 @@ use std::{
 	sync::{Arc, Weak},
 };
 use tangram_client as tg;
-use tangram_error::{Result, Wrap, WrapErr};
 use tangram_fuse::sys;
+use tangram_error::{error, Result};
 use tokio::io::{AsyncReadExt, AsyncSeekExt};
 use zerocopy::{AsBytes, FromBytes};
 
@@ -223,7 +223,7 @@ impl Server {
 				match error.raw_os_error() {
 					Some(libc::ENOENT | libc::EINTR | libc::EAGAIN) => continue,
 					Some(libc::ENODEV) => return Ok(()),
-					_ => return Err(error.wrap("Failed to read the request")),
+					_ => return Err(error!(source = error, "Failed to read the request")),
 				}
 			}
 			let request_size = request_size.to_usize().unwrap();
@@ -231,7 +231,7 @@ impl Server {
 
 			// Deserialize the request.
 			let request_header = sys::fuse_in_header::read_from_prefix(request_bytes)
-				.wrap_err("Failed to deserialize the request header.")?;
+				.ok_or_else(|| error!("Failed to deserialize the request header."))?;
 			let request_header_len = std::mem::size_of::<sys::fuse_in_header>();
 			let request_data = &request_bytes[request_header_len..];
 			let request_data = match request_header.opcode {
@@ -246,8 +246,10 @@ impl Server {
 				sys::fuse_opcode::FUSE_GETATTR => RequestData::GetAttr(read_data(request_data)?),
 				sys::fuse_opcode::FUSE_INIT => RequestData::Init(read_data(request_data)?),
 				sys::fuse_opcode::FUSE_LOOKUP => {
-					let data = CString::from_vec_with_nul(request_data.to_owned())
-						.wrap_err("Failed to deserialize the request.")?;
+					let data =
+						CString::from_vec_with_nul(request_data.to_owned()).map_err(|error| {
+							error!(source = error, "Failed to deserialize the request.")
+						})?;
 					RequestData::Lookup(data)
 				},
 				sys::fuse_opcode::FUSE_OPEN => RequestData::Open(read_data(request_data)?),
@@ -266,8 +268,9 @@ impl Server {
 					let (fuse_getxattr_in, name) =
 						request_data.split_at(std::mem::size_of::<sys::fuse_getxattr_in>());
 					let fuse_getxattr_in = read_data(fuse_getxattr_in)?;
-					let name = CString::from_vec_with_nul(name.to_owned())
-						.wrap_err("Failed to deserialize the request.")?;
+					let name = CString::from_vec_with_nul(name.to_owned()).map_err(|error| {
+						error!(source = error, "Failed to deserialize the request.")
+					})?;
 					RequestData::GetXattr(fuse_getxattr_in, name)
 				},
 				sys::fuse_opcode::FUSE_LISTXATTR => {
@@ -992,7 +995,7 @@ impl Server {
 			let ret = libc::socketpair(libc::AF_UNIX, libc::SOCK_STREAM, 0, fds.as_mut_ptr());
 			if ret != 0 {
 				Err(std::io::Error::last_os_error())
-					.wrap_err("Failed to create the socket pair.")?;
+					.map_err(|error| error!(source = error, "Failed to create the socket pair."))?;
 			}
 
 			let fusermount3 = std::ffi::CString::new("/usr/bin/fusermount3").unwrap();
@@ -1006,7 +1009,10 @@ impl Server {
 			if pid == -1 {
 				libc::close(fds[0]);
 				libc::close(fds[1]);
-				Err(std::io::Error::last_os_error()).wrap_err("Failed to fork.")?;
+				return Err(error!(
+					source = std::io::Error::last_os_error(),
+					"Failed to fork."
+				));
 			}
 
 			// Exec the program.
@@ -1053,24 +1059,19 @@ impl Server {
 			// Receive the control message.
 			let ret = libc::recvmsg(fds[1], msg, 0);
 			if ret == -1 {
-				return Err(std::io::Error::last_os_error().wrap("Failed to receive the message."));
+				return Err(error!(
+					source = std::io::Error::last_os_error(),
+					"Failed to receive the message."
+				));
 			}
 			if ret == 0 {
-				return Err(std::io::Error::new(
-					std::io::ErrorKind::UnexpectedEof,
-					"Unexpected EOF.",
-				)
-				.wrap("Unexpected EOF."));
+				return Err(error!("Failed to read the control message."));
 			}
 
 			// Read the file descriptor.
 			let cmsg = libc::CMSG_FIRSTHDR(msg);
 			if cmsg.is_null() {
-				return Err(std::io::Error::new(
-					std::io::ErrorKind::UnexpectedEof,
-					"Unexpected EOF.",
-				)
-				.wrap("Unexpected EOF."));
+				return Err(error!("Missing control message."));
 			}
 			let mut fd: std::os::unix::io::RawFd = 0;
 			libc::memcpy(
@@ -1096,7 +1097,7 @@ impl Server {
 			.stderr(std::process::Stdio::null())
 			.status()
 			.await
-			.wrap_err("Failed to execute the unmount command.")?;
+			.map_err(|error| error!(source = error, "Failed to execute the unmount command."))?;
 		Ok(())
 	}
 }
@@ -1194,5 +1195,6 @@ fn read_data<T>(request_data: &[u8]) -> Result<T>
 where
 	T: FromBytes,
 {
-	T::read_from_prefix(request_data).wrap_err("Failed to deserialize the request data.")
+	T::read_from_prefix(request_data)
+		.ok_or_else(|| error!("Failed to deserialize the request data."))
 }

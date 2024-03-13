@@ -1,5 +1,5 @@
-use crate::{error, Error, Result, WrapErr};
 use sha2::Digest;
+use tangram_error::{error, Error, Result};
 
 #[derive(Clone, Debug, Eq, PartialEq, serde::Deserialize, serde::Serialize)]
 #[serde(into = "String", try_from = "String")]
@@ -66,53 +66,53 @@ impl std::str::FromStr for Checksum {
 			.next()
 			.unwrap()
 			.parse()
-			.wrap_err("Invalid algorithm.")?;
+			.map_err(|error| error!(source = error, "Invalid algorithm."))?;
 
 		Ok(match (algorithm, components.next()) {
 			(Algorithm::Unsafe, None) => Checksum::Unsafe,
 			(Algorithm::Blake3, Some(body)) if body.len() == 44 => {
 				let body = data_encoding::BASE64
 					.decode(body.as_bytes())
-					.wrap_err("Invalid body.")?
+					.map_err(|error| error!(source = error, "Invalid body."))?
 					.into();
 				Checksum::Blake3(body)
 			},
 			(Algorithm::Blake3, Some(body)) if body.len() == 64 => {
 				let body = data_encoding::HEXLOWER
 					.decode(body.as_bytes())
-					.wrap_err("Invalid body.")?
+					.map_err(|error| error!(source = error, "Invalid body."))?
 					.into();
 				Checksum::Blake3(body)
 			},
 			(Algorithm::Sha256, Some(body)) if body.len() == 44 => {
 				let body = data_encoding::BASE64
 					.decode(body.as_bytes())
-					.wrap_err("Invalid body.")?
+					.map_err(|error| error!(source = error, "Invalid body."))?
 					.into();
 				Checksum::Sha256(body)
 			},
 			(Algorithm::Sha256, Some(body)) if body.len() == 64 => {
 				let body = data_encoding::HEXLOWER
 					.decode(body.as_bytes())
-					.wrap_err("Invalid body.")?
+					.map_err(|error| error!(source = error, "Invalid body."))?
 					.into();
 				Checksum::Sha256(body)
 			},
 			(Algorithm::Sha512, Some(body)) if body.len() == 88 => {
 				let body = data_encoding::BASE64
 					.decode(body.as_bytes())
-					.wrap_err("Invalid body.")?
+					.map_err(|error| error!(source = error, "Invalid body."))?
 					.into();
 				Checksum::Sha512(body)
 			},
 			(Algorithm::Sha512, Some(body)) if body.len() == 128 => {
 				let body = data_encoding::HEXLOWER
 					.decode(body.as_bytes())
-					.wrap_err("Invalid body.")?
+					.map_err(|error| error!(source = error, "Invalid body."))?
 					.into();
 				Checksum::Sha512(body)
 			},
-			_ => return Err(error!("Invalid checksum string length.")),
+			_ => return Err(error!(%value, "Invalid checksum string length.")),
 		})
 	}
 }
@@ -153,7 +153,7 @@ impl std::str::FromStr for Algorithm {
 			"sha256" => Algorithm::Sha256,
 			"sha512" => Algorithm::Sha512,
 			"blake3" => Algorithm::Blake3,
-			_ => return Err(error!(r#"Invalid algorithm "{s}"."#)),
+			algorithm => return Err(error!(%algorithm, "Invalid algorithm.")),
 		};
 		Ok(system)
 	}

@@ -4,7 +4,7 @@ use num::ToPrimitive;
 use serde_v8::Serializable;
 use std::{collections::BTreeMap, sync::Arc};
 use tangram_client as tg;
-use tangram_error::{error, Error, Result, WrapErr};
+use tangram_error::{error, Error, Result};
 use url::Url;
 
 pub fn _to_v8<'a, T>(scope: &mut v8::HandleScope<'a>, value: &T) -> Result<v8::Local<'a, v8::Value>>
@@ -61,8 +61,8 @@ impl FromV8 for bool {
 		scope: &mut v8::HandleScope<'a>,
 		value: v8::Local<'a, v8::Value>,
 	) -> Result<Self> {
-		let value =
-			v8::Local::<v8::Boolean>::try_from(value).wrap_err("Expected a boolean value.")?;
+		let value = v8::Local::<v8::Boolean>::try_from(value)
+			.map_err(|error| error!(source = error, "Expected a boolean value."))?;
 		let value = value.boolean_value(scope);
 		Ok(value)
 	}
@@ -70,7 +70,11 @@ impl FromV8 for bool {
 
 impl ToV8 for u8 {
 	fn to_v8<'a>(&self, scope: &mut v8::HandleScope<'a>) -> Result<v8::Local<'a, v8::Value>> {
-		Ok(v8::Number::new(scope, self.to_f64().wrap_err("Invalid number.")?).into())
+		Ok(v8::Number::new(
+			scope,
+			self.to_f64().ok_or_else(|| error!("Invalid number."))?,
+		)
+		.into())
 	}
 }
 
@@ -80,17 +84,21 @@ impl FromV8 for u8 {
 		value: v8::Local<'a, v8::Value>,
 	) -> Result<Self> {
 		v8::Local::<v8::Number>::try_from(value)
-			.wrap_err("Expected a number.")?
+			.map_err(|error| error!(source = error, "Expected a number."))?
 			.number_value(scope)
-			.wrap_err("Expected a number.")?
+			.ok_or_else(|| error!("Expected a number."))?
 			.to_u8()
-			.wrap_err("Invalid number.")
+			.ok_or_else(|| error!("Invalid number."))
 	}
 }
 
 impl ToV8 for u16 {
 	fn to_v8<'a>(&self, scope: &mut v8::HandleScope<'a>) -> Result<v8::Local<'a, v8::Value>> {
-		Ok(v8::Number::new(scope, self.to_f64().wrap_err("Invalid number.")?).into())
+		Ok(v8::Number::new(
+			scope,
+			self.to_f64().ok_or_else(|| error!("Invalid number."))?,
+		)
+		.into())
 	}
 }
 
@@ -100,17 +108,21 @@ impl FromV8 for u16 {
 		value: v8::Local<'a, v8::Value>,
 	) -> Result<Self> {
 		v8::Local::<v8::Number>::try_from(value)
-			.wrap_err("Expected a number.")?
+			.map_err(|error| error!(source = error, "Expected a number."))?
 			.number_value(scope)
-			.wrap_err("Expected a number.")?
+			.ok_or_else(|| error!("Expected a number."))?
 			.to_u16()
-			.wrap_err("Invalid number.")
+			.ok_or_else(|| error!("Invalid number."))
 	}
 }
 
 impl ToV8 for u32 {
 	fn to_v8<'a>(&self, scope: &mut v8::HandleScope<'a>) -> Result<v8::Local<'a, v8::Value>> {
-		Ok(v8::Number::new(scope, self.to_f64().wrap_err("Invalid number.")?).into())
+		Ok(v8::Number::new(
+			scope,
+			self.to_f64().ok_or_else(|| error!("Invalid number."))?,
+		)
+		.into())
 	}
 }
 
@@ -120,17 +132,21 @@ impl FromV8 for u32 {
 		value: v8::Local<'a, v8::Value>,
 	) -> Result<Self> {
 		v8::Local::<v8::Number>::try_from(value)
-			.wrap_err("Expected a number.")?
+			.map_err(|error| error!(source = error, "Expected a number."))?
 			.number_value(scope)
-			.wrap_err("Expected a number.")?
+			.ok_or_else(|| error!("Expected a number."))?
 			.to_u32()
-			.wrap_err("Invalid number.")
+			.ok_or_else(|| error!("Invalid number."))
 	}
 }
 
 impl ToV8 for u64 {
 	fn to_v8<'a>(&self, scope: &mut v8::HandleScope<'a>) -> Result<v8::Local<'a, v8::Value>> {
-		Ok(v8::Number::new(scope, self.to_f64().wrap_err("Invalid number.")?).into())
+		Ok(v8::Number::new(
+			scope,
+			self.to_f64().ok_or_else(|| error!("Invalid number."))?,
+		)
+		.into())
 	}
 }
 
@@ -140,17 +156,21 @@ impl FromV8 for u64 {
 		value: v8::Local<'a, v8::Value>,
 	) -> Result<Self> {
 		v8::Local::<v8::Number>::try_from(value)
-			.wrap_err("Expected a number.")?
+			.map_err(|error| error!(source = error, "Expected a number."))?
 			.number_value(scope)
-			.wrap_err("Expected a number.")?
+			.ok_or_else(|| error!("Expected a number."))?
 			.to_u64()
-			.wrap_err("Invalid number.")
+			.ok_or_else(|| error!("Invalid number."))
 	}
 }
 
 impl ToV8 for i8 {
 	fn to_v8<'a>(&self, scope: &mut v8::HandleScope<'a>) -> Result<v8::Local<'a, v8::Value>> {
-		Ok(v8::Number::new(scope, self.to_f64().wrap_err("Invalid number.")?).into())
+		Ok(v8::Number::new(
+			scope,
+			self.to_f64().ok_or_else(|| error!("Invalid number."))?,
+		)
+		.into())
 	}
 }
 
@@ -160,17 +180,21 @@ impl FromV8 for i8 {
 		value: v8::Local<'a, v8::Value>,
 	) -> Result<Self> {
 		v8::Local::<v8::Number>::try_from(value)
-			.wrap_err("Expected a number.")?
+			.map_err(|error| error!(source = error, "Expected a number."))?
 			.number_value(scope)
-			.wrap_err("Expected a number.")?
+			.ok_or_else(|| error!("Expected a number."))?
 			.to_i8()
-			.wrap_err("Invalid number.")
+			.ok_or_else(|| error!("Invalid number."))
 	}
 }
 
 impl ToV8 for i16 {
 	fn to_v8<'a>(&self, scope: &mut v8::HandleScope<'a>) -> Result<v8::Local<'a, v8::Value>> {
-		Ok(v8::Number::new(scope, self.to_f64().wrap_err("Invalid number.")?).into())
+		Ok(v8::Number::new(
+			scope,
+			self.to_f64().ok_or_else(|| error!("Invalid number."))?,
+		)
+		.into())
 	}
 }
 
@@ -180,17 +204,21 @@ impl FromV8 for i16 {
 		value: v8::Local<'a, v8::Value>,
 	) -> Result<Self> {
 		v8::Local::<v8::Number>::try_from(value)
-			.wrap_err("Expected a number.")?
+			.map_err(|error| error!(source = error, "Expected a number."))?
 			.number_value(scope)
-			.wrap_err("Expected a number.")?
+			.ok_or_else(|| error!("Expected a number."))?
 			.to_i16()
-			.wrap_err("Invalid number.")
+			.ok_or_else(|| error!("Invalid number."))
 	}
 }
 
 impl ToV8 for i32 {
 	fn to_v8<'a>(&self, scope: &mut v8::HandleScope<'a>) -> Result<v8::Local<'a, v8::Value>> {
-		Ok(v8::Number::new(scope, self.to_f64().wrap_err("Invalid number.")?).into())
+		Ok(v8::Number::new(
+			scope,
+			self.to_f64().ok_or_else(|| error!("Invalid number."))?,
+		)
+		.into())
 	}
 }
 
@@ -200,17 +228,21 @@ impl FromV8 for i32 {
 		value: v8::Local<'a, v8::Value>,
 	) -> Result<Self> {
 		v8::Local::<v8::Number>::try_from(value)
-			.wrap_err("Expected a number.")?
+			.map_err(|error| error!(source = error, "Expected a number."))?
 			.number_value(scope)
-			.wrap_err("Expected a number.")?
+			.ok_or_else(|| error!("Expected a number."))?
 			.to_i32()
-			.wrap_err("Invalid number.")
+			.ok_or_else(|| error!("Invalid number."))
 	}
 }
 
 impl ToV8 for i64 {
 	fn to_v8<'a>(&self, scope: &mut v8::HandleScope<'a>) -> Result<v8::Local<'a, v8::Value>> {
-		Ok(v8::Number::new(scope, self.to_f64().wrap_err("Invalid number.")?).into())
+		Ok(v8::Number::new(
+			scope,
+			self.to_f64().ok_or_else(|| error!("Invalid number."))?,
+		)
+		.into())
 	}
 }
 
@@ -220,17 +252,21 @@ impl FromV8 for i64 {
 		value: v8::Local<'a, v8::Value>,
 	) -> Result<Self> {
 		v8::Local::<v8::Number>::try_from(value)
-			.wrap_err("Expected a number.")?
+			.map_err(|error| error!(source = error, "Expected a number."))?
 			.number_value(scope)
-			.wrap_err("Expected a number.")?
+			.ok_or_else(|| error!("Expected a number."))?
 			.to_i64()
-			.wrap_err("Invalid number.")
+			.ok_or_else(|| error!("Invalid number."))
 	}
 }
 
 impl ToV8 for f32 {
 	fn to_v8<'a>(&self, scope: &mut v8::HandleScope<'a>) -> Result<v8::Local<'a, v8::Value>> {
-		Ok(v8::Number::new(scope, self.to_f64().wrap_err("Invalid number.")?).into())
+		Ok(v8::Number::new(
+			scope,
+			self.to_f64().ok_or_else(|| error!("Invalid number."))?,
+		)
+		.into())
 	}
 }
 
@@ -240,11 +276,11 @@ impl FromV8 for f32 {
 		value: v8::Local<'a, v8::Value>,
 	) -> Result<Self> {
 		v8::Local::<v8::Number>::try_from(value)
-			.wrap_err("Expected a number.")?
+			.map_err(|error| error!(source = error, "Expected a number."))?
 			.number_value(scope)
-			.wrap_err("Expected a number.")?
+			.ok_or_else(|| error!("Expected a number."))?
 			.to_f32()
-			.wrap_err("Invalid number.")
+			.ok_or_else(|| error!("Invalid number."))
 	}
 }
 
@@ -260,16 +296,16 @@ impl FromV8 for f64 {
 		value: v8::Local<'a, v8::Value>,
 	) -> Result<Self> {
 		v8::Local::<v8::Number>::try_from(value)
-			.wrap_err("Expected a number.")?
+			.map_err(|error| error!(source = error, "Expected a number."))?
 			.number_value(scope)
-			.wrap_err("Expected a number.")
+			.ok_or_else(|| error!("Expected a number."))
 	}
 }
 
 impl ToV8 for String {
 	fn to_v8<'a>(&self, scope: &mut v8::HandleScope<'a>) -> Result<v8::Local<'a, v8::Value>> {
 		Ok(v8::String::new(scope, self)
-			.wrap_err("Failed to create the string.")?
+			.ok_or_else(|| error!("Failed to create the string."))?
 			.into())
 	}
 }
@@ -354,8 +390,11 @@ where
 		scope: &mut v8::HandleScope<'a>,
 		value: v8::Local<'a, v8::Value>,
 	) -> Result<Self> {
-		let value = v8::Local::<v8::Array>::try_from(value).wrap_err("Expected an array.")?;
-		let value0 = value.get_index(scope, 0).wrap_err("Expected a value.")?;
+		let value = v8::Local::<v8::Array>::try_from(value)
+			.map_err(|error| error!(source = error, "Expected an array."))?;
+		let value0 = value
+			.get_index(scope, 0)
+			.ok_or_else(|| error!("Expected a value."))?;
 		let value0 = from_v8(scope, value0)?;
 		Ok((value0,))
 	}
@@ -383,9 +422,14 @@ where
 		scope: &mut v8::HandleScope<'a>,
 		value: v8::Local<'a, v8::Value>,
 	) -> Result<Self> {
-		let value = v8::Local::<v8::Array>::try_from(value).wrap_err("Expected an array.")?;
-		let value0 = value.get_index(scope, 0).wrap_err("Expected a value.")?;
-		let value1 = value.get_index(scope, 1).wrap_err("Expected a value.")?;
+		let value = v8::Local::<v8::Array>::try_from(value)
+			.map_err(|error| error!(source = error, "Expected an array."))?;
+		let value0 = value
+			.get_index(scope, 0)
+			.ok_or_else(|| error!("Expected a value."))?;
+		let value1 = value
+			.get_index(scope, 1)
+			.ok_or_else(|| error!("Expected a value."))?;
 		let value0 = from_v8(scope, value0)?;
 		let value1 = from_v8(scope, value1)?;
 		Ok((value0, value1))
@@ -423,13 +467,14 @@ where
 		scope: &mut v8::HandleScope<'a>,
 		value: v8::Local<'a, v8::Value>,
 	) -> Result<Self> {
-		let value = v8::Local::<v8::Array>::try_from(value).wrap_err("Expected an array.")?;
+		let value = v8::Local::<v8::Array>::try_from(value)
+			.map_err(|error| error!(source = error, "Expected an array."))?;
 		let len = value.length().to_usize().unwrap();
 		let mut output = Vec::with_capacity(len);
 		for i in 0..len {
 			let value = value
 				.get_index(scope, i.to_u32().unwrap())
-				.wrap_err("Expected a value.")?;
+				.ok_or_else(|| error!("Expected a value."))?;
 			let value = from_v8(scope, value)?;
 			output.push(value);
 		}
@@ -460,7 +505,8 @@ where
 		scope: &mut v8::HandleScope<'a>,
 		value: v8::Local<'a, v8::Value>,
 	) -> Result<Self> {
-		let value = v8::Local::<v8::Object>::try_from(value).wrap_err("Expected an object.")?;
+		let value = v8::Local::<v8::Object>::try_from(value)
+			.map_err(|error| error!(source = error, "Expected an object."))?;
 		let args = v8::GetPropertyNamesArgsBuilder::new()
 			.key_conversion(v8::KeyConversionMode::ConvertToString)
 			.build();
@@ -479,7 +525,8 @@ where
 
 impl ToV8 for serde_json::Value {
 	fn to_v8<'a>(&self, scope: &mut v8::HandleScope<'a>) -> Result<v8::Local<'a, v8::Value>> {
-		serde_v8::to_v8(scope, self).wrap_err("Failed to serialize the value.")
+		serde_v8::to_v8(scope, self)
+			.map_err(|error| error!(source = error, "Failed to serialize the value."))
 	}
 }
 
@@ -488,13 +535,15 @@ impl FromV8 for serde_json::Value {
 		scope: &mut v8::HandleScope<'a>,
 		value: v8::Local<'a, v8::Value>,
 	) -> Result<Self> {
-		serde_v8::from_v8(scope, value).wrap_err("Failed to deserialize the value.")
+		serde_v8::from_v8(scope, value)
+			.map_err(|error| error!(source = error, "Failed to deserialize the value."))
 	}
 }
 
 impl ToV8 for toml::Value {
 	fn to_v8<'a>(&self, scope: &mut v8::HandleScope<'a>) -> Result<v8::Local<'a, v8::Value>> {
-		serde_v8::to_v8(scope, self).wrap_err("Failed to serialize the value.")
+		serde_v8::to_v8(scope, self)
+			.map_err(|error| error!(source = error, "Failed to serialize the value."))
 	}
 }
 
@@ -503,13 +552,15 @@ impl FromV8 for toml::Value {
 		scope: &mut v8::HandleScope<'a>,
 		value: v8::Local<'a, v8::Value>,
 	) -> Result<Self> {
-		serde_v8::from_v8(scope, value).wrap_err("Failed to deserialize the value.")
+		serde_v8::from_v8(scope, value)
+			.map_err(|error| error!(source = error, "Failed to deserialize the value."))
 	}
 }
 
 impl ToV8 for serde_yaml::Value {
 	fn to_v8<'a>(&self, scope: &mut v8::HandleScope<'a>) -> Result<v8::Local<'a, v8::Value>> {
-		serde_v8::to_v8(scope, self).wrap_err("Failed to serialize the value.")
+		serde_v8::to_v8(scope, self)
+			.map_err(|error| error!(source = error, "Failed to serialize the value."))
 	}
 }
 
@@ -518,7 +569,8 @@ impl FromV8 for serde_yaml::Value {
 		scope: &mut v8::HandleScope<'a>,
 		value: v8::Local<'a, v8::Value>,
 	) -> Result<Self> {
-		serde_v8::from_v8(scope, value).wrap_err("Failed to deserialize the value.")
+		serde_v8::from_v8(scope, value)
+			.map_err(|error| error!(source = error, "Failed to deserialize the value."))
 	}
 }
 
@@ -863,7 +915,7 @@ impl ToV8 for tg::Leaf {
 
 		let instance = leaf
 			.new_instance(scope, &[state])
-			.wrap_err("The constructor failed.")?;
+			.ok_or_else(|| error!("The constructor failed."))?;
 
 		Ok(instance.into())
 	}
@@ -955,7 +1007,7 @@ impl ToV8 for tg::Branch {
 
 		let instance = branch
 			.new_instance(scope, &[state])
-			.wrap_err("The constructor failed.")?;
+			.ok_or_else(|| error!("The constructor failed."))?;
 
 		Ok(instance.into())
 	}
@@ -1132,7 +1184,7 @@ impl ToV8 for tg::Directory {
 
 		let instance = directory
 			.new_instance(scope, &[state])
-			.wrap_err("The constructor failed.")?;
+			.ok_or_else(|| error!("The constructor failed."))?;
 
 		Ok(instance.into())
 	}
@@ -1225,7 +1277,7 @@ impl ToV8 for tg::File {
 
 		let instance = file
 			.new_instance(scope, &[state])
-			.wrap_err("The constructor failed.")?;
+			.ok_or_else(|| error!("The constructor failed."))?;
 
 		Ok(instance.into())
 	}
@@ -1340,7 +1392,7 @@ impl ToV8 for tg::Symlink {
 
 		let instance = symlink
 			.new_instance(scope, &[state])
-			.wrap_err("The constructor failed.")?;
+			.ok_or_else(|| error!("The constructor failed."))?;
 
 		Ok(instance.into())
 	}
@@ -1441,7 +1493,7 @@ impl ToV8 for tg::Lock {
 
 		let instance = lock
 			.new_instance(scope, &[state])
-			.wrap_err("The constructor failed.")?;
+			.ok_or_else(|| error!("The constructor failed."))?;
 
 		Ok(instance.into())
 	}
@@ -1619,7 +1671,7 @@ impl ToV8 for tg::Target {
 
 		let instance = target
 			.new_instance(scope, &[state])
-			.wrap_err("The constructor failed.")?;
+			.ok_or_else(|| error!("The constructor failed."))?;
 
 		Ok(instance.into())
 	}
@@ -1769,8 +1821,8 @@ impl FromV8 for Bytes {
 		_scope: &mut v8::HandleScope<'a>,
 		value: v8::Local<'a, v8::Value>,
 	) -> Result<Self> {
-		let uint8_array =
-			v8::Local::<v8::Uint8Array>::try_from(value).wrap_err("Expected a Uint8Array.")?;
+		let uint8_array = v8::Local::<v8::Uint8Array>::try_from(value)
+			.map_err(|error| error!(source = error, "Expected a Uint8Array."))?;
 		let slice = unsafe {
 			let ptr = uint8_array
 				.data()
@@ -1883,7 +1935,7 @@ impl ToV8 for tg::Mutation {
 
 		let instance = mutation
 			.new_instance(scope, &[object.into()])
-			.wrap_err("The constructor failed.")?;
+			.ok_or_else(|| error!("The constructor failed."))?;
 		Ok(instance.into())
 	}
 }
@@ -1977,7 +2029,7 @@ impl FromV8 for tg::Mutation {
 					separator,
 				})
 			},
-			_ => Err(error!("Invalid mutation kind.")),
+			kind => Err(error!(%kind, "Invalid mutation kind.")),
 		}
 	}
 }
@@ -1999,7 +2051,7 @@ impl ToV8 for tg::Template {
 
 		let instance = template
 			.new_instance(scope, &[components])
-			.wrap_err("The constructor failed.")?;
+			.ok_or_else(|| error!("The constructor failed."))?;
 
 		Ok(instance.into())
 	}
@@ -2174,10 +2226,11 @@ impl ToV8 for Error {
 		let location = self.location.to_v8(scope)?;
 		let stack = self.stack.to_v8(scope)?;
 		let source = self.source.to_v8(scope)?;
+		let values = self.values.to_v8(scope)?;
 
 		let instance = error
-			.new_instance(scope, &[message, location, stack, source])
-			.wrap_err("The constructor failed.")?;
+			.new_instance(scope, &[message, location, stack, source, values])
+			.ok_or_else(|| error!("The constructor failed."))?;
 
 		Ok(instance.into())
 	}
@@ -2219,7 +2272,12 @@ impl FromV8 for Error {
 		let source = v8::String::new_external_onebyte_static(scope, "source".as_bytes()).unwrap();
 		let source = value.get(scope, source.into()).unwrap();
 		let source = from_v8::<Option<Error>>(scope, source)?.map(|error| Arc::new(error) as _);
-		let values = BTreeMap::new();
+
+		let values = v8::String::new_external_onebyte_static(scope, "values".as_bytes()).unwrap();
+		let values: v8::Local<'_, v8::Value> = value.get(scope, values.into()).unwrap();
+		let values =
+			from_v8::<Option<BTreeMap<String, String>>>(scope, values)?.unwrap_or_default();
+
 		Ok(Error {
 			message,
 			location,
@@ -2290,6 +2348,6 @@ impl FromV8 for Url {
 	) -> Result<Self> {
 		String::from_v8(scope, value)?
 			.parse()
-			.wrap_err("Failed to parse the string as a URL.")
+			.map_err(|error| error!(source = error, "Failed to parse the string as a URL."))
 	}
 }

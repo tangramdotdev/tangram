@@ -4,7 +4,7 @@ use either::Either;
 use futures::{future, FutureExt, StreamExt, TryFutureExt};
 use std::pin::pin;
 use tangram_client as tg;
-use tangram_error::{error, Error, Result, WrapErr};
+use tangram_error::{error, Error, Result};
 
 mod children;
 mod create;
@@ -177,7 +177,7 @@ impl Server {
 			None => {
 				// Ensure the arch is JS.
 				if triple.arch() != Some(tg::triple::Arch::Js) {
-					return Err(error!("Expected JS arch."));
+					return Err(error!(%triple, "Expected JS arch."));
 				}
 				// Build the target on the server's local pool because it is a `!Send` future.
 				crate::runtime::js::build(self, &build).await
@@ -231,16 +231,24 @@ impl Server {
 				let params = sqlite_params![id];
 				let mut statement = connection
 					.prepare_cached(statement)
-					.wrap_err("Failed to prepare the statement.")?;
+					.map_err(|error| error!(source = error, "Failed to prepare the statement."))?;
 				let mut rows = statement
 					.query(params)
-					.wrap_err("Failed to execute the statement.")?;
-				let row = rows.next().wrap_err("Failed to get the row.")?;
+					.map_err(|error| error!(source = error, "Failed to execute the statement."))?;
+				let row = rows
+					.next()
+					.map_err(|error| error!(source = error, "Failed to get the row."))?;
 				let id = row
 					.map(|row| {
 						row.get::<_, String>(0)
-							.wrap_err("Failed to deserialize the column.")
-							.and_then(|id| id.parse().wrap_err("Failed to deserialize the column."))
+							.map_err(|error| {
+								error!(source = error, "Failed to deserialize the column.")
+							})
+							.and_then(|id| {
+								id.parse().map_err(|error| {
+									error!(source = error, "Failed to deserialize the column.")
+								})
+							})
 					})
 					.transpose()?;
 				Ok(id)
@@ -259,17 +267,23 @@ impl Server {
 				let statement = connection
 					.prepare_cached(statement)
 					.await
-					.wrap_err("Failed to prepare the statement.")?;
+					.map_err(|error| error!(source = error, "Failed to prepare the statement."))?;
 				let rows = connection
 					.query(&statement, params)
 					.await
-					.wrap_err("Failed to execute the statement.")?;
+					.map_err(|error| error!(source = error, "Failed to execute the statement."))?;
 				let row = rows.first();
 				let id = row
 					.map(|row| {
 						row.try_get::<_, String>(0)
-							.wrap_err("Failed to deserilaize the column.")
-							.and_then(|id| id.parse().wrap_err("Failed to deserialize the column."))
+							.map_err(|error| {
+								error!(source = error, "Failed to deserilaize the column.")
+							})
+							.and_then(|id| {
+								id.parse().map_err(|error| {
+									error!(source = error, "Failed to deserialize the column.")
+								})
+							})
 					})
 					.transpose()?;
 				Ok(id)
@@ -289,17 +303,17 @@ impl Server {
 				let params = sqlite_params![id.to_string()];
 				let mut statement = connection
 					.prepare_cached(statement)
-					.wrap_err("Failed to prepare the query.")?;
+					.map_err(|error| error!(source = error, "Failed to prepare the query."))?;
 				let mut rows = statement
 					.query(params)
-					.wrap_err("Failed to execute the statement.")?;
+					.map_err(|error| error!(source = error, "Failed to execute the statement."))?;
 				let row = rows
 					.next()
-					.wrap_err("Failed to retrieve the row.")?
-					.wrap_err("Expected a row.")?;
+					.map_err(|error| error!(source = error, "Failed to retrieve the row."))?
+					.ok_or_else(|| error!("Expected a row."))?;
 				let exists = row
 					.get::<_, bool>(0)
-					.wrap_err("Failed to deserialize the column.")?;
+					.map_err(|error| error!(source = error, "Failed to deserialize the column."))?;
 				Ok(exists)
 			},
 
@@ -314,14 +328,14 @@ impl Server {
 				let statement = connection
 					.prepare_cached(statement)
 					.await
-					.wrap_err("Failed to prepare the query.")?;
+					.map_err(|error| error!(source = error, "Failed to prepare the query."))?;
 				let row = connection
 					.query_one(&statement, params)
 					.await
-					.wrap_err("Failed to execute the statement.")?;
+					.map_err(|error| error!(source = error, "Failed to execute the statement."))?;
 				let exists = row
 					.try_get::<_, bool>(0)
-					.wrap_err("Failed to deserialize the column.")?;
+					.map_err(|error| error!(source = error, "Failed to deserialize the column."))?;
 				Ok(exists)
 			},
 		}

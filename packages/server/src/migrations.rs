@@ -1,7 +1,7 @@
 use super::Server;
 use futures::FutureExt;
 use std::path::Path;
-use tangram_error::{error, Result, Wrap, WrapErr};
+use tangram_error::{error, Result};
 
 impl Server {
 	pub async fn migrate(path: &Path) -> Result<()> {
@@ -11,15 +11,17 @@ impl Server {
 		let version = match tokio::fs::read_to_string(path.join("version")).await {
 			Ok(version) => Some(version),
 			Err(error) if error.kind() == std::io::ErrorKind::NotFound => None,
-			Err(error) => return Err(error.wrap("Failed to read the path format version.")),
+			Err(error) => {
+				return Err(error!(
+					source = error,
+					"Failed to read the path format version."
+				))
+			},
 		};
 		let version = if let Some(version) = version {
-			Some(
-				version
-					.trim()
-					.parse::<usize>()
-					.wrap_err("Failed to read the path format version.")?,
-			)
+			Some(version.trim().parse::<usize>().map_err(|error| {
+				error!(source = error, "Failed to read the path format version.")
+			})?)
 		} else {
 			None
 		};
@@ -28,9 +30,9 @@ impl Server {
 		if let Some(version) = version {
 			if version >= migrations.len() {
 				let path = path.display();
-				error!(
+				return Err(error!(
 					r#"The path "{path}" has run migrations from a newer version of Tangram. Please run `tg upgrade` to upgrade to the latest version of Tangram."#
-				);
+				));
 			}
 		}
 
@@ -47,7 +49,9 @@ impl Server {
 			// Update the version.
 			tokio::fs::write(path.join("version"), version.to_string())
 				.await
-				.wrap_err("Failed to write the path format version.")?;
+				.map_err(|error| {
+					error!(source = error, "Failed to write the path format version.")
+				})?;
 		}
 
 		Ok(())
@@ -59,10 +63,10 @@ async fn migration_0000(path: &Path) -> Result<()> {
 
 	// Create the database.
 	let connection = rusqlite::Connection::open(path.join("database"))
-		.wrap_err("Failed to create the database.")?;
+		.map_err(|error| error!(source = error, "Failed to create the database."))?;
 	connection
 		.pragma_update(None, "journal_mode", "wal")
-		.wrap_err("Failed to set the journal mode.")?;
+		.map_err(|error| error!(source = error, "Failed to set the journal mode."))?;
 	let sql = "
 		create table builds (
 			id text primary key,
@@ -161,19 +165,19 @@ async fn migration_0000(path: &Path) -> Result<()> {
 	";
 	connection
 		.execute_batch(sql)
-		.wrap_err("Failed to create the database tables.")?;
+		.map_err(|error| error!(source = error, "Failed to create the database tables."))?;
 
 	// Create the checkouts directory.
 	let checkouts_path = path.join("checkouts");
 	tokio::fs::create_dir_all(&checkouts_path)
 		.await
-		.wrap_err("Failed to create the checkouts directory.")?;
+		.map_err(|error| error!(source = error, "Failed to create the checkouts directory."))?;
 
 	// Create the tmp directory.
 	let tmp_path = path.join("tmp");
 	tokio::fs::create_dir_all(&tmp_path)
 		.await
-		.wrap_err("Failed to create the tmp directory.")?;
+		.map_err(|error| error!(source = error, "Failed to create the tmp directory."))?;
 
 	Ok(())
 }

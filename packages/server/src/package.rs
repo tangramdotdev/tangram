@@ -5,7 +5,7 @@ use std::{
 	path::{Path, PathBuf},
 };
 use tangram_client as tg;
-use tangram_error::{error, Result, WrapErr};
+use tangram_error::{error, Result};
 use tangram_util::http::{empty, full, not_found, Incoming, Outgoing};
 
 mod dependencies;
@@ -50,11 +50,10 @@ impl Server {
 			// If the dependency is a path dependency, then get the package with its path dependencies from the path.
 			let path = tokio::fs::canonicalize(PathBuf::from(path))
 				.await
-				.wrap_err("Failed to canonicalize the path.")?;
-			if !tokio::fs::try_exists(&path)
-				.await
-				.wrap_err("Failed to get the metadata for the path.")?
-			{
+				.map_err(|error| error!(source = error, "Failed to canonicalize the path."))?;
+			if !tokio::fs::try_exists(&path).await.map_err(|error| {
+				error!(source = error, "Failed to get the metadata for the path.")
+			})? {
 				return Ok(None);
 			}
 			let package_with_path_dependencies = self
@@ -73,7 +72,7 @@ impl Server {
 			let name = dependency
 				.name
 				.as_ref()
-				.wrap_err("Expected the dependency to have a name.")?;
+				.ok_or_else(|| error!(%dependency, "Expected the dependency to have a name."))?;
 
 			// Get the versions.
 			let Database::Postgres(database) = &self.inner.database else {
@@ -89,16 +88,18 @@ impl Server {
 			let statement = connection
 				.prepare_cached(statement)
 				.await
-				.wrap_err("Failed to prepare the statement.")?;
+				.map_err(|error| error!(source = error, "Failed to prepare the statement."))?;
 			let rows = connection
 				.query(&statement, params)
 				.await
-				.wrap_err("Failed to execute the statement.")?;
+				.map_err(|error| error!(source = error, "Failed to execute the statement."))?;
 			let mut versions = rows
 				.into_iter()
 				.map(|row| (row.get::<_, String>(0), row.get::<_, String>(1)))
 				.map(|(version, id)| {
-					let version = version.parse().wrap_err("Invalid version.")?;
+					let version = version
+						.parse()
+						.map_err(|error| error!(source = error, "Invalid version."))?;
 					let id = id.parse()?;
 					Ok((version, id))
 				})
@@ -108,7 +109,9 @@ impl Server {
 			versions.sort_unstable_by_key(|(version, _)| version.clone());
 			versions.reverse();
 			let package = if let Some(version) = dependency.version.as_ref() {
-				let req: semver::VersionReq = version.parse().wrap_err("Invalid version.")?;
+				let req: semver::VersionReq = version
+					.parse()
+					.map_err(|error| error!(source = error, "Invalid version."))?;
 				versions
 					.iter()
 					.find(|(version, _)| req.matches(version))
@@ -247,7 +250,9 @@ impl Server {
 			let module_absolute_path = path.join(module_path.to_string());
 			let module_absolute_path = tokio::fs::canonicalize(&module_absolute_path)
 				.await
-				.wrap_err("Failed to canonicalize the module path.")?;
+				.map_err(|error| {
+					error!(source = error, "Failed to canonicalize the module path.")
+				})?;
 
 			// Add the module to the package directory.
 			let artifact =
@@ -257,11 +262,11 @@ impl Server {
 			// Get the module's text.
 			let text = tokio::fs::read_to_string(&module_absolute_path)
 				.await
-				.wrap_err("Failed to read the module.")?;
+				.map_err(|error| error!(source = error, "Failed to read the module."))?;
 
 			// Analyze the module.
 			let analysis = crate::language::Server::analyze_module(text)
-				.wrap_err("Failed to analyze the module.")?;
+				.map_err(|error| error!(source = error, "Failed to analyze the module."))?;
 
 			// Handle the includes.
 			for include_path in analysis.includes {
@@ -305,7 +310,12 @@ impl Server {
 					let dependency_path = path.join(dependency.path.as_ref().unwrap().to_string());
 					let dependency_absolute_path = tokio::fs::canonicalize(&dependency_path)
 						.await
-						.wrap_err("Failed to canonicalize the dependency path.")?;
+						.map_err(|error| {
+							error!(
+								source = error,
+								"Failed to canonicalize the dependency path."
+							)
+						})?;
 
 					// Recurse into the path dependency.
 					let child = self
@@ -445,13 +455,14 @@ impl Http {
 		// Get the path params.
 		let path_components: Vec<&str> = request.uri().path().split('/').skip(1).collect();
 		let ["packages", dependency] = path_components.as_slice() else {
-			return Err(error!("Unexpected path."));
+			let path = request.uri().path();
+			return Err(error!(%path, "Unexpected path."));
 		};
-		let dependency =
-			urlencoding::decode(dependency).wrap_err("Failed to decode the dependency.")?;
+		let dependency = urlencoding::decode(dependency)
+			.map_err(|error| error!(source = error, "Failed to decode the dependency."))?;
 		let dependency = dependency
 			.parse()
-			.wrap_err("Failed to parse the dependency.")?;
+			.map_err(|error| error!(source = error, "Failed to parse the dependency."))?;
 
 		// Get the search params.
 		let arg = request
@@ -459,7 +470,7 @@ impl Http {
 			.query()
 			.map(serde_urlencoded::from_str)
 			.transpose()
-			.wrap_err("Failed to deserialize the search params.")?
+			.map_err(|error| error!(source = error, "Failed to deserialize the search params."))?
 			.unwrap_or_default();
 
 		// Get the package.
@@ -468,7 +479,8 @@ impl Http {
 		};
 
 		// Create the body.
-		let body = serde_json::to_vec(&output).wrap_err("Failed to serialize the body.")?;
+		let body = serde_json::to_vec(&output)
+			.map_err(|error| error!(source = error, "Failed to serialize the body."))?;
 		let body = full(body);
 
 		// Create the response.
@@ -484,19 +496,21 @@ impl Http {
 		// Get the path params.
 		let path_components: Vec<&str> = request.uri().path().split('/').skip(1).collect();
 		let ["packages", dependency, "check"] = path_components.as_slice() else {
-			return Err(error!("Unexpected path."));
+			let path = request.uri().path();
+			return Err(error!(%path, "Unexpected path."));
 		};
-		let dependency =
-			urlencoding::decode(dependency).wrap_err("Failed to decode the dependency.")?;
+		let dependency = urlencoding::decode(dependency)
+			.map_err(|error| error!(source = error, "Failed to decode the dependency."))?;
 		let dependency = dependency
 			.parse()
-			.wrap_err("Failed to parse the dependency.")?;
+			.map_err(|error| error!(source = error, "Failed to parse the dependency."))?;
 
 		// Check the package.
 		let output = self.inner.tg.check_package(&dependency).await?;
 
 		// Create the body.
-		let body = serde_json::to_vec(&output).wrap_err("Failed to serialize the body.")?;
+		let body = serde_json::to_vec(&output)
+			.map_err(|error| error!(source = error, "Failed to serialize the body."))?;
 		let body = full(body);
 
 		// Create the response.
@@ -512,13 +526,14 @@ impl Http {
 		// Get the path params.
 		let path_components: Vec<&str> = request.uri().path().split('/').skip(1).collect();
 		let ["packages", dependency, "format"] = path_components.as_slice() else {
-			return Err(error!("Unexpected path."));
+			let path = request.uri().path();
+			return Err(error!(%path, "Unexpected path."));
 		};
-		let dependency =
-			urlencoding::decode(dependency).wrap_err("Failed to decode the dependency.")?;
+		let dependency = urlencoding::decode(dependency)
+			.map_err(|error| error!(source = error, "Failed to decode the dependency."))?;
 		let dependency = dependency
 			.parse()
-			.wrap_err("Failed to parse the dependency.")?;
+			.map_err(|error| error!(source = error, "Failed to parse the dependency."))?;
 
 		// Format the package.
 		self.inner.tg.check_package(&dependency).await?;
@@ -537,7 +552,8 @@ impl Http {
 		let output = self.inner.tg.get_runtime_doc().await?;
 
 		// Create the body.
-		let body = serde_json::to_vec(&output).wrap_err("Failed to serialize the body.")?;
+		let body = serde_json::to_vec(&output)
+			.map_err(|error| error!(source = error, "Failed to serialize the body."))?;
 		let body = full(body);
 
 		// Create the response.
@@ -553,13 +569,14 @@ impl Http {
 		// Get the path params.
 		let path_components: Vec<&str> = request.uri().path().split('/').skip(1).collect();
 		let ["packages", dependency, "doc"] = path_components.as_slice() else {
-			return Err(error!("Unexpected path."));
+			let path = request.uri().path();
+			return Err(error!(%path, "Unexpected path."));
 		};
-		let dependency =
-			urlencoding::decode(dependency).wrap_err("Failed to decode the dependency.")?;
+		let dependency = urlencoding::decode(dependency)
+			.map_err(|error| error!(source = error, "Failed to decode the dependency."))?;
 		let dependency = dependency
 			.parse()
-			.wrap_err("Failed to parse the dependency.")?;
+			.map_err(|error| error!(source = error, "Failed to parse the dependency."))?;
 
 		// Get the doc.
 		let Some(output) = self.inner.tg.try_get_package_doc(&dependency).await? else {
@@ -567,7 +584,8 @@ impl Http {
 		};
 
 		// Create the body.
-		let body = serde_json::to_vec(&output).wrap_err("Failed to serialize the body.")?;
+		let body = serde_json::to_vec(&output)
+			.map_err(|error| error!(source = error, "Failed to serialize the body."))?;
 		let body = full(body);
 
 		// Create the response.

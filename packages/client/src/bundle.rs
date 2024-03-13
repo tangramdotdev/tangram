@@ -2,7 +2,7 @@ use crate::{directory, Artifact, Directory, File, Handle, Symlink};
 use async_recursion::async_recursion;
 use futures::{stream::FuturesOrdered, TryStreamExt};
 use once_cell::sync::Lazy;
-use tangram_error::{error, Error, Result, WrapErr};
+use tangram_error::{error, Error, Result};
 
 static TANGRAM_ARTIFACTS_PATH: Lazy<crate::Path> =
 	Lazy::new(|| ".tangram/artifacts".parse().unwrap());
@@ -46,8 +46,9 @@ impl Artifact {
 				.into(),
 
 			// Otherwise, return an error.
-			_ => {
+			artifact => {
 				return Err(error!(
+					%artifact,
 					"The artifact must be a directory or an executable file."
 				))
 			},
@@ -59,7 +60,7 @@ impl Artifact {
 			.await?
 			.try_unwrap_directory()
 			.ok()
-			.wrap_err("The artifact must be a directory.")?;
+			.ok_or_else(|| error!("The artifact must be a directory."))?;
 
 		// Add the artifacts directory to the bundled artifact at `.tangram/artifacts`.
 		let bundle_directory = bundle_directory

@@ -29,42 +29,6 @@ pub struct Location {
 
 pub struct Trace<'a>(&'a Error);
 
-/// An extension trait for wrapping an error.
-pub trait Wrap<E>: Sized {
-	#[must_use]
-	#[track_caller]
-	fn wrap<C>(self, message: C) -> Error
-	where
-		C: std::fmt::Display,
-	{
-		self.wrap_with(|| message)
-	}
-
-	#[must_use]
-	#[track_caller]
-	fn wrap_with<C, F>(self, f: F) -> Error
-	where
-		C: std::fmt::Display,
-		F: FnOnce() -> C;
-}
-
-/// An extension trait for wrapping `Err` in a `Result` or `None` in an `Option`.
-pub trait WrapErr<T, E>: Sized {
-	#[track_caller]
-	fn wrap_err<M>(self, message: M) -> Result<T, Error>
-	where
-		M: std::fmt::Display,
-	{
-		self.wrap_err_with(|| message)
-	}
-
-	#[track_caller]
-	fn wrap_err_with<C, F>(self, f: F) -> Result<T, Error>
-	where
-		C: std::fmt::Display,
-		F: FnOnce() -> C;
-}
-
 impl Error {
 	/// Construct a [Trace] from an error, which can be used to display a helpful error trace.
 	#[must_use]
@@ -110,70 +74,6 @@ impl From<&(dyn std::error::Error + 'static)> for Error {
 	}
 }
 
-impl<E> Wrap<E> for E
-where
-	E: Into<Box<dyn std::error::Error + Send + Sync + 'static>>,
-{
-	#[must_use]
-	#[track_caller]
-	fn wrap_with<C, F>(self, f: F) -> Error
-	where
-		C: std::fmt::Display,
-		F: FnOnce() -> C,
-	{
-		Error {
-			message: f().to_string(),
-			location: Some(std::panic::Location::caller().into()),
-			stack: None,
-			source: Some(Arc::new(self.into().into())),
-			values: BTreeMap::new(),
-		}
-	}
-}
-
-impl<T, E> WrapErr<T, E> for Result<T, E>
-where
-	E: Into<Box<dyn std::error::Error + Send + Sync + 'static>>,
-{
-	#[track_caller]
-	fn wrap_err_with<C, F>(self, f: F) -> Result<T, Error>
-	where
-		C: std::fmt::Display,
-		F: FnOnce() -> C,
-	{
-		match self {
-			Ok(value) => Ok(value),
-			Err(error) => Err(Error {
-				message: f().to_string(),
-				location: Some(std::panic::Location::caller().into()),
-				stack: None,
-				source: Some(Arc::new(error.into().into())),
-				values: BTreeMap::new(),
-			}),
-		}
-	}
-}
-
-impl<T> WrapErr<T, Error> for Option<T> {
-	#[track_caller]
-	fn wrap_err_with<C, F>(self, f: F) -> Result<T, Error>
-	where
-		C: std::fmt::Display,
-		F: FnOnce() -> C,
-	{
-		match self {
-			Some(value) => Ok(value),
-			None => Err(Error {
-				message: f().to_string(),
-				location: Some(std::panic::Location::caller().into()),
-				stack: None,
-				source: None,
-				values: BTreeMap::new(),
-			}),
-		}
-	}
-}
-
 impl<'a> std::fmt::Display for Trace<'a> {
 	fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
 		let none = "\x1b[0m";
@@ -201,7 +101,7 @@ impl<'a> std::fmt::Display for Trace<'a> {
 			if let Some(location) = &location {
 				write!(f, " {cyan}{location}{none}")?;
 			}
-			for (name, value) in values.iter() {
+			for (name, value) in values {
 				writeln!(f)?;
 				write!(f, "   {blue}{name}{none} = {green}{value}{none}")?;
 			}

@@ -3,7 +3,7 @@ use bytes::Bytes;
 use derive_more::TryUnwrap;
 use futures::{future, Stream, StreamExt};
 use tangram_client as tg;
-use tangram_error::{Result, WrapErr};
+use tangram_error::{error, Result};
 use tokio_stream::wrappers::BroadcastStream;
 
 pub enum Messenger {
@@ -53,7 +53,7 @@ impl Messenger {
 				client
 					.publish(subject, payload)
 					.await
-					.wrap_err("Failed to publish the message.")?;
+					.map_err(|error| error!(source = error, "Failed to publish the message."))?;
 			},
 		}
 		Ok(())
@@ -70,7 +70,7 @@ impl Messenger {
 				Ok(client
 					.subscribe(subject)
 					.await
-					.wrap_err("Failed to subscribe.")?
+					.map_err(|error| error!(source = error, "Failed to subscribe."))?
 					.map(|_| ())
 					.right_stream())
 			},
@@ -88,7 +88,7 @@ impl Messenger {
 				client
 					.publish(subject, payload)
 					.await
-					.wrap_err("Failed to publish the message.")?;
+					.map_err(|error| error!(source = error, "Failed to publish the message."))?;
 			},
 		}
 		Ok(())
@@ -109,7 +109,7 @@ impl Messenger {
 				Ok(client
 					.subscribe(subject)
 					.await
-					.wrap_err("Failed to subscribe.")?
+					.map_err(|error| error!(source = error, "Failed to subscribe."))?
 					.map(|_| ())
 					.right_stream())
 			},
@@ -127,7 +127,7 @@ impl Messenger {
 				client
 					.publish(subject, payload)
 					.await
-					.wrap_err("Failed to publish the message.")?;
+					.map_err(|error| error!(source = error, "Failed to publish the message."))?;
 			},
 		}
 		Ok(())
@@ -148,7 +148,7 @@ impl Messenger {
 				Ok(client
 					.subscribe(subject)
 					.await
-					.wrap_err("Failed to subscribe.")?
+					.map_err(|error| error!(source = error, "Failed to subscribe."))?
 					.map(|_| ())
 					.right_stream())
 			},
@@ -166,7 +166,7 @@ impl Messenger {
 				client
 					.publish(subject, payload)
 					.await
-					.wrap_err("Failed to publish the message.")?;
+					.map_err(|error| error!(source = error, "Failed to publish the message."))?;
 			},
 		}
 		Ok(())
@@ -187,7 +187,7 @@ impl Messenger {
 				Ok(client
 					.subscribe(subject)
 					.await
-					.wrap_err("Failed to subscribe.")?
+					.map_err(|error| error!(source = error, "Failed to subscribe."))?
 					.map(|_| ())
 					.right_stream())
 			},

@@ -2,7 +2,7 @@ use crate as tg;
 use async_trait::async_trait;
 use bytes::Bytes;
 use futures::stream::BoxStream;
-use tangram_error::{Result, WrapErr};
+use tangram_error::{error, Result};
 use tokio::io::{AsyncRead, AsyncWrite};
 use url::Url;
 
@@ -31,7 +31,7 @@ pub trait Handle: Send + Sync + 'static {
 		Ok(self
 			.try_get_build(id, arg)
 			.await?
-			.wrap_err("Failed to get the build.")?)
+			.ok_or_else(|| error!("Failed to get the build."))?)
 	}
 
 	async fn try_get_build(
@@ -66,7 +66,7 @@ pub trait Handle: Send + Sync + 'static {
 		Ok(self
 			.try_get_build_status(id, arg, stop)
 			.await?
-			.wrap_err("Failed to get the build.")?)
+			.ok_or_else(|| error!("Failed to get the build."))?)
 	}
 
 	async fn try_get_build_status(
@@ -92,7 +92,7 @@ pub trait Handle: Send + Sync + 'static {
 		Ok(self
 			.try_get_build_children(id, arg, stop)
 			.await?
-			.wrap_err("Failed to get the build.")?)
+			.ok_or_else(|| error!("Failed to get the build."))?)
 	}
 
 	async fn try_get_build_children(
@@ -118,7 +118,7 @@ pub trait Handle: Send + Sync + 'static {
 		Ok(self
 			.try_get_build_log(id, arg, stop)
 			.await?
-			.wrap_err("Failed to get the build.")?)
+			.ok_or_else(|| error!("Failed to get the build."))?)
 	}
 
 	async fn try_get_build_log(
@@ -144,7 +144,7 @@ pub trait Handle: Send + Sync + 'static {
 		Ok(self
 			.try_get_build_outcome(id, arg, stop)
 			.await?
-			.wrap_err("Failed to get the build.")?)
+			.ok_or_else(|| error!("Failed to get the build."))?)
 	}
 
 	async fn try_get_build_outcome(
@@ -173,7 +173,7 @@ pub trait Handle: Send + Sync + 'static {
 		Ok(self
 			.try_get_object(id)
 			.await?
-			.wrap_err("Failed to get the object.")?)
+			.ok_or_else(|| error!("Failed to get the object."))?)
 	}
 
 	async fn try_get_object(&self, id: &tg::object::Id) -> Result<Option<tg::object::GetOutput>>;
@@ -201,7 +201,7 @@ pub trait Handle: Send + Sync + 'static {
 		Ok(self
 			.try_get_package(dependency, arg)
 			.await?
-			.wrap_err("Failed to get the package.")?)
+			.ok_or_else(|| error!("Failed to get the package."))?)
 	}
 
 	async fn try_get_package(
@@ -214,7 +214,7 @@ pub trait Handle: Send + Sync + 'static {
 		Ok(self
 			.try_get_package_versions(dependency)
 			.await?
-			.wrap_err("Failed to get the package.")?)
+			.ok_or_else(|| error!("Failed to get the package."))?)
 	}
 
 	async fn try_get_package_versions(
@@ -234,7 +234,7 @@ pub trait Handle: Send + Sync + 'static {
 		Ok(self
 			.try_get_package_doc(dependency)
 			.await?
-			.wrap_err("Failed to get the package.")?)
+			.ok_or_else(|| error!("Failed to get the package."))?)
 	}
 
 	async fn try_get_package_doc(

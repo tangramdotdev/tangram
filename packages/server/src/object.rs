@@ -2,7 +2,7 @@ use super::Server;
 use crate::Http;
 use async_recursion::async_recursion;
 use tangram_client as tg;
-use tangram_error::{error, Result, WrapErr};
+use tangram_error::{error, Result};
 use tangram_util::http::{bad_request, ok, Incoming, Outgoing};
 
 mod get;
@@ -14,11 +14,11 @@ impl Server {
 			.inner
 			.remote
 			.as_ref()
-			.wrap_err("The server does not have a remote.")?;
+			.ok_or_else(|| error!("The server does not have a remote."))?;
 		tg::object::Handle::with_id(id.clone())
 			.push(self, remote.as_ref())
 			.await
-			.wrap_err("Failed to push the object.")?;
+			.map_err(|error| error!(source = error, "Failed to push the object."))?;
 		Ok(())
 	}
 
@@ -28,11 +28,11 @@ impl Server {
 			.inner
 			.remote
 			.as_ref()
-			.wrap_err("The server does not have a remote.")?;
+			.ok_or_else(|| error!("The server does not have a remote."))?;
 		tg::object::Handle::with_id(id.clone())
 			.pull(self, remote.as_ref())
 			.await
-			.wrap_err("Failed to pull the object.")?;
+			.map_err(|error| error!(source = error, "Failed to pull the object."))?;
 		Ok(())
 	}
 }
@@ -45,7 +45,8 @@ impl Http {
 		// Get the path params.
 		let path_components: Vec<&str> = request.uri().path().split('/').skip(1).collect();
 		let ["objects", id, "push"] = path_components.as_slice() else {
-			return Err(error!("Unexpected path."));
+			let path = request.uri().path();
+			return Err(error!(%path, "Unexpected path."));
 		};
 		let Ok(id) = id.parse() else {
 			return Ok(bad_request());
@@ -64,7 +65,8 @@ impl Http {
 		// Get the path params.
 		let path_components: Vec<&str> = request.uri().path().split('/').skip(1).collect();
 		let ["objects", id, "pull"] = path_components.as_slice() else {
-			return Err(error!("Unexpected path."));
+			let path = request.uri().path();
+			return Err(error!(%path, "Unexpected path."));
 		};
 		let Ok(id) = id.parse() else {
 			return Ok(bad_request());

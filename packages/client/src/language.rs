@@ -1,7 +1,7 @@
 use crate::Client;
 use futures::{future, TryFutureExt};
 use http_body_util::BodyExt;
-use tangram_error::{error, Result, Wrap, WrapErr};
+use tangram_error::{error, Result};
 use tangram_util::http::{empty, full};
 use tokio::io::{AsyncRead, AsyncWrite};
 
@@ -13,13 +13,13 @@ impl Client {
 		let body = full(text);
 		let request = request
 			.body(body)
-			.wrap_err("Failed to create the request.")?;
+			.map_err(|error| error!(source = error, "Failed to create the request."))?;
 		let response = self.send(request).await?;
 		if !response.status().is_success() {
 			let bytes = response
 				.collect()
 				.await
-				.wrap_err("Failed to collect the response body.")?
+				.map_err(|error| error!(source = error, "Failed to collect the response body."))?
 				.to_bytes();
 			let error = serde_json::from_slice(&bytes)
 				.unwrap_or_else(|_| error!("Failed to deserialize the error."));
@@ -28,10 +28,10 @@ impl Client {
 		let bytes = response
 			.collect()
 			.await
-			.wrap_err("Failed to collect the response body.")?
+			.map_err(|error| error!(source = error, "Failed to collect the response body."))?
 			.to_bytes();
 		let text = String::from_utf8(bytes.to_vec())
-			.wrap_err("Failed to deserialize the response body.")?;
+			.map_err(|error| error!(source = error, "Failed to deserialize the response body."))?;
 		Ok(text)
 	}
 
@@ -49,16 +49,16 @@ impl Client {
 			.uri(uri)
 			.header(http::header::UPGRADE, "lsp".to_string())
 			.body(body)
-			.wrap_err("Failed to create the request.")?;
+			.map_err(|error| error!(source = error, "Failed to create the request."))?;
 		let response = sender
 			.send_request(request)
 			.await
-			.wrap_err("Failed to send the request.")?;
+			.map_err(|error| error!(source = error, "Failed to send the request."))?;
 		if response.status() != http::StatusCode::SWITCHING_PROTOCOLS {
 			let bytes = response
 				.collect()
 				.await
-				.wrap_err("Failed to collect the response body.")?
+				.map_err(|error| error!(source = error, "Failed to collect the response body."))?
 				.to_bytes();
 			let error = serde_json::from_slice(&bytes)
 				.unwrap_or_else(|_| error!("Failed to deserialize the error."));
@@ -66,13 +66,13 @@ impl Client {
 		}
 		let io = hyper::upgrade::on(response)
 			.await
-			.wrap_err("Failed to perform the upgrade.")?;
+			.map_err(|error| error!(source = error, "Failed to perform the upgrade."))?;
 		let io = hyper_util::rt::TokioIo::new(io);
 		let (mut o, mut i) = tokio::io::split(io);
 		let input = tokio::io::copy(&mut input, &mut i)
-			.map_err(|error| error.wrap("Failed to copy the input."));
+			.map_err(|error| error!(source = error, "Failed to copy the input."));
 		let output = tokio::io::copy(&mut o, &mut output)
-			.map_err(|error| error.wrap("Failed to copy the output."));
+			.map_err(|error| error!(source = error, "Failed to copy the output."));
 		future::try_join(input, output).await?;
 		Ok(())
 	}

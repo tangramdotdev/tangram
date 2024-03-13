@@ -1,11 +1,11 @@
 pub use self::child::Child;
-use crate::{blob, id, object, Blob, Error, Handle, Result, WrapErr};
+use crate::{blob, id, object, Blob, Handle};
 use async_recursion::async_recursion;
 use bytes::Bytes;
 use derive_more::Display;
 use futures::{stream::FuturesOrdered, TryStreamExt};
 use std::sync::Arc;
-use tangram_error::error;
+use tangram_error::{error, Error, Result};
 
 #[derive(
 	Clone,
@@ -97,7 +97,7 @@ impl Branch {
 		self.try_load(tg)
 			.await?
 			.then_some(())
-			.wrap_err("Failed to load the object.")
+			.ok_or_else(|| error!("Failed to load the object."))
 	}
 
 	pub async fn try_load(&self, tg: &dyn Handle) -> Result<bool> {
@@ -108,7 +108,8 @@ impl Branch {
 		let Some(output) = tg.try_get_object(&id.clone().into()).await? else {
 			return Ok(false);
 		};
-		let data = Data::deserialize(&output.bytes).wrap_err("Failed to deserialize the data.")?;
+		let data = Data::deserialize(&output.bytes)
+			.map_err(|error| error!(source = error, "Failed to deserialize the data."))?;
 		let object = data.try_into()?;
 		self.state.write().unwrap().object.replace(object);
 		Ok(true)
@@ -128,7 +129,7 @@ impl Branch {
 		};
 		tg.put_object(&id.clone().into(), &arg)
 			.await
-			.wrap_err("Failed to put the object.")?;
+			.map_err(|error| error!(source = error, "Failed to put the object."))?;
 		self.state.write().unwrap().id.replace(id);
 		Ok(())
 	}
@@ -168,11 +169,12 @@ impl Data {
 	pub fn serialize(&self) -> Result<Bytes> {
 		serde_json::to_vec(self)
 			.map(Into::into)
-			.wrap_err("Failed to serialize the data.")
+			.map_err(|error| error!(source = error, "Failed to serialize the data."))
 	}
 
 	pub fn deserialize(bytes: &Bytes) -> Result<Self> {
-		serde_json::from_reader(bytes.as_ref()).wrap_err("Failed to deserialize the data.")
+		serde_json::from_reader(bytes.as_ref())
+			.map_err(|error| error!(source = error, "Failed to deserialize the data."))
 	}
 
 	#[must_use]
@@ -218,7 +220,7 @@ impl TryFrom<crate::Id> for Id {
 
 	fn try_from(value: crate::Id) -> Result<Self, Self::Error> {
 		if value.kind() != id::Kind::Branch {
-			return Err(error!("Invalid kind."));
+			return Err(error!(%value, "Invalid kind."));
 		}
 		Ok(Self(value))
 	}

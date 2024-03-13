@@ -1,6 +1,6 @@
 use crate::{database::Database, postgres_params, Http, Server};
 use tangram_client as tg;
-use tangram_error::{error, Result, WrapErr};
+use tangram_error::{error, Result};
 use tangram_util::http::{bad_request, full, Incoming, Outgoing};
 
 impl Server {
@@ -28,11 +28,11 @@ impl Server {
 		let statement = connection
 			.prepare_cached(statement)
 			.await
-			.wrap_err("Failed to prepare the statement.")?;
+			.map_err(|error| error!(source = error, "Failed to prepare the statement."))?;
 		let rows = connection
 			.query(&statement, params)
 			.await
-			.wrap_err("Failed to execute the statement.")?;
+			.map_err(|error| error!(source = error, "Failed to execute the statement."))?;
 		let results = rows.into_iter().map(|row| row.get(0)).collect();
 
 		Ok(results)
@@ -49,13 +49,14 @@ impl Http {
 			return Ok(bad_request());
 		};
 		let arg = serde_urlencoded::from_str(query)
-			.wrap_err("Failed to deserialize the search params.")?;
+			.map_err(|error| error!(source = error, "Failed to deserialize the search params."))?;
 
 		// Perform the search.
 		let output = self.inner.tg.search_packages(arg).await?;
 
 		// Create the body.
-		let body = serde_json::to_vec(&output).wrap_err("Failed to serialize the body.")?;
+		let body = serde_json::to_vec(&output)
+			.map_err(|error| error!(source = error, "Failed to serialize the body."))?;
 		let body = full(body);
 
 		// Create the response.

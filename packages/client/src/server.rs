@@ -1,6 +1,6 @@
 use crate::Client;
 use http_body_util::BodyExt;
-use tangram_error::{error, Result, WrapErr};
+use tangram_error::{error, Result};
 use tangram_util::http::empty;
 
 #[derive(Clone, Debug, Default, serde::Deserialize, serde::Serialize)]
@@ -17,13 +17,13 @@ impl Client {
 			.method(method)
 			.uri(uri)
 			.body(body)
-			.wrap_err("Failed to create the request.")?;
+			.map_err(|error| error!(source = error, "Failed to create the request."))?;
 		let response = self.send(request).await?;
 		if !response.status().is_success() {
 			let bytes = response
 				.collect()
 				.await
-				.wrap_err("Failed to collect the response body.")?
+				.map_err(|error| error!(source = error, "Failed to collect the response body."))?
 				.to_bytes();
 			let error = serde_json::from_slice(&bytes)
 				.unwrap_or_else(|_| error!("The request did not succeed."));
@@ -32,9 +32,10 @@ impl Client {
 		let bytes = response
 			.collect()
 			.await
-			.wrap_err("Failed to collect the response body.")?
+			.map_err(|error| error!(source = error, "Failed to collect the response body."))?
 			.to_bytes();
-		let health = serde_json::from_slice(&bytes).wrap_err("Failed to deserialize the body.")?;
+		let health = serde_json::from_slice(&bytes)
+			.map_err(|error| error!(source = error, "Failed to deserialize the body."))?;
 		Ok(health)
 	}
 
@@ -46,13 +47,13 @@ impl Client {
 			.method(method)
 			.uri(uri)
 			.body(body)
-			.wrap_err("Failed to create the request.")?;
+			.map_err(|error| error!(source = error, "Failed to create the request."))?;
 		let response = self.send(request).await?;
 		if !response.status().is_success() {
 			let bytes = response
 				.collect()
 				.await
-				.wrap_err("Failed to collect the response body.")?
+				.map_err(|error| error!(source = error, "Failed to collect the response body."))?
 				.to_bytes();
 			let error = serde_json::from_slice(&bytes)
 				.unwrap_or_else(|_| error!("The request did not succeed."));
@@ -61,9 +62,10 @@ impl Client {
 		let bytes = response
 			.collect()
 			.await
-			.wrap_err("Failed to collect the response body.")?
+			.map_err(|error| error!(source = error, "Failed to collect the response body."))?
 			.to_bytes();
-		let path = serde_json::from_slice(&bytes).wrap_err("Failed to deserialize the body.")?;
+		let path = serde_json::from_slice(&bytes)
+			.map_err(|error| error!(source = error, "Failed to deserialize the body."))?;
 		Ok(path)
 	}
 
@@ -75,13 +77,13 @@ impl Client {
 			.method(method)
 			.uri(uri)
 			.body(body)
-			.wrap_err("Failed to create the request.")?;
+			.map_err(|error| error!(source = error, "Failed to create the request."))?;
 		let response = self.send(request).await?;
 		if !response.status().is_success() {
 			let bytes = response
 				.collect()
 				.await
-				.wrap_err("Failed to collect the response body.")?
+				.map_err(|error| error!(source = error, "Failed to collect the response body."))?
 				.to_bytes();
 			let error = serde_json::from_slice(&bytes)
 				.unwrap_or_else(|_| error!("The request did not succeed."));
@@ -98,7 +100,7 @@ impl Client {
 			.method(method)
 			.uri(uri)
 			.body(body)
-			.wrap_err("Failed to create the request.")?;
+			.map_err(|error| error!(source = error, "Failed to create the request."))?;
 		self.send(request).await.ok();
 		Ok(())
 	}

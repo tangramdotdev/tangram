@@ -1,6 +1,6 @@
 use crate as tg;
 use std::collections::BTreeMap;
-use tangram_error::{error, Error, Result, WrapErr};
+use tangram_error::{error, Error, Result};
 
 /// An import in a module.
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
@@ -29,8 +29,9 @@ impl Import {
 						.iter()
 						.map(|(key, value)| (key.clone(), value.clone()))
 						.collect();
-					let attributes = serde_json::from_value(attributes)
-						.wrap_err("Failed to parse the attributes.")?;
+					let attributes = serde_json::from_value(attributes).map_err(|error| {
+						error!(source = error, "Failed to parse the attributes.")
+					})?;
 					dependency.merge(attributes);
 					Self::Dependency(dependency)
 				},
@@ -66,17 +67,18 @@ impl std::str::FromStr for Import {
 			let path: tg::Path = value.parse()?;
 			if !matches!(path.extension(), Some("js" | "ts" | "tg.js" | "tg.ts")) {
 				return Err(error!(
-					r#"The path "{path}" does not have a valid extension."#
+					%path,
+					r#"The path does not have a valid extension."#
 				));
 			}
 			Ok(Import::Module(path))
 		} else if let Some(value) = value.strip_prefix("tg:") {
-			let dependency = value
-				.parse()
-				.wrap_err_with(|| format!(r#"Failed to parse "{value}" as a dependency."#))?;
+			let dependency = value.parse().map_err(
+				|error| error!(source = error, %value, "Failed to parse value as a dependency."),
+			)?;
 			Ok(Import::Dependency(dependency))
 		} else {
-			return Err(error!(r#"The import is not valid."#));
+			return Err(error!(?value, r#"The import is not valid."#));
 		}
 	}
 }

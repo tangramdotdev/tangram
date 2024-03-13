@@ -1,7 +1,7 @@
 use super::SOURCE_MAP;
 use num::ToPrimitive;
 use sourcemap::SourceMap;
-use std::sync::Arc;
+use std::{collections::BTreeMap, sync::Arc};
 use tangram_error::Error;
 
 #[derive(Debug, serde::Deserialize)]
@@ -109,13 +109,14 @@ pub(super) fn from_exception<'s>(
 		.and_then(|value| value.to_object(scope))
 		.map(|cause| from_exception(scope, cause.into()))
 		.map(|error| Arc::new(error) as _);
-
+	let values = BTreeMap::new();
 	// Create the error.
 	Error {
 		message,
 		location,
 		stack,
 		source,
+		values,
 	}
 }
 

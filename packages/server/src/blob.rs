@@ -3,7 +3,7 @@ use bytes::Bytes;
 use futures::{stream, StreamExt, TryStreamExt};
 use num::ToPrimitive;
 use tangram_client as tg;
-use tangram_error::{Error, Result, WrapErr};
+use tangram_error::{error, Error, Result};
 use tokio::io::{AsyncRead, AsyncReadExt};
 
 const MAX_BRANCH_CHILDREN: usize = 1024;
@@ -25,7 +25,7 @@ impl Server {
 				let n = reader
 					.read(&mut bytes[position..])
 					.await
-					.wrap_err("Failed to read from the reader.")?;
+					.map_err(|error| error!(source = error, "Failed to read from the reader."))?;
 				position += n;
 				if n == 0 || position == bytes.len() {
 					break;

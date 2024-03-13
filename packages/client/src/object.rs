@@ -1,7 +1,7 @@
 use crate as tg;
 use crate::{
 	branch, directory, file, id, leaf, lock, symlink, target, Branch, Client, Directory, Error,
-	File, Leaf, Lock, Result, Symlink, Target, WrapErr,
+	File, Leaf, Lock, Result, Symlink, Target,
 };
 use async_recursion::async_recursion;
 use bytes::Bytes;
@@ -204,7 +204,7 @@ impl Handle {
 		let output = remote
 			.put_object(&id.clone(), &arg)
 			.await
-			.wrap_err("Failed to put the object.")?;
+			.map_err(|error| error!(source = error, "Failed to put the object."))?;
 		output
 			.incomplete
 			.into_iter()
@@ -222,7 +222,7 @@ impl Handle {
 		let output = remote
 			.get_object(&id)
 			.await
-			.wrap_err("Failed to put the object.")?;
+			.map_err(|error| error!(source = error, "Failed to put the object."))?;
 		let arg = tg::object::PutArg {
 			bytes: output.bytes,
 			count: None,
@@ -306,7 +306,7 @@ impl Client {
 			.method(method)
 			.uri(uri)
 			.body(body)
-			.wrap_err("Failed to create the request.")?;
+			.map_err(|error| error!(source = error, "Failed to create the request."))?;
 		let response = self.send(request).await?;
 		if response.status() == http::StatusCode::NOT_FOUND {
 			return Ok(None);
@@ -315,7 +315,7 @@ impl Client {
 			let bytes = response
 				.collect()
 				.await
-				.wrap_err("Failed to collect the response body.")?
+				.map_err(|error| error!(source = error, "Failed to collect the response body."))?
 				.to_bytes();
 			let error = serde_json::from_slice(&bytes)
 				.unwrap_or_else(|_| error!("The request did not succeed."));
@@ -324,7 +324,7 @@ impl Client {
 		let bytes = response
 			.collect()
 			.await
-			.wrap_err("Failed to collect the response body.")?
+			.map_err(|error| error!(source = error, "Failed to collect the response body."))?
 			.to_bytes();
 		let output = tg::object::GetOutput {
 			bytes,
@@ -346,13 +346,13 @@ impl Client {
 			.method(method)
 			.uri(uri)
 			.body(body)
-			.wrap_err("Failed to create the request.")?;
+			.map_err(|error| error!(source = error, "Failed to create the request."))?;
 		let response = self.send(request).await?;
 		if !response.status().is_success() {
 			let bytes = response
 				.collect()
 				.await
-				.wrap_err("Failed to collect the response body.")?
+				.map_err(|error| error!(source = error, "Failed to collect the response body."))?
 				.to_bytes();
 			let error = serde_json::from_slice(&bytes)
 				.unwrap_or_else(|_| error!("The request did not succeed."));
@@ -361,9 +361,10 @@ impl Client {
 		let bytes = response
 			.collect()
 			.await
-			.wrap_err("Failed to collect the response body.")?
+			.map_err(|error| error!(source = error, "Failed to collect the response body."))?
 			.to_bytes();
-		let output = serde_json::from_slice(&bytes).wrap_err("Failed to deserialize the body.")?;
+		let output = serde_json::from_slice(&bytes)
+			.map_err(|error| error!(source = error, "Failed to deserialize the body."))?;
 		Ok(output)
 	}
 
@@ -375,13 +376,13 @@ impl Client {
 			.method(method)
 			.uri(uri)
 			.body(body)
-			.wrap_err("Failed to create the request.")?;
+			.map_err(|error| error!(source = error, "Failed to create the request."))?;
 		let response = self.send(request).await?;
 		if !response.status().is_success() {
 			let bytes = response
 				.collect()
 				.await
-				.wrap_err("Failed to collect the response body.")?
+				.map_err(|error| error!(source = error, "Failed to collect the response body."))?
 				.to_bytes();
 			let error = serde_json::from_slice(&bytes)
 				.unwrap_or_else(|_| error!("The request did not succeed."));
@@ -398,13 +399,13 @@ impl Client {
 			.method(method)
 			.uri(uri)
 			.body(body)
-			.wrap_err("Failed to create the request.")?;
+			.map_err(|error| error!(source = error, "Failed to create the request."))?;
 		let response = self.send(request).await?;
 		if !response.status().is_success() {
 			let bytes = response
 				.collect()
 				.await
-				.wrap_err("Failed to collect the response body.")?
+				.map_err(|error| error!(source = error, "Failed to collect the response body."))?
 				.to_bytes();
 			let error = serde_json::from_slice(&bytes)
 				.unwrap_or_else(|_| error!("The request did not succeed."));
@@ -474,7 +475,7 @@ impl TryFrom<crate::Id> for self::Id {
 			crate::id::Kind::Symlink => Ok(Self::Symlink(value.try_into()?)),
 			crate::id::Kind::Lock => Ok(Self::Lock(value.try_into()?)),
 			crate::id::Kind::Target => Ok(Self::Target(value.try_into()?)),
-			_ => Err(error!("Expected an object ID.")),
+			kind => Err(error!(%kind, "Expected an object ID.")),
 		}
 	}
 }
@@ -527,7 +528,7 @@ impl TryFrom<id::Kind> for Kind {
 			id::Kind::Symlink => Ok(Self::Symlink),
 			id::Kind::Lock => Ok(Self::Lock),
 			id::Kind::Target => Ok(Self::Target),
-			_ => Err(error!("Invalid kind.")),
+			kind => Err(error!(%kind, "Invalid kind.")),
 		}
 	}
 }

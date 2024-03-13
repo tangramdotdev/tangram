@@ -4,7 +4,7 @@ use crate::{
 };
 use std::path::PathBuf;
 use tangram_client as tg;
-use tangram_error::{Result, WrapErr};
+use tangram_error::{error, Result};
 use tg::Handle;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 
@@ -129,7 +129,7 @@ impl Cli {
 			if let Some(path) = package.path.as_mut() {
 				*path = tokio::fs::canonicalize(&path)
 					.await
-					.wrap_err("Failed to canonicalize the path.")?
+					.map_err(|error| error!(source = error, "Failed to canonicalize the path."))?
 					.try_into()?;
 			}
 
@@ -182,7 +182,7 @@ impl Cli {
 		let outcome = build
 			.get_outcome(client, arg)
 			.await
-			.wrap_err("Failed to get the build outcome.")?;
+			.map_err(|error| error!(source = error, "Failed to get the build outcome."))?;
 
 		// If the outcome is not immediatey available, then wait for it while showing the TUI if enabled.
 		let outcome = if let Some(outcome) = outcome {
@@ -207,20 +207,23 @@ impl Cli {
 				tui.join().await?;
 			}
 
-			outcome.wrap_err("Failed to get the build outcome.")?
+			outcome.map_err(|error| error!(source = error, "Failed to get the build outcome."))?
 		};
 
 		// Handle a failed build.
-		let output = outcome.into_result().wrap_err("The build failed.")?;
+		let output = outcome
+			.into_result()
+			.map_err(|error| error!(source = error, "The build failed."))?;
 
 		// Check out the output if requested.
 		if let Some(path) = args.output {
-			let artifact = tg::Artifact::try_from(output.clone())
-				.wrap_err("Expected the output to be an artifact.")?;
+			let artifact = tg::Artifact::try_from(output.clone()).map_err(|error| {
+				error!(source = error, "Expected the output to be an artifact.")
+			})?;
 			artifact
 				.check_out(client, Some(&path.try_into()?))
 				.await
-				.wrap_err("Failed to check out the artifact.")?;
+				.map_err(|error| error!(source = error, "Failed to check out the artifact."))?;
 		}
 
 		// Print the output.
@@ -233,11 +236,12 @@ impl Cli {
 		let client = &self.client().await?;
 		let arg = tg::build::GetArg::default();
 		let output = client.get_build(&args.id, arg).await?;
-		let json = serde_json::to_string(&output).wrap_err("Failed to serialize the output.")?;
+		let json = serde_json::to_string(&output)
+			.map_err(|error| error!(source = error, "Failed to serialize the output."))?;
 		tokio::io::stdout()
 			.write_all(json.as_bytes())
 			.await
-			.wrap_err("Failed to write the data.")?;
+			.map_err(|error| error!(source = error, "Failed to write the data."))?;
 		Ok(())
 	}
 
@@ -250,11 +254,11 @@ impl Cli {
 			tokio::io::stdin()
 				.read_to_string(&mut json)
 				.await
-				.wrap_err("Failed to read stdin.")?;
+				.map_err(|error| error!(source = error, "Failed to read stdin."))?;
 			json
 		};
-		let arg: tg::build::PutArg =
-			serde_json::from_str(&json).wrap_err("Failed to deseralize.")?;
+		let arg: tg::build::PutArg = serde_json::from_str(&json)
+			.map_err(|error| error!(source = error, "Failed to deseralize."))?;
 		client.put_build(None, &arg.id, &arg).await?;
 		Ok(())
 	}

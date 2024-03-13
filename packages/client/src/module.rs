@@ -1,7 +1,7 @@
 use super::document::Document;
 use crate as tg;
 use derive_more::{TryUnwrap, Unwrap};
-use tangram_error::{error, Error, Result, WrapErr};
+use tangram_error::{error, Error, Result};
 use url::Url;
 
 /// A module.
@@ -78,22 +78,25 @@ impl From<Module> for Url {
 impl TryFrom<Url> for Module {
 	type Error = Error;
 
-	fn try_from(value: Url) -> Result<Self, Self::Error> {
+	fn try_from(url: Url) -> Result<Self, Self::Error> {
 		// Ensure the scheme is "tg".
-		if value.scheme() != "tg" {
-			return Err(error!("The URL has an invalid scheme."));
+		if url.scheme() != "tg" {
+			return Err(error!(%url, "The URL has an invalid scheme."));
 		}
 
 		// Get the domain.
-		let data = value.domain().wrap_err("The URL must have a domain.")?;
+		let data = url
+			.domain()
+			.ok_or_else(|| error!(%url, "The URL must have a domain."))?;
 
 		// Decode the data.
 		let data = data_encoding::HEXLOWER
 			.decode(data.as_bytes())
-			.wrap_err("Failed to deserialize the path.")?;
+			.map_err(|error| error!(source = error, "Failed to deserialize the path."))?;
 
 		// Deserialize the data.
-		let module = serde_json::from_slice(&data).wrap_err("Failed to deserialize the module.")?;
+		let module = serde_json::from_slice(&data)
+			.map_err(|error| error!(source = error, "Failed to deserialize the module."))?;
 
 		Ok(module)
 	}
@@ -111,7 +114,9 @@ impl std::str::FromStr for Module {
 	type Err = Error;
 
 	fn from_str(s: &str) -> Result<Self, Self::Err> {
-		let url: Url = s.parse().wrap_err("Failed to parse the URL.")?;
+		let url: Url = s
+			.parse()
+			.map_err(|error| error!(source = error, "Failed to parse the URL."))?;
 		let module = url.try_into()?;
 		Ok(module)
 	}

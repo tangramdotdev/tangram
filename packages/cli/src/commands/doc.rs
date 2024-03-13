@@ -1,6 +1,6 @@
 use crate::Cli;
 use tangram_client as tg;
-use tangram_error::{Result, WrapErr};
+use tangram_error::{error, Result};
 
 /// Generate documentation.
 #[derive(Debug, clap::Args)]
@@ -26,7 +26,7 @@ impl Cli {
 		if let Some(path) = args.package.path.as_mut() {
 			*path = tokio::fs::canonicalize(&path)
 				.await
-				.wrap_err("Failed to canonicalize the path.")?
+				.map_err(|error| error!(source = error, "Failed to canonicalize the path."))?
 				.try_into()?;
 		}
 
@@ -37,12 +37,12 @@ impl Cli {
 			client
 				.try_get_package_doc(&args.package)
 				.await?
-				.wrap_err("Failed to get the package.")?
+				.ok_or_else(|| error!("Failed to get the package."))?
 		};
 
 		// Serialize the output.
-		let output =
-			serde_json::to_string_pretty(&doc).wrap_err("Failed to serialize the output.")?;
+		let output = serde_json::to_string_pretty(&doc)
+			.map_err(|error| error!(source = error, "Failed to serialize the output."))?;
 
 		// Print the output.
 		println!("{output}");

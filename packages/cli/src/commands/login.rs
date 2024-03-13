@@ -1,6 +1,6 @@
 use crate::Cli;
 use std::time::{Duration, Instant};
-use tangram_error::{error, Result, WrapErr};
+use tangram_error::{error, Result};
 
 /// Log in to Tangram.
 #[derive(Debug, clap::Args)]
@@ -15,11 +15,15 @@ impl Cli {
 		let login = client
 			.create_login()
 			.await
-			.wrap_err("Failed to create the login.")?;
+			.map_err(|error| error!(source = error, "Failed to create the login."))?;
 
 		// Open the browser to the login URL.
-		webbrowser::open(login.url.as_ref())
-			.wrap_err("Failed to open the browser to the login URL.")?;
+		webbrowser::open(login.url.as_ref()).map_err(|error| {
+			error!(
+				source = error,
+				"Failed to open the browser to the login URL."
+			)
+		})?;
 		eprintln!("To log in, please open your browser to:\n\n{}\n", login.url);
 
 		// Poll.
@@ -33,8 +37,8 @@ impl Cli {
 			let login = client
 				.get_login(&login.id)
 				.await
-				.wrap_err("Failed to get the login.")?
-				.wrap_err("Expected the login to exist.")?;
+				.map_err(|error| error!(source = error, "Failed to get the login."))?
+				.ok_or_else(|| error!("Expected the login to exist."))?;
 			if let Some(token) = login.token {
 				break token;
 			}
@@ -45,7 +49,7 @@ impl Cli {
 		let user = client
 			.get_user_for_token(&token)
 			.await?
-			.wrap_err("Expected the user to exist.")?;
+			.ok_or_else(|| error!("Expected the user to exist."))?;
 
 		// Save the user.
 		tokio::task::spawn_blocking(move || Self::write_user(&user, None))

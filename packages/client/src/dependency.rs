@@ -1,5 +1,5 @@
-use crate::{directory, Error, Result};
-use tangram_error::WrapErr;
+use crate::directory;
+use tangram_error::{error, Error, Result};
 
 /// A dependency.
 #[derive(
@@ -91,16 +91,20 @@ impl Dependency {
 			let (_, constraint) = constraint.split_at(1);
 			let regex = format!("^{constraint}$");
 			let matched = regex::Regex::new(&regex)
-				.wrap_err("Failed to parse regex.")?
+				.map_err(|error| error!(source = error, "Failed to parse regex."))?
 				.is_match(version);
 			return Ok(matched);
 		}
 
 		if "=<>^~*".chars().any(|ch| constraint.starts_with(ch)) {
-			let req = semver::VersionReq::parse(constraint)
-				.wrap_err("Failed to parse version constraint as semver.")?;
-			let semver =
-				semver::Version::parse(version).wrap_err("Failed to parse version as semver.")?;
+			let req = semver::VersionReq::parse(constraint).map_err(|error| {
+				error!(
+					source = error,
+					"Failed to parse version constraint as semver."
+				)
+			})?;
+			let semver = semver::Version::parse(version)
+				.map_err(|error| error!(source = error, "Failed to parse version as semver."))?;
 			return Ok(req.matches(&semver));
 		}
 
@@ -143,7 +147,8 @@ impl std::str::FromStr for Dependency {
 
 	fn from_str(value: &str) -> Result<Self, Self::Err> {
 		if value.starts_with('{') {
-			serde_json::from_str(value).wrap_err("Failed to deserialize the dependency.")
+			serde_json::from_str(value)
+				.map_err(|error| error!(source = error, "Failed to deserialize the dependency."))
 		} else if let Ok(id) = value.parse() {
 			Ok(Self {
 				id: Some(id),

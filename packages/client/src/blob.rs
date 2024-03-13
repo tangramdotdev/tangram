@@ -1,6 +1,4 @@
-use crate::{
-	branch, error, id, leaf, object, Artifact, Branch, Error, Handle, Leaf, Result, Value, WrapErr,
-};
+use crate::{branch, id, leaf, object, Artifact, Branch, Handle, Leaf, Result, Value};
 use bytes::Bytes;
 use derive_more::From;
 use futures::{
@@ -10,6 +8,7 @@ use futures::{
 };
 use num::ToPrimitive;
 use std::{io::Cursor, pin::Pin};
+use tangram_error::{error, Error};
 use tokio::io::{AsyncRead, AsyncReadExt, AsyncSeek};
 use tokio_util::io::SyncIoBridge;
 
@@ -79,7 +78,7 @@ impl Blob {
 				let n = reader
 					.read(&mut bytes[position..])
 					.await
-					.wrap_err("Failed to read from the reader.")?;
+					.map_err(|error| error!(source = error, "Failed to read from the reader."))?;
 				position += n;
 				if n == 0 || position == bytes.len() {
 					break;
@@ -155,14 +154,18 @@ impl Blob {
 		reader
 			.read_to_end(&mut bytes)
 			.await
-			.wrap_err("Failed to read the blob.")?;
+			.map_err(|error| error!(source = error, "Failed to read the blob."))?;
 		Ok(bytes)
 	}
 
 	pub async fn text(&self, tg: &dyn Handle) -> Result<String> {
 		let bytes = self.bytes(tg).await?;
-		let string =
-			String::from_utf8(bytes).wrap_err("Failed to decode the blob's bytes as UTF-8.")?;
+		let string = String::from_utf8(bytes).map_err(|error| {
+			error!(
+				source = error,
+				"Failed to decode the blob's bytes as UTF-8."
+			)
+		})?;
 		Ok(string)
 	}
 
@@ -221,7 +224,8 @@ impl Blob {
 		let reader = self.reader(tg).await?;
 
 		// Create a temp.
-		let tempdir = tempfile::TempDir::new().wrap_err("Failed to create the temporary leaf.")?;
+		let tempdir = tempfile::TempDir::new()
+			.map_err(|error| error!(source = error, "Failed to create the temporary leaf."))?;
 		let path = tempdir.path().join("archive");
 
 		// Extract in a blocking task.
@@ -234,16 +238,17 @@ impl Blob {
 						let mut archive = tar::Archive::new(reader);
 						archive.set_preserve_permissions(false);
 						archive.set_unpack_xattrs(false);
-						archive
-							.unpack(path)
-							.wrap_err("Failed to extract the archive.")?;
+						archive.unpack(path).map_err(|error| {
+							error!(source = error, "Failed to extract the archive.")
+						})?;
 					},
 					ArchiveFormat::Zip => {
-						let mut archive = zip::ZipArchive::new(reader)
-							.wrap_err("Failed to extract the archive.")?;
-						archive
-							.extract(&path)
-							.wrap_err("Failed to extract the archive.")?;
+						let mut archive = zip::ZipArchive::new(reader).map_err(|error| {
+							error!(source = error, "Failed to extract the archive.")
+						})?;
+						archive.extract(&path).map_err(|error| {
+							error!(source = error, "Failed to extract the archive.")
+						})?;
 					},
 				}
 				Ok(())
@@ -256,7 +261,7 @@ impl Blob {
 		let path = path.try_into()?;
 		let artifact = Artifact::check_in(tg, &path)
 			.await
-			.wrap_err("Failed to check in the extracted archive.")?;
+			.map_err(|error| error!(source = error, "Failed to check in the extracted archive."))?;
 
 		Ok(artifact)
 	}
@@ -295,7 +300,7 @@ impl TryFrom<crate::Id> for Id {
 		match value.kind() {
 			id::Kind::Leaf => Ok(Self::Leaf(value.try_into()?)),
 			id::Kind::Branch => Ok(Self::Branch(value.try_into()?)),
-			_ => Err(error!("Expected a blob ID.")),
+			value => Err(error!(%value, "Expected a blob ID.")),
 		}
 	}
 }
@@ -316,7 +321,7 @@ impl TryFrom<object::Id> for Id {
 		match value {
 			object::Id::Leaf(value) => Ok(value.into()),
 			object::Id::Branch(value) => Ok(value.into()),
-			_ => Err(error!("Expected a blob ID.")),
+			value => Err(error!(%value, "Expected a blob ID.")),
 		}
 	}
 }
@@ -352,7 +357,7 @@ impl TryFrom<object::Handle> for Blob {
 		match value {
 			object::Handle::Leaf(leaf) => Ok(Self::Leaf(leaf)),
 			object::Handle::Branch(branch) => Ok(Self::Branch(branch)),
-			_ => Err(error!("Expected a blob.")),
+			object => Err(error!(%object, "Expected a blob.")),
 		}
 	}
 }
@@ -368,7 +373,7 @@ impl TryFrom<Value> for Blob {
 
 	fn try_from(value: Value) -> Result<Self, Self::Error> {
 		object::Handle::try_from(value)
-			.wrap_err("Invalid value.")?
+			.map_err(|error| error!(source = error, "Invalid value."))?
 			.try_into()
 	}
 }
@@ -562,7 +567,7 @@ impl std::str::FromStr for ArchiveFormat {
 		match s {
 			".tar" => Ok(Self::Tar),
 			".zip" => Ok(Self::Zip),
-			_ => Err(error!("Invalid format.")),
+			extension => Err(error!(%extension, "Invalid format.")),
 		}
 	}
 }
@@ -603,7 +608,7 @@ impl std::str::FromStr for CompressionFormat {
 			".gz" => Ok(Self::Gz),
 			".xz" => Ok(Self::Xz),
 			".zst" | ".zstd" => Ok(Self::Zstd),
-			_ => Err(error!("Invalid compression format.")),
+			extension => Err(error!(%extension, "Invalid compression format.")),
 		}
 	}
 }

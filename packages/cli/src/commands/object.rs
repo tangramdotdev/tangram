@@ -1,6 +1,6 @@
 use crate::Cli;
 use tangram_client as tg;
-use tangram_error::{Result, WrapErr};
+use tangram_error::{error, Result};
 use tg::Handle;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 
@@ -77,7 +77,7 @@ impl Cli {
 		tokio::io::stdout()
 			.write_all(&bytes)
 			.await
-			.wrap_err("Failed to write the data.")?;
+			.map_err(|error| error!(source = error, "Failed to write the data."))?;
 		Ok(())
 	}
 
@@ -91,7 +91,7 @@ impl Cli {
 			tokio::io::stdin()
 				.read_to_end(&mut bytes)
 				.await
-				.wrap_err("Failed to read stdin.")?;
+				.map_err(|error| error!(source = error, "Failed to read stdin."))?;
 			bytes
 		};
 		let id = tg::Id::new_blake3(kind, &bytes).try_into().unwrap();

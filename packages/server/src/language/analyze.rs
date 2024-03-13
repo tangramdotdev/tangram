@@ -7,7 +7,7 @@ use std::{
 use swc::ecma::{ast, visit::VisitWith};
 use swc_core as swc;
 use tangram_client as tg;
-use tangram_error::{error, Result, WrapErr};
+use tangram_error::{error, Result};
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Analysis {
@@ -29,7 +29,8 @@ impl Server {
 		let super::parse::Output {
 			program,
 			source_map,
-		} = Self::parse_module(text).wrap_err("Failed to parse the module.")?;
+		} = Self::parse_module(text)
+			.map_err(|error| error!(source = error, "Failed to parse the module."))?;
 
 		// Create the visitor and visit the module.
 		let mut visitor = Visitor::new(source_map);

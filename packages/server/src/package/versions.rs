@@ -1,6 +1,6 @@
 use crate::{database::Database, postgres_params, Http, Server};
 use tangram_client as tg;
-use tangram_error::{error, Result, WrapErr};
+use tangram_error::{error, Result};
 use tangram_util::http::{full, not_found, Incoming, Outgoing};
 
 impl Server {
@@ -22,7 +22,7 @@ impl Server {
 		let name = dependency
 			.name
 			.as_ref()
-			.wrap_err("Expected the dependency to have a name.")?;
+			.ok_or_else(|| error!(%dependency, "Expected the dependency to have a name."))?;
 
 		// Confirm the package exists.
 		let statement = "
@@ -34,11 +34,11 @@ impl Server {
 		let statement = connection
 			.prepare_cached(statement)
 			.await
-			.wrap_err("Failed to prepare the statement.")?;
+			.map_err(|error| error!(source = error, "Failed to prepare the statement."))?;
 		let row = connection
 			.query_one(&statement, params)
 			.await
-			.wrap_err("Failed to execute the statement.")?;
+			.map_err(|error| error!(source = error, "Failed to execute the statement."))?;
 		let exists = row.get::<_, bool>(0);
 		if !exists {
 			return Ok(None);
@@ -54,20 +54,26 @@ impl Server {
 		let statement = connection
 			.prepare_cached(statement)
 			.await
-			.wrap_err("Failed to prepare the statement.")?;
+			.map_err(|error| error!(source = error, "Failed to prepare the statement."))?;
 		let rows = connection
 			.query(&statement, params)
 			.await
-			.wrap_err("Failed to execute the statement.")?;
+			.map_err(|error| error!(source = error, "Failed to execute the statement."))?;
 		let versions = rows
 			.into_iter()
 			.map(|row| row.get::<_, String>(0))
-			.map(|version| version.parse().wrap_err("Invalid version."))
+			.map(|version| {
+				version
+					.parse()
+					.map_err(|error| error!(source = error, "Invalid version."))
+			})
 			.collect::<Result<Vec<semver::Version>>>()?;
 
 		// Get the req.
 		let req = if let Some(version) = dependency.version.as_ref() {
-			version.parse().wrap_err("Invalid version.")?
+			version
+				.parse()
+				.map_err(|error| error!(source = error, "Invalid version."))?
 		} else {
 			semver::VersionReq::STAR
 		};
@@ -99,13 +105,14 @@ impl Http {
 		// Get the path params.
 		let path_components: Vec<&str> = request.uri().path().split('/').skip(1).collect();
 		let ["packages", dependency, "versions"] = path_components.as_slice() else {
-			return Err(error!("Unexpected path."));
+			let path = request.uri().path();
+			return Err(error!(%path, "Unexpected path."));
 		};
-		let dependency =
-			urlencoding::decode(dependency).wrap_err("Failed to decode the dependency.")?;
+		let dependency = urlencoding::decode(dependency)
+			.map_err(|error| error!(source = error, "Failed to decode the dependency."))?;
 		let dependency = dependency
 			.parse()
-			.wrap_err("Failed to parse the dependency.")?;
+			.map_err(|error| error!(source = error, "Failed to parse the dependency."))?;
 
 		// Get the package.
 		let Some(output) = self.inner.tg.try_get_package_versions(&dependency).await? else {
@@ -113,7 +120,8 @@ impl Http {
 		};
 
 		// Create the body.
-		let body = serde_json::to_vec(&output).wrap_err("Failed to serialize the body.")?;
+		let body = serde_json::to_vec(&output)
+			.map_err(|error| error!(source = error, "Failed to serialize the body."))?;
 		let body = full(body);
 
 		// Create the response.

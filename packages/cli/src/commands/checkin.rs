@@ -1,7 +1,7 @@
 use crate::Cli;
 use std::path::PathBuf;
 use tangram_client as tg;
-use tangram_error::{Result, WrapErr};
+use tangram_error::{error, Result};
 
 /// Check in an artifact.
 #[derive(Debug, clap::Args)]
@@ -16,7 +16,8 @@ impl Cli {
 		let client = &self.client().await?;
 
 		// Get the path.
-		let mut path = std::env::current_dir().wrap_err("Failed to get the working directory.")?;
+		let mut path = std::env::current_dir()
+			.map_err(|error| error!(source = error, "Failed to get the working directory."))?;
 		if let Some(path_arg) = &args.path {
 			path.push(path_arg);
 		}

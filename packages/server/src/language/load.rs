@@ -1,7 +1,7 @@
 use super::Server;
 use include_dir::include_dir;
 use tangram_client as tg;
-use tangram_error::{Result, WrapErr};
+use tangram_error::{error, Result};
 
 const TANGRAM_D_TS: &str = include_str!(concat!(
 	env!("CARGO_MANIFEST_DIR"),
@@ -20,11 +20,11 @@ impl Server {
 					"tangram.d.ts" => TANGRAM_D_TS,
 					_ => LIB
 						.get_file(&path)
-						.wrap_err_with(|| {
-							format!(r#"Could not find a library module with the path "{path}"."#)
-						})?
+						.ok_or_else(
+							|| error!(%path, "Could not find a library module at the path."),
+						)?
 						.contents_utf8()
-						.wrap_err("Failed to read the file as UTF-8.")?,
+						.ok_or_else(|| error!("Failed to read the file as UTF-8."))?,
 				};
 				Ok(text.to_owned())
 			},
@@ -42,7 +42,7 @@ impl Server {
 				let file = entry
 					.try_unwrap_file_ref()
 					.ok()
-					.wrap_err("Expected a file.")?;
+					.ok_or_else(|| error!("Expected a file."))?;
 				let text = file.text(&self.inner.server).await?;
 
 				Ok(text)

@@ -1,6 +1,6 @@
 use crate::Cli;
 use tangram_client as tg;
-use tangram_error::{Result, WrapErr};
+use tangram_error::{error, Result};
 
 /// Publish a package.
 #[derive(Debug, clap::Args)]
@@ -24,7 +24,7 @@ impl Cli {
 		client
 			.publish_package(self.user.as_ref(), id)
 			.await
-			.wrap_err("Failed to publish the package.")?;
+			.map_err(|error| error!(source = error, "Failed to publish the package."))?;
 
 		Ok(())
 	}

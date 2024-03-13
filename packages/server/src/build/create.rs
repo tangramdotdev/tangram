@@ -2,7 +2,7 @@ use crate::{BuildState, Http, Server};
 use http_body_util::BodyExt;
 use std::sync::Arc;
 use tangram_client as tg;
-use tangram_error::{error, Result, WrapErr};
+use tangram_error::{error, Result};
 use tangram_util::http::{full, Incoming, Outgoing};
 
 impl Server {
@@ -197,7 +197,8 @@ impl Http {
 		// Get the path params.
 		let path_components: Vec<&str> = request.uri().path().split('/').skip(1).collect();
 		let ["builds"] = path_components.as_slice() else {
-			return Err(error!("Unexpected path."));
+			let path = request.uri().path();
+			return Err(error!(%path, "Unexpected path."));
 		};
 
 		// Get the user.
@@ -208,9 +209,10 @@ impl Http {
 			.into_body()
 			.collect()
 			.await
-			.wrap_err("Failed to read the body.")?
+			.map_err(|error| error!(source = error, "Failed to read the body."))?
 			.to_bytes();
-		let arg = serde_json::from_slice(&bytes).wrap_err("Failed to deserialize the body.")?;
+		let arg = serde_json::from_slice(&bytes)
+			.map_err(|error| error!(source = error, "Failed to deserialize the body."))?;
 
 		// Get or create the build.
 		let output = self
@@ -220,7 +222,8 @@ impl Http {
 			.await?;
 
 		// Create the body.
-		let body = serde_json::to_vec(&output).wrap_err("Failed to serialize the body.")?;
+		let body = serde_json::to_vec(&output)
+			.map_err(|error| error!(source = error, "Failed to serialize the body."))?;
 		let body = full(body);
 
 		// Create the response.

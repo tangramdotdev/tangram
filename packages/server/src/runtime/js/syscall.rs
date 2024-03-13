@@ -10,7 +10,7 @@ use itertools::Itertools;
 use num::ToPrimitive;
 use std::rc::Rc;
 use tangram_client as tg;
-use tangram_error::{error, Result, WrapErr};
+use tangram_error::{error, Result};
 use tokio_util::io::StreamReader;
 use url::Url;
 
@@ -135,9 +135,9 @@ async fn syscall_download(state: Rc<State>, args: (Url, tg::Checksum)) -> Result
 		.unwrap();
 	let response = reqwest::get(url.clone())
 		.await
-		.wrap_err("Failed to perform the request.")?
+		.map_err(|error| error!(source = error, %url, "Failed to perform the request."))?
 		.error_for_status()
-		.wrap_err("Expected a sucess status.")?;
+		.map_err(|error| error!(source = error, %url, "Expected a sucess status."))?;
 
 	// Spawn a task to log progress.
 	let content_length = response.content_length();
@@ -187,7 +187,9 @@ async fn syscall_download(state: Rc<State>, args: (Url, tg::Checksum)) -> Result
 		});
 
 	// Create the blob and validate.
-	let blob = tg::Blob::with_reader(&state.server, StreamReader::new(stream)).await?;
+	let blob = tg::Blob::with_reader(&state.server, StreamReader::new(stream))
+		.await
+		.map_err(|error| error!(source = error, "Failed to create the blob."))?;
 
 	// Update the log task with the full content length so it can display 100%.
 	if let Some(content_length) = content_length {
@@ -196,8 +198,11 @@ async fn syscall_download(state: Rc<State>, args: (Url, tg::Checksum)) -> Result
 
 	let actual = checksum_writer.finalize();
 	if actual != checksum {
+		let expected = checksum;
 		return Err(error!(
-			r#"The checksum did not match. Expected "{checksum}" but got "{actual}"."#
+			source = error!(%actual, %expected, "The checksum did not match."),
+			%url,
+			"Failed to verify download."
 		));
 	}
 	Ok(blob)
@@ -211,7 +216,7 @@ fn syscall_encoding_base64_decode(
 	let (value,) = args;
 	let bytes = data_encoding::BASE64
 		.decode(value.as_bytes())
-		.wrap_err("Failed to decode the bytes.")?;
+		.map_err(|error| error!(source = error, "Failed to decode the bytes."))?;
 	Ok(bytes.into())
 }
 
@@ -233,7 +238,7 @@ fn syscall_encoding_hex_decode(
 	let (string,) = args;
 	let bytes = data_encoding::HEXLOWER
 		.decode(string.as_bytes())
-		.wrap_err("Failed to decode the string as hex.")?;
+		.map_err(|error| error!(source = error, "Failed to decode the string as hex."))?;
 	Ok(bytes.into())
 }
 
@@ -253,7 +258,8 @@ fn syscall_encoding_json_decode(
 	args: (String,),
 ) -> Result<serde_json::Value> {
 	let (json,) = args;
-	let value = serde_json::from_str(&json).wrap_err("Failed to decode the string as json.")?;
+	let value = serde_json::from_str(&json)
+		.map_err(|error| error!(source = error, "Failed to decode the string as json."))?;
 	Ok(value)
 }
 
@@ -263,7 +269,8 @@ fn syscall_encoding_json_encode(
 	args: (serde_json::Value,),
 ) -> Result<String> {
 	let (value,) = args;
-	let json = serde_json::to_string(&value).wrap_err("Failed to encode the value.")?;
+	let json = serde_json::to_string(&value)
+		.map_err(|error| error!(source = error, "Failed to encode the value."))?;
 	Ok(json)
 }
 
@@ -273,7 +280,8 @@ fn syscall_encoding_toml_decode(
 	args: (String,),
 ) -> Result<toml::Value> {
 	let (toml,) = args;
-	let value = toml::from_str(&toml).wrap_err("Failed to decode the string as toml.")?;
+	let value = toml::from_str(&toml)
+		.map_err(|error| error!(source = error, "Failed to decode the string as toml."))?;
 	Ok(value)
 }
 
@@ -283,7 +291,8 @@ fn syscall_encoding_toml_encode(
 	args: (toml::Value,),
 ) -> Result<String> {
 	let (value,) = args;
-	let toml = toml::to_string(&value).wrap_err("Failed to encode the value.")?;
+	let toml = toml::to_string(&value)
+		.map_err(|error| error!(source = error, "Failed to encode the value."))?;
 	Ok(toml)
 }
 
@@ -293,8 +302,8 @@ fn syscall_encoding_utf8_decode(
 	args: (Bytes,),
 ) -> Result<String> {
 	let (bytes,) = args;
-	let string =
-		String::from_utf8(bytes.to_vec()).wrap_err("Failed to decode the bytes as UTF-8.")?;
+	let string = String::from_utf8(bytes.to_vec())
+		.map_err(|error| error!(source = error, "Failed to decode the bytes as UTF-8."))?;
 	Ok(string)
 }
 
@@ -314,7 +323,8 @@ fn syscall_encoding_yaml_decode(
 	args: (String,),
 ) -> Result<serde_yaml::Value> {
 	let (yaml,) = args;
-	let value = serde_yaml::from_str(&yaml).wrap_err("Failed to decode the string as yaml.")?;
+	let value = serde_yaml::from_str(&yaml)
+		.map_err(|error| error!(source = error, "Failed to decode the string as yaml."))?;
 	Ok(value)
 }
 
@@ -324,7 +334,8 @@ fn syscall_encoding_yaml_encode(
 	args: (serde_yaml::Value,),
 ) -> Result<String> {
 	let (value,) = args;
-	let yaml = serde_yaml::to_string(&value).wrap_err("Failed to encode the value.")?;
+	let yaml = serde_yaml::to_string(&value)
+		.map_err(|error| error!(source = error, "Failed to encode the value."))?;
 	Ok(yaml)
 }
 
@@ -391,7 +402,8 @@ where
 	let args = v8::Array::new_with_elements(scope, args.as_slice());
 
 	// Deserialize the args.
-	let args = from_v8(scope, args.into()).wrap_err("Failed to deserialize the args.")?;
+	let args = from_v8(scope, args.into())
+		.map_err(|error| error!(source = error, "Failed to deserialize the args."))?;
 
 	// Call the function.
 	let value = f(scope, state, args)?;
@@ -399,7 +411,7 @@ where
 	// Move the value to v8.
 	let value = value
 		.to_v8(scope)
-		.wrap_err("Failed to serialize the value.")?;
+		.map_err(|error| error!(source = error, "Failed to serialize the value."))?;
 
 	Ok(value)
 }
@@ -430,7 +442,8 @@ where
 	let args = v8::Array::new_with_elements(scope, args.as_slice());
 
 	// Deserialize the args.
-	let args = from_v8(scope, args.into()).wrap_err("Failed to deserialize the args.")?;
+	let args = from_v8(scope, args.into())
+		.map_err(|error| error!(source = error, "Failed to deserialize the args."))?;
 
 	// Move the promise resolver to the global scope.
 	let promise_resolver = v8::Global::new(scope, promise_resolver);

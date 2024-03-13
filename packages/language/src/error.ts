@@ -3,17 +3,20 @@ export class Error {
 	location: Location | undefined;
 	stack: Array<Location> | undefined;
 	source: Error | undefined;
+	values: Map<String, String> | undefined;
 
 	constructor(
 		message: string,
 		location?: Location,
 		stack?: Array<Location>,
 		source?: Error,
+		values?: Map<String, String>,
 	) {
 		this.message = message;
 		this.location = location;
 		this.stack = stack;
 		this.source = source;
+		this.values = values;
 	}
 }
 

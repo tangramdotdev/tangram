@@ -1,5 +1,5 @@
 use crate::Cli;
-use tangram_error::{Result, WrapErr};
+use tangram_error::{error, Result};
 
 /// Upgrade to the latest version of tangram.
 #[derive(Debug, clap::Args)]
@@ -12,7 +12,7 @@ impl Cli {
 			.args(["-c", "curl -sSL https://www.tangram.dev/install.sh | sh"])
 			.status()
 			.await
-			.wrap_err("Failed to run the installer.")?;
+			.map_err(|error| error!(source = error, "Failed to run the installer."))?;
 		Ok(())
 	}
 }
