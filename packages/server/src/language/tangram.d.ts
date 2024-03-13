@@ -511,6 +511,11 @@ declare namespace tg {
 		export type Arg = Lock | ArgObject | Array<Arg>;
 
 		export type ArgObject = {
+			root?: number;
+			nodes?: Array<NodeArg>;
+		};
+
+		export type NodeArg = {
 			dependencies?: { [dependency: string]: Lock.Arg };
 		};
 

@@ -27,7 +27,7 @@ export class Lock {
 	static async new(...args: Args<Lock.Arg>): Promise<Lock> {
 		type Apply = {
 			root: number;
-			nodeArgs: Array<Lock.ArgObject>;
+			nodeArgs: Array<Lock.NodeArg>;
 		};
 		let { root, nodeArgs } = await Args.apply<Lock.Arg, Apply>(
 			args,
@@ -41,10 +41,13 @@ export class Lock {
 					};
 				} else if (typeof arg === "object") {
 					let object: MutationMap<Apply> = {};
-					if (arg.dependencies !== undefined) {
-						object.nodeArgs = Mutation.is(arg.dependencies)
-							? arg.dependencies
-							: await Mutation.arrayAppend(arg.dependencies);
+					if (arg.root !== undefined) {
+						object.root = arg.root;
+					}
+					if (arg.nodes !== undefined) {
+						object.nodeArgs = Mutation.is(arg.nodes)
+							? arg.nodes
+							: await Mutation.arrayAppend(arg.nodes);
 					}
 					return object;
 				} else {
@@ -54,7 +57,7 @@ export class Lock {
 		);
 		root ??= 0;
 		nodeArgs ??= [];
-		let nodes: Array<Lock.Node> = await Promise.all(
+		let nodes = await Promise.all(
 			nodeArgs.map(async (argObject) => {
 				let dependenciesKeys = Object.keys(argObject.dependencies ?? {});
 				let dependencies: { [dependency: string]: Lock } = {};
@@ -123,6 +126,11 @@ export namespace Lock {
 	export type Arg = Lock | ArgObject | Array<Arg>;
 
 	export type ArgObject = {
+		root?: number;
+		nodes?: Array<NodeArg>;
+	};
+
+	export type NodeArg = {
 		dependencies?: { [dependency: string]: Lock.Arg };
 	};
 
