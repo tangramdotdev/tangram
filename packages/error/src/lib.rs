@@ -7,13 +7,7 @@ pub type Result<T, E = Error> = std::result::Result<T, E>;
 
 /// An error.
 #[derive(Clone, Debug, Error, serde::Deserialize, serde::Serialize)]
-#[error("{message}.{}",
-	values
-		.iter()
-		.map(|(name, text)| format!(" {name}={text}"))
-		.collect::<Vec<_>>()
-		.join(",")
-)]
+#[error("{message}")]
 pub struct Error {
 	pub message: String,
 	#[serde(default, skip_serializing_if = "Option::is_none")]
@@ -73,6 +67,7 @@ pub trait WrapErr<T, E>: Sized {
 }
 
 impl Error {
+	/// Create a new error with a given message.
 	#[track_caller]
 	pub fn with_message(message: impl std::fmt::Display) -> Self {
 		Self {
@@ -84,6 +79,14 @@ impl Error {
 		}
 	}
 
+	/// Add a source to an error, replacing the current source.
+	pub fn with_source(mut self, source: impl std::error::Error + Send + Sync + 'static) -> Self {
+		let source: Box<dyn std::error::Error + Send + Sync> = Box::new(source);
+		self.source.replace(Arc::new(source.into()));
+		self
+	}
+
+	/// Construct a [Trace] from an error, which can be used to display a helpful error trace.
 	#[must_use]
 	pub fn trace(&self) -> Trace {
 		Trace(self)
@@ -193,23 +196,40 @@ impl<T> WrapErr<T, Error> for Option<T> {
 
 impl<'a> std::fmt::Display for Trace<'a> {
 	fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-		let mut first = true;
+		let none = "\x1b[0m";
+		let red = "\x1b[31m";
+		let green = "\x1b[32m";
+		let blue = "\x1b[34m";
+		let cyan = "\x1b[36m";
+		writeln!(f, "{red}error:{none}")?;
 		let mut error = self.0;
+		let mut first = true;
 		loop {
 			if !first {
 				writeln!(f)?;
 			}
 			first = false;
-			let message = &error.message;
-			write!(f, "{message}")?;
-			if let Some(location) = &error.location {
-				write!(f, " {location}")?;
+			write!(f, "{red}->{none}")?;
+			let Error {
+				message,
+				location,
+				stack,
+				source,
+				values,
+			} = error;
+			write!(f, " {message}")?;
+			if let Some(location) = &location {
+				write!(f, " {cyan}{location}{none}")?;
 			}
-			for location in error.stack.iter().flatten() {
+			for (name, value) in values.iter() {
 				writeln!(f)?;
-				write!(f, "  {location}")?;
+				write!(f, "   {blue}{name}{none} = {green}{value}{none}")?;
 			}
-			if let Some(source) = &error.source {
+			for location in stack.iter().flatten() {
+				writeln!(f)?;
+				write!(f, "   {cyan}{location}{none}")?;
+			}
+			if let Some(source) = &source {
 				error = source;
 			} else {
 				break;
@@ -228,14 +248,28 @@ impl std::fmt::Display for Location {
 #[cfg(test)]
 mod tests {
 	use super::error;
-	use crate as tangram_error;
+	use crate::{self as tangram_error, Location};
 	#[test]
 	fn test_error_macro() {
 		let foo = "foo";
 		let bar = "bar";
 		let baz = "baz";
 		let error = error!(?foo, %bar, ?baz, "{} bar {baz}", foo);
-		eprintln!("{error:#?}");
-		eprintln!("{error}");
+		let trace = error.trace().to_string();
+		eprintln!("{trace}");
+
+		let source = std::io::Error::other("Unexpected error.");
+		let error = error!(source = source, "An error occurred.");
+		let trace = error.trace().to_string();
+		eprintln!("{trace}");
+
+		let stack = vec![Location {
+			source: "foobar.rs".to_owned(),
+			line: 123,
+			column: 456,
+		}];
+		let error = error!(stack = stack, "An error occurred.");
+		let trace = error.trace().to_string();
+		eprintln!("{trace}");
 	}
 }
