@@ -134,7 +134,7 @@ impl Target {
 		self.try_load(tg)
 			.await?
 			.then_some(())
-			.ok_or_else(|| error!("Failed to load the object."))
+			.ok_or_else(|| error!("failed to load the object"))
 	}
 
 	pub async fn try_load(&self, tg: &dyn Handle) -> Result<bool> {
@@ -146,7 +146,7 @@ impl Target {
 			return Ok(false);
 		};
 		let data = Data::deserialize(&output.bytes)
-			.map_err(|error| error!(source = error, "Failed to deserialize the data."))?;
+			.map_err(|error| error!(source = error, "failed to deserialize the data"))?;
 		let object = data.try_into()?;
 		self.state.write().unwrap().object.replace(object);
 		Ok(true)
@@ -166,7 +166,7 @@ impl Target {
 		};
 		tg.put_object(&id.clone().into(), &arg)
 			.await
-			.map_err(|error| error!(source = error, "Failed to put the object."))?;
+			.map_err(|error| error!(source = error, "failed to put the object"))?;
 		self.state.write().unwrap().id.replace(id);
 		Ok(())
 	}
@@ -259,7 +259,7 @@ impl Target {
 		let build = Build::new(tg, arg.clone()).await?;
 		let outcome = build.outcome(tg).await?;
 		match outcome {
-			build::Outcome::Canceled => Err(error!("The build was canceled.")),
+			build::Outcome::Canceled => Err(error!("the build was canceled")),
 			build::Outcome::Failed(error) => Err(error),
 			build::Outcome::Succeeded(value) => Ok(value),
 		}
@@ -270,12 +270,12 @@ impl Data {
 	pub fn serialize(&self) -> Result<Bytes> {
 		serde_json::to_vec(self)
 			.map(Into::into)
-			.map_err(|error| error!(source = error, "Failed to serialize the data."))
+			.map_err(|error| error!(source = error, "failed to serialize the data"))
 	}
 
 	pub fn deserialize(bytes: &Bytes) -> Result<Self> {
 		serde_json::from_reader(bytes.as_ref())
-			.map_err(|error| error!(source = error, "Failed to deserialize the data."))
+			.map_err(|error| error!(source = error, "failed to deserialize the data"))
 	}
 
 	#[must_use]
@@ -327,7 +327,7 @@ impl TryFrom<crate::Id> for Id {
 
 	fn try_from(value: crate::Id) -> Result<Self, Self::Error> {
 		if value.kind() != id::Kind::Target {
-			return Err(error!(%value, "Invalid kind."));
+			return Err(error!(%value, "invalid kind"));
 		}
 		Ok(Self(value))
 	}

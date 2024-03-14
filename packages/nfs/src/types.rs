@@ -1395,7 +1395,7 @@ impl xdr::FromXdr for nfs_ftype4 {
 			7 => nfs_ftype4::NF4FIFO,
 			8 => nfs_ftype4::NF4ATTRDIR,
 			9 => nfs_ftype4::NF4NAMEDATTR,
-			_ => return Err(xdr::Error::Custom("Expected a valid nfs_ftype4.".into())),
+			_ => return Err(xdr::Error::Custom("expected a valid nfs_ftype4".into())),
 		};
 		Ok(ftype)
 	}
@@ -1512,7 +1512,7 @@ impl xdr::FromXdr for nfs_fh4 {
 	fn decode(decoder: &mut xdr::Decoder<'_>) -> Result<Self, xdr::Error> {
 		let bytes = decoder.decode_opaque()?;
 		if bytes.len() != 8 {
-			return Err(xdr::Error::Custom("File handle size mismatch.".into()));
+			return Err(xdr::Error::Custom("file handle size mismatch".into()));
 		}
 		let fh = u64::from_be_bytes(bytes[0..8].try_into().unwrap());
 		Ok(Self(fh))
@@ -1776,7 +1776,7 @@ impl xdr::FromXdr for createhow4 {
 			1 => Ok(Self::GUARDED4(decoder.decode()?)),
 			2 => Ok(Self::EXCLUSIVE4(decoder.decode_n()?)),
 			_ => Err(xdr::Error::Custom(
-				"Expected a valid createhow4 value.".into(),
+				"expected a valid createhow4 value".into(),
 			)),
 		}
 	}
@@ -1788,7 +1788,7 @@ impl xdr::FromXdr for openflag4 {
 		match type_ {
 			0 => Ok(Self::Default),
 			1 => Ok(Self::OPEN4_CREATE(decoder.decode()?)),
-			_ => Err(xdr::Error::Custom("Expected a valid opentype4.".into())),
+			_ => Err(xdr::Error::Custom("expected a valid opentype4".into())),
 		}
 	}
 }
@@ -1802,7 +1802,7 @@ impl xdr::FromXdr for open_claim4 {
 			2 => Ok(Self::CLAIM_DELEGATE_CUR(decoder.decode()?)),
 			3 => Ok(Self::CLAIM_PREVIOUS(decoder.decode()?)),
 			_ => Err(xdr::Error::Custom(
-				"Expected a claim delegation type.".into(),
+				"expected a claim delegation type".into(),
 			)),
 		}
 	}
@@ -1816,7 +1816,7 @@ impl xdr::FromXdr for open_delegation_type4 {
 			1 => Ok(Self::OPEN_DELEGATE_READ),
 			2 => Ok(Self::OPEN_DELEGATE_WRITE),
 			_ => Err(xdr::Error::Custom(
-				"Expected an open delegation type.".into(),
+				"expected an open delegation type".into(),
 			)),
 		}
 	}
@@ -1965,7 +1965,7 @@ impl xdr::FromXdr for nfs_lock_type4 {
 			3 => Ok(nfs_lock_type4::READW_LT),
 			4 => Ok(nfs_lock_type4::WRITEW_LT),
 			_ => Err(xdr::Error::Custom(
-				"Expected a valid nfs_lock_type4.".into(),
+				"expected a valid nfs_lock_type4".into(),
 			)),
 		}
 	}
@@ -2611,7 +2611,7 @@ impl xdr::FromXdr for nfs_opnum4 {
 			38 => Self::OP_WRITE,
 			39 => Self::OP_RELEASE_LOCKOWNER,
 			opnum => {
-				tracing::error!(?opnum, "Illegal opnum.");
+				tracing::error!(?opnum, "illegal opnum");
 				Self::OP_ILLEGAL
 			},
 		};
@@ -3254,6 +3254,6 @@ mod test {
 		let mut encoder = xdr::Encoder::new(&mut buffer);
 		compound
 			.encode(&mut encoder)
-			.expect("Failed to encode result.");
+			.expect("failed to encode result");
 	}
 }

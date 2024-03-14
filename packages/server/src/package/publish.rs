@@ -26,12 +26,12 @@ impl Server {
 		let name = metadata
 			.name
 			.as_ref()
-			.ok_or_else(|| error!(%id, "The package must have a name."))?
+			.ok_or_else(|| error!(%id, "the package must have a name"))?
 			.as_str();
 		let version = metadata
 			.version
 			.as_ref()
-			.ok_or_else(|| error!(%id, "The package must have a version."))?
+			.ok_or_else(|| error!(%id, "the package must have a version"))?
 			.as_str();
 
 		// Get a database connection.
@@ -49,11 +49,11 @@ impl Server {
 		let statement = connection
 			.prepare_cached(statement)
 			.await
-			.map_err(|error| error!(source = error, "Failed to prepare the statement."))?;
+			.map_err(|error| error!(source = error, "failed to prepare the statement"))?;
 		connection
 			.execute(&statement, params)
 			.await
-			.map_err(|error| error!(source = error, "Failed to execute the statement."))?;
+			.map_err(|error| error!(source = error, "failed to execute the statement"))?;
 
 		// Create the package version.
 		let statement = "
@@ -64,11 +64,11 @@ impl Server {
 		let statement = connection
 			.prepare_cached(statement)
 			.await
-			.map_err(|error| error!(source = error, "Failed to prepare the statement."))?;
+			.map_err(|error| error!(source = error, "failed to prepare the statement"))?;
 		connection
 			.execute(&statement, params)
 			.await
-			.map_err(|error| error!(source = error, "Failed to execute the statement."))?;
+			.map_err(|error| error!(source = error, "failed to execute the statement"))?;
 
 		Ok(())
 	}
@@ -87,10 +87,10 @@ impl Http {
 			.into_body()
 			.collect()
 			.await
-			.map_err(|error| error!(source = error, "Failed to read the body."))?
+			.map_err(|error| error!(source = error, "failed to read the body"))?
 			.to_bytes();
 		let package_id = serde_json::from_slice(&bytes)
-			.map_err(|error| error!(source = error, "Invalid request."))?;
+			.map_err(|error| error!(source = error, "invalid request"))?;
 
 		// Publish the package.
 		self.inner

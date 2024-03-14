@@ -30,7 +30,7 @@ impl Server {
 			program,
 			source_map,
 		} = Self::parse_module(text)
-			.map_err(|error| error!(source = error, "Failed to parse the module."))?;
+			.map_err(|error| error!(source = error, "failed to parse the module"))?;
 
 		// Create the visitor and visit the module.
 		let mut visitor = Visitor::new(source_map);
@@ -174,14 +174,14 @@ impl swc::ecma::visit::Visit for Visitor {
 				// Get the argument and verify it is a string literal.
 				if n.args.len() != 1 {
 					self.errors.push(Error::new(
-						"tg.include must be called with exactly one argument.",
+						"tg.include must be called with exactly one argument",
 						&loc,
 					));
 					return;
 				}
 				let Some(ast::Lit::Str(arg)) = n.args[0].expr.as_lit() else {
 					self.errors.push(Error::new(
-						"The argument to tg.include must be a string literal.",
+						"the argument to tg.include must be a string literal",
 						&loc,
 					));
 					return;
@@ -190,7 +190,7 @@ impl swc::ecma::visit::Visit for Visitor {
 				// Parse the argument and add it to the set of includes.
 				let Ok(include) = arg.value.to_string().parse() else {
 					self.errors.push(Error::new(
-						"Failed to parse the argument to tg.include.",
+						"failed to parse the argument to tg.include",
 						&loc,
 					));
 					return;
@@ -204,7 +204,7 @@ impl swc::ecma::visit::Visit for Visitor {
 				else {
 					let loc = self.source_map.lookup_char_pos(n.span.lo);
 					self.errors.push(Error::new(
-						"The argument to the import function must be a string literal.",
+						"the argument to the import function must be a string literal",
 						&loc,
 					));
 					return;
@@ -235,12 +235,12 @@ impl Visitor {
 			for prop in &attributes.props {
 				let Some(prop) = prop.as_prop() else {
 					self.errors
-						.push(Error::new("Spread properties are not allowed.", &loc));
+						.push(Error::new("spread properties are not allowed", &loc));
 					continue;
 				};
 				let Some(key_value) = prop.as_key_value() else {
 					self.errors
-						.push(Error::new("Only key-value properties are allowed.", &loc));
+						.push(Error::new("only key-value properties are allowed", &loc));
 					continue;
 				};
 				let key = match &key_value.key {
@@ -248,7 +248,7 @@ impl Visitor {
 					ast::PropName::Str(value) => value.value.to_string(),
 					_ => {
 						self.errors
-							.push(Error::new("All keys must be strings.", &loc));
+							.push(Error::new("all keys must be strings", &loc));
 						continue;
 					},
 				};
@@ -256,7 +256,7 @@ impl Visitor {
 					value.value.to_string()
 				} else {
 					self.errors
-						.push(Error::new("All values must be strings.", &loc));
+						.push(Error::new("all values must be strings", &loc));
 					continue;
 				};
 				map.insert(key, value);
@@ -271,7 +271,7 @@ impl Visitor {
 		else {
 			let loc = self.source_map.lookup_char_pos(span.lo());
 			self.errors
-				.push(Error::new("Failed to parse the import.", &loc));
+				.push(Error::new("failed to parse the import", &loc));
 			return;
 		};
 
@@ -285,19 +285,19 @@ impl Visitor {
 		for prop in &object.props {
 			let Some(prop) = prop.as_prop() else {
 				self.errors
-					.push(Error::new("Spread properties are not allowed.", &loc));
+					.push(Error::new("spread properties are not allowed", &loc));
 				continue;
 			};
 			let Some(key_value) = prop.as_key_value() else {
 				self.errors
-					.push(Error::new("Only key-value properties are allowed.", &loc));
+					.push(Error::new("only key-value properties are allowed", &loc));
 				continue;
 			};
 			let key = match &key_value.key {
 				ast::PropName::Ident(ident) => ident.sym.to_string(),
 				ast::PropName::Str(value) => value.value.to_string(),
 				_ => {
-					self.errors.push(Error::new("Keys must be strings.", &loc));
+					self.errors.push(Error::new("keys must be strings", &loc));
 					continue;
 				},
 			};
@@ -306,7 +306,7 @@ impl Visitor {
 				ast::Expr::Lit(ast::Lit::Bool(value)) => serde_json::Value::Bool(value.value),
 				ast::Expr::Lit(ast::Lit::Num(value)) => {
 					let Some(value) = serde_json::Number::from_f64(value.value) else {
-						self.errors.push(Error::new("Invalid number.", &loc));
+						self.errors.push(Error::new("invalid number", &loc));
 						continue;
 					};
 					serde_json::Value::Number(value)
@@ -316,7 +316,7 @@ impl Visitor {
 				},
 				_ => {
 					self.errors
-						.push(Error::new("Values must be valid JSON.", &loc));
+						.push(Error::new("values must be valid JSON", &loc));
 					continue;
 				},
 			};

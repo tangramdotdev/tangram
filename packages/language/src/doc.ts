@@ -292,9 +292,8 @@ export let handle = (request: Request): Response => {
 	if (!symbol) {
 		exports_ = typeChecker
 			.getSymbolsInScope(sourceFile, ts.SymbolFlags.ModuleMember)
-			.filter(
-				(s) =>
-					s.getDeclarations()?.some((d) => d.getSourceFile() === sourceFile),
+			.filter((s) =>
+				s.getDeclarations()?.some((d) => d.getSourceFile() === sourceFile),
 			);
 	} else {
 		exports_ = typeChecker.getExportsOfModule(symbol);
@@ -1481,8 +1480,8 @@ let convertObjectType = (
 	let indexSignature: IndexSignature | undefined;
 	let indexSymbol = type.symbol?.members?.get("__index" as ts.__String);
 	if (indexSymbol) {
-		let declaration =
-			indexSymbol.declarations![0]! as ts.IndexSignatureDeclaration;
+		let declaration = indexSymbol
+			.declarations![0]! as ts.IndexSignatureDeclaration;
 		indexSignature = convertIndexSignature(
 			typeChecker,
 			packageExports,
@@ -2286,7 +2285,7 @@ let convertLocation = (node: ts.Node): Location => {
 			},
 		};
 	} else {
-		throw new Error("Invalid module kind.");
+		throw new Error("invalid module kind");
 	}
 	return {
 		module: docModule,

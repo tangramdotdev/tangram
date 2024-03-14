@@ -77,7 +77,7 @@ impl Cli {
 		tokio::io::stdout()
 			.write_all(&bytes)
 			.await
-			.map_err(|error| error!(source = error, "Failed to write the data."))?;
+			.map_err(|error| error!(source = error, "failed to write the data"))?;
 		Ok(())
 	}
 
@@ -91,7 +91,7 @@ impl Cli {
 			tokio::io::stdin()
 				.read_to_end(&mut bytes)
 				.await
-				.map_err(|error| error!(source = error, "Failed to read stdin."))?;
+				.map_err(|error| error!(source = error, "failed to read stdin"))?;
 			bytes
 		};
 		let id = tg::Id::new_blake3(kind, &bytes).try_into().unwrap();

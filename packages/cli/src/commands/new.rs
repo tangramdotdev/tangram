@@ -22,7 +22,7 @@ impl Cli {
 	pub async fn command_new(&self, args: Args) -> Result<()> {
 		// Get the path.
 		let mut path = std::env::current_dir()
-			.map_err(|error| error!(source = error, "Failed to get the working directory."))?;
+			.map_err(|error| error!(source = error, "failed to get the working directory"))?;
 		if let Some(path_arg) = &args.path {
 			path.push(path_arg);
 		}
@@ -30,7 +30,7 @@ impl Cli {
 		// Create a directory at the path.
 		tokio::fs::create_dir_all(&path).await.map_err(|error| {
 			let path = path.display();
-			error!(source = error, %path, "Failed to create the directory.")
+			error!(source = error, %path, "failed to create the directory")
 		})?;
 
 		// Init.

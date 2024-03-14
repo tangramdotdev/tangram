@@ -99,7 +99,7 @@ impl Symlink {
 		self.try_load(tg)
 			.await?
 			.then_some(())
-			.ok_or_else(|| error!("Failed to load the object."))
+			.ok_or_else(|| error!("failed to load the object"))
 	}
 
 	pub async fn try_load(&self, tg: &dyn Handle) -> Result<bool> {
@@ -111,7 +111,7 @@ impl Symlink {
 			return Ok(false);
 		};
 		let data = Data::deserialize(&output.bytes)
-			.map_err(|error| error!(source = error, "Failed to deserialize the data."))?;
+			.map_err(|error| error!(source = error, "failed to deserialize the data"))?;
 		let object = data.try_into()?;
 		self.state.write().unwrap().object.replace(object);
 		Ok(true)
@@ -131,7 +131,7 @@ impl Symlink {
 		};
 		tg.put_object(&id.clone().into(), &arg)
 			.await
-			.map_err(|error| error!(source = error, "Failed to put the object."))?;
+			.map_err(|error| error!(source = error, "failed to put the object"))?;
 		self.state.write().unwrap().id.replace(id);
 		Ok(())
 	}
@@ -195,7 +195,7 @@ impl Symlink {
 		let path = self.path(tg).await?.clone();
 
 		if artifact.is_some() && from_artifact.is_some() {
-			return Err(error!("Expected no `from` value when `artifact` is set."));
+			return Err(error!("expected no `from` value when `artifact` is set"));
 		}
 
 		if artifact.is_some() && path.is_none() {
@@ -208,16 +208,16 @@ impl Symlink {
 					.normalize();
 				return directory.try_get(tg, &path).await;
 			}
-			return Err(error!("Expected a directory."));
+			return Err(error!("expected a directory"));
 		} else if artifact.is_some() && path.is_some() {
 			if let Some(artifact::Artifact::Directory(directory)) = artifact {
 				return directory
 					.try_get(tg, &Path::from_str(&path.unwrap())?.normalize())
 					.await;
 			}
-			return Err(error!("Expected a directory."));
+			return Err(error!("expected a directory"));
 		}
-		return Err(error!("Invalid symlink."));
+		return Err(error!("invalid symlink"));
 	}
 }
 
@@ -225,12 +225,12 @@ impl Data {
 	pub fn serialize(&self) -> Result<Bytes> {
 		serde_json::to_vec(self)
 			.map(Into::into)
-			.map_err(|error| error!(source = error, "Failed to serialize the data."))
+			.map_err(|error| error!(source = error, "failed to serialize the data"))
 	}
 
 	pub fn deserialize(bytes: &Bytes) -> Result<Self> {
 		serde_json::from_reader(bytes.as_ref())
-			.map_err(|error| error!(source = error, "Failed to deserialize the data."))
+			.map_err(|error| error!(source = error, "failed to deserialize the data"))
 	}
 
 	#[must_use]
@@ -267,7 +267,7 @@ impl TryFrom<crate::Id> for Id {
 
 	fn try_from(value: crate::Id) -> Result<Self, Self::Error> {
 		if value.kind() != id::Kind::Symlink {
-			return Err(error!(%value, "Invalid kind."));
+			return Err(error!(%value, "invalid kind"));
 		}
 		Ok(Self(value))
 	}

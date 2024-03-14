@@ -23,7 +23,7 @@ impl Server {
 			.options
 			.www
 			.as_ref()
-			.ok_or_else(|| error!("Expected the WWW URL to be set."))?
+			.ok_or_else(|| error!("expected the WWW URL to be set"))?
 			.clone();
 		url.set_path("/login");
 		url.set_query(Some(&format!("id={id}")));
@@ -48,11 +48,11 @@ impl Server {
 		let statement = connection
 			.prepare_cached(statement)
 			.await
-			.map_err(|error| error!(source = error, "Failed to prepare the statement."))?;
+			.map_err(|error| error!(source = error, "failed to prepare the statement"))?;
 		connection
 			.execute(&statement, params)
 			.await
-			.map_err(|error| error!(source = error, "Failed to execute the statement."))?;
+			.map_err(|error| error!(source = error, "failed to execute the statement"))?;
 
 		Ok(login)
 	}
@@ -75,11 +75,11 @@ impl Server {
 		let statement = connection
 			.prepare_cached(statement)
 			.await
-			.map_err(|error| error!(source = error, "Failed to prepare the statement."))?;
+			.map_err(|error| error!(source = error, "failed to prepare the statement"))?;
 		let Some(row) = connection
 			.query_opt(&statement, params)
 			.await
-			.map_err(|error| error!(source = error, "Failed to execute the statement."))?
+			.map_err(|error| error!(source = error, "failed to execute the statement"))?
 		else {
 			return Ok(None);
 		};
@@ -87,7 +87,7 @@ impl Server {
 		let url = row
 			.get::<_, String>(1)
 			.parse()
-			.map_err(|error| error!(source = error, "Failed to parse the URL."))?;
+			.map_err(|error| error!(source = error, "failed to parse the URL"))?;
 		let token = row.get(2);
 		let login = tg::user::Login { id, url, token };
 		Ok(Some(login))
@@ -112,11 +112,11 @@ impl Server {
 		let statement = connection
 			.prepare_cached(statement)
 			.await
-			.map_err(|error| error!(source = error, "Failed to prepare the statement."))?;
+			.map_err(|error| error!(source = error, "failed to prepare the statement"))?;
 		let row = connection
 			.query_opt(&statement, params)
 			.await
-			.map_err(|error| error!(source = error, "Failed to execute the statement."))?;
+			.map_err(|error| error!(source = error, "failed to execute the statement"))?;
 		let Some(row) = row else {
 			return Ok(None);
 		};
@@ -138,7 +138,7 @@ impl Server {
 			.options
 			.url
 			.as_ref()
-			.ok_or_else(|| error!("Expected the URL to be set in options."))?
+			.ok_or_else(|| error!("expected the URL to be set in options"))?
 			.clone();
 		redirect_url.set_path("/oauth/github");
 		redirect_url.set_query(Some(&format!("id={login_id}")));
@@ -149,11 +149,11 @@ impl Server {
 			.oauth
 			.github
 			.as_ref()
-			.ok_or_else(|| error!("GitHub OAuth client is not configured."))?;
+			.ok_or_else(|| error!("the GitHub OAuth client is not configured"))?;
 
 		// Create the authorize URL.
 		let oauth_redirect_url = oauth2::RedirectUrl::new(redirect_url.to_string())
-			.map_err(|error| error!(source = error, "Failed to create the redirect URL."))?;
+			.map_err(|error| error!(source = error, "failed to create the redirect URL"))?;
 		let (oauth_authorize_url, _csrf_token) = oauth_client
 			.authorize_url(oauth2::CsrfToken::new_random)
 			.set_redirect_uri(Cow::Owned(oauth_redirect_url))
@@ -174,14 +174,14 @@ impl Server {
 			.oauth
 			.github
 			.as_ref()
-			.ok_or_else(|| error!("The GitHub OAuth client is not configured."))?;
+			.ok_or_else(|| error!("the GitHub OAuth client is not configured"))?;
 
 		// Get a GitHub token.
 		let github_token = github_oauth_client
 			.exchange_code(oauth2::AuthorizationCode::new(github_code))
 			.request_async(oauth2::reqwest::async_http_client)
 			.await
-			.map_err(|error| error!(source = error, "Failed to exchange the code."))?;
+			.map_err(|error| error!(source = error, "failed to exchange the code"))?;
 
 		// Create the GitHub client.
 		let octocrab = octocrab::OctocrabBuilder::new()
@@ -189,7 +189,7 @@ impl Server {
 				access_token: github_token.access_token().secret().clone().into(),
 				token_type: match github_token.token_type() {
 					oauth2::basic::BasicTokenType::Bearer => "Bearer".to_owned(),
-					token_type => return Err(error!(?token_type, "Unsupported token type.")),
+					token_type => return Err(error!(?token_type, "unsupported token type")),
 				},
 				scope: github_token.scopes().map_or_else(Vec::new, |scopes| {
 					scopes.iter().map(|scope| scope.to_string()).collect()
@@ -199,7 +199,7 @@ impl Server {
 				refresh_token_expires_in: None,
 			})
 			.build()
-			.map_err(|error| error!(source = error, "Failed to create the GitHub client."))?;
+			.map_err(|error| error!(source = error, "failed to create the GitHub client"))?;
 
 		// Get the GitHub user's primary email.
 		#[derive(serde::Deserialize)]
@@ -211,13 +211,13 @@ impl Server {
 		let emails: Vec<Entry> = octocrab
 			.get("/user/emails", None::<&()>)
 			.await
-			.map_err(|error| error!(source = error, "Failed to perform the request."))?;
+			.map_err(|error| error!(source = error, "failed to perform the request"))?;
 		let email = emails
 			.into_iter()
 			.find(|email| email.verified && email.primary)
 			.map(|email| email.email)
 			.ok_or_else(|| {
-				error!("The GitHub user does not have a verified primary email address.")
+				error!("the GitHub user does not have a verified primary email address")
 			})?;
 
 		// Log the user in.
@@ -238,11 +238,11 @@ impl Server {
 				let statement = connection
 					.prepare_cached(statement)
 					.await
-					.map_err(|error| error!(source = error, "Failed to prepare the statement."))?;
+					.map_err(|error| error!(source = error, "failed to prepare the statement"))?;
 				connection
 					.execute(&statement, params)
 					.await
-					.map_err(|error| error!(source = error, "Failed to execute the statement."))?;
+					.map_err(|error| error!(source = error, "failed to execute the statement"))?;
 			},
 		}
 
@@ -265,11 +265,11 @@ impl Server {
 		let statement = connection
 			.prepare_cached(statement)
 			.await
-			.map_err(|error| error!(source = error, "Failed to prepare the statement."))?;
+			.map_err(|error| error!(source = error, "failed to prepare the statement"))?;
 		let row = connection
 			.query_opt(&statement, params)
 			.await
-			.map_err(|error| error!(source = error, "Failed to execute the statement."))?;
+			.map_err(|error| error!(source = error, "failed to execute the statement"))?;
 		let user_id = if let Some(row) = row {
 			row.get::<_, String>(0).parse()?
 		} else {
@@ -282,11 +282,11 @@ impl Server {
 			let statement = connection
 				.prepare_cached(statement)
 				.await
-				.map_err(|error| error!(source = error, "Failed to prepare the statement."))?;
+				.map_err(|error| error!(source = error, "failed to prepare the statement"))?;
 			connection
 				.execute(&statement, params)
 				.await
-				.map_err(|error| error!(source = error, "Failed to execute the statement."))?;
+				.map_err(|error| error!(source = error, "failed to execute the statement"))?;
 			id
 		};
 
@@ -300,11 +300,11 @@ impl Server {
 		let statement = connection
 			.prepare_cached(statement)
 			.await
-			.map_err(|error| error!(source = error, "Failed to prepare the statement."))?;
+			.map_err(|error| error!(source = error, "failed to prepare the statement"))?;
 		connection
 			.execute(&statement, params)
 			.await
-			.map_err(|error| error!(source = error, "Failed to execute the statement."))?;
+			.map_err(|error| error!(source = error, "failed to execute the statement"))?;
 
 		let user = tg::user::User {
 			id: user_id,
@@ -340,7 +340,7 @@ impl Http {
 
 		// Create the body.
 		let body = serde_json::to_vec(&output)
-			.map_err(|error| error!(source = error, "Failed to serialize the body."))?;
+			.map_err(|error| error!(source = error, "failed to serialize the body"))?;
 		let body = full(body);
 
 		// Create the response.
@@ -357,7 +357,7 @@ impl Http {
 		let path_components: Vec<&str> = request.uri().path().split('/').skip(1).collect();
 		let ["logins", id] = path_components.as_slice() else {
 			let path = request.uri().path();
-			return Err(error!(%path, "Unexpected path."));
+			return Err(error!(%path, "unexpected path"));
 		};
 		let Ok(id) = id.parse() else {
 			return Ok(bad_request());
@@ -368,7 +368,7 @@ impl Http {
 
 		// Create the body.
 		let body = serde_json::to_vec(&output)
-			.map_err(|error| error!(source = error, "Failed to serialize the body."))?;
+			.map_err(|error| error!(source = error, "failed to serialize the body"))?;
 		let body = full(body);
 
 		// Create the response.
@@ -393,7 +393,7 @@ impl Http {
 
 		// Create the body.
 		let body = serde_json::to_vec(&output)
-			.map_err(|error| error!(source = error, "Failed to serialize the body."))?;
+			.map_err(|error| error!(source = error, "failed to serialize the body"))?;
 		let body = full(body);
 
 		// Create the response.

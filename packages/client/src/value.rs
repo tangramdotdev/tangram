@@ -121,12 +121,12 @@ impl Data {
 	pub fn serialize(&self) -> Result<Bytes> {
 		serde_json::to_vec(self)
 			.map(Into::into)
-			.map_err(|error| error!(source = error, "Failed to serialize the data."))
+			.map_err(|error| error!(source = error, "failed to serialize the data"))
 	}
 
 	pub fn deserialize(bytes: &Bytes) -> Result<Self> {
 		serde_json::from_reader(bytes.as_ref())
-			.map_err(|error| error!(source = error, "Failed to deserialize the data."))
+			.map_err(|error| error!(source = error, "failed to deserialize the data"))
 	}
 
 	#[must_use]

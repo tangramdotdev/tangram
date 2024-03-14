@@ -66,53 +66,53 @@ impl std::str::FromStr for Checksum {
 			.next()
 			.unwrap()
 			.parse()
-			.map_err(|error| error!(source = error, "Invalid algorithm."))?;
+			.map_err(|error| error!(source = error, "invalid algorithm"))?;
 
 		Ok(match (algorithm, components.next()) {
 			(Algorithm::Unsafe, None) => Checksum::Unsafe,
 			(Algorithm::Blake3, Some(body)) if body.len() == 44 => {
 				let body = data_encoding::BASE64
 					.decode(body.as_bytes())
-					.map_err(|error| error!(source = error, "Invalid body."))?
+					.map_err(|error| error!(source = error, "invalid body"))?
 					.into();
 				Checksum::Blake3(body)
 			},
 			(Algorithm::Blake3, Some(body)) if body.len() == 64 => {
 				let body = data_encoding::HEXLOWER
 					.decode(body.as_bytes())
-					.map_err(|error| error!(source = error, "Invalid body."))?
+					.map_err(|error| error!(source = error, "invalid body"))?
 					.into();
 				Checksum::Blake3(body)
 			},
 			(Algorithm::Sha256, Some(body)) if body.len() == 44 => {
 				let body = data_encoding::BASE64
 					.decode(body.as_bytes())
-					.map_err(|error| error!(source = error, "Invalid body."))?
+					.map_err(|error| error!(source = error, "invalid body"))?
 					.into();
 				Checksum::Sha256(body)
 			},
 			(Algorithm::Sha256, Some(body)) if body.len() == 64 => {
 				let body = data_encoding::HEXLOWER
 					.decode(body.as_bytes())
-					.map_err(|error| error!(source = error, "Invalid body."))?
+					.map_err(|error| error!(source = error, "invalid body"))?
 					.into();
 				Checksum::Sha256(body)
 			},
 			(Algorithm::Sha512, Some(body)) if body.len() == 88 => {
 				let body = data_encoding::BASE64
 					.decode(body.as_bytes())
-					.map_err(|error| error!(source = error, "Invalid body."))?
+					.map_err(|error| error!(source = error, "invalid body"))?
 					.into();
 				Checksum::Sha512(body)
 			},
 			(Algorithm::Sha512, Some(body)) if body.len() == 128 => {
 				let body = data_encoding::HEXLOWER
 					.decode(body.as_bytes())
-					.map_err(|error| error!(source = error, "Invalid body."))?
+					.map_err(|error| error!(source = error, "invalid body"))?
 					.into();
 				Checksum::Sha512(body)
 			},
-			_ => return Err(error!(%value, "Invalid checksum string length.")),
+			_ => return Err(error!(%value, "invalid checksum string length")),
 		})
 	}
 }
@@ -153,7 +153,7 @@ impl std::str::FromStr for Algorithm {
 			"sha256" => Algorithm::Sha256,
 			"sha512" => Algorithm::Sha512,
 			"blake3" => Algorithm::Blake3,
-			algorithm => return Err(error!(%algorithm, "Invalid algorithm.")),
+			algorithm => return Err(error!(%algorithm, "invalid algorithm")),
 		};
 		Ok(system)
 	}
@@ -288,7 +288,7 @@ mod tests {
 			checksum,
 			expected_string
 				.parse()
-				.expect("Failed to parse blake3 string.")
+				.expect("failed to parse blake3 string")
 		);
 	}
 
@@ -302,7 +302,7 @@ mod tests {
 			.into(),
 		);
 		let sri = "blake3-7eXAsQ8uxJecabUvYeQv9bQTUZzgm+DxTQmNz+X2+Y0=";
-		let checksum: Checksum = sri.parse().expect("Failed to parse blake3 SRI.");
+		let checksum: Checksum = sri.parse().expect("failed to parse blake3 SRI");
 		assert_eq!(checksum, expected_checksum);
 	}
 
@@ -327,7 +327,7 @@ mod tests {
 			checksum,
 			expected_string
 				.parse()
-				.expect("Failed to parse sha256 string.")
+				.expect("failed to parse sha256 string")
 		);
 	}
 
@@ -341,7 +341,7 @@ mod tests {
 			.into(),
 		);
 		let sri = "sha256-MV9b23bQeMQ7isAGTkoBZGErH853yGk0W/yUx1iU7dM=";
-		let checksum: Checksum = sri.parse().expect("Failed to parse sha256 SRI.");
+		let checksum: Checksum = sri.parse().expect("failed to parse sha256 SRI");
 		assert_eq!(checksum, expected_checksum);
 	}
 
@@ -367,7 +367,7 @@ mod tests {
 			checksum,
 			expected_string
 				.parse()
-				.expect("Failed to parse sha512 string.")
+				.expect("failed to parse sha512 string")
 		);
 	}
 
@@ -383,7 +383,7 @@ mod tests {
 			.into(),
 		);
 		let sri = "sha512-wVJ82JPBJHc9gRkRlwyP5uhX1t9dySJr2KFgYUwM2WOk3eorlLt9NgIe+dhl1c6ilKgt1JoLsmn1H256V/eUIQ==";
-		let checksum: Checksum = sri.parse().expect("Failed to parse sha512 SRI.");
+		let checksum: Checksum = sri.parse().expect("failed to parse sha512 SRI");
 		assert_eq!(checksum, expected_checksum);
 	}
 }

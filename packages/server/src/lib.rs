@@ -115,7 +115,7 @@ impl Server {
 		// Ensure the path exists.
 		tokio::fs::create_dir_all(path)
 			.await
-			.map_err(|error| error!(source = error, "Failed to create the directory."))?;
+			.map_err(|error| error!(source = error, "failed to create the directory"))?;
 
 		// Acquire the lockfile.
 		let lockfile = tokio::fs::OpenOptions::new()
@@ -124,12 +124,12 @@ impl Server {
 			.create(true)
 			.open(path.join("lock"))
 			.await
-			.map_err(|error| error!(source = error, "Failed to open the lockfile."))?;
+			.map_err(|error| error!(source = error, "failed to open the lockfile"))?;
 		let ret = unsafe { libc::flock(lockfile.as_raw_fd(), libc::LOCK_EX | libc::LOCK_NB) };
 		if ret != 0 {
 			return Err(error!(
 				source = std::io::Error::last_os_error(),
-				"Failed to acquire the lockfile."
+				"failed to acquire the lockfile"
 			));
 		}
 		let lockfile = std::sync::Mutex::new(Some(lockfile));
@@ -140,12 +140,12 @@ impl Server {
 		// Write the PID file.
 		tokio::fs::write(&path.join("pid"), std::process::id().to_string())
 			.await
-			.map_err(|error| error!(source = error, "Failed to write the PID file."))?;
+			.map_err(|error| error!(source = error, "failed to write the PID file"))?;
 
 		// Remove an existing socket file.
 		rmrf(&path.join("socket"))
 			.await
-			.map_err(|error| error!(source = error, "Failed to remove an existing socket file."))?;
+			.map_err(|error| error!(source = error, "failed to remove an existing socket file"))?;
 
 		// Create the build queue task.
 		let build_queue_task = std::sync::Mutex::new(None);
@@ -177,7 +177,7 @@ impl Server {
 			self::options::Messenger::Nats(nats) => {
 				let client = nats::connect(nats.url.to_string())
 					.await
-					.map_err(|error| error!(source = error, "Failed to create the NATS client."))?;
+					.map_err(|error| error!(source = error, "failed to create the NATS client"))?;
 				Messenger::new_nats(client)
 			},
 		};
@@ -199,9 +199,9 @@ impl Server {
 			let client_id = oauth2::ClientId::new(oauth.client_id.clone());
 			let client_secret = oauth2::ClientSecret::new(oauth.client_secret.clone());
 			let auth_url = oauth2::AuthUrl::new(oauth.auth_url.clone())
-				.map_err(|error| error!(source = error, "Failed to create the auth URL."))?;
+				.map_err(|error| error!(source = error, "failed to create the auth URL"))?;
 			let token_url = oauth2::TokenUrl::new(oauth.token_url.clone())
-				.map_err(|error| error!(source = error, "Failed to create the token URL."))?;
+				.map_err(|error| error!(source = error, "failed to create the token URL"))?;
 			let oauth_client = oauth2::basic::BasicClient::new(
 				client_id,
 				Some(client_secret),
@@ -259,11 +259,11 @@ impl Server {
 			"#;
 			let mut statement = connection
 				.prepare_cached(statement)
-				.map_err(|error| error!(source = error, "Failed to prepare the query."))?;
+				.map_err(|error| error!(source = error, "failed to prepare the query"))?;
 			let params = sqlite_params![];
 			statement
 				.execute(params)
-				.map_err(|error| error!(source = error, "Failed to execute the statement."))?;
+				.map_err(|error| error!(source = error, "failed to execute the statement"))?;
 		}
 
 		// Start the VFS if necessary and set up the checkouts directory.
@@ -274,25 +274,25 @@ impl Server {
 			tokio::fs::create_dir_all(&artifacts_path)
 				.await
 				.map_err(|error| {
-					error!(source = error, "Failed to create the artifacts directory.")
+					error!(source = error, "failed to create the artifacts directory")
 				})?;
 
 			// Start the VFS server.
 			let vfs = self::vfs::Server::start(&server, &artifacts_path)
 				.await
-				.map_err(|error| error!(source = error, "Failed to start the VFS."))?;
+				.map_err(|error| error!(source = error, "failed to start the VFS"))?;
 
 			server.inner.vfs.lock().unwrap().replace(vfs);
 		} else {
 			// Remove the artifacts directory.
 			rmrf(&artifacts_path).await.map_err(|error| {
-				error!(source = error, "Failed to remove the artifacts directory.")
+				error!(source = error, "failed to remove the artifacts directory")
 			})?;
 
 			// Create a symlink from the artifacts directory to the checkouts directory.
 			tokio::fs::symlink("checkouts", artifacts_path)
 				.await
-				.map_err(|error| error!(source = error, "Failed to create a symlink from the artifacts directory to the checkouts directory."))?;
+				.map_err(|error| error!(source = error, "failed to create a symlink from the artifacts directory to the checkouts directory"))?;
 		}
 
 		// Start the build queue task.
@@ -489,17 +489,17 @@ impl Http {
 		let listener = match &address {
 			tg::Address::Unix(path) => {
 				tokio_util::either::Either::Left(UnixListener::bind(path).map_err(|error| {
-					error!(source = error, "Failed to create the UNIX listener.")
+					error!(source = error, "failed to create the UNIX listener")
 				})?)
 			},
 			tg::Address::Inet(inet) => tokio_util::either::Either::Right(
-				TcpListener::bind(inet.to_string()).await.map_err(|error| {
-					error!(source = error, "Failed to create the TCP listener.")
-				})?,
+				TcpListener::bind(inet.to_string())
+					.await
+					.map_err(|error| error!(source = error, "failed to create the TCP listener"))?,
 			),
 		};
 
-		tracing::info!("🚀 Serving on {address:?}.");
+		tracing::info!("🚀 serving on {address:?}");
 
 		loop {
 			// Accept a new connection.
@@ -510,7 +510,7 @@ impl Http {
 							.accept()
 							.await
 							.map_err(|error| {
-								error!(source = error, "Failed to accept a new connection.")
+								error!(source = error, "failed to accept a new connection")
 							})?
 							.0,
 					),
@@ -520,7 +520,7 @@ impl Http {
 								.accept()
 								.await
 								.map_err(|error| {
-									error!(source = error, "Failed to accept a new connection.")
+									error!(source = error, "failed to accept a new connection")
 								})?
 								.0,
 						)
@@ -567,7 +567,7 @@ impl Http {
 						},
 					};
 					if let Err(error) = result {
-						tracing::error!(?error, "Failed to serve the connection.");
+						tracing::error!(?error, "failed to serve the connection");
 					}
 				}
 			});
@@ -603,7 +603,7 @@ impl Http {
 		let id = tg::Id::new_uuidv7(tg::id::Kind::Request);
 		request.extensions_mut().insert(id.clone());
 
-		tracing::trace!(?id, method = ?request.method(), path = ?request.uri().path(), "Received request.");
+		tracing::trace!(?id, method = ?request.method(), path = ?request.uri().path(), "received request");
 
 		let method = request.method().clone();
 		let path_components = request.uri().path().split('/').skip(1).collect_vec();
@@ -773,7 +773,7 @@ impl Http {
 		let value = http::HeaderValue::from_str(&id.to_string()).unwrap();
 		response.headers_mut().insert(key, value);
 
-		tracing::trace!(?id, status = ?response.status(), "Sending response.");
+		tracing::trace!(?id, status = ?response.status(), "sending response");
 
 		response
 	}

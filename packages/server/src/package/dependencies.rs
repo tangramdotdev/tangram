@@ -26,12 +26,12 @@ impl Server {
 				.await?
 				.try_unwrap_file()
 				.ok()
-				.ok_or_else(|| error!("Expected the module to be a file."))?;
+				.ok_or_else(|| error!("expected the module to be a file"))?;
 			let text: String = file.text(self).await?;
 
 			// Analyze the module.
 			let analysis = crate::language::Server::analyze_module(text)
-				.map_err(|error| error!(source = error, "Failed to analyze the module."))?;
+				.map_err(|error| error!(source = error, "failed to analyze the module"))?;
 
 			// Recurse into the dependencies.
 			for import in &analysis.imports {

@@ -83,18 +83,18 @@ impl Server {
 			// Emit the module.
 			emitter
 				.emit_program(&program)
-				.map_err(|error| error!(source = error, "Failed to emit the program."))?;
+				.map_err(|error| error!(source = error, "failed to emit the program"))?;
 			let transpiled_text = String::from_utf8(transpiled_text)
-				.map_err(|error| error!(source = error, "Failed to convert bytes to string."))?;
+				.map_err(|error| error!(source = error, "failed to convert bytes to string"))?;
 
 			// Create the source map.
 			let mut output_source_map = Vec::new();
 			source_map
 				.build_source_map(&source_mappings)
 				.to_writer(&mut output_source_map)
-				.map_err(|error| error!(source = error, "Failed to create the source map."))?;
+				.map_err(|error| error!(source = error, "failed to create the source map"))?;
 			let source_map = String::from_utf8(output_source_map)
-				.map_err(|error| error!(source = error, "Failed to convert bytes to string."))?;
+				.map_err(|error| error!(source = error, "failed to convert bytes to string"))?;
 
 			// Create the output.
 			let output = Output {
@@ -218,7 +218,7 @@ impl TargetVisitor {
 			1 => {
 				let Some(name) = export_name else {
 					self.errors.push(Error::new(
-						"Targets that are not exported must have a name.",
+						"targets that are not exported must have a name",
 						&loc,
 					));
 					n.visit_mut_children_with(self);
@@ -226,7 +226,7 @@ impl TargetVisitor {
 				};
 				let Some(f) = n.args[0].expr.as_arrow() else {
 					self.errors.push(Error::new(
-						"The argument to tg.target must be an arrow function.",
+						"the argument to tg.target must be an arrow function",
 						&loc,
 					));
 					n.visit_mut_children_with(self);
@@ -239,7 +239,7 @@ impl TargetVisitor {
 			2 => {
 				let Some(ast::Lit::Str(name)) = n.args[0].expr.as_lit() else {
 					self.errors.push(Error::new(
-						"The first argument to tg.target must be a string.",
+						"the first argument to tg.target must be a string",
 						&loc,
 					));
 					n.visit_mut_children_with(self);
@@ -248,7 +248,7 @@ impl TargetVisitor {
 				let name = name.value.to_string();
 				let Some(f) = n.args[1].expr.as_arrow() else {
 					self.errors.push(Error::new(
-						"The second argument to tg.target must be an arrow function.",
+						"the second argument to tg.target must be an arrow function",
 						&loc,
 					));
 					n.visit_mut_children_with(self);
@@ -259,10 +259,8 @@ impl TargetVisitor {
 
 			// Any other number of arguments is invalid.
 			_ => {
-				self.errors.push(Error::new(
-					"Invalid number of arguments to tg.target.",
-					&loc,
-				));
+				self.errors
+					.push(Error::new("invalid number of arguments to tg.target", &loc));
 				n.visit_mut_children_with(self);
 				return;
 			},
@@ -348,7 +346,7 @@ impl swc::ecma::visit::VisitMut for IncludeVisitor {
 		// Get the argument and verify it is a string literal.
 		if n.args.len() != 1 {
 			self.errors.push(Error::new(
-				"tg.include must be called with exactly one argument.",
+				"tg.include must be called with exactly one argument",
 				&loc,
 			));
 
@@ -356,7 +354,7 @@ impl swc::ecma::visit::VisitMut for IncludeVisitor {
 		}
 		let Some(arg) = n.args[0].expr.as_lit() else {
 			self.errors.push(Error::new(
-				"The argument to tg.include must be a string literal.",
+				"the argument to tg.include must be a string literal",
 				&loc,
 			));
 			return;

@@ -291,7 +291,7 @@ let rule: eslint.Rule.RuleModule = {
 				if (reindentedTemplate !== undefined) {
 					let newText = reindentedTemplate;
 					context.report({
-						message: "Expected the template to be properly indented.",
+						message: "expected the template to be properly indented",
 						loc: nodeLoc,
 						fix: (fixer) => {
 							return fixer.replaceTextRange(nodeRange, newText);

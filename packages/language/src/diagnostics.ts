@@ -110,7 +110,7 @@ export let convertDiagnosticFromTypeScript = (
 			break;
 		}
 		default: {
-			throw new Error("Unknown diagnostic category.");
+			throw new Error("unknown diagnostic category");
 		}
 	}
 
@@ -118,10 +118,10 @@ export let convertDiagnosticFromTypeScript = (
 	// Map diagnostics for '.ts' extensions to import errors instead.
 	if (diagnostic.code === 2691) {
 		// TS2691: An import path cannot end with a '.ts' extension. Consider importing 'bad-module' instead.
-		message = "Could not load the module.";
+		message = "could not load the module";
 	} else if (diagnostic.code === 2792) {
 		// TS2792: Cannot find module. Did you mean to set the 'moduleResolution' option to 'node', or to add aliases to the 'paths' option?
-		message = "Could not load the module.";
+		message = "could not load the module";
 	} else {
 		// Get the diagnostic's message.
 		message = ts.flattenDiagnosticMessageText(diagnostic.messageText, "\n");
@@ -159,7 +159,7 @@ export let convertDiagnosticFromESLint = (
 			break;
 		}
 		default: {
-			throw new Error("Unknown lint severity.");
+			throw new Error("unknown lint severity");
 		}
 	}
 

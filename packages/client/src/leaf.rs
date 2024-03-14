@@ -94,7 +94,7 @@ impl Leaf {
 		self.try_load(tg)
 			.await?
 			.then_some(())
-			.ok_or_else(|| error!("Failed to load the object."))
+			.ok_or_else(|| error!("failed to load the object"))
 	}
 
 	pub async fn try_load(&self, tg: &dyn Handle) -> Result<bool> {
@@ -106,7 +106,7 @@ impl Leaf {
 			return Ok(false);
 		};
 		let data = Data::deserialize(&output.bytes)
-			.map_err(|error| error!(source = error, "Failed to deserialize the data."))?;
+			.map_err(|error| error!(source = error, "failed to deserialize the data"))?;
 		let object = data.try_into()?;
 		self.state.write().unwrap().object.replace(object);
 		Ok(true)
@@ -126,7 +126,7 @@ impl Leaf {
 		};
 		tg.put_object(&id.clone().into(), &arg)
 			.await
-			.map_err(|error| error!(source = error, "Failed to put the object."))?;
+			.map_err(|error| error!(source = error, "failed to put the object"))?;
 		self.state.write().unwrap().id.replace(id);
 		Ok(())
 	}
@@ -200,7 +200,7 @@ impl TryFrom<crate::Id> for Id {
 
 	fn try_from(value: crate::Id) -> Result<Self, Self::Error> {
 		if value.kind() != id::Kind::Leaf {
-			return Err(error!(%value, "Invalid kind."));
+			return Err(error!(%value, "invalid kind"));
 		}
 		Ok(Self(value))
 	}

@@ -142,7 +142,7 @@ impl<'d> Decoder<'d> {
 	pub fn decode_bytes(&mut self, count: usize) -> Result<&'d [u8], Error> {
 		if self.input.len() < count {
 			let len = self.input.len();
-			tracing::error!(?count, ?len, "Not enough data in input.");
+			tracing::error!(?count, ?len, "not enough data in input");
 			return Err(Error::UnexpectedEof);
 		}
 		let (head, tail) = self.input.split_at(count);

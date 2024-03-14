@@ -25,7 +25,7 @@ impl Server {
 				let n = reader
 					.read(&mut bytes[position..])
 					.await
-					.map_err(|error| error!(source = error, "Failed to read from the reader."))?;
+					.map_err(|error| error!(source = error, "failed to read from the reader"))?;
 				position += n;
 				if n == 0 || position == bytes.len() {
 					break;

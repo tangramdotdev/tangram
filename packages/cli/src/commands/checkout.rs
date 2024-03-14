@@ -20,7 +20,7 @@ impl Cli {
 
 		// Get the path.
 		let mut path = std::env::current_dir()
-			.map_err(|error| error!(source = error, "Failed to get the working directory."))?;
+			.map_err(|error| error!(source = error, "failed to get the working directory"))?;
 		if let Some(path_arg) = &args.path {
 			path.push(path_arg);
 		} else {
@@ -37,7 +37,7 @@ impl Cli {
 		artifact
 			.check_out(client, path.as_ref())
 			.await
-			.map_err(|error| error!(source = error, "Failed to check out the artifact."))?;
+			.map_err(|error| error!(source = error, "failed to check out the artifact"))?;
 
 		// Print the path.
 		let path = if let Some(path) = args.path.clone() {
@@ -46,8 +46,8 @@ impl Cli {
 			client
 				.path()
 				.await
-				.map_err(|error| error!(source = error, "Failed to get the server path."))?
-				.ok_or_else(|| error!("Failed to get the server path."))?
+				.map_err(|error| error!(source = error, "failed to get the server path"))?
+				.ok_or_else(|| error!("failed to get the server path"))?
 				.join("artifacts")
 				.join(args.id.to_string())
 				.into()

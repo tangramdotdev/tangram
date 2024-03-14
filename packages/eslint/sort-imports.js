@@ -96,7 +96,7 @@ let reportErrors = (context, erroredBlocks) => {
 				end: lastDeclaration.loc.end,
 				start: firstDeclaration.loc.start,
 			},
-			message: "Expected module declarations to be sorted",
+			message: "expected module declarations to be sorted",
 		});
 	}
 };

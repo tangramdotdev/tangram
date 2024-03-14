@@ -32,9 +32,9 @@ impl Server {
 		if !documents.contains_key(&document) {
 			let metadata = tokio::fs::metadata(&path)
 				.await
-				.map_err(|error| error!(source = error, "Failed to get the metadata."))?;
+				.map_err(|error| error!(source = error, "failed to get the metadata"))?;
 			let modified = metadata.modified().map_err(|error| {
-				error!(source = error, "Failed to get the last modification time.")
+				error!(source = error, "failed to get the last modification time")
 			})?;
 			let state = tg::document::State::Closed(tg::document::Closed {
 				version: 0,
@@ -80,7 +80,7 @@ impl Server {
 			let path = path.display();
 			return Err(error!(
 				%path,
-				"Could not find an open document."
+				"could not find an open document"
 			));
 		};
 
@@ -123,9 +123,9 @@ impl Server {
 			tg::document::State::Closed(closed) => {
 				let metadata = tokio::fs::metadata(document.path())
 					.await
-					.map_err(|error| error!(source = error, "Failed to get the metadata."))?;
+					.map_err(|error| error!(source = error, "failed to get the metadata"))?;
 				let modified = metadata.modified().map_err(|error| {
-					error!(source = error, "Failed to get the last modification time.")
+					error!(source = error, "failed to get the last modification time")
 				})?;
 				if modified > closed.modified {
 					closed.modified = modified;
@@ -147,7 +147,7 @@ impl Server {
 		let text = match document {
 			tg::document::State::Closed(_) => tokio::fs::read_to_string(&path)
 				.await
-				.map_err(|error| error!(source = error, "Failed to read the file."))?,
+				.map_err(|error| error!(source = error, "failed to read the file"))?,
 			tg::document::State::Opened(opened) => opened.text.clone(),
 		};
 		Ok(text)

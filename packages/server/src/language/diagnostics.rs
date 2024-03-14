@@ -24,7 +24,7 @@ impl Server {
 
 		// Get the response.
 		let super::Response::Diagnostics(response) = response else {
-			return Err(error!("Unexpected response type."));
+			return Err(error!("unexpected response type"));
 		};
 
 		// Get the result the response.

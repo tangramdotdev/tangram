@@ -168,13 +168,13 @@ impl Server {
 		self.inner
 			.request_sender
 			.send((request, response_sender))
-			.map_err(|error| error!(source = error, "Failed to send the request."))?;
+			.map_err(|error| error!(source = error, "failed to send the request"))?;
 
 		// Receive the response.
 		let response = response_receiver.await.map_err(|error| {
 			error!(
 				source = error,
-				"Failed to receive a response for the request."
+				"failed to receive a response for the request"
 			)
 		})??;
 
@@ -197,20 +197,20 @@ impl Server {
 		let outgoing_message_task = tokio::spawn(async move {
 			while let Some(outgoing_message) = outgoing_message_receiver.recv().await {
 				let body = serde_json::to_string(&outgoing_message)
-					.map_err(|error| error!(source = error, "Failed to serialize the message."))?;
+					.map_err(|error| error!(source = error, "failed to serialize the message"))?;
 				let head = format!("Content-Length: {}\r\n\r\n", body.len());
 				output
 					.write_all(head.as_bytes())
 					.await
-					.map_err(|error| error!(source = error, "Failed to write the head."))?;
+					.map_err(|error| error!(source = error, "failed to write the head"))?;
 				output
 					.write_all(body.as_bytes())
 					.await
-					.map_err(|error| error!(source = error, "Failed to write the body."))?;
+					.map_err(|error| error!(source = error, "failed to write the body"))?;
 				output
 					.flush()
 					.await
-					.map_err(|error| error!(source = error, "Failed to flush stdout."))?;
+					.map_err(|error| error!(source = error, "failed to flush stdout"))?;
 			}
 			Ok::<_, Error>(())
 		});
@@ -258,7 +258,7 @@ impl Server {
 						if tokio::fs::try_exists(&package_path.join(root_module_file_name))
 							.await
 							.map_err(|error| {
-								error!(source = error, "Failed to determine if the path exists.")
+								error!(source = error, "failed to determine if the path exists")
 							})? {
 							found = true;
 							break;
@@ -267,7 +267,7 @@ impl Server {
 				}
 				if !found {
 					let path = path.display();
-					return Err(error!(%path, "Could not find the package."));
+					return Err(error!(%path, "could not find the package"));
 				}
 
 				// Get the module path by stripping the package path.
@@ -280,12 +280,12 @@ impl Server {
 					.ok()
 					.ok_or_else(|| {
 						let path = path.display();
-						error!(%path, "The module path was not valid UTF-8.")
+						error!(%path, "the module path was not valid UTF-8")
 					})?
 					.parse()
 					.map_err(|error| {
 						let path = path.display();
-						error!(source = error, %path, "Failed to parse the module path.")
+						error!(source = error, %path, "failed to parse the module path")
 					})?;
 
 				// Get or create the document.
@@ -325,12 +325,12 @@ where
 		let n = reader
 			.read_line(&mut line)
 			.await
-			.map_err(|error| error!(source = error, "Failed to read a line."))?;
+			.map_err(|error| error!(source = error, "failed to read a line"))?;
 		if n == 0 {
 			break;
 		}
 		if !line.ends_with("\r\n") {
-			return Err(error!(?line, "Unexpected line ending."));
+			return Err(error!(?line, "unexpected line ending"));
 		}
 		let line = &line[..line.len() - 2];
 		if line.is_empty() {
@@ -339,31 +339,31 @@ where
 		let mut components = line.split(": ");
 		let key = components
 			.next()
-			.ok_or_else(|| error!("Expected a header name."))?;
+			.ok_or_else(|| error!("expected a header name"))?;
 		let value = components
 			.next()
-			.ok_or_else(|| error!("Expected a header value."))?;
+			.ok_or_else(|| error!("expected a header value"))?;
 		headers.insert(key.to_owned(), value.to_owned());
 	}
 
 	// Read and deserialize the message.
 	let content_length: usize = headers
 		.get("Content-Length")
-		.ok_or_else(|| error!("Expected a Content-Length header."))?
+		.ok_or_else(|| error!("expected a Content-Length header"))?
 		.parse()
 		.map_err(|error| {
 			error!(
 				source = error,
-				"Failed to parse the Content-Length header value."
+				"failed to parse the Content-Length header value"
 			)
 		})?;
 	let mut message: Vec<u8> = vec![0; content_length];
 	reader
 		.read_exact(&mut message)
 		.await
-		.map_err(|error| error!(source = error, "Failed to read the message."))?;
+		.map_err(|error| error!(source = error, "failed to read the message"))?;
 	let message = serde_json::from_slice(&message)
-		.map_err(|error| error!(source = error, "Failed to deserialize the message."))?;
+		.map_err(|error| error!(source = error, "failed to deserialize the message"))?;
 
 	Ok(message)
 }
@@ -455,7 +455,7 @@ async fn handle_message(server: &Server, sender: &Sender, message: jsonrpc::Mess
 				_ => {
 					let error = jsonrpc::ResponseError {
 						code: jsonrpc::ResponseErrorCode::MethodNotFound,
-						message: "Method not found.".to_owned(),
+						message: "method not found".to_owned(),
 					};
 					send_response::<()>(sender, request.id, None, Some(error));
 					future::ready(()).boxed()
@@ -524,7 +524,7 @@ where
 	else {
 		let error = jsonrpc::ResponseError {
 			code: jsonrpc::ResponseErrorCode::InvalidParams,
-			message: "Invalid params.".to_owned(),
+			message: "invalid params".to_owned(),
 		};
 		send_response::<()>(sender, request.id, None, Some(error));
 		return;
@@ -560,7 +560,7 @@ where
 	Fut: Future<Output = crate::Result<()>>,
 {
 	let params = serde_json::from_value(request.params.unwrap_or(serde_json::Value::Null))
-		.map_err(|error| error!(source = error, "Failed to deserialize the request params."))
+		.map_err(|error| error!(source = error, "failed to deserialize the request params"))
 		.unwrap();
 	handler(sender.clone(), params)
 		.await
@@ -639,7 +639,7 @@ fn run_request_handler(server: Server, mut request_receiver: RequestReceiver) {
 
 		// Serialize the request.
 		let request = match serde_v8::to_v8(scope, &request)
-			.map_err(|error| error!(source = error, "Failed to serialize the request."))
+			.map_err(|error| error!(source = error, "failed to serialize the request"))
 		{
 			Ok(request) => request,
 			Err(error) => {
@@ -666,7 +666,7 @@ fn run_request_handler(server: Server, mut request_receiver: RequestReceiver) {
 
 		// Deserialize the response.
 		let response = match serde_v8::from_v8(scope, response)
-			.map_err(|error| error!(source = error, "Failed to deserialize the response."))
+			.map_err(|error| error!(source = error, "failed to deserialize the response"))
 		{
 			Ok(response) => response,
 			Err(error) => {
@@ -708,10 +708,10 @@ impl Http {
 			.into_body()
 			.collect()
 			.await
-			.map_err(|error| error!(source = error, "Failed to read the body."))?
+			.map_err(|error| error!(source = error, "failed to read the body"))?
 			.to_bytes();
 		let text = String::from_utf8(bytes.to_vec())
-			.map_err(|error| error!(source = error, "Failed to deserialize the request body."))?;
+			.map_err(|error| error!(source = error, "failed to deserialize the request body"))?;
 
 		// Format the text.
 		let text = self.inner.tg.format(text).await?;
@@ -737,7 +737,7 @@ impl Http {
 			.get(http::header::UPGRADE)
 			.is_some_and(|value| value == "lsp")
 		{
-			return Err(error!("Expected an upgrade header."));
+			return Err(error!("expected an upgrade header"));
 		}
 
 		tokio::spawn({
@@ -745,7 +745,7 @@ impl Http {
 			async move {
 				let io = hyper::upgrade::on(request)
 					.await
-					.map_err(|error| error!(source = error, "Failed to perform the upgrade."))?;
+					.map_err(|error| error!(source = error, "failed to perform the upgrade"))?;
 				let io = hyper_util::rt::TokioIo::new(io);
 				let (input, output) = tokio::io::split(io);
 				let input = Box::new(input);

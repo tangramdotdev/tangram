@@ -22,7 +22,7 @@ impl Cli {
 		if let Some(path) = args.package.path.as_mut() {
 			*path = tokio::fs::canonicalize(&path)
 				.await
-				.map_err(|error| error!(source = error, "Failed to canonicalize the path."))?
+				.map_err(|error| error!(source = error, "failed to canonicalize the path"))?
 				.try_into()?;
 		}
 
@@ -49,7 +49,7 @@ impl Cli {
 		}
 
 		if !diagnostics.is_empty() {
-			return Err(error!("Type checking failed."));
+			return Err(error!("type checking failed"));
 		}
 
 		Ok(())

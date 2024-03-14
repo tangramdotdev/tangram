@@ -80,7 +80,7 @@ export class Symlink {
 							path: [secondComponent.slice(1)],
 						};
 					} else {
-						throw new Error("Invalid template.");
+						throw new Error("invalid template");
 					}
 				} else if (Symlink.is(arg)) {
 					let path = await arg.path();
@@ -172,25 +172,25 @@ export class Symlink {
 		let path = await this.path();
 
 		if (artifact !== undefined && fromArtifact !== undefined) {
-			throw new Error("Expected no `from` value when `artifact` is set.");
+			throw new Error("expected no `from` value when `artifact` is set");
 		}
 
 		if (artifact !== undefined && !path) {
 			return artifact;
 		} else if (artifact === undefined && path) {
 			if (!Directory.is(fromArtifact)) {
-				throw new Error("Expected a directory.");
+				throw new Error("expected a directory");
 			}
 			return await fromArtifact.tryGet(
 				Path.new(fromPath).join("..").join(path).normalize().toString(),
 			);
 		} else if (artifact !== undefined && path) {
 			if (!Directory.is(artifact)) {
-				throw new Error("Expected a directory.");
+				throw new Error("expected a directory");
 			}
 			return await artifact.tryGet(path);
 		} else {
-			throw new Error("Invalid symlink.");
+			throw new Error("invalid symlink");
 		}
 	}
 }

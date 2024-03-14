@@ -84,20 +84,15 @@ pub async fn build(server: &Server, build: &tg::Build) -> Result<tg::Value> {
 	let server_directory_temp_path = server_directory_host_path.join("tmp");
 	tokio::fs::create_dir_all(&server_directory_temp_path)
 		.await
-		.map_err(|error| {
-			error!(
-				source = error,
-				"Failed to create the server temp directory."
-			)
-		})?;
+		.map_err(|error| error!(source = error, "failed to create the server temp directory"))?;
 
 	// Create a tempdir for the root.
 	let root_directory_tempdir = tempfile::TempDir::new_in(&server_directory_temp_path)
-		.map_err(|error| error!(source = error, "Failed to create temporary directory."))?;
+		.map_err(|error| error!(source = error, "failed to create temporary directory"))?;
 	let root_directory_host_path = root_directory_tempdir.path().to_owned();
 	tokio::fs::create_dir_all(&root_directory_host_path)
 		.await
-		.map_err(|error| error!(source = error, "Failed to create the root directory."))?;
+		.map_err(|error| error!(source = error, "failed to create the root directory"))?;
 
 	// Add `/usr/bin/env` and `/bin/sh` to the root.
 	let env_path = root_directory_host_path.join("usr/bin/env");
@@ -106,7 +101,7 @@ pub async fn build(server: &Server, build: &tg::Build) -> Result<tg::Value> {
 		.host(server)
 		.await?
 		.arch()
-		.ok_or(error!("Unrecognized target arch"))?
+		.ok_or(error!("unrecognized target arch"))?
 	{
 		tg::triple::Arch::Aarch64 => (ENV_AARCH64_LINUX, SH_AARCH64_LINUX),
 		tg::triple::Arch::Js => unreachable!(),
@@ -114,34 +109,34 @@ pub async fn build(server: &Server, build: &tg::Build) -> Result<tg::Value> {
 	};
 	tokio::fs::create_dir_all(&env_path.parent().unwrap())
 		.await
-		.map_err(|error| error!(source = error, "Failed to create the directory."))?;
+		.map_err(|error| error!(source = error, "failed to create the directory"))?;
 	tokio::fs::OpenOptions::new()
 		.write(true)
 		.create(true)
 		.mode(0o755)
 		.open(&env_path)
 		.await
-		.map_err(|error| error!(source = error, "Failed to open the file."))?
+		.map_err(|error| error!(source = error, "failed to open the file"))?
 		.write_all(env_bytes)
 		.await
-		.map_err(|error| error!(source = error, "Failed to write the buffer."))?;
+		.map_err(|error| error!(source = error, "failed to write the buffer"))?;
 	tokio::fs::create_dir_all(&sh_path.parent().unwrap())
 		.await
-		.map_err(|error| error!(source = error, "Failed to create the directory."))?;
+		.map_err(|error| error!(source = error, "failed to create the directory"))?;
 	tokio::fs::OpenOptions::new()
 		.write(true)
 		.create(true)
 		.mode(0o755)
 		.open(&sh_path)
 		.await
-		.map_err(|error| error!(source = error, "Failed to open the file."))?
+		.map_err(|error| error!(source = error, "failed to open the file"))?
 		.write_all(sh_bytes)
 		.await
-		.map_err(|error| error!(source = error, "Failed to write the buffer."))?;
+		.map_err(|error| error!(source = error, "failed to write the buffer"))?;
 
 	// Create a tempdir for the output.
 	let output_tempdir = tempfile::TempDir::new_in(&server_directory_temp_path)
-		.map_err(|error| error!(source = error, "Failed to create the temporary directory."))?;
+		.map_err(|error| error!(source = error, "failed to create the temporary directory"))?;
 
 	// Create the host and guest paths for the output parent directory.
 	let output_parent_directory_host_path = output_tempdir.path().to_owned();
@@ -151,7 +146,7 @@ pub async fn build(server: &Server, build: &tg::Build) -> Result<tg::Value> {
 		.map_err(|error| {
 			error!(
 				source = error,
-				"Failed to create the output parent directory."
+				"failed to create the output parent directory"
 			)
 		})?;
 
@@ -169,7 +164,7 @@ pub async fn build(server: &Server, build: &tg::Build) -> Result<tg::Value> {
 	let home_directory_guest_path = PathBuf::from(HOME_DIRECTORY_GUEST_PATH);
 	tokio::fs::create_dir_all(&home_directory_host_path.join(".tangram"))
 		.await
-		.map_err(|error| error!(source = error, "Failed to create the home directory."))?;
+		.map_err(|error| error!(source = error, "failed to create the home directory"))?;
 
 	// Create the host and guest paths for the proxy server socket.
 	let proxy_server_socket_host_path = home_directory_host_path.join(".tangram/socket");
@@ -180,7 +175,7 @@ pub async fn build(server: &Server, build: &tg::Build) -> Result<tg::Value> {
 		root_directory_host_path.join(WORKING_DIRECTORY_GUEST_PATH.strip_prefix('/').unwrap());
 	tokio::fs::create_dir_all(&working_directory_host_path)
 		.await
-		.map_err(|error| error!(source = error, "Failed to create the working directory."))?;
+		.map_err(|error| error!(source = error, "failed to create the working directory"))?;
 
 	// Render the executable.
 	let executable = target.executable(server).await?;
@@ -242,12 +237,12 @@ pub async fn build(server: &Server, build: &tg::Build) -> Result<tg::Value> {
 	let proxy_server_host_address = tg::Address::Unix(proxy_server_socket_host_path);
 	let proxy_server = Proxy::start(server, build.id(), proxy_server_host_address)
 		.await
-		.map_err(|error| error!(source = error, "Failed to create the proxy server."))?;
+		.map_err(|error| error!(source = error, "failed to create the proxy server"))?;
 
 	// Create /etc.
 	tokio::fs::create_dir_all(root_directory_host_path.join("etc"))
 		.await
-		.map_err(|error| error!(source = error, "Failed to create /etc."))?;
+		.map_err(|error| error!(source = error, "failed to create /etc"))?;
 
 	// Create /etc/passwd.
 	tokio::fs::write(
@@ -261,7 +256,7 @@ pub async fn build(server: &Server, build: &tg::Build) -> Result<tg::Value> {
 		),
 	)
 	.await
-	.map_err(|error| error!(source = error, "Failed to create /etc/passwd."))?;
+	.map_err(|error| error!(source = error, "failed to create /etc/passwd"))?;
 
 	// Create /etc/group.
 	tokio::fs::write(
@@ -273,7 +268,7 @@ pub async fn build(server: &Server, build: &tg::Build) -> Result<tg::Value> {
 		),
 	)
 	.await
-	.map_err(|error| error!(source = error, "Failed to create /etc/group."))?;
+	.map_err(|error| error!(source = error, "failed to create /etc/group"))?;
 
 	// Create /etc/nsswitch.conf.
 	tokio::fs::write(
@@ -287,7 +282,7 @@ pub async fn build(server: &Server, build: &tg::Build) -> Result<tg::Value> {
 		),
 	)
 	.await
-	.map_err(|error| error!(source = error, "Failed to create /etc/nsswitch.conf."))?;
+	.map_err(|error| error!(source = error, "failed to create /etc/nsswitch.conf"))?;
 
 	// If network access is enabled, then copy /etc/resolv.conf from the host.
 	if network_enabled {
@@ -296,18 +291,18 @@ pub async fn build(server: &Server, build: &tg::Build) -> Result<tg::Value> {
 			root_directory_host_path.join("etc/resolv.conf"),
 		)
 		.await
-		.map_err(|error| error!(source = error, "Failed to copy /etc/resolv.conf."))?;
+		.map_err(|error| error!(source = error, "failed to copy /etc/resolv.conf"))?;
 	}
 
 	// Create the socket.
 	let (mut host_socket, guest_socket) = tokio::net::UnixStream::pair()
-		.map_err(|error| error!(source = error, "Failed to create the socket pair."))?;
+		.map_err(|error| error!(source = error, "failed to create the socket pair"))?;
 	let guest_socket = guest_socket
 		.into_std()
-		.map_err(|error| error!(source = error, "Failed to convert the Unix Stream."))?;
+		.map_err(|error| error!(source = error, "failed to convert the Unix Stream"))?;
 	guest_socket
 		.set_nonblocking(false)
-		.map_err(|error| error!(source = error, "Failed to set nonblocking mode."))?;
+		.map_err(|error| error!(source = error, "failed to set nonblocking mode"))?;
 
 	// Create the mounts.
 	let mut mounts = Vec::new();
@@ -322,7 +317,7 @@ pub async fn build(server: &Server, build: &tg::Build) -> Result<tg::Value> {
 		.map_err(|error| {
 			error!(
 				source = error,
-				r#"Failed to create the mountpoint for "/dev"."#
+				r#"failed to create the mountpoint for "/dev""#
 			)
 		})?;
 	let dev_source_path = CString::new(dev_source_path.as_os_str().as_bytes()).unwrap();
@@ -347,7 +342,7 @@ pub async fn build(server: &Server, build: &tg::Build) -> Result<tg::Value> {
 		.map_err(|error| {
 			error!(
 				source = error,
-				r#"Failed to create the mount point for "/proc"."#
+				r#"failed to create the mount point for "/proc""#
 			)
 		})?;
 	let proc_source_path = CString::new(proc_source_path.as_os_str().as_bytes()).unwrap();
@@ -371,7 +366,7 @@ pub async fn build(server: &Server, build: &tg::Build) -> Result<tg::Value> {
 		.map_err(|error| {
 			error!(
 				source = error,
-				r#"Failed to create the mount point for "/tmp"."#
+				r#"failed to create the mount point for "/tmp""#
 			)
 		})?;
 	let tmp_source_path = CString::new(tmp_source_path.as_os_str().as_bytes()).unwrap();
@@ -394,7 +389,7 @@ pub async fn build(server: &Server, build: &tg::Build) -> Result<tg::Value> {
 		.map_err(|error| {
 			error!(
 				source = error,
-				"Failed to create the mount point for the tangram directory."
+				"failed to create the mount point for the tangram directory"
 			)
 		})?;
 	let server_directory_source_path =
@@ -438,7 +433,7 @@ pub async fn build(server: &Server, build: &tg::Build) -> Result<tg::Value> {
 		.map_err(|error| {
 			error!(
 				source = error,
-				"Failed to create the mount point for the output parent directory."
+				"failed to create the mount point for the output parent directory"
 			)
 		})?;
 	let output_parent_directory_source_path =
@@ -456,7 +451,7 @@ pub async fn build(server: &Server, build: &tg::Build) -> Result<tg::Value> {
 
 	// Create the executable.
 	let executable = CString::new(executable)
-		.map_err(|error| error!(source = error, "The executable is not a valid C string."))?;
+		.map_err(|error| error!(source = error, "the executable is not a valid C string"))?;
 
 	// Create `envp`.
 	let env = env
@@ -475,7 +470,7 @@ pub async fn build(server: &Server, build: &tg::Build) -> Result<tg::Value> {
 		.into_iter()
 		.map(CString::new)
 		.try_collect()
-		.map_err(|error| error!(source = error, "Failed to convert the args."))?;
+		.map_err(|error| error!(source = error, "failed to convert the args"))?;
 	let mut argv = Vec::with_capacity(1 + args.len() + 1);
 	argv.push(executable.clone());
 	for arg in args {
@@ -488,7 +483,7 @@ pub async fn build(server: &Server, build: &tg::Build) -> Result<tg::Value> {
 		.map_err(|error| {
 			error!(
 				source = error,
-				"The root directory host path is not a valid C string."
+				"the root directory host path is not a valid C string"
 			)
 		})?;
 
@@ -497,20 +492,20 @@ pub async fn build(server: &Server, build: &tg::Build) -> Result<tg::Value> {
 		CString::new(WORKING_DIRECTORY_GUEST_PATH).map_err(|error| {
 			error!(
 				source = error,
-				"The working directory is not a valid C string."
+				"the working directory is not a valid C string"
 			)
 		})?;
 
 	// Create the log socket pair.
 	let (log_send, mut log_recv) = tokio::net::UnixStream::pair()
-		.map_err(|error| error!(source = error, "Failed to create stdout socket."))?;
+		.map_err(|error| error!(source = error, "failed to create stdout socket"))?;
 	let log = log_send
 		.into_std()
-		.map_err(|error| error!(source = error, "Failed to convert the log sender."))?;
+		.map_err(|error| error!(source = error, "failed to convert the log sender"))?;
 	log.set_nonblocking(false).map_err(|error| {
 		error!(
 			source = error,
-			"Failed to set the log socket as non-blocking."
+			"failed to set the log socket as non-blocking"
 		)
 	})?;
 
@@ -531,7 +526,7 @@ pub async fn build(server: &Server, build: &tg::Build) -> Result<tg::Value> {
 	let clone_flags = libc::CLONE_NEWUSER;
 	let clone_flags = clone_flags
 		.try_into()
-		.map_err(|error| error!(source = error, "Invalid clone flags."))?;
+		.map_err(|error| error!(source = error, "invalid clone flags"))?;
 	let mut clone_args = libc::clone_args {
 		flags: clone_flags,
 		stack: 0,
@@ -555,7 +550,7 @@ pub async fn build(server: &Server, build: &tg::Build) -> Result<tg::Value> {
 	if ret == -1 {
 		return Err(error!(
 			source = std::io::Error::last_os_error(),
-			"Failed to spawn the root process."
+			"failed to spawn the root process"
 		));
 	}
 	if ret == 0 {
@@ -564,7 +559,7 @@ pub async fn build(server: &Server, build: &tg::Build) -> Result<tg::Value> {
 	drop(context);
 	let root_process_pid: libc::pid_t = ret
 		.try_into()
-		.map_err(|error| error!(source = error, "Invalid root process PID."))?;
+		.map_err(|error| error!(source = error, "invalid root process PID"))?;
 
 	// If this future is dropped, then kill the root process.
 	scopeguard::defer! {
@@ -572,7 +567,7 @@ pub async fn build(server: &Server, build: &tg::Build) -> Result<tg::Value> {
 		let ret = unsafe { libc::kill(root_process_pid, libc::SIGKILL) };
 		if ret != 0 {
 			let error = std::io::Error::last_os_error();
-			tracing::error!(?ret, ?error, "Failed to kill the root process.");
+			tracing::error!(?ret, ?error, "failed to kill the root process");
 			return;
 		}
 
@@ -588,7 +583,7 @@ pub async fn build(server: &Server, build: &tg::Build) -> Result<tg::Value> {
 			};
 			if ret == -1 {
 				let error = std::io::Error::last_os_error();
-				tracing::error!(?ret, ?error, "Failed to wait for the root process to exit.");
+				tracing::error!(?ret, ?error, "failed to wait for the root process to exit");
 			}
 		});
 	};
@@ -602,7 +597,7 @@ pub async fn build(server: &Server, build: &tg::Build) -> Result<tg::Value> {
 			loop {
 				match log_recv.read(&mut buf).await {
 					Err(error) => {
-						return Err(error!(source = error, "Failed to read from the log."))
+						return Err(error!(source = error, "failed to read from the log"))
 					},
 					Ok(0) => return Ok(()),
 					Ok(size) => {
@@ -612,7 +607,7 @@ pub async fn build(server: &Server, build: &tg::Build) -> Result<tg::Value> {
 								.write_all(&log)
 								.await
 								.inspect_err(|e| {
-									tracing::error!(?e, "Failed to write build log to stderr.");
+									tracing::error!(?e, "failed to write build log to stderr");
 								})
 								.ok();
 						}
@@ -627,7 +622,7 @@ pub async fn build(server: &Server, build: &tg::Build) -> Result<tg::Value> {
 	let guest_process_pid: libc::pid_t = host_socket.read_i32_le().await.map_err(|error| {
 		error!(
 			source = error,
-			"Failed to receive the PID of the guest process from the socket."
+			"failed to receive the PID of the guest process from the socket"
 		)
 	})?;
 
@@ -638,12 +633,12 @@ pub async fn build(server: &Server, build: &tg::Build) -> Result<tg::Value> {
 		format!("{TANGRAM_UID} {uid} 1\n"),
 	)
 	.await
-	.map_err(|error| error!(source = error, "Failed to set the UID map."))?;
+	.map_err(|error| error!(source = error, "failed to set the UID map"))?;
 
 	// Deny setgroups to the process.
 	tokio::fs::write(format!("/proc/{guest_process_pid}/setgroups"), "deny")
 		.await
-		.map_err(|error| error!(source = error, "Failed to disable setgroups."))?;
+		.map_err(|error| error!(source = error, "failed to disable setgroups"))?;
 
 	// Write the guest process's GID map.
 	let gid = unsafe { libc::getgid() };
@@ -652,13 +647,13 @@ pub async fn build(server: &Server, build: &tg::Build) -> Result<tg::Value> {
 		format!("{TANGRAM_GID} {gid} 1\n"),
 	)
 	.await
-	.map_err(|error| error!(source = error, "Failed to set the GID map."))?;
+	.map_err(|error| error!(source = error, "failed to set the GID map"))?;
 
 	// Notify the guest process that it can continue.
 	host_socket.write_u8(1).await.map_err(|error| {
 		error!(
 			source = error,
-			"Failed to notify the guest process that it can continue."
+			"failed to notify the guest process that it can continue"
 		)
 	})?;
 
@@ -666,13 +661,13 @@ pub async fn build(server: &Server, build: &tg::Build) -> Result<tg::Value> {
 	let kind = host_socket.read_u8().await.map_err(|error| {
 		error!(
 			source = error,
-			"Failed to receive the exit status kind from the root process."
+			"failed to receive the exit status kind from the root process"
 		)
 	})?;
 	let value = host_socket.read_i32_le().await.map_err(|error| {
 		error!(
 			source = error,
-			"Failed to receive the exit status value from the root process."
+			"failed to receive the exit status value from the root process"
 		)
 	})?;
 	let exit_status = match kind {
@@ -695,7 +690,7 @@ pub async fn build(server: &Server, build: &tg::Build) -> Result<tg::Value> {
 			return Err(std::io::Error::last_os_error()).map_err(|error| {
 				error!(
 					source = error,
-					"Failed to wait for the root process to exit."
+					"failed to wait for the root process to exit"
 				)
 			});
 		}
@@ -711,39 +706,34 @@ pub async fn build(server: &Server, build: &tg::Build) -> Result<tg::Value> {
 		match exit_status {
 			ExitStatus::Code(0) => (),
 			ExitStatus::Code(code) => {
-				return Err(error!(r#"The root process exited with code "{code}"."#));
+				return Err(error!(r#"the root process exited with code "{code}""#));
 			},
 			ExitStatus::Signal(signal) => {
 				return Err(error!(
-					r#"The root process was terminated with signal "{signal}"."#
+					r#"the root process was terminated with signal "{signal}""#
 				));
 			},
 		};
 		Ok(())
 	})
 	.await
-	.map_err(|error| error!(source = error, "Failed to join the root process exit task."))?
-	.map_err(|error| {
-		error!(
-			source = error,
-			"The root process did not exit successfully."
-		)
-	})?;
+	.map_err(|error| error!(source = error, "failed to join the root process exit task"))?
+	.map_err(|error| error!(source = error, "the root process did not exit successfully"))?;
 
 	// Wait for the log task to complete.
 	log_task
 		.await
-		.map_err(|error| error!(source = error, "Failed to join the log task."))?
-		.map_err(|error| error!(source = error, "The log task failed."))?;
+		.map_err(|error| error!(source = error, "failed to join the log task"))?
+		.map_err(|error| error!(source = error, "the log task failed"))?;
 
 	// Handle the guest process's exit status.
 	match exit_status {
 		ExitStatus::Code(0) => (),
 		ExitStatus::Code(code) => {
-			return Err(error!(r#"The process exited with code "{code}"."#));
+			return Err(error!(r#"the process exited with code "{code}""#));
 		},
 		ExitStatus::Signal(signal) => {
-			return Err(error!(r#"The process exited with signal "{signal}"."#));
+			return Err(error!(r#"the process exited with signal "{signal}""#));
 		},
 	};
 
@@ -752,26 +742,26 @@ pub async fn build(server: &Server, build: &tg::Build) -> Result<tg::Value> {
 	proxy_server
 		.join()
 		.await
-		.map_err(|error| error!(source = error, "Failed to stop the proxy server."))?;
+		.map_err(|error| error!(source = error, "failed to stop the proxy server"))?;
 
 	// Create the output.
 	let value = if tokio::fs::try_exists(&output_host_path)
 		.await
-		.map_err(|error| error!(source = error, "Failed to determine in the path exists."))?
+		.map_err(|error| error!(source = error, "failed to determine in the path exists"))?
 	{
 		// Check in the output.
 		let artifact = tg::Artifact::check_in(server, &output_host_path.clone().try_into()?)
 			.await
-			.map_err(|error| error!(source = error, "Failed to check in the output."))?;
+			.map_err(|error| error!(source = error, "failed to check in the output"))?;
 
 		// Verify the checksum if one was provided.
 		if let Some(expected) = target.checksum(server).await?.clone() {
 			let actual = artifact
 				.checksum(server, expected.algorithm())
 				.await
-				.map_err(|error| error!(source = error, "Failed to compute the checksum."))?;
+				.map_err(|error| error!(source = error, "failed to compute the checksum"))?;
 			if expected != tg::Checksum::Unsafe && expected != actual {
-				return Err(error!(%actual, %expected, "The checksum did not match."));
+				return Err(error!(%actual, %expected, "the checksum did not match"));
 			}
 		}
 
@@ -788,23 +778,23 @@ fn root(context: &Context) {
 		// Ask to receive a SIGKILL signal if the host process exits.
 		let ret = libc::prctl(libc::PR_SET_PDEATHSIG, libc::SIGKILL, 0, 0, 0);
 		if ret == -1 {
-			abort_errno!("Failed to set PDEATHSIG.");
+			abort_errno!("failed to set PDEATHSIG");
 		}
 
 		// Duplicate stdout and stderr to the log.
 		let ret = libc::dup2(context.log.as_raw_fd(), libc::STDOUT_FILENO);
 		if ret == -1 {
-			abort_errno!("Failed to duplicate stdout to the log.");
+			abort_errno!("failed to duplicate stdout to the log");
 		}
 		let ret = libc::dup2(context.log.as_raw_fd(), libc::STDERR_FILENO);
 		if ret == -1 {
-			abort_errno!("Failed to duplicate stderr to the log.");
+			abort_errno!("failed to duplicate stderr to the log");
 		}
 
 		// Close stdin.
 		let ret = libc::close(libc::STDIN_FILENO);
 		if ret == -1 {
-			abort_errno!("Failed to close stdin.");
+			abort_errno!("failed to close stdin");
 		}
 
 		// If network access is disabled, set CLONE_NEWNET to isolate the guest's network namespace.
@@ -817,7 +807,7 @@ fn root(context: &Context) {
 		// Spawn the guest process.
 		let clone_flags = libc::CLONE_NEWNS | libc::CLONE_NEWPID | network_clone_flags;
 		let Ok(clone_flags) = clone_flags.try_into() else {
-			abort!("Invalid clone flags.");
+			abort!("invalid clone flags");
 		};
 		let mut clone_args = libc::clone_args {
 			flags: clone_flags,
@@ -838,7 +828,7 @@ fn root(context: &Context) {
 			std::mem::size_of::<libc::clone_args>(),
 		);
 		if ret == -1 {
-			abort_errno!("Failed to spawn the guest process.");
+			abort_errno!("failed to spawn the guest process");
 		}
 		if ret == 0 {
 			guest(context);
@@ -846,7 +836,7 @@ fn root(context: &Context) {
 		let guest_process_pid: libc::pid_t = if let Ok(guest_process_pid) = ret.try_into() {
 			guest_process_pid
 		} else {
-			abort!("Invalid guest process PID.");
+			abort!("invalid guest process PID");
 		};
 
 		// Send the guest process's PID to the host process, so the host process can write the UID and GID maps.
@@ -857,14 +847,14 @@ fn root(context: &Context) {
 			0,
 		);
 		if ret == -1 {
-			abort_errno!("Failed to send the PID of guest process.");
+			abort_errno!("failed to send the PID of guest process");
 		}
 
 		// Wait for the guest process.
 		let mut status: libc::c_int = 0;
 		let ret = libc::waitpid(guest_process_pid, &mut status, libc::__WALL);
 		if ret == -1 {
-			abort_errno!("Failed to wait for the guest process.");
+			abort_errno!("failed to wait for the guest process");
 		}
 		let guest_process_exit_status = if libc::WIFEXITED(status) {
 			let status = libc::WEXITSTATUS(status);
@@ -873,7 +863,7 @@ fn root(context: &Context) {
 			let signal = libc::WTERMSIG(status);
 			ExitStatus::Signal(signal)
 		} else {
-			abort!("The guest process exited with neither a code nor a signal.");
+			abort!("the guest process exited with neither a code nor a signal");
 		};
 
 		// Send the host process the exit code of the guest process.
@@ -888,7 +878,7 @@ fn root(context: &Context) {
 			0,
 		);
 		if ret == -1 {
-			abort_errno!("Failed to send the guest process's exit status's kind to the host.");
+			abort_errno!("failed to send the guest process's exit status's kind to the host");
 		}
 		let ret = libc::send(
 			context.guest_socket.as_raw_fd(),
@@ -897,7 +887,7 @@ fn root(context: &Context) {
 			0,
 		);
 		if ret == -1 {
-			abort_errno!("Failed to send the guest process's exit status's value to the host.");
+			abort_errno!("failed to send the guest process's exit status's value to the host");
 		}
 
 		std::process::exit(0)
@@ -909,7 +899,7 @@ fn guest(context: &Context) {
 		// Ask to receive a SIGKILL signal if the host process exits.
 		let ret = libc::prctl(libc::PR_SET_PDEATHSIG, libc::SIGKILL, 0, 0, 0);
 		if ret == -1 {
-			abort_errno!("Failed to set PDEATHSIG.");
+			abort_errno!("failed to set PDEATHSIG");
 		}
 
 		// Wait for the notification from the host process to continue.
@@ -921,7 +911,7 @@ fn guest(context: &Context) {
 			0,
 		);
 		if ret == -1 {
-			abort_errno!("The guest process failed to receive the notification from the host process to continue.");
+			abort_errno!("the guest process failed to receive the notification from the host process to continue");
 		}
 		assert_eq!(notification, 1);
 
@@ -942,7 +932,7 @@ fn guest(context: &Context) {
 			let ret = libc::mount(source, target, fstype, flags, data);
 			if ret == -1 {
 				abort_errno!(
-					r#"Failed to mount "{}" to "{}"."#,
+					r#"failed to mount "{}" to "{}""#,
 					mount.source.to_str().unwrap(),
 					mount.target.to_str().unwrap(),
 				);
@@ -957,7 +947,7 @@ fn guest(context: &Context) {
 				);
 				if ret == -1 {
 					abort_errno!(
-						r#"Failed to mount "{}" to "{}"."#,
+						r#"failed to mount "{}" to "{}""#,
 						mount.source.to_str().unwrap(),
 						mount.target.to_str().unwrap(),
 					);
@@ -974,25 +964,25 @@ fn guest(context: &Context) {
 			std::ptr::null(),
 		);
 		if ret == -1 {
-			abort_errno!("Failed to mount the root.");
+			abort_errno!("failed to mount the root");
 		}
 
 		// Change the working directory to the pivoted root.
 		let ret = libc::chdir(context.root_directory_host_path.as_ptr());
 		if ret == -1 {
-			abort_errno!("Failed to change directory to the root.");
+			abort_errno!("failed to change directory to the root");
 		}
 
 		// Pivot the root.
 		let ret = libc::syscall(libc::SYS_pivot_root, b".\0".as_ptr(), b".\0".as_ptr());
 		if ret == -1 {
-			abort_errno!("Failed to pivot the root.");
+			abort_errno!("failed to pivot the root");
 		}
 
 		// Unmount the root.
 		let ret = libc::umount2(b".\0".as_ptr().cast(), libc::MNT_DETACH);
 		if ret == -1 {
-			abort_errno!("Failed to unmount the root.");
+			abort_errno!("failed to unmount the root");
 		}
 
 		// Remount the root as read-only.
@@ -1004,13 +994,13 @@ fn guest(context: &Context) {
 			std::ptr::null(),
 		);
 		if ret == -1 {
-			abort_errno!("Failed to remount the root as read-only.");
+			abort_errno!("failed to remount the root as read-only");
 		}
 
 		// Set the working directory.
 		let ret = libc::chdir(context.working_directory_guest_path.as_ptr());
 		if ret == -1 {
-			abort_errno!("Failed to set the working directory.");
+			abort_errno!("failed to set the working directory");
 		}
 
 		// Exec.
@@ -1019,7 +1009,7 @@ fn guest(context: &Context) {
 			context.argv.as_ptr().cast(),
 			context.envp.as_ptr().cast(),
 		);
-		abort_errno!(r#"Failed to call execve."#);
+		abort_errno!(r#"failed to call execve"#);
 	}
 }
 
@@ -1094,7 +1084,7 @@ enum ExitStatus {
 
 macro_rules! abort {
 	($($t:tt)*) => {{
-		eprintln!("An error occurred in the linux runtime guest process.");
+		eprintln!("an error occurred in the linux runtime guest process");
 		eprintln!("{}", format_args!($($t)*));
 		std::process::exit(1)
 	}};
@@ -1104,7 +1094,7 @@ use abort;
 
 macro_rules! abort_errno {
 	($($t:tt)*) => {{
-		eprintln!("An error occurred in the linux runtime guest process.");
+		eprintln!("an error occurred in the linux runtime guest process");
 		eprintln!("{}", format_args!($($t)*));
 		eprintln!("{}", std::io::Error::last_os_error());
 		std::process::exit(1)

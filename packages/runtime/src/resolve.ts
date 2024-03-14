@@ -82,6 +82,6 @@ export let resolve = async <T extends Unresolved<Value>>(
 			),
 		) as Resolved<T>;
 	} else {
-		throw new Error("Invalid value to resolve.");
+		throw new Error("invalid value to resolve");
 	}
 };

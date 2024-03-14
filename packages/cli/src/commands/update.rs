@@ -12,6 +12,6 @@ pub struct Args {
 
 impl Cli {
 	pub async fn command_update(&self, _args: Args) -> Result<()> {
-		Err(error!("This command is not yet implemented."))
+		Err(error!("this command is not yet implemented"))
 	}
 }

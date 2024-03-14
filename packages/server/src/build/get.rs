@@ -63,58 +63,58 @@ impl Server {
 		let params = sqlite_params![id.to_string()];
 		let mut statement = connection
 			.prepare_cached(statement)
-			.map_err(|error| error!(source = error, "Failed to prepare the query."))?;
+			.map_err(|error| error!(source = error, "failed to prepare the query"))?;
 		let mut rows = statement
 			.query(params)
-			.map_err(|error| error!(source = error, "Failed to execute the statement."))?;
+			.map_err(|error| error!(source = error, "failed to execute the statement"))?;
 		let Some(row) = rows
 			.next()
-			.map_err(|error| error!(source = error, "Failed to retrieve the row."))?
+			.map_err(|error| error!(source = error, "failed to retrieve the row"))?
 		else {
 			return Ok(None);
 		};
 		let id = row
 			.get::<_, String>(0)
-			.map_err(|error| error!(source = error, "Failed to deserialize the column."))?;
+			.map_err(|error| error!(source = error, "failed to deserialize the column"))?;
 		let _complete = row
 			.get::<_, bool>(1)
-			.map_err(|error| error!(source = error, "Failed to deserialize the column."))?;
+			.map_err(|error| error!(source = error, "failed to deserialize the column"))?;
 		let count = row
 			.get::<_, Option<i64>>(2)
-			.map_err(|error| error!(source = error, "Failed to deserialize the column."))?;
+			.map_err(|error| error!(source = error, "failed to deserialize the column"))?;
 		let host = row
 			.get::<_, String>(3)
-			.map_err(|error| error!(source = error, "Failed to deserialize the column."))?;
+			.map_err(|error| error!(source = error, "failed to deserialize the column"))?;
 		let log = row
 			.get::<_, Option<String>>(4)
-			.map_err(|error| error!(source = error, "Failed to deserialize the column."))?;
+			.map_err(|error| error!(source = error, "failed to deserialize the column"))?;
 		let outcome = row
 			.get::<_, Option<SqliteJson<tg::build::outcome::Data>>>(5)
-			.map_err(|error| error!(source = error, "Failed to deserialize the column."))?;
+			.map_err(|error| error!(source = error, "failed to deserialize the column"))?;
 		let retry = row
 			.get::<_, String>(6)
-			.map_err(|error| error!(source = error, "Failed to deserialize the column."))?;
+			.map_err(|error| error!(source = error, "failed to deserialize the column"))?;
 		let status = row
 			.get::<_, String>(7)
-			.map_err(|error| error!(source = error, "Failed to deserialize the column."))?;
+			.map_err(|error| error!(source = error, "failed to deserialize the column"))?;
 		let target = row
 			.get::<_, String>(8)
-			.map_err(|error| error!(source = error, "Failed to deserialize the column."))?;
+			.map_err(|error| error!(source = error, "failed to deserialize the column"))?;
 		let weight = row
 			.get::<_, Option<i64>>(9)
-			.map_err(|error| error!(source = error, "Failed to deserialize the column."))?;
+			.map_err(|error| error!(source = error, "failed to deserialize the column"))?;
 		let created_at = row
 			.get::<_, String>(10)
-			.map_err(|error| error!(source = error, "Failed to deserialize the column."))?;
+			.map_err(|error| error!(source = error, "failed to deserialize the column"))?;
 		let queued_at = row
 			.get::<_, Option<String>>(11)
-			.map_err(|error| error!(source = error, "Failed to deserialize the column."))?;
+			.map_err(|error| error!(source = error, "failed to deserialize the column"))?;
 		let started_at = row
 			.get::<_, Option<String>>(12)
-			.map_err(|error| error!(source = error, "Failed to deserialize the column."))?;
+			.map_err(|error| error!(source = error, "failed to deserialize the column"))?;
 		let finished_at = row
 			.get::<_, Option<String>>(13)
-			.map_err(|error| error!(source = error, "Failed to deserialize the column."))?;
+			.map_err(|error| error!(source = error, "failed to deserialize the column"))?;
 		let id = id.parse()?;
 		let count = count.map(|count| count.to_u64().unwrap());
 		let host = host.parse()?;
@@ -125,23 +125,23 @@ impl Server {
 		let target = target.parse()?;
 		let weight = weight.map(|weight| weight.to_u64().unwrap());
 		let created_at = time::OffsetDateTime::parse(&created_at, &Rfc3339)
-			.map_err(|error| error!(source = error, "Failed to parse the timestamp."))?;
+			.map_err(|error| error!(source = error, "failed to parse the timestamp"))?;
 		let queued_at = queued_at
 			.map(|timestamp| {
 				time::OffsetDateTime::parse(&timestamp, &Rfc3339)
-					.map_err(|error| error!(source = error, "Failed to parse the timestamp."))
+					.map_err(|error| error!(source = error, "failed to parse the timestamp"))
 			})
 			.transpose()?;
 		let started_at = started_at
 			.map(|timestamp| {
 				time::OffsetDateTime::parse(&timestamp, &Rfc3339)
-					.map_err(|error| error!(source = error, "Failed to parse the timestamp."))
+					.map_err(|error| error!(source = error, "failed to parse the timestamp"))
 			})
 			.transpose()?;
 		let finished_at = finished_at
 			.map(|timestamp| {
 				time::OffsetDateTime::parse(&timestamp, &Rfc3339)
-					.map_err(|error| error!(source = error, "Failed to parse the timestamp."))
+					.map_err(|error| error!(source = error, "failed to parse the timestamp"))
 			})
 			.transpose()?;
 		let output = tg::build::GetOutput {
@@ -191,53 +191,53 @@ impl Server {
 		let statement = connection
 			.prepare_cached(statement)
 			.await
-			.map_err(|error| error!(source = error, "Failed to prepare the query."))?;
+			.map_err(|error| error!(source = error, "failed to prepare the query"))?;
 		let row = connection
 			.query_one(&statement, params)
 			.await
-			.map_err(|error| error!(source = error, "Failed to execute the statement."))?;
+			.map_err(|error| error!(source = error, "failed to execute the statement"))?;
 		let id = row
 			.try_get::<_, String>(0)
-			.map_err(|error| error!(source = error, "Failed to deserialize the column."))?;
+			.map_err(|error| error!(source = error, "failed to deserialize the column"))?;
 		let _complete = row
 			.try_get::<_, bool>(1)
-			.map_err(|error| error!(source = error, "Failed to deserialize the column."))?;
+			.map_err(|error| error!(source = error, "failed to deserialize the column"))?;
 		let count = row
 			.try_get::<_, Option<i64>>(2)
-			.map_err(|error| error!(source = error, "Failed to deserialize the column."))?;
+			.map_err(|error| error!(source = error, "failed to deserialize the column"))?;
 		let host = row
 			.try_get::<_, String>(3)
-			.map_err(|error| error!(source = error, "Failed to deserialize the column."))?;
+			.map_err(|error| error!(source = error, "failed to deserialize the column"))?;
 		let log = row
 			.try_get::<_, Option<String>>(4)
-			.map_err(|error| error!(source = error, "Failed to deserialize the column."))?;
+			.map_err(|error| error!(source = error, "failed to deserialize the column"))?;
 		let outcome = row
 			.try_get::<_, Option<PostgresJson<tg::build::outcome::Data>>>(5)
-			.map_err(|error| error!(source = error, "Failed to deserialize the column."))?;
+			.map_err(|error| error!(source = error, "failed to deserialize the column"))?;
 		let retry = row
 			.try_get::<_, String>(6)
-			.map_err(|error| error!(source = error, "Failed to deserialize the column."))?;
+			.map_err(|error| error!(source = error, "failed to deserialize the column"))?;
 		let status = row
 			.try_get::<_, String>(7)
-			.map_err(|error| error!(source = error, "Failed to deserialize the column."))?;
+			.map_err(|error| error!(source = error, "failed to deserialize the column"))?;
 		let target = row
 			.try_get::<_, String>(8)
-			.map_err(|error| error!(source = error, "Failed to deserialize the column."))?;
+			.map_err(|error| error!(source = error, "failed to deserialize the column"))?;
 		let weight = row
 			.try_get::<_, Option<i64>>(9)
-			.map_err(|error| error!(source = error, "Failed to deserialize the column."))?;
+			.map_err(|error| error!(source = error, "failed to deserialize the column"))?;
 		let created_at = row
 			.try_get::<_, String>(10)
-			.map_err(|error| error!(source = error, "Failed to deserialize the column."))?;
+			.map_err(|error| error!(source = error, "failed to deserialize the column"))?;
 		let queued_at = row
 			.try_get::<_, Option<String>>(11)
-			.map_err(|error| error!(source = error, "Failed to deserialize the column."))?;
+			.map_err(|error| error!(source = error, "failed to deserialize the column"))?;
 		let started_at = row
 			.try_get::<_, Option<String>>(12)
-			.map_err(|error| error!(source = error, "Failed to deserialize the column."))?;
+			.map_err(|error| error!(source = error, "failed to deserialize the column"))?;
 		let finished_at = row
 			.try_get::<_, Option<String>>(13)
-			.map_err(|error| error!(source = error, "Failed to deserialize the column."))?;
+			.map_err(|error| error!(source = error, "failed to deserialize the column"))?;
 		let id = id.parse()?;
 		let count = count.map(|count| count.to_u64().unwrap());
 		let host = host.parse()?;
@@ -248,23 +248,23 @@ impl Server {
 		let target = target.parse()?;
 		let weight = weight.map(|weight| weight.to_u64().unwrap());
 		let created_at = time::OffsetDateTime::parse(&created_at, &Rfc3339)
-			.map_err(|error| error!(source = error, "Failed to parse the timestamp."))?;
+			.map_err(|error| error!(source = error, "failed to parse the timestamp"))?;
 		let queued_at = queued_at
 			.map(|timestamp| {
 				time::OffsetDateTime::parse(&timestamp, &Rfc3339)
-					.map_err(|error| error!(source = error, "Failed to parse the timestamp."))
+					.map_err(|error| error!(source = error, "failed to parse the timestamp"))
 			})
 			.transpose()?;
 		let started_at = started_at
 			.map(|timestamp| {
 				time::OffsetDateTime::parse(&timestamp, &Rfc3339)
-					.map_err(|error| error!(source = error, "Failed to parse the timestamp."))
+					.map_err(|error| error!(source = error, "failed to parse the timestamp"))
 			})
 			.transpose()?;
 		let finished_at = finished_at
 			.map(|timestamp| {
 				time::OffsetDateTime::parse(&timestamp, &Rfc3339)
-					.map_err(|error| error!(source = error, "Failed to parse the timestamp."))
+					.map_err(|error| error!(source = error, "failed to parse the timestamp"))
 			})
 			.transpose()?;
 		let output = tg::build::GetOutput {
@@ -345,11 +345,11 @@ impl Http {
 		let path_components: Vec<&str> = request.uri().path().split('/').skip(1).collect();
 		let ["builds", id] = path_components.as_slice() else {
 			let path = request.uri().path();
-			return Err(error!(%path, "Unexpected path."));
+			return Err(error!(%path, "unexpected path"));
 		};
 		let id = id
 			.parse()
-			.map_err(|error| error!(source = error, "Failed to parse the ID."))?;
+			.map_err(|error| error!(source = error, "failed to parse the ID"))?;
 
 		// Get the search params.
 		let arg = request
@@ -357,7 +357,7 @@ impl Http {
 			.query()
 			.map(serde_urlencoded::from_str)
 			.transpose()
-			.map_err(|error| error!(source = error, "Failed to deserialize the search params."))?
+			.map_err(|error| error!(source = error, "failed to deserialize the search params"))?
 			.unwrap_or_default();
 
 		// Get the build.
@@ -367,7 +367,7 @@ impl Http {
 
 		// Create the body.
 		let body = serde_json::to_vec(&output)
-			.map_err(|error| error!(source = error, "Failed to serialize the body."))?;
+			.map_err(|error| error!(source = error, "failed to serialize the body"))?;
 		let body = full(body);
 
 		// Create the response.

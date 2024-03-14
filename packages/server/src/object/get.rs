@@ -45,19 +45,19 @@ impl Server {
 		let params = sqlite_params![id.to_string()];
 		let mut statement = connection
 			.prepare_cached(statement)
-			.map_err(|error| error!(source = error, "Failed to prepare the query."))?;
+			.map_err(|error| error!(source = error, "failed to prepare the query"))?;
 		let mut rows = statement
 			.query(params)
-			.map_err(|error| error!(source = error, "Failed to execute the statement."))?;
+			.map_err(|error| error!(source = error, "failed to execute the statement"))?;
 		let Some(row) = rows
 			.next()
-			.map_err(|error| error!(source = error, "Failed to retrieve the row."))?
+			.map_err(|error| error!(source = error, "failed to retrieve the row"))?
 		else {
 			return Ok(None);
 		};
 		let bytes: Bytes = row
 			.get::<_, Vec<u8>>(0)
-			.map_err(|error| error!(source = error, "Failed to deserialize the column."))?
+			.map_err(|error| error!(source = error, "failed to deserialize the column"))?
 			.into();
 		let output = tg::object::GetOutput {
 			bytes,
@@ -82,17 +82,17 @@ impl Server {
 		let statement = connection
 			.prepare_cached(statement)
 			.await
-			.map_err(|error| error!(source = error, "Failed to prepare the statement."))?;
+			.map_err(|error| error!(source = error, "failed to prepare the statement"))?;
 		let Some(row) = connection
 			.query_opt(&statement, params)
 			.await
-			.map_err(|error| error!(source = error, "Failed to execute the statement."))?
+			.map_err(|error| error!(source = error, "failed to execute the statement"))?
 		else {
 			return Ok(None);
 		};
 		let bytes: Bytes = row
 			.try_get::<_, Vec<u8>>(0)
-			.map_err(|error| error!(source = error, "Failed to deserialize the column."))?
+			.map_err(|error| error!(source = error, "failed to deserialize the column"))?
 			.into();
 		let output = tg::object::GetOutput {
 			bytes,
@@ -137,7 +137,7 @@ impl Http {
 		let path_components: Vec<&str> = request.uri().path().split('/').skip(1).collect();
 		let ["objects", id] = path_components.as_slice() else {
 			let path = request.uri().path();
-			return Err(error!(%path, "Unexpected path."));
+			return Err(error!(%path, "unexpected path"));
 		};
 		let Ok(id) = id.parse() else {
 			return Ok(bad_request());

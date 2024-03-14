@@ -145,7 +145,7 @@ export let fileNameFromModule = (module_: Module): string => {
 		} else if (module_.value.path.endsWith(".ts")) {
 			extension = ".ts";
 		} else {
-			throw new Error("Invalid extension.");
+			throw new Error("invalid extension");
 		}
 		return `/${data}${extension}`;
 	}

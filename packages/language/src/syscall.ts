@@ -56,7 +56,7 @@ export let documents = (): Array<Module> => {
 	try {
 		return syscall("documents");
 	} catch (cause) {
-		throw new Error("The syscall failed.", { cause });
+		throw new Error("the syscall failed", { cause });
 	}
 };
 
@@ -66,7 +66,7 @@ export let encoding = {
 			try {
 				return syscall("encoding_base64_decode", value);
 			} catch (cause) {
-				throw new Error("The syscall failed.", { cause });
+				throw new Error("the syscall failed", { cause });
 			}
 		},
 
@@ -74,7 +74,7 @@ export let encoding = {
 			try {
 				return syscall("encoding_base64_encode", value);
 			} catch (cause) {
-				throw new Error("The syscall failed.", { cause });
+				throw new Error("the syscall failed", { cause });
 			}
 		},
 	},
@@ -84,7 +84,7 @@ export let encoding = {
 			try {
 				return syscall("encoding_hex_decode", value);
 			} catch (cause) {
-				throw new Error("The syscall failed.", { cause });
+				throw new Error("the syscall failed", { cause });
 			}
 		},
 
@@ -92,7 +92,7 @@ export let encoding = {
 			try {
 				return syscall("encoding_hex_encode", value);
 			} catch (cause) {
-				throw new Error("The syscall failed.", { cause });
+				throw new Error("the syscall failed", { cause });
 			}
 		},
 	},
@@ -102,7 +102,7 @@ export let encoding = {
 			try {
 				return syscall("encoding_json_decode", value);
 			} catch (cause) {
-				throw new Error("The syscall failed.", { cause });
+				throw new Error("the syscall failed", { cause });
 			}
 		},
 
@@ -110,7 +110,7 @@ export let encoding = {
 			try {
 				return syscall("encoding_json_encode", value);
 			} catch (cause) {
-				throw new Error("The syscall failed.", { cause });
+				throw new Error("the syscall failed", { cause });
 			}
 		},
 	},
@@ -120,7 +120,7 @@ export let encoding = {
 			try {
 				return syscall("encoding_toml_decode", value);
 			} catch (cause) {
-				throw new Error("The syscall failed.", { cause });
+				throw new Error("the syscall failed", { cause });
 			}
 		},
 
@@ -128,7 +128,7 @@ export let encoding = {
 			try {
 				return syscall("encoding_toml_encode", value);
 			} catch (cause) {
-				throw new Error("The syscall failed.", { cause });
+				throw new Error("the syscall failed", { cause });
 			}
 		},
 	},
@@ -138,7 +138,7 @@ export let encoding = {
 			try {
 				return syscall("encoding_utf8_decode", value);
 			} catch (cause) {
-				throw new Error("The syscall failed.", { cause });
+				throw new Error("the syscall failed", { cause });
 			}
 		},
 
@@ -146,7 +146,7 @@ export let encoding = {
 			try {
 				return syscall("encoding_utf8_encode", value);
 			} catch (cause) {
-				throw new Error("The syscall failed.", { cause });
+				throw new Error("the syscall failed", { cause });
 			}
 		},
 	},
@@ -156,7 +156,7 @@ export let encoding = {
 			try {
 				return syscall("encoding_yaml_decode", value);
 			} catch (cause) {
-				throw new Error("The syscall failed.", { cause });
+				throw new Error("the syscall failed", { cause });
 			}
 		},
 
@@ -164,7 +164,7 @@ export let encoding = {
 			try {
 				return syscall("encoding_yaml_encode", value);
 			} catch (cause) {
-				throw new Error("The syscall failed.", { cause });
+				throw new Error("the syscall failed", { cause });
 			}
 		},
 	},
@@ -174,7 +174,7 @@ export let log = (value: string) => {
 	try {
 		return syscall("log", value);
 	} catch (cause) {
-		throw new Error("The syscall failed.", { cause });
+		throw new Error("the syscall failed", { cause });
 	}
 };
 
@@ -183,7 +183,7 @@ export let module_ = {
 		try {
 			return syscall("module_load", module);
 		} catch (cause) {
-			throw new Error("The syscall failed.", { cause });
+			throw new Error("the syscall failed", { cause });
 		}
 	},
 
@@ -195,7 +195,7 @@ export let module_ = {
 		try {
 			return syscall("module_resolve", module, specifier, attributes);
 		} catch (cause) {
-			throw new Error("The syscall failed.", { cause });
+			throw new Error("the syscall failed", { cause });
 		}
 	},
 
@@ -203,7 +203,7 @@ export let module_ = {
 		try {
 			return syscall("module_version", module);
 		} catch (cause) {
-			throw new Error("The syscall failed.", { cause });
+			throw new Error("the syscall failed", { cause });
 		}
 	},
 };

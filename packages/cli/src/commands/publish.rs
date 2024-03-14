@@ -24,7 +24,7 @@ impl Cli {
 		client
 			.publish_package(self.user.as_ref(), id)
 			.await
-			.map_err(|error| error!(source = error, "Failed to publish the package."))?;
+			.map_err(|error| error!(source = error, "failed to publish the package"))?;
 
 		Ok(())
 	}

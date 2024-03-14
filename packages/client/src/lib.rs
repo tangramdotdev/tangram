@@ -106,14 +106,14 @@ impl Client {
 			.map_err(|error| {
 				error!(
 					source = error,
-					"Failed to get the TANGRAM_ADDRESS environment variable."
+					"failed to get the TANGRAM_ADDRESS environment variable"
 				)
 			})?
 			.parse()
 			.map_err(|error| {
 				error!(
 					source = error,
-					"Could not parse an address from TANGRAM_ADDRESS environment variable."
+					"could not parse an address from TANGRAM_ADDRESS environment variable"
 				)
 			})?;
 		let file_descriptor_semaphore = tokio::sync::Semaphore::new(32);
@@ -181,13 +181,13 @@ impl Client {
 		// Connect via UNIX.
 		let stream = UnixStream::connect(path)
 			.await
-			.map_err(|error| error!(source = error, "Failed to connect to the socket."))?;
+			.map_err(|error| error!(source = error, "failed to connect to the socket"))?;
 
 		// Perform the HTTP handshake.
 		let io = hyper_util::rt::TokioIo::new(stream);
 		let (mut sender, connection) = hyper::client::conn::http1::handshake(io)
 			.await
-			.map_err(|error| error!(source = error, "Failed to perform the HTTP handshake."))?;
+			.map_err(|error| error!(source = error, "failed to perform the HTTP handshake"))?;
 
 		// Spawn the connection.
 		tokio::spawn(async move {
@@ -195,7 +195,7 @@ impl Client {
 				.with_upgrades()
 				.await
 				.inspect_err(|error| {
-					tracing::error!(error = ?error, "The connection failed.");
+					tracing::error!(error = ?error, "the connection failed");
 				})
 				.ok();
 		});
@@ -204,7 +204,7 @@ impl Client {
 		sender
 			.ready()
 			.await
-			.map_err(|error| error!(source = error, "Failed to ready the sender."))?;
+			.map_err(|error| error!(source = error, "failed to ready the sender"))?;
 
 		Ok(sender)
 	}
@@ -216,21 +216,21 @@ impl Client {
 		// Connect via UNIX.
 		let stream = UnixStream::connect(path)
 			.await
-			.map_err(|error| error!(source = error, "Failed to connect to the socket."))?;
+			.map_err(|error| error!(source = error, "failed to connect to the socket"))?;
 
 		// Perform the HTTP handshake.
 		let executor = hyper_util::rt::TokioExecutor::new();
 		let io = hyper_util::rt::TokioIo::new(stream);
 		let (mut sender, connection) = hyper::client::conn::http2::handshake(executor, io)
 			.await
-			.map_err(|error| error!(source = error, "Failed to perform the HTTP handshake."))?;
+			.map_err(|error| error!(source = error, "failed to perform the HTTP handshake"))?;
 
 		// Spawn the connection.
 		tokio::spawn(async move {
 			connection
 				.await
 				.inspect_err(|error| {
-					tracing::error!(error = ?error, "The connection failed.");
+					tracing::error!(error = ?error, "the connection failed");
 				})
 				.ok();
 		});
@@ -239,7 +239,7 @@ impl Client {
 		sender
 			.ready()
 			.await
-			.map_err(|error| error!(source = error, "Failed to ready the sender."))?;
+			.map_err(|error| error!(source = error, "failed to ready the sender"))?;
 
 		Ok(sender)
 	}
@@ -251,13 +251,13 @@ impl Client {
 		// Connect via TCP.
 		let stream = TcpStream::connect(inet.to_string())
 			.await
-			.map_err(|error| error!(source = error, "Failed to create the TCP connection."))?;
+			.map_err(|error| error!(source = error, "failed to create the TCP connection"))?;
 
 		// Perform the HTTP handshake.
 		let io = hyper_util::rt::TokioIo::new(stream);
 		let (mut sender, connection) = hyper::client::conn::http1::handshake(io)
 			.await
-			.map_err(|error| error!(source = error, "Failed to perform the HTTP handshake."))?;
+			.map_err(|error| error!(source = error, "failed to perform the HTTP handshake"))?;
 
 		// Spawn the connection.
 		tokio::spawn(async move {
@@ -265,7 +265,7 @@ impl Client {
 				.with_upgrades()
 				.await
 				.inspect_err(|error| {
-					tracing::error!(error = ?error, "The connection failed.");
+					tracing::error!(error = ?error, "the connection failed");
 				})
 				.ok();
 		});
@@ -274,7 +274,7 @@ impl Client {
 		sender
 			.ready()
 			.await
-			.map_err(|error| error!(source = error, "Failed to ready the sender."))?;
+			.map_err(|error| error!(source = error, "failed to ready the sender"))?;
 
 		Ok(sender)
 	}
@@ -286,21 +286,21 @@ impl Client {
 		// Connect via TCP.
 		let stream = TcpStream::connect(inet.to_string())
 			.await
-			.map_err(|error| error!(source = error, "Failed to create the TCP connection."))?;
+			.map_err(|error| error!(source = error, "failed to create the TCP connection"))?;
 
 		// Perform the HTTP handshake.
 		let executor = hyper_util::rt::TokioExecutor::new();
 		let io = hyper_util::rt::TokioIo::new(stream);
 		let (mut sender, connection) = hyper::client::conn::http2::handshake(executor, io)
 			.await
-			.map_err(|error| error!(source = error, "Failed to perform the HTTP handshake."))?;
+			.map_err(|error| error!(source = error, "failed to perform the HTTP handshake"))?;
 
 		// Spawn the connection.
 		tokio::spawn(async move {
 			connection
 				.await
 				.inspect_err(|error| {
-					tracing::error!(error = ?error, "The connection failed.");
+					tracing::error!(error = ?error, "the connection failed");
 				})
 				.ok();
 		});
@@ -309,7 +309,7 @@ impl Client {
 		sender
 			.ready()
 			.await
-			.map_err(|error| error!(source = error, "Failed to ready the sender."))?;
+			.map_err(|error| error!(source = error, "failed to ready the sender"))?;
 
 		Ok(sender)
 	}
@@ -325,7 +325,7 @@ impl Client {
 		let io = hyper_util::rt::TokioIo::new(stream);
 		let (mut sender, connection) = hyper::client::conn::http1::handshake(io)
 			.await
-			.map_err(|error| error!(source = error, "Failed to perform the HTTP handshake."))?;
+			.map_err(|error| error!(source = error, "failed to perform the HTTP handshake"))?;
 
 		// Spawn the connection.
 		tokio::spawn(async move {
@@ -333,7 +333,7 @@ impl Client {
 				.with_upgrades()
 				.await
 				.inspect_err(|error| {
-					tracing::error!(error = ?error, "The connection failed.");
+					tracing::error!(error = ?error, "the connection failed");
 				})
 				.ok();
 		});
@@ -342,7 +342,7 @@ impl Client {
 		sender
 			.ready()
 			.await
-			.map_err(|error| error!(source = error, "Failed to ready the sender."))?;
+			.map_err(|error| error!(source = error, "failed to ready the sender"))?;
 
 		Ok(sender)
 	}
@@ -359,14 +359,14 @@ impl Client {
 		let io = hyper_util::rt::TokioIo::new(stream);
 		let (mut sender, connection) = hyper::client::conn::http2::handshake(executor, io)
 			.await
-			.map_err(|error| error!(source = error, "Failed to perform the HTTP handshake."))?;
+			.map_err(|error| error!(source = error, "failed to perform the HTTP handshake"))?;
 
 		// Spawn the connection.
 		tokio::spawn(async move {
 			connection
 				.await
 				.inspect_err(|error| {
-					tracing::error!(error = ?error, "The connection failed.");
+					tracing::error!(error = ?error, "the connection failed");
 				})
 				.ok();
 		});
@@ -375,7 +375,7 @@ impl Client {
 		sender
 			.ready()
 			.await
-			.map_err(|error| error!(source = error, "Failed to ready the sender."))?;
+			.map_err(|error| error!(source = error, "failed to ready the sender"))?;
 
 		Ok(sender)
 	}
@@ -387,7 +387,7 @@ impl Client {
 		// Connect via TCP.
 		let stream = TcpStream::connect(inet.to_string())
 			.await
-			.map_err(|error| error!(source = error, "Failed to create the TCP connection."))?;
+			.map_err(|error| error!(source = error, "failed to create the TCP connection"))?;
 
 		// Create the connector.
 		let mut root_store = rustls::RootCertStore::empty();
@@ -400,14 +400,14 @@ impl Client {
 
 		// Create the server name.
 		let server_name = rustls_pki_types::ServerName::try_from(inet.host.to_string().as_str())
-			.map_err(|error| error!(source = error, "Failed to create the server name."))?
+			.map_err(|error| error!(source = error, "failed to create the server name"))?
 			.to_owned();
 
 		// Connect via TLS.
 		let stream = connector
 			.connect(server_name, stream)
 			.await
-			.map_err(|error| error!(source = error, "Failed to connect."))?;
+			.map_err(|error| error!(source = error, "failed to connect"))?;
 
 		// Verify the negotiated protocol.
 		if !stream
@@ -416,7 +416,7 @@ impl Client {
 			.alpn_protocol()
 			.map_or(false, |protocol| protocol == b"h2")
 		{
-			return Err(error!("Failed to negotiate the HTTP/2 protocol."));
+			return Err(error!("failed to negotiate the HTTP/2 protocol"));
 		}
 
 		Ok(stream)
@@ -430,7 +430,7 @@ impl Client {
 			.await?
 			.send_request(request)
 			.await
-			.map_err(|error| error!(source = error, "Failed to send the request."))
+			.map_err(|error| error!(source = error, "failed to send the request"))
 	}
 }
 
@@ -764,15 +764,15 @@ impl std::str::FromStr for Address {
 			.map_or((address, None), |(host, port)| (host, Some(port)));
 		let host = host
 			.parse()
-			.map_err(|error| error!(source = error, %address, "Failed to parse the host."))?;
+			.map_err(|error| error!(source = error, %address, "failed to parse the host"))?;
 		if matches!(&host, Host::Domain(hostname) if hostname == "unix") {
-			let path = port.ok_or_else(|| error!(%address, "Expected a path."))?;
+			let path = port.ok_or_else(|| error!(%address, "expected a path"))?;
 			Ok(Address::Unix(path.into()))
 		} else {
 			let port = port
-				.ok_or_else(|| error!(%address, "Expected a port."))?
+				.ok_or_else(|| error!(%address, "expected a port"))?
 				.parse()
-				.map_err(|error| error!(source = error, "Failed to parse the port."))?;
+				.map_err(|error| error!(source = error, "failed to parse the port"))?;
 			Ok(Address::Inet(Inet { host, port }))
 		}
 	}
@@ -796,12 +796,12 @@ impl TryFrom<Url> for Address {
 	fn try_from(url: Url) -> Result<Self, Self::Error> {
 		let host = url
 			.host_str()
-			.ok_or_else(|| error!(%url, "Invalid URL."))?
+			.ok_or_else(|| error!(%url, "invalid URL"))?
 			.parse()
-			.map_err(|error| error!(source = error, "Invalid URL."))?;
+			.map_err(|error| error!(source = error, "invalid URL"))?;
 		let port = url
 			.port_or_known_default()
-			.ok_or_else(|| error!(%url, "Invalid URL."))?;
+			.ok_or_else(|| error!(%url, "invalid URL"))?;
 		Ok(Address::Inet(Inet { host, port }))
 	}
 }

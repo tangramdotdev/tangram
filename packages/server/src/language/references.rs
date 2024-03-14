@@ -63,7 +63,7 @@ impl Server {
 
 		// Get the response.
 		let super::Response::References(response) = response else {
-			return Err(error!("Unexpected response type."));
+			return Err(error!("unexpected response type"));
 		};
 
 		Ok(response.locations)

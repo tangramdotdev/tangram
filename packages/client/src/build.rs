@@ -201,7 +201,7 @@ impl Build {
 	) -> Result<BoxStream<'static, Result<Self>>> {
 		self.try_get_children(tg, arg)
 			.await?
-			.ok_or_else(|| error!("Failed to get the build."))
+			.ok_or_else(|| error!("failed to get the build"))
 	}
 
 	pub async fn try_get_children(
@@ -236,7 +236,7 @@ impl Build {
 	) -> Result<BoxStream<'static, Result<log::Chunk>>> {
 		self.try_get_log(tg, arg)
 			.await?
-			.ok_or_else(|| error!("Failed to get the build."))
+			.ok_or_else(|| error!("failed to get the build"))
 	}
 
 	pub async fn try_get_log(
@@ -256,7 +256,7 @@ impl Build {
 	pub async fn outcome(&self, tg: &dyn Handle) -> Result<Outcome> {
 		self.get_outcome(tg, outcome::GetArg::default())
 			.await?
-			.ok_or_else(|| error!("Failed to get the outcome."))
+			.ok_or_else(|| error!("failed to get the outcome"))
 	}
 
 	pub async fn get_outcome(
@@ -266,7 +266,7 @@ impl Build {
 	) -> Result<Option<Outcome>> {
 		self.try_get_outcome(tg, arg)
 			.await?
-			.ok_or_else(|| error!("Failed to get the build."))
+			.ok_or_else(|| error!("failed to get the build"))
 	}
 
 	pub async fn try_get_outcome(
@@ -297,7 +297,7 @@ impl Build {
 	pub async fn retry(&self, tg: &dyn Handle) -> Result<Retry> {
 		self.try_get_retry(tg)
 			.await?
-			.ok_or_else(|| error!("Failed to get the build."))
+			.ok_or_else(|| error!("failed to get the build"))
 	}
 
 	pub async fn try_get_retry(&self, tg: &dyn Handle) -> Result<Option<Retry>> {
@@ -315,7 +315,7 @@ impl Build {
 	) -> Result<BoxStream<'static, Result<Status>>> {
 		self.try_get_status(tg, arg)
 			.await?
-			.ok_or_else(|| error!("Failed to get the build."))
+			.ok_or_else(|| error!("failed to get the build"))
 	}
 
 	pub async fn try_get_status(
@@ -329,7 +329,7 @@ impl Build {
 	pub async fn target(&self, tg: &dyn Handle) -> Result<Target> {
 		self.try_get_target(tg)
 			.await?
-			.ok_or_else(|| error!("Failed to get the build."))
+			.ok_or_else(|| error!("failed to get the build"))
 	}
 
 	pub async fn try_get_target(&self, tg: &dyn Handle) -> Result<Option<Target>> {
@@ -397,13 +397,13 @@ impl Build {
 		remote
 			.put_build(user, &self.id, &arg)
 			.await
-			.map_err(|error| error!(source = error, "Failed to put the object."))?;
+			.map_err(|error| error!(source = error, "failed to put the object"))?;
 		Ok(())
 	}
 
 	#[async_recursion]
 	pub async fn pull(&self, _tg: &dyn Handle, _remote: &dyn Handle) -> Result<()> {
-		Err(error!("Not yet implemented."))
+		Err(error!("not yet implemented"))
 	}
 }
 
@@ -459,7 +459,7 @@ impl Outcome {
 
 	pub fn into_result(self) -> Result<Value> {
 		match self {
-			Self::Canceled => Err(error!("The build was canceled.")),
+			Self::Canceled => Err(error!("the build was canceled")),
 			Self::Failed(error) => Err(error),
 			Self::Succeeded(value) => Ok(value),
 		}
@@ -478,31 +478,31 @@ impl Client {
 	pub async fn list_builds(&self, arg: tg::build::ListArg) -> Result<tg::build::ListOutput> {
 		let method = http::Method::GET;
 		let search_params = serde_urlencoded::to_string(&arg)
-			.map_err(|error| error!(source = error, "Failed to serialize the search params."))?;
+			.map_err(|error| error!(source = error, "failed to serialize the search params"))?;
 		let uri = format!("/builds?{search_params}");
 		let request = http::request::Builder::default().method(method).uri(uri);
 		let body = empty();
 		let request = request
 			.body(body)
-			.map_err(|error| error!(source = error, "Failed to create the request."))?;
+			.map_err(|error| error!(source = error, "failed to create the request"))?;
 		let response = self.send(request).await?;
 		if !response.status().is_success() {
 			let bytes = response
 				.collect()
 				.await
-				.map_err(|error| error!(source = error, "Failed to collect the response body."))?
+				.map_err(|error| error!(source = error, "failed to collect the response body"))?
 				.to_bytes();
 			let error = serde_json::from_slice(&bytes)
-				.unwrap_or_else(|_| error!("The request did not succeed."));
+				.unwrap_or_else(|_| error!("the request did not succeed"));
 			return Err(error);
 		}
 		let bytes = response
 			.collect()
 			.await
-			.map_err(|error| error!(source = error, "Failed to collect the response body."))?
+			.map_err(|error| error!(source = error, "failed to collect the response body"))?
 			.to_bytes();
 		let output = serde_json::from_slice(&bytes)
-			.map_err(|error| error!(source = error, "Failed to deserialize the response body."))?;
+			.map_err(|error| error!(source = error, "failed to deserialize the response body"))?;
 		Ok(output)
 	}
 
@@ -513,14 +513,14 @@ impl Client {
 	) -> Result<Option<tg::build::GetOutput>> {
 		let method = http::Method::GET;
 		let search_params = serde_urlencoded::to_string(&arg)
-			.map_err(|error| error!(source = error, "Failed to serialize the search params."))?;
+			.map_err(|error| error!(source = error, "failed to serialize the search params"))?;
 		let uri = format!("/builds/{id}?{search_params}");
 		let body = empty();
 		let request = http::request::Builder::default()
 			.method(method)
 			.uri(uri)
 			.body(body)
-			.map_err(|error| error!(source = error, "Failed to create the request."))?;
+			.map_err(|error| error!(source = error, "failed to create the request"))?;
 		let response = self.send(request).await?;
 		if response.status() == http::StatusCode::NOT_FOUND {
 			return Ok(None);
@@ -529,19 +529,19 @@ impl Client {
 			let bytes = response
 				.collect()
 				.await
-				.map_err(|error| error!(source = error, "Failed to collect the response body."))?
+				.map_err(|error| error!(source = error, "failed to collect the response body"))?
 				.to_bytes();
 			let error = serde_json::from_slice(&bytes)
-				.unwrap_or_else(|_| error!("The request did not succeed."));
+				.unwrap_or_else(|_| error!("the request did not succeed"));
 			return Err(error);
 		}
 		let bytes = response
 			.collect()
 			.await
-			.map_err(|error| error!(source = error, "Failed to collect the response body."))?
+			.map_err(|error| error!(source = error, "failed to collect the response body"))?
 			.to_bytes();
 		let output = serde_json::from_slice(&bytes)
-			.map_err(|error| error!(source = error, "Failed to deserialize the body."))?;
+			.map_err(|error| error!(source = error, "failed to deserialize the body"))?;
 		Ok(Some(output))
 	}
 
@@ -559,20 +559,20 @@ impl Client {
 			request = request.header(http::header::AUTHORIZATION, format!("Bearer {token}"));
 		}
 		let json = serde_json::to_string(&arg)
-			.map_err(|error| error!(source = error, "Failed to serialize the data."))?;
+			.map_err(|error| error!(source = error, "failed to serialize the data"))?;
 		let body = full(json);
 		let request = request
 			.body(body)
-			.map_err(|error| error!(source = error, "Failed to create the request."))?;
+			.map_err(|error| error!(source = error, "failed to create the request"))?;
 		let response = self.send(request).await?;
 		if !response.status().is_success() {
 			let bytes = response
 				.collect()
 				.await
-				.map_err(|error| error!(source = error, "Failed to collect the response body."))?
+				.map_err(|error| error!(source = error, "failed to collect the response body"))?
 				.to_bytes();
 			let error = serde_json::from_slice(&bytes)
-				.unwrap_or_else(|_| error!("The request did not succeed."));
+				.unwrap_or_else(|_| error!("the request did not succeed"));
 			return Err(error);
 		}
 		Ok(())
@@ -588,16 +588,16 @@ impl Client {
 		}
 		let request = request
 			.body(body)
-			.map_err(|error| error!(source = error, "Failed to create the request."))?;
+			.map_err(|error| error!(source = error, "failed to create the request"))?;
 		let response = self.send(request).await?;
 		if !response.status().is_success() {
 			let bytes = response
 				.collect()
 				.await
-				.map_err(|error| error!(source = error, "Failed to collect the response body."))?
+				.map_err(|error| error!(source = error, "failed to collect the response body"))?
 				.to_bytes();
 			let error = serde_json::from_slice(&bytes)
-				.unwrap_or_else(|_| error!("The request did not succeed."));
+				.unwrap_or_else(|_| error!("the request did not succeed"));
 			return Err(error);
 		}
 		Ok(())
@@ -611,16 +611,16 @@ impl Client {
 			.method(method)
 			.uri(uri)
 			.body(body)
-			.map_err(|error| error!(source = error, "Failed to create the request."))?;
+			.map_err(|error| error!(source = error, "failed to create the request"))?;
 		let response = self.send(request).await?;
 		if !response.status().is_success() {
 			let bytes = response
 				.collect()
 				.await
-				.map_err(|error| error!(source = error, "Failed to collect the response body."))?
+				.map_err(|error| error!(source = error, "failed to collect the response body"))?
 				.to_bytes();
 			let error = serde_json::from_slice(&bytes)
-				.unwrap_or_else(|_| error!("The request did not succeed."));
+				.unwrap_or_else(|_| error!("the request did not succeed"));
 			return Err(error);
 		}
 		Ok(())
@@ -645,29 +645,29 @@ impl Client {
 			request = request.header(http::header::AUTHORIZATION, format!("Bearer {token}"));
 		}
 		let json = serde_json::to_vec(&arg)
-			.map_err(|error| error!(source = error, "Failed to serialize the body."))?;
+			.map_err(|error| error!(source = error, "failed to serialize the body"))?;
 		let body = full(json);
 		let request = request
 			.body(body)
-			.map_err(|error| error!(source = error, "Failed to create the request."))?;
+			.map_err(|error| error!(source = error, "failed to create the request"))?;
 		let response = self.send(request).await?;
 		if !response.status().is_success() {
 			let bytes = response
 				.collect()
 				.await
-				.map_err(|error| error!(source = error, "Failed to collect the response body."))?
+				.map_err(|error| error!(source = error, "failed to collect the response body"))?
 				.to_bytes();
 			let error = serde_json::from_slice(&bytes)
-				.unwrap_or_else(|_| error!("The request did not succeed."));
+				.unwrap_or_else(|_| error!("the request did not succeed"));
 			return Err(error);
 		}
 		let bytes = response
 			.collect()
 			.await
-			.map_err(|error| error!(source = error, "Failed to collect the response body."))?
+			.map_err(|error| error!(source = error, "failed to collect the response body"))?
 			.to_bytes();
 		let output = serde_json::from_slice(&bytes)
-			.map_err(|error| error!(source = error, "Failed to deserialize the body."))?;
+			.map_err(|error| error!(source = error, "failed to deserialize the body"))?;
 		Ok(output)
 	}
 }
@@ -695,7 +695,7 @@ impl TryFrom<crate::Id> for Id {
 
 	fn try_from(value: crate::Id) -> Result<Self, Self::Error> {
 		if value.kind() != id::Kind::Build {
-			return Err(error!(%value, "Invalid kind."));
+			return Err(error!(%value, "invalid kind"));
 		}
 		Ok(Self(value))
 	}
@@ -729,7 +729,7 @@ impl std::str::FromStr for Status {
 			"queued" => Ok(Self::Queued),
 			"started" => Ok(Self::Started),
 			"finished" => Ok(Self::Finished),
-			status => Err(error!(%status, "Invalid value.")),
+			status => Err(error!(%status, "invalid value")),
 		}
 	}
 }
@@ -766,7 +766,7 @@ impl std::str::FromStr for Retry {
 			"canceled" => Ok(Self::Canceled),
 			"failed" => Ok(Self::Failed),
 			"succeeded" => Ok(Self::Succeeded),
-			retry => Err(error!(%retry, "Invalid value.")),
+			retry => Err(error!(%retry, "invalid value")),
 		}
 	}
 }

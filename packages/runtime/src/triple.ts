@@ -197,7 +197,7 @@ export namespace Triple {
 	export let arch = (value: Triple): Arch => {
 		let ret = value.arch;
 		if (ret === undefined) {
-			throw new Error("Expected arch");
+			throw new Error("expected an arch");
 		}
 		return ret;
 	};
@@ -267,7 +267,7 @@ export namespace Triple {
 	export let os = (value: Triple): Os => {
 		let ret = value.os;
 		if (ret === undefined) {
-			throw new Error("Expected OS");
+			throw new Error("expected an OS");
 		}
 		return ret;
 	};

@@ -109,7 +109,7 @@ impl Proxy {
 		arg: tg::build::GetOrCreateArg,
 	) -> Result<tg::build::GetOrCreateOutput> {
 		if arg.parent.is_some() {
-			return Err(error!("Using proxied server, parent should be set to None"));
+			return Err(error!("using proxied server, parent should be set to none"));
 		}
 		let arg = tg::build::GetOrCreateArg {
 			parent: Some(self.inner.build.clone()),
@@ -132,7 +132,7 @@ impl tg::Handle for Proxy {
 	}
 
 	async fn format(&self, _text: String) -> Result<String> {
-		Err(error!("Not supported"))
+		Err(error!("not supported"))
 	}
 
 	fn file_descriptor_semaphore(&self) -> &tokio::sync::Semaphore {
@@ -289,7 +289,7 @@ impl tg::Handle for Proxy {
 		&self,
 		_arg: tg::package::SearchArg,
 	) -> Result<tg::package::SearchOutput> {
-		Err(error!("Not supported"))
+		Err(error!("not supported"))
 	}
 
 	async fn try_get_package(
@@ -297,14 +297,14 @@ impl tg::Handle for Proxy {
 		_dependency: &tg::Dependency,
 		_arg: tg::package::GetArg,
 	) -> Result<Option<tg::package::GetOutput>> {
-		Err(error!("Not supported"))
+		Err(error!("not supported"))
 	}
 
 	async fn try_get_package_versions(
 		&self,
 		_dependency: &tg::Dependency,
 	) -> Result<Option<Vec<String>>> {
-		Err(error!("Not supported"))
+		Err(error!("not supported"))
 	}
 
 	async fn publish_package(
@@ -312,26 +312,26 @@ impl tg::Handle for Proxy {
 		_user: Option<&tg::User>,
 		_id: &tg::directory::Id,
 	) -> Result<()> {
-		Err(error!("Not supported"))
+		Err(error!("not supported"))
 	}
 
 	async fn check_package(&self, _dependency: &tg::Dependency) -> Result<Vec<tg::Diagnostic>> {
-		Err(error!("Not supported"))
+		Err(error!("not supported"))
 	}
 
 	async fn format_package(&self, _dependency: &tg::Dependency) -> Result<()> {
-		Err(error!("Not supported"))
+		Err(error!("not supported"))
 	}
 
 	async fn get_runtime_doc(&self) -> Result<serde_json::Value> {
-		Err(error!("Not supported"))
+		Err(error!("not supported"))
 	}
 
 	async fn try_get_package_doc(
 		&self,
 		_dependency: &tg::Dependency,
 	) -> Result<Option<serde_json::Value>> {
-		Err(error!("Not supported"))
+		Err(error!("not supported"))
 	}
 
 	async fn lsp(
@@ -339,7 +339,7 @@ impl tg::Handle for Proxy {
 		_input: Box<dyn AsyncRead + Send + Unpin + 'static>,
 		_output: Box<dyn AsyncWrite + Send + Unpin + 'static>,
 	) -> Result<()> {
-		Err(error!("Not supported"))
+		Err(error!("not supported"))
 	}
 
 	async fn health(&self) -> Result<tg::server::Health> {
@@ -347,30 +347,30 @@ impl tg::Handle for Proxy {
 	}
 
 	async fn clean(&self) -> Result<()> {
-		Err(error!("Not supported"))
+		Err(error!("not supported"))
 	}
 
 	async fn stop(&self) -> Result<()> {
-		Err(error!("Not supported"))
+		Err(error!("not supported"))
 	}
 
 	async fn create_login(&self) -> Result<tg::user::Login> {
-		Err(error!("Not supported"))
+		Err(error!("not supported"))
 	}
 
 	async fn get_login(&self, _id: &tg::Id) -> Result<Option<tg::user::Login>> {
-		Err(error!("Not supported"))
+		Err(error!("not supported"))
 	}
 
 	async fn get_user_for_token(&self, _token: &str) -> Result<Option<tg::user::User>> {
-		Err(error!("Not supported"))
+		Err(error!("not supported"))
 	}
 
 	async fn create_oauth_url(&self, _id: &tg::Id) -> Result<Url> {
-		Err(error!("Not supported"))
+		Err(error!("not supported"))
 	}
 
 	async fn complete_login(&self, _id: &tg::Id, _code: String) -> Result<()> {
-		Err(error!("Not supported"))
+		Err(error!("not supported"))
 	}
 }

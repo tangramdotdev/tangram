@@ -185,7 +185,7 @@ impl xdr::FromXdr for MessageBody {
 				Ok(Self::Reply(body))
 			},
 			tag => Err(xdr::Error::Custom(format!(
-				"Expected a message body. Got {tag}."
+				"expected a message body. Got {tag}"
 			))),
 		}
 	}
@@ -251,7 +251,7 @@ impl xdr::FromXdr for ReplyBody {
 			0 => Ok(Self::Accepted(decoder.decode()?)),
 			1 => Ok(Self::Rejected(decoder.decode()?)),
 			tag => Err(xdr::Error::Custom(format!(
-				"Expected a reply body. Got {tag}."
+				"expected a reply body. Got {tag}"
 			))),
 		}
 	}
@@ -323,7 +323,7 @@ impl xdr::FromXdr for ReplyAcceptedStat {
 			3 => Ok(Self::ProcedureUnavailable),
 			4 => Ok(Self::GarbageArgs),
 			5 => Ok(Self::SystemError),
-			tag => Err(xdr::Error::Custom(format!("Expected a reply. Got {tag}."))),
+			tag => Err(xdr::Error::Custom(format!("expected a reply. Got {tag}"))),
 		}
 	}
 }
@@ -354,7 +354,7 @@ impl xdr::FromXdr for ReplyRejected {
 				high: decoder.decode_uint()?,
 			}),
 			1 => Ok(Self::AuthError(decoder.decode()?)),
-			tag => Err(xdr::Error::Custom(format!("Expected a reply. Got {tag}."))),
+			tag => Err(xdr::Error::Custom(format!("expected a reply. Got {tag}"))),
 		}
 	}
 }
@@ -391,7 +391,7 @@ impl xdr::FromXdr for AuthStat {
 			6 => Ok(Self::InvalidResp),
 			7 => Ok(Self::Failed),
 			int => Err(xdr::Error::Custom(format!(
-				"Expected auth error. Got {int}."
+				"expected auth error. Got {int}"
 			))),
 		}
 	}

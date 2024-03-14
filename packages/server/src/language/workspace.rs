@@ -16,7 +16,7 @@ impl Server {
 		for uri in added {
 			let package_path = match uri.scheme() {
 				"file" => PathBuf::from(uri.path()),
-				scheme => return Err(error!(%scheme, "Invalid URI for workspace folder.")),
+				scheme => return Err(error!(%scheme, "invalid URI for workspace folder")),
 			};
 			workspaces.insert(package_path);
 		}
@@ -25,7 +25,7 @@ impl Server {
 		for uri in removed {
 			let package_path = match uri.scheme() {
 				"file" => PathBuf::from(uri.path()),
-				scheme => return Err(error!(%scheme, "Invalid URI for workspace folder.")),
+				scheme => return Err(error!(%scheme, "invalid URI for workspace folder")),
 			};
 			workspaces.remove(&package_path);
 		}

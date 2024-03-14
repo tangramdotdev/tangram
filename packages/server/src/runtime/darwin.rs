@@ -48,17 +48,17 @@ pub async fn build(server: &Server, build: &tg::Build) -> Result<tg::Value> {
 		.map_err(|error| {
 			error!(
 				source = error,
-				"Failed to create the server temp directory."
+				"failed to create the server temp directory"
 			)
 		})?;
 
 	let root_directory_tempdir = tempfile::TempDir::new_in(&server_directory_temp_path)
-		.map_err(|error| error!(source = error, "Failed to create the temporary directory."))?;
+		.map_err(|error| error!(source = error, "failed to create the temporary directory"))?;
 	let root_directory_path = root_directory_tempdir.path().to_owned();
 
 	// Create a tempdir for the output.
 	let output_tempdir = tempfile::TempDir::new_in(&server_directory_temp_path)
-		.map_err(|error| error!(source = error, "Failed to create the temporary directory."))?;
+		.map_err(|error| error!(source = error, "failed to create the temporary directory"))?;
 
 	// Create the output parent directory.
 	let output_parent_directory_path = output_tempdir.path().to_owned();
@@ -67,7 +67,7 @@ pub async fn build(server: &Server, build: &tg::Build) -> Result<tg::Value> {
 		.map_err(|error| {
 			error!(
 				source = error,
-				"Failed to create the output parent directory."
+				"failed to create the output parent directory"
 			)
 		})?;
 
@@ -78,13 +78,13 @@ pub async fn build(server: &Server, build: &tg::Build) -> Result<tg::Value> {
 	let home_directory_path = root_directory_path.join("Users/tangram");
 	tokio::fs::create_dir_all(&home_directory_path)
 		.await
-		.map_err(|error| error!(source = error, "Failed to create the home directory."))?;
+		.map_err(|error| error!(source = error, "failed to create the home directory"))?;
 
 	// Create the working directory.
 	let working_directory_path = root_directory_path.join("Users/tangram/work");
 	tokio::fs::create_dir_all(&working_directory_path)
 		.await
-		.map_err(|error| error!(source = error, "Failed to create the working directory."))?;
+		.map_err(|error| error!(source = error, "failed to create the working directory"))?;
 
 	// Render the executable.
 	let executable = target.executable(server).await?;
@@ -141,7 +141,7 @@ pub async fn build(server: &Server, build: &tg::Build) -> Result<tg::Value> {
 		.map_err(|error| {
 			error!(
 				source = error,
-				"Failed to create the guest .tangram directory."
+				"failed to create the guest .tangram directory"
 			)
 		})?;
 	let proxy_server_socket_path = home_directory_path.join(".tangram/socket");
@@ -358,7 +358,7 @@ pub async fn build(server: &Server, build: &tg::Build) -> Result<tg::Value> {
 	// Spawn the child.
 	let mut child = command
 		.spawn()
-		.map_err(|error| error!(source = error, %executable, "Failed to spawn the process."))?;
+		.map_err(|error| error!(source = error, %executable, "failed to spawn the process"))?;
 
 	// Create the log task.
 	let mut stdout = child.stdout.take().unwrap();
@@ -370,7 +370,7 @@ pub async fn build(server: &Server, build: &tg::Build) -> Result<tg::Value> {
 			loop {
 				match stdout.read(&mut buf).await {
 					Err(error) => {
-						return Err(error!(source = error, "Failed to read from the log."))
+						return Err(error!(source = error, "failed to read from the log"))
 					},
 					Ok(0) => return Ok(()),
 					Ok(size) => {
@@ -380,7 +380,7 @@ pub async fn build(server: &Server, build: &tg::Build) -> Result<tg::Value> {
 								.write_all(&log)
 								.await
 								.inspect_err(|e| {
-									tracing::error!(?e, "Failed to write build log to stderr.");
+									tracing::error!(?e, "failed to write build log to stderr");
 								})
 								.ok();
 						}
@@ -427,13 +427,13 @@ pub async fn build(server: &Server, build: &tg::Build) -> Result<tg::Value> {
 	let exit_status = child
 		.wait()
 		.await
-		.map_err(|error| error!(source = error, "Failed to wait for the process to exit."))?;
+		.map_err(|error| error!(source = error, "failed to wait for the process to exit"))?;
 
 	// Wait for the log task to complete.
 	log_task
 		.await
-		.map_err(|error| error!(source = error, "Failed to join the log task."))?
-		.map_err(|error| error!(source = error, "The log task failed."))?;
+		.map_err(|error| error!(source = error, "failed to join the log task"))?
+		.map_err(|error| error!(source = error, "the log task failed"))?;
 
 	// Stop and join the proxy server.
 	proxy.stop();
@@ -441,30 +441,30 @@ pub async fn build(server: &Server, build: &tg::Build) -> Result<tg::Value> {
 
 	// Return an error if the process did not exit successfully.
 	if !exit_status.success() {
-		return Err(error!("The process did not exit successfully."));
+		return Err(error!("the process did not exit successfully"));
 	}
 
 	// Create the output.
 	let value = if tokio::fs::try_exists(&output_path)
 		.await
-		.map_err(|error| error!(source = error, "Failed to determine if the path exists."))?
+		.map_err(|error| error!(source = error, "failed to determine if the path exists"))?
 	{
 		// Check in the output.
 		let artifact = tg::Artifact::check_in(server, &output_path.clone().try_into()?)
 			.await
-			.map_err(|error| error!(source = error, "Failed to check in the output."))?;
+			.map_err(|error| error!(source = error, "failed to check in the output"))?;
 
 		// Verify the checksum if one was provided.
 		if let Some(expected) = target.checksum(server).await?.clone() {
 			let actual = artifact
 				.checksum(server, expected.algorithm())
 				.await
-				.map_err(|error| error!(source = error, "Failed to compute the checksum."))?;
+				.map_err(|error| error!(source = error, "failed to compute the checksum"))?;
 			if expected != tg::Checksum::Unsafe && expected != actual {
 				return Err(error!(
 					%expected,
 					%actual,
-					"The checksum did not match."
+					"the checksum did not match"
 				));
 			}
 		}

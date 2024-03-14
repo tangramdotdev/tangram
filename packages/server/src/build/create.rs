@@ -198,7 +198,7 @@ impl Http {
 		let path_components: Vec<&str> = request.uri().path().split('/').skip(1).collect();
 		let ["builds"] = path_components.as_slice() else {
 			let path = request.uri().path();
-			return Err(error!(%path, "Unexpected path."));
+			return Err(error!(%path, "unexpected path"));
 		};
 
 		// Get the user.
@@ -209,10 +209,10 @@ impl Http {
 			.into_body()
 			.collect()
 			.await
-			.map_err(|error| error!(source = error, "Failed to read the body."))?
+			.map_err(|error| error!(source = error, "failed to read the body"))?
 			.to_bytes();
 		let arg = serde_json::from_slice(&bytes)
-			.map_err(|error| error!(source = error, "Failed to deserialize the body."))?;
+			.map_err(|error| error!(source = error, "failed to deserialize the body"))?;
 
 		// Get or create the build.
 		let output = self
@@ -223,7 +223,7 @@ impl Http {
 
 		// Create the body.
 		let body = serde_json::to_vec(&output)
-			.map_err(|error| error!(source = error, "Failed to serialize the body."))?;
+			.map_err(|error| error!(source = error, "failed to serialize the body"))?;
 		let body = full(body);
 
 		// Create the response.

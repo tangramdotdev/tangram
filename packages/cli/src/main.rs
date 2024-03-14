@@ -77,7 +77,7 @@ pub enum Command {
 
 fn default_path() -> PathBuf {
 	let home = std::env::var("HOME")
-		.map_err(|error| error!(source = error, "Failed to get the home directory path."))
+		.map_err(|error| error!(source = error, "failed to get the home directory path"))
 		.unwrap();
 	PathBuf::from(home).join(".tangram")
 }
@@ -117,19 +117,14 @@ fn main_inner() -> Result<()> {
 	// Get the version.
 	let version = if cfg!(debug_assertions) {
 		let executable_path = std::env::current_exe()
-			.map_err(|error| error!(source = error, "Failed to get the current executable path."))
+			.map_err(|error| error!(source = error, "failed to get the current executable path"))
 			.unwrap();
 		let metadata = std::fs::metadata(executable_path)
-			.map_err(|error| error!(source = error, "Failed to get the executable metadata."))
+			.map_err(|error| error!(source = error, "failed to get the executable metadata"))
 			.unwrap();
 		metadata
 			.modified()
-			.map_err(|error| {
-				error!(
-					source = error,
-					"Failed to get the executable modified time."
-				)
-			})
+			.map_err(|error| error!(source = error, "failed to get the executable modified time"))
 			.unwrap()
 			.duration_since(std::time::SystemTime::UNIX_EPOCH)
 			.unwrap()
@@ -206,13 +201,13 @@ impl Cli {
 		if cfg!(debug_assertions) {
 			if !connected {
 				let addr = &self.address;
-				return Err(error!(%addr, "Failed to connect to the server."));
+				return Err(error!(%addr, "failed to connect to the server"));
 			}
 			let client_version = client.health().await?.version;
 			if connected && client_version != self.version {
 				let server_version = &self.version;
 				return Err(
-					error!(%client_version, %server_version, "The server has different version from the client."),
+					error!(%client_version, %server_version, "the server has different version from the client"),
 				);
 			}
 			// Store the client.
@@ -243,7 +238,7 @@ impl Cli {
 		// If the client is not connected, then return an error.
 		if !connected {
 			let addr = &self.address;
-			return Err(error!(?addr, "Failed to connect to the server."));
+			return Err(error!(?addr, "failed to connect to the server"));
 		}
 
 		// Store the client.
@@ -254,9 +249,8 @@ impl Cli {
 
 	/// Start the server.
 	async fn start_server(&self) -> Result<()> {
-		let executable = std::env::current_exe().map_err(|error| {
-			error!(source = error, "Failed to get the current executable path.")
-		})?;
+		let executable = std::env::current_exe()
+			.map_err(|error| error!(source = error, "failed to get the current executable path"))?;
 		let path = self
 			.config
 			.as_ref()
@@ -264,14 +258,14 @@ impl Cli {
 			.unwrap_or_else(default_path);
 		tokio::fs::create_dir_all(&path)
 			.await
-			.map_err(|error| error!(source = error, "Failed to create the server path."))?;
+			.map_err(|error| error!(source = error, "failed to create the server path"))?;
 		let stdout = tokio::fs::File::create(path.join("log"))
 			.await
-			.map_err(|error| error!(source = error, "Failed to create the server log file."))?;
+			.map_err(|error| error!(source = error, "failed to create the server log file"))?;
 		let stderr = stdout
 			.try_clone()
 			.await
-			.map_err(|error| error!(source = error, "Failed to clone the server log file."))?;
+			.map_err(|error| error!(source = error, "failed to clone the server log file"))?;
 		tokio::process::Command::new(executable)
 			.args(["server", "run"])
 			.current_dir(&path)
@@ -279,7 +273,7 @@ impl Cli {
 			.stdout(stdout.into_std().await)
 			.stderr(stderr.into_std().await)
 			.spawn()
-			.map_err(|error| error!(source = error, "Failed to spawn the server."))?;
+			.map_err(|error| error!(source = error, "failed to spawn the server"))?;
 		Ok(())
 	}
 
@@ -288,7 +282,7 @@ impl Cli {
 			.map_err(|error| {
 				error!(
 					source = error,
-					"Failed to get the HOME environment variable."
+					"failed to get the HOME environment variable"
 				)
 			})
 			.unwrap();
@@ -296,10 +290,10 @@ impl Cli {
 		let config = match std::fs::read_to_string(path) {
 			Ok(config) => config,
 			Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(None),
-			Err(error) => return Err(error!(source = error, "Failed to read the config file.")),
+			Err(error) => return Err(error!(source = error, "failed to read the config file")),
 		};
 		let config = serde_json::from_str(&config)
-			.map_err(|error| error!(source = error, "Failed to deserialize the config."))?;
+			.map_err(|error| error!(source = error, "failed to deserialize the config"))?;
 		Ok(Some(config))
 	}
 
@@ -307,14 +301,14 @@ impl Cli {
 		let home = std::env::var("HOME").map_err(|error| {
 			error!(
 				source = error,
-				"Failed to get the HOME environment variable."
+				"failed to get the HOME environment variable"
 			)
 		})?;
 		let path = path.unwrap_or_else(|| PathBuf::from(home).join(".config/tangram/config.json"));
 		let config = serde_json::to_string_pretty(&config)
-			.map_err(|error| error!(source = error, "Failed to serialize the config."))?;
+			.map_err(|error| error!(source = error, "failed to serialize the config"))?;
 		std::fs::write(path, config)
-			.map_err(|error| error!(source = error, "Failed to save the config."))?;
+			.map_err(|error| error!(source = error, "failed to save the config"))?;
 		Ok(())
 	}
 
@@ -323,7 +317,7 @@ impl Cli {
 			.map_err(|error| {
 				error!(
 					source = error,
-					"Failed to get the HOME environment variable."
+					"failed to get the HOME environment variable"
 				)
 			})
 			.unwrap();
@@ -331,10 +325,10 @@ impl Cli {
 		let user = match std::fs::read_to_string(path) {
 			Ok(user) => user,
 			Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(None),
-			Err(error) => return Err(error!(source = error, "Failed to read the user file.")),
+			Err(error) => return Err(error!(source = error, "failed to read the user file")),
 		};
 		let user = serde_json::from_str(&user)
-			.map_err(|error| error!(source = error, "Failed to deserialize the user."))?;
+			.map_err(|error| error!(source = error, "failed to deserialize the user"))?;
 		Ok(Some(user))
 	}
 
@@ -342,14 +336,14 @@ impl Cli {
 		let home = std::env::var("HOME").map_err(|error| {
 			error!(
 				source = error,
-				"Failed to get the HOME environment variable."
+				"failed to get the HOME environment variable"
 			)
 		})?;
 		let path = path.unwrap_or_else(|| PathBuf::from(home).join(".config/tangram/user.json"));
 		let user = serde_json::to_string_pretty(&user.clone())
-			.map_err(|error| error!(source = error, "Failed to serialize the user."))?;
+			.map_err(|error| error!(source = error, "failed to serialize the user"))?;
 		std::fs::write(path, user)
-			.map_err(|error| error!(source = error, "Failed to save the user."))?;
+			.map_err(|error| error!(source = error, "failed to save the user"))?;
 		Ok(())
 	}
 }
@@ -368,7 +362,7 @@ fn set_file_descriptor_limit(config: &Option<Config>) -> Result<()> {
 		if ret != 0 {
 			return Err(error!(
 				source = std::io::Error::last_os_error(),
-				"Failed to set the file descriptor limit."
+				"failed to set the file descriptor limit"
 			));
 		}
 	}

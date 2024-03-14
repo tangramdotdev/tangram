@@ -78,7 +78,7 @@ impl Blob {
 				let n = reader
 					.read(&mut bytes[position..])
 					.await
-					.map_err(|error| error!(source = error, "Failed to read from the reader."))?;
+					.map_err(|error| error!(source = error, "failed to read from the reader"))?;
 				position += n;
 				if n == 0 || position == bytes.len() {
 					break;
@@ -154,17 +154,14 @@ impl Blob {
 		reader
 			.read_to_end(&mut bytes)
 			.await
-			.map_err(|error| error!(source = error, "Failed to read the blob."))?;
+			.map_err(|error| error!(source = error, "failed to read the blob"))?;
 		Ok(bytes)
 	}
 
 	pub async fn text(&self, tg: &dyn Handle) -> Result<String> {
 		let bytes = self.bytes(tg).await?;
 		let string = String::from_utf8(bytes).map_err(|error| {
-			error!(
-				source = error,
-				"Failed to decode the blob's bytes as UTF-8."
-			)
+			error!(source = error, "failed to decode the blob's bytes as UTF-8")
 		})?;
 		Ok(string)
 	}
@@ -225,7 +222,7 @@ impl Blob {
 
 		// Create a temp.
 		let tempdir = tempfile::TempDir::new()
-			.map_err(|error| error!(source = error, "Failed to create the temporary leaf."))?;
+			.map_err(|error| error!(source = error, "failed to create the temporary leaf"))?;
 		let path = tempdir.path().join("archive");
 
 		// Extract in a blocking task.
@@ -239,15 +236,15 @@ impl Blob {
 						archive.set_preserve_permissions(false);
 						archive.set_unpack_xattrs(false);
 						archive.unpack(path).map_err(|error| {
-							error!(source = error, "Failed to extract the archive.")
+							error!(source = error, "failed to extract the archive")
 						})?;
 					},
 					ArchiveFormat::Zip => {
 						let mut archive = zip::ZipArchive::new(reader).map_err(|error| {
-							error!(source = error, "Failed to extract the archive.")
+							error!(source = error, "failed to extract the archive")
 						})?;
 						archive.extract(&path).map_err(|error| {
-							error!(source = error, "Failed to extract the archive.")
+							error!(source = error, "failed to extract the archive")
 						})?;
 					},
 				}
@@ -261,7 +258,7 @@ impl Blob {
 		let path = path.try_into()?;
 		let artifact = Artifact::check_in(tg, &path)
 			.await
-			.map_err(|error| error!(source = error, "Failed to check in the extracted archive."))?;
+			.map_err(|error| error!(source = error, "failed to check in the extracted archive"))?;
 
 		Ok(artifact)
 	}
@@ -300,7 +297,7 @@ impl TryFrom<crate::Id> for Id {
 		match value.kind() {
 			id::Kind::Leaf => Ok(Self::Leaf(value.try_into()?)),
 			id::Kind::Branch => Ok(Self::Branch(value.try_into()?)),
-			value => Err(error!(%value, "Expected a blob ID.")),
+			value => Err(error!(%value, "expected a blob ID")),
 		}
 	}
 }
@@ -321,7 +318,7 @@ impl TryFrom<object::Id> for Id {
 		match value {
 			object::Id::Leaf(value) => Ok(value.into()),
 			object::Id::Branch(value) => Ok(value.into()),
-			value => Err(error!(%value, "Expected a blob ID.")),
+			value => Err(error!(%value, "expected a blob ID")),
 		}
 	}
 }
@@ -357,7 +354,7 @@ impl TryFrom<object::Handle> for Blob {
 		match value {
 			object::Handle::Leaf(leaf) => Ok(Self::Leaf(leaf)),
 			object::Handle::Branch(branch) => Ok(Self::Branch(branch)),
-			object => Err(error!(%object, "Expected a blob.")),
+			object => Err(error!(%object, "expected a blob")),
 		}
 	}
 }
@@ -373,7 +370,7 @@ impl TryFrom<Value> for Blob {
 
 	fn try_from(value: Value) -> Result<Self, Self::Error> {
 		object::Handle::try_from(value)
-			.map_err(|error| error!(source = error, "Invalid value."))?
+			.map_err(|error| error!(source = error, "invalid value"))?
 			.try_into()
 	}
 }
@@ -518,11 +515,11 @@ impl AsyncSeek for Reader {
 			std::io::SeekFrom::Current(seek) => this.position.to_i64().unwrap() + seek,
 		};
 		let position = position.to_u64().ok_or(std::io::Error::other(
-			"Attempted to seek to a negative or overflowing position.",
+			"attempted to seek to a negative or overflowing position",
 		))?;
 		if position > this.size {
 			return Err(std::io::Error::other(
-				"Attempted to seek to a position beyond the end.",
+				"attempted to seek to a position beyond the end",
 			));
 		}
 		if let Some(cursor) = this.cursor.as_mut() {
@@ -567,7 +564,7 @@ impl std::str::FromStr for ArchiveFormat {
 		match s {
 			".tar" => Ok(Self::Tar),
 			".zip" => Ok(Self::Zip),
-			extension => Err(error!(%extension, "Invalid format.")),
+			extension => Err(error!(%extension, "invalid format")),
 		}
 	}
 }
@@ -608,7 +605,7 @@ impl std::str::FromStr for CompressionFormat {
 			".gz" => Ok(Self::Gz),
 			".xz" => Ok(Self::Xz),
 			".zst" | ".zstd" => Ok(Self::Zstd),
-			extension => Err(error!(%extension, "Invalid compression format.")),
+			extension => Err(error!(%extension, "invalid compression format")),
 		}
 	}
 }

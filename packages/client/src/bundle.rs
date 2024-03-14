@@ -49,7 +49,7 @@ impl Artifact {
 			artifact => {
 				return Err(error!(
 					%artifact,
-					"The artifact must be a directory or an executable file."
+					"the artifact must be a directory or an executable file"
 				))
 			},
 		};
@@ -60,7 +60,7 @@ impl Artifact {
 			.await?
 			.try_unwrap_directory()
 			.ok()
-			.ok_or_else(|| error!("The artifact must be a directory."))?;
+			.ok_or_else(|| error!("the artifact must be a directory"))?;
 
 		// Add the artifacts directory to the bundled artifact at `.tangram/artifacts`.
 		let bundle_directory = bundle_directory

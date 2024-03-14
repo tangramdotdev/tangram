@@ -21,10 +21,10 @@ impl Server {
 					_ => LIB
 						.get_file(&path)
 						.ok_or_else(
-							|| error!(%path, "Could not find a library module at the path."),
+							|| error!(%path, "could not find a library module at the path"),
 						)?
 						.contents_utf8()
-						.ok_or_else(|| error!("Failed to read the file as UTF-8."))?,
+						.ok_or_else(|| error!("failed to read the file as UTF-8"))?,
 				};
 				Ok(text.to_owned())
 			},
@@ -42,7 +42,7 @@ impl Server {
 				let file = entry
 					.try_unwrap_file_ref()
 					.ok()
-					.ok_or_else(|| error!("Expected a file."))?;
+					.ok_or_else(|| error!("expected a file"))?;
 				let text = file.text(&self.inner.server).await?;
 
 				Ok(text)

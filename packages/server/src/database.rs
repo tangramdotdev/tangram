@@ -107,14 +107,14 @@ impl Connection {
 		match self {
 			Self::Sqlite(database) => {
 				Ok(Transaction::Sqlite(database.transaction().map_err(
-					|error| error!(source = error, "Failed to create the transaction."),
+					|error| error!(source = error, "failed to create the transaction"),
 				)?))
 			},
 			Self::Postgres(database) => Ok(Transaction::Postgres(
 				database
 					.transaction()
 					.await
-					.map_err(|error| error!(source = error, "Failed to create the transaction."))?,
+					.map_err(|error| error!(source = error, "failed to create the transaction"))?,
 			)),
 		}
 	}
@@ -123,13 +123,13 @@ impl Connection {
 impl SqliteConnection {
 	pub fn connect(path: &Path) -> Result<Self> {
 		let connection = sqlite::Connection::open(path)
-			.map_err(|error| error!(source = error, "Failed to open the database."))?;
+			.map_err(|error| error!(source = error, "failed to open the database"))?;
 		connection
 			.pragma_update(None, "busy_timeout", "86400000")
-			.map_err(|error| error!(source = error, "Failed to set the pragma."))?;
+			.map_err(|error| error!(source = error, "failed to set the pragma"))?;
 		connection
 			.pragma_update(None, "synchronous", "off")
-			.map_err(|error| error!(source = error, "Failed to set the pragma."))?;
+			.map_err(|error| error!(source = error, "failed to set the pragma"))?;
 		Ok(Self { connection })
 	}
 }
@@ -138,7 +138,7 @@ impl PostgresConnection {
 	pub async fn connect(url: &Url) -> Result<Self> {
 		let (client, connection) = postgres::connect(url.as_str(), postgres::NoTls)
 			.await
-			.map_err(|error| error!(source = error, "Failed to connect to the database."))?;
+			.map_err(|error| error!(source = error, "failed to connect to the database"))?;
 		let task = tokio::spawn(async move {
 			connection
 				.await
@@ -161,7 +161,7 @@ impl PostgresConnection {
 		drop(self.client);
 		self.task
 			.await
-			.map_err(|error| error!(source = error, "Failed to join the task."))?;
+			.map_err(|error| error!(source = error, "failed to join the task"))?;
 		Ok(())
 	}
 
@@ -195,11 +195,11 @@ impl<'a> Transaction<'a> {
 		match self {
 			Self::Sqlite(txn) => txn
 				.commit()
-				.map_err(|error| error!(source = error, "Failed to commit the transaction.")),
+				.map_err(|error| error!(source = error, "failed to commit the transaction")),
 			Self::Postgres(txn) => txn
 				.commit()
 				.await
-				.map_err(|error| error!(source = error, "Failed to commit the transaction.")),
+				.map_err(|error| error!(source = error, "failed to commit the transaction")),
 		}
 	}
 }

@@ -13,25 +13,25 @@ impl Client {
 		let body = full(text);
 		let request = request
 			.body(body)
-			.map_err(|error| error!(source = error, "Failed to create the request."))?;
+			.map_err(|error| error!(source = error, "failed to create the request"))?;
 		let response = self.send(request).await?;
 		if !response.status().is_success() {
 			let bytes = response
 				.collect()
 				.await
-				.map_err(|error| error!(source = error, "Failed to collect the response body."))?
+				.map_err(|error| error!(source = error, "failed to collect the response body"))?
 				.to_bytes();
 			let error = serde_json::from_slice(&bytes)
-				.unwrap_or_else(|_| error!("Failed to deserialize the error."));
+				.unwrap_or_else(|_| error!("failed to deserialize the error"));
 			return Err(error);
 		}
 		let bytes = response
 			.collect()
 			.await
-			.map_err(|error| error!(source = error, "Failed to collect the response body."))?
+			.map_err(|error| error!(source = error, "failed to collect the response body"))?
 			.to_bytes();
 		let text = String::from_utf8(bytes.to_vec())
-			.map_err(|error| error!(source = error, "Failed to deserialize the response body."))?;
+			.map_err(|error| error!(source = error, "failed to deserialize the response body"))?;
 		Ok(text)
 	}
 
@@ -49,30 +49,30 @@ impl Client {
 			.uri(uri)
 			.header(http::header::UPGRADE, "lsp".to_string())
 			.body(body)
-			.map_err(|error| error!(source = error, "Failed to create the request."))?;
+			.map_err(|error| error!(source = error, "failed to create the request"))?;
 		let response = sender
 			.send_request(request)
 			.await
-			.map_err(|error| error!(source = error, "Failed to send the request."))?;
+			.map_err(|error| error!(source = error, "failed to send the request"))?;
 		if response.status() != http::StatusCode::SWITCHING_PROTOCOLS {
 			let bytes = response
 				.collect()
 				.await
-				.map_err(|error| error!(source = error, "Failed to collect the response body."))?
+				.map_err(|error| error!(source = error, "failed to collect the response body"))?
 				.to_bytes();
 			let error = serde_json::from_slice(&bytes)
-				.unwrap_or_else(|_| error!("Failed to deserialize the error."));
+				.unwrap_or_else(|_| error!("failed to deserialize the error"));
 			return Err(error);
 		}
 		let io = hyper::upgrade::on(response)
 			.await
-			.map_err(|error| error!(source = error, "Failed to perform the upgrade."))?;
+			.map_err(|error| error!(source = error, "failed to perform the upgrade"))?;
 		let io = hyper_util::rt::TokioIo::new(io);
 		let (mut o, mut i) = tokio::io::split(io);
 		let input = tokio::io::copy(&mut input, &mut i)
-			.map_err(|error| error!(source = error, "Failed to copy the input."));
+			.map_err(|error| error!(source = error, "failed to copy the input"));
 		let output = tokio::io::copy(&mut o, &mut output)
-			.map_err(|error| error!(source = error, "Failed to copy the output."));
+			.map_err(|error| error!(source = error, "failed to copy the output"));
 		future::try_join(input, output).await?;
 		Ok(())
 	}

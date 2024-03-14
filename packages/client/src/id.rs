@@ -99,38 +99,38 @@ impl std::str::FromStr for Id {
 	fn from_str(id: &str) -> Result<Self, Self::Err> {
 		let kind = id
 			.get(0..=2)
-			.ok_or_else(|| error!(%id, "Invalid ID."))?
+			.ok_or_else(|| error!(%id, "invalid ID"))?
 			.parse()?;
 		let version = id
 			.chars()
 			.nth(4)
-			.ok_or_else(|| error!(%id, "Invalid ID."))?;
+			.ok_or_else(|| error!(%id, "invalid ID"))?;
 		if version != '0' {
-			return Err(error!(%version, "Invalid version."));
+			return Err(error!(%version, "invalid version"));
 		}
 		let algorithm = id
 			.chars()
 			.nth(5)
-			.ok_or_else(|| error!(%id, "Invalid ID."))?;
-		let body = id.get(6..).ok_or_else(|| error!(%id, "Invalid ID."))?;
+			.ok_or_else(|| error!(%id, "invalid ID"))?;
+		let body = id.get(6..).ok_or_else(|| error!(%id, "invalid ID"))?;
 		let body = match algorithm {
 			'0' => Body::UuidV7(
 				ENCODING
 					.decode(body.as_bytes())
-					.map_err(|error| error!(source = error, "Invalid body."))?
+					.map_err(|error| error!(source = error, "invalid body"))?
 					.try_into()
 					.ok()
-					.ok_or_else(|| error!("Invalid body."))?,
+					.ok_or_else(|| error!("invalid body"))?,
 			),
 			'1' => Body::Blake3(
 				ENCODING
 					.decode(body.as_bytes())
-					.map_err(|error| error!(source = error, "Invalid body."))?
+					.map_err(|error| error!(source = error, "invalid body"))?
 					.try_into()
 					.ok()
-					.ok_or_else(|| error!("Invalid body."))?,
+					.ok_or_else(|| error!("invalid body"))?,
 			),
-			_ => return Err(error!(%id, "Invalid ID.")),
+			_ => return Err(error!(%id, "invalid ID")),
 		};
 		Ok(Self::V0(V0 { kind, body }))
 	}
@@ -174,7 +174,7 @@ impl std::str::FromStr for Kind {
 			"lgn" => Kind::Login,
 			"tok" => Kind::Token,
 			"req" => Kind::Request,
-			kind => return Err(error!(%kind, "Invalid kind.")),
+			kind => return Err(error!(%kind, "invalid kind")),
 		})
 	}
 }

@@ -16,7 +16,7 @@ impl Server {
 			},
 
 			(tg::Module::Library(_), tg::Import::Dependency(_)) => Err(error!(
-				r#"Cannot resolve a dependency import from a library module."#
+				r#"cannot resolve a dependency import from a library module"#
 			)),
 
 			(tg::Module::Document(document), tg::Import::Module(path)) => {
@@ -35,11 +35,11 @@ impl Server {
 					tokio::fs::try_exists(&module_absolute_path)
 						.await
 						.map_err(|error| {
-							error!(source = error, "Failed to determine if the path exists.")
+							error!(source = error, "failed to determine if the path exists")
 						})?;
 				if !exists {
 					let path = module_absolute_path.display();
-					return Err(error!(%path, "Could not find a module."));
+					return Err(error!(%path, "could not find a module"));
 				}
 
 				// Get or create the document.
@@ -64,7 +64,7 @@ impl Server {
 				let package_path = document.package_path.join(dependency_path.to_string());
 				let package_path = tokio::fs::canonicalize(package_path)
 					.await
-					.map_err(|error| error!(source = error, "Failed to canonicalize the path."))?;
+					.map_err(|error| error!(source = error, "failed to canonicalize the path"))?;
 
 				// Get the package's root module path.
 				let module_path = tg::package::get_root_module_path_for_path(&package_path).await?;
@@ -100,7 +100,7 @@ impl Server {
 				let (package, lock) = lock
 					.get(&self.inner.server, &dependency)
 					.await?
-					.ok_or_else(|| error!(%dependency, "Failed to resolve dependency."))?;
+					.ok_or_else(|| error!(%dependency, "failed to resolve dependency"))?;
 
 				// Create the module.
 				let path = tg::package::get_root_module_path(&self.inner.server, &package).await?;
@@ -138,7 +138,7 @@ impl Server {
 				let (package, lock) = lock
 					.get(&self.inner.server, &dependency)
 					.await?
-					.ok_or_else(|| error!(%dependency, "Failed to resolve dependency."))?;
+					.ok_or_else(|| error!(%dependency, "failed to resolve dependency"))?;
 
 				// Create the module.
 				let path = tg::package::get_root_module_path(&self.inner.server, &package).await?;

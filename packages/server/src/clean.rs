@@ -15,32 +15,32 @@ impl Server {
 					delete from objects;
 				",
 				)
-				.map_err(|error| error!(source = error, "Failed to clear the database."))?;
+				.map_err(|error| error!(source = error, "failed to clear the database"))?;
 		}
 
 		// Clean the checkouts directory.
 		tokio::fs::remove_dir_all(self.checkouts_path())
 			.await
-			.map_err(|error| error!(source = error, "Failed to remove the checkouts directory."))?;
+			.map_err(|error| error!(source = error, "failed to remove the checkouts directory"))?;
 		tokio::fs::create_dir_all(self.checkouts_path())
 			.await
 			.map_err(|error| {
 				error!(
 					source = error,
-					"Failed to recreate the checkouts directory."
+					"failed to recreate the checkouts directory"
 				)
 			})?;
 
 		// Clean the temporary directory.
 		tokio::fs::remove_dir_all(self.tmp_path())
 			.await
-			.map_err(|error| error!(source = error, "Failed to remove the temporary directory."))?;
+			.map_err(|error| error!(source = error, "failed to remove the temporary directory"))?;
 		tokio::fs::create_dir_all(self.tmp_path())
 			.await
 			.map_err(|error| {
 				error!(
 					source = error,
-					"Failed to recreate the temporary directory."
+					"failed to recreate the temporary directory"
 				)
 			})?;
 

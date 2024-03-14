@@ -143,7 +143,7 @@ impl Lock {
 		self.try_load(tg)
 			.await?
 			.then_some(())
-			.ok_or_else(|| error!("Failed to load the object."))
+			.ok_or_else(|| error!("failed to load the object"))
 	}
 
 	pub async fn try_load(&self, tg: &dyn Handle) -> Result<bool> {
@@ -155,7 +155,7 @@ impl Lock {
 			return Ok(false);
 		};
 		let data = Data::deserialize(&output.bytes)
-			.map_err(|error| error!(source = error, "Failed to deserialize the data."))?;
+			.map_err(|error| error!(source = error, "failed to deserialize the data"))?;
 		let object = data.try_into()?;
 		self.state.write().unwrap().object.replace(object);
 		Ok(true)
@@ -175,7 +175,7 @@ impl Lock {
 		};
 		tg.put_object(&id.clone().into(), &arg)
 			.await
-			.map_err(|error| error!(source = error, "Failed to put the object."))?;
+			.map_err(|error| error!(source = error, "failed to put the object"))?;
 		self.state.write().unwrap().id.replace(id);
 		Ok(())
 	}
@@ -206,12 +206,12 @@ impl Lock {
 		let Entry { package, lock } = root
 			.dependencies
 			.get(dependency)
-			.ok_or_else(|| error!(%dependency, "Failed to lookup dependency in lock."))?;
+			.ok_or_else(|| error!(%dependency, "failed to lookup dependency in lock"))?;
 
 		// Get the package if it exists.
 		let package = package
 			.as_ref()
-			.ok_or_else(|| error!("Expected a package for dependency."))?;
+			.ok_or_else(|| error!("expected a package for dependency"))?;
 
 		// Short circuit if the lock is referred to by id.
 		let index = match lock {
@@ -261,7 +261,7 @@ impl Lock {
 		visited: &mut BTreeMap<usize, Option<Lock>>,
 	) -> Result<Lock> {
 		match visited.get(&index) {
-			Some(None) => return Err(error!("The lock contains a cycle.")),
+			Some(None) => return Err(error!("the lock contains a cycle")),
 			Some(Some(lock)) => return Ok(lock.clone()),
 			None => (),
 		};
@@ -327,12 +327,12 @@ impl Data {
 	pub fn serialize(&self) -> Result<Bytes> {
 		serde_json::to_vec(self)
 			.map(Into::into)
-			.map_err(|error| error!(source = error, "Failed to serialize the data."))
+			.map_err(|error| error!(source = error, "failed to serialize the data"))
 	}
 
 	pub fn deserialize(bytes: &Bytes) -> Result<Self> {
 		serde_json::from_reader(bytes.as_ref())
-			.map_err(|error| error!(source = error, "Failed to deserialize the data."))
+			.map_err(|error| error!(source = error, "failed to deserialize the data"))
 	}
 
 	#[must_use]
@@ -425,7 +425,7 @@ impl TryFrom<crate::Id> for Id {
 
 	fn try_from(value: crate::Id) -> Result<Self, Self::Error> {
 		if value.kind() != id::Kind::Lock {
-			return Err(error!(%value, "Invalid kind."));
+			return Err(error!(%value, "invalid kind"));
 		}
 		Ok(Self(value))
 	}

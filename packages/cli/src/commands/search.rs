@@ -19,7 +19,7 @@ impl Cli {
 
 		// Print the package names.
 		if packages.is_empty() {
-			println!("No packages matched your query.");
+			println!("no packages matched your query");
 		}
 		for package in packages {
 			println!("{package}");

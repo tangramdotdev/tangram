@@ -221,7 +221,7 @@ impl TryFrom<PathBuf> for Path {
 		value
 			.as_os_str()
 			.to_str()
-			.ok_or_else(|| error!("The path must be valid UTF-8."))?
+			.ok_or_else(|| error!("the path must be valid UTF-8"))?
 			.parse()
 	}
 }
@@ -235,7 +235,7 @@ impl<'a> TryFrom<&'a std::path::Path> for Path {
 			.to_str()
 			.ok_or_else(|| {
 				let path = value.display();
-				error!(%path, "The path must be valid UTF-8.")
+				error!(%path, "the path must be valid UTF-8")
 			})?
 			.parse()
 	}

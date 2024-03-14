@@ -30,7 +30,7 @@ impl Import {
 						.map(|(key, value)| (key.clone(), value.clone()))
 						.collect();
 					let attributes = serde_json::from_value(attributes).map_err(|error| {
-						error!(source = error, "Failed to parse the attributes.")
+						error!(source = error, "failed to parse the attributes")
 					})?;
 					dependency.merge(attributes);
 					Self::Dependency(dependency)
@@ -68,17 +68,17 @@ impl std::str::FromStr for Import {
 			if !matches!(path.extension(), Some("js" | "ts" | "tg.js" | "tg.ts")) {
 				return Err(error!(
 					%path,
-					r#"The path does not have a valid extension."#
+					r#"the path does not have a valid extension"#
 				));
 			}
 			Ok(Import::Module(path))
 		} else if let Some(value) = value.strip_prefix("tg:") {
 			let dependency = value.parse().map_err(
-				|error| error!(source = error, %value, "Failed to parse value as a dependency."),
+				|error| error!(source = error, %value, "failed to parse value as a dependency"),
 			)?;
 			Ok(Import::Dependency(dependency))
 		} else {
-			return Err(error!(?value, r#"The import is not valid."#));
+			return Err(error!(?value, r#"the import is not valid"#));
 		}
 	}
 }

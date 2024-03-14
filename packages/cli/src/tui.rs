@@ -148,19 +148,19 @@ impl Tui {
 			.write(true)
 			.open("/dev/tty")
 			.await
-			.map_err(|error| error!(source = error, "Failed to open /dev/tty."))?;
+			.map_err(|error| error!(source = error, "failed to open /dev/tty"))?;
 		let tty = tty.into_std().await;
 		let backend = Backend::new(tty);
 		let mut terminal = Terminal::new(backend)
-			.map_err(|error| error!(source = error, "Failed to create the terminal backend."))?;
+			.map_err(|error| error!(source = error, "failed to create the terminal backend"))?;
 		ct::terminal::enable_raw_mode()
-			.map_err(|error| error!(source = error, "Failed to enable the terminal's raw mode"))?;
+			.map_err(|error| error!(source = error, "failed to enable the terminal's raw mode"))?;
 		ct::execute!(
 			terminal.backend_mut(),
 			ct::event::EnableMouseCapture,
 			ct::terminal::EnterAlternateScreen,
 		)
-		.map_err(|error| error!(source = error, "Failed to set up the terminal."))?;
+		.map_err(|error| error!(source = error, "failed to set up the terminal"))?;
 
 		// Create the stop flag.
 		let (stop, _) = tokio::sync::watch::channel(false);
@@ -225,21 +225,20 @@ impl Tui {
 		let mut terminal = task
 			.await
 			.unwrap()
-			.map_err(|error| error!(source = error, "The task did not succeed."))?;
+			.map_err(|error| error!(source = error, "the task did not succeed"))?;
 
 		// Reset the terminal.
 		terminal
 			.clear()
-			.map_err(|error| error!(source = error, "Failed to clear the terminal."))?;
+			.map_err(|error| error!(source = error, "failed to clear the terminal"))?;
 		ct::execute!(
 			terminal.backend_mut(),
 			ct::event::DisableMouseCapture,
 			ct::terminal::LeaveAlternateScreen
 		)
-		.map_err(|error| error!(source = error, "Failed to reset the terminal."))?;
-		ct::terminal::disable_raw_mode().map_err(|error| {
-			error!(source = error, "Failed to disable the terminal's raw mode.")
-		})?;
+		.map_err(|error| error!(source = error, "failed to reset the terminal"))?;
+		ct::terminal::disable_raw_mode()
+			.map_err(|error| error!(source = error, "failed to disable the terminal's raw mode"))?;
 
 		Ok(())
 	}
@@ -908,7 +907,7 @@ impl Log {
 			.await?
 			.try_next()
 			.await?
-			.ok_or_else(|| error!("Failed to get a log chunk."))?;
+			.ok_or_else(|| error!("failed to get a log chunk"))?;
 		let max_position = chunk.position + chunk.bytes.len().to_u64().unwrap();
 		self.inner
 			.max_position

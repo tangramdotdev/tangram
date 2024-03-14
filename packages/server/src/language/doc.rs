@@ -23,7 +23,7 @@ impl Server {
 
 		// Get the response.
 		let super::Response::Doc(response) = response else {
-			return Err(error!("Unexpected response type."));
+			return Err(error!("unexpected response type"));
 		};
 
 		Ok(response)

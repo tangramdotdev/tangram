@@ -81,22 +81,22 @@ impl TryFrom<Url> for Module {
 	fn try_from(url: Url) -> Result<Self, Self::Error> {
 		// Ensure the scheme is "tg".
 		if url.scheme() != "tg" {
-			return Err(error!(%url, "The URL has an invalid scheme."));
+			return Err(error!(%url, "the URL has an invalid scheme"));
 		}
 
 		// Get the domain.
 		let data = url
 			.domain()
-			.ok_or_else(|| error!(%url, "The URL must have a domain."))?;
+			.ok_or_else(|| error!(%url, "the URL must have a domain"))?;
 
 		// Decode the data.
 		let data = data_encoding::HEXLOWER
 			.decode(data.as_bytes())
-			.map_err(|error| error!(source = error, "Failed to deserialize the path."))?;
+			.map_err(|error| error!(source = error, "failed to deserialize the path"))?;
 
 		// Deserialize the data.
 		let module = serde_json::from_slice(&data)
-			.map_err(|error| error!(source = error, "Failed to deserialize the module."))?;
+			.map_err(|error| error!(source = error, "failed to deserialize the module"))?;
 
 		Ok(module)
 	}
@@ -116,7 +116,7 @@ impl std::str::FromStr for Module {
 	fn from_str(s: &str) -> Result<Self, Self::Err> {
 		let url: Url = s
 			.parse()
-			.map_err(|error| error!(source = error, "Failed to parse the URL."))?;
+			.map_err(|error| error!(source = error, "failed to parse the URL"))?;
 		let module = url.try_into()?;
 		Ok(module)
 	}

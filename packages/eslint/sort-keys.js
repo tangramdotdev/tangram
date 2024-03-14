@@ -45,7 +45,7 @@ let makeRule = (context) => (node) => {
 			context.report({
 				fix,
 				loc: node.loc,
-				message: "Expected keys to be sorted.",
+				message: "expected keys to be sorted",
 				node,
 			});
 			break;

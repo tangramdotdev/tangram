@@ -50,7 +50,7 @@ impl Client {
 			.uri(uri)
 			.header(http::header::ACCEPT, mime::APPLICATION_JSON.to_string())
 			.body(body)
-			.map_err(|error| error!(source = error, "Failed to create the request."))?;
+			.map_err(|error| error!(source = error, "failed to create the request"))?;
 		let response = self.send(request).await?;
 		if response.status() == http::StatusCode::NOT_FOUND {
 			return Ok(None);
@@ -59,10 +59,10 @@ impl Client {
 			let bytes = response
 				.collect()
 				.await
-				.map_err(|error| error!(source = error, "Failed to collect the response body."))?
+				.map_err(|error| error!(source = error, "failed to collect the response body"))?
 				.to_bytes();
 			let error = serde_json::from_slice(&bytes)
-				.unwrap_or_else(|_| error!("The request did not succeed."));
+				.unwrap_or_else(|_| error!("the request did not succeed"));
 			return Err(error);
 		}
 		let stop = stop.map_or_else(
@@ -73,10 +73,10 @@ impl Client {
 			let bytes = response
 				.collect()
 				.await
-				.map_err(|error| error!(source = error, "Failed to collect the response body."))?
+				.map_err(|error| error!(source = error, "failed to collect the response body"))?
 				.to_bytes();
 			let outcome = serde_json::from_slice(&bytes).map_err(|error| {
-				error!(source = error, "Failed to deserialize the response body.")
+				error!(source = error, "failed to deserialize the response body")
 			})?;
 			Ok(outcome)
 		};
@@ -105,20 +105,20 @@ impl Client {
 		}
 		let outcome = outcome.data(self).await?;
 		let body = serde_json::to_vec(&outcome)
-			.map_err(|error| error!(source = error, "Failed to serialize the body."))?;
+			.map_err(|error| error!(source = error, "failed to serialize the body"))?;
 		let body = full(body);
 		let request = request
 			.body(body)
-			.map_err(|error| error!(source = error, "Failed to create the request."))?;
+			.map_err(|error| error!(source = error, "failed to create the request"))?;
 		let response = self.send(request).await?;
 		if !response.status().is_success() {
 			let bytes = response
 				.collect()
 				.await
-				.map_err(|error| error!(source = error, "Failed to collect the response body."))?
+				.map_err(|error| error!(source = error, "failed to collect the response body"))?
 				.to_bytes();
 			let error = serde_json::from_slice(&bytes)
-				.unwrap_or_else(|_| error!("The request did not succeed."));
+				.unwrap_or_else(|_| error!("the request did not succeed"));
 			return Err(error);
 		}
 		Ok(())

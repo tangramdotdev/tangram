@@ -64,10 +64,10 @@ export class Directory {
 					let [firstComponent, ...trailingComponents] =
 						Path.new(key).components();
 					if (firstComponent === undefined) {
-						throw new Error("The path must have at least one component.");
+						throw new Error("the path must have at least one component");
 					}
 					if (!Path.Component.isNormal(firstComponent)) {
-						throw new Error("All path components must be normal.");
+						throw new Error("all path components must be normal");
 					}
 					let name = firstComponent;
 
@@ -167,7 +167,7 @@ export class Directory {
 		let currentPath = Path.new();
 		for (let component of Path.new(arg).components()) {
 			if (!Path.Component.isNormal(component)) {
-				throw new Error("All path components must be normal.");
+				throw new Error("all path components must be normal");
 			}
 			if (!Directory.is(artifact)) {
 				return undefined;

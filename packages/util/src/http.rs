@@ -100,10 +100,10 @@ pub fn parse_cookies(cookies: &str) -> impl Iterator<Item = Result<(&str, &str)>
 		let mut components = cookie.split('=');
 		let key = components
 			.next()
-			.ok_or_else(|| error!("Expected a key in the cookie string."))?;
+			.ok_or_else(|| error!("expected a key in the cookie string"))?;
 		let value = components
 			.next()
-			.ok_or_else(|| error!("Expected a value in the cookie string."))?;
+			.ok_or_else(|| error!("expected a value in the cookie string"))?;
 		Ok((key, value))
 	})
 }

@@ -9,11 +9,11 @@ impl Server {
 			.inner
 			.remote
 			.as_ref()
-			.ok_or_else(|| error!("The server does not have a remote."))?;
+			.ok_or_else(|| error!("the server does not have a remote"))?;
 		tg::Build::with_id(id.clone())
 			.push(user, self, remote.as_ref())
 			.await
-			.map_err(|error| error!(source = error, "Failed to push the build."))?;
+			.map_err(|error| error!(source = error, "failed to push the build"))?;
 		Ok(())
 	}
 }
@@ -27,7 +27,7 @@ impl Http {
 		let path_components: Vec<&str> = request.uri().path().split('/').skip(1).collect();
 		let ["builds", id, "push"] = path_components.as_slice() else {
 			let path = request.uri().path();
-			return Err(error!(%path, "Unexpected path."));
+			return Err(error!(%path, "unexpected path"));
 		};
 		let Ok(id) = id.parse() else {
 			return Ok(bad_request());

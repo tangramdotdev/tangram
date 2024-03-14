@@ -218,10 +218,10 @@ export class Target<
 			},
 		);
 		if (!host) {
-			throw new Error("Cannot create a target without a host.");
+			throw new Error("cannot create a target without a host");
 		}
 		if (!executable) {
-			throw new Error("Cannot create a target without an executable.");
+			throw new Error("cannot create a target without an executable");
 		}
 		let env = await Args.apply(flatten(env_ ?? []), async (arg) => arg);
 		args_ ??= [];

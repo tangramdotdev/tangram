@@ -17,7 +17,7 @@ impl Position {
 		for (char_index, c) in string.char_indices() {
 			assert!(
 				char_index <= index,
-				"String index {index} is not on a character boundary."
+				"string index {index} is not on a character boundary"
 			);
 
 			if char_index == index {
@@ -41,7 +41,7 @@ impl Position {
 	pub fn from_byte_index_in_string(string: &str, index: usize) -> Self {
 		Self::try_from_byte_index_in_string(string, index).unwrap_or_else(|| {
 			panic!(
-				"String index {index} is out of bounds of string with length {}.",
+				"string index {index} is out of bounds of string with length {}",
 				string.len()
 			);
 		})
@@ -73,7 +73,7 @@ impl Position {
 	#[must_use]
 	pub fn to_byte_index_in_string(self, string: &str) -> usize {
 		self.try_to_byte_index_in_string(string).unwrap_or_else(|| {
-			panic!(r#"Position "{self:?}" is out of bounds of the string."#);
+			panic!(r#"position "{self:?}" is out of bounds of the string"#);
 		})
 	}
 

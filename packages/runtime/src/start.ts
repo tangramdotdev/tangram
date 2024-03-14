@@ -38,14 +38,14 @@ export let start = async (target: Target): Promise<Value> => {
 	// Get the target.
 	let name = await target.name_();
 	if (!name) {
-		throw new Error("The target must have a name.");
+		throw new Error("the target must have a name");
 	}
 
 	// Get the function.
 	let key = encoding.json.encode({ url, name });
 	let function_ = functions[key];
 	if (!function_) {
-		throw new Error("Failed to find the function.");
+		throw new Error("failed to find the function");
 	}
 
 	// Get the args.

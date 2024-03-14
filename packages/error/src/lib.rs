@@ -85,7 +85,7 @@ impl From<&(dyn std::error::Error + 'static)> for Error {
 
 impl<'a> std::fmt::Display for Trace<'a> {
 	fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-		writeln!(f, "Error:")?;
+		writeln!(f, "error:")?;
 		let mut error = self.0;
 		let mut first = true;
 		loop {
@@ -133,15 +133,15 @@ impl std::fmt::Display for Location {
 ///
 /// Usage:
 /// ```rust
-/// error!("Error message.");
-/// error!("Error message with interpolation. {}", 42);
+/// error!("error message");
+/// error!("error message with interpolation {}", 42);
 ///
 /// let name = "value";
-/// error!(%name, "Error message with a named value (pretty printed).");
-/// error!(?name, "Error message with a named value (debug printed).");
+/// error!(%name, "error message with a named value (pretty printed)");
+/// error!(?name, "error message with a named value (debug printed)");
 ///
 /// let error = std::io::Error::last_os_error();
-/// error!(source = error, "An error that wraps an existing error.");
+/// error!(source = error, "an error that wraps an existing error");
 ///
 /// let stack_trace = vec![
 ///     Location {
@@ -150,7 +150,7 @@ impl std::fmt::Display for Location {
 ///         column: 456,
 ///     }
 /// ];
-/// error!(stack = stack_trace, An error with a custom stack trace.")
+/// error!(stack = stack_trace, "an error with a custom stack trace")
 /// ```
 #[macro_export]
 macro_rules! error {
@@ -204,14 +204,14 @@ mod tests {
 		let baz = "baz";
 		let error = error!(?foo, %bar, ?baz, "{} bar {baz}", foo);
 		let trace = error.trace().to_string();
-		assert_eq!(trace, "Error:\n-> foo bar baz packages/error/src/lib.rs:196:15\n   bar = bar\n   baz = \"baz\"\n   foo = \"foo\"");
+		assert_eq!(trace, "error:\n-> foo bar baz packages/error/src/lib.rs:196:15\n   bar = bar\n   baz = \"baz\"\n   foo = \"foo\"");
 
-		let source = std::io::Error::other("Unexpected error.");
-		let error = error!(source = source, "An error occurred.");
+		let source = std::io::Error::other("unexpected error");
+		let error = error!(source = source, "an error occurred");
 		let trace = error.trace().to_string();
 		assert_eq!(
 			trace,
-			"Error:\n-> An error occurred. packages/error/src/lib.rs:201:15\n-> Unexpected error."
+			"error:\n-> an error occurred packages/error/src/lib.rs:201:15\n-> unexpected error"
 		);
 
 		let stack = vec![Location {
@@ -219,11 +219,11 @@ mod tests {
 			line: 123,
 			column: 456,
 		}];
-		let error = error!(stack = stack, "An error occurred.");
+		let error = error!(stack = stack, "an error occurred");
 		let trace = error.trace().to_string();
 		assert_eq!(
 			trace,
-			"Error:\n-> An error occurred. packages/error/src/lib.rs:210:15\n   foobar.rs:124:457"
+			"error:\n-> an error occurred. packages/error/src/lib.rs:210:15\n   foobar.rs:124:457"
 		);
 	}
 }

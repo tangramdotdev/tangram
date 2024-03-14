@@ -223,7 +223,7 @@ impl Server {
 				match error.raw_os_error() {
 					Some(libc::ENOENT | libc::EINTR | libc::EAGAIN) => continue,
 					Some(libc::ENODEV) => return Ok(()),
-					_ => return Err(error!(source = error, "Failed to read the request")),
+					_ => return Err(error!(source = error, "failed to read the request")),
 				}
 			}
 			let request_size = request_size.to_usize().unwrap();
@@ -231,7 +231,7 @@ impl Server {
 
 			// Deserialize the request.
 			let request_header = sys::fuse_in_header::read_from_prefix(request_bytes)
-				.ok_or_else(|| error!("Failed to deserialize the request header."))?;
+				.ok_or_else(|| error!("failed to deserialize the request header"))?;
 			let request_header_len = std::mem::size_of::<sys::fuse_in_header>();
 			let request_data = &request_bytes[request_header_len..];
 			let request_data = match request_header.opcode {
@@ -248,7 +248,7 @@ impl Server {
 				sys::fuse_opcode::FUSE_LOOKUP => {
 					let data =
 						CString::from_vec_with_nul(request_data.to_owned()).map_err(|error| {
-							error!(source = error, "Failed to deserialize the request.")
+							error!(source = error, "failed to deserialize the request")
 						})?;
 					RequestData::Lookup(data)
 				},
@@ -269,7 +269,7 @@ impl Server {
 						request_data.split_at(std::mem::size_of::<sys::fuse_getxattr_in>());
 					let fuse_getxattr_in = read_data(fuse_getxattr_in)?;
 					let name = CString::from_vec_with_nul(name.to_owned()).map_err(|error| {
-						error!(source = error, "Failed to deserialize the request.")
+						error!(source = error, "failed to deserialize the request")
 					})?;
 					RequestData::GetXattr(fuse_getxattr_in, name)
 				},
@@ -295,12 +295,12 @@ impl Server {
 				]
 				.contains(&request.header.opcode)
 				{
-					tracing::warn!(?request, "Ignoring FORGET/FORGET_BATCH request.");
+					tracing::warn!(?request, "ignoring FORGET/FORGET_BATCH request");
 					return;
 				}
 
 				let result = server.handle_request(request).await.inspect_err(|error| {
-					tracing::error!(?error, "Request failed.");
+					tracing::error!(?error, "request failed");
 				});
 
 				// Serialize the response.
@@ -454,7 +454,7 @@ impl Server {
 			return Err(libc::ENOTSUP);
 		};
 		let attr_name = name.to_str().map_err(|e| {
-			tracing::error!(?e, "Failed to get string from xattr name.");
+			tracing::error!(?e, "failed to get string from xattr name");
 			libc::EINVAL
 		})?;
 
@@ -463,13 +463,13 @@ impl Server {
 			return Err(libc::ENODATA);
 		}
 		let file_references = file.references(self.inner.tg.as_ref()).await.map_err(|e| {
-			tracing::error!(?e, ?file, "Failed to get file references.");
+			tracing::error!(?e, ?file, "failed to get file references");
 			libc::EIO
 		})?;
 		let mut references = Vec::new();
 		for artifact in file_references {
 			let id = artifact.id(self.inner.tg.as_ref()).await.map_err(|e| {
-				tracing::error!(?e, ?artifact, "Failed to get ID of artifact.");
+				tracing::error!(?e, ?artifact, "failed to get ID of artifact");
 				libc::EIO
 			})?;
 			references.push(id);
@@ -477,7 +477,7 @@ impl Server {
 
 		let attributes = tg::file::Attributes { references };
 		let Ok(attributes) = serde_json::to_vec(&attributes) else {
-			tracing::error!(?attributes, "Failed to serialize attributes.");
+			tracing::error!(?attributes, "failed to serialize attributes");
 			return Err(libc::EIO);
 		};
 
@@ -510,7 +510,7 @@ impl Server {
 			return Err(libc::ENOTSUP);
 		};
 		let names = CString::new(tg::file::TANGRAM_FILE_XATTR_NAME).map_err(|e| {
-			tracing::error!(?e, "Failed to create list of xattr names.");
+			tracing::error!(?e, "failed to create list of xattr names");
 			libc::EIO
 		})?;
 		let names = names.as_bytes_with_nul().to_vec();
@@ -658,7 +658,7 @@ impl Server {
 
 		let blob_reader = match &mut *file_handle_data {
 			FileHandleData::File { node, .. } if node.0 != node_id.0 => {
-				tracing::error!(?file_handle, ?node, "File handle corrupted.");
+				tracing::error!(?file_handle, ?node, "file handle corrupted");
 				return Err(libc::EIO);
 			},
 			FileHandleData::File { reader, .. } => reader,
@@ -845,7 +845,7 @@ impl Server {
 		if opcode == sys::fuse_opcode::FUSE_IOCTL {
 			return Err(libc::ENOTTY);
 		}
-		tracing::error!(?opcode, "Unsupported FUSE request.");
+		tracing::error!(?opcode, "unsupported FUSE request");
 		Err(libc::ENOSYS)
 	}
 
@@ -995,7 +995,7 @@ impl Server {
 			let ret = libc::socketpair(libc::AF_UNIX, libc::SOCK_STREAM, 0, fds.as_mut_ptr());
 			if ret != 0 {
 				Err(std::io::Error::last_os_error())
-					.map_err(|error| error!(source = error, "Failed to create the socket pair."))?;
+					.map_err(|error| error!(source = error, "failed to create the socket pair"))?;
 			}
 
 			let fusermount3 = std::ffi::CString::new("/usr/bin/fusermount3").unwrap();
@@ -1011,7 +1011,7 @@ impl Server {
 				libc::close(fds[1]);
 				return Err(error!(
 					source = std::io::Error::last_os_error(),
-					"Failed to fork."
+					"failed to fork"
 				));
 			}
 
@@ -1061,17 +1061,17 @@ impl Server {
 			if ret == -1 {
 				return Err(error!(
 					source = std::io::Error::last_os_error(),
-					"Failed to receive the message."
+					"failed to receive the message"
 				));
 			}
 			if ret == 0 {
-				return Err(error!("Failed to read the control message."));
+				return Err(error!("failed to read the control message"));
 			}
 
 			// Read the file descriptor.
 			let cmsg = libc::CMSG_FIRSTHDR(msg);
 			if cmsg.is_null() {
-				return Err(error!("Missing control message."));
+				return Err(error!("missing control message"));
 			}
 			let mut fd: std::os::unix::io::RawFd = 0;
 			libc::memcpy(
@@ -1097,7 +1097,7 @@ impl Server {
 			.stderr(std::process::Stdio::null())
 			.status()
 			.await
-			.map_err(|error| error!(source = error, "Failed to execute the unmount command."))?;
+			.map_err(|error| error!(source = error, "failed to execute the unmount command"))?;
 		Ok(())
 	}
 }
@@ -1196,5 +1196,5 @@ where
 	T: FromBytes,
 {
 	T::read_from_prefix(request_data)
-		.ok_or_else(|| error!("Failed to deserialize the request data."))
+		.ok_or_else(|| error!("failed to deserialize the request data"))
 }

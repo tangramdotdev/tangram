@@ -15,19 +15,19 @@ pub async fn rmrf(path: impl AsRef<Path>) -> Result<()> {
 
 		Err(error) => {
 			let path = path.display();
-			return Err(error!(source = error, %path, "Failed to get the metadata for the path."));
+			return Err(error!(source = error, %path, "failed to get the metadata for the path"));
 		},
 	};
 
 	if metadata.is_dir() {
 		tokio::fs::remove_dir_all(path).await.map_err(|error| {
 			let path = path.display();
-			error!(source = error, %path, "Failed to remove the directory.")
+			error!(source = error, %path, "failed to remove the directory")
 		})?;
 	} else {
 		tokio::fs::remove_file(path).await.map_err(|error| {
 			let path = path.display();
-			error!(source = error, %path, "Failed to remove the file.")
+			error!(source = error, %path, "failed to remove the file")
 		})?;
 	};
 

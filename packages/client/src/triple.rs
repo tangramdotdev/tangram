@@ -72,7 +72,7 @@ impl Triple {
 		} else if cfg!(all(target_arch = "x86_64", target_os = "macos")) {
 			Triple::arch_os(Arch::X8664, Os::Darwin)
 		} else {
-			return Err(error!("Unsupported host triple."));
+			return Err(error!("unsupported host triple"));
 		};
 		Ok(host)
 	}
@@ -163,7 +163,7 @@ impl std::str::FromStr for Triple {
 		let components = s.split('-').collect_vec();
 		if components.len() > 4 {
 			let triple = s;
-			return Err(error!(%triple, "Invalid triple."));
+			return Err(error!(%triple, "invalid triple"));
 		}
 
 		// Use the first component as the architecture.
@@ -240,7 +240,7 @@ impl std::str::FromStr for Arch {
 			"aarch64" | "arm64" => Arch::Aarch64,
 			"js" => Arch::Js,
 			"x86_64" => Arch::X8664,
-			arch => return Err(error!(%arch, "Unknown architecture.")),
+			arch => return Err(error!(%arch, "unknown architecture")),
 		};
 		Ok(system)
 	}
@@ -291,7 +291,7 @@ impl std::str::FromStr for Environment {
 		let os = match s {
 			"gnu" => Environment::Gnu,
 			"musl" => Environment::Musl,
-			environment => return Err(error!(%environment, "Unknown environment.")),
+			environment => return Err(error!(%environment, "unknown environment")),
 		};
 		Ok(os)
 	}
@@ -342,7 +342,7 @@ impl std::str::FromStr for Os {
 		let os = match s {
 			"darwin" => Os::Darwin,
 			"linux" => Os::Linux,
-			os => return Err(error!(%os, "Unknown OS.")),
+			os => return Err(error!(%os, "unknown OS")),
 		};
 		Ok(os)
 	}

@@ -26,7 +26,7 @@ impl Cli {
 		if let Some(path) = args.package.path.as_mut() {
 			*path = tokio::fs::canonicalize(&path)
 				.await
-				.map_err(|error| error!(source = error, "Failed to canonicalize the path."))?
+				.map_err(|error| error!(source = error, "failed to canonicalize the path"))?
 				.try_into()?;
 		}
 
@@ -37,12 +37,12 @@ impl Cli {
 			client
 				.try_get_package_doc(&args.package)
 				.await?
-				.ok_or_else(|| error!("Failed to get the package."))?
+				.ok_or_else(|| error!("failed to get the package"))?
 		};
 
 		// Serialize the output.
 		let output = serde_json::to_string_pretty(&doc)
-			.map_err(|error| error!(source = error, "Failed to serialize the output."))?;
+			.map_err(|error| error!(source = error, "failed to serialize the output"))?;
 
 		// Print the output.
 		println!("{output}");

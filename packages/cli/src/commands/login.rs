@@ -15,13 +15,13 @@ impl Cli {
 		let login = client
 			.create_login()
 			.await
-			.map_err(|error| error!(source = error, "Failed to create the login."))?;
+			.map_err(|error| error!(source = error, "failed to create the login"))?;
 
 		// Open the browser to the login URL.
 		webbrowser::open(login.url.as_ref()).map_err(|error| {
 			error!(
 				source = error,
-				"Failed to open the browser to the login URL."
+				"failed to open the browser to the login URL"
 			)
 		})?;
 		eprintln!("To log in, please open your browser to:\n\n{}\n", login.url);
@@ -37,8 +37,8 @@ impl Cli {
 			let login = client
 				.get_login(&login.id)
 				.await
-				.map_err(|error| error!(source = error, "Failed to get the login."))?
-				.ok_or_else(|| error!("Expected the login to exist."))?;
+				.map_err(|error| error!(source = error, "failed to get the login"))?
+				.ok_or_else(|| error!("expected the login to exist"))?;
 			if let Some(token) = login.token {
 				break token;
 			}
@@ -49,7 +49,7 @@ impl Cli {
 		let user = client
 			.get_user_for_token(&token)
 			.await?
-			.ok_or_else(|| error!("Expected the user to exist."))?;
+			.ok_or_else(|| error!("expected the user to exist"))?;
 
 		// Save the user.
 		tokio::task::spawn_blocking(move || Self::write_user(&user, None))

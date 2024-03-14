@@ -187,7 +187,7 @@ impl Server {
 					.serve(port)
 					.await
 					.inspect_err(|error| {
-						tracing::error!(?error, "NFS server shutdown.");
+						tracing::error!(?error, "NFS server shutdown");
 					})
 					.ok();
 				Ok(())
@@ -216,7 +216,7 @@ impl Server {
 			.stdout(std::process::Stdio::null())
 			.stderr(std::process::Stdio::null())
 			.spawn()
-			.map_err(|error| error!(source = error, "Failed to spawn dns-sd."))?;
+			.map_err(|error| error!(source = error, "failed to spawn dns-sd"))?;
 
 		tokio::process::Command::new("mount_nfs")
 			.arg("-o")
@@ -229,10 +229,10 @@ impl Server {
 			.stderr(std::process::Stdio::null())
 			.status()
 			.await
-			.map_err(|error| error!(source = error, "Failed to mount."))?
+			.map_err(|error| error!(source = error, "failed to mount"))?
 			.success()
 			.then_some(())
-			.ok_or_else(|| error!("Failed to mount the VFS."))?;
+			.ok_or_else(|| error!("failed to mount the VFS"))?;
 
 		Ok(())
 	}
@@ -245,7 +245,7 @@ impl Server {
 			.stderr(std::process::Stdio::null())
 			.status()
 			.await
-			.map_err(|error| error!(source = error, "Failed to unmount the VFS."))?;
+			.map_err(|error| error!(source = error, "failed to unmount the VFS"))?;
 		Ok(())
 	}
 
@@ -277,21 +277,21 @@ impl Server {
 	async fn serve(&self, port: u16) -> crate::Result<()> {
 		let listener = TcpListener::bind(format!("localhost:{port}"))
 			.await
-			.map_err(|error| error!(source = error, "Failed to bind the server."))?;
+			.map_err(|error| error!(source = error, "failed to bind the server"))?;
 
 		loop {
 			let (conn, addr) = listener
 				.accept()
 				.await
-				.map_err(|error| error!(source = error, "Failed to accept the connection."))?;
-			tracing::info!(?addr, "Accepted client connection.");
+				.map_err(|error| error!(source = error, "failed to accept the connection"))?;
+			tracing::info!(?addr, "accepted client connection");
 			let server = self.clone();
 			tokio::spawn(async move {
 				server
 					.handle_connection(conn)
 					.await
 					.inspect_err(|error| {
-						tracing::error!(?addr, ?error, "The connection was closed.");
+						tracing::error!(?addr, ?error, "the connection was closed");
 					})
 					.ok();
 			});
@@ -316,7 +316,7 @@ impl Server {
 		loop {
 			let fragments = rpc::read_fragments(&mut reader)
 				.await
-				.map_err(|error| error!(source = error, "Failed to read message fragments."))?;
+				.map_err(|error| error!(source = error, "failed to read message fragments"))?;
 			let message_sender = message_sender.clone();
 			let vfs = self.clone();
 			tokio::task::spawn(async move {
@@ -345,7 +345,7 @@ impl Server {
 		match message.clone().body {
 			rpc::MessageBody::Call(call) => {
 				if call.rpcvers != RPC_VERS {
-					tracing::error!(?call, "Version mismatch.");
+					tracing::error!(?call, "version mismatch");
 					let rejected = rpc::ReplyRejected::RpcMismatch {
 						low: RPC_VERS,
 						high: RPC_VERS,
@@ -355,7 +355,7 @@ impl Server {
 				}
 
 				if call.vers != NFS_VERS {
-					tracing::error!(?call, "Program mismatch.");
+					tracing::error!(?call, "program mismatch");
 					return Some(rpc::error(
 						None,
 						rpc::ReplyAcceptedStat::ProgramMismatch {
@@ -366,7 +366,7 @@ impl Server {
 				}
 
 				if call.prog != NFS_PROG {
-					tracing::error!(?call, "Expected NFS4_PROGRAM but got {}.", call.prog);
+					tracing::error!(?call, "expected NFS4_PROGRAM but got {}", call.prog);
 					return Some(rpc::error(None, rpc::ReplyAcceptedStat::ProgramUnavailable));
 				}
 
@@ -414,7 +414,7 @@ impl Server {
 		let args = match decoder.decode::<COMPOUND4args>() {
 			Ok(args) => args,
 			Err(e) => {
-				tracing::error!(?e, "Failed to decode COMPOUND args.");
+				tracing::error!(?e, "failed to decode COMPOUND args");
 				return rpc::error(None, rpc::ReplyAcceptedStat::GarbageArgs);
 			},
 		};
@@ -483,7 +483,7 @@ impl Server {
 					};
 					tracing::error!(?id, ?opnum, "nfs response timed out");
 				} else if !(is_lookup && is_enoent) {
-					tracing::error!(?opnum, ?status, ?xid, "An error occurred.");
+					tracing::error!(?opnum, ?status, ?xid, "an error occurred");
 				}
 				break;
 			}
@@ -613,7 +613,7 @@ impl Server {
 		};
 
 		let Some(node) = self.get_node(fh).await else {
-			tracing::error!(?fh, "Unknown filehandle.");
+			tracing::error!(?fh, "unknown filehandle");
 			return ACCESS4res::Error(nfsstat4::NFS4ERR_BADHANDLE);
 		};
 
@@ -628,7 +628,7 @@ impl Server {
 				let is_executable = match file.executable(self.inner.tg.as_ref()).await {
 					Ok(b) => b,
 					Err(e) => {
-						tracing::error!(?e, "Failed to lookup executable bit for file.");
+						tracing::error!(?e, "failed to lookup executable bit for file");
 						return ACCESS4res::Error(nfsstat4::NFS4ERR_IO);
 					},
 				};
@@ -652,7 +652,7 @@ impl Server {
 		};
 
 		let Some(node) = self.get_node(fh).await else {
-			tracing::error!(?fh, "Unknown filehandle.");
+			tracing::error!(?fh, "unknown filehandle");
 			return CLOSE4res::Error(nfsstat4::NFS4ERR_BADHANDLE);
 		};
 
@@ -680,7 +680,7 @@ impl Server {
 
 	async fn handle_getattr(&self, ctx: &Context, arg: GETATTR4args) -> GETATTR4res {
 		let Some(fh) = ctx.current_file_handle else {
-			tracing::error!("Missing current file handle.");
+			tracing::error!("missing current file handle");
 			return GETATTR4res::Error(nfsstat4::NFS4ERR_NOFILEHANDLE);
 		};
 
@@ -699,7 +699,7 @@ impl Server {
 		}
 
 		let Some(data) = self.get_file_attr_data(file_handle).await else {
-			tracing::error!(?file_handle, "Missing attr data.");
+			tracing::error!(?file_handle, "missing attr data");
 			return Err(nfsstat4::NFS4ERR_NOENT);
 		};
 
@@ -724,7 +724,7 @@ impl Server {
 				let is_executable = match file.executable(self.inner.tg.as_ref()).await {
 					Ok(b) => b,
 					Err(e) => {
-						tracing::error!(?e, "Failed to lookup executable bit for file.");
+						tracing::error!(?e, "failed to lookup executable bit for file");
 						return None;
 					},
 				};
@@ -896,7 +896,7 @@ impl Server {
 				}
 			},
 			_ => {
-				tracing::error!("Cannot create child on File or Symlink.");
+				tracing::error!("cannot create child on file or symlink");
 				return Err(nfsstat4::NFS4ERR_NOTDIR);
 			},
 		}
@@ -923,7 +923,7 @@ impl Server {
 					.entries(self.inner.tg.as_ref())
 					.await
 					.map_err(|e| {
-						tracing::error!(?e, ?name, "Failed to get directory entries.");
+						tracing::error!(?e, ?name, "failed to get directory entries");
 						nfsstat4::NFS4ERR_IO
 					})?;
 				let Some(entry) = entries.get(name) else {
@@ -938,7 +938,7 @@ impl Server {
 					return Ok(None);
 				}
 				let Some(grandparent_node) = parent_node.parent.upgrade() else {
-					tracing::error!("Failed to upgrade parent node.");
+					tracing::error!("failed to upgrade parent node");
 					return Err(nfsstat4::NFS4ERR_IO);
 				};
 				// Currently, the only supported xattr refers to file references.
@@ -948,21 +948,21 @@ impl Server {
 				let file_references = match file.references(self.inner.tg.as_ref()).await {
 					Ok(references) => references,
 					Err(e) => {
-						tracing::error!(?e, "Failed to get file references.");
+						tracing::error!(?e, "failed to get file references");
 						return Err(nfsstat4::NFS4ERR_IO);
 					},
 				};
 				let mut references = Vec::new();
 				for artifact in file_references {
 					let id = artifact.id(self.inner.tg.as_ref()).await.map_err(|e| {
-						tracing::error!(?e, ?artifact, "Failed to get artifact ID.");
+						tracing::error!(?e, ?artifact, "failed to get artifact ID");
 						nfsstat4::NFS4ERR_IO
 					})?;
 					references.push(id);
 				}
 				let attributes = tg::file::Attributes { references };
 				let data = serde_json::to_vec(&attributes).map_err(|e| {
-					tracing::error!(?e, "Failed to serialize file attributes.");
+					tracing::error!(?e, "failed to serialize file attributes");
 					nfsstat4::NFS4ERR_IO
 				})?;
 				Either::Right(data)
@@ -984,7 +984,7 @@ impl Server {
 			},
 			Either::Left(Either::Right(tg::Artifact::File(file))) => {
 				let size = file.size(self.inner.tg.as_ref()).await.map_err(|e| {
-					tracing::error!(?e, "Failed to get size of file's contents.");
+					tracing::error!(?e, "failed to get size of file's contents");
 					nfsstat4::NFS4ERR_IO
 				})?;
 				NodeKind::File {
@@ -1074,7 +1074,7 @@ impl Server {
 		// In the extremely unlikely event that the client has more files open then we can represent, return an error.
 		let locks = self.inner.locks.read().await;
 		if locks.len() == usize::MAX - 2 {
-			tracing::error!("Failed to create the file reader.");
+			tracing::error!("failed to create the file reader");
 			return None;
 		}
 
@@ -1101,7 +1101,7 @@ impl Server {
 		if (arg.share_access == OPEN4_SHARE_ACCESS_WRITE)
 			|| (arg.share_access == OPEN4_SHARE_ACCESS_BOTH)
 		{
-			tracing::error!(?arg, "Share access violation.");
+			tracing::error!(?arg, "share access violation");
 			return OPEN4res::Error(nfsstat4::NFS4ERR_ROFS);
 		}
 
@@ -1113,7 +1113,7 @@ impl Server {
 			},
 			open_claim4::CLAIM_PREVIOUS(open_delegation_type4::OPEN_DELEGATE_NONE) => (fh, 0),
 			_ => {
-				tracing::error!(?arg, "Unsupported open request.");
+				tracing::error!(?arg, "unsupported open request");
 				return OPEN4res::Error(nfsstat4::NFS4ERR_NOTSUPP);
 			},
 		};
@@ -1129,7 +1129,7 @@ impl Server {
 
 		if let NodeKind::File { file, .. } = &self.get_node(fh).await.unwrap().kind {
 			let Ok(reader) = file.reader(self.inner.tg.as_ref()).await else {
-				tracing::error!("Failed to create the file reader.");
+				tracing::error!("failed to create the file reader");
 				return OPEN4res::Error(nfsstat4::NFS4ERR_IO);
 			};
 
@@ -1210,7 +1210,7 @@ impl Server {
 		arg: OPEN_CONFIRM4args,
 	) -> OPEN_CONFIRM4res {
 		if arg.seqid != arg.open_stateid.seqid.increment() {
-			tracing::error!(?arg, "Invalid seqid in open.");
+			tracing::error!(?arg, "invalid seqid in open");
 			self.remove_lock(arg.open_stateid.index()).await;
 			return OPEN_CONFIRM4res::Error(nfsstat4::NFS4ERR_BAD_SEQID);
 		}
@@ -1224,12 +1224,12 @@ impl Server {
 			return READ4res::Error(nfsstat4::NFS4ERR_NOFILEHANDLE);
 		};
 		let Some(node) = self.get_node(fh).await else {
-			tracing::error!(?fh, "Unknown filehandle.");
+			tracing::error!(?fh, "unknown filehandle");
 			return READ4res::Error(nfsstat4::NFS4ERR_BADHANDLE);
 		};
 
 		// RFC 7530 16.23.4:
-		// "If the current file handle is not a regular file, an error will be returned to the client. In the case where the current filehandle represents a directory, NFS4ERR_ISDIR is returned; otherwise, NFS4ERR_INVAL is returned."
+		// "if the current file handle is not a regular file, an error will be returned to the client. In the case where the current filehandle represents a directory, NFS4ERR_ISDIR is returned; otherwise, NFS4ERR_INVAL is returned"
 		let (file, file_size) = match &node.kind {
 			NodeKind::File { file, size, .. } => (file, size),
 			NodeKind::Directory { .. } | NodeKind::Root { .. } => {
@@ -1271,7 +1271,7 @@ impl Server {
 		// RFC 7530: If a stateid value is used that has all zeros or all ones in the "other" field but does not match one of the cases above, the server MUST return the error NFS4ERR_BAD_STATEID.
 		// https://datatracker.ietf.org/doc/html/rfc7530#section-9.1.4.3
 		if !arg.stateid.is_valid() {
-			tracing::error!(?arg, "Invalid stateid.");
+			tracing::error!(?arg, "invalid stateid");
 			return READ4res::Error(nfsstat4::NFS4ERR_BAD_STATEID);
 		}
 
@@ -1281,16 +1281,16 @@ impl Server {
 		{
 			// We need to create a reader just for this request.
 			let Ok(mut reader) = file.reader(self.inner.tg.as_ref()).await else {
-				tracing::error!("Failed to create the file reader.");
+				tracing::error!("failed to create the file reader");
 				return READ4res::Error(nfsstat4::NFS4ERR_IO);
 			};
 			if let Err(e) = reader.seek(std::io::SeekFrom::Start(arg.offset)).await {
-				tracing::error!(?e, "Failed to seek.");
+				tracing::error!(?e, "failed to seek");
 				return READ4res::Error(e.into());
 			}
 			let mut data = vec![0u8; read_size];
 			if let Err(e) = reader.read_exact(&mut data).await {
-				tracing::error!(?e, "Failed to read from the file.");
+				tracing::error!(?e, "failed to read from the file");
 				return READ4res::Error(e.into());
 			}
 			let eof = (arg.offset + arg.count.to_u64().unwrap()) >= *file_size;
@@ -1299,17 +1299,17 @@ impl Server {
 			let lock_state = lock_state.unwrap();
 			let mut lock_state = lock_state.write().await;
 			if lock_state.fh != fh {
-				tracing::error!(?fh, ?arg.stateid, "Reader registered for wrong file id. file: {file}.");
+				tracing::error!(?fh, ?arg.stateid, "reader registered for wrong file id. file: {file}");
 				return READ4res::Error(nfsstat4::NFS4ERR_BAD_STATEID);
 			}
 			let reader = lock_state.reader.as_mut().unwrap();
 			if let Err(e) = reader.seek(std::io::SeekFrom::Start(arg.offset)).await {
-				tracing::error!(?e, "Failed to seek.");
+				tracing::error!(?e, "failed to seek");
 				return READ4res::Error(e.into());
 			}
 			let mut data = vec![0; read_size];
 			if let Err(e) = reader.read_exact(&mut data).await {
-				tracing::error!(?e, "Failed to read.");
+				tracing::error!(?e, "failed to read");
 				return READ4res::Error(e.into());
 			}
 
@@ -1491,7 +1491,7 @@ impl Server {
 				setclientid_confirm,
 			})
 		} else {
-			tracing::error!(?conditions, "Failed to set client id.");
+			tracing::error!(?conditions, "failed to set client id");
 			SETCLIENTID4res::Error(nfsstat4::NFS4ERR_IO)
 		}
 	}
