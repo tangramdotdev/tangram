@@ -1,6 +1,13 @@
-import { assert as assert_ } from "./assert.ts";
+import { Args } from "./args.ts";
+import { assert as assert_, unreachable } from "./assert.ts";
+import { Mutation } from "./mutation.ts";
 import { Object_ } from "./object.ts";
 import * as syscall from "./syscall.ts";
+import { MutationMap } from "./util.ts";
+
+export let lock = async (...args: Args<Lock.Arg>): Promise<Lock> => {
+	return await Lock.new(...args);
+};
 
 export class Lock {
 	#state: Lock.State;
@@ -15,6 +22,55 @@ export class Lock {
 
 	static withId(id: Lock.Id): Lock {
 		return new Lock({ id });
+	}
+
+	static async new(...args: Args<Lock.Arg>): Promise<Lock> {
+		type Apply = {
+			root: number;
+			nodeArgs: Array<Lock.NodeArg>;
+		};
+		let { root, nodeArgs } = await Args.apply<Lock.Arg, Apply>(
+			args,
+			async (arg) => {
+				if (arg === undefined) {
+					return {};
+				} else if (Lock.is(arg)) {
+					return {
+						root: await arg.root(),
+						nodes: await Mutation.arrayAppend(await arg.nodes()),
+					};
+				} else if (typeof arg === "object") {
+					let object: MutationMap<Apply> = {};
+					if (arg.root !== undefined) {
+						object.root = arg.root;
+					}
+					if (arg.nodes !== undefined) {
+						object.nodeArgs = Mutation.is(arg.nodes)
+							? arg.nodes
+							: await Mutation.arrayAppend(arg.nodes);
+					}
+					return object;
+				} else {
+					return unreachable();
+				}
+			},
+		);
+		root ??= 0;
+		nodeArgs ??= [];
+		let nodes = await Promise.all(
+			nodeArgs.map(async (argObject) => {
+				let dependenciesKeys = Object.keys(argObject.dependencies ?? {});
+				let dependencies: { [dependency: string]: Lock } = {};
+				for (let key of dependenciesKeys) {
+					let dependency = argObject.dependencies![key];
+					if (dependency) {
+						dependencies[key] = await Lock.new(dependency);
+					}
+				}
+				return { dependencies };
+			}),
+		);
+		return new Lock({ object: { root, nodes } });
 	}
 
 	static is(value: unknown): value is Lock {
@@ -70,6 +126,11 @@ export namespace Lock {
 	export type Arg = Lock | ArgObject | Array<Arg>;
 
 	export type ArgObject = {
+		root?: number;
+		nodes?: Array<NodeArg>;
+	};
+
+	export type NodeArg = {
 		dependencies?: { [dependency: string]: Lock.Arg };
 	};
 

@@ -10,7 +10,7 @@ import { Error as Error_, prepareStackTrace } from "./error.ts";
 import { File, file } from "./file.ts";
 import { include } from "./include.ts";
 import { Leaf, leaf } from "./leaf.ts";
-import { Lock } from "./lock.ts";
+import { Lock, lock } from "./lock.ts";
 import { log } from "./log.ts";
 import { Mutation, mutation } from "./mutation.ts";
 import { resolve } from "./resolve.ts";
@@ -73,6 +73,7 @@ Object.assign(tg, {
 	file,
 	include,
 	leaf,
+	lock,
 	log,
 	mutation,
 	resolve,
