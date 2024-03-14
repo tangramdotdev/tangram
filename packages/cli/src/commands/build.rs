@@ -1,7 +1,12 @@
 use crate::{
 	tui::{self, Tui},
+	util::TreeDisplay,
 	Cli,
 };
+use async_recursion::async_recursion;
+use console::style;
+use futures::{stream::FuturesUnordered, StreamExt, TryStreamExt};
+use std::fmt::Write;
 use std::path::PathBuf;
 use tangram_client as tg;
 use tangram_error::{error, Result};
@@ -26,6 +31,7 @@ pub enum Command {
 	Put(PutArgs),
 	Push(PushArgs),
 	Pull(PullArgs),
+	Tree(TreeArgs),
 }
 
 /// Build a target.
@@ -94,6 +100,15 @@ pub struct PullArgs {
 	pub id: tg::build::Id,
 }
 
+/// Display the build tree.
+#[derive(Debug, clap::Args)]
+#[command(verbatim_doc_comment)]
+pub struct TreeArgs {
+	pub id: tg::build::Id,
+	#[arg(short, long)]
+	pub depth: Option<u32>,
+}
+
 impl Cli {
 	pub async fn command_build(&self, args: Args) -> Result<()> {
 		match args.command.unwrap_or(Command::New(args.args)) {
@@ -111,6 +126,9 @@ impl Cli {
 			},
 			Command::Pull(args) => {
 				self.command_build_pull(args).await?;
+			},
+			Command::Tree(args) => {
+				self.command_build_tree(args).await?;
 			},
 		}
 		Ok(())
@@ -273,4 +291,117 @@ impl Cli {
 		client.pull_build(&args.id).await?;
 		Ok(())
 	}
+
+	pub async fn command_build_tree(&self, args: TreeArgs) -> Result<()> {
+		let client = &self.client().await?;
+		let build = tg::Build::with_id(args.id);
+		let tree = get_build_tree(client, &build, 1, args.depth).await?;
+		println!("{tree}");
+		Ok(())
+	}
+}
+
+#[async_recursion]
+async fn get_build_tree(
+	tg: &dyn tg::Handle,
+	build: &tg::Build,
+	current_depth: u32,
+	max_depth: Option<u32>,
+) -> Result<TreeDisplay> {
+	// Get the build's metadata.
+	let id = build.id().clone();
+	let status = build
+		.status(tg, tg::build::status::GetArg::default())
+		.await
+		.map_err(|error| error!(source = error, %id, "Failed to get the build's status."))?
+		.next()
+		.await
+		.unwrap()
+		.map_err(|error| error!(source = error, %id, "Failed to get the build's status."))?;
+	let target = build
+		.target(tg)
+		.await
+		.map_err(|error| error!(source = error, %id, "Failed to get build's target."))?;
+	let package = target
+		.package(tg)
+		.await
+		.map_err(|error| error!(source = error, %target, "Failed to get target's package."))?;
+	let name = target
+		.name(tg)
+		.await
+		.map_err(|error| error!(source = error, %target, "Failed to get target's name."))?
+		.clone()
+		.unwrap_or_else(|| "<unknown>".into());
+
+	// Create the tree node data.
+	let mut data = String::new();
+	match status {
+		tg::build::Status::Created | tg::build::Status::Queued => {
+			write!(data, "{}", style("⟳").yellow()).unwrap();
+		},
+		tg::build::Status::Started => write!(data, "{}", style("⠿").blue()).unwrap(),
+		tg::build::Status::Finished => {
+			// Only get the build's outcome if it's finished.
+			let outcome = build
+				.outcome(tg)
+				.await
+				.map_err(|error| error!(source = error, %id, "Failed to get the build outcome."))?;
+			match outcome {
+				tg::build::Outcome::Canceled => {
+					write!(data, "{}", style("⦻ ").yellow()).unwrap();
+				},
+				tg::build::Outcome::Succeeded(_) => {
+					write!(data, "{}", style("✓ ").green()).unwrap();
+				},
+				tg::build::Outcome::Failed(_) => {
+					write!(data, "{}", style("✗ ").red()).unwrap();
+				},
+			}
+		},
+	}
+	write!(data, "{} ", style(&id).blue()).unwrap();
+	if let Some(package) = package {
+		if let Ok(metadata) = tg::package::get_metadata(tg, package).await {
+			if let Some(name) = metadata.name {
+				write!(data, "{}", style(name).magenta()).unwrap();
+			} else {
+				write!(data, "{}", style("<unknown>").blue()).unwrap();
+			}
+			if let Some(version) = metadata.version {
+				write!(data, "@{}", style(version).yellow()).unwrap();
+			}
+		} else {
+			write!(data, "{}", style("<unknown>").magenta()).unwrap();
+		}
+		write!(data, ":").unwrap();
+	}
+	write!(data, "{}", style(name).white()).unwrap();
+
+	// Get the build's children.
+	let children = if max_depth.map_or(true, |max_depth| current_depth < max_depth) {
+		let timeout = (!matches!(status, tg::build::Status::Finished))
+			.then_some(std::time::Duration::from_secs(0));
+		let arg = tg::build::children::GetArg {
+			position: Some(std::io::SeekFrom::Start(0)),
+			timeout,
+			..Default::default()
+		};
+
+		build
+			.children(tg, arg)
+			.await
+			.map_err(|error| error!(source = error, %id, "Failed to get the build's children."))?
+			.map(
+				|child| async move { get_build_tree(tg, &child?, current_depth + 1, max_depth).await },
+			)
+			.collect::<FuturesUnordered<_>>()
+			.await
+			.try_collect::<Vec<_>>()
+			.await?
+	} else {
+		Vec::new()
+	};
+
+	let tree = TreeDisplay { data, children };
+	Ok(tree)
 }

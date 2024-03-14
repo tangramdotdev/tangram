@@ -1,4 +1,10 @@
-use crate::Cli;
+use crate::{util::TreeDisplay, Cli};
+use async_recursion::async_recursion;
+use console::style;
+use futures::{
+	stream::{self, FuturesUnordered},
+	StreamExt, TryStreamExt,
+};
 use tangram_client as tg;
 use tangram_error::{error, Result};
 use tg::Handle;
@@ -19,6 +25,7 @@ pub enum Command {
 	Put(PutArgs),
 	Push(PushArgs),
 	Pull(PullArgs),
+	Tree(TreeArgs),
 }
 
 /// Get an object.
@@ -52,6 +59,14 @@ pub struct PullArgs {
 	pub id: tg::object::Id,
 }
 
+#[derive(Debug, clap::Args)]
+#[command(verbatim_doc_comment)]
+pub struct TreeArgs {
+	pub id: tg::object::Id,
+	#[arg(short, long)]
+	pub depth: Option<u32>,
+}
+
 impl Cli {
 	pub async fn command_object(&self, args: Args) -> Result<()> {
 		match args.command {
@@ -66,6 +81,9 @@ impl Cli {
 			},
 			Command::Pull(args) => {
 				self.command_object_pull(args).await?;
+			},
+			Command::Tree(args) => {
+				self.command_object_tree(args).await?;
 			},
 		}
 		Ok(())
@@ -115,4 +133,49 @@ impl Cli {
 		client.pull_object(&args.id).await?;
 		Ok(())
 	}
+
+	pub async fn command_object_tree(&self, args: TreeArgs) -> Result<()> {
+		let client = &self.client().await?;
+		let tree = get_object_tree(client, args.id, 1, args.depth).await?;
+		println!("{tree}");
+		Ok(())
+	}
+}
+
+#[async_recursion]
+async fn get_object_tree(
+	client: &dyn tg::Handle,
+	object: tg::object::Id,
+	current_depth: u32,
+	max_depth: Option<u32>,
+) -> Result<TreeDisplay> {
+	let data = match &object {
+		tg::object::Id::Leaf(object) => style(object).white().to_string(),
+		tg::object::Id::Branch(object) => style(object).blue().bright().to_string(),
+		tg::object::Id::Directory(object) => style(object).blue().dim().to_string(),
+		tg::object::Id::File(object) => style(object).yellow().to_string(),
+		tg::object::Id::Symlink(object) => style(object).green().to_string(),
+		tg::object::Id::Lock(object) => style(object).red().to_string(),
+		tg::object::Id::Target(object) => style(object).magenta().to_string(),
+	};
+	let children = tg::Object::with_id(object.clone())
+		.data(client)
+		.await
+		.map_err(|error| error!(source = error, %object, "Failed to get object data."))?
+		.children();
+
+	let children = if max_depth.map_or(true, |max_depth| current_depth < max_depth) {
+		stream::iter(children)
+			.map(|child| get_object_tree(client, child, current_depth + 1, max_depth))
+			.collect::<FuturesUnordered<_>>()
+			.await
+			.try_collect::<Vec<_>>()
+			.await?
+	} else {
+		Vec::new()
+	};
+
+	let tree = TreeDisplay { data, children };
+
+	Ok(tree)
 }

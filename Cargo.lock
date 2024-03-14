@@ -4077,6 +4077,7 @@ dependencies = [
 name = "tangram_cli"
 version = "0.0.0"
 dependencies = [
+ "async-recursion",
  "bytes",
  "clap",
  "console",

@@ -17,6 +17,7 @@ name = "tg"
 path = "src/main.rs"
 
 [dependencies]
+async-recursion = { workspace = true }
 bytes = { workspace = true }
 clap = { workspace = true }
 console = { workspace = true }
