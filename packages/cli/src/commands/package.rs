@@ -6,7 +6,7 @@ use std::{collections::BTreeSet, fmt::Write};
 use tangram_client as tg;
 use tangram_error::{error, Result};
 
-/// Manage pacakges.
+/// Manage packages.
 #[derive(Debug, clap::Args)]
 #[command(verbatim_doc_comment)]
 pub struct Args {
@@ -22,16 +22,6 @@ pub enum Command {
 	Tree(TreeArgs),
 }
 
-#[derive(Debug, clap::Args)]
-#[command(verbatim_doc_comment)]
-pub struct TreeArgs {
-	#[arg(default_value = ".")]
-	pub package: tg::Dependency,
-
-	#[arg(short, long)]
-	pub depth: Option<u32>,
-}
-
 /// Publish a package.
 #[derive(Debug, clap::Args)]
 #[command(verbatim_doc_comment)]
@@ -45,6 +35,17 @@ pub struct PublishArgs {
 #[command(verbatim_doc_comment)]
 pub struct SearchArgs {
 	pub query: String,
+}
+
+/// Display the package tree.
+#[derive(Debug, clap::Args)]
+#[command(verbatim_doc_comment)]
+pub struct TreeArgs {
+	#[arg(default_value = ".")]
+	pub package: tg::Dependency,
+
+	#[arg(short, long)]
+	pub depth: Option<u32>,
 }
 
 impl Cli {

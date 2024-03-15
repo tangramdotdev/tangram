@@ -59,6 +59,7 @@ pub struct PullArgs {
 	pub id: tg::object::Id,
 }
 
+/// Display the object tree.
 #[derive(Debug, clap::Args)]
 #[command(verbatim_doc_comment)]
 pub struct TreeArgs {

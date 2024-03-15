@@ -4,7 +4,9 @@ use tangram_error::{error, Error, Result};
 
 use super::{build, object, package};
 
+/// Display a build, object, or package tree.
 #[derive(Debug, clap::Args)]
+#[command(verbatim_doc_comment)]
 pub struct Args {
 	#[arg(default_value = ".")]
 	arg: Arg,
