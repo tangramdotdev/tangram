@@ -9,6 +9,7 @@ use futures::{
 	stream::{BoxStream, FuturesUnordered},
 	FutureExt, TryStreamExt,
 };
+use http_body_util::BodyExt;
 use hyper_util::rt::{TokioExecutor, TokioIo};
 use itertools::Itertools;
 use std::{
@@ -769,9 +770,19 @@ impl Http {
 			Some(Ok(response)) => response,
 		};
 
+		// Add the request ID to the response.
 		let key = http::HeaderName::from_static("x-tangram-request-id");
 		let value = http::HeaderValue::from_str(&id.to_string()).unwrap();
 		response.headers_mut().insert(key, value);
+
+		// Add tracing for response body errors.
+		let response = response.map(|body| {
+			Outgoing::new(body.map_err(|error| {
+				let trace = error.trace();
+				tracing::error!(%trace, "response body error");
+				error
+			}))
+		});
 
 		tracing::trace!(?id, status = ?response.status(), "sending response");
 

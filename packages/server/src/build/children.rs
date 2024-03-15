@@ -545,34 +545,48 @@ impl Http {
 				Ok::<_, Error>(accept)
 			})
 			.transpose()?;
-		let Some(accept) = accept else {
-			return Err(error!("the accept header must be set"));
-		};
 
 		let stop = request.extensions().get().cloned();
 		let Some(stream) = self.inner.tg.try_get_build_children(&id, arg, stop).await? else {
 			return Ok(not_found());
 		};
 
-		// Choose the content type.
-		let content_type = match (accept.type_(), accept.subtype()) {
-			(mime::TEXT, mime::EVENT_STREAM) => mime::TEXT_EVENT_STREAM,
-			(header, subtype) => return Err(error!(%header, %subtype, "invalid accept header")),
-		};
-
 		// Create the body.
-		let body = stream
-			.inspect_err(|error| {
-				let trace = error.trace();
-				tracing::error!(%trace, "failed to get child build");
-			})
-			.map_ok(|chunk| {
-				let data = serde_json::to_string(&chunk).unwrap();
-				let event = tangram_util::sse::Event::with_data(data);
-				hyper::body::Frame::data(event.to_string().into())
-			})
-			.map_err(Into::into);
-		let body = Outgoing::new(StreamBody::new(body));
+		let (content_type, body) = match accept
+			.as_ref()
+			.map(|accept| (accept.type_(), accept.subtype()))
+		{
+			None | Some((mime::STAR, mime::STAR) | (mime::APPLICATION, mime::JSON)) => {
+				let content_type = mime::APPLICATION_JSON;
+				let body = stream::once(async move {
+					let children: Vec<tg::build::Id> = stream
+						.map_ok(|chunk| stream::iter(chunk.items).map(Ok::<_, Error>))
+						.try_flatten()
+						.try_collect()
+						.await?;
+					let json = serde_json::to_string(&children)
+						.map_err(|error| error!(source = error, "failed to serialize the body"))?;
+					Ok(hyper::body::Frame::data(json.into_bytes().into()))
+				});
+				let body = Outgoing::new(StreamBody::new(body));
+				(content_type, body)
+			},
+			Some((mime::TEXT, mime::EVENT_STREAM)) => {
+				let content_type = mime::TEXT_EVENT_STREAM;
+				let body = stream
+					.map_ok(|chunk| {
+						let data = serde_json::to_string(&chunk).unwrap();
+						let event = tangram_util::sse::Event::with_data(data);
+						hyper::body::Frame::data(event.to_string().into())
+					})
+					.map_err(Into::into);
+				let body = Outgoing::new(StreamBody::new(body));
+				(content_type, body)
+			},
+			_ => {
+				return Err(error!(?accept, "invalid accept header"));
+			},
+		};
 
 		// Create the response.
 		let response = http::Response::builder()

@@ -865,33 +865,32 @@ impl Http {
 				Ok::<_, Error>(accept)
 			})
 			.transpose()?;
-		let Some(accept) = accept else {
-			return Err(error!("the accept header must be set"));
-		};
 
 		let stop = request.extensions().get().cloned();
 		let Some(stream) = self.inner.tg.try_get_build_log(&id, arg, stop).await? else {
 			return Ok(not_found());
 		};
 
-		// Choose the content type.
-		let content_type = match (accept.type_(), accept.subtype()) {
-			(mime::TEXT, mime::EVENT_STREAM) => mime::TEXT_EVENT_STREAM,
-			(header, subtype) => return Err(error!(%header, %subtype, "invalid accept header")),
-		};
-
 		// Create the body.
-		let body = stream
-			.inspect_err(|error| {
-				let trace = error.trace();
-				tracing::error!(%trace, "failed to get log chunk");
-			})
-			.map_ok(|chunk| {
-				let data = serde_json::to_string(&chunk).unwrap();
-				let event = tangram_util::sse::Event::with_data(data);
-				hyper::body::Frame::data(event.to_string().into())
-			})
-			.map_err(Into::into);
+		let (content_type, body) = match accept
+			.as_ref()
+			.map(|accept| (accept.type_(), accept.subtype()))
+		{
+			Some((mime::TEXT, mime::EVENT_STREAM)) => {
+				let content_type = mime::TEXT_EVENT_STREAM;
+				let body = stream
+					.map_ok(|chunk| {
+						let data = serde_json::to_string(&chunk).unwrap();
+						let event = tangram_util::sse::Event::with_data(data);
+						hyper::body::Frame::data(event.to_string().into())
+					})
+					.map_err(Into::into);
+				(content_type, body)
+			},
+			_ => {
+				return Err(error!(?accept, "invalid accept header"));
+			},
+		};
 		let body = Outgoing::new(StreamBody::new(body));
 
 		// Create the response.

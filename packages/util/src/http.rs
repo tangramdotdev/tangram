@@ -1,14 +1,11 @@
 use bytes::Bytes;
 use http_body_util::BodyExt;
 use std::collections::BTreeMap;
-use tangram_error::{error, Result};
+use tangram_error::{error, Error, Result};
 
 pub type Incoming = hyper::body::Incoming;
 
-pub type Outgoing = http_body_util::combinators::UnsyncBoxBody<
-	Bytes,
-	Box<dyn std::error::Error + Send + Sync + 'static>,
->;
+pub type Outgoing = http_body_util::combinators::UnsyncBoxBody<Bytes, Error>;
 
 /// 200
 #[must_use]
@@ -49,14 +46,14 @@ pub fn not_found() -> http::Response<Outgoing> {
 #[must_use]
 pub fn empty() -> Outgoing {
 	http_body_util::Empty::new()
-		.map_err(Into::into)
+		.map_err(|_| unreachable!())
 		.boxed_unsync()
 }
 
 #[must_use]
 pub fn full(chunk: impl Into<Bytes>) -> Outgoing {
 	http_body_util::Full::new(chunk.into())
-		.map_err(Into::into)
+		.map_err(|_| unreachable!())
 		.boxed_unsync()
 }
 
