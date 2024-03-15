@@ -69,7 +69,7 @@ impl Blob {
 	}
 
 	pub async fn with_reader(tg: &dyn Handle, mut reader: impl AsyncRead + Unpin) -> Result<Self> {
-		let mut leaves = Vec::new();
+		let mut children = Vec::new();
 		let mut bytes = vec![0u8; MAX_LEAF_SIZE];
 		loop {
 			// Read up to `MAX_LEAF_BLOCK_DATA_SIZE` bytes from the reader.
@@ -89,19 +89,20 @@ impl Blob {
 			}
 			let size = position.to_u64().unwrap();
 
-			// Create, store, and add the leaf.
+			// Create and store the leaf.
 			let bytes = Bytes::copy_from_slice(&bytes[..position]);
 			let leaf = Leaf::new(bytes);
 			leaf.store(tg).await?;
-			leaves.push(branch::Child {
+
+			children.push(branch::Child {
 				blob: leaf.into(),
 				size,
 			});
 		}
 
 		// Create the tree.
-		while leaves.len() > MAX_BRANCH_CHILDREN {
-			leaves = stream::iter(leaves)
+		while children.len() > MAX_BRANCH_CHILDREN {
+			children = stream::iter(children)
 				.chunks(MAX_BRANCH_CHILDREN)
 				.flat_map(|chunk| {
 					if chunk.len() == MAX_BRANCH_CHILDREN {
@@ -118,7 +119,7 @@ impl Blob {
 				.try_collect()
 				.await?;
 		}
-		let blob = Self::new(leaves);
+		let blob = Self::new(children);
 
 		Ok(blob)
 	}
