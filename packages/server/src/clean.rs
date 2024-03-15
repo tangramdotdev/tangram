@@ -25,10 +25,7 @@ impl Server {
 		tokio::fs::create_dir_all(self.checkouts_path())
 			.await
 			.map_err(|error| {
-				error!(
-					source = error,
-					"failed to recreate the checkouts directory"
-				)
+				error!(source = error, "failed to recreate the checkouts directory")
 			})?;
 
 		// Clean the temporary directory.
@@ -38,10 +35,7 @@ impl Server {
 		tokio::fs::create_dir_all(self.tmp_path())
 			.await
 			.map_err(|error| {
-				error!(
-					source = error,
-					"failed to recreate the temporary directory"
-				)
+				error!(source = error, "failed to recreate the temporary directory")
 			})?;
 
 		Ok(())

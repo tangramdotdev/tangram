@@ -217,9 +217,8 @@ impl Cli {
 
 		// Check out the output if requested.
 		if let Some(path) = args.output {
-			let artifact = tg::Artifact::try_from(output.clone()).map_err(|error| {
-				error!(source = error, "expected the output to be an artifact")
-			})?;
+			let artifact = tg::Artifact::try_from(output.clone())
+				.map_err(|error| error!(source = error, "expected the output to be an artifact"))?;
 			artifact
 				.check_out(client, Some(&path.try_into()?))
 				.await

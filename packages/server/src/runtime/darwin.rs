@@ -45,12 +45,7 @@ pub async fn build(server: &Server, build: &tg::Build) -> Result<tg::Value> {
 	let server_directory_temp_path = server.inner.options.path.join("tmp");
 	tokio::fs::create_dir_all(&server_directory_temp_path)
 		.await
-		.map_err(|error| {
-			error!(
-				source = error,
-				"failed to create the server temp directory"
-			)
-		})?;
+		.map_err(|error| error!(source = error, "failed to create the server temp directory"))?;
 
 	let root_directory_tempdir = tempfile::TempDir::new_in(&server_directory_temp_path)
 		.map_err(|error| error!(source = error, "failed to create the temporary directory"))?;

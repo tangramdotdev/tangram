@@ -1964,9 +1964,7 @@ impl xdr::FromXdr for nfs_lock_type4 {
 			2 => Ok(nfs_lock_type4::WRITE_LT),
 			3 => Ok(nfs_lock_type4::READW_LT),
 			4 => Ok(nfs_lock_type4::WRITEW_LT),
-			_ => Err(xdr::Error::Custom(
-				"expected a valid nfs_lock_type4".into(),
-			)),
+			_ => Err(xdr::Error::Custom("expected a valid nfs_lock_type4".into())),
 		}
 	}
 }

@@ -101,17 +101,11 @@ impl std::str::FromStr for Id {
 			.get(0..=2)
 			.ok_or_else(|| error!(%id, "invalid ID"))?
 			.parse()?;
-		let version = id
-			.chars()
-			.nth(4)
-			.ok_or_else(|| error!(%id, "invalid ID"))?;
+		let version = id.chars().nth(4).ok_or_else(|| error!(%id, "invalid ID"))?;
 		if version != '0' {
 			return Err(error!(%version, "invalid version"));
 		}
-		let algorithm = id
-			.chars()
-			.nth(5)
-			.ok_or_else(|| error!(%id, "invalid ID"))?;
+		let algorithm = id.chars().nth(5).ok_or_else(|| error!(%id, "invalid ID"))?;
 		let body = id.get(6..).ok_or_else(|| error!(%id, "invalid ID"))?;
 		let body = match algorithm {
 			'0' => Body::UuidV7(

@@ -224,10 +224,7 @@ impl Server {
 				.finished_at
 				.map(|timestamp| {
 					timestamp.format(&Rfc3339).map_err(|error| {
-						error!(
-							source = error,
-							"failed to format the finished_at timestamp"
-						)
+						error!(source = error, "failed to format the finished_at timestamp")
 					})
 				})
 				.transpose()?;
@@ -454,10 +451,7 @@ impl Server {
 				.finished_at
 				.map(|timestamp| {
 					timestamp.format(&Rfc3339).map_err(|error| {
-						error!(
-							source = error,
-							"failed to format the finished_at timestamp"
-						)
+						error!(source = error, "failed to format the finished_at timestamp")
 					})
 				})
 				.transpose()?;
