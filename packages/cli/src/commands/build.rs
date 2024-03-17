@@ -6,10 +6,10 @@ use crate::{
 use async_recursion::async_recursion;
 use console::style;
 use futures::{stream::FuturesUnordered, StreamExt, TryStreamExt};
-use std::fmt::Write;
-use std::path::PathBuf;
+use itertools::Itertools;
+use std::{collections::BTreeMap, fmt::Write, path::PathBuf};
 use tangram_client as tg;
-use tangram_error::{error, Result};
+use tangram_error::{error, Error, Result};
 use tg::Handle;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 
@@ -23,8 +23,8 @@ pub struct Args {
 	pub command: Option<Command>,
 }
 
+#[allow(clippy::large_enum_variant)]
 #[derive(Debug, clap::Subcommand)]
-
 pub enum Command {
 	#[clap(hide = true)]
 	GetOrCreate(GetOrCreateArgs),
@@ -38,9 +38,21 @@ pub enum Command {
 /// Build a target.
 #[derive(Debug, clap::Args)]
 pub struct GetOrCreateArgs {
-	/// If this flag is set, then the command will exit immediately instead of waiting for the build's output.
+	/// Set the arguments.
+	#[clap(short, long, action = clap::ArgAction::Append)]
+	pub arg: Vec<String>,
+
+	/// If this flag is set, then the command will exit immediately instead of waiting for the build to finish.
 	#[clap(short, long, conflicts_with = "output")]
 	pub detach: bool,
+
+	/// Set the environment variables.
+	#[clap(short, long, action = clap::ArgAction::Append)]
+	pub env: Vec<String>,
+
+	/// Set the host.
+	#[clap(long)]
+	pub host: Option<tg::Triple>,
 
 	/// If this flag is set, the package's lockfile will not be updated.
 	#[clap(long)]
@@ -67,7 +79,7 @@ pub struct GetOrCreateArgs {
 	pub target: Option<String>,
 
 	/// The ID of an existing target to build.
-	#[clap(long, conflicts_with_all = &["target", "package"], value_name = "ID")]
+	#[clap(long, conflicts_with_all = &["target", "package"])]
 	pub target_id: Option<tg::target::Id>,
 }
 
@@ -108,7 +120,7 @@ impl Cli {
 	pub async fn command_build(&self, args: Args) -> Result<()> {
 		match args.command.unwrap_or(Command::GetOrCreate(args.args)) {
 			Command::GetOrCreate(args) => {
-				self.command_build_build(args).await?;
+				self.command_build_get_or_create(args).await?;
 			},
 			Command::Get(args) => {
 				self.command_build_get(args).await?;
@@ -129,7 +141,7 @@ impl Cli {
 		Ok(())
 	}
 
-	pub async fn command_build_build(&self, args: GetOrCreateArgs) -> Result<()> {
+	pub async fn command_build_get_or_create(&self, args: GetOrCreateArgs) -> Result<()> {
 		let client = &self.client().await?;
 
 		let target = if let Some(id) = args.target_id {
@@ -150,12 +162,35 @@ impl Cli {
 			let (package, lock) = tg::package::get_with_lock(client, &package).await?;
 
 			// Create the target.
-			let env = [(
-				"TANGRAM_HOST".to_owned(),
-				tg::Triple::host()?.to_string().into(),
-			)]
-			.into();
-			let args_ = Vec::new();
+			let mut env: BTreeMap<String, tg::Value> = args
+				.env
+				.into_iter()
+				.map(|env| {
+					let (key, value) = env
+						.split_once('=')
+						.ok_or_else(|| error!("expected `KEY=value`"))?;
+					Ok::<_, Error>((key.to_owned(), tg::Value::String(value.to_owned())))
+				})
+				.try_collect()?;
+			if !env.contains_key("TANGRAM_HOST") {
+				let host = if let Some(host) = args.host {
+					host
+				} else {
+					tg::Triple::host()?
+				};
+				env.insert("TANGRAM_HOST".to_owned(), host.to_string().into());
+			}
+			let args_: BTreeMap<String, tg::Value> = args
+				.arg
+				.into_iter()
+				.map(|arg| {
+					let (key, value) = arg
+						.split_once('=')
+						.ok_or_else(|| error!("expected `key=value`"))?;
+					Ok::<_, Error>((key.to_owned(), tg::Value::String(value.to_owned())))
+				})
+				.try_collect()?;
+			let args_ = vec![args_.into()];
 			let host = tg::Triple::js();
 			let path = tg::package::get_root_module_path(client, &package).await?;
 			let executable = tg::Symlink::new(Some(package.into()), Some(path.to_string())).into();

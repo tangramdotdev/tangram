@@ -2,17 +2,30 @@ use crate::{
 	tui::{self, Tui},
 	Cli,
 };
-use std::os::unix::process::CommandExt;
+use itertools::Itertools;
+use std::{collections::BTreeMap, os::unix::process::CommandExt};
 use tangram_client as tg;
-use tangram_error::{error, Result};
+use tangram_error::{error, Error, Result};
 
 /// Build the specified target from a package and execute a command from its output.
 #[derive(Debug, clap::Args)]
 #[clap(trailing_var_arg = true)]
 pub struct Args {
+	/// Set the arguments.
+	#[clap(short, long, action = clap::ArgAction::Append)]
+	pub arg: Vec<String>,
+
+	/// Set the environment variables.
+	#[clap(short, long, action = clap::ArgAction::Append)]
+	pub env: Vec<String>,
+
 	/// The path to the executable in the artifact to run.
 	#[clap(short = 'x', long)]
 	pub executable: Option<tg::Path>,
+
+	/// Set the host.
+	#[clap(long)]
+	pub host: Option<tg::Triple>,
 
 	/// If this flag is set, then the package's lockfile will not be updated.
 	#[clap(long)]
@@ -23,52 +36,86 @@ pub struct Args {
 	pub no_tui: bool,
 
 	/// The package to build.
-	#[clap(short, long, default_value = ".")]
-	pub package: tg::Dependency,
+	#[clap(short, long)]
+	pub package: Option<tg::Dependency>,
 
 	/// The retry strategy to use.
 	#[clap(long, default_value_t)]
 	pub retry: tg::build::Retry,
 
 	/// The name of the target to build.
-	#[clap(short, long, default_value = "default")]
-	pub target: String,
+	#[clap(short, long)]
+	pub target: Option<String>,
+
+	/// The ID of an existing target to build.
+	#[clap(long, conflicts_with_all = &["target", "package"])]
+	pub target_id: Option<tg::target::Id>,
 
 	/// Arguments to pass to the executable.
 	pub trailing: Vec<String>,
 }
 
 impl Cli {
-	pub async fn command_run(&self, mut args: Args) -> Result<()> {
+	pub async fn command_run(&self, args: Args) -> Result<()> {
 		let client = &self.client().await?;
 
-		// Canonicalize the path.
-		if let Some(path) = args.package.path.as_mut() {
-			*path = tokio::fs::canonicalize(&path)
-				.await
-				.map_err(|error| error!(source = error, %path, "failed to canonicalize the path"))?
-				.try_into()?;
-		}
+		let target = if let Some(id) = args.target_id {
+			tg::Target::with_id(id)
+		} else {
+			let mut package = args.package.unwrap_or(".".parse().unwrap());
+			let target = args.target.unwrap_or("default".parse().unwrap());
 
-		// Create the package.
-		let (package, lock) = tg::package::get_with_lock(client, &args.package).await?;
+			// Canonicalize the path.
+			if let Some(path) = package.path.as_mut() {
+				*path = tokio::fs::canonicalize(&path)
+					.await
+					.map_err(|error| error!(source = error, "failed to canonicalize the path"))?
+					.try_into()?;
+			}
 
-		// Create the target.
-		let env = [(
-			"TANGRAM_HOST".to_owned(),
-			tg::Triple::host()?.to_string().into(),
-		)]
-		.into();
-		let args_ = Vec::new();
-		let host = tg::Triple::js();
-		let path = tg::package::get_root_module_path(client, &package).await?;
-		let executable = tg::Symlink::new(Some(package.into()), Some(path.to_string())).into();
-		let target = tg::target::Builder::new(host, executable)
-			.lock(lock)
-			.name(args.target.clone())
-			.env(env)
-			.args(args_)
-			.build();
+			// Create the package.
+			let (package, lock) = tg::package::get_with_lock(client, &package).await?;
+
+			// Create the target.
+			let mut env: BTreeMap<String, tg::Value> = args
+				.env
+				.into_iter()
+				.map(|env| {
+					let (key, value) = env
+						.split_once('=')
+						.ok_or_else(|| error!("expected `KEY=value`"))?;
+					Ok::<_, Error>((key.to_owned(), tg::Value::String(value.to_owned())))
+				})
+				.try_collect()?;
+			if !env.contains_key("TANGRAM_HOST") {
+				let host = if let Some(host) = args.host {
+					host
+				} else {
+					tg::Triple::host()?
+				};
+				env.insert("TANGRAM_HOST".to_owned(), host.to_string().into());
+			}
+			let args_: BTreeMap<String, tg::Value> = args
+				.arg
+				.into_iter()
+				.map(|arg| {
+					let (key, value) = arg
+						.split_once('=')
+						.ok_or_else(|| error!("expected `key=value`"))?;
+					Ok::<_, Error>((key.to_owned(), tg::Value::String(value.to_owned())))
+				})
+				.try_collect()?;
+			let args_ = vec![args_.into()];
+			let host = tg::Triple::js();
+			let path = tg::package::get_root_module_path(client, &package).await?;
+			let executable = tg::Symlink::new(Some(package.into()), Some(path.to_string())).into();
+			tg::target::Builder::new(host, executable)
+				.lock(lock)
+				.name(target.clone())
+				.env(env)
+				.args(args_)
+				.build()
+		};
 
 		// Print the target ID.
 		eprintln!("{}", target.id(client).await?);
