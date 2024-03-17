@@ -21,22 +21,6 @@ pub enum Arg {
 	Package(tg::Dependency),
 }
 
-impl std::str::FromStr for Arg {
-	type Err = Error;
-	fn from_str(arg: &str) -> Result<Self, Self::Err> {
-		if let Ok(build) = arg.parse() {
-			return Ok(Arg::Build(build));
-		}
-		if let Ok(object) = arg.parse() {
-			return Ok(Arg::Object(object));
-		}
-		if let Ok(package) = arg.parse() {
-			return Ok(Arg::Package(package));
-		}
-		Err(error!(%arg, "Expected a dependency, build id, or object id."))
-	}
-}
-
 impl Cli {
 	pub async fn command_tree(&self, args: Args) -> Result<()> {
 		match args.arg {
@@ -63,5 +47,22 @@ impl Cli {
 			},
 		}
 		Ok(())
+	}
+}
+
+impl std::str::FromStr for Arg {
+	type Err = Error;
+
+	fn from_str(s: &str) -> Result<Self, Self::Err> {
+		if let Ok(build) = s.parse() {
+			return Ok(Arg::Build(build));
+		}
+		if let Ok(object) = s.parse() {
+			return Ok(Arg::Object(object));
+		}
+		if let Ok(package) = s.parse() {
+			return Ok(Arg::Package(package));
+		}
+		Err(error!(%s, "expected a dependency, build id, or object id"))
 	}
 }

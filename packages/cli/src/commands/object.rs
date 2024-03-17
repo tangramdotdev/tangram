@@ -1,4 +1,7 @@
-use crate::{util::TreeDisplay, Cli};
+use crate::{
+	util::{print_tree, Tree},
+	Cli,
+};
 use async_recursion::async_recursion;
 use console::style;
 use futures::{
@@ -138,19 +141,19 @@ impl Cli {
 	pub async fn command_object_tree(&self, args: TreeArgs) -> Result<()> {
 		let client = &self.client().await?;
 		let tree = get_object_tree(client, args.id, 1, args.depth).await?;
-		println!("{tree}");
+		print_tree(&tree);
 		Ok(())
 	}
 }
 
 #[async_recursion]
 async fn get_object_tree(
-	client: &dyn tg::Handle,
+	client: &tg::Client,
 	object: tg::object::Id,
 	current_depth: u32,
 	max_depth: Option<u32>,
-) -> Result<TreeDisplay> {
-	let data = match &object {
+) -> Result<Tree> {
+	let title = match &object {
 		tg::object::Id::Leaf(object) => style(object).white().to_string(),
 		tg::object::Id::Branch(object) => style(object).blue().bright().to_string(),
 		tg::object::Id::Directory(object) => style(object).blue().dim().to_string(),
@@ -162,9 +165,8 @@ async fn get_object_tree(
 	let children = tg::Object::with_id(object.clone())
 		.data(client)
 		.await
-		.map_err(|error| error!(source = error, %object, "Failed to get object data."))?
+		.map_err(|error| error!(source = error, %object, "failed to get the object data"))?
 		.children();
-
 	let children = if max_depth.map_or(true, |max_depth| current_depth < max_depth) {
 		stream::iter(children)
 			.map(|child| get_object_tree(client, child, current_depth + 1, max_depth))
@@ -175,8 +177,6 @@ async fn get_object_tree(
 	} else {
 		Vec::new()
 	};
-
-	let tree = TreeDisplay { data, children };
-
+	let tree = Tree { title, children };
 	Ok(tree)
 }

@@ -1,4 +1,7 @@
-use crate::{util::TreeDisplay, Cli};
+use crate::{
+	util::{print_tree, Tree},
+	Cli,
+};
 use async_recursion::async_recursion;
 use console::style;
 use either::Either;
@@ -70,7 +73,7 @@ impl Cli {
 		client
 			.publish_package(self.user.as_ref(), id)
 			.await
-			.map_err(|error| error!(source = error, "Failed to publish the package."))?;
+			.map_err(|error| error!(source = error, "failed to publish the package"))?;
 
 		Ok(())
 	}
@@ -99,7 +102,7 @@ impl Cli {
 		let dependency = args.package;
 		let (package, lock) = tg::package::get_with_lock(client, &dependency)
 			.await
-			.map_err(|error| error!(source = error, %dependency, "Failed to get lock."))?;
+			.map_err(|error| error!(source = error, %dependency, "failed to get the lock"))?;
 
 		let mut visited = BTreeSet::new();
 		let tree = get_package_tree(
@@ -113,7 +116,9 @@ impl Cli {
 			args.depth,
 		)
 		.await?;
-		println!("{tree}");
+
+		print_tree(&tree);
+
 		Ok(())
 	}
 }
@@ -121,7 +126,7 @@ impl Cli {
 #[async_recursion]
 #[allow(clippy::too_many_arguments)]
 async fn get_package_tree(
-	client: &dyn tg::Handle,
+	client: &tg::Client,
 	dependency: &tg::Dependency,
 	lock: &tg::Lock,
 	node: usize,
@@ -129,49 +134,45 @@ async fn get_package_tree(
 	visited: &mut BTreeSet<tg::directory::Id>,
 	current_depth: u32,
 	max_depth: Option<u32>,
-) -> Result<TreeDisplay> {
-	// Create the data for the tree node, "<dependency>: <name>@version", or "<dependency>: <package_id>" if no metadata exists.
-	let mut data = String::new();
-	write!(data, "{}: ", style(dependency)).unwrap();
+) -> Result<Tree> {
+	let mut title = String::new();
+	write!(title, "{}: ", style(dependency)).unwrap();
 	if let Ok(metadata) = tg::package::get_metadata(client, package).await {
 		if let Some(name) = metadata.name {
-			write!(data, "{}", style(name)).unwrap();
+			write!(title, "{}", style(name)).unwrap();
 		} else {
-			write!(data, "{}", style(package)).unwrap();
+			write!(title, "{}", style(package)).unwrap();
 		}
 		if let Some(version) = metadata.version {
-			write!(data, "@{}", style(version)).unwrap();
+			write!(title, "@{}", style(version)).unwrap();
 		}
 	} else {
-		write!(data, "{}", style(package)).unwrap();
+		write!(title, "{}", style(package)).unwrap();
 	}
 
-	// Skip the children of this node if we've already visited it or reached the max depth.
 	let package_id = package.id(client).await?;
 	if visited.contains(package_id)
 		|| max_depth.map_or(false, |max_depth| current_depth == max_depth)
 	{
 		let children = Vec::new();
-		return Ok(TreeDisplay { data, children });
+		return Ok(Tree { title, children });
 	}
 	visited.insert(package_id.clone());
 
-	// Visit the children.
 	let lock_data = lock.data(client).await?;
 	let mut children = Vec::new();
 	let node = lock_data
 		.nodes
 		.get(node)
-		.ok_or_else(|| error!(%node, "Invalid lock. Node does not exist."))?;
+		.ok_or_else(|| error!(%node, "invalid lock"))?;
 	for (dependency, entry) in &node.dependencies {
 		let Some(package) = entry.package.clone().map(tg::Directory::with_id) else {
-			children.push(TreeDisplay {
-				data: "<none>".into(),
+			children.push(Tree {
+				title: "<none>".into(),
 				children: Vec::new(),
 			});
 			continue;
 		};
-
 		match &entry.lock {
 			Either::Left(node) => {
 				let child = get_package_tree(
@@ -206,6 +207,7 @@ async fn get_package_tree(
 		}
 	}
 
-	let tree = TreeDisplay { data, children };
+	let tree = Tree { title, children };
+
 	Ok(tree)
 }

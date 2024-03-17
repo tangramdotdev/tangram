@@ -1,26 +1,9 @@
 use console::style;
-use either::Either;
-use tangram_client as tg;
 use tangram_error::Error;
 
-pub fn build_or_object_id(s: &str) -> Result<Either<tg::build::Id, tg::object::Id>, String> {
-	if let Ok(value) = s.parse() {
-		return Ok(Either::Left(value));
-	}
-	if let Ok(value) = s.parse() {
-		return Ok(Either::Right(value));
-	}
-	Err("failed to parse".to_string())
-}
-
-pub fn print_error(mut error: &tangram_error::Error) {
-	eprintln!("{}:", style("Error").red());
-	let mut first = true;
+pub fn print_error_trace(mut error: &Error) {
+	eprintln!("{}", style("error").red());
 	loop {
-		if !first {
-			eprintln!();
-		}
-		first = false;
 		eprint!("{}", style("->").red());
 		let Error {
 			message,
@@ -50,35 +33,29 @@ pub fn print_error(mut error: &tangram_error::Error) {
 		} else {
 			break;
 		}
+		eprintln!();
 	}
-	eprintln!();
 }
 
 #[derive(Debug)]
-pub struct TreeDisplay {
-	pub data: String,
+pub struct Tree {
+	pub title: String,
 	pub children: Vec<Self>,
 }
 
-impl std::fmt::Display for TreeDisplay {
-	fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-		self.fmt_inner(f, "")
-	}
-}
-
-impl TreeDisplay {
-	fn fmt_inner(&self, f: &mut std::fmt::Formatter<'_>, prefix: &str) -> std::fmt::Result {
-		write!(f, "{}", self.data)?;
-		for (n, child) in self.children.iter().enumerate() {
-			write!(f, "\n{prefix}")?;
-			if n == self.children.len() - 1 {
-				write!(f, "└── ")?;
-				child.fmt_inner(f, &format!("{prefix}   "))?;
+pub fn print_tree(tree: &Tree) {
+	fn inner(tree: &Tree, prefix: &str) {
+		print!("{}", tree.title);
+		for (n, child) in tree.children.iter().enumerate() {
+			print!("\n{prefix}");
+			if n == tree.children.len() - 1 {
+				print!("└── ");
+				inner(child, &format!("{prefix}   "));
 			} else {
-				write!(f, "├── ")?;
-				child.fmt_inner(f, &format!("{prefix}│   "))?;
+				print!("├── ");
+				inner(child, &format!("{prefix}│   "));
 			}
 		}
-		Ok(())
 	}
+	inner(tree, "");
 }
