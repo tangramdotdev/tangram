@@ -63,6 +63,6 @@ impl std::str::FromStr for Arg {
 		if let Ok(package) = s.parse() {
 			return Ok(Arg::Package(package));
 		}
-		Err(error!(%s, "expected a dependency, build id, or object id"))
+		Err(error!(%s, "expecte abuild id, object id, or dependency"))
 	}
 }
