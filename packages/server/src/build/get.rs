@@ -44,7 +44,6 @@ impl Server {
 		let statement = "
 			select
 				id,
-				complete,
 				count,
 				host,
 				log,
@@ -76,44 +75,41 @@ impl Server {
 		let id = row
 			.get::<_, String>(0)
 			.map_err(|error| error!(source = error, "failed to deserialize the column"))?;
-		let _complete = row
-			.get::<_, bool>(1)
-			.map_err(|error| error!(source = error, "failed to deserialize the column"))?;
 		let count = row
-			.get::<_, Option<i64>>(2)
+			.get::<_, Option<i64>>(1)
 			.map_err(|error| error!(source = error, "failed to deserialize the column"))?;
 		let host = row
-			.get::<_, String>(3)
+			.get::<_, String>(2)
 			.map_err(|error| error!(source = error, "failed to deserialize the column"))?;
 		let log = row
-			.get::<_, Option<String>>(4)
+			.get::<_, Option<String>>(3)
 			.map_err(|error| error!(source = error, "failed to deserialize the column"))?;
 		let outcome = row
-			.get::<_, Option<SqliteJson<tg::build::outcome::Data>>>(5)
+			.get::<_, Option<SqliteJson<tg::build::outcome::Data>>>(4)
 			.map_err(|error| error!(source = error, "failed to deserialize the column"))?;
 		let retry = row
-			.get::<_, String>(6)
+			.get::<_, String>(5)
 			.map_err(|error| error!(source = error, "failed to deserialize the column"))?;
 		let status = row
-			.get::<_, String>(7)
+			.get::<_, String>(6)
 			.map_err(|error| error!(source = error, "failed to deserialize the column"))?;
 		let target = row
-			.get::<_, String>(8)
+			.get::<_, String>(7)
 			.map_err(|error| error!(source = error, "failed to deserialize the column"))?;
 		let weight = row
-			.get::<_, Option<i64>>(9)
+			.get::<_, Option<i64>>(8)
 			.map_err(|error| error!(source = error, "failed to deserialize the column"))?;
 		let created_at = row
-			.get::<_, String>(10)
+			.get::<_, String>(9)
 			.map_err(|error| error!(source = error, "failed to deserialize the column"))?;
 		let queued_at = row
-			.get::<_, Option<String>>(11)
+			.get::<_, Option<String>>(10)
 			.map_err(|error| error!(source = error, "failed to deserialize the column"))?;
 		let started_at = row
-			.get::<_, Option<String>>(12)
+			.get::<_, Option<String>>(11)
 			.map_err(|error| error!(source = error, "failed to deserialize the column"))?;
 		let finished_at = row
-			.get::<_, Option<String>>(13)
+			.get::<_, Option<String>>(12)
 			.map_err(|error| error!(source = error, "failed to deserialize the column"))?;
 		let id = id.parse()?;
 		let count = count.map(|count| count.to_u64().unwrap());
@@ -171,7 +167,6 @@ impl Server {
 		let statement = "
 			select
 				id,
-				complete,
 				count,
 				host,
 				log,
@@ -199,44 +194,41 @@ impl Server {
 		let id = row
 			.try_get::<_, String>(0)
 			.map_err(|error| error!(source = error, "failed to deserialize the column"))?;
-		let _complete = row
-			.try_get::<_, bool>(1)
-			.map_err(|error| error!(source = error, "failed to deserialize the column"))?;
 		let count = row
-			.try_get::<_, Option<i64>>(2)
+			.try_get::<_, Option<i64>>(1)
 			.map_err(|error| error!(source = error, "failed to deserialize the column"))?;
 		let host = row
-			.try_get::<_, String>(3)
+			.try_get::<_, String>(2)
 			.map_err(|error| error!(source = error, "failed to deserialize the column"))?;
 		let log = row
-			.try_get::<_, Option<String>>(4)
+			.try_get::<_, Option<String>>(3)
 			.map_err(|error| error!(source = error, "failed to deserialize the column"))?;
 		let outcome = row
-			.try_get::<_, Option<PostgresJson<tg::build::outcome::Data>>>(5)
+			.try_get::<_, Option<PostgresJson<tg::build::outcome::Data>>>(4)
 			.map_err(|error| error!(source = error, "failed to deserialize the column"))?;
 		let retry = row
-			.try_get::<_, String>(6)
+			.try_get::<_, String>(5)
 			.map_err(|error| error!(source = error, "failed to deserialize the column"))?;
 		let status = row
-			.try_get::<_, String>(7)
+			.try_get::<_, String>(6)
 			.map_err(|error| error!(source = error, "failed to deserialize the column"))?;
 		let target = row
-			.try_get::<_, String>(8)
+			.try_get::<_, String>(7)
 			.map_err(|error| error!(source = error, "failed to deserialize the column"))?;
 		let weight = row
-			.try_get::<_, Option<i64>>(9)
+			.try_get::<_, Option<i64>>(8)
 			.map_err(|error| error!(source = error, "failed to deserialize the column"))?;
 		let created_at = row
-			.try_get::<_, String>(10)
+			.try_get::<_, String>(9)
 			.map_err(|error| error!(source = error, "failed to deserialize the column"))?;
 		let queued_at = row
-			.try_get::<_, Option<String>>(11)
+			.try_get::<_, Option<String>>(10)
 			.map_err(|error| error!(source = error, "failed to deserialize the column"))?;
 		let started_at = row
-			.try_get::<_, Option<String>>(12)
+			.try_get::<_, Option<String>>(11)
 			.map_err(|error| error!(source = error, "failed to deserialize the column"))?;
 		let finished_at = row
-			.try_get::<_, Option<String>>(13)
+			.try_get::<_, Option<String>>(12)
 			.map_err(|error| error!(source = error, "failed to deserialize the column"))?;
 		let id = id.parse()?;
 		let count = count.map(|count| count.to_u64().unwrap());
