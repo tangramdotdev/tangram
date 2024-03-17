@@ -8,7 +8,10 @@ use bytes::Bytes;
 use futures::{Future, FutureExt, TryStreamExt};
 use itertools::Itertools;
 use num::ToPrimitive;
-use std::rc::Rc;
+use std::{
+	rc::Rc,
+	sync::{atomic::AtomicU64, Arc},
+};
 use tangram_client as tg;
 use tangram_error::{error, Result};
 use tokio_util::io::StreamReader;
@@ -153,48 +156,42 @@ async fn syscall_download(state: Rc<State>, args: (Url, tg::Checksum)) -> Result
 		.map_err(|error| error!(source = error, %url, "expected a sucess status"))?;
 
 	// Spawn a task to log progress.
+	let n = Arc::new(AtomicU64::new(0));
 	let content_length = response.content_length();
-	let (log_sender, mut log_receiver) = tokio::sync::watch::channel(0);
-	let task = tokio::spawn({
-		let url = url.clone();
+	let log_task = tokio::spawn({
 		let server = state.server.clone();
 		let build = state.build.clone();
+		let url = url.clone();
+		let n = n.clone();
 		async move {
-			let mut interval = tokio::time::interval(std::time::Duration::from_millis(500));
 			loop {
-				// Get the current number of bytes read from the watch.
-				let bytes_read = *log_receiver.borrow();
+				let n = n.load(std::sync::atomic::Ordering::Relaxed);
 				let message = if let Some(content_length) = content_length {
-					let percent =
-						100.0 * bytes_read.to_f64().unwrap() / content_length.to_f64().unwrap();
-					format!("downloading from \"{url}\": {bytes_read} of {content_length} {percent:.2}%\n")
+					let percent = 100.0 * n.to_f64().unwrap() / content_length.to_f64().unwrap();
+					format!("downloading from \"{url}\": {n} of {content_length} {percent:.2}%\n")
 				} else {
-					format!("downloading from \"{url}\": {bytes_read}\n")
+					format!("downloading from \"{url}\": {n}\n")
 				};
-				build.add_log(&server, message.into()).await?;
-
-				// Wait for the interval to tick and more data to be available.
-				let (status, _) = tokio::join!(log_receiver.changed(), interval.tick());
-				if status.is_err() {
-					break;
-				}
+				build.add_log(&server, message.into()).await.ok();
+				tokio::time::sleep(std::time::Duration::from_secs(1)).await;
 			}
-			Ok::<_, tangram_error::Error>(())
 		}
 	});
+	let log_task_abort_handle = log_task.abort_handle();
 	scopeguard::defer! {
-		task.abort();
+		log_task_abort_handle.abort();
 	};
 
 	// Create a stream of chunks.
 	let mut checksum_writer = tg::checksum::Writer::new(checksum.algorithm());
-	let mut bytes_read = 0;
 	let stream = response
 		.bytes_stream()
 		.map_err(std::io::Error::other)
 		.inspect_ok(|chunk| {
-			bytes_read += chunk.len().to_u64().unwrap();
-			log_sender.send_replace(bytes_read);
+			n.fetch_add(
+				chunk.len().to_u64().unwrap(),
+				std::sync::atomic::Ordering::Relaxed,
+			);
 			checksum_writer.update(chunk);
 		});
 
@@ -203,20 +200,24 @@ async fn syscall_download(state: Rc<State>, args: (Url, tg::Checksum)) -> Result
 		.await
 		.map_err(|error| error!(source = error, "failed to create the blob"))?;
 
-	// Update the log task with the full content length so it can display 100%.
-	if let Some(content_length) = content_length {
-		log_sender.send_replace(content_length);
-	}
+	// Abort the log task.
+	log_task.abort();
 
+	// Log that the download finished.
+	let message = format!("finished download from \"{url}\"\n");
+	state
+		.build
+		.add_log(&state.server, message.into())
+		.await
+		.map_err(|error| error!(source = error, "failed to add the log"))?;
+
+	// Verify the checksum.
 	let actual = checksum_writer.finalize();
 	if actual != checksum {
 		let expected = checksum;
-		return Err(error!(
-			source = error!(%actual, %expected, "the checksum did not match"),
-			%url,
-			"failed to verify download"
-		));
+		return Err(error!(%url, %actual, %expected, "the checksum did not match"));
 	}
+
 	Ok(blob)
 }
 

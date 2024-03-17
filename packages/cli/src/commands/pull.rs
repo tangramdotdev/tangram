@@ -40,6 +40,6 @@ impl std::str::FromStr for Arg {
 		if let Ok(object) = s.parse() {
 			return Ok(Arg::Object(object));
 		}
-		Err(error!(%s, "expected a build id or an object id"))
+		Err(error!(%s, "expected a build or an object"))
 	}
 }
