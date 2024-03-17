@@ -13,20 +13,21 @@ use tangram_error::{error, Result};
 use tg::Handle;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 
-/// Manage builds.
+/// Build a target and manage builds.
 #[derive(Debug, clap::Args)]
-#[command(args_conflicts_with_subcommands = true, verbatim_doc_comment)]
+#[clap(args_conflicts_with_subcommands = true)]
 pub struct Args {
 	#[clap(flatten)]
-	pub args: NewArgs,
-	#[command(subcommand)]
+	pub args: GetOrCreateArgs,
+	#[clap(subcommand)]
 	pub command: Option<Command>,
 }
 
 #[derive(Debug, clap::Subcommand)]
-#[command(verbatim_doc_comment)]
+
 pub enum Command {
-	New(NewArgs),
+	#[clap(hide = true)]
+	GetOrCreate(GetOrCreateArgs),
 	Get(GetArgs),
 	Put(PutArgs),
 	Push(PushArgs),
@@ -36,51 +37,48 @@ pub enum Command {
 
 /// Build a target.
 #[derive(Debug, clap::Args)]
-#[command(verbatim_doc_comment)]
-pub struct NewArgs {
+pub struct GetOrCreateArgs {
 	/// If this flag is set, then the command will exit immediately instead of waiting for the build's output.
-	#[arg(short, long, conflicts_with = "output")]
+	#[clap(short, long, conflicts_with = "output")]
 	pub detach: bool,
 
 	/// If this flag is set, the package's lockfile will not be updated.
-	#[arg(long)]
+	#[clap(long)]
 	pub locked: bool,
 
 	/// Disable the TUI.
-	#[arg(long, default_value = "false")]
+	#[clap(long, default_value = "false")]
 	pub no_tui: bool,
 
 	/// The path to check out the output to.
-	#[arg(short, long)]
+	#[clap(short, long)]
 	pub output: Option<PathBuf>,
 
 	/// The package to build.
-	#[arg(short, long)]
+	#[clap(short, long)]
 	pub package: Option<tg::Dependency>,
 
 	/// The retry strategy to use.
-	#[arg(long, default_value_t)]
+	#[clap(long, default_value_t)]
 	pub retry: tg::build::Retry,
 
 	/// The name of the target to build.
-	#[arg(short, long)]
+	#[clap(short, long)]
 	pub target: Option<String>,
 
 	/// The ID of an existing target to build.
-	#[arg(long, conflicts_with_all = &["target", "package"], value_name = "ID")]
+	#[clap(long, conflicts_with_all = &["target", "package"], value_name = "ID")]
 	pub target_id: Option<tg::target::Id>,
 }
 
 /// Get a build.
 #[derive(Debug, clap::Args)]
-#[command(verbatim_doc_comment)]
 pub struct GetArgs {
 	pub id: tg::build::Id,
 }
 
 /// Put a build.
 #[derive(Debug, clap::Args)]
-#[command(verbatim_doc_comment)]
 pub struct PutArgs {
 	#[clap(long)]
 	pub json: Option<String>,
@@ -88,31 +86,28 @@ pub struct PutArgs {
 
 /// Push a build.
 #[derive(Debug, clap::Args)]
-#[command(verbatim_doc_comment)]
 pub struct PushArgs {
 	pub id: tg::build::Id,
 }
 
 /// Pull a build.
 #[derive(Debug, clap::Args)]
-#[command(verbatim_doc_comment)]
 pub struct PullArgs {
 	pub id: tg::build::Id,
 }
 
 /// Display the build tree.
 #[derive(Debug, clap::Args)]
-#[command(verbatim_doc_comment)]
 pub struct TreeArgs {
 	pub id: tg::build::Id,
-	#[arg(long)]
+	#[clap(long)]
 	pub depth: Option<u32>,
 }
 
 impl Cli {
 	pub async fn command_build(&self, args: Args) -> Result<()> {
-		match args.command.unwrap_or(Command::New(args.args)) {
-			Command::New(args) => {
+		match args.command.unwrap_or(Command::GetOrCreate(args.args)) {
+			Command::GetOrCreate(args) => {
 				self.command_build_build(args).await?;
 			},
 			Command::Get(args) => {
@@ -134,7 +129,7 @@ impl Cli {
 		Ok(())
 	}
 
-	pub async fn command_build_build(&self, args: NewArgs) -> Result<()> {
+	pub async fn command_build_build(&self, args: GetOrCreateArgs) -> Result<()> {
 		let client = &self.client().await?;
 
 		let target = if let Some(id) = args.target_id {

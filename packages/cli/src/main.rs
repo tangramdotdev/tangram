@@ -22,24 +22,23 @@ struct Cli {
 }
 
 #[derive(Debug, clap::Parser)]
-#[command(
+#[clap(
 	about = env!("CARGO_PKG_DESCRIPTION"),
 	disable_help_subcommand = true,
 	long_version = env!("CARGO_PKG_VERSION"),
 	name = env!("CARGO_CRATE_NAME"),
-	verbatim_doc_comment,
 	version = env!("CARGO_PKG_VERSION"),
 )]
 struct Args {
 	/// The address to connect to.
-	#[arg(long)]
+	#[clap(long)]
 	address: Option<tg::Address>,
 
 	/// The path to the config file.
-	#[arg(long)]
+	#[clap(long)]
 	config: Option<PathBuf>,
 
-	#[command(subcommand)]
+	#[clap(subcommand)]
 	command: Command,
 }
 

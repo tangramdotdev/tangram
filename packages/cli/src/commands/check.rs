@@ -4,13 +4,12 @@ use tangram_error::{error, Result};
 
 /// Check a package for errors.
 #[derive(Debug, clap::Args)]
-#[command(verbatim_doc_comment)]
 pub struct Args {
 	/// If this flag is set, the package's lockfile will not be updated.
-	#[arg(long)]
+	#[clap(long)]
 	pub locked: bool,
 
-	#[arg(short, long, default_value = ".")]
+	#[clap(short, long, default_value = ".")]
 	pub package: tg::Dependency,
 }
 

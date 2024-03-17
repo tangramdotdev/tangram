@@ -4,7 +4,6 @@ use tangram_error::{error, Result};
 
 /// Write the contents of a list of objects to stdout.
 #[derive(Debug, clap::Args)]
-#[command(verbatim_doc_comment)]
 pub struct Args {
 	pub ids: Vec<tg::Id>,
 }

@@ -7,7 +7,6 @@ use tangram_error::Result;
 
 /// Get the log for a build.
 #[derive(Debug, clap::Args)]
-#[command(verbatim_doc_comment)]
 pub struct Args {
 	/// The ID of the build to get the log for.
 	pub id: tg::build::Id,

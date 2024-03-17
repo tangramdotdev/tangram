@@ -15,14 +15,13 @@ use tokio::io::{AsyncReadExt, AsyncWriteExt};
 
 /// Manage objects.
 #[derive(Debug, clap::Args)]
-#[command(verbatim_doc_comment)]
 pub struct Args {
-	#[command(subcommand)]
+	#[clap(subcommand)]
 	pub command: Command,
 }
 
 #[derive(Debug, clap::Subcommand)]
-#[command(verbatim_doc_comment)]
+
 pub enum Command {
 	Get(GetArgs),
 	Put(PutArgs),
@@ -33,14 +32,12 @@ pub enum Command {
 
 /// Get an object.
 #[derive(Debug, clap::Args)]
-#[command(verbatim_doc_comment)]
 pub struct GetArgs {
 	pub id: tg::object::Id,
 }
 
 /// Put an object.
 #[derive(Debug, clap::Args)]
-#[command(verbatim_doc_comment)]
 pub struct PutArgs {
 	#[clap(short, long)]
 	bytes: Option<String>,
@@ -50,24 +47,21 @@ pub struct PutArgs {
 
 /// Push an object.
 #[derive(Debug, clap::Args)]
-#[command(verbatim_doc_comment)]
 pub struct PushArgs {
 	pub id: tg::object::Id,
 }
 
 /// Pull an object.
 #[derive(Debug, clap::Args)]
-#[command(verbatim_doc_comment)]
 pub struct PullArgs {
 	pub id: tg::object::Id,
 }
 
 /// Display the object tree.
 #[derive(Debug, clap::Args)]
-#[command(verbatim_doc_comment)]
 pub struct TreeArgs {
 	pub id: tg::object::Id,
-	#[arg(short, long)]
+	#[clap(short, long)]
 	pub depth: Option<u32>,
 }
 

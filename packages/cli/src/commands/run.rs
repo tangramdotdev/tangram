@@ -8,31 +8,30 @@ use tangram_error::{error, Result};
 
 /// Build the specified target from a package and execute a command from its output.
 #[derive(Debug, clap::Args)]
-#[command(verbatim_doc_comment)]
-#[command(trailing_var_arg = true)]
+#[clap(trailing_var_arg = true)]
 pub struct Args {
 	/// The path to the executable in the artifact to run.
-	#[arg(short = 'x', long)]
+	#[clap(short = 'x', long)]
 	pub executable: Option<tg::Path>,
 
 	/// If this flag is set, then the package's lockfile will not be updated.
-	#[arg(long)]
+	#[clap(long)]
 	pub locked: bool,
 
 	/// Disable the TUI.
-	#[arg(long, default_value = "false")]
+	#[clap(long, default_value = "false")]
 	pub no_tui: bool,
 
 	/// The package to build.
-	#[arg(short, long, default_value = ".")]
+	#[clap(short, long, default_value = ".")]
 	pub package: tg::Dependency,
 
 	/// The retry strategy to use.
-	#[arg(long, default_value_t)]
+	#[clap(long, default_value_t)]
 	pub retry: tg::build::Retry,
 
 	/// The name of the target to build.
-	#[arg(short, long, default_value = "default")]
+	#[clap(short, long, default_value = "default")]
 	pub target: String,
 
 	/// Arguments to pass to the executable.

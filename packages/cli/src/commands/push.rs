@@ -4,7 +4,6 @@ use tangram_error::{error, Error, Result};
 
 /// Push a build or an object.
 #[derive(Debug, clap::Args)]
-#[command(verbatim_doc_comment)]
 pub struct Args {
 	pub arg: Arg,
 }

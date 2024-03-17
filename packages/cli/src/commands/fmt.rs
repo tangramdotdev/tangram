@@ -5,12 +5,11 @@ use tokio::io::{AsyncReadExt, AsyncWriteExt};
 
 /// Format the files in a package.
 #[derive(Debug, clap::Args)]
-#[command(verbatim_doc_comment)]
 pub struct Args {
-	#[arg(short, long, default_value = ".")]
+	#[clap(short, long, default_value = ".")]
 	pub package: tg::Dependency,
 
-	#[arg(long)]
+	#[clap(long)]
 	pub stdio: bool,
 }
 

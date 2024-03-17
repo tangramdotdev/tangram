@@ -4,10 +4,9 @@ use tangram_error::{error, Result};
 
 /// Compute a checksum.
 #[derive(Debug, clap::Args)]
-#[command(verbatim_doc_comment)]
 pub struct Args {
 	/// The checksum algorithm to use.
-	#[arg(short, long)]
+	#[clap(short, long)]
 	pub algorithm: tg::checksum::Algorithm,
 }
 

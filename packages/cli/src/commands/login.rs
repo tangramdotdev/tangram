@@ -4,7 +4,6 @@ use tangram_error::{error, Result};
 
 /// Log in to Tangram.
 #[derive(Debug, clap::Args)]
-#[command(verbatim_doc_comment)]
 pub struct Args {}
 
 impl Cli {

@@ -11,14 +11,13 @@ use tangram_error::{error, Result};
 
 /// Manage packages.
 #[derive(Debug, clap::Args)]
-#[command(verbatim_doc_comment)]
 pub struct Args {
-	#[command(subcommand)]
+	#[clap(subcommand)]
 	pub command: Command,
 }
 
 #[derive(Debug, clap::Subcommand)]
-#[command(verbatim_doc_comment)]
+
 pub enum Command {
 	Publish(PublishArgs),
 	Search(SearchArgs),
@@ -27,27 +26,24 @@ pub enum Command {
 
 /// Publish a package.
 #[derive(Debug, clap::Args)]
-#[command(verbatim_doc_comment)]
 pub struct PublishArgs {
-	#[arg(short, long, default_value = ".")]
+	#[clap(short, long, default_value = ".")]
 	pub package: tg::Dependency,
 }
 
 /// Search for packages.
 #[derive(Debug, clap::Args)]
-#[command(verbatim_doc_comment)]
 pub struct SearchArgs {
 	pub query: String,
 }
 
 /// Display the package tree.
 #[derive(Debug, clap::Args)]
-#[command(verbatim_doc_comment)]
 pub struct TreeArgs {
-	#[arg(default_value = ".")]
+	#[clap(default_value = ".")]
 	pub package: tg::Dependency,
 
-	#[arg(short, long)]
+	#[clap(short, long)]
 	pub depth: Option<u32>,
 }
 

@@ -4,9 +4,8 @@ use tangram_error::{error, Result};
 
 /// Update a package's dependencies.
 #[derive(Debug, clap::Args)]
-#[command(verbatim_doc_comment)]
 pub struct Args {
-	#[arg(short, long, default_value = ".")]
+	#[clap(short, long, default_value = ".")]
 	pub path: PathBuf,
 }
 

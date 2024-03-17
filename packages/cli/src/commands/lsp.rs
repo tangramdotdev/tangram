@@ -3,7 +3,6 @@ use tangram_error::Result;
 
 /// Run the language server.
 #[derive(Debug, clap::Args)]
-#[command(verbatim_doc_comment)]
 pub struct Args {}
 
 impl Cli {

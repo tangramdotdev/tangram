@@ -3,7 +3,6 @@ use tangram_error::{error, Result};
 
 /// Upgrade to the latest version of tangram.
 #[derive(Debug, clap::Args)]
-#[command(verbatim_doc_comment)]
 pub struct Args {}
 
 impl Cli {

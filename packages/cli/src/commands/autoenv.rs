@@ -6,9 +6,8 @@ use tangram_error::{error, Result};
 
 /// Manage autoenv paths.
 #[derive(Debug, clap::Args)]
-#[command(verbatim_doc_comment)]
 pub struct Args {
-	#[command(subcommand)]
+	#[clap(subcommand)]
 	pub command: Command,
 }
 
@@ -22,24 +21,20 @@ pub enum Command {
 
 /// Add an autoenv path.
 #[derive(Debug, clap::Args)]
-#[command(verbatim_doc_comment)]
 pub struct AddArgs {
 	pub path: Option<PathBuf>,
 }
 
 /// Get the autoenv path for a path.
 #[derive(Debug, clap::Args)]
-#[command(verbatim_doc_comment)]
 pub struct GetArgs {}
 
 /// List autoenv paths.
 #[derive(Debug, clap::Args)]
-#[command(verbatim_doc_comment)]
 pub struct ListArgs {}
 
 /// Remove an autoenv path.
 #[derive(Debug, clap::Args)]
-#[command(verbatim_doc_comment)]
 pub struct RemoveArgs {
 	pub path: Option<PathBuf>,
 }
@@ -122,11 +117,6 @@ impl Cli {
 			.and_then(|config| config.autoenv.as_ref())
 			.map(|autoenv| autoenv.paths.clone())
 			.unwrap_or_default();
-
-		// If there are no autoenv paths, then print a message.
-		if autoenv_paths.is_empty() {
-			eprintln!("there are no autoenvs");
-		}
 
 		// Print the autoenv paths.
 		for path in autoenv_paths {

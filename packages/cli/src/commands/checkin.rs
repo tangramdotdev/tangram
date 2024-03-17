@@ -5,7 +5,6 @@ use tangram_error::{error, Result};
 
 /// Check in an artifact.
 #[derive(Debug, clap::Args)]
-#[command(verbatim_doc_comment)]
 pub struct Args {
 	/// The path to check in.
 	pub path: Option<PathBuf>,

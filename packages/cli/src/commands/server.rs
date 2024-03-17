@@ -6,14 +6,13 @@ use url::Url;
 
 /// Manage the server.
 #[derive(Debug, clap::Args)]
-#[command(verbatim_doc_comment)]
 pub struct Args {
-	#[command(subcommand)]
+	#[clap(subcommand)]
 	pub command: Command,
 }
 
 #[derive(Debug, clap::Subcommand)]
-#[command(verbatim_doc_comment)]
+
 pub enum Command {
 	Health(HealthArgs),
 	Run(RunArgs),
@@ -23,46 +22,42 @@ pub enum Command {
 
 /// Get the server's health.
 #[derive(Debug, clap::Args)]
-#[command(verbatim_doc_comment)]
 pub struct HealthArgs {}
 
 /// Run a server.
 #[derive(Debug, clap::Args)]
-#[command(verbatim_doc_comment)]
 pub struct RunArgs {
 	/// The address to bind to.
-	#[arg(long)]
+	#[clap(long)]
 	pub address: Option<tg::Address>,
 
 	/// The path to the config file.
-	#[arg(long)]
+	#[clap(long)]
 	pub config: Option<PathBuf>,
 
 	/// The path where the server should store its data. The default is `$HOME/.tangram`.
-	#[arg(long)]
+	#[clap(long)]
 	pub path: Option<PathBuf>,
 
 	/// The URL of the remote server.
-	#[arg(long)]
+	#[clap(long)]
 	pub remote: Option<Url>,
 
 	/// Disable the remote server.
-	#[arg(long, default_value = "false")]
+	#[clap(long, default_value = "false")]
 	pub no_remote: bool,
 
 	/// Disable the VFS.
-	#[arg(long, default_value = "false")]
+	#[clap(long, default_value = "false")]
 	pub no_vfs: bool,
 }
 
 /// Start the server.
 #[derive(Debug, clap::Args)]
-#[command(verbatim_doc_comment)]
 pub struct StartArgs {}
 
 /// Stop the server.
 #[derive(Debug, clap::Args)]
-#[command(verbatim_doc_comment)]
 pub struct StopArgs {}
 
 impl Cli {

@@ -5,7 +5,6 @@ use tangram_error::{error, Result};
 
 /// Check out an artifact.
 #[derive(Debug, clap::Args)]
-#[command(verbatim_doc_comment)]
 pub struct Args {
 	/// The ID of the artifact to check out.
 	pub id: tg::artifact::Id,

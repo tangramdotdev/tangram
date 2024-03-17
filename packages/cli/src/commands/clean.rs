@@ -3,7 +3,6 @@ use tangram_error::Result;
 
 /// Remove unused objects.
 #[derive(Debug, clap::Args)]
-#[command(verbatim_doc_comment)]
 pub struct Args {}
 
 impl Cli {
