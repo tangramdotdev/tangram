@@ -69,6 +69,7 @@ struct Inner {
 	oauth: OAuth,
 	options: Options,
 	remote: Option<Box<dyn tg::Handle>>,
+	runtime_artifacts: std::sync::RwLock<HashMap<tg::Triple, RuntimeArtifacts>>,
 	shutdown: tokio::sync::watch::Sender<bool>,
 	shutdown_task: std::sync::Mutex<Option<tokio::task::JoinHandle<Result<()>>>>,
 	vfs: std::sync::Mutex<Option<self::vfs::Server>>,
@@ -83,6 +84,11 @@ struct BuildState {
 struct Permit(
 	Either<tokio::sync::OwnedSemaphorePermit, tokio::sync::OwnedMutexGuard<Option<Self>>>,
 );
+
+struct RuntimeArtifacts {
+	env: tg::file::Id,
+	sh: tg::file::Id,
+}
 
 #[derive(Debug)]
 struct OAuth {
@@ -104,6 +110,26 @@ struct Tmp {
 	path: PathBuf,
 	preserve: bool,
 }
+
+const ENV_AARCH64_LINUX: &[u8] = include_bytes!(concat!(
+	env!("CARGO_MANIFEST_DIR"),
+	"/src/runtime/linux/bin/env_aarch64_linux"
+));
+
+const ENV_X8664_LINUX: &[u8] = include_bytes!(concat!(
+	env!("CARGO_MANIFEST_DIR"),
+	"/src/runtime/linux/bin/env_x86_64_linux"
+));
+
+const SH_AARCH64_LINUX: &[u8] = include_bytes!(concat!(
+	env!("CARGO_MANIFEST_DIR"),
+	"/src/runtime/linux/bin/sh_aarch64_linux"
+));
+
+const SH_X8664_LINUX: &[u8] = include_bytes!(concat!(
+	env!("CARGO_MANIFEST_DIR"),
+	"/src/runtime/linux/bin/sh_x86_64_linux"
+));
 
 impl Server {
 	pub async fn start(options: Options) -> Result<Server> {
@@ -218,6 +244,9 @@ impl Server {
 		// Get the remote.
 		let remote = options.remote.as_ref().map(|remote| remote.tg.clone_box());
 
+		// Create the runtime artifacts map.
+		let runtime_artifacts = std::sync::RwLock::new(HashMap::default());
+
 		// Create the shutdown channel.
 		let (shutdown, _) = tokio::sync::watch::channel(false);
 
@@ -242,6 +271,7 @@ impl Server {
 			oauth,
 			options,
 			remote,
+			runtime_artifacts,
 			shutdown,
 			shutdown_task,
 			vfs,
@@ -294,6 +324,27 @@ impl Server {
 			tokio::fs::symlink("checkouts", artifacts_path)
 				.await
 				.map_err(|error| error!(source = error, "failed to create a symlink from the artifacts directory to the checkouts directory"))?;
+		}
+
+		// Create and store the Linux runtime artifacts.
+		#[cfg(target_os = "linux")]
+		{
+			// Create the runtime artifacts for aarch64.
+			let aarch64 = RuntimeArtifacts {
+				env: file_from_byte_slice(&server, ENV_AARCH64_LINUX, true).await?,
+				sh: file_from_byte_slice(&server, SH_AARCH64_LINUX, true).await?,
+			};
+
+			// Create the runtime artifacts for x86_64.
+			let x8664 = RuntimeArtifacts {
+				env: file_from_byte_slice(&server, ENV_X8664_LINUX, true).await?,
+				sh: file_from_byte_slice(&server, SH_X8664_LINUX, true).await?,
+			};
+
+			// Store objects in server struct.
+			let mut w = server.inner.runtime_artifacts.write().unwrap();
+			w.insert(tg::Triple::arch_os("aarch64", "linux"), aarch64);
+			w.insert(tg::Triple::arch_os("x86_64", "linux"), x8664);
 		}
 
 		// Start the build queue task.
@@ -1046,4 +1097,16 @@ impl Drop for Tmp {
 			tokio::spawn(rmrf(self.path.clone()));
 		}
 	}
+}
+
+async fn file_from_byte_slice(
+	server: &Server,
+	bytes: &[u8],
+	executable: bool,
+) -> Result<tg::file::Id> {
+	let reader = std::io::Cursor::new(bytes);
+	let blob = tg::Blob::with_reader(server, reader).await?;
+	let file = tg::File::builder(blob).executable(executable).build();
+	let id = file.id(server).await?;
+	Ok(id.clone())
 }

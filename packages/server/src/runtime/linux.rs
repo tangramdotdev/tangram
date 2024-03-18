@@ -35,26 +35,6 @@ const TANGRAM_UID: libc::uid_t = 1000;
 /// The working directory guest path.
 const WORKING_DIRECTORY_GUEST_PATH: &str = "/home/tangram/work";
 
-const ENV_AARCH64_LINUX: &[u8] = include_bytes!(concat!(
-	env!("CARGO_MANIFEST_DIR"),
-	"/src/runtime/linux/bin/env_aarch64_linux"
-));
-
-const ENV_X8664_LINUX: &[u8] = include_bytes!(concat!(
-	env!("CARGO_MANIFEST_DIR"),
-	"/src/runtime/linux/bin/env_x86_64_linux"
-));
-
-const SH_AARCH64_LINUX: &[u8] = include_bytes!(concat!(
-	env!("CARGO_MANIFEST_DIR"),
-	"/src/runtime/linux/bin/sh_aarch64_linux"
-));
-
-const SH_X8664_LINUX: &[u8] = include_bytes!(concat!(
-	env!("CARGO_MANIFEST_DIR"),
-	"/src/runtime/linux/bin/sh_x86_64_linux"
-));
-
 pub async fn build(server: &Server, build: &tg::Build) -> Result<tg::Value> {
 	// Get the target.
 	let target = build.target(server).await?;
@@ -94,46 +74,6 @@ pub async fn build(server: &Server, build: &tg::Build) -> Result<tg::Value> {
 		.await
 		.map_err(|error| error!(source = error, "failed to create the root directory"))?;
 
-	// Add `/usr/bin/env` and `/bin/sh` to the root.
-	let env_path = root_directory_host_path.join("usr/bin/env");
-	let sh_path = root_directory_host_path.join("bin/sh");
-	let (env_bytes, sh_bytes) = match target
-		.host(server)
-		.await?
-		.arch()
-		.ok_or(error!("unrecognized target arch"))?
-	{
-		tg::triple::Arch::Aarch64 => (ENV_AARCH64_LINUX, SH_AARCH64_LINUX),
-		tg::triple::Arch::Js => unreachable!(),
-		tg::triple::Arch::X8664 => (ENV_X8664_LINUX, SH_X8664_LINUX),
-	};
-	tokio::fs::create_dir_all(&env_path.parent().unwrap())
-		.await
-		.map_err(|error| error!(source = error, "failed to create the directory"))?;
-	tokio::fs::OpenOptions::new()
-		.write(true)
-		.create(true)
-		.mode(0o755)
-		.open(&env_path)
-		.await
-		.map_err(|error| error!(source = error, "failed to open the file"))?
-		.write_all(env_bytes)
-		.await
-		.map_err(|error| error!(source = error, "failed to write the buffer"))?;
-	tokio::fs::create_dir_all(&sh_path.parent().unwrap())
-		.await
-		.map_err(|error| error!(source = error, "failed to create the directory"))?;
-	tokio::fs::OpenOptions::new()
-		.write(true)
-		.create(true)
-		.mode(0o755)
-		.open(&sh_path)
-		.await
-		.map_err(|error| error!(source = error, "failed to open the file"))?
-		.write_all(sh_bytes)
-		.await
-		.map_err(|error| error!(source = error, "failed to write the buffer"))?;
-
 	// Create a tempdir for the output.
 	let output_tempdir = tempfile::TempDir::new_in(&server_directory_tmp_path)
 		.map_err(|error| error!(source = error, "failed to create the temporary directory"))?;
@@ -157,6 +97,74 @@ pub async fn build(server: &Server, build: &tg::Build) -> Result<tg::Value> {
 	// Create the host and guest paths for the artifacts directory.
 	let _artifacts_directory_host_path = server_directory_host_path.join("artifacts");
 	let artifacts_directory_guest_path = server_directory_guest_path.join("artifacts");
+
+	// Add `/usr/bin/env` and `/bin/sh` to the root.
+
+	// Establish guest paths for each tool.
+	let env_path = root_directory_host_path.join("usr/bin/env");
+	let sh_path = root_directory_host_path.join("bin/sh");
+
+	// Create the parent directories.
+	tokio::fs::create_dir_all(&env_path.parent().unwrap())
+		.await
+		.map_err(|error| error!(source = error, "failed to create the directory"))?;
+	tokio::fs::create_dir_all(&sh_path.parent().unwrap())
+		.await
+		.map_err(|error| error!(source = error, "failed to create the directory"))?;
+
+	// Obtain the IDs of the artifacts.
+	let (env_id, sh_id) = {
+		let arch = target
+			.host(server)
+			.await?
+			.arch()
+			.ok_or(error!("unrecognized target arch"))?;
+		let triple = tg::Triple::arch_os(arch, tg::triple::Os::Linux);
+		let r = server
+			.inner
+			.runtime_artifacts
+			.read()
+			.map_err(|_| error!("failed to acquire the runtime artifacts lock"))?;
+		let runtime_artifacts = r
+			.get(&triple)
+			.ok_or(error!("Could not locate runtime artifacts for target"))?;
+		(runtime_artifacts.env.clone(), runtime_artifacts.sh.clone())
+	};
+
+	// Ensure the stored IDs correspond to actual artifacts.
+	let env_artifact_host_path = server_directory_host_path
+		.join("artifacts")
+		.join(env_id.to_string());
+	if !env_artifact_host_path.exists() {
+		return Err(error!(
+			"the env artifact with id {} does not exist at the expected path",
+			env_id
+		));
+	}
+	let env_artifact_guest_path = server_directory_guest_path
+		.join("artifacts")
+		.join(env_id.to_string());
+
+	let sh_artifact_host_path = server_directory_host_path
+		.join("artifacts")
+		.join(sh_id.to_string());
+	if !sh_artifact_host_path.exists() {
+		return Err(error!(
+			"the sh artifact with id {} does not exist at the expected path",
+			sh_id
+		));
+	}
+	let sh_artifact_guest_path = server_directory_guest_path
+		.join("artifacts")
+		.join(sh_id.to_string());
+
+	// Install symlinks into the guest root.
+	tokio::fs::symlink(&env_artifact_guest_path, &env_path)
+		.await
+		.map_err(|error| error!(source = error, "failed to create the env symlink"))?;
+	tokio::fs::symlink(&sh_artifact_guest_path, &sh_path)
+		.await
+		.map_err(|error| error!(source = error, "failed to create the sh symlink"))?;
 
 	// Create the host and guest paths for the home directory, with inner .tangram directory.
 	let home_directory_host_path =

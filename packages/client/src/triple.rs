@@ -152,6 +152,12 @@ impl std::fmt::Display for Triple {
 	}
 }
 
+impl std::hash::Hash for Triple {
+	fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
+		self.string.hash(state);
+	}
+}
+
 impl std::str::FromStr for Triple {
 	type Err = Error;
 
