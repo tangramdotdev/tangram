@@ -95,179 +95,103 @@ export let archive = async (
 	artifact: Artifact,
 	format: Blob.ArchiveFormat,
 ): Promise<Blob> => {
-	try {
-		return await syscall("archive", artifact, format);
-	} catch (cause) {
-		throw new Error("the syscall failed", { cause });
-	}
+	return await syscall("archive", artifact, format);
 };
 
 export let build = async (target: Target): Promise<Value> => {
-	try {
-		return await syscall("build", target);
-	} catch (cause) {
-		throw new Error("the syscall failed", { cause });
-	}
+	return await syscall("build", target);
 };
 
 export let bundle = async (artifact: Artifact): Promise<Directory> => {
-	try {
-		return await syscall("bundle", artifact);
-	} catch (cause) {
-		throw new Error("the syscall failed", { cause });
-	}
+	return await syscall("bundle", artifact);
 };
 
 export let checksum = (
 	algorithm: Checksum.Algorithm,
 	bytes: string | Uint8Array,
 ): Checksum => {
-	try {
-		return syscall("checksum", algorithm, bytes);
-	} catch (cause) {
-		throw new Error("the syscall failed", { cause });
-	}
+	return syscall("checksum", algorithm, bytes);
 };
 
 export let compress = async (
 	blob: Blob,
 	format: Blob.CompressionFormat,
 ): Promise<Blob> => {
-	try {
-		return await syscall("compress", blob, format);
-	} catch (cause) {
-		throw new Error("the syscall failed", { cause });
-	}
+	return await syscall("compress", blob, format);
 };
 
 export let decompress = async (
 	blob: Blob,
 	format: Blob.CompressionFormat,
 ): Promise<Blob> => {
-	try {
-		return await syscall("decompress", blob, format);
-	} catch (cause) {
-		throw new Error("the syscall failed", { cause });
-	}
+	return await syscall("decompress", blob, format);
 };
 
 export let download = async (
 	url: string,
 	checksum: Checksum,
 ): Promise<Blob> => {
-	try {
-		return await syscall("download", url, checksum);
-	} catch (cause) {
-		throw new Error("the syscall failed", { cause });
-	}
+	return await syscall("download", url, checksum);
 };
 
 export let encoding = {
 	base64: {
 		decode: (value: string): Uint8Array => {
-			try {
-				return syscall("encoding_base64_decode", value);
-			} catch (cause) {
-				throw new Error("the syscall failed", { cause });
-			}
+			return syscall("encoding_base64_decode", value);
 		},
 
 		encode: (value: Uint8Array): string => {
-			try {
-				return syscall("encoding_base64_encode", value);
-			} catch (cause) {
-				throw new Error("the syscall failed", { cause });
-			}
+			return syscall("encoding_base64_encode", value);
 		},
 	},
 
 	hex: {
 		decode: (value: string): Uint8Array => {
-			try {
-				return syscall("encoding_hex_decode", value);
-			} catch (cause) {
-				throw new Error("the syscall failed", { cause });
-			}
+			return syscall("encoding_hex_decode", value);
 		},
 
 		encode: (value: Uint8Array): string => {
-			try {
-				return syscall("encoding_hex_encode", value);
-			} catch (cause) {
-				throw new Error("the syscall failed", { cause });
-			}
+			return syscall("encoding_hex_encode", value);
 		},
 	},
 
 	json: {
 		decode: (value: string): unknown => {
-			try {
-				return syscall("encoding_json_decode", value);
-			} catch (cause) {
-				throw new Error("the syscall failed", { cause });
-			}
+			return syscall("encoding_json_decode", value);
 		},
 
 		encode: (value: any): string => {
-			try {
-				return syscall("encoding_json_encode", value);
-			} catch (cause) {
-				throw new Error("the syscall failed", { cause });
-			}
+			return syscall("encoding_json_encode", value);
 		},
 	},
 
 	toml: {
 		decode: (value: string): unknown => {
-			try {
-				return syscall("encoding_toml_decode", value);
-			} catch (cause) {
-				throw new Error("the syscall failed", { cause });
-			}
+			return syscall("encoding_toml_decode", value);
 		},
 
 		encode: (value: any): string => {
-			try {
-				return syscall("encoding_toml_encode", value);
-			} catch (cause) {
-				throw new Error("the syscall failed", { cause });
-			}
+			return syscall("encoding_toml_encode", value);
 		},
 	},
 
 	utf8: {
 		decode: (value: Uint8Array): string => {
-			try {
-				return syscall("encoding_utf8_decode", value);
-			} catch (cause) {
-				throw new Error("the syscall failed", { cause });
-			}
+			return syscall("encoding_utf8_decode", value);
 		},
 
 		encode: (value: string): Uint8Array => {
-			try {
-				return syscall("encoding_utf8_encode", value);
-			} catch (cause) {
-				throw new Error("the syscall failed", { cause });
-			}
+			return syscall("encoding_utf8_encode", value);
 		},
 	},
 
 	yaml: {
 		decode: (value: string): unknown => {
-			try {
-				return syscall("encoding_yaml_decode", value);
-			} catch (cause) {
-				throw new Error("the syscall failed", { cause });
-			}
+			return syscall("encoding_yaml_decode", value);
 		},
 
 		encode: (value: any): string => {
-			try {
-				return syscall("encoding_yaml_encode", value);
-			} catch (cause) {
-				throw new Error("the syscall failed", { cause });
-			}
+			return syscall("encoding_yaml_encode", value);
 		},
 	},
 };
@@ -276,49 +200,25 @@ export let extract = async (
 	blob: Blob,
 	format: Blob.ArchiveFormat,
 ): Promise<Artifact> => {
-	try {
-		return await syscall("extract", blob, format);
-	} catch (cause) {
-		throw new Error("the syscall failed", { cause });
-	}
+	return await syscall("extract", blob, format);
 };
 
 export let log = (value: string) => {
-	try {
-		return syscall("log", value);
-	} catch (cause) {
-		throw new Error("the syscall failed", { cause });
-	}
+	return syscall("log", value);
 };
 
 export let load = async (id: Object_.Id): Promise<Object_.Object_> => {
-	try {
-		return await syscall("load", id);
-	} catch (cause) {
-		throw new Error("the syscall failed", { cause });
-	}
+	return await syscall("load", id);
 };
 
 export let read = async (blob: Blob): Promise<Uint8Array> => {
-	try {
-		return await syscall("read", blob);
-	} catch (cause) {
-		throw new Error("the syscall failed", { cause });
-	}
+	return await syscall("read", blob);
 };
 
 export let store = async (object: Object_.Object_): Promise<Object_.Id> => {
-	try {
-		return await syscall("store", object);
-	} catch (cause) {
-		throw new Error("the syscall failed", { cause });
-	}
+	return await syscall("store", object);
 };
 
 export let sleep = async (duration: number): Promise<void> => {
-	try {
-		return await syscall("sleep", duration);
-	} catch (cause) {
-		throw new Error("the syscall failed", { cause });
-	}
+	return await syscall("sleep", duration);
 };

@@ -47,6 +47,9 @@ pub struct Config {
 #[derive(Clone, Debug, Default, serde::Serialize, serde::Deserialize)]
 pub struct Advanced {
 	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub stack_trace: Option<StackTrace>,
+
+	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub file_descriptor_limit: Option<u64>,
 
 	#[serde(default, skip_serializing_if = "Option::is_none")]
@@ -57,6 +60,18 @@ pub struct Advanced {
 
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub write_build_logs_to_stderr: Option<bool>,
+}
+
+#[derive(Clone, Debug, Default, serde::Serialize, serde::Deserialize)]
+pub struct StackTrace {
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub reverse: Option<bool>,
+
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub include: Option<Vec<String>>,
+
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub exclude: Option<Vec<String>>,
 }
 
 #[derive(Clone, Debug, Default, serde::Serialize, serde::Deserialize)]

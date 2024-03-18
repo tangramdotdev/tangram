@@ -98,7 +98,7 @@ impl Server {
 					Ok::<_, Error>(())
 				}
 				.inspect_err(|error| {
-					let trace = error.trace();
+					let trace = error.trace(tangram_error::TraceOptions::default());
 					tracing::error!(%trace, "failed to run the build");
 				})
 				.map(|_| ())
@@ -208,9 +208,14 @@ impl Server {
 		let outcome = match result {
 			Ok(value) => tg::build::Outcome::Succeeded(value),
 			Err(error) => {
-				build
-					.add_log(self, error.trace().to_string().into())
-					.await?;
+				let options = tangram_error::TraceOptions {
+					exclude: &self.inner.options.stack_trace.exclude,
+					include: &self.inner.options.stack_trace.include,
+					reverse: self.inner.options.stack_trace.reverse,
+				};
+				let trace = error.trace(options);
+				let message = trace.to_string();
+				build.add_log(self, message.into()).await?;
 				tg::build::Outcome::Failed(error)
 			},
 		};

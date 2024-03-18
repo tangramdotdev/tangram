@@ -778,7 +778,7 @@ impl Http {
 		// Add tracing for response body errors.
 		let response = response.map(|body| {
 			Outgoing::new(body.map_err(|error| {
-				let trace = error.trace();
+				let trace = error.trace(tangram_error::TraceOptions::default());
 				tracing::error!(%trace, "response body error");
 				error
 			}))

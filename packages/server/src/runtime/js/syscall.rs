@@ -2,6 +2,7 @@
 
 use super::{
 	convert::{from_v8, FromV8, ToV8},
+	error::current_stack_trace,
 	State,
 };
 use bytes::Bytes;
@@ -63,6 +64,10 @@ pub fn syscall<'s>(
 		},
 
 		Err(error) => {
+			// Wrap the error
+			let stack = current_stack_trace(scope).unwrap_or_default();
+			let error = error!(source = error, stack = stack, "{name} failed");
+
 			// Throw an exception.
 			let exception = super::error::to_exception(scope, &error);
 			scope.throw_exception(exception);

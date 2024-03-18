@@ -11,7 +11,7 @@ export class Error {
 		stack?: Array<Location>,
 		source?: Error,
 		values?: Map<String, String>,
-		) {
+	) {
 		this.message = message;
 		this.location = location;
 		this.stack = stack;

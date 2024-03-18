@@ -123,10 +123,12 @@ pub(super) fn from_exception<'s>(
 fn get_location(line: u32, column: u32) -> tangram_error::Location {
 	let source_map = SourceMap::from_slice(SOURCE_MAP).unwrap();
 	let token = source_map.lookup_token(line, column).unwrap();
+	let symbol = token.get_name().map(String::from);
 	let source = token.get_source().unwrap().to_owned();
 	let line = token.get_src_line();
 	let column = token.get_src_col();
 	tangram_error::Location {
+		symbol,
 		source,
 		line,
 		column,

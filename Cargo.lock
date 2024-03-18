@@ -1364,6 +1364,12 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "4271d37baee1b8c7e4b708028c57d816cf9d2434acb33a549475f78c181f6253"
 
 [[package]]
+name = "glob"
+version = "0.3.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "d2fabcfbdc87f4758337ca535fb41a6d701b65693ce38287d856d1674551ec9b"
+
+[[package]]
 name = "h2"
 version = "0.3.24"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -4086,6 +4092,7 @@ dependencies = [
  "dialoguer",
  "either",
  "futures",
+ "glob",
  "indicatif",
  "indoc",
  "itertools 0.12.1",
@@ -4172,6 +4179,7 @@ dependencies = [
 name = "tangram_error"
 version = "0.0.0"
 dependencies = [
+ "glob",
  "serde",
  "thiserror",
 ]
@@ -4208,6 +4216,7 @@ dependencies = [
  "filetime",
  "fnv",
  "futures",
+ "glob",
  "http 1.1.0",
  "http-body 1.0.0",
  "http-body-util",

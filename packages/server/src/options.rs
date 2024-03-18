@@ -12,6 +12,7 @@ pub struct Options {
 	pub path: PathBuf,
 	pub preserve_temp_directories: bool,
 	pub remote: Option<Remote>,
+	pub stack_trace: StackTrace,
 	pub url: Option<Url>,
 	pub version: String,
 	pub vfs: Vfs,
@@ -64,6 +65,12 @@ pub struct OauthClient {
 	pub client_secret: String,
 	pub auth_url: String,
 	pub token_url: String,
+}
+
+pub struct StackTrace {
+	pub exclude: Vec<glob::Pattern>,
+	pub include: Vec<glob::Pattern>,
+	pub reverse: bool,
 }
 
 pub struct Remote {

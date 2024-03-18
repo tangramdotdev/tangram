@@ -1,4 +1,5 @@
 use crate::{default_path, Cli, API_URL};
+use itertools::Itertools;
 use std::path::PathBuf;
 use tangram_client as tg;
 use tangram_error::{error, Result};
@@ -257,6 +258,46 @@ impl Cli {
 			.and_then(|advanced| advanced.preserve_temp_directories)
 			.unwrap_or(false);
 
+		let stack_trace = config
+			.as_ref()
+			.and_then(|config| config.advanced.as_ref())
+			.and_then(|advanced| advanced.stack_trace.as_ref());
+		let exclude = stack_trace
+			.and_then(|stack_trace| stack_trace.exclude.clone())
+			.unwrap_or_else(tangram_error::default_exclude)
+			.into_iter()
+			.map(|pat| glob::Pattern::new(&pat))
+			.try_collect()
+			.map_err(|error| {
+				error!(
+					source = error,
+					"Failed to parse advanced.stack_trace.exclude."
+				)
+			})?;
+
+		let include = stack_trace
+			.and_then(|stack_trace| stack_trace.include.clone())
+			.unwrap_or_else(tangram_error::default_include)
+			.into_iter()
+			.map(|pat| glob::Pattern::new(&pat))
+			.try_collect()
+			.map_err(|error| {
+				error!(
+					source = error,
+					"Failed to parse advanced.stack_trace.include."
+				)
+			})?;
+
+		let reverse = stack_trace
+			.and_then(|stack_trace| stack_trace.reverse)
+			.unwrap_or(false);
+
+		let stack_trace = tangram_server::options::StackTrace {
+			exclude,
+			include,
+			reverse,
+		};
+
 		let write_build_logs_to_stderr = config
 			.as_ref()
 			.and_then(|config| config.advanced.as_ref())
@@ -274,6 +315,7 @@ impl Cli {
 			path,
 			preserve_temp_directories,
 			remote,
+			stack_trace,
 			url,
 			version,
 			vfs,

@@ -13,5 +13,6 @@ version = { workspace = true }
 workspace = true
 
 [dependencies]
+glob = { workspace = true }
 serde = { workspace = true }
 thiserror = { workspace = true }

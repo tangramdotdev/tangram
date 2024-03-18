@@ -83,20 +83,30 @@ fn default_path() -> PathBuf {
 }
 
 fn main() {
-	let result = main_inner();
-	if let Err(error) = result {
-		util::print_error_trace(&error);
-		std::process::exit(1);
-	}
-}
-
-fn main_inner() -> Result<()> {
 	// Parse the arguments.
 	let args = Args::parse();
 
 	// Read the config.
-	let config = Cli::read_config(args.config)?;
+	let config = match Cli::read_config(args.config.clone()) {
+		Ok(config) => config,
+		Err(error) => {
+			let error = error!(source = error, "Failed to read config.");
+			util::print_error_trace(&error, None);
+			std::process::exit(1);
+		},
+	};
 
+	// Run the command.
+	let result = main_inner(args, config.clone());
+
+	// Display errors.
+	if let Err(error) = result {
+		util::print_error_trace(&error, config.as_ref());
+		std::process::exit(1);
+	}
+}
+
+fn main_inner(args: Args, config: Option<Config>) -> Result<()> {
 	// Set the file descriptor limit.
 	set_file_descriptor_limit(&config)?;
 

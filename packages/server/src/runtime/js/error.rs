@@ -3,7 +3,7 @@ use super::{
 	State,
 };
 use num::ToPrimitive;
-use std::{collections::BTreeMap, str::FromStr, sync::Arc};
+use std::{collections::BTreeMap, rc::Rc, str::FromStr, sync::Arc};
 use tangram_client as tg;
 use tangram_error::Error;
 
@@ -80,7 +80,7 @@ pub(super) fn from_exception<'s>(
 	} else {
 		None
 	};
-	let location = get_location(state, resource_name.as_deref(), line, column);
+	let location = get_location(state, resource_name.as_deref(), line, column, None);
 
 	// Get the stack trace.
 	let stack = v8::String::new_external_onebyte_static(scope, "stack".as_bytes()).unwrap();
@@ -95,10 +95,17 @@ pub(super) fn from_exception<'s>(
 			.iter()
 			.rev()
 			.filter_map(|call_site| {
+				let symbol = call_site.function_name.as_ref().map(|function_name| {
+					if let Some(type_name) = call_site.type_name.as_ref() {
+						format!("{type_name}.{function_name}")
+					} else {
+						function_name.clone()
+					}
+				});
 				let file_name = call_site.file_name.as_deref();
 				let line: u32 = call_site.line_number? - 1;
 				let column: u32 = call_site.column_number?;
-				let location = get_location(state, file_name, Some(line), Some(column))?;
+				let location = get_location(state, file_name, Some(line), Some(column), symbol)?;
 				Some(location)
 			})
 			.collect();
@@ -127,11 +134,48 @@ pub(super) fn from_exception<'s>(
 	}
 }
 
+pub fn current_stack_trace(
+	scope: &mut v8::HandleScope<'_>,
+) -> Option<Vec<tangram_error::Location>> {
+	// Get the context.
+	let context = scope.get_current_context();
+
+	// Get the state.
+	let state = context.get_slot::<Rc<State>>(scope).unwrap().clone();
+
+	// Get the current stack trace.
+	let stack = v8::StackTrace::current_stack_trace(scope, 1024 * 1024)?;
+
+	let stack = (0..stack.get_frame_count())
+		.rev()
+		.filter_map(|index| {
+			let frame = stack.get_frame(scope, index)?;
+			let file = frame
+				.get_script_name_or_source_url(scope)
+				.map(|name| name.to_rust_string_lossy(scope))?;
+			let line = frame.get_line_number().to_u32().unwrap() - 1;
+			let column = frame.get_column().to_u32().unwrap() - 1;
+			let symbol = frame
+				.get_function_name(scope)
+				.map(|name| name.to_rust_string_lossy(scope));
+			get_location(
+				state.as_ref(),
+				Some(&file),
+				Some(line),
+				Some(column),
+				symbol,
+			)
+		})
+		.collect::<Vec<_>>();
+	Some(stack)
+}
+
 fn get_location(
 	state: &State,
 	file: Option<&str>,
 	line: Option<u32>,
 	column: Option<u32>,
+	symbol: Option<String>,
 ) -> Option<tangram_error::Location> {
 	if file.map_or(false, |resource_name| resource_name == "[global]") {
 		let Some(global_source_map) = state.global_source_map.as_ref() else {
@@ -148,7 +192,9 @@ fn get_location(
 		let source = format!("[global]:{source}");
 		let line = token.get_src_line();
 		let column = token.get_src_col();
+		let symbol = token.get_name().map(String::from);
 		let location = tangram_error::Location {
+			symbol,
 			source,
 			line,
 			column,
@@ -188,6 +234,7 @@ fn get_location(
 				(line, column)
 			};
 		let location = tangram_error::Location {
+			symbol,
 			source,
 			line,
 			column,

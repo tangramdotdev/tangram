@@ -1,37 +1,93 @@
+use crate::config::Config;
 use console::style;
 use tangram_error::Error;
 
-pub fn print_error_trace(mut error: &Error) {
-	eprintln!("{}", style("error").red());
-	loop {
+pub fn print_error_trace(error: &tangram_error::Error, config: Option<&Config>) {
+	// Extract the options for constructing the trace.
+	let stack_trace = config
+		.and_then(|config| config.advanced.as_ref())
+		.and_then(|advanced| advanced.stack_trace.as_ref());
+	let reverse = stack_trace
+		.and_then(|stack_trace| stack_trace.reverse)
+		.unwrap_or(false);
+	let exclude = stack_trace.and_then(|stack_trace| stack_trace.exclude.clone())
+		.unwrap_or_else(tangram_error::default_exclude)
+		.into_iter()
+		.filter_map(|pat| {
+			glob::Pattern::new(&pat)
+				.inspect_err(|error| {
+					eprintln!("{}: failed to parse pattern in in config.advanced.stack_trace.exclude ({pat:#?}", style("warning").yellow());
+					eprintln!("{}", style(error).yellow());
+				})
+				.ok()
+		})
+		.collect::<Vec<_>>();
+
+	let include = stack_trace.and_then(|config| config.include.clone())
+		.unwrap_or_else(tangram_error::default_exclude)
+		.into_iter()
+		.filter_map(|pat| {
+			glob::Pattern::new(&pat)
+				.inspect_err(|error| {
+					eprintln!("{}: failed to parse pattern in in config.advanced.stack_trace.include ({pat:#?}", style("warning").yellow());
+					eprintln!("{}", style(error).yellow());
+				})
+				.ok()
+		})
+		.collect::<Vec<_>>();
+
+	let options = tangram_error::TraceOptions {
+		exclude: &exclude,
+		include: &include,
+		reverse,
+	};
+
+	// Collect the error trace.
+	let mut errors = vec![error];
+	while let Some(next) = errors.last().unwrap().source.as_ref() {
+		errors.push(next);
+	}
+	if options.reverse {
+		errors.reverse();
+	}
+
+	eprintln!("{}:", style("error").red());
+	for error in &errors {
 		eprint!("{}", style("->").red());
 		let Error {
 			message,
 			location,
 			stack,
-			source,
 			values,
+			..
 		} = error;
+
 		eprint!(" {message}");
+
 		if let Some(location) = &location {
-			let location = style(location).dim().white();
-			eprint!(" {location}");
+			if options.location_included(location) {
+				eprint!(" {location}");
+			}
 		}
+
 		for (name, value) in values {
 			eprintln!();
 			let name = style(name).blue();
 			let value = style(value).green();
 			eprint!("   {name} = {value}");
 		}
-		for location in stack.iter().flatten() {
-			eprintln!();
-			let location = style(location).dim().white();
-			eprint!(" {location}");
+
+		let mut stack = stack
+			.iter()
+			.flatten()
+			.filter(|location| options.location_included(location))
+			.collect::<Vec<_>>();
+		if options.reverse {
+			stack.reverse();
 		}
-		if let Some(source) = &source {
-			error = source;
-		} else {
-			break;
+		for location in stack {
+			eprintln!();
+			eprint!("   {location}");
 		}
 		eprintln!();
 	}
