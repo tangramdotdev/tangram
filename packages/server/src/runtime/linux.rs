@@ -114,30 +114,15 @@ pub async fn build(server: &Server, build: &tg::Build) -> Result<tg::Value> {
 
 	// Obtain the IDs of the artifacts.
 	let (env_id, sh_id) = {
-		let arch = target
-			.host(server)
-			.await?
-			.arch()
-			.ok_or(error!("unrecognized target arch"))?;
-		match arch {
-			tg::triple::Arch::Aarch64 => (
-				(*server.inner.runtime_artifacts.env_aarch64.read().await)
-					.clone()
-					.ok_or(error!("could not read ID for env_aarch64 artifact"))?,
-				(*server.inner.runtime_artifacts.sh_aarch64.read().await)
-					.clone()
-					.ok_or(error!("could not read ID for sh_aarch64 artifact"))?,
-			),
-			tg::triple::Arch::Js => unreachable!(),
-			tg::triple::Arch::X8664 => (
-				(*server.inner.runtime_artifacts.env_x8664.read().await)
-					.clone()
-					.ok_or(error!("could not read ID for env_x86_64 artifact"))?,
-				(*server.inner.runtime_artifacts.sh_x8664.read().await)
-					.clone()
-					.ok_or(error!("could not read ID for sh_x86_64 artifact"))?,
-			),
-		}
+		let triple = target.host(server).await?;
+		let r =
+			server.inner.runtime_artifacts.read().map_err(|_| {
+				error!("failed to acquire read lock on server runtime artifacts map")
+			})?;
+		let artifact_ids = r
+			.get(triple)
+			.ok_or(error!("Could not find runtime artifacts for {triple}"))?;
+		(artifact_ids.env.clone(), artifact_ids.sh.clone())
 	};
 
 	// Ensure the stored IDs correspond to actual artifacts.

@@ -69,7 +69,7 @@ struct Inner {
 	oauth: OAuth,
 	options: Options,
 	remote: Option<Box<dyn tg::Handle>>,
-	runtime_artifacts: LinuxRuntimeArtifacts,
+	runtime_artifacts: std::sync::RwLock<HashMap<tg::Triple, RuntimeArtifactIds>>,
 	shutdown: tokio::sync::watch::Sender<bool>,
 	shutdown_task: std::sync::Mutex<Option<tokio::task::JoinHandle<Result<()>>>>,
 	vfs: std::sync::Mutex<Option<self::vfs::Server>>,
@@ -85,17 +85,14 @@ struct Permit(
 	Either<tokio::sync::OwnedSemaphorePermit, tokio::sync::OwnedMutexGuard<Option<Self>>>,
 );
 
-#[derive(Default)]
-struct LinuxRuntimeArtifacts {
-	env_aarch64: tokio::sync::RwLock<Option<tg::file::Id>>,
-	env_x8664: tokio::sync::RwLock<Option<tg::file::Id>>,
-	sh_aarch64: tokio::sync::RwLock<Option<tg::file::Id>>,
-	sh_x8664: tokio::sync::RwLock<Option<tg::file::Id>>,
-}
-
 #[derive(Debug)]
 struct OAuth {
 	github: Option<oauth2::basic::BasicClient>,
+}
+
+struct RuntimeArtifactIds {
+	env: tg::file::Id,
+	sh: tg::file::Id,
 }
 
 #[derive(Clone)]
@@ -248,7 +245,7 @@ impl Server {
 		let remote = options.remote.as_ref().map(|remote| remote.tg.clone_box());
 
 		// Create the runtime artifacts map.
-		let runtime_artifacts = LinuxRuntimeArtifacts::default();
+		let runtime_artifacts = std::sync::RwLock::new(HashMap::with_capacity(4));
 
 		// Create the shutdown channel.
 		let (shutdown, _) = tokio::sync::watch::channel(false);
@@ -1086,90 +1083,51 @@ impl Drop for Tmp {
 
 async fn file_from_byte_slice(
 	server: &Server,
-	bytes: &[u8],
+	bytes: impl AsRef<[u8]>,
 	executable: bool,
 ) -> Result<tg::file::Id> {
-	let reader = std::io::Cursor::new(bytes);
-	let blob = tg::Blob::with_reader(server, reader).await?;
+	let blob = tg::Blob::with_reader(server, bytes.as_ref()).await?;
 	let file = tg::File::builder(blob).executable(executable).build();
 	let id = file.id(server).await?;
 	Ok(id.clone())
 }
 
 async fn load_runtime_artifacts(server: &Server) -> Result<()> {
-	let mut tasks = Vec::with_capacity(4);
+	let aarch64_linux = tg::Triple::arch_os("aarch64", "linux");
+	let x86_64_linux = tg::Triple::arch_os("x86_64", "linux");
 
-	// Load env_aarch64.
-	let env_aarch64_handle = tokio::spawn({
-		let server = server.clone();
-		async move {
-			let id = file_from_byte_slice(&server, ENV_AARCH64_LINUX, true).await?;
-			server
-				.inner
-				.runtime_artifacts
-				.env_aarch64
-				.write()
-				.await
-				.replace(id);
-			Ok::<_, tangram_error::Error>(())
-		}
-	});
-	tasks.push(env_aarch64_handle);
+	// Load the files, returning their IDs.
+	let artifact_ids = futures::future::try_join_all(
+		[
+			ENV_AARCH64_LINUX,
+			SH_AARCH64_LINUX,
+			ENV_X8664_LINUX,
+			SH_X8664_LINUX,
+		]
+		.map(|contents| file_from_byte_slice(server, contents, true)),
+	)
+	.await?;
 
-	// Load env_x86_64.
-	let env_x86_64_handle = tokio::spawn({
-		let server = server.clone();
-		async move {
-			let id = file_from_byte_slice(&server, ENV_X8664_LINUX, true).await?;
-			server
-				.inner
-				.runtime_artifacts
-				.env_x8664
-				.write()
-				.await
-				.replace(id);
-			Ok::<_, tangram_error::Error>(())
-		}
-	});
-	tasks.push(env_x86_64_handle);
+	// Construct the `RuntimeArtifactIds` mappings.
+	let aarch64_artifacts = RuntimeArtifactIds {
+		env: artifact_ids[0].clone(),
+		sh: artifact_ids[1].clone(),
+	};
+	let x86_64_artifacts = RuntimeArtifactIds {
+		env: artifact_ids[2].clone(),
+		sh: artifact_ids[3].clone(),
+	};
 
-	// Load sh_aarch64.
-	let sh_aarch64_handle = tokio::spawn({
-		let server = server.clone();
-		async move {
-			let id = file_from_byte_slice(&server, SH_AARCH64_LINUX, true).await?;
-			server
-				.inner
-				.runtime_artifacts
-				.sh_aarch64
-				.write()
-				.await
-				.replace(id);
-			Ok::<_, tangram_error::Error>(())
-		}
-	});
-	tasks.push(sh_aarch64_handle);
-
-	// Load sh_x86_64.
-	let sh_x86_64_handle = tokio::spawn({
-		let server = server.clone();
-		async move {
-			let id = file_from_byte_slice(&server, SH_X8664_LINUX, true).await?;
-			server
-				.inner
-				.runtime_artifacts
-				.sh_x8664
-				.write()
-				.await
-				.replace(id);
-			Ok::<_, tangram_error::Error>(())
-		}
-	});
-	tasks.push(sh_x86_64_handle);
-
-	futures::future::try_join_all(tasks)
-		.await
-		.map_err(|error| error!(source = error, "failed to load runtime artifact files"))?;
+	// Insert the mappings into the server.
+	{
+		let mut w = server
+			.inner
+			.runtime_artifacts
+			.write()
+			.map_err(|_| error!("failed to acquire the runtime artifacts write lock"))?;
+		w.insert(aarch64_linux, aarch64_artifacts);
+		w.insert(x86_64_linux, x86_64_artifacts);
+	}
 
 	Ok(())
 }
