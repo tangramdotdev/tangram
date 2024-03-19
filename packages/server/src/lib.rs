@@ -69,7 +69,8 @@ struct Inner {
 	oauth: OAuth,
 	options: Options,
 	remote: Option<Box<dyn tg::Handle>>,
-	runtime_artifacts: std::sync::RwLock<HashMap<tg::Triple, RuntimeArtifactIds>>,
+	runtime_artifacts:
+		tokio::sync::RwLock<HashMap<tg::Triple, RuntimeArtifactIds, fnv::FnvBuildHasher>>,
 	shutdown: tokio::sync::watch::Sender<bool>,
 	shutdown_task: std::sync::Mutex<Option<tokio::task::JoinHandle<Result<()>>>>,
 	vfs: std::sync::Mutex<Option<self::vfs::Server>>,
@@ -90,6 +91,7 @@ struct OAuth {
 	github: Option<oauth2::basic::BasicClient>,
 }
 
+#[derive(Clone)]
 struct RuntimeArtifactIds {
 	env: tg::file::Id,
 	sh: tg::file::Id,
@@ -245,7 +247,7 @@ impl Server {
 		let remote = options.remote.as_ref().map(|remote| remote.tg.clone_box());
 
 		// Create the runtime artifacts placeholder map.
-		let runtime_artifacts = std::sync::RwLock::new(HashMap::with_capacity(0));
+		let runtime_artifacts = tokio::sync::RwLock::new(HashMap::default());
 
 		// Create the shutdown channel.
 		let (shutdown, _) = tokio::sync::watch::channel(false);
@@ -1082,9 +1084,6 @@ impl Drop for Tmp {
 }
 
 async fn load_runtime_artifacts(server: &Server) -> Result<()> {
-	let aarch64_linux = tg::Triple::arch_os("aarch64", "linux");
-	let x86_64_linux = tg::Triple::arch_os("x86_64", "linux");
-
 	// Load the files, returning their IDs.
 	let artifact_ids = futures::future::try_join_all(
 		[
@@ -1102,28 +1101,27 @@ async fn load_runtime_artifacts(server: &Server) -> Result<()> {
 	)
 	.await?;
 
-	// Construct the `RuntimeArtifactIds` mappings.
-	let aarch64_artifacts = RuntimeArtifactIds {
-		env: artifact_ids[0].clone(),
-		sh: artifact_ids[1].clone(),
-	};
-	let x86_64_artifacts = RuntimeArtifactIds {
-		env: artifact_ids[2].clone(),
-		sh: artifact_ids[3].clone(),
-	};
-
 	// Insert the mappings into the server.
-	{
-		let mut w = server
-			.inner
-			.runtime_artifacts
-			.write()
-			.map_err(|_| error!("failed to acquire the runtime artifacts write lock"))?;
-		*w = HashMap::from([
-			(aarch64_linux, aarch64_artifacts),
-			(x86_64_linux, x86_64_artifacts),
-		]);
-	}
+	let mut w = server.inner.runtime_artifacts.write().await;
+	*w = [
+		(
+			tg::Triple::arch_os("aarch64", "linux"),
+			RuntimeArtifactIds {
+				env: artifact_ids[0].clone(),
+				sh: artifact_ids[1].clone(),
+			},
+		),
+		(
+			tg::Triple::arch_os("x86_64", "linux"),
+			RuntimeArtifactIds {
+				env: artifact_ids[2].clone(),
+				sh: artifact_ids[3].clone(),
+			},
+		),
+	]
+	.iter()
+	.cloned()
+	.collect::<HashMap<_, _, _>>();
 
 	Ok(())
 }
