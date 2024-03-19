@@ -115,26 +115,6 @@ struct Tmp {
 	preserve: bool,
 }
 
-const ENV_AARCH64_LINUX: &[u8] = include_bytes!(concat!(
-	env!("CARGO_MANIFEST_DIR"),
-	"/src/runtime/linux/bin/env_aarch64_linux"
-));
-
-const ENV_X8664_LINUX: &[u8] = include_bytes!(concat!(
-	env!("CARGO_MANIFEST_DIR"),
-	"/src/runtime/linux/bin/env_x86_64_linux"
-));
-
-const SH_AARCH64_LINUX: &[u8] = include_bytes!(concat!(
-	env!("CARGO_MANIFEST_DIR"),
-	"/src/runtime/linux/bin/sh_aarch64_linux"
-));
-
-const SH_X8664_LINUX: &[u8] = include_bytes!(concat!(
-	env!("CARGO_MANIFEST_DIR"),
-	"/src/runtime/linux/bin/sh_x86_64_linux"
-));
-
 impl Server {
 	pub async fn start(options: Options) -> Result<Server> {
 		// Get the address.
@@ -1093,10 +1073,22 @@ async fn load_runtime_artifacts(server: &Server) -> Result<()> {
 	// Load the files, returning their IDs.
 	let artifact_ids = futures::future::try_join_all(
 		[
-			ENV_AARCH64_LINUX,
-			SH_AARCH64_LINUX,
-			ENV_X8664_LINUX,
-			SH_X8664_LINUX,
+			include_bytes!(concat!(
+				env!("CARGO_MANIFEST_DIR"),
+				"/src/runtime/linux/bin/env_aarch64_linux"
+			)),
+			include_bytes!(concat!(
+				env!("CARGO_MANIFEST_DIR"),
+				"/src/runtime/linux/bin/sh_aarch64_linux"
+			)),
+			include_bytes!(concat!(
+				env!("CARGO_MANIFEST_DIR"),
+				"/src/runtime/linux/bin/env_x86_64_linux"
+			)),
+			include_bytes!(concat!(
+				env!("CARGO_MANIFEST_DIR"),
+				"/src/runtime/linux/bin/sh_x86_64_linux"
+			)),
 		]
 		.map(|contents| async move {
 			let blob = tg::Blob::with_reader(server, contents).await?;
