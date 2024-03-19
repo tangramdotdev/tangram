@@ -154,8 +154,8 @@ fn syscall_encoding_toml_encode(
 	args: (toml::Value,),
 ) -> Result<String> {
 	let (value,) = args;
-	let toml = toml::to_string(&value)
-		.map_err(|source| error!(!source, "failed to encode the value"))?;
+	let toml =
+		toml::to_string(&value).map_err(|source| error!(!source, "failed to encode the value"))?;
 	Ok(toml)
 }
 

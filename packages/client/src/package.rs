@@ -12,8 +12,10 @@ pub const ROOT_MODULE_FILE_NAMES: &[&str] =
 /// The file name of the lockfile in a package.
 pub const LOCKFILE_FILE_NAME: &str = "tangram.lock";
 
+#[allow(clippy::struct_excessive_bools)]
 #[derive(Debug, Clone, Default, serde::Deserialize, serde::Serialize)]
 pub struct GetArg {
+	pub create_lock: bool,
 	pub dependencies: bool,
 	pub lock: bool,
 	pub metadata: bool,
@@ -44,7 +46,7 @@ pub type SearchOutput = Vec<String>;
 pub async fn get(tg: &dyn Handle, dependency: &Dependency) -> Result<Directory> {
 	try_get(tg, dependency)
 		.await?
-		.ok_or_else(|| error!("failed to find the package"))
+		.ok_or_else(|| error!(%dependency, "failed to find the package"))
 }
 
 pub async fn try_get(tg: &dyn Handle, dependency: &Dependency) -> Result<Option<Directory>> {
@@ -57,7 +59,7 @@ pub async fn try_get(tg: &dyn Handle, dependency: &Dependency) -> Result<Option<
 pub async fn get_with_lock(tg: &dyn Handle, dependency: &Dependency) -> Result<(Directory, Lock)> {
 	try_get_with_lock(tg, dependency)
 		.await?
-		.ok_or_else(|| error!("failed to find the package"))
+		.ok_or_else(|| error!(%dependency, "failed to find the package"))
 }
 
 pub async fn try_get_with_lock(
@@ -66,6 +68,7 @@ pub async fn try_get_with_lock(
 ) -> Result<Option<(Directory, Lock)>> {
 	let arg = GetArg {
 		lock: true,
+		create_lock: false,
 		..Default::default()
 	};
 	let Some(output) = tg.try_get_package(dependency, arg).await? else {
@@ -74,15 +77,37 @@ pub async fn try_get_with_lock(
 	let package = Directory::with_id(output.id);
 	let lock = output
 		.lock
-		.ok_or_else(|| error!("expected the lock to be set"))?;
+		.ok_or_else(|| error!(%dependency, "expected the lock to be set"))?;
 	let lock = Lock::with_id(lock);
 	Ok(Some((package, lock)))
+}
+
+pub async fn create_lock(tg: &dyn Handle, dependency: &Dependency) -> Result<Lock> {
+	try_create_lock(tg, dependency)
+		.await?
+		.ok_or_else(|| error!(%dependency, "failed to find the package"))
+}
+
+pub async fn try_create_lock(tg: &dyn Handle, dependency: &Dependency) -> Result<Option<Lock>> {
+	let arg = GetArg {
+		lock: true,
+		create_lock: true,
+		..Default::default()
+	};
+	let Some(output) = tg.try_get_package(dependency, arg).await? else {
+		return Ok(None);
+	};
+	let lock = output
+		.lock
+		.ok_or_else(|| error!(%dependency, "expected the lock to be set"))?;
+	let lock = Lock::with_id(lock);
+	Ok(Some(lock))
 }
 
 pub async fn get_dependencies(tg: &dyn Handle, package: &Directory) -> Result<Vec<Dependency>> {
 	try_get_dependencies(tg, package)
 		.await?
-		.ok_or_else(|| error!("failed to find the package"))
+		.ok_or_else(|| error!(%package, "failed to find the package"))
 }
 
 pub async fn try_get_dependencies(
@@ -107,7 +132,7 @@ pub async fn try_get_dependencies(
 pub async fn get_metadata(tg: &dyn Handle, package: &Directory) -> Result<Metadata> {
 	try_get_metadata(tg, package)
 		.await?
-		.ok_or_else(|| error!("failed to find the package"))
+		.ok_or_else(|| error!(%package, "failed to find the package"))
 }
 
 pub async fn try_get_metadata(tg: &dyn Handle, package: &Directory) -> Result<Option<Metadata>> {

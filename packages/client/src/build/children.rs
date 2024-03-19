@@ -78,8 +78,7 @@ impl Client {
 		);
 		let output = tangram_util::sse::Decoder::new(reader)
 			.map(|result| {
-				let event =
-					result.map_err(|source| error!(!source, "failed to read an event"))?;
+				let event = result.map_err(|source| error!(!source, "failed to read an event"))?;
 				let chunk = serde_json::from_str(&event.data).map_err(|error| {
 					error!(source = error, "failed to deserialize the event data")
 				})?;

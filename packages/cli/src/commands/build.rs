@@ -148,11 +148,11 @@ impl Cli {
 		let target = if let Some(id) = args.target_id {
 			tg::Target::with_id(id)
 		} else {
-			let mut package = args.package.unwrap_or(".".parse().unwrap());
+			let mut dependency = args.package.unwrap_or(".".parse().unwrap());
 			let target = args.target.unwrap_or("default".parse().unwrap());
 
 			// Canonicalize the path.
-			if let Some(path) = package.path.as_mut() {
+			if let Some(path) = dependency.path.as_mut() {
 				*path = tokio::fs::canonicalize(&path)
 					.await
 					.map_err(|source| error!(!source, "failed to canonicalize the path"))?
@@ -160,7 +160,15 @@ impl Cli {
 			}
 
 			// Create the package.
-			let (package, lock) = tg::package::get_with_lock(client, &package).await?;
+			let (package, lock) = tg::package::get_with_lock(client, &dependency).await?;
+
+			// Write the lock file.
+			if dependency.path.is_some() {
+				let path = dependency.path.as_ref().unwrap();
+				lock.write(client, path, false)
+					.await
+					.map_err(|source| error!(!source, "failed to write the lock file"))?;
+			}
 
 			// Create the target.
 			let mut env: BTreeMap<String, tg::Value> = args

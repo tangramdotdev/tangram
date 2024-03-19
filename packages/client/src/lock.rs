@@ -1,5 +1,7 @@
 pub use self::data::Data;
-use crate::{error, id, object, Dependency, Directory, Error, Handle, Result};
+use crate::{
+	error, id, object, package::LOCKFILE_FILE_NAME, Dependency, Directory, Error, Handle, Result,
+};
 use async_recursion::async_recursion;
 use bytes::Bytes;
 use derive_more::Display;
@@ -249,6 +251,104 @@ impl Lock {
 }
 
 impl Lock {
+	/// Write the lock to a file in a containing directory.
+	pub async fn write(
+		&self,
+		tg: &dyn Handle,
+		directory: impl AsRef<std::path::Path>,
+		overwrite: bool,
+	) -> Result<()> {
+		let package_path = tokio::fs::canonicalize(directory.as_ref())
+			.await
+			.map_err(|error| {
+				let path = directory.as_ref().display();
+				error!(source = error, %path, "failed to canonicalize the path")
+			})?;
+
+		let path = package_path.join(LOCKFILE_FILE_NAME);
+		let exists = tokio::fs::try_exists(&path).await.map_err(|error| {
+			let path = path.display();
+			error!(source = error, %path, "failed to determine if the lockfile exists")
+		})?;
+		if exists && !overwrite {
+			return Ok(());
+		}
+
+		let lock = self.data(tg).await?;
+		let lock = serde_json::to_vec_pretty(&lock)
+			.map_err(|source| error!(!source, "failed to serialize the lockfile"))?;
+
+		tokio::fs::write(path, lock)
+			.await
+			.map_err(|source| error!(!source, "failed to write the lockfile"))?;
+		Ok(())
+	}
+
+	/// Read a lockfile in an existing directory.
+	pub async fn read(tg: &dyn Handle, directory: impl AsRef<std::path::Path>) -> Result<Self> {
+		Self::try_read(tg, directory)
+			.await?
+			.ok_or_else(|| error!("expected a lockfile to exist"))
+	}
+
+	/// Try and read a lockfile in an existing directory.
+	pub async fn try_read(
+		tg: &dyn Handle,
+		directory: impl AsRef<std::path::Path>,
+	) -> Result<Option<Self>> {
+		// Canonicalize the path.
+		let path = tokio::fs::canonicalize(directory.as_ref())
+			.await
+			.map_err(|error| {
+				let path = directory.as_ref().display();
+				error!(source = error, %path, "failed to canonicalize the path")
+			})?;
+
+		// Attempt to read the lockfile.
+		let path = path.join(LOCKFILE_FILE_NAME);
+		let exists = tokio::fs::try_exists(&path).await.map_err(|error| {
+			let path = path.display();
+			error!(source = error, %path, "failed to determine if the lockfile exists")
+		})?;
+		if !exists {
+			return Ok(None);
+		}
+		let lock = tokio::fs::read(&path).await.map_err(|error| {
+			let path = directory.as_ref().display();
+			error!(source = error, %path, "failed to read the lockfile")
+		})?;
+
+		let lock: Data = serde_json::from_slice(&lock).map_err(|error| {
+			let path = directory.as_ref().display();
+			error!(source = error, %path, "failed to deserialize the lockfile")
+		})?;
+
+		// Convert from Data into a Lock.
+		let root = lock.root;
+		let nodes = lock
+			.nodes
+			.into_iter()
+			.map(|node| {
+				let dependencies = node
+					.dependencies
+					.into_iter()
+					.map(|(dependency, entry)| {
+						let package = entry.package.map(Directory::with_id);
+						let lock = entry.lock.map_right(Lock::with_id);
+						(dependency, Entry { package, lock })
+					})
+					.collect();
+				Node { dependencies }
+			})
+			.collect::<Vec<_>>();
+		let object = Object { root, nodes };
+		let lock = Lock::with_object(object);
+		lock.store(tg).await?;
+		Ok(Some(lock))
+	}
+}
+
+impl Lock {
 	pub async fn normalize(&self, tg: &dyn Handle) -> Result<Self> {
 		let mut visited = BTreeMap::new();
 		let object = self.object(tg).await?;
@@ -270,17 +370,16 @@ impl Lock {
 		let dependencies = node
 			.dependencies
 			.iter()
-			.filter_map(|(dependency, entry)| {
-				let index = *entry.lock.as_ref().left()?;
-				let lock = match Self::normalize_inner(nodes, index, visited) {
-					Ok(lock) => lock,
-					Err(e) => return Some(Err(e)),
+			.map(|(dependency, entry)| {
+				let Some(index) = entry.lock.as_ref().left().copied() else {
+					return Ok((dependency.clone(), entry.clone()));
 				};
+				let lock = Self::normalize_inner(nodes, index, visited)?;
 				let entry = Entry {
 					package: entry.package.clone(),
 					lock: Either::Right(lock),
 				};
-				Some(Ok((dependency.clone(), entry)))
+				Ok::<_, tangram_error::Error>((dependency.clone(), entry))
 			})
 			.try_collect()?;
 		let node = Node { dependencies };
