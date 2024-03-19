@@ -115,13 +115,14 @@ pub async fn build(server: &Server, build: &tg::Build) -> Result<tg::Value> {
 	// Obtain the IDs of the artifacts.
 	let (env_id, sh_id) = {
 		let triple = target.host(server).await?;
-		let r =
-			server.inner.runtime_artifacts.read().map_err(|_| {
-				error!("failed to acquire read lock on server runtime artifacts map")
-			})?;
+		let r = server
+			.inner
+			.runtime_artifacts
+			.read()
+			.map_err(|_| error!("failed to acquire runtime artifacts read lock"))?;
 		let artifact_ids = r
 			.get(triple)
-			.ok_or(error!("Could not find runtime artifacts for {triple}"))?;
+			.ok_or(error!("could not find runtime artifacts for {triple}"))?;
 		(artifact_ids.env.clone(), artifact_ids.sh.clone())
 	};
 
