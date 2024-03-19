@@ -244,8 +244,8 @@ impl Server {
 		// Get the remote.
 		let remote = options.remote.as_ref().map(|remote| remote.tg.clone_box());
 
-		// Create the runtime artifacts map.
-		let runtime_artifacts = std::sync::RwLock::new(HashMap::with_capacity(4));
+		// Create the runtime artifacts placeholder map.
+		let runtime_artifacts = std::sync::RwLock::new(HashMap::with_capacity(0));
 
 		// Create the shutdown channel.
 		let (shutdown, _) = tokio::sync::watch::channel(false);
@@ -1081,17 +1081,6 @@ impl Drop for Tmp {
 	}
 }
 
-async fn file_from_byte_slice(
-	server: &Server,
-	bytes: impl AsRef<[u8]>,
-	executable: bool,
-) -> Result<tg::file::Id> {
-	let blob = tg::Blob::with_reader(server, bytes.as_ref()).await?;
-	let file = tg::File::builder(blob).executable(executable).build();
-	let id = file.id(server).await?;
-	Ok(id.clone())
-}
-
 async fn load_runtime_artifacts(server: &Server) -> Result<()> {
 	let aarch64_linux = tg::Triple::arch_os("aarch64", "linux");
 	let x86_64_linux = tg::Triple::arch_os("x86_64", "linux");
@@ -1104,7 +1093,12 @@ async fn load_runtime_artifacts(server: &Server) -> Result<()> {
 			ENV_X8664_LINUX,
 			SH_X8664_LINUX,
 		]
-		.map(|contents| file_from_byte_slice(server, contents, true)),
+		.map(|contents| async move {
+			let blob = tg::Blob::with_reader(server, contents).await?;
+			let file = tg::File::builder(blob).executable(true).build();
+			let id = file.id(server).await?.clone();
+			Ok::<_, tangram_error::Error>(id)
+		}),
 	)
 	.await?;
 
@@ -1125,8 +1119,10 @@ async fn load_runtime_artifacts(server: &Server) -> Result<()> {
 			.runtime_artifacts
 			.write()
 			.map_err(|_| error!("failed to acquire the runtime artifacts write lock"))?;
-		w.insert(aarch64_linux, aarch64_artifacts);
-		w.insert(x86_64_linux, x86_64_artifacts);
+		*w = HashMap::from([
+			(aarch64_linux, aarch64_artifacts),
+			(x86_64_linux, x86_64_artifacts),
+		]);
 	}
 
 	Ok(())
