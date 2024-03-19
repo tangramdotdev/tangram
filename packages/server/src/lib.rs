@@ -1076,19 +1076,23 @@ async fn load_runtime_artifacts(server: &Server) -> Result<()> {
 			include_bytes!(concat!(
 				env!("CARGO_MANIFEST_DIR"),
 				"/src/runtime/linux/bin/env_aarch64_linux"
-			)),
+			))
+			.as_slice(),
 			include_bytes!(concat!(
 				env!("CARGO_MANIFEST_DIR"),
 				"/src/runtime/linux/bin/sh_aarch64_linux"
-			)),
+			))
+			.as_slice(),
 			include_bytes!(concat!(
 				env!("CARGO_MANIFEST_DIR"),
 				"/src/runtime/linux/bin/env_x86_64_linux"
-			)),
+			))
+			.as_slice(),
 			include_bytes!(concat!(
 				env!("CARGO_MANIFEST_DIR"),
 				"/src/runtime/linux/bin/sh_x86_64_linux"
-			)),
+			))
+			.as_slice(),
 		]
 		.map(|contents| async move {
 			let blob = tg::Blob::with_reader(server, contents).await?;
