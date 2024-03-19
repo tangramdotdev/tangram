@@ -69,6 +69,7 @@ struct Inner {
 	oauth: OAuth,
 	options: Options,
 	remote: Option<Box<dyn tg::Handle>>,
+	#[cfg(target_os = "linux")]
 	runtime_artifacts:
 		tokio::sync::RwLock<HashMap<tg::Triple, RuntimeArtifactIds, fnv::FnvBuildHasher>>,
 	shutdown: tokio::sync::watch::Sender<bool>,
@@ -91,6 +92,7 @@ struct OAuth {
 	github: Option<oauth2::basic::BasicClient>,
 }
 
+#[cfg(target_os = "linux")]
 #[derive(Clone)]
 struct RuntimeArtifactIds {
 	env: tg::file::Id,
@@ -247,6 +249,7 @@ impl Server {
 		let remote = options.remote.as_ref().map(|remote| remote.tg.clone_box());
 
 		// Create the runtime artifacts placeholder map.
+		#[cfg(target_os = "linux")]
 		let runtime_artifacts = tokio::sync::RwLock::new(HashMap::default());
 
 		// Create the shutdown channel.
@@ -273,6 +276,7 @@ impl Server {
 			oauth,
 			options,
 			remote,
+			#[cfg(target_os = "linux")]
 			runtime_artifacts,
 			shutdown,
 			shutdown_task,
@@ -329,6 +333,7 @@ impl Server {
 		}
 
 		// Create and store the Linux runtime artifacts.
+		#[cfg(target_os = "linux")]
 		load_runtime_artifacts(&server).await?;
 
 		// Start the build queue task.
@@ -1083,6 +1088,7 @@ impl Drop for Tmp {
 	}
 }
 
+#[cfg(target_os = "linux")]
 async fn load_runtime_artifacts(server: &Server) -> Result<()> {
 	// Load the files, returning their IDs.
 	let artifact_ids = futures::future::try_join_all(
@@ -1102,8 +1108,7 @@ async fn load_runtime_artifacts(server: &Server) -> Result<()> {
 	.await?;
 
 	// Insert the mappings into the server.
-	let mut w = server.inner.runtime_artifacts.write().await;
-	*w = [
+	*server.inner.runtime_artifacts.write().await = [
 		(
 			tg::Triple::arch_os("aarch64", "linux"),
 			RuntimeArtifactIds {
