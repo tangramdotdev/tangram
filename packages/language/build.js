@@ -1,16 +1,18 @@
 import * as esbuild from "esbuild";
 import alias from "esbuild-plugin-alias";
 import assert from "node:assert";
+import fs from "node:fs/promises";
+import * as nodePath from "node:path";
 import * as path from "path";
 
 assert(process.env["OUT_DIR"]);
 
-await esbuild.build({
+let result = await esbuild.build({
 	bundle: true,
 	entryPoints: ["./src/main.ts"],
 	inject: ["./src/node.js"],
 	minify: true,
-	outfile: process.env["OUT_DIR"] + "/language.js",
+	outfile: "language.js",
 	plugins: [
 		alias({
 			assert: path.resolve("./src/node/assert.cjs"),
@@ -26,4 +28,12 @@ await esbuild.build({
 		}),
 	],
 	sourcemap: true,
+	sourceRoot: "packages/language",
+	write: false,
 });
+
+for (let output of result.outputFiles) {
+	let fileName = nodePath.basename(output.path);
+	let outputPath = `${process.env["OUT_DIR"]}/${fileName}`;
+	await fs.writeFile(outputPath, output.contents);
+}

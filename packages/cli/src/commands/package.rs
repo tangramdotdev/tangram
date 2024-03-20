@@ -1,9 +1,5 @@
-use crate::{
-	util::{print_tree, Tree},
-	Cli,
-};
+use crate::{tree::Tree, Cli};
 use async_recursion::async_recursion;
-use console::style;
 use either::Either;
 use std::{collections::BTreeSet, fmt::Write};
 use tangram_client as tg;
@@ -17,7 +13,6 @@ pub struct Args {
 }
 
 #[derive(Debug, clap::Subcommand)]
-
 pub enum Command {
 	Publish(PublishArgs),
 	Search(SearchArgs),
@@ -113,7 +108,7 @@ impl Cli {
 		)
 		.await?;
 
-		print_tree(&tree);
+		tree.print();
 
 		Ok(())
 	}
@@ -132,18 +127,18 @@ async fn get_package_tree(
 	max_depth: Option<u32>,
 ) -> Result<Tree> {
 	let mut title = String::new();
-	write!(title, "{}: ", style(dependency)).unwrap();
+	write!(title, "{dependency}: ").unwrap();
 	if let Ok(metadata) = tg::package::get_metadata(client, package).await {
 		if let Some(name) = metadata.name {
-			write!(title, "{}", style(name)).unwrap();
+			write!(title, "{name}").unwrap();
 		} else {
-			write!(title, "{}", style(package)).unwrap();
+			write!(title, "{package}").unwrap();
 		}
 		if let Some(version) = metadata.version {
-			write!(title, "@{}", style(version)).unwrap();
+			write!(title, "@{version}").unwrap();
 		}
 	} else {
-		write!(title, "{}", style(package)).unwrap();
+		write!(title, "{package}").unwrap();
 	}
 
 	let package_id = package.id(client).await?;

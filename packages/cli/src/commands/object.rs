@@ -1,9 +1,6 @@
-use crate::{
-	util::{print_tree, Tree},
-	Cli,
-};
+use crate::{tree::Tree, Cli};
 use async_recursion::async_recursion;
-use console::style;
+use crossterm::style::Stylize;
 use futures::{
 	stream::{self, FuturesUnordered},
 	StreamExt, TryStreamExt,
@@ -21,7 +18,6 @@ pub struct Args {
 }
 
 #[derive(Debug, clap::Subcommand)]
-
 pub enum Command {
 	Get(GetArgs),
 	Put(PutArgs),
@@ -135,7 +131,7 @@ impl Cli {
 	pub async fn command_object_tree(&self, args: TreeArgs) -> Result<()> {
 		let client = &self.client().await?;
 		let tree = get_object_tree(client, args.id, 1, args.depth).await?;
-		print_tree(&tree);
+		tree.print();
 		Ok(())
 	}
 }
@@ -148,14 +144,15 @@ async fn get_object_tree(
 	max_depth: Option<u32>,
 ) -> Result<Tree> {
 	let title = match &object {
-		tg::object::Id::Leaf(object) => style(object).white().to_string(),
-		tg::object::Id::Branch(object) => style(object).blue().bright().to_string(),
-		tg::object::Id::Directory(object) => style(object).blue().dim().to_string(),
-		tg::object::Id::File(object) => style(object).yellow().to_string(),
-		tg::object::Id::Symlink(object) => style(object).green().to_string(),
-		tg::object::Id::Lock(object) => style(object).red().to_string(),
-		tg::object::Id::Target(object) => style(object).magenta().to_string(),
+		tg::object::Id::Leaf(id) => id.to_string().green(),
+		tg::object::Id::Branch(id) => id.to_string().blue(),
+		tg::object::Id::Directory(id) => id.to_string().red(),
+		tg::object::Id::File(id) => id.to_string().green(),
+		tg::object::Id::Symlink(id) => id.to_string().blue(),
+		tg::object::Id::Lock(id) => id.to_string().magenta(),
+		tg::object::Id::Target(id) => id.to_string().red(),
 	};
+	let title = title.to_string();
 	let children = tg::Object::with_id(object.clone())
 		.data(client)
 		.await

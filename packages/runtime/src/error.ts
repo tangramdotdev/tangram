@@ -11,7 +11,7 @@ export class Error {
 		stack?: Array<Location>,
 		source?: Error,
 		values?: Map<String, String>,
-		) {
+	) {
 		this.message = message;
 		this.location = location;
 		this.stack = stack;
@@ -20,7 +20,12 @@ export class Error {
 	}
 }
 
-type Location = { source: string; line: number; column: number };
+type Location = {
+	symbol?: string;
+	source: string;
+	line: number;
+	column: number;
+};
 
 /** This type is derived from <https://v8.dev/docs/stack-trace-api#customizing-stack-traces>. */
 type CallSite = {
@@ -36,7 +41,6 @@ type CallSite = {
 	isConstructor(): boolean;
 	isAsync(): boolean;
 	isPromiseAll(): boolean;
-	// isPromiseAny(): boolean;
 	getPromiseIndex(): number | null;
 };
 
@@ -57,7 +61,6 @@ export let prepareStackTrace = (
 			isConstructor: callSite.isConstructor(),
 			isAsync: callSite.isAsync(),
 			isPromiseAll: callSite.isPromiseAll(),
-			// isPromiseAny: callSite.isPromiseAny(),
 			promiseIndex: callSite.getPromiseIndex(),
 		};
 	});

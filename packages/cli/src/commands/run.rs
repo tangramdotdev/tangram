@@ -2,6 +2,7 @@ use crate::{
 	tui::{self, Tui},
 	Cli,
 };
+use crossterm::style::Stylize;
 use itertools::Itertools;
 use std::{collections::BTreeMap, os::unix::process::CommandExt};
 use tangram_client as tg;
@@ -117,8 +118,12 @@ impl Cli {
 				.build()
 		};
 
-		// Print the target ID.
-		eprintln!("{}", target.id(client).await?);
+		// Print the target.
+		eprintln!(
+			"{}: target {}",
+			"info".blue().bold(),
+			target.id(client).await?
+		);
 
 		// Build the target.
 		let arg = tg::build::GetOrCreateArg {
@@ -129,8 +134,8 @@ impl Cli {
 		};
 		let build = tg::Build::new(client, arg).await?;
 
-		// Print the build ID.
-		eprintln!("{}", build.id());
+		// Print the build.
+		eprintln!("{}: build {}", "info".blue().bold(), build.id());
 
 		// Attempt to get the build's outcome with zero timeout.
 		let arg = tg::build::outcome::GetArg {

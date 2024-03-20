@@ -40,7 +40,6 @@ bitflags = "2"
 blake3 = "1"
 bytes = { version = "1", features = ["serde"] }
 clap = { version = "4", features = ["derive", "env"] }
-console = "0.15"
 console-subscriber = "0.2"
 crossbeam = "0.8"
 crossterm = "0.27"
@@ -52,6 +51,7 @@ either = { version = "1", features = ["serde"] }
 filetime = "0.2"
 fnv = "1"
 futures = "0.3"
+glob = "0.3"
 http = "1"
 http-body = "1"
 http-body-util = "0.1"
@@ -78,7 +78,7 @@ proptest = "1"
 rand = "0.8"
 ratatui = "0.26"
 regex = "1"
-reqwest = { version = "0.11", default-features = false, features = [
+reqwest = { version = "0.12", default-features = false, features = [
   "json",
   "stream",
   "rustls-tls",

@@ -6,14 +6,14 @@ use tangram_error::Error;
 
 #[derive(Debug, serde::Deserialize)]
 #[serde(rename_all = "camelCase")]
-struct V8StackTrace {
-	call_sites: Vec<V8CallSite>,
+struct StackTrace {
+	call_sites: Vec<CallSite>,
 }
 
 #[allow(dead_code, clippy::struct_excessive_bools)]
 #[derive(Debug, serde::Deserialize)]
 #[serde(rename_all = "camelCase")]
-struct V8CallSite {
+struct CallSite {
 	type_name: Option<String>,
 	function_name: Option<String>,
 	method_name: Option<String>,
@@ -25,7 +25,6 @@ struct V8CallSite {
 	is_constructor: bool,
 	is_async: bool,
 	is_promise_all: bool,
-	// is_promise_any: bool,
 	promise_index: Option<u32>,
 }
 
@@ -82,7 +81,7 @@ pub(super) fn from_exception<'s>(
 		.is_native_error()
 		.then(|| exception.to_object(scope).unwrap())
 		.and_then(|exception| exception.get(scope, stack.into()))
-		.and_then(|value| serde_v8::from_v8::<V8StackTrace>(scope, value).ok())
+		.and_then(|value| serde_v8::from_v8::<StackTrace>(scope, value).ok())
 	{
 		let stack = stack
 			.call_sites
@@ -123,10 +122,12 @@ pub(super) fn from_exception<'s>(
 fn get_location(line: u32, column: u32) -> tangram_error::Location {
 	let source_map = SourceMap::from_slice(SOURCE_MAP).unwrap();
 	let token = source_map.lookup_token(line, column).unwrap();
+	let symbol = token.get_name().map(String::from);
 	let source = token.get_source().unwrap().to_owned();
 	let line = token.get_src_line();
 	let column = token.get_src_col();
 	tangram_error::Location {
+		symbol,
 		source,
 		line,
 		column,

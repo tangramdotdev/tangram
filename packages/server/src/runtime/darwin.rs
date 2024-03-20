@@ -41,19 +41,29 @@ pub async fn build(server: &Server, build: &tg::Build) -> Result<tg::Value> {
 	// Get the artifacts path.
 	let artifacts_directory_path = server.inner.options.path.join("artifacts");
 
-	// Get the server temp directory path.
-	let server_directory_temp_path = server.inner.options.path.join("tmp");
-	tokio::fs::create_dir_all(&server_directory_temp_path)
+	// Get the server temporary directory path.
+	let server_directory_tmp_path = server.inner.options.path.join("tmp");
+	tokio::fs::create_dir_all(&server_directory_tmp_path)
 		.await
 		.map_err(|error| error!(source = error, "failed to create the server temp directory"))?;
 
-	let root_directory_tempdir = tempfile::TempDir::new_in(&server_directory_temp_path)
-		.map_err(|error| error!(source = error, "failed to create the temporary directory"))?;
-	let root_directory_path = root_directory_tempdir.path().to_owned();
+	let root_directory_tmp =
+		tempfile::TempDir::new_in(&server_directory_tmp_path).map_err(|error| {
+			error!(
+				source = error,
+				"failed to create the root temporary directory"
+			)
+		})?;
+	let root_directory_path = root_directory_tmp.path().to_owned();
 
 	// Create a tempdir for the output.
-	let output_tempdir = tempfile::TempDir::new_in(&server_directory_temp_path)
-		.map_err(|error| error!(source = error, "failed to create the temporary directory"))?;
+	let output_tempdir =
+		tempfile::TempDir::new_in(&server_directory_tmp_path).map_err(|error| {
+			error!(
+				source = error,
+				"failed to create the output temporary directory"
+			)
+		})?;
 
 	// Create the output parent directory.
 	let output_parent_directory_path = output_tempdir.path().to_owned();
@@ -370,7 +380,7 @@ pub async fn build(server: &Server, build: &tg::Build) -> Result<tg::Value> {
 					Ok(0) => return Ok(()),
 					Ok(size) => {
 						let log = Bytes::copy_from_slice(&buf[0..size]);
-						if server.inner.options.write_build_logs_to_stderr {
+						if server.inner.options.advanced.write_build_logs_to_stderr {
 							tokio::io::stderr()
 								.write_all(&log)
 								.await

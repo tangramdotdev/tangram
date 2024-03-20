@@ -30,6 +30,7 @@ either = { workspace = true }
 filetime = { workspace = true }
 fnv = { workspace = true }
 futures = { workspace = true }
+glob = { workspace = true }
 http = { workspace = true }
 http-body = { workspace = true }
 http-body-util = { workspace = true }

@@ -2292,6 +2292,10 @@ impl ToV8 for tangram_error::Location {
 	fn to_v8<'a>(&self, scope: &mut v8::HandleScope<'a>) -> Result<v8::Local<'a, v8::Value>> {
 		let object = v8::Object::new(scope);
 
+		let key = v8::String::new_external_onebyte_static(scope, "symbol".as_bytes()).unwrap();
+		let value = self.symbol.to_v8(scope)?;
+		object.set(scope, key.into(), value);
+
 		let key = v8::String::new_external_onebyte_static(scope, "source".as_bytes()).unwrap();
 		let value = self.source.to_v8(scope)?;
 		object.set(scope, key.into(), value);
@@ -2315,6 +2319,10 @@ impl FromV8 for tangram_error::Location {
 	) -> Result<Self> {
 		let value = value.to_object(scope).unwrap();
 
+		let symbol = v8::String::new_external_onebyte_static(scope, "symbol".as_bytes()).unwrap();
+		let symbol = value.get(scope, symbol.into()).unwrap();
+		let symbol = from_v8(scope, symbol)?;
+
 		let source = v8::String::new_external_onebyte_static(scope, "source".as_bytes()).unwrap();
 		let source = value.get(scope, source.into()).unwrap();
 		let source = from_v8(scope, source)?;
@@ -2328,6 +2336,7 @@ impl FromV8 for tangram_error::Location {
 		let column = from_v8(scope, column)?;
 
 		Ok(Self {
+			symbol,
 			source,
 			line,
 			column,

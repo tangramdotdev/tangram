@@ -185,7 +185,7 @@ impl Server {
 
 		// Create the file system semaphore.
 		let file_descriptor_semaphore =
-			tokio::sync::Semaphore::new(options.file_descriptor_semaphore_size);
+			tokio::sync::Semaphore::new(options.advanced.file_descriptor_semaphore_size);
 
 		// Create the http server.
 		let http = std::sync::Mutex::new(None);
@@ -432,7 +432,7 @@ impl Server {
 		let id = uuid::Uuid::now_v7();
 		let id = ENCODING.encode(&id.into_bytes());
 		let path = self.tmp_path().join(id);
-		let preserve = self.inner.options.preserve_temp_directories;
+		let preserve = self.inner.options.advanced.preserve_temp_directories;
 		Tmp { path, preserve }
 	}
 }
@@ -778,8 +778,7 @@ impl Http {
 		// Add tracing for response body errors.
 		let response = response.map(|body| {
 			Outgoing::new(body.map_err(|error| {
-				let trace = error.trace();
-				tracing::error!(%trace, "response body error");
+				tracing::error!(?error, "response body error");
 				error
 			}))
 		});

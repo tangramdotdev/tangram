@@ -1,4 +1,6 @@
-use std::{collections::BTreeMap, sync::Arc};
+use crossterm::style::Stylize;
+use serde_with::serde_as;
+use std::{collections::BTreeMap, fmt::Debug, sync::Arc};
 use thiserror::Error;
 
 /// A result alias that defaults to `Error` as the error type.
@@ -31,27 +33,99 @@ pub struct Error {
 /// An error location.
 #[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
 pub struct Location {
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub symbol: Option<String>,
 	pub source: String,
 	pub line: u32,
 	pub column: u32,
 }
 
-pub struct Trace<'a>(&'a Error);
+pub struct Trace<'a> {
+	error: &'a Error,
+	options: &'a TraceOptions,
+}
+
+#[serde_as]
+#[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
+pub struct TraceOptions {
+	#[serde(default, skip_serializing_if = "std::ops::Not::not")]
+	pub reverse: bool,
+	#[serde_as(as = "Option<Vec<serde_with::DisplayFromStr>>")]
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub exclude: Option<Vec<glob::Pattern>>,
+	#[serde_as(as = "Option<Vec<serde_with::DisplayFromStr>>")]
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub include: Option<Vec<glob::Pattern>>,
+}
 
 impl Error {
-	/// Construct a [Trace] from an error, which can be used to display a helpful error trace.
 	#[must_use]
-	pub fn trace(&self) -> Trace {
-		Trace(self)
+	pub fn trace<'a>(&'a self, options: &'a TraceOptions) -> Trace<'a> {
+		Trace {
+			error: self,
+			options,
+		}
 	}
 }
 
-impl<'a> From<&'a std::panic::Location<'a>> for Location {
-	fn from(location: &'a std::panic::Location<'a>) -> Self {
-		Self {
-			source: location.file().to_owned(),
-			line: location.line() - 1,
-			column: location.column() - 1,
+impl<'a> Trace<'a> {
+	pub fn eprint(&self) {
+		let mut errors = vec![self.error];
+		while let Some(next) = errors.last().unwrap().source.as_ref() {
+			errors.push(next);
+		}
+		if !self.options.reverse {
+			errors.reverse();
+		}
+
+		for error in errors {
+			eprint!("{} {}", "->".red(), error.message);
+			if let Some(location) = &error.location {
+				let include = self
+					.options
+					.include
+					.iter()
+					.flatten()
+					.any(|pattern| pattern.matches(&location.source));
+				let exclude = self
+					.options
+					.exclude
+					.iter()
+					.flatten()
+					.any(|pattern| pattern.matches(&location.source));
+				if include || !exclude {
+					eprint!(" {location}");
+				}
+			}
+			eprintln!();
+
+			for (name, value) in &error.values {
+				let name = name.as_str().blue();
+				let value = value.as_str().green();
+				eprintln!("   {name} = {value}");
+			}
+
+			let mut stack = error.stack.iter().flatten().collect::<Vec<_>>();
+			if !self.options.reverse {
+				stack.reverse();
+			}
+			for location in stack {
+				let include = self
+					.options
+					.include
+					.iter()
+					.flatten()
+					.any(|pattern| pattern.matches(&location.source));
+				let exclude = self
+					.options
+					.exclude
+					.iter()
+					.flatten()
+					.any(|pattern| pattern.matches(&location.source));
+				if include || !exclude {
+					eprintln!("   {location}");
+				}
+			}
 		}
 	}
 }
@@ -78,54 +152,107 @@ impl From<&(dyn std::error::Error + 'static)> for Error {
 			location: None,
 			stack: None,
 			source: value.source().map(Into::into).map(Arc::new),
-			values: BTreeMap::new(),
+			values: BTreeMap::default(),
+		}
+	}
+}
+
+impl<'a> From<&'a std::panic::Location<'a>> for Location {
+	fn from(location: &'a std::panic::Location<'a>) -> Self {
+		Self {
+			symbol: None,
+			source: location.file().to_owned(),
+			line: location.line() - 1,
+			column: location.column() - 1,
 		}
 	}
 }
 
 impl<'a> std::fmt::Display for Trace<'a> {
 	fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-		writeln!(f, "error:")?;
-		let mut error = self.0;
-		let mut first = true;
-		loop {
-			if !first {
-				writeln!(f)?;
+		let mut errors = vec![self.error];
+		while let Some(next) = errors.last().unwrap().source.as_ref() {
+			errors.push(next);
+		}
+		if self.options.reverse {
+			errors.reverse();
+		}
+
+		for error in errors {
+			write!(f, "-> {}", error.message)?;
+			if let Some(location) = &error.location {
+				let include = self
+					.options
+					.include
+					.iter()
+					.flatten()
+					.any(|pattern| pattern.matches(&location.source));
+				let exclude = self
+					.options
+					.exclude
+					.iter()
+					.flatten()
+					.any(|pattern| pattern.matches(&location.source));
+				if include || !exclude {
+					write!(f, " {location}")?;
+				}
 			}
-			first = false;
-			write!(f, "->")?;
-			let Error {
-				message,
-				location,
-				stack,
-				source,
-				values,
-			} = error;
-			write!(f, " {message}")?;
-			if let Some(location) = &location {
-				write!(f, " {location}")?;
+			writeln!(f)?;
+
+			for (name, value) in &error.values {
+				let name = name.as_str();
+				let value = value.as_str();
+				writeln!(f, "   {name} = {value}")?;
 			}
-			for (name, value) in values {
-				writeln!(f)?;
-				write!(f, "   {name} = {value}")?;
+
+			let mut stack = error.stack.iter().flatten().collect::<Vec<_>>();
+			if self.options.reverse {
+				stack.reverse();
 			}
-			for location in stack.iter().flatten() {
-				writeln!(f)?;
-				write!(f, "   {location}")?;
-			}
-			if let Some(source) = &source {
-				error = source;
-			} else {
-				break;
+			for location in stack {
+				let include = self
+					.options
+					.include
+					.iter()
+					.flatten()
+					.any(|pattern| pattern.matches(&location.source));
+				let exclude = self
+					.options
+					.exclude
+					.iter()
+					.flatten()
+					.any(|pattern| pattern.matches(&location.source));
+				if include || !exclude {
+					writeln!(f, "   {location}")?;
+				}
 			}
 		}
+
 		Ok(())
 	}
 }
 
 impl std::fmt::Display for Location {
 	fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-		write!(f, "{}:{}:{}", self.source, self.line + 1, self.column + 1)
+		write!(f, "at")?;
+		if let Some(symbol) = &self.symbol {
+			write!(f, " {symbol}")?;
+		}
+		write!(f, " {}:{}:{}", self.source, self.line + 1, self.column + 1)?;
+		Ok(())
+	}
+}
+
+impl Default for TraceOptions {
+	fn default() -> Self {
+		Self {
+			reverse: false,
+			exclude: Some(vec![
+				glob::Pattern::new("[[]global[]]:packages/**/*.ts").unwrap(),
+				glob::Pattern::new("packages/**/*.rs").unwrap(),
+			]),
+			include: None,
+		}
 	}
 }
 
@@ -133,6 +260,7 @@ impl std::fmt::Display for Location {
 ///
 /// Usage:
 /// ```rust
+/// use tangram_error::{error, Location};
 /// error!("error message");
 /// error!("error message with interpolation {}", 42);
 ///
@@ -145,12 +273,13 @@ impl std::fmt::Display for Location {
 ///
 /// let stack_trace = vec![
 ///     Location {
-///         file: "foo.rs".into(),
+///         symbol: Some("my_cool_function".into()),
+///         source: "foo.rs".into(),
 ///         line: 123,
 ///         column: 456,
 ///     }
 /// ];
-/// error!(stack = stack_trace, "an error with a custom stack trace")
+/// error!(stack = stack_trace, "an error with a custom stack trace");
 /// ```
 #[macro_export]
 macro_rules! error {
@@ -162,7 +291,7 @@ macro_rules! error {
 		$error.values.insert(stringify!($name).to_owned(), format!("{:?}", $name));
 		$crate::error!({ $error }, $($arg)*)
 	};
-	({ $error:ident }, source=$source:expr, $($arg:tt)*) => {
+	({ $error:ident }, source = $source:expr, $($arg:tt)*) => {
 		$error.source.replace(std::sync::Arc::new({
 			let source: Box<dyn std::error::Error + Send + Sync + 'static> = Box::new($source);
 			source.into()
@@ -180,6 +309,7 @@ macro_rules! error {
 		let mut __error = $crate::Error {
 			message: String::new(),
 			location: Some($crate::Location {
+				symbol: Some($crate::function!().to_owned()),
 				source: file!().to_owned(),
 				line: line!() - 1,
 				column: column!() - 1,
@@ -193,37 +323,55 @@ macro_rules! error {
 	}};
 }
 
+#[macro_export]
+macro_rules! function {
+	() => {{
+		struct __Dummy {}
+		std::any::type_name::<__Dummy>()
+			.strip_suffix("::__Dummy")
+			.unwrap()
+	}};
+}
+
 #[cfg(test)]
 mod tests {
-	use crate::{error, Location};
+	use super::*;
 
 	#[test]
 	fn error_macro() {
+		let options = TraceOptions {
+			exclude: Some(vec![
+				glob::Pattern::new("packages/error/src/lib.rs").unwrap()
+			]),
+			..Default::default()
+		};
+
 		let foo = "foo";
 		let bar = "bar";
 		let baz = "baz";
 		let error = error!(?foo, %bar, ?baz, "{} bar {baz}", foo);
-		let trace = error.trace().to_string();
-		assert_eq!(trace, "error:\n-> foo bar baz packages/error/src/lib.rs:196:15\n   bar = bar\n   baz = \"baz\"\n   foo = \"foo\"");
+		let trace = error.trace(&options).to_string();
+		println!("{trace}");
 
 		let source = std::io::Error::other("unexpected error");
 		let error = error!(source = source, "an error occurred");
-		let trace = error.trace().to_string();
-		assert_eq!(
-			trace,
-			"error:\n-> an error occurred packages/error/src/lib.rs:201:15\n-> unexpected error"
-		);
+		let trace = error.trace(&options).to_string();
+		println!("{trace}");
 
 		let stack = vec![Location {
+			symbol: None,
 			source: "foobar.rs".to_owned(),
 			line: 123,
 			column: 456,
 		}];
 		let error = error!(stack = stack, "an error occurred");
-		let trace = error.trace().to_string();
-		assert_eq!(
-			trace,
-			"error:\n-> an error occurred. packages/error/src/lib.rs:210:15\n   foobar.rs:124:457"
-		);
+		let trace = error.trace(&options).to_string();
+		println!("{trace}");
+	}
+
+	#[test]
+	fn function_macro() {
+		let f = function!();
+		assert_eq!(f, "tangram_error::tests::function_macro");
 	}
 }

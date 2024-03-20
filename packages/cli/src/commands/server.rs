@@ -12,7 +12,6 @@ pub struct Args {
 }
 
 #[derive(Debug, clap::Subcommand)]
-
 pub enum Command {
 	Health(HealthArgs),
 	Run(RunArgs),
@@ -256,35 +255,43 @@ impl Cli {
 			.and_then(|config| config.advanced.as_ref())
 			.and_then(|advanced| advanced.preserve_temp_directories)
 			.unwrap_or(false);
-
+		let error_trace_options = config
+			.as_ref()
+			.and_then(|config| config.advanced.as_ref())
+			.and_then(|advanced| advanced.error_trace_options.clone())
+			.unwrap_or_default();
 		let write_build_logs_to_stderr = config
 			.as_ref()
 			.and_then(|config| config.advanced.as_ref())
 			.and_then(|advanced| advanced.write_build_logs_to_stderr)
 			.unwrap_or(false);
+		let advanced = tangram_server::options::Advanced {
+			error_trace_options,
+			file_descriptor_semaphore_size,
+			preserve_temp_directories,
+			write_build_logs_to_stderr,
+		};
 
 		// Create the options.
 		let options = tangram_server::Options {
 			address,
+			advanced,
 			build,
 			database,
-			file_descriptor_semaphore_size,
 			messenger,
 			oauth,
 			path,
-			preserve_temp_directories,
 			remote,
 			url,
 			version,
 			vfs,
-			write_build_logs_to_stderr,
 			www,
 		};
 
 		// Start the server.
 		let server = tangram_server::Server::start(options)
 			.await
-			.map_err(|error| error!(source = error, "failed to create the server"))?;
+			.map_err(|error| error!(source = error, "failed to start the server"))?;
 
 		// Stop the server if an an interrupt signal is received.
 		tokio::spawn({

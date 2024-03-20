@@ -101,7 +101,7 @@ async fn build_inner(
 		let server = server.clone();
 		async move {
 			while let Some(string) = log_receiver.recv().await {
-				if server.inner.options.write_build_logs_to_stderr {
+				if server.inner.options.advanced.write_build_logs_to_stderr {
 					tokio::io::stderr()
 						.write_all(string.as_bytes())
 						.await
