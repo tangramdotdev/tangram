@@ -9,7 +9,7 @@ use derive_more::{Display, From, TryInto, TryUnwrap};
 use futures::{stream::FuturesUnordered, TryStreamExt};
 use http_body_util::BodyExt;
 use tangram_error::error;
-use tangram_util::http::{empty, full};
+use tangram_http::{empty, full};
 
 /// An object kind.
 #[derive(Clone, Copy, Debug)]

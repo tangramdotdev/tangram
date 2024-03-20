@@ -1,13 +1,15 @@
-use crate::{database::Database, postgres_params, sqlite_params, Http, Server};
+use crate::{Http, Server};
 use futures::{
 	future,
 	stream::{self, BoxStream},
 	FutureExt, StreamExt, TryStreamExt,
 };
 use http_body_util::{BodyExt, StreamBody};
+use indoc::formatdoc;
 use tangram_client as tg;
+use tangram_database as db;
 use tangram_error::{error, Error, Result};
-use tangram_util::http::{empty, not_found, Incoming, Outgoing};
+use tangram_http::{empty, not_found, Incoming, Outgoing};
 use time::format_description::well_known::Rfc3339;
 use tokio_stream::wrappers::IntervalStream;
 
@@ -104,60 +106,33 @@ impl Server {
 		&self,
 		id: &tg::build::Id,
 	) -> Result<tg::build::Status> {
-		match &self.inner.database {
-			Database::Sqlite(database) => {
-				let connection = database.get().await?;
-				let statement = "
-					select status
-					from builds
-					where id = ?1;
-				";
-				let params = sqlite_params![id.to_string()];
-				let mut statement = connection
-					.prepare_cached(statement)
-					.map_err(|source| error!(!source, "failed to prepare the query"))?;
-				let rows = &mut statement
-					.query(params)
-					.map_err(|source| error!(!source, "failed to execute the statement"))?;
-				let row = rows
-					.next()
-					.map_err(|source| error!(!source, "failed to get the row"))?
-					.ok_or_else(|| error!("expected a row"))?;
-				let status = row
-					.get::<_, String>(0)
-					.map_err(|source| error!(!source, "failed to deserialize the column"))?
-					.parse()?;
-				Ok(status)
-			},
+		// Get a database connection.
+		let connection = self
+			.inner
+			.database
+			.connection()
+			.await
+			.map_err(|source| error!(!source, "failed to get a database connection"))?;
 
-			Database::Postgres(database) => {
-				let connection = database.get().await?;
-				let statement = "
-					select status
-					from builds
-					where id = $1;
-				";
-				let params = postgres_params![id.to_string()];
-				let statement = connection
-					.prepare_cached(statement)
-					.await
-					.map_err(|source| error!(!source, "failed to prepare the statement"))?;
-				let rows = connection
-					.query(&statement, params)
-					.await
-					.map_err(|source| error!(!source, "failed to execute the statement"))?;
-				let row = rows
-					.into_iter()
-					.next()
-					.ok_or_else(|| error!("expected a row"))?;
-				let status = row
-					.try_get::<_, String>(0)
-					.map_err(|source| error!(!source, "failed to deserialize the column"))?
-					.parse()
-					.map_err(|source| error!(!source, "failed to parse the status"))?;
-				Ok(status)
-			},
-		}
+		// Get the status.
+		let p = connection.p();
+		let statement = formatdoc!(
+			"
+				select status
+				from builds
+				where id = {p}1;
+			"
+		);
+		let params = db::params![id];
+		let status = connection
+			.query_one_scalar_into(statement, params)
+			.await
+			.map_err(|source| error!(!source, "failed to execute the statement"))?;
+
+		// Drop the database connection.
+		drop(connection);
+
+		Ok(status)
 	}
 
 	async fn try_get_build_status_remote(
@@ -166,7 +141,7 @@ impl Server {
 		arg: tg::build::status::GetArg,
 		stop: Option<tokio::sync::watch::Receiver<bool>>,
 	) -> Result<Option<BoxStream<'static, Result<tg::build::Status>>>> {
-		let Some(remote) = self.inner.remote.as_ref() else {
+		let Some(remote) = self.inner.remotes.first() else {
 			return Ok(None);
 		};
 		let Some(stream) = remote.try_get_build_status(id, arg, stop).await? else {
@@ -222,68 +197,42 @@ impl Server {
 			tg::build::Status::Finished => "finished_at",
 		};
 
-		// Update the database.
-		match &self.inner.database {
-			Database::Sqlite(database) => {
-				let connection = database.get().await?;
-				let statement = &format!(
-					"
-						update builds
-						set 
-							status = ?1,
-							{timestamp_column} = ?2 
-						where id = ?3 and status = ?4;
-					"
-				);
-				let status = status.to_string();
-				let timestamp = time::OffsetDateTime::now_utc()
-					.format(&Rfc3339)
-					.map_err(|source| error!(!source, "failed to format the timestamp"))?;
-				let id = id.to_string();
-				let previous_status = previous_status.to_string();
-				let params = sqlite_params![status, timestamp, id, previous_status];
-				let mut statement = connection
-					.prepare_cached(statement)
-					.map_err(|source| error!(!source, "failed to prepare the query"))?;
-				let n = statement
-					.execute(params)
-					.map_err(|source| error!(!source, "failed to execute the statement"))?;
-				if n == 0 {
-					return Err(error!("cannot set the build's status"));
-				}
-			},
+		// Get a database connection.
+		let connection = self
+			.inner
+			.database
+			.connection()
+			.await
+			.map_err(|source| error!(!source, "failed to get a database connection"))?;
 
-			Database::Postgres(database) => {
-				let connection = database.get().await?;
-				let statement = &format!(
-					"
-						update builds
-						set 
-							status = $1,
-							{timestamp_column} = $2 
-						where id = $3 and status = $4;
-					"
-				);
-				let status = status.to_string();
-				let timestamp = time::OffsetDateTime::now_utc()
-					.format(&Rfc3339)
-					.map_err(|source| error!(!source, "failed to format the timestamp"))?;
-				let id = id.to_string();
-				let previous_status = previous_status.to_string();
-				let params = postgres_params![status, timestamp, id, previous_status];
-				let statement = connection
-					.prepare_cached(statement)
-					.await
-					.map_err(|source| error!(!source, "failed to prepare the statement"))?;
-				let n = connection
-					.execute(&statement, params)
-					.await
-					.map_err(|source| error!(!source, "failed to execute the statement"))?;
-				if n == 0 {
-					return Err(error!("cannot set the build's status"));
-				}
-			},
+		// Update the database.
+		let p = connection.p();
+		let statement = format!(
+			"
+				update builds
+				set 
+					status = {p}1,
+					{timestamp_column} = {p}2 
+				where id = {p}3 and status = {p}4;
+			"
+		);
+		let timestamp = time::OffsetDateTime::now_utc();
+		let params = db::params![
+			status,
+			timestamp.format(&Rfc3339).unwrap(),
+			id,
+			previous_status,
+		];
+		let n = connection
+			.execute(statement, params)
+			.await
+			.map_err(|source| error!(!source, "failed to execute the statement"))?;
+		if n == 0 {
+			return Err(error!("cannot set the build's status"));
 		}
+
+		// Drop the database connection.
+		drop(connection);
 
 		// Publish the message.
 		self.inner.messenger.publish_to_build_status(id).await?;
@@ -297,7 +246,7 @@ impl Server {
 		id: &tg::build::Id,
 		status: tg::build::Status,
 	) -> Result<bool> {
-		let Some(remote) = self.inner.remote.as_ref() else {
+		let Some(remote) = self.inner.remotes.first() else {
 			return Ok(false);
 		};
 		remote.set_build_status(user, id, status).await?;
@@ -344,8 +293,13 @@ impl Http {
 			})
 			.transpose()?;
 
-		let stop = request.extensions().get().cloned();
-		let Some(stream) = self.inner.tg.try_get_build_status(&id, arg, stop).await? else {
+		let stop = request.extensions().get().cloned().unwrap();
+		let Some(stream) = self
+			.inner
+			.tg
+			.try_get_build_status(&id, arg, Some(stop))
+			.await?
+		else {
 			return Ok(not_found());
 		};
 
@@ -359,7 +313,7 @@ impl Http {
 				let body = stream
 					.map_ok(|chunk| {
 						let data = serde_json::to_string(&chunk).unwrap();
-						let event = tangram_util::sse::Event::with_data(data);
+						let event = tangram_sse::Event::with_data(data);
 						hyper::body::Frame::data(event.to_string().into())
 					})
 					.map_err(Into::into);

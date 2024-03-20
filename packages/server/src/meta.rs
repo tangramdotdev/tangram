@@ -1,11 +1,11 @@
 use crate::{Http, Server};
 use tangram_client as tg;
 use tangram_error::Result;
-use tangram_util::http::{empty, full, ok, Incoming, Outgoing};
+use tangram_http::{empty, full, ok, Incoming, Outgoing};
 
 impl Server {
-	pub async fn health(&self) -> Result<tg::server::Health> {
-		Ok(tg::server::Health {
+	pub async fn health(&self) -> Result<tg::meta::Health> {
+		Ok(tg::meta::Health {
 			version: self.inner.options.version.clone(),
 		})
 	}

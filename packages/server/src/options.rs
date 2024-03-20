@@ -3,18 +3,16 @@ use tangram_client as tg;
 use url::Url;
 
 pub struct Options {
-	pub address: tg::Address,
 	pub advanced: Advanced,
 	pub build: Build,
 	pub database: Database,
 	pub messenger: Messenger,
 	pub oauth: Oauth,
 	pub path: PathBuf,
-	pub remote: Option<Remote>,
-	pub url: Option<Url>,
+	pub remotes: Vec<Remote>,
+	pub url: Url,
 	pub version: String,
 	pub vfs: Vfs,
-	pub www: Option<Url>,
 }
 
 #[derive(Clone, Debug)]
@@ -66,9 +64,10 @@ pub struct Oauth {
 
 #[derive(Clone, Debug)]
 pub struct OauthClient {
+	pub auth_url: String,
 	pub client_id: String,
 	pub client_secret: String,
-	pub auth_url: String,
+	pub redirect_url: String,
 	pub token_url: String,
 }
 

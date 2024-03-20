@@ -1,15 +1,12 @@
-use crate::{
-	database::{Database, Postgres, PostgresTransaction, Sqlite, Transaction},
-	postgres_params, sqlite_params, Http, Server,
-};
+use crate::{params, Http, Server};
+use bytes::Bytes;
+use futures::TryFutureExt;
 use http_body_util::BodyExt;
-use itertools::Itertools;
+use indoc::formatdoc;
 use tangram_client as tg;
+use tangram_database as db;
 use tangram_error::{error, Result};
-use tangram_util::{
-	http::{bad_request, full, Incoming, Outgoing},
-	iter::IterExt,
-};
+use tangram_http::{bad_request, full, Incoming, Outgoing};
 
 impl Server {
 	pub async fn put_object(
@@ -17,218 +14,79 @@ impl Server {
 		id: &tg::object::Id,
 		arg: &tg::object::PutArg,
 	) -> Result<tg::object::PutOutput> {
-		match &self.inner.database {
-			Database::Sqlite(database) => self.put_object_sqlite(id, arg, database).await,
-			Database::Postgres(database) => self.put_object_postgres(id, arg, database).await,
-		}
-	}
-
-	async fn put_object_sqlite(
-		&self,
-		id: &tg::object::Id,
-		arg: &tg::object::PutArg,
-		database: &Sqlite,
-	) -> Result<tg::object::PutOutput> {
-		let connection = database.get().await?;
+		// Get a database connection.
+		let connection = self
+			.inner
+			.database
+			.connection()
+			.await
+			.map_err(|source| error!(!source, "failed to get a database connection"))?;
 
 		// Add the object.
-		let children = {
-			let statement = "
+		let p = connection.p();
+		let statement = formatdoc!(
+			"
 				insert into objects (id, bytes, children, complete, count, weight)
-				values (?1, ?2, false, false, null, null)
+				values ({p}1, {p}2, false, false, null, null)
 				on conflict (id) do update set id = excluded.id
 				returning children;
-			";
-			let id = id.to_string();
-			let bytes = arg.bytes.to_vec();
-			let params = sqlite_params![id, bytes];
-			let mut statement = connection
-				.prepare_cached(statement)
-				.map_err(|source| error!(!source, "failed to prepare the query"))?;
-			let mut rows = statement
-				.query(params)
-				.map_err(|source| error!(!source, "failed to execute the statement"))?;
-			let row = rows
-				.next()
-				.map_err(|source| error!(!source, "failed to retrieve the row"))?
-				.ok_or_else(|| error!("expected a row"))?;
-			row.get::<_, bool>(0)
-				.map_err(|source| error!(!source, "failed to deserialize the column"))?
-		};
+			"
+		);
+		let params = params![id, arg.bytes];
+		let children = connection
+			.query_one_scalar_into(statement, params)
+			.map_err(|error| error!(source = error, "failed to execute the statement"))
+			.await?;
 
 		// Find the incomplete children.
 		let incomplete: Vec<tg::object::Id> = if children {
-			let statement = "
-				select child
-				from object_children
-				left join objects on objects.id = object_children.child
-				where object = ?1 and complete = false;
-			";
-			let id = id.to_string();
-			let params = sqlite_params![id];
-			let mut statement = connection
-				.prepare_cached(statement)
-				.map_err(|source| error!(!source, "failed to prepare the query"))?;
-			let rows = statement
-				.query(params)
-				.map_err(|source| error!(!source, "failed to execute the statement"))?;
-			rows.and_then(|row| row.get::<_, String>(0))
-				.map_err(|source| error!(!source, "failed to deserialize the rows"))
-				.and_then(|id| id.parse())
-				.try_collect()?
+			let p = connection.p();
+			let statement = formatdoc!(
+				"
+					select child
+					from object_children
+					left join objects on objects.id = object_children.child
+					where object = {p}1 and complete = false;
+				"
+			);
+			let params = params![id];
+			connection
+				.query_all_scalar_into(statement, params)
+				.map_err(|error| error!(source = error, "failed to execute the statement"))
+				.await?
 		} else {
 			let data = tg::object::Data::deserialize(id.kind(), &arg.bytes)
-				.map_err(|source| error!(!source, "failed to deserialize the data"))?;
+				.map_err(|error| error!(source = error, "failed to deserialize the data"))?;
 			data.children()
 		};
+
+		// Drop the database connection.
+		drop(connection);
 
 		let output = tg::object::PutOutput { incomplete };
 
 		Ok(output)
 	}
 
-	async fn put_object_postgres(
-		&self,
-		id: &tg::object::Id,
-		arg: &tg::object::PutArg,
-		database: &Postgres,
-	) -> Result<tg::object::PutOutput> {
-		let connection = database.get().await?;
-
-		// Add the object.
-		let children = {
-			let statement = "
-				upsert into objects (id, bytes, children, complete, count, weight)
-				values ($1, $2, false, false, null, null)
-				returning children;
-			";
-			let id = id.to_string();
-			let bytes = arg.bytes.to_vec();
-			let params = postgres_params![id, bytes];
-			let statement = connection
-				.prepare_cached(statement)
-				.await
-				.map_err(|source| error!(!source, "failed to prepare the query"))?;
-			let rows = connection
-				.query(&statement, params)
-				.await
-				.map_err(|source| error!(!source, "failed to execute the statement"))?;
-			let row = rows
-				.into_iter()
-				.next()
-				.ok_or_else(|| error!("expected a row"))?;
-			row.try_get::<_, bool>(0)
-				.map_err(|source| error!(!source, "failed to deserialize the column"))?
-		};
-
-		// Find the incomplete children.
-		let incomplete: Vec<tg::object::Id> = if children {
-			let statement = "
-				select child
-				from object_children
-				left join objects on objects.id = object_children.child
-				where object = $1 and complete = false;
-			";
-			let id = id.to_string();
-			let params = postgres_params![id];
-			let statement = connection
-				.prepare_cached(statement)
-				.await
-				.map_err(|source| error!(!source, "failed to prepare the query"))?;
-			let rows = connection
-				.query(&statement, params)
-				.await
-				.map_err(|source| error!(!source, "failed to execute the statement"))?;
-			rows.into_iter()
-				.map(|row| row.try_get::<_, String>(0))
-				.map_err(|source| error!(!source, "failed to deserialize the rows"))
-				.and_then(|id| id.parse())
-				.try_collect()?
-		} else {
-			let data = tg::object::Data::deserialize(id.kind(), &arg.bytes)
-				.map_err(|source| error!(!source, "failed to deserialize the data"))?;
-			data.children()
-		};
-
-		let output = tg::object::PutOutput { incomplete };
-
-		Ok(output)
-	}
-
-	pub(crate) async fn put_complete_object_with_transaction(
+	pub(crate) async fn put_object_with_transaction(
 		&self,
 		id: tg::object::Id,
-		data: tg::object::Data,
-		txn: &Transaction<'_>,
+		bytes: Bytes,
+		transaction: &db::Transaction<'_>,
 	) -> Result<()> {
-		match txn {
-			Transaction::Sqlite(txn) => {
-				self.put_complete_object_with_transaction_sqlite(&id, &data, txn)
-					.await
-			},
-			Transaction::Postgres(txn) => {
-				self.put_complete_object_with_transaction_postgres(&id, &data, txn)
-					.await
-			},
-		}
-	}
-
-	async fn put_complete_object_with_transaction_sqlite(
-		&self,
-		id: &tg::object::Id,
-		data: &tg::object::Data,
-		txn: &rusqlite::Transaction<'_>,
-	) -> Result<()> {
-		// Serialize the object.
-		let bytes = data.serialize()?.to_vec();
-
-		// Add the object.
-		{
-			let statement = "
+		let p = transaction.p();
+		let statement = formatdoc!(
+			"
 				insert into objects (id, bytes, children, complete, count, weight)
-				values (?1, ?2, false, true, null, null)
-				on conflict (id) do update set complete = true;
-			";
-			let id = id.to_string();
-			let params = sqlite_params![id, bytes];
-			let mut statement = txn
-				.prepare_cached(statement)
-				.map_err(|source| error!(!source, "failed to prepare the query"))?;
-			statement
-				.execute(params)
-				.map_err(|source| error!(!source, "failed to execute the statement"))?;
-		}
-
-		Ok(())
-	}
-
-	async fn put_complete_object_with_transaction_postgres(
-		&self,
-		id: &tg::object::Id,
-		data: &tg::object::Data,
-		txn: &PostgresTransaction<'_>,
-	) -> Result<()> {
-		// Serialize the object.
-		let bytes = data.serialize()?.to_vec();
-
-		// Add the object.
-		{
-			let statement = "
-				insert into objects (id, bytes, children, complete, count, weight)
-				values ($1, $2, false, true, null, null)
-				on conflict (id) do update set complete = true;
-			";
-			let id = id.to_string();
-			let params = postgres_params![id, bytes];
-			let statement = txn
-				.prepare_cached(statement)
-				.await
-				.map_err(|source| error!(!source, "failed to prepare the query"))?;
-			txn.execute(&statement, params)
-				.await
-				.map_err(|source| error!(!source, "failed to execute the statement"))?;
-		}
-
+				values ({p}1, {p}2, false, false, null, null)
+				on conflict do nothing;
+			"
+		);
+		let params = params![id, bytes];
+		transaction
+			.execute(statement, params)
+			.map_err(|error| error!(source = error, "failed to execute the statement"))
+			.await?;
 		Ok(())
 	}
 }
@@ -253,7 +111,7 @@ impl Http {
 			.into_body()
 			.collect()
 			.await
-			.map_err(|source| error!(!source, "failed to read the body"))?
+			.map_err(|error| error!(source = error, "failed to read the body"))?
 			.to_bytes();
 
 		// Put the object.
@@ -266,7 +124,7 @@ impl Http {
 
 		// Create the body.
 		let body = serde_json::to_vec(&output)
-			.map_err(|source| error!(!source, "failed to serialize the body"))?;
+			.map_err(|error| error!(source = error, "failed to serialize the body"))?;
 		let body = full(body);
 
 		// Create the response.

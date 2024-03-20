@@ -9,6 +9,7 @@ pub mod clean;
 pub mod doc;
 pub mod fmt;
 pub mod get;
+pub mod hook;
 pub mod init;
 pub mod log;
 pub mod login;

@@ -1,14 +1,14 @@
 use crate::{Http, Server};
 use tangram_client as tg;
 use tangram_error::{error, Result};
-use tangram_util::http::{bad_request, ok, Incoming, Outgoing};
+use tangram_http::{bad_request, ok, Incoming, Outgoing};
 
 impl Server {
 	pub async fn push_object(&self, id: &tg::object::Id) -> Result<()> {
 		let remote = self
 			.inner
-			.remote
-			.as_ref()
+			.remotes
+			.first()
 			.ok_or_else(|| error!("the server does not have a remote"))?;
 		tg::object::Handle::with_id(id.clone())
 			.push(self, remote.as_ref())

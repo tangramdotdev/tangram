@@ -2,7 +2,7 @@ use crate::Client;
 use futures::{future, TryFutureExt};
 use http_body_util::BodyExt;
 use tangram_error::{error, Result};
-use tangram_util::http::{empty, full};
+use tangram_http::{empty, full};
 use tokio::io::{AsyncRead, AsyncWrite};
 
 impl Client {

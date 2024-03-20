@@ -38,7 +38,7 @@ pub enum Module {
 #[serde(rename_all = "camelCase")]
 pub struct Library {
 	/// The module's path.
-	pub path: tg::Path,
+	pub path: crate::Path,
 }
 
 #[derive(
@@ -53,7 +53,7 @@ pub struct Normal {
 	pub package: tg::directory::Id,
 
 	/// The module's path.
-	pub path: tg::Path,
+	pub path: crate::Path,
 }
 
 impl From<Module> for Url {

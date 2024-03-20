@@ -5,7 +5,7 @@ use serde_with::serde_as;
 use std::collections::BTreeMap;
 use std::path::Path;
 use tangram_error::{error, Result};
-use tangram_util::http::{empty, full};
+use tangram_http::{empty, full};
 
 /// The possible file names of the root module in a package.
 pub const ROOT_MODULE_FILE_NAMES: &[&str] =
@@ -259,43 +259,6 @@ impl Client {
 		Ok(output)
 	}
 
-	pub async fn get_outdated(
-		&self,
-		dependency: &tg::Dependency,
-	) -> Result<tg::package::OutdatedOutput> {
-		let method = http::Method::POST;
-		let dependency = dependency.to_string();
-		let dependency = urlencoding::encode(&dependency);
-		let uri = format!("/packages/{dependency}/outdated");
-		let body = empty();
-		let request = http::request::Builder::default()
-			.method(method)
-			.uri(uri)
-			.body(body)
-			.map_err(|source| error!(!source, "failed to create the request"))?;
-		let response = self.send(request).await?;
-		if response.status() == http::StatusCode::NOT_FOUND {
-			return Err(error!(%dependency, "could not find package"));
-		}
-		if !response.status().is_success() {
-			let bytes = response
-				.collect()
-				.await
-				.map_err(|source| error!(!source, "failed to collect the response body"))?
-				.to_bytes();
-			let error = serde_json::from_slice(&bytes)
-				.unwrap_or_else(|_| error!("failed to deserialize the error"));
-			return Err(error);
-		}
-		let bytes = response
-			.collect()
-			.await
-			.map_err(|source| error!(!source, "failed to collect the response body"))?
-			.to_bytes();
-		let output = serde_json::from_slice(&bytes)
-			.map_err(|source| error!(!source, "failed to deserialize the response body"))?;
-		Ok(output)
-	}
 	pub async fn try_get_package(
 		&self,
 		dependency: &tg::Dependency,
@@ -460,6 +423,44 @@ impl Client {
 			return Err(error);
 		}
 		Ok(())
+	}
+
+	pub async fn get_package_outdated(
+		&self,
+		dependency: &tg::Dependency,
+	) -> Result<tg::package::OutdatedOutput> {
+		let method = http::Method::POST;
+		let dependency = dependency.to_string();
+		let dependency = urlencoding::encode(&dependency);
+		let uri = format!("/packages/{dependency}/outdated");
+		let body = empty();
+		let request = http::request::Builder::default()
+			.method(method)
+			.uri(uri)
+			.body(body)
+			.map_err(|source| error!(!source, "failed to create the request"))?;
+		let response = self.send(request).await?;
+		if response.status() == http::StatusCode::NOT_FOUND {
+			return Err(error!(%dependency, "could not find package"));
+		}
+		if !response.status().is_success() {
+			let bytes = response
+				.collect()
+				.await
+				.map_err(|source| error!(!source, "failed to collect the response body"))?
+				.to_bytes();
+			let error = serde_json::from_slice(&bytes)
+				.unwrap_or_else(|_| error!("failed to deserialize the error"));
+			return Err(error);
+		}
+		let bytes = response
+			.collect()
+			.await
+			.map_err(|source| error!(!source, "failed to collect the response body"))?
+			.to_bytes();
+		let output = serde_json::from_slice(&bytes)
+			.map_err(|source| error!(!source, "failed to deserialize the response body"))?;
+		Ok(output)
 	}
 
 	pub async fn get_runtime_doc(&self) -> Result<serde_json::Value> {

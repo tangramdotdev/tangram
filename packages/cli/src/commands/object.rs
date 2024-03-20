@@ -113,6 +113,7 @@ impl Cli {
 			weight: None,
 		};
 		client.put_object(&id, &arg).await?;
+		println!("{id}");
 		Ok(())
 	}
 

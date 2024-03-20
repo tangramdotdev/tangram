@@ -1,16 +1,14 @@
 use crate::{Http, Server};
-use async_recursion::async_recursion;
 use tangram_client as tg;
 use tangram_error::{error, Result};
-use tangram_util::http::{bad_request, ok, Incoming, Outgoing};
+use tangram_http::{bad_request, ok, Incoming, Outgoing};
 
 impl Server {
-	#[async_recursion]
 	pub async fn pull_object(&self, id: &tg::object::Id) -> Result<()> {
 		let remote = self
 			.inner
-			.remote
-			.as_ref()
+			.remotes
+			.first()
 			.ok_or_else(|| error!("the server does not have a remote"))?;
 		tg::object::Handle::with_id(id.clone())
 			.pull(self, remote.as_ref())

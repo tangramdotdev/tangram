@@ -1,15 +1,17 @@
-use crate::{database::Database, postgres_params, Http, Server};
+use crate::{Http, Server};
+use indoc::formatdoc;
 use itertools::Itertools;
 use tangram_client as tg;
+use tangram_database as db;
 use tangram_error::{error, Result};
-use tangram_util::http::{full, not_found, Incoming, Outgoing};
+use tangram_http::{full, not_found, Incoming, Outgoing};
 
 impl Server {
 	pub async fn try_get_package_versions(
 		&self,
 		dependency: &tg::Dependency,
 	) -> Result<Option<Vec<String>>> {
-		if let Some(remote) = self.inner.remote.as_ref() {
+		if let Some(remote) = self.inner.remotes.first() {
 			return remote.try_get_package_versions(dependency).await;
 		}
 
@@ -24,7 +26,7 @@ impl Server {
 		&self,
 		dependency: &tg::Dependency,
 	) -> Result<Option<Vec<(String, tg::directory::Id)>>> {
-		// The dependency must have a name.
+		// Get the dependency name and version.
 		let name = dependency
 			.name
 			.as_ref()
@@ -32,71 +34,61 @@ impl Server {
 		let version = dependency.version.as_ref();
 
 		// Get a database connection.
-		let Database::Postgres(database) = &self.inner.database else {
-			return Err(error!("unimplemented"));
-		};
-		let connection = database.get().await?;
+		let connection = self
+			.inner
+			.database
+			.connection()
+			.await
+			.map_err(|source| error!(!source, "failed to get a database connection"))?;
 
 		// Confirm the package exists.
-		let statement = "
-			select count(*) != 0
-			from packages
-			where name = $1;
-		";
-		let params = postgres_params![name];
-		let statement = connection
-			.prepare_cached(statement)
-			.await
-			.map_err(|source| error!(!source, "failed to prepare the statement"))?;
-		let row = connection
-			.query_one(&statement, params)
+		let p = connection.p();
+		let statement = formatdoc!(
+			"
+				select count(*) != 0
+				from packages
+				where name = {p}1;
+			"
+		);
+		let params = db::params![name];
+		let exists = connection
+			.query_one_scalar_into::<bool>(statement, params)
 			.await
 			.map_err(|source| error!(!source, "failed to execute the statement"))?;
-		let exists = row.get::<_, bool>(0);
 		if !exists {
 			return Ok(None);
 		}
 
-		// Get the versions.
-		let statement = "
-			select version, id
-			from package_versions
-			where name = $1
-			order by published_at asc
-		";
-		let params = postgres_params![name];
-		let statement = connection
-			.prepare_cached(statement)
-			.await
-			.map_err(|source| error!(!source, "failed to prepare the statement"))?;
-		let rows = connection
-			.query(&statement, params)
+		// Get the package versions.
+		let p = connection.p();
+		let statement = formatdoc!(
+			"
+				select version, id
+				from package_versions
+				where name = {p}1
+				order by published_at asc
+			"
+		);
+		let params = db::params![name];
+		let versions = connection
+			.query_all_into::<(String, tg::directory::Id)>(statement, params)
 			.await
 			.map_err(|source| error!(!source, "failed to execute the statement"))?;
 
-		// Get all the package versions.
-		let all_versions: Vec<_> = rows
-			.into_iter()
-			.map(|row| (row.get::<_, String>(0), row.get::<_, String>(1)))
-			.map(|(version, id)| {
-				let id = id.parse()?;
-				Ok::<(String, tg::directory::Id), tangram_error::Error>((version, id))
-			})
-			.try_collect()?;
+		// Drop the database connection.
+		drop(connection);
 
+		// If there is no version constraint, then return all versions.
 		let Some(version) = version else {
-			return Ok(Some(all_versions));
+			return Ok(Some(versions));
 		};
 
-		// Try to match semver, but only against versions that parse as semver.
-		'a: {
-			if !"=<>^~*".chars().any(|ch| version.starts_with(ch)) {
-				break 'a;
-			}
+		// If the version constraint is semver, then match with it.
+		if "=<>^~*".chars().any(|ch| version.starts_with(ch)) {
 			let req = semver::VersionReq::parse(version).map_err(
-				|error| error!(source = error, %version, "failed to parse version constraint"),
+				|source| error!(!source, %version, "failed to parse the version constraint"),
 			)?;
-			let versions = all_versions
+			let versions = versions
 				.into_iter()
 				.filter(|(version, _)| {
 					let Ok(version) = version.parse() else {
@@ -109,23 +101,20 @@ impl Server {
 			return Ok(Some(versions));
 		}
 
-		// Try to match with a regex against all versions.
-		'a: {
-			if !version.starts_with('/') {
-				break 'a;
-			}
+		// If the version constraint is regex, then match with it.
+		if version.starts_with('/') {
 			let (_, constraint) = version.split_at(1);
 			let regex = regex::Regex::new(constraint)
 				.map_err(|source| error!(!source, "failed to parse regex"))?;
-			let versions = all_versions
+			let versions = versions
 				.into_iter()
 				.filter(|(version, _)| regex.is_match(version))
 				.collect::<Vec<_>>();
 			return Ok(Some(versions));
 		}
 
-		// Fall back on string equality.
-		let versions = all_versions
+		// Otherwise, use string equality.
+		let versions = versions
 			.into_iter()
 			.filter(|(version_, _)| version_ == version)
 			.collect::<Vec<_>>();

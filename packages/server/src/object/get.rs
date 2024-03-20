@@ -1,11 +1,9 @@
-use crate::{
-	database::{Database, Postgres, Sqlite},
-	postgres_params, sqlite_params, Http, Server,
-};
-use bytes::Bytes;
+use crate::{params, Http, Server};
+use futures::TryFutureExt;
+use indoc::formatdoc;
 use tangram_client as tg;
 use tangram_error::{error, Result};
-use tangram_util::http::{bad_request, full, not_found, Incoming, Outgoing};
+use tangram_http::{bad_request, full, not_found, Incoming, Outgoing};
 
 impl Server {
 	pub async fn try_get_object(
@@ -25,81 +23,33 @@ impl Server {
 		&self,
 		id: &tg::object::Id,
 	) -> Result<Option<tg::object::GetOutput>> {
-		match &self.inner.database {
-			Database::Sqlite(database) => self.try_get_object_sqlite(id, database).await,
-			Database::Postgres(database) => self.try_get_object_postgres(id, database).await,
-		}
-	}
-
-	async fn try_get_object_sqlite(
-		&self,
-		id: &tg::object::Id,
-		database: &Sqlite,
-	) -> Result<Option<tg::object::GetOutput>> {
-		let connection = database.get().await?;
-		let statement = "
-			select bytes
-			from objects
-			where id = ?1;
-		";
-		let params = sqlite_params![id.to_string()];
-		let mut statement = connection
-			.prepare_cached(statement)
-			.map_err(|source| error!(!source, "failed to prepare the query"))?;
-		let mut rows = statement
-			.query(params)
-			.map_err(|source| error!(!source, "failed to execute the statement"))?;
-		let Some(row) = rows
-			.next()
-			.map_err(|source| error!(!source, "failed to retrieve the row"))?
-		else {
-			return Ok(None);
-		};
-		let bytes: Bytes = row
-			.get::<_, Vec<u8>>(0)
-			.map_err(|source| error!(!source, "failed to deserialize the column"))?
-			.into();
-		let output = tg::object::GetOutput {
-			bytes,
-			count: None,
-			weight: None,
-		};
-		Ok(Some(output))
-	}
-
-	async fn try_get_object_postgres(
-		&self,
-		id: &tg::object::Id,
-		database: &Postgres,
-	) -> Result<Option<tg::object::GetOutput>> {
-		let connection = database.get().await?;
-		let statement = "
-			select bytes
-			from objects
-			where id = $1;
-		";
-		let params = postgres_params![id.to_string()];
-		let statement = connection
-			.prepare_cached(statement)
+		// Get a database connection.
+		let connection = self
+			.inner
+			.database
+			.connection()
 			.await
-			.map_err(|source| error!(!source, "failed to prepare the statement"))?;
-		let Some(row) = connection
-			.query_opt(&statement, params)
-			.await
-			.map_err(|source| error!(!source, "failed to execute the statement"))?
-		else {
-			return Ok(None);
-		};
-		let bytes: Bytes = row
-			.try_get::<_, Vec<u8>>(0)
-			.map_err(|source| error!(!source, "failed to deserialize the column"))?
-			.into();
-		let output = tg::object::GetOutput {
-			bytes,
-			count: None,
-			weight: None,
-		};
-		Ok(Some(output))
+			.map_err(|error| error!(source = error, "failed to get a database connection"))?;
+
+		// Get the object.
+		let p = connection.p();
+		let statement = formatdoc!(
+			"
+				select bytes, count, weight
+				from objects
+				where id = {p}1;
+			",
+		);
+		let params = params![id];
+		let output = connection
+			.query_optional_into(statement, params)
+			.map_err(|source| error!(!source, "failed to execute the statement"))
+			.await?;
+
+		// Drop the database connection.
+		drop(connection);
+
+		Ok(output)
 	}
 
 	async fn try_get_object_remote(
@@ -107,7 +57,7 @@ impl Server {
 		id: &tg::object::Id,
 	) -> Result<Option<tg::object::GetOutput>> {
 		// Get the remote.
-		let Some(remote) = self.inner.remote.as_ref() else {
+		let Some(remote) = self.inner.remotes.first() else {
 			return Ok(None);
 		};
 

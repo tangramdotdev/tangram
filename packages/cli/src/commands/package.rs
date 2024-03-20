@@ -90,7 +90,7 @@ impl Cli {
 		}
 
 		let outdated = client
-			.get_outdated(&dependency)
+			.get_package_outdated(&dependency)
 			.await
 			.map_err(|source| error!(!source, %dependency, "failed to get outdated packages"))?;
 

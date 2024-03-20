@@ -1,5 +1,4 @@
 use crate::{artifact, blob, id, object, Artifact, Blob, Handle};
-use async_recursion::async_recursion;
 use bytes::Bytes;
 use derive_more::Display;
 use futures::{stream::FuturesOrdered, TryStreamExt};
@@ -155,7 +154,6 @@ impl File {
 		Ok(())
 	}
 
-	#[async_recursion]
 	pub async fn data(&self, tg: &dyn Handle) -> Result<Data> {
 		let object = self.object(tg).await?;
 		let contents = object.contents.id(tg).await?.clone();

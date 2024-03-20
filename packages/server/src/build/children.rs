@@ -1,19 +1,17 @@
-use crate::{database::Database, postgres_params, sqlite_params, Http, Server};
+use crate::{Http, Server};
 use futures::{
 	future,
 	stream::{self, BoxStream},
 	stream_select, FutureExt, StreamExt, TryStreamExt,
 };
 use http_body_util::{BodyExt, StreamBody};
-use itertools::Itertools;
+use indoc::formatdoc;
 use num::ToPrimitive;
 use std::sync::Arc;
 use tangram_client as tg;
+use tangram_database as db;
 use tangram_error::{error, Error, Result};
-use tangram_util::{
-	http::{empty, not_found, Incoming, Outgoing},
-	iter::IterExt,
-};
+use tangram_http::{empty, not_found, Incoming, Outgoing};
 use tokio_stream::wrappers::IntervalStream;
 
 impl Server {
@@ -192,63 +190,33 @@ impl Server {
 		&self,
 		id: &tg::build::Id,
 	) -> Result<u64> {
-		match &self.inner.database {
-			Database::Sqlite(database) => {
-				let connection = database.get().await?;
-				let statement = "
-					select count(*)
-					from build_children
-					where build = ?1;
-				";
-				let id = id.to_string();
-				let params = sqlite_params![id];
-				let mut statement = connection
-					.prepare_cached(statement)
-					.map_err(|source| error!(!source, "failed to prepare the statement"))?;
-				let mut rows = statement
-					.query(params)
-					.map_err(|source| error!(!source, "failed to execute the statement"))?;
-				let row = rows
-					.next()
-					.map_err(|source| error!(!source, "failed to get the row"))?
-					.ok_or_else(|| error!("expected a row"))?;
-				let count = row
-					.get::<_, i64>(0)
-					.map_err(|source| error!(!source, "failed to deserialize the column"))?
-					.to_u64()
-					.unwrap();
-				Ok(count)
-			},
+		// Get a database connection.
+		let connection = self
+			.inner
+			.database
+			.connection()
+			.await
+			.map_err(|source| error!(!source, "failed to get a database connection"))?;
 
-			Database::Postgres(database) => {
-				let connection = database.get().await?;
-				let statement = "
-					select count(*)
-					from build_children
-					where build = $1;
-				";
-				let id = id.to_string();
-				let params = postgres_params![id];
-				let statement = connection
-					.prepare_cached(statement)
-					.await
-					.map_err(|source| error!(!source, "failed to prepare the statement"))?;
-				let rows = connection
-					.query(&statement, params)
-					.await
-					.map_err(|source| error!(!source, "failed to execute the statement"))?;
-				let row = rows
-					.into_iter()
-					.next()
-					.ok_or_else(|| error!("expected a row"))?;
-				let count = row
-					.try_get::<_, i64>(0)
-					.map_err(|source| error!(!source, "failed to deserialiize the column"))?
-					.to_u64()
-					.unwrap();
-				Ok(count)
-			},
-		}
+		// Get the position.
+		let p = connection.p();
+		let statement = formatdoc!(
+			"
+				select count(*)
+				from build_children
+				where build = {p}1;
+			"
+		);
+		let params = db::params![id];
+		let position = connection
+			.query_one_scalar_into(statement, params)
+			.await
+			.map_err(|source| error!(!source, "failed to execute the statement"))?;
+
+		// Drop the database connection.
+		drop(connection);
+
+		Ok(position)
 	}
 
 	async fn try_get_build_children_local_end(
@@ -256,69 +224,39 @@ impl Server {
 		id: &tg::build::Id,
 		position: u64,
 	) -> Result<bool> {
-		match &self.inner.database {
-			Database::Sqlite(database) => {
-				let connection = database.get().await?;
-				let statement = "
-					select (
-						select status = 'finished'
-						from builds
-						where id = ?1
-					) and (
-						select ?2 >= count(*)
-						from build_children
-						where build = ?1
-					);
-				";
-				let params = sqlite_params![id.to_string(), position.to_i64().unwrap()];
-				let mut statement = connection
-					.prepare_cached(statement)
-					.map_err(|source| error!(!source, "failed to prepare the statement"))?;
-				let mut rows = statement
-					.query(params)
-					.map_err(|source| error!(!source, "failed to execute the statement"))?;
-				let row = rows
-					.next()
-					.map_err(|source| error!(!source, "failed to get the row"))?
-					.ok_or_else(|| error!("expected a row"))?;
-				let end = row
-					.get::<_, bool>(0)
-					.map_err(|source| error!(!source, "failed to deserialize the column"))?;
-				Ok(end)
-			},
+		// Get a database connection.
+		let connection = self
+			.inner
+			.database
+			.connection()
+			.await
+			.map_err(|source| error!(!source, "failed to get a database connection"))?;
 
-			Database::Postgres(database) => {
-				let connection = database.get().await?;
-				let statement = "
-					select (
-						select status = 'finished'
-						from builds
-						where id = $1
-					) and (
-						select $2 >= count(*)
-						from build_children
-						where build = $1
-					);
-				";
-				let statement = connection
-					.prepare_cached(statement)
-					.await
-					.map_err(|source| error!(!source, "failed to prepare the statement"))?;
-				let params = postgres_params![id.to_string(), position.to_i64().unwrap()];
-				let rows = connection
-					.query(&statement, params)
-					.await
-					.map_err(|source| error!(!source, "failed to execute the statement"))?;
-				let row = rows
-					.into_iter()
-					.next()
-					.ok_or_else(|| error!("expected a row"))?;
-				let end = row
-					.try_get::<_, bool>(0)
-					.map_err(|source| error!(!source, "failed to deserialize the column"))?;
-				Ok(end)
-			},
-		}
+		// Get the end.
+		let p = connection.p();
+		let statement = formatdoc!(
+			"
+				select (
+					select status = 'finished'
+					from builds
+					where id = {p}1
+				) and (
+					select {p}2 >= count(*)
+					from build_children
+					where build = {p}1
+				);
+			"
+		);
+		let params = db::params![id, position];
+		let end = connection
+			.query_one_scalar_into(statement, params)
+			.await
+			.map_err(|source| error!(!source, "failed to execute the statement"))?;
+
+		// Drop the database connection.
+		drop(connection);
+
+		Ok(end)
 	}
 
 	async fn try_get_build_children_local_inner(
@@ -327,74 +265,42 @@ impl Server {
 		position: u64,
 		length: u64,
 	) -> Result<tg::build::children::Chunk> {
-		match &self.inner.database {
-			Database::Sqlite(database) => {
-				let connection = database.get().await?;
-				let statement = "
-					select child
-					from build_children
-					where build = ?1
-					order by position
-					limit ?2
-					offset ?3
-				";
-				let params = sqlite_params![
-					id.to_string(),
-					length.to_i64().unwrap(),
-					position.to_i64().unwrap(),
-				];
-				let mut statement = connection
-					.prepare_cached(statement)
-					.map_err(|source| error!(!source, "failed to prepare the statement"))?;
-				let children = statement
-					.query(params)
-					.map_err(|source| error!(!source, "failed to execute the statement"))?
-					.and_then(|row| row.get::<_, String>(0))
-					.map_err(|source| error!(!source, "failed to deserialize the rows"))
-					.and_then(|id| id.parse())
-					.try_collect()?;
-				let chunk = tg::build::children::Chunk {
-					position,
-					items: children,
-				};
-				Ok(chunk)
-			},
+		// Get a database connection.
+		let connection = self
+			.inner
+			.database
+			.connection()
+			.await
+			.map_err(|source| error!(!source, "failed to get a database connection"))?;
 
-			Database::Postgres(database) => {
-				let connection = database.get().await?;
-				let statement = "
-					select child
-					from build_children
-					where build = $1
-					order by position
-					limit $2
-					offset $3
-				";
-				let params = postgres_params![
-					id.to_string(),
-					length.to_i64().unwrap(),
-					position.to_i64().unwrap(),
-				];
-				let statement = connection
-					.prepare_cached(statement)
-					.await
-					.map_err(|source| error!(!source, "failed to prepare the statement"))?;
-				let children = connection
-					.query(&statement, params)
-					.await
-					.map_err(|source| error!(!source, "failed to execute the statement"))?
-					.into_iter()
-					.map(|row| row.try_get::<_, String>(0))
-					.map_err(|source| error!(!source, "failed to deserialize the rows"))
-					.and_then(|row| row.parse())
-					.try_collect()?;
-				let chunk = tg::build::children::Chunk {
-					position,
-					items: children,
-				};
-				Ok(chunk)
-			},
-		}
+		// Get the children.
+		let p = connection.p();
+		let statement = formatdoc!(
+			"
+				select child
+				from build_children
+				where build = {p}1
+				order by position
+				limit {p}2
+				offset {p}3
+			"
+		);
+		let params = db::params![id, length, position,];
+		let children = connection
+			.query_all_scalar_into(statement, params)
+			.await
+			.map_err(|source| error!(!source, "failed to execute the statement"))?;
+
+		// Drop the database connection.
+		drop(connection);
+
+		// Create the chunk.
+		let chunk = tg::build::children::Chunk {
+			position,
+			items: children,
+		};
+
+		Ok(chunk)
 	}
 
 	async fn try_get_build_children_remote(
@@ -403,7 +309,7 @@ impl Server {
 		arg: tg::build::children::GetArg,
 		stop: Option<tokio::sync::watch::Receiver<bool>>,
 	) -> Result<Option<BoxStream<'static, Result<tg::build::children::Chunk>>>> {
-		let Some(remote) = self.inner.remote.as_ref() else {
+		let Some(remote) = self.inner.remotes.first() else {
 			return Ok(None);
 		};
 		let Some(stream) = remote.try_get_build_children(id, arg, stop).await? else {
@@ -445,41 +351,25 @@ impl Server {
 		}
 
 		// Add the child to the database.
-		match &self.inner.database {
-			Database::Sqlite(database) => {
-				let connection = database.get().await?;
-				let statement = "
-					insert into build_children (build, position, child)
-					values (?1, (select coalesce(max(position) + 1, 0) from build_children where build = ?1), ?2)
-					on conflict (build, child) do nothing;
-				";
-				let params = sqlite_params![build_id.to_string(), child_id.to_string()];
-				let mut statement = connection
-					.prepare_cached(statement)
-					.map_err(|source| error!(!source, "failed to prepare the query"))?;
-				statement
-					.execute(params)
-					.map_err(|source| error!(!source, "failed to execute the statement"))?;
-			},
-
-			Database::Postgres(database) => {
-				let connection = database.get().await?;
-				let statement = "
-					insert into build_children (build, position, child)
-					values ($1, (select coalesce(max(position) + 1, 0) from build_children where build = $1), $2)
-					on conflict (build, child) do nothing;
-				";
-				let params = postgres_params![build_id.to_string(), child_id.to_string()];
-				let statement = connection
-					.prepare_cached(statement)
-					.await
-					.map_err(|source| error!(!source, "failed to prepare the statement"))?;
-				connection
-					.execute(&statement, params)
-					.await
-					.map_err(|source| error!(!source, "failed to execute the statement"))?;
-			},
-		}
+		let connection = self
+			.inner
+			.database
+			.connection()
+			.await
+			.map_err(|source| error!(!source, "failed to get a database connection"))?;
+		let p = connection.p();
+		let statement = formatdoc!(
+			"
+				insert into build_children (build, position, child)
+				values ({p}1, (select coalesce(max(position) + 1, 0) from build_children where build = {p}1), {p}2)
+				on conflict (build, child) do nothing;
+			"
+		);
+		let params = db::params![build_id, child_id];
+		connection
+			.execute(statement, params)
+			.await
+			.map_err(|source| error!(!source, "failed to execute the statement"))?;
 
 		// Publish the message.
 		self.inner
@@ -496,7 +386,7 @@ impl Server {
 		build_id: &tg::build::Id,
 		child_id: &tg::build::Id,
 	) -> Result<bool> {
-		let Some(remote) = self.inner.remote.as_ref() else {
+		let Some(remote) = self.inner.remotes.first() else {
 			return Ok(false);
 		};
 		tg::Build::with_id(child_id.clone())
@@ -546,8 +436,13 @@ impl Http {
 			})
 			.transpose()?;
 
-		let stop = request.extensions().get().cloned();
-		let Some(stream) = self.inner.tg.try_get_build_children(&id, arg, stop).await? else {
+		let stop = request.extensions().get().cloned().unwrap();
+		let Some(stream) = self
+			.inner
+			.tg
+			.try_get_build_children(&id, arg, Some(stop))
+			.await?
+		else {
 			return Ok(not_found());
 		};
 
@@ -576,7 +471,7 @@ impl Http {
 				let body = stream
 					.map_ok(|chunk| {
 						let data = serde_json::to_string(&chunk).unwrap();
-						let event = tangram_util::sse::Event::with_data(data);
+						let event = tangram_sse::Event::with_data(data);
 						hyper::body::Frame::data(event.to_string().into())
 					})
 					.map_err(Into::into);

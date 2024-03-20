@@ -4,12 +4,12 @@ use bytes::Bytes;
 use futures::stream::BoxStream;
 use std::sync::Arc;
 use tangram_client as tg;
-use tangram_error::{error, Result};
+use tangram_error::{error, Error, Result};
 use tokio::io::{AsyncRead, AsyncWrite};
 use url::Url;
 
 #[derive(Clone)]
-pub struct Proxy {
+pub struct Server {
 	inner: Arc<Inner>,
 }
 
@@ -28,12 +28,8 @@ pub struct GetOrCreateProxiedArg {
 	pub target: tg::target::Id,
 }
 
-impl Proxy {
-	pub async fn start(
-		server: &crate::Server,
-		build: &tg::build::Id,
-		address: tg::Address,
-	) -> Result<Self> {
+impl Server {
+	pub async fn start(server: &crate::Server, build: &tg::build::Id, url: Url) -> Result<Self> {
 		// Create an owned copy of the parent build id to be used in the proxy server.
 		let build = build.clone();
 
@@ -46,7 +42,7 @@ impl Proxy {
 		// Create the shutdown task.
 		let shutdown_task = std::sync::Mutex::new(None);
 
-		// Construct the proxy server.
+		// Create the server.
 		let inner = Inner {
 			build,
 			http,
@@ -54,19 +50,15 @@ impl Proxy {
 			shutdown,
 			shutdown_task,
 		};
-		let proxy = Proxy {
+		let server = Server {
 			inner: Arc::new(inner),
 		};
 
 		// Start the HTTP server.
-		proxy
-			.inner
-			.http
-			.lock()
-			.unwrap()
-			.replace(Http::start(&proxy, address));
+		let http = Http::start(&server, url);
+		server.inner.http.lock().unwrap().replace(http);
 
-		Ok(proxy)
+		Ok(server)
 	}
 
 	pub fn stop(&self) {
@@ -83,7 +75,7 @@ impl Proxy {
 				http.join().await?;
 			}
 
-			Ok::<_, tangram_error::Error>(())
+			Ok::<_, Error>(())
 		});
 		self.inner.shutdown_task.lock().unwrap().replace(task);
 		self.inner.shutdown.send_replace(true);
@@ -122,7 +114,7 @@ impl Proxy {
 }
 
 #[async_trait]
-impl tg::Handle for Proxy {
+impl tg::Handle for Server {
 	fn clone_box(&self) -> Box<dyn tg::Handle> {
 		Box::new(self.clone())
 	}
@@ -292,13 +284,6 @@ impl tg::Handle for Proxy {
 		Err(error!("not supported"))
 	}
 
-	async fn get_outdated(
-		&self,
-		_dependency: &tg::Dependency,
-	) -> Result<tg::package::OutdatedOutput> {
-		Err(error!("not supported"))
-	}
-
 	async fn try_get_package(
 		&self,
 		_dependency: &tg::Dependency,
@@ -330,6 +315,13 @@ impl tg::Handle for Proxy {
 		Err(error!("not supported"))
 	}
 
+	async fn get_package_outdated(
+		&self,
+		_dependency: &tg::Dependency,
+	) -> Result<tg::package::OutdatedOutput> {
+		Err(error!("not supported"))
+	}
+
 	async fn get_runtime_doc(&self) -> Result<serde_json::Value> {
 		Err(error!("not supported"))
 	}
@@ -349,7 +341,7 @@ impl tg::Handle for Proxy {
 		Err(error!("not supported"))
 	}
 
-	async fn health(&self) -> Result<tg::server::Health> {
+	async fn health(&self) -> Result<tg::meta::Health> {
 		self.inner.server.health().await
 	}
 

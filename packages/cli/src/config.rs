@@ -1,15 +1,10 @@
 use serde_with::serde_as;
 use std::path::PathBuf;
-use tangram_client as tg;
 use url::Url;
 
 #[serde_as]
 #[derive(Clone, Debug, Default, serde::Serialize, serde::Deserialize)]
 pub struct Config {
-	#[serde(default, skip_serializing_if = "Option::is_none")]
-	#[serde_as(as = "Option<serde_with::DisplayFromStr>")]
-	pub address: Option<tg::Address>,
-
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub advanced: Option<Advanced>,
 
@@ -32,7 +27,7 @@ pub struct Config {
 	pub path: Option<PathBuf>,
 
 	#[serde(default, skip_serializing_if = "Option::is_none")]
-	pub remote: Option<Remote>,
+	pub remotes: Option<Vec<Remote>>,
 
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub tracing: Option<String>,
@@ -42,9 +37,6 @@ pub struct Config {
 
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub vfs: Option<Vfs>,
-
-	#[serde(default, skip_serializing_if = "Option::is_none")]
-	pub www: Option<Url>,
 }
 
 #[derive(Clone, Debug, Default, serde::Serialize, serde::Deserialize)]
@@ -133,14 +125,14 @@ pub struct OauthClient {
 	pub auth_url: String,
 	pub client_id: String,
 	pub client_secret: String,
+	pub redirect_url: String,
 	pub token_url: String,
 }
 
-#[derive(Clone, Debug, Default, serde::Serialize, serde::Deserialize)]
+#[derive(Clone, Debug, serde::Serialize, serde::Deserialize)]
 pub struct Remote {
-	/// The remote URL.
-	#[serde(default, skip_serializing_if = "Option::is_none")]
-	pub url: Option<Url>,
+	/// The server's url.
+	pub url: Url,
 
 	/// Configure remote builds.
 	#[serde(default, skip_serializing_if = "Option::is_none")]

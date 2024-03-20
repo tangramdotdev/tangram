@@ -205,8 +205,7 @@ impl Directory {
 			// If the artifact is a symlink, then resolve it.
 			if let Artifact::Symlink(symlink) = &artifact {
 				let from = Symlink::new(Some(self.clone().into()), Some(current_path.to_string()));
-				match symlink
-					.resolve_from(tg, Some(from))
+				match Box::pin(symlink.resolve_from(tg, Some(from)))
 					.await
 					.map_err(|source| error!(!source, "failed to resolve the symlink"))?
 				{

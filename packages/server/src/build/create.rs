@@ -3,7 +3,7 @@ use http_body_util::BodyExt;
 use std::sync::Arc;
 use tangram_client as tg;
 use tangram_error::{error, Result};
-use tangram_util::http::{full, Incoming, Outgoing};
+use tangram_http::{full, Incoming, Outgoing};
 
 impl Server {
 	pub async fn get_or_create_build(
@@ -52,7 +52,7 @@ impl Server {
 			}
 
 			// Get the remote.
-			let Some(remote) = self.inner.remote.as_ref() else {
+			let Some(remote) = self.inner.remotes.first() else {
 				break 'a None;
 			};
 
@@ -117,7 +117,7 @@ impl Server {
 			}
 
 			// Get the remote.
-			let Some(remote) = self.inner.remote.as_ref() else {
+			let Some(remote) = self.inner.remotes.first() else {
 				break 'a;
 			};
 

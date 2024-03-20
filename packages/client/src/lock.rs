@@ -2,7 +2,6 @@ pub use self::data::Data;
 use crate::{
 	error, id, object, package::LOCKFILE_FILE_NAME, Dependency, Directory, Error, Handle, Result,
 };
-use async_recursion::async_recursion;
 use bytes::Bytes;
 use derive_more::Display;
 use either::Either;
@@ -182,7 +181,6 @@ impl Lock {
 		Ok(())
 	}
 
-	#[async_recursion]
 	pub async fn data(&self, tg: &dyn Handle) -> Result<Data> {
 		let object = self.object(tg).await?;
 		let root = object.root;

@@ -1,22 +1,22 @@
-use crate as tg;
+use crate::Position;
 use lsp_types as lsp;
 
 /// A range in a string, such as a text editor selection. The end is exclusive. This type maps cleanly to the `Range` type in the Language Server Protocol.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Range {
-	pub start: tg::Position,
-	pub end: tg::Position,
+	pub start: Position,
+	pub end: Position,
 }
 
 impl Range {
 	/// Convert a byte range of the given string to a `Range`. If the end is out of bounds, the range will end at the start of the next line past the end of the string. If both stard and end are out of bounds, then the returned range will start and end at the next line past the end of the string.
 	#[must_use]
 	pub fn from_byte_range_in_string(string: &str, byte_range: std::ops::Range<usize>) -> Self {
-		let start = tg::Position::try_from_byte_index_in_string(string, byte_range.start)
-			.unwrap_or_else(|| tg::Position::past_end(string));
-		let end = tg::Position::try_from_byte_index_in_string(string, byte_range.end)
-			.unwrap_or_else(|| tg::Position::past_end(string));
+		let start = Position::try_from_byte_index_in_string(string, byte_range.start)
+			.unwrap_or_else(|| Position::past_end(string));
+		let end = Position::try_from_byte_index_in_string(string, byte_range.end)
+			.unwrap_or_else(|| Position::past_end(string));
 
 		Self { start, end }
 	}
@@ -99,11 +99,11 @@ mod tests {
 		assert_eq!(
 			Range::from_byte_range_in_string(string, empty_byte_range_1),
 			Range {
-				start: tg::Position {
+				start: Position {
 					line: 0,
 					character: 0
 				},
-				end: tg::Position {
+				end: Position {
 					line: 0,
 					character: 0
 				}
@@ -112,11 +112,11 @@ mod tests {
 		assert_eq!(
 			Range::from_byte_range_in_string(string, empty_byte_range_2),
 			Range {
-				start: tg::Position {
+				start: Position {
 					line: 0,
 					character: 0,
 				},
-				end: tg::Position {
+				end: Position {
 					line: 0,
 					character: 1,
 				},
@@ -127,11 +127,11 @@ mod tests {
 		assert_eq!(
 			Range::from_byte_range_in_string(string, full_byte_range),
 			Range {
-				start: tg::Position {
+				start: Position {
 					line: 0,
 					character: 0,
 				},
-				end: tg::Position {
+				end: Position {
 					line: 2,
 					character: 0,
 				},
@@ -144,22 +144,22 @@ mod tests {
 		let string = "Hello 👋 World\nHi 🌎!";
 
 		let full_range = Range {
-			start: tg::Position {
+			start: Position {
 				line: 0,
 				character: 0,
 			},
-			end: tg::Position {
+			end: Position {
 				line: 2,
 				character: 0,
 			},
 		};
 
 		let insert_at_end_range = Range {
-			start: tg::Position {
+			start: Position {
 				line: 2,
 				character: 0,
 			},
-			end: tg::Position {
+			end: Position {
 				line: 2,
 				character: 0,
 			},
@@ -186,11 +186,11 @@ mod tests {
 		let string = "";
 
 		let full_range = Range {
-			start: tg::Position {
+			start: Position {
 				line: 0,
 				character: 0,
 			},
-			end: tg::Position {
+			end: Position {
 				line: 1,
 				character: 0,
 			},
@@ -201,11 +201,11 @@ mod tests {
 		assert_eq!(
 			Range::from_byte_range_in_string(string, 0..0),
 			Range {
-				start: tg::Position {
+				start: Position {
 					line: 1,
 					character: 0
 				},
-				end: tg::Position {
+				end: Position {
 					line: 1,
 					character: 0
 				},

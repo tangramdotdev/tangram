@@ -1,5 +1,5 @@
 pub use self::options::Options;
-use self::{database::Database, messenger::Messenger, runtime::Runtime};
+use self::{messenger::Messenger, runtime::Runtime, util::rmrf};
 use async_nats as nats;
 use async_trait::async_trait;
 use bytes::Bytes;
@@ -7,10 +7,11 @@ use either::Either;
 use futures::{
 	future,
 	stream::{BoxStream, FuturesUnordered},
-	FutureExt, TryStreamExt,
+	FutureExt, TryFutureExt, TryStreamExt,
 };
 use http_body_util::BodyExt;
 use hyper_util::rt::{TokioExecutor, TokioIo};
+use indoc::formatdoc;
 use itertools::Itertools;
 use std::{
 	collections::HashMap,
@@ -21,11 +22,9 @@ use std::{
 	sync::Arc,
 };
 use tangram_client as tg;
+use tangram_database::{self as db, params, Database};
 use tangram_error::{error, Error, Result};
-use tangram_util::{
-	fs::rmrf,
-	http::{full, get_token, Incoming, Outgoing},
-};
+use tangram_http::{full, get_token, Incoming, Outgoing};
 use tokio::{
 	io::{AsyncRead, AsyncWrite},
 	net::{TcpListener, UnixListener},
@@ -36,16 +35,16 @@ mod artifact;
 mod blob;
 mod build;
 mod clean;
-mod database;
 mod language;
 mod messenger;
+mod meta;
 mod migrations;
 mod object;
 pub mod options;
 mod package;
 mod runtime;
-mod server;
 mod user;
+mod util;
 mod vfs;
 
 /// A server.
@@ -67,10 +66,10 @@ struct Inner {
 	messenger: Messenger,
 	oauth: OAuth,
 	options: Options,
-	remote: Option<Box<dyn tg::Handle>>,
+	remotes: Vec<Box<dyn tg::Handle>>,
 	runtimes: std::sync::RwLock<HashMap<String, Box<dyn Runtime>>>,
-	shutdown: tokio::sync::watch::Sender<bool>,
-	shutdown_task: std::sync::Mutex<Option<tokio::task::JoinHandle<Result<()>>>>,
+	status: tokio::sync::watch::Sender<Status>,
+	stop_task: std::sync::Mutex<Option<tokio::task::JoinHandle<Result<()>>>>,
 	vfs: std::sync::Mutex<Option<self::vfs::Server>>,
 }
 
@@ -78,6 +77,14 @@ struct BuildState {
 	permit: Arc<tokio::sync::Mutex<Option<Permit>>>,
 	stop: tokio::sync::watch::Sender<bool>,
 	task: std::sync::Mutex<Option<tokio::task::JoinHandle<()>>>,
+}
+
+#[derive(Clone, Copy, Eq, Ord, PartialEq, PartialOrd)]
+enum Status {
+	Created,
+	Started,
+	Stopping,
+	Stopped,
 }
 
 struct Permit(
@@ -108,9 +115,6 @@ struct Tmp {
 
 impl Server {
 	pub async fn start(options: Options) -> Result<Server> {
-		// Get the address.
-		let address = options.address.clone();
-
 		// Get the path.
 		let path = &options.path;
 
@@ -164,15 +168,19 @@ impl Server {
 		let build_semaphore = Arc::new(tokio::sync::Semaphore::new(options.build.max_concurrency));
 
 		// Create the database.
-		let database = match &options.database {
-			self::options::Database::Sqlite(sqlite) => {
-				let database_path = path.join("database");
-				Database::new_sqlite(database_path, sqlite.max_connections).await?
-			},
-			self::options::Database::Postgres(postgres) => {
-				Database::new_postgres(postgres.url.clone(), postgres.max_connections).await?
+		let database_options = match &options.database {
+			self::options::Database::Sqlite(options) => db::Options::Sqlite(db::sqlite::Options {
+				path: path.join("database"),
+				max_connections: options.max_connections,
+			}),
+			self::options::Database::Postgres(options) => {
+				db::Options::Postgres(db::postgres::Options {
+					url: options.url.clone(),
+					max_connections: options.max_connections,
+				})
 			},
 		};
+		let database = Database::new(database_options).await?;
 
 		// Create the database.
 		let messenger = match &options.messenger {
@@ -211,23 +219,33 @@ impl Server {
 				auth_url,
 				Some(token_url),
 			);
+			let redirect_url = oauth2::RedirectUrl::new(oauth.redirect_url.clone())
+				.map_err(|source| error!(!source, "failed to create the redirect URL"))?;
+			let oauth_client = oauth_client.set_redirect_uri(redirect_url);
 			Some(oauth_client)
 		} else {
 			None
 		};
 		let oauth = OAuth { github };
 
-		// Get the remote.
-		let remote = options.remote.as_ref().map(|remote| remote.tg.clone_box());
+		// Get the remotes.
+		let remotes = options
+			.remotes
+			.iter()
+			.map(|remote| remote.tg.clone_box())
+			.collect();
 
 		// Create the runtimes.
 		let runtimes = std::sync::RwLock::new(HashMap::default());
 
-		// Create the shutdown channel.
-		let (shutdown, _) = tokio::sync::watch::channel(false);
+		// Create the status.
+		let (status, _) = tokio::sync::watch::channel(Status::Created);
 
-		// Create the shutdown task.
-		let shutdown_task = std::sync::Mutex::new(None);
+		// Create the stop task.
+		let stop_task = std::sync::Mutex::new(None);
+
+		// Get the URL.
+		let url = options.url.clone();
 
 		// Create the vfs.
 		let vfs = std::sync::Mutex::new(None);
@@ -246,31 +264,34 @@ impl Server {
 			messenger,
 			oauth,
 			options,
-			remote,
+			remotes,
 			runtimes,
-			shutdown,
-			shutdown_task,
+			status,
+			stop_task,
 			vfs,
 		});
 		let server = Server { inner };
 
 		// Cancel unfinished builds.
 		if let Database::Sqlite(database) = &server.inner.database {
-			let connection = database.get().await?;
-			let statement = r#"
-				update builds
-				set
-					outcome = json('{"kind":"canceled"}'),
-					status = 'finished'
-				where status != 'finished';
-			"#;
-			let mut statement = connection
-				.prepare_cached(statement)
-				.map_err(|source| error!(!source, "failed to prepare the query"))?;
-			let params = sqlite_params![];
-			statement
-				.execute(params)
-				.map_err(|source| error!(!source, "failed to execute the statement"))?;
+			let connection = database
+				.connection()
+				.await
+				.map_err(|error| error!(source = error, "failed to get a database connection"))?;
+			let statement = formatdoc!(
+				r#"
+					update builds
+					set
+						outcome = '{{"kind":"canceled"}}',
+						status = 'finished'
+					where status != 'finished';
+				"#
+			);
+			let params = params![];
+			connection
+				.execute(statement, params)
+				.map_err(|source| error!(!source, "failed to execute the statement"))
+				.await?;
 		}
 
 		// Start the VFS if necessary and set up the checkouts directory.
@@ -280,9 +301,7 @@ impl Server {
 			// Create the artifacts directory.
 			tokio::fs::create_dir_all(&artifacts_path)
 				.await
-				.map_err(|error| {
-					error!(source = error, "failed to create the artifacts directory")
-				})?;
+				.map_err(|source| error!(!source, "failed to create the artifacts directory"))?;
 
 			// Start the VFS server.
 			let vfs = self::vfs::Server::start(&server, &artifacts_path)
@@ -292,9 +311,9 @@ impl Server {
 			server.inner.vfs.lock().unwrap().replace(vfs);
 		} else {
 			// Remove the artifacts directory.
-			rmrf(&artifacts_path).await.map_err(|error| {
-				error!(source = error, "failed to remove the artifacts directory")
-			})?;
+			rmrf(&artifacts_path)
+				.await
+				.map_err(|source| error!(!source, "failed to remove the artifacts directory"))?;
 
 			// Create a symlink from the artifacts directory to the checkouts directory.
 			tokio::fs::symlink("checkouts", artifacts_path)
@@ -377,17 +396,17 @@ impl Server {
 		}
 
 		// Start the http server.
-		server
-			.inner
-			.http
-			.lock()
-			.unwrap()
-			.replace(Http::start(&server, address));
+		let http = Http::start(&server, url);
+		server.inner.http.lock().unwrap().replace(http);
+
+		// Set the status.
+		server.inner.status.send_replace(Status::Started);
 
 		Ok(server)
 	}
 
 	pub fn stop(&self) {
+		self.inner.status.send_replace(Status::Stopping);
 		let server = self.clone();
 		let task = tokio::spawn(async move {
 			// Stop the http server.
@@ -395,19 +414,19 @@ impl Server {
 				http.stop();
 			}
 
-			// Stop the build queue task.
-			server.inner.build_queue_task_stop.send_replace(true);
-
 			// Join the http server.
 			let http = server.inner.http.lock().unwrap().take();
 			if let Some(http) = http {
 				http.join().await?;
 			}
 
+			// Stop the build queue task.
+			server.inner.build_queue_task_stop.send_replace(true);
+
 			// Join the build queue task.
-			let local_queue_task = server.inner.build_queue_task.lock().unwrap().take();
-			if let Some(local_queue_task) = local_queue_task {
-				local_queue_task.await.unwrap()?;
+			let build_queue_task = server.inner.build_queue_task.lock().unwrap().take();
+			if let Some(build_queue_task) = build_queue_task {
+				build_queue_task.await.unwrap()?;
 			}
 
 			// Stop all builds.
@@ -432,7 +451,7 @@ impl Server {
 				.await
 				.ok();
 
-			// Clear all build state.
+			// Clear the build state.
 			server.inner.build_state.write().unwrap().clear();
 
 			// Join the vfs server.
@@ -442,26 +461,27 @@ impl Server {
 				vfs.join().await?;
 			}
 
+			// Remove the runtimes.
+			server.inner.runtimes.write().unwrap().clear();
+
 			// Release the lockfile.
 			server.inner.lockfile.lock().unwrap().take();
 
+			// Set the status.
+			server.inner.status.send_replace(Status::Stopped);
+
 			Ok(())
 		});
-		self.inner.shutdown_task.lock().unwrap().replace(task);
-		self.inner.shutdown.send_replace(true);
+		self.inner.stop_task.lock().unwrap().replace(task);
 	}
 
 	pub async fn join(&self) -> Result<()> {
 		self.inner
-			.shutdown
+			.status
 			.subscribe()
-			.wait_for(|shutdown| *shutdown)
+			.wait_for(|status| *status == Status::Stopped)
 			.await
 			.unwrap();
-		let task = self.inner.shutdown_task.lock().unwrap().take();
-		if let Some(task) = task {
-			task.await.unwrap()?;
-		}
 		Ok(())
 	}
 
@@ -498,7 +518,7 @@ impl Server {
 }
 
 impl Http {
-	fn start(tg: &dyn tg::Handle, address: tg::Address) -> Self {
+	fn start(tg: &dyn tg::Handle, url: Url) -> Self {
 		let tg = tg.clone_box();
 		let task = std::sync::Mutex::new(None);
 		let (stop_sender, stop_receiver) = tokio::sync::watch::channel(false);
@@ -508,7 +528,7 @@ impl Http {
 		let task = tokio::spawn({
 			let server = server.clone();
 			async move {
-				match server.serve(address, stop_receiver).await {
+				match server.serve(url, stop_receiver).await {
 					Ok(()) => Ok(()),
 					Err(error) => {
 						tracing::error!(?error);
@@ -538,29 +558,34 @@ impl Http {
 		Ok(())
 	}
 
-	async fn serve(
-		self,
-		address: tg::Address,
-		mut stop: tokio::sync::watch::Receiver<bool>,
-	) -> Result<()> {
+	async fn serve(self, url: Url, mut stop: tokio::sync::watch::Receiver<bool>) -> Result<()> {
 		// Create the tasks.
 		let mut tasks = tokio::task::JoinSet::new();
 
 		// Create the listener.
-		let listener = match &address {
-			tg::Address::Unix(path) => {
-				tokio_util::either::Either::Left(UnixListener::bind(path).map_err(|error| {
-					error!(source = error, "failed to create the UNIX listener")
-				})?)
+		let listener = match url.scheme() {
+			"unix" => {
+				let path = Path::new(url.path());
+				let listener = UnixListener::bind(path)
+					.map_err(|source| error!(!source, "failed to create the UNIX listener"))?;
+				tokio_util::either::Either::Left(listener)
 			},
-			tg::Address::Inet(inet) => tokio_util::either::Either::Right(
-				TcpListener::bind(inet.to_string())
+			"http" => {
+				let host = url.domain().ok_or_else(|| error!("invalid url"))?;
+				let port = url
+					.port_or_known_default()
+					.ok_or_else(|| error!("invalid url"))?;
+				let listener = TcpListener::bind(format!("{host}:{port}"))
 					.await
-					.map_err(|source| error!(!source, "failed to create the TCP listener"))?,
-			),
+					.map_err(|source| error!(!source, "failed to create the TCP listener"))?;
+				tokio_util::either::Either::Right(listener)
+			},
+			_ => {
+				return Err(error!("invalid url"));
+			},
 		};
 
-		tracing::info!("🚀 serving on {address:?}");
+		tracing::info!("🚀 serving on {url}");
 
 		loop {
 			// Accept a new connection.
@@ -570,9 +595,7 @@ impl Http {
 						listener
 							.accept()
 							.await
-							.map_err(|error| {
-								error!(source = error, "failed to accept a new connection")
-							})?
+							.map_err(|source| error!(!source, "failed to accept a new connection"))?
 							.0,
 					),
 					tokio_util::either::Either::Right(listener) => {
@@ -580,8 +603,8 @@ impl Http {
 							listener
 								.accept()
 								.await
-								.map_err(|error| {
-									error!(source = error, "failed to accept a new connection")
+								.map_err(|source| {
+									error!(!source, "failed to accept a new connection")
 								})?
 								.0,
 						)
@@ -750,6 +773,14 @@ impl Http {
 			},
 			(http::Method::POST, ["lsp"]) => self.handle_lsp_request(request).map(Some).boxed(),
 
+			// Meta
+			(http::Method::GET, ["health"]) => {
+				self.handle_health_request(request).map(Some).boxed()
+			},
+			(http::Method::GET, ["path"]) => self.handle_path_request(request).map(Some).boxed(),
+			(http::Method::POST, ["clean"]) => self.handle_clean_request(request).map(Some).boxed(),
+			(http::Method::POST, ["stop"]) => self.handle_stop_request(request).map(Some).boxed(),
+
 			// Packages
 			(http::Method::GET, ["packages", "search"]) => self
 				.handle_search_packages_request(request)
@@ -785,14 +816,6 @@ impl Http {
 				.handle_get_package_doc_request(request)
 				.map(Some)
 				.boxed(),
-
-			// Server
-			(http::Method::GET, ["health"]) => {
-				self.handle_health_request(request).map(Some).boxed()
-			},
-			(http::Method::GET, ["path"]) => self.handle_path_request(request).map(Some).boxed(),
-			(http::Method::POST, ["clean"]) => self.handle_clean_request(request).map(Some).boxed(),
-			(http::Method::POST, ["stop"]) => self.handle_stop_request(request).map(Some).boxed(),
 
 			// Users
 			(http::Method::POST, ["logins"]) => {
@@ -1026,13 +1049,6 @@ impl tg::Handle for Server {
 		self.search_packages(arg).await
 	}
 
-	async fn get_outdated(
-		&self,
-		dependency: &tg::Dependency,
-	) -> Result<tg::package::OutdatedOutput> {
-		self.get_outdated(dependency).await
-	}
-
 	async fn try_get_package(
 		&self,
 		dependency: &tg::Dependency,
@@ -1060,6 +1076,13 @@ impl tg::Handle for Server {
 		self.format_package(dependency).await
 	}
 
+	async fn get_package_outdated(
+		&self,
+		dependency: &tg::Dependency,
+	) -> Result<tg::package::OutdatedOutput> {
+		self.get_package_outdated(dependency).await
+	}
+
 	async fn get_runtime_doc(&self) -> Result<serde_json::Value> {
 		self.get_runtime_doc().await
 	}
@@ -1071,7 +1094,7 @@ impl tg::Handle for Server {
 		self.try_get_package_doc(dependency).await
 	}
 
-	async fn health(&self) -> Result<tg::server::Health> {
+	async fn health(&self) -> Result<tg::meta::Health> {
 		self.health().await
 	}
 

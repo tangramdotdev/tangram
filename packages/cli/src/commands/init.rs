@@ -35,16 +35,14 @@ impl Cli {
 				}
 			},
 			Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
-				tokio::fs::create_dir_all(&path).await.map_err(|error| {
+				tokio::fs::create_dir_all(&path).await.map_err(|source| {
 					let path = path.display();
-					error!(source = error, %path, "failed to create the directory")
+					error!(!source, %path, "failed to create the directory")
 				})?;
 			},
-			Err(error) => {
+			Err(source) => {
 				let path = path.display();
-				return Err(
-					error!(source = error, %path, "failed to get the metadata for the path"),
-				);
+				return Err(error!(!source, %path, "failed to get the metadata for the path"));
 			},
 		};
 
@@ -78,9 +76,9 @@ impl Cli {
 
 		// Write the files.
 		for (path, contents) in files {
-			tokio::fs::write(&path, &contents).await.map_err(|error| {
+			tokio::fs::write(&path, &contents).await.map_err(|source| {
 				let path = path.display();
-				error!(source = error, %path, "failed to write the file")
+				error!(!source, %path, "failed to write the file")
 			})?;
 		}
 

@@ -1,4 +1,4 @@
-use super::{proxy::Proxy, util::render};
+use super::{proxy, util::render};
 use crate::Server;
 use async_trait::async_trait;
 use bytes::Bytes;
@@ -17,6 +17,7 @@ use std::{
 use tangram_client as tg;
 use tangram_error::{error, Error, Result};
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
+use url::Url;
 
 #[derive(Clone)]
 pub struct Runtime {
@@ -144,7 +145,7 @@ impl Runtime {
 			output_path.to_str().unwrap().to_owned(),
 		);
 
-		// Set `$TANGRAM_ADDRESS`
+		// Set `$TANGRAM_URL`
 		tokio::fs::create_dir_all(home_directory_path.join(".tangram"))
 			.await
 			.map_err(|error| {
@@ -154,16 +155,14 @@ impl Runtime {
 				)
 			})?;
 		let proxy_server_socket_path = home_directory_path.join(".tangram/socket");
-		let proxy_server_address = tg::Address::Unix(proxy_server_socket_path.clone());
-		env.insert(
-			"TANGRAM_ADDRESS".to_owned(),
-			proxy_server_address.to_string(),
-		);
+		let proxy_server_url = format!("unix:{}", proxy_server_socket_path.display());
+		let proxy_server_url = Url::parse(&proxy_server_url).unwrap();
+		env.insert("TANGRAM_URL".to_owned(), proxy_server_url.to_string());
 
-		// Create a proxied server handle and start listening on a new socket.
-		let proxy = Proxy::start(server, build.id(), proxy_server_address)
+		// Start the proxy server.
+		let proxy = proxy::Server::start(server, build.id(), proxy_server_url)
 			.await
-			.map_err(|source| error!(!source, "Could not create proxy server"))?;
+			.map_err(|source| error!(!source, "failed to start the proxy server"))?;
 
 		// Create the sandbox profile.
 		let mut profile = String::new();

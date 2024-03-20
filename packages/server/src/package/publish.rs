@@ -1,8 +1,10 @@
-use crate::{database::Database, postgres_params, Http, Server};
+use crate::{Http, Server};
 use http_body_util::BodyExt;
+use indoc::formatdoc;
 use tangram_client as tg;
+use tangram_database as db;
 use tangram_error::{error, Result};
-use tangram_util::http::{ok, Incoming, Outgoing};
+use tangram_http::{ok, Incoming, Outgoing};
 use time::format_description::well_known::Rfc3339;
 
 impl Server {
@@ -11,7 +13,7 @@ impl Server {
 		user: Option<&tg::User>,
 		id: &tg::directory::Id,
 	) -> Result<()> {
-		if let Some(remote) = self.inner.remote.as_ref() {
+		if let Some(remote) = self.inner.remotes.first() {
 			self.push_object(&id.clone().into()).await?;
 			remote.publish_package(user, id).await?;
 			return Ok(());
@@ -35,44 +37,48 @@ impl Server {
 			.ok_or_else(|| error!(%id, "the package must have a version"))?
 			.as_str();
 
-		// Get the current time.
-		let published_at = time::OffsetDateTime::now_utc().format(&Rfc3339).unwrap();
+		// Get the published at timestamp.
+		let published_at = time::OffsetDateTime::now_utc();
 
 		// Get a database connection.
-		let Database::Postgres(database) = &self.inner.database else {
-			return Err(error!("unimplemented"));
-		};
-		let connection = database.get().await?;
+		let connection = self
+			.inner
+			.database
+			.connection()
+			.await
+			.map_err(|source| error!(!source, "failed to get a database connection"))?;
 
 		// Create the package if it does not exist.
-		let statement = "
-			upsert into packages (name)
-			values ($1);
-		";
-		let params = postgres_params![name];
-		let statement = connection
-			.prepare_cached(statement)
-			.await
-			.map_err(|source| error!(!source, "failed to prepare the statement"))?;
+		let p = connection.p();
+		let statement = formatdoc!(
+			"
+				insert into packages (name)
+				values ({p}1)
+				on conflict (name) do nothing;
+			"
+		);
+		let params = db::params![name];
 		connection
-			.execute(&statement, params)
+			.execute(statement, params)
 			.await
 			.map_err(|source| error!(!source, "failed to execute the statement"))?;
 
 		// Create the package version.
-		let statement = "
-			insert into package_versions (name, version, id, published_at)
-			values ($1, $2, $3, $4);
-		";
-		let params = postgres_params![name, version, id.to_string(), published_at];
-		let statement = connection
-			.prepare_cached(statement)
-			.await
-			.map_err(|source| error!(!source, "failed to prepare the statement"))?;
+		let p = connection.p();
+		let statement = formatdoc!(
+			"
+				insert into package_versions (name, version, id, published_at)
+				values ({p}1, {p}2, {p}3, {p}4);
+			"
+		);
+		let params = db::params![name, version, id, published_at.format(&Rfc3339).unwrap()];
 		connection
-			.execute(&statement, params)
+			.execute(statement, params)
 			.await
 			.map_err(|source| error!(!source, "failed to execute the statement"))?;
+
+		// Drop the database connection.
+		drop(connection);
 
 		Ok(())
 	}

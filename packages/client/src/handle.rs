@@ -193,11 +193,6 @@ pub trait Handle: Send + Sync + 'static {
 		arg: tg::package::SearchArg,
 	) -> Result<tg::package::SearchOutput>;
 
-	async fn get_outdated(
-		&self,
-		dependency: &tg::Dependency,
-	) -> Result<tg::package::OutdatedOutput>;
-
 	async fn get_package(
 		&self,
 		dependency: &tg::Dependency,
@@ -233,6 +228,11 @@ pub trait Handle: Send + Sync + 'static {
 
 	async fn format_package(&self, dependency: &tg::Dependency) -> Result<()>;
 
+	async fn get_package_outdated(
+		&self,
+		dependency: &tg::Dependency,
+	) -> Result<tg::package::OutdatedOutput>;
+
 	async fn get_runtime_doc(&self) -> Result<serde_json::Value>;
 
 	async fn get_package_doc(&self, dependency: &tg::Dependency) -> Result<serde_json::Value> {
@@ -247,7 +247,7 @@ pub trait Handle: Send + Sync + 'static {
 		dependency: &tg::Dependency,
 	) -> Result<Option<serde_json::Value>>;
 
-	async fn health(&self) -> Result<tg::server::Health>;
+	async fn health(&self) -> Result<tg::meta::Health>;
 
 	async fn clean(&self) -> Result<()>;
 

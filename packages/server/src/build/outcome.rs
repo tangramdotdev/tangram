@@ -1,19 +1,13 @@
 use super::log;
-use crate::{
-	database::{Database, PostgresJson, SqliteJson},
-	postgres_params, sqlite_params, Http, Server,
-};
+use crate::{Http, Server};
 use async_recursion::async_recursion;
 use futures::{future, stream::FuturesUnordered, TryFutureExt, TryStreamExt};
 use http_body_util::BodyExt;
-use itertools::Itertools;
-use num::ToPrimitive;
+use indoc::formatdoc;
 use tangram_client as tg;
+use tangram_database as db;
 use tangram_error::{error, Result};
-use tangram_util::{
-	http::{empty, full, not_found, Incoming, Outgoing},
-	iter::IterExt,
-};
+use tangram_http::{empty, full, not_found, Incoming, Outgoing};
 use time::format_description::well_known::Rfc3339;
 
 impl Server {
@@ -72,59 +66,27 @@ impl Server {
 		}
 
 		// Get the outcome.
-		let outcome = match &self.inner.database {
-			Database::Sqlite(database) => {
-				let connection = database.get().await?;
-				let statement = "
-					select outcome
-					from builds
-					where id = ?1;
-				";
-				let params = sqlite_params![id.to_string()];
-				let mut statement = connection
-					.prepare_cached(statement)
-					.map_err(|source| error!(!source, "failed to prepare the query"))?;
-				let mut rows = statement
-					.query(params)
-					.map_err(|source| error!(!source, "failed to execute the statement"))?;
-				let row = rows
-					.next()
-					.map_err(|source| error!(!source, "failed to get the row"))?
-					.ok_or_else(|| error!("expected a row"))?;
-				row.get::<_, SqliteJson<Option<tg::build::Outcome>>>(0)
-					.map_err(|source| error!(!source, "failed to deserialize the column"))?
-					.0
-					.ok_or_else(|| error!("expected the outcome to be set"))?
-			},
+		let connection = self
+			.inner
+			.database
+			.connection()
+			.await
+			.map_err(|source| error!(!source, "failed to get a database connection"))?;
+		let p = connection.p();
+		let statement = formatdoc!(
+			"
+				select outcome
+				from builds
+				where id = {p}1;
+			"
+		);
+		let params = db::params![id];
+		let outcome = connection
+			.query_optional_scalar_into(statement, params)
+			.await
+			.map_err(|source| error!(!source, "failed to execute the statement"))?;
 
-			Database::Postgres(database) => {
-				let connection = database.get().await?;
-				let statement = "
-					select outcome
-					from builds
-					where id = $1;
-				";
-				let params = postgres_params![id.to_string()];
-				let statement = connection
-					.prepare_cached(statement)
-					.await
-					.map_err(|source| error!(!source, "failed to prepare the query"))?;
-				let rows = connection
-					.query(&statement, params)
-					.await
-					.map_err(|source| error!(!source, "failed to execute the statement"))?;
-				let row = rows
-					.into_iter()
-					.next()
-					.ok_or_else(|| error!("expected a row"))?;
-				row.try_get::<_, PostgresJson<Option<tg::build::Outcome>>>(0)
-					.map_err(|source| error!(!source, "failed to deserialize the column"))?
-					.0
-					.ok_or_else(|| error!("expected the outcome to be set"))?
-			},
-		};
-
-		Ok(Some(Some(outcome)))
+		Ok(Some(outcome))
 	}
 
 	async fn try_get_build_outcome_remote(
@@ -133,7 +95,7 @@ impl Server {
 		arg: tg::build::outcome::GetArg,
 		stop: Option<tokio::sync::watch::Receiver<bool>>,
 	) -> Result<Option<Option<tg::build::Outcome>>> {
-		let Some(remote) = self.inner.remote.as_ref() else {
+		let Some(remote) = self.inner.remotes.first() else {
 			return Ok(None);
 		};
 		let Some(outcome) = remote.try_get_build_outcome(id, arg, stop).await? else {
@@ -190,57 +152,32 @@ impl Server {
 			return Ok(true);
 		}
 
-		// Get the children.
-		let children: Vec<tg::build::Id> = {
-			match &self.inner.database {
-				Database::Sqlite(database) => {
-					let connection = database.get().await?;
-					let statement = "
-						select child
-						from build_children
-						where build = ?1
-						order by position;
-					";
-					let params = sqlite_params![id.to_string()];
-					let mut statement = connection
-						.prepare_cached(statement)
-						.map_err(|source| error!(!source, "failed to prepare the query"))?;
-					let rows = statement.query(params).map_err(|error| {
-						error!(source = error, "failed to execute the statement")
-					})?;
-					let rows = rows
-						.and_then(|row| row.get::<_, String>(0))
-						.map_err(|source| error!(!source, "failed to deserialize the rows"));
-					rows.and_then(|id| id.parse()).try_collect()?
-				},
+		// Get a database connection.
+		let connection = self
+			.inner
+			.database
+			.connection()
+			.await
+			.map_err(|source| error!(!source, "failed to get a database connection"))?;
 
-				Database::Postgres(database) => {
-					let connection = database.get().await?;
-					let statement = "
-						select child
-						from build_children
-						where build = $1
-						order by position;
-					";
-					let params = postgres_params![id.to_string()];
-					let statement = connection
-						.prepare_cached(statement)
-						.await
-						.map_err(|source| error!(!source, "failed to prepare the query"))?;
-					let rows = connection
-						.query(&statement, params)
-						.await
-						.map_err(|error| {
-							error!(source = error, "failed to execute the statement")
-						})?;
-					let rows = rows
-						.into_iter()
-						.map(|row| row.try_get::<_, String>(0))
-						.map_err(|source| error!(!source, "failed to deserialize the rows"));
-					rows.and_then(|id| id.parse()).try_collect()?
-				},
-			}
-		};
+		// Get the children.
+		let p = connection.p();
+		let statement = formatdoc!(
+			"
+				select child
+				from build_children
+				where build = {p}1
+				order by position;
+			"
+		);
+		let params = db::params![id];
+		let children = connection
+			.query_all_scalar_into(statement, params)
+			.await
+			.map_err(|error| error!(source = error, "failed to execute the statement"))?;
+
+		// Drop the connection.
+		drop(connection);
 
 		// If the build was canceled, then stop the build and cancel the children.
 		if matches!(outcome, tg::build::Outcome::Canceled) {
@@ -289,46 +226,42 @@ impl Server {
 		let log = tg::Blob::with_reader(self, log::Reader::new(self, id).await?).await?;
 		let log = log.id(self).await?;
 
-		// Add the log to the build objects.
-		match &self.inner.database {
-			Database::Sqlite(database) => {
-				let connection = database.get().await?;
-				let statement = "
-					insert into build_objects (build, object)
-					values (?1, ?2)
-					on conflict (build, object) do nothing;
-				";
-				let build = id.to_string();
-				let object = log.to_string();
-				let params = sqlite_params![build, object];
-				let mut statement = connection
-					.prepare_cached(statement)
-					.map_err(|source| error!(!source, "failed to prepare the query"))?;
-				statement
-					.execute(params)
-					.map_err(|source| error!(!source, "failed to execute the statement"))?;
-			},
+		// Get a database connection.
+		let connection = self
+			.inner
+			.database
+			.connection()
+			.await
+			.map_err(|source| error!(!source, "failed to get a database connection"))?;
 
-			Database::Postgres(database) => {
-				let connection = database.get().await?;
-				let statement = "
-					insert into build_objects (build, object)
-					values ($1, $2)
-					on conflict (build, object) do nothing;
-				";
-				let build = id.to_string();
-				let object = log.to_string();
-				let params = postgres_params![build, object];
-				let statement = connection
-					.prepare_cached(statement)
-					.await
-					.map_err(|source| error!(!source, "failed to prepare the query"))?;
-				connection
-					.execute(&statement, params)
-					.await
-					.map_err(|source| error!(!source, "failed to execute the statement"))?;
-			},
-		}
+		// Remove the build log.
+		let p = connection.p();
+		let statement = formatdoc!(
+			"
+				delete from build_logs
+				where build = {p}1;
+			"
+		);
+		let params = db::params![id];
+		connection
+			.execute(statement, params)
+			.await
+			.map_err(|source| error!(!source, "failed to execute the statement"))?;
+
+		// Add the log to the build objects.
+		let p = connection.p();
+		let statement = formatdoc!(
+			"
+				insert into build_objects (build, object)
+				values ({p}1, {p}2)
+				on conflict (build, object) do nothing;
+			"
+		);
+		let params = db::params![id, log];
+		connection
+			.execute(statement, params)
+			.await
+			.map_err(|source| error!(!source, "failed to execute the statement"))?;
 
 		// Add the outcome's children to the build objects.
 		let objects = outcome
@@ -336,248 +269,100 @@ impl Server {
 			.map(tg::value::Data::children)
 			.into_iter()
 			.flatten();
-		match &self.inner.database {
-			Database::Sqlite(database) => {
-				let connection = database.get().await?;
-				for object in objects {
-					let statement = "
-						insert into build_objects (build, object)
-						values (?1, ?2)
-						on conflict (build, object) do nothing;
-					";
-					let build = id.to_string();
-					let object = object.to_string();
-					let params = sqlite_params![build, object];
-					let mut statement = connection
-						.prepare_cached(statement)
-						.map_err(|source| error!(!source, "failed to prepare the query"))?;
-					statement.execute(params).map_err(|error| {
-						error!(source = error, "failed to execute the statement")
-					})?;
-				}
-			},
-
-			Database::Postgres(database) => {
-				let connection = database.get().await?;
-				for object in objects {
-					let statement = "
-						insert into build_objects (build, object)
-						values ($1, $2)
-						on conflict (build, object) do nothing;
-					";
-					let build = id.to_string();
-					let object = object.to_string();
-					let params = postgres_params![build, object];
-					let statement = connection
-						.prepare_cached(statement)
-						.await
-						.map_err(|source| error!(!source, "failed to prepare the query"))?;
-					connection
-						.execute(&statement, params)
-						.await
-						.map_err(|error| {
-							error!(source = error, "failed to execute the statement")
-						})?;
-				}
-			},
+		for object in objects {
+			let p = connection.p();
+			let statement = formatdoc!(
+				"
+					insert into build_objects (build, object)
+					values ({p}1, {p}2)
+					on conflict (build, object) do nothing;
+				"
+			);
+			let params = db::params![id, object];
+			connection
+				.execute(statement, params)
+				.await
+				.map_err(|error| error!(source = error, "failed to execute the statement"))?;
 		}
 
 		// Compute the count.
-		let count = match &self.inner.database {
-			Database::Sqlite(database) => {
-				let connection = database.get().await?;
-				let statement = "
-					select 1 + (
-						select count(*)
-						from build_children
-						where build = ?1
-					) as count;
-				";
-				let params = sqlite_params![id.to_string()];
-				let mut statement = connection
-					.prepare_cached(statement)
-					.map_err(|source| error!(!source, "failed to prepare the query"))?;
-				let mut rows = statement
-					.query(params)
-					.map_err(|source| error!(!source, "failed to execute the statement"))?;
-				let row = rows
-					.next()
-					.map_err(|source| error!(!source, "failed to get the row"))?
-					.ok_or_else(|| error!("expected a row"))?;
-				row.get::<_, Option<i64>>(0)
-					.map_err(|source| error!(!source, "failed to deserialize the column"))?
-					.map(|count| count.to_u64().unwrap())
-			},
-
-			Database::Postgres(database) => {
-				let connection = database.get().await?;
-				let statement = "
-					select 1 + (
-						select count(*)
-						from build_children
-						where build = $1
-					) as count;
-				";
-				let params = postgres_params![id.to_string()];
-				let statement = connection
-					.prepare_cached(statement)
-					.await
-					.map_err(|source| error!(!source, "failed to prepare the query"))?;
-				let rows = connection
-					.query(&statement, params)
-					.await
-					.map_err(|source| error!(!source, "failed to execute the statement"))?;
-				let row = rows
-					.into_iter()
-					.next()
-					.ok_or_else(|| error!("expected a row"))?;
-				row.try_get::<_, Option<i64>>(0)
-					.map_err(|source| error!(!source, "failed to deserialize the column"))?
-					.map(|count| count.to_u64().unwrap())
-			},
-		};
+		let p = connection.p();
+		let statement = formatdoc!(
+			"
+				select 1 + (
+					select count(*)
+					from build_children
+					where build = {p}1
+				) as count;
+			"
+		);
+		let params = db::params![id];
+		let count = connection
+			.query_one_scalar_into::<Option<u64>>(statement, params)
+			.await
+			.map_err(|source| error!(!source, "failed to execute the statement"))?;
 
 		// Compute the weight.
-		let weight = match &self.inner.database {
-			Database::Sqlite(database) => {
-				let connection = database.get().await?;
-				let statement = "
-					select (
-						select sum(weight)
-						from objects
-						where id in (
-							select object
-							from build_objects
-							where build = ?1
-						)
-					) + (
-						select sum(weight)
-						from builds
-						where id in (
-							select child
-							from build_children
-							where build = ?1
-						)
-					) as weight;
-				";
-				let params = sqlite_params![id.to_string()];
-				let mut statement = connection
-					.prepare_cached(statement)
-					.map_err(|source| error!(!source, "failed to prepare the query"))?;
-				let mut rows = statement
-					.query(params)
-					.map_err(|source| error!(!source, "failed to execute the statement"))?;
-				let row = rows
-					.next()
-					.map_err(|source| error!(!source, "failed to get the row"))?
-					.ok_or_else(|| error!("expected a row"))?;
-				row.get::<_, Option<i64>>(0)
-					.map_err(|source| error!(!source, "failed to deserialize the column"))?
-					.map(|weight| weight.to_u64().unwrap())
-			},
-
-			Database::Postgres(database) => {
-				let connection = database.get().await?;
-				let statement = "
-					select (
-						select sum(weight)
-						from objects
-						where id in (
-							select object
-							from build_objects
-							where build = $1
-						)
-					) + (
-						select sum(weight)
-						from builds
-						where id in (
-							select child
-							from build_children
-							where build = $1
-						)
-					) as weight;
-				";
-				let params = postgres_params![id.to_string()];
-				let statement = connection
-					.prepare_cached(statement)
-					.await
-					.map_err(|source| error!(!source, "failed to prepare the query"))?;
-				let rows = connection
-					.query(&statement, params)
-					.await
-					.map_err(|source| error!(!source, "failed to execute the statement"))?;
-				let row = rows
-					.into_iter()
-					.next()
-					.ok_or_else(|| error!("expected a row"))?;
-				row.try_get::<_, Option<i64>>(0)
-					.map_err(|source| error!(!source, "failed to deserialize the column"))?
-					.map(|weight| weight.to_u64().unwrap())
-			},
-		};
+		let p = connection.p();
+		let statement = formatdoc!(
+			"
+				select (
+					select sum(weight)
+					from objects
+					where id in (
+						select object
+						from build_objects
+						where build = {p}1
+					)
+				) + (
+					select sum(weight)
+					from builds
+					where id in (
+						select child
+						from build_children
+						where build = {p}1
+					)
+				) as weight;
+			"
+		);
+		let params = db::params![id];
+		let weight = connection
+			.query_one_scalar_into::<Option<u64>>(statement, params)
+			.await
+			.map_err(|source| error!(!source, "failed to execute the statement"))?;
 
 		// Update the build.
-		match &self.inner.database {
-			Database::Sqlite(database) => {
-				let connection = database.get().await?;
-				let statement = "
-					update builds
-					set
-						count = ?1,
-						log = ?2,
-						outcome = ?3,
-						status = ?4,
-						weight = ?5,
-						finished_at = ?6
-					where id = ?7;
-				";
-				let count = count.map(|count| count.to_i64().unwrap());
-				let log = log.to_string();
-				let outcome = SqliteJson(outcome);
-				let status = tg::build::Status::Finished.to_string();
-				let weight = weight.map(|weight| weight.to_i64().unwrap());
-				let finished_at = time::OffsetDateTime::now_utc().format(&Rfc3339).unwrap();
-				let id = id.to_string();
-				let params = sqlite_params![count, log, outcome, status, weight, finished_at, id];
-				let mut statement = connection
-					.prepare_cached(statement)
-					.map_err(|source| error!(!source, "failed to prepare the query"))?;
-				statement
-					.execute(params)
-					.map_err(|source| error!(!source, "failed to execute the statement"))?;
-			},
+		let p = connection.p();
+		let statement = formatdoc!(
+			"
+				update builds
+				set
+					count = {p}1,
+					log = {p}2,
+					outcome = {p}3,
+					status = {p}4,
+					weight = {p}5,
+					finished_at = {p}6
+				where id = {p}7;
+			"
+		);
+		let finished_at = time::OffsetDateTime::now_utc();
+		let params = db::params![
+			count,
+			log,
+			outcome,
+			tg::build::Status::Finished,
+			weight,
+			finished_at.format(&Rfc3339).unwrap(),
+			id,
+		];
+		connection
+			.execute(statement, params)
+			.await
+			.map_err(|source| error!(!source, "failed to execute the statement"))?;
 
-			Database::Postgres(database) => {
-				let connection = database.get().await?;
-				let statement = "
-					update builds
-					set
-						count = $1,
-						log = $2,
-						outcome = $3,
-						status = $4,
-						weight = $5,
-						finished_at = $6
-					where id = $7;
-				";
-				let count = count.map(|count| count.to_i64().unwrap());
-				let log = log.to_string();
-				let outcome = PostgresJson(outcome);
-				let status = tg::build::Status::Finished.to_string();
-				let weight = weight.map(|weight| weight.to_i64().unwrap());
-				let finished_at = time::OffsetDateTime::now_utc().format(&Rfc3339).unwrap();
-				let id = id.to_string();
-				let params = postgres_params![count, log, outcome, status, weight, finished_at, id];
-				let statement = connection
-					.prepare_cached(statement)
-					.await
-					.map_err(|source| error!(!source, "failed to prepare the query"))?;
-				connection
-					.execute(&statement, params)
-					.await
-					.map_err(|source| error!(!source, "failed to execute the statement"))?;
-			},
-		}
+		// Drop the connection.
+		drop(connection);
 
 		// Publish the message.
 		self.inner.messenger.publish_to_build_status(id).await?;
@@ -592,7 +377,7 @@ impl Server {
 		outcome: tg::build::Outcome,
 	) -> Result<bool> {
 		// Get the remote.
-		let Some(remote) = self.inner.remote.as_ref() else {
+		let Some(remote) = self.inner.remotes.first() else {
 			return Ok(false);
 		};
 
@@ -632,8 +417,13 @@ impl Http {
 			.map_err(|source| error!(!source, "failed to deserialize the search params"))?
 			.unwrap_or_default();
 
-		let stop = request.extensions().get().cloned();
-		let Some(outcome) = self.inner.tg.try_get_build_outcome(&id, arg, stop).await? else {
+		let stop = request.extensions().get().cloned().unwrap();
+		let Some(outcome) = self
+			.inner
+			.tg
+			.try_get_build_outcome(&id, arg, Some(stop))
+			.await?
+		else {
 			return Ok(not_found());
 		};
 

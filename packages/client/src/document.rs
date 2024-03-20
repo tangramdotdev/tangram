@@ -1,4 +1,3 @@
-use crate as tg;
 use std::path::PathBuf;
 
 /// A document.
@@ -11,7 +10,7 @@ pub struct Document {
 	pub package_path: PathBuf,
 
 	/// The module's path.
-	pub path: tg::Path,
+	pub path: crate::Path,
 }
 
 /// A document's state.

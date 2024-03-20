@@ -1,39 +1,44 @@
-use crate::{database::Database, postgres_params, Http, Server};
+use crate::{Http, Server};
+use indoc::formatdoc;
 use tangram_client as tg;
+use tangram_database as db;
 use tangram_error::{error, Result};
-use tangram_util::http::{bad_request, full, Incoming, Outgoing};
+use tangram_http::{bad_request, full, Incoming, Outgoing};
 
 impl Server {
 	pub async fn search_packages(
 		&self,
 		arg: tg::package::SearchArg,
 	) -> Result<tg::package::SearchOutput> {
-		if let Some(remote) = self.inner.remote.as_ref() {
+		if let Some(remote) = self.inner.remotes.first() {
 			return remote.search_packages(arg).await;
 		}
 
 		// Get a database connection.
-		let Database::Postgres(database) = &self.inner.database else {
-			return Err(error!("unimplemented"));
-		};
-		let connection = database.get().await?;
+		let connection = self
+			.inner
+			.database
+			.connection()
+			.await
+			.map_err(|source| error!(!source, "failed to get a database connection"))?;
 
 		// Get the search results.
-		let statement = "
-			select name
-			from packages
-			where name like $1 || '%';
-		";
-		let params = postgres_params![arg.query];
-		let statement = connection
-			.prepare_cached(statement)
-			.await
-			.map_err(|source| error!(!source, "failed to prepare the statement"))?;
-		let rows = connection
-			.query(&statement, params)
+		let p = connection.p();
+		let statement = formatdoc!(
+			"
+				select name
+				from packages
+				where name like {p}1 || '%';
+			"
+		);
+		let params = db::params![arg.query];
+		let results = connection
+			.query_all_scalar_into(statement, params)
 			.await
 			.map_err(|source| error!(!source, "failed to execute the statement"))?;
-		let results = rows.into_iter().map(|row| row.get(0)).collect();
+
+		// Drop the database connection.
+		drop(connection);
 
 		Ok(results)
 	}

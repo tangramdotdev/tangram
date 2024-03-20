@@ -19,9 +19,12 @@ impl Server {
 			},
 		};
 		let version = if let Some(version) = version {
-			Some(version.trim().parse::<usize>().map_err(|error| {
-				error!(source = error, "failed to read the path format version")
-			})?)
+			Some(
+				version
+					.trim()
+					.parse::<usize>()
+					.map_err(|source| error!(!source, "failed to read the path format version"))?,
+			)
 		} else {
 			None
 		};
@@ -49,9 +52,7 @@ impl Server {
 			// Update the version.
 			tokio::fs::write(path.join("version"), version.to_string())
 				.await
-				.map_err(|error| {
-					error!(source = error, "failed to write the path format version")
-				})?;
+				.map_err(|source| error!(!source, "failed to write the path format version"))?;
 		}
 
 		Ok(())

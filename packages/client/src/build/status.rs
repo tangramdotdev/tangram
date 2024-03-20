@@ -1,10 +1,9 @@
-use crate as tg;
-use crate::Client;
+use crate::{build, Client, User};
 use futures::{future, stream::BoxStream, FutureExt, StreamExt, TryStreamExt};
 use http_body_util::{BodyExt, BodyStream};
 use serde_with::serde_as;
 use tangram_error::{error, Error, Result};
-use tangram_util::http::{empty, full};
+use tangram_http::{empty, full};
 use tokio_util::io::StreamReader;
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq, serde::Deserialize, serde::Serialize)]
@@ -27,10 +26,10 @@ pub struct GetArg {
 impl Client {
 	pub async fn try_get_build_status(
 		&self,
-		id: &tg::build::Id,
-		arg: tg::build::status::GetArg,
+		id: &build::Id,
+		arg: build::status::GetArg,
 		stop: Option<tokio::sync::watch::Receiver<bool>>,
-	) -> Result<Option<BoxStream<'static, Result<tg::build::Status>>>> {
+	) -> Result<Option<BoxStream<'static, Result<build::Status>>>> {
 		let method = http::Method::GET;
 		let search_params = serde_urlencoded::to_string(&arg).unwrap();
 		let uri = format!("/builds/{id}/status?{search_params}");
@@ -69,12 +68,11 @@ impl Client {
 			|| future::pending().left_future(),
 			|mut stop| async move { stop.wait_for(|stop| *stop).map(|_| ()).await }.right_future(),
 		);
-		let output = tangram_util::sse::Decoder::new(reader)
+		let output = tangram_sse::Decoder::new(reader)
 			.map(|result| {
 				let event = result.map_err(|source| error!(!source, "failed to read an event"))?;
-				let chunk = serde_json::from_str(&event.data).map_err(|error| {
-					error!(source = error, "failed to deserialize the event data")
-				})?;
+				let chunk = serde_json::from_str(&event.data)
+					.map_err(|source| error!(!source, "failed to deserialize the event data"))?;
 				Ok::<_, Error>(chunk)
 			})
 			.take_until(stop)
@@ -84,9 +82,9 @@ impl Client {
 
 	pub async fn set_build_status(
 		&self,
-		user: Option<&tg::User>,
-		id: &tg::build::Id,
-		status: tg::build::Status,
+		user: Option<&User>,
+		id: &build::Id,
+		status: build::Status,
 	) -> Result<()> {
 		let method = http::Method::POST;
 		let uri = format!("/builds/{id}/status");

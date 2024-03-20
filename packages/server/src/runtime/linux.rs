@@ -1,5 +1,5 @@
-use super::util::render;
-use crate::{runtime::proxy::Proxy, Server};
+use super::{proxy, util::render};
+use crate::Server;
 use async_trait::async_trait;
 use bytes::Bytes;
 use futures::{
@@ -17,6 +17,7 @@ use std::{
 use tangram_client as tg;
 use tangram_error::{error, Error, Result};
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
+use url::Url;
 
 /// The home directory guest path.
 const HOME_DIRECTORY_GUEST_PATH: &str = "/home/tangram";
@@ -224,16 +225,15 @@ impl Runtime {
 			output_guest_path.to_str().unwrap().to_owned(),
 		);
 
-		// Set `$TANGRAM_RUNTIME`
-		let proxy_server_guest_address = tg::Address::Unix(proxy_server_socket_guest_path);
-		env.insert(
-			"TANGRAM_ADDRESS".to_owned(),
-			proxy_server_guest_address.to_string(),
-		);
+		// Set `$TANGRAM_URL`
+		let proxy_server_guest_url = format!("unix:{}", proxy_server_socket_guest_path.display());
+		let proxy_server_guest_url = Url::parse(&proxy_server_guest_url).unwrap();
+		env.insert("TANGRAM_URL".to_owned(), proxy_server_guest_url.to_string());
 
-		// Create proxy server.
-		let proxy_server_host_address = tg::Address::Unix(proxy_server_socket_host_path);
-		let proxy_server = Proxy::start(server, build.id(), proxy_server_host_address)
+		// Start the proxy server.
+		let proxy_server_host_url = format!("unix:{}", proxy_server_socket_host_path.display());
+		let proxy_server_host_url = Url::parse(&proxy_server_host_url).unwrap();
+		let proxy_server = proxy::Server::start(server, build.id(), proxy_server_host_url)
 			.await
 			.map_err(|source| error!(!source, "failed to create the proxy server"))?;
 
