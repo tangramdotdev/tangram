@@ -3,20 +3,13 @@ import * as encoding from "./encoding.ts";
 import { Module } from "./module.ts";
 import { resolve } from "./resolve.ts";
 import { Symlink } from "./symlink.ts";
-import {
-	Target,
-	functions,
-	setCurrentTarget,
-	setCurrentTargetEnv,
-} from "./target.ts";
+import { Target, functions, setCurrentTarget } from "./target.ts";
 import { Value } from "./value.ts";
 
 export let start = async (target: Target): Promise<Value> => {
 	// Set the current target.
+	await target.load();
 	setCurrentTarget(target);
-
-	// Set the current env.
-	setCurrentTargetEnv(await target.env());
 
 	// Load the executable.
 	let lock = await target.lock();

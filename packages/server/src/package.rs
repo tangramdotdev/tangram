@@ -30,7 +30,7 @@ impl Server {
 	) -> Result<Option<tg::package::GetOutput>> {
 		// If the dependency has an ID, then use it.
 		let package_with_path_dependencies = 'a: {
-			let Some(id) = dependency.id.as_ref().cloned() else {
+			let Some(id) = dependency.id.clone() else {
 				break 'a None;
 			};
 			Some(PackageWithPathDependencies {
@@ -44,7 +44,7 @@ impl Server {
 			if let Some(package_with_path_dependencies) = package_with_path_dependencies {
 				break 'a Some(package_with_path_dependencies);
 			}
-			let Some(path) = dependency.path.as_ref().cloned() else {
+			let Some(path) = dependency.path.clone() else {
 				break 'a None;
 			};
 			// If the dependency is a path dependency, then get the package with its path dependencies from the path.

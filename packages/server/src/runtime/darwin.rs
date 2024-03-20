@@ -1,5 +1,6 @@
 use super::{proxy::Proxy, util::render};
 use crate::Server;
+use async_trait::async_trait;
 use bytes::Bytes;
 use futures::{
 	stream::{FuturesOrdered, FuturesUnordered},
@@ -17,469 +18,486 @@ use tangram_client as tg;
 use tangram_error::{error, Error, Result};
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 
-pub async fn build(server: &Server, build: &tg::Build) -> Result<tg::Value> {
-	// Get the target.
-	let target = build.target(server).await?;
+#[derive(Clone)]
+pub struct Runtime {
+	server: Server,
+}
 
-	// If the VFS is disabled, then perform an internal checkout of the target's references.
-	if server.inner.vfs.lock().unwrap().is_none() {
-		target
-			.data(server)
-			.await?
-			.children()
-			.into_iter()
-			.filter_map(|id| id.try_into().ok())
-			.map(|id| async move {
-				let artifact = tg::Artifact::with_id(id);
-				artifact.check_out(server, None).await
-			})
-			.collect::<FuturesUnordered<_>>()
-			.try_collect::<Vec<_>>()
-			.await?;
+impl Runtime {
+	pub fn new(server: &Server) -> Self {
+		Self {
+			server: server.clone(),
+		}
 	}
 
-	// Get the artifacts path.
-	let artifacts_directory_path = server.inner.options.path.join("artifacts");
+	pub async fn run(&self, build: &tg::Build) -> Result<tg::Value> {
+		let server = &self.server;
 
-	// Get the server temporary directory path.
-	let server_directory_tmp_path = server.inner.options.path.join("tmp");
-	tokio::fs::create_dir_all(&server_directory_tmp_path)
-		.await
-		.map_err(|error| error!(source = error, "failed to create the server temp directory"))?;
+		// Get the target.
+		let target = build.target(server).await?;
 
-	let root_directory_tmp =
-		tempfile::TempDir::new_in(&server_directory_tmp_path).map_err(|error| {
-			error!(
-				source = error,
-				"failed to create the root temporary directory"
-			)
-		})?;
-	let root_directory_path = root_directory_tmp.path().to_owned();
+		// If the VFS is disabled, then perform an internal checkout of the target's references.
+		if server.inner.vfs.lock().unwrap().is_none() {
+			target
+				.data(server)
+				.await?
+				.children()
+				.into_iter()
+				.filter_map(|id| id.try_into().ok())
+				.map(|id| async move {
+					let artifact = tg::Artifact::with_id(id);
+					artifact.check_out(server, None).await
+				})
+				.collect::<FuturesUnordered<_>>()
+				.try_collect::<Vec<_>>()
+				.await?;
+		}
 
-	// Create a tempdir for the output.
-	let output_tempdir =
-		tempfile::TempDir::new_in(&server_directory_tmp_path).map_err(|error| {
-			error!(
-				source = error,
-				"failed to create the output temporary directory"
-			)
-		})?;
+		// Get the artifacts path.
+		let artifacts_directory_path = server.inner.options.path.join("artifacts");
 
-	// Create the output parent directory.
-	let output_parent_directory_path = output_tempdir.path().to_owned();
-	tokio::fs::create_dir_all(&output_parent_directory_path)
-		.await
-		.map_err(|error| {
-			error!(
-				source = error,
-				"failed to create the output parent directory"
-			)
-		})?;
+		// Get the server temporary directory path.
+		let server_directory_tmp_path = server.inner.options.path.join("tmp");
+		tokio::fs::create_dir_all(&server_directory_tmp_path)
+			.await
+			.map_err(|error| {
+				error!(source = error, "failed to create the server temp directory")
+			})?;
 
-	// Create the output path.
-	let output_path = output_parent_directory_path.join("output");
+		let root_directory_tmp =
+			tempfile::TempDir::new_in(&server_directory_tmp_path).map_err(|error| {
+				error!(
+					source = error,
+					"failed to create the root temporary directory"
+				)
+			})?;
+		let root_directory_path = root_directory_tmp.path().to_owned();
 
-	// Create the home directory.
-	let home_directory_path = root_directory_path.join("Users/tangram");
-	tokio::fs::create_dir_all(&home_directory_path)
-		.await
-		.map_err(|error| error!(source = error, "failed to create the home directory"))?;
+		// Create a tempdir for the output.
+		let output_tempdir =
+			tempfile::TempDir::new_in(&server_directory_tmp_path).map_err(|error| {
+				error!(
+					source = error,
+					"failed to create the output temporary directory"
+				)
+			})?;
 
-	// Create the working directory.
-	let working_directory_path = root_directory_path.join("Users/tangram/work");
-	tokio::fs::create_dir_all(&working_directory_path)
-		.await
-		.map_err(|error| error!(source = error, "failed to create the working directory"))?;
+		// Create the output parent directory.
+		let output_parent_directory_path = output_tempdir.path().to_owned();
+		tokio::fs::create_dir_all(&output_parent_directory_path)
+			.await
+			.map_err(|error| {
+				error!(
+					source = error,
+					"failed to create the output parent directory"
+				)
+			})?;
 
-	// Render the executable.
-	let executable = target.executable(server).await?;
-	let executable = render(
-		server,
-		&executable.clone().into(),
-		&artifacts_directory_path,
-	)
-	.await?;
+		// Create the output path.
+		let output_path = output_parent_directory_path.join("output");
 
-	// Render the env.
-	let env = target.env(server).await?;
-	let mut env: BTreeMap<String, String> = env
-		.iter()
-		.map(|(key, value)| async {
-			let key = key.clone();
-			let value = render(server, value, &artifacts_directory_path).await?;
-			Ok::<_, Error>((key, value))
-		})
-		.collect::<FuturesOrdered<_>>()
-		.try_collect()
+		// Create the home directory.
+		let home_directory_path = root_directory_path.join("Users/tangram");
+		tokio::fs::create_dir_all(&home_directory_path)
+			.await
+			.map_err(|error| error!(source = error, "failed to create the home directory"))?;
+
+		// Create the working directory.
+		let working_directory_path = root_directory_path.join("Users/tangram/work");
+		tokio::fs::create_dir_all(&working_directory_path)
+			.await
+			.map_err(|error| error!(source = error, "failed to create the working directory"))?;
+
+		// Render the executable.
+		let executable = target.executable(server).await?;
+		let executable = render(
+			server,
+			&executable.clone().into(),
+			&artifacts_directory_path,
+		)
 		.await?;
 
-	// Render the args.
-	let args = target.args(server).await?;
-	let args: Vec<String> = args
-		.iter()
-		.map(|value| async {
-			let value = render(server, value, &artifacts_directory_path).await?;
-			Ok::<_, Error>(value)
-		})
-		.collect::<FuturesOrdered<_>>()
-		.try_collect()
-		.await?;
+		// Render the env.
+		let env = target.env(server).await?;
+		let mut env: BTreeMap<String, String> = env
+			.iter()
+			.map(|(key, value)| async {
+				let key = key.clone();
+				let value = render(server, value, &artifacts_directory_path).await?;
+				Ok::<_, Error>((key, value))
+			})
+			.collect::<FuturesOrdered<_>>()
+			.try_collect()
+			.await?;
 
-	// Enable the network if a checksum was provided.
-	let network_enabled = target.checksum(server).await?.is_some();
+		// Render the args.
+		let args = target.args(server).await?;
+		let args: Vec<String> = args
+			.iter()
+			.map(|value| async {
+				let value = render(server, value, &artifacts_directory_path).await?;
+				Ok::<_, Error>(value)
+			})
+			.collect::<FuturesOrdered<_>>()
+			.try_collect()
+			.await?;
 
-	// Set `$HOME`.
-	env.insert(
-		"HOME".to_owned(),
-		home_directory_path.to_str().unwrap().to_owned(),
-	);
+		// Enable the network if a checksum was provided.
+		let network_enabled = target.checksum(server).await?.is_some();
 
-	// Set `$OUTPUT`.
-	env.insert(
-		"OUTPUT".to_owned(),
-		output_path.to_str().unwrap().to_owned(),
-	);
+		// Set `$HOME`.
+		env.insert(
+			"HOME".to_owned(),
+			home_directory_path.to_str().unwrap().to_owned(),
+		);
 
-	// Set `$TANGRAM_ADDRESS`
-	tokio::fs::create_dir_all(home_directory_path.join(".tangram"))
-		.await
-		.map_err(|error| {
-			error!(
-				source = error,
-				"failed to create the guest .tangram directory"
-			)
-		})?;
-	let proxy_server_socket_path = home_directory_path.join(".tangram/socket");
-	let proxy_server_address = tg::Address::Unix(proxy_server_socket_path.clone());
-	env.insert(
-		"TANGRAM_ADDRESS".to_owned(),
-		proxy_server_address.to_string(),
-	);
+		// Set `$OUTPUT`.
+		env.insert(
+			"OUTPUT".to_owned(),
+			output_path.to_str().unwrap().to_owned(),
+		);
 
-	// Create a proxied server handle and start listening on a new socket.
-	let proxy = Proxy::start(server, build.id(), proxy_server_address)
-		.await
-		.map_err(|error| error!(source = error, "Could not create proxy server"))?;
+		// Set `$TANGRAM_ADDRESS`
+		tokio::fs::create_dir_all(home_directory_path.join(".tangram"))
+			.await
+			.map_err(|error| {
+				error!(
+					source = error,
+					"failed to create the guest .tangram directory"
+				)
+			})?;
+		let proxy_server_socket_path = home_directory_path.join(".tangram/socket");
+		let proxy_server_address = tg::Address::Unix(proxy_server_socket_path.clone());
+		env.insert(
+			"TANGRAM_ADDRESS".to_owned(),
+			proxy_server_address.to_string(),
+		);
 
-	// Create the sandbox profile.
-	let mut profile = String::new();
+		// Create a proxied server handle and start listening on a new socket.
+		let proxy = Proxy::start(server, build.id(), proxy_server_address)
+			.await
+			.map_err(|error| error!(source = error, "Could not create proxy server"))?;
 
-	// Write the default profile.
-	writedoc!(
+		// Create the sandbox profile.
+		let mut profile = String::new();
+
+		// Write the default profile.
+		writedoc!(
 		profile,
-		r#"
-			(version 1)
+			r#"
+				(version 1)
 
-			;; Deny everything by default.
-			(deny default)
+				;; Deny everything by default.
+				(deny default)
 
-			;; Allow most system operations.
-			(allow syscall*)
-			(allow system-socket)
-			(allow mach*)
-			(allow ipc*)
-			(allow sysctl*)
+				;; Allow most system operations.
+				(allow syscall*)
+				(allow system-socket)
+				(allow mach*)
+				(allow ipc*)
+				(allow sysctl*)
 
-			;; Allow most process operations, except for `process-exec`. `process-exec` will let you execute binaries without having been granted the corresponding `file-read*` permission.
-			(allow process-fork process-info*)
+				;; Allow most process operations, except for `process-exec`. `process-exec` will let you execute binaries without having been granted the corresponding `file-read*` permission.
+				(allow process-fork process-info*)
 
-			;; Allow limited exploration of the root.
-			(allow file-read-data (literal "/"))
-			(allow file-read-metadata
-				(literal "/Library")
-				(literal "/System")
-				(literal "/Users")
-				(literal "/Volumes")
-				(literal "/etc")
-			)
+				;; Allow limited exploration of the root.
+				(allow file-read-data (literal "/"))
+				(allow file-read-metadata
+					(literal "/Library")
+					(literal "/System")
+					(literal "/Users")
+					(literal "/Volumes")
+					(literal "/etc")
+				)
 
-			;; Allow writing to common devices.
-			(allow file-read* file-write-data file-ioctl
-				(literal "/dev/null")
-				(literal "/dev/zero")
-				(literal "/dev/dtracehelper")
-			)
+				;; Allow writing to common devices.
+				(allow file-read* file-write-data file-ioctl
+					(literal "/dev/null")
+					(literal "/dev/zero")
+					(literal "/dev/dtracehelper")
+				)
 
-			;; Allow reading and writing temporary files.
-			(allow file-write* file-read*
-				(subpath "/tmp")
-				(subpath "/private/tmp")
-				(subpath "/private/var")
-				(subpath "/var")
-			)
+				;; Allow reading and writing temporary files.
+				(allow file-write* file-read*
+					(subpath "/tmp")
+					(subpath "/private/tmp")
+					(subpath "/private/var")
+					(subpath "/var")
+				)
 
-			;; Allow reading some system devices and files.
-			(allow file-read*
-				(literal "/dev/autofs_nowait")
-				(literal "/dev/random")
-				(literal "/dev/urandom")
-				(literal "/private/etc/localtime")
-				(literal "/private/etc/protocols")
-				(literal "/private/etc/services")
-				(subpath "/private/etc/ssl")
-			)
+				;; Allow reading some system devices and files.
+				(allow file-read*
+					(literal "/dev/autofs_nowait")
+					(literal "/dev/random")
+					(literal "/dev/urandom")
+					(literal "/private/etc/localtime")
+					(literal "/private/etc/protocols")
+					(literal "/private/etc/services")
+					(subpath "/private/etc/ssl")
+				)
 
-			;; Allow executing /usr/bin/env and /bin/sh.
-			(allow file-read* process-exec
-				(literal "/usr/bin/env")
-				(literal "/bin/sh")
-				(literal "/bin/bash")
-			)
+				;; Allow executing /usr/bin/env and /bin/sh.
+				(allow file-read* process-exec
+					(literal "/usr/bin/env")
+					(literal "/bin/sh")
+					(literal "/bin/bash")
+				)
 
-			;; Support Rosetta.
-			(allow file-read* file-test-existence
-				(literal "/Library/Apple/usr/libexec/oah/libRosettaRuntime")
-			)
+				;; Support Rosetta.
+				(allow file-read* file-test-existence
+					(literal "/Library/Apple/usr/libexec/oah/libRosettaRuntime")
+				)
 
-			;; Allow accessing the dyld shared cache.
-			(allow file-read* process-exec
-				(literal "/System/Volumes/Preboot/Cryptexes/OS/System/Library/dyld")
-				(subpath "/System/Volumes/Preboot/Cryptexes/OS/System/Library/dyld")
-			)
+				;; Allow accessing the dyld shared cache.
+				(allow file-read* process-exec
+					(literal "/System/Volumes/Preboot/Cryptexes/OS/System/Library/dyld")
+					(subpath "/System/Volumes/Preboot/Cryptexes/OS/System/Library/dyld")
+				)
 
-			;; Allow bash to create and use file descriptors for pipes.
-			(allow file-read* file-write* file-ioctl process-exec
-				(literal "/dev/fd")
-				(subpath "/dev/fd")
-			)
-		"#
+				;; Allow bash to create and use file descriptors for pipes.
+				(allow file-read* file-write* file-ioctl process-exec
+					(literal "/dev/fd")
+					(subpath "/dev/fd")
+				)
+			"#
 	).unwrap();
 
-	// Write the network profile.
-	if network_enabled {
+		// Write the network profile.
+		if network_enabled {
+			writedoc!(
+				profile,
+				r#"
+					;; Allow network access.
+					(allow network*)
+
+					;; Allow reading network preference files.
+					(allow file-read*
+						(literal "/Library/Preferences/com.apple.networkd.plist")
+						(literal "/private/var/db/com.apple.networkextension.tracker-info")
+						(literal "/private/var/db/nsurlstoraged/dafsaData.bin")
+					)
+					(allow user-preference-read (preference-domain "com.apple.CFNetwork"))
+				"#
+			)
+			.unwrap();
+		} else {
+			writedoc!(
+				profile,
+				r#"
+					;; Disable global network access.
+					(deny network*)
+
+					;; Allow network access to localhost and Unix sockets.
+					(allow network* (remote ip "localhost:*"))
+					(allow network* (remote unix-socket))
+				"#
+			)
+			.unwrap();
+		}
+
+		// Allow read access to the artifacts directory.
 		writedoc!(
 			profile,
 			r#"
-				;; Allow network access.
-				(allow network*)
-
-				;; Allow reading network preference files.
-				(allow file-read*
-					(literal "/Library/Preferences/com.apple.networkd.plist")
-					(literal "/private/var/db/com.apple.networkextension.tracker-info")
-					(literal "/private/var/db/nsurlstoraged/dafsaData.bin")
-				)
-				(allow user-preference-read (preference-domain "com.apple.CFNetwork"))
-			"#
+				(allow process-exec* (subpath {0}))
+				(allow file-read* (path-ancestors {0}))
+				(allow file-read* (subpath {0}))
+				(allow file-write* (subpath {0}))
+			"#,
+			escape(artifacts_directory_path.as_os_str().as_bytes())
 		)
 		.unwrap();
-	} else {
+
+		// Allow write access to the home directory.
 		writedoc!(
 			profile,
 			r#"
-				;; Disable global network access.
-				(deny network*)
-
-				;; Allow network access to localhost and Unix sockets.
-				(allow network* (remote ip "localhost:*"))
-				(allow network* (remote unix-socket))
-			"#
+				(allow process-exec* (subpath {0}))
+				(allow file-read* (path-ancestors {0}))
+				(allow file-read* (subpath {0}))
+				(allow file-write* (subpath {0}))
+			"#,
+			escape(home_directory_path.as_os_str().as_bytes())
 		)
 		.unwrap();
-	}
 
-	// Allow read access to the artifacts directory.
-	writedoc!(
-		profile,
-		r#"
-			(allow process-exec* (subpath {0}))
-			(allow file-read* (path-ancestors {0}))
-			(allow file-read* (subpath {0}))
-			(allow file-write* (subpath {0}))
-		"#,
-		escape(artifacts_directory_path.as_os_str().as_bytes())
-	)
-	.unwrap();
+		// Allow write access to the output parent directory.
+		writedoc!(
+			profile,
+			r#"
+				(allow process-exec* (subpath {0}))
+				(allow file-read* (path-ancestors {0}))
+				(allow file-read* (subpath {0}))
+				(allow file-write* (subpath {0}))
+			"#,
+			escape(output_parent_directory_path.as_os_str().as_bytes())
+		)
+		.unwrap();
 
-	// Allow write access to the home directory.
-	writedoc!(
-		profile,
-		r#"
-			(allow process-exec* (subpath {0}))
-			(allow file-read* (path-ancestors {0}))
-			(allow file-read* (subpath {0}))
-			(allow file-write* (subpath {0}))
-		"#,
-		escape(home_directory_path.as_os_str().as_bytes())
-	)
-	.unwrap();
+		// Make the profile a C string.
+		let profile = CString::new(profile).unwrap();
 
-	// Allow write access to the output parent directory.
-	writedoc!(
-		profile,
-		r#"
-			(allow process-exec* (subpath {0}))
-			(allow file-read* (path-ancestors {0}))
-			(allow file-read* (subpath {0}))
-			(allow file-write* (subpath {0}))
-		"#,
-		escape(output_parent_directory_path.as_os_str().as_bytes())
-	)
-	.unwrap();
+		// Create the command.
+		let mut command = tokio::process::Command::new(&executable);
 
-	// Make the profile a C string.
-	let profile = CString::new(profile).unwrap();
+		// Set the working directory.
+		command.current_dir(&working_directory_path);
 
-	// Create the command.
-	let mut command = tokio::process::Command::new(&executable);
+		// Set the envs.
+		command.env_clear();
+		command.envs(env);
 
-	// Set the working directory.
-	command.current_dir(&working_directory_path);
+		// Set the args.
+		command.args(args);
 
-	// Set the envs.
-	command.env_clear();
-	command.envs(env);
+		// Redirect stdout to a pipe.
+		command.stdout(std::process::Stdio::piped());
 
-	// Set the args.
-	command.args(args);
+		// Set up the sandbox.
+		unsafe {
+			command.pre_exec(move || {
+				// Call `sandbox_init`.
+				let error = std::ptr::null_mut::<*const libc::c_char>();
+				let ret = sandbox_init(profile.as_ptr(), 0, error);
 
-	// Redirect stdout to a pipe.
-	command.stdout(std::process::Stdio::piped());
+				// Handle an error from `sandbox_init`.
+				if ret != 0 {
+					let error = *error;
+					let _message = CStr::from_ptr(error);
+					sandbox_free_error(error);
+					return Err(std::io::Error::last_os_error());
+				}
 
-	// Set up the sandbox.
-	unsafe {
-		command.pre_exec(move || {
-			// Call `sandbox_init`.
-			let error = std::ptr::null_mut::<*const libc::c_char>();
-			let ret = sandbox_init(profile.as_ptr(), 0, error);
+				// Redirect stderr to stdout.
+				if libc::dup2(libc::STDOUT_FILENO, libc::STDERR_FILENO) < 0 {
+					return Err(std::io::Error::last_os_error());
+				}
 
-			// Handle an error from `sandbox_init`.
-			if ret != 0 {
-				let error = *error;
-				let _message = CStr::from_ptr(error);
-				sandbox_free_error(error);
-				return Err(std::io::Error::last_os_error());
-			}
+				Ok(())
+			})
+		};
 
-			// Redirect stderr to stdout.
-			if libc::dup2(libc::STDOUT_FILENO, libc::STDERR_FILENO) < 0 {
-				return Err(std::io::Error::last_os_error());
-			}
+		// Spawn the child.
+		let mut child = command
+			.spawn()
+			.map_err(|error| error!(source = error, %executable, "failed to spawn the process"))?;
 
-			Ok(())
-		})
-	};
-
-	// Spawn the child.
-	let mut child = command
-		.spawn()
-		.map_err(|error| error!(source = error, %executable, "failed to spawn the process"))?;
-
-	// Create the log task.
-	let mut stdout = child.stdout.take().unwrap();
-	let log_task = tokio::task::spawn({
-		let build = build.clone();
-		let server = server.clone();
-		async move {
-			let mut buf = [0; 512];
-			loop {
-				match stdout.read(&mut buf).await {
-					Err(error) => {
-						return Err(error!(source = error, "failed to read from the log"))
-					},
-					Ok(0) => return Ok(()),
-					Ok(size) => {
-						let log = Bytes::copy_from_slice(&buf[0..size]);
-						if server.inner.options.advanced.write_build_logs_to_stderr {
-							tokio::io::stderr()
-								.write_all(&log)
-								.await
-								.inspect_err(|e| {
-									tracing::error!(?e, "failed to write build log to stderr");
-								})
-								.ok();
-						}
-						build.add_log(&server, log).await?;
-					},
+		// Create the log task.
+		let mut stdout = child.stdout.take().unwrap();
+		let log_task = tokio::task::spawn({
+			let build = build.clone();
+			let server = server.clone();
+			async move {
+				let mut buf = [0; 512];
+				loop {
+					match stdout.read(&mut buf).await {
+						Err(error) => {
+							return Err(error!(source = error, "failed to read from the log"))
+						},
+						Ok(0) => return Ok(()),
+						Ok(size) => {
+							let log = Bytes::copy_from_slice(&buf[0..size]);
+							if server.inner.options.advanced.write_build_logs_to_stderr {
+								tokio::io::stderr()
+									.write_all(&log)
+									.await
+									.inspect_err(|e| {
+										tracing::error!(?e, "failed to write build log to stderr");
+									})
+									.ok();
+							}
+							build.add_log(&server, log).await?;
+						},
+					}
 				}
 			}
-		}
-	});
+		});
 
-	// If this future is dropped, then kill its process tree.
-	let pid = child.id().unwrap();
-	scopeguard::defer! {
-		let mut pids = vec![pid.to_i32().unwrap()];
-		let mut i = 0;
-		while i < pids.len() {
-			let ppid = pids[i];
-			let n = unsafe { libc::proc_listchildpids(ppid, std::ptr::null_mut(), 0) };
-			if n < 0 {
-				let error = std::io::Error::last_os_error();
-				tracing::error!(?pid, ?error);
-				return;
+		// If this future is dropped, then kill its process tree.
+		let pid = child.id().unwrap();
+		scopeguard::defer! {
+			let mut pids = vec![pid.to_i32().unwrap()];
+			let mut i = 0;
+			while i < pids.len() {
+				let ppid = pids[i];
+				let n = unsafe { libc::proc_listchildpids(ppid, std::ptr::null_mut(), 0) };
+				if n < 0 {
+					let error = std::io::Error::last_os_error();
+					tracing::error!(?pid, ?error);
+					return;
+				}
+				pids.resize(i + n.to_usize().unwrap() + 1, 0);
+				let n = unsafe {
+					libc::proc_listchildpids(ppid, pids[(i + 1)..].as_mut_ptr().cast(), n)
+				};
+				if n < 0 {
+					let error = std::io::Error::last_os_error();
+					tracing::error!(?pid, ?error);
+					return;
+				}
+				pids.truncate(i + n.to_usize().unwrap() + 1);
+				i += 1;
 			}
-			pids.resize(i + n.to_usize().unwrap() + 1, 0);
-			let n = unsafe {
-				libc::proc_listchildpids(ppid, pids[(i + 1)..].as_mut_ptr().cast(), n)
-			};
-			if n < 0 {
-				let error = std::io::Error::last_os_error();
-				tracing::error!(?pid, ?error);
-				return;
+			for pid in pids.iter().rev() {
+				unsafe { libc::kill(*pid, libc::SIGKILL) };
+				let mut status = 0;
+				unsafe { libc::waitpid(*pid, std::ptr::addr_of_mut!(status), 0) };
 			}
-			pids.truncate(i + n.to_usize().unwrap() + 1);
-			i += 1;
 		}
-		for pid in pids.iter().rev() {
-			unsafe { libc::kill(*pid, libc::SIGKILL) };
-			let mut status = 0;
-			unsafe { libc::waitpid(*pid, std::ptr::addr_of_mut!(status), 0) };
-		}
-	}
 
-	// Wait for the process to exit.
-	let exit_status = child
-		.wait()
-		.await
-		.map_err(|error| error!(source = error, "failed to wait for the process to exit"))?;
-
-	// Wait for the log task to complete.
-	log_task
-		.await
-		.map_err(|error| error!(source = error, "failed to join the log task"))?
-		.map_err(|error| error!(source = error, "the log task failed"))?;
-
-	// Stop and join the proxy server.
-	proxy.stop();
-	proxy.join().await?;
-
-	// Return an error if the process did not exit successfully.
-	if !exit_status.success() {
-		return Err(error!("the process did not exit successfully"));
-	}
-
-	// Create the output.
-	let value = if tokio::fs::try_exists(&output_path)
-		.await
-		.map_err(|error| error!(source = error, "failed to determine if the path exists"))?
-	{
-		// Check in the output.
-		let artifact = tg::Artifact::check_in(server, &output_path.clone().try_into()?)
+		// Wait for the process to exit.
+		let exit_status = child
+			.wait()
 			.await
-			.map_err(|error| error!(source = error, "failed to check in the output"))?;
+			.map_err(|error| error!(source = error, "failed to wait for the process to exit"))?;
 
-		// Verify the checksum if one was provided.
-		if let Some(expected) = target.checksum(server).await?.clone() {
-			let actual = artifact
-				.checksum(server, expected.algorithm())
-				.await
-				.map_err(|error| error!(source = error, "failed to compute the checksum"))?;
-			if expected != tg::Checksum::Unsafe && expected != actual {
-				return Err(error!(
-					%expected,
-					%actual,
-					"the checksum did not match"
-				));
-			}
+		// Wait for the log task to complete.
+		log_task
+			.await
+			.map_err(|error| error!(source = error, "failed to join the log task"))?
+			.map_err(|error| error!(source = error, "the log task failed"))?;
+
+		// Stop and join the proxy server.
+		proxy.stop();
+		proxy.join().await?;
+
+		// Return an error if the process did not exit successfully.
+		if !exit_status.success() {
+			return Err(error!("the process did not exit successfully"));
 		}
 
-		artifact.into()
-	} else {
-		tg::Value::Null
-	};
+		// Create the output.
+		let value = if tokio::fs::try_exists(&output_path)
+			.await
+			.map_err(|error| error!(source = error, "failed to determine if the path exists"))?
+		{
+			// Check in the output.
+			let artifact = tg::Artifact::check_in(server, &output_path.clone().try_into()?)
+				.await
+				.map_err(|error| error!(source = error, "failed to check in the output"))?;
 
-	Ok(value)
+			// Verify the checksum if one was provided.
+			if let Some(expected) = target.checksum(server).await?.clone() {
+				let actual = artifact
+					.checksum(server, expected.algorithm())
+					.await
+					.map_err(|error| error!(source = error, "failed to compute the checksum"))?;
+				if expected != tg::Checksum::Unsafe && expected != actual {
+					return Err(error!(
+						%expected,
+						%actual,
+						"the checksum did not match"
+					));
+				}
+			}
+
+			artifact.into()
+		} else {
+			tg::Value::Null
+		};
+
+		Ok(value)
+	}
 }
 
 extern "C" {
@@ -532,6 +550,17 @@ fn escape(bytes: impl AsRef<[u8]>) -> String {
 	}
 	output.push('"');
 	output
+}
+
+#[async_trait]
+impl super::Runtime for Runtime {
+	fn clone_box(&self) -> Box<dyn super::Runtime> {
+		Box::new(self.clone())
+	}
+
+	async fn run(&self, build: &tg::Build) -> Result<tg::Value> {
+		self.run(build).await
+	}
 }
 
 #[cfg(test)]

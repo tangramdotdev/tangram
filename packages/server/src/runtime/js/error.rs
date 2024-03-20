@@ -177,15 +177,9 @@ fn get_location(
 	symbol: Option<String>,
 ) -> Option<tangram_error::Location> {
 	if file.map_or(false, |resource_name| resource_name == "[global]") {
-		let Some(global_source_map) = state.global_source_map.as_ref() else {
-			return None;
-		};
-		let Some(line) = line else {
-			return None;
-		};
-		let Some(column) = column else {
-			return None;
-		};
+		let global_source_map = state.global_source_map.as_ref()?;
+		let line = line?;
+		let column = column?;
 		let token = global_source_map.lookup_token(line, column).unwrap();
 		let source = token.get_source().unwrap().to_owned();
 		let source = format!("[global]:{source}");
@@ -202,12 +196,8 @@ fn get_location(
 	}
 
 	if let Some(module) = file.and_then(|resource_name| tg::Module::from_str(resource_name).ok()) {
-		let Some(line) = line else {
-			return None;
-		};
-		let Some(column) = column else {
-			return None;
-		};
+		let line = line?;
+		let column = column?;
 		let modules = state.modules.borrow();
 		let module = modules.iter().find(|m| m.module == module);
 		let name = module

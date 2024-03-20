@@ -1,4 +1,5 @@
 use crate::{
+	host,
 	tree::Tree,
 	tui::{self, Tui},
 	Cli,
@@ -52,7 +53,7 @@ pub struct GetOrCreateArgs {
 
 	/// Set the host.
 	#[clap(long)]
-	pub host: Option<tg::Triple>,
+	pub host: Option<String>,
 
 	/// If this flag is set, the package's lockfile will not be updated.
 	#[clap(long)]
@@ -176,7 +177,7 @@ impl Cli {
 				let host = if let Some(host) = args.host {
 					host
 				} else {
-					tg::Triple::host()?
+					host().to_owned()
 				};
 				env.insert("TANGRAM_HOST".to_owned(), host.to_string().into());
 			}
@@ -191,7 +192,7 @@ impl Cli {
 				})
 				.try_collect()?;
 			let args_ = vec![args_.into()];
-			let host = tg::Triple::js();
+			let host = "js".to_owned();
 			let path = tg::package::get_root_module_path(client, &package).await?;
 			let executable = tg::Symlink::new(Some(package.into()), Some(path.to_string())).into();
 			tg::target::Builder::new(host, executable)

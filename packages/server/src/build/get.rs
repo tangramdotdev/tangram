@@ -113,7 +113,6 @@ impl Server {
 			.map_err(|error| error!(source = error, "failed to deserialize the column"))?;
 		let id = id.parse()?;
 		let count = count.map(|count| count.to_u64().unwrap());
-		let host = host.parse()?;
 		let log = log.map(|log| log.parse()).transpose()?;
 		let outcome = outcome.map(|outcome| outcome.0);
 		let retry = retry.parse()?;
@@ -232,7 +231,6 @@ impl Server {
 			.map_err(|error| error!(source = error, "failed to deserialize the column"))?;
 		let id = id.parse()?;
 		let count = count.map(|count| count.to_u64().unwrap());
-		let host = host.parse()?;
 		let log = log.map(|log| log.parse()).transpose()?;
 		let outcome = outcome.map(|outcome| outcome.0);
 		let retry = retry.parse()?;

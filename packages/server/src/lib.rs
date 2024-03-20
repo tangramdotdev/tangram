@@ -1,5 +1,5 @@
 pub use self::options::Options;
-use self::{database::Database, messenger::Messenger};
+use self::{database::Database, messenger::Messenger, runtime::Runtime};
 use async_nats as nats;
 use async_trait::async_trait;
 use bytes::Bytes;
@@ -20,7 +20,6 @@ use std::{
 	pin::pin,
 	sync::Arc,
 };
-
 use tangram_client as tg;
 use tangram_error::{error, Error, Result};
 use tangram_util::{
@@ -69,9 +68,7 @@ struct Inner {
 	oauth: OAuth,
 	options: Options,
 	remote: Option<Box<dyn tg::Handle>>,
-	#[cfg(target_os = "linux")]
-	runtime_artifacts:
-		tokio::sync::RwLock<HashMap<tg::Triple, RuntimeArtifactIds, fnv::FnvBuildHasher>>,
+	runtimes: std::sync::RwLock<HashMap<String, Box<dyn Runtime>>>,
 	shutdown: tokio::sync::watch::Sender<bool>,
 	shutdown_task: std::sync::Mutex<Option<tokio::task::JoinHandle<Result<()>>>>,
 	vfs: std::sync::Mutex<Option<self::vfs::Server>>,
@@ -84,19 +81,13 @@ struct BuildState {
 }
 
 struct Permit(
+	#[allow(dead_code)]
 	Either<tokio::sync::OwnedSemaphorePermit, tokio::sync::OwnedMutexGuard<Option<Self>>>,
 );
 
 #[derive(Debug)]
 struct OAuth {
 	github: Option<oauth2::basic::BasicClient>,
-}
-
-#[cfg(target_os = "linux")]
-#[derive(Clone)]
-struct RuntimeArtifactIds {
-	env: tg::file::Id,
-	sh: tg::file::Id,
 }
 
 #[derive(Clone)]
@@ -133,6 +124,7 @@ impl Server {
 			.read(true)
 			.write(true)
 			.create(true)
+			.truncate(true)
 			.open(path.join("lock"))
 			.await
 			.map_err(|error| error!(source = error, "failed to open the lockfile"))?;
@@ -200,7 +192,7 @@ impl Server {
 		// Create the http server.
 		let http = std::sync::Mutex::new(None);
 
-		// Create the local pool.
+		// Create the local pool handle.
 		let local_pool_handle = tokio_util::task::LocalPoolHandle::new(
 			std::thread::available_parallelism().unwrap().get(),
 		);
@@ -228,9 +220,8 @@ impl Server {
 		// Get the remote.
 		let remote = options.remote.as_ref().map(|remote| remote.tg.clone_box());
 
-		// Create the runtime artifacts placeholder map.
-		#[cfg(target_os = "linux")]
-		let runtime_artifacts = tokio::sync::RwLock::new(HashMap::default());
+		// Create the runtimes.
+		let runtimes = std::sync::RwLock::new(HashMap::default());
 
 		// Create the shutdown channel.
 		let (shutdown, _) = tokio::sync::watch::channel(false);
@@ -256,8 +247,7 @@ impl Server {
 			oauth,
 			options,
 			remote,
-			#[cfg(target_os = "linux")]
-			runtime_artifacts,
+			runtimes,
 			shutdown,
 			shutdown_task,
 			vfs,
@@ -312,9 +302,59 @@ impl Server {
 				.map_err(|error| error!(source = error, "failed to create a symlink from the artifacts directory to the checkouts directory"))?;
 		}
 
-		// Create and store the Linux runtime artifacts.
-		#[cfg(target_os = "linux")]
-		load_runtime_artifacts(&server).await?;
+		// Add the runtimes.
+		let triple = "js".to_owned();
+		let runtime = Box::new(self::runtime::js::Runtime::new(&server));
+		server
+			.inner
+			.runtimes
+			.write()
+			.unwrap()
+			.insert(triple, runtime);
+		#[cfg(all(target_arch = "aarch64", target_os = "macos"))]
+		{
+			let triple = "aarch64-darwin".to_owned();
+			let runtime = Box::new(self::runtime::darwin::Runtime::new(&server));
+			server
+				.inner
+				.runtimes
+				.write()
+				.unwrap()
+				.insert(triple, runtime);
+		}
+		#[cfg(all(target_arch = "aarch64", target_os = "linux"))]
+		{
+			let triple = "aarch64-linux".to_owned();
+			let runtime = Box::new(self::runtime::linux::Runtime::new(&server).await?);
+			server
+				.inner
+				.runtimes
+				.write()
+				.unwrap()
+				.insert(triple, runtime);
+		}
+		#[cfg(all(target_arch = "x86_64", target_os = "macos"))]
+		{
+			let triple = "x86_64-darwin".to_owned();
+			let runtime = Box::new(self::runtime::darwin::Runtime::new(&server));
+			server
+				.inner
+				.runtimes
+				.write()
+				.unwrap()
+				.insert(triple, runtime);
+		}
+		#[cfg(all(target_arch = "x86_64", target_os = "linux"))]
+		{
+			let triple = "x86_64-linux".to_owned();
+			let runtime = Box::new(self::runtime::linux::Runtime::new(&server).await?);
+			server
+				.inner
+				.runtimes
+				.write()
+				.unwrap()
+				.insert(triple, runtime);
+		}
 
 		// Start the build queue task.
 		if server.inner.options.build.enable {
@@ -1066,63 +1106,4 @@ impl Drop for Tmp {
 			tokio::spawn(rmrf(self.path.clone()));
 		}
 	}
-}
-
-#[cfg(target_os = "linux")]
-async fn load_runtime_artifacts(server: &Server) -> Result<()> {
-	// Load the files, returning their IDs.
-	let artifact_ids = futures::future::try_join_all(
-		[
-			include_bytes!(concat!(
-				env!("CARGO_MANIFEST_DIR"),
-				"/src/runtime/linux/bin/env_aarch64_linux"
-			))
-			.as_slice(),
-			include_bytes!(concat!(
-				env!("CARGO_MANIFEST_DIR"),
-				"/src/runtime/linux/bin/sh_aarch64_linux"
-			))
-			.as_slice(),
-			include_bytes!(concat!(
-				env!("CARGO_MANIFEST_DIR"),
-				"/src/runtime/linux/bin/env_x86_64_linux"
-			))
-			.as_slice(),
-			include_bytes!(concat!(
-				env!("CARGO_MANIFEST_DIR"),
-				"/src/runtime/linux/bin/sh_x86_64_linux"
-			))
-			.as_slice(),
-		]
-		.map(|contents| async move {
-			let blob = tg::Blob::with_reader(server, contents).await?;
-			let file = tg::File::builder(blob).executable(true).build();
-			let id = file.id(server).await?.clone();
-			Ok::<_, tangram_error::Error>(id)
-		}),
-	)
-	.await?;
-
-	// Insert the mappings into the server.
-	*server.inner.runtime_artifacts.write().await = [
-		(
-			tg::Triple::arch_os("aarch64", "linux"),
-			RuntimeArtifactIds {
-				env: artifact_ids[0].clone(),
-				sh: artifact_ids[1].clone(),
-			},
-		),
-		(
-			tg::Triple::arch_os("x86_64", "linux"),
-			RuntimeArtifactIds {
-				env: artifact_ids[2].clone(),
-				sh: artifact_ids[3].clone(),
-			},
-		),
-	]
-	.iter()
-	.cloned()
-	.collect::<HashMap<_, _, _>>();
-
-	Ok(())
 }

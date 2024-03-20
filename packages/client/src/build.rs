@@ -1,6 +1,6 @@
 pub use self::{outcome::Outcome, status::Status};
 use crate as tg;
-use crate::{blob, id, object, target, Client, Handle, Target, Triple, User, Value};
+use crate::{blob, id, object, target, Client, Handle, Target, User, Value};
 use async_recursion::async_recursion;
 use bytes::Bytes;
 use derive_more::Display;
@@ -86,7 +86,7 @@ pub struct GetOutput {
 	pub id: Id,
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub count: Option<u64>,
-	pub host: Triple,
+	pub host: String,
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub log: Option<blob::Id>,
 	#[serde(default, skip_serializing_if = "Option::is_none")]
@@ -124,7 +124,7 @@ pub struct PutArg {
 	pub children: Vec<Id>,
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub count: Option<u64>,
-	pub host: Triple,
+	pub host: String,
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub log: Option<blob::Id>,
 	#[serde(default, skip_serializing_if = "Option::is_none")]

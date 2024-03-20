@@ -47,7 +47,7 @@ impl Client {
 		let request = http::request::Builder::default()
 			.method(method)
 			.uri(uri)
-			.header(http::header::UPGRADE, "lsp".to_string())
+			.header(http::header::UPGRADE, "lsp".to_owned())
 			.body(body)
 			.map_err(|error| error!(source = error, "failed to create the request"))?;
 		let response = sender
