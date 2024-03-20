@@ -602,7 +602,7 @@ pub async fn build(server: &Server, build: &tg::Build) -> Result<tg::Value> {
 					Ok(0) => return Ok(()),
 					Ok(size) => {
 						let log = Bytes::copy_from_slice(&buf[0..size]);
-						if server.inner.options.write_build_logs_to_stderr {
+						if server.inner.options.advanced.write_build_logs_to_stderr {
 							tokio::io::stderr()
 								.write_all(&log)
 								.await
