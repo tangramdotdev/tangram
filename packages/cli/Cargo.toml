@@ -20,7 +20,6 @@ path = "src/main.rs"
 async-recursion = { workspace = true }
 bytes = { workspace = true }
 clap = { workspace = true }
-console = { workspace = true }
 console-subscriber = { workspace = true }
 crossterm = { workspace = true }
 dialoguer = { workspace = true }
@@ -40,7 +39,6 @@ serde_with = { workspace = true }
 tangram_client = { workspace = true }
 tangram_error = { workspace = true }
 tangram_server = { workspace = true }
-tempfile = { workspace = true }
 tokio = { workspace = true }
 tokio-util = { workspace = true }
 tracing = { workspace = true }

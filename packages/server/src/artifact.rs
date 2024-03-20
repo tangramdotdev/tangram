@@ -292,9 +292,9 @@ impl Server {
 				},
 				Err(error) => {
 					let path = path.display();
-					let temp = tmp.path.display();
+					let tmp = tmp.path.display();
 					return Err(
-						error!(source = error, %temp, %path, "failed to move the checkout to the checkouts directory"),
+						error!(source = error, %tmp, %path, "failed to move the checkout to the checkouts directory"),
 					);
 				},
 			};

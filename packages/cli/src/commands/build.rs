@@ -1,10 +1,10 @@
 use crate::{
+	tree::Tree,
 	tui::{self, Tui},
-	util::{print_tree, Tree},
 	Cli,
 };
 use async_recursion::async_recursion;
-use console::style;
+use crossterm::style::Stylize;
 use futures::{stream::FuturesUnordered, StreamExt, TryStreamExt};
 use itertools::Itertools;
 use std::{collections::BTreeMap, fmt::Write, path::PathBuf};
@@ -202,8 +202,12 @@ impl Cli {
 				.build()
 		};
 
-		// Print the target ID.
-		eprintln!("{}", target.id(client).await?);
+		// Print the target.
+		eprintln!(
+			"{}: target {}",
+			"info".blue().bold(),
+			target.id(client).await?
+		);
 
 		// Build the target.
 		let arg = tg::build::GetOrCreateArg {
@@ -220,8 +224,8 @@ impl Cli {
 			return Ok(());
 		}
 
-		// Print the build ID.
-		eprintln!("{}", build.id());
+		// Print the build.
+		eprintln!("{}: build {}", "info".blue().bold(), build.id());
 
 		// Attempt to get the build's outcome with zero timeout.
 		let arg = tg::build::outcome::GetArg {
@@ -326,7 +330,7 @@ impl Cli {
 		let client = &self.client().await?;
 		let build = tg::Build::with_id(args.id);
 		let tree = get_build_tree(client, &build, 1, args.depth).await?;
-		print_tree(&tree);
+		tree.print();
 		Ok(())
 	}
 }
@@ -367,9 +371,9 @@ async fn get_build_tree(
 	let mut title = String::new();
 	match status {
 		tg::build::Status::Created | tg::build::Status::Queued => {
-			write!(title, "{}", style("⟳").yellow()).unwrap();
+			write!(title, "{}", "⟳".yellow()).unwrap();
 		},
-		tg::build::Status::Started => write!(title, "{}", style("⠿").blue()).unwrap(),
+		tg::build::Status::Started => write!(title, "{}", "⠿".blue()).unwrap(),
 		tg::build::Status::Finished => {
 			let outcome = build
 				.outcome(tg)
@@ -377,34 +381,34 @@ async fn get_build_tree(
 				.map_err(|error| error!(source = error, %id, "failed to get the build outcome"))?;
 			match outcome {
 				tg::build::Outcome::Canceled => {
-					write!(title, "{}", style("⦻ ").yellow()).unwrap();
+					write!(title, "{}", "⦻ ".yellow()).unwrap();
 				},
 				tg::build::Outcome::Succeeded(_) => {
-					write!(title, "{}", style("✓ ").green()).unwrap();
+					write!(title, "{}", "✓ ".green()).unwrap();
 				},
 				tg::build::Outcome::Failed(_) => {
-					write!(title, "{}", style("✗ ").red()).unwrap();
+					write!(title, "{}", "✗ ".red()).unwrap();
 				},
 			}
 		},
 	}
-	write!(title, "{} ", style(&id).blue()).unwrap();
+	write!(title, "{} ", id.to_string().blue()).unwrap();
 	if let Some(package) = package {
 		if let Ok(metadata) = tg::package::get_metadata(tg, package).await {
 			if let Some(name) = metadata.name {
-				write!(title, "{}", style(name).magenta()).unwrap();
+				write!(title, "{}", name.magenta()).unwrap();
 			} else {
-				write!(title, "{}", style("<unknown>").blue()).unwrap();
+				write!(title, "{}", "<unknown>".blue()).unwrap();
 			}
 			if let Some(version) = metadata.version {
-				write!(title, "@{}", style(version).yellow()).unwrap();
+				write!(title, "@{}", version.yellow()).unwrap();
 			}
 		} else {
-			write!(title, "{}", style("<unknown>").magenta()).unwrap();
+			write!(title, "{}", "<unknown>".magenta()).unwrap();
 		}
 		write!(title, ":").unwrap();
 	}
-	write!(title, "{}", style(name).white()).unwrap();
+	write!(title, "{}", name.white()).unwrap();
 
 	// Get the build's children.
 	let children = if max_depth.map_or(true, |max_depth| current_depth < max_depth) {

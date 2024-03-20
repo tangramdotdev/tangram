@@ -66,7 +66,7 @@ impl Server {
 			};
 			let id = build.id.clone();
 
-			// Update the build's status to queued.
+			// Update the build's status to queued. If the update fails, then continue.
 			let result = self
 				.set_build_status(None, &id, tg::build::Status::Queued)
 				.await;
@@ -98,8 +98,7 @@ impl Server {
 					Ok::<_, Error>(())
 				}
 				.inspect_err(|error| {
-					let trace = error.trace(tangram_error::TraceOptions::default());
-					tracing::error!(%trace, "failed to run the build");
+					tracing::error!(?error, "failed to run the build");
 				})
 				.map(|_| ())
 			});
@@ -204,21 +203,20 @@ impl Server {
 			},
 		};
 
+		// Log the error.
+		if let Err(error) = &result {
+			let options = &self.inner.options.advanced.error_trace_options;
+			let trace = error.trace(options);
+			let log = trace.to_string().into();
+			build.add_log(self, log).await?;
+		}
+
 		// Create the outcome.
 		let outcome = match result {
 			Ok(value) => tg::build::Outcome::Succeeded(value),
-			Err(error) => {
-				let options = tangram_error::TraceOptions {
-					exclude: &self.inner.options.stack_trace.exclude,
-					include: &self.inner.options.stack_trace.include,
-					reverse: self.inner.options.stack_trace.reverse,
-				};
-				let trace = error.trace(options);
-				let message = trace.to_string();
-				build.add_log(self, message.into()).await?;
-				tg::build::Outcome::Failed(error)
-			},
+			Err(error) => tg::build::Outcome::Failed(error),
 		};
+
 		Ok(outcome)
 	}
 

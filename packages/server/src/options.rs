@@ -4,20 +4,25 @@ use url::Url;
 
 pub struct Options {
 	pub address: tg::Address,
+	pub advanced: Advanced,
 	pub build: Build,
 	pub database: Database,
-	pub file_descriptor_semaphore_size: usize,
 	pub messenger: Messenger,
 	pub oauth: Oauth,
 	pub path: PathBuf,
-	pub preserve_temp_directories: bool,
 	pub remote: Option<Remote>,
-	pub stack_trace: StackTrace,
 	pub url: Option<Url>,
 	pub version: String,
 	pub vfs: Vfs,
-	pub write_build_logs_to_stderr: bool,
 	pub www: Option<Url>,
+}
+
+#[derive(Clone, Debug)]
+pub struct Advanced {
+	pub error_trace_options: tangram_error::TraceOptions,
+	pub file_descriptor_semaphore_size: usize,
+	pub preserve_temp_directories: bool,
+	pub write_build_logs_to_stderr: bool,
 }
 
 #[derive(Clone, Debug)]

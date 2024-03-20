@@ -1,5 +1,6 @@
 use self::config::Config;
 use clap::Parser;
+use crossterm::style::Stylize;
 use futures::FutureExt;
 use std::path::PathBuf;
 use tangram_client as tg;
@@ -8,8 +9,8 @@ use tracing_subscriber::prelude::*;
 
 mod commands;
 mod config;
+mod tree;
 mod tui;
-mod util;
 
 pub const API_URL: &str = "https://api.tangram.dev";
 
@@ -87,11 +88,15 @@ fn main() {
 	let args = Args::parse();
 
 	// Read the config.
-	let config = match Cli::read_config(args.config.clone()) {
+	let config = match Cli::read_config(args.config.clone())
+		.map_err(|error| error!(source = error, "failed to read the config"))
+	{
 		Ok(config) => config,
 		Err(error) => {
-			let error = error!(source = error, "Failed to read config.");
-			util::print_error_trace(&error, None);
+			let options = tangram_error::TraceOptions::default();
+			let trace = error.trace(&options);
+			eprintln!("{}: an error occurred", "error".red().bold());
+			trace.eprint();
 			std::process::exit(1);
 		},
 	};
@@ -101,7 +106,14 @@ fn main() {
 
 	// Display errors.
 	if let Err(error) = result {
-		util::print_error_trace(&error, config.as_ref());
+		let options = config
+			.as_ref()
+			.and_then(|config| config.advanced.as_ref())
+			.and_then(|advanced| advanced.error_trace_options.clone())
+			.unwrap_or_default();
+		let trace = error.trace(&options);
+		eprintln!("{}: an error occurred", "error".red().bold());
+		trace.eprint();
 		std::process::exit(1);
 	}
 }
@@ -110,11 +122,14 @@ fn main_inner(args: Args, config: Option<Config>) -> Result<()> {
 	// Set the file descriptor limit.
 	set_file_descriptor_limit(&config)?;
 
-	// Read the user.
-	let user = Cli::read_user(None)?;
+	// Set up tracing.
+	set_up_tracing(&config);
 
 	// Initialize V8.
 	initialize_v8();
+
+	// Read the user.
+	let user = Cli::read_user(None)?;
 
 	// Get the address.
 	let address = args
@@ -127,15 +142,12 @@ fn main_inner(args: Args, config: Option<Config>) -> Result<()> {
 	// Get the version.
 	let version = if cfg!(debug_assertions) {
 		let executable_path = std::env::current_exe()
-			.map_err(|error| error!(source = error, "failed to get the current executable path"))
-			.unwrap();
+			.map_err(|error| error!(source = error, "failed to get the current executable path"))?;
 		let metadata = std::fs::metadata(executable_path)
-			.map_err(|error| error!(source = error, "failed to get the executable metadata"))
-			.unwrap();
+			.map_err(|error| error!(source = error, "failed to get the executable metadata"))?;
 		metadata
 			.modified()
-			.map_err(|error| error!(source = error, "failed to get the executable modified time"))
-			.unwrap()
+			.map_err(|error| error!(source = error, "failed to get the executable modified time"))?
 			.duration_since(std::time::SystemTime::UNIX_EPOCH)
 			.unwrap()
 			.as_secs()
@@ -152,9 +164,6 @@ fn main_inner(args: Args, config: Option<Config>) -> Result<()> {
 		user,
 		version,
 	};
-
-	// Set up tracing.
-	set_up_tracing();
 
 	// Run the command.
 	let future = match args.command {
@@ -401,18 +410,27 @@ fn initialize_v8() {
 	v8::V8::initialize();
 }
 
-fn set_up_tracing() {
-	let console_layer = std::env::var("TANGRAM_TOKIO_CONSOLE")
-		.ok()
-		.map(|_| console_subscriber::spawn());
-	let fmt_layer = std::env::var("TANGRAM_TRACING").ok().map(|env| {
-		let filter = tracing_subscriber::filter::EnvFilter::try_new(env).unwrap();
-		tracing_subscriber::fmt::layer()
-			.compact()
-			.with_span_events(tracing_subscriber::fmt::format::FmtSpan::NEW)
-			.with_writer(std::io::stderr)
-			.with_filter(filter)
-	});
+fn set_up_tracing(config: &Option<Config>) {
+	let console_layer = if config
+		.as_ref()
+		.and_then(|config| config.advanced.as_ref())
+		.map_or(false, |advanced| advanced.tokio_console)
+	{
+		Some(console_subscriber::spawn())
+	} else {
+		None
+	};
+	let fmt_layer = config
+		.as_ref()
+		.and_then(|config| config.tracing.as_ref())
+		.map(|tracing| {
+			let filter = tracing_subscriber::filter::EnvFilter::try_new(tracing).unwrap();
+			tracing_subscriber::fmt::layer()
+				.compact()
+				.with_span_events(tracing_subscriber::fmt::format::FmtSpan::NEW)
+				.with_writer(std::io::stderr)
+				.with_filter(filter)
+		});
 	tracing_subscriber::registry()
 		.with(console_layer)
 		.with(fmt_layer)

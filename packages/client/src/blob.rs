@@ -221,9 +221,9 @@ impl Blob {
 		// Create the reader.
 		let reader = self.reader(tg).await?;
 
-		// Create a temp.
+		// Create a temporary path.
 		let tempdir = tempfile::TempDir::new()
-			.map_err(|error| error!(source = error, "failed to create the temporary leaf"))?;
+			.map_err(|error| error!(source = error, "failed to create the temporary directory"))?;
 		let path = tempdir.path().join("archive");
 
 		// Extract in a blocking task.

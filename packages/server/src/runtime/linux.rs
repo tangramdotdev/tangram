@@ -80,14 +80,14 @@ pub async fn build(server: &Server, build: &tg::Build) -> Result<tg::Value> {
 	let server_directory_host_path = server.inner.options.path.clone();
 	let server_directory_guest_path = PathBuf::from(SERVER_DIRECTORY_GUEST_PATH);
 
-	// Get the server temp directory path.
-	let server_directory_temp_path = server_directory_host_path.join("tmp");
-	tokio::fs::create_dir_all(&server_directory_temp_path)
+	// Get the server temporary directory path.
+	let server_directory_tmp_path = server_directory_host_path.join("tmp");
+	tokio::fs::create_dir_all(&server_directory_tmp_path)
 		.await
 		.map_err(|error| error!(source = error, "failed to create the server temp directory"))?;
 
 	// Create a tempdir for the root.
-	let root_directory_tempdir = tempfile::TempDir::new_in(&server_directory_temp_path)
+	let root_directory_tempdir = tempfile::TempDir::new_in(&server_directory_tmp_path)
 		.map_err(|error| error!(source = error, "failed to create temporary directory"))?;
 	let root_directory_host_path = root_directory_tempdir.path().to_owned();
 	tokio::fs::create_dir_all(&root_directory_host_path)
@@ -135,7 +135,7 @@ pub async fn build(server: &Server, build: &tg::Build) -> Result<tg::Value> {
 		.map_err(|error| error!(source = error, "failed to write the buffer"))?;
 
 	// Create a tempdir for the output.
-	let output_tempdir = tempfile::TempDir::new_in(&server_directory_temp_path)
+	let output_tempdir = tempfile::TempDir::new_in(&server_directory_tmp_path)
 		.map_err(|error| error!(source = error, "failed to create the temporary directory"))?;
 
 	// Create the host and guest paths for the output parent directory.
