@@ -1,7 +1,6 @@
 pub use self::{outcome::Outcome, status::Status};
 use crate as tg;
 use crate::{blob, id, object, target, Client, Handle, Target, User, Value};
-use async_recursion::async_recursion;
 use bytes::Bytes;
 use derive_more::Display;
 use futures::{
@@ -10,7 +9,7 @@ use futures::{
 };
 use http_body_util::BodyExt;
 use tangram_error::{error, Error, Result};
-use tangram_util::http::{empty, full};
+use tangram_http::{empty, full};
 
 pub mod children;
 pub mod log;
@@ -342,10 +341,9 @@ impl Build {
 		Ok(Some(target))
 	}
 
-	#[async_recursion]
 	pub async fn push(
 		&self,
-		user: Option<&'async_recursion User>,
+		user: Option<&User>,
 		tg: &dyn Handle,
 		remote: &dyn Handle,
 	) -> Result<()> {
@@ -401,7 +399,6 @@ impl Build {
 		Ok(())
 	}
 
-	#[async_recursion]
 	pub async fn pull(&self, _tg: &dyn Handle, _remote: &dyn Handle) -> Result<()> {
 		Err(error!("not yet implemented"))
 	}

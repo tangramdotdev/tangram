@@ -6,7 +6,7 @@ use std::{
 };
 use tangram_client as tg;
 use tangram_error::{error, Result};
-use tangram_util::http::{empty, full, not_found, Incoming, Outgoing};
+use tangram_http::{empty, full, not_found, Incoming, Outgoing};
 
 mod dependencies;
 mod format;
@@ -93,7 +93,7 @@ impl Server {
 				break 'a Some(package_with_path_dependencies);
 			}
 
-			let Some(remote) = self.inner.remote.as_ref() else {
+			let Some(remote) = self.inner.remotes.first() else {
 				break 'a None;
 			};
 
@@ -546,7 +546,7 @@ impl Http {
 			.map_err(|source| error!(!source, "failed to parse the dependency"))?;
 
 		// Get the outdated dependencies.
-		let output = self.inner.tg.get_outdated(&dependency).await?;
+		let output = self.inner.tg.get_package_outdated(&dependency).await?;
 		let body = serde_json::to_vec(&output)
 			.map_err(|source| error!(!source, "failed to serialize the body"))?;
 		let body = full(body);

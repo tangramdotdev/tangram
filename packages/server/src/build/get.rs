@@ -1,14 +1,11 @@
-use crate::{
-	database::{Database, Postgres, PostgresJson, Sqlite, SqliteJson},
-	postgres_params, sqlite_params, Http, Server,
-};
+use crate::{Http, Server};
 use futures::{stream, StreamExt, TryStreamExt};
-use num::ToPrimitive;
+use indoc::formatdoc;
 use tangram_client as tg;
+use tangram_database as db;
 use tangram_error::{error, Error, Result};
-use tangram_util::http::{full, not_found, Incoming, Outgoing};
+use tangram_http::{full, not_found, Incoming, Outgoing};
 use tg::Handle;
-use time::format_description::well_known::Rfc3339;
 
 impl Server {
 	pub async fn try_get_build(
@@ -29,250 +26,46 @@ impl Server {
 		&self,
 		id: &tg::build::Id,
 	) -> Result<Option<tg::build::GetOutput>> {
-		match &self.inner.database {
-			Database::Sqlite(database) => self.try_get_build_sqlite(id, database).await,
-			Database::Postgres(database) => self.try_get_build_postgres(id, database).await,
-		}
-	}
-
-	async fn try_get_build_sqlite(
-		&self,
-		id: &tg::build::Id,
-		database: &Sqlite,
-	) -> Result<Option<tg::build::GetOutput>> {
-		let connection = database.get().await?;
-		let statement = "
-			select
-				id,
-				count,
-				host,
-				log,
-				outcome,
-				retry,
-				status,
-				target,
-				weight,
-				created_at,
-				queued_at,
-				started_at,
-				finished_at
-			from builds
-			where id = ?1;
-		";
-		let params = sqlite_params![id.to_string()];
-		let mut statement = connection
-			.prepare_cached(statement)
-			.map_err(|source| error!(!source, "failed to prepare the query"))?;
-		let mut rows = statement
-			.query(params)
-			.map_err(|source| error!(!source, "failed to execute the statement"))?;
-		let Some(row) = rows
-			.next()
-			.map_err(|source| error!(!source, "failed to retrieve the row"))?
-		else {
-			return Ok(None);
-		};
-		let id = row
-			.get::<_, String>(0)
-			.map_err(|source| error!(!source, "failed to deserialize the column"))?;
-		let count = row
-			.get::<_, Option<i64>>(1)
-			.map_err(|source| error!(!source, "failed to deserialize the column"))?;
-		let host = row
-			.get::<_, String>(2)
-			.map_err(|source| error!(!source, "failed to deserialize the column"))?;
-		let log = row
-			.get::<_, Option<String>>(3)
-			.map_err(|source| error!(!source, "failed to deserialize the column"))?;
-		let outcome = row
-			.get::<_, Option<SqliteJson<tg::build::outcome::Data>>>(4)
-			.map_err(|source| error!(!source, "failed to deserialize the column"))?;
-		let retry = row
-			.get::<_, String>(5)
-			.map_err(|source| error!(!source, "failed to deserialize the column"))?;
-		let status = row
-			.get::<_, String>(6)
-			.map_err(|source| error!(!source, "failed to deserialize the column"))?;
-		let target = row
-			.get::<_, String>(7)
-			.map_err(|source| error!(!source, "failed to deserialize the column"))?;
-		let weight = row
-			.get::<_, Option<i64>>(8)
-			.map_err(|source| error!(!source, "failed to deserialize the column"))?;
-		let created_at = row
-			.get::<_, String>(9)
-			.map_err(|source| error!(!source, "failed to deserialize the column"))?;
-		let queued_at = row
-			.get::<_, Option<String>>(10)
-			.map_err(|source| error!(!source, "failed to deserialize the column"))?;
-		let started_at = row
-			.get::<_, Option<String>>(11)
-			.map_err(|source| error!(!source, "failed to deserialize the column"))?;
-		let finished_at = row
-			.get::<_, Option<String>>(12)
-			.map_err(|source| error!(!source, "failed to deserialize the column"))?;
-		let id = id.parse()?;
-		let count = count.map(|count| count.to_u64().unwrap());
-		let log = log.map(|log| log.parse()).transpose()?;
-		let outcome = outcome.map(|outcome| outcome.0);
-		let retry = retry.parse()?;
-		let status = status.parse()?;
-		let target = target.parse()?;
-		let weight = weight.map(|weight| weight.to_u64().unwrap());
-		let created_at = time::OffsetDateTime::parse(&created_at, &Rfc3339)
-			.map_err(|source| error!(!source, "failed to parse the timestamp"))?;
-		let queued_at = queued_at
-			.map(|timestamp| {
-				time::OffsetDateTime::parse(&timestamp, &Rfc3339)
-					.map_err(|source| error!(!source, "failed to parse the timestamp"))
-			})
-			.transpose()?;
-		let started_at = started_at
-			.map(|timestamp| {
-				time::OffsetDateTime::parse(&timestamp, &Rfc3339)
-					.map_err(|source| error!(!source, "failed to parse the timestamp"))
-			})
-			.transpose()?;
-		let finished_at = finished_at
-			.map(|timestamp| {
-				time::OffsetDateTime::parse(&timestamp, &Rfc3339)
-					.map_err(|source| error!(!source, "failed to parse the timestamp"))
-			})
-			.transpose()?;
-		let output = tg::build::GetOutput {
-			id,
-			count,
-			host,
-			log,
-			outcome,
-			retry,
-			status,
-			target,
-			weight,
-			created_at,
-			queued_at,
-			started_at,
-			finished_at,
-		};
-		Ok(Some(output))
-	}
-
-	async fn try_get_build_postgres(
-		&self,
-		id: &tg::build::Id,
-		database: &Postgres,
-	) -> Result<Option<tg::build::GetOutput>> {
-		let connection = database.get().await?;
-		let statement = "
-			select
-				id,
-				count,
-				host,
-				log,
-				outcome,
-				retry,
-				status,
-				target,
-				weight,
-				created_at,
-				queued_at,
-				started_at,
-				finished_at
-			from builds
-			where id = $1;
-		";
-		let params = postgres_params![id.to_string()];
-		let statement = connection
-			.prepare_cached(statement)
+		// Get a database connection.
+		let connection = self
+			.inner
+			.database
+			.connection()
 			.await
-			.map_err(|source| error!(!source, "failed to prepare the query"))?;
-		let row = connection
-			.query_one(&statement, params)
+			.map_err(|source| error!(!source, "failed to get a database connection"))?;
+
+		// Get the build.
+		let p = connection.p();
+		let statement = formatdoc!(
+			"
+				select
+					id,
+					count,
+					host,
+					log,
+					outcome,
+					retry,
+					status,
+					target,
+					weight,
+					created_at,
+					queued_at,
+					started_at,
+					finished_at
+				from builds
+				where id = {p}1;
+			"
+		);
+		let params = db::params![id];
+		let output = connection
+			.query_optional_into(statement, params)
 			.await
 			.map_err(|source| error!(!source, "failed to execute the statement"))?;
-		let id = row
-			.try_get::<_, String>(0)
-			.map_err(|source| error!(!source, "failed to deserialize the column"))?;
-		let count = row
-			.try_get::<_, Option<i64>>(1)
-			.map_err(|source| error!(!source, "failed to deserialize the column"))?;
-		let host = row
-			.try_get::<_, String>(2)
-			.map_err(|source| error!(!source, "failed to deserialize the column"))?;
-		let log = row
-			.try_get::<_, Option<String>>(3)
-			.map_err(|source| error!(!source, "failed to deserialize the column"))?;
-		let outcome = row
-			.try_get::<_, Option<PostgresJson<tg::build::outcome::Data>>>(4)
-			.map_err(|source| error!(!source, "failed to deserialize the column"))?;
-		let retry = row
-			.try_get::<_, String>(5)
-			.map_err(|source| error!(!source, "failed to deserialize the column"))?;
-		let status = row
-			.try_get::<_, String>(6)
-			.map_err(|source| error!(!source, "failed to deserialize the column"))?;
-		let target = row
-			.try_get::<_, String>(7)
-			.map_err(|source| error!(!source, "failed to deserialize the column"))?;
-		let weight = row
-			.try_get::<_, Option<i64>>(8)
-			.map_err(|source| error!(!source, "failed to deserialize the column"))?;
-		let created_at = row
-			.try_get::<_, String>(9)
-			.map_err(|source| error!(!source, "failed to deserialize the column"))?;
-		let queued_at = row
-			.try_get::<_, Option<String>>(10)
-			.map_err(|source| error!(!source, "failed to deserialize the column"))?;
-		let started_at = row
-			.try_get::<_, Option<String>>(11)
-			.map_err(|source| error!(!source, "failed to deserialize the column"))?;
-		let finished_at = row
-			.try_get::<_, Option<String>>(12)
-			.map_err(|source| error!(!source, "failed to deserialize the column"))?;
-		let id = id.parse()?;
-		let count = count.map(|count| count.to_u64().unwrap());
-		let log = log.map(|log| log.parse()).transpose()?;
-		let outcome = outcome.map(|outcome| outcome.0);
-		let retry = retry.parse()?;
-		let status = status.parse()?;
-		let target = target.parse()?;
-		let weight = weight.map(|weight| weight.to_u64().unwrap());
-		let created_at = time::OffsetDateTime::parse(&created_at, &Rfc3339)
-			.map_err(|source| error!(!source, "failed to parse the timestamp"))?;
-		let queued_at = queued_at
-			.map(|timestamp| {
-				time::OffsetDateTime::parse(&timestamp, &Rfc3339)
-					.map_err(|source| error!(!source, "failed to parse the timestamp"))
-			})
-			.transpose()?;
-		let started_at = started_at
-			.map(|timestamp| {
-				time::OffsetDateTime::parse(&timestamp, &Rfc3339)
-					.map_err(|source| error!(!source, "failed to parse the timestamp"))
-			})
-			.transpose()?;
-		let finished_at = finished_at
-			.map(|timestamp| {
-				time::OffsetDateTime::parse(&timestamp, &Rfc3339)
-					.map_err(|source| error!(!source, "failed to parse the timestamp"))
-			})
-			.transpose()?;
-		let output = tg::build::GetOutput {
-			id,
-			count,
-			host,
-			log,
-			outcome,
-			retry,
-			status,
-			target,
-			weight,
-			created_at,
-			queued_at,
-			started_at,
-			finished_at,
-		};
-		Ok(Some(output))
+
+		// Drop the database connection.
+		drop(connection);
+
+		Ok(output)
 	}
 
 	async fn try_get_build_remote(
@@ -280,7 +73,7 @@ impl Server {
 		id: &tg::build::Id,
 	) -> Result<Option<tg::build::GetOutput>> {
 		// Get the remote.
-		let Some(remote) = self.inner.remote.as_ref() else {
+		let Some(remote) = self.inner.remotes.first() else {
 			return Ok(None);
 		};
 

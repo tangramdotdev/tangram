@@ -20,14 +20,14 @@ pub async fn rmrf(path: impl AsRef<Path>) -> Result<()> {
 	};
 
 	if metadata.is_dir() {
-		tokio::fs::remove_dir_all(path).await.map_err(|error| {
+		tokio::fs::remove_dir_all(path).await.map_err(|source| {
 			let path = path.display();
-			error!(source = error, %path, "failed to remove the directory")
+			error!(!source, %path, "failed to remove the directory")
 		})?;
 	} else {
-		tokio::fs::remove_file(path).await.map_err(|error| {
+		tokio::fs::remove_file(path).await.map_err(|source| {
 			let path = path.display();
-			error!(source = error, %path, "failed to remove the file")
+			error!(!source, %path, "failed to remove the file")
 		})?;
 	};
 

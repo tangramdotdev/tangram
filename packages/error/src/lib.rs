@@ -256,6 +256,36 @@ impl Default for TraceOptions {
 	}
 }
 
+impl serde::ser::Error for Error {
+	fn custom<T>(msg: T) -> Self
+	where
+		T: std::fmt::Display,
+	{
+		Self {
+			message: msg.to_string(),
+			location: None,
+			stack: None,
+			source: None,
+			values: BTreeMap::default(),
+		}
+	}
+}
+
+impl serde::de::Error for Error {
+	fn custom<T>(msg: T) -> Self
+	where
+		T: std::fmt::Display,
+	{
+		Self {
+			message: msg.to_string(),
+			location: None,
+			stack: None,
+			source: None,
+			values: BTreeMap::default(),
+		}
+	}
+}
+
 /// Generate an [Error].
 ///
 /// Usage:

@@ -1,7 +1,7 @@
 use crate::{default_path, Cli, API_URL};
 use std::path::PathBuf;
 use tangram_client as tg;
-use tangram_error::{error, Result};
+use tangram_error::{error, Error, Result};
 use url::Url;
 
 /// Manage the server.
@@ -26,9 +26,9 @@ pub struct HealthArgs {}
 /// Run a server.
 #[derive(Debug, clap::Args)]
 pub struct RunArgs {
-	/// The address to bind to.
+	/// The url to listen on.
 	#[clap(long)]
-	pub address: Option<tg::Address>,
+	pub url: Option<Url>,
 
 	/// The path to the config file.
 	#[clap(long)]
@@ -37,18 +37,6 @@ pub struct RunArgs {
 	/// The path where the server should store its data. The default is `$HOME/.tangram`.
 	#[clap(long)]
 	pub path: Option<PathBuf>,
-
-	/// The URL of the remote server.
-	#[clap(long)]
-	pub remote: Option<Url>,
-
-	/// Disable the remote server.
-	#[clap(long, default_value = "false")]
-	pub no_remote: bool,
-
-	/// Disable the VFS.
-	#[clap(long, default_value = "false")]
-	pub no_vfs: bool,
 }
 
 /// Start the server.
@@ -63,7 +51,7 @@ impl Cli {
 	pub async fn command_server(&self, args: Args) -> Result<()> {
 		match args.command {
 			Command::Health(_) => {
-				let client = tg::Builder::new(self.address.clone()).build();
+				let client = self.client().await?;
 				let health = client.health().await?;
 				let health = serde_json::to_string_pretty(&health).unwrap();
 				println!("{health}");
@@ -72,7 +60,7 @@ impl Cli {
 				self.start_server().await?;
 			},
 			Command::Stop(_) => {
-				let client = tg::Builder::new(self.address.clone()).build();
+				let client = self.client().await?;
 				client.stop().await?;
 			},
 			Command::Run(args) => {
@@ -91,11 +79,21 @@ impl Cli {
 		.await
 		.unwrap()?;
 
-		// Get the address.
-		let address = args
-			.address
-			.or(config.as_ref().and_then(|config| config.address.clone()))
-			.unwrap_or(tg::Address::Unix(default_path().join("socket")));
+		// Get the path.
+		let path = args
+			.path
+			.or(config.as_ref().and_then(|config| config.path.clone()))
+			.unwrap_or(default_path());
+
+		// Get the url.
+		let url = args
+			.url
+			.or(config.as_ref().and_then(|config| config.url.clone()))
+			.unwrap_or_else(|| {
+				format!("unix:{}", path.join("socket").display())
+					.parse()
+					.unwrap()
+			});
 
 		// Get the file descriptor semaphore size.
 		let file_descriptor_semaphore_size = config
@@ -183,53 +181,55 @@ impl Cli {
 						.github
 						.as_ref()
 						.map(|client| tangram_server::options::OauthClient {
+							auth_url: client.auth_url.clone(),
 							client_id: client.client_id.clone(),
 							client_secret: client.client_secret.clone(),
-							auth_url: client.auth_url.clone(),
+							redirect_url: client.redirect_url.clone(),
 							token_url: client.token_url.clone(),
 						});
 				tangram_server::options::Oauth { github }
 			})
 			.unwrap_or_default();
 
-		// Get the path.
-		let path = args
-			.path
-			.or(config.as_ref().and_then(|config| config.path.clone()))
-			.unwrap_or(default_path());
-
 		// Create the remote options.
-		let url = args
-			.remote
-			.or(config
-				.as_ref()
-				.and_then(|config| config.remote.as_ref())
-				.and_then(|remote| remote.url.clone()))
-			.unwrap_or_else(|| API_URL.parse().unwrap());
-		let tls = url.scheme() == "https";
-		let client = tg::Builder::new(url.try_into()?).tls(tls).build();
-		let build_ = config
+		let remotes = config
 			.as_ref()
-			.and_then(|config| config.remote.as_ref())
-			.and_then(|remote| remote.build.clone());
-		let enable = build_
-			.as_ref()
-			.and_then(|build| build.enable)
-			.unwrap_or(false);
-		let build_ = tangram_server::options::RemoteBuild { enable };
-		let remote = tangram_server::options::Remote {
-			tg: Box::new(client),
-			build: build_,
+			.and_then(|config| config.remotes.as_ref())
+			.map(|remotes| {
+				remotes
+					.iter()
+					.map(|remote| {
+						let url = remote.url.clone();
+						let client = tg::Builder::new(url).build();
+						let tg = Box::new(client);
+						let build_ = remote.build.clone();
+						let enable = build_
+							.as_ref()
+							.and_then(|build| build.enable)
+							.unwrap_or(false);
+						let build_ = tangram_server::options::RemoteBuild { enable };
+						let remote = tangram_server::options::Remote { tg, build: build_ };
+						Ok::<_, Error>(remote)
+					})
+					.collect()
+			})
+			.transpose()?;
+		let remotes = if let Some(remotes) = remotes {
+			remotes
+		} else {
+			let build = tangram_server::options::RemoteBuild { enable: false };
+			let url = Url::parse(API_URL).unwrap();
+			let client = tg::Builder::new(url).build();
+			let tg = Box::new(client);
+			let remote = tangram_server::options::Remote { build, tg };
+			vec![remote]
 		};
-		let remote = if args.no_remote { None } else { Some(remote) };
 
-		// Get the URL.
-		let url = config.as_ref().and_then(|config| config.url.clone());
-
+		// Get the version.
 		let version = self.version.clone();
 
 		// Create the vfs options.
-		let mut vfs = config
+		let vfs = config
 			.as_ref()
 			.and_then(|config| config.vfs.as_ref())
 			.map_or_else(
@@ -238,12 +238,6 @@ impl Cli {
 					enable: vfs.enable.unwrap_or(true),
 				},
 			);
-		if args.no_vfs {
-			vfs.enable = false;
-		};
-
-		// Get the WWW URL.
-		let www = config.as_ref().and_then(|config| config.www.clone());
 
 		// Get the server's advanced options.
 		let preserve_temp_directories = config
@@ -270,18 +264,16 @@ impl Cli {
 
 		// Create the options.
 		let options = tangram_server::Options {
-			address,
 			advanced,
 			build,
 			database,
 			messenger,
 			oauth,
 			path,
-			remote,
+			remotes,
 			url,
 			version,
 			vfs,
-			www,
 		};
 
 		// Start the server.

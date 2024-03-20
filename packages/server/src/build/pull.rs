@@ -1,14 +1,14 @@
 use crate::{Http, Server};
 use tangram_client as tg;
 use tangram_error::{error, Result};
-use tangram_util::http::{bad_request, ok, Incoming, Outgoing};
+use tangram_http::{bad_request, ok, Incoming, Outgoing};
 
 impl Server {
 	pub async fn pull_build(&self, id: &tg::build::Id) -> Result<()> {
 		let remote = self
 			.inner
-			.remote
-			.as_ref()
+			.remotes
+			.first()
 			.ok_or_else(|| error!("the server does not have a remote"))?;
 		tg::Build::with_id(id.clone())
 			.pull(self, remote.as_ref())

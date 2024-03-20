@@ -29,9 +29,8 @@ impl Import {
 						.iter()
 						.map(|(key, value)| (key.clone(), value.clone()))
 						.collect();
-					let attributes = serde_json::from_value(attributes).map_err(|error| {
-						error!(source = error, "failed to parse the attributes")
-					})?;
+					let attributes = serde_json::from_value(attributes)
+						.map_err(|source| error!(!source, "failed to parse the attributes"))?;
 					dependency.merge(attributes);
 					Self::Dependency(dependency)
 				},
@@ -74,7 +73,7 @@ impl std::str::FromStr for Import {
 			Ok(Import::Module(path))
 		} else if let Some(value) = value.strip_prefix("tg:") {
 			let dependency = value.parse().map_err(
-				|error| error!(source = error, %value, "failed to parse value as a dependency"),
+				|source| error!(!source, %value, "failed to parse value as a dependency"),
 			)?;
 			Ok(Import::Dependency(dependency))
 		} else {

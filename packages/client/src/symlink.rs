@@ -1,5 +1,4 @@
 use crate::{artifact, id, object, Artifact, Handle, Path};
-use async_recursion::async_recursion;
 use bytes::Bytes;
 use derive_more::Display;
 use std::{str::FromStr, sync::Arc};
@@ -136,7 +135,6 @@ impl Symlink {
 		Ok(())
 	}
 
-	#[async_recursion]
 	pub async fn data(&self, tg: &dyn Handle) -> Result<Data> {
 		let object = self.object(tg).await?;
 		let artifact = if let Some(artifact) = &object.artifact {
@@ -169,7 +167,6 @@ impl Symlink {
 		self.resolve_from(tg, None).await
 	}
 
-	#[async_recursion]
 	pub async fn resolve_from(
 		&self,
 		tg: &dyn Handle,
@@ -181,7 +178,7 @@ impl Symlink {
 			None
 		};
 		if let Some(artifact::Artifact::Symlink(symlink)) = from_artifact {
-			from_artifact = symlink.resolve(tg).await?;
+			from_artifact = Box::pin(symlink.resolve_from(tg, None)).await?;
 		}
 		let from_path = if let Some(from) = from {
 			from.path(tg).await?.clone()
@@ -190,7 +187,7 @@ impl Symlink {
 		};
 		let mut artifact = self.artifact(tg).await?.clone();
 		if let Some(artifact::Artifact::Symlink(symlink)) = artifact {
-			artifact = symlink.resolve(tg).await?;
+			artifact = Box::pin(symlink.resolve_from(tg, None)).await?;
 		}
 		let path = self.path(tg).await?.clone();
 
@@ -217,7 +214,7 @@ impl Symlink {
 			}
 			return Err(error!("expected a directory"));
 		}
-		return Err(error!("invalid symlink"));
+		Err(error!("invalid symlink"))
 	}
 }
 

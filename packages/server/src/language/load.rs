@@ -7,6 +7,7 @@ const TANGRAM_D_TS: &str = include_str!(concat!(
 	env!("CARGO_MANIFEST_DIR"),
 	"/src/language/tangram.d.ts"
 ));
+
 const LIB: include_dir::Dir = include_dir!("$CARGO_MANIFEST_DIR/src/language/lib");
 
 impl Server {

@@ -320,6 +320,7 @@ impl Cli {
 		let arg: tg::build::PutArg = serde_json::from_str(&json)
 			.map_err(|source| error!(!source, "failed to deseralize"))?;
 		client.put_build(None, &arg.id, &arg).await?;
+		println!("{}", arg.id);
 		Ok(())
 	}
 
@@ -346,7 +347,7 @@ impl Cli {
 
 #[async_recursion]
 async fn get_build_tree(
-	tg: &dyn tg::Handle,
+	client: &tg::Client,
 	build: &tg::Build,
 	current_depth: u32,
 	max_depth: Option<u32>,
@@ -354,7 +355,7 @@ async fn get_build_tree(
 	// Get the build's metadata.
 	let id = build.id().clone();
 	let status = build
-		.status(tg, tg::build::status::GetArg::default())
+		.status(client, tg::build::status::GetArg::default())
 		.await
 		.map_err(|source| error!(!source, %id, "failed to get the build's status"))?
 		.next()
@@ -362,15 +363,15 @@ async fn get_build_tree(
 		.unwrap()
 		.map_err(|source| error!(!source, %id, "failed to get the build's status"))?;
 	let target = build
-		.target(tg)
+		.target(client)
 		.await
 		.map_err(|source| error!(!source, %id, "failed to get build's target"))?;
 	let package = target
-		.package(tg)
+		.package(client)
 		.await
 		.map_err(|source| error!(!source, %target, "failed to get target's package"))?;
 	let name = target
-		.name(tg)
+		.name(client)
 		.await
 		.map_err(|source| error!(!source, %target, "failed to get target's name"))?
 		.clone()
@@ -385,7 +386,7 @@ async fn get_build_tree(
 		tg::build::Status::Started => write!(title, "{}", "⠿".blue()).unwrap(),
 		tg::build::Status::Finished => {
 			let outcome = build
-				.outcome(tg)
+				.outcome(client)
 				.await
 				.map_err(|source| error!(!source, %id, "failed to get the build outcome"))?;
 			match outcome {
@@ -403,7 +404,7 @@ async fn get_build_tree(
 	}
 	write!(title, "{} ", id.to_string().blue()).unwrap();
 	if let Some(package) = package {
-		if let Ok(metadata) = tg::package::get_metadata(tg, package).await {
+		if let Ok(metadata) = tg::package::get_metadata(client, package).await {
 			if let Some(name) = metadata.name {
 				write!(title, "{}", name.magenta()).unwrap();
 			} else {
@@ -427,12 +428,12 @@ async fn get_build_tree(
 			..Default::default()
 		};
 		build
-			.children(tg, arg)
+			.children(client, arg)
 			.await
 			.map_err(|source| error!(!source, %id, "failed to get the build's children"))?
-			.map(
-				|child| async move { get_build_tree(tg, &child?, current_depth + 1, max_depth).await },
-			)
+			.map(|child| async move {
+				get_build_tree(client, &child?, current_depth + 1, max_depth).await
+			})
 			.collect::<FuturesUnordered<_>>()
 			.await
 			.try_collect::<Vec<_>>()

@@ -1,7 +1,7 @@
 use crate::Client;
 use http_body_util::BodyExt;
 use tangram_error::{error, Result};
-use tangram_util::http::empty;
+use tangram_http::empty;
 
 #[derive(Clone, Debug, Default, serde::Deserialize, serde::Serialize)]
 pub struct Health {

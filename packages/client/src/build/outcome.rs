@@ -6,7 +6,7 @@ use http_body_util::BodyExt;
 use serde_with::serde_as;
 use std::pin::pin;
 use tangram_error::{error, Error, Result};
-use tangram_util::http::{empty, full};
+use tangram_http::{empty, full};
 
 #[derive(Clone, Debug, serde::Deserialize, TryUnwrap)]
 #[serde(try_from = "Data")]
@@ -75,9 +75,8 @@ impl Client {
 				.await
 				.map_err(|source| error!(!source, "failed to collect the response body"))?
 				.to_bytes();
-			let outcome = serde_json::from_slice(&bytes).map_err(|error| {
-				error!(source = error, "failed to deserialize the response body")
-			})?;
+			let outcome = serde_json::from_slice(&bytes)
+				.map_err(|source| error!(!source, "failed to deserialize the response body"))?;
 			Ok(outcome)
 		};
 		let stop = stop.map(|()| Ok(None));

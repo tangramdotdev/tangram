@@ -27,9 +27,9 @@ impl Cli {
 		}
 
 		// Create a directory at the path.
-		tokio::fs::create_dir_all(&path).await.map_err(|error| {
+		tokio::fs::create_dir_all(&path).await.map_err(|source| {
 			let path = path.display();
-			error!(source = error, %path, "failed to create the directory")
+			error!(!source, %path, "failed to create the directory")
 		})?;
 
 		// Init.

@@ -6,6 +6,7 @@ use std::path::PathBuf;
 use tangram_client as tg;
 use tangram_error::{error, Result};
 use tracing_subscriber::prelude::*;
+use url::Url;
 
 mod commands;
 mod config;
@@ -15,7 +16,7 @@ mod tui;
 pub const API_URL: &str = "https://api.tangram.dev";
 
 struct Cli {
-	address: tg::Address,
+	url: Url,
 	config: Option<Config>,
 	client: tokio::sync::Mutex<Option<tg::Client>>,
 	user: Option<tg::User>,
@@ -31,9 +32,9 @@ struct Cli {
 	version = env!("CARGO_PKG_VERSION"),
 )]
 struct Args {
-	/// The address to connect to.
+	/// The URL of the server to connect to.
 	#[clap(long)]
-	address: Option<tg::Address>,
+	url: Option<Url>,
 
 	/// The path to the config file.
 	#[clap(long)]
@@ -57,6 +58,7 @@ pub enum Command {
 	Doc(self::commands::doc::Args),
 	Fmt(self::commands::fmt::Args),
 	Get(self::commands::get::Args),
+	Hook(self::commands::hook::Args),
 	Init(self::commands::init::Args),
 	Log(self::commands::log::Args),
 	Login(self::commands::login::Args),
@@ -84,27 +86,8 @@ fn default_path() -> PathBuf {
 }
 
 fn main() {
-	// Parse the arguments.
-	let args = Args::parse();
-
-	// Read the config.
-	let config = match Cli::read_config(args.config.clone())
-		.map_err(|source| error!(!source, "failed to read the config"))
-	{
-		Ok(config) => config,
-		Err(error) => {
-			let options = tangram_error::TraceOptions::default();
-			let trace = error.trace(&options);
-			eprintln!("{}: an error occurred", "error".red().bold());
-			trace.eprint();
-			std::process::exit(1);
-		},
-	};
-
-	// Run the command.
-	let result = main_inner(args, config.clone());
-
-	// Display errors.
+	let mut config = None;
+	let result = main_inner(&mut config);
 	if let Err(error) = result {
 		let options = config
 			.as_ref()
@@ -118,7 +101,15 @@ fn main() {
 	}
 }
 
-fn main_inner(args: Args, config: Option<Config>) -> Result<()> {
+fn main_inner(config_: &mut Option<Config>) -> Result<()> {
+	// Parse the arguments.
+	let args = Args::parse();
+
+	// Read the config.
+	let config = Cli::read_config(args.config.clone())
+		.map_err(|source| error!(!source, "failed to read the config"))?;
+	*config_ = config.clone();
+
 	// Set the file descriptor limit.
 	set_file_descriptor_limit(&config)?;
 
@@ -131,10 +122,12 @@ fn main_inner(args: Args, config: Option<Config>) -> Result<()> {
 	// Read the user.
 	let user = Cli::read_user(None)?;
 
-	// Get the address.
-	let address = args
-		.address
-		.unwrap_or_else(|| tg::Address::Unix(default_path().join("socket")));
+	// Get the url.
+	let url = args.url.unwrap_or_else(|| {
+		format!("unix:{}", default_path().join("socket").display())
+			.parse()
+			.unwrap()
+	});
 
 	// Create the client.
 	let client = tokio::sync::Mutex::new(None);
@@ -158,7 +151,7 @@ fn main_inner(args: Args, config: Option<Config>) -> Result<()> {
 
 	// Create the CLI.
 	let cli = Cli {
-		address,
+		url,
 		config,
 		client,
 		user,
@@ -178,6 +171,7 @@ fn main_inner(args: Args, config: Option<Config>) -> Result<()> {
 		Command::Doc(args) => cli.command_doc(args).boxed(),
 		Command::Fmt(args) => cli.command_fmt(args).boxed(),
 		Command::Get(args) => cli.command_get(args).boxed(),
+		Command::Hook(args) => cli.command_hook(args).boxed(),
 		Command::Init(args) => cli.command_init(args).boxed(),
 		Command::Log(args) => cli.command_log(args).boxed(),
 		Command::Login(args) => cli.command_login(args).boxed(),
@@ -202,7 +196,9 @@ fn main_inner(args: Args, config: Option<Config>) -> Result<()> {
 	builder.enable_all();
 	builder.disable_lifo_slot();
 	let runtime = builder.build().unwrap();
-	runtime.block_on(future)
+	runtime.block_on(future)?;
+
+	Ok(())
 }
 
 impl Cli {
@@ -214,14 +210,13 @@ impl Cli {
 
 		// Attempt to connect to the server.
 		let user = self.user.clone();
-		let client = tg::Builder::new(self.address.clone()).user(user).build();
+		let client = tg::Builder::new(self.url.clone()).user(user).build();
 		let mut connected = client.connect().await.is_ok();
 
 		// If this is a debug build, then require that the client is connected and has the same version as the server.
 		if cfg!(debug_assertions) {
 			if !connected {
-				let addr = &self.address;
-				return Err(error!(%addr, "failed to connect to the server"));
+				return Err(error!(%url = self.url, "failed to connect to the server"));
 			}
 			let client_version = client.health().await?.version;
 			if connected && client_version != self.version {
@@ -257,8 +252,7 @@ impl Cli {
 
 		// If the client is not connected, then return an error.
 		if !connected {
-			let addr = &self.address;
-			return Err(error!(?addr, "failed to connect to the server"));
+			return Err(error!(%url = self.url, "failed to connect to the server"));
 		}
 
 		// Store the client.

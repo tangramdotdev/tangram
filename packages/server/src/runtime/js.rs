@@ -65,6 +65,8 @@ impl Runtime {
 	}
 
 	pub async fn run(&self, build: &tg::Build) -> Result<tg::Value> {
+		let server = &self.server;
+
 		// Create a handle to the main runtime.
 		let main_runtime_handle = tokio::runtime::Handle::current();
 
@@ -72,12 +74,18 @@ impl Runtime {
 		let (isolate_handle_sender, isolate_handle_receiver) = tokio::sync::watch::channel(None);
 
 		// Spawn the task.
-		let task = self.server.inner.local_pool_handle.spawn_pinned({
+		let task = server.inner.local_pool_handle.spawn_pinned({
 			let runtime = self.clone();
+			let server = server.clone();
 			let build = build.clone();
 			move || async move {
 				runtime
-					.run_inner(&build, main_runtime_handle.clone(), isolate_handle_sender)
+					.run_inner(
+						&server,
+						&build,
+						main_runtime_handle.clone(),
+						isolate_handle_sender,
+					)
 					.await
 			}
 		});
@@ -95,12 +103,11 @@ impl Runtime {
 
 	async fn run_inner(
 		&self,
+		server: &Server,
 		build: &tg::Build,
 		main_runtime_handle: tokio::runtime::Handle,
 		isolate_handle_sender: tokio::sync::watch::Sender<Option<v8::IsolateHandle>>,
 	) -> Result<tg::Value> {
-		let server = &self.server;
-
 		// Get the target.
 		let target = build.target(server).await?;
 

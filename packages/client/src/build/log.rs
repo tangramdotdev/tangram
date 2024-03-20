@@ -4,7 +4,7 @@ use futures::{future, stream::BoxStream, FutureExt, StreamExt, TryStreamExt};
 use http_body_util::{BodyExt, BodyStream};
 use serde_with::serde_as;
 use tangram_error::{error, Error, Result};
-use tangram_util::http::{empty, full};
+use tangram_http::{empty, full};
 use tokio_util::io::StreamReader;
 
 #[serde_as]
@@ -81,12 +81,11 @@ impl Client {
 			|| future::pending().left_future(),
 			|mut stop| async move { stop.wait_for(|stop| *stop).map(|_| ()).await }.right_future(),
 		);
-		let output = tangram_util::sse::Decoder::new(reader)
+		let output = tangram_sse::Decoder::new(reader)
 			.map(|result| {
 				let event = result.map_err(|source| error!(!source, "failed to read an event"))?;
-				let chunk = serde_json::from_str(&event.data).map_err(|error| {
-					error!(source = error, "failed to deserialize the event data")
-				})?;
+				let chunk = serde_json::from_str(&event.data)
+					.map_err(|source| error!(!source, "failed to deserialize the event data"))?;
 				Ok::<_, Error>(chunk)
 			})
 			.take_until(stop)

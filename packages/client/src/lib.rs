@@ -2,17 +2,17 @@ pub use self::{
 	artifact::Artifact, blob::Blob, branch::Branch, build::Build, checksum::Checksum,
 	dependency::Dependency, diagnostic::Diagnostic, directory::Directory, document::Document,
 	file::File, handle::Handle, id::Id, import::Import, leaf::Leaf, location::Location, lock::Lock,
-	module::Module, mutation::Mutation, object::Handle as Object, path::Path, position::Position,
-	range::Range, server::Health, symlink::Symlink, target::Target, template::Template,
+	meta::Health, module::Module, mutation::Mutation, object::Handle as Object, path::Path,
+	position::Position, range::Range, symlink::Symlink, target::Target, template::Template,
 	user::Login, user::User, value::Value,
 };
 use crate as tg;
 use async_trait::async_trait;
 use bytes::Bytes;
 use futures::stream::BoxStream;
-use std::{path::PathBuf, sync::Arc};
+use std::sync::Arc;
 use tangram_error::{error, Error, Result};
-use tangram_util::http::empty;
+use tangram_http::empty;
 use tokio::{
 	io::{AsyncRead, AsyncWrite},
 	net::{TcpStream, UnixStream},
@@ -37,6 +37,7 @@ pub mod language;
 pub mod leaf;
 pub mod location;
 pub mod lock;
+pub mod meta;
 pub mod module;
 pub mod mutation;
 pub mod object;
@@ -44,7 +45,6 @@ pub mod package;
 pub mod path;
 pub mod position;
 pub mod range;
-pub mod server;
 pub mod symlink;
 pub mod target;
 pub mod template;
@@ -59,71 +59,41 @@ pub struct Client {
 
 #[derive(Debug)]
 struct Inner {
-	address: Address,
+	url: Url,
 	file_descriptor_semaphore: tokio::sync::Semaphore,
-	sender: tokio::sync::Mutex<
-		Option<hyper::client::conn::http2::SendRequest<tangram_util::http::Outgoing>>,
-	>,
-	tls: bool,
+	sender:
+		tokio::sync::Mutex<Option<hyper::client::conn::http2::SendRequest<tangram_http::Outgoing>>>,
 	user: Option<User>,
-}
-
-#[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
-#[serde(rename_all = "snake_case", tag = "kind", content = "value")]
-pub enum Address {
-	Unix(PathBuf),
-	Inet(Inet),
-}
-
-#[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
-pub struct Inet {
-	pub host: Host,
-	pub port: u16,
-}
-
-#[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
-pub enum Host {
-	Ip(std::net::IpAddr),
-	Domain(String),
 }
 
 pub struct Builder {
-	address: Address,
-	tls: Option<bool>,
+	url: Url,
 	user: Option<User>,
-}
-
-#[derive(Debug, Clone, serde::Deserialize, serde::Serialize)]
-pub struct Runtime {
-	pub address: Address,
-	pub build: build::Id,
 }
 
 impl Client {
 	pub fn with_env() -> Result<Self> {
-		let address = std::env::var("TANGRAM_ADDRESS")
+		let url = std::env::var("TANGRAM_URL")
 			.map_err(|error| {
 				error!(
 					source = error,
-					"failed to get the TANGRAM_ADDRESS environment variable"
+					"failed to get the TANGRAM_URL environment variable"
 				)
 			})?
 			.parse()
 			.map_err(|error| {
 				error!(
 					source = error,
-					"could not parse an address from TANGRAM_ADDRESS environment variable"
+					"could not parse a URL from the TANGRAM_URL environment variable"
 				)
 			})?;
 		let file_descriptor_semaphore = tokio::sync::Semaphore::new(32);
 		let sender = tokio::sync::Mutex::new(None);
-		let tls = false;
 		let user = None;
 		let inner = Arc::new(Inner {
-			address,
+			url,
 			file_descriptor_semaphore,
 			sender,
-			tls,
 			user,
 		});
 		let client = Client { inner };
@@ -141,7 +111,7 @@ impl Client {
 
 	async fn sender(
 		&self,
-	) -> Result<hyper::client::conn::http2::SendRequest<tangram_util::http::Outgoing>> {
+	) -> Result<hyper::client::conn::http2::SendRequest<tangram_http::Outgoing>> {
 		if let Some(sender) = self.inner.sender.lock().await.as_ref().cloned() {
 			if sender.is_ready() {
 				return Ok(sender);
@@ -155,28 +125,84 @@ impl Client {
 
 	async fn connect_h1(
 		&self,
-	) -> Result<hyper::client::conn::http1::SendRequest<tangram_util::http::Outgoing>> {
-		Ok(match &self.inner.address {
-			Address::Unix(path) => self.connect_unix_h1(path).await?,
-			Address::Inet(inet) if self.inner.tls => self.connect_tcp_tls_h1(inet).await?,
-			Address::Inet(inet) => self.connect_tcp_h1(inet).await?,
-		})
+	) -> Result<hyper::client::conn::http1::SendRequest<tangram_http::Outgoing>> {
+		match self.inner.url.scheme() {
+			"unix" => {
+				let path = std::path::Path::new(self.inner.url.path());
+				self.connect_unix_h1(path).await
+			},
+			"http" => {
+				let host = self
+					.inner
+					.url
+					.domain()
+					.ok_or_else(|| error!("invalid url"))?;
+				let port = self
+					.inner
+					.url
+					.port_or_known_default()
+					.ok_or_else(|| error!("invalid url"))?;
+				self.connect_tcp_h1(host, port).await
+			},
+			"https" => {
+				let host = self
+					.inner
+					.url
+					.domain()
+					.ok_or_else(|| error!("invalid url"))?;
+				let port = self
+					.inner
+					.url
+					.port_or_known_default()
+					.ok_or_else(|| error!("invalid url"))?;
+				self.connect_tcp_tls_h1(host, port).await
+			},
+			_ => Err(error!("invalid url")),
+		}
 	}
 
 	async fn connect_h2(
 		&self,
-	) -> Result<hyper::client::conn::http2::SendRequest<tangram_util::http::Outgoing>> {
-		Ok(match &self.inner.address {
-			Address::Unix(path) => self.connect_unix_h2(path).await?,
-			Address::Inet(inet) if self.inner.tls => self.connect_tcp_tls_h2(inet).await?,
-			Address::Inet(inet) => self.connect_tcp_h2(inet).await?,
-		})
+	) -> Result<hyper::client::conn::http2::SendRequest<tangram_http::Outgoing>> {
+		match self.inner.url.scheme() {
+			"unix" => {
+				let path = std::path::Path::new(self.inner.url.path());
+				self.connect_unix_h2(path).await
+			},
+			"http" => {
+				let host = self
+					.inner
+					.url
+					.domain()
+					.ok_or_else(|| error!("invalid url"))?;
+				let port = self
+					.inner
+					.url
+					.port_or_known_default()
+					.ok_or_else(|| error!("invalid url"))?;
+				self.connect_tcp_h2(host, port).await
+			},
+			"https" => {
+				let host = self
+					.inner
+					.url
+					.domain()
+					.ok_or_else(|| error!("invalid url"))?;
+				let port = self
+					.inner
+					.url
+					.port_or_known_default()
+					.ok_or_else(|| error!("invalid url"))?;
+				self.connect_tcp_tls_h2(host, port).await
+			},
+			_ => Err(error!("invalid url")),
+		}
 	}
 
 	async fn connect_unix_h1(
 		&self,
 		path: &std::path::Path,
-	) -> Result<hyper::client::conn::http1::SendRequest<tangram_util::http::Outgoing>> {
+	) -> Result<hyper::client::conn::http1::SendRequest<tangram_http::Outgoing>> {
 		// Connect via UNIX.
 		let stream = UnixStream::connect(path)
 			.await
@@ -211,7 +237,7 @@ impl Client {
 	async fn connect_unix_h2(
 		&self,
 		path: &std::path::Path,
-	) -> Result<hyper::client::conn::http2::SendRequest<tangram_util::http::Outgoing>> {
+	) -> Result<hyper::client::conn::http2::SendRequest<tangram_http::Outgoing>> {
 		// Connect via UNIX.
 		let stream = UnixStream::connect(path)
 			.await
@@ -245,10 +271,11 @@ impl Client {
 
 	async fn connect_tcp_h1(
 		&self,
-		inet: &Inet,
-	) -> Result<hyper::client::conn::http1::SendRequest<tangram_util::http::Outgoing>> {
+		host: &str,
+		port: u16,
+	) -> Result<hyper::client::conn::http1::SendRequest<tangram_http::Outgoing>> {
 		// Connect via TCP.
-		let stream = TcpStream::connect(inet.to_string())
+		let stream = TcpStream::connect(format!("{host}:{port}"))
 			.await
 			.map_err(|source| error!(!source, "failed to create the TCP connection"))?;
 
@@ -280,10 +307,11 @@ impl Client {
 
 	async fn connect_tcp_h2(
 		&self,
-		inet: &Inet,
-	) -> Result<hyper::client::conn::http2::SendRequest<tangram_util::http::Outgoing>> {
+		host: &str,
+		port: u16,
+	) -> Result<hyper::client::conn::http2::SendRequest<tangram_http::Outgoing>> {
 		// Connect via TCP.
-		let stream = TcpStream::connect(inet.to_string())
+		let stream = TcpStream::connect(format!("{host}:{port}"))
 			.await
 			.map_err(|source| error!(!source, "failed to create the TCP connection"))?;
 
@@ -315,10 +343,11 @@ impl Client {
 
 	async fn connect_tcp_tls_h1(
 		&self,
-		inet: &Inet,
-	) -> Result<hyper::client::conn::http1::SendRequest<tangram_util::http::Outgoing>> {
+		host: &str,
+		port: u16,
+	) -> Result<hyper::client::conn::http1::SendRequest<tangram_http::Outgoing>> {
 		// Connect via TLS over TCP.
-		let stream = self.connect_tcp_tls(inet).await?;
+		let stream = self.connect_tcp_tls(host, port).await?;
 
 		// Perform the HTTP handshake.
 		let io = hyper_util::rt::TokioIo::new(stream);
@@ -348,10 +377,11 @@ impl Client {
 
 	async fn connect_tcp_tls_h2(
 		&self,
-		inet: &Inet,
-	) -> Result<hyper::client::conn::http2::SendRequest<tangram_util::http::Outgoing>> {
+		host: &str,
+		port: u16,
+	) -> Result<hyper::client::conn::http2::SendRequest<tangram_http::Outgoing>> {
 		// Connect via TLS over TCP.
-		let stream = self.connect_tcp_tls(inet).await?;
+		let stream = self.connect_tcp_tls(host, port).await?;
 
 		// Perform the HTTP handshake.
 		let executor = hyper_util::rt::TokioExecutor::new();
@@ -381,10 +411,11 @@ impl Client {
 
 	async fn connect_tcp_tls(
 		&self,
-		inet: &Inet,
+		host: &str,
+		port: u16,
 	) -> Result<tokio_rustls::client::TlsStream<tokio::net::TcpStream>> {
 		// Connect via TCP.
-		let stream = TcpStream::connect(inet.to_string())
+		let stream = TcpStream::connect(format!("{host}:{port}"))
 			.await
 			.map_err(|source| error!(!source, "failed to create the TCP connection"))?;
 
@@ -398,7 +429,7 @@ impl Client {
 		let connector = tokio_rustls::TlsConnector::from(Arc::new(config));
 
 		// Create the server name.
-		let server_name = rustls_pki_types::ServerName::try_from(inet.host.to_string().as_str())
+		let server_name = rustls_pki_types::ServerName::try_from(host.to_string().as_str())
 			.map_err(|source| error!(!source, "failed to create the server name"))?
 			.to_owned();
 
@@ -423,8 +454,8 @@ impl Client {
 
 	async fn send(
 		&self,
-		request: http::request::Request<tangram_util::http::Outgoing>,
-	) -> Result<http::Response<tangram_util::http::Incoming>> {
+		request: http::request::Request<tangram_http::Outgoing>,
+	) -> Result<http::Response<tangram_http::Incoming>> {
 		self.sender()
 			.await?
 			.send_request(request)
@@ -435,18 +466,8 @@ impl Client {
 
 impl Builder {
 	#[must_use]
-	pub fn new(address: Address) -> Self {
-		Self {
-			address,
-			tls: None,
-			user: None,
-		}
-	}
-
-	#[must_use]
-	pub fn tls(mut self, tls: bool) -> Self {
-		self.tls = Some(tls);
-		self
+	pub fn new(url: Url) -> Self {
+		Self { url, user: None }
 	}
 
 	#[must_use]
@@ -457,16 +478,14 @@ impl Builder {
 
 	#[must_use]
 	pub fn build(self) -> Client {
-		let address = self.address;
+		let url = self.url;
 		let file_descriptor_semaphore = tokio::sync::Semaphore::new(16);
 		let sender = tokio::sync::Mutex::new(None);
-		let tls = self.tls.unwrap_or(false);
 		let user = self.user;
 		let inner = Arc::new(Inner {
-			address,
+			url,
 			file_descriptor_semaphore,
 			sender,
-			tls,
 			user,
 		});
 		Client { inner }
@@ -479,7 +498,7 @@ impl Handle for Client {
 		Box::new(self.clone())
 	}
 
-	async fn path(&self) -> Result<Option<tg::Path>> {
+	async fn path(&self) -> Result<Option<crate::Path>> {
 		self.path().await
 	}
 
@@ -646,10 +665,6 @@ impl Handle for Client {
 		self.search_packages(arg).await
 	}
 
-	async fn get_outdated(&self, arg: &tg::Dependency) -> Result<tg::package::OutdatedOutput> {
-		self.get_outdated(arg).await
-	}
-
 	async fn try_get_package(
 		&self,
 		dependency: &tg::Dependency,
@@ -675,6 +690,13 @@ impl Handle for Client {
 
 	async fn format_package(&self, dependency: &tg::Dependency) -> Result<()> {
 		self.format_package(dependency).await
+	}
+
+	async fn get_package_outdated(
+		&self,
+		arg: &tg::Dependency,
+	) -> Result<tg::package::OutdatedOutput> {
+		self.get_package_outdated(arg).await
 	}
 
 	async fn get_runtime_doc(&self) -> Result<serde_json::Value> {
@@ -718,93 +740,5 @@ impl Handle for Client {
 
 	async fn complete_login(&self, _id: &tg::Id, _code: String) -> Result<()> {
 		Err(error!("unimplemented"))
-	}
-}
-
-impl Address {
-	#[must_use]
-	pub fn is_local(&self) -> bool {
-		match &self {
-			Address::Unix(_) => true,
-			Address::Inet(inet) => match &inet.host {
-				Host::Domain(domain) => domain == "localhost",
-				Host::Ip(ip) => ip.is_loopback(),
-			},
-		}
-	}
-}
-
-impl std::fmt::Display for Address {
-	fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-		match self {
-			Address::Unix(path) => write!(f, "unix:{}", path.display()),
-			Address::Inet(inet) => write!(f, "{inet}"),
-		}
-	}
-}
-
-impl std::fmt::Display for Inet {
-	fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-		write!(f, "{}:{}", self.host, self.port)
-	}
-}
-
-impl std::fmt::Display for Host {
-	fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-		match self {
-			Host::Ip(ip) => write!(f, "{ip}"),
-			Host::Domain(domain) => write!(f, "{domain}"),
-		}
-	}
-}
-
-impl std::str::FromStr for Address {
-	type Err = Error;
-
-	fn from_str(address: &str) -> Result<Self, Self::Err> {
-		let (host, port) = address
-			.split_once(':')
-			.map_or((address, None), |(host, port)| (host, Some(port)));
-		let host = host
-			.parse()
-			.map_err(|source| error!(!source, %address, "failed to parse the host"))?;
-		if matches!(&host, Host::Domain(hostname) if hostname == "unix") {
-			let path = port.ok_or_else(|| error!(%address, "expected a path"))?;
-			Ok(Address::Unix(path.into()))
-		} else {
-			let port = port
-				.ok_or_else(|| error!(%address, "expected a port"))?
-				.parse()
-				.map_err(|source| error!(!source, "failed to parse the port"))?;
-			Ok(Address::Inet(Inet { host, port }))
-		}
-	}
-}
-
-impl std::str::FromStr for Host {
-	type Err = std::net::AddrParseError;
-
-	fn from_str(s: &str) -> Result<Self, Self::Err> {
-		if let Ok(ip) = s.parse() {
-			Ok(Host::Ip(ip))
-		} else {
-			Ok(Host::Domain(s.to_string()))
-		}
-	}
-}
-
-impl TryFrom<Url> for Address {
-	type Error = Error;
-
-	fn try_from(url: Url) -> Result<Self, Self::Error> {
-		let host = url
-			.host_str()
-			.ok_or_else(|| error!(%url, "invalid URL"))?
-			.parse()
-			.map_err(|source| error!(!source, "invalid URL"))?;
-		let port = url
-			.port_or_known_default()
-			.ok_or_else(|| error!(%url, "invalid URL"))?;
-		Ok(Address::Inet(Inet { host, port }))
 	}
 }

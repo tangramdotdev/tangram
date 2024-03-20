@@ -7,11 +7,12 @@ use lsp_types as lsp;
 use std::{
 	collections::{BTreeSet, HashMap},
 	path::{Path, PathBuf},
+	pin::pin,
 	sync::Arc,
 };
 use tangram_client as tg;
 use tangram_error::{error, Error, Result};
-use tangram_util::http::{empty, full, Incoming, Outgoing};
+use tangram_http::{empty, full, Incoming, Outgoing};
 use tokio::io::{
 	AsyncBufRead, AsyncBufReadExt, AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt,
 };
@@ -740,8 +741,13 @@ impl Http {
 			return Err(error!("expected an upgrade header"));
 		}
 
-		tokio::spawn({
-			let server = self.clone();
+		let server = self.clone();
+		let mut stop = request
+			.extensions()
+			.get::<tokio::sync::watch::Receiver<bool>>()
+			.cloned()
+			.unwrap();
+		tokio::spawn(
 			async move {
 				let io = hyper::upgrade::on(request)
 					.await
@@ -750,11 +756,18 @@ impl Http {
 				let (input, output) = tokio::io::split(io);
 				let input = Box::new(input);
 				let output = Box::new(output);
-				server.inner.tg.lsp(input, output).await?;
+				let task = server.inner.tg.lsp(input, output);
+				let stop = stop.wait_for(|stop| *stop);
+				future::select(pin!(task), pin!(stop))
+					.map(|output| match output {
+						future::Either::Left((Err(error), _)) => Err(error),
+						_ => Ok(()),
+					})
+					.await?;
 				Ok::<_, Error>(())
 			}
-			.inspect_err(|error| tracing::error!(?error))
-		});
+			.inspect_err(|error| tracing::error!(?error)),
+		);
 
 		// Create the response.
 		let response = http::Response::builder()

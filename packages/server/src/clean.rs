@@ -1,23 +1,11 @@
 use super::Server;
-use crate::database::Connection;
+use indoc::formatdoc;
+use tangram_client as tg;
+use tangram_database as db;
 use tangram_error::{error, Result};
 
 impl Server {
 	pub async fn clean(&self) -> Result<()> {
-		// Clean the database.
-		if let Connection::Sqlite(database) = self.inner.database.get().await? {
-			database
-				.execute_batch(
-					"
-					delete from builds;
-					delete from build_children;
-					delete from build_logs;
-					delete from objects;
-				",
-				)
-				.map_err(|source| error!(!source, "failed to clear the database"))?;
-		}
-
 		// Clean the checkouts directory.
 		tokio::fs::remove_dir_all(self.checkouts_path())
 			.await
@@ -37,6 +25,150 @@ impl Server {
 			.map_err(|error| {
 				error!(source = error, "failed to recreate the temporary directory")
 			})?;
+
+		// Get a database connection.
+		let connection = self
+			.inner
+			.database
+			.connection()
+			.await
+			.map_err(|source| error!(!source, "failed to get a database connection"))?;
+
+		// Remove builds.
+		loop {
+			// Get a build to remove.
+			let statement = formatdoc!(
+				"
+					select id
+					from builds
+					where (
+						select count(*) = 0
+						from build_children
+						where child = builds.id
+					)
+					limit 100;
+				"
+			);
+			let params = db::params![];
+			let builds = connection
+				.query_all_scalar_into::<tg::build::Id>(statement, params)
+				.await
+				.map_err(|source| error!(!source, "failed to execute the statement"))?;
+
+			// If there are no builds, then break.
+			if builds.is_empty() {
+				break;
+			}
+
+			for id in builds {
+				// Remove the build.
+				let p = connection.p();
+				let statement = formatdoc!(
+					"
+						delete from builds
+						where id = {p}1;
+					"
+				);
+				let params = db::params![id];
+				connection
+					.execute(statement, params)
+					.await
+					.map_err(|source| error!(!source, "failed to execute the statement"))?;
+
+				// Remove the build children.
+				let p = connection.p();
+				let statement = formatdoc!(
+					"
+						delete from build_children
+						where object = {p}1;
+					"
+				);
+				let params = db::params![id];
+				connection
+					.execute(statement, params)
+					.await
+					.map_err(|source| error!(!source, "failed to execute the statement"))?;
+
+				// Remove the build objects.
+				let p = connection.p();
+				let statement = formatdoc!(
+					"
+						delete from build_objects
+						where object = {p}1;
+					"
+				);
+				let params = db::params![id];
+				connection
+					.execute(statement, params)
+					.await
+					.map_err(|source| error!(!source, "failed to execute the statement"))?;
+			}
+		}
+
+		// Remove objects.
+		loop {
+			// Get an object to remove.
+			let statement = formatdoc!(
+				"
+					select id
+					from objects
+					where (
+						select count(*) = 0
+						from object_children
+						where child = objects.id
+					) and (
+						select count(*) = 0
+						from build_objects
+						where object = objects.id
+					) and (
+						select count(*) = 0
+						from package_versions
+						where id = objects.id
+					)
+					limit 100;
+				"
+			);
+			let params = db::params![];
+			let objects = connection
+				.query_all_scalar_into::<tg::object::Id>(statement, params)
+				.await
+				.map_err(|source| error!(!source, "failed to execute the statement"))?;
+
+			// If there are no objects, then break.
+			if objects.is_empty() {
+				break;
+			}
+
+			for id in objects {
+				// Remove the object.
+				let p = connection.p();
+				let statement = formatdoc!(
+					"
+						delete from objects
+						where id = {p}1;
+					"
+				);
+				let params = db::params![id];
+				connection
+					.execute(statement, params)
+					.await
+					.map_err(|source| error!(!source, "failed to execute the statement"))?;
+
+				// Remove the object children.
+				let p = connection.p();
+				let statement = formatdoc!(
+					"
+						delete from object_children
+						where object = {p}1;
+					"
+				);
+				let params = db::params![id];
+				connection
+					.execute(statement, params)
+					.await
+					.map_err(|source| error!(!source, "failed to execute the statement"))?;
+			}
+		}
 
 		Ok(())
 	}

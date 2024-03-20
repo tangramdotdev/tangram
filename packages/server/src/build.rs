@@ -1,9 +1,11 @@
 use super::Server;
-use crate::{database::Database, postgres_params, sqlite_params, Permit};
+use crate::Permit;
 use either::Either;
 use futures::{future, FutureExt, StreamExt, TryFutureExt};
+use indoc::formatdoc;
 use std::pin::pin;
 use tangram_client as tg;
+use tangram_database as db;
 use tangram_error::{error, Error, Result};
 
 mod children;
@@ -200,126 +202,64 @@ impl Server {
 	}
 
 	async fn try_get_build_parent(&self, id: &tg::build::Id) -> Result<Option<tg::build::Id>> {
-		match &self.inner.database {
-			Database::Sqlite(database) => {
-				let connection = database.get().await?;
-				let statement = "
-					select build
-					from build_children
-					where child = ?1
-					limit 1;
-				";
-				let id = id.to_string();
-				let params = sqlite_params![id];
-				let mut statement = connection
-					.prepare_cached(statement)
-					.map_err(|source| error!(!source, "failed to prepare the statement"))?;
-				let mut rows = statement
-					.query(params)
-					.map_err(|source| error!(!source, "failed to execute the statement"))?;
-				let row = rows
-					.next()
-					.map_err(|source| error!(!source, "failed to get the row"))?;
-				let id = row
-					.map(|row| {
-						row.get::<_, String>(0)
-							.map_err(|error| {
-								error!(source = error, "failed to deserialize the column")
-							})
-							.and_then(|id| {
-								id.parse().map_err(|error| {
-									error!(source = error, "failed to deserialize the column")
-								})
-							})
-					})
-					.transpose()?;
-				Ok(id)
-			},
+		// Get a database connection.
+		let connection = self
+			.inner
+			.database
+			.connection()
+			.await
+			.map_err(|source| error!(!source, "failed to get a database connection"))?;
 
-			Database::Postgres(database) => {
-				let connection = database.get().await?;
-				let statement = "
-					select build
-					from build_children
-					where child = $1;
-					limit 1;
-				";
-				let id = id.to_string();
-				let params = postgres_params![id];
-				let statement = connection
-					.prepare_cached(statement)
-					.await
-					.map_err(|source| error!(!source, "failed to prepare the statement"))?;
-				let rows = connection
-					.query(&statement, params)
-					.await
-					.map_err(|source| error!(!source, "failed to execute the statement"))?;
-				let row = rows.first();
-				let id = row
-					.map(|row| {
-						row.try_get::<_, String>(0)
-							.map_err(|error| {
-								error!(source = error, "failed to deserilaize the column")
-							})
-							.and_then(|id| {
-								id.parse().map_err(|error| {
-									error!(source = error, "failed to deserialize the column")
-								})
-							})
-					})
-					.transpose()?;
-				Ok(id)
-			},
-		}
+		// Get the parent.
+		let p = connection.p();
+		let statement = formatdoc!(
+			"
+				select build
+				from build_children
+				where child = {p}1
+				limit 1;
+			"
+		);
+		let id = id.to_string();
+		let params = db::params![id];
+		let parent = connection
+			.query_optional_scalar_into(statement, params)
+			.await
+			.map_err(|source| error!(!source, "failed to execute the statement"))?;
+
+		// Drop the database connection.
+		drop(connection);
+
+		Ok(parent)
 	}
 
 	pub(crate) async fn get_build_exists_local(&self, id: &tg::build::Id) -> Result<bool> {
-		match &self.inner.database {
-			Database::Sqlite(database) => {
-				let connection = database.get().await?;
-				let statement = "
-					select count(*) != 0
-					from builds
-					where id = ?1;
-				";
-				let params = sqlite_params![id.to_string()];
-				let mut statement = connection
-					.prepare_cached(statement)
-					.map_err(|source| error!(!source, "failed to prepare the query"))?;
-				let mut rows = statement
-					.query(params)
-					.map_err(|source| error!(!source, "failed to execute the statement"))?;
-				let row = rows
-					.next()
-					.map_err(|source| error!(!source, "failed to retrieve the row"))?
-					.ok_or_else(|| error!("expected a row"))?;
-				let exists = row
-					.get::<_, bool>(0)
-					.map_err(|source| error!(!source, "failed to deserialize the column"))?;
-				Ok(exists)
-			},
+		// Get a database connection.
+		let connection = self
+			.inner
+			.database
+			.connection()
+			.await
+			.map_err(|source| error!(!source, "failed to get a database connection"))?;
 
-			Database::Postgres(database) => {
-				let connection = database.get().await?;
-				let statement = "
-					select count(*) != 0
-					from builds
-					where id = $1;
-				";
-				let params = postgres_params![id.to_string()];
-				let statement = connection
-					.prepare_cached(statement)
-					.await
-					.map_err(|source| error!(!source, "failed to prepare the query"))?;
-				let row = connection
-					.query_one(&statement, params)
-					.await
-					.map_err(|source| error!(!source, "failed to execute the statement"))?;
-				let exists = row
-					.try_get::<_, bool>(0)
-					.map_err(|source| error!(!source, "failed to deserialize the column"))?;
-				Ok(exists)
-			},
-		}
+		// Check if the build exists.
+		let p = connection.p();
+		let statement = formatdoc!(
+			"
+				select count(*) != 0
+				from builds
+				where id = {p}1;
+			"
+		);
+		let params = db::params![id];
+		let exists = connection
+			.query_one_scalar_into(statement, params)
+			.await
+			.map_err(|source| error!(!source, "failed to execute the statement"))?;
+
+		// Drop the database connection.
+		drop(connection);
+
+		Ok(exists)
 	}
 }

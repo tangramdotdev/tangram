@@ -1,7 +1,7 @@
 use crate as tg;
 use crate::{
-	checksum, directory, file, id, object, symlink, Blob, Checksum, Client, Directory, File,
-	Handle, Symlink, Template, Value,
+	checksum, directory, file, id, object, symlink, util::rmrf, Blob, Checksum, Client, Directory,
+	File, Handle, Symlink, Template, Value,
 };
 use async_recursion::async_recursion;
 use derive_more::{From, TryInto, TryUnwrap};
@@ -12,7 +12,7 @@ use std::{
 	os::unix::fs::PermissionsExt,
 };
 use tangram_error::{error, Error, Result};
-use tangram_util::{fs::rmrf, http::full};
+use tangram_http::full;
 
 /// An artifact kind.
 #[derive(Clone, Copy, Debug)]
@@ -101,6 +101,7 @@ impl Artifact {
 		}
 	}
 
+	#[async_recursion]
 	pub async fn id(&self, tg: &dyn Handle) -> Result<Id> {
 		match self {
 			Self::Directory(directory) => Ok(directory.id(tg).await?.clone().into()),
@@ -207,43 +208,28 @@ impl Artifact {
 
 impl Artifact {
 	#[async_recursion]
-	pub async fn check_in_local(tg: &dyn Handle, path: &crate::Path) -> Result<Id> {
+	pub async fn with_path(tg: &dyn Handle, path: &crate::Path) -> Result<Id> {
 		// Get the metadata for the file system object at the path.
-		let metadata = tokio::fs::symlink_metadata(path).await.map_err(
-			|error| error!(source = error, %path, "failed to get the metadata for the path"),
-		)?;
+		let metadata = tokio::fs::symlink_metadata(path)
+			.await
+			.map_err(|source| error!(!source, %path, "failed to get the metadata for the path"))?;
 
 		// Call the appropriate function for the file system object at the path.
 		let id = if metadata.is_dir() {
-			Self::check_in_local_directory(tg, path, &metadata)
-				.await
-				.map_err(
-					|error| error!(source = error, %path, "failed to check in the directory at path"),
-				)?
+			Self::with_path_directory(tg, path, &metadata).await?
 		} else if metadata.is_file() {
-			Self::check_in_local_file(tg, path, &metadata)
-				.await
-				.map_err(
-					|error| error!(source = error, %path, "failed to check in the file at path"),
-				)?
+			Self::with_path_file(tg, path, &metadata).await?
 		} else if metadata.is_symlink() {
-			Self::check_in_local_symlink(tg, path, &metadata)
-				.await
-				.map_err(
-					|error| error!(source = error, %path, "failed to check in the symlink at path"),
-				)?
+			Self::with_path_symlink(tg, path, &metadata).await?
 		} else {
 			let file_type = metadata.file_type();
-			return Err(error!(
-				?file_type,
-				"the path must point to a directory, file, or symlink"
-			));
+			return Err(error!(?file_type, "invalid fie type"));
 		};
 
 		Ok(id)
 	}
 
-	async fn check_in_local_directory(
+	async fn with_path_directory(
 		tg: &dyn Handle,
 		path: &crate::Path,
 		_metadata: &std::fs::Metadata,
@@ -275,7 +261,7 @@ impl Artifact {
 			.into_iter()
 			.map(|name| async {
 				let path = path.clone().join(name.clone());
-				let artifact = Artifact::with_id(Self::check_in_local(tg, &path).await?);
+				let artifact = Artifact::with_id(Self::with_path(tg, &path).await?);
 				Ok::<_, Error>((name, artifact))
 			})
 			.collect::<FuturesUnordered<_>>()
@@ -289,7 +275,7 @@ impl Artifact {
 		Ok(id.into())
 	}
 
-	async fn check_in_local_file(
+	async fn with_path_file(
 		tg: &dyn Handle,
 		path: &crate::Path,
 		metadata: &std::fs::Metadata,
@@ -326,7 +312,7 @@ impl Artifact {
 		Ok(id.into())
 	}
 
-	async fn check_in_local_symlink(
+	async fn with_path_symlink(
 		tg: &dyn Handle,
 		path: &crate::Path,
 		_metadata: &std::fs::Metadata,
@@ -388,7 +374,7 @@ impl Artifact {
 			.await
 			.map_err(|source| error!(!source, "failed to determine if the path exists"))?
 		{
-			Some(Artifact::with_id(Self::check_in_local(tg, path).await?))
+			Some(Artifact::with_id(Self::with_path(tg, path).await?))
 		} else {
 			None
 		};
@@ -422,24 +408,20 @@ impl Artifact {
 				Self::check_out_local_directory(tg, existing_artifact, directory, path)
 					.await
 					.map_err(
-						|error| error!(source = error, %id, %path, "failed to check out directory"),
+						|source| error!(!source, %id, %path, "failed to check out directory"),
 					)?;
 			},
 
 			Artifact::File(file) => {
 				Self::check_out_local_file(tg, existing_artifact, file, path)
 					.await
-					.map_err(
-						|error| error!(source = error, %id, %path, "failed to check out file"),
-					)?;
+					.map_err(|source| error!(!source, %id, %path, "failed to check out file"))?;
 			},
 
 			Artifact::Symlink(symlink) => {
 				Self::check_out_local_symlink(tg, existing_artifact, symlink, path)
 					.await
-					.map_err(
-						|error| error!(source = error, %id, %path, "failed to check out symlink"),
-					)?;
+					.map_err(|source| error!(!source, %id, %path, "failed to check out symlink"))?;
 			},
 		}
 

@@ -1,16 +1,18 @@
-use crate::{database::Database, postgres_params, Http, Server};
+use crate::{Http, Server};
+use indoc::formatdoc;
 use oauth2::TokenResponse;
 use std::borrow::Cow;
 use tangram_client as tg;
+use tangram_database as db;
 use tangram_error::{error, Result};
-use tangram_util::http::{
+use tangram_http::{
 	bad_request, empty, full, get_token, not_found, unauthorized, Incoming, Outgoing,
 };
 use url::Url;
 
 impl Server {
 	pub async fn create_login(&self) -> Result<tg::user::Login> {
-		if let Some(remote) = self.inner.remote.as_ref() {
+		if let Some(remote) = self.inner.remotes.first() {
 			return remote.create_login().await;
 		}
 
@@ -18,13 +20,7 @@ impl Server {
 		let id = tg::Id::new_uuidv7(tg::id::Kind::Login);
 
 		// Create the URL.
-		let mut url = self
-			.inner
-			.options
-			.www
-			.as_ref()
-			.ok_or_else(|| error!("expected the WWW URL to be set"))?
-			.clone();
+		let mut url = Url::parse("http://localhost:8476").unwrap();
 		url.set_path("/login");
 		url.set_query(Some(&format!("id={id}")));
 
@@ -36,21 +32,22 @@ impl Server {
 		};
 
 		// Add the login to the database.
-		let Database::Postgres(database) = &self.inner.database else {
-			return Err(error!("unimplemented"));
-		};
-		let connection = database.get().await?;
-		let statement = "
-			insert into logins (id, url)
-			values ($1, $2);
-		";
-		let params = postgres_params![id.to_string(), url.to_string()];
-		let statement = connection
-			.prepare_cached(statement)
+		let connection = self
+			.inner
+			.database
+			.connection()
 			.await
-			.map_err(|source| error!(!source, "failed to prepare the statement"))?;
+			.map_err(|source| error!(!source, "failed to get a database connection"))?;
+		let p = connection.p();
+		let statement = formatdoc!(
+			"
+				insert into logins (id, url)
+				values ({p}1, {p}2);
+			"
+		);
+		let params = db::params![id, url];
 		connection
-			.execute(&statement, params)
+			.execute(statement, params)
 			.await
 			.map_err(|source| error!(!source, "failed to execute the statement"))?;
 
@@ -58,91 +55,75 @@ impl Server {
 	}
 
 	pub async fn get_login(&self, id: &tg::Id) -> Result<Option<tg::user::Login>> {
-		if let Some(remote) = self.inner.remote.as_ref() {
+		if let Some(remote) = self.inner.remotes.first() {
 			return remote.get_login(id).await;
 		}
 
-		let Database::Postgres(database) = &self.inner.database else {
-			return Err(error!("unimplemented"));
-		};
-		let connection = database.get().await?;
-		let statement = "
-			select id, url, token
-			from logins
-			where id = $1;
-		";
-		let params = postgres_params![id.to_string()];
-		let statement = connection
-			.prepare_cached(statement)
+		// Get a database connection.
+		let connection = self
+			.inner
+			.database
+			.connection()
 			.await
-			.map_err(|source| error!(!source, "failed to prepare the statement"))?;
-		let Some(row) = connection
-			.query_opt(&statement, params)
+			.map_err(|source| error!(!source, "failed to get a database connection"))?;
+
+		// Get the login.
+		let p = connection.p();
+		let statement = formatdoc!(
+			"
+				select id, url, token
+				from logins
+				where id = {p}1;
+			"
+		);
+		let params = db::params![id];
+		let login = connection
+			.query_optional_into(statement, params)
 			.await
-			.map_err(|source| error!(!source, "failed to execute the statement"))?
-		else {
-			return Ok(None);
-		};
-		let id = row.get::<_, String>(0).parse()?;
-		let url = row
-			.get::<_, String>(1)
-			.parse()
-			.map_err(|source| error!(!source, "failed to parse the URL"))?;
-		let token = row.get(2);
-		let login = tg::user::Login { id, url, token };
-		Ok(Some(login))
+			.map_err(|source| error!(!source, "failed to execute the statement"))?;
+
+		// Drop the database connection.
+		drop(connection);
+
+		Ok(login)
 	}
 
 	pub async fn get_user_for_token(&self, token: &str) -> Result<Option<tg::user::User>> {
-		if let Some(remote) = self.inner.remote.as_ref() {
+		if let Some(remote) = self.inner.remotes.first() {
 			return remote.get_user_for_token(token).await;
 		}
 
-		let Database::Postgres(database) = &self.inner.database else {
-			return Err(error!("unimplemented"));
-		};
-		let connection = database.get().await?;
-		let statement = "
-			select users.id, users.email, tokens.token
-			from users
-			join tokens on tokens.user_id = users.id
-			where tokens.token = $1;
-		";
-		let params = postgres_params![token];
-		let statement = connection
-			.prepare_cached(statement)
+		// Get a database connection.
+		let connection = self
+			.inner
+			.database
+			.connection()
 			.await
-			.map_err(|source| error!(!source, "failed to prepare the statement"))?;
-		let row = connection
-			.query_opt(&statement, params)
+			.map_err(|source| error!(!source, "failed to get a database connection"))?;
+
+		// Get the user for the token.
+		let p = connection.p();
+		let statement = formatdoc!(
+			"
+				select users.id, users.email, tokens.token
+				from users
+				join tokens on tokens.user_id = users.id
+				where tokens.token = {p}1;
+			"
+		);
+		let params = db::params![token];
+		let user = connection
+			.query_optional_into(statement, params)
 			.await
 			.map_err(|source| error!(!source, "failed to execute the statement"))?;
-		let Some(row) = row else {
-			return Ok(None);
-		};
-		let id = row.get::<_, String>(0).parse()?;
-		let email = row.get::<_, String>(1);
-		let token = row.get::<_, String>(2).parse()?;
-		let user = tg::user::User {
-			id,
-			email,
-			token: Some(token),
-		};
-		Ok(Some(user))
+
+		// Drop the database connection.
+		drop(connection);
+
+		Ok(user)
 	}
 
 	pub async fn create_oauth_url(&self, login_id: &tg::Id) -> Result<Url> {
-		// Create the redirect URL.
-		let mut redirect_url = self
-			.inner
-			.options
-			.url
-			.as_ref()
-			.ok_or_else(|| error!("expected the URL to be set in options"))?
-			.clone();
-		redirect_url.set_path("/oauth/github");
-		redirect_url.set_query(Some(&format!("id={login_id}")));
-
 		// Get the GitHub OAuth client.
 		let oauth_client = self
 			.inner
@@ -152,11 +133,13 @@ impl Server {
 			.ok_or_else(|| error!("the GitHub OAuth client is not configured"))?;
 
 		// Create the authorize URL.
-		let oauth_redirect_url = oauth2::RedirectUrl::new(redirect_url.to_string())
-			.map_err(|source| error!(!source, "failed to create the redirect URL"))?;
+		let mut redirect_url = oauth_client.redirect_url().unwrap().url().clone();
+		redirect_url.set_query(Some(&format!("id={login_id}")));
+		let redirect_url = oauth2::RedirectUrl::new(redirect_url.to_string())
+			.map_err(|source| error!(!source, "failed to create the redirect url"))?;
 		let (oauth_authorize_url, _csrf_token) = oauth_client
 			.authorize_url(oauth2::CsrfToken::new_random)
-			.set_redirect_uri(Cow::Owned(oauth_redirect_url))
+			.set_redirect_uri(Cow::Owned(redirect_url))
 			.add_scope(oauth2::Scope::new("user:email".to_owned()))
 			.url();
 
@@ -224,67 +207,66 @@ impl Server {
 		let (user, token) = self.login(&email).await?;
 
 		// Update the login with the user.
-		match &self.inner.database {
-			Database::Sqlite(_) => return Err(error!("unimplemented")),
-
-			Database::Postgres(database) => {
-				let connection = database.get().await?;
-				let statement = "
-					update logins
-					set token = $1
-					where id = $2;
-				";
-				let params = postgres_params![token.to_string(), login_id.to_string()];
-				let statement = connection
-					.prepare_cached(statement)
-					.await
-					.map_err(|source| error!(!source, "failed to prepare the statement"))?;
-				connection
-					.execute(&statement, params)
-					.await
-					.map_err(|source| error!(!source, "failed to execute the statement"))?;
-			},
-		}
+		let connection = self
+			.inner
+			.database
+			.connection()
+			.await
+			.map_err(|source| error!(!source, "failed to get a database connection"))?;
+		let p = connection.p();
+		let statement = formatdoc!(
+			"
+				update logins
+				set token = {p}1
+				where id = {p}2;
+			"
+		);
+		let params = db::params![token, login_id];
+		connection
+			.execute(statement, params)
+			.await
+			.map_err(|source| error!(!source, "failed to execute the statement"))?;
 
 		Ok(user)
 	}
 
 	pub async fn login(&self, email: &str) -> Result<(tg::user::User, tg::Id)> {
-		let Database::Postgres(database) = &self.inner.database else {
-			return Err(error!("unimplemented"));
-		};
-		let connection = database.get().await?;
+		// Get a database connection.
+		let connection = self
+			.inner
+			.database
+			.connection()
+			.await
+			.map_err(|source| error!(!source, "failed to get a database connection"))?;
 
 		// Retrieve a user with the specified email, or create one if one does not exist.
-		let statement = "
-			select id
-			from users
-			where email = $1;
-		";
-		let params = postgres_params![email];
-		let statement = connection
-			.prepare_cached(statement)
-			.await
-			.map_err(|source| error!(!source, "failed to prepare the statement"))?;
-		let row = connection
-			.query_opt(&statement, params)
+		let p = connection.p();
+		let statement = formatdoc!(
+			"
+				select id
+				from users
+				where email = {p}1;
+			"
+		);
+		let params = db::params![email];
+		let id = connection
+			.query_optional_scalar_into(statement, params)
 			.await
 			.map_err(|source| error!(!source, "failed to execute the statement"))?;
-		let user_id = if let Some(row) = row {
-			row.get::<_, String>(0).parse()?
+		let user_id = if let Some(id) = id {
+			id
 		} else {
 			let id = tg::Id::new_uuidv7(tg::id::Kind::User);
-			let statement = "
-				insert into users (id, email)
-				values ($1, $2);
-			";
-			let params = postgres_params![id.to_string(), email];
-			let statement = connection
-				.prepare_cached(statement)
-				.await
-				.map_err(|source| error!(!source, "failed to prepare the statement"))?;
+			let p = connection.p();
+			let statement = formatdoc!(
+				"
+					insert into users (id, email)
+					values ({p}1, {p}2);
+				"
+			);
+			let params = db::params![id, email];
 			connection
-				.execute(&statement, params)
+				.execute(statement, params)
 				.await
 				.map_err(|source| error!(!source, "failed to execute the statement"))?;
 			id
@@ -292,20 +274,23 @@ impl Server {
 
 		// Create a token.
 		let id = tg::Id::new_uuidv7(tg::id::Kind::Token);
-		let statement = "
-			insert into tokens (id, user_id)
-			values ($1, $2);
-		";
-		let params = postgres_params![id.to_string(), user_id.to_string()];
-		let statement = connection
-			.prepare_cached(statement)
-			.await
-			.map_err(|source| error!(!source, "failed to prepare the statement"))?;
+		let p = connection.p();
+		let statement = formatdoc!(
+			"
+				insert into tokens (id, user_id)
+				values ({p}1, {p}2);
+			"
+		);
+		let params = db::params![id, user_id];
 		connection
-			.execute(&statement, params)
+			.execute(statement, params)
 			.await
 			.map_err(|source| error!(!source, "failed to execute the statement"))?;
 
+		// Drop the database connection.
+		drop(connection);
+
+		// Create the user.
 		let user = tg::user::User {
 			id: user_id,
 			email: email.to_owned(),

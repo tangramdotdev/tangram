@@ -7,6 +7,7 @@ homepage = { workspace = true }
 license = { workspace = true }
 publish = false
 repository = { workspace = true }
+rust-version = { workspace = true }
 version = { workspace = true }
 
 [lints]
@@ -54,7 +55,8 @@ sha2 = { workspace = true }
 tar = { workspace = true }
 tempfile = { workspace = true }
 tangram_error = { workspace = true }
-tangram_util = { workspace = true }
+tangram_http = { workspace = true }
+tangram_sse = { workspace = true }
 time = { workspace = true }
 tokio = { workspace = true }
 tokio-rustls = { workspace = true }

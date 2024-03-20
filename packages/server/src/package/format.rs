@@ -1,8 +1,6 @@
-use std::path::PathBuf;
-
 use crate::Server;
 use async_recursion::async_recursion;
-use im::HashSet;
+use std::path::PathBuf;
 use tangram_client as tg;
 use tangram_error::{error, Result};
 
@@ -30,7 +28,7 @@ impl Server {
 			}
 			return Err(error!(%path, "expected a root module"));
 		};
-		let mut visited_module_paths = HashSet::default();
+		let mut visited_module_paths = im::HashSet::default();
 		self.format_module(root_module_path, &mut visited_module_paths)
 			.await?;
 		Ok(())
@@ -40,7 +38,7 @@ impl Server {
 	async fn format_module(
 		&self,
 		module_path: tg::Path,
-		visited_module_paths: &mut HashSet<PathBuf, fnv::FnvBuildHasher>,
+		visited_module_paths: &mut im::HashSet<PathBuf, fnv::FnvBuildHasher>,
 	) -> Result<()> {
 		let module_absolute_path = tokio::fs::canonicalize(&module_path).await.map_err(
 			|error| error!(source = error, %module_path, "failed to canonicalize module path"),
