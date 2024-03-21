@@ -12,7 +12,6 @@ import { Unresolved } from "./resolve.ts";
 import { Symlink, symlink } from "./symlink.ts";
 import * as syscall from "./syscall.ts";
 import { Template } from "./template.ts";
-import { Triple, triple } from "./triple.ts";
 import {
 	MaybeNestedArray,
 	MaybePromise,
@@ -23,22 +22,12 @@ import { Value } from "./value.ts";
 
 let currentTarget: Target;
 
-let currentTargetEnv: { [key: string]: Value } = {};
-
 export let getCurrentTarget = (): Target => {
 	return currentTarget;
 };
 
 export let setCurrentTarget = (target: Target) => {
 	currentTarget = target;
-};
-
-export let getCurrentTargetEnv = (): { [key: string]: Value } => {
-	return currentTargetEnv;
-};
-
-export let setCurrentTargetEnv = (env: { [key: string]: Value }) => {
-	currentTargetEnv = env;
 };
 
 export let functions: Record<string, Function> = {};
@@ -97,7 +86,7 @@ export function target<
 				lock,
 				name: arg.name,
 				args: [],
-				env: getCurrentTargetEnv(),
+				env: getCurrentTarget().expectObject().env,
 				checksum: undefined,
 			},
 		});
@@ -159,7 +148,7 @@ export class Target<
 		R extends Value = Value,
 	>(...args: Args<Target.Arg>): Promise<Target<A, R>> {
 		type Apply = {
-			host?: Triple.Arg;
+			host?: string;
 			executable?: Artifact;
 			lock?: Lock | undefined;
 			name?: string | undefined;
@@ -227,7 +216,7 @@ export class Target<
 		args_ ??= [];
 		return new Target({
 			object: {
-				host: Triple.toString(triple(host)),
+				host,
 				executable,
 				lock,
 				name,
@@ -261,6 +250,20 @@ export class Target<
 		return this.#state.object!;
 	}
 
+	expectId(): Target.Id {
+		if (!this.#state.id) {
+			throw new Error("expected the object to be stored");
+		}
+		return this.#state.id;
+	}
+
+	expectObject(): Target.Object_ {
+		if (!this.#state.object) {
+			throw new Error("expected the object to be loaded");
+		}
+		return this.#state.object;
+	}
+
 	async load() {
 		if (this.#state.object === undefined) {
 			let object = await syscall.load(this.#state.id!);
@@ -278,8 +281,8 @@ export class Target<
 		}
 	}
 
-	async host(): Promise<Triple> {
-		return triple((await this.object()).host);
+	async host(): Promise<string> {
+		return (await this.object()).host;
 	}
 
 	async executable(): Promise<Artifact> {
@@ -324,7 +327,7 @@ export namespace Target {
 		| Array<Arg>;
 
 	export type ArgObject = {
-		host?: Triple.Arg;
+		host?: string;
 		executable?: Artifact;
 		lock?: Lock | undefined;
 		name?: string | undefined;

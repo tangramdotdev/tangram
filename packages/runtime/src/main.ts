@@ -19,7 +19,6 @@ import { start } from "./start.ts";
 import { Symlink, symlink } from "./symlink.ts";
 import { Target, build, getCurrentTarget, target } from "./target.ts";
 import { Template, template } from "./template.ts";
-import { Triple, triple } from "./triple.ts";
 import { Value } from "./value.ts";
 
 Object.defineProperties(Error, {
@@ -58,7 +57,6 @@ Object.assign(tg, {
 	Lock,
 	Mutation,
 	Symlink,
-	Triple,
 	Target,
 	Template,
 	Value,
@@ -82,7 +80,6 @@ Object.assign(tg, {
 	symlink,
 	target,
 	template,
-	triple,
 	unimplemented,
 	unreachable,
 });

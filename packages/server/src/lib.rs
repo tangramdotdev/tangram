@@ -1,5 +1,5 @@
 pub use self::options::Options;
-use self::{database::Database, messenger::Messenger};
+use self::{database::Database, messenger::Messenger, runtime::Runtime};
 use async_nats as nats;
 use async_trait::async_trait;
 use bytes::Bytes;
@@ -20,7 +20,6 @@ use std::{
 	pin::pin,
 	sync::Arc,
 };
-
 use tangram_client as tg;
 use tangram_error::{error, Error, Result};
 use tangram_util::{
@@ -69,6 +68,7 @@ struct Inner {
 	oauth: OAuth,
 	options: Options,
 	remote: Option<Box<dyn tg::Handle>>,
+	runtimes: std::sync::RwLock<HashMap<String, Box<dyn Runtime>>>,
 	shutdown: tokio::sync::watch::Sender<bool>,
 	shutdown_task: std::sync::Mutex<Option<tokio::task::JoinHandle<Result<()>>>>,
 	vfs: std::sync::Mutex<Option<self::vfs::Server>>,
@@ -81,6 +81,7 @@ struct BuildState {
 }
 
 struct Permit(
+	#[allow(dead_code)]
 	Either<tokio::sync::OwnedSemaphorePermit, tokio::sync::OwnedMutexGuard<Option<Self>>>,
 );
 
@@ -123,6 +124,7 @@ impl Server {
 			.read(true)
 			.write(true)
 			.create(true)
+			.truncate(true)
 			.open(path.join("lock"))
 			.await
 			.map_err(|error| error!(source = error, "failed to open the lockfile"))?;
@@ -190,7 +192,7 @@ impl Server {
 		// Create the http server.
 		let http = std::sync::Mutex::new(None);
 
-		// Create the local pool.
+		// Create the local pool handle.
 		let local_pool_handle = tokio_util::task::LocalPoolHandle::new(
 			std::thread::available_parallelism().unwrap().get(),
 		);
@@ -218,6 +220,9 @@ impl Server {
 		// Get the remote.
 		let remote = options.remote.as_ref().map(|remote| remote.tg.clone_box());
 
+		// Create the runtimes.
+		let runtimes = std::sync::RwLock::new(HashMap::default());
+
 		// Create the shutdown channel.
 		let (shutdown, _) = tokio::sync::watch::channel(false);
 
@@ -242,6 +247,7 @@ impl Server {
 			oauth,
 			options,
 			remote,
+			runtimes,
 			shutdown,
 			shutdown_task,
 			vfs,
@@ -294,6 +300,60 @@ impl Server {
 			tokio::fs::symlink("checkouts", artifacts_path)
 				.await
 				.map_err(|error| error!(source = error, "failed to create a symlink from the artifacts directory to the checkouts directory"))?;
+		}
+
+		// Add the runtimes.
+		let triple = "js".to_owned();
+		let runtime = Box::new(self::runtime::js::Runtime::new(&server));
+		server
+			.inner
+			.runtimes
+			.write()
+			.unwrap()
+			.insert(triple, runtime);
+		#[cfg(all(target_arch = "aarch64", target_os = "macos"))]
+		{
+			let triple = "aarch64-darwin".to_owned();
+			let runtime = Box::new(self::runtime::darwin::Runtime::new(&server));
+			server
+				.inner
+				.runtimes
+				.write()
+				.unwrap()
+				.insert(triple, runtime);
+		}
+		#[cfg(all(target_arch = "aarch64", target_os = "linux"))]
+		{
+			let triple = "aarch64-linux".to_owned();
+			let runtime = Box::new(self::runtime::linux::Runtime::new(&server).await?);
+			server
+				.inner
+				.runtimes
+				.write()
+				.unwrap()
+				.insert(triple, runtime);
+		}
+		#[cfg(all(target_arch = "x86_64", target_os = "macos"))]
+		{
+			let triple = "x86_64-darwin".to_owned();
+			let runtime = Box::new(self::runtime::darwin::Runtime::new(&server));
+			server
+				.inner
+				.runtimes
+				.write()
+				.unwrap()
+				.insert(triple, runtime);
+		}
+		#[cfg(all(target_arch = "x86_64", target_os = "linux"))]
+		{
+			let triple = "x86_64-linux".to_owned();
+			let runtime = Box::new(self::runtime::linux::Runtime::new(&server).await?);
+			server
+				.inner
+				.runtimes
+				.write()
+				.unwrap()
+				.insert(triple, runtime);
 		}
 
 		// Start the build queue task.

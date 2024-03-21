@@ -86,7 +86,6 @@ pub struct Remote {
 #[derive(Clone, Debug)]
 pub struct RemoteBuild {
 	pub enable: bool,
-	pub hosts: Vec<tg::Triple>,
 }
 
 #[derive(Clone, Debug)]

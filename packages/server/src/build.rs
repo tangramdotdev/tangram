@@ -171,37 +171,16 @@ impl Server {
 		let target = build.target(self).await?;
 
 		// Build the target with the appropriate runtime.
-		let triple = target.host(self).await?;
-		let result = match triple.os() {
-			None => {
-				// Ensure the arch is JS.
-				if triple.arch() != Some(tg::triple::Arch::Js) {
-					return Err(error!(%triple, "expected JS arch"));
-				}
-				// Build the target on the server's local pool because it is a `!Send` future.
-				crate::runtime::js::build(self, &build).await
-			},
-			Some(tg::triple::Os::Darwin) => {
-				#[cfg(target_os = "macos")]
-				{
-					crate::runtime::darwin::build(self, &build).await
-				}
-				#[cfg(not(target_os = "macos"))]
-				{
-					return Err(error!("cannot build a darwin target on this host"));
-				}
-			},
-			Some(tg::triple::Os::Linux) => {
-				#[cfg(target_os = "linux")]
-				{
-					crate::runtime::linux::build(self, &build).await
-				}
-				#[cfg(not(target_os = "linux"))]
-				{
-					return Err(error!("cannot build a linux target on this host"));
-				}
-			},
-		};
+		let host = target.host(self).await?;
+		let runtime = self
+			.inner
+			.runtimes
+			.read()
+			.unwrap()
+			.get(host)
+			.ok_or_else(|| error!(?id, ?host, "no runtime to build the target"))?
+			.clone_box();
+		let result = runtime.run(&build).await;
 
 		// Log the error.
 		if let Err(error) = &result {

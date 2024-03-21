@@ -595,12 +595,7 @@ impl Artifact {
 				r#"cannot check out a symlink which contains an artifact"#
 			));
 		}
-		let target = symlink
-			.path(tg)
-			.await?
-			.as_ref()
-			.cloned()
-			.unwrap_or_default();
+		let target = symlink.path(tg).await?.clone().unwrap_or_default();
 
 		// Create the symlink.
 		tokio::fs::symlink(target, path)

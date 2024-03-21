@@ -4,7 +4,7 @@ pub use self::{
 	file::File, handle::Handle, id::Id, import::Import, leaf::Leaf, location::Location, lock::Lock,
 	module::Module, mutation::Mutation, object::Handle as Object, path::Path, position::Position,
 	range::Range, server::Health, symlink::Symlink, target::Target, template::Template,
-	triple::Triple, user::Login, user::User, value::Value,
+	user::Login, user::User, value::Value,
 };
 use crate as tg;
 use async_trait::async_trait;
@@ -48,7 +48,6 @@ pub mod server;
 pub mod symlink;
 pub mod target;
 pub mod template;
-pub mod triple;
 pub mod user;
 mod util;
 pub mod value;
