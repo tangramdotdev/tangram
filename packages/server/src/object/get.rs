@@ -45,19 +45,19 @@ impl Server {
 		let params = sqlite_params![id.to_string()];
 		let mut statement = connection
 			.prepare_cached(statement)
-			.map_err(|error| error!(source = error, "failed to prepare the query"))?;
+			.map_err(|source| error!(!source, "failed to prepare the query"))?;
 		let mut rows = statement
 			.query(params)
-			.map_err(|error| error!(source = error, "failed to execute the statement"))?;
+			.map_err(|source| error!(!source, "failed to execute the statement"))?;
 		let Some(row) = rows
 			.next()
-			.map_err(|error| error!(source = error, "failed to retrieve the row"))?
+			.map_err(|source| error!(!source, "failed to retrieve the row"))?
 		else {
 			return Ok(None);
 		};
 		let bytes: Bytes = row
 			.get::<_, Vec<u8>>(0)
-			.map_err(|error| error!(source = error, "failed to deserialize the column"))?
+			.map_err(|source| error!(!source, "failed to deserialize the column"))?
 			.into();
 		let output = tg::object::GetOutput {
 			bytes,
@@ -82,17 +82,17 @@ impl Server {
 		let statement = connection
 			.prepare_cached(statement)
 			.await
-			.map_err(|error| error!(source = error, "failed to prepare the statement"))?;
+			.map_err(|source| error!(!source, "failed to prepare the statement"))?;
 		let Some(row) = connection
 			.query_opt(&statement, params)
 			.await
-			.map_err(|error| error!(source = error, "failed to execute the statement"))?
+			.map_err(|source| error!(!source, "failed to execute the statement"))?
 		else {
 			return Ok(None);
 		};
 		let bytes: Bytes = row
 			.try_get::<_, Vec<u8>>(0)
-			.map_err(|error| error!(source = error, "failed to deserialize the column"))?
+			.map_err(|source| error!(!source, "failed to deserialize the column"))?
 			.into();
 		let output = tg::object::GetOutput {
 			bytes,

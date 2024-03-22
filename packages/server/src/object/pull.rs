@@ -15,7 +15,7 @@ impl Server {
 		tg::object::Handle::with_id(id.clone())
 			.pull(self, remote.as_ref())
 			.await
-			.map_err(|error| error!(source = error, "failed to pull the object"))?;
+			.map_err(|source| error!(!source, "failed to pull the object"))?;
 		Ok(())
 	}
 }

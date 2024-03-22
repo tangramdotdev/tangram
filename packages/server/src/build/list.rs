@@ -74,10 +74,10 @@ impl Server {
 		let params = sqlite_params![status, target, limit, offset];
 		let mut statement = connection
 			.prepare_cached(statement)
-			.map_err(|error| error!(source = error, "failed to prepare the query"))?;
+			.map_err(|source| error!(!source, "failed to prepare the query"))?;
 		let items = statement
 			.query(params)
-			.map_err(|error| error!(source = error, "failed to execute the statment"))?
+			.map_err(|source| error!(!source, "failed to execute the statment"))?
 			.and_then(|row| {
 				let id = row.get::<_, String>(0)?;
 				let count = row.get::<_, Option<i64>>(1)?;
@@ -108,7 +108,7 @@ impl Server {
 					finished_at,
 				))
 			})
-			.map_err(|error| error!(source = error, "failed to deserialize the rows"))
+			.map_err(|source| error!(!source, "failed to deserialize the rows"))
 			.and_then(|row| {
 				let (
 					id,
@@ -134,7 +134,7 @@ impl Server {
 				let target = target.parse()?;
 				let weight = weight.map(|weight| weight.to_u64().unwrap());
 				let created_at = time::OffsetDateTime::parse(&created_at, &Rfc3339)
-					.map_err(|error| error!(source = error, "failed to parse the timestamp"))?;
+					.map_err(|source| error!(!source, "failed to parse the timestamp"))?;
 				let queued_at = queued_at
 					.map(|timestamp| {
 						time::OffsetDateTime::parse(&timestamp, &Rfc3339).map_err(|error| {
@@ -231,11 +231,11 @@ impl Server {
 		let statement = connection
 			.prepare_cached(statement)
 			.await
-			.map_err(|error| error!(source = error, "failed to prepare the query"))?;
+			.map_err(|source| error!(!source, "failed to prepare the query"))?;
 		let items = connection
 			.query(&statement, params)
 			.await
-			.map_err(|error| error!(source = error, "failed to execute the statement"))?
+			.map_err(|source| error!(!source, "failed to execute the statement"))?
 			.into_iter()
 			.map(|row| {
 				let id = row.try_get::<_, String>(0)?;
@@ -268,7 +268,7 @@ impl Server {
 					finished_at,
 				))
 			})
-			.map_err(|error| error!(source = error, "failed to deserialize the rows"))
+			.map_err(|source| error!(!source, "failed to deserialize the rows"))
 			.and_then(|row| {
 				let (
 					id,
@@ -294,7 +294,7 @@ impl Server {
 				let target = target.parse()?;
 				let weight = weight.map(|weight| weight.to_u64().unwrap());
 				let created_at = time::OffsetDateTime::parse(&created_at, &Rfc3339)
-					.map_err(|error| error!(source = error, "failed to parse the timestamp"))?;
+					.map_err(|source| error!(!source, "failed to parse the timestamp"))?;
 				let queued_at = queued_at
 					.map(|timestamp| {
 						time::OffsetDateTime::parse(&timestamp, &Rfc3339).map_err(|error| {
@@ -349,13 +349,13 @@ impl Http {
 			return Ok(bad_request());
 		};
 		let arg = serde_urlencoded::from_str(query)
-			.map_err(|error| error!(source = error, "failed to deserialize the search params"))?;
+			.map_err(|source| error!(!source, "failed to deserialize the search params"))?;
 
 		let output = self.inner.tg.list_builds(arg).await?;
 
 		// Create the body.
 		let body = serde_json::to_vec(&output)
-			.map_err(|error| error!(source = error, "failed to serialize the body"))?;
+			.map_err(|source| error!(!source, "failed to serialize the body"))?;
 		let body = full(body);
 
 		// Create the response.

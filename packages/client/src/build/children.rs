@@ -47,7 +47,7 @@ impl Client {
 			.uri(uri)
 			.header(http::header::ACCEPT, mime::TEXT_EVENT_STREAM.to_string())
 			.body(body)
-			.map_err(|error| error!(source = error, "failed to create the request"))?;
+			.map_err(|source| error!(!source, "failed to create the request"))?;
 		let response = self.send(request).await?;
 		if response.status() == http::StatusCode::NOT_FOUND {
 			return Ok(None);
@@ -56,7 +56,7 @@ impl Client {
 			let bytes = response
 				.collect()
 				.await
-				.map_err(|error| error!(source = error, "failed to collect the response body"))?
+				.map_err(|source| error!(!source, "failed to collect the response body"))?
 				.to_bytes();
 			let error = serde_json::from_slice(&bytes)
 				.unwrap_or_else(|_| error!("the request did not succeed"));
@@ -70,7 +70,7 @@ impl Client {
 					Ok(Err(_frame)) => None,
 				}
 			})
-			.map_err(|error| error!(source = error, "failed to read from the body"));
+			.map_err(|source| error!(!source, "failed to read from the body"));
 		let reader = Box::pin(StreamReader::new(stream.map_err(std::io::Error::other)));
 		let stop = stop.map_or_else(
 			|| future::pending().left_future(),
@@ -79,7 +79,7 @@ impl Client {
 		let output = tangram_util::sse::Decoder::new(reader)
 			.map(|result| {
 				let event =
-					result.map_err(|error| error!(source = error, "failed to read an event"))?;
+					result.map_err(|source| error!(!source, "failed to read an event"))?;
 				let chunk = serde_json::from_str(&event.data).map_err(|error| {
 					error!(source = error, "failed to deserialize the event data")
 				})?;
@@ -108,17 +108,17 @@ impl Client {
 			mime::APPLICATION_JSON.to_string(),
 		);
 		let body = serde_json::to_vec(&child_id)
-			.map_err(|error| error!(source = error, "failed to serialize the body"))?;
+			.map_err(|source| error!(!source, "failed to serialize the body"))?;
 		let body = full(body);
 		let request = request
 			.body(body)
-			.map_err(|error| error!(source = error, "failed to create the request"))?;
+			.map_err(|source| error!(!source, "failed to create the request"))?;
 		let response = self.send(request).await?;
 		if !response.status().is_success() {
 			let bytes = response
 				.collect()
 				.await
-				.map_err(|error| error!(source = error, "failed to collect the response body"))?
+				.map_err(|source| error!(!source, "failed to collect the response body"))?
 				.to_bytes();
 			let error = serde_json::from_slice(&bytes)
 				.unwrap_or_else(|_| error!("the request did not succeed"));

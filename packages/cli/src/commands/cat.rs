@@ -26,7 +26,7 @@ impl Cli {
 					let blob = file
 						.contents(tg)
 						.await
-						.map_err(|error| error!(source = error, "failed to get file contents"))?
+						.map_err(|source| error!(!source, "failed to get file contents"))?
 						.clone();
 					break 'a blob;
 				}
@@ -37,7 +37,7 @@ impl Cli {
 			let mut reader = blob
 				.reader(tg)
 				.await
-				.map_err(|error| error!(source = error, "failed to create the blob reader"))?;
+				.map_err(|source| error!(!source, "failed to create the blob reader"))?;
 			let mut writer = tokio::io::stdout();
 			tokio::io::copy(&mut reader, &mut writer)
 				.await

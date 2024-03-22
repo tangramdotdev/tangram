@@ -995,7 +995,7 @@ impl Server {
 			let ret = libc::socketpair(libc::AF_UNIX, libc::SOCK_STREAM, 0, fds.as_mut_ptr());
 			if ret != 0 {
 				Err(std::io::Error::last_os_error())
-					.map_err(|error| error!(source = error, "failed to create the socket pair"))?;
+					.map_err(|source| error!(!source, "failed to create the socket pair"))?;
 			}
 
 			let fusermount3 = std::ffi::CString::new("/usr/bin/fusermount3").unwrap();
@@ -1097,7 +1097,7 @@ impl Server {
 			.stderr(std::process::Stdio::null())
 			.status()
 			.await
-			.map_err(|error| error!(source = error, "failed to execute the unmount command"))?;
+			.map_err(|source| error!(!source, "failed to execute the unmount command"))?;
 		Ok(())
 	}
 }

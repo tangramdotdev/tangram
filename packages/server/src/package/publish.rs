@@ -49,11 +49,11 @@ impl Server {
 		let statement = connection
 			.prepare_cached(statement)
 			.await
-			.map_err(|error| error!(source = error, "failed to prepare the statement"))?;
+			.map_err(|source| error!(!source, "failed to prepare the statement"))?;
 		connection
 			.execute(&statement, params)
 			.await
-			.map_err(|error| error!(source = error, "failed to execute the statement"))?;
+			.map_err(|source| error!(!source, "failed to execute the statement"))?;
 
 		// Create the package version.
 		let statement = "
@@ -64,11 +64,11 @@ impl Server {
 		let statement = connection
 			.prepare_cached(statement)
 			.await
-			.map_err(|error| error!(source = error, "failed to prepare the statement"))?;
+			.map_err(|source| error!(!source, "failed to prepare the statement"))?;
 		connection
 			.execute(&statement, params)
 			.await
-			.map_err(|error| error!(source = error, "failed to execute the statement"))?;
+			.map_err(|source| error!(!source, "failed to execute the statement"))?;
 
 		Ok(())
 	}
@@ -87,10 +87,10 @@ impl Http {
 			.into_body()
 			.collect()
 			.await
-			.map_err(|error| error!(source = error, "failed to read the body"))?
+			.map_err(|source| error!(!source, "failed to read the body"))?
 			.to_bytes();
 		let package_id = serde_json::from_slice(&bytes)
-			.map_err(|error| error!(source = error, "invalid request"))?;
+			.map_err(|source| error!(!source, "invalid request"))?;
 
 		// Publish the package.
 		self.inner

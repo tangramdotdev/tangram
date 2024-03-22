@@ -253,12 +253,12 @@ impl Artifact {
 			let _permit = tg.file_descriptor_semaphore().acquire().await;
 			let mut read_dir = tokio::fs::read_dir(path)
 				.await
-				.map_err(|error| error!(source = error, "failed to read the directory"))?;
+				.map_err(|source| error!(!source, "failed to read the directory"))?;
 			let mut names = Vec::new();
 			while let Some(entry) = read_dir
 				.next_entry()
 				.await
-				.map_err(|error| error!(source = error, "failed to get the directory entry"))?
+				.map_err(|source| error!(!source, "failed to get the directory entry"))?
 			{
 				let name = entry.file_name();
 				let name = name
@@ -298,10 +298,10 @@ impl Artifact {
 		let permit = tg.file_descriptor_semaphore().acquire().await;
 		let file = tokio::fs::File::open(path)
 			.await
-			.map_err(|error| error!(source = error, "failed to open the file"))?;
+			.map_err(|source| error!(!source, "failed to open the file"))?;
 		let contents = Blob::with_reader(tg, file)
 			.await
-			.map_err(|error| error!(source = error, "failed to create the contents"))?;
+			.map_err(|source| error!(!source, "failed to create the contents"))?;
 		drop(permit);
 
 		// Determine if the file is executable.
@@ -334,7 +334,7 @@ impl Artifact {
 		// Read the target from the symlink.
 		let target = tokio::fs::read_link(path)
 			.await
-			.map_err(|error| error!(source = error, %path, "failed to read the symlink at path"))?;
+			.map_err(|source| error!(!source, %path, "failed to read the symlink at path"))?;
 
 		// Unrender the target.
 		let target = target.to_str().ok_or_else(|| {
@@ -381,12 +381,12 @@ impl Artifact {
 		let artifact = artifact
 			.bundle(tg)
 			.await
-			.map_err(|error| error!(source = error, "failed to bundle the artifact"))?;
+			.map_err(|source| error!(!source, "failed to bundle the artifact"))?;
 
 		// Check in an existing artifact at the path.
 		let existing_artifact = if tokio::fs::try_exists(path)
 			.await
-			.map_err(|error| error!(source = error, "failed to determine if the path exists"))?
+			.map_err(|source| error!(!source, "failed to determine if the path exists"))?
 		{
 			Some(Artifact::with_id(Self::check_in_local(tg, path).await?))
 		} else {
@@ -478,13 +478,13 @@ impl Artifact {
 				rmrf(path).await?;
 				tokio::fs::create_dir_all(path)
 					.await
-					.map_err(|error| error!(source = error, "failed to create the directory"))?;
+					.map_err(|source| error!(!source, "failed to create the directory"))?;
 			},
 			// If there is no artifact at this path, then create a directory.
 			None => {
 				tokio::fs::create_dir_all(path)
 					.await
-					.map_err(|error| error!(source = error, "failed to create the directory"))?;
+					.map_err(|source| error!(!source, "failed to create the directory"))?;
 			},
 		}
 
@@ -501,7 +501,7 @@ impl Artifact {
 						Some(Artifact::Directory(existing_directory)) => {
 							let name = name
 								.parse()
-								.map_err(|error| error!(source = error, "invalid entry name"))?;
+								.map_err(|source| error!(!source, "invalid entry name"))?;
 							existing_directory.try_get(tg, &name).await?
 						},
 						_ => None,
@@ -550,10 +550,10 @@ impl Artifact {
 			&mut file.reader(tg).await?,
 			&mut tokio::fs::File::create(path)
 				.await
-				.map_err(|error| error!(source = error, "failed to create the file"))?,
+				.map_err(|source| error!(!source, "failed to create the file"))?,
 		)
 		.await
-		.map_err(|error| error!(source = error, "failed to copy the blob"))?;
+		.map_err(|source| error!(!source, "failed to copy the blob"))?;
 		drop(permit);
 
 		// Make the file executable if necessary.
@@ -561,7 +561,7 @@ impl Artifact {
 			let permissions = std::fs::Permissions::from_mode(0o755);
 			tokio::fs::set_permissions(path, permissions)
 				.await
-				.map_err(|error| error!(source = error, "failed to set the permissions"))?;
+				.map_err(|source| error!(!source, "failed to set the permissions"))?;
 		}
 
 		// Check that the file has no references.
@@ -600,7 +600,7 @@ impl Artifact {
 		// Create the symlink.
 		tokio::fs::symlink(target, path)
 			.await
-			.map_err(|error| error!(source = error, "failed to create the symlink"))?;
+			.map_err(|source| error!(!source, "failed to create the symlink"))?;
 
 		Ok(())
 	}
@@ -614,19 +614,19 @@ impl Client {
 		let method = http::Method::POST;
 		let uri = "/artifacts/checkin";
 		let body = serde_json::to_string(&arg)
-			.map_err(|error| error!(source = error, "failed to serialize the body"))?;
+			.map_err(|source| error!(!source, "failed to serialize the body"))?;
 		let body = full(body);
 		let request = http::request::Builder::default()
 			.method(method)
 			.uri(uri)
 			.body(body)
-			.map_err(|error| error!(source = error, "failed to create the request"))?;
+			.map_err(|source| error!(!source, "failed to create the request"))?;
 		let response = self.send(request).await?;
 		if !response.status().is_success() {
 			let bytes = response
 				.collect()
 				.await
-				.map_err(|error| error!(source = error, "failed to collect the response body"))?
+				.map_err(|source| error!(!source, "failed to collect the response body"))?
 				.to_bytes();
 			let error = serde_json::from_slice(&bytes)
 				.unwrap_or_else(|_| error!("the request did not succeed"));
@@ -635,10 +635,10 @@ impl Client {
 		let bytes = response
 			.collect()
 			.await
-			.map_err(|error| error!(source = error, "failed to collect the response body"))?
+			.map_err(|source| error!(!source, "failed to collect the response body"))?
 			.to_bytes();
 		let output = serde_json::from_slice(&bytes)
-			.map_err(|error| error!(source = error, "failed to deserialize the body"))?;
+			.map_err(|source| error!(!source, "failed to deserialize the body"))?;
 		Ok(output)
 	}
 
@@ -646,19 +646,19 @@ impl Client {
 		let method = http::Method::POST;
 		let uri = "/artifacts/checkout";
 		let body = serde_json::to_string(&arg)
-			.map_err(|error| error!(source = error, "failed to serialize the body"))?;
+			.map_err(|source| error!(!source, "failed to serialize the body"))?;
 		let body = full(body);
 		let request = http::request::Builder::default()
 			.method(method)
 			.uri(uri)
 			.body(body)
-			.map_err(|error| error!(source = error, "failed to create the request"))?;
+			.map_err(|source| error!(!source, "failed to create the request"))?;
 		let response = self.send(request).await?;
 		if !response.status().is_success() {
 			let bytes = response
 				.collect()
 				.await
-				.map_err(|error| error!(source = error, "failed to collect the response body"))?
+				.map_err(|source| error!(!source, "failed to collect the response body"))?
 				.to_bytes();
 			let error = serde_json::from_slice(&bytes)
 				.unwrap_or_else(|_| error!("the request did not succeed"));
@@ -776,7 +776,7 @@ impl TryFrom<Value> for Artifact {
 
 	fn try_from(value: Value) -> Result<Self, Self::Error> {
 		object::Handle::try_from(value)
-			.map_err(|error| error!(source = error, "invalid value"))?
+			.map_err(|source| error!(!source, "invalid value"))?
 			.try_into()
 	}
 }

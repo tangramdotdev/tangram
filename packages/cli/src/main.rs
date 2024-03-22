@@ -78,7 +78,7 @@ pub enum Command {
 
 fn default_path() -> PathBuf {
 	let home = std::env::var("HOME")
-		.map_err(|error| error!(source = error, "failed to get the home directory path"))
+		.map_err(|source| error!(!source, "failed to get the home directory path"))
 		.unwrap();
 	PathBuf::from(home).join(".tangram")
 }
@@ -89,7 +89,7 @@ fn main() {
 
 	// Read the config.
 	let config = match Cli::read_config(args.config.clone())
-		.map_err(|error| error!(source = error, "failed to read the config"))
+		.map_err(|source| error!(!source, "failed to read the config"))
 	{
 		Ok(config) => config,
 		Err(error) => {
@@ -142,12 +142,12 @@ fn main_inner(args: Args, config: Option<Config>) -> Result<()> {
 	// Get the version.
 	let version = if cfg!(debug_assertions) {
 		let executable_path = std::env::current_exe()
-			.map_err(|error| error!(source = error, "failed to get the current executable path"))?;
+			.map_err(|source| error!(!source, "failed to get the current executable path"))?;
 		let metadata = std::fs::metadata(executable_path)
-			.map_err(|error| error!(source = error, "failed to get the executable metadata"))?;
+			.map_err(|source| error!(!source, "failed to get the executable metadata"))?;
 		metadata
 			.modified()
-			.map_err(|error| error!(source = error, "failed to get the executable modified time"))?
+			.map_err(|source| error!(!source, "failed to get the executable modified time"))?
 			.duration_since(std::time::SystemTime::UNIX_EPOCH)
 			.unwrap()
 			.as_secs()
@@ -270,7 +270,7 @@ impl Cli {
 	/// Start the server.
 	async fn start_server(&self) -> Result<()> {
 		let executable = std::env::current_exe()
-			.map_err(|error| error!(source = error, "failed to get the current executable path"))?;
+			.map_err(|source| error!(!source, "failed to get the current executable path"))?;
 		let path = self
 			.config
 			.as_ref()
@@ -278,14 +278,14 @@ impl Cli {
 			.unwrap_or_else(default_path);
 		tokio::fs::create_dir_all(&path)
 			.await
-			.map_err(|error| error!(source = error, "failed to create the server path"))?;
+			.map_err(|source| error!(!source, "failed to create the server path"))?;
 		let stdout = tokio::fs::File::create(path.join("log"))
 			.await
-			.map_err(|error| error!(source = error, "failed to create the server log file"))?;
+			.map_err(|source| error!(!source, "failed to create the server log file"))?;
 		let stderr = stdout
 			.try_clone()
 			.await
-			.map_err(|error| error!(source = error, "failed to clone the server log file"))?;
+			.map_err(|source| error!(!source, "failed to clone the server log file"))?;
 		tokio::process::Command::new(executable)
 			.args(["server", "run"])
 			.current_dir(&path)
@@ -293,7 +293,7 @@ impl Cli {
 			.stdout(stdout.into_std().await)
 			.stderr(stderr.into_std().await)
 			.spawn()
-			.map_err(|error| error!(source = error, "failed to spawn the server"))?;
+			.map_err(|source| error!(!source, "failed to spawn the server"))?;
 		Ok(())
 	}
 
@@ -313,7 +313,7 @@ impl Cli {
 			Err(error) => return Err(error!(source = error, "failed to read the config file")),
 		};
 		let config = serde_json::from_str(&config)
-			.map_err(|error| error!(source = error, "failed to deserialize the config"))?;
+			.map_err(|source| error!(!source, "failed to deserialize the config"))?;
 		Ok(Some(config))
 	}
 
@@ -326,9 +326,9 @@ impl Cli {
 		})?;
 		let path = path.unwrap_or_else(|| PathBuf::from(home).join(".config/tangram/config.json"));
 		let config = serde_json::to_string_pretty(&config)
-			.map_err(|error| error!(source = error, "failed to serialize the config"))?;
+			.map_err(|source| error!(!source, "failed to serialize the config"))?;
 		std::fs::write(path, config)
-			.map_err(|error| error!(source = error, "failed to save the config"))?;
+			.map_err(|source| error!(!source, "failed to save the config"))?;
 		Ok(())
 	}
 
@@ -348,7 +348,7 @@ impl Cli {
 			Err(error) => return Err(error!(source = error, "failed to read the user file")),
 		};
 		let user = serde_json::from_str(&user)
-			.map_err(|error| error!(source = error, "failed to deserialize the user"))?;
+			.map_err(|source| error!(!source, "failed to deserialize the user"))?;
 		Ok(Some(user))
 	}
 
@@ -361,9 +361,9 @@ impl Cli {
 		})?;
 		let path = path.unwrap_or_else(|| PathBuf::from(home).join(".config/tangram/user.json"));
 		let user = serde_json::to_string_pretty(&user.clone())
-			.map_err(|error| error!(source = error, "failed to serialize the user"))?;
+			.map_err(|source| error!(!source, "failed to serialize the user"))?;
 		std::fs::write(path, user)
-			.map_err(|error| error!(source = error, "failed to save the user"))?;
+			.map_err(|source| error!(!source, "failed to save the user"))?;
 		Ok(())
 	}
 }

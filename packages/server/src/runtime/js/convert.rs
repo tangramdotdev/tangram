@@ -62,7 +62,7 @@ impl FromV8 for bool {
 		value: v8::Local<'a, v8::Value>,
 	) -> Result<Self> {
 		let value = v8::Local::<v8::Boolean>::try_from(value)
-			.map_err(|error| error!(source = error, "expected a boolean value"))?;
+			.map_err(|source| error!(!source, "expected a boolean value"))?;
 		let value = value.boolean_value(scope);
 		Ok(value)
 	}
@@ -84,7 +84,7 @@ impl FromV8 for u8 {
 		value: v8::Local<'a, v8::Value>,
 	) -> Result<Self> {
 		v8::Local::<v8::Number>::try_from(value)
-			.map_err(|error| error!(source = error, "expected a number"))?
+			.map_err(|source| error!(!source, "expected a number"))?
 			.number_value(scope)
 			.ok_or_else(|| error!("expected a number"))?
 			.to_u8()
@@ -108,7 +108,7 @@ impl FromV8 for u16 {
 		value: v8::Local<'a, v8::Value>,
 	) -> Result<Self> {
 		v8::Local::<v8::Number>::try_from(value)
-			.map_err(|error| error!(source = error, "expected a number"))?
+			.map_err(|source| error!(!source, "expected a number"))?
 			.number_value(scope)
 			.ok_or_else(|| error!("expected a number"))?
 			.to_u16()
@@ -132,7 +132,7 @@ impl FromV8 for u32 {
 		value: v8::Local<'a, v8::Value>,
 	) -> Result<Self> {
 		v8::Local::<v8::Number>::try_from(value)
-			.map_err(|error| error!(source = error, "expected a number"))?
+			.map_err(|source| error!(!source, "expected a number"))?
 			.number_value(scope)
 			.ok_or_else(|| error!("expected a number"))?
 			.to_u32()
@@ -156,7 +156,7 @@ impl FromV8 for u64 {
 		value: v8::Local<'a, v8::Value>,
 	) -> Result<Self> {
 		v8::Local::<v8::Number>::try_from(value)
-			.map_err(|error| error!(source = error, "expected a number"))?
+			.map_err(|source| error!(!source, "expected a number"))?
 			.number_value(scope)
 			.ok_or_else(|| error!("expected a number"))?
 			.to_u64()
@@ -180,7 +180,7 @@ impl FromV8 for i8 {
 		value: v8::Local<'a, v8::Value>,
 	) -> Result<Self> {
 		v8::Local::<v8::Number>::try_from(value)
-			.map_err(|error| error!(source = error, "expected a number"))?
+			.map_err(|source| error!(!source, "expected a number"))?
 			.number_value(scope)
 			.ok_or_else(|| error!("expected a number"))?
 			.to_i8()
@@ -204,7 +204,7 @@ impl FromV8 for i16 {
 		value: v8::Local<'a, v8::Value>,
 	) -> Result<Self> {
 		v8::Local::<v8::Number>::try_from(value)
-			.map_err(|error| error!(source = error, "expected a number"))?
+			.map_err(|source| error!(!source, "expected a number"))?
 			.number_value(scope)
 			.ok_or_else(|| error!("expected a number"))?
 			.to_i16()
@@ -228,7 +228,7 @@ impl FromV8 for i32 {
 		value: v8::Local<'a, v8::Value>,
 	) -> Result<Self> {
 		v8::Local::<v8::Number>::try_from(value)
-			.map_err(|error| error!(source = error, "expected a number"))?
+			.map_err(|source| error!(!source, "expected a number"))?
 			.number_value(scope)
 			.ok_or_else(|| error!("expected a number"))?
 			.to_i32()
@@ -252,7 +252,7 @@ impl FromV8 for i64 {
 		value: v8::Local<'a, v8::Value>,
 	) -> Result<Self> {
 		v8::Local::<v8::Number>::try_from(value)
-			.map_err(|error| error!(source = error, "expected a number"))?
+			.map_err(|source| error!(!source, "expected a number"))?
 			.number_value(scope)
 			.ok_or_else(|| error!("expected a number"))?
 			.to_i64()
@@ -276,7 +276,7 @@ impl FromV8 for f32 {
 		value: v8::Local<'a, v8::Value>,
 	) -> Result<Self> {
 		v8::Local::<v8::Number>::try_from(value)
-			.map_err(|error| error!(source = error, "expected a number"))?
+			.map_err(|source| error!(!source, "expected a number"))?
 			.number_value(scope)
 			.ok_or_else(|| error!("expected a number"))?
 			.to_f32()
@@ -296,7 +296,7 @@ impl FromV8 for f64 {
 		value: v8::Local<'a, v8::Value>,
 	) -> Result<Self> {
 		v8::Local::<v8::Number>::try_from(value)
-			.map_err(|error| error!(source = error, "expected a number"))?
+			.map_err(|source| error!(!source, "expected a number"))?
 			.number_value(scope)
 			.ok_or_else(|| error!("expected a number"))
 	}
@@ -391,7 +391,7 @@ where
 		value: v8::Local<'a, v8::Value>,
 	) -> Result<Self> {
 		let value = v8::Local::<v8::Array>::try_from(value)
-			.map_err(|error| error!(source = error, "expected an array"))?;
+			.map_err(|source| error!(!source, "expected an array"))?;
 		let value0 = value
 			.get_index(scope, 0)
 			.ok_or_else(|| error!("expected a value"))?;
@@ -423,7 +423,7 @@ where
 		value: v8::Local<'a, v8::Value>,
 	) -> Result<Self> {
 		let value = v8::Local::<v8::Array>::try_from(value)
-			.map_err(|error| error!(source = error, "expected an array"))?;
+			.map_err(|source| error!(!source, "expected an array"))?;
 		let value0 = value
 			.get_index(scope, 0)
 			.ok_or_else(|| error!("expected a value"))?;
@@ -468,7 +468,7 @@ where
 		value: v8::Local<'a, v8::Value>,
 	) -> Result<Self> {
 		let value = v8::Local::<v8::Array>::try_from(value)
-			.map_err(|error| error!(source = error, "expected an array"))?;
+			.map_err(|source| error!(!source, "expected an array"))?;
 		let len = value.length().to_usize().unwrap();
 		let mut output = Vec::with_capacity(len);
 		for i in 0..len {
@@ -506,7 +506,7 @@ where
 		value: v8::Local<'a, v8::Value>,
 	) -> Result<Self> {
 		let value = v8::Local::<v8::Object>::try_from(value)
-			.map_err(|error| error!(source = error, "expected an object"))?;
+			.map_err(|source| error!(!source, "expected an object"))?;
 		let args = v8::GetPropertyNamesArgsBuilder::new()
 			.key_conversion(v8::KeyConversionMode::ConvertToString)
 			.build();
@@ -526,7 +526,7 @@ where
 impl ToV8 for serde_json::Value {
 	fn to_v8<'a>(&self, scope: &mut v8::HandleScope<'a>) -> Result<v8::Local<'a, v8::Value>> {
 		serde_v8::to_v8(scope, self)
-			.map_err(|error| error!(source = error, "failed to serialize the value"))
+			.map_err(|source| error!(!source, "failed to serialize the value"))
 	}
 }
 
@@ -536,14 +536,14 @@ impl FromV8 for serde_json::Value {
 		value: v8::Local<'a, v8::Value>,
 	) -> Result<Self> {
 		serde_v8::from_v8(scope, value)
-			.map_err(|error| error!(source = error, "failed to deserialize the value"))
+			.map_err(|source| error!(!source, "failed to deserialize the value"))
 	}
 }
 
 impl ToV8 for toml::Value {
 	fn to_v8<'a>(&self, scope: &mut v8::HandleScope<'a>) -> Result<v8::Local<'a, v8::Value>> {
 		serde_v8::to_v8(scope, self)
-			.map_err(|error| error!(source = error, "failed to serialize the value"))
+			.map_err(|source| error!(!source, "failed to serialize the value"))
 	}
 }
 
@@ -553,14 +553,14 @@ impl FromV8 for toml::Value {
 		value: v8::Local<'a, v8::Value>,
 	) -> Result<Self> {
 		serde_v8::from_v8(scope, value)
-			.map_err(|error| error!(source = error, "failed to deserialize the value"))
+			.map_err(|source| error!(!source, "failed to deserialize the value"))
 	}
 }
 
 impl ToV8 for serde_yaml::Value {
 	fn to_v8<'a>(&self, scope: &mut v8::HandleScope<'a>) -> Result<v8::Local<'a, v8::Value>> {
 		serde_v8::to_v8(scope, self)
-			.map_err(|error| error!(source = error, "failed to serialize the value"))
+			.map_err(|source| error!(!source, "failed to serialize the value"))
 	}
 }
 
@@ -570,7 +570,7 @@ impl FromV8 for serde_yaml::Value {
 		value: v8::Local<'a, v8::Value>,
 	) -> Result<Self> {
 		serde_v8::from_v8(scope, value)
-			.map_err(|error| error!(source = error, "failed to deserialize the value"))
+			.map_err(|source| error!(!source, "failed to deserialize the value"))
 	}
 }
 
@@ -1822,7 +1822,7 @@ impl FromV8 for Bytes {
 		value: v8::Local<'a, v8::Value>,
 	) -> Result<Self> {
 		let uint8_array = v8::Local::<v8::Uint8Array>::try_from(value)
-			.map_err(|error| error!(source = error, "expected a Uint8Array"))?;
+			.map_err(|source| error!(!source, "expected a Uint8Array"))?;
 		let slice = unsafe {
 			let ptr = uint8_array
 				.data()
@@ -2342,6 +2342,6 @@ impl FromV8 for Url {
 	) -> Result<Self> {
 		String::from_v8(scope, value)?
 			.parse()
-			.map_err(|error| error!(source = error, "failed to parse the string as a URL"))
+			.map_err(|source| error!(!source, "failed to parse the string as a URL"))
 	}
 }

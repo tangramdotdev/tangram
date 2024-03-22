@@ -115,17 +115,17 @@ impl Server {
 				let params = sqlite_params![id.to_string()];
 				let mut statement = connection
 					.prepare_cached(statement)
-					.map_err(|error| error!(source = error, "failed to prepare the query"))?;
+					.map_err(|source| error!(!source, "failed to prepare the query"))?;
 				let rows = &mut statement
 					.query(params)
-					.map_err(|error| error!(source = error, "failed to execute the statement"))?;
+					.map_err(|source| error!(!source, "failed to execute the statement"))?;
 				let row = rows
 					.next()
-					.map_err(|error| error!(source = error, "failed to get the row"))?
+					.map_err(|source| error!(!source, "failed to get the row"))?
 					.ok_or_else(|| error!("expected a row"))?;
 				let status = row
 					.get::<_, String>(0)
-					.map_err(|error| error!(source = error, "failed to deserialize the column"))?
+					.map_err(|source| error!(!source, "failed to deserialize the column"))?
 					.parse()?;
 				Ok(status)
 			},
@@ -141,20 +141,20 @@ impl Server {
 				let statement = connection
 					.prepare_cached(statement)
 					.await
-					.map_err(|error| error!(source = error, "failed to prepare the statement"))?;
+					.map_err(|source| error!(!source, "failed to prepare the statement"))?;
 				let rows = connection
 					.query(&statement, params)
 					.await
-					.map_err(|error| error!(source = error, "failed to execute the statement"))?;
+					.map_err(|source| error!(!source, "failed to execute the statement"))?;
 				let row = rows
 					.into_iter()
 					.next()
 					.ok_or_else(|| error!("expected a row"))?;
 				let status = row
 					.try_get::<_, String>(0)
-					.map_err(|error| error!(source = error, "failed to deserialize the column"))?
+					.map_err(|source| error!(!source, "failed to deserialize the column"))?
 					.parse()
-					.map_err(|error| error!(source = error, "failed to parse the status"))?;
+					.map_err(|source| error!(!source, "failed to parse the status"))?;
 				Ok(status)
 			},
 		}
@@ -238,16 +238,16 @@ impl Server {
 				let status = status.to_string();
 				let timestamp = time::OffsetDateTime::now_utc()
 					.format(&Rfc3339)
-					.map_err(|error| error!(source = error, "failed to format the timestamp"))?;
+					.map_err(|source| error!(!source, "failed to format the timestamp"))?;
 				let id = id.to_string();
 				let previous_status = previous_status.to_string();
 				let params = sqlite_params![status, timestamp, id, previous_status];
 				let mut statement = connection
 					.prepare_cached(statement)
-					.map_err(|error| error!(source = error, "failed to prepare the query"))?;
+					.map_err(|source| error!(!source, "failed to prepare the query"))?;
 				let n = statement
 					.execute(params)
-					.map_err(|error| error!(source = error, "failed to execute the statement"))?;
+					.map_err(|source| error!(!source, "failed to execute the statement"))?;
 				if n == 0 {
 					return Err(error!("cannot set the build's status"));
 				}
@@ -267,18 +267,18 @@ impl Server {
 				let status = status.to_string();
 				let timestamp = time::OffsetDateTime::now_utc()
 					.format(&Rfc3339)
-					.map_err(|error| error!(source = error, "failed to format the timestamp"))?;
+					.map_err(|source| error!(!source, "failed to format the timestamp"))?;
 				let id = id.to_string();
 				let previous_status = previous_status.to_string();
 				let params = postgres_params![status, timestamp, id, previous_status];
 				let statement = connection
 					.prepare_cached(statement)
 					.await
-					.map_err(|error| error!(source = error, "failed to prepare the statement"))?;
+					.map_err(|source| error!(!source, "failed to prepare the statement"))?;
 				let n = connection
 					.execute(&statement, params)
 					.await
-					.map_err(|error| error!(source = error, "failed to execute the statement"))?;
+					.map_err(|source| error!(!source, "failed to execute the statement"))?;
 				if n == 0 {
 					return Err(error!("cannot set the build's status"));
 				}
@@ -318,7 +318,7 @@ impl Http {
 		};
 		let id = id
 			.parse()
-			.map_err(|error| error!(source = error, "failed to parse the ID"))?;
+			.map_err(|source| error!(!source, "failed to parse the ID"))?;
 
 		// Get the search params.
 		let arg = request
@@ -326,7 +326,7 @@ impl Http {
 			.query()
 			.map(serde_urlencoded::from_str)
 			.transpose()
-			.map_err(|error| error!(source = error, "failed to deserialize the search params"))?
+			.map_err(|source| error!(!source, "failed to deserialize the search params"))?
 			.unwrap_or_default();
 
 		// Get the accept header.
@@ -336,10 +336,10 @@ impl Http {
 			.map(|accept| {
 				let accept = accept
 					.to_str()
-					.map_err(|error| error!(source = error, "invalid content type"))?;
+					.map_err(|source| error!(!source, "invalid content type"))?;
 				let accept = accept
 					.parse::<mime::Mime>()
-					.map_err(|error| error!(source = error, "invalid content type"))?;
+					.map_err(|source| error!(!source, "invalid content type"))?;
 				Ok::<_, Error>(accept)
 			})
 			.transpose()?;
@@ -393,7 +393,7 @@ impl Http {
 		};
 		let build_id: tg::build::Id = id
 			.parse()
-			.map_err(|error| error!(source = error, "failed to parse the ID"))?;
+			.map_err(|source| error!(!source, "failed to parse the ID"))?;
 
 		// Get the user.
 		let user = self.try_get_user_from_request(&request).await?;
@@ -403,10 +403,10 @@ impl Http {
 			.into_body()
 			.collect()
 			.await
-			.map_err(|error| error!(source = error, "failed to read the body"))?
+			.map_err(|source| error!(!source, "failed to read the body"))?
 			.to_bytes();
 		let status = serde_json::from_slice(&bytes)
-			.map_err(|error| error!(source = error, "failed to deserialize the body"))?;
+			.map_err(|source| error!(!source, "failed to deserialize the body"))?;
 
 		self.inner
 			.tg

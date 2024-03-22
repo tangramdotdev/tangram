@@ -54,13 +54,13 @@ impl Cli {
 	async fn command_autoenv_add(&self, args: AddArgs) -> Result<()> {
 		// Get the path.
 		let mut path = std::env::current_dir()
-			.map_err(|error| error!(source = error, "failed to get the working directory"))?;
+			.map_err(|source| error!(!source, "failed to get the working directory"))?;
 		if let Some(path_arg) = &args.path {
 			path.push(path_arg);
 		}
 		let path = tokio::fs::canonicalize(&path)
 			.await
-			.map_err(|error| error!(source = error, "failed to canonicalize the path"))?;
+			.map_err(|source| error!(!source, "failed to canonicalize the path"))?;
 
 		// Get the config.
 		let mut config = self.config.clone().unwrap_or_default();
@@ -84,7 +84,7 @@ impl Cli {
 
 		// Get the working directory path.
 		let working_directory_path = std::env::current_dir()
-			.map_err(|error| error!(source = error, "failed to get the working directory"))?;
+			.map_err(|source| error!(!source, "failed to get the working directory"))?;
 
 		// Get the autoenv path for the working directory path.
 		let Some(autoenv) = config.autoenv.as_ref() else {
@@ -133,13 +133,13 @@ impl Cli {
 
 		// Get the path.
 		let mut path = std::env::current_dir()
-			.map_err(|error| error!(source = error, "failed to get the working directory"))?;
+			.map_err(|source| error!(!source, "failed to get the working directory"))?;
 		if let Some(path_arg) = &args.path {
 			path.push(path_arg);
 		}
 		let path = tokio::fs::canonicalize(&path)
 			.await
-			.map_err(|error| error!(source = error, "failed to canonicalize the path"))?;
+			.map_err(|source| error!(!source, "failed to canonicalize the path"))?;
 
 		// Remove the autoenv path.
 		if let Some(autoenv) = config.autoenv.as_mut() {

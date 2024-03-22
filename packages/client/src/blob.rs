@@ -78,7 +78,7 @@ impl Blob {
 				let n = reader
 					.read(&mut bytes[position..])
 					.await
-					.map_err(|error| error!(source = error, "failed to read from the reader"))?;
+					.map_err(|source| error!(!source, "failed to read from the reader"))?;
 				position += n;
 				if n == 0 || position == bytes.len() {
 					break;
@@ -155,7 +155,7 @@ impl Blob {
 		reader
 			.read_to_end(&mut bytes)
 			.await
-			.map_err(|error| error!(source = error, "failed to read the blob"))?;
+			.map_err(|source| error!(!source, "failed to read the blob"))?;
 		Ok(bytes)
 	}
 
@@ -223,7 +223,7 @@ impl Blob {
 
 		// Create a temporary path.
 		let tempdir = tempfile::TempDir::new()
-			.map_err(|error| error!(source = error, "failed to create the temporary directory"))?;
+			.map_err(|source| error!(!source, "failed to create the temporary directory"))?;
 		let path = tempdir.path().join("archive");
 
 		// Extract in a blocking task.
@@ -259,7 +259,7 @@ impl Blob {
 		let path = path.try_into()?;
 		let artifact = Artifact::check_in(tg, &path)
 			.await
-			.map_err(|error| error!(source = error, "failed to check in the extracted archive"))?;
+			.map_err(|source| error!(!source, "failed to check in the extracted archive"))?;
 
 		Ok(artifact)
 	}
@@ -371,7 +371,7 @@ impl TryFrom<Value> for Blob {
 
 	fn try_from(value: Value) -> Result<Self, Self::Error> {
 		object::Handle::try_from(value)
-			.map_err(|error| error!(source = error, "invalid value"))?
+			.map_err(|source| error!(!source, "invalid value"))?
 			.try_into()
 	}
 }

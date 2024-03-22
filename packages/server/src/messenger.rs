@@ -53,7 +53,7 @@ impl Messenger {
 				client
 					.publish(subject, payload)
 					.await
-					.map_err(|error| error!(source = error, "failed to publish the message"))?;
+					.map_err(|source| error!(!source, "failed to publish the message"))?;
 			},
 		}
 		Ok(())
@@ -70,7 +70,7 @@ impl Messenger {
 				Ok(client
 					.subscribe(subject)
 					.await
-					.map_err(|error| error!(source = error, "failed to subscribe"))?
+					.map_err(|source| error!(!source, "failed to subscribe"))?
 					.map(|_| ())
 					.right_stream())
 			},
@@ -88,7 +88,7 @@ impl Messenger {
 				client
 					.publish(subject, payload)
 					.await
-					.map_err(|error| error!(source = error, "failed to publish the message"))?;
+					.map_err(|source| error!(!source, "failed to publish the message"))?;
 			},
 		}
 		Ok(())
@@ -109,7 +109,7 @@ impl Messenger {
 				Ok(client
 					.subscribe(subject)
 					.await
-					.map_err(|error| error!(source = error, "failed to subscribe"))?
+					.map_err(|source| error!(!source, "failed to subscribe"))?
 					.map(|_| ())
 					.right_stream())
 			},
@@ -127,7 +127,7 @@ impl Messenger {
 				client
 					.publish(subject, payload)
 					.await
-					.map_err(|error| error!(source = error, "failed to publish the message"))?;
+					.map_err(|source| error!(!source, "failed to publish the message"))?;
 			},
 		}
 		Ok(())
@@ -148,7 +148,7 @@ impl Messenger {
 				Ok(client
 					.subscribe(subject)
 					.await
-					.map_err(|error| error!(source = error, "failed to subscribe"))?
+					.map_err(|source| error!(!source, "failed to subscribe"))?
 					.map(|_| ())
 					.right_stream())
 			},
@@ -166,7 +166,7 @@ impl Messenger {
 				client
 					.publish(subject, payload)
 					.await
-					.map_err(|error| error!(source = error, "failed to publish the message"))?;
+					.map_err(|source| error!(!source, "failed to publish the message"))?;
 			},
 		}
 		Ok(())
@@ -187,7 +187,7 @@ impl Messenger {
 				Ok(client
 					.subscribe(subject)
 					.await
-					.map_err(|error| error!(source = error, "failed to subscribe"))?
+					.map_err(|source| error!(!source, "failed to subscribe"))?
 					.map(|_| ())
 					.right_stream())
 			},

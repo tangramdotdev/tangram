@@ -106,7 +106,7 @@ impl Leaf {
 			return Ok(false);
 		};
 		let data = Data::deserialize(&output.bytes)
-			.map_err(|error| error!(source = error, "failed to deserialize the data"))?;
+			.map_err(|source| error!(!source, "failed to deserialize the data"))?;
 		let object = data.try_into()?;
 		self.state.write().unwrap().object.replace(object);
 		Ok(true)
@@ -126,7 +126,7 @@ impl Leaf {
 		};
 		tg.put_object(&id.clone().into(), &arg)
 			.await
-			.map_err(|error| error!(source = error, "failed to put the object"))?;
+			.map_err(|source| error!(!source, "failed to put the object"))?;
 		self.state.write().unwrap().id.replace(id);
 		Ok(())
 	}

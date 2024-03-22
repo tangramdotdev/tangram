@@ -168,7 +168,7 @@ impl Server {
 		self.inner
 			.request_sender
 			.send((request, response_sender))
-			.map_err(|error| error!(source = error, "failed to send the request"))?;
+			.map_err(|source| error!(!source, "failed to send the request"))?;
 
 		// Receive the response.
 		let response = response_receiver.await.map_err(|error| {
@@ -197,20 +197,20 @@ impl Server {
 		let outgoing_message_task = tokio::spawn(async move {
 			while let Some(outgoing_message) = outgoing_message_receiver.recv().await {
 				let body = serde_json::to_string(&outgoing_message)
-					.map_err(|error| error!(source = error, "failed to serialize the message"))?;
+					.map_err(|source| error!(!source, "failed to serialize the message"))?;
 				let head = format!("Content-Length: {}\r\n\r\n", body.len());
 				output
 					.write_all(head.as_bytes())
 					.await
-					.map_err(|error| error!(source = error, "failed to write the head"))?;
+					.map_err(|source| error!(!source, "failed to write the head"))?;
 				output
 					.write_all(body.as_bytes())
 					.await
-					.map_err(|error| error!(source = error, "failed to write the body"))?;
+					.map_err(|source| error!(!source, "failed to write the body"))?;
 				output
 					.flush()
 					.await
-					.map_err(|error| error!(source = error, "failed to flush stdout"))?;
+					.map_err(|source| error!(!source, "failed to flush stdout"))?;
 			}
 			Ok::<_, Error>(())
 		});
@@ -325,7 +325,7 @@ where
 		let n = reader
 			.read_line(&mut line)
 			.await
-			.map_err(|error| error!(source = error, "failed to read a line"))?;
+			.map_err(|source| error!(!source, "failed to read a line"))?;
 		if n == 0 {
 			break;
 		}
@@ -361,9 +361,9 @@ where
 	reader
 		.read_exact(&mut message)
 		.await
-		.map_err(|error| error!(source = error, "failed to read the message"))?;
+		.map_err(|source| error!(!source, "failed to read the message"))?;
 	let message = serde_json::from_slice(&message)
-		.map_err(|error| error!(source = error, "failed to deserialize the message"))?;
+		.map_err(|source| error!(!source, "failed to deserialize the message"))?;
 
 	Ok(message)
 }
@@ -560,7 +560,7 @@ where
 	Fut: Future<Output = crate::Result<()>>,
 {
 	let params = serde_json::from_value(request.params.unwrap_or(serde_json::Value::Null))
-		.map_err(|error| error!(source = error, "failed to deserialize the request params"))
+		.map_err(|source| error!(!source, "failed to deserialize the request params"))
 		.unwrap();
 	handler(sender.clone(), params)
 		.await
@@ -639,7 +639,7 @@ fn run_request_handler(server: Server, mut request_receiver: RequestReceiver) {
 
 		// Serialize the request.
 		let request = match serde_v8::to_v8(scope, &request)
-			.map_err(|error| error!(source = error, "failed to serialize the request"))
+			.map_err(|source| error!(!source, "failed to serialize the request"))
 		{
 			Ok(request) => request,
 			Err(error) => {
@@ -666,7 +666,7 @@ fn run_request_handler(server: Server, mut request_receiver: RequestReceiver) {
 
 		// Deserialize the response.
 		let response = match serde_v8::from_v8(scope, response)
-			.map_err(|error| error!(source = error, "failed to deserialize the response"))
+			.map_err(|source| error!(!source, "failed to deserialize the response"))
 		{
 			Ok(response) => response,
 			Err(error) => {
@@ -708,10 +708,10 @@ impl Http {
 			.into_body()
 			.collect()
 			.await
-			.map_err(|error| error!(source = error, "failed to read the body"))?
+			.map_err(|source| error!(!source, "failed to read the body"))?
 			.to_bytes();
 		let text = String::from_utf8(bytes.to_vec())
-			.map_err(|error| error!(source = error, "failed to deserialize the request body"))?;
+			.map_err(|source| error!(!source, "failed to deserialize the request body"))?;
 
 		// Format the text.
 		let text = self.inner.tg.format(text).await?;
@@ -745,7 +745,7 @@ impl Http {
 			async move {
 				let io = hyper::upgrade::on(request)
 					.await
-					.map_err(|error| error!(source = error, "failed to perform the upgrade"))?;
+					.map_err(|source| error!(!source, "failed to perform the upgrade"))?;
 				let io = hyper_util::rt::TokioIo::new(io);
 				let (input, output) = tokio::io::split(io);
 				let input = Box::new(input);

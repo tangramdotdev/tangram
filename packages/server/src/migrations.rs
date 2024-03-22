@@ -63,10 +63,10 @@ async fn migration_0000(path: &Path) -> Result<()> {
 
 	// Create the database.
 	let connection = rusqlite::Connection::open(path.join("database"))
-		.map_err(|error| error!(source = error, "failed to create the database"))?;
+		.map_err(|source| error!(!source, "failed to create the database"))?;
 	connection
 		.pragma_update(None, "journal_mode", "wal")
-		.map_err(|error| error!(source = error, "failed to set the journal mode"))?;
+		.map_err(|source| error!(!source, "failed to set the journal mode"))?;
 	let sql = "
 		create table builds (
 			id text primary key,
@@ -165,19 +165,19 @@ async fn migration_0000(path: &Path) -> Result<()> {
 	";
 	connection
 		.execute_batch(sql)
-		.map_err(|error| error!(source = error, "failed to create the database tables"))?;
+		.map_err(|source| error!(!source, "failed to create the database tables"))?;
 
 	// Create the checkouts directory.
 	let checkouts_path = path.join("checkouts");
 	tokio::fs::create_dir_all(&checkouts_path)
 		.await
-		.map_err(|error| error!(source = error, "failed to create the checkouts directory"))?;
+		.map_err(|source| error!(!source, "failed to create the checkouts directory"))?;
 
 	// Create the tmp directory.
 	let tmp_path = path.join("tmp");
 	tokio::fs::create_dir_all(&tmp_path)
 		.await
-		.map_err(|error| error!(source = error, "failed to create the tmp directory"))?;
+		.map_err(|source| error!(!source, "failed to create the tmp directory"))?;
 
 	Ok(())
 }

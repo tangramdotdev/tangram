@@ -14,7 +14,7 @@ impl Cli {
 		let login = client
 			.create_login()
 			.await
-			.map_err(|error| error!(source = error, "failed to create the login"))?;
+			.map_err(|source| error!(!source, "failed to create the login"))?;
 
 		// Open the browser to the login URL.
 		webbrowser::open(login.url.as_ref()).map_err(|error| {
@@ -36,7 +36,7 @@ impl Cli {
 			let login = client
 				.get_login(&login.id)
 				.await
-				.map_err(|error| error!(source = error, "failed to get the login"))?
+				.map_err(|source| error!(!source, "failed to get the login"))?
 				.ok_or_else(|| error!("expected the login to exist"))?;
 			if let Some(token) = login.token {
 				break token;

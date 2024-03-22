@@ -40,7 +40,7 @@ impl Server {
 		}
 		let id = task
 			.await
-			.map_err(|error| error!(source = error, "failed to join check in task"))??;
+			.map_err(|source| error!(!source, "failed to join check in task"))??;
 		let output = tg::artifact::CheckInOutput { id };
 
 		Ok(output)
@@ -90,12 +90,12 @@ impl Server {
 			let _permit = self.file_descriptor_semaphore().acquire().await;
 			let mut read_dir = tokio::fs::read_dir(path)
 				.await
-				.map_err(|error| error!(source = error, "failed to read the directory"))?;
+				.map_err(|source| error!(!source, "failed to read the directory"))?;
 			let mut names = Vec::new();
 			while let Some(entry) = read_dir
 				.next_entry()
 				.await
-				.map_err(|error| error!(source = error, "failed to get the directory entry"))?
+				.map_err(|source| error!(!source, "failed to get the directory entry"))?
 			{
 				let name = entry
 					.file_name()
@@ -140,11 +140,11 @@ impl Server {
 		let permit = self.file_descriptor_semaphore().acquire().await;
 		let file = tokio::fs::File::open(path)
 			.await
-			.map_err(|error| error!(source = error, "failed to open the file"))?;
+			.map_err(|source| error!(!source, "failed to open the file"))?;
 		let contents = self
 			.create_blob_with_reader(file, txn)
 			.await
-			.map_err(|error| error!(source = error, "failed to create the contents"))?;
+			.map_err(|source| error!(!source, "failed to create the contents"))?;
 		drop(permit);
 
 		// Determine if the file is executable.
@@ -242,12 +242,12 @@ impl Server {
 			let artifact = artifact
 				.bundle(self)
 				.await
-				.map_err(|error| error!(source = error, "failed to bundle the artifact"))?;
+				.map_err(|source| error!(!source, "failed to bundle the artifact"))?;
 
 			// Check in an existing artifact at the path.
 			let existing_artifact = if tokio::fs::try_exists(path)
 				.await
-				.map_err(|error| error!(source = error, "failed to determine if the path exists"))?
+				.map_err(|source| error!(!source, "failed to determine if the path exists"))?
 			{
 				let arg = tg::artifact::CheckInArg { path: path.clone() };
 				let output = self.check_in_artifact(arg).await?;
@@ -269,7 +269,7 @@ impl Server {
 			// If there is already a file system object at the path, then return.
 			if tokio::fs::try_exists(&path)
 				.await
-				.map_err(|error| error!(source = error, "failed to stat the path"))?
+				.map_err(|source| error!(!source, "failed to stat the path"))?
 			{
 				return Ok(());
 			}
@@ -356,7 +356,7 @@ impl Server {
 			move || {
 				let epoch = filetime::FileTime::from_system_time(std::time::SystemTime::UNIX_EPOCH);
 				filetime::set_symlink_file_times(path, epoch, epoch)
-					.map_err(|error| error!(source = error, "failed to set the modified time"))?;
+					.map_err(|source| error!(!source, "failed to set the modified time"))?;
 				Ok::<_, Error>(())
 			}
 		})
@@ -399,14 +399,14 @@ impl Server {
 				rmrf(path).await?;
 				tokio::fs::create_dir_all(path)
 					.await
-					.map_err(|error| error!(source = error, "failed to create the directory"))?;
+					.map_err(|source| error!(!source, "failed to create the directory"))?;
 			},
 
 			// If there is no artifact at this path, then create a directory.
 			None => {
 				tokio::fs::create_dir_all(path)
 					.await
-					.map_err(|error| error!(source = error, "failed to create the directory"))?;
+					.map_err(|source| error!(!source, "failed to create the directory"))?;
 			},
 		}
 
@@ -423,7 +423,7 @@ impl Server {
 						Some(tg::Artifact::Directory(existing_directory)) => {
 							let name = name
 								.parse()
-								.map_err(|error| error!(source = error, "invalid entry name"))?;
+								.map_err(|source| error!(!source, "invalid entry name"))?;
 							existing_directory.try_get(self, &name).await?
 						},
 						_ => None,
@@ -473,13 +473,13 @@ impl Server {
 		let references = file
 			.references(self)
 			.await
-			.map_err(|error| error!(source = error, "failed to get the file's references"))?
+			.map_err(|source| error!(!source, "failed to get the file's references"))?
 			.iter()
 			.map(|artifact| artifact.id(self))
 			.collect::<FuturesUnordered<_>>()
 			.try_collect::<Vec<_>>()
 			.await
-			.map_err(|error| error!(source = error, "failed to get the file's references"))?;
+			.map_err(|source| error!(!source, "failed to get the file's references"))?;
 		if !references.is_empty() {
 			if !internal {
 				return Err(error!(
@@ -513,7 +513,7 @@ impl Server {
 			let src = self.checkouts_path().join(file.id(self).await?.to_string());
 			tokio::fs::hard_link(&src, path)
 				.await
-				.map_err(|error| error!(source = error, "failed to create the hard link"))?;
+				.map_err(|source| error!(!source, "failed to create the hard link"))?;
 			return Ok(());
 		}
 
@@ -523,10 +523,10 @@ impl Server {
 			&mut file.reader(self).await?,
 			&mut tokio::fs::File::create(path)
 				.await
-				.map_err(|error| error!(source = error, "failed to create the file"))?,
+				.map_err(|source| error!(!source, "failed to create the file"))?,
 		)
 		.await
-		.map_err(|error| error!(source = error, "failed to write the bytes"))?;
+		.map_err(|source| error!(!source, "failed to write the bytes"))?;
 		drop(permit);
 
 		// Make the file executable if necessary.
@@ -534,16 +534,16 @@ impl Server {
 			let permissions = std::fs::Permissions::from_mode(0o755);
 			tokio::fs::set_permissions(path, permissions)
 				.await
-				.map_err(|error| error!(source = error, "failed to set the permissions"))?;
+				.map_err(|source| error!(!source, "failed to set the permissions"))?;
 		}
 
 		// Set the extended attributes if necessary.
 		if internal && !references.is_empty() {
 			let attributes = tg::file::Attributes { references };
 			let attributes = serde_json::to_vec(&attributes)
-				.map_err(|error| error!(source = error, "failed to serialize attributes"))?;
+				.map_err(|source| error!(!source, "failed to serialize attributes"))?;
 			xattr::set(path, tg::file::TANGRAM_FILE_XATTR_NAME, &attributes)
-				.map_err(|error| error!(source = error, "failed to set attributes as an xattr"))?;
+				.map_err(|source| error!(!source, "failed to set attributes as an xattr"))?;
 		}
 
 		Ok(())
@@ -603,7 +603,7 @@ impl Server {
 		// Create the symlink.
 		tokio::fs::symlink(target, path)
 			.await
-			.map_err(|error| error!(source = error, "failed to create the symlink"))?;
+			.map_err(|source| error!(!source, "failed to create the symlink"))?;
 
 		Ok(())
 	}
@@ -619,16 +619,16 @@ impl Http {
 			.into_body()
 			.collect()
 			.await
-			.map_err(|error| error!(source = error, "failed to read the body"))?
+			.map_err(|source| error!(!source, "failed to read the body"))?
 			.to_bytes();
 		let arg = serde_json::from_slice(&bytes)
-			.map_err(|error| error!(source = error, "failed to deserialize the body"))?;
+			.map_err(|source| error!(!source, "failed to deserialize the body"))?;
 
 		let output = self.inner.tg.check_in_artifact(arg).await?;
 
 		// Create the response.
 		let body = serde_json::to_vec(&output)
-			.map_err(|error| error!(source = error, "failed to serialize the response"))?;
+			.map_err(|source| error!(!source, "failed to serialize the response"))?;
 		let response = http::Response::builder().body(full(body)).unwrap();
 
 		Ok(response)
@@ -643,10 +643,10 @@ impl Http {
 			.into_body()
 			.collect()
 			.await
-			.map_err(|error| error!(source = error, "failed to read the body"))?
+			.map_err(|source| error!(!source, "failed to read the body"))?
 			.to_bytes();
 		let arg = serde_json::from_slice(&bytes)
-			.map_err(|error| error!(source = error, "failed to deserialize the body"))?;
+			.map_err(|source| error!(!source, "failed to deserialize the body"))?;
 
 		// Check out the artifact.
 		self.inner.tg.check_out_artifact(arg).await?;

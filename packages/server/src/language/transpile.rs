@@ -83,18 +83,18 @@ impl Server {
 			// Emit the module.
 			emitter
 				.emit_program(&program)
-				.map_err(|error| error!(source = error, "failed to emit the program"))?;
+				.map_err(|source| error!(!source, "failed to emit the program"))?;
 			let transpiled_text = String::from_utf8(transpiled_text)
-				.map_err(|error| error!(source = error, "failed to convert bytes to string"))?;
+				.map_err(|source| error!(!source, "failed to convert bytes to string"))?;
 
 			// Create the source map.
 			let mut output_source_map = Vec::new();
 			source_map
 				.build_source_map(&source_mappings)
 				.to_writer(&mut output_source_map)
-				.map_err(|error| error!(source = error, "failed to create the source map"))?;
+				.map_err(|source| error!(!source, "failed to create the source map"))?;
 			let source_map = String::from_utf8(output_source_map)
-				.map_err(|error| error!(source = error, "failed to convert bytes to string"))?;
+				.map_err(|source| error!(!source, "failed to convert bytes to string"))?;
 
 			// Create the output.
 			let output = Output {

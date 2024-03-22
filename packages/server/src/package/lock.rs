@@ -166,7 +166,7 @@ impl Server {
 		// Canonicalize the path.
 		let path = tokio::fs::canonicalize(path)
 			.await
-			.map_err(|error| error!(source = error, "failed to canonicalize the path"))?;
+			.map_err(|source| error!(!source, "failed to canonicalize the path"))?;
 
 		// Attempt to read the lockfile.
 		let path = path.join(tg::package::LOCKFILE_FILE_NAME);
@@ -178,9 +178,9 @@ impl Server {
 		}
 		let lock = tokio::fs::read(&path)
 			.await
-			.map_err(|error| error!(source = error, "failed to read the lockfile"))?;
+			.map_err(|source| error!(!source, "failed to read the lockfile"))?;
 		let lock: tg::lock::Data = serde_json::from_slice(&lock)
-			.map_err(|error| error!(source = error, "failed to deserialize the lockfile"))?;
+			.map_err(|source| error!(!source, "failed to deserialize the lockfile"))?;
 
 		let root = lock.root;
 		let nodes = lock
@@ -207,14 +207,14 @@ impl Server {
 	async fn write_lock_to_path(&self, path: &tg::Path, lock: &tg::Lock) -> Result<()> {
 		let package_path = tokio::fs::canonicalize(path)
 			.await
-			.map_err(|error| error!(source = error, "failed to canonicalize the path"))?;
+			.map_err(|source| error!(!source, "failed to canonicalize the path"))?;
 		let lock_path = package_path.join(tg::package::LOCKFILE_FILE_NAME);
 		let lock = lock.data(self).await?;
 		let lock = serde_json::to_vec_pretty(&lock)
-			.map_err(|error| error!(source = error, "failed to serialize the lockfile"))?;
+			.map_err(|source| error!(!source, "failed to serialize the lockfile"))?;
 		tokio::fs::write(lock_path, lock)
 			.await
-			.map_err(|error| error!(source = error, "failed to write the lockfile"))?;
+			.map_err(|source| error!(!source, "failed to write the lockfile"))?;
 		Ok(())
 	}
 
@@ -808,7 +808,7 @@ impl Context {
 					};
 					let dependency_package_id = dependency_source
 						.try_unwrap_directory()
-						.map_err(|error| error!(source = error, %path, "expected a directory"))?
+						.map_err(|source| error!(!source, %path, "expected a directory"))?
 						.id(server)
 						.await?
 						.clone();

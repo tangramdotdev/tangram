@@ -64,7 +64,7 @@ impl Cli {
 		client
 			.publish_package(self.user.as_ref(), id)
 			.await
-			.map_err(|error| error!(source = error, "failed to publish the package"))?;
+			.map_err(|source| error!(!source, "failed to publish the package"))?;
 
 		Ok(())
 	}
@@ -93,7 +93,7 @@ impl Cli {
 		let dependency = args.package;
 		let (package, lock) = tg::package::get_with_lock(client, &dependency)
 			.await
-			.map_err(|error| error!(source = error, %dependency, "failed to get the lock"))?;
+			.map_err(|source| error!(!source, %dependency, "failed to get the lock"))?;
 
 		let mut visited = BTreeSet::new();
 		let tree = get_package_tree(

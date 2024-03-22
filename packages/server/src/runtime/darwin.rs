@@ -100,13 +100,13 @@ impl Runtime {
 		let home_directory_path = root_directory_path.join("Users/tangram");
 		tokio::fs::create_dir_all(&home_directory_path)
 			.await
-			.map_err(|error| error!(source = error, "failed to create the home directory"))?;
+			.map_err(|source| error!(!source, "failed to create the home directory"))?;
 
 		// Create the working directory.
 		let working_directory_path = root_directory_path.join("Users/tangram/work");
 		tokio::fs::create_dir_all(&working_directory_path)
 			.await
-			.map_err(|error| error!(source = error, "failed to create the working directory"))?;
+			.map_err(|source| error!(!source, "failed to create the working directory"))?;
 
 		// Render the executable.
 		let executable = target.executable(server).await?;
@@ -176,7 +176,7 @@ impl Runtime {
 		// Create a proxied server handle and start listening on a new socket.
 		let proxy = Proxy::start(server, build.id(), proxy_server_address)
 			.await
-			.map_err(|error| error!(source = error, "Could not create proxy server"))?;
+			.map_err(|source| error!(!source, "Could not create proxy server"))?;
 
 		// Create the sandbox profile.
 		let mut profile = String::new();
@@ -380,7 +380,7 @@ impl Runtime {
 		// Spawn the child.
 		let mut child = command
 			.spawn()
-			.map_err(|error| error!(source = error, %executable, "failed to spawn the process"))?;
+			.map_err(|source| error!(!source, %executable, "failed to spawn the process"))?;
 
 		// Create the log task.
 		let mut stdout = child.stdout.take().unwrap();
@@ -449,13 +449,13 @@ impl Runtime {
 		let exit_status = child
 			.wait()
 			.await
-			.map_err(|error| error!(source = error, "failed to wait for the process to exit"))?;
+			.map_err(|source| error!(!source, "failed to wait for the process to exit"))?;
 
 		// Wait for the log task to complete.
 		log_task
 			.await
-			.map_err(|error| error!(source = error, "failed to join the log task"))?
-			.map_err(|error| error!(source = error, "the log task failed"))?;
+			.map_err(|source| error!(!source, "failed to join the log task"))?
+			.map_err(|source| error!(!source, "the log task failed"))?;
 
 		// Stop and join the proxy server.
 		proxy.stop();
@@ -469,19 +469,19 @@ impl Runtime {
 		// Create the output.
 		let value = if tokio::fs::try_exists(&output_path)
 			.await
-			.map_err(|error| error!(source = error, "failed to determine if the path exists"))?
+			.map_err(|source| error!(!source, "failed to determine if the path exists"))?
 		{
 			// Check in the output.
 			let artifact = tg::Artifact::check_in(server, &output_path.clone().try_into()?)
 				.await
-				.map_err(|error| error!(source = error, "failed to check in the output"))?;
+				.map_err(|source| error!(!source, "failed to check in the output"))?;
 
 			// Verify the checksum if one was provided.
 			if let Some(expected) = target.checksum(server).await?.clone() {
 				let actual = artifact
 					.checksum(server, expected.algorithm())
 					.await
-					.map_err(|error| error!(source = error, "failed to compute the checksum"))?;
+					.map_err(|source| error!(!source, "failed to compute the checksum"))?;
 				if expected != tg::Checksum::Unsafe && expected != actual {
 					return Err(error!(
 						%expected,

@@ -11,7 +11,7 @@ impl Cli {
 			.args(["-c", "curl -sSL https://www.tangram.dev/install.sh | sh"])
 			.status()
 			.await
-			.map_err(|error| error!(source = error, "failed to run the installer"))?;
+			.map_err(|source| error!(!source, "failed to run the installer"))?;
 		Ok(())
 	}
 }

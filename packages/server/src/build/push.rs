@@ -13,7 +13,7 @@ impl Server {
 		tg::Build::with_id(id.clone())
 			.push(user, self, remote.as_ref())
 			.await
-			.map_err(|error| error!(source = error, "failed to push the build"))?;
+			.map_err(|source| error!(!source, "failed to push the build"))?;
 		Ok(())
 	}
 }
