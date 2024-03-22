@@ -115,21 +115,21 @@ impl Cli {
 			println!("[{}.\"{}\"]", style(path).dim(), style(dependency).yellow());
 			if let Some(current) = current {
 				println!(
-					"{}: {}",
+					"{} = {}",
 					style("current").red(),
 					style(format!("{current:?}")).green()
 				);
 			}
 			if let Some(compat) = compat {
 				println!(
-					"{}: {}",
+					"{} = {}",
 					style("compat").red(),
 					style(format!("{compat:?}")).green()
 				);
 			}
 			if let Some(latest) = latest {
 				println!(
-					"{}: {}",
+					"{} = {}",
 					style("latest").red(),
 					style(format!("{latest:?}")).green()
 				);
@@ -407,10 +407,7 @@ async fn get_outdated(
 			.cloned();
 		let latest = all_versions.last().cloned();
 
-		let compat = (compat != current).then_some(compat).flatten();
-		let latest = (latest != current).then_some(latest).flatten();
-
-		if dependency.path.is_none() && (latest.is_some() || compat.is_some()) {
+		if dependency.path.is_none() && latest != current {
 			let dependency = dependency.clone();
 			let path = path.clone();
 			outdated.push(Outdated {
