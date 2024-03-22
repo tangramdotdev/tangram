@@ -149,7 +149,10 @@ impl Server {
 			.await?;
 
 		// Normalize the lock.
-		let lock = lock.normalize(self).await?;
+		let lock = lock
+			.normalize(self)
+			.await
+			.map_err(|error| error!(source = error, "failed to normalize the lock"))?;
 		Ok(lock)
 	}
 

@@ -132,13 +132,25 @@ impl Server {
 			if arg.create_lock {
 				let lock = self
 					.create_package_lock(&package_with_path_dependencies)
-					.await?;
+					.await
+					.map_err(|error| error!(source = error, "failed to create the lock"))?;
+				let lock = lock
+					.normalize(self)
+					.await
+					.map_err(|error| error!(source = error, "failed to normalize the lock"))?;
 				Some(lock.id(self).await?.clone())
 			} else {
 				let path = dependency.path.as_ref();
 				let lock = self
 					.get_or_create_package_lock(path, &package_with_path_dependencies)
-					.await?;
+					.await
+					.map_err(|error| {
+						if let Some(path) = path {
+							error!(source = error, %path, "failed to get or create the lock")
+						} else {
+							error!(source = error, "failed to get or create the lock")
+						}
+					})?;
 				let id = lock.id(self).await?.clone();
 				Some(id)
 			}

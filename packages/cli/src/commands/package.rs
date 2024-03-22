@@ -371,7 +371,11 @@ async fn get_outdated(
 	}
 	visited.insert(id.clone());
 
-	let data = lock.data(tg).await?;
+	let data = lock
+		.data(tg)
+		.await
+		.map_err(|error| error!(source = error, "failed to get the lock data"))?;
+
 	let dependencies = &data.nodes[data.root].dependencies;
 	let mut outdated = Vec::with_capacity(dependencies.len());
 
@@ -398,11 +402,15 @@ async fn get_outdated(
 			.map_err(|source| error!(!source, "failed to get package versions"))?;
 		let compat = all_versions
 			.iter()
+			.rev()
 			.find(|version| dependency.try_match_version(version).unwrap_or(false))
 			.cloned();
 		let latest = all_versions.last().cloned();
 
-		if dependency.path.is_none() && current != latest {
+		let compat = (compat != current).then_some(compat).flatten();
+		let latest = (latest != current).then_some(latest).flatten();
+
+		if dependency.path.is_none() && (latest.is_some() || compat.is_some()) {
 			let dependency = dependency.clone();
 			let path = path.clone();
 			outdated.push(Outdated {
