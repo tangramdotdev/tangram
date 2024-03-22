@@ -1,11 +1,14 @@
 use crate::{tree::Tree, Cli};
 use async_recursion::async_recursion;
-use dialoguer::console::style;
+use crossterm::style::Stylize;
 use either::Either;
-use std::{collections::BTreeSet, fmt::Write};
+use itertools::Itertools;
+use std::{
+	collections::{BTreeSet, VecDeque},
+	fmt::Write,
+};
 use tangram_client as tg;
 use tangram_error::{error, Result};
-
 /// Manage packages.
 #[derive(Debug, clap::Args)]
 pub struct Args {
@@ -27,6 +30,10 @@ pub enum Command {
 pub struct OutdatedArgs {
 	#[clap(short, long, default_value = ".")]
 	pub path: tg::Path,
+
+	/// Print as JSON.
+	#[clap(long)]
+	pub json: bool,
 }
 
 /// Publish a package.
@@ -82,60 +89,50 @@ impl Cli {
 				.try_into()?;
 		}
 
-		// Read the lock.
-		let (package, lock) = tg::package::get_with_lock(client, &dependency)
+		let outdated = client
+			.get_outdated(&dependency)
 			.await
-			.map_err(|source| error!(!source, "failed to get lock"))?;
+			.map_err(|source| error!(!source, %dependency, "failed to get outdated packages"))?;
 
-		// Write the lock.
-		lock.write(client, dependency.path.as_ref().unwrap(), false)
-			.await
-			.map_err(|source| error!(!source, "failed to write the lock file"))?;
-
-		let path = tg::package::try_get_metadata(client, &package)
-			.await
-			.map_err(|source| error!(!source, "failed to get root package metadata"))?
-			.and_then(|metadata| metadata.name)
-			.unwrap_or_else(|| "<unknown>".into());
-
-		// Collect all the outdated packages.
-		let mut visited = BTreeSet::new();
-		let outdated = get_outdated(client, format!("{path:?}"), lock, &mut visited).await?;
-
-		// Print the list of outdated packages.
-		for outdated in outdated {
-			let Outdated {
-				compat,
-				current,
-				dependency,
-				latest,
-				path,
-			} = outdated;
-
-			println!("[{}.\"{}\"]", style(path).dim(), style(dependency).yellow());
-			if let Some(current) = current {
-				println!(
-					"{} = {}",
-					style("current").red(),
-					style(format!("{current:?}")).green()
-				);
-			}
-			if let Some(compat) = compat {
-				println!(
-					"{} = {}",
-					style("compat").red(),
-					style(format!("{compat:?}")).green()
-				);
-			}
-			if let Some(latest) = latest {
-				println!(
-					"{} = {}",
-					style("latest").red(),
-					style(format!("{latest:?}")).green()
-				);
-			}
-			println!();
+		if args.json {
+			let json = serde_json::to_string_pretty(&outdated).map_err(
+				|source| error!(!source, %dependency, "failed to serialize outdated packages"),
+			)?;
+			println!("{json}");
+			return Ok(());
 		}
+
+		// Flatten the tree.
+		let mut queue = VecDeque::new();
+		queue.push_back((vec![dependency.clone()], outdated));
+
+		while let Some((path, outdated)) = queue.pop_front() {
+			let tg::package::OutdatedOutput { info, dependencies } = outdated;
+			if let Some(info) = info {
+				let path = path.iter().map(ToString::to_string).join(" -> ");
+				let tg::package::OutdatedInfo {
+					current,
+					compatible,
+					latest,
+				} = info;
+				println!("{}", path.white().dim());
+				println!(
+					"{} = {}, {} = {}, {} = {}",
+					"current".red(),
+					current.green(),
+					"compatible".red(),
+					compatible.green(),
+					"latest".red(),
+					latest.green(),
+				);
+			}
+			for (dependency, outdated) in dependencies {
+				let mut path = path.clone();
+				path.push(dependency);
+				queue.push_back((path, outdated));
+			}
+		}
+
 		Ok(())
 	}
 
@@ -347,82 +344,4 @@ async fn get_package_tree(
 	let tree = Tree { title, children };
 
 	Ok(tree)
-}
-
-#[derive(Debug, serde::Serialize, serde::Deserialize)]
-struct Outdated {
-	compat: Option<String>,
-	current: Option<String>,
-	dependency: tg::Dependency,
-	latest: Option<String>,
-	path: String,
-}
-
-#[async_recursion]
-async fn get_outdated(
-	tg: &dyn tg::Handle,
-	path: String,
-	lock: tg::Lock,
-	visited: &mut BTreeSet<tg::lock::Id>,
-) -> Result<Vec<Outdated>> {
-	let id = lock.id(tg).await?;
-	if visited.contains(id) {
-		return Ok(Vec::new());
-	}
-	visited.insert(id.clone());
-
-	let data = lock
-		.data(tg)
-		.await
-		.map_err(|error| error!(source = error, "failed to get the lock data"))?;
-
-	let dependencies = &data.nodes[data.root].dependencies;
-	let mut outdated = Vec::with_capacity(dependencies.len());
-
-	// Check each dependency.
-	for dependency in dependencies.keys() {
-		let (package, lock) = lock
-			.get(tg, dependency)
-			.await?
-			.ok_or_else(|| error!(%dependency, "invalid lock"))?;
-
-		// Get the metadata for this package.
-		let metadata = tg::package::get_metadata(tg, &package).await.ok();
-		let (name, current) = if let Some(metadata) = metadata {
-			(metadata.name, metadata.version)
-		} else {
-			(None, None)
-		};
-
-		// Get all versions of this package.map
-		let dependency_name = dependency.name.as_ref().unwrap().clone();
-		let all_versions = tg
-			.get_package_versions(&tg::Dependency::with_name(dependency_name))
-			.await
-			.map_err(|source| error!(!source, "failed to get package versions"))?;
-		let compat = all_versions
-			.iter()
-			.rev()
-			.find(|version| dependency.try_match_version(version).unwrap_or(false))
-			.cloned();
-		let latest = all_versions.last().cloned();
-
-		if dependency.path.is_none() && latest != current {
-			let dependency = dependency.clone();
-			let path = path.clone();
-			outdated.push(Outdated {
-				compat,
-				current,
-				dependency,
-				latest,
-				path,
-			});
-		}
-
-		// Visit the dependency's Lock to collect any transitively outdated dependencies.
-		let path = format!("{path}.{:?}", name.as_deref().unwrap_or("<unknown>"));
-		let transitive_outdated = get_outdated(tg, path.clone(), lock, visited).await?;
-		outdated.extend(transitive_outdated);
-	}
-	Ok(outdated)
 }

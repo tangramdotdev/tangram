@@ -12,6 +12,7 @@ mod dependencies;
 mod format;
 mod lock;
 mod metadata;
+mod outdated;
 mod publish;
 mod search;
 mod versions;
@@ -524,6 +525,34 @@ impl Http {
 
 		// Create the response.
 		let response = http::Response::builder().body(empty()).unwrap();
+
+		Ok(response)
+	}
+
+	pub async fn handle_outdated_package_request(
+		&self,
+		request: http::Request<Incoming>,
+	) -> Result<http::Response<Outgoing>> {
+		// Get the path params.
+		let path_components: Vec<&str> = request.uri().path().split('/').skip(1).collect();
+		let ["packages", dependency, "outdated"] = path_components.as_slice() else {
+			let path = request.uri().path();
+			return Err(error!(%path, "unexpected path"));
+		};
+		let dependency = urlencoding::decode(dependency)
+			.map_err(|source| error!(!source, "failed to decode the dependency"))?;
+		let dependency = dependency
+			.parse()
+			.map_err(|source| error!(!source, "failed to parse the dependency"))?;
+
+		// Get the outdated dependencies.
+		let output = self.inner.tg.get_outdated(&dependency).await?;
+		let body = serde_json::to_vec(&output)
+			.map_err(|source| error!(!source, "failed to serialize the body"))?;
+		let body = full(body);
+
+		// Create the response.
+		let response = http::Response::builder().body(body).unwrap();
 
 		Ok(response)
 	}

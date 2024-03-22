@@ -7,6 +7,7 @@ pub struct Tree {
 impl Tree {
 	pub fn print(&self) {
 		self.print_inner("");
+		println!();
 	}
 
 	fn print_inner(&self, prefix: &str) {

@@ -773,6 +773,10 @@ impl Http {
 				.handle_format_package_request(request)
 				.map(Some)
 				.boxed(),
+			(http::Method::POST, ["packages", _, "outdated"]) => self
+				.handle_outdated_package_request(request)
+				.map(Some)
+				.boxed(),
 			(http::Method::GET, ["runtime", "js", "doc"]) => self
 				.handle_get_runtime_doc_request(request)
 				.map(Some)
@@ -1020,6 +1024,13 @@ impl tg::Handle for Server {
 		arg: tg::package::SearchArg,
 	) -> Result<tg::package::SearchOutput> {
 		self.search_packages(arg).await
+	}
+
+	async fn get_outdated(
+		&self,
+		dependency: &tg::Dependency,
+	) -> Result<tg::package::OutdatedOutput> {
+		self.get_outdated(dependency).await
 	}
 
 	async fn try_get_package(

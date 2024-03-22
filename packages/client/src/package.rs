@@ -1,6 +1,8 @@
 use crate as tg;
 use crate::{directory, lock, Client, Dependency, Directory, Handle, Lock};
 use http_body_util::BodyExt;
+use serde_with::serde_as;
+use std::collections::BTreeMap;
 use std::path::Path;
 use tangram_error::{error, Result};
 use tangram_util::http::{empty, full};
@@ -29,10 +31,32 @@ pub struct GetOutput {
 	pub metadata: Option<Metadata>,
 }
 
+#[serde_as]
+#[derive(Debug, Clone, serde::Deserialize, serde::Serialize)]
+pub struct OutdatedOutput {
+	#[serde(flatten)]
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub info: Option<OutdatedInfo>,
+
+	#[serde_as(as = "BTreeMap<serde_with::DisplayFromStr, _>")]
+	#[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+	pub dependencies: BTreeMap<tg::Dependency, OutdatedOutput>,
+}
+
+#[derive(Debug, Clone, serde::Deserialize, serde::Serialize)]
+pub struct OutdatedInfo {
+	pub current: String,
+	pub compatible: String,
+	pub latest: String,
+}
+
 #[derive(Clone, Debug, Default, PartialEq, Eq, Hash, serde::Deserialize, serde::Serialize)]
 pub struct Metadata {
+	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub name: Option<String>,
+	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub version: Option<String>,
+	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub description: Option<String>,
 }
 
@@ -235,6 +259,43 @@ impl Client {
 		Ok(output)
 	}
 
+	pub async fn get_outdated(
+		&self,
+		dependency: &tg::Dependency,
+	) -> Result<tg::package::OutdatedOutput> {
+		let method = http::Method::POST;
+		let dependency = dependency.to_string();
+		let dependency = urlencoding::encode(&dependency);
+		let uri = format!("/packages/{dependency}/outdated");
+		let body = empty();
+		let request = http::request::Builder::default()
+			.method(method)
+			.uri(uri)
+			.body(body)
+			.map_err(|source| error!(!source, "failed to create the request"))?;
+		let response = self.send(request).await?;
+		if response.status() == http::StatusCode::NOT_FOUND {
+			return Err(error!(%dependency, "could not find package"));
+		}
+		if !response.status().is_success() {
+			let bytes = response
+				.collect()
+				.await
+				.map_err(|source| error!(!source, "failed to collect the response body"))?
+				.to_bytes();
+			let error = serde_json::from_slice(&bytes)
+				.unwrap_or_else(|_| error!("failed to deserialize the error"));
+			return Err(error);
+		}
+		let bytes = response
+			.collect()
+			.await
+			.map_err(|source| error!(!source, "failed to collect the response body"))?
+			.to_bytes();
+		let output = serde_json::from_slice(&bytes)
+			.map_err(|source| error!(!source, "failed to deserialize the response body"))?;
+		Ok(output)
+	}
 	pub async fn try_get_package(
 		&self,
 		dependency: &tg::Dependency,

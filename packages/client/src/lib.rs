@@ -646,6 +646,10 @@ impl Handle for Client {
 		self.search_packages(arg).await
 	}
 
+	async fn get_outdated(&self, arg: &tg::Dependency) -> Result<tg::package::OutdatedOutput> {
+		self.get_outdated(arg).await
+	}
+
 	async fn try_get_package(
 		&self,
 		dependency: &tg::Dependency,

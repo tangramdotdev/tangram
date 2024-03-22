@@ -193,6 +193,11 @@ pub trait Handle: Send + Sync + 'static {
 		arg: tg::package::SearchArg,
 	) -> Result<tg::package::SearchOutput>;
 
+	async fn get_outdated(
+		&self,
+		dependency: &tg::Dependency,
+	) -> Result<tg::package::OutdatedOutput>;
+
 	async fn get_package(
 		&self,
 		dependency: &tg::Dependency,
