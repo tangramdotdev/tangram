@@ -71,7 +71,7 @@ impl Cli {
 			if let Some(path) = package.path.as_mut() {
 				*path = tokio::fs::canonicalize(&path)
 					.await
-					.map_err(|error| error!(source = error, "failed to canonicalize the path"))?
+					.map_err(|source| error!(!source, "failed to canonicalize the path"))?
 					.try_into()?;
 			}
 
@@ -145,7 +145,7 @@ impl Cli {
 		let outcome = build
 			.get_outcome(client, arg)
 			.await
-			.map_err(|error| error!(source = error, "failed to get the build outcome"))?;
+			.map_err(|source| error!(!source, "failed to get the build outcome"))?;
 
 		// If the outcome is not immediatey available, then wait for it while showing the TUI if enabled.
 		let outcome = if let Some(outcome) = outcome {
@@ -170,24 +170,24 @@ impl Cli {
 				tui.join().await?;
 			}
 
-			outcome.map_err(|error| error!(source = error, "failed to get the build outcome"))?
+			outcome.map_err(|source| error!(!source, "failed to get the build outcome"))?
 		};
 
 		// Handle a failed build.
 		let output = outcome
 			.into_result()
-			.map_err(|error| error!(source = error, "the build failed"))?;
+			.map_err(|source| error!(!source, "the build failed"))?;
 
 		// Get the output artifact.
 		let artifact: tg::Artifact = output
 			.try_into()
-			.map_err(|error| error!(source = error, "expected the output to be an artifact"))?;
+			.map_err(|source| error!(!source, "expected the output to be an artifact"))?;
 
 		// Get the path to the artifact.
 		let artifact_path = client
 			.path()
 			.await
-			.map_err(|error| error!(source = error, "failed to get the server path"))?
+			.map_err(|source| error!(!source, "failed to get the server path"))?
 			.ok_or_else(|| error!("failed to get the server path"))?
 			.join("artifacts")
 			.join(artifact.id(client).await?.to_string());

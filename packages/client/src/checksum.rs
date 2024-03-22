@@ -66,49 +66,49 @@ impl std::str::FromStr for Checksum {
 			.next()
 			.unwrap()
 			.parse()
-			.map_err(|error| error!(source = error, "invalid algorithm"))?;
+			.map_err(|source| error!(!source, "invalid algorithm"))?;
 
 		Ok(match (algorithm, components.next()) {
 			(Algorithm::Unsafe, None) => Checksum::Unsafe,
 			(Algorithm::Blake3, Some(body)) if body.len() == 44 => {
 				let body = data_encoding::BASE64
 					.decode(body.as_bytes())
-					.map_err(|error| error!(source = error, "invalid body"))?
+					.map_err(|source| error!(!source, "invalid body"))?
 					.into();
 				Checksum::Blake3(body)
 			},
 			(Algorithm::Blake3, Some(body)) if body.len() == 64 => {
 				let body = data_encoding::HEXLOWER
 					.decode(body.as_bytes())
-					.map_err(|error| error!(source = error, "invalid body"))?
+					.map_err(|source| error!(!source, "invalid body"))?
 					.into();
 				Checksum::Blake3(body)
 			},
 			(Algorithm::Sha256, Some(body)) if body.len() == 44 => {
 				let body = data_encoding::BASE64
 					.decode(body.as_bytes())
-					.map_err(|error| error!(source = error, "invalid body"))?
+					.map_err(|source| error!(!source, "invalid body"))?
 					.into();
 				Checksum::Sha256(body)
 			},
 			(Algorithm::Sha256, Some(body)) if body.len() == 64 => {
 				let body = data_encoding::HEXLOWER
 					.decode(body.as_bytes())
-					.map_err(|error| error!(source = error, "invalid body"))?
+					.map_err(|source| error!(!source, "invalid body"))?
 					.into();
 				Checksum::Sha256(body)
 			},
 			(Algorithm::Sha512, Some(body)) if body.len() == 88 => {
 				let body = data_encoding::BASE64
 					.decode(body.as_bytes())
-					.map_err(|error| error!(source = error, "invalid body"))?
+					.map_err(|source| error!(!source, "invalid body"))?
 					.into();
 				Checksum::Sha512(body)
 			},
 			(Algorithm::Sha512, Some(body)) if body.len() == 128 => {
 				let body = data_encoding::HEXLOWER
 					.decode(body.as_bytes())
-					.map_err(|error| error!(source = error, "invalid body"))?
+					.map_err(|source| error!(!source, "invalid body"))?
 					.into();
 				Checksum::Sha512(body)
 			},

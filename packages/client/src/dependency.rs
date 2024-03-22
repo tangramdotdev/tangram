@@ -91,7 +91,7 @@ impl Dependency {
 			let (_, constraint) = constraint.split_at(1);
 			let regex = format!("^{constraint}$");
 			let matched = regex::Regex::new(&regex)
-				.map_err(|error| error!(source = error, "failed to parse regex"))?
+				.map_err(|source| error!(!source, "failed to parse regex"))?
 				.is_match(version);
 			return Ok(matched);
 		}
@@ -104,7 +104,7 @@ impl Dependency {
 				)
 			})?;
 			let semver = semver::Version::parse(version)
-				.map_err(|error| error!(source = error, "failed to parse version as semver"))?;
+				.map_err(|source| error!(!source, "failed to parse version as semver"))?;
 			return Ok(req.matches(&semver));
 		}
 
@@ -148,7 +148,7 @@ impl std::str::FromStr for Dependency {
 	fn from_str(value: &str) -> Result<Self, Self::Err> {
 		if value.starts_with('{') {
 			serde_json::from_str(value)
-				.map_err(|error| error!(source = error, "failed to deserialize the dependency"))
+				.map_err(|source| error!(!source, "failed to deserialize the dependency"))
 		} else if let Ok(id) = value.parse() {
 			Ok(Self {
 				id: Some(id),

@@ -89,7 +89,7 @@ impl Cli {
 		tokio::io::stdout()
 			.write_all(&bytes)
 			.await
-			.map_err(|error| error!(source = error, "failed to write the data"))?;
+			.map_err(|source| error!(!source, "failed to write the data"))?;
 		Ok(())
 	}
 
@@ -103,7 +103,7 @@ impl Cli {
 			tokio::io::stdin()
 				.read_to_end(&mut bytes)
 				.await
-				.map_err(|error| error!(source = error, "failed to read stdin"))?;
+				.map_err(|source| error!(!source, "failed to read stdin"))?;
 			bytes
 		};
 		let id = tg::Id::new_blake3(kind, &bytes).try_into().unwrap();
@@ -156,7 +156,7 @@ async fn get_object_tree(
 	let children = tg::Object::with_id(object.clone())
 		.data(client)
 		.await
-		.map_err(|error| error!(source = error, %object, "failed to get the object data"))?
+		.map_err(|source| error!(!source, %object, "failed to get the object data"))?
 		.children();
 	let children = if max_depth.map_or(true, |max_depth| current_depth < max_depth) {
 		stream::iter(children)

@@ -216,7 +216,7 @@ impl Server {
 			.stdout(std::process::Stdio::null())
 			.stderr(std::process::Stdio::null())
 			.spawn()
-			.map_err(|error| error!(source = error, "failed to spawn dns-sd"))?;
+			.map_err(|source| error!(!source, "failed to spawn dns-sd"))?;
 
 		tokio::process::Command::new("mount_nfs")
 			.arg("-o")
@@ -229,7 +229,7 @@ impl Server {
 			.stderr(std::process::Stdio::null())
 			.status()
 			.await
-			.map_err(|error| error!(source = error, "failed to mount"))?
+			.map_err(|source| error!(!source, "failed to mount"))?
 			.success()
 			.then_some(())
 			.ok_or_else(|| error!("failed to mount the VFS"))?;
@@ -245,7 +245,7 @@ impl Server {
 			.stderr(std::process::Stdio::null())
 			.status()
 			.await
-			.map_err(|error| error!(source = error, "failed to unmount the VFS"))?;
+			.map_err(|source| error!(!source, "failed to unmount the VFS"))?;
 		Ok(())
 	}
 
@@ -277,13 +277,13 @@ impl Server {
 	async fn serve(&self, port: u16) -> crate::Result<()> {
 		let listener = TcpListener::bind(format!("localhost:{port}"))
 			.await
-			.map_err(|error| error!(source = error, "failed to bind the server"))?;
+			.map_err(|source| error!(!source, "failed to bind the server"))?;
 
 		loop {
 			let (conn, addr) = listener
 				.accept()
 				.await
-				.map_err(|error| error!(source = error, "failed to accept the connection"))?;
+				.map_err(|source| error!(!source, "failed to accept the connection"))?;
 			tracing::info!(?addr, "accepted client connection");
 			let server = self.clone();
 			tokio::spawn(async move {
@@ -316,7 +316,7 @@ impl Server {
 		loop {
 			let fragments = rpc::read_fragments(&mut reader)
 				.await
-				.map_err(|error| error!(source = error, "failed to read message fragments"))?;
+				.map_err(|source| error!(!source, "failed to read message fragments"))?;
 			let message_sender = message_sender.clone();
 			let vfs = self.clone();
 			tokio::task::spawn(async move {

@@ -30,7 +30,7 @@ impl Server {
 			program,
 			source_map,
 		} = Self::parse_module(text)
-			.map_err(|error| error!(source = error, "failed to parse the module"))?;
+			.map_err(|source| error!(!source, "failed to parse the module"))?;
 
 		// Create the visitor and visit the module.
 		let mut visitor = Visitor::new(source_map);

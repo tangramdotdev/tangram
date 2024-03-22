@@ -34,11 +34,11 @@ impl Server {
 		let statement = connection
 			.prepare_cached(statement)
 			.await
-			.map_err(|error| error!(source = error, "failed to prepare the statement"))?;
+			.map_err(|source| error!(!source, "failed to prepare the statement"))?;
 		let row = connection
 			.query_one(&statement, params)
 			.await
-			.map_err(|error| error!(source = error, "failed to execute the statement"))?;
+			.map_err(|source| error!(!source, "failed to execute the statement"))?;
 		let exists = row.get::<_, bool>(0);
 		if !exists {
 			return Ok(None);
@@ -54,18 +54,18 @@ impl Server {
 		let statement = connection
 			.prepare_cached(statement)
 			.await
-			.map_err(|error| error!(source = error, "failed to prepare the statement"))?;
+			.map_err(|source| error!(!source, "failed to prepare the statement"))?;
 		let rows = connection
 			.query(&statement, params)
 			.await
-			.map_err(|error| error!(source = error, "failed to execute the statement"))?;
+			.map_err(|source| error!(!source, "failed to execute the statement"))?;
 		let versions = rows
 			.into_iter()
 			.map(|row| row.get::<_, String>(0))
 			.map(|version| {
 				version
 					.parse()
-					.map_err(|error| error!(source = error, "invalid version"))
+					.map_err(|source| error!(!source, "invalid version"))
 			})
 			.collect::<Result<Vec<semver::Version>>>()?;
 
@@ -73,7 +73,7 @@ impl Server {
 		let req = if let Some(version) = dependency.version.as_ref() {
 			version
 				.parse()
-				.map_err(|error| error!(source = error, "invalid version"))?
+				.map_err(|source| error!(!source, "invalid version"))?
 		} else {
 			semver::VersionReq::STAR
 		};
@@ -109,10 +109,10 @@ impl Http {
 			return Err(error!(%path, "unexpected path"));
 		};
 		let dependency = urlencoding::decode(dependency)
-			.map_err(|error| error!(source = error, "failed to decode the dependency"))?;
+			.map_err(|source| error!(!source, "failed to decode the dependency"))?;
 		let dependency = dependency
 			.parse()
-			.map_err(|error| error!(source = error, "failed to parse the dependency"))?;
+			.map_err(|source| error!(!source, "failed to parse the dependency"))?;
 
 		// Get the package.
 		let Some(output) = self.inner.tg.try_get_package_versions(&dependency).await? else {
@@ -121,7 +121,7 @@ impl Http {
 
 		// Create the body.
 		let body = serde_json::to_vec(&output)
-			.map_err(|error| error!(source = error, "failed to serialize the body"))?;
+			.map_err(|source| error!(!source, "failed to serialize the body"))?;
 		let body = full(body);
 
 		// Create the response.

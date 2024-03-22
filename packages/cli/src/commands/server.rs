@@ -287,7 +287,7 @@ impl Cli {
 		// Start the server.
 		let server = tangram_server::Server::start(options)
 			.await
-			.map_err(|error| error!(source = error, "failed to start the server"))?;
+			.map_err(|source| error!(!source, "failed to start the server"))?;
 
 		// Stop the server if an an interrupt signal is received.
 		tokio::spawn({
@@ -304,7 +304,7 @@ impl Cli {
 		server
 			.join()
 			.await
-			.map_err(|error| error!(source = error, "failed to join the server"))?;
+			.map_err(|source| error!(!source, "failed to join the server"))?;
 
 		Ok(())
 	}

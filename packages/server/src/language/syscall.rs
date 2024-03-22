@@ -79,7 +79,7 @@ fn syscall_encoding_base64_decode(
 	let (value,) = args;
 	let bytes = data_encoding::BASE64
 		.decode(value.as_bytes())
-		.map_err(|error| error!(source = error, "failed to decode the bytes"))?;
+		.map_err(|source| error!(!source, "failed to decode the bytes"))?;
 	Ok(bytes.into())
 }
 
@@ -101,7 +101,7 @@ fn syscall_encoding_hex_decode(
 	let (string,) = args;
 	let bytes = data_encoding::HEXLOWER
 		.decode(string.as_bytes())
-		.map_err(|error| error!(source = error, "failed to decode the string as hex"))?;
+		.map_err(|source| error!(!source, "failed to decode the string as hex"))?;
 	Ok(bytes.into())
 }
 
@@ -122,7 +122,7 @@ fn syscall_encoding_json_decode(
 ) -> Result<serde_json::Value> {
 	let (json,) = args;
 	let value = serde_json::from_str(&json)
-		.map_err(|error| error!(source = error, "failed to decode the string as json"))?;
+		.map_err(|source| error!(!source, "failed to decode the string as json"))?;
 	Ok(value)
 }
 
@@ -133,7 +133,7 @@ fn syscall_encoding_json_encode(
 ) -> Result<String> {
 	let (value,) = args;
 	let json = serde_json::to_string(&value)
-		.map_err(|error| error!(source = error, "failed to encode the value"))?;
+		.map_err(|source| error!(!source, "failed to encode the value"))?;
 	Ok(json)
 }
 
@@ -144,7 +144,7 @@ fn syscall_encoding_toml_decode(
 ) -> Result<toml::Value> {
 	let (toml,) = args;
 	let value = toml::from_str(&toml)
-		.map_err(|error| error!(source = error, "failed to decode the string as toml"))?;
+		.map_err(|source| error!(!source, "failed to decode the string as toml"))?;
 	Ok(value)
 }
 
@@ -155,7 +155,7 @@ fn syscall_encoding_toml_encode(
 ) -> Result<String> {
 	let (value,) = args;
 	let toml = toml::to_string(&value)
-		.map_err(|error| error!(source = error, "failed to encode the value"))?;
+		.map_err(|source| error!(!source, "failed to encode the value"))?;
 	Ok(toml)
 }
 
@@ -166,7 +166,7 @@ fn syscall_encoding_utf8_decode(
 ) -> Result<String> {
 	let (bytes,) = args;
 	let string = String::from_utf8(bytes.into())
-		.map_err(|error| error!(source = error, "failed to decode the bytes as UTF-8"))?;
+		.map_err(|source| error!(!source, "failed to decode the bytes as UTF-8"))?;
 	Ok(string)
 }
 
@@ -187,7 +187,7 @@ fn syscall_encoding_yaml_decode(
 ) -> Result<serde_yaml::Value> {
 	let (yaml,) = args;
 	let value = serde_yaml::from_str(&yaml)
-		.map_err(|error| error!(source = error, "failed to decode the string as yaml"))?;
+		.map_err(|source| error!(!source, "failed to decode the string as yaml"))?;
 	Ok(value)
 }
 
@@ -198,7 +198,7 @@ fn syscall_encoding_yaml_encode(
 ) -> Result<String> {
 	let (value,) = args;
 	let yaml = serde_yaml::to_string(&value)
-		.map_err(|error| error!(source = error, "failed to encode the value"))?;
+		.map_err(|source| error!(!source, "failed to encode the value"))?;
 	Ok(yaml)
 }
 
@@ -222,7 +222,7 @@ fn syscall_module_load(
 			let text = server
 				.load_module(&module)
 				.await
-				.map_err(|error| error!(source = error, %module, "failed to load the module"))?;
+				.map_err(|source| error!(!source, %module, "failed to load the module"))?;
 			Ok(text)
 		})
 }
@@ -234,7 +234,7 @@ fn syscall_module_resolve(
 ) -> Result<tg::Module> {
 	let (module, specifier, attributes) = args;
 	let import = tg::Import::with_specifier_and_attributes(&specifier, attributes.as_ref())
-		.map_err(|error| error!(source = error, "failed to create the import"))?;
+		.map_err(|source| error!(!source, "failed to create the import"))?;
 	server
 		.inner
 		.main_runtime_handle
@@ -293,14 +293,14 @@ where
 
 	// Deserialize the args.
 	let args = serde_v8::from_v8(scope, args.into())
-		.map_err(|error| error!(source = error, "failed to deserialize the args"))?;
+		.map_err(|source| error!(!source, "failed to deserialize the args"))?;
 
 	// Call the function.
 	let value = f(scope, server, args)?;
 
 	// Serialize the value.
 	let value = serde_v8::to_v8(scope, &value)
-		.map_err(|error| error!(source = error, "failed to serialize the value"))?;
+		.map_err(|source| error!(!source, "failed to serialize the value"))?;
 
 	Ok(value)
 }

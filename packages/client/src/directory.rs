@@ -110,7 +110,7 @@ impl Directory {
 			return Ok(false);
 		};
 		let data = Data::deserialize(&output.bytes)
-			.map_err(|error| error!(source = error, "failed to deserialize the data"))?;
+			.map_err(|source| error!(!source, "failed to deserialize the data"))?;
 		let object = data.try_into()?;
 		self.state.write().unwrap().object.replace(object);
 		Ok(true)
@@ -130,7 +130,7 @@ impl Directory {
 		};
 		tg.put_object(&id.clone().into(), &arg)
 			.await
-			.map_err(|error| error!(source = error, "failed to put the object"))?;
+			.map_err(|source| error!(!source, "failed to put the object"))?;
 		self.state.write().unwrap().id.replace(id);
 		Ok(())
 	}
@@ -208,7 +208,7 @@ impl Directory {
 				match symlink
 					.resolve_from(tg, Some(from))
 					.await
-					.map_err(|error| error!(source = error, "failed to resolve the symlink"))?
+					.map_err(|source| error!(!source, "failed to resolve the symlink"))?
 				{
 					Some(resolved) => artifact = resolved,
 					None => return Ok(None),
@@ -224,12 +224,12 @@ impl Data {
 	pub fn serialize(&self) -> Result<Bytes> {
 		serde_json::to_vec(self)
 			.map(Into::into)
-			.map_err(|error| error!(source = error, "failed to serialize the data"))
+			.map_err(|source| error!(!source, "failed to serialize the data"))
 	}
 
 	pub fn deserialize(bytes: &Bytes) -> Result<Self> {
 		serde_json::from_reader(bytes.as_ref())
-			.map_err(|error| error!(source = error, "failed to deserialize the data"))
+			.map_err(|source| error!(!source, "failed to deserialize the data"))
 	}
 
 	#[must_use]

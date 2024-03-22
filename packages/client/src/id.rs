@@ -111,7 +111,7 @@ impl std::str::FromStr for Id {
 			'0' => Body::UuidV7(
 				ENCODING
 					.decode(body.as_bytes())
-					.map_err(|error| error!(source = error, "invalid body"))?
+					.map_err(|source| error!(!source, "invalid body"))?
 					.try_into()
 					.ok()
 					.ok_or_else(|| error!("invalid body"))?,
@@ -119,7 +119,7 @@ impl std::str::FromStr for Id {
 			'1' => Body::Blake3(
 				ENCODING
 					.decode(body.as_bytes())
-					.map_err(|error| error!(source = error, "invalid body"))?
+					.map_err(|source| error!(!source, "invalid body"))?
 					.try_into()
 					.ok()
 					.ok_or_else(|| error!("invalid body"))?,

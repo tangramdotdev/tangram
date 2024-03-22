@@ -50,7 +50,7 @@ impl Server {
 			// If the dependency is a path dependency, then get the package with its path dependencies from the path.
 			let path = tokio::fs::canonicalize(PathBuf::from(path))
 				.await
-				.map_err(|error| error!(source = error, "failed to canonicalize the path"))?;
+				.map_err(|source| error!(!source, "failed to canonicalize the path"))?;
 			if !tokio::fs::try_exists(&path).await.map_err(|error| {
 				error!(source = error, "failed to get the metadata for the path")
 			})? {
@@ -88,18 +88,18 @@ impl Server {
 			let statement = connection
 				.prepare_cached(statement)
 				.await
-				.map_err(|error| error!(source = error, "failed to prepare the statement"))?;
+				.map_err(|source| error!(!source, "failed to prepare the statement"))?;
 			let rows = connection
 				.query(&statement, params)
 				.await
-				.map_err(|error| error!(source = error, "failed to execute the statement"))?;
+				.map_err(|source| error!(!source, "failed to execute the statement"))?;
 			let mut versions = rows
 				.into_iter()
 				.map(|row| (row.get::<_, String>(0), row.get::<_, String>(1)))
 				.map(|(version, id)| {
 					let version = version
 						.parse()
-						.map_err(|error| error!(source = error, "invalid version"))?;
+						.map_err(|source| error!(!source, "invalid version"))?;
 					let id = id.parse()?;
 					Ok((version, id))
 				})
@@ -111,7 +111,7 @@ impl Server {
 			let package = if let Some(version) = dependency.version.as_ref() {
 				let req: semver::VersionReq = version
 					.parse()
-					.map_err(|error| error!(source = error, "invalid version"))?;
+					.map_err(|source| error!(!source, "invalid version"))?;
 				versions
 					.iter()
 					.find(|(version, _)| req.matches(version))
@@ -262,11 +262,11 @@ impl Server {
 			// Get the module's text.
 			let text = tokio::fs::read_to_string(&module_absolute_path)
 				.await
-				.map_err(|error| error!(source = error, "failed to read the module"))?;
+				.map_err(|source| error!(!source, "failed to read the module"))?;
 
 			// Analyze the module.
 			let analysis = crate::language::Server::analyze_module(text)
-				.map_err(|error| error!(source = error, "failed to analyze the module"))?;
+				.map_err(|source| error!(!source, "failed to analyze the module"))?;
 
 			// Handle the includes.
 			for include_path in analysis.includes {
@@ -456,10 +456,10 @@ impl Http {
 			return Err(error!(%path, "unexpected path"));
 		};
 		let dependency = urlencoding::decode(dependency)
-			.map_err(|error| error!(source = error, "failed to decode the dependency"))?;
+			.map_err(|source| error!(!source, "failed to decode the dependency"))?;
 		let dependency = dependency
 			.parse()
-			.map_err(|error| error!(source = error, "failed to parse the dependency"))?;
+			.map_err(|source| error!(!source, "failed to parse the dependency"))?;
 
 		// Get the search params.
 		let arg = request
@@ -467,7 +467,7 @@ impl Http {
 			.query()
 			.map(serde_urlencoded::from_str)
 			.transpose()
-			.map_err(|error| error!(source = error, "failed to deserialize the search params"))?
+			.map_err(|source| error!(!source, "failed to deserialize the search params"))?
 			.unwrap_or_default();
 
 		// Get the package.
@@ -477,7 +477,7 @@ impl Http {
 
 		// Create the body.
 		let body = serde_json::to_vec(&output)
-			.map_err(|error| error!(source = error, "failed to serialize the body"))?;
+			.map_err(|source| error!(!source, "failed to serialize the body"))?;
 		let body = full(body);
 
 		// Create the response.
@@ -497,17 +497,17 @@ impl Http {
 			return Err(error!(%path, "unexpected path"));
 		};
 		let dependency = urlencoding::decode(dependency)
-			.map_err(|error| error!(source = error, "failed to decode the dependency"))?;
+			.map_err(|source| error!(!source, "failed to decode the dependency"))?;
 		let dependency = dependency
 			.parse()
-			.map_err(|error| error!(source = error, "failed to parse the dependency"))?;
+			.map_err(|source| error!(!source, "failed to parse the dependency"))?;
 
 		// Check the package.
 		let output = self.inner.tg.check_package(&dependency).await?;
 
 		// Create the body.
 		let body = serde_json::to_vec(&output)
-			.map_err(|error| error!(source = error, "failed to serialize the body"))?;
+			.map_err(|source| error!(!source, "failed to serialize the body"))?;
 		let body = full(body);
 
 		// Create the response.
@@ -527,10 +527,10 @@ impl Http {
 			return Err(error!(%path, "unexpected path"));
 		};
 		let dependency = urlencoding::decode(dependency)
-			.map_err(|error| error!(source = error, "failed to decode the dependency"))?;
+			.map_err(|source| error!(!source, "failed to decode the dependency"))?;
 		let dependency = dependency
 			.parse()
-			.map_err(|error| error!(source = error, "failed to parse the dependency"))?;
+			.map_err(|source| error!(!source, "failed to parse the dependency"))?;
 
 		// Format the package.
 		self.inner.tg.check_package(&dependency).await?;
@@ -550,7 +550,7 @@ impl Http {
 
 		// Create the body.
 		let body = serde_json::to_vec(&output)
-			.map_err(|error| error!(source = error, "failed to serialize the body"))?;
+			.map_err(|source| error!(!source, "failed to serialize the body"))?;
 		let body = full(body);
 
 		// Create the response.
@@ -570,10 +570,10 @@ impl Http {
 			return Err(error!(%path, "unexpected path"));
 		};
 		let dependency = urlencoding::decode(dependency)
-			.map_err(|error| error!(source = error, "failed to decode the dependency"))?;
+			.map_err(|source| error!(!source, "failed to decode the dependency"))?;
 		let dependency = dependency
 			.parse()
-			.map_err(|error| error!(source = error, "failed to parse the dependency"))?;
+			.map_err(|source| error!(!source, "failed to parse the dependency"))?;
 
 		// Get the doc.
 		let Some(output) = self.inner.tg.try_get_package_doc(&dependency).await? else {
@@ -582,7 +582,7 @@ impl Http {
 
 		// Create the body.
 		let body = serde_json::to_vec(&output)
-			.map_err(|error| error!(source = error, "failed to serialize the body"))?;
+			.map_err(|source| error!(!source, "failed to serialize the body"))?;
 		let body = full(body);
 
 		// Create the response.

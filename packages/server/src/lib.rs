@@ -117,7 +117,7 @@ impl Server {
 		// Ensure the path exists.
 		tokio::fs::create_dir_all(path)
 			.await
-			.map_err(|error| error!(source = error, "failed to create the directory"))?;
+			.map_err(|source| error!(!source, "failed to create the directory"))?;
 
 		// Acquire the lockfile.
 		let lockfile = tokio::fs::OpenOptions::new()
@@ -127,7 +127,7 @@ impl Server {
 			.truncate(true)
 			.open(path.join("lock"))
 			.await
-			.map_err(|error| error!(source = error, "failed to open the lockfile"))?;
+			.map_err(|source| error!(!source, "failed to open the lockfile"))?;
 		let ret = unsafe { libc::flock(lockfile.as_raw_fd(), libc::LOCK_EX | libc::LOCK_NB) };
 		if ret != 0 {
 			return Err(error!(
@@ -143,12 +143,12 @@ impl Server {
 		// Write the PID file.
 		tokio::fs::write(&path.join("pid"), std::process::id().to_string())
 			.await
-			.map_err(|error| error!(source = error, "failed to write the PID file"))?;
+			.map_err(|source| error!(!source, "failed to write the PID file"))?;
 
 		// Remove an existing socket file.
 		rmrf(&path.join("socket"))
 			.await
-			.map_err(|error| error!(source = error, "failed to remove an existing socket file"))?;
+			.map_err(|source| error!(!source, "failed to remove an existing socket file"))?;
 
 		// Create the build queue task.
 		let build_queue_task = std::sync::Mutex::new(None);
@@ -180,7 +180,7 @@ impl Server {
 			self::options::Messenger::Nats(nats) => {
 				let client = nats::connect(nats.url.to_string())
 					.await
-					.map_err(|error| error!(source = error, "failed to create the NATS client"))?;
+					.map_err(|source| error!(!source, "failed to create the NATS client"))?;
 				Messenger::new_nats(client)
 			},
 		};
@@ -202,9 +202,9 @@ impl Server {
 			let client_id = oauth2::ClientId::new(oauth.client_id.clone());
 			let client_secret = oauth2::ClientSecret::new(oauth.client_secret.clone());
 			let auth_url = oauth2::AuthUrl::new(oauth.auth_url.clone())
-				.map_err(|error| error!(source = error, "failed to create the auth URL"))?;
+				.map_err(|source| error!(!source, "failed to create the auth URL"))?;
 			let token_url = oauth2::TokenUrl::new(oauth.token_url.clone())
-				.map_err(|error| error!(source = error, "failed to create the token URL"))?;
+				.map_err(|source| error!(!source, "failed to create the token URL"))?;
 			let oauth_client = oauth2::basic::BasicClient::new(
 				client_id,
 				Some(client_secret),
@@ -266,11 +266,11 @@ impl Server {
 			"#;
 			let mut statement = connection
 				.prepare_cached(statement)
-				.map_err(|error| error!(source = error, "failed to prepare the query"))?;
+				.map_err(|source| error!(!source, "failed to prepare the query"))?;
 			let params = sqlite_params![];
 			statement
 				.execute(params)
-				.map_err(|error| error!(source = error, "failed to execute the statement"))?;
+				.map_err(|source| error!(!source, "failed to execute the statement"))?;
 		}
 
 		// Start the VFS if necessary and set up the checkouts directory.
@@ -287,7 +287,7 @@ impl Server {
 			// Start the VFS server.
 			let vfs = self::vfs::Server::start(&server, &artifacts_path)
 				.await
-				.map_err(|error| error!(source = error, "failed to start the VFS"))?;
+				.map_err(|source| error!(!source, "failed to start the VFS"))?;
 
 			server.inner.vfs.lock().unwrap().replace(vfs);
 		} else {
@@ -299,7 +299,7 @@ impl Server {
 			// Create a symlink from the artifacts directory to the checkouts directory.
 			tokio::fs::symlink("checkouts", artifacts_path)
 				.await
-				.map_err(|error| error!(source = error, "failed to create a symlink from the artifacts directory to the checkouts directory"))?;
+				.map_err(|source| error!(!source, "failed to create a symlink from the artifacts directory to the checkouts directory"))?;
 		}
 
 		// Add the runtimes.
@@ -556,7 +556,7 @@ impl Http {
 			tg::Address::Inet(inet) => tokio_util::either::Either::Right(
 				TcpListener::bind(inet.to_string())
 					.await
-					.map_err(|error| error!(source = error, "failed to create the TCP listener"))?,
+					.map_err(|source| error!(!source, "failed to create the TCP listener"))?,
 			),
 		};
 

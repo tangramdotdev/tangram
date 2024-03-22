@@ -21,7 +21,7 @@ impl Cli {
 	pub async fn command_new(&self, args: Args) -> Result<()> {
 		// Get the path.
 		let mut path = std::env::current_dir()
-			.map_err(|error| error!(source = error, "failed to get the working directory"))?;
+			.map_err(|source| error!(!source, "failed to get the working directory"))?;
 		if let Some(path_arg) = &args.path {
 			path.push(path_arg);
 		}

@@ -92,11 +92,11 @@ impl TryFrom<Url> for Module {
 		// Decode the data.
 		let data = data_encoding::HEXLOWER
 			.decode(data.as_bytes())
-			.map_err(|error| error!(source = error, "failed to deserialize the path"))?;
+			.map_err(|source| error!(!source, "failed to deserialize the path"))?;
 
 		// Deserialize the data.
 		let module = serde_json::from_slice(&data)
-			.map_err(|error| error!(source = error, "failed to deserialize the module"))?;
+			.map_err(|source| error!(!source, "failed to deserialize the module"))?;
 
 		Ok(module)
 	}
@@ -116,7 +116,7 @@ impl std::str::FromStr for Module {
 	fn from_str(s: &str) -> Result<Self, Self::Err> {
 		let url: Url = s
 			.parse()
-			.map_err(|error| error!(source = error, "failed to parse the URL"))?;
+			.map_err(|source| error!(!source, "failed to parse the URL"))?;
 		let module = url.try_into()?;
 		Ok(module)
 	}

@@ -31,7 +31,7 @@ impl Server {
 
 			// Analyze the module.
 			let analysis = crate::language::Server::analyze_module(text)
-				.map_err(|error| error!(source = error, "failed to analyze the module"))?;
+				.map_err(|source| error!(!source, "failed to analyze the module"))?;
 
 			// Recurse into the dependencies.
 			for import in &analysis.imports {

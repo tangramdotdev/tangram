@@ -64,7 +64,7 @@ impl Server {
 				let package_path = document.package_path.join(dependency_path.to_string());
 				let package_path = tokio::fs::canonicalize(package_path)
 					.await
-					.map_err(|error| error!(source = error, "failed to canonicalize the path"))?;
+					.map_err(|source| error!(!source, "failed to canonicalize the path"))?;
 
 				// Get the package's root module path.
 				let module_path = tg::package::get_root_module_path_for_path(&package_path).await?;

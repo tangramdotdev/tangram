@@ -53,7 +53,7 @@ impl Server {
 		// Begin a transaction.
 		let txn = connection
 			.transaction()
-			.map_err(|error| error!(source = error, "failed to begin the transaction"))?;
+			.map_err(|source| error!(!source, "failed to begin the transaction"))?;
 
 		// Delete any existing children.
 		{
@@ -64,10 +64,10 @@ impl Server {
 			let params = sqlite_params![id.to_string()];
 			let mut statement = txn
 				.prepare_cached(statement)
-				.map_err(|error| error!(source = error, "failed to prepare the query"))?;
+				.map_err(|source| error!(!source, "failed to prepare the query"))?;
 			statement
 				.execute(params)
-				.map_err(|error| error!(source = error, "failed to execute the statement"))?;
+				.map_err(|source| error!(!source, "failed to execute the statement"))?;
 		}
 
 		// Insert the children.
@@ -78,7 +78,7 @@ impl Server {
 			";
 			let mut statement = txn
 				.prepare_cached(statement)
-				.map_err(|error| error!(source = error, "failed to prepare the query"))?;
+				.map_err(|source| error!(!source, "failed to prepare the query"))?;
 			arg.children
 				.iter()
 				.enumerate()
@@ -104,10 +104,10 @@ impl Server {
 			let params = sqlite_params![id.to_string()];
 			let mut statement = txn
 				.prepare_cached(statement)
-				.map_err(|error| error!(source = error, "failed to prepare the query"))?;
+				.map_err(|source| error!(!source, "failed to prepare the query"))?;
 			statement
 				.execute(params)
-				.map_err(|error| error!(source = error, "failed to execute the statement"))?;
+				.map_err(|source| error!(!source, "failed to execute the statement"))?;
 		}
 
 		// Add the objects.
@@ -118,7 +118,7 @@ impl Server {
 			";
 			let mut statement = txn
 				.prepare_cached(statement)
-				.map_err(|error| error!(source = error, "failed to prepare the query"))?;
+				.map_err(|source| error!(!source, "failed to prepare the query"))?;
 			let objects = std::iter::empty()
 				.chain(arg.log.clone().map(Into::into))
 				.chain(
@@ -136,7 +136,7 @@ impl Server {
 				let params = sqlite_params![build, object];
 				statement
 					.execute(params)
-					.map_err(|error| error!(source = error, "failed to execute the statement"))?;
+					.map_err(|source| error!(!source, "failed to execute the statement"))?;
 			}
 		}
 
@@ -246,15 +246,15 @@ impl Server {
 			];
 			let mut statement = txn
 				.prepare_cached(statement)
-				.map_err(|error| error!(source = error, "failed to prepare the query"))?;
+				.map_err(|source| error!(!source, "failed to prepare the query"))?;
 			statement
 				.execute(params)
-				.map_err(|error| error!(source = error, "failed to execute the statement"))?;
+				.map_err(|source| error!(!source, "failed to execute the statement"))?;
 		}
 
 		// Commit the transaction.
 		txn.commit()
-			.map_err(|error| error!(source = error, "failed to commit the transaction"))?;
+			.map_err(|source| error!(!source, "failed to commit the transaction"))?;
 
 		Ok(())
 	}
@@ -272,7 +272,7 @@ impl Server {
 			connection
 				.transaction()
 				.await
-				.map_err(|error| error!(source = error, "failed to begin the transaction"))?,
+				.map_err(|source| error!(!source, "failed to begin the transaction"))?,
 		);
 
 		// Delete any existing children.
@@ -285,10 +285,10 @@ impl Server {
 			let statement = txn
 				.prepare_cached(statement)
 				.await
-				.map_err(|error| error!(source = error, "failed to prepare the query"))?;
+				.map_err(|source| error!(!source, "failed to prepare the query"))?;
 			txn.execute(&statement, params)
 				.await
-				.map_err(|error| error!(source = error, "failed to execute the statement"))?;
+				.map_err(|source| error!(!source, "failed to execute the statement"))?;
 		}
 
 		// Insert the children.
@@ -300,7 +300,7 @@ impl Server {
 			let statement = txn
 				.prepare_cached(statement)
 				.await
-				.map_err(|error| error!(source = error, "failed to prepare the query"))?;
+				.map_err(|source| error!(!source, "failed to prepare the query"))?;
 			arg.children
 				.iter()
 				.enumerate()
@@ -333,10 +333,10 @@ impl Server {
 			let statement = txn
 				.prepare_cached(statement)
 				.await
-				.map_err(|error| error!(source = error, "failed to prepare the query"))?;
+				.map_err(|source| error!(!source, "failed to prepare the query"))?;
 			txn.execute(&statement, params)
 				.await
-				.map_err(|error| error!(source = error, "failed to execute the statement"))?;
+				.map_err(|source| error!(!source, "failed to execute the statement"))?;
 		}
 
 		// Add the objects.
@@ -348,7 +348,7 @@ impl Server {
 			let statement = txn
 				.prepare_cached(statement)
 				.await
-				.map_err(|error| error!(source = error, "failed to prepare the query"))?;
+				.map_err(|source| error!(!source, "failed to prepare the query"))?;
 			let objects = arg
 				.log
 				.clone()
@@ -474,10 +474,10 @@ impl Server {
 			let statement = txn
 				.prepare_cached(statement)
 				.await
-				.map_err(|error| error!(source = error, "failed to prepare the query"))?;
+				.map_err(|source| error!(!source, "failed to prepare the query"))?;
 			txn.execute(&statement, params)
 				.await
-				.map_err(|error| error!(source = error, "failed to execute the statement"))?;
+				.map_err(|source| error!(!source, "failed to execute the statement"))?;
 		}
 
 		// Commit the transaction.
@@ -485,7 +485,7 @@ impl Server {
 			.unwrap()
 			.commit()
 			.await
-			.map_err(|error| error!(source = error, "failed to commit the transaction"))?;
+			.map_err(|source| error!(!source, "failed to commit the transaction"))?;
 
 		Ok(())
 	}
@@ -504,7 +504,7 @@ impl Http {
 		};
 		let build_id = build_id
 			.parse()
-			.map_err(|error| error!(source = error, "failed to parse the ID"))?;
+			.map_err(|source| error!(!source, "failed to parse the ID"))?;
 
 		// Get the user.
 		let user = self.try_get_user_from_request(&request).await?;
@@ -514,10 +514,10 @@ impl Http {
 			.into_body()
 			.collect()
 			.await
-			.map_err(|error| error!(source = error, "failed to read the body"))?
+			.map_err(|source| error!(!source, "failed to read the body"))?
 			.to_bytes();
 		let arg = serde_json::from_slice(&bytes)
-			.map_err(|error| error!(source = error, "failed to deserialize the body"))?;
+			.map_err(|source| error!(!source, "failed to deserialize the body"))?;
 
 		// Put the build.
 		self.inner

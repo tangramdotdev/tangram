@@ -13,7 +13,7 @@ impl Server {
 		tg::object::Handle::with_id(id.clone())
 			.push(self, remote.as_ref())
 			.await
-			.map_err(|error| error!(source = error, "failed to push the object"))?;
+			.map_err(|source| error!(!source, "failed to push the object"))?;
 		Ok(())
 	}
 }

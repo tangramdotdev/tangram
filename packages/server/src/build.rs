@@ -213,13 +213,13 @@ impl Server {
 				let params = sqlite_params![id];
 				let mut statement = connection
 					.prepare_cached(statement)
-					.map_err(|error| error!(source = error, "failed to prepare the statement"))?;
+					.map_err(|source| error!(!source, "failed to prepare the statement"))?;
 				let mut rows = statement
 					.query(params)
-					.map_err(|error| error!(source = error, "failed to execute the statement"))?;
+					.map_err(|source| error!(!source, "failed to execute the statement"))?;
 				let row = rows
 					.next()
-					.map_err(|error| error!(source = error, "failed to get the row"))?;
+					.map_err(|source| error!(!source, "failed to get the row"))?;
 				let id = row
 					.map(|row| {
 						row.get::<_, String>(0)
@@ -249,11 +249,11 @@ impl Server {
 				let statement = connection
 					.prepare_cached(statement)
 					.await
-					.map_err(|error| error!(source = error, "failed to prepare the statement"))?;
+					.map_err(|source| error!(!source, "failed to prepare the statement"))?;
 				let rows = connection
 					.query(&statement, params)
 					.await
-					.map_err(|error| error!(source = error, "failed to execute the statement"))?;
+					.map_err(|source| error!(!source, "failed to execute the statement"))?;
 				let row = rows.first();
 				let id = row
 					.map(|row| {
@@ -285,17 +285,17 @@ impl Server {
 				let params = sqlite_params![id.to_string()];
 				let mut statement = connection
 					.prepare_cached(statement)
-					.map_err(|error| error!(source = error, "failed to prepare the query"))?;
+					.map_err(|source| error!(!source, "failed to prepare the query"))?;
 				let mut rows = statement
 					.query(params)
-					.map_err(|error| error!(source = error, "failed to execute the statement"))?;
+					.map_err(|source| error!(!source, "failed to execute the statement"))?;
 				let row = rows
 					.next()
-					.map_err(|error| error!(source = error, "failed to retrieve the row"))?
+					.map_err(|source| error!(!source, "failed to retrieve the row"))?
 					.ok_or_else(|| error!("expected a row"))?;
 				let exists = row
 					.get::<_, bool>(0)
-					.map_err(|error| error!(source = error, "failed to deserialize the column"))?;
+					.map_err(|source| error!(!source, "failed to deserialize the column"))?;
 				Ok(exists)
 			},
 
@@ -310,14 +310,14 @@ impl Server {
 				let statement = connection
 					.prepare_cached(statement)
 					.await
-					.map_err(|error| error!(source = error, "failed to prepare the query"))?;
+					.map_err(|source| error!(!source, "failed to prepare the query"))?;
 				let row = connection
 					.query_one(&statement, params)
 					.await
-					.map_err(|error| error!(source = error, "failed to execute the statement"))?;
+					.map_err(|source| error!(!source, "failed to execute the statement"))?;
 				let exists = row
 					.try_get::<_, bool>(0)
-					.map_err(|error| error!(source = error, "failed to deserialize the column"))?;
+					.map_err(|source| error!(!source, "failed to deserialize the column"))?;
 				Ok(exists)
 			},
 		}

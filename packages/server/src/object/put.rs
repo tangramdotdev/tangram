@@ -44,16 +44,16 @@ impl Server {
 			let params = sqlite_params![id, bytes];
 			let mut statement = connection
 				.prepare_cached(statement)
-				.map_err(|error| error!(source = error, "failed to prepare the query"))?;
+				.map_err(|source| error!(!source, "failed to prepare the query"))?;
 			let mut rows = statement
 				.query(params)
-				.map_err(|error| error!(source = error, "failed to execute the statement"))?;
+				.map_err(|source| error!(!source, "failed to execute the statement"))?;
 			let row = rows
 				.next()
-				.map_err(|error| error!(source = error, "failed to retrieve the row"))?
+				.map_err(|source| error!(!source, "failed to retrieve the row"))?
 				.ok_or_else(|| error!("expected a row"))?;
 			row.get::<_, bool>(0)
-				.map_err(|error| error!(source = error, "failed to deserialize the column"))?
+				.map_err(|source| error!(!source, "failed to deserialize the column"))?
 		};
 
 		// Find the incomplete children.
@@ -68,17 +68,17 @@ impl Server {
 			let params = sqlite_params![id];
 			let mut statement = connection
 				.prepare_cached(statement)
-				.map_err(|error| error!(source = error, "failed to prepare the query"))?;
+				.map_err(|source| error!(!source, "failed to prepare the query"))?;
 			let rows = statement
 				.query(params)
-				.map_err(|error| error!(source = error, "failed to execute the statement"))?;
+				.map_err(|source| error!(!source, "failed to execute the statement"))?;
 			rows.and_then(|row| row.get::<_, String>(0))
-				.map_err(|error| error!(source = error, "failed to deserialize the rows"))
+				.map_err(|source| error!(!source, "failed to deserialize the rows"))
 				.and_then(|id| id.parse())
 				.try_collect()?
 		} else {
 			let data = tg::object::Data::deserialize(id.kind(), &arg.bytes)
-				.map_err(|error| error!(source = error, "failed to deserialize the data"))?;
+				.map_err(|source| error!(!source, "failed to deserialize the data"))?;
 			data.children()
 		};
 
@@ -108,17 +108,17 @@ impl Server {
 			let statement = connection
 				.prepare_cached(statement)
 				.await
-				.map_err(|error| error!(source = error, "failed to prepare the query"))?;
+				.map_err(|source| error!(!source, "failed to prepare the query"))?;
 			let rows = connection
 				.query(&statement, params)
 				.await
-				.map_err(|error| error!(source = error, "failed to execute the statement"))?;
+				.map_err(|source| error!(!source, "failed to execute the statement"))?;
 			let row = rows
 				.into_iter()
 				.next()
 				.ok_or_else(|| error!("expected a row"))?;
 			row.try_get::<_, bool>(0)
-				.map_err(|error| error!(source = error, "failed to deserialize the column"))?
+				.map_err(|source| error!(!source, "failed to deserialize the column"))?
 		};
 
 		// Find the incomplete children.
@@ -134,19 +134,19 @@ impl Server {
 			let statement = connection
 				.prepare_cached(statement)
 				.await
-				.map_err(|error| error!(source = error, "failed to prepare the query"))?;
+				.map_err(|source| error!(!source, "failed to prepare the query"))?;
 			let rows = connection
 				.query(&statement, params)
 				.await
-				.map_err(|error| error!(source = error, "failed to execute the statement"))?;
+				.map_err(|source| error!(!source, "failed to execute the statement"))?;
 			rows.into_iter()
 				.map(|row| row.try_get::<_, String>(0))
-				.map_err(|error| error!(source = error, "failed to deserialize the rows"))
+				.map_err(|source| error!(!source, "failed to deserialize the rows"))
 				.and_then(|id| id.parse())
 				.try_collect()?
 		} else {
 			let data = tg::object::Data::deserialize(id.kind(), &arg.bytes)
-				.map_err(|error| error!(source = error, "failed to deserialize the data"))?;
+				.map_err(|source| error!(!source, "failed to deserialize the data"))?;
 			data.children()
 		};
 
@@ -193,10 +193,10 @@ impl Server {
 			let params = sqlite_params![id, bytes];
 			let mut statement = txn
 				.prepare_cached(statement)
-				.map_err(|error| error!(source = error, "failed to prepare the query"))?;
+				.map_err(|source| error!(!source, "failed to prepare the query"))?;
 			statement
 				.execute(params)
-				.map_err(|error| error!(source = error, "failed to execute the statement"))?;
+				.map_err(|source| error!(!source, "failed to execute the statement"))?;
 		}
 
 		Ok(())
@@ -223,10 +223,10 @@ impl Server {
 			let statement = txn
 				.prepare_cached(statement)
 				.await
-				.map_err(|error| error!(source = error, "failed to prepare the query"))?;
+				.map_err(|source| error!(!source, "failed to prepare the query"))?;
 			txn.execute(&statement, params)
 				.await
-				.map_err(|error| error!(source = error, "failed to execute the statement"))?;
+				.map_err(|source| error!(!source, "failed to execute the statement"))?;
 		}
 
 		Ok(())
@@ -253,7 +253,7 @@ impl Http {
 			.into_body()
 			.collect()
 			.await
-			.map_err(|error| error!(source = error, "failed to read the body"))?
+			.map_err(|source| error!(!source, "failed to read the body"))?
 			.to_bytes();
 
 		// Put the object.
@@ -266,7 +266,7 @@ impl Http {
 
 		// Create the body.
 		let body = serde_json::to_vec(&output)
-			.map_err(|error| error!(source = error, "failed to serialize the body"))?;
+			.map_err(|source| error!(!source, "failed to serialize the body"))?;
 		let body = full(body);
 
 		// Create the response.

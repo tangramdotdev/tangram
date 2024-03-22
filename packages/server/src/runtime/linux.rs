@@ -119,15 +119,15 @@ impl Runtime {
 
 		// Create a tempdir for the root.
 		let root_directory_tempdir = tempfile::TempDir::new_in(&server_directory_tmp_path)
-			.map_err(|error| error!(source = error, "failed to create temporary directory"))?;
+			.map_err(|source| error!(!source, "failed to create temporary directory"))?;
 		let root_directory_host_path = root_directory_tempdir.path().to_owned();
 		tokio::fs::create_dir_all(&root_directory_host_path)
 			.await
-			.map_err(|error| error!(source = error, "failed to create the root directory"))?;
+			.map_err(|source| error!(!source, "failed to create the root directory"))?;
 
 		// Create a tempdir for the output.
 		let output_tempdir = tempfile::TempDir::new_in(&server_directory_tmp_path)
-			.map_err(|error| error!(source = error, "failed to create the temporary directory"))?;
+			.map_err(|source| error!(!source, "failed to create the temporary directory"))?;
 
 		// Create the host and guest paths for the output parent directory.
 		let output_parent_directory_host_path = output_tempdir.path().to_owned();
@@ -154,10 +154,10 @@ impl Runtime {
 		let sh_path = root_directory_host_path.join("bin/sh");
 		tokio::fs::create_dir_all(&env_path.parent().unwrap())
 			.await
-			.map_err(|error| error!(source = error, "failed to create the directory"))?;
+			.map_err(|source| error!(!source, "failed to create the directory"))?;
 		tokio::fs::create_dir_all(&sh_path.parent().unwrap())
 			.await
-			.map_err(|error| error!(source = error, "failed to create the directory"))?;
+			.map_err(|source| error!(!source, "failed to create the directory"))?;
 		let env_guest_path = server_directory_guest_path
 			.join("artifacts")
 			.join(self.env.id(server).await?.to_string());
@@ -166,10 +166,10 @@ impl Runtime {
 			.join(self.sh.id(server).await?.to_string());
 		tokio::fs::symlink(&env_guest_path, &env_path)
 			.await
-			.map_err(|error| error!(source = error, "failed to create the env symlink"))?;
+			.map_err(|source| error!(!source, "failed to create the env symlink"))?;
 		tokio::fs::symlink(&sh_guest_path, &sh_path)
 			.await
-			.map_err(|error| error!(source = error, "failed to create the sh symlink"))?;
+			.map_err(|source| error!(!source, "failed to create the sh symlink"))?;
 
 		// Create the host and guest paths for the home directory, with inner .tangram directory.
 		let home_directory_host_path =
@@ -177,7 +177,7 @@ impl Runtime {
 		let home_directory_guest_path = PathBuf::from(HOME_DIRECTORY_GUEST_PATH);
 		tokio::fs::create_dir_all(&home_directory_host_path.join(".tangram"))
 			.await
-			.map_err(|error| error!(source = error, "failed to create the home directory"))?;
+			.map_err(|source| error!(!source, "failed to create the home directory"))?;
 
 		// Create the host and guest paths for the proxy server socket.
 		let proxy_server_socket_host_path = home_directory_host_path.join(".tangram/socket");
@@ -188,7 +188,7 @@ impl Runtime {
 			root_directory_host_path.join(WORKING_DIRECTORY_GUEST_PATH.strip_prefix('/').unwrap());
 		tokio::fs::create_dir_all(&working_directory_host_path)
 			.await
-			.map_err(|error| error!(source = error, "failed to create the working directory"))?;
+			.map_err(|source| error!(!source, "failed to create the working directory"))?;
 
 		// Render the executable.
 		let executable = target.executable(server).await?;
@@ -250,12 +250,12 @@ impl Runtime {
 		let proxy_server_host_address = tg::Address::Unix(proxy_server_socket_host_path);
 		let proxy_server = Proxy::start(server, build.id(), proxy_server_host_address)
 			.await
-			.map_err(|error| error!(source = error, "failed to create the proxy server"))?;
+			.map_err(|source| error!(!source, "failed to create the proxy server"))?;
 
 		// Create /etc.
 		tokio::fs::create_dir_all(root_directory_host_path.join("etc"))
 			.await
-			.map_err(|error| error!(source = error, "failed to create /etc"))?;
+			.map_err(|source| error!(!source, "failed to create /etc"))?;
 
 		// Create /etc/passwd.
 		tokio::fs::write(
@@ -269,7 +269,7 @@ impl Runtime {
 			),
 		)
 		.await
-		.map_err(|error| error!(source = error, "failed to create /etc/passwd"))?;
+		.map_err(|source| error!(!source, "failed to create /etc/passwd"))?;
 
 		// Create /etc/group.
 		tokio::fs::write(
@@ -281,7 +281,7 @@ impl Runtime {
 			),
 		)
 		.await
-		.map_err(|error| error!(source = error, "failed to create /etc/group"))?;
+		.map_err(|source| error!(!source, "failed to create /etc/group"))?;
 
 		// Create /etc/nsswitch.conf.
 		tokio::fs::write(
@@ -295,7 +295,7 @@ impl Runtime {
 			),
 		)
 		.await
-		.map_err(|error| error!(source = error, "failed to create /etc/nsswitch.conf"))?;
+		.map_err(|source| error!(!source, "failed to create /etc/nsswitch.conf"))?;
 
 		// If network access is enabled, then copy /etc/resolv.conf from the host.
 		if network_enabled {
@@ -304,18 +304,18 @@ impl Runtime {
 				root_directory_host_path.join("etc/resolv.conf"),
 			)
 			.await
-			.map_err(|error| error!(source = error, "failed to copy /etc/resolv.conf"))?;
+			.map_err(|source| error!(!source, "failed to copy /etc/resolv.conf"))?;
 		}
 
 		// Create the socket.
 		let (mut host_socket, guest_socket) = tokio::net::UnixStream::pair()
-			.map_err(|error| error!(source = error, "failed to create the socket pair"))?;
+			.map_err(|source| error!(!source, "failed to create the socket pair"))?;
 		let guest_socket = guest_socket
 			.into_std()
-			.map_err(|error| error!(source = error, "failed to convert the Unix Stream"))?;
+			.map_err(|source| error!(!source, "failed to convert the Unix Stream"))?;
 		guest_socket
 			.set_nonblocking(false)
-			.map_err(|error| error!(source = error, "failed to set nonblocking mode"))?;
+			.map_err(|source| error!(!source, "failed to set nonblocking mode"))?;
 
 		// Create the mounts.
 		let mut mounts = Vec::new();
@@ -466,7 +466,7 @@ impl Runtime {
 
 		// Create the executable.
 		let executable = CString::new(executable)
-			.map_err(|error| error!(source = error, "the executable is not a valid C string"))?;
+			.map_err(|source| error!(!source, "the executable is not a valid C string"))?;
 
 		// Create `envp`.
 		let env = env
@@ -485,7 +485,7 @@ impl Runtime {
 			.into_iter()
 			.map(CString::new)
 			.try_collect()
-			.map_err(|error| error!(source = error, "failed to convert the args"))?;
+			.map_err(|source| error!(!source, "failed to convert the args"))?;
 		let mut argv = Vec::with_capacity(1 + args.len() + 1);
 		argv.push(executable.clone());
 		for arg in args {
@@ -513,10 +513,10 @@ impl Runtime {
 
 		// Create the log socket pair.
 		let (log_send, mut log_recv) = tokio::net::UnixStream::pair()
-			.map_err(|error| error!(source = error, "failed to create stdout socket"))?;
+			.map_err(|source| error!(!source, "failed to create stdout socket"))?;
 		let log = log_send
 			.into_std()
-			.map_err(|error| error!(source = error, "failed to convert the log sender"))?;
+			.map_err(|source| error!(!source, "failed to convert the log sender"))?;
 		log.set_nonblocking(false).map_err(|error| {
 			error!(
 				source = error,
@@ -541,7 +541,7 @@ impl Runtime {
 		let clone_flags = libc::CLONE_NEWUSER;
 		let clone_flags = clone_flags
 			.try_into()
-			.map_err(|error| error!(source = error, "invalid clone flags"))?;
+			.map_err(|source| error!(!source, "invalid clone flags"))?;
 		let mut clone_args = libc::clone_args {
 			flags: clone_flags,
 			stack: 0,
@@ -574,7 +574,7 @@ impl Runtime {
 		drop(context);
 		let root_process_pid: libc::pid_t = ret
 			.try_into()
-			.map_err(|error| error!(source = error, "invalid root process PID"))?;
+			.map_err(|source| error!(!source, "invalid root process PID"))?;
 
 		// If this future is dropped, then kill the root process.
 		scopeguard::defer! {
@@ -648,12 +648,12 @@ impl Runtime {
 			format!("{TANGRAM_UID} {uid} 1\n"),
 		)
 		.await
-		.map_err(|error| error!(source = error, "failed to set the UID map"))?;
+		.map_err(|source| error!(!source, "failed to set the UID map"))?;
 
 		// Deny setgroups to the process.
 		tokio::fs::write(format!("/proc/{guest_process_pid}/setgroups"), "deny")
 			.await
-			.map_err(|error| error!(source = error, "failed to disable setgroups"))?;
+			.map_err(|source| error!(!source, "failed to disable setgroups"))?;
 
 		// Write the guest process's GID map.
 		let gid = unsafe { libc::getgid() };
@@ -662,7 +662,7 @@ impl Runtime {
 			format!("{TANGRAM_GID} {gid} 1\n"),
 		)
 		.await
-		.map_err(|error| error!(source = error, "failed to set the GID map"))?;
+		.map_err(|source| error!(!source, "failed to set the GID map"))?;
 
 		// Notify the guest process that it can continue.
 		host_socket.write_u8(1).await.map_err(|error| {
@@ -732,14 +732,14 @@ impl Runtime {
 			Ok(())
 		})
 		.await
-		.map_err(|error| error!(source = error, "failed to join the root process exit task"))?
-		.map_err(|error| error!(source = error, "the root process did not exit successfully"))?;
+		.map_err(|source| error!(!source, "failed to join the root process exit task"))?
+		.map_err(|source| error!(!source, "the root process did not exit successfully"))?;
 
 		// Wait for the log task to complete.
 		log_task
 			.await
-			.map_err(|error| error!(source = error, "failed to join the log task"))?
-			.map_err(|error| error!(source = error, "the log task failed"))?;
+			.map_err(|source| error!(!source, "failed to join the log task"))?
+			.map_err(|source| error!(!source, "the log task failed"))?;
 
 		// Handle the guest process's exit status.
 		match exit_status {
@@ -757,24 +757,24 @@ impl Runtime {
 		proxy_server
 			.join()
 			.await
-			.map_err(|error| error!(source = error, "failed to stop the proxy server"))?;
+			.map_err(|source| error!(!source, "failed to stop the proxy server"))?;
 
 		// Create the output.
 		let value = if tokio::fs::try_exists(&output_host_path)
 			.await
-			.map_err(|error| error!(source = error, "failed to determine in the path exists"))?
+			.map_err(|source| error!(!source, "failed to determine in the path exists"))?
 		{
 			// Check in the output.
 			let artifact = tg::Artifact::check_in(server, &output_host_path.clone().try_into()?)
 				.await
-				.map_err(|error| error!(source = error, "failed to check in the output"))?;
+				.map_err(|source| error!(!source, "failed to check in the output"))?;
 
 			// Verify the checksum if one was provided.
 			if let Some(expected) = target.checksum(server).await?.clone() {
 				let actual = artifact
 					.checksum(server, expected.algorithm())
 					.await
-					.map_err(|error| error!(source = error, "failed to compute the checksum"))?;
+					.map_err(|source| error!(!source, "failed to compute the checksum"))?;
 				if expected != tg::Checksum::Unsafe && expected != actual {
 					return Err(error!(%actual, %expected, "the checksum did not match"));
 				}

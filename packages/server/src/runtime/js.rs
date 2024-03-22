@@ -208,7 +208,7 @@ impl Runtime {
 			let undefined = v8::undefined(scope);
 			let target = target
 				.to_v8(scope)
-				.map_err(|error| error!(source = error, "failed to serialize the target"))?;
+				.map_err(|source| error!(!source, "failed to serialize the target"))?;
 			let value = start.call(scope, undefined.into(), &[target]).unwrap();
 
 			// Make the value global.
@@ -330,7 +330,7 @@ impl Runtime {
 		state.log_sender.borrow_mut().take().unwrap();
 		log_task
 			.await
-			.map_err(|error| error!(source = error, "failed to join the log task"))?;
+			.map_err(|source| error!(!source, "failed to join the log task"))?;
 
 		result
 	}
@@ -522,7 +522,7 @@ fn load_module<'s>(
 	let text = match receiver
 		.recv()
 		.unwrap()
-		.map_err(|error| error!(source = error, %module, "failed to load module"))
+		.map_err(|source| error!(!source, %module, "failed to load module"))
 	{
 		Ok(text) => text,
 		Err(error) => {
@@ -537,7 +537,7 @@ fn load_module<'s>(
 		transpiled_text,
 		source_map,
 	} = match crate::language::Server::transpile_module(text)
-		.map_err(|error| error!(source = error, "failed to transpile the module"))
+		.map_err(|source| error!(!source, "failed to transpile the module"))
 	{
 		Ok(output) => output,
 		Err(error) => {
@@ -549,7 +549,7 @@ fn load_module<'s>(
 
 	// Parse the source map.
 	let source_map = match SourceMap::from_slice(source_map.as_bytes())
-		.map_err(|error| error!(source = error, "failed to parse the source map"))
+		.map_err(|source| error!(!source, "failed to parse the source map"))
 	{
 		Ok(source_map) => source_map,
 		Err(error) => {
@@ -674,14 +674,14 @@ fn parse_import_inner<'s>(
 				.get(scope, i)
 				.ok_or_else(|| error!("failed to get the key"))?;
 			let key = v8::Local::<v8::Value>::try_from(key)
-				.map_err(|error| error!(source = error, "failed to convert the key"))?;
+				.map_err(|source| error!(!source, "failed to convert the key"))?;
 			let key = key.to_rust_string_lossy(scope);
 			i += 1;
 			let value = attributes
 				.get(scope, i)
 				.ok_or_else(|| error!("failed to get the value"))?;
 			let value = v8::Local::<v8::Value>::try_from(value)
-				.map_err(|error| error!(source = error, "failed to convert the value"))?;
+				.map_err(|source| error!(!source, "failed to convert the value"))?;
 			let value = value.to_rust_string_lossy(scope);
 			i += 1;
 			map.insert(key, value);
