@@ -56,42 +56,29 @@ impl Runtime {
 		// Get the artifacts path.
 		let artifacts_directory_path = server.inner.options.path.join("artifacts");
 
-		// Get the server temporary directory path.
-		let server_directory_tmp_path = server.inner.options.path.join("tmp");
-		tokio::fs::create_dir_all(&server_directory_tmp_path)
+		let root_directory_tmp = server.create_tmp();
+		tokio::fs::create_dir_all(&root_directory_tmp)
 			.await
 			.map_err(|error| {
-				error!(source = error, "failed to create the server temp directory")
-			})?;
-
-		let root_directory_tmp =
-			tempfile::TempDir::new_in(&server_directory_tmp_path).map_err(|error| {
 				error!(
 					source = error,
 					"failed to create the root temporary directory"
 				)
 			})?;
-		let root_directory_path = root_directory_tmp.path().to_owned();
+		let root_directory_path = std::path::PathBuf::from(root_directory_tmp.as_ref());
 
 		// Create a tempdir for the output.
-		let output_tempdir =
-			tempfile::TempDir::new_in(&server_directory_tmp_path).map_err(|error| {
+		let output_parent_directory_tmp = server.create_tmp();
+		tokio::fs::create_dir_all(&output_parent_directory_tmp)
+			.await
+			.map_err(|error| {
 				error!(
 					source = error,
 					"failed to create the output temporary directory"
 				)
 			})?;
-
-		// Create the output parent directory.
-		let output_parent_directory_path = output_tempdir.path().to_owned();
-		tokio::fs::create_dir_all(&output_parent_directory_path)
-			.await
-			.map_err(|error| {
-				error!(
-					source = error,
-					"failed to create the output parent directory"
-				)
-			})?;
+		let output_parent_directory_path =
+			std::path::PathBuf::from(output_parent_directory_tmp.as_ref());
 
 		// Create the output path.
 		let output_path = output_parent_directory_path.join("output");
