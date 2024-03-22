@@ -120,7 +120,7 @@ impl Runtime {
 		let output_parent_directory_tmp = server.create_tmp();
 		tokio::fs::create_dir_all(&output_parent_directory_tmp)
 			.await
-			.map_err(|source| error!(!source, "failed to create the output temporary directory"))?;
+			.map_err(|source| error!(!source, "failed to create the output parent directory"))?;
 
 		// Create the host and guest paths for the output parent directory.
 		let output_parent_directory_host_path = PathBuf::from(output_parent_directory_tmp.as_ref());

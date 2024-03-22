@@ -74,7 +74,7 @@ impl Runtime {
 			.map_err(|error| {
 				error!(
 					source = error,
-					"failed to create the output temporary directory"
+					"failed to create the output parent directory"
 				)
 			})?;
 		let output_parent_directory_path =
