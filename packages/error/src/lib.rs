@@ -299,6 +299,13 @@ macro_rules! error {
 		$error.values.insert(stringify!($name).to_owned(), format!("{:?}", $value));
 		$crate::error!({ $error }, $($arg)*)
 	};
+	({ $error:ident }, !$source:expr, $($arg:tt)*) => {
+		$error.source.replace(std::sync::Arc::new({
+			let source: Box<dyn std::error::Error + Send + Sync + 'static> = Box::new($source);
+			source.into()
+		}));
+		$crate::error!({ $error }, $($arg)*)
+	};
 	({ $error:ident }, source = $source:expr, $($arg:tt)*) => {
 		$error.source.replace(std::sync::Arc::new({
 			let source: Box<dyn std::error::Error + Send + Sync + 'static> = Box::new($source);
@@ -357,6 +364,16 @@ mod tests {
 		let foo = "foo";
 		let bar = "bar";
 		let error = error!(?foo, %bar, %baz = "baz", ?qux ="qux", "{}", "message");
+		let trace = error.trace(&options).to_string();
+		println!("{trace}");
+
+		let source = std::io::Error::other("an io error");
+		let error = error!(source = source, "another error");
+		let trace = error.trace(&options).to_string();
+		println!("{trace}");
+
+		let source = std::io::Error::other("an io error");
+		let error = error!(!source, "another error");
 		let trace = error.trace(&options).to_string();
 		println!("{trace}");
 
