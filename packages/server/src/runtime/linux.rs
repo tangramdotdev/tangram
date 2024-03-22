@@ -109,37 +109,22 @@ impl Runtime {
 		let server_directory_host_path = server.inner.options.path.clone();
 		let server_directory_guest_path = PathBuf::from(SERVER_DIRECTORY_GUEST_PATH);
 
-		// Get the server temporary directory path.
-		let server_directory_tmp_path = server_directory_host_path.join("tmp");
-		tokio::fs::create_dir_all(&server_directory_tmp_path)
-			.await
-			.map_err(|error| {
-				error!(source = error, "failed to create the server temp directory")
-			})?;
-
 		// Create a tempdir for the root.
-		let root_directory_tempdir = tempfile::TempDir::new_in(&server_directory_tmp_path)
-			.map_err(|source| error!(!source, "failed to create temporary directory"))?;
-		let root_directory_host_path = root_directory_tempdir.path().to_owned();
-		tokio::fs::create_dir_all(&root_directory_host_path)
+		let root_directory_tmp = server.create_tmp();
+		tokio::fs::create_dir_all(&root_directory_tmp)
 			.await
-			.map_err(|source| error!(!source, "failed to create the root directory"))?;
+			.map_err(|source| error!(!source, "failed to create the root temporary directory"))?;
+		let root_directory_host_path = std::path::PathBuf::from(root_directory_tmp.as_ref());
 
 		// Create a tempdir for the output.
-		let output_tempdir = tempfile::TempDir::new_in(&server_directory_tmp_path)
-			.map_err(|source| error!(!source, "failed to create the temporary directory"))?;
+		let output_parent_directory_tmp = server.create_tmp();
+		tokio::fs::create_dir_all(&output_parent_directory_tmp)
+			.await
+			.map_err(|source| error!(!source, "failed to create the output parent directory"))?;
 
 		// Create the host and guest paths for the output parent directory.
-		let output_parent_directory_host_path = output_tempdir.path().to_owned();
+		let output_parent_directory_host_path = PathBuf::from(output_parent_directory_tmp.as_ref());
 		let output_parent_directory_guest_path = PathBuf::from(OUTPUT_PARENT_DIRECTORY_GUEST_PATH);
-		tokio::fs::create_dir_all(&output_parent_directory_host_path)
-			.await
-			.map_err(|error| {
-				error!(
-					source = error,
-					"failed to create the output parent directory"
-				)
-			})?;
 
 		// Create the host and guest paths for the output.
 		let output_host_path = output_parent_directory_host_path.join("output");
