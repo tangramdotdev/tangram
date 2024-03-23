@@ -96,6 +96,14 @@ impl Server {
 				let (_, lock) =
 					tg::package::get_with_lock(&self.inner.server, &dependency_).await?;
 
+				// Write the lock file.
+				lock.write(
+					&self.inner.server,
+					&dependency.path.as_ref().unwrap(),
+					false,
+				)
+				.await?;
+
 				// Get the package and lock for the dependency.
 				let (package, lock) = lock
 					.get(&self.inner.server, &dependency)

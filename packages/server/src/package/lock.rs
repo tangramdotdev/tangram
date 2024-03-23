@@ -6,6 +6,7 @@ use futures::{stream::FuturesUnordered, TryStreamExt};
 use std::collections::BTreeMap;
 use tangram_client as tg;
 use tangram_error::{error, Result};
+use tg::Handle;
 
 // Mutable state used during the version solving algorithm to cache package metadata and published packages.
 struct Context {
@@ -19,7 +20,7 @@ struct Context {
 // A cached representation of a package's metadata and dependencies.
 #[derive(Debug, Clone)]
 struct Analysis {
-	metadata: tg::package::Metadata,
+	metadata: Option<tg::package::Metadata>,
 	path_dependencies: BTreeMap<tg::Dependency, tg::directory::Id>,
 	dependencies: Vec<tg::Dependency>,
 }
@@ -115,7 +116,7 @@ impl Server {
 	) -> Result<tg::Lock> {
 		// If this is a path dependency, then attempt to read the lockfile from the path.
 		let lock = if let Some(path) = path {
-			self.try_read_lock_from_path(path).await?
+			tg::Lock::try_read(self, path).await?
 		} else {
 			None
 		};
@@ -135,21 +136,12 @@ impl Server {
 		};
 
 		// Otherwise, create the lock.
-		let (lock, lock_created) = if let Some(lock) = lock {
-			(lock, false)
+		let lock = if let Some(lock) = lock {
+			lock
 		} else {
-			let lock = self
-				.create_package_lock(package_with_path_dependencies)
-				.await?;
-			(lock, true)
+			self.create_package_lock(package_with_path_dependencies)
+				.await?
 		};
-
-		// If this is a path dependency and the lockfile was created, then write the lockfile.
-		if let Some(path) = path {
-			if lock_created {
-				self.write_lock_to_path(path, &lock).await?;
-			}
-		}
 
 		// Fill in path dependencies.
 		let lock = self
@@ -157,65 +149,11 @@ impl Server {
 			.await?;
 
 		// Normalize the lock.
-		let lock = lock.normalize(self).await?;
-
+		let lock = lock
+			.normalize(self)
+			.await
+			.map_err(|error| error!(source = error, "failed to normalize the lock"))?;
 		Ok(lock)
-	}
-
-	async fn try_read_lock_from_path(&self, path: &tg::Path) -> Result<Option<tg::Lock>> {
-		// Canonicalize the path.
-		let path = tokio::fs::canonicalize(path)
-			.await
-			.map_err(|source| error!(!source, "failed to canonicalize the path"))?;
-
-		// Attempt to read the lockfile.
-		let path = path.join(tg::package::LOCKFILE_FILE_NAME);
-		let exists = tokio::fs::try_exists(&path).await.map_err(|error| {
-			error!(source = error, "failed to determine if the lockfile exists")
-		})?;
-		if !exists {
-			return Ok(None);
-		}
-		let lock = tokio::fs::read(&path)
-			.await
-			.map_err(|source| error!(!source, "failed to read the lockfile"))?;
-		let lock: tg::lock::Data = serde_json::from_slice(&lock)
-			.map_err(|source| error!(!source, "failed to deserialize the lockfile"))?;
-
-		let root = lock.root;
-		let nodes = lock
-			.nodes
-			.into_iter()
-			.map(|node| {
-				let dependencies = node
-					.dependencies
-					.into_iter()
-					.map(|(dependency, entry)| {
-						let package = entry.package.map(tg::Directory::with_id);
-						let lock = entry.lock.map_right(tg::Lock::with_id);
-						(dependency, tg::lock::Entry { package, lock })
-					})
-					.collect();
-				tg::lock::Node { dependencies }
-			})
-			.collect::<Vec<_>>();
-		let object = tg::lock::Object { root, nodes };
-		let lock = tg::Lock::with_object(object);
-		Ok(Some(lock))
-	}
-
-	async fn write_lock_to_path(&self, path: &tg::Path, lock: &tg::Lock) -> Result<()> {
-		let package_path = tokio::fs::canonicalize(path)
-			.await
-			.map_err(|source| error!(!source, "failed to canonicalize the path"))?;
-		let lock_path = package_path.join(tg::package::LOCKFILE_FILE_NAME);
-		let lock = lock.data(self).await?;
-		let lock = serde_json::to_vec_pretty(&lock)
-			.map_err(|source| error!(!source, "failed to serialize the lockfile"))?;
-		tokio::fs::write(lock_path, lock)
-			.await
-			.map_err(|source| error!(!source, "failed to write the lockfile"))?;
-		Ok(())
 	}
 
 	async fn package_with_path_dependencies_matches_lock(
@@ -278,13 +216,14 @@ impl Server {
 		Ok(true)
 	}
 
-	async fn create_package_lock(
+	pub(super) async fn create_package_lock(
 		&self,
 		package_with_path_dependencies: &PackageWithPathDependencies,
 	) -> Result<tg::Lock> {
 		// Construct the version solving context and working set.
 		let mut analysis = BTreeMap::new();
 		let mut working_set = im::Vector::new();
+
 		self.analyze_package_with_path_dependencies(
 			package_with_path_dependencies,
 			&mut analysis,
@@ -422,7 +361,9 @@ impl Server {
 		}
 
 		// Get the metadata and dependenencies of this package.
-		let metadata = self.get_package_metadata(package).await?;
+		let metadata = self.try_get_package_metadata(package).await.map_err(
+			|error| error!(source = error, %package_id, "failed to get package metadata"),
+		)?;
 		let dependencies = self.get_package_dependencies(package).await?;
 
 		// Convert dependencies to dependants and update the working set.
@@ -764,7 +705,8 @@ impl Context {
 			if let Some(package) = self.published_packages.get(&metadata) {
 				return Ok(package.clone());
 			}
-			let dependency = tg::Dependency::with_name_and_version(name.into(), version);
+
+			let dependency = tg::Dependency::with_name_and_version(name.into(), version.clone());
 			let Some(package) = tg::package::try_get(server, &dependency)
 				.await
 				.map_err(Error::Other)?
@@ -785,9 +727,10 @@ impl Context {
 	) -> Result<&'_ Analysis> {
 		if !self.analysis.contains_key(package_id) {
 			let package = tg::Directory::with_id(package_id.clone());
-			let metadata = server.get_package_metadata(&package).await?;
+			let metadata = server.get_package_metadata(&package).await.map_err(
+				|error| error!(source = error, %package_id, "failed to get package metadata"),
+			)?;
 			let dependencies = server.get_package_dependencies(&package).await?;
-
 			let mut dependencies_ = Vec::new();
 			let mut path_dependencies = BTreeMap::new();
 			let package_source = tg::Directory::with_id(package_id.clone());
@@ -818,7 +761,7 @@ impl Context {
 			}
 
 			let analysis = Analysis {
-				metadata: metadata.clone(),
+				metadata: Some(metadata.clone()),
 				dependencies: dependencies_,
 				path_dependencies,
 			};
@@ -856,8 +799,8 @@ impl Context {
 		self.try_get_analysis(server, package)
 			.await?
 			.metadata
-			.version
-			.as_deref()
+			.as_ref()
+			.and_then(|metadata| metadata.version.as_deref())
 			.ok_or_else(|| error!(%package, "missing version in package metadata"))
 	}
 
@@ -873,23 +816,13 @@ impl Context {
 		};
 
 		// Get a list of all the corresponding metadata for versions that satisfy the constraint.
-		let Dependant { dependency, .. } = dependant;
-
-		// Filter the versions to only those that satisfy the constraint.
-		let metadata = server
-			.try_get_package_versions(dependency)
-			.await?
-			.ok_or_else(|| error!(%dependency, "package does not exist"))?
-			.into_iter()
-			.filter_map(|version| {
-				dependency
-					.try_match_version(&version)
-					.ok()?
-					.then_some(version)
-			})
-			.collect();
-
-		Ok(metadata)
+		let dependency = &dependant.dependency;
+		let versions = server
+			.get_package_versions(dependency)
+			.await
+			.map_err(|source| error!(!source, %dependency, "failed to get package versions"))?
+			.into();
+		Ok(versions)
 	}
 }
 
@@ -977,20 +910,35 @@ impl Report {
 			package,
 			dependency,
 		} = dependant;
-		let metadata = &self.context.analysis.get(package).unwrap().metadata;
-		let name = metadata.name.as_ref().unwrap();
-		let version = metadata.version.as_ref().unwrap();
-		write!(f, "{name} @ {version} requires {dependency}, but ")?;
+		let metadata = self
+			.context
+			.analysis
+			.get(package)
+			.unwrap()
+			.metadata
+			.as_ref();
+		let name = metadata
+			.and_then(|metadata| metadata.name.as_deref())
+			.unwrap_or("<unknown>");
+		let version = metadata
+			.and_then(|metadata| metadata.version.as_deref())
+			.unwrap_or("<unknown>");
+		write!(f, "{name}@{version} requires {dependency}, but ")?;
 		match error {
 			Error::PackageCycleExists { dependant } => {
-				let metadata = &self
+				let metadata = self
 					.context
 					.analysis
 					.get(&dependant.package)
 					.unwrap()
-					.metadata;
-				let name = metadata.name.as_ref().unwrap();
-				let version = metadata.version.as_ref().unwrap();
+					.metadata
+					.as_ref();
+				let name = metadata
+					.and_then(|metadata| metadata.name.as_deref())
+					.unwrap_or("<unknown>");
+				let version = metadata
+					.and_then(|metadata| metadata.version.as_deref())
+					.unwrap_or("<unknown>");
 				writeln!(f, "{name}@{version}, which creates a cycle")?;
 			},
 			Error::PackageVersionConflict => {
@@ -1009,9 +957,19 @@ impl Report {
 						dependency,
 						..
 					} = shared;
-					let metadata = &self.context.analysis.get(package).unwrap().metadata;
-					let name = metadata.name.as_ref().unwrap();
-					let version = metadata.version.as_ref().unwrap();
+					let metadata = self
+						.context
+						.analysis
+						.get(package)
+						.unwrap()
+						.metadata
+						.as_ref();
+					let name = metadata
+						.and_then(|metadata| metadata.name.as_deref())
+						.unwrap_or("<unknown>");
+					let version = metadata
+						.and_then(|metadata| metadata.version.as_deref())
+						.unwrap_or("<unknown>");
 					writeln!(f, "{name} @ {version} requires {dependency}")?;
 				}
 			},

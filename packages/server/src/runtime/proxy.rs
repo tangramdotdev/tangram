@@ -292,6 +292,13 @@ impl tg::Handle for Proxy {
 		Err(error!("not supported"))
 	}
 
+	async fn get_outdated(
+		&self,
+		_dependency: &tg::Dependency,
+	) -> Result<tg::package::OutdatedOutput> {
+		Err(error!("not supported"))
+	}
+
 	async fn try_get_package(
 		&self,
 		_dependency: &tg::Dependency,

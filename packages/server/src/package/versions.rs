@@ -1,4 +1,5 @@
 use crate::{database::Database, postgres_params, Http, Server};
+use itertools::Itertools;
 use tangram_client as tg;
 use tangram_error::{error, Result};
 use tangram_util::http::{full, not_found, Incoming, Outgoing};
@@ -12,17 +13,29 @@ impl Server {
 			return remote.try_get_package_versions(dependency).await;
 		}
 
-		// Get a database connection.
-		let Database::Postgres(database) = &self.inner.database else {
-			return Err(error!("unimplemented"));
-		};
-		let connection = database.get().await?;
+		let versions = self
+			.try_get_package_versions_local(dependency)
+			.await?
+			.map(|versions| versions.into_iter().map(|(version, _)| version).collect());
+		Ok(versions)
+	}
 
+	pub(super) async fn try_get_package_versions_local(
+		&self,
+		dependency: &tg::Dependency,
+	) -> Result<Option<Vec<(String, tg::directory::Id)>>> {
 		// The dependency must have a name.
 		let name = dependency
 			.name
 			.as_ref()
 			.ok_or_else(|| error!(%dependency, "expected the dependency to have a name"))?;
+		let version = dependency.version.as_ref();
+
+		// Get a database connection.
+		let Database::Postgres(database) = &self.inner.database else {
+			return Err(error!("unimplemented"));
+		};
+		let connection = database.get().await?;
 
 		// Confirm the package exists.
 		let statement = "
@@ -46,9 +59,10 @@ impl Server {
 
 		// Get the versions.
 		let statement = "
-			select version
+			select version, id
 			from package_versions
-			where name = $1;
+			where name = $1
+			order by published_at asc
 		";
 		let params = postgres_params![name];
 		let statement = connection
@@ -59,39 +73,62 @@ impl Server {
 			.query(&statement, params)
 			.await
 			.map_err(|source| error!(!source, "failed to execute the statement"))?;
-		let versions = rows
-			.into_iter()
-			.map(|row| row.get::<_, String>(0))
-			.map(|version| {
-				version
-					.parse()
-					.map_err(|source| error!(!source, "invalid version"))
-			})
-			.collect::<Result<Vec<semver::Version>>>()?;
 
-		// Get the req.
-		let req = if let Some(version) = dependency.version.as_ref() {
-			version
-				.parse()
-				.map_err(|source| error!(!source, "invalid version"))?
-		} else {
-			semver::VersionReq::STAR
+		// Get all the package versions.
+		let all_versions: Vec<_> = rows
+			.into_iter()
+			.map(|row| (row.get::<_, String>(0), row.get::<_, String>(1)))
+			.map(|(version, id)| {
+				let id = id.parse()?;
+				Ok::<(String, tg::directory::Id), tangram_error::Error>((version, id))
+			})
+			.try_collect()?;
+
+		let Some(version) = version else {
+			return Ok(Some(all_versions));
 		};
 
-		// Filter for compatible versions.
-		let mut versions = versions
+		// Try to match semver, but only against versions that parse as semver.
+		'a: {
+			if !"=<>^~*".chars().any(|ch| version.starts_with(ch)) {
+				break 'a;
+			}
+			let req = semver::VersionReq::parse(version).map_err(
+				|error| error!(source = error, %version, "failed to parse version constraint"),
+			)?;
+			let versions = all_versions
+				.into_iter()
+				.filter(|(version, _)| {
+					let Ok(version) = version.parse() else {
+						return false;
+					};
+					req.matches(&version)
+				})
+				.sorted_unstable_by_key(|(version, _)| semver::Version::parse(version).unwrap())
+				.collect::<Vec<_>>();
+			return Ok(Some(versions));
+		}
+
+		// Try to match with a regex against all versions.
+		'a: {
+			if !version.starts_with('/') {
+				break 'a;
+			}
+			let (_, constraint) = version.split_at(1);
+			let regex = regex::Regex::new(constraint)
+				.map_err(|source| error!(!source, "failed to parse regex"))?;
+			let versions = all_versions
+				.into_iter()
+				.filter(|(version, _)| regex.is_match(version))
+				.collect::<Vec<_>>();
+			return Ok(Some(versions));
+		}
+
+		// Fall back on string equality.
+		let versions = all_versions
 			.into_iter()
-			.filter(|version| req.matches(version))
+			.filter(|(version_, _)| version_ == version)
 			.collect::<Vec<_>>();
-
-		// Sort the versions.
-		versions.sort_unstable();
-
-		// Convert the versions to strings.
-		let versions = versions
-			.into_iter()
-			.map(|version| version.to_string())
-			.collect();
 
 		Ok(Some(versions))
 	}

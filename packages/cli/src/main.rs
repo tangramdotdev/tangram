@@ -63,7 +63,7 @@ pub enum Command {
 	Lsp(self::commands::lsp::Args),
 	New(self::commands::new::Args),
 	Object(self::commands::object::Args),
-	Outdated(self::commands::outdated::Args),
+	Outdated(self::commands::package::OutdatedArgs),
 	Publish(self::commands::package::PublishArgs),
 	Package(self::commands::package::Args),
 	Pull(self::commands::pull::Args),
@@ -72,7 +72,7 @@ pub enum Command {
 	Search(self::commands::package::SearchArgs),
 	Server(self::commands::server::Args),
 	Tree(self::commands::tree::Args),
-	Update(self::commands::update::Args),
+	Update(self::commands::package::UpdateArgs),
 	Upgrade(self::commands::upgrade::Args),
 }
 
@@ -183,7 +183,7 @@ fn main_inner(args: Args, config: Option<Config>) -> Result<()> {
 		Command::Login(args) => cli.command_login(args).boxed(),
 		Command::Lsp(args) => cli.command_lsp(args).boxed(),
 		Command::New(args) => cli.command_new(args).boxed(),
-		Command::Outdated(args) => cli.command_outdated(args).boxed(),
+		Command::Outdated(args) => cli.command_package_outdated(args).boxed(),
 		Command::Object(args) => cli.command_object(args).boxed(),
 		Command::Package(args) => cli.command_package(args).boxed(),
 		Command::Publish(args) => cli.command_package_publish(args).boxed(),
@@ -193,7 +193,7 @@ fn main_inner(args: Args, config: Option<Config>) -> Result<()> {
 		Command::Search(args) => cli.command_package_search(args).boxed(),
 		Command::Server(args) => cli.command_server(args).boxed(),
 		Command::Tree(args) => cli.command_tree(args).boxed(),
-		Command::Update(args) => cli.command_update(args).boxed(),
+		Command::Update(args) => cli.command_package_update(args).boxed(),
 		Command::Upgrade(args) => cli.command_upgrade(args).boxed(),
 	};
 
@@ -362,8 +362,7 @@ impl Cli {
 		let path = path.unwrap_or_else(|| PathBuf::from(home).join(".config/tangram/user.json"));
 		let user = serde_json::to_string_pretty(&user.clone())
 			.map_err(|source| error!(!source, "failed to serialize the user"))?;
-		std::fs::write(path, user)
-			.map_err(|source| error!(!source, "failed to save the user"))?;
+		std::fs::write(path, user).map_err(|source| error!(!source, "failed to save the user"))?;
 		Ok(())
 	}
 }

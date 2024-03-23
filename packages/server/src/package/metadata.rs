@@ -7,6 +7,15 @@ impl Server {
 		&self,
 		package: &tg::Directory,
 	) -> Result<tg::package::Metadata> {
+		self.try_get_package_metadata(package)
+			.await?
+			.ok_or_else(|| error!("missing package metadata"))
+	}
+
+	pub async fn try_get_package_metadata(
+		&self,
+		package: &tg::Directory,
+	) -> Result<Option<tg::package::Metadata>> {
 		let path = tg::package::get_root_module_path(self, package).await?;
 		let file = package
 			.get(self, &path)
@@ -15,11 +24,9 @@ impl Server {
 			.ok()
 			.ok_or_else(|| error!(%path, "expected the module to be a file"))?;
 		let text = file.text(self).await?;
-		let analysis = crate::language::Server::analyze_module(text)?;
-		if let Some(metadata) = analysis.metadata {
-			Ok(metadata)
-		} else {
-			Err(error!(?path, "missing package metadata"))
-		}
+		let metadata = crate::language::Server::analyze_module(text)
+			.map_err(|source| error!(!source, %path, "failed to analyze module"))?
+			.metadata;
+		Ok(metadata)
 	}
 }

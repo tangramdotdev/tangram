@@ -50,6 +50,7 @@ octocrab = { workspace = true }
 parking_lot = { workspace = true }
 pin-project = { workspace = true }
 rand = { workspace = true }
+regex = { workspace = true }
 reqwest = { workspace = true }
 rusqlite = { workspace = true }
 scopeguard = { workspace = true }

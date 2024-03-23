@@ -3,6 +3,7 @@ use http_body_util::BodyExt;
 use tangram_client as tg;
 use tangram_error::{error, Result};
 use tangram_util::http::{ok, Incoming, Outgoing};
+use time::format_description::well_known::Rfc3339;
 
 impl Server {
 	pub async fn publish_package(
@@ -34,6 +35,9 @@ impl Server {
 			.ok_or_else(|| error!(%id, "the package must have a version"))?
 			.as_str();
 
+		// Get the current time.
+		let published_at = time::OffsetDateTime::now_utc().format(&Rfc3339).unwrap();
+
 		// Get a database connection.
 		let Database::Postgres(database) = &self.inner.database else {
 			return Err(error!("unimplemented"));
@@ -57,10 +61,10 @@ impl Server {
 
 		// Create the package version.
 		let statement = "
-			insert into package_versions (name, version, id)
-			values ($1, $2, $3);
+			insert into package_versions (name, version, id, published_at)
+			values ($1, $2, $3, $4);
 		";
-		let params = postgres_params![name, version, id.to_string()];
+		let params = postgres_params![name, version, id.to_string(), published_at];
 		let statement = connection
 			.prepare_cached(statement)
 			.await
@@ -89,8 +93,8 @@ impl Http {
 			.await
 			.map_err(|source| error!(!source, "failed to read the body"))?
 			.to_bytes();
-		let package_id = serde_json::from_slice(&bytes)
-			.map_err(|source| error!(!source, "invalid request"))?;
+		let package_id =
+			serde_json::from_slice(&bytes).map_err(|source| error!(!source, "invalid request"))?;
 
 		// Publish the package.
 		self.inner

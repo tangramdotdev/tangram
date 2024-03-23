@@ -144,6 +144,7 @@ async fn migration_0000(path: &Path) -> Result<()> {
 			name text not null references packages (name),
 			version text not null,
 			id text not null,
+			published_at text not null,
 			primary key (name, version)
 		) strict;
 

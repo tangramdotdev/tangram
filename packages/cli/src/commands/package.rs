@@ -1,10 +1,14 @@
 use crate::{tree::Tree, Cli};
 use async_recursion::async_recursion;
+use crossterm::style::Stylize;
 use either::Either;
-use std::{collections::BTreeSet, fmt::Write};
+use itertools::Itertools;
+use std::{
+	collections::{BTreeSet, VecDeque},
+	fmt::Write,
+};
 use tangram_client as tg;
 use tangram_error::{error, Result};
-
 /// Manage packages.
 #[derive(Debug, clap::Args)]
 pub struct Args {
@@ -14,9 +18,22 @@ pub struct Args {
 
 #[derive(Debug, clap::Subcommand)]
 pub enum Command {
+	Outdated(OutdatedArgs),
 	Publish(PublishArgs),
 	Search(SearchArgs),
 	Tree(TreeArgs),
+	Update(UpdateArgs),
+}
+
+/// List the available updates to a package.
+#[derive(Debug, clap::Args)]
+pub struct OutdatedArgs {
+	#[clap(short, long, default_value = ".")]
+	pub path: tg::Path,
+
+	/// Print as JSON.
+	#[clap(long)]
+	pub json: bool,
 }
 
 /// Publish a package.
@@ -42,20 +59,105 @@ pub struct TreeArgs {
 	pub depth: Option<u32>,
 }
 
+/// Update an existing package's lock.
+#[derive(Debug, clap::Args)]
+pub struct UpdateArgs {
+	#[clap(short, long, default_value = ".")]
+	pub path: tg::Path,
+}
+
 impl Cli {
 	pub async fn command_package(&self, args: Args) -> Result<()> {
 		match args.command {
+			Command::Outdated(args) => self.command_package_outdated(args).await,
 			Command::Publish(args) => self.command_package_publish(args).await,
 			Command::Search(args) => self.command_package_search(args).await,
 			Command::Tree(args) => self.command_package_tree(args).await,
+			Command::Update(args) => self.command_package_update(args).await,
 		}
+	}
+
+	pub async fn command_package_outdated(&self, args: OutdatedArgs) -> Result<()> {
+		let client = &self.client().await?;
+		let mut dependency = tg::Dependency::with_path(args.path);
+
+		// Canonicalize the path.
+		if let Some(path) = dependency.path.as_mut() {
+			*path = tokio::fs::canonicalize(&path)
+				.await
+				.map_err(|source| error!(!source, "failed to canonicalize the path"))?
+				.try_into()?;
+		}
+
+		let outdated = client
+			.get_outdated(&dependency)
+			.await
+			.map_err(|source| error!(!source, %dependency, "failed to get outdated packages"))?;
+
+		if args.json {
+			let json = serde_json::to_string_pretty(&outdated).map_err(
+				|source| error!(!source, %dependency, "failed to serialize outdated packages"),
+			)?;
+			println!("{json}");
+			return Ok(());
+		}
+
+		// Flatten the tree.
+		let mut queue = VecDeque::new();
+		queue.push_back((vec![dependency.clone()], outdated));
+
+		while let Some((path, outdated)) = queue.pop_front() {
+			let tg::package::OutdatedOutput { info, dependencies } = outdated;
+			if let Some(info) = info {
+				let path = path.iter().map(ToString::to_string).join(" -> ");
+				let tg::package::OutdatedInfo {
+					current,
+					compatible,
+					latest,
+				} = info;
+				println!("{}", path.white().dim());
+				println!(
+					"{} = {}, {} = {}, {} = {}",
+					"current".red(),
+					current.green(),
+					"compatible".red(),
+					compatible.green(),
+					"latest".red(),
+					latest.green(),
+				);
+			}
+			for (dependency, outdated) in dependencies {
+				let mut path = path.clone();
+				path.push(dependency);
+				queue.push_back((path, outdated));
+			}
+		}
+
+		Ok(())
 	}
 
 	pub async fn command_package_publish(&self, args: PublishArgs) -> Result<()> {
 		let client = &self.client().await?;
+		let mut dependency = args.package;
+
+		// Canonicalize the path.
+		if let Some(path) = dependency.path.as_mut() {
+			*path = tokio::fs::canonicalize(&path)
+				.await
+				.map_err(|source| error!(!source, "failed to canonicalize the path"))?
+				.try_into()?;
+		}
 
 		// Create the package.
-		let (package, _) = tg::package::get_with_lock(client, &args.package).await?;
+		let (package, lock) = tg::package::get_with_lock(client, &dependency).await?;
+
+		// Write the lock.
+		if dependency.path.is_some() {
+			let path = dependency.path.as_ref().unwrap();
+			lock.write(client, path, false)
+				.await
+				.map_err(|source| error!(!source, "failed to write the lock file"))?;
+		}
 
 		// Get the package ID.
 		let id = package.id(client).await?;
@@ -89,11 +191,28 @@ impl Cli {
 
 	pub async fn command_package_tree(&self, args: TreeArgs) -> Result<()> {
 		let client = &self.client().await?;
+		let mut dependency = args.package;
 
-		let dependency = args.package;
+		// Canonicalize the path.
+		if let Some(path) = dependency.path.as_mut() {
+			*path = tokio::fs::canonicalize(&path)
+				.await
+				.map_err(|source| error!(!source, "failed to canonicalize the path"))?
+				.try_into()?;
+		}
+
+		// Create the package.
 		let (package, lock) = tg::package::get_with_lock(client, &dependency)
 			.await
 			.map_err(|source| error!(!source, %dependency, "failed to get the lock"))?;
+
+		// Write the lock.
+		if dependency.path.is_some() {
+			let path = dependency.path.as_ref().unwrap();
+			lock.write(client, path, false)
+				.await
+				.map_err(|source| error!(!source, "failed to write the lock file"))?;
+		}
 
 		let mut visited = BTreeSet::new();
 		let tree = get_package_tree(
@@ -109,6 +228,30 @@ impl Cli {
 		.await?;
 
 		tree.print();
+
+		Ok(())
+	}
+
+	pub async fn command_package_update(&self, args: UpdateArgs) -> Result<()> {
+		let client = &self.client().await?;
+		let mut dependency = tg::Dependency::with_path(args.path);
+
+		// Canonicalize the path.
+		if let Some(path) = dependency.path.as_mut() {
+			*path = tokio::fs::canonicalize(&path)
+				.await
+				.map_err(|source| error!(!source, "failed to canonicalize the path"))?
+				.try_into()?;
+		}
+
+		let lock = tg::package::create_lock(client, &dependency)
+			.await
+			.map_err(|source| error!(!source, %dependency, "failed to create a new lock"))?;
+
+		// Overwrite the existing lock.
+		lock.write(client, dependency.path.unwrap(), true)
+			.await
+			.map_err(|source| error!(!source, "failed to write the lock"))?;
 
 		Ok(())
 	}

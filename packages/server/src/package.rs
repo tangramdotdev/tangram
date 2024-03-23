@@ -1,4 +1,4 @@
-use crate::{database::Database, postgres_params, Http, Server};
+use crate::{Http, Server};
 use async_recursion::async_recursion;
 use std::{
 	collections::{BTreeMap, HashSet, VecDeque},
@@ -9,8 +9,10 @@ use tangram_error::{error, Result};
 use tangram_util::http::{empty, full, not_found, Incoming, Outgoing};
 
 mod dependencies;
+mod format;
 mod lock;
 mod metadata;
+mod outdated;
 mod publish;
 mod search;
 mod versions;
@@ -68,64 +70,21 @@ impl Server {
 				break 'a Some(package_with_path_dependencies);
 			}
 
-			// The dependency must have a name.
-			let name = dependency
-				.name
-				.as_ref()
-				.ok_or_else(|| error!(%dependency, "expected the dependency to have a name"))?;
-
 			// Get the versions.
-			let Database::Postgres(database) = &self.inner.database else {
+			let Some(mut versions) = self.try_get_package_versions_local(dependency).await? else {
 				break 'a None;
 			};
-			let connection = database.get().await?;
-			let statement = "
-				select version, id
-				from package_versions
-				where name = $1;
-			";
-			let params = postgres_params![name];
-			let statement = connection
-				.prepare_cached(statement)
-				.await
-				.map_err(|source| error!(!source, "failed to prepare the statement"))?;
-			let rows = connection
-				.query(&statement, params)
-				.await
-				.map_err(|source| error!(!source, "failed to execute the statement"))?;
-			let mut versions = rows
-				.into_iter()
-				.map(|row| (row.get::<_, String>(0), row.get::<_, String>(1)))
-				.map(|(version, id)| {
-					let version = version
-						.parse()
-						.map_err(|source| error!(!source, "invalid version"))?;
-					let id = id.parse()?;
-					Ok((version, id))
-				})
-				.collect::<Result<Vec<(semver::Version, tg::directory::Id)>>>()?;
 
-			// Find the latest compatible version.
-			versions.sort_unstable_by_key(|(version, _)| version.clone());
-			versions.reverse();
-			let package = if let Some(version) = dependency.version.as_ref() {
-				let req: semver::VersionReq = version
-					.parse()
-					.map_err(|source| error!(!source, "invalid version"))?;
-				versions
-					.iter()
-					.find(|(version, _)| req.matches(version))
-					.map(|(_, id)| tg::Directory::with_id(id.clone()))
-			} else {
-				versions
-					.last()
-					.map(|(_, id)| tg::Directory::with_id(id.clone()))
+			let Some((_, latest)) = versions.pop() else {
+				break 'a None;
 			};
 
-			package.map(|package| PackageWithPathDependencies {
+			let package = tg::Directory::with_id(latest);
+			let package_with_path_dependencies = PackageWithPathDependencies {
 				package,
 				path_dependencies: BTreeMap::default(),
-			})
+			};
+			Some(package_with_path_dependencies)
 		};
 
 		// Attempt to get the package from the remote.
@@ -169,14 +128,33 @@ impl Server {
 			None
 		};
 
-		// Create the lock if requested.
+		// Get or create the lock if requested.
 		let lock = if arg.lock {
-			let path = dependency.path.as_ref();
-			let lock = self
-				.get_or_create_package_lock(path, &package_with_path_dependencies)
-				.await?;
-			let id = lock.id(self).await?.clone();
-			Some(id)
+			if arg.create_lock {
+				let lock = self
+					.create_package_lock(&package_with_path_dependencies)
+					.await
+					.map_err(|error| error!(source = error, "failed to create the lock"))?;
+				let lock = lock
+					.normalize(self)
+					.await
+					.map_err(|error| error!(source = error, "failed to normalize the lock"))?;
+				Some(lock.id(self).await?.clone())
+			} else {
+				let path = dependency.path.as_ref();
+				let lock = self
+					.get_or_create_package_lock(path, &package_with_path_dependencies)
+					.await
+					.map_err(|error| {
+						if let Some(path) = path {
+							error!(source = error, %path, "failed to get or create the lock")
+						} else {
+							error!(source = error, "failed to get or create the lock")
+						}
+					})?;
+				let id = lock.id(self).await?.clone();
+				Some(id)
+			}
 		} else {
 			None
 		};
@@ -377,6 +355,14 @@ impl Server {
 		// Get the package.
 		let (package, lock) = tg::package::get_with_lock(self, dependency).await?;
 
+		// Write the lock.
+		if dependency.path.is_some() {
+			let path = dependency.path.as_ref().unwrap();
+			lock.write(self, path, false)
+				.await
+				.map_err(|source| error!(!source, "failed to write the lock file"))?;
+		}
+
 		// Create the root module.
 		let path = tg::package::get_root_module_path(self, &package).await?;
 		let package = package.id(self).await?.clone();
@@ -394,10 +380,6 @@ impl Server {
 		let diagnostics = language_server.check(vec![module]).await?;
 
 		Ok(diagnostics)
-	}
-
-	pub async fn format_package(&self, _dependency: &tg::Dependency) -> Result<()> {
-		Err(error!("not yet implemented"))
 	}
 
 	pub async fn get_runtime_doc(&self) -> Result<serde_json::Value> {
@@ -423,6 +405,12 @@ impl Server {
 		let Some((package, lock)) = tg::package::try_get_with_lock(self, dependency).await? else {
 			return Ok(None);
 		};
+		if dependency.path.is_some() {
+			let path = dependency.path.as_ref().unwrap();
+			lock.write(self, path, false)
+				.await
+				.map_err(|source| error!(!source, "failed to write the lock file"))?;
+		}
 
 		// Create the module.
 		let path = tg::package::get_root_module_path(self, &package).await?;
@@ -533,10 +521,38 @@ impl Http {
 			.map_err(|source| error!(!source, "failed to parse the dependency"))?;
 
 		// Format the package.
-		self.inner.tg.check_package(&dependency).await?;
+		self.inner.tg.format_package(&dependency).await?;
 
 		// Create the response.
 		let response = http::Response::builder().body(empty()).unwrap();
+
+		Ok(response)
+	}
+
+	pub async fn handle_outdated_package_request(
+		&self,
+		request: http::Request<Incoming>,
+	) -> Result<http::Response<Outgoing>> {
+		// Get the path params.
+		let path_components: Vec<&str> = request.uri().path().split('/').skip(1).collect();
+		let ["packages", dependency, "outdated"] = path_components.as_slice() else {
+			let path = request.uri().path();
+			return Err(error!(%path, "unexpected path"));
+		};
+		let dependency = urlencoding::decode(dependency)
+			.map_err(|source| error!(!source, "failed to decode the dependency"))?;
+		let dependency = dependency
+			.parse()
+			.map_err(|source| error!(!source, "failed to parse the dependency"))?;
+
+		// Get the outdated dependencies.
+		let output = self.inner.tg.get_outdated(&dependency).await?;
+		let body = serde_json::to_vec(&output)
+			.map_err(|source| error!(!source, "failed to serialize the body"))?;
+		let body = full(body);
+
+		// Create the response.
+		let response = http::Response::builder().body(body).unwrap();
 
 		Ok(response)
 	}
