@@ -28,6 +28,7 @@ data-encoding-macro = { workspace = true }
 derive_more = { workspace = true }
 either = { workspace = true }
 filetime = { workspace = true }
+fastcdc = { workspace = true }
 fnv = { workspace = true }
 futures = { workspace = true }
 glob = { workspace = true }

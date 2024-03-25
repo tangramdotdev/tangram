@@ -5,7 +5,7 @@ members = [
   "packages/client",
   "packages/error",
   "packages/fuse",
-  "packages/nfs",  
+  "packages/nfs",
   "packages/server",
   "packages/util",
 ]
@@ -48,6 +48,7 @@ data-encoding-macro = "0.1"
 derive_more = { version = "1.0.0-beta.6", features = ["full"] }
 dialoguer = "0.11"
 either = { version = "1", features = ["serde"] }
+fastcdc = { version = "3", features = ["tokio"] }
 filetime = "0.2"
 fnv = "1"
 futures = "0.3"

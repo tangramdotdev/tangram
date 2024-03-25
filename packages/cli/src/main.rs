@@ -307,13 +307,18 @@ impl Cli {
 			})
 			.unwrap();
 		let path = path.unwrap_or_else(|| PathBuf::from(home).join(".config/tangram/config.json"));
-		let config = match std::fs::read_to_string(path) {
+		let config = match std::fs::read_to_string(&path) {
 			Ok(config) => config,
 			Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(None),
-			Err(error) => return Err(error!(source = error, "failed to read the config file")),
+			Err(error) => {
+				return Err(
+					error!(source = error, %path = path.display(), "failed to read the config file"),
+				)
+			},
 		};
-		let config = serde_json::from_str(&config)
-			.map_err(|source| error!(!source, "failed to deserialize the config"))?;
+		let config = serde_json::from_str(&config).map_err(
+			|source| error!(!source, %path = path.display(), "failed to deserialize the config"),
+		)?;
 		Ok(Some(config))
 	}
 
