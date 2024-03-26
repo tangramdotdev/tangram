@@ -14,7 +14,9 @@ use tokio_util::io::SyncIoBridge;
 
 const MAX_BRANCH_CHILDREN: usize = 1024;
 
-const MAX_LEAF_SIZE: usize = 262_144;
+const MIN_LEAF_SIZE: u32 = 4096;
+const AVG_LEAF_SIZE: u32 = 16_384;
+const MAX_LEAF_SIZE: u32 = 65_536;
 
 /// A blob kind.
 #[derive(Clone, Copy, Debug)]
@@ -68,37 +70,29 @@ impl Blob {
 		}
 	}
 
-	pub async fn with_reader(tg: &dyn Handle, mut reader: impl AsyncRead + Unpin) -> Result<Self> {
-		let mut children = Vec::new();
-		let mut bytes = vec![0u8; MAX_LEAF_SIZE];
-		loop {
-			// Read up to `MAX_LEAF_BLOCK_DATA_SIZE` bytes from the reader.
-			let mut position = 0;
-			loop {
-				let n = reader
-					.read(&mut bytes[position..])
-					.await
-					.map_err(|source| error!(!source, "failed to read from the reader"))?;
-				position += n;
-				if n == 0 || position == bytes.len() {
-					break;
-				}
-			}
-			if position == 0 {
-				break;
-			}
-			let size = position.to_u64().unwrap();
-
-			// Create and store the leaf.
-			let bytes = Bytes::copy_from_slice(&bytes[..position]);
-			let leaf = Leaf::new(bytes);
-			leaf.store(tg).await?;
-
-			children.push(branch::Child {
-				blob: leaf.into(),
-				size,
-			});
-		}
+	/// Create a [`Blob`] from an implementer of `AsyncRead`.
+	pub async fn with_reader(tg: &dyn Handle, reader: impl AsyncRead + Unpin) -> Result<Self> {
+		let mut chunker = fastcdc::v2020::AsyncStreamCDC::new(
+			reader,
+			MIN_LEAF_SIZE,
+			AVG_LEAF_SIZE,
+			MAX_LEAF_SIZE,
+		);
+		let stream = chunker.as_stream();
+		let mut children = stream
+			.map(|chunk| {
+				let bytes = chunk
+					.map_err(|source| error!(!source, "failed to read data"))?
+					.data;
+				let size = bytes.len().to_u64().unwrap();
+				let leaf = Leaf::new(bytes.into());
+				Ok::<_, tangram_error::Error>(branch::Child {
+					blob: leaf.into(),
+					size,
+				})
+			})
+			.try_collect::<Vec<_>>()
+			.await?;
 
 		// Create the tree.
 		while children.len() > MAX_BRANCH_CHILDREN {
