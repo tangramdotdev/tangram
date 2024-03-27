@@ -280,8 +280,12 @@ impl Cli {
 		if let Some(path) = args.output {
 			let artifact = tg::Artifact::try_from(output.clone())
 				.map_err(|source| error!(!source, "expected the output to be an artifact"))?;
+			let options = tg::artifact::CheckOutOptions {
+				path: path.try_into()?,
+				force: false,
+			};
 			artifact
-				.check_out(client, Some(&path.try_into()?))
+				.check_out(client, Some(options))
 				.await
 				.map_err(|source| error!(!source, "failed to check out the artifact"))?;
 		}
