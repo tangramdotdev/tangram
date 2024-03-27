@@ -71,11 +71,14 @@ async fn migration_0000(path: &Path) -> tg::Result<()> {
 		"
 			create table artifact_paths (
 				id integer primary key,
-				parent integer,
+				parent integer not null,
 				name text not null,
 				mtime integer,
-				artifact text not null
+				artifact text,
+				unique (parent, name)
 			);
+			insert into artifact_paths (id, parent, name) 
+			values (0, 0, '/');
 
 			create table builds (
 				id text primary key,

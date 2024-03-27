@@ -237,7 +237,8 @@ impl Server {
 
 			// Add the module to the package directory.
 			let artifact =
-				tg::Artifact::check_in(self, &module_absolute_path.clone().try_into()?).await?;
+				tg::Artifact::check_in(self, &module_absolute_path.clone().try_into()?, true)
+					.await?;
 			package = package.add(self, &module_path, artifact).await?;
 
 			// Get the module's text.
@@ -264,7 +265,7 @@ impl Server {
 
 				// Check in the artifact at the included path.
 				let included_artifact =
-					tg::Artifact::check_in(self, &included_artifact_absolute_path).await?;
+					tg::Artifact::check_in(self, &included_artifact_absolute_path, false).await?;
 
 				// Add the included artifact to the directory.
 				package = package

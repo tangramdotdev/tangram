@@ -74,6 +74,7 @@ pub mod template;
 pub mod user;
 mod util;
 pub mod value;
+pub mod watch;
 
 #[derive(Debug, Clone)]
 pub struct Client {
@@ -780,5 +781,13 @@ impl Handle for Client {
 
 	async fn get_user_for_token(&self, token: &str) -> tg::Result<Option<tg::User>> {
 		self.get_user_for_token(token).await
+	}
+
+	async fn list_watches(&self) -> tg::Result<Vec<tg::Path>> {
+		self.get_watches().await
+	}
+
+	async fn remove_watch(&self, path: &tg::Path) -> tg::Result<()> {
+		self.remove_watch(path).await
 	}
 }

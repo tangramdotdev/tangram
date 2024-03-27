@@ -308,4 +308,8 @@ pub trait Handle: Clone + Unpin + Send + Sync + 'static {
 		&self,
 		token: &str,
 	) -> impl Future<Output = tg::Result<Option<tg::User>>> + Send;
+
+	fn list_watches(&self) -> impl Future<Output = tg::Result<Vec<tg::Path>>> + Send;
+
+	fn remove_watch(&self, path: &tg::Path) -> impl Future<Output = tg::Result<()>> + Send;
 }

@@ -75,6 +75,7 @@ pub enum Data {
 #[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
 pub struct CheckInArg {
 	pub path: crate::Path,
+	pub watch: bool,
 }
 
 #[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
@@ -123,8 +124,11 @@ impl Artifact {
 }
 
 impl Artifact {
-	pub async fn check_in(tg: &impl Handle, path: &crate::Path) -> tg::Result<Self> {
-		let arg = CheckInArg { path: path.clone() };
+	pub async fn check_in(tg: &impl Handle, path: &crate::Path, watch: bool) -> tg::Result<Self> {
+		let arg = CheckInArg {
+			path: path.clone(),
+			watch,
+		};
 		let output = tg.check_in_artifact(arg).await?;
 		let artifact = Self::with_id(output.id);
 		Ok(artifact)

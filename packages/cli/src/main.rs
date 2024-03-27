@@ -76,6 +76,7 @@ pub enum Command {
 	Tree(self::commands::tree::Args),
 	Update(self::commands::package::UpdateArgs),
 	Upgrade(self::commands::upgrade::Args),
+	Watch(self::commands::watch::Args),
 }
 
 fn default_path() -> PathBuf {
@@ -212,6 +213,7 @@ impl Cli {
 			Command::Tree(args) => self.command_tree(args).boxed(),
 			Command::Update(args) => self.command_package_update(args).boxed(),
 			Command::Upgrade(args) => self.command_upgrade(args).boxed(),
+			Command::Watch(args) => self.command_watch(args).boxed(),
 		}
 		.await
 	}
