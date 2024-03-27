@@ -1,6 +1,8 @@
 use crate::Cli;
+use crossterm::style::Stylize;
 use tangram_client as tg;
 use tangram_error::{error, Result};
+use tg::diagnostic::Severity;
 
 /// Check a package for errors.
 #[derive(Debug, clap::Args)]
@@ -30,21 +32,34 @@ impl Cli {
 
 		// Print the diagnostics.
 		for diagnostic in &diagnostics {
-			// Get the diagnostic location and message.
-			let tg::Diagnostic {
-				location, message, ..
-			} = diagnostic;
-
-			// Print the location if one is available.
-			if let Some(location) = location {
-				println!("{location}");
+			match diagnostic.severity {
+				Severity::Error => eprintln!("{}:", "error".red().bold()),
+				Severity::Warning => eprintln!("{}:", "warning".yellow().bold()),
+				Severity::Information => eprintln!("{}:", "info".blue().bold()),
+				Severity::Hint => eprintln!("{}:", "hint".white().bold()),
+			};
+			eprint!("{} {} ", "->".red(), diagnostic.message);
+			if let Some(location) = &diagnostic.location {
+				let (package, path) = location.module.source();
+				if let Some(package) = package {
+					let package = tg::Directory::with_id(package);
+					let metadata = tg::package::get_metadata(client, &package).await.ok();
+					let (name, version) = metadata
+						.map(|metadata| (metadata.name, metadata.version))
+						.unwrap_or_default();
+					let name = name.as_deref().unwrap_or("<unknown>");
+					let version = version.as_deref().unwrap_or("<unknown>");
+					eprint!("{name}@{version}: {path}:")
+				} else {
+					eprint!("{path}:")
+				};
+				eprint!(
+					"{}:{}",
+					location.range.start.line + 1,
+					location.range.start.character + 1,
+				);
 			}
-
-			// Print the diagnostic message.
-			println!("{message}");
-
-			// Print a newline.
-			println!();
+			eprintln!();
 		}
 
 		if !diagnostics.is_empty() {
