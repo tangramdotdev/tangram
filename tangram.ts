@@ -8,3 +8,12 @@ export let test = tg.target(async () => {
 		"b": "Hello, World!",
 	});
 });
+
+export let emoji = tg.target(async () => {
+	let i = 0;
+	while(true) {
+		console.log(`${i}——👍👌👉👈👍👌——`);
+		i++;
+		await tg.sleep(0.300);
+	}
+});
