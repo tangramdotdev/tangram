@@ -51,7 +51,9 @@ impl Server {
 				.flat_map(|chunk| {
 					if chunk.len() == MAX_BRANCH_CHILDREN {
 						stream::once(async move {
-							let size = chunk.iter().fold(0, |acc, data| acc + data.size);
+							let size = chunk
+								.iter()
+								.fold(0, |acc, data| acc + data.size);
 
 							let data = tg::branch::Data { children: chunk };
 							let id = tg::branch::Id::new(&data.serialize()?);

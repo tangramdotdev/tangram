@@ -56,24 +56,6 @@ pub struct Normal {
 	pub path: tg::Path,
 }
 
-impl Module {
-	/// Return the source of this module.
-	pub fn source(&self) -> (Option<tg::directory::Id>, tg::Path) {
-		match self {
-			Self::Library(library) => (None, library.path.clone()),
-			Self::Document(document) => (
-				None,
-				document
-					.package_path
-					.join(&document.path)
-					.try_into()
-					.unwrap(),
-			),
-			Self::Normal(normal) => (Some(normal.package.clone()), normal.path.clone()),
-		}
-	}
-}
-
 impl From<Module> for Url {
 	fn from(value: Module) -> Self {
 		// Serialize and encode the module.
@@ -122,11 +104,9 @@ impl TryFrom<Url> for Module {
 
 impl std::fmt::Display for Module {
 	fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-		let (package, path) = self.source();
-		if let Some(package) = package {
-			write!(f, "{package}/")?;
-		}
-		write!(f, "{path}")
+		let url: Url = self.clone().into();
+		write!(f, "{url}")?;
+		Ok(())
 	}
 }
 
