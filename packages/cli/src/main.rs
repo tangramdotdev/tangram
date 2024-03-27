@@ -10,6 +10,7 @@ use url::Url;
 mod commands;
 mod config;
 mod error;
+mod trace;
 mod tree;
 mod tui;
 
@@ -101,20 +102,40 @@ fn main() {
 	}
 }
 
-fn main_inner(config_: &mut Option<Config>) -> tg::Result<()> {
-	// Parse the arguments.
+fn main_inner(config: &mut Option<Config>) -> tg::Result<()> {
+	// Initialize.
 	let args = Args::parse();
+	let cli = initialize(config, &args)?;
 
+	let future = async move {
+		let result = cli.command(args.command).await;
+		match result {
+			Ok(()) => Ok(()),
+			Err(error) => Err(cli
+				.convert_error_location(error.clone())
+				.await
+				.unwrap_or(error)),
+		}
+	};
+
+	// Create the tokio runtime and block on the future.
+	let mut builder = tokio::runtime::Builder::new_multi_thread();
+	builder.enable_all();
+	builder.disable_lifo_slot();
+	let runtime = builder.build().unwrap();
+	runtime.block_on(future)
+}
+
+fn initialize(config: &mut Option<Config>, args: &Args) -> tg::Result<Cli> {
 	// Read the config.
-	let config = Cli::read_config(args.config.clone())
+	*config = Cli::read_config(args.config.clone())
 		.map_err(|source| tg::error!(!source, "failed to read the config"))?;
-	*config_ = config.clone();
 
 	// Set the file descriptor limit.
-	set_file_descriptor_limit(&config)?;
+	set_file_descriptor_limit(config)?;
 
 	// Set up tracing.
-	set_up_tracing(&config);
+	set_up_tracing(config);
 
 	// Initialize V8.
 	initialize_v8();
@@ -123,7 +144,7 @@ fn main_inner(config_: &mut Option<Config>) -> tg::Result<()> {
 	let user = Cli::read_user(None)?;
 
 	// Get the url.
-	let url = args.url.unwrap_or_else(|| {
+	let url = args.url.clone().unwrap_or_else(|| {
 		format!("unix:{}", default_path().join("socket").display())
 			.parse()
 			.unwrap()
@@ -150,58 +171,52 @@ fn main_inner(config_: &mut Option<Config>) -> tg::Result<()> {
 	};
 
 	// Create the CLI.
-	let cli = Cli {
+	Ok(Cli {
 		url,
-		config,
+		config: config.clone(),
 		client,
 		user,
 		version,
-	};
-
-	// Run the command.
-	let future = match args.command {
-		Command::Autoenv(args) => cli.command_autoenv(args).boxed(),
-		Command::Build(args) => cli.command_build(args).boxed(),
-		Command::Cat(args) => cli.command_cat(args).boxed(),
-		Command::Check(args) => cli.command_check(args).boxed(),
-		Command::Checkin(args) => cli.command_checkin(args).boxed(),
-		Command::Checkout(args) => cli.command_checkout(args).boxed(),
-		Command::Checksum(args) => cli.command_checksum(args).boxed(),
-		Command::Clean(args) => cli.command_clean(args).boxed(),
-		Command::Doc(args) => cli.command_doc(args).boxed(),
-		Command::Format(args) => cli.command_format(args).boxed(),
-		Command::Get(args) => cli.command_get(args).boxed(),
-		Command::Hook(args) => cli.command_hook(args).boxed(),
-		Command::Init(args) => cli.command_init(args).boxed(),
-		Command::Log(args) => cli.command_log(args).boxed(),
-		Command::Login(args) => cli.command_login(args).boxed(),
-		Command::Lsp(args) => cli.command_lsp(args).boxed(),
-		Command::New(args) => cli.command_new(args).boxed(),
-		Command::Outdated(args) => cli.command_package_outdated(args).boxed(),
-		Command::Object(args) => cli.command_object(args).boxed(),
-		Command::Package(args) => cli.command_package(args).boxed(),
-		Command::Publish(args) => cli.command_package_publish(args).boxed(),
-		Command::Pull(args) => cli.command_pull(args).boxed(),
-		Command::Push(args) => cli.command_push(args).boxed(),
-		Command::Run(args) => cli.command_run(args).boxed(),
-		Command::Search(args) => cli.command_package_search(args).boxed(),
-		Command::Server(args) => cli.command_server(args).boxed(),
-		Command::Tree(args) => cli.command_tree(args).boxed(),
-		Command::Update(args) => cli.command_package_update(args).boxed(),
-		Command::Upgrade(args) => cli.command_upgrade(args).boxed(),
-	};
-
-	// Create the tokio runtime and block on the future.
-	let mut builder = tokio::runtime::Builder::new_multi_thread();
-	builder.enable_all();
-	builder.disable_lifo_slot();
-	let runtime = builder.build().unwrap();
-	runtime.block_on(future)?;
-
-	Ok(())
+	})
 }
 
 impl Cli {
+	// Run the command
+	async fn command(&self, command: Command) -> tg::Result<()> {
+		let future = match command {
+			Command::Autoenv(args) => self.command_autoenv(args).boxed(),
+			Command::Build(args) => self.command_build(args).boxed(),
+			Command::Cat(args) => self.command_cat(args).boxed(),
+			Command::Check(args) => self.command_check(args).boxed(),
+			Command::Checkin(args) => self.command_checkin(args).boxed(),
+			Command::Checkout(args) => self.command_checkout(args).boxed(),
+			Command::Checksum(args) => self.command_checksum(args).boxed(),
+			Command::Clean(args) => self.command_clean(args).boxed(),
+			Command::Doc(args) => self.command_doc(args).boxed(),
+			Command::Format(args) => self.command_format(args).boxed(),
+			Command::Get(args) => self.command_get(args).boxed(),
+			Command::Hook(args) => self.command_hook(args).boxed(),
+			Command::Init(args) => self.command_init(args).boxed(),
+			Command::Log(args) => self.command_log(args).boxed(),
+			Command::Login(args) => self.command_login(args).boxed(),
+			Command::Lsp(args) => self.command_lsp(args).boxed(),
+			Command::New(args) => self.command_new(args).boxed(),
+			Command::Outdated(args) => self.command_package_outdated(args).boxed(),
+			Command::Object(args) => self.command_object(args).boxed(),
+			Command::Package(args) => self.command_package(args).boxed(),
+			Command::Publish(args) => self.command_package_publish(args).boxed(),
+			Command::Pull(args) => self.command_pull(args).boxed(),
+			Command::Push(args) => self.command_push(args).boxed(),
+			Command::Run(args) => self.command_run(args).boxed(),
+			Command::Search(args) => self.command_package_search(args).boxed(),
+			Command::Server(args) => self.command_server(args).boxed(),
+			Command::Tree(args) => self.command_tree(args).boxed(),
+			Command::Update(args) => self.command_package_update(args).boxed(),
+			Command::Upgrade(args) => self.command_upgrade(args).boxed(),
+		};
+		future.await
+	}
+
 	async fn client(&self) -> tg::Result<tg::Client> {
 		// If the client is already initialized, then return it.
 		if let Some(client) = self.client.lock().await.as_ref().cloned() {

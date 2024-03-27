@@ -259,6 +259,12 @@ pub trait Handle: Clone + Unpin + Send + Sync + 'static {
 		dependency: &tg::Dependency,
 	) -> impl Future<Output = tg::Result<Vec<tg::Diagnostic>>> + Send;
 
+	fn yank_package(
+		&self,
+		user: Option<&tg::User>,
+		id: &tg::directory::Id,
+	) -> impl Future<Output = tg::Result<()>> + Send;
+
 	fn format_package(
 		&self,
 		dependency: &tg::Dependency,

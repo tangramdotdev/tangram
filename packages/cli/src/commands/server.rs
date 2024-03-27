@@ -29,10 +29,6 @@ pub struct RunArgs {
 	#[clap(long)]
 	pub url: Option<Url>,
 
-	/// The path to the config file.
-	#[clap(long)]
-	pub config: Option<PathBuf>,
-
 	/// The path where the server should store its data. The default is `$HOME/.tangram`.
 	#[clap(long)]
 	pub path: Option<PathBuf>,
@@ -71,23 +67,18 @@ impl Cli {
 
 	async fn command_server_run(&self, args: RunArgs) -> tg::Result<()> {
 		// Get the config.
-		let config = tokio::task::spawn_blocking({
-			let config = args.config.clone();
-			|| Self::read_config(config)
-		})
-		.await
-		.unwrap()?;
+		let config = self.config.as_ref();
 
 		// Get the path.
 		let path = args
 			.path
-			.or(config.as_ref().and_then(|config| config.path.clone()))
+			.or(config.and_then(|config| config.path.clone()))
 			.unwrap_or(default_path());
 
 		// Get the url.
 		let url = args
 			.url
-			.or(config.as_ref().and_then(|config| config.url.clone()))
+			.or(config.and_then(|config| config.url.clone()))
 			.unwrap_or_else(|| {
 				format!("unix:{}", path.join("socket").display())
 					.parse()
@@ -96,19 +87,16 @@ impl Cli {
 
 		// Get the file descriptor semaphore size.
 		let file_descriptor_semaphore_size = config
-			.as_ref()
 			.and_then(|config| config.advanced.as_ref())
 			.and_then(|advanced| advanced.file_descriptor_semaphore_size)
 			.unwrap_or(1024);
 
 		// Create the build options.
 		let enable = config
-			.as_ref()
 			.and_then(|config| config.build.as_ref())
 			.and_then(|build| build.enable)
 			.unwrap_or(true);
 		let max_concurrency = config
-			.as_ref()
 			.and_then(|config| config.build.as_ref())
 			.and_then(|build| build.max_concurrency)
 			.unwrap_or_else(|| std::thread::available_parallelism().unwrap().get());
@@ -119,7 +107,6 @@ impl Cli {
 
 		// Create the database options.
 		let database = config
-			.as_ref()
 			.and_then(|config| config.database.as_ref())
 			.map_or_else(
 				|| {
@@ -155,7 +142,6 @@ impl Cli {
 
 		// Create the messenger options.
 		let messenger = config
-			.as_ref()
 			.and_then(|config| config.messenger.as_ref())
 			.map_or_else(
 				|| tangram_server::options::Messenger::Channel,
@@ -174,7 +160,6 @@ impl Cli {
 
 		// Create the oauth options.
 		let oauth = config
-			.as_ref()
 			.and_then(|config| config.oauth.as_ref())
 			.map(|oauth| {
 				let github =
@@ -194,7 +179,6 @@ impl Cli {
 
 		// Create the remote options.
 		let remotes = config
-			.as_ref()
 			.and_then(|config| config.remotes.as_ref())
 			.map(|remotes| {
 				remotes
@@ -231,15 +215,12 @@ impl Cli {
 		let version = self.version.clone();
 
 		// Create the vfs options.
-		let vfs = config
-			.as_ref()
-			.and_then(|config| config.vfs.as_ref())
-			.map_or_else(
-				|| tangram_server::options::Vfs { enable: true },
-				|vfs| tangram_server::options::Vfs {
-					enable: vfs.enable.unwrap_or(true),
-				},
-			);
+		let vfs = config.and_then(|config| config.vfs.as_ref()).map_or_else(
+			|| tangram_server::options::Vfs { enable: true },
+			|vfs| tangram_server::options::Vfs {
+				enable: vfs.enable.unwrap_or(true),
+			},
+		);
 
 		// Get the server's advanced options.
 		let preserve_temp_directories = config
@@ -248,12 +229,10 @@ impl Cli {
 			.and_then(|advanced| advanced.preserve_temp_directories)
 			.unwrap_or(false);
 		let error_trace_options = config
-			.as_ref()
 			.and_then(|config| config.advanced.as_ref())
 			.and_then(|advanced| advanced.error_trace_options.clone())
 			.unwrap_or_default();
 		let write_build_logs_to_stderr = config
-			.as_ref()
 			.and_then(|config| config.advanced.as_ref())
 			.and_then(|advanced| advanced.write_build_logs_to_stderr)
 			.unwrap_or(false);

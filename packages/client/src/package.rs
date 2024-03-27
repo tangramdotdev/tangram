@@ -21,6 +21,8 @@ pub struct GetArg {
 	pub dependencies: bool,
 	pub lock: bool,
 	pub metadata: bool,
+	pub path: bool,
+	pub yanked: bool,
 }
 
 #[derive(Debug, Clone, serde::Deserialize, serde::Serialize)]
@@ -29,6 +31,8 @@ pub struct GetOutput {
 	pub id: directory::Id,
 	pub lock: Option<lock::Id>,
 	pub metadata: Option<Metadata>,
+	pub path: Option<tg::Path>,
+	pub yanked: Option<bool>,
 }
 
 #[serde_as]
@@ -48,6 +52,7 @@ pub struct OutdatedInfo {
 	pub current: String,
 	pub compatible: String,
 	pub latest: String,
+	pub yanked: bool,
 }
 
 #[derive(Clone, Debug, Default, PartialEq, Eq, Hash, serde::Deserialize, serde::Serialize)]
@@ -70,7 +75,7 @@ pub type SearchOutput = Vec<String>;
 pub async fn get(tg: &impl Handle, dependency: &Dependency) -> tg::Result<Directory> {
 	try_get(tg, dependency)
 		.await?
-		.ok_or_else(|| error!(%dependency, "failed to find the package"))
+		.ok_or_else(|| tg::error!(%dependency, "failed to find the package"))
 }
 
 pub async fn try_get(tg: &impl Handle, dependency: &Dependency) -> tg::Result<Option<Directory>> {
@@ -86,7 +91,7 @@ pub async fn get_with_lock(
 ) -> tg::Result<(Directory, Lock)> {
 	try_get_with_lock(tg, dependency)
 		.await?
-		.ok_or_else(|| error!(%dependency, "failed to find the package"))
+		.ok_or_else(|| tg::error!(%dependency, "failed to find the package"))
 }
 
 pub async fn try_get_with_lock(
@@ -103,7 +108,7 @@ pub async fn try_get_with_lock(
 	let package = Directory::with_id(output.id);
 	let lock = output
 		.lock
-		.ok_or_else(|| error!(%dependency, "expected the lock to be set"))?;
+		.ok_or_else(|| tg::error!(%dependency, "expected the lock to be set"))?;
 	let lock = Lock::with_id(lock);
 	Ok(Some((package, lock)))
 }
@@ -114,7 +119,7 @@ pub async fn get_dependencies(
 ) -> tg::Result<Vec<Dependency>> {
 	try_get_dependencies(tg, package)
 		.await?
-		.ok_or_else(|| error!(%package, "failed to find the package"))
+		.ok_or_else(|| tg::error!(%package, "failed to find the package"))
 }
 
 pub async fn try_get_dependencies(
@@ -132,14 +137,14 @@ pub async fn try_get_dependencies(
 	};
 	let dependencies = output
 		.dependencies
-		.ok_or_else(|| error!("expected the dependencies to be set"))?;
+		.ok_or_else(|| tg::error!("expected the dependencies to be set"))?;
 	Ok(Some(dependencies))
 }
 
 pub async fn get_metadata(tg: &impl Handle, package: &Directory) -> tg::Result<Metadata> {
 	try_get_metadata(tg, package)
 		.await?
-		.ok_or_else(|| error!(%package, "failed to find the package"))
+		.ok_or_else(|| tg::error!(%package, "failed to find the package"))
 }
 
 pub async fn try_get_metadata(
@@ -157,7 +162,7 @@ pub async fn try_get_metadata(
 	};
 	let metadata = output
 		.metadata
-		.ok_or_else(|| error!("expected the metadata to be set"))?;
+		.ok_or_else(|| tg::error!("expected the metadata to be set"))?;
 	Ok(Some(metadata))
 }
 
@@ -167,7 +172,7 @@ pub async fn get_root_module_path(
 ) -> tg::Result<crate::Path> {
 	try_get_root_module_path(tg, package)
 		.await?
-		.ok_or_else(|| error!("failed to find the package's root module"))
+		.ok_or_else(|| tg::error!("failed to find the package's root module"))
 }
 
 pub async fn try_get_root_module_path(
@@ -193,7 +198,7 @@ pub async fn try_get_root_module_path(
 pub async fn get_root_module_path_for_path(path: &Path) -> tg::Result<crate::Path> {
 	try_get_root_module_path_for_path(path)
 		.await?
-		.ok_or_else(|| error!("failed to find the package's root module"))
+		.ok_or_else(|| tg::error!("failed to find the package's root module"))
 }
 
 pub async fn try_get_root_module_path_for_path(path: &Path) -> tg::Result<Option<crate::Path>> {
@@ -201,7 +206,7 @@ pub async fn try_get_root_module_path_for_path(path: &Path) -> tg::Result<Option
 	for module_file_name in ROOT_MODULE_FILE_NAMES {
 		if tokio::fs::try_exists(path.join(module_file_name))
 			.await
-			.map_err(|source| error!(!source, "failed to get the metadata"))?
+			.map_err(|source| tg::error!(!source, "failed to get the metadata"))?
 		{
 			if root_module_path.is_some() {
 				return Err(error!("found multiple root modules"));
@@ -219,32 +224,32 @@ impl Client {
 	) -> tg::Result<tg::package::SearchOutput> {
 		let method = http::Method::GET;
 		let search_params = serde_urlencoded::to_string(arg)
-			.map_err(|source| error!(!source, "failed to serialize the search params"))?;
+			.map_err(|source| tg::error!(!source, "failed to serialize the search params"))?;
 		let uri = format!("/packages/search?{search_params}");
 		let body = empty();
 		let request = http::request::Builder::default()
 			.method(method)
 			.uri(uri)
 			.body(body)
-			.map_err(|source| error!(!source, "failed to create the request"))?;
+			.map_err(|source| tg::error!(!source, "failed to create the request"))?;
 		let response = self.send(request).await?;
 		if !response.status().is_success() {
 			let bytes = response
 				.collect()
 				.await
-				.map_err(|source| error!(!source, "failed to collect the response body"))?
+				.map_err(|source| tg::error!(!source, "failed to collect the response body"))?
 				.to_bytes();
 			let error = serde_json::from_slice(&bytes)
-				.unwrap_or_else(|_| error!("failed to deserialize the error"));
+				.unwrap_or_else(|_| tg::error!("failed to deserialize the error"));
 			return Err(error);
 		}
 		let bytes = response
 			.collect()
 			.await
-			.map_err(|source| error!(!source, "failed to collect the response body"))?
+			.map_err(|source| tg::error!(!source, "failed to collect the response body"))?
 			.to_bytes();
 		let output = serde_json::from_slice(&bytes)
-			.map_err(|source| error!(!source, "failed to deserialize the response body"))?;
+			.map_err(|source| tg::error!(!source, "failed to deserialize the response body"))?;
 		Ok(output)
 	}
 
@@ -257,14 +262,14 @@ impl Client {
 		let dependency = dependency.to_string();
 		let dependency = urlencoding::encode(&dependency);
 		let search_params = serde_urlencoded::to_string(&arg)
-			.map_err(|source| error!(!source, "failed to serialize the search params"))?;
+			.map_err(|source| tg::error!(!source, "failed to serialize the search params"))?;
 		let uri = format!("/packages/{dependency}?{search_params}");
 		let body = empty();
 		let request = http::request::Builder::default()
 			.method(method)
 			.uri(uri)
 			.body(body)
-			.map_err(|source| error!(!source, "failed to create the request"))?;
+			.map_err(|source| tg::error!(!source, "failed to create the request"))?;
 		let response = self.send(request).await?;
 		if response.status() == http::StatusCode::NOT_FOUND {
 			return Ok(None);
@@ -273,19 +278,19 @@ impl Client {
 			let bytes = response
 				.collect()
 				.await
-				.map_err(|source| error!(!source, "failed to collect the response body"))?
+				.map_err(|source| tg::error!(!source, "failed to collect the response body"))?
 				.to_bytes();
 			let error = serde_json::from_slice(&bytes)
-				.unwrap_or_else(|_| error!("failed to deserialize the error"));
+				.unwrap_or_else(|_| tg::error!("failed to deserialize the error"));
 			return Err(error);
 		}
 		let bytes = response
 			.collect()
 			.await
-			.map_err(|source| error!(!source, "failed to collect the response body"))?
+			.map_err(|source| tg::error!(!source, "failed to collect the response body"))?
 			.to_bytes();
 		let output = serde_json::from_slice(&bytes)
-			.map_err(|source| error!(!source, "failed to deserialize the response body"))?;
+			.map_err(|source| tg::error!(!source, "failed to deserialize the response body"))?;
 		let Some(output) = output else {
 			return Ok(None);
 		};
@@ -305,25 +310,25 @@ impl Client {
 			.method(method)
 			.uri(uri)
 			.body(body)
-			.map_err(|source| error!(!source, "failed to create the request"))?;
+			.map_err(|source| tg::error!(!source, "failed to create the request"))?;
 		let response = self.send(request).await?;
 		if !response.status().is_success() {
 			let bytes = response
 				.collect()
 				.await
-				.map_err(|source| error!(!source, "failed to collect the response body"))?
+				.map_err(|source| tg::error!(!source, "failed to collect the response body"))?
 				.to_bytes();
 			let error = serde_json::from_slice(&bytes)
-				.unwrap_or_else(|_| error!("failed to deserialize the error"));
+				.unwrap_or_else(|_| tg::error!("failed to deserialize the error"));
 			return Err(error);
 		}
 		let bytes = response
 			.collect()
 			.await
-			.map_err(|source| error!(!source, "failed to collect the response body"))?
+			.map_err(|source| tg::error!(!source, "failed to collect the response body"))?
 			.to_bytes();
 		let output = serde_json::from_slice(&bytes)
-			.map_err(|source| error!(!source, "failed to deserialize the response body"))?;
+			.map_err(|source| tg::error!(!source, "failed to deserialize the response body"))?;
 		Ok(Some(output))
 	}
 
@@ -340,20 +345,52 @@ impl Client {
 			request = request.header(http::header::AUTHORIZATION, format!("Bearer {token}"));
 		}
 		let body = serde_json::to_vec(&id)
-			.map_err(|source| error!(!source, "failed to serialize the body"))?;
+			.map_err(|source| tg::error!(!source, "failed to serialize the body"))?;
 		let body = full(body);
 		let request = request
 			.body(body)
-			.map_err(|source| error!(!source, "failed to create the request"))?;
+			.map_err(|source| tg::error!(!source, "failed to create the request"))?;
 		let response = self.send(request).await?;
 		if !response.status().is_success() {
 			let bytes = response
 				.collect()
 				.await
-				.map_err(|source| error!(!source, "failed to collect the response body"))?
+				.map_err(|source| tg::error!(!source, "failed to collect the response body"))?
 				.to_bytes();
 			let error = serde_json::from_slice(&bytes)
-				.unwrap_or_else(|_| error!("failed to deserialize the error"));
+				.unwrap_or_else(|_| tg::error!("failed to deserialize the error"));
+			return Err(error);
+		}
+		Ok(())
+	}
+
+	pub async fn yank_package(
+		&self,
+		user: Option<&tg::User>,
+		id: &tg::directory::Id,
+	) -> tg::Result<()> {
+		let method = http::Method::POST;
+		let uri = format!("/packages/{id}/yank");
+		let mut request = http::request::Builder::default().method(method).uri(uri);
+		let user = user.or(self.inner.user.as_ref());
+		if let Some(token) = user.and_then(|user| user.token.as_ref()) {
+			request = request.header(http::header::AUTHORIZATION, format!("Bearer {token}"));
+		}
+		let body = serde_json::to_vec(&id)
+			.map_err(|source| tg::error!(!source, "failed to serialize the body"))?;
+		let body = full(body);
+		let request = request
+			.body(body)
+			.map_err(|source| tg::error!(!source, "failed to create the request"))?;
+		let response = self.send(request).await?;
+		if !response.status().is_success() {
+			let bytes = response
+				.collect()
+				.await
+				.map_err(|source| tg::error!(!source, "failed to collect the response body"))?
+				.to_bytes();
+			let error = serde_json::from_slice(&bytes)
+				.unwrap_or_else(|_| tg::error!("failed to deserialize the error"));
 			return Err(error);
 		}
 		Ok(())
@@ -371,25 +408,25 @@ impl Client {
 		let body = empty();
 		let request = request
 			.body(body)
-			.map_err(|source| error!(!source, "failed to create the request"))?;
+			.map_err(|source| tg::error!(!source, "failed to create the request"))?;
 		let response = self.send(request).await?;
 		if !response.status().is_success() {
 			let bytes = response
 				.collect()
 				.await
-				.map_err(|source| error!(!source, "failed to collect the response body"))?
+				.map_err(|source| tg::error!(!source, "failed to collect the response body"))?
 				.to_bytes();
 			let error = serde_json::from_slice(&bytes)
-				.unwrap_or_else(|_| error!("failed to deserialize the error"));
+				.unwrap_or_else(|_| tg::error!("failed to deserialize the error"));
 			return Err(error);
 		}
 		let bytes = response
 			.collect()
 			.await
-			.map_err(|source| error!(!source, "failed to collect the response body"))?
+			.map_err(|source| tg::error!(!source, "failed to collect the response body"))?
 			.to_bytes();
 		let output = serde_json::from_slice(&bytes)
-			.map_err(|source| error!(!source, "failed to deserialize the response body"))?;
+			.map_err(|source| tg::error!(!source, "failed to deserialize the response body"))?;
 		Ok(output)
 	}
 
@@ -402,16 +439,16 @@ impl Client {
 		let body = empty();
 		let request = request
 			.body(body)
-			.map_err(|source| error!(!source, "failed to create the request"))?;
+			.map_err(|source| tg::error!(!source, "failed to create the request"))?;
 		let response = self.send(request).await?;
 		if !response.status().is_success() {
 			let bytes = response
 				.collect()
 				.await
-				.map_err(|source| error!(!source, "failed to collect the response body"))?
+				.map_err(|source| tg::error!(!source, "failed to collect the response body"))?
 				.to_bytes();
 			let error = serde_json::from_slice(&bytes)
-				.unwrap_or_else(|_| error!("failed to deserialize the error"));
+				.unwrap_or_else(|_| tg::error!("failed to deserialize the error"));
 			return Err(error);
 		}
 		Ok(())
@@ -430,7 +467,7 @@ impl Client {
 			.method(method)
 			.uri(uri)
 			.body(body)
-			.map_err(|source| error!(!source, "failed to create the request"))?;
+			.map_err(|source| tg::error!(!source, "failed to create the request"))?;
 		let response = self.send(request).await?;
 		if response.status() == http::StatusCode::NOT_FOUND {
 			return Err(error!(%dependency, "could not find package"));
@@ -439,19 +476,19 @@ impl Client {
 			let bytes = response
 				.collect()
 				.await
-				.map_err(|source| error!(!source, "failed to collect the response body"))?
+				.map_err(|source| tg::error!(!source, "failed to collect the response body"))?
 				.to_bytes();
 			let error = serde_json::from_slice(&bytes)
-				.unwrap_or_else(|_| error!("failed to deserialize the error"));
+				.unwrap_or_else(|_| tg::error!("failed to deserialize the error"));
 			return Err(error);
 		}
 		let bytes = response
 			.collect()
 			.await
-			.map_err(|source| error!(!source, "failed to collect the response body"))?
+			.map_err(|source| tg::error!(!source, "failed to collect the response body"))?
 			.to_bytes();
 		let output = serde_json::from_slice(&bytes)
-			.map_err(|source| error!(!source, "failed to deserialize the response body"))?;
+			.map_err(|source| tg::error!(!source, "failed to deserialize the response body"))?;
 		Ok(output)
 	}
 
@@ -462,25 +499,25 @@ impl Client {
 		let body = empty();
 		let request = request
 			.body(body)
-			.map_err(|source| error!(!source, "failed to create the request"))?;
+			.map_err(|source| tg::error!(!source, "failed to create the request"))?;
 		let response = self.send(request).await?;
 		if !response.status().is_success() {
 			let bytes = response
 				.collect()
 				.await
-				.map_err(|source| error!(!source, "failed to collect the response body"))?
+				.map_err(|source| tg::error!(!source, "failed to collect the response body"))?
 				.to_bytes();
 			let error = serde_json::from_slice(&bytes)
-				.unwrap_or_else(|_| error!("failed to deserialize the error"));
+				.unwrap_or_else(|_| tg::error!("failed to deserialize the error"));
 			return Err(error);
 		}
 		let bytes = response
 			.collect()
 			.await
-			.map_err(|source| error!(!source, "failed to collect the response body"))?
+			.map_err(|source| tg::error!(!source, "failed to collect the response body"))?
 			.to_bytes();
 		let output = serde_json::from_slice(&bytes)
-			.map_err(|source| error!(!source, "failed to deserialize the response body"))?;
+			.map_err(|source| tg::error!(!source, "failed to deserialize the response body"))?;
 		Ok(output)
 	}
 
@@ -496,25 +533,25 @@ impl Client {
 		let body = empty();
 		let request = request
 			.body(body)
-			.map_err(|source| error!(!source, "failed to create the request"))?;
+			.map_err(|source| tg::error!(!source, "failed to create the request"))?;
 		let response = self.send(request).await?;
 		if !response.status().is_success() {
 			let bytes = response
 				.collect()
 				.await
-				.map_err(|source| error!(!source, "failed to collect the response body"))?
+				.map_err(|source| tg::error!(!source, "failed to collect the response body"))?
 				.to_bytes();
 			let error = serde_json::from_slice(&bytes)
-				.unwrap_or_else(|_| error!("failed to deserialize the error"));
+				.unwrap_or_else(|_| tg::error!("failed to deserialize the error"));
 			return Err(error);
 		}
 		let bytes = response
 			.collect()
 			.await
-			.map_err(|source| error!(!source, "failed to collect the response body"))?
+			.map_err(|source| tg::error!(!source, "failed to collect the response body"))?
 			.to_bytes();
 		let output = serde_json::from_slice(&bytes)
-			.map_err(|source| error!(!source, "failed to deserialize the response body"))?;
+			.map_err(|source| tg::error!(!source, "failed to deserialize the response body"))?;
 		Ok(output)
 	}
 }

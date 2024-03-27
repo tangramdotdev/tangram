@@ -691,7 +691,6 @@ impl Context {
 			if let Some(package) = self.published_packages.get(&metadata) {
 				return Ok(package.clone());
 			}
-
 			let dependency = tg::Dependency::with_name_and_version(name.into(), version.clone());
 			let Some(output) =
 				Box::pin(server.try_get_package(&dependency, tg::package::GetArg::default()))

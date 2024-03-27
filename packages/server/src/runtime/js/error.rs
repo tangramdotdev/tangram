@@ -69,6 +69,7 @@ pub(super) fn from_exception<'s>(
 		.get_script_resource_name(scope)
 		.and_then(|resource_name| <v8::Local<v8::String>>::try_from(resource_name).ok())
 		.map(|resource_name| resource_name.to_rust_string_lossy(scope));
+
 	let line = if resource_name.is_some() {
 		Some(message_.get_line_number(scope).unwrap().to_u32().unwrap() - 1)
 	} else {
@@ -79,6 +80,7 @@ pub(super) fn from_exception<'s>(
 	} else {
 		None
 	};
+
 	let location = get_location(state, None, resource_name.as_deref(), line, column);
 
 	// Get the stack trace.

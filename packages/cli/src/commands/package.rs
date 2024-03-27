@@ -5,7 +5,7 @@ use std::{
 	collections::{BTreeSet, VecDeque},
 	fmt::Write,
 };
-use tangram_client as tg;
+use tangram_client::{self as tg, Handle};
 
 /// Manage packages.
 #[derive(Debug, clap::Args)]
@@ -16,11 +16,20 @@ pub struct Args {
 
 #[derive(Debug, clap::Subcommand)]
 pub enum Command {
+	Get(GetArgs),
 	Outdated(OutdatedArgs),
 	Publish(PublishArgs),
 	Search(SearchArgs),
 	Tree(TreeArgs),
 	Update(UpdateArgs),
+	Yank(YankArgs),
+}
+
+/// List a package's outdated dependencies.
+#[derive(Debug, clap::Args)]
+pub struct GetArgs {
+	#[clap(short, long, default_value = ".")]
+	pub package: tg::Dependency,
 }
 
 /// List a package's outdated dependencies.
@@ -37,6 +46,13 @@ pub struct OutdatedArgs {
 /// Publish a package.
 #[derive(Debug, clap::Args)]
 pub struct PublishArgs {
+	#[clap(short, long, default_value = ".")]
+	pub package: tg::Dependency,
+}
+
+/// Yank a package.
+#[derive(Debug, clap::Args)]
+pub struct YankArgs {
 	#[clap(short, long, default_value = ".")]
 	pub package: tg::Dependency,
 }
@@ -67,12 +83,46 @@ pub struct UpdateArgs {
 impl Cli {
 	pub async fn command_package(&self, args: Args) -> tg::Result<()> {
 		match args.command {
+			Command::Get(args) => self.command_package_get(args).await,
 			Command::Outdated(args) => self.command_package_outdated(args).await,
 			Command::Publish(args) => self.command_package_publish(args).await,
 			Command::Search(args) => self.command_package_search(args).await,
 			Command::Tree(args) => self.command_package_tree(args).await,
 			Command::Update(args) => self.command_package_update(args).await,
+			Command::Yank(args) => self.command_package_yank(args).await,
 		}
+	}
+
+	pub async fn command_package_get(&self, args: GetArgs) -> tg::Result<()> {
+		let client = &self.client().await?;
+		let arg = tg::package::GetArg {
+			metadata: true,
+			yanked: true,
+			path: true,
+			..Default::default()
+		};
+		let output = client.get_package(&args.package, arg).await.map_err(
+			|error| tg::error!(source = error, %dependency = args.package, "failed to get the package"),
+		)?;
+
+		if matches!(output.yanked, Some(true)) {
+			eprintln!("{}", "YANKED".red().bold());
+		}
+
+		if let Some(metadata) = output.metadata {
+			let name = metadata.name.as_deref().unwrap_or("<unknown>");
+			let version = metadata.version.as_deref().unwrap_or("<unknown>");
+			eprintln!("{}: {name}@{version}", "info".blue());
+			if let Some(description) = &metadata.description {
+				eprintln!("{}: {}", "info".blue(), description);
+			}
+		}
+
+		if let Some(path) = output.path {
+			eprintln!("{}: at {}", "info".blue(), path);
+		}
+
+		Ok(())
 	}
 
 	pub async fn command_package_outdated(&self, args: OutdatedArgs) -> tg::Result<()> {
@@ -111,9 +161,10 @@ impl Cli {
 					current,
 					compatible,
 					latest,
+					yanked,
 				} = info;
 				println!("{}", path.white().dim());
-				println!(
+				print!(
 					"{} = {}, {} = {}, {} = {}",
 					"current".red(),
 					current.green(),
@@ -122,6 +173,11 @@ impl Cli {
 					"latest".red(),
 					latest.green(),
 				);
+				if yanked {
+					println!(" {}", "YANKED".red().bold());
+				} else {
+					println!();
+				}
 			}
 			for (dependency, outdated) in dependencies {
 				let mut path = path.clone();
@@ -157,6 +213,14 @@ impl Cli {
 			.await
 			.map_err(|source| tg::error!(!source, "failed to publish the package"))?;
 
+		// Display
+		let metadata = tg::package::get_metadata(client, &package).await?;
+		println!(
+			"{}: published {}@{}",
+			"info".blue(),
+			metadata.name.unwrap().red(),
+			metadata.version.unwrap().green()
+		);
 		Ok(())
 	}
 
@@ -230,6 +294,52 @@ impl Cli {
 		let _ = tg::package::get_with_lock(client, &dependency)
 			.await
 			.map_err(|source| tg::error!(!source, %dependency, "failed to create a new lock"))?;
+
+		Ok(())
+	}
+
+	pub async fn command_package_yank(&self, args: YankArgs) -> tg::Result<()> {
+		let client = &self.client().await?;
+		let mut dependency = args.package;
+
+		// Canonicalize the path.
+		if let Some(path) = dependency.path.as_mut() {
+			*path = tokio::fs::canonicalize(&path)
+				.await
+				.map_err(|source| tg::error!(!source, "failed to canonicalize the path"))?
+				.try_into()?;
+		}
+
+		// Return an error if there's an attempt to yank a package by version req
+		if let Some(version) = dependency.version.as_ref() {
+			if "<>^~*".chars().any(|ch| version.starts_with(ch)) {
+				return Err(tg::error!(%dependency, "cannot yank a package using a version req"));
+			}
+		}
+
+		// Create the package.
+		let package = tg::package::get(client, &dependency)
+			.await
+			.map_err(|source| tg::error!(!source, %dependency, "failed to get the package"))?;
+
+		// Get the package ID.
+		let id = package.id(client).await?;
+
+		// Yank the package.
+		client
+			.yank_package(self.user.as_ref(), &id)
+			.await
+			.map_err(|source| tg::error!(!source, "failed to yank the package"))?;
+
+		// Get the package metadata
+		let metadata = tg::package::get_metadata(client, &package).await?;
+		println!(
+			"{}: {} {}@{}",
+			"info".blue(),
+			"YANKED".bold().red(),
+			metadata.name.unwrap().red(),
+			metadata.version.unwrap().green()
+		);
 
 		Ok(())
 	}
