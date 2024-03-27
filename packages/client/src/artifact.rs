@@ -88,7 +88,14 @@ pub struct CheckInOutput {
 #[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
 pub struct CheckOutArg {
 	pub artifact: Id,
-	pub path: Option<crate::Path>,
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub options: Option<CheckOutOptions>,
+}
+
+#[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
+pub struct CheckOutOptions {
+	pub path: crate::Path,
+	pub force: bool,
 }
 
 impl Artifact {
@@ -127,11 +134,11 @@ impl Artifact {
 		Ok(artifact)
 	}
 
-	pub async fn check_out(&self, tg: &dyn Handle, path: Option<&crate::Path>) -> Result<()> {
+	pub async fn check_out(&self, tg: &dyn Handle, options: Option<CheckOutOptions>) -> Result<()> {
 		let id = self.id(tg).await?;
 		let arg = CheckOutArg {
 			artifact: id,
-			path: path.cloned(),
+			options,
 		};
 		tg.check_out_artifact(arg).await?;
 		Ok(())

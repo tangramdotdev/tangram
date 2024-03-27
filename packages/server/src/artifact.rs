@@ -2,7 +2,7 @@ use crate::{util::rmrf, Http, Server};
 use async_recursion::async_recursion;
 use futures::{stream::FuturesUnordered, TryStreamExt};
 use http_body_util::BodyExt;
-use std::os::unix::prelude::PermissionsExt;
+use std::{collections::HashMap, os::unix::prelude::PermissionsExt, sync::Arc};
 use tangram_client as tg;
 use tangram_database as db;
 use tangram_error::{error, Error, Result};
@@ -220,8 +220,31 @@ impl Server {
 	}
 
 	pub async fn check_out_artifact(&self, arg: tg::artifact::CheckOutArg) -> Result<()> {
+		let files = Arc::new(std::sync::RwLock::new(HashMap::default()));
+		self.check_out_with_files(arg, files).await
+	}
+
+	async fn check_out_with_files(
+		&self,
+		arg: tg::artifact::CheckOutArg,
+		files: Arc<std::sync::RwLock<HashMap<tg::file::Id, tg::Path>>>,
+	) -> Result<()> {
 		let artifact = tg::Artifact::with_id(arg.artifact);
-		if let Some(path) = &arg.path {
+		if let Some(options) = &arg.options {
+			let tg::artifact::CheckOutOptions { path, force } = options;
+			let exists = tokio::fs::try_exists(path).await.map_err(
+				|source| error!(!source, %path, "failed to determine if the path exists"),
+			)?;
+			if exists && !force {
+				return Err(error!(%path, "file exists"));
+			}
+			if !path.is_absolute() {
+				return Err(error!(%path, "expected an absolute path"));
+			}
+			if (path.as_ref() as &std::path::Path).starts_with(self.checkouts_path()) {
+				return Err(error!(%path, "cannot check out into the checkouts directory"));
+			}
+
 			// Bundle the artifact.
 			let artifact = artifact
 				.bundle(self)
@@ -229,10 +252,7 @@ impl Server {
 				.map_err(|source| error!(!source, "failed to bundle the artifact"))?;
 
 			// Check in an existing artifact at the path.
-			let existing_artifact = if tokio::fs::try_exists(path)
-				.await
-				.map_err(|source| error!(!source, "failed to determine if the path exists"))?
-			{
+			let existing_artifact = if exists {
 				let arg = tg::artifact::CheckInArg { path: path.clone() };
 				let output = self.check_in_artifact(arg).await?;
 				Some(tg::Artifact::with_id(output.id))
@@ -241,7 +261,7 @@ impl Server {
 			};
 
 			// Perform the checkout.
-			self.check_out_inner(path, &artifact, existing_artifact.as_ref(), false, 0)
+			self.check_out_inner(path, &artifact, existing_artifact.as_ref(), false, 0, files)
 				.await?;
 
 			Ok(())
@@ -262,8 +282,16 @@ impl Server {
 			let tmp = self.create_tmp();
 
 			// Perform the checkout to the tmp path.
-			self.check_out_inner(&tmp.path.clone().try_into()?, &artifact, None, true, 0)
-				.await?;
+			let existing = Arc::new(std::sync::RwLock::new(HashMap::default()));
+			self.check_out_inner(
+				&tmp.path.clone().try_into()?,
+				&artifact,
+				None,
+				true,
+				0,
+				existing,
+			)
+			.await?;
 
 			// Move the checkout to the checkouts directory.
 			match tokio::fs::rename(&tmp, &path).await {
@@ -295,6 +323,7 @@ impl Server {
 		existing_artifact: Option<&'async_recursion tg::Artifact>,
 		internal: bool,
 		depth: usize,
+		files: Arc<std::sync::RwLock<HashMap<tg::file::Id, tg::Path>>>,
 	) -> Result<()> {
 		// If the artifact is the same as the existing artifact, then return.
 		let id = artifact.id(self).await?;
@@ -310,15 +339,22 @@ impl Server {
 		// Call the appropriate function for the artifact's type.
 		match artifact {
 			tg::Artifact::Directory(directory) => {
-				self.check_out_directory(path, directory, existing_artifact, internal, depth)
-					.await
-					.map_err(
-						|error| error!(source = error, %id, %path, "failed to check out directory"),
-					)?;
+				self.check_out_directory(
+					path,
+					directory,
+					existing_artifact,
+					internal,
+					depth,
+					files,
+				)
+				.await
+				.map_err(
+					|error| error!(source = error, %id, %path, "failed to check out directory"),
+				)?;
 			},
 
 			tg::Artifact::File(file) => {
-				self.check_out_file(path, file, existing_artifact, internal, depth)
+				self.check_out_file(path, file, existing_artifact, internal, files)
 					.await
 					.map_err(
 						|error| error!(source = error, %id, %path, "failed to check out file"),
@@ -326,7 +362,7 @@ impl Server {
 			},
 
 			tg::Artifact::Symlink(symlink) => {
-				self.check_out_symlink(path, symlink, existing_artifact, internal, depth)
+				self.check_out_symlink(path, symlink, existing_artifact, internal, depth, files)
 					.await
 					.map_err(
 						|error| error!(source = error, %id, %path, "failed to check out symlink"),
@@ -357,6 +393,7 @@ impl Server {
 		existing_artifact: Option<&tg::Artifact>,
 		internal: bool,
 		depth: usize,
+		files: Arc<std::sync::RwLock<HashMap<tg::file::Id, tg::Path>>>,
 	) -> Result<()> {
 		// Handle an existing artifact at the path.
 		match existing_artifact {
@@ -401,6 +438,7 @@ impl Server {
 			.iter()
 			.map(|(name, artifact)| {
 				let existing_artifact = &existing_artifact;
+				let existing = files.clone();
 				async move {
 					// Retrieve an existing artifact.
 					let existing_artifact = match existing_artifact {
@@ -421,6 +459,7 @@ impl Server {
 						existing_artifact.as_ref(),
 						internal,
 						depth + 1,
+						existing,
 					)
 					.await?;
 
@@ -440,7 +479,7 @@ impl Server {
 		file: &tg::File,
 		existing_artifact: Option<&tg::Artifact>,
 		internal: bool,
-		depth: usize,
+		files: Arc<std::sync::RwLock<HashMap<tg::file::Id, tg::Path>>>,
 	) -> Result<()> {
 		// Handle an existing artifact at the path.
 		match &existing_artifact {
@@ -452,6 +491,21 @@ impl Server {
 			// If there is no file system object at this path, then continue.
 			None => (),
 		};
+
+		// Check if the file has already been checked out.
+		let id = file.id(self).await?;
+		let existing_path = files.read().unwrap().get(id).cloned();
+		if let Some(from) = existing_path {
+			tokio::fs::copy(&from, &path).await.map_err(
+				|source| error!(!source, %from, %to = &path, %id, "failed to copy file"),
+			)?;
+		}
+		let internal_path = self.checkouts_path().join(id.to_string());
+		if let Ok(true) = tokio::fs::try_exists(&internal_path).await {
+			tokio::fs::copy(&internal_path, path).await.map_err(
+				|source| error!(!source, %from = internal_path.display(), %to = path, %id, "failed to copy file"),
+			)?;
+		}
 
 		// Check out the file's references.
 		let references = file
@@ -475,9 +529,9 @@ impl Server {
 				.map(|artifact| async {
 					let arg = tg::artifact::CheckOutArg {
 						artifact: artifact.clone(),
-						path: None,
+						options: None,
 					};
-					self.check_out_artifact(arg).await?;
+					self.check_out_with_files(arg, files.clone()).await?;
 					Ok::<_, Error>(())
 				})
 				.collect::<FuturesUnordered<_>>()
@@ -486,19 +540,6 @@ impl Server {
 				.map_err(|error| {
 					error!(source = error, "failed to check out the file's references")
 				})?;
-		}
-
-		if internal && depth > 0 {
-			let arg = tg::artifact::CheckOutArg {
-				artifact: file.id(self).await?.clone().into(),
-				path: None,
-			};
-			self.check_out_artifact(arg).await?;
-			let src = self.checkouts_path().join(file.id(self).await?.to_string());
-			tokio::fs::hard_link(&src, path)
-				.await
-				.map_err(|source| error!(!source, "failed to create the hard link"))?;
-			return Ok(());
 		}
 
 		// Create the file.
@@ -522,13 +563,16 @@ impl Server {
 		}
 
 		// Set the extended attributes if necessary.
-		if internal && !references.is_empty() {
+		if !references.is_empty() {
 			let attributes = tg::file::Attributes { references };
 			let attributes = serde_json::to_vec(&attributes)
 				.map_err(|source| error!(!source, "failed to serialize attributes"))?;
 			xattr::set(path, tg::file::TANGRAM_FILE_XATTR_NAME, &attributes)
 				.map_err(|source| error!(!source, "failed to set attributes as an xattr"))?;
 		}
+
+		// Add to the cache of checked out files.
+		files.write().unwrap().insert(id.clone(), path.clone());
 
 		Ok(())
 	}
@@ -540,6 +584,7 @@ impl Server {
 		existing_artifact: Option<&tg::Artifact>,
 		internal: bool,
 		depth: usize,
+		files: Arc<std::sync::RwLock<HashMap<tg::file::Id, tg::Path>>>,
 	) -> Result<()> {
 		// Handle an existing artifact at the path.
 		match &existing_artifact {
@@ -561,9 +606,9 @@ impl Server {
 			}
 			let arg = tg::artifact::CheckOutArg {
 				artifact: artifact.id(self).await?.clone(),
-				path: None,
+				options: None,
 			};
-			self.check_out_artifact(arg).await?;
+			self.check_out_with_files(arg, files).await?;
 		}
 
 		// Render the target.
