@@ -11,6 +11,10 @@ pub struct Args {
 
 	/// The path to check out the artifact to.
 	pub path: Option<PathBuf>,
+
+	/// Overwrite any files or directories at the check out path if they exist.
+	#[arg(short, long, requires = "path")]
+	pub force: bool,
 }
 
 impl Cli {
@@ -28,13 +32,31 @@ impl Cli {
 
 		// Check out the artifact.
 		let artifact = tg::Artifact::with_id(args.id.clone());
-		let path = if let Some(path) = &args.path {
-			Some(path.clone().try_into()?)
+		let options = if let Some(path) = args.path.clone() {
+			let path = if path.is_absolute() {
+				path.try_into()?
+			} else {
+				path.parent()
+					.and_then(|path| (!path.as_os_str().is_empty()).then_some(path))
+					.unwrap_or(".".as_ref())
+					.canonicalize()
+					.map_err(
+						|source| error!(!source, %path = path.display(), "failed to canonicalize the path"),
+					)?
+					.join(
+						path.file_name()
+							.ok_or_else(|| error!(%path = path.display(), "invalid path"))?,
+					)
+					.try_into()?
+			};
+			let force = args.force;
+			Some(tg::artifact::CheckOutOptions { path, force })
 		} else {
 			None
 		};
+
 		artifact
-			.check_out(client, path.as_ref())
+			.check_out(client, options)
 			.await
 			.map_err(|source| error!(!source, "failed to check out the artifact"))?;
 
