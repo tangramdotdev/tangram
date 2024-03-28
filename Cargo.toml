@@ -91,8 +91,6 @@ reqwest = { version = "0.12", default-features = false, features = [
 ] }
 rusqlite = { version = "0.31", features = ["blob", "bundled"] }
 rustls = "0.23"
-rustls-pemfile = "2"
-rustls-pki-types = "1"
 scopeguard = "1"
 semver = "1"
 serde = { version = "1", features = ["rc", "derive"] }

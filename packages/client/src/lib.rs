@@ -409,6 +409,16 @@ impl Client {
 		Ok(sender)
 	}
 
+	#[cfg(not(feature = "tls"))]
+	async fn connect_tcp_tls(
+		&self,
+		_host: &str,
+		_port: u16,
+	) -> Result<tokio_rustls::client::TlsStream<tokio::net::TcpStream>> {
+		Err(error!("tls is not enabled"))
+	}
+
+	#[cfg(feature = "tls")]
 	async fn connect_tcp_tls(
 		&self,
 		host: &str,
@@ -429,7 +439,7 @@ impl Client {
 		let connector = tokio_rustls::TlsConnector::from(Arc::new(config));
 
 		// Create the server name.
-		let server_name = rustls_pki_types::ServerName::try_from(host.to_string().as_str())
+		let server_name = rustls::pki_types::ServerName::try_from(host.to_string().as_str())
 			.map_err(|source| error!(!source, "failed to create the server name"))?
 			.to_owned();
 

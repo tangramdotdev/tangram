@@ -10,6 +10,10 @@ repository = { workspace = true }
 rust-version = { workspace = true }
 version = { workspace = true }
 
+[features]
+default = ["tls"]
+tls = ["dep:rustls", "dep:tokio-rustls", "dep:webpki-roots"]
+
 [lints]
 workspace = true
 
@@ -44,8 +48,7 @@ once_cell = { workspace = true }
 pin-project = { workspace = true }
 rand = { workspace = true }
 regex = { workspace = true }
-rustls = { workspace = true }
-rustls-pki-types = { workspace = true }
+rustls = { workspace = true, optional = true }
 semver = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
@@ -59,13 +62,13 @@ tangram_http = { workspace = true }
 tangram_sse = { workspace = true }
 time = { workspace = true }
 tokio = { workspace = true }
-tokio-rustls = { workspace = true }
+tokio-rustls = { workspace = true, optional = true }
 tokio-stream = { workspace = true }
 tokio-util = { workspace = true }
 tracing = { workspace = true }
 url = { workspace = true }
 urlencoding = { workspace = true }
 uuid = { workspace = true }
-webpki-roots = { workspace = true }
+webpki-roots = { workspace = true, optional = true }
 xattr = { workspace = true }
 zip = { workspace = true }
