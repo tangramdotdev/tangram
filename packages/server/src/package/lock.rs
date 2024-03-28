@@ -3,7 +3,7 @@ use crate::Server;
 use async_recursion::async_recursion;
 use either::Either;
 use futures::{stream::FuturesUnordered, TryStreamExt};
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 use tangram_client as tg;
 use tangram_error::{error, Result};
 use tg::Handle;
@@ -124,7 +124,10 @@ impl Server {
 		// Verify that the lockfile's dependencies match the package with path dependencies.
 		let lock = if let Some(lock) = lock {
 			let matches = self
-				.package_with_path_dependencies_matches_lock(package_with_path_dependencies, &lock)
+				.package_with_path_dependencies_matches_lock(
+					package_with_path_dependencies,
+					lock.clone(),
+				)
 				.await?;
 			if matches {
 				Some(lock)
@@ -156,56 +159,35 @@ impl Server {
 		Ok(lock)
 	}
 
+	#[async_recursion]
 	async fn package_with_path_dependencies_matches_lock(
 		&self,
 		package_with_path_dependencies: &PackageWithPathDependencies,
-		lock: &tg::Lock,
+		lock: tg::Lock,
 	) -> Result<bool> {
-		let object = lock.object(self).await?;
-		self.package_with_path_dependencies_matches_lock_inner(
-			package_with_path_dependencies,
-			&object.nodes,
-			object.root,
-		)
-		.await
-	}
-
-	#[async_recursion]
-	async fn package_with_path_dependencies_matches_lock_inner(
-		&self,
-		package_with_path_dependencies: &PackageWithPathDependencies,
-		nodes: &[tg::lock::Node],
-		index: usize,
-	) -> Result<bool> {
-		// Get the package's dependencies.
-		let dependencies = self
+		// Get the dependencies from the package and its lock.
+		let deps_in_package = self
 			.get_package_dependencies(&package_with_path_dependencies.package)
 			.await?;
-
-		// Get the package's lock from the lockfile.
-		let node = nodes.get(index).ok_or_else(|| error!("invalid lockfile"))?;
+		let deps_in_lock = lock.direct_dependencies(self).await?;
 
 		// Verify that the dependencies match.
-		if !itertools::equal(node.dependencies.keys(), dependencies.iter()) {
+		if !itertools::equal(deps_in_package, deps_in_lock) {
 			return Ok(false);
 		}
 
-		// Recurse into the path dependencies.
+		// Recurse
 		package_with_path_dependencies
 			.path_dependencies
-			.keys()
-			.map(|dependency| async move {
-				let index = *node
-					.dependencies
-					.get(dependency)
-					.unwrap()
-					.lock
-					.as_ref()
-					.unwrap_left();
-				self.package_with_path_dependencies_matches_lock_inner(
+			.iter()
+			.map(|(dependency, package_with_path_dependencies)| async {
+				let (_, lock) = lock
+					.get(self, dependency)
+					.await?
+					.ok_or_else(|| error!("invalid lockfile"))?;
+				self.package_with_path_dependencies_matches_lock(
 					package_with_path_dependencies,
-					nodes,
-					index,
+					lock,
 				)
 				.await
 			})
@@ -403,35 +385,46 @@ impl Server {
 		Ok(())
 	}
 
+	#[async_recursion]
 	async fn add_path_dependencies_to_lock(
 		&self,
 		package_with_path_dependencies: &PackageWithPathDependencies,
 		lock: tg::lock::Lock,
 	) -> Result<tg::lock::Lock> {
 		let mut object = lock.object(self).await?.clone();
-		Self::add_path_dependencies_to_lock_inner(
-			package_with_path_dependencies,
-			&mut object.nodes,
-			object.root,
-		);
-		Ok(tg::Lock::with_object(object))
-	}
-
-	fn add_path_dependencies_to_lock_inner(
-		package_with_path_dependencies: &PackageWithPathDependencies,
-		nodes: &mut [tg::lock::Node],
-		index: usize,
-	) {
-		for (dependency, package_with_path_dependencies) in
-			&package_with_path_dependencies.path_dependencies
-		{
-			let Some(entry) = nodes[index].dependencies.get_mut(dependency) else {
+		let mut stack = vec![(object.root, package_with_path_dependencies)];
+		let mut visited = BTreeSet::new();
+		while let Some((index, package_with_path_dependencies)) = stack.pop() {
+			if visited.contains(&index) {
 				continue;
-			};
-			let index = *entry.lock.as_ref().left().unwrap();
-			entry.package = Some(package_with_path_dependencies.package.clone());
-			Self::add_path_dependencies_to_lock_inner(package_with_path_dependencies, nodes, index);
+			}
+			visited.insert(index);
+			let node = &mut object.nodes[index];
+			for (dependency, package_with_path_dependencies) in
+				&package_with_path_dependencies.path_dependencies
+			{
+				let entry = node
+					.dependencies
+					.get_mut(dependency)
+					.ok_or_else(|| error!("invalid lock file"))?;
+				entry
+					.package
+					.replace(package_with_path_dependencies.package.clone());
+				match &mut entry.lock {
+					Either::Left(index) => stack.push((*index, package_with_path_dependencies)),
+					Either::Right(lock) => {
+						*lock = self
+							.add_path_dependencies_to_lock(
+								package_with_path_dependencies,
+								lock.clone(),
+							)
+							.await?;
+					},
+				}
+			}
 		}
+
+		Ok(tg::Lock::with_object(object))
 	}
 
 	async fn solve(

@@ -1,7 +1,6 @@
 use crate::{tree::Tree, Cli};
 use async_recursion::async_recursion;
 use crossterm::style::Stylize;
-use either::Either;
 use itertools::Itertools;
 use std::{
 	collections::{BTreeSet, VecDeque},
@@ -217,10 +216,9 @@ impl Cli {
 		let mut visited = BTreeSet::new();
 		let tree = get_package_tree(
 			client,
-			&dependency,
-			&lock,
-			0,
-			&package,
+			dependency,
+			package,
+			lock,
 			&mut visited,
 			1,
 			args.depth,
@@ -261,17 +259,16 @@ impl Cli {
 #[allow(clippy::too_many_arguments)]
 async fn get_package_tree(
 	client: &tg::Client,
-	dependency: &tg::Dependency,
-	lock: &tg::Lock,
-	node: usize,
-	package: &tg::Directory,
+	dependency: tg::Dependency,
+	package: tg::Directory,
+	lock: tg::Lock,
 	visited: &mut BTreeSet<tg::directory::Id>,
 	current_depth: u32,
 	max_depth: Option<u32>,
 ) -> Result<Tree> {
 	let mut title = String::new();
 	write!(title, "{dependency}: ").unwrap();
-	if let Ok(metadata) = tg::package::get_metadata(client, package).await {
+	if let Ok(metadata) = tg::package::get_metadata(client, &package).await {
 		if let Some(name) = metadata.name {
 			write!(title, "{name}").unwrap();
 		} else {
@@ -293,52 +290,26 @@ async fn get_package_tree(
 	}
 	visited.insert(package_id.clone());
 
-	let lock_data = lock.data(client).await?;
 	let mut children = Vec::new();
-	let node = lock_data
-		.nodes
-		.get(node)
-		.ok_or_else(|| error!(%node, "invalid lock"))?;
-	for (dependency, entry) in &node.dependencies {
-		let Some(package) = entry.package.clone().map(tg::Directory::with_id) else {
+	for dependency in lock.direct_dependencies(client).await? {
+		let Some((package, lock)) = lock.get(client, &dependency).await? else {
 			children.push(Tree {
 				title: "<none>".into(),
 				children: Vec::new(),
 			});
 			continue;
 		};
-		match &entry.lock {
-			Either::Left(node) => {
-				let child = get_package_tree(
-					client,
-					dependency,
-					lock,
-					*node,
-					&package,
-					visited,
-					current_depth + 1,
-					max_depth,
-				)
-				.await?;
-				children.push(child);
-			},
-			Either::Right(lock) => {
-				let lock = tg::Lock::with_id(lock.clone());
-				let mut visited = BTreeSet::new();
-				let child = get_package_tree(
-					client,
-					dependency,
-					&lock,
-					0,
-					&package,
-					&mut visited,
-					current_depth + 1,
-					max_depth,
-				)
-				.await?;
-				children.push(child);
-			},
-		}
+		let child = get_package_tree(
+			client,
+			dependency,
+			package,
+			lock,
+			visited,
+			current_depth,
+			max_depth,
+		)
+		.await?;
+		children.push(child);
 	}
 
 	let tree = Tree { title, children };

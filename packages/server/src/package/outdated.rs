@@ -62,14 +62,13 @@ impl Server {
 		});
 
 		// Visit every dependency.
-		let data = lock.data(self).await?;
 		let mut dependencies = BTreeMap::new();
-		for dependency in data.nodes[data.root].dependencies.keys() {
-			let Some((package, lock)) = lock.get(self, dependency).await? else {
+		for dependency in lock.direct_dependencies(self).await? {
+			let Some((package, lock)) = lock.get(self, &dependency).await? else {
 				continue;
 			};
 			let outdated = self
-				.get_outdated_inner(dependency, package, lock, visited)
+				.get_outdated_inner(&dependency, package, lock, visited)
 				.await?;
 			if outdated.info.is_some() || !outdated.dependencies.is_empty() {
 				dependencies.insert(dependency.clone(), outdated);
