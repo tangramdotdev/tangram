@@ -4012,9 +4012,9 @@ dependencies = [
 
 [[package]]
 name = "swc_ecma_loader"
-version = "0.45.23"
+version = "0.45.24"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "6732100aba9bec438fcff857ab8db5e5d3b64b42a522aec7c388d8c98a36d22a"
+checksum = "6d32a45baefc2e53ad553f30df5536fbd2818b5e1adc84c801a0e88e09a0a7e9"
 dependencies = [
  "anyhow",
  "dashmap",
