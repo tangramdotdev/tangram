@@ -172,8 +172,7 @@ impl Server {
 					{p}13,
 					{p}14
 				)
-				on conflict do update set 
-					id = {p}1,
+				on conflict (id) do update set 
 					complete = {p}2,
 					count = {p}3,
 					host = {p}4,

@@ -449,7 +449,7 @@ impl<'de> serde::Deserializer<'de> for Value {
 	{
 		let value = self
 			.try_unwrap_integer()
-			.map_err(|_| error!("expected an integer value"))?;
+			.map_err(|source| error!(!source, "expected an integer value"))?;
 		let value = value > 0;
 		visitor.visit_bool(value)
 	}

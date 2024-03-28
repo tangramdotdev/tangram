@@ -27,7 +27,7 @@ impl Server {
 		let statement = formatdoc!(
 			"
 				insert into objects (id, bytes, children, complete, count, weight)
-				values ({p}1, {p}2, false, false, null, null)
+				values ({p}1, {p}2, 0, 0, null, null)
 				on conflict (id) do update set id = excluded.id
 				returning children;
 			"
@@ -46,7 +46,7 @@ impl Server {
 					select child
 					from object_children
 					left join objects on objects.id = object_children.child
-					where object = {p}1 and complete = false;
+					where object = {p}1 and complete = 0;
 				"
 			);
 			let params = params![id];
@@ -78,7 +78,7 @@ impl Server {
 		let statement = formatdoc!(
 			"
 				insert into objects (id, bytes, children, complete, count, weight)
-				values ({p}1, {p}2, false, false, null, null)
+				values ({p}1, {p}2, 0, 0, null, null)
 				on conflict do nothing;
 			"
 		);

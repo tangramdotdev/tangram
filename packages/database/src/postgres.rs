@@ -330,10 +330,13 @@ impl<'a> postgres::types::FromSql<'a> for Value {
 		raw: &'a [u8],
 	) -> Result<Self, Box<dyn std::error::Error + Sync + Send>> {
 		match *ty {
-			postgres::types::Type::INT8 => Ok(Self::Text(<_>::from_sql(ty, raw)?)),
-			postgres::types::Type::FLOAT8 => Ok(Self::Text(<_>::from_sql(ty, raw)?)),
-			postgres::types::Type::TEXT => Ok(Self::Text(<_>::from_sql(ty, raw)?)),
-			postgres::types::Type::BYTEA => Ok(Self::Text(<_>::from_sql(ty, raw)?)),
+			postgres::types::Type::BOOL => Ok(Self::Integer(bool::from_sql(ty, raw)?.into())),
+			postgres::types::Type::INT8 | postgres::types::Type::NUMERIC => {
+				Ok(Self::Integer(i64::from_sql(ty, raw)?))
+			},
+			postgres::types::Type::FLOAT8 => Ok(Self::Real(f64::from_sql(ty, raw)?)),
+			postgres::types::Type::TEXT => Ok(Self::Text(String::from_sql(ty, raw)?)),
+			postgres::types::Type::BYTEA => Ok(Self::Blob(<Vec<u8>>::from_sql(ty, raw)?)),
 			_ => Err(Box::new(error!("invalid type"))),
 		}
 	}
@@ -344,7 +347,7 @@ impl<'a> postgres::types::FromSql<'a> for Value {
 		Ok(Self::Null)
 	}
 
-	postgres::types::accepts!(BOOL, INT8, FLOAT8, TEXT, BYTEA);
+	postgres::types::accepts!(BOOL, INT8, NUMERIC, FLOAT8, TEXT, BYTEA);
 }
 
 #[allow(clippy::module_name_repetitions)]
