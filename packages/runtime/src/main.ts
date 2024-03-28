@@ -16,8 +16,8 @@ import { Mutation, mutation } from "./mutation.ts";
 import { resolve } from "./resolve.ts";
 import { sleep } from "./sleep.ts";
 import { start } from "./start.ts";
-import { Symlink, symlink } from "./symlink.ts";
 import { Target, build, getCurrentTarget, target } from "./target.ts";
+import { Symlink, symlink } from "./symlink.ts";
 import { Template, template } from "./template.ts";
 import { Value } from "./value.ts";
 

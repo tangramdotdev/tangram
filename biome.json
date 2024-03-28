@@ -1,0 +1,11 @@
+{
+	"$schema": "https://biomejs.dev/schemas/1.6.3/schema.json",
+	"linter": {
+		"rules": {
+			"style": {
+				"noNonNullAssertion": "off",
+				"useConst": "off"
+			}
+		}
+	}
+}

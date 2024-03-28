@@ -115,6 +115,7 @@
 		]
 	},
 	"dependencies": {
+		"@types/node": "^20.11.30",
 		"vscode-languageclient": "^9.0.1"
 	},
 	"description": "Tangram extension for Visual Studio Code.",
@@ -136,7 +137,8 @@
 	},
 	"scripts": {
 		"build": "esbuild --bundle --outfile=extension.js --format=cjs --sourcemap --platform=node --external:vscode src/extension.ts",
-		"check": "tsc && eslint && prettier --check .",
+		"check": "tsc && biome check .",
+		"format": "biome format --write .",
 		"package": "vsce package --no-dependencies --no-update-package-json --no-git-tag-version",
 		"vscode:prepublish": "npm run build"
 	},

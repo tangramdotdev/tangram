@@ -1,9 +1,9 @@
 import * as esbuild from "esbuild";
-import alias from "esbuild-plugin-alias";
 import assert from "node:assert";
+import alias from "esbuild-plugin-alias";
 import fs from "node:fs/promises";
+import * as path from "node:path";
 import * as nodePath from "node:path";
-import * as path from "path";
 
 assert(process.env["OUT_DIR"]);
 

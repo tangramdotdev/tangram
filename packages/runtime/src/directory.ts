@@ -30,12 +30,9 @@ export class Directory {
 	static async new(
 		...args: Array<Unresolved<Directory.Arg>>
 	): Promise<Directory> {
-		let entries = await (
-			await Promise.all(args.map(resolve))
-		).reduce<Promise<Record<string, Artifact>>>(async function reduce(
-			promiseEntries,
-			arg,
-		) {
+		let entries = await (await Promise.all(args.map(resolve))).reduce<
+			Promise<Record<string, Artifact>>
+		>(async function reduce(promiseEntries, arg) {
 			let entries = await promiseEntries;
 			if (arg === undefined) {
 				// If the arg is undefined, then continue.
