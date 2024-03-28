@@ -90,7 +90,12 @@ reqwest = { version = "0.12", default-features = false, features = [
   "rustls-tls",
 ] }
 rusqlite = { version = "0.31", features = ["blob", "bundled"] }
-rustls = { version = "0.23", features = ["ring"] }
+rustls = { version = "0.23", default-features = false, features = [
+  "ring",
+  "logging",
+  "std",
+  "tls12",
+] }
 rustls-pemfile = "2"
 rustls-pki-types = "1"
 scopeguard = "1"
