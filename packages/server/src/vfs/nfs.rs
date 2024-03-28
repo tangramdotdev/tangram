@@ -60,15 +60,15 @@ pub struct Server {
 }
 
 struct Inner {
-	tg: Box<dyn tg::Handle>,
-	path: PathBuf,
-	task: std::sync::Mutex<Option<tokio::task::JoinHandle<Result<()>>>>,
-	clients: tokio::sync::RwLock<Map<Vec<u8>, Arc<tokio::sync::RwLock<ClientData>>>>,
 	client_index: std::sync::atomic::AtomicU64,
-	nodes: tokio::sync::RwLock<Map<u64, Arc<Node>>>,
-	node_index: std::sync::atomic::AtomicU64,
+	clients: tokio::sync::RwLock<Map<Vec<u8>, Arc<tokio::sync::RwLock<ClientData>>>>,
 	lock_index: tokio::sync::RwLock<u64>,
 	locks: tokio::sync::RwLock<Map<u64, Arc<tokio::sync::RwLock<LockState>>>>,
+	node_index: std::sync::atomic::AtomicU64,
+	nodes: tokio::sync::RwLock<Map<u64, Arc<Node>>>,
+	path: PathBuf,
+	server: crate::Server,
+	task: std::sync::Mutex<Option<tokio::task::JoinHandle<Result<()>>>>,
 }
 
 struct LockState {
@@ -152,9 +152,9 @@ impl fmt::Display for Context {
 }
 
 impl Server {
-	pub async fn start(tg: &dyn tg::Handle, path: &Path, port: u16) -> Result<Self> {
+	pub async fn start(server: &crate::Server, path: &Path, port: u16) -> Result<Self> {
 		// Create the server.
-		let tg = tg.clone_box();
+		let server = server.clone();
 		let root = Arc::new_cyclic(|root| Node {
 			id: 0,
 			parent: root.clone(),
@@ -167,14 +167,14 @@ impl Server {
 		let task = std::sync::Mutex::new(None);
 		let server = Self {
 			inner: Arc::new(Inner {
-				tg,
-				path: path.to_owned(),
-				nodes: tokio::sync::RwLock::new(nodes),
-				node_index: std::sync::atomic::AtomicU64::new(1000),
-				lock_index: tokio::sync::RwLock::new(1),
 				client_index: std::sync::atomic::AtomicU64::new(1),
 				clients: tokio::sync::RwLock::new(Map::default()),
+				lock_index: tokio::sync::RwLock::new(1),
 				locks: tokio::sync::RwLock::new(Map::default()),
+				node_index: std::sync::atomic::AtomicU64::new(1000),
+				nodes: tokio::sync::RwLock::new(nodes),
+				path: path.to_owned(),
+				server,
 				task,
 			}),
 		};
@@ -462,19 +462,19 @@ impl Server {
 						.unwrap();
 					let id: Option<tg::artifact::Id> = match &node.kind {
 						NodeKind::File { file, .. } => file
-							.id(self.inner.tg.as_ref())
+							.id(&self.inner.server)
 							.await
 							.ok()
 							.cloned()
 							.map(tg::artifact::Id::from),
 						NodeKind::Directory { directory, .. } => directory
-							.id(self.inner.tg.as_ref())
+							.id(&self.inner.server)
 							.await
 							.ok()
 							.cloned()
 							.map(tg::artifact::Id::from),
 						NodeKind::Symlink { symlink, .. } => symlink
-							.id(self.inner.tg.as_ref())
+							.id(&self.inner.server)
 							.await
 							.ok()
 							.cloned()
@@ -625,7 +625,7 @@ impl Server {
 			| NodeKind::NamedAttribute { .. }
 			| NodeKind::Checkout { .. } => ACCESS4_READ,
 			NodeKind::File { file, .. } => {
-				let is_executable = match file.executable(self.inner.tg.as_ref()).await {
+				let is_executable = match file.executable(&self.inner.server).await {
 					Ok(b) => b,
 					Err(e) => {
 						tracing::error!(?e, "failed to lookup executable bit for file");
@@ -721,7 +721,7 @@ impl Server {
 				FileAttrData::new(file_handle, nfs_ftype4::NF4DIR, len, O_RX)
 			},
 			NodeKind::File { file, size, .. } => {
-				let is_executable = match file.executable(self.inner.tg.as_ref()).await {
+				let is_executable = match file.executable(&self.inner.server).await {
 					Ok(b) => b,
 					Err(e) => {
 						tracing::error!(?e, "failed to lookup executable bit for file");
@@ -919,13 +919,10 @@ impl Server {
 			},
 
 			NodeKind::Directory { directory, .. } => {
-				let entries = directory
-					.entries(self.inner.tg.as_ref())
-					.await
-					.map_err(|e| {
-						tracing::error!(?e, ?name, "failed to get directory entries");
-						nfsstat4::NFS4ERR_IO
-					})?;
+				let entries = directory.entries(&self.inner.server).await.map_err(|e| {
+					tracing::error!(?e, ?name, "failed to get directory entries");
+					nfsstat4::NFS4ERR_IO
+				})?;
 				let Some(entry) = entries.get(name) else {
 					return Ok(None);
 				};
@@ -945,7 +942,7 @@ impl Server {
 				let NodeKind::File { file, .. } = &grandparent_node.kind else {
 					return Ok(None);
 				};
-				let file_references = match file.references(self.inner.tg.as_ref()).await {
+				let file_references = match file.references(&self.inner.server).await {
 					Ok(references) => references,
 					Err(e) => {
 						tracing::error!(?e, "failed to get file references");
@@ -954,7 +951,7 @@ impl Server {
 				};
 				let mut references = Vec::new();
 				for artifact in file_references {
-					let id = artifact.id(self.inner.tg.as_ref()).await.map_err(|e| {
+					let id = artifact.id(&self.inner.server).await.map_err(|e| {
 						tracing::error!(?e, ?artifact, "failed to get artifact ID");
 						nfsstat4::NFS4ERR_IO
 					})?;
@@ -983,7 +980,7 @@ impl Server {
 				}
 			},
 			Either::Left(Either::Right(tg::Artifact::File(file))) => {
-				let size = file.size(self.inner.tg.as_ref()).await.map_err(|e| {
+				let size = file.size(&self.inner.server).await.map_err(|e| {
 					tracing::error!(?e, "failed to get size of file's contents");
 					nfsstat4::NFS4ERR_IO
 				})?;
@@ -1128,7 +1125,7 @@ impl Server {
 		let stateid = stateid4::new(arg.seqid, index, false);
 
 		if let NodeKind::File { file, .. } = &self.get_node(fh).await.unwrap().kind {
-			let Ok(reader) = file.reader(self.inner.tg.as_ref()).await else {
+			let Ok(reader) = file.reader(&self.inner.server).await else {
 				tracing::error!("failed to create the file reader");
 				return OPEN4res::Error(nfsstat4::NFS4ERR_IO);
 			};
@@ -1186,7 +1183,7 @@ impl Server {
 			};
 		};
 		if file
-			.references(self.inner.tg.as_ref())
+			.references(&self.inner.server)
 			.await
 			.map_or(true, <[tg::Artifact]>::is_empty)
 		{
@@ -1280,7 +1277,7 @@ impl Server {
 			|| lock_state.is_none()
 		{
 			// We need to create a reader just for this request.
-			let Ok(mut reader) = file.reader(self.inner.tg.as_ref()).await else {
+			let Ok(mut reader) = file.reader(&self.inner.server).await else {
 				tracing::error!("failed to create the file reader");
 				return READ4res::Error(nfsstat4::NFS4ERR_IO);
 			};
@@ -1334,7 +1331,7 @@ impl Server {
 		let entries = match &node.kind {
 			NodeKind::Root { .. } => Vec::default(),
 			NodeKind::Directory { directory, .. } => {
-				let Ok(entries) = directory.entries(self.inner.tg.as_ref()).await else {
+				let Ok(entries) = directory.entries(&self.inner.server).await else {
 					return READDIR4res::Error(nfsstat4::NFS4ERR_IO);
 				};
 				entries.keys().cloned().collect::<Vec<_>>()
@@ -1413,14 +1410,14 @@ impl Server {
 			return READLINK4res::Error(nfsstat4::NFS4ERR_INVAL);
 		};
 		let mut target = String::new();
-		let Ok(artifact) = symlink.artifact(self.inner.tg.as_ref()).await else {
+		let Ok(artifact) = symlink.artifact(&self.inner.server).await else {
 			return READLINK4res::Error(nfsstat4::NFS4ERR_IO);
 		};
-		let Ok(path) = symlink.path(self.inner.tg.as_ref()).await else {
+		let Ok(path) = symlink.path(&self.inner.server).await else {
 			return READLINK4res::Error(nfsstat4::NFS4ERR_IO);
 		};
 		if let Some(artifact) = artifact {
-			let Ok(id) = artifact.id(self.inner.tg.as_ref()).await else {
+			let Ok(id) = artifact.id(&self.inner.server).await else {
 				return READLINK4res::Error(nfsstat4::NFS4ERR_IO);
 			};
 			for _ in 0..node.depth() - 1 {

@@ -69,7 +69,7 @@ struct Inner {
 	remotes: Vec<Box<dyn tg::Handle>>,
 	runtimes: std::sync::RwLock<HashMap<String, Box<dyn Runtime>>>,
 	status: tokio::sync::watch::Sender<Status>,
-	stop_task: std::sync::Mutex<Option<tokio::task::JoinHandle<Result<()>>>>,
+	stop_task: std::sync::Mutex<Option<tokio::task::JoinHandle<()>>>,
 	vfs: std::sync::Mutex<Option<self::vfs::Server>>,
 }
 
@@ -417,7 +417,7 @@ impl Server {
 			// Join the http server.
 			let http = server.inner.http.lock().unwrap().take();
 			if let Some(http) = http {
-				http.join().await?;
+				http.join().await.ok();
 			}
 
 			// Stop the build queue task.
@@ -426,7 +426,7 @@ impl Server {
 			// Join the build queue task.
 			let build_queue_task = server.inner.build_queue_task.lock().unwrap().take();
 			if let Some(build_queue_task) = build_queue_task {
-				build_queue_task.await.unwrap()?;
+				build_queue_task.await.ok();
 			}
 
 			// Stop all builds.
@@ -458,7 +458,7 @@ impl Server {
 			let vfs = server.inner.vfs.lock().unwrap().clone();
 			if let Some(vfs) = vfs {
 				vfs.stop();
-				vfs.join().await?;
+				vfs.join().await.ok();
 			}
 
 			// Remove the runtimes.
@@ -469,8 +469,6 @@ impl Server {
 
 			// Set the status.
 			server.inner.status.send_replace(Status::Stopped);
-
-			Ok(())
 		});
 		self.inner.stop_task.lock().unwrap().replace(task);
 	}

@@ -24,14 +24,14 @@ pub struct Server {
 type Map<K, V> = HashMap<K, V, FnvBuildHasher>;
 
 struct Inner {
-	path: std::path::PathBuf,
-	task: std::sync::Mutex<Option<tokio::task::JoinHandle<Result<()>>>>,
-	tg: Box<dyn tg::Handle>,
-	nodes: parking_lot::RwLock<Map<NodeId, Arc<Node>>>,
-	node_index: std::sync::atomic::AtomicU64,
-	handles: parking_lot::RwLock<Map<FileHandle, Arc<tokio::sync::RwLock<FileHandleData>>>>,
-	handle_index: std::sync::atomic::AtomicU64,
 	dev_fuse_fd: std::os::fd::RawFd,
+	handle_index: std::sync::atomic::AtomicU64,
+	handles: parking_lot::RwLock<Map<FileHandle, Arc<tokio::sync::RwLock<FileHandleData>>>>,
+	node_index: std::sync::atomic::AtomicU64,
+	nodes: parking_lot::RwLock<Map<NodeId, Arc<Node>>>,
+	path: std::path::PathBuf,
+	server: crate::Server,
+	task: std::sync::Mutex<Option<tokio::task::JoinHandle<Result<()>>>>,
 }
 
 /// A node in the file system.
@@ -135,7 +135,7 @@ enum Response {
 }
 
 impl Server {
-	pub async fn start(tg: &dyn tg::Handle, path: &Path) -> Result<Self> {
+	pub async fn start(server: &crate::Server, path: &Path) -> Result<Self> {
 		// Create the server.
 		let root = Arc::new_cyclic(|root| Node {
 			id: ROOT_NODE_ID,
@@ -149,22 +149,23 @@ impl Server {
 		let node_index = std::sync::atomic::AtomicU64::new(1000);
 		let handles = parking_lot::RwLock::new(Map::default());
 		let handle_index = std::sync::atomic::AtomicU64::new(0);
-		let tg = tg.clone_box();
+		let path = path.to_owned();
+		let server = server.clone();
 		let task = std::sync::Mutex::new(None);
 
 		// Mount.
-		let dev_fuse_fd = Self::mount(path).await?;
+		let dev_fuse_fd = Self::mount(&path).await?;
 
 		let server = Self {
 			inner: Arc::new(Inner {
-				path: path.to_owned(),
-				task,
-				tg,
-				node_index,
-				nodes,
+				dev_fuse_fd,
 				handle_index,
 				handles,
-				dev_fuse_fd,
+				node_index,
+				nodes,
+				path,
+				server,
+				task,
 			}),
 		};
 
@@ -437,7 +438,7 @@ impl Server {
 	) -> Result<Response, i32> {
 		let node_id = NodeId(header.nodeid);
 		let node = self.get_node(node_id).await?;
-		let response = node.fuse_attr_out(self.inner.tg.as_ref()).await?;
+		let response = node.fuse_attr_out(&self.inner.server).await?;
 		Ok(Response::GetAttr(response))
 	}
 
@@ -462,13 +463,13 @@ impl Server {
 		if attr_name != tg::file::TANGRAM_FILE_XATTR_NAME {
 			return Err(libc::ENODATA);
 		}
-		let file_references = file.references(self.inner.tg.as_ref()).await.map_err(|e| {
+		let file_references = file.references(&self.inner.server).await.map_err(|e| {
 			tracing::error!(?e, ?file, "failed to get file references");
 			libc::EIO
 		})?;
 		let mut references = Vec::new();
 		for artifact in file_references {
-			let id = artifact.id(self.inner.tg.as_ref()).await.map_err(|e| {
+			let id = artifact.id(&self.inner.server).await.map_err(|e| {
 				tracing::error!(?e, ?artifact, "failed to get ID of artifact");
 				libc::EIO
 			})?;
@@ -566,7 +567,7 @@ impl Server {
 		let child_node = self.get_or_create_child_node(parent_node, &name).await?;
 
 		// Create the response.
-		let response = child_node.fuse_entry_out(self.inner.tg.as_ref()).await?;
+		let response = child_node.fuse_entry_out(&self.inner.server).await?;
 
 		Ok(Response::Lookup(response))
 	}
@@ -588,7 +589,7 @@ impl Server {
 			NodeKind::Directory { .. } => FileHandleData::Directory,
 			NodeKind::File { file, .. } => {
 				let reader = file
-					.reader(self.inner.tg.as_ref())
+					.reader(&self.inner.server)
 					.await
 					.map_err(|_| libc::EIO)?;
 				FileHandleData::File {
@@ -713,7 +714,7 @@ impl Server {
 		// Create the response.
 		let mut response = Vec::new();
 		let names = directory
-			.entries(self.inner.tg.as_ref())
+			.entries(&self.inner.server)
 			.await
 			.map_err(|_| libc::EIO)?
 			.keys()
@@ -755,7 +756,7 @@ impl Server {
 			};
 			if plus {
 				let entry = sys::fuse_direntplus {
-					entry_out: node.fuse_entry_out(self.inner.tg.as_ref()).await?,
+					entry_out: node.fuse_entry_out(&self.inner.server).await?,
 					dirent: entry,
 				};
 				response.extend_from_slice(entry.as_bytes());
@@ -791,14 +792,14 @@ impl Server {
 
 		// Render the target.
 		let mut target = String::new();
-		let Ok(artifact) = symlink.artifact(self.inner.tg.as_ref()).await else {
+		let Ok(artifact) = symlink.artifact(&self.inner.server).await else {
 			return Err(libc::EIO);
 		};
-		let Ok(path) = symlink.path(self.inner.tg.as_ref()).await else {
+		let Ok(path) = symlink.path(&self.inner.server).await else {
 			return Err(libc::EIO);
 		};
 		if let Some(artifact) = artifact {
-			let Ok(id) = artifact.id(self.inner.tg.as_ref()).await else {
+			let Ok(id) = artifact.id(&self.inner.server).await else {
 				return Err(libc::EIO);
 			};
 			for _ in 0..node.depth() - 1 {
@@ -908,7 +909,7 @@ impl Server {
 
 			NodeKind::Directory { directory, .. } => {
 				let entries = directory
-					.entries(self.inner.tg.as_ref())
+					.entries(&self.inner.server)
 					.await
 					.map_err(|_| libc::EIO)?;
 				let artifact = entries.get(name).ok_or(libc::ENOENT)?.clone();
@@ -930,10 +931,7 @@ impl Server {
 				}
 			},
 			Either::Right(tg::Artifact::File(file)) => {
-				let size = file
-					.size(self.inner.tg.as_ref())
-					.await
-					.map_err(|_| libc::EIO)?;
+				let size = file.size(&self.inner.server).await.map_err(|_| libc::EIO)?;
 				NodeKind::File { file, size }
 			},
 			Either::Right(tg::Artifact::Symlink(symlink)) => NodeKind::Symlink { symlink },
