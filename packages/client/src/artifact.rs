@@ -742,7 +742,7 @@ impl TryFrom<object::Handle> for Artifact {
 			object::Handle::Directory(directory) => Ok(Self::Directory(directory)),
 			object::Handle::File(file) => Ok(Self::File(file)),
 			object::Handle::Symlink(symlink) => Ok(Self::Symlink(symlink)),
-			object => Err(error!(%object, "expected an artifact")),
+			_ => Err(error!("expected an artifact")),
 		}
 	}
 }

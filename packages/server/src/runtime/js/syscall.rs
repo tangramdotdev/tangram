@@ -132,7 +132,7 @@ async fn syscall_compress(
 	let blob = blob
 		.compress(&state.server, format)
 		.await
-		.map_err(|source| error!(!source, %blob, %format, "failed to compress the blob"))?;
+		.map_err(|source| error!(!source, %format, "failed to compress the blob"))?;
 	Ok(blob)
 }
 
@@ -365,7 +365,7 @@ async fn syscall_extract(
 	let artifact = blob
 		.extract(&state.server, format)
 		.await
-		.map_err(|source| error!(!source, %blob, %format, "failed to extract the blob"))?;
+		.map_err(|source| error!(!source, %format, "failed to extract the blob"))?;
 	Ok(artifact)
 }
 
@@ -387,7 +387,7 @@ async fn syscall_read(state: Rc<State>, args: (tg::Blob,)) -> Result<Bytes> {
 	let bytes = blob
 		.bytes(&state.server)
 		.await
-		.map_err(|source| error!(!source, %blob, "failed to read the blob"))?;
+		.map_err(|source| error!(!source, "failed to read the blob"))?;
 	Ok(bytes.into())
 }
 

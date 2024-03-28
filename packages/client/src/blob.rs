@@ -351,7 +351,7 @@ impl TryFrom<object::Handle> for Blob {
 		match value {
 			object::Handle::Leaf(leaf) => Ok(Self::Leaf(leaf)),
 			object::Handle::Branch(branch) => Ok(Self::Branch(branch)),
-			object => Err(error!(%object, "expected a blob")),
+			_ => Err(error!("expected a blob")),
 		}
 	}
 }

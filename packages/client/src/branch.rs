@@ -204,7 +204,12 @@ impl TryFrom<Data> for Object {
 
 impl std::fmt::Display for Branch {
 	fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-		write!(f, "{}", self.state.read().unwrap().id().as_ref().unwrap())?;
+		if let Some(id) = self.state.read().unwrap().id().as_ref() {
+			write!(f, "{id}")?;
+		} else {
+			write!(f, "<unstored>")?;
+		}
+
 		Ok(())
 	}
 }
