@@ -4350,7 +4350,6 @@ dependencies = [
  "rand",
  "regex",
  "rustls 0.23.4",
- "rustls-pki-types",
  "semver 1.0.22",
  "serde",
  "serde_json",

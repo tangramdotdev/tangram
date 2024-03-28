@@ -145,17 +145,24 @@ impl Client {
 				self.connect_tcp_h1(host, port).await
 			},
 			"https" => {
-				let host = self
-					.inner
-					.url
-					.domain()
-					.ok_or_else(|| error!("invalid url"))?;
-				let port = self
-					.inner
-					.url
-					.port_or_known_default()
-					.ok_or_else(|| error!("invalid url"))?;
-				self.connect_tcp_tls_h1(host, port).await
+				#[cfg(not(feature = "tls"))]
+				{
+					Err(error!("tls is not enabled"))
+				}
+				#[cfg(feature = "tls")]
+				{
+					let host = self
+						.inner
+						.url
+						.domain()
+						.ok_or_else(|| error!("invalid url"))?;
+					let port = self
+						.inner
+						.url
+						.port_or_known_default()
+						.ok_or_else(|| error!("invalid url"))?;
+					self.connect_tcp_tls_h1(host, port).await
+				}
 			},
 			_ => Err(error!("invalid url")),
 		}
@@ -183,17 +190,24 @@ impl Client {
 				self.connect_tcp_h2(host, port).await
 			},
 			"https" => {
-				let host = self
-					.inner
-					.url
-					.domain()
-					.ok_or_else(|| error!("invalid url"))?;
-				let port = self
-					.inner
-					.url
-					.port_or_known_default()
-					.ok_or_else(|| error!("invalid url"))?;
-				self.connect_tcp_tls_h2(host, port).await
+				#[cfg(not(feature = "tls"))]
+				{
+					Err(error!("tls is not enabled"))
+				}
+				#[cfg(feature = "tls")]
+				{
+					let host = self
+						.inner
+						.url
+						.domain()
+						.ok_or_else(|| error!("invalid url"))?;
+					let port = self
+						.inner
+						.url
+						.port_or_known_default()
+						.ok_or_else(|| error!("invalid url"))?;
+					self.connect_tcp_tls_h2(host, port).await
+				}
 			},
 			_ => Err(error!("invalid url")),
 		}
@@ -341,6 +355,7 @@ impl Client {
 		Ok(sender)
 	}
 
+	#[cfg(feature = "tls")]
 	async fn connect_tcp_tls_h1(
 		&self,
 		host: &str,
@@ -375,6 +390,7 @@ impl Client {
 		Ok(sender)
 	}
 
+	#[cfg(feature = "tls")]
 	async fn connect_tcp_tls_h2(
 		&self,
 		host: &str,
@@ -407,15 +423,6 @@ impl Client {
 			.map_err(|source| error!(!source, "failed to ready the sender"))?;
 
 		Ok(sender)
-	}
-
-	#[cfg(not(feature = "tls"))]
-	async fn connect_tcp_tls(
-		&self,
-		_host: &str,
-		_port: u16,
-	) -> Result<tokio_rustls::client::TlsStream<tokio::net::TcpStream>> {
-		Err(error!("tls is not enabled"))
 	}
 
 	#[cfg(feature = "tls")]
