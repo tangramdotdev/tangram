@@ -84,7 +84,7 @@ async fn migration_0000(path: &Path) -> Result<()> {
 			queued_at text,
 			started_at text,
 			finished_at text
-		) strict;
+		);
 
 		create index builds_status_created_at_index on builds (status, created_at);
 
@@ -94,7 +94,7 @@ async fn migration_0000(path: &Path) -> Result<()> {
 			build text,
 			position integer,
 			child text
-		) strict;
+		);
 
 		create unique index build_children_index on build_children (build, position);
 
@@ -106,14 +106,14 @@ async fn migration_0000(path: &Path) -> Result<()> {
 			build text not null,
 			position integer not null,
 			bytes blob not null
-		) strict;
+		);
 
 		create unique index build_logs_index on build_logs (build, position);
 
 		create table build_objects (
 			build text not null,
 			object text not null
-		) strict;
+		);
 
 		create unique index build_objects_index on build_objects (build, object);
 
@@ -126,12 +126,12 @@ async fn migration_0000(path: &Path) -> Result<()> {
 			complete integer not null,
 			count integer,
 			weight integer
-		) strict;
+		);
 
 		create table object_children (
 			object text not null,
 			child text not null
-		) strict;
+		);
 
 		create unique index object_children_index on object_children (object, child);
 
@@ -139,7 +139,7 @@ async fn migration_0000(path: &Path) -> Result<()> {
 
 		create table packages (
 			name text primary key
-		) strict;
+		);
 
 		create table package_versions (
 			name text not null references packages (name),
@@ -147,23 +147,23 @@ async fn migration_0000(path: &Path) -> Result<()> {
 			id text not null,
 			published_at text not null,
 			primary key (name, version)
-		) strict;
+		);
 
 		create table users (
 			id text primary key,
 			email text not null
-		) strict;
+		);
 
 		create table tokens (
 			id text primary key,
 			user_id text not null references users (id)
-		) strict;
+		);
 
 		create table logins (
 			id text primary key,
 			url text not null,
 			token text references tokens (id)
-		) strict;
+		);
 	";
 	connection
 		.execute_batch(sql)
