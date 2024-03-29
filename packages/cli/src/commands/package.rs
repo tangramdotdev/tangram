@@ -8,6 +8,7 @@ use std::{
 };
 use tangram_client as tg;
 use tangram_error::{error, Result};
+
 /// Manage packages.
 #[derive(Debug, clap::Args)]
 pub struct Args {
@@ -24,15 +25,15 @@ pub enum Command {
 	Update(UpdateArgs),
 }
 
-/// List the available updates to a package.
+/// List a package's outdated dependencies.
 #[derive(Debug, clap::Args)]
 pub struct OutdatedArgs {
-	#[clap(short, long, default_value = ".")]
-	pub path: tg::Path,
-
 	/// Print as JSON.
 	#[clap(long)]
 	pub json: bool,
+
+	#[clap(short, long, default_value = ".")]
+	pub path: tg::Path,
 }
 
 /// Publish a package.
@@ -48,7 +49,7 @@ pub struct SearchArgs {
 	pub query: String,
 }
 
-/// Display the package tree.
+/// Display a package's dependencies.
 #[derive(Debug, clap::Args)]
 pub struct TreeArgs {
 	#[clap(default_value = ".")]
@@ -58,7 +59,7 @@ pub struct TreeArgs {
 	pub depth: Option<u32>,
 }
 
-/// Update an existing package's lock.
+/// Update a package's lockfile.
 #[derive(Debug, clap::Args)]
 pub struct UpdateArgs {
 	#[clap(short, long, default_value = ".")]
@@ -291,7 +292,7 @@ async fn get_package_tree(
 	visited.insert(package_id.clone());
 
 	let mut children = Vec::new();
-	for dependency in lock.direct_dependencies(client).await? {
+	for dependency in lock.dependencies(client).await? {
 		let Some((package, lock)) = lock.get(client, &dependency).await? else {
 			children.push(Tree {
 				title: "<none>".into(),
