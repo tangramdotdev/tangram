@@ -174,7 +174,7 @@ impl Server {
 		let children = connection
 			.query_all_scalar_into(statement, params)
 			.await
-			.map_err(|error| error!(source = error, "failed to execute the statement"))?;
+			.map_err(|source| error!(!source, "failed to execute the statement"))?;
 
 		// Drop the connection.
 		drop(connection);
@@ -282,7 +282,7 @@ impl Server {
 			connection
 				.execute(statement, params)
 				.await
-				.map_err(|error| error!(source = error, "failed to execute the statement"))?;
+				.map_err(|source| error!(!source, "failed to execute the statement"))?;
 		}
 
 		// Compute the count.

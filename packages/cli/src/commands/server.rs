@@ -201,14 +201,17 @@ impl Cli {
 					.map(|remote| {
 						let url = remote.url.clone();
 						let client = tg::Builder::new(url).build();
-						let tg = Box::new(client);
+						let client = Box::new(client);
 						let build_ = remote.build.clone();
 						let enable = build_
 							.as_ref()
 							.and_then(|build| build.enable)
 							.unwrap_or(false);
 						let build_ = tangram_server::options::RemoteBuild { enable };
-						let remote = tangram_server::options::Remote { tg, build: build_ };
+						let remote = tangram_server::options::Remote {
+							tg: client,
+							build: build_,
+						};
 						Ok::<_, Error>(remote)
 					})
 					.collect()
@@ -220,8 +223,8 @@ impl Cli {
 			let build = tangram_server::options::RemoteBuild { enable: false };
 			let url = Url::parse(API_URL).unwrap();
 			let client = tg::Builder::new(url).build();
-			let tg = Box::new(client);
-			let remote = tangram_server::options::Remote { build, tg };
+			let client = Box::new(client);
+			let remote = tangram_server::options::Remote { build, tg: client };
 			vec![remote]
 		};
 

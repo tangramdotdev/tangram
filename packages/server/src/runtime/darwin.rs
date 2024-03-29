@@ -47,7 +47,9 @@ impl Runtime {
 				.filter_map(|id| id.try_into().ok())
 				.map(|id| async move {
 					let artifact = tg::Artifact::with_id(id);
-					artifact.check_out(server, None).await
+					artifact
+						.check_out(server, tg::artifact::CheckOutArg::default())
+						.await
 				})
 				.collect::<FuturesUnordered<_>>()
 				.try_collect::<Vec<_>>()
@@ -55,7 +57,7 @@ impl Runtime {
 		}
 
 		// Get the artifacts path.
-		let artifacts_directory_path = server.inner.options.path.join("artifacts");
+		let artifacts_directory_path = server.inner.path.join("artifacts");
 
 		let root_directory_tmp = server.create_tmp();
 		tokio::fs::create_dir_all(&root_directory_tmp)

@@ -213,33 +213,8 @@ impl Cli {
 		let client = tg::Builder::new(self.url.clone()).user(user).build();
 		let mut connected = client.connect().await.is_ok();
 
-		// If this is a debug build, then require that the client is connected and has the same version as the server.
-		if cfg!(debug_assertions) {
-			if !connected {
-				return Err(error!(%url = self.url, "failed to connect to the server"));
-			}
-			let client_version = client.health().await?.version;
-			if connected && client_version != self.version {
-				let server_version = &self.version;
-				return Err(
-					error!(%client_version, %server_version, "the server has different version from the client"),
-				);
-			}
-			// Store the client.
-			*self.client.lock().await = Some(client.clone());
-			return Ok(client);
-		}
-
-		// If the client is connected, check the version.
-		if connected && client.health().await?.version != self.version {
-			client.stop().await?;
-			tokio::time::sleep(std::time::Duration::from_millis(1000)).await;
-			client.disconnect().await?;
-			connected = false;
-		}
-
-		// If the client is not connected, start the server and attempt to connect.
-		if !connected {
+		// If the client is not connected and this is not a debug build, then start the server and attempt to connect.
+		if !connected && cfg!(not(debug_assertions)) {
 			self.start_server().await?;
 			for _ in 0..10 {
 				tokio::time::sleep(std::time::Duration::from_millis(100)).await;
@@ -253,6 +228,13 @@ impl Cli {
 		// If the client is not connected, then return an error.
 		if !connected {
 			return Err(error!(%url = self.url, "failed to connect to the server"));
+		}
+
+		// Check the version.
+		let client_version = &self.version;
+		let server_version = &client.health().await?.version;
+		if client_version != server_version {
+			eprintln!("{}: the client version {client_version} does not match the server version {server_version}", "warning".yellow().bold());
 		}
 
 		// Store the client.

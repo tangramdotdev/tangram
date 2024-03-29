@@ -11,7 +11,7 @@ impl Server {
 	}
 
 	pub async fn path(&self) -> Result<Option<tg::Path>> {
-		Ok(Some(self.inner.options.path.clone().try_into()?))
+		Ok(Some(self.inner.path.clone().try_into()?))
 	}
 }
 

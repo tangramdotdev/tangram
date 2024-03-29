@@ -61,7 +61,7 @@ impl Connection {
 	pub async fn connect(url: &Url) -> Result<Self> {
 		let (client, connection) = postgres::connect(url.as_str(), postgres::NoTls)
 			.await
-			.map_err(|error| error!(source = error, "failed to connect to the database"))?;
+			.map_err(|source| error!(!source, "failed to connect to the database"))?;
 		tokio::spawn(async move {
 			connection
 				.await
@@ -91,7 +91,7 @@ impl Connection {
 			.client
 			.execute(statement, params)
 			.await
-			.map_err(|error| error!(source = error, "failed to execute the statement"))?;
+			.map_err(|source| error!(!source, "failed to execute the statement"))?;
 		Ok(n)
 	}
 
@@ -107,8 +107,8 @@ impl Connection {
 			.client
 			.query_raw(statement, params)
 			.await
-			.map_err(|error| error!(source = error, "failed to execute the statement"))?
-			.map_err(|error| error!(source = error, "failed to get a row"));
+			.map_err(|source| error!(!source, "failed to execute the statement"))?
+			.map_err(|source| error!(!source, "failed to get a row"));
 		let rows = rows.and_then(|row| {
 			let mut entries = IndexMap::with_capacity(row.columns().len());
 			for (i, column) in row.columns().iter().enumerate() {
@@ -160,7 +160,7 @@ impl Connection {
 			.client
 			.transaction()
 			.await
-			.map_err(|error| error!(source = error, "failed to begin the transaction"))?;
+			.map_err(|source| error!(!source, "failed to begin the transaction"))?;
 		Ok(Transaction {
 			transaction,
 			cache: &self.cache,
@@ -193,7 +193,7 @@ impl<'a> Transaction<'a> {
 			.transaction
 			.execute(statement, params)
 			.await
-			.map_err(|error| error!(source = error, "failed to execute the statement"))?;
+			.map_err(|source| error!(!source, "failed to execute the statement"))?;
 		Ok(n)
 	}
 
@@ -209,8 +209,8 @@ impl<'a> Transaction<'a> {
 			.transaction
 			.query_raw(statement, params)
 			.await
-			.map_err(|error| error!(source = error, "failed to execute the statement"))?
-			.map_err(|error| error!(source = error, "failed to get a row"));
+			.map_err(|source| error!(!source, "failed to execute the statement"))?
+			.map_err(|source| error!(!source, "failed to get a row"));
 		let rows = rows.and_then(|row| {
 			let mut entries = IndexMap::with_capacity(row.columns().len());
 			for (i, column) in row.columns().iter().enumerate() {
@@ -261,14 +261,14 @@ impl<'a> Transaction<'a> {
 		self.transaction
 			.rollback()
 			.await
-			.map_err(|error| error!(source = error, "failed to roll back the transaction"))
+			.map_err(|source| error!(!source, "failed to roll back the transaction"))
 	}
 
 	pub async fn commit(self) -> Result<()> {
 		self.transaction
 			.commit()
 			.await
-			.map_err(|error| error!(source = error, "failed to commit the transaction"))
+			.map_err(|source| error!(!source, "failed to commit the transaction"))
 	}
 
 	pub async fn with<F, Fut, R>(&mut self, f: F) -> Result<R>
@@ -292,7 +292,7 @@ impl Cache {
 		let statement = client
 			.prepare(query.as_ref())
 			.await
-			.map_err(|error| error!(source = error, "failed to prepare the statement"))?;
+			.map_err(|source| error!(!source, "failed to prepare the statement"))?;
 		self.statements
 			.lock()
 			.await

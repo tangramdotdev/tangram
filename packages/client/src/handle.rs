@@ -19,7 +19,11 @@ pub trait Handle: Send + Sync + 'static {
 		arg: tg::artifact::CheckInArg,
 	) -> Result<tg::artifact::CheckInOutput>;
 
-	async fn check_out_artifact(&self, arg: tg::artifact::CheckOutArg) -> Result<()>;
+	async fn check_out_artifact(
+		&self,
+		id: &tg::artifact::Id,
+		arg: tg::artifact::CheckOutArg,
+	) -> Result<tg::artifact::CheckOutOutput>;
 
 	async fn list_builds(&self, arg: tg::build::ListArg) -> Result<tg::build::ListOutput>;
 

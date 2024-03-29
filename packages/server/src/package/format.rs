@@ -20,7 +20,7 @@ impl Server {
 			for file_name in ROOT_MODULE_FILE_NAMES {
 				let path = path.clone().join(*file_name);
 				let exists = tokio::fs::try_exists(&path).await.map_err(
-					|error| error!(source = error, %path, "failed to check if file exists"),
+					|source| error!(!source, %path, "failed to check if file exists"),
 				)?;
 				if exists {
 					break 'a path;
@@ -41,7 +41,7 @@ impl Server {
 		visited_module_paths: &mut im::HashSet<PathBuf, fnv::FnvBuildHasher>,
 	) -> Result<()> {
 		let module_absolute_path = tokio::fs::canonicalize(&module_path).await.map_err(
-			|error| error!(source = error, %module_path, "failed to canonicalize module path"),
+			|source| error!(!source, %module_path, "failed to canonicalize module path"),
 		)?;
 
 		if visited_module_paths.contains(&module_absolute_path) {
@@ -64,7 +64,7 @@ impl Server {
 		tokio::fs::write(&module_absolute_path, text.as_bytes())
 			.await
 			.map_err(
-				|error| error!(source = error, %module_path, "failed to write formatted module"),
+				|source| error!(!source, %module_path, "failed to write formatted module"),
 			)?;
 
 		// Try to analyze the module. We don't want to return an error early in case the module contains syntax errors.
@@ -76,7 +76,7 @@ impl Server {
 			if let tg::Import::Module(module) = import {
 				let module_path = module_path.clone().parent().normalize().join(module);
 				let exists = tokio::fs::try_exists(&module_path).await.map_err(
-					|error| error!(source = error, %module_path, "failed to check if module exists"),
+					|source| error!(!source, %module_path, "failed to check if module exists"),
 				)?;
 				if exists {
 					self.format_module(module_path, visited_module_paths)
