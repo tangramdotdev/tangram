@@ -196,6 +196,17 @@ impl Lock {
 }
 
 impl Lock {
+	/// Return the direct dependencies specified by this lock (the dependencies of the root package).
+	pub async fn dependencies(&self, tg: &dyn Handle) -> Result<Vec<Dependency>> {
+		let object = self.object(tg).await?;
+		let dependencies = object.nodes[object.root]
+			.dependencies
+			.keys()
+			.cloned()
+			.collect();
+		Ok(dependencies)
+	}
+
 	pub async fn get(
 		&self,
 		tg: &dyn Handle,
