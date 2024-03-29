@@ -169,7 +169,7 @@ impl Server {
 		let deps_in_package = self
 			.get_package_dependencies(&package_with_path_dependencies.package)
 			.await?;
-		let deps_in_lock = lock.direct_dependencies(self).await?;
+		let deps_in_lock = lock.dependencies(self).await?;
 
 		// Verify that the dependencies match.
 		if !itertools::equal(deps_in_package, deps_in_lock) {

@@ -63,7 +63,7 @@ impl Server {
 
 		// Visit every dependency.
 		let mut dependencies = BTreeMap::new();
-		for dependency in lock.direct_dependencies(self).await? {
+		for dependency in lock.dependencies(self).await? {
 			let Some((package, lock)) = lock.get(self, &dependency).await? else {
 				continue;
 			};
@@ -75,8 +75,10 @@ impl Server {
 			}
 		}
 		let outdated = tg::package::OutdatedOutput { info, dependencies };
+
 		// Mark this package as visited.
 		visited.insert(id.clone(), outdated.clone());
+
 		Ok(outdated)
 	}
 }
