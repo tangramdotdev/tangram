@@ -35,7 +35,7 @@ impl Server {
 		let params = params![id, arg.bytes];
 		let children = connection
 			.query_one_scalar_into(statement, params)
-			.map_err(|error| error!(source = error, "failed to execute the statement"))
+			.map_err(|source| error!(!source, "failed to execute the statement"))
 			.await?;
 
 		// Find the incomplete children.
@@ -52,11 +52,11 @@ impl Server {
 			let params = params![id];
 			connection
 				.query_all_scalar_into(statement, params)
-				.map_err(|error| error!(source = error, "failed to execute the statement"))
+				.map_err(|source| error!(!source, "failed to execute the statement"))
 				.await?
 		} else {
 			let data = tg::object::Data::deserialize(id.kind(), &arg.bytes)
-				.map_err(|error| error!(source = error, "failed to deserialize the data"))?;
+				.map_err(|source| error!(!source, "failed to deserialize the data"))?;
 			data.children()
 		};
 
@@ -85,7 +85,7 @@ impl Server {
 		let params = params![id, bytes];
 		transaction
 			.execute(statement, params)
-			.map_err(|error| error!(source = error, "failed to execute the statement"))
+			.map_err(|source| error!(!source, "failed to execute the statement"))
 			.await?;
 		Ok(())
 	}
@@ -111,7 +111,7 @@ impl Http {
 			.into_body()
 			.collect()
 			.await
-			.map_err(|error| error!(source = error, "failed to read the body"))?
+			.map_err(|source| error!(!source, "failed to read the body"))?
 			.to_bytes();
 
 		// Put the object.
@@ -124,7 +124,7 @@ impl Http {
 
 		// Create the body.
 		let body = serde_json::to_vec(&output)
-			.map_err(|error| error!(source = error, "failed to serialize the body"))?;
+			.map_err(|source| error!(!source, "failed to serialize the body"))?;
 		let body = full(body);
 
 		// Create the response.

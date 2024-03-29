@@ -1,7 +1,7 @@
 use crate::Cli;
 use tangram_error::{error, Result};
 
-/// Upgrade to the latest version of tangram.
+/// Upgrade to the latest version of Tangram.
 #[derive(Debug, clap::Args)]
 pub struct Args {}
 

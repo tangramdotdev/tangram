@@ -461,7 +461,7 @@ fn resolve_module(
 	});
 
 	let module = match receiver.recv().unwrap().map_err(
-		|error| error!(source = error, %import, %module, "failed to resolve import relative to module"),
+		|source| error!(!source, %import, %module, "failed to resolve import relative to module"),
 	) {
 		Ok(module) => module,
 		Err(error) => {

@@ -530,8 +530,12 @@ impl Handle for Client {
 		self.check_in_artifact(arg).await
 	}
 
-	async fn check_out_artifact(&self, arg: tg::artifact::CheckOutArg) -> Result<()> {
-		self.check_out_artifact(arg).await
+	async fn check_out_artifact(
+		&self,
+		id: &tg::artifact::Id,
+		arg: tg::artifact::CheckOutArg,
+	) -> Result<tg::artifact::CheckOutOutput> {
+		self.check_out_artifact(id, arg).await
 	}
 
 	async fn list_builds(&self, arg: tg::build::ListArg) -> Result<tg::build::ListOutput> {

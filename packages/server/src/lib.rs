@@ -66,6 +66,7 @@ struct Inner {
 	messenger: Messenger,
 	oauth: OAuth,
 	options: Options,
+	path: PathBuf,
 	remotes: Vec<Box<dyn tg::Handle>>,
 	runtimes: std::sync::RwLock<HashMap<String, Box<dyn Runtime>>>,
 	status: tokio::sync::watch::Sender<Status>,
@@ -116,10 +117,12 @@ struct Tmp {
 impl Server {
 	pub async fn start(options: Options) -> Result<Server> {
 		// Get the path.
-		let path = &options.path;
+		let path = tokio::fs::canonicalize(&options.path)
+			.await
+			.map_err(|source| error!(!source, "failed to canonicalize the path"))?;
 
 		// Ensure the path exists.
-		tokio::fs::create_dir_all(path)
+		tokio::fs::create_dir_all(&path)
 			.await
 			.map_err(|source| error!(!source, "failed to create the directory"))?;
 
@@ -142,7 +145,7 @@ impl Server {
 		let lockfile = std::sync::Mutex::new(Some(lockfile));
 
 		// Migrate the path.
-		Self::migrate(path).await?;
+		Self::migrate(&path).await?;
 
 		// Write the PID file.
 		tokio::fs::write(&path.join("pid"), std::process::id().to_string())
@@ -264,6 +267,7 @@ impl Server {
 			messenger,
 			oauth,
 			options,
+			path,
 			remotes,
 			runtimes,
 			status,
@@ -277,7 +281,7 @@ impl Server {
 			let connection = database
 				.connection()
 				.await
-				.map_err(|error| error!(source = error, "failed to get a database connection"))?;
+				.map_err(|source| error!(!source, "failed to get a database connection"))?;
 			let statement = formatdoc!(
 				r#"
 					update builds
@@ -485,22 +489,22 @@ impl Server {
 
 	#[must_use]
 	pub fn artifacts_path(&self) -> PathBuf {
-		self.inner.options.path.join("artifacts")
+		self.inner.path.join("artifacts")
 	}
 
 	#[must_use]
 	pub fn checkouts_path(&self) -> PathBuf {
-		self.inner.options.path.join("checkouts")
+		self.inner.path.join("checkouts")
 	}
 
 	#[must_use]
 	pub fn database_path(&self) -> PathBuf {
-		self.inner.options.path.join("database")
+		self.inner.path.join("database")
 	}
 
 	#[must_use]
 	pub fn tmp_path(&self) -> PathBuf {
-		self.inner.options.path.join("tmp")
+		self.inner.path.join("tmp")
 	}
 
 	fn create_tmp(&self) -> Tmp {
@@ -695,7 +699,7 @@ impl Http {
 				.handle_check_in_artifact_request(request)
 				.map(Some)
 				.boxed(),
-			(http::Method::POST, ["artifacts", "checkout"]) => self
+			(http::Method::POST, ["artifacts", _, "checkout"]) => self
 				.handle_check_out_artifact_request(request)
 				.map(Some)
 				.boxed(),
@@ -895,8 +899,12 @@ impl tg::Handle for Server {
 		self.check_in_artifact(arg).await
 	}
 
-	async fn check_out_artifact(&self, arg: tg::artifact::CheckOutArg) -> Result<()> {
-		self.check_out_artifact(arg).await
+	async fn check_out_artifact(
+		&self,
+		id: &tg::artifact::Id,
+		arg: tg::artifact::CheckOutArg,
+	) -> Result<tg::artifact::CheckOutOutput> {
+		self.check_out_artifact(id, arg).await
 	}
 
 	async fn list_builds(&self, args: tg::build::ListArg) -> Result<tg::build::ListOutput> {

@@ -14,7 +14,7 @@ use tangram_error::{error, Error, Result};
 use tg::Handle;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 
-/// Build a target and manage builds.
+/// Build a target or manage builds.
 #[derive(Debug, clap::Args)]
 #[clap(args_conflicts_with_subcommands = true)]
 pub struct Args {
@@ -78,10 +78,6 @@ pub struct GetOrCreateArgs {
 	/// The name of the target to build.
 	#[clap(short, long)]
 	pub target: Option<String>,
-
-	/// The ID of an existing target to build.
-	#[clap(long, conflicts_with_all = &["target", "package"])]
-	pub target_id: Option<tg::target::Id>,
 }
 
 /// Get a build.
@@ -145,7 +141,7 @@ impl Cli {
 	pub async fn command_build_get_or_create(&self, args: GetOrCreateArgs) -> Result<()> {
 		let client = &self.client().await?;
 
-		let target = if let Some(id) = args.target_id {
+		let target = if let Some(Ok(id)) = args.target.as_ref().map(|target| target.parse()) {
 			tg::Target::with_id(id)
 		} else {
 			let mut dependency = args.package.unwrap_or(".".parse().unwrap());
@@ -278,14 +274,36 @@ impl Cli {
 
 		// Check out the output if requested.
 		if let Some(path) = args.output {
+			// Get the artifact.
 			let artifact = tg::Artifact::try_from(output.clone())
 				.map_err(|source| error!(!source, "expected the output to be an artifact"))?;
-			let options = tg::artifact::CheckOutOptions {
-				path: path.try_into()?,
+
+			// Get the path.
+			let current = std::env::current_dir()
+				.map_err(|source| error!(!source, "failed to get the working directory"))?;
+			let path = current.join(&path);
+			let parent = path
+				.parent()
+				.ok_or_else(|| error!("the path must have a parent directory"))?;
+			let file_name = path
+				.file_name()
+				.ok_or_else(|| error!("the path must have a file name"))?;
+			tokio::fs::create_dir_all(parent)
+				.await
+				.map_err(|source| error!(!source, "failed to create the parent directory"))?;
+			let path = parent
+				.canonicalize()
+				.map_err(|source| error!(!source, "failed to canonicalize the path"))?
+				.join(file_name);
+			let path = path.try_into()?;
+
+			// Check out the artifact.
+			let arg = tg::artifact::CheckOutArg {
+				path: Some(path),
 				force: false,
 			};
 			artifact
-				.check_out(client, Some(options))
+				.check_out(client, arg)
 				.await
 				.map_err(|source| error!(!source, "failed to check out the artifact"))?;
 		}

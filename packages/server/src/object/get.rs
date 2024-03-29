@@ -29,7 +29,7 @@ impl Server {
 			.database
 			.connection()
 			.await
-			.map_err(|error| error!(source = error, "failed to get a database connection"))?;
+			.map_err(|source| error!(!source, "failed to get a database connection"))?;
 
 		// Get the object.
 		let p = connection.p();

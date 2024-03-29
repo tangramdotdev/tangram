@@ -9,7 +9,7 @@ use std::{collections::BTreeMap, os::unix::process::CommandExt};
 use tangram_client as tg;
 use tangram_error::{error, Error, Result};
 
-/// Build the specified target from a package and execute a command from its output.
+/// Build a target and run a command.
 #[derive(Debug, clap::Args)]
 #[clap(trailing_var_arg = true)]
 pub struct Args {
@@ -49,10 +49,6 @@ pub struct Args {
 	#[clap(short, long)]
 	pub target: Option<String>,
 
-	/// The ID of an existing target to build.
-	#[clap(long, conflicts_with_all = &["target", "package"])]
-	pub target_id: Option<tg::target::Id>,
-
 	/// Arguments to pass to the executable.
 	pub trailing: Vec<String>,
 }
@@ -61,7 +57,7 @@ impl Cli {
 	pub async fn command_run(&self, args: Args) -> Result<()> {
 		let client = &self.client().await?;
 
-		let target = if let Some(id) = args.target_id {
+		let target = if let Some(Ok(id)) = args.target.as_ref().map(|target| target.parse()) {
 			tg::Target::with_id(id)
 		} else {
 			let mut dependency = args.package.unwrap_or(".".parse().unwrap());

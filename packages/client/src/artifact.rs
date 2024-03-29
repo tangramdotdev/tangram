@@ -85,17 +85,17 @@ pub struct CheckInOutput {
 	pub id: Id,
 }
 
-#[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
+#[derive(Clone, Debug, Default, serde::Deserialize, serde::Serialize)]
 pub struct CheckOutArg {
-	pub artifact: Id,
+	#[serde(default, skip_serializing_if = "std::ops::Not::not")]
+	pub force: bool,
 	#[serde(default, skip_serializing_if = "Option::is_none")]
-	pub options: Option<CheckOutOptions>,
+	pub path: Option<crate::Path>,
 }
 
 #[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
-pub struct CheckOutOptions {
+pub struct CheckOutOutput {
 	pub path: crate::Path,
-	pub force: bool,
 }
 
 impl Artifact {
@@ -134,14 +134,10 @@ impl Artifact {
 		Ok(artifact)
 	}
 
-	pub async fn check_out(&self, tg: &dyn Handle, options: Option<CheckOutOptions>) -> Result<()> {
+	pub async fn check_out(&self, tg: &dyn Handle, arg: CheckOutArg) -> Result<CheckOutOutput> {
 		let id = self.id(tg).await?;
-		let arg = CheckOutArg {
-			artifact: id,
-			options,
-		};
-		tg.check_out_artifact(arg).await?;
-		Ok(())
+		let output = tg.check_out_artifact(&id, arg).await?;
+		Ok(output)
 	}
 
 	/// Compute an artifact's checksum.
@@ -152,7 +148,7 @@ impl Artifact {
 	) -> Result<Checksum> {
 		match algorithm {
 			checksum::Algorithm::Unsafe => Ok(Checksum::Unsafe),
-			_ => unimplemented!(),
+			_ => Err(error!("not yet implemented")),
 		}
 	}
 
@@ -631,9 +627,13 @@ impl Client {
 		Ok(output)
 	}
 
-	pub async fn check_out_artifact(&self, arg: tg::artifact::CheckOutArg) -> Result<()> {
+	pub async fn check_out_artifact(
+		&self,
+		id: &tg::artifact::Id,
+		arg: tg::artifact::CheckOutArg,
+	) -> Result<tg::artifact::CheckOutOutput> {
 		let method = http::Method::POST;
-		let uri = "/artifacts/checkout";
+		let uri = format!("/artifacts/{id}/checkout");
 		let body = serde_json::to_string(&arg)
 			.map_err(|source| error!(!source, "failed to serialize the body"))?;
 		let body = full(body);
@@ -653,7 +653,14 @@ impl Client {
 				.unwrap_or_else(|_| error!("the request did not succeed"));
 			return Err(error);
 		}
-		Ok(())
+		let bytes = response
+			.collect()
+			.await
+			.map_err(|source| error!(!source, "failed to collect the response body"))?
+			.to_bytes();
+		let output = serde_json::from_slice(&bytes)
+			.map_err(|source| error!(!source, "failed to deserialize the body"))?;
+		Ok(output)
 	}
 }
 

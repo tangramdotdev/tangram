@@ -138,8 +138,12 @@ impl tg::Handle for Server {
 		self.inner.server.check_in_artifact(arg).await
 	}
 
-	async fn check_out_artifact(&self, arg: tg::artifact::CheckOutArg) -> Result<()> {
-		self.inner.server.check_out_artifact(arg).await
+	async fn check_out_artifact(
+		&self,
+		id: &tg::artifact::Id,
+		arg: tg::artifact::CheckOutArg,
+	) -> Result<tg::artifact::CheckOutOutput> {
+		self.inner.server.check_out_artifact(id, arg).await
 	}
 
 	async fn list_builds(&self, arg: tg::build::ListArg) -> Result<tg::build::ListOutput> {

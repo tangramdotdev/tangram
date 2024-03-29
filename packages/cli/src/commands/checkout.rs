@@ -9,10 +9,10 @@ pub struct Args {
 	/// The ID of the artifact to check out.
 	pub id: tg::artifact::Id,
 
-	/// The path to check out the artifact to.
+	/// The path to check out the artifact to. The default is the artifact's ID in the checkouts directory.
 	pub path: Option<PathBuf>,
 
-	/// Overwrite any files or directories at the check out path if they exist.
+	/// Whether to overwrite an existing file system object at the path.
 	#[arg(short, long, requires = "path")]
 	pub force: bool,
 }
@@ -21,59 +21,47 @@ impl Cli {
 	pub async fn command_checkout(&self, args: Args) -> Result<()> {
 		let client = &self.client().await?;
 
-		// Get the path.
-		let mut path = std::env::current_dir()
-			.map_err(|source| error!(!source, "failed to get the working directory"))?;
-		if let Some(path_arg) = &args.path {
-			path.push(path_arg);
-		} else {
-			path.push(args.id.to_string());
-		};
-
-		// Check out the artifact.
+		// Get the artifact.
 		let artifact = tg::Artifact::with_id(args.id.clone());
-		let options = if let Some(path) = args.path.clone() {
-			let path = if path.is_absolute() {
-				path.try_into()?
-			} else {
-				path.parent()
-					.and_then(|path| (!path.as_os_str().is_empty()).then_some(path))
-					.unwrap_or(".".as_ref())
-					.canonicalize()
-					.map_err(
-						|source| error!(!source, %path = path.display(), "failed to canonicalize the path"),
-					)?
-					.join(
-						path.file_name()
-							.ok_or_else(|| error!(%path = path.display(), "invalid path"))?,
-					)
-					.try_into()?
-			};
-			let force = args.force;
-			Some(tg::artifact::CheckOutOptions { path, force })
+
+		// Get the path.
+		let path = if let Some(path) = args.path {
+			let current = std::env::current_dir()
+				.map_err(|source| error!(!source, "failed to get the working directory"))?;
+			let path = current.join(&path);
+			let parent = path
+				.parent()
+				.ok_or_else(|| error!("the path must have a parent directory"))?;
+			let file_name = path
+				.file_name()
+				.ok_or_else(|| error!("the path must have a file name"))?;
+			tokio::fs::create_dir_all(parent)
+				.await
+				.map_err(|source| error!(!source, "failed to create the parent directory"))?;
+			let path = parent
+				.canonicalize()
+				.map_err(|source| error!(!source, "failed to canonicalize the path"))?
+				.join(file_name);
+			let path = path.try_into()?;
+			Some(path)
 		} else {
 			None
 		};
 
-		artifact
-			.check_out(client, options)
+		// Create the arg.
+		let arg = tg::artifact::CheckOutArg {
+			path,
+			force: args.force,
+		};
+
+		// Check out the artifact.
+		let output = artifact
+			.check_out(client, arg)
 			.await
 			.map_err(|source| error!(!source, "failed to check out the artifact"))?;
 
 		// Print the path.
-		let path = if let Some(path) = args.path.clone() {
-			path
-		} else {
-			client
-				.path()
-				.await
-				.map_err(|source| error!(!source, "failed to get the server path"))?
-				.ok_or_else(|| error!("failed to get the server path"))?
-				.join("artifacts")
-				.join(args.id.to_string())
-				.into()
-		};
-		println!("{}", path.display());
+		println!("{}", output.path);
 
 		Ok(())
 	}

@@ -14,12 +14,12 @@ impl Tree {
 		print!("{}", self.title);
 		for (n, child) in self.children.iter().enumerate() {
 			print!("\n{prefix}");
-			if n == self.children.len() - 1 {
-				print!("└── ");
-				child.print_inner(&format!("{prefix}   "));
-			} else {
+			if n < self.children.len() - 1 {
 				print!("├── ");
 				child.print_inner(&format!("{prefix}│   "));
+			} else {
+				print!("└── ");
+				child.print_inner(&format!("{prefix}    "));
 			}
 		}
 	}

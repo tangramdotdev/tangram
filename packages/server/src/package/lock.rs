@@ -152,7 +152,7 @@ impl Server {
 		let lock = lock
 			.normalize(self)
 			.await
-			.map_err(|error| error!(source = error, "failed to normalize the lock"))?;
+			.map_err(|source| error!(!source, "failed to normalize the lock"))?;
 		Ok(lock)
 	}
 
@@ -362,7 +362,7 @@ impl Server {
 
 		// Get the metadata and dependenencies of this package.
 		let metadata = self.try_get_package_metadata(package).await.map_err(
-			|error| error!(source = error, %package_id, "failed to get package metadata"),
+			|source| error!(!source, %package_id, "failed to get package metadata"),
 		)?;
 		let dependencies = self.get_package_dependencies(package).await?;
 
@@ -728,7 +728,7 @@ impl Context {
 		if !self.analysis.contains_key(package_id) {
 			let package = tg::Directory::with_id(package_id.clone());
 			let metadata = server.get_package_metadata(&package).await.map_err(
-				|error| error!(source = error, %package_id, "failed to get package metadata"),
+				|source| error!(!source, %package_id, "failed to get package metadata"),
 			)?;
 			let dependencies = server.get_package_dependencies(&package).await?;
 			let mut dependencies_ = Vec::new();
@@ -744,7 +744,7 @@ impl Context {
 					let path = path.clone().normalize();
 					let Some(dependency_source) =
 						package_source.try_get(server, &path).await.map_err(
-							|error| error!(source = error, %dependency, %package_id, "could not resolve the dependency"),
+							|source| error!(!source, %dependency, %package_id, "could not resolve the dependency"),
 						)?
 					else {
 						continue;
