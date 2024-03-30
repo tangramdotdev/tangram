@@ -1,7 +1,8 @@
 use crate as tg;
 use crate::{
-	checksum, directory, file, id, object, symlink, util::rmrf, Blob, Checksum, Client, Directory,
-	File, Handle, Symlink, Template, Value,
+	checksum, directory, file, id, object, symlink,
+	util::{fs::rmrf, http::full},
+	Blob, Checksum, Client, Directory, File, Handle, Symlink, Template, Value,
 };
 use async_recursion::async_recursion;
 use derive_more::{From, TryInto, TryUnwrap};
@@ -12,7 +13,6 @@ use std::{
 	os::unix::fs::PermissionsExt,
 };
 use tangram_error::{error, Error, Result};
-use tangram_http::full;
 
 /// An artifact kind.
 #[derive(Clone, Copy, Debug)]

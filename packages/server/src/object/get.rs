@@ -1,9 +1,12 @@
-use crate::{params, Http, Server};
+use crate::{
+	util::http::{bad_request, full, not_found, Incoming, Outgoing},
+	Http, Server,
+};
 use futures::TryFutureExt;
 use indoc::formatdoc;
 use tangram_client as tg;
+use tangram_database as db;
 use tangram_error::{error, Result};
-use tangram_http::{bad_request, full, not_found, Incoming, Outgoing};
 
 impl Server {
 	pub async fn try_get_object(
@@ -40,7 +43,7 @@ impl Server {
 				where id = {p}1;
 			",
 		);
-		let params = params![id];
+		let params = db::params![id];
 		let output = connection
 			.query_optional_into(statement, params)
 			.map_err(|source| error!(!source, "failed to execute the statement"))

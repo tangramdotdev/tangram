@@ -1,10 +1,12 @@
-use crate::{Http, Server};
+use crate::{
+	util::http::{full, not_found, Incoming, Outgoing},
+	Http, Server,
+};
 use futures::{stream, StreamExt, TryStreamExt};
 use indoc::formatdoc;
 use tangram_client as tg;
 use tangram_database as db;
 use tangram_error::{error, Error, Result};
-use tangram_http::{full, not_found, Incoming, Outgoing};
 use tg::Handle;
 
 impl Server {

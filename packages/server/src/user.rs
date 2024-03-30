@@ -1,13 +1,13 @@
-use crate::{Http, Server};
+use crate::{
+	util::http::{bad_request, empty, full, not_found, unauthorized, Incoming, Outgoing},
+	Http, Server,
+};
 use indoc::formatdoc;
 use oauth2::TokenResponse;
 use std::borrow::Cow;
 use tangram_client as tg;
 use tangram_database as db;
 use tangram_error::{error, Result};
-use tangram_http::{
-	bad_request, empty, full, get_token, not_found, unauthorized, Incoming, Outgoing,
-};
 use url::Url;
 
 impl Server {
@@ -366,18 +366,13 @@ impl Http {
 		&self,
 		request: http::Request<Incoming>,
 	) -> Result<http::Response<Outgoing>> {
-		// Get the token from the request.
-		let Some(token) = get_token(&request, None) else {
-			return Ok(unauthorized());
-		};
-
-		// Authenticate the user.
-		let Some(output) = self.inner.tg.get_user_for_token(token.as_str()).await? else {
+		// Get the user from the request.
+		let Some(user) = self.try_get_user_from_request(&request).await? else {
 			return Ok(unauthorized());
 		};
 
 		// Create the body.
-		let body = serde_json::to_vec(&output)
+		let body = serde_json::to_vec(&user)
 			.map_err(|source| error!(!source, "failed to serialize the body"))?;
 		let body = full(body);
 

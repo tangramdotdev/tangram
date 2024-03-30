@@ -1,4 +1,3 @@
-import templateIndent from "./template_indent.ts";
 import * as tangramEslintPlugin from "@tangramdotdev/eslint-plugin";
 import * as typescriptEslintPlugin from "@typescript-eslint/eslint-plugin";
 import * as typescriptEslintParser from "@typescript-eslint/parser";
@@ -24,7 +23,6 @@ for (let [name, rule] of Object.entries(typescriptEslintPlugin.rules)) {
 for (let [name, rule] of Object.entries(tangramEslintPlugin.rules)) {
 	linter.defineRule(`@tangramdotdev/${name}`, rule);
 }
-linter.defineRule("@tangramdotdev/template-indent", templateIndent);
 
 export let createConfig = (program: ts.Program): eslint.Linter.Config => {
 	return {

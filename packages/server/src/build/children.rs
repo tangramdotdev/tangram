@@ -1,4 +1,7 @@
-use crate::{Http, Server};
+use crate::{
+	util::http::{empty, not_found, Incoming, Outgoing},
+	Http, Server,
+};
 use futures::{
 	future,
 	stream::{self, BoxStream},
@@ -11,7 +14,6 @@ use std::sync::Arc;
 use tangram_client as tg;
 use tangram_database as db;
 use tangram_error::{error, Error, Result};
-use tangram_http::{empty, not_found, Incoming, Outgoing};
 use tokio_stream::wrappers::IntervalStream;
 
 impl Server {

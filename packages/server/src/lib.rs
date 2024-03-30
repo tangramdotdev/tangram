@@ -1,5 +1,10 @@
 pub use self::options::Options;
-use self::{messenger::Messenger, runtime::Runtime, util::rmrf};
+use self::{
+	messenger::Messenger,
+	runtime::Runtime,
+	util::{fs::rmrf, http::get_token},
+};
+use crate::util::http::{full, Incoming, Outgoing};
 use async_nats as nats;
 use async_trait::async_trait;
 use bytes::Bytes;
@@ -22,9 +27,8 @@ use std::{
 	sync::Arc,
 };
 use tangram_client as tg;
-use tangram_database::{self as db, params, Database};
+use tangram_database::{self as db, Database};
 use tangram_error::{error, Error, Result};
-use tangram_http::{full, get_token, Incoming, Outgoing};
 use tokio::{
 	io::{AsyncRead, AsyncWrite},
 	net::{TcpListener, UnixListener},
@@ -291,7 +295,7 @@ impl Server {
 					where status != 'finished';
 				"#
 			);
-			let params = params![];
+			let params = db::params![];
 			connection
 				.execute(statement, params)
 				.map_err(|source| error!(!source, "failed to execute the statement"))
@@ -677,9 +681,11 @@ impl Http {
 		};
 
 		// Get the user.
-		let user = self.inner.tg.get_user_for_token(&token).await?;
+		let Some(user) = self.inner.tg.get_user_for_token(&token).await? else {
+			return Ok(None);
+		};
 
-		Ok(user)
+		Ok(Some(user))
 	}
 
 	async fn handle_request(

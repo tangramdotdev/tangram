@@ -1,4 +1,7 @@
-use crate::{Http, Server};
+use crate::{
+	util::http::{empty, not_found, Incoming, Outgoing},
+	Http, Server,
+};
 use bytes::{Bytes, BytesMut};
 use futures::{
 	future::{self, BoxFuture},
@@ -12,7 +15,6 @@ use std::{io::Cursor, sync::Arc};
 use tangram_client as tg;
 use tangram_database as db;
 use tangram_error::{error, Error, Result};
-use tangram_http::{empty, not_found, Incoming, Outgoing};
 use tokio::io::{AsyncRead, AsyncReadExt, AsyncSeek, AsyncSeekExt};
 use tokio_stream::wrappers::IntervalStream;
 

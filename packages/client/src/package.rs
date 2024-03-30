@@ -1,11 +1,14 @@
 use crate as tg;
-use crate::{directory, lock, Client, Dependency, Directory, Handle, Lock};
+use crate::{
+	directory, lock,
+	util::http::{empty, full},
+	Client, Dependency, Directory, Handle, Lock,
+};
 use http_body_util::BodyExt;
 use serde_with::serde_as;
 use std::collections::BTreeMap;
 use std::path::Path;
 use tangram_error::{error, Result};
-use tangram_http::{empty, full};
 
 /// The possible file names of the root module in a package.
 pub const ROOT_MODULE_FILE_NAMES: &[&str] =

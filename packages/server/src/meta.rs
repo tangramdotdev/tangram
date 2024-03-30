@@ -1,7 +1,9 @@
-use crate::{Http, Server};
+use crate::{
+	util::http::{empty, full, ok, Incoming, Outgoing},
+	Http, Server,
+};
 use tangram_client as tg;
 use tangram_error::Result;
-use tangram_http::{empty, full, ok, Incoming, Outgoing};
 
 impl Server {
 	pub async fn health(&self) -> Result<tg::meta::Health> {

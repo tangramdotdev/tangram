@@ -1,3 +1,4 @@
+use self::util::http::{Incoming, Outgoing};
 pub use self::{
 	artifact::Artifact, blob::Blob, branch::Branch, build::Build, checksum::Checksum,
 	dependency::Dependency, diagnostic::Diagnostic, directory::Directory, document::Document,
@@ -12,7 +13,6 @@ use bytes::Bytes;
 use futures::stream::BoxStream;
 use std::sync::Arc;
 use tangram_error::{error, Error, Result};
-use tangram_http::empty;
 use tokio::{
 	io::{AsyncRead, AsyncWrite},
 	net::{TcpStream, UnixStream},
@@ -61,8 +61,7 @@ pub struct Client {
 struct Inner {
 	url: Url,
 	file_descriptor_semaphore: tokio::sync::Semaphore,
-	sender:
-		tokio::sync::Mutex<Option<hyper::client::conn::http2::SendRequest<tangram_http::Outgoing>>>,
+	sender: tokio::sync::Mutex<Option<hyper::client::conn::http2::SendRequest<Outgoing>>>,
 	user: Option<User>,
 }
 
@@ -109,9 +108,7 @@ impl Client {
 		Ok(())
 	}
 
-	async fn sender(
-		&self,
-	) -> Result<hyper::client::conn::http2::SendRequest<tangram_http::Outgoing>> {
+	async fn sender(&self) -> Result<hyper::client::conn::http2::SendRequest<Outgoing>> {
 		if let Some(sender) = self.inner.sender.lock().await.as_ref().cloned() {
 			if sender.is_ready() {
 				return Ok(sender);
@@ -123,9 +120,7 @@ impl Client {
 		Ok(sender)
 	}
 
-	async fn connect_h1(
-		&self,
-	) -> Result<hyper::client::conn::http1::SendRequest<tangram_http::Outgoing>> {
+	async fn connect_h1(&self) -> Result<hyper::client::conn::http1::SendRequest<Outgoing>> {
 		match self.inner.url.scheme() {
 			"unix" => {
 				let path = std::path::Path::new(self.inner.url.path());
@@ -168,9 +163,7 @@ impl Client {
 		}
 	}
 
-	async fn connect_h2(
-		&self,
-	) -> Result<hyper::client::conn::http2::SendRequest<tangram_http::Outgoing>> {
+	async fn connect_h2(&self) -> Result<hyper::client::conn::http2::SendRequest<Outgoing>> {
 		match self.inner.url.scheme() {
 			"unix" => {
 				let path = std::path::Path::new(self.inner.url.path());
@@ -216,7 +209,7 @@ impl Client {
 	async fn connect_unix_h1(
 		&self,
 		path: &std::path::Path,
-	) -> Result<hyper::client::conn::http1::SendRequest<tangram_http::Outgoing>> {
+	) -> Result<hyper::client::conn::http1::SendRequest<Outgoing>> {
 		// Connect via UNIX.
 		let stream = UnixStream::connect(path)
 			.await
@@ -251,7 +244,7 @@ impl Client {
 	async fn connect_unix_h2(
 		&self,
 		path: &std::path::Path,
-	) -> Result<hyper::client::conn::http2::SendRequest<tangram_http::Outgoing>> {
+	) -> Result<hyper::client::conn::http2::SendRequest<Outgoing>> {
 		// Connect via UNIX.
 		let stream = UnixStream::connect(path)
 			.await
@@ -287,7 +280,7 @@ impl Client {
 		&self,
 		host: &str,
 		port: u16,
-	) -> Result<hyper::client::conn::http1::SendRequest<tangram_http::Outgoing>> {
+	) -> Result<hyper::client::conn::http1::SendRequest<Outgoing>> {
 		// Connect via TCP.
 		let stream = TcpStream::connect(format!("{host}:{port}"))
 			.await
@@ -323,7 +316,7 @@ impl Client {
 		&self,
 		host: &str,
 		port: u16,
-	) -> Result<hyper::client::conn::http2::SendRequest<tangram_http::Outgoing>> {
+	) -> Result<hyper::client::conn::http2::SendRequest<Outgoing>> {
 		// Connect via TCP.
 		let stream = TcpStream::connect(format!("{host}:{port}"))
 			.await
@@ -360,7 +353,7 @@ impl Client {
 		&self,
 		host: &str,
 		port: u16,
-	) -> Result<hyper::client::conn::http1::SendRequest<tangram_http::Outgoing>> {
+	) -> Result<hyper::client::conn::http1::SendRequest<Outgoing>> {
 		// Connect via TLS over TCP.
 		let stream = self.connect_tcp_tls(host, port).await?;
 
@@ -395,7 +388,7 @@ impl Client {
 		&self,
 		host: &str,
 		port: u16,
-	) -> Result<hyper::client::conn::http2::SendRequest<tangram_http::Outgoing>> {
+	) -> Result<hyper::client::conn::http2::SendRequest<Outgoing>> {
 		// Connect via TLS over TCP.
 		let stream = self.connect_tcp_tls(host, port).await?;
 
@@ -471,8 +464,8 @@ impl Client {
 
 	async fn send(
 		&self,
-		request: http::request::Request<tangram_http::Outgoing>,
-	) -> Result<http::Response<tangram_http::Incoming>> {
+		request: http::request::Request<Outgoing>,
+	) -> Result<http::Response<Incoming>> {
 		self.sender()
 			.await?
 			.send_request(request)

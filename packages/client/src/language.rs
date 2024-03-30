@@ -1,8 +1,10 @@
-use crate::Client;
+use crate::{
+	util::http::{empty, full},
+	Client,
+};
 use futures::{future, TryFutureExt};
 use http_body_util::BodyExt;
 use tangram_error::{error, Result};
-use tangram_http::{empty, full};
 use tokio::io::{AsyncRead, AsyncWrite};
 
 impl Client {

@@ -1,4 +1,7 @@
-use crate::{Http, Server};
+use crate::{
+	util::http::{empty, full, not_found, Incoming, Outgoing},
+	Http, Server,
+};
 use async_recursion::async_recursion;
 use std::{
 	collections::{BTreeMap, HashSet, VecDeque},
@@ -6,7 +9,6 @@ use std::{
 };
 use tangram_client as tg;
 use tangram_error::{error, Result};
-use tangram_http::{empty, full, not_found, Incoming, Outgoing};
 
 mod dependencies;
 mod format;

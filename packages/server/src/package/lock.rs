@@ -343,9 +343,10 @@ impl Server {
 		}
 
 		// Get the metadata and dependenencies of this package.
-		let metadata = self.try_get_package_metadata(package).await.map_err(
-			|source| error!(!source, %package_id, "failed to get package metadata"),
-		)?;
+		let metadata = self
+			.try_get_package_metadata(package)
+			.await
+			.map_err(|source| error!(!source, %package_id, "failed to get package metadata"))?;
 		let dependencies = self.get_package_dependencies(package).await?;
 
 		// Convert dependencies to dependants and update the working set.
@@ -720,9 +721,10 @@ impl Context {
 	) -> Result<&'_ Analysis> {
 		if !self.analysis.contains_key(package_id) {
 			let package = tg::Directory::with_id(package_id.clone());
-			let metadata = server.get_package_metadata(&package).await.map_err(
-				|source| error!(!source, %package_id, "failed to get package metadata"),
-			)?;
+			let metadata = server
+				.get_package_metadata(&package)
+				.await
+				.map_err(|source| error!(!source, %package_id, "failed to get package metadata"))?;
 			let dependencies = server.get_package_dependencies(&package).await?;
 			let mut dependencies_ = Vec::new();
 			let mut path_dependencies = BTreeMap::new();

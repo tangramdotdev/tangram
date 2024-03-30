@@ -1,4 +1,7 @@
-use crate::{params, Http, Server};
+use crate::{
+	util::http::{bad_request, full, Incoming, Outgoing},
+	Http, Server,
+};
 use bytes::Bytes;
 use futures::TryFutureExt;
 use http_body_util::BodyExt;
@@ -6,7 +9,6 @@ use indoc::formatdoc;
 use tangram_client as tg;
 use tangram_database as db;
 use tangram_error::{error, Result};
-use tangram_http::{bad_request, full, Incoming, Outgoing};
 
 impl Server {
 	pub async fn put_object(
@@ -32,7 +34,7 @@ impl Server {
 				returning children;
 			"
 		);
-		let params = params![id, arg.bytes];
+		let params = db::params![id, arg.bytes];
 		let children = connection
 			.query_one_scalar_into(statement, params)
 			.map_err(|source| error!(!source, "failed to execute the statement"))
@@ -49,7 +51,7 @@ impl Server {
 					where object = {p}1 and complete = 0;
 				"
 			);
-			let params = params![id];
+			let params = db::params![id];
 			connection
 				.query_all_scalar_into(statement, params)
 				.map_err(|source| error!(!source, "failed to execute the statement"))
@@ -82,7 +84,7 @@ impl Server {
 				on conflict do nothing;
 			"
 		);
-		let params = params![id, bytes];
+		let params = db::params![id, bytes];
 		transaction
 			.execute(statement, params)
 			.map_err(|source| error!(!source, "failed to execute the statement"))

@@ -1,10 +1,13 @@
-use crate::{self as tg, Client};
+use crate::{
+	self as tg,
+	util::http::{empty, full},
+	Client,
+};
 use bytes::Bytes;
 use futures::{future, stream::BoxStream, FutureExt, StreamExt, TryStreamExt};
 use http_body_util::{BodyExt, BodyStream};
 use serde_with::serde_as;
 use tangram_error::{error, Error, Result};
-use tangram_http::{empty, full};
 use tokio_util::io::StreamReader;
 
 #[serde_as]
@@ -14,7 +17,7 @@ pub struct GetArg {
 	pub length: Option<i64>,
 
 	#[serde(default, skip_serializing_if = "Option::is_none")]
-	#[serde_as(as = "Option<crate::util::SeekFromString>")]
+	#[serde_as(as = "Option<crate::util::serde::SeekFromString>")]
 	pub position: Option<std::io::SeekFrom>,
 
 	#[serde(default, skip_serializing_if = "Option::is_none")]
@@ -29,7 +32,7 @@ pub struct GetArg {
 #[derive(Clone, Debug, serde::Serialize, serde::Deserialize)]
 pub struct Chunk {
 	pub position: u64,
-	#[serde_as(as = "crate::util::BytesBase64")]
+	#[serde_as(as = "crate::util::serde::BytesBase64")]
 	pub bytes: Bytes,
 }
 

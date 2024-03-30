@@ -1,5 +1,8 @@
 use self::syscall::syscall;
-use crate::Http;
+use crate::{
+	util::http::{empty, full, Incoming, Outgoing},
+	Http,
+};
 use derive_more::Unwrap;
 use futures::{future, Future, FutureExt, TryFutureExt};
 use http_body_util::BodyExt;
@@ -12,7 +15,6 @@ use std::{
 };
 use tangram_client as tg;
 use tangram_error::{error, Error, Result};
-use tangram_http::{empty, full, Incoming, Outgoing};
 use tokio::io::{
 	AsyncBufRead, AsyncBufReadExt, AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt,
 };

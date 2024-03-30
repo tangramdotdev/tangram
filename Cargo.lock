@@ -2708,9 +2708,9 @@ dependencies = [
 
 [[package]]
 name = "pin-project-lite"
-version = "0.2.13"
+version = "0.2.14"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "8afb450f006bf6385ca15ef45d71d2288452bc3683ce2e2cacc0d18e4be60b58"
+checksum = "bda66fc9667c18cb2758a2ac84d1167245054bcf85d5d1aaa6923f45801bdd02"
 
 [[package]]
 name = "pin-utils"
@@ -4357,7 +4357,6 @@ dependencies = [
  "serde_with",
  "sha2",
  "tangram_error",
- "tangram_http",
  "tangram_sse",
  "tar",
  "tempfile",
@@ -4415,17 +4414,6 @@ version = "0.0.0"
 dependencies = [
  "num",
  "zerocopy",
-]
-
-[[package]]
-name = "tangram_http"
-version = "0.0.0"
-dependencies = [
- "bytes",
- "http 1.1.0",
- "http-body-util",
- "hyper 1.2.0",
- "tangram_error",
 ]
 
 [[package]]
@@ -4499,7 +4487,6 @@ dependencies = [
  "tangram_database",
  "tangram_error",
  "tangram_fuse",
- "tangram_http",
  "tangram_nfs",
  "tangram_sse",
  "tempfile",
@@ -4633,9 +4620,9 @@ checksum = "1f3ccbac311fea05f86f61904b462b55fb3df8837a366dfc601a0161d0532f20"
 
 [[package]]
 name = "tokio"
-version = "1.36.0"
+version = "1.37.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "61285f6515fa018fb2d1e46eb21223fff441ee8db5d0f1435e8ab4f5cdb80931"
+checksum = "1adbebffeca75fcfd058afa480fb6c0b81e165a0323f9c9d39c9697e37c46787"
 dependencies = [
  "backtrace",
  "bytes",

@@ -1,4 +1,7 @@
-use crate::{Http, Server};
+use crate::{
+	util::http::{empty, not_found, Incoming, Outgoing},
+	Http, Server,
+};
 use futures::{
 	future,
 	stream::{self, BoxStream},
@@ -9,7 +12,6 @@ use indoc::formatdoc;
 use tangram_client as tg;
 use tangram_database as db;
 use tangram_error::{error, Error, Result};
-use tangram_http::{empty, not_found, Incoming, Outgoing};
 use time::format_description::well_known::Rfc3339;
 use tokio_stream::wrappers::IntervalStream;
 

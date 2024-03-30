@@ -19,9 +19,9 @@ impl Server {
 		let root_module_path = 'a: {
 			for file_name in ROOT_MODULE_FILE_NAMES {
 				let path = path.clone().join(*file_name);
-				let exists = tokio::fs::try_exists(&path).await.map_err(
-					|source| error!(!source, %path, "failed to check if file exists"),
-				)?;
+				let exists = tokio::fs::try_exists(&path)
+					.await
+					.map_err(|source| error!(!source, %path, "failed to check if file exists"))?;
 				if exists {
 					break 'a path;
 				}
@@ -63,9 +63,7 @@ impl Server {
 		// Write the new text back.
 		tokio::fs::write(&module_absolute_path, text.as_bytes())
 			.await
-			.map_err(
-				|source| error!(!source, %module_path, "failed to write formatted module"),
-			)?;
+			.map_err(|source| error!(!source, %module_path, "failed to write formatted module"))?;
 
 		// Try to analyze the module. We don't want to return an error early in case the module contains syntax errors.
 		let Ok(analysis) = crate::language::Server::analyze_module(text) else {

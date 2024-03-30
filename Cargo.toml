@@ -6,7 +6,6 @@ members = [
   "packages/database",
   "packages/error",
   "packages/fuse",
-  "packages/http",
   "packages/nfs",  
   "packages/pool",
   "packages/server",
@@ -118,7 +117,6 @@ tangram_client = { path = "packages/client" }
 tangram_database = { path = "packages/database" }
 tangram_error = { path = "packages/error" }
 tangram_fuse = { path = "packages/fuse" }
-tangram_http = { path = "packages/http" }
 tangram_nfs = { path = "packages/nfs" }
 tangram_pool = { path = "packages/pool" }
 tangram_server = { path = "packages/server" }

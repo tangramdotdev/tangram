@@ -82,9 +82,7 @@ async fn syscall_archive(
 	let (artifact, format) = args;
 	let blob = tg::Blob::archive(&state.server, &artifact, format)
 		.await
-		.map_err(
-			|source| error!(!source,  %artifact, %format, "failed to archive the artifact"),
-		)?;
+		.map_err(|source| error!(!source,  %artifact, %format, "failed to archive the artifact"))?;
 	Ok(blob)
 }
 

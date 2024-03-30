@@ -1,7 +1,8 @@
 use crate as tg;
+use crate::util::http::full;
 use crate::{
-	branch, directory, file, id, leaf, lock, symlink, target, Branch, Client, Directory, Error,
-	File, Leaf, Lock, Result, Symlink, Target,
+	branch, directory, file, id, leaf, lock, symlink, target, util::http::empty, Branch, Client,
+	Directory, Error, File, Leaf, Lock, Result, Symlink, Target,
 };
 use async_recursion::async_recursion;
 use bytes::Bytes;
@@ -9,7 +10,6 @@ use derive_more::{Display, From, TryInto, TryUnwrap};
 use futures::{stream::FuturesUnordered, TryStreamExt};
 use http_body_util::BodyExt;
 use tangram_error::error;
-use tangram_http::{empty, full};
 
 /// An object kind.
 #[derive(Clone, Copy, Debug)]

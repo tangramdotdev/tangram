@@ -1,4 +1,10 @@
-use crate::{util::rmrf, Http, Server};
+use crate::{
+	util::{
+		fs::rmrf,
+		http::{bad_request, full, Incoming, Outgoing},
+	},
+	Http, Server,
+};
 use async_recursion::async_recursion;
 use futures::{stream::FuturesUnordered, TryStreamExt};
 use http_body_util::BodyExt;
@@ -6,7 +12,6 @@ use std::{collections::HashMap, os::unix::prelude::PermissionsExt, sync::Arc};
 use tangram_client as tg;
 use tangram_database as db;
 use tangram_error::{error, Error, Result};
-use tangram_http::{bad_request, full, Incoming, Outgoing};
 use tg::Handle;
 
 impl Server {

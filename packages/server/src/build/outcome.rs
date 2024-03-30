@@ -1,5 +1,8 @@
 use super::log;
-use crate::{Http, Server};
+use crate::{
+	util::http::{empty, full, not_found, Incoming, Outgoing},
+	Http, Server,
+};
 use async_recursion::async_recursion;
 use futures::{future, stream::FuturesUnordered, TryFutureExt, TryStreamExt};
 use http_body_util::BodyExt;
@@ -7,7 +10,6 @@ use indoc::formatdoc;
 use tangram_client as tg;
 use tangram_database as db;
 use tangram_error::{error, Result};
-use tangram_http::{empty, full, not_found, Incoming, Outgoing};
 use time::format_description::well_known::Rfc3339;
 
 impl Server {
