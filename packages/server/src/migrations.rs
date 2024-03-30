@@ -1,5 +1,6 @@
 use super::Server;
 use futures::FutureExt;
+use indoc::formatdoc;
 use std::path::Path;
 use tangram_error::{error, Result};
 
@@ -68,105 +69,122 @@ async fn migration_0000(path: &Path) -> Result<()> {
 	connection
 		.pragma_update(None, "journal_mode", "wal")
 		.map_err(|source| error!(!source, "failed to set the journal mode"))?;
-	let sql = "
-		create table builds (
-			id text primary key,
-			complete integer not null,
-			count integer,
-			host text not null,
-			log text,
-			outcome text,
-			retry text not null,
-			status text not null,
-			target text not null,
-			weight integer,
-			created_at text not null,
-			queued_at text,
-			started_at text,
-			finished_at text
-		);
+	let sql = formatdoc!(
+		"
+			create table artifact_paths (
+				id integer primary key,
+				parent integer,
+				name text not null,
+				mtime integer,
+				artifact text not null
+			);
+	
+			create table builds (
+				id text primary key,
+				complete integer not null,
+				count integer,
+				host text not null,
+				log text,
+				outcome text,
+				retry text not null,
+				status text not null,
+				target text not null,
+				weight integer,
+				created_at text not null,
+				queued_at text,
+				started_at text,
+				finished_at text
+			);
 
-		create index builds_status_created_at_index on builds (status, created_at);
+			create index builds_status_created_at_index on builds (status, created_at);
 
-		create index builds_target_created_at_index on builds (target, created_at desc);
+			create index builds_target_created_at_index on builds (target, created_at desc);
 
-		create table build_children (
-			build text,
-			position integer,
-			child text
-		);
+			create table build_children (
+				build text,
+				position integer,
+				child text
+			);
 
-		create unique index build_children_index on build_children (build, position);
+			create unique index build_children_index on build_children (build, position);
 
-		create unique index build_children_build_child_index on build_children (build, child);
+			create unique index build_children_build_child_index on build_children (build, child);
 
-		create index build_children_child_index on build_children (child);
+			create index build_children_child_index on build_children (child);
 
-		create table build_logs (
-			build text not null,
-			position integer not null,
-			bytes blob not null
-		);
+			create table build_logs (
+				build text not null,
+				position integer not null,
+				bytes blob not null
+			);
 
-		create unique index build_logs_index on build_logs (build, position);
+			create unique index build_logs_index on build_logs (build, position);
 
-		create table build_objects (
-			build text not null,
-			object text not null
-		);
+			create table build_objects (
+				build text not null,
+				object text not null
+			);
 
-		create unique index build_objects_index on build_objects (build, object);
+			create unique index build_objects_index on build_objects (build, object);
 
-		create index build_objects_child_index on build_objects (object);
+			create index build_objects_child_index on build_objects (object);
 
-		create table objects (
-			id text primary key,
-			bytes blob not null,
-			children integer not null,
-			complete integer not null,
-			count integer,
-			weight integer
-		);
+			create table objects (
+				id text primary key,
+				bytes blob not null,
+				children integer not null,
+				complete integer not null,
+				count integer,
+				weight integer
+			);
 
-		create table object_children (
-			object text not null,
-			child text not null
-		);
+			create table object_children (
+				object text not null,
+				child text not null
+			);
 
-		create unique index object_children_index on object_children (object, child);
+			create unique index object_children_index on object_children (object, child);
 
-		create index object_children_child_index on object_children (child);
+			create index object_children_child_index on object_children (child);
 
-		create table packages (
-			name text primary key
-		);
+			create table packages (
+				name text primary key
+			);
 
-		create table package_versions (
-			name text not null references packages (name),
-			version text not null,
-			id text not null,
-			published_at text not null,
-			primary key (name, version)
-		);
+			create table package_paths (
+				path text primary key,
+				package text not null
+			);
 
-		create table users (
-			id text primary key,
-			email text not null
-		);
+			create index package_paths_package_index on package_paths (package);
 
-		create table tokens (
-			id text primary key,
-			user_id text not null references users (id)
-		);
+			create table package_versions (
+				name text not null references packages (name),
+				version text not null,
+				id text not null,
+				published_at text not null,
+				primary key (name, version)
+			);
 
-		create table logins (
-			id text primary key,
-			url text not null,
-			token text references tokens (id)
-		);
-	";
+			create table users (
+				id text primary key,
+				email text not null
+			);
+
+			create table tokens (
+				id text primary key,
+				user_id text not null references users (id)
+			);
+
+			create table logins (
+				id text primary key,
+				url text not null,
+				token text references tokens (id)
+			);
+		"
+	);
 	connection
-		.execute_batch(sql)
+		.execute_batch(&sql)
 		.map_err(|source| error!(!source, "failed to create the database tables"))?;
 
 	// Create the checkouts directory.
