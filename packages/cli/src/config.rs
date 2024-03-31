@@ -1,5 +1,6 @@
 use serde_with::serde_as;
 use std::path::PathBuf;
+use tangram_error::{error, Error};
 use url::Url;
 
 #[serde_as]
@@ -30,7 +31,7 @@ pub struct Config {
 	pub remotes: Option<Vec<Remote>>,
 
 	#[serde(default, skip_serializing_if = "Option::is_none")]
-	pub tracing: Option<String>,
+	pub tracing: Option<Tracing>,
 
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub url: Option<Url>,
@@ -144,6 +145,47 @@ pub struct RemoteBuild {
 	/// Enable remote builds.
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub enable: Option<bool>,
+}
+
+#[derive(Clone, Debug, Default, serde::Serialize, serde::Deserialize)]
+pub struct Tracing {
+	#[serde(default, skip_serializing_if = "String::is_empty")]
+	pub filter: String,
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub format: Option<TracingFormat>,
+}
+
+#[derive(
+	Clone, Copy, Debug, Default, serde_with::SerializeDisplay, serde_with::DeserializeFromStr,
+)]
+pub enum TracingFormat {
+	Compact,
+	Json,
+	#[default]
+	Pretty,
+}
+
+impl std::fmt::Display for TracingFormat {
+	fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+		match self {
+			TracingFormat::Compact => write!(f, "compact"),
+			TracingFormat::Json => write!(f, "json"),
+			TracingFormat::Pretty => write!(f, "pretty"),
+		}
+	}
+}
+
+impl std::str::FromStr for TracingFormat {
+	type Err = Error;
+
+	fn from_str(s: &str) -> Result<Self, Self::Err> {
+		match s {
+			"compact" => Ok(Self::Compact),
+			"json" => Ok(Self::Json),
+			"pretty" => Ok(Self::Pretty),
+			_ => Err(error!("invalid tracing format")),
+		}
+	}
 }
 
 #[derive(Clone, Debug, Default, serde::Serialize, serde::Deserialize)]

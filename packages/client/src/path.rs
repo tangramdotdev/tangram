@@ -12,10 +12,9 @@ use tangram_error::{error, Error, Result};
 	Ord,
 	PartialEq,
 	PartialOrd,
-	serde::Deserialize,
-	serde::Serialize,
+	serde_with::DeserializeFromStr,
+	serde_with::SerializeDisplay,
 )]
-#[serde(into = "String", try_from = "String")]
 pub struct Path {
 	string: String,
 	components: Vec<Component>,

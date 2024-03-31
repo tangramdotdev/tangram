@@ -1,8 +1,9 @@
 use sha2::Digest;
 use tangram_error::{error, Error, Result};
 
-#[derive(Clone, Debug, Eq, PartialEq, serde::Deserialize, serde::Serialize)]
-#[serde(into = "String", try_from = "String")]
+#[derive(
+	Clone, Debug, Eq, PartialEq, serde_with::DeserializeFromStr, serde_with::SerializeDisplay,
+)]
 pub enum Checksum {
 	Blake3(Box<[u8]>),
 	Sha256(Box<[u8]>),
@@ -10,8 +11,9 @@ pub enum Checksum {
 	Unsafe,
 }
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
-#[serde(into = "String", try_from = "String")]
+#[derive(
+	Clone, Copy, Debug, PartialEq, Eq, serde_with::DeserializeFromStr, serde_with::SerializeDisplay,
+)]
 pub enum Algorithm {
 	Blake3,
 	Sha256,
@@ -117,20 +119,6 @@ impl std::str::FromStr for Checksum {
 	}
 }
 
-impl From<Checksum> for String {
-	fn from(value: Checksum) -> Self {
-		value.to_string()
-	}
-}
-
-impl TryFrom<String> for Checksum {
-	type Error = Error;
-
-	fn try_from(value: String) -> Result<Self, Self::Error> {
-		value.parse()
-	}
-}
-
 impl std::fmt::Display for Algorithm {
 	fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
 		let system = match self {
@@ -156,20 +144,6 @@ impl std::str::FromStr for Algorithm {
 			algorithm => return Err(error!(%algorithm, "invalid algorithm")),
 		};
 		Ok(system)
-	}
-}
-
-impl From<Algorithm> for String {
-	fn from(value: Algorithm) -> Self {
-		value.to_string()
-	}
-}
-
-impl TryFrom<String> for Algorithm {
-	type Error = Error;
-
-	fn try_from(value: String) -> std::result::Result<Self, Self::Error> {
-		value.parse()
 	}
 }
 

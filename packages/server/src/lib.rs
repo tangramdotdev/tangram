@@ -120,15 +120,15 @@ struct Tmp {
 
 impl Server {
 	pub async fn start(options: Options) -> Result<Server> {
-		// Get the path.
+		// Ensure the path exists.
+		tokio::fs::create_dir_all(&options.path)
+			.await
+			.map_err(|source| error!(!source, "failed to create the directory"))?;
+
+		// Canonicalize the path.
 		let path = tokio::fs::canonicalize(&options.path)
 			.await
 			.map_err(|source| error!(!source, "failed to canonicalize the path"))?;
-
-		// Ensure the path exists.
-		tokio::fs::create_dir_all(&path)
-			.await
-			.map_err(|source| error!(!source, "failed to create the directory"))?;
 
 		// Acquire the lockfile.
 		let lockfile = tokio::fs::OpenOptions::new()
@@ -577,7 +577,7 @@ impl Http {
 				tokio_util::either::Either::Left(listener)
 			},
 			"http" => {
-				let host = url.domain().ok_or_else(|| error!("invalid url"))?;
+				let host = url.host().ok_or_else(|| error!("invalid url"))?;
 				let port = url
 					.port_or_known_default()
 					.ok_or_else(|| error!("invalid url"))?;

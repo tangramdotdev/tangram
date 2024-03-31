@@ -275,20 +275,14 @@ impl Cli {
 
 	fn read_config(path: Option<PathBuf>) -> Result<Option<Config>> {
 		let home = std::env::var("HOME")
-			.map_err(|error| {
-				error!(
-					source = error,
-					"failed to get the HOME environment variable"
-				)
-			})
-			.unwrap();
+			.map_err(|source| error!(!source, "failed to get the HOME environment variable"))?;
 		let path = path.unwrap_or_else(|| PathBuf::from(home).join(".config/tangram/config.json"));
 		let config = match std::fs::read_to_string(&path) {
 			Ok(config) => config,
 			Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(None),
-			Err(error) => {
+			Err(source) => {
 				return Err(
-					error!(source = error, %path = path.display(), "failed to read the config file"),
+					error!(!source, %path = path.display(), "failed to read the config file"),
 				)
 			},
 		};
@@ -299,12 +293,8 @@ impl Cli {
 	}
 
 	fn write_config(config: &Config, path: Option<PathBuf>) -> Result<()> {
-		let home = std::env::var("HOME").map_err(|error| {
-			error!(
-				source = error,
-				"failed to get the HOME environment variable"
-			)
-		})?;
+		let home = std::env::var("HOME")
+			.map_err(|source| error!(!source, "failed to get the HOME environment variable"))?;
 		let path = path.unwrap_or_else(|| PathBuf::from(home).join(".config/tangram/config.json"));
 		let config = serde_json::to_string_pretty(&config)
 			.map_err(|source| error!(!source, "failed to serialize the config"))?;
@@ -315,18 +305,12 @@ impl Cli {
 
 	fn read_user(path: Option<PathBuf>) -> Result<Option<tg::User>> {
 		let home = std::env::var("HOME")
-			.map_err(|error| {
-				error!(
-					source = error,
-					"failed to get the HOME environment variable"
-				)
-			})
-			.unwrap();
+			.map_err(|source| error!(!source, "failed to get the HOME environment variable"))?;
 		let path = path.unwrap_or_else(|| PathBuf::from(home).join(".config/tangram/user.json"));
 		let user = match std::fs::read_to_string(path) {
 			Ok(user) => user,
 			Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(None),
-			Err(error) => return Err(error!(source = error, "failed to read the user file")),
+			Err(source) => return Err(error!(!source, "failed to read the user file")),
 		};
 		let user = serde_json::from_str(&user)
 			.map_err(|source| error!(!source, "failed to deserialize the user"))?;
@@ -334,12 +318,8 @@ impl Cli {
 	}
 
 	fn write_user(user: &tg::User, path: Option<PathBuf>) -> Result<()> {
-		let home = std::env::var("HOME").map_err(|error| {
-			error!(
-				source = error,
-				"failed to get the HOME environment variable"
-			)
-		})?;
+		let home = std::env::var("HOME")
+			.map_err(|source| error!(!source, "failed to get the HOME environment variable"))?;
 		let path = path.unwrap_or_else(|| PathBuf::from(home).join(".config/tangram/user.json"));
 		let user = serde_json::to_string_pretty(&user.clone())
 			.map_err(|source| error!(!source, "failed to serialize the user"))?;
@@ -404,12 +384,19 @@ fn set_up_tracing(config: &Option<Config>) {
 		.as_ref()
 		.and_then(|config| config.tracing.as_ref())
 		.map(|tracing| {
-			let filter = tracing_subscriber::filter::EnvFilter::try_new(tracing).unwrap();
-			tracing_subscriber::fmt::layer()
-				.compact()
+			let filter = tracing_subscriber::filter::EnvFilter::try_new(&tracing.filter).unwrap();
+			let layer = tracing_subscriber::fmt::layer()
 				.with_span_events(tracing_subscriber::fmt::format::FmtSpan::NEW)
-				.with_writer(std::io::stderr)
-				.with_filter(filter)
+				.with_writer(std::io::stderr);
+			let layer = match tracing
+				.format
+				.unwrap_or(self::config::TracingFormat::Pretty)
+			{
+				self::config::TracingFormat::Compact => layer.compact().boxed(),
+				self::config::TracingFormat::Json => layer.json().boxed(),
+				self::config::TracingFormat::Pretty => layer.pretty().boxed(),
+			};
+			layer.with_filter(filter)
 		});
 	tracing_subscriber::registry()
 		.with(console_layer)

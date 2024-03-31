@@ -9,8 +9,9 @@ use serde_with::serde_as;
 use tangram_error::{error, Error, Result};
 use tokio_util::io::StreamReader;
 
-#[derive(Clone, Copy, Debug, Eq, PartialEq, serde::Deserialize, serde::Serialize)]
-#[serde(into = "String", try_from = "String")]
+#[derive(
+	Clone, Copy, Debug, Eq, PartialEq, serde_with::DeserializeFromStr, serde_with::SerializeDisplay,
+)]
 pub enum Status {
 	Created,
 	Queued,
@@ -114,5 +115,30 @@ impl Client {
 			return Err(error);
 		}
 		Ok(())
+	}
+}
+
+impl std::fmt::Display for Status {
+	fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+		match self {
+			Self::Created => write!(f, "created"),
+			Self::Queued => write!(f, "queued"),
+			Self::Started => write!(f, "started"),
+			Self::Finished => write!(f, "finished"),
+		}
+	}
+}
+
+impl std::str::FromStr for Status {
+	type Err = Error;
+
+	fn from_str(s: &str) -> Result<Self, Self::Err> {
+		match s {
+			"created" => Ok(Self::Created),
+			"queued" => Ok(Self::Queued),
+			"started" => Ok(Self::Started),
+			"finished" => Ok(Self::Finished),
+			status => Err(error!(%status, "invalid value")),
+		}
 	}
 }

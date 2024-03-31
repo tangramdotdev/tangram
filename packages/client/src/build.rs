@@ -45,10 +45,9 @@ pub struct Build {
 	Ord,
 	PartialEq,
 	PartialOrd,
-	serde::Deserialize,
-	serde::Serialize,
+	serde_with::DeserializeFromStr,
+	serde_with::SerializeDisplay,
 )]
-#[serde(into = "String", try_from = "String")]
 pub enum Retry {
 	#[default]
 	Canceled,
@@ -706,45 +705,6 @@ impl std::str::FromStr for Id {
 	}
 }
 
-impl std::fmt::Display for Status {
-	fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-		match self {
-			Self::Created => write!(f, "created"),
-			Self::Queued => write!(f, "queued"),
-			Self::Started => write!(f, "started"),
-			Self::Finished => write!(f, "finished"),
-		}
-	}
-}
-
-impl std::str::FromStr for Status {
-	type Err = Error;
-
-	fn from_str(s: &str) -> Result<Self, Self::Err> {
-		match s {
-			"created" => Ok(Self::Created),
-			"queued" => Ok(Self::Queued),
-			"started" => Ok(Self::Started),
-			"finished" => Ok(Self::Finished),
-			status => Err(error!(%status, "invalid value")),
-		}
-	}
-}
-
-impl From<Status> for String {
-	fn from(value: Status) -> Self {
-		value.to_string()
-	}
-}
-
-impl TryFrom<String> for Status {
-	type Error = Error;
-
-	fn try_from(value: String) -> Result<Self, Self::Error> {
-		value.parse()
-	}
-}
-
 impl std::fmt::Display for Retry {
 	fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
 		match self {
@@ -765,19 +725,5 @@ impl std::str::FromStr for Retry {
 			"succeeded" => Ok(Self::Succeeded),
 			retry => Err(error!(%retry, "invalid value")),
 		}
-	}
-}
-
-impl From<Retry> for String {
-	fn from(value: Retry) -> Self {
-		value.to_string()
-	}
-}
-
-impl TryFrom<String> for Retry {
-	type Error = Error;
-
-	fn try_from(value: String) -> Result<Self, Self::Error> {
-		value.parse()
 	}
 }

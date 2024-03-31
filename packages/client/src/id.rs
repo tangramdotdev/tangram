@@ -2,8 +2,16 @@ use derive_more::From;
 use tangram_error::{error, Error, Result};
 
 /// An ID.
-#[derive(Clone, Eq, Hash, Ord, PartialEq, PartialOrd, serde::Deserialize, serde::Serialize)]
-#[serde(into = "String", try_from = "String")]
+#[derive(
+	Clone,
+	Eq,
+	Hash,
+	Ord,
+	PartialEq,
+	PartialOrd,
+	serde_with::DeserializeFromStr,
+	serde_with::SerializeDisplay,
+)]
 pub enum Id {
 	V0(V0),
 }
@@ -170,19 +178,5 @@ impl std::str::FromStr for Kind {
 			"req" => Kind::Request,
 			kind => return Err(error!(%kind, "invalid kind")),
 		})
-	}
-}
-
-impl From<Id> for String {
-	fn from(value: Id) -> Self {
-		value.to_string()
-	}
-}
-
-impl TryFrom<String> for Id {
-	type Error = Error;
-
-	fn try_from(value: String) -> Result<Self, Self::Error> {
-		value.parse()
 	}
 }
