@@ -23,7 +23,6 @@ let prettierOptions = {
 let eslintConfig: eslint_.Linter.Config = {
 	rules: {
 		"@tangramdotdev/sort-imports": "warn",
-		"@tangramdotdev/template-indent": "warn",
 		"sort-imports": ["warn", { ignoreDeclarationSort: true }],
 		semi: "warn",
 	},
