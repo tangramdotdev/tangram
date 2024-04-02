@@ -52,7 +52,6 @@ type Futures = FuturesUnordered<
 struct Module {
 	module: tg::Module,
 	source_map: Option<SourceMap>,
-	metadata: Option<tg::package::Metadata>,
 	v8_identity_hash: NonZeroI32,
 	v8_module: v8::Global<v8::Module>,
 }
@@ -571,24 +570,9 @@ fn load_module<'s>(
 	let source = v8::script_compiler::Source::new(source, Some(&origin));
 	let v8_module = v8::script_compiler::compile_module(scope, source)?;
 
-	// Get the metadata.
-	let (sender, receiver) = std::sync::mpsc::channel();
-	state.main_runtime_handle.spawn({
-		let server = state.server.clone();
-		let module = module.clone();
-		async move {
-			let module = module.unwrap_normal_ref();
-			let package = tg::Directory::with_id(module.package.clone());
-			let metadata = tg::package::get_metadata(&server, &package).await.ok();
-			sender.send(metadata).unwrap();
-		}
-	});
-	let metadata = receiver.recv().unwrap();
-
 	// Cache the module.
 	state.modules.borrow_mut().push(Module {
 		module: module.clone(),
-		metadata,
 		source_map: Some(source_map),
 		v8_identity_hash: v8_module.get_identity_hash(),
 		v8_module: v8::Global::new(scope, v8_module),

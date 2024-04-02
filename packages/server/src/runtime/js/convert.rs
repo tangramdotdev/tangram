@@ -2329,6 +2329,23 @@ impl FromV8 for tangram_error::Location {
 	}
 }
 
+impl ToV8 for tangram_error::Source {
+	fn to_v8<'a>(&self, scope: &mut v8::HandleScope<'a>) -> Result<v8::Local<'a, v8::Value>> {
+		serde_v8::to_v8(scope, self)
+			.map_err(|source| error!(!source, "failed to serialize the value"))
+	}
+}
+
+impl FromV8 for tangram_error::Source {
+	fn from_v8<'a>(
+		scope: &mut v8::HandleScope<'a>,
+		value: v8::Local<'a, v8::Value>,
+	) -> Result<Self> {
+		serde_v8::from_v8(scope, value)
+			.map_err(|source| error!(!source, "failed to deserialize the value"))
+	}
+}
+
 impl ToV8 for Url {
 	fn to_v8<'a>(&self, scope: &mut v8::HandleScope<'a>) -> Result<v8::Local<'a, v8::Value>> {
 		self.to_string().to_v8(scope)

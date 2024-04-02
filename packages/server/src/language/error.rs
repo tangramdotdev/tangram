@@ -73,7 +73,7 @@ pub(super) fn from_exception<'s>(
 	// Get the location.
 	let line = message_.get_line_number(scope).unwrap().to_u32().unwrap() - 1;
 	let column = message_.get_start_column().to_u32().unwrap();
-	let location = Some(get_location(line, column));
+	let location = get_location(line, column);
 
 	// Get the stack trace.
 	let stack = v8::String::new_external_onebyte_static(scope, "stack".as_bytes()).unwrap();
@@ -90,8 +90,7 @@ pub(super) fn from_exception<'s>(
 			.filter_map(|call_site| {
 				let line: u32 = call_site.line_number? - 1;
 				let column: u32 = call_site.column_number?;
-				let location = get_location(line, column);
-				Some(location)
+				get_location(line, column)
 			})
 			.collect();
 		Some(stack)
@@ -119,17 +118,20 @@ pub(super) fn from_exception<'s>(
 	}
 }
 
-fn get_location(line: u32, column: u32) -> tangram_error::Location {
+fn get_location(line: u32, column: u32) -> Option<tangram_error::Location> {
 	let source_map = SourceMap::from_slice(SOURCE_MAP).unwrap();
-	let token = source_map.lookup_token(line, column).unwrap();
+	let token = source_map.lookup_token(line, column)?;
 	let symbol = token.get_name().map(String::from);
-	let source = token.get_source().unwrap().to_owned();
+	let source = tangram_error::Source::Internal {
+		path: token.get_source().unwrap().to_owned(),
+	};
 	let line = token.get_src_line();
 	let column = token.get_src_col();
-	tangram_error::Location {
+	let location = tangram_error::Location {
 		symbol,
 		source,
 		line,
 		column,
-	}
+	};
+	Some(location)
 }

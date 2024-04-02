@@ -79,7 +79,7 @@ pub(super) fn from_exception<'s>(
 	} else {
 		None
 	};
-	let location = get_location(state, resource_name.as_deref(), line, column, None);
+	let location = get_location(state, None, resource_name.as_deref(), line, column);
 
 	// Get the stack trace.
 	let stack = v8::String::new_external_onebyte_static(scope, "stack".as_bytes()).unwrap();
@@ -104,7 +104,7 @@ pub(super) fn from_exception<'s>(
 				let file_name = call_site.file_name.as_deref();
 				let line: u32 = call_site.line_number? - 1;
 				let column: u32 = call_site.column_number?;
-				let location = get_location(state, file_name, Some(line), Some(column), symbol)?;
+				let location = get_location(state, symbol, file_name, Some(line), Some(column))?;
 				Some(location)
 			})
 			.collect();
@@ -159,10 +159,10 @@ pub fn current_stack_trace(
 				.map(|name| name.to_rust_string_lossy(scope));
 			get_location(
 				state.as_ref(),
+				symbol,
 				Some(&file),
 				Some(line),
 				Some(column),
-				symbol,
 			)
 		})
 		.collect::<Vec<_>>();
@@ -171,63 +171,58 @@ pub fn current_stack_trace(
 
 fn get_location(
 	state: &State,
+	symbol: Option<String>,
 	file: Option<&str>,
 	line: Option<u32>,
 	column: Option<u32>,
-	symbol: Option<String>,
 ) -> Option<tangram_error::Location> {
 	if file.map_or(false, |resource_name| resource_name == "[global]") {
-		let global_source_map = state.global_source_map.as_ref()?;
 		let line = line?;
 		let column = column?;
-		let token = global_source_map.lookup_token(line, column).unwrap();
-		let source = token.get_source().unwrap().to_owned();
-		let source = format!("[global]:{source}");
+		let global_source_map = state.global_source_map.as_ref()?;
+		let token = global_source_map.lookup_token(line, column)?;
 		let line = token.get_src_line();
 		let column = token.get_src_col();
 		let symbol = token.get_name().map(String::from);
+		let source = tangram_error::Source::Internal {
+			path: token.get_source().unwrap().to_owned(),
+		};
 		let location = tangram_error::Location {
 			symbol,
 			source,
 			line,
 			column,
 		};
+
 		return Some(location);
 	}
 
 	if let Some(module) = file.and_then(|resource_name| tg::Module::from_str(resource_name).ok()) {
-		let line = line?;
-		let column = column?;
+		// Get the module and get the package and path.
 		let modules = state.modules.borrow();
-		let module = modules.iter().find(|m| m.module == module);
-		let name = module
-			.as_ref()
-			.and_then(|module| module.metadata.as_ref())
-			.and_then(|metadata| metadata.name.as_deref())
-			.unwrap_or("<unknown>");
-		let version = module
-			.as_ref()
-			.and_then(|module| module.metadata.as_ref())
-			.and_then(|metadata| metadata.version.as_deref())
-			.unwrap_or("<unknown>");
-		let path = module.as_ref().map_or_else(
-			|| "<unknown>".to_owned(),
-			|module| module.module.unwrap_normal_ref().path.to_string(),
-		);
-		let source = format!("{name}@{version}:{path}");
-		let (line, column) =
-			if let Some(source_map) = module.and_then(|module| module.source_map.as_ref()) {
-				let token = source_map.lookup_token(line, column).unwrap();
-				(token.get_src_line(), token.get_src_col())
-			} else {
-				(line, column)
-			};
+		let module = modules.iter().find(|m| m.module == module)?;
+		let package = module.module.unwrap_normal_ref().package.to_string();
+		let path = module.module.unwrap_normal_ref().path.to_string();
+		let source = tangram_error::Source::External { package, path };
+
+		// Get the line and column and apply a source map if one is available.
+		let mut line = line?;
+		let mut column = column?;
+		if let Some(source_map) = module.source_map.as_ref() {
+			if let Some(token) = source_map.lookup_token(line, column) {
+				line = token.get_src_line();
+				column = token.get_src_col();
+			}
+		}
+
+		// Create the location.
 		let location = tangram_error::Location {
 			symbol,
 			source,
 			line,
 			column,
 		};
+
 		return Some(location);
 	}
 

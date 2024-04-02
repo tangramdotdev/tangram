@@ -13,19 +13,19 @@ pub struct Error {
 	/// The error's message.
 	pub message: String,
 
-	/// The optional location of where the error occurred.
+	/// The location where the error occurred.
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub location: Option<Location>,
 
-	/// An optional stack trace associated with the error.
+	/// A stack trace associated with the error.
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub stack: Option<Vec<Location>>,
 
-	/// An optional error that this error wraps.
+	/// The error's source.
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub source: Option<Arc<Error>>,
 
-	/// A map of key/value pairs of context associated with the error.
+	/// Values associated with the error.
 	#[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
 	pub values: BTreeMap<String, String>,
 }
@@ -35,9 +35,17 @@ pub struct Error {
 pub struct Location {
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub symbol: Option<String>,
-	pub source: String,
+	pub source: Source,
 	pub line: u32,
 	pub column: u32,
+}
+
+/// An error location's source.
+#[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
+#[serde(tag = "kind", rename_all = "snake_case")]
+pub enum Source {
+	Internal { path: String },
+	External { package: String, path: String },
 }
 
 pub struct Trace<'a> {
@@ -46,16 +54,12 @@ pub struct Trace<'a> {
 }
 
 #[serde_as]
-#[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
+#[derive(Clone, Debug, Default, serde::Deserialize, serde::Serialize)]
 pub struct TraceOptions {
 	#[serde(default, skip_serializing_if = "std::ops::Not::not")]
+	pub internal: bool,
+	#[serde(default, skip_serializing_if = "std::ops::Not::not")]
 	pub reverse: bool,
-	#[serde_as(as = "Option<Vec<serde_with::DisplayFromStr>>")]
-	#[serde(default, skip_serializing_if = "Option::is_none")]
-	pub exclude: Option<Vec<glob::Pattern>>,
-	#[serde_as(as = "Option<Vec<serde_with::DisplayFromStr>>")]
-	#[serde(default, skip_serializing_if = "Option::is_none")]
-	pub include: Option<Vec<glob::Pattern>>,
 }
 
 impl Error {
@@ -65,6 +69,18 @@ impl Error {
 			error: self,
 			options,
 		}
+	}
+}
+
+impl Source {
+	#[must_use]
+	pub fn is_internal(&self) -> bool {
+		matches!(self, Self::Internal { .. })
+	}
+
+	#[must_use]
+	pub fn is_external(&self) -> bool {
+		matches!(self, Self::External { .. })
 	}
 }
 
@@ -81,19 +97,7 @@ impl<'a> Trace<'a> {
 		for error in errors {
 			eprint!("{} {}", "->".red(), error.message);
 			if let Some(location) = &error.location {
-				let include = self
-					.options
-					.include
-					.iter()
-					.flatten()
-					.any(|pattern| pattern.matches(&location.source));
-				let exclude = self
-					.options
-					.exclude
-					.iter()
-					.flatten()
-					.any(|pattern| pattern.matches(&location.source));
-				if include || !exclude {
+				if !location.source.is_internal() || self.options.internal {
 					eprint!(" {location}");
 				}
 			}
@@ -110,19 +114,7 @@ impl<'a> Trace<'a> {
 				stack.reverse();
 			}
 			for location in stack {
-				let include = self
-					.options
-					.include
-					.iter()
-					.flatten()
-					.any(|pattern| pattern.matches(&location.source));
-				let exclude = self
-					.options
-					.exclude
-					.iter()
-					.flatten()
-					.any(|pattern| pattern.matches(&location.source));
-				if include || !exclude {
+				if !location.source.is_internal() || self.options.internal {
 					eprintln!("   {location}");
 				}
 			}
@@ -161,7 +153,9 @@ impl<'a> From<&'a std::panic::Location<'a>> for Location {
 	fn from(location: &'a std::panic::Location<'a>) -> Self {
 		Self {
 			symbol: None,
-			source: location.file().to_owned(),
+			source: Source::Internal {
+				path: location.file().to_owned(),
+			},
 			line: location.line() - 1,
 			column: location.column() - 1,
 		}
@@ -181,19 +175,7 @@ impl<'a> std::fmt::Display for Trace<'a> {
 		for error in errors {
 			write!(f, "-> {}", error.message)?;
 			if let Some(location) = &error.location {
-				let include = self
-					.options
-					.include
-					.iter()
-					.flatten()
-					.any(|pattern| pattern.matches(&location.source));
-				let exclude = self
-					.options
-					.exclude
-					.iter()
-					.flatten()
-					.any(|pattern| pattern.matches(&location.source));
-				if include || !exclude {
+				if !location.source.is_internal() || self.options.internal {
 					write!(f, " {location}")?;
 				}
 			}
@@ -210,19 +192,7 @@ impl<'a> std::fmt::Display for Trace<'a> {
 				stack.reverse();
 			}
 			for location in stack {
-				let include = self
-					.options
-					.include
-					.iter()
-					.flatten()
-					.any(|pattern| pattern.matches(&location.source));
-				let exclude = self
-					.options
-					.exclude
-					.iter()
-					.flatten()
-					.any(|pattern| pattern.matches(&location.source));
-				if include || !exclude {
+				if !location.source.is_internal() || self.options.internal {
 					writeln!(f, "   {location}")?;
 				}
 			}
@@ -243,15 +213,11 @@ impl std::fmt::Display for Location {
 	}
 }
 
-impl Default for TraceOptions {
-	fn default() -> Self {
-		Self {
-			reverse: false,
-			exclude: Some(vec![
-				glob::Pattern::new("[[]global[]]:packages/**/*.ts").unwrap(),
-				glob::Pattern::new("packages/**/*.rs").unwrap(),
-			]),
-			include: None,
+impl std::fmt::Display for Source {
+	fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+		match self {
+			Source::Internal { path } => write!(f, "{path}"),
+			Source::External { package, path } => write!(f, "{package}:{path}"),
 		}
 	}
 }
@@ -355,7 +321,7 @@ macro_rules! error {
 			message: String::new(),
 			location: Some($crate::Location {
 				symbol: Some($crate::function!().to_owned()),
-				source: file!().to_owned(),
+				source: $crate::Source::Internal{ path: file!().to_owned() },
 				line: line!() - 1,
 				column: column!() - 1,
 			}),
@@ -384,12 +350,7 @@ mod tests {
 
 	#[test]
 	fn error_macro() {
-		let options = TraceOptions {
-			exclude: Some(vec![
-				glob::Pattern::new("packages/error/src/lib.rs").unwrap()
-			]),
-			..Default::default()
-		};
+		let options = TraceOptions::default();
 
 		let foo = "foo";
 		let bar = "bar";
@@ -409,7 +370,9 @@ mod tests {
 
 		let stack = vec![Location {
 			symbol: None,
-			source: "foobar.rs".to_owned(),
+			source: Source::Internal {
+				path: "foobar.rs".to_owned(),
+			},
 			line: 123,
 			column: 456,
 		}];

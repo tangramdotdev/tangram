@@ -3,14 +3,14 @@ export class Error {
 	location: Location | undefined;
 	stack: Array<Location> | undefined;
 	source: Error | undefined;
-	values: Map<String, String> | undefined;
+	values: Map<string, string> | undefined;
 
 	constructor(
 		message: string,
 		location?: Location,
 		stack?: Array<Location>,
 		source?: Error,
-		values?: Map<String, String>,
+		values?: Map<string, string>,
 	) {
 		this.message = message;
 		this.location = location;
@@ -22,10 +22,14 @@ export class Error {
 
 type Location = {
 	symbol?: string;
-	source: string;
+	source: Source;
 	line: number;
 	column: number;
 };
+
+type Source =
+	| { kind: "internal"; path: string }
+	| { kind: "external"; package: string; path: string };
 
 /** This type is derived from <https://v8.dev/docs/stack-trace-api#customizing-stack-traces>. */
 type CallSite = {
