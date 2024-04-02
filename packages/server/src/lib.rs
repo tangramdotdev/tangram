@@ -191,7 +191,7 @@ impl Server {
 
 		// Create the database.
 		let messenger = match &options.messenger {
-			self::options::Messenger::Local => Messenger::new_channel(),
+			self::options::Messenger::Channel => Messenger::new_channel(),
 			self::options::Messenger::Nats(nats) => {
 				let client = nats::connect(nats.url.to_string())
 					.await
