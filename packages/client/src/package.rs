@@ -468,7 +468,7 @@ impl Client {
 
 	pub async fn get_runtime_doc(&self) -> Result<serde_json::Value> {
 		let method = http::Method::GET;
-		let uri = "/runtime/js/doc";
+		let uri = "/runtimes/js/doc";
 		let request = http::request::Builder::default().method(method).uri(uri);
 		let body = empty();
 		let request = request

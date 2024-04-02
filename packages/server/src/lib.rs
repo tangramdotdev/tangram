@@ -816,7 +816,7 @@ impl Http {
 				.handle_outdated_package_request(request)
 				.map(Some)
 				.boxed(),
-			(http::Method::GET, ["runtime", "js", "doc"]) => self
+			(http::Method::GET, ["runtimes", "js", "doc"]) => self
 				.handle_get_runtime_doc_request(request)
 				.map(Some)
 				.boxed(),
