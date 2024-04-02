@@ -35,6 +35,8 @@ too_many_lines = "allow"
 unused_async = "allow"
 
 [workspace.dependencies]
+async-broadcast = "0.7"
+async-channel= "2"
 async-compression = { version = "0.4", features = ["all"] }
 async-nats = "0.34"
 async-recursion = "1"
