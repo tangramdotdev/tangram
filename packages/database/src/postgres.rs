@@ -26,8 +26,9 @@ pub struct Database {
 
 pub struct Connection<'a> {
 	marker: std::marker::PhantomData<&'a ()>,
-	client: postgres::Client,
-	cache: Cache,
+	sender: async_channel::Sender<(postgres::Client, Cache)>,
+	client: Option<postgres::Client>,
+	cache: Option<Cache>,
 }
 
 pub struct Transaction<'a> {
@@ -58,23 +59,23 @@ impl Cache {
 
 impl Database {
 	pub async fn new(options: Options) -> Result<Self> {
-		// let (sender, receiver) = async_channel::bounded(options.max_connections);
-		// for _ in 0..options.max_connections {
-		// let (client, connection) = postgres::connect(url.as_str(), postgres::NoTls)
-		// 	.await
-		// 	.map_err(|source| error!(!source, "failed to connect to the database"))?;
-		// tokio::spawn(async move {
-		// 	connection
-		// 		.await
-		// 		.inspect_err(|error| {
-		// 			tracing::error!(?error);
-		// 		})
-		// 		.ok();
-		// });
-		// let cache = Cache::default();
-		// let client = Self { client, cache };
-		// }
-		todo!()
+		let (sender, receiver) = async_channel::bounded(options.max_connections);
+		for _ in 0..options.max_connections {
+			let (client, connection) = postgres::connect(options.url.as_str(), postgres::NoTls)
+				.await
+				.map_err(
+					|source| error!(!source, %url = options.url, "failed to connect to the database"),
+				)?;
+			tokio::spawn(async move {
+				connection
+					.await
+					.inspect_err(|error| tracing::error!(?error, "postgres connection failed"))
+					.ok();
+			});
+			let cache = Cache::default();
+			sender.send((client, cache)).await.ok();
+		}
+		Ok(Self { sender, receiver })
 	}
 }
 
@@ -82,7 +83,18 @@ impl super::Database for Database {
 	type Connection<'c> = Connection<'c> where Self: 'c;
 
 	async fn connection(&self) -> Result<Self::Connection<'_>> {
-		todo!()
+		let (client, cache) = self
+			.receiver
+			.recv()
+			.await
+			.map_err(|source| error!(!source, "failed to acquire a database connection"))?;
+		let sender = self.sender.clone();
+		Ok(Connection {
+			marker: std::marker::PhantomData {},
+			sender,
+			client: Some(client),
+			cache: Some(cache),
+		})
 	}
 }
 
@@ -92,10 +104,12 @@ impl<'c> super::Connection for Connection<'c> {
 	async fn transaction(&mut self) -> Result<Self::Transaction<'_>> {
 		let transaction = self
 			.client
+			.as_mut()
+			.unwrap()
 			.transaction()
 			.await
 			.map_err(|source| error!(!source, "failed to begin the transaction"))?;
-		let cache = &self.cache;
+		let cache = self.cache.as_ref().unwrap();
 		Ok(Transaction { transaction, cache })
 	}
 }
@@ -148,7 +162,13 @@ impl super::Query for Database {
 
 impl<'a> super::Query for Connection<'a> {
 	async fn execute(&self, statement: String, params: Vec<Value>) -> Result<u64> {
-		execute(&self.client, &self.cache, statement, params).await
+		execute(
+			self.client.as_ref().unwrap(),
+			self.cache.as_ref().unwrap(),
+			statement,
+			params,
+		)
+		.await
 	}
 
 	async fn query(
@@ -156,7 +176,13 @@ impl<'a> super::Query for Connection<'a> {
 		statement: String,
 		params: Vec<Value>,
 	) -> Result<impl Stream<Item = Result<Row>> + Send> {
-		query(&self.client, &self.cache, statement, params).await
+		query(
+			self.client.as_ref().unwrap(),
+			self.cache.as_ref().unwrap(),
+			statement,
+			params,
+		)
+		.await
 	}
 }
 
@@ -171,6 +197,14 @@ impl<'a> super::Query for Transaction<'a> {
 		params: Vec<Value>,
 	) -> Result<impl Stream<Item = Result<Row>> + Send> {
 		query(&self.transaction, self.cache, statement, params).await
+	}
+}
+
+impl<'a> Drop for Connection<'a> {
+	fn drop(&mut self) {
+		let client = self.client.take().unwrap();
+		let cache = self.cache.take().unwrap();
+		self.sender.send_blocking((client, cache)).ok();
 	}
 }
 
