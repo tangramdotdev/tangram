@@ -20,6 +20,7 @@ pub struct Cache {
 }
 
 pub struct Database {
+	options: Options,
 	sender: async_channel::Sender<(postgres::Client, Cache)>,
 	receiver: async_channel::Receiver<(postgres::Client, Cache)>,
 }
@@ -75,7 +76,11 @@ impl Database {
 			let cache = Cache::default();
 			sender.send((client, cache)).await.ok();
 		}
-		Ok(Self { sender, receiver })
+		Ok(Self {
+			options,
+			sender,
+			receiver,
+		})
 	}
 }
 
@@ -88,12 +93,32 @@ impl super::Database for Database {
 			.recv()
 			.await
 			.map_err(|source| error!(!source, "failed to acquire a database connection"))?;
+
 		let sender = self.sender.clone();
+		let mut client = Some(client);
+		let cache = Some(cache);
+
+		if client.as_ref().unwrap().is_closed() {
+			let (client_, connection) =
+				postgres::connect(self.options.url.as_str(), postgres::NoTls)
+					.await
+					.map_err(
+						|source| error!(!source, %url = self.options.url, "failed to connect to the database"),
+					)?;
+			tokio::spawn(async move {
+				connection
+					.await
+					.inspect_err(|error| tracing::error!(?error, "postgres connection failed"))
+					.ok();
+			});
+			client.replace(client_);
+		}
+
 		Ok(Connection {
 			marker: std::marker::PhantomData {},
 			sender,
-			client: Some(client),
-			cache: Some(cache),
+			client,
+			cache,
 		})
 	}
 }
