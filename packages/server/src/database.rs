@@ -1,26 +1,27 @@
 use futures::Stream;
+use futures::StreamExt;
 use tangram_database as db;
 use tangram_error::Result;
 
 #[derive(Clone, Debug)]
 pub enum Options {
 	Sqlite(db::sqlite::Options),
-	// Postgres(db::postgres::Options),
+	Postgres(db::postgres::Options),
 }
 
 pub enum Database {
 	Sqlite(db::sqlite::Database),
-	// Postgres(db::postgres::Database),
+	Postgres(db::postgres::Database),
 }
 
 pub enum Connection<'a> {
 	Sqlite(db::sqlite::Connection<'a>),
-	// Postgres(db::postgres::Connection),
+	Postgres(db::postgres::Connection<'a>),
 }
 
 pub enum Transaction<'a> {
 	Sqlite(db::sqlite::Transaction<'a>),
-	// Postgres(db::postgres::Transaction),
+	Postgres(db::postgres::Transaction<'a>),
 }
 
 impl Database {
@@ -30,10 +31,10 @@ impl Database {
 				let database = db::sqlite::Database::new(options).await?;
 				Ok(Self::Sqlite(database))
 			},
-			// Options::Postgres(options) => {
-			// 	let database = db::postgres::Database::new(options).await?;
-			// 	Ok(Self::Postgres(database))
-			// },
+			Options::Postgres(options) => {
+				let database = db::postgres::Database::new(options).await?;
+				Ok(Self::Postgres(database))
+			},
 		}
 	}
 
@@ -41,7 +42,7 @@ impl Database {
 	pub fn p(&self) -> &'static str {
 		match self {
 			Self::Sqlite(_) => "?",
-			// 	Self::Postgres(_) => "$",
+			Self::Postgres(_) => "$",
 		}
 	}
 }
@@ -51,7 +52,7 @@ impl<'a> Connection<'a> {
 	pub fn p(&self) -> &'static str {
 		match self {
 			Self::Sqlite(_) => "?",
-			// 	Self::Postgres(_) => "$",
+			Self::Postgres(_) => "$",
 		}
 	}
 }
@@ -61,7 +62,7 @@ impl<'a> Transaction<'a> {
 	pub fn p(&self) -> &'static str {
 		match self {
 			Self::Sqlite(_) => "?",
-			// 	Self::Postgres(_) => "$",
+			Self::Postgres(_) => "$",
 		}
 	}
 }
@@ -72,6 +73,7 @@ impl db::Database for Database {
 	async fn connection(&self) -> Result<Self::Connection<'_>> {
 		match self {
 			Self::Sqlite(database) => Ok(Connection::Sqlite(database.connection().await?)),
+			Self::Postgres(database) => Ok(Connection::Postgres(database.connection().await?)),
 		}
 	}
 }
@@ -82,6 +84,9 @@ impl<'a> db::Connection for Connection<'a> {
 	async fn transaction(&mut self) -> Result<Self::Transaction<'_>> {
 		match self {
 			Self::Sqlite(connection) => Ok(Transaction::Sqlite(connection.transaction().await?)),
+			Self::Postgres(connection) => {
+				Ok(Transaction::Postgres(connection.transaction().await?))
+			},
 		}
 	}
 }
@@ -90,12 +95,14 @@ impl<'a> db::Transaction for Transaction<'a> {
 	async fn rollback(self) -> Result<()> {
 		match self {
 			Transaction::Sqlite(transaction) => transaction.rollback().await,
+			Transaction::Postgres(transaction) => transaction.rollback().await,
 		}
 	}
 
 	async fn commit(self) -> Result<()> {
 		match self {
 			Transaction::Sqlite(transaction) => transaction.commit().await,
+			Transaction::Postgres(transaction) => transaction.commit().await,
 		}
 	}
 }
@@ -104,6 +111,7 @@ impl db::Query for Database {
 	async fn execute(&self, statement: String, params: Vec<db::Value>) -> Result<u64> {
 		match self {
 			Self::Sqlite(database) => database.execute(statement, params).await,
+			Self::Postgres(database) => database.execute(statement, params).await,
 		}
 	}
 
@@ -112,9 +120,11 @@ impl db::Query for Database {
 		statement: String,
 		params: Vec<db::Value>,
 	) -> Result<impl Stream<Item = Result<db::Row>> + Send> {
-		match self {
-			Self::Sqlite(database) => database.query(statement, params).await,
-		}
+		let stream = match self {
+			Self::Sqlite(database) => database.query(statement, params).await?.left_stream(),
+			Self::Postgres(database) => database.query(statement, params).await?.right_stream(),
+		};
+		Ok(stream)
 	}
 
 	async fn query_optional(
@@ -124,18 +134,21 @@ impl db::Query for Database {
 	) -> Result<Option<db::Row>> {
 		match self {
 			Self::Sqlite(database) => database.query_optional(statement, params).await,
+			Self::Postgres(database) => database.query_optional(statement, params).await,
 		}
 	}
 
 	async fn query_one(&self, statement: String, params: Vec<db::Value>) -> Result<db::Row> {
 		match self {
 			Self::Sqlite(database) => database.query_one(statement, params).await,
+			Self::Postgres(database) => database.query_one(statement, params).await,
 		}
 	}
 
 	async fn query_all(&self, statement: String, params: Vec<db::Value>) -> Result<Vec<db::Row>> {
 		match self {
 			Self::Sqlite(database) => database.query_all(statement, params).await,
+			Self::Postgres(database) => database.query_all(statement, params).await,
 		}
 	}
 }
@@ -144,6 +157,7 @@ impl<'c> db::Query for Connection<'c> {
 	async fn execute(&self, statement: String, params: Vec<db::Value>) -> Result<u64> {
 		match self {
 			Self::Sqlite(database) => database.execute(statement, params).await,
+			Self::Postgres(database) => database.execute(statement, params).await,
 		}
 	}
 
@@ -152,9 +166,11 @@ impl<'c> db::Query for Connection<'c> {
 		statement: String,
 		params: Vec<db::Value>,
 	) -> Result<impl Stream<Item = Result<db::Row>> + Send> {
-		match self {
-			Self::Sqlite(connection) => connection.query(statement, params).await,
-		}
+		let stream = match self {
+			Self::Sqlite(connection) => connection.query(statement, params).await?.left_stream(),
+			Self::Postgres(connection) => connection.query(statement, params).await?.right_stream(),
+		};
+		Ok(stream)
 	}
 
 	async fn query_optional(
@@ -164,18 +180,21 @@ impl<'c> db::Query for Connection<'c> {
 	) -> Result<Option<db::Row>> {
 		match self {
 			Self::Sqlite(database) => database.query_optional(statement, params).await,
+			Self::Postgres(database) => database.query_optional(statement, params).await,
 		}
 	}
 
 	async fn query_one(&self, statement: String, params: Vec<db::Value>) -> Result<db::Row> {
 		match self {
 			Self::Sqlite(database) => database.query_one(statement, params).await,
+			Self::Postgres(database) => database.query_one(statement, params).await,
 		}
 	}
 
 	async fn query_all(&self, statement: String, params: Vec<db::Value>) -> Result<Vec<db::Row>> {
 		match self {
 			Self::Sqlite(database) => database.query_all(statement, params).await,
+			Self::Postgres(database) => database.query_all(statement, params).await,
 		}
 	}
 }
@@ -184,6 +203,7 @@ impl<'t> db::Query for Transaction<'t> {
 	async fn execute(&self, statement: String, params: Vec<db::Value>) -> Result<u64> {
 		match self {
 			Self::Sqlite(database) => database.execute(statement, params).await,
+			Self::Postgres(database) => database.execute(statement, params).await,
 		}
 	}
 
@@ -192,9 +212,13 @@ impl<'t> db::Query for Transaction<'t> {
 		statement: String,
 		params: Vec<db::Value>,
 	) -> Result<impl Stream<Item = Result<db::Row>> + Send> {
-		match self {
-			Self::Sqlite(transaction) => transaction.query(statement, params).await,
-		}
+		let stream = match self {
+			Self::Sqlite(transaction) => transaction.query(statement, params).await?.left_stream(),
+			Self::Postgres(transaction) => {
+				transaction.query(statement, params).await?.right_stream()
+			},
+		};
+		Ok(stream)
 	}
 
 	async fn query_optional(
@@ -204,18 +228,21 @@ impl<'t> db::Query for Transaction<'t> {
 	) -> Result<Option<db::Row>> {
 		match self {
 			Self::Sqlite(database) => database.query_optional(statement, params).await,
+			Self::Postgres(database) => database.query_optional(statement, params).await,
 		}
 	}
 
 	async fn query_one(&self, statement: String, params: Vec<db::Value>) -> Result<db::Row> {
 		match self {
 			Self::Sqlite(database) => database.query_one(statement, params).await,
+			Self::Postgres(database) => database.query_one(statement, params).await,
 		}
 	}
 
 	async fn query_all(&self, statement: String, params: Vec<db::Value>) -> Result<Vec<db::Row>> {
 		match self {
 			Self::Sqlite(database) => database.query_all(statement, params).await,
+			Self::Postgres(database) => database.query_all(statement, params).await,
 		}
 	}
 }

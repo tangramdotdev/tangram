@@ -33,7 +33,7 @@ pub struct Build {
 #[derive(Clone, Debug)]
 pub enum Database {
 	Sqlite(SqliteDatabase),
-	// Postgres(PostgresDatabase),
+	Postgres(PostgresDatabase),
 }
 
 #[derive(Clone, Debug)]
@@ -41,11 +41,11 @@ pub struct SqliteDatabase {
 	pub max_connections: usize,
 }
 
-// #[derive(Clone, Debug)]
-// pub struct PostgresDatabase {
-// 	pub url: Url,
-// 	pub max_connections: usize,
-// }
+#[derive(Clone, Debug)]
+pub struct PostgresDatabase {
+	pub url: Url,
+	pub max_connections: usize,
+}
 
 #[derive(Clone, Debug)]
 pub enum Messenger {

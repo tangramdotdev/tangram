@@ -186,12 +186,12 @@ impl Server {
 					max_connections: options.max_connections,
 				})
 			},
-			// self::options::Database::Postgres(options) => {
-			// 	database::Options::Postgres(db::postgres::Options {
-			// 		url: options.url.clone(),
-			// 		max_connections: options.max_connections,
-			// 	})
-			// },
+			self::options::Database::Postgres(options) => {
+				database::Options::Postgres(db::postgres::Options {
+					url: options.url.clone(),
+					max_connections: options.max_connections,
+				})
+			},
 		};
 		let database = Database::new(database_options).await?;
 

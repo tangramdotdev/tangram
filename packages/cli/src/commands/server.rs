@@ -139,18 +139,18 @@ impl Cli {
 							tangram_server::options::SqliteDatabase { max_connections },
 						)
 					},
-					// crate::config::Database::Postgres(postgres) => {
-					// 	let url = postgres.url.clone();
-					// 	let max_connections = postgres
-					// 		.max_connections
-					// 		.unwrap_or_else(|| std::thread::available_parallelism().unwrap().get());
-					// 	tangram_server::options::Database::Postgres(
-					// 		tangram_server::options::PostgresDatabase {
-					// 			url,
-					// 			max_connections,
-					// 		},
-					// 	)
-					// },
+					crate::config::Database::Postgres(postgres) => {
+						let url = postgres.url.clone();
+						let max_connections = postgres
+							.max_connections
+							.unwrap_or_else(|| std::thread::available_parallelism().unwrap().get());
+						tangram_server::options::Database::Postgres(
+							tangram_server::options::PostgresDatabase {
+								url,
+								max_connections,
+							},
+						)
+					},
 				},
 			);
 
