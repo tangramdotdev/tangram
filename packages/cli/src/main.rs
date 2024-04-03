@@ -317,7 +317,7 @@ impl Cli {
 		Ok(Some(user))
 	}
 
-	fn write_user(user: &tg::User, path: Option<PathBuf>) -> Result<()> {
+	fn _write_user(user: &tg::User, path: Option<PathBuf>) -> Result<()> {
 		let home = std::env::var("HOME")
 			.map_err(|source| error!(!source, "failed to get the HOME environment variable"))?;
 		let path = path.unwrap_or_else(|| PathBuf::from(home).join(".config/tangram/user.json"));

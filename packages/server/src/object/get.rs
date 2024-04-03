@@ -5,7 +5,7 @@ use crate::{
 use futures::TryFutureExt;
 use indoc::formatdoc;
 use tangram_client as tg;
-use tangram_database as db;
+use tangram_database::{self as db, prelude::*};
 use tangram_error::{error, Result};
 
 impl Server {
@@ -26,16 +26,8 @@ impl Server {
 		&self,
 		id: &tg::object::Id,
 	) -> Result<Option<tg::object::GetOutput>> {
-		// Get a database connection.
-		let connection = self
-			.inner
-			.database
-			.connection()
-			.await
-			.map_err(|source| error!(!source, "failed to get a database connection"))?;
-
 		// Get the object.
-		let p = connection.p();
+		let p = self.inner.database.p();
 		let statement = formatdoc!(
 			"
 				select bytes, count, weight
@@ -44,13 +36,12 @@ impl Server {
 			",
 		);
 		let params = db::params![id];
-		let output = connection
+		let output = self
+			.inner
+			.database
 			.query_optional_into(statement, params)
 			.map_err(|source| error!(!source, "failed to execute the statement"))
 			.await?;
-
-		// Drop the database connection.
-		drop(connection);
 
 		Ok(output)
 	}

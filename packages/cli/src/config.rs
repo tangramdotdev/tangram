@@ -82,7 +82,7 @@ pub struct Build {
 #[serde(tag = "kind", rename_all = "snake_case")]
 pub enum Database {
 	Sqlite(SqliteDatabase),
-	Postgres(PostgresDatabase),
+	// Postgres(PostgresDatabase),
 }
 
 #[derive(Clone, Debug, serde::Serialize, serde::Deserialize)]
@@ -92,15 +92,15 @@ pub struct SqliteDatabase {
 	pub max_connections: Option<usize>,
 }
 
-#[derive(Clone, Debug, serde::Serialize, serde::Deserialize)]
-pub struct PostgresDatabase {
-	/// The URL.
-	pub url: Url,
+// #[derive(Clone, Debug, serde::Serialize, serde::Deserialize)]
+// pub struct PostgresDatabase {
+// 	/// The URL.
+// 	pub url: Url,
 
-	/// The maximum number of connections.
-	#[serde(default, skip_serializing_if = "Option::is_none")]
-	pub max_connections: Option<usize>,
-}
+// 	/// The maximum number of connections.
+// 	#[serde(default, skip_serializing_if = "Option::is_none")]
+// 	pub max_connections: Option<usize>,
+// }
 
 #[derive(Clone, Debug, Default, serde::Serialize, serde::Deserialize)]
 #[serde(tag = "kind", rename_all = "snake_case")]

@@ -1,4 +1,5 @@
 use crate::{
+	database::Transaction,
 	util::http::{bad_request, full, Incoming, Outgoing},
 	Http, Server,
 };
@@ -7,7 +8,7 @@ use futures::TryFutureExt;
 use http_body_util::BodyExt;
 use indoc::formatdoc;
 use tangram_client as tg;
-use tangram_database as db;
+use tangram_database::{self as db, prelude::*};
 use tangram_error::{error, Result};
 
 impl Server {
@@ -36,7 +37,7 @@ impl Server {
 		);
 		let params = db::params![id, arg.bytes];
 		let children = connection
-			.query_one_scalar_into(statement, params)
+			.query_one_value_into(statement, params)
 			.map_err(|source| error!(!source, "failed to execute the statement"))
 			.await?;
 
@@ -53,7 +54,7 @@ impl Server {
 			);
 			let params = db::params![id];
 			connection
-				.query_all_scalar_into(statement, params)
+				.query_all_value_into(statement, params)
 				.map_err(|source| error!(!source, "failed to execute the statement"))
 				.await?
 		} else {
@@ -74,7 +75,7 @@ impl Server {
 		&self,
 		id: tg::object::Id,
 		bytes: Bytes,
-		transaction: &db::Transaction<'_>,
+		transaction: &Transaction<'_>,
 	) -> Result<()> {
 		let p = transaction.p();
 		let statement = formatdoc!(

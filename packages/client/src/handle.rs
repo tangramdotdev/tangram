@@ -251,7 +251,7 @@ pub trait Handle: Send + Sync + 'static {
 		dependency: &tg::Dependency,
 	) -> Result<Option<serde_json::Value>>;
 
-	async fn health(&self) -> Result<tg::meta::Health>;
+	async fn health(&self) -> Result<tg::server::Health>;
 
 	async fn clean(&self) -> Result<()>;
 

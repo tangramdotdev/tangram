@@ -6,7 +6,7 @@ use indoc::formatdoc;
 use oauth2::TokenResponse;
 use std::borrow::Cow;
 use tangram_client as tg;
-use tangram_database as db;
+use tangram_database::{self as db, prelude::*};
 use tangram_error::{error, Result};
 use url::Url;
 
@@ -31,13 +31,15 @@ impl Server {
 			token: None,
 		};
 
-		// Add the login to the database.
+		// Get a database connection.
 		let connection = self
 			.inner
 			.database
 			.connection()
 			.await
 			.map_err(|source| error!(!source, "failed to get a database connection"))?;
+
+		// Add the login to the database.
 		let p = connection.p();
 		let statement = formatdoc!(
 			"
@@ -50,6 +52,9 @@ impl Server {
 			.execute(statement, params)
 			.await
 			.map_err(|source| error!(!source, "failed to execute the statement"))?;
+
+		// Drop the database connection.
+		drop(connection);
 
 		Ok(login)
 	}
@@ -250,7 +255,7 @@ impl Server {
 		);
 		let params = db::params![email];
 		let id = connection
-			.query_optional_scalar_into(statement, params)
+			.query_optional_value_into(statement, params)
 			.await
 			.map_err(|source| error!(!source, "failed to execute the statement"))?;
 		let user_id = if let Some(id) = id {
@@ -298,20 +303,6 @@ impl Server {
 		};
 
 		Ok((user, id))
-	}
-
-	#[must_use]
-	pub fn user_is_admin(&self, user: Option<&tg::user::User>) -> bool {
-		if cfg!(debug_assertions) {
-			return true;
-		}
-		const ADMINS: [&str; 4] = [
-			"david@yamnitsky.com",
-			"isabella.tromba@gmail.com",
-			"ben@deciduously.com",
-			"mike@hilgendorf.audio",
-		];
-		user.map_or(false, |user| ADMINS.contains(&user.email.as_str()))
 	}
 }
 

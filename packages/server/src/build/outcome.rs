@@ -8,7 +8,7 @@ use futures::{future, stream::FuturesUnordered, TryFutureExt, TryStreamExt};
 use http_body_util::BodyExt;
 use indoc::formatdoc;
 use tangram_client as tg;
-use tangram_database as db;
+use tangram_database::{self as db, prelude::*};
 use tangram_error::{error, Result};
 use time::format_description::well_known::Rfc3339;
 
@@ -84,7 +84,7 @@ impl Server {
 		);
 		let params = db::params![id];
 		let outcome = connection
-			.query_optional_scalar_into(statement, params)
+			.query_optional_value_into(statement, params)
 			.await
 			.map_err(|source| error!(!source, "failed to execute the statement"))?;
 
@@ -174,7 +174,7 @@ impl Server {
 		);
 		let params = db::params![id];
 		let children = connection
-			.query_all_scalar_into(statement, params)
+			.query_all_value_into(statement, params)
 			.await
 			.map_err(|source| error!(!source, "failed to execute the statement"))?;
 
@@ -300,7 +300,7 @@ impl Server {
 		);
 		let params = db::params![id];
 		let count = connection
-			.query_one_scalar_into::<Option<u64>>(statement, params)
+			.query_one_value_into::<Option<u64>>(statement, params)
 			.await
 			.map_err(|source| error!(!source, "failed to execute the statement"))?;
 
@@ -329,7 +329,7 @@ impl Server {
 		);
 		let params = db::params![id];
 		let weight = connection
-			.query_one_scalar_into::<Option<u64>>(statement, params)
+			.query_one_value_into::<Option<u64>>(statement, params)
 			.await
 			.map_err(|source| error!(!source, "failed to execute the statement"))?;
 
@@ -385,7 +385,7 @@ impl Server {
 
 		// Push the output.
 		if let tg::build::Outcome::Succeeded(value) = &outcome {
-			value.push(self, remote.as_ref()).await?;
+			value.push(self, remote).await?;
 		}
 
 		// Set the outcome.

@@ -139,18 +139,18 @@ impl Cli {
 							tangram_server::options::SqliteDatabase { max_connections },
 						)
 					},
-					crate::config::Database::Postgres(postgres) => {
-						let url = postgres.url.clone();
-						let max_connections = postgres
-							.max_connections
-							.unwrap_or_else(|| std::thread::available_parallelism().unwrap().get());
-						tangram_server::options::Database::Postgres(
-							tangram_server::options::PostgresDatabase {
-								url,
-								max_connections,
-							},
-						)
-					},
+					// crate::config::Database::Postgres(postgres) => {
+					// 	let url = postgres.url.clone();
+					// 	let max_connections = postgres
+					// 		.max_connections
+					// 		.unwrap_or_else(|| std::thread::available_parallelism().unwrap().get());
+					// 	tangram_server::options::Database::Postgres(
+					// 		tangram_server::options::PostgresDatabase {
+					// 			url,
+					// 			max_connections,
+					// 		},
+					// 	)
+					// },
 				},
 			);
 
@@ -203,7 +203,6 @@ impl Cli {
 					.map(|remote| {
 						let url = remote.url.clone();
 						let client = tg::Builder::new(url).build();
-						let client = Box::new(client);
 						let build_ = remote.build.clone();
 						let enable = build_
 							.as_ref()
@@ -211,7 +210,7 @@ impl Cli {
 							.unwrap_or(false);
 						let build_ = tangram_server::options::RemoteBuild { enable };
 						let remote = tangram_server::options::Remote {
-							tg: client,
+							client,
 							build: build_,
 						};
 						Ok::<_, Error>(remote)
@@ -225,8 +224,7 @@ impl Cli {
 			let build = tangram_server::options::RemoteBuild { enable: false };
 			let url = Url::parse(API_URL).unwrap();
 			let client = tg::Builder::new(url).build();
-			let client = Box::new(client);
-			let remote = tangram_server::options::Remote { build, tg: client };
+			let remote = tangram_server::options::Remote { build, client };
 			vec![remote]
 		};
 

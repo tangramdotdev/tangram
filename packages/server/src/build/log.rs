@@ -13,7 +13,7 @@ use indoc::formatdoc;
 use num::ToPrimitive;
 use std::{io::Cursor, sync::Arc};
 use tangram_client as tg;
-use tangram_database as db;
+use tangram_database::{self as db, prelude::*};
 use tangram_error::{error, Error, Result};
 use tokio::io::{AsyncRead, AsyncReadExt, AsyncSeek, AsyncSeekExt};
 use tokio_stream::wrappers::IntervalStream;
@@ -441,7 +441,7 @@ impl DatabaseReader {
 		);
 		let params = db::params![self.id, self.position];
 		let end = connection
-			.query_one_scalar_into(statement, params)
+			.query_one_value_into(statement, params)
 			.await
 			.map_err(|source| error!(!source, "failed to execute the statement"))?;
 
@@ -670,7 +670,7 @@ async fn poll_seek_inner(
 	);
 	let params = db::params![id];
 	let end = connection
-		.query_one_scalar_into::<u64>(statement, params)
+		.query_one_value_into::<u64>(statement, params)
 		.await
 		.map_err(|source| error!(!source, "failed to execute the statement"))?;
 

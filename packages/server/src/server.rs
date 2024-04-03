@@ -6,8 +6,8 @@ use tangram_client as tg;
 use tangram_error::Result;
 
 impl Server {
-	pub async fn health(&self) -> Result<tg::meta::Health> {
-		Ok(tg::meta::Health {
+	pub async fn health(&self) -> Result<tg::server::Health> {
+		Ok(tg::server::Health {
 			version: self.inner.options.version.clone(),
 		})
 	}

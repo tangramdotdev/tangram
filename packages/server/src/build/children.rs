@@ -12,7 +12,7 @@ use indoc::formatdoc;
 use num::ToPrimitive;
 use std::sync::Arc;
 use tangram_client as tg;
-use tangram_database as db;
+use tangram_database::{self as db, prelude::*};
 use tangram_error::{error, Error, Result};
 use tokio_stream::wrappers::IntervalStream;
 
@@ -211,7 +211,7 @@ impl Server {
 		);
 		let params = db::params![id];
 		let position = connection
-			.query_one_scalar_into(statement, params)
+			.query_one_value_into(statement, params)
 			.await
 			.map_err(|source| error!(!source, "failed to execute the statement"))?;
 
@@ -251,7 +251,7 @@ impl Server {
 		);
 		let params = db::params![id, position];
 		let end = connection
-			.query_one_scalar_into(statement, params)
+			.query_one_value_into(statement, params)
 			.await
 			.map_err(|source| error!(!source, "failed to execute the statement"))?;
 
@@ -289,7 +289,7 @@ impl Server {
 		);
 		let params = db::params![id, length, position,];
 		let children = connection
-			.query_all_scalar_into(statement, params)
+			.query_all_value_into(statement, params)
 			.await
 			.map_err(|source| error!(!source, "failed to execute the statement"))?;
 
@@ -352,13 +352,15 @@ impl Server {
 			return Ok(false);
 		}
 
-		// Add the child to the database.
+		// Get a database connection.
 		let connection = self
 			.inner
 			.database
 			.connection()
 			.await
 			.map_err(|source| error!(!source, "failed to get a database connection"))?;
+
+		// Add the child to the database.
 		let p = connection.p();
 		let statement = formatdoc!(
 			"
@@ -372,6 +374,9 @@ impl Server {
 			.execute(statement, params)
 			.await
 			.map_err(|source| error!(!source, "failed to execute the statement"))?;
+
+		// Drop the database connection.
+		drop(connection);
 
 		// Publish the message.
 		self.inner
@@ -392,7 +397,7 @@ impl Server {
 			return Ok(false);
 		};
 		tg::Build::with_id(child_id.clone())
-			.push(user, self, remote.as_ref())
+			.push(user, self, remote)
 			.await?;
 		remote.add_build_child(user, build_id, child_id).await?;
 		Ok(true)

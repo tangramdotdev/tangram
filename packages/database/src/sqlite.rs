@@ -4,36 +4,77 @@ use indexmap::IndexMap;
 use itertools::Itertools;
 use num::ToPrimitive;
 use rusqlite as sqlite;
-use std::{
-	borrow::Cow,
-	marker::PhantomData,
-	path::{Path, PathBuf},
-};
+use std::path::PathBuf;
 use tangram_error::{error, Result};
 
-pub struct Database {
-	pool: tangram_pool::Pool<Connection>,
-}
-
+#[derive(Clone, Debug)]
 pub struct Options {
 	pub path: PathBuf,
 	pub max_connections: usize,
 }
 
-pub struct Connection {
+pub struct Database {
+	sender: async_channel::Sender<DatabaseMessage>,
+}
+
+pub struct Connection<'a> {
+	marker: std::marker::PhantomData<&'a ()>,
 	sender: tokio::sync::mpsc::UnboundedSender<ConnectionMessage>,
+}
+
+pub struct Transaction<'a> {
+	marker: std::marker::PhantomData<&'a ()>,
+	sender: tokio::sync::mpsc::UnboundedSender<TransactionMessage>,
+}
+
+enum DatabaseMessage {
+	Execute(ExecuteMessage),
+	Query(QueryMessage),
+	QueryAll(QueryAllMessage),
+	Connection(DatabaseConnectionMessage),
+	With(DatabaseWithMessage),
+}
+
+type DatabaseWithMessage = Box<dyn FnOnce(&mut sqlite::Connection) + Send>;
+
+struct DatabaseConnectionMessage {
+	sender:
+		tokio::sync::oneshot::Sender<Result<tokio::sync::mpsc::UnboundedSender<ConnectionMessage>>>,
 }
 
 enum ConnectionMessage {
 	Execute(ExecuteMessage),
 	Query(QueryMessage),
 	QueryAll(QueryAllMessage),
-	Transaction(
-		tokio::sync::oneshot::Sender<
-			Result<tokio::sync::mpsc::UnboundedSender<TransactionMessage>>,
-		>,
-	),
-	With(Box<dyn FnOnce(&mut sqlite::Connection) + Send + Sync + 'static>),
+	Transaction(ConnectionTransactionMessage),
+	With(ConnectionWithMessage),
+}
+
+type ConnectionWithMessage = Box<dyn FnOnce(&mut sqlite::Connection) + Send>;
+
+struct ConnectionTransactionMessage {
+	sender: tokio::sync::oneshot::Sender<
+		Result<tokio::sync::mpsc::UnboundedSender<TransactionMessage>>,
+	>,
+}
+
+enum TransactionMessage {
+	Execute(ExecuteMessage),
+	Query(QueryMessage),
+	QueryAll(QueryAllMessage),
+	Rollback(TransactionRollbackMessage),
+	Commit(TransactionCommitMessage),
+	With(TransactionWithMessage),
+}
+
+type TransactionWithMessage = Box<dyn FnOnce(&mut sqlite::Transaction) + Send>;
+
+struct TransactionRollbackMessage {
+	sender: tokio::sync::oneshot::Sender<Result<()>>,
+}
+
+struct TransactionCommitMessage {
+	sender: tokio::sync::oneshot::Sender<Result<()>>,
 }
 
 struct ExecuteMessage {
@@ -48,12 +89,10 @@ struct QueryMessage {
 	sender: QueryMessageSender,
 }
 
-type QueryMessageSender = tokio::sync::oneshot::Sender<Result<QueryMessageRowRequestSender>>;
+type QueryMessageSender = tokio::sync::oneshot::Sender<Result<QueryMessageRowSender>>;
 
-type QueryMessageRowRequestSender =
-	tokio::sync::mpsc::UnboundedSender<QueryMessageRowResponseSender>;
-
-type QueryMessageRowResponseSender = tokio::sync::oneshot::Sender<Result<Option<Row>>>;
+type QueryMessageRowSender =
+	tokio::sync::mpsc::UnboundedSender<tokio::sync::oneshot::Sender<Result<Option<Row>>>>;
 
 struct QueryAllMessage {
 	statement: String,
@@ -61,57 +100,199 @@ struct QueryAllMessage {
 	sender: tokio::sync::oneshot::Sender<Result<Vec<Row>>>,
 }
 
-enum TransactionMessage {
-	Execute(ExecuteMessage),
-	Query(QueryMessage),
-	QueryAll(QueryAllMessage),
-	Commit(tokio::sync::oneshot::Sender<Result<()>>),
-	Rollback(tokio::sync::oneshot::Sender<Result<()>>),
-	With(Box<dyn FnOnce(&mut sqlite::Transaction) + Send + Sync + 'static>),
-}
-
-pub struct Transaction<'a> {
-	_marker: PhantomData<&'a ()>,
-	sender: tokio::sync::mpsc::UnboundedSender<TransactionMessage>,
-}
-
 pub struct Json<T>(pub T);
 
 impl Database {
 	pub async fn new(options: Options) -> Result<Self> {
-		let mut connections = Vec::with_capacity(options.max_connections);
+		let (sender, receiver) = async_channel::unbounded::<DatabaseMessage>();
 		for _ in 0..options.max_connections {
-			let client = Connection::connect(&options.path).await?;
-			connections.push(client);
+			let receiver = receiver.clone();
+			let mut connection = sqlite::Connection::open(&options.path)
+				.map_err(|source| error!(!source, "failed to create the connection"))?;
+			connection
+				.pragma_update(None, "busy_timeout", "86400000")
+				.map_err(|source| error!(!source, "failed to set the pragma"))?;
+			tokio::task::spawn_blocking(move || {
+				while let Ok(message) = receiver.recv_blocking() {
+					match message {
+						DatabaseMessage::Execute(message) => {
+							handle_execute_message(&connection, message);
+						},
+						DatabaseMessage::Query(message) => {
+							handle_query_message(&connection, message);
+						},
+						DatabaseMessage::QueryAll(message) => {
+							handle_query_all_message(&connection, message);
+						},
+						DatabaseMessage::Connection(message) => {
+							handle_database_connection_message(&mut connection, message);
+						},
+						DatabaseMessage::With(f) => {
+							f(&mut connection);
+						},
+					}
+				}
+			});
 		}
-		let pool = tangram_pool::Pool::new(connections);
-		let database = Self { pool };
-		Ok(database)
-	}
-
-	pub async fn connection(&self) -> Result<tangram_pool::Guard<Connection>> {
-		let connection = self.pool.get().await;
-		Ok(connection)
-	}
-}
-
-impl Connection {
-	#[allow(clippy::unnecessary_wraps)]
-	pub async fn connect(path: &Path) -> Result<Self> {
-		let path = path.to_owned();
-		let (sender, receiver) = tokio::sync::oneshot::channel();
-		tokio::task::spawn_blocking(move || Self::run(path, sender));
-		let sender = receiver.await.unwrap()?;
 		Ok(Self { sender })
 	}
 
-	pub async fn execute(
+	pub async fn with<F, R>(&self, f: F) -> Result<R>
+	where
+		F: FnOnce(&mut sqlite::Connection) -> Result<R> + Send + 'static,
+		R: Send + 'static,
+	{
+		let (sender, receiver) = tokio::sync::oneshot::channel();
+		let message = DatabaseMessage::With(Box::new(|connection| {
+			sender.send(f(connection)).map_err(|_| ()).unwrap();
+		}));
+		self.sender.try_send(message).unwrap();
+		receiver.await.unwrap()
+	}
+}
+
+impl<'a> Connection<'a> {
+	pub async fn with<F, R>(&self, f: F) -> Result<R>
+	where
+		F: FnOnce(&mut sqlite::Connection) -> Result<R> + Send + 'static,
+		R: Send + 'static,
+	{
+		let (sender, receiver) = tokio::sync::oneshot::channel();
+		let message = ConnectionMessage::With(Box::new(|connection| {
+			sender.send(f(connection)).map_err(|_| ()).unwrap();
+		}));
+		self.sender.send(message).unwrap();
+		receiver.await.unwrap()
+	}
+}
+
+impl<'a> Transaction<'a> {
+	pub async fn with<F, R>(&self, f: F) -> Result<R>
+	where
+		F: FnOnce(&mut sqlite::Transaction) -> Result<R> + Send + 'static,
+		R: Send + 'static,
+	{
+		let (sender, receiver) = tokio::sync::oneshot::channel();
+		let message = TransactionMessage::With(Box::new(|connection| {
+			sender.send(f(connection)).map_err(|_| ()).unwrap();
+		}));
+		self.sender.send(message).unwrap();
+		receiver.await.unwrap()
+	}
+}
+
+impl super::Database for Database {
+	type Connection<'c> = Connection<'c> where Self: 'c;
+
+	async fn connection(&self) -> Result<Self::Connection<'_>> {
+		let marker = std::marker::PhantomData;
+		let (sender, receiver) = tokio::sync::oneshot::channel();
+		let message = DatabaseMessage::Connection(DatabaseConnectionMessage { sender });
+		self.sender.try_send(message).unwrap();
+		let sender = receiver.await.unwrap()?;
+		Ok(Connection { marker, sender })
+	}
+}
+
+impl<'a> super::Connection for Connection<'a> {
+	type Transaction<'t> = Transaction<'t> where Self: 't;
+
+	async fn transaction(&mut self) -> Result<Self::Transaction<'_>> {
+		let marker = std::marker::PhantomData;
+		let (sender, receiver) = tokio::sync::oneshot::channel();
+		let message = ConnectionMessage::Transaction(ConnectionTransactionMessage { sender });
+		self.sender.send(message).unwrap();
+		let sender = receiver.await.unwrap()?;
+		Ok(Transaction { marker, sender })
+	}
+}
+
+impl<'a> super::Transaction for Transaction<'a> {
+	async fn rollback(self) -> Result<()> {
+		let (sender, receiver) = tokio::sync::oneshot::channel();
+		let message = TransactionMessage::Rollback(TransactionRollbackMessage { sender });
+		self.sender.send(message).unwrap();
+		receiver.await.unwrap()?;
+		Ok(())
+	}
+
+	async fn commit(self) -> Result<()> {
+		let (sender, receiver) = tokio::sync::oneshot::channel();
+		let message = TransactionMessage::Commit(TransactionCommitMessage { sender });
+		self.sender.send(message).unwrap();
+		receiver.await.unwrap()?;
+		Ok(())
+	}
+}
+
+impl super::Query for Database {
+	async fn execute(&self, statement: String, params: Vec<Value>) -> Result<u64> {
+		let (sender, receiver) = tokio::sync::oneshot::channel();
+		let message = DatabaseMessage::Execute(ExecuteMessage {
+			statement,
+			params,
+			sender,
+		});
+		self.sender.try_send(message).unwrap();
+		let n = receiver.await.unwrap()?;
+		Ok(n)
+	}
+
+	async fn query(
 		&self,
-		statement: impl Into<Cow<'static, str>>,
-		params: impl IntoIterator<Item = Value>,
-	) -> Result<u64> {
-		let statement = statement.into().into_owned();
-		let params = params.into_iter().collect();
+		statement: String,
+		params: Vec<Value>,
+	) -> Result<impl Stream<Item = Result<Row>> + Send> {
+		let (sender, receiver) = tokio::sync::oneshot::channel();
+		let message = DatabaseMessage::Query(QueryMessage {
+			statement,
+			params,
+			sender,
+		});
+		self.sender.try_send(message).unwrap();
+		let sender = receiver.await.unwrap()?;
+		let rows = stream::try_unfold(sender, |sender| async move {
+			let (sender_, receiver) = tokio::sync::oneshot::channel();
+			sender
+				.send(sender_)
+				.map_err(|source| error!(!source, "failed to get the next row"))?;
+			let result = receiver
+				.await
+				.map_err(|source| error!(!source, "failed to get the next row"))?;
+			match result {
+				Ok(Some(row)) => Ok(Some((row, sender))),
+				Ok(None) => Ok(None),
+				Err(error) => Err(error),
+			}
+		});
+		Ok(rows)
+	}
+
+	async fn query_optional(&self, statement: String, params: Vec<Value>) -> Result<Option<Row>> {
+		Ok(self.query_all(statement, params).await?.into_iter().next())
+	}
+
+	async fn query_one(&self, statement: String, params: Vec<Value>) -> Result<Row> {
+		self.query_optional(statement, params)
+			.await?
+			.ok_or_else(|| error!("expected a row"))
+	}
+
+	async fn query_all(&self, statement: String, params: Vec<Value>) -> Result<Vec<Row>> {
+		let (sender, receiver) = tokio::sync::oneshot::channel();
+		let message = DatabaseMessage::QueryAll(QueryAllMessage {
+			statement,
+			params,
+			sender,
+		});
+		self.sender.try_send(message).unwrap();
+		let rows = receiver.await.unwrap()?;
+		Ok(rows)
+	}
+}
+
+impl<'c> super::Query for Connection<'c> {
+	async fn execute<'a>(&'a self, statement: String, params: Vec<Value>) -> Result<u64> {
 		let (sender, receiver) = tokio::sync::oneshot::channel();
 		let message = ConnectionMessage::Execute(ExecuteMessage {
 			statement,
@@ -123,13 +304,11 @@ impl Connection {
 		Ok(n)
 	}
 
-	pub async fn query(
-		&self,
-		statement: impl Into<Cow<'static, str>>,
-		params: impl IntoIterator<Item = Value>,
-	) -> Result<impl Stream<Item = Result<Row>>> {
-		let statement = statement.into().into_owned();
-		let params = params.into_iter().collect();
+	async fn query<'a>(
+		&'a self,
+		statement: String,
+		params: Vec<Value>,
+	) -> Result<impl Stream<Item = Result<Row>> + Send> {
 		let (sender, receiver) = tokio::sync::oneshot::channel();
 		let message = ConnectionMessage::Query(QueryMessage {
 			statement,
@@ -138,7 +317,7 @@ impl Connection {
 		});
 		self.sender.send(message).unwrap();
 		let sender = receiver.await.unwrap()?;
-		let stream = stream::try_unfold(sender, |sender| async move {
+		let rows = stream::try_unfold(sender, |sender| async move {
 			let (sender_, receiver) = tokio::sync::oneshot::channel();
 			sender
 				.send(sender_)
@@ -152,39 +331,24 @@ impl Connection {
 				Err(error) => Err(error),
 			}
 		});
-		Ok(stream)
+		Ok(rows)
 	}
 
-	pub async fn query_optional(
-		&self,
-		statement: impl Into<Cow<'static, str>>,
-		params: impl IntoIterator<Item = Value>,
+	async fn query_optional<'a>(
+		&'a self,
+		statement: String,
+		params: Vec<Value>,
 	) -> Result<Option<Row>> {
-		let rows = self.query_all(statement, params).await?;
-		let option = rows.into_iter().next();
-		Ok(option)
+		Ok(self.query_all(statement, params).await?.into_iter().next())
 	}
 
-	pub async fn query_one(
-		&self,
-		statement: impl Into<Cow<'static, str>>,
-		params: impl IntoIterator<Item = Value>,
-	) -> Result<Row> {
-		let rows = self.query_all(statement, params).await?;
-		let row = rows
-			.into_iter()
-			.next()
-			.ok_or_else(|| error!("expected a row"))?;
-		Ok(row)
+	async fn query_one<'a>(&'a self, statement: String, params: Vec<Value>) -> Result<Row> {
+		self.query_optional(statement, params)
+			.await?
+			.ok_or_else(|| error!("expected a row"))
 	}
 
-	pub async fn query_all(
-		&self,
-		statement: impl Into<Cow<'static, str>>,
-		params: impl IntoIterator<Item = Value>,
-	) -> Result<Vec<Row>> {
-		let statement = statement.into().into_owned();
-		let params = params.into_iter().collect();
+	async fn query_all<'a>(&'a self, statement: String, params: Vec<Value>) -> Result<Vec<Row>> {
 		let (sender, receiver) = tokio::sync::oneshot::channel();
 		let message = ConnectionMessage::QueryAll(QueryAllMessage {
 			statement,
@@ -195,84 +359,10 @@ impl Connection {
 		let rows = receiver.await.unwrap()?;
 		Ok(rows)
 	}
-
-	pub async fn transaction(&mut self) -> Result<Transaction<'_>> {
-		let (sender, receiver) = tokio::sync::oneshot::channel();
-		self.sender
-			.send(ConnectionMessage::Transaction(sender))
-			.unwrap();
-		let sender = receiver.await.unwrap()?;
-		Ok(Transaction {
-			sender,
-			_marker: PhantomData,
-		})
-	}
-
-	pub async fn with<F, R>(&self, f: F) -> Result<R>
-	where
-		F: FnOnce(&mut sqlite::Connection) -> Result<R> + Send + Sync + 'static,
-		R: Send + Sync + 'static,
-	{
-		let (sender, receiver) = tokio::sync::oneshot::channel();
-		self.sender
-			.send(ConnectionMessage::With(Box::new(|connection| {
-				sender.send(f(connection)).map_err(|_| ()).unwrap();
-			})))
-			.unwrap();
-		receiver.await.unwrap()
-	}
-
-	fn run(
-		path: PathBuf,
-		sender: tokio::sync::oneshot::Sender<
-			Result<tokio::sync::mpsc::UnboundedSender<ConnectionMessage>>,
-		>,
-	) {
-		let connection = || {
-			let connection = sqlite::Connection::open(path)?;
-			connection.pragma_update(None, "busy_timeout", "86400000")?;
-			Ok::<_, sqlite::Error>(connection)
-		};
-		let mut connection = match connection() {
-			Ok(connection) => connection,
-			Err(source) => {
-				let error = error!(!source, "failed to open the database");
-				sender.send(Err(error)).ok();
-				return;
-			},
-		};
-		let (sender_, mut receiver) = tokio::sync::mpsc::unbounded_channel();
-		sender.send(Ok(sender_)).ok();
-		while let Some(message) = receiver.blocking_recv() {
-			match message {
-				ConnectionMessage::Execute(message) => {
-					execute(&connection, message);
-				},
-				ConnectionMessage::Query(message) => {
-					query(&connection, message);
-				},
-				ConnectionMessage::QueryAll(message) => {
-					query_all(&connection, message);
-				},
-				ConnectionMessage::Transaction(sender) => {
-					Transaction::run(&mut connection, sender);
-				},
-				ConnectionMessage::With(f) => {
-					f(&mut connection);
-				},
-			}
-		}
-	}
 }
 
-impl<'a> Transaction<'a> {
-	pub async fn execute(
-		&self,
-		statement: impl Into<Cow<'static, str>>,
-		params: impl IntoIterator<Item = Value>,
-	) -> Result<u64> {
-		let statement = statement.into().into_owned();
-		let params = params.into_iter().collect();
+impl<'t> super::Query for Transaction<'t> {
+	async fn execute<'a>(&'a self, statement: String, params: Vec<Value>) -> Result<u64> {
 		let (sender, receiver) = tokio::sync::oneshot::channel();
 		let message = TransactionMessage::Execute(ExecuteMessage {
 			statement,
@@ -284,13 +374,11 @@ impl<'a> Transaction<'a> {
 		Ok(n)
 	}
 
-	pub async fn query(
-		&self,
-		statement: impl Into<Cow<'static, str>>,
-		params: impl IntoIterator<Item = Value>,
-	) -> Result<impl Stream<Item = Result<Row>>> {
-		let statement = statement.into().into_owned();
-		let params = params.into_iter().collect();
+	async fn query<'a>(
+		&'a self,
+		statement: String,
+		params: Vec<Value>,
+	) -> Result<impl Stream<Item = Result<Row>> + Send> {
 		let (sender, receiver) = tokio::sync::oneshot::channel();
 		let message = TransactionMessage::Query(QueryMessage {
 			statement,
@@ -299,7 +387,7 @@ impl<'a> Transaction<'a> {
 		});
 		self.sender.send(message).unwrap();
 		let sender = receiver.await.unwrap()?;
-		let stream = stream::try_unfold(sender, |sender| async move {
+		let rows = stream::try_unfold(sender, |sender| async move {
 			let (sender_, receiver) = tokio::sync::oneshot::channel();
 			sender
 				.send(sender_)
@@ -313,39 +401,24 @@ impl<'a> Transaction<'a> {
 				Err(error) => Err(error),
 			}
 		});
-		Ok(stream)
+		Ok(rows)
 	}
 
-	pub async fn query_optional(
-		&self,
-		statement: impl Into<Cow<'static, str>>,
-		params: impl IntoIterator<Item = Value>,
+	async fn query_optional<'a>(
+		&'a self,
+		statement: String,
+		params: Vec<Value>,
 	) -> Result<Option<Row>> {
-		let rows = self.query_all(statement, params).await?;
-		let option = rows.into_iter().next();
-		Ok(option)
+		Ok(self.query_all(statement, params).await?.into_iter().next())
 	}
 
-	pub async fn query_one(
-		&self,
-		statement: impl Into<Cow<'static, str>>,
-		params: impl IntoIterator<Item = Value>,
-	) -> Result<Row> {
-		let rows = self.query_all(statement, params).await?;
-		let row = rows
-			.into_iter()
-			.next()
-			.ok_or_else(|| error!("expected a row"))?;
-		Ok(row)
+	async fn query_one<'a>(&'a self, statement: String, params: Vec<Value>) -> Result<Row> {
+		self.query_optional(statement, params)
+			.await?
+			.ok_or_else(|| error!("expected a row"))
 	}
 
-	pub async fn query_all(
-		&self,
-		statement: impl Into<Cow<'static, str>>,
-		params: impl IntoIterator<Item = Value>,
-	) -> Result<Vec<Row>> {
-		let statement = statement.into().into_owned();
-		let params = params.into_iter().collect();
+	async fn query_all<'a>(&'a self, statement: String, params: Vec<Value>) -> Result<Vec<Row>> {
 		let (sender, receiver) = tokio::sync::oneshot::channel();
 		let message = TransactionMessage::QueryAll(QueryAllMessage {
 			statement,
@@ -356,89 +429,84 @@ impl<'a> Transaction<'a> {
 		let rows = receiver.await.unwrap()?;
 		Ok(rows)
 	}
+}
 
-	pub async fn rollback(self) -> Result<()> {
-		let (sender, receiver) = tokio::sync::oneshot::channel();
-		self.sender
-			.send(TransactionMessage::Rollback(sender))
-			.unwrap();
-		receiver.await.unwrap()?;
-		Ok(())
-	}
-
-	pub async fn commit(self) -> Result<()> {
-		let (sender, receiver) = tokio::sync::oneshot::channel();
-		self.sender
-			.send(TransactionMessage::Commit(sender))
-			.unwrap();
-		receiver.await.unwrap()?;
-		Ok(())
-	}
-
-	pub async fn with<F, R>(&self, f: F) -> Result<R>
-	where
-		F: FnOnce(&mut sqlite::Transaction) -> Result<R> + Send + Sync + 'static,
-		R: Send + Sync + 'static,
-	{
-		let (sender, receiver) = tokio::sync::oneshot::channel();
-		self.sender
-			.send(TransactionMessage::With(Box::new(|transaction| {
-				sender.send(f(transaction)).map_err(|_| ()).unwrap();
-			})))
-			.unwrap();
-		receiver.await.unwrap()
-	}
-
-	fn run(
-		connection: &mut sqlite::Connection,
-		sender: tokio::sync::oneshot::Sender<
-			Result<tokio::sync::mpsc::UnboundedSender<TransactionMessage>>,
-		>,
-	) {
-		let mut transaction = match connection.transaction() {
-			Ok(transaction) => transaction,
-			Err(error) => {
-				let error = error!(source = error, "failed to begin the transaction");
-				sender.send(Err(error)).ok();
-				return;
+fn handle_database_connection_message(
+	connection: &mut sqlite::Connection,
+	message: DatabaseConnectionMessage,
+) {
+	let DatabaseConnectionMessage { sender } = message;
+	let (sender_, mut receiver) = tokio::sync::mpsc::unbounded_channel::<ConnectionMessage>();
+	sender.send(Ok(sender_)).ok();
+	while let Some(message) = receiver.blocking_recv() {
+		match message {
+			ConnectionMessage::Execute(message) => {
+				handle_execute_message(connection, message);
 			},
-		};
-		let (sender_, mut receiver) = tokio::sync::mpsc::unbounded_channel();
-		sender.send(Ok(sender_)).ok();
-		while let Some(message) = receiver.blocking_recv() {
-			match message {
-				TransactionMessage::Execute(message) => {
-					execute(&transaction, message);
-				},
-				TransactionMessage::Query(message) => {
-					query(&transaction, message);
-				},
-				TransactionMessage::QueryAll(message) => {
-					query_all(&transaction, message);
-				},
-				TransactionMessage::Commit(sender) => {
-					let result = transaction.commit().map_err(|error| {
-						error!(source = error, "failed to commit the transaction")
-					});
-					sender.send(result).ok();
-					return;
-				},
-				TransactionMessage::Rollback(sender) => {
-					let result = transaction.rollback().map_err(|error| {
-						error!(source = error, "failed to roll back the transaction")
-					});
-					sender.send(result).ok();
-					return;
-				},
-				TransactionMessage::With(f) => {
-					f(&mut transaction);
-				},
-			}
+			ConnectionMessage::Query(message) => {
+				handle_query_message(connection, message);
+			},
+			ConnectionMessage::QueryAll(message) => {
+				handle_query_all_message(connection, message);
+			},
+			ConnectionMessage::Transaction(message) => {
+				handle_connection_transaction_message(connection, message);
+			},
+			ConnectionMessage::With(f) => {
+				f(connection);
+			},
 		}
 	}
 }
 
-fn execute(connection: &sqlite::Connection, message: ExecuteMessage) {
+fn handle_connection_transaction_message(
+	connection: &mut sqlite::Connection,
+	message: ConnectionTransactionMessage,
+) {
+	let ConnectionTransactionMessage { sender } = message;
+	let mut transaction = match connection.transaction() {
+		Ok(transaction) => transaction,
+		Err(error) => {
+			let error = error!(source = error, "failed to begin the transaction");
+			sender.send(Err(error)).ok();
+			return;
+		},
+	};
+	let (sender_, mut receiver) = tokio::sync::mpsc::unbounded_channel::<TransactionMessage>();
+	sender.send(Ok(sender_)).ok();
+	while let Some(message) = receiver.blocking_recv() {
+		match message {
+			TransactionMessage::Execute(message) => {
+				handle_execute_message(&transaction, message);
+			},
+			TransactionMessage::Query(message) => {
+				handle_query_message(&transaction, message);
+			},
+			TransactionMessage::QueryAll(message) => {
+				handle_query_all_message(&transaction, message);
+			},
+			TransactionMessage::Rollback(message) => {
+				let result = transaction
+					.rollback()
+					.map_err(|source| error!(!source, "failed to roll back the transaction"));
+				message.sender.send(result).ok();
+				break;
+			},
+			TransactionMessage::Commit(message) => {
+				let result = transaction
+					.commit()
+					.map_err(|source| error!(!source, "failed to commit the transaction"));
+				message.sender.send(result).ok();
+				break;
+			},
+			TransactionMessage::With(f) => {
+				f(&mut transaction);
+			},
+		}
+	}
+}
+
+fn handle_execute_message(connection: &sqlite::Connection, message: ExecuteMessage) {
 	let ExecuteMessage {
 		statement,
 		params,
@@ -459,7 +527,7 @@ fn execute(connection: &sqlite::Connection, message: ExecuteMessage) {
 	let n = match statement.execute(sqlite::params_from_iter(params)) {
 		Ok(n) => n.to_u64().unwrap(),
 		Err(source) => {
-			let error = error!(!source, "failed to prepare the statement");
+			let error = error!(!source, "failed to execute the statement");
 			sender.send(Err(error)).ok();
 			return;
 		},
@@ -469,7 +537,7 @@ fn execute(connection: &sqlite::Connection, message: ExecuteMessage) {
 	sender.send(Ok(n)).ok();
 }
 
-fn query(connection: &sqlite::Connection, message: QueryMessage) {
+fn handle_query_message(connection: &sqlite::Connection, message: QueryMessage) {
 	let QueryMessage {
 		statement,
 		params,
@@ -486,8 +554,8 @@ fn query(connection: &sqlite::Connection, message: QueryMessage) {
 		},
 	};
 
-	// Get the column names.
-	let column_names = statement
+	// Get the columns.
+	let columns = statement
 		.column_names()
 		.into_iter()
 		.map(ToOwned::to_owned)
@@ -497,7 +565,7 @@ fn query(connection: &sqlite::Connection, message: QueryMessage) {
 	let mut rows = match statement.query(sqlite::params_from_iter(params)) {
 		Ok(rows) => rows,
 		Err(source) => {
-			let error = error!(!source, "failed to prepare the statement");
+			let error = error!(!source, "failed to execute the statement");
 			sender.send(Err(error)).ok();
 			return;
 		},
@@ -523,8 +591,8 @@ fn query(connection: &sqlite::Connection, message: QueryMessage) {
 				continue;
 			},
 		};
-		let mut entries = IndexMap::with_capacity(column_names.len());
-		for (i, column) in column_names.iter().enumerate() {
+		let mut entries = IndexMap::with_capacity(columns.len());
+		for (i, column) in columns.iter().enumerate() {
 			let name = column.to_owned();
 			let value = match row.get::<_, Value>(i) {
 				Ok(value) => value,
@@ -541,7 +609,7 @@ fn query(connection: &sqlite::Connection, message: QueryMessage) {
 	}
 }
 
-fn query_all(connection: &sqlite::Connection, message: QueryAllMessage) {
+fn handle_query_all_message(connection: &sqlite::Connection, message: QueryAllMessage) {
 	let QueryAllMessage {
 		statement,
 		params,
@@ -569,7 +637,7 @@ fn query_all(connection: &sqlite::Connection, message: QueryAllMessage) {
 	let rows = match statement.query(sqlite::params_from_iter(params)) {
 		Ok(rows) => rows,
 		Err(source) => {
-			let error = error!(!source, "failed to prepare the statement");
+			let error = error!(!source, "failed to execute the statement");
 			sender.send(Err(error)).ok();
 			return;
 		},
@@ -595,7 +663,7 @@ fn query_all(connection: &sqlite::Connection, message: QueryAllMessage) {
 }
 
 impl sqlite::types::ToSql for Value {
-	fn to_sql(&self) -> sqlite::Result<sqlite::types::ToSqlOutput<'_>> {
+	fn to_sql(&self) -> sqlite::Result<sqlite::types::ToSqlOutput> {
 		match self {
 			Value::Null => Ok(sqlite::types::ToSqlOutput::Borrowed(
 				sqlite::types::ValueRef::Null,
@@ -617,7 +685,7 @@ impl sqlite::types::ToSql for Value {
 }
 
 impl sqlite::types::FromSql for Value {
-	fn column_result(value: sqlite::types::ValueRef<'_>) -> sqlite::types::FromSqlResult<Self> {
+	fn column_result(value: sqlite::types::ValueRef) -> sqlite::types::FromSqlResult<Self> {
 		match value {
 			sqlite::types::ValueRef::Null => Ok(Self::Null),
 			sqlite::types::ValueRef::Integer(value) => Ok(Self::Integer(value)),
@@ -673,7 +741,7 @@ impl<T> sqlite::types::ToSql for Json<T>
 where
 	T: serde::Serialize,
 {
-	fn to_sql(&self) -> sqlite::Result<sqlite::types::ToSqlOutput<'_>> {
+	fn to_sql(&self) -> sqlite::Result<sqlite::types::ToSqlOutput> {
 		let json = serde_json::to_string(&self.0)
 			.map_err(|error| sqlite::Error::ToSqlConversionFailure(error.into()))?;
 		Ok(sqlite::types::ToSqlOutput::Owned(
@@ -686,20 +754,10 @@ impl<T> sqlite::types::FromSql for Json<T>
 where
 	T: serde::de::DeserializeOwned,
 {
-	fn column_result(value: sqlite::types::ValueRef<'_>) -> sqlite::types::FromSqlResult<Self> {
+	fn column_result(value: sqlite::types::ValueRef) -> sqlite::types::FromSqlResult<Self> {
 		let json = value.as_str()?;
 		let value = serde_json::from_str(json)
 			.map_err(|error| sqlite::types::FromSqlError::Other(error.into()))?;
 		Ok(Self(value))
 	}
 }
-
-#[allow(clippy::module_name_repetitions)]
-#[macro_export]
-macro_rules! sqlite_params {
-	($($x:expr),* $(,)?) => {
-		&[$(&$x as &(dyn rusqlite::types::ToSql),)*] as &[&(dyn rusqlite::types::ToSql)]
-	};
-}
-
-pub use sqlite_params as params;

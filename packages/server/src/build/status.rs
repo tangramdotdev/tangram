@@ -10,7 +10,7 @@ use futures::{
 use http_body_util::{BodyExt, StreamBody};
 use indoc::formatdoc;
 use tangram_client as tg;
-use tangram_database as db;
+use tangram_database::{self as db, prelude::*};
 use tangram_error::{error, Error, Result};
 use time::format_description::well_known::Rfc3339;
 use tokio_stream::wrappers::IntervalStream;
@@ -127,7 +127,7 @@ impl Server {
 		);
 		let params = db::params![id];
 		let status = connection
-			.query_one_scalar_into(statement, params)
+			.query_one_value_into(statement, params)
 			.await
 			.map_err(|source| error!(!source, "failed to execute the statement"))?;
 
@@ -215,7 +215,8 @@ impl Server {
 				set 
 					status = {p}1,
 					{timestamp_column} = {p}2 
-				where id = {p}3 and status = {p}4;
+				where id = {p}3 and status = {p}4
+				returning id;
 			"
 		);
 		let timestamp = time::OffsetDateTime::now_utc();
@@ -225,13 +226,10 @@ impl Server {
 			id,
 			previous_status,
 		];
-		let n = connection
-			.execute(statement, params)
+		connection
+			.query_one(statement, params)
 			.await
 			.map_err(|source| error!(!source, "failed to execute the statement"))?;
-		if n == 0 {
-			return Err(error!("cannot set the build's status"));
-		}
 
 		// Drop the database connection.
 		drop(connection);
