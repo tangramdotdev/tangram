@@ -62,6 +62,11 @@ impl Server {
 		}
 
 		// Get the package versions.
+		#[derive(serde::Deserialize)]
+		struct Row {
+			version: String,
+			id: tg::directory::Id,
+		}
 		let p = connection.p();
 		let statement = formatdoc!(
 			"
@@ -73,9 +78,12 @@ impl Server {
 		);
 		let params = db::params![name];
 		let versions = connection
-			.query_all_into::<(String, tg::directory::Id)>(statement, params)
+			.query_all_into::<Row>(statement, params)
 			.await
-			.map_err(|source| error!(!source, "failed to execute the statement"))?;
+			.map_err(|source| error!(!source, "failed to execute the statement"))?
+			.into_iter()
+			.map(|row| (row.version, row.id))
+			.collect();
 
 		// Drop the database connection.
 		drop(connection);
