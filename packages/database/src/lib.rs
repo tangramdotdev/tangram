@@ -111,8 +111,12 @@ pub trait Query {
 		self.query_optional(statement, params).map(|result| {
 			result.and_then(|option| {
 				option
-					.map(|row| row.into_values().next())
-					.ok_or_else(|| error!("expected a value"))
+					.map(|row| {
+						row.into_values()
+							.next()
+							.ok_or_else(|| error!("expected a value"))
+					})
+					.transpose()
 			})
 		})
 	}

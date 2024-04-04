@@ -29,7 +29,6 @@ impl Server {
 		Ok(())
 	}
 
-	#[tracing::instrument(skip(self))]
 	pub(crate) async fn insert_build(
 		&self,
 		id: &tg::build::Id,
