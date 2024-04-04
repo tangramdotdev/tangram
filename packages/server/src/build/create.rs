@@ -90,7 +90,7 @@ impl Server {
 			Some(build)
 		};
 
-		// If a local or remote build was found that satisfies the retry constraint, then return it.
+		// If a local or remote build was found that satisfies the retry constraint, then add it as a child of the parent and return it.
 		if let Some(build) = build {
 			// Add the build as a child of the parent.
 			if let Some(parent) = arg.parent.as_ref() {
@@ -110,7 +110,7 @@ impl Server {
 			let remote = if arg.remote {
 				true
 			} else if let Some(parent) = arg.parent.as_ref() {
-				self.get_build_exists_local(parent).await?
+				!self.get_build_exists_local(parent).await?
 			} else {
 				false
 			};
