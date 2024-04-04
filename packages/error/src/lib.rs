@@ -95,13 +95,13 @@ impl<'a> Trace<'a> {
 		}
 
 		for error in errors {
-			eprint!("{} {}", "->".red(), error.message);
+			eprintln!("{} {}", "->".red(), error.message);
 			if let Some(location) = &error.location {
 				if !location.source.is_internal() || self.options.internal {
-					eprint!(" {location}");
+					let location = location.to_string().yellow();
+					eprintln!("   {location}");
 				}
 			}
-			eprintln!();
 
 			for (name, value) in &error.values {
 				let name = name.as_str().blue();
@@ -115,6 +115,7 @@ impl<'a> Trace<'a> {
 			}
 			for location in stack {
 				if !location.source.is_internal() || self.options.internal {
+					let location = location.to_string().yellow();
 					eprintln!("   {location}");
 				}
 			}
@@ -173,13 +174,12 @@ impl<'a> std::fmt::Display for Trace<'a> {
 		}
 
 		for error in errors {
-			write!(f, "-> {}", error.message)?;
+			writeln!(f, "-> {}", error.message)?;
 			if let Some(location) = &error.location {
 				if !location.source.is_internal() || self.options.internal {
-					write!(f, " {location}")?;
+					writeln!(f, "   {location}")?;
 				}
 			}
-			writeln!(f)?;
 
 			for (name, value) in &error.values {
 				let name = name.as_str();
@@ -204,11 +204,10 @@ impl<'a> std::fmt::Display for Trace<'a> {
 
 impl std::fmt::Display for Location {
 	fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-		write!(f, "at")?;
+		write!(f, "{}:{}:{}", self.source, self.line + 1, self.column + 1)?;
 		if let Some(symbol) = &self.symbol {
 			write!(f, " {symbol}")?;
 		}
-		write!(f, " {}:{}:{}", self.source, self.line + 1, self.column + 1)?;
 		Ok(())
 	}
 }
