@@ -688,7 +688,7 @@ declare namespace tg {
 		lock(): Promise<string | undefined>;
 
 		/** Get this target's host. */
-		host(): Promise<Triple>;
+		host(): Promise<string>;
 
 		/** Get this target's executable. */
 		executable(): Promise<Artifact>;
@@ -721,7 +721,7 @@ declare namespace tg {
 
 		type ArgObject = {
 			/** The system to build the target on. */
-			host?: Triple.Arg;
+			host?: string;
 
 			/** The target's executable. */
 			executable?: Artifact;
