@@ -26,6 +26,14 @@ impl Server {
 		&self,
 		id: &tg::object::Id,
 	) -> Result<Option<tg::object::GetOutput>> {
+		// Get a database connection.
+		let connection = self
+			.inner
+			.database
+			.connection()
+			.await
+			.map_err(|source| error!(!source, "failed to get a database connection"))?;
+
 		// Get the object.
 		let p = self.inner.database.p();
 		let statement = formatdoc!(
@@ -36,12 +44,13 @@ impl Server {
 			",
 		);
 		let params = db::params![id];
-		let output = self
-			.inner
-			.database
+		let output = connection
 			.query_optional_into(statement, params)
 			.map_err(|source| error!(!source, "failed to execute the statement"))
 			.await?;
+
+		// Drop the database connection.
+		drop(connection);
 
 		Ok(output)
 	}

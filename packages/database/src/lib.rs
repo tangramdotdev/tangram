@@ -14,7 +14,7 @@ pub mod prelude {
 	pub use super::{Connection as _, Database as _, Query as _, Transaction as _};
 }
 
-pub trait Database: Query {
+pub trait Database {
 	type Connection<'c>: Connection
 	where
 		Self: 'c;
@@ -22,7 +22,7 @@ pub trait Database: Query {
 	fn connection(&self) -> impl Future<Output = Result<Self::Connection<'_>>> + Send;
 }
 
-pub trait Connection: Query {
+pub trait Connection {
 	type Transaction<'t>: Transaction
 	where
 		Self: 't;
@@ -30,7 +30,7 @@ pub trait Connection: Query {
 	fn transaction(&mut self) -> impl Future<Output = Result<Self::Transaction<'_>>> + Send;
 }
 
-pub trait Transaction: Query {
+pub trait Transaction {
 	fn rollback(self) -> impl Future<Output = Result<()>> + Send;
 
 	fn commit(self) -> impl Future<Output = Result<()>> + Send;

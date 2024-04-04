@@ -1,5 +1,5 @@
-use super::{prelude::*, Row, Value};
-use futures::{future, stream, Stream, StreamExt, TryStreamExt};
+use super::{Row, Value};
+use futures::{future, Stream, TryStreamExt};
 use indexmap::IndexMap;
 use itertools::Itertools;
 pub use postgres::types::Json;
@@ -88,16 +88,14 @@ impl super::Database for Database {
 	type Connection<'c> = Connection<'c> where Self: 'c;
 
 	async fn connection(&self) -> Result<Self::Connection<'_>> {
+		let sender = self.sender.clone();
 		let (client, cache) = self
 			.receiver
 			.recv()
 			.await
 			.map_err(|source| error!(!source, "failed to acquire a database connection"))?;
-
-		let sender = self.sender.clone();
 		let mut client = Some(client);
 		let cache = Some(cache);
-
 		if client.as_ref().unwrap().is_closed() {
 			let (client_, connection) =
 				postgres::connect(self.options.url.as_str(), postgres::NoTls)
@@ -113,7 +111,6 @@ impl super::Database for Database {
 			});
 			client.replace(client_);
 		}
-
 		Ok(Connection {
 			marker: std::marker::PhantomData {},
 			sender,
@@ -154,34 +151,6 @@ impl<'t> super::Transaction for Transaction<'t> {
 			.await
 			.map_err(|source| error!(!source, "failed to commit the transaction"))?;
 		Ok(())
-	}
-}
-
-impl super::Query for Database {
-	async fn execute(&self, statement: String, params: Vec<Value>) -> Result<u64> {
-		let connection = self.connection().await?;
-		let n = connection.execute(statement, params).await?;
-		Ok(n)
-	}
-
-	async fn query(
-		&self,
-		statement: String,
-		params: Vec<Value>,
-	) -> Result<impl Stream<Item = Result<Row>> + Send> {
-		// let connection = self.connection().await?;
-		// Ok(
-		// 	stream::try_unfold(Some(connection), |connection| async move {
-		// 		match connection {
-		// 			Some(connection) => {
-		// 				Ok(Some((connection.query(statement, params).await?, None)))
-		// 			},
-		// 			None => Ok(None),
-		// 		}
-		// 	})
-		// 	.flat_map(|s| s),
-		// )
-		Ok(stream::empty())
 	}
 }
 
@@ -229,7 +198,7 @@ impl<'a> Drop for Connection<'a> {
 	fn drop(&mut self) {
 		let client = self.client.take().unwrap();
 		let cache = self.cache.take().unwrap();
-		self.sender.send_blocking((client, cache)).ok();
+		self.sender.try_send((client, cache)).ok();
 	}
 }
 
