@@ -64,8 +64,16 @@ impl Server {
 		// Visit every dependency.
 		let mut dependencies = BTreeMap::new();
 		for dependency in lock.dependencies(self).await? {
-			let Some((package, lock)) = lock.get(self, &dependency).await? else {
-				continue;
+			let (child_package, lock) = lock.get(self, &dependency).await?;
+			let package = match (child_package, &dependency.path) {
+				(Some(package), _) => package,
+				(None, Some(path)) => package
+					.get(self, path)
+					.await
+					.map_err(|source| error!(!source, %path, "could not resolve path dependency"))?
+					.try_unwrap_directory()
+					.map_err(|source| error!(!source, "expected a directory"))?,
+				(None, None) => return Err(error!("invalid lock")),
 			};
 			let outdated = self
 				.get_outdated_inner(&dependency, package, lock, visited)

@@ -132,31 +132,30 @@ impl Server {
 
 		// Get or create the lock if requested.
 		let lock = if arg.lock {
-			if arg.create_lock {
-				let lock = self
-					.create_package_lock(&package_with_path_dependencies)
-					.await
-					.map_err(|source| error!(!source, "failed to create the lock"))?;
-				let lock = lock
-					.normalize(self)
-					.await
-					.map_err(|source| error!(!source, "failed to normalize the lock"))?;
-				Some(lock.id(self).await?.clone())
-			} else {
-				let path = dependency.path.as_ref();
-				let lock = self
-					.get_or_create_package_lock(path, &package_with_path_dependencies)
-					.await
-					.map_err(|error| {
-						if let Some(path) = path {
-							error!(source = error, %path, "failed to get or create the lock")
-						} else {
-							error!(source = error, "failed to get or create the lock")
-						}
-					})?;
-				let id = lock.id(self).await?.clone();
-				Some(id)
+			let path = dependency.path.as_ref();
+			let lock = self
+				.get_or_create_package_lock(path, &package_with_path_dependencies)
+				.await
+				.map_err(|error| {
+					if let Some(path) = path {
+						error!(source = error, %path, "failed to get or create the lock")
+					} else {
+						error!(source = error, "failed to get or create the lock")
+					}
+				})?;
+
+			// Write the lock, without path dependencies.
+			if let Some(path) = path {
+				self.write_lock(path.clone(), &lock).await?;
 			}
+
+			// Fill in path dependencies.
+			let lock = self
+				.add_path_dependencies_to_lock(&package_with_path_dependencies, lock)
+				.await?;
+			let lock = lock.id(self).await?.clone();
+			tracing::debug!(%lock, "returned lock.");
+			Some(lock)
 		} else {
 			None
 		};
@@ -357,14 +356,6 @@ impl Server {
 		// Get the package.
 		let (package, lock) = tg::package::get_with_lock(self, dependency).await?;
 
-		// Write the lock.
-		if dependency.path.is_some() {
-			let path = dependency.path.as_ref().unwrap();
-			lock.write(self, path, false)
-				.await
-				.map_err(|source| error!(!source, "failed to write the lock file"))?;
-		}
-
 		// Create the root module.
 		let path = tg::package::get_root_module_path(self, &package).await?;
 		let package = package.id(self).await?.clone();
@@ -407,12 +398,6 @@ impl Server {
 		let Some((package, lock)) = tg::package::try_get_with_lock(self, dependency).await? else {
 			return Ok(None);
 		};
-		if dependency.path.is_some() {
-			let path = dependency.path.as_ref().unwrap();
-			lock.write(self, path, false)
-				.await
-				.map_err(|source| error!(!source, "failed to write the lock file"))?;
-		}
 
 		// Create the module.
 		let path = tg::package::get_root_module_path(self, &package).await?;
