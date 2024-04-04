@@ -288,11 +288,10 @@ impl Server {
 
 					// Get the dependency's absolute path.
 					let dependency_path = path.join(dependency.path.as_ref().unwrap().to_string());
-					let dependency_absolute_path = tokio::fs::canonicalize(&dependency_path)
-						.await
-						.map_err(|error| {
-							error!(source = error, "failed to canonicalize the dependency path")
-						})?;
+					let dependency_absolute_path =
+						tokio::fs::canonicalize(&dependency_path).await.map_err(
+							|error| error!(source = error, %dependency, "failed to canonicalize the dependency path"),
+						)?;
 
 					// Recurse into the path dependency.
 					let child = self

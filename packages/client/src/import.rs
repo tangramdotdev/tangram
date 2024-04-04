@@ -63,7 +63,7 @@ impl std::str::FromStr for Import {
 
 	fn from_str(value: &str) -> Result<Self, Self::Err> {
 		if value.starts_with('.') {
-			let path: tg::Path = value.parse()?;
+			let path = value.parse::<tg::Path>()?;
 			if !matches!(path.extension(), Some("js" | "ts" | "tg.js" | "tg.ts")) {
 				return Err(error!(
 					%path,

@@ -116,7 +116,7 @@ impl Path {
 		for component in self.into_components() {
 			match (component, path.components().last()) {
 				(Component::Parent, Some(Component::Normal(_))) => path.pop(),
-				(Component::Parent, Some(Component::Root)) => (),
+				(Component::Parent, Some(Component::Root)) | (Component::Current, _) => (),
 				(component, _) => path.push(component),
 			}
 		}
@@ -267,6 +267,6 @@ mod tests {
 		assert_eq!(path.normalize().to_string(), "../bar/baz");
 
 		let path: Path = "./bar/baz".parse().unwrap();
-		assert_eq!(path.normalize().to_string(), "./bar/baz");
+		assert_eq!(path.normalize().to_string(), "bar/baz");
 	}
 }
