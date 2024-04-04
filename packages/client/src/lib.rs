@@ -3,8 +3,8 @@ pub use self::{
 	artifact::Artifact, blob::Blob, branch::Branch, build::Build, checksum::Checksum,
 	dependency::Dependency, diagnostic::Diagnostic, directory::Directory, document::Document,
 	file::File, handle::Handle, id::Id, import::Import, leaf::Leaf, location::Location, lock::Lock,
-	meta::Health, module::Module, mutation::Mutation, object::Handle as Object, path::Path,
-	position::Position, range::Range, symlink::Symlink, target::Target, template::Template,
+	module::Module, mutation::Mutation, object::Handle as Object, path::Path, position::Position,
+	range::Range, server::Health, symlink::Symlink, target::Target, template::Template,
 	user::Login, user::User, value::Value,
 };
 use crate as tg;
@@ -37,7 +37,6 @@ pub mod language;
 pub mod leaf;
 pub mod location;
 pub mod lock;
-pub mod meta;
 pub mod module;
 pub mod mutation;
 pub mod object;
@@ -45,6 +44,7 @@ pub mod package;
 pub mod path;
 pub mod position;
 pub mod range;
+pub mod server;
 pub mod symlink;
 pub mod target;
 pub mod template;

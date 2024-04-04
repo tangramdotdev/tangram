@@ -1,31 +1,17 @@
-use super::{Row, Value};
-use futures::{future, Stream, TryStreamExt};
+use super::{prelude::*, Row, Value};
+use futures::{future, stream, Stream, StreamExt, TryStreamExt};
 use indexmap::IndexMap;
 use itertools::Itertools;
 pub use postgres::types::Json;
-use std::{borrow::Cow, collections::HashMap, future::Future, pin::pin};
+use std::collections::HashMap;
 use tangram_error::{error, Result};
 use tokio_postgres as postgres;
 use url::Url;
 
-pub struct Database {
-	pool: tangram_pool::Pool<Connection>,
-	url: Url,
-}
-
+#[derive(Clone, Debug)]
 pub struct Options {
 	pub url: Url,
 	pub max_connections: usize,
-}
-
-pub struct Connection {
-	client: postgres::Client,
-	cache: Cache,
-}
-
-pub struct Transaction<'a> {
-	transaction: postgres::Transaction<'a>,
-	cache: &'a Cache,
 }
 
 #[derive(Default)]
@@ -33,251 +19,22 @@ pub struct Cache {
 	statements: tokio::sync::Mutex<HashMap<String, postgres::Statement, fnv::FnvBuildHasher>>,
 }
 
-impl Database {
-	pub async fn new(options: Options) -> Result<Self> {
-		let mut connections = Vec::with_capacity(options.max_connections);
-		for _ in 0..options.max_connections {
-			let client = Connection::connect(&options.url).await?;
-			connections.push(client);
-		}
-		let pool = tangram_pool::Pool::new(connections);
-		let database = Self {
-			pool,
-			url: options.url,
-		};
-		Ok(database)
-	}
-
-	pub async fn connection(&self) -> Result<tangram_pool::Guard<Connection>> {
-		let mut connection = self.pool.get().await;
-		if connection.client.is_closed() {
-			connection.replace(Connection::connect(&self.url).await?);
-		}
-		Ok(connection)
-	}
+pub struct Database {
+	options: Options,
+	sender: async_channel::Sender<(postgres::Client, Cache)>,
+	receiver: async_channel::Receiver<(postgres::Client, Cache)>,
 }
 
-impl Connection {
-	pub async fn connect(url: &Url) -> Result<Self> {
-		let (client, connection) = postgres::connect(url.as_str(), postgres::NoTls)
-			.await
-			.map_err(|source| error!(!source, "failed to connect to the database"))?;
-		tokio::spawn(async move {
-			connection
-				.await
-				.inspect_err(|error| {
-					tracing::error!(?error);
-				})
-				.ok();
-		});
-		let cache = Cache::default();
-		let client = Self { client, cache };
-		Ok(client)
-	}
-
-	pub async fn execute(
-		&self,
-		statement: impl Into<Cow<'static, str>>,
-		params: impl IntoIterator<Item = Value>,
-	) -> Result<u64> {
-		let statement = statement.into();
-		let statement = &self.cache.get(&self.client, statement).await?;
-		let params = params.into_iter().collect_vec();
-		let params = &params
-			.iter()
-			.map(|value| value as &(dyn postgres::types::ToSql + Sync))
-			.collect_vec();
-		let n = self
-			.client
-			.execute(statement, params)
-			.await
-			.map_err(|source| error!(!source, "failed to execute the statement"))?;
-		Ok(n)
-	}
-
-	pub async fn query(
-		&self,
-		statement: impl Into<Cow<'static, str>>,
-		params: impl IntoIterator<Item = Value>,
-	) -> Result<impl Stream<Item = Result<Row>>> {
-		let statement = statement.into();
-		let statement = &self.cache.get(&self.client, statement).await?;
-		let params = params.into_iter().collect_vec();
-		let rows = self
-			.client
-			.query_raw(statement, params)
-			.await
-			.map_err(|source| error!(!source, "failed to execute the statement"))?
-			.map_err(|source| error!(!source, "failed to get a row"));
-		let rows = rows.and_then(|row| {
-			let mut entries = IndexMap::with_capacity(row.columns().len());
-			for (i, column) in row.columns().iter().enumerate() {
-				let name = column.name().to_owned();
-				let value = row.get::<_, Value>(i);
-				entries.insert(name, value);
-			}
-			let row = Row::with_entries(entries);
-			future::ready(Ok(row))
-		});
-		Ok(rows)
-	}
-
-	pub async fn query_optional(
-		&self,
-		statement: impl Into<Cow<'static, str>>,
-		params: impl IntoIterator<Item = Value>,
-	) -> Result<Option<Row>> {
-		let rows = self.query(statement, params).await?;
-		let row = pin!(rows).try_next().await?;
-		Ok(row)
-	}
-
-	pub async fn query_one(
-		&self,
-		statement: impl Into<Cow<'static, str>>,
-		params: impl IntoIterator<Item = Value>,
-	) -> Result<Row> {
-		let rows = self.query(statement, params).await?;
-		let row = pin!(rows)
-			.try_next()
-			.await?
-			.ok_or_else(|| error!("expected a row"))?;
-		Ok(row)
-	}
-
-	pub async fn query_all(
-		&self,
-		statement: impl Into<Cow<'static, str>>,
-		params: impl IntoIterator<Item = Value>,
-	) -> Result<Vec<Row>> {
-		let rows = self.query(statement, params).await?;
-		let rows = rows.try_collect().await?;
-		Ok(rows)
-	}
-
-	pub async fn transaction(&mut self) -> Result<Transaction<'_>> {
-		let transaction = self
-			.client
-			.transaction()
-			.await
-			.map_err(|source| error!(!source, "failed to begin the transaction"))?;
-		Ok(Transaction {
-			transaction,
-			cache: &self.cache,
-		})
-	}
-
-	pub async fn with<F, Fut, R>(&mut self, f: F) -> Result<R>
-	where
-		F: FnOnce(&mut postgres::Client, &Cache) -> Fut,
-		Fut: Future<Output = Result<R>>,
-	{
-		f(&mut self.client, &self.cache).await
-	}
+pub struct Connection<'a> {
+	marker: std::marker::PhantomData<&'a ()>,
+	sender: async_channel::Sender<(postgres::Client, Cache)>,
+	client: Option<postgres::Client>,
+	cache: Option<Cache>,
 }
 
-impl<'a> Transaction<'a> {
-	pub async fn execute(
-		&self,
-		statement: impl Into<Cow<'static, str>>,
-		params: impl IntoIterator<Item = Value>,
-	) -> Result<u64> {
-		let statement = statement.into();
-		let statement = &self.cache.get(&self.transaction, statement).await?;
-		let params = params.into_iter().collect_vec();
-		let params = &params
-			.iter()
-			.map(|value| value as &(dyn postgres::types::ToSql + Sync))
-			.collect_vec();
-		let n = self
-			.transaction
-			.execute(statement, params)
-			.await
-			.map_err(|source| error!(!source, "failed to execute the statement"))?;
-		Ok(n)
-	}
-
-	pub async fn query(
-		&self,
-		statement: impl Into<Cow<'static, str>>,
-		params: impl IntoIterator<Item = Value>,
-	) -> Result<impl Stream<Item = Result<Row>>> {
-		let statement = statement.into();
-		let statement = &self.cache.get(&self.transaction, statement).await?;
-		let params = params.into_iter().collect_vec();
-		let rows = self
-			.transaction
-			.query_raw(statement, params)
-			.await
-			.map_err(|source| error!(!source, "failed to execute the statement"))?
-			.map_err(|source| error!(!source, "failed to get a row"));
-		let rows = rows.and_then(|row| {
-			let mut entries = IndexMap::with_capacity(row.columns().len());
-			for (i, column) in row.columns().iter().enumerate() {
-				let name = column.name().to_owned();
-				let value = row.get::<_, Value>(i);
-				entries.insert(name, value);
-			}
-			let row = Row::with_entries(entries);
-			future::ready(Ok(row))
-		});
-		Ok(rows)
-	}
-
-	pub async fn query_optional(
-		&self,
-		statement: impl Into<Cow<'static, str>>,
-		params: impl IntoIterator<Item = Value>,
-	) -> Result<Option<Row>> {
-		let rows = self.query(statement, params).await?;
-		let row = pin!(rows).try_next().await?;
-		Ok(row)
-	}
-
-	pub async fn query_one(
-		&self,
-		statement: impl Into<Cow<'static, str>>,
-		params: impl IntoIterator<Item = Value>,
-	) -> Result<Row> {
-		let rows = self.query(statement, params).await?;
-		let row = pin!(rows)
-			.try_next()
-			.await?
-			.ok_or_else(|| error!("expected a row"))?;
-		Ok(row)
-	}
-
-	pub async fn query_all(
-		&self,
-		statement: impl Into<Cow<'static, str>>,
-		params: impl IntoIterator<Item = Value>,
-	) -> Result<Vec<Row>> {
-		let rows = self.query(statement, params).await?;
-		let rows = rows.try_collect().await?;
-		Ok(rows)
-	}
-
-	pub async fn rollback(self) -> Result<()> {
-		self.transaction
-			.rollback()
-			.await
-			.map_err(|source| error!(!source, "failed to roll back the transaction"))
-	}
-
-	pub async fn commit(self) -> Result<()> {
-		self.transaction
-			.commit()
-			.await
-			.map_err(|source| error!(!source, "failed to commit the transaction"))
-	}
-
-	pub async fn with<F, Fut, R>(&mut self, f: F) -> Result<R>
-	where
-		F: FnOnce(&mut postgres::Transaction, &Cache) -> Fut,
-		Fut: Future<Output = Result<R>>,
-	{
-		f(&mut self.transaction, self.cache).await
-	}
+pub struct Transaction<'a> {
+	transaction: postgres::Transaction<'a>,
+	cache: &'a Cache,
 }
 
 impl Cache {
@@ -299,6 +56,225 @@ impl Cache {
 			.insert(query.as_ref().to_owned(), statement.clone());
 		Ok(statement)
 	}
+}
+
+impl Database {
+	pub async fn new(options: Options) -> Result<Self> {
+		let (sender, receiver) = async_channel::bounded(options.max_connections);
+		for _ in 0..options.max_connections {
+			let (client, connection) = postgres::connect(options.url.as_str(), postgres::NoTls)
+				.await
+				.map_err(
+					|source| error!(!source, %url = options.url, "failed to connect to the database"),
+				)?;
+			tokio::spawn(async move {
+				connection
+					.await
+					.inspect_err(|error| tracing::error!(?error, "postgres connection failed"))
+					.ok();
+			});
+			let cache = Cache::default();
+			sender.send((client, cache)).await.ok();
+		}
+		Ok(Self {
+			options,
+			sender,
+			receiver,
+		})
+	}
+}
+
+impl super::Database for Database {
+	type Connection<'c> = Connection<'c> where Self: 'c;
+
+	async fn connection(&self) -> Result<Self::Connection<'_>> {
+		let (client, cache) = self
+			.receiver
+			.recv()
+			.await
+			.map_err(|source| error!(!source, "failed to acquire a database connection"))?;
+
+		let sender = self.sender.clone();
+		let mut client = Some(client);
+		let cache = Some(cache);
+
+		if client.as_ref().unwrap().is_closed() {
+			let (client_, connection) =
+				postgres::connect(self.options.url.as_str(), postgres::NoTls)
+					.await
+					.map_err(
+						|source| error!(!source, %url = self.options.url, "failed to connect to the database"),
+					)?;
+			tokio::spawn(async move {
+				connection
+					.await
+					.inspect_err(|error| tracing::error!(?error, "postgres connection failed"))
+					.ok();
+			});
+			client.replace(client_);
+		}
+
+		Ok(Connection {
+			marker: std::marker::PhantomData {},
+			sender,
+			client,
+			cache,
+		})
+	}
+}
+
+impl<'c> super::Connection for Connection<'c> {
+	type Transaction<'t> = Transaction<'t> where Self: 't;
+
+	async fn transaction(&mut self) -> Result<Self::Transaction<'_>> {
+		let transaction = self
+			.client
+			.as_mut()
+			.unwrap()
+			.transaction()
+			.await
+			.map_err(|source| error!(!source, "failed to begin the transaction"))?;
+		let cache = self.cache.as_ref().unwrap();
+		Ok(Transaction { transaction, cache })
+	}
+}
+
+impl<'t> super::Transaction for Transaction<'t> {
+	async fn rollback(self) -> Result<()> {
+		self.transaction
+			.rollback()
+			.await
+			.map_err(|source| error!(!source, "failed to roll back the transaction"))?;
+		Ok(())
+	}
+
+	async fn commit(self) -> Result<()> {
+		self.transaction
+			.commit()
+			.await
+			.map_err(|source| error!(!source, "failed to commit the transaction"))?;
+		Ok(())
+	}
+}
+
+impl super::Query for Database {
+	async fn execute(&self, statement: String, params: Vec<Value>) -> Result<u64> {
+		let connection = self.connection().await?;
+		let n = connection.execute(statement, params).await?;
+		Ok(n)
+	}
+
+	async fn query(
+		&self,
+		statement: String,
+		params: Vec<Value>,
+	) -> Result<impl Stream<Item = Result<Row>> + Send> {
+		// let connection = self.connection().await?;
+		// Ok(
+		// 	stream::try_unfold(Some(connection), |connection| async move {
+		// 		match connection {
+		// 			Some(connection) => {
+		// 				Ok(Some((connection.query(statement, params).await?, None)))
+		// 			},
+		// 			None => Ok(None),
+		// 		}
+		// 	})
+		// 	.flat_map(|s| s),
+		// )
+		Ok(stream::empty())
+	}
+}
+
+impl<'a> super::Query for Connection<'a> {
+	async fn execute(&self, statement: String, params: Vec<Value>) -> Result<u64> {
+		execute(
+			self.client.as_ref().unwrap(),
+			self.cache.as_ref().unwrap(),
+			statement,
+			params,
+		)
+		.await
+	}
+
+	async fn query(
+		&self,
+		statement: String,
+		params: Vec<Value>,
+	) -> Result<impl Stream<Item = Result<Row>> + Send> {
+		query(
+			self.client.as_ref().unwrap(),
+			self.cache.as_ref().unwrap(),
+			statement,
+			params,
+		)
+		.await
+	}
+}
+
+impl<'a> super::Query for Transaction<'a> {
+	async fn execute(&self, statement: String, params: Vec<Value>) -> Result<u64> {
+		execute(&self.transaction, self.cache, statement, params).await
+	}
+
+	async fn query(
+		&self,
+		statement: String,
+		params: Vec<Value>,
+	) -> Result<impl Stream<Item = Result<Row>> + Send> {
+		query(&self.transaction, self.cache, statement, params).await
+	}
+}
+
+impl<'a> Drop for Connection<'a> {
+	fn drop(&mut self) {
+		let client = self.client.take().unwrap();
+		let cache = self.cache.take().unwrap();
+		self.sender.send_blocking((client, cache)).ok();
+	}
+}
+
+async fn execute(
+	client: &impl postgres::GenericClient,
+	cache: &Cache,
+	statement: String,
+	params: Vec<Value>,
+) -> Result<u64> {
+	let statement = cache.get(client, statement).await?;
+	let params = &params
+		.iter()
+		.map(|value| value as &(dyn postgres::types::ToSql + Sync))
+		.collect_vec();
+	let n = client
+		.execute(&statement, params)
+		.await
+		.map_err(|source| error!(!source, "failed to prepare the statement"))?;
+	Ok(n)
+}
+
+async fn query(
+	client: &impl postgres::GenericClient,
+	cache: &Cache,
+	statement: String,
+	params: Vec<Value>,
+) -> Result<impl Stream<Item = Result<Row>> + Send> {
+	let statement = cache.get(client, statement).await?;
+	let rows = client
+		.query_raw(&statement, params)
+		.await
+		.map_err(|source| error!(!source, "failed to execute the statement"))?;
+	let rows = rows
+		.map_err(|source| error!(!source, "failed to get a row"))
+		.and_then(|row| {
+			let mut entries = IndexMap::with_capacity(row.columns().len());
+			for (i, column) in row.columns().iter().enumerate() {
+				let name = column.name().to_owned();
+				let value = row.get::<_, Value>(i);
+				entries.insert(name, value);
+			}
+			let row = Row::with_entries(entries);
+			future::ready(Ok(row))
+		});
+	Ok(rows)
 }
 
 impl postgres::types::ToSql for Value {
@@ -349,13 +325,3 @@ impl<'a> postgres::types::FromSql<'a> for Value {
 
 	postgres::types::accepts!(BOOL, INT8, NUMERIC, FLOAT8, TEXT, BYTEA);
 }
-
-#[allow(clippy::module_name_repetitions)]
-#[macro_export]
-macro_rules! postgres_params {
-	($($x:expr),* $(,)?) => {
-		&[$(&$x as &(dyn tokio_postgres::types::ToSql + Sync),)*] as &[&(dyn tokio_postgres::types::ToSql + Sync)]
-	};
-}
-
-pub use postgres_params as params;

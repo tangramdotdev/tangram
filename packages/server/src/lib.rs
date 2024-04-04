@@ -1,5 +1,6 @@
 pub use self::options::Options;
 use self::{
+	database::Database,
 	messenger::Messenger,
 	runtime::Runtime,
 	util::{fs::rmrf, http::get_token},
@@ -27,7 +28,7 @@ use std::{
 	sync::Arc,
 };
 use tangram_client as tg;
-use tangram_database::{self as db, Database};
+use tangram_database::{self as db, prelude::*};
 use tangram_error::{error, Error, Result};
 use tokio::{
 	io::{AsyncRead, AsyncWrite},
@@ -39,14 +40,15 @@ mod artifact;
 mod blob;
 mod build;
 mod clean;
+mod database;
 mod language;
 mod messenger;
-mod meta;
 mod migrations;
 mod object;
 pub mod options;
 mod package;
 mod runtime;
+mod server;
 mod user;
 mod util;
 mod vfs;
@@ -71,20 +73,21 @@ struct Inner {
 	oauth: OAuth,
 	options: Options,
 	path: PathBuf,
-	remotes: Vec<Box<dyn tg::Handle>>,
+	remotes: Vec<tg::Client>,
 	runtimes: std::sync::RwLock<HashMap<String, Box<dyn Runtime>>>,
 	status: tokio::sync::watch::Sender<Status>,
 	stop_task: std::sync::Mutex<Option<tokio::task::JoinHandle<()>>>,
 	vfs: std::sync::Mutex<Option<self::vfs::Server>>,
 }
 
+#[derive(Debug)]
 struct BuildState {
 	permit: Arc<tokio::sync::Mutex<Option<Permit>>>,
 	stop: tokio::sync::watch::Sender<bool>,
 	task: std::sync::Mutex<Option<tokio::task::JoinHandle<()>>>,
 }
 
-#[derive(Clone, Copy, Eq, Ord, PartialEq, PartialOrd)]
+#[derive(Clone, Copy, Debug, Eq, Ord, PartialEq, PartialOrd)]
 enum Status {
 	Created,
 	Started,
@@ -92,6 +95,7 @@ enum Status {
 	Stopped,
 }
 
+#[derive(Debug)]
 struct Permit(
 	#[allow(dead_code)]
 	Either<tokio::sync::OwnedSemaphorePermit, tokio::sync::OwnedMutexGuard<Option<Self>>>,
@@ -176,12 +180,14 @@ impl Server {
 
 		// Create the database.
 		let database_options = match &options.database {
-			self::options::Database::Sqlite(options) => db::Options::Sqlite(db::sqlite::Options {
-				path: path.join("database"),
-				max_connections: options.max_connections,
-			}),
+			self::options::Database::Sqlite(options) => {
+				database::Options::Sqlite(db::sqlite::Options {
+					path: path.join("database"),
+					max_connections: options.max_connections,
+				})
+			},
 			self::options::Database::Postgres(options) => {
-				db::Options::Postgres(db::postgres::Options {
+				database::Options::Postgres(db::postgres::Options {
 					url: options.url.clone(),
 					max_connections: options.max_connections,
 				})
@@ -239,7 +245,7 @@ impl Server {
 		let remotes = options
 			.remotes
 			.iter()
-			.map(|remote| remote.tg.clone_box())
+			.map(|remote| remote.client.clone())
 			.collect();
 
 		// Create the runtimes.
@@ -656,9 +662,7 @@ impl Http {
 							connection.await
 						},
 					};
-					if let Err(error) = result {
-						tracing::error!(?error, "failed to serve the connection");
-					}
+					result.ok();
 				}
 			});
 		}
@@ -1106,7 +1110,7 @@ impl tg::Handle for Server {
 		self.try_get_package_doc(dependency).await
 	}
 
-	async fn health(&self) -> Result<tg::meta::Health> {
+	async fn health(&self) -> Result<tg::server::Health> {
 		self.health().await
 	}
 

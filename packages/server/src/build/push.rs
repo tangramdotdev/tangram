@@ -13,7 +13,7 @@ impl Server {
 			.first()
 			.ok_or_else(|| error!("the server does not have a remote"))?;
 		tg::Build::with_id(id.clone())
-			.push(user, self, remote.as_ref())
+			.push(user, self, remote)
 			.await
 			.map_err(|source| error!(!source, "failed to push the build"))?;
 		Ok(())

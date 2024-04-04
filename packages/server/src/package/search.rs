@@ -4,7 +4,7 @@ use crate::{
 };
 use indoc::formatdoc;
 use tangram_client as tg;
-use tangram_database as db;
+use tangram_database::{self as db, prelude::*};
 use tangram_error::{error, Result};
 
 impl Server {
@@ -35,7 +35,7 @@ impl Server {
 		);
 		let params = db::params![arg.query];
 		let results = connection
-			.query_all_scalar_into(statement, params)
+			.query_all_value_into(statement, params)
 			.await
 			.map_err(|source| error!(!source, "failed to execute the statement"))?;
 

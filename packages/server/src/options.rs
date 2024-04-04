@@ -2,6 +2,7 @@ use std::path::PathBuf;
 use tangram_client as tg;
 use url::Url;
 
+#[derive(Clone, Debug)]
 pub struct Options {
 	pub advanced: Advanced,
 	pub build: Build,
@@ -71,15 +72,17 @@ pub struct OauthClient {
 	pub token_url: String,
 }
 
+#[derive(Clone, Debug)]
 pub struct StackTrace {
 	pub exclude: Vec<glob::Pattern>,
 	pub include: Vec<glob::Pattern>,
 	pub reverse: bool,
 }
 
+#[derive(Clone, Debug)]
 pub struct Remote {
 	pub build: RemoteBuild,
-	pub tg: Box<dyn tg::Handle>,
+	pub client: tg::Client,
 }
 
 #[derive(Clone, Debug)]

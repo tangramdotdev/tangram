@@ -5,9 +5,8 @@ use crate::{
 use futures::{stream::FuturesUnordered, TryStreamExt};
 use http_body_util::BodyExt;
 use indoc::formatdoc;
-use std::sync::Arc;
 use tangram_client as tg;
-use tangram_database as db;
+use tangram_database::{self as db, prelude::*};
 use tangram_error::{error, Error, Result};
 use time::format_description::well_known::Rfc3339;
 
@@ -30,6 +29,7 @@ impl Server {
 		Ok(())
 	}
 
+	#[tracing::instrument(skip(self))]
 	pub(crate) async fn insert_build(
 		&self,
 		id: &tg::build::Id,
@@ -42,7 +42,7 @@ impl Server {
 			.connection()
 			.await
 			.map_err(|source| error!(!source, "failed to get a database connection"))?;
-		let connection = Arc::new(connection);
+		let connection = std::sync::Arc::new(connection);
 
 		// Delete any existing children.
 		let p = connection.p();

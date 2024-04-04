@@ -125,7 +125,7 @@ impl Server {
 
 			// Push the target.
 			let object = tg::object::Handle::with_id(arg.target.clone().into());
-			let Ok(()) = object.push(self, remote.as_ref()).await else {
+			let Ok(()) = object.push(self, remote).await else {
 				break 'a;
 			};
 

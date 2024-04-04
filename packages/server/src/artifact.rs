@@ -1,4 +1,5 @@
 use crate::{
+	database::Transaction,
 	util::{
 		fs::rmrf,
 		http::{bad_request, full, Incoming, Outgoing},
@@ -10,7 +11,7 @@ use futures::{stream::FuturesUnordered, TryStreamExt};
 use http_body_util::BodyExt;
 use std::{collections::HashMap, os::unix::prelude::PermissionsExt, sync::Arc};
 use tangram_client as tg;
-use tangram_database as db;
+use tangram_database::prelude::*;
 use tangram_error::{error, Error, Result};
 use tg::Handle;
 
@@ -50,7 +51,7 @@ impl Server {
 	async fn check_in_artifact_inner(
 		&self,
 		path: &tg::Path,
-		transaction: &db::Transaction<'_>,
+		transaction: &Transaction<'_>,
 	) -> Result<tg::artifact::Id> {
 		// Get the metadata for the file system object at the path.
 		let metadata = tokio::fs::symlink_metadata(&path)
@@ -85,7 +86,7 @@ impl Server {
 		&'a self,
 		path: &'a tg::Path,
 		_metadata: &'a std::fs::Metadata,
-		transaction: &'a db::Transaction<'_>,
+		transaction: &'a Transaction,
 	) -> Result<tg::artifact::Id> {
 		let names = {
 			let _permit = self.file_descriptor_semaphore().acquire().await;
@@ -136,7 +137,7 @@ impl Server {
 		&self,
 		path: &tg::Path,
 		metadata: &std::fs::Metadata,
-		transaction: &db::Transaction<'_>,
+		transaction: &Transaction<'_>,
 	) -> Result<tg::artifact::Id> {
 		// Create the blob.
 		let permit = self.file_descriptor_semaphore().acquire().await;
@@ -182,7 +183,7 @@ impl Server {
 		&self,
 		path: &tg::Path,
 		_metadata: &std::fs::Metadata,
-		transaction: &db::Transaction<'_>,
+		transaction: &Transaction<'_>,
 	) -> Result<tg::artifact::Id> {
 		// Read the target from the symlink.
 		let target = tokio::fs::read_link(path)

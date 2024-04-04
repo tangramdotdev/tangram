@@ -6,11 +6,13 @@ use tangram_client as tg;
 use tangram_error::{error, Result};
 use tokio_stream::wrappers::BroadcastStream;
 
+#[derive(Debug)]
 pub enum Messenger {
 	Channel(tokio::sync::broadcast::Sender<Message>),
 	Nats(nats::Client),
 }
 
+#[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 pub enum Kind {
 	Channel,
 	Nats,

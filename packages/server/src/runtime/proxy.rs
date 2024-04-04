@@ -345,7 +345,7 @@ impl tg::Handle for Server {
 		Err(error!("not supported"))
 	}
 
-	async fn health(&self) -> Result<tg::meta::Health> {
+	async fn health(&self) -> Result<tg::server::Health> {
 		self.inner.server.health().await
 	}
 

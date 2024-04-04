@@ -1,8 +1,8 @@
 pub use self::{row::Row, value::Value};
 use derive_more::From;
-use futures::{future, Stream, TryStreamExt};
+use futures::{FutureExt, Stream, StreamExt, TryFutureExt, TryStreamExt};
 use itertools::Itertools;
-use std::borrow::Cow;
+use std::{future::Future, pin::pin};
 use tangram_error::{error, Result};
 
 pub mod postgres;
@@ -10,544 +10,241 @@ pub mod row;
 pub mod sqlite;
 pub mod value;
 
-pub enum Database {
-	Sqlite(sqlite::Database),
-	Postgres(postgres::Database),
+pub mod prelude {
+	pub use super::{Connection as _, Database as _, Query as _, Transaction as _};
 }
 
-pub enum Options {
-	Sqlite(sqlite::Options),
-	Postgres(postgres::Options),
+pub trait Database: Query {
+	type Connection<'c>: Connection
+	where
+		Self: 'c;
+
+	fn connection(&self) -> impl Future<Output = Result<Self::Connection<'_>>> + Send;
 }
 
-pub enum Connection {
-	Sqlite(tangram_pool::Guard<sqlite::Connection>),
-	Postgres(tangram_pool::Guard<postgres::Connection>),
+pub trait Connection: Query {
+	type Transaction<'t>: Transaction
+	where
+		Self: 't;
+
+	fn transaction(&mut self) -> impl Future<Output = Result<Self::Transaction<'_>>> + Send;
 }
 
-pub enum Transaction<'a> {
-	Sqlite(sqlite::Transaction<'a>),
-	Postgres(postgres::Transaction<'a>),
+pub trait Transaction: Query {
+	fn rollback(self) -> impl Future<Output = Result<()>> + Send;
+
+	fn commit(self) -> impl Future<Output = Result<()>> + Send;
 }
 
-impl Database {
-	pub async fn new(options: Options) -> Result<Self> {
-		match options {
-			Options::Sqlite(options) => Ok(Self::Sqlite(sqlite::Database::new(options).await?)),
-			Options::Postgres(options) => {
-				Ok(Self::Postgres(postgres::Database::new(options).await?))
-			},
-		}
-	}
-
-	#[must_use]
-	pub fn p(&self) -> &'static str {
-		match self {
-			Self::Sqlite(_) => "?",
-			Self::Postgres(_) => "$",
-		}
-	}
-
-	pub async fn connection(&self) -> Result<Connection> {
-		match self {
-			Self::Sqlite(database) => Ok(Connection::Sqlite(database.connection().await?)),
-			Self::Postgres(database) => Ok(Connection::Postgres(database.connection().await?)),
-		}
-	}
-}
-
-impl Connection {
-	#[must_use]
-	pub fn p(&self) -> &'static str {
-		match self {
-			Self::Sqlite(_) => "?",
-			Self::Postgres(_) => "$",
-		}
-	}
-
-	pub async fn execute(
+pub trait Query {
+	fn execute(
 		&self,
-		statement: impl Into<Cow<'static, str>>,
-		params: impl IntoIterator<Item = Value>,
-	) -> Result<u64> {
-		match self {
-			Self::Sqlite(s) => s.execute(statement, params).await,
-			Self::Postgres(s) => s.execute(statement, params).await,
-		}
-	}
+		statement: String,
+		params: Vec<Value>,
+	) -> impl Future<Output = Result<u64>> + Send;
 
-	pub async fn query(
+	fn query(
 		&self,
-		statement: impl Into<Cow<'static, str>>,
-		params: impl IntoIterator<Item = Value>,
-	) -> Result<impl Stream<Item = Result<Row>>> {
-		match self {
-			Self::Sqlite(s) => s.query(statement, params).await.map(future::Either::Left),
-			Self::Postgres(s) => s.query(statement, params).await.map(future::Either::Right),
-		}
-	}
+		statement: String,
+		params: Vec<Value>,
+	) -> impl Future<Output = Result<impl Stream<Item = Result<Row>> + Send>> + Send;
 
-	pub async fn query_scalar(
+	fn query_value(
 		&self,
-		statement: impl Into<Cow<'static, str>>,
-		params: impl IntoIterator<Item = Value>,
-	) -> Result<impl Stream<Item = Result<Value>>> {
-		self.query(statement, params).await.map(|stream| {
-			stream.and_then(|row| {
-				future::ready(
-					row.into_values()
-						.next()
-						.ok_or_else(|| error!("expected a value")),
-				)
-			})
-		})
-	}
-
-	pub async fn query_into<T>(
-		&self,
-		statement: impl Into<Cow<'static, str>>,
-		params: impl IntoIterator<Item = Value>,
-	) -> Result<impl Stream<Item = Result<T>>>
-	where
-		T: serde::de::DeserializeOwned,
-	{
-		self.query(statement, params)
-			.await
-			.map(|stream| stream.and_then(|row| future::ready(T::deserialize(row))))
-	}
-
-	pub async fn query_scalar_into<T>(
-		&self,
-		statement: impl Into<Cow<'static, str>>,
-		params: impl IntoIterator<Item = Value>,
-	) -> Result<impl Stream<Item = Result<T>>>
-	where
-		T: serde::de::DeserializeOwned,
-	{
-		self.query_scalar(statement, params)
-			.await
-			.map(|stream| stream.and_then(|value| future::ready(T::deserialize(value))))
-	}
-
-	pub async fn query_optional(
-		&self,
-		statement: impl Into<Cow<'static, str>>,
-		params: impl IntoIterator<Item = Value>,
-	) -> Result<Option<Row>> {
-		match self {
-			Self::Sqlite(s) => s.query_optional(statement, params).await,
-			Self::Postgres(s) => s.query_optional(statement, params).await,
-		}
-	}
-
-	pub async fn query_optional_scalar(
-		&self,
-		statement: impl Into<Cow<'static, str>>,
-		params: impl IntoIterator<Item = Value>,
-	) -> Result<Option<Value>> {
-		self.query_optional(statement, params)
-			.await?
-			.map(|row| {
-				row.into_values()
-					.next()
-					.ok_or_else(|| error!("expected a value"))
-			})
-			.transpose()
-	}
-
-	pub async fn query_optional_into<T>(
-		&self,
-		statement: impl Into<Cow<'static, str>>,
-		params: impl IntoIterator<Item = Value>,
-	) -> Result<Option<T>>
-	where
-		T: serde::de::DeserializeOwned,
-	{
-		self.query_optional(statement, params)
-			.await?
-			.map(T::deserialize)
-			.transpose()
-	}
-
-	pub async fn query_optional_scalar_into<T>(
-		&self,
-		statement: impl Into<Cow<'static, str>>,
-		params: impl IntoIterator<Item = Value>,
-	) -> Result<Option<T>>
-	where
-		T: serde::de::DeserializeOwned,
-	{
-		self.query_optional_scalar(statement, params)
-			.await?
-			.map(T::deserialize)
-			.transpose()
-	}
-
-	pub async fn query_one(
-		&self,
-		statement: impl Into<Cow<'static, str>>,
-		params: impl IntoIterator<Item = Value>,
-	) -> Result<Row> {
-		match self {
-			Self::Sqlite(s) => s.query_one(statement, params).await,
-			Self::Postgres(s) => s.query_one(statement, params).await,
-		}
-	}
-
-	pub async fn query_one_scalar(
-		&self,
-		statement: impl Into<Cow<'static, str>>,
-		params: impl IntoIterator<Item = Value>,
-	) -> Result<Value> {
-		self.query_one(statement, params).await.and_then(|row| {
-			row.into_values()
-				.next()
-				.ok_or_else(|| error!("expected a value"))
-		})
-	}
-
-	pub async fn query_one_into<T>(
-		&self,
-		statement: impl Into<Cow<'static, str>>,
-		params: impl IntoIterator<Item = Value>,
-	) -> Result<T>
-	where
-		T: serde::de::DeserializeOwned,
-	{
-		self.query_one(statement, params)
-			.await
-			.and_then(T::deserialize)
-	}
-
-	pub async fn query_one_scalar_into<T>(
-		&self,
-		statement: impl Into<Cow<'static, str>>,
-		params: impl IntoIterator<Item = Value>,
-	) -> Result<T>
-	where
-		T: serde::de::DeserializeOwned,
-	{
-		self.query_one_scalar(statement, params)
-			.await
-			.and_then(T::deserialize)
-	}
-
-	pub async fn query_all(
-		&self,
-		statement: impl Into<Cow<'static, str>>,
-		params: impl IntoIterator<Item = Value>,
-	) -> Result<Vec<Row>> {
-		match self {
-			Self::Sqlite(s) => s.query_all(statement, params).await,
-			Self::Postgres(s) => s.query_all(statement, params).await,
-		}
-	}
-
-	pub async fn query_all_scalar(
-		&self,
-		statement: impl Into<Cow<'static, str>>,
-		params: impl IntoIterator<Item = Value>,
-	) -> Result<Vec<Value>> {
-		self.query_all(statement, params).await.and_then(|rows| {
-			rows.into_iter()
-				.map(|row| {
+		statement: String,
+		params: Vec<Value>,
+	) -> impl Future<Output = Result<impl Stream<Item = Result<Value>> + Send>> + Send {
+		self.query(statement, params).map_ok(|rows| {
+			rows.map(|result| {
+				result.and_then(|row| {
 					row.into_values()
 						.next()
 						.ok_or_else(|| error!("expected a value"))
 				})
-				.try_collect()
-		})
-	}
-
-	pub async fn query_all_into<T>(
-		&self,
-		statement: impl Into<Cow<'static, str>>,
-		params: impl IntoIterator<Item = Value>,
-	) -> Result<Vec<T>>
-	where
-		T: serde::de::DeserializeOwned,
-	{
-		self.query_all(statement, params)
-			.await?
-			.into_iter()
-			.map(T::deserialize)
-			.try_collect()
-	}
-
-	pub async fn query_all_scalar_into<T>(
-		&self,
-		statement: impl Into<Cow<'static, str>>,
-		params: impl IntoIterator<Item = Value>,
-	) -> Result<Vec<T>>
-	where
-		T: serde::de::DeserializeOwned,
-	{
-		self.query_all_scalar(statement, params)
-			.await?
-			.into_iter()
-			.map(T::deserialize)
-			.try_collect()
-	}
-
-	pub async fn transaction(&mut self) -> Result<Transaction<'_>> {
-		match self {
-			Self::Sqlite(s) => Ok(Transaction::Sqlite(s.transaction().await?)),
-			Self::Postgres(s) => Ok(Transaction::Postgres(s.transaction().await?)),
-		}
-	}
-}
-
-impl<'a> Transaction<'a> {
-	#[must_use]
-	pub fn p(&self) -> &'static str {
-		match self {
-			Self::Sqlite(_) => "?",
-			Self::Postgres(_) => "$",
-		}
-	}
-
-	pub async fn execute(
-		&self,
-		statement: impl Into<Cow<'static, str>>,
-		params: impl IntoIterator<Item = Value>,
-	) -> Result<u64> {
-		match self {
-			Self::Sqlite(s) => s.execute(statement, params).await,
-			Self::Postgres(s) => s.execute(statement, params).await,
-		}
-	}
-
-	pub async fn query(
-		&self,
-		statement: impl Into<Cow<'static, str>>,
-		params: impl IntoIterator<Item = Value>,
-	) -> Result<impl Stream<Item = Result<Row>>> {
-		match self {
-			Self::Sqlite(s) => s.query(statement, params).await.map(future::Either::Left),
-			Self::Postgres(s) => s.query(statement, params).await.map(future::Either::Right),
-		}
-	}
-
-	pub async fn query_scalar(
-		&self,
-		statement: impl Into<Cow<'static, str>>,
-		params: impl IntoIterator<Item = Value>,
-	) -> Result<impl Stream<Item = Result<Value>>> {
-		self.query(statement, params).await.map(|stream| {
-			stream.and_then(|row| {
-				future::ready(
-					row.into_values()
-						.next()
-						.ok_or_else(|| error!("expected a value")),
-				)
 			})
 		})
 	}
 
-	pub async fn query_into<T>(
+	fn query_into<T>(
 		&self,
-		statement: impl Into<Cow<'static, str>>,
-		params: impl IntoIterator<Item = Value>,
-	) -> Result<impl Stream<Item = Result<T>>>
+		statement: String,
+		params: Vec<Value>,
+	) -> impl Future<Output = Result<impl Stream<Item = Result<T>> + Send>> + Send
 	where
 		T: serde::de::DeserializeOwned,
 	{
 		self.query(statement, params)
-			.await
-			.map(|stream| stream.and_then(|row| future::ready(T::deserialize(row))))
+			.map_ok(|rows| rows.map(|result| result.and_then(T::deserialize)))
 	}
 
-	pub async fn query_scalar_into<T>(
+	fn query_value_into<T>(
 		&self,
-		statement: impl Into<Cow<'static, str>>,
-		params: impl IntoIterator<Item = Value>,
-	) -> Result<impl Stream<Item = Result<T>>>
+		statement: String,
+		params: Vec<Value>,
+	) -> impl Future<Output = Result<impl Stream<Item = Result<T>>>> + Send
 	where
 		T: serde::de::DeserializeOwned,
 	{
-		self.query_scalar(statement, params)
-			.await
-			.map(|stream| stream.and_then(|value| future::ready(T::deserialize(value))))
+		self.query_value(statement, params)
+			.map_ok(|rows| rows.map(|result| result.and_then(T::deserialize)))
 	}
 
-	pub async fn query_optional(
+	fn query_optional(
 		&self,
-		statement: impl Into<Cow<'static, str>>,
-		params: impl IntoIterator<Item = Value>,
-	) -> Result<Option<Row>> {
-		match self {
-			Self::Sqlite(s) => s.query_optional(statement, params).await,
-			Self::Postgres(s) => s.query_optional(statement, params).await,
+		statement: String,
+		params: Vec<Value>,
+	) -> impl Future<Output = Result<Option<Row>>> + Send {
+		async fn into_first<T>(rows: T) -> Result<Option<Row>>
+		where
+			T: Stream<Item = Result<Row>>,
+		{
+			pin!(rows).try_next().await
 		}
+		self.query(statement, params).and_then(into_first)
 	}
 
-	pub async fn query_optional_scalar(
+	fn query_optional_value(
 		&self,
-		statement: impl Into<Cow<'static, str>>,
-		params: impl IntoIterator<Item = Value>,
-	) -> Result<Option<Value>> {
+		statement: String,
+		params: Vec<Value>,
+	) -> impl Future<Output = Result<Option<Value>>> + Send {
+		self.query_optional(statement, params).map(|result| {
+			result.and_then(|option| {
+				option
+					.map(|row| row.into_values().next())
+					.ok_or_else(|| error!("expected a value"))
+			})
+		})
+	}
+
+	fn query_optional_into<T>(
+		&self,
+		statement: String,
+		params: Vec<Value>,
+	) -> impl Future<Output = Result<Option<T>>> + Send
+	where
+		T: serde::de::DeserializeOwned,
+	{
 		self.query_optional(statement, params)
-			.await?
-			.map(|row| {
+			.map(|result| result.and_then(|option| option.map(T::deserialize).transpose()))
+	}
+
+	fn query_optional_value_into<T>(
+		&self,
+		statement: String,
+		params: Vec<Value>,
+	) -> impl Future<Output = Result<Option<T>>> + Send
+	where
+		T: serde::de::DeserializeOwned,
+	{
+		self.query_optional_value(statement, params)
+			.map(|result| result.and_then(|option| option.map(T::deserialize).transpose()))
+	}
+
+	fn query_one(
+		&self,
+		statement: String,
+		params: Vec<Value>,
+	) -> impl Future<Output = Result<Row>> + Send {
+		self.query_optional(statement, params)
+			.map(|result| result.and_then(|option| option.ok_or_else(|| error!("expected a row"))))
+	}
+
+	fn query_one_value(
+		&self,
+		statement: String,
+		params: Vec<Value>,
+	) -> impl Future<Output = Result<Value>> + Send {
+		self.query_one(statement, params).map(|result| {
+			result.and_then(|row| {
 				row.into_values()
 					.next()
 					.ok_or_else(|| error!("expected a value"))
 			})
-			.transpose()
-	}
-
-	pub async fn query_optional_into<T>(
-		&self,
-		statement: impl Into<Cow<'static, str>>,
-		params: impl IntoIterator<Item = Value>,
-	) -> Result<Option<T>>
-	where
-		T: serde::de::DeserializeOwned,
-	{
-		self.query_optional(statement, params)
-			.await?
-			.map(T::deserialize)
-			.transpose()
-	}
-
-	pub async fn query_optional_scalar_into<T>(
-		&self,
-		statement: impl Into<Cow<'static, str>>,
-		params: impl IntoIterator<Item = Value>,
-	) -> Result<Option<T>>
-	where
-		T: serde::de::DeserializeOwned,
-	{
-		self.query_optional_scalar(statement, params)
-			.await?
-			.map(T::deserialize)
-			.transpose()
-	}
-
-	pub async fn query_one(
-		&self,
-		statement: impl Into<Cow<'static, str>>,
-		params: impl IntoIterator<Item = Value>,
-	) -> Result<Row> {
-		match self {
-			Self::Sqlite(s) => s.query_one(statement, params).await,
-			Self::Postgres(s) => s.query_one(statement, params).await,
-		}
-	}
-
-	pub async fn query_one_scalar(
-		&self,
-		statement: impl Into<Cow<'static, str>>,
-		params: impl IntoIterator<Item = Value>,
-	) -> Result<Value> {
-		self.query_one(statement, params).await.and_then(|row| {
-			row.into_values()
-				.next()
-				.ok_or_else(|| error!("expected a value"))
 		})
 	}
 
-	pub async fn query_one_into<T>(
+	fn query_one_into<T>(
 		&self,
-		statement: impl Into<Cow<'static, str>>,
-		params: impl IntoIterator<Item = Value>,
-	) -> Result<T>
+		statement: String,
+		params: Vec<Value>,
+	) -> impl Future<Output = Result<T>> + Send
 	where
 		T: serde::de::DeserializeOwned,
 	{
 		self.query_one(statement, params)
-			.await
-			.and_then(T::deserialize)
+			.map(|result| result.and_then(T::deserialize))
 	}
 
-	pub async fn query_one_scalar_into<T>(
+	fn query_one_value_into<T>(
 		&self,
-		statement: impl Into<Cow<'static, str>>,
-		params: impl IntoIterator<Item = Value>,
-	) -> Result<T>
+		statement: String,
+		params: Vec<Value>,
+	) -> impl Future<Output = Result<T>> + Send
 	where
 		T: serde::de::DeserializeOwned,
 	{
-		self.query_one_scalar(statement, params)
-			.await
-			.and_then(T::deserialize)
+		self.query_one_value(statement, params)
+			.map(|result| result.and_then(T::deserialize))
 	}
 
-	pub async fn query_all(
+	fn query_all(
 		&self,
-		statement: impl Into<Cow<'static, str>>,
-		params: impl IntoIterator<Item = Value>,
-	) -> Result<Vec<Row>> {
-		match self {
-			Self::Sqlite(s) => s.query_all(statement, params).await,
-			Self::Postgres(s) => s.query_all(statement, params).await,
-		}
+		statement: String,
+		params: Vec<Value>,
+	) -> impl Future<Output = Result<Vec<Row>>> + Send {
+		self.query(statement, params)
+			.and_then(TryStreamExt::try_collect)
 	}
 
-	pub async fn query_all_scalar(
+	fn query_all_value(
 		&self,
-		statement: impl Into<Cow<'static, str>>,
-		params: impl IntoIterator<Item = Value>,
-	) -> Result<Vec<Value>> {
-		self.query_all(statement, params).await.and_then(|rows| {
-			rows.into_iter()
-				.map(|row| {
-					row.into_values()
-						.next()
-						.ok_or_else(|| error!("expected a value"))
-				})
-				.try_collect()
+		statement: String,
+		params: Vec<Value>,
+	) -> impl Future<Output = Result<Vec<Value>>> + Send {
+		self.query_all(statement, params).map(|result| {
+			result.and_then(|rows| {
+				rows.into_iter()
+					.map(|row| {
+						row.into_values()
+							.next()
+							.ok_or_else(|| error!("expected a value"))
+					})
+					.try_collect()
+			})
 		})
 	}
 
-	pub async fn query_all_into<T>(
+	fn query_all_into<T>(
 		&self,
-		statement: impl Into<Cow<'static, str>>,
-		params: impl IntoIterator<Item = Value>,
-	) -> Result<Vec<T>>
+		statement: String,
+		params: Vec<Value>,
+	) -> impl Future<Output = Result<Vec<T>>> + Send
 	where
 		T: serde::de::DeserializeOwned,
 	{
-		self.query_all(statement, params)
-			.await?
-			.into_iter()
-			.map(T::deserialize)
-			.try_collect()
+		self.query_all(statement, params).map(|result| {
+			result.and_then(|rows| rows.into_iter().map(T::deserialize).try_collect())
+		})
 	}
 
-	pub async fn query_all_scalar_into<T>(
+	fn query_all_value_into<T>(
 		&self,
-		statement: impl Into<Cow<'static, str>>,
-		params: impl IntoIterator<Item = Value>,
-	) -> Result<Vec<T>>
+		statement: String,
+		params: Vec<Value>,
+	) -> impl Future<Output = Result<Vec<T>>> + Send
 	where
 		T: serde::de::DeserializeOwned,
 	{
-		self.query_all_scalar(statement, params)
-			.await?
-			.into_iter()
-			.map(T::deserialize)
-			.try_collect()
-	}
-
-	pub async fn rollback(self) -> Result<()> {
-		match self {
-			Transaction::Sqlite(transaction) => transaction.rollback().await,
-			Transaction::Postgres(transaction) => transaction.rollback().await,
-		}
-	}
-
-	pub async fn commit(self) -> Result<()> {
-		match self {
-			Transaction::Sqlite(transaction) => transaction.commit().await,
-			Transaction::Postgres(transaction) => transaction.commit().await,
-		}
+		self.query_all_value(statement, params).map(|result| {
+			result.and_then(|rows| rows.into_iter().map(T::deserialize).try_collect())
+		})
 	}
 }
 
 #[macro_export]
 macro_rules! params {
 	($($v:expr),* $(,)?) => {
-		[$(::serde::Serialize::serialize(&$v, $crate::value::Serializer).unwrap(),)*]
+		vec![$(::serde::Serialize::serialize(&$v, $crate::value::ser::Serializer).unwrap(),)*]
 	};
 }

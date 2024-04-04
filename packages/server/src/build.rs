@@ -5,7 +5,7 @@ use futures::{future, FutureExt, StreamExt, TryFutureExt};
 use indoc::formatdoc;
 use std::pin::pin;
 use tangram_client as tg;
-use tangram_database as db;
+use tangram_database::{self as db, prelude::*};
 use tangram_error::{error, Error, Result};
 
 mod children;
@@ -223,7 +223,7 @@ impl Server {
 		let id = id.to_string();
 		let params = db::params![id];
 		let parent = connection
-			.query_optional_scalar_into(statement, params)
+			.query_optional_value_into(statement, params)
 			.await
 			.map_err(|source| error!(!source, "failed to execute the statement"))?;
 
@@ -253,7 +253,7 @@ impl Server {
 		);
 		let params = db::params![id];
 		let exists = connection
-			.query_one_scalar_into(statement, params)
+			.query_one_value_into(statement, params)
 			.await
 			.map_err(|source| error!(!source, "failed to execute the statement"))?;
 

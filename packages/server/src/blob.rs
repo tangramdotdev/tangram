@@ -1,9 +1,8 @@
-use crate::Server;
+use crate::{database::Transaction, Server};
 use bytes::Bytes;
 use futures::{stream, StreamExt, TryStreamExt};
 use num::ToPrimitive;
 use tangram_client as tg;
-use tangram_database as db;
 use tangram_error::{error, Error, Result};
 use tokio::io::AsyncRead;
 
@@ -16,7 +15,7 @@ impl Server {
 	pub async fn create_blob_with_reader(
 		&self,
 		reader: impl AsyncRead + Unpin,
-		transaction: &db::Transaction<'_>,
+		transaction: &Transaction<'_>,
 	) -> Result<tg::blob::Id> {
 		// Create the leaves.
 		let mut chunker = fastcdc::v2020::AsyncStreamCDC::new(

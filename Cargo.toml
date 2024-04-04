@@ -7,7 +7,6 @@ members = [
   "packages/error",
   "packages/fuse",
   "packages/nfs",  
-  "packages/pool",
   "packages/server",
   "packages/sse",
 ]
@@ -120,7 +119,6 @@ tangram_database = { path = "packages/database" }
 tangram_error = { path = "packages/error" }
 tangram_fuse = { path = "packages/fuse" }
 tangram_nfs = { path = "packages/nfs" }
-tangram_pool = { path = "packages/pool" }
 tangram_server = { path = "packages/server" }
 tangram_sse = { path = "packages/sse" }
 tar = { version = "0.4" }
