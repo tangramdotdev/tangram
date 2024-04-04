@@ -154,7 +154,6 @@ impl Server {
 				.add_path_dependencies_to_lock(&package_with_path_dependencies, lock)
 				.await?;
 			let lock = lock.id(self).await?.clone();
-			tracing::debug!(%lock, "returned lock.");
 			Some(lock)
 		} else {
 			None
