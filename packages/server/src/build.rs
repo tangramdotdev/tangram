@@ -1,5 +1,5 @@
 use super::Server;
-use crate::Permit;
+use crate::{runtime::Trait as _, Permit};
 use either::Either;
 use futures::{future, FutureExt, StreamExt, TryFutureExt};
 use indoc::formatdoc;
@@ -181,7 +181,7 @@ impl Server {
 			.unwrap()
 			.get(&*host)
 			.ok_or_else(|| error!(?id, ?host = &*host, "no runtime to build the target"))?
-			.clone_box();
+			.clone();
 		let result = runtime.run(&build).await;
 
 		// Log the error.

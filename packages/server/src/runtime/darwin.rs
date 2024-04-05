@@ -1,6 +1,5 @@
 use super::{proxy, util::render};
 use crate::Server;
-use async_trait::async_trait;
 use bytes::Bytes;
 use futures::{
 	stream::{FuturesOrdered, FuturesUnordered},
@@ -540,12 +539,7 @@ fn escape(bytes: impl AsRef<[u8]>) -> String {
 	output
 }
 
-#[async_trait]
-impl super::Runtime for Runtime {
-	fn clone_box(&self) -> Box<dyn super::Runtime> {
-		Box::new(self.clone())
-	}
-
+impl super::Trait for Runtime {
 	async fn run(&self, build: &tg::Build) -> Result<tg::Value> {
 		self.run(build).await
 	}

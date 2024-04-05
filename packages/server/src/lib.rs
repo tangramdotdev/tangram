@@ -74,7 +74,7 @@ struct Inner {
 	options: Options,
 	path: PathBuf,
 	remotes: Vec<tg::Client>,
-	runtimes: std::sync::RwLock<HashMap<String, Box<dyn Runtime>>>,
+	runtimes: std::sync::RwLock<HashMap<String, Runtime>>,
 	status: tokio::sync::watch::Sender<Status>,
 	stop_task: std::sync::Mutex<Option<tokio::task::JoinHandle<()>>>,
 	vfs: std::sync::Mutex<Option<self::vfs::Server>>,
@@ -337,7 +337,7 @@ impl Server {
 
 		// Add the runtimes.
 		let triple = "js".to_owned();
-		let runtime = Box::new(self::runtime::js::Runtime::new(&server));
+		let runtime = self::runtime::Runtime::Js(self::runtime::js::Runtime::new(&server));
 		server
 			.inner
 			.runtimes
@@ -347,7 +347,8 @@ impl Server {
 		#[cfg(all(target_arch = "aarch64", target_os = "macos"))]
 		{
 			let triple = "aarch64-darwin".to_owned();
-			let runtime = Box::new(self::runtime::darwin::Runtime::new(&server));
+			let runtime =
+				self::runtime::Runtime::Darwin(self::runtime::darwin::Runtime::new(&server));
 			server
 				.inner
 				.runtimes
@@ -358,7 +359,8 @@ impl Server {
 		#[cfg(all(target_arch = "aarch64", target_os = "linux"))]
 		{
 			let triple = "aarch64-linux".to_owned();
-			let runtime = Box::new(self::runtime::linux::Runtime::new(&server).await?);
+			let runtime =
+				self::runtime::Runtime::Linux(self::runtime::linux::Runtime::new(&server).await?);
 			server
 				.inner
 				.runtimes
@@ -369,7 +371,8 @@ impl Server {
 		#[cfg(all(target_arch = "x86_64", target_os = "macos"))]
 		{
 			let triple = "x86_64-darwin".to_owned();
-			let runtime = Box::new(self::runtime::darwin::Runtime::new(&server));
+			let runtime =
+				self::runtime::Runtime::Darwin(self::runtime::darwin::Runtime::new(&server));
 			server
 				.inner
 				.runtimes
@@ -380,7 +383,8 @@ impl Server {
 		#[cfg(all(target_arch = "x86_64", target_os = "linux"))]
 		{
 			let triple = "x86_64-linux".to_owned();
-			let runtime = Box::new(self::runtime::linux::Runtime::new(&server).await?);
+			let runtime =
+				self::runtime::Runtime::Linux(self::runtime::linux::Runtime::new(&server).await?);
 			server
 				.inner
 				.runtimes

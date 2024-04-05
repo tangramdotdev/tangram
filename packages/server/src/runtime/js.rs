@@ -3,7 +3,6 @@ use self::{
 	syscall::syscall,
 };
 use crate::Server;
-use async_trait::async_trait;
 use futures::{
 	future::{self, LocalBoxFuture},
 	stream::FuturesUnordered,
@@ -688,12 +687,7 @@ fn parse_import_inner<'s>(
 	Ok(import)
 }
 
-#[async_trait]
-impl super::Runtime for Runtime {
-	fn clone_box(&self) -> Box<dyn super::Runtime> {
-		Box::new(self.clone())
-	}
-
+impl super::Trait for Runtime {
 	async fn run(&self, build: &tg::Build) -> Result<tg::Value> {
 		self.run(build).await
 	}

@@ -1,8 +1,8 @@
 pub use self::{row::Row, value::Value};
 use derive_more::From;
-use futures::{FutureExt, Stream, StreamExt, TryFutureExt, TryStreamExt};
+use futures::{Future, FutureExt, Stream, StreamExt, TryFutureExt, TryStreamExt};
 use itertools::Itertools;
-use std::{future::Future, pin::pin};
+use std::pin::pin;
 use tangram_error::{error, Result};
 
 pub mod postgres;

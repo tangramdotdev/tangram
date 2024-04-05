@@ -1,10 +1,9 @@
 use super::{proxy, util::render};
 use crate::Server;
-use async_trait::async_trait;
 use bytes::Bytes;
 use futures::{
 	stream::{FuturesOrdered, FuturesUnordered},
-	TryStreamExt,
+	Future, FutureExt, TryStreamExt,
 };
 use indoc::formatdoc;
 use itertools::Itertools;
@@ -13,6 +12,7 @@ use std::{
 	ffi::CString,
 	os::{fd::AsRawFd, unix::ffi::OsStrExt},
 	path::{Path, PathBuf},
+	pin::Pin,
 };
 use tangram_client as tg;
 use tangram_error::{error, Error, Result};
@@ -776,12 +776,7 @@ impl Runtime {
 	}
 }
 
-#[async_trait]
-impl super::Runtime for Runtime {
-	fn clone_box(&self) -> Box<dyn super::Runtime> {
-		Box::new(self.clone())
-	}
-
+impl super::Trait for Runtime {
 	async fn run(&self, build: &tg::Build) -> Result<tg::Value> {
 		self.run(build).await
 	}
