@@ -80,7 +80,7 @@ enum FileHandleData {
 	Directory,
 	File {
 		node: NodeId,
-		reader: tg::blob::Reader,
+		reader: tg::blob::Reader<crate::Server>,
 	},
 	Symlink,
 }
