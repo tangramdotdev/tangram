@@ -74,14 +74,6 @@ impl Cli {
 			// Create the package.
 			let (package, lock) = tg::package::get_with_lock(client, &dependency).await?;
 
-			// Write the lock.
-			if dependency.path.is_some() {
-				let path = dependency.path.as_ref().unwrap();
-				lock.write(client, path, false)
-					.await
-					.map_err(|source| error!(!source, "failed to write the lock file"))?;
-			}
-
 			// Create the target.
 			let mut env: BTreeMap<String, tg::Value> = args
 				.env

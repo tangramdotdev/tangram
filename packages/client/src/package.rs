@@ -20,7 +20,6 @@ pub const LOCKFILE_FILE_NAME: &str = "tangram.lock";
 #[allow(clippy::struct_excessive_bools)]
 #[derive(Debug, Clone, Default, serde::Deserialize, serde::Serialize)]
 pub struct GetArg {
-	pub create_lock: bool,
 	pub dependencies: bool,
 	pub lock: bool,
 	pub metadata: bool,
@@ -95,7 +94,6 @@ pub async fn try_get_with_lock(
 ) -> Result<Option<(Directory, Lock)>> {
 	let arg = GetArg {
 		lock: true,
-		create_lock: false,
 		..Default::default()
 	};
 	let Some(output) = tg.try_get_package(dependency, arg).await? else {
@@ -107,28 +105,6 @@ pub async fn try_get_with_lock(
 		.ok_or_else(|| error!(%dependency, "expected the lock to be set"))?;
 	let lock = Lock::with_id(lock);
 	Ok(Some((package, lock)))
-}
-
-pub async fn create_lock(tg: &dyn Handle, dependency: &Dependency) -> Result<Lock> {
-	try_create_lock(tg, dependency)
-		.await?
-		.ok_or_else(|| error!(%dependency, "failed to find the package"))
-}
-
-pub async fn try_create_lock(tg: &dyn Handle, dependency: &Dependency) -> Result<Option<Lock>> {
-	let arg = GetArg {
-		lock: true,
-		create_lock: true,
-		..Default::default()
-	};
-	let Some(output) = tg.try_get_package(dependency, arg).await? else {
-		return Ok(None);
-	};
-	let lock = output
-		.lock
-		.ok_or_else(|| error!(%dependency, "expected the lock to be set"))?;
-	let lock = Lock::with_id(lock);
-	Ok(Some(lock))
 }
 
 pub async fn get_dependencies(tg: &dyn Handle, package: &Directory) -> Result<Vec<Dependency>> {

@@ -211,30 +211,26 @@ impl Lock {
 		&self,
 		tg: &dyn Handle,
 		dependency: &Dependency,
-	) -> Result<Option<(Directory, Lock)>> {
+	) -> Result<(Option<Directory>, Lock)> {
 		let object = self.object(tg).await?;
 		let root = &object.nodes[object.root];
 		let Entry { package, lock } = root
 			.dependencies
 			.get(dependency)
 			.ok_or_else(|| error!(%dependency, "failed to lookup dependency in lock"))?;
-
-		// Get the package if it exists.
-		let package = package
-			.as_ref()
-			.ok_or_else(|| error!("expected a package for dependency"))?;
+		let package = package.clone();
 
 		// Short circuit if the lock is referred to by id.
 		let index = match lock {
 			Either::Left(index) => *index,
-			Either::Right(lock) => return Ok(Some((package.clone(), lock.clone()))),
+			Either::Right(lock) => return Ok((package, lock.clone())),
 		};
 
 		// Recursively construct a new lock.
 		let mut nodes = vec![];
 		let root = Self::get_inner(&mut nodes, object, index);
 		let lock = Lock::with_object(Object { root, nodes });
-		Ok(Some((package.clone(), lock)))
+		Ok((package, lock))
 	}
 
 	fn get_inner(nodes: &mut Vec<Node>, object: &Object, index: usize) -> usize {
@@ -260,39 +256,6 @@ impl Lock {
 }
 
 impl Lock {
-	/// Write the lock to a file in a containing directory.
-	pub async fn write(
-		&self,
-		tg: &dyn Handle,
-		directory: impl AsRef<std::path::Path>,
-		overwrite: bool,
-	) -> Result<()> {
-		let package_path = tokio::fs::canonicalize(directory.as_ref())
-			.await
-			.map_err(|error| {
-				let path = directory.as_ref().display();
-				error!(source = error, %path, "failed to canonicalize the path")
-			})?;
-
-		let path = package_path.join(LOCKFILE_FILE_NAME);
-		let exists = tokio::fs::try_exists(&path).await.map_err(|error| {
-			let path = path.display();
-			error!(source = error, %path, "failed to determine if the lockfile exists")
-		})?;
-		if exists && !overwrite {
-			return Ok(());
-		}
-
-		let lock = self.data(tg).await?;
-		let lock = serde_json::to_vec_pretty(&lock)
-			.map_err(|source| error!(!source, "failed to serialize the lockfile"))?;
-
-		tokio::fs::write(path, lock)
-			.await
-			.map_err(|source| error!(!source, "failed to write the lockfile"))?;
-		Ok(())
-	}
-
 	/// Read a lockfile in an existing directory.
 	pub async fn read(tg: &dyn Handle, directory: impl AsRef<std::path::Path>) -> Result<Self> {
 		Self::try_read(tg, directory)

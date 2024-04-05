@@ -96,19 +96,11 @@ impl Server {
 				let (_, lock) =
 					tg::package::get_with_lock(&self.inner.server, &dependency_).await?;
 
-				// Write the lock file.
-				lock.write(
-					&self.inner.server,
-					&dependency.path.as_ref().unwrap(),
-					false,
-				)
-				.await?;
-
 				// Get the package and lock for the dependency.
-				let (package, lock) = lock
-					.get(&self.inner.server, &dependency)
-					.await?
-					.ok_or_else(|| error!(%dependency, "failed to resolve dependency"))?;
+				let (package, lock) = lock.get(&self.inner.server, &dependency).await.map_err(
+					|source| error!(!source, %dependency, "failed to resolve dependency"),
+				)?;
+				let package = package.unwrap();
 
 				// Create the module.
 				let path = tg::package::get_root_module_path(&self.inner.server, &package).await?;
@@ -143,10 +135,28 @@ impl Server {
 				let lock = tg::Lock::with_id(module.lock.clone());
 
 				// Get the specified package and lock from the dependencies.
-				let (package, lock) = lock
-					.get(&self.inner.server, &dependency)
-					.await?
-					.ok_or_else(|| error!(%dependency, "failed to resolve dependency"))?;
+				let (package, lock) = lock.get(&self.inner.server, &dependency).await.map_err(
+					|source| error!(!source, %dependency, "failed to resolve dependency"),
+				)?;
+				let package = match (package, &dependency.path) {
+					(Some(package), _) => package,
+					(None, Some(path)) => {
+						let package = tg::Directory::with_id(module.package.clone());
+						package
+							.get(&self.inner.server, path)
+							.await
+							.map_err(
+								|source| error!(!source, %path, "could not resolve path dependency"),
+							)?
+							.try_unwrap_directory()
+							.map_err(|_| error!("expected a directory"))?
+					},
+					(None, None) => {
+						return Err(
+							error!(%dependency, "could not resolve dependency in lock or as path"),
+						)
+					},
+				};
 
 				// Create the module.
 				let path = tg::package::get_root_module_path(&self.inner.server, &package).await?;

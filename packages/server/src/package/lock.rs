@@ -109,6 +109,17 @@ enum Error {
 }
 
 impl Server {
+	pub(super) async fn write_lock(&self, root_path: tg::Path, lock: &tg::Lock) -> Result<()> {
+		let path = root_path.join("tangram.lock");
+		let data = lock.data(self).await?;
+		let json = serde_json::to_vec_pretty(&data)
+			.map_err(|source| error!(!source, "failed to serialize the lock"))?;
+		tokio::fs::write(&path, &json)
+			.await
+			.map_err(|source| error!(!source, %path, "failed to write the lock file"))?;
+		Ok(())
+	}
+
 	pub(super) async fn get_or_create_package_lock(
 		&self,
 		path: Option<&tg::Path>,
@@ -122,20 +133,22 @@ impl Server {
 		};
 
 		// Verify that the lockfile's dependencies match the package with path dependencies.
-		let lock = if let Some(lock) = lock {
-			let matches = self
-				.package_with_path_dependencies_matches_lock(
-					package_with_path_dependencies,
-					lock.clone(),
-				)
-				.await?;
-			if matches {
-				Some(lock)
-			} else {
-				None
-			}
-		} else {
-			None
+		let lock = 'a: {
+			let Some(lock) = lock else {
+				break 'a None;
+			};
+			let Ok(lock_with_dependencies) = self
+				.add_path_dependencies_to_lock(package_with_path_dependencies, lock.clone())
+				.await
+			else {
+				break 'a None;
+			};
+			self.package_with_path_dependencies_matches_lock(
+				package_with_path_dependencies,
+				lock_with_dependencies,
+			)
+			.await?
+			.then_some(lock)
 		};
 
 		// Otherwise, create the lock.
@@ -145,11 +158,6 @@ impl Server {
 			self.create_package_lock(package_with_path_dependencies)
 				.await?
 		};
-
-		// Fill in path dependencies.
-		let lock = self
-			.add_path_dependencies_to_lock(package_with_path_dependencies, lock)
-			.await?;
 
 		// Normalize the lock.
 		let lock = lock
@@ -181,10 +189,8 @@ impl Server {
 			.path_dependencies
 			.iter()
 			.map(|(dependency, package_with_path_dependencies)| async {
-				let (_, lock) = lock
-					.get(self, dependency)
-					.await?
-					.ok_or_else(|| error!("invalid lockfile"))?;
+				let (_, lock) = lock.get(self, dependency).await?;
+
 				self.package_with_path_dependencies_matches_lock(
 					package_with_path_dependencies,
 					lock,
@@ -387,7 +393,7 @@ impl Server {
 	}
 
 	#[async_recursion]
-	async fn add_path_dependencies_to_lock(
+	pub(super) async fn add_path_dependencies_to_lock(
 		&self,
 		package_with_path_dependencies: &PackageWithPathDependencies,
 		lock: tg::lock::Lock,

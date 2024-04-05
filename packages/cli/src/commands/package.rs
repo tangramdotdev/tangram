@@ -149,15 +149,7 @@ impl Cli {
 		}
 
 		// Create the package.
-		let (package, lock) = tg::package::get_with_lock(client, &dependency).await?;
-
-		// Write the lock.
-		if dependency.path.is_some() {
-			let path = dependency.path.as_ref().unwrap();
-			lock.write(client, path, false)
-				.await
-				.map_err(|source| error!(!source, "failed to write the lock file"))?;
-		}
+		let (package, _) = tg::package::get_with_lock(client, &dependency).await?;
 
 		// Get the package ID.
 		let id = package.id(client).await?;
@@ -206,14 +198,6 @@ impl Cli {
 			.await
 			.map_err(|source| error!(!source, %dependency, "failed to get the lock"))?;
 
-		// Write the lock.
-		if dependency.path.is_some() {
-			let path = dependency.path.as_ref().unwrap();
-			lock.write(client, path, false)
-				.await
-				.map_err(|source| error!(!source, "failed to write the lock file"))?;
-		}
-
 		let mut visited = BTreeSet::new();
 		let tree = get_package_tree(
 			client,
@@ -239,18 +223,16 @@ impl Cli {
 		if let Some(path) = dependency.path.as_mut() {
 			*path = tokio::fs::canonicalize(&path)
 				.await
-				.map_err(|source| error!(!source, "failed to canonicalize the path"))?
+				.map_err(|source| error!(!source, %path, "failed to canonicalize the path"))?
 				.try_into()?;
+			tokio::fs::remove_file(path.clone().join("tangram.lock"))
+				.await
+				.ok();
 		}
 
-		let lock = tg::package::create_lock(client, &dependency)
+		let _ = tg::package::get_with_lock(client, &dependency)
 			.await
 			.map_err(|source| error!(!source, %dependency, "failed to create a new lock"))?;
-
-		// Overwrite the existing lock.
-		lock.write(client, dependency.path.unwrap(), true)
-			.await
-			.map_err(|source| error!(!source, "failed to write the lock"))?;
 
 		Ok(())
 	}
@@ -293,12 +275,16 @@ async fn get_package_tree(
 
 	let mut children = Vec::new();
 	for dependency in lock.dependencies(client).await? {
-		let Some((package, lock)) = lock.get(client, &dependency).await? else {
-			children.push(Tree {
-				title: "<none>".into(),
-				children: Vec::new(),
-			});
-			continue;
+		let (child_package, lock) = lock.get(client, &dependency).await?;
+		let package = match (child_package, &dependency.path) {
+			(Some(package), _) => package,
+			(None, Some(path)) => package
+				.get(client, path)
+				.await
+				.map_err(|source| error!(!source, %path, "could not resolve path dependency"))?
+				.try_unwrap_directory()
+				.map_err(|source| error!(!source, "expected a directory"))?,
+			(None, None) => return Err(error!("invalid lock")),
 		};
 		let child = get_package_tree(
 			client,
