@@ -1,7 +1,7 @@
 use crossterm::style::Stylize;
 use tangram_client as tg;
 
-pub fn print(trace: tg::error::Trace) {
+pub fn print(trace: &tg::error::Trace) {
 	let mut errors = vec![trace.error];
 	while let Some(next) = errors.last().unwrap().source.as_ref() {
 		errors.push(next);
@@ -13,7 +13,7 @@ pub fn print(trace: tg::error::Trace) {
 	for error in errors {
 		eprintln!("{} {}", "->".red(), error.message);
 		if let Some(location) = &error.location {
-			if !location.source.is_internal() || self.options.internal {
+			if !location.source.is_internal() || trace.options.internal {
 				let location = location.to_string().yellow();
 				eprintln!("   {location}");
 			}
@@ -26,11 +26,11 @@ pub fn print(trace: tg::error::Trace) {
 		}
 
 		let mut stack = error.stack.iter().flatten().collect::<Vec<_>>();
-		if !self.options.reverse {
+		if !trace.options.reverse {
 			stack.reverse();
 		}
 		for location in stack {
-			if !location.source.is_internal() || self.options.internal {
+			if !location.source.is_internal() || trace.options.internal {
 				let location = location.to_string().yellow();
 				eprintln!("   {location}");
 			}

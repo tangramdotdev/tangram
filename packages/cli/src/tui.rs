@@ -1098,7 +1098,7 @@ impl Log {
 					tx.send(()).ok();
 				}
 				log.inner.log_watch.lock().await.take();
-				Ok::<_, tangram_error::Error>(())
+				Ok::<_, tg::Error>(())
 			});
 			self.inner.log_task.lock().unwrap().replace(task);
 			self.inner.log_watch.lock().await.replace(rx);

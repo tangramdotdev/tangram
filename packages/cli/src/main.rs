@@ -96,7 +96,7 @@ fn main() {
 			.unwrap_or_default();
 		let trace = error.trace(&options);
 		eprintln!("{}: an error occurred", "error".red().bold());
-		trace.eprint();
+		self::error::print(&trace);
 		std::process::exit(1);
 	}
 }

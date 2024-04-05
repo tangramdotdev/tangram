@@ -30,7 +30,7 @@ struct Inner {
 	nodes: parking_lot::RwLock<Map<NodeId, Arc<Node>>>,
 	path: std::path::PathBuf,
 	server: crate::Server,
-	task: std::sync::Mutex<Option<tokio::task::JoinHandle<Result<()>>>>,
+	task: std::sync::Mutex<Option<tokio::task::JoinHandle<tg::Result<()>>>>,
 }
 
 /// A node in the file system.
