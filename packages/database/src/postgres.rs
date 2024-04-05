@@ -1,12 +1,18 @@
-use super::{Row, Value};
+use crate::{Error as _, Row, Value};
 use futures::{future, Stream, TryStreamExt};
 use indexmap::IndexMap;
 use itertools::Itertools;
 pub use postgres::types::Json;
 use std::collections::HashMap;
-use tangram_error::{error, Result};
 use tokio_postgres as postgres;
 use url::Url;
+
+#[derive(Debug, thiserror::Error)]
+#[error(transparent)]
+pub enum Error {
+	Postgres(#[from] postgres::Error),
+	Other(Box<dyn std::error::Error + Send + Sync>),
+}
 
 #[derive(Clone, Debug)]
 pub struct Options {
@@ -42,14 +48,11 @@ impl Cache {
 		&self,
 		client: &impl postgres::GenericClient,
 		query: impl AsRef<str>,
-	) -> Result<postgres::Statement> {
+	) -> Result<postgres::Statement, Error> {
 		if let Some(statement) = self.statements.lock().await.get(query.as_ref()) {
 			return Ok(statement.clone());
 		}
-		let statement = client
-			.prepare(query.as_ref())
-			.await
-			.map_err(|source| error!(!source, "failed to prepare the statement"))?;
+		let statement = client.prepare(query.as_ref()).await?;
 		self.statements
 			.lock()
 			.await
@@ -59,14 +62,11 @@ impl Cache {
 }
 
 impl Database {
-	pub async fn new(options: Options) -> Result<Self> {
+	pub async fn new(options: Options) -> Result<Self, Error> {
 		let (sender, receiver) = async_channel::bounded(options.max_connections);
 		for _ in 0..options.max_connections {
-			let (client, connection) = postgres::connect(options.url.as_str(), postgres::NoTls)
-				.await
-				.map_err(
-					|source| error!(!source, %url = options.url, "failed to connect to the database"),
-				)?;
+			let (client, connection) =
+				postgres::connect(options.url.as_str(), postgres::NoTls).await?;
 			tokio::spawn(async move {
 				connection
 					.await
@@ -85,24 +85,22 @@ impl Database {
 }
 
 impl super::Database for Database {
+	type Error = Error;
+
 	type Connection<'c> = Connection<'c> where Self: 'c;
 
-	async fn connection(&self) -> Result<Self::Connection<'_>> {
+	async fn connection(&self) -> Result<Self::Connection<'_>, Self::Error> {
 		let sender = self.sender.clone();
 		let (client, cache) = self
 			.receiver
 			.recv()
 			.await
-			.map_err(|source| error!(!source, "failed to acquire a database connection"))?;
+			.map_err(|_| Error::other("failed to acquire a database connection"))?;
 		let mut client = Some(client);
 		let cache = Some(cache);
 		if client.as_ref().unwrap().is_closed() {
 			let (client_, connection) =
-				postgres::connect(self.options.url.as_str(), postgres::NoTls)
-					.await
-					.map_err(
-						|source| error!(!source, %url = self.options.url, "failed to connect to the database"),
-					)?;
+				postgres::connect(self.options.url.as_str(), postgres::NoTls).await?;
 			tokio::spawn(async move {
 				connection
 					.await
@@ -121,41 +119,35 @@ impl super::Database for Database {
 }
 
 impl<'c> super::Connection for Connection<'c> {
+	type Error = Error;
+
 	type Transaction<'t> = Transaction<'t> where Self: 't;
 
-	async fn transaction(&mut self) -> Result<Self::Transaction<'_>> {
-		let transaction = self
-			.client
-			.as_mut()
-			.unwrap()
-			.transaction()
-			.await
-			.map_err(|source| error!(!source, "failed to begin the transaction"))?;
+	async fn transaction(&mut self) -> Result<Self::Transaction<'_>, Self::Error> {
+		let transaction = self.client.as_mut().unwrap().transaction().await?;
 		let cache = self.cache.as_ref().unwrap();
 		Ok(Transaction { transaction, cache })
 	}
 }
 
 impl<'t> super::Transaction for Transaction<'t> {
-	async fn rollback(self) -> Result<()> {
-		self.transaction
-			.rollback()
-			.await
-			.map_err(|source| error!(!source, "failed to roll back the transaction"))?;
+	type Error = Error;
+
+	async fn rollback(self) -> Result<(), Self::Error> {
+		self.transaction.rollback().await?;
 		Ok(())
 	}
 
-	async fn commit(self) -> Result<()> {
-		self.transaction
-			.commit()
-			.await
-			.map_err(|source| error!(!source, "failed to commit the transaction"))?;
+	async fn commit(self) -> Result<(), Self::Error> {
+		self.transaction.commit().await?;
 		Ok(())
 	}
 }
 
 impl<'a> super::Query for Connection<'a> {
-	async fn execute(&self, statement: String, params: Vec<Value>) -> Result<u64> {
+	type Error = Error;
+
+	async fn execute(&self, statement: String, params: Vec<Value>) -> Result<u64, Self::Error> {
 		execute(
 			self.client.as_ref().unwrap(),
 			self.cache.as_ref().unwrap(),
@@ -169,7 +161,7 @@ impl<'a> super::Query for Connection<'a> {
 		&self,
 		statement: String,
 		params: Vec<Value>,
-	) -> Result<impl Stream<Item = Result<Row>> + Send> {
+	) -> Result<impl Stream<Item = Result<Row, Self::Error>> + Send, Self::Error> {
 		query(
 			self.client.as_ref().unwrap(),
 			self.cache.as_ref().unwrap(),
@@ -181,7 +173,9 @@ impl<'a> super::Query for Connection<'a> {
 }
 
 impl<'a> super::Query for Transaction<'a> {
-	async fn execute(&self, statement: String, params: Vec<Value>) -> Result<u64> {
+	type Error = Error;
+
+	async fn execute(&self, statement: String, params: Vec<Value>) -> Result<u64, Self::Error> {
 		execute(&self.transaction, self.cache, statement, params).await
 	}
 
@@ -189,8 +183,14 @@ impl<'a> super::Query for Transaction<'a> {
 		&self,
 		statement: String,
 		params: Vec<Value>,
-	) -> Result<impl Stream<Item = Result<Row>> + Send> {
+	) -> Result<impl Stream<Item = Result<Row, Self::Error>> + Send, Self::Error> {
 		query(&self.transaction, self.cache, statement, params).await
+	}
+}
+
+impl super::Error for Error {
+	fn other(error: impl Into<Box<dyn std::error::Error + Send + Sync>>) -> Self {
+		Self::Other(error.into())
 	}
 }
 
@@ -207,16 +207,13 @@ async fn execute(
 	cache: &Cache,
 	statement: String,
 	params: Vec<Value>,
-) -> Result<u64> {
+) -> Result<u64, Error> {
 	let statement = cache.get(client, statement).await?;
 	let params = &params
 		.iter()
 		.map(|value| value as &(dyn postgres::types::ToSql + Sync))
 		.collect_vec();
-	let n = client
-		.execute(&statement, params)
-		.await
-		.map_err(|source| error!(!source, "failed to prepare the statement"))?;
+	let n = client.execute(&statement, params).await?;
 	Ok(n)
 }
 
@@ -225,24 +222,19 @@ async fn query(
 	cache: &Cache,
 	statement: String,
 	params: Vec<Value>,
-) -> Result<impl Stream<Item = Result<Row>> + Send> {
+) -> Result<impl Stream<Item = Result<Row, Error>> + Send, Error> {
 	let statement = cache.get(client, statement).await?;
-	let rows = client
-		.query_raw(&statement, params)
-		.await
-		.map_err(|source| error!(!source, "failed to execute the statement"))?;
-	let rows = rows
-		.map_err(|source| error!(!source, "failed to get a row"))
-		.and_then(|row| {
-			let mut entries = IndexMap::with_capacity(row.columns().len());
-			for (i, column) in row.columns().iter().enumerate() {
-				let name = column.name().to_owned();
-				let value = row.get::<_, Value>(i);
-				entries.insert(name, value);
-			}
-			let row = Row::with_entries(entries);
-			future::ready(Ok(row))
-		});
+	let rows = client.query_raw(&statement, params).await?;
+	let rows = rows.map_err(Into::into).and_then(|row| {
+		let mut entries = IndexMap::with_capacity(row.columns().len());
+		for (i, column) in row.columns().iter().enumerate() {
+			let name = column.name().to_owned();
+			let value = row.get::<_, Value>(i);
+			entries.insert(name, value);
+		}
+		let row = Row::with_entries(entries);
+		future::ready(Ok(row))
+	});
 	Ok(rows)
 }
 
@@ -282,7 +274,7 @@ impl<'a> postgres::types::FromSql<'a> for Value {
 			postgres::types::Type::FLOAT8 => Ok(Self::Real(f64::from_sql(ty, raw)?)),
 			postgres::types::Type::TEXT => Ok(Self::Text(String::from_sql(ty, raw)?)),
 			postgres::types::Type::BYTEA => Ok(Self::Blob(<Vec<u8>>::from_sql(ty, raw)?)),
-			_ => Err(Box::new(error!("invalid type"))),
+			_ => Err("invalid type".into()),
 		}
 	}
 

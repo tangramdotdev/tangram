@@ -1,9 +1,8 @@
-use super::Value;
+use super::{de::Error, Value};
+use serde::de::Error as _;
 use std::collections::BTreeMap;
-use tangram_error::{error, Error};
 
 pub struct Serializer;
-
 pub struct SerializeSeq(Vec<serde_json::Value>);
 
 pub struct SerializeTuple(Vec<serde_json::Value>);
@@ -79,7 +78,7 @@ impl serde::Serializer for Serializer {
 	fn serialize_u64(self, v: u64) -> Result<Self::Ok, Self::Error> {
 		self.serialize_i64(
 			v.try_into()
-				.map_err(|source| error!(!source, "failed to serialize u64"))?,
+				.map_err(|_| Error::custom("failed to serialize u64"))?,
 		)
 	}
 
@@ -220,15 +219,13 @@ impl serde::ser::SerializeSeq for SerializeSeq {
 	where
 		T: serde::Serialize,
 	{
-		let value = serde_json::to_value(value)
-			.map_err(|source| error!(!source, "failed to serialize the value"))?;
+		let value = serde_json::to_value(value)?;
 		self.0.push(value);
 		Ok(())
 	}
 
 	fn end(self) -> Result<Self::Ok, Self::Error> {
-		let json = serde_json::to_string(&self.0)
-			.map_err(|source| error!(!source, "failed to serialize the value"))?;
+		let json = serde_json::to_string(&self.0)?;
 		Ok(Value::Text(json))
 	}
 }
@@ -242,15 +239,13 @@ impl serde::ser::SerializeTuple for SerializeTuple {
 	where
 		T: serde::Serialize,
 	{
-		let value = serde_json::to_value(value)
-			.map_err(|source| error!(!source, "failed to serialize the value"))?;
+		let value = serde_json::to_value(value)?;
 		self.0.push(value);
 		Ok(())
 	}
 
 	fn end(self) -> Result<Self::Ok, Self::Error> {
-		let json = serde_json::to_string(&self.0)
-			.map_err(|source| error!(!source, "failed to serialize the value"))?;
+		let json = serde_json::to_string(&self.0)?;
 		Ok(Value::Text(json))
 	}
 }
@@ -264,15 +259,13 @@ impl serde::ser::SerializeTupleStruct for SerializeTupleStruct {
 	where
 		T: serde::Serialize,
 	{
-		let value = serde_json::to_value(value)
-			.map_err(|source| error!(!source, "failed to serialize the value"))?;
+		let value = serde_json::to_value(value)?;
 		self.0.push(value);
 		Ok(())
 	}
 
 	fn end(self) -> Result<Self::Ok, Self::Error> {
-		let json = serde_json::to_string(&self.0)
-			.map_err(|source| error!(!source, "failed to serialize the value"))?;
+		let json = serde_json::to_string(&self.0)?;
 		Ok(Value::Text(json))
 	}
 }
@@ -286,15 +279,13 @@ impl serde::ser::SerializeTupleVariant for SerializeTupleVariant {
 	where
 		T: serde::Serialize,
 	{
-		let value = serde_json::to_value(value)
-			.map_err(|source| error!(!source, "failed to serialize the value"))?;
+		let value = serde_json::to_value(value)?;
 		self.0.push(value);
 		Ok(())
 	}
 
 	fn end(self) -> Result<Self::Ok, Self::Error> {
-		let json = serde_json::to_string(&self.0)
-			.map_err(|source| error!(!source, "failed to serialize the value"))?;
+		let json = serde_json::to_string(&self.0)?;
 		Ok(Value::Text(json))
 	}
 }
@@ -308,10 +299,9 @@ impl serde::ser::SerializeMap for SerializeMap {
 	where
 		T: serde::Serialize,
 	{
-		let key = serde_json::to_value(key)
-			.map_err(|source| error!(!source, "failed to serialize the key"))?
+		let key = serde_json::to_value(key)?
 			.as_str()
-			.ok_or_else(|| error!("expected a string"))?
+			.ok_or_else(|| Error::custom("expected a string"))?
 			.to_owned();
 		self.key.replace(key);
 		Ok(())
@@ -321,16 +311,17 @@ impl serde::ser::SerializeMap for SerializeMap {
 	where
 		T: serde::Serialize,
 	{
-		let key = self.key.take().ok_or_else(|| error!("missing key"))?;
-		let value = serde_json::to_value(value)
-			.map_err(|source| error!(!source, "failed to serialize the value"))?;
+		let key = self
+			.key
+			.take()
+			.ok_or_else(|| Error::custom("missing key"))?;
+		let value = serde_json::to_value(value)?;
 		self.entries.insert(key, value);
 		Ok(())
 	}
 
 	fn end(self) -> Result<Self::Ok, Self::Error> {
-		let json = serde_json::to_string(&self.entries)
-			.map_err(|source| error!(!source, "failed to serialize the value"))?;
+		let json = serde_json::to_string(&self.entries)?;
 		Ok(Value::Text(json))
 	}
 }
@@ -348,15 +339,13 @@ impl serde::ser::SerializeStruct for SerializeStruct {
 	where
 		T: serde::Serialize,
 	{
-		let value = serde_json::to_value(value)
-			.map_err(|source| error!(!source, "failed to serialize the value"))?;
+		let value = serde_json::to_value(value)?;
 		self.fields.insert(key, value);
 		Ok(())
 	}
 
 	fn end(self) -> Result<Self::Ok, Self::Error> {
-		let json = serde_json::to_string(&self.fields)
-			.map_err(|source| error!(!source, "failed to serialize the value"))?;
+		let json = serde_json::to_string(&self.fields)?;
 		Ok(Value::Text(json))
 	}
 }
@@ -374,15 +363,13 @@ impl serde::ser::SerializeStructVariant for SerializeStructVariant {
 	where
 		T: serde::Serialize,
 	{
-		let value = serde_json::to_value(value)
-			.map_err(|source| error!(!source, "failed to serialize the value"))?;
+		let value = serde_json::to_value(value)?;
 		self.fields.insert(key, value);
 		Ok(())
 	}
 
 	fn end(self) -> Result<Self::Ok, Self::Error> {
-		let json = serde_json::to_string(&self.fields)
-			.map_err(|source| error!(!source, "failed to serialize the value"))?;
+		let json = serde_json::to_string(&self.fields)?;
 		Ok(Value::Text(json))
 	}
 }

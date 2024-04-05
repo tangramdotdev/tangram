@@ -27,7 +27,10 @@ impl Server {
 			.map_err(|source| error!(!source, "failed to get a database connection"))?;
 
 		// Begin a transaction.
-		let transaction = connection.transaction().await?;
+		let transaction = connection
+			.transaction()
+			.await
+			.map_err(|source| error!(!source, "failed to begin the transaction"))?;
 
 		// Check in the artifact.
 		let id = self
@@ -35,7 +38,10 @@ impl Server {
 			.await?;
 
 		// Commit the transaction.
-		transaction.commit().await?;
+		transaction
+			.commit()
+			.await
+			.map_err(|source| error!(!source, "failed to commit the transaction"))?;
 
 		// Drop the connection.
 		drop(connection);

@@ -1,5 +1,12 @@
 use super::Value;
-use tangram_error::{error, Error};
+pub use serde::de::Error as _;
+
+#[derive(Debug, thiserror::Error)]
+#[error(transparent)]
+pub enum Error {
+	Json(#[from] serde_json::Error),
+	Other(Box<dyn std::error::Error + Send + Sync>),
+}
 
 impl Value {
 	fn deserialize_json<'de, V>(self, visitor: V) -> Result<V::Value, Error>
@@ -8,11 +15,28 @@ impl Value {
 	{
 		let json = self
 			.try_unwrap_text()
-			.map_err(|_| error!("expected a text value"))?;
-		let value = serde_json::from_str::<serde_json::Value>(&json)
-			.map_err(|source| error!(!source, "failed to deserialize json"))?;
-		serde::Deserializer::deserialize_any(value, visitor)
-			.map_err(|source| error!(!source, "failed to deserialize the value"))
+			.map_err(|_| Error::custom("expected a text value"))?;
+		let value = serde_json::from_str::<serde_json::Value>(&json)?;
+		let value = serde::Deserializer::deserialize_any(value, visitor)?;
+		Ok(value)
+	}
+}
+
+impl serde::de::Error for Error {
+	fn custom<T>(msg: T) -> Self
+	where
+		T: std::fmt::Display,
+	{
+		Self::Other(msg.to_string().into())
+	}
+}
+
+impl serde::ser::Error for Error {
+	fn custom<T>(msg: T) -> Self
+	where
+		T: std::fmt::Display,
+	{
+		Self::Other(msg.to_string().into())
 	}
 }
 
@@ -46,7 +70,7 @@ impl<'de> serde::Deserializer<'de> for Value {
 	{
 		let value = self
 			.try_unwrap_integer()
-			.map_err(|source| error!(!source, "expected an integer value"))?;
+			.map_err(|_| Error::custom("expected an integer value"))?;
 		let value = value > 0;
 		visitor.visit_bool(value)
 	}

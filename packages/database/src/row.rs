@@ -1,7 +1,6 @@
 use crate::Value;
 use either::Either;
 use indexmap::IndexMap;
-use tangram_error::Error;
 
 pub struct Row {
 	entries: IndexMap<String, Value>,
@@ -34,7 +33,7 @@ impl Row {
 }
 
 impl<'de> serde::Deserializer<'de> for Row {
-	type Error = Error;
+	type Error = crate::value::de::Error;
 
 	fn deserialize_any<V>(self, visitor: V) -> Result<V::Value, Self::Error>
 	where

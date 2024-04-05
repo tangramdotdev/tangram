@@ -202,7 +202,9 @@ impl Server {
 				})
 			},
 		};
-		let database = Database::new(database_options).await?;
+		let database = Database::new(database_options)
+			.await
+			.map_err(|source| error!(!source, "failed to create the database"))?;
 
 		// Create the database.
 		let messenger = match &options.messenger {
@@ -801,14 +803,6 @@ where
 			},
 			(http::Method::POST, ["lsp"]) => self.handle_lsp_request(request).map(Some).boxed(),
 
-			// Meta
-			(http::Method::GET, ["health"]) => {
-				self.handle_health_request(request).map(Some).boxed()
-			},
-			(http::Method::GET, ["path"]) => self.handle_path_request(request).map(Some).boxed(),
-			(http::Method::POST, ["clean"]) => self.handle_clean_request(request).map(Some).boxed(),
-			(http::Method::POST, ["stop"]) => self.handle_stop_request(request).map(Some).boxed(),
-
 			// Packages
 			(http::Method::GET, ["packages", "search"]) => self
 				.handle_search_packages_request(request)
@@ -845,6 +839,14 @@ where
 				.map(Some)
 				.boxed(),
 
+			// Server
+			(http::Method::GET, ["health"]) => {
+				self.handle_health_request(request).map(Some).boxed()
+			},
+			(http::Method::GET, ["path"]) => self.handle_path_request(request).map(Some).boxed(),
+			(http::Method::POST, ["clean"]) => self.handle_clean_request(request).map(Some).boxed(),
+			(http::Method::POST, ["stop"]) => self.handle_stop_request(request).map(Some).boxed(),
+
 			// Users
 			(http::Method::POST, ["logins"]) => {
 				self.handle_create_login_request(request).map(Some).boxed()
@@ -864,6 +866,7 @@ where
 			// 	.handle_oauth_callback_request(request)
 			// 	.map(Some)
 			// 	.boxed(),
+			//
 			(_, _) => future::ready(None).boxed(),
 		}
 		.await;

@@ -14,9 +14,8 @@ use tangram_client as tg;
 use tangram_error::{error, Result};
 use tui::{layout::Rect, style::Stylize, widgets::Widget};
 mod scroll;
+
 pub struct Tui {
-	#[allow(dead_code)]
-	options: Options,
 	stop: tokio::sync::watch::Sender<bool>,
 	task: Option<tokio::task::JoinHandle<std::io::Result<Terminal>>>,
 }
@@ -195,7 +194,6 @@ impl Tui {
 		});
 
 		Ok(Self {
-			options,
 			stop,
 			task: Some(task),
 		})
