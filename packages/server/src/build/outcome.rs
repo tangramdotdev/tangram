@@ -393,7 +393,10 @@ impl Server {
 	}
 }
 
-impl Http {
+impl<H> Http<H>
+where
+	H: tg::Handle,
+{
 	pub async fn handle_get_build_outcome_request(
 		&self,
 		request: http::Request<Incoming>,
@@ -429,7 +432,7 @@ impl Http {
 
 		// Create the body.
 		let outcome = if let Some(outcome) = outcome {
-			Some(outcome.data(self.inner.tg.as_ref()).await?)
+			Some(outcome.data(&self.inner.tg).await?)
 		} else {
 			None
 		};

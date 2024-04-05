@@ -107,7 +107,7 @@ impl Artifact {
 		}
 	}
 
-	pub async fn id(&self, tg: &dyn Handle) -> Result<Id> {
+	pub async fn id(&self, tg: &impl Handle) -> Result<Id> {
 		match self {
 			Self::Directory(directory) => Ok(directory.id(tg).await?.into()),
 			Self::File(file) => Ok(file.id(tg).await?.into()),
@@ -115,7 +115,7 @@ impl Artifact {
 		}
 	}
 
-	pub async fn data(&self, tg: &dyn Handle) -> Result<Data> {
+	pub async fn data(&self, tg: &impl Handle) -> Result<Data> {
 		match self {
 			Self::Directory(directory) => Ok(directory.data(tg).await?.into()),
 			Self::File(file) => Ok(file.data(tg).await?.into()),
@@ -125,14 +125,14 @@ impl Artifact {
 }
 
 impl Artifact {
-	pub async fn check_in(tg: &dyn Handle, path: &crate::Path) -> Result<Self> {
+	pub async fn check_in(tg: &impl Handle, path: &crate::Path) -> Result<Self> {
 		let arg = CheckInArg { path: path.clone() };
 		let output = tg.check_in_artifact(arg).await?;
 		let artifact = Self::with_id(output.id);
 		Ok(artifact)
 	}
 
-	pub async fn check_out(&self, tg: &dyn Handle, arg: CheckOutArg) -> Result<CheckOutOutput> {
+	pub async fn check_out(&self, tg: &impl Handle, arg: CheckOutArg) -> Result<CheckOutOutput> {
 		let id = self.id(tg).await?;
 		let output = tg.check_out_artifact(&id, arg).await?;
 		Ok(output)
@@ -141,7 +141,7 @@ impl Artifact {
 	/// Compute an artifact's checksum.
 	pub async fn checksum(
 		&self,
-		_tg: &dyn Handle,
+		_tg: &impl Handle,
 		algorithm: checksum::Algorithm,
 	) -> Result<Checksum> {
 		match algorithm {
@@ -151,7 +151,7 @@ impl Artifact {
 	}
 
 	/// Collect an artifact's references.
-	pub async fn references(&self, tg: &dyn Handle) -> Result<Vec<Self>> {
+	pub async fn references(&self, tg: &impl Handle) -> Result<Vec<Self>> {
 		match self {
 			Self::Directory(directory) => Ok(directory
 				.entries(tg)
@@ -172,7 +172,7 @@ impl Artifact {
 	/// Collect an artifact's recursive references.
 	pub async fn recursive_references(
 		&self,
-		tg: &dyn Handle,
+		tg: &impl Handle,
 	) -> Result<HashSet<Id, fnv::FnvBuildHasher>> {
 		// Create a queue of artifacts and a set of futures.
 		let mut references = HashSet::default();
@@ -207,7 +207,7 @@ impl Artifact {
 }
 
 impl Artifact {
-	pub async fn with_path(tg: &dyn Handle, path: &crate::Path) -> Result<Id> {
+	pub async fn with_path(tg: &impl Handle, path: &crate::Path) -> Result<Id> {
 		// Get the metadata for the file system object at the path.
 		let metadata = tokio::fs::symlink_metadata(path)
 			.await
@@ -229,7 +229,7 @@ impl Artifact {
 	}
 
 	async fn with_path_directory(
-		tg: &dyn Handle,
+		tg: &impl Handle,
 		path: &crate::Path,
 		_metadata: &std::fs::Metadata,
 	) -> Result<Id> {
@@ -275,7 +275,7 @@ impl Artifact {
 	}
 
 	async fn with_path_file(
-		tg: &dyn Handle,
+		tg: &impl Handle,
 		path: &crate::Path,
 		metadata: &std::fs::Metadata,
 	) -> Result<Id> {
@@ -312,7 +312,7 @@ impl Artifact {
 	}
 
 	async fn with_path_symlink(
-		tg: &dyn Handle,
+		tg: &impl Handle,
 		path: &crate::Path,
 		_metadata: &std::fs::Metadata,
 	) -> Result<Id> {
@@ -359,7 +359,7 @@ impl Artifact {
 		Ok(id.into())
 	}
 
-	pub async fn check_out_local(tg: &dyn Handle, id: &Id, path: &crate::Path) -> Result<()> {
+	pub async fn check_out_local(tg: &impl Handle, id: &Id, path: &crate::Path) -> Result<()> {
 		let artifact = Self::with_id(id.clone());
 
 		// Bundle the artifact.
@@ -385,7 +385,7 @@ impl Artifact {
 	}
 
 	async fn check_out_local_inner(
-		tg: &dyn Handle,
+		tg: &impl Handle,
 		artifact: &Artifact,
 		existing_artifact: Option<&Artifact>,
 		path: &crate::Path,
@@ -428,7 +428,7 @@ impl Artifact {
 	}
 
 	async fn check_out_local_directory(
-		tg: &dyn Handle,
+		tg: &impl Handle,
 		existing_artifact: Option<&Artifact>,
 		directory: &Directory,
 		path: &crate::Path,
@@ -508,7 +508,7 @@ impl Artifact {
 	}
 
 	async fn check_out_local_file(
-		tg: &dyn Handle,
+		tg: &impl Handle,
 		existing_artifact: Option<&Artifact>,
 		file: &File,
 		path: &crate::Path,
@@ -553,7 +553,7 @@ impl Artifact {
 	}
 
 	async fn check_out_local_symlink(
-		tg: &dyn Handle,
+		tg: &impl Handle,
 		existing_artifact: Option<&Artifact>,
 		symlink: &Symlink,
 		path: &crate::Path,

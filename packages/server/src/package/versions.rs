@@ -133,7 +133,7 @@ impl Server {
 	}
 }
 
-impl Http {
+impl<H> Http<H> where H: tg::Handle {
 	pub async fn handle_get_package_versions_request(
 		&self,
 		request: http::Request<Incoming>,

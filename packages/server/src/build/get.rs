@@ -7,7 +7,6 @@ use indoc::formatdoc;
 use tangram_client as tg;
 use tangram_database::{self as db, prelude::*};
 use tangram_error::{error, Error, Result};
-use tg::Handle;
 
 impl Server {
 	pub async fn try_get_build(
@@ -92,8 +91,9 @@ impl Server {
 				..Default::default()
 			};
 			let children = self
-				.get_build_children(id, arg, None)
+				.try_get_build_children(id, arg, None)
 				.await?
+				.ok_or_else(|| error!("expected the build to exist"))?
 				.map_ok(|chunk| stream::iter(chunk.items).map(Ok::<_, Error>))
 				.try_flatten()
 				.try_collect()
@@ -121,7 +121,10 @@ impl Server {
 	}
 }
 
-impl Http {
+impl<H> Http<H>
+where
+	H: tg::Handle,
+{
 	pub async fn handle_get_build_request(
 		&self,
 		request: http::Request<Incoming>,

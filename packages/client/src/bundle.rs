@@ -10,7 +10,7 @@ static TANGRAM_RUN_PATH: Lazy<crate::Path> = Lazy::new(|| ".tangram/run".parse()
 
 impl Artifact {
 	/// Bundle an artifact with all of its recursive references at `.tangram/artifacts`.
-	pub async fn bundle(&self, tg: &dyn Handle) -> Result<Artifact> {
+	pub async fn bundle(&self, tg: &impl Handle) -> Result<Artifact> {
 		// Collect the artifact's recursive references.
 		let references = self.recursive_references(tg).await?;
 
@@ -74,7 +74,7 @@ impl Artifact {
 	}
 
 	/// Remove all references from an artifact and its children recursively.
-	async fn remove_references(&self, tg: &dyn Handle, depth: usize) -> Result<Artifact> {
+	async fn remove_references(&self, tg: &impl Handle, depth: usize) -> Result<Artifact> {
 		match self {
 			// If the artifact is a directory, then recurse to remove references from its entries.
 			Artifact::Directory(directory) => {

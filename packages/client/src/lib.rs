@@ -8,7 +8,6 @@ pub use self::{
 	user::Login, user::User, value::Value,
 };
 use crate as tg;
-use async_trait::async_trait;
 use bytes::Bytes;
 use futures::stream::BoxStream;
 use std::sync::Arc;
@@ -502,12 +501,7 @@ impl Builder {
 	}
 }
 
-#[async_trait]
 impl Handle for Client {
-	fn clone_box(&self) -> Box<dyn Handle> {
-		Box::new(self.clone())
-	}
-
 	async fn path(&self) -> Result<Option<crate::Path>> {
 		self.path().await
 	}
@@ -746,13 +740,5 @@ impl Handle for Client {
 
 	async fn get_user_for_token(&self, token: &str) -> Result<Option<tg::User>> {
 		self.get_user_for_token(token).await
-	}
-
-	async fn create_oauth_url(&self, _id: &tg::Id) -> Result<Url> {
-		Err(error!("unimplemented"))
-	}
-
-	async fn complete_login(&self, _id: &tg::Id, _code: String) -> Result<()> {
-		Err(error!("unimplemented"))
 	}
 }

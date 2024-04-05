@@ -97,7 +97,7 @@ impl Template {
 		Ok(Self { components })
 	}
 
-	pub async fn data(&self, tg: &dyn Handle) -> Result<Data> {
+	pub async fn data(&self, tg: &impl Handle) -> Result<Data> {
 		let components = self
 			.components
 			.iter()
@@ -203,7 +203,7 @@ pub mod component {
 	}
 
 	impl Component {
-		pub async fn data(&self, tg: &dyn Handle) -> Result<Data> {
+		pub async fn data(&self, tg: &impl Handle) -> Result<Data> {
 			match self {
 				Self::String(string) => Ok(Data::String(string.clone())),
 				Self::Artifact(artifact) => Ok(Data::Artifact(artifact.id(tg).await?)),

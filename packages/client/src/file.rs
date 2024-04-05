@@ -91,21 +91,21 @@ impl File {
 		Self { state }
 	}
 
-	pub async fn id(&self, tg: &dyn Handle) -> Result<Id> {
+	pub async fn id(&self, tg: &impl Handle) -> Result<Id> {
 		self.store(tg).await
 	}
 
-	pub async fn object(&self, tg: &dyn Handle) -> Result<Arc<Object>> {
+	pub async fn object(&self, tg: &impl Handle) -> Result<Arc<Object>> {
 		self.load(tg).await
 	}
 
-	pub async fn load(&self, tg: &dyn Handle) -> Result<Arc<Object>> {
+	pub async fn load(&self, tg: &impl Handle) -> Result<Arc<Object>> {
 		self.try_load(tg)
 			.await?
 			.ok_or_else(|| error!("failed to load the object"))
 	}
 
-	pub async fn try_load(&self, tg: &dyn Handle) -> Result<Option<Arc<Object>>> {
+	pub async fn try_load(&self, tg: &impl Handle) -> Result<Option<Arc<Object>>> {
 		if let Some(object) = self.state.read().unwrap().object.clone() {
 			return Ok(Some(object));
 		}
@@ -121,7 +121,7 @@ impl File {
 		Ok(Some(object))
 	}
 
-	pub async fn store(&self, tg: &dyn Handle) -> Result<Id> {
+	pub async fn store(&self, tg: &impl Handle) -> Result<Id> {
 		if let Some(id) = self.state.read().unwrap().id.clone() {
 			return Ok(id);
 		}
@@ -140,7 +140,7 @@ impl File {
 		Ok(id)
 	}
 
-	pub async fn data(&self, tg: &dyn Handle) -> Result<Data> {
+	pub async fn data(&self, tg: &impl Handle) -> Result<Data> {
 		let object = self.object(tg).await?;
 		let contents = object.contents.id(tg).await?.clone();
 		let executable = object.executable;
@@ -174,34 +174,37 @@ impl File {
 		Builder::new(contents)
 	}
 
-	pub async fn contents(&self, tg: &dyn Handle) -> Result<Blob> {
+	pub async fn contents(&self, tg: &impl Handle) -> Result<Blob> {
 		Ok(self.object(tg).await?.contents.clone())
 	}
 
-	pub async fn executable(&self, tg: &dyn Handle) -> Result<bool> {
+	pub async fn executable(&self, tg: &impl Handle) -> Result<bool> {
 		Ok(self.object(tg).await?.executable)
 	}
 
 	pub async fn references(
 		&self,
-		tg: &dyn Handle,
+		tg: &impl Handle,
 	) -> Result<impl std::ops::Deref<Target = Vec<Artifact>>> {
 		Ok(self.object(tg).await?.map(|object| &object.references))
 	}
 
-	pub async fn reader(&self, tg: &dyn Handle) -> Result<blob::Reader> {
+	pub async fn reader<H>(&self, tg: &H) -> Result<blob::Reader<H>>
+	where
+		H: Handle,
+	{
 		self.contents(tg).await?.reader(tg).await
 	}
 
-	pub async fn size(&self, tg: &dyn Handle) -> Result<u64> {
+	pub async fn size(&self, tg: &impl Handle) -> Result<u64> {
 		self.contents(tg).await?.size(tg).await
 	}
 
-	pub async fn bytes(&self, tg: &dyn Handle) -> Result<Vec<u8>> {
+	pub async fn bytes(&self, tg: &impl Handle) -> Result<Vec<u8>> {
 		self.contents(tg).await?.bytes(tg).await
 	}
 
-	pub async fn text(&self, tg: &dyn Handle) -> Result<String> {
+	pub async fn text(&self, tg: &impl Handle) -> Result<String> {
 		self.contents(tg).await?.text(tg).await
 	}
 }

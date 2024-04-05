@@ -154,7 +154,7 @@ impl Handle {
 		}
 	}
 
-	pub async fn id(&self, tg: &dyn crate::Handle) -> Result<Id> {
+	pub async fn id(&self, tg: &impl crate::Handle) -> Result<Id> {
 		match self {
 			Self::Leaf(object) => object.id(tg).await.map(Id::Leaf),
 			Self::Branch(object) => object.id(tg).await.map(Id::Branch),
@@ -166,7 +166,7 @@ impl Handle {
 		}
 	}
 
-	pub async fn object(&self, tg: &dyn crate::Handle) -> Result<Object> {
+	pub async fn object(&self, tg: &impl crate::Handle) -> Result<Object> {
 		match self {
 			Self::Leaf(object) => object.object(tg).await.map(Object::Leaf),
 			Self::Branch(object) => object.object(tg).await.map(Object::Branch),
@@ -178,7 +178,7 @@ impl Handle {
 		}
 	}
 
-	pub async fn data(&self, tg: &dyn crate::Handle) -> Result<Data> {
+	pub async fn data(&self, tg: &impl crate::Handle) -> Result<Data> {
 		match self {
 			Self::Leaf(object) => object.data(tg).await.map(Data::Leaf),
 			Self::Branch(object) => object.data(tg).await.map(Data::Branch),
@@ -190,7 +190,7 @@ impl Handle {
 		}
 	}
 
-	pub async fn push(&self, tg: &dyn crate::Handle, remote: &dyn crate::Handle) -> Result<()> {
+	pub async fn push(&self, tg: &impl crate::Handle, remote: &impl crate::Handle) -> Result<()> {
 		let id = self.id(tg).await?;
 		let data = self.data(tg).await?;
 		let bytes = data.serialize()?;
@@ -214,7 +214,7 @@ impl Handle {
 		Ok(())
 	}
 
-	pub async fn pull(&self, tg: &dyn crate::Handle, remote: &dyn crate::Handle) -> Result<()> {
+	pub async fn pull(&self, tg: &impl crate::Handle, remote: &impl crate::Handle) -> Result<()> {
 		let id = self.id(tg).await?;
 		let output = remote
 			.get_object(&id)

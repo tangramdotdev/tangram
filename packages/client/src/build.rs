@@ -186,7 +186,7 @@ impl Build {
 		&self.id
 	}
 
-	pub async fn new(tg: &dyn Handle, arg: GetOrCreateArg) -> Result<Self> {
+	pub async fn new(tg: &impl Handle, arg: GetOrCreateArg) -> Result<Self> {
 		let output = tg.get_or_create_build(None, arg).await?;
 		let build = Build::with_id(output.id);
 		Ok(build)
@@ -194,7 +194,7 @@ impl Build {
 
 	pub async fn children(
 		&self,
-		tg: &dyn Handle,
+		tg: &impl Handle,
 		arg: children::GetArg,
 	) -> Result<BoxStream<'static, Result<Self>>> {
 		self.try_get_children(tg, arg)
@@ -204,7 +204,7 @@ impl Build {
 
 	pub async fn try_get_children(
 		&self,
-		tg: &dyn Handle,
+		tg: &impl Handle,
 		arg: children::GetArg,
 	) -> Result<Option<BoxStream<'static, Result<Self>>>> {
 		Ok(tg
@@ -220,7 +220,7 @@ impl Build {
 			}))
 	}
 
-	pub async fn add_child(&self, tg: &dyn Handle, child: &Self) -> Result<()> {
+	pub async fn add_child(&self, tg: &impl Handle, child: &Self) -> Result<()> {
 		let id = self.id();
 		let child_id = child.id();
 		tg.add_build_child(None, id, child_id).await?;
@@ -229,7 +229,7 @@ impl Build {
 
 	pub async fn log(
 		&self,
-		tg: &dyn Handle,
+		tg: &impl Handle,
 		arg: log::GetArg,
 	) -> Result<BoxStream<'static, Result<log::Chunk>>> {
 		self.try_get_log(tg, arg)
@@ -239,19 +239,19 @@ impl Build {
 
 	pub async fn try_get_log(
 		&self,
-		tg: &dyn Handle,
+		tg: &impl Handle,
 		arg: log::GetArg,
 	) -> Result<Option<BoxStream<'static, Result<log::Chunk>>>> {
 		tg.try_get_build_log(self.id(), arg, None).await
 	}
 
-	pub async fn add_log(&self, tg: &dyn Handle, log: Bytes) -> Result<()> {
+	pub async fn add_log(&self, tg: &impl Handle, log: Bytes) -> Result<()> {
 		let id = self.id();
 		tg.add_build_log(None, id, log).await?;
 		Ok(())
 	}
 
-	pub async fn outcome(&self, tg: &dyn Handle) -> Result<Outcome> {
+	pub async fn outcome(&self, tg: &impl Handle) -> Result<Outcome> {
 		self.get_outcome(tg, outcome::GetArg::default())
 			.await?
 			.ok_or_else(|| error!("failed to get the outcome"))
@@ -259,7 +259,7 @@ impl Build {
 
 	pub async fn get_outcome(
 		&self,
-		tg: &dyn Handle,
+		tg: &impl Handle,
 		arg: outcome::GetArg,
 	) -> Result<Option<Outcome>> {
 		self.try_get_outcome(tg, arg)
@@ -269,13 +269,13 @@ impl Build {
 
 	pub async fn try_get_outcome(
 		&self,
-		tg: &dyn Handle,
+		tg: &impl Handle,
 		arg: outcome::GetArg,
 	) -> Result<Option<Option<Outcome>>> {
 		tg.try_get_build_outcome(self.id(), arg, None).await
 	}
 
-	pub async fn cancel(&self, tg: &dyn Handle) -> Result<()> {
+	pub async fn cancel(&self, tg: &impl Handle) -> Result<()> {
 		let id = self.id();
 		tg.set_build_outcome(None, id, Outcome::Canceled).await?;
 		Ok(())
@@ -283,7 +283,7 @@ impl Build {
 
 	pub async fn set_outcome(
 		&self,
-		tg: &dyn Handle,
+		tg: &impl Handle,
 		user: Option<&User>,
 		outcome: Outcome,
 	) -> Result<()> {
@@ -292,13 +292,13 @@ impl Build {
 		Ok(())
 	}
 
-	pub async fn retry(&self, tg: &dyn Handle) -> Result<Retry> {
+	pub async fn retry(&self, tg: &impl Handle) -> Result<Retry> {
 		self.try_get_retry(tg)
 			.await?
 			.ok_or_else(|| error!("failed to get the build"))
 	}
 
-	pub async fn try_get_retry(&self, tg: &dyn Handle) -> Result<Option<Retry>> {
+	pub async fn try_get_retry(&self, tg: &impl Handle) -> Result<Option<Retry>> {
 		let arg = tg::build::GetArg::default();
 		let Some(output) = tg.try_get_build(&self.id, arg).await? else {
 			return Ok(None);
@@ -308,7 +308,7 @@ impl Build {
 
 	pub async fn status(
 		&self,
-		tg: &dyn Handle,
+		tg: &impl Handle,
 		arg: status::GetArg,
 	) -> Result<BoxStream<'static, Result<Status>>> {
 		self.try_get_status(tg, arg)
@@ -318,19 +318,19 @@ impl Build {
 
 	pub async fn try_get_status(
 		&self,
-		tg: &dyn Handle,
+		tg: &impl Handle,
 		arg: status::GetArg,
 	) -> Result<Option<BoxStream<'static, Result<Status>>>> {
 		tg.try_get_build_status(self.id(), arg, None).await
 	}
 
-	pub async fn target(&self, tg: &dyn Handle) -> Result<Target> {
+	pub async fn target(&self, tg: &impl Handle) -> Result<Target> {
 		self.try_get_target(tg)
 			.await?
 			.ok_or_else(|| error!("failed to get the build"))
 	}
 
-	pub async fn try_get_target(&self, tg: &dyn Handle) -> Result<Option<Target>> {
+	pub async fn try_get_target(&self, tg: &impl Handle) -> Result<Option<Target>> {
 		let arg = tg::build::GetArg::default();
 		let Some(output) = tg.try_get_build(&self.id, arg).await? else {
 			return Ok(None);
@@ -343,8 +343,8 @@ impl Build {
 	pub async fn push(
 		&self,
 		user: Option<&User>,
-		tg: &dyn Handle,
-		remote: &dyn Handle,
+		tg: &impl Handle,
+		remote: &impl Handle,
 	) -> Result<()> {
 		let arg = tg::build::GetArg::default();
 		let output = tg.get_build(&self.id, arg).await?;
@@ -398,7 +398,7 @@ impl Build {
 		Ok(())
 	}
 
-	pub async fn pull(&self, _tg: &dyn Handle, _remote: &dyn Handle) -> Result<()> {
+	pub async fn pull(&self, _tg: &impl Handle, _remote: &impl Handle) -> Result<()> {
 		Err(error!("not yet implemented"))
 	}
 }
@@ -461,7 +461,7 @@ impl Outcome {
 		}
 	}
 
-	pub async fn data(&self, tg: &dyn Handle) -> Result<outcome::Data> {
+	pub async fn data(&self, tg: &impl Handle) -> Result<outcome::Data> {
 		Ok(match self {
 			Self::Canceled => outcome::Data::Canceled,
 			Self::Failed(error) => outcome::Data::Failed(error.clone()),

@@ -118,21 +118,21 @@ impl Lock {
 		Self { state }
 	}
 
-	pub async fn id(&self, tg: &dyn Handle) -> Result<Id> {
+	pub async fn id(&self, tg: &impl Handle) -> Result<Id> {
 		self.store(tg).await
 	}
 
-	pub async fn object(&self, tg: &dyn Handle) -> Result<Arc<Object>> {
+	pub async fn object(&self, tg: &impl Handle) -> Result<Arc<Object>> {
 		self.load(tg).await
 	}
 
-	pub async fn load(&self, tg: &dyn Handle) -> Result<Arc<Object>> {
+	pub async fn load(&self, tg: &impl Handle) -> Result<Arc<Object>> {
 		self.try_load(tg)
 			.await?
 			.ok_or_else(|| error!("failed to load the object"))
 	}
 
-	pub async fn try_load(&self, tg: &dyn Handle) -> Result<Option<Arc<Object>>> {
+	pub async fn try_load(&self, tg: &impl Handle) -> Result<Option<Arc<Object>>> {
 		if let Some(object) = self.state.read().unwrap().object.clone() {
 			return Ok(Some(object));
 		}
@@ -148,7 +148,7 @@ impl Lock {
 		Ok(Some(object))
 	}
 
-	pub async fn store(&self, tg: &dyn Handle) -> Result<Id> {
+	pub async fn store(&self, tg: &impl Handle) -> Result<Id> {
 		if let Some(id) = self.state.read().unwrap().id.clone() {
 			return Ok(id);
 		}
@@ -167,7 +167,7 @@ impl Lock {
 		Ok(id)
 	}
 
-	pub async fn data(&self, tg: &dyn Handle) -> Result<Data> {
+	pub async fn data(&self, tg: &impl Handle) -> Result<Data> {
 		let object = self.object(tg).await?;
 		let root = object.root;
 		let nodes = object
@@ -182,7 +182,7 @@ impl Lock {
 }
 
 impl Lock {
-	pub async fn dependencies(&self, tg: &dyn Handle) -> Result<Vec<Dependency>> {
+	pub async fn dependencies(&self, tg: &impl Handle) -> Result<Vec<Dependency>> {
 		let object = self.object(tg).await?;
 		let dependencies = object.nodes[object.root]
 			.dependencies
@@ -194,7 +194,7 @@ impl Lock {
 
 	pub async fn get(
 		&self,
-		tg: &dyn Handle,
+		tg: &impl Handle,
 		dependency: &Dependency,
 	) -> Result<(Option<Directory>, Lock)> {
 		let object = self.object(tg).await?;
@@ -243,7 +243,7 @@ impl Lock {
 
 impl Lock {
 	/// Read a lockfile in an existing directory.
-	pub async fn read(tg: &dyn Handle, directory: impl AsRef<std::path::Path>) -> Result<Self> {
+	pub async fn read(tg: &impl Handle, directory: impl AsRef<std::path::Path>) -> Result<Self> {
 		Self::try_read(tg, directory)
 			.await?
 			.ok_or_else(|| error!("expected a lockfile to exist"))
@@ -251,7 +251,7 @@ impl Lock {
 
 	/// Try and read a lockfile in an existing directory.
 	pub async fn try_read(
-		tg: &dyn Handle,
+		tg: &impl Handle,
 		directory: impl AsRef<std::path::Path>,
 	) -> Result<Option<Self>> {
 		// Canonicalize the path.
@@ -308,7 +308,7 @@ impl Lock {
 }
 
 impl Lock {
-	pub async fn normalize(&self, tg: &dyn Handle) -> Result<Self> {
+	pub async fn normalize(&self, tg: &impl Handle) -> Result<Self> {
 		let mut visited = BTreeMap::new();
 		let object = self.object(tg).await?;
 		Self::normalize_inner(&object.nodes, object.root, &mut visited)
@@ -353,7 +353,7 @@ impl Lock {
 }
 
 impl Node {
-	pub async fn data(&self, tg: &dyn Handle) -> Result<data::Node> {
+	pub async fn data(&self, tg: &impl Handle) -> Result<data::Node> {
 		let dependencies = self
 			.dependencies
 			.iter()
@@ -368,7 +368,7 @@ impl Node {
 }
 
 impl Entry {
-	pub async fn data(&self, tg: &dyn Handle) -> Result<data::Entry> {
+	pub async fn data(&self, tg: &impl Handle) -> Result<data::Entry> {
 		let package = match &self.package {
 			Some(package) => Some(package.id(tg).await?),
 			None => None,

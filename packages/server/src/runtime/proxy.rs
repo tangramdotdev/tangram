@@ -1,5 +1,4 @@
 use crate::Http;
-use async_trait::async_trait;
 use bytes::Bytes;
 use futures::stream::BoxStream;
 use std::sync::Arc;
@@ -15,7 +14,7 @@ pub struct Server {
 
 pub struct Inner {
 	build: tg::build::Id,
-	http: std::sync::Mutex<Option<Http>>,
+	http: std::sync::Mutex<Option<Http<Server>>>,
 	server: crate::Server,
 	shutdown: tokio::sync::watch::Sender<bool>,
 	shutdown_task: std::sync::Mutex<Option<tokio::task::JoinHandle<Result<()>>>>,
@@ -113,12 +112,7 @@ impl Server {
 	}
 }
 
-#[async_trait]
 impl tg::Handle for Server {
-	fn clone_box(&self) -> Box<dyn tg::Handle> {
-		Box::new(self.clone())
-	}
-
 	async fn path(&self) -> Result<Option<tg::Path>> {
 		self.inner.server.path().await
 	}
@@ -366,14 +360,6 @@ impl tg::Handle for Server {
 	}
 
 	async fn get_user_for_token(&self, _token: &str) -> Result<Option<tg::user::User>> {
-		Err(error!("not supported"))
-	}
-
-	async fn create_oauth_url(&self, _id: &tg::Id) -> Result<Url> {
-		Err(error!("not supported"))
-	}
-
-	async fn complete_login(&self, _id: &tg::Id, _code: String) -> Result<()> {
 		Err(error!("not supported"))
 	}
 }

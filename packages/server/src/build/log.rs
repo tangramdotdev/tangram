@@ -19,7 +19,7 @@ use tokio::io::{AsyncRead, AsyncReadExt, AsyncSeek, AsyncSeekExt};
 use tokio_stream::wrappers::IntervalStream;
 
 pub enum Reader {
-	Blob(tg::blob::Reader),
+	Blob(tg::blob::Reader<Server>),
 	Database(DatabaseReader),
 }
 
@@ -693,7 +693,10 @@ async fn poll_seek_inner(
 	Ok(position)
 }
 
-impl Http {
+impl<H> Http<H>
+where
+	H: tg::Handle,
+{
 	pub async fn handle_get_build_log_request(
 		&self,
 		request: http::Request<Incoming>,

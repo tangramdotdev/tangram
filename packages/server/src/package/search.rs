@@ -46,7 +46,7 @@ impl Server {
 	}
 }
 
-impl Http {
+impl<H> Http<H> where H: tg::Handle {
 	pub async fn handle_search_packages_request(
 		&self,
 		request: http::Request<Incoming>,

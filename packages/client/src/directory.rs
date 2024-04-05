@@ -71,21 +71,21 @@ impl Directory {
 		Self { state }
 	}
 
-	pub async fn id(&self, tg: &dyn Handle) -> Result<Id> {
+	pub async fn id(&self, tg: &impl Handle) -> Result<Id> {
 		self.store(tg).await
 	}
 
-	pub async fn object(&self, tg: &dyn Handle) -> Result<Arc<Object>> {
+	pub async fn object(&self, tg: &impl Handle) -> Result<Arc<Object>> {
 		self.load(tg).await
 	}
 
-	pub async fn load(&self, tg: &dyn Handle) -> Result<Arc<Object>> {
+	pub async fn load(&self, tg: &impl Handle) -> Result<Arc<Object>> {
 		self.try_load(tg)
 			.await?
 			.ok_or_else(|| error!("failed to load the object"))
 	}
 
-	pub async fn try_load(&self, tg: &dyn Handle) -> Result<Option<Arc<Object>>> {
+	pub async fn try_load(&self, tg: &impl Handle) -> Result<Option<Arc<Object>>> {
 		if let Some(object) = self.state.read().unwrap().object.clone() {
 			return Ok(Some(object));
 		}
@@ -101,7 +101,7 @@ impl Directory {
 		Ok(Some(object))
 	}
 
-	pub async fn store(&self, tg: &dyn Handle) -> Result<Id> {
+	pub async fn store(&self, tg: &impl Handle) -> Result<Id> {
 		if let Some(id) = self.state.read().unwrap().id.clone() {
 			return Ok(id);
 		}
@@ -120,7 +120,7 @@ impl Directory {
 		Ok(id)
 	}
 
-	pub async fn data(&self, tg: &dyn Handle) -> Result<Data> {
+	pub async fn data(&self, tg: &impl Handle) -> Result<Data> {
 		let object = self.object(tg).await?;
 		let entries = object
 			.entries
@@ -141,18 +141,18 @@ impl Directory {
 		Self::with_object(Object { entries })
 	}
 
-	pub async fn builder(&self, tg: &dyn Handle) -> Result<Builder> {
+	pub async fn builder(&self, tg: &impl Handle) -> Result<Builder> {
 		Ok(Builder::new(self.object(tg).await?.entries.clone()))
 	}
 
 	pub async fn entries(
 		&self,
-		tg: &dyn Handle,
+		tg: &impl Handle,
 	) -> Result<impl std::ops::Deref<Target = BTreeMap<String, Artifact>>> {
 		Ok(self.object(tg).await?.map(|object| &object.entries))
 	}
 
-	pub async fn get(&self, tg: &dyn Handle, path: &crate::Path) -> Result<Artifact> {
+	pub async fn get(&self, tg: &impl Handle, path: &crate::Path) -> Result<Artifact> {
 		let artifact = self
 			.try_get(tg, path)
 			.await?
@@ -160,7 +160,7 @@ impl Directory {
 		Ok(artifact)
 	}
 
-	pub async fn try_get(&self, tg: &dyn Handle, path: &crate::Path) -> Result<Option<Artifact>> {
+	pub async fn try_get(&self, tg: &impl Handle, path: &crate::Path) -> Result<Option<Artifact>> {
 		// Track the current artifact.
 		let mut artifact: Artifact = self.clone().into();
 
@@ -286,7 +286,7 @@ impl Builder {
 
 	pub async fn add(
 		mut self,
-		tg: &dyn Handle,
+		tg: &impl Handle,
 		path: &crate::Path,
 		artifact: Artifact,
 	) -> Result<Self> {
@@ -331,7 +331,7 @@ impl Builder {
 		Ok(self)
 	}
 
-	pub async fn remove(mut self, tg: &dyn Handle, path: &crate::Path) -> Result<Self> {
+	pub async fn remove(mut self, tg: &impl Handle, path: &crate::Path) -> Result<Self> {
 		// Get the first component.
 		let name = path
 			.components()

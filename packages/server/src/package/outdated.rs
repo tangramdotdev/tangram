@@ -4,7 +4,7 @@ use tangram_client as tg;
 use tangram_error::{error, Result};
 
 impl Server {
-	pub async fn get_outdated(
+	pub async fn get_package_outdated(
 		&self,
 		dependency: &tg::Dependency,
 	) -> Result<tg::package::OutdatedOutput> {

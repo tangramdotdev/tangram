@@ -108,21 +108,21 @@ impl Target {
 		Self { state }
 	}
 
-	pub async fn id(&self, tg: &dyn Handle) -> Result<Id> {
+	pub async fn id(&self, tg: &impl Handle) -> Result<Id> {
 		self.store(tg).await
 	}
 
-	pub async fn object(&self, tg: &dyn Handle) -> Result<Arc<Object>> {
+	pub async fn object(&self, tg: &impl Handle) -> Result<Arc<Object>> {
 		self.load(tg).await
 	}
 
-	pub async fn load(&self, tg: &dyn Handle) -> Result<Arc<Object>> {
+	pub async fn load(&self, tg: &impl Handle) -> Result<Arc<Object>> {
 		self.try_load(tg)
 			.await?
 			.ok_or_else(|| error!("failed to load the object"))
 	}
 
-	pub async fn try_load(&self, tg: &dyn Handle) -> Result<Option<Arc<Object>>> {
+	pub async fn try_load(&self, tg: &impl Handle) -> Result<Option<Arc<Object>>> {
 		if let Some(object) = self.state.read().unwrap().object.clone() {
 			return Ok(Some(object));
 		}
@@ -138,7 +138,7 @@ impl Target {
 		Ok(Some(object))
 	}
 
-	pub async fn store(&self, tg: &dyn Handle) -> Result<Id> {
+	pub async fn store(&self, tg: &impl Handle) -> Result<Id> {
 		if let Some(id) = self.state.read().unwrap().id.clone() {
 			return Ok(id);
 		}
@@ -157,7 +157,7 @@ impl Target {
 		Ok(id)
 	}
 
-	pub async fn data(&self, tg: &dyn Handle) -> Result<Data> {
+	pub async fn data(&self, tg: &impl Handle) -> Result<Data> {
 		let object = self.object(tg).await?;
 		let host = object.host.clone();
 		let executable = object.executable.id(tg).await?;
@@ -199,50 +199,50 @@ impl Target {
 }
 
 impl Target {
-	pub async fn host(&self, tg: &dyn Handle) -> Result<impl std::ops::Deref<Target = String>> {
+	pub async fn host(&self, tg: &impl Handle) -> Result<impl std::ops::Deref<Target = String>> {
 		Ok(self.object(tg).await?.map(|object| &object.host))
 	}
 
 	pub async fn executable(
 		&self,
-		tg: &dyn Handle,
+		tg: &impl Handle,
 	) -> Result<impl std::ops::Deref<Target = Artifact>> {
 		Ok(self.object(tg).await?.map(|object| &object.executable))
 	}
 
 	pub async fn lock(
 		&self,
-		tg: &dyn Handle,
+		tg: &impl Handle,
 	) -> Result<impl std::ops::Deref<Target = Option<Lock>>> {
 		Ok(self.object(tg).await?.map(|object| &object.lock))
 	}
 
 	pub async fn name(
 		&self,
-		tg: &dyn Handle,
+		tg: &impl Handle,
 	) -> Result<impl std::ops::Deref<Target = Option<String>>> {
 		Ok(self.object(tg).await?.map(|object| &object.name))
 	}
 
 	pub async fn env(
 		&self,
-		tg: &dyn Handle,
+		tg: &impl Handle,
 	) -> Result<impl std::ops::Deref<Target = BTreeMap<String, Value>>> {
 		Ok(self.object(tg).await?.map(|object| &object.env))
 	}
 
-	pub async fn args(&self, tg: &dyn Handle) -> Result<impl std::ops::Deref<Target = Vec<Value>>> {
+	pub async fn args(&self, tg: &impl Handle) -> Result<impl std::ops::Deref<Target = Vec<Value>>> {
 		Ok(self.object(tg).await?.map(|object| &object.args))
 	}
 
 	pub async fn checksum(
 		&self,
-		tg: &dyn Handle,
+		tg: &impl Handle,
 	) -> Result<impl std::ops::Deref<Target = Option<Checksum>>> {
 		Ok(self.object(tg).await?.map(|object| &object.checksum))
 	}
 
-	pub async fn package(&self, tg: &dyn Handle) -> Result<Option<Directory>> {
+	pub async fn package(&self, tg: &impl Handle) -> Result<Option<Directory>> {
 		let object = &self.object(tg).await?;
 		let Artifact::Symlink(symlink) = &object.executable else {
 			return Ok(None);
@@ -256,7 +256,7 @@ impl Target {
 		Ok(Some(directory.clone()))
 	}
 
-	pub async fn build(&self, tg: &dyn Handle, arg: build::GetOrCreateArg) -> Result<Value> {
+	pub async fn build(&self, tg: &impl Handle, arg: build::GetOrCreateArg) -> Result<Value> {
 		let build = Build::new(tg, arg.clone()).await?;
 		let outcome = build.outcome(tg).await?;
 		match outcome {

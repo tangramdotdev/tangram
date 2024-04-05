@@ -73,7 +73,7 @@ impl Value {
 		}
 	}
 
-	pub async fn push(&self, tg: &dyn crate::Handle, remote: &dyn crate::Handle) -> Result<()> {
+	pub async fn push(&self, tg: &impl crate::Handle, remote: &impl crate::Handle) -> Result<()> {
 		self.objects()
 			.iter()
 			.map(|object| object.push(tg, remote))
@@ -83,7 +83,7 @@ impl Value {
 		Ok(())
 	}
 
-	pub async fn data(&self, tg: &dyn Handle) -> Result<Data> {
+	pub async fn data(&self, tg: &impl Handle) -> Result<Data> {
 		let data = match self {
 			Self::Null => Data::Null,
 			Self::Bool(bool) => Data::Bool(*bool),

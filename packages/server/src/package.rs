@@ -152,7 +152,9 @@ impl Server {
 			let lock = self
 				.add_path_dependencies_to_lock(&package_with_path_dependencies, lock)
 				.await?;
+
 			let lock = lock.id(self).await?;
+
 			Some(lock)
 		} else {
 			None
@@ -414,7 +416,10 @@ impl Server {
 	}
 }
 
-impl Http {
+impl<H> Http<H>
+where
+	H: tg::Handle,
+{
 	pub async fn handle_get_package_request(
 		&self,
 		request: http::Request<Incoming>,

@@ -56,7 +56,7 @@ pub enum Data {
 }
 
 impl Mutation {
-	pub async fn data(&self, tg: &dyn Handle) -> Result<Data> {
+	pub async fn data(&self, tg: &impl Handle) -> Result<Data> {
 		Ok(match self {
 			Self::Unset => Data::Unset,
 			Self::Set { value } => Data::Set {

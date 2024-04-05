@@ -17,7 +17,7 @@ impl Server {
 	}
 }
 
-impl Http {
+impl<H> Http<H> where H: tg::Handle {
 	pub async fn handle_health_request(
 		&self,
 		_request: http::Request<Incoming>,

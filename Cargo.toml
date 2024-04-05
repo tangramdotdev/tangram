@@ -38,7 +38,6 @@ async-broadcast = "0.7"
 async-channel= "2"
 async-compression = { version = "0.4", features = ["all"] }
 async-nats = "0.34"
-async-trait = "0.1"
 bitflags = "2"
 blake3 = "1"
 bytes = { version = "1", features = ["serde"] }

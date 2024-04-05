@@ -72,7 +72,7 @@ struct Inner {
 }
 
 struct LockState {
-	reader: Option<tg::blob::Reader>,
+	reader: Option<tg::blob::Reader<crate::Server>>,
 	fh: nfs_fh4,
 	byterange_locks: Vec<(offset4, length4)>,
 }

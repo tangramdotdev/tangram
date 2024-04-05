@@ -3,11 +3,12 @@ use self::{
 	database::Database,
 	messenger::Messenger,
 	runtime::Runtime,
-	util::{fs::rmrf, http::get_token},
+	util::{
+		fs::rmrf,
+		http::{full, get_token, Incoming, Outgoing},
+	},
 };
-use crate::util::http::{full, Incoming, Outgoing};
 use async_nats as nats;
-use async_trait::async_trait;
 use bytes::Bytes;
 use either::Either;
 use futures::{
@@ -66,10 +67,11 @@ struct Inner {
 	build_state: std::sync::RwLock<HashMap<tg::build::Id, Arc<BuildState>, fnv::FnvBuildHasher>>,
 	database: Database,
 	file_descriptor_semaphore: tokio::sync::Semaphore,
-	http: std::sync::Mutex<Option<Http>>,
+	http: std::sync::Mutex<Option<Http<Server>>>,
 	local_pool_handle: tokio_util::task::LocalPoolHandle,
 	lockfile: std::sync::Mutex<Option<tokio::fs::File>>,
 	messenger: Messenger,
+	#[allow(dead_code)]
 	oauth: OAuth,
 	options: Options,
 	path: PathBuf,
@@ -103,16 +105,23 @@ struct Permit(
 
 #[derive(Debug)]
 struct OAuth {
+	#[allow(dead_code)]
 	github: Option<oauth2::basic::BasicClient>,
 }
 
 #[derive(Clone)]
-struct Http {
-	inner: Arc<HttpInner>,
+struct Http<H>
+where
+	H: tg::Handle,
+{
+	inner: Arc<HttpInner<H>>,
 }
 
-struct HttpInner {
-	tg: Box<dyn tg::Handle>,
+struct HttpInner<H>
+where
+	H: tg::Handle,
+{
+	tg: H,
 	task: std::sync::Mutex<Option<tokio::task::JoinHandle<Result<()>>>>,
 	stop: tokio::sync::watch::Sender<bool>,
 }
@@ -533,9 +542,12 @@ impl Server {
 	}
 }
 
-impl Http {
-	fn start(tg: &dyn tg::Handle, url: Url) -> Self {
-		let tg = tg.clone_box();
+impl<H> Http<H>
+where
+	H: tg::Handle,
+{
+	fn start(tg: &H, url: Url) -> Self {
+		let tg = tg.clone();
 		let task = std::sync::Mutex::new(None);
 		let (stop_sender, stop_receiver) = tokio::sync::watch::channel(false);
 		let stop = stop_sender;
@@ -844,15 +856,14 @@ impl Http {
 				.handle_get_user_for_token_request(request)
 				.map(Some)
 				.boxed(),
-			(http::Method::GET, ["login"]) => self
-				.handle_create_oauth_url_request(request)
-				.map(Some)
-				.boxed(),
-			(http::Method::GET, ["oauth", _]) => self
-				.handle_oauth_callback_request(request)
-				.map(Some)
-				.boxed(),
-
+			// (http::Method::GET, ["login"]) => self
+			// 	.handle_create_oauth_url_request(request)
+			// 	.map(Some)
+			// 	.boxed(),
+			// (http::Method::GET, ["oauth", _]) => self
+			// 	.handle_oauth_callback_request(request)
+			// 	.map(Some)
+			// 	.boxed(),
 			(_, _) => future::ready(None).boxed(),
 		}
 		.await;
@@ -892,12 +903,7 @@ impl Http {
 	}
 }
 
-#[async_trait]
 impl tg::Handle for Server {
-	fn clone_box(&self) -> Box<dyn tg::Handle> {
-		Box::new(self.clone())
-	}
-
 	async fn path(&self) -> Result<Option<tg::Path>> {
 		self.path().await
 	}
@@ -1137,14 +1143,6 @@ impl tg::Handle for Server {
 
 	async fn get_user_for_token(&self, token: &str) -> Result<Option<tg::user::User>> {
 		self.get_user_for_token(token).await
-	}
-
-	async fn create_oauth_url(&self, id: &tg::Id) -> Result<Url> {
-		self.create_oauth_url(id).await
-	}
-
-	async fn complete_login(&self, id: &tg::Id, code: String) -> Result<()> {
-		self.complete_login(id, code).await
 	}
 }
 

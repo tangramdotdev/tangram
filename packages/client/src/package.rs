@@ -69,27 +69,27 @@ pub struct SearchArg {
 
 pub type SearchOutput = Vec<String>;
 
-pub async fn get(tg: &dyn Handle, dependency: &Dependency) -> Result<Directory> {
+pub async fn get(tg: &impl Handle, dependency: &Dependency) -> Result<Directory> {
 	try_get(tg, dependency)
 		.await?
 		.ok_or_else(|| error!(%dependency, "failed to find the package"))
 }
 
-pub async fn try_get(tg: &dyn Handle, dependency: &Dependency) -> Result<Option<Directory>> {
+pub async fn try_get(tg: &impl Handle, dependency: &Dependency) -> Result<Option<Directory>> {
 	let arg = GetArg::default();
 	let output = tg.try_get_package(dependency, arg).await?;
 	let package = output.map(|output| Directory::with_id(output.id));
 	Ok(package)
 }
 
-pub async fn get_with_lock(tg: &dyn Handle, dependency: &Dependency) -> Result<(Directory, Lock)> {
+pub async fn get_with_lock(tg: &impl Handle, dependency: &Dependency) -> Result<(Directory, Lock)> {
 	try_get_with_lock(tg, dependency)
 		.await?
 		.ok_or_else(|| error!(%dependency, "failed to find the package"))
 }
 
 pub async fn try_get_with_lock(
-	tg: &dyn Handle,
+	tg: &impl Handle,
 	dependency: &Dependency,
 ) -> Result<Option<(Directory, Lock)>> {
 	let arg = GetArg {
@@ -107,14 +107,14 @@ pub async fn try_get_with_lock(
 	Ok(Some((package, lock)))
 }
 
-pub async fn get_dependencies(tg: &dyn Handle, package: &Directory) -> Result<Vec<Dependency>> {
+pub async fn get_dependencies(tg: &impl Handle, package: &Directory) -> Result<Vec<Dependency>> {
 	try_get_dependencies(tg, package)
 		.await?
 		.ok_or_else(|| error!(%package, "failed to find the package"))
 }
 
 pub async fn try_get_dependencies(
-	tg: &dyn Handle,
+	tg: &impl Handle,
 	package: &Directory,
 ) -> Result<Option<Vec<Dependency>>> {
 	let id = package.id(tg).await?;
@@ -132,13 +132,13 @@ pub async fn try_get_dependencies(
 	Ok(Some(dependencies))
 }
 
-pub async fn get_metadata(tg: &dyn Handle, package: &Directory) -> Result<Metadata> {
+pub async fn get_metadata(tg: &impl Handle, package: &Directory) -> Result<Metadata> {
 	try_get_metadata(tg, package)
 		.await?
 		.ok_or_else(|| error!(%package, "failed to find the package"))
 }
 
-pub async fn try_get_metadata(tg: &dyn Handle, package: &Directory) -> Result<Option<Metadata>> {
+pub async fn try_get_metadata(tg: &impl Handle, package: &Directory) -> Result<Option<Metadata>> {
 	let id = package.id(tg).await?;
 	let dependency = Dependency::with_id(id);
 	let arg = GetArg {
@@ -154,14 +154,14 @@ pub async fn try_get_metadata(tg: &dyn Handle, package: &Directory) -> Result<Op
 	Ok(Some(metadata))
 }
 
-pub async fn get_root_module_path(tg: &dyn Handle, package: &Directory) -> Result<crate::Path> {
+pub async fn get_root_module_path(tg: &impl Handle, package: &Directory) -> Result<crate::Path> {
 	try_get_root_module_path(tg, package)
 		.await?
 		.ok_or_else(|| error!("failed to find the package's root module"))
 }
 
 pub async fn try_get_root_module_path(
-	tg: &dyn Handle,
+	tg: &impl Handle,
 	package: &Directory,
 ) -> Result<Option<crate::Path>> {
 	let mut root_module_path = None;

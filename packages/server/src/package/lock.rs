@@ -5,7 +5,6 @@ use futures::{stream::FuturesUnordered, TryStreamExt};
 use std::collections::{BTreeMap, BTreeSet};
 use tangram_client as tg;
 use tangram_error::{error, Result};
-use tg::Handle;
 
 // Mutable state used during the version solving algorithm to cache package metadata and published packages.
 struct Context {
@@ -163,6 +162,7 @@ impl Server {
 			.normalize(self)
 			.await
 			.map_err(|source| error!(!source, "failed to normalize the lock"))?;
+
 		Ok(lock)
 	}
 
@@ -694,15 +694,16 @@ impl Context {
 			}
 
 			let dependency = tg::Dependency::with_name_and_version(name.into(), version.clone());
-			let Some(package) = tg::package::try_get(server, &dependency)
-				.await
-				.map_err(Error::Other)?
+			let Some(output) =
+				Box::pin(server.try_get_package(&dependency, tg::package::GetArg::default()))
+					.await
+					.map_err(Error::Other)?
 			else {
 				continue;
 			};
-			let id = package.id(server).await.map_err(Error::Other)?;
-			self.published_packages.insert(metadata, id.clone());
-			return Ok(id);
+			self.published_packages.insert(metadata, output.id.clone());
+
+			return Ok(output.id);
 		}
 	}
 
@@ -805,9 +806,10 @@ impl Context {
 		// Get a list of all the corresponding metadata for versions that satisfy the constraint.
 		let dependency = &dependant.dependency;
 		let versions = server
-			.get_package_versions(dependency)
+			.try_get_package_versions(dependency)
 			.await
 			.map_err(|source| error!(!source, %dependency, "failed to get package versions"))?
+			.ok_or_else(|| error!("expected the build to exist"))?
 			.into();
 		Ok(versions)
 	}

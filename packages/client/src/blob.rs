@@ -62,7 +62,7 @@ impl Blob {
 		}
 	}
 
-	pub async fn id(&self, tg: &dyn Handle) -> Result<Id> {
+	pub async fn id(&self, tg: &impl Handle) -> Result<Id> {
 		match self {
 			Self::Leaf(leaf) => Ok(leaf.id(tg).await?.into()),
 			Self::Branch(branch) => Ok(branch.id(tg).await?.into()),
@@ -70,7 +70,7 @@ impl Blob {
 	}
 
 	/// Create a [`Blob`] from an `AsyncRead`.
-	pub async fn with_reader(tg: &dyn Handle, reader: impl AsyncRead + Unpin) -> Result<Self> {
+	pub async fn with_reader(tg: &impl Handle, reader: impl AsyncRead + Unpin) -> Result<Self> {
 		// Create the leaves.
 		let mut chunker = fastcdc::v2020::AsyncStreamCDC::new(
 			reader,
@@ -129,7 +129,7 @@ impl Blob {
 		}
 	}
 
-	pub async fn size(&self, tg: &dyn Handle) -> Result<u64> {
+	pub async fn size(&self, tg: &impl Handle) -> Result<u64> {
 		match self {
 			Self::Leaf(leaf) => Ok(leaf.bytes(tg).await?.len().to_u64().unwrap()),
 			Self::Branch(branch) => Ok(branch
@@ -141,11 +141,14 @@ impl Blob {
 		}
 	}
 
-	pub async fn reader(&self, tg: &dyn Handle) -> Result<Reader> {
+	pub async fn reader<H>(&self, tg: &H) -> Result<Reader<H>>
+	where
+		H: Handle,
+	{
 		Reader::new(tg, self.clone()).await
 	}
 
-	pub async fn bytes(&self, tg: &dyn Handle) -> Result<Vec<u8>> {
+	pub async fn bytes(&self, tg: &impl Handle) -> Result<Vec<u8>> {
 		let mut reader = self.reader(tg).await?;
 		let mut bytes = Vec::new();
 		reader
@@ -155,7 +158,7 @@ impl Blob {
 		Ok(bytes)
 	}
 
-	pub async fn text(&self, tg: &dyn Handle) -> Result<String> {
+	pub async fn text(&self, tg: &impl Handle) -> Result<String> {
 		let bytes = self.bytes(tg).await?;
 		let string = String::from_utf8(bytes).map_err(|error| {
 			error!(source = error, "failed to decode the blob's bytes as UTF-8")
@@ -163,7 +166,7 @@ impl Blob {
 		Ok(string)
 	}
 
-	pub async fn compress(&self, tg: &dyn Handle, format: CompressionFormat) -> Result<Blob> {
+	pub async fn compress(&self, tg: &impl Handle, format: CompressionFormat) -> Result<Blob> {
 		let reader = self.reader(tg).await?;
 		let reader = tokio::io::BufReader::new(reader);
 		let reader: Box<dyn AsyncRead + Unpin> = match format {
@@ -184,7 +187,7 @@ impl Blob {
 		Ok(blob)
 	}
 
-	pub async fn decompress(&self, tg: &dyn Handle, format: CompressionFormat) -> Result<Blob> {
+	pub async fn decompress(&self, tg: &impl Handle, format: CompressionFormat) -> Result<Blob> {
 		let reader = self.reader(tg).await?;
 		let reader = tokio::io::BufReader::new(reader);
 		let reader: Box<dyn AsyncRead + Unpin> = match format {
@@ -206,14 +209,14 @@ impl Blob {
 	}
 
 	pub async fn archive(
-		_tg: &dyn Handle,
+		_tg: &impl Handle,
 		_artifact: &Artifact,
 		_format: ArchiveFormat,
 	) -> Result<Self> {
 		unimplemented!()
 	}
 
-	pub async fn extract(&self, tg: &dyn Handle, format: ArchiveFormat) -> Result<Artifact> {
+	pub async fn extract(&self, tg: &impl Handle, format: ArchiveFormat) -> Result<Artifact> {
 		// Create the reader.
 		let reader = self.reader(tg).await?;
 
@@ -373,24 +376,27 @@ impl TryFrom<Value> for Blob {
 }
 
 /// A blob reader.
-pub struct Reader {
+pub struct Reader<H> {
 	blob: Blob,
 	cursor: Option<Cursor<Bytes>>,
 	position: u64,
 	read: Option<BoxFuture<'static, Result<Option<Cursor<Bytes>>>>>,
 	size: u64,
-	tg: Box<dyn Handle>,
+	tg: H,
 }
 
-unsafe impl Sync for Reader {}
+unsafe impl<H> Sync for Reader<H> {}
 
-impl Reader {
-	pub async fn new(tg: &dyn Handle, blob: Blob) -> Result<Self> {
+impl<H> Reader<H>
+where
+	H: Handle,
+{
+	pub async fn new(tg: &H, blob: Blob) -> Result<Self> {
 		let cursor = None;
 		let position = 0;
 		let read = None;
 		let size = blob.size(tg).await?;
-		let tg = tg.clone_box();
+		let tg = tg.clone();
 		Ok(Self {
 			blob,
 			cursor,
@@ -410,7 +416,10 @@ impl Reader {
 	}
 }
 
-impl AsyncRead for Reader {
+impl<H> AsyncRead for Reader<H>
+where
+	H: Handle,
+{
 	fn poll_read(
 		self: std::pin::Pin<&mut Self>,
 		cx: &mut std::task::Context<'_>,
@@ -420,10 +429,10 @@ impl AsyncRead for Reader {
 
 		// Create the read future if necessary.
 		if this.cursor.is_none() && this.read.is_none() {
-			let tg = this.tg.clone_box();
+			let tg = this.tg.clone();
 			let blob = this.blob.clone();
 			let position = this.position;
-			let read = async move { poll_read_inner(tg, blob, position).await }.boxed();
+			let read = async move { poll_read_inner(&tg, blob, position).await }.boxed();
 			this.read.replace(read);
 		}
 
@@ -463,7 +472,7 @@ impl AsyncRead for Reader {
 }
 
 async fn poll_read_inner(
-	tg: Box<dyn Handle>,
+	tg: &impl Handle,
 	blob: Blob,
 	position: u64,
 ) -> Result<Option<Cursor<Bytes>>> {
@@ -492,7 +501,7 @@ async fn poll_read_inner(
 				return Ok(None);
 			},
 			Blob::Branch(branch) => {
-				for child in branch.children(tg.as_ref()).await?.iter() {
+				for child in branch.children(tg).await?.iter() {
 					if position < current_blob_position + child.size {
 						current_blob = child.blob.clone();
 						continue 'a;
@@ -505,7 +514,10 @@ async fn poll_read_inner(
 	}
 }
 
-impl AsyncSeek for Reader {
+impl<H> AsyncSeek for Reader<H>
+where
+	H: Handle,
+{
 	fn start_seek(self: Pin<&mut Self>, seek: std::io::SeekFrom) -> std::io::Result<()> {
 		let this = self.get_mut();
 		this.read.take();

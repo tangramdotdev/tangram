@@ -12,7 +12,6 @@ use std::{collections::HashMap, os::unix::prelude::PermissionsExt, sync::Arc};
 use tangram_client as tg;
 use tangram_database::prelude::*;
 use tangram_error::{error, Error, Result};
-use tg::Handle;
 
 impl Server {
 	pub async fn check_in_artifact(
@@ -87,7 +86,7 @@ impl Server {
 		transaction: &Transaction<'_>,
 	) -> Result<tg::artifact::Id> {
 		let names = {
-			let _permit = self.file_descriptor_semaphore().acquire().await;
+			let _permit = self.inner.file_descriptor_semaphore.acquire().await;
 			let mut read_dir = tokio::fs::read_dir(path)
 				.await
 				.map_err(|source| error!(!source, "failed to read the directory"))?;
@@ -138,7 +137,7 @@ impl Server {
 		transaction: &Transaction<'_>,
 	) -> Result<tg::artifact::Id> {
 		// Create the blob.
-		let permit = self.file_descriptor_semaphore().acquire().await;
+		let permit = self.inner.file_descriptor_semaphore.acquire().await;
 		let file = tokio::fs::File::open(path)
 			.await
 			.map_err(|source| error!(!source, "failed to open the file"))?;
@@ -557,7 +556,7 @@ impl Server {
 		}
 
 		// Check out the file, either from an existing path, an internal path, or from the file reader.
-		let permit = self.file_descriptor_semaphore().acquire().await;
+		let permit = self.inner.file_descriptor_semaphore.acquire().await;
 		let id = file.id(self).await?;
 		let existing_path = files.read().unwrap().get(&id).cloned();
 		let internal_path = self.checkouts_path().join(id.to_string());
@@ -662,7 +661,10 @@ impl Server {
 	}
 }
 
-impl Http {
+impl<H> Http<H>
+where
+	H: tg::Handle,
+{
 	pub async fn handle_check_in_artifact_request(
 		&self,
 		request: http::Request<Incoming>,

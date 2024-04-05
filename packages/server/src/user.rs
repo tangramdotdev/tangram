@@ -1,10 +1,8 @@
 use crate::{
-	util::http::{bad_request, empty, full, not_found, unauthorized, Incoming, Outgoing},
+	util::http::{bad_request, full, unauthorized, Incoming, Outgoing},
 	Http, Server,
 };
 use indoc::formatdoc;
-use oauth2::TokenResponse;
-use std::borrow::Cow;
 use tangram_client as tg;
 use tangram_database::{self as db, prelude::*};
 use tangram_error::{error, Result};
@@ -128,185 +126,188 @@ impl Server {
 		Ok(user)
 	}
 
-	pub async fn create_oauth_url(&self, login_id: &tg::Id) -> Result<Url> {
-		// Get the GitHub OAuth client.
-		let oauth_client = self
-			.inner
-			.oauth
-			.github
-			.as_ref()
-			.ok_or_else(|| error!("the GitHub OAuth client is not configured"))?;
+	// pub async fn create_oauth_url(&self, login_id: &tg::Id) -> Result<Url> {
+	// 	// Get the GitHub OAuth client.
+	// 	let oauth_client = self
+	// 		.inner
+	// 		.oauth
+	// 		.github
+	// 		.as_ref()
+	// 		.ok_or_else(|| error!("the GitHub OAuth client is not configured"))?;
 
-		// Create the authorize URL.
-		let mut redirect_url = oauth_client.redirect_url().unwrap().url().clone();
-		redirect_url.set_query(Some(&format!("id={login_id}")));
-		let redirect_url = oauth2::RedirectUrl::new(redirect_url.to_string())
-			.map_err(|source| error!(!source, "failed to create the redirect url"))?;
-		let (oauth_authorize_url, _csrf_token) = oauth_client
-			.authorize_url(oauth2::CsrfToken::new_random)
-			.set_redirect_uri(Cow::Owned(redirect_url))
-			.add_scope(oauth2::Scope::new("user:email".to_owned()))
-			.url();
+	// 	// Create the authorize URL.
+	// 	let mut redirect_url = oauth_client.redirect_url().unwrap().url().clone();
+	// 	redirect_url.set_query(Some(&format!("id={login_id}")));
+	// 	let redirect_url = oauth2::RedirectUrl::new(redirect_url.to_string())
+	// 		.map_err(|source| error!(!source, "failed to create the redirect url"))?;
+	// 	let (oauth_authorize_url, _csrf_token) = oauth_client
+	// 		.authorize_url(oauth2::CsrfToken::new_random)
+	// 		.set_redirect_uri(Cow::Owned(redirect_url))
+	// 		.add_scope(oauth2::Scope::new("user:email".to_owned()))
+	// 		.url();
 
-		Ok(oauth_authorize_url)
-	}
+	// 	Ok(oauth_authorize_url)
+	// }
 
-	pub async fn login_with_github_code(
-		&self,
-		login_id: tg::Id,
-		github_code: String,
-	) -> Result<tg::user::User> {
-		// Get the GitHub OAuth client.
-		let github_oauth_client = self
-			.inner
-			.oauth
-			.github
-			.as_ref()
-			.ok_or_else(|| error!("the GitHub OAuth client is not configured"))?;
+	// pub async fn login_with_github_code(
+	// 	&self,
+	// 	login_id: tg::Id,
+	// 	github_code: String,
+	// ) -> Result<tg::user::User> {
+	// 	// Get the GitHub OAuth client.
+	// 	let github_oauth_client = self
+	// 		.inner
+	// 		.oauth
+	// 		.github
+	// 		.as_ref()
+	// 		.ok_or_else(|| error!("the GitHub OAuth client is not configured"))?;
 
-		// Get a GitHub token.
-		let github_token = github_oauth_client
-			.exchange_code(oauth2::AuthorizationCode::new(github_code))
-			.request_async(oauth2::reqwest::async_http_client)
-			.await
-			.map_err(|source| error!(!source, "failed to exchange the code"))?;
+	// 	// Get a GitHub token.
+	// 	let github_token = github_oauth_client
+	// 		.exchange_code(oauth2::AuthorizationCode::new(github_code))
+	// 		.request_async(oauth2::reqwest::async_http_client)
+	// 		.await
+	// 		.map_err(|source| error!(!source, "failed to exchange the code"))?;
 
-		// Create the GitHub client.
-		let octocrab = octocrab::OctocrabBuilder::new()
-			.oauth(octocrab::auth::OAuth {
-				access_token: github_token.access_token().secret().clone().into(),
-				token_type: match github_token.token_type() {
-					oauth2::basic::BasicTokenType::Bearer => "Bearer".to_owned(),
-					token_type => return Err(error!(?token_type, "unsupported token type")),
-				},
-				scope: github_token.scopes().map_or_else(Vec::new, |scopes| {
-					scopes.iter().map(|scope| scope.to_string()).collect()
-				}),
-				expires_in: None,
-				refresh_token: None,
-				refresh_token_expires_in: None,
-			})
-			.build()
-			.map_err(|source| error!(!source, "failed to create the GitHub client"))?;
+	// 	// Create the GitHub client.
+	// 	let octocrab = octocrab::OctocrabBuilder::new()
+	// 		.oauth(octocrab::auth::OAuth {
+	// 			access_token: github_token.access_token().secret().clone().into(),
+	// 			token_type: match github_token.token_type() {
+	// 				oauth2::basic::BasicTokenType::Bearer => "Bearer".to_owned(),
+	// 				token_type => return Err(error!(?token_type, "unsupported token type")),
+	// 			},
+	// 			scope: github_token.scopes().map_or_else(Vec::new, |scopes| {
+	// 				scopes.iter().map(|scope| scope.to_string()).collect()
+	// 			}),
+	// 			expires_in: None,
+	// 			refresh_token: None,
+	// 			refresh_token_expires_in: None,
+	// 		})
+	// 		.build()
+	// 		.map_err(|source| error!(!source, "failed to create the GitHub client"))?;
 
-		// Get the GitHub user's primary email.
-		#[derive(serde::Deserialize)]
-		struct Entry {
-			email: String,
-			primary: bool,
-			verified: bool,
-		}
-		let emails: Vec<Entry> = octocrab
-			.get("/user/emails", None::<&()>)
-			.await
-			.map_err(|source| error!(!source, "failed to perform the request"))?;
-		let email = emails
-			.into_iter()
-			.find(|email| email.verified && email.primary)
-			.map(|email| email.email)
-			.ok_or_else(|| {
-				error!("the GitHub user does not have a verified primary email address")
-			})?;
+	// 	// Get the GitHub user's primary email.
+	// 	#[derive(serde::Deserialize)]
+	// 	struct Entry {
+	// 		email: String,
+	// 		primary: bool,
+	// 		verified: bool,
+	// 	}
+	// 	let emails: Vec<Entry> = octocrab
+	// 		.get("/user/emails", None::<&()>)
+	// 		.await
+	// 		.map_err(|source| error!(!source, "failed to perform the request"))?;
+	// 	let email = emails
+	// 		.into_iter()
+	// 		.find(|email| email.verified && email.primary)
+	// 		.map(|email| email.email)
+	// 		.ok_or_else(|| {
+	// 			error!("the GitHub user does not have a verified primary email address")
+	// 		})?;
 
-		// Log the user in.
-		let (user, token) = self.login(&email).await?;
+	// 	// Log the user in.
+	// 	let (user, token) = self.login(&email).await?;
 
-		// Update the login with the user.
-		let connection = self
-			.inner
-			.database
-			.connection()
-			.await
-			.map_err(|source| error!(!source, "failed to get a database connection"))?;
-		let p = connection.p();
-		let statement = formatdoc!(
-			"
-				update logins
-				set token = {p}1
-				where id = {p}2;
-			"
-		);
-		let params = db::params![token, login_id];
-		connection
-			.execute(statement, params)
-			.await
-			.map_err(|source| error!(!source, "failed to execute the statement"))?;
+	// 	// Update the login with the user.
+	// 	let connection = self
+	// 		.inner
+	// 		.database
+	// 		.connection()
+	// 		.await
+	// 		.map_err(|source| error!(!source, "failed to get a database connection"))?;
+	// 	let p = connection.p();
+	// 	let statement = formatdoc!(
+	// 		"
+	// 			update logins
+	// 			set token = {p}1
+	// 			where id = {p}2;
+	// 		"
+	// 	);
+	// 	let params = db::params![token, login_id];
+	// 	connection
+	// 		.execute(statement, params)
+	// 		.await
+	// 		.map_err(|source| error!(!source, "failed to execute the statement"))?;
 
-		Ok(user)
-	}
+	// 	Ok(user)
+	// }
 
-	pub async fn login(&self, email: &str) -> Result<(tg::user::User, tg::Id)> {
-		// Get a database connection.
-		let connection = self
-			.inner
-			.database
-			.connection()
-			.await
-			.map_err(|source| error!(!source, "failed to get a database connection"))?;
+	// pub async fn login(&self, email: &str) -> Result<(tg::user::User, tg::Id)> {
+	// 	// Get a database connection.
+	// 	let connection = self
+	// 		.inner
+	// 		.database
+	// 		.connection()
+	// 		.await
+	// 		.map_err(|source| error!(!source, "failed to get a database connection"))?;
 
-		// Retrieve a user with the specified email, or create one if one does not exist.
-		let p = connection.p();
-		let statement = formatdoc!(
-			"
-				select id
-				from users
-				where email = {p}1;
-			"
-		);
-		let params = db::params![email];
-		let id = connection
-			.query_optional_value_into(statement, params)
-			.await
-			.map_err(|source| error!(!source, "failed to execute the statement"))?;
-		let user_id = if let Some(id) = id {
-			id
-		} else {
-			let id = tg::Id::new_uuidv7(tg::id::Kind::User);
-			let p = connection.p();
-			let statement = formatdoc!(
-				"
-					insert into users (id, email)
-					values ({p}1, {p}2);
-				"
-			);
-			let params = db::params![id, email];
-			connection
-				.execute(statement, params)
-				.await
-				.map_err(|source| error!(!source, "failed to execute the statement"))?;
-			id
-		};
+	// 	// Retrieve a user with the specified email, or create one if one does not exist.
+	// 	let p = connection.p();
+	// 	let statement = formatdoc!(
+	// 		"
+	// 			select id
+	// 			from users
+	// 			where email = {p}1;
+	// 		"
+	// 	);
+	// 	let params = db::params![email];
+	// 	let id = connection
+	// 		.query_optional_value_into(statement, params)
+	// 		.await
+	// 		.map_err(|source| error!(!source, "failed to execute the statement"))?;
+	// 	let user_id = if let Some(id) = id {
+	// 		id
+	// 	} else {
+	// 		let id = tg::Id::new_uuidv7(tg::id::Kind::User);
+	// 		let p = connection.p();
+	// 		let statement = formatdoc!(
+	// 			"
+	// 				insert into users (id, email)
+	// 				values ({p}1, {p}2);
+	// 			"
+	// 		);
+	// 		let params = db::params![id, email];
+	// 		connection
+	// 			.execute(statement, params)
+	// 			.await
+	// 			.map_err(|source| error!(!source, "failed to execute the statement"))?;
+	// 		id
+	// 	};
 
-		// Create a token.
-		let id = tg::Id::new_uuidv7(tg::id::Kind::Token);
-		let p = connection.p();
-		let statement = formatdoc!(
-			"
-				insert into tokens (id, user_id)
-				values ({p}1, {p}2);
-			"
-		);
-		let params = db::params![id, user_id];
-		connection
-			.execute(statement, params)
-			.await
-			.map_err(|source| error!(!source, "failed to execute the statement"))?;
+	// 	// Create a token.
+	// 	let id = tg::Id::new_uuidv7(tg::id::Kind::Token);
+	// 	let p = connection.p();
+	// 	let statement = formatdoc!(
+	// 		"
+	// 			insert into tokens (id, user_id)
+	// 			values ({p}1, {p}2);
+	// 		"
+	// 	);
+	// 	let params = db::params![id, user_id];
+	// 	connection
+	// 		.execute(statement, params)
+	// 		.await
+	// 		.map_err(|source| error!(!source, "failed to execute the statement"))?;
 
-		// Drop the database connection.
-		drop(connection);
+	// 	// Drop the database connection.
+	// 	drop(connection);
 
-		// Create the user.
-		let user = tg::user::User {
-			id: user_id,
-			email: email.to_owned(),
-			token: Some(id.clone()),
-		};
+	// 	// Create the user.
+	// 	let user = tg::user::User {
+	// 		id: user_id,
+	// 		email: email.to_owned(),
+	// 		token: Some(id.clone()),
+	// 	};
 
-		Ok((user, id))
-	}
+	// 	Ok((user, id))
+	// }
 }
 
-impl Http {
+impl<H> Http<H>
+where
+	H: tg::Handle,
+{
 	pub async fn handle_create_login_request(
 		&self,
 		_request: http::Request<Incoming>,
@@ -376,74 +377,74 @@ impl Http {
 		Ok(response)
 	}
 
-	pub async fn handle_create_oauth_url_request(
-		&self,
-		request: http::Request<Incoming>,
-	) -> Result<http::Response<Outgoing>> {
-		#[derive(serde::Deserialize)]
-		struct SearchParams {
-			id: tg::Id,
-		}
+	// pub async fn handle_create_oauth_url_request(
+	// 	&self,
+	// 	request: http::Request<Incoming>,
+	// ) -> Result<http::Response<Outgoing>> {
+	// 	#[derive(serde::Deserialize)]
+	// 	struct SearchParams {
+	// 		id: tg::Id,
+	// 	}
 
-		// Get the search params.
-		let Some(query) = request.uri().query() else {
-			return Ok(bad_request());
-		};
-		let search_params: SearchParams = if let Ok(form) = serde_urlencoded::from_str(query) {
-			form
-		} else {
-			return Ok(bad_request());
-		};
+	// 	// Get the search params.
+	// 	let Some(query) = request.uri().query() else {
+	// 		return Ok(bad_request());
+	// 	};
+	// 	let search_params: SearchParams = if let Ok(form) = serde_urlencoded::from_str(query) {
+	// 		form
+	// 	} else {
+	// 		return Ok(bad_request());
+	// 	};
 
-		let oauth_url = self.inner.tg.create_oauth_url(&search_params.id).await?;
+	// 	let oauth_url = self.inner.tg.create_oauth_url(&search_params.id).await?;
 
-		// Respond with a redirect to the oauth URL.
-		let response = http::Response::builder()
-			.status(http::StatusCode::SEE_OTHER)
-			.header(http::header::LOCATION, oauth_url.to_string())
-			.body(empty())
-			.unwrap();
-		Ok(response)
-	}
+	// 	// Respond with a redirect to the oauth URL.
+	// 	let response = http::Response::builder()
+	// 		.status(http::StatusCode::SEE_OTHER)
+	// 		.header(http::header::LOCATION, oauth_url.to_string())
+	// 		.body(empty())
+	// 		.unwrap();
+	// 	Ok(response)
+	// }
 
-	pub async fn handle_oauth_callback_request(
-		&self,
-		request: http::Request<Incoming>,
-	) -> Result<http::Response<Outgoing>> {
-		#[derive(serde::Serialize, serde::Deserialize)]
-		struct SearchParams {
-			id: tg::Id,
-			code: String,
-		}
+	// pub async fn handle_oauth_callback_request(
+	// 	&self,
+	// 	request: http::Request<Incoming>,
+	// ) -> Result<http::Response<Outgoing>> {
+	// 	#[derive(serde::Serialize, serde::Deserialize)]
+	// 	struct SearchParams {
+	// 		id: tg::Id,
+	// 		code: String,
+	// 	}
 
-		// Get the path params.
-		let path_components: Vec<&str> = request.uri().path().split('/').skip(1).collect();
-		let ["oauth", _provider] = path_components.as_slice() else {
-			return Ok(not_found());
-		};
+	// 	// Get the path params.
+	// 	let path_components: Vec<&str> = request.uri().path().split('/').skip(1).collect();
+	// 	let ["oauth", _provider] = path_components.as_slice() else {
+	// 		return Ok(not_found());
+	// 	};
 
-		// Get the search params.
-		let Some(query) = request.uri().query() else {
-			return Ok(bad_request());
-		};
-		let search_params: SearchParams = if let Ok(form) = serde_urlencoded::from_str(query) {
-			form
-		} else {
-			return Ok(bad_request());
-		};
+	// 	// Get the search params.
+	// 	let Some(query) = request.uri().query() else {
+	// 		return Ok(bad_request());
+	// 	};
+	// 	let search_params: SearchParams = if let Ok(form) = serde_urlencoded::from_str(query) {
+	// 		form
+	// 	} else {
+	// 		return Ok(bad_request());
+	// 	};
 
-		self.inner
-			.tg
-			.complete_login(&search_params.id, search_params.code)
-			.await?;
+	// 	self.inner
+	// 		.tg
+	// 		.complete_login(&search_params.id, search_params.code)
+	// 		.await?;
 
-		// Respond with a simple success page.
-		let response = http::Response::builder()
-			.status(http::StatusCode::OK)
-			.body(full(
-				"You were successfully logged in. You can now close this window.",
-			))
-			.unwrap();
-		Ok(response)
-	}
+	// 	// Respond with a simple success page.
+	// 	let response = http::Response::builder()
+	// 		.status(http::StatusCode::OK)
+	// 		.body(full(
+	// 			"You were successfully logged in. You can now close this window.",
+	// 		))
+	// 		.unwrap();
+	// 	Ok(response)
+	// }
 }

@@ -20,7 +20,7 @@ impl Server {
 	}
 }
 
-impl Http {
+impl<H> Http<H> where H: tg::Handle {
 	pub async fn handle_push_object_request(
 		&self,
 		request: http::Request<Incoming>,
