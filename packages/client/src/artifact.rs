@@ -4,7 +4,6 @@ use crate::{
 	util::{fs::rmrf, http::full},
 	Blob, Checksum, Client, Directory, File, Handle, Symlink, Template, Value,
 };
-use async_recursion::async_recursion;
 use derive_more::{From, TryInto, TryUnwrap};
 use futures::stream::{FuturesOrdered, FuturesUnordered, TryStreamExt};
 use http_body_util::BodyExt;
@@ -108,7 +107,6 @@ impl Artifact {
 		}
 	}
 
-	#[async_recursion]
 	pub async fn id(&self, tg: &dyn Handle) -> Result<Id> {
 		match self {
 			Self::Directory(directory) => Ok(directory.id(tg).await?.into()),
@@ -153,7 +151,6 @@ impl Artifact {
 	}
 
 	/// Collect an artifact's references.
-	#[async_recursion]
 	pub async fn references(&self, tg: &dyn Handle) -> Result<Vec<Self>> {
 		match self {
 			Self::Directory(directory) => Ok(directory
@@ -210,7 +207,6 @@ impl Artifact {
 }
 
 impl Artifact {
-	#[async_recursion]
 	pub async fn with_path(tg: &dyn Handle, path: &crate::Path) -> Result<Id> {
 		// Get the metadata for the file system object at the path.
 		let metadata = tokio::fs::symlink_metadata(path)
@@ -431,10 +427,9 @@ impl Artifact {
 		Ok(())
 	}
 
-	#[async_recursion]
 	async fn check_out_local_directory(
 		tg: &dyn Handle,
-		existing_artifact: Option<&'async_recursion Artifact>,
+		existing_artifact: Option<&Artifact>,
 		directory: &Directory,
 		path: &crate::Path,
 	) -> Result<()> {

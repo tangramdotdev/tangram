@@ -1,5 +1,4 @@
 use crate::Server;
-use async_recursion::async_recursion;
 use std::collections::BTreeMap;
 use tangram_client as tg;
 use tangram_error::{error, Result};
@@ -19,7 +18,6 @@ impl Server {
 		Ok(outdated)
 	}
 
-	#[async_recursion]
 	pub async fn get_outdated_inner(
 		&self,
 		dependency: &tg::Dependency,
@@ -75,9 +73,8 @@ impl Server {
 					.map_err(|source| error!(!source, "expected a directory"))?,
 				(None, None) => return Err(error!("invalid lock")),
 			};
-			let outdated = self
-				.get_outdated_inner(&dependency, package, lock, visited)
-				.await?;
+			let outdated =
+				Box::pin(self.get_outdated_inner(&dependency, package, lock, visited)).await?;
 			if outdated.info.is_some() || !outdated.dependencies.is_empty() {
 				dependencies.insert(dependency.clone(), outdated);
 			}

@@ -1,5 +1,4 @@
 use crate::{tree::Tree, Cli};
-use async_recursion::async_recursion;
 use crossterm::style::Stylize;
 use itertools::Itertools;
 use std::{
@@ -238,7 +237,6 @@ impl Cli {
 	}
 }
 
-#[async_recursion]
 #[allow(clippy::too_many_arguments)]
 async fn get_package_tree(
 	client: &tg::Client,
@@ -286,7 +284,7 @@ async fn get_package_tree(
 				.map_err(|source| error!(!source, "expected a directory"))?,
 			(None, None) => return Err(error!("invalid lock")),
 		};
-		let child = get_package_tree(
+		let child = Box::pin(get_package_tree(
 			client,
 			dependency,
 			package,
@@ -294,7 +292,7 @@ async fn get_package_tree(
 			visited,
 			current_depth,
 			max_depth,
-		)
+		))
 		.await?;
 		children.push(child);
 	}

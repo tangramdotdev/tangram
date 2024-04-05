@@ -2,7 +2,6 @@ use crate::{
 	util::http::{empty, full, not_found, Incoming, Outgoing},
 	Http, Server,
 };
-use async_recursion::async_recursion;
 use std::{
 	collections::{BTreeMap, HashSet, VecDeque},
 	path::{Path, PathBuf},
@@ -187,7 +186,6 @@ impl Server {
 			.await
 	}
 
-	#[async_recursion]
 	async fn get_package_with_path_dependencies_with_path_inner(
 		&self,
 		path: &Path,
@@ -292,12 +290,11 @@ impl Server {
 						)?;
 
 					// Recurse into the path dependency.
-					let child = self
-						.get_package_with_path_dependencies_with_path_inner(
-							&dependency_absolute_path,
-							visited,
-						)
-						.await?;
+					let child = Box::pin(self.get_package_with_path_dependencies_with_path_inner(
+						&dependency_absolute_path,
+						visited,
+					))
+					.await?;
 
 					// Check if this is a child of the root and add it if necessary.
 					if let Ok(subpath) = dependency_absolute_path.strip_prefix(path) {

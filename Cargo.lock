@@ -259,17 +259,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "async-recursion"
-version = "1.1.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "30c5ef0ede93efbf733c1a727f3b6b5a1060bbedd5600183e66f6e4be4af0ec5"
-dependencies = [
- "proc-macro2",
- "quote",
- "syn 2.0.58",
-]
-
-[[package]]
 name = "async-stream"
 version = "0.3.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -4311,7 +4300,6 @@ dependencies = [
 name = "tangram_cli"
 version = "0.0.0"
 dependencies = [
- "async-recursion",
  "bytes",
  "clap",
  "console-subscriber",
@@ -4349,7 +4337,6 @@ name = "tangram_client"
 version = "0.0.0"
 dependencies = [
  "async-compression",
- "async-recursion",
  "async-trait",
  "blake3",
  "bytes",
@@ -4459,7 +4446,6 @@ dependencies = [
  "async-broadcast",
  "async-channel",
  "async-nats",
- "async-recursion",
  "async-trait",
  "bytes",
  "data-encoding",

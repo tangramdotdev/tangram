@@ -3,7 +3,6 @@ use crate::{
 	util::http::{empty, full, not_found, Incoming, Outgoing},
 	Http, Server,
 };
-use async_recursion::async_recursion;
 use futures::{future, stream::FuturesUnordered, TryFutureExt, TryStreamExt};
 use http_body_util::BodyExt;
 use indoc::formatdoc;
@@ -106,10 +105,9 @@ impl Server {
 		Ok(Some(outcome))
 	}
 
-	#[async_recursion]
 	pub async fn set_build_outcome(
 		&self,
-		user: Option<&'async_recursion tg::User>,
+		user: Option<&tg::User>,
 		id: &tg::build::Id,
 		outcome: tg::build::Outcome,
 	) -> Result<()> {

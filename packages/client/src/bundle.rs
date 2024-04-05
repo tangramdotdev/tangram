@@ -1,5 +1,4 @@
 use crate::{directory, Artifact, Directory, File, Handle, Symlink};
-use async_recursion::async_recursion;
 use futures::{stream::FuturesOrdered, TryStreamExt};
 use once_cell::sync::Lazy;
 use tangram_error::{error, Error, Result};
@@ -75,12 +74,7 @@ impl Artifact {
 	}
 
 	/// Remove all references from an artifact and its children recursively.
-	#[async_recursion]
-	async fn remove_references(
-		&self,
-		tg: &'async_recursion dyn Handle,
-		depth: usize,
-	) -> Result<Artifact> {
+	async fn remove_references(&self, tg: &dyn Handle, depth: usize) -> Result<Artifact> {
 		match self {
 			// If the artifact is a directory, then recurse to remove references from its entries.
 			Artifact::Directory(directory) => {

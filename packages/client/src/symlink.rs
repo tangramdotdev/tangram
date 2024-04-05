@@ -106,7 +106,7 @@ impl Symlink {
 		if let Some(id) = self.state.read().unwrap().id.clone() {
 			return Ok(id);
 		}
-		let data = self.data(tg).await?;
+		let data = Box::pin(self.data(tg)).await?;
 		let bytes = data.serialize()?;
 		let id = Id::new(&bytes);
 		let arg = object::PutArg {

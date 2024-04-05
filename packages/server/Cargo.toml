@@ -23,7 +23,6 @@ proptest = { workspace = true }
 async-broadcast = { workspace = true }
 async-channel = { workspace = true }
 async-nats = { workspace = true }
-async-recursion = { workspace = true }
 async-trait = { workspace = true }
 bytes = { workspace = true }
 data-encoding = { workspace = true }

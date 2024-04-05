@@ -6,7 +6,6 @@ use crate::{
 	},
 	Http, Server,
 };
-use async_recursion::async_recursion;
 use futures::{stream::FuturesUnordered, TryStreamExt};
 use http_body_util::BodyExt;
 use std::{collections::HashMap, os::unix::prelude::PermissionsExt, sync::Arc};
@@ -81,12 +80,11 @@ impl Server {
 		}
 	}
 
-	#[async_recursion]
-	async fn check_in_directory<'a>(
-		&'a self,
-		path: &'a tg::Path,
-		_metadata: &'a std::fs::Metadata,
-		transaction: &'a Transaction,
+	async fn check_in_directory(
+		&self,
+		path: &tg::Path,
+		_metadata: &std::fs::Metadata,
+		transaction: &Transaction<'_>,
 	) -> Result<tg::artifact::Id> {
 		let names = {
 			let _permit = self.file_descriptor_semaphore().acquire().await;
@@ -343,12 +341,11 @@ impl Server {
 		}
 	}
 
-	#[async_recursion]
 	async fn check_out_inner(
 		&self,
 		path: &tg::Path,
 		artifact: &tg::Artifact,
-		existing_artifact: Option<&'async_recursion tg::Artifact>,
+		existing_artifact: Option<&tg::Artifact>,
 		internal: bool,
 		depth: usize,
 		files: Arc<std::sync::RwLock<HashMap<tg::file::Id, tg::Path>>>,
@@ -547,7 +544,7 @@ impl Server {
 						path: None,
 						force: false,
 					};
-					self.check_out_artifact_with_files(artifact, arg, files.clone())
+					Box::pin(self.check_out_artifact_with_files(artifact, arg, files.clone()))
 						.await?;
 					Ok::<_, Error>(())
 				})
@@ -634,7 +631,7 @@ impl Server {
 				));
 			}
 			let arg = tg::artifact::CheckOutArg::default();
-			self.check_out_artifact_with_files(&artifact.id(self).await?, arg, files)
+			Box::pin(self.check_out_artifact_with_files(&artifact.id(self).await?, arg, files))
 				.await?;
 		}
 

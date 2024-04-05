@@ -1,5 +1,4 @@
 use crate::{tree::Tree, Cli};
-use async_recursion::async_recursion;
 use crossterm::style::Stylize;
 use futures::{
 	stream::{self, FuturesUnordered},
@@ -137,7 +136,6 @@ impl Cli {
 	}
 }
 
-#[async_recursion]
 async fn get_object_tree(
 	client: &tg::Client,
 	object: tg::object::Id,

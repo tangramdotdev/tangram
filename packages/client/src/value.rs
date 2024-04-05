@@ -1,5 +1,4 @@
 use crate::{mutation, object, template, Handle, Mutation, Template};
-use async_recursion::async_recursion;
 use bytes::Bytes;
 use derive_more::{From, TryInto, TryUnwrap};
 use futures::{
@@ -84,7 +83,6 @@ impl Value {
 		Ok(())
 	}
 
-	#[async_recursion]
 	pub async fn data(&self, tg: &dyn Handle) -> Result<Data> {
 		let data = match self {
 			Self::Null => Data::Null,

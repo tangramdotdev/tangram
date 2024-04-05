@@ -60,10 +60,10 @@ impl Mutation {
 		Ok(match self {
 			Self::Unset => Data::Unset,
 			Self::Set { value } => Data::Set {
-				value: Box::new(value.data(tg).await?),
+				value: Box::new(Box::pin(value.data(tg)).await?),
 			},
 			Self::SetIfUnset { value } => Data::SetIfUnset {
-				value: Box::new(value.data(tg).await?),
+				value: Box::new(Box::pin(value.data(tg)).await?),
 			},
 			Self::ArrayPrepend { values } => Data::ArrayPrepend {
 				values: values

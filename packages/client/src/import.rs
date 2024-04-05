@@ -1,9 +1,11 @@
 use crate as tg;
+use derive_more::TryUnwrap;
 use std::collections::BTreeMap;
 use tangram_error::{error, Error, Result};
 
 /// An import in a module.
-#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash, TryUnwrap)]
+#[try_unwrap(ref)]
 pub enum Import {
 	/// An import of a module, such as `import "./module.tg"`.
 	Module(tg::Path),

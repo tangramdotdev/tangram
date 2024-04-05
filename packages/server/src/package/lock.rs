@@ -1,6 +1,5 @@
 use super::PackageWithPathDependencies;
 use crate::Server;
-use async_recursion::async_recursion;
 use either::Either;
 use futures::{stream::FuturesUnordered, TryStreamExt};
 use std::collections::{BTreeMap, BTreeSet};
@@ -167,7 +166,6 @@ impl Server {
 		Ok(lock)
 	}
 
-	#[async_recursion]
 	async fn package_with_path_dependencies_matches_lock(
 		&self,
 		package_with_path_dependencies: &PackageWithPathDependencies,
@@ -275,8 +273,6 @@ impl Server {
 		Ok(lock)
 	}
 
-	#[allow(clippy::only_used_in_recursion)]
-	#[async_recursion]
 	async fn create_lock_inner(
 		&self,
 		package: &tg::directory::Id,
@@ -311,8 +307,7 @@ impl Server {
 			};
 			let package = is_registry_dependency.then_some(resolved.clone());
 			let lock = Either::Left(
-				self.create_lock_inner(resolved, context, solution, nodes)
-					.await?,
+				Box::pin(self.create_lock_inner(resolved, context, solution, nodes)).await?,
 			);
 			let entry = tg::lock::data::Entry { package, lock };
 			dependencies.insert(dependency.clone(), entry);
@@ -330,7 +325,6 @@ impl Server {
 		Ok(index)
 	}
 
-	#[async_recursion]
 	async fn analyze_package_with_path_dependencies(
 		&self,
 		package_with_path_dependencies: &PackageWithPathDependencies,
@@ -377,18 +371,17 @@ impl Server {
 			analysis
 				.path_dependencies
 				.insert(dependency.clone(), dependency_package_id.clone());
-			self.analyze_package_with_path_dependencies(
+			Box::pin(self.analyze_package_with_path_dependencies(
 				package_with_path_dependencies,
 				all_analysis,
 				working_set,
-			)
+			))
 			.await?;
 		}
 
 		Ok(())
 	}
 
-	#[async_recursion]
 	pub(super) async fn add_path_dependencies_to_lock(
 		&self,
 		package_with_path_dependencies: &PackageWithPathDependencies,
@@ -416,12 +409,11 @@ impl Server {
 				match &mut entry.lock {
 					Either::Left(index) => stack.push((*index, package_with_path_dependencies)),
 					Either::Right(lock) => {
-						*lock = self
-							.add_path_dependencies_to_lock(
-								package_with_path_dependencies,
-								lock.clone(),
-							)
-							.await?;
+						*lock = Box::pin(self.add_path_dependencies_to_lock(
+							package_with_path_dependencies,
+							lock.clone(),
+						))
+						.await?;
 					},
 				}
 			}

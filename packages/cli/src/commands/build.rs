@@ -4,7 +4,6 @@ use crate::{
 	tui::{self, Tui},
 	Cli,
 };
-use async_recursion::async_recursion;
 use crossterm::style::Stylize;
 use futures::{stream::FuturesUnordered, StreamExt, TryStreamExt};
 use itertools::Itertools;
@@ -359,7 +358,6 @@ impl Cli {
 	}
 }
 
-#[async_recursion]
 async fn get_build_tree(
 	client: &tg::Client,
 	build: &tg::Build,

@@ -1,5 +1,4 @@
 use crate::{artifact, id, object, util::arc::Ext as _, Artifact, Error, Handle, Result, Symlink};
-use async_recursion::async_recursion;
 use bytes::Bytes;
 use derive_more::Display;
 use futures::{stream::FuturesOrdered, TryStreamExt};
@@ -121,7 +120,6 @@ impl Directory {
 		Ok(id)
 	}
 
-	#[async_recursion]
 	pub async fn data(&self, tg: &dyn Handle) -> Result<Data> {
 		let object = self.object(tg).await?;
 		let entries = object
@@ -286,7 +284,6 @@ impl Builder {
 		Self { entries }
 	}
 
-	#[async_recursion]
 	pub async fn add(
 		mut self,
 		tg: &dyn Handle,
@@ -322,8 +319,7 @@ impl Builder {
 			};
 
 			// Recurse.
-			builder
-				.add(tg, &trailing_path, artifact)
+			Box::pin(builder.add(tg, &trailing_path, artifact))
 				.await?
 				.build()
 				.into()
@@ -335,7 +331,6 @@ impl Builder {
 		Ok(self)
 	}
 
-	#[async_recursion]
 	pub async fn remove(mut self, tg: &dyn Handle, path: &crate::Path) -> Result<Self> {
 		// Get the first component.
 		let name = path
@@ -367,7 +362,10 @@ impl Builder {
 			};
 
 			// Recurse.
-			let artifact = builder.remove(tg, &trailing_path).await?.build().into();
+			let artifact = Box::pin(builder.remove(tg, &trailing_path))
+				.await?
+				.build()
+				.into();
 
 			// Add the new artifact.
 			self.entries.insert(name.clone(), artifact);

@@ -3,7 +3,6 @@ use crate::{
 	util::http::{empty, full},
 	Branch, Client, Directory, Error, File, Leaf, Lock, Result, Symlink, Target,
 };
-use async_recursion::async_recursion;
 use bytes::Bytes;
 use derive_more::{Display, From, TryInto, TryUnwrap};
 use futures::{stream::FuturesUnordered, TryStreamExt};
@@ -191,7 +190,6 @@ impl Handle {
 		}
 	}
 
-	#[async_recursion]
 	pub async fn push(&self, tg: &dyn crate::Handle, remote: &dyn crate::Handle) -> Result<()> {
 		let id = self.id(tg).await?;
 		let data = self.data(tg).await?;
@@ -216,7 +214,6 @@ impl Handle {
 		Ok(())
 	}
 
-	#[async_recursion]
 	pub async fn pull(&self, tg: &dyn crate::Handle, remote: &dyn crate::Handle) -> Result<()> {
 		let id = self.id(tg).await?;
 		let output = remote
