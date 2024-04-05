@@ -2,7 +2,7 @@ use super::Server;
 use std::rc::Rc;
 use swc::ecma::{ast, visit::VisitMutWith};
 use swc_core as swc;
-use tangram_error::{error, Result};
+use tangram_client as tg;
 
 #[derive(Debug)]
 pub struct Output {
@@ -17,7 +17,7 @@ pub struct Error {
 }
 
 impl Server {
-	pub fn transpile_module(text: String) -> Result<Output> {
+	pub fn transpile_module(text: String) -> tg::Result<Output> {
 		let globals = swc::common::Globals::default();
 		swc::common::GLOBALS.set(&globals, move || {
 			// Parse the text.
@@ -83,18 +83,18 @@ impl Server {
 			// Emit the module.
 			emitter
 				.emit_program(&program)
-				.map_err(|source| error!(!source, "failed to emit the program"))?;
+				.map_err(|source| tg::error!(!source, "failed to emit the program"))?;
 			let transpiled_text = String::from_utf8(transpiled_text)
-				.map_err(|source| error!(!source, "failed to convert bytes to string"))?;
+				.map_err(|source| tg::error!(!source, "failed to convert bytes to string"))?;
 
 			// Create the source map.
 			let mut output_source_map = Vec::new();
 			source_map
 				.build_source_map(&source_mappings)
 				.to_writer(&mut output_source_map)
-				.map_err(|source| error!(!source, "failed to create the source map"))?;
+				.map_err(|source| tg::error!(!source, "failed to create the source map"))?;
 			let source_map = String::from_utf8(output_source_map)
-				.map_err(|source| error!(!source, "failed to convert bytes to string"))?;
+				.map_err(|source| tg::error!(!source, "failed to convert bytes to string"))?;
 
 			// Create the output.
 			let output = Output {

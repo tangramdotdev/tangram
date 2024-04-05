@@ -1,6 +1,5 @@
 use crate::Cli;
 use tangram_client as tg;
-use tangram_error::{error, Error, Result};
 
 /// Display a build, object, or package tree.
 #[derive(Debug, clap::Args)]
@@ -19,7 +18,7 @@ pub enum Arg {
 }
 
 impl Cli {
-	pub async fn command_tree(&self, args: Args) -> Result<()> {
+	pub async fn command_tree(&self, args: Args) -> tg::Result<()> {
 		match args.arg {
 			Arg::Build(id) => {
 				let args = super::build::TreeArgs {
@@ -48,9 +47,9 @@ impl Cli {
 }
 
 impl std::str::FromStr for Arg {
-	type Err = Error;
+	type Err = tg::Error;
 
-	fn from_str(s: &str) -> Result<Self, Self::Err> {
+	fn from_str(s: &str) -> tg::Result<Self, Self::Err> {
 		if let Ok(build) = s.parse() {
 			return Ok(Arg::Build(build));
 		}
@@ -60,6 +59,6 @@ impl std::str::FromStr for Arg {
 		if let Ok(package) = s.parse() {
 			return Ok(Arg::Package(package));
 		}
-		Err(error!(%s, "expected a build, object, or dependency"))
+		Err(tg::error!(%s, "expected a build, object, or dependency"))
 	}
 }

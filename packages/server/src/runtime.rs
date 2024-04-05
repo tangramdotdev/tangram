@@ -1,6 +1,6 @@
 use futures::Future;
 use tangram_client as tg;
-use tangram_error::Result;
+use tg::error::Result;
 
 #[cfg(target_os = "macos")]
 pub mod darwin;
@@ -24,7 +24,7 @@ pub enum Runtime {
 }
 
 impl Trait for Runtime {
-	async fn run(&self, build: &tg::Build) -> Result<tg::Value> {
+	async fn run(&self, build: &tg::Build) -> tg::Result<tg::Value> {
 		match self {
 			#[cfg(target_os = "macos")]
 			Runtime::Darwin(runtime) => runtime.run(build).await,

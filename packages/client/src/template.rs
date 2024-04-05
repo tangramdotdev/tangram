@@ -1,5 +1,5 @@
 pub use self::component::Component;
-use crate::{object, Artifact, Error, Handle, Result};
+use crate::{self as tg, object, Artifact, Handle, Result};
 use futures::{stream::FuturesOrdered, Future, TryStreamExt};
 use itertools::Itertools;
 use std::borrow::Cow;
@@ -36,9 +36,9 @@ impl Template {
 			.collect()
 	}
 
-	pub fn try_render_sync<'a, F>(&'a self, mut f: F) -> Result<String>
+	pub fn try_render_sync<'a, F>(&'a self, mut f: F) -> tg::Result<String>
 	where
-		F: (FnMut(&'a Component) -> Result<Cow<'a, str>>) + 'a,
+		F: (FnMut(&'a Component) -> tg::Result<Cow<'a, str>>) + 'a,
 	{
 		let mut string = String::new();
 		for component in &self.components {
@@ -47,7 +47,7 @@ impl Template {
 		Ok(string)
 	}
 
-	pub async fn try_render<'a, F, Fut>(&'a self, f: F) -> Result<String>
+	pub async fn try_render<'a, F, Fut>(&'a self, f: F) -> tg::Result<String>
 	where
 		F: (FnMut(&'a Component) -> Fut) + 'a,
 		Fut: Future<Output = Result<String>> + 'a,
@@ -62,7 +62,7 @@ impl Template {
 			.join(""))
 	}
 
-	pub fn unrender(string: &str) -> Result<Self> {
+	pub fn unrender(string: &str) -> tg::Result<Self> {
 		// Create the regex.
 		let regex =
 			r"/\.tangram/artifacts/((?:fil_|dir_|sym_)01[0123456789abcdefghjkmnpqrstvwxyz]{52})";
@@ -97,7 +97,7 @@ impl Template {
 		Ok(Self { components })
 	}
 
-	pub async fn data(&self, tg: &impl Handle) -> Result<Data> {
+	pub async fn data(&self, tg: &impl Handle) -> tg::Result<Data> {
 		let components = self
 			.components
 			.iter()
@@ -110,7 +110,7 @@ impl Template {
 }
 
 impl TryFrom<Data> for Template {
-	type Error = Error;
+	type Error = tg::Error;
 
 	fn try_from(data: Data) -> std::result::Result<Self, Self::Error> {
 		let components = data
@@ -185,7 +185,7 @@ impl From<&str> for Template {
 }
 
 pub mod component {
-	use crate::{artifact, Artifact, Error, Handle, Result};
+	use crate::{self as tg, artifact, Artifact, Handle, Result};
 	use derive_more::{From, TryUnwrap};
 
 	#[derive(Clone, Debug, From, TryUnwrap)]
@@ -203,7 +203,7 @@ pub mod component {
 	}
 
 	impl Component {
-		pub async fn data(&self, tg: &impl Handle) -> Result<Data> {
+		pub async fn data(&self, tg: &impl Handle) -> tg::Result<Data> {
 			match self {
 				Self::String(string) => Ok(Data::String(string.clone())),
 				Self::Artifact(artifact) => Ok(Data::Artifact(artifact.id(tg).await?)),
@@ -212,9 +212,9 @@ pub mod component {
 	}
 
 	impl TryFrom<Data> for Component {
-		type Error = Error;
+		type Error = tg::Error;
 
-		fn try_from(data: Data) -> Result<Self, Self::Error> {
+		fn try_from(data: Data) -> tg::Result<Self, Self::Error> {
 			Ok(match data {
 				Data::String(string) => Self::String(string),
 				Data::Artifact(id) => Self::Artifact(Artifact::with_id(id)),

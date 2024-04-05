@@ -1,6 +1,5 @@
 use crate::Cli;
 use tangram_client as tg;
-use tangram_error::{error, Result};
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 
 /// Format the files in a package.
@@ -14,7 +13,7 @@ pub struct Args {
 }
 
 impl Cli {
-	pub async fn command_fmt(&self, mut args: Args) -> Result<()> {
+	pub async fn command_fmt(&self, mut args: Args) -> tg::Result<()> {
 		let client = &self.client().await?;
 
 		if args.stdio {
@@ -22,12 +21,12 @@ impl Cli {
 			tokio::io::stdin()
 				.read_to_string(&mut text)
 				.await
-				.map_err(|source| error!(!source, "failed to read stdin"))?;
+				.map_err(|source| tg::error!(!source, "failed to read stdin"))?;
 			let text = client.format(text).await?;
 			tokio::io::stdout()
 				.write_all(text.as_bytes())
 				.await
-				.map_err(|source| error!(!source, "failed to write to stdout"))?;
+				.map_err(|source| tg::error!(!source, "failed to write to stdout"))?;
 			return Ok(());
 		}
 
@@ -35,7 +34,7 @@ impl Cli {
 		if let Some(path) = args.package.path.as_mut() {
 			*path = tokio::fs::canonicalize(&path)
 				.await
-				.map_err(|source| error!(!source, "failed to canonicalize the path"))?
+				.map_err(|source| tg::error!(!source, "failed to canonicalize the path"))?
 				.try_into()?;
 		}
 

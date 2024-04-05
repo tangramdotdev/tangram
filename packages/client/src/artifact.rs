@@ -1,6 +1,5 @@
-use crate as tg;
 use crate::{
-	checksum, directory, file, id, object, symlink,
+	self as tg, checksum, directory, error, file, id, object, symlink,
 	util::{fs::rmrf, http::full},
 	Blob, Checksum, Client, Directory, File, Handle, Symlink, Template, Value,
 };
@@ -11,7 +10,6 @@ use std::{
 	collections::{HashSet, VecDeque},
 	os::unix::fs::PermissionsExt,
 };
-use tangram_error::{error, Error, Result};
 
 /// An artifact kind.
 #[derive(Clone, Copy, Debug)]
@@ -107,7 +105,7 @@ impl Artifact {
 		}
 	}
 
-	pub async fn id(&self, tg: &impl Handle) -> Result<Id> {
+	pub async fn id(&self, tg: &impl Handle) -> tg::Result<Id> {
 		match self {
 			Self::Directory(directory) => Ok(directory.id(tg).await?.into()),
 			Self::File(file) => Ok(file.id(tg).await?.into()),
@@ -115,7 +113,7 @@ impl Artifact {
 		}
 	}
 
-	pub async fn data(&self, tg: &impl Handle) -> Result<Data> {
+	pub async fn data(&self, tg: &impl Handle) -> tg::Result<Data> {
 		match self {
 			Self::Directory(directory) => Ok(directory.data(tg).await?.into()),
 			Self::File(file) => Ok(file.data(tg).await?.into()),
@@ -125,14 +123,18 @@ impl Artifact {
 }
 
 impl Artifact {
-	pub async fn check_in(tg: &impl Handle, path: &crate::Path) -> Result<Self> {
+	pub async fn check_in(tg: &impl Handle, path: &crate::Path) -> tg::Result<Self> {
 		let arg = CheckInArg { path: path.clone() };
 		let output = tg.check_in_artifact(arg).await?;
 		let artifact = Self::with_id(output.id);
 		Ok(artifact)
 	}
 
-	pub async fn check_out(&self, tg: &impl Handle, arg: CheckOutArg) -> Result<CheckOutOutput> {
+	pub async fn check_out(
+		&self,
+		tg: &impl Handle,
+		arg: CheckOutArg,
+	) -> tg::Result<CheckOutOutput> {
 		let id = self.id(tg).await?;
 		let output = tg.check_out_artifact(&id, arg).await?;
 		Ok(output)
@@ -143,7 +145,7 @@ impl Artifact {
 		&self,
 		_tg: &impl Handle,
 		algorithm: checksum::Algorithm,
-	) -> Result<Checksum> {
+	) -> tg::Result<Checksum> {
 		match algorithm {
 			checksum::Algorithm::Unsafe => Ok(Checksum::Unsafe),
 			_ => Err(error!("not yet implemented")),
@@ -151,7 +153,7 @@ impl Artifact {
 	}
 
 	/// Collect an artifact's references.
-	pub async fn references(&self, tg: &impl Handle) -> Result<Vec<Self>> {
+	pub async fn references(&self, tg: &impl Handle) -> tg::Result<Vec<Self>> {
 		match self {
 			Self::Directory(directory) => Ok(directory
 				.entries(tg)
@@ -173,7 +175,7 @@ impl Artifact {
 	pub async fn recursive_references(
 		&self,
 		tg: &impl Handle,
-	) -> Result<HashSet<Id, fnv::FnvBuildHasher>> {
+	) -> tg::Result<HashSet<Id, fnv::FnvBuildHasher>> {
 		// Create a queue of artifacts and a set of futures.
 		let mut references = HashSet::default();
 		let mut queue = VecDeque::new();
@@ -207,7 +209,7 @@ impl Artifact {
 }
 
 impl Artifact {
-	pub async fn with_path(tg: &impl Handle, path: &crate::Path) -> Result<Id> {
+	pub async fn with_path(tg: &impl Handle, path: &crate::Path) -> tg::Result<Id> {
 		// Get the metadata for the file system object at the path.
 		let metadata = tokio::fs::symlink_metadata(path)
 			.await
@@ -232,7 +234,7 @@ impl Artifact {
 		tg: &impl Handle,
 		path: &crate::Path,
 		_metadata: &std::fs::Metadata,
-	) -> Result<Id> {
+	) -> tg::Result<Id> {
 		// Read the contents of the directory.
 		let names = {
 			let _permit = tg.file_descriptor_semaphore().acquire().await;
@@ -261,7 +263,7 @@ impl Artifact {
 			.map(|name| async {
 				let path = path.clone().join(name.clone());
 				let artifact = Artifact::with_id(Self::with_path(tg, &path).await?);
-				Ok::<_, Error>((name, artifact))
+				Ok::<_, tg::Error>((name, artifact))
 			})
 			.collect::<FuturesUnordered<_>>()
 			.try_collect()
@@ -278,7 +280,7 @@ impl Artifact {
 		tg: &impl Handle,
 		path: &crate::Path,
 		metadata: &std::fs::Metadata,
-	) -> Result<Id> {
+	) -> tg::Result<Id> {
 		// Create the blob.
 		let permit = tg.file_descriptor_semaphore().acquire().await;
 		let file = tokio::fs::File::open(path)
@@ -315,7 +317,7 @@ impl Artifact {
 		tg: &impl Handle,
 		path: &crate::Path,
 		_metadata: &std::fs::Metadata,
-	) -> Result<Id> {
+	) -> tg::Result<Id> {
 		// Read the target from the symlink.
 		let target = tokio::fs::read_link(path)
 			.await
@@ -359,7 +361,7 @@ impl Artifact {
 		Ok(id.into())
 	}
 
-	pub async fn check_out_local(tg: &impl Handle, id: &Id, path: &crate::Path) -> Result<()> {
+	pub async fn check_out_local(tg: &impl Handle, id: &Id, path: &crate::Path) -> tg::Result<()> {
 		let artifact = Self::with_id(id.clone());
 
 		// Bundle the artifact.
@@ -389,7 +391,7 @@ impl Artifact {
 		artifact: &Artifact,
 		existing_artifact: Option<&Artifact>,
 		path: &crate::Path,
-	) -> Result<()> {
+	) -> tg::Result<()> {
 		// If the artifact is the same as the existing artifact, then return.
 		let id = artifact.id(tg).await?;
 		match existing_artifact {
@@ -432,7 +434,7 @@ impl Artifact {
 		existing_artifact: Option<&Artifact>,
 		directory: &Directory,
 		path: &crate::Path,
-	) -> Result<()> {
+	) -> tg::Result<()> {
 		// Handle an existing artifact at the path.
 		match existing_artifact {
 			// If there is already a directory, then remove any extraneous entries.
@@ -446,7 +448,7 @@ impl Artifact {
 							let entry_path = path.clone().join(name);
 							rmrf(&entry_path).await?;
 						}
-						Ok::<_, Error>(())
+						Ok::<_, tg::Error>(())
 					})
 					.collect::<FuturesUnordered<_>>()
 					.try_collect()
@@ -497,7 +499,7 @@ impl Artifact {
 					)
 					.await?;
 
-					Ok::<_, Error>(())
+					Ok::<_, tg::Error>(())
 				}
 			})
 			.collect::<FuturesUnordered<_>>()
@@ -512,7 +514,7 @@ impl Artifact {
 		existing_artifact: Option<&Artifact>,
 		file: &File,
 		path: &crate::Path,
-	) -> Result<()> {
+	) -> tg::Result<()> {
 		// Handle an existing artifact at the path.
 		match &existing_artifact {
 			// If there is an existing file system object at the path, then remove it and continue.
@@ -557,7 +559,7 @@ impl Artifact {
 		existing_artifact: Option<&Artifact>,
 		symlink: &Symlink,
 		path: &crate::Path,
-	) -> Result<()> {
+	) -> tg::Result<()> {
 		// Handle an existing artifact at the path.
 		match &existing_artifact {
 			// If there is an existing file system object at the path, then remove it and continue.
@@ -590,7 +592,7 @@ impl Client {
 	pub async fn check_in_artifact(
 		&self,
 		arg: tg::artifact::CheckInArg,
-	) -> Result<tg::artifact::CheckInOutput> {
+	) -> tg::Result<tg::artifact::CheckInOutput> {
 		let method = http::Method::POST;
 		let uri = "/artifacts/checkin";
 		let body = serde_json::to_string(&arg)
@@ -626,7 +628,7 @@ impl Client {
 		&self,
 		id: &tg::artifact::Id,
 		arg: tg::artifact::CheckOutArg,
-	) -> Result<tg::artifact::CheckOutOutput> {
+	) -> tg::Result<tg::artifact::CheckOutOutput> {
 		let method = http::Method::POST;
 		let uri = format!("/artifacts/{id}/checkout");
 		let body = serde_json::to_string(&arg)
@@ -670,7 +672,7 @@ impl std::fmt::Display for Id {
 }
 
 impl std::str::FromStr for Id {
-	type Err = Error;
+	type Err = tg::Error;
 
 	fn from_str(s: &str) -> std::result::Result<Self, Self::Err> {
 		crate::Id::from_str(s)?.try_into()
@@ -688,9 +690,9 @@ impl From<Id> for crate::Id {
 }
 
 impl TryFrom<crate::Id> for Id {
-	type Error = Error;
+	type Error = tg::Error;
 
-	fn try_from(value: crate::Id) -> Result<Self, Self::Error> {
+	fn try_from(value: crate::Id) -> tg::Result<Self, Self::Error> {
 		match value.kind() {
 			id::Kind::Directory => Ok(Self::Directory(value.try_into()?)),
 			id::Kind::File => Ok(Self::File(value.try_into()?)),
@@ -711,9 +713,9 @@ impl From<Id> for object::Id {
 }
 
 impl TryFrom<object::Id> for Id {
-	type Error = Error;
+	type Error = tg::Error;
 
-	fn try_from(value: object::Id) -> Result<Self, Self::Error> {
+	fn try_from(value: object::Id) -> tg::Result<Self, Self::Error> {
 		match value {
 			object::Id::Directory(value) => Ok(value.into()),
 			object::Id::File(value) => Ok(value.into()),
@@ -744,9 +746,9 @@ impl From<Artifact> for object::Handle {
 }
 
 impl TryFrom<object::Handle> for Artifact {
-	type Error = Error;
+	type Error = tg::Error;
 
-	fn try_from(value: object::Handle) -> Result<Self, Self::Error> {
+	fn try_from(value: object::Handle) -> tg::Result<Self, Self::Error> {
 		match value {
 			object::Handle::Directory(directory) => Ok(Self::Directory(directory)),
 			object::Handle::File(file) => Ok(Self::File(file)),
@@ -763,9 +765,9 @@ impl From<Artifact> for Value {
 }
 
 impl TryFrom<Value> for Artifact {
-	type Error = Error;
+	type Error = tg::Error;
 
-	fn try_from(value: Value) -> Result<Self, Self::Error> {
+	fn try_from(value: Value) -> tg::Result<Self, Self::Error> {
 		object::Handle::try_from(value)
 			.map_err(|source| error!(!source, "invalid value"))?
 			.try_into()

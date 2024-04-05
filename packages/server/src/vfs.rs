@@ -1,5 +1,5 @@
 use std::path::Path;
-use tangram_error::Result;
+use tangram_client as tg;
 
 #[cfg(target_os = "linux")]
 mod fuse;
@@ -15,7 +15,7 @@ pub enum Server {
 }
 
 impl Server {
-	pub async fn start(server: &crate::Server, path: &Path) -> Result<Self> {
+	pub async fn start(server: &crate::Server, path: &Path) -> tg::Result<Self> {
 		#[cfg(target_os = "linux")]
 		{
 			Ok(Self::Fuse(fuse::Server::start(server, path).await?))
@@ -35,7 +35,7 @@ impl Server {
 		}
 	}
 
-	pub async fn join(&self) -> Result<()> {
+	pub async fn join(&self) -> tg::Result<()> {
 		match self {
 			#[cfg(target_os = "linux")]
 			Server::Fuse(server) => server.join().await,
@@ -45,7 +45,7 @@ impl Server {
 	}
 }
 
-pub async fn unmount(path: &Path) -> Result<()> {
+pub async fn unmount(path: &Path) -> tg::Result<()> {
 	#[cfg(target_os = "linux")]
 	fuse::Server::unmount(path).await?;
 	#[cfg(target_os = "macos")]

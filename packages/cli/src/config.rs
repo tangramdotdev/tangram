@@ -1,6 +1,6 @@
 use serde_with::serde_as;
 use std::path::PathBuf;
-use tangram_error::{error, Error};
+use tangram_client as tg;
 use url::Url;
 
 #[serde_as]
@@ -43,7 +43,7 @@ pub struct Config {
 #[derive(Clone, Debug, Default, serde::Serialize, serde::Deserialize)]
 pub struct Advanced {
 	#[serde(default, skip_serializing_if = "Option::is_none")]
-	pub error_trace_options: Option<tangram_error::TraceOptions>,
+	pub error_trace_options: Option<tg::error::TraceOptions>,
 
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub file_descriptor_limit: Option<u64>,
@@ -176,14 +176,14 @@ impl std::fmt::Display for TracingFormat {
 }
 
 impl std::str::FromStr for TracingFormat {
-	type Err = Error;
+	type Err = tg::Error;
 
-	fn from_str(s: &str) -> Result<Self, Self::Err> {
+	fn from_str(s: &str) -> tg::Result<Self, Self::Err> {
 		match s {
 			"compact" => Ok(Self::Compact),
 			"json" => Ok(Self::Json),
 			"pretty" => Ok(Self::Pretty),
-			_ => Err(error!("invalid tracing format")),
+			_ => Err(tg::error!("invalid tracing format")),
 		}
 	}
 }

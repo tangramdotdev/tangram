@@ -38,7 +38,7 @@ struct GraphemeParserState<'a, 'b> {
 }
 
 impl Scroll {
-	pub fn new(rect: Rect, chunks: &[Chunk]) -> Result<Self, Error> {
+	pub fn new(rect: Rect, chunks: &[Chunk]) -> tg::Result<Self, Error> {
 		let mut buffer = Vec::with_capacity(64);
 		let chunk = chunks.last().unwrap();
 		let end = chunk.position + chunk.bytes.len().to_u64().unwrap();
@@ -57,7 +57,7 @@ impl Scroll {
 		})
 	}
 
-	pub fn scroll_up(&mut self, height: usize, chunks: &[Chunk]) -> Result<usize, Error> {
+	pub fn scroll_up(&mut self, height: usize, chunks: &[Chunk]) -> tg::Result<usize, Error> {
 		let (count, new_start) = scroll_up_inner(
 			&mut self.buffer,
 			self.start,
@@ -79,7 +79,7 @@ impl Scroll {
 		Ok(count)
 	}
 
-	pub fn scroll_down(&mut self, height: usize, chunks: &[Chunk]) -> Result<usize, Error> {
+	pub fn scroll_down(&mut self, height: usize, chunks: &[Chunk]) -> tg::Result<usize, Error> {
 		let (count, new_end) = scroll_down_inner(
 			&mut self.buffer,
 			self.end,
@@ -101,7 +101,7 @@ impl Scroll {
 		Ok(count)
 	}
 
-	pub fn read_lines(&mut self, chunks: &[Chunk]) -> Result<Vec<String>, Error> {
+	pub fn read_lines(&mut self, chunks: &[Chunk]) -> tg::Result<Vec<String>, Error> {
 		read_lines_inner(
 			&mut self.buffer,
 			self.start,
@@ -118,7 +118,7 @@ fn scroll_up_inner(
 	max_width: usize,
 	num_lines: usize,
 	chunks: &[Chunk],
-) -> Result<(usize, u64), Error> {
+) -> tg::Result<(usize, u64), Error> {
 	for count in 0..num_lines {
 		let mut width = 0;
 		loop {
@@ -147,7 +147,7 @@ fn scroll_down_inner(
 	max_width: usize,
 	num_lines: usize,
 	chunks: &[Chunk],
-) -> Result<(usize, u64), Error> {
+) -> tg::Result<(usize, u64), Error> {
 	let last = chunks.last().unwrap();
 	let last = last.position + last.bytes.len().to_u64().unwrap();
 	for count in 0..num_lines {
@@ -177,7 +177,7 @@ fn read_lines_inner(
 	max_width: usize,
 	num_lines: usize,
 	chunks: &[Chunk],
-) -> Result<Vec<String>, Error> {
+) -> tg::Result<Vec<String>, Error> {
 	let last = chunks.last().unwrap();
 	let last = last.position + last.bytes.len().to_u64().unwrap();
 	let mut lines = Vec::with_capacity(num_lines);
@@ -212,7 +212,7 @@ fn next_grapheme<'a>(
 	position: u64,
 	forward: bool,
 	chunks: &[Chunk],
-) -> Result<(&'a str, u64), Error> {
+) -> tg::Result<(&'a str, u64), Error> {
 	let end_position = {
 		let last = chunks.last().unwrap();
 		last.position + last.bytes.len().to_u64().unwrap()
@@ -271,7 +271,7 @@ impl<'a, 'b> GraphemeParserState<'a, 'b> {
 	//	- If it is Ok(None), break early because we've reached the start/end of the stream
 	// 	- If it is Ok(Some(boundary)), remove (buffer.len() - boundary) bytes from the front or back of the buffer as necessary.
 	//	- Else, continue adding codepoints.
-	fn try_parse_grapheme(&mut self) -> Result<bool, Error> {
+	fn try_parse_grapheme(&mut self) -> tg::Result<bool, Error> {
 		// Reset the buffer and create a new grapheme cursor.
 		self.buffer.clear();
 		let len = {
@@ -380,7 +380,7 @@ impl<'a, 'b> GraphemeParserState<'a, 'b> {
 	}
 
 	// Read one codepoint forward or reverse, returning if it's valid and how many bytes long it is.
-	fn try_scan(&self) -> Result<(bool, usize), Error> {
+	fn try_scan(&self) -> tg::Result<(bool, usize), Error> {
 		if self.forward {
 			self.try_scan_forward()
 		} else {
@@ -388,7 +388,7 @@ impl<'a, 'b> GraphemeParserState<'a, 'b> {
 		}
 	}
 
-	fn try_scan_forward(&self) -> Result<(bool, usize), Error> {
+	fn try_scan_forward(&self) -> tg::Result<(bool, usize), Error> {
 		let current = self.chunks[self.chunk].bytes[self.byte];
 		let num_bytes = if current & 0b1111_0000 == 0b1111_0000 {
 			3
@@ -423,7 +423,7 @@ impl<'a, 'b> GraphemeParserState<'a, 'b> {
 		Ok((true, num_bytes + 1))
 	}
 
-	fn try_scan_reverse(&self) -> Result<(bool, usize), Error> {
+	fn try_scan_reverse(&self) -> tg::Result<(bool, usize), Error> {
 		let mut num_bytes = 0;
 		let mut chunk = self.chunk;
 		let mut byte = self.byte;

@@ -1,17 +1,40 @@
 use self::util::http::{Incoming, Outgoing};
 pub use self::{
-	artifact::Artifact, blob::Blob, branch::Branch, build::Build, checksum::Checksum,
-	dependency::Dependency, diagnostic::Diagnostic, directory::Directory, document::Document,
-	file::File, handle::Handle, id::Id, import::Import, leaf::Leaf, location::Location, lock::Lock,
-	module::Module, mutation::Mutation, object::Handle as Object, path::Path, position::Position,
-	range::Range, server::Health, symlink::Symlink, target::Target, template::Template,
-	user::Login, user::User, value::Value,
+	artifact::Artifact,
+	blob::Blob,
+	branch::Branch,
+	build::Build,
+	checksum::Checksum,
+	dependency::Dependency,
+	diagnostic::Diagnostic,
+	directory::Directory,
+	document::Document,
+	error::{ok, Error, Result},
+	file::File,
+	handle::Handle,
+	id::Id,
+	import::Import,
+	leaf::Leaf,
+	location::Location,
+	lock::Lock,
+	module::Module,
+	mutation::Mutation,
+	object::Handle as Object,
+	path::Path,
+	position::Position,
+	range::Range,
+	server::Health,
+	symlink::Symlink,
+	target::Target,
+	template::Template,
+	user::Login,
+	user::User,
+	value::Value,
 };
 use crate as tg;
 use bytes::Bytes;
 use futures::stream::BoxStream;
 use std::sync::Arc;
-use tangram_error::{error, Error, Result};
 use tokio::{
 	io::{AsyncRead, AsyncWrite},
 	net::{TcpStream, UnixStream},
@@ -28,6 +51,7 @@ pub mod dependency;
 pub mod diagnostic;
 pub mod directory;
 pub mod document;
+pub mod error;
 pub mod file;
 pub mod handle;
 pub mod id;
@@ -70,7 +94,7 @@ pub struct Builder {
 }
 
 impl Client {
-	pub fn with_env() -> Result<Self> {
+	pub fn with_env() -> tg::Result<Self> {
 		let url = std::env::var("TANGRAM_URL")
 			.map_err(|error| {
 				error!(
@@ -98,16 +122,16 @@ impl Client {
 		Ok(client)
 	}
 
-	pub async fn connect(&self) -> Result<()> {
+	pub async fn connect(&self) -> tg::Result<()> {
 		self.sender().await.map(|_| ())
 	}
 
-	pub async fn disconnect(&self) -> Result<()> {
+	pub async fn disconnect(&self) -> tg::Result<()> {
 		self.inner.sender.lock().await.take();
 		Ok(())
 	}
 
-	async fn sender(&self) -> Result<hyper::client::conn::http2::SendRequest<Outgoing>> {
+	async fn sender(&self) -> tg::Result<hyper::client::conn::http2::SendRequest<Outgoing>> {
 		if let Some(sender) = self.inner.sender.lock().await.as_ref().cloned() {
 			if sender.is_ready() {
 				return Ok(sender);
@@ -119,7 +143,7 @@ impl Client {
 		Ok(sender)
 	}
 
-	async fn connect_h1(&self) -> Result<hyper::client::conn::http1::SendRequest<Outgoing>> {
+	async fn connect_h1(&self) -> tg::Result<hyper::client::conn::http1::SendRequest<Outgoing>> {
 		match self.inner.url.scheme() {
 			"unix" => {
 				let path = std::path::Path::new(self.inner.url.path());
@@ -162,7 +186,7 @@ impl Client {
 		}
 	}
 
-	async fn connect_h2(&self) -> Result<hyper::client::conn::http2::SendRequest<Outgoing>> {
+	async fn connect_h2(&self) -> tg::Result<hyper::client::conn::http2::SendRequest<Outgoing>> {
 		match self.inner.url.scheme() {
 			"unix" => {
 				let path = std::path::Path::new(self.inner.url.path());
@@ -208,7 +232,7 @@ impl Client {
 	async fn connect_unix_h1(
 		&self,
 		path: &std::path::Path,
-	) -> Result<hyper::client::conn::http1::SendRequest<Outgoing>> {
+	) -> tg::Result<hyper::client::conn::http1::SendRequest<Outgoing>> {
 		// Connect via UNIX.
 		let stream = UnixStream::connect(path)
 			.await
@@ -243,7 +267,7 @@ impl Client {
 	async fn connect_unix_h2(
 		&self,
 		path: &std::path::Path,
-	) -> Result<hyper::client::conn::http2::SendRequest<Outgoing>> {
+	) -> tg::Result<hyper::client::conn::http2::SendRequest<Outgoing>> {
 		// Connect via UNIX.
 		let stream = UnixStream::connect(path)
 			.await
@@ -279,7 +303,7 @@ impl Client {
 		&self,
 		host: &str,
 		port: u16,
-	) -> Result<hyper::client::conn::http1::SendRequest<Outgoing>> {
+	) -> tg::Result<hyper::client::conn::http1::SendRequest<Outgoing>> {
 		// Connect via TCP.
 		let stream = TcpStream::connect(format!("{host}:{port}"))
 			.await
@@ -315,7 +339,7 @@ impl Client {
 		&self,
 		host: &str,
 		port: u16,
-	) -> Result<hyper::client::conn::http2::SendRequest<Outgoing>> {
+	) -> tg::Result<hyper::client::conn::http2::SendRequest<Outgoing>> {
 		// Connect via TCP.
 		let stream = TcpStream::connect(format!("{host}:{port}"))
 			.await
@@ -352,7 +376,7 @@ impl Client {
 		&self,
 		host: &str,
 		port: u16,
-	) -> Result<hyper::client::conn::http1::SendRequest<Outgoing>> {
+	) -> tg::Result<hyper::client::conn::http1::SendRequest<Outgoing>> {
 		// Connect via TLS over TCP.
 		let stream = self.connect_tcp_tls(host, port).await?;
 
@@ -387,7 +411,7 @@ impl Client {
 		&self,
 		host: &str,
 		port: u16,
-	) -> Result<hyper::client::conn::http2::SendRequest<Outgoing>> {
+	) -> tg::Result<hyper::client::conn::http2::SendRequest<Outgoing>> {
 		// Connect via TLS over TCP.
 		let stream = self.connect_tcp_tls(host, port).await?;
 
@@ -422,7 +446,7 @@ impl Client {
 		&self,
 		host: &str,
 		port: u16,
-	) -> Result<tokio_rustls::client::TlsStream<tokio::net::TcpStream>> {
+	) -> tg::Result<tokio_rustls::client::TlsStream<tokio::net::TcpStream>> {
 		// Connect via TCP.
 		let stream = TcpStream::connect(format!("{host}:{port}"))
 			.await
@@ -464,7 +488,7 @@ impl Client {
 	async fn send(
 		&self,
 		request: http::request::Request<Outgoing>,
-	) -> Result<http::Response<Incoming>> {
+	) -> tg::Result<http::Response<Incoming>> {
 		self.sender()
 			.await?
 			.send_request(request)
@@ -502,7 +526,7 @@ impl Builder {
 }
 
 impl Handle for Client {
-	async fn path(&self) -> Result<Option<crate::Path>> {
+	async fn path(&self) -> tg::Result<Option<crate::Path>> {
 		self.path().await
 	}
 
@@ -513,7 +537,7 @@ impl Handle for Client {
 	async fn check_in_artifact(
 		&self,
 		arg: tg::artifact::CheckInArg,
-	) -> Result<tg::artifact::CheckInOutput> {
+	) -> tg::Result<tg::artifact::CheckInOutput> {
 		self.check_in_artifact(arg).await
 	}
 
@@ -521,11 +545,11 @@ impl Handle for Client {
 		&self,
 		id: &tg::artifact::Id,
 		arg: tg::artifact::CheckOutArg,
-	) -> Result<tg::artifact::CheckOutOutput> {
+	) -> tg::Result<tg::artifact::CheckOutOutput> {
 		self.check_out_artifact(id, arg).await
 	}
 
-	async fn list_builds(&self, arg: tg::build::ListArg) -> Result<tg::build::ListOutput> {
+	async fn list_builds(&self, arg: tg::build::ListArg) -> tg::Result<tg::build::ListOutput> {
 		self.list_builds(arg).await
 	}
 
@@ -533,7 +557,7 @@ impl Handle for Client {
 		&self,
 		id: &tg::build::Id,
 		arg: tg::build::GetArg,
-	) -> Result<Option<tg::build::GetOutput>> {
+	) -> tg::Result<Option<tg::build::GetOutput>> {
 		self.try_get_build(id, arg).await
 	}
 
@@ -542,15 +566,15 @@ impl Handle for Client {
 		user: Option<&tg::User>,
 		id: &tg::build::Id,
 		arg: &tg::build::PutArg,
-	) -> Result<()> {
+	) -> tg::Result<()> {
 		self.put_build(user, id, arg).await
 	}
 
-	async fn push_build(&self, user: Option<&tg::User>, id: &tg::build::Id) -> Result<()> {
+	async fn push_build(&self, user: Option<&tg::User>, id: &tg::build::Id) -> tg::Result<()> {
 		self.push_build(user, id).await
 	}
 
-	async fn pull_build(&self, id: &tg::build::Id) -> Result<()> {
+	async fn pull_build(&self, id: &tg::build::Id) -> tg::Result<()> {
 		self.pull_build(id).await
 	}
 
@@ -558,7 +582,7 @@ impl Handle for Client {
 		&self,
 		user: Option<&tg::User>,
 		arg: tg::build::GetOrCreateArg,
-	) -> Result<tg::build::GetOrCreateOutput> {
+	) -> tg::Result<tg::build::GetOrCreateOutput> {
 		self.get_or_create_build(user, arg).await
 	}
 
@@ -567,7 +591,7 @@ impl Handle for Client {
 		id: &tg::build::Id,
 		arg: tg::build::status::GetArg,
 		stop: Option<tokio::sync::watch::Receiver<bool>>,
-	) -> Result<Option<BoxStream<'static, Result<tg::build::Status>>>> {
+	) -> tg::Result<Option<BoxStream<'static, Result<tg::build::Status>>>> {
 		self.try_get_build_status(id, arg, stop).await
 	}
 
@@ -576,7 +600,7 @@ impl Handle for Client {
 		user: Option<&tg::User>,
 		id: &tg::build::Id,
 		status: tg::build::Status,
-	) -> Result<()> {
+	) -> tg::Result<()> {
 		self.set_build_status(user, id, status).await
 	}
 
@@ -585,7 +609,7 @@ impl Handle for Client {
 		id: &tg::build::Id,
 		arg: tg::build::children::GetArg,
 		stop: Option<tokio::sync::watch::Receiver<bool>>,
-	) -> Result<Option<BoxStream<'static, Result<tg::build::children::Chunk>>>> {
+	) -> tg::Result<Option<BoxStream<'static, Result<tg::build::children::Chunk>>>> {
 		self.try_get_build_children(id, arg, stop).await
 	}
 
@@ -594,7 +618,7 @@ impl Handle for Client {
 		user: Option<&tg::User>,
 		build_id: &tg::build::Id,
 		child_id: &tg::build::Id,
-	) -> Result<()> {
+	) -> tg::Result<()> {
 		self.add_build_child(user, build_id, child_id).await
 	}
 
@@ -603,7 +627,7 @@ impl Handle for Client {
 		id: &tg::build::Id,
 		arg: tg::build::log::GetArg,
 		stop: Option<tokio::sync::watch::Receiver<bool>>,
-	) -> Result<Option<BoxStream<'static, Result<tg::build::log::Chunk>>>> {
+	) -> tg::Result<Option<BoxStream<'static, Result<tg::build::log::Chunk>>>> {
 		self.try_get_build_log(id, arg, stop).await
 	}
 
@@ -612,7 +636,7 @@ impl Handle for Client {
 		user: Option<&tg::User>,
 		id: &tg::build::Id,
 		bytes: Bytes,
-	) -> Result<()> {
+	) -> tg::Result<()> {
 		self.add_build_log(user, id, bytes).await
 	}
 
@@ -621,7 +645,7 @@ impl Handle for Client {
 		id: &tg::build::Id,
 		arg: tg::build::outcome::GetArg,
 		stop: Option<tokio::sync::watch::Receiver<bool>>,
-	) -> Result<Option<Option<tg::build::Outcome>>> {
+	) -> tg::Result<Option<Option<tg::build::Outcome>>> {
 		self.try_get_build_outcome(id, arg, stop).await
 	}
 
@@ -630,11 +654,11 @@ impl Handle for Client {
 		user: Option<&tg::User>,
 		id: &tg::build::Id,
 		outcome: tg::build::Outcome,
-	) -> Result<()> {
+	) -> tg::Result<()> {
 		self.set_build_outcome(user, id, outcome).await
 	}
 
-	async fn format(&self, text: String) -> Result<String> {
+	async fn format(&self, text: String) -> tg::Result<String> {
 		self.format(text).await
 	}
 
@@ -642,11 +666,14 @@ impl Handle for Client {
 		&self,
 		input: Box<dyn AsyncRead + Send + Unpin + 'static>,
 		output: Box<dyn AsyncWrite + Send + Unpin + 'static>,
-	) -> Result<()> {
+	) -> tg::Result<()> {
 		self.lsp(input, output).await
 	}
 
-	async fn try_get_object(&self, id: &tg::object::Id) -> Result<Option<tg::object::GetOutput>> {
+	async fn try_get_object(
+		&self,
+		id: &tg::object::Id,
+	) -> tg::Result<Option<tg::object::GetOutput>> {
 		self.try_get_object(id).await
 	}
 
@@ -654,22 +681,22 @@ impl Handle for Client {
 		&self,
 		id: &tg::object::Id,
 		arg: &tg::object::PutArg,
-	) -> Result<tg::object::PutOutput> {
+	) -> tg::Result<tg::object::PutOutput> {
 		self.put_object(id, arg).await
 	}
 
-	async fn push_object(&self, id: &tg::object::Id) -> Result<()> {
+	async fn push_object(&self, id: &tg::object::Id) -> tg::Result<()> {
 		self.push_object(id).await
 	}
 
-	async fn pull_object(&self, id: &tg::object::Id) -> Result<()> {
+	async fn pull_object(&self, id: &tg::object::Id) -> tg::Result<()> {
 		self.pull_object(id).await
 	}
 
 	async fn search_packages(
 		&self,
 		arg: tg::package::SearchArg,
-	) -> Result<tg::package::SearchOutput> {
+	) -> tg::Result<tg::package::SearchOutput> {
 		self.search_packages(arg).await
 	}
 
@@ -677,68 +704,72 @@ impl Handle for Client {
 		&self,
 		dependency: &tg::Dependency,
 		arg: tg::package::GetArg,
-	) -> Result<Option<tg::package::GetOutput>> {
+	) -> tg::Result<Option<tg::package::GetOutput>> {
 		self.try_get_package(dependency, arg).await
 	}
 
 	async fn try_get_package_versions(
 		&self,
 		dependency: &tg::Dependency,
-	) -> Result<Option<Vec<String>>> {
+	) -> tg::Result<Option<Vec<String>>> {
 		self.try_get_package_versions(dependency).await
 	}
 
-	async fn publish_package(&self, user: Option<&tg::User>, id: &tg::directory::Id) -> Result<()> {
+	async fn publish_package(
+		&self,
+		user: Option<&tg::User>,
+		id: &tg::directory::Id,
+	) -> tg::Result<()> {
 		self.publish_package(user, id).await
 	}
 
-	async fn check_package(&self, dependency: &tg::Dependency) -> Result<Vec<tg::Diagnostic>> {
+	async fn check_package(&self, dependency: &tg::Dependency) -> tg::Result<Vec<tg::Diagnostic>> {
 		self.check_package(dependency).await
 	}
 
-	async fn format_package(&self, dependency: &tg::Dependency) -> Result<()> {
+	async fn format_package(&self, dependency: &tg::Dependency) -> tg::Result<()> {
 		self.format_package(dependency).await
 	}
 
 	async fn get_package_outdated(
 		&self,
 		arg: &tg::Dependency,
-	) -> Result<tg::package::OutdatedOutput> {
+	) -> tg::Result<tg::package::OutdatedOutput> {
 		self.get_package_outdated(arg).await
 	}
 
-	async fn get_runtime_doc(&self) -> Result<serde_json::Value> {
+	async fn get_runtime_doc(&self) -> tg::Result<serde_json::Value> {
 		self.get_runtime_doc().await
 	}
 
 	async fn try_get_package_doc(
 		&self,
 		dependency: &tg::Dependency,
-	) -> Result<Option<serde_json::Value>> {
+	) -> tg::Result<Option<serde_json::Value>> {
 		self.try_get_package_doc(dependency).await
 	}
 
-	async fn health(&self) -> Result<tg::Health> {
+	async fn health(&self) -> tg::Result<tg::Health> {
 		self.health().await
 	}
 
-	async fn clean(&self) -> Result<()> {
+	async fn clean(&self) -> tg::Result<()> {
 		self.clean().await
 	}
 
-	async fn stop(&self) -> Result<()> {
+	async fn stop(&self) -> tg::Result<()> {
 		self.stop().await
 	}
 
-	async fn create_login(&self) -> Result<tg::user::Login> {
+	async fn create_login(&self) -> tg::Result<tg::user::Login> {
 		self.create_login().await
 	}
 
-	async fn get_login(&self, id: &tg::Id) -> Result<Option<tg::Login>> {
+	async fn get_login(&self, id: &tg::Id) -> tg::Result<Option<tg::Login>> {
 		self.get_login(id).await
 	}
 
-	async fn get_user_for_token(&self, token: &str) -> Result<Option<tg::User>> {
+	async fn get_user_for_token(&self, token: &str) -> tg::Result<Option<tg::User>> {
 		self.get_user_for_token(token).await
 	}
 }

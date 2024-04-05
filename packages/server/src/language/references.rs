@@ -1,7 +1,6 @@
 use super::Server;
 use lsp_types as lsp;
 use tangram_client as tg;
-use tangram_error::{error, Result};
 
 #[derive(Debug, serde::Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -20,7 +19,7 @@ impl Server {
 	pub(super) async fn handle_references_request(
 		&self,
 		params: lsp::ReferenceParams,
-	) -> Result<Option<Vec<lsp::Location>>> {
+	) -> tg::Result<Option<Vec<lsp::Location>>> {
 		// Get the module.
 		let module = self
 			.module_for_url(&params.text_document_position.text_document.uri)
@@ -51,7 +50,7 @@ impl Server {
 		&self,
 		module: &tg::Module,
 		position: tg::Position,
-	) -> Result<Option<Vec<tg::Location>>> {
+	) -> tg::Result<Option<Vec<tg::Location>>> {
 		// Create the request.
 		let request = super::Request::References(Request {
 			module: module.clone(),
@@ -63,7 +62,7 @@ impl Server {
 
 		// Get the response.
 		let super::Response::References(response) = response else {
-			return Err(error!("unexpected response type"));
+			return Err(tg::error!("unexpected response type"));
 		};
 
 		Ok(response.locations)

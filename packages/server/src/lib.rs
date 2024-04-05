@@ -30,7 +30,6 @@ use std::{
 };
 use tangram_client as tg;
 use tangram_database::{self as db, prelude::*};
-use tangram_error::{error, Error, Result};
 use tokio::{
 	io::{AsyncRead, AsyncWrite},
 	net::{TcpListener, UnixListener},
@@ -61,7 +60,7 @@ pub struct Server {
 }
 
 struct Inner {
-	build_queue_task: std::sync::Mutex<Option<tokio::task::JoinHandle<Result<()>>>>,
+	build_queue_task: std::sync::Mutex<Option<tokio::task::JoinHandle<tg::Result<()>>>>,
 	build_queue_task_stop: tokio::sync::watch::Sender<bool>,
 	build_semaphore: Arc<tokio::sync::Semaphore>,
 	build_state: std::sync::RwLock<HashMap<tg::build::Id, Arc<BuildState>, fnv::FnvBuildHasher>>,
@@ -122,7 +121,7 @@ where
 	H: tg::Handle,
 {
 	tg: H,
-	task: std::sync::Mutex<Option<tokio::task::JoinHandle<Result<()>>>>,
+	task: std::sync::Mutex<Option<tokio::task::JoinHandle<tg::Result<()>>>>,
 	stop: tokio::sync::watch::Sender<bool>,
 }
 
@@ -132,16 +131,16 @@ struct Tmp {
 }
 
 impl Server {
-	pub async fn start(options: Options) -> Result<Server> {
+	pub async fn start(options: Options) -> tg::Result<Server> {
 		// Ensure the path exists.
 		tokio::fs::create_dir_all(&options.path)
 			.await
-			.map_err(|source| error!(!source, "failed to create the directory"))?;
+			.map_err(|source| tg::error!(!source, "failed to create the directory"))?;
 
 		// Canonicalize the path.
 		let path = tokio::fs::canonicalize(&options.path)
 			.await
-			.map_err(|source| error!(!source, "failed to canonicalize the path"))?;
+			.map_err(|source| tg::error!(!source, "failed to canonicalize the path"))?;
 
 		// Acquire the lockfile.
 		let lockfile = tokio::fs::OpenOptions::new()
@@ -151,10 +150,10 @@ impl Server {
 			.truncate(true)
 			.open(path.join("lock"))
 			.await
-			.map_err(|source| error!(!source, "failed to open the lockfile"))?;
+			.map_err(|source| tg::error!(!source, "failed to open the lockfile"))?;
 		let ret = unsafe { libc::flock(lockfile.as_raw_fd(), libc::LOCK_EX | libc::LOCK_NB) };
 		if ret != 0 {
-			return Err(error!(
+			return Err(tg::error!(
 				source = std::io::Error::last_os_error(),
 				"failed to acquire the lockfile"
 			));
@@ -167,12 +166,12 @@ impl Server {
 		// Write the PID file.
 		tokio::fs::write(&path.join("pid"), std::process::id().to_string())
 			.await
-			.map_err(|source| error!(!source, "failed to write the PID file"))?;
+			.map_err(|source| tg::error!(!source, "failed to write the PID file"))?;
 
 		// Remove an existing socket file.
 		rmrf(&path.join("socket"))
 			.await
-			.map_err(|source| error!(!source, "failed to remove an existing socket file"))?;
+			.map_err(|source| tg::error!(!source, "failed to remove an existing socket file"))?;
 
 		// Create the build queue task.
 		let build_queue_task = std::sync::Mutex::new(None);
@@ -204,7 +203,7 @@ impl Server {
 		};
 		let database = Database::new(database_options)
 			.await
-			.map_err(|source| error!(!source, "failed to create the database"))?;
+			.map_err(|source| tg::error!(!source, "failed to create the database"))?;
 
 		// Create the database.
 		let messenger = match &options.messenger {
@@ -212,7 +211,7 @@ impl Server {
 			self::options::Messenger::Nats(nats) => {
 				let client = nats::connect(nats.url.to_string())
 					.await
-					.map_err(|source| error!(!source, "failed to create the NATS client"))?;
+					.map_err(|source| tg::error!(!source, "failed to create the NATS client"))?;
 				Messenger::new_nats(client)
 			},
 		};
@@ -234,9 +233,9 @@ impl Server {
 			let client_id = oauth2::ClientId::new(oauth.client_id.clone());
 			let client_secret = oauth2::ClientSecret::new(oauth.client_secret.clone());
 			let auth_url = oauth2::AuthUrl::new(oauth.auth_url.clone())
-				.map_err(|source| error!(!source, "failed to create the auth URL"))?;
+				.map_err(|source| tg::error!(!source, "failed to create the auth URL"))?;
 			let token_url = oauth2::TokenUrl::new(oauth.token_url.clone())
-				.map_err(|source| error!(!source, "failed to create the token URL"))?;
+				.map_err(|source| tg::error!(!source, "failed to create the token URL"))?;
 			let oauth_client = oauth2::basic::BasicClient::new(
 				client_id,
 				Some(client_secret),
@@ -244,7 +243,7 @@ impl Server {
 				Some(token_url),
 			);
 			let redirect_url = oauth2::RedirectUrl::new(oauth.redirect_url.clone())
-				.map_err(|source| error!(!source, "failed to create the redirect URL"))?;
+				.map_err(|source| tg::error!(!source, "failed to create the redirect URL"))?;
 			let oauth_client = oauth_client.set_redirect_uri(redirect_url);
 			Some(oauth_client)
 		} else {
@@ -302,7 +301,7 @@ impl Server {
 			let connection = database
 				.connection()
 				.await
-				.map_err(|source| error!(!source, "failed to get a database connection"))?;
+				.map_err(|source| tg::error!(!source, "failed to get a database connection"))?;
 			let statement = formatdoc!(
 				r#"
 					update builds
@@ -315,7 +314,7 @@ impl Server {
 			let params = db::params![];
 			connection
 				.execute(statement, params)
-				.map_err(|source| error!(!source, "failed to execute the statement"))
+				.map_err(|source| tg::error!(!source, "failed to execute the statement"))
 				.await?;
 		}
 
@@ -326,24 +325,26 @@ impl Server {
 			// Create the artifacts directory.
 			tokio::fs::create_dir_all(&artifacts_path)
 				.await
-				.map_err(|source| error!(!source, "failed to create the artifacts directory"))?;
+				.map_err(|source| {
+					tg::error!(!source, "failed to create the artifacts directory")
+				})?;
 
 			// Start the VFS server.
 			let vfs = self::vfs::Server::start(&server, &artifacts_path)
 				.await
-				.map_err(|source| error!(!source, "failed to start the VFS"))?;
+				.map_err(|source| tg::error!(!source, "failed to start the VFS"))?;
 
 			server.inner.vfs.lock().unwrap().replace(vfs);
 		} else {
 			// Remove the artifacts directory.
-			rmrf(&artifacts_path)
-				.await
-				.map_err(|source| error!(!source, "failed to remove the artifacts directory"))?;
+			rmrf(&artifacts_path).await.map_err(|source| {
+				tg::error!(!source, "failed to remove the artifacts directory")
+			})?;
 
 			// Create a symlink from the artifacts directory to the checkouts directory.
 			tokio::fs::symlink("checkouts", artifacts_path)
 				.await
-				.map_err(|source| error!(!source, "failed to create a symlink from the artifacts directory to the checkouts directory"))?;
+				.map_err(|source|tg::error!(!source, "failed to create a symlink from the artifacts directory to the checkouts directory"))?;
 		}
 
 		// Add the runtimes.
@@ -502,7 +503,7 @@ impl Server {
 		self.inner.stop_task.lock().unwrap().replace(task);
 	}
 
-	pub async fn join(&self) -> Result<()> {
+	pub async fn join(&self) -> tg::Result<()> {
 		self.inner
 			.status
 			.subscribe()
@@ -575,7 +576,7 @@ where
 		self.inner.stop.send_replace(true);
 	}
 
-	async fn join(&self) -> Result<()> {
+	async fn join(&self) -> tg::Result<()> {
 		let task = self.inner.task.lock().unwrap().take();
 		if let Some(task) = task {
 			match task.await {
@@ -588,7 +589,7 @@ where
 		Ok(())
 	}
 
-	async fn serve(self, url: Url, mut stop: tokio::sync::watch::Receiver<bool>) -> Result<()> {
+	async fn serve(self, url: Url, mut stop: tokio::sync::watch::Receiver<bool>) -> tg::Result<()> {
 		// Create the tasks.
 		let mut tasks = tokio::task::JoinSet::new();
 
@@ -597,21 +598,21 @@ where
 			"unix" => {
 				let path = Path::new(url.path());
 				let listener = UnixListener::bind(path)
-					.map_err(|source| error!(!source, "failed to create the UNIX listener"))?;
+					.map_err(|source| tg::error!(!source, "failed to create the UNIX listener"))?;
 				tokio_util::either::Either::Left(listener)
 			},
 			"http" => {
-				let host = url.host().ok_or_else(|| error!("invalid url"))?;
+				let host = url.host().ok_or_else(|| tg::error!("invalid url"))?;
 				let port = url
 					.port_or_known_default()
-					.ok_or_else(|| error!("invalid url"))?;
+					.ok_or_else(|| tg::error!("invalid url"))?;
 				let listener = TcpListener::bind(format!("{host}:{port}"))
 					.await
-					.map_err(|source| error!(!source, "failed to create the TCP listener"))?;
+					.map_err(|source| tg::error!(!source, "failed to create the TCP listener"))?;
 				tokio_util::either::Either::Right(listener)
 			},
 			_ => {
-				return Err(error!("invalid url"));
+				return Err(tg::error!("invalid url"));
 			},
 		};
 
@@ -625,7 +626,9 @@ where
 						listener
 							.accept()
 							.await
-							.map_err(|source| error!(!source, "failed to accept a new connection"))?
+							.map_err(|source| {
+								tg::error!(!source, "failed to accept a new connection")
+							})?
 							.0,
 					),
 					tokio_util::either::Either::Right(listener) => {
@@ -634,13 +637,13 @@ where
 								.accept()
 								.await
 								.map_err(|source| {
-									error!(!source, "failed to accept a new connection")
+									tg::error!(!source, "failed to accept a new connection")
 								})?
 								.0,
 						)
 					},
 				};
-				Ok::<_, Error>(TokioIo::new(stream))
+				Ok::<_, tg::Error>(TokioIo::new(stream))
 			};
 			let stop_ = stop.wait_for(|stop| *stop).map(|_| ());
 			let stream = match future::select(pin!(accept), pin!(stop_)).await {
@@ -696,7 +699,7 @@ where
 	async fn try_get_user_from_request(
 		&self,
 		request: &http::Request<Incoming>,
-	) -> Result<Option<tg::user::User>> {
+	) -> tg::Result<Option<tg::user::User>> {
 		// Get the token.
 		let Some(token) = get_token(request, None) else {
 			return Ok(None);
@@ -907,7 +910,7 @@ where
 }
 
 impl tg::Handle for Server {
-	async fn path(&self) -> Result<Option<tg::Path>> {
+	async fn path(&self) -> tg::Result<Option<tg::Path>> {
 		self.path().await
 	}
 
@@ -918,7 +921,7 @@ impl tg::Handle for Server {
 	async fn check_in_artifact(
 		&self,
 		arg: tg::artifact::CheckInArg,
-	) -> Result<tg::artifact::CheckInOutput> {
+	) -> tg::Result<tg::artifact::CheckInOutput> {
 		self.check_in_artifact(arg).await
 	}
 
@@ -926,11 +929,11 @@ impl tg::Handle for Server {
 		&self,
 		id: &tg::artifact::Id,
 		arg: tg::artifact::CheckOutArg,
-	) -> Result<tg::artifact::CheckOutOutput> {
+	) -> tg::Result<tg::artifact::CheckOutOutput> {
 		self.check_out_artifact(id, arg).await
 	}
 
-	async fn list_builds(&self, args: tg::build::ListArg) -> Result<tg::build::ListOutput> {
+	async fn list_builds(&self, args: tg::build::ListArg) -> tg::Result<tg::build::ListOutput> {
 		self.list_builds(args).await
 	}
 
@@ -938,7 +941,7 @@ impl tg::Handle for Server {
 		&self,
 		id: &tg::build::Id,
 		arg: tg::build::GetArg,
-	) -> Result<Option<tg::build::GetOutput>> {
+	) -> tg::Result<Option<tg::build::GetOutput>> {
 		self.try_get_build(id, arg).await
 	}
 
@@ -947,15 +950,15 @@ impl tg::Handle for Server {
 		user: Option<&tg::User>,
 		id: &tg::build::Id,
 		arg: &tg::build::PutArg,
-	) -> Result<()> {
+	) -> tg::Result<()> {
 		self.put_build(user, id, arg).await
 	}
 
-	async fn push_build(&self, user: Option<&tg::User>, id: &tg::build::Id) -> Result<()> {
+	async fn push_build(&self, user: Option<&tg::User>, id: &tg::build::Id) -> tg::Result<()> {
 		self.push_build(user, id).await
 	}
 
-	async fn pull_build(&self, id: &tg::build::Id) -> Result<()> {
+	async fn pull_build(&self, id: &tg::build::Id) -> tg::Result<()> {
 		self.pull_build(id).await
 	}
 
@@ -963,7 +966,7 @@ impl tg::Handle for Server {
 		&self,
 		user: Option<&tg::User>,
 		arg: tg::build::GetOrCreateArg,
-	) -> Result<tg::build::GetOrCreateOutput> {
+	) -> tg::Result<tg::build::GetOrCreateOutput> {
 		self.get_or_create_build(user, arg).await
 	}
 
@@ -972,7 +975,7 @@ impl tg::Handle for Server {
 		id: &tg::build::Id,
 		arg: tg::build::status::GetArg,
 		stop: Option<tokio::sync::watch::Receiver<bool>>,
-	) -> Result<Option<BoxStream<'static, Result<tg::build::Status>>>> {
+	) -> tg::Result<Option<BoxStream<'static, tg::Result<tg::build::Status>>>> {
 		self.try_get_build_status(id, arg, stop).await
 	}
 
@@ -981,7 +984,7 @@ impl tg::Handle for Server {
 		user: Option<&tg::User>,
 		id: &tg::build::Id,
 		status: tg::build::Status,
-	) -> Result<()> {
+	) -> tg::Result<()> {
 		self.set_build_status(user, id, status).await
 	}
 
@@ -990,7 +993,7 @@ impl tg::Handle for Server {
 		id: &tg::build::Id,
 		arg: tg::build::children::GetArg,
 		stop: Option<tokio::sync::watch::Receiver<bool>>,
-	) -> Result<Option<BoxStream<'static, Result<tg::build::children::Chunk>>>> {
+	) -> tg::Result<Option<BoxStream<'static, tg::Result<tg::build::children::Chunk>>>> {
 		self.try_get_build_children(id, arg, stop).await
 	}
 
@@ -999,7 +1002,7 @@ impl tg::Handle for Server {
 		user: Option<&tg::User>,
 		build_id: &tg::build::Id,
 		child_id: &tg::build::Id,
-	) -> Result<()> {
+	) -> tg::Result<()> {
 		self.add_build_child(user, build_id, child_id).await
 	}
 
@@ -1008,7 +1011,7 @@ impl tg::Handle for Server {
 		id: &tg::build::Id,
 		arg: tg::build::log::GetArg,
 		stop: Option<tokio::sync::watch::Receiver<bool>>,
-	) -> Result<Option<BoxStream<'static, Result<tg::build::log::Chunk>>>> {
+	) -> tg::Result<Option<BoxStream<'static, tg::Result<tg::build::log::Chunk>>>> {
 		self.try_get_build_log(id, arg, stop).await
 	}
 
@@ -1017,7 +1020,7 @@ impl tg::Handle for Server {
 		user: Option<&tg::User>,
 		build_id: &tg::build::Id,
 		bytes: Bytes,
-	) -> Result<()> {
+	) -> tg::Result<()> {
 		self.add_build_log(user, build_id, bytes).await
 	}
 
@@ -1026,7 +1029,7 @@ impl tg::Handle for Server {
 		id: &tg::build::Id,
 		arg: tg::build::outcome::GetArg,
 		stop: Option<tokio::sync::watch::Receiver<bool>>,
-	) -> Result<Option<Option<tg::build::Outcome>>> {
+	) -> tg::Result<Option<Option<tg::build::Outcome>>> {
 		self.try_get_build_outcome(id, arg, stop).await
 	}
 
@@ -1035,11 +1038,11 @@ impl tg::Handle for Server {
 		user: Option<&tg::User>,
 		id: &tg::build::Id,
 		outcome: tg::build::Outcome,
-	) -> Result<()> {
+	) -> tg::Result<()> {
 		self.set_build_outcome(user, id, outcome).await
 	}
 
-	async fn format(&self, text: String) -> Result<String> {
+	async fn format(&self, text: String) -> tg::Result<String> {
 		self.format(text).await
 	}
 
@@ -1047,11 +1050,14 @@ impl tg::Handle for Server {
 		&self,
 		input: Box<dyn AsyncRead + Send + Unpin + 'static>,
 		output: Box<dyn AsyncWrite + Send + Unpin + 'static>,
-	) -> Result<()> {
+	) -> tg::Result<()> {
 		self.lsp(input, output).await
 	}
 
-	async fn try_get_object(&self, id: &tg::object::Id) -> Result<Option<tg::object::GetOutput>> {
+	async fn try_get_object(
+		&self,
+		id: &tg::object::Id,
+	) -> tg::Result<Option<tg::object::GetOutput>> {
 		self.try_get_object(id).await
 	}
 
@@ -1059,22 +1065,22 @@ impl tg::Handle for Server {
 		&self,
 		id: &tg::object::Id,
 		arg: &tg::object::PutArg,
-	) -> Result<tg::object::PutOutput> {
+	) -> tg::Result<tg::object::PutOutput> {
 		self.put_object(id, arg).await
 	}
 
-	async fn push_object(&self, id: &tg::object::Id) -> Result<()> {
+	async fn push_object(&self, id: &tg::object::Id) -> tg::Result<()> {
 		self.push_object(id).await
 	}
 
-	async fn pull_object(&self, id: &tg::object::Id) -> Result<()> {
+	async fn pull_object(&self, id: &tg::object::Id) -> tg::Result<()> {
 		self.pull_object(id).await
 	}
 
 	async fn search_packages(
 		&self,
 		arg: tg::package::SearchArg,
-	) -> Result<tg::package::SearchOutput> {
+	) -> tg::Result<tg::package::SearchOutput> {
 		self.search_packages(arg).await
 	}
 
@@ -1082,69 +1088,73 @@ impl tg::Handle for Server {
 		&self,
 		dependency: &tg::Dependency,
 		arg: tg::package::GetArg,
-	) -> Result<Option<tg::package::GetOutput>> {
+	) -> tg::Result<Option<tg::package::GetOutput>> {
 		self.try_get_package(dependency, arg).await
 	}
 
 	async fn try_get_package_versions(
 		&self,
 		dependency: &tg::Dependency,
-	) -> Result<Option<Vec<String>>> {
+	) -> tg::Result<Option<Vec<String>>> {
 		self.try_get_package_versions(dependency).await
 	}
 
-	async fn publish_package(&self, user: Option<&tg::User>, id: &tg::directory::Id) -> Result<()> {
+	async fn publish_package(
+		&self,
+		user: Option<&tg::User>,
+		id: &tg::directory::Id,
+	) -> tg::Result<()> {
 		self.publish_package(user, id).await
 	}
 
-	async fn check_package(&self, dependency: &tg::Dependency) -> Result<Vec<tg::Diagnostic>> {
+	async fn check_package(&self, dependency: &tg::Dependency) -> tg::Result<Vec<tg::Diagnostic>> {
 		self.check_package(dependency).await
 	}
 
-	async fn format_package(&self, dependency: &tg::Dependency) -> Result<()> {
+	async fn format_package(&self, dependency: &tg::Dependency) -> tg::Result<()> {
 		self.format_package(dependency).await
 	}
 
 	async fn get_package_outdated(
 		&self,
 		dependency: &tg::Dependency,
-	) -> Result<tg::package::OutdatedOutput> {
+	) -> tg::Result<tg::package::OutdatedOutput> {
 		self.get_package_outdated(dependency).await
 	}
 
-	async fn get_runtime_doc(&self) -> Result<serde_json::Value> {
+	async fn get_runtime_doc(&self) -> tg::Result<serde_json::Value> {
 		self.get_runtime_doc().await
 	}
 
 	async fn try_get_package_doc(
 		&self,
 		dependency: &tg::Dependency,
-	) -> Result<Option<serde_json::Value>> {
+	) -> tg::Result<Option<serde_json::Value>> {
 		self.try_get_package_doc(dependency).await
 	}
 
-	async fn health(&self) -> Result<tg::server::Health> {
+	async fn health(&self) -> tg::Result<tg::server::Health> {
 		self.health().await
 	}
 
-	async fn clean(&self) -> Result<()> {
+	async fn clean(&self) -> tg::Result<()> {
 		self.clean().await
 	}
 
-	async fn stop(&self) -> Result<()> {
+	async fn stop(&self) -> tg::Result<()> {
 		self.stop();
 		Ok(())
 	}
 
-	async fn create_login(&self) -> Result<tg::user::Login> {
+	async fn create_login(&self) -> tg::Result<tg::user::Login> {
 		self.create_login().await
 	}
 
-	async fn get_login(&self, id: &tg::Id) -> Result<Option<tg::user::Login>> {
+	async fn get_login(&self, id: &tg::Id) -> tg::Result<Option<tg::user::Login>> {
 		self.get_login(id).await
 	}
 
-	async fn get_user_for_token(&self, token: &str) -> Result<Option<tg::user::User>> {
+	async fn get_user_for_token(&self, token: &str) -> tg::Result<Option<tg::user::User>> {
 		self.get_user_for_token(token).await
 	}
 }

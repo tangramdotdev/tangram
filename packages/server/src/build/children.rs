@@ -13,7 +13,6 @@ use num::ToPrimitive;
 use std::sync::Arc;
 use tangram_client as tg;
 use tangram_database::{self as db, prelude::*};
-use tangram_error::{error, Error, Result};
 use tokio_stream::wrappers::IntervalStream;
 
 impl Server {
@@ -22,7 +21,7 @@ impl Server {
 		id: &tg::build::Id,
 		arg: tg::build::children::GetArg,
 		stop: Option<tokio::sync::watch::Receiver<bool>>,
-	) -> Result<Option<BoxStream<'static, Result<tg::build::children::Chunk>>>> {
+	) -> tg::Result<Option<BoxStream<'static, tg::Result<tg::build::children::Chunk>>>> {
 		if let Some(children) = self
 			.try_get_build_children_local(id, arg.clone(), stop.clone())
 			.await?
@@ -43,7 +42,7 @@ impl Server {
 		id: &tg::build::Id,
 		arg: tg::build::children::GetArg,
 		stop: Option<tokio::sync::watch::Receiver<bool>>,
-	) -> Result<Option<BoxStream<'static, Result<tg::build::children::Chunk>>>> {
+	) -> tg::Result<Option<BoxStream<'static, tg::Result<tg::build::children::Chunk>>>> {
 		// Verify the build is local.
 		if !self.get_build_exists_local(id).await? {
 			return Ok(None);
@@ -80,9 +79,9 @@ impl Server {
 				.to_i64()
 				.unwrap()
 				.checked_add(seek)
-				.ok_or_else(|| error!("invalid offset"))?
+				.ok_or_else(|| tg::error!("invalid offset"))?
 				.to_u64()
-				.ok_or_else(|| error!("invalid offset"))?,
+				.ok_or_else(|| tg::error!("invalid offset"))?,
 			None => {
 				self.try_get_build_children_local_current_position(id)
 					.await?
@@ -127,10 +126,10 @@ impl Server {
 						None,
 					)
 					.await?
-					.ok_or_else(|| error!("expected the build to exist"))?
+					.ok_or_else(|| tg::error!("expected the build to exist"))?
 					.try_next()
 					.await?
-					.ok_or_else(|| error!("expected the status to exist"))?;
+					.ok_or_else(|| tg::error!("expected the status to exist"))?;
 				if status == tg::build::Status::Finished {
 					end = true;
 				}
@@ -170,16 +169,19 @@ impl Server {
 								.try_get_build_children_local_end(&id, chunk.position)
 								.await?;
 							if end {
-								return Ok::<_, Error>(Some((chunk, (server, id, state, true))));
+								return Ok::<_, tg::Error>(Some((
+									chunk,
+									(server, id, state, true),
+								)));
 							}
 							return Ok(None);
 						}
 
-						Ok::<_, Error>(Some((chunk, (server, id, state, false))))
+						Ok::<_, tg::Error>(Some((chunk, (server, id, state, false))))
 					},
 				);
 
-				Ok::<_, Error>(Some((stream, (server, id, events, state, end))))
+				Ok::<_, tg::Error>(Some((stream, (server, id, events, state, end))))
 			},
 		)
 		.try_flatten()
@@ -191,14 +193,14 @@ impl Server {
 	async fn try_get_build_children_local_current_position(
 		&self,
 		id: &tg::build::Id,
-	) -> Result<u64> {
+	) -> tg::Result<u64> {
 		// Get a database connection.
 		let connection = self
 			.inner
 			.database
 			.connection()
 			.await
-			.map_err(|source| error!(!source, "failed to get a database connection"))?;
+			.map_err(|source| tg::error!(!source, "failed to get a database connection"))?;
 
 		// Get the position.
 		let p = connection.p();
@@ -213,7 +215,7 @@ impl Server {
 		let position = connection
 			.query_one_value_into(statement, params)
 			.await
-			.map_err(|source| error!(!source, "failed to execute the statement"))?;
+			.map_err(|source| tg::error!(!source, "failed to execute the statement"))?;
 
 		// Drop the database connection.
 		drop(connection);
@@ -225,14 +227,14 @@ impl Server {
 		&self,
 		id: &tg::build::Id,
 		position: u64,
-	) -> Result<bool> {
+	) -> tg::Result<bool> {
 		// Get a database connection.
 		let connection = self
 			.inner
 			.database
 			.connection()
 			.await
-			.map_err(|source| error!(!source, "failed to get a database connection"))?;
+			.map_err(|source| tg::error!(!source, "failed to get a database connection"))?;
 
 		// Get the end.
 		let p = connection.p();
@@ -253,7 +255,7 @@ impl Server {
 		let end = connection
 			.query_one_value_into(statement, params)
 			.await
-			.map_err(|source| error!(!source, "failed to execute the statement"))?;
+			.map_err(|source| tg::error!(!source, "failed to execute the statement"))?;
 
 		// Drop the database connection.
 		drop(connection);
@@ -266,14 +268,14 @@ impl Server {
 		id: &tg::build::Id,
 		position: u64,
 		length: u64,
-	) -> Result<tg::build::children::Chunk> {
+	) -> tg::Result<tg::build::children::Chunk> {
 		// Get a database connection.
 		let connection = self
 			.inner
 			.database
 			.connection()
 			.await
-			.map_err(|source| error!(!source, "failed to get a database connection"))?;
+			.map_err(|source| tg::error!(!source, "failed to get a database connection"))?;
 
 		// Get the children.
 		let p = connection.p();
@@ -291,7 +293,7 @@ impl Server {
 		let children = connection
 			.query_all_value_into(statement, params)
 			.await
-			.map_err(|source| error!(!source, "failed to execute the statement"))?;
+			.map_err(|source| tg::error!(!source, "failed to execute the statement"))?;
 
 		// Drop the database connection.
 		drop(connection);
@@ -310,7 +312,7 @@ impl Server {
 		id: &tg::build::Id,
 		arg: tg::build::children::GetArg,
 		stop: Option<tokio::sync::watch::Receiver<bool>>,
-	) -> Result<Option<BoxStream<'static, Result<tg::build::children::Chunk>>>> {
+	) -> tg::Result<Option<BoxStream<'static, tg::Result<tg::build::children::Chunk>>>> {
 		let Some(remote) = self.inner.remotes.first() else {
 			return Ok(None);
 		};
@@ -325,7 +327,7 @@ impl Server {
 		user: Option<&tg::User>,
 		build_id: &tg::build::Id,
 		child_id: &tg::build::Id,
-	) -> Result<()> {
+	) -> tg::Result<()> {
 		if self
 			.try_add_build_child_local(user, build_id, child_id)
 			.await?
@@ -338,7 +340,7 @@ impl Server {
 		{
 			return Ok(());
 		}
-		Err(error!("failed to get the build"))
+		Err(tg::error!("failed to get the build"))
 	}
 
 	async fn try_add_build_child_local(
@@ -346,7 +348,7 @@ impl Server {
 		_user: Option<&tg::User>,
 		build_id: &tg::build::Id,
 		child_id: &tg::build::Id,
-	) -> Result<bool> {
+	) -> tg::Result<bool> {
 		// Verify the build is local.
 		if !self.get_build_exists_local(build_id).await? {
 			return Ok(false);
@@ -358,7 +360,7 @@ impl Server {
 			.database
 			.connection()
 			.await
-			.map_err(|source| error!(!source, "failed to get a database connection"))?;
+			.map_err(|source| tg::error!(!source, "failed to get a database connection"))?;
 
 		// Add the child to the database.
 		let p = connection.p();
@@ -373,7 +375,7 @@ impl Server {
 		connection
 			.execute(statement, params)
 			.await
-			.map_err(|source| error!(!source, "failed to execute the statement"))?;
+			.map_err(|source| tg::error!(!source, "failed to execute the statement"))?;
 
 		// Drop the database connection.
 		drop(connection);
@@ -392,7 +394,7 @@ impl Server {
 		user: Option<&tg::User>,
 		build_id: &tg::build::Id,
 		child_id: &tg::build::Id,
-	) -> Result<bool> {
+	) -> tg::Result<bool> {
 		let Some(remote) = self.inner.remotes.first() else {
 			return Ok(false);
 		};
@@ -404,20 +406,23 @@ impl Server {
 	}
 }
 
-impl<H> Http<H> where H: tg::Handle {
+impl<H> Http<H>
+where
+	H: tg::Handle,
+{
 	pub async fn handle_get_build_children_request(
 		&self,
 		request: http::Request<Incoming>,
-	) -> Result<hyper::Response<Outgoing>> {
+	) -> tg::Result<hyper::Response<Outgoing>> {
 		// Get the path params.
 		let path_components: Vec<&str> = request.uri().path().split('/').skip(1).collect();
 		let ["builds", id, "children"] = path_components.as_slice() else {
 			let uri = request.uri();
-			return Err(error!(%uri, "unexpected path"));
+			return Err(tg::error!(%uri, "unexpected path"));
 		};
 		let id = id
 			.parse()
-			.map_err(|source| error!(!source, "failed to parse the ID"))?;
+			.map_err(|source| tg::error!(!source, "failed to parse the ID"))?;
 
 		// Get the search params.
 		let arg = request
@@ -425,7 +430,7 @@ impl<H> Http<H> where H: tg::Handle {
 			.query()
 			.map(serde_urlencoded::from_str)
 			.transpose()
-			.map_err(|source| error!(!source, "failed to deserialize the search params"))?
+			.map_err(|source| tg::error!(!source, "failed to deserialize the search params"))?
 			.unwrap_or_default();
 
 		// Get the accept header.
@@ -435,11 +440,11 @@ impl<H> Http<H> where H: tg::Handle {
 			.map(|accept| {
 				let accept = accept
 					.to_str()
-					.map_err(|source| error!(!source, "invalid content type"))?;
+					.map_err(|source| tg::error!(!source, "invalid content type"))?;
 				let accept = accept
 					.parse::<mime::Mime>()
-					.map_err(|source| error!(!source, "invalid content type"))?;
-				Ok::<_, Error>(accept)
+					.map_err(|source| tg::error!(!source, "invalid content type"))?;
+				Ok::<_, tg::Error>(accept)
 			})
 			.transpose()?;
 
@@ -462,12 +467,12 @@ impl<H> Http<H> where H: tg::Handle {
 				let content_type = mime::APPLICATION_JSON;
 				let body = stream::once(async move {
 					let children: Vec<tg::build::Id> = stream
-						.map_ok(|chunk| stream::iter(chunk.items).map(Ok::<_, Error>))
+						.map_ok(|chunk| stream::iter(chunk.items).map(Ok::<_, tg::Error>))
 						.try_flatten()
 						.try_collect()
 						.await?;
 					let json = serde_json::to_string(&children)
-						.map_err(|source| error!(!source, "failed to serialize the body"))?;
+						.map_err(|source| tg::error!(!source, "failed to serialize the body"))?;
 					Ok(hyper::body::Frame::data(json.into_bytes().into()))
 				});
 				let body = Outgoing::new(StreamBody::new(body));
@@ -486,7 +491,7 @@ impl<H> Http<H> where H: tg::Handle {
 				(content_type, body)
 			},
 			_ => {
-				return Err(error!(?accept, "invalid accept header"));
+				return Err(tg::error!(?accept, "invalid accept header"));
 			},
 		};
 
@@ -503,16 +508,16 @@ impl<H> Http<H> where H: tg::Handle {
 	pub async fn handle_add_build_child_request(
 		&self,
 		request: http::Request<Incoming>,
-	) -> Result<hyper::Response<Outgoing>> {
+	) -> tg::Result<hyper::Response<Outgoing>> {
 		// Get the path params.
 		let path_components: Vec<&str> = request.uri().path().split('/').skip(1).collect();
 		let ["builds", id, "children"] = path_components.as_slice() else {
 			let path = request.uri().path();
-			return Err(error!(%path, "unexpected path"));
+			return Err(tg::error!(%path, "unexpected path"));
 		};
 		let build_id: tg::build::Id = id
 			.parse()
-			.map_err(|source| error!(!source, "failed to parse the ID"))?;
+			.map_err(|source| tg::error!(!source, "failed to parse the ID"))?;
 
 		// Get the user.
 		let user = self.try_get_user_from_request(&request).await?;
@@ -522,10 +527,10 @@ impl<H> Http<H> where H: tg::Handle {
 			.into_body()
 			.collect()
 			.await
-			.map_err(|source| error!(!source, "failed to read the body"))?
+			.map_err(|source| tg::error!(!source, "failed to read the body"))?
 			.to_bytes();
 		let child_id = serde_json::from_slice(&bytes)
-			.map_err(|source| error!(!source, "failed to deserialize the body"))?;
+			.map_err(|source| tg::error!(!source, "failed to deserialize the body"))?;
 
 		// Add the build child.
 		self.inner

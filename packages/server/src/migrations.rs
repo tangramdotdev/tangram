@@ -2,10 +2,10 @@ use super::Server;
 use futures::FutureExt;
 use indoc::formatdoc;
 use std::path::Path;
-use tangram_error::{error, Result};
+use tangram_client as tg;
 
 impl Server {
-	pub async fn migrate(path: &Path) -> Result<()> {
+	pub async fn migrate(path: &Path) -> tg::Result<()> {
 		let migrations = vec![migration_0000(path).boxed()];
 
 		// Read the version from the version file.
@@ -13,28 +13,26 @@ impl Server {
 			Ok(version) => Some(version),
 			Err(error) if error.kind() == std::io::ErrorKind::NotFound => None,
 			Err(error) => {
-				return Err(error!(
+				return Err(tg::error!(
 					source = error,
 					"failed to read the path format version"
 				))
 			},
 		};
-		let version = if let Some(version) = version {
-			Some(
-				version
-					.trim()
-					.parse::<usize>()
-					.map_err(|source| error!(!source, "failed to read the path format version"))?,
-			)
-		} else {
-			None
-		};
+		let version =
+			if let Some(version) = version {
+				Some(version.trim().parse::<usize>().map_err(|source| {
+					tg::error!(!source, "failed to read the path format version")
+				})?)
+			} else {
+				None
+			};
 
 		// If this path is from a newer version of Tangram, then return an error.
 		if let Some(version) = version {
 			if version >= migrations.len() {
 				let path = path.display();
-				return Err(error!(
+				return Err(tg::error!(
 					r#"the path "{path}" has run migrations from a newer version of Tangram. Please run `tg upgrade` to upgrade to the latest version of Tangram"#
 				));
 			}
@@ -53,22 +51,22 @@ impl Server {
 			// Update the version.
 			tokio::fs::write(path.join("version"), version.to_string())
 				.await
-				.map_err(|source| error!(!source, "failed to write the path format version"))?;
+				.map_err(|source| tg::error!(!source, "failed to write the path format version"))?;
 		}
 
 		Ok(())
 	}
 }
 
-async fn migration_0000(path: &Path) -> Result<()> {
+async fn migration_0000(path: &Path) -> tg::Result<()> {
 	let path = path.to_owned();
 
 	// Create the database.
 	let connection = rusqlite::Connection::open(path.join("database"))
-		.map_err(|source| error!(!source, "failed to create the database"))?;
+		.map_err(|source| tg::error!(!source, "failed to create the database"))?;
 	connection
 		.pragma_update(None, "journal_mode", "wal")
-		.map_err(|source| error!(!source, "failed to set the journal mode"))?;
+		.map_err(|source| tg::error!(!source, "failed to set the journal mode"))?;
 	let sql = formatdoc!(
 		"
 			create table artifact_paths (
@@ -185,19 +183,19 @@ async fn migration_0000(path: &Path) -> Result<()> {
 	);
 	connection
 		.execute_batch(&sql)
-		.map_err(|source| error!(!source, "failed to create the database tables"))?;
+		.map_err(|source| tg::error!(!source, "failed to create the database tables"))?;
 
 	// Create the checkouts directory.
 	let checkouts_path = path.join("checkouts");
 	tokio::fs::create_dir_all(&checkouts_path)
 		.await
-		.map_err(|source| error!(!source, "failed to create the checkouts directory"))?;
+		.map_err(|source| tg::error!(!source, "failed to create the checkouts directory"))?;
 
 	// Create the tmp directory.
 	let tmp_path = path.join("tmp");
 	tokio::fs::create_dir_all(&tmp_path)
 		.await
-		.map_err(|source| error!(!source, "failed to create the tmp directory"))?;
+		.map_err(|source| tg::error!(!source, "failed to create the tmp directory"))?;
 
 	Ok(())
 }

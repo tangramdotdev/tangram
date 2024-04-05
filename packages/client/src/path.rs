@@ -1,6 +1,6 @@
+use crate::{self as tg, error};
 use derive_more::{TryUnwrap, Unwrap};
 use std::path::PathBuf;
-use tangram_error::{error, Error, Result};
 
 /// Any path.
 #[derive(
@@ -145,7 +145,7 @@ impl std::fmt::Display for Path {
 }
 
 impl std::str::FromStr for Path {
-	type Err = Error;
+	type Err = tg::Error;
 
 	fn from_str(mut s: &str) -> std::result::Result<Self, Self::Err> {
 		let mut path = Self::default();
@@ -214,9 +214,9 @@ impl From<Path> for PathBuf {
 }
 
 impl TryFrom<PathBuf> for Path {
-	type Error = Error;
+	type Error = tg::Error;
 
-	fn try_from(value: PathBuf) -> Result<Self, Self::Error> {
+	fn try_from(value: PathBuf) -> tg::Result<Self, Self::Error> {
 		value
 			.as_os_str()
 			.to_str()
@@ -226,9 +226,9 @@ impl TryFrom<PathBuf> for Path {
 }
 
 impl<'a> TryFrom<&'a std::path::Path> for Path {
-	type Error = Error;
+	type Error = tg::Error;
 
-	fn try_from(value: &'a std::path::Path) -> Result<Self, Self::Error> {
+	fn try_from(value: &'a std::path::Path) -> tg::Result<Self, Self::Error> {
 		value
 			.as_os_str()
 			.to_str()

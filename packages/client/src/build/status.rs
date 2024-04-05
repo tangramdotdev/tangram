@@ -1,12 +1,11 @@
 use crate::{
-	build,
+	self as tg, build, error,
 	util::http::{empty, full},
 	Client, User,
 };
 use futures::{future, stream::BoxStream, FutureExt, StreamExt, TryStreamExt};
 use http_body_util::{BodyExt, BodyStream};
 use serde_with::serde_as;
-use tangram_error::{error, Error, Result};
 use tokio_util::io::StreamReader;
 
 #[derive(
@@ -33,7 +32,7 @@ impl Client {
 		id: &build::Id,
 		arg: build::status::GetArg,
 		stop: Option<tokio::sync::watch::Receiver<bool>>,
-	) -> Result<Option<BoxStream<'static, Result<build::Status>>>> {
+	) -> tg::Result<Option<BoxStream<'static, tg::Result<build::Status>>>> {
 		let method = http::Method::GET;
 		let search_params = serde_urlencoded::to_string(&arg).unwrap();
 		let uri = format!("/builds/{id}/status?{search_params}");
@@ -77,7 +76,7 @@ impl Client {
 				let event = result.map_err(|source| error!(!source, "failed to read an event"))?;
 				let chunk = serde_json::from_str(&event.data)
 					.map_err(|source| error!(!source, "failed to deserialize the event data"))?;
-				Ok::<_, Error>(chunk)
+				Ok::<_, tg::Error>(chunk)
 			})
 			.take_until(stop)
 			.boxed();
@@ -89,7 +88,7 @@ impl Client {
 		user: Option<&User>,
 		id: &build::Id,
 		status: build::Status,
-	) -> Result<()> {
+	) -> tg::Result<()> {
 		let method = http::Method::POST;
 		let uri = format!("/builds/{id}/status");
 		let mut request = http::request::Builder::default().method(method).uri(uri);
@@ -130,9 +129,9 @@ impl std::fmt::Display for Status {
 }
 
 impl std::str::FromStr for Status {
-	type Err = Error;
+	type Err = tg::Error;
 
-	fn from_str(s: &str) -> Result<Self, Self::Err> {
+	fn from_str(s: &str) -> tg::Result<Self, Self::Err> {
 		match s {
 			"created" => Ok(Self::Created),
 			"queued" => Ok(Self::Queued),

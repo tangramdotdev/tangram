@@ -3,7 +3,6 @@ use bytes::Bytes;
 use futures::{stream, StreamExt, TryStreamExt};
 use num::ToPrimitive;
 use tangram_client as tg;
-use tangram_error::{error, Error, Result};
 use tokio::io::AsyncRead;
 
 const MAX_BRANCH_CHILDREN: usize = 1024;
@@ -16,7 +15,7 @@ impl Server {
 		&self,
 		reader: impl AsyncRead + Unpin,
 		transaction: &Transaction<'_>,
-	) -> Result<tg::blob::Id> {
+	) -> tg::Result<tg::blob::Id> {
 		// Create the leaves.
 		let mut chunker = fastcdc::v2020::AsyncStreamCDC::new(
 			reader,
@@ -26,14 +25,14 @@ impl Server {
 		);
 		let mut children = chunker
 			.as_stream()
-			.map_err(|source| error!(!source, "failed to read"))
+			.map_err(|source| tg::error!(!source, "failed to read"))
 			.and_then(|chunk| async {
 				let bytes = Bytes::from(chunk.data);
 				let size = bytes.len().to_u64().unwrap();
 				let id = tg::leaf::Id::new(&bytes);
 				self.put_object_with_transaction(id.clone().into(), bytes, transaction)
 					.await?;
-				Ok::<_, Error>(tg::branch::child::Data {
+				Ok::<_, tg::Error>(tg::branch::child::Data {
 					blob: id.into(),
 					size,
 				})
@@ -56,7 +55,7 @@ impl Server {
 								.await?;
 							let blob = id.into();
 							let child = tg::branch::child::Data { blob, size };
-							Ok::<_, Error>(child)
+							Ok::<_, tg::Error>(child)
 						})
 						.left_stream()
 					} else {

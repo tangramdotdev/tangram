@@ -1,13 +1,12 @@
 use crate::Server;
 use std::collections::{BTreeSet, HashSet, VecDeque};
 use tangram_client as tg;
-use tangram_error::{error, Result};
 
 impl Server {
 	pub(super) async fn get_package_dependencies(
 		&self,
 		package: &tg::Directory,
-	) -> Result<Vec<tg::Dependency>> {
+	) -> tg::Result<Vec<tg::Dependency>> {
 		// Create the dependencies set.
 		let mut dependencies: BTreeSet<tg::Dependency> = BTreeSet::default();
 
@@ -26,12 +25,12 @@ impl Server {
 				.await?
 				.try_unwrap_file()
 				.ok()
-				.ok_or_else(|| error!("expected the module to be a file"))?;
+				.ok_or_else(|| tg::error!("expected the module to be a file"))?;
 			let text: String = file.text(self).await?;
 
 			// Analyze the module.
 			let analysis = crate::language::Server::analyze_module(text)
-				.map_err(|source| error!(!source, "failed to analyze the module"))?;
+				.map_err(|source| tg::error!(!source, "failed to analyze the module"))?;
 
 			// Recurse into the dependencies.
 			for import in &analysis.imports {

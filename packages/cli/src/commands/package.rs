@@ -6,7 +6,6 @@ use std::{
 	fmt::Write,
 };
 use tangram_client as tg;
-use tangram_error::{error, Result};
 
 /// Manage packages.
 #[derive(Debug, clap::Args)]
@@ -66,7 +65,7 @@ pub struct UpdateArgs {
 }
 
 impl Cli {
-	pub async fn command_package(&self, args: Args) -> Result<()> {
+	pub async fn command_package(&self, args: Args) -> tg::Result<()> {
 		match args.command {
 			Command::Outdated(args) => self.command_package_outdated(args).await,
 			Command::Publish(args) => self.command_package_publish(args).await,
@@ -76,7 +75,7 @@ impl Cli {
 		}
 	}
 
-	pub async fn command_package_outdated(&self, args: OutdatedArgs) -> Result<()> {
+	pub async fn command_package_outdated(&self, args: OutdatedArgs) -> tg::Result<()> {
 		let client = &self.client().await?;
 		let mut dependency = tg::Dependency::with_path(args.path);
 
@@ -84,18 +83,17 @@ impl Cli {
 		if let Some(path) = dependency.path.as_mut() {
 			*path = tokio::fs::canonicalize(&path)
 				.await
-				.map_err(|source| error!(!source, "failed to canonicalize the path"))?
+				.map_err(|source| tg::error!(!source, "failed to canonicalize the path"))?
 				.try_into()?;
 		}
 
-		let outdated = client
-			.get_package_outdated(&dependency)
-			.await
-			.map_err(|source| error!(!source, %dependency, "failed to get outdated packages"))?;
+		let outdated = client.get_package_outdated(&dependency).await.map_err(
+			|source| tg::error!(!source, %dependency, "failed to get outdated packages"),
+		)?;
 
 		if args.json {
 			let json = serde_json::to_string_pretty(&outdated).map_err(
-				|source| error!(!source, %dependency, "failed to serialize outdated packages"),
+				|source| tg::error!(!source, %dependency, "failed to serialize outdated packages"),
 			)?;
 			println!("{json}");
 			return Ok(());
@@ -135,7 +133,7 @@ impl Cli {
 		Ok(())
 	}
 
-	pub async fn command_package_publish(&self, args: PublishArgs) -> Result<()> {
+	pub async fn command_package_publish(&self, args: PublishArgs) -> tg::Result<()> {
 		let client = &self.client().await?;
 		let mut dependency = args.package;
 
@@ -143,7 +141,7 @@ impl Cli {
 		if let Some(path) = dependency.path.as_mut() {
 			*path = tokio::fs::canonicalize(&path)
 				.await
-				.map_err(|source| error!(!source, "failed to canonicalize the path"))?
+				.map_err(|source| tg::error!(!source, "failed to canonicalize the path"))?
 				.try_into()?;
 		}
 
@@ -157,12 +155,12 @@ impl Cli {
 		client
 			.publish_package(self.user.as_ref(), &id)
 			.await
-			.map_err(|source| error!(!source, "failed to publish the package"))?;
+			.map_err(|source| tg::error!(!source, "failed to publish the package"))?;
 
 		Ok(())
 	}
 
-	pub async fn command_package_search(&self, args: SearchArgs) -> Result<()> {
+	pub async fn command_package_search(&self, args: SearchArgs) -> tg::Result<()> {
 		let client = &self.client().await?;
 
 		// Perform the search.
@@ -180,7 +178,7 @@ impl Cli {
 		Ok(())
 	}
 
-	pub async fn command_package_tree(&self, args: TreeArgs) -> Result<()> {
+	pub async fn command_package_tree(&self, args: TreeArgs) -> tg::Result<()> {
 		let client = &self.client().await?;
 		let mut dependency = args.package;
 
@@ -188,14 +186,14 @@ impl Cli {
 		if let Some(path) = dependency.path.as_mut() {
 			*path = tokio::fs::canonicalize(&path)
 				.await
-				.map_err(|source| error!(!source, "failed to canonicalize the path"))?
+				.map_err(|source| tg::error!(!source, "failed to canonicalize the path"))?
 				.try_into()?;
 		}
 
 		// Create the package.
 		let (package, lock) = tg::package::get_with_lock(client, &dependency)
 			.await
-			.map_err(|source| error!(!source, %dependency, "failed to get the lock"))?;
+			.map_err(|source| tg::error!(!source, %dependency, "failed to get the lock"))?;
 
 		let mut visited = BTreeSet::new();
 		let tree = get_package_tree(
@@ -214,7 +212,7 @@ impl Cli {
 		Ok(())
 	}
 
-	pub async fn command_package_update(&self, args: UpdateArgs) -> Result<()> {
+	pub async fn command_package_update(&self, args: UpdateArgs) -> tg::Result<()> {
 		let client = &self.client().await?;
 		let mut dependency = tg::Dependency::with_path(args.path);
 
@@ -222,7 +220,7 @@ impl Cli {
 		if let Some(path) = dependency.path.as_mut() {
 			*path = tokio::fs::canonicalize(&path)
 				.await
-				.map_err(|source| error!(!source, %path, "failed to canonicalize the path"))?
+				.map_err(|source| tg::error!(!source, %path, "failed to canonicalize the path"))?
 				.try_into()?;
 			tokio::fs::remove_file(path.clone().join("tangram.lock"))
 				.await
@@ -231,7 +229,7 @@ impl Cli {
 
 		let _ = tg::package::get_with_lock(client, &dependency)
 			.await
-			.map_err(|source| error!(!source, %dependency, "failed to create a new lock"))?;
+			.map_err(|source| tg::error!(!source, %dependency, "failed to create a new lock"))?;
 
 		Ok(())
 	}
@@ -246,7 +244,7 @@ async fn get_package_tree(
 	visited: &mut BTreeSet<tg::directory::Id>,
 	current_depth: u32,
 	max_depth: Option<u32>,
-) -> Result<Tree> {
+) -> tg::Result<Tree> {
 	let mut title = String::new();
 	write!(title, "{dependency}: ").unwrap();
 	if let Ok(metadata) = tg::package::get_metadata(client, &package).await {
@@ -279,10 +277,10 @@ async fn get_package_tree(
 			(None, Some(path)) => package
 				.get(client, path)
 				.await
-				.map_err(|source| error!(!source, %path, "could not resolve path dependency"))?
+				.map_err(|source| tg::error!(!source, %path, "could not resolve path dependency"))?
 				.try_unwrap_directory()
-				.map_err(|source| error!(!source, "expected a directory"))?,
-			(None, None) => return Err(error!("invalid lock")),
+				.map_err(|source| tg::error!(!source, "expected a directory"))?,
+			(None, None) => return Err(tg::error!("invalid lock")),
 		};
 		let child = Box::pin(get_package_tree(
 			client,

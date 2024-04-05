@@ -1,10 +1,13 @@
 use crate::Server;
 use std::path::Path;
 use tangram_client as tg;
-use tangram_error::Result;
 
 /// Render a value.
-pub async fn render(server: &Server, value: &tg::Value, artifacts_path: &Path) -> Result<String> {
+pub async fn render(
+	server: &Server,
+	value: &tg::Value,
+	artifacts_path: &Path,
+) -> tg::Result<String> {
 	if let Ok(string) = value.try_unwrap_string_ref() {
 		Ok(string.clone())
 	} else if let Ok(artifact) = tg::Artifact::try_from(value.clone()) {

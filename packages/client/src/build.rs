@@ -1,7 +1,9 @@
 pub use self::{outcome::Outcome, status::Status};
-use crate as tg;
-use crate::util::http::{empty, full};
-use crate::{blob, id, object, target, Client, Handle, Target, User, Value};
+use crate::{
+	self as tg, blob, error, id, object, target,
+	util::http::{empty, full},
+	Client, Handle, Target, User, Value,
+};
 use bytes::Bytes;
 use derive_more::Display;
 use futures::{
@@ -9,7 +11,6 @@ use futures::{
 	StreamExt, TryStreamExt,
 };
 use http_body_util::BodyExt;
-use tangram_error::{error, Error, Result};
 
 pub mod children;
 pub mod log;
@@ -186,7 +187,7 @@ impl Build {
 		&self.id
 	}
 
-	pub async fn new(tg: &impl Handle, arg: GetOrCreateArg) -> Result<Self> {
+	pub async fn new(tg: &impl Handle, arg: GetOrCreateArg) -> tg::Result<Self> {
 		let output = tg.get_or_create_build(None, arg).await?;
 		let build = Build::with_id(output.id);
 		Ok(build)
@@ -196,7 +197,7 @@ impl Build {
 		&self,
 		tg: &impl Handle,
 		arg: children::GetArg,
-	) -> Result<BoxStream<'static, Result<Self>>> {
+	) -> tg::Result<BoxStream<'static, tg::Result<Self>>> {
 		self.try_get_children(tg, arg)
 			.await?
 			.ok_or_else(|| error!("failed to get the build"))
@@ -206,7 +207,7 @@ impl Build {
 		&self,
 		tg: &impl Handle,
 		arg: children::GetArg,
-	) -> Result<Option<BoxStream<'static, Result<Self>>>> {
+	) -> tg::Result<Option<BoxStream<'static, tg::Result<Self>>>> {
 		Ok(tg
 			.try_get_build_children(self.id(), arg, None)
 			.await?
@@ -220,7 +221,7 @@ impl Build {
 			}))
 	}
 
-	pub async fn add_child(&self, tg: &impl Handle, child: &Self) -> Result<()> {
+	pub async fn add_child(&self, tg: &impl Handle, child: &Self) -> tg::Result<()> {
 		let id = self.id();
 		let child_id = child.id();
 		tg.add_build_child(None, id, child_id).await?;
@@ -231,7 +232,7 @@ impl Build {
 		&self,
 		tg: &impl Handle,
 		arg: log::GetArg,
-	) -> Result<BoxStream<'static, Result<log::Chunk>>> {
+	) -> tg::Result<BoxStream<'static, tg::Result<log::Chunk>>> {
 		self.try_get_log(tg, arg)
 			.await?
 			.ok_or_else(|| error!("failed to get the build"))
@@ -241,17 +242,17 @@ impl Build {
 		&self,
 		tg: &impl Handle,
 		arg: log::GetArg,
-	) -> Result<Option<BoxStream<'static, Result<log::Chunk>>>> {
+	) -> tg::Result<Option<BoxStream<'static, tg::Result<log::Chunk>>>> {
 		tg.try_get_build_log(self.id(), arg, None).await
 	}
 
-	pub async fn add_log(&self, tg: &impl Handle, log: Bytes) -> Result<()> {
+	pub async fn add_log(&self, tg: &impl Handle, log: Bytes) -> tg::Result<()> {
 		let id = self.id();
 		tg.add_build_log(None, id, log).await?;
 		Ok(())
 	}
 
-	pub async fn outcome(&self, tg: &impl Handle) -> Result<Outcome> {
+	pub async fn outcome(&self, tg: &impl Handle) -> tg::Result<Outcome> {
 		self.get_outcome(tg, outcome::GetArg::default())
 			.await?
 			.ok_or_else(|| error!("failed to get the outcome"))
@@ -261,7 +262,7 @@ impl Build {
 		&self,
 		tg: &impl Handle,
 		arg: outcome::GetArg,
-	) -> Result<Option<Outcome>> {
+	) -> tg::Result<Option<Outcome>> {
 		self.try_get_outcome(tg, arg)
 			.await?
 			.ok_or_else(|| error!("failed to get the build"))
@@ -271,11 +272,11 @@ impl Build {
 		&self,
 		tg: &impl Handle,
 		arg: outcome::GetArg,
-	) -> Result<Option<Option<Outcome>>> {
+	) -> tg::Result<Option<Option<Outcome>>> {
 		tg.try_get_build_outcome(self.id(), arg, None).await
 	}
 
-	pub async fn cancel(&self, tg: &impl Handle) -> Result<()> {
+	pub async fn cancel(&self, tg: &impl Handle) -> tg::Result<()> {
 		let id = self.id();
 		tg.set_build_outcome(None, id, Outcome::Canceled).await?;
 		Ok(())
@@ -286,19 +287,19 @@ impl Build {
 		tg: &impl Handle,
 		user: Option<&User>,
 		outcome: Outcome,
-	) -> Result<()> {
+	) -> tg::Result<()> {
 		let id = self.id();
 		tg.set_build_outcome(user, id, outcome).await?;
 		Ok(())
 	}
 
-	pub async fn retry(&self, tg: &impl Handle) -> Result<Retry> {
+	pub async fn retry(&self, tg: &impl Handle) -> tg::Result<Retry> {
 		self.try_get_retry(tg)
 			.await?
 			.ok_or_else(|| error!("failed to get the build"))
 	}
 
-	pub async fn try_get_retry(&self, tg: &impl Handle) -> Result<Option<Retry>> {
+	pub async fn try_get_retry(&self, tg: &impl Handle) -> tg::Result<Option<Retry>> {
 		let arg = tg::build::GetArg::default();
 		let Some(output) = tg.try_get_build(&self.id, arg).await? else {
 			return Ok(None);
@@ -310,7 +311,7 @@ impl Build {
 		&self,
 		tg: &impl Handle,
 		arg: status::GetArg,
-	) -> Result<BoxStream<'static, Result<Status>>> {
+	) -> tg::Result<BoxStream<'static, tg::Result<Status>>> {
 		self.try_get_status(tg, arg)
 			.await?
 			.ok_or_else(|| error!("failed to get the build"))
@@ -320,17 +321,17 @@ impl Build {
 		&self,
 		tg: &impl Handle,
 		arg: status::GetArg,
-	) -> Result<Option<BoxStream<'static, Result<Status>>>> {
+	) -> tg::Result<Option<BoxStream<'static, tg::Result<Status>>>> {
 		tg.try_get_build_status(self.id(), arg, None).await
 	}
 
-	pub async fn target(&self, tg: &impl Handle) -> Result<Target> {
+	pub async fn target(&self, tg: &impl Handle) -> tg::Result<Target> {
 		self.try_get_target(tg)
 			.await?
 			.ok_or_else(|| error!("failed to get the build"))
 	}
 
-	pub async fn try_get_target(&self, tg: &impl Handle) -> Result<Option<Target>> {
+	pub async fn try_get_target(&self, tg: &impl Handle) -> tg::Result<Option<Target>> {
 		let arg = tg::build::GetArg::default();
 		let Some(output) = tg.try_get_build(&self.id, arg).await? else {
 			return Ok(None);
@@ -345,7 +346,7 @@ impl Build {
 		user: Option<&User>,
 		tg: &impl Handle,
 		remote: &impl Handle,
-	) -> Result<()> {
+	) -> tg::Result<()> {
 		let arg = tg::build::GetArg::default();
 		let output = tg.get_build(&self.id, arg).await?;
 		let arg = tg::build::children::GetArg {
@@ -355,7 +356,7 @@ impl Build {
 		let children = tg
 			.get_build_children(&self.id, arg, None)
 			.await?
-			.map_ok(|chunk| stream::iter(chunk.items).map(Ok::<_, Error>))
+			.map_ok(|chunk| stream::iter(chunk.items).map(Ok::<_, tg::Error>))
 			.try_flatten()
 			.try_collect()
 			.await?;
@@ -398,7 +399,7 @@ impl Build {
 		Ok(())
 	}
 
-	pub async fn pull(&self, _tg: &impl Handle, _remote: &impl Handle) -> Result<()> {
+	pub async fn pull(&self, _tg: &impl Handle, _remote: &impl Handle) -> tg::Result<()> {
 		Err(error!("not yet implemented"))
 	}
 }
@@ -453,7 +454,7 @@ impl Outcome {
 		}
 	}
 
-	pub fn into_result(self) -> Result<Value> {
+	pub fn into_result(self) -> tg::Result<Value> {
 		match self {
 			Self::Canceled => Err(error!("the build was canceled")),
 			Self::Failed(error) => Err(error),
@@ -461,7 +462,7 @@ impl Outcome {
 		}
 	}
 
-	pub async fn data(&self, tg: &impl Handle) -> Result<outcome::Data> {
+	pub async fn data(&self, tg: &impl Handle) -> tg::Result<outcome::Data> {
 		Ok(match self {
 			Self::Canceled => outcome::Data::Canceled,
 			Self::Failed(error) => outcome::Data::Failed(error.clone()),
@@ -471,7 +472,7 @@ impl Outcome {
 }
 
 impl Client {
-	pub async fn list_builds(&self, arg: tg::build::ListArg) -> Result<tg::build::ListOutput> {
+	pub async fn list_builds(&self, arg: tg::build::ListArg) -> tg::Result<tg::build::ListOutput> {
 		let method = http::Method::GET;
 		let search_params = serde_urlencoded::to_string(&arg)
 			.map_err(|source| error!(!source, "failed to serialize the search params"))?;
@@ -506,7 +507,7 @@ impl Client {
 		&self,
 		id: &tg::build::Id,
 		arg: tg::build::GetArg,
-	) -> Result<Option<tg::build::GetOutput>> {
+	) -> tg::Result<Option<tg::build::GetOutput>> {
 		let method = http::Method::GET;
 		let search_params = serde_urlencoded::to_string(&arg)
 			.map_err(|source| error!(!source, "failed to serialize the search params"))?;
@@ -546,7 +547,7 @@ impl Client {
 		user: Option<&tg::User>,
 		id: &tg::build::Id,
 		arg: &tg::build::PutArg,
-	) -> Result<()> {
+	) -> tg::Result<()> {
 		let method = http::Method::PUT;
 		let uri = format!("/builds/{id}");
 		let mut request = http::request::Builder::default().method(method).uri(uri);
@@ -574,7 +575,7 @@ impl Client {
 		Ok(())
 	}
 
-	pub async fn push_build(&self, user: Option<&tg::User>, id: &tg::build::Id) -> Result<()> {
+	pub async fn push_build(&self, user: Option<&tg::User>, id: &tg::build::Id) -> tg::Result<()> {
 		let method = http::Method::POST;
 		let uri = format!("/builds/{id}/push");
 		let body = empty();
@@ -599,7 +600,7 @@ impl Client {
 		Ok(())
 	}
 
-	pub async fn pull_build(&self, id: &tg::build::Id) -> Result<()> {
+	pub async fn pull_build(&self, id: &tg::build::Id) -> tg::Result<()> {
 		let method = http::Method::POST;
 		let uri = format!("/builds/{id}/pull");
 		let body = empty();
@@ -626,7 +627,7 @@ impl Client {
 		&self,
 		user: Option<&tg::User>,
 		arg: tg::build::GetOrCreateArg,
-	) -> Result<tg::build::GetOrCreateOutput> {
+	) -> tg::Result<tg::build::GetOrCreateOutput> {
 		let method = http::Method::POST;
 		let uri = "/builds";
 		let mut request = http::request::Builder::default()
@@ -669,9 +670,9 @@ impl Client {
 }
 
 impl TryFrom<outcome::Data> for Outcome {
-	type Error = Error;
+	type Error = tg::Error;
 
-	fn try_from(data: outcome::Data) -> Result<Self, Self::Error> {
+	fn try_from(data: outcome::Data) -> tg::Result<Self, Self::Error> {
 		match data {
 			outcome::Data::Canceled => Ok(Outcome::Canceled),
 			outcome::Data::Failed(error) => Ok(Outcome::Failed(error)),
@@ -687,9 +688,9 @@ impl From<Id> for crate::Id {
 }
 
 impl TryFrom<crate::Id> for Id {
-	type Error = Error;
+	type Error = tg::Error;
 
-	fn try_from(value: crate::Id) -> Result<Self, Self::Error> {
+	fn try_from(value: crate::Id) -> tg::Result<Self, Self::Error> {
 		if value.kind() != id::Kind::Build {
 			return Err(error!(%value, "invalid kind"));
 		}
@@ -698,9 +699,9 @@ impl TryFrom<crate::Id> for Id {
 }
 
 impl std::str::FromStr for Id {
-	type Err = Error;
+	type Err = tg::Error;
 
-	fn from_str(s: &str) -> Result<Self, Self::Err> {
+	fn from_str(s: &str) -> tg::Result<Self, Self::Err> {
 		crate::Id::from_str(s)?.try_into()
 	}
 }
@@ -716,9 +717,9 @@ impl std::fmt::Display for Retry {
 }
 
 impl std::str::FromStr for Retry {
-	type Err = Error;
+	type Err = tg::Error;
 
-	fn from_str(s: &str) -> Result<Self, Self::Err> {
+	fn from_str(s: &str) -> tg::Result<Self, Self::Err> {
 		match s {
 			"canceled" => Ok(Self::Canceled),
 			"failed" => Ok(Self::Failed),

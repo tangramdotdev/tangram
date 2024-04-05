@@ -1,5 +1,5 @@
+use crate::{self as tg, error};
 use derive_more::From;
-use tangram_error::{error, Error, Result};
 
 /// An ID.
 #[derive(
@@ -102,9 +102,9 @@ impl std::fmt::Display for Id {
 }
 
 impl std::str::FromStr for Id {
-	type Err = Error;
+	type Err = tg::Error;
 
-	fn from_str(id: &str) -> Result<Self, Self::Err> {
+	fn from_str(id: &str) -> tg::Result<Self, Self::Err> {
 		let kind = id
 			.get(0..=2)
 			.ok_or_else(|| error!(%id, "invalid ID"))?
@@ -160,9 +160,9 @@ impl std::fmt::Display for Kind {
 }
 
 impl std::str::FromStr for Kind {
-	type Err = Error;
+	type Err = tg::Error;
 
-	fn from_str(s: &str) -> Result<Self, Self::Err> {
+	fn from_str(s: &str) -> tg::Result<Self, Self::Err> {
 		Ok(match s {
 			"lef" => Kind::Leaf,
 			"bch" => Kind::Branch,

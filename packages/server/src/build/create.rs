@@ -5,14 +5,13 @@ use crate::{
 use http_body_util::BodyExt;
 use std::sync::Arc;
 use tangram_client as tg;
-use tangram_error::{error, Result};
 
 impl Server {
 	pub async fn get_or_create_build(
 		&self,
 		user: Option<&tg::User>,
 		arg: tg::build::GetOrCreateArg,
-	) -> Result<tg::build::GetOrCreateOutput> {
+	) -> tg::Result<tg::build::GetOrCreateOutput> {
 		// Get a local build if one exists that satisfies the retry constraint.
 		let build = 'a: {
 			// Find a build.
@@ -191,16 +190,19 @@ impl Server {
 	}
 }
 
-impl<H> Http<H> where H: tg::Handle {
+impl<H> Http<H>
+where
+	H: tg::Handle,
+{
 	pub async fn handle_get_or_create_build_request(
 		&self,
 		request: http::Request<Incoming>,
-	) -> Result<http::Response<Outgoing>> {
+	) -> tg::Result<http::Response<Outgoing>> {
 		// Get the path params.
 		let path_components: Vec<&str> = request.uri().path().split('/').skip(1).collect();
 		let ["builds"] = path_components.as_slice() else {
 			let path = request.uri().path();
-			return Err(error!(%path, "unexpected path"));
+			return Err(tg::error!(%path, "unexpected path"));
 		};
 
 		// Get the user.
@@ -211,10 +213,10 @@ impl<H> Http<H> where H: tg::Handle {
 			.into_body()
 			.collect()
 			.await
-			.map_err(|source| error!(!source, "failed to read the body"))?
+			.map_err(|source| tg::error!(!source, "failed to read the body"))?
 			.to_bytes();
 		let arg = serde_json::from_slice(&bytes)
-			.map_err(|source| error!(!source, "failed to deserialize the body"))?;
+			.map_err(|source| tg::error!(!source, "failed to deserialize the body"))?;
 
 		// Get or create the build.
 		let output = self
@@ -225,7 +227,7 @@ impl<H> Http<H> where H: tg::Handle {
 
 		// Create the body.
 		let body = serde_json::to_vec(&output)
-			.map_err(|source| error!(!source, "failed to serialize the body"))?;
+			.map_err(|source| tg::error!(!source, "failed to serialize the body"))?;
 		let body = full(body);
 
 		// Create the response.

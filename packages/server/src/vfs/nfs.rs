@@ -9,7 +9,6 @@ use std::{
 	sync::{Arc, Weak},
 };
 use tangram_client as tg;
-use tangram_error::{error, Result};
 use tangram_nfs::{
 	rpc,
 	types::{
@@ -68,7 +67,7 @@ struct Inner {
 	nodes: tokio::sync::RwLock<Map<u64, Arc<Node>>>,
 	path: PathBuf,
 	server: crate::Server,
-	task: std::sync::Mutex<Option<tokio::task::JoinHandle<Result<()>>>>,
+	task: std::sync::Mutex<Option<tokio::task::JoinHandle<tg::Result<()>>>>,
 }
 
 struct LockState {
@@ -152,7 +151,7 @@ impl fmt::Display for Context {
 }
 
 impl Server {
-	pub async fn start(server: &crate::Server, path: &Path, port: u16) -> Result<Self> {
+	pub async fn start(server: &crate::Server, path: &Path, port: u16) -> tg::Result<Self> {
 		// Create the server.
 		let server = server.clone();
 		let root = Arc::new_cyclic(|root| Node {
@@ -201,7 +200,7 @@ impl Server {
 		Ok(server)
 	}
 
-	async fn mount(path: &Path, port: u16) -> crate::Result<()> {
+	async fn mount(path: &Path, port: u16) -> tg::Result<()> {
 		tokio::process::Command::new("dns-sd")
 			.args([
 				"-P",
@@ -216,7 +215,7 @@ impl Server {
 			.stdout(std::process::Stdio::null())
 			.stderr(std::process::Stdio::null())
 			.spawn()
-			.map_err(|source| error!(!source, "failed to spawn dns-sd"))?;
+			.map_err(|source| tg::error!(!source, "failed to spawn dns-sd"))?;
 
 		tokio::process::Command::new("mount_nfs")
 			.arg("-o")
@@ -229,15 +228,15 @@ impl Server {
 			.stderr(std::process::Stdio::null())
 			.status()
 			.await
-			.map_err(|source| error!(!source, "failed to mount"))?
+			.map_err(|source|tg::error!(!source, "failed to mount"))?
 			.success()
 			.then_some(())
-			.ok_or_else(|| error!("failed to mount the VFS"))?;
+			.ok_or_else(||tg::error!("failed to mount the VFS"))?;
 
 		Ok(())
 	}
 
-	pub async fn unmount(path: &Path) -> Result<()> {
+	pub async fn unmount(path: &Path) -> tg::Result<()> {
 		tokio::process::Command::new("umount")
 			.arg("-f")
 			.arg(path)
@@ -245,7 +244,7 @@ impl Server {
 			.stderr(std::process::Stdio::null())
 			.status()
 			.await
-			.map_err(|source| error!(!source, "failed to unmount the VFS"))?;
+			.map_err(|source| tg::error!(!source, "failed to unmount the VFS"))?;
 		Ok(())
 	}
 
@@ -256,7 +255,7 @@ impl Server {
 		};
 	}
 
-	pub async fn join(&self) -> Result<()> {
+	pub async fn join(&self) -> tg::Result<()> {
 		// Join the task.
 		let task = self.inner.task.lock().unwrap().take();
 		if let Some(task) = task {
@@ -274,16 +273,16 @@ impl Server {
 		Ok(())
 	}
 
-	async fn serve(&self, port: u16) -> crate::Result<()> {
+	async fn serve(&self, port: u16) -> tg::Result<()> {
 		let listener = TcpListener::bind(format!("localhost:{port}"))
 			.await
-			.map_err(|source| error!(!source, "failed to bind the server"))?;
+			.map_err(|source| tg::error!(!source, "failed to bind the server"))?;
 
 		loop {
 			let (conn, addr) = listener
 				.accept()
 				.await
-				.map_err(|source| error!(!source, "failed to accept the connection"))?;
+				.map_err(|source| tg::error!(!source, "failed to accept the connection"))?;
 			tracing::info!(?addr, "accepted client connection");
 			let server = self.clone();
 			tokio::spawn(async move {
@@ -298,7 +297,7 @@ impl Server {
 		}
 	}
 
-	async fn handle_connection(&self, stream: TcpStream) -> Result<()> {
+	async fn handle_connection(&self, stream: TcpStream) -> tg::Result<()> {
 		let (mut reader, mut writer) = tokio::io::split(stream);
 
 		let (message_sender, mut message_receiver) =
@@ -316,7 +315,7 @@ impl Server {
 		loop {
 			let fragments = rpc::read_fragments(&mut reader)
 				.await
-				.map_err(|source| error!(!source, "failed to read message fragments"))?;
+				.map_err(|source| tg::error!(!source, "failed to read message fragments"))?;
 			let message_sender = message_sender.clone();
 			let vfs = self.clone();
 			tokio::task::spawn(async move {
@@ -394,7 +393,7 @@ impl Server {
 		&self,
 		_cred: rpc::Auth,
 		_verf: rpc::Auth,
-	) -> Result<Option<rpc::Auth>, rpc::AuthStat> {
+	) -> tg::Result<Option<rpc::Auth>, rpc::AuthStat> {
 		Ok(None)
 	}
 
@@ -687,7 +686,11 @@ impl Server {
 		}
 	}
 
-	async fn get_attr(&self, file_handle: nfs_fh4, requested: bitmap4) -> Result<fattr4, nfsstat4> {
+	async fn get_attr(
+		&self,
+		file_handle: nfs_fh4,
+		requested: bitmap4,
+	) -> tg::Result<fattr4, nfsstat4> {
 		if requested.0.is_empty() {
 			return Ok(fattr4 {
 				attrmask: bitmap4(Vec::default()),
@@ -862,7 +865,7 @@ impl Server {
 		}
 	}
 
-	async fn lookup(&self, parent: nfs_fh4, name: &str) -> Result<Option<nfs_fh4>, nfsstat4> {
+	async fn lookup(&self, parent: nfs_fh4, name: &str) -> tg::Result<Option<nfs_fh4>, nfsstat4> {
 		let parent_node = self.get_node(parent).await.ok_or(nfsstat4::NFS4ERR_NOENT)?;
 		let Some(node) = self.get_or_create_child_node(parent_node, name).await? else {
 			return Ok(None);
@@ -874,7 +877,7 @@ impl Server {
 		&self,
 		parent_node: Arc<Node>,
 		name: &str,
-	) -> Result<Option<Arc<Node>>, nfsstat4> {
+	) -> tg::Result<Option<Arc<Node>>, nfsstat4> {
 		if name == "." {
 			return Ok(Some(parent_node));
 		}
@@ -1023,7 +1026,7 @@ impl Server {
 	async fn get_or_create_attributes_node(
 		&self,
 		parent_node: &Arc<Node>,
-	) -> Result<Arc<Node>, nfsstat4> {
+	) -> tg::Result<Arc<Node>, nfsstat4> {
 		match &parent_node.kind {
 			NodeKind::Root { attributes, .. }
 			| NodeKind::Directory { attributes, .. }

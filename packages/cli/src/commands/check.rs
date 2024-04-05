@@ -1,6 +1,5 @@
 use crate::Cli;
 use tangram_client as tg;
-use tangram_error::{error, Result};
 
 /// Check a package for errors.
 #[derive(Debug, clap::Args)]
@@ -14,14 +13,14 @@ pub struct Args {
 }
 
 impl Cli {
-	pub async fn command_check(&self, mut args: Args) -> Result<()> {
+	pub async fn command_check(&self, mut args: Args) -> tg::Result<()> {
 		let client = &self.client().await?;
 
 		// Canonicalize the package path.
 		if let Some(path) = args.package.path.as_mut() {
 			*path = tokio::fs::canonicalize(&path)
 				.await
-				.map_err(|source| error!(!source, "failed to canonicalize the path"))?
+				.map_err(|source| tg::error!(!source, "failed to canonicalize the path"))?
 				.try_into()?;
 		}
 
@@ -48,7 +47,7 @@ impl Cli {
 		}
 
 		if !diagnostics.is_empty() {
-			return Err(error!("type checking failed"));
+			return Err(tg::error!("type checking failed"));
 		}
 
 		Ok(())

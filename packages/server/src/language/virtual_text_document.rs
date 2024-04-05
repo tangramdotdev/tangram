@@ -1,6 +1,6 @@
 use super::Server;
 use lsp_types as lsp;
-use tangram_error::Result;
+use tangram_client as tg;
 
 pub struct VirtualTextDocument;
 
@@ -20,7 +20,7 @@ impl Server {
 	pub(super) async fn handle_virtual_text_document_request(
 		&self,
 		params: Params,
-	) -> Result<Option<String>> {
+	) -> tg::Result<Option<String>> {
 		// Get the module.
 		let module = self.module_for_url(&params.text_document.uri).await?;
 

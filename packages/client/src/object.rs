@@ -1,14 +1,13 @@
 use crate::{
-	self as tg, branch, directory, file, id, leaf, lock, symlink, target,
+	self as tg, branch, directory, error, file, id, leaf, lock, symlink, target,
 	util::http::{empty, full},
-	Branch, Client, Directory, Error, File, Leaf, Lock, Result, Symlink, Target,
+	Branch, Client, Directory, File, Leaf, Lock, Result, Symlink, Target,
 };
 use bytes::Bytes;
 use derive_more::{Display, From, TryInto, TryUnwrap};
 use futures::{stream::FuturesUnordered, TryStreamExt};
 use http_body_util::BodyExt;
 use std::sync::Arc;
-use tangram_error::error;
 
 /// An object kind.
 #[derive(Clone, Copy, Debug)]
@@ -154,7 +153,7 @@ impl Handle {
 		}
 	}
 
-	pub async fn id(&self, tg: &impl crate::Handle) -> Result<Id> {
+	pub async fn id(&self, tg: &impl crate::Handle) -> tg::Result<Id> {
 		match self {
 			Self::Leaf(object) => object.id(tg).await.map(Id::Leaf),
 			Self::Branch(object) => object.id(tg).await.map(Id::Branch),
@@ -166,7 +165,7 @@ impl Handle {
 		}
 	}
 
-	pub async fn object(&self, tg: &impl crate::Handle) -> Result<Object> {
+	pub async fn object(&self, tg: &impl crate::Handle) -> tg::Result<Object> {
 		match self {
 			Self::Leaf(object) => object.object(tg).await.map(Object::Leaf),
 			Self::Branch(object) => object.object(tg).await.map(Object::Branch),
@@ -178,7 +177,7 @@ impl Handle {
 		}
 	}
 
-	pub async fn data(&self, tg: &impl crate::Handle) -> Result<Data> {
+	pub async fn data(&self, tg: &impl crate::Handle) -> tg::Result<Data> {
 		match self {
 			Self::Leaf(object) => object.data(tg).await.map(Data::Leaf),
 			Self::Branch(object) => object.data(tg).await.map(Data::Branch),
@@ -190,7 +189,11 @@ impl Handle {
 		}
 	}
 
-	pub async fn push(&self, tg: &impl crate::Handle, remote: &impl crate::Handle) -> Result<()> {
+	pub async fn push(
+		&self,
+		tg: &impl crate::Handle,
+		remote: &impl crate::Handle,
+	) -> tg::Result<()> {
 		let id = self.id(tg).await?;
 		let data = self.data(tg).await?;
 		let bytes = data.serialize()?;
@@ -214,7 +217,11 @@ impl Handle {
 		Ok(())
 	}
 
-	pub async fn pull(&self, tg: &impl crate::Handle, remote: &impl crate::Handle) -> Result<()> {
+	pub async fn pull(
+		&self,
+		tg: &impl crate::Handle,
+		remote: &impl crate::Handle,
+	) -> tg::Result<()> {
 		let id = self.id(tg).await?;
 		let output = remote
 			.get_object(&id)
@@ -266,7 +273,7 @@ impl Data {
 	}
 
 	#[allow(dead_code)]
-	pub fn serialize(&self) -> Result<Bytes> {
+	pub fn serialize(&self) -> tg::Result<Bytes> {
 		match self {
 			Self::Leaf(data) => Ok(data.serialize()?),
 			Self::Branch(data) => Ok(data.serialize()?),
@@ -278,7 +285,7 @@ impl Data {
 		}
 	}
 
-	pub fn deserialize(kind: Kind, bytes: &Bytes) -> Result<Self> {
+	pub fn deserialize(kind: Kind, bytes: &Bytes) -> tg::Result<Self> {
 		match kind {
 			Kind::Leaf => Ok(Self::Leaf(leaf::Data::deserialize(bytes)?)),
 			Kind::Branch => Ok(Self::Branch(branch::Data::deserialize(bytes)?)),
@@ -295,7 +302,7 @@ impl Client {
 	pub async fn try_get_object(
 		&self,
 		id: &tg::object::Id,
-	) -> Result<Option<tg::object::GetOutput>> {
+	) -> tg::Result<Option<tg::object::GetOutput>> {
 		let method = http::Method::GET;
 		let uri = format!("/objects/{id}");
 		let body = empty();
@@ -335,7 +342,7 @@ impl Client {
 		&self,
 		id: &tg::object::Id,
 		arg: &tg::object::PutArg,
-	) -> Result<tg::object::PutOutput> {
+	) -> tg::Result<tg::object::PutOutput> {
 		let method = http::Method::PUT;
 		let uri = format!("/objects/{id}");
 		let body = full(arg.bytes.clone());
@@ -365,7 +372,7 @@ impl Client {
 		Ok(output)
 	}
 
-	pub async fn push_object(&self, id: &tg::object::Id) -> Result<()> {
+	pub async fn push_object(&self, id: &tg::object::Id) -> tg::Result<()> {
 		let method = http::Method::POST;
 		let uri = format!("/objects/{id}/push");
 		let body = empty();
@@ -388,7 +395,7 @@ impl Client {
 		Ok(())
 	}
 
-	pub async fn pull_object(&self, id: &tg::object::Id) -> Result<()> {
+	pub async fn pull_object(&self, id: &tg::object::Id) -> tg::Result<()> {
 		let method = http::Method::POST;
 		let uri = format!("/objects/{id}/pull");
 		let body = empty();
@@ -462,9 +469,9 @@ impl From<self::Id> for crate::Id {
 }
 
 impl TryFrom<crate::Id> for self::Id {
-	type Error = Error;
+	type Error = tg::Error;
 
-	fn try_from(value: crate::Id) -> Result<Self, Self::Error> {
+	fn try_from(value: crate::Id) -> tg::Result<Self, Self::Error> {
 		match value.kind() {
 			crate::id::Kind::Leaf => Ok(Self::Leaf(value.try_into()?)),
 			crate::id::Kind::Branch => Ok(Self::Branch(value.try_into()?)),
@@ -479,9 +486,9 @@ impl TryFrom<crate::Id> for self::Id {
 }
 
 impl std::str::FromStr for Id {
-	type Err = Error;
+	type Err = tg::Error;
 
-	fn from_str(s: &str) -> Result<Self, Self::Err> {
+	fn from_str(s: &str) -> tg::Result<Self, Self::Err> {
 		crate::Id::from_str(s)?.try_into()
 	}
 }
@@ -493,9 +500,9 @@ impl Display for Kind {
 }
 
 impl std::str::FromStr for Kind {
-	type Err = Error;
+	type Err = tg::Error;
 
-	fn from_str(s: &str) -> Result<Self, Self::Err> {
+	fn from_str(s: &str) -> tg::Result<Self, Self::Err> {
 		tg::id::Kind::from_str(s)?.try_into()
 	}
 }
@@ -515,9 +522,9 @@ impl From<Kind> for id::Kind {
 }
 
 impl TryFrom<id::Kind> for Kind {
-	type Error = Error;
+	type Error = tg::Error;
 
-	fn try_from(value: id::Kind) -> Result<Self, Self::Error> {
+	fn try_from(value: id::Kind) -> tg::Result<Self, Self::Error> {
 		match value {
 			id::Kind::Leaf => Ok(Self::Leaf),
 			id::Kind::Branch => Ok(Self::Branch),
@@ -532,7 +539,7 @@ impl TryFrom<id::Kind> for Kind {
 }
 
 impl TryFrom<Data> for Object {
-	type Error = Error;
+	type Error = tg::Error;
 
 	fn try_from(data: Data) -> std::result::Result<Self, Self::Error> {
 		Ok(match data {

@@ -14,7 +14,6 @@ use std::{
 	sync::{atomic::AtomicU64, Arc},
 };
 use tangram_client as tg;
-use tangram_error::{error, Result};
 use tokio_util::io::StreamReader;
 use url::Url;
 
@@ -66,7 +65,7 @@ pub fn syscall<'s>(
 		Err(error) => {
 			// Wrap the error
 			let stack = current_stack_trace(scope).unwrap_or_default();
-			let error = error!(source = error, stack = stack, "{name} failed");
+			let error = tg::error!(source = error, stack = stack, "{name} failed");
 
 			// Throw an exception.
 			let exception = super::error::to_exception(scope, &error);
@@ -78,15 +77,17 @@ pub fn syscall<'s>(
 async fn syscall_archive(
 	state: Rc<State>,
 	args: (tg::Artifact, tg::blob::ArchiveFormat),
-) -> Result<tg::Blob> {
+) -> tg::Result<tg::Blob> {
 	let (artifact, format) = args;
 	let blob = tg::Blob::archive(&state.server, &artifact, format)
 		.await
-		.map_err(|source| error!(!source,  %artifact, %format, "failed to archive the artifact"))?;
+		.map_err(
+			|source| tg::error!(!source,  %artifact, %format, "failed to archive the artifact"),
+		)?;
 	Ok(blob)
 }
 
-async fn syscall_build(state: Rc<State>, args: (tg::Target,)) -> Result<tg::Value> {
+async fn syscall_build(state: Rc<State>, args: (tg::Target,)) -> tg::Result<tg::Value> {
 	let (target,) = args;
 	let arg = tg::build::GetOrCreateArg {
 		parent: Some(state.build.id().clone()),
@@ -97,16 +98,16 @@ async fn syscall_build(state: Rc<State>, args: (tg::Target,)) -> Result<tg::Valu
 	let output = target
 		.build(&state.server, arg)
 		.await
-		.map_err(|source| error!(!source, %target, "failed to build the target"))?;
+		.map_err(|source| tg::error!(!source, %target, "failed to build the target"))?;
 	Ok(output)
 }
 
-async fn syscall_bundle(state: Rc<State>, args: (tg::Artifact,)) -> Result<tg::Artifact> {
+async fn syscall_bundle(state: Rc<State>, args: (tg::Artifact,)) -> tg::Result<tg::Artifact> {
 	let (artifact,) = args;
 	let artifact = artifact
 		.bundle(&state.server)
 		.await
-		.map_err(|source| error!(!source, %artifact, "failed to bundle the artifact"))?;
+		.map_err(|source| tg::error!(!source, %artifact, "failed to bundle the artifact"))?;
 	Ok(artifact)
 }
 
@@ -114,7 +115,7 @@ fn syscall_checksum(
 	_scope: &mut v8::HandleScope,
 	_state: Rc<State>,
 	args: (tg::checksum::Algorithm, Bytes),
-) -> Result<tg::Checksum> {
+) -> tg::Result<tg::Checksum> {
 	let (algorithm, bytes) = args;
 	let mut checksum_writer = tg::checksum::Writer::new(algorithm);
 	checksum_writer.update(&bytes);
@@ -125,25 +126,25 @@ fn syscall_checksum(
 async fn syscall_compress(
 	state: Rc<State>,
 	args: (tg::Blob, tg::blob::CompressionFormat),
-) -> Result<tg::Blob> {
+) -> tg::Result<tg::Blob> {
 	let (blob, format) = args;
 	let blob = blob
 		.compress(&state.server, format)
 		.await
-		.map_err(|source| error!(!source, %format, "failed to compress the blob"))?;
+		.map_err(|source| tg::error!(!source, %format, "failed to compress the blob"))?;
 	Ok(blob)
 }
 
 async fn syscall_decompress(
 	state: Rc<State>,
 	args: (tg::Blob, tg::blob::CompressionFormat),
-) -> Result<tg::Blob> {
+) -> tg::Result<tg::Blob> {
 	let (blob, format) = args;
 	let blob = blob.decompress(&state.server, format).await?;
 	Ok(blob)
 }
 
-async fn syscall_download(state: Rc<State>, args: (Url, tg::Checksum)) -> Result<tg::Blob> {
+async fn syscall_download(state: Rc<State>, args: (Url, tg::Checksum)) -> tg::Result<tg::Blob> {
 	let (url, checksum) = args;
 	let _permit = state
 		.server
@@ -154,9 +155,9 @@ async fn syscall_download(state: Rc<State>, args: (Url, tg::Checksum)) -> Result
 		.unwrap();
 	let response = reqwest::get(url.clone())
 		.await
-		.map_err(|source| error!(!source, %url, "failed to perform the request"))?
+		.map_err(|source| tg::error!(!source, %url, "failed to perform the request"))?
 		.error_for_status()
-		.map_err(|source| error!(!source, %url, "expected a sucess status"))?;
+		.map_err(|source| tg::error!(!source, %url, "expected a sucess status"))?;
 
 	// Spawn a task to log progress.
 	let n = Arc::new(AtomicU64::new(0));
@@ -201,7 +202,7 @@ async fn syscall_download(state: Rc<State>, args: (Url, tg::Checksum)) -> Result
 	// Create the blob and validate.
 	let blob = tg::Blob::with_reader(&state.server, StreamReader::new(stream))
 		.await
-		.map_err(|source| error!(!source, "failed to create the blob"))?;
+		.map_err(|source| tg::error!(!source, "failed to create the blob"))?;
 
 	// Abort the log task.
 	log_task.abort();
@@ -212,13 +213,13 @@ async fn syscall_download(state: Rc<State>, args: (Url, tg::Checksum)) -> Result
 		.build
 		.add_log(&state.server, message.into())
 		.await
-		.map_err(|source| error!(!source, "failed to add the log"))?;
+		.map_err(|source| tg::error!(!source, "failed to add the log"))?;
 
 	// Verify the checksum.
 	let actual = checksum_writer.finalize();
 	if actual != checksum {
 		let expected = checksum;
-		return Err(error!(%url, %actual, %expected, "the checksum did not match"));
+		return Err(tg::error!(%url, %actual, %expected, "the checksum did not match"));
 	}
 
 	Ok(blob)
@@ -228,11 +229,11 @@ fn syscall_encoding_base64_decode(
 	_scope: &mut v8::HandleScope,
 	_state: Rc<State>,
 	args: (String,),
-) -> Result<Bytes> {
+) -> tg::Result<Bytes> {
 	let (value,) = args;
 	let bytes = data_encoding::BASE64
 		.decode(value.as_bytes())
-		.map_err(|source| error!(!source, "failed to decode the bytes"))?;
+		.map_err(|source| tg::error!(!source, "failed to decode the bytes"))?;
 	Ok(bytes.into())
 }
 
@@ -240,7 +241,7 @@ fn syscall_encoding_base64_encode(
 	_scope: &mut v8::HandleScope,
 	_state: Rc<State>,
 	args: (Bytes,),
-) -> Result<String> {
+) -> tg::Result<String> {
 	let (value,) = args;
 	let encoded = data_encoding::BASE64.encode(&value);
 	Ok(encoded)
@@ -250,11 +251,11 @@ fn syscall_encoding_hex_decode(
 	_scope: &mut v8::HandleScope,
 	_state: Rc<State>,
 	args: (String,),
-) -> Result<Bytes> {
+) -> tg::Result<Bytes> {
 	let (string,) = args;
 	let bytes = data_encoding::HEXLOWER
 		.decode(string.as_bytes())
-		.map_err(|source| error!(!source, "failed to decode the string as hex"))?;
+		.map_err(|source| tg::error!(!source, "failed to decode the string as hex"))?;
 	Ok(bytes.into())
 }
 
@@ -262,7 +263,7 @@ fn syscall_encoding_hex_encode(
 	_scope: &mut v8::HandleScope,
 	_state: Rc<State>,
 	args: (Bytes,),
-) -> Result<String> {
+) -> tg::Result<String> {
 	let (bytes,) = args;
 	let hex = data_encoding::HEXLOWER.encode(&bytes);
 	Ok(hex)
@@ -272,10 +273,10 @@ fn syscall_encoding_json_decode(
 	_scope: &mut v8::HandleScope,
 	_state: Rc<State>,
 	args: (String,),
-) -> Result<serde_json::Value> {
+) -> tg::Result<serde_json::Value> {
 	let (json,) = args;
 	let value = serde_json::from_str(&json)
-		.map_err(|source| error!(!source, "failed to decode the string as json"))?;
+		.map_err(|source| tg::error!(!source, "failed to decode the string as json"))?;
 	Ok(value)
 }
 
@@ -283,10 +284,10 @@ fn syscall_encoding_json_encode(
 	_scope: &mut v8::HandleScope,
 	_state: Rc<State>,
 	args: (serde_json::Value,),
-) -> Result<String> {
+) -> tg::Result<String> {
 	let (value,) = args;
 	let json = serde_json::to_string(&value)
-		.map_err(|source| error!(!source, %value, "failed to encode the value"))?;
+		.map_err(|source| tg::error!(!source, %value, "failed to encode the value"))?;
 	Ok(json)
 }
 
@@ -294,10 +295,10 @@ fn syscall_encoding_toml_decode(
 	_scope: &mut v8::HandleScope,
 	_state: Rc<State>,
 	args: (String,),
-) -> Result<toml::Value> {
+) -> tg::Result<toml::Value> {
 	let (toml,) = args;
 	let value = toml::from_str(&toml)
-		.map_err(|source| error!(!source, "failed to decode the string as toml"))?;
+		.map_err(|source| tg::error!(!source, "failed to decode the string as toml"))?;
 	Ok(value)
 }
 
@@ -305,10 +306,10 @@ fn syscall_encoding_toml_encode(
 	_scope: &mut v8::HandleScope,
 	_state: Rc<State>,
 	args: (toml::Value,),
-) -> Result<String> {
+) -> tg::Result<String> {
 	let (value,) = args;
-	let toml =
-		toml::to_string(&value).map_err(|source| error!(!source, "failed to encode the value"))?;
+	let toml = toml::to_string(&value)
+		.map_err(|source| tg::error!(!source, "failed to encode the value"))?;
 	Ok(toml)
 }
 
@@ -316,10 +317,10 @@ fn syscall_encoding_utf8_decode(
 	_scope: &mut v8::HandleScope,
 	_state: Rc<State>,
 	args: (Bytes,),
-) -> Result<String> {
+) -> tg::Result<String> {
 	let (bytes,) = args;
 	let string = String::from_utf8(bytes.to_vec())
-		.map_err(|source| error!(!source, "failed to decode the bytes as UTF-8"))?;
+		.map_err(|source| tg::error!(!source, "failed to decode the bytes as UTF-8"))?;
 	Ok(string)
 }
 
@@ -327,7 +328,7 @@ fn syscall_encoding_utf8_encode(
 	_scope: &mut v8::HandleScope,
 	_state: Rc<State>,
 	args: (String,),
-) -> Result<Bytes> {
+) -> tg::Result<Bytes> {
 	let (string,) = args;
 	let bytes = string.into_bytes().into();
 	Ok(bytes)
@@ -337,10 +338,10 @@ fn syscall_encoding_yaml_decode(
 	_scope: &mut v8::HandleScope,
 	_state: Rc<State>,
 	args: (String,),
-) -> Result<serde_yaml::Value> {
+) -> tg::Result<serde_yaml::Value> {
 	let (yaml,) = args;
 	let value = serde_yaml::from_str(&yaml)
-		.map_err(|source| error!(!source, "failed to decode the string as yaml"))?;
+		.map_err(|source| tg::error!(!source, "failed to decode the string as yaml"))?;
 	Ok(value)
 }
 
@@ -348,31 +349,31 @@ fn syscall_encoding_yaml_encode(
 	_scope: &mut v8::HandleScope,
 	_state: Rc<State>,
 	args: (serde_yaml::Value,),
-) -> Result<String> {
+) -> tg::Result<String> {
 	let (value,) = args;
 	let yaml = serde_yaml::to_string(&value)
-		.map_err(|source| error!(!source, "failed to encode the value"))?;
+		.map_err(|source| tg::error!(!source, "failed to encode the value"))?;
 	Ok(yaml)
 }
 
 async fn syscall_extract(
 	state: Rc<State>,
 	args: (tg::Blob, tg::blob::ArchiveFormat),
-) -> Result<tg::Artifact> {
+) -> tg::Result<tg::Artifact> {
 	let (blob, format) = args;
 	let artifact = blob
 		.extract(&state.server, format)
 		.await
-		.map_err(|source| error!(!source, %format, "failed to extract the blob"))?;
+		.map_err(|source| tg::error!(!source, %format, "failed to extract the blob"))?;
 	Ok(artifact)
 }
 
-async fn syscall_load(state: Rc<State>, args: (tg::object::Id,)) -> Result<tg::object::Object> {
+async fn syscall_load(state: Rc<State>, args: (tg::object::Id,)) -> tg::Result<tg::object::Object> {
 	let (id,) = args;
 	tg::object::Handle::with_id(id).object(&state.server).await
 }
 
-fn syscall_log(_scope: &mut v8::HandleScope, state: Rc<State>, args: (String,)) -> Result<()> {
+fn syscall_log(_scope: &mut v8::HandleScope, state: Rc<State>, args: (String,)) -> tg::Result<()> {
 	let (string,) = args;
 	if let Some(log_sender) = state.log_sender.borrow().as_ref() {
 		log_sender.send(string).unwrap();
@@ -380,23 +381,26 @@ fn syscall_log(_scope: &mut v8::HandleScope, state: Rc<State>, args: (String,)) 
 	Ok(())
 }
 
-async fn syscall_read(state: Rc<State>, args: (tg::Blob,)) -> Result<Bytes> {
+async fn syscall_read(state: Rc<State>, args: (tg::Blob,)) -> tg::Result<Bytes> {
 	let (blob,) = args;
 	let bytes = blob
 		.bytes(&state.server)
 		.await
-		.map_err(|source| error!(!source, "failed to read the blob"))?;
+		.map_err(|source| tg::error!(!source, "failed to read the blob"))?;
 	Ok(bytes.into())
 }
 
-async fn syscall_sleep(_state: Rc<State>, args: (f64,)) -> Result<()> {
+async fn syscall_sleep(_state: Rc<State>, args: (f64,)) -> tg::Result<()> {
 	let (duration,) = args;
 	let duration = std::time::Duration::from_secs_f64(duration);
 	tokio::time::sleep(duration).await;
 	Ok(())
 }
 
-async fn syscall_store(state: Rc<State>, args: (tg::object::Object,)) -> Result<tg::object::Id> {
+async fn syscall_store(
+	state: Rc<State>,
+	args: (tg::object::Object,),
+) -> tg::Result<tg::object::Id> {
 	let (object,) = args;
 	let handle = tg::object::Handle::with_object(object);
 	let id = handle.id(&state.server).await?;
@@ -407,11 +411,11 @@ fn syscall_sync<'s, A, T, F>(
 	scope: &mut v8::HandleScope<'s>,
 	args: &v8::FunctionCallbackArguments,
 	f: F,
-) -> Result<v8::Local<'s, v8::Value>>
+) -> tg::Result<v8::Local<'s, v8::Value>>
 where
 	A: FromV8,
 	T: ToV8,
-	F: FnOnce(&mut v8::HandleScope<'s>, Rc<State>, A) -> Result<T>,
+	F: FnOnce(&mut v8::HandleScope<'s>, Rc<State>, A) -> tg::Result<T>,
 {
 	// Get the context.
 	let context = scope.get_current_context();
@@ -425,7 +429,7 @@ where
 
 	// Deserialize the args.
 	let args = from_v8(scope, args.into())
-		.map_err(|source| error!(!source, "failed to deserialize the args"))?;
+		.map_err(|source| tg::error!(!source, "failed to deserialize the args"))?;
 
 	// Call the function.
 	let value = f(scope, state, args)?;
@@ -433,7 +437,7 @@ where
 	// Move the value to v8.
 	let value = value
 		.to_v8(scope)
-		.map_err(|source| error!(!source, "failed to serialize the value"))?;
+		.map_err(|source| tg::error!(!source, "failed to serialize the value"))?;
 
 	Ok(value)
 }
@@ -442,12 +446,12 @@ fn syscall_async<'s, A, T, F, Fut>(
 	scope: &mut v8::HandleScope<'s>,
 	args: &v8::FunctionCallbackArguments,
 	f: F,
-) -> Result<v8::Local<'s, v8::Value>>
+) -> tg::Result<v8::Local<'s, v8::Value>>
 where
 	A: FromV8 + 'static,
 	T: ToV8 + 'static,
 	F: FnOnce(Rc<State>, A) -> Fut + 'static,
-	Fut: Future<Output = Result<T>>,
+	Fut: Future<Output = tg::Result<T>>,
 {
 	// Get the context.
 	let context = scope.get_current_context();
@@ -465,7 +469,7 @@ where
 
 	// Deserialize the args.
 	let args = from_v8(scope, args.into())
-		.map_err(|source| error!(!source, "failed to deserialize the args"))?;
+		.map_err(|source| tg::error!(!source, "failed to deserialize the args"))?;
 
 	// Move the promise resolver to the global scope.
 	let promise_resolver = v8::Global::new(scope, promise_resolver);

@@ -6,14 +6,13 @@ use futures::{stream, StreamExt, TryStreamExt};
 use indoc::formatdoc;
 use tangram_client as tg;
 use tangram_database::{self as db, prelude::*};
-use tangram_error::{error, Error, Result};
 
 impl Server {
 	pub async fn try_get_build(
 		&self,
 		id: &tg::build::Id,
 		_arg: tg::build::GetArg,
-	) -> Result<Option<tg::build::GetOutput>> {
+	) -> tg::Result<Option<tg::build::GetOutput>> {
 		if let Some(output) = self.try_get_build_local(id).await? {
 			Ok(Some(output))
 		} else if let Some(output) = self.try_get_build_remote(id).await? {
@@ -26,14 +25,14 @@ impl Server {
 	pub(crate) async fn try_get_build_local(
 		&self,
 		id: &tg::build::Id,
-	) -> Result<Option<tg::build::GetOutput>> {
+	) -> tg::Result<Option<tg::build::GetOutput>> {
 		// Get a database connection.
 		let connection = self
 			.inner
 			.database
 			.connection()
 			.await
-			.map_err(|source| error!(!source, "failed to get a database connection"))?;
+			.map_err(|source| tg::error!(!source, "failed to get a database connection"))?;
 
 		// Get the build.
 		let p = connection.p();
@@ -61,7 +60,7 @@ impl Server {
 		let output = connection
 			.query_optional_into(statement, params)
 			.await
-			.map_err(|source| error!(!source, "failed to execute the statement"))?;
+			.map_err(|source| tg::error!(!source, "failed to execute the statement"))?;
 
 		// Drop the database connection.
 		drop(connection);
@@ -72,7 +71,7 @@ impl Server {
 	async fn try_get_build_remote(
 		&self,
 		id: &tg::build::Id,
-	) -> Result<Option<tg::build::GetOutput>> {
+	) -> tg::Result<Option<tg::build::GetOutput>> {
 		// Get the remote.
 		let Some(remote) = self.inner.remotes.first() else {
 			return Ok(None);
@@ -93,8 +92,8 @@ impl Server {
 			let children = self
 				.try_get_build_children(id, arg, None)
 				.await?
-				.ok_or_else(|| error!("expected the build to exist"))?
-				.map_ok(|chunk| stream::iter(chunk.items).map(Ok::<_, Error>))
+				.ok_or_else(|| tg::error!("expected the build to exist"))?
+				.map_ok(|chunk| stream::iter(chunk.items).map(Ok::<_, tg::Error>))
 				.try_flatten()
 				.try_collect()
 				.await?;
@@ -128,16 +127,16 @@ where
 	pub async fn handle_get_build_request(
 		&self,
 		request: http::Request<Incoming>,
-	) -> Result<hyper::Response<Outgoing>> {
+	) -> tg::Result<hyper::Response<Outgoing>> {
 		// Get the path params.
 		let path_components: Vec<&str> = request.uri().path().split('/').skip(1).collect();
 		let ["builds", id] = path_components.as_slice() else {
 			let path = request.uri().path();
-			return Err(error!(%path, "unexpected path"));
+			return Err(tg::error!(%path, "unexpected path"));
 		};
 		let id = id
 			.parse()
-			.map_err(|source| error!(!source, "failed to parse the ID"))?;
+			.map_err(|source| tg::error!(!source, "failed to parse the ID"))?;
 
 		// Get the search params.
 		let arg = request
@@ -145,7 +144,7 @@ where
 			.query()
 			.map(serde_urlencoded::from_str)
 			.transpose()
-			.map_err(|source| error!(!source, "failed to deserialize the search params"))?
+			.map_err(|source| tg::error!(!source, "failed to deserialize the search params"))?
 			.unwrap_or_default();
 
 		// Get the build.
@@ -155,7 +154,7 @@ where
 
 		// Create the body.
 		let body = serde_json::to_vec(&output)
-			.map_err(|source| error!(!source, "failed to serialize the body"))?;
+			.map_err(|source| tg::error!(!source, "failed to serialize the body"))?;
 		let body = full(body);
 
 		// Create the response.

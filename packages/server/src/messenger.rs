@@ -3,7 +3,6 @@ use bytes::Bytes;
 use derive_more::TryUnwrap;
 use futures::{future, Stream, StreamExt};
 use tangram_client as tg;
-use tangram_error::{error, Result};
 use tokio_stream::wrappers::BroadcastStream;
 
 #[derive(Debug)]
@@ -44,7 +43,7 @@ impl Messenger {
 		}
 	}
 
-	pub async fn publish_to_build_created(&self) -> Result<()> {
+	pub async fn publish_to_build_created(&self) -> tg::Result<()> {
 		match self {
 			Self::Channel(sender) => {
 				sender.send(Message::BuildCreated).ok();
@@ -55,13 +54,13 @@ impl Messenger {
 				client
 					.publish(subject, payload)
 					.await
-					.map_err(|source| error!(!source, "failed to publish the message"))?;
+					.map_err(|source| tg::error!(!source, "failed to publish the message"))?;
 			},
 		}
 		Ok(())
 	}
 
-	pub async fn subscribe_to_build_created(&self) -> Result<impl Stream<Item = ()>> {
+	pub async fn subscribe_to_build_created(&self) -> tg::Result<impl Stream<Item = ()>> {
 		match self {
 			Messenger::Channel(sender) => Ok(BroadcastStream::new(sender.subscribe())
 				.filter_map(|result| future::ready(result.ok()))
@@ -72,14 +71,14 @@ impl Messenger {
 				Ok(client
 					.subscribe(subject)
 					.await
-					.map_err(|source| error!(!source, "failed to subscribe"))?
+					.map_err(|source| tg::error!(!source, "failed to subscribe"))?
 					.map(|_| ())
 					.right_stream())
 			},
 		}
 	}
 
-	pub async fn publish_to_build_children(&self, id: &tg::build::Id) -> Result<()> {
+	pub async fn publish_to_build_children(&self, id: &tg::build::Id) -> tg::Result<()> {
 		match self {
 			Self::Channel(sender) => {
 				sender.send(Message::BuildChildren(id.clone())).ok();
@@ -90,7 +89,7 @@ impl Messenger {
 				client
 					.publish(subject, payload)
 					.await
-					.map_err(|source| error!(!source, "failed to publish the message"))?;
+					.map_err(|source| tg::error!(!source, "failed to publish the message"))?;
 			},
 		}
 		Ok(())
@@ -99,7 +98,7 @@ impl Messenger {
 	pub async fn subscribe_to_build_children(
 		&self,
 		id: &tg::build::Id,
-	) -> Result<impl Stream<Item = ()>> {
+	) -> tg::Result<impl Stream<Item = ()>> {
 		match self {
 			Messenger::Channel(sender) => Ok(BroadcastStream::new(sender.subscribe())
 				.filter_map(|result| future::ready(result.ok()))
@@ -111,14 +110,14 @@ impl Messenger {
 				Ok(client
 					.subscribe(subject)
 					.await
-					.map_err(|source| error!(!source, "failed to subscribe"))?
+					.map_err(|source| tg::error!(!source, "failed to subscribe"))?
 					.map(|_| ())
 					.right_stream())
 			},
 		}
 	}
 
-	pub async fn publish_to_build_log(&self, id: &tg::build::Id) -> Result<()> {
+	pub async fn publish_to_build_log(&self, id: &tg::build::Id) -> tg::Result<()> {
 		match self {
 			Self::Channel(sender) => {
 				sender.send(Message::BuildLog(id.clone())).ok();
@@ -129,7 +128,7 @@ impl Messenger {
 				client
 					.publish(subject, payload)
 					.await
-					.map_err(|source| error!(!source, "failed to publish the message"))?;
+					.map_err(|source| tg::error!(!source, "failed to publish the message"))?;
 			},
 		}
 		Ok(())
@@ -138,7 +137,7 @@ impl Messenger {
 	pub async fn subscribe_to_build_log(
 		&self,
 		id: &tg::build::Id,
-	) -> Result<impl Stream<Item = ()>> {
+	) -> tg::Result<impl Stream<Item = ()>> {
 		match self {
 			Messenger::Channel(sender) => Ok(BroadcastStream::new(sender.subscribe())
 				.filter_map(|result| future::ready(result.ok()))
@@ -150,14 +149,14 @@ impl Messenger {
 				Ok(client
 					.subscribe(subject)
 					.await
-					.map_err(|source| error!(!source, "failed to subscribe"))?
+					.map_err(|source| tg::error!(!source, "failed to subscribe"))?
 					.map(|_| ())
 					.right_stream())
 			},
 		}
 	}
 
-	pub async fn publish_to_build_status(&self, id: &tg::build::Id) -> Result<()> {
+	pub async fn publish_to_build_status(&self, id: &tg::build::Id) -> tg::Result<()> {
 		match self {
 			Self::Channel(sender) => {
 				sender.send(Message::BuildStatus(id.clone())).ok();
@@ -168,7 +167,7 @@ impl Messenger {
 				client
 					.publish(subject, payload)
 					.await
-					.map_err(|source| error!(!source, "failed to publish the message"))?;
+					.map_err(|source| tg::error!(!source, "failed to publish the message"))?;
 			},
 		}
 		Ok(())
@@ -177,7 +176,7 @@ impl Messenger {
 	pub async fn subscribe_to_build_status(
 		&self,
 		id: &tg::build::Id,
-	) -> Result<impl Stream<Item = ()>> {
+	) -> tg::Result<impl Stream<Item = ()>> {
 		match self {
 			Messenger::Channel(sender) => Ok(BroadcastStream::new(sender.subscribe())
 				.filter_map(|result| future::ready(result.ok()))
@@ -189,7 +188,7 @@ impl Messenger {
 				Ok(client
 					.subscribe(subject)
 					.await
-					.map_err(|source| error!(!source, "failed to subscribe"))?
+					.map_err(|source| tg::error!(!source, "failed to subscribe"))?
 					.map(|_| ())
 					.right_stream())
 			},

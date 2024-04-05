@@ -14,7 +14,6 @@ use num::ToPrimitive;
 use std::{io::Cursor, sync::Arc};
 use tangram_client as tg;
 use tangram_database::{self as db, prelude::*};
-use tangram_error::{error, Error, Result};
 use tokio::io::{AsyncRead, AsyncReadExt, AsyncSeek, AsyncSeekExt};
 use tokio_stream::wrappers::IntervalStream;
 
@@ -27,8 +26,8 @@ pub struct DatabaseReader {
 	cursor: Option<Cursor<Bytes>>,
 	id: tg::build::Id,
 	position: u64,
-	read: Option<BoxFuture<'static, Result<Option<Cursor<Bytes>>>>>,
-	seek: Option<BoxFuture<'static, Result<u64>>>,
+	read: Option<BoxFuture<'static, tg::Result<Option<Cursor<Bytes>>>>>,
+	seek: Option<BoxFuture<'static, tg::Result<u64>>>,
 	server: Server,
 }
 
@@ -40,7 +39,7 @@ impl Server {
 		id: &tg::build::Id,
 		arg: tg::build::log::GetArg,
 		stop: Option<tokio::sync::watch::Receiver<bool>>,
-	) -> Result<Option<BoxStream<'static, Result<tg::build::log::Chunk>>>> {
+	) -> tg::Result<Option<BoxStream<'static, tg::Result<tg::build::log::Chunk>>>> {
 		if let Some(log) = self
 			.try_get_build_log_local(id, arg.clone(), stop.clone())
 			.await?
@@ -61,7 +60,7 @@ impl Server {
 		id: &tg::build::Id,
 		arg: tg::build::log::GetArg,
 		stop: Option<tokio::sync::watch::Receiver<bool>>,
-	) -> Result<Option<BoxStream<'static, Result<tg::build::log::Chunk>>>> {
+	) -> tg::Result<Option<BoxStream<'static, tg::Result<tg::build::log::Chunk>>>> {
 		// Verify the build is local.
 		if !self.get_build_exists_local(id).await? {
 			return Ok(None);
@@ -101,7 +100,7 @@ impl Server {
 		reader
 			.seek(seek)
 			.await
-			.map_err(|source| error!(!source, "failed to seek the stream"))?;
+			.map_err(|source| tg::error!(!source, "failed to seek the stream"))?;
 
 		// Get the length.
 		let length = arg.length;
@@ -146,10 +145,10 @@ impl Server {
 						None,
 					)
 					.await?
-					.ok_or_else(|| error!("expected the build to exist"))?
+					.ok_or_else(|| tg::error!("expected the build to exist"))?
 					.try_next()
 					.await?
-					.ok_or_else(|| error!("expected the status to exist"))?;
+					.ok_or_else(|| tg::error!("expected the status to exist"))?;
 				if status == tg::build::Status::Finished {
 					end = true;
 				}
@@ -183,7 +182,7 @@ impl Server {
 							if length.is_some_and(|length| length < 0) {
 								let seek = std::io::SeekFrom::Current(-size.to_i64().unwrap());
 								state_.reader.seek(seek).await.map_err(|source| {
-									error!(!source, "failed to seek the reader")
+									tg::error!(!source, "failed to seek the reader")
 								})?;
 							}
 
@@ -193,7 +192,7 @@ impl Server {
 							let mut read = 0;
 							while read < data.len() {
 								let n = state_.reader.read(&mut data[read..]).await.map_err(
-									|source| error!(!source, "failed to read from the reader"),
+									|source| tg::error!(!source, "failed to read from the reader"),
 								)?;
 								read += n;
 								if n == 0 {
@@ -213,7 +212,7 @@ impl Server {
 							if length.is_some_and(|length| length < 0) {
 								let seek = std::io::SeekFrom::Current(-read.to_i64().unwrap());
 								state_.reader.seek(seek).await.map_err(|source| {
-									error!(!source, "failed to seek the reader")
+									tg::error!(!source, "failed to seek the reader")
 								})?;
 							}
 
@@ -221,7 +220,7 @@ impl Server {
 							if chunk.bytes.is_empty() {
 								if state_.reader.end().await? {
 									drop(state_);
-									return Ok::<_, Error>(Some((
+									return Ok::<_, tg::Error>(Some((
 										chunk,
 										(server, id, state, true),
 									)));
@@ -232,11 +231,11 @@ impl Server {
 							}
 
 							drop(state_);
-							Ok::<_, Error>(Some((chunk, (server, id, state, end))))
+							Ok::<_, tg::Error>(Some((chunk, (server, id, state, end))))
 						},
 					);
 
-				Ok::<_, Error>(Some((stream, (events, server, id, state, end))))
+				Ok::<_, tg::Error>(Some((stream, (events, server, id, state, end))))
 			},
 		)
 		.try_flatten()
@@ -250,7 +249,7 @@ impl Server {
 		id: &tg::build::Id,
 		arg: tg::build::log::GetArg,
 		stop: Option<tokio::sync::watch::Receiver<bool>>,
-	) -> Result<Option<BoxStream<'static, Result<tg::build::log::Chunk>>>> {
+	) -> tg::Result<Option<BoxStream<'static, tg::Result<tg::build::log::Chunk>>>> {
 		let Some(remote) = self.inner.remotes.first() else {
 			return Ok(None);
 		};
@@ -265,7 +264,7 @@ impl Server {
 		user: Option<&tg::User>,
 		id: &tg::build::Id,
 		bytes: Bytes,
-	) -> Result<()> {
+	) -> tg::Result<()> {
 		if self
 			.try_add_build_log_local(user, id, bytes.clone())
 			.await?
@@ -278,7 +277,7 @@ impl Server {
 		{
 			return Ok(());
 		}
-		Err(error!("failed to get the build"))
+		Err(tg::error!("failed to get the build"))
 	}
 
 	async fn try_add_build_log_local(
@@ -286,7 +285,7 @@ impl Server {
 		_user: Option<&tg::User>,
 		id: &tg::build::Id,
 		bytes: Bytes,
-	) -> Result<bool> {
+	) -> tg::Result<bool> {
 		// Verify the build is local.
 		if !self.get_build_exists_local(id).await? {
 			return Ok(false);
@@ -298,7 +297,7 @@ impl Server {
 			.database
 			.connection()
 			.await
-			.map_err(|source| error!(!source, "failed to get a database connection"))?;
+			.map_err(|source| tg::error!(!source, "failed to get a database connection"))?;
 
 		// Add the log to the database.
 		let p = connection.p();
@@ -327,7 +326,7 @@ impl Server {
 		connection
 			.execute(statement, params)
 			.await
-			.map_err(|source| error!(!source, "failed to execute the statement"))?;
+			.map_err(|source| tg::error!(!source, "failed to execute the statement"))?;
 
 		// Drop the database connection.
 		drop(connection);
@@ -343,7 +342,7 @@ impl Server {
 		user: Option<&tg::User>,
 		id: &tg::build::Id,
 		bytes: Bytes,
-	) -> Result<bool> {
+	) -> tg::Result<bool> {
 		let Some(remote) = self.inner.remotes.first() else {
 			return Ok(false);
 		};
@@ -353,11 +352,11 @@ impl Server {
 }
 
 impl Reader {
-	pub async fn new(server: &Server, id: &tg::build::Id) -> Result<Self> {
+	pub async fn new(server: &Server, id: &tg::build::Id) -> tg::Result<Self> {
 		let output = server
 			.try_get_build_local(id)
 			.await?
-			.ok_or_else(|| error!("expected the build to exist"))?;
+			.ok_or_else(|| tg::error!("expected the build to exist"))?;
 		if let Some(log) = output.log {
 			let blob = tg::Blob::with_id(log);
 			let reader = blob.reader(server).await?;
@@ -375,7 +374,7 @@ impl Reader {
 		}
 	}
 
-	pub async fn end(&self) -> Result<bool> {
+	pub async fn end(&self) -> tg::Result<bool> {
 		match self {
 			Reader::Blob(reader) => Ok(reader.end()),
 			Reader::Database(reader) => reader.end().await,
@@ -405,7 +404,7 @@ impl DatabaseReader {
 		self.position
 	}
 
-	pub async fn end(&self) -> Result<bool> {
+	pub async fn end(&self) -> tg::Result<bool> {
 		// Get a database connection.
 		let connection = self
 			.server
@@ -413,7 +412,7 @@ impl DatabaseReader {
 			.database
 			.connection()
 			.await
-			.map_err(|source| error!(!source, "failed to get a database connection"))?;
+			.map_err(|source| tg::error!(!source, "failed to get a database connection"))?;
 
 		// Get the end.
 		let p = connection.p();
@@ -443,7 +442,7 @@ impl DatabaseReader {
 		let end = connection
 			.query_one_value_into(statement, params)
 			.await
-			.map_err(|source| error!(!source, "failed to execute the statement"))?;
+			.map_err(|source| tg::error!(!source, "failed to execute the statement"))?;
 
 		// Drop the database connection.
 		drop(connection);
@@ -545,14 +544,14 @@ async fn poll_read_inner(
 	id: tg::build::Id,
 	position: u64,
 	length: u64,
-) -> Result<Option<Cursor<Bytes>>> {
+) -> tg::Result<Option<Cursor<Bytes>>> {
 	// Get a database connection.
 	let connection = server
 		.inner
 		.database
 		.connection()
 		.await
-		.map_err(|source| error!(!source, "failed to get a database connection"))?;
+		.map_err(|source| tg::error!(!source, "failed to get a database connection"))?;
 
 	// Get the rows.
 	#[derive(serde::Deserialize)]
@@ -576,7 +575,7 @@ async fn poll_read_inner(
 	let rows = connection
 		.query_all_into::<Row>(statement, params)
 		.await
-		.map_err(|source| error!(!source, "failed to perform query"))?;
+		.map_err(|source| tg::error!(!source, "failed to perform query"))?;
 
 	// Drop the database connection.
 	drop(connection);
@@ -641,14 +640,14 @@ async fn poll_seek_inner(
 	id: tg::build::Id,
 	position: u64,
 	seek: std::io::SeekFrom,
-) -> Result<u64> {
+) -> tg::Result<u64> {
 	// Get a database connection.
 	let connection = server
 		.inner
 		.database
 		.connection()
 		.await
-		.map_err(|source| error!(!source, "failed to get a database connection"))?;
+		.map_err(|source| tg::error!(!source, "failed to get a database connection"))?;
 
 	// Get the end.
 	let p = connection.p();
@@ -672,7 +671,7 @@ async fn poll_seek_inner(
 	let end = connection
 		.query_one_value_into::<u64>(statement, params)
 		.await
-		.map_err(|source| error!(!source, "failed to execute the statement"))?;
+		.map_err(|source| tg::error!(!source, "failed to execute the statement"))?;
 
 	// Drop the database connection.
 	drop(connection);
@@ -682,12 +681,12 @@ async fn poll_seek_inner(
 		std::io::SeekFrom::End(seek) => end.to_i64().unwrap() + seek,
 		std::io::SeekFrom::Current(seek) => position.to_i64().unwrap() + seek,
 	};
-	let position = position.to_u64().ok_or(error!(
+	let position = position.to_u64().ok_or(tg::error!(
 		%position,
 		"attempted to seek to a negative or overflowing position",
 	))?;
 	if position > end {
-		return Err(error!(%position, %end, "attempted to seek to a position beyond the end"));
+		return Err(tg::error!(%position, %end, "attempted to seek to a position beyond the end"));
 	}
 
 	Ok(position)
@@ -700,16 +699,16 @@ where
 	pub async fn handle_get_build_log_request(
 		&self,
 		request: http::Request<Incoming>,
-	) -> Result<hyper::Response<Outgoing>> {
+	) -> tg::Result<hyper::Response<Outgoing>> {
 		// Get the path params.
 		let path_components: Vec<&str> = request.uri().path().split('/').skip(1).collect();
 		let ["builds", id, "log"] = path_components.as_slice() else {
 			let path = request.uri().path();
-			return Err(error!(%path, "unexpected path"));
+			return Err(tg::error!(%path, "unexpected path"));
 		};
 		let id = id
 			.parse()
-			.map_err(|source| error!(!source, "failed to parse the ID"))?;
+			.map_err(|source| tg::error!(!source, "failed to parse the ID"))?;
 
 		// Get the search params.
 		let arg = request
@@ -717,7 +716,7 @@ where
 			.query()
 			.map(serde_urlencoded::from_str)
 			.transpose()
-			.map_err(|source| error!(!source, "failed to deserialize the search params"))?
+			.map_err(|source| tg::error!(!source, "failed to deserialize the search params"))?
 			.unwrap_or_default();
 
 		// Get the accept header.
@@ -727,11 +726,11 @@ where
 			.map(|accept| {
 				let accept = accept
 					.to_str()
-					.map_err(|source| error!(!source, "invalid content type"))?;
+					.map_err(|source| tg::error!(!source, "invalid content type"))?;
 				let accept = accept
 					.parse::<mime::Mime>()
-					.map_err(|source| error!(!source, "invalid content type"))?;
-				Ok::<_, Error>(accept)
+					.map_err(|source| tg::error!(!source, "invalid content type"))?;
+				Ok::<_, tg::Error>(accept)
 			})
 			.transpose()?;
 
@@ -762,7 +761,7 @@ where
 				(content_type, body)
 			},
 			_ => {
-				return Err(error!(?accept, "invalid accept header"));
+				return Err(tg::error!(?accept, "invalid accept header"));
 			},
 		};
 		let body = Outgoing::new(StreamBody::new(body));
@@ -780,16 +779,16 @@ where
 	pub async fn handle_add_build_log_request(
 		&self,
 		request: http::Request<Incoming>,
-	) -> Result<hyper::Response<Outgoing>> {
+	) -> tg::Result<hyper::Response<Outgoing>> {
 		// Get the path params.
 		let path_components: Vec<&str> = request.uri().path().split('/').skip(1).collect();
 		let ["builds", id, "log"] = path_components.as_slice() else {
 			let path = request.uri().path();
-			return Err(error!(%path, "unexpected path"));
+			return Err(tg::error!(%path, "unexpected path"));
 		};
 		let build_id = id
 			.parse()
-			.map_err(|source| error!(!source, "failed to parse the ID"))?;
+			.map_err(|source| tg::error!(!source, "failed to parse the ID"))?;
 
 		// Get the user.
 		let user = self.try_get_user_from_request(&request).await?;
@@ -799,7 +798,7 @@ where
 			.into_body()
 			.collect()
 			.await
-			.map_err(|source| error!(!source, "failed to read the body"))?
+			.map_err(|source| tg::error!(!source, "failed to read the body"))?
 			.to_bytes();
 
 		self.inner

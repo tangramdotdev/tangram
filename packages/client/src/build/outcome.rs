@@ -1,19 +1,20 @@
-use crate as tg;
-use crate::util::http::{empty, full};
-use crate::{value, Client, Value};
+use crate::{
+	self as tg, error,
+	util::http::{empty, full},
+	value, Client, Value,
+};
 use derive_more::TryUnwrap;
 use futures::{future, FutureExt};
 use http_body_util::BodyExt;
 use serde_with::serde_as;
 use std::pin::pin;
-use tangram_error::{error, Error, Result};
 
 #[derive(Clone, Debug, serde::Deserialize, TryUnwrap)]
 #[serde(try_from = "Data")]
 #[try_unwrap(ref)]
 pub enum Outcome {
 	Canceled,
-	Failed(Error),
+	Failed(tg::Error),
 	Succeeded(Value),
 }
 
@@ -22,7 +23,7 @@ pub enum Outcome {
 #[try_unwrap(ref)]
 pub enum Data {
 	Canceled,
-	Failed(Error),
+	Failed(tg::Error),
 	Succeeded(value::Data),
 }
 
@@ -40,7 +41,7 @@ impl Client {
 		id: &tg::build::Id,
 		arg: tg::build::outcome::GetArg,
 		stop: Option<tokio::sync::watch::Receiver<bool>>,
-	) -> Result<Option<Option<tg::build::Outcome>>> {
+	) -> tg::Result<Option<Option<tg::build::Outcome>>> {
 		let method = http::Method::GET;
 		let search_params = serde_urlencoded::to_string(&arg).unwrap();
 		let uri = format!("/builds/{id}/outcome?{search_params}");
@@ -94,7 +95,7 @@ impl Client {
 		user: Option<&tg::User>,
 		id: &tg::build::Id,
 		outcome: tg::build::Outcome,
-	) -> Result<()> {
+	) -> tg::Result<()> {
 		let method = http::Method::POST;
 		let uri = format!("/builds/{id}/outcome");
 		let mut request = http::request::Builder::default().method(method).uri(uri);

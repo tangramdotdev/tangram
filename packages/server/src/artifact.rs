@@ -11,26 +11,25 @@ use http_body_util::BodyExt;
 use std::{collections::HashMap, os::unix::prelude::PermissionsExt, sync::Arc};
 use tangram_client as tg;
 use tangram_database::prelude::*;
-use tangram_error::{error, Error, Result};
 
 impl Server {
 	pub async fn check_in_artifact(
 		&self,
 		arg: tg::artifact::CheckInArg,
-	) -> Result<tg::artifact::CheckInOutput> {
+	) -> tg::Result<tg::artifact::CheckInOutput> {
 		// Get a database connection.
 		let mut connection = self
 			.inner
 			.database
 			.connection()
 			.await
-			.map_err(|source| error!(!source, "failed to get a database connection"))?;
+			.map_err(|source| tg::error!(!source, "failed to get a database connection"))?;
 
 		// Begin a transaction.
 		let transaction = connection
 			.transaction()
 			.await
-			.map_err(|source| error!(!source, "failed to begin the transaction"))?;
+			.map_err(|source| tg::error!(!source, "failed to begin the transaction"))?;
 
 		// Check in the artifact.
 		let id = self
@@ -41,7 +40,7 @@ impl Server {
 		transaction
 			.commit()
 			.await
-			.map_err(|source| error!(!source, "failed to commit the transaction"))?;
+			.map_err(|source| tg::error!(!source, "failed to commit the transaction"))?;
 
 		// Drop the connection.
 		drop(connection);
@@ -56,28 +55,28 @@ impl Server {
 		&self,
 		path: &tg::Path,
 		transaction: &Transaction<'_>,
-	) -> Result<tg::artifact::Id> {
+	) -> tg::Result<tg::artifact::Id> {
 		// Get the metadata for the file system object at the path.
-		let metadata = tokio::fs::symlink_metadata(&path)
-			.await
-			.map_err(|source| error!(!source, %path, "failed to get the metadata for the path"))?;
+		let metadata = tokio::fs::symlink_metadata(&path).await.map_err(
+			|source| tg::error!(!source, %path, "failed to get the metadata for the path"),
+		)?;
 
 		// Call the appropriate function for the file system object at the path.
 		if metadata.is_dir() {
 			self.check_in_directory(path, &metadata, transaction)
 				.await
-				.map_err(|source| error!(!source, %path, "failed to check in the directory"))
+				.map_err(|source| tg::error!(!source, %path, "failed to check in the directory"))
 		} else if metadata.is_file() {
 			self.check_in_file(path, &metadata, transaction)
 				.await
-				.map_err(|source| error!(!source, %path, "failed to check in the file"))
+				.map_err(|source| tg::error!(!source, %path, "failed to check in the file"))
 		} else if metadata.is_symlink() {
 			self.check_in_symlink(path, &metadata, transaction)
 				.await
-				.map_err(|source| error!(!source, %path, "failed to check in the symlink"))
+				.map_err(|source| tg::error!(!source, %path, "failed to check in the symlink"))
 		} else {
 			let file_type = metadata.file_type();
-			Err(error!(
+			Err(tg::error!(
 				%path,
 				?file_type,
 				"invalid file type"
@@ -90,24 +89,24 @@ impl Server {
 		path: &tg::Path,
 		_metadata: &std::fs::Metadata,
 		transaction: &Transaction<'_>,
-	) -> Result<tg::artifact::Id> {
+	) -> tg::Result<tg::artifact::Id> {
 		let names = {
 			let _permit = self.inner.file_descriptor_semaphore.acquire().await;
 			let mut read_dir = tokio::fs::read_dir(path)
 				.await
-				.map_err(|source| error!(!source, "failed to read the directory"))?;
+				.map_err(|source| tg::error!(!source, "failed to read the directory"))?;
 			let mut names = Vec::new();
 			while let Some(entry) = read_dir
 				.next_entry()
 				.await
-				.map_err(|source| error!(!source, "failed to get the directory entry"))?
+				.map_err(|source| tg::error!(!source, "failed to get the directory entry"))?
 			{
 				let name = entry
 					.file_name()
 					.to_str()
 					.ok_or_else(|| {
 						let name = entry.file_name();
-						error!(?name, "all file names must be valid UTF-8")
+						tg::error!(?name, "all file names must be valid UTF-8")
 					})?
 					.to_owned();
 				names.push(name);
@@ -121,7 +120,7 @@ impl Server {
 			.map(|name| async {
 				let path = path.clone().join(&name);
 				let id = self.check_in_artifact_inner(&path, transaction).await?;
-				Ok::<_, Error>((name, id))
+				Ok::<_, tg::Error>((name, id))
 			})
 			.collect::<FuturesUnordered<_>>()
 			.try_collect()
@@ -141,16 +140,16 @@ impl Server {
 		path: &tg::Path,
 		metadata: &std::fs::Metadata,
 		transaction: &Transaction<'_>,
-	) -> Result<tg::artifact::Id> {
+	) -> tg::Result<tg::artifact::Id> {
 		// Create the blob.
 		let permit = self.inner.file_descriptor_semaphore.acquire().await;
 		let file = tokio::fs::File::open(path)
 			.await
-			.map_err(|source| error!(!source, "failed to open the file"))?;
+			.map_err(|source| tg::error!(!source, "failed to open the file"))?;
 		let contents = self
 			.create_blob_with_reader(file, transaction)
 			.await
-			.map_err(|source| error!(!source, "failed to create the contents"))?;
+			.map_err(|source| tg::error!(!source, "failed to create the contents"))?;
 		drop(permit);
 
 		// Determine if the file is executable.
@@ -187,16 +186,16 @@ impl Server {
 		path: &tg::Path,
 		_metadata: &std::fs::Metadata,
 		transaction: &Transaction<'_>,
-	) -> Result<tg::artifact::Id> {
+	) -> tg::Result<tg::artifact::Id> {
 		// Read the target from the symlink.
-		let target = tokio::fs::read_link(path)
-			.await
-			.map_err(|source| error!(!source, %path, r#"failed to read the symlink at path"#,))?;
+		let target = tokio::fs::read_link(path).await.map_err(
+			|source| tg::error!(!source, %path, r#"failed to read the symlink at path"#,),
+		)?;
 
 		// Unrender the target.
 		let target = target
 			.to_str()
-			.ok_or_else(|| error!("the symlink target must be valid UTF-8"))?;
+			.ok_or_else(|| tg::error!("the symlink target must be valid UTF-8"))?;
 		let target = tg::Template::unrender(target)?;
 
 		// Get the artifact and path.
@@ -204,14 +203,14 @@ impl Server {
 			let path = target.components[0]
 				.try_unwrap_string_ref()
 				.ok()
-				.ok_or_else(|| error!("invalid symlink"))?
+				.ok_or_else(|| tg::error!("invalid symlink"))?
 				.clone();
 			(None, Some(path))
 		} else if target.components.len() == 2 {
 			let artifact = target.components[0]
 				.try_unwrap_artifact_ref()
 				.ok()
-				.ok_or_else(|| error!("invalid symlink"))?;
+				.ok_or_else(|| tg::error!("invalid symlink"))?;
 			let artifact = match artifact {
 				tg::Artifact::Directory(directory) => {
 					directory.state().read().unwrap().id.clone().unwrap().into()
@@ -224,11 +223,11 @@ impl Server {
 			let path = target.components[1]
 				.try_unwrap_string_ref()
 				.ok()
-				.ok_or_else(|| error!("invalid sylink"))?
+				.ok_or_else(|| tg::error!("invalid sylink"))?
 				.clone();
 			(Some(artifact), Some(path))
 		} else {
-			return Err(error!("invalid symlink"));
+			return Err(tg::error!("invalid symlink"));
 		};
 
 		// Create the symlink.
@@ -245,7 +244,7 @@ impl Server {
 		&self,
 		id: &tg::artifact::Id,
 		arg: tg::artifact::CheckOutArg,
-	) -> Result<tg::artifact::CheckOutOutput> {
+	) -> tg::Result<tg::artifact::CheckOutOutput> {
 		let files = Arc::new(std::sync::RwLock::new(HashMap::default()));
 		self.check_out_artifact_with_files(id, arg, files).await
 	}
@@ -255,27 +254,27 @@ impl Server {
 		id: &tg::artifact::Id,
 		arg: tg::artifact::CheckOutArg,
 		files: Arc<std::sync::RwLock<HashMap<tg::file::Id, tg::Path>>>,
-	) -> Result<tg::artifact::CheckOutOutput> {
+	) -> tg::Result<tg::artifact::CheckOutOutput> {
 		let artifact = tg::Artifact::with_id(id.clone());
 		if let Some(path) = arg.path {
 			if !path.is_absolute() {
-				return Err(error!(%path, "the path must be absolute"));
+				return Err(tg::error!(%path, "the path must be absolute"));
 			}
 			let exists = tokio::fs::try_exists(&path)
 				.await
-				.map_err(|source| error!(!source, %path, "failed to stat the path"))?;
+				.map_err(|source| tg::error!(!source, %path, "failed to stat the path"))?;
 			if exists && !arg.force {
-				return Err(error!(%path, "there is already a file system object at the path"));
+				return Err(tg::error!(%path, "there is already a file system object at the path"));
 			}
 			if (path.as_ref() as &std::path::Path).starts_with(&self.inner.path) {
-				return Err(error!(%path, "cannot check out into the server's directory"));
+				return Err(tg::error!(%path, "cannot check out into the server's directory"));
 			}
 
 			// Bundle the artifact.
 			let artifact = artifact
 				.bundle(self)
 				.await
-				.map_err(|source| error!(!source, "failed to bundle the artifact"))?;
+				.map_err(|source| tg::error!(!source, "failed to bundle the artifact"))?;
 
 			// Check in an existing artifact at the path.
 			let existing_artifact = if exists {
@@ -306,7 +305,7 @@ impl Server {
 			// If there is already a file system object at the path, then return.
 			if tokio::fs::try_exists(&path)
 				.await
-				.map_err(|source| error!(!source, "failed to stat the path"))?
+				.map_err(|source| tg::error!(!source, "failed to stat the path"))?
 			{
 				return Ok(tg::artifact::CheckOutOutput { path });
 			}
@@ -337,7 +336,7 @@ impl Server {
 				},
 				Err(source) => {
 					return Err(
-						error!(!source, %tmp = tmp.path.display(), %path, "failed to move the checkout to the checkouts directory"),
+						tg::error!(!source, %tmp = tmp.path.display(), %path, "failed to move the checkout to the checkouts directory"),
 					);
 				},
 			};
@@ -354,7 +353,7 @@ impl Server {
 		internal: bool,
 		depth: usize,
 		files: Arc<std::sync::RwLock<HashMap<tg::file::Id, tg::Path>>>,
-	) -> Result<()> {
+	) -> tg::Result<()> {
 		// If the artifact is the same as the existing artifact, then return.
 		let id = artifact.id(self).await?;
 		match existing_artifact {
@@ -379,7 +378,7 @@ impl Server {
 				)
 				.await
 				.map_err(
-					|source| error!(!source, %id, %path, "failed to check out the directory"),
+					|source| tg::error!(!source, %id, %path, "failed to check out the directory"),
 				)?;
 			},
 
@@ -387,7 +386,7 @@ impl Server {
 				self.check_out_file(path, file, existing_artifact, internal, files)
 					.await
 					.map_err(
-						|source| error!(!source, %id, %path, "failed to check out the file"),
+						|source| tg::error!(!source, %id, %path, "failed to check out the file"),
 					)?;
 			},
 
@@ -395,7 +394,7 @@ impl Server {
 				self.check_out_symlink(path, symlink, existing_artifact, internal, depth, files)
 					.await
 					.map_err(
-						|source| error!(!source, %id, %path, "failed to check out the symlink"),
+						|source| tg::error!(!source, %id, %path, "failed to check out the symlink"),
 					)?;
 			},
 		}
@@ -408,8 +407,8 @@ impl Server {
 					let epoch =
 						filetime::FileTime::from_system_time(std::time::SystemTime::UNIX_EPOCH);
 					filetime::set_symlink_file_times(path, epoch, epoch)
-						.map_err(|source| error!(!source, "failed to set the modified time"))?;
-					Ok::<_, Error>(())
+						.map_err(|source| tg::error!(!source, "failed to set the modified time"))?;
+					Ok::<_, tg::Error>(())
 				}
 			})
 			.await
@@ -427,7 +426,7 @@ impl Server {
 		internal: bool,
 		depth: usize,
 		files: Arc<std::sync::RwLock<HashMap<tg::file::Id, tg::Path>>>,
-	) -> Result<()> {
+	) -> tg::Result<()> {
 		// Handle an existing artifact at the path.
 		match existing_artifact {
 			// If there is already a directory, then remove any extraneous entries.
@@ -441,7 +440,7 @@ impl Server {
 							let entry_path = path.clone().join(name);
 							rmrf(&entry_path).await?;
 						}
-						Ok::<_, Error>(())
+						Ok::<_, tg::Error>(())
 					})
 					.collect::<FuturesUnordered<_>>()
 					.try_collect()
@@ -453,14 +452,14 @@ impl Server {
 				rmrf(path).await?;
 				tokio::fs::create_dir_all(path)
 					.await
-					.map_err(|source| error!(!source, "failed to create the directory"))?;
+					.map_err(|source| tg::error!(!source, "failed to create the directory"))?;
 			},
 
 			// If there is no artifact at this path, then create a directory.
 			None => {
 				tokio::fs::create_dir_all(path)
 					.await
-					.map_err(|source| error!(!source, "failed to create the directory"))?;
+					.map_err(|source| tg::error!(!source, "failed to create the directory"))?;
 			},
 		}
 
@@ -478,7 +477,7 @@ impl Server {
 						Some(tg::Artifact::Directory(existing_directory)) => {
 							let name = name
 								.parse()
-								.map_err(|source| error!(!source, "invalid entry name"))?;
+								.map_err(|source| tg::error!(!source, "invalid entry name"))?;
 							existing_directory.try_get(self, &name).await?
 						},
 						_ => None,
@@ -496,7 +495,7 @@ impl Server {
 					)
 					.await?;
 
-					Ok::<_, Error>(())
+					Ok::<_, tg::Error>(())
 				}
 			})
 			.collect::<FuturesUnordered<_>>()
@@ -513,7 +512,7 @@ impl Server {
 		existing_artifact: Option<&tg::Artifact>,
 		internal: bool,
 		files: Arc<std::sync::RwLock<HashMap<tg::file::Id, tg::Path>>>,
-	) -> Result<()> {
+	) -> tg::Result<()> {
 		// Handle an existing artifact at the path.
 		match &existing_artifact {
 			// If there is an existing file system object at the path, then remove it and continue.
@@ -529,16 +528,16 @@ impl Server {
 		let references = file
 			.references(self)
 			.await
-			.map_err(|source| error!(!source, "failed to get the file's references"))?
+			.map_err(|source| tg::error!(!source, "failed to get the file's references"))?
 			.iter()
 			.map(|artifact| artifact.id(self))
 			.collect::<FuturesUnordered<_>>()
 			.try_collect::<Vec<_>>()
 			.await
-			.map_err(|source| error!(!source, "failed to get the file's references"))?;
+			.map_err(|source| tg::error!(!source, "failed to get the file's references"))?;
 		if !references.is_empty() {
 			if !internal {
-				return Err(error!(
+				return Err(tg::error!(
 					r#"cannot perform an external check out of a file with references"#
 				));
 			}
@@ -551,13 +550,13 @@ impl Server {
 					};
 					Box::pin(self.check_out_artifact_with_files(artifact, arg, files.clone()))
 						.await?;
-					Ok::<_, Error>(())
+					Ok::<_, tg::Error>(())
 				})
 				.collect::<FuturesUnordered<_>>()
 				.try_collect::<Vec<_>>()
 				.await
 				.map_err(|error| {
-					error!(source = error, "failed to check out the file's references")
+					tg::error!(source = error, "failed to check out the file's references")
 				})?;
 		}
 
@@ -568,7 +567,7 @@ impl Server {
 		let internal_path = self.checkouts_path().join(id.to_string());
 		if let Some(existing_path) = existing_path {
 			tokio::fs::copy(&existing_path, &path).await.map_err(
-				|source| error!(!source, %existing_path, %to = &path, %id, "failed to copy the file"),
+				|source| tg::error!(!source, %existing_path, %to = &path, %id, "failed to copy the file"),
 			)?;
 			drop(permit);
 		} else if tokio::fs::copy(&internal_path, path).await.is_ok() {
@@ -579,10 +578,10 @@ impl Server {
 				&mut file.reader(self).await?,
 				&mut tokio::fs::File::create(path)
 					.await
-					.map_err(|source| error!(!source, "failed to create the file"))?,
+					.map_err(|source| tg::error!(!source, "failed to create the file"))?,
 			)
 			.await
-			.map_err(|source| error!(!source, "failed to write the bytes"))?;
+			.map_err(|source| tg::error!(!source, "failed to write the bytes"))?;
 			drop(permit);
 
 			// Make the file executable if necessary.
@@ -590,16 +589,17 @@ impl Server {
 				let permissions = std::fs::Permissions::from_mode(0o755);
 				tokio::fs::set_permissions(path, permissions)
 					.await
-					.map_err(|source| error!(!source, "failed to set the permissions"))?;
+					.map_err(|source| tg::error!(!source, "failed to set the permissions"))?;
 			}
 
 			// Set the extended attributes if necessary.
 			if !references.is_empty() {
 				let attributes = tg::file::Attributes { references };
 				let attributes = serde_json::to_vec(&attributes)
-					.map_err(|source| error!(!source, "failed to serialize attributes"))?;
-				xattr::set(path, tg::file::TANGRAM_FILE_XATTR_NAME, &attributes)
-					.map_err(|source| error!(!source, "failed to set attributes as an xattr"))?;
+					.map_err(|source| tg::error!(!source, "failed to serialize attributes"))?;
+				xattr::set(path, tg::file::TANGRAM_FILE_XATTR_NAME, &attributes).map_err(
+					|source| tg::error!(!source, "failed to set attributes as an xattr"),
+				)?;
 			}
 
 			files.write().unwrap().insert(id.clone(), path.clone());
@@ -616,7 +616,7 @@ impl Server {
 		internal: bool,
 		depth: usize,
 		files: Arc<std::sync::RwLock<HashMap<tg::file::Id, tg::Path>>>,
-	) -> Result<()> {
+	) -> tg::Result<()> {
 		// Handle an existing artifact at the path.
 		match &existing_artifact {
 			// If there is an existing file system object at the path, then remove it and continue.
@@ -631,7 +631,7 @@ impl Server {
 		// Check out the symlink's artifact if necessary.
 		if let Some(artifact) = symlink.artifact(self).await? {
 			if !internal {
-				return Err(error!(
+				return Err(tg::error!(
 					r#"cannot perform an external check out of a symlink with an artifact"#
 				));
 			}
@@ -661,7 +661,7 @@ impl Server {
 		// Create the symlink.
 		tokio::fs::symlink(target, path)
 			.await
-			.map_err(|source| error!(!source, "failed to create the symlink"))?;
+			.map_err(|source| tg::error!(!source, "failed to create the symlink"))?;
 
 		Ok(())
 	}
@@ -674,22 +674,22 @@ where
 	pub async fn handle_check_in_artifact_request(
 		&self,
 		request: http::Request<Incoming>,
-	) -> Result<http::Response<Outgoing>> {
+	) -> tg::Result<http::Response<Outgoing>> {
 		// Read the body.
 		let bytes = request
 			.into_body()
 			.collect()
 			.await
-			.map_err(|source| error!(!source, "failed to read the body"))?
+			.map_err(|source| tg::error!(!source, "failed to read the body"))?
 			.to_bytes();
 		let arg = serde_json::from_slice(&bytes)
-			.map_err(|source| error!(!source, "failed to deserialize the body"))?;
+			.map_err(|source| tg::error!(!source, "failed to deserialize the body"))?;
 
 		let output = self.inner.tg.check_in_artifact(arg).await?;
 
 		// Create the response.
 		let body = serde_json::to_vec(&output)
-			.map_err(|source| error!(!source, "failed to serialize the response"))?;
+			.map_err(|source| tg::error!(!source, "failed to serialize the response"))?;
 		let response = http::Response::builder().body(full(body)).unwrap();
 
 		Ok(response)
@@ -698,12 +698,12 @@ where
 	pub async fn handle_check_out_artifact_request(
 		&self,
 		request: http::Request<Incoming>,
-	) -> Result<http::Response<Outgoing>> {
+	) -> tg::Result<http::Response<Outgoing>> {
 		// Get the path params.
 		let path_components: Vec<&str> = request.uri().path().split('/').skip(1).collect();
 		let ["artifacts", id, "checkout"] = path_components.as_slice() else {
 			let path = request.uri().path();
-			return Err(error!(%path, "unexpected path"));
+			return Err(tg::error!(%path, "unexpected path"));
 		};
 		let Ok(id) = id.parse() else {
 			return Ok(bad_request());
@@ -714,17 +714,17 @@ where
 			.into_body()
 			.collect()
 			.await
-			.map_err(|source| error!(!source, "failed to read the body"))?
+			.map_err(|source| tg::error!(!source, "failed to read the body"))?
 			.to_bytes();
 		let arg = serde_json::from_slice(&bytes)
-			.map_err(|source| error!(!source, "failed to deserialize the body"))?;
+			.map_err(|source| tg::error!(!source, "failed to deserialize the body"))?;
 
 		// Check out the artifact.
 		let output = self.inner.tg.check_out_artifact(&id, arg).await?;
 
 		// Create the response.
 		let body = serde_json::to_vec(&output)
-			.map_err(|source| error!(!source, "failed to serialize the response"))?;
+			.map_err(|source| tg::error!(!source, "failed to serialize the response"))?;
 		let response = http::Response::builder().body(full(body)).unwrap();
 
 		Ok(response)

@@ -5,7 +5,6 @@ use futures::{
 	StreamExt, TryStreamExt,
 };
 use tangram_client as tg;
-use tangram_error::{error, Result};
 use tg::Handle;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 
@@ -61,7 +60,7 @@ pub struct TreeArgs {
 }
 
 impl Cli {
-	pub async fn command_object(&self, args: Args) -> Result<()> {
+	pub async fn command_object(&self, args: Args) -> tg::Result<()> {
 		match args.command {
 			Command::Get(args) => {
 				self.command_object_get(args).await?;
@@ -82,17 +81,17 @@ impl Cli {
 		Ok(())
 	}
 
-	pub async fn command_object_get(&self, args: GetArgs) -> Result<()> {
+	pub async fn command_object_get(&self, args: GetArgs) -> tg::Result<()> {
 		let client = &self.client().await?;
 		let tg::object::GetOutput { bytes, .. } = client.get_object(&args.id).await?;
 		tokio::io::stdout()
 			.write_all(&bytes)
 			.await
-			.map_err(|source| error!(!source, "failed to write the data"))?;
+			.map_err(|source| tg::error!(!source, "failed to write the data"))?;
 		Ok(())
 	}
 
-	pub async fn command_object_put(&self, args: PutArgs) -> Result<()> {
+	pub async fn command_object_put(&self, args: PutArgs) -> tg::Result<()> {
 		let client = &self.client().await?;
 		let kind = args.kind.into();
 		let bytes = if let Some(bytes) = args.bytes {
@@ -102,7 +101,7 @@ impl Cli {
 			tokio::io::stdin()
 				.read_to_end(&mut bytes)
 				.await
-				.map_err(|source| error!(!source, "failed to read stdin"))?;
+				.map_err(|source| tg::error!(!source, "failed to read stdin"))?;
 			bytes
 		};
 		let id = tg::Id::new_blake3(kind, &bytes).try_into().unwrap();
@@ -116,19 +115,19 @@ impl Cli {
 		Ok(())
 	}
 
-	pub async fn command_object_push(&self, args: PushArgs) -> Result<()> {
+	pub async fn command_object_push(&self, args: PushArgs) -> tg::Result<()> {
 		let client = &self.client().await?;
 		client.push_object(&args.id).await?;
 		Ok(())
 	}
 
-	pub async fn command_object_pull(&self, args: PullArgs) -> Result<()> {
+	pub async fn command_object_pull(&self, args: PullArgs) -> tg::Result<()> {
 		let client = &self.client().await?;
 		client.pull_object(&args.id).await?;
 		Ok(())
 	}
 
-	pub async fn command_object_tree(&self, args: TreeArgs) -> Result<()> {
+	pub async fn command_object_tree(&self, args: TreeArgs) -> tg::Result<()> {
 		let client = &self.client().await?;
 		let tree = get_object_tree(client, args.id, 1, args.depth).await?;
 		tree.print();
@@ -141,7 +140,7 @@ async fn get_object_tree(
 	object: tg::object::Id,
 	current_depth: u32,
 	max_depth: Option<u32>,
-) -> Result<Tree> {
+) -> tg::Result<Tree> {
 	let title = match &object {
 		tg::object::Id::Leaf(id) => id.to_string().green(),
 		tg::object::Id::Branch(id) => id.to_string().blue(),
@@ -155,7 +154,7 @@ async fn get_object_tree(
 	let children = tg::Object::with_id(object.clone())
 		.data(client)
 		.await
-		.map_err(|source| error!(!source, %object, "failed to get the object data"))?
+		.map_err(|source| tg::error!(!source, %object, "failed to get the object data"))?
 		.children();
 	let children = if max_depth.map_or(true, |max_depth| current_depth < max_depth) {
 		stream::iter(children)

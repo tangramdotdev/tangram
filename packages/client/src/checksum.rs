@@ -1,5 +1,5 @@
+use crate::{self as tg, error};
 use sha2::Digest;
-use tangram_error::{error, Error, Result};
 
 #[derive(
 	Clone, Debug, Eq, PartialEq, serde_with::DeserializeFromStr, serde_with::SerializeDisplay,
@@ -53,9 +53,9 @@ impl std::fmt::Display for Checksum {
 }
 
 impl std::str::FromStr for Checksum {
-	type Err = Error;
+	type Err = tg::Error;
 
-	fn from_str(value: &str) -> Result<Self, Self::Err> {
+	fn from_str(value: &str) -> tg::Result<Self, Self::Err> {
 		// Split on a ":" or "-".
 		let mut components = if value.contains(':') {
 			value.split(':')
@@ -133,9 +133,9 @@ impl std::fmt::Display for Algorithm {
 }
 
 impl std::str::FromStr for Algorithm {
-	type Err = Error;
+	type Err = tg::Error;
 
-	fn from_str(s: &str) -> Result<Self, Self::Err> {
+	fn from_str(s: &str) -> tg::Result<Self, Self::Err> {
 		let system = match s {
 			"unsafe" => Algorithm::Unsafe,
 			"sha256" => Algorithm::Sha256,

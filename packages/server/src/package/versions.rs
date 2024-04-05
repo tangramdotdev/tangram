@@ -6,13 +6,12 @@ use indoc::formatdoc;
 use itertools::Itertools;
 use tangram_client as tg;
 use tangram_database::{self as db, prelude::*};
-use tangram_error::{error, Result};
 
 impl Server {
 	pub async fn try_get_package_versions(
 		&self,
 		dependency: &tg::Dependency,
-	) -> Result<Option<Vec<String>>> {
+	) -> tg::Result<Option<Vec<String>>> {
 		if let Some(remote) = self.inner.remotes.first() {
 			return remote.try_get_package_versions(dependency).await;
 		}
@@ -27,12 +26,12 @@ impl Server {
 	pub(super) async fn try_get_package_versions_local(
 		&self,
 		dependency: &tg::Dependency,
-	) -> Result<Option<Vec<(String, tg::directory::Id)>>> {
+	) -> tg::Result<Option<Vec<(String, tg::directory::Id)>>> {
 		// Get the dependency name and version.
 		let name = dependency
 			.name
 			.as_ref()
-			.ok_or_else(|| error!(%dependency, "expected the dependency to have a name"))?;
+			.ok_or_else(|| tg::error!(%dependency, "expected the dependency to have a name"))?;
 		let version = dependency.version.as_ref();
 
 		// Get a database connection.
@@ -41,7 +40,7 @@ impl Server {
 			.database
 			.connection()
 			.await
-			.map_err(|source| error!(!source, "failed to get a database connection"))?;
+			.map_err(|source| tg::error!(!source, "failed to get a database connection"))?;
 
 		// Confirm the package exists.
 		let p = connection.p();
@@ -56,7 +55,7 @@ impl Server {
 		let exists = connection
 			.query_one_value_into::<bool>(statement, params)
 			.await
-			.map_err(|source| error!(!source, "failed to execute the statement"))?;
+			.map_err(|source| tg::error!(!source, "failed to execute the statement"))?;
 		if !exists {
 			return Ok(None);
 		}
@@ -80,7 +79,7 @@ impl Server {
 		let versions = connection
 			.query_all_into::<Row>(statement, params)
 			.await
-			.map_err(|source| error!(!source, "failed to execute the statement"))?
+			.map_err(|source| tg::error!(!source, "failed to execute the statement"))?
 			.into_iter()
 			.map(|row| (row.version, row.id))
 			.collect();
@@ -96,7 +95,7 @@ impl Server {
 		// If the version constraint is semver, then match with it.
 		if "=<>^~*".chars().any(|ch| version.starts_with(ch)) {
 			let req = semver::VersionReq::parse(version).map_err(
-				|source| error!(!source, %version, "failed to parse the version constraint"),
+				|source| tg::error!(!source, %version, "failed to parse the version constraint"),
 			)?;
 			let versions = versions
 				.into_iter()
@@ -115,7 +114,7 @@ impl Server {
 		if version.starts_with('/') {
 			let (_, constraint) = version.split_at(1);
 			let regex = regex::Regex::new(constraint)
-				.map_err(|source| error!(!source, "failed to parse regex"))?;
+				.map_err(|source| tg::error!(!source, "failed to parse regex"))?;
 			let versions = versions
 				.into_iter()
 				.filter(|(version, _)| regex.is_match(version))
@@ -133,22 +132,25 @@ impl Server {
 	}
 }
 
-impl<H> Http<H> where H: tg::Handle {
+impl<H> Http<H>
+where
+	H: tg::Handle,
+{
 	pub async fn handle_get_package_versions_request(
 		&self,
 		request: http::Request<Incoming>,
-	) -> Result<http::Response<Outgoing>> {
+	) -> tg::Result<http::Response<Outgoing>> {
 		// Get the path params.
 		let path_components: Vec<&str> = request.uri().path().split('/').skip(1).collect();
 		let ["packages", dependency, "versions"] = path_components.as_slice() else {
 			let path = request.uri().path();
-			return Err(error!(%path, "unexpected path"));
+			return Err(tg::error!(%path, "unexpected path"));
 		};
 		let dependency = urlencoding::decode(dependency)
-			.map_err(|source| error!(!source, "failed to decode the dependency"))?;
+			.map_err(|source| tg::error!(!source, "failed to decode the dependency"))?;
 		let dependency = dependency
 			.parse()
-			.map_err(|source| error!(!source, "failed to parse the dependency"))?;
+			.map_err(|source| tg::error!(!source, "failed to parse the dependency"))?;
 
 		// Get the package.
 		let Some(output) = self.inner.tg.try_get_package_versions(&dependency).await? else {
@@ -157,7 +159,7 @@ impl<H> Http<H> where H: tg::Handle {
 
 		// Create the body.
 		let body = serde_json::to_vec(&output)
-			.map_err(|source| error!(!source, "failed to serialize the body"))?;
+			.map_err(|source| tg::error!(!source, "failed to serialize the body"))?;
 		let body = full(body);
 
 		// Create the response.

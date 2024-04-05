@@ -3,7 +3,6 @@ use bytes::Bytes;
 use futures::stream::BoxStream;
 use std::sync::Arc;
 use tangram_client as tg;
-use tangram_error::{error, Error, Result};
 use tokio::io::{AsyncRead, AsyncWrite};
 use url::Url;
 
@@ -17,7 +16,7 @@ pub struct Inner {
 	http: std::sync::Mutex<Option<Http<Server>>>,
 	server: crate::Server,
 	shutdown: tokio::sync::watch::Sender<bool>,
-	shutdown_task: std::sync::Mutex<Option<tokio::task::JoinHandle<Result<()>>>>,
+	shutdown_task: std::sync::Mutex<Option<tokio::task::JoinHandle<tg::Result<()>>>>,
 }
 
 #[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
@@ -28,7 +27,11 @@ pub struct GetOrCreateProxiedArg {
 }
 
 impl Server {
-	pub async fn start(server: &crate::Server, build: &tg::build::Id, url: Url) -> Result<Self> {
+	pub async fn start(
+		server: &crate::Server,
+		build: &tg::build::Id,
+		url: Url,
+	) -> tg::Result<Self> {
 		// Create an owned copy of the parent build id to be used in the proxy server.
 		let build = build.clone();
 
@@ -74,13 +77,13 @@ impl Server {
 				http.join().await?;
 			}
 
-			Ok::<_, Error>(())
+			Ok::<_, tg::Error>(())
 		});
 		self.inner.shutdown_task.lock().unwrap().replace(task);
 		self.inner.shutdown.send_replace(true);
 	}
 
-	pub async fn join(&self) -> Result<()> {
+	pub async fn join(&self) -> tg::Result<()> {
 		self.inner
 			.shutdown
 			.subscribe()
@@ -98,9 +101,11 @@ impl Server {
 		&self,
 		user: Option<&tg::User>,
 		arg: tg::build::GetOrCreateArg,
-	) -> Result<tg::build::GetOrCreateOutput> {
+	) -> tg::Result<tg::build::GetOrCreateOutput> {
 		if arg.parent.is_some() {
-			return Err(error!("using proxied server, parent should be set to none"));
+			return Err(tg::error!(
+				"using proxied server, parent should be set to none"
+			));
 		}
 		let arg = tg::build::GetOrCreateArg {
 			parent: Some(self.inner.build.clone()),
@@ -113,12 +118,12 @@ impl Server {
 }
 
 impl tg::Handle for Server {
-	async fn path(&self) -> Result<Option<tg::Path>> {
+	async fn path(&self) -> tg::Result<Option<tg::Path>> {
 		self.inner.server.path().await
 	}
 
-	async fn format(&self, _text: String) -> Result<String> {
-		Err(error!("not supported"))
+	async fn format(&self, _text: String) -> tg::Result<String> {
+		Err(tg::error!("not supported"))
 	}
 
 	fn file_descriptor_semaphore(&self) -> &tokio::sync::Semaphore {
@@ -128,7 +133,7 @@ impl tg::Handle for Server {
 	async fn check_in_artifact(
 		&self,
 		arg: tg::artifact::CheckInArg,
-	) -> Result<tg::artifact::CheckInOutput> {
+	) -> tg::Result<tg::artifact::CheckInOutput> {
 		self.inner.server.check_in_artifact(arg).await
 	}
 
@@ -136,11 +141,11 @@ impl tg::Handle for Server {
 		&self,
 		id: &tg::artifact::Id,
 		arg: tg::artifact::CheckOutArg,
-	) -> Result<tg::artifact::CheckOutOutput> {
+	) -> tg::Result<tg::artifact::CheckOutOutput> {
 		self.inner.server.check_out_artifact(id, arg).await
 	}
 
-	async fn list_builds(&self, arg: tg::build::ListArg) -> Result<tg::build::ListOutput> {
+	async fn list_builds(&self, arg: tg::build::ListArg) -> tg::Result<tg::build::ListOutput> {
 		self.inner.server.list_builds(arg).await
 	}
 
@@ -148,7 +153,7 @@ impl tg::Handle for Server {
 		&self,
 		id: &tg::build::Id,
 		arg: tg::build::GetArg,
-	) -> Result<Option<tg::build::GetOutput>> {
+	) -> tg::Result<Option<tg::build::GetOutput>> {
 		self.inner.server.try_get_build(id, arg).await
 	}
 
@@ -157,15 +162,15 @@ impl tg::Handle for Server {
 		user: Option<&tg::User>,
 		id: &tg::build::Id,
 		arg: &tg::build::PutArg,
-	) -> Result<()> {
+	) -> tg::Result<()> {
 		self.inner.server.put_build(user, id, arg).await
 	}
 
-	async fn push_build(&self, user: Option<&tg::User>, id: &tg::build::Id) -> Result<()> {
+	async fn push_build(&self, user: Option<&tg::User>, id: &tg::build::Id) -> tg::Result<()> {
 		self.inner.server.push_build(user, id).await
 	}
 
-	async fn pull_build(&self, id: &tg::build::Id) -> Result<()> {
+	async fn pull_build(&self, id: &tg::build::Id) -> tg::Result<()> {
 		self.inner.server.pull_build(id).await
 	}
 
@@ -173,7 +178,7 @@ impl tg::Handle for Server {
 		&self,
 		user: Option<&tg::User>,
 		arg: tg::build::GetOrCreateArg,
-	) -> Result<tg::build::GetOrCreateOutput> {
+	) -> tg::Result<tg::build::GetOrCreateOutput> {
 		self.get_or_create_build_proxied(user, arg).await
 	}
 
@@ -182,7 +187,7 @@ impl tg::Handle for Server {
 		id: &tg::build::Id,
 		arg: tg::build::status::GetArg,
 		stop: Option<tokio::sync::watch::Receiver<bool>>,
-	) -> Result<Option<BoxStream<'static, Result<tg::build::Status>>>> {
+	) -> tg::Result<Option<BoxStream<'static, tg::Result<tg::build::Status>>>> {
 		self.inner.server.try_get_build_status(id, arg, stop).await
 	}
 
@@ -191,7 +196,7 @@ impl tg::Handle for Server {
 		user: Option<&tg::User>,
 		id: &tg::build::Id,
 		status: tg::build::Status,
-	) -> Result<()> {
+	) -> tg::Result<()> {
 		self.inner.server.set_build_status(user, id, status).await
 	}
 
@@ -200,7 +205,7 @@ impl tg::Handle for Server {
 		id: &tg::build::Id,
 		arg: tg::build::children::GetArg,
 		stop: Option<tokio::sync::watch::Receiver<bool>>,
-	) -> Result<Option<BoxStream<'static, Result<tg::build::children::Chunk>>>> {
+	) -> tg::Result<Option<BoxStream<'static, tg::Result<tg::build::children::Chunk>>>> {
 		self.inner
 			.server
 			.try_get_build_children(id, arg, stop)
@@ -212,7 +217,7 @@ impl tg::Handle for Server {
 		user: Option<&tg::User>,
 		build_id: &tg::build::Id,
 		child_id: &tg::build::Id,
-	) -> Result<()> {
+	) -> tg::Result<()> {
 		self.inner
 			.server
 			.add_build_child(user, build_id, child_id)
@@ -224,7 +229,7 @@ impl tg::Handle for Server {
 		id: &tg::build::Id,
 		arg: tg::build::log::GetArg,
 		stop: Option<tokio::sync::watch::Receiver<bool>>,
-	) -> Result<Option<BoxStream<'static, Result<tg::build::log::Chunk>>>> {
+	) -> tg::Result<Option<BoxStream<'static, tg::Result<tg::build::log::Chunk>>>> {
 		self.inner.server.try_get_build_log(id, arg, stop).await
 	}
 
@@ -233,7 +238,7 @@ impl tg::Handle for Server {
 		user: Option<&tg::User>,
 		build_id: &tg::build::Id,
 		bytes: Bytes,
-	) -> Result<()> {
+	) -> tg::Result<()> {
 		self.inner.server.add_build_log(user, build_id, bytes).await
 	}
 
@@ -242,7 +247,7 @@ impl tg::Handle for Server {
 		id: &tg::build::Id,
 		arg: tg::build::outcome::GetArg,
 		stop: Option<tokio::sync::watch::Receiver<bool>>,
-	) -> Result<Option<Option<tg::build::Outcome>>> {
+	) -> tg::Result<Option<Option<tg::build::Outcome>>> {
 		self.inner.server.try_get_build_outcome(id, arg, stop).await
 	}
 
@@ -251,11 +256,14 @@ impl tg::Handle for Server {
 		user: Option<&tg::User>,
 		id: &tg::build::Id,
 		outcome: tg::build::Outcome,
-	) -> Result<()> {
+	) -> tg::Result<()> {
 		self.inner.server.set_build_outcome(user, id, outcome).await
 	}
 
-	async fn try_get_object(&self, id: &tg::object::Id) -> Result<Option<tg::object::GetOutput>> {
+	async fn try_get_object(
+		&self,
+		id: &tg::object::Id,
+	) -> tg::Result<Option<tg::object::GetOutput>> {
 		self.inner.server.try_get_object(id).await
 	}
 
@@ -263,103 +271,103 @@ impl tg::Handle for Server {
 		&self,
 		id: &tg::object::Id,
 		arg: &tg::object::PutArg,
-	) -> Result<tg::object::PutOutput> {
+	) -> tg::Result<tg::object::PutOutput> {
 		self.inner.server.put_object(id, arg).await
 	}
 
-	async fn push_object(&self, id: &tg::object::Id) -> Result<()> {
+	async fn push_object(&self, id: &tg::object::Id) -> tg::Result<()> {
 		self.inner.server.push_object(id).await
 	}
 
-	async fn pull_object(&self, id: &tg::object::Id) -> Result<()> {
+	async fn pull_object(&self, id: &tg::object::Id) -> tg::Result<()> {
 		self.inner.server.pull_object(id).await
 	}
 
 	async fn search_packages(
 		&self,
 		_arg: tg::package::SearchArg,
-	) -> Result<tg::package::SearchOutput> {
-		Err(error!("not supported"))
+	) -> tg::Result<tg::package::SearchOutput> {
+		Err(tg::error!("not supported"))
 	}
 
 	async fn try_get_package(
 		&self,
 		_dependency: &tg::Dependency,
 		_arg: tg::package::GetArg,
-	) -> Result<Option<tg::package::GetOutput>> {
-		Err(error!("not supported"))
+	) -> tg::Result<Option<tg::package::GetOutput>> {
+		Err(tg::error!("not supported"))
 	}
 
 	async fn try_get_package_versions(
 		&self,
 		_dependency: &tg::Dependency,
-	) -> Result<Option<Vec<String>>> {
-		Err(error!("not supported"))
+	) -> tg::Result<Option<Vec<String>>> {
+		Err(tg::error!("not supported"))
 	}
 
 	async fn publish_package(
 		&self,
 		_user: Option<&tg::User>,
 		_id: &tg::directory::Id,
-	) -> Result<()> {
-		Err(error!("not supported"))
+	) -> tg::Result<()> {
+		Err(tg::error!("not supported"))
 	}
 
-	async fn check_package(&self, _dependency: &tg::Dependency) -> Result<Vec<tg::Diagnostic>> {
-		Err(error!("not supported"))
+	async fn check_package(&self, _dependency: &tg::Dependency) -> tg::Result<Vec<tg::Diagnostic>> {
+		Err(tg::error!("not supported"))
 	}
 
-	async fn format_package(&self, _dependency: &tg::Dependency) -> Result<()> {
-		Err(error!("not supported"))
+	async fn format_package(&self, _dependency: &tg::Dependency) -> tg::Result<()> {
+		Err(tg::error!("not supported"))
 	}
 
 	async fn get_package_outdated(
 		&self,
 		_dependency: &tg::Dependency,
-	) -> Result<tg::package::OutdatedOutput> {
-		Err(error!("not supported"))
+	) -> tg::Result<tg::package::OutdatedOutput> {
+		Err(tg::error!("not supported"))
 	}
 
-	async fn get_runtime_doc(&self) -> Result<serde_json::Value> {
-		Err(error!("not supported"))
+	async fn get_runtime_doc(&self) -> tg::Result<serde_json::Value> {
+		Err(tg::error!("not supported"))
 	}
 
 	async fn try_get_package_doc(
 		&self,
 		_dependency: &tg::Dependency,
-	) -> Result<Option<serde_json::Value>> {
-		Err(error!("not supported"))
+	) -> tg::Result<Option<serde_json::Value>> {
+		Err(tg::error!("not supported"))
 	}
 
 	async fn lsp(
 		&self,
 		_input: Box<dyn AsyncRead + Send + Unpin + 'static>,
 		_output: Box<dyn AsyncWrite + Send + Unpin + 'static>,
-	) -> Result<()> {
-		Err(error!("not supported"))
+	) -> tg::Result<()> {
+		Err(tg::error!("not supported"))
 	}
 
-	async fn health(&self) -> Result<tg::server::Health> {
+	async fn health(&self) -> tg::Result<tg::server::Health> {
 		self.inner.server.health().await
 	}
 
-	async fn clean(&self) -> Result<()> {
-		Err(error!("not supported"))
+	async fn clean(&self) -> tg::Result<()> {
+		Err(tg::error!("not supported"))
 	}
 
-	async fn stop(&self) -> Result<()> {
-		Err(error!("not supported"))
+	async fn stop(&self) -> tg::Result<()> {
+		Err(tg::error!("not supported"))
 	}
 
-	async fn create_login(&self) -> Result<tg::user::Login> {
-		Err(error!("not supported"))
+	async fn create_login(&self) -> tg::Result<tg::user::Login> {
+		Err(tg::error!("not supported"))
 	}
 
-	async fn get_login(&self, _id: &tg::Id) -> Result<Option<tg::user::Login>> {
-		Err(error!("not supported"))
+	async fn get_login(&self, _id: &tg::Id) -> tg::Result<Option<tg::user::Login>> {
+		Err(tg::error!("not supported"))
 	}
 
-	async fn get_user_for_token(&self, _token: &str) -> Result<Option<tg::user::User>> {
-		Err(error!("not supported"))
+	async fn get_user_for_token(&self, _token: &str) -> tg::Result<Option<tg::user::User>> {
+		Err(tg::error!("not supported"))
 	}
 }

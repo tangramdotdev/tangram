@@ -1,8 +1,7 @@
-use super::{error, send_notification, Sender, Server};
+use super::{send_notification, Sender, Server};
 use lsp_types as lsp;
 use std::collections::BTreeMap;
 use tangram_client as tg;
-use tangram_error::Result;
 
 #[derive(Debug, serde::Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -15,7 +14,7 @@ pub struct Response {
 }
 
 impl Server {
-	pub async fn get_diagnostics(&self) -> Result<Vec<tg::Diagnostic>> {
+	pub async fn get_diagnostics(&self) -> tg::Result<Vec<tg::Diagnostic>> {
 		// Create the request.
 		let request = super::Request::Diagnostics(Request {});
 
@@ -24,7 +23,7 @@ impl Server {
 
 		// Get the response.
 		let super::Response::Diagnostics(response) = response else {
-			return Err(error!("unexpected response type"));
+			return Err(tg::error!("unexpected response type"));
 		};
 
 		// Get the result the response.
@@ -33,7 +32,7 @@ impl Server {
 		Ok(diagnostics)
 	}
 
-	pub async fn update_diagnostics(&self, sender: &Sender) -> Result<()> {
+	pub async fn update_diagnostics(&self, sender: &Sender) -> tg::Result<()> {
 		// Get the diagnostics.
 		let diagnostics = self.get_diagnostics().await?;
 

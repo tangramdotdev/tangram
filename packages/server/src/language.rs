@@ -14,7 +14,6 @@ use std::{
 	sync::Arc,
 };
 use tangram_client as tg;
-use tangram_error::{error, Error, Result};
 use tokio::io::{
 	AsyncBufRead, AsyncBufReadExt, AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt,
 };
@@ -114,8 +113,8 @@ pub enum Response {
 
 pub type RequestSender = tokio::sync::mpsc::UnboundedSender<(Request, ResponseSender)>;
 pub type RequestReceiver = tokio::sync::mpsc::UnboundedReceiver<(Request, ResponseSender)>;
-pub type ResponseSender = tokio::sync::oneshot::Sender<Result<Response>>;
-pub type _ResponseReceiver = tokio::sync::oneshot::Receiver<Result<Response>>;
+pub type ResponseSender = tokio::sync::oneshot::Sender<tg::Result<Response>>;
+pub type _ResponseReceiver = tokio::sync::oneshot::Receiver<tg::Result<Response>>;
 
 impl Server {
 	#[must_use]
@@ -151,7 +150,7 @@ impl Server {
 		Self { inner }
 	}
 
-	pub async fn request(&self, request: Request) -> Result<Response> {
+	pub async fn request(&self, request: Request) -> tg::Result<Response> {
 		// Spawn the request handler thread if necessary.
 		{
 			let mut thread = self.inner.thread.lock().unwrap();
@@ -171,11 +170,11 @@ impl Server {
 		self.inner
 			.request_sender
 			.send((request, response_sender))
-			.map_err(|source| error!(!source, "failed to send the request"))?;
+			.map_err(|source| tg::error!(!source, "failed to send the request"))?;
 
 		// Receive the response.
 		let response = response_receiver.await.map_err(|error| {
-			error!(
+			tg::error!(
 				source = error,
 				"failed to receive a response for the request"
 			)
@@ -188,7 +187,7 @@ impl Server {
 		self,
 		input: impl AsyncRead + Send + Unpin + 'static,
 		output: impl AsyncWrite + Send + Unpin + 'static,
-	) -> Result<()> {
+	) -> tg::Result<()> {
 		let mut input = tokio::io::BufReader::new(input);
 		let mut output = tokio::io::BufWriter::new(output);
 
@@ -200,22 +199,22 @@ impl Server {
 		let outgoing_message_task = tokio::spawn(async move {
 			while let Some(outgoing_message) = outgoing_message_receiver.recv().await {
 				let body = serde_json::to_string(&outgoing_message)
-					.map_err(|source| error!(!source, "failed to serialize the message"))?;
+					.map_err(|source| tg::error!(!source, "failed to serialize the message"))?;
 				let head = format!("Content-Length: {}\r\n\r\n", body.len());
 				output
 					.write_all(head.as_bytes())
 					.await
-					.map_err(|source| error!(!source, "failed to write the head"))?;
+					.map_err(|source| tg::error!(!source, "failed to write the head"))?;
 				output
 					.write_all(body.as_bytes())
 					.await
-					.map_err(|source| error!(!source, "failed to write the body"))?;
+					.map_err(|source| tg::error!(!source, "failed to write the body"))?;
 				output
 					.flush()
 					.await
-					.map_err(|source| error!(!source, "failed to flush stdout"))?;
+					.map_err(|source| tg::error!(!source, "failed to flush stdout"))?;
 			}
-			Ok::<_, Error>(())
+			Ok::<_, tg::Error>(())
 		});
 
 		// Read incoming messages.
@@ -249,7 +248,7 @@ impl Server {
 		Ok(())
 	}
 
-	pub async fn module_for_url(&self, url: &Url) -> Result<tg::Module> {
+	pub async fn module_for_url(&self, url: &Url) -> tg::Result<tg::Module> {
 		match url.scheme() {
 			"file" => {
 				// Find the package path by searching the path's ancestors for a root module.
@@ -261,7 +260,7 @@ impl Server {
 						if tokio::fs::try_exists(&package_path.join(root_module_file_name))
 							.await
 							.map_err(|error| {
-								error!(source = error, "failed to determine if the path exists")
+								tg::error!(source = error, "failed to determine if the path exists")
 							})? {
 							found = true;
 							break;
@@ -270,7 +269,7 @@ impl Server {
 				}
 				if !found {
 					let path = path.display();
-					return Err(error!(%path, "could not find the package"));
+					return Err(tg::error!(%path, "could not find the package"));
 				}
 
 				// Get the module path by stripping the package path.
@@ -283,12 +282,12 @@ impl Server {
 					.ok()
 					.ok_or_else(|| {
 						let path = path.display();
-						error!(%path, "the module path was not valid UTF-8")
+						tg::error!(%path, "the module path was not valid UTF-8")
 					})?
 					.parse()
 					.map_err(|error| {
 						let path = path.display();
-						error!(source = error, %path, "failed to parse the module path")
+						tg::error!(source = error, %path, "failed to parse the module path")
 					})?;
 
 				// Get or create the document.
@@ -317,7 +316,7 @@ impl Server {
 	}
 }
 
-async fn read_incoming_message<R>(reader: &mut R) -> Result<jsonrpc::Message>
+async fn read_incoming_message<R>(reader: &mut R) -> tg::Result<jsonrpc::Message>
 where
 	R: AsyncBufRead + Unpin,
 {
@@ -328,12 +327,12 @@ where
 		let n = reader
 			.read_line(&mut line)
 			.await
-			.map_err(|source| error!(!source, "failed to read a line"))?;
+			.map_err(|source| tg::error!(!source, "failed to read a line"))?;
 		if n == 0 {
 			break;
 		}
 		if !line.ends_with("\r\n") {
-			return Err(error!(?line, "unexpected line ending"));
+			return Err(tg::error!(?line, "unexpected line ending"));
 		}
 		let line = &line[..line.len() - 2];
 		if line.is_empty() {
@@ -342,20 +341,20 @@ where
 		let mut components = line.split(": ");
 		let key = components
 			.next()
-			.ok_or_else(|| error!("expected a header name"))?;
+			.ok_or_else(|| tg::error!("expected a header name"))?;
 		let value = components
 			.next()
-			.ok_or_else(|| error!("expected a header value"))?;
+			.ok_or_else(|| tg::error!("expected a header value"))?;
 		headers.insert(key.to_owned(), value.to_owned());
 	}
 
 	// Read and deserialize the message.
 	let content_length: usize = headers
 		.get("Content-Length")
-		.ok_or_else(|| error!("expected a Content-Length header"))?
+		.ok_or_else(|| tg::error!("expected a Content-Length header"))?
 		.parse()
 		.map_err(|error| {
-			error!(
+			tg::error!(
 				source = error,
 				"failed to parse the Content-Length header value"
 			)
@@ -364,9 +363,9 @@ where
 	reader
 		.read_exact(&mut message)
 		.await
-		.map_err(|source| error!(!source, "failed to read the message"))?;
+		.map_err(|source| tg::error!(!source, "failed to read the message"))?;
 	let message = serde_json::from_slice(&message)
-		.map_err(|source| error!(!source, "failed to deserialize the message"))?;
+		.map_err(|source| tg::error!(!source, "failed to deserialize the message"))?;
 
 	Ok(message)
 }
@@ -441,7 +440,7 @@ async fn handle_message(server: &Server, sender: &Sender, message: jsonrpc::Mess
 				<lsp::request::Shutdown as lsp::request::Request>::METHOD => handle_request::<lsp::request::Shutdown, _, _>(
 					sender,
 					request,
-					|()| async move { Ok(()) },
+					|()| async move { Ok::<_, tg::Error>(()) },
 				)
 				.boxed(),
 
@@ -520,7 +519,7 @@ async fn handle_request<T, F, Fut>(sender: &Sender, request: jsonrpc::Request, h
 where
 	T: lsp::request::Request,
 	F: Fn(T::Params) -> Fut,
-	Fut: Future<Output = crate::Result<T::Result>>,
+	Fut: Future<Output = tg::Result<T::Result>>,
 {
 	// Deserialize the params.
 	let Ok(params) = serde_json::from_value(request.params.unwrap_or(serde_json::Value::Null))
@@ -560,10 +559,10 @@ async fn handle_notification<T, F, Fut>(sender: &Sender, request: jsonrpc::Notif
 where
 	T: lsp::notification::Notification,
 	F: Fn(Sender, T::Params) -> Fut,
-	Fut: Future<Output = crate::Result<()>>,
+	Fut: Future<Output = tg::Result<()>>,
 {
 	let params = serde_json::from_value(request.params.unwrap_or(serde_json::Value::Null))
-		.map_err(|source| error!(!source, "failed to deserialize the request params"))
+		.map_err(|source| tg::error!(!source, "failed to deserialize the request params"))
 		.unwrap();
 	handler(sender.clone(), params)
 		.await
@@ -642,7 +641,7 @@ fn run_request_handler(server: Server, mut request_receiver: RequestReceiver) {
 
 		// Serialize the request.
 		let request = match serde_v8::to_v8(scope, &request)
-			.map_err(|source| error!(!source, "failed to serialize the request"))
+			.map_err(|source| tg::error!(!source, "failed to serialize the request"))
 		{
 			Ok(request) => request,
 			Err(error) => {
@@ -669,7 +668,7 @@ fn run_request_handler(server: Server, mut request_receiver: RequestReceiver) {
 
 		// Deserialize the response.
 		let response = match serde_v8::from_v8(scope, response)
-			.map_err(|source| error!(!source, "failed to deserialize the response"))
+			.map_err(|source| tg::error!(!source, "failed to deserialize the response"))
 		{
 			Ok(response) => response,
 			Err(error) => {
@@ -684,7 +683,7 @@ fn run_request_handler(server: Server, mut request_receiver: RequestReceiver) {
 }
 
 impl crate::Server {
-	pub async fn format(&self, text: String) -> Result<String> {
+	pub async fn format(&self, text: String) -> tg::Result<String> {
 		let language_server = crate::language::Server::new(self, tokio::runtime::Handle::current());
 		let text = language_server.format(text).await?;
 		Ok(text)
@@ -694,27 +693,30 @@ impl crate::Server {
 		&self,
 		input: Box<dyn AsyncRead + Send + Unpin + 'static>,
 		output: Box<dyn AsyncWrite + Send + Unpin + 'static>,
-	) -> Result<()> {
+	) -> tg::Result<()> {
 		let language_server = crate::language::Server::new(self, tokio::runtime::Handle::current());
 		language_server.serve(input, output).await?;
 		Ok(())
 	}
 }
 
-impl<H> Http<H> where H: tg::Handle {
+impl<H> Http<H>
+where
+	H: tg::Handle,
+{
 	pub async fn handle_format_request(
 		&self,
 		request: http::Request<Incoming>,
-	) -> Result<http::Response<Outgoing>> {
+	) -> tg::Result<http::Response<Outgoing>> {
 		// Read the body.
 		let bytes = request
 			.into_body()
 			.collect()
 			.await
-			.map_err(|source| error!(!source, "failed to read the body"))?
+			.map_err(|source| tg::error!(!source, "failed to read the body"))?
 			.to_bytes();
 		let text = String::from_utf8(bytes.to_vec())
-			.map_err(|source| error!(!source, "failed to deserialize the request body"))?;
+			.map_err(|source| tg::error!(!source, "failed to deserialize the request body"))?;
 
 		// Format the text.
 		let text = self.inner.tg.format(text).await?;
@@ -734,13 +736,13 @@ impl<H> Http<H> where H: tg::Handle {
 	pub async fn handle_lsp_request(
 		&self,
 		request: http::Request<Incoming>,
-	) -> Result<http::Response<Outgoing>> {
+	) -> tg::Result<http::Response<Outgoing>> {
 		if !request
 			.headers()
 			.get(http::header::UPGRADE)
 			.is_some_and(|value| value == "lsp")
 		{
-			return Err(error!("expected an upgrade header"));
+			return Err(tg::error!("expected an upgrade header"));
 		}
 
 		let server = self.clone();
@@ -753,7 +755,7 @@ impl<H> Http<H> where H: tg::Handle {
 			async move {
 				let io = hyper::upgrade::on(request)
 					.await
-					.map_err(|source| error!(!source, "failed to perform the upgrade"))?;
+					.map_err(|source| tg::error!(!source, "failed to perform the upgrade"))?;
 				let io = hyper_util::rt::TokioIo::new(io);
 				let (input, output) = tokio::io::split(io);
 				let input = Box::new(input);
@@ -766,7 +768,7 @@ impl<H> Http<H> where H: tg::Handle {
 						_ => Ok(()),
 					})
 					.await?;
-				Ok::<_, Error>(())
+				Ok::<_, tg::Error>(())
 			}
 			.inspect_err(|error| tracing::error!(?error)),
 		);

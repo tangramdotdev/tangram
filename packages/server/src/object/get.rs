@@ -6,13 +6,12 @@ use futures::TryFutureExt;
 use indoc::formatdoc;
 use tangram_client as tg;
 use tangram_database::{self as db, prelude::*};
-use tangram_error::{error, Result};
 
 impl Server {
 	pub async fn try_get_object(
 		&self,
 		id: &tg::object::Id,
-	) -> Result<Option<tg::object::GetOutput>> {
+	) -> tg::Result<Option<tg::object::GetOutput>> {
 		if let Some(bytes) = self.try_get_object_local(id).await? {
 			Ok(Some(bytes))
 		} else if let Some(bytes) = self.try_get_object_remote(id).await? {
@@ -25,14 +24,14 @@ impl Server {
 	async fn try_get_object_local(
 		&self,
 		id: &tg::object::Id,
-	) -> Result<Option<tg::object::GetOutput>> {
+	) -> tg::Result<Option<tg::object::GetOutput>> {
 		// Get a database connection.
 		let connection = self
 			.inner
 			.database
 			.connection()
 			.await
-			.map_err(|source| error!(!source, "failed to get a database connection"))?;
+			.map_err(|source| tg::error!(!source, "failed to get a database connection"))?;
 
 		// Get the object.
 		let p = self.inner.database.p();
@@ -46,7 +45,7 @@ impl Server {
 		let params = db::params![id];
 		let output = connection
 			.query_optional_into(statement, params)
-			.map_err(|source| error!(!source, "failed to execute the statement"))
+			.map_err(|source| tg::error!(!source, "failed to execute the statement"))
 			.await?;
 
 		// Drop the database connection.
@@ -58,7 +57,7 @@ impl Server {
 	async fn try_get_object_remote(
 		&self,
 		id: &tg::object::Id,
-	) -> Result<Option<tg::object::GetOutput>> {
+	) -> tg::Result<Option<tg::object::GetOutput>> {
 		// Get the remote.
 		let Some(remote) = self.inner.remotes.first() else {
 			return Ok(None);
@@ -81,16 +80,19 @@ impl Server {
 	}
 }
 
-impl<H> Http<H> where H: tg::Handle {
+impl<H> Http<H>
+where
+	H: tg::Handle,
+{
 	pub async fn handle_get_object_request(
 		&self,
 		request: http::Request<Incoming>,
-	) -> Result<http::Response<Outgoing>> {
+	) -> tg::Result<http::Response<Outgoing>> {
 		// Get the path params.
 		let path_components: Vec<&str> = request.uri().path().split('/').skip(1).collect();
 		let ["objects", id] = path_components.as_slice() else {
 			let path = request.uri().path();
-			return Err(error!(%path, "unexpected path"));
+			return Err(tg::error!(%path, "unexpected path"));
 		};
 		let Ok(id) = id.parse() else {
 			return Ok(bad_request());

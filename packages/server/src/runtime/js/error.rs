@@ -5,7 +5,7 @@ use super::{
 use num::ToPrimitive;
 use std::{collections::BTreeMap, rc::Rc, str::FromStr, sync::Arc};
 use tangram_client as tg;
-use tangram_error::Error;
+use tg::error::Error;
 
 #[derive(Debug, serde::Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -133,9 +133,7 @@ pub(super) fn from_exception<'s>(
 	}
 }
 
-pub fn current_stack_trace(
-	scope: &mut v8::HandleScope<'_>,
-) -> Option<Vec<tangram_error::Location>> {
+pub fn current_stack_trace(scope: &mut v8::HandleScope<'_>) -> Option<Vec<tg::error::Location>> {
 	// Get the context.
 	let context = scope.get_current_context();
 
@@ -175,7 +173,7 @@ fn get_location(
 	file: Option<&str>,
 	line: Option<u32>,
 	column: Option<u32>,
-) -> Option<tangram_error::Location> {
+) -> Option<tg::error::Location> {
 	if file.map_or(false, |resource_name| resource_name == "[global]") {
 		let line = line?;
 		let column = column?;
@@ -184,10 +182,10 @@ fn get_location(
 		let line = token.get_src_line();
 		let column = token.get_src_col();
 		let symbol = token.get_name().map(String::from);
-		let source = tangram_error::Source::Internal {
+		let source = tg::error::Source::Internal {
 			path: token.get_source().unwrap().to_owned(),
 		};
-		let location = tangram_error::Location {
+		let location = tg::error::Location {
 			symbol,
 			source,
 			line,
@@ -203,7 +201,7 @@ fn get_location(
 		let module = modules.iter().find(|m| m.module == module)?;
 		let package = module.module.unwrap_normal_ref().package.to_string();
 		let path = module.module.unwrap_normal_ref().path.to_string();
-		let source = tangram_error::Source::External { package, path };
+		let source = tg::error::Source::External { package, path };
 
 		// Get the line and column and apply a source map if one is available.
 		let mut line = line?;
@@ -216,7 +214,7 @@ fn get_location(
 		}
 
 		// Create the location.
-		let location = tangram_error::Location {
+		let location = tg::error::Location {
 			symbol,
 			source,
 			line,

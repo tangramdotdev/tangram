@@ -1,7 +1,7 @@
 use std::path::Path;
-use tangram_error::{error, Result};
+use tangram_client as tg;
 
-pub async fn rmrf(path: impl AsRef<Path>) -> Result<()> {
+pub async fn rmrf(path: impl AsRef<Path>) -> tg::Result<()> {
 	let path = path.as_ref();
 
 	// Get the metadata for the path.
@@ -15,19 +15,21 @@ pub async fn rmrf(path: impl AsRef<Path>) -> Result<()> {
 
 		Err(error) => {
 			let path = path.display();
-			return Err(error!(source = error, %path, "failed to get the metadata for the path"));
+			return Err(
+				tg::error!(source = error, %path, "failed to get the metadata for the path"),
+			);
 		},
 	};
 
 	if metadata.is_dir() {
 		tokio::fs::remove_dir_all(path).await.map_err(|source| {
 			let path = path.display();
-			error!(!source, %path, "failed to remove the directory")
+			tg::error!(!source, %path, "failed to remove the directory")
 		})?;
 	} else {
 		tokio::fs::remove_file(path).await.map_err(|source| {
 			let path = path.display();
-			error!(!source, %path, "failed to remove the file")
+			tg::error!(!source, %path, "failed to remove the file")
 		})?;
 	};
 

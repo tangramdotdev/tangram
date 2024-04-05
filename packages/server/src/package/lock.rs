@@ -4,7 +4,6 @@ use either::Either;
 use futures::{stream::FuturesUnordered, TryStreamExt};
 use std::collections::{BTreeMap, BTreeSet};
 use tangram_client as tg;
-use tangram_error::{error, Result};
 
 // Mutable state used during the version solving algorithm to cache package metadata and published packages.
 struct Context {
@@ -103,18 +102,18 @@ enum Error {
 	},
 
 	/// A tangram error.
-	Other(tangram_error::Error),
+	Other(tg::error::Error),
 }
 
 impl Server {
-	pub(super) async fn write_lock(&self, root_path: tg::Path, lock: &tg::Lock) -> Result<()> {
+	pub(super) async fn write_lock(&self, root_path: tg::Path, lock: &tg::Lock) -> tg::Result<()> {
 		let path = root_path.join("tangram.lock");
 		let data = lock.data(self).await?;
 		let json = serde_json::to_vec_pretty(&data)
-			.map_err(|source| error!(!source, "failed to serialize the lock"))?;
+			.map_err(|source| tg::error!(!source, "failed to serialize the lock"))?;
 		tokio::fs::write(&path, &json)
 			.await
-			.map_err(|source| error!(!source, %path, "failed to write the lock file"))?;
+			.map_err(|source| tg::error!(!source, %path, "failed to write the lock file"))?;
 		Ok(())
 	}
 
@@ -122,7 +121,7 @@ impl Server {
 		&self,
 		path: Option<&tg::Path>,
 		package_with_path_dependencies: &PackageWithPathDependencies,
-	) -> Result<tg::Lock> {
+	) -> tg::Result<tg::Lock> {
 		// If this is a path dependency, then attempt to read the lockfile from the path.
 		let lock = if let Some(path) = path {
 			tg::Lock::try_read(self, path).await?
@@ -161,7 +160,7 @@ impl Server {
 		let lock = lock
 			.normalize(self)
 			.await
-			.map_err(|source| error!(!source, "failed to normalize the lock"))?;
+			.map_err(|source| tg::error!(!source, "failed to normalize the lock"))?;
 
 		Ok(lock)
 	}
@@ -170,7 +169,7 @@ impl Server {
 		&self,
 		package_with_path_dependencies: &PackageWithPathDependencies,
 		lock: tg::Lock,
-	) -> Result<bool> {
+	) -> tg::Result<bool> {
 		// Get the dependencies from the package and its lock.
 		let deps_in_package = self
 			.get_package_dependencies(&package_with_path_dependencies.package)
@@ -205,7 +204,7 @@ impl Server {
 	pub(super) async fn create_package_lock(
 		&self,
 		package_with_path_dependencies: &PackageWithPathDependencies,
-	) -> Result<tg::Lock> {
+	) -> tg::Result<tg::Lock> {
 		// Construct the version solving context and working set.
 		let mut analysis = BTreeMap::new();
 		let mut working_set = im::Vector::new();
@@ -242,7 +241,7 @@ impl Server {
 				context,
 				solution,
 			};
-			return Err(error!("{report}"));
+			return Err(tg::error!("{report}"));
 		}
 
 		// Create the lock.
@@ -279,12 +278,12 @@ impl Server {
 		context: &Context,
 		solution: &Solution,
 		nodes: &mut Vec<tg::lock::data::Node>,
-	) -> Result<usize> {
+	) -> tg::Result<usize> {
 		// Get the cached analysis.
 		let analysis = context
 			.analysis
 			.get(package)
-			.ok_or_else(|| error!("missing package in solution"))?;
+			.ok_or_else(|| tg::error!("missing package in solution"))?;
 
 		// Recursively create the nodes.
 		let mut dependencies = BTreeMap::new();
@@ -301,7 +300,7 @@ impl Server {
 					dependency: dependency.clone(),
 				};
 				let Some(Mark::Permanent(Ok(resolved))) = solution.partial.get(&dependant) else {
-					return Err(error!(?dependant, "missing solution"));
+					return Err(tg::error!(?dependant, "missing solution"));
 				};
 				(resolved, true)
 			};
@@ -330,7 +329,7 @@ impl Server {
 		package_with_path_dependencies: &PackageWithPathDependencies,
 		all_analysis: &mut BTreeMap<tg::directory::Id, Analysis>,
 		working_set: &mut im::Vector<Dependant>,
-	) -> Result<()> {
+	) -> tg::Result<()> {
 		let PackageWithPathDependencies {
 			package,
 			path_dependencies,
@@ -346,7 +345,7 @@ impl Server {
 		let metadata = self
 			.try_get_package_metadata(package)
 			.await
-			.map_err(|source| error!(!source, %package_id, "failed to get package metadata"))?;
+			.map_err(|source| tg::error!(!source, %package_id, "failed to get package metadata"))?;
 		let dependencies = self.get_package_dependencies(package).await?;
 
 		// Convert dependencies to dependants and update the working set.
@@ -386,7 +385,7 @@ impl Server {
 		&self,
 		package_with_path_dependencies: &PackageWithPathDependencies,
 		lock: tg::lock::Lock,
-	) -> Result<tg::lock::Lock> {
+	) -> tg::Result<tg::lock::Lock> {
 		let mut object = lock.object(self).await?.as_ref().clone();
 		let mut stack = vec![(object.root, package_with_path_dependencies)];
 		let mut visited = BTreeSet::new();
@@ -402,7 +401,7 @@ impl Server {
 				let entry = node
 					.dependencies
 					.get_mut(dependency)
-					.ok_or_else(|| error!("invalid lock file"))?;
+					.ok_or_else(|| tg::error!("invalid lock file"))?;
 				entry
 					.package
 					.replace(package_with_path_dependencies.package.clone());
@@ -425,7 +424,7 @@ impl Server {
 		&self,
 		context: &mut Context,
 		working_set: im::Vector<Dependant>,
-	) -> Result<Solution> {
+	) -> tg::Result<Solution> {
 		// Create the first stack frame.
 		let solution = Solution::default();
 		let last_error = None;
@@ -658,7 +657,7 @@ impl Context {
 		&mut self,
 		server: &Server,
 		dependant: &Dependant,
-	) -> Result<Option<tg::directory::Id>> {
+	) -> tg::Result<Option<tg::directory::Id>> {
 		let Dependant {
 			package,
 			dependency,
@@ -676,7 +675,7 @@ impl Context {
 		server: &Server,
 		dependant: &Dependant,
 		remaining_versions: &mut im::Vector<String>,
-	) -> Result<tg::directory::Id, Error> {
+	) -> tg::Result<tg::directory::Id, Error> {
 		let name = dependant.dependency.name.as_ref().unwrap();
 
 		// If the cache doesn't contain the package, we need to go out to the server to retrieve the ID. If this errors, we return immediately. If there is no package available for this version (which is extremely unlikely) we loop until we get the next version that's either in the cache, or available from the server.
@@ -712,13 +711,12 @@ impl Context {
 		&mut self,
 		server: &Server,
 		package_id: &tg::directory::Id,
-	) -> Result<&'_ Analysis> {
+	) -> tg::Result<&'_ Analysis> {
 		if !self.analysis.contains_key(package_id) {
 			let package = tg::Directory::with_id(package_id.clone());
-			let metadata = server
-				.get_package_metadata(&package)
-				.await
-				.map_err(|source| error!(!source, %package_id, "failed to get package metadata"))?;
+			let metadata = server.get_package_metadata(&package).await.map_err(
+				|source| tg::error!(!source, %package_id, "failed to get package metadata"),
+			)?;
 			let dependencies = server.get_package_dependencies(&package).await?;
 			let mut dependencies_ = Vec::new();
 			let mut path_dependencies = BTreeMap::new();
@@ -733,14 +731,14 @@ impl Context {
 					let path = path.clone().normalize();
 					let Some(dependency_source) =
 						package_source.try_get(server, &path).await.map_err(
-							|source| error!(!source, %dependency, %package_id, "could not resolve the dependency"),
+							|source| tg::error!(!source, %dependency, %package_id, "could not resolve the dependency"),
 						)?
 					else {
 						continue;
 					};
 					let dependency_package_id = dependency_source
 						.try_unwrap_directory()
-						.map_err(|source| error!(!source, %path, "expected a directory"))?
+						.map_err(|source| tg::error!(!source, %path, "expected a directory"))?
 						.id(server)
 						.await?;
 					path_dependencies.insert(dependency.clone(), dependency_package_id);
@@ -762,11 +760,11 @@ impl Context {
 	}
 
 	// Check if the dependant can be resolved as a path dependency. Returns an error if we haven't analyzed the `dependant.package` yet.
-	fn is_path_dependency(&self, dependant: &Dependant) -> Result<bool> {
+	fn is_path_dependency(&self, dependant: &Dependant) -> tg::Result<bool> {
 		// We guarantee that the context already knows about the dependant package by the time this function is called.
 		let Some(analysis) = self.analysis.get(&dependant.package) else {
 			tracing::error!(?dependant, "missing analysis");
-			return Err(error!(?dependant, "internal error: missing analysis"));
+			return Err(tg::error!(?dependant, "internal error: missing analysis"));
 		};
 		Ok(analysis
 			.path_dependencies
@@ -778,18 +776,18 @@ impl Context {
 		&mut self,
 		server: &Server,
 		package: &tg::directory::Id,
-	) -> Result<&'_ [tg::Dependency]> {
+	) -> tg::Result<&'_ [tg::Dependency]> {
 		Ok(&self.try_get_analysis(server, package).await?.dependencies)
 	}
 
 	// Get the version of a package given its ID.
-	async fn version(&mut self, server: &Server, package: &tg::directory::Id) -> Result<&str> {
+	async fn version(&mut self, server: &Server, package: &tg::directory::Id) -> tg::Result<&str> {
 		self.try_get_analysis(server, package)
 			.await?
 			.metadata
 			.as_ref()
 			.and_then(|metadata| metadata.version.as_deref())
-			.ok_or_else(|| error!(%package, "missing version in package metadata"))
+			.ok_or_else(|| tg::error!(%package, "missing version in package metadata"))
 	}
 
 	// Lookup all the versions we might use to solve this dependant.
@@ -797,7 +795,7 @@ impl Context {
 		&mut self,
 		server: &Server,
 		dependant: &Dependant,
-	) -> Result<im::Vector<String>> {
+	) -> tg::Result<im::Vector<String>> {
 		// If it is a path dependency, we don't care about the versions, which may not exist.
 		if self.is_path_dependency(dependant).unwrap() {
 			return Ok(im::Vector::new());
@@ -808,8 +806,8 @@ impl Context {
 		let versions = server
 			.try_get_package_versions(dependency)
 			.await
-			.map_err(|source| error!(!source, %dependency, "failed to get package versions"))?
-			.ok_or_else(|| error!("expected the build to exist"))?
+			.map_err(|source| tg::error!(!source, %dependency, "failed to get package versions"))?
+			.ok_or_else(|| tg::error!("expected the build to exist"))?
 			.into();
 		Ok(versions)
 	}

@@ -1,14 +1,14 @@
 use super::{Sender, Server};
 use lsp_types as lsp;
 use std::path::PathBuf;
-use tangram_error::{error, Result};
+use tangram_client as tg;
 
 impl Server {
 	pub(crate) async fn update_workspaces(
 		&self,
 		added: Vec<lsp::Url>,
 		removed: Vec<lsp::Url>,
-	) -> Result<()> {
+	) -> tg::Result<()> {
 		// Get the state.
 		let mut workspaces = self.inner.workspaces.write().await;
 
@@ -16,7 +16,7 @@ impl Server {
 		for uri in added {
 			let package_path = match uri.scheme() {
 				"file" => PathBuf::from(uri.path()),
-				scheme => return Err(error!(%scheme, "invalid URI for workspace folder")),
+				scheme => return Err(tg::error!(%scheme, "invalid URI for workspace folder")),
 			};
 			workspaces.insert(package_path);
 		}
@@ -25,7 +25,7 @@ impl Server {
 		for uri in removed {
 			let package_path = match uri.scheme() {
 				"file" => PathBuf::from(uri.path()),
-				scheme => return Err(error!(%scheme, "invalid URI for workspace folder")),
+				scheme => return Err(tg::error!(%scheme, "invalid URI for workspace folder")),
 			};
 			workspaces.remove(&package_path);
 		}
@@ -39,7 +39,7 @@ impl Server {
 		&self,
 		sender: Sender,
 		params: lsp::DidChangeWorkspaceFoldersParams,
-	) -> Result<()> {
+	) -> tg::Result<()> {
 		// Collect the added and removed workspaces.
 		let added = params
 			.event

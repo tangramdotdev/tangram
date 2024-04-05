@@ -1,10 +1,9 @@
 pub use self::child::Child;
-use crate::{blob, id, object, util::arc::Ext as _, Blob, Handle};
+use crate::{self as tg, blob, error, id, object, util::arc::Ext as _, Blob, Handle};
 use bytes::Bytes;
 use derive_more::Display;
 use futures::{stream::FuturesOrdered, TryStreamExt};
 use std::sync::Arc;
-use tangram_error::{error, Error, Result};
 
 #[derive(
 	Clone,
@@ -70,21 +69,21 @@ impl Branch {
 		Self { state }
 	}
 
-	pub async fn id(&self, tg: &impl Handle) -> Result<Id> {
+	pub async fn id(&self, tg: &impl Handle) -> tg::Result<Id> {
 		self.store(tg).await
 	}
 
-	pub async fn object(&self, tg: &impl Handle) -> Result<Arc<Object>> {
+	pub async fn object(&self, tg: &impl Handle) -> tg::Result<Arc<Object>> {
 		self.load(tg).await
 	}
 
-	pub async fn load(&self, tg: &impl Handle) -> Result<Arc<Object>> {
+	pub async fn load(&self, tg: &impl Handle) -> tg::Result<Arc<Object>> {
 		self.try_load(tg)
 			.await?
 			.ok_or_else(|| error!("failed to load the object"))
 	}
 
-	pub async fn try_load(&self, tg: &impl Handle) -> Result<Option<Arc<Object>>> {
+	pub async fn try_load(&self, tg: &impl Handle) -> tg::Result<Option<Arc<Object>>> {
 		if let Some(object) = self.state.read().unwrap().object.clone() {
 			return Ok(Some(object));
 		}
@@ -100,7 +99,7 @@ impl Branch {
 		Ok(Some(object))
 	}
 
-	pub async fn store(&self, tg: &impl Handle) -> Result<Id> {
+	pub async fn store(&self, tg: &impl Handle) -> tg::Result<Id> {
 		if let Some(id) = self.state.read().unwrap().id.clone() {
 			return Ok(id);
 		}
@@ -119,13 +118,13 @@ impl Branch {
 		Ok(id)
 	}
 
-	pub async fn data(&self, tg: &impl Handle) -> Result<Data> {
+	pub async fn data(&self, tg: &impl Handle) -> tg::Result<Data> {
 		let object = self.object(tg).await?;
 		let children = object
 			.children
 			.iter()
 			.map(|child| async {
-				Ok::<_, Error>(child::Data {
+				Ok::<_, tg::Error>(child::Data {
 					blob: child.blob.id(tg).await?,
 					size: child.size,
 				})
@@ -146,19 +145,19 @@ impl Branch {
 	pub async fn children(
 		&self,
 		tg: &impl Handle,
-	) -> Result<impl std::ops::Deref<Target = Vec<Child>>> {
+	) -> tg::Result<impl std::ops::Deref<Target = Vec<Child>>> {
 		Ok(self.object(tg).await?.map(|object| &object.children))
 	}
 }
 
 impl Data {
-	pub fn serialize(&self) -> Result<Bytes> {
+	pub fn serialize(&self) -> tg::Result<Bytes> {
 		serde_json::to_vec(self)
 			.map(Into::into)
 			.map_err(|source| error!(!source, "failed to serialize the data"))
 	}
 
-	pub fn deserialize(bytes: &Bytes) -> Result<Self> {
+	pub fn deserialize(bytes: &Bytes) -> tg::Result<Self> {
 		serde_json::from_reader(bytes.as_ref())
 			.map_err(|source| error!(!source, "failed to deserialize the data"))
 	}
@@ -173,7 +172,7 @@ impl Data {
 }
 
 impl TryFrom<Data> for Object {
-	type Error = Error;
+	type Error = tg::Error;
 
 	fn try_from(data: Data) -> std::result::Result<Self, Self::Error> {
 		let children = data
@@ -207,9 +206,9 @@ impl From<Id> for crate::Id {
 }
 
 impl TryFrom<crate::Id> for Id {
-	type Error = Error;
+	type Error = tg::Error;
 
-	fn try_from(value: crate::Id) -> Result<Self, Self::Error> {
+	fn try_from(value: crate::Id) -> tg::Result<Self, Self::Error> {
 		if value.kind() != id::Kind::Branch {
 			return Err(error!(%value, "invalid kind"));
 		}
@@ -218,9 +217,9 @@ impl TryFrom<crate::Id> for Id {
 }
 
 impl std::str::FromStr for Id {
-	type Err = Error;
+	type Err = tg::Error;
 
-	fn from_str(s: &str) -> Result<Self, Self::Err> {
+	fn from_str(s: &str) -> tg::Result<Self, Self::Err> {
 		crate::Id::from_str(s)?.try_into()
 	}
 }

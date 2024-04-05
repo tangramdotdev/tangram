@@ -1,5 +1,4 @@
-use crate::directory;
-use tangram_error::{error, Error, Result};
+use crate::{self as tg, directory, error};
 
 /// A dependency.
 #[derive(
@@ -82,7 +81,7 @@ impl Dependency {
 	}
 
 	/// Check if a `version` string satisfies this dependency's `version` constraint.
-	pub fn try_match_version(&self, version: &str) -> Result<bool> {
+	pub fn try_match_version(&self, version: &str) -> tg::Result<bool> {
 		let Some(constraint) = &self.version else {
 			return Ok(true);
 		};
@@ -143,9 +142,9 @@ impl std::fmt::Display for Dependency {
 }
 
 impl std::str::FromStr for Dependency {
-	type Err = Error;
+	type Err = tg::Error;
 
-	fn from_str(value: &str) -> Result<Self, Self::Err> {
+	fn from_str(value: &str) -> tg::Result<Self, Self::Err> {
 		if value.starts_with('{') {
 			serde_json::from_str(value)
 				.map_err(|source| error!(!source, "failed to deserialize the dependency"))
@@ -174,9 +173,9 @@ impl std::str::FromStr for Dependency {
 }
 
 impl TryFrom<String> for Dependency {
-	type Error = Error;
+	type Error = tg::Error;
 
-	fn try_from(value: String) -> Result<Self, Self::Error> {
+	fn try_from(value: String) -> tg::Result<Self, Self::Error> {
 		value.parse()
 	}
 }

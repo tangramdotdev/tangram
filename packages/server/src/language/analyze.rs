@@ -7,7 +7,6 @@ use std::{
 use swc::ecma::{ast, visit::VisitWith};
 use swc_core as swc;
 use tangram_client as tg;
-use tangram_error::{error, Result};
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Analysis {
@@ -24,13 +23,13 @@ pub struct Error {
 
 impl Server {
 	/// Analyze a module.
-	pub fn analyze_module(text: String) -> Result<Analysis> {
+	pub fn analyze_module(text: String) -> tg::Result<Analysis> {
 		// Parse the text.
 		let super::parse::Output {
 			program,
 			source_map,
 		} = Self::parse_module(text)
-			.map_err(|source| error!(!source, "failed to parse the module"))?;
+			.map_err(|source| tg::error!(!source, "failed to parse the module"))?;
 
 		// Create the visitor and visit the module.
 		let mut visitor = Visitor::new(source_map);
@@ -44,7 +43,7 @@ impl Server {
 				.map(ToString::to_string)
 				.collect_vec()
 				.join("\n");
-			return Err(error!("{message}"));
+			return Err(tg::error!("{message}"));
 		}
 
 		// Create the output.

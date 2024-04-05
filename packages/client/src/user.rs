@@ -1,7 +1,5 @@
-use crate as tg;
-use crate::{util::http::empty, Client, Id};
+use crate::{self as tg, error, util::http::empty, Client, Id};
 use http_body_util::BodyExt;
-use tangram_error::{error, Result};
 use url::Url;
 
 #[derive(serde::Serialize, serde::Deserialize)]
@@ -19,7 +17,7 @@ pub struct User {
 }
 
 impl Client {
-	pub async fn create_login(&self) -> Result<tg::Login> {
+	pub async fn create_login(&self) -> tg::Result<tg::Login> {
 		let method = http::Method::POST;
 		let uri = "/logins";
 		let body = empty();
@@ -49,7 +47,7 @@ impl Client {
 		Ok(response)
 	}
 
-	pub async fn get_login(&self, id: &tg::Id) -> Result<Option<tg::Login>> {
+	pub async fn get_login(&self, id: &tg::Id) -> tg::Result<Option<tg::Login>> {
 		let method = http::Method::GET;
 		let uri = format!("/logins/{id}");
 		let body = empty();
@@ -82,7 +80,7 @@ impl Client {
 		Ok(response)
 	}
 
-	pub async fn get_user_for_token(&self, token: &str) -> Result<Option<tg::User>> {
+	pub async fn get_user_for_token(&self, token: &str) -> tg::Result<Option<tg::User>> {
 		let method = http::Method::GET;
 		let uri = "/user";
 		let body = empty();

@@ -4,12 +4,12 @@ use crossterm::style::Stylize;
 use futures::FutureExt;
 use std::path::PathBuf;
 use tangram_client as tg;
-use tangram_error::{error, Result};
 use tracing_subscriber::prelude::*;
 use url::Url;
 
 mod commands;
 mod config;
+mod error;
 mod tree;
 mod tui;
 
@@ -80,7 +80,7 @@ pub enum Command {
 
 fn default_path() -> PathBuf {
 	let home = std::env::var("HOME")
-		.map_err(|source| error!(!source, "failed to get the home directory path"))
+		.map_err(|source| tg::error!(!source, "failed to get the home directory path"))
 		.unwrap();
 	PathBuf::from(home).join(".tangram")
 }
@@ -101,13 +101,13 @@ fn main() {
 	}
 }
 
-fn main_inner(config_: &mut Option<Config>) -> Result<()> {
+fn main_inner(config_: &mut Option<Config>) -> tg::Result<()> {
 	// Parse the arguments.
 	let args = Args::parse();
 
 	// Read the config.
 	let config = Cli::read_config(args.config.clone())
-		.map_err(|source| error!(!source, "failed to read the config"))?;
+		.map_err(|source| tg::error!(!source, "failed to read the config"))?;
 	*config_ = config.clone();
 
 	// Set the file descriptor limit.
@@ -135,12 +135,12 @@ fn main_inner(config_: &mut Option<Config>) -> Result<()> {
 	// Get the version.
 	let version = if cfg!(debug_assertions) {
 		let executable_path = std::env::current_exe()
-			.map_err(|source| error!(!source, "failed to get the current executable path"))?;
+			.map_err(|source| tg::error!(!source, "failed to get the current executable path"))?;
 		let metadata = std::fs::metadata(executable_path)
-			.map_err(|source| error!(!source, "failed to get the executable metadata"))?;
+			.map_err(|source| tg::error!(!source, "failed to get the executable metadata"))?;
 		metadata
 			.modified()
-			.map_err(|source| error!(!source, "failed to get the executable modified time"))?
+			.map_err(|source| tg::error!(!source, "failed to get the executable modified time"))?
 			.duration_since(std::time::SystemTime::UNIX_EPOCH)
 			.unwrap()
 			.as_secs()
@@ -202,7 +202,7 @@ fn main_inner(config_: &mut Option<Config>) -> Result<()> {
 }
 
 impl Cli {
-	async fn client(&self) -> Result<tg::Client> {
+	async fn client(&self) -> tg::Result<tg::Client> {
 		// If the client is already initialized, then return it.
 		if let Some(client) = self.client.lock().await.as_ref().cloned() {
 			return Ok(client);
@@ -227,7 +227,7 @@ impl Cli {
 
 		// If the client is not connected, then return an error.
 		if !connected {
-			return Err(error!(%url = self.url, "failed to connect to the server"));
+			return Err(tg::error!(%url = self.url, "failed to connect to the server"));
 		}
 
 		// Check the version.
@@ -244,9 +244,9 @@ impl Cli {
 	}
 
 	/// Start the server.
-	async fn start_server(&self) -> Result<()> {
+	async fn start_server(&self) -> tg::Result<()> {
 		let executable = std::env::current_exe()
-			.map_err(|source| error!(!source, "failed to get the current executable path"))?;
+			.map_err(|source| tg::error!(!source, "failed to get the current executable path"))?;
 		let path = self
 			.config
 			.as_ref()
@@ -254,14 +254,14 @@ impl Cli {
 			.unwrap_or_else(default_path);
 		tokio::fs::create_dir_all(&path)
 			.await
-			.map_err(|source| error!(!source, "failed to create the server path"))?;
+			.map_err(|source| tg::error!(!source, "failed to create the server path"))?;
 		let stdout = tokio::fs::File::create(path.join("log"))
 			.await
-			.map_err(|source| error!(!source, "failed to create the server log file"))?;
+			.map_err(|source| tg::error!(!source, "failed to create the server log file"))?;
 		let stderr = stdout
 			.try_clone()
 			.await
-			.map_err(|source| error!(!source, "failed to clone the server log file"))?;
+			.map_err(|source| tg::error!(!source, "failed to clone the server log file"))?;
 		tokio::process::Command::new(executable)
 			.args(["server", "run"])
 			.current_dir(&path)
@@ -269,66 +269,67 @@ impl Cli {
 			.stdout(stdout.into_std().await)
 			.stderr(stderr.into_std().await)
 			.spawn()
-			.map_err(|source| error!(!source, "failed to spawn the server"))?;
+			.map_err(|source| tg::error!(!source, "failed to spawn the server"))?;
 		Ok(())
 	}
 
-	fn read_config(path: Option<PathBuf>) -> Result<Option<Config>> {
+	fn read_config(path: Option<PathBuf>) -> tg::Result<Option<Config>> {
 		let home = std::env::var("HOME")
-			.map_err(|source| error!(!source, "failed to get the HOME environment variable"))?;
+			.map_err(|source| tg::error!(!source, "failed to get the HOME environment variable"))?;
 		let path = path.unwrap_or_else(|| PathBuf::from(home).join(".config/tangram/config.json"));
 		let config = match std::fs::read_to_string(&path) {
 			Ok(config) => config,
 			Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(None),
 			Err(source) => {
 				return Err(
-					error!(!source, %path = path.display(), "failed to read the config file"),
+					tg::error!(!source, %path = path.display(), "failed to read the config file"),
 				)
 			},
 		};
 		let config = serde_json::from_str(&config).map_err(
-			|source| error!(!source, %path = path.display(), "failed to deserialize the config"),
+			|source| tg::error!(!source, %path = path.display(), "failed to deserialize the config"),
 		)?;
 		Ok(Some(config))
 	}
 
-	fn write_config(config: &Config, path: Option<PathBuf>) -> Result<()> {
+	fn write_config(config: &Config, path: Option<PathBuf>) -> tg::Result<()> {
 		let home = std::env::var("HOME")
-			.map_err(|source| error!(!source, "failed to get the HOME environment variable"))?;
+			.map_err(|source| tg::error!(!source, "failed to get the HOME environment variable"))?;
 		let path = path.unwrap_or_else(|| PathBuf::from(home).join(".config/tangram/config.json"));
 		let config = serde_json::to_string_pretty(&config)
-			.map_err(|source| error!(!source, "failed to serialize the config"))?;
+			.map_err(|source| tg::error!(!source, "failed to serialize the config"))?;
 		std::fs::write(path, config)
-			.map_err(|source| error!(!source, "failed to save the config"))?;
+			.map_err(|source| tg::error!(!source, "failed to save the config"))?;
 		Ok(())
 	}
 
-	fn read_user(path: Option<PathBuf>) -> Result<Option<tg::User>> {
+	fn read_user(path: Option<PathBuf>) -> tg::Result<Option<tg::User>> {
 		let home = std::env::var("HOME")
-			.map_err(|source| error!(!source, "failed to get the HOME environment variable"))?;
+			.map_err(|source| tg::error!(!source, "failed to get the HOME environment variable"))?;
 		let path = path.unwrap_or_else(|| PathBuf::from(home).join(".config/tangram/user.json"));
 		let user = match std::fs::read_to_string(path) {
 			Ok(user) => user,
 			Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(None),
-			Err(source) => return Err(error!(!source, "failed to read the user file")),
+			Err(source) => return Err(tg::error!(!source, "failed to read the user file")),
 		};
 		let user = serde_json::from_str(&user)
-			.map_err(|source| error!(!source, "failed to deserialize the user"))?;
+			.map_err(|source| tg::error!(!source, "failed to deserialize the user"))?;
 		Ok(Some(user))
 	}
 
-	fn _write_user(user: &tg::User, path: Option<PathBuf>) -> Result<()> {
+	fn _write_user(user: &tg::User, path: Option<PathBuf>) -> tg::Result<()> {
 		let home = std::env::var("HOME")
-			.map_err(|source| error!(!source, "failed to get the HOME environment variable"))?;
+			.map_err(|source| tg::error!(!source, "failed to get the HOME environment variable"))?;
 		let path = path.unwrap_or_else(|| PathBuf::from(home).join(".config/tangram/user.json"));
 		let user = serde_json::to_string_pretty(&user.clone())
-			.map_err(|source| error!(!source, "failed to serialize the user"))?;
-		std::fs::write(path, user).map_err(|source| error!(!source, "failed to save the user"))?;
+			.map_err(|source| tg::error!(!source, "failed to serialize the user"))?;
+		std::fs::write(path, user)
+			.map_err(|source| tg::error!(!source, "failed to save the user"))?;
 		Ok(())
 	}
 }
 
-fn set_file_descriptor_limit(config: &Option<Config>) -> Result<()> {
+fn set_file_descriptor_limit(config: &Option<Config>) -> tg::Result<()> {
 	if let Some(file_descriptor_limit) = config
 		.as_ref()
 		.and_then(|config| config.advanced.as_ref())
@@ -340,7 +341,7 @@ fn set_file_descriptor_limit(config: &Option<Config>) -> Result<()> {
 		};
 		let ret = unsafe { libc::setrlimit(libc::RLIMIT_NOFILE, &new_fd_rlimit) };
 		if ret != 0 {
-			return Err(error!(
+			return Err(tg::error!(
 				source = std::io::Error::last_os_error(),
 				"failed to set the file descriptor limit"
 			));

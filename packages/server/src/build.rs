@@ -6,7 +6,6 @@ use indoc::formatdoc;
 use std::pin::pin;
 use tangram_client as tg;
 use tangram_database::{self as db, prelude::*};
-use tangram_error::{error, Error, Result};
 
 mod children;
 mod create;
@@ -23,7 +22,7 @@ impl Server {
 	pub(crate) async fn build_queue_task(
 		&self,
 		mut stop: tokio::sync::watch::Receiver<bool>,
-	) -> Result<()> {
+	) -> tg::Result<()> {
 		let task = self.build_queue_task_inner();
 		let stop = stop.wait_for(|stop| *stop);
 		future::select(pin!(task), pin!(stop))
@@ -35,7 +34,7 @@ impl Server {
 		Ok(())
 	}
 
-	async fn build_queue_task_inner(&self) -> Result<()> {
+	async fn build_queue_task_inner(&self) -> tg::Result<()> {
 		// Subscribe to messages that builds were created.
 		let mut subscription = self.inner.messenger.subscribe_to_build_created().await?;
 
@@ -97,7 +96,7 @@ impl Server {
 					};
 					build.set_outcome(&server, None, outcome).await?;
 					server.inner.build_state.write().unwrap().remove(build.id());
-					Ok::<_, Error>(())
+					Ok::<_, tg::Error>(())
 				}
 				.inspect_err(|error| {
 					tracing::error!(?error, "failed to run the build");
@@ -123,7 +122,7 @@ impl Server {
 		&self,
 		build: tg::Build,
 		permit: Option<tokio::sync::OwnedSemaphorePermit>,
-	) -> Result<tg::build::Outcome> {
+	) -> tg::Result<tg::build::Outcome> {
 		let id = build.id();
 
 		// If the build does not have a permit, then wait for one, either from the semaphore or one of the build's parents. We must handle the stop signal here to ensure the task isn't blocked waiting for a permit when it is stopped.
@@ -180,7 +179,7 @@ impl Server {
 			.read()
 			.unwrap()
 			.get(&*host)
-			.ok_or_else(|| error!(?id, ?host = &*host, "no runtime to build the target"))?
+			.ok_or_else(|| tg::error!(?id, ?host = &*host, "no runtime to build the target"))?
 			.clone();
 		let result = runtime.run(&build).await;
 
@@ -201,14 +200,14 @@ impl Server {
 		Ok(outcome)
 	}
 
-	async fn try_get_build_parent(&self, id: &tg::build::Id) -> Result<Option<tg::build::Id>> {
+	async fn try_get_build_parent(&self, id: &tg::build::Id) -> tg::Result<Option<tg::build::Id>> {
 		// Get a database connection.
 		let connection = self
 			.inner
 			.database
 			.connection()
 			.await
-			.map_err(|source| error!(!source, "failed to get a database connection"))?;
+			.map_err(|source| tg::error!(!source, "failed to get a database connection"))?;
 
 		// Get the parent.
 		let p = connection.p();
@@ -225,7 +224,7 @@ impl Server {
 		let parent = connection
 			.query_optional_value_into(statement, params)
 			.await
-			.map_err(|source| error!(!source, "failed to execute the statement"))?;
+			.map_err(|source| tg::error!(!source, "failed to execute the statement"))?;
 
 		// Drop the database connection.
 		drop(connection);
@@ -233,14 +232,14 @@ impl Server {
 		Ok(parent)
 	}
 
-	pub(crate) async fn get_build_exists_local(&self, id: &tg::build::Id) -> Result<bool> {
+	pub(crate) async fn get_build_exists_local(&self, id: &tg::build::Id) -> tg::Result<bool> {
 		// Get a database connection.
 		let connection = self
 			.inner
 			.database
 			.connection()
 			.await
-			.map_err(|source| error!(!source, "failed to get a database connection"))?;
+			.map_err(|source| tg::error!(!source, "failed to get a database connection"))?;
 
 		// Check if the build exists.
 		let p = connection.p();
@@ -255,7 +254,7 @@ impl Server {
 		let exists = connection
 			.query_one_value_into(statement, params)
 			.await
-			.map_err(|source| error!(!source, "failed to execute the statement"))?;
+			.map_err(|source| tg::error!(!source, "failed to execute the statement"))?;
 
 		// Drop the database connection.
 		drop(connection);

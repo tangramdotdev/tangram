@@ -1,6 +1,5 @@
 use super::Server;
 use tangram_client as tg;
-use tangram_error::Result;
 
 #[derive(Debug, serde::Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -16,7 +15,7 @@ pub struct Response {
 
 impl Server {
 	/// Get all diagnostics for the provided modules.
-	pub async fn check(&self, modules: Vec<tg::Module>) -> Result<Vec<tg::Diagnostic>> {
+	pub async fn check(&self, modules: Vec<tg::Module>) -> tg::Result<Vec<tg::Diagnostic>> {
 		// Create the request.
 		let request = super::Request::Check(Request { modules });
 

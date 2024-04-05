@@ -5,7 +5,6 @@ use bytes::Bytes;
 use itertools::Itertools;
 use std::collections::BTreeMap;
 use tangram_client as tg;
-use tangram_error::{error, Result};
 
 pub fn syscall<'s>(
 	scope: &mut v8::HandleScope<'s>,
@@ -56,7 +55,7 @@ fn syscall_documents(
 	_scope: &mut v8::HandleScope,
 	server: Server,
 	_args: (),
-) -> Result<Vec<tg::Module>> {
+) -> tg::Result<Vec<tg::Module>> {
 	server
 		.inner
 		.main_runtime_handle
@@ -75,11 +74,11 @@ fn syscall_encoding_base64_decode(
 	_scope: &mut v8::HandleScope,
 	_server: Server,
 	args: (String,),
-) -> Result<Bytes> {
+) -> tg::Result<Bytes> {
 	let (value,) = args;
 	let bytes = data_encoding::BASE64
 		.decode(value.as_bytes())
-		.map_err(|source| error!(!source, "failed to decode the bytes"))?;
+		.map_err(|source| tg::error!(!source, "failed to decode the bytes"))?;
 	Ok(bytes.into())
 }
 
@@ -87,7 +86,7 @@ fn syscall_encoding_base64_encode(
 	_scope: &mut v8::HandleScope,
 	_server: Server,
 	args: (Bytes,),
-) -> Result<String> {
+) -> tg::Result<String> {
 	let (value,) = args;
 	let encoded = data_encoding::BASE64.encode(&value);
 	Ok(encoded)
@@ -97,11 +96,11 @@ fn syscall_encoding_hex_decode(
 	_scope: &mut v8::HandleScope,
 	_server: Server,
 	args: (String,),
-) -> Result<Bytes> {
+) -> tg::Result<Bytes> {
 	let (string,) = args;
 	let bytes = data_encoding::HEXLOWER
 		.decode(string.as_bytes())
-		.map_err(|source| error!(!source, "failed to decode the string as hex"))?;
+		.map_err(|source| tg::error!(!source, "failed to decode the string as hex"))?;
 	Ok(bytes.into())
 }
 
@@ -109,7 +108,7 @@ fn syscall_encoding_hex_encode(
 	_scope: &mut v8::HandleScope,
 	_server: Server,
 	args: (Bytes,),
-) -> Result<String> {
+) -> tg::Result<String> {
 	let (bytes,) = args;
 	let hex = data_encoding::HEXLOWER.encode(&bytes);
 	Ok(hex)
@@ -119,10 +118,10 @@ fn syscall_encoding_json_decode(
 	_scope: &mut v8::HandleScope,
 	_server: Server,
 	args: (String,),
-) -> Result<serde_json::Value> {
+) -> tg::Result<serde_json::Value> {
 	let (json,) = args;
 	let value = serde_json::from_str(&json)
-		.map_err(|source| error!(!source, "failed to decode the string as json"))?;
+		.map_err(|source| tg::error!(!source, "failed to decode the string as json"))?;
 	Ok(value)
 }
 
@@ -130,10 +129,10 @@ fn syscall_encoding_json_encode(
 	_scope: &mut v8::HandleScope,
 	_server: Server,
 	args: (serde_json::Value,),
-) -> Result<String> {
+) -> tg::Result<String> {
 	let (value,) = args;
 	let json = serde_json::to_string(&value)
-		.map_err(|source| error!(!source, "failed to encode the value"))?;
+		.map_err(|source| tg::error!(!source, "failed to encode the value"))?;
 	Ok(json)
 }
 
@@ -141,10 +140,10 @@ fn syscall_encoding_toml_decode(
 	_scope: &mut v8::HandleScope,
 	_server: Server,
 	args: (String,),
-) -> Result<toml::Value> {
+) -> tg::Result<toml::Value> {
 	let (toml,) = args;
 	let value = toml::from_str(&toml)
-		.map_err(|source| error!(!source, "failed to decode the string as toml"))?;
+		.map_err(|source| tg::error!(!source, "failed to decode the string as toml"))?;
 	Ok(value)
 }
 
@@ -152,10 +151,10 @@ fn syscall_encoding_toml_encode(
 	_scope: &mut v8::HandleScope,
 	_server: Server,
 	args: (toml::Value,),
-) -> Result<String> {
+) -> tg::Result<String> {
 	let (value,) = args;
-	let toml =
-		toml::to_string(&value).map_err(|source| error!(!source, "failed to encode the value"))?;
+	let toml = toml::to_string(&value)
+		.map_err(|source| tg::error!(!source, "failed to encode the value"))?;
 	Ok(toml)
 }
 
@@ -163,10 +162,10 @@ fn syscall_encoding_utf8_decode(
 	_scope: &mut v8::HandleScope,
 	_server: Server,
 	args: (Bytes,),
-) -> Result<String> {
+) -> tg::Result<String> {
 	let (bytes,) = args;
 	let string = String::from_utf8(bytes.into())
-		.map_err(|source| error!(!source, "failed to decode the bytes as UTF-8"))?;
+		.map_err(|source| tg::error!(!source, "failed to decode the bytes as UTF-8"))?;
 	Ok(string)
 }
 
@@ -174,7 +173,7 @@ fn syscall_encoding_utf8_encode(
 	_scope: &mut v8::HandleScope,
 	_server: Server,
 	args: (String,),
-) -> Result<Bytes> {
+) -> tg::Result<Bytes> {
 	let (string,) = args;
 	let bytes = string.into_bytes().into();
 	Ok(bytes)
@@ -184,10 +183,10 @@ fn syscall_encoding_yaml_decode(
 	_scope: &mut v8::HandleScope,
 	_server: Server,
 	args: (String,),
-) -> Result<serde_yaml::Value> {
+) -> tg::Result<serde_yaml::Value> {
 	let (yaml,) = args;
 	let value = serde_yaml::from_str(&yaml)
-		.map_err(|source| error!(!source, "failed to decode the string as yaml"))?;
+		.map_err(|source| tg::error!(!source, "failed to decode the string as yaml"))?;
 	Ok(value)
 }
 
@@ -195,14 +194,14 @@ fn syscall_encoding_yaml_encode(
 	_scope: &mut v8::HandleScope,
 	_server: Server,
 	args: (serde_yaml::Value,),
-) -> Result<String> {
+) -> tg::Result<String> {
 	let (value,) = args;
 	let yaml = serde_yaml::to_string(&value)
-		.map_err(|source| error!(!source, "failed to encode the value"))?;
+		.map_err(|source| tg::error!(!source, "failed to encode the value"))?;
 	Ok(yaml)
 }
 
-fn syscall_log(_scope: &mut v8::HandleScope, _server: Server, args: (String,)) -> Result<()> {
+fn syscall_log(_scope: &mut v8::HandleScope, _server: Server, args: (String,)) -> tg::Result<()> {
 	let (string,) = args;
 	tracing::debug!("{string}");
 	Ok(())
@@ -212,7 +211,7 @@ fn syscall_module_load(
 	_scope: &mut v8::HandleScope,
 	server: Server,
 	args: (tg::Module,),
-) -> Result<String> {
+) -> tg::Result<String> {
 	let (module,) = args;
 	server
 		.inner
@@ -222,7 +221,7 @@ fn syscall_module_load(
 			let text = server
 				.load_module(&module)
 				.await
-				.map_err(|source| error!(!source, %module, "failed to load the module"))?;
+				.map_err(|source| tg::error!(!source, %module, "failed to load the module"))?;
 			Ok(text)
 		})
 }
@@ -231,10 +230,10 @@ fn syscall_module_resolve(
 	_scope: &mut v8::HandleScope,
 	server: Server,
 	args: (tg::Module, String, Option<BTreeMap<String, String>>),
-) -> Result<tg::Module> {
+) -> tg::Result<tg::Module> {
 	let (module, specifier, attributes) = args;
 	let import = tg::Import::with_specifier_and_attributes(&specifier, attributes.as_ref())
-		.map_err(|source| error!(!source, "failed to create the import"))?;
+		.map_err(|source| tg::error!(!source, "failed to create the import"))?;
 	server
 		.inner
 		.main_runtime_handle
@@ -244,7 +243,7 @@ fn syscall_module_resolve(
 				.resolve_module(&module, &import)
 				.await
 				.map_err(|error| {
-					error!(
+					tg::error!(
 						source = error,
 						%specifier,
 						%module,
@@ -259,7 +258,7 @@ fn syscall_module_version(
 	_scope: &mut v8::HandleScope,
 	server: Server,
 	args: (tg::Module,),
-) -> Result<String> {
+) -> tg::Result<String> {
 	let (module,) = args;
 	server
 		.inner
@@ -275,11 +274,11 @@ fn syscall_sync<'s, A, T, F>(
 	scope: &mut v8::HandleScope<'s>,
 	args: &v8::FunctionCallbackArguments,
 	f: F,
-) -> Result<v8::Local<'s, v8::Value>>
+) -> tg::Result<v8::Local<'s, v8::Value>>
 where
 	A: serde::de::DeserializeOwned,
 	T: serde::Serialize,
-	F: FnOnce(&mut v8::HandleScope<'s>, Server, A) -> Result<T>,
+	F: FnOnce(&mut v8::HandleScope<'s>, Server, A) -> tg::Result<T>,
 {
 	// Get the context.
 	let context = scope.get_current_context();
@@ -293,14 +292,14 @@ where
 
 	// Deserialize the args.
 	let args = serde_v8::from_v8(scope, args.into())
-		.map_err(|source| error!(!source, "failed to deserialize the args"))?;
+		.map_err(|source| tg::error!(!source, "failed to deserialize the args"))?;
 
 	// Call the function.
 	let value = f(scope, server, args)?;
 
 	// Serialize the value.
 	let value = serde_v8::to_v8(scope, &value)
-		.map_err(|source| error!(!source, "failed to serialize the value"))?;
+		.map_err(|source| tg::error!(!source, "failed to serialize the value"))?;
 
 	Ok(value)
 }

@@ -3,7 +3,6 @@ use crate::{
 	Cli,
 };
 use tangram_client as tg;
-use tangram_error::Result;
 
 /// Get the log for a build.
 #[derive(Debug, clap::Args)]
@@ -13,7 +12,7 @@ pub struct Args {
 }
 
 impl Cli {
-	pub async fn command_log(&self, args: Args) -> Result<()> {
+	pub async fn command_log(&self, args: Args) -> tg::Result<()> {
 		let client = &self.client().await?;
 
 		let build = tg::Build::with_id(args.id);

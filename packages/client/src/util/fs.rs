@@ -1,7 +1,7 @@
+use crate::{self as tg, error};
 use std::path::Path;
-use tangram_error::{error, Result};
 
-pub async fn rmrf(path: impl AsRef<Path>) -> Result<()> {
+pub async fn rmrf(path: impl AsRef<Path>) -> tg::Result<()> {
 	let path = path.as_ref();
 
 	// Get the metadata for the path.

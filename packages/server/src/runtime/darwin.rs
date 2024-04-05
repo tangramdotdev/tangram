@@ -14,7 +14,6 @@ use std::{
 	os::unix::prelude::OsStrExt,
 };
 use tangram_client as tg;
-use tangram_error::{error, Error, Result};
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use url::Url;
 
@@ -30,7 +29,7 @@ impl Runtime {
 		}
 	}
 
-	pub async fn run(&self, build: &tg::Build) -> Result<tg::Value> {
+	pub async fn run(&self, build: &tg::Build) -> tg::Result<tg::Value> {
 		let server = &self.server;
 
 		// Get the target.
@@ -62,7 +61,7 @@ impl Runtime {
 		tokio::fs::create_dir_all(&root_directory_tmp)
 			.await
 			.map_err(|error| {
-				error!(
+				tg::error!(
 					source = error,
 					"failed to create the root temporary directory"
 				)
@@ -74,7 +73,7 @@ impl Runtime {
 		tokio::fs::create_dir_all(&output_parent_directory_tmp)
 			.await
 			.map_err(|error| {
-				error!(
+				tg::error!(
 					source = error,
 					"failed to create the output parent directory"
 				)
@@ -89,13 +88,13 @@ impl Runtime {
 		let home_directory_path = root_directory_path.join("Users/tangram");
 		tokio::fs::create_dir_all(&home_directory_path)
 			.await
-			.map_err(|source| error!(!source, "failed to create the home directory"))?;
+			.map_err(|source| tg::error!(!source, "failed to create the home directory"))?;
 
 		// Create the working directory.
 		let working_directory_path = root_directory_path.join("Users/tangram/work");
 		tokio::fs::create_dir_all(&working_directory_path)
 			.await
-			.map_err(|source| error!(!source, "failed to create the working directory"))?;
+			.map_err(|source| tg::error!(!source, "failed to create the working directory"))?;
 
 		// Render the executable.
 		let executable = target.executable(server).await?;
@@ -113,7 +112,7 @@ impl Runtime {
 			.map(|(key, value)| async {
 				let key = key.clone();
 				let value = render(server, value, &artifacts_directory_path).await?;
-				Ok::<_, Error>((key, value))
+				Ok::<_, tg::Error>((key, value))
 			})
 			.collect::<FuturesOrdered<_>>()
 			.try_collect()
@@ -125,7 +124,7 @@ impl Runtime {
 			.iter()
 			.map(|value| async {
 				let value = render(server, value, &artifacts_directory_path).await?;
-				Ok::<_, Error>(value)
+				Ok::<_, tg::Error>(value)
 			})
 			.collect::<FuturesOrdered<_>>()
 			.try_collect()
@@ -150,7 +149,7 @@ impl Runtime {
 		tokio::fs::create_dir_all(home_directory_path.join(".tangram"))
 			.await
 			.map_err(|error| {
-				error!(
+				tg::error!(
 					source = error,
 					"failed to create the guest .tangram directory"
 				)
@@ -163,7 +162,7 @@ impl Runtime {
 		// Start the proxy server.
 		let proxy = proxy::Server::start(server, build.id(), proxy_server_url)
 			.await
-			.map_err(|source| error!(!source, "failed to start the proxy server"))?;
+			.map_err(|source| tg::error!(!source, "failed to start the proxy server"))?;
 
 		// Create the sandbox profile.
 		let mut profile = String::new();
@@ -367,7 +366,7 @@ impl Runtime {
 		// Spawn the child.
 		let mut child = command
 			.spawn()
-			.map_err(|source| error!(!source, %executable, "failed to spawn the process"))?;
+			.map_err(|source| tg::error!(!source, %executable, "failed to spawn the process"))?;
 
 		// Create the log task.
 		let mut stdout = child.stdout.take().unwrap();
@@ -379,7 +378,7 @@ impl Runtime {
 				loop {
 					match stdout.read(&mut buf).await {
 						Err(error) => {
-							return Err(error!(source = error, "failed to read from the log"))
+							return Err(tg::error!(source = error, "failed to read from the log"))
 						},
 						Ok(0) => return Ok(()),
 						Ok(size) => {
@@ -436,13 +435,13 @@ impl Runtime {
 		let exit_status = child
 			.wait()
 			.await
-			.map_err(|source| error!(!source, "failed to wait for the process to exit"))?;
+			.map_err(|source| tg::error!(!source, "failed to wait for the process to exit"))?;
 
 		// Wait for the log task to complete.
 		log_task
 			.await
-			.map_err(|source| error!(!source, "failed to join the log task"))?
-			.map_err(|source| error!(!source, "the log task failed"))?;
+			.map_err(|source| tg::error!(!source, "failed to join the log task"))?
+			.map_err(|source| tg::error!(!source, "the log task failed"))?;
 
 		// Stop and join the proxy server.
 		proxy.stop();
@@ -450,27 +449,27 @@ impl Runtime {
 
 		// Return an error if the process did not exit successfully.
 		if !exit_status.success() {
-			return Err(error!("the process did not exit successfully"));
+			return Err(tg::error!("the process did not exit successfully"));
 		}
 
 		// Create the output.
 		let value = if tokio::fs::try_exists(&output_path)
 			.await
-			.map_err(|source| error!(!source, "failed to determine if the path exists"))?
+			.map_err(|source| tg::error!(!source, "failed to determine if the path exists"))?
 		{
 			// Check in the output.
 			let artifact = tg::Artifact::check_in(server, &output_path.clone().try_into()?)
 				.await
-				.map_err(|source| error!(!source, "failed to check in the output"))?;
+				.map_err(|source| tg::error!(!source, "failed to check in the output"))?;
 
 			// Verify the checksum if one was provided.
 			if let Some(expected) = target.checksum(server).await?.clone() {
 				let actual = artifact
 					.checksum(server, expected.algorithm())
 					.await
-					.map_err(|source| error!(!source, "failed to compute the checksum"))?;
+					.map_err(|source| tg::error!(!source, "failed to compute the checksum"))?;
 				if expected != tg::Checksum::Unsafe && expected != actual {
-					return Err(error!(
+					return Err(tg::error!(
 						%expected,
 						%actual,
 						"the checksum did not match"
@@ -540,7 +539,7 @@ fn escape(bytes: impl AsRef<[u8]>) -> String {
 }
 
 impl super::Trait for Runtime {
-	async fn run(&self, build: &tg::Build) -> Result<tg::Value> {
+	async fn run(&self, build: &tg::Build) -> tg::Result<tg::Value> {
 		self.run(build).await
 	}
 }

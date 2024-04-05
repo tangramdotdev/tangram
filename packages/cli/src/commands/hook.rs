@@ -1,6 +1,6 @@
 use crate::Cli;
 use indoc::formatdoc;
-use tangram_error::{error, Error, Result};
+use tangram_client as tg;
 
 /// Print the shell hook.
 #[derive(Debug, clap::Args)]
@@ -15,7 +15,7 @@ pub enum Shell {
 }
 
 impl Cli {
-	pub async fn command_hook(&self, args: Args) -> Result<()> {
+	pub async fn command_hook(&self, args: Args) -> tg::Result<()> {
 		let hook = match args.shell {
 			Shell::Bash => formatdoc!(
 				r#"
@@ -39,13 +39,13 @@ impl Cli {
 }
 
 impl std::str::FromStr for Shell {
-	type Err = Error;
+	type Err = tg::Error;
 
-	fn from_str(s: &str) -> Result<Self, Self::Err> {
+	fn from_str(s: &str) -> tg::Result<Self, Self::Err> {
 		match s {
 			"bash" => Ok(Shell::Bash),
 			"zsh" => Ok(Shell::Zsh),
-			_ => Err(error!("invalid shell")),
+			_ => Err(tg::error!("invalid shell")),
 		}
 	}
 }

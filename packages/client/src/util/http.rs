@@ -1,10 +1,10 @@
+use crate as tg;
 use bytes::Bytes;
 use http_body_util::BodyExt;
-use tangram_error::Error;
 
 pub type Incoming = hyper::body::Incoming;
 
-pub type Outgoing = http_body_util::combinators::UnsyncBoxBody<Bytes, Error>;
+pub type Outgoing = http_body_util::combinators::UnsyncBoxBody<Bytes, tg::Error>;
 
 #[must_use]
 pub fn empty() -> Outgoing {

@@ -1,4 +1,4 @@
-use crate::{mutation, object, template, Handle, Mutation, Template};
+use crate::{self as tg, error, mutation, object, template, Handle, Mutation, Template};
 use bytes::Bytes;
 use derive_more::{From, TryInto, TryUnwrap};
 use futures::{
@@ -8,7 +8,6 @@ use futures::{
 use itertools::Itertools;
 use num::ToPrimitive;
 use std::collections::BTreeMap;
-use tangram_error::{error, Error, Result};
 
 /// A value.
 #[derive(Clone, Debug, From, TryInto, serde::Deserialize, TryUnwrap)]
@@ -73,7 +72,11 @@ impl Value {
 		}
 	}
 
-	pub async fn push(&self, tg: &impl crate::Handle, remote: &impl crate::Handle) -> Result<()> {
+	pub async fn push(
+		&self,
+		tg: &impl crate::Handle,
+		remote: &impl crate::Handle,
+	) -> tg::Result<()> {
 		self.objects()
 			.iter()
 			.map(|object| object.push(tg, remote))
@@ -83,7 +86,7 @@ impl Value {
 		Ok(())
 	}
 
-	pub async fn data(&self, tg: &impl Handle) -> Result<Data> {
+	pub async fn data(&self, tg: &impl Handle) -> tg::Result<Data> {
 		let data = match self {
 			Self::Null => Data::Null,
 			Self::Bool(bool) => Data::Bool(*bool),
@@ -100,7 +103,7 @@ impl Value {
 			Self::Map(map) => Data::Map(
 				map.iter()
 					.map(|(key, value)| async move {
-						Ok::<_, Error>((key.clone(), value.data(tg).await?))
+						Ok::<_, tg::Error>((key.clone(), value.data(tg).await?))
 					})
 					.collect::<FuturesUnordered<_>>()
 					.try_collect()
@@ -116,13 +119,13 @@ impl Value {
 }
 
 impl Data {
-	pub fn serialize(&self) -> Result<Bytes> {
+	pub fn serialize(&self) -> tg::Result<Bytes> {
 		serde_json::to_vec(self)
 			.map(Into::into)
 			.map_err(|source| error!(!source, "failed to serialize the data"))
 	}
 
-	pub fn deserialize(bytes: &Bytes) -> Result<Self> {
+	pub fn deserialize(bytes: &Bytes) -> tg::Result<Self> {
 		serde_json::from_reader(bytes.as_ref())
 			.map_err(|source| error!(!source, "failed to deserialize the data"))
 	}
@@ -201,7 +204,7 @@ impl std::fmt::Display for Value {
 }
 
 impl TryFrom<Data> for Value {
-	type Error = Error;
+	type Error = tg::Error;
 
 	fn try_from(data: Data) -> std::result::Result<Self, Self::Error> {
 		Ok(match data {
@@ -214,7 +217,7 @@ impl TryFrom<Data> for Value {
 			},
 			Data::Map(map) => Self::Map(
 				map.into_iter()
-					.map(|(key, value)| Ok::<_, Error>((key, value.try_into()?)))
+					.map(|(key, value)| Ok::<_, tg::Error>((key, value.try_into()?)))
 					.try_collect()?,
 			),
 			Data::Object(id) => Self::Object(object::Handle::with_id(id)),
@@ -226,7 +229,7 @@ impl TryFrom<Data> for Value {
 }
 
 impl serde::Serialize for Data {
-	fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+	fn serialize<S>(&self, serializer: S) -> tg::Result<S::Ok, S::Error>
 	where
 		S: serde::Serializer,
 	{
@@ -278,7 +281,7 @@ impl serde::Serialize for Data {
 }
 
 impl<'de> serde::Deserialize<'de> for Data {
-	fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+	fn deserialize<D>(deserializer: D) -> tg::Result<Self, D::Error>
 	where
 		D: serde::Deserializer<'de>,
 	{
@@ -290,21 +293,21 @@ impl<'de> serde::Deserialize<'de> for Data {
 				formatter.write_str("a valid value")
 			}
 
-			fn visit_unit<E>(self) -> Result<Self::Value, E>
+			fn visit_unit<E>(self) -> tg::Result<Self::Value, E>
 			where
 				E: serde::de::Error,
 			{
 				Ok(Data::Null)
 			}
 
-			fn visit_bool<E>(self, value: bool) -> Result<Self::Value, E>
+			fn visit_bool<E>(self, value: bool) -> tg::Result<Self::Value, E>
 			where
 				E: serde::de::Error,
 			{
 				Ok(Data::Bool(value))
 			}
 
-			fn visit_i64<E>(self, value: i64) -> Result<Self::Value, E>
+			fn visit_i64<E>(self, value: i64) -> tg::Result<Self::Value, E>
 			where
 				E: serde::de::Error,
 			{
@@ -313,7 +316,7 @@ impl<'de> serde::Deserialize<'de> for Data {
 				})?))
 			}
 
-			fn visit_u64<E>(self, value: u64) -> Result<Self::Value, E>
+			fn visit_u64<E>(self, value: u64) -> tg::Result<Self::Value, E>
 			where
 				E: serde::de::Error,
 			{
@@ -322,28 +325,28 @@ impl<'de> serde::Deserialize<'de> for Data {
 				})?))
 			}
 
-			fn visit_f64<E>(self, value: f64) -> Result<Self::Value, E>
+			fn visit_f64<E>(self, value: f64) -> tg::Result<Self::Value, E>
 			where
 				E: serde::de::Error,
 			{
 				Ok(Data::Number(value))
 			}
 
-			fn visit_str<E>(self, value: &str) -> Result<Self::Value, E>
+			fn visit_str<E>(self, value: &str) -> tg::Result<Self::Value, E>
 			where
 				E: serde::de::Error,
 			{
 				Ok(Data::String(value.to_owned()))
 			}
 
-			fn visit_string<E>(self, value: String) -> Result<Self::Value, E>
+			fn visit_string<E>(self, value: String) -> tg::Result<Self::Value, E>
 			where
 				E: serde::de::Error,
 			{
 				Ok(Data::String(value))
 			}
 
-			fn visit_seq<A>(self, mut seq: A) -> Result<Self::Value, A::Error>
+			fn visit_seq<A>(self, mut seq: A) -> tg::Result<Self::Value, A::Error>
 			where
 				A: serde::de::SeqAccess<'de>,
 			{
@@ -354,7 +357,7 @@ impl<'de> serde::Deserialize<'de> for Data {
 				Ok(Data::Array(value))
 			}
 
-			fn visit_map<A>(self, mut map: A) -> Result<Self::Value, A::Error>
+			fn visit_map<A>(self, mut map: A) -> tg::Result<Self::Value, A::Error>
 			where
 				A: serde::de::MapAccess<'de>,
 			{

@@ -1,7 +1,6 @@
 use super::Server;
 use lsp_types as lsp;
 use tangram_client as tg;
-use tangram_error::Result;
 
 #[derive(Debug, serde::Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -20,7 +19,7 @@ impl Server {
 	pub(super) async fn handle_hover_request(
 		&self,
 		params: lsp::HoverParams,
-	) -> Result<Option<lsp::Hover>> {
+	) -> tg::Result<Option<lsp::Hover>> {
 		// Get the module.
 		let module = self
 			.module_for_url(&params.text_document_position_params.text_document.uri)
@@ -51,7 +50,7 @@ impl Server {
 		&self,
 		module: &tg::Module,
 		position: tg::Position,
-	) -> Result<Option<String>> {
+	) -> tg::Result<Option<String>> {
 		// Create the request.
 		let request = super::Request::Hover(Request {
 			module: module.clone(),

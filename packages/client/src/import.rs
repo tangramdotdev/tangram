@@ -1,7 +1,6 @@
-use crate as tg;
+use crate::{self as tg, error};
 use derive_more::TryUnwrap;
 use std::collections::BTreeMap;
-use tangram_error::{error, Error, Result};
 
 /// An import in a module.
 #[derive(Debug, Clone, PartialEq, Eq, Hash, TryUnwrap)]
@@ -18,7 +17,7 @@ impl Import {
 	pub fn with_specifier_and_attributes(
 		specifier: &str,
 		attributes: Option<&BTreeMap<String, String>>,
-	) -> Result<Self> {
+	) -> tg::Result<Self> {
 		// Parse the specifier.
 		let import = specifier.parse()?;
 
@@ -61,9 +60,9 @@ impl std::fmt::Display for Import {
 }
 
 impl std::str::FromStr for Import {
-	type Err = Error;
+	type Err = tg::Error;
 
-	fn from_str(value: &str) -> Result<Self, Self::Err> {
+	fn from_str(value: &str) -> tg::Result<Self, Self::Err> {
 		if value.starts_with('.') {
 			let path = value.parse::<tg::Path>()?;
 			if !matches!(path.extension(), Some("js" | "ts" | "tg.js" | "tg.ts")) {
@@ -91,9 +90,9 @@ impl From<Import> for String {
 }
 
 impl TryFrom<String> for Import {
-	type Error = Error;
+	type Error = tg::Error;
 
-	fn try_from(value: String) -> Result<Self, Self::Error> {
+	fn try_from(value: String) -> tg::Result<Self, Self::Error> {
 		value.parse()
 	}
 }

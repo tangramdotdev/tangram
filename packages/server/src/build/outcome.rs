@@ -8,7 +8,6 @@ use http_body_util::BodyExt;
 use indoc::formatdoc;
 use tangram_client as tg;
 use tangram_database::{self as db, prelude::*};
-use tangram_error::{error, Result};
 use time::format_description::well_known::Rfc3339;
 
 impl Server {
@@ -17,7 +16,7 @@ impl Server {
 		id: &tg::build::Id,
 		arg: tg::build::outcome::GetArg,
 		stop: Option<tokio::sync::watch::Receiver<bool>>,
-	) -> Result<Option<Option<tg::build::Outcome>>> {
+	) -> tg::Result<Option<Option<tg::build::Outcome>>> {
 		if let Some(outcome) = self
 			.try_get_build_outcome_local(id, arg.clone(), stop.clone())
 			.await?
@@ -38,7 +37,7 @@ impl Server {
 		id: &tg::build::Id,
 		arg: tg::build::outcome::GetArg,
 		stop: Option<tokio::sync::watch::Receiver<bool>>,
-	) -> Result<Option<Option<tg::build::Outcome>>> {
+	) -> tg::Result<Option<Option<tg::build::Outcome>>> {
 		// Verify the build is local.
 		if !self.get_build_exists_local(id).await? {
 			return Ok(None);
@@ -51,7 +50,7 @@ impl Server {
 		let finished = self
 			.try_get_build_status_local(id, arg, stop)
 			.await?
-			.ok_or_else(|| error!("expected the build to exist"))?
+			.ok_or_else(|| tg::error!("expected the build to exist"))?
 			.try_filter_map(|status| {
 				future::ready(Ok(if status == tg::build::Status::Finished {
 					Some(())
@@ -72,7 +71,7 @@ impl Server {
 			.database
 			.connection()
 			.await
-			.map_err(|source| error!(!source, "failed to get a database connection"))?;
+			.map_err(|source| tg::error!(!source, "failed to get a database connection"))?;
 		let p = connection.p();
 		let statement = formatdoc!(
 			"
@@ -85,7 +84,7 @@ impl Server {
 		let outcome = connection
 			.query_optional_value_into(statement, params)
 			.await
-			.map_err(|source| error!(!source, "failed to execute the statement"))?;
+			.map_err(|source| tg::error!(!source, "failed to execute the statement"))?;
 
 		Ok(Some(outcome))
 	}
@@ -95,7 +94,7 @@ impl Server {
 		id: &tg::build::Id,
 		arg: tg::build::outcome::GetArg,
 		stop: Option<tokio::sync::watch::Receiver<bool>>,
-	) -> Result<Option<Option<tg::build::Outcome>>> {
+	) -> tg::Result<Option<Option<tg::build::Outcome>>> {
 		let Some(remote) = self.inner.remotes.first() else {
 			return Ok(None);
 		};
@@ -110,7 +109,7 @@ impl Server {
 		user: Option<&tg::User>,
 		id: &tg::build::Id,
 		outcome: tg::build::Outcome,
-	) -> Result<()> {
+	) -> tg::Result<()> {
 		if self
 			.try_set_build_outcome_local(user, id, outcome.clone())
 			.await?
@@ -123,7 +122,7 @@ impl Server {
 		{
 			return Ok(());
 		}
-		Err(error!("failed to get the build"))
+		Err(tg::error!("failed to get the build"))
 	}
 
 	async fn try_set_build_outcome_local(
@@ -131,7 +130,7 @@ impl Server {
 		user: Option<&tg::User>,
 		id: &tg::build::Id,
 		outcome: tg::build::Outcome,
-	) -> Result<bool> {
+	) -> tg::Result<bool> {
 		// Verify the build is local.
 		if !self.get_build_exists_local(id).await? {
 			return Ok(false);
@@ -144,10 +143,10 @@ impl Server {
 		let status = self
 			.try_get_build_status_local(id, arg, None)
 			.await?
-			.ok_or_else(|| error!("expected the build to exist"))?
+			.ok_or_else(|| tg::error!("expected the build to exist"))?
 			.try_next()
 			.await?
-			.ok_or_else(|| error!("failed to get the status"))?;
+			.ok_or_else(|| tg::error!("failed to get the status"))?;
 		if status == tg::build::Status::Finished {
 			return Ok(true);
 		}
@@ -158,7 +157,7 @@ impl Server {
 			.database
 			.connection()
 			.await
-			.map_err(|source| error!(!source, "failed to get a database connection"))?;
+			.map_err(|source| tg::error!(!source, "failed to get a database connection"))?;
 
 		// Get the children.
 		let p = connection.p();
@@ -174,7 +173,7 @@ impl Server {
 		let children = connection
 			.query_all_value_into(statement, params)
 			.await
-			.map_err(|source| error!(!source, "failed to execute the statement"))?;
+			.map_err(|source| tg::error!(!source, "failed to execute the statement"))?;
 
 		// Drop the connection.
 		drop(connection);
@@ -204,8 +203,8 @@ impl Server {
 				};
 				self.try_get_build_outcome(child_id, arg, None)
 					.await?
-					.ok_or_else(|| error!(%child_id, "failed to get the build"))?
-					.ok_or_else(|| error!(%child_id, "expected the build to be finished"))
+					.ok_or_else(|| tg::error!(%child_id, "failed to get the build"))?
+					.ok_or_else(|| tg::error!(%child_id, "expected the build to be finished"))
 			})
 			.collect::<FuturesUnordered<_>>()
 			.try_collect::<Vec<_>>()
@@ -232,7 +231,7 @@ impl Server {
 			.database
 			.connection()
 			.await
-			.map_err(|source| error!(!source, "failed to get a database connection"))?;
+			.map_err(|source| tg::error!(!source, "failed to get a database connection"))?;
 
 		// Remove the build log.
 		let p = connection.p();
@@ -246,7 +245,7 @@ impl Server {
 		connection
 			.execute(statement, params)
 			.await
-			.map_err(|source| error!(!source, "failed to execute the statement"))?;
+			.map_err(|source| tg::error!(!source, "failed to execute the statement"))?;
 
 		// Add the log to the build objects.
 		let p = connection.p();
@@ -261,7 +260,7 @@ impl Server {
 		connection
 			.execute(statement, params)
 			.await
-			.map_err(|source| error!(!source, "failed to execute the statement"))?;
+			.map_err(|source| tg::error!(!source, "failed to execute the statement"))?;
 
 		// Add the outcome's children to the build objects.
 		let objects = outcome
@@ -282,7 +281,7 @@ impl Server {
 			connection
 				.execute(statement, params)
 				.await
-				.map_err(|source| error!(!source, "failed to execute the statement"))?;
+				.map_err(|source| tg::error!(!source, "failed to execute the statement"))?;
 		}
 
 		// Compute the count.
@@ -300,7 +299,7 @@ impl Server {
 		let count = connection
 			.query_one_value_into::<Option<u64>>(statement, params)
 			.await
-			.map_err(|source| error!(!source, "failed to execute the statement"))?;
+			.map_err(|source| tg::error!(!source, "failed to execute the statement"))?;
 
 		// Compute the weight.
 		let p = connection.p();
@@ -329,7 +328,7 @@ impl Server {
 		let weight = connection
 			.query_one_value_into::<Option<u64>>(statement, params)
 			.await
-			.map_err(|source| error!(!source, "failed to execute the statement"))?;
+			.map_err(|source| tg::error!(!source, "failed to execute the statement"))?;
 
 		// Update the build.
 		let p = connection.p();
@@ -359,7 +358,7 @@ impl Server {
 		connection
 			.execute(statement, params)
 			.await
-			.map_err(|source| error!(!source, "failed to execute the statement"))?;
+			.map_err(|source| tg::error!(!source, "failed to execute the statement"))?;
 
 		// Drop the connection.
 		drop(connection);
@@ -375,7 +374,7 @@ impl Server {
 		user: Option<&tg::User>,
 		id: &tg::build::Id,
 		outcome: tg::build::Outcome,
-	) -> Result<bool> {
+	) -> tg::Result<bool> {
 		// Get the remote.
 		let Some(remote) = self.inner.remotes.first() else {
 			return Ok(false);
@@ -400,16 +399,16 @@ where
 	pub async fn handle_get_build_outcome_request(
 		&self,
 		request: http::Request<Incoming>,
-	) -> Result<hyper::Response<Outgoing>> {
+	) -> tg::Result<hyper::Response<Outgoing>> {
 		// Get the path params.
 		let path_components: Vec<&str> = request.uri().path().split('/').skip(1).collect();
 		let ["builds", id, "outcome"] = path_components.as_slice() else {
 			let path = request.uri().path();
-			return Err(error!(%path, "unexpected path"));
+			return Err(tg::error!(%path, "unexpected path"));
 		};
 		let id = id
 			.parse()
-			.map_err(|source| error!(!source, "failed to parse the ID"))?;
+			.map_err(|source| tg::error!(!source, "failed to parse the ID"))?;
 
 		// Get the search params.
 		let arg = request
@@ -417,7 +416,7 @@ where
 			.query()
 			.map(serde_urlencoded::from_str)
 			.transpose()
-			.map_err(|source| error!(!source, "failed to deserialize the search params"))?
+			.map_err(|source| tg::error!(!source, "failed to deserialize the search params"))?
 			.unwrap_or_default();
 
 		let stop = request.extensions().get().cloned().unwrap();
@@ -437,7 +436,7 @@ where
 			None
 		};
 		let body = serde_json::to_vec(&outcome)
-			.map_err(|source| error!(!source, "failed to serialize the body"))?;
+			.map_err(|source| tg::error!(!source, "failed to serialize the body"))?;
 		let body = full(body);
 
 		// Create the response.
@@ -452,15 +451,15 @@ where
 	pub async fn handle_set_build_outcome_request(
 		&self,
 		request: http::Request<Incoming>,
-	) -> Result<hyper::Response<Outgoing>> {
+	) -> tg::Result<hyper::Response<Outgoing>> {
 		// Get the path params.
 		let path_components: Vec<&str> = request.uri().path().split('/').skip(1).collect();
 		let ["builds", id, "outcome"] = path_components.as_slice() else {
-			return Err(error!("unexpected path"));
+			return Err(tg::error!("unexpected path"));
 		};
 		let id = id
 			.parse()
-			.map_err(|source| error!(!source, "failed to parse the ID"))?;
+			.map_err(|source| tg::error!(!source, "failed to parse the ID"))?;
 
 		// Get the user.
 		let user = self.try_get_user_from_request(&request).await?;
@@ -470,10 +469,10 @@ where
 			.into_body()
 			.collect()
 			.await
-			.map_err(|source| error!(!source, "failed to read the body"))?
+			.map_err(|source| tg::error!(!source, "failed to read the body"))?
 			.to_bytes();
 		let outcome = serde_json::from_slice(&bytes)
-			.map_err(|source| error!(!source, "failed to deserialize the body"))?;
+			.map_err(|source| tg::error!(!source, "failed to deserialize the body"))?;
 
 		// Set the outcome.
 		self.inner

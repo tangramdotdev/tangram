@@ -11,7 +11,6 @@ use std::{
 	},
 };
 use tangram_client as tg;
-use tangram_error::{error, Result};
 use tui::{layout::Rect, style::Stylize, widgets::Widget};
 mod scroll;
 
@@ -99,7 +98,7 @@ struct LogInner {
 	lines: std::sync::Mutex<Vec<String>>,
 
 	// The log streaming task.
-	log_task: std::sync::Mutex<Option<tokio::task::JoinHandle<Result<()>>>>,
+	log_task: std::sync::Mutex<Option<tokio::task::JoinHandle<tg::Result<()>>>>,
 
 	// A watch to be notified when new logs are received from the log task.
 	log_watch: tokio::sync::Mutex<Option<tokio::sync::watch::Receiver<()>>>,
@@ -108,7 +107,7 @@ struct LogInner {
 	max_position: AtomicU64,
 
 	// The event handler task.
-	event_task: std::sync::Mutex<Option<tokio::task::JoinHandle<Result<()>>>>,
+	event_task: std::sync::Mutex<Option<tokio::task::JoinHandle<tg::Result<()>>>>,
 
 	// The bounding box of the log view.
 	rect: tokio::sync::watch::Sender<Rect>,
@@ -130,26 +129,30 @@ pub struct Options {
 }
 
 impl Tui {
-	pub async fn start(client: &tg::Client, build: &tg::Build, options: Options) -> Result<Self> {
+	pub async fn start(
+		client: &tg::Client,
+		build: &tg::Build,
+		options: Options,
+	) -> tg::Result<Self> {
 		// Create the terminal.
 		let tty = tokio::fs::OpenOptions::new()
 			.read(true)
 			.write(true)
 			.open("/dev/tty")
 			.await
-			.map_err(|source| error!(!source, "failed to open /dev/tty"))?;
+			.map_err(|source| tg::error!(!source, "failed to open /dev/tty"))?;
 		let tty = tty.into_std().await;
 		let backend = Backend::new(tty);
 		let mut terminal = Terminal::new(backend)
-			.map_err(|source| error!(!source, "failed to create the terminal backend"))?;
+			.map_err(|source| tg::error!(!source, "failed to create the terminal backend"))?;
 		ct::terminal::enable_raw_mode()
-			.map_err(|source| error!(!source, "failed to enable the terminal's raw mode"))?;
+			.map_err(|source| tg::error!(!source, "failed to enable the terminal's raw mode"))?;
 		ct::execute!(
 			terminal.backend_mut(),
 			ct::event::EnableMouseCapture,
 			ct::terminal::EnterAlternateScreen,
 		)
-		.map_err(|source| error!(!source, "failed to set up the terminal"))?;
+		.map_err(|source| tg::error!(!source, "failed to set up the terminal"))?;
 
 		// Create the stop flag.
 		let (stop, _) = tokio::sync::watch::channel(false);
@@ -203,7 +206,7 @@ impl Tui {
 		self.stop.send_replace(true);
 	}
 
-	pub async fn join(mut self) -> Result<()> {
+	pub async fn join(mut self) -> tg::Result<()> {
 		// Get the task.
 		let Some(task) = self.task.take() else {
 			return Ok(());
@@ -213,20 +216,20 @@ impl Tui {
 		let mut terminal = task
 			.await
 			.unwrap()
-			.map_err(|source| error!(!source, "the task did not succeed"))?;
+			.map_err(|source| tg::error!(!source, "the task did not succeed"))?;
 
 		// Reset the terminal.
 		terminal
 			.clear()
-			.map_err(|source| error!(!source, "failed to clear the terminal"))?;
+			.map_err(|source| tg::error!(!source, "failed to clear the terminal"))?;
 		ct::execute!(
 			terminal.backend_mut(),
 			ct::event::DisableMouseCapture,
 			ct::terminal::LeaveAlternateScreen
 		)
-		.map_err(|source| error!(!source, "failed to reset the terminal"))?;
+		.map_err(|source| tg::error!(!source, "failed to reset the terminal"))?;
 		ct::terminal::disable_raw_mode()
-			.map_err(|source| error!(!source, "failed to disable the terminal's raw mode"))?;
+			.map_err(|source| tg::error!(!source, "failed to disable the terminal's raw mode"))?;
 
 		Ok(())
 	}
@@ -775,7 +778,7 @@ impl Drop for TreeItemInner {
 	}
 }
 
-async fn title(client: &tg::Client, build: &tg::Build) -> Result<Option<String>> {
+async fn title(client: &tg::Client, build: &tg::Build) -> tg::Result<Option<String>> {
 	// Get the target.
 	let target = build.target(client).await?;
 
@@ -875,7 +878,7 @@ impl Log {
 		log
 	}
 
-	async fn init(&self) -> Result<()> {
+	async fn init(&self) -> tg::Result<()> {
 		let client = &self.inner.client;
 		let position = Some(std::io::SeekFrom::End(0));
 
@@ -893,7 +896,7 @@ impl Log {
 			.await?
 			.try_next()
 			.await?
-			.ok_or_else(|| error!("failed to get a log chunk"))?;
+			.ok_or_else(|| tg::error!("failed to get a log chunk"))?;
 		let max_position = chunk.position + chunk.bytes.len().to_u64().unwrap();
 		self.inner
 			.max_position
@@ -921,7 +924,7 @@ impl Log {
 	}
 
 	// Handle a scroll up event.
-	async fn up_impl(&self) -> Result<()> {
+	async fn up_impl(&self) -> tg::Result<()> {
 		// Create the scroll state if necessary.
 		if self.inner.scroll.lock().await.is_none() {
 			loop {
@@ -958,7 +961,7 @@ impl Log {
 	}
 
 	// Handle a scroll down event.
-	async fn down_impl(&self) -> Result<()> {
+	async fn down_impl(&self) -> tg::Result<()> {
 		loop {
 			let mut scroll = self.inner.scroll.lock().await;
 			let Some(scroll_) = scroll.as_mut() else {
@@ -983,7 +986,7 @@ impl Log {
 	}
 
 	// Update the rendered lines.
-	async fn update_lines(&self) -> Result<()> {
+	async fn update_lines(&self) -> tg::Result<()> {
 		loop {
 			let chunks = self.inner.chunks.lock().await;
 			if chunks.is_empty() {
@@ -1017,7 +1020,7 @@ impl Log {
 	}
 
 	// Update the log stream. If prepend is Some, the tailing stream is destroyed and bytes are appended to the the front.
-	async fn update_log_stream(&self, append: bool) -> Result<()> {
+	async fn update_log_stream(&self, append: bool) -> tg::Result<()> {
 		// If we're appending and the task already exists, just wait for more data to be available.
 		if append && self.inner.log_watch.lock().await.is_some() {
 			let mut watch = self.inner.log_watch.lock().await.clone().unwrap();

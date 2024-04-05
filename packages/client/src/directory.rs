@@ -1,9 +1,10 @@
-use crate::{artifact, id, object, util::arc::Ext as _, Artifact, Error, Handle, Result, Symlink};
+use crate::{
+	self as tg, artifact, error, id, object, util::arc::Ext as _, Artifact, Handle, Symlink,
+};
 use bytes::Bytes;
 use derive_more::Display;
 use futures::{stream::FuturesOrdered, TryStreamExt};
 use std::{collections::BTreeMap, sync::Arc};
-use tangram_error::error;
 
 #[derive(
 	Clone,
@@ -71,21 +72,21 @@ impl Directory {
 		Self { state }
 	}
 
-	pub async fn id(&self, tg: &impl Handle) -> Result<Id> {
+	pub async fn id(&self, tg: &impl Handle) -> tg::Result<Id> {
 		self.store(tg).await
 	}
 
-	pub async fn object(&self, tg: &impl Handle) -> Result<Arc<Object>> {
+	pub async fn object(&self, tg: &impl Handle) -> tg::Result<Arc<Object>> {
 		self.load(tg).await
 	}
 
-	pub async fn load(&self, tg: &impl Handle) -> Result<Arc<Object>> {
+	pub async fn load(&self, tg: &impl Handle) -> tg::Result<Arc<Object>> {
 		self.try_load(tg)
 			.await?
 			.ok_or_else(|| error!("failed to load the object"))
 	}
 
-	pub async fn try_load(&self, tg: &impl Handle) -> Result<Option<Arc<Object>>> {
+	pub async fn try_load(&self, tg: &impl Handle) -> tg::Result<Option<Arc<Object>>> {
 		if let Some(object) = self.state.read().unwrap().object.clone() {
 			return Ok(Some(object));
 		}
@@ -101,7 +102,7 @@ impl Directory {
 		Ok(Some(object))
 	}
 
-	pub async fn store(&self, tg: &impl Handle) -> Result<Id> {
+	pub async fn store(&self, tg: &impl Handle) -> tg::Result<Id> {
 		if let Some(id) = self.state.read().unwrap().id.clone() {
 			return Ok(id);
 		}
@@ -120,13 +121,13 @@ impl Directory {
 		Ok(id)
 	}
 
-	pub async fn data(&self, tg: &impl Handle) -> Result<Data> {
+	pub async fn data(&self, tg: &impl Handle) -> tg::Result<Data> {
 		let object = self.object(tg).await?;
 		let entries = object
 			.entries
 			.iter()
 			.map(|(name, artifact)| async move {
-				Ok::<_, Error>((name.clone(), artifact.id(tg).await?))
+				Ok::<_, tg::Error>((name.clone(), artifact.id(tg).await?))
 			})
 			.collect::<FuturesOrdered<_>>()
 			.try_collect()
@@ -141,18 +142,18 @@ impl Directory {
 		Self::with_object(Object { entries })
 	}
 
-	pub async fn builder(&self, tg: &impl Handle) -> Result<Builder> {
+	pub async fn builder(&self, tg: &impl Handle) -> tg::Result<Builder> {
 		Ok(Builder::new(self.object(tg).await?.entries.clone()))
 	}
 
 	pub async fn entries(
 		&self,
 		tg: &impl Handle,
-	) -> Result<impl std::ops::Deref<Target = BTreeMap<String, Artifact>>> {
+	) -> tg::Result<impl std::ops::Deref<Target = BTreeMap<String, Artifact>>> {
 		Ok(self.object(tg).await?.map(|object| &object.entries))
 	}
 
-	pub async fn get(&self, tg: &impl Handle, path: &crate::Path) -> Result<Artifact> {
+	pub async fn get(&self, tg: &impl Handle, path: &crate::Path) -> tg::Result<Artifact> {
 		let artifact = self
 			.try_get(tg, path)
 			.await?
@@ -160,7 +161,11 @@ impl Directory {
 		Ok(artifact)
 	}
 
-	pub async fn try_get(&self, tg: &impl Handle, path: &crate::Path) -> Result<Option<Artifact>> {
+	pub async fn try_get(
+		&self,
+		tg: &impl Handle,
+		path: &crate::Path,
+	) -> tg::Result<Option<Artifact>> {
 		// Track the current artifact.
 		let mut artifact: Artifact = self.clone().into();
 
@@ -207,13 +212,13 @@ impl Directory {
 }
 
 impl Data {
-	pub fn serialize(&self) -> Result<Bytes> {
+	pub fn serialize(&self) -> tg::Result<Bytes> {
 		serde_json::to_vec(self)
 			.map(Into::into)
 			.map_err(|source| error!(!source, "failed to serialize the data"))
 	}
 
-	pub fn deserialize(bytes: &Bytes) -> Result<Self> {
+	pub fn deserialize(bytes: &Bytes) -> tg::Result<Self> {
 		serde_json::from_reader(bytes.as_ref())
 			.map_err(|source| error!(!source, "failed to deserialize the data"))
 	}
@@ -225,7 +230,7 @@ impl Data {
 }
 
 impl TryFrom<Data> for Object {
-	type Error = Error;
+	type Error = tg::Error;
 
 	fn try_from(data: Data) -> std::result::Result<Self, Self::Error> {
 		let entries = data
@@ -255,9 +260,9 @@ impl From<Id> for crate::Id {
 }
 
 impl TryFrom<crate::Id> for Id {
-	type Error = Error;
+	type Error = tg::Error;
 
-	fn try_from(value: crate::Id) -> Result<Self, Self::Error> {
+	fn try_from(value: crate::Id) -> tg::Result<Self, Self::Error> {
 		if value.kind() != id::Kind::Directory {
 			return Err(error!(%value, "invalid kind"));
 		}
@@ -266,9 +271,9 @@ impl TryFrom<crate::Id> for Id {
 }
 
 impl std::str::FromStr for Id {
-	type Err = Error;
+	type Err = tg::Error;
 
-	fn from_str(s: &str) -> Result<Self, Self::Err> {
+	fn from_str(s: &str) -> tg::Result<Self, Self::Err> {
 		crate::Id::from_str(s)?.try_into()
 	}
 }
@@ -289,7 +294,7 @@ impl Builder {
 		tg: &impl Handle,
 		path: &crate::Path,
 		artifact: Artifact,
-	) -> Result<Self> {
+	) -> tg::Result<Self> {
 		// Get the first component.
 		let name = path
 			.components()
@@ -331,7 +336,7 @@ impl Builder {
 		Ok(self)
 	}
 
-	pub async fn remove(mut self, tg: &impl Handle, path: &crate::Path) -> Result<Self> {
+	pub async fn remove(mut self, tg: &impl Handle, path: &crate::Path) -> tg::Result<Self> {
 		// Get the first component.
 		let name = path
 			.components()

@@ -1,6 +1,5 @@
 use super::Server;
 use tangram_client as tg;
-use tangram_error::{error, Result};
 
 #[derive(Debug, serde::Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -12,7 +11,7 @@ pub type Response = serde_json::Value;
 
 impl Server {
 	/// Get the documentation for a module.
-	pub async fn doc(&self, module: &tg::Module) -> Result<Response> {
+	pub async fn doc(&self, module: &tg::Module) -> tg::Result<Response> {
 		// Create the request.
 		let request = super::Request::Doc(Request {
 			module: module.clone(),
@@ -23,7 +22,7 @@ impl Server {
 
 		// Get the response.
 		let super::Response::Doc(response) = response else {
-			return Err(error!("unexpected response type"));
+			return Err(tg::error!("unexpected response type"));
 		};
 
 		Ok(response)

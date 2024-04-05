@@ -1,7 +1,6 @@
 use crate::Cli;
 use std::path::PathBuf;
 use tangram_client as tg;
-use tangram_error::{error, Result};
 
 /// Check in an artifact.
 #[derive(Debug, clap::Args)]
@@ -11,12 +10,12 @@ pub struct Args {
 }
 
 impl Cli {
-	pub async fn command_checkin(&self, args: Args) -> Result<()> {
+	pub async fn command_checkin(&self, args: Args) -> tg::Result<()> {
 		let client = &self.client().await?;
 
 		// Get the path.
 		let mut path = std::env::current_dir()
-			.map_err(|source| error!(!source, "failed to get the working directory"))?;
+			.map_err(|source| tg::error!(!source, "failed to get the working directory"))?;
 		if let Some(path_arg) = &args.path {
 			path.push(path_arg);
 		}

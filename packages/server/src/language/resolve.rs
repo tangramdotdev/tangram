@@ -1,6 +1,5 @@
 use super::Server;
 use tangram_client as tg;
-use tangram_error::{error, Result};
 
 impl Server {
 	/// Resolve an import from a module.
@@ -8,14 +7,14 @@ impl Server {
 		&self,
 		module: &tg::Module,
 		import: &tg::Import,
-	) -> Result<tg::Module> {
+	) -> tg::Result<tg::Module> {
 		match (module, import) {
 			(tg::Module::Library(module), tg::Import::Module(path)) => {
 				let path = module.path.clone().parent().join(path.clone()).normalize();
 				Ok(tg::Module::Library(tg::module::Library { path }))
 			},
 
-			(tg::Module::Library(_), tg::Import::Dependency(_)) => Err(error!(
+			(tg::Module::Library(_), tg::Import::Dependency(_)) => Err(tg::error!(
 				r#"cannot resolve a dependency import from a library module"#
 			)),
 
@@ -35,11 +34,11 @@ impl Server {
 					tokio::fs::try_exists(&module_absolute_path)
 						.await
 						.map_err(|error| {
-							error!(source = error, "failed to determine if the path exists")
+							tg::error!(source = error, "failed to determine if the path exists")
 						})?;
 				if !exists {
 					let path = module_absolute_path.display();
-					return Err(error!(%path, "could not find a module"));
+					return Err(tg::error!(%path, "could not find a module"));
 				}
 
 				// Get or create the document.
@@ -64,7 +63,7 @@ impl Server {
 				let package_path = document.package_path.join(dependency_path.to_string());
 				let package_path = tokio::fs::canonicalize(package_path)
 					.await
-					.map_err(|source| error!(!source, "failed to canonicalize the path"))?;
+					.map_err(|source| tg::error!(!source, "failed to canonicalize the path"))?;
 
 				// Get the package's root module path.
 				let module_path = tg::package::get_root_module_path_for_path(&package_path).await?;
@@ -98,7 +97,7 @@ impl Server {
 
 				// Get the package and lock for the dependency.
 				let (package, lock) = lock.get(&self.inner.server, &dependency).await.map_err(
-					|source| error!(!source, %dependency, "failed to resolve dependency"),
+					|source| tg::error!(!source, %dependency, "failed to resolve dependency"),
 				)?;
 				let package = package.unwrap();
 
@@ -136,7 +135,7 @@ impl Server {
 
 				// Get the specified package and lock from the dependencies.
 				let (package, lock) = lock.get(&self.inner.server, &dependency).await.map_err(
-					|source| error!(!source, %dependency, "failed to resolve dependency"),
+					|source| tg::error!(!source, %dependency, "failed to resolve dependency"),
 				)?;
 				let package = match (package, &dependency.path) {
 					(Some(package), _) => package,
@@ -146,14 +145,14 @@ impl Server {
 							.get(&self.inner.server, path)
 							.await
 							.map_err(
-								|source| error!(!source, %path, "could not resolve path dependency"),
+								|source| tg::error!(!source, %path, "could not resolve path dependency"),
 							)?
 							.try_unwrap_directory()
-							.map_err(|_| error!("expected a directory"))?
+							.map_err(|_| tg::error!("expected a directory"))?
 					},
 					(None, None) => {
 						return Err(
-							error!(%dependency, "could not resolve dependency in lock or as path"),
+							tg::error!(%dependency, "could not resolve dependency in lock or as path"),
 						)
 					},
 				};

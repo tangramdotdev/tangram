@@ -2,7 +2,7 @@ use super::SOURCE_MAP;
 use num::ToPrimitive;
 use sourcemap::SourceMap;
 use std::{collections::BTreeMap, sync::Arc};
-use tangram_error::Error;
+use tangram_client as tg;
 
 #[derive(Debug, serde::Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -30,7 +30,7 @@ struct CallSite {
 
 pub(super) fn to_exception<'s>(
 	scope: &mut v8::HandleScope<'s>,
-	error: &tangram_error::Error,
+	error: &tg::error::Error,
 ) -> v8::Local<'s, v8::Value> {
 	let context = scope.get_current_context();
 	let global = context.global(scope);
@@ -51,7 +51,7 @@ pub(super) fn to_exception<'s>(
 pub(super) fn from_exception<'s>(
 	scope: &mut v8::HandleScope<'s>,
 	exception: v8::Local<'s, v8::Value>,
-) -> Error {
+) -> tg::Error {
 	let context = scope.get_current_context();
 	let global = context.global(scope);
 	let language = v8::String::new_external_onebyte_static(scope, "language".as_bytes()).unwrap();
@@ -109,7 +109,7 @@ pub(super) fn from_exception<'s>(
 		.map(|error| Arc::new(error) as _);
 	let values = BTreeMap::new();
 	// Create the error.
-	Error {
+	tg::Error {
 		message,
 		location,
 		stack,
@@ -118,16 +118,16 @@ pub(super) fn from_exception<'s>(
 	}
 }
 
-fn get_location(line: u32, column: u32) -> Option<tangram_error::Location> {
+fn get_location(line: u32, column: u32) -> Option<tg::error::Location> {
 	let source_map = SourceMap::from_slice(SOURCE_MAP).unwrap();
 	let token = source_map.lookup_token(line, column)?;
 	let symbol = token.get_name().map(String::from);
-	let source = tangram_error::Source::Internal {
+	let source = tg::error::Source::Internal {
 		path: token.get_source().unwrap().to_owned(),
 	};
 	let line = token.get_src_line();
 	let column = token.get_src_col();
-	let location = tangram_error::Location {
+	let location = tg::error::Location {
 		symbol,
 		source,
 		line,

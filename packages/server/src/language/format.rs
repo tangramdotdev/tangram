@@ -1,7 +1,6 @@
 use super::Server;
 use lsp_types as lsp;
 use tangram_client as tg;
-use tangram_error::Result;
 
 #[derive(Debug, serde::Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -16,7 +15,7 @@ pub struct Response {
 }
 
 impl Server {
-	pub async fn format(&self, text: String) -> Result<String> {
+	pub async fn format(&self, text: String) -> tg::Result<String> {
 		// Create the request.
 		let request = super::Request::Format(Request { text });
 
@@ -31,7 +30,7 @@ impl Server {
 	pub(super) async fn handle_format_request(
 		&self,
 		params: lsp::DocumentFormattingParams,
-	) -> Result<Option<Vec<lsp::TextEdit>>> {
+	) -> tg::Result<Option<Vec<lsp::TextEdit>>> {
 		// Get the module.
 		let module = self.module_for_url(&params.text_document.uri).await?;
 

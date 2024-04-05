@@ -1,4 +1,3 @@
-use crossterm::style::Stylize;
 use serde_with::serde_as;
 use std::{collections::BTreeMap, fmt::Debug, sync::Arc};
 use thiserror::Error;
@@ -49,8 +48,8 @@ pub enum Source {
 }
 
 pub struct Trace<'a> {
-	error: &'a Error,
-	options: &'a TraceOptions,
+	pub error: &'a Error,
+	pub options: &'a TraceOptions,
 }
 
 #[serde_as]
@@ -84,43 +83,8 @@ impl Source {
 	}
 }
 
-impl<'a> Trace<'a> {
-	pub fn eprint(&self) {
-		let mut errors = vec![self.error];
-		while let Some(next) = errors.last().unwrap().source.as_ref() {
-			errors.push(next);
-		}
-		if !self.options.reverse {
-			errors.reverse();
-		}
-
-		for error in errors {
-			eprintln!("{} {}", "->".red(), error.message);
-			if let Some(location) = &error.location {
-				if !location.source.is_internal() || self.options.internal {
-					let location = location.to_string().yellow();
-					eprintln!("   {location}");
-				}
-			}
-
-			for (name, value) in &error.values {
-				let name = name.as_str().blue();
-				let value = value.as_str().green();
-				eprintln!("   {name} = {value}");
-			}
-
-			let mut stack = error.stack.iter().flatten().collect::<Vec<_>>();
-			if !self.options.reverse {
-				stack.reverse();
-			}
-			for location in stack {
-				if !location.source.is_internal() || self.options.internal {
-					let location = location.to_string().yellow();
-					eprintln!("   {location}");
-				}
-			}
-		}
-	}
+pub fn ok<T>(value: T) -> Result<T> {
+	Ok(value)
 }
 
 impl From<Box<dyn std::error::Error + Send + Sync + 'static>> for Error {
@@ -255,26 +219,26 @@ impl serde::de::Error for Error {
 ///
 /// Usage:
 /// ```rust
-/// use tangram_error::{error, Location};
-/// error!("error message");
-/// error!("error message with interpolation {}", 42);
+/// use tangram_client as tg;
+/// tg::error!("error message");
+/// tg::error!("error message with interpolation {}", 42);
 ///
 /// let name = "value";
-/// error!(%name, "error message with a named value (pretty printed)");
-/// error!(?name, "error message with a named value (debug printed)");
+/// tg::error!(%name, "error message with a named value (pretty printed)");
+/// tg::error!(?name, "error message with a named value (debug printed)");
 ///
 /// let error = std::io::Error::last_os_error();
-/// error!(source = error, "an error that wraps an existing error");
+/// tg::error!(source = error, "an error that wraps an existing error");
 ///
 /// let stack_trace = vec![
-///     Location {
+///     tg::error::Location {
 ///         symbol: Some("my_cool_function".into()),
 ///         source: "foo.rs".into(),
 ///         line: 123,
 ///         column: 456,
 ///     }
 /// ];
-/// error!(stack = stack_trace, "an error with a custom stack trace");
+/// tg::error!(stack = stack_trace, "an error with a custom stack trace");
 /// ```
 #[macro_export]
 macro_rules! error {
@@ -318,9 +282,9 @@ macro_rules! error {
 	($($arg:tt)*) => {{
 		let mut __error = $crate::Error {
 			message: String::new(),
-			location: Some($crate::Location {
+			location: Some($crate::error::Location {
 				symbol: Some($crate::function!().to_owned()),
-				source: $crate::Source::Internal{ path: file!().to_owned() },
+				source: $crate::error::Source::Internal{ path: file!().to_owned() },
 				line: line!() - 1,
 				column: column!() - 1,
 			}),
@@ -383,6 +347,6 @@ mod tests {
 	#[test]
 	fn function_macro() {
 		let f = function!();
-		assert_eq!(f, "tangram_error::tests::function_macro");
+		assert_eq!(f, "tangram_client::error::tests::function_macro");
 	}
 }

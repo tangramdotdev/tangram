@@ -1,7 +1,6 @@
 use super::Server;
 use include_dir::include_dir;
 use tangram_client as tg;
-use tangram_error::{error, Result};
 
 const TANGRAM_D_TS: &str = include_str!(concat!(
 	env!("CARGO_MANIFEST_DIR"),
@@ -12,7 +11,7 @@ const LIB: include_dir::Dir = include_dir!("$CARGO_MANIFEST_DIR/src/language/lib
 
 impl Server {
 	/// Load a module.
-	pub async fn load_module(&self, module: &tg::Module) -> Result<String> {
+	pub async fn load_module(&self, module: &tg::Module) -> tg::Result<String> {
 		match module {
 			// Load a library module.
 			tg::Module::Library(module) => {
@@ -22,10 +21,10 @@ impl Server {
 					_ => LIB
 						.get_file(&path)
 						.ok_or_else(
-							|| error!(%path, "could not find a library module at the path"),
+							|| tg::error!(%path, "could not find a library module at the path"),
 						)?
 						.contents_utf8()
-						.ok_or_else(|| error!("failed to read the file as UTF-8"))?,
+						.ok_or_else(|| tg::error!("failed to read the file as UTF-8"))?,
 				};
 				Ok(text.to_owned())
 			},
@@ -43,7 +42,7 @@ impl Server {
 				let file = entry
 					.try_unwrap_file_ref()
 					.ok()
-					.ok_or_else(|| error!("expected a file"))?;
+					.ok_or_else(|| tg::error!("expected a file"))?;
 				let text = file.text(&self.inner.server).await?;
 
 				Ok(text)

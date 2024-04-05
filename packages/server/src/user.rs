@@ -5,11 +5,10 @@ use crate::{
 use indoc::formatdoc;
 use tangram_client as tg;
 use tangram_database::{self as db, prelude::*};
-use tangram_error::{error, Result};
 use url::Url;
 
 impl Server {
-	pub async fn create_login(&self) -> Result<tg::user::Login> {
+	pub async fn create_login(&self) -> tg::Result<tg::user::Login> {
 		if let Some(remote) = self.inner.remotes.first() {
 			return remote.create_login().await;
 		}
@@ -35,7 +34,7 @@ impl Server {
 			.database
 			.connection()
 			.await
-			.map_err(|source| error!(!source, "failed to get a database connection"))?;
+			.map_err(|source| tg::error!(!source, "failed to get a database connection"))?;
 
 		// Add the login to the database.
 		let p = connection.p();
@@ -49,7 +48,7 @@ impl Server {
 		connection
 			.execute(statement, params)
 			.await
-			.map_err(|source| error!(!source, "failed to execute the statement"))?;
+			.map_err(|source| tg::error!(!source, "failed to execute the statement"))?;
 
 		// Drop the database connection.
 		drop(connection);
@@ -57,7 +56,7 @@ impl Server {
 		Ok(login)
 	}
 
-	pub async fn get_login(&self, id: &tg::Id) -> Result<Option<tg::user::Login>> {
+	pub async fn get_login(&self, id: &tg::Id) -> tg::Result<Option<tg::user::Login>> {
 		if let Some(remote) = self.inner.remotes.first() {
 			return remote.get_login(id).await;
 		}
@@ -68,7 +67,7 @@ impl Server {
 			.database
 			.connection()
 			.await
-			.map_err(|source| error!(!source, "failed to get a database connection"))?;
+			.map_err(|source| tg::error!(!source, "failed to get a database connection"))?;
 
 		// Get the login.
 		let p = connection.p();
@@ -83,7 +82,7 @@ impl Server {
 		let login = connection
 			.query_optional_into(statement, params)
 			.await
-			.map_err(|source| error!(!source, "failed to execute the statement"))?;
+			.map_err(|source| tg::error!(!source, "failed to execute the statement"))?;
 
 		// Drop the database connection.
 		drop(connection);
@@ -91,7 +90,7 @@ impl Server {
 		Ok(login)
 	}
 
-	pub async fn get_user_for_token(&self, token: &str) -> Result<Option<tg::user::User>> {
+	pub async fn get_user_for_token(&self, token: &str) -> tg::Result<Option<tg::user::User>> {
 		if let Some(remote) = self.inner.remotes.first() {
 			return remote.get_user_for_token(token).await;
 		}
@@ -102,7 +101,7 @@ impl Server {
 			.database
 			.connection()
 			.await
-			.map_err(|source| error!(!source, "failed to get a database connection"))?;
+			.map_err(|source| tg::error!(!source, "failed to get a database connection"))?;
 
 		// Get the user for the token.
 		let p = connection.p();
@@ -118,7 +117,7 @@ impl Server {
 		let user = connection
 			.query_optional_into(statement, params)
 			.await
-			.map_err(|source| error!(!source, "failed to execute the statement"))?;
+			.map_err(|source| tg::error!(!source, "failed to execute the statement"))?;
 
 		// Drop the database connection.
 		drop(connection);
@@ -126,20 +125,20 @@ impl Server {
 		Ok(user)
 	}
 
-	// pub async fn create_oauth_url(&self, login_id: &tg::Id) -> Result<Url> {
+	// pub async fn create_oauth_url(&self, login_id: &tg::Id) -> tg::Result<Url> {
 	// 	// Get the GitHub OAuth client.
 	// 	let oauth_client = self
 	// 		.inner
 	// 		.oauth
 	// 		.github
 	// 		.as_ref()
-	// 		.ok_or_else(|| error!("the GitHub OAuth client is not configured"))?;
+	// 		.ok_or_else(||tg::error!("the GitHub OAuth client is not configured"))?;
 
 	// 	// Create the authorize URL.
 	// 	let mut redirect_url = oauth_client.redirect_url().unwrap().url().clone();
 	// 	redirect_url.set_query(Some(&format!("id={login_id}")));
 	// 	let redirect_url = oauth2::RedirectUrl::new(redirect_url.to_string())
-	// 		.map_err(|source| error!(!source, "failed to create the redirect url"))?;
+	// 		.map_err(|source|tg::error!(!source, "failed to create the redirect url"))?;
 	// 	let (oauth_authorize_url, _csrf_token) = oauth_client
 	// 		.authorize_url(oauth2::CsrfToken::new_random)
 	// 		.set_redirect_uri(Cow::Owned(redirect_url))
@@ -153,21 +152,21 @@ impl Server {
 	// 	&self,
 	// 	login_id: tg::Id,
 	// 	github_code: String,
-	// ) -> Result<tg::user::User> {
+	// ) -> tg::Result<tg::user::User> {
 	// 	// Get the GitHub OAuth client.
 	// 	let github_oauth_client = self
 	// 		.inner
 	// 		.oauth
 	// 		.github
 	// 		.as_ref()
-	// 		.ok_or_else(|| error!("the GitHub OAuth client is not configured"))?;
+	// 		.ok_or_else(||tg::error!("the GitHub OAuth client is not configured"))?;
 
 	// 	// Get a GitHub token.
 	// 	let github_token = github_oauth_client
 	// 		.exchange_code(oauth2::AuthorizationCode::new(github_code))
 	// 		.request_async(oauth2::reqwest::async_http_client)
 	// 		.await
-	// 		.map_err(|source| error!(!source, "failed to exchange the code"))?;
+	// 		.map_err(|source|tg::error!(!source, "failed to exchange the code"))?;
 
 	// 	// Create the GitHub client.
 	// 	let octocrab = octocrab::OctocrabBuilder::new()
@@ -175,7 +174,7 @@ impl Server {
 	// 			access_token: github_token.access_token().secret().clone().into(),
 	// 			token_type: match github_token.token_type() {
 	// 				oauth2::basic::BasicTokenType::Bearer => "Bearer".to_owned(),
-	// 				token_type => return Err(error!(?token_type, "unsupported token type")),
+	// 				token_type => return Err(tg::error!(?token_type, "unsupported token type")),
 	// 			},
 	// 			scope: github_token.scopes().map_or_else(Vec::new, |scopes| {
 	// 				scopes.iter().map(|scope| scope.to_string()).collect()
@@ -185,7 +184,7 @@ impl Server {
 	// 			refresh_token_expires_in: None,
 	// 		})
 	// 		.build()
-	// 		.map_err(|source| error!(!source, "failed to create the GitHub client"))?;
+	// 		.map_err(|source|tg::error!(!source, "failed to create the GitHub client"))?;
 
 	// 	// Get the GitHub user's primary email.
 	// 	#[derive(serde::Deserialize)]
@@ -197,13 +196,13 @@ impl Server {
 	// 	let emails: Vec<Entry> = octocrab
 	// 		.get("/user/emails", None::<&()>)
 	// 		.await
-	// 		.map_err(|source| error!(!source, "failed to perform the request"))?;
+	// 		.map_err(|source|tg::error!(!source, "failed to perform the request"))?;
 	// 	let email = emails
 	// 		.into_iter()
 	// 		.find(|email| email.verified && email.primary)
 	// 		.map(|email| email.email)
 	// 		.ok_or_else(|| {
-	// 			error!("the GitHub user does not have a verified primary email address")
+	// 		tg::error!("the GitHub user does not have a verified primary email address")
 	// 		})?;
 
 	// 	// Log the user in.
@@ -215,7 +214,7 @@ impl Server {
 	// 		.database
 	// 		.connection()
 	// 		.await
-	// 		.map_err(|source| error!(!source, "failed to get a database connection"))?;
+	// 		.map_err(|source|tg::error!(!source, "failed to get a database connection"))?;
 	// 	let p = connection.p();
 	// 	let statement = formatdoc!(
 	// 		"
@@ -228,19 +227,19 @@ impl Server {
 	// 	connection
 	// 		.execute(statement, params)
 	// 		.await
-	// 		.map_err(|source| error!(!source, "failed to execute the statement"))?;
+	// 		.map_err(|source|tg::error!(!source, "failed to execute the statement"))?;
 
 	// 	Ok(user)
 	// }
 
-	// pub async fn login(&self, email: &str) -> Result<(tg::user::User, tg::Id)> {
+	// pub async fn login(&self, email: &str) -> tg::Result<(tg::user::User, tg::Id)> {
 	// 	// Get a database connection.
 	// 	let connection = self
 	// 		.inner
 	// 		.database
 	// 		.connection()
 	// 		.await
-	// 		.map_err(|source| error!(!source, "failed to get a database connection"))?;
+	// 		.map_err(|source|tg::error!(!source, "failed to get a database connection"))?;
 
 	// 	// Retrieve a user with the specified email, or create one if one does not exist.
 	// 	let p = connection.p();
@@ -255,7 +254,7 @@ impl Server {
 	// 	let id = connection
 	// 		.query_optional_value_into(statement, params)
 	// 		.await
-	// 		.map_err(|source| error!(!source, "failed to execute the statement"))?;
+	// 		.map_err(|source|tg::error!(!source, "failed to execute the statement"))?;
 	// 	let user_id = if let Some(id) = id {
 	// 		id
 	// 	} else {
@@ -271,7 +270,7 @@ impl Server {
 	// 		connection
 	// 			.execute(statement, params)
 	// 			.await
-	// 			.map_err(|source| error!(!source, "failed to execute the statement"))?;
+	// 			.map_err(|source|tg::error!(!source, "failed to execute the statement"))?;
 	// 		id
 	// 	};
 
@@ -288,7 +287,7 @@ impl Server {
 	// 	connection
 	// 		.execute(statement, params)
 	// 		.await
-	// 		.map_err(|source| error!(!source, "failed to execute the statement"))?;
+	// 		.map_err(|source|tg::error!(!source, "failed to execute the statement"))?;
 
 	// 	// Drop the database connection.
 	// 	drop(connection);
@@ -311,13 +310,13 @@ where
 	pub async fn handle_create_login_request(
 		&self,
 		_request: http::Request<Incoming>,
-	) -> Result<http::Response<Outgoing>> {
+	) -> tg::Result<http::Response<Outgoing>> {
 		// Create the login.
 		let output = self.inner.tg.create_login().await?;
 
 		// Create the body.
 		let body = serde_json::to_vec(&output)
-			.map_err(|source| error!(!source, "failed to serialize the body"))?;
+			.map_err(|source| tg::error!(!source, "failed to serialize the body"))?;
 		let body = full(body);
 
 		// Create the response.
@@ -329,12 +328,12 @@ where
 	pub async fn handle_get_login_request(
 		&self,
 		request: http::Request<Incoming>,
-	) -> Result<http::Response<Outgoing>> {
+	) -> tg::Result<http::Response<Outgoing>> {
 		// Get the path params.
 		let path_components: Vec<&str> = request.uri().path().split('/').skip(1).collect();
 		let ["logins", id] = path_components.as_slice() else {
 			let path = request.uri().path();
-			return Err(error!(%path, "unexpected path"));
+			return Err(tg::error!(%path, "unexpected path"));
 		};
 		let Ok(id) = id.parse() else {
 			return Ok(bad_request());
@@ -345,7 +344,7 @@ where
 
 		// Create the body.
 		let body = serde_json::to_vec(&output)
-			.map_err(|source| error!(!source, "failed to serialize the body"))?;
+			.map_err(|source| tg::error!(!source, "failed to serialize the body"))?;
 		let body = full(body);
 
 		// Create the response.
@@ -357,7 +356,7 @@ where
 	pub async fn handle_get_user_for_token_request(
 		&self,
 		request: http::Request<Incoming>,
-	) -> Result<http::Response<Outgoing>> {
+	) -> tg::Result<http::Response<Outgoing>> {
 		// Get the user from the request.
 		let Some(user) = self.try_get_user_from_request(&request).await? else {
 			return Ok(unauthorized());
@@ -365,7 +364,7 @@ where
 
 		// Create the body.
 		let body = serde_json::to_vec(&user)
-			.map_err(|source| error!(!source, "failed to serialize the body"))?;
+			.map_err(|source| tg::error!(!source, "failed to serialize the body"))?;
 		let body = full(body);
 
 		// Create the response.
@@ -380,7 +379,7 @@ where
 	// pub async fn handle_create_oauth_url_request(
 	// 	&self,
 	// 	request: http::Request<Incoming>,
-	// ) -> Result<http::Response<Outgoing>> {
+	// ) -> tg::Result<http::Response<Outgoing>> {
 	// 	#[derive(serde::Deserialize)]
 	// 	struct SearchParams {
 	// 		id: tg::Id,
@@ -410,7 +409,7 @@ where
 	// pub async fn handle_oauth_callback_request(
 	// 	&self,
 	// 	request: http::Request<Incoming>,
-	// ) -> Result<http::Response<Outgoing>> {
+	// ) -> tg::Result<http::Response<Outgoing>> {
 	// 	#[derive(serde::Serialize, serde::Deserialize)]
 	// 	struct SearchParams {
 	// 		id: tg::Id,

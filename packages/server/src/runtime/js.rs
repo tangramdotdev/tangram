@@ -15,7 +15,6 @@ use std::{
 	str::FromStr, task::Poll,
 };
 use tangram_client as tg;
-use tangram_error::{error, Error, Result};
 use tokio::io::AsyncWriteExt;
 
 mod convert;
@@ -39,12 +38,12 @@ struct State {
 	log_sender: RefCell<Option<tokio::sync::mpsc::UnboundedSender<String>>>,
 	main_runtime_handle: tokio::runtime::Handle,
 	modules: RefCell<Vec<Module>>,
-	rejection: tokio::sync::watch::Sender<Option<Error>>,
+	rejection: tokio::sync::watch::Sender<Option<tg::Error>>,
 	server: Server,
 }
 
 type Futures = FuturesUnordered<
-	LocalBoxFuture<'static, (Result<Box<dyn ToV8>>, v8::Global<v8::PromiseResolver>)>,
+	LocalBoxFuture<'static, (tg::Result<Box<dyn ToV8>>, v8::Global<v8::PromiseResolver>)>,
 >;
 
 #[allow(clippy::struct_field_names)]
@@ -62,7 +61,7 @@ impl Runtime {
 		}
 	}
 
-	pub async fn run(&self, build: &tg::Build) -> Result<tg::Value> {
+	pub async fn run(&self, build: &tg::Build) -> tg::Result<tg::Value> {
 		let server = &self.server;
 
 		// Create a handle to the main runtime.
@@ -105,7 +104,7 @@ impl Runtime {
 		build: &tg::Build,
 		main_runtime_handle: tokio::runtime::Handle,
 		isolate_handle_sender: tokio::sync::watch::Sender<Option<v8::IsolateHandle>>,
-	) -> Result<tg::Value> {
+	) -> tg::Result<tg::Value> {
 		// Get the target.
 		let target = build.target(server).await?;
 
@@ -213,7 +212,7 @@ impl Runtime {
 			let undefined = v8::undefined(scope);
 			let target = target
 				.to_v8(scope)
-				.map_err(|source| error!(!source, "failed to serialize the target"))?;
+				.map_err(|source| tg::error!(!source, "failed to serialize the target"))?;
 			let value = start.call(scope, undefined.into(), &[target]).unwrap();
 
 			// Make the value global.
@@ -301,7 +300,7 @@ impl Runtime {
 
 										// If the promise is pending, then execution was terminated.
 										v8::PromiseState::Pending => {
-											Err(error!("execution was terminated"))
+											Err(tg::error!("execution was terminated"))
 										},
 									}
 								},
@@ -324,7 +323,7 @@ impl Runtime {
 			future::Either::Left((result, _)) => result,
 			future::Either::Right((result, _)) => {
 				let error = result.unwrap();
-				Err(error!(
+				Err(tg::error!(
 					source = error,
 					"an unhandled promise rejection occurred"
 				))
@@ -335,7 +334,7 @@ impl Runtime {
 		state.log_sender.borrow_mut().take().unwrap();
 		log_task
 			.await
-			.map_err(|source| error!(!source, "failed to join the log task"))?;
+			.map_err(|source| tg::error!(!source, "failed to join the log task"))?;
 
 		result
 	}
@@ -416,7 +415,7 @@ fn resolve_module_callback<'s>(
 		.iter()
 		.find(|module| module.v8_identity_hash == identity_hash)
 		.map(|module| module.module.clone())
-		.ok_or_else(|| error!(%identity_hash, "unable to find the module with identity hash"))
+		.ok_or_else(|| tg::error!(%identity_hash, "unable to find the module with identity hash"))
 	{
 		Ok(module) => module,
 		Err(error) => {
@@ -459,7 +458,7 @@ fn resolve_module(
 	});
 
 	let module = match receiver.recv().unwrap().map_err(
-		|source| error!(!source, %import, %module, "failed to resolve import relative to module"),
+		|source| tg::error!(!source, %import, %module, "failed to resolve import relative to module"),
 	) {
 		Ok(module) => module,
 		Err(error) => {
@@ -527,7 +526,7 @@ fn load_module<'s>(
 	let text = match receiver
 		.recv()
 		.unwrap()
-		.map_err(|source| error!(!source, %module, "failed to load module"))
+		.map_err(|source| tg::error!(!source, %module, "failed to load module"))
 	{
 		Ok(text) => text,
 		Err(error) => {
@@ -542,7 +541,7 @@ fn load_module<'s>(
 		transpiled_text,
 		source_map,
 	} = match crate::language::Server::transpile_module(text)
-		.map_err(|source| error!(!source, "failed to transpile the module"))
+		.map_err(|source| tg::error!(!source, "failed to transpile the module"))
 	{
 		Ok(output) => output,
 		Err(error) => {
@@ -554,7 +553,7 @@ fn load_module<'s>(
 
 	// Parse the source map.
 	let source_map = match SourceMap::from_slice(source_map.as_bytes())
-		.map_err(|source| error!(!source, "failed to parse the source map"))
+		.map_err(|source| tg::error!(!source, "failed to parse the source map"))
 	{
 		Ok(source_map) => source_map,
 		Err(error) => {
@@ -651,7 +650,7 @@ fn parse_import_inner<'s>(
 	scope: &mut v8::HandleScope<'s>,
 	specifier: v8::Local<'s, v8::String>,
 	attributes: v8::Local<'s, v8::FixedArray>,
-) -> Result<tg::Import> {
+) -> tg::Result<tg::Import> {
 	// Get the specifier.
 	let specifier = specifier.to_rust_string_lossy(scope);
 
@@ -662,16 +661,16 @@ fn parse_import_inner<'s>(
 		while i < attributes.length() % 2 {
 			let key = attributes
 				.get(scope, i)
-				.ok_or_else(|| error!("failed to get the key"))?;
+				.ok_or_else(|| tg::error!("failed to get the key"))?;
 			let key = v8::Local::<v8::Value>::try_from(key)
-				.map_err(|source| error!(!source, "failed to convert the key"))?;
+				.map_err(|source| tg::error!(!source, "failed to convert the key"))?;
 			let key = key.to_rust_string_lossy(scope);
 			i += 1;
 			let value = attributes
 				.get(scope, i)
-				.ok_or_else(|| error!("failed to get the value"))?;
+				.ok_or_else(|| tg::error!("failed to get the value"))?;
 			let value = v8::Local::<v8::Value>::try_from(value)
-				.map_err(|source| error!(!source, "failed to convert the value"))?;
+				.map_err(|source| tg::error!(!source, "failed to convert the value"))?;
 			let value = value.to_rust_string_lossy(scope);
 			i += 1;
 			map.insert(key, value);
@@ -688,7 +687,7 @@ fn parse_import_inner<'s>(
 }
 
 impl super::Trait for Runtime {
-	async fn run(&self, build: &tg::Build) -> Result<tg::Value> {
+	async fn run(&self, build: &tg::Build) -> tg::Result<tg::Value> {
 		self.run(build).await
 	}
 }

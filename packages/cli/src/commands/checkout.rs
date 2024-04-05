@@ -1,7 +1,6 @@
 use crate::Cli;
 use std::path::PathBuf;
 use tangram_client as tg;
-use tangram_error::{error, Result};
 
 /// Check out an artifact.
 #[derive(Debug, clap::Args)]
@@ -18,7 +17,7 @@ pub struct Args {
 }
 
 impl Cli {
-	pub async fn command_checkout(&self, args: Args) -> Result<()> {
+	pub async fn command_checkout(&self, args: Args) -> tg::Result<()> {
 		let client = &self.client().await?;
 
 		// Get the artifact.
@@ -27,20 +26,20 @@ impl Cli {
 		// Get the path.
 		let path = if let Some(path) = args.path {
 			let current = std::env::current_dir()
-				.map_err(|source| error!(!source, "failed to get the working directory"))?;
+				.map_err(|source| tg::error!(!source, "failed to get the working directory"))?;
 			let path = current.join(&path);
 			let parent = path
 				.parent()
-				.ok_or_else(|| error!("the path must have a parent directory"))?;
+				.ok_or_else(|| tg::error!("the path must have a parent directory"))?;
 			let file_name = path
 				.file_name()
-				.ok_or_else(|| error!("the path must have a file name"))?;
+				.ok_or_else(|| tg::error!("the path must have a file name"))?;
 			tokio::fs::create_dir_all(parent)
 				.await
-				.map_err(|source| error!(!source, "failed to create the parent directory"))?;
+				.map_err(|source| tg::error!(!source, "failed to create the parent directory"))?;
 			let path = parent
 				.canonicalize()
-				.map_err(|source| error!(!source, "failed to canonicalize the path"))?
+				.map_err(|source| tg::error!(!source, "failed to canonicalize the path"))?
 				.join(file_name);
 			let path = path.try_into()?;
 			Some(path)
@@ -58,7 +57,7 @@ impl Cli {
 		let output = artifact
 			.check_out(client, arg)
 			.await
-			.map_err(|source| error!(!source, "failed to check out the artifact"))?;
+			.map_err(|source| tg::error!(!source, "failed to check out the artifact"))?;
 
 		// Print the path.
 		println!("{}", output.path);

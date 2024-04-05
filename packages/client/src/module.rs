@@ -1,7 +1,6 @@
 use super::document::Document;
-use crate as tg;
+use crate::{self as tg, error};
 use derive_more::{TryUnwrap, Unwrap};
-use tangram_error::{error, Error, Result};
 use url::Url;
 
 /// A module.
@@ -76,9 +75,9 @@ impl From<Module> for Url {
 }
 
 impl TryFrom<Url> for Module {
-	type Error = Error;
+	type Error = tg::Error;
 
-	fn try_from(url: Url) -> Result<Self, Self::Error> {
+	fn try_from(url: Url) -> tg::Result<Self, Self::Error> {
 		// Ensure the scheme is "tg".
 		if url.scheme() != "tg" {
 			return Err(error!(%url, "the URL has an invalid scheme"));
@@ -111,9 +110,9 @@ impl std::fmt::Display for Module {
 }
 
 impl std::str::FromStr for Module {
-	type Err = Error;
+	type Err = tg::Error;
 
-	fn from_str(s: &str) -> Result<Self, Self::Err> {
+	fn from_str(s: &str) -> tg::Result<Self, Self::Err> {
 		let url: Url = s
 			.parse()
 			.map_err(|source| error!(!source, "failed to parse the URL"))?;
@@ -129,9 +128,9 @@ impl From<Module> for String {
 }
 
 impl TryFrom<String> for Module {
-	type Error = Error;
+	type Error = tg::Error;
 
-	fn try_from(value: String) -> Result<Self, Self::Error> {
+	fn try_from(value: String) -> tg::Result<Self, Self::Error> {
 		value.parse()
 	}
 }

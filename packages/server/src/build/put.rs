@@ -7,7 +7,6 @@ use http_body_util::BodyExt;
 use indoc::formatdoc;
 use tangram_client as tg;
 use tangram_database::{self as db, prelude::*};
-use tangram_error::{error, Error, Result};
 use time::format_description::well_known::Rfc3339;
 
 impl Server {
@@ -16,11 +15,11 @@ impl Server {
 		_user: Option<&tg::User>,
 		id: &tg::build::Id,
 		arg: &tg::build::PutArg,
-	) -> Result<()> {
+	) -> tg::Result<()> {
 		// Verify the build is finished.
 		if arg.status != tg::build::Status::Finished {
 			let status = arg.status;
-			return Err(error!(%status, "the build is not finished"));
+			return Err(tg::error!(%status, "the build is not finished"));
 		}
 
 		// Insert the build.
@@ -33,14 +32,14 @@ impl Server {
 		&self,
 		id: &tg::build::Id,
 		arg: &tg::build::PutArg,
-	) -> Result<()> {
+	) -> tg::Result<()> {
 		// Get a database connection.
 		let connection = self
 			.inner
 			.database
 			.connection()
 			.await
-			.map_err(|source| error!(!source, "failed to get a database connection"))?;
+			.map_err(|source| tg::error!(!source, "failed to get a database connection"))?;
 		let connection = std::sync::Arc::new(connection);
 
 		// Delete any existing children.
@@ -55,7 +54,7 @@ impl Server {
 		connection
 			.execute(statement, params)
 			.await
-			.map_err(|source| error!(!source, "failed to execute the statement"))?;
+			.map_err(|source| tg::error!(!source, "failed to execute the statement"))?;
 
 		// Insert the children.
 		let p = connection.p();
@@ -76,8 +75,8 @@ impl Server {
 					connection
 						.execute(statement, params)
 						.await
-						.map_err(|source| error!(!source, "failed to execute the statement"))?;
-					Ok::<_, Error>(())
+						.map_err(|source| tg::error!(!source, "failed to execute the statement"))?;
+					Ok::<_, tg::Error>(())
 				}
 			})
 			.collect::<FuturesUnordered<_>>()
@@ -96,7 +95,7 @@ impl Server {
 		connection
 			.execute(statement, params)
 			.await
-			.map_err(|source| error!(!source, "failed to execute the statement"))?;
+			.map_err(|source| tg::error!(!source, "failed to execute the statement"))?;
 
 		// Add the objects.
 		let p = connection.p();
@@ -129,8 +128,8 @@ impl Server {
 					connection
 						.execute(statement, params)
 						.await
-						.map_err(|source| error!(!source, "failed to execute the statement"))?;
-					Ok::<_, Error>(())
+						.map_err(|source| tg::error!(!source, "failed to execute the statement"))?;
+					Ok::<_, tg::Error>(())
 				}
 			})
 			.collect::<FuturesUnordered<_>>()
@@ -208,7 +207,7 @@ impl Server {
 		connection
 			.execute(statement, params)
 			.await
-			.map_err(|source| error!(!source, "failed to execute the statement"))?;
+			.map_err(|source| tg::error!(!source, "failed to execute the statement"))?;
 
 		// Drop the database connection.
 		drop(connection);
@@ -217,20 +216,23 @@ impl Server {
 	}
 }
 
-impl<H> Http<H> where H: tg::Handle {
+impl<H> Http<H>
+where
+	H: tg::Handle,
+{
 	pub async fn handle_put_build_request(
 		&self,
 		request: http::Request<Incoming>,
-	) -> Result<hyper::Response<Outgoing>> {
+	) -> tg::Result<hyper::Response<Outgoing>> {
 		// Get the path params.
 		let path_components: Vec<&str> = request.uri().path().split('/').skip(1).collect();
 		let ["builds", build_id] = path_components.as_slice() else {
 			let path = request.uri().path();
-			return Err(error!(%path, "unexpected path"));
+			return Err(tg::error!(%path, "unexpected path"));
 		};
 		let build_id = build_id
 			.parse()
-			.map_err(|source| error!(!source, "failed to parse the ID"))?;
+			.map_err(|source| tg::error!(!source, "failed to parse the ID"))?;
 
 		// Get the user.
 		let user = self.try_get_user_from_request(&request).await?;
@@ -240,10 +242,10 @@ impl<H> Http<H> where H: tg::Handle {
 			.into_body()
 			.collect()
 			.await
-			.map_err(|source| error!(!source, "failed to read the body"))?
+			.map_err(|source| tg::error!(!source, "failed to read the body"))?
 			.to_bytes();
 		let arg = serde_json::from_slice(&bytes)
-			.map_err(|source| error!(!source, "failed to deserialize the body"))?;
+			.map_err(|source| tg::error!(!source, "failed to deserialize the body"))?;
 
 		// Put the build.
 		self.inner

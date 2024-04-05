@@ -2,28 +2,27 @@ use super::Server;
 use indoc::formatdoc;
 use tangram_client as tg;
 use tangram_database::{self as db, prelude::*};
-use tangram_error::{error, Result};
 
 impl Server {
-	pub async fn clean(&self) -> Result<()> {
+	pub async fn clean(&self) -> tg::Result<()> {
 		// Clean the checkouts directory.
 		tokio::fs::remove_dir_all(self.checkouts_path())
 			.await
-			.map_err(|source| error!(!source, "failed to remove the checkouts directory"))?;
+			.map_err(|source| tg::error!(!source, "failed to remove the checkouts directory"))?;
 		tokio::fs::create_dir_all(self.checkouts_path())
 			.await
 			.map_err(|error| {
-				error!(source = error, "failed to recreate the checkouts directory")
+				tg::error!(source = error, "failed to recreate the checkouts directory")
 			})?;
 
 		// Clean the temporary directory.
 		tokio::fs::remove_dir_all(self.tmp_path())
 			.await
-			.map_err(|source| error!(!source, "failed to remove the temporary directory"))?;
+			.map_err(|source| tg::error!(!source, "failed to remove the temporary directory"))?;
 		tokio::fs::create_dir_all(self.tmp_path())
 			.await
 			.map_err(|error| {
-				error!(source = error, "failed to recreate the temporary directory")
+				tg::error!(source = error, "failed to recreate the temporary directory")
 			})?;
 
 		// Get a database connection.
@@ -32,7 +31,7 @@ impl Server {
 			.database
 			.connection()
 			.await
-			.map_err(|source| error!(!source, "failed to get a database connection"))?;
+			.map_err(|source| tg::error!(!source, "failed to get a database connection"))?;
 
 		// Remove builds.
 		loop {
@@ -53,7 +52,7 @@ impl Server {
 			let builds = connection
 				.query_all_value_into::<tg::build::Id>(statement, params)
 				.await
-				.map_err(|source| error!(!source, "failed to execute the statement"))?;
+				.map_err(|source| tg::error!(!source, "failed to execute the statement"))?;
 
 			// If there are no builds, then break.
 			if builds.is_empty() {
@@ -73,7 +72,7 @@ impl Server {
 				connection
 					.execute(statement, params)
 					.await
-					.map_err(|source| error!(!source, "failed to execute the statement"))?;
+					.map_err(|source| tg::error!(!source, "failed to execute the statement"))?;
 
 				// Remove the build children.
 				let p = connection.p();
@@ -87,7 +86,7 @@ impl Server {
 				connection
 					.execute(statement, params)
 					.await
-					.map_err(|source| error!(!source, "failed to execute the statement"))?;
+					.map_err(|source| tg::error!(!source, "failed to execute the statement"))?;
 
 				// Remove the build objects.
 				let p = connection.p();
@@ -101,7 +100,7 @@ impl Server {
 				connection
 					.execute(statement, params)
 					.await
-					.map_err(|source| error!(!source, "failed to execute the statement"))?;
+					.map_err(|source| tg::error!(!source, "failed to execute the statement"))?;
 			}
 		}
 
@@ -132,7 +131,7 @@ impl Server {
 			let objects = connection
 				.query_all_value_into::<tg::object::Id>(statement, params)
 				.await
-				.map_err(|source| error!(!source, "failed to execute the statement"))?;
+				.map_err(|source| tg::error!(!source, "failed to execute the statement"))?;
 
 			// If there are no objects, then break.
 			if objects.is_empty() {
@@ -152,7 +151,7 @@ impl Server {
 				connection
 					.execute(statement, params)
 					.await
-					.map_err(|source| error!(!source, "failed to execute the statement"))?;
+					.map_err(|source| tg::error!(!source, "failed to execute the statement"))?;
 
 				// Remove the object children.
 				let p = connection.p();
@@ -166,7 +165,7 @@ impl Server {
 				connection
 					.execute(statement, params)
 					.await
-					.map_err(|source| error!(!source, "failed to execute the statement"))?;
+					.map_err(|source| tg::error!(!source, "failed to execute the statement"))?;
 			}
 		}
 

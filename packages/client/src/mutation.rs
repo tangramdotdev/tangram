@@ -1,4 +1,4 @@
-use crate::{object, template, value, Error, Handle, Result, Template, Value};
+use crate::{self as tg, object, template, value, Handle, Template, Value};
 use futures::{stream::FuturesOrdered, TryStreamExt};
 use itertools::Itertools;
 
@@ -56,7 +56,7 @@ pub enum Data {
 }
 
 impl Mutation {
-	pub async fn data(&self, tg: &impl Handle) -> Result<Data> {
+	pub async fn data(&self, tg: &impl Handle) -> tg::Result<Data> {
 		Ok(match self {
 			Self::Unset => Data::Unset,
 			Self::Set { value } => Data::Set {
@@ -129,7 +129,7 @@ impl Data {
 }
 
 impl TryFrom<Data> for Mutation {
-	type Error = Error;
+	type Error = tg::Error;
 
 	fn try_from(data: Data) -> std::result::Result<Self, Self::Error> {
 		Ok(match data {

@@ -1,7 +1,6 @@
 use super::Server;
 use lsp_types as lsp;
 use tangram_client as tg;
-use tangram_error::{error, Result};
 
 #[derive(Debug, serde::Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -64,7 +63,7 @@ pub enum Tag {
 }
 
 impl Server {
-	pub async fn symbols(&self, module: &tg::Module) -> Result<Option<Vec<Symbol>>> {
+	pub async fn symbols(&self, module: &tg::Module) -> tg::Result<Option<Vec<Symbol>>> {
 		// Create the request.
 		let request = super::Request::Symbols(Request {
 			module: module.clone(),
@@ -75,7 +74,7 @@ impl Server {
 
 		// Get the response.
 		let super::Response::Symbols(response) = response else {
-			return Err(error!("unexpected response type"));
+			return Err(tg::error!("unexpected response type"));
 		};
 
 		Ok(response.symbols)
@@ -169,7 +168,7 @@ impl Server {
 	pub(super) async fn handle_symbols_request(
 		&self,
 		params: lsp::DocumentSymbolParams,
-	) -> Result<Option<lsp::DocumentSymbolResponse>> {
+	) -> tg::Result<Option<lsp::DocumentSymbolResponse>> {
 		// Get the module.
 		let module = self.module_for_url(&params.text_document.uri).await?;
 

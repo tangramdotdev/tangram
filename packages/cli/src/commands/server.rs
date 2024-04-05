@@ -1,7 +1,6 @@
 use crate::{default_path, Cli, API_URL};
 use std::path::PathBuf;
 use tangram_client as tg;
-use tangram_error::{error, Error, Result};
 use url::Url;
 
 /// Manage the server.
@@ -48,7 +47,7 @@ pub struct StartArgs {}
 pub struct StopArgs {}
 
 impl Cli {
-	pub async fn command_server(&self, args: Args) -> Result<()> {
+	pub async fn command_server(&self, args: Args) -> tg::Result<()> {
 		match args.command {
 			Command::Health(_) => {
 				let client = self.client().await?;
@@ -70,7 +69,7 @@ impl Cli {
 		Ok(())
 	}
 
-	async fn command_server_run(&self, args: RunArgs) -> Result<()> {
+	async fn command_server_run(&self, args: RunArgs) -> tg::Result<()> {
 		// Get the config.
 		let config = tokio::task::spawn_blocking({
 			let config = args.config.clone();
@@ -213,7 +212,7 @@ impl Cli {
 							client,
 							build: build_,
 						};
-						Ok::<_, Error>(remote)
+						Ok::<_, tg::Error>(remote)
 					})
 					.collect()
 			})
@@ -282,7 +281,7 @@ impl Cli {
 		// Start the server.
 		let server = tangram_server::Server::start(options)
 			.await
-			.map_err(|source| error!(!source, "failed to start the server"))?;
+			.map_err(|source| tg::error!(!source, "failed to start the server"))?;
 
 		// Stop the server if an an interrupt signal is received.
 		tokio::spawn({
@@ -299,7 +298,7 @@ impl Cli {
 		server
 			.join()
 			.await
-			.map_err(|source| error!(!source, "failed to join the server"))?;
+			.map_err(|source| tg::error!(!source, "failed to join the server"))?;
 
 		Ok(())
 	}

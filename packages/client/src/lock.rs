@@ -1,6 +1,6 @@
 pub use self::data::Data;
 use crate::{
-	error, id, object, package::LOCKFILE_FILE_NAME, Dependency, Directory, Error, Handle, Result,
+	self as tg, error, id, object, package::LOCKFILE_FILE_NAME, Dependency, Directory, Handle,
 };
 use bytes::Bytes;
 use derive_more::Display;
@@ -118,21 +118,21 @@ impl Lock {
 		Self { state }
 	}
 
-	pub async fn id(&self, tg: &impl Handle) -> Result<Id> {
+	pub async fn id(&self, tg: &impl Handle) -> tg::Result<Id> {
 		self.store(tg).await
 	}
 
-	pub async fn object(&self, tg: &impl Handle) -> Result<Arc<Object>> {
+	pub async fn object(&self, tg: &impl Handle) -> tg::Result<Arc<Object>> {
 		self.load(tg).await
 	}
 
-	pub async fn load(&self, tg: &impl Handle) -> Result<Arc<Object>> {
+	pub async fn load(&self, tg: &impl Handle) -> tg::Result<Arc<Object>> {
 		self.try_load(tg)
 			.await?
 			.ok_or_else(|| error!("failed to load the object"))
 	}
 
-	pub async fn try_load(&self, tg: &impl Handle) -> Result<Option<Arc<Object>>> {
+	pub async fn try_load(&self, tg: &impl Handle) -> tg::Result<Option<Arc<Object>>> {
 		if let Some(object) = self.state.read().unwrap().object.clone() {
 			return Ok(Some(object));
 		}
@@ -148,7 +148,7 @@ impl Lock {
 		Ok(Some(object))
 	}
 
-	pub async fn store(&self, tg: &impl Handle) -> Result<Id> {
+	pub async fn store(&self, tg: &impl Handle) -> tg::Result<Id> {
 		if let Some(id) = self.state.read().unwrap().id.clone() {
 			return Ok(id);
 		}
@@ -167,7 +167,7 @@ impl Lock {
 		Ok(id)
 	}
 
-	pub async fn data(&self, tg: &impl Handle) -> Result<Data> {
+	pub async fn data(&self, tg: &impl Handle) -> tg::Result<Data> {
 		let object = self.object(tg).await?;
 		let root = object.root;
 		let nodes = object
@@ -182,7 +182,7 @@ impl Lock {
 }
 
 impl Lock {
-	pub async fn dependencies(&self, tg: &impl Handle) -> Result<Vec<Dependency>> {
+	pub async fn dependencies(&self, tg: &impl Handle) -> tg::Result<Vec<Dependency>> {
 		let object = self.object(tg).await?;
 		let dependencies = object.nodes[object.root]
 			.dependencies
@@ -196,7 +196,7 @@ impl Lock {
 		&self,
 		tg: &impl Handle,
 		dependency: &Dependency,
-	) -> Result<(Option<Directory>, Lock)> {
+	) -> tg::Result<(Option<Directory>, Lock)> {
 		let object = self.object(tg).await?;
 		let root = &object.nodes[object.root];
 		let Entry { package, lock } = root
@@ -243,7 +243,10 @@ impl Lock {
 
 impl Lock {
 	/// Read a lockfile in an existing directory.
-	pub async fn read(tg: &impl Handle, directory: impl AsRef<std::path::Path>) -> Result<Self> {
+	pub async fn read(
+		tg: &impl Handle,
+		directory: impl AsRef<std::path::Path>,
+	) -> tg::Result<Self> {
 		Self::try_read(tg, directory)
 			.await?
 			.ok_or_else(|| error!("expected a lockfile to exist"))
@@ -253,7 +256,7 @@ impl Lock {
 	pub async fn try_read(
 		tg: &impl Handle,
 		directory: impl AsRef<std::path::Path>,
-	) -> Result<Option<Self>> {
+	) -> tg::Result<Option<Self>> {
 		// Canonicalize the path.
 		let path = tokio::fs::canonicalize(directory.as_ref())
 			.await
@@ -308,7 +311,7 @@ impl Lock {
 }
 
 impl Lock {
-	pub async fn normalize(&self, tg: &impl Handle) -> Result<Self> {
+	pub async fn normalize(&self, tg: &impl Handle) -> tg::Result<Self> {
 		let mut visited = BTreeMap::new();
 		let object = self.object(tg).await?;
 		Self::normalize_inner(&object.nodes, object.root, &mut visited)
@@ -318,7 +321,7 @@ impl Lock {
 		nodes: &[Node],
 		index: usize,
 		visited: &mut BTreeMap<usize, Option<Lock>>,
-	) -> Result<Lock> {
+	) -> tg::Result<Lock> {
 		match visited.get(&index) {
 			Some(None) => return Err(error!("the lock contains a cycle")),
 			Some(Some(lock)) => return Ok(lock.clone()),
@@ -338,7 +341,7 @@ impl Lock {
 					package: entry.package.clone(),
 					lock: Either::Right(lock),
 				};
-				Ok::<_, tangram_error::Error>((dependency.clone(), entry))
+				Ok::<_, tg::Error>((dependency.clone(), entry))
 			})
 			.try_collect()?;
 		let node = Node { dependencies };
@@ -353,12 +356,12 @@ impl Lock {
 }
 
 impl Node {
-	pub async fn data(&self, tg: &impl Handle) -> Result<data::Node> {
+	pub async fn data(&self, tg: &impl Handle) -> tg::Result<data::Node> {
 		let dependencies = self
 			.dependencies
 			.iter()
 			.map(|(dependency, entry)| async move {
-				Ok::<_, Error>((dependency.clone(), entry.data(tg).await?))
+				Ok::<_, tg::Error>((dependency.clone(), entry.data(tg).await?))
 			})
 			.collect::<FuturesUnordered<_>>()
 			.try_collect()
@@ -368,7 +371,7 @@ impl Node {
 }
 
 impl Entry {
-	pub async fn data(&self, tg: &impl Handle) -> Result<data::Entry> {
+	pub async fn data(&self, tg: &impl Handle) -> tg::Result<data::Entry> {
 		let package = match &self.package {
 			Some(package) => Some(package.id(tg).await?),
 			None => None,
@@ -382,13 +385,13 @@ impl Entry {
 }
 
 impl Data {
-	pub fn serialize(&self) -> Result<Bytes> {
+	pub fn serialize(&self) -> tg::Result<Bytes> {
 		serde_json::to_vec(self)
 			.map(Into::into)
 			.map_err(|source| error!(!source, "failed to serialize the data"))
 	}
 
-	pub fn deserialize(bytes: &Bytes) -> Result<Self> {
+	pub fn deserialize(bytes: &Bytes) -> tg::Result<Self> {
 		serde_json::from_reader(bytes.as_ref())
 			.map_err(|source| error!(!source, "failed to deserialize the data"))
 	}
@@ -411,7 +414,7 @@ impl Data {
 }
 
 impl TryFrom<Data> for Object {
-	type Error = Error;
+	type Error = tg::Error;
 
 	fn try_from(value: Data) -> std::result::Result<Self, Self::Error> {
 		let root = value.root;
@@ -425,20 +428,20 @@ impl TryFrom<Data> for Object {
 }
 
 impl TryFrom<data::Node> for Node {
-	type Error = Error;
+	type Error = tg::Error;
 
 	fn try_from(value: data::Node) -> std::result::Result<Self, Self::Error> {
 		let dependencies = value
 			.dependencies
 			.into_iter()
-			.map(|(dependency, entry)| Ok::<_, Error>((dependency, entry.try_into()?)))
+			.map(|(dependency, entry)| Ok::<_, tg::Error>((dependency, entry.try_into()?)))
 			.try_collect()?;
 		Ok(Self { dependencies })
 	}
 }
 
 impl TryFrom<data::Entry> for Entry {
-	type Error = Error;
+	type Error = tg::Error;
 
 	fn try_from(value: data::Entry) -> std::result::Result<Self, Self::Error> {
 		let package = value.package.map(Directory::with_id);
@@ -483,9 +486,9 @@ impl From<Id> for crate::Id {
 }
 
 impl TryFrom<crate::Id> for Id {
-	type Error = Error;
+	type Error = tg::Error;
 
-	fn try_from(value: crate::Id) -> Result<Self, Self::Error> {
+	fn try_from(value: crate::Id) -> tg::Result<Self, Self::Error> {
 		if value.kind() != id::Kind::Lock {
 			return Err(error!(%value, "invalid kind"));
 		}
@@ -494,9 +497,9 @@ impl TryFrom<crate::Id> for Id {
 }
 
 impl std::str::FromStr for Id {
-	type Err = Error;
+	type Err = tg::Error;
 
-	fn from_str(s: &str) -> Result<Self, Self::Err> {
+	fn from_str(s: &str) -> tg::Result<Self, Self::Err> {
 		crate::Id::from_str(s)?.try_into()
 	}
 }

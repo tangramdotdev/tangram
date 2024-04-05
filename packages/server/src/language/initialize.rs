@@ -1,11 +1,12 @@
-use super::{Result, Server};
+use super::Server;
 use lsp_types as lsp;
+use tangram_client as tg;
 
 impl Server {
 	pub(super) async fn handle_initialize_request(
 		&self,
 		params: lsp::InitializeParams,
-	) -> Result<lsp::InitializeResult> {
+	) -> tg::Result<lsp::InitializeResult> {
 		let workspaces = params
 			.workspace_folders
 			.into_iter()

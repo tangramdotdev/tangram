@@ -1,6 +1,5 @@
-use crate::{util::http::empty, Client};
+use crate::{self as tg, error, util::http::empty, Client};
 use http_body_util::BodyExt;
-use tangram_error::{error, Result};
 
 #[derive(Clone, Debug, Default, serde::Deserialize, serde::Serialize)]
 pub struct Health {
@@ -8,7 +7,7 @@ pub struct Health {
 }
 
 impl Client {
-	pub async fn health(&self) -> Result<Health> {
+	pub async fn health(&self) -> tg::Result<Health> {
 		let method = http::Method::GET;
 		let uri = "/health";
 		let body = empty();
@@ -38,7 +37,7 @@ impl Client {
 		Ok(health)
 	}
 
-	pub async fn path(&self) -> Result<Option<crate::Path>> {
+	pub async fn path(&self) -> tg::Result<Option<crate::Path>> {
 		let method = http::Method::GET;
 		let uri = "/path";
 		let body = empty();
@@ -68,7 +67,7 @@ impl Client {
 		Ok(path)
 	}
 
-	pub async fn clean(&self) -> Result<()> {
+	pub async fn clean(&self) -> tg::Result<()> {
 		let method = http::Method::POST;
 		let uri = "/clean";
 		let body = empty();
@@ -91,7 +90,7 @@ impl Client {
 		Ok(())
 	}
 
-	pub async fn stop(&self) -> Result<()> {
+	pub async fn stop(&self) -> tg::Result<()> {
 		let method = http::Method::POST;
 		let uri = "/stop";
 		let body = empty();

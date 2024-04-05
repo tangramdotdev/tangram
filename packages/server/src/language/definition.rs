@@ -1,7 +1,6 @@
 use super::Server;
 use lsp_types as lsp;
 use tangram_client as tg;
-use tangram_error::{error, Result};
 
 #[derive(Debug, serde::Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -21,7 +20,7 @@ impl Server {
 		&self,
 		module: &tg::Module,
 		position: tg::Position,
-	) -> Result<Option<Vec<tg::Location>>> {
+	) -> tg::Result<Option<Vec<tg::Location>>> {
 		// Create the request.
 		let request = super::Request::Definition(Request {
 			module: module.clone(),
@@ -33,7 +32,7 @@ impl Server {
 
 		// Get the response.
 		let super::Response::Definition(response) = response else {
-			return Err(error!("unexpected response type"));
+			return Err(tg::error!("unexpected response type"));
 		};
 
 		Ok(response.locations)
@@ -44,7 +43,7 @@ impl Server {
 	pub async fn handle_definition_request(
 		&self,
 		params: lsp::GotoDefinitionParams,
-	) -> Result<Option<lsp::GotoDefinitionResponse>> {
+	) -> tg::Result<Option<lsp::GotoDefinitionResponse>> {
 		// Get the module.
 		let module = self
 			.module_for_url(&params.text_document_position_params.text_document.uri)

@@ -1,7 +1,6 @@
-use crate::{directory, Artifact, Directory, File, Handle, Symlink};
+use crate::{self as tg, directory, error, Artifact, Directory, File, Handle, Symlink};
 use futures::{stream::FuturesOrdered, TryStreamExt};
 use once_cell::sync::Lazy;
-use tangram_error::{error, Error, Result};
 
 static TANGRAM_ARTIFACTS_PATH: Lazy<crate::Path> =
 	Lazy::new(|| ".tangram/artifacts".parse().unwrap());
@@ -10,7 +9,7 @@ static TANGRAM_RUN_PATH: Lazy<crate::Path> = Lazy::new(|| ".tangram/run".parse()
 
 impl Artifact {
 	/// Bundle an artifact with all of its recursive references at `.tangram/artifacts`.
-	pub async fn bundle(&self, tg: &impl Handle) -> Result<Artifact> {
+	pub async fn bundle(&self, tg: &impl Handle) -> tg::Result<Artifact> {
 		// Collect the artifact's recursive references.
 		let references = self.recursive_references(tg).await?;
 
@@ -25,7 +24,7 @@ impl Artifact {
 			.map(|id| async move {
 				let artifact = Artifact::with_id(id.clone());
 				let artifact = artifact.remove_references(tg, 3).await?;
-				Ok::<_, Error>((id.to_string(), artifact))
+				Ok::<_, tg::Error>((id.to_string(), artifact))
 			})
 			.collect::<FuturesOrdered<_>>()
 			.try_collect()
@@ -74,7 +73,7 @@ impl Artifact {
 	}
 
 	/// Remove all references from an artifact and its children recursively.
-	async fn remove_references(&self, tg: &impl Handle, depth: usize) -> Result<Artifact> {
+	async fn remove_references(&self, tg: &impl Handle, depth: usize) -> tg::Result<Artifact> {
 		match self {
 			// If the artifact is a directory, then recurse to remove references from its entries.
 			Artifact::Directory(directory) => {
@@ -84,7 +83,7 @@ impl Artifact {
 					.iter()
 					.map(|(name, artifact)| async move {
 						let artifact = artifact.remove_references(tg, depth + 1).await?;
-						Ok::<_, Error>((name.clone(), artifact))
+						Ok::<_, tg::Error>((name.clone(), artifact))
 					})
 					.collect::<FuturesOrdered<_>>()
 					.try_collect()

@@ -7,7 +7,6 @@ use std::{
 	path::{Path, PathBuf},
 };
 use tangram_client as tg;
-use tangram_error::{error, Result};
 
 mod dependencies;
 mod format;
@@ -30,7 +29,7 @@ impl Server {
 		&self,
 		dependency: &tg::Dependency,
 		arg: tg::package::GetArg,
-	) -> Result<Option<tg::package::GetOutput>> {
+	) -> tg::Result<Option<tg::package::GetOutput>> {
 		// If the dependency has an ID, then use it.
 		let package_with_path_dependencies = 'a: {
 			let Some(id) = dependency.id.clone() else {
@@ -53,9 +52,9 @@ impl Server {
 			// If the dependency is a path dependency, then get the package with its path dependencies from the path.
 			let path = tokio::fs::canonicalize(PathBuf::from(path))
 				.await
-				.map_err(|source| error!(!source, "failed to canonicalize the path"))?;
+				.map_err(|source| tg::error!(!source, "failed to canonicalize the path"))?;
 			if !tokio::fs::try_exists(&path).await.map_err(|error| {
-				error!(source = error, "failed to get the metadata for the path")
+				tg::error!(source = error, "failed to get the metadata for the path")
 			})? {
 				return Ok(None);
 			}
@@ -137,9 +136,9 @@ impl Server {
 				.await
 				.map_err(|error| {
 					if let Some(path) = path {
-						error!(source = error, %path, "failed to get or create the lock")
+						tg::error!(source = error, %path, "failed to get or create the lock")
 					} else {
-						error!(source = error, "failed to get or create the lock")
+						tg::error!(source = error, "failed to get or create the lock")
 					}
 				})?;
 
@@ -182,7 +181,7 @@ impl Server {
 	async fn get_package_with_path_dependencies_with_path(
 		&self,
 		path: &Path,
-	) -> tangram_error::Result<PackageWithPathDependencies> {
+	) -> tg::error::Result<PackageWithPathDependencies> {
 		let mut visited = BTreeMap::default();
 		self.get_package_with_path_dependencies_with_path_inner(path, &mut visited)
 			.await
@@ -192,17 +191,13 @@ impl Server {
 		&self,
 		path: &Path,
 		visited: &mut BTreeMap<PathBuf, Option<PackageWithPathDependencies>>,
-	) -> tangram_error::Result<PackageWithPathDependencies> {
+	) -> tg::error::Result<PackageWithPathDependencies> {
 		// Check if the path has already been visited.
 		match visited.get(path) {
 			Some(Some(package_with_path_dependencies)) => {
 				return Ok(package_with_path_dependencies.clone())
 			},
-			Some(None) => {
-				return Err(tangram_error::error!(
-					"the package has a circular path dependency"
-				))
-			},
+			Some(None) => return Err(tg::error!("the package has a circular path dependency")),
 			None => (),
 		}
 
@@ -229,7 +224,7 @@ impl Server {
 			let module_absolute_path = tokio::fs::canonicalize(&module_absolute_path)
 				.await
 				.map_err(|error| {
-					error!(source = error, "failed to canonicalize the module path")
+					tg::error!(source = error, "failed to canonicalize the module path")
 				})?;
 
 			// Add the module to the package directory.
@@ -240,11 +235,11 @@ impl Server {
 			// Get the module's text.
 			let text = tokio::fs::read_to_string(&module_absolute_path)
 				.await
-				.map_err(|source| error!(!source, "failed to read the module"))?;
+				.map_err(|source| tg::error!(!source, "failed to read the module"))?;
 
 			// Analyze the module.
 			let analysis = crate::language::Server::analyze_module(text)
-				.map_err(|source| error!(!source, "failed to analyze the module"))?;
+				.map_err(|source| tg::error!(!source, "failed to analyze the module"))?;
 
 			// Handle the includes.
 			for include_path in analysis.includes {
@@ -288,7 +283,7 @@ impl Server {
 					let dependency_path = path.join(dependency.path.as_ref().unwrap().to_string());
 					let dependency_absolute_path =
 						tokio::fs::canonicalize(&dependency_path).await.map_err(
-							|error| error!(source = error, %dependency, "failed to canonicalize the dependency path"),
+							|error| tg::error!(source = error, %dependency, "failed to canonicalize the dependency path"),
 						)?;
 
 					// Recurse into the path dependency.
@@ -349,7 +344,10 @@ impl Server {
 		Ok(package_with_path_dependencies)
 	}
 
-	pub async fn check_package(&self, dependency: &tg::Dependency) -> Result<Vec<tg::Diagnostic>> {
+	pub async fn check_package(
+		&self,
+		dependency: &tg::Dependency,
+	) -> tg::Result<Vec<tg::Diagnostic>> {
 		// Get the package.
 		let (package, lock) = tg::package::get_with_lock(self, dependency).await?;
 
@@ -372,7 +370,7 @@ impl Server {
 		Ok(diagnostics)
 	}
 
-	pub async fn get_runtime_doc(&self) -> Result<serde_json::Value> {
+	pub async fn get_runtime_doc(&self) -> tg::Result<serde_json::Value> {
 		// Create the module.
 		let module = tg::Module::Library(tg::module::Library {
 			path: "tangram.d.ts".parse().unwrap(),
@@ -390,7 +388,7 @@ impl Server {
 	pub async fn try_get_package_doc(
 		&self,
 		dependency: &tg::Dependency,
-	) -> Result<Option<serde_json::Value>> {
+	) -> tg::Result<Option<serde_json::Value>> {
 		// Get the package.
 		let Some((package, lock)) = tg::package::try_get_with_lock(self, dependency).await? else {
 			return Ok(None);
@@ -423,18 +421,18 @@ where
 	pub async fn handle_get_package_request(
 		&self,
 		request: http::Request<Incoming>,
-	) -> Result<http::Response<Outgoing>> {
+	) -> tg::Result<http::Response<Outgoing>> {
 		// Get the path params.
 		let path_components: Vec<&str> = request.uri().path().split('/').skip(1).collect();
 		let ["packages", dependency] = path_components.as_slice() else {
 			let path = request.uri().path();
-			return Err(error!(%path, "unexpected path"));
+			return Err(tg::error!(%path, "unexpected path"));
 		};
 		let dependency = urlencoding::decode(dependency)
-			.map_err(|source| error!(!source, "failed to decode the dependency"))?;
+			.map_err(|source| tg::error!(!source, "failed to decode the dependency"))?;
 		let dependency = dependency
 			.parse()
-			.map_err(|source| error!(!source, "failed to parse the dependency"))?;
+			.map_err(|source| tg::error!(!source, "failed to parse the dependency"))?;
 
 		// Get the search params.
 		let arg = request
@@ -442,7 +440,7 @@ where
 			.query()
 			.map(serde_urlencoded::from_str)
 			.transpose()
-			.map_err(|source| error!(!source, "failed to deserialize the search params"))?
+			.map_err(|source| tg::error!(!source, "failed to deserialize the search params"))?
 			.unwrap_or_default();
 
 		// Get the package.
@@ -452,7 +450,7 @@ where
 
 		// Create the body.
 		let body = serde_json::to_vec(&output)
-			.map_err(|source| error!(!source, "failed to serialize the body"))?;
+			.map_err(|source| tg::error!(!source, "failed to serialize the body"))?;
 		let body = full(body);
 
 		// Create the response.
@@ -464,25 +462,25 @@ where
 	pub async fn handle_check_package_request(
 		&self,
 		request: http::Request<Incoming>,
-	) -> Result<http::Response<Outgoing>> {
+	) -> tg::Result<http::Response<Outgoing>> {
 		// Get the path params.
 		let path_components: Vec<&str> = request.uri().path().split('/').skip(1).collect();
 		let ["packages", dependency, "check"] = path_components.as_slice() else {
 			let path = request.uri().path();
-			return Err(error!(%path, "unexpected path"));
+			return Err(tg::error!(%path, "unexpected path"));
 		};
 		let dependency = urlencoding::decode(dependency)
-			.map_err(|source| error!(!source, "failed to decode the dependency"))?;
+			.map_err(|source| tg::error!(!source, "failed to decode the dependency"))?;
 		let dependency = dependency
 			.parse()
-			.map_err(|source| error!(!source, "failed to parse the dependency"))?;
+			.map_err(|source| tg::error!(!source, "failed to parse the dependency"))?;
 
 		// Check the package.
 		let output = self.inner.tg.check_package(&dependency).await?;
 
 		// Create the body.
 		let body = serde_json::to_vec(&output)
-			.map_err(|source| error!(!source, "failed to serialize the body"))?;
+			.map_err(|source| tg::error!(!source, "failed to serialize the body"))?;
 		let body = full(body);
 
 		// Create the response.
@@ -494,18 +492,18 @@ where
 	pub async fn handle_format_package_request(
 		&self,
 		request: http::Request<Incoming>,
-	) -> Result<http::Response<Outgoing>> {
+	) -> tg::Result<http::Response<Outgoing>> {
 		// Get the path params.
 		let path_components: Vec<&str> = request.uri().path().split('/').skip(1).collect();
 		let ["packages", dependency, "format"] = path_components.as_slice() else {
 			let path = request.uri().path();
-			return Err(error!(%path, "unexpected path"));
+			return Err(tg::error!(%path, "unexpected path"));
 		};
 		let dependency = urlencoding::decode(dependency)
-			.map_err(|source| error!(!source, "failed to decode the dependency"))?;
+			.map_err(|source| tg::error!(!source, "failed to decode the dependency"))?;
 		let dependency = dependency
 			.parse()
-			.map_err(|source| error!(!source, "failed to parse the dependency"))?;
+			.map_err(|source| tg::error!(!source, "failed to parse the dependency"))?;
 
 		// Format the package.
 		self.inner.tg.format_package(&dependency).await?;
@@ -519,23 +517,23 @@ where
 	pub async fn handle_outdated_package_request(
 		&self,
 		request: http::Request<Incoming>,
-	) -> Result<http::Response<Outgoing>> {
+	) -> tg::Result<http::Response<Outgoing>> {
 		// Get the path params.
 		let path_components: Vec<&str> = request.uri().path().split('/').skip(1).collect();
 		let ["packages", dependency, "outdated"] = path_components.as_slice() else {
 			let path = request.uri().path();
-			return Err(error!(%path, "unexpected path"));
+			return Err(tg::error!(%path, "unexpected path"));
 		};
 		let dependency = urlencoding::decode(dependency)
-			.map_err(|source| error!(!source, "failed to decode the dependency"))?;
+			.map_err(|source| tg::error!(!source, "failed to decode the dependency"))?;
 		let dependency = dependency
 			.parse()
-			.map_err(|source| error!(!source, "failed to parse the dependency"))?;
+			.map_err(|source| tg::error!(!source, "failed to parse the dependency"))?;
 
 		// Get the outdated dependencies.
 		let output = self.inner.tg.get_package_outdated(&dependency).await?;
 		let body = serde_json::to_vec(&output)
-			.map_err(|source| error!(!source, "failed to serialize the body"))?;
+			.map_err(|source| tg::error!(!source, "failed to serialize the body"))?;
 		let body = full(body);
 
 		// Create the response.
@@ -547,13 +545,13 @@ where
 	pub async fn handle_get_runtime_doc_request(
 		&self,
 		_request: http::Request<Incoming>,
-	) -> Result<http::Response<Outgoing>> {
+	) -> tg::Result<http::Response<Outgoing>> {
 		// Get the doc.
 		let output = self.inner.tg.get_runtime_doc().await?;
 
 		// Create the body.
 		let body = serde_json::to_vec(&output)
-			.map_err(|source| error!(!source, "failed to serialize the body"))?;
+			.map_err(|source| tg::error!(!source, "failed to serialize the body"))?;
 		let body = full(body);
 
 		// Create the response.
@@ -565,18 +563,18 @@ where
 	pub async fn handle_get_package_doc_request(
 		&self,
 		request: http::Request<Incoming>,
-	) -> Result<http::Response<Outgoing>> {
+	) -> tg::Result<http::Response<Outgoing>> {
 		// Get the path params.
 		let path_components: Vec<&str> = request.uri().path().split('/').skip(1).collect();
 		let ["packages", dependency, "doc"] = path_components.as_slice() else {
 			let path = request.uri().path();
-			return Err(error!(%path, "unexpected path"));
+			return Err(tg::error!(%path, "unexpected path"));
 		};
 		let dependency = urlencoding::decode(dependency)
-			.map_err(|source| error!(!source, "failed to decode the dependency"))?;
+			.map_err(|source| tg::error!(!source, "failed to decode the dependency"))?;
 		let dependency = dependency
 			.parse()
-			.map_err(|source| error!(!source, "failed to parse the dependency"))?;
+			.map_err(|source| tg::error!(!source, "failed to parse the dependency"))?;
 
 		// Get the doc.
 		let Some(output) = self.inner.tg.try_get_package_doc(&dependency).await? else {
@@ -585,7 +583,7 @@ where
 
 		// Create the body.
 		let body = serde_json::to_vec(&output)
-			.map_err(|source| error!(!source, "failed to serialize the body"))?;
+			.map_err(|source| tg::error!(!source, "failed to serialize the body"))?;
 		let body = full(body);
 
 		// Create the response.

@@ -4309,7 +4309,6 @@ dependencies = [
  "serde_json",
  "serde_with",
  "tangram_client",
- "tangram_error",
  "tangram_server",
  "tokio",
  "tokio-util",
@@ -4358,10 +4357,10 @@ dependencies = [
  "serde_urlencoded",
  "serde_with",
  "sha2",
- "tangram_error",
  "tangram_sse",
  "tar",
  "tempfile",
+ "thiserror",
  "time",
  "tokio",
  "tokio-rustls 0.26.0",
@@ -4397,16 +4396,6 @@ dependencies = [
  "tokio-postgres",
  "tracing",
  "url",
-]
-
-[[package]]
-name = "tangram_error"
-version = "0.0.0"
-dependencies = [
- "crossterm",
- "serde",
- "serde_with",
- "thiserror",
 ]
 
 [[package]]
@@ -4476,7 +4465,6 @@ dependencies = [
  "swc_core",
  "tangram_client",
  "tangram_database",
- "tangram_error",
  "tangram_fuse",
  "tangram_nfs",
  "tangram_sse",

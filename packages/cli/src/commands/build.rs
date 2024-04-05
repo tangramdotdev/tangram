@@ -9,7 +9,6 @@ use futures::{stream::FuturesUnordered, StreamExt, TryStreamExt};
 use itertools::Itertools;
 use std::{collections::BTreeMap, fmt::Write, path::PathBuf};
 use tangram_client as tg;
-use tangram_error::{error, Error, Result};
 use tg::Handle;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 
@@ -113,7 +112,7 @@ pub struct TreeArgs {
 }
 
 impl Cli {
-	pub async fn command_build(&self, args: Args) -> Result<()> {
+	pub async fn command_build(&self, args: Args) -> tg::Result<()> {
 		match args.command.unwrap_or(Command::GetOrCreate(args.args)) {
 			Command::GetOrCreate(args) => {
 				self.command_build_get_or_create(args).await?;
@@ -137,7 +136,7 @@ impl Cli {
 		Ok(())
 	}
 
-	pub async fn command_build_get_or_create(&self, args: GetOrCreateArgs) -> Result<()> {
+	pub async fn command_build_get_or_create(&self, args: GetOrCreateArgs) -> tg::Result<()> {
 		let client = &self.client().await?;
 
 		let target = if let Some(Ok(id)) = args.target.as_ref().map(|target| target.parse()) {
@@ -150,7 +149,7 @@ impl Cli {
 			if let Some(path) = dependency.path.as_mut() {
 				*path = tokio::fs::canonicalize(&path)
 					.await
-					.map_err(|source| error!(!source, "failed to canonicalize the path"))?
+					.map_err(|source| tg::error!(!source, "failed to canonicalize the path"))?
 					.try_into()?;
 			}
 
@@ -164,8 +163,8 @@ impl Cli {
 				.map(|env| {
 					let (key, value) = env
 						.split_once('=')
-						.ok_or_else(|| error!("expected `KEY=value`"))?;
-					Ok::<_, Error>((key.to_owned(), tg::Value::String(value.to_owned())))
+						.ok_or_else(|| tg::error!("expected `KEY=value`"))?;
+					Ok::<_, tg::Error>((key.to_owned(), tg::Value::String(value.to_owned())))
 				})
 				.try_collect()?;
 			if !env.contains_key("TANGRAM_HOST") {
@@ -182,8 +181,8 @@ impl Cli {
 				.map(|arg| {
 					let (key, value) = arg
 						.split_once('=')
-						.ok_or_else(|| error!("expected `key=value`"))?;
-					Ok::<_, Error>((key.to_owned(), tg::Value::String(value.to_owned())))
+						.ok_or_else(|| tg::error!("expected `key=value`"))?;
+					Ok::<_, tg::Error>((key.to_owned(), tg::Value::String(value.to_owned())))
 				})
 				.try_collect()?;
 			let args_ = vec![args_.into()];
@@ -230,7 +229,7 @@ impl Cli {
 		let outcome = build
 			.get_outcome(client, arg)
 			.await
-			.map_err(|source| error!(!source, "failed to get the build outcome"))?;
+			.map_err(|source| tg::error!(!source, "failed to get the build outcome"))?;
 
 		// If the outcome is not immediatey available, then wait for it while showing the TUI if enabled.
 		let outcome = if let Some(outcome) = outcome {
@@ -255,36 +254,36 @@ impl Cli {
 				tui.join().await?;
 			}
 
-			outcome.map_err(|source| error!(!source, "failed to get the build outcome"))?
+			outcome.map_err(|source| tg::error!(!source, "failed to get the build outcome"))?
 		};
 
 		// Handle a failed build.
 		let output = outcome
 			.into_result()
-			.map_err(|source| error!(!source, "the build failed"))?;
+			.map_err(|source| tg::error!(!source, "the build failed"))?;
 
 		// Check out the output if requested.
 		if let Some(path) = args.output {
 			// Get the artifact.
 			let artifact = tg::Artifact::try_from(output.clone())
-				.map_err(|source| error!(!source, "expected the output to be an artifact"))?;
+				.map_err(|source| tg::error!(!source, "expected the output to be an artifact"))?;
 
 			// Get the path.
 			let current = std::env::current_dir()
-				.map_err(|source| error!(!source, "failed to get the working directory"))?;
+				.map_err(|source| tg::error!(!source, "failed to get the working directory"))?;
 			let path = current.join(&path);
 			let parent = path
 				.parent()
-				.ok_or_else(|| error!("the path must have a parent directory"))?;
+				.ok_or_else(|| tg::error!("the path must have a parent directory"))?;
 			let file_name = path
 				.file_name()
-				.ok_or_else(|| error!("the path must have a file name"))?;
+				.ok_or_else(|| tg::error!("the path must have a file name"))?;
 			tokio::fs::create_dir_all(parent)
 				.await
-				.map_err(|source| error!(!source, "failed to create the parent directory"))?;
+				.map_err(|source| tg::error!(!source, "failed to create the parent directory"))?;
 			let path = parent
 				.canonicalize()
-				.map_err(|source| error!(!source, "failed to canonicalize the path"))?
+				.map_err(|source| tg::error!(!source, "failed to canonicalize the path"))?
 				.join(file_name);
 			let path = path.try_into()?;
 
@@ -296,7 +295,7 @@ impl Cli {
 			artifact
 				.check_out(client, arg)
 				.await
-				.map_err(|source| error!(!source, "failed to check out the artifact"))?;
+				.map_err(|source| tg::error!(!source, "failed to check out the artifact"))?;
 		}
 
 		// Print the output.
@@ -305,20 +304,20 @@ impl Cli {
 		Ok(())
 	}
 
-	pub async fn command_build_get(&self, args: GetArgs) -> Result<()> {
+	pub async fn command_build_get(&self, args: GetArgs) -> tg::Result<()> {
 		let client = &self.client().await?;
 		let arg = tg::build::GetArg::default();
 		let output = client.get_build(&args.id, arg).await?;
 		let json = serde_json::to_string(&output)
-			.map_err(|source| error!(!source, "failed to serialize the output"))?;
+			.map_err(|source| tg::error!(!source, "failed to serialize the output"))?;
 		tokio::io::stdout()
 			.write_all(json.as_bytes())
 			.await
-			.map_err(|source| error!(!source, "failed to write the data"))?;
+			.map_err(|source| tg::error!(!source, "failed to write the data"))?;
 		Ok(())
 	}
 
-	pub async fn command_build_put(&self, args: PutArgs) -> Result<()> {
+	pub async fn command_build_put(&self, args: PutArgs) -> tg::Result<()> {
 		let client = &self.client().await?;
 		let json = if let Some(json) = args.json {
 			json
@@ -327,29 +326,29 @@ impl Cli {
 			tokio::io::stdin()
 				.read_to_string(&mut json)
 				.await
-				.map_err(|source| error!(!source, "failed to read stdin"))?;
+				.map_err(|source| tg::error!(!source, "failed to read stdin"))?;
 			json
 		};
 		let arg: tg::build::PutArg = serde_json::from_str(&json)
-			.map_err(|source| error!(!source, "failed to deseralize"))?;
+			.map_err(|source| tg::error!(!source, "failed to deseralize"))?;
 		client.put_build(None, &arg.id, &arg).await?;
 		println!("{}", arg.id);
 		Ok(())
 	}
 
-	pub async fn command_build_push(&self, args: PushArgs) -> Result<()> {
+	pub async fn command_build_push(&self, args: PushArgs) -> tg::Result<()> {
 		let client = &self.client().await?;
 		client.push_build(None, &args.id).await?;
 		Ok(())
 	}
 
-	pub async fn command_build_pull(&self, args: PullArgs) -> Result<()> {
+	pub async fn command_build_pull(&self, args: PullArgs) -> tg::Result<()> {
 		let client = &self.client().await?;
 		client.pull_build(&args.id).await?;
 		Ok(())
 	}
 
-	pub async fn command_build_tree(&self, args: TreeArgs) -> Result<()> {
+	pub async fn command_build_tree(&self, args: TreeArgs) -> tg::Result<()> {
 		let client = &self.client().await?;
 		let build = tg::Build::with_id(args.id);
 		let tree = get_build_tree(client, &build, 1, args.depth).await?;
@@ -363,29 +362,29 @@ async fn get_build_tree(
 	build: &tg::Build,
 	current_depth: u32,
 	max_depth: Option<u32>,
-) -> Result<Tree> {
+) -> tg::Result<Tree> {
 	// Get the build's metadata.
 	let id = build.id().clone();
 	let status = build
 		.status(client, tg::build::status::GetArg::default())
 		.await
-		.map_err(|source| error!(!source, %id, "failed to get the build's status"))?
+		.map_err(|source| tg::error!(!source, %id, "failed to get the build's status"))?
 		.next()
 		.await
 		.unwrap()
-		.map_err(|source| error!(!source, %id, "failed to get the build's status"))?;
+		.map_err(|source| tg::error!(!source, %id, "failed to get the build's status"))?;
 	let target = build
 		.target(client)
 		.await
-		.map_err(|source| error!(!source, %id, "failed to get build's target"))?;
+		.map_err(|source| tg::error!(!source, %id, "failed to get build's target"))?;
 	let package = target
 		.package(client)
 		.await
-		.map_err(|source| error!(!source, %target, "failed to get target's package"))?;
+		.map_err(|source| tg::error!(!source, %target, "failed to get target's package"))?;
 	let name = target
 		.name(client)
 		.await
-		.map_err(|source| error!(!source, %target, "failed to get target's name"))?
+		.map_err(|source| tg::error!(!source, %target, "failed to get target's name"))?
 		.clone()
 		.unwrap_or_else(|| "<unknown>".into());
 
@@ -400,7 +399,7 @@ async fn get_build_tree(
 			let outcome = build
 				.outcome(client)
 				.await
-				.map_err(|source| error!(!source, %id, "failed to get the build outcome"))?;
+				.map_err(|source| tg::error!(!source, %id, "failed to get the build outcome"))?;
 			match outcome {
 				tg::build::Outcome::Canceled => {
 					write!(title, "{}", "⦻ ".yellow()).unwrap();
@@ -442,7 +441,7 @@ async fn get_build_tree(
 		build
 			.children(client, arg)
 			.await
-			.map_err(|source| error!(!source, %id, "failed to get the build's children"))?
+			.map_err(|source| tg::error!(!source, %id, "failed to get the build's children"))?
 			.map(|child| async move {
 				get_build_tree(client, &child?, current_depth + 1, max_depth).await
 			})

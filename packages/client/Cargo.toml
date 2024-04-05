@@ -54,8 +54,8 @@ serde_with = { workspace = true }
 sha2 = { workspace = true }
 tar = { workspace = true }
 tempfile = { workspace = true }
-tangram_error = { workspace = true }
 tangram_sse = { workspace = true }
+thiserror = { workspace = true }
 time = { workspace = true }
 tokio = { workspace = true }
 tokio-rustls = { workspace = true, optional = true }

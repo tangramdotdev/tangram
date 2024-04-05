@@ -2,7 +2,7 @@ use crate::Cli;
 use futures::FutureExt;
 use itertools::Itertools;
 use std::path::PathBuf;
-use tangram_error::{error, Result};
+use tangram_client as tg;
 
 /// Manage autoenv paths.
 #[derive(Debug, clap::Args)]
@@ -40,7 +40,7 @@ pub struct RemoveArgs {
 }
 
 impl Cli {
-	pub async fn command_autoenv(&self, args: Args) -> Result<()> {
+	pub async fn command_autoenv(&self, args: Args) -> tg::Result<()> {
 		match args.command {
 			Command::Add(args) => self.command_autoenv_add(args).boxed(),
 			Command::Get(args) => self.command_autoenv_get(args).boxed(),
@@ -51,16 +51,16 @@ impl Cli {
 		Ok(())
 	}
 
-	async fn command_autoenv_add(&self, args: AddArgs) -> Result<()> {
+	async fn command_autoenv_add(&self, args: AddArgs) -> tg::Result<()> {
 		// Get the path.
 		let mut path = std::env::current_dir()
-			.map_err(|source| error!(!source, "failed to get the working directory"))?;
+			.map_err(|source| tg::error!(!source, "failed to get the working directory"))?;
 		if let Some(path_arg) = &args.path {
 			path.push(path_arg);
 		}
 		let path = tokio::fs::canonicalize(&path)
 			.await
-			.map_err(|source| error!(!source, "failed to canonicalize the path"))?;
+			.map_err(|source| tg::error!(!source, "failed to canonicalize the path"))?;
 
 		// Get the config.
 		let mut config = self.config.clone().unwrap_or_default();
@@ -78,13 +78,13 @@ impl Cli {
 		Ok(())
 	}
 
-	async fn command_autoenv_get(&self, _args: GetArgs) -> Result<()> {
+	async fn command_autoenv_get(&self, _args: GetArgs) -> tg::Result<()> {
 		// Get the config.
 		let config = self.config.clone().unwrap_or_default();
 
 		// Get the working directory path.
 		let working_directory_path = std::env::current_dir()
-			.map_err(|source| error!(!source, "failed to get the working directory"))?;
+			.map_err(|source| tg::error!(!source, "failed to get the working directory"))?;
 
 		// Get the autoenv path for the working directory path.
 		let Some(autoenv) = config.autoenv.as_ref() else {
@@ -108,7 +108,7 @@ impl Cli {
 		Ok(())
 	}
 
-	async fn command_autoenv_list(&self, _args: ListArgs) -> Result<()> {
+	async fn command_autoenv_list(&self, _args: ListArgs) -> tg::Result<()> {
 		// Get the autoenv paths.
 		let autoenv_paths = self
 			.config
@@ -127,19 +127,19 @@ impl Cli {
 		Ok(())
 	}
 
-	async fn command_autoenv_remove(&self, args: RemoveArgs) -> Result<()> {
+	async fn command_autoenv_remove(&self, args: RemoveArgs) -> tg::Result<()> {
 		// Get the config.
 		let mut config = self.config.clone().unwrap_or_default();
 
 		// Get the path.
 		let mut path = std::env::current_dir()
-			.map_err(|source| error!(!source, "failed to get the working directory"))?;
+			.map_err(|source| tg::error!(!source, "failed to get the working directory"))?;
 		if let Some(path_arg) = &args.path {
 			path.push(path_arg);
 		}
 		let path = tokio::fs::canonicalize(&path)
 			.await
-			.map_err(|source| error!(!source, "failed to canonicalize the path"))?;
+			.map_err(|source| tg::error!(!source, "failed to canonicalize the path"))?;
 
 		// Remove the autoenv path.
 		if let Some(autoenv) = config.autoenv.as_mut() {

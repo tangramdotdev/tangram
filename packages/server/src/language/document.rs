@@ -2,7 +2,6 @@ use super::{Sender, Server};
 use lsp_types as lsp;
 use std::path::PathBuf;
 use tangram_client as tg;
-use tangram_error::{error, Result};
 
 impl Server {
 	/// Get all the server's documents.
@@ -16,7 +15,7 @@ impl Server {
 		&self,
 		package_path: PathBuf,
 		module_path: tg::Path,
-	) -> Result<tg::Document> {
+	) -> tg::Result<tg::Document> {
 		let path = package_path.join(module_path.to_string());
 
 		// Create the document.
@@ -32,9 +31,9 @@ impl Server {
 		if !documents.contains_key(&document) {
 			let metadata = tokio::fs::metadata(&path)
 				.await
-				.map_err(|source| error!(!source, "failed to get the metadata"))?;
+				.map_err(|source| tg::error!(!source, "failed to get the metadata"))?;
 			let modified = metadata.modified().map_err(|error| {
-				error!(source = error, "failed to get the last modification time")
+				tg::error!(source = error, "failed to get the last modification time")
 			})?;
 			let state = tg::document::State::Closed(tg::document::Closed {
 				version: 0,
@@ -52,7 +51,7 @@ impl Server {
 		document: &tg::Document,
 		version: i32,
 		text: String,
-	) -> Result<()> {
+	) -> tg::Result<()> {
 		// Lock the documents.
 		let mut documents = self.inner.documents.write().await;
 
@@ -70,7 +69,7 @@ impl Server {
 		range: Option<tg::Range>,
 		version: i32,
 		text: String,
-	) -> Result<()> {
+	) -> tg::Result<()> {
 		// Lock the documents.
 		let mut documents = self.inner.documents.write().await;
 
@@ -78,7 +77,7 @@ impl Server {
 		let Some(tg::document::State::Opened(state)) = documents.get_mut(document) else {
 			let path = document.path();
 			let path = path.display();
-			return Err(error!(
+			return Err(tg::error!(
 				%path,
 				"could not find an open document"
 			));
@@ -101,7 +100,7 @@ impl Server {
 	}
 
 	/// Close a document.
-	pub async fn close_document(&self, document: &tg::Document) -> Result<()> {
+	pub async fn close_document(&self, document: &tg::Document) -> tg::Result<()> {
 		// Lock the documents.
 		let mut documents = self.inner.documents.write().await;
 
@@ -112,7 +111,7 @@ impl Server {
 	}
 
 	/// Get a document's version.
-	pub async fn get_document_version(&self, document: &tg::Document) -> Result<i32> {
+	pub async fn get_document_version(&self, document: &tg::Document) -> tg::Result<i32> {
 		// Lock the documents.
 		let mut documents = self.inner.documents.write().await;
 
@@ -123,9 +122,9 @@ impl Server {
 			tg::document::State::Closed(closed) => {
 				let metadata = tokio::fs::metadata(document.path())
 					.await
-					.map_err(|source| error!(!source, "failed to get the metadata"))?;
+					.map_err(|source| tg::error!(!source, "failed to get the metadata"))?;
 				let modified = metadata.modified().map_err(|error| {
-					error!(source = error, "failed to get the last modification time")
+					tg::error!(source = error, "failed to get the last modification time")
 				})?;
 				if modified > closed.modified {
 					closed.modified = modified;
@@ -140,14 +139,14 @@ impl Server {
 	}
 
 	/// Get the document's text.
-	pub async fn get_document_text(&self, document: &tg::Document) -> Result<String> {
+	pub async fn get_document_text(&self, document: &tg::Document) -> tg::Result<String> {
 		let path = document.path();
 		let documents = self.inner.documents.read().await;
 		let document = documents.get(document).unwrap();
 		let text = match document {
 			tg::document::State::Closed(_) => tokio::fs::read_to_string(&path)
 				.await
-				.map_err(|source| error!(!source, "failed to read the file"))?,
+				.map_err(|source| tg::error!(!source, "failed to read the file"))?,
 			tg::document::State::Opened(opened) => opened.text.clone(),
 		};
 		Ok(text)
@@ -159,7 +158,7 @@ impl Server {
 		&self,
 		sender: Sender,
 		params: lsp::DidOpenTextDocumentParams,
-	) -> Result<()> {
+	) -> tg::Result<()> {
 		// Get the module.
 		let module = self.module_for_url(&params.text_document.uri).await?;
 
@@ -180,7 +179,7 @@ impl Server {
 		&self,
 		sender: Sender,
 		params: lsp::DidChangeTextDocumentParams,
-	) -> Result<()> {
+	) -> tg::Result<()> {
 		// Get the module.
 		let module = self.module_for_url(&params.text_document.uri).await?;
 
@@ -207,7 +206,7 @@ impl Server {
 		&self,
 		sender: Sender,
 		params: lsp::DidCloseTextDocumentParams,
-	) -> Result<()> {
+	) -> tg::Result<()> {
 		// Get the module.
 		let module = self.module_for_url(&params.text_document.uri).await?;
 
@@ -226,7 +225,7 @@ impl Server {
 		&self,
 		sender: Sender,
 		_params: lsp::DidSaveTextDocumentParams,
-	) -> Result<()> {
+	) -> tg::Result<()> {
 		// Update all diagnostics.
 		self.update_diagnostics(&sender).await?;
 

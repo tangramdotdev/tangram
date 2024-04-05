@@ -1,14 +1,13 @@
 use crate::Server;
 use tangram_client as tg;
-use tangram_error::{error, Result};
 
 impl Server {
-	pub async fn format_package(&self, dependency: &tg::Dependency) -> Result<()> {
+	pub async fn format_package(&self, dependency: &tg::Dependency) -> tg::Result<()> {
 		// Get the path from the dependency.
 		let path = dependency
 			.path
 			.as_ref()
-			.ok_or_else(|| error!(%dependency, "expected the dependency to have a path"))?;
+			.ok_or_else(|| tg::error!(%dependency, "expected the dependency to have a path"))?;
 
 		// Get the root module path.
 		let root_module_path = tg::package::get_root_module_path_for_path(path.as_ref()).await?;
@@ -25,7 +24,7 @@ impl Server {
 		&self,
 		module_path: tg::Path,
 		visited_module_paths: &mut im::HashSet<tg::Path, fnv::FnvBuildHasher>,
-	) -> Result<()> {
+	) -> tg::Result<()> {
 		if visited_module_paths.contains(&module_path) {
 			return Ok(());
 		}
@@ -34,18 +33,20 @@ impl Server {
 		// Get the module's text.
 		let text = tokio::fs::read_to_string(&module_path)
 			.await
-			.map_err(|source| error!(!source, "failed to read the module"))?;
+			.map_err(|source| tg::error!(!source, "failed to read the module"))?;
 
 		// Format the module's text.
 		let text = self
 			.format(text)
 			.await
-			.map_err(|source| error!(!source, %module_path, "failed to format module"))?;
+			.map_err(|source| tg::error!(!source, %module_path, "failed to format module"))?;
 
 		// Write the new text back.
 		tokio::fs::write(&module_path, text.as_bytes())
 			.await
-			.map_err(|source| error!(!source, %module_path, "failed to write formatted module"))?;
+			.map_err(
+				|source| tg::error!(!source, %module_path, "failed to write formatted module"),
+			)?;
 
 		// Attempt to analyze the module.
 		let Ok(analysis) = crate::language::Server::analyze_module(text) else {
@@ -56,7 +57,7 @@ impl Server {
 			if let tg::Import::Module(module) = import {
 				let module_path = module_path.clone().parent().normalize().join(module);
 				let exists = tokio::fs::try_exists(&module_path).await.map_err(
-					|source| error!(!source, %module_path, "failed to check if module exists"),
+					|source| tg::error!(!source, %module_path, "failed to check if module exists"),
 				)?;
 				if exists {
 					Box::pin(self.format_module(module_path, visited_module_paths)).await?;

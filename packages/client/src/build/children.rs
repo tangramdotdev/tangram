@@ -1,13 +1,12 @@
 use super::Id;
 use crate::{
-	self as tg,
+	self as tg, error,
 	util::http::{empty, full},
 	Client,
 };
 use futures::{future, stream::BoxStream, FutureExt, StreamExt, TryStreamExt};
 use http_body_util::{BodyExt, BodyStream};
 use serde_with::serde_as;
-use tangram_error::{error, Error, Result};
 use tokio_util::io::StreamReader;
 
 #[serde_as]
@@ -40,7 +39,7 @@ impl Client {
 		id: &tg::build::Id,
 		arg: tg::build::children::GetArg,
 		stop: Option<tokio::sync::watch::Receiver<bool>>,
-	) -> Result<Option<BoxStream<'static, Result<tg::build::children::Chunk>>>> {
+	) -> tg::Result<Option<BoxStream<'static, tg::Result<tg::build::children::Chunk>>>> {
 		let method = http::Method::GET;
 		let search_params = serde_urlencoded::to_string(&arg).unwrap();
 		let uri = format!("/builds/{id}/children?{search_params}");
@@ -84,7 +83,7 @@ impl Client {
 				let event = result.map_err(|source| error!(!source, "failed to read an event"))?;
 				let chunk = serde_json::from_str(&event.data)
 					.map_err(|source| error!(!source, "failed to deserialize the event data"))?;
-				Ok::<_, Error>(chunk)
+				Ok::<_, tg::Error>(chunk)
 			})
 			.take_until(stop)
 			.boxed();
@@ -96,7 +95,7 @@ impl Client {
 		user: Option<&tg::User>,
 		build_id: &tg::build::Id,
 		child_id: &tg::build::Id,
-	) -> Result<()> {
+	) -> tg::Result<()> {
 		let method = http::Method::POST;
 		let uri = format!("/builds/{build_id}/children");
 		let mut request = http::request::Builder::default().method(method).uri(uri);

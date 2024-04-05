@@ -1,10 +1,10 @@
+use crate::{self as tg};
 use bytes::Bytes;
-use tangram_error::Result;
 
 pub struct BytesBase64;
 
 impl serde_with::SerializeAs<Bytes> for BytesBase64 {
-	fn serialize_as<S>(value: &Bytes, serializer: S) -> Result<S::Ok, S::Error>
+	fn serialize_as<S>(value: &Bytes, serializer: S) -> tg::Result<S::Ok, S::Error>
 	where
 		S: serde::Serializer,
 	{
@@ -14,7 +14,7 @@ impl serde_with::SerializeAs<Bytes> for BytesBase64 {
 }
 
 impl<'de> serde_with::DeserializeAs<'de, Bytes> for BytesBase64 {
-	fn deserialize_as<D>(deserializer: D) -> Result<Bytes, D::Error>
+	fn deserialize_as<D>(deserializer: D) -> tg::Result<Bytes, D::Error>
 	where
 		D: serde::Deserializer<'de>,
 	{
@@ -27,7 +27,7 @@ impl<'de> serde_with::DeserializeAs<'de, Bytes> for BytesBase64 {
 				formatter.write_str("a base64 encoded string")
 			}
 
-			fn visit_str<E>(self, value: &str) -> Result<Self::Value, E>
+			fn visit_str<E>(self, value: &str) -> tg::Result<Self::Value, E>
 			where
 				E: serde::de::Error,
 			{
@@ -46,7 +46,7 @@ impl<'de> serde_with::DeserializeAs<'de, Bytes> for BytesBase64 {
 pub struct SeekFromString;
 
 impl serde_with::SerializeAs<std::io::SeekFrom> for SeekFromString {
-	fn serialize_as<S>(value: &std::io::SeekFrom, serializer: S) -> Result<S::Ok, S::Error>
+	fn serialize_as<S>(value: &std::io::SeekFrom, serializer: S) -> tg::Result<S::Ok, S::Error>
 	where
 		S: serde::Serializer,
 	{
@@ -60,7 +60,7 @@ impl serde_with::SerializeAs<std::io::SeekFrom> for SeekFromString {
 }
 
 impl<'de> serde_with::DeserializeAs<'de, std::io::SeekFrom> for SeekFromString {
-	fn deserialize_as<D>(deserializer: D) -> Result<std::io::SeekFrom, D::Error>
+	fn deserialize_as<D>(deserializer: D) -> tg::Result<std::io::SeekFrom, D::Error>
 	where
 		D: serde::Deserializer<'de>,
 	{
@@ -73,7 +73,7 @@ impl<'de> serde_with::DeserializeAs<'de, std::io::SeekFrom> for SeekFromString {
 				formatter.write_str("a string")
 			}
 
-			fn visit_str<E>(self, value: &str) -> Result<Self::Value, E>
+			fn visit_str<E>(self, value: &str) -> tg::Result<Self::Value, E>
 			where
 				E: serde::de::Error,
 			{

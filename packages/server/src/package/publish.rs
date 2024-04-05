@@ -6,7 +6,6 @@ use http_body_util::BodyExt;
 use indoc::formatdoc;
 use tangram_client as tg;
 use tangram_database::{self as db, prelude::*};
-use tangram_error::{error, Result};
 use time::format_description::well_known::Rfc3339;
 
 impl Server {
@@ -14,7 +13,7 @@ impl Server {
 		&self,
 		user: Option<&tg::User>,
 		id: &tg::directory::Id,
-	) -> Result<()> {
+	) -> tg::Result<()> {
 		if let Some(remote) = self.inner.remotes.first() {
 			self.push_object(&id.clone().into()).await?;
 			remote.publish_package(user, id).await?;
@@ -31,12 +30,12 @@ impl Server {
 		let name = metadata
 			.name
 			.as_ref()
-			.ok_or_else(|| error!(%id, "the package must have a name"))?
+			.ok_or_else(|| tg::error!(%id, "the package must have a name"))?
 			.as_str();
 		let version = metadata
 			.version
 			.as_ref()
-			.ok_or_else(|| error!(%id, "the package must have a version"))?
+			.ok_or_else(|| tg::error!(%id, "the package must have a version"))?
 			.as_str();
 
 		// Get the published at timestamp.
@@ -48,7 +47,7 @@ impl Server {
 			.database
 			.connection()
 			.await
-			.map_err(|source| error!(!source, "failed to get a database connection"))?;
+			.map_err(|source| tg::error!(!source, "failed to get a database connection"))?;
 
 		// Create the package if it does not exist.
 		let p = connection.p();
@@ -63,7 +62,7 @@ impl Server {
 		connection
 			.execute(statement, params)
 			.await
-			.map_err(|source| error!(!source, "failed to execute the statement"))?;
+			.map_err(|source| tg::error!(!source, "failed to execute the statement"))?;
 
 		// Create the package version.
 		let p = connection.p();
@@ -77,7 +76,7 @@ impl Server {
 		connection
 			.execute(statement, params)
 			.await
-			.map_err(|source| error!(!source, "failed to execute the statement"))?;
+			.map_err(|source| tg::error!(!source, "failed to execute the statement"))?;
 
 		// Drop the database connection.
 		drop(connection);
@@ -86,11 +85,14 @@ impl Server {
 	}
 }
 
-impl<H> Http<H> where H: tg::Handle {
+impl<H> Http<H>
+where
+	H: tg::Handle,
+{
 	pub async fn handle_publish_package_request(
 		&self,
 		request: http::Request<Incoming>,
-	) -> Result<http::Response<Outgoing>> {
+	) -> tg::Result<http::Response<Outgoing>> {
 		// Get the user.
 		let user = self.try_get_user_from_request(&request).await?;
 
@@ -99,10 +101,10 @@ impl<H> Http<H> where H: tg::Handle {
 			.into_body()
 			.collect()
 			.await
-			.map_err(|source| error!(!source, "failed to read the body"))?
+			.map_err(|source| tg::error!(!source, "failed to read the body"))?
 			.to_bytes();
-		let package_id =
-			serde_json::from_slice(&bytes).map_err(|source| error!(!source, "invalid request"))?;
+		let package_id = serde_json::from_slice(&bytes)
+			.map_err(|source| tg::error!(!source, "invalid request"))?;
 
 		// Publish the package.
 		self.inner

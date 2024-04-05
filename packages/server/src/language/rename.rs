@@ -2,7 +2,6 @@ use super::Server;
 use lsp_types as lsp;
 use std::collections::HashMap;
 use tangram_client as tg;
-use tangram_error::{error, Result};
 use url::Url;
 
 #[derive(Debug, serde::Serialize)]
@@ -22,7 +21,7 @@ impl Server {
 	pub(super) async fn handle_rename_request(
 		&self,
 		params: lsp::RenameParams,
-	) -> Result<Option<lsp::WorkspaceEdit>> {
+	) -> tg::Result<Option<lsp::WorkspaceEdit>> {
 		// Get the module.
 		let module = self
 			.module_for_url(&params.text_document_position.text_document.uri)
@@ -87,7 +86,7 @@ impl Server {
 		&self,
 		module: &tg::Module,
 		position: tg::Position,
-	) -> Result<Option<Vec<tg::Location>>> {
+	) -> tg::Result<Option<Vec<tg::Location>>> {
 		// Create the request.
 		let request = super::Request::Rename(Request {
 			module: module.clone(),
@@ -99,7 +98,7 @@ impl Server {
 
 		// Get the response.
 		let super::Response::Rename(response) = response else {
-			return Err(error!("unexpected response type"));
+			return Err(tg::error!("unexpected response type"));
 		};
 
 		Ok(response.locations)

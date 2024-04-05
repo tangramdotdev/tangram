@@ -1,6 +1,5 @@
-use crate as tg;
 use crate::{
-	directory, lock,
+	self as tg, directory, error, lock,
 	util::http::{empty, full},
 	Client, Dependency, Directory, Handle, Lock,
 };
@@ -8,7 +7,6 @@ use http_body_util::BodyExt;
 use serde_with::serde_as;
 use std::collections::BTreeMap;
 use std::path::Path;
-use tangram_error::{error, Result};
 
 /// The possible file names of the root module in a package.
 pub const ROOT_MODULE_FILE_NAMES: &[&str] =
@@ -69,20 +67,23 @@ pub struct SearchArg {
 
 pub type SearchOutput = Vec<String>;
 
-pub async fn get(tg: &impl Handle, dependency: &Dependency) -> Result<Directory> {
+pub async fn get(tg: &impl Handle, dependency: &Dependency) -> tg::Result<Directory> {
 	try_get(tg, dependency)
 		.await?
 		.ok_or_else(|| error!(%dependency, "failed to find the package"))
 }
 
-pub async fn try_get(tg: &impl Handle, dependency: &Dependency) -> Result<Option<Directory>> {
+pub async fn try_get(tg: &impl Handle, dependency: &Dependency) -> tg::Result<Option<Directory>> {
 	let arg = GetArg::default();
 	let output = tg.try_get_package(dependency, arg).await?;
 	let package = output.map(|output| Directory::with_id(output.id));
 	Ok(package)
 }
 
-pub async fn get_with_lock(tg: &impl Handle, dependency: &Dependency) -> Result<(Directory, Lock)> {
+pub async fn get_with_lock(
+	tg: &impl Handle,
+	dependency: &Dependency,
+) -> tg::Result<(Directory, Lock)> {
 	try_get_with_lock(tg, dependency)
 		.await?
 		.ok_or_else(|| error!(%dependency, "failed to find the package"))
@@ -91,7 +92,7 @@ pub async fn get_with_lock(tg: &impl Handle, dependency: &Dependency) -> Result<
 pub async fn try_get_with_lock(
 	tg: &impl Handle,
 	dependency: &Dependency,
-) -> Result<Option<(Directory, Lock)>> {
+) -> tg::Result<Option<(Directory, Lock)>> {
 	let arg = GetArg {
 		lock: true,
 		..Default::default()
@@ -107,7 +108,10 @@ pub async fn try_get_with_lock(
 	Ok(Some((package, lock)))
 }
 
-pub async fn get_dependencies(tg: &impl Handle, package: &Directory) -> Result<Vec<Dependency>> {
+pub async fn get_dependencies(
+	tg: &impl Handle,
+	package: &Directory,
+) -> tg::Result<Vec<Dependency>> {
 	try_get_dependencies(tg, package)
 		.await?
 		.ok_or_else(|| error!(%package, "failed to find the package"))
@@ -116,7 +120,7 @@ pub async fn get_dependencies(tg: &impl Handle, package: &Directory) -> Result<V
 pub async fn try_get_dependencies(
 	tg: &impl Handle,
 	package: &Directory,
-) -> Result<Option<Vec<Dependency>>> {
+) -> tg::Result<Option<Vec<Dependency>>> {
 	let id = package.id(tg).await?;
 	let dependency = Dependency::with_id(id);
 	let arg = GetArg {
@@ -132,13 +136,16 @@ pub async fn try_get_dependencies(
 	Ok(Some(dependencies))
 }
 
-pub async fn get_metadata(tg: &impl Handle, package: &Directory) -> Result<Metadata> {
+pub async fn get_metadata(tg: &impl Handle, package: &Directory) -> tg::Result<Metadata> {
 	try_get_metadata(tg, package)
 		.await?
 		.ok_or_else(|| error!(%package, "failed to find the package"))
 }
 
-pub async fn try_get_metadata(tg: &impl Handle, package: &Directory) -> Result<Option<Metadata>> {
+pub async fn try_get_metadata(
+	tg: &impl Handle,
+	package: &Directory,
+) -> tg::Result<Option<Metadata>> {
 	let id = package.id(tg).await?;
 	let dependency = Dependency::with_id(id);
 	let arg = GetArg {
@@ -154,7 +161,10 @@ pub async fn try_get_metadata(tg: &impl Handle, package: &Directory) -> Result<O
 	Ok(Some(metadata))
 }
 
-pub async fn get_root_module_path(tg: &impl Handle, package: &Directory) -> Result<crate::Path> {
+pub async fn get_root_module_path(
+	tg: &impl Handle,
+	package: &Directory,
+) -> tg::Result<crate::Path> {
 	try_get_root_module_path(tg, package)
 		.await?
 		.ok_or_else(|| error!("failed to find the package's root module"))
@@ -163,7 +173,7 @@ pub async fn get_root_module_path(tg: &impl Handle, package: &Directory) -> Resu
 pub async fn try_get_root_module_path(
 	tg: &impl Handle,
 	package: &Directory,
-) -> Result<Option<crate::Path>> {
+) -> tg::Result<Option<crate::Path>> {
 	let mut root_module_path = None;
 	for module_file_name in ROOT_MODULE_FILE_NAMES {
 		if package
@@ -180,13 +190,13 @@ pub async fn try_get_root_module_path(
 	Ok(root_module_path)
 }
 
-pub async fn get_root_module_path_for_path(path: &Path) -> Result<crate::Path> {
+pub async fn get_root_module_path_for_path(path: &Path) -> tg::Result<crate::Path> {
 	try_get_root_module_path_for_path(path)
 		.await?
 		.ok_or_else(|| error!("failed to find the package's root module"))
 }
 
-pub async fn try_get_root_module_path_for_path(path: &Path) -> Result<Option<crate::Path>> {
+pub async fn try_get_root_module_path_for_path(path: &Path) -> tg::Result<Option<crate::Path>> {
 	let mut root_module_path = None;
 	for module_file_name in ROOT_MODULE_FILE_NAMES {
 		if tokio::fs::try_exists(path.join(module_file_name))
@@ -206,7 +216,7 @@ impl Client {
 	pub async fn search_packages(
 		&self,
 		arg: tg::package::SearchArg,
-	) -> Result<tg::package::SearchOutput> {
+	) -> tg::Result<tg::package::SearchOutput> {
 		let method = http::Method::GET;
 		let search_params = serde_urlencoded::to_string(arg)
 			.map_err(|source| error!(!source, "failed to serialize the search params"))?;
@@ -242,7 +252,7 @@ impl Client {
 		&self,
 		dependency: &tg::Dependency,
 		arg: tg::package::GetArg,
-	) -> Result<Option<tg::package::GetOutput>> {
+	) -> tg::Result<Option<tg::package::GetOutput>> {
 		let method = http::Method::GET;
 		let dependency = dependency.to_string();
 		let dependency = urlencoding::encode(&dependency);
@@ -285,7 +295,7 @@ impl Client {
 	pub async fn try_get_package_versions(
 		&self,
 		dependency: &tg::Dependency,
-	) -> Result<Option<Vec<String>>> {
+	) -> tg::Result<Option<Vec<String>>> {
 		let method = http::Method::GET;
 		let dependency = dependency.to_string();
 		let dependency = urlencoding::encode(&dependency);
@@ -321,7 +331,7 @@ impl Client {
 		&self,
 		user: Option<&tg::User>,
 		id: &tg::directory::Id,
-	) -> Result<()> {
+	) -> tg::Result<()> {
 		let method = http::Method::POST;
 		let uri = "/packages";
 		let mut request = http::request::Builder::default().method(method).uri(uri);
@@ -349,7 +359,10 @@ impl Client {
 		Ok(())
 	}
 
-	pub async fn check_package(&self, dependency: &tg::Dependency) -> Result<Vec<tg::Diagnostic>> {
+	pub async fn check_package(
+		&self,
+		dependency: &tg::Dependency,
+	) -> tg::Result<Vec<tg::Diagnostic>> {
 		let method = http::Method::POST;
 		let dependency = dependency.to_string();
 		let dependency = urlencoding::encode(&dependency);
@@ -380,7 +393,7 @@ impl Client {
 		Ok(output)
 	}
 
-	pub async fn format_package(&self, dependency: &tg::Dependency) -> Result<()> {
+	pub async fn format_package(&self, dependency: &tg::Dependency) -> tg::Result<()> {
 		let method = http::Method::POST;
 		let dependency = dependency.to_string();
 		let dependency = urlencoding::encode(&dependency);
@@ -407,7 +420,7 @@ impl Client {
 	pub async fn get_package_outdated(
 		&self,
 		dependency: &tg::Dependency,
-	) -> Result<tg::package::OutdatedOutput> {
+	) -> tg::Result<tg::package::OutdatedOutput> {
 		let method = http::Method::POST;
 		let dependency = dependency.to_string();
 		let dependency = urlencoding::encode(&dependency);
@@ -442,7 +455,7 @@ impl Client {
 		Ok(output)
 	}
 
-	pub async fn get_runtime_doc(&self) -> Result<serde_json::Value> {
+	pub async fn get_runtime_doc(&self) -> tg::Result<serde_json::Value> {
 		let method = http::Method::GET;
 		let uri = "/runtimes/js/doc";
 		let request = http::request::Builder::default().method(method).uri(uri);
@@ -474,7 +487,7 @@ impl Client {
 	pub async fn try_get_package_doc(
 		&self,
 		dependency: &tg::Dependency,
-	) -> Result<Option<serde_json::Value>> {
+	) -> tg::Result<Option<serde_json::Value>> {
 		let method = http::Method::GET;
 		let dependency = dependency.to_string();
 		let dependency = urlencoding::encode(&dependency);

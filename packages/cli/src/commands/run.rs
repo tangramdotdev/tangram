@@ -7,7 +7,6 @@ use crossterm::style::Stylize;
 use itertools::Itertools;
 use std::{collections::BTreeMap, os::unix::process::CommandExt};
 use tangram_client as tg;
-use tangram_error::{error, Error, Result};
 
 /// Build a target and run a command.
 #[derive(Debug, clap::Args)]
@@ -54,7 +53,7 @@ pub struct Args {
 }
 
 impl Cli {
-	pub async fn command_run(&self, args: Args) -> Result<()> {
+	pub async fn command_run(&self, args: Args) -> tg::Result<()> {
 		let client = &self.client().await?;
 
 		let target = if let Some(Ok(id)) = args.target.as_ref().map(|target| target.parse()) {
@@ -67,7 +66,7 @@ impl Cli {
 			if let Some(path) = dependency.path.as_mut() {
 				*path = tokio::fs::canonicalize(&path)
 					.await
-					.map_err(|source| error!(!source, "failed to canonicalize the path"))?
+					.map_err(|source| tg::error!(!source, "failed to canonicalize the path"))?
 					.try_into()?;
 			}
 
@@ -81,8 +80,8 @@ impl Cli {
 				.map(|env| {
 					let (key, value) = env
 						.split_once('=')
-						.ok_or_else(|| error!("expected `KEY=value`"))?;
-					Ok::<_, Error>((key.to_owned(), tg::Value::String(value.to_owned())))
+						.ok_or_else(|| tg::error!("expected `KEY=value`"))?;
+					Ok::<_, tg::Error>((key.to_owned(), tg::Value::String(value.to_owned())))
 				})
 				.try_collect()?;
 			if !env.contains_key("TANGRAM_HOST") {
@@ -99,8 +98,8 @@ impl Cli {
 				.map(|arg| {
 					let (key, value) = arg
 						.split_once('=')
-						.ok_or_else(|| error!("expected `key=value`"))?;
-					Ok::<_, Error>((key.to_owned(), tg::Value::String(value.to_owned())))
+						.ok_or_else(|| tg::error!("expected `key=value`"))?;
+					Ok::<_, tg::Error>((key.to_owned(), tg::Value::String(value.to_owned())))
 				})
 				.try_collect()?;
 			let args_ = vec![args_.into()];
@@ -141,7 +140,7 @@ impl Cli {
 		let outcome = build
 			.get_outcome(client, arg)
 			.await
-			.map_err(|source| error!(!source, "failed to get the build outcome"))?;
+			.map_err(|source| tg::error!(!source, "failed to get the build outcome"))?;
 
 		// If the outcome is not immediatey available, then wait for it while showing the TUI if enabled.
 		let outcome = if let Some(outcome) = outcome {
@@ -166,25 +165,25 @@ impl Cli {
 				tui.join().await?;
 			}
 
-			outcome.map_err(|source| error!(!source, "failed to get the build outcome"))?
+			outcome.map_err(|source| tg::error!(!source, "failed to get the build outcome"))?
 		};
 
 		// Handle a failed build.
 		let output = outcome
 			.into_result()
-			.map_err(|source| error!(!source, "the build failed"))?;
+			.map_err(|source| tg::error!(!source, "the build failed"))?;
 
 		// Get the output artifact.
 		let artifact: tg::Artifact = output
 			.try_into()
-			.map_err(|source| error!(!source, "expected the output to be an artifact"))?;
+			.map_err(|source| tg::error!(!source, "expected the output to be an artifact"))?;
 
 		// Get the path to the artifact.
 		let artifact_path = client
 			.path()
 			.await
-			.map_err(|source| error!(!source, "failed to get the server path"))?
-			.ok_or_else(|| error!("failed to get the server path"))?
+			.map_err(|source| tg::error!(!source, "failed to get the server path"))?
+			.ok_or_else(|| tg::error!("failed to get the server path"))?
 			.join("artifacts")
 			.join(artifact.id(client).await?.to_string());
 
@@ -208,6 +207,6 @@ impl Cli {
 		let error = std::process::Command::new(&executable_path)
 			.args(args.trailing)
 			.exec();
-		Err(error!(source = error, %executable_path, "failed to execute the command"))
+		Err(tg::error!(source = error, %executable_path, "failed to execute the command"))
 	}
 }

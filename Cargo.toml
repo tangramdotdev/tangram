@@ -4,7 +4,6 @@ members = [
   "packages/cli",
   "packages/client",
   "packages/database",
-  "packages/error",
   "packages/fuse",
   "packages/nfs",  
   "packages/server",
@@ -110,7 +109,6 @@ swc_core = { version = "0.90", features = [
 tangram_cli = { path = "packages/cli" }
 tangram_client = { path = "packages/client" }
 tangram_database = { path = "packages/database" }
-tangram_error = { path = "packages/error" }
 tangram_fuse = { path = "packages/fuse" }
 tangram_nfs = { path = "packages/nfs" }
 tangram_server = { path = "packages/server" }

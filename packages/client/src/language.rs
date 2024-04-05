@@ -1,14 +1,14 @@
 use crate::{
+	self as tg, error,
 	util::http::{empty, full},
 	Client,
 };
 use futures::{future, TryFutureExt};
 use http_body_util::BodyExt;
-use tangram_error::{error, Result};
 use tokio::io::{AsyncRead, AsyncWrite};
 
 impl Client {
-	pub async fn format(&self, text: String) -> Result<String> {
+	pub async fn format(&self, text: String) -> tg::Result<String> {
 		let method = http::Method::POST;
 		let uri = "/format";
 		let request = http::request::Builder::default().method(method).uri(uri);
@@ -41,7 +41,7 @@ impl Client {
 		&self,
 		mut input: Box<dyn AsyncRead + Send + Unpin + 'static>,
 		mut output: Box<dyn AsyncWrite + Send + Unpin + 'static>,
-	) -> Result<()> {
+	) -> tg::Result<()> {
 		let mut sender = self.connect_h1().await?;
 		let method = http::Method::POST;
 		let uri = "/lsp";

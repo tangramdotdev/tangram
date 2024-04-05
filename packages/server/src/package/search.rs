@@ -5,13 +5,12 @@ use crate::{
 use indoc::formatdoc;
 use tangram_client as tg;
 use tangram_database::{self as db, prelude::*};
-use tangram_error::{error, Result};
 
 impl Server {
 	pub async fn search_packages(
 		&self,
 		arg: tg::package::SearchArg,
-	) -> Result<tg::package::SearchOutput> {
+	) -> tg::Result<tg::package::SearchOutput> {
 		if let Some(remote) = self.inner.remotes.first() {
 			return remote.search_packages(arg).await;
 		}
@@ -22,7 +21,7 @@ impl Server {
 			.database
 			.connection()
 			.await
-			.map_err(|source| error!(!source, "failed to get a database connection"))?;
+			.map_err(|source| tg::error!(!source, "failed to get a database connection"))?;
 
 		// Get the search results.
 		let p = connection.p();
@@ -37,7 +36,7 @@ impl Server {
 		let results = connection
 			.query_all_value_into(statement, params)
 			.await
-			.map_err(|source| error!(!source, "failed to execute the statement"))?;
+			.map_err(|source| tg::error!(!source, "failed to execute the statement"))?;
 
 		// Drop the database connection.
 		drop(connection);
@@ -46,24 +45,27 @@ impl Server {
 	}
 }
 
-impl<H> Http<H> where H: tg::Handle {
+impl<H> Http<H>
+where
+	H: tg::Handle,
+{
 	pub async fn handle_search_packages_request(
 		&self,
 		request: http::Request<Incoming>,
-	) -> Result<http::Response<Outgoing>> {
+	) -> tg::Result<http::Response<Outgoing>> {
 		// Read the search params.
 		let Some(query) = request.uri().query() else {
 			return Ok(bad_request());
 		};
 		let arg = serde_urlencoded::from_str(query)
-			.map_err(|source| error!(!source, "failed to deserialize the search params"))?;
+			.map_err(|source| tg::error!(!source, "failed to deserialize the search params"))?;
 
 		// Perform the search.
 		let output = self.inner.tg.search_packages(arg).await?;
 
 		// Create the body.
 		let body = serde_json::to_vec(&output)
-			.map_err(|source| error!(!source, "failed to serialize the body"))?;
+			.map_err(|source| tg::error!(!source, "failed to serialize the body"))?;
 		let body = full(body);
 
 		// Create the response.

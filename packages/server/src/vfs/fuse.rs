@@ -10,7 +10,6 @@ use std::{
 	sync::{Arc, Weak},
 };
 use tangram_client as tg;
-use tangram_error::{error, Result};
 use tangram_fuse::sys;
 use tokio::io::{AsyncReadExt, AsyncSeekExt};
 use zerocopy::{AsBytes, FromBytes};
@@ -135,7 +134,7 @@ enum Response {
 }
 
 impl Server {
-	pub async fn start(server: &crate::Server, path: &Path) -> Result<Self> {
+	pub async fn start(server: &crate::Server, path: &Path) -> tg::Result<Self> {
 		// Create the server.
 		let root = Arc::new_cyclic(|root| Node {
 			id: ROOT_NODE_ID,
@@ -183,7 +182,7 @@ impl Server {
 		};
 	}
 
-	pub async fn join(&self) -> Result<()> {
+	pub async fn join(&self) -> tg::Result<()> {
 		// Unmount.
 		Self::unmount(&self.inner.path).await?;
 
@@ -206,7 +205,7 @@ impl Server {
 		Ok(())
 	}
 
-	fn serve(&self) -> Result<()> {
+	fn serve(&self) -> tg::Result<()> {
 		// Create a buffer to read requests into.
 		let mut request_buffer = vec![0u8; 1024 * 1024 + 4096];
 
@@ -224,7 +223,7 @@ impl Server {
 				match error.raw_os_error() {
 					Some(libc::ENOENT | libc::EINTR | libc::EAGAIN) => continue,
 					Some(libc::ENODEV) => return Ok(()),
-					_ => return Err(error!(source = error, "failed to read the request")),
+					_ => return Err(tg::error!(source = error, "failed to read the request")),
 				}
 			}
 			let request_size = request_size.to_usize().unwrap();
@@ -232,7 +231,7 @@ impl Server {
 
 			// Deserialize the request.
 			let request_header = sys::fuse_in_header::read_from_prefix(request_bytes)
-				.ok_or_else(|| error!("failed to deserialize the request header"))?;
+				.ok_or_else(|| tg::error!("failed to deserialize the request header"))?;
 			let request_header_len = std::mem::size_of::<sys::fuse_in_header>();
 			let request_data = &request_bytes[request_header_len..];
 			let request_data = match request_header.opcode {
@@ -249,7 +248,7 @@ impl Server {
 				sys::fuse_opcode::FUSE_LOOKUP => {
 					let data =
 						CString::from_vec_with_nul(request_data.to_owned()).map_err(|error| {
-							error!(source = error, "failed to deserialize the request")
+							tg::error!(source = error, "failed to deserialize the request")
 						})?;
 					RequestData::Lookup(data)
 				},
@@ -270,7 +269,7 @@ impl Server {
 						request_data.split_at(std::mem::size_of::<sys::fuse_getxattr_in>());
 					let fuse_getxattr_in = read_data(fuse_getxattr_in)?;
 					let name = CString::from_vec_with_nul(name.to_owned()).map_err(|error| {
-						error!(source = error, "failed to deserialize the request")
+						tg::error!(source = error, "failed to deserialize the request")
 					})?;
 					RequestData::GetXattr(fuse_getxattr_in, name)
 				},
@@ -367,7 +366,7 @@ impl Server {
 	}
 
 	/// Handle a request.
-	async fn handle_request(&self, request: Request) -> Result<Response, i32> {
+	async fn handle_request(&self, request: Request) -> tg::Result<Response, i32> {
 		match request.data {
 			RequestData::Flush(data) => self.handle_flush_request(request.header, data).await,
 			RequestData::BatchForget(data) => {
@@ -411,7 +410,7 @@ impl Server {
 		&self,
 		_header: sys::fuse_in_header,
 		_data: sys::fuse_flush_in,
-	) -> Result<Response, i32> {
+	) -> tg::Result<Response, i32> {
 		Ok(Response::Flush)
 	}
 
@@ -419,7 +418,7 @@ impl Server {
 		&self,
 		_header: sys::fuse_in_header,
 		_data: sys::fuse_batch_forget_in,
-	) -> Result<Response, i32> {
+	) -> tg::Result<Response, i32> {
 		Ok(Response::None)
 	}
 
@@ -427,7 +426,7 @@ impl Server {
 		&self,
 		_header: sys::fuse_in_header,
 		_data: sys::fuse_forget_in,
-	) -> Result<Response, i32> {
+	) -> tg::Result<Response, i32> {
 		Ok(Response::None)
 	}
 
@@ -435,7 +434,7 @@ impl Server {
 		&self,
 		header: sys::fuse_in_header,
 		_data: sys::fuse_getattr_in,
-	) -> Result<Response, i32> {
+	) -> tg::Result<Response, i32> {
 		let node_id = NodeId(header.nodeid);
 		let node = self.get_node(node_id).await?;
 		let response = node.fuse_attr_out(&self.inner.server).await?;
@@ -447,7 +446,7 @@ impl Server {
 		header: sys::fuse_in_header,
 		data: sys::fuse_getxattr_in,
 		name: CString,
-	) -> Result<Response, i32> {
+	) -> tg::Result<Response, i32> {
 		// Get the node and check that it's a file.
 		let node_id = NodeId(header.nodeid);
 		let node = self.get_node(node_id).await?;
@@ -503,7 +502,7 @@ impl Server {
 		&self,
 		header: sys::fuse_in_header,
 		data: sys::fuse_getxattr_in,
-	) -> Result<Response, i32> {
+	) -> tg::Result<Response, i32> {
 		// Get the node and check that it's a file.
 		let node_id = NodeId(header.nodeid);
 		let node = self.get_node(node_id).await?;
@@ -533,7 +532,7 @@ impl Server {
 		&self,
 		_header: sys::fuse_in_header,
 		data: sys::fuse_init_in,
-	) -> Result<Response, i32> {
+	) -> tg::Result<Response, i32> {
 		let response = sys::fuse_init_out {
 			major: 7,
 			minor: 21,
@@ -555,7 +554,7 @@ impl Server {
 		&self,
 		header: sys::fuse_in_header,
 		data: CString,
-	) -> Result<Response, i32> {
+	) -> tg::Result<Response, i32> {
 		// Get the parent node.
 		let parent_node_id = NodeId(header.nodeid);
 		let parent_node = self.get_node(parent_node_id).await?;
@@ -576,7 +575,7 @@ impl Server {
 		&self,
 		header: sys::fuse_in_header,
 		_data: sys::fuse_open_in,
-	) -> Result<Response, i32> {
+	) -> tg::Result<Response, i32> {
 		// Get the node.
 		let node_id = NodeId(header.nodeid);
 		let node = self.get_node(node_id).await?;
@@ -628,7 +627,7 @@ impl Server {
 		&self,
 		header: sys::fuse_in_header,
 		data: sys::fuse_open_in,
-	) -> Result<Response, i32> {
+	) -> tg::Result<Response, i32> {
 		self.handle_open_request(header, data)
 			.await
 			.map(|response| match response {
@@ -641,7 +640,7 @@ impl Server {
 		&self,
 		header: sys::fuse_in_header,
 		data: sys::fuse_read_in,
-	) -> Result<Response, i32> {
+	) -> tg::Result<Response, i32> {
 		let node_id = NodeId(header.nodeid);
 
 		// Get the reader.
@@ -696,7 +695,7 @@ impl Server {
 		header: sys::fuse_in_header,
 		data: sys::fuse_read_in,
 		plus: bool,
-	) -> Result<Response, i32> {
+	) -> tg::Result<Response, i32> {
 		// Get the node.
 		let node_id = NodeId(header.nodeid);
 		let node = self.get_node(node_id).await?;
@@ -773,7 +772,10 @@ impl Server {
 		})
 	}
 
-	async fn handle_read_link_request(&self, header: sys::fuse_in_header) -> Result<Response, i32> {
+	async fn handle_read_link_request(
+		&self,
+		header: sys::fuse_in_header,
+	) -> tg::Result<Response, i32> {
 		// Get the node.
 		let node_id = NodeId(header.nodeid);
 		let node = self.get_node(node_id).await?;
@@ -821,7 +823,7 @@ impl Server {
 		&self,
 		_header: sys::fuse_in_header,
 		data: sys::fuse_release_in,
-	) -> Result<Response, i32> {
+	) -> tg::Result<Response, i32> {
 		let file_handle = FileHandle(data.fh);
 		self.inner.handles.write().remove(&file_handle);
 		Ok(Response::Release)
@@ -831,7 +833,7 @@ impl Server {
 		&self,
 		_header: sys::fuse_in_header,
 		data: sys::fuse_release_in,
-	) -> Result<Response, i32> {
+	) -> tg::Result<Response, i32> {
 		let file_handle = FileHandle(data.fh);
 		self.inner.handles.write().remove(&file_handle);
 		Ok(Response::ReleaseDir)
@@ -841,7 +843,7 @@ impl Server {
 		&self,
 		_header: sys::fuse_in_header,
 		opcode: u32,
-	) -> Result<Response, i32> {
+	) -> tg::Result<Response, i32> {
 		if opcode == sys::fuse_opcode::FUSE_IOCTL {
 			return Err(libc::ENOTTY);
 		}
@@ -849,7 +851,7 @@ impl Server {
 		Err(libc::ENOSYS)
 	}
 
-	async fn get_node(&self, node_id: NodeId) -> Result<Arc<Node>, i32> {
+	async fn get_node(&self, node_id: NodeId) -> tg::Result<Arc<Node>, i32> {
 		let Some(node) = self.inner.nodes.read().get(&node_id).cloned() else {
 			return Err(libc::ENOENT);
 		};
@@ -860,7 +862,7 @@ impl Server {
 		&self,
 		parent_node: Arc<Node>,
 		name: &str,
-	) -> Result<Arc<Node>, i32> {
+	) -> tg::Result<Arc<Node>, i32> {
 		// Handle ".".
 		if name == "." {
 			return Ok(parent_node);
@@ -980,7 +982,7 @@ impl Server {
 		FileHandle(handle)
 	}
 
-	async fn mount(path: &Path) -> Result<std::os::unix::io::RawFd> {
+	async fn mount(path: &Path) -> tg::Result<std::os::unix::io::RawFd> {
 		unsafe {
 			// Set up the arguments.
 			let uid = libc::getuid();
@@ -992,7 +994,7 @@ impl Server {
 			let ret = libc::socketpair(libc::AF_UNIX, libc::SOCK_STREAM, 0, fds.as_mut_ptr());
 			if ret != 0 {
 				Err(std::io::Error::last_os_error())
-					.map_err(|source| error!(!source, "failed to create the socket pair"))?;
+					.map_err(|source| tg::error!(!source, "failed to create the socket pair"))?;
 			}
 
 			let fusermount3 = std::ffi::CString::new("/usr/bin/fusermount3").unwrap();
@@ -1006,7 +1008,7 @@ impl Server {
 			if pid == -1 {
 				libc::close(fds[0]);
 				libc::close(fds[1]);
-				return Err(error!(
+				return Err(tg::error!(
 					source = std::io::Error::last_os_error(),
 					"failed to fork"
 				));
@@ -1056,19 +1058,19 @@ impl Server {
 			// Receive the control message.
 			let ret = libc::recvmsg(fds[1], msg, 0);
 			if ret == -1 {
-				return Err(error!(
+				return Err(tg::error!(
 					source = std::io::Error::last_os_error(),
 					"failed to receive the message"
 				));
 			}
 			if ret == 0 {
-				return Err(error!("failed to read the control message"));
+				return Err(tg::error!("failed to read the control message"));
 			}
 
 			// Read the file descriptor.
 			let cmsg = libc::CMSG_FIRSTHDR(msg);
 			if cmsg.is_null() {
-				return Err(error!("missing control message"));
+				return Err(tg::error!("missing control message"));
 			}
 			let mut fd: std::os::unix::io::RawFd = 0;
 			libc::memcpy(
@@ -1085,7 +1087,7 @@ impl Server {
 		}
 	}
 
-	pub async fn unmount(path: &Path) -> Result<()> {
+	pub async fn unmount(path: &Path) -> tg::Result<()> {
 		tokio::process::Command::new("/usr/bin/fusermount3")
 			.arg("-q")
 			.arg("-u")
@@ -1094,7 +1096,7 @@ impl Server {
 			.stderr(std::process::Stdio::null())
 			.status()
 			.await
-			.map_err(|source| error!(!source, "failed to execute the unmount command"))?;
+			.map_err(|source| tg::error!(!source, "failed to execute the unmount command"))?;
 		Ok(())
 	}
 }
@@ -1108,7 +1110,7 @@ impl Node {
 		}
 	}
 
-	async fn mode(&self, tg: &impl tg::Handle) -> Result<u32, i32> {
+	async fn mode(&self, tg: &impl tg::Handle) -> tg::Result<u32, i32> {
 		let mode = match &self.kind {
 			NodeKind::Root { .. } | NodeKind::Directory { .. } => libc::S_IFDIR | 0o555,
 			NodeKind::File { file, .. } => {
@@ -1138,7 +1140,7 @@ impl Node {
 		}
 	}
 
-	async fn fuse_entry_out(&self, tg: &impl tg::Handle) -> Result<sys::fuse_entry_out, i32> {
+	async fn fuse_entry_out(&self, tg: &impl tg::Handle) -> tg::Result<sys::fuse_entry_out, i32> {
 		let nodeid = self.id.0;
 		let attr_out = self.fuse_attr_out(tg).await?;
 		let entry_out = sys::fuse_entry_out {
@@ -1153,7 +1155,7 @@ impl Node {
 		Ok(entry_out)
 	}
 
-	async fn fuse_attr_out(&self, tg: &impl tg::Handle) -> Result<sys::fuse_attr_out, i32> {
+	async fn fuse_attr_out(&self, tg: &impl tg::Handle) -> tg::Result<sys::fuse_attr_out, i32> {
 		let nodeid = self.id.0;
 		let nlink: u32 = match &self.kind {
 			NodeKind::Root { .. } => 2,
@@ -1188,10 +1190,10 @@ impl Node {
 	}
 }
 
-fn read_data<T>(request_data: &[u8]) -> Result<T>
+fn read_data<T>(request_data: &[u8]) -> tg::Result<T>
 where
 	T: FromBytes,
 {
 	T::read_from_prefix(request_data)
-		.ok_or_else(|| error!("failed to deserialize the request data"))
+		.ok_or_else(|| tg::error!("failed to deserialize the request data"))
 }

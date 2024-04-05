@@ -1,16 +1,15 @@
 use crate::Server;
 use std::collections::BTreeMap;
 use tangram_client as tg;
-use tangram_error::{error, Result};
 
 impl Server {
 	pub async fn get_package_outdated(
 		&self,
 		dependency: &tg::Dependency,
-	) -> Result<tg::package::OutdatedOutput> {
+	) -> tg::Result<tg::package::OutdatedOutput> {
 		let (package, lock) = tg::package::get_with_lock(self, dependency)
 			.await
-			.map_err(|source| error!(!source, %dependency, "failed to get package and lock"))?;
+			.map_err(|source| tg::error!(!source, %dependency, "failed to get package and lock"))?;
 		let mut visited = BTreeMap::new();
 		let outdated = self
 			.get_outdated_inner(dependency, package, lock, &mut visited)
@@ -24,7 +23,7 @@ impl Server {
 		package: tg::Directory,
 		lock: tg::Lock,
 		visited: &mut BTreeMap<tg::lock::Id, tg::package::OutdatedOutput>,
-	) -> Result<tg::package::OutdatedOutput> {
+	) -> tg::Result<tg::package::OutdatedOutput> {
 		let id = lock.id(self).await?;
 		if let Some(existing) = visited.get(&id) {
 			return Ok(existing.clone());
@@ -34,14 +33,16 @@ impl Server {
 		let (compatible_versions, all_versions) = if dependency.name.is_some() {
 			// Get the current, compatible, and latest versions.
 			let compatible_versions = self.try_get_package_versions(dependency).await.map_err(
-				|source| error!(!source, %dependency, "failed to get compatible package versions"),
+				|source| tg::error!(!source, %dependency, "failed to get compatible package versions"),
 			)?;
 			let all_versions = self
 				.try_get_package_versions(&tg::Dependency::with_name(
 					dependency.name.clone().unwrap(),
 				))
 				.await
-				.map_err(|source| error!(!source, %dependency, "failed to get package versions"))?;
+				.map_err(
+					|source| tg::error!(!source, %dependency, "failed to get package versions"),
+				)?;
 			(compatible_versions, all_versions)
 		} else {
 			(None, None)
@@ -68,10 +69,12 @@ impl Server {
 				(None, Some(path)) => package
 					.get(self, path)
 					.await
-					.map_err(|source| error!(!source, %path, "could not resolve path dependency"))?
+					.map_err(
+						|source| tg::error!(!source, %path, "could not resolve path dependency"),
+					)?
 					.try_unwrap_directory()
-					.map_err(|source| error!(!source, "expected a directory"))?,
-				(None, None) => return Err(error!("invalid lock")),
+					.map_err(|source| tg::error!(!source, "expected a directory"))?,
+				(None, None) => return Err(tg::error!("invalid lock")),
 			};
 			let outdated =
 				Box::pin(self.get_outdated_inner(&dependency, package, lock, visited)).await?;

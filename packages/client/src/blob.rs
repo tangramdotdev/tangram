@@ -1,4 +1,6 @@
-use crate::{branch, id, leaf, object, Artifact, Branch, Handle, Leaf, Result, Value};
+use crate::{
+	self as tg, branch, error, id, leaf, object, Artifact, Branch, Handle, Leaf, Result, Value,
+};
 use bytes::Bytes;
 use derive_more::From;
 use futures::{
@@ -8,7 +10,6 @@ use futures::{
 };
 use num::ToPrimitive;
 use std::{io::Cursor, pin::Pin};
-use tangram_error::{error, Error};
 use tokio::io::{AsyncRead, AsyncReadExt, AsyncSeek};
 use tokio_util::io::SyncIoBridge;
 
@@ -62,7 +63,7 @@ impl Blob {
 		}
 	}
 
-	pub async fn id(&self, tg: &impl Handle) -> Result<Id> {
+	pub async fn id(&self, tg: &impl Handle) -> tg::Result<Id> {
 		match self {
 			Self::Leaf(leaf) => Ok(leaf.id(tg).await?.into()),
 			Self::Branch(branch) => Ok(branch.id(tg).await?.into()),
@@ -70,7 +71,7 @@ impl Blob {
 	}
 
 	/// Create a [`Blob`] from an `AsyncRead`.
-	pub async fn with_reader(tg: &impl Handle, reader: impl AsyncRead + Unpin) -> Result<Self> {
+	pub async fn with_reader(tg: &impl Handle, reader: impl AsyncRead + Unpin) -> tg::Result<Self> {
 		// Create the leaves.
 		let mut chunker = fastcdc::v2020::AsyncStreamCDC::new(
 			reader,
@@ -90,7 +91,7 @@ impl Blob {
 					blob: leaf.into(),
 					size,
 				};
-				Ok::<_, Error>(child)
+				Ok::<_, tg::Error>(child)
 			})
 			.try_collect::<Vec<_>>()
 			.await?;
@@ -105,7 +106,7 @@ impl Blob {
 							let size = chunk.iter().map(|child| child.size).sum();
 							let blob = Self::new(chunk);
 							let child = branch::Child { blob, size };
-							Ok::<_, Error>(child)
+							Ok::<_, tg::Error>(child)
 						})
 						.left_stream()
 					} else {
@@ -129,7 +130,7 @@ impl Blob {
 		}
 	}
 
-	pub async fn size(&self, tg: &impl Handle) -> Result<u64> {
+	pub async fn size(&self, tg: &impl Handle) -> tg::Result<u64> {
 		match self {
 			Self::Leaf(leaf) => Ok(leaf.bytes(tg).await?.len().to_u64().unwrap()),
 			Self::Branch(branch) => Ok(branch
@@ -141,14 +142,14 @@ impl Blob {
 		}
 	}
 
-	pub async fn reader<H>(&self, tg: &H) -> Result<Reader<H>>
+	pub async fn reader<H>(&self, tg: &H) -> tg::Result<Reader<H>>
 	where
 		H: Handle,
 	{
 		Reader::new(tg, self.clone()).await
 	}
 
-	pub async fn bytes(&self, tg: &impl Handle) -> Result<Vec<u8>> {
+	pub async fn bytes(&self, tg: &impl Handle) -> tg::Result<Vec<u8>> {
 		let mut reader = self.reader(tg).await?;
 		let mut bytes = Vec::new();
 		reader
@@ -158,7 +159,7 @@ impl Blob {
 		Ok(bytes)
 	}
 
-	pub async fn text(&self, tg: &impl Handle) -> Result<String> {
+	pub async fn text(&self, tg: &impl Handle) -> tg::Result<String> {
 		let bytes = self.bytes(tg).await?;
 		let string = String::from_utf8(bytes).map_err(|error| {
 			error!(source = error, "failed to decode the blob's bytes as UTF-8")
@@ -166,7 +167,7 @@ impl Blob {
 		Ok(string)
 	}
 
-	pub async fn compress(&self, tg: &impl Handle, format: CompressionFormat) -> Result<Blob> {
+	pub async fn compress(&self, tg: &impl Handle, format: CompressionFormat) -> tg::Result<Blob> {
 		let reader = self.reader(tg).await?;
 		let reader = tokio::io::BufReader::new(reader);
 		let reader: Box<dyn AsyncRead + Unpin> = match format {
@@ -187,7 +188,11 @@ impl Blob {
 		Ok(blob)
 	}
 
-	pub async fn decompress(&self, tg: &impl Handle, format: CompressionFormat) -> Result<Blob> {
+	pub async fn decompress(
+		&self,
+		tg: &impl Handle,
+		format: CompressionFormat,
+	) -> tg::Result<Blob> {
 		let reader = self.reader(tg).await?;
 		let reader = tokio::io::BufReader::new(reader);
 		let reader: Box<dyn AsyncRead + Unpin> = match format {
@@ -212,11 +217,11 @@ impl Blob {
 		_tg: &impl Handle,
 		_artifact: &Artifact,
 		_format: ArchiveFormat,
-	) -> Result<Self> {
+	) -> tg::Result<Self> {
 		unimplemented!()
 	}
 
-	pub async fn extract(&self, tg: &impl Handle, format: ArchiveFormat) -> Result<Artifact> {
+	pub async fn extract(&self, tg: &impl Handle, format: ArchiveFormat) -> tg::Result<Artifact> {
 		// Create the reader.
 		let reader = self.reader(tg).await?;
 
@@ -229,7 +234,7 @@ impl Blob {
 		tokio::task::spawn_blocking({
 			let reader = SyncIoBridge::new(reader);
 			let path = path.clone();
-			move || -> Result<_> {
+			move || -> tg::Result<_> {
 				match format {
 					ArchiveFormat::Tar => {
 						let mut archive = tar::Archive::new(reader);
@@ -274,7 +279,7 @@ impl std::fmt::Display for Id {
 }
 
 impl std::str::FromStr for Id {
-	type Err = Error;
+	type Err = tg::Error;
 
 	fn from_str(s: &str) -> std::result::Result<Self, Self::Err> {
 		crate::Id::from_str(s)?.try_into()
@@ -291,9 +296,9 @@ impl From<Id> for crate::Id {
 }
 
 impl TryFrom<crate::Id> for Id {
-	type Error = Error;
+	type Error = tg::Error;
 
-	fn try_from(value: crate::Id) -> Result<Self, Self::Error> {
+	fn try_from(value: crate::Id) -> tg::Result<Self, Self::Error> {
 		match value.kind() {
 			id::Kind::Leaf => Ok(Self::Leaf(value.try_into()?)),
 			id::Kind::Branch => Ok(Self::Branch(value.try_into()?)),
@@ -312,9 +317,9 @@ impl From<Id> for object::Id {
 }
 
 impl TryFrom<object::Id> for Id {
-	type Error = Error;
+	type Error = tg::Error;
 
-	fn try_from(value: object::Id) -> Result<Self, Self::Error> {
+	fn try_from(value: object::Id) -> tg::Result<Self, Self::Error> {
 		match value {
 			object::Id::Leaf(value) => Ok(value.into()),
 			object::Id::Branch(value) => Ok(value.into()),
@@ -348,9 +353,9 @@ impl From<Blob> for object::Handle {
 }
 
 impl TryFrom<object::Handle> for Blob {
-	type Error = Error;
+	type Error = tg::Error;
 
-	fn try_from(value: object::Handle) -> Result<Self, Self::Error> {
+	fn try_from(value: object::Handle) -> tg::Result<Self, Self::Error> {
 		match value {
 			object::Handle::Leaf(leaf) => Ok(Self::Leaf(leaf)),
 			object::Handle::Branch(branch) => Ok(Self::Branch(branch)),
@@ -366,9 +371,9 @@ impl From<Blob> for Value {
 }
 
 impl TryFrom<Value> for Blob {
-	type Error = Error;
+	type Error = tg::Error;
 
-	fn try_from(value: Value) -> Result<Self, Self::Error> {
+	fn try_from(value: Value) -> tg::Result<Self, Self::Error> {
 		object::Handle::try_from(value)
 			.map_err(|source| error!(!source, "invalid value"))?
 			.try_into()
@@ -391,7 +396,7 @@ impl<H> Reader<H>
 where
 	H: Handle,
 {
-	pub async fn new(tg: &H, blob: Blob) -> Result<Self> {
+	pub async fn new(tg: &H, blob: Blob) -> tg::Result<Self> {
 		let cursor = None;
 		let position = 0;
 		let read = None;
@@ -475,7 +480,7 @@ async fn poll_read_inner(
 	tg: &impl Handle,
 	blob: Blob,
 	position: u64,
-) -> Result<Option<Cursor<Bytes>>> {
+) -> tg::Result<Option<Cursor<Bytes>>> {
 	let mut current_blob = blob.clone();
 	let mut current_blob_position = 0;
 	'a: loop {
@@ -570,9 +575,9 @@ impl std::fmt::Display for ArchiveFormat {
 }
 
 impl std::str::FromStr for ArchiveFormat {
-	type Err = Error;
+	type Err = tg::Error;
 
-	fn from_str(s: &str) -> Result<Self, Self::Err> {
+	fn from_str(s: &str) -> tg::Result<Self, Self::Err> {
 		match s {
 			".tar" => Ok(Self::Tar),
 			".zip" => Ok(Self::Zip),
@@ -588,9 +593,9 @@ impl From<ArchiveFormat> for String {
 }
 
 impl TryFrom<String> for ArchiveFormat {
-	type Error = Error;
+	type Error = tg::Error;
 
-	fn try_from(value: String) -> Result<Self, Self::Error> {
+	fn try_from(value: String) -> tg::Result<Self, Self::Error> {
 		value.parse()
 	}
 }
@@ -609,9 +614,9 @@ impl std::fmt::Display for CompressionFormat {
 }
 
 impl std::str::FromStr for CompressionFormat {
-	type Err = Error;
+	type Err = tg::Error;
 
-	fn from_str(s: &str) -> Result<Self, Self::Err> {
+	fn from_str(s: &str) -> tg::Result<Self, Self::Err> {
 		match s {
 			".bz2" => Ok(Self::Bz2),
 			".gz" => Ok(Self::Gz),
@@ -629,9 +634,9 @@ impl From<CompressionFormat> for String {
 }
 
 impl TryFrom<String> for CompressionFormat {
-	type Error = Error;
+	type Error = tg::Error;
 
-	fn try_from(value: String) -> Result<Self, Self::Error> {
+	fn try_from(value: String) -> tg::Result<Self, Self::Error> {
 		value.parse()
 	}
 }
