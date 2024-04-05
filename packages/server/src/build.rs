@@ -179,8 +179,8 @@ impl Server {
 			.runtimes
 			.read()
 			.unwrap()
-			.get(host)
-			.ok_or_else(|| error!(?id, ?host, "no runtime to build the target"))?
+			.get(&*host)
+			.ok_or_else(|| error!(?id, ?host = &*host, "no runtime to build the target"))?
 			.clone_box();
 		let result = runtime.run(&build).await;
 

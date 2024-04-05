@@ -153,7 +153,7 @@ impl Server {
 			let lock = self
 				.add_path_dependencies_to_lock(&package_with_path_dependencies, lock)
 				.await?;
-			let lock = lock.id(self).await?.clone();
+			let lock = lock.id(self).await?;
 			Some(lock)
 		} else {
 			None
@@ -168,7 +168,7 @@ impl Server {
 		};
 
 		// Get the package ID.
-		let id = package.id(self).await?.clone();
+		let id = package.id(self).await?;
 
 		Ok(Some(tg::package::GetOutput {
 			dependencies,
@@ -356,8 +356,8 @@ impl Server {
 
 		// Create the root module.
 		let path = tg::package::get_root_module_path(self, &package).await?;
-		let package = package.id(self).await?.clone();
-		let lock = lock.id(self).await?.clone();
+		let package = package.id(self).await?;
+		let lock = lock.id(self).await?;
 		let module = tg::Module::Normal(tg::module::Normal {
 			lock,
 			package,
@@ -399,8 +399,8 @@ impl Server {
 
 		// Create the module.
 		let path = tg::package::get_root_module_path(self, &package).await?;
-		let package = package.id(self).await?.clone();
-		let lock = lock.id(self).await?.clone();
+		let package = package.id(self).await?;
+		let lock = lock.id(self).await?;
 		let module = tg::Module::Normal(tg::module::Normal {
 			lock,
 			package,

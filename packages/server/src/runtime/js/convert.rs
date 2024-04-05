@@ -850,7 +850,7 @@ where
 			let object =
 				v8::String::new_external_onebyte_static(scope, "object".as_bytes()).unwrap();
 			let object = value.get(scope, object.into()).unwrap();
-			from_v8(scope, object)?
+			from_v8::<Option<O>>(scope, object)?.map(Arc::new)
 		} else {
 			None
 		};

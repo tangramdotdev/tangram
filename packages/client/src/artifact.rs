@@ -111,9 +111,9 @@ impl Artifact {
 	#[async_recursion]
 	pub async fn id(&self, tg: &dyn Handle) -> Result<Id> {
 		match self {
-			Self::Directory(directory) => Ok(directory.id(tg).await?.clone().into()),
-			Self::File(file) => Ok(file.id(tg).await?.clone().into()),
-			Self::Symlink(symlink) => Ok(symlink.id(tg).await?.clone().into()),
+			Self::Directory(directory) => Ok(directory.id(tg).await?.into()),
+			Self::File(file) => Ok(file.id(tg).await?.into()),
+			Self::Symlink(symlink) => Ok(symlink.id(tg).await?.into()),
 		}
 	}
 
@@ -273,7 +273,7 @@ impl Artifact {
 
 		// Create the directory.
 		let directory = Directory::new(entries);
-		let id = directory.id(tg).await?.clone();
+		let id = directory.id(tg).await?;
 
 		Ok(id.into())
 	}
@@ -310,7 +310,7 @@ impl Artifact {
 
 		// Create the file.
 		let file = File::new(contents, executable, references);
-		let id = file.id(tg).await?.clone();
+		let id = file.id(tg).await?;
 
 		Ok(id.into())
 	}
@@ -358,7 +358,7 @@ impl Artifact {
 
 		// Create the symlink.
 		let symlink = Symlink::new(artifact, path);
-		let id = symlink.id(tg).await?.clone();
+		let id = symlink.id(tg).await?;
 
 		Ok(id.into())
 	}

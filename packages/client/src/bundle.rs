@@ -113,7 +113,7 @@ impl Artifact {
 				let mut target = String::new();
 				let artifact = symlink.artifact(tg).await?;
 				let path = symlink.path(tg).await?;
-				if let Some(artifact) = artifact {
+				if let Some(artifact) = artifact.as_ref() {
 					for _ in 0..depth - 1 {
 						target.push_str("../");
 					}
@@ -127,7 +127,7 @@ impl Artifact {
 				if artifact.is_some() && path.is_some() {
 					target.push('/');
 				}
-				if let Some(path) = path {
+				if let Some(path) = path.as_ref() {
 					target.push_str(path);
 				}
 				Ok(Symlink::new(None, Some(target)).into())

@@ -465,19 +465,16 @@ impl Server {
 							.id(&self.inner.server)
 							.await
 							.ok()
-							.cloned()
 							.map(tg::artifact::Id::from),
 						NodeKind::Directory { directory, .. } => directory
 							.id(&self.inner.server)
 							.await
 							.ok()
-							.cloned()
 							.map(tg::artifact::Id::from),
 						NodeKind::Symlink { symlink, .. } => symlink
 							.id(&self.inner.server)
 							.await
 							.ok()
-							.cloned()
 							.map(tg::artifact::Id::from),
 						_ => None,
 					};
@@ -950,7 +947,7 @@ impl Server {
 					},
 				};
 				let mut references = Vec::new();
-				for artifact in file_references {
+				for artifact in file_references.iter() {
 					let id = artifact.id(&self.inner.server).await.map_err(|e| {
 						tracing::error!(?e, ?artifact, "failed to get artifact ID");
 						nfsstat4::NFS4ERR_IO
@@ -1185,7 +1182,7 @@ impl Server {
 		if file
 			.references(&self.inner.server)
 			.await
-			.map_or(true, <[tg::Artifact]>::is_empty)
+			.map_or(true, |references| references.is_empty())
 		{
 			return OPENATTR4res {
 				status: nfsstat4::NFS4ERR_NOENT,
@@ -1416,7 +1413,7 @@ impl Server {
 		let Ok(path) = symlink.path(&self.inner.server).await else {
 			return READLINK4res::Error(nfsstat4::NFS4ERR_IO);
 		};
-		if let Some(artifact) = artifact {
+		if let Some(artifact) = artifact.as_ref() {
 			let Ok(id) = artifact.id(&self.inner.server).await else {
 				return READLINK4res::Error(nfsstat4::NFS4ERR_IO);
 			};
@@ -1428,7 +1425,7 @@ impl Server {
 		if artifact.is_some() && path.is_some() {
 			target.push('/');
 		}
-		if let Some(path) = path {
+		if let Some(path) = path.as_ref() {
 			target.push_str(path);
 		}
 		READLINK4res::NFS4_OK(READLINK4resok {

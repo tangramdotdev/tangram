@@ -28,7 +28,7 @@ impl Server {
 		visited: &mut BTreeMap<tg::lock::Id, tg::package::OutdatedOutput>,
 	) -> Result<tg::package::OutdatedOutput> {
 		let id = lock.id(self).await?;
-		if let Some(existing) = visited.get(id) {
+		if let Some(existing) = visited.get(&id) {
 			return Ok(existing.clone());
 		}
 
@@ -85,7 +85,7 @@ impl Server {
 		let outdated = tg::package::OutdatedOutput { info, dependencies };
 
 		// Mark this package as visited.
-		visited.insert(id.clone(), outdated.clone());
+		visited.insert(id, outdated.clone());
 
 		Ok(outdated)
 	}

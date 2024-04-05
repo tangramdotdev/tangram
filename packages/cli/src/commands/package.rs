@@ -156,7 +156,7 @@ impl Cli {
 
 		// Publish the package.
 		client
-			.publish_package(self.user.as_ref(), id)
+			.publish_package(self.user.as_ref(), &id)
 			.await
 			.map_err(|source| error!(!source, "failed to publish the package"))?;
 
@@ -265,13 +265,13 @@ async fn get_package_tree(
 	}
 
 	let package_id = package.id(client).await?;
-	if visited.contains(package_id)
+	if visited.contains(&package_id)
 		|| max_depth.map_or(false, |max_depth| current_depth == max_depth)
 	{
 		let children = Vec::new();
 		return Ok(Tree { title, children });
 	}
-	visited.insert(package_id.clone());
+	visited.insert(package_id);
 
 	let mut children = Vec::new();
 	for dependency in lock.dependencies(client).await? {

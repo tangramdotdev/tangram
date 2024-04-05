@@ -211,7 +211,7 @@ impl Cli {
 			parent: None,
 			remote: false,
 			retry: args.retry,
-			target: target.id(client).await?.clone(),
+			target: target.id(client).await?,
 		};
 		let build = tg::Build::new(client, arg).await?;
 
@@ -418,7 +418,7 @@ async fn get_build_tree(
 	}
 	write!(title, "{} ", id.to_string().blue()).unwrap();
 	if let Some(package) = package {
-		if let Ok(metadata) = tg::package::get_metadata(client, package).await {
+		if let Ok(metadata) = tg::package::get_metadata(client, &package).await {
 			if let Some(name) = metadata.name {
 				write!(title, "{}", name.magenta()).unwrap();
 			} else {
