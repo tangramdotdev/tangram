@@ -237,9 +237,18 @@ impl Runtime {
 		// Start the proxy server.
 		let proxy_server_host_url = format!("unix:{}", proxy_server_socket_host_path.display());
 		let proxy_server_host_url = Url::parse(&proxy_server_host_url).unwrap();
-		let proxy_server = proxy::Server::start(server, build.id(), proxy_server_host_url)
-			.await
-			.map_err(|source| tg::error!(!source, "failed to create the proxy server"))?;
+
+		let path_map = proxy::PathMap {
+			output_host: tg::Path::try_from(output_parent_directory_host_path.clone()).unwrap(),
+			output_guest: tg::Path::try_from(output_parent_directory_guest_path.clone()).unwrap(),
+			root_host: tg::Path::try_from(root_directory_host_path.clone()).unwrap(),
+			root_guest: tg::Path::with_components([tg::path::Component::Root]),
+		};
+
+		let proxy_server =
+			proxy::Server::start(server, build.id(), proxy_server_host_url, Some(path_map))
+				.await
+				.map_err(|source| tg::error!(!source, "failed to create the proxy server"))?;
 
 		// Create /etc.
 		tokio::fs::create_dir_all(root_directory_host_path.join("etc"))

@@ -1,6 +1,8 @@
 use crate::Http;
 use bytes::Bytes;
+use derive_more::FromStr;
 use futures::Stream;
+use itertools::Itertools;
 use std::sync::Arc;
 use tangram_client as tg;
 use tokio::io::{AsyncRead, AsyncWrite};
@@ -14,6 +16,7 @@ pub struct Server {
 pub struct Inner {
 	build: tg::build::Id,
 	http: std::sync::Mutex<Option<Http<Server>>>,
+	path_map: Option<PathMap>,
 	server: crate::Server,
 	shutdown: tokio::sync::watch::Sender<bool>,
 	shutdown_task: std::sync::Mutex<Option<tokio::task::JoinHandle<tg::Result<()>>>>,
@@ -26,11 +29,20 @@ pub struct GetOrCreateProxiedArg {
 	pub target: tg::target::Id,
 }
 
+#[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
+pub struct PathMap {
+	pub output_host: tg::Path,
+	pub output_guest: tg::Path,
+	pub root_host: tg::Path,
+	pub root_guest: tg::Path,
+}
+
 impl Server {
 	pub async fn start(
 		server: &crate::Server,
 		build: &tg::build::Id,
 		url: Url,
+		path_map: Option<PathMap>,
 	) -> tg::Result<Self> {
 		// Create an owned copy of the parent build id to be used in the proxy server.
 		let build = build.clone();
@@ -48,6 +60,7 @@ impl Server {
 		let inner = Inner {
 			build,
 			http,
+			path_map,
 			server: server.clone(),
 			shutdown,
 			shutdown_task,
@@ -115,6 +128,36 @@ impl Server {
 		};
 		self.inner.server.get_or_create_build(user, arg).await
 	}
+
+	fn host_path_from_guest_path(&self, guest_path: tg::Path) -> tg::Result<tg::Path> {
+		if self.inner.path_map.is_none() {
+			return Ok(guest_path);
+		}
+		let path_map = self.inner.path_map.as_ref().unwrap();
+		let guest_path_components = guest_path.clone().into_components();
+		let guest_output_components = path_map.output_guest.components();
+		let guest_root_components = path_map.root_guest.components();
+
+		let host_path = if guest_path_components.starts_with(guest_output_components) {
+			let output_components = tg::Path::with_components(
+				guest_path_components
+					.into_iter()
+					.skip(guest_output_components.len()),
+			);
+			path_map.output_host.clone().join(output_components)
+		} else if guest_path_components.starts_with(guest_root_components) {
+			let output_components = tg::Path::with_components(
+				guest_path_components
+					.into_iter()
+					.skip(guest_root_components.len()),
+			);
+			path_map.root_host.clone().join(output_components)
+		} else {
+			return Err(tg::error!(%guest_path, "invalid path"));
+		};
+
+		Ok(host_path)
+	}
 }
 
 impl tg::Handle for Server {
@@ -134,7 +177,61 @@ impl tg::Handle for Server {
 		&self,
 		arg: tg::artifact::CheckInArg,
 	) -> tg::Result<tg::artifact::CheckInOutput> {
-		self.inner.server.check_in_artifact(arg).await
+		// Remap incoming path.
+		let host_path = self.host_path_from_guest_path(arg.path.clone())?;
+
+		// Check if the path points into a Tangram artifact.
+		let host_path_string = host_path.to_string();
+		let output = if host_path_string.contains(".tangram/artifacts") {
+			let parts = host_path_string.split("tangram/artifacts").collect_vec();
+			if parts.len() != 2 {
+				return Err(tg::error!(%host_path, "invalid artifact path"));
+			}
+			let artifact_subpath = tg::Path::from_str(parts[1])?;
+			let artifact_subpath_components = artifact_subpath.into_components();
+			if artifact_subpath_components.is_empty() {
+				return Err(tg::error!(%host_path, "invalid artifact path"));
+			}
+			// Skip the root component, the next will be the artifact ID.
+			let toplevel_artifact_id = &artifact_subpath_components[1];
+			let toplevel_artifact_id = if let tg::path::Component::Normal(artifact_id) =
+				toplevel_artifact_id
+			{
+				tg::artifact::Id::from_str(artifact_id)?
+			} else {
+				return Err(tg::error!(%host_path, "invalid artifact path, bat component type"));
+			};
+
+			// If there was no additional subpath, return the artifact ID.
+			if artifact_subpath_components.len() == 1 {
+				tg::artifact::CheckInOutput {
+					id: toplevel_artifact_id,
+				}
+			} else {
+				// If there was an additional subpath, locate the ID of the inner artifact.
+				let toplevel_artifact = tg::Artifact::with_id(toplevel_artifact_id);
+				let trailing_subpath =
+					tg::Path::with_components(artifact_subpath_components[2..].iter().cloned())
+						.to_string();
+				let object = tg::symlink::Object {
+					artifact: Some(toplevel_artifact),
+					path: Some(trailing_subpath),
+				};
+				let symlink = tg::symlink::Symlink::with_object(object);
+				let target = symlink
+					.resolve(&self.inner.server)
+					.await?
+					.ok_or(tg::error!("could not resolve symlink"))?;
+				let target_id = target.id(&self.inner.server).await?;
+				tg::artifact::CheckInOutput { id: target_id }
+			}
+		} else {
+			// Otherwise, perform the checkin.
+			let arg = tg::artifact::CheckInArg { path: host_path };
+			self.inner.server.check_in_artifact(arg).await?
+		};
+
+		Ok(output)
 	}
 
 	async fn check_out_artifact(
@@ -142,6 +239,15 @@ impl tg::Handle for Server {
 		id: &tg::artifact::Id,
 		arg: tg::artifact::CheckOutArg,
 	) -> tg::Result<tg::artifact::CheckOutOutput> {
+		let arg = if let Some(path) = arg.path {
+			let path = self.host_path_from_guest_path(path)?;
+			tg::artifact::CheckOutArg {
+				path: Some(path),
+				..arg
+			}
+		} else {
+			arg
+		};
 		self.inner.server.check_out_artifact(id, arg).await
 	}
 
@@ -217,9 +323,12 @@ impl tg::Handle for Server {
 	async fn add_build_child(
 		&self,
 		user: Option<&tg::User>,
-		build_id: &tg::build::Id,
+		_build_id: &tg::build::Id,
 		child_id: &tg::build::Id,
 	) -> tg::Result<()> {
+		// Discard incoming build ID, use the one from the proxy server.
+		let build_id = &self.inner.build;
+
 		self.inner
 			.server
 			.add_build_child(user, build_id, child_id)

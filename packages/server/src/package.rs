@@ -57,7 +57,11 @@ impl Server {
 				.await
 				.map_err(|source| tg::error!(!source, "failed to canonicalize the path"))?;
 			if !tokio::fs::try_exists(&path).await.map_err(|error| {
-				tg::error!(source = error, "failed to get the metadata for the path")
+				tg::error!(
+					source = error,
+					?path,
+					"failed to get the metadata for the path"
+				)
 			})? {
 				return Ok(None);
 			}
