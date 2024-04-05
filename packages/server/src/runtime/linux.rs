@@ -3,7 +3,7 @@ use crate::Server;
 use bytes::Bytes;
 use futures::{
 	stream::{FuturesOrdered, FuturesUnordered},
-	Future, FutureExt, TryStreamExt,
+	TryStreamExt,
 };
 use indoc::formatdoc;
 use itertools::Itertools;
@@ -12,7 +12,6 @@ use std::{
 	ffi::CString,
 	os::{fd::AsRawFd, unix::ffi::OsStrExt},
 	path::{Path, PathBuf},
-	pin::Pin,
 };
 use tangram_client as tg;
 use tangram_error::{error, Error, Result};
