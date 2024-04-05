@@ -562,7 +562,7 @@ impl Server {
 		// Check out the file, either from an existing path, an internal path, or from the file reader.
 		let permit = self.file_descriptor_semaphore().acquire().await;
 		let id = file.id(self).await?;
-		let existing_path = files.read().unwrap().get(id).cloned();
+		let existing_path = files.read().unwrap().get(&id).cloned();
 		let internal_path = self.checkouts_path().join(id.to_string());
 		if let Some(existing_path) = existing_path {
 			tokio::fs::copy(&existing_path, &path).await.map_err(
@@ -642,7 +642,7 @@ impl Server {
 		let mut target = String::new();
 		let artifact = symlink.artifact(self).await?;
 		let path_ = symlink.path(self).await?;
-		if let Some(artifact) = artifact {
+		if let Some(artifact) = artifact.as_ref() {
 			for _ in 0..depth {
 				target.push_str("../");
 			}
@@ -652,7 +652,7 @@ impl Server {
 		if artifact.is_some() && path_.is_some() {
 			target.push('/');
 		}
-		if let Some(path) = path_ {
+		if let Some(path) = path_.as_ref() {
 			target.push_str(path);
 		}
 

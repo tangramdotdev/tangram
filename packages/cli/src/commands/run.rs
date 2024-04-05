@@ -127,7 +127,7 @@ impl Cli {
 			parent: None,
 			remote: false,
 			retry: args.retry,
-			target: target.id(client).await?.clone(),
+			target: target.id(client).await?,
 		};
 		let build = tg::Build::new(client, arg).await?;
 

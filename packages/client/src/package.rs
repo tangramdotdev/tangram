@@ -117,7 +117,7 @@ pub async fn try_get_dependencies(
 	tg: &dyn Handle,
 	package: &Directory,
 ) -> Result<Option<Vec<Dependency>>> {
-	let id = package.id(tg).await?.clone();
+	let id = package.id(tg).await?;
 	let dependency = Dependency::with_id(id);
 	let arg = GetArg {
 		dependencies: true,
@@ -139,7 +139,7 @@ pub async fn get_metadata(tg: &dyn Handle, package: &Directory) -> Result<Metada
 }
 
 pub async fn try_get_metadata(tg: &dyn Handle, package: &Directory) -> Result<Option<Metadata>> {
-	let id = package.id(tg).await?.clone();
+	let id = package.id(tg).await?;
 	let dependency = Dependency::with_id(id);
 	let arg = GetArg {
 		metadata: true,

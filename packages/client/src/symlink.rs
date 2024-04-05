@@ -1,4 +1,4 @@
-use crate::{artifact, id, object, Artifact, Handle, Path};
+use crate::{artifact, id, object, util::arc::Ext, Artifact, Handle, Path};
 use bytes::Bytes;
 use derive_more::Display;
 use std::{str::FromStr, sync::Arc};
@@ -49,9 +49,8 @@ impl Id {
 impl Symlink {
 	#[must_use]
 	pub fn with_state(state: State) -> Self {
-		Self {
-			state: Arc::new(std::sync::RwLock::new(state)),
-		}
+		let state = Arc::new(std::sync::RwLock::new(state));
+		Self { state }
 	}
 
 	#[must_use]
@@ -62,63 +61,50 @@ impl Symlink {
 	#[must_use]
 	pub fn with_id(id: Id) -> Self {
 		let state = State::with_id(id);
-		Self {
-			state: Arc::new(std::sync::RwLock::new(state)),
-		}
+		let state = Arc::new(std::sync::RwLock::new(state));
+		Self { state }
 	}
 
 	#[must_use]
-	pub fn with_object(object: Object) -> Self {
+	pub fn with_object(object: impl Into<Arc<Object>>) -> Self {
 		let state = State::with_object(object);
-		Self {
-			state: Arc::new(std::sync::RwLock::new(state)),
-		}
+		let state = Arc::new(std::sync::RwLock::new(state));
+		Self { state }
 	}
 
-	pub async fn id(&self, tg: &dyn Handle) -> Result<&Id> {
-		self.store(tg).await?;
-		Ok(unsafe { &*(self.state.read().unwrap().id.as_ref().unwrap() as *const Id) })
+	pub async fn id(&self, tg: &dyn Handle) -> Result<Id> {
+		self.store(tg).await
 	}
 
-	pub async fn object(&self, tg: &dyn Handle) -> Result<&Object> {
-		self.load(tg).await?;
-		Ok(unsafe { &*(self.state.read().unwrap().object.as_ref().unwrap() as *const Object) })
+	pub async fn object(&self, tg: &dyn Handle) -> Result<Arc<Object>> {
+		self.load(tg).await
 	}
 
-	pub async fn try_get_object(&self, tg: &dyn Handle) -> Result<Option<&Object>> {
-		if !self.try_load(tg).await? {
-			return Ok(None);
-		}
-		Ok(Some(unsafe {
-			&*(self.state.read().unwrap().object.as_ref().unwrap() as *const Object)
-		}))
-	}
-
-	pub async fn load(&self, tg: &dyn Handle) -> Result<()> {
+	pub async fn load(&self, tg: &dyn Handle) -> Result<Arc<Object>> {
 		self.try_load(tg)
 			.await?
-			.then_some(())
 			.ok_or_else(|| error!("failed to load the object"))
 	}
 
-	pub async fn try_load(&self, tg: &dyn Handle) -> Result<bool> {
-		if self.state.read().unwrap().object.is_some() {
-			return Ok(true);
+	pub async fn try_load(&self, tg: &dyn Handle) -> Result<Option<Arc<Object>>> {
+		if let Some(object) = self.state.read().unwrap().object.clone() {
+			return Ok(Some(object));
 		}
 		let id = self.state.read().unwrap().id.clone().unwrap();
-		let Some(output) = tg.try_get_object(&id.clone().into()).await? else {
-			return Ok(false);
+		let Some(output) = tg.try_get_object(&id.into()).await? else {
+			return Ok(None);
 		};
 		let data = Data::deserialize(&output.bytes)
 			.map_err(|source| error!(!source, "failed to deserialize the data"))?;
-		let object = data.try_into()?;
-		self.state.write().unwrap().object.replace(object);
-		Ok(true)
+		let object = Object::try_from(data)?;
+		let object = Arc::new(object);
+		self.state.write().unwrap().object.replace(object.clone());
+		Ok(Some(object))
 	}
 
-	pub async fn store(&self, tg: &dyn Handle) -> Result<()> {
-		if self.state.read().unwrap().id.is_some() {
-			return Ok(());
+	pub async fn store(&self, tg: &dyn Handle) -> Result<Id> {
+		if let Some(id) = self.state.read().unwrap().id.clone() {
+			return Ok(id);
 		}
 		let data = self.data(tg).await?;
 		let bytes = data.serialize()?;
@@ -131,8 +117,8 @@ impl Symlink {
 		tg.put_object(&id.clone().into(), &arg)
 			.await
 			.map_err(|source| error!(!source, "failed to put the object"))?;
-		self.state.write().unwrap().id.replace(id);
-		Ok(())
+		self.state.write().unwrap().id.replace(id.clone());
+		Ok(id)
 	}
 
 	pub async fn data(&self, tg: &dyn Handle) -> Result<Data> {
@@ -153,14 +139,15 @@ impl Symlink {
 		Self::with_object(Object { artifact, path })
 	}
 
-	pub async fn artifact(&self, tg: &dyn Handle) -> Result<&Option<Artifact>> {
-		let object = self.object(tg).await?;
-		Ok(&object.artifact)
+	pub async fn artifact(&self, tg: &dyn Handle) -> Result<Option<Artifact>> {
+		Ok(self.object(tg).await?.artifact.clone())
 	}
 
-	pub async fn path(&self, tg: &dyn Handle) -> Result<&Option<String>> {
-		let object = self.object(tg).await?;
-		Ok(&object.path)
+	pub async fn path(
+		&self,
+		tg: &dyn Handle,
+	) -> Result<impl std::ops::Deref<Target = Option<String>>> {
+		Ok(self.object(tg).await?.map(|object| &object.path))
 	}
 
 	pub async fn resolve(&self, tg: &dyn Handle) -> Result<Option<Artifact>> {

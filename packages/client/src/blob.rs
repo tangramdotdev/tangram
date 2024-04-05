@@ -64,8 +64,8 @@ impl Blob {
 
 	pub async fn id(&self, tg: &dyn Handle) -> Result<Id> {
 		match self {
-			Self::Leaf(leaf) => Ok(leaf.id(tg).await?.clone().into()),
-			Self::Branch(branch) => Ok(branch.id(tg).await?.clone().into()),
+			Self::Leaf(leaf) => Ok(leaf.id(tg).await?.into()),
+			Self::Branch(branch) => Ok(branch.id(tg).await?.into()),
 		}
 	}
 
@@ -474,7 +474,10 @@ async fn poll_read_inner(
 			Blob::Leaf(leaf) => {
 				let (id, object) = {
 					let state = leaf.state().read().unwrap();
-					(state.id.clone(), state.object.clone())
+					(
+						state.id.clone(),
+						state.object.as_ref().map(|object| object.as_ref().clone()),
+					)
 				};
 				let bytes = if let Some(object) = object {
 					object.bytes.clone()
@@ -489,7 +492,7 @@ async fn poll_read_inner(
 				return Ok(None);
 			},
 			Blob::Branch(branch) => {
-				for child in branch.children(tg.as_ref()).await? {
+				for child in branch.children(tg.as_ref()).await?.iter() {
 					if position < current_blob_position + child.size {
 						current_blob = child.blob.clone();
 						continue 'a;

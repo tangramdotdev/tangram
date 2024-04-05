@@ -251,7 +251,7 @@ impl Server {
 		let root = package_with_path_dependencies.package.id(self).await?;
 		let mut nodes = Vec::new();
 		let root = self
-			.create_lock_inner(root, &context, &solution, &mut nodes)
+			.create_lock_inner(&root, &context, &solution, &mut nodes)
 			.await?;
 		let nodes = nodes
 			.into_iter()
@@ -341,7 +341,7 @@ impl Server {
 			package,
 			path_dependencies,
 		} = package_with_path_dependencies;
-		let package_id = package.id(self).await?.clone();
+		let package_id = package.id(self).await?;
 
 		// Check if we've already visited this dependency.
 		if all_analysis.contains_key(&package_id) {
@@ -372,11 +372,7 @@ impl Server {
 
 		// Recurse.
 		for (dependency, package_with_path_dependencies) in path_dependencies {
-			let dependency_package_id = package_with_path_dependencies
-				.package
-				.id(self)
-				.await?
-				.clone();
+			let dependency_package_id = package_with_path_dependencies.package.id(self).await?;
 			let analysis = all_analysis.get_mut(&package_id).unwrap();
 			analysis
 				.path_dependencies
@@ -398,7 +394,7 @@ impl Server {
 		package_with_path_dependencies: &PackageWithPathDependencies,
 		lock: tg::lock::Lock,
 	) -> Result<tg::lock::Lock> {
-		let mut object = lock.object(self).await?.clone();
+		let mut object = lock.object(self).await?.as_ref().clone();
 		let mut stack = vec![(object.root, package_with_path_dependencies)];
 		let mut visited = BTreeSet::new();
 		while let Some((index, package_with_path_dependencies)) = stack.pop() {
@@ -430,7 +426,6 @@ impl Server {
 				}
 			}
 		}
-
 		Ok(tg::Lock::with_object(object))
 	}
 
@@ -713,7 +708,7 @@ impl Context {
 			else {
 				continue;
 			};
-			let id = package.id(server).await.map_err(Error::Other)?.clone();
+			let id = package.id(server).await.map_err(Error::Other)?;
 			self.published_packages.insert(metadata, id.clone());
 			return Ok(id);
 		}
@@ -754,8 +749,7 @@ impl Context {
 						.try_unwrap_directory()
 						.map_err(|source| error!(!source, %path, "expected a directory"))?
 						.id(server)
-						.await?
-						.clone();
+						.await?;
 					path_dependencies.insert(dependency.clone(), dependency_package_id);
 				}
 				dependencies_.push(dependency);

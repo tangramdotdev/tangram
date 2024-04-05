@@ -104,8 +104,8 @@ impl Server {
 
 				// Create the module.
 				let path = tg::package::get_root_module_path(&self.inner.server, &package).await?;
-				let lock = lock.id(&self.inner.server).await?.clone();
-				let package = package.id(&self.inner.server).await?.clone();
+				let lock = lock.id(&self.inner.server).await?;
+				let package = package.id(&self.inner.server).await?;
 				let module = tg::Module::Normal(tg::module::Normal {
 					lock,
 					package,
@@ -160,8 +160,8 @@ impl Server {
 
 				// Create the module.
 				let path = tg::package::get_root_module_path(&self.inner.server, &package).await?;
-				let package = package.id(&self.inner.server).await?.clone();
-				let lock = lock.id(&self.inner.server).await?.clone();
+				let package = package.id(&self.inner.server).await?;
+				let lock = lock.id(&self.inner.server).await?;
 				let module = tg::Module::Normal(tg::module::Normal {
 					lock,
 					package,

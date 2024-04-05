@@ -92,7 +92,7 @@ async fn syscall_build(state: Rc<State>, args: (tg::Target,)) -> Result<tg::Valu
 		parent: Some(state.build.id().clone()),
 		remote: false,
 		retry: state.build.retry(&state.server).await?,
-		target: target.id(&state.server).await?.clone(),
+		target: target.id(&state.server).await?,
 	};
 	let output = target
 		.build(&state.server, arg)

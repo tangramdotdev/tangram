@@ -1,14 +1,14 @@
-use crate as tg;
-use crate::util::http::full;
 use crate::{
-	branch, directory, file, id, leaf, lock, symlink, target, util::http::empty, Branch, Client,
-	Directory, Error, File, Leaf, Lock, Result, Symlink, Target,
+	self as tg, branch, directory, file, id, leaf, lock, symlink, target,
+	util::http::{empty, full},
+	Branch, Client, Directory, Error, File, Leaf, Lock, Result, Symlink, Target,
 };
 use async_recursion::async_recursion;
 use bytes::Bytes;
 use derive_more::{Display, From, TryInto, TryUnwrap};
 use futures::{stream::FuturesUnordered, TryStreamExt};
 use http_body_util::BodyExt;
+use std::sync::Arc;
 use tangram_error::error;
 
 /// An object kind.
@@ -63,17 +63,23 @@ pub enum Handle {
 	Target(Target),
 }
 
+#[derive(Debug)]
+pub struct State<I, O> {
+	pub id: Option<I>,
+	pub object: Option<Arc<O>>,
+}
+
 /// An object.
 #[derive(Clone, Debug, From, TryInto, TryUnwrap)]
 #[try_unwrap(ref)]
 pub enum Object {
-	Leaf(leaf::Object),
-	Branch(branch::Object),
-	Directory(directory::Object),
-	File(file::Object),
-	Symlink(symlink::Object),
-	Lock(lock::Object),
-	Target(target::Object),
+	Leaf(Arc<leaf::Object>),
+	Branch(Arc<branch::Object>),
+	Directory(Arc<directory::Object>),
+	File(Arc<file::Object>),
+	Symlink(Arc<symlink::Object>),
+	Lock(Arc<lock::Object>),
+	Target(Arc<target::Object>),
 }
 
 /// Object data.
@@ -86,12 +92,6 @@ pub enum Data {
 	Symlink(symlink::Data),
 	Lock(lock::Data),
 	Target(target::Data),
-}
-
-#[derive(Debug)]
-pub struct State<I, O> {
-	pub id: Option<I>,
-	pub object: Option<O>,
 }
 
 #[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
@@ -157,25 +157,25 @@ impl Handle {
 
 	pub async fn id(&self, tg: &dyn crate::Handle) -> Result<Id> {
 		match self {
-			Self::Leaf(object) => object.id(tg).await.cloned().map(Id::Leaf),
-			Self::Branch(object) => object.id(tg).await.cloned().map(Id::Branch),
-			Self::Directory(object) => object.id(tg).await.cloned().map(Id::Directory),
-			Self::File(object) => object.id(tg).await.cloned().map(Id::File),
-			Self::Symlink(object) => object.id(tg).await.cloned().map(Id::Symlink),
-			Self::Lock(object) => object.id(tg).await.cloned().map(Id::Lock),
-			Self::Target(object) => object.id(tg).await.cloned().map(Id::Target),
+			Self::Leaf(object) => object.id(tg).await.map(Id::Leaf),
+			Self::Branch(object) => object.id(tg).await.map(Id::Branch),
+			Self::Directory(object) => object.id(tg).await.map(Id::Directory),
+			Self::File(object) => object.id(tg).await.map(Id::File),
+			Self::Symlink(object) => object.id(tg).await.map(Id::Symlink),
+			Self::Lock(object) => object.id(tg).await.map(Id::Lock),
+			Self::Target(object) => object.id(tg).await.map(Id::Target),
 		}
 	}
 
 	pub async fn object(&self, tg: &dyn crate::Handle) -> Result<Object> {
 		match self {
-			Self::Leaf(object) => object.object(tg).await.cloned().map(Object::Leaf),
-			Self::Branch(object) => object.object(tg).await.cloned().map(Object::Branch),
-			Self::Directory(object) => object.object(tg).await.cloned().map(Object::Directory),
-			Self::File(object) => object.object(tg).await.cloned().map(Object::File),
-			Self::Symlink(object) => object.object(tg).await.cloned().map(Object::Symlink),
-			Self::Lock(object) => object.object(tg).await.cloned().map(Object::Lock),
-			Self::Target(object) => object.object(tg).await.cloned().map(Object::Target),
+			Self::Leaf(object) => object.object(tg).await.map(Object::Leaf),
+			Self::Branch(object) => object.object(tg).await.map(Object::Branch),
+			Self::Directory(object) => object.object(tg).await.map(Object::Directory),
+			Self::File(object) => object.object(tg).await.map(Object::File),
+			Self::Symlink(object) => object.object(tg).await.map(Object::Symlink),
+			Self::Lock(object) => object.object(tg).await.map(Object::Lock),
+			Self::Target(object) => object.object(tg).await.map(Object::Target),
 		}
 	}
 
@@ -417,8 +417,9 @@ impl Client {
 
 impl<I, O> State<I, O> {
 	#[must_use]
-	pub fn new(id: Option<I>, object: Option<O>) -> Self {
+	pub fn new(id: Option<I>, object: Option<impl Into<Arc<O>>>) -> Self {
 		assert!(id.is_some() || object.is_some());
+		let object = object.map(Into::into);
 		Self { id, object }
 	}
 
@@ -431,10 +432,10 @@ impl<I, O> State<I, O> {
 	}
 
 	#[must_use]
-	pub fn with_object(object: O) -> Self {
+	pub fn with_object(object: impl Into<Arc<O>>) -> Self {
 		Self {
 			id: None,
-			object: Some(object),
+			object: Some(object.into()),
 		}
 	}
 
@@ -444,7 +445,7 @@ impl<I, O> State<I, O> {
 	}
 
 	#[must_use]
-	pub fn object(&self) -> &Option<O> {
+	pub fn object(&self) -> &Option<Arc<O>> {
 		&self.object
 	}
 }
@@ -538,13 +539,13 @@ impl TryFrom<Data> for Object {
 
 	fn try_from(data: Data) -> std::result::Result<Self, Self::Error> {
 		Ok(match data {
-			Data::Leaf(data) => Self::Leaf(data.try_into()?),
-			Data::Branch(data) => Self::Branch(data.try_into()?),
-			Data::Directory(data) => Self::Directory(data.try_into()?),
-			Data::File(data) => Self::File(data.try_into()?),
-			Data::Symlink(data) => Self::Symlink(data.try_into()?),
-			Data::Lock(data) => Self::Lock(data.try_into()?),
-			Data::Target(data) => Self::Target(data.try_into()?),
+			Data::Leaf(data) => Self::Leaf(Arc::new(leaf::Object::try_from(data)?)),
+			Data::Branch(data) => Self::Branch(Arc::new(branch::Object::try_from(data)?)),
+			Data::Directory(data) => Self::Directory(Arc::new(directory::Object::try_from(data)?)),
+			Data::File(data) => Self::File(Arc::new(file::Object::try_from(data)?)),
+			Data::Symlink(data) => Self::Symlink(Arc::new(symlink::Object::try_from(data)?)),
+			Data::Lock(data) => Self::Lock(Arc::new(lock::Object::try_from(data)?)),
+			Data::Target(data) => Self::Target(Arc::new(target::Object::try_from(data)?)),
 		})
 	}
 }

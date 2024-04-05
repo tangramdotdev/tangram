@@ -787,7 +787,7 @@ async fn title(client: &tg::Client, build: &tg::Build) -> Result<Option<String>>
 	};
 
 	// Get the metadata.
-	let metadata = tg::package::get_metadata(client, package).await.ok();
+	let metadata = tg::package::get_metadata(client, &package).await.ok();
 
 	let mut title = String::new();
 	if let Some(metadata) = metadata {

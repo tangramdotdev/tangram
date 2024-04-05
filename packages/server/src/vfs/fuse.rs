@@ -468,7 +468,7 @@ impl Server {
 			libc::EIO
 		})?;
 		let mut references = Vec::new();
-		for artifact in file_references {
+		for artifact in file_references.iter() {
 			let id = artifact.id(&self.inner.server).await.map_err(|e| {
 				tracing::error!(?e, ?artifact, "failed to get ID of artifact");
 				libc::EIO
@@ -713,12 +713,11 @@ impl Server {
 
 		// Create the response.
 		let mut response = Vec::new();
-		let names = directory
+		let entries = directory
 			.entries(&self.inner.server)
 			.await
-			.map_err(|_| libc::EIO)?
-			.keys()
-			.map(AsRef::as_ref);
+			.map_err(|_| libc::EIO)?;
+		let names = entries.keys().map(AsRef::as_ref);
 
 		for (offset, name) in [".", ".."]
 			.into_iter()
@@ -798,7 +797,7 @@ impl Server {
 		let Ok(path) = symlink.path(&self.inner.server).await else {
 			return Err(libc::EIO);
 		};
-		if let Some(artifact) = artifact {
+		if let Some(artifact) = artifact.as_ref() {
 			let Ok(id) = artifact.id(&self.inner.server).await else {
 				return Err(libc::EIO);
 			};
@@ -810,7 +809,7 @@ impl Server {
 		if artifact.is_some() && path.is_some() {
 			target.push('/');
 		}
-		if let Some(path) = path {
+		if let Some(path) = path.as_ref() {
 			target.push_str(path);
 		}
 		let target = CString::new(target).unwrap();
