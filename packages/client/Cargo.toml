@@ -43,7 +43,6 @@ lsp-types = { workspace = true }
 mime = { workspace = true }
 num = { workspace = true }
 once_cell = { workspace = true }
-pin-project = { workspace = true }
 rand = { workspace = true }
 regex = { workspace = true }
 rustls = { workspace = true, optional = true }

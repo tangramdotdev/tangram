@@ -32,7 +32,6 @@ filetime = { workspace = true }
 fastcdc = { workspace = true }
 fnv = { workspace = true }
 futures = { workspace = true }
-glob = { workspace = true }
 http = { workspace = true }
 http-body = { workspace = true }
 http-body-util = { workspace = true }
@@ -51,7 +50,6 @@ num = { workspace = true }
 oauth2 = { workspace = true }
 octocrab = { workspace = true }
 parking_lot = { workspace = true }
-pin-project = { workspace = true }
 rand = { workspace = true }
 regex = { workspace = true }
 reqwest = { workspace = true }

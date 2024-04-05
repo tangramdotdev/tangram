@@ -73,13 +73,6 @@ pub struct OauthClient {
 }
 
 #[derive(Clone, Debug)]
-pub struct StackTrace {
-	pub exclude: Vec<glob::Pattern>,
-	pub include: Vec<glob::Pattern>,
-	pub reverse: bool,
-}
-
-#[derive(Clone, Debug)]
 pub struct Remote {
 	pub build: RemoteBuild,
 	pub client: tg::Client,
