@@ -7,8 +7,8 @@ use crate::{
 use bytes::Bytes;
 use derive_more::Display;
 use futures::{
-	stream::{self, BoxStream, FuturesUnordered},
-	StreamExt, TryStreamExt,
+	stream::{self, FuturesUnordered},
+	Stream, StreamExt, TryStreamExt,
 };
 use http_body_util::BodyExt;
 
@@ -197,7 +197,7 @@ impl Build {
 		&self,
 		tg: &impl Handle,
 		arg: children::GetArg,
-	) -> tg::Result<BoxStream<'static, tg::Result<Self>>> {
+	) -> tg::Result<impl Stream<Item = tg::Result<Self>> + Send + 'static> {
 		self.try_get_children(tg, arg)
 			.await?
 			.ok_or_else(|| error!("failed to get the build"))
@@ -207,7 +207,7 @@ impl Build {
 		&self,
 		tg: &impl Handle,
 		arg: children::GetArg,
-	) -> tg::Result<Option<BoxStream<'static, tg::Result<Self>>>> {
+	) -> tg::Result<Option<impl Stream<Item = tg::Result<Self>> + Send + 'static>> {
 		Ok(tg
 			.try_get_build_children(self.id(), arg, None)
 			.await?
@@ -232,7 +232,7 @@ impl Build {
 		&self,
 		tg: &impl Handle,
 		arg: log::GetArg,
-	) -> tg::Result<BoxStream<'static, tg::Result<log::Chunk>>> {
+	) -> tg::Result<impl Stream<Item = tg::Result<log::Chunk>> + Send + 'static> {
 		self.try_get_log(tg, arg)
 			.await?
 			.ok_or_else(|| error!("failed to get the build"))
@@ -242,8 +242,10 @@ impl Build {
 		&self,
 		tg: &impl Handle,
 		arg: log::GetArg,
-	) -> tg::Result<Option<BoxStream<'static, tg::Result<log::Chunk>>>> {
-		tg.try_get_build_log(self.id(), arg, None).await
+	) -> tg::Result<Option<impl Stream<Item = tg::Result<log::Chunk>> + Send + 'static>> {
+		tg.try_get_build_log(self.id(), arg, None)
+			.await
+			.map(|option| option.map(futures::StreamExt::boxed))
 	}
 
 	pub async fn add_log(&self, tg: &impl Handle, log: Bytes) -> tg::Result<()> {
@@ -311,7 +313,7 @@ impl Build {
 		&self,
 		tg: &impl Handle,
 		arg: status::GetArg,
-	) -> tg::Result<BoxStream<'static, tg::Result<Status>>> {
+	) -> tg::Result<impl Stream<Item = tg::Result<Status>> + Send + 'static> {
 		self.try_get_status(tg, arg)
 			.await?
 			.ok_or_else(|| error!("failed to get the build"))
@@ -321,8 +323,10 @@ impl Build {
 		&self,
 		tg: &impl Handle,
 		arg: status::GetArg,
-	) -> tg::Result<Option<BoxStream<'static, tg::Result<Status>>>> {
-		tg.try_get_build_status(self.id(), arg, None).await
+	) -> tg::Result<Option<impl Stream<Item = tg::Result<Status>> + Send + 'static>> {
+		tg.try_get_build_status(self.id(), arg, None)
+			.await
+			.map(|option| option.map(futures::StreamExt::boxed))
 	}
 
 	pub async fn target(&self, tg: &impl Handle) -> tg::Result<Target> {

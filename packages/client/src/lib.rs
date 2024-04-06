@@ -33,7 +33,7 @@ pub use self::{
 };
 use crate as tg;
 use bytes::Bytes;
-use futures::stream::BoxStream;
+use futures::Stream;
 use std::sync::Arc;
 use tokio::{
 	io::{AsyncRead, AsyncWrite},
@@ -591,7 +591,7 @@ impl Handle for Client {
 		id: &tg::build::Id,
 		arg: tg::build::status::GetArg,
 		stop: Option<tokio::sync::watch::Receiver<bool>>,
-	) -> tg::Result<Option<BoxStream<'static, Result<tg::build::Status>>>> {
+	) -> tg::Result<Option<impl Stream<Item = Result<tg::build::Status>> + Send + 'static>> {
 		self.try_get_build_status(id, arg, stop).await
 	}
 
@@ -609,7 +609,8 @@ impl Handle for Client {
 		id: &tg::build::Id,
 		arg: tg::build::children::GetArg,
 		stop: Option<tokio::sync::watch::Receiver<bool>>,
-	) -> tg::Result<Option<BoxStream<'static, Result<tg::build::children::Chunk>>>> {
+	) -> tg::Result<Option<impl Stream<Item = Result<tg::build::children::Chunk>> + Send + 'static>>
+	{
 		self.try_get_build_children(id, arg, stop).await
 	}
 
@@ -627,7 +628,7 @@ impl Handle for Client {
 		id: &tg::build::Id,
 		arg: tg::build::log::GetArg,
 		stop: Option<tokio::sync::watch::Receiver<bool>>,
-	) -> tg::Result<Option<BoxStream<'static, Result<tg::build::log::Chunk>>>> {
+	) -> tg::Result<Option<impl Stream<Item = Result<tg::build::log::Chunk>> + Send + 'static>> {
 		self.try_get_build_log(id, arg, stop).await
 	}
 

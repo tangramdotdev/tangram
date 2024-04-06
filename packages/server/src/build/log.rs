@@ -5,13 +5,12 @@ use crate::{
 use bytes::{Bytes, BytesMut};
 use futures::{
 	future::{self, BoxFuture},
-	stream::{self, BoxStream},
-	stream_select, FutureExt, StreamExt, TryStreamExt,
+	stream, stream_select, FutureExt, Stream, StreamExt, TryStreamExt,
 };
 use http_body_util::{BodyExt, StreamBody};
 use indoc::formatdoc;
 use num::ToPrimitive;
-use std::{io::Cursor, sync::Arc};
+use std::{io::Cursor, pin::pin, sync::Arc};
 use tangram_client as tg;
 use tangram_database::{self as db, prelude::*};
 use tokio::io::{AsyncRead, AsyncReadExt, AsyncSeek, AsyncSeekExt};
@@ -39,17 +38,17 @@ impl Server {
 		id: &tg::build::Id,
 		arg: tg::build::log::GetArg,
 		stop: Option<tokio::sync::watch::Receiver<bool>>,
-	) -> tg::Result<Option<BoxStream<'static, tg::Result<tg::build::log::Chunk>>>> {
+	) -> tg::Result<Option<impl Stream<Item = tg::Result<tg::build::log::Chunk>> + Send>> {
 		if let Some(log) = self
 			.try_get_build_log_local(id, arg.clone(), stop.clone())
 			.await?
 		{
-			Ok(Some(log))
+			Ok(Some(log.left_stream()))
 		} else if let Some(log) = self
 			.try_get_build_log_remote(id, arg.clone(), stop.clone())
 			.await?
 		{
-			Ok(Some(log))
+			Ok(Some(log.right_stream()))
 		} else {
 			Ok(None)
 		}
@@ -60,7 +59,7 @@ impl Server {
 		id: &tg::build::Id,
 		arg: tg::build::log::GetArg,
 		stop: Option<tokio::sync::watch::Receiver<bool>>,
-	) -> tg::Result<Option<BoxStream<'static, tg::Result<tg::build::log::Chunk>>>> {
+	) -> tg::Result<Option<impl Stream<Item = tg::Result<tg::build::log::Chunk>> + Send>> {
 		// Verify the build is local.
 		if !self.get_build_exists_local(id).await? {
 			return Ok(None);
@@ -145,7 +144,8 @@ impl Server {
 						None,
 					)
 					.await?
-					.ok_or_else(|| tg::error!("expected the build to exist"))?
+					.ok_or_else(|| tg::error!("expected the build to exist"))?;
+				let status = pin!(status)
 					.try_next()
 					.await?
 					.ok_or_else(|| tg::error!("expected the status to exist"))?;
@@ -249,7 +249,7 @@ impl Server {
 		id: &tg::build::Id,
 		arg: tg::build::log::GetArg,
 		stop: Option<tokio::sync::watch::Receiver<bool>>,
-	) -> tg::Result<Option<BoxStream<'static, tg::Result<tg::build::log::Chunk>>>> {
+	) -> tg::Result<Option<impl Stream<Item = tg::Result<tg::build::log::Chunk>> + Send>> {
 		let Some(remote) = self.inner.remotes.first() else {
 			return Ok(None);
 		};

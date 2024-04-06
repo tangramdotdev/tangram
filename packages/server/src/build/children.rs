@@ -2,15 +2,11 @@ use crate::{
 	util::http::{empty, not_found, Incoming, Outgoing},
 	Http, Server,
 };
-use futures::{
-	future,
-	stream::{self, BoxStream},
-	stream_select, FutureExt, StreamExt, TryStreamExt,
-};
+use futures::{future, stream, stream_select, FutureExt, Stream, StreamExt, TryStreamExt};
 use http_body_util::{BodyExt, StreamBody};
 use indoc::formatdoc;
 use num::ToPrimitive;
-use std::sync::Arc;
+use std::{pin::pin, sync::Arc};
 use tangram_client as tg;
 use tangram_database::{self as db, prelude::*};
 use tokio_stream::wrappers::IntervalStream;
@@ -21,17 +17,17 @@ impl Server {
 		id: &tg::build::Id,
 		arg: tg::build::children::GetArg,
 		stop: Option<tokio::sync::watch::Receiver<bool>>,
-	) -> tg::Result<Option<BoxStream<'static, tg::Result<tg::build::children::Chunk>>>> {
+	) -> tg::Result<Option<impl Stream<Item = tg::Result<tg::build::children::Chunk>> + Send>> {
 		if let Some(children) = self
 			.try_get_build_children_local(id, arg.clone(), stop.clone())
 			.await?
 		{
-			Ok(Some(children))
+			Ok(Some(children.left_stream()))
 		} else if let Some(children) = self
 			.try_get_build_children_remote(id, arg.clone(), stop.clone())
 			.await?
 		{
-			Ok(Some(children))
+			Ok(Some(children.right_stream()))
 		} else {
 			Ok(None)
 		}
@@ -42,7 +38,7 @@ impl Server {
 		id: &tg::build::Id,
 		arg: tg::build::children::GetArg,
 		stop: Option<tokio::sync::watch::Receiver<bool>>,
-	) -> tg::Result<Option<BoxStream<'static, tg::Result<tg::build::children::Chunk>>>> {
+	) -> tg::Result<Option<impl Stream<Item = tg::Result<tg::build::children::Chunk>> + Send>> {
 		// Verify the build is local.
 		if !self.get_build_exists_local(id).await? {
 			return Ok(None);
@@ -117,16 +113,14 @@ impl Server {
 					return Ok(None);
 				};
 
+				let arg = tg::build::status::GetArg {
+					timeout: Some(std::time::Duration::ZERO),
+				};
 				let status = server
-					.try_get_build_status_local(
-						&id,
-						tg::build::status::GetArg {
-							timeout: Some(std::time::Duration::ZERO),
-						},
-						None,
-					)
+					.try_get_build_status_local(&id, arg, None)
 					.await?
-					.ok_or_else(|| tg::error!("expected the build to exist"))?
+					.ok_or_else(|| tg::error!("expected the build to exist"))?;
+				let status = pin!(status)
 					.try_next()
 					.await?
 					.ok_or_else(|| tg::error!("expected the status to exist"))?;
@@ -312,7 +306,7 @@ impl Server {
 		id: &tg::build::Id,
 		arg: tg::build::children::GetArg,
 		stop: Option<tokio::sync::watch::Receiver<bool>>,
-	) -> tg::Result<Option<BoxStream<'static, tg::Result<tg::build::children::Chunk>>>> {
+	) -> tg::Result<Option<impl Stream<Item = tg::Result<tg::build::children::Chunk>> + Send>> {
 		let Some(remote) = self.inner.remotes.first() else {
 			return Ok(None);
 		};

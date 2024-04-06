@@ -2,11 +2,7 @@ use crate::{
 	util::http::{empty, not_found, Incoming, Outgoing},
 	Http, Server,
 };
-use futures::{
-	future,
-	stream::{self, BoxStream},
-	FutureExt, StreamExt, TryStreamExt,
-};
+use futures::{future, stream, FutureExt, Stream, StreamExt, TryStreamExt};
 use http_body_util::{BodyExt, StreamBody};
 use indoc::formatdoc;
 use tangram_client as tg;
@@ -20,17 +16,17 @@ impl Server {
 		id: &tg::build::Id,
 		arg: tg::build::status::GetArg,
 		stop: Option<tokio::sync::watch::Receiver<bool>>,
-	) -> tg::Result<Option<BoxStream<'static, tg::Result<tg::build::Status>>>> {
+	) -> tg::Result<Option<impl Stream<Item = tg::Result<tg::build::Status>> + Send>> {
 		if let Some(status) = self
 			.try_get_build_status_local(id, arg.clone(), stop.clone())
 			.await?
 		{
-			Ok(Some(status))
+			Ok(Some(status.left_stream()))
 		} else if let Some(status) = self
 			.try_get_build_status_remote(id, arg.clone(), stop.clone())
 			.await?
 		{
-			Ok(Some(status))
+			Ok(Some(status.right_stream()))
 		} else {
 			Ok(None)
 		}
@@ -41,7 +37,7 @@ impl Server {
 		id: &tg::build::Id,
 		arg: tg::build::status::GetArg,
 		stop: Option<tokio::sync::watch::Receiver<bool>>,
-	) -> tg::Result<Option<BoxStream<'static, tg::Result<tg::build::Status>>>> {
+	) -> tg::Result<Option<impl Stream<Item = tg::Result<tg::build::Status>> + Send>> {
 		// Verify the build is local.
 		if !self.get_build_exists_local(id).await? {
 			return Ok(None);
@@ -141,7 +137,7 @@ impl Server {
 		id: &tg::build::Id,
 		arg: tg::build::status::GetArg,
 		stop: Option<tokio::sync::watch::Receiver<bool>>,
-	) -> tg::Result<Option<BoxStream<'static, tg::Result<tg::build::Status>>>> {
+	) -> tg::Result<Option<impl Stream<Item = tg::Result<tg::build::Status>> + Send>> {
 		let Some(remote) = self.inner.remotes.first() else {
 			return Ok(None);
 		};

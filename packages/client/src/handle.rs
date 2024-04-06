@@ -1,6 +1,6 @@
 use crate::{self as tg, error};
 use bytes::Bytes;
-use futures::{stream::BoxStream, Future, FutureExt};
+use futures::{Future, FutureExt, Stream};
 use tokio::io::{AsyncRead, AsyncWrite};
 
 pub trait Handle: Clone + Unpin + Send + Sync + 'static {
@@ -66,8 +66,9 @@ pub trait Handle: Clone + Unpin + Send + Sync + 'static {
 		id: &tg::build::Id,
 		arg: tg::build::status::GetArg,
 		stop: Option<tokio::sync::watch::Receiver<bool>>,
-	) -> impl Future<Output = tg::Result<BoxStream<'static, tg::Result<tg::build::Status>>>> + Send
-	{
+	) -> impl Future<
+		Output = tg::Result<impl Stream<Item = tg::Result<tg::build::Status>> + Send + 'static>,
+	> + Send {
 		self.try_get_build_status(id, arg, stop).map(|result| {
 			result.and_then(|option| option.ok_or_else(|| error!("failed to get the build")))
 		})
@@ -78,7 +79,11 @@ pub trait Handle: Clone + Unpin + Send + Sync + 'static {
 		id: &tg::build::Id,
 		arg: tg::build::status::GetArg,
 		stop: Option<tokio::sync::watch::Receiver<bool>>,
-	) -> impl Future<Output = tg::Result<Option<BoxStream<'static, tg::Result<tg::build::Status>>>>> + Send;
+	) -> impl Future<
+		Output = tg::Result<
+			Option<impl Stream<Item = tg::Result<tg::build::Status>> + Send + 'static>,
+		>,
+	> + Send;
 
 	fn set_build_status(
 		&self,
@@ -92,8 +97,11 @@ pub trait Handle: Clone + Unpin + Send + Sync + 'static {
 		id: &tg::build::Id,
 		arg: tg::build::children::GetArg,
 		stop: Option<tokio::sync::watch::Receiver<bool>>,
-	) -> impl Future<Output = tg::Result<BoxStream<'static, tg::Result<tg::build::children::Chunk>>>>
-	       + Send {
+	) -> impl Future<
+		Output = tg::Result<
+			impl Stream<Item = tg::Result<tg::build::children::Chunk>> + Send + 'static,
+		>,
+	> + Send {
 		self.try_get_build_children(id, arg, stop).map(|result| {
 			result.and_then(|option| option.ok_or_else(|| error!("failed to get the build")))
 		})
@@ -105,7 +113,9 @@ pub trait Handle: Clone + Unpin + Send + Sync + 'static {
 		arg: tg::build::children::GetArg,
 		stop: Option<tokio::sync::watch::Receiver<bool>>,
 	) -> impl Future<
-		Output = tg::Result<Option<BoxStream<'static, tg::Result<tg::build::children::Chunk>>>>,
+		Output = tg::Result<
+			Option<impl Stream<Item = tg::Result<tg::build::children::Chunk>> + Send + 'static>,
+		>,
 	> + Send;
 
 	fn add_build_child(
@@ -120,8 +130,9 @@ pub trait Handle: Clone + Unpin + Send + Sync + 'static {
 		id: &tg::build::Id,
 		arg: tg::build::log::GetArg,
 		stop: Option<tokio::sync::watch::Receiver<bool>>,
-	) -> impl Future<Output = tg::Result<BoxStream<'static, tg::Result<tg::build::log::Chunk>>>> + Send
-	{
+	) -> impl Future<
+		Output = tg::Result<impl Stream<Item = tg::Result<tg::build::log::Chunk>> + Send + 'static>,
+	> + Send {
 		self.try_get_build_log(id, arg, stop).map(|result| {
 			result.and_then(|option| option.ok_or_else(|| error!("failed to get the build")))
 		})
@@ -133,7 +144,9 @@ pub trait Handle: Clone + Unpin + Send + Sync + 'static {
 		arg: tg::build::log::GetArg,
 		stop: Option<tokio::sync::watch::Receiver<bool>>,
 	) -> impl Future<
-		Output = tg::Result<Option<BoxStream<'static, tg::Result<tg::build::log::Chunk>>>>,
+		Output = tg::Result<
+			Option<impl Stream<Item = tg::Result<tg::build::log::Chunk>> + Send + 'static>,
+		>,
 	> + Send;
 
 	fn add_build_log(

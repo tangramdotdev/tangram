@@ -6,6 +6,7 @@ use crate::{
 use futures::{future, stream::FuturesUnordered, TryFutureExt, TryStreamExt};
 use http_body_util::BodyExt;
 use indoc::formatdoc;
+use std::pin::pin;
 use tangram_client as tg;
 use tangram_database::{self as db, prelude::*};
 use time::format_description::well_known::Rfc3339;
@@ -47,17 +48,18 @@ impl Server {
 		let arg = tg::build::status::GetArg {
 			timeout: arg.timeout,
 		};
-		let finished = self
+		let status = self
 			.try_get_build_status_local(id, arg, stop)
 			.await?
-			.ok_or_else(|| tg::error!("expected the build to exist"))?
-			.try_filter_map(|status| {
-				future::ready(Ok(if status == tg::build::Status::Finished {
-					Some(())
-				} else {
-					None
-				}))
-			})
+			.ok_or_else(|| tg::error!("expected the build to exist"))?;
+		let finished = status.try_filter_map(|status| {
+			future::ready(Ok(if status == tg::build::Status::Finished {
+				Some(())
+			} else {
+				None
+			}))
+		});
+		let finished = pin!(finished)
 			.try_next()
 			.map_ok(|option| option.is_some())
 			.await?;
@@ -143,7 +145,8 @@ impl Server {
 		let status = self
 			.try_get_build_status_local(id, arg, None)
 			.await?
-			.ok_or_else(|| tg::error!("expected the build to exist"))?
+			.ok_or_else(|| tg::error!("expected the build to exist"))?;
+		let status = pin!(status)
 			.try_next()
 			.await?
 			.ok_or_else(|| tg::error!("failed to get the status"))?;

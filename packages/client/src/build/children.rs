@@ -4,7 +4,7 @@ use crate::{
 	util::http::{empty, full},
 	Client,
 };
-use futures::{future, stream::BoxStream, FutureExt, StreamExt, TryStreamExt};
+use futures::{future, FutureExt, Stream, StreamExt, TryStreamExt};
 use http_body_util::{BodyExt, BodyStream};
 use serde_with::serde_as;
 use tokio_util::io::StreamReader;
@@ -39,7 +39,7 @@ impl Client {
 		id: &tg::build::Id,
 		arg: tg::build::children::GetArg,
 		stop: Option<tokio::sync::watch::Receiver<bool>>,
-	) -> tg::Result<Option<BoxStream<'static, tg::Result<tg::build::children::Chunk>>>> {
+	) -> tg::Result<Option<impl Stream<Item = tg::Result<tg::build::children::Chunk>> + Send>> {
 		let method = http::Method::GET;
 		let search_params = serde_urlencoded::to_string(&arg).unwrap();
 		let uri = format!("/builds/{id}/children?{search_params}");
@@ -85,8 +85,7 @@ impl Client {
 					.map_err(|source| error!(!source, "failed to deserialize the event data"))?;
 				Ok::<_, tg::Error>(chunk)
 			})
-			.take_until(stop)
-			.boxed();
+			.take_until(stop);
 		Ok(Some(output))
 	}
 
