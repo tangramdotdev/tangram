@@ -1,16 +1,22 @@
-use crate::{self as tg, error, mutation, object, template, Handle, Mutation, Template};
+use crate as tg;
 use bytes::Bytes;
-use derive_more::{From, TryInto, TryUnwrap};
 use futures::{
 	stream::{FuturesOrdered, FuturesUnordered},
-	TryStreamExt,
+	TryStreamExt as _,
 };
-use itertools::Itertools;
+use itertools::Itertools as _;
 use num::ToPrimitive;
 use std::collections::BTreeMap;
 
 /// A value.
-#[derive(Clone, Debug, From, TryInto, serde::Deserialize, TryUnwrap)]
+#[derive(
+	Clone,
+	Debug,
+	derive_more::From,
+	derive_more::TryInto,
+	derive_more::TryUnwrap,
+	serde::Deserialize,
+)]
 #[serde(try_from = "Data")]
 #[try_unwrap(ref)]
 pub enum Value {
@@ -33,16 +39,19 @@ pub enum Value {
 	Map(BTreeMap<String, Value>),
 
 	/// An object value.
-	Object(object::Handle),
+	Object(tg::object::Handle),
 
 	/// A bytes value.
 	Bytes(Bytes),
 
+	/// A path value.
+	Path(tg::Path),
+
 	/// A mutation value.
-	Mutation(Mutation),
+	Mutation(tg::Mutation),
 
 	/// A template value.
-	Template(Template),
+	Template(tg::Template),
 }
 
 /// Value data.
@@ -54,14 +63,15 @@ pub enum Data {
 	String(String),
 	Array(Vec<Data>),
 	Map(BTreeMap<String, Data>),
-	Object(object::Id),
+	Object(tg::object::Id),
 	Bytes(Bytes),
-	Mutation(mutation::Data),
-	Template(template::Data),
+	Path(tg::Path),
+	Mutation(tg::mutation::Data),
+	Template(tg::template::Data),
 }
 
 impl Value {
-	pub fn objects(&self) -> Vec<object::Handle> {
+	pub fn objects(&self) -> Vec<tg::object::Handle> {
 		match self {
 			Self::Array(array) => array.iter().flat_map(Self::objects).collect(),
 			Self::Map(map) => map.values().flat_map(Self::objects).collect(),
@@ -72,21 +82,52 @@ impl Value {
 		}
 	}
 
-	pub async fn push(
+	pub async fn push<H1, H2>(
 		&self,
-		tg: &impl crate::Handle,
-		remote: &impl crate::Handle,
-	) -> tg::Result<()> {
+		tg: &H1,
+		remote: &H2,
+		transaction: Option<&H2::Transaction<'_>>,
+	) -> tg::Result<()>
+	where
+		H1: tg::Handle,
+		H2: tg::Handle,
+	{
 		self.objects()
 			.iter()
-			.map(|object| object.push(tg, remote))
+			.map(|object| object.push(tg, remote, transaction))
 			.collect::<FuturesUnordered<_>>()
 			.try_collect()
 			.await?;
 		Ok(())
 	}
 
-	pub async fn data(&self, tg: &impl Handle) -> tg::Result<Data> {
+	pub async fn pull<H1, H2>(
+		&self,
+		tg: &H1,
+		remote: &H2,
+		transaction: Option<&H1::Transaction<'_>>,
+	) -> tg::Result<()>
+	where
+		H1: tg::Handle,
+		H2: tg::Handle,
+	{
+		self.objects()
+			.iter()
+			.map(|object| object.pull(tg, remote, transaction))
+			.collect::<FuturesUnordered<_>>()
+			.try_collect()
+			.await?;
+		Ok(())
+	}
+
+	pub async fn data<H>(
+		&self,
+		tg: &H,
+		transaction: Option<&H::Transaction<'_>>,
+	) -> tg::Result<Data>
+	where
+		H: tg::Handle,
+	{
 		let data = match self {
 			Self::Null => Data::Null,
 			Self::Bool(bool) => Data::Bool(*bool),
@@ -95,7 +136,7 @@ impl Value {
 			Self::Array(array) => Data::Array(
 				array
 					.iter()
-					.map(|value| value.data(tg))
+					.map(|value| value.data(tg, transaction))
 					.collect::<FuturesOrdered<_>>()
 					.try_collect()
 					.await?,
@@ -103,16 +144,17 @@ impl Value {
 			Self::Map(map) => Data::Map(
 				map.iter()
 					.map(|(key, value)| async move {
-						Ok::<_, tg::Error>((key.clone(), value.data(tg).await?))
+						Ok::<_, tg::Error>((key.clone(), value.data(tg, transaction).await?))
 					})
 					.collect::<FuturesUnordered<_>>()
 					.try_collect()
 					.await?,
 			),
-			Self::Object(object) => Data::Object(object.id(tg).await?),
+			Self::Object(object) => Data::Object(object.id(tg, transaction).await?),
 			Self::Bytes(bytes) => Data::Bytes(bytes.clone()),
-			Self::Mutation(mutation) => Data::Mutation(mutation.data(tg).await?),
-			Self::Template(template) => Data::Template(template.data(tg).await?),
+			Self::Path(path) => Data::Path(path.clone()),
+			Self::Mutation(mutation) => Data::Mutation(mutation.data(tg, transaction).await?),
+			Self::Template(template) => Data::Template(template.data(tg, transaction).await?),
 		};
 		Ok(data)
 	}
@@ -122,18 +164,23 @@ impl Data {
 	pub fn serialize(&self) -> tg::Result<Bytes> {
 		serde_json::to_vec(self)
 			.map(Into::into)
-			.map_err(|source| error!(!source, "failed to serialize the data"))
+			.map_err(|source| tg::error!(!source, "failed to serialize the data"))
 	}
 
 	pub fn deserialize(bytes: &Bytes) -> tg::Result<Self> {
 		serde_json::from_reader(bytes.as_ref())
-			.map_err(|source| error!(!source, "failed to deserialize the data"))
+			.map_err(|source| tg::error!(!source, "failed to deserialize the data"))
 	}
 
 	#[must_use]
-	pub fn children(&self) -> Vec<object::Id> {
+	pub fn children(&self) -> Vec<tg::object::Id> {
 		match self {
-			Self::Null | Self::Bool(_) | Self::Number(_) | Self::String(_) | Self::Bytes(_) => {
+			Self::Null
+			| Self::Bool(_)
+			| Self::Number(_)
+			| Self::String(_)
+			| Self::Bytes(_)
+			| Self::Path(_) => {
 				vec![]
 			},
 			Self::Array(array) => array.iter().flat_map(Self::children).collect(),
@@ -192,6 +239,9 @@ impl std::fmt::Display for Value {
 			Self::Bytes(_) => {
 				write!(f, "(bytes)")?;
 			},
+			Self::Path(path) => {
+				write!(f, "(path \"{path}\")")?;
+			},
 			Self::Mutation(mutation) => {
 				write!(f, "{mutation}")?;
 			},
@@ -220,8 +270,9 @@ impl TryFrom<Data> for Value {
 					.map(|(key, value)| Ok::<_, tg::Error>((key, value.try_into()?)))
 					.try_collect()?,
 			),
-			Data::Object(id) => Self::Object(object::Handle::with_id(id)),
+			Data::Object(id) => Self::Object(tg::object::Handle::with_id(id)),
 			Data::Bytes(bytes) => Self::Bytes(bytes),
+			Data::Path(path) => Self::Path(path),
 			Data::Mutation(mutation) => Self::Mutation(mutation.try_into()?),
 			Data::Template(template) => Self::Template(template.try_into()?),
 		})
@@ -256,6 +307,12 @@ impl serde::Serialize for Data {
 				let mut map = serializer.serialize_map(Some(2))?;
 				map.serialize_entry("kind", "bytes")?;
 				map.serialize_entry("value", &data_encoding::BASE64.encode(value))?;
+				map.end()
+			},
+			Self::Path(value) => {
+				let mut map = serializer.serialize_map(Some(2))?;
+				map.serialize_entry("kind", "path")?;
+				map.serialize_entry("value", value)?;
 				map.end()
 			},
 			Self::Mutation(value) => {
@@ -385,6 +442,7 @@ impl<'de> serde::Deserialize<'de> for Data {
 										.map_err(serde::de::Error::custom)?
 										.into(),
 								),
+								"path" => Data::Path(map.next_value()?),
 								"mutation" => Data::Mutation(map.next_value()?),
 								"template" => Data::Template(map.next_value()?),
 								_ => {

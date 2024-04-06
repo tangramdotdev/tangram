@@ -24,7 +24,7 @@ impl Server {
 		lock: tg::Lock,
 		visited: &mut BTreeMap<tg::lock::Id, tg::package::OutdatedOutput>,
 	) -> tg::Result<tg::package::OutdatedOutput> {
-		let id = lock.id(self).await?;
+		let id = lock.id(self, None).await?;
 		if let Some(existing) = visited.get(&id) {
 			return Ok(existing.clone());
 		}

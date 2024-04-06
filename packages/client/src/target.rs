@@ -1,25 +1,21 @@
-use crate::{
-	self as tg, artifact, build, error, id, lock, object, util::arc::Ext as _, value, Artifact,
-	Build, Checksum, Directory, Handle, Lock, Value,
-};
+use crate::{self as tg, util::arc::Ext as _};
 use bytes::Bytes;
-use derive_more::Display;
 use futures::{
 	stream::{FuturesOrdered, FuturesUnordered},
-	TryStreamExt,
+	FutureExt as _, TryStreamExt as _,
 };
-use itertools::Itertools;
+use itertools::Itertools as _;
 use std::{collections::BTreeMap, sync::Arc};
 
 #[derive(
 	Clone,
 	Debug,
-	Display,
 	Eq,
 	Hash,
 	Ord,
 	PartialEq,
 	PartialOrd,
+	derive_more::Display,
 	serde::Deserialize,
 	serde::Serialize,
 )]
@@ -31,7 +27,7 @@ pub struct Target {
 	state: Arc<std::sync::RwLock<State>>,
 }
 
-pub type State = object::State<Id, Object>;
+pub type State = tg::object::State<Id, Object>;
 
 /// A target object.
 #[derive(Clone, Debug)]
@@ -40,44 +36,44 @@ pub struct Object {
 	pub host: String,
 
 	/// The target's executable.
-	pub executable: Artifact,
+	pub executable: tg::Artifact,
 
 	/// The target's lock.
-	pub lock: Option<Lock>,
+	pub lock: Option<tg::Lock>,
 
 	/// The target's name.
 	pub name: Option<String>,
 
 	/// The target's env.
-	pub env: BTreeMap<String, Value>,
+	pub env: BTreeMap<String, tg::Value>,
 
 	/// The target's args.
-	pub args: Vec<Value>,
+	pub args: Vec<tg::Value>,
 
 	/// If a checksum of the target's output is provided, then the target will have access to the network.
-	pub checksum: Option<Checksum>,
+	pub checksum: Option<tg::Checksum>,
 }
 
 /// Target data.
 #[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
 pub struct Data {
 	pub host: String,
-	pub executable: artifact::Id,
+	pub executable: tg::artifact::Id,
 	#[serde(default, skip_serializing_if = "Option::is_none")]
-	pub lock: Option<lock::Id>,
+	pub lock: Option<tg::lock::Id>,
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub name: Option<String>,
 	#[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
-	pub env: BTreeMap<String, value::Data>,
+	pub env: BTreeMap<String, tg::value::Data>,
 	#[serde(default, skip_serializing_if = "Vec::is_empty")]
-	pub args: Vec<value::Data>,
+	pub args: Vec<tg::value::Data>,
 	#[serde(default, skip_serializing_if = "Option::is_none")]
-	pub checksum: Option<Checksum>,
+	pub checksum: Option<tg::Checksum>,
 }
 
 impl Id {
 	pub fn new(bytes: &Bytes) -> Self {
-		Self(crate::Id::new_blake3(id::Kind::Target, bytes))
+		Self(crate::Id::new_blake3(tg::id::Kind::Target, bytes))
 	}
 }
 
@@ -107,21 +103,24 @@ impl Target {
 		Self { state }
 	}
 
-	pub async fn id(&self, tg: &impl Handle) -> tg::Result<Id> {
-		self.store(tg).await
+	pub async fn id<H>(&self, tg: &H, transaction: Option<&H::Transaction<'_>>) -> tg::Result<Id>
+	where
+		H: tg::Handle,
+	{
+		self.store(tg, transaction).await
 	}
 
-	pub async fn object(&self, tg: &impl Handle) -> tg::Result<Arc<Object>> {
+	pub async fn object(&self, tg: &impl tg::Handle) -> tg::Result<Arc<Object>> {
 		self.load(tg).await
 	}
 
-	pub async fn load(&self, tg: &impl Handle) -> tg::Result<Arc<Object>> {
+	pub async fn load(&self, tg: &impl tg::Handle) -> tg::Result<Arc<Object>> {
 		self.try_load(tg)
 			.await?
-			.ok_or_else(|| error!("failed to load the object"))
+			.ok_or_else(|| tg::error!("failed to load the object"))
 	}
 
-	pub async fn try_load(&self, tg: &impl Handle) -> tg::Result<Option<Arc<Object>>> {
+	pub async fn try_load(&self, tg: &impl tg::Handle) -> tg::Result<Option<Arc<Object>>> {
 		if let Some(object) = self.state.read().unwrap().object.clone() {
 			return Ok(Some(object));
 		}
@@ -130,38 +129,49 @@ impl Target {
 			return Ok(None);
 		};
 		let data = Data::deserialize(&output.bytes)
-			.map_err(|source| error!(!source, "failed to deserialize the data"))?;
+			.map_err(|source| tg::error!(!source, "failed to deserialize the data"))?;
 		let object = Object::try_from(data)?;
 		let object = Arc::new(object);
 		self.state.write().unwrap().object.replace(object.clone());
 		Ok(Some(object))
 	}
 
-	pub async fn store(&self, tg: &impl Handle) -> tg::Result<Id> {
+	pub async fn store<H>(&self, tg: &H, transaction: Option<&H::Transaction<'_>>) -> tg::Result<Id>
+	where
+		H: tg::Handle,
+	{
 		if let Some(id) = self.state.read().unwrap().id.clone() {
 			return Ok(id);
 		}
-		let data = self.data(tg).await?;
+		let data = self.data(tg, transaction).await?;
 		let bytes = data.serialize()?;
 		let id = Id::new(&bytes);
-		let arg = object::PutArg {
+		let arg = tg::object::PutArg {
 			bytes,
 			count: None,
 			weight: None,
 		};
-		tg.put_object(&id.clone().into(), &arg)
+		tg.put_object(&id.clone().into(), arg, transaction)
+			.boxed()
 			.await
-			.map_err(|source| error!(!source, "failed to put the object"))?;
+			.map_err(|source| tg::error!(!source, "failed to put the object"))?;
 		self.state.write().unwrap().id.replace(id.clone());
 		Ok(id)
 	}
 
-	pub async fn data(&self, tg: &impl Handle) -> tg::Result<Data> {
+	pub async fn data<H>(
+		&self,
+		tg: &H,
+		transaction: Option<&H::Transaction<'_>>,
+	) -> tg::Result<Data>
+	where
+		H: tg::Handle,
+	{
 		let object = self.object(tg).await?;
 		let host = object.host.clone();
-		let executable = object.executable.id(tg).await?;
+		let executable = object.executable.id(tg, transaction).await?;
 		let lock = if let Some(lock) = &object.lock {
-			Some(lock.id(tg).await?)
+			Some(lock.id(tg, transaction).await?)
 		} else {
 			None
 		};
@@ -171,7 +181,7 @@ impl Target {
 			.iter()
 			.map(|(key, value)| async move {
 				let key = key.clone();
-				let value = value.data(tg).await?;
+				let value = value.data(tg, transaction).await?;
 				Ok::<_, tg::Error>((key, value))
 			})
 			.collect::<FuturesUnordered<_>>()
@@ -180,7 +190,7 @@ impl Target {
 		let args = object
 			.args
 			.iter()
-			.map(|value| value.data(tg))
+			.map(|value| value.data(tg, transaction))
 			.collect::<FuturesOrdered<_>>()
 			.try_collect()
 			.await?;
@@ -200,56 +210,56 @@ impl Target {
 impl Target {
 	pub async fn host(
 		&self,
-		tg: &impl Handle,
+		tg: &impl tg::Handle,
 	) -> tg::Result<impl std::ops::Deref<Target = String>> {
 		Ok(self.object(tg).await?.map(|object| &object.host))
 	}
 
 	pub async fn executable(
 		&self,
-		tg: &impl Handle,
-	) -> tg::Result<impl std::ops::Deref<Target = Artifact>> {
+		tg: &impl tg::Handle,
+	) -> tg::Result<impl std::ops::Deref<Target = tg::Artifact>> {
 		Ok(self.object(tg).await?.map(|object| &object.executable))
 	}
 
 	pub async fn lock(
 		&self,
-		tg: &impl Handle,
-	) -> tg::Result<impl std::ops::Deref<Target = Option<Lock>>> {
+		tg: &impl tg::Handle,
+	) -> tg::Result<impl std::ops::Deref<Target = Option<tg::Lock>>> {
 		Ok(self.object(tg).await?.map(|object| &object.lock))
 	}
 
 	pub async fn name(
 		&self,
-		tg: &impl Handle,
+		tg: &impl tg::Handle,
 	) -> tg::Result<impl std::ops::Deref<Target = Option<String>>> {
 		Ok(self.object(tg).await?.map(|object| &object.name))
 	}
 
 	pub async fn env(
 		&self,
-		tg: &impl Handle,
-	) -> tg::Result<impl std::ops::Deref<Target = BTreeMap<String, Value>>> {
+		tg: &impl tg::Handle,
+	) -> tg::Result<impl std::ops::Deref<Target = BTreeMap<String, tg::Value>>> {
 		Ok(self.object(tg).await?.map(|object| &object.env))
 	}
 
 	pub async fn args(
 		&self,
-		tg: &impl Handle,
-	) -> tg::Result<impl std::ops::Deref<Target = Vec<Value>>> {
+		tg: &impl tg::Handle,
+	) -> tg::Result<impl std::ops::Deref<Target = Vec<tg::Value>>> {
 		Ok(self.object(tg).await?.map(|object| &object.args))
 	}
 
 	pub async fn checksum(
 		&self,
-		tg: &impl Handle,
-	) -> tg::Result<impl std::ops::Deref<Target = Option<Checksum>>> {
+		tg: &impl tg::Handle,
+	) -> tg::Result<impl std::ops::Deref<Target = Option<tg::Checksum>>> {
 		Ok(self.object(tg).await?.map(|object| &object.checksum))
 	}
 
-	pub async fn package(&self, tg: &impl Handle) -> tg::Result<Option<Directory>> {
+	pub async fn package(&self, tg: &impl tg::Handle) -> tg::Result<Option<tg::Directory>> {
 		let object = &self.object(tg).await?;
-		let Artifact::Symlink(symlink) = &object.executable else {
+		let tg::Artifact::Symlink(symlink) = &object.executable else {
 			return Ok(None);
 		};
 		let Some(artifact) = symlink.artifact(tg).await? else {
@@ -261,13 +271,17 @@ impl Target {
 		Ok(Some(directory.clone()))
 	}
 
-	pub async fn build(&self, tg: &impl Handle, arg: build::GetOrCreateArg) -> tg::Result<Value> {
-		let build = Build::new(tg, arg.clone()).await?;
+	pub async fn build(
+		&self,
+		tg: &impl tg::Handle,
+		arg: tg::build::GetOrCreateArg,
+	) -> tg::Result<tg::Value> {
+		let build = tg::Build::new(tg, arg.clone()).await?;
 		let outcome = build.outcome(tg).await?;
 		match outcome {
-			build::Outcome::Canceled => Err(error!("the build was canceled")),
-			build::Outcome::Failed(error) => Err(error),
-			build::Outcome::Succeeded(value) => Ok(value),
+			tg::build::Outcome::Canceled => Err(tg::error!("the build was canceled")),
+			tg::build::Outcome::Failed(error) => Err(error),
+			tg::build::Outcome::Succeeded(value) => Ok(value),
 		}
 	}
 }
@@ -276,21 +290,21 @@ impl Data {
 	pub fn serialize(&self) -> tg::Result<Bytes> {
 		serde_json::to_vec(self)
 			.map(Into::into)
-			.map_err(|source| error!(!source, "failed to serialize the data"))
+			.map_err(|source| tg::error!(!source, "failed to serialize the data"))
 	}
 
 	pub fn deserialize(bytes: &Bytes) -> tg::Result<Self> {
 		serde_json::from_reader(bytes.as_ref())
-			.map_err(|source| error!(!source, "failed to deserialize the data"))
+			.map_err(|source| tg::error!(!source, "failed to deserialize the data"))
 	}
 
 	#[must_use]
-	pub fn children(&self) -> Vec<object::Id> {
+	pub fn children(&self) -> Vec<tg::object::Id> {
 		std::iter::empty()
 			.chain(std::iter::once(self.executable.clone().into()))
 			.chain(self.lock.clone().map(Into::into))
-			.chain(self.env.values().flat_map(value::Data::children))
-			.chain(self.args.iter().flat_map(value::Data::children))
+			.chain(self.env.values().flat_map(tg::value::Data::children))
+			.chain(self.args.iter().flat_map(tg::value::Data::children))
 			.collect()
 	}
 }
@@ -301,8 +315,8 @@ impl TryFrom<Data> for Object {
 	fn try_from(data: Data) -> std::result::Result<Self, Self::Error> {
 		Ok(Self {
 			host: data.host,
-			executable: Artifact::with_id(data.executable),
-			lock: data.lock.map(Lock::with_id),
+			executable: tg::Artifact::with_id(data.executable),
+			lock: data.lock.map(tg::Lock::with_id),
 			name: data.name,
 			env: data
 				.env
@@ -336,8 +350,8 @@ impl TryFrom<crate::Id> for Id {
 	type Error = tg::Error;
 
 	fn try_from(value: crate::Id) -> tg::Result<Self, Self::Error> {
-		if value.kind() != id::Kind::Target {
-			return Err(error!(%value, "invalid kind"));
+		if value.kind() != tg::id::Kind::Target {
+			return Err(tg::error!(%value, "invalid kind"));
 		}
 		Ok(Self(value))
 	}
@@ -354,17 +368,17 @@ impl std::str::FromStr for Id {
 #[derive(Clone, Debug)]
 pub struct Builder {
 	host: String,
-	executable: Artifact,
-	lock: Option<Lock>,
+	executable: tg::Artifact,
+	lock: Option<tg::Lock>,
 	name: Option<String>,
-	env: BTreeMap<String, Value>,
-	args: Vec<Value>,
-	checksum: Option<Checksum>,
+	env: BTreeMap<String, tg::Value>,
+	args: Vec<tg::Value>,
+	checksum: Option<tg::Checksum>,
 }
 
 impl Builder {
 	#[must_use]
-	pub fn new(host: String, executable: Artifact) -> Self {
+	pub fn new(host: String, executable: tg::Artifact) -> Self {
 		Self {
 			host,
 			executable,
@@ -383,13 +397,13 @@ impl Builder {
 	}
 
 	#[must_use]
-	pub fn executable(mut self, executable: Artifact) -> Self {
+	pub fn executable(mut self, executable: tg::Artifact) -> Self {
 		self.executable = executable;
 		self
 	}
 
 	#[must_use]
-	pub fn lock(mut self, lock: Lock) -> Self {
+	pub fn lock(mut self, lock: tg::Lock) -> Self {
 		self.lock = Some(lock);
 		self
 	}
@@ -401,19 +415,19 @@ impl Builder {
 	}
 
 	#[must_use]
-	pub fn env(mut self, env: BTreeMap<String, Value>) -> Self {
+	pub fn env(mut self, env: BTreeMap<String, tg::Value>) -> Self {
 		self.env = env;
 		self
 	}
 
 	#[must_use]
-	pub fn args(mut self, args: Vec<Value>) -> Self {
+	pub fn args(mut self, args: Vec<tg::Value>) -> Self {
 		self.args = args;
 		self
 	}
 
 	#[must_use]
-	pub fn checksum(mut self, checksum: Option<Checksum>) -> Self {
+	pub fn checksum(mut self, checksum: Option<tg::Checksum>) -> Self {
 		self.checksum = checksum;
 		self
 	}

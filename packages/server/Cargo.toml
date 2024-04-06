@@ -24,6 +24,7 @@ proptest = { workspace = true }
 [dependencies]
 async-broadcast = { workspace = true }
 async-channel = { workspace = true }
+async-compression = { workspace = true }
 async-nats = { workspace = true }
 biome_js_formatter = { workspace = true }
 biome_js_parser = { workspace = true }
@@ -33,8 +34,8 @@ data-encoding = { workspace = true }
 data-encoding-macro = { workspace = true }
 derive_more = { workspace = true }
 either = { workspace = true }
-filetime = { workspace = true }
 fastcdc = { workspace = true }
+filetime = { workspace = true }
 fnv = { workspace = true }
 futures = { workspace = true }
 http = { workspace = true }
@@ -54,6 +55,7 @@ notify = { workspace = true }
 num = { workspace = true }
 oauth2 = { workspace = true }
 octocrab = { workspace = true }
+once_cell = { workspace = true }
 parking_lot = { workspace = true }
 rand = { workspace = true }
 regex = { workspace = true }
@@ -74,6 +76,7 @@ tangram_database = { workspace = true }
 tangram_fuse = { workspace = true }
 tangram_nfs = { workspace = true }
 tangram_sse = { workspace = true }
+tar = { workspace = true }
 tempfile = { workspace = true }
 time = { workspace = true }
 tokio = { workspace = true }
@@ -88,3 +91,4 @@ uuid = { workspace = true }
 v8 = { workspace = true }
 xattr = { workspace = true }
 zerocopy = { workspace = true }
+zip = { workspace = true }

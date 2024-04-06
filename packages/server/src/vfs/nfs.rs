@@ -4,7 +4,7 @@ use num::ToPrimitive;
 use std::{
 	collections::HashMap,
 	fmt,
-	os::unix::ffi::OsStrExt,
+	os::unix::ffi::OsStrExt as _,
 	path::{Path, PathBuf},
 	sync::{Arc, Weak},
 };
@@ -46,7 +46,7 @@ use tangram_nfs::{
 	xdr,
 };
 use tokio::{
-	io::{AsyncReadExt, AsyncSeekExt},
+	io::{AsyncReadExt as _, AsyncSeekExt as _},
 	net::{TcpListener, TcpStream},
 };
 
@@ -461,17 +461,17 @@ impl Server {
 						.unwrap();
 					let id: Option<tg::artifact::Id> = match &node.kind {
 						NodeKind::File { file, .. } => file
-							.id(&self.inner.server)
+							.id(&self.inner.server, None)
 							.await
 							.ok()
 							.map(tg::artifact::Id::from),
 						NodeKind::Directory { directory, .. } => directory
-							.id(&self.inner.server)
+							.id(&self.inner.server, None)
 							.await
 							.ok()
 							.map(tg::artifact::Id::from),
 						NodeKind::Symlink { symlink, .. } => symlink
-							.id(&self.inner.server)
+							.id(&self.inner.server, None)
 							.await
 							.ok()
 							.map(tg::artifact::Id::from),
@@ -951,7 +951,7 @@ impl Server {
 				};
 				let mut references = Vec::new();
 				for artifact in file_references.iter() {
-					let id = artifact.id(&self.inner.server).await.map_err(|e| {
+					let id = artifact.id(&self.inner.server, None).await.map_err(|e| {
 						tracing::error!(?e, ?artifact, "failed to get artifact ID");
 						nfsstat4::NFS4ERR_IO
 					})?;
@@ -1409,7 +1409,7 @@ impl Server {
 		let NodeKind::Symlink { symlink, .. } = &node.kind else {
 			return READLINK4res::Error(nfsstat4::NFS4ERR_INVAL);
 		};
-		let mut target = String::new();
+		let mut target = tg::Path::new();
 		let Ok(artifact) = symlink.artifact(&self.inner.server).await else {
 			return READLINK4res::Error(nfsstat4::NFS4ERR_IO);
 		};
@@ -1417,22 +1417,19 @@ impl Server {
 			return READLINK4res::Error(nfsstat4::NFS4ERR_IO);
 		};
 		if let Some(artifact) = artifact.as_ref() {
-			let Ok(id) = artifact.id(&self.inner.server).await else {
+			let Ok(id) = artifact.id(&self.inner.server, None).await else {
 				return READLINK4res::Error(nfsstat4::NFS4ERR_IO);
 			};
 			for _ in 0..node.depth() - 1 {
-				target.push_str("../");
+				target.push(tg::path::Component::Parent);
 			}
-			target.push_str(&id.to_string());
-		}
-		if artifact.is_some() && path.is_some() {
-			target.push('/');
+			target.push(tg::path::Component::Normal(id.to_string()));
 		}
 		if let Some(path) = path.as_ref() {
-			target.push_str(path);
+			target = target.join(path.clone());
 		}
 		READLINK4res::NFS4_OK(READLINK4resok {
-			link: target.into_bytes(),
+			link: target.to_string().into_bytes(),
 		})
 	}
 

@@ -1,13 +1,7 @@
 import { assert as assert_ } from "./assert.ts";
-import type { Blob } from "./blob.ts";
-import { Branch } from "./branch.ts";
-import { Directory } from "./directory.ts";
-import { File } from "./file.ts";
-import { Leaf } from "./leaf.ts";
-import { Lock } from "./lock.ts";
 import { Mutation } from "./mutation.ts";
-import { Symlink } from "./symlink.ts";
-import { Target } from "./target.ts";
+import { Object_ } from "./object.ts";
+import { Path } from "./path.ts";
 import { Template } from "./template.ts";
 
 export type Value =
@@ -17,15 +11,11 @@ export type Value =
 	| string
 	| Array<Value>
 	| { [key: string]: Value }
+	| Object_
 	| Uint8Array
+	| Path
 	| Mutation
-	| Template
-	| Blob
-	| Directory
-	| File
-	| Symlink
-	| Lock
-	| Target;
+	| Template;
 
 export namespace Value {
 	export let is = (value: unknown): value is Value => {
@@ -35,17 +25,12 @@ export namespace Value {
 			typeof value === "number" ||
 			typeof value === "string" ||
 			value instanceof Array ||
-			typeof value === "object" ||
+			(typeof value === "object" && value !== null) ||
+			Object_.is(value) ||
 			value instanceof Uint8Array ||
+			value instanceof Path ||
 			value instanceof Mutation ||
-			value instanceof Template ||
-			value instanceof Leaf ||
-			value instanceof Branch ||
-			value instanceof Directory ||
-			value instanceof File ||
-			value instanceof Symlink ||
-			value instanceof Lock ||
-			value instanceof Target
+			value instanceof Template
 		);
 	};
 

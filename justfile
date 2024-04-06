@@ -32,8 +32,8 @@ release:
 	tar -czf release/tangram_x86_64-darwin.tar.gz -C target/x86_64-apple-darwin/release tg
 	tar -czf release/tangram_x86_64-linux.tar.gz -C target/x86_64-unknown-linux-gnu/release tg
 
-test:
-	cargo test --workspace
+test *ARGS:
+	cargo test --workspace {{ARGS}}
 
 tg +ARGS:
 	cargo run -- {{ARGS}}

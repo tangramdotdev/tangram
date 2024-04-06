@@ -1,5 +1,6 @@
 use super::Server;
 use include_dir::include_dir;
+use itertools::Itertools as _;
 use tangram_client as tg;
 
 const LIB: include_dir::Dir = include_dir!("$OUT_DIR/lib");
@@ -10,7 +11,7 @@ impl Server {
 		match module {
 			// Load a library module.
 			tg::Module::Library(module) => {
-				let path = module.path.to_string();
+				let path = module.path.components().iter().skip(1).join("/");
 				let text = LIB
 					.get_file(&path)
 					.ok_or_else(

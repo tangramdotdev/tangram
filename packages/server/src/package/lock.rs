@@ -1,7 +1,7 @@
 use super::PackageWithPathDependencies;
 use crate::Server;
 use either::Either;
-use futures::{stream::FuturesUnordered, TryStreamExt};
+use futures::{stream::FuturesUnordered, TryStreamExt as _};
 use std::collections::{BTreeMap, BTreeSet};
 use tangram_client as tg;
 
@@ -255,7 +255,10 @@ impl Server {
 		}
 
 		// Create the lock.
-		let root = package_with_path_dependencies.package.id(self).await?;
+		let root = package_with_path_dependencies
+			.package
+			.id(self, None)
+			.await?;
 		let mut nodes = Vec::new();
 		let root = self
 			.create_package_lock_inner(&root, &context, &solution, &mut nodes)
@@ -344,7 +347,7 @@ impl Server {
 			package,
 			path_dependencies,
 		} = package_with_path_dependencies;
-		let package_id = package.id(self).await?;
+		let package_id = package.id(self, None).await?;
 
 		// Check if we've already visited this dependency.
 		if all_analysis.contains_key(&package_id) {
@@ -375,7 +378,10 @@ impl Server {
 
 		// Recurse.
 		for (dependency, package_with_path_dependencies) in path_dependencies {
-			let dependency_package_id = package_with_path_dependencies.package.id(self).await?;
+			let dependency_package_id = package_with_path_dependencies
+				.package
+				.id(self, None)
+				.await?;
 			let analysis = all_analysis.get_mut(&package_id).unwrap();
 			analysis
 				.path_dependencies
@@ -790,7 +796,7 @@ impl Context {
 					let dependency_package_id = dependency_source
 						.try_unwrap_directory()
 						.map_err(|source| tg::error!(!source, %path, "expected a directory"))?
-						.id(server)
+						.id(server, None)
 						.await?;
 					path_dependencies.insert(dependency.clone(), dependency_package_id);
 				}

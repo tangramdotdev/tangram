@@ -3,7 +3,7 @@ use bytes::Bytes;
 use futures::Stream;
 use std::sync::Arc;
 use tangram_client as tg;
-use tokio::io::{AsyncRead, AsyncWrite};
+use tokio::io::{AsyncBufRead, AsyncRead, AsyncWrite};
 use url::Url;
 
 #[derive(Clone)]
@@ -107,11 +107,14 @@ impl Server {
 		};
 
 		// Map the path.
-		if let Some(path) = path.strip_prefix(&path_map.output_guest) {
+		if let Some(path) = path
+			.diff(&path_map.output_guest)
+			.filter(tg::Path::is_internal)
+		{
 			Ok(path_map.output_host.clone().join(path))
 		} else {
 			let path = path
-				.strip_prefix(&"/".parse().unwrap())
+				.diff(&"/".parse().unwrap())
 				.ok_or_else(|| tg::error!("the path must be absolute"))?;
 			Ok(path_map.root_host.clone().join(path))
 		}
@@ -119,12 +122,32 @@ impl Server {
 }
 
 impl tg::Handle for Server {
+	type Transaction<'a> = ();
+
 	async fn path(&self) -> tg::Result<Option<tg::Path>> {
 		self.inner.server.path().await
 	}
 
-	fn file_descriptor_semaphore(&self) -> &tokio::sync::Semaphore {
-		self.inner.server.file_descriptor_semaphore()
+	async fn archive_artifact(
+		&self,
+		id: &tg::artifact::Id,
+		arg: tg::artifact::ArchiveArg,
+	) -> tg::Result<tg::artifact::ArchiveOutput> {
+		self.inner.server.archive_artifact(id, arg).await
+	}
+
+	async fn extract_artifact(
+		&self,
+		arg: tg::artifact::ExtractArg,
+	) -> tg::Result<tg::artifact::ExtractOutput> {
+		self.inner.server.extract_artifact(arg).await
+	}
+
+	async fn bundle_artifact(
+		&self,
+		id: &tg::artifact::Id,
+	) -> tg::Result<tg::artifact::BundleOutput> {
+		self.inner.server.bundle_artifact(id).await
 	}
 
 	async fn check_in_artifact(
@@ -138,7 +161,7 @@ impl tg::Handle for Server {
 		let output = self.inner.server.check_in_artifact(arg).await?;
 
 		// If the VFS is disabled, then check out the artifact.
-		if !self.inner.server.inner.options.vfs.enable {
+		if !self.inner.server.inner.options.vfs {
 			let arg = tg::artifact::CheckOutArg::default();
 			self.check_out_artifact(&output.id, arg).await?;
 		}
@@ -160,6 +183,30 @@ impl tg::Handle for Server {
 		self.inner.server.check_out_artifact(id, arg).await
 	}
 
+	async fn create_blob(
+		&self,
+		reader: impl AsyncRead + Send + 'static,
+		_transaction: Option<&Self::Transaction<'_>>,
+	) -> tg::Result<tg::blob::Id> {
+		self.inner.server.create_blob(reader, None).await
+	}
+
+	async fn compress_blob(
+		&self,
+		id: &tg::blob::Id,
+		arg: tg::blob::CompressArg,
+	) -> tg::Result<tg::blob::CompressOutput> {
+		self.inner.server.compress_blob(id, arg).await
+	}
+
+	async fn decompress_blob(
+		&self,
+		id: &tg::blob::Id,
+		arg: tg::blob::DecompressArg,
+	) -> tg::Result<tg::blob::DecompressOutput> {
+		self.inner.server.decompress_blob(id, arg).await
+	}
+
 	async fn list_builds(&self, _arg: tg::build::ListArg) -> tg::Result<tg::build::ListOutput> {
 		Err(tg::error!("forbidden"))
 	}
@@ -172,16 +219,11 @@ impl tg::Handle for Server {
 		self.inner.server.try_get_build(id, arg).await
 	}
 
-	async fn put_build(
-		&self,
-		_user: Option<&tg::User>,
-		_id: &tg::build::Id,
-		_arg: &tg::build::PutArg,
-	) -> tg::Result<()> {
+	async fn put_build(&self, _id: &tg::build::Id, _arg: &tg::build::PutArg) -> tg::Result<()> {
 		Err(tg::error!("forbidden"))
 	}
 
-	async fn push_build(&self, _user: Option<&tg::User>, _id: &tg::build::Id) -> tg::Result<()> {
+	async fn push_build(&self, _id: &tg::build::Id) -> tg::Result<()> {
 		Err(tg::error!("forbidden"))
 	}
 
@@ -191,11 +233,10 @@ impl tg::Handle for Server {
 
 	async fn get_or_create_build(
 		&self,
-		user: Option<&tg::User>,
 		mut arg: tg::build::GetOrCreateArg,
 	) -> tg::Result<tg::build::GetOrCreateOutput> {
 		arg.parent = Some(self.inner.build.clone());
-		self.inner.server.get_or_create_build(user, arg).await
+		self.inner.server.get_or_create_build(arg).await
 	}
 
 	async fn try_get_build_status(
@@ -209,7 +250,6 @@ impl tg::Handle for Server {
 
 	async fn set_build_status(
 		&self,
-		_user: Option<&tg::User>,
 		_id: &tg::build::Id,
 		_status: tg::build::Status,
 	) -> tg::Result<()> {
@@ -232,7 +272,6 @@ impl tg::Handle for Server {
 
 	async fn add_build_child(
 		&self,
-		_user: Option<&tg::User>,
 		_build_id: &tg::build::Id,
 		_child_id: &tg::build::Id,
 	) -> tg::Result<()> {
@@ -249,12 +288,7 @@ impl tg::Handle for Server {
 		self.inner.server.try_get_build_log(id, arg, stop).await
 	}
 
-	async fn add_build_log(
-		&self,
-		_user: Option<&tg::User>,
-		_build_id: &tg::build::Id,
-		_bytes: Bytes,
-	) -> tg::Result<()> {
+	async fn add_build_log(&self, _build_id: &tg::build::Id, _bytes: Bytes) -> tg::Result<()> {
 		Err(tg::error!("forbidden"))
 	}
 
@@ -269,9 +303,20 @@ impl tg::Handle for Server {
 
 	async fn set_build_outcome(
 		&self,
-		_user: Option<&tg::User>,
 		_id: &tg::build::Id,
 		_outcome: tg::build::Outcome,
+	) -> tg::Result<()> {
+		Err(tg::error!("forbidden"))
+	}
+
+	async fn format(&self, _text: String) -> tg::Result<String> {
+		Err(tg::error!("forbidden"))
+	}
+
+	async fn lsp(
+		&self,
+		_input: Box<dyn AsyncBufRead + Send + Unpin + 'static>,
+		_output: Box<dyn AsyncWrite + Send + Unpin + 'static>,
 	) -> tg::Result<()> {
 		Err(tg::error!("forbidden"))
 	}
@@ -286,9 +331,10 @@ impl tg::Handle for Server {
 	async fn put_object(
 		&self,
 		id: &tg::object::Id,
-		arg: &tg::object::PutArg,
+		arg: tg::object::PutArg,
+		_transaction: Option<&Self::Transaction<'_>>,
 	) -> tg::Result<tg::object::PutOutput> {
-		self.inner.server.put_object(id, arg).await
+		self.inner.server.put_object(id, arg, None).await
 	}
 
 	async fn push_object(&self, _id: &tg::object::Id) -> tg::Result<()> {
@@ -314,30 +360,14 @@ impl tg::Handle for Server {
 		Err(tg::error!("forbidden"))
 	}
 
-	async fn try_get_package_versions(
+	async fn check_package(&self, _dependency: &tg::Dependency) -> tg::Result<Vec<tg::Diagnostic>> {
+		Err(tg::error!("forbidden"))
+	}
+
+	async fn try_get_package_doc(
 		&self,
 		_dependency: &tg::Dependency,
-	) -> tg::Result<Option<Vec<String>>> {
-		Err(tg::error!("forbidden"))
-	}
-
-	async fn publish_package(
-		&self,
-		_user: Option<&tg::User>,
-		_id: &tg::directory::Id,
-	) -> tg::Result<()> {
-		Err(tg::error!("forbidden"))
-	}
-
-	async fn yank_package(
-		&self,
-		_user: Option<&tg::User>,
-		_id: &tg::directory::Id,
-	) -> tg::Result<()> {
-		Err(tg::error!("not supported"))
-	}
-
-	async fn check_package(&self, _dependency: &tg::Dependency) -> tg::Result<Vec<tg::Diagnostic>> {
+	) -> tg::Result<Option<serde_json::Value>> {
 		Err(tg::error!("forbidden"))
 	}
 
@@ -352,26 +382,22 @@ impl tg::Handle for Server {
 		Err(tg::error!("forbidden"))
 	}
 
-	async fn get_runtime_doc(&self) -> tg::Result<serde_json::Value> {
+	async fn publish_package(&self, _id: &tg::directory::Id) -> tg::Result<()> {
 		Err(tg::error!("forbidden"))
 	}
 
-	async fn try_get_package_doc(
+	async fn try_get_package_versions(
 		&self,
 		_dependency: &tg::Dependency,
-	) -> tg::Result<Option<serde_json::Value>> {
+	) -> tg::Result<Option<Vec<String>>> {
 		Err(tg::error!("forbidden"))
 	}
 
-	async fn format(&self, _text: String) -> tg::Result<String> {
-		Err(tg::error!("forbidden"))
+	async fn yank_package(&self, _id: &tg::directory::Id) -> tg::Result<()> {
+		Err(tg::error!("not supported"))
 	}
 
-	async fn lsp(
-		&self,
-		_input: Box<dyn AsyncRead + Send + Unpin + 'static>,
-		_output: Box<dyn AsyncWrite + Send + Unpin + 'static>,
-	) -> tg::Result<()> {
+	async fn get_js_runtime_doc(&self) -> tg::Result<serde_json::Value> {
 		Err(tg::error!("forbidden"))
 	}
 
@@ -387,15 +413,7 @@ impl tg::Handle for Server {
 		Err(tg::error!("forbidden"))
 	}
 
-	async fn create_login(&self) -> tg::Result<tg::user::Login> {
-		Err(tg::error!("forbidden"))
-	}
-
-	async fn get_login(&self, _id: &tg::Id) -> tg::Result<Option<tg::user::Login>> {
-		Err(tg::error!("forbidden"))
-	}
-
-	async fn get_user_for_token(&self, _token: &str) -> tg::Result<Option<tg::user::User>> {
+	async fn get_user(&self, _token: &str) -> tg::Result<Option<tg::User>> {
 		Err(tg::error!("forbidden"))
 	}
 }

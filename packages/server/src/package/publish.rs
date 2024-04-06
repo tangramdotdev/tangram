@@ -2,21 +2,17 @@ use crate::{
 	util::http::{ok, Incoming, Outgoing},
 	Http, Server,
 };
-use http_body_util::BodyExt;
+use http_body_util::BodyExt as _;
 use indoc::formatdoc;
 use tangram_client as tg;
 use tangram_database::{self as db, prelude::*};
 use time::format_description::well_known::Rfc3339;
 
 impl Server {
-	pub async fn publish_package(
-		&self,
-		user: Option<&tg::User>,
-		id: &tg::directory::Id,
-	) -> tg::Result<()> {
+	pub async fn publish_package(&self, id: &tg::directory::Id) -> tg::Result<()> {
 		if let Some(remote) = self.inner.remotes.first() {
 			self.push_object(&id.clone().into()).await?;
-			remote.publish_package(user, id).await?;
+			remote.publish_package(id).await?;
 			return Ok(());
 		}
 
@@ -102,9 +98,6 @@ where
 		&self,
 		request: http::Request<Incoming>,
 	) -> tg::Result<http::Response<Outgoing>> {
-		// Get the user.
-		let user = self.try_get_user_from_request(&request).await?;
-
 		// Read the body.
 		let bytes = request
 			.into_body()
@@ -116,10 +109,7 @@ where
 			.map_err(|source| tg::error!(!source, "invalid request"))?;
 
 		// Publish the package.
-		self.inner
-			.tg
-			.publish_package(user.as_ref(), &package_id)
-			.await?;
+		self.inner.tg.publish_package(&package_id).await?;
 
 		Ok(ok())
 	}

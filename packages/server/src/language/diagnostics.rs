@@ -1,5 +1,5 @@
 use super::Server;
-use itertools::Itertools;
+use itertools::Itertools as _;
 use lsp_types as lsp;
 use serde_with::{serde_as, DisplayFromStr};
 use std::collections::BTreeMap;

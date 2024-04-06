@@ -1,9 +1,8 @@
 use crate::{Query, Row, Value};
-use derive_more::{Display, Error as Error_, From};
 use either::Either;
-use futures::{Stream, StreamExt, TryStreamExt};
+use futures::{Stream, StreamExt as _, TryStreamExt as _};
 
-#[derive(Debug, Display, Error_, From)]
+#[derive(Debug, derive_more::Display, derive_more::Error, derive_more::From)]
 pub enum Error<L, R> {
 	Either(Either<L, R>),
 	Other(Box<dyn std::error::Error + Send + Sync>),

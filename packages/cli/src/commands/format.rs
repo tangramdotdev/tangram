@@ -1,6 +1,6 @@
 use crate::Cli;
 use tangram_client as tg;
-use tokio::io::{AsyncReadExt, AsyncWriteExt};
+use tokio::io::{AsyncReadExt as _, AsyncWriteExt as _};
 
 /// Format the files in a package.
 #[derive(Debug, clap::Args)]

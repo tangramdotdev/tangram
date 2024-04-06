@@ -1,9 +1,9 @@
 use super::{proxy, util::render};
-use crate::Server;
+use crate::{tmp::Tmp, Server};
 use bytes::Bytes;
 use futures::{
 	stream::{FuturesOrdered, FuturesUnordered},
-	TryStreamExt,
+	TryStreamExt as _,
 };
 use indoc::writedoc;
 use num::ToPrimitive;
@@ -11,10 +11,10 @@ use std::{
 	collections::BTreeMap,
 	ffi::{CStr, CString},
 	fmt::Write,
-	os::unix::prelude::OsStrExt,
+	os::unix::prelude::OsStrExt as _,
 };
 use tangram_client as tg;
-use tokio::io::{AsyncReadExt, AsyncWriteExt};
+use tokio::io::{AsyncReadExt as _, AsyncWriteExt as _};
 use url::Url;
 
 #[derive(Clone)]
@@ -38,16 +38,16 @@ impl Runtime {
 		// If the VFS is disabled, then perform an internal checkout of the target's references.
 		if server.inner.vfs.lock().unwrap().is_none() {
 			target
-				.data(server)
+				.data(server, None)
 				.await?
 				.children()
 				.into_iter()
 				.filter_map(|id| id.try_into().ok())
 				.map(|id| async move {
 					let artifact = tg::Artifact::with_id(id);
-					artifact
-						.check_out(server, tg::artifact::CheckOutArg::default())
-						.await
+					let arg = tg::artifact::CheckOutArg::default();
+					artifact.check_out(server, arg).await?;
+					Ok::<_, tg::Error>(())
 				})
 				.collect::<FuturesUnordered<_>>()
 				.try_collect::<Vec<_>>()
@@ -57,7 +57,7 @@ impl Runtime {
 		// Get the artifacts path.
 		let artifacts_directory_path = server.inner.path.join("artifacts");
 
-		let root_directory_tmp = server.create_tmp();
+		let root_directory_tmp = Tmp::new(server);
 		tokio::fs::create_dir_all(&root_directory_tmp)
 			.await
 			.map_err(|error| {
@@ -69,7 +69,7 @@ impl Runtime {
 		let root_directory_path = std::path::PathBuf::from(root_directory_tmp.as_ref());
 
 		// Create a tempdir for the output.
-		let output_parent_directory_tmp = server.create_tmp();
+		let output_parent_directory_tmp = Tmp::new(server);
 		tokio::fs::create_dir_all(&output_parent_directory_tmp)
 			.await
 			.map_err(|error| {
@@ -90,11 +90,31 @@ impl Runtime {
 			.await
 			.map_err(|source| tg::error!(!source, "failed to create the home directory"))?;
 
+		// Create the server directory.
+		let server_directory_path = home_directory_path.join(".tangram");
+		tokio::fs::create_dir_all(&server_directory_path)
+			.await
+			.map_err(|error| tg::error!(source = error, "failed to create the server directory"))?;
+
 		// Create the working directory.
 		let working_directory_path = root_directory_path.join("Users/tangram/work");
 		tokio::fs::create_dir_all(&working_directory_path)
 			.await
 			.map_err(|source| tg::error!(!source, "failed to create the working directory"))?;
+
+		// Create the proxy server URL.
+		let proxy_server_socket_path = home_directory_path.join(".tangram/socket");
+		let proxy_server_socket_path = tg::Path::try_from(proxy_server_socket_path)
+			.map_err(|source| tg::error!(!source, "invalid path"))?;
+		let proxy_server_socket_path = urlencoding::encode(proxy_server_socket_path.as_str());
+		let proxy_server_url = format!("http+unix://{proxy_server_socket_path}");
+		let proxy_server_url = Url::parse(&proxy_server_url)
+			.map_err(|source| tg::error!(!source, "failed to parse the proxy server url"))?;
+
+		// Start the proxy server.
+		let proxy = proxy::Server::start(server, build.id(), proxy_server_url.clone(), None)
+			.await
+			.map_err(|source| tg::error!(!source, "failed to start the proxy server"))?;
 
 		// Render the executable.
 		let executable = target.executable(server).await?;
@@ -146,23 +166,7 @@ impl Runtime {
 		);
 
 		// Set `$TANGRAM_URL`.
-		tokio::fs::create_dir_all(home_directory_path.join(".tangram"))
-			.await
-			.map_err(|error| {
-				tg::error!(
-					source = error,
-					"failed to create the guest .tangram directory"
-				)
-			})?;
-		let proxy_server_socket_path = home_directory_path.join(".tangram/socket");
-		let proxy_server_url = format!("unix:{}", proxy_server_socket_path.display());
-		let proxy_server_url = Url::parse(&proxy_server_url).unwrap();
 		env.insert("TANGRAM_URL".to_owned(), proxy_server_url.to_string());
-
-		// Start the proxy server.
-		let proxy = proxy::Server::start(server, build.id(), proxy_server_url, None)
-			.await
-			.map_err(|source| tg::error!(!source, "failed to start the proxy server"))?;
 
 		// Create the sandbox profile.
 		let mut profile = String::new();

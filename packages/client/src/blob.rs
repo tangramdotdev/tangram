@@ -1,22 +1,14 @@
 use crate::{
-	self as tg, branch, error, id, leaf, object, Artifact, Branch, Handle, Leaf, Result, Value,
+	self as tg,
+	util::http::{full, Outgoing},
 };
-use bytes::Bytes;
-use derive_more::From;
-use futures::{
-	future::BoxFuture,
-	stream::{self, StreamExt},
-	FutureExt, TryStreamExt,
-};
+use bytes::{Buf, Bytes};
+use futures::{future::BoxFuture, FutureExt as _, TryStreamExt as _};
+use http_body_util::{BodyExt as _, StreamBody};
 use num::ToPrimitive;
 use std::{io::Cursor, pin::Pin};
-use tokio::io::{AsyncRead, AsyncReadExt, AsyncSeek};
-use tokio_util::io::SyncIoBridge;
-
-const MAX_BRANCH_CHILDREN: usize = 1024;
-const MIN_LEAF_SIZE: u32 = 4096;
-const AVG_LEAF_SIZE: u32 = 16_384;
-const MAX_LEAF_SIZE: u32 = 65_536;
+use tokio::io::{AsyncBufRead, AsyncRead, AsyncReadExt as _, AsyncSeek};
+use tokio_util::io::ReaderStream;
 
 /// A blob kind.
 #[derive(Clone, Copy, Debug)]
@@ -25,28 +17,32 @@ pub enum Kind {
 	Branch,
 }
 
+/// A blob ID.
 #[derive(
-	Clone, Debug, Eq, From, Hash, Ord, PartialEq, PartialOrd, serde::Deserialize, serde::Serialize,
+	Clone,
+	Debug,
+	Eq,
+	Hash,
+	Ord,
+	PartialEq,
+	PartialOrd,
+	derive_more::From,
+	serde::Deserialize,
+	serde::Serialize,
 )]
 #[serde(into = "crate::Id", try_from = "crate::Id")]
 pub enum Id {
-	Leaf(leaf::Id),
-	Branch(branch::Id),
+	Leaf(tg::leaf::Id),
+	Branch(tg::branch::Id),
 }
 
-#[derive(Clone, Debug, From)]
+#[derive(Clone, Debug, derive_more::From)]
 pub enum Blob {
-	Leaf(Leaf),
-	Branch(Branch),
+	Leaf(tg::Leaf),
+	Branch(tg::Branch),
 }
 
-#[derive(Clone, Copy, Debug)]
-pub enum ArchiveFormat {
-	Tar,
-	Zip,
-}
-
-#[derive(Clone, Copy, Debug)]
+#[derive(Clone, Copy, Debug, serde_with::DeserializeFromStr, serde_with::SerializeDisplay)]
 pub enum CompressionFormat {
 	Bz2,
 	Gz,
@@ -54,218 +50,253 @@ pub enum CompressionFormat {
 	Zstd,
 }
 
+#[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
+pub struct CompressArg {
+	pub format: CompressionFormat,
+}
+
+#[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
+pub struct CompressOutput {
+	pub id: Id,
+}
+
+#[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
+pub struct DecompressArg {
+	pub format: CompressionFormat,
+}
+
+#[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
+pub struct DecompressOutput {
+	pub id: Id,
+}
+
+/// A blob reader.
+pub struct Reader<H> {
+	blob: Blob,
+	cursor: Option<Cursor<Bytes>>,
+	position: u64,
+	read: Option<BoxFuture<'static, tg::Result<Option<Cursor<Bytes>>>>>,
+	size: u64,
+	tg: H,
+}
+
 impl Blob {
 	#[must_use]
 	pub fn with_id(id: Id) -> Self {
 		match id {
-			Id::Leaf(id) => Leaf::with_id(id).into(),
-			Id::Branch(id) => Branch::with_id(id).into(),
+			Id::Leaf(id) => tg::Leaf::with_id(id).into(),
+			Id::Branch(id) => tg::Branch::with_id(id).into(),
 		}
 	}
 
-	pub async fn id(&self, tg: &impl Handle) -> tg::Result<Id> {
+	pub async fn id<H>(&self, tg: &H, transaction: Option<&H::Transaction<'_>>) -> tg::Result<Id>
+	where
+		H: tg::Handle,
+	{
 		match self {
-			Self::Leaf(leaf) => Ok(leaf.id(tg).await?.into()),
-			Self::Branch(branch) => Ok(branch.id(tg).await?.into()),
+			Self::Leaf(leaf) => Ok(leaf.id(tg, transaction).await?.into()),
+			Self::Branch(branch) => Ok(branch.id(tg, transaction).await?.into()),
 		}
 	}
+}
 
+impl Blob {
 	/// Create a [`Blob`] from an `AsyncRead`.
-	pub async fn with_reader(tg: &impl Handle, reader: impl AsyncRead + Unpin) -> tg::Result<Self> {
-		// Create the leaves.
-		let mut chunker = fastcdc::v2020::AsyncStreamCDC::new(
-			reader,
-			MIN_LEAF_SIZE,
-			AVG_LEAF_SIZE,
-			MAX_LEAF_SIZE,
-		);
-		let mut children = chunker
-			.as_stream()
-			.map_err(|source| error!(!source, "failed to read"))
-			.and_then(|chunk| async move {
-				let bytes = Bytes::from(chunk.data);
-				let size = bytes.len().to_u64().unwrap();
-				let leaf = Leaf::new(bytes);
-				leaf.store(tg).await?;
-				let child = branch::Child {
-					blob: leaf.into(),
-					size,
-				};
-				Ok::<_, tg::Error>(child)
-			})
-			.try_collect::<Vec<_>>()
-			.await?;
-
-		// Create the tree.
-		while children.len() > MAX_BRANCH_CHILDREN {
-			children = stream::iter(children)
-				.chunks(MAX_BRANCH_CHILDREN)
-				.flat_map(|chunk| {
-					if chunk.len() == MAX_BRANCH_CHILDREN {
-						stream::once(async move {
-							let size = chunk.iter().map(|child| child.size).sum();
-							let blob = Self::new(chunk);
-							let child = branch::Child { blob, size };
-							Ok::<_, tg::Error>(child)
-						})
-						.left_stream()
-					} else {
-						stream::iter(chunk.into_iter().map(Ok)).right_stream()
-					}
-				})
-				.try_collect()
-				.await?;
-		}
-		let blob = Self::new(children);
-
-		Ok(blob)
-	}
-
 	#[must_use]
-	pub fn new(children: Vec<branch::Child>) -> Self {
+	pub fn new(children: Vec<tg::branch::Child>) -> Self {
 		match children.len() {
 			0 => Self::default(),
 			1 => children.into_iter().next().unwrap().blob,
-			_ => Branch::new(children).into(),
+			_ => tg::Branch::new(children).into(),
 		}
 	}
 
-	pub async fn size(&self, tg: &impl Handle) -> tg::Result<u64> {
+	pub async fn with_reader<H>(
+		tg: &H,
+		reader: impl AsyncRead + Send + 'static,
+		transaction: Option<&H::Transaction<'_>>,
+	) -> tg::Result<Self>
+	where
+		H: tg::Handle,
+	{
+		let id = tg.create_blob(reader, transaction).boxed().await?;
+		let blob = Self::with_id(id);
+		Ok(blob)
+	}
+
+	pub async fn size(&self, tg: &impl tg::Handle) -> tg::Result<u64> {
 		match self {
-			Self::Leaf(leaf) => Ok(leaf.bytes(tg).await?.len().to_u64().unwrap()),
-			Self::Branch(branch) => Ok(branch
-				.children(tg)
-				.await?
-				.iter()
-				.map(|child| child.size)
-				.sum()),
+			Self::Leaf(leaf) => {
+				let bytes = &leaf.bytes(tg).await?;
+				let size = bytes.len().to_u64().unwrap();
+				Ok(size)
+			},
+			Self::Branch(branch) => {
+				let children = &branch.children(tg).await?;
+				let size = children.iter().map(|child| child.size).sum();
+				Ok(size)
+			},
 		}
 	}
 
 	pub async fn reader<H>(&self, tg: &H) -> tg::Result<Reader<H>>
 	where
-		H: Handle,
+		H: tg::Handle,
 	{
 		Reader::new(tg, self.clone()).await
 	}
 
-	pub async fn bytes(&self, tg: &impl Handle) -> tg::Result<Vec<u8>> {
+	pub async fn bytes(&self, tg: &impl tg::Handle) -> tg::Result<Vec<u8>> {
 		let mut reader = self.reader(tg).await?;
 		let mut bytes = Vec::new();
 		reader
 			.read_to_end(&mut bytes)
 			.await
-			.map_err(|source| error!(!source, "failed to read the blob"))?;
+			.map_err(|source| tg::error!(!source, "failed to read the blob"))?;
 		Ok(bytes)
 	}
 
-	pub async fn text(&self, tg: &impl Handle) -> tg::Result<String> {
+	pub async fn text(&self, tg: &impl tg::Handle) -> tg::Result<String> {
 		let bytes = self.bytes(tg).await?;
-		let string = String::from_utf8(bytes).map_err(|error| {
-			error!(source = error, "failed to decode the blob's bytes as UTF-8")
-		})?;
+		let string = String::from_utf8(bytes)
+			.map_err(|source| tg::error!(!source, "failed to decode the blob's bytes as UTF-8"))?;
 		Ok(string)
 	}
 
-	pub async fn compress(&self, tg: &impl Handle, format: CompressionFormat) -> tg::Result<Blob> {
-		let reader = self.reader(tg).await?;
-		let reader = tokio::io::BufReader::new(reader);
-		let reader: Box<dyn AsyncRead + Unpin> = match format {
-			CompressionFormat::Bz2 => {
-				Box::new(async_compression::tokio::bufread::BzEncoder::new(reader))
-			},
-			CompressionFormat::Gz => {
-				Box::new(async_compression::tokio::bufread::GzipEncoder::new(reader))
-			},
-			CompressionFormat::Xz => {
-				Box::new(async_compression::tokio::bufread::XzEncoder::new(reader))
-			},
-			CompressionFormat::Zstd => {
-				Box::new(async_compression::tokio::bufread::ZstdEncoder::new(reader))
-			},
-		};
-		let blob = Blob::with_reader(tg, reader).await?;
+	pub async fn compress(
+		&self,
+		tg: &impl tg::Handle,
+		format: CompressionFormat,
+	) -> tg::Result<Self> {
+		let id = self.id(tg, None).await?;
+		let arg = CompressArg { format };
+		let output = tg.compress_blob(&id, arg).await?;
+		let blob = Self::with_id(output.id);
 		Ok(blob)
 	}
 
 	pub async fn decompress(
 		&self,
-		tg: &impl Handle,
+		tg: &impl tg::Handle,
 		format: CompressionFormat,
-	) -> tg::Result<Blob> {
-		let reader = self.reader(tg).await?;
-		let reader = tokio::io::BufReader::new(reader);
-		let reader: Box<dyn AsyncRead + Unpin> = match format {
-			CompressionFormat::Bz2 => {
-				Box::new(async_compression::tokio::bufread::BzDecoder::new(reader))
-			},
-			CompressionFormat::Gz => {
-				Box::new(async_compression::tokio::bufread::GzipDecoder::new(reader))
-			},
-			CompressionFormat::Xz => {
-				Box::new(async_compression::tokio::bufread::XzDecoder::new(reader))
-			},
-			CompressionFormat::Zstd => {
-				Box::new(async_compression::tokio::bufread::ZstdDecoder::new(reader))
-			},
-		};
-		let blob = Blob::with_reader(tg, reader).await?;
+	) -> tg::Result<Self> {
+		let id = self.id(tg, None).await?;
+		let arg = DecompressArg { format };
+		let output = tg.decompress_blob(&id, arg).await?;
+		let blob = Self::with_id(output.id);
 		Ok(blob)
 	}
+}
 
-	pub async fn archive(
-		_tg: &impl Handle,
-		_artifact: &Artifact,
-		_format: ArchiveFormat,
-	) -> tg::Result<Self> {
-		unimplemented!()
+impl tg::Client {
+	pub async fn create_blob(
+		&self,
+		reader: impl AsyncRead + Send + 'static,
+		_transaction: Option<&()>,
+	) -> tg::Result<tg::blob::Id> {
+		let method = http::Method::POST;
+		let uri = "/blobs";
+		let body = Outgoing::new(StreamBody::new(
+			ReaderStream::new(reader)
+				.map_ok(hyper::body::Frame::data)
+				.map_err(|source| tg::error!(!source, "failed to read from the reader")),
+		));
+		let request = http::request::Builder::default()
+			.method(method)
+			.uri(uri)
+			.body(body)
+			.map_err(|source| tg::error!(!source, "failed to create the request"))?;
+		let response = self.send(request).await?;
+		if !response.status().is_success() {
+			let bytes = response
+				.collect()
+				.await
+				.map_err(|source| tg::error!(!source, "failed to collect the response body"))?
+				.to_bytes();
+			let error = serde_json::from_slice(&bytes)
+				.unwrap_or_else(|_| tg::error!("the request did not succeed"));
+			return Err(error);
+		}
+		let bytes = response
+			.collect()
+			.await
+			.map_err(|source| tg::error!(!source, "failed to collect the response body"))?
+			.to_bytes();
+		let output = serde_json::from_slice(&bytes)
+			.map_err(|source| tg::error!(!source, "failed to deserialize the body"))?;
+		Ok(output)
 	}
 
-	pub async fn extract(&self, tg: &impl Handle, format: ArchiveFormat) -> tg::Result<Artifact> {
-		// Create the reader.
-		let reader = self.reader(tg).await?;
-
-		// Create a temporary path.
-		let tempdir = tempfile::TempDir::new()
-			.map_err(|source| error!(!source, "failed to create the temporary directory"))?;
-		let path = tempdir.path().join("archive");
-
-		// Extract in a blocking task.
-		tokio::task::spawn_blocking({
-			let reader = SyncIoBridge::new(reader);
-			let path = path.clone();
-			move || -> tg::Result<_> {
-				match format {
-					ArchiveFormat::Tar => {
-						let mut archive = tar::Archive::new(reader);
-						archive.set_preserve_permissions(false);
-						archive.set_unpack_xattrs(false);
-						archive.unpack(path).map_err(|error| {
-							error!(source = error, "failed to extract the archive")
-						})?;
-					},
-					ArchiveFormat::Zip => {
-						let mut archive = zip::ZipArchive::new(reader).map_err(|error| {
-							error!(source = error, "failed to extract the archive")
-						})?;
-						archive.extract(&path).map_err(|error| {
-							error!(source = error, "failed to extract the archive")
-						})?;
-					},
-				}
-				Ok(())
-			}
-		})
-		.await
-		.unwrap()?;
-
-		// Check in the extracted artifact.
-		let path = path.try_into()?;
-		let artifact = Artifact::check_in(tg, &path)
+	pub async fn compress_blob(
+		&self,
+		id: &tg::blob::Id,
+		arg: tg::blob::CompressArg,
+	) -> tg::Result<tg::blob::CompressOutput> {
+		let method = http::Method::POST;
+		let uri = format!("/blobs/{id}/compress");
+		let body = serde_json::to_string(&arg)
+			.map_err(|source| tg::error!(!source, "failed to serialize the body"))?;
+		let body = full(body);
+		let request = http::request::Builder::default()
+			.method(method)
+			.uri(uri)
+			.body(body)
+			.map_err(|source| tg::error!(!source, "failed to create the request"))?;
+		let response = self.send(request).await?;
+		if !response.status().is_success() {
+			let bytes = response
+				.collect()
+				.await
+				.map_err(|source| tg::error!(!source, "failed to collect the response body"))?
+				.to_bytes();
+			let error = serde_json::from_slice(&bytes)
+				.unwrap_or_else(|_| tg::error!("the request did not succeed"));
+			return Err(error);
+		}
+		let bytes = response
+			.collect()
 			.await
-			.map_err(|source| error!(!source, "failed to check in the extracted archive"))?;
+			.map_err(|source| tg::error!(!source, "failed to collect the response body"))?
+			.to_bytes();
+		let output = serde_json::from_slice(&bytes)
+			.map_err(|source| tg::error!(!source, "failed to deserialize the body"))?;
+		Ok(output)
+	}
 
-		Ok(artifact)
+	pub async fn decompress_blob(
+		&self,
+		id: &tg::blob::Id,
+		arg: tg::blob::DecompressArg,
+	) -> tg::Result<tg::blob::DecompressOutput> {
+		let method = http::Method::POST;
+		let uri = format!("/blobs/{id}/decompress");
+		let body = serde_json::to_string(&arg)
+			.map_err(|source| tg::error!(!source, "failed to serialize the body"))?;
+		let body = full(body);
+		let request = http::request::Builder::default()
+			.method(method)
+			.uri(uri)
+			.body(body)
+			.map_err(|source| tg::error!(!source, "failed to create the request"))?;
+		let response = self.send(request).await?;
+		if !response.status().is_success() {
+			let bytes = response
+				.collect()
+				.await
+				.map_err(|source| tg::error!(!source, "failed to collect the response body"))?
+				.to_bytes();
+			let error = serde_json::from_slice(&bytes)
+				.unwrap_or_else(|_| tg::error!("the request did not succeed"));
+			return Err(error);
+		}
+		let bytes = response
+			.collect()
+			.await
+			.map_err(|source| tg::error!(!source, "failed to collect the response body"))?
+			.to_bytes();
+		let output = serde_json::from_slice(&bytes)
+			.map_err(|source| tg::error!(!source, "failed to deserialize the body"))?;
+		Ok(output)
 	}
 }
 
@@ -300,14 +331,14 @@ impl TryFrom<crate::Id> for Id {
 
 	fn try_from(value: crate::Id) -> tg::Result<Self, Self::Error> {
 		match value.kind() {
-			id::Kind::Leaf => Ok(Self::Leaf(value.try_into()?)),
-			id::Kind::Branch => Ok(Self::Branch(value.try_into()?)),
-			value => Err(error!(%value, "expected a blob ID")),
+			tg::id::Kind::Leaf => Ok(Self::Leaf(value.try_into()?)),
+			tg::id::Kind::Branch => Ok(Self::Branch(value.try_into()?)),
+			value => Err(tg::error!(%value, "expected a blob ID")),
 		}
 	}
 }
 
-impl From<Id> for object::Id {
+impl From<Id> for tg::object::Id {
 	fn from(value: Id) -> Self {
 		match value {
 			Id::Leaf(id) => id.into(),
@@ -316,21 +347,21 @@ impl From<Id> for object::Id {
 	}
 }
 
-impl TryFrom<object::Id> for Id {
+impl TryFrom<tg::object::Id> for Id {
 	type Error = tg::Error;
 
-	fn try_from(value: object::Id) -> tg::Result<Self, Self::Error> {
+	fn try_from(value: tg::object::Id) -> tg::Result<Self, Self::Error> {
 		match value {
-			object::Id::Leaf(value) => Ok(value.into()),
-			object::Id::Branch(value) => Ok(value.into()),
-			value => Err(error!(%value, "expected a blob ID")),
+			tg::object::Id::Leaf(value) => Ok(value.into()),
+			tg::object::Id::Branch(value) => Ok(value.into()),
+			value => Err(tg::error!(%value, "expected a blob ID")),
 		}
 	}
 }
 
 impl Default for Blob {
 	fn default() -> Self {
-		Self::Leaf(Leaf::default())
+		Self::Leaf(tg::Leaf::default())
 	}
 }
 
@@ -343,7 +374,7 @@ impl std::fmt::Display for Blob {
 	}
 }
 
-impl From<Blob> for object::Handle {
+impl From<Blob> for tg::object::Handle {
 	fn from(value: Blob) -> Self {
 		match value {
 			Blob::Leaf(leaf) => Self::Leaf(leaf),
@@ -352,49 +383,39 @@ impl From<Blob> for object::Handle {
 	}
 }
 
-impl TryFrom<object::Handle> for Blob {
+impl TryFrom<tg::object::Handle> for Blob {
 	type Error = tg::Error;
 
-	fn try_from(value: object::Handle) -> tg::Result<Self, Self::Error> {
+	fn try_from(value: tg::object::Handle) -> tg::Result<Self, Self::Error> {
 		match value {
-			object::Handle::Leaf(leaf) => Ok(Self::Leaf(leaf)),
-			object::Handle::Branch(branch) => Ok(Self::Branch(branch)),
-			_ => Err(error!("expected a blob")),
+			tg::object::Handle::Leaf(leaf) => Ok(Self::Leaf(leaf)),
+			tg::object::Handle::Branch(branch) => Ok(Self::Branch(branch)),
+			_ => Err(tg::error!("expected a blob")),
 		}
 	}
 }
 
-impl From<Blob> for Value {
+impl From<Blob> for tg::Value {
 	fn from(value: Blob) -> Self {
-		object::Handle::from(value).into()
+		tg::object::Handle::from(value).into()
 	}
 }
 
-impl TryFrom<Value> for Blob {
+impl TryFrom<tg::Value> for Blob {
 	type Error = tg::Error;
 
-	fn try_from(value: Value) -> tg::Result<Self, Self::Error> {
-		object::Handle::try_from(value)
-			.map_err(|source| error!(!source, "invalid value"))?
+	fn try_from(value: tg::Value) -> tg::Result<Self, Self::Error> {
+		tg::object::Handle::try_from(value)
+			.map_err(|source| tg::error!(!source, "invalid value"))?
 			.try_into()
 	}
-}
-
-/// A blob reader.
-pub struct Reader<H> {
-	blob: Blob,
-	cursor: Option<Cursor<Bytes>>,
-	position: u64,
-	read: Option<BoxFuture<'static, Result<Option<Cursor<Bytes>>>>>,
-	size: u64,
-	tg: H,
 }
 
 unsafe impl<H> Sync for Reader<H> {}
 
 impl<H> Reader<H>
 where
-	H: Handle,
+	H: tg::Handle,
 {
 	pub async fn new(tg: &H, blob: Blob) -> tg::Result<Self> {
 		let cursor = None;
@@ -423,7 +444,7 @@ where
 
 impl<H> AsyncRead for Reader<H>
 where
-	H: Handle,
+	H: tg::Handle,
 {
 	fn poll_read(
 		self: std::pin::Pin<&mut Self>,
@@ -472,12 +493,70 @@ where
 		if position == cursor.get_ref().len() {
 			this.cursor.take();
 		}
+
 		std::task::Poll::Ready(Ok(()))
 	}
 }
 
+impl<H> AsyncBufRead for Reader<H>
+where
+	H: tg::Handle,
+{
+	fn poll_fill_buf(
+		self: Pin<&mut Self>,
+		cx: &mut std::task::Context<'_>,
+	) -> std::task::Poll<std::io::Result<&[u8]>> {
+		let this = self.get_mut();
+
+		// Create the read future if necessary.
+		if this.cursor.is_none() && this.read.is_none() {
+			let tg = this.tg.clone();
+			let blob = this.blob.clone();
+			let position = this.position;
+			let read = async move { poll_read_inner(&tg, blob, position).await }.boxed();
+			this.read.replace(read);
+		}
+
+		// Poll the read future if necessary.
+		if let Some(read) = this.read.as_mut() {
+			match read.as_mut().poll(cx) {
+				std::task::Poll::Pending => return std::task::Poll::Pending,
+				std::task::Poll::Ready(Err(error)) => {
+					this.read.take();
+					return std::task::Poll::Ready(Err(std::io::Error::other(error)));
+				},
+				std::task::Poll::Ready(Ok(None)) => {
+					this.read.take();
+					return std::task::Poll::Ready(Ok(&[]));
+				},
+				std::task::Poll::Ready(Ok(Some(cursor))) => {
+					this.read.take();
+					this.cursor.replace(cursor);
+				},
+			};
+		}
+
+		// Read.
+		let cursor = this.cursor.as_ref().unwrap();
+		let bytes = cursor.get_ref();
+
+		std::task::Poll::Ready(Ok(bytes.as_ref()))
+	}
+
+	fn consume(self: Pin<&mut Self>, amt: usize) {
+		let this = self.get_mut();
+		this.position += amt.to_u64().unwrap();
+		let cursor = this.cursor.as_mut().unwrap();
+		cursor.advance(amt);
+		let empty = cursor.position() == cursor.get_ref().len().to_u64().unwrap();
+		if empty {
+			this.cursor.take();
+		}
+	}
+}
+
 async fn poll_read_inner(
-	tg: &impl Handle,
+	tg: &impl tg::Handle,
 	blob: Blob,
 	position: u64,
 ) -> tg::Result<Option<Cursor<Bytes>>> {
@@ -521,7 +600,7 @@ async fn poll_read_inner(
 
 impl<H> AsyncSeek for Reader<H>
 where
-	H: Handle,
+	H: tg::Handle,
 {
 	fn start_seek(self: Pin<&mut Self>, seek: std::io::SeekFrom) -> std::io::Result<()> {
 		let this = self.get_mut();
@@ -560,55 +639,15 @@ where
 	}
 }
 
-impl std::fmt::Display for ArchiveFormat {
-	fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-		match self {
-			Self::Tar => {
-				write!(f, ".tar")?;
-			},
-			Self::Zip => {
-				write!(f, ".zip")?;
-			},
-		}
-		Ok(())
-	}
-}
-
-impl std::str::FromStr for ArchiveFormat {
-	type Err = tg::Error;
-
-	fn from_str(s: &str) -> tg::Result<Self, Self::Err> {
-		match s {
-			".tar" => Ok(Self::Tar),
-			".zip" => Ok(Self::Zip),
-			extension => Err(error!(%extension, "invalid format")),
-		}
-	}
-}
-
-impl From<ArchiveFormat> for String {
-	fn from(value: ArchiveFormat) -> Self {
-		value.to_string()
-	}
-}
-
-impl TryFrom<String> for ArchiveFormat {
-	type Error = tg::Error;
-
-	fn try_from(value: String) -> tg::Result<Self, Self::Error> {
-		value.parse()
-	}
-}
-
 impl std::fmt::Display for CompressionFormat {
 	fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-		let string = match self {
-			Self::Bz2 => ".bz2",
-			Self::Gz => ".gz",
-			Self::Xz => ".xz",
-			Self::Zstd => ".zst",
+		let s = match self {
+			Self::Bz2 => "bz2",
+			Self::Gz => "gz",
+			Self::Xz => "xz",
+			Self::Zstd => "zst",
 		};
-		write!(f, "{string}")?;
+		write!(f, "{s}")?;
 		Ok(())
 	}
 }
@@ -618,11 +657,11 @@ impl std::str::FromStr for CompressionFormat {
 
 	fn from_str(s: &str) -> tg::Result<Self, Self::Err> {
 		match s {
-			".bz2" => Ok(Self::Bz2),
-			".gz" => Ok(Self::Gz),
-			".xz" => Ok(Self::Xz),
-			".zst" | ".zstd" => Ok(Self::Zstd),
-			extension => Err(error!(%extension, "invalid compression format")),
+			"bz2" => Ok(Self::Bz2),
+			"gz" => Ok(Self::Gz),
+			"xz" => Ok(Self::Xz),
+			"zst" | "zstd" => Ok(Self::Zstd),
+			extension => Err(tg::error!(%extension, "invalid compression format")),
 		}
 	}
 }

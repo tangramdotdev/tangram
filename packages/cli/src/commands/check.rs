@@ -1,5 +1,5 @@
 use crate::Cli;
-use crossterm::style::Stylize;
+use crossterm::style::Stylize as _;
 use tangram_client as tg;
 
 /// Check a package for errors.
@@ -30,44 +30,46 @@ impl Cli {
 
 		// Print the diagnostics.
 		for diagnostic in &diagnostics {
-			let diagnostic = self
-				.convert_diagnostic_location(diagnostic.clone())
-				.await
-				.unwrap_or(diagnostic.clone());
-			match diagnostic.severity {
-				tg::diagnostic::Severity::Error => eprintln!("{}:", "error".red().bold()),
-				tg::diagnostic::Severity::Warning => eprintln!("{}:", "warning".yellow().bold()),
-				tg::diagnostic::Severity::Information => eprintln!("{}:", "info".blue().bold()),
-				tg::diagnostic::Severity::Hint => eprintln!("{}:", "hint".white().bold()),
-			};
-			eprint!("{} {} ", "->".red(), diagnostic.message);
-			if let Some(location) = &diagnostic.location {
-				let (package, path) = location.module.source();
-				if let Some(package) = package {
-					let package = tg::Directory::with_id(package);
-					let metadata = tg::package::get_metadata(client, &package).await.ok();
-					let (name, version) = metadata
-						.map(|metadata| (metadata.name, metadata.version))
-						.unwrap_or_default();
-					let name = name.as_deref().unwrap_or("<unknown>");
-					let version = version.as_deref().unwrap_or("<unknown>");
-					eprint!("{name}@{version}: {path}:");
-				} else {
-					eprint!("{path}:");
-				};
-				eprint!(
-					"{}:{}",
-					location.range.start.line + 1,
-					location.range.start.character + 1,
-				);
-			}
-			eprintln!();
+			self.print_diagnostic(diagnostic).await?;
 		}
 
 		if !diagnostics.is_empty() {
 			return Err(tg::error!("type checking failed"));
 		}
 
+		Ok(())
+	}
+
+	async fn print_diagnostic(&self, diagnostic: &tg::Diagnostic) -> tg::Result<()> {
+		let client = &self.client().await?;
+		match diagnostic.severity {
+			tg::diagnostic::Severity::Error => eprintln!("{}:", "error".red().bold()),
+			tg::diagnostic::Severity::Warning => eprintln!("{}:", "warning".yellow().bold()),
+			tg::diagnostic::Severity::Info => eprintln!("{}:", "info".blue().bold()),
+			tg::diagnostic::Severity::Hint => eprintln!("{}:", "hint".cyan().bold()),
+		};
+		eprint!("{} {} ", "->".red(), diagnostic.message);
+		if let Some(location) = &diagnostic.location {
+			let (package, path) = location.module.source();
+			if let Some(package) = package {
+				let package = tg::Directory::with_id(package);
+				let metadata = tg::package::get_metadata(client, &package).await.ok();
+				let (name, version) = metadata
+					.map(|metadata| (metadata.name, metadata.version))
+					.unwrap_or_default();
+				let name = name.as_deref().unwrap_or("<unknown>");
+				let version = version.as_deref().unwrap_or("<unknown>");
+				eprint!("{name}@{version}: {path}:");
+			} else {
+				eprint!("{path}:");
+			};
+			eprint!(
+				"{}:{}",
+				location.range.start.line + 1,
+				location.range.start.character + 1,
+			);
+		}
+		eprintln!();
 		Ok(())
 	}
 }

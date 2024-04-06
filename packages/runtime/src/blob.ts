@@ -1,5 +1,4 @@
 import { Args } from "./args.ts";
-import type { Artifact } from "./artifact.ts";
 import { assert as assert_, unreachable } from "./assert.ts";
 import { Branch } from "./branch.ts";
 import type { Checksum } from "./checksum.ts";
@@ -17,7 +16,7 @@ export let download = async (
 	url: string,
 	checksum: Checksum,
 ): Promise<Blob> => {
-	return await Blob.download(url, checksum);
+	return await syscall("download", url, checksum);
 };
 
 export declare namespace Blob {
@@ -32,15 +31,7 @@ export namespace Blob {
 
 	export type Object_ = Array<[Blob, number]> | Uint8Array;
 
-	export type ArchiveFormat = ".tar" | ".zip";
-
-	export type CompressionFormat =
-		| ".bz2"
-		| ".gz"
-		| ".lz"
-		| ".xz"
-		| ".zstd"
-		| ".zst";
+	export type CompressionFormat = "bz2" | "gz" | "lz" | "xz" | "zst";
 
 	export let new_ = async (...args: Args<Blob.Arg>): Promise<Blob> => {
 		type Apply = { children: Array<Blob> };
@@ -99,7 +90,7 @@ export namespace Blob {
 	Blob.new = new_;
 
 	export let is = (value: unknown): value is Blob => {
-		return Leaf.is(value) || Branch.is(value);
+		return value instanceof Leaf || value instanceof Branch;
 	};
 
 	export let expect = (value: unknown): Blob => {
@@ -109,19 +100,5 @@ export namespace Blob {
 
 	export let assert = (value: unknown): asserts value is Blob => {
 		assert_(is(value));
-	};
-
-	export let download = async (
-		url: string,
-		checksum: Checksum,
-	): Promise<Blob> => {
-		return await syscall("download", url, checksum);
-	};
-
-	export let archive = async (
-		artifact: Artifact,
-		format: Blob.ArchiveFormat,
-	): Promise<Blob> => {
-		return await syscall("archive", artifact, format);
 	};
 }

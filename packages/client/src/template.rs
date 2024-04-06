@@ -1,7 +1,7 @@
 pub use self::component::Component;
-use crate::{self as tg, object, Artifact, Handle, Result};
-use futures::{stream::FuturesOrdered, Future, TryStreamExt};
-use itertools::Itertools;
+use crate as tg;
+use futures::{stream::FuturesOrdered, Future, TryStreamExt as _};
+use itertools::Itertools as _;
 use std::borrow::Cow;
 
 #[derive(Clone, Debug, Default)]
@@ -16,11 +16,17 @@ pub struct Data {
 
 impl Template {
 	#[must_use]
+	pub fn with_components(components: impl IntoIterator<Item = Component>) -> Self {
+		let components = components.into_iter().collect();
+		Self { components }
+	}
+
+	#[must_use]
 	pub fn components(&self) -> &[Component] {
 		&self.components
 	}
 
-	pub fn artifacts(&self) -> impl Iterator<Item = &Artifact> {
+	pub fn artifacts(&self) -> impl Iterator<Item = &tg::Artifact> {
 		self.components
 			.iter()
 			.filter_map(|component| match component {
@@ -30,10 +36,28 @@ impl Template {
 	}
 
 	#[must_use]
-	pub fn objects(&self) -> Vec<object::Handle> {
+	pub fn objects(&self) -> Vec<tg::object::Handle> {
 		self.artifacts()
 			.map(|artifact| artifact.clone().into())
 			.collect()
+	}
+
+	pub async fn data<H>(
+		&self,
+		tg: &H,
+		transaction: Option<&H::Transaction<'_>>,
+	) -> tg::Result<Data>
+	where
+		H: tg::Handle,
+	{
+		let components = self
+			.components
+			.iter()
+			.map(|component| component.data(tg, transaction))
+			.collect::<FuturesOrdered<_>>()
+			.try_collect()
+			.await?;
+		Ok(Data { components })
 	}
 
 	pub fn try_render_sync<'a, F>(&'a self, mut f: F) -> tg::Result<String>
@@ -50,7 +74,7 @@ impl Template {
 	pub async fn try_render<'a, F, Fut>(&'a self, f: F) -> tg::Result<String>
 	where
 		F: (FnMut(&'a Component) -> Fut) + 'a,
-		Fut: Future<Output = Result<String>> + 'a,
+		Fut: Future<Output = tg::Result<String>> + 'a,
 	{
 		Ok(self
 			.components
@@ -65,7 +89,7 @@ impl Template {
 	pub fn unrender(string: &str) -> tg::Result<Self> {
 		// Create the regex.
 		let regex =
-			r"/\.tangram/artifacts/((?:fil_|dir_|sym_)01[0123456789abcdefghjkmnpqrstvwxyz]{52})";
+			r"/\.tangram/artifacts/((?:dir_|fil_|sym_)01[0123456789abcdefghjkmnpqrstvwxyz]{52})";
 		let regex = regex::Regex::new(regex).unwrap();
 
 		let mut i = 0;
@@ -82,7 +106,7 @@ impl Template {
 			let id = id.as_str().parse().unwrap();
 
 			// Add an artifact component.
-			components.push(Component::Artifact(Artifact::with_id(id)));
+			components.push(Component::Artifact(tg::Artifact::with_id(id)));
 
 			// Advance the cursor to the end of the match.
 			i = match_.end();
@@ -95,17 +119,6 @@ impl Template {
 
 		// Create the template.
 		Ok(Self { components })
-	}
-
-	pub async fn data(&self, tg: &impl Handle) -> tg::Result<Data> {
-		let components = self
-			.components
-			.iter()
-			.map(|component| component.data(tg))
-			.collect::<FuturesOrdered<_>>()
-			.try_collect()
-			.await?;
-		Ok(Data { components })
 	}
 }
 
@@ -141,7 +154,7 @@ impl std::fmt::Display for Template {
 
 impl Data {
 	#[must_use]
-	pub fn children(&self) -> Vec<object::Id> {
+	pub fn children(&self) -> Vec<tg::object::Id> {
 		self.components
 			.iter()
 			.filter_map(|component| match component {
@@ -185,28 +198,35 @@ impl From<&str> for Template {
 }
 
 pub mod component {
-	use crate::{self as tg, artifact, Artifact, Handle, Result};
-	use derive_more::{From, TryUnwrap};
+	use crate as tg;
 
-	#[derive(Clone, Debug, From, TryUnwrap)]
+	#[derive(Clone, Debug, derive_more::From, derive_more::TryUnwrap, derive_more::Unwrap)]
 	#[try_unwrap(ref)]
+	#[unwrap(ref)]
 	pub enum Component {
 		String(String),
-		Artifact(Artifact),
+		Artifact(tg::Artifact),
 	}
 
 	#[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
 	#[serde(rename_all = "snake_case", tag = "kind", content = "value")]
 	pub enum Data {
 		String(String),
-		Artifact(artifact::Id),
+		Artifact(tg::artifact::Id),
 	}
 
 	impl Component {
-		pub async fn data(&self, tg: &impl Handle) -> tg::Result<Data> {
+		pub async fn data<H>(
+			&self,
+			tg: &H,
+			transaction: Option<&H::Transaction<'_>>,
+		) -> tg::Result<Data>
+		where
+			H: tg::Handle,
+		{
 			match self {
 				Self::String(string) => Ok(Data::String(string.clone())),
-				Self::Artifact(artifact) => Ok(Data::Artifact(artifact.id(tg).await?)),
+				Self::Artifact(artifact) => Ok(Data::Artifact(artifact.id(tg, transaction).await?)),
 			}
 		}
 	}
@@ -217,8 +237,45 @@ pub mod component {
 		fn try_from(data: Data) -> tg::Result<Self, Self::Error> {
 			Ok(match data {
 				Data::String(string) => Self::String(string),
-				Data::Artifact(id) => Self::Artifact(Artifact::with_id(id)),
+				Data::Artifact(id) => Self::Artifact(tg::Artifact::with_id(id)),
 			})
 		}
+	}
+}
+
+#[cfg(test)]
+mod tests {
+	use super::*;
+
+	#[test]
+	fn unrender() {
+		let id = "dir_010000000000000000000000000000000000000000000000000000"
+			.parse()
+			.unwrap();
+		let string = format!("foo /.tangram/artifacts/{id} bar");
+		let template = tg::Template::unrender(&string).unwrap();
+
+		let left = template.components().first().unwrap().unwrap_string_ref();
+		let right = "foo ";
+		assert_eq!(left, right);
+
+		let left = template
+			.components()
+			.get(1)
+			.unwrap()
+			.unwrap_artifact_ref()
+			.unwrap_directory_ref()
+			.state()
+			.read()
+			.unwrap()
+			.id()
+			.clone()
+			.unwrap();
+		let right = id;
+		assert_eq!(left, right);
+
+		let left = template.components().get(2).unwrap().unwrap_string_ref();
+		let right = " bar";
+		assert_eq!(left, right);
 	}
 }

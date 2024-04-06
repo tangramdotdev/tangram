@@ -1,20 +1,17 @@
-use crate::{
-	self as tg, artifact, error, id, object, util::arc::Ext as _, Artifact, Handle, Symlink,
-};
+use crate::{self as tg, util::arc::Ext as _};
 use bytes::Bytes;
-use derive_more::Display;
-use futures::{stream::FuturesOrdered, TryStreamExt};
+use futures::{stream::FuturesOrdered, FutureExt as _, TryStreamExt as _};
 use std::{collections::BTreeMap, sync::Arc};
 
 #[derive(
 	Clone,
 	Debug,
-	Display,
 	Eq,
 	Hash,
 	Ord,
 	PartialEq,
 	PartialOrd,
+	derive_more::Display,
 	serde::Deserialize,
 	serde::Serialize,
 )]
@@ -26,23 +23,23 @@ pub struct Directory {
 	state: Arc<std::sync::RwLock<State>>,
 }
 
-pub type State = object::State<Id, Object>;
+pub type State = tg::object::State<Id, Object>;
 
 #[derive(Clone, Debug)]
 pub struct Object {
 	/// The directory's entries.
-	pub entries: BTreeMap<String, Artifact>,
+	pub entries: BTreeMap<String, tg::Artifact>,
 }
 
 #[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
 pub struct Data {
 	/// The directory's entries.
-	pub entries: BTreeMap<String, artifact::Id>,
+	pub entries: BTreeMap<String, tg::artifact::Id>,
 }
 
 impl Id {
 	pub fn new(bytes: &Bytes) -> Self {
-		Self(crate::Id::new_blake3(id::Kind::Directory, bytes))
+		Self(crate::Id::new_blake3(tg::id::Kind::Directory, bytes))
 	}
 }
 
@@ -72,21 +69,24 @@ impl Directory {
 		Self { state }
 	}
 
-	pub async fn id(&self, tg: &impl Handle) -> tg::Result<Id> {
-		self.store(tg).await
+	pub async fn id<H>(&self, tg: &H, transaction: Option<&H::Transaction<'_>>) -> tg::Result<Id>
+	where
+		H: tg::Handle,
+	{
+		self.store(tg, transaction).await
 	}
 
-	pub async fn object(&self, tg: &impl Handle) -> tg::Result<Arc<Object>> {
+	pub async fn object(&self, tg: &impl tg::Handle) -> tg::Result<Arc<Object>> {
 		self.load(tg).await
 	}
 
-	pub async fn load(&self, tg: &impl Handle) -> tg::Result<Arc<Object>> {
+	pub async fn load(&self, tg: &impl tg::Handle) -> tg::Result<Arc<Object>> {
 		self.try_load(tg)
 			.await?
-			.ok_or_else(|| error!("failed to load the object"))
+			.ok_or_else(|| tg::error!("failed to load the object"))
 	}
 
-	pub async fn try_load(&self, tg: &impl Handle) -> tg::Result<Option<Arc<Object>>> {
+	pub async fn try_load(&self, tg: &impl tg::Handle) -> tg::Result<Option<Arc<Object>>> {
 		if let Some(object) = self.state.read().unwrap().object.clone() {
 			return Ok(Some(object));
 		}
@@ -95,39 +95,50 @@ impl Directory {
 			return Ok(None);
 		};
 		let data = Data::deserialize(&output.bytes)
-			.map_err(|source| error!(!source, "failed to deserialize the data"))?;
+			.map_err(|source| tg::error!(!source, "failed to deserialize the data"))?;
 		let object = Object::try_from(data)?;
 		let object = Arc::new(object);
 		self.state.write().unwrap().object.replace(object.clone());
 		Ok(Some(object))
 	}
 
-	pub async fn store(&self, tg: &impl Handle) -> tg::Result<Id> {
+	pub async fn store<H>(&self, tg: &H, transaction: Option<&H::Transaction<'_>>) -> tg::Result<Id>
+	where
+		H: tg::Handle,
+	{
 		if let Some(id) = self.state.read().unwrap().id.clone() {
 			return Ok(id);
 		}
-		let data = self.data(tg).await?;
+		let data = self.data(tg, transaction).await?;
 		let bytes = data.serialize()?;
 		let id = Id::new(&bytes);
-		let arg = object::PutArg {
+		let arg = tg::object::PutArg {
 			bytes,
 			count: None,
 			weight: None,
 		};
-		tg.put_object(&id.clone().into(), &arg)
+		tg.put_object(&id.clone().into(), arg, transaction)
+			.boxed()
 			.await
-			.map_err(|source| error!(!source, "failed to put the object"))?;
+			.map_err(|source| tg::error!(!source, "failed to put the object"))?;
 		self.state.write().unwrap().id.replace(id.clone());
 		Ok(id)
 	}
 
-	pub async fn data(&self, tg: &impl Handle) -> tg::Result<Data> {
+	pub async fn data<H>(
+		&self,
+		tg: &H,
+		transaction: Option<&H::Transaction<'_>>,
+	) -> tg::Result<Data>
+	where
+		H: tg::Handle,
+	{
 		let object = self.object(tg).await?;
 		let entries = object
 			.entries
 			.iter()
 			.map(|(name, artifact)| async move {
-				Ok::<_, tg::Error>((name.clone(), artifact.id(tg).await?))
+				Ok::<_, tg::Error>((name.clone(), artifact.id(tg, transaction).await?))
 			})
 			.collect::<FuturesOrdered<_>>()
 			.try_collect()
@@ -138,42 +149,42 @@ impl Directory {
 
 impl Directory {
 	#[must_use]
-	pub fn new(entries: BTreeMap<String, Artifact>) -> Self {
+	pub fn new(entries: BTreeMap<String, tg::Artifact>) -> Self {
 		Self::with_object(Object { entries })
 	}
 
-	pub async fn builder(&self, tg: &impl Handle) -> tg::Result<Builder> {
+	pub async fn builder(&self, tg: &impl tg::Handle) -> tg::Result<Builder> {
 		Ok(Builder::new(self.object(tg).await?.entries.clone()))
 	}
 
 	pub async fn entries(
 		&self,
-		tg: &impl Handle,
-	) -> tg::Result<impl std::ops::Deref<Target = BTreeMap<String, Artifact>>> {
+		tg: &impl tg::Handle,
+	) -> tg::Result<impl std::ops::Deref<Target = BTreeMap<String, tg::Artifact>>> {
 		Ok(self.object(tg).await?.map(|object| &object.entries))
 	}
 
-	pub async fn get(&self, tg: &impl Handle, path: &crate::Path) -> tg::Result<Artifact> {
+	pub async fn get(&self, tg: &impl tg::Handle, path: &tg::Path) -> tg::Result<tg::Artifact> {
 		let artifact = self
 			.try_get(tg, path)
 			.await?
-			.ok_or_else(|| error!("failed to get the artifact"))?;
+			.ok_or_else(|| tg::error!("failed to get the artifact"))?;
 		Ok(artifact)
 	}
 
 	pub async fn try_get(
 		&self,
-		tg: &impl Handle,
-		path: &crate::Path,
-	) -> tg::Result<Option<Artifact>> {
+		tg: &impl tg::Handle,
+		path: &tg::Path,
+	) -> tg::Result<Option<tg::Artifact>> {
 		// Track the current artifact.
-		let mut artifact: Artifact = self.clone().into();
+		let mut artifact: tg::Artifact = self.clone().into();
 
 		// Track the current path.
-		let mut current_path = crate::Path::default();
+		let mut current_path = tg::Path::new();
 
 		// Handle each path component.
-		for component in path.components() {
+		for component in path.components().iter().skip(1) {
 			// The artifact must be a directory.
 			let Some(directory) = artifact.try_unwrap_directory_ref().ok() else {
 				return Ok(None);
@@ -186,7 +197,7 @@ impl Directory {
 			let name = component
 				.try_unwrap_normal_ref()
 				.ok()
-				.ok_or_else(|| error!("the path must contain only normal components"))?;
+				.ok_or_else(|| tg::error!("the path must contain only normal components"))?;
 			let Some(entry) = directory.entries(tg).await?.get(name).cloned() else {
 				return Ok(None);
 			};
@@ -195,11 +206,11 @@ impl Directory {
 			artifact = entry;
 
 			// If the artifact is a symlink, then resolve it.
-			if let Artifact::Symlink(symlink) = &artifact {
-				let from = Symlink::new(Some(self.clone().into()), Some(current_path.to_string()));
+			if let tg::Artifact::Symlink(symlink) = &artifact {
+				let from = tg::Symlink::new(Some(self.clone().into()), Some(current_path.clone()));
 				match Box::pin(symlink.resolve_from(tg, Some(from)))
 					.await
-					.map_err(|source| error!(!source, "failed to resolve the symlink"))?
+					.map_err(|source| tg::error!(!source, "failed to resolve the symlink"))?
 				{
 					Some(resolved) => artifact = resolved,
 					None => return Ok(None),
@@ -215,16 +226,16 @@ impl Data {
 	pub fn serialize(&self) -> tg::Result<Bytes> {
 		serde_json::to_vec(self)
 			.map(Into::into)
-			.map_err(|source| error!(!source, "failed to serialize the data"))
+			.map_err(|source| tg::error!(!source, "failed to serialize the data"))
 	}
 
 	pub fn deserialize(bytes: &Bytes) -> tg::Result<Self> {
 		serde_json::from_reader(bytes.as_ref())
-			.map_err(|source| error!(!source, "failed to deserialize the data"))
+			.map_err(|source| tg::error!(!source, "failed to deserialize the data"))
 	}
 
 	#[must_use]
-	pub fn children(&self) -> Vec<object::Id> {
+	pub fn children(&self) -> Vec<tg::object::Id> {
 		self.entries.values().cloned().map(Into::into).collect()
 	}
 }
@@ -236,7 +247,7 @@ impl TryFrom<Data> for Object {
 		let entries = data
 			.entries
 			.into_iter()
-			.map(|(name, id)| (name, Artifact::with_id(id)))
+			.map(|(name, id)| (name, tg::Artifact::with_id(id)))
 			.collect();
 		Ok(Self { entries })
 	}
@@ -263,8 +274,8 @@ impl TryFrom<crate::Id> for Id {
 	type Error = tg::Error;
 
 	fn try_from(value: crate::Id) -> tg::Result<Self, Self::Error> {
-		if value.kind() != id::Kind::Directory {
-			return Err(error!(%value, "invalid kind"));
+		if value.kind() != tg::id::Kind::Directory {
+			return Err(tg::error!(%value, "invalid kind"));
 		}
 		Ok(Self(value))
 	}
@@ -280,35 +291,35 @@ impl std::str::FromStr for Id {
 
 #[derive(Clone, Debug, Default)]
 pub struct Builder {
-	entries: BTreeMap<String, Artifact>,
+	entries: BTreeMap<String, tg::Artifact>,
 }
 
 impl Builder {
 	#[must_use]
-	pub fn new(entries: BTreeMap<String, Artifact>) -> Self {
+	pub fn new(entries: BTreeMap<String, tg::Artifact>) -> Self {
 		Self { entries }
 	}
 
 	pub async fn add(
 		mut self,
-		tg: &impl Handle,
-		path: &crate::Path,
-		artifact: Artifact,
+		tg: &impl tg::Handle,
+		path: &tg::Path,
+		artifact: tg::Artifact,
 	) -> tg::Result<Self> {
 		// Get the first component.
 		let name = path
 			.components()
 			.iter()
-			.nth(0)
-			.ok_or_else(|| error!("expected the path to have at least one component"))?
+			.nth(1)
+			.ok_or_else(|| tg::error!("expected the path to have at least one component"))?
 			.try_unwrap_normal_ref()
 			.ok()
-			.ok_or_else(|| error!("the path must contain only normal components"))?;
+			.ok_or_else(|| tg::error!("the path must contain only normal components"))?;
 
 		// Collect the trailing path.
-		let trailing_path: crate::Path = path.components().iter().skip(1).cloned().collect();
+		let trailing_path: tg::Path = path.components().iter().skip(2).cloned().collect();
 
-		let artifact = if trailing_path.components().is_empty() {
+		let artifact = if trailing_path.components().len() == 1 {
 			artifact
 		} else {
 			// Get or create a child directory.
@@ -316,7 +327,7 @@ impl Builder {
 				child
 					.try_unwrap_directory_ref()
 					.ok()
-					.ok_or_else(|| error!("expected the artifact to be a directory"))?
+					.ok_or_else(|| tg::error!("expected the artifact to be a directory"))?
 					.builder(tg)
 					.await?
 			} else {
@@ -336,19 +347,19 @@ impl Builder {
 		Ok(self)
 	}
 
-	pub async fn remove(mut self, tg: &impl Handle, path: &crate::Path) -> tg::Result<Self> {
+	pub async fn remove(mut self, tg: &impl tg::Handle, path: &tg::Path) -> tg::Result<Self> {
 		// Get the first component.
 		let name = path
 			.components()
 			.iter()
 			.nth(0)
-			.ok_or_else(|| error!("expected the path to have at least one component"))?
+			.ok_or_else(|| tg::error!("expected the path to have at least one component"))?
 			.try_unwrap_normal_ref()
 			.ok()
-			.ok_or_else(|| error!("the path must contain only normal components"))?;
+			.ok_or_else(|| tg::error!("the path must contain only normal components"))?;
 
 		// Collect the trailing path.
-		let trailing_path: crate::Path = path.components().iter().skip(1).cloned().collect();
+		let trailing_path: tg::Path = path.components().iter().skip(1).cloned().collect();
 
 		if trailing_path.components().is_empty() {
 			// Remove the entry.
@@ -359,11 +370,11 @@ impl Builder {
 				child
 					.try_unwrap_directory_ref()
 					.ok()
-					.ok_or_else(|| error!("expected the artifact to be a directory"))?
+					.ok_or_else(|| tg::error!("expected the artifact to be a directory"))?
 					.builder(tg)
 					.await?
 			} else {
-				return Err(error!(%path, "the path does not exist"));
+				return Err(tg::error!(%path, "the path does not exist"));
 			};
 
 			// Recurse.

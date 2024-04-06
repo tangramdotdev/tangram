@@ -8,6 +8,7 @@ import { Lock } from "./lock.ts";
 import { Module } from "./module.ts";
 import { Mutation, mutation } from "./mutation.ts";
 import type { Object_ } from "./object.ts";
+import { Path } from "./path.ts";
 import type { Unresolved } from "./resolve.ts";
 import { Symlink, symlink } from "./symlink.ts";
 import { Template } from "./template.ts";
@@ -29,7 +30,7 @@ export let setCurrentTarget = (target: Target) => {
 	currentTarget = target;
 };
 
-export let functions: Record<string, Function> = {};
+export let functions: { [key: string]: { [key: string]: Function } } = {};
 
 type FunctionArg<
 	A extends Array<Value> = Array<Value>,
@@ -59,10 +60,10 @@ export function target<
 	) {
 		// Register the function.
 		let arg = args[0];
-		let { url, name } = arg;
-		let key = encoding.json.encode({ url, name });
-		assert_(functions[key] === undefined);
-		functions[key] = arg.function;
+		functions[arg.url] = {
+			...functions[arg.url],
+			[arg.name]: arg.function,
+		};
 
 		// Get the package.
 		let module_ = Module.fromUrl(arg.url);
@@ -73,7 +74,7 @@ export function target<
 		let executable = new Symlink({
 			object: {
 				artifact: Directory.withId(module_.value.package),
-				path: module_.value.path,
+				path: Path.new(module_.value.path),
 			},
 		});
 
@@ -107,7 +108,7 @@ export interface Target<
 	(...args: { [K in keyof A]: Unresolved<A[K]> }): Promise<R>;
 }
 
-// biome-ignore lint/suspicious/noUnsafeDeclarationMerging:
+// biome-ignore lint/suspicious/noUnsafeDeclarationMerging: This is necessary to make targets callable.
 export class Target<
 	A extends Array<Value> = Array<Value>,
 	R extends Value = Value,
@@ -118,7 +119,7 @@ export class Target<
 		super();
 		this.#state = state;
 		let this_ = this as any;
-		// biome-ignore lint/correctness/noConstructorReturn:
+		// biome-ignore lint/correctness/noConstructorReturn: This is necessary to make targets callable.
 		return new Proxy(this_, {
 			get(_target, prop, _receiver) {
 				if (typeof this_[prop] === "function") {

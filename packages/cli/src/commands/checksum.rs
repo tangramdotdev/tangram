@@ -1,5 +1,5 @@
 use crate::Cli;
-use futures::TryStreamExt;
+use futures::TryStreamExt as _;
 use tangram_client as tg;
 use tokio_util::io::StreamReader;
 use url::Url;

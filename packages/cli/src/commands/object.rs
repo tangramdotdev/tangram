@@ -2,11 +2,11 @@ use crate::{tree::Tree, Cli};
 use crossterm::style::Stylize;
 use futures::{
 	stream::{self, FuturesUnordered},
-	StreamExt, TryStreamExt,
+	StreamExt as _, TryStreamExt as _,
 };
 use tangram_client as tg;
-use tg::Handle;
-use tokio::io::{AsyncReadExt, AsyncWriteExt};
+use tg::Handle as _;
+use tokio::io::{AsyncReadExt as _, AsyncWriteExt as _};
 
 /// Manage objects.
 #[derive(Debug, clap::Args)]
@@ -110,7 +110,7 @@ impl Cli {
 			count: None,
 			weight: None,
 		};
-		client.put_object(&id, &arg).await?;
+		client.put_object(&id, arg, None).await?;
 		println!("{id}");
 		Ok(())
 	}
@@ -152,7 +152,7 @@ async fn get_object_tree(
 	};
 	let title = title.to_string();
 	let children = tg::Object::with_id(object.clone())
-		.data(client)
+		.data(client, None)
 		.await
 		.map_err(|source| tg::error!(!source, %object, "failed to get the object data"))?
 		.children();

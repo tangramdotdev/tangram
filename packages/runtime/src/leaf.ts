@@ -143,7 +143,7 @@ export class Leaf {
 		return await syscall("decompress", this, format);
 	}
 
-	async extract(format: Blob.ArchiveFormat): Promise<Artifact> {
+	async extract(format: Artifact.ArchiveFormat): Promise<Artifact> {
 		return await syscall("extract", this, format);
 	}
 }

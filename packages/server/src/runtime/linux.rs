@@ -1,20 +1,20 @@
 use super::{proxy, util::render};
-use crate::Server;
+use crate::{tmp::Tmp, Server};
 use bytes::Bytes;
 use futures::{
 	stream::{FuturesOrdered, FuturesUnordered},
-	TryStreamExt,
+	TryStreamExt as _,
 };
 use indoc::formatdoc;
-use itertools::Itertools;
+use itertools::Itertools as _;
 use std::{
 	collections::BTreeMap,
 	ffi::CString,
-	os::{fd::AsRawFd, unix::ffi::OsStrExt},
+	os::{fd::AsRawFd, unix::ffi::OsStrExt as _},
 	path::{Path, PathBuf},
 };
 use tangram_client as tg;
-use tokio::io::{AsyncReadExt, AsyncWriteExt};
+use tokio::io::{AsyncReadExt as _, AsyncWriteExt as _};
 use url::Url;
 
 /// The home directory guest path.
@@ -68,10 +68,10 @@ pub struct Runtime {
 
 impl Runtime {
 	pub async fn new(server: &Server) -> tg::Result<Self> {
-		let env = tg::File::builder(tg::Blob::with_reader(server, ENV).await?)
+		let env = tg::File::builder(tg::Blob::with_reader(server, ENV, None).await?)
 			.executable(true)
 			.build();
-		let sh = tg::File::builder(tg::Blob::with_reader(server, SH).await?)
+		let sh = tg::File::builder(tg::Blob::with_reader(server, SH, None).await?)
 			.executable(true)
 			.build();
 		Ok(Self {
@@ -90,16 +90,16 @@ impl Runtime {
 		// If the VFS is disabled, then perform an internal checkout of the target's references.
 		if server.inner.vfs.lock().unwrap().is_none() {
 			target
-				.data(server)
+				.data(server, None)
 				.await?
 				.children()
 				.into_iter()
 				.filter_map(|id| id.try_into().ok())
 				.map(|id| async move {
 					let artifact = tg::Artifact::with_id(id);
-					artifact
-						.check_out(server, tg::artifact::CheckOutArg::default())
-						.await
+					let arg = tg::artifact::CheckOutArg::default();
+					artifact.check_out(server, arg).await?;
+					Ok::<_, tg::Error>(())
 				})
 				.collect::<FuturesUnordered<_>>()
 				.try_collect::<Vec<_>>()
@@ -111,7 +111,7 @@ impl Runtime {
 		let server_directory_guest_path = PathBuf::from(SERVER_DIRECTORY_GUEST_PATH);
 
 		// Create a tempdir for the root.
-		let root_directory_tmp = server.create_tmp();
+		let root_directory_tmp = Tmp::new(server);
 		tokio::fs::create_dir_all(&root_directory_tmp)
 			.await
 			.map_err(|source| {
@@ -120,7 +120,7 @@ impl Runtime {
 		let root_directory_host_path = std::path::PathBuf::from(root_directory_tmp.as_ref());
 
 		// Create a tempdir for the output.
-		let output_parent_directory_tmp = server.create_tmp();
+		let output_parent_directory_tmp = Tmp::new(server);
 		tokio::fs::create_dir_all(&output_parent_directory_tmp)
 			.await
 			.map_err(|source| {
@@ -150,10 +150,10 @@ impl Runtime {
 			.map_err(|source| tg::error!(!source, "failed to create the directory"))?;
 		let env_guest_path = server_directory_guest_path
 			.join("artifacts")
-			.join(self.env.id(server).await?.to_string());
+			.join(self.env.id(server, None).await?.to_string());
 		let sh_guest_path = server_directory_guest_path
 			.join("artifacts")
-			.join(self.sh.id(server).await?.to_string());
+			.join(self.sh.id(server, None).await?.to_string());
 		tokio::fs::symlink(&env_guest_path, &env_path)
 			.await
 			.map_err(|source| tg::error!(!source, "failed to create the env symlink"))?;
@@ -169,16 +169,51 @@ impl Runtime {
 			.await
 			.map_err(|source| tg::error!(!source, "failed to create the home directory"))?;
 
-		// Create the host and guest paths for the proxy server socket.
-		let proxy_server_socket_host_path = home_directory_host_path.join(".tangram/socket");
-		let proxy_server_socket_guest_path = home_directory_guest_path.join(".tangram/socket");
-
 		// Create the host and guest paths for the working directory.
 		let working_directory_host_path =
 			root_directory_host_path.join(WORKING_DIRECTORY_GUEST_PATH.strip_prefix('/').unwrap());
 		tokio::fs::create_dir_all(&working_directory_host_path)
 			.await
 			.map_err(|source| tg::error!(!source, "failed to create the working directory"))?;
+
+		// Create the path map.
+		let path_map = proxy::PathMap {
+			output_host: output_parent_directory_host_path
+				.clone()
+				.try_into()
+				.unwrap(),
+			output_guest: output_parent_directory_guest_path
+				.clone()
+				.try_into()
+				.unwrap(),
+			root_host: root_directory_host_path.clone().try_into().unwrap(),
+		};
+
+		// Create the proxy server hsot URL.
+		let proxy_server_socket_guest_path = home_directory_guest_path.join(".tangram/socket");
+		let proxy_server_socket_guest_path = tg::Path::try_from(proxy_server_socket_guest_path)
+			.map_err(|source| tg::error!(!source, "invalid path"))?;
+		let proxy_server_socket_guest_path =
+			urlencoding::encode(proxy_server_socket_guest_path.as_str());
+		let proxy_server_guest_url = format!("http+unix://{proxy_server_socket_guest_path}");
+		let proxy_server_guest_url = Url::parse(&proxy_server_guest_url)
+			.map_err(|source| tg::error!(!source, "failed to parse the proxy server url"))?;
+
+		// Create the proxy server guest URL.
+		let proxy_server_socket_host_path = home_directory_host_path.join(".tangram/socket");
+		let proxy_server_socket_host_path = tg::Path::try_from(proxy_server_socket_host_path)
+			.map_err(|source| tg::error!(!source, "invalid path"))?;
+		let proxy_server_socket_host_path =
+			urlencoding::encode(proxy_server_socket_host_path.as_str());
+		let proxy_server_host_url = format!("http+unix://{proxy_server_socket_host_path}");
+		let proxy_server_host_url = Url::parse(&proxy_server_host_url)
+			.map_err(|source| tg::error!(!source, "failed to parse the proxy server url"))?;
+
+		// Start the proxy server.
+		let proxy_server =
+			proxy::Server::start(server, build.id(), proxy_server_host_url, Some(path_map))
+				.await
+				.map_err(|source| tg::error!(!source, "failed to create the proxy server"))?;
 
 		// Render the executable.
 		let executable = target.executable(server).await?;
@@ -230,30 +265,7 @@ impl Runtime {
 		);
 
 		// Set `$TANGRAM_URL`.
-		let proxy_server_guest_url = format!("unix:{}", proxy_server_socket_guest_path.display());
-		let proxy_server_guest_url = Url::parse(&proxy_server_guest_url).unwrap();
 		env.insert("TANGRAM_URL".to_owned(), proxy_server_guest_url.to_string());
-
-		// Create the path map.
-		let path_map = proxy::PathMap {
-			output_host: output_parent_directory_host_path
-				.clone()
-				.try_into()
-				.unwrap(),
-			output_guest: output_parent_directory_guest_path
-				.clone()
-				.try_into()
-				.unwrap(),
-			root_host: root_directory_host_path.clone().try_into().unwrap(),
-		};
-
-		// Start the proxy server.
-		let proxy_server_host_url = format!("unix:{}", proxy_server_socket_host_path.display());
-		let proxy_server_host_url = Url::parse(&proxy_server_host_url).unwrap();
-		let proxy_server =
-			proxy::Server::start(server, build.id(), proxy_server_host_url, Some(path_map))
-				.await
-				.map_err(|source| tg::error!(!source, "failed to create the proxy server"))?;
 
 		// Create /etc.
 		tokio::fs::create_dir_all(root_directory_host_path.join("etc"))

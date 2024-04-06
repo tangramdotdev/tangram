@@ -1,5 +1,5 @@
 use super::Server;
-use itertools::Itertools;
+use itertools::Itertools as _;
 use std::{
 	collections::{BTreeMap, HashSet},
 	rc::Rc,

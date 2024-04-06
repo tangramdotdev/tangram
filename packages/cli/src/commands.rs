@@ -1,4 +1,3 @@
-pub mod autoenv;
 pub mod build;
 pub mod cat;
 pub mod check;
@@ -9,7 +8,6 @@ pub mod clean;
 pub mod doc;
 pub mod format;
 pub mod get;
-pub mod hook;
 pub mod init;
 pub mod log;
 pub mod login;

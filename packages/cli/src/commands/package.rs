@@ -1,6 +1,6 @@
 use crate::{tree::Tree, Cli};
 use crossterm::style::Stylize;
-use itertools::Itertools;
+use itertools::Itertools as _;
 use std::{
 	collections::{BTreeSet, VecDeque},
 	fmt::Write,
@@ -205,11 +205,11 @@ impl Cli {
 		let (package, _) = tg::package::get_with_lock(client, &dependency).await?;
 
 		// Get the package ID.
-		let id = package.id(client).await?;
+		let id = package.id(client, None).await?;
 
 		// Publish the package.
 		client
-			.publish_package(self.user.as_ref(), &id)
+			.publish_package(&id)
 			.await
 			.map_err(|source| tg::error!(!source, "failed to publish the package"))?;
 
@@ -323,11 +323,11 @@ impl Cli {
 			.map_err(|source| tg::error!(!source, %dependency, "failed to get the package"))?;
 
 		// Get the package ID.
-		let id = package.id(client).await?;
+		let id = package.id(client, None).await?;
 
 		// Yank the package.
 		client
-			.yank_package(self.user.as_ref(), &id)
+			.yank_package(&id)
 			.await
 			.map_err(|source| tg::error!(!source, "failed to yank the package"))?;
 
@@ -370,7 +370,7 @@ async fn get_package_tree(
 		write!(title, "{package}").unwrap();
 	}
 
-	let package_id = package.id(client).await?;
+	let package_id = package.id(client, None).await?;
 	if visited.contains(&package_id)
 		|| max_depth.map_or(false, |max_depth| current_depth == max_depth)
 	{

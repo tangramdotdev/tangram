@@ -3,8 +3,8 @@ use crate::{
 	util::http::{empty, full, not_found, Incoming, Outgoing},
 	Http, Server,
 };
-use futures::{future, stream::FuturesUnordered, TryFutureExt, TryStreamExt};
-use http_body_util::BodyExt;
+use futures::{future, stream::FuturesUnordered, TryFutureExt as _, TryStreamExt as _};
+use http_body_util::BodyExt as _;
 use indoc::formatdoc;
 use std::pin::pin;
 use tangram_client as tg;
@@ -108,18 +108,17 @@ impl Server {
 
 	pub async fn set_build_outcome(
 		&self,
-		user: Option<&tg::User>,
 		id: &tg::build::Id,
 		outcome: tg::build::Outcome,
 	) -> tg::Result<()> {
 		if self
-			.try_set_build_outcome_local(user, id, outcome.clone())
+			.try_set_build_outcome_local(id, outcome.clone())
 			.await?
 		{
 			return Ok(());
 		}
 		if self
-			.try_set_build_outcome_remote(user, id, outcome.clone())
+			.try_set_build_outcome_remote(id, outcome.clone())
 			.await?
 		{
 			return Ok(());
@@ -129,7 +128,6 @@ impl Server {
 
 	async fn try_set_build_outcome_local(
 		&self,
-		user: Option<&tg::User>,
 		id: &tg::build::Id,
 		outcome: tg::build::Outcome,
 	) -> tg::Result<bool> {
@@ -189,7 +187,7 @@ impl Server {
 			children
 				.iter()
 				.map(|child| async move {
-					self.set_build_outcome(user, child, tg::build::Outcome::Canceled)
+					self.set_build_outcome(child, tg::build::Outcome::Canceled)
 						.await
 				})
 				.collect::<FuturesUnordered<_>>()
@@ -225,8 +223,8 @@ impl Server {
 		let outcome = outcome.data(self).await?;
 
 		// Create a blob from the log.
-		let log = tg::Blob::with_reader(self, log::Reader::new(self, id).await?).await?;
-		let log = log.id(self).await?;
+		let log = tg::Blob::with_reader(self, log::Reader::new(self, id).await?, None).await?;
+		let log = log.id(self, None).await?;
 
 		// Get a database connection.
 		let connection = self
@@ -374,7 +372,6 @@ impl Server {
 
 	async fn try_set_build_outcome_remote(
 		&self,
-		user: Option<&tg::User>,
 		id: &tg::build::Id,
 		outcome: tg::build::Outcome,
 	) -> tg::Result<bool> {
@@ -385,11 +382,11 @@ impl Server {
 
 		// Push the output.
 		if let tg::build::Outcome::Succeeded(value) = &outcome {
-			value.push(self, remote).await?;
+			value.push(self, remote, None).await?;
 		}
 
 		// Set the outcome.
-		remote.set_build_outcome(user, id, outcome).await?;
+		remote.set_build_outcome(id, outcome).await?;
 
 		Ok(true)
 	}
@@ -464,9 +461,6 @@ where
 			.parse()
 			.map_err(|source| tg::error!(!source, "failed to parse the ID"))?;
 
-		// Get the user.
-		let user = self.try_get_user_from_request(&request).await?;
-
 		// Read the body.
 		let bytes = request
 			.into_body()
@@ -478,10 +472,7 @@ where
 			.map_err(|source| tg::error!(!source, "failed to deserialize the body"))?;
 
 		// Set the outcome.
-		self.inner
-			.tg
-			.set_build_outcome(user.as_ref(), &id, outcome)
-			.await?;
+		self.inner.tg.set_build_outcome(&id, outcome).await?;
 
 		// Create the response.
 		let response = http::Response::builder()

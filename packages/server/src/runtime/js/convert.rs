@@ -590,6 +590,7 @@ impl ToV8 for tg::Value {
 			Self::Map(value) => value.to_v8(scope),
 			Self::Object(value) => value.to_v8(scope),
 			Self::Bytes(value) => value.to_v8(scope),
+			Self::Path(value) => value.to_v8(scope),
 			Self::Mutation(value) => value.to_v8(scope),
 			Self::Template(value) => value.to_v8(scope),
 		}
@@ -636,6 +637,10 @@ impl FromV8 for tg::Value {
 		let target = tg.get(scope, target.into()).unwrap();
 		let target = v8::Local::<v8::Function>::try_from(target).unwrap();
 
+		let path = v8::String::new_external_onebyte_static(scope, "Path".as_bytes()).unwrap();
+		let path = tg.get(scope, path.into()).unwrap();
+		let path = v8::Local::<v8::Function>::try_from(path).unwrap();
+
 		let mutation =
 			v8::String::new_external_onebyte_static(scope, "Mutation".as_bytes()).unwrap();
 		let mutation = tg.get(scope, mutation.into()).unwrap();
@@ -667,6 +672,8 @@ impl FromV8 for tg::Value {
 			Ok(Self::Object(from_v8(scope, value)?))
 		} else if value.is_uint8_array() {
 			Ok(Self::Bytes(from_v8(scope, value)?))
+		} else if value.instance_of(scope, path.into()).unwrap() {
+			Ok(Self::Path(from_v8(scope, value)?))
 		} else if value.instance_of(scope, mutation.into()).unwrap() {
 			Ok(Self::Mutation(from_v8(scope, value)?))
 		} else if value.instance_of(scope, template.into()).unwrap() {
@@ -2052,7 +2059,7 @@ impl ToV8 for tg::Template {
 		let template = tg.get(scope, template.into()).unwrap();
 		let template = v8::Local::<v8::Function>::try_from(template).unwrap();
 
-		let components = self.components.to_v8(scope)?;
+		let components = self.components().to_v8(scope)?;
 
 		let instance = template
 			.new_instance(scope, &[components])
@@ -2086,9 +2093,9 @@ impl FromV8 for tg::Template {
 		let components =
 			v8::String::new_external_onebyte_static(scope, "components".as_bytes()).unwrap();
 		let components = value.get(scope, components.into()).unwrap();
-		let components = from_v8(scope, components)?;
+		let components: Vec<tg::template::Component> = from_v8(scope, components)?;
 
-		Ok(Self { components })
+		Ok(Self::with_components(components))
 	}
 }
 
@@ -2140,13 +2147,79 @@ impl FromV8 for tg::template::Component {
 	}
 }
 
-impl ToV8 for tg::blob::ArchiveFormat {
+impl ToV8 for tg::Path {
+	fn to_v8<'a>(&self, scope: &mut v8::HandleScope<'a>) -> tg::Result<v8::Local<'a, v8::Value>> {
+		let context = scope.get_current_context();
+		let global = context.global(scope);
+		let tg = v8::String::new_external_onebyte_static(scope, "tg".as_bytes()).unwrap();
+		let tg = global.get(scope, tg.into()).unwrap();
+		let tg = v8::Local::<v8::Object>::try_from(tg).unwrap();
+
+		let path = v8::String::new_external_onebyte_static(scope, "Path".as_bytes()).unwrap();
+		let path = tg.get(scope, path.into()).unwrap();
+		let path = v8::Local::<v8::Function>::try_from(path).unwrap();
+
+		let components = self.components().to_v8(scope)?;
+
+		let instance = path
+			.new_instance(scope, &[components])
+			.ok_or_else(|| tg::error!("the constructor failed"))?;
+
+		Ok(instance.into())
+	}
+}
+
+impl FromV8 for tg::Path {
+	fn from_v8<'a>(
+		scope: &mut v8::HandleScope<'a>,
+		value: v8::Local<'a, v8::Value>,
+	) -> tg::Result<Self> {
+		let context = scope.get_current_context();
+		let global = context.global(scope);
+		let tg = v8::String::new_external_onebyte_static(scope, "tg".as_bytes()).unwrap();
+		let tg = global.get(scope, tg.into()).unwrap();
+		let tg = v8::Local::<v8::Object>::try_from(tg).unwrap();
+
+		let path = v8::String::new_external_onebyte_static(scope, "Path".as_bytes()).unwrap();
+		let path = tg.get(scope, path.into()).unwrap();
+		let path = v8::Local::<v8::Function>::try_from(path).unwrap();
+
+		if !value.instance_of(scope, path.into()).unwrap() {
+			return Err(tg::error!("expected a path"));
+		}
+		let value = value.to_object(scope).unwrap();
+
+		let components =
+			v8::String::new_external_onebyte_static(scope, "components".as_bytes()).unwrap();
+		let components = value.get(scope, components.into()).unwrap();
+		let components: Vec<tg::path::Component> = from_v8(scope, components)?;
+
+		Ok(Self::with_components(components))
+	}
+}
+
+impl ToV8 for tg::path::Component {
 	fn to_v8<'a>(&self, scope: &mut v8::HandleScope<'a>) -> tg::Result<v8::Local<'a, v8::Value>> {
 		self.to_string().to_v8(scope)
 	}
 }
 
-impl FromV8 for tg::blob::ArchiveFormat {
+impl FromV8 for tg::path::Component {
+	fn from_v8<'a>(
+		scope: &mut v8::HandleScope<'a>,
+		value: v8::Local<'a, v8::Value>,
+	) -> tg::Result<Self> {
+		String::from_v8(scope, value)?.parse()
+	}
+}
+
+impl ToV8 for tg::artifact::ArchiveFormat {
+	fn to_v8<'a>(&self, scope: &mut v8::HandleScope<'a>) -> tg::Result<v8::Local<'a, v8::Value>> {
+		self.to_string().to_v8(scope)
+	}
+}
+
+impl FromV8 for tg::artifact::ArchiveFormat {
 	fn from_v8<'a>(
 		scope: &mut v8::HandleScope<'a>,
 		value: v8::Local<'a, v8::Value>,

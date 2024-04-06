@@ -1,5 +1,5 @@
 use bytes::Bytes;
-use http_body_util::BodyExt;
+use http_body_util::BodyExt as _;
 use std::collections::BTreeMap;
 use tangram_client as tg;
 

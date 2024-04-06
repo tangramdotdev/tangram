@@ -1,14 +1,13 @@
 use crate::{Database as _, Error as _, Row, Value};
-use derive_more::{Display, Error as Error_, From};
-use futures::{future, Stream, TryStreamExt};
+use futures::{future, Stream, TryStreamExt as _};
 use indexmap::IndexMap;
-use itertools::Itertools;
+use itertools::Itertools as _;
 pub use postgres::types::Json;
 use std::collections::HashMap;
 use tokio_postgres as postgres;
 use url::Url;
 
-#[derive(Debug, Display, Error_, From)]
+#[derive(Debug, derive_more::Display, derive_more::Error, derive_more::From)]
 pub enum Error {
 	Postgres(postgres::Error),
 	Other(Box<dyn std::error::Error + Send + Sync>),

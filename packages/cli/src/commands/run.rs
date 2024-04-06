@@ -1,11 +1,7 @@
-use crate::{
-	host,
-	tui::{self, Tui},
-	Cli,
-};
+use crate::{host, tui::Tui, Cli};
 use crossterm::style::Stylize;
-use itertools::Itertools;
-use std::{collections::BTreeMap, os::unix::process::CommandExt};
+use itertools::Itertools as _;
+use std::{collections::BTreeMap, os::unix::process::CommandExt as _};
 use tangram_client as tg;
 
 /// Build a target and run a command.
@@ -105,7 +101,7 @@ impl Cli {
 			let args_ = vec![args_.into()];
 			let host = "js".to_owned();
 			let path = tg::package::get_root_module_path(client, &package).await?;
-			let executable = tg::Symlink::new(Some(package.into()), Some(path.to_string())).into();
+			let executable = tg::Symlink::new(Some(package.into()), Some(path)).into();
 			tg::target::Builder::new(host, executable)
 				.lock(lock)
 				.name(target.clone())
@@ -118,7 +114,7 @@ impl Cli {
 		eprintln!(
 			"{}: target {}",
 			"info".blue().bold(),
-			target.id(client).await?
+			target.id(client, None).await?
 		);
 
 		// Build the target.
@@ -126,7 +122,7 @@ impl Cli {
 			parent: None,
 			remote: false,
 			retry: args.retry,
-			target: target.id(client).await?,
+			target: target.id(client, None).await?,
 		};
 		let build = tg::Build::new(client, arg).await?;
 
@@ -149,9 +145,7 @@ impl Cli {
 			// Create the TUI.
 			let tui = !args.no_tui;
 			let tui = if tui {
-				Tui::start(client, &build, tui::Options::default())
-					.await
-					.ok()
+				Tui::start(client, &build).await.ok()
 			} else {
 				None
 			};
@@ -185,7 +179,7 @@ impl Cli {
 			.map_err(|source| tg::error!(!source, "failed to get the server path"))?
 			.ok_or_else(|| tg::error!("failed to get the server path"))?
 			.join("artifacts")
-			.join(artifact.id(client).await?.to_string());
+			.join(artifact.id(client, None).await?.to_string());
 
 		// Get the executable path.
 		let executable_path = if let Some(executable_path) = args.executable {
@@ -204,7 +198,7 @@ impl Cli {
 		};
 
 		// Exec.
-		let error = std::process::Command::new(&executable_path)
+		let error = std::process::Command::new(executable_path.as_path())
 			.args(args.trailing)
 			.exec();
 		Err(tg::error!(source = error, %executable_path, "failed to execute the command"))

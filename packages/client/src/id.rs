@@ -1,5 +1,4 @@
-use crate::{self as tg, error};
-use derive_more::From;
+use crate as tg;
 
 /// An ID.
 #[derive(
@@ -34,7 +33,6 @@ pub enum Kind {
 	Target,
 	Build,
 	User,
-	Login,
 	Token,
 	Request,
 }
@@ -107,32 +105,38 @@ impl std::str::FromStr for Id {
 	fn from_str(id: &str) -> tg::Result<Self, Self::Err> {
 		let kind = id
 			.get(0..=2)
-			.ok_or_else(|| error!(%id, "invalid ID"))?
+			.ok_or_else(|| tg::error!(%id, "invalid ID"))?
 			.parse()?;
-		let version = id.chars().nth(4).ok_or_else(|| error!(%id, "invalid ID"))?;
+		let version = id
+			.chars()
+			.nth(4)
+			.ok_or_else(|| tg::error!(%id, "invalid ID"))?;
 		if version != '0' {
-			return Err(error!(%version, "invalid version"));
+			return Err(tg::error!(%version, "invalid version"));
 		}
-		let algorithm = id.chars().nth(5).ok_or_else(|| error!(%id, "invalid ID"))?;
-		let body = id.get(6..).ok_or_else(|| error!(%id, "invalid ID"))?;
+		let algorithm = id
+			.chars()
+			.nth(5)
+			.ok_or_else(|| tg::error!(%id, "invalid ID"))?;
+		let body = id.get(6..).ok_or_else(|| tg::error!(%id, "invalid ID"))?;
 		let body = match algorithm {
 			'0' => Body::UuidV7(
 				ENCODING
 					.decode(body.as_bytes())
-					.map_err(|source| error!(!source, "invalid body"))?
+					.map_err(|source| tg::error!(!source, "invalid body"))?
 					.try_into()
 					.ok()
-					.ok_or_else(|| error!("invalid body"))?,
+					.ok_or_else(|| tg::error!("invalid body"))?,
 			),
 			'1' => Body::Blake3(
 				ENCODING
 					.decode(body.as_bytes())
-					.map_err(|source| error!(!source, "invalid body"))?
+					.map_err(|source| tg::error!(!source, "invalid body"))?
 					.try_into()
 					.ok()
-					.ok_or_else(|| error!("invalid body"))?,
+					.ok_or_else(|| tg::error!("invalid body"))?,
 			),
-			_ => return Err(error!(%id, "invalid ID")),
+			_ => return Err(tg::error!(%id, "invalid ID")),
 		};
 		Ok(Self::V0(V0 { kind, body }))
 	}
@@ -150,7 +154,6 @@ impl std::fmt::Display for Kind {
 			Kind::Target => "tgt",
 			Kind::Build => "bld",
 			Kind::User => "usr",
-			Kind::Login => "lgn",
 			Kind::Token => "tok",
 			Kind::Request => "req",
 		};
@@ -173,10 +176,9 @@ impl std::str::FromStr for Kind {
 			"tgt" => Kind::Target,
 			"bld" => Kind::Build,
 			"usr" => Kind::User,
-			"lgn" => Kind::Login,
 			"tok" => Kind::Token,
 			"req" => Kind::Request,
-			kind => return Err(error!(%kind, "invalid kind")),
+			kind => return Err(tg::error!(%kind, "invalid kind")),
 		})
 	}
 }

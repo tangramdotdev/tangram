@@ -1,4 +1,5 @@
 use crate::{default_path, Cli, API_URL};
+use either::Either;
 use std::path::PathBuf;
 use tangram_client as tg;
 use url::Url;
@@ -48,7 +49,8 @@ impl Cli {
 			Command::Health(_) => {
 				let client = self.client().await?;
 				let health = client.health().await?;
-				let health = serde_json::to_string_pretty(&health).unwrap();
+				let health = serde_json::to_string_pretty(&health)
+					.map_err(|source| tg::error!(!source, "failed to serialize"))?;
 				println!("{health}");
 			},
 			Command::Start(_) => {
@@ -79,11 +81,16 @@ impl Cli {
 		let url = args
 			.url
 			.or(config.and_then(|config| config.url.clone()))
-			.unwrap_or_else(|| {
-				format!("unix:{}", path.join("socket").display())
-					.parse()
-					.unwrap()
-			});
+			.map_or_else(
+				|| {
+					let path = path.join("socket");
+					let path = path.to_str().ok_or_else(|| tg::error!("invalid path"))?;
+					let path = urlencoding::encode(path);
+					let url = format!("http+unix://{path}").parse().unwrap();
+					Ok(url)
+				},
+				Ok::<_, tg::Error>,
+			)?;
 
 		// Get the file descriptor semaphore size.
 		let file_descriptor_semaphore_size = config
@@ -92,18 +99,17 @@ impl Cli {
 			.unwrap_or(1024);
 
 		// Create the build options.
-		let enable = config
-			.and_then(|config| config.build.as_ref())
-			.and_then(|build| build.enable)
-			.unwrap_or(true);
-		let max_concurrency = config
-			.and_then(|config| config.build.as_ref())
-			.and_then(|build| build.max_concurrency)
-			.unwrap_or_else(|| std::thread::available_parallelism().unwrap().get());
-		let build = tangram_server::options::Build {
-			enable,
-			max_concurrency,
+		let build = match config.and_then(|config| config.build.as_ref()) {
+			Some(Either::Left(false)) => None,
+			Some(Either::Left(true)) | None => Some(None),
+			Some(Either::Right(value)) => Some(Some(value)),
 		};
+		let build = build.map(|build| {
+			let max_concurrency = build
+				.and_then(|build| build.max_concurrency)
+				.unwrap_or_else(|| std::thread::available_parallelism().unwrap().get());
+			tangram_server::options::Build { max_concurrency }
+		});
 
 		// Create the database options.
 		let database = config
@@ -184,18 +190,10 @@ impl Cli {
 				remotes
 					.iter()
 					.map(|remote| {
+						let build = remote.build.unwrap_or_default();
 						let url = remote.url.clone();
 						let client = tg::Builder::new(url).build();
-						let build_ = remote.build.clone();
-						let enable = build_
-							.as_ref()
-							.and_then(|build| build.enable)
-							.unwrap_or(false);
-						let build_ = tangram_server::options::RemoteBuild { enable };
-						let remote = tangram_server::options::Remote {
-							client,
-							build: build_,
-						};
+						let remote = tangram_server::options::Remote { build, client };
 						Ok::<_, tg::Error>(remote)
 					})
 					.collect()
@@ -204,7 +202,7 @@ impl Cli {
 		let remotes = if let Some(remotes) = remotes {
 			remotes
 		} else {
-			let build = tangram_server::options::RemoteBuild { enable: false };
+			let build = false;
 			let url = Url::parse(API_URL).unwrap();
 			let client = tg::Builder::new(url).build();
 			let remote = tangram_server::options::Remote { build, client };
@@ -215,12 +213,7 @@ impl Cli {
 		let version = self.version.clone();
 
 		// Create the vfs options.
-		let vfs = config.and_then(|config| config.vfs.as_ref()).map_or_else(
-			|| tangram_server::options::Vfs { enable: true },
-			|vfs| tangram_server::options::Vfs {
-				enable: vfs.enable.unwrap_or(true),
-			},
-		);
+		let vfs = config.and_then(|config| config.vfs).unwrap_or(true);
 
 		// Get the server's advanced options.
 		let preserve_temp_directories = config

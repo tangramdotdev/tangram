@@ -2,7 +2,7 @@ use crate::{
 	util::http::{full, not_found, Incoming, Outgoing},
 	Http, Server,
 };
-use futures::{stream, StreamExt, TryStreamExt};
+use futures::{stream, StreamExt as _, TryStreamExt as _};
 use indoc::formatdoc;
 use tangram_client as tg;
 use tangram_database::{self as db, prelude::*};

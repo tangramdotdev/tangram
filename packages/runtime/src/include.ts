@@ -18,6 +18,6 @@ export let include = async (arg: Arg): Promise<Artifact> => {
 		.join(arg.path)
 		.normalize()
 		.toString();
-	let includedArtifact = await package_.get(path);
-	return includedArtifact;
+	let artifact = await package_.get(path);
+	return artifact;
 };

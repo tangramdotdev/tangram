@@ -1,9 +1,15 @@
-use derive_more::{From, TryInto, TryUnwrap};
-
 pub mod de;
 pub mod ser;
 
-#[derive(Clone, Debug, From, serde::Deserialize, serde::Serialize, TryInto, TryUnwrap)]
+#[derive(
+	Clone,
+	Debug,
+	derive_more::From,
+	derive_more::TryInto,
+	derive_more::TryUnwrap,
+	serde::Deserialize,
+	serde::Serialize,
+)]
 #[serde(untagged)]
 #[try_unwrap(ref)]
 pub enum Value {

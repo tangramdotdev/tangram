@@ -5,14 +5,14 @@ use crate::{
 use tangram_client as tg;
 
 impl Server {
-	pub async fn push_build(&self, user: Option<&tg::User>, id: &tg::build::Id) -> tg::Result<()> {
+	pub async fn push_build(&self, id: &tg::build::Id) -> tg::Result<()> {
 		let remote = self
 			.inner
 			.remotes
 			.first()
 			.ok_or_else(|| tg::error!("the server does not have a remote"))?;
 		tg::Build::with_id(id.clone())
-			.push(user, self, remote)
+			.push(self, remote)
 			.await
 			.map_err(|source| tg::error!(!source, "failed to push the build"))?;
 		Ok(())
@@ -37,11 +37,8 @@ where
 			return Ok(bad_request());
 		};
 
-		// Get the user.
-		let user = self.try_get_user_from_request(&request).await?;
-
 		// Push the build.
-		self.inner.tg.push_build(user.as_ref(), &id).await?;
+		self.inner.tg.push_build(&id).await?;
 
 		Ok(ok())
 	}

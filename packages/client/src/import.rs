@@ -1,9 +1,8 @@
-use crate::{self as tg, error};
-use derive_more::TryUnwrap;
+use crate as tg;
 use std::collections::BTreeMap;
 
 /// An import in a module.
-#[derive(Debug, Clone, PartialEq, Eq, Hash, TryUnwrap)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash, derive_more::TryUnwrap)]
 #[try_unwrap(ref)]
 pub enum Import {
 	/// An import of a module, such as `import "./module.tg"`.
@@ -31,7 +30,7 @@ impl Import {
 						.map(|(key, value)| (key.clone(), value.clone()))
 						.collect();
 					let attributes = serde_json::from_value(attributes)
-						.map_err(|source| error!(!source, "failed to parse the attributes"))?;
+						.map_err(|source| tg::error!(!source, "failed to parse the attributes"))?;
 					dependency.merge(attributes);
 					Self::Dependency(dependency)
 				},
@@ -65,20 +64,22 @@ impl std::str::FromStr for Import {
 	fn from_str(value: &str) -> tg::Result<Self, Self::Err> {
 		if value.starts_with('.') {
 			let path = value.parse::<tg::Path>()?;
-			if !matches!(path.extension(), Some("js" | "ts" | "tg.js" | "tg.ts")) {
-				return Err(error!(
-					%path,
-					r#"the path does not have a valid extension"#
-				));
+			#[allow(clippy::case_sensitive_file_extension_comparisons)]
+			if !(path.as_str().ends_with(".js")
+				|| path.as_str().ends_with(".ts")
+				|| path.as_str().ends_with(".tg.js")
+				|| path.as_str().ends_with(".tg.ts"))
+			{
+				return Err(tg::error!(%path, "invalid extension"));
 			}
 			Ok(Import::Module(path))
 		} else if let Some(value) = value.strip_prefix("tg:") {
-			let dependency = value.parse().map_err(
-				|source| error!(!source, %value, "failed to parse value as a dependency"),
-			)?;
+			let dependency = value
+				.parse()
+				.map_err(|source| tg::error!(!source, %value, "invalid dependency"))?;
 			Ok(Import::Dependency(dependency))
 		} else {
-			return Err(error!(?value, r#"the import is not valid"#));
+			return Err(tg::error!(?value, "invalid import"));
 		}
 	}
 }

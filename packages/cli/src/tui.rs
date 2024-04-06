@@ -1,5 +1,5 @@
 use crossterm as ct;
-use futures::{StreamExt, TryStreamExt};
+use futures::{StreamExt as _, TryStreamExt as _};
 use num::ToPrimitive;
 use ratatui as tui;
 use std::{
@@ -12,6 +12,7 @@ use std::{
 };
 use tangram_client as tg;
 use tui::{layout::Rect, style::Stylize, widgets::Widget};
+
 mod scroll;
 
 pub struct Tui {
@@ -123,17 +124,8 @@ enum LogEvent {
 
 const SPINNER: [char; 10] = ['⠋', '⠙', '⠹', '⠸', '⠼', '⠴', '⠦', '⠧', '⠇', '⠏'];
 
-#[derive(Clone, Debug, Default)]
-pub struct Options {
-	pub exit: bool,
-}
-
 impl Tui {
-	pub async fn start(
-		client: &tg::Client,
-		build: &tg::Build,
-		options: Options,
-	) -> tg::Result<Self> {
+	pub async fn start(client: &tg::Client, build: &tg::Build) -> tg::Result<Self> {
 		// Create the terminal.
 		let tty = tokio::fs::OpenOptions::new()
 			.read(true)
@@ -175,10 +167,9 @@ impl Tui {
 
 						// Quit the TUI if requested.
 						if let ct::event::Event::Key(event) = event {
-							if options.exit
-								&& (event.code == ct::event::KeyCode::Char('q')
-									|| (event.code == ct::event::KeyCode::Char('c')
-										&& event.modifiers == ct::event::KeyModifiers::CONTROL))
+							if event.code == ct::event::KeyCode::Char('q')
+								|| (event.code == ct::event::KeyCode::Char('c')
+									&& event.modifiers == ct::event::KeyModifiers::CONTROL)
 							{
 								break;
 							}
@@ -274,11 +265,6 @@ impl App {
 
 	fn key(&mut self, event: ct::event::KeyEvent) {
 		match event.code {
-			ct::event::KeyCode::Char('c')
-				if event.modifiers == ct::event::KeyModifiers::CONTROL =>
-			{
-				self.quit();
-			},
 			ct::event::KeyCode::Char('c') => {
 				self.cancel();
 			},
@@ -293,9 +279,6 @@ impl App {
 			},
 			ct::event::KeyCode::Right | ct::event::KeyCode::Char('l') => {
 				self.expand();
-			},
-			ct::event::KeyCode::Char('q') => {
-				self.quit();
 			},
 			ct::event::KeyCode::Char('r') => {
 				self.rotate();
@@ -404,12 +387,6 @@ impl App {
 
 	fn cancel(&mut self) {
 		let build = self.tree.selected.inner.build.clone();
-		let client = self.client.clone();
-		tokio::spawn(async move { build.cancel(&client).await.ok() });
-	}
-
-	fn quit(&mut self) {
-		let build = self.tree.root.inner.build.clone();
 		let client = self.client.clone();
 		tokio::spawn(async move { build.cancel(&client).await.ok() });
 	}

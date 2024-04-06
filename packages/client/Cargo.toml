@@ -21,14 +21,12 @@ workspace = true
 proptest = { workspace = true }
 
 [dependencies]
-async-compression = { workspace = true }
 blake3 = { workspace = true }
 bytes = { workspace = true }
 data-encoding = { workspace = true }
 data-encoding-macro = { workspace = true }
 derive_more = { workspace = true }
 either = { workspace = true }
-fastcdc = { workspace = true }
 fnv = { workspace = true }
 futures = { workspace = true }
 http = { workspace = true }
@@ -52,7 +50,6 @@ serde_json = { workspace = true }
 serde_urlencoded = { workspace = true }
 serde_with = { workspace = true }
 sha2 = { workspace = true }
-tar = { workspace = true }
 tempfile = { workspace = true }
 tangram_sse = { workspace = true }
 time = { workspace = true }
@@ -66,4 +63,3 @@ urlencoding = { workspace = true }
 uuid = { workspace = true }
 webpki-roots = { workspace = true, optional = true }
 xattr = { workspace = true }
-zip = { workspace = true }

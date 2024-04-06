@@ -1,17 +1,17 @@
-use crate::{self as tg, artifact, error, id, object, util::arc::Ext, Artifact, Handle, Path};
+use crate::{self as tg, util::arc::Ext as _};
 use bytes::Bytes;
-use derive_more::Display;
-use std::{str::FromStr, sync::Arc};
+use futures::FutureExt as _;
+use std::sync::Arc;
 
 #[derive(
 	Clone,
 	Debug,
-	Display,
 	Eq,
 	Hash,
 	Ord,
 	PartialEq,
 	PartialOrd,
+	derive_more::Display,
 	serde::Deserialize,
 	serde::Serialize,
 )]
@@ -23,25 +23,25 @@ pub struct Symlink {
 	state: Arc<std::sync::RwLock<State>>,
 }
 
-pub type State = object::State<Id, Object>;
+pub type State = tg::object::State<Id, Object>;
 
 #[derive(Clone, Debug)]
 pub struct Object {
-	pub artifact: Option<Artifact>,
-	pub path: Option<String>,
+	pub artifact: Option<tg::Artifact>,
+	pub path: Option<tg::Path>,
 }
 
 #[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
 pub struct Data {
 	#[serde(default, skip_serializing_if = "Option::is_none")]
-	pub artifact: Option<artifact::Id>,
+	pub artifact: Option<tg::artifact::Id>,
 	#[serde(default, skip_serializing_if = "Option::is_none")]
-	pub path: Option<String>,
+	pub path: Option<tg::Path>,
 }
 
 impl Id {
 	pub fn new(bytes: &Bytes) -> Self {
-		Self(crate::Id::new_blake3(id::Kind::Symlink, bytes))
+		Self(crate::Id::new_blake3(tg::id::Kind::Symlink, bytes))
 	}
 }
 
@@ -71,21 +71,24 @@ impl Symlink {
 		Self { state }
 	}
 
-	pub async fn id(&self, tg: &impl Handle) -> tg::Result<Id> {
-		self.store(tg).await
+	pub async fn id<H>(&self, tg: &H, transaction: Option<&H::Transaction<'_>>) -> tg::Result<Id>
+	where
+		H: tg::Handle,
+	{
+		self.store(tg, transaction).await
 	}
 
-	pub async fn object(&self, tg: &impl Handle) -> tg::Result<Arc<Object>> {
+	pub async fn object(&self, tg: &impl tg::Handle) -> tg::Result<Arc<Object>> {
 		self.load(tg).await
 	}
 
-	pub async fn load(&self, tg: &impl Handle) -> tg::Result<Arc<Object>> {
+	pub async fn load(&self, tg: &impl tg::Handle) -> tg::Result<Arc<Object>> {
 		self.try_load(tg)
 			.await?
-			.ok_or_else(|| error!("failed to load the object"))
+			.ok_or_else(|| tg::error!("failed to load the object"))
 	}
 
-	pub async fn try_load(&self, tg: &impl Handle) -> tg::Result<Option<Arc<Object>>> {
+	pub async fn try_load(&self, tg: &impl tg::Handle) -> tg::Result<Option<Arc<Object>>> {
 		if let Some(object) = self.state.read().unwrap().object.clone() {
 			return Ok(Some(object));
 		}
@@ -94,36 +97,47 @@ impl Symlink {
 			return Ok(None);
 		};
 		let data = Data::deserialize(&output.bytes)
-			.map_err(|source| error!(!source, "failed to deserialize the data"))?;
+			.map_err(|source| tg::error!(!source, "failed to deserialize the data"))?;
 		let object = Object::try_from(data)?;
 		let object = Arc::new(object);
 		self.state.write().unwrap().object.replace(object.clone());
 		Ok(Some(object))
 	}
 
-	pub async fn store(&self, tg: &impl Handle) -> tg::Result<Id> {
+	pub async fn store<H>(&self, tg: &H, transaction: Option<&H::Transaction<'_>>) -> tg::Result<Id>
+	where
+		H: tg::Handle,
+	{
 		if let Some(id) = self.state.read().unwrap().id.clone() {
 			return Ok(id);
 		}
-		let data = Box::pin(self.data(tg)).await?;
+		let data = self.data(tg, transaction).await?;
 		let bytes = data.serialize()?;
 		let id = Id::new(&bytes);
-		let arg = object::PutArg {
+		let arg = tg::object::PutArg {
 			bytes,
 			count: None,
 			weight: None,
 		};
-		tg.put_object(&id.clone().into(), &arg)
+		tg.put_object(&id.clone().into(), arg, transaction)
+			.boxed()
 			.await
-			.map_err(|source| error!(!source, "failed to put the object"))?;
+			.map_err(|source| tg::error!(!source, "failed to put the object"))?;
 		self.state.write().unwrap().id.replace(id.clone());
 		Ok(id)
 	}
 
-	pub async fn data(&self, tg: &impl Handle) -> tg::Result<Data> {
+	pub async fn data<H>(
+		&self,
+		tg: &H,
+		transaction: Option<&H::Transaction<'_>>,
+	) -> tg::Result<Data>
+	where
+		H: tg::Handle,
+	{
 		let object = self.object(tg).await?;
 		let artifact = if let Some(artifact) = &object.artifact {
-			Some(artifact.id(tg).await?)
+			Some(artifact.id(tg, transaction).await?)
 		} else {
 			None
 		};
@@ -134,36 +148,36 @@ impl Symlink {
 
 impl Symlink {
 	#[must_use]
-	pub fn new(artifact: Option<Artifact>, path: Option<String>) -> Self {
+	pub fn new(artifact: Option<tg::Artifact>, path: Option<tg::Path>) -> Self {
 		Self::with_object(Object { artifact, path })
 	}
 
-	pub async fn artifact(&self, tg: &impl Handle) -> tg::Result<Option<Artifact>> {
+	pub async fn artifact(&self, tg: &impl tg::Handle) -> tg::Result<Option<tg::Artifact>> {
 		Ok(self.object(tg).await?.artifact.clone())
 	}
 
 	pub async fn path(
 		&self,
-		tg: &impl Handle,
-	) -> tg::Result<impl std::ops::Deref<Target = Option<String>>> {
+		tg: &impl tg::Handle,
+	) -> tg::Result<impl std::ops::Deref<Target = Option<tg::Path>>> {
 		Ok(self.object(tg).await?.map(|object| &object.path))
 	}
 
-	pub async fn resolve(&self, tg: &impl Handle) -> tg::Result<Option<Artifact>> {
+	pub async fn resolve(&self, tg: &impl tg::Handle) -> tg::Result<Option<tg::Artifact>> {
 		self.resolve_from(tg, None).await
 	}
 
 	pub async fn resolve_from(
 		&self,
-		tg: &impl Handle,
+		tg: &impl tg::Handle,
 		from: Option<Self>,
-	) -> tg::Result<Option<Artifact>> {
+	) -> tg::Result<Option<tg::Artifact>> {
 		let mut from_artifact = if let Some(from) = &from {
 			from.artifact(tg).await?.clone()
 		} else {
 			None
 		};
-		if let Some(artifact::Artifact::Symlink(symlink)) = from_artifact {
+		if let Some(tg::artifact::Artifact::Symlink(symlink)) = from_artifact {
 			from_artifact = Box::pin(symlink.resolve_from(tg, None)).await?;
 		}
 		let from_path = if let Some(from) = from {
@@ -172,35 +186,34 @@ impl Symlink {
 			None
 		};
 		let mut artifact = self.artifact(tg).await?.clone();
-		if let Some(artifact::Artifact::Symlink(symlink)) = artifact {
+		if let Some(tg::artifact::Artifact::Symlink(symlink)) = artifact {
 			artifact = Box::pin(symlink.resolve_from(tg, None)).await?;
 		}
 		let path = self.path(tg).await?.clone();
-
 		if artifact.is_some() && from_artifact.is_some() {
-			return Err(error!("expected no `from` value when `artifact` is set"));
+			return Err(tg::error!(
+				"expected no `from` value when `artifact` is set"
+			));
 		}
-
 		if artifact.is_some() && path.is_none() {
 			return Ok(artifact);
 		} else if artifact.is_none() && path.is_some() {
-			if let Some(artifact::Artifact::Directory(directory)) = from_artifact {
-				let path = Path::from_str(&from_path.unwrap_or(String::new()))?
-					.join(Path::from_str("..")?)
-					.join(Path::from_str(&path.unwrap())?)
+			if let Some(tg::artifact::Artifact::Directory(directory)) = from_artifact {
+				let path = from_path
+					.unwrap_or_default()
+					.join(tg::Path::with_components([tg::path::Component::Parent]))
+					.join(path.unwrap_or_default())
 					.normalize();
 				return directory.try_get(tg, &path).await;
 			}
-			return Err(error!("expected a directory"));
+			return Err(tg::error!("expected a directory"));
 		} else if artifact.is_some() && path.is_some() {
-			if let Some(artifact::Artifact::Directory(directory)) = artifact {
-				return directory
-					.try_get(tg, &Path::from_str(&path.unwrap())?.normalize())
-					.await;
+			if let Some(tg::artifact::Artifact::Directory(directory)) = artifact {
+				return directory.try_get(tg, &path.unwrap_or_default()).await;
 			}
-			return Err(error!("expected a directory"));
+			return Err(tg::error!("expected a directory"));
 		}
-		Err(error!("invalid symlink"))
+		Err(tg::error!("invalid symlink"))
 	}
 }
 
@@ -208,16 +221,16 @@ impl Data {
 	pub fn serialize(&self) -> tg::Result<Bytes> {
 		serde_json::to_vec(self)
 			.map(Into::into)
-			.map_err(|source| error!(!source, "failed to serialize the data"))
+			.map_err(|source| tg::error!(!source, "failed to serialize the data"))
 	}
 
 	pub fn deserialize(bytes: &Bytes) -> tg::Result<Self> {
 		serde_json::from_reader(bytes.as_ref())
-			.map_err(|source| error!(!source, "failed to deserialize the data"))
+			.map_err(|source| tg::error!(!source, "failed to deserialize the data"))
 	}
 
 	#[must_use]
-	pub fn children(&self) -> Vec<object::Id> {
+	pub fn children(&self) -> Vec<tg::object::Id> {
 		self.artifact.iter().map(|id| id.clone().into()).collect()
 	}
 }
@@ -226,7 +239,7 @@ impl TryFrom<Data> for Object {
 	type Error = tg::Error;
 
 	fn try_from(data: Data) -> std::result::Result<Self, Self::Error> {
-		let artifact = data.artifact.map(Artifact::with_id);
+		let artifact = data.artifact.map(tg::Artifact::with_id);
 		let path = data.path;
 		Ok(Self { artifact, path })
 	}
@@ -253,8 +266,8 @@ impl TryFrom<crate::Id> for Id {
 	type Error = tg::Error;
 
 	fn try_from(value: crate::Id) -> tg::Result<Self, Self::Error> {
-		if value.kind() != id::Kind::Symlink {
-			return Err(error!(%value, "invalid kind"));
+		if value.kind() != tg::id::Kind::Symlink {
+			return Err(tg::error!(%value, "invalid kind"));
 		}
 		Ok(Self(value))
 	}

@@ -24,7 +24,7 @@ impl Cli {
 		let artifact = tg::Artifact::check_in(client, &path.try_into()?).await?;
 
 		// Print the ID.
-		let id = artifact.id(client).await?;
+		let id = artifact.id(client, None).await?;
 		println!("{id}");
 
 		Ok(())

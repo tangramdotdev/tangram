@@ -32,6 +32,8 @@ declare namespace tg {
 		/** An artifact ID. */
 		export type Id = string;
 
+		export type ArchiveFormat = "tar" | "zip";
+
 		/** Get an artifact with an ID. */
 		export let withId: (id: Artifact.Id) => Artifact;
 
@@ -43,6 +45,12 @@ declare namespace tg {
 
 		/** Assert that a value is an `Artifact`. */
 		export let assert: (value: unknown) => asserts value is Artifact;
+
+		/** Extract an artifact from an archive. **/
+		export let extract: (
+			blob: Blob,
+			format: ArchiveFormat,
+		) => Promise<Artifact>;
 	}
 
 	/** Assert that a condition is truthy. If not, throw an error with an optional message. */
@@ -71,15 +79,7 @@ declare namespace tg {
 
 		export type Id = string;
 
-		export type ArchiveFormat = ".tar" | ".zip";
-
-		export type CompressionFormat = ".bz2" | ".gz" | ".lz" | ".xz" | ".zst";
-
-		/** Archive an artifact. */
-		export let archive: (
-			artifact: Artifact,
-			format: Blob.ArchiveFormat,
-		) => Promise<Blob>;
+		export type CompressionFormat = "bz2" | "gz" | "lz" | "xz" | "zst";
 	}
 
 	/** Compute the checksum of the provided bytes with the specified algorithm. */
@@ -129,10 +129,13 @@ declare namespace tg {
 		entries(): Promise<Record<string, Artifact>>;
 
 		/** Get the child at the specified path. This method throws an error if the path does not exist. */
-		get(arg: string): Promise<Artifact>;
+		get(arg: Path.Arg): Promise<Artifact>;
 
 		/** Try to get the child at the specified path. This method returns `undefined` if the path does not exist. */
-		tryGet(arg: string): Promise<Artifact | undefined>;
+		tryGet(arg: Path.Arg): Promise<Artifact | undefined>;
+
+		/** Archive this directory. */
+		archive: (format: Artifact.ArchiveFormat) => Promise<Blob>;
 
 		/** Bundle this directory. */
 		bundle: () => Promise<Directory>;
@@ -297,7 +300,7 @@ declare namespace tg {
 		decompress(format: Blob.CompressionFormat): Promise<Blob>;
 
 		/** Extract an artifact from this branch. */
-		extract(format: Blob.ArchiveFormat): Promise<Artifact>;
+		extract(format: Artifact.ArchiveFormat): Promise<Artifact>;
 	}
 
 	export namespace Branch {
@@ -350,7 +353,7 @@ declare namespace tg {
 		decompress(format: Blob.CompressionFormat): Promise<Blob>;
 
 		/** Extract an artifact from this leaf. */
-		extract(format: Blob.ArchiveFormat): Promise<Artifact>;
+		extract(format: Artifact.ArchiveFormat): Promise<Artifact>;
 	}
 
 	export namespace Leaf {
@@ -544,6 +547,7 @@ declare namespace tg {
 			| string
 			| Object_
 			| Uint8Array
+			| Path
 			| Mutation
 			| Template
 			? T
@@ -573,6 +577,7 @@ declare namespace tg {
 		| string
 		| Object_
 		| Uint8Array
+		| Path
 		| Mutation
 		| Template
 		? T
@@ -614,7 +619,7 @@ declare namespace tg {
 		artifact(): Promise<Artifact | undefined>;
 
 		/** Get this symlink's path. */
-		path(): Promise<string | undefined>;
+		path(): Promise<Path | undefined>;
 
 		/** Resolve this symlink to the directory or file it refers to, or return undefined if none is found. */
 		resolve(): Promise<Directory | File | undefined>;
@@ -624,6 +629,7 @@ declare namespace tg {
 		export type Arg =
 			| undefined
 			| string
+			| Path
 			| Artifact
 			| Template
 			| Symlink
@@ -631,7 +637,7 @@ declare namespace tg {
 
 		type ArgObject = {
 			artifact?: Artifact | undefined;
-			path?: string | undefined;
+			path?: Path | undefined;
 		};
 
 		export type Id = string;
@@ -656,6 +662,7 @@ declare namespace tg {
 		R extends Value = Value,
 	> {
 		/** Build this target. */
+		// biome-ignore lint/style/useShorthandFunctionType:
 		(...args: { [K in keyof A]: Unresolved<A[K]> }): Promise<R>;
 	}
 
@@ -790,6 +797,7 @@ declare namespace tg {
 		| Array<infer _U extends Value>
 		| Object_
 		| Uint8Array
+		| Path
 		| Mutation
 		| Template
 		? T
@@ -816,6 +824,72 @@ declare namespace tg {
 		| Lock
 		| Target;
 
+	/** Create a path. **/
+	export let path: (...args: Array<Path.Arg>) => Path;
+
+	/** A path. **/
+	export class Path {
+		/** Create a path. **/
+		// biome-ignore lint/suspicious/noMisleadingInstantiator:
+		static new(...args: Array<Path.Arg>): Path;
+
+		/** Get this path's components. **/
+		components(): Array<Path.Component>;
+
+		/** Push a component on to this path. **/
+		push(component: Path.Component): void;
+
+		/** Push a parent component on to this path. **/
+		parent(): Path;
+
+		/** Join this path with another path. **/
+		join(other: Path.Arg): Path;
+
+		/** Normalize this path. **/
+		normalize(): Path;
+
+		/** Return true if this path begins with a current component. **/
+		isInternal(): boolean;
+
+		/** Return true if this path begins with a parent component. **/
+		isExternal(): boolean;
+
+		/** Return true if this path begins with a root component. **/
+		isAbsolute(): boolean;
+
+		/** Render this path to a string. **/
+		toString(): string;
+	}
+
+	export namespace Path {
+		export type Arg = undefined | Component | Path | Array<Arg>;
+
+		/** A path component. **/
+		export type Component =
+			| Component.Normal
+			| Component.Current
+			| Component.Parent
+			| Component.Root;
+
+		export namespace Component {
+			export type Normal = string;
+
+			export type Current = ".";
+
+			export let Current: string;
+
+			export type Parent = "..";
+
+			export let Parent: string;
+
+			export type Root = "/";
+
+			export let Root: string;
+
+			export let isNormal: (component: Component) => component is Normal;
+		}
+	}
+
 	/** The union of all types that can be used as the input or output of Tangram targets. */
 	export type Value =
 		| undefined
@@ -826,6 +900,7 @@ declare namespace tg {
 		| { [key: string]: Value }
 		| Object_
 		| Uint8Array
+		| Path
 		| Mutation
 		| Template;
 

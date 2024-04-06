@@ -10,7 +10,7 @@ declare global {
 	function syscall(
 		syscall: "archive",
 		artifact: Artifact,
-		format: Blob.ArchiveFormat,
+		format: Artifact.ArchiveFormat,
 	): Promise<Blob>;
 
 	function syscall(syscall: "build", target: Target): Promise<Value>;
@@ -74,7 +74,7 @@ declare global {
 	function syscall(
 		syscall: "extract",
 		blob: Blob,
-		format: Blob.ArchiveFormat,
+		format: Artifact.ArchiveFormat,
 	): Promise<Artifact>;
 
 	function syscall(syscall: "load", id: Object_.Id): Promise<Object_.Object_>;

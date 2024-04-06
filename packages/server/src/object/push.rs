@@ -12,7 +12,7 @@ impl Server {
 			.first()
 			.ok_or_else(|| tg::error!("the server does not have a remote"))?;
 		tg::object::Handle::with_id(id.clone())
-			.push(self, remote)
+			.push(self, remote, None)
 			.await
 			.map_err(|source| tg::error!(!source, "failed to push the object"))?;
 		Ok(())

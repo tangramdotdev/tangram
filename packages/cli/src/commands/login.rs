@@ -7,6 +7,6 @@ pub struct Args {}
 
 impl Cli {
 	pub async fn command_login(&self, _args: Args) -> tg::Result<()> {
-		Err(tg::error!("not yet implemented"))
+		Err(tg::error!("unimplemented"))
 	}
 }

@@ -32,7 +32,7 @@ export class Symlink {
 	static async new(...args: Args<Symlink.Arg>): Promise<Symlink> {
 		type Apply = {
 			artifact?: Artifact | undefined;
-			path?: Array<string>;
+			path?: Array<Path>;
 		};
 		let { artifact, path: path_ } = await Args.apply<Symlink.Arg, Apply>(
 			args,
@@ -41,7 +41,10 @@ export class Symlink {
 					return {};
 				} else if (typeof arg === "string") {
 					return {
-						path: await mutation({ kind: "array_append", values: [arg] }),
+						path: await mutation({
+							kind: "array_append",
+							values: [Path.new(arg)],
+						}),
 					};
 				} else if (Artifact.is(arg)) {
 					return {
@@ -58,7 +61,7 @@ export class Symlink {
 						return {
 							path: await mutation({
 								kind: "array_append",
-								values: [firstComponent],
+								values: [Path.new(firstComponent)],
 							}),
 						};
 					} else if (
@@ -76,7 +79,7 @@ export class Symlink {
 						assert_(secondComponent.startsWith("/"));
 						return {
 							artifact: firstComponent,
-							path: [secondComponent.slice(1)],
+							path: [Path.new(secondComponent.slice(1))],
 						};
 					} else {
 						throw new Error("invalid template");
@@ -85,7 +88,7 @@ export class Symlink {
 					let path = await arg.path();
 					return {
 						artifact: await arg.artifact(),
-						path: path !== undefined ? [path.toString()] : [],
+						path: path !== undefined ? [path] : [],
 					};
 				} else if (typeof arg === "object") {
 					let object: MutationMap<Apply> = {};
@@ -101,7 +104,7 @@ export class Symlink {
 				}
 			},
 		);
-		let path = path_ !== undefined ? Path.new(path_).toString() : undefined;
+		let path = path_ !== undefined ? Path.new(path_) : undefined;
 		return new Symlink({ object: { artifact, path } });
 	}
 
@@ -150,7 +153,7 @@ export class Symlink {
 		return object.artifact;
 	}
 
-	async path(): Promise<string | undefined> {
+	async path(): Promise<Path | undefined> {
 		let object = await this.object();
 		return object.path;
 	}
@@ -206,14 +209,14 @@ export namespace Symlink {
 
 	export type ArgObject = {
 		artifact?: Artifact | undefined;
-		path?: string | undefined;
+		path?: Path | undefined;
 	};
 
 	export type Id = string;
 
 	export type Object_ = {
 		artifact: Artifact | undefined;
-		path: string | undefined;
+		path: Path | undefined;
 	};
 
 	export type State = Object_.State<Symlink.Id, Symlink.Object_>;

@@ -135,7 +135,7 @@ export let languageService = ts.createLanguageService(host, documentRegistry);
 /** Convert a module to a TypeScript file name. */
 export let fileNameFromModule = (module_: Module): string => {
 	if (module_.kind === "library") {
-		return `/library/${module_.value.path}`;
+		return `/library/${module_.value.path.slice(2)}`;
 	} else {
 		let data = syscall(
 			"encoding_hex_encode",
@@ -214,7 +214,7 @@ export let convertDiagnostic = (diagnostic: ts.Diagnostic): Diagnostic => {
 			break;
 		}
 		case ts.DiagnosticCategory.Message: {
-			severity = "information";
+			severity = "info";
 			break;
 		}
 		default: {

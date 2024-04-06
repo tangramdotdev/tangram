@@ -1,4 +1,4 @@
-use derive_more::Display;
+use crate as tg;
 use serde_with::serde_as;
 use std::{collections::BTreeMap, fmt::Debug, sync::Arc};
 
@@ -6,7 +6,7 @@ use std::{collections::BTreeMap, fmt::Debug, sync::Arc};
 pub type Result<T, E = Error> = std::result::Result<T, E>;
 
 /// An error.
-#[derive(Clone, Debug, Display, serde::Deserialize, serde::Serialize)]
+#[derive(Clone, Debug, derive_more::Display, serde::Deserialize, serde::Serialize)]
 #[display("{message}")]
 pub struct Error {
 	/// The error's message.
@@ -43,8 +43,13 @@ pub struct Location {
 #[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
 #[serde(tag = "kind", rename_all = "snake_case")]
 pub enum Source {
-	Internal { path: String },
-	External { package: String, path: String },
+	Internal {
+		path: tg::Path,
+	},
+	External {
+		package: tg::directory::Id,
+		path: tg::Path,
+	},
 }
 
 pub struct Trace<'a> {
@@ -127,7 +132,7 @@ impl<'a> From<&'a std::panic::Location<'a>> for Location {
 		Self {
 			symbol: None,
 			source: Source::Internal {
-				path: location.file().to_owned(),
+				path: location.file().parse().unwrap(),
 			},
 			line: location.line() - 1,
 			column: location.column() - 1,
@@ -188,7 +193,7 @@ impl std::fmt::Display for Source {
 	fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
 		match self {
 			Source::Internal { path } => write!(f, "{path}"),
-			Source::External { package, path } => write!(f, "{package}/{path}"),
+			Source::External { package, path } => write!(f, "{package}:{path}"),
 		}
 	}
 }
@@ -292,7 +297,7 @@ macro_rules! error {
 			message: String::new(),
 			location: Some($crate::error::Location {
 				symbol: Some($crate::function!().to_owned()),
-				source: $crate::error::Source::Internal{ path: file!().to_owned() },
+				source: $crate::error::Source::Internal{ path: file!().parse().unwrap() },
 				line: line!() - 1,
 				column: column!() - 1,
 			}),
@@ -317,37 +322,37 @@ macro_rules! function {
 
 #[cfg(test)]
 mod tests {
-	use super::*;
+	use crate as tg;
 
 	#[test]
 	fn error_macro() {
-		let options = TraceOptions::default();
+		let options = tg::error::TraceOptions::default();
 
 		let foo = "foo";
 		let bar = "bar";
-		let error = error!(?foo, %bar, %baz = "baz", ?qux ="qux", "{}", "message");
+		let error = tg::error!(?foo, %bar, %baz = "baz", ?qux ="qux", "{}", "message");
 		let trace = error.trace(&options).to_string();
 		println!("{trace}");
 
 		let source = std::io::Error::other("an io error");
-		let error = error!(source = source, "another error");
+		let error = tg::error!(source = source, "another error");
 		let trace = error.trace(&options).to_string();
 		println!("{trace}");
 
 		let source = std::io::Error::other("an io error");
-		let error = error!(!source, "another error");
+		let error = tg::error!(!source, "another error");
 		let trace = error.trace(&options).to_string();
 		println!("{trace}");
 
-		let stack = vec![Location {
+		let stack = vec![tg::error::Location {
 			symbol: None,
-			source: Source::Internal {
-				path: "foobar.rs".to_owned(),
+			source: tg::error::Source::Internal {
+				path: "foobar.rs".parse().unwrap(),
 			},
 			line: 123,
 			column: 456,
 		}];
-		let error = error!(stack = stack, "an error occurred");
+		let error = tg::error!(stack = stack, "an error occurred");
 		let trace = error.trace(&options).to_string();
 		println!("{trace}");
 	}

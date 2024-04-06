@@ -14,7 +14,7 @@ export type Diagnostic = {
 	message: string;
 };
 
-export type Severity = "error" | "warning" | "information" | "hint";
+export type Severity = "error" | "warning" | "info" | "hint";
 
 export let handle = (_request: Request): Response => {
 	// Get the modules for all documents.

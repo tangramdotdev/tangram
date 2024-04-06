@@ -1,4 +1,4 @@
-use crate::{self as tg, directory, error};
+use crate as tg;
 
 /// A dependency.
 #[derive(
@@ -16,7 +16,7 @@ use crate::{self as tg, directory, error};
 pub struct Dependency {
 	/// The package's ID.
 	#[serde(default, skip_serializing_if = "Option::is_none")]
-	pub id: Option<directory::Id>,
+	pub id: Option<tg::directory::Id>,
 
 	/// The name of the package.
 	#[serde(default, skip_serializing_if = "Option::is_none")]
@@ -24,7 +24,7 @@ pub struct Dependency {
 
 	/// The package's path.
 	#[serde(default, skip_serializing_if = "Option::is_none")]
-	pub path: Option<crate::Path>,
+	pub path: Option<tg::Path>,
 
 	/// The package's version.
 	#[serde(default, skip_serializing_if = "Option::is_none")]
@@ -33,7 +33,7 @@ pub struct Dependency {
 
 impl Dependency {
 	#[must_use]
-	pub fn with_id(id: directory::Id) -> Self {
+	pub fn with_id(id: tg::directory::Id) -> Self {
 		Self {
 			id: Some(id),
 			..Default::default()
@@ -58,7 +58,7 @@ impl Dependency {
 	}
 
 	#[must_use]
-	pub fn with_path(path: crate::Path) -> Self {
+	pub fn with_path(path: tg::Path) -> Self {
 		let path = path.normalize();
 		Self {
 			path: Some(path),
@@ -91,20 +91,20 @@ impl Dependency {
 			let (_, constraint) = constraint.split_at(1);
 			let regex = format!("^{constraint}$");
 			let matched = regex::Regex::new(&regex)
-				.map_err(|source| error!(!source, "failed to parse regex"))?
+				.map_err(|source| tg::error!(!source, "failed to parse regex"))?
 				.is_match(version);
 			return Ok(matched);
 		}
 
 		if "=<>^~*".chars().any(|ch| constraint.starts_with(ch)) {
 			let req = semver::VersionReq::parse(constraint).map_err(|error| {
-				error!(
+				tg::error!(
 					source = error,
 					"failed to parse version constraint as semver"
 				)
 			})?;
 			let semver = semver::Version::parse(version)
-				.map_err(|source| error!(!source, "failed to parse version as semver"))?;
+				.map_err(|source| tg::error!(!source, "failed to parse version as semver"))?;
 			return Ok(req.matches(&semver));
 		}
 
@@ -149,7 +149,7 @@ impl std::str::FromStr for Dependency {
 	fn from_str(value: &str) -> tg::Result<Self, Self::Err> {
 		if value.starts_with('{') {
 			serde_json::from_str(value)
-				.map_err(|source| error!(!source, "failed to deserialize the dependency"))
+				.map_err(|source| tg::error!(!source, "failed to deserialize the dependency"))
 		} else if let Ok(id) = value.parse() {
 			Ok(Self {
 				id: Some(id),
@@ -185,8 +185,8 @@ impl From<Dependency> for String {
 	}
 }
 
-impl From<directory::Id> for Dependency {
-	fn from(value: directory::Id) -> Self {
+impl From<tg::directory::Id> for Dependency {
+	fn from(value: tg::directory::Id) -> Self {
 		Self {
 			id: Some(value),
 			..Default::default()
@@ -196,11 +196,11 @@ impl From<directory::Id> for Dependency {
 
 #[cfg(test)]
 mod tests {
-	use crate::Dependency;
+	use crate as tg;
 
 	#[test]
 	fn display() {
-		let left = Dependency {
+		let left = tg::Dependency {
 			id: None,
 			name: Some("foo".into()),
 			path: None,
@@ -209,7 +209,7 @@ mod tests {
 		let right = "foo";
 		assert_eq!(left.to_string(), right);
 
-		let left = Dependency {
+		let left = tg::Dependency {
 			id: None,
 			name: Some("foo".into()),
 			path: None,
@@ -218,7 +218,7 @@ mod tests {
 		let right = "foo@1.2.3";
 		assert_eq!(left.to_string(), right);
 
-		let left = Dependency {
+		let left = tg::Dependency {
 			id: None,
 			name: Some("foo".into()),
 			path: None,
@@ -227,7 +227,7 @@ mod tests {
 		let right = r"foo@/1\.2\.*";
 		assert_eq!(left.to_string(), right);
 
-		let left = Dependency {
+		let left = tg::Dependency {
 			id: None,
 			name: Some("foo".into()),
 			path: Some("path/to/foo".parse().unwrap()),
@@ -236,7 +236,7 @@ mod tests {
 		let right = r#"{"name":"foo","path":"path/to/foo","version":"1.2.3"}"#;
 		assert_eq!(left.to_string(), right);
 
-		let left = Dependency {
+		let left = tg::Dependency {
 			id: None,
 			name: None,
 			path: Some("path/to/foo".parse().unwrap()),
@@ -248,8 +248,8 @@ mod tests {
 
 	#[test]
 	fn parse() {
-		let left: Dependency = "foo".parse().unwrap();
-		let right = Dependency {
+		let left: tg::Dependency = "foo".parse().unwrap();
+		let right = tg::Dependency {
 			id: None,
 			name: Some("foo".into()),
 			path: None,
@@ -257,8 +257,8 @@ mod tests {
 		};
 		assert_eq!(left, right);
 
-		let left: Dependency = "foo@1.2.3".parse().unwrap();
-		let right = Dependency {
+		let left: tg::Dependency = "foo@1.2.3".parse().unwrap();
+		let right = tg::Dependency {
 			id: None,
 			name: Some("foo".into()),
 			path: None,
@@ -266,10 +266,10 @@ mod tests {
 		};
 		assert_eq!(left, right);
 
-		let left: Dependency = r#"{"name":"foo","path":"path/to/foo","version":"1.2.3"}"#
+		let left: tg::Dependency = r#"{"name":"foo","path":"path/to/foo","version":"1.2.3"}"#
 			.parse()
 			.unwrap();
-		let right = Dependency {
+		let right = tg::Dependency {
 			id: None,
 			name: Some("foo".into()),
 			path: Some("path/to/foo".parse().unwrap()),
@@ -277,8 +277,8 @@ mod tests {
 		};
 		assert_eq!(left, right);
 
-		let left: Dependency = "./path/to/foo".parse().unwrap();
-		let right = Dependency {
+		let left: tg::Dependency = "./path/to/foo".parse().unwrap();
+		let right = tg::Dependency {
 			id: None,
 			name: None,
 			path: Some("path/to/foo".parse().unwrap()),
@@ -286,8 +286,8 @@ mod tests {
 		};
 		assert_eq!(left, right);
 
-		let left: Dependency = r#"{"path":"path/to/foo"}"#.parse().unwrap();
-		let right = Dependency {
+		let left: tg::Dependency = r#"{"path":"path/to/foo"}"#.parse().unwrap();
+		let right = tg::Dependency {
 			id: None,
 			name: None,
 			path: Some("path/to/foo".parse().unwrap()),
@@ -299,15 +299,15 @@ mod tests {
 	#[test]
 	fn matches() {
 		// Semver.
-		let dep = Dependency::with_name_and_version("A".into(), "=1.*".into());
+		let dep = tg::Dependency::with_name_and_version("A".into(), "=1.*".into());
 		assert!(dep.try_match_version("1.2.3").unwrap());
 
 		// String comparison.
-		let dep = Dependency::with_name_and_version("A".into(), "1.2".into());
+		let dep = tg::Dependency::with_name_and_version("A".into(), "1.2".into());
 		assert!(dep.try_match_version("1.2").unwrap());
 
 		// <date>-<major>.<minor> matched with a regex.
-		let dep = Dependency::with_name_and_version("A".into(), "/2024-01-01-3.[0-9]+".into());
+		let dep = tg::Dependency::with_name_and_version("A".into(), "/2024-01-01-3.[0-9]+".into());
 		assert!(dep.try_match_version("2024-01-01-3.1").unwrap());
 	}
 }

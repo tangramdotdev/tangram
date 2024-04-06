@@ -6,16 +6,16 @@ use crate::Server;
 use futures::{
 	future::{self, LocalBoxFuture},
 	stream::FuturesUnordered,
-	FutureExt, StreamExt,
+	FutureExt as _, StreamExt as _,
 };
 use num::ToPrimitive;
 use sourcemap::SourceMap;
 use std::{
 	cell::RefCell, collections::BTreeMap, future::poll_fn, num::NonZeroI32, pin::pin, rc::Rc,
-	str::FromStr, task::Poll,
+	task::Poll,
 };
 use tangram_client as tg;
-use tokio::io::AsyncWriteExt;
+use tokio::io::AsyncWriteExt as _;
 use url::Url;
 
 mod convert;
@@ -359,7 +359,7 @@ fn host_import_module_dynamically_callback<'s>(
 	// Get the module.
 	let module = if resource_name == "[global]" {
 		let module = specifier.to_rust_string_lossy(scope);
-		match tg::Module::from_str(&module) {
+		match module.parse() {
 			Ok(module) => module,
 			Err(error) => {
 				let exception = error::to_exception(scope, &error);
@@ -369,7 +369,7 @@ fn host_import_module_dynamically_callback<'s>(
 		}
 	} else {
 		// Get the module.
-		let module = match tg::Module::from_str(&resource_name) {
+		let module = match resource_name.parse() {
 			Ok(module) => module,
 			Err(error) => {
 				let exception = error::to_exception(scope, &error);
