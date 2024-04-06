@@ -207,9 +207,9 @@ dependencies = [
 
 [[package]]
 name = "async-compression"
-version = "0.4.7"
+version = "0.4.8"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "86a9249d1447a85f95810c620abea82e001fe58a31713fcce614caf52499f905"
+checksum = "07dbbf24db18d609b1462965249abdf49129ccad073ec257da372adc83259c60"
 dependencies = [
  "brotli",
  "bzip2",
@@ -243,7 +243,7 @@ dependencies = [
  "regex",
  "ring",
  "rustls-native-certs",
- "rustls-pemfile 2.1.1",
+ "rustls-pemfile 2.1.2",
  "rustls-webpki 0.102.2",
  "serde",
  "serde_json",
@@ -526,9 +526,9 @@ dependencies = [
 
 [[package]]
 name = "brotli"
-version = "3.5.0"
+version = "4.0.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "d640d25bc63c50fb1f0b545ffd80207d2e10a4c965530809b40ba3386825c391"
+checksum = "125740193d7fee5cc63ab9e16c2fdc4e07c74ba755cc53b327d6ea029e9fc569"
 dependencies = [
  "alloc-no-stdlib",
  "alloc-stdlib",
@@ -537,9 +537,9 @@ dependencies = [
 
 [[package]]
 name = "brotli-decompressor"
-version = "2.5.1"
+version = "3.0.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "4e2e4afe60d7dd600fdd3de8d0f08c2b7ec039712e3b6137ff98b7004e82de4f"
+checksum = "65622a320492e09b5e0ac436b14c54ff68199bac392d0e89a6832c4518eea525"
 dependencies = [
  "alloc-no-stdlib",
  "alloc-stdlib",
@@ -1449,9 +1449,9 @@ dependencies = [
 
 [[package]]
 name = "getrandom"
-version = "0.2.12"
+version = "0.2.13"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "190092ea657667030ac6a35e305e62fc4dd69fd98ac98631e5d3a2b1575a12b5"
+checksum = "a06fddc2749e0528d2813f95e050e87e52c8cbbae56223b9babf73b3e53b0cc6"
 dependencies = [
  "cfg-if",
  "js-sys",
@@ -2831,9 +2831,9 @@ dependencies = [
 
 [[package]]
 name = "prost"
-version = "0.12.3"
+version = "0.12.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "146c289cda302b98a28d40c8b3b90498d6e526dd24ac2ecea73e4e491685b94a"
+checksum = "d0f5d036824e4761737860779c906171497f6d55681139d8312388f8fe398922"
 dependencies = [
  "bytes",
  "prost-derive",
@@ -2854,9 +2854,9 @@ dependencies = [
 
 [[package]]
 name = "prost-types"
-version = "0.12.3"
+version = "0.12.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "193898f59edcf43c26227dcd4c8427f00d99d61e95dcde58dabd49fa291d470e"
+checksum = "3235c33eb02c1f1e212abdbe34c78b264b038fb58ca612664343271e36e55ffe"
 dependencies = [
  "prost",
 ]
@@ -3083,7 +3083,7 @@ dependencies = [
  "percent-encoding",
  "pin-project-lite",
  "rustls 0.22.3",
- "rustls-pemfile 2.1.1",
+ "rustls-pemfile 2.1.2",
  "rustls-pki-types",
  "serde",
  "serde_json",
@@ -3222,7 +3222,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "8f1fb85efa936c42c6d5fc28d2629bb51e4b2f4b8a5211e297d599cc5a093792"
 dependencies = [
  "openssl-probe",
- "rustls-pemfile 2.1.1",
+ "rustls-pemfile 2.1.2",
  "rustls-pki-types",
  "schannel",
  "security-framework",
@@ -3239,11 +3239,11 @@ dependencies = [
 
 [[package]]
 name = "rustls-pemfile"
-version = "2.1.1"
+version = "2.1.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "f48172685e6ff52a556baa527774f61fcaa884f59daf3375c62a3f1cd2549dab"
+checksum = "29993a25686778eb88d4189742cd713c9bce943bc54251a33509dc63cbacf73d"
 dependencies = [
- "base64 0.21.7",
+ "base64 0.22.0",
  "rustls-pki-types",
 ]
 
@@ -3277,9 +3277,9 @@ dependencies = [
 
 [[package]]
 name = "rustversion"
-version = "1.0.14"
+version = "1.0.15"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "7ffc183a10b4478d04cbbbfc96d0873219d962dd5accaff2ffbd4ceb7df837f4"
+checksum = "80af6f9131f277a45a3fba6ce8e2258037bb0477a67e610d3c1fe046ab31de47"
 
 [[package]]
 name = "rusty-fork"
@@ -3953,9 +3953,9 @@ dependencies = [
 
 [[package]]
 name = "swc_core"
-version = "0.90.27"
+version = "0.90.28"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "10e6117b0d6a33de0df45da99f17752d7846ffb871d0336cce11cab8f7b8eb6c"
+checksum = "6957703336e4e9a20d4fcef3d065e1f31906c52470992f5bf4281e6fe1342dde"
 dependencies = [
  "swc_atoms",
  "swc_common",
@@ -4163,9 +4163,9 @@ dependencies = [
 
 [[package]]
 name = "swc_ecma_utils"
-version = "0.127.16"
+version = "0.127.17"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "b693d3fd413b76be123d2ce899a9788db8f85ca6127a1b1d743ed9cb8a68fdcc"
+checksum = "624c19fdbe1807275b16560892cf7a12a9ac3f631fb10ad45aaa3eeac903e6e5"
 dependencies = [
  "indexmap 2.2.6",
  "num_cpus",
@@ -4360,7 +4360,6 @@ dependencies = [
  "tangram_sse",
  "tar",
  "tempfile",
- "thiserror",
  "time",
  "tokio",
  "tokio-rustls 0.26.0",
@@ -4391,7 +4390,6 @@ dependencies = [
  "rusqlite",
  "serde",
  "serde_json",
- "thiserror",
  "tokio",
  "tokio-postgres",
  "tracing",
@@ -4469,7 +4467,6 @@ dependencies = [
  "tangram_nfs",
  "tangram_sse",
  "tempfile",
- "thiserror",
  "time",
  "tokio",
  "tokio-postgres",
@@ -5233,9 +5230,9 @@ dependencies = [
 
 [[package]]
 name = "webbrowser"
-version = "0.8.13"
+version = "0.8.14"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "d1b04c569c83a9bb971dd47ec6fd48753315f4bf989b9b04a2e7ca4d7f0dc950"
+checksum = "dd595fb70f33583ac61644820ebc144a26c96028b625b96cafcd861f4743fbc8"
 dependencies = [
  "core-foundation",
  "home",

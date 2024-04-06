@@ -1,13 +1,11 @@
-use futures::Stream;
-use futures::StreamExt;
-use futures::TryStreamExt;
+use derive_more::{Display, From};
+use futures::{Stream, StreamExt, TryStreamExt};
 use tangram_database as db;
 
-#[derive(Debug, thiserror::Error)]
-#[error(transparent)]
+#[derive(Debug, Display, derive_more::Error, From)]
 pub enum Error {
-	Sqlite(#[from] db::sqlite::Error),
-	Postgres(#[from] db::postgres::Error),
+	Sqlite(db::sqlite::Error),
+	Postgres(db::postgres::Error),
 	Other(Box<dyn std::error::Error + Send + Sync>),
 }
 

@@ -1,4 +1,5 @@
 use crate::{Error as _, Row, Value};
+use derive_more::{Display, Error as Error_, From};
 use futures::{stream, Stream};
 use indexmap::IndexMap;
 use itertools::Itertools;
@@ -6,10 +7,9 @@ use num::ToPrimitive;
 use rusqlite as sqlite;
 use std::path::PathBuf;
 
-#[derive(Debug, thiserror::Error)]
-#[error(transparent)]
+#[derive(Debug, Display, Error_, From)]
 pub enum Error {
-	Sqlite(#[from] sqlite::Error),
+	Sqlite(sqlite::Error),
 	Other(Box<dyn std::error::Error + Send + Sync>),
 }
 

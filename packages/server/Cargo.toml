@@ -69,7 +69,6 @@ tangram_fuse = { workspace = true }
 tangram_nfs = { workspace = true }
 tangram_sse = { workspace = true }
 tempfile = { workspace = true }
-thiserror = { workspace = true }
 time = { workspace = true }
 tokio = { workspace = true }
 tokio-postgres = { workspace = true }

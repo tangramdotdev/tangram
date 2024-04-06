@@ -1,10 +1,10 @@
 use super::Value;
+use derive_more::{Display, Error as Error_, From};
 pub use serde::de::Error as _;
 
-#[derive(Debug, thiserror::Error)]
-#[error(transparent)]
+#[derive(Debug, Display, Error_, From)]
 pub enum Error {
-	Json(#[from] serde_json::Error),
+	Json(serde_json::Error),
 	Other(Box<dyn std::error::Error + Send + Sync>),
 }
 
