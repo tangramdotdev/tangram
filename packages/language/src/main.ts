@@ -3,16 +3,12 @@ import * as completion from "./completion.ts";
 import * as definition from "./definition.ts";
 import * as diagnostics from "./diagnostics.ts";
 import * as doc from "./doc.ts";
-import { Error_, prepareStackTrace } from "./error.ts";
+import { Error_ } from "./error.ts";
 import * as hover from "./hover.ts";
 import { log } from "./log.ts";
 import * as references from "./references.ts";
 import * as rename from "./rename.ts";
 import * as symbols from "./symbols.ts";
-
-Object.defineProperties(Error, {
-	prepareStackTrace: { value: prepareStackTrace },
-});
 
 Object.defineProperties(globalThis, {
 	console: { value: { log } },

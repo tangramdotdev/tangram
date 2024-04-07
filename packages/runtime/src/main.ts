@@ -6,7 +6,7 @@ import { Branch, branch } from "./branch.ts";
 import { Checksum, checksum } from "./checksum.ts";
 import { Directory, directory } from "./directory.ts";
 import * as encoding from "./encoding.ts";
-import { Error_, prepareStackTrace } from "./error.ts";
+import { Error_ } from "./error.ts";
 import { File, file } from "./file.ts";
 import { include } from "./include.ts";
 import { Leaf, leaf } from "./leaf.ts";
@@ -20,10 +20,6 @@ import { Symlink, symlink } from "./symlink.ts";
 import { Target, build, getCurrentTarget, target } from "./target.ts";
 import { Template, template } from "./template.ts";
 import { Value } from "./value.ts";
-
-Object.defineProperties(Error, {
-	prepareStackTrace: { value: prepareStackTrace },
-});
 
 Object.defineProperties(globalThis, {
 	console: { value: { log } },

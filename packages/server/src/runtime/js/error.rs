@@ -14,7 +14,7 @@ struct StackTrace {
 }
 
 #[allow(dead_code, clippy::struct_excessive_bools)]
-#[derive(Debug, serde::Deserialize)]
+#[derive(Debug, serde::Serialize, serde::Deserialize)]
 #[serde(rename_all = "camelCase")]
 struct CallSite {
 	type_name: Option<String>,
@@ -225,4 +225,45 @@ fn get_location(
 	}
 
 	None
+}
+
+pub fn prepare_stack_trace_callback<'s>(
+	scope: &mut v8::HandleScope<'s>,
+	_error: v8::Local<v8::Value>,
+	call_sites: v8::Local<v8::Array>,
+) -> v8::Local<'s, v8::Value> {
+	let length = call_sites.length();
+	let output_call_sites = v8::Array::new(scope, length.to_i32().unwrap());
+	for index in 0..length {
+		let call_site = call_sites.get_index(scope, index).unwrap();
+		let call_site = v8::Local::<v8::Object>::try_from(call_site).unwrap();
+		let output_call_site = v8::Object::new(scope);
+		for (function, key) in [
+			("getTypeName", "typeName"),
+			("getFunctionName", "functionName"),
+			("getMethodName", "methodName"),
+			("getFileName", "fileName"),
+			("getLineNumber", "lineNumber"),
+			("getColumnNumber", "columnNumber"),
+			("isEval", "isEval"),
+			("isNative", "isNative"),
+			("isConstructor", "isConstructor"),
+			("isAsync", "isAsync"),
+			("isPromiseAll", "isPromiseAll"),
+			("getPromiseIndex", "promiseIndex"),
+		] {
+			let function =
+				v8::String::new_external_onebyte_static(scope, function.as_bytes()).unwrap();
+			let function = call_site.get(scope, function.into()).unwrap();
+			let function = v8::Local::<v8::Function>::try_from(function).unwrap();
+			let key = v8::String::new_external_onebyte_static(scope, key.as_bytes()).unwrap();
+			let value = function.call(scope, call_site.into(), &[]).unwrap();
+			output_call_site.set(scope, key.into(), value);
+		}
+		output_call_sites.set_index(scope, index, output_call_site.into());
+	}
+	let output = v8::Object::new(scope);
+	let key = v8::String::new_external_onebyte_static(scope, "callSites".as_bytes()).unwrap();
+	output.set(scope, key.into(), output_call_sites.into());
+	output.into()
 }

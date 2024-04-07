@@ -47,6 +47,5 @@ export let start = async (target: Target): Promise<Value> => {
 	// Call the function.
 	let output = await resolve(function_(...args));
 
-	throw new Error("hey!");
 	return output;
 };

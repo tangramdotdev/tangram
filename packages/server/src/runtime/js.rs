@@ -166,6 +166,9 @@ impl Runtime {
 			host_initialize_import_meta_object_callback,
 		);
 
+		// Set the prepare stack trace callback.
+		isolate.set_prepare_stack_trace_callback(self::error::prepare_stack_trace_callback);
+
 		// Set the promise reject callback.
 		isolate.set_promise_reject_callback(promise_reject_callback);
 

@@ -607,6 +607,9 @@ fn run_request_handler(server: Server, mut request_receiver: RequestReceiver) {
 	let params = v8::CreateParams::default().snapshot_blob(SNAPSHOT);
 	let mut isolate = v8::Isolate::new(params);
 
+	// Set the prepare stack trace callback.
+	isolate.set_prepare_stack_trace_callback(self::error::prepare_stack_trace_callback);
+
 	// Create the context.
 	let scope = &mut v8::HandleScope::new(&mut isolate);
 	let context = v8::Context::new(scope);
