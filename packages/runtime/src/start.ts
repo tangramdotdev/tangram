@@ -3,8 +3,8 @@ import * as encoding from "./encoding.ts";
 import { Module } from "./module.ts";
 import { resolve } from "./resolve.ts";
 import { Symlink } from "./symlink.ts";
-import { Target, functions, setCurrentTarget } from "./target.ts";
-import { Value } from "./value.ts";
+import { type Target, functions, setCurrentTarget } from "./target.ts";
+import type { Value } from "./value.ts";
 
 export let start = async (target: Target): Promise<Value> => {
 	// Set the current target.
@@ -47,5 +47,6 @@ export let start = async (target: Target): Promise<Value> => {
 	// Call the function.
 	let output = await resolve(function_(...args));
 
+	throw new Error("hey!");
 	return output;
 };

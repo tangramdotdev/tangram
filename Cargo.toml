@@ -37,6 +37,9 @@ async-broadcast = "0.7"
 async-channel= "2"
 async-compression = { version = "0.4", features = ["all"] }
 async-nats = "0.34"
+biome_js_formatter = "0.5"
+biome_js_parser = "0.5"
+biome_js_syntax = "0.5"
 blake3 = "1"
 bytes = { version = "1", features = ["serde"] }
 clap = { version = "4", features = ["derive", "env"] }
@@ -51,6 +54,7 @@ fastcdc = { version = "3", features = ["tokio"] }
 filetime = "0.2"
 fnv = "1"
 futures = "0.3"
+glob = "0.3"
 http = "1"
 http-body = "1"
 http-body-util = "0.1"
@@ -115,7 +119,6 @@ tangram_server = { path = "packages/server" }
 tangram_sse = { path = "packages/sse" }
 tar = { version = "0.4" }
 tempfile = "3"
-thiserror = "1"
 time = { version = "0.3", features = ["formatting", "parsing", "serde"] }
 tokio = { version = "1", features = ["full", "tracing"] }
 tokio-postgres = { version = "0.7", features = ["runtime", "with-serde_json-1"] }

@@ -2,7 +2,7 @@ import { Args } from "./args.ts";
 import { Artifact } from "./artifact.ts";
 import { assert as assert_, unreachable } from "./assert.ts";
 import { mutation } from "./mutation.ts";
-import { Unresolved } from "./resolve.ts";
+import type { Unresolved } from "./resolve.ts";
 
 export let template = (...args: Args<Template.Arg>): Promise<Template> => {
 	return Template.new(...args);

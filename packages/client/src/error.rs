@@ -1,13 +1,13 @@
+use derive_more::Display;
 use serde_with::serde_as;
 use std::{collections::BTreeMap, fmt::Debug, sync::Arc};
-use thiserror::Error;
 
 /// A result alias that defaults to `Error` as the error type.
 pub type Result<T, E = Error> = std::result::Result<T, E>;
 
 /// An error.
-#[derive(Clone, Debug, Error, serde::Deserialize, serde::Serialize)]
-#[error("{message}")]
+#[derive(Clone, Debug, Display, serde::Deserialize, serde::Serialize)]
+#[display("{message}")]
 pub struct Error {
 	/// The error's message.
 	pub message: String,
@@ -85,6 +85,14 @@ impl Source {
 
 pub fn ok<T>(value: T) -> Result<T> {
 	Ok(value)
+}
+
+impl std::error::Error for Error {
+	fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
+		self.source
+			.as_ref()
+			.map(|source| source.as_ref() as &(dyn std::error::Error + 'static))
+	}
 }
 
 impl From<Box<dyn std::error::Error + Send + Sync + 'static>> for Error {

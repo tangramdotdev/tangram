@@ -1,7 +1,6 @@
-import { assert } from "./assert.ts";
-import { Module } from "./module.ts";
-import * as syscall from "./syscall.ts";
 import ts from "typescript";
+import { assert } from "./assert.ts";
+import type { Module } from "./module.ts";
 
 // Create the TypeScript compiler options.
 export let compilerOptions: ts.CompilerOptions = {
@@ -42,13 +41,13 @@ export let host: ts.LanguageServiceHost & ts.CompilerHost = {
 	},
 
 	getScriptFileNames: () => {
-		return syscall.documents().map(fileNameFromModule);
+		return syscall("documents").map(fileNameFromModule);
 	},
 
 	getScriptSnapshot: (fileName) => {
-		let text;
+		let text: string | undefined;
 		try {
-			text = syscall.module_.load(moduleFromFileName(fileName));
+			text = syscall("module_load", moduleFromFileName(fileName));
 		} catch {
 			return undefined;
 		}
@@ -56,13 +55,13 @@ export let host: ts.LanguageServiceHost & ts.CompilerHost = {
 	},
 
 	getScriptVersion: (fileName) => {
-		return syscall.module_.version(moduleFromFileName(fileName));
+		return syscall("module_version", moduleFromFileName(fileName));
 	},
 
 	getSourceFile: (fileName, languageVersion) => {
-		let text;
+		let text: string | undefined;
 		try {
-			text = syscall.module_.load(moduleFromFileName(fileName));
+			text = syscall("module_load", moduleFromFileName(fileName));
 		} catch {
 			return undefined;
 		}
@@ -94,10 +93,11 @@ export let host: ts.LanguageServiceHost & ts.CompilerHost = {
 					return [key, value];
 				}),
 			);
-			let resolvedFileName;
+			let resolvedFileName: string | undefined;
 			try {
 				resolvedFileName = fileNameFromModule(
-					syscall.module_.resolve(
+					syscall(
+						"module_resolve",
 						moduleFromFileName(module),
 						specifier,
 						attributes,
@@ -136,10 +136,11 @@ export let fileNameFromModule = (module_: Module): string => {
 	if (module_.kind === "library") {
 		return `/library/${module_.value.path}`;
 	} else {
-		let data = syscall.encoding.hex.encode(
-			syscall.encoding.utf8.encode(syscall.encoding.json.encode(module_)),
+		let data = syscall(
+			"encoding_hex_encode",
+			syscall("encoding_utf8_encode", syscall("encoding_json_encode", module_)),
 		);
-		let extension;
+		let extension: string | undefined;
 		if (module_.value.path.endsWith(".js")) {
 			extension = ".js";
 		} else if (module_.value.path.endsWith(".ts")) {
@@ -159,8 +160,9 @@ export let moduleFromFileName = (fileName: string): Module => {
 		module_ = { kind: "library", value: { path } };
 	} else {
 		let data = fileName.slice(1, -3);
-		module_ = syscall.encoding.json.decode(
-			syscall.encoding.utf8.decode(syscall.encoding.hex.decode(data)),
+		module_ = syscall(
+			"encoding_json_decode",
+			syscall("encoding_utf8_decode", syscall("encoding_hex_decode", data)),
 		) as Module;
 	}
 	return module_;

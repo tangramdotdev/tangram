@@ -2,14 +2,13 @@ import { Args } from "./args.ts";
 import { Artifact } from "./artifact.ts";
 import { assert as assert_, unreachable } from "./assert.ts";
 import { Directory } from "./directory.ts";
-import { File } from "./file.ts";
+import type { File } from "./file.ts";
 import { mutation } from "./mutation.ts";
-import { Object_ } from "./object.ts";
+import type { Object_ } from "./object.ts";
 import { Path } from "./path.ts";
-import { Unresolved } from "./resolve.ts";
-import * as syscall from "./syscall.ts";
+import type { Unresolved } from "./resolve.ts";
 import { Template } from "./template.ts";
-import { MutationMap } from "./util.ts";
+import type { MutationMap } from "./util.ts";
 
 export let symlink = async (...args: Args<Symlink.Arg>): Promise<Symlink> => {
 	return await Symlink.new(...args);
@@ -131,7 +130,7 @@ export class Symlink {
 
 	async load() {
 		if (this.#state.object === undefined) {
-			let object = await syscall.load(this.#state.id!);
+			let object = await syscall("load", this.#state.id!);
 			assert_(object.kind === "symlink");
 			this.#state.object = object.value;
 		}
@@ -139,7 +138,7 @@ export class Symlink {
 
 	async store() {
 		if (this.#state.id === undefined) {
-			this.#state.id = await syscall.store({
+			this.#state.id = await syscall("store", {
 				kind: "symlink",
 				value: this.#state.object!,
 			});

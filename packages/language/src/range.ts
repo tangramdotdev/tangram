@@ -1,4 +1,4 @@
-import { Position } from "./position.ts";
+import type { Position } from "./position.ts";
 
 export type Range = {
 	start: Position;

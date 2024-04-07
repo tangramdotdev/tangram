@@ -1,6 +1,6 @@
-import { TangramLanguageClient } from "./language_client";
-import * as vscode from "vscode";
+import type * as vscode from "vscode";
 import * as vscodeLanguageClient from "vscode-languageclient";
+import type { TangramLanguageClient } from "./language_client";
 
 export interface VirtualTextDocumentParams {
 	textDocument: vscodeLanguageClient.TextDocumentIdentifier;

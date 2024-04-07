@@ -2,27 +2,19 @@ use super::Server;
 use lsp_types as lsp;
 use tangram_client as tg;
 
-#[derive(Debug, serde::Serialize)]
-#[serde(rename_all = "camelCase")]
-pub struct Request {
-	pub text: String,
-}
-
-#[derive(Debug, serde::Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct Response {
-	pub text: String,
-}
-
 impl Server {
 	pub async fn format(&self, text: String) -> tg::Result<String> {
-		// Create the request.
-		let request = super::Request::Format(Request { text });
-
-		// Perform the request.
-		let response = self.request(request).await?.unwrap_format();
-
-		Ok(response.text)
+		let options = biome_js_parser::JsParserOptions::default();
+		let node = biome_js_parser::parse_module(&text, options);
+		let source_type = biome_js_syntax::JsFileSource::js_module();
+		let options = biome_js_formatter::context::JsFormatOptions::new(source_type);
+		let node = biome_js_formatter::format_node(options, &node.syntax())
+			.map_err(|source| tg::error!(!source, "failed to format"))?;
+		let text = node
+			.print()
+			.map_err(|source| tg::error!(!source, "failed to format"))?
+			.into_code();
+		Ok(text)
 	}
 }
 

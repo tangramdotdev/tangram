@@ -1,5 +1,5 @@
 import { assert as assert_ } from "./assert.ts";
-import { Blob } from "./blob.ts";
+import type { Blob } from "./blob.ts";
 import { Branch } from "./branch.ts";
 import { Directory } from "./directory.ts";
 import { File } from "./file.ts";

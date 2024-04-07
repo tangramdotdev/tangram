@@ -1,6 +1,8 @@
 check:
 	cargo clippy --all
-	npm run --workspaces --if-present check
+	bun run --cwd packages/language check
+	bun run --cwd packages/runtime check
+	bun run --cwd packages/vscode check
 
 clean:
 	rm -rf node_modules target
@@ -11,9 +13,11 @@ clean_path:
 clean_path_orb:
 	orb sh -c "umount /home/$USER/.tangram/artifacts; rm -rf /home/$USER/.tangram;"
 
-fmt:
+format:
 	cargo fmt --all
-	npm run --workspaces --if-present fmt
+	bun run --cwd packages/language format
+	bun run --cwd packages/runtime format
+	bun run --cwd packages/vscode format
 
 release:
 	#!/bin/sh

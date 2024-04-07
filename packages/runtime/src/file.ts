@@ -1,11 +1,10 @@
 import { Args } from "./args.ts";
-import { Artifact } from "./artifact.ts";
+import type { Artifact } from "./artifact.ts";
 import { assert as assert_, unreachable } from "./assert.ts";
 import { Blob, blob } from "./blob.ts";
 import { Mutation, mutation } from "./mutation.ts";
-import { Object_ } from "./object.ts";
-import * as syscall from "./syscall.ts";
-import { MutationMap } from "./util.ts";
+import type { Object_ } from "./object.ts";
+import type { MutationMap } from "./util.ts";
 
 export let file = async (...args: Args<File.Arg>) => {
 	return await File.new(...args);
@@ -126,7 +125,7 @@ export class File {
 
 	async load() {
 		if (this.#state.object === undefined) {
-			let object = await syscall.load(this.#state.id!);
+			let object = await syscall("load", this.#state.id!);
 			assert_(object.kind === "file");
 			this.#state.object = object.value;
 		}
@@ -134,7 +133,7 @@ export class File {
 
 	async store() {
 		if (this.#state.id === undefined) {
-			this.#state.id = await syscall.store({
+			this.#state.id = await syscall("store", {
 				kind: "file",
 				value: this.#state.object!,
 			});

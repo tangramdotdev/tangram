@@ -3,8 +3,7 @@ import * as completion from "./completion.ts";
 import * as definition from "./definition.ts";
 import * as diagnostics from "./diagnostics.ts";
 import * as doc from "./doc.ts";
-import { Error as Error_, prepareStackTrace } from "./error.ts";
-import * as format from "./format.ts";
+import { Error_, prepareStackTrace } from "./error.ts";
 import * as hover from "./hover.ts";
 import { log } from "./log.ts";
 import * as references from "./references.ts";
@@ -25,7 +24,6 @@ type Request =
 	| { kind: "definition"; request: definition.Request }
 	| { kind: "diagnostics"; request: diagnostics.Request }
 	| { kind: "doc"; request: doc.Request }
-	| { kind: "format"; request: format.Request }
 	| { kind: "hover"; request: hover.Request }
 	| { kind: "references"; request: references.Request }
 	| { kind: "rename"; request: rename.Request }
@@ -37,7 +35,6 @@ type Response =
 	| { kind: "definition"; response: definition.Response }
 	| { kind: "diagnostics"; response: diagnostics.Response }
 	| { kind: "doc"; response: doc.Response }
-	| { kind: "format"; response: format.Response }
 	| { kind: "hover"; response: hover.Response }
 	| { kind: "references"; response: references.Response }
 	| { kind: "rename"; response: rename.Response }
@@ -64,10 +61,6 @@ let handle = async ({ kind, request }: Request): Promise<Response> => {
 		case "doc": {
 			let response = doc.handle(request);
 			return { kind: "doc", response };
-		}
-		case "format": {
-			let response = await format.handle(request);
-			return { kind: "format", response };
 		}
 		case "hover": {
 			let response = hover.handle(request);

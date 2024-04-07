@@ -1,7 +1,6 @@
-import { Artifact } from "./artifact.ts";
+import type { Artifact } from "./artifact.ts";
 import { assert } from "./assert.ts";
-import { Lock } from "./lock.ts";
-import { encoding } from "./syscall.ts";
+import type { Lock } from "./lock.ts";
 
 export type Module =
 	| { kind: "document"; value: Document }
@@ -25,8 +24,9 @@ export type Normal = {
 
 export namespace Module {
 	export let toUrl = (module: Module): string => {
-		let data = encoding.hex.encode(
-			encoding.utf8.encode(encoding.json.encode(module)),
+		let data = syscall(
+			"encoding_hex_encode",
+			syscall("encoding_utf8_encode", syscall("encoding_json_encode", module)),
 		);
 		return `tg://${data}/${module.value.path}`;
 	};
@@ -36,8 +36,9 @@ export namespace Module {
 		assert(match);
 		let [_, data] = match;
 		assert(data !== undefined);
-		return encoding.json.decode(
-			encoding.utf8.decode(encoding.hex.decode(data)),
+		return syscall(
+			"encoding_json_decode",
+			syscall("encoding_utf8_decode", syscall("encoding_hex_decode", data)),
 		) as Module;
 	};
 }

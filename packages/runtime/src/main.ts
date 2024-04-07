@@ -6,7 +6,7 @@ import { Branch, branch } from "./branch.ts";
 import { Checksum, checksum } from "./checksum.ts";
 import { Directory, directory } from "./directory.ts";
 import * as encoding from "./encoding.ts";
-import { Error as Error_, prepareStackTrace } from "./error.ts";
+import { Error_, prepareStackTrace } from "./error.ts";
 import { File, file } from "./file.ts";
 import { include } from "./include.ts";
 import { Leaf, leaf } from "./leaf.ts";

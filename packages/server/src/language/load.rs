@@ -2,12 +2,7 @@ use super::Server;
 use include_dir::include_dir;
 use tangram_client as tg;
 
-const TANGRAM_D_TS: &str = include_str!(concat!(
-	env!("CARGO_MANIFEST_DIR"),
-	"/src/language/tangram.d.ts"
-));
-
-const LIB: include_dir::Dir = include_dir!("$CARGO_MANIFEST_DIR/src/language/lib");
+const LIB: include_dir::Dir = include_dir!("$OUT_DIR/lib");
 
 impl Server {
 	/// Load a module.
@@ -16,16 +11,13 @@ impl Server {
 			// Load a library module.
 			tg::Module::Library(module) => {
 				let path = module.path.to_string();
-				let text = match path.as_str() {
-					"tangram.d.ts" => TANGRAM_D_TS,
-					_ => LIB
-						.get_file(&path)
-						.ok_or_else(
-							|| tg::error!(%path, "could not find a library module at the path"),
-						)?
-						.contents_utf8()
-						.ok_or_else(|| tg::error!("failed to read the file as UTF-8"))?,
-				};
+				let text = LIB
+					.get_file(&path)
+					.ok_or_else(
+						|| tg::error!(%path, "could not find a library module at the path"),
+					)?
+					.contents_utf8()
+					.ok_or_else(|| tg::error!("failed to read the file as UTF-8"))?;
 				Ok(text.to_owned())
 			},
 
