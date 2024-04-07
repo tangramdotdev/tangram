@@ -1,24 +1,23 @@
 import { Args } from "./args.ts";
 import { Artifact } from "./artifact.ts";
 import { assert as assert_, unreachable } from "./assert.ts";
-import { Checksum } from "./checksum.ts";
+import type { Checksum } from "./checksum.ts";
 import { Directory } from "./directory.ts";
 import * as encoding from "./encoding.ts";
 import { Lock } from "./lock.ts";
 import { Module } from "./module.ts";
 import { Mutation, mutation } from "./mutation.ts";
-import { Object_ } from "./object.ts";
-import { Unresolved } from "./resolve.ts";
+import type { Object_ } from "./object.ts";
+import type { Unresolved } from "./resolve.ts";
 import { Symlink, symlink } from "./symlink.ts";
-import * as syscall from "./syscall.ts";
 import { Template } from "./template.ts";
 import {
-	MaybeNestedArray,
-	MaybePromise,
-	MutationMap,
+	type MaybeNestedArray,
+	type MaybePromise,
+	type MutationMap,
 	flatten,
 } from "./util.ts";
-import { Value } from "./value.ts";
+import type { Value } from "./value.ts";
 
 let currentTarget: Target;
 
@@ -108,6 +107,7 @@ export interface Target<
 	(...args: { [K in keyof A]: Unresolved<A[K]> }): Promise<R>;
 }
 
+// biome-ignore lint/suspicious/noUnsafeDeclarationMerging:
 export class Target<
 	A extends Array<Value> = Array<Value>,
 	R extends Value = Value,
@@ -118,6 +118,7 @@ export class Target<
 		super();
 		this.#state = state;
 		let this_ = this as any;
+		// biome-ignore lint/correctness/noConstructorReturn:
 		return new Proxy(this_, {
 			get(_target, prop, _receiver) {
 				if (typeof this_[prop] === "function") {
@@ -173,7 +174,7 @@ export class Target<
 					arg instanceof Template
 				) {
 					return {
-						host: (await getCurrentTarget().env())["TANGRAM_HOST"] as string,
+						host: (await getCurrentTarget().env()).TANGRAM_HOST as string,
 						executable: await symlink("/bin/sh"),
 						args: ["-c", arg],
 					};
@@ -192,10 +193,10 @@ export class Target<
 					if (arg.args !== undefined) {
 						object.args = Mutation.is(arg.args)
 							? arg.args
-							: (object.args = await mutation({
+							: await mutation({
 									kind: "array_append",
 									values: [...arg.args],
-								}));
+								});
 					}
 					return {
 						...arg,
@@ -266,7 +267,7 @@ export class Target<
 
 	async load() {
 		if (this.#state.object === undefined) {
-			let object = await syscall.load(this.#state.id!);
+			let object = await syscall("load", this.#state.id!);
 			assert_(object.kind === "target");
 			this.#state.object = object.value;
 		}
@@ -274,7 +275,7 @@ export class Target<
 
 	async store() {
 		if (this.#state.id === undefined) {
-			this.#state.id = await syscall.store({
+			this.#state.id = await syscall("store", {
 				kind: "target",
 				value: this.#state.object!,
 			});
@@ -310,7 +311,8 @@ export class Target<
 	}
 
 	async build(...args: A): Promise<Value> {
-		return await syscall.build(
+		return await syscall(
+			"build",
 			await Target.new<[], R>(this as Target, { args }),
 		);
 	}

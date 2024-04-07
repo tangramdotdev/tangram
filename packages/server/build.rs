@@ -9,23 +9,71 @@ fn main() {
 	// Get the out dir path.
 	let out_dir_path = std::path::PathBuf::from(std::env::var_os("OUT_DIR").unwrap());
 
+	// Create the lib path.
+	let lib_path = out_dir_path.join("lib");
+	std::fs::create_dir_all(&lib_path).unwrap();
+
+	// Copy the tangram.d.ts.
+	println!("cargo:rerun-if-changed=src/language/tangram.d.ts");
+	std::fs::copy("src/language/tangram.d.ts", lib_path.join("tangram.d.ts")).unwrap();
+
+	// Copy the typescript libraries.
+	println!("cargo:rerun-if-changed=../../node_modules");
+	let paths = glob::glob("../../node_modules/typescript/lib/lib.es*.d.ts").unwrap();
+	for path in paths {
+		let path = path.unwrap();
+		std::fs::copy(&path, lib_path.join(path.file_name().unwrap())).unwrap();
+	}
+	std::fs::copy(
+		"../../node_modules/typescript/lib/lib.decorators.d.ts",
+		lib_path.join("lib.decorators.d.ts"),
+	)
+	.unwrap();
+	std::fs::copy(
+		"../../node_modules/typescript/lib/lib.decorators.legacy.d.ts",
+		lib_path.join("lib.decorators.legacy.d.ts"),
+	)
+	.unwrap();
+
 	// Build the language.
 	println!("cargo:rerun-if-changed=../../node_modules");
 	println!("cargo:rerun-if-changed=../../packages/language");
-	let status = std::process::Command::new("npm")
-		.args(["run", "-w", "@tangramdotdev/language", "build"])
+	std::process::Command::new("bunx")
+		.args([
+			"esbuild",
+			"--bundle",
+			"--entry-names=language",
+			"--minify",
+			&format!("--outdir={}", out_dir_path.display()),
+			"--sourcemap=external",
+			"../../packages/language/src/main.ts",
+		])
 		.status()
+		.unwrap()
+		.success()
+		.then_some(())
 		.unwrap();
-	assert!(status.success());
+	fixup_source_map(out_dir_path.join("language.js.map"));
 
 	// Build the runtime.
 	println!("cargo:rerun-if-changed=../../node_modules");
 	println!("cargo:rerun-if-changed=../../packages/runtime");
-	let status = std::process::Command::new("npm")
-		.args(["run", "-w", "@tangramdotdev/runtime", "build"])
+	std::process::Command::new("bunx")
+		.args([
+			"esbuild",
+			"--bundle",
+			"--entry-names=runtime",
+			"--minify",
+			&format!("--outdir={}", out_dir_path.display()),
+			"--sourcemap=external",
+			"../../packages/runtime/src/main.ts",
+		])
 		.status()
+		.unwrap()
+		.success()
+		.then_some(())
 		.unwrap();
-	assert!(status.success());
+	fixup_source_map(out_dir_path.join("runtime.js.map"));
 
 	// Create the language snapshot.
 	let path = out_dir_path.join("language.heapsnapshot");
@@ -82,4 +130,21 @@ fn create_snapshot(path: impl AsRef<std::path::Path>) -> v8::StartupData {
 
 	// Create the snapshot.
 	isolate.create_blob(v8::FunctionCodeHandling::Keep).unwrap()
+}
+
+fn fixup_source_map(path: impl AsRef<std::path::Path>) {
+	let bytes = std::fs::read(&path).unwrap();
+	let mut json = serde_json::from_slice::<serde_json::Value>(&bytes).unwrap();
+	let sources = json.get_mut("sources").unwrap().as_array_mut().unwrap();
+	for source in sources.iter_mut() {
+		let serde_json::Value::String(source) = source else {
+			panic!();
+		};
+		let prefix = "../";
+		while source.strip_prefix(prefix).is_some() {
+			source.drain(..prefix.len()).for_each(drop);
+		}
+	}
+	let bytes = serde_json::to_vec(&json).unwrap();
+	std::fs::write(&path, bytes).unwrap();
 }

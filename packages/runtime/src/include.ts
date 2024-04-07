@@ -1,4 +1,4 @@
-import { Artifact } from "./artifact.ts";
+import type { Artifact } from "./artifact.ts";
 import { assert } from "./assert.ts";
 import { Directory } from "./directory.ts";
 import { Module } from "./module.ts";

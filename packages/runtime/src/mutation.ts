@@ -1,8 +1,8 @@
 import { assert as assert_ } from "./assert.ts";
-import { Unresolved, resolve } from "./resolve.ts";
-import { Template, template } from "./template.ts";
-import { MaybeNestedArray, flatten } from "./util.ts";
-import { Value } from "./value.ts";
+import { type Unresolved, resolve } from "./resolve.ts";
+import { type Template, template } from "./template.ts";
+import { type MaybeNestedArray, flatten } from "./util.ts";
+import type { Value } from "./value.ts";
 
 export async function mutation<T extends Value = Value>(
 	arg: Unresolved<Mutation.Arg<T>>,

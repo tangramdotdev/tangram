@@ -1,5 +1,3 @@
-import * as syscall from "./syscall.ts";
-
 export let checksum = (
 	algorithm: Checksum.Algorithm,
 	bytes: string | Uint8Array,
@@ -24,7 +22,7 @@ export namespace Checksum {
 		algorithm: Checksum.Algorithm,
 		bytes: string | Uint8Array,
 	): Checksum => {
-		return syscall.checksum(algorithm, bytes);
+		return syscall("checksum", algorithm, bytes);
 	};
 	Checksum.new = new_;
 }

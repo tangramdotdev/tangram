@@ -3,8 +3,8 @@
 	"private": true,
 	"scripts": {
 		"build": "node build.js",
-		"check": "tsc && biome check .",
-		"fmt": "biome format --write ."
+		"check": "tsc && biome check src",
+		"format": "biome check --apply src"
 	},
 	"type": "module"
 }

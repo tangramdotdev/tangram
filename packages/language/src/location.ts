@@ -1,5 +1,5 @@
-import { Module } from "./module.ts";
-import { Range } from "./range.ts";
+import type { Module } from "./module.ts";
+import type { Range } from "./range.ts";
 
 export type Location = {
 	module: Module;

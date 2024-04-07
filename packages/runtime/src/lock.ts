@@ -1,9 +1,8 @@
 import { Args } from "./args.ts";
 import { assert as assert_, unreachable } from "./assert.ts";
 import { Mutation } from "./mutation.ts";
-import { Object_ } from "./object.ts";
-import * as syscall from "./syscall.ts";
-import { MutationMap } from "./util.ts";
+import type { Object_ } from "./object.ts";
+import type { MutationMap } from "./util.ts";
 
 export let lock = async (...args: Args<Lock.Arg>): Promise<Lock> => {
 	return await Lock.new(...args);
@@ -98,7 +97,7 @@ export class Lock {
 
 	async load() {
 		if (this.#state.object === undefined) {
-			let object = await syscall.load(this.#state.id!);
+			let object = await syscall("load", this.#state.id!);
 			assert_(object.kind === "lock");
 			this.#state.object = object.value;
 		}
@@ -106,7 +105,7 @@ export class Lock {
 
 	async store() {
 		if (this.#state.id === undefined) {
-			this.#state.id = await syscall.store({
+			this.#state.id = await syscall("store", {
 				kind: "lock",
 				value: this.#state.object!,
 			});

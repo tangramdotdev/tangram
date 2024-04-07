@@ -4,12 +4,12 @@ import { File } from "./file.ts";
 import { Leaf } from "./leaf.ts";
 import { Lock } from "./lock.ts";
 import { Mutation } from "./mutation.ts";
-import { Object_ } from "./object.ts";
+import type { Object_ } from "./object.ts";
 import { Symlink } from "./symlink.ts";
 import { Target } from "./target.ts";
 import { Template } from "./template.ts";
-import { MaybePromise } from "./util.ts";
-import { Value } from "./value.ts";
+import type { MaybePromise } from "./util.ts";
+import type { Value } from "./value.ts";
 
 export type Unresolved<T extends Value> = MaybePromise<
 	T extends

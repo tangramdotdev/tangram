@@ -4,7 +4,7 @@ export default tg.target(async () => {
 
 export let test = tg.target(async () => {
 	return tg.directory({
-		"a": "Hello, World!",
+		"a": "Hello, World!!",
 		"b": "Hello, World!",
 	});
 });

@@ -1,15 +1,15 @@
-export class Error {
+export class Error_ {
 	message: string;
 	location: Location | undefined;
 	stack: Array<Location> | undefined;
-	source: Error | undefined;
+	source: Error_ | undefined;
 	values: Map<string, string> | undefined;
 
 	constructor(
 		message: string,
 		location?: Location,
 		stack?: Array<Location>,
-		source?: Error,
+		source?: Error_,
 		values?: Map<string, string>,
 	) {
 		this.message = message;

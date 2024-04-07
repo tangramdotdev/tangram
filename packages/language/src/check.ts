@@ -1,13 +1,10 @@
+import ts from "typescript";
 import {
-	Diagnostic,
-	convertDiagnosticFromESLint,
+	type Diagnostic,
 	convertDiagnosticFromTypeScript,
 } from "./diagnostics.ts";
-import * as eslint from "./eslint.ts";
-import { Module } from "./module.ts";
-import * as syscall from "./syscall.ts";
+import type { Module } from "./module.ts";
 import * as typescript from "./typescript.ts";
-import ts from "typescript";
 
 export type Request = {
 	modules: Array<Module>;
@@ -38,24 +35,6 @@ export let handle = (request: Request): Response => {
 			...program.getSemanticDiagnostics(),
 		].map(convertDiagnosticFromTypeScript),
 	);
-
-	// Collect the ESLint diagnostics.
-	let modules = program
-		.getSourceFiles()
-		.map((sourceFile) => typescript.moduleFromFileName(sourceFile.fileName));
-	for (let module_ of modules) {
-		diagnostics.push(
-			...eslint.linter
-				.verify(
-					syscall.module_.load(module_),
-					eslint.createConfig(program),
-					typescript.fileNameFromModule(module_),
-				)
-				.map((lintMessage) =>
-					convertDiagnosticFromESLint(module_, lintMessage),
-				),
-		);
-	}
 
 	return { diagnostics };
 };

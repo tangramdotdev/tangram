@@ -13,7 +13,7 @@ pub struct Args {
 }
 
 impl Cli {
-	pub async fn command_fmt(&self, mut args: Args) -> tg::Result<()> {
+	pub async fn command_format(&self, mut args: Args) -> tg::Result<()> {
 		let client = &self.client().await?;
 
 		if args.stdio {

@@ -56,7 +56,7 @@ pub enum Command {
 	Checksum(self::commands::checksum::Args),
 	Clean(self::commands::clean::Args),
 	Doc(self::commands::doc::Args),
-	Fmt(self::commands::fmt::Args),
+	Format(self::commands::format::Args),
 	Get(self::commands::get::Args),
 	Hook(self::commands::hook::Args),
 	Init(self::commands::init::Args),
@@ -169,7 +169,7 @@ fn main_inner(config_: &mut Option<Config>) -> tg::Result<()> {
 		Command::Checksum(args) => cli.command_checksum(args).boxed(),
 		Command::Clean(args) => cli.command_clean(args).boxed(),
 		Command::Doc(args) => cli.command_doc(args).boxed(),
-		Command::Fmt(args) => cli.command_fmt(args).boxed(),
+		Command::Format(args) => cli.command_format(args).boxed(),
 		Command::Get(args) => cli.command_get(args).boxed(),
 		Command::Hook(args) => cli.command_hook(args).boxed(),
 		Command::Init(args) => cli.command_init(args).boxed(),
@@ -381,7 +381,7 @@ fn set_up_tracing(config: &Option<Config>) {
 	} else {
 		None
 	};
-	let fmt_layer = config
+	let format_layer = config
 		.as_ref()
 		.and_then(|config| config.tracing.as_ref())
 		.map(|tracing| {
@@ -401,7 +401,7 @@ fn set_up_tracing(config: &Option<Config>) {
 		});
 	tracing_subscriber::registry()
 		.with(console_layer)
-		.with(fmt_layer)
+		.with(format_layer)
 		.init();
 }
 

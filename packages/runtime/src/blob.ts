@@ -1,12 +1,11 @@
 import { Args } from "./args.ts";
-import { Artifact } from "./artifact.ts";
+import type { Artifact } from "./artifact.ts";
 import { assert as assert_, unreachable } from "./assert.ts";
 import { Branch } from "./branch.ts";
-import { Checksum } from "./checksum.ts";
+import type { Checksum } from "./checksum.ts";
 import * as encoding from "./encoding.ts";
 import { Leaf } from "./leaf.ts";
 import { mutation } from "./mutation.ts";
-import * as syscall from "./syscall.ts";
 
 export type Blob = Leaf | Branch;
 
@@ -116,13 +115,13 @@ export namespace Blob {
 		url: string,
 		checksum: Checksum,
 	): Promise<Blob> => {
-		return await syscall.download(url, checksum);
+		return await syscall("download", url, checksum);
 	};
 
 	export let archive = async (
 		artifact: Artifact,
 		format: Blob.ArchiveFormat,
 	): Promise<Blob> => {
-		return await syscall.archive(artifact, format);
+		return await syscall("archive", artifact, format);
 	};
 }

@@ -2,9 +2,21 @@
 	"$schema": "https://biomejs.dev/schemas/1.6.3/schema.json",
 	"linter": {
 		"rules": {
+			"complexity": {
+				"noBannedTypes": "off"
+			},
+			"correctness": {
+				"noUnnecessaryContinue": "off"
+			},
 			"style": {
 				"noNonNullAssertion": "off",
+				"noParameterAssign": "off",
+				"noUselessElse": "off",
 				"useConst": "off"
+			},
+			"suspicious": {
+				"noExplicitAny": "off",
+				"useIsArray": "off"
 			}
 		}
 	}

@@ -1,10 +1,10 @@
 import * as path from "node:path";
 import * as vscode from "vscode";
-import { OutputChannel } from "vscode";
+import type { OutputChannel } from "vscode";
 import {
 	LanguageClient,
-	LanguageClientOptions,
-	ServerOptions,
+	type LanguageClientOptions,
+	type ServerOptions,
 } from "vscode-languageclient/node";
 
 export class TangramLanguageClient {
@@ -24,7 +24,7 @@ export class TangramLanguageClient {
 
 		let tangramConfig = vscode.workspace.getConfiguration("tangram");
 
-		let defaultPath = path.join(process.env["HOME"]!, ".tangram/bin/tg");
+		let defaultPath = path.join(process.env.HOME!, ".tangram/bin/tg");
 
 		let serverOptions: ServerOptions = {
 			command: tangramConfig.get<string>("path", defaultPath),

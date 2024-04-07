@@ -1,9 +1,9 @@
+import ts from "typescript";
 import { assert } from "./assert.ts";
-import { Module } from "./module.ts";
-import { Range } from "./range.ts";
+import type { Module } from "./module.ts";
+import type { Range } from "./range.ts";
 import { compilerOptions, host } from "./typescript.ts";
 import * as typescript from "./typescript.ts";
-import ts from "typescript";
 
 declare module "typescript" {
 	interface TypeChecker {
@@ -288,7 +288,7 @@ export let handle = (request: Request): Response => {
 		typescript.fileNameFromModule(request.module),
 	)!;
 	let symbol = typeChecker.getSymbolAtLocation(sourceFile)!;
-	let exports_;
+	let exports_: Array<ts.Symbol>;
 	if (!symbol) {
 		exports_ = typeChecker
 			.getSymbolsInScope(sourceFile, ts.SymbolFlags.ModuleMember)
@@ -498,7 +498,7 @@ let convertSymbol = (
 	// Handle default export Property.
 	if (
 		ts.SymbolFlags.Property & moduleExport.flags &&
-		moduleExport.getName() == "default"
+		moduleExport.getName() === "default"
 	) {
 		declarations.push({
 			kind: "variable",
@@ -911,7 +911,7 @@ let convertInterfaceSymbol = (
 	let declarations = symbol
 		.getDeclarations()
 		?.filter((d): d is ts.InterfaceDeclaration => ts.isInterfaceDeclaration(d));
-	if (!declarations || declarations.length == 0) {
+	if (!declarations || declarations.length === 0) {
 		throw new Error();
 	}
 
@@ -1144,13 +1144,13 @@ let convertEnumMemberSymbol = (
 	// Convert the value.
 	let value: EnumMemberConstantValue | undefined = undefined;
 	let initializer = declaration.initializer?.getText();
-	if (typeof constantValue == "string") {
+	if (typeof constantValue === "string") {
 		value = {
 			kind: "string",
 			value: constantValue,
 		};
 	}
-	if (typeof constantValue == "number") {
+	if (typeof constantValue === "number") {
 		value = {
 			kind: "number",
 			value: constantValue,
@@ -1480,8 +1480,8 @@ let convertObjectType = (
 	let indexSignature: IndexSignature | undefined;
 	let indexSymbol = type.symbol?.members?.get("__index" as ts.__String);
 	if (indexSymbol) {
-		let declaration = indexSymbol
-			.declarations![0]! as ts.IndexSignatureDeclaration;
+		let declaration =
+			indexSymbol.declarations![0]! as ts.IndexSignatureDeclaration;
 		indexSignature = convertIndexSignature(
 			typeChecker,
 			packageExports,
@@ -2273,9 +2273,9 @@ let convertLocation = (node: ts.Node): Location => {
 	let end = ts.getLineAndCharacterOfPosition(sourceFile, node.getEnd());
 	let module_ = typescript.moduleFromFileName(sourceFile.fileName);
 	let docModule: Module;
-	if (module_.kind == "library") {
+	if (module_.kind === "library") {
 		docModule = module_;
-	} else if (module_.kind == "normal") {
+	} else if (module_.kind === "normal") {
 		docModule = {
 			kind: "normal",
 			value: {
@@ -2306,9 +2306,9 @@ function isExported(
 	// If the symbol is not from our package, then it is exported.
 	let module_ = typescript.moduleFromFileName(node.getSourceFile().fileName);
 	// If the symbol is from a library file, then it is exported.
-	if (module_.kind == "library") {
+	if (module_.kind === "library") {
 		return true;
-	} else if (module_.kind == "normal" && thisModule.kind == "normal") {
+	} else if (module_.kind === "normal" && thisModule.kind === "normal") {
 		// If the symbol is from a different package, then it is exported.
 		if (module_.value.package !== thisModule.value.package) {
 			return true;
@@ -2320,14 +2320,14 @@ function isExported(
 		let isExported = false;
 		// If the export_ is an alias.
 		if ((export_.flags & ts.SymbolFlags.Alias) !== 0) {
-			isExported = typeChecker.getAliasedSymbol(export_) == symbol;
+			isExported = typeChecker.getAliasedSymbol(export_) === symbol;
 		}
 		// If the symbol is an alias.
 		if ((symbol.flags & ts.SymbolFlags.Alias) !== 0) {
 			isExported =
-				isExported || typeChecker.getAliasedSymbol(symbol) == export_;
+				isExported || typeChecker.getAliasedSymbol(symbol) === export_;
 		}
-		return isExported || export_ == symbol;
+		return isExported || export_ === symbol;
 	});
 }
 
@@ -2349,7 +2349,7 @@ let convertComment = (
 	_symbol?: ts.Symbol,
 ): Comment => {
 	let jsDocCommentsAndTags = ts.getJSDocCommentsAndTags(declaration)?.[0];
-	if (jsDocCommentsAndTags == undefined) {
+	if (jsDocCommentsAndTags === undefined) {
 		return {
 			text: "",
 			tags: [],

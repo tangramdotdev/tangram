@@ -1,6 +1,6 @@
+import * as vscode from "vscode";
 import { TangramLanguageClient } from "./language_client";
 import { TangramTextDocumentContentProvider } from "./virtual_text_document";
-import * as vscode from "vscode";
 
 // Create the language client.
 let languageClient = new TangramLanguageClient();

@@ -1,10 +1,10 @@
-import { Branch } from "./branch.ts";
-import { Directory } from "./directory.ts";
-import { File } from "./file.ts";
-import { Leaf } from "./leaf.ts";
-import { Lock } from "./lock.ts";
-import { Symlink } from "./symlink.ts";
-import { Target } from "./target.ts";
+import type { Branch } from "./branch.ts";
+import type { Directory } from "./directory.ts";
+import type { File } from "./file.ts";
+import type { Leaf } from "./leaf.ts";
+import type { Lock } from "./lock.ts";
+import type { Symlink } from "./symlink.ts";
+import type { Target } from "./target.ts";
 
 export type Object_ =
 	| Leaf

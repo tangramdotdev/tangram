@@ -1,12 +1,11 @@
-import { Artifact } from "./artifact.ts";
+import type { Artifact } from "./artifact.ts";
 import { assert as assert_, unreachable } from "./assert.ts";
 import { Blob } from "./blob.ts";
 import { File, file } from "./file.ts";
-import { Object_ } from "./object.ts";
+import type { Object_ } from "./object.ts";
 import { Path } from "./path.ts";
-import { Unresolved, resolve } from "./resolve.ts";
+import { type Unresolved, resolve } from "./resolve.ts";
 import { Symlink } from "./symlink.ts";
-import * as syscall from "./syscall.ts";
 
 export let directory = async (...args: Array<Unresolved<Directory.Arg>>) => {
 	return await Directory.new(...args);
@@ -138,7 +137,7 @@ export class Directory {
 
 	async load() {
 		if (this.#state.object === undefined) {
-			let object = await syscall.load(this.#state.id!);
+			let object = await syscall("load", this.#state.id!);
 			assert_(object.kind === "directory");
 			this.#state.object = object.value;
 		}
@@ -146,7 +145,7 @@ export class Directory {
 
 	async store() {
 		if (this.#state.id === undefined) {
-			this.#state.id = await syscall.store({
+			this.#state.id = await syscall("store", {
 				kind: "directory",
 				value: this.#state.object!,
 			});
@@ -198,7 +197,7 @@ export class Directory {
 	}
 
 	async bundle(): Promise<Directory> {
-		return await syscall.bundle(this);
+		return await syscall("bundle", this);
 	}
 
 	async *walk(): AsyncIterableIterator<[Path, Artifact]> {

@@ -1,10 +1,5 @@
 {
-	"categories": [
-		"Programming Languages",
-		"Formatters",
-		"Linters",
-		"Other"
-	],
+	"categories": ["Programming Languages", "Formatters", "Linters", "Other"],
 	"contributes": {
 		"commands": [
 			{
@@ -30,11 +25,7 @@
 				"tangram.trace.server": {
 					"default": "off",
 					"description": "Enable tracing for the Tangram Language Server.",
-					"enum": [
-						"off",
-						"messages",
-						"verbose"
-					],
+					"enum": ["off", "messages", "verbose"],
 					"scope": "window",
 					"type": "string"
 				}
@@ -63,9 +54,7 @@
 				"scopeName": "source.tg.js"
 			},
 			{
-				"injectTo": [
-					"source.tg.js"
-				],
+				"injectTo": ["source.tg.js"],
 				"path": "./tangram-javascript-jsdoc-injection.tmLanguage.json",
 				"scopeName": "documentation.injection.tg.js"
 			},
@@ -78,50 +67,36 @@
 				"scopeName": "source.tg.ts"
 			},
 			{
-				"injectTo": [
-					"source.tg.ts"
-				],
+				"injectTo": ["source.tg.ts"],
 				"path": "./tangram-typescript-jsdoc-injection.tmLanguage.json",
 				"scopeName": "documentation.injection.tg.ts"
 			}
 		],
 		"languages": [
 			{
-				"aliases": [
-					"Tangram JavaScript"
-				],
+				"aliases": ["Tangram JavaScript"],
 				"configuration": "./tangram-javascript-language-configuration.json",
-				"filenames": [
-					"tangram.js"
-				],
-				"extensions": [
-					".tg.js"
-				],
+				"filenames": ["tangram.js"],
+				"extensions": [".tg.js"],
 				"id": "tangram-javascript"
 			},
 			{
-				"aliases": [
-					"Tangram TypeScript"
-				],
+				"aliases": ["Tangram TypeScript"],
 				"configuration": "./tangram-typescript-language-configuration.json",
-				"filenames": [
-					"tangram.ts"
-				],
-				"extensions": [
-					".tg.ts"
-				],
+				"filenames": ["tangram.ts"],
+				"extensions": [".tg.ts"],
 				"id": "tangram-typescript"
 			}
 		]
 	},
 	"dependencies": {
-		"@types/node": "^20.11.30",
-		"vscode-languageclient": "^9.0.1"
+		"@types/node": "^20",
+		"vscode-languageclient": "^9"
 	},
 	"description": "Tangram extension for Visual Studio Code.",
 	"devDependencies": {
-		"@types/vscode": "^1.75.0",
-		"@vscode/vsce": "^2.17.0"
+		"@types/vscode": "^1",
+		"@vscode/vsce": "^2"
 	},
 	"displayName": "Tangram",
 	"engines": {
@@ -137,8 +112,8 @@
 	},
 	"scripts": {
 		"build": "esbuild --bundle --outfile=extension.js --format=cjs --sourcemap --platform=node --external:vscode src/extension.ts",
-		"check": "tsc && biome check .",
-		"format": "biome format --write .",
+		"check": "tsc && biome check src",
+		"format": "biome check --apply src",
 		"package": "vsce package --no-dependencies --no-update-package-json --no-git-tag-version",
 		"vscode:prepublish": "npm run build"
 	},

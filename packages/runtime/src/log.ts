@@ -6,15 +6,14 @@ import { File } from "./file.ts";
 import { Leaf } from "./leaf.ts";
 import { Lock } from "./lock.ts";
 import { Mutation } from "./mutation.ts";
-import { Object_ } from "./object.ts";
+import type { Object_ } from "./object.ts";
 import { Symlink } from "./symlink.ts";
-import * as syscall from "./syscall.ts";
 import { Target } from "./target.ts";
 import { Template } from "./template.ts";
 
 export let log = (...args: Array<unknown>) => {
-	let string = args.map((arg) => stringify(arg)).join(" ") + "\n";
-	syscall.log(string);
+	let string = args.map((arg) => stringify(arg)).join(" ");
+	syscall("log", `${string}\n`);
 };
 
 let stringify = (value: unknown): string => {

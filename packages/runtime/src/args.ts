@@ -1,16 +1,16 @@
 import { Artifact } from "./artifact.ts";
 import { assert } from "./assert.ts";
 import { Mutation } from "./mutation.ts";
-import { Unresolved, resolve } from "./resolve.ts";
+import { type Unresolved, resolve } from "./resolve.ts";
 import { Template, template } from "./template.ts";
 import {
-	MaybeMutation,
-	MaybeMutationMap,
-	MaybeNestedArray,
-	MutationMap,
+	type MaybeMutation,
+	type MaybeMutationMap,
+	type MaybeNestedArray,
+	type MutationMap,
 	flatten,
 } from "./util.ts";
-import { Value } from "./value.ts";
+import type { Value } from "./value.ts";
 
 export type Args<T extends Value = Value> = Array<
 	Unresolved<MaybeNestedArray<MaybeMutationMap<T>>>

@@ -1,12 +1,11 @@
 import { Args } from "./args.ts";
-import { Artifact } from "./artifact.ts";
+import type { Artifact } from "./artifact.ts";
 import { assert as assert_, unreachable } from "./assert.ts";
-import { Blob } from "./blob.ts";
+import type { Blob } from "./blob.ts";
 import * as encoding from "./encoding.ts";
 import { Mutation, mutation } from "./mutation.ts";
-import { Object_ } from "./object.ts";
-import * as syscall from "./syscall.ts";
-import { MutationMap } from "./util.ts";
+import type { Object_ } from "./object.ts";
+import type { MutationMap } from "./util.ts";
 
 export let branch = async (...args: Args<Branch.Arg>): Promise<Branch> => {
 	return await Branch.new(...args);
@@ -88,7 +87,7 @@ export class Branch {
 
 	async load() {
 		if (this.#state.object === undefined) {
-			let object = await syscall.load(this.#state.id!);
+			let object = await syscall("load", this.#state.id!);
 			assert_(object.kind === "branch");
 			this.#state.object = object.value;
 		}
@@ -96,7 +95,7 @@ export class Branch {
 
 	async store() {
 		if (this.#state.id === undefined) {
-			this.#state.id = await syscall.store({
+			this.#state.id = await syscall("store", {
 				kind: "branch",
 				value: this.#state.object!,
 			});
@@ -114,23 +113,23 @@ export class Branch {
 	}
 
 	async bytes(): Promise<Uint8Array> {
-		return await syscall.read(this);
+		return await syscall("read", this);
 	}
 
 	async text(): Promise<string> {
-		return encoding.utf8.decode(await syscall.read(this));
+		return encoding.utf8.decode(await syscall("read", this));
 	}
 
 	async compress(format: Blob.CompressionFormat): Promise<Blob> {
-		return await syscall.compress(this, format);
+		return await syscall("compress", this, format);
 	}
 
 	async decompress(format: Blob.CompressionFormat): Promise<Blob> {
-		return await syscall.decompress(this, format);
+		return await syscall("decompress", this, format);
 	}
 
 	async extract(format: Blob.ArchiveFormat): Promise<Artifact> {
-		return await syscall.extract(this, format);
+		return await syscall("extract", this, format);
 	}
 }
 
