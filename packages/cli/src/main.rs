@@ -351,15 +351,6 @@ fn set_file_descriptor_limit(config: &Option<Config>) -> tg::Result<()> {
 }
 
 fn initialize_v8() {
-	// Set the ICU data.
-	#[repr(C, align(16))]
-	struct IcuData([u8; 10_631_872]);
-	static ICU_DATA: IcuData = IcuData(*include_bytes!(concat!(
-		env!("CARGO_MANIFEST_DIR"),
-		"/../../packages/server/src/language/icudtl.dat"
-	)));
-	v8::icu::set_common_data_73(&ICU_DATA.0).unwrap();
-
 	// Initialize the platform.
 	let platform = v8::new_default_platform(0, true);
 	v8::V8::initialize_platform(platform.make_shared());
