@@ -47,6 +47,7 @@ console-subscriber = "0.2"
 crossterm = "0.27"
 data-encoding = "2"
 data-encoding-macro = "0.1"
+deno_core_icudata = "0.73"
 derive_more = { version = "1.0.0-beta.6", features = ["full"] }
 dialoguer = "0.11"
 either = { version = "1", features = ["serde"] }

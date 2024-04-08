@@ -351,6 +351,9 @@ fn set_file_descriptor_limit(config: &Option<Config>) -> tg::Result<()> {
 }
 
 fn initialize_v8() {
+	// Set the ICU data.
+	v8::icu::set_common_data_73(deno_core_icudata::ICU_DATA).unwrap();
+
 	// Initialize the platform.
 	let platform = v8::new_default_platform(0, true);
 	v8::V8::initialize_platform(platform.make_shared());

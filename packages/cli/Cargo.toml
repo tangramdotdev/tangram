@@ -22,6 +22,7 @@ bytes = { workspace = true }
 clap = { workspace = true }
 console-subscriber = { workspace = true }
 crossterm = { workspace = true }
+deno_core_icudata = { workspace = true }
 dialoguer = { workspace = true }
 either = { workspace = true }
 futures = { workspace = true }

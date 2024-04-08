@@ -1392,6 +1392,12 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "83ace6c86376be0b6cdcf3fb41882e81d94b31587573d1cfa9d01cd06bba210d"
 
 [[package]]
+name = "deno_core_icudata"
+version = "0.73.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "6f62601b00b651d26d422baa52499ff2ca6b624a78bee06fefdb1120a38a9ad3"
+
+[[package]]
 name = "der"
 version = "0.7.9"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -4749,6 +4755,7 @@ dependencies = [
  "clap",
  "console-subscriber",
  "crossterm",
+ "deno_core_icudata",
  "dialoguer",
  "either",
  "futures",
