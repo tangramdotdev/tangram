@@ -137,25 +137,7 @@ impl Server {
 				let (package, lock) = lock.get(&self.inner.server, &dependency).await.map_err(
 					|source| tg::error!(!source, %dependency, "failed to resolve dependency"),
 				)?;
-				let package = match (package, &dependency.path) {
-					(Some(package), _) => package,
-					(None, Some(path)) => {
-						let package = tg::Directory::with_id(module.package.clone());
-						package
-							.get(&self.inner.server, path)
-							.await
-							.map_err(
-								|source| tg::error!(!source, %path, "could not resolve path dependency"),
-							)?
-							.try_unwrap_directory()
-							.map_err(|_| tg::error!("expected a directory"))?
-					},
-					(None, None) => {
-						return Err(
-							tg::error!(%dependency, "could not resolve dependency in lock or as path"),
-						)
-					},
-				};
+				let package = package.unwrap();
 
 				// Create the module.
 				let path = tg::package::get_root_module_path(&self.inner.server, &package).await?;

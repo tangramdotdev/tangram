@@ -248,7 +248,7 @@ impl Server {
 		let root = package_with_path_dependencies.package.id(self).await?;
 		let mut nodes = Vec::new();
 		let root = self
-			.create_lock_inner(&root, &context, &solution, &mut nodes)
+			.create_lock_inner(false, &root, &context, &solution, &mut nodes)
 			.await?;
 		let nodes = nodes
 			.into_iter()
@@ -274,6 +274,7 @@ impl Server {
 
 	async fn create_lock_inner(
 		&self,
+		parent_is_registry_dependency: bool,
 		package: &tg::directory::Id,
 		context: &Context,
 		solution: &Solution,
@@ -304,9 +305,17 @@ impl Server {
 				};
 				(resolved, true)
 			};
-			let package = is_registry_dependency.then_some(resolved.clone());
+			let package = (is_registry_dependency || parent_is_registry_dependency)
+				.then_some(resolved.clone());
 			let lock = Either::Left(
-				Box::pin(self.create_lock_inner(resolved, context, solution, nodes)).await?,
+				Box::pin(self.create_lock_inner(
+					is_registry_dependency,
+					resolved,
+					context,
+					solution,
+					nodes,
+				))
+				.await?,
 			);
 			let entry = tg::lock::data::Entry { package, lock };
 			dependencies.insert(dependency.clone(), entry);
