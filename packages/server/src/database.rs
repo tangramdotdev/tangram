@@ -125,7 +125,7 @@ impl<'a> db::Transaction for Transaction<'a> {
 	}
 }
 
-impl<'c> db::Query for Connection<'c> {
+impl db::Query for Database {
 	type Error = Error;
 
 	async fn execute(&self, statement: String, params: Vec<db::Value>) -> Result<u64, Self::Error> {
@@ -147,13 +147,13 @@ impl<'c> db::Query for Connection<'c> {
 		params: Vec<db::Value>,
 	) -> Result<impl Stream<Item = Result<db::Row, Self::Error>> + Send, Self::Error> {
 		let stream = match self {
-			Self::Sqlite(connection) => connection
+			Self::Sqlite(database) => database
 				.query(statement, params)
 				.await
 				.map_err(Error::from)?
 				.map_err(Into::into)
 				.left_stream(),
-			Self::Postgres(connection) => connection
+			Self::Postgres(database) => database
 				.query(statement, params)
 				.await
 				.map_err(Error::from)?
@@ -215,16 +215,106 @@ impl<'c> db::Query for Connection<'c> {
 	}
 }
 
+impl<'c> db::Query for Connection<'c> {
+	type Error = Error;
+
+	async fn execute(&self, statement: String, params: Vec<db::Value>) -> Result<u64, Self::Error> {
+		match self {
+			Self::Sqlite(connection) => connection
+				.execute(statement, params)
+				.await
+				.map_err(Into::into),
+			Self::Postgres(connection) => connection
+				.execute(statement, params)
+				.await
+				.map_err(Into::into),
+		}
+	}
+
+	async fn query(
+		&self,
+		statement: String,
+		params: Vec<db::Value>,
+	) -> Result<impl Stream<Item = Result<db::Row, Self::Error>> + Send, Self::Error> {
+		let stream = match self {
+			Self::Sqlite(connection) => connection
+				.query(statement, params)
+				.await
+				.map_err(Error::from)?
+				.map_err(Into::into)
+				.left_stream(),
+			Self::Postgres(connection) => connection
+				.query(statement, params)
+				.await
+				.map_err(Error::from)?
+				.map_err(Into::into)
+				.right_stream(),
+		};
+		Ok(stream)
+	}
+
+	async fn query_optional(
+		&self,
+		statement: String,
+		params: Vec<db::Value>,
+	) -> Result<Option<db::Row>, Self::Error> {
+		match self {
+			Self::Sqlite(connection) => connection
+				.query_optional(statement, params)
+				.await
+				.map_err(Into::into),
+			Self::Postgres(connection) => connection
+				.query_optional(statement, params)
+				.await
+				.map_err(Into::into),
+		}
+	}
+
+	async fn query_one(
+		&self,
+		statement: String,
+		params: Vec<db::Value>,
+	) -> Result<db::Row, Self::Error> {
+		match self {
+			Self::Sqlite(connection) => connection
+				.query_one(statement, params)
+				.await
+				.map_err(Into::into),
+			Self::Postgres(connection) => connection
+				.query_one(statement, params)
+				.await
+				.map_err(Into::into),
+		}
+	}
+
+	async fn query_all(
+		&self,
+		statement: String,
+		params: Vec<db::Value>,
+	) -> Result<Vec<db::Row>, Self::Error> {
+		match self {
+			Self::Sqlite(connection) => connection
+				.query_all(statement, params)
+				.await
+				.map_err(Into::into),
+			Self::Postgres(connection) => connection
+				.query_all(statement, params)
+				.await
+				.map_err(Into::into),
+		}
+	}
+}
+
 impl<'t> db::Query for Transaction<'t> {
 	type Error = Error;
 
 	async fn execute(&self, statement: String, params: Vec<db::Value>) -> Result<u64, Self::Error> {
 		match self {
-			Self::Sqlite(database) => database
+			Self::Sqlite(transaction) => transaction
 				.execute(statement, params)
 				.await
 				.map_err(Into::into),
-			Self::Postgres(database) => database
+			Self::Postgres(transaction) => transaction
 				.execute(statement, params)
 				.await
 				.map_err(Into::into),
@@ -259,11 +349,11 @@ impl<'t> db::Query for Transaction<'t> {
 		params: Vec<db::Value>,
 	) -> Result<Option<db::Row>, Self::Error> {
 		match self {
-			Self::Sqlite(database) => database
+			Self::Sqlite(transaction) => transaction
 				.query_optional(statement, params)
 				.await
 				.map_err(Into::into),
-			Self::Postgres(database) => database
+			Self::Postgres(transaction) => transaction
 				.query_optional(statement, params)
 				.await
 				.map_err(Into::into),
@@ -276,11 +366,11 @@ impl<'t> db::Query for Transaction<'t> {
 		params: Vec<db::Value>,
 	) -> Result<db::Row, Self::Error> {
 		match self {
-			Self::Sqlite(database) => database
+			Self::Sqlite(transaction) => transaction
 				.query_one(statement, params)
 				.await
 				.map_err(Into::into),
-			Self::Postgres(database) => database
+			Self::Postgres(transaction) => transaction
 				.query_one(statement, params)
 				.await
 				.map_err(Into::into),
@@ -293,11 +383,11 @@ impl<'t> db::Query for Transaction<'t> {
 		params: Vec<db::Value>,
 	) -> Result<Vec<db::Row>, Self::Error> {
 		match self {
-			Self::Sqlite(database) => database
+			Self::Sqlite(transaction) => transaction
 				.query_all(statement, params)
 				.await
 				.map_err(Into::into),
-			Self::Postgres(database) => database
+			Self::Postgres(transaction) => transaction
 				.query_all(statement, params)
 				.await
 				.map_err(Into::into),

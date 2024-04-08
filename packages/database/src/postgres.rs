@@ -1,4 +1,4 @@
-use crate::{Error as _, Row, Value};
+use crate::{Database as _, Error as _, Row, Value};
 use derive_more::{Display, Error as Error_, From};
 use futures::{future, Stream, TryStreamExt};
 use indexmap::IndexMap;
@@ -90,31 +90,30 @@ impl super::Database for Database {
 	type Connection<'c> = Connection<'c> where Self: 'c;
 
 	async fn connection(&self) -> Result<Self::Connection<'_>, Self::Error> {
-		let sender = self.sender.clone();
 		let (client, cache) = self
 			.receiver
 			.recv()
 			.await
 			.map_err(|_| Error::other("failed to acquire a database connection"))?;
-		let mut client = Some(client);
-		let cache = Some(cache);
-		if client.as_ref().unwrap().is_closed() {
-			let (client_, connection) =
+		let mut connection = Connection {
+			marker: std::marker::PhantomData {},
+			sender: self.sender.clone(),
+			client: Some(client),
+			cache: Some(cache),
+		};
+		if connection.client.as_ref().unwrap().is_closed() {
+			let (client_, connection_) =
 				postgres::connect(self.options.url.as_str(), postgres::NoTls).await?;
 			tokio::spawn(async move {
-				connection
+				connection_
 					.await
 					.inspect_err(|error| tracing::error!(?error, "postgres connection failed"))
 					.ok();
 			});
-			client.replace(client_);
+			connection.cache.replace(Cache::default());
+			connection.client.replace(client_);
 		}
-		Ok(Connection {
-			marker: std::marker::PhantomData {},
-			sender,
-			client,
-			cache,
-		})
+		Ok(connection)
 	}
 }
 
@@ -141,6 +140,38 @@ impl<'t> super::Transaction for Transaction<'t> {
 	async fn commit(self) -> Result<(), Self::Error> {
 		self.transaction.commit().await?;
 		Ok(())
+	}
+}
+
+impl super::Query for Database {
+	type Error = Error;
+
+	async fn execute(&self, statement: String, params: Vec<Value>) -> Result<u64, Self::Error> {
+		let connection = self.connection().await?;
+		let n = execute(
+			connection.client.as_ref().unwrap(),
+			connection.cache.as_ref().unwrap(),
+			statement,
+			params,
+		)
+		.await?;
+		Ok(n)
+	}
+
+	async fn query(
+		&self,
+		statement: String,
+		params: Vec<Value>,
+	) -> Result<impl Stream<Item = Result<Row, Self::Error>> + Send, Self::Error> {
+		let connection = self.connection().await?;
+		let rows = query(
+			connection.client.as_ref().unwrap(),
+			connection.cache.as_ref().unwrap(),
+			statement,
+			params,
+		)
+		.await?;
+		Ok(rows)
 	}
 }
 

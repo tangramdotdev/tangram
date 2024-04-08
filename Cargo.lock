@@ -4842,6 +4842,7 @@ dependencies = [
  "itertools",
  "num",
  "rusqlite",
+ "scopeguard",
  "serde",
  "serde_json",
  "tokio",
