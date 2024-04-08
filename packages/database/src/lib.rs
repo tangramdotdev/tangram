@@ -3,6 +3,7 @@ use futures::{Future, FutureExt, Stream, StreamExt, TryFutureExt, TryStreamExt};
 use itertools::Itertools;
 use std::pin::pin;
 
+pub mod either;
 pub mod postgres;
 pub mod row;
 pub mod sqlite;

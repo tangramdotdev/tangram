@@ -1,8 +1,8 @@
-use derive_more::{Display, From};
+use derive_more::{Display, Error as Error_, From};
 use futures::{Stream, StreamExt, TryStreamExt};
 use tangram_database as db;
 
-#[derive(Debug, Display, derive_more::Error, From)]
+#[derive(Debug, Display, Error_, From)]
 pub enum Error {
 	Sqlite(db::sqlite::Error),
 	Postgres(db::postgres::Error),
