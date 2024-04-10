@@ -4,13 +4,15 @@ use tangram_client as tg;
 
 impl Server {
 	pub async fn format(&self, text: String) -> tg::Result<String> {
-		let options = biome_js_parser::JsParserOptions::default();
-		let node = biome_js_parser::parse_module(&text, options);
-		let source_type = biome_js_syntax::JsFileSource::js_module();
+		let source_type = biome_js_syntax::JsFileSource::ts();
+		let options = biome_js_parser::JsParserOptions {
+			parse_class_parameter_decorators: false,
+		};
+		let node = biome_js_parser::parse(&text, source_type, options);
 		let options = biome_js_formatter::context::JsFormatOptions::new(source_type);
-		let node = biome_js_formatter::format_node(options, &node.syntax())
+		let formatted = biome_js_formatter::format_node(options, &node.syntax())
 			.map_err(|source| tg::error!(!source, "failed to format"))?;
-		let text = node
+		let text = formatted
 			.print()
 			.map_err(|source| tg::error!(!source, "failed to format"))?
 			.into_code();

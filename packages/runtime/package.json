@@ -2,7 +2,6 @@
 	"name": "@tangramdotdev/runtime",
 	"private": true,
 	"scripts": {
-		"build": "node build.js",
 		"check": "tsc && biome check src",
 		"format": "biome check --apply src"
 	},
