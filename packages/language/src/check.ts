@@ -1,8 +1,5 @@
 import ts from "typescript";
-import {
-	type Diagnostic,
-	convertDiagnosticFromTypeScript,
-} from "./diagnostics.ts";
+import type { Diagnostic } from "./diagnostics.ts";
 import type { Module } from "./module.ts";
 import * as typescript from "./typescript.ts";
 
@@ -33,7 +30,7 @@ export let handle = (request: Request): Response => {
 			...program.getDeclarationDiagnostics(),
 			...program.getSyntacticDiagnostics(),
 			...program.getSemanticDiagnostics(),
-		].map(convertDiagnosticFromTypeScript),
+		].map(typescript.convertDiagnostic),
 	);
 
 	return { diagnostics };

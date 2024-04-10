@@ -5,9 +5,7 @@ use tangram_client as tg;
 impl Server {
 	pub async fn format(&self, text: String) -> tg::Result<String> {
 		let source_type = biome_js_syntax::JsFileSource::ts();
-		let options = biome_js_parser::JsParserOptions {
-			parse_class_parameter_decorators: false,
-		};
+		let options = biome_js_parser::JsParserOptions::default();
 		let node = biome_js_parser::parse(&text, source_type, options);
 		let options = biome_js_formatter::context::JsFormatOptions::new(source_type);
 		let formatted = biome_js_formatter::format_node(options, &node.syntax())

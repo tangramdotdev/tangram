@@ -1,5 +1,6 @@
 import ts from "typescript";
 import { assert } from "./assert.ts";
+import type { Diagnostic, Severity } from "./diagnostics.ts";
 import type { Module } from "./module.ts";
 
 // Create the TypeScript compiler options.
@@ -166,4 +167,77 @@ export let moduleFromFileName = (fileName: string): Module => {
 		) as Module;
 	}
 	return module_;
+};
+
+/** Convert a diagnostic. */
+export let convertDiagnostic = (diagnostic: ts.Diagnostic): Diagnostic => {
+	// Get the diagnostic's location.
+	let location = null;
+	if (
+		diagnostic.file !== undefined &&
+		diagnostic.start !== undefined &&
+		diagnostic.length !== undefined
+	) {
+		// Get the diagnostic's module.
+		let module_ = moduleFromFileName(diagnostic.file.fileName);
+
+		// Get the diagnostic's range.
+		let start = ts.getLineAndCharacterOfPosition(
+			diagnostic.file,
+			diagnostic.start,
+		);
+		let end = ts.getLineAndCharacterOfPosition(
+			diagnostic.file,
+			diagnostic.start + diagnostic.length,
+		);
+		let range = { start, end };
+
+		location = {
+			module: module_,
+			range,
+		};
+	}
+
+	// Convert the diagnostic's severity.
+	let severity: Severity;
+	switch (diagnostic.category) {
+		case ts.DiagnosticCategory.Warning: {
+			severity = "warning";
+			break;
+		}
+		case ts.DiagnosticCategory.Error: {
+			severity = "error";
+			break;
+		}
+		case ts.DiagnosticCategory.Suggestion: {
+			severity = "hint";
+			break;
+		}
+		case ts.DiagnosticCategory.Message: {
+			severity = "information";
+			break;
+		}
+		default: {
+			throw new Error("unknown diagnostic category");
+		}
+	}
+
+	let message: string;
+	switch (diagnostic.code) {
+		case 2732:
+		case 2792: {
+			message = "cannot find the module";
+			break;
+		}
+		default: {
+			message = ts.flattenDiagnosticMessageText(diagnostic.messageText, "\n");
+			break;
+		}
+	}
+
+	return {
+		location,
+		severity,
+		message,
+	};
 };

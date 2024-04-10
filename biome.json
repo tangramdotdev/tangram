@@ -1,5 +1,10 @@
 {
 	"$schema": "https://biomejs.dev/schemas/1.6.3/schema.json",
+	"json": {
+		"formatter": {
+			"indentStyle": "tab"
+		}
+	},
 	"linter": {
 		"rules": {
 			"complexity": {
