@@ -316,6 +316,14 @@ impl tg::Handle for Server {
 		Err(tg::error!("not supported"))
 	}
 
+	async fn yank_package(
+		&self,
+		_user: Option<&tg::User>,
+		_id: &tg::directory::Id,
+	) -> tg::Result<()> {
+		Err(tg::error!("not supported"))
+	}
+
 	async fn check_package(&self, _dependency: &tg::Dependency) -> tg::Result<Vec<tg::Diagnostic>> {
 		Err(tg::error!("not supported"))
 	}

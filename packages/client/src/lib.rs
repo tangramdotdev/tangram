@@ -724,6 +724,14 @@ impl Handle for Client {
 		self.publish_package(user, id).await
 	}
 
+	async fn yank_package(
+		&self,
+		user: Option<&tg::User>,
+		id: &tg::directory::Id,
+	) -> tg::Result<()> {
+		self.yank_package(user, id).await
+	}
+
 	async fn check_package(&self, dependency: &tg::Dependency) -> tg::Result<Vec<tg::Diagnostic>> {
 		self.check_package(dependency).await
 	}

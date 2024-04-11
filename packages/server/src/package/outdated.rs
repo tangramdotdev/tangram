@@ -54,11 +54,14 @@ impl Server {
 			.and_then(|metadata| metadata.version.clone());
 		let compatible = compatible_versions.and_then(|mut versions| versions.pop());
 		let latest = all_versions.and_then(|mut versions| versions.pop());
-		let info = (current != latest && latest.is_some()).then(|| tg::package::OutdatedInfo {
-			current: current.unwrap(),
-			compatible: compatible.unwrap(),
-			latest: latest.unwrap(),
-		});
+		let yanked = self.get_package_yanked(&package).await?;
+		let info =
+			(current != latest && latest.is_some() || yanked).then(|| tg::package::OutdatedInfo {
+				current: current.unwrap(),
+				compatible: compatible.unwrap(),
+				latest: latest.unwrap(),
+				yanked,
+			});
 
 		// Visit every dependency.
 		let mut dependencies = BTreeMap::new();

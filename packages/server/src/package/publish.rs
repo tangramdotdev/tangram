@@ -41,6 +41,9 @@ impl Server {
 		// Get the published at timestamp.
 		let published_at = time::OffsetDateTime::now_utc();
 
+		// Initialize yanked to false.
+		let yanked = false;
+
 		// Get a database connection.
 		let connection = self
 			.inner
@@ -68,11 +71,17 @@ impl Server {
 		let p = connection.p();
 		let statement = formatdoc!(
 			"
-				insert into package_versions (name, version, id, published_at)
-				values ({p}1, {p}2, {p}3, {p}4);
+				insert into package_versions (name, version, id, published_at, yanked)
+				values ({p}1, {p}2, {p}3, {p}4, {p}5);
 			"
 		);
-		let params = db::params![name, version, id, published_at.format(&Rfc3339).unwrap()];
+		let params = db::params![
+			name,
+			version,
+			id,
+			published_at.format(&Rfc3339).unwrap(),
+			yanked
+		];
 		connection
 			.execute(statement, params)
 			.await

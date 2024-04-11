@@ -188,7 +188,7 @@ impl std::fmt::Display for Source {
 	fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
 		match self {
 			Source::Internal { path } => write!(f, "{path}"),
-			Source::External { package, path } => write!(f, "{package}:{path}"),
+			Source::External { package, path } => write!(f, "{package}/{path}"),
 		}
 	}
 }

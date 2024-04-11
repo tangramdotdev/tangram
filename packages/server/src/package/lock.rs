@@ -106,52 +106,52 @@ enum Error {
 }
 
 impl Server {
-	pub(super) async fn write_lock(&self, root_path: tg::Path, lock: &tg::Lock) -> tg::Result<()> {
-		let path = root_path.join("tangram.lock");
-		let data = lock.data(self).await?;
-		let json = serde_json::to_vec_pretty(&data)
-			.map_err(|source| tg::error!(!source, "failed to serialize the lock"))?;
-		tokio::fs::write(&path, &json)
-			.await
-			.map_err(|source| tg::error!(!source, %path, "failed to write the lock file"))?;
-		Ok(())
-	}
-
 	pub(super) async fn get_or_create_package_lock(
 		&self,
 		path: Option<&tg::Path>,
 		package_with_path_dependencies: &PackageWithPathDependencies,
 	) -> tg::Result<tg::Lock> {
-		// If this is a path dependency, then attempt to read the lockfile from the path.
+		// If this is a path dependency, then attempt to read the lock from the lockfile.
 		let lock = if let Some(path) = path {
-			tg::Lock::try_read(self, path).await?
+			tg::Lock::try_read(path).await?
 		} else {
 			None
 		};
 
-		// Verify that the lockfile's dependencies match the package with path dependencies.
+		// Add the path dependencies to the lock from the lockfile.
 		let lock = 'a: {
 			let Some(lock) = lock else {
 				break 'a None;
 			};
-			let Ok(lock_with_dependencies) = self
-				.add_path_dependencies_to_lock(package_with_path_dependencies, lock.clone())
-				.await
+			let Some(lock) = self
+				.try_add_path_dependencies_to_lock(package_with_path_dependencies, lock.clone())
+				.await?
 			else {
 				break 'a None;
 			};
-			self.package_with_path_dependencies_matches_lock(
-				package_with_path_dependencies,
-				lock_with_dependencies,
-			)
-			.await?
-			.then_some(lock)
+			Some(lock)
+		};
+
+		// Verify that the lock's dependencies match the package with path dependencies.
+		let lock = 'a: {
+			let Some(lock) = lock else {
+				break 'a None;
+			};
+			if !self
+				.package_with_path_dependencies_matches_lock(package_with_path_dependencies, &lock)
+				.await?
+			{
+				break 'a None;
+			}
+			Some(lock)
 		};
 
 		// Otherwise, create the lock.
+		let mut created = false;
 		let lock = if let Some(lock) = lock {
 			lock
 		} else {
+			created = true;
 			self.create_package_lock(package_with_path_dependencies)
 				.await?
 		};
@@ -162,13 +162,23 @@ impl Server {
 			.await
 			.map_err(|source| tg::error!(!source, "failed to normalize the lock"))?;
 
+		// Write the lock without the package with path dependencies to the lockfile.
+		if let Some(path) = path {
+			if created {
+				let lock = self
+					.remove_path_dependencies_from_lock(package_with_path_dependencies, &lock)
+					.await?;
+				lock.write(self, path.clone()).await?;
+			}
+		}
+
 		Ok(lock)
 	}
 
 	async fn package_with_path_dependencies_matches_lock(
 		&self,
 		package_with_path_dependencies: &PackageWithPathDependencies,
-		lock: tg::Lock,
+		lock: &tg::Lock,
 	) -> tg::Result<bool> {
 		// Get the dependencies from the package and its lock.
 		let deps_in_package = self
@@ -190,7 +200,7 @@ impl Server {
 
 				self.package_with_path_dependencies_matches_lock(
 					package_with_path_dependencies,
-					lock,
+					&lock,
 				)
 				.await
 			})
@@ -248,7 +258,7 @@ impl Server {
 		let root = package_with_path_dependencies.package.id(self).await?;
 		let mut nodes = Vec::new();
 		let root = self
-			.create_lock_inner(&root, &context, &solution, &mut nodes)
+			.create_package_lock_inner(&root, &context, &solution, &mut nodes)
 			.await?;
 		let nodes = nodes
 			.into_iter()
@@ -272,7 +282,7 @@ impl Server {
 		Ok(lock)
 	}
 
-	async fn create_lock_inner(
+	async fn create_package_lock_inner(
 		&self,
 		package: &tg::directory::Id,
 		context: &Context,
@@ -289,26 +299,26 @@ impl Server {
 		let mut dependencies = BTreeMap::new();
 		for dependency in &analysis.dependencies {
 			// Check if this is resolved as a path dependency.
-			let (resolved, is_registry_dependency) = if let Some(resolved) =
-				analysis.path_dependencies.get(dependency)
-			{
-				(resolved, false)
+			let package = if let Some(package) = analysis.path_dependencies.get(dependency) {
+				package
 			} else {
 				// Resolve by dependant.
 				let dependant = Dependant {
 					package: package.clone(),
 					dependency: dependency.clone(),
 				};
-				let Some(Mark::Permanent(Ok(resolved))) = solution.partial.get(&dependant) else {
+				let Some(Mark::Permanent(Ok(package))) = solution.partial.get(&dependant) else {
 					return Err(tg::error!(?dependant, "missing solution"));
 				};
-				(resolved, true)
+				package
 			};
-			let package = is_registry_dependency.then_some(resolved.clone());
 			let lock = Either::Left(
-				Box::pin(self.create_lock_inner(resolved, context, solution, nodes)).await?,
+				Box::pin(self.create_package_lock_inner(package, context, solution, nodes)).await?,
 			);
-			let entry = tg::lock::data::Entry { package, lock };
+			let entry = tg::lock::data::Entry {
+				package: Some(package.clone()),
+				lock,
+			};
 			dependencies.insert(dependency.clone(), entry);
 		}
 
@@ -381,11 +391,55 @@ impl Server {
 		Ok(())
 	}
 
-	pub(super) async fn add_path_dependencies_to_lock(
+	pub(super) async fn try_add_path_dependencies_to_lock(
 		&self,
 		package_with_path_dependencies: &PackageWithPathDependencies,
-		lock: tg::lock::Lock,
-	) -> tg::Result<tg::lock::Lock> {
+		lock: tg::Lock,
+	) -> tg::Result<Option<tg::Lock>> {
+		let mut object = lock.object(self).await?.as_ref().clone();
+		let mut stack = vec![(object.root, package_with_path_dependencies)];
+		let mut visited = BTreeSet::new();
+		while let Some((index, package_with_path_dependencies)) = stack.pop() {
+			if visited.contains(&index) {
+				continue;
+			}
+			visited.insert(index);
+			let node = &mut object.nodes[index];
+			for (dependency, package_with_path_dependencies) in
+				&package_with_path_dependencies.path_dependencies
+			{
+				let Some(entry) = node.dependencies.get_mut(dependency) else {
+					return Ok(None);
+				};
+				entry
+					.package
+					.replace(package_with_path_dependencies.package.clone());
+				match &mut entry.lock {
+					Either::Left(index) => stack.push((*index, package_with_path_dependencies)),
+					Either::Right(lock) => {
+						*lock = if let Some(lock) =
+							Box::pin(self.try_add_path_dependencies_to_lock(
+								package_with_path_dependencies,
+								lock.clone(),
+							))
+							.await?
+						{
+							lock
+						} else {
+							return Ok(None);
+						};
+					},
+				}
+			}
+		}
+		Ok(Some(tg::Lock::with_object(object)))
+	}
+
+	async fn remove_path_dependencies_from_lock(
+		&self,
+		package_with_path_dependencies: &PackageWithPathDependencies,
+		lock: &tg::Lock,
+	) -> tg::Result<tg::Lock> {
 		let mut object = lock.object(self).await?.as_ref().clone();
 		let mut stack = vec![(object.root, package_with_path_dependencies)];
 		let mut visited = BTreeSet::new();
@@ -402,15 +456,13 @@ impl Server {
 					.dependencies
 					.get_mut(dependency)
 					.ok_or_else(|| tg::error!("invalid lock file"))?;
-				entry
-					.package
-					.replace(package_with_path_dependencies.package.clone());
+				entry.package.take();
 				match &mut entry.lock {
 					Either::Left(index) => stack.push((*index, package_with_path_dependencies)),
 					Either::Right(lock) => {
-						*lock = Box::pin(self.add_path_dependencies_to_lock(
+						*lock = Box::pin(self.remove_path_dependencies_from_lock(
 							package_with_path_dependencies,
-							lock.clone(),
+							lock,
 						))
 						.await?;
 					},
@@ -691,7 +743,6 @@ impl Context {
 			if let Some(package) = self.published_packages.get(&metadata) {
 				return Ok(package.clone());
 			}
-
 			let dependency = tg::Dependency::with_name_and_version(name.into(), version.clone());
 			let Some(output) =
 				Box::pin(server.try_get_package(&dependency, tg::package::GetArg::default()))

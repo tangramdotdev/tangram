@@ -837,6 +837,9 @@ where
 				.handle_get_package_doc_request(request)
 				.map(Some)
 				.boxed(),
+			(http::Method::POST, ["packages", _, "yank"]) => {
+				self.handle_yank_package_request(request).map(Some).boxed()
+			},
 
 			// Server
 			(http::Method::GET, ["health"]) => {
@@ -1104,6 +1107,14 @@ impl tg::Handle for Server {
 		id: &tg::directory::Id,
 	) -> tg::Result<()> {
 		self.publish_package(user, id).await
+	}
+
+	async fn yank_package(
+		&self,
+		user: Option<&tg::User>,
+		id: &tg::directory::Id,
+	) -> tg::Result<()> {
+		self.yank_package(user, id).await
 	}
 
 	async fn check_package(&self, dependency: &tg::Dependency) -> tg::Result<Vec<tg::Diagnostic>> {

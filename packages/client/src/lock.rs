@@ -10,7 +10,7 @@ use futures::{
 	TryStreamExt,
 };
 use itertools::Itertools;
-use std::{collections::BTreeMap, sync::Arc};
+use std::{collections::BTreeMap, path::Path, sync::Arc};
 
 #[derive(
 	Clone,
@@ -243,70 +243,43 @@ impl Lock {
 
 impl Lock {
 	/// Read a lockfile in an existing directory.
-	pub async fn read(
-		tg: &impl Handle,
-		directory: impl AsRef<std::path::Path>,
-	) -> tg::Result<Self> {
-		Self::try_read(tg, directory)
+	pub async fn read(path: impl AsRef<Path>) -> tg::Result<Self> {
+		Self::try_read(path)
 			.await?
 			.ok_or_else(|| error!("expected a lockfile to exist"))
 	}
 
 	/// Try and read a lockfile in an existing directory.
-	pub async fn try_read(
-		tg: &impl Handle,
-		directory: impl AsRef<std::path::Path>,
-	) -> tg::Result<Option<Self>> {
-		// Canonicalize the path.
-		let path = tokio::fs::canonicalize(directory.as_ref())
-			.await
-			.map_err(|error| {
-				let path = directory.as_ref().display();
-				error!(source = error, %path, "failed to canonicalize the path")
-			})?;
-
-		// Attempt to read the lockfile.
-		let path = path.join(LOCKFILE_FILE_NAME);
-		let exists = tokio::fs::try_exists(&path).await.map_err(|error| {
+	pub async fn try_read(path: impl AsRef<Path>) -> tg::Result<Option<Self>> {
+		let path = path.as_ref().join(LOCKFILE_FILE_NAME);
+		let bytes = match tokio::fs::read(&path).await {
+			Ok(bytes) => bytes,
+			Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
+				return Ok(None);
+			},
+			Err(error) => {
+				let path = path.display();
+				return Err(error!(source = error, %path, "failed to read the lockfile"));
+			},
+		};
+		let data: Data = serde_json::from_slice(&bytes).map_err(|error| {
 			let path = path.display();
-			error!(source = error, %path, "failed to determine if the lockfile exists")
-		})?;
-		if !exists {
-			return Ok(None);
-		}
-		let lock = tokio::fs::read(&path).await.map_err(|error| {
-			let path = directory.as_ref().display();
-			error!(source = error, %path, "failed to read the lockfile")
-		})?;
-
-		let lock: Data = serde_json::from_slice(&lock).map_err(|error| {
-			let path = directory.as_ref().display();
 			error!(source = error, %path, "failed to deserialize the lockfile")
 		})?;
-
-		// Convert from Data into a Lock.
-		let root = lock.root;
-		let nodes = lock
-			.nodes
-			.into_iter()
-			.map(|node| {
-				let dependencies = node
-					.dependencies
-					.into_iter()
-					.map(|(dependency, entry)| {
-						let package = entry.package.map(Directory::with_id);
-						let lock = entry.lock.map_right(Lock::with_id);
-						(dependency, Entry { package, lock })
-					})
-					.collect();
-				Node { dependencies }
-			})
-			.collect::<Vec<_>>();
-		let object = Object { root, nodes };
-		let lock = Lock::with_object(object);
-		lock.store(tg).await?;
-
+		let object: Object = data.try_into()?;
+		let lock = Self::with_object(object);
 		Ok(Some(lock))
+	}
+
+	pub async fn write(&self, tg: &impl Handle, path: tg::Path) -> tg::Result<()> {
+		let path = path.join(LOCKFILE_FILE_NAME);
+		let data = self.data(tg).await?;
+		let bytes = serde_json::to_vec_pretty(&data)
+			.map_err(|source| tg::error!(!source, "failed to serialize the lock"))?;
+		tokio::fs::write(&path, &bytes)
+			.await
+			.map_err(|source| tg::error!(!source, %path, "failed to write the lock file"))?;
+		Ok(())
 	}
 }
 

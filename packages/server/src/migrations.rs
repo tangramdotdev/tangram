@@ -76,7 +76,7 @@ async fn migration_0000(path: &Path) -> tg::Result<()> {
 				mtime integer,
 				artifact text not null
 			);
-	
+
 			create table builds (
 				id text primary key,
 				complete integer not null,
@@ -161,6 +161,7 @@ async fn migration_0000(path: &Path) -> tg::Result<()> {
 				version text not null,
 				id text not null,
 				published_at text not null,
+				yanked integer not null,
 				primary key (name, version)
 			);
 

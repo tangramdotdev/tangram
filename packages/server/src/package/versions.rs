@@ -61,15 +61,16 @@ impl Server {
 		}
 
 		// Get the package versions.
-		#[derive(serde::Deserialize)]
+		#[derive(serde::Deserialize, Debug)]
 		struct Row {
 			version: String,
+			yanked: bool,
 			id: tg::directory::Id,
 		}
 		let p = connection.p();
 		let statement = formatdoc!(
 			"
-				select version, id
+				select version, id, yanked
 				from package_versions
 				where name = {p}1
 				order by published_at asc
@@ -79,16 +80,17 @@ impl Server {
 		let versions = connection
 			.query_all_into::<Row>(statement, params)
 			.await
-			.map_err(|source| tg::error!(!source, "failed to execute the statement"))?
-			.into_iter()
-			.map(|row| (row.version, row.id))
-			.collect();
+			.map_err(|source| tg::error!(!source, "failed to execute the statement"))?;
 
 		// Drop the database connection.
 		drop(connection);
 
 		// If there is no version constraint, then return all versions.
 		let Some(version) = version else {
+			let versions = versions
+				.into_iter()
+				.filter_map(|row| (!row.yanked).then_some((row.version, row.id)))
+				.collect();
 			return Ok(Some(versions));
 		};
 
@@ -99,14 +101,15 @@ impl Server {
 			)?;
 			let versions = versions
 				.into_iter()
-				.filter(|(version, _)| {
-					let Ok(version) = version.parse() else {
+				.filter(|row| {
+					let Ok(version) = row.version.parse() else {
 						return false;
 					};
-					req.matches(&version)
+					req.matches(&version) && !row.yanked
 				})
-				.sorted_unstable_by_key(|(version, _)| semver::Version::parse(version).unwrap())
-				.collect::<Vec<_>>();
+				.sorted_unstable_by_key(|row| semver::Version::parse(&row.version).unwrap())
+				.map(|row| (row.version, row.id))
+				.collect();
 			return Ok(Some(versions));
 		}
 
@@ -117,15 +120,17 @@ impl Server {
 				.map_err(|source| tg::error!(!source, "failed to parse regex"))?;
 			let versions = versions
 				.into_iter()
-				.filter(|(version, _)| regex.is_match(version))
-				.collect::<Vec<_>>();
+				.filter_map(|row| {
+					(regex.is_match(&row.version) && !row.yanked).then_some((row.version, row.id))
+				})
+				.collect();
 			return Ok(Some(versions));
 		}
 
 		// Otherwise, use string equality.
 		let versions = versions
 			.into_iter()
-			.filter(|(version_, _)| version_ == version)
+			.filter_map(|row| (&row.version == version).then_some((row.version, row.id)))
 			.collect::<Vec<_>>();
 
 		Ok(Some(versions))

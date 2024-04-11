@@ -16,6 +16,7 @@ use std::{
 };
 use tangram_client as tg;
 use tokio::io::AsyncWriteExt;
+use url::Url;
 
 mod convert;
 mod error;
@@ -607,7 +608,8 @@ extern "C" fn host_initialize_import_meta_object_callback(
 
 	// Set import.meta.url.
 	let key = v8::String::new_external_onebyte_static(scope, "url".as_bytes()).unwrap();
-	let value = v8::String::new(scope, &module.to_string()).unwrap();
+	let module = Url::from(module);
+	let value = v8::String::new(scope, module.as_str()).unwrap();
 	meta.set(scope, key.into(), value.into()).unwrap();
 }
 

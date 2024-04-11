@@ -266,12 +266,15 @@ impl Visitor {
 		};
 
 		// Parse the import.
-		let Ok(import) = tg::Import::with_specifier_and_attributes(specifier, attributes.as_ref())
-		else {
-			let loc = self.source_map.lookup_char_pos(span.lo());
-			self.errors
-				.push(Error::new("failed to parse the import", &loc));
-			return;
+		let import = match tg::Import::with_specifier_and_attributes(specifier, attributes.as_ref())
+		{
+			Ok(import) => import,
+			Err(error) => {
+				let loc = self.source_map.lookup_char_pos(span.lo());
+				let message = format!("failed to parse the import {specifier:#?}: {error}");
+				self.errors.push(Error::new(message, &loc));
+				return;
+			},
 		};
 
 		// Add the import.

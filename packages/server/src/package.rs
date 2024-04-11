@@ -13,9 +13,11 @@ mod format;
 mod lock;
 mod metadata;
 mod outdated;
+mod path;
 mod publish;
 mod search;
 mod versions;
+mod yank;
 
 #[allow(clippy::module_name_repetitions)]
 #[derive(Clone, Debug)]
@@ -41,7 +43,7 @@ impl Server {
 			})
 		};
 
-		// If the dependency has a path, then attempt to get the package with path dependency with the path.
+		// If the dependency has a path, then attempt to get the package with path dependencies using the path.
 		let package_with_path_dependencies = 'a: {
 			if let Some(package_with_path_dependencies) = package_with_path_dependencies {
 				break 'a Some(package_with_path_dependencies);
@@ -49,6 +51,7 @@ impl Server {
 			let Some(path) = dependency.path.clone() else {
 				break 'a None;
 			};
+
 			// If the dependency is a path dependency, then get the package with its path dependencies from the path.
 			let path = tokio::fs::canonicalize(PathBuf::from(path))
 				.await
@@ -61,6 +64,12 @@ impl Server {
 			let package_with_path_dependencies = self
 				.get_package_with_path_dependencies_with_path(&path)
 				.await?;
+
+			// Update the path of this package.
+			let path = path.try_into()?;
+			self.set_package_path(&path, &package_with_path_dependencies.package)
+				.await
+				.map_err(|source| tg::error!(!source, "failed to update the package path"))?;
 			Some(package_with_path_dependencies)
 		};
 
@@ -69,16 +78,12 @@ impl Server {
 			if let Some(package_with_path_dependencies) = package_with_path_dependencies {
 				break 'a Some(package_with_path_dependencies);
 			}
-
-			// Get the versions.
 			let Some(mut versions) = self.try_get_package_versions_local(dependency).await? else {
 				break 'a None;
 			};
-
 			let Some((_, latest)) = versions.pop() else {
 				break 'a None;
 			};
-
 			let package = tg::Directory::with_id(latest);
 			let package_with_path_dependencies = PackageWithPathDependencies {
 				package,
@@ -92,23 +97,18 @@ impl Server {
 			if let Some(package_with_path_dependencies) = package_with_path_dependencies {
 				break 'a Some(package_with_path_dependencies);
 			}
-
 			let Some(remote) = self.inner.remotes.first() else {
 				break 'a None;
 			};
-
 			let arg = tg::package::GetArg::default();
 			let Some(output) = remote.try_get_package(dependency, arg).await.ok().flatten() else {
 				break 'a None;
 			};
-
 			let package = tg::Directory::with_id(output.id);
-
 			let package_with_path_dependencies = PackageWithPathDependencies {
 				package,
 				path_dependencies: BTreeMap::default(),
 			};
-
 			Some(package_with_path_dependencies)
 		};
 
@@ -141,40 +141,44 @@ impl Server {
 						tg::error!(source = error, "failed to get or create the lock")
 					}
 				})?;
-
-			// Write the lock, without path dependencies.
-			if let Some(path) = path {
-				self.write_lock(path.clone(), &lock).await?;
-			}
-
-			// Fill in path dependencies.
-			let lock = self
-				.add_path_dependencies_to_lock(&package_with_path_dependencies, lock)
-				.await?;
-
 			let lock = lock.id(self).await?;
-
 			Some(lock)
 		} else {
 			None
 		};
 
 		// Get the metadata if requested.
-		let metadata = if arg.metadata {
-			let metadata = self.get_package_metadata(&package).await?;
-			Some(metadata)
+		let metadata = self.get_package_metadata(&package).await.ok();
+
+		// Get the package ID.
+		let id = package.id(self).await?;
+
+		// Get the package's path if requested.
+		let path = if arg.path {
+			self.try_get_package_path(&package)
+				.await
+				.map_err(|source| tg::error!(!source, "failed to get the package path"))?
 		} else {
 			None
 		};
 
-		// Get the package ID.
-		let id = package.id(self).await?;
+		// Check if the package is yanked.
+		let yanked = if arg.yanked {
+			let yanked = self.get_package_yanked(&package).await.map_err(|source| {
+				tg::error!(!source, "failed to check if the package is yanked")
+			})?;
+			Some(yanked)
+		} else {
+			None
+		};
 
 		Ok(Some(tg::package::GetOutput {
 			dependencies,
 			id,
 			lock,
 			metadata,
+			path,
+			yanked,
 		}))
 	}
 
