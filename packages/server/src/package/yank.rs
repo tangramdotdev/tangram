@@ -19,11 +19,11 @@ impl Server {
 			let output = remote
 				.try_get_package(&dependency, arg)
 				.await
-				.map_err(|source| tg::error!(!source, %dependency, "failed to get yanked status"))?
-				.ok_or_else(|| tg::error!(%dependency, "expected a package"))?;
+				.map_err(|source| tg::error!(!source, %dependency, "failed to get the package"))?
+				.ok_or_else(|| tg::error!(%dependency, "expected the package to exist"))?;
 			let yanked = output
 				.yanked
-				.ok_or_else(|| tg::error!("expected a `yanked` field"))?;
+				.ok_or_else(|| tg::error!("expected the yanked field to be set"))?;
 			return Ok(yanked);
 		}
 
@@ -43,9 +43,9 @@ impl Server {
 		let p = connection.p();
 		let statement = formatdoc!(
 			"
-                select yanked from package_versions
-                where id = {p}1
-            "
+				select yanked from package_versions
+				where id = {p}1;
+			"
 		);
 		let params = db::params![id];
 		let row = connection
@@ -80,9 +80,9 @@ impl Server {
 		let p = connection.p();
 		let statement = formatdoc!(
 			"
-                update package_versions
-                set yanked = {p}1
-                where (id = {p}2)
+				update package_versions
+				set yanked = {p}1
+				where (id = {p}2);
 			"
 		);
 		let params = db::params![yanked, id];

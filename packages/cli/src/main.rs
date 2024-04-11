@@ -10,7 +10,6 @@ use url::Url;
 mod commands;
 mod config;
 mod error;
-mod trace;
 mod tree;
 mod tui;
 
@@ -103,30 +102,9 @@ fn main() {
 }
 
 fn main_inner(config: &mut Option<Config>) -> tg::Result<()> {
-	// Initialize.
+	// Parse the args.
 	let args = Args::parse();
-	let cli = initialize(config, &args)?;
 
-	let future = async move {
-		let result = cli.command(args.command).await;
-		match result {
-			Ok(()) => Ok(()),
-			Err(error) => Err(cli
-				.convert_error_location(error.clone())
-				.await
-				.unwrap_or(error)),
-		}
-	};
-
-	// Create the tokio runtime and block on the future.
-	let mut builder = tokio::runtime::Builder::new_multi_thread();
-	builder.enable_all();
-	builder.disable_lifo_slot();
-	let runtime = builder.build().unwrap();
-	runtime.block_on(future)
-}
-
-fn initialize(config: &mut Option<Config>, args: &Args) -> tg::Result<Cli> {
 	// Read the config.
 	*config = Cli::read_config(args.config.clone())
 		.map_err(|source| tg::error!(!source, "failed to read the config"))?;
@@ -171,19 +149,40 @@ fn initialize(config: &mut Option<Config>, args: &Args) -> tg::Result<Cli> {
 	};
 
 	// Create the CLI.
-	Ok(Cli {
+	let cli = Cli {
 		url,
 		config: config.clone(),
 		client,
 		user,
 		version,
-	})
+	};
+
+	// Create the command future.
+	let future = async move {
+		let result = cli.command(args.command).await;
+		match result {
+			Ok(()) => Ok(()),
+			Err(error) => Err(cli
+				.convert_error_location(error.clone())
+				.await
+				.unwrap_or(error)),
+		}
+	};
+
+	// Create the tokio runtime and block on the future.
+	let mut builder = tokio::runtime::Builder::new_multi_thread();
+	builder.enable_all();
+	builder.disable_lifo_slot();
+	let runtime = builder.build().unwrap();
+	runtime.block_on(future)?;
+
+	Ok(())
 }
 
 impl Cli {
 	// Run the command
 	async fn command(&self, command: Command) -> tg::Result<()> {
-		let future = match command {
+		match command {
 			Command::Autoenv(args) => self.command_autoenv(args).boxed(),
 			Command::Build(args) => self.command_build(args).boxed(),
 			Command::Cat(args) => self.command_cat(args).boxed(),
@@ -213,8 +212,8 @@ impl Cli {
 			Command::Tree(args) => self.command_tree(args).boxed(),
 			Command::Update(args) => self.command_package_update(args).boxed(),
 			Command::Upgrade(args) => self.command_upgrade(args).boxed(),
-		};
-		future.await
+		}
+		.await
 	}
 
 	async fn client(&self) -> tg::Result<tg::Client> {

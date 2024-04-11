@@ -27,14 +27,13 @@ impl Cli {
 
 		// Check the package.
 		let diagnostics = client.check_package(&args.package).await?;
-		let is_empty = diagnostics.is_empty();
 
 		// Print the diagnostics.
-		for diagnostic in diagnostics {
+		for diagnostic in &diagnostics {
 			let diagnostic = self
 				.convert_diagnostic_location(diagnostic.clone())
 				.await
-				.unwrap_or(diagnostic);
+				.unwrap_or(diagnostic.clone());
 			match diagnostic.severity {
 				tg::diagnostic::Severity::Error => eprintln!("{}:", "error".red().bold()),
 				tg::diagnostic::Severity::Warning => eprintln!("{}:", "warning".yellow().bold()),
@@ -65,7 +64,7 @@ impl Cli {
 			eprintln!();
 		}
 
-		if !is_empty {
+		if !diagnostics.is_empty() {
 			return Err(tg::error!("type checking failed"));
 		}
 

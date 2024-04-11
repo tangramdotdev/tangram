@@ -5,7 +5,7 @@ use std::{
 	collections::{BTreeSet, VecDeque},
 	fmt::Write,
 };
-use tangram_client::{self as tg, Handle};
+use tangram_client::{self as tg, Handle as _};
 
 /// Manage packages.
 #[derive(Debug, clap::Args)]

@@ -23,12 +23,12 @@ impl Server {
 		let p = connection.p();
 		let statement = formatdoc!(
 			"
-                insert into package_paths (path, package)
-                values ({p}1, {p}2)
-                on conflict (path) do update set
+				insert into package_paths (path, package)
+				values ({p}1, {p}2)
+				on conflict (path) do update set
 					path = {p}1,
 					package = {p}2;
-            "
+			"
 		);
 		let params = db::params![path, id];
 		connection
@@ -61,9 +61,9 @@ impl Server {
 		let p = connection.p();
 		let statement = formatdoc!(
 			"
-                select path from package_paths
-                where package = {p}1
-            "
+				select path from package_paths
+				where package = {p}1;
+			"
 		);
 		let params = db::params![id];
 		let path = connection
