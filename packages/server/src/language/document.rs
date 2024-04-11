@@ -1,17 +1,17 @@
-use super::{Sender, Server};
+use super::Server;
 use lsp_types as lsp;
 use std::path::PathBuf;
 use tangram_client as tg;
 
 impl Server {
 	/// Get all the server's documents.
-	pub(crate) async fn get_documents(&self) -> Vec<tg::Document> {
+	pub async fn get_documents(&self) -> Vec<tg::Document> {
 		let documents = self.inner.documents.read().await;
 		documents.keys().cloned().collect()
 	}
 
 	/// Get a document.
-	pub(crate) async fn get_document(
+	pub async fn get_document(
 		&self,
 		package_path: PathBuf,
 		module_path: tg::Path,
@@ -46,7 +46,7 @@ impl Server {
 	}
 
 	/// Open a document.
-	pub(crate) async fn open_document(
+	pub async fn open_document(
 		&self,
 		document: &tg::Document,
 		version: i32,
@@ -63,7 +63,7 @@ impl Server {
 	}
 
 	/// Update a document.
-	pub(crate) async fn update_document(
+	pub async fn update_document(
 		&self,
 		document: &tg::Document,
 		range: Option<tg::Range>,
@@ -110,13 +110,24 @@ impl Server {
 		Ok(())
 	}
 
+	pub async fn _get_document_version(&self, document: &tg::Document) -> tg::Result<i32> {
+		self.try_get_document_version(document)
+			.await?
+			.ok_or_else(|| tg::error!("expected the document to exist"))
+	}
+
 	/// Get a document's version.
-	pub async fn get_document_version(&self, document: &tg::Document) -> tg::Result<i32> {
+	pub async fn try_get_document_version(
+		&self,
+		document: &tg::Document,
+	) -> tg::Result<Option<i32>> {
 		// Lock the documents.
 		let mut documents = self.inner.documents.write().await;
 
 		// Get the state.
-		let state = documents.get_mut(document).unwrap();
+		let Some(state) = documents.get_mut(document) else {
+			return Ok(None);
+		};
 
 		let version = match state {
 			tg::document::State::Closed(closed) => {
@@ -135,28 +146,38 @@ impl Server {
 			tg::document::State::Opened(opened) => opened.version,
 		};
 
-		Ok(version)
+		Ok(Some(version))
 	}
 
-	/// Get the document's text.
 	pub async fn get_document_text(&self, document: &tg::Document) -> tg::Result<String> {
+		self.try_get_document_text(document)
+			.await?
+			.ok_or_else(|| tg::error!("expected the document to exist"))
+	}
+
+	/// Get a document's text.
+	pub async fn try_get_document_text(
+		&self,
+		document: &tg::Document,
+	) -> tg::Result<Option<String>> {
 		let path = document.path();
 		let documents = self.inner.documents.read().await;
-		let document = documents.get(document).unwrap();
+		let Some(document) = documents.get(document) else {
+			return Ok(None);
+		};
 		let text = match document {
 			tg::document::State::Closed(_) => tokio::fs::read_to_string(&path)
 				.await
 				.map_err(|source| tg::error!(!source, "failed to read the file"))?,
 			tg::document::State::Opened(opened) => opened.text.clone(),
 		};
-		Ok(text)
+		Ok(Some(text))
 	}
 }
 
 impl Server {
 	pub(super) async fn handle_did_open_notification(
 		&self,
-		sender: Sender,
 		params: lsp::DidOpenTextDocumentParams,
 	) -> tg::Result<()> {
 		// Get the module.
@@ -170,14 +191,13 @@ impl Server {
 		}
 
 		// Update all diagnostics.
-		self.update_diagnostics(&sender).await?;
+		self.update_diagnostics().await?;
 
 		Ok(())
 	}
 
 	pub(super) async fn handle_did_change_notification(
 		&self,
-		sender: Sender,
 		params: lsp::DidChangeTextDocumentParams,
 	) -> tg::Result<()> {
 		// Get the module.
@@ -197,14 +217,13 @@ impl Server {
 		}
 
 		// Update all diagnostics.
-		self.update_diagnostics(&sender).await?;
+		self.update_diagnostics().await?;
 
 		Ok(())
 	}
 
 	pub(super) async fn handle_did_close_notification(
 		&self,
-		sender: Sender,
 		params: lsp::DidCloseTextDocumentParams,
 	) -> tg::Result<()> {
 		// Get the module.
@@ -216,18 +235,17 @@ impl Server {
 		}
 
 		// Update all diagnostics.
-		self.update_diagnostics(&sender).await?;
+		self.update_diagnostics().await?;
 
 		Ok(())
 	}
 
 	pub(super) async fn handle_did_save_notification(
 		&self,
-		sender: Sender,
 		_params: lsp::DidSaveTextDocumentParams,
 	) -> tg::Result<()> {
 		// Update all diagnostics.
-		self.update_diagnostics(&sender).await?;
+		self.update_diagnostics().await?;
 
 		Ok(())
 	}

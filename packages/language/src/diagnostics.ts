@@ -1,10 +1,11 @@
 import type { Location } from "./location.ts";
+import { Module } from "./module.ts";
 import * as typescript from "./typescript.ts";
 
 export type Request = unknown;
 
 export type Response = {
-	diagnostics: Array<Diagnostic>;
+	diagnostics: { [key: string]: Array<Diagnostic> };
 };
 
 export type Diagnostic = {
@@ -20,17 +21,17 @@ export let handle = (_request: Request): Response => {
 	let modules = syscall("documents");
 
 	// Collect the diagnostics.
-	let diagnostics: Array<Diagnostic> = [];
-	for (let module_ of modules) {
-		let fileName = typescript.fileNameFromModule(module_);
-		diagnostics.push(
-			...[
+	let diagnostics = Object.fromEntries(
+		modules.map((module_) => {
+			let fileName = typescript.fileNameFromModule(module_);
+			let diagnostics = [
 				...typescript.languageService.getSyntacticDiagnostics(fileName),
 				...typescript.languageService.getSemanticDiagnostics(fileName),
 				...typescript.languageService.getSuggestionDiagnostics(fileName),
-			].map(typescript.convertDiagnostic),
-		);
-	}
+			].map(typescript.convertDiagnostic);
+			return [Module.toUrl(module_), diagnostics];
+		}),
+	);
 
 	return {
 		diagnostics,

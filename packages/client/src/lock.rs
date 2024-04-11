@@ -55,7 +55,7 @@ pub mod data {
 	use super::Id;
 	use crate::{directory, Dependency};
 	use either::Either;
-	use serde_with::serde_as;
+	use serde_with::{serde_as, DisplayFromStr};
 	use std::collections::BTreeMap;
 
 	#[serde_as]
@@ -71,7 +71,7 @@ pub mod data {
 	)]
 	#[serde(transparent)]
 	pub struct Node {
-		#[serde_as(as = "BTreeMap<serde_with::DisplayFromStr, _>")]
+		#[serde_as(as = "BTreeMap<DisplayFromStr, _>")]
 		pub dependencies: BTreeMap<Dependency, Entry>,
 	}
 

@@ -21,13 +21,6 @@
 					"description": "Specify the path to the `tg` binary.",
 					"scope": "window",
 					"type": "string"
-				},
-				"tangram.trace.server": {
-					"default": "off",
-					"description": "Enable tracing for the Tangram Language Server.",
-					"enum": ["off", "messages", "verbose"],
-					"scope": "window",
-					"type": "string"
 				}
 			},
 			"title": "Tangram"
@@ -90,13 +83,14 @@
 		]
 	},
 	"dependencies": {
-		"@types/node": "^20",
 		"vscode-languageclient": "^9"
 	},
 	"description": "Tangram extension for Visual Studio Code.",
 	"devDependencies": {
+		"@types/node": "^20",
 		"@types/vscode": "^1",
-		"@vscode/vsce": "^2"
+		"@vscode/vsce": "^2",
+		"esbuild": "^0.20"
 	},
 	"displayName": "Tangram",
 	"engines": {

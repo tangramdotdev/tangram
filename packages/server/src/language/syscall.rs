@@ -265,7 +265,10 @@ fn syscall_module_version(
 		.main_runtime_handle
 		.clone()
 		.block_on(async move {
-			let version = server.get_module_version(&module).await?;
+			let version = server
+				.get_module_version(&module)
+				.await
+				.map_err(|source| tg::error!(!source, "failed to get the module version"))?;
 			Ok(version.to_string())
 		})
 }

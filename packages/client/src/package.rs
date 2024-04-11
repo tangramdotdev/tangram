@@ -4,7 +4,7 @@ use crate::{
 	Client, Dependency, Directory, Handle, Lock,
 };
 use http_body_util::BodyExt;
-use serde_with::serde_as;
+use serde_with::{serde_as, DisplayFromStr};
 use std::collections::BTreeMap;
 use std::path::Path;
 
@@ -38,7 +38,7 @@ pub struct OutdatedOutput {
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub info: Option<OutdatedInfo>,
 
-	#[serde_as(as = "BTreeMap<serde_with::DisplayFromStr, _>")]
+	#[serde_as(as = "BTreeMap<DisplayFromStr, _>")]
 	#[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
 	pub dependencies: BTreeMap<tg::Dependency, OutdatedOutput>,
 }

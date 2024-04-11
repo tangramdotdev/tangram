@@ -1,7 +1,7 @@
 {
-	"dependencies": {
-		"@biomejs/biome": "^1",
-		"typescript": "^5"
-	},
-	"workspaces": ["packages/language", "packages/runtime", "packages/vscode"]
+  "dependencies": {
+    "@biomejs/biome": "^1",
+    "typescript": "^5"
+  },
+  "workspaces": ["packages/language", "packages/runtime", "packages/vscode"]
 }

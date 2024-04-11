@@ -39,30 +39,29 @@ impl Server {
 			return Ok(None);
 		};
 
-		// Convert the changes.
-		let mut document_changes = HashMap::<Url, lsp::TextDocumentEdit>::new();
+		// Convert the edits.
+		let mut edit = HashMap::<Url, lsp::TextDocumentEdit>::new();
 		for location in locations {
-			// Get the version.
-			let version = self.get_module_version(&location.module).await?;
-
 			// Create the URI.
 			let uri = self.url_for_module(&location.module);
 
-			if document_changes.get_mut(&uri).is_none() {
-				document_changes.insert(
+			// Get the version.
+			let version = self.try_get_module_version(&location.module).await?;
+
+			if edit.get_mut(&uri).is_none() {
+				edit.insert(
 					uri.clone(),
 					lsp::TextDocumentEdit {
 						text_document: lsp::OptionalVersionedTextDocumentIdentifier {
 							uri: uri.clone(),
-							version: Some(version),
+							version,
 						},
 						edits: Vec::<lsp::OneOf<lsp::TextEdit, lsp::AnnotatedTextEdit>>::new(),
 					},
 				);
 			}
 
-			document_changes
-				.get_mut(&uri)
+			edit.get_mut(&uri)
 				.unwrap()
 				.edits
 				.push(lsp::OneOf::Left(lsp::TextEdit {
@@ -71,15 +70,15 @@ impl Server {
 				}));
 		}
 
-		let changes = lsp::WorkspaceEdit {
+		let edit = lsp::WorkspaceEdit {
 			changes: None,
 			document_changes: Some(lsp::DocumentChanges::Edits(
-				document_changes.values().cloned().collect(),
+				edit.values().cloned().collect(),
 			)),
 			change_annotations: None,
 		};
 
-		Ok(Some(changes))
+		Ok(Some(edit))
 	}
 
 	pub async fn rename(

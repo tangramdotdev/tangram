@@ -1,5 +1,7 @@
-use super::{send_notification, Sender, Server};
+use super::Server;
+use itertools::Itertools;
 use lsp_types as lsp;
+use serde_with::{serde_as, DisplayFromStr};
 use std::collections::BTreeMap;
 use tangram_client as tg;
 
@@ -7,14 +9,16 @@ use tangram_client as tg;
 #[serde(rename_all = "camelCase")]
 pub struct Request {}
 
+#[serde_as]
 #[derive(Debug, serde::Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Response {
-	pub diagnostics: Vec<tg::Diagnostic>,
+	#[serde_as(as = "BTreeMap<DisplayFromStr, _>")]
+	pub diagnostics: BTreeMap<tg::Module, Vec<tg::Diagnostic>>,
 }
 
 impl Server {
-	pub async fn get_diagnostics(&self) -> tg::Result<Vec<tg::Diagnostic>> {
+	pub async fn get_diagnostics(&self) -> tg::Result<BTreeMap<tg::Module, Vec<tg::Diagnostic>>> {
 		// Create the request.
 		let request = super::Request::Diagnostics(Request {});
 
@@ -32,45 +36,32 @@ impl Server {
 		Ok(diagnostics)
 	}
 
-	pub async fn update_diagnostics(&self, sender: &Sender) -> tg::Result<()> {
+	pub async fn update_diagnostics(&self) -> tg::Result<()> {
 		// Get the diagnostics.
-		let diagnostics = self.get_diagnostics().await?;
+		let mut diagnostics = self.inner.diagnostics.write().await;
 
-		// Clear the existing diagnostics.
-		let mut existing_diagnostics = self.inner.diagnostics.write().await;
-		let mut diagnostics_for_module: BTreeMap<tg::Module, Vec<tg::Diagnostic>> =
-			existing_diagnostics
-				.drain(..)
-				.filter_map(|diagnostic| {
-					let module = diagnostic.location?.module;
-					Some((module, Vec::new()))
-				})
-				.collect();
-
-		// Add the new diagnostics.
-		existing_diagnostics.extend(diagnostics.iter().cloned());
-		for diagnostic in diagnostics {
-			if let Some(location) = &diagnostic.location {
-				diagnostics_for_module
-					.entry(location.module.clone())
-					.or_default()
-					.push(diagnostic);
-			}
+		// Clear the diagnostics.
+		for (_, diagnostics) in diagnostics.iter_mut() {
+			diagnostics.drain(..);
 		}
+
+		// Update the diagnostics.
+		diagnostics.extend(self.get_diagnostics().await?);
 
 		// Publish the diagnostics.
-		for (module, diagnostics) in diagnostics_for_module {
-			let version = Some(self.get_module_version(&module).await?);
-			let diagnostics = diagnostics.into_iter().map(Into::into).collect();
-			send_notification::<lsp::notification::PublishDiagnostics>(
-				sender,
-				lsp::PublishDiagnosticsParams {
-					uri: self.url_for_module(&module),
-					diagnostics,
-					version,
-				},
-			);
+		for (module, diagnostics) in diagnostics.iter() {
+			let version = self.try_get_module_version(module).await?;
+			let diagnostics = diagnostics.iter().cloned().map_into().collect();
+			let params = lsp::PublishDiagnosticsParams {
+				uri: self.url_for_module(module),
+				diagnostics,
+				version,
+			};
+			self.send_notification::<lsp::notification::PublishDiagnostics>(params);
 		}
+
+		// Remove the modules with no diagnostics.
+		diagnostics.retain(|_, diagnostics| !diagnostics.is_empty());
 
 		Ok(())
 	}

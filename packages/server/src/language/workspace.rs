@@ -1,4 +1,4 @@
-use super::{Sender, Server};
+use super::Server;
 use lsp_types as lsp;
 use std::path::PathBuf;
 use tangram_client as tg;
@@ -37,7 +37,6 @@ impl Server {
 impl Server {
 	pub(crate) async fn handle_did_change_workspace_folders(
 		&self,
-		sender: Sender,
 		params: lsp::DidChangeWorkspaceFoldersParams,
 	) -> tg::Result<()> {
 		// Collect the added and removed workspaces.
@@ -58,7 +57,7 @@ impl Server {
 		self.update_workspaces(added, removed).await?;
 
 		// Update the diagnostics.
-		self.update_diagnostics(&sender).await?;
+		self.update_diagnostics().await?;
 
 		Ok(())
 	}

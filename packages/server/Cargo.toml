@@ -65,6 +65,7 @@ serde = { workspace = true }
 serde_json = { workspace = true }
 serde_urlencoded = { workspace = true }
 serde_v8 = { workspace = true }
+serde_with = { workspace = true }
 serde_yaml = { workspace = true }
 sourcemap = { workspace = true }
 swc_core = { workspace = true }

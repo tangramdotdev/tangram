@@ -4924,6 +4924,7 @@ dependencies = [
  "serde_json",
  "serde_urlencoded",
  "serde_v8",
+ "serde_with",
  "serde_yaml",
  "sourcemap",
  "swc_core",
