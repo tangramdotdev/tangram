@@ -231,6 +231,15 @@ impl tg::Handle for Server {
 			self.inner.server.check_in_artifact(arg).await?
 		};
 
+		// If the VFS is disabled, immediately perform an internal checkout of the newly checked-in artifact.
+		if !self.inner.server.inner.options.vfs.enable {
+			let arg = tg::artifact::CheckOutArg {
+				path: None,
+				..Default::default()
+			};
+			self.check_out_artifact(&output.id, arg).await?;
+		}
+
 		Ok(output)
 	}
 
