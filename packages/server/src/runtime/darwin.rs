@@ -160,7 +160,7 @@ impl Runtime {
 		env.insert("TANGRAM_URL".to_owned(), proxy_server_url.to_string());
 
 		// Start the proxy server.
-		let proxy = proxy::Server::start(server, build.id(), proxy_server_url)
+		let proxy = proxy::Server::start(server, build.id(), proxy_server_url, None)
 			.await
 			.map_err(|source| tg::error!(!source, "failed to start the proxy server"))?;
 

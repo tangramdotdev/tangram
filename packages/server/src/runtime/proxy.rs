@@ -14,16 +14,17 @@ pub struct Server {
 pub struct Inner {
 	build: tg::build::Id,
 	http: std::sync::Mutex<Option<Http<Server>>>,
+	path_map: Option<PathMap>,
 	server: crate::Server,
 	shutdown: tokio::sync::watch::Sender<bool>,
 	shutdown_task: std::sync::Mutex<Option<tokio::task::JoinHandle<tg::Result<()>>>>,
 }
 
 #[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
-pub struct GetOrCreateProxiedArg {
-	pub remote: bool,
-	pub retry: tg::build::Retry,
-	pub target: tg::target::Id,
+pub struct PathMap {
+	pub output_guest: tg::Path,
+	pub output_host: tg::Path,
+	pub root_host: tg::Path,
 }
 
 impl Server {
@@ -31,6 +32,7 @@ impl Server {
 		server: &crate::Server,
 		build: &tg::build::Id,
 		url: Url,
+		path_map: Option<PathMap>,
 	) -> tg::Result<Self> {
 		// Create an owned copy of the parent build id to be used in the proxy server.
 		let build = build.clone();
@@ -48,6 +50,7 @@ impl Server {
 		let inner = Inner {
 			build,
 			http,
+			path_map,
 			server: server.clone(),
 			shutdown,
 			shutdown_task,
@@ -97,23 +100,21 @@ impl Server {
 		Ok(())
 	}
 
-	pub async fn get_or_create_build_proxied(
-		&self,
-		user: Option<&tg::User>,
-		arg: tg::build::GetOrCreateArg,
-	) -> tg::Result<tg::build::GetOrCreateOutput> {
-		if arg.parent.is_some() {
-			return Err(tg::error!(
-				"using proxied server, parent should be set to none"
-			));
-		}
-		let arg = tg::build::GetOrCreateArg {
-			parent: Some(self.inner.build.clone()),
-			remote: arg.remote,
-			retry: arg.retry,
-			target: arg.target,
+	fn host_path_for_guest_path(&self, path: tg::Path) -> tg::Result<tg::Path> {
+		// Get the path map. If there is no path map, then the guest path is the host path.
+		let Some(path_map) = &self.inner.path_map else {
+			return Ok(path);
 		};
-		self.inner.server.get_or_create_build(user, arg).await
+
+		// Map the path.
+		if let Some(path) = path.strip_prefix(&path_map.output_guest) {
+			Ok(path_map.output_host.clone().join(path))
+		} else {
+			let path = path
+				.strip_prefix(&"/".parse().unwrap())
+				.ok_or_else(|| tg::error!("the path must be absolute"))?;
+			Ok(path_map.root_host.clone().join(path))
+		}
 	}
 }
 
@@ -122,31 +123,45 @@ impl tg::Handle for Server {
 		self.inner.server.path().await
 	}
 
-	async fn format(&self, _text: String) -> tg::Result<String> {
-		Err(tg::error!("not supported"))
-	}
-
 	fn file_descriptor_semaphore(&self) -> &tokio::sync::Semaphore {
 		self.inner.server.file_descriptor_semaphore()
 	}
 
 	async fn check_in_artifact(
 		&self,
-		arg: tg::artifact::CheckInArg,
+		mut arg: tg::artifact::CheckInArg,
 	) -> tg::Result<tg::artifact::CheckInOutput> {
-		self.inner.server.check_in_artifact(arg).await
+		// Replace the path with the host path.
+		arg.path = self.host_path_for_guest_path(arg.path)?;
+
+		// Perform the checkin.
+		let output = self.inner.server.check_in_artifact(arg).await?;
+
+		// If the VFS is disabled, then check out the artifact.
+		if !self.inner.server.inner.options.vfs.enable {
+			let arg = tg::artifact::CheckOutArg::default();
+			self.check_out_artifact(&output.id, arg).await?;
+		}
+
+		Ok(output)
 	}
 
 	async fn check_out_artifact(
 		&self,
 		id: &tg::artifact::Id,
-		arg: tg::artifact::CheckOutArg,
+		mut arg: tg::artifact::CheckOutArg,
 	) -> tg::Result<tg::artifact::CheckOutOutput> {
+		// Replace the path with the host path.
+		if let Some(path) = &mut arg.path {
+			*path = self.host_path_for_guest_path(path.clone())?;
+		}
+
+		// Perform the checkout.
 		self.inner.server.check_out_artifact(id, arg).await
 	}
 
-	async fn list_builds(&self, arg: tg::build::ListArg) -> tg::Result<tg::build::ListOutput> {
-		self.inner.server.list_builds(arg).await
+	async fn list_builds(&self, _arg: tg::build::ListArg) -> tg::Result<tg::build::ListOutput> {
+		Err(tg::error!("forbidden"))
 	}
 
 	async fn try_get_build(
@@ -159,27 +174,28 @@ impl tg::Handle for Server {
 
 	async fn put_build(
 		&self,
-		user: Option<&tg::User>,
-		id: &tg::build::Id,
-		arg: &tg::build::PutArg,
+		_user: Option<&tg::User>,
+		_id: &tg::build::Id,
+		_arg: &tg::build::PutArg,
 	) -> tg::Result<()> {
-		self.inner.server.put_build(user, id, arg).await
+		Err(tg::error!("forbidden"))
 	}
 
-	async fn push_build(&self, user: Option<&tg::User>, id: &tg::build::Id) -> tg::Result<()> {
-		self.inner.server.push_build(user, id).await
+	async fn push_build(&self, _user: Option<&tg::User>, _id: &tg::build::Id) -> tg::Result<()> {
+		Err(tg::error!("forbidden"))
 	}
 
-	async fn pull_build(&self, id: &tg::build::Id) -> tg::Result<()> {
-		self.inner.server.pull_build(id).await
+	async fn pull_build(&self, _id: &tg::build::Id) -> tg::Result<()> {
+		Err(tg::error!("forbidden"))
 	}
 
 	async fn get_or_create_build(
 		&self,
 		user: Option<&tg::User>,
-		arg: tg::build::GetOrCreateArg,
+		mut arg: tg::build::GetOrCreateArg,
 	) -> tg::Result<tg::build::GetOrCreateOutput> {
-		self.get_or_create_build_proxied(user, arg).await
+		arg.parent = Some(self.inner.build.clone());
+		self.inner.server.get_or_create_build(user, arg).await
 	}
 
 	async fn try_get_build_status(
@@ -193,11 +209,11 @@ impl tg::Handle for Server {
 
 	async fn set_build_status(
 		&self,
-		user: Option<&tg::User>,
-		id: &tg::build::Id,
-		status: tg::build::Status,
+		_user: Option<&tg::User>,
+		_id: &tg::build::Id,
+		_status: tg::build::Status,
 	) -> tg::Result<()> {
-		self.inner.server.set_build_status(user, id, status).await
+		Err(tg::error!("forbidden"))
 	}
 
 	async fn try_get_build_children(
@@ -216,14 +232,11 @@ impl tg::Handle for Server {
 
 	async fn add_build_child(
 		&self,
-		user: Option<&tg::User>,
-		build_id: &tg::build::Id,
-		child_id: &tg::build::Id,
+		_user: Option<&tg::User>,
+		_build_id: &tg::build::Id,
+		_child_id: &tg::build::Id,
 	) -> tg::Result<()> {
-		self.inner
-			.server
-			.add_build_child(user, build_id, child_id)
-			.await
+		Err(tg::error!("forbidden"))
 	}
 
 	async fn try_get_build_log(
@@ -238,11 +251,11 @@ impl tg::Handle for Server {
 
 	async fn add_build_log(
 		&self,
-		user: Option<&tg::User>,
-		build_id: &tg::build::Id,
-		bytes: Bytes,
+		_user: Option<&tg::User>,
+		_build_id: &tg::build::Id,
+		_bytes: Bytes,
 	) -> tg::Result<()> {
-		self.inner.server.add_build_log(user, build_id, bytes).await
+		Err(tg::error!("forbidden"))
 	}
 
 	async fn try_get_build_outcome(
@@ -256,11 +269,11 @@ impl tg::Handle for Server {
 
 	async fn set_build_outcome(
 		&self,
-		user: Option<&tg::User>,
-		id: &tg::build::Id,
-		outcome: tg::build::Outcome,
+		_user: Option<&tg::User>,
+		_id: &tg::build::Id,
+		_outcome: tg::build::Outcome,
 	) -> tg::Result<()> {
-		self.inner.server.set_build_outcome(user, id, outcome).await
+		Err(tg::error!("forbidden"))
 	}
 
 	async fn try_get_object(
@@ -278,19 +291,19 @@ impl tg::Handle for Server {
 		self.inner.server.put_object(id, arg).await
 	}
 
-	async fn push_object(&self, id: &tg::object::Id) -> tg::Result<()> {
-		self.inner.server.push_object(id).await
+	async fn push_object(&self, _id: &tg::object::Id) -> tg::Result<()> {
+		Err(tg::error!("forbidden"))
 	}
 
-	async fn pull_object(&self, id: &tg::object::Id) -> tg::Result<()> {
-		self.inner.server.pull_object(id).await
+	async fn pull_object(&self, _id: &tg::object::Id) -> tg::Result<()> {
+		Err(tg::error!("forbidden"))
 	}
 
 	async fn search_packages(
 		&self,
 		_arg: tg::package::SearchArg,
 	) -> tg::Result<tg::package::SearchOutput> {
-		Err(tg::error!("not supported"))
+		Err(tg::error!("forbidden"))
 	}
 
 	async fn try_get_package(
@@ -298,14 +311,14 @@ impl tg::Handle for Server {
 		_dependency: &tg::Dependency,
 		_arg: tg::package::GetArg,
 	) -> tg::Result<Option<tg::package::GetOutput>> {
-		Err(tg::error!("not supported"))
+		Err(tg::error!("forbidden"))
 	}
 
 	async fn try_get_package_versions(
 		&self,
 		_dependency: &tg::Dependency,
 	) -> tg::Result<Option<Vec<String>>> {
-		Err(tg::error!("not supported"))
+		Err(tg::error!("forbidden"))
 	}
 
 	async fn publish_package(
@@ -313,7 +326,7 @@ impl tg::Handle for Server {
 		_user: Option<&tg::User>,
 		_id: &tg::directory::Id,
 	) -> tg::Result<()> {
-		Err(tg::error!("not supported"))
+		Err(tg::error!("forbidden"))
 	}
 
 	async fn yank_package(
@@ -325,29 +338,33 @@ impl tg::Handle for Server {
 	}
 
 	async fn check_package(&self, _dependency: &tg::Dependency) -> tg::Result<Vec<tg::Diagnostic>> {
-		Err(tg::error!("not supported"))
+		Err(tg::error!("forbidden"))
 	}
 
 	async fn format_package(&self, _dependency: &tg::Dependency) -> tg::Result<()> {
-		Err(tg::error!("not supported"))
+		Err(tg::error!("forbidden"))
 	}
 
 	async fn get_package_outdated(
 		&self,
 		_dependency: &tg::Dependency,
 	) -> tg::Result<tg::package::OutdatedOutput> {
-		Err(tg::error!("not supported"))
+		Err(tg::error!("forbidden"))
 	}
 
 	async fn get_runtime_doc(&self) -> tg::Result<serde_json::Value> {
-		Err(tg::error!("not supported"))
+		Err(tg::error!("forbidden"))
 	}
 
 	async fn try_get_package_doc(
 		&self,
 		_dependency: &tg::Dependency,
 	) -> tg::Result<Option<serde_json::Value>> {
-		Err(tg::error!("not supported"))
+		Err(tg::error!("forbidden"))
+	}
+
+	async fn format(&self, _text: String) -> tg::Result<String> {
+		Err(tg::error!("forbidden"))
 	}
 
 	async fn lsp(
@@ -355,30 +372,30 @@ impl tg::Handle for Server {
 		_input: Box<dyn AsyncRead + Send + Unpin + 'static>,
 		_output: Box<dyn AsyncWrite + Send + Unpin + 'static>,
 	) -> tg::Result<()> {
-		Err(tg::error!("not supported"))
+		Err(tg::error!("forbidden"))
 	}
 
 	async fn health(&self) -> tg::Result<tg::server::Health> {
-		self.inner.server.health().await
+		Err(tg::error!("forbidden"))
 	}
 
 	async fn clean(&self) -> tg::Result<()> {
-		Err(tg::error!("not supported"))
+		Err(tg::error!("forbidden"))
 	}
 
 	async fn stop(&self) -> tg::Result<()> {
-		Err(tg::error!("not supported"))
+		Err(tg::error!("forbidden"))
 	}
 
 	async fn create_login(&self) -> tg::Result<tg::user::Login> {
-		Err(tg::error!("not supported"))
+		Err(tg::error!("forbidden"))
 	}
 
 	async fn get_login(&self, _id: &tg::Id) -> tg::Result<Option<tg::user::Login>> {
-		Err(tg::error!("not supported"))
+		Err(tg::error!("forbidden"))
 	}
 
 	async fn get_user_for_token(&self, _token: &str) -> tg::Result<Option<tg::user::User>> {
-		Err(tg::error!("not supported"))
+		Err(tg::error!("forbidden"))
 	}
 }
