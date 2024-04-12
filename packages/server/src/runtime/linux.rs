@@ -236,9 +236,15 @@ impl Runtime {
 
 		// Create the path map.
 		let path_map = proxy::PathMap {
-			output_host: output_parent_directory_host_path.try_into().unwrap(),
-			output_guest: output_parent_directory_guest_path.try_into().unwrap(),
-			root_host: root_directory_host_path.try_into().unwrap(),
+			output_host: output_parent_directory_host_path
+				.clone()
+				.try_into()
+				.unwrap(),
+			output_guest: output_parent_directory_guest_path
+				.clone()
+				.try_into()
+				.unwrap(),
+			root_host: root_directory_host_path.clone().try_into().unwrap(),
 		};
 
 		// Start the proxy server.
