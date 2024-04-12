@@ -145,7 +145,7 @@ impl Runtime {
 			output_path.to_str().unwrap().to_owned(),
 		);
 
-		// Set `$TANGRAM_URL`
+		// Set `$TANGRAM_URL`.
 		tokio::fs::create_dir_all(home_directory_path.join(".tangram"))
 			.await
 			.map_err(|error| {

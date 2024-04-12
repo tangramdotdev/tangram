@@ -29,7 +29,7 @@ impl Server {
 					.normalize();
 
 				// Ensure that the module exists.
-				let module_absolute_path = package_path.join(module_path.to_string());
+				let module_absolute_path = package_path.join(&module_path);
 				let exists =
 					tokio::fs::try_exists(&module_absolute_path)
 						.await
@@ -60,7 +60,7 @@ impl Server {
 					.parent()
 					.join(dependency.path.as_ref().unwrap().clone())
 					.normalize();
-				let package_path = document.package_path.join(dependency_path.to_string());
+				let package_path = document.package_path.join(&dependency_path);
 				let package_path = tokio::fs::canonicalize(package_path)
 					.await
 					.map_err(|source| tg::error!(!source, "failed to canonicalize the path"))?;

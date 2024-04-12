@@ -47,6 +47,6 @@ impl Document {
 	/// Get the document's path.
 	#[must_use]
 	pub fn path(&self) -> PathBuf {
-		self.package_path.join(self.path.to_string())
+		self.package_path.join(&self.path)
 	}
 }

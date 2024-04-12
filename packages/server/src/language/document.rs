@@ -16,7 +16,7 @@ impl Server {
 		package_path: PathBuf,
 		module_path: tg::Path,
 	) -> tg::Result<tg::Document> {
-		let path = package_path.join(module_path.to_string());
+		let path = package_path.join(&module_path);
 
 		// Create the document.
 		let document = tg::Document {

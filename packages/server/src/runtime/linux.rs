@@ -229,7 +229,7 @@ impl Runtime {
 			output_guest_path.to_str().unwrap().to_owned(),
 		);
 
-		// Set `$TANGRAM_URL`
+		// Set `$TANGRAM_URL`.
 		let proxy_server_guest_url = format!("unix:{}", proxy_server_socket_guest_path.display());
 		let proxy_server_guest_url = Url::parse(&proxy_server_guest_url).unwrap();
 		env.insert("TANGRAM_URL".to_owned(), proxy_server_guest_url.to_string());

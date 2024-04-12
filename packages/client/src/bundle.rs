@@ -111,10 +111,10 @@ impl Artifact {
 						target.push_str("../");
 					}
 					target.push_str(
-						&TANGRAM_ARTIFACTS_PATH
+						TANGRAM_ARTIFACTS_PATH
 							.clone()
 							.join(artifact.id(tg).await?.to_string())
-							.to_string(),
+							.as_str(),
 					);
 				}
 				if artifact.is_some() && path.is_some() {

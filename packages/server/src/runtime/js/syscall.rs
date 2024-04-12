@@ -63,7 +63,7 @@ pub fn syscall<'s>(
 		},
 
 		Err(error) => {
-			// Wrap the error
+			// Wrap the error.
 			let stack = current_stack_trace(scope).unwrap_or_default();
 			let error = tg::error!(source = error, stack = stack, "{name} failed");
 

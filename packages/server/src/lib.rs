@@ -721,7 +721,7 @@ where
 		let method = request.method().clone();
 		let path_components = request.uri().path().split('/').skip(1).collect_vec();
 		let response = match (method, path_components.as_slice()) {
-			// Artifacts
+			// Artifacts.
 			(http::Method::POST, ["artifacts", "checkin"]) => self
 				.handle_check_in_artifact_request(request)
 				.map(Some)
@@ -731,7 +731,7 @@ where
 				.map(Some)
 				.boxed(),
 
-			// Builds
+			// Builds.
 			(http::Method::GET, ["builds"]) => {
 				self.handle_list_builds_request(request).map(Some).boxed()
 			},
@@ -782,7 +782,7 @@ where
 				.map(Some)
 				.boxed(),
 
-			// Objects
+			// Objects.
 			(http::Method::GET, ["objects", _]) => {
 				self.handle_get_object_request(request).map(Some).boxed()
 			},
@@ -796,13 +796,13 @@ where
 				self.handle_pull_object_request(request).map(Some).boxed()
 			},
 
-			// Language
+			// Language.
 			(http::Method::POST, ["format"]) => {
 				self.handle_format_request(request).map(Some).boxed()
 			},
 			(http::Method::POST, ["lsp"]) => self.handle_lsp_request(request).map(Some).boxed(),
 
-			// Packages
+			// Packages.
 			(http::Method::GET, ["packages", "search"]) => self
 				.handle_search_packages_request(request)
 				.map(Some)
@@ -841,7 +841,7 @@ where
 				self.handle_yank_package_request(request).map(Some).boxed()
 			},
 
-			// Server
+			// Server.
 			(http::Method::GET, ["health"]) => {
 				self.handle_health_request(request).map(Some).boxed()
 			},
@@ -849,7 +849,7 @@ where
 			(http::Method::POST, ["clean"]) => self.handle_clean_request(request).map(Some).boxed(),
 			(http::Method::POST, ["stop"]) => self.handle_stop_request(request).map(Some).boxed(),
 
-			// Users
+			// Users.
 			(http::Method::POST, ["logins"]) => {
 				self.handle_create_login_request(request).map(Some).boxed()
 			},
@@ -860,15 +860,7 @@ where
 				.handle_get_user_for_token_request(request)
 				.map(Some)
 				.boxed(),
-			// (http::Method::GET, ["login"]) => self
-			// 	.handle_create_oauth_url_request(request)
-			// 	.map(Some)
-			// 	.boxed(),
-			// (http::Method::GET, ["oauth", _]) => self
-			// 	.handle_oauth_callback_request(request)
-			// 	.map(Some)
-			// 	.boxed(),
-			//
+
 			(_, _) => future::ready(None).boxed(),
 		}
 		.await;

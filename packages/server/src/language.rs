@@ -728,7 +728,7 @@ impl Server {
 	fn url_for_module(&self, module: &tg::Module) -> Url {
 		match module {
 			tg::Module::Document(document) => {
-				let path = document.package_path.join(document.path.to_string());
+				let path = document.package_path.join(&document.path);
 				let path = path.display();
 				format!("file://{path}").parse().unwrap()
 			},

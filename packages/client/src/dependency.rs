@@ -299,7 +299,7 @@ mod tests {
 
 	#[test]
 	fn matches() {
-		// Semver
+		// Semver.
 		let dep = Dependency::with_name_and_version("A".into(), "=1.*".into());
 		assert!(dep.try_match_version("1.2.3").unwrap());
 

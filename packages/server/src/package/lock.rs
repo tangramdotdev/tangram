@@ -191,7 +191,7 @@ impl Server {
 			return Ok(false);
 		}
 
-		// Recurse
+		// Recurse.
 		package_with_path_dependencies
 			.path_dependencies
 			.iter()
@@ -658,7 +658,7 @@ impl Server {
 						}
 					}
 
-					// If none of the children contain errors, we mark this edge permanently
+					// If none of the children contain errors, we mark this edge permanently.
 					if erroneous_children.is_empty() {
 						next_frame.solution = next_frame.solution.mark_permanently(
 							context,
@@ -681,7 +681,7 @@ impl Server {
 						) {
 							next_frame = frame_;
 						} else {
-							// This means that backtracking totally failed and we need to fail with an error
+							// This means that backtracking totally failed and we need to fail with an error.
 							next_frame.solution = next_frame.solution.mark_permanently(
 								context,
 								&dependant,

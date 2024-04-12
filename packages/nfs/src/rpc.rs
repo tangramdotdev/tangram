@@ -283,8 +283,8 @@ impl xdr::ToXdr for ReplyAcceptedStat {
 	{
 		match self {
 			Self::Success { results } => {
-				encoder.encode_int(0)?; // tag
-				encoder.encode_bytes(results)?; // reply.
+				encoder.encode_int(0)?;
+				encoder.encode_bytes(results)?;
 			},
 			Self::ProgramMismatch { low, high } => {
 				encoder.encode_int(1)?;

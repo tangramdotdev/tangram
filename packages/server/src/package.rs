@@ -228,7 +228,7 @@ impl Server {
 		// Visit each module.
 		while let Some(module_path) = queue.pop_front() {
 			// Get the module's absolute path.
-			let module_absolute_path = path.join(module_path.to_string());
+			let module_absolute_path = path.join(&module_path);
 			let module_absolute_path = tokio::fs::canonicalize(&module_absolute_path)
 				.await
 				.map_err(|error| {
@@ -260,7 +260,7 @@ impl Server {
 
 				// Get the included artifact's path.
 				let included_artifact_absolute_path =
-					path.join(included_artifact_path.to_string()).try_into()?;
+					path.join(&included_artifact_path).try_into()?;
 
 				// Check in the artifact at the included path.
 				let included_artifact =
@@ -288,7 +288,7 @@ impl Server {
 					);
 
 					// Get the dependency's absolute path.
-					let dependency_path = path.join(dependency.path.as_ref().unwrap().to_string());
+					let dependency_path = path.join(dependency.path.as_ref().unwrap());
 					let dependency_absolute_path =
 						tokio::fs::canonicalize(&dependency_path).await.map_err(
 							|error| tg::error!(source = error, %dependency, "failed to canonicalize the dependency path"),
