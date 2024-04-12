@@ -125,9 +125,13 @@ impl Path {
 
 	#[must_use]
 	pub fn strip_prefix(&self, prefix: &Self) -> Option<Self> {
-		self.string
-			.strip_prefix(prefix.as_str())
-			.map(|string| string.parse().unwrap())
+		self.string.strip_prefix(prefix.as_str()).map(|string| {
+			let mut string = string.to_string();
+			if string.starts_with('/') {
+				string.remove(0);
+			}
+			string.parse().unwrap()
+		})
 	}
 
 	#[must_use]
@@ -296,5 +300,13 @@ mod tests {
 
 		let path: Path = "./bar/baz".parse().unwrap();
 		assert_eq!(path.normalize().to_string(), "bar/baz");
+	}
+
+	#[test]
+	fn strip_prefix() {
+		let path: Path = "/hello/world".parse().unwrap();
+		let prefix: Path = "/hello".parse().unwrap();
+		let expected: Path = "world".parse().unwrap();
+		assert_eq!(path.strip_prefix(&prefix).unwrap(), expected);
 	}
 }
