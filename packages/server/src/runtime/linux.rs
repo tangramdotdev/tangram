@@ -234,17 +234,16 @@ impl Runtime {
 		let proxy_server_guest_url = Url::parse(&proxy_server_guest_url).unwrap();
 		env.insert("TANGRAM_URL".to_owned(), proxy_server_guest_url.to_string());
 
+		// Create the path map.
+		let path_map = proxy::PathMap {
+			output_host: output_parent_directory_host_path.try_into().unwrap(),
+			output_guest: output_parent_directory_guest_path.try_into().unwrap(),
+			root_host: root_directory_host_path.try_into().unwrap(),
+		};
+
 		// Start the proxy server.
 		let proxy_server_host_url = format!("unix:{}", proxy_server_socket_host_path.display());
 		let proxy_server_host_url = Url::parse(&proxy_server_host_url).unwrap();
-
-		let path_map = proxy::PathMap {
-			output_host: tg::Path::try_from(output_parent_directory_host_path.clone()).unwrap(),
-			output_guest: tg::Path::try_from(output_parent_directory_guest_path.clone()).unwrap(),
-			root_host: tg::Path::try_from(root_directory_host_path.clone()).unwrap(),
-			root_guest: tg::Path::with_components([tg::path::Component::Root]),
-		};
-
 		let proxy_server =
 			proxy::Server::start(server, build.id(), proxy_server_host_url, Some(path_map))
 				.await

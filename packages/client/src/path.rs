@@ -1,6 +1,6 @@
 use crate::{self as tg, error};
 use derive_more::{TryUnwrap, Unwrap};
-use std::path::PathBuf;
+use std::{ffi::OsStr, path::PathBuf};
 
 /// Any path.
 #[derive(
@@ -124,6 +124,13 @@ impl Path {
 	}
 
 	#[must_use]
+	pub fn strip_prefix(&self, prefix: &Self) -> Option<Self> {
+		self.string
+			.strip_prefix(prefix.as_str())
+			.map(|string| string.parse().unwrap())
+	}
+
+	#[must_use]
 	pub fn is_absolute(&self) -> bool {
 		matches!(self.components().first(), Some(Component::Root))
 	}
@@ -134,6 +141,21 @@ impl Path {
 			.last()
 			.and_then(|component| component.try_unwrap_normal_ref().ok())
 			.and_then(|name| name.split('.').last())
+	}
+
+	#[must_use]
+	pub fn as_str(&self) -> &str {
+		self.string.as_str()
+	}
+
+	#[must_use]
+	pub fn as_os_str(&self) -> &OsStr {
+		std::path::Path::new(self.string.as_str()).as_os_str()
+	}
+
+	#[must_use]
+	pub fn as_path(&self) -> &std::path::Path {
+		std::path::Path::new(self.string.as_str())
 	}
 }
 
@@ -240,15 +262,21 @@ impl<'a> TryFrom<&'a std::path::Path> for Path {
 	}
 }
 
-impl AsRef<std::path::Path> for Path {
-	fn as_ref(&self) -> &std::path::Path {
-		std::path::Path::new(self.string.as_str())
+impl AsRef<str> for Path {
+	fn as_ref(&self) -> &str {
+		self.as_str()
 	}
 }
 
-impl AsRef<std::ffi::OsStr> for Path {
-	fn as_ref(&self) -> &std::ffi::OsStr {
-		std::path::Path::new(self.string.as_str()).as_os_str()
+impl AsRef<OsStr> for Path {
+	fn as_ref(&self) -> &OsStr {
+		self.as_os_str()
+	}
+}
+
+impl AsRef<std::path::Path> for Path {
+	fn as_ref(&self) -> &std::path::Path {
+		self.as_path()
 	}
 }
 
