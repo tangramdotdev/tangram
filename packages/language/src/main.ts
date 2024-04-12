@@ -18,6 +18,7 @@ type Request =
 	| { kind: "check"; request: check.Request }
 	| { kind: "completion"; request: completion.Request }
 	| { kind: "definition"; request: definition.Request }
+	| { kind: "type_definition"; request: definition.Request }
 	| { kind: "diagnostics"; request: diagnostics.Request }
 	| { kind: "doc"; request: doc.Request }
 	| { kind: "hover"; request: hover.Request }
@@ -29,6 +30,7 @@ type Response =
 	| { kind: "check"; response: check.Response }
 	| { kind: "completion"; response: completion.Response }
 	| { kind: "definition"; response: definition.Response }
+	| { kind: "type_definition"; response: definition.Response }
 	| { kind: "diagnostics"; response: diagnostics.Response }
 	| { kind: "doc"; response: doc.Response }
 	| { kind: "hover"; response: hover.Response }
@@ -36,7 +38,7 @@ type Response =
 	| { kind: "rename"; response: rename.Response }
 	| { kind: "symbols"; response: symbols.Response };
 
-let handle = async ({ kind, request }: Request): Promise<Response> => {
+let handle = ({ kind, request }: Request): Response => {
 	switch (kind) {
 		case "check": {
 			let response = check.handle(request);
@@ -49,6 +51,10 @@ let handle = async ({ kind, request }: Request): Promise<Response> => {
 		case "definition": {
 			let response = definition.handle(request);
 			return { kind: "definition", response };
+		}
+		case "type_definition": {
+			let response = definition.handleType(request);
+			return { kind: "type_definition", response };
 		}
 		case "diagnostics": {
 			let response = diagnostics.handle(request);

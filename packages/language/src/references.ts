@@ -27,6 +27,8 @@ export let handle = (request: Request): Response => {
 		request.position.line,
 		request.position.character,
 	);
+
+	// Get the references.
 	let references = typescript.languageService.getReferencesAtPosition(
 		typescript.fileNameFromModule(request.module),
 		position,
@@ -42,7 +44,6 @@ export let handle = (request: Request): Response => {
 			if (destFile === undefined) {
 				throw new Error(destFile);
 			}
-			// Get the references's range.
 			let start = ts.getLineAndCharacterOfPosition(
 				destFile,
 				reference.textSpan.start,
@@ -51,12 +52,10 @@ export let handle = (request: Request): Response => {
 				destFile,
 				reference.textSpan.start + reference.textSpan.length,
 			);
-
 			let location = {
 				module: typescript.moduleFromFileName(reference.fileName),
 				range: { start, end },
 			};
-
 			return location;
 		}) ?? null;
 

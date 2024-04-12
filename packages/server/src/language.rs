@@ -86,6 +86,7 @@ enum Request {
 	Check(check::Request),
 	Completion(completion::Request),
 	Definition(definition::Request),
+	TypeDefinition(definition::Request),
 	Diagnostics(diagnostics::Request),
 	Doc(doc::Request),
 	Hover(hover::Request),
@@ -100,6 +101,7 @@ enum Response {
 	Check(check::Response),
 	Completion(completion::Response),
 	Definition(definition::Response),
+	TypeDefinition(definition::Response),
 	Diagnostics(diagnostics::Response),
 	Doc(doc::Response),
 	Hover(hover::Response),
@@ -312,6 +314,12 @@ impl Server {
 			lsp::request::GotoDefinition::METHOD => self
 				.handle_request_with::<lsp::request::GotoDefinition, _, _>(request, |params| {
 					self.handle_definition_request(params)
+				})
+				.boxed(),
+
+			lsp::request::GotoTypeDefinition::METHOD => self
+				.handle_request_with::<lsp::request::GotoTypeDefinition, _, _>(request, |params| {
+					self.handle_type_definition_request(params)
 				})
 				.boxed(),
 
@@ -617,19 +625,15 @@ impl Server {
 
 			// Call the handle function.
 			let receiver = v8::undefined(scope).into();
-			let response = handle.call(scope, receiver, &[request]).unwrap();
-			let response = v8::Local::<v8::Promise>::try_from(response).unwrap();
+			let response = handle.call(scope, receiver, &[request]);
 
-			let response = match response.state() {
-				v8::PromiseState::Pending => unreachable!(),
-				v8::PromiseState::Fulfilled => response.result(scope),
-				v8::PromiseState::Rejected => {
-					let exception = response.result(scope);
-					let error = error::from_exception(scope, exception);
-					response_sender.send(Err(error)).unwrap();
-					continue;
-				},
-			};
+			// Handle an error.
+			if let Some(exception) = scope.exception() {
+				let error = error::from_exception(scope, exception);
+				response_sender.send(Err(error)).unwrap();
+				continue;
+			}
+			let response = response.unwrap();
 
 			// Deserialize the response.
 			let response = match serde_v8::from_v8(scope, response)

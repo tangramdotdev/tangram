@@ -45,7 +45,6 @@ export let handle = (request: Request): Response => {
 		if (destFile === undefined) {
 			throw new Error();
 		}
-		// Get the definitions's range.
 		let start = ts.getLineAndCharacterOfPosition(
 			destFile,
 			renameLocation.textSpan.start,

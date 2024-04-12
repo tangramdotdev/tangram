@@ -27,6 +27,7 @@ impl Server {
 				hover_provider: Some(lsp::HoverProviderCapability::Simple(true)),
 				completion_provider: Some(lsp::CompletionOptions::default()),
 				definition_provider: Some(lsp::OneOf::Left(true)),
+				type_definition_provider: Some(lsp::TypeDefinitionProviderCapability::Simple(true)),
 				references_provider: Some(lsp::OneOf::Left(true)),
 				document_formatting_provider: Some(lsp::OneOf::Left(true)),
 				document_symbol_provider: Some(lsp::OneOf::Left(true)),
