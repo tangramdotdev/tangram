@@ -1,5 +1,9 @@
+bench *ARGS:
+	bun run --cwd packages/benchmark ./runner.ts -- {{ARGS}}
+
 check:
 	cargo clippy --all
+	bun run --cwd packages/benchmark check
 	bun run --cwd packages/language check
 	bun run --cwd packages/runtime check
 	bun run --cwd packages/vscode check
@@ -15,6 +19,7 @@ clean_path_orb:
 
 format:
 	cargo fmt --all
+	bun run --cwd packages/benchmark format
 	bun run --cwd packages/language format
 	bun run --cwd packages/runtime format
 	bun run --cwd packages/vscode format
