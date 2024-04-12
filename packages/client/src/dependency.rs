@@ -59,6 +59,7 @@ impl Dependency {
 
 	#[must_use]
 	pub fn with_path(path: crate::Path) -> Self {
+		let path = path.normalize();
 		Self {
 			path: Some(path),
 			..Default::default()
@@ -122,15 +123,16 @@ impl std::fmt::Display for Dependency {
 			(None, Some(name), Some(version), None) => {
 				write!(f, "{name}@{version}")?;
 			},
-			(None, None, None, Some(path)) => {
-				if path
-					.components()
-					.first()
-					.map_or(false, |component| component.try_unwrap_normal_ref().is_ok())
-				{
-					write!(f, "./")?;
-				}
-				write!(f, "{path}")?;
+			(None, None, None, Some(path)) => match path.components().first() {
+				Some(tg::path::Component::Root | tg::path::Component::Parent) => {
+					write!(f, "{path}")?;
+				},
+				Some(tg::path::Component::Current) | None => {
+					write!(f, ".")?;
+				},
+				Some(tg::path::Component::Normal(_)) => {
+					write!(f, "./{path}")?;
+				},
 			},
 			_ => {
 				let json = serde_json::to_string(self).unwrap();
@@ -154,10 +156,7 @@ impl std::str::FromStr for Dependency {
 				..Default::default()
 			})
 		} else if value.starts_with('/') || value.starts_with('.') {
-			Ok(Self {
-				path: Some(value.parse()?),
-				..Default::default()
-			})
+			Ok(Self::with_path(value.parse()?))
 		} else {
 			let (name, version) = match value.split_once('@') {
 				None => (Some(value.to_owned()), None),
@@ -282,7 +281,7 @@ mod tests {
 		let right = Dependency {
 			id: None,
 			name: None,
-			path: Some("./path/to/foo".parse().unwrap()),
+			path: Some("path/to/foo".parse().unwrap()),
 			version: None,
 		};
 		assert_eq!(left, right);

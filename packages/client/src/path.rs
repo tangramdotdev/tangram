@@ -284,7 +284,13 @@ impl AsRef<std::path::Path> for Path {
 mod tests {
 	use super::Path;
 	#[test]
-	fn path_normalization() {
+	fn normalization() {
+		let path: Path = ".".parse().unwrap();
+		assert_eq!(path.normalize().components(), &[]);
+
+		let path: Path = "./".parse().unwrap();
+		assert_eq!(path.normalize().components(), &[]);
+
 		let path: Path = "/foo/../bar/baz".parse().unwrap();
 		assert_eq!(path.normalize().to_string(), "/bar/baz");
 
