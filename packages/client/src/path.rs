@@ -125,9 +125,23 @@ impl Path {
 
 	#[must_use]
 	pub fn strip_prefix(&self, prefix: &Self) -> Option<Self> {
-		self.string
-			.strip_prefix(prefix.as_str())
-			.map(|string| string.parse().unwrap())
+		if self
+			.components()
+			.iter()
+			.zip(prefix.components())
+			.take_while(|(s, p)| s == p)
+			.count() < prefix.components().len()
+		{
+			None
+		} else {
+			Some(
+				self.components()
+					.iter()
+					.skip(prefix.components().len())
+					.cloned()
+					.collect(),
+			)
+		}
 	}
 
 	#[must_use]
@@ -302,5 +316,26 @@ mod tests {
 
 		let path: Path = "./bar/baz".parse().unwrap();
 		assert_eq!(path.normalize().to_string(), "bar/baz");
+	}
+
+	#[test]
+	fn strip_prefix() {
+		let path: Path = "/hello/world".parse().unwrap();
+		let prefix: Path = "/hello".parse().unwrap();
+		let left = path.strip_prefix(&prefix);
+		let right = Some("world".parse().unwrap());
+		assert_eq!(left, right);
+
+		let path: Path = "/hello/world".parse().unwrap();
+		let prefix: Path = "/world".parse().unwrap();
+		let left = path.strip_prefix(&prefix);
+		let right = None;
+		assert_eq!(left, right);
+
+		let path: Path = "/foo/bar".parse().unwrap();
+		let prefix: Path = "/foo/bar/baz".parse().unwrap();
+		let left = path.strip_prefix(&prefix);
+		let right = None;
+		assert_eq!(left, right);
 	}
 }
