@@ -11,6 +11,7 @@ use self::{
 use async_nats as nats;
 use bytes::Bytes;
 use either::Either;
+use fsm::FileSystemMonitor;
 use futures::{future, stream::FuturesUnordered, FutureExt, Stream, TryFutureExt, TryStreamExt};
 use http_body_util::BodyExt;
 use hyper_util::rt::{TokioExecutor, TokioIo};
@@ -37,6 +38,7 @@ mod blob;
 mod build;
 mod clean;
 mod database;
+mod fsm;
 mod language;
 mod messenger;
 mod migrations;
@@ -62,6 +64,7 @@ struct Inner {
 	build_state: std::sync::RwLock<HashMap<tg::build::Id, Arc<BuildState>, fnv::FnvBuildHasher>>,
 	database: Database,
 	file_descriptor_semaphore: tokio::sync::Semaphore,
+	file_system_monitor: std::sync::Mutex<Option<FileSystemMonitor>>,
 	http: std::sync::Mutex<Option<Http<Server>>>,
 	local_pool_handle: tokio_util::task::LocalPoolHandle,
 	lockfile: std::sync::Mutex<Option<tokio::fs::File>>,
@@ -216,6 +219,9 @@ impl Server {
 		let file_descriptor_semaphore =
 			tokio::sync::Semaphore::new(options.advanced.file_descriptor_semaphore_size);
 
+		// Create the file system monitor.
+		let file_system_monitor = std::sync::Mutex::new(None);
+
 		// Create the http server.
 		let http = std::sync::Mutex::new(None);
 
@@ -277,6 +283,7 @@ impl Server {
 			build_state,
 			database,
 			file_descriptor_semaphore,
+			file_system_monitor,
 			http,
 			local_pool_handle,
 			lockfile,
@@ -312,6 +319,18 @@ impl Server {
 				.execute(statement, params)
 				.map_err(|source| tg::error!(!source, "failed to execute the statement"))
 				.await?;
+		}
+
+		// Start the file system monitor.
+		if server.inner.options.file_system_monitor.enable {
+			let file_system_monitor = FileSystemMonitor::start(&server)
+				.map_err(|source| tg::error!(!source, "failed to start the file system monitor"))?;
+			server
+				.inner
+				.file_system_monitor
+				.lock()
+				.unwrap()
+				.replace(file_system_monitor);
 		}
 
 		// Start the VFS if necessary and set up the checkouts directory.
@@ -479,6 +498,12 @@ impl Server {
 
 			// Clear the build state.
 			server.inner.build_state.write().unwrap().clear();
+
+			// Stop the file system monitor.
+			let file_system_monitor = server.inner.file_system_monitor.lock().unwrap().clone();
+			if let Some(file_system_monitor) = file_system_monitor {
+				file_system_monitor.stop();
+			}
 
 			// Join the vfs server.
 			let vfs = server.inner.vfs.lock().unwrap().clone();
@@ -861,6 +886,14 @@ where
 				.map(Some)
 				.boxed(),
 
+			// Watch.
+			(http::Method::GET, ["watches"]) => {
+				self.handle_get_watches_request(request).map(Some).boxed()
+			},
+			(http::Method::DELETE, ["watches", _]) => {
+				self.handle_remove_watch_request(request).map(Some).boxed()
+			},
+
 			(_, _) => future::ready(None).boxed(),
 		}
 		.await;
@@ -1158,6 +1191,14 @@ impl tg::Handle for Server {
 
 	async fn get_user_for_token(&self, token: &str) -> tg::Result<Option<tg::user::User>> {
 		self.get_user_for_token(token).await
+	}
+
+	async fn list_watches(&self) -> tg::Result<Vec<tg::Path>> {
+		Ok(self.get_watches())
+	}
+
+	async fn remove_watch(&self, path: &tg::Path) -> tg::Result<()> {
+		self.remove_watch(path)
 	}
 }
 

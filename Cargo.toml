@@ -68,6 +68,7 @@ indicatif = "0.17"
 indoc = "2"
 itertools = "0.12"
 libc = "0.2"
+lru = "0.12"
 lsp-types = { version = "0.95" }
 mime = "0.3"
 notify = "6"

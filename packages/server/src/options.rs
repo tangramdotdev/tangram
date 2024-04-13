@@ -7,6 +7,7 @@ pub struct Options {
 	pub advanced: Advanced,
 	pub build: Build,
 	pub database: Database,
+	pub file_system_monitor: FileSystemMonitor,
 	pub messenger: Messenger,
 	pub oauth: Oauth,
 	pub path: PathBuf,
@@ -34,6 +35,11 @@ pub struct Build {
 pub enum Database {
 	Sqlite(SqliteDatabase),
 	Postgres(PostgresDatabase),
+}
+
+#[derive(Clone, Debug)]
+pub struct FileSystemMonitor {
+	pub enable: bool,
 }
 
 #[derive(Clone, Debug)]

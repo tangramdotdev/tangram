@@ -398,4 +398,12 @@ impl tg::Handle for Server {
 	async fn get_user_for_token(&self, _token: &str) -> tg::Result<Option<tg::user::User>> {
 		Err(tg::error!("forbidden"))
 	}
+
+	async fn list_watches(&self) -> tg::Result<Vec<tg::Path>> {
+		Err(tg::error!("forbidden"))
+	}
+
+	async fn remove_watch(&self, _path: &tg::Path) -> tg::Result<()> {
+		Err(tg::error!("forbidden"))
+	}
 }

@@ -7,6 +7,10 @@ use tangram_client as tg;
 pub struct Args {
 	/// The path to check in.
 	pub path: Option<PathBuf>,
+
+	/// Toggle whether the server will add a file watcher for this path.
+	#[arg(long)]
+	pub watch: Option<bool>,
 }
 
 impl Cli {
@@ -19,9 +23,10 @@ impl Cli {
 		if let Some(path_arg) = &args.path {
 			path.push(path_arg);
 		}
+		let watch = args.watch.unwrap_or(true);
 
 		// Perform the checkin.
-		let artifact = tg::Artifact::check_in(client, &path.try_into()?).await?;
+		let artifact = tg::Artifact::check_in(client, &path.try_into()?, watch).await?;
 
 		// Print the ID.
 		let id = artifact.id(client).await?;

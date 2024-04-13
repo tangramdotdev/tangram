@@ -33,7 +33,7 @@ impl Server {
 
 		// Check in the artifact.
 		let id = self
-			.check_in_artifact_inner(&arg.path, &transaction)
+			.check_in_artifact_inner(&arg.path, arg.watch, &transaction)
 			.await?;
 
 		// Commit the transaction.
@@ -54,39 +54,64 @@ impl Server {
 	async fn check_in_artifact_inner(
 		&self,
 		path: &tg::Path,
+		watch: bool,
 		transaction: &Transaction<'_>,
 	) -> tg::Result<tg::artifact::Id> {
+		// Check if we've already checked this artifact in.
+		if let Some(artifact) = self
+			.try_get_artifact_at_path(path, transaction)
+			.await
+			.map_err(|source| tg::error!(!source, %path, "failed to get artifact for path"))?
+		{
+			// Update the path for this artifact.
+			self.add_artifact_at_path(path, artifact.clone(), watch, transaction)
+				.await
+				.map_err(
+					|source| tg::error!(!source, %path, %artifact, "failed to set the artifact pat"),
+				)?;
+			return Ok(artifact);
+		}
+
 		// Get the metadata for the file system object at the path.
 		let metadata = tokio::fs::symlink_metadata(&path).await.map_err(
 			|source| tg::error!(!source, %path, "failed to get the metadata for the path"),
 		)?;
 
 		// Call the appropriate function for the file system object at the path.
-		if metadata.is_dir() {
-			self.check_in_directory(path, &metadata, transaction)
+		let artifact = if metadata.is_dir() {
+			self.check_in_directory(path, watch, &metadata, transaction)
 				.await
-				.map_err(|source| tg::error!(!source, %path, "failed to check in the directory"))
+				.map_err(|source| tg::error!(!source, %path, "failed to check in the directory"))?
 		} else if metadata.is_file() {
-			self.check_in_file(path, &metadata, transaction)
+			self.check_in_file(path, watch, &metadata, transaction)
 				.await
-				.map_err(|source| tg::error!(!source, %path, "failed to check in the file"))
+				.map_err(|source| tg::error!(!source, %path, "failed to check in the file"))?
 		} else if metadata.is_symlink() {
-			self.check_in_symlink(path, &metadata, transaction)
+			self.check_in_symlink(path, watch, &metadata, transaction)
 				.await
-				.map_err(|source| tg::error!(!source, %path, "failed to check in the symlink"))
+				.map_err(|source| tg::error!(!source, %path, "failed to check in the symlink"))?
 		} else {
 			let file_type = metadata.file_type();
-			Err(tg::error!(
+			return Err(tg::error!(
 				%path,
 				?file_type,
 				"invalid file type"
-			))
-		}
+			));
+		};
+
+		// Update the path for this artifact.
+		self.add_artifact_at_path(path, artifact.clone(), watch, transaction)
+			.await
+			.map_err(
+				|source| tg::error!(!source, %path, %artifact, "failed to set the artifact pat"),
+			)?;
+		Ok(artifact)
 	}
 
 	async fn check_in_directory(
 		&self,
 		path: &tg::Path,
+		watch: bool,
 		_metadata: &std::fs::Metadata,
 		transaction: &Transaction<'_>,
 	) -> tg::Result<tg::artifact::Id> {
@@ -119,7 +144,9 @@ impl Server {
 			.into_iter()
 			.map(|name| async {
 				let path = path.clone().join(&name);
-				let id = self.check_in_artifact_inner(&path, transaction).await?;
+				let id = self
+					.check_in_artifact_inner(&path, watch, transaction)
+					.await?;
 				Ok::<_, tg::Error>((name, id))
 			})
 			.collect::<FuturesUnordered<_>>()
@@ -138,6 +165,7 @@ impl Server {
 	async fn check_in_file(
 		&self,
 		path: &tg::Path,
+		_watch: bool,
 		metadata: &std::fs::Metadata,
 		transaction: &Transaction<'_>,
 	) -> tg::Result<tg::artifact::Id> {
@@ -184,6 +212,7 @@ impl Server {
 	async fn check_in_symlink(
 		&self,
 		path: &tg::Path,
+		_watch: bool,
 		_metadata: &std::fs::Metadata,
 		transaction: &Transaction<'_>,
 	) -> tg::Result<tg::artifact::Id> {
@@ -278,7 +307,10 @@ impl Server {
 
 			// Check in an existing artifact at the path.
 			let existing_artifact = if exists {
-				let arg = tg::artifact::CheckInArg { path: path.clone() };
+				let arg = tg::artifact::CheckInArg {
+					path: path.clone(),
+					watch: false,
+				};
 				let output = self.check_in_artifact(arg).await?;
 				Some(tg::Artifact::with_id(output.id))
 			} else {

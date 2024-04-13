@@ -261,7 +261,7 @@ impl Blob {
 
 		// Check in the extracted artifact.
 		let path = path.try_into()?;
-		let artifact = Artifact::check_in(tg, &path)
+		let artifact = Artifact::check_in(tg, &path, false)
 			.await
 			.map_err(|source| error!(!source, "failed to check in the extracted archive"))?;
 

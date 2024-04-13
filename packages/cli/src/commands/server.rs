@@ -140,6 +140,17 @@ impl Cli {
 				},
 			);
 
+		// Create the file system monitor options
+		let file_system_monitor = config
+			.as_ref()
+			.and_then(|config| config.file_system_monitor.as_ref())
+			.map_or(
+				tangram_server::options::FileSystemMonitor { enable: true },
+				|file_system_monitor| tangram_server::options::FileSystemMonitor {
+					enable: file_system_monitor.enable,
+				},
+			);
+
 		// Create the messenger options.
 		let messenger = config
 			.and_then(|config| config.messenger.as_ref())
@@ -248,6 +259,7 @@ impl Cli {
 			advanced,
 			build,
 			database,
+			file_system_monitor,
 			messenger,
 			oauth,
 			path,

@@ -23,3 +23,4 @@ pub mod run;
 pub mod server;
 pub mod tree;
 pub mod upgrade;
+pub mod watch;
