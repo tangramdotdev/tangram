@@ -75,10 +75,9 @@ async fn migration_0000(path: &Path) -> tg::Result<()> {
 				name text not null,
 				mtime integer,
 				artifact text,
-				unique (parent, name)
 			);
-			insert into artifact_paths (id, parent, name) 
-			values (0, 0, '/');
+
+			create index artifact_paths_parent_name_index on artifact_paths (parent, name);
 
 			create table builds (
 				id text primary key,

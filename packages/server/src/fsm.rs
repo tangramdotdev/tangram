@@ -1,9 +1,8 @@
 use crate::{
 	database::Transaction,
-	util::http::{empty, full, Outgoing},
+	util::http::{empty, full, Incoming, Outgoing},
 	Http, Server,
 };
-use hyper::body::Incoming;
 use indoc::formatdoc;
 use notify::Watcher;
 use std::sync::Arc;
@@ -30,7 +29,10 @@ struct ArtifactPath {
 impl FileSystemMonitor {
 	/// Start the file system watcher.
 	pub fn start(server: &Server) -> tg::Result<Self> {
+		// Create the paths.
 		let paths = lru::LruCache::unbounded_with_hasher(fnv::FnvBuildHasher::default());
+
+		// Create the server.
 		let file_system_monitor = Self {
 			inner: Arc::new(Inner {
 				paths: std::sync::RwLock::new(paths),
@@ -38,7 +40,7 @@ impl FileSystemMonitor {
 			}),
 		};
 
-		let current_runtime_handle = tokio::runtime::Handle::current();
+		let main_runtime_handle = tokio::runtime::Handle::current();
 		let watcher = notify::recommended_watcher({
 			let file_system_monitor = file_system_monitor.clone();
 			let server = server.clone();
@@ -51,9 +53,8 @@ impl FileSystemMonitor {
 				if !event.kind.is_modify() {
 					return;
 				}
-				current_runtime_handle.spawn({
+				main_runtime_handle.spawn({
 					let file_system_monitor = file_system_monitor.clone();
-					let server = server.clone();
 					async move {
 						let Ok(mut connection) =
 							server.inner.database.connection().await.inspect_err(
@@ -108,6 +109,7 @@ impl FileSystemMonitor {
 			.lock()
 			.unwrap()
 			.replace(watcher);
+
 		Ok(file_system_monitor)
 	}
 
@@ -266,10 +268,9 @@ impl Server {
 			if Some(mtime) != artifact_path.mtime {
 				self.remove_artifact_path(&artifact_path, transaction)
 					.await
-					.map_err(|source| {
-						tg::error!(!source, %path, "failed to remove 
-					artifact path")
-					})?;
+					.map_err(
+						|source| tg::error!(!source, %path, "failed to remove the artifact path"),
+					)?;
 				return Ok(None);
 			}
 		}
@@ -292,11 +293,6 @@ impl Server {
 			.map(tg::path::Component::unwrap_normal)
 			.peekable();
 
-		#[derive(serde::Deserialize, Debug)]
-		struct Row {
-			id: u64,
-		}
-
 		let mtime = if matches!(artifact, tg::artifact::Id::Directory(_)) {
 			None
 		} else {
@@ -315,22 +311,22 @@ impl Server {
 			let p = self.inner.database.p();
 			let statement = formatdoc!(
 				"
-				insert into artifact_paths (parent, name, mtime, artifact)
-				values ({p}1, {p}2, {p}3, {p}4)
-				on conflict (parent, name)
-				do update set
-					mtime = {p}3,
-					artifact = {p}4
-				returning id;
+					insert into artifact_paths (parent, name, mtime, artifact)
+					values ({p}1, {p}2, {p}3, {p}4)
+					on conflict (parent, name)
+					do update set
+						mtime = {p}3,
+						artifact = {p}4
+					returning id;
 				"
 			);
 			let params = db::params![parent, name, mtime, artifact];
-			let row = transaction
-				.query_one_into::<Row>(statement, params)
+			parent = transaction
+				.query_one_value_into(statement, params)
 				.await
 				.map_err(|source| tg::error!(!source, "failed to perform the query"))?;
-			parent = row.id;
 		}
+
 		Ok(())
 	}
 
@@ -339,32 +335,27 @@ impl Server {
 		artifact_path: &ArtifactPath,
 		transaction: &Transaction<'_>,
 	) -> tg::Result<()> {
-		#[derive(serde::Deserialize)]
-		struct Row {
-			parent: u64,
-		}
-
 		// Invalidate the parents.
 		let mut id = artifact_path.id;
 		while id != 0 {
 			let p = self.inner.database.p();
 			let statement = formatdoc!(
 				"
-				update artifact_paths
-				set 
-					artifact = null,
-					mtime = null
-				where id = {p}1
-				returning parent;
+					update artifact_paths
+					set 
+						artifact = null,
+						mtime = null
+					where id = {p}1
+					returning parent;
 				"
 			);
 			let params = db::params![id];
-			let row = transaction
-				.query_one_into::<Row>(statement, params)
+			id = transaction
+				.query_one_value_into(statement, params)
 				.await
 				.map_err(|source| tg::error!(!source, "failed to execute the statement"))?;
-			id = row.parent;
 		}
+
 		Ok(())
 	}
 
@@ -383,20 +374,20 @@ impl Server {
 			.map(tg::path::Component::unwrap_normal)
 			.peekable();
 
-		#[derive(serde::Deserialize)]
-		struct Row {
-			id: u64,
-			mtime: Option<[u8; 16]>,
-			artifact: Option<tg::artifact::Id>,
-		}
 		let mut parent = 0;
 		while let Some(name) = components.next() {
+			#[derive(serde::Deserialize)]
+			struct Row {
+				id: u64,
+				mtime: Option<[u8; 16]>,
+				artifact: Option<tg::artifact::Id>,
+			}
 			let p = self.inner.database.p();
 			let statement = formatdoc!(
 				"
-				select id, mtime, artifact
-				from artifact_paths
-				where name = {p}1 and parent = {p}2
+					select id, mtime, artifact
+					from artifact_paths
+					where name = {p}1 and parent = {p}2;
 				"
 			);
 			let params = db::params![name, parent];
@@ -414,7 +405,7 @@ impl Server {
 				continue;
 			}
 
-			// Otherwise update the artifact/mtime fields and continue.
+			// Otherwise update the artifact/mtime fields.
 			let Some(artifact) = row.artifact else {
 				return Ok(None);
 			};
@@ -425,6 +416,7 @@ impl Server {
 				artifact,
 			}));
 		}
+
 		Ok(None)
 	}
 }
@@ -453,16 +445,17 @@ where
 		&self,
 		_request: http::Request<Incoming>,
 	) -> tg::Result<http::Response<Outgoing>> {
-		// Get the paths.
-		let paths = self.inner.tg.list_watches().await?;
+		// Get the watches.
+		let watches = self.inner.tg.list_watches().await?;
 
 		// Create the body.
-		let body = serde_json::to_vec(&paths)
+		let body = serde_json::to_vec(&watches)
 			.map_err(|source| tg::error!(!source, "failed to serialize the body"))?;
 		let body = full(body);
 
 		// Create the response.
 		let response = http::Response::builder().body(body).unwrap();
+
 		Ok(response)
 	}
 
@@ -472,14 +465,14 @@ where
 	) -> tg::Result<http::Response<Outgoing>> {
 		// Get the path params.
 		let path_components: Vec<&str> = request.uri().path().split('/').skip(1).collect();
-		let ["packages", path] = path_components.as_slice() else {
+		let ["watches", path] = path_components.as_slice() else {
 			let path = request.uri().path();
 			return Err(tg::error!(%path, "unexpected path"));
 		};
 		let path = serde_urlencoded::from_str(path)
 			.map_err(|source| tg::error!(!source, "failed to serialize path"))?;
 
-		// Remove the path.
+		// Remove the watch.
 		self.inner
 			.tg
 			.remove_watch(&path)
@@ -488,6 +481,7 @@ where
 
 		// Create the response
 		let response = http::Response::builder().body(empty()).unwrap();
+
 		Ok(response)
 	}
 }

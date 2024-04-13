@@ -1,4 +1,4 @@
-use crate::{self as tg, error, util::http::empty};
+use crate as tg;
 use derive_more::{TryUnwrap, Unwrap};
 use std::{ffi::OsStr, path::PathBuf};
 
@@ -256,7 +256,7 @@ impl TryFrom<PathBuf> for Path {
 		value
 			.as_os_str()
 			.to_str()
-			.ok_or_else(|| error!("the path must be valid UTF-8"))?
+			.ok_or_else(|| tg::error!("the path must be valid UTF-8"))?
 			.parse()
 	}
 }
@@ -270,7 +270,7 @@ impl<'a> TryFrom<&'a std::path::Path> for Path {
 			.to_str()
 			.ok_or_else(|| {
 				let path = value.display();
-				error!(%path, "the path must be valid UTF-8")
+				tg::error!(%path, "the path must be valid UTF-8")
 			})?
 			.parse()
 	}
