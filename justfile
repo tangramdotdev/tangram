@@ -17,6 +17,7 @@ format:
 	cargo fmt --all
 	bun run --cwd packages/language format
 	bun run --cwd packages/runtime format
+	bun run --cwd packages/tests format
 	bun run --cwd packages/vscode format
 
 release:

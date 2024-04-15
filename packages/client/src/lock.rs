@@ -327,6 +327,7 @@ impl Lock {
 			.dependencies
 			.iter()
 			.map(|(dependency, entry)| {
+				let dependency = dependency.clone();
 				let Some(index) = entry.lock.as_ref().left().copied() else {
 					return Ok((dependency.clone(), entry.clone()));
 				};
@@ -509,5 +510,43 @@ impl std::str::FromStr for Id {
 
 	fn from_str(s: &str) -> tg::Result<Self, Self::Err> {
 		crate::Id::from_str(s)?.try_into()
+	}
+}
+
+#[cfg(test)]
+mod test {
+	use super::{data::Entry, data::Node, Data};
+	use crate::Dependency;
+	use either::Either;
+	use std::collections::BTreeMap;
+
+	#[test]
+	fn serde() {
+		let data = Data {
+			root: 1,
+			nodes: vec![
+				Node {
+					dependencies: BTreeMap::new(),
+				},
+				Node {
+					dependencies: [(
+						Dependency::with_path("foo/bar".parse().unwrap()),
+						Entry {
+							package: None,
+							lock: Either::Left(0),
+						},
+					)]
+					.into_iter()
+					.collect(),
+				},
+			],
+		};
+
+		let serialized = serde_json::to_string_pretty(&data).unwrap();
+		let deserialized = serde_json::from_str::<Data>(&serialized).unwrap();
+		assert_eq!(
+			deserialized.nodes[1].dependencies,
+			data.nodes[1].dependencies
+		);
 	}
 }

@@ -1,0 +1,8 @@
+{
+	"name": "@tangramdotdev/tests",
+	"private": true,
+	"scripts": {
+		"format": "biome check --apply ."
+	},
+	"type": "module"
+}

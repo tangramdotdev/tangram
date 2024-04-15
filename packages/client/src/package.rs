@@ -204,9 +204,9 @@ pub async fn try_get_root_module_path(
 }
 
 pub async fn get_root_module_path_for_path(path: &Path) -> tg::Result<tg::Path> {
-	try_get_root_module_path_for_path(path)
-		.await?
-		.ok_or_else(|| tg::error!("failed to find the package's root module"))
+	try_get_root_module_path_for_path(path).await?.ok_or_else(
+		|| tg::error!(%path = path.display(), "failed to find the package's root module"),
+	)
 }
 
 pub async fn try_get_root_module_path_for_path(path: &Path) -> tg::Result<Option<tg::Path>> {
