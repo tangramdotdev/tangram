@@ -1,6 +1,6 @@
 use crate as tg;
 use bytes::Bytes;
-use http_body_util::BodyExt;
+use http_body_util::BodyExt as _;
 
 pub type Incoming = hyper::body::Incoming;
 

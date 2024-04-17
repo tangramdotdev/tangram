@@ -45,5 +45,6 @@ tracing-subscriber = { workspace = true }
 unicode-segmentation = { workspace = true }
 unicode-width = { workspace = true }
 url = { workspace = true }
+urlencoding = { workspace = true }
 v8 = { workspace = true }
 webbrowser = { workspace = true }

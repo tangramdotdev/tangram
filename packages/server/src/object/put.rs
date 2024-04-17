@@ -3,9 +3,8 @@ use crate::{
 	util::http::{bad_request, full, Incoming, Outgoing},
 	Http, Server,
 };
-use bytes::Bytes;
-use futures::TryFutureExt;
-use http_body_util::BodyExt;
+use futures::{FutureExt as _, TryFutureExt as _};
+use http_body_util::BodyExt as _;
 use indoc::formatdoc;
 use tangram_client as tg;
 use tangram_database::{self as db, prelude::*};
@@ -14,7 +13,8 @@ impl Server {
 	pub async fn put_object(
 		&self,
 		id: &tg::object::Id,
-		arg: &tg::object::PutArg,
+		arg: tg::object::PutArg,
+		_transaction: Option<&Transaction<'_>>,
 	) -> tg::Result<tg::object::PutOutput> {
 		// Get a database connection.
 		let connection = self
@@ -69,28 +69,6 @@ impl Server {
 
 		Ok(output)
 	}
-
-	pub(crate) async fn put_object_with_transaction(
-		&self,
-		id: tg::object::Id,
-		bytes: Bytes,
-		transaction: &Transaction<'_>,
-	) -> tg::Result<()> {
-		let p = transaction.p();
-		let statement = formatdoc!(
-			"
-				insert into objects (id, bytes, children, complete, count, weight)
-				values ({p}1, {p}2, 0, 0, null, null)
-				on conflict do nothing;
-			"
-		);
-		let params = db::params![id, bytes];
-		transaction
-			.execute(statement, params)
-			.map_err(|source| tg::error!(!source, "failed to execute the statement"))
-			.await?;
-		Ok(())
-	}
 }
 
 impl<H> Http<H>
@@ -125,7 +103,7 @@ where
 			count: None,
 			weight: None,
 		};
-		let output = self.inner.tg.put_object(&id, &arg).await?;
+		let output = self.inner.tg.put_object(&id, arg, None).boxed().await?;
 
 		// Create the body.
 		let body = serde_json::to_vec(&output)

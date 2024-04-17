@@ -1,6 +1,6 @@
-use futures::{stream, Stream, StreamExt};
+use futures::{stream, Stream, StreamExt as _};
 use std::pin::Pin;
-use tokio::io::{AsyncBufReadExt, AsyncRead};
+use tokio::io::{AsyncBufRead, AsyncBufReadExt as _};
 
 #[derive(Clone, Debug, Default)]
 pub struct Event {
@@ -33,13 +33,13 @@ impl std::fmt::Display for Event {
 	}
 }
 
-pub struct Decoder<'a> {
-	stream: Pin<Box<dyn Stream<Item = std::io::Result<Event>> + Send + 'a>>,
+pub struct Decoder {
+	stream: Pin<Box<dyn Stream<Item = std::io::Result<Event>> + Send>>,
 }
 
-impl<'a> Decoder<'a> {
-	pub fn new(reader: impl AsyncRead + Unpin + Send + 'a) -> Self {
-		let lines = tokio::io::BufReader::new(reader).lines();
+impl Decoder {
+	pub fn new(reader: impl AsyncBufRead + Unpin + Send + 'static) -> Self {
+		let lines = reader.lines();
 		let stream = stream::try_unfold(lines, |mut lines| async move {
 			let mut event = Event {
 				data: String::new(),
@@ -91,7 +91,7 @@ impl<'a> Decoder<'a> {
 	}
 }
 
-impl<'a> Stream for Decoder<'a> {
+impl Stream for Decoder {
 	type Item = std::io::Result<Event>;
 
 	fn poll_next(

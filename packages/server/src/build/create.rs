@@ -2,14 +2,13 @@ use crate::{
 	util::http::{full, Incoming, Outgoing},
 	BuildState, Http, Server,
 };
-use http_body_util::BodyExt;
+use http_body_util::BodyExt as _;
 use std::sync::Arc;
 use tangram_client as tg;
 
 impl Server {
 	pub async fn get_or_create_build(
 		&self,
-		user: Option<&tg::User>,
 		arg: tg::build::GetOrCreateArg,
 	) -> tg::Result<tg::build::GetOrCreateOutput> {
 		// Get a local build if one exists that satisfies the retry constraint.
@@ -93,7 +92,7 @@ impl Server {
 		if let Some(build) = build {
 			// Add the build as a child of the parent.
 			if let Some(parent) = arg.parent.as_ref() {
-				self.add_build_child(user, parent, build.id()).await?;
+				self.add_build_child(parent, build.id()).await?;
 			}
 
 			let output = tg::build::GetOrCreateOutput {
@@ -124,12 +123,12 @@ impl Server {
 
 			// Push the target.
 			let object = tg::object::Handle::with_id(arg.target.clone().into());
-			let Ok(()) = object.push(self, remote).await else {
+			let Ok(()) = object.push(self, remote, None).await else {
 				break 'a;
 			};
 
 			// Get or create the build on the remote.
-			let Ok(output) = remote.get_or_create_build(user, arg.clone()).await else {
+			let Ok(output) = remote.get_or_create_build(arg.clone()).await else {
 				break 'a;
 			};
 
@@ -178,7 +177,7 @@ impl Server {
 
 		// Add the build to the parent.
 		if let Some(parent) = arg.parent.as_ref() {
-			self.add_build_child(user, parent, &build_id).await?;
+			self.add_build_child(parent, &build_id).await?;
 		}
 
 		// Send the message.
@@ -205,9 +204,6 @@ where
 			return Err(tg::error!(%path, "unexpected path"));
 		};
 
-		// Get the user.
-		let user = self.try_get_user_from_request(&request).await?;
-
 		// Read the body.
 		let bytes = request
 			.into_body()
@@ -219,11 +215,7 @@ where
 			.map_err(|source| tg::error!(!source, "failed to deserialize the body"))?;
 
 		// Get or create the build.
-		let output = self
-			.inner
-			.tg
-			.get_or_create_build(user.as_ref(), arg)
-			.await?;
+		let output = self.inner.tg.get_or_create_build(arg).await?;
 
 		// Create the body.
 		let body = serde_json::to_vec(&output)

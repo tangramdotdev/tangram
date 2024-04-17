@@ -1,6 +1,8 @@
 pub use self::{row::Row, value::Value};
-use futures::{Future, FutureExt, Stream, StreamExt, TryFutureExt, TryStreamExt};
-use itertools::Itertools;
+use futures::{
+	Future, FutureExt as _, Stream, StreamExt as _, TryFutureExt as _, TryStreamExt as _,
+};
+use itertools::Itertools as _;
 use std::pin::pin;
 
 pub mod either;
@@ -233,7 +235,7 @@ pub trait Query {
 		params: Vec<Value>,
 	) -> impl Future<Output = Result<Vec<Row>, Self::Error>> + Send {
 		self.query(statement, params)
-			.and_then(TryStreamExt::try_collect)
+			.and_then(futures::TryStreamExt::try_collect)
 	}
 
 	fn query_all_value(

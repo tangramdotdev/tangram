@@ -2,8 +2,10 @@ use crate::{
 	util::http::{empty, not_found, Incoming, Outgoing},
 	Http, Server,
 };
-use futures::{future, stream, stream_select, FutureExt, Stream, StreamExt, TryStreamExt};
-use http_body_util::{BodyExt, StreamBody};
+use futures::{
+	future, stream, stream_select, FutureExt as _, Stream, StreamExt as _, TryStreamExt as _,
+};
+use http_body_util::{BodyExt as _, StreamBody};
 use indoc::formatdoc;
 use num::ToPrimitive;
 use std::{pin::pin, sync::Arc};
@@ -318,20 +320,13 @@ impl Server {
 
 	pub async fn add_build_child(
 		&self,
-		user: Option<&tg::User>,
 		build_id: &tg::build::Id,
 		child_id: &tg::build::Id,
 	) -> tg::Result<()> {
-		if self
-			.try_add_build_child_local(user, build_id, child_id)
-			.await?
-		{
+		if self.try_add_build_child_local(build_id, child_id).await? {
 			return Ok(());
 		}
-		if self
-			.try_add_build_child_remote(user, build_id, child_id)
-			.await?
-		{
+		if self.try_add_build_child_remote(build_id, child_id).await? {
 			return Ok(());
 		}
 		Err(tg::error!("failed to get the build"))
@@ -339,7 +334,6 @@ impl Server {
 
 	async fn try_add_build_child_local(
 		&self,
-		_user: Option<&tg::User>,
 		build_id: &tg::build::Id,
 		child_id: &tg::build::Id,
 	) -> tg::Result<bool> {
@@ -385,7 +379,6 @@ impl Server {
 
 	async fn try_add_build_child_remote(
 		&self,
-		user: Option<&tg::User>,
 		build_id: &tg::build::Id,
 		child_id: &tg::build::Id,
 	) -> tg::Result<bool> {
@@ -393,9 +386,9 @@ impl Server {
 			return Ok(false);
 		};
 		tg::Build::with_id(child_id.clone())
-			.push(user, self, remote)
+			.push(self, remote)
 			.await?;
-		remote.add_build_child(user, build_id, child_id).await?;
+		remote.add_build_child(build_id, child_id).await?;
 		Ok(true)
 	}
 }
@@ -513,9 +506,6 @@ where
 			.parse()
 			.map_err(|source| tg::error!(!source, "failed to parse the ID"))?;
 
-		// Get the user.
-		let user = self.try_get_user_from_request(&request).await?;
-
 		// Read the body.
 		let bytes = request
 			.into_body()
@@ -527,10 +517,7 @@ where
 			.map_err(|source| tg::error!(!source, "failed to deserialize the body"))?;
 
 		// Add the build child.
-		self.inner
-			.tg
-			.add_build_child(user.as_ref(), &build_id, &child_id)
-			.await?;
+		self.inner.tg.add_build_child(&build_id, &child_id).await?;
 
 		// Create the response.
 		let response = http::Response::builder()

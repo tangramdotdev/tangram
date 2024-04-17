@@ -6,8 +6,8 @@ use super::{
 	State,
 };
 use bytes::Bytes;
-use futures::{Future, FutureExt, TryStreamExt};
-use itertools::Itertools;
+use futures::{Future, FutureExt as _, TryStreamExt as _};
+use itertools::Itertools as _;
 use num::ToPrimitive;
 use std::{
 	rc::Rc,
@@ -76,14 +76,12 @@ pub fn syscall<'s>(
 
 async fn syscall_archive(
 	state: Rc<State>,
-	args: (tg::Artifact, tg::blob::ArchiveFormat),
+	args: (tg::Artifact, tg::artifact::ArchiveFormat),
 ) -> tg::Result<tg::Blob> {
 	let (artifact, format) = args;
-	let blob = tg::Blob::archive(&state.server, &artifact, format)
-		.await
-		.map_err(
-			|source| tg::error!(!source,  %artifact, %format, "failed to archive the artifact"),
-		)?;
+	let blob = artifact.archive(&state.server, format).await.map_err(
+		|source| tg::error!(!source,  %artifact, %format, "failed to archive the artifact"),
+	)?;
 	Ok(blob)
 }
 
@@ -93,7 +91,7 @@ async fn syscall_build(state: Rc<State>, args: (tg::Target,)) -> tg::Result<tg::
 		parent: Some(state.build.id().clone()),
 		remote: false,
 		retry: state.build.retry(&state.server).await?,
-		target: target.id(&state.server).await?,
+		target: target.id(&state.server, None).await?,
 	};
 	let output = target
 		.build(&state.server, arg)
@@ -187,20 +185,30 @@ async fn syscall_download(state: Rc<State>, args: (Url, tg::Checksum)) -> tg::Re
 	};
 
 	// Create a stream of chunks.
-	let mut checksum_writer = tg::checksum::Writer::new(checksum.algorithm());
+	let checksum_writer = tg::checksum::Writer::new(checksum.algorithm());
+	let checksum_writer = Arc::new(std::sync::Mutex::new(Some(checksum_writer)));
 	let stream = response
 		.bytes_stream()
 		.map_err(std::io::Error::other)
-		.inspect_ok(|chunk| {
-			n.fetch_add(
-				chunk.len().to_u64().unwrap(),
-				std::sync::atomic::Ordering::Relaxed,
-			);
-			checksum_writer.update(chunk);
+		.inspect_ok({
+			let n = n.clone();
+			let checksum_writer = checksum_writer.clone();
+			move |chunk| {
+				n.fetch_add(
+					chunk.len().to_u64().unwrap(),
+					std::sync::atomic::Ordering::Relaxed,
+				);
+				checksum_writer
+					.lock()
+					.unwrap()
+					.as_mut()
+					.unwrap()
+					.update(chunk);
+			}
 		});
 
 	// Create the blob and validate.
-	let blob = tg::Blob::with_reader(&state.server, StreamReader::new(stream))
+	let blob = tg::Blob::with_reader(&state.server, StreamReader::new(stream), None)
 		.await
 		.map_err(|source| tg::error!(!source, "failed to create the blob"))?;
 
@@ -216,6 +224,7 @@ async fn syscall_download(state: Rc<State>, args: (Url, tg::Checksum)) -> tg::Re
 		.map_err(|source| tg::error!(!source, "failed to add the log"))?;
 
 	// Verify the checksum.
+	let checksum_writer = checksum_writer.lock().unwrap().take().unwrap();
 	let actual = checksum_writer.finalize();
 	if actual != checksum {
 		let expected = checksum;
@@ -358,11 +367,10 @@ fn syscall_encoding_yaml_encode(
 
 async fn syscall_extract(
 	state: Rc<State>,
-	args: (tg::Blob, tg::blob::ArchiveFormat),
+	args: (tg::Blob, tg::artifact::ArchiveFormat),
 ) -> tg::Result<tg::Artifact> {
 	let (blob, format) = args;
-	let artifact = blob
-		.extract(&state.server, format)
+	let artifact = tg::Artifact::extract(&state.server, &blob, format)
 		.await
 		.map_err(|source| tg::error!(!source, %format, "failed to extract the blob"))?;
 	Ok(artifact)
@@ -403,7 +411,7 @@ async fn syscall_store(
 ) -> tg::Result<tg::object::Id> {
 	let (object,) = args;
 	let handle = tg::object::Handle::with_object(object);
-	let id = handle.id(&state.server).await?;
+	let id = handle.id(&state.server, None).await?;
 	Ok(id.clone())
 }
 

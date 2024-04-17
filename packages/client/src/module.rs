@@ -1,6 +1,6 @@
 use super::document::Document;
-use crate::{self as tg, error};
-use derive_more::{TryUnwrap, Unwrap};
+use crate as tg;
+use itertools::Itertools as _;
 use url::Url;
 
 /// A module.
@@ -12,8 +12,8 @@ use url::Url;
 	Ord,
 	PartialEq,
 	PartialOrd,
-	Unwrap,
-	TryUnwrap,
+	derive_more::Unwrap,
+	derive_more::TryUnwrap,
 	serde::Deserialize,
 	serde::Serialize,
 )]
@@ -37,7 +37,7 @@ pub enum Module {
 #[serde(rename_all = "camelCase")]
 pub struct Library {
 	/// The module's path.
-	pub path: crate::Path,
+	pub path: tg::Path,
 }
 
 #[derive(
@@ -52,7 +52,7 @@ pub struct Normal {
 	pub package: tg::directory::Id,
 
 	/// The module's path.
-	pub path: crate::Path,
+	pub path: tg::Path,
 }
 
 impl Module {
@@ -60,16 +60,23 @@ impl Module {
 	#[must_use]
 	pub fn source(&self) -> (Option<tg::directory::Id>, tg::Path) {
 		match self {
-			Self::Library(library) => (None, library.path.clone()),
-			Self::Document(document) => (
-				None,
-				document
+			Self::Library(library) => {
+				let path = library.path.clone();
+				(None, path)
+			},
+			Self::Document(document) => {
+				let path = document
 					.package_path
 					.join(&document.path)
 					.try_into()
-					.unwrap(),
-			),
-			Self::Normal(normal) => (Some(normal.package.clone()), normal.path.clone()),
+					.unwrap();
+				(None, path)
+			},
+			Self::Normal(normal) => {
+				let package = Some(normal.package.clone());
+				let path = normal.path.clone();
+				(package, path)
+			},
 		}
 	}
 }
@@ -81,11 +88,13 @@ impl From<Module> for Url {
 			data_encoding::HEXLOWER.encode(serde_json::to_string(&value).unwrap().as_bytes());
 
 		let path = match value {
-			Module::Library(library) => library.path.to_string(),
+			Module::Library(library) => library.path.components().iter().skip(1).join("/"),
 			Module::Document(document) => {
-				format!("{}/{}", document.package_path.display(), document.path)
+				let package_path = document.package_path.display();
+				let path = document.path.components().iter().skip(1).join("/");
+				format!("{package_path}/{path}")
 			},
-			Module::Normal(normal) => normal.path.to_string(),
+			Module::Normal(normal) => normal.path.components().iter().skip(1).join("/"),
 		};
 
 		// Create the URL.
@@ -99,22 +108,22 @@ impl TryFrom<Url> for Module {
 	fn try_from(url: Url) -> tg::Result<Self, Self::Error> {
 		// Ensure the scheme is "tg".
 		if url.scheme() != "tg" {
-			return Err(error!(%url, "the URL has an invalid scheme"));
+			return Err(tg::error!(%url, "the URL has an invalid scheme"));
 		}
 
 		// Get the domain.
 		let data = url
 			.domain()
-			.ok_or_else(|| error!(%url, "the URL must have a domain"))?;
+			.ok_or_else(|| tg::error!(%url, "the URL must have a domain"))?;
 
 		// Decode the data.
 		let data = data_encoding::HEXLOWER
 			.decode(data.as_bytes())
-			.map_err(|source| error!(!source, "failed to deserialize the path"))?;
+			.map_err(|source| tg::error!(!source, "failed to deserialize the path"))?;
 
 		// Deserialize the data.
 		let module = serde_json::from_slice(&data)
-			.map_err(|source| error!(!source, "failed to deserialize the module"))?;
+			.map_err(|source| tg::error!(!source, "failed to deserialize the module"))?;
 
 		Ok(module)
 	}
@@ -136,7 +145,7 @@ impl std::str::FromStr for Module {
 	fn from_str(s: &str) -> tg::Result<Self, Self::Err> {
 		let url: Url = s
 			.parse()
-			.map_err(|source| error!(!source, "failed to parse the URL"))?;
+			.map_err(|source| tg::error!(!source, "failed to parse the URL"))?;
 		let module = url.try_into()?;
 		Ok(module)
 	}

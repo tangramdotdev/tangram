@@ -1,17 +1,17 @@
-use crate::{self as tg, error, id, object, Handle};
+use crate as tg;
 use bytes::Bytes;
-use derive_more::Display;
+use futures::FutureExt as _;
 use std::sync::Arc;
 
 #[derive(
 	Clone,
 	Debug,
-	Display,
 	Eq,
 	Hash,
 	Ord,
 	PartialEq,
 	PartialOrd,
+	derive_more::Display,
 	serde::Deserialize,
 	serde::Serialize,
 )]
@@ -23,7 +23,7 @@ pub struct Leaf {
 	state: Arc<std::sync::RwLock<State>>,
 }
 
-pub type State = object::State<Id, Object>;
+pub type State = tg::object::State<Id, Object>;
 
 #[derive(Clone, Debug, Default)]
 pub struct Object {
@@ -37,7 +37,7 @@ pub struct Data {
 
 impl Id {
 	pub fn new(bytes: &Bytes) -> Self {
-		Self(crate::Id::new_blake3(id::Kind::Leaf, bytes))
+		Self(crate::Id::new_blake3(tg::id::Kind::Leaf, bytes))
 	}
 }
 
@@ -67,21 +67,24 @@ impl Leaf {
 		Self { state }
 	}
 
-	pub async fn id(&self, tg: &impl Handle) -> tg::Result<Id> {
-		self.store(tg).await
+	pub async fn id<H>(&self, tg: &H, transaction: Option<&H::Transaction<'_>>) -> tg::Result<Id>
+	where
+		H: tg::Handle,
+	{
+		self.store(tg, transaction).await
 	}
 
-	pub async fn object(&self, tg: &impl Handle) -> tg::Result<Arc<Object>> {
+	pub async fn object(&self, tg: &impl tg::Handle) -> tg::Result<Arc<Object>> {
 		self.load(tg).await
 	}
 
-	pub async fn load(&self, tg: &impl Handle) -> tg::Result<Arc<Object>> {
+	pub async fn load(&self, tg: &impl tg::Handle) -> tg::Result<Arc<Object>> {
 		self.try_load(tg)
 			.await?
-			.ok_or_else(|| error!("failed to load the object"))
+			.ok_or_else(|| tg::error!("failed to load the object"))
 	}
 
-	pub async fn try_load(&self, tg: &impl Handle) -> tg::Result<Option<Arc<Object>>> {
+	pub async fn try_load(&self, tg: &impl tg::Handle) -> tg::Result<Option<Arc<Object>>> {
 		if let Some(object) = self.state.read().unwrap().object.clone() {
 			return Ok(Some(object));
 		}
@@ -90,33 +93,44 @@ impl Leaf {
 			return Ok(None);
 		};
 		let data = Data::deserialize(&output.bytes)
-			.map_err(|source| error!(!source, "failed to deserialize the data"))?;
+			.map_err(|source| tg::error!(!source, "failed to deserialize the data"))?;
 		let object = Object::try_from(data)?;
 		let object = Arc::new(object);
 		self.state.write().unwrap().object.replace(object.clone());
 		Ok(Some(object))
 	}
 
-	pub async fn store(&self, tg: &impl Handle) -> tg::Result<Id> {
+	pub async fn store<H>(&self, tg: &H, transaction: Option<&H::Transaction<'_>>) -> tg::Result<Id>
+	where
+		H: tg::Handle,
+	{
 		if let Some(id) = self.state.read().unwrap().id.clone() {
 			return Ok(id);
 		}
-		let data = self.data(tg).await?;
+		let data = self.data(tg, transaction).await?;
 		let bytes = data.serialize()?;
 		let id = Id::new(&bytes);
-		let arg = object::PutArg {
+		let arg = tg::object::PutArg {
 			bytes,
 			count: None,
 			weight: None,
 		};
-		tg.put_object(&id.clone().into(), &arg)
+		tg.put_object(&id.clone().into(), arg, transaction)
+			.boxed()
 			.await
-			.map_err(|source| error!(!source, "failed to put the object"))?;
+			.map_err(|source| tg::error!(!source, "failed to put the object"))?;
 		self.state.write().unwrap().id.replace(id.clone());
 		Ok(id)
 	}
 
-	pub async fn data(&self, tg: &impl Handle) -> tg::Result<Data> {
+	pub async fn data<H>(
+		&self,
+		tg: &H,
+		_transaction: Option<&H::Transaction<'_>>,
+	) -> tg::Result<Data>
+	where
+		H: tg::Handle,
+	{
 		let object = self.object(tg).await?;
 		Ok(Data {
 			bytes: object.bytes.clone(),
@@ -130,7 +144,7 @@ impl Leaf {
 		Self::with_object(Object { bytes })
 	}
 
-	pub async fn bytes(&self, tg: &impl Handle) -> tg::Result<Bytes> {
+	pub async fn bytes(&self, tg: &impl tg::Handle) -> tg::Result<Bytes> {
 		Ok(self.object(tg).await?.bytes.clone())
 	}
 }
@@ -147,7 +161,7 @@ impl Data {
 	}
 
 	#[must_use]
-	pub fn children(&self) -> Vec<object::Id> {
+	pub fn children(&self) -> Vec<tg::object::Id> {
 		vec![]
 	}
 }
@@ -187,8 +201,8 @@ impl TryFrom<crate::Id> for Id {
 	type Error = tg::Error;
 
 	fn try_from(value: crate::Id) -> tg::Result<Self, Self::Error> {
-		if value.kind() != id::Kind::Leaf {
-			return Err(error!(%value, "invalid kind"));
+		if value.kind() != tg::id::Kind::Leaf {
+			return Err(tg::error!(%value, "invalid kind"));
 		}
 		Ok(Self(value))
 	}

@@ -3,7 +3,7 @@ use crate::{
 	Http, Server,
 };
 use indoc::formatdoc;
-use itertools::Itertools;
+use itertools::Itertools as _;
 use tangram_client as tg;
 use tangram_database::{self as db, prelude::*};
 

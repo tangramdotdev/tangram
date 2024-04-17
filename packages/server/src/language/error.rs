@@ -123,7 +123,7 @@ fn get_location(line: u32, column: u32) -> Option<tg::error::Location> {
 	let token = source_map.lookup_token(line, column)?;
 	let symbol = token.get_name().map(String::from);
 	let source = tg::error::Source::Internal {
-		path: token.get_source().unwrap().to_owned(),
+		path: token.get_source().unwrap().parse().unwrap(),
 	};
 	let line = token.get_src_line();
 	let column = token.get_src_col();

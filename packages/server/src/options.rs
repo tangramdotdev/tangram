@@ -5,7 +5,7 @@ use url::Url;
 #[derive(Clone, Debug)]
 pub struct Options {
 	pub advanced: Advanced,
-	pub build: Build,
+	pub build: Option<Build>,
 	pub database: Database,
 	pub messenger: Messenger,
 	pub oauth: Oauth,
@@ -13,7 +13,7 @@ pub struct Options {
 	pub remotes: Vec<Remote>,
 	pub url: Url,
 	pub version: String,
-	pub vfs: Vfs,
+	pub vfs: bool,
 }
 
 #[derive(Clone, Debug)]
@@ -26,7 +26,6 @@ pub struct Advanced {
 
 #[derive(Clone, Debug)]
 pub struct Build {
-	pub enable: bool,
 	pub max_concurrency: usize,
 }
 
@@ -74,16 +73,6 @@ pub struct OauthClient {
 
 #[derive(Clone, Debug)]
 pub struct Remote {
-	pub build: RemoteBuild,
+	pub build: bool,
 	pub client: tg::Client,
-}
-
-#[derive(Clone, Debug)]
-pub struct RemoteBuild {
-	pub enable: bool,
-}
-
-#[derive(Clone, Debug)]
-pub struct Vfs {
-	pub enable: bool,
 }

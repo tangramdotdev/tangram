@@ -1,6 +1,4 @@
-import type { Artifact } from "./artifact.ts";
 import { assert } from "./assert.ts";
-import type { Lock } from "./lock.ts";
 
 export type Module =
 	| { kind: "document"; value: Document }
@@ -17,8 +15,8 @@ export type Library = {
 };
 
 export type Normal = {
-	lock: Lock.Id;
-	package: Artifact.Id;
+	lock: string;
+	package: string;
 	path: string;
 };
 
@@ -28,7 +26,7 @@ export namespace Module {
 			"encoding_hex_encode",
 			syscall("encoding_utf8_encode", syscall("encoding_json_encode", module)),
 		);
-		return `tg://${data}/${module.value.path}`;
+		return `tg://${data}/${module.value.path.slice(2)}`;
 	};
 
 	export let fromUrl = (url: string): Module => {

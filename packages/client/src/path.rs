@@ -1,12 +1,10 @@
-use crate::{self as tg, error};
-use derive_more::{TryUnwrap, Unwrap};
-use std::{ffi::OsStr, path::PathBuf};
+use crate as tg;
+use std::path::PathBuf;
 
-/// Any path.
+/// A path.
 #[derive(
 	Clone,
 	Debug,
-	Default,
 	Eq,
 	Hash,
 	Ord,
@@ -20,17 +18,25 @@ pub struct Path {
 	components: Vec<Component>,
 }
 
-#[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd, TryUnwrap, Unwrap)]
+#[derive(
+	Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd, derive_more::TryUnwrap, derive_more::Unwrap,
+)]
 #[try_unwrap(ref)]
 #[unwrap(ref)]
 pub enum Component {
-	Root,
+	Normal(String),
 	Current,
 	Parent,
-	Normal(String),
+	Root,
 }
 
 impl Path {
+	#[must_use]
+	pub fn new() -> Self {
+		Self::default()
+	}
+
+	#[must_use]
 	pub fn with_components(components: impl IntoIterator<Item = Component>) -> Self {
 		let mut path = Self::default();
 		for component in components {
@@ -50,50 +56,44 @@ impl Path {
 	}
 
 	#[must_use]
-	pub fn is_empty(&self) -> bool {
-		self.components.is_empty()
+	pub fn as_str(&self) -> &str {
+		self.string.as_str()
+	}
+
+	#[must_use]
+	pub fn as_path(&self) -> &std::path::Path {
+		std::path::Path::new(self.string.as_str())
 	}
 
 	pub fn push(&mut self, component: Component) {
-		// Ignore the component if it is a current directory component and the path is not empty.
-		if component == Component::Current && !self.is_empty() {
-			return;
-		}
+		match (component, self.components.last().unwrap()) {
+			// If the component is a current component, or is a parent component and follows a root component, then ignore it.
+			(Component::Current, _) | (Component::Parent, Component::Root) => (),
 
-		// If the component is a root component, then clear the path.
-		if component == Component::Root {
-			self.string = String::new();
-			self.components.clear();
-		}
+			// If the component is a parent component and follows a normal or parent component, then add it.
+			(Component::Parent, Component::Normal(_) | Component::Parent) => {
+				self.string.push_str("/..");
+				self.components.push(Component::Parent);
+			},
 
-		// Add the separator.
-		match self.components.last() {
-			Some(Component::Root) | None => (),
-			Some(_) => self.string.push('/'),
-		}
+			// If the component is a parent component and follows a current component, then replace the path with a parent component.
+			(Component::Parent, Component::Current) => {
+				self.string = "..".to_owned();
+				self.components = vec![Component::Parent];
+			},
 
-		// Add the component.
-		match &component {
-			Component::Root => self.string.push('/'),
-			Component::Current => self.string.push('.'),
-			Component::Parent => self.string.push_str(".."),
-			Component::Normal(name) => self.string.push_str(name),
-		}
-		self.components.push(component);
-	}
+			// If the component is a root component, then replace the path with a root component.
+			(Component::Root, _) => {
+				self.string = "/".to_owned();
+				self.components = vec![Component::Root];
+			},
 
-	pub fn pop(&mut self) {
-		let component = self.components.pop();
-		let n = match component {
-			Some(Component::Root | Component::Current) => 1,
-			Some(Component::Parent) => 2,
-			Some(Component::Normal(name)) => name.len(),
-			None => 0,
-		};
-		self.string.truncate(self.string.len() - n);
-		match self.components().last() {
-			None | Some(Component::Root) => (),
-			Some(_) => self.string.truncate(self.string.len() - 1),
+			// If the component is a normal component, then add it.
+			(Component::Normal(name), _) => {
+				self.string.push('/');
+				self.string.push_str(&name);
+				self.components.push(Component::Normal(name));
+			},
 		}
 	}
 
@@ -112,64 +112,95 @@ impl Path {
 
 	#[must_use]
 	pub fn normalize(self) -> Self {
-		let mut path = Self::default();
+		let mut components: Vec<Component> = Vec::new();
 		for component in self.into_components() {
-			match (component, path.components().last()) {
-				(Component::Parent, Some(Component::Normal(_))) => path.pop(),
-				(Component::Parent, Some(Component::Root)) | (Component::Current, _) => (),
-				(component, _) => path.push(component),
+			match (component, components.last()) {
+				// If the component is a parent component following a normal component, then remove the normal component.
+				(Component::Parent, Some(Component::Normal(_))) => {
+					components.pop();
+				},
+
+				// Otherwise, add the component.
+				(component, _) => {
+					components.push(component);
+				},
 			}
 		}
-		path
+		Self::with_components(components)
 	}
 
 	#[must_use]
-	pub fn strip_prefix(&self, prefix: &Self) -> Option<Self> {
-		if self
-			.components()
-			.iter()
-			.zip(prefix.components())
-			.take_while(|(s, p)| s == p)
-			.count() < prefix.components().len()
-		{
-			None
-		} else {
-			Some(
-				self.components()
-					.iter()
-					.skip(prefix.components().len())
-					.cloned()
-					.collect(),
-			)
+	pub fn diff(&self, src: &Self) -> Option<Self> {
+		let dst = self;
+		if dst.is_absolute() != src.is_absolute() {
+			return if dst.is_absolute() {
+				Some(dst.clone())
+			} else {
+				None
+			};
 		}
+		let mut components = Vec::new();
+		let mut dst = dst.components().iter();
+		let mut src = src.components().iter();
+		loop {
+			match (dst.next(), src.next()) {
+				(None, None) => break,
+				(None, Some(_)) => components.push(Component::Parent),
+				(Some(d), None) => {
+					components.push(d.clone());
+					components.extend(dst.cloned());
+					break;
+				},
+				(Some(d), Some(s)) if components.is_empty() && d == s => (),
+				(Some(d), Some(s)) if s == &Component::Current => components.push(d.clone()),
+				(Some(_), Some(s)) if s == &Component::Parent => return None,
+				(Some(d), Some(_)) => {
+					components.push(Component::Parent);
+					for _ in src {
+						components.push(Component::Parent);
+					}
+					components.push(d.clone());
+					components.extend(dst.cloned());
+					break;
+				},
+			}
+		}
+		Some(Self::with_components(components))
+	}
+
+	#[must_use]
+	pub fn is_internal(&self) -> bool {
+		self.components()
+			.first()
+			.unwrap()
+			.try_unwrap_current_ref()
+			.is_ok()
+	}
+
+	#[must_use]
+	pub fn is_external(&self) -> bool {
+		self.components()
+			.first()
+			.unwrap()
+			.try_unwrap_parent_ref()
+			.is_ok()
 	}
 
 	#[must_use]
 	pub fn is_absolute(&self) -> bool {
-		matches!(self.components().first(), Some(Component::Root))
-	}
-
-	#[must_use]
-	pub fn extension(&self) -> Option<&str> {
 		self.components()
-			.last()
-			.and_then(|component| component.try_unwrap_normal_ref().ok())
-			.and_then(|name| name.split('.').last())
+			.first()
+			.unwrap()
+			.try_unwrap_root_ref()
+			.is_ok()
 	}
+}
 
-	#[must_use]
-	pub fn as_str(&self) -> &str {
-		self.string.as_str()
-	}
-
-	#[must_use]
-	pub fn as_os_str(&self) -> &OsStr {
-		std::path::Path::new(self.string.as_str()).as_os_str()
-	}
-
-	#[must_use]
-	pub fn as_path(&self) -> &std::path::Path {
-		std::path::Path::new(self.string.as_str())
+impl Default for Path {
+	fn default() -> Self {
+		let string = ".".to_owned();
+		let components = vec![Component::Current];
+		Self { string, components }
 	}
 }
 
@@ -198,12 +229,38 @@ impl std::str::FromStr for Path {
 				".." => {
 					path.push(Component::Parent);
 				},
-				_ => {
+				component => {
 					path.push(Component::Normal(component.to_owned()));
 				},
 			}
 		}
 		Ok(path)
+	}
+}
+
+impl std::fmt::Display for Component {
+	fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+		let s = match &self {
+			Component::Normal(s) => s,
+			Component::Current => ".",
+			Component::Parent => "..",
+			Component::Root => "/",
+		};
+		write!(f, "{s}")?;
+		Ok(())
+	}
+}
+
+impl std::str::FromStr for Component {
+	type Err = tg::Error;
+
+	fn from_str(s: &str) -> Result<Self, Self::Err> {
+		Ok(match s {
+			"." => Self::Current,
+			".." => Self::Parent,
+			"/" => Self::Root,
+			_ => Self::Normal(s.to_owned()),
+		})
 	}
 }
 
@@ -256,7 +313,7 @@ impl TryFrom<PathBuf> for Path {
 		value
 			.as_os_str()
 			.to_str()
-			.ok_or_else(|| error!("the path must be valid UTF-8"))?
+			.ok_or_else(|| tg::error!("the path must be valid UTF-8"))?
 			.parse()
 	}
 }
@@ -270,7 +327,7 @@ impl<'a> TryFrom<&'a std::path::Path> for Path {
 			.to_str()
 			.ok_or_else(|| {
 				let path = value.display();
-				error!(%path, "the path must be valid UTF-8")
+				tg::error!(%path, "the path must be valid UTF-8")
 			})?
 			.parse()
 	}
@@ -282,12 +339,6 @@ impl AsRef<str> for Path {
 	}
 }
 
-impl AsRef<OsStr> for Path {
-	fn as_ref(&self) -> &OsStr {
-		self.as_os_str()
-	}
-}
-
 impl AsRef<std::path::Path> for Path {
 	fn as_ref(&self) -> &std::path::Path {
 		self.as_path()
@@ -296,46 +347,112 @@ impl AsRef<std::path::Path> for Path {
 
 #[cfg(test)]
 mod tests {
-	use super::Path;
+	use super::*;
+
 	#[test]
-	fn normalization() {
-		let path: Path = ".".parse().unwrap();
-		assert_eq!(path.normalize().components(), &[]);
+	fn parse() {
+		let left = "".parse::<Path>().unwrap().into_components();
+		let right = vec![Component::Current];
+		assert_eq!(left, right);
 
-		let path: Path = "./".parse().unwrap();
-		assert_eq!(path.normalize().components(), &[]);
+		let left = ".".parse::<Path>().unwrap().into_components();
+		let right = vec![Component::Current];
+		assert_eq!(left, right);
 
-		let path: Path = "/foo/../bar/baz".parse().unwrap();
-		assert_eq!(path.normalize().to_string(), "/bar/baz");
+		let left = "./".parse::<Path>().unwrap().into_components();
+		let right = vec![Component::Current];
+		assert_eq!(left, right);
 
-		let path: Path = "/../bar/baz".parse().unwrap();
-		assert_eq!(path.normalize().to_string(), "/bar/baz");
+		let left = "./.".parse::<Path>().unwrap().into_components();
+		let right = vec![Component::Current];
+		assert_eq!(left, right);
 
-		let path: Path = "../bar/baz".parse().unwrap();
-		assert_eq!(path.normalize().to_string(), "../bar/baz");
+		let left = "./hello".parse::<Path>().unwrap().into_components();
+		let right = vec![Component::Current, Component::Normal("hello".to_owned())];
+		assert_eq!(left, right);
 
-		let path: Path = "./bar/baz".parse().unwrap();
-		assert_eq!(path.normalize().to_string(), "bar/baz");
+		let left = "hello".parse::<Path>().unwrap().into_components();
+		let right = vec![Component::Current, Component::Normal("hello".to_owned())];
+		assert_eq!(left, right);
+
+		let left = "hello/world".parse::<Path>().unwrap().into_components();
+		let right = vec![
+			Component::Current,
+			Component::Normal("hello".to_owned()),
+			Component::Normal("world".to_owned()),
+		];
+		assert_eq!(left, right);
+
+		let left = "..".parse::<Path>().unwrap().into_components();
+		let right = vec![Component::Parent];
+		assert_eq!(left, right);
+
+		let left = "../".parse::<Path>().unwrap().into_components();
+		let right = vec![Component::Parent];
+		assert_eq!(left, right);
+
+		let left = "../hello".parse::<Path>().unwrap().into_components();
+		let right = vec![Component::Parent, Component::Normal("hello".to_owned())];
+		assert_eq!(left, right);
+
+		let left = "../..".parse::<Path>().unwrap().into_components();
+		let right = vec![Component::Parent, Component::Parent];
+		assert_eq!(left, right);
+
+		let left = "/".parse::<Path>().unwrap().into_components();
+		let right = vec![Component::Root];
+		assert_eq!(left, right);
+
+		let left = "/hello".parse::<Path>().unwrap().into_components();
+		let right = vec![Component::Root, Component::Normal("hello".to_owned())];
+		assert_eq!(left, right);
+
+		let left = "/..".parse::<Path>().unwrap().into_components();
+		let right = vec![Component::Root];
+		assert_eq!(left, right);
+
+		let left = "/.".parse::<Path>().unwrap().into_components();
+		let right = vec![Component::Root];
+		assert_eq!(left, right);
 	}
 
 	#[test]
-	fn strip_prefix() {
-		let path: Path = "/hello/world".parse().unwrap();
-		let prefix: Path = "/hello".parse().unwrap();
-		let left = path.strip_prefix(&prefix);
-		let right = Some("world".parse().unwrap());
+	fn normalize() {
+		let left = "./hello/world".parse::<Path>().unwrap().normalize();
+		let right = "./hello/world".parse::<Path>().unwrap();
 		assert_eq!(left, right);
 
-		let path: Path = "/hello/world".parse().unwrap();
-		let prefix: Path = "/world".parse().unwrap();
-		let left = path.strip_prefix(&prefix);
-		let right = None;
+		let left = "./hello/../world".parse::<Path>().unwrap().normalize();
+		let right = "./world".parse::<Path>().unwrap();
 		assert_eq!(left, right);
 
-		let path: Path = "/foo/bar".parse().unwrap();
-		let prefix: Path = "/foo/bar/baz".parse().unwrap();
-		let left = path.strip_prefix(&prefix);
-		let right = None;
+		let left = "./hello/../../world".parse::<Path>().unwrap().normalize();
+		let right = "../world".parse::<Path>().unwrap();
+		assert_eq!(left, right);
+
+		let left = "/hello/../../world".parse::<Path>().unwrap().normalize();
+		let right = "/world".parse::<Path>().unwrap();
+		assert_eq!(left, right);
+	}
+
+	#[test]
+	fn diff() {
+		let dst = "/hello/world".parse::<Path>().unwrap();
+		let src = "/hello".parse::<Path>().unwrap();
+		let left = dst.diff(&src);
+		let right = Some("./world".parse().unwrap());
+		assert_eq!(left, right);
+
+		let dst = "/hello/world".parse::<Path>().unwrap();
+		let src = "/world".parse::<Path>().unwrap();
+		let left = dst.diff(&src);
+		let right = Some("../hello/world".parse().unwrap());
+		assert_eq!(left, right);
+
+		let dst = "/foo/bar".parse::<Path>().unwrap();
+		let src = "/foo/bar/baz".parse::<Path>().unwrap();
+		let left = dst.diff(&src);
+		let right = Some("..".parse().unwrap());
 		assert_eq!(left, right);
 	}
 }

@@ -2,7 +2,7 @@
 
 use super::Server;
 use bytes::Bytes;
-use itertools::Itertools;
+use itertools::Itertools as _;
 use std::collections::BTreeMap;
 use tangram_client as tg;
 

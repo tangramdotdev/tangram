@@ -10,7 +10,7 @@ impl Server {
 		path: &tg::Path,
 		package: &tg::Directory,
 	) -> tg::Result<()> {
-		let id = package.id(self).await?;
+		let id = package.id(self, None).await?;
 
 		// Get a database connection.
 		let connection = self
@@ -43,7 +43,7 @@ impl Server {
 		&self,
 		package: &tg::Directory,
 	) -> tg::Result<Option<tg::Path>> {
-		let id = package.id(self).await?.clone();
+		let id = package.id(self, None).await?.clone();
 
 		// Get a database connection.
 		let connection = self

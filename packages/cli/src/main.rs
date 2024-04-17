@@ -1,15 +1,17 @@
 use self::config::Config;
 use clap::Parser;
 use crossterm::style::Stylize;
-use futures::FutureExt;
+use futures::FutureExt as _;
+use itertools::Itertools as _;
+use std::fmt::Write;
 use std::path::PathBuf;
 use tangram_client as tg;
+use tg::Handle as _;
 use tracing_subscriber::prelude::*;
 use url::Url;
 
 mod commands;
 mod config;
-mod error;
 mod tree;
 mod tui;
 
@@ -19,7 +21,6 @@ struct Cli {
 	url: Url,
 	config: Option<Config>,
 	client: tokio::sync::Mutex<Option<tg::Client>>,
-	user: Option<tg::User>,
 	version: String,
 }
 
@@ -47,7 +48,6 @@ struct Args {
 #[derive(Debug, clap::Subcommand)]
 #[allow(clippy::large_enum_variant)]
 pub enum Command {
-	Autoenv(self::commands::autoenv::Args),
 	Build(self::commands::build::Args),
 	Cat(self::commands::cat::Args),
 	Check(self::commands::check::Args),
@@ -58,7 +58,6 @@ pub enum Command {
 	Doc(self::commands::doc::Args),
 	Format(self::commands::format::Args),
 	Get(self::commands::get::Args),
-	Hook(self::commands::hook::Args),
 	Init(self::commands::init::Args),
 	Log(self::commands::log::Args),
 	Login(self::commands::login::Args),
@@ -78,54 +77,39 @@ pub enum Command {
 	Upgrade(self::commands::upgrade::Args),
 }
 
-fn default_path() -> PathBuf {
-	let home = std::env::var("HOME")
-		.map_err(|source| tg::error!(!source, "failed to get the home directory path"))
-		.unwrap();
-	PathBuf::from(home).join(".tangram")
-}
+fn main() -> std::process::ExitCode {
+	// Initialize V8.
+	initialize_v8();
 
-fn main() {
-	let mut config = None;
-	let result = main_inner(&mut config);
-	if let Err(error) = result {
-		let options = config
-			.as_ref()
-			.and_then(|config| config.advanced.as_ref())
-			.and_then(|advanced| advanced.error_trace_options.clone())
-			.unwrap_or_default();
-		let trace = error.trace(&options);
-		eprintln!("{}: an error occurred", "error".red().bold());
-		self::error::print(&trace);
-		std::process::exit(1);
-	}
-}
-
-fn main_inner(config: &mut Option<Config>) -> tg::Result<()> {
 	// Parse the args.
 	let args = Args::parse();
 
 	// Read the config.
-	*config = Cli::read_config(args.config.clone())
-		.map_err(|source| tg::error!(!source, "failed to read the config"))?;
+	let Ok(config) = Cli::read_config(args.config.clone()) else {
+		eprintln!("{}: failed to read the config", "error".red());
+		return 1.into();
+	};
 
 	// Set the file descriptor limit.
-	set_file_descriptor_limit(config)?;
+	set_file_descriptor_limit(&config)
+		.inspect_err(|_| {
+			eprintln!(
+				"{}: failed to set the file descriptor limit",
+				"warning".yellow()
+			);
+		})
+		.ok();
 
 	// Set up tracing.
-	set_up_tracing(config);
-
-	// Initialize V8.
-	initialize_v8();
-
-	// Read the user.
-	let user = Cli::read_user(None)?;
+	set_up_tracing(&config);
 
 	// Get the url.
 	let url = args.url.clone().unwrap_or_else(|| {
-		format!("unix:{}", default_path().join("socket").display())
-			.parse()
-			.unwrap()
+		let path = default_path();
+		let path = path.join("socket");
+		let path = path.to_str().unwrap();
+		let path = urlencoding::encode(path);
+		format!("http+unix://{path}").parse().unwrap()
 	});
 
 	// Create the client.
@@ -134,12 +118,15 @@ fn main_inner(config: &mut Option<Config>) -> tg::Result<()> {
 	// Get the version.
 	let version = if cfg!(debug_assertions) {
 		let executable_path = std::env::current_exe()
-			.map_err(|source| tg::error!(!source, "failed to get the current executable path"))?;
+			.map_err(|source| tg::error!(!source, "failed to get the current executable path"))
+			.unwrap();
 		let metadata = std::fs::metadata(executable_path)
-			.map_err(|source| tg::error!(!source, "failed to get the executable metadata"))?;
+			.map_err(|source| tg::error!(!source, "failed to get the executable metadata"))
+			.unwrap();
 		metadata
 			.modified()
-			.map_err(|source| tg::error!(!source, "failed to get the executable modified time"))?
+			.map_err(|source| tg::error!(!source, "failed to get the executable modified time"))
+			.unwrap()
 			.duration_since(std::time::SystemTime::UNIX_EPOCH)
 			.unwrap()
 			.as_secs()
@@ -153,37 +140,42 @@ fn main_inner(config: &mut Option<Config>) -> tg::Result<()> {
 		url,
 		config: config.clone(),
 		client,
-		user,
 		version,
 	};
 
 	// Create the command future.
-	let future = async move {
-		let result = cli.command(args.command).await;
-		match result {
-			Ok(()) => Ok(()),
-			Err(error) => Err(cli
-				.convert_error_location(error.clone())
-				.await
-				.unwrap_or(error)),
+	let future = cli.command(args.command).then(|result| async {
+		if let Err(error) = &result {
+			let options = config
+				.as_ref()
+				.and_then(|config| config.advanced.as_ref())
+				.and_then(|advanced| advanced.error_trace_options.clone())
+				.unwrap_or_default();
+			let trace = error.trace(&options);
+			eprintln!("{}: failed to run the command", "error".red().bold());
+			cli.print_error(&trace).await;
 		}
-	};
+		result
+	});
 
 	// Create the tokio runtime and block on the future.
 	let mut builder = tokio::runtime::Builder::new_multi_thread();
 	builder.enable_all();
 	builder.disable_lifo_slot();
 	let runtime = builder.build().unwrap();
-	runtime.block_on(future)?;
+	let result = runtime.block_on(future);
 
-	Ok(())
+	// Handle the result.
+	match result {
+		Ok(()) => 0.into(),
+		Err(_) => 1.into(),
+	}
 }
 
 impl Cli {
 	// Run the command
 	async fn command(&self, command: Command) -> tg::Result<()> {
 		match command {
-			Command::Autoenv(args) => self.command_autoenv(args).boxed(),
 			Command::Build(args) => self.command_build(args).boxed(),
 			Command::Cat(args) => self.command_cat(args).boxed(),
 			Command::Check(args) => self.command_check(args).boxed(),
@@ -194,7 +186,6 @@ impl Cli {
 			Command::Doc(args) => self.command_doc(args).boxed(),
 			Command::Format(args) => self.command_format(args).boxed(),
 			Command::Get(args) => self.command_get(args).boxed(),
-			Command::Hook(args) => self.command_hook(args).boxed(),
 			Command::Init(args) => self.command_init(args).boxed(),
 			Command::Log(args) => self.command_log(args).boxed(),
 			Command::Login(args) => self.command_login(args).boxed(),
@@ -223,8 +214,7 @@ impl Cli {
 		}
 
 		// Attempt to connect to the server.
-		let user = self.user.clone();
-		let client = tg::Builder::new(self.url.clone()).user(user).build();
+		let client = tg::Builder::new(self.url.clone()).build();
 		let mut connected = client.connect().await.is_ok();
 
 		// If the client is not connected and this is not a debug build, then start the server and attempt to connect.
@@ -306,7 +296,7 @@ impl Cli {
 		Ok(Some(config))
 	}
 
-	fn write_config(config: &Config, path: Option<PathBuf>) -> tg::Result<()> {
+	fn _write_config(config: &Config, path: Option<PathBuf>) -> tg::Result<()> {
 		let home = std::env::var("HOME")
 			.map_err(|source| tg::error!(!source, "failed to get the HOME environment variable"))?;
 		let path = path.unwrap_or_else(|| PathBuf::from(home).join(".config/tangram/config.json"));
@@ -317,29 +307,82 @@ impl Cli {
 		Ok(())
 	}
 
-	fn read_user(path: Option<PathBuf>) -> tg::Result<Option<tg::User>> {
-		let home = std::env::var("HOME")
-			.map_err(|source| tg::error!(!source, "failed to get the HOME environment variable"))?;
-		let path = path.unwrap_or_else(|| PathBuf::from(home).join(".config/tangram/user.json"));
-		let user = match std::fs::read_to_string(path) {
-			Ok(user) => user,
-			Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(None),
-			Err(source) => return Err(tg::error!(!source, "failed to read the user file")),
-		};
-		let user = serde_json::from_str(&user)
-			.map_err(|source| tg::error!(!source, "failed to deserialize the user"))?;
-		Ok(Some(user))
+	async fn print_error(&self, trace: &tg::error::Trace<'_>) {
+		let mut errors = vec![trace.error];
+		while let Some(next) = errors.last().unwrap().source.as_ref() {
+			errors.push(next);
+		}
+		if !trace.options.reverse {
+			errors.reverse();
+		}
+		for error in errors {
+			eprintln!("{} {}", "->".red(), error.message);
+			if let Some(location) = &error.location {
+				if !location.source.is_internal() || trace.options.internal {
+					let source = match &location.source {
+						tg::error::Source::Internal { path } => {
+							path.components().iter().skip(1).join("/")
+						},
+						tg::error::Source::External { package, path } => {
+							let source = self
+								.get_description_for_package(package)
+								.await
+								.unwrap_or_else(|_| package.to_string());
+							let path = path.components().iter().skip(1).join("/");
+							format!("{source}:{path}")
+						},
+					};
+					let mut string = String::new();
+					let line = location.line + 1;
+					let column = location.column + 1;
+					write!(string, "{source}:{line}:{column}").unwrap();
+					if let Some(symbol) = &location.symbol {
+						write!(string, " {symbol}").unwrap();
+					}
+					eprintln!("   {}", string.yellow());
+				}
+			}
+			for (name, value) in &error.values {
+				let name = name.as_str().blue();
+				let value = value.as_str().green();
+				eprintln!("   {name} = {value}");
+			}
+			let mut stack = error.stack.iter().flatten().collect::<Vec<_>>();
+			if !trace.options.reverse {
+				stack.reverse();
+			}
+			for location in stack {
+				if !location.source.is_internal() || trace.options.internal {
+					let location = location.to_string().yellow();
+					eprintln!("   {location}");
+				}
+			}
+		}
 	}
 
-	fn _write_user(user: &tg::User, path: Option<PathBuf>) -> tg::Result<()> {
-		let home = std::env::var("HOME")
-			.map_err(|source| tg::error!(!source, "failed to get the HOME environment variable"))?;
-		let path = path.unwrap_or_else(|| PathBuf::from(home).join(".config/tangram/user.json"));
-		let user = serde_json::to_string_pretty(&user.clone())
-			.map_err(|source| tg::error!(!source, "failed to serialize the user"))?;
-		std::fs::write(path, user)
-			.map_err(|source| tg::error!(!source, "failed to save the user"))?;
-		Ok(())
+	async fn get_description_for_package(&self, package: &tg::directory::Id) -> tg::Result<String> {
+		let client = &self.client().await?;
+		let dependency = tg::Dependency::with_id(package.clone());
+		let arg = tg::package::GetArg {
+			metadata: true,
+			path: true,
+			..Default::default()
+		};
+		let output = client
+			.get_package(&dependency, arg)
+			.await
+			.map_err(|source| tg::error!(!source, "failed to get the package"))?;
+		if let Some(path) = output.path {
+			return Ok(path.components().iter().skip(1).join("/"));
+		}
+		let (name, version) = output
+			.metadata
+			.as_ref()
+			.map(|metadata| (metadata.name.as_deref(), metadata.version.as_deref()))
+			.unwrap_or_default();
+		let name = name.unwrap_or("<unknown>");
+		let version = version.unwrap_or("<unknown>");
+		Ok(format!("{name}@{version}"))
 	}
 }
 
@@ -411,6 +454,13 @@ fn set_up_tracing(config: &Option<Config>) {
 		.with(console_layer)
 		.with(format_layer)
 		.init();
+}
+
+fn default_path() -> PathBuf {
+	let home = std::env::var("HOME")
+		.map_err(|source| tg::error!(!source, "failed to get the home directory path"))
+		.unwrap();
+	PathBuf::from(home).join(".tangram")
 }
 
 fn host() -> &'static str {

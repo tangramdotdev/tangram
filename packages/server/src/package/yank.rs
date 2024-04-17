@@ -1,15 +1,14 @@
 use crate::{
-	util::http::{ok, Incoming, Outgoing},
+	util::http::{bad_request, ok, Incoming, Outgoing},
 	Http, Server,
 };
-use http_body_util::BodyExt;
 use indoc::formatdoc;
 use tangram_client as tg;
 use tangram_database::{self as db, Database, Query};
 
 impl Server {
 	pub async fn get_package_yanked(&self, package: &tg::Directory) -> tg::Result<bool> {
-		let id = package.id(self).await?.clone();
+		let id = package.id(self, None).await?.clone();
 		if let Some(remote) = self.inner.remotes.first() {
 			let dependency = tg::Dependency::with_id(id);
 			let arg = tg::package::GetArg {
@@ -55,18 +54,12 @@ impl Server {
 		Ok(row.yanked)
 	}
 
-	pub async fn yank_package(
-		&self,
-		user: Option<&tg::User>,
-		id: &tg::directory::Id,
-	) -> tg::Result<()> {
+	pub async fn yank_package(&self, id: &tg::directory::Id) -> tg::Result<()> {
 		if let Some(remote) = self.inner.remotes.first() {
 			self.push_object(&id.clone().into()).await?;
-			remote.yank_package(user, id).await?;
+			remote.yank_package(id).await?;
 			return Ok(());
 		}
-
-		let yanked = true;
 
 		// Get a database connection.
 		let connection = self
@@ -81,12 +74,11 @@ impl Server {
 		let statement = formatdoc!(
 			"
 				update package_versions
-				set yanked = {p}1
-				where (id = {p}2);
+				set yanked = 1
+				where id = {p}1;
 			"
 		);
-		let params = db::params![yanked, id];
-
+		let params = db::params![id];
 		connection
 			.execute(statement, params)
 			.await
@@ -107,24 +99,18 @@ where
 		&self,
 		request: http::Request<Incoming>,
 	) -> tg::Result<http::Response<Outgoing>> {
-		// Get the user.
-		let user = self.try_get_user_from_request(&request).await?;
-
-		// Read the body.
-		let bytes = request
-			.into_body()
-			.collect()
-			.await
-			.map_err(|source| tg::error!(!source, "failed to read the body"))?
-			.to_bytes();
-		let package_id = serde_json::from_slice(&bytes)
-			.map_err(|source| tg::error!(!source, "invalid request"))?;
+		// Get the path params.
+		let path_components: Vec<&str> = request.uri().path().split('/').skip(1).collect();
+		let ["packages", dependency, "yank"] = path_components.as_slice() else {
+			let path = request.uri().path();
+			return Err(tg::error!(%path, "unexpected path"));
+		};
+		let Ok(dependency) = dependency.parse() else {
+			return Ok(bad_request());
+		};
 
 		// Publish the package.
-		self.inner
-			.tg
-			.yank_package(user.as_ref(), &package_id)
-			.await?;
+		self.inner.tg.yank_package(&dependency).await?;
 
 		Ok(ok())
 	}

@@ -2,8 +2,8 @@ use crate::{
 	util::http::{empty, not_found, Incoming, Outgoing},
 	Http, Server,
 };
-use futures::{future, stream, FutureExt, Stream, StreamExt, TryStreamExt};
-use http_body_util::{BodyExt, StreamBody};
+use futures::{future, stream, FutureExt as _, Stream, StreamExt as _, TryStreamExt as _};
+use http_body_util::{BodyExt as _, StreamBody};
 use indoc::formatdoc;
 use tangram_client as tg;
 use tangram_database::{self as db, prelude::*};
@@ -149,14 +149,13 @@ impl Server {
 
 	pub async fn set_build_status(
 		&self,
-		user: Option<&tg::User>,
 		id: &tg::build::Id,
 		status: tg::build::Status,
 	) -> tg::Result<()> {
-		if self.try_set_build_status_local(user, id, status).await? {
+		if self.try_set_build_status_local(id, status).await? {
 			return Ok(());
 		}
-		if self.try_set_build_status_remote(user, id, status).await? {
+		if self.try_set_build_status_remote(id, status).await? {
 			return Ok(());
 		}
 		Err(tg::error!("failed to get the build"))
@@ -164,7 +163,6 @@ impl Server {
 
 	async fn try_set_build_status_local(
 		&self,
-		_user: Option<&tg::User>,
 		id: &tg::build::Id,
 		status: tg::build::Status,
 	) -> tg::Result<bool> {
@@ -237,14 +235,13 @@ impl Server {
 
 	async fn try_set_build_status_remote(
 		&self,
-		user: Option<&tg::User>,
 		id: &tg::build::Id,
 		status: tg::build::Status,
 	) -> tg::Result<bool> {
 		let Some(remote) = self.inner.remotes.first() else {
 			return Ok(false);
 		};
-		remote.set_build_status(user, id, status).await?;
+		remote.set_build_status(id, status).await?;
 		Ok(true)
 	}
 }
@@ -347,9 +344,6 @@ where
 			.parse()
 			.map_err(|source| tg::error!(!source, "failed to parse the ID"))?;
 
-		// Get the user.
-		let user = self.try_get_user_from_request(&request).await?;
-
 		// Read the body.
 		let bytes = request
 			.into_body()
@@ -360,10 +354,7 @@ where
 		let status = serde_json::from_slice(&bytes)
 			.map_err(|source| tg::error!(!source, "failed to deserialize the body"))?;
 
-		self.inner
-			.tg
-			.set_build_status(user.as_ref(), &build_id, status)
-			.await?;
+		self.inner.tg.set_build_status(&build_id, status).await?;
 
 		// Create the response.
 		let response = http::Response::builder()

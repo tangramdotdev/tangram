@@ -1,5 +1,9 @@
 import { unreachable } from "./assert.ts";
 
+export let path = (...args: Array<Path.Arg>): Path => {
+	return Path.new(args);
+};
+
 export class Path {
 	#components: Array<Path.Component>;
 
@@ -15,10 +19,10 @@ export class Path {
 				for (let component of arg.split("/")) {
 					if (component === "") {
 						continue;
-					} else if (component === ".") {
-						path.push(".");
-					} else if (component === "..") {
-						path.push("..");
+					} else if (component === Path.Component.Current) {
+						path.push(Path.Component.Current);
+					} else if (component === Path.Component.Parent) {
+						path.push(Path.Component.Parent);
 					} else {
 						path.push(component);
 					}
@@ -31,48 +35,57 @@ export class Path {
 					path = reduce(path, arg_);
 				}
 				return path;
-			} else if (Path.Component.isRoot(arg)) {
+			} else if (arg === Path.Component.Root) {
 				path.push(Path.Component.Root);
 				return path;
 			} else {
 				return unreachable();
 			}
-		}, new Path([]));
+		}, new Path());
 	}
 
-	private constructor(components: Array<Path.Component>) {
-		this.#components = components;
-	}
-
-	isEmpty(): boolean {
-		return this.#components.length === 0;
+	private constructor(components: Array<Path.Component> = []) {
+		this.#components = [Path.Component.Current];
+		for (let component of components) {
+			this.push(component);
+		}
 	}
 
 	components(): Array<Path.Component> {
 		return this.#components;
 	}
 
-	push(component: Path.Component): void {
-		// Ignore the component if it is a current directory component and the path is not empty.
-		if (component === "." && !this.isEmpty()) {
+	push(component: Path.Component) {
+		let last = this.#components.at(-1)!;
+		if (
+			component === Path.Component.Current ||
+			(component === Path.Component.Parent && last === Path.Component.Root)
+		) {
+			// If the component is a current component, or is a parent component and follows a root component, then ignore it.
 			return;
+		} else if (
+			component === Path.Component.Parent &&
+			(Path.Component.isNormal(last) || last === Path.Component.Parent)
+		) {
+			// If the component is a parent component and follows a normal or parent component, then add it.
+			this.#components.push(component);
+		} else if (
+			component === Path.Component.Parent &&
+			last === Path.Component.Current
+		) {
+			// If the component is a parent component and follows a current component, then replace the path with a parent component.
+			this.#components = [Path.Component.Parent];
+		} else if (component === Path.Component.Root) {
+			// If the component is a root component, then replace the path with a root component.
+			this.#components = [Path.Component.Root];
+		} else if (Path.Component.isNormal(component)) {
+			// If the component is a normal component, then add it.
+			this.#components.push(component);
 		}
-
-		// If the component is a root component, then clear the path.
-		if (Path.Component.isRoot(component)) {
-			this.#components.length = 0;
-		}
-
-		// Add the component.
-		this.#components.push(component);
-	}
-
-	pop() {
-		this.#components.pop();
 	}
 
 	parent(): Path {
-		return this.join("..");
+		return this.join(Path.Component.Parent);
 	}
 
 	join(other: Path.Arg): Path {
@@ -84,44 +97,52 @@ export class Path {
 	}
 
 	normalize(): Path {
-		let path = new Path([]);
+		let path = new Path();
 		for (let component of this.components()) {
-			let lastComponent = path.components().at(-1);
+			let last = path.components().at(-1);
 			if (
-				component === ".." &&
-				lastComponent !== undefined &&
-				Path.Component.isNormal(lastComponent)
+				component === Path.Component.Parent &&
+				last !== undefined &&
+				Path.Component.isNormal(last)
 			) {
-				path.pop();
-			} else if (
-				component === ".." &&
-				lastComponent !== undefined &&
-				Path.Component.isRoot(lastComponent)
-			) {
-				continue;
+				// If the component is a parent component following a normal component, then remove the normal component.
+				path.#components.pop();
 			} else {
+				// Otherwise, add the component.
 				path.push(component);
 			}
 		}
 		return path;
 	}
 
+	isInternal(): boolean {
+		return this.components().at(0)! === Path.Component.Current;
+	}
+
+	isExternal(): boolean {
+		return this.components().at(0)! === Path.Component.Parent;
+	}
+
+	isAbsolute(): boolean {
+		return this.components().at(0)! === Path.Component.Root;
+	}
+
 	toString(): string {
 		let string = "";
-		for (let i = 0; i < this.components().length; i++) {
-			let component = this.components()[i]!;
-			if (Path.Component.isRoot(component)) {
-				string += "/";
-			} else if (component === ".") {
+		for (let i = 0; i < this.#components.length; i++) {
+			let component = this.#components[i]!;
+			if (component === Path.Component.Current) {
 				if (i !== 0) {
 					string += "/";
 				}
 				string += ".";
-			} else if (component === "..") {
+			} else if (component === Path.Component.Parent) {
 				if (i !== 0) {
 					string += "/";
 				}
 				string += "..";
+			} else if (component === Path.Component.Root) {
+				string += "/";
 			} else {
 				if (i !== 0) {
 					string += "/";
@@ -131,61 +152,38 @@ export class Path {
 		}
 		return string;
 	}
-
-	isAbsolute(): boolean {
-		let firstComponent = this.components().at(0);
-		if (firstComponent === undefined) {
-			return false;
-		}
-		return Path.Component.isRoot(firstComponent);
-	}
-
-	extension(): string | undefined {
-		let lastComponent = this.components().at(-1);
-		if (lastComponent === undefined) {
-			return undefined;
-		}
-		if (Path.Component.isNormal(lastComponent)) {
-			let components = lastComponent.split(".");
-			if (components.length > 1) {
-				return components.at(-1);
-			}
-		}
-		return undefined;
-	}
 }
 
 export namespace Path {
 	export type Arg = undefined | Component | Path | Array<Arg>;
 
 	export type Component =
-		| Component.Root
+		| Component.Normal
 		| Component.Current
 		| Component.Parent
-		| Component.Normal;
+		| Component.Root;
 
 	export namespace Component {
-		export type Root = { kind: "root" };
-
-		export let Root = { kind: "root" } as const;
-
-		export type Parent = "..";
-
-		export let Parent = "..";
+		export type Normal = string;
 
 		export type Current = ".";
 
 		export let Current = ".";
 
-		export type Normal = string;
+		export type Parent = "..";
 
-		export let isRoot = (component: Component): component is Root => {
-			return typeof component === "object" && component.kind === "root";
-		};
+		export let Parent = "..";
+
+		export type Root = "/";
+
+		export let Root = "/";
 
 		export let isNormal = (component: Component): component is Normal => {
 			return (
-				typeof component === "string" && component !== "." && component !== ".."
+				typeof component === "string" &&
+				component !== Current &&
+				component !== Parent &&
+				component !== Root
 			);
 		};
 	}

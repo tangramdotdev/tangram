@@ -1,16 +1,21 @@
 use crate::{
 	database::Transaction,
+	tmp::Tmp,
 	util::{
 		fs::rmrf,
 		http::{bad_request, full, Incoming, Outgoing},
 	},
 	Http, Server,
 };
-use futures::{stream::FuturesUnordered, TryStreamExt};
-use http_body_util::BodyExt;
-use std::{collections::HashMap, os::unix::prelude::PermissionsExt, sync::Arc};
+use futures::{stream::FuturesUnordered, TryStreamExt as _};
+use http_body_util::BodyExt as _;
+use std::{collections::HashMap, os::unix::prelude::PermissionsExt as _, sync::Arc};
 use tangram_client as tg;
 use tangram_database::prelude::*;
+
+mod archive;
+mod bundle;
+mod extract;
 
 impl Server {
 	pub async fn check_in_artifact(
@@ -130,7 +135,12 @@ impl Server {
 		let data = tg::directory::Data { entries };
 		let bytes = data.serialize()?;
 		let id = tg::directory::Id::new(&bytes);
-		self.put_object_with_transaction(id.clone().into(), bytes, transaction)
+		let arg = tg::object::PutArg {
+			bytes,
+			count: None,
+			weight: None,
+		};
+		self.put_object(&id.clone().into(), arg, Some(transaction))
 			.await?;
 		Ok(id.into())
 	}
@@ -147,7 +157,7 @@ impl Server {
 			.await
 			.map_err(|source| tg::error!(!source, "failed to open the file"))?;
 		let contents = self
-			.create_blob_with_reader(file, transaction)
+			.create_blob(file, Some(transaction))
 			.await
 			.map_err(|source| tg::error!(!source, "failed to create the contents"))?;
 		drop(permit);
@@ -175,7 +185,12 @@ impl Server {
 		};
 		let bytes = data.serialize()?;
 		let id = tg::file::Id::new(&bytes);
-		self.put_object_with_transaction(id.clone().into(), bytes, transaction)
+		let arg = tg::object::PutArg {
+			bytes,
+			count: None,
+			weight: None,
+		};
+		self.put_object(&id.clone().into(), arg, Some(transaction))
 			.await?;
 
 		Ok(id.into())
@@ -205,6 +220,9 @@ impl Server {
 				.ok()
 				.ok_or_else(|| tg::error!("invalid symlink"))?
 				.clone();
+			let path = path
+				.parse()
+				.map_err(|source| tg::error!(!source, "invalid symlink"))?;
 			(None, Some(path))
 		} else if target.components.len() == 2 {
 			let artifact = target.components[0]
@@ -225,6 +243,10 @@ impl Server {
 				.ok()
 				.ok_or_else(|| tg::error!("invalid sylink"))?
 				.clone();
+			let path = &path[1..];
+			let path = path
+				.parse()
+				.map_err(|source| tg::error!(!source, "invalid symlink"))?;
 			(Some(artifact), Some(path))
 		} else {
 			return Err(tg::error!("invalid symlink"));
@@ -234,7 +256,12 @@ impl Server {
 		let data = tg::symlink::Data { artifact, path };
 		let bytes = data.serialize()?;
 		let id = tg::symlink::Id::new(&bytes);
-		self.put_object_with_transaction(id.clone().into(), bytes, transaction)
+		let arg = tg::object::PutArg {
+			bytes,
+			count: None,
+			weight: None,
+		};
+		self.put_object(&id.clone().into(), arg, Some(transaction))
 			.await?;
 
 		Ok(id.into())
@@ -299,7 +326,7 @@ impl Server {
 			Ok(tg::artifact::CheckOutOutput { path })
 		} else {
 			// Get the path in the checkouts directory.
-			let id = artifact.id(self).await?;
+			let id = artifact.id(self, None).await?;
 			let path = self.checkouts_path().join(id.to_string()).try_into()?;
 
 			// If there is already a file system object at the path, then return.
@@ -310,10 +337,10 @@ impl Server {
 				return Ok(tg::artifact::CheckOutOutput { path });
 			}
 
-			// Create a tmp path.
-			let tmp = self.create_tmp();
+			// Create a tmp.
+			let tmp = Tmp::new(self);
 
-			// Perform the checkout to the tmp path.
+			// Perform the checkout to the tmp.
 			let existing = Arc::new(std::sync::RwLock::new(HashMap::default()));
 			self.check_out_inner(
 				&tmp.path.clone().try_into()?,
@@ -328,7 +355,7 @@ impl Server {
 			// Move the checkout to the checkouts directory.
 			match tokio::fs::rename(&tmp, &path).await {
 				Ok(()) => (),
-				// If the entry in the checkouts directory exists, then remove the checkout at the tmp path.
+				// If the entry in the checkouts directory exists, then remove the checkout to the tmp.
 				Err(ref error)
 					if matches!(error.raw_os_error(), Some(libc::ENOTEMPTY | libc::EEXIST)) =>
 				{
@@ -355,11 +382,11 @@ impl Server {
 		files: Arc<std::sync::RwLock<HashMap<tg::file::Id, tg::Path>>>,
 	) -> tg::Result<()> {
 		// If the artifact is the same as the existing artifact, then return.
-		let id = artifact.id(self).await?;
+		let id = artifact.id(self, None).await?;
 		match existing_artifact {
 			None => (),
 			Some(existing_artifact) => {
-				if id == existing_artifact.id(self).await? {
+				if id == existing_artifact.id(self, None).await? {
 					return Ok(());
 				}
 			},
@@ -530,7 +557,7 @@ impl Server {
 			.await
 			.map_err(|source| tg::error!(!source, "failed to get the file's references"))?
 			.iter()
-			.map(|artifact| artifact.id(self))
+			.map(|artifact| artifact.id(self, None))
 			.collect::<FuturesUnordered<_>>()
 			.try_collect::<Vec<_>>()
 			.await
@@ -562,7 +589,7 @@ impl Server {
 
 		// Check out the file, either from an existing path, an internal path, or from the file reader.
 		let permit = self.inner.file_descriptor_semaphore.acquire().await;
-		let id = file.id(self).await?;
+		let id = file.id(self, None).await?;
 		let existing_path = files.read().unwrap().get(&id).cloned();
 		let internal_path = self.checkouts_path().join(id.to_string());
 		if let Some(existing_path) = existing_path {
@@ -635,27 +662,26 @@ impl Server {
 					r#"cannot perform an external check out of a symlink with an artifact"#
 				));
 			}
+			let id = artifact.id(self, None).await?;
 			let arg = tg::artifact::CheckOutArg::default();
-			Box::pin(self.check_out_artifact_with_files(&artifact.id(self).await?, arg, files))
-				.await?;
+			Box::pin(self.check_out_artifact_with_files(&id, arg, files)).await?;
 		}
 
 		// Render the target.
-		let mut target = String::new();
+		let mut target = tg::Path::new();
 		let artifact = symlink.artifact(self).await?;
 		let path_ = symlink.path(self).await?;
 		if let Some(artifact) = artifact.as_ref() {
 			for _ in 0..depth {
-				target.push_str("../");
+				target.push(tg::path::Component::Parent);
 			}
-			target.push_str("../../.tangram/artifacts/");
-			target.push_str(&artifact.id(self).await?.to_string());
-		}
-		if artifact.is_some() && path_.is_some() {
-			target.push('/');
+			target = target.join("../../.tangram/artifacts/".parse::<tg::Path>().unwrap());
+			let id = &artifact.id(self, None).await?;
+			let component = tg::path::Component::Normal(id.to_string());
+			target.push(component);
 		}
 		if let Some(path) = path_.as_ref() {
-			target.push_str(path);
+			target = target.join(path.clone());
 		}
 
 		// Create the symlink.

@@ -56,8 +56,8 @@ export class Directory {
 			} else if (typeof arg === "object") {
 				// If the arg is an object, then apply each entry.
 				for (let [key, value] of Object.entries(arg)) {
-					// Separate the first path component from the trailing path components.
-					let [firstComponent, ...trailingComponents] =
+					// Separate the first normal path component from the trailing path components.
+					let [_, firstComponent, ...trailingComponents] =
 						Path.new(key).components();
 					if (firstComponent === undefined) {
 						throw new Error("the path must have at least one component");
@@ -152,16 +152,18 @@ export class Directory {
 		}
 	}
 
-	async get(arg: string): Promise<Directory | File> {
+	async get(arg: Path.Arg): Promise<Directory | File> {
 		let artifact = await this.tryGet(arg);
 		assert_(artifact, `Failed to get the directory entry "${arg}".`);
 		return artifact;
 	}
 
-	async tryGet(arg: string): Promise<Directory | File | undefined> {
+	async tryGet(arg: Path.Arg): Promise<Directory | File | undefined> {
 		let artifact: Directory | File = this;
 		let currentPath = Path.new();
-		for (let component of Path.new(arg).components()) {
+		let components = Path.new(arg).components();
+		for (let i = 1; i < components.length; i++) {
+			let component = components[i]!;
 			if (!Path.Component.isNormal(component)) {
 				throw new Error("all path components must be normal");
 			}
@@ -175,7 +177,7 @@ export class Directory {
 			} else if (Symlink.is(entry)) {
 				let resolved = await entry.resolve({
 					artifact: this,
-					path: currentPath.toString(),
+					path: currentPath,
 				});
 				if (resolved === undefined) {
 					return undefined;
@@ -194,6 +196,10 @@ export class Directory {
 			entries[name] = artifact;
 		}
 		return entries;
+	}
+
+	async archive(format: Artifact.ArchiveFormat): Promise<Blob> {
+		return await syscall("archive", this, format);
 	}
 
 	async bundle(): Promise<Directory> {
@@ -235,7 +241,7 @@ export namespace Directory {
 	export type Id = string;
 
 	export type Object_ = {
-		entries: Record<string, Artifact>;
+		entries: { [key: string]: Artifact };
 	};
 
 	export type State = Object_.State<Directory.Id, Directory.Object_>;

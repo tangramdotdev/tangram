@@ -1,5 +1,5 @@
 use super::Server;
-use futures::FutureExt;
+use futures::FutureExt as _;
 use indoc::formatdoc;
 use std::path::Path;
 use tangram_client as tg;
@@ -173,12 +173,6 @@ async fn migration_0000(path: &Path) -> tg::Result<()> {
 			create table tokens (
 				id text primary key,
 				user_id text not null references users (id)
-			);
-
-			create table logins (
-				id text primary key,
-				url text not null,
-				token text references tokens (id)
 			);
 		"
 	);

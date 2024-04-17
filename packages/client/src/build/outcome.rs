@@ -1,30 +1,28 @@
 use crate::{
-	self as tg, error,
+	self as tg,
 	util::http::{empty, full},
-	value, Client, Value,
 };
-use derive_more::TryUnwrap;
-use futures::{future, FutureExt};
-use http_body_util::BodyExt;
+use futures::{future, FutureExt as _};
+use http_body_util::BodyExt as _;
 use serde_with::serde_as;
 use std::pin::pin;
 
-#[derive(Clone, Debug, serde::Deserialize, TryUnwrap)]
+#[derive(Clone, Debug, derive_more::TryUnwrap, serde::Deserialize)]
 #[serde(try_from = "Data")]
 #[try_unwrap(ref)]
 pub enum Outcome {
 	Canceled,
 	Failed(tg::Error),
-	Succeeded(Value),
+	Succeeded(tg::Value),
 }
 
-#[derive(Clone, Debug, serde::Deserialize, serde::Serialize, TryUnwrap)]
+#[derive(Clone, Debug, derive_more::TryUnwrap, serde::Deserialize, serde::Serialize)]
 #[serde(rename_all = "snake_case", tag = "kind", content = "value")]
 #[try_unwrap(ref)]
 pub enum Data {
 	Canceled,
 	Failed(tg::Error),
-	Succeeded(value::Data),
+	Succeeded(tg::value::Data),
 }
 
 #[serde_as]
@@ -35,7 +33,7 @@ pub struct GetArg {
 	pub timeout: Option<std::time::Duration>,
 }
 
-impl Client {
+impl tg::Client {
 	pub async fn try_get_build_outcome(
 		&self,
 		id: &tg::build::Id,
@@ -51,7 +49,7 @@ impl Client {
 			.uri(uri)
 			.header(http::header::ACCEPT, mime::APPLICATION_JSON.to_string())
 			.body(body)
-			.map_err(|source| error!(!source, "failed to create the request"))?;
+			.map_err(|source| tg::error!(!source, "failed to create the request"))?;
 		let response = self.send(request).await?;
 		if response.status() == http::StatusCode::NOT_FOUND {
 			return Ok(None);
@@ -60,10 +58,10 @@ impl Client {
 			let bytes = response
 				.collect()
 				.await
-				.map_err(|source| error!(!source, "failed to collect the response body"))?
+				.map_err(|source| tg::error!(!source, "failed to collect the response body"))?
 				.to_bytes();
 			let error = serde_json::from_slice(&bytes)
-				.unwrap_or_else(|_| error!("the request did not succeed"));
+				.unwrap_or_else(|_| tg::error!("the request did not succeed"));
 			return Err(error);
 		}
 		let stop = stop.map_or_else(
@@ -74,10 +72,10 @@ impl Client {
 			let bytes = response
 				.collect()
 				.await
-				.map_err(|source| error!(!source, "failed to collect the response body"))?
+				.map_err(|source| tg::error!(!source, "failed to collect the response body"))?
 				.to_bytes();
 			let outcome = serde_json::from_slice(&bytes)
-				.map_err(|source| error!(!source, "failed to deserialize the response body"))?;
+				.map_err(|source| tg::error!(!source, "failed to deserialize the response body"))?;
 			Ok(outcome)
 		};
 		let stop = stop.map(|()| Ok(None));
@@ -92,33 +90,31 @@ impl Client {
 
 	pub async fn set_build_outcome(
 		&self,
-		user: Option<&tg::User>,
 		id: &tg::build::Id,
 		outcome: tg::build::Outcome,
 	) -> tg::Result<()> {
 		let method = http::Method::POST;
 		let uri = format!("/builds/{id}/outcome");
 		let mut request = http::request::Builder::default().method(method).uri(uri);
-		let user = user.or(self.inner.user.as_ref());
-		if let Some(token) = user.and_then(|user| user.token.as_ref()) {
+		if let Some(token) = self.inner.token.as_ref() {
 			request = request.header(http::header::AUTHORIZATION, format!("Bearer {token}"));
 		}
 		let outcome = outcome.data(self).await?;
 		let body = serde_json::to_vec(&outcome)
-			.map_err(|source| error!(!source, "failed to serialize the body"))?;
+			.map_err(|source| tg::error!(!source, "failed to serialize the body"))?;
 		let body = full(body);
 		let request = request
 			.body(body)
-			.map_err(|source| error!(!source, "failed to create the request"))?;
+			.map_err(|source| tg::error!(!source, "failed to create the request"))?;
 		let response = self.send(request).await?;
 		if !response.status().is_success() {
 			let bytes = response
 				.collect()
 				.await
-				.map_err(|source| error!(!source, "failed to collect the response body"))?
+				.map_err(|source| tg::error!(!source, "failed to collect the response body"))?
 				.to_bytes();
 			let error = serde_json::from_slice(&bytes)
-				.unwrap_or_else(|_| error!("the request did not succeed"));
+				.unwrap_or_else(|_| tg::error!("the request did not succeed"));
 			return Err(error);
 		}
 		Ok(())

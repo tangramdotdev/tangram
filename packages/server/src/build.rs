@@ -1,7 +1,7 @@
 use super::Server;
 use crate::{runtime::Trait as _, Permit};
 use either::Either;
-use futures::{future, FutureExt, StreamExt, TryFutureExt};
+use futures::{future, FutureExt as _, StreamExt as _, TryFutureExt as _};
 use indoc::formatdoc;
 use std::pin::pin;
 use tangram_client as tg;
@@ -68,9 +68,7 @@ impl Server {
 			let id = build.id.clone();
 
 			// Update the build's status to queued. If the update fails, then continue.
-			let result = self
-				.set_build_status(None, &id, tg::build::Status::Queued)
-				.await;
+			let result = self.set_build_status(&id, tg::build::Status::Queued).await;
 			if result.is_err() {
 				continue;
 			}
@@ -94,7 +92,7 @@ impl Server {
 						future::Either::Left((outcome, _)) => outcome?,
 						future::Either::Right(_) => tg::build::Outcome::Canceled,
 					};
-					build.set_outcome(&server, None, outcome).await?;
+					build.set_outcome(&server, outcome).await?;
 					server.inner.build_state.write().unwrap().remove(build.id());
 					Ok::<_, tg::Error>(())
 				}
@@ -165,7 +163,7 @@ impl Server {
 		state.permit.lock().await.replace(permit);
 
 		// Update the build's status to started.
-		self.set_build_status(None, id, tg::build::Status::Started)
+		self.set_build_status(id, tg::build::Status::Started)
 			.await?;
 
 		let build = tg::Build::with_id(id.clone());

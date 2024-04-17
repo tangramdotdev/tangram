@@ -1,6 +1,6 @@
 pub use self::options::Options;
 use self::{
-	database::Database,
+	database::{Database, Transaction},
 	messenger::Messenger,
 	runtime::Runtime,
 	util::{
@@ -11,11 +11,13 @@ use self::{
 use async_nats as nats;
 use bytes::Bytes;
 use either::Either;
-use futures::{future, stream::FuturesUnordered, FutureExt, Stream, TryFutureExt, TryStreamExt};
-use http_body_util::BodyExt;
+use futures::{
+	future, stream::FuturesUnordered, FutureExt as _, Stream, TryFutureExt as _, TryStreamExt as _,
+};
+use http_body_util::BodyExt as _;
 use hyper_util::rt::{TokioExecutor, TokioIo};
 use indoc::formatdoc;
-use itertools::Itertools;
+use itertools::Itertools as _;
 use std::{
 	collections::HashMap,
 	convert::Infallible,
@@ -27,7 +29,7 @@ use std::{
 use tangram_client as tg;
 use tangram_database::{self as db, prelude::*};
 use tokio::{
-	io::{AsyncRead, AsyncWrite},
+	io::{AsyncBufRead, AsyncRead, AsyncWrite},
 	net::{TcpListener, UnixListener},
 };
 use url::Url;
@@ -45,6 +47,7 @@ pub mod options;
 mod package;
 mod runtime;
 mod server;
+mod tmp;
 mod user;
 mod util;
 mod vfs;
@@ -84,14 +87,6 @@ struct BuildState {
 	task: std::sync::Mutex<Option<tokio::task::JoinHandle<()>>>,
 }
 
-#[derive(Clone, Copy, Debug, Eq, Ord, PartialEq, PartialOrd)]
-enum Status {
-	Created,
-	Started,
-	Stopping,
-	Stopped,
-}
-
 #[derive(Debug)]
 struct Permit(
 	#[allow(dead_code)]
@@ -102,6 +97,14 @@ struct Permit(
 struct OAuth {
 	#[allow(dead_code)]
 	github: Option<oauth2::basic::BasicClient>,
+}
+
+#[derive(Clone, Copy, Debug, Eq, Ord, PartialEq, PartialOrd)]
+enum Status {
+	Created,
+	Started,
+	Stopping,
+	Stopped,
 }
 
 #[derive(Clone)]
@@ -119,11 +122,6 @@ where
 	tg: H,
 	task: std::sync::Mutex<Option<tokio::task::JoinHandle<tg::Result<()>>>>,
 	stop: tokio::sync::watch::Sender<bool>,
-}
-
-struct Tmp {
-	path: PathBuf,
-	preserve: bool,
 }
 
 impl Server {
@@ -180,7 +178,12 @@ impl Server {
 		let build_state = std::sync::RwLock::new(HashMap::default());
 
 		// Create the build semaphore.
-		let build_semaphore = Arc::new(tokio::sync::Semaphore::new(options.build.max_concurrency));
+		let permits = options
+			.build
+			.as_ref()
+			.map(|build| build.max_concurrency)
+			.unwrap_or_default();
+		let build_semaphore = Arc::new(tokio::sync::Semaphore::new(permits));
 
 		// Create the database.
 		let database_options = match &options.database {
@@ -317,7 +320,7 @@ impl Server {
 		// Start the VFS if necessary and set up the checkouts directory.
 		let artifacts_path = server.artifacts_path();
 		self::vfs::unmount(&artifacts_path).await.ok();
-		if server.inner.options.vfs.enable {
+		if server.inner.options.vfs {
 			// Create the artifacts directory.
 			tokio::fs::create_dir_all(&artifacts_path)
 				.await
@@ -402,7 +405,7 @@ impl Server {
 		}
 
 		// Start the build queue task.
-		if server.inner.options.build.enable {
+		if server.inner.options.build.is_some() {
 			let task = tokio::spawn({
 				let server = server.clone();
 				async move {
@@ -528,17 +531,6 @@ impl Server {
 	pub fn tmp_path(&self) -> PathBuf {
 		self.inner.path.join("tmp")
 	}
-
-	fn create_tmp(&self) -> Tmp {
-		const ENCODING: data_encoding::Encoding = data_encoding_macro::new_encoding! {
-			symbols: "0123456789abcdefghjkmnpqrstvwxyz",
-		};
-		let id = uuid::Uuid::now_v7();
-		let id = ENCODING.encode(&id.into_bytes());
-		let path = self.tmp_path().join(id);
-		let preserve = self.inner.options.advanced.preserve_temp_directories;
-		Tmp { path, preserve }
-	}
 }
 
 impl<H> Http<H>
@@ -591,8 +583,11 @@ where
 
 		// Create the listener.
 		let listener = match url.scheme() {
-			"unix" => {
-				let path = Path::new(url.path());
+			"http+unix" => {
+				let path = url.host_str().ok_or_else(|| tg::error!("invalid url"))?;
+				let path = urlencoding::decode(path)
+					.map_err(|source| tg::error!(!source, "invalid url"))?;
+				let path = Path::new(path.as_ref());
 				let listener = UnixListener::bind(path)
 					.map_err(|source| tg::error!(!source, "failed to create the UNIX listener"))?;
 				tokio_util::either::Either::Left(listener)
@@ -702,7 +697,7 @@ where
 		};
 
 		// Get the user.
-		let Some(user) = self.inner.tg.get_user_for_token(&token).await? else {
+		let Some(user) = self.inner.tg.get_user(&token).await? else {
 			return Ok(None);
 		};
 
@@ -722,12 +717,36 @@ where
 		let path_components = request.uri().path().split('/').skip(1).collect_vec();
 		let response = match (method, path_components.as_slice()) {
 			// Artifacts.
+			(http::Method::POST, ["artifacts", _, "archive"]) => self
+				.handle_archive_artifact_request(request)
+				.map(Some)
+				.boxed(),
+			(http::Method::POST, ["artifacts", "extract"]) => self
+				.handle_extract_artifact_request(request)
+				.map(Some)
+				.boxed(),
+			(http::Method::POST, ["artifacts", _, "bundle"]) => self
+				.handle_bundle_artifact_request(request)
+				.map(Some)
+				.boxed(),
 			(http::Method::POST, ["artifacts", "checkin"]) => self
 				.handle_check_in_artifact_request(request)
 				.map(Some)
 				.boxed(),
 			(http::Method::POST, ["artifacts", _, "checkout"]) => self
 				.handle_check_out_artifact_request(request)
+				.map(Some)
+				.boxed(),
+
+			// Blobs.
+			(http::Method::POST, ["blobs"]) => {
+				self.handle_create_blob_request(request).map(Some).boxed()
+			},
+			(http::Method::POST, ["blobs", _, "compress"]) => {
+				self.handle_compress_blob_request(request).map(Some).boxed()
+			},
+			(http::Method::POST, ["blobs", _, "decompress"]) => self
+				.handle_decompress_blob_request(request)
 				.map(Some)
 				.boxed(),
 
@@ -810,17 +829,13 @@ where
 			(http::Method::GET, ["packages", _]) => {
 				self.handle_get_package_request(request).map(Some).boxed()
 			},
-			(http::Method::GET, ["packages", _, "versions"]) => self
-				.handle_get_package_versions_request(request)
-				.map(Some)
-				.boxed(),
-			(http::Method::POST, ["packages"]) => self
-				.handle_publish_package_request(request)
-				.map(Some)
-				.boxed(),
 			(http::Method::POST, ["packages", _, "check"]) => {
 				self.handle_check_package_request(request).map(Some).boxed()
 			},
+			(http::Method::GET, ["packages", _, "doc"]) => self
+				.handle_get_package_doc_request(request)
+				.map(Some)
+				.boxed(),
 			(http::Method::POST, ["packages", _, "format"]) => self
 				.handle_format_package_request(request)
 				.map(Some)
@@ -829,17 +844,23 @@ where
 				.handle_outdated_package_request(request)
 				.map(Some)
 				.boxed(),
-			(http::Method::GET, ["runtimes", "js", "doc"]) => self
-				.handle_get_runtime_doc_request(request)
+			(http::Method::POST, ["packages"]) => self
+				.handle_publish_package_request(request)
 				.map(Some)
 				.boxed(),
-			(http::Method::GET, ["packages", _, "doc"]) => self
-				.handle_get_package_doc_request(request)
+			(http::Method::GET, ["packages", _, "versions"]) => self
+				.handle_get_package_versions_request(request)
 				.map(Some)
 				.boxed(),
 			(http::Method::POST, ["packages", _, "yank"]) => {
 				self.handle_yank_package_request(request).map(Some).boxed()
 			},
+
+			// Runtimes.
+			(http::Method::GET, ["runtimes", "js", "doc"]) => self
+				.handle_get_js_runtime_doc_request(request)
+				.map(Some)
+				.boxed(),
 
 			// Server.
 			(http::Method::GET, ["health"]) => {
@@ -850,16 +871,9 @@ where
 			(http::Method::POST, ["stop"]) => self.handle_stop_request(request).map(Some).boxed(),
 
 			// Users.
-			(http::Method::POST, ["logins"]) => {
-				self.handle_create_login_request(request).map(Some).boxed()
+			(http::Method::GET, ["user"]) => {
+				self.handle_get_user_request(request).map(Some).boxed()
 			},
-			(http::Method::GET, ["logins", _]) => {
-				self.handle_get_login_request(request).map(Some).boxed()
-			},
-			(http::Method::GET, ["user"]) => self
-				.handle_get_user_for_token_request(request)
-				.map(Some)
-				.boxed(),
 
 			(_, _) => future::ready(None).boxed(),
 		}
@@ -901,12 +915,32 @@ where
 }
 
 impl tg::Handle for Server {
+	type Transaction<'a> = Transaction<'a>;
+
 	async fn path(&self) -> tg::Result<Option<tg::Path>> {
 		self.path().await
 	}
 
-	fn file_descriptor_semaphore(&self) -> &tokio::sync::Semaphore {
-		&self.inner.file_descriptor_semaphore
+	async fn archive_artifact(
+		&self,
+		id: &tg::artifact::Id,
+		arg: tg::artifact::ArchiveArg,
+	) -> tg::Result<tg::artifact::ArchiveOutput> {
+		self.archive_artifact(id, arg).await
+	}
+
+	async fn extract_artifact(
+		&self,
+		arg: tg::artifact::ExtractArg,
+	) -> tg::Result<tg::artifact::ExtractOutput> {
+		self.extract_artifact(arg).await
+	}
+
+	async fn bundle_artifact(
+		&self,
+		id: &tg::artifact::Id,
+	) -> tg::Result<tg::artifact::BundleOutput> {
+		self.bundle_artifact(id).await
 	}
 
 	async fn check_in_artifact(
@@ -924,6 +958,30 @@ impl tg::Handle for Server {
 		self.check_out_artifact(id, arg).await
 	}
 
+	async fn create_blob(
+		&self,
+		reader: impl AsyncRead + Send + 'static,
+		transaction: Option<&Self::Transaction<'_>>,
+	) -> tg::Result<tg::blob::Id> {
+		self.create_blob(reader, transaction).await
+	}
+
+	async fn compress_blob(
+		&self,
+		id: &tg::blob::Id,
+		arg: tg::blob::CompressArg,
+	) -> tg::Result<tg::blob::CompressOutput> {
+		self.compress_blob(id, arg).await
+	}
+
+	async fn decompress_blob(
+		&self,
+		id: &tg::blob::Id,
+		arg: tg::blob::DecompressArg,
+	) -> tg::Result<tg::blob::DecompressOutput> {
+		self.decompress_blob(id, arg).await
+	}
+
 	async fn list_builds(&self, args: tg::build::ListArg) -> tg::Result<tg::build::ListOutput> {
 		self.list_builds(args).await
 	}
@@ -936,17 +994,12 @@ impl tg::Handle for Server {
 		self.try_get_build(id, arg).await
 	}
 
-	async fn put_build(
-		&self,
-		user: Option<&tg::User>,
-		id: &tg::build::Id,
-		arg: &tg::build::PutArg,
-	) -> tg::Result<()> {
-		self.put_build(user, id, arg).await
+	async fn put_build(&self, id: &tg::build::Id, arg: &tg::build::PutArg) -> tg::Result<()> {
+		self.put_build(id, arg).await
 	}
 
-	async fn push_build(&self, user: Option<&tg::User>, id: &tg::build::Id) -> tg::Result<()> {
-		self.push_build(user, id).await
+	async fn push_build(&self, id: &tg::build::Id) -> tg::Result<()> {
+		self.push_build(id).await
 	}
 
 	async fn pull_build(&self, id: &tg::build::Id) -> tg::Result<()> {
@@ -955,10 +1008,9 @@ impl tg::Handle for Server {
 
 	async fn get_or_create_build(
 		&self,
-		user: Option<&tg::User>,
 		arg: tg::build::GetOrCreateArg,
 	) -> tg::Result<tg::build::GetOrCreateOutput> {
-		self.get_or_create_build(user, arg).await
+		self.get_or_create_build(arg).await
 	}
 
 	async fn try_get_build_status(
@@ -972,11 +1024,10 @@ impl tg::Handle for Server {
 
 	async fn set_build_status(
 		&self,
-		user: Option<&tg::User>,
 		id: &tg::build::Id,
 		status: tg::build::Status,
 	) -> tg::Result<()> {
-		self.set_build_status(user, id, status).await
+		self.set_build_status(id, status).await
 	}
 
 	async fn try_get_build_children(
@@ -992,11 +1043,10 @@ impl tg::Handle for Server {
 
 	async fn add_build_child(
 		&self,
-		user: Option<&tg::User>,
 		build_id: &tg::build::Id,
 		child_id: &tg::build::Id,
 	) -> tg::Result<()> {
-		self.add_build_child(user, build_id, child_id).await
+		self.add_build_child(build_id, child_id).await
 	}
 
 	async fn try_get_build_log(
@@ -1009,13 +1059,8 @@ impl tg::Handle for Server {
 		self.try_get_build_log(id, arg, stop).await
 	}
 
-	async fn add_build_log(
-		&self,
-		user: Option<&tg::User>,
-		build_id: &tg::build::Id,
-		bytes: Bytes,
-	) -> tg::Result<()> {
-		self.add_build_log(user, build_id, bytes).await
+	async fn add_build_log(&self, build_id: &tg::build::Id, bytes: Bytes) -> tg::Result<()> {
+		self.add_build_log(build_id, bytes).await
 	}
 
 	async fn try_get_build_outcome(
@@ -1029,11 +1074,10 @@ impl tg::Handle for Server {
 
 	async fn set_build_outcome(
 		&self,
-		user: Option<&tg::User>,
 		id: &tg::build::Id,
 		outcome: tg::build::Outcome,
 	) -> tg::Result<()> {
-		self.set_build_outcome(user, id, outcome).await
+		self.set_build_outcome(id, outcome).await
 	}
 
 	async fn format(&self, text: String) -> tg::Result<String> {
@@ -1042,7 +1086,7 @@ impl tg::Handle for Server {
 
 	async fn lsp(
 		&self,
-		input: Box<dyn AsyncRead + Send + Unpin + 'static>,
+		input: Box<dyn AsyncBufRead + Send + Unpin + 'static>,
 		output: Box<dyn AsyncWrite + Send + Unpin + 'static>,
 	) -> tg::Result<()> {
 		self.lsp(input, output).await
@@ -1058,9 +1102,10 @@ impl tg::Handle for Server {
 	async fn put_object(
 		&self,
 		id: &tg::object::Id,
-		arg: &tg::object::PutArg,
+		arg: tg::object::PutArg,
+		transaction: Option<&Self::Transaction<'_>>,
 	) -> tg::Result<tg::object::PutOutput> {
-		self.put_object(id, arg).await
+		self.put_object(id, arg, transaction).await
 	}
 
 	async fn push_object(&self, id: &tg::object::Id) -> tg::Result<()> {
@@ -1086,31 +1131,15 @@ impl tg::Handle for Server {
 		self.try_get_package(dependency, arg).await
 	}
 
-	async fn try_get_package_versions(
-		&self,
-		dependency: &tg::Dependency,
-	) -> tg::Result<Option<Vec<String>>> {
-		self.try_get_package_versions(dependency).await
-	}
-
-	async fn publish_package(
-		&self,
-		user: Option<&tg::User>,
-		id: &tg::directory::Id,
-	) -> tg::Result<()> {
-		self.publish_package(user, id).await
-	}
-
-	async fn yank_package(
-		&self,
-		user: Option<&tg::User>,
-		id: &tg::directory::Id,
-	) -> tg::Result<()> {
-		self.yank_package(user, id).await
-	}
-
 	async fn check_package(&self, dependency: &tg::Dependency) -> tg::Result<Vec<tg::Diagnostic>> {
 		self.check_package(dependency).await
+	}
+
+	async fn try_get_package_doc(
+		&self,
+		dependency: &tg::Dependency,
+	) -> tg::Result<Option<serde_json::Value>> {
+		self.try_get_package_doc(dependency).await
 	}
 
 	async fn format_package(&self, dependency: &tg::Dependency) -> tg::Result<()> {
@@ -1124,15 +1153,23 @@ impl tg::Handle for Server {
 		self.get_package_outdated(dependency).await
 	}
 
-	async fn get_runtime_doc(&self) -> tg::Result<serde_json::Value> {
-		self.get_runtime_doc().await
+	async fn publish_package(&self, id: &tg::directory::Id) -> tg::Result<()> {
+		self.publish_package(id).await
 	}
 
-	async fn try_get_package_doc(
+	async fn try_get_package_versions(
 		&self,
 		dependency: &tg::Dependency,
-	) -> tg::Result<Option<serde_json::Value>> {
-		self.try_get_package_doc(dependency).await
+	) -> tg::Result<Option<Vec<String>>> {
+		self.try_get_package_versions(dependency).await
+	}
+
+	async fn yank_package(&self, id: &tg::directory::Id) -> tg::Result<()> {
+		self.yank_package(id).await
+	}
+
+	async fn get_js_runtime_doc(&self) -> tg::Result<serde_json::Value> {
+		self.get_js_runtime_doc().await
 	}
 
 	async fn health(&self) -> tg::Result<tg::server::Health> {
@@ -1148,29 +1185,7 @@ impl tg::Handle for Server {
 		Ok(())
 	}
 
-	async fn create_login(&self) -> tg::Result<tg::user::Login> {
-		self.create_login().await
-	}
-
-	async fn get_login(&self, id: &tg::Id) -> tg::Result<Option<tg::user::Login>> {
-		self.get_login(id).await
-	}
-
-	async fn get_user_for_token(&self, token: &str) -> tg::Result<Option<tg::user::User>> {
-		self.get_user_for_token(token).await
-	}
-}
-
-impl AsRef<Path> for Tmp {
-	fn as_ref(&self) -> &Path {
-		&self.path
-	}
-}
-
-impl Drop for Tmp {
-	fn drop(&mut self) {
-		if !self.preserve {
-			tokio::spawn(rmrf(self.path.clone()));
-		}
+	async fn get_user(&self, token: &str) -> tg::Result<Option<tg::user::User>> {
+		self.get_user(token).await
 	}
 }

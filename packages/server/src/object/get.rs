@@ -2,7 +2,7 @@ use crate::{
 	util::http::{bad_request, full, not_found, Incoming, Outgoing},
 	Http, Server,
 };
-use futures::TryFutureExt;
+use futures::TryFutureExt as _;
 use indoc::formatdoc;
 use tangram_client as tg;
 use tangram_database::{self as db, prelude::*};
@@ -74,7 +74,7 @@ impl Server {
 			count: output.count,
 			weight: output.weight,
 		};
-		self.put_object(id, &arg).await?;
+		self.put_object(id, arg, None).await?;
 
 		Ok(Some(output))
 	}

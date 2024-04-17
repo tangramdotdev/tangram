@@ -13,6 +13,7 @@ import { Leaf, leaf } from "./leaf.ts";
 import { Lock, lock } from "./lock.ts";
 import { log } from "./log.ts";
 import { Mutation, mutation } from "./mutation.ts";
+import { path, Path } from "./path.ts";
 import { resolve } from "./resolve.ts";
 import { sleep } from "./sleep.ts";
 import { start } from "./start.ts";
@@ -52,6 +53,7 @@ Object.assign(tg, {
 	Leaf,
 	Lock,
 	Mutation,
+	Path,
 	Symlink,
 	Target,
 	Template,
@@ -70,6 +72,7 @@ Object.assign(tg, {
 	lock,
 	log,
 	mutation,
+	path,
 	resolve,
 	sleep,
 	start,

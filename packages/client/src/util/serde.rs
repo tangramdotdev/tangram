@@ -1,4 +1,4 @@
-use crate::{self as tg};
+use crate as tg;
 use bytes::Bytes;
 
 pub struct BytesBase64;

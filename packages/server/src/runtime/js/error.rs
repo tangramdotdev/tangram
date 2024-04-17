@@ -3,7 +3,7 @@ use super::{
 	State,
 };
 use num::ToPrimitive;
-use std::{collections::BTreeMap, rc::Rc, str::FromStr, sync::Arc};
+use std::{collections::BTreeMap, rc::Rc, sync::Arc};
 use tangram_client as tg;
 use tg::error::Error;
 
@@ -185,7 +185,7 @@ fn get_location(
 		let column = token.get_src_col();
 		let symbol = token.get_name().map(String::from);
 		let source = tg::error::Source::Internal {
-			path: token.get_source().unwrap().to_owned(),
+			path: token.get_source().unwrap().parse().unwrap(),
 		};
 		let location = tg::error::Location {
 			symbol,
@@ -197,12 +197,12 @@ fn get_location(
 		return Some(location);
 	}
 
-	if let Some(module) = file.and_then(|resource_name| tg::Module::from_str(resource_name).ok()) {
+	if let Some(module) = file.and_then(|resource_name| resource_name.parse().ok()) {
 		// Get the module and get the package and path.
 		let modules = state.modules.borrow();
 		let module = modules.iter().find(|m| m.module == module)?;
-		let package = module.module.unwrap_normal_ref().package.to_string();
-		let path = module.module.unwrap_normal_ref().path.to_string();
+		let package = module.module.unwrap_normal_ref().package.clone();
+		let path = module.module.unwrap_normal_ref().path.clone();
 		let source = tg::error::Source::External { package, path };
 
 		// Get the line and column and apply a source map if one is available.

@@ -1,7 +1,4 @@
-use crate::{
-	tui::{self, Tui},
-	Cli,
-};
+use crate::{tui::Tui, Cli};
 use tangram_client as tg;
 
 /// Get the log for a build.
@@ -16,7 +13,7 @@ impl Cli {
 		let client = &self.client().await?;
 
 		let build = tg::Build::with_id(args.id);
-		let tui = Tui::start(client, &build, tui::Options { exit: true }).await?;
+		let tui = Tui::start(client, &build).await?;
 		tui.join().await?;
 
 		Ok(())

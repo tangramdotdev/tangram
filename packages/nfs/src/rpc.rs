@@ -1,6 +1,6 @@
 use super::xdr;
 use num::ToPrimitive;
-use tokio::io::{AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt};
+use tokio::io::{AsyncRead, AsyncReadExt as _, AsyncWrite, AsyncWriteExt as _};
 
 #[derive(Clone, Debug)]
 pub struct Auth {

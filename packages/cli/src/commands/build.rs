@@ -1,16 +1,11 @@
-use crate::{
-	host,
-	tree::Tree,
-	tui::{self, Tui},
-	Cli,
-};
+use crate::{host, tree::Tree, tui::Tui, Cli};
 use crossterm::style::Stylize;
-use futures::{stream::FuturesUnordered, StreamExt, TryStreamExt};
-use itertools::Itertools;
+use futures::{stream::FuturesUnordered, StreamExt as _, TryStreamExt as _};
+use itertools::Itertools as _;
 use std::{collections::BTreeMap, fmt::Write, path::PathBuf};
 use tangram_client as tg;
-use tg::Handle;
-use tokio::io::{AsyncReadExt, AsyncWriteExt};
+use tg::Handle as _;
+use tokio::io::{AsyncReadExt as _, AsyncWriteExt as _};
 
 /// Build a target or manage builds.
 #[derive(Debug, clap::Args)]
@@ -35,14 +30,20 @@ pub enum Command {
 }
 
 /// Build a target.
+#[allow(clippy::struct_excessive_bools)]
 #[derive(Debug, clap::Args)]
 pub struct GetOrCreateArgs {
 	/// Set the arguments.
 	#[clap(short, long, action = clap::ArgAction::Append)]
 	pub arg: Vec<String>,
 
+	/// Whether to check out the output. The output must be an artifact. A path to may be provided.
+	#[allow(clippy::option_option)]
+	#[clap(short, long)]
+	pub checkout: Option<Option<PathBuf>>,
+
 	/// If this flag is set, then the command will exit immediately instead of waiting for the build to finish.
-	#[clap(short, long, conflicts_with = "output")]
+	#[clap(short, long, conflicts_with = "checkout")]
 	pub detach: bool,
 
 	/// Set the environment variables.
@@ -61,19 +62,19 @@ pub struct GetOrCreateArgs {
 	#[clap(long, default_value = "false")]
 	pub no_tui: bool,
 
-	/// The path to check out the output to.
-	#[clap(short, long)]
-	pub output: Option<PathBuf>,
-
 	/// The package to build.
 	#[clap(short, long)]
 	pub package: Option<tg::Dependency>,
+
+	/// Whether to build on a remote.
+	#[clap(long, default_value_t)]
+	pub remote: bool,
 
 	/// The retry strategy to use.
 	#[clap(long, default_value_t)]
 	pub retry: tg::build::Retry,
 
-	/// The name of the target to build.
+	/// The name or ID of the target to build.
 	#[clap(short, long)]
 	pub target: Option<String>,
 }
@@ -188,7 +189,7 @@ impl Cli {
 			let args_ = vec![args_.into()];
 			let host = "js".to_owned();
 			let path = tg::package::get_root_module_path(client, &package).await?;
-			let executable = tg::Symlink::new(Some(package.into()), Some(path.to_string())).into();
+			let executable = tg::Symlink::new(Some(package.into()), Some(path)).into();
 			tg::target::Builder::new(host, executable)
 				.lock(lock)
 				.name(target.clone())
@@ -201,15 +202,15 @@ impl Cli {
 		eprintln!(
 			"{}: target {}",
 			"info".blue().bold(),
-			target.id(client).await?
+			target.id(client, None).await?
 		);
 
 		// Build the target.
 		let arg = tg::build::GetOrCreateArg {
 			parent: None,
-			remote: false,
+			remote: args.remote,
 			retry: args.retry,
-			target: target.id(client).await?,
+			target: target.id(client, None).await?,
 		};
 		let build = tg::Build::new(client, arg).await?;
 
@@ -238,9 +239,7 @@ impl Cli {
 			// Create the TUI.
 			let tui = !args.no_tui;
 			let tui = if tui {
-				Tui::start(client, &build, tui::Options::default())
-					.await
-					.ok()
+				Tui::start(client, &build).await.ok()
 			} else {
 				None
 			};
@@ -263,43 +262,47 @@ impl Cli {
 			.map_err(|source| tg::error!(!source, "the build failed"))?;
 
 		// Check out the output if requested.
-		if let Some(path) = args.output {
+		if let Some(path) = args.checkout {
 			// Get the artifact.
 			let artifact = tg::Artifact::try_from(output.clone())
 				.map_err(|source| tg::error!(!source, "expected the output to be an artifact"))?;
 
-			// Get the path.
-			let current = std::env::current_dir()
-				.map_err(|source| tg::error!(!source, "failed to get the working directory"))?;
-			let path = current.join(&path);
-			let parent = path
-				.parent()
-				.ok_or_else(|| tg::error!("the path must have a parent directory"))?;
-			let file_name = path
-				.file_name()
-				.ok_or_else(|| tg::error!("the path must have a file name"))?;
-			tokio::fs::create_dir_all(parent)
-				.await
-				.map_err(|source| tg::error!(!source, "failed to create the parent directory"))?;
-			let path = parent
-				.canonicalize()
-				.map_err(|source| tg::error!(!source, "failed to canonicalize the path"))?
-				.join(file_name);
-			let path = path.try_into()?;
+			// If a path was provided, then ensure its parent directory exists and canonicalize it.
+			let path = if let Some(path) = path {
+				let current = std::env::current_dir()
+					.map_err(|source| tg::error!(!source, "failed to get the working directory"))?;
+				let path = current.join(&path);
+				let parent = path
+					.parent()
+					.ok_or_else(|| tg::error!("the path must have a parent directory"))?;
+				let file_name = path
+					.file_name()
+					.ok_or_else(|| tg::error!("the path must have a file name"))?;
+				tokio::fs::create_dir_all(parent).await.map_err(|source| {
+					tg::error!(!source, "failed to create the parent directory")
+				})?;
+				let path = parent
+					.canonicalize()
+					.map_err(|source| tg::error!(!source, "failed to canonicalize the path"))?
+					.join(file_name);
+				Some(path.try_into()?)
+			} else {
+				None
+			};
 
 			// Check out the artifact.
-			let arg = tg::artifact::CheckOutArg {
-				path: Some(path),
-				force: false,
-			};
-			artifact
+			let arg = tg::artifact::CheckOutArg { path, force: false };
+			let output = artifact
 				.check_out(client, arg)
 				.await
 				.map_err(|source| tg::error!(!source, "failed to check out the artifact"))?;
-		}
 
-		// Print the output.
-		println!("{output}");
+			// Print the path.
+			println!("{}", output.path);
+		} else {
+			// Print the output.
+			println!("{output}");
+		}
 
 		Ok(())
 	}
@@ -331,14 +334,14 @@ impl Cli {
 		};
 		let arg: tg::build::PutArg = serde_json::from_str(&json)
 			.map_err(|source| tg::error!(!source, "failed to deseralize"))?;
-		client.put_build(None, &arg.id, &arg).await?;
+		client.put_build(&arg.id, &arg).await?;
 		println!("{}", arg.id);
 		Ok(())
 	}
 
 	pub async fn command_build_push(&self, args: PushArgs) -> tg::Result<()> {
 		let client = &self.client().await?;
-		client.push_build(None, &args.id).await?;
+		client.push_build(&args.id).await?;
 		Ok(())
 	}
 

@@ -1,10 +1,10 @@
-use crate::{Module, Range};
+use crate as tg;
 
 #[derive(Clone, Debug, serde::Serialize, serde::Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Location {
-	pub module: Module,
-	pub range: Range,
+	pub module: tg::Module,
+	pub range: tg::Range,
 }
 
 impl std::fmt::Display for Location {

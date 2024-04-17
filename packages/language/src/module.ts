@@ -26,7 +26,7 @@ export namespace Module {
 			"encoding_hex_encode",
 			syscall("encoding_utf8_encode", syscall("encoding_json_encode", module)),
 		);
-		return `tg://${data}/${module.value.path}`;
+		return `tg://${data}/${module.value.path.slice(2)}`;
 	};
 
 	export let fromUrl = (url: string): Module => {

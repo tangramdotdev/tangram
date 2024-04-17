@@ -1,7 +1,6 @@
 use async_nats as nats;
 use bytes::Bytes;
-use derive_more::TryUnwrap;
-use futures::{future, Stream, StreamExt};
+use futures::{future, Stream, StreamExt as _};
 use tangram_client as tg;
 use tokio_stream::wrappers::BroadcastStream;
 
@@ -18,7 +17,7 @@ pub enum Kind {
 }
 
 #[allow(clippy::enum_variant_names)]
-#[derive(Clone, Debug, TryUnwrap)]
+#[derive(Clone, Debug, derive_more::TryUnwrap)]
 pub enum Message {
 	BuildCreated,
 	BuildChildren(tg::build::Id),

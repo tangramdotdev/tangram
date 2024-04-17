@@ -1,6 +1,9 @@
+use crate::{
+	util::http::{full, Incoming, Outgoing},
+	Http, Server,
+};
 use futures::Future;
 use tangram_client as tg;
-use tg::error::Result;
 
 #[cfg(target_os = "macos")]
 pub mod darwin;
@@ -11,7 +14,7 @@ mod proxy;
 pub mod util;
 
 pub trait Trait: Clone {
-	fn run(&self, build: &tg::Build) -> impl Future<Output = Result<tg::Value>> + Send;
+	fn run(&self, build: &tg::Build) -> impl Future<Output = tg::Result<tg::Value>> + Send;
 }
 
 #[derive(Clone)]
@@ -32,5 +35,45 @@ impl Trait for Runtime {
 			#[cfg(target_os = "linux")]
 			Runtime::Linux(runtime) => runtime.run(build).await,
 		}
+	}
+}
+
+impl Server {
+	pub async fn get_js_runtime_doc(&self) -> tg::Result<serde_json::Value> {
+		// Create the module.
+		let module = tg::Module::Library(tg::module::Library {
+			path: "tangram.d.ts".parse().unwrap(),
+		});
+
+		// Create the language server.
+		let language_server = crate::language::Server::new(self, tokio::runtime::Handle::current());
+
+		// Get the doc.
+		let doc = language_server.doc(&module).await?;
+
+		Ok(doc)
+	}
+}
+
+impl<H> Http<H>
+where
+	H: tg::Handle,
+{
+	pub async fn handle_get_js_runtime_doc_request(
+		&self,
+		_request: http::Request<Incoming>,
+	) -> tg::Result<http::Response<Outgoing>> {
+		// Get the doc.
+		let output = self.inner.tg.get_js_runtime_doc().await?;
+
+		// Create the body.
+		let body = serde_json::to_vec(&output)
+			.map_err(|source| tg::error!(!source, "failed to serialize the body"))?;
+		let body = full(body);
+
+		// Create the response.
+		let response = http::Response::builder().body(body).unwrap();
+
+		Ok(response)
 	}
 }

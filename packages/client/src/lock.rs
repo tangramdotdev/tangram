@@ -1,26 +1,23 @@
 pub use self::data::Data;
-use crate::{
-	self as tg, error, id, object, package::LOCKFILE_FILE_NAME, Dependency, Directory, Handle,
-};
+use crate as tg;
 use bytes::Bytes;
-use derive_more::Display;
 use either::Either;
 use futures::{
 	stream::{FuturesOrdered, FuturesUnordered},
-	TryStreamExt,
+	FutureExt as _, TryStreamExt as _,
 };
-use itertools::Itertools;
+use itertools::Itertools as _;
 use std::{collections::BTreeMap, path::Path, sync::Arc};
 
 #[derive(
 	Clone,
 	Debug,
-	Display,
 	Eq,
 	Hash,
 	Ord,
 	PartialEq,
 	PartialOrd,
+	derive_more::Display,
 	serde::Deserialize,
 	serde::Serialize,
 )]
@@ -32,7 +29,7 @@ pub struct Lock {
 	state: Arc<std::sync::RwLock<State>>,
 }
 
-pub type State = object::State<Id, Object>;
+pub type State = tg::object::State<Id, Object>;
 
 #[derive(Clone, Debug)]
 pub struct Object {
@@ -42,18 +39,18 @@ pub struct Object {
 
 #[derive(Clone, Debug, Default)]
 pub struct Node {
-	pub dependencies: BTreeMap<Dependency, Entry>,
+	pub dependencies: BTreeMap<tg::Dependency, Entry>,
 }
 
 #[derive(Clone, Debug)]
 pub struct Entry {
-	pub package: Option<Directory>,
+	pub package: Option<tg::Directory>,
 	pub lock: Either<usize, Lock>,
 }
 
 pub mod data {
 	use super::Id;
-	use crate::{directory, Dependency};
+	use crate as tg;
 	use either::Either;
 	use serde_with::{serde_as, DisplayFromStr};
 	use std::collections::BTreeMap;
@@ -72,7 +69,7 @@ pub mod data {
 	#[serde(transparent)]
 	pub struct Node {
 		#[serde_as(as = "BTreeMap<DisplayFromStr, _>")]
-		pub dependencies: BTreeMap<Dependency, Entry>,
+		pub dependencies: BTreeMap<tg::Dependency, Entry>,
 	}
 
 	#[derive(
@@ -80,7 +77,7 @@ pub mod data {
 	)]
 	pub struct Entry {
 		#[serde(default, skip_serializing_if = "Option::is_none")]
-		pub package: Option<directory::Id>,
+		pub package: Option<tg::directory::Id>,
 		#[serde(with = "either::serde_untagged")]
 		pub lock: Either<usize, Id>,
 	}
@@ -88,7 +85,7 @@ pub mod data {
 
 impl Id {
 	pub fn new(bytes: &Bytes) -> Self {
-		Self(crate::Id::new_blake3(id::Kind::Lock, bytes))
+		Self(crate::Id::new_blake3(tg::id::Kind::Lock, bytes))
 	}
 }
 
@@ -118,21 +115,24 @@ impl Lock {
 		Self { state }
 	}
 
-	pub async fn id(&self, tg: &impl Handle) -> tg::Result<Id> {
-		self.store(tg).await
+	pub async fn id<H>(&self, tg: &H, transaction: Option<&H::Transaction<'_>>) -> tg::Result<Id>
+	where
+		H: tg::Handle,
+	{
+		self.store(tg, transaction).await
 	}
 
-	pub async fn object(&self, tg: &impl Handle) -> tg::Result<Arc<Object>> {
+	pub async fn object(&self, tg: &impl tg::Handle) -> tg::Result<Arc<Object>> {
 		self.load(tg).await
 	}
 
-	pub async fn load(&self, tg: &impl Handle) -> tg::Result<Arc<Object>> {
+	pub async fn load(&self, tg: &impl tg::Handle) -> tg::Result<Arc<Object>> {
 		self.try_load(tg)
 			.await?
-			.ok_or_else(|| error!("failed to load the object"))
+			.ok_or_else(|| tg::error!("failed to load the object"))
 	}
 
-	pub async fn try_load(&self, tg: &impl Handle) -> tg::Result<Option<Arc<Object>>> {
+	pub async fn try_load(&self, tg: &impl tg::Handle) -> tg::Result<Option<Arc<Object>>> {
 		if let Some(object) = self.state.read().unwrap().object.clone() {
 			return Ok(Some(object));
 		}
@@ -141,39 +141,50 @@ impl Lock {
 			return Ok(None);
 		};
 		let data = Data::deserialize(&output.bytes)
-			.map_err(|source| error!(!source, "failed to deserialize the data"))?;
+			.map_err(|source| tg::error!(!source, "failed to deserialize the data"))?;
 		let object = Object::try_from(data)?;
 		let object = Arc::new(object);
 		self.state.write().unwrap().object.replace(object.clone());
 		Ok(Some(object))
 	}
 
-	pub async fn store(&self, tg: &impl Handle) -> tg::Result<Id> {
+	pub async fn store<H>(&self, tg: &H, transaction: Option<&H::Transaction<'_>>) -> tg::Result<Id>
+	where
+		H: tg::Handle,
+	{
 		if let Some(id) = self.state.read().unwrap().id.clone() {
 			return Ok(id);
 		}
-		let data = self.data(tg).await?;
+		let data = self.data(tg, transaction).await?;
 		let bytes = data.serialize()?;
 		let id = Id::new(&bytes);
-		let arg = object::PutArg {
+		let arg = tg::object::PutArg {
 			bytes,
 			count: None,
 			weight: None,
 		};
-		tg.put_object(&id.clone().into(), &arg)
+		tg.put_object(&id.clone().into(), arg, transaction)
+			.boxed()
 			.await
-			.map_err(|source| error!(!source, "failed to put the object"))?;
+			.map_err(|source| tg::error!(!source, "failed to put the object"))?;
 		self.state.write().unwrap().id.replace(id.clone());
 		Ok(id)
 	}
 
-	pub async fn data(&self, tg: &impl Handle) -> tg::Result<Data> {
+	pub async fn data<H>(
+		&self,
+		tg: &H,
+		transaction: Option<&H::Transaction<'_>>,
+	) -> tg::Result<Data>
+	where
+		H: tg::Handle,
+	{
 		let object = self.object(tg).await?;
 		let root = object.root;
 		let nodes = object
 			.nodes
 			.iter()
-			.map(|node| node.data(tg))
+			.map(|node| node.data(tg, transaction))
 			.collect::<FuturesOrdered<_>>()
 			.try_collect()
 			.await?;
@@ -182,7 +193,7 @@ impl Lock {
 }
 
 impl Lock {
-	pub async fn dependencies(&self, tg: &impl Handle) -> tg::Result<Vec<Dependency>> {
+	pub async fn dependencies(&self, tg: &impl tg::Handle) -> tg::Result<Vec<tg::Dependency>> {
 		let object = self.object(tg).await?;
 		let dependencies = object.nodes[object.root]
 			.dependencies
@@ -194,15 +205,15 @@ impl Lock {
 
 	pub async fn get(
 		&self,
-		tg: &impl Handle,
-		dependency: &Dependency,
-	) -> tg::Result<(Option<Directory>, Lock)> {
+		tg: &impl tg::Handle,
+		dependency: &tg::Dependency,
+	) -> tg::Result<(Option<tg::Directory>, Lock)> {
 		let object = self.object(tg).await?;
 		let root = &object.nodes[object.root];
 		let Entry { package, lock } = root
 			.dependencies
 			.get(dependency)
-			.ok_or_else(|| error!(%dependency, "failed to lookup dependency in lock"))?;
+			.ok_or_else(|| tg::error!(%dependency, "failed to lookup dependency in lock"))?;
 		let package = package.clone();
 
 		// Short circuit if the lock is referred to by id.
@@ -242,16 +253,16 @@ impl Lock {
 }
 
 impl Lock {
-	/// Read a lockfile in an existing directory.
+	/// Read a lockfile.
 	pub async fn read(path: impl AsRef<Path>) -> tg::Result<Self> {
 		Self::try_read(path)
 			.await?
-			.ok_or_else(|| error!("expected a lockfile to exist"))
+			.ok_or_else(|| tg::error!("expected a lockfile to exist"))
 	}
 
-	/// Try and read a lockfile in an existing directory.
+	/// Attempt to read a lockfile.
 	pub async fn try_read(path: impl AsRef<Path>) -> tg::Result<Option<Self>> {
-		let path = path.as_ref().join(LOCKFILE_FILE_NAME);
+		let path = path.as_ref().join(tg::package::LOCKFILE_FILE_NAME);
 		let bytes = match tokio::fs::read(&path).await {
 			Ok(bytes) => bytes,
 			Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
@@ -259,21 +270,22 @@ impl Lock {
 			},
 			Err(error) => {
 				let path = path.display();
-				return Err(error!(source = error, %path, "failed to read the lockfile"));
+				return Err(tg::error!(source = error, %path, "failed to read the lockfile"));
 			},
 		};
 		let data: Data = serde_json::from_slice(&bytes).map_err(|error| {
 			let path = path.display();
-			error!(source = error, %path, "failed to deserialize the lockfile")
+			tg::error!(source = error, %path, "failed to deserialize the lockfile")
 		})?;
 		let object: Object = data.try_into()?;
 		let lock = Self::with_object(object);
+
 		Ok(Some(lock))
 	}
 
-	pub async fn write(&self, tg: &impl Handle, path: tg::Path) -> tg::Result<()> {
-		let path = path.join(LOCKFILE_FILE_NAME);
-		let data = self.data(tg).await?;
+	pub async fn write(&self, tg: &impl tg::Handle, path: tg::Path) -> tg::Result<()> {
+		let path = path.join(tg::package::LOCKFILE_FILE_NAME);
+		let data = self.data(tg, None).await?;
 		let bytes = serde_json::to_vec_pretty(&data)
 			.map_err(|source| tg::error!(!source, "failed to serialize the lock"))?;
 		tokio::fs::write(&path, &bytes)
@@ -284,7 +296,7 @@ impl Lock {
 }
 
 impl Lock {
-	pub async fn normalize(&self, tg: &impl Handle) -> tg::Result<Self> {
+	pub async fn normalize(&self, tg: &impl tg::Handle) -> tg::Result<Self> {
 		let mut visited = BTreeMap::new();
 		let object = self.object(tg).await?;
 		Self::normalize_inner(&object.nodes, object.root, &mut visited)
@@ -296,7 +308,7 @@ impl Lock {
 		visited: &mut BTreeMap<usize, Option<Lock>>,
 	) -> tg::Result<Lock> {
 		match visited.get(&index) {
-			Some(None) => return Err(error!("the lock contains a cycle")),
+			Some(None) => return Err(tg::error!("the lock contains a cycle")),
 			Some(Some(lock)) => return Ok(lock.clone()),
 			None => (),
 		};
@@ -329,12 +341,19 @@ impl Lock {
 }
 
 impl Node {
-	pub async fn data(&self, tg: &impl Handle) -> tg::Result<data::Node> {
+	pub async fn data<H>(
+		&self,
+		tg: &H,
+		transaction: Option<&H::Transaction<'_>>,
+	) -> tg::Result<data::Node>
+	where
+		H: tg::Handle,
+	{
 		let dependencies = self
 			.dependencies
 			.iter()
 			.map(|(dependency, entry)| async move {
-				Ok::<_, tg::Error>((dependency.clone(), entry.data(tg).await?))
+				Ok::<_, tg::Error>((dependency.clone(), entry.data(tg, transaction).await?))
 			})
 			.collect::<FuturesUnordered<_>>()
 			.try_collect()
@@ -344,14 +363,21 @@ impl Node {
 }
 
 impl Entry {
-	pub async fn data(&self, tg: &impl Handle) -> tg::Result<data::Entry> {
+	pub async fn data<H>(
+		&self,
+		tg: &H,
+		transaction: Option<&H::Transaction<'_>>,
+	) -> tg::Result<data::Entry>
+	where
+		H: tg::Handle,
+	{
 		let package = match &self.package {
-			Some(package) => Some(package.id(tg).await?),
+			Some(package) => Some(package.id(tg, transaction).await?),
 			None => None,
 		};
 		let lock = match &self.lock {
 			Either::Left(index) => Either::Left(*index),
-			Either::Right(lock) => Either::Right(lock.id(tg).await?),
+			Either::Right(lock) => Either::Right(lock.id(tg, transaction).await?),
 		};
 		Ok(data::Entry { package, lock })
 	}
@@ -361,16 +387,16 @@ impl Data {
 	pub fn serialize(&self) -> tg::Result<Bytes> {
 		serde_json::to_vec(self)
 			.map(Into::into)
-			.map_err(|source| error!(!source, "failed to serialize the data"))
+			.map_err(|source| tg::error!(!source, "failed to serialize the data"))
 	}
 
 	pub fn deserialize(bytes: &Bytes) -> tg::Result<Self> {
 		serde_json::from_reader(bytes.as_ref())
-			.map_err(|source| error!(!source, "failed to deserialize the data"))
+			.map_err(|source| tg::error!(!source, "failed to deserialize the data"))
 	}
 
 	#[must_use]
-	pub fn children(&self) -> Vec<object::Id> {
+	pub fn children(&self) -> Vec<tg::object::Id> {
 		let mut children = Vec::new();
 		for node in &self.nodes {
 			for entry in node.dependencies.values() {
@@ -417,7 +443,7 @@ impl TryFrom<data::Entry> for Entry {
 	type Error = tg::Error;
 
 	fn try_from(value: data::Entry) -> std::result::Result<Self, Self::Error> {
-		let package = value.package.map(Directory::with_id);
+		let package = value.package.map(tg::Directory::with_id);
 		let lock = match value.lock {
 			Either::Left(index) => Either::Left(index),
 			Either::Right(id) => Either::Right(Lock::with_id(id)),
@@ -462,8 +488,8 @@ impl TryFrom<crate::Id> for Id {
 	type Error = tg::Error;
 
 	fn try_from(value: crate::Id) -> tg::Result<Self, Self::Error> {
-		if value.kind() != id::Kind::Lock {
-			return Err(error!(%value, "invalid kind"));
+		if value.kind() != tg::id::Kind::Lock {
+			return Err(tg::error!(%value, "invalid kind"));
 		}
 		Ok(Self(value))
 	}

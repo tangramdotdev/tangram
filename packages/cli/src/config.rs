@@ -1,3 +1,4 @@
+use either::Either;
 use serde_with::serde_as;
 use std::path::PathBuf;
 use tangram_client as tg;
@@ -13,7 +14,7 @@ pub struct Config {
 	pub autoenv: Option<Autoenv>,
 
 	#[serde(default, skip_serializing_if = "Option::is_none")]
-	pub build: Option<Build>,
+	pub build: Option<Either<bool, Build>>,
 
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub database: Option<Database>,
@@ -37,7 +38,7 @@ pub struct Config {
 	pub url: Option<Url>,
 
 	#[serde(default, skip_serializing_if = "Option::is_none")]
-	pub vfs: Option<Vfs>,
+	pub vfs: Option<bool>,
 }
 
 #[derive(Clone, Debug, Default, serde::Serialize, serde::Deserialize)]
@@ -69,10 +70,6 @@ pub struct Autoenv {
 
 #[derive(Clone, Debug, Default, serde::Serialize, serde::Deserialize)]
 pub struct Build {
-	/// Enable builds.
-	#[serde(default, skip_serializing_if = "Option::is_none")]
-	pub enable: Option<bool>,
-
 	/// The maximum number of concurrent builds.
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub max_concurrency: Option<usize>,
@@ -135,16 +132,9 @@ pub struct Remote {
 	/// The server's url.
 	pub url: Url,
 
-	/// Configure remote builds.
-	#[serde(default, skip_serializing_if = "Option::is_none")]
-	pub build: Option<RemoteBuild>,
-}
-
-#[derive(Clone, Debug, Default, serde::Serialize, serde::Deserialize)]
-pub struct RemoteBuild {
 	/// Enable remote builds.
 	#[serde(default, skip_serializing_if = "Option::is_none")]
-	pub enable: Option<bool>,
+	pub build: Option<bool>,
 }
 
 #[derive(Clone, Debug, Default, serde::Serialize, serde::Deserialize)]
@@ -186,10 +176,4 @@ impl std::str::FromStr for TracingFormat {
 			_ => Err(tg::error!("invalid tracing format")),
 		}
 	}
-}
-
-#[derive(Clone, Debug, Default, serde::Serialize, serde::Deserialize)]
-pub struct Vfs {
-	#[serde(default, skip_serializing_if = "Option::is_none")]
-	pub enable: Option<bool>,
 }

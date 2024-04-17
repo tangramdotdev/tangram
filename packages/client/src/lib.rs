@@ -27,16 +27,15 @@ pub use self::{
 	symlink::Symlink,
 	target::Target,
 	template::Template,
-	user::Login,
 	user::User,
 	value::Value,
 };
 use crate as tg;
 use bytes::Bytes;
 use futures::Stream;
-use std::sync::Arc;
+use std::{path::PathBuf, sync::Arc};
 use tokio::{
-	io::{AsyncRead, AsyncWrite},
+	io::{AsyncBufRead, AsyncRead, AsyncWrite},
 	net::{TcpStream, UnixStream},
 };
 use url::Url;
@@ -45,7 +44,6 @@ pub mod artifact;
 pub mod blob;
 pub mod branch;
 pub mod build;
-pub mod bundle;
 pub mod checksum;
 pub mod dependency;
 pub mod diagnostic;
@@ -67,6 +65,7 @@ pub mod package;
 pub mod path;
 pub mod position;
 pub mod range;
+pub mod runtime;
 pub mod server;
 pub mod symlink;
 pub mod target;
@@ -83,14 +82,13 @@ pub struct Client {
 #[derive(Debug)]
 struct Inner {
 	url: Url,
-	file_descriptor_semaphore: tokio::sync::Semaphore,
 	sender: tokio::sync::Mutex<Option<hyper::client::conn::http2::SendRequest<Outgoing>>>,
-	user: Option<User>,
+	token: Option<String>,
 }
 
 pub struct Builder {
 	url: Url,
-	user: Option<User>,
+	token: Option<String>,
 }
 
 impl Client {
@@ -109,15 +107,9 @@ impl Client {
 					"could not parse a URL from the TANGRAM_URL environment variable"
 				)
 			})?;
-		let file_descriptor_semaphore = tokio::sync::Semaphore::new(32);
 		let sender = tokio::sync::Mutex::new(None);
-		let user = None;
-		let inner = Arc::new(Inner {
-			url,
-			file_descriptor_semaphore,
-			sender,
-			user,
-		});
+		let token = None;
+		let inner = Arc::new(Inner { url, sender, token });
 		let client = Client { inner };
 		Ok(client)
 	}
@@ -145,27 +137,34 @@ impl Client {
 
 	async fn connect_h1(&self) -> tg::Result<hyper::client::conn::http1::SendRequest<Outgoing>> {
 		match self.inner.url.scheme() {
-			"unix" => {
-				let path = std::path::Path::new(self.inner.url.path());
-				self.connect_unix_h1(path).await
+			"http+unix" => {
+				let path = self
+					.inner
+					.url
+					.host_str()
+					.ok_or_else(|| tg::error!("invalid url"))?;
+				let path = urlencoding::decode(path)
+					.map_err(|source| tg::error!(!source, "invalid url"))?;
+				let path = PathBuf::from(path.into_owned());
+				self.connect_unix_h1(&path).await
 			},
 			"http" => {
 				let host = self
 					.inner
 					.url
-					.domain()
-					.ok_or_else(|| error!("invalid url"))?;
+					.host_str()
+					.ok_or_else(|| tg::error!("invalid url"))?;
 				let port = self
 					.inner
 					.url
 					.port_or_known_default()
-					.ok_or_else(|| error!("invalid url"))?;
+					.ok_or_else(|| tg::error!("invalid url"))?;
 				self.connect_tcp_h1(host, port).await
 			},
 			"https" => {
 				#[cfg(not(feature = "tls"))]
 				{
-					Err(error!("tls is not enabled"))
+					Err(tg::error!("tls is not enabled"))
 				}
 				#[cfg(feature = "tls")]
 				{
@@ -173,42 +172,49 @@ impl Client {
 						.inner
 						.url
 						.domain()
-						.ok_or_else(|| error!("invalid url"))?;
+						.ok_or_else(|| tg::error!("invalid url"))?;
 					let port = self
 						.inner
 						.url
 						.port_or_known_default()
-						.ok_or_else(|| error!("invalid url"))?;
+						.ok_or_else(|| tg::error!("invalid url"))?;
 					self.connect_tcp_tls_h1(host, port).await
 				}
 			},
-			_ => Err(error!("invalid url")),
+			_ => Err(tg::error!("invalid url")),
 		}
 	}
 
 	async fn connect_h2(&self) -> tg::Result<hyper::client::conn::http2::SendRequest<Outgoing>> {
 		match self.inner.url.scheme() {
-			"unix" => {
-				let path = std::path::Path::new(self.inner.url.path());
-				self.connect_unix_h2(path).await
+			"http+unix" => {
+				let path = self
+					.inner
+					.url
+					.host_str()
+					.ok_or_else(|| tg::error!("invalid url"))?;
+				let path = urlencoding::decode(path)
+					.map_err(|source| tg::error!(!source, "invalid url"))?;
+				let path = PathBuf::from(path.into_owned());
+				self.connect_unix_h2(&path).await
 			},
 			"http" => {
 				let host = self
 					.inner
 					.url
-					.domain()
-					.ok_or_else(|| error!("invalid url"))?;
+					.host_str()
+					.ok_or_else(|| tg::error!("invalid url"))?;
 				let port = self
 					.inner
 					.url
 					.port_or_known_default()
-					.ok_or_else(|| error!("invalid url"))?;
+					.ok_or_else(|| tg::error!("invalid url"))?;
 				self.connect_tcp_h2(host, port).await
 			},
 			"https" => {
 				#[cfg(not(feature = "tls"))]
 				{
-					Err(error!("tls is not enabled"))
+					Err(tg::error!("tls is not enabled"))
 				}
 				#[cfg(feature = "tls")]
 				{
@@ -216,16 +222,16 @@ impl Client {
 						.inner
 						.url
 						.domain()
-						.ok_or_else(|| error!("invalid url"))?;
+						.ok_or_else(|| tg::error!("invalid url"))?;
 					let port = self
 						.inner
 						.url
 						.port_or_known_default()
-						.ok_or_else(|| error!("invalid url"))?;
+						.ok_or_else(|| tg::error!("invalid url"))?;
 					self.connect_tcp_tls_h2(host, port).await
 				}
 			},
-			_ => Err(error!("invalid url")),
+			_ => Err(tg::error!("invalid url")),
 		}
 	}
 
@@ -236,13 +242,13 @@ impl Client {
 		// Connect via UNIX.
 		let stream = UnixStream::connect(path)
 			.await
-			.map_err(|source| error!(!source, "failed to connect to the socket"))?;
+			.map_err(|source| tg::error!(!source, "failed to connect to the socket"))?;
 
 		// Perform the HTTP handshake.
 		let io = hyper_util::rt::TokioIo::new(stream);
 		let (mut sender, connection) = hyper::client::conn::http1::handshake(io)
 			.await
-			.map_err(|source| error!(!source, "failed to perform the HTTP handshake"))?;
+			.map_err(|source| tg::error!(!source, "failed to perform the HTTP handshake"))?;
 
 		// Spawn the connection.
 		tokio::spawn(async move {
@@ -259,7 +265,7 @@ impl Client {
 		sender
 			.ready()
 			.await
-			.map_err(|source| error!(!source, "failed to ready the sender"))?;
+			.map_err(|source| tg::error!(!source, "failed to ready the sender"))?;
 
 		Ok(sender)
 	}
@@ -271,14 +277,14 @@ impl Client {
 		// Connect via UNIX.
 		let stream = UnixStream::connect(path)
 			.await
-			.map_err(|source| error!(!source, "failed to connect to the socket"))?;
+			.map_err(|source| tg::error!(!source, "failed to connect to the socket"))?;
 
 		// Perform the HTTP handshake.
 		let executor = hyper_util::rt::TokioExecutor::new();
 		let io = hyper_util::rt::TokioIo::new(stream);
 		let (mut sender, connection) = hyper::client::conn::http2::handshake(executor, io)
 			.await
-			.map_err(|source| error!(!source, "failed to perform the HTTP handshake"))?;
+			.map_err(|source| tg::error!(!source, "failed to perform the HTTP handshake"))?;
 
 		// Spawn the connection.
 		tokio::spawn(async move {
@@ -294,7 +300,7 @@ impl Client {
 		sender
 			.ready()
 			.await
-			.map_err(|source| error!(!source, "failed to ready the sender"))?;
+			.map_err(|source| tg::error!(!source, "failed to ready the sender"))?;
 
 		Ok(sender)
 	}
@@ -307,13 +313,13 @@ impl Client {
 		// Connect via TCP.
 		let stream = TcpStream::connect(format!("{host}:{port}"))
 			.await
-			.map_err(|source| error!(!source, "failed to create the TCP connection"))?;
+			.map_err(|source| tg::error!(!source, "failed to create the TCP connection"))?;
 
 		// Perform the HTTP handshake.
 		let io = hyper_util::rt::TokioIo::new(stream);
 		let (mut sender, connection) = hyper::client::conn::http1::handshake(io)
 			.await
-			.map_err(|source| error!(!source, "failed to perform the HTTP handshake"))?;
+			.map_err(|source| tg::error!(!source, "failed to perform the HTTP handshake"))?;
 
 		// Spawn the connection.
 		tokio::spawn(async move {
@@ -330,7 +336,7 @@ impl Client {
 		sender
 			.ready()
 			.await
-			.map_err(|source| error!(!source, "failed to ready the sender"))?;
+			.map_err(|source| tg::error!(!source, "failed to ready the sender"))?;
 
 		Ok(sender)
 	}
@@ -343,14 +349,14 @@ impl Client {
 		// Connect via TCP.
 		let stream = TcpStream::connect(format!("{host}:{port}"))
 			.await
-			.map_err(|source| error!(!source, "failed to create the TCP connection"))?;
+			.map_err(|source| tg::error!(!source, "failed to create the TCP connection"))?;
 
 		// Perform the HTTP handshake.
 		let executor = hyper_util::rt::TokioExecutor::new();
 		let io = hyper_util::rt::TokioIo::new(stream);
 		let (mut sender, connection) = hyper::client::conn::http2::handshake(executor, io)
 			.await
-			.map_err(|source| error!(!source, "failed to perform the HTTP handshake"))?;
+			.map_err(|source| tg::error!(!source, "failed to perform the HTTP handshake"))?;
 
 		// Spawn the connection.
 		tokio::spawn(async move {
@@ -366,7 +372,7 @@ impl Client {
 		sender
 			.ready()
 			.await
-			.map_err(|source| error!(!source, "failed to ready the sender"))?;
+			.map_err(|source| tg::error!(!source, "failed to ready the sender"))?;
 
 		Ok(sender)
 	}
@@ -384,7 +390,7 @@ impl Client {
 		let io = hyper_util::rt::TokioIo::new(stream);
 		let (mut sender, connection) = hyper::client::conn::http1::handshake(io)
 			.await
-			.map_err(|source| error!(!source, "failed to perform the HTTP handshake"))?;
+			.map_err(|source| tg::error!(!source, "failed to perform the HTTP handshake"))?;
 
 		// Spawn the connection.
 		tokio::spawn(async move {
@@ -401,7 +407,7 @@ impl Client {
 		sender
 			.ready()
 			.await
-			.map_err(|source| error!(!source, "failed to ready the sender"))?;
+			.map_err(|source| tg::error!(!source, "failed to ready the sender"))?;
 
 		Ok(sender)
 	}
@@ -420,7 +426,7 @@ impl Client {
 		let io = hyper_util::rt::TokioIo::new(stream);
 		let (mut sender, connection) = hyper::client::conn::http2::handshake(executor, io)
 			.await
-			.map_err(|source| error!(!source, "failed to perform the HTTP handshake"))?;
+			.map_err(|source| tg::error!(!source, "failed to perform the HTTP handshake"))?;
 
 		// Spawn the connection.
 		tokio::spawn(async move {
@@ -436,7 +442,7 @@ impl Client {
 		sender
 			.ready()
 			.await
-			.map_err(|source| error!(!source, "failed to ready the sender"))?;
+			.map_err(|source| tg::error!(!source, "failed to ready the sender"))?;
 
 		Ok(sender)
 	}
@@ -450,7 +456,7 @@ impl Client {
 		// Connect via TCP.
 		let stream = TcpStream::connect(format!("{host}:{port}"))
 			.await
-			.map_err(|source| error!(!source, "failed to create the TCP connection"))?;
+			.map_err(|source| tg::error!(!source, "failed to create the TCP connection"))?;
 
 		// Create the connector.
 		let mut root_store = rustls::RootCertStore::empty();
@@ -463,14 +469,14 @@ impl Client {
 
 		// Create the server name.
 		let server_name = rustls::pki_types::ServerName::try_from(host.to_string().as_str())
-			.map_err(|source| error!(!source, "failed to create the server name"))?
+			.map_err(|source| tg::error!(!source, "failed to create the server name"))?
 			.to_owned();
 
 		// Connect via TLS.
 		let stream = connector
 			.connect(server_name, stream)
 			.await
-			.map_err(|source| error!(!source, "failed to connect"))?;
+			.map_err(|source| tg::error!(!source, "failed to connect"))?;
 
 		// Verify the negotiated protocol.
 		if !stream
@@ -479,7 +485,7 @@ impl Client {
 			.alpn_protocol()
 			.map_or(false, |protocol| protocol == b"h2")
 		{
-			return Err(error!("failed to negotiate the HTTP/2 protocol"));
+			return Err(tg::error!("failed to negotiate the HTTP/2 protocol"));
 		}
 
 		Ok(stream)
@@ -493,45 +499,59 @@ impl Client {
 			.await?
 			.send_request(request)
 			.await
-			.map_err(|source| error!(!source, "failed to send the request"))
+			.map_err(|source| tg::error!(!source, "failed to send the request"))
 	}
 }
 
 impl Builder {
 	#[must_use]
 	pub fn new(url: Url) -> Self {
-		Self { url, user: None }
+		Self { url, token: None }
 	}
 
 	#[must_use]
-	pub fn user(mut self, user: Option<User>) -> Self {
-		self.user = user;
+	pub fn token(mut self, token: Option<String>) -> Self {
+		self.token = token;
 		self
 	}
 
 	#[must_use]
 	pub fn build(self) -> Client {
 		let url = self.url;
-		let file_descriptor_semaphore = tokio::sync::Semaphore::new(16);
 		let sender = tokio::sync::Mutex::new(None);
-		let user = self.user;
-		let inner = Arc::new(Inner {
-			url,
-			file_descriptor_semaphore,
-			sender,
-			user,
-		});
+		let token = self.token;
+		let inner = Arc::new(Inner { url, sender, token });
 		Client { inner }
 	}
 }
 
-impl Handle for Client {
-	async fn path(&self) -> tg::Result<Option<crate::Path>> {
+impl tg::Handle for Client {
+	type Transaction<'a> = ();
+
+	async fn path(&self) -> tg::Result<Option<tg::Path>> {
 		self.path().await
 	}
 
-	fn file_descriptor_semaphore(&self) -> &tokio::sync::Semaphore {
-		&self.inner.file_descriptor_semaphore
+	async fn archive_artifact(
+		&self,
+		id: &tg::artifact::Id,
+		arg: tg::artifact::ArchiveArg,
+	) -> tg::Result<tg::artifact::ArchiveOutput> {
+		self.archive_artifact(id, arg).await
+	}
+
+	async fn extract_artifact(
+		&self,
+		arg: tg::artifact::ExtractArg,
+	) -> tg::Result<tg::artifact::ExtractOutput> {
+		self.extract_artifact(arg).await
+	}
+
+	async fn bundle_artifact(
+		&self,
+		id: &tg::artifact::Id,
+	) -> tg::Result<tg::artifact::BundleOutput> {
+		self.bundle_artifact(id).await
 	}
 
 	async fn check_in_artifact(
@@ -549,6 +569,30 @@ impl Handle for Client {
 		self.check_out_artifact(id, arg).await
 	}
 
+	async fn create_blob(
+		&self,
+		reader: impl AsyncRead + Send + 'static,
+		transaction: Option<&Self::Transaction<'_>>,
+	) -> tg::Result<tg::blob::Id> {
+		self.create_blob(reader, transaction).await
+	}
+
+	async fn compress_blob(
+		&self,
+		id: &tg::blob::Id,
+		arg: tg::blob::CompressArg,
+	) -> tg::Result<tg::blob::CompressOutput> {
+		self.compress_blob(id, arg).await
+	}
+
+	async fn decompress_blob(
+		&self,
+		id: &tg::blob::Id,
+		arg: tg::blob::DecompressArg,
+	) -> tg::Result<tg::blob::DecompressOutput> {
+		self.decompress_blob(id, arg).await
+	}
+
 	async fn list_builds(&self, arg: tg::build::ListArg) -> tg::Result<tg::build::ListOutput> {
 		self.list_builds(arg).await
 	}
@@ -561,17 +605,12 @@ impl Handle for Client {
 		self.try_get_build(id, arg).await
 	}
 
-	async fn put_build(
-		&self,
-		user: Option<&tg::User>,
-		id: &tg::build::Id,
-		arg: &tg::build::PutArg,
-	) -> tg::Result<()> {
-		self.put_build(user, id, arg).await
+	async fn put_build(&self, id: &tg::build::Id, arg: &tg::build::PutArg) -> tg::Result<()> {
+		self.put_build(id, arg).await
 	}
 
-	async fn push_build(&self, user: Option<&tg::User>, id: &tg::build::Id) -> tg::Result<()> {
-		self.push_build(user, id).await
+	async fn push_build(&self, id: &tg::build::Id) -> tg::Result<()> {
+		self.push_build(id).await
 	}
 
 	async fn pull_build(&self, id: &tg::build::Id) -> tg::Result<()> {
@@ -580,10 +619,9 @@ impl Handle for Client {
 
 	async fn get_or_create_build(
 		&self,
-		user: Option<&tg::User>,
 		arg: tg::build::GetOrCreateArg,
 	) -> tg::Result<tg::build::GetOrCreateOutput> {
-		self.get_or_create_build(user, arg).await
+		self.get_or_create_build(arg).await
 	}
 
 	async fn try_get_build_status(
@@ -597,11 +635,10 @@ impl Handle for Client {
 
 	async fn set_build_status(
 		&self,
-		user: Option<&tg::User>,
 		id: &tg::build::Id,
 		status: tg::build::Status,
 	) -> tg::Result<()> {
-		self.set_build_status(user, id, status).await
+		self.set_build_status(id, status).await
 	}
 
 	async fn try_get_build_children(
@@ -616,11 +653,10 @@ impl Handle for Client {
 
 	async fn add_build_child(
 		&self,
-		user: Option<&tg::User>,
 		build_id: &tg::build::Id,
 		child_id: &tg::build::Id,
 	) -> tg::Result<()> {
-		self.add_build_child(user, build_id, child_id).await
+		self.add_build_child(build_id, child_id).await
 	}
 
 	async fn try_get_build_log(
@@ -632,13 +668,8 @@ impl Handle for Client {
 		self.try_get_build_log(id, arg, stop).await
 	}
 
-	async fn add_build_log(
-		&self,
-		user: Option<&tg::User>,
-		id: &tg::build::Id,
-		bytes: Bytes,
-	) -> tg::Result<()> {
-		self.add_build_log(user, id, bytes).await
+	async fn add_build_log(&self, id: &tg::build::Id, bytes: Bytes) -> tg::Result<()> {
+		self.add_build_log(id, bytes).await
 	}
 
 	async fn try_get_build_outcome(
@@ -652,11 +683,10 @@ impl Handle for Client {
 
 	async fn set_build_outcome(
 		&self,
-		user: Option<&tg::User>,
 		id: &tg::build::Id,
 		outcome: tg::build::Outcome,
 	) -> tg::Result<()> {
-		self.set_build_outcome(user, id, outcome).await
+		self.set_build_outcome(id, outcome).await
 	}
 
 	async fn format(&self, text: String) -> tg::Result<String> {
@@ -665,7 +695,7 @@ impl Handle for Client {
 
 	async fn lsp(
 		&self,
-		input: Box<dyn AsyncRead + Send + Unpin + 'static>,
+		input: Box<dyn AsyncBufRead + Send + Unpin + 'static>,
 		output: Box<dyn AsyncWrite + Send + Unpin + 'static>,
 	) -> tg::Result<()> {
 		self.lsp(input, output).await
@@ -681,9 +711,10 @@ impl Handle for Client {
 	async fn put_object(
 		&self,
 		id: &tg::object::Id,
-		arg: &tg::object::PutArg,
+		arg: tg::object::PutArg,
+		transaction: Option<&Self::Transaction<'_>>,
 	) -> tg::Result<tg::object::PutOutput> {
-		self.put_object(id, arg).await
+		self.put_object(id, arg, transaction).await
 	}
 
 	async fn push_object(&self, id: &tg::object::Id) -> tg::Result<()> {
@@ -709,35 +740,19 @@ impl Handle for Client {
 		self.try_get_package(dependency, arg).await
 	}
 
-	async fn try_get_package_versions(
-		&self,
-		dependency: &tg::Dependency,
-	) -> tg::Result<Option<Vec<String>>> {
-		self.try_get_package_versions(dependency).await
-	}
-
-	async fn publish_package(
-		&self,
-		user: Option<&tg::User>,
-		id: &tg::directory::Id,
-	) -> tg::Result<()> {
-		self.publish_package(user, id).await
-	}
-
-	async fn yank_package(
-		&self,
-		user: Option<&tg::User>,
-		id: &tg::directory::Id,
-	) -> tg::Result<()> {
-		self.yank_package(user, id).await
-	}
-
 	async fn check_package(&self, dependency: &tg::Dependency) -> tg::Result<Vec<tg::Diagnostic>> {
 		self.check_package(dependency).await
 	}
 
 	async fn format_package(&self, dependency: &tg::Dependency) -> tg::Result<()> {
 		self.format_package(dependency).await
+	}
+
+	async fn try_get_package_doc(
+		&self,
+		dependency: &tg::Dependency,
+	) -> tg::Result<Option<serde_json::Value>> {
+		self.try_get_package_doc(dependency).await
 	}
 
 	async fn get_package_outdated(
@@ -747,15 +762,23 @@ impl Handle for Client {
 		self.get_package_outdated(arg).await
 	}
 
-	async fn get_runtime_doc(&self) -> tg::Result<serde_json::Value> {
-		self.get_runtime_doc().await
+	async fn publish_package(&self, id: &tg::directory::Id) -> tg::Result<()> {
+		self.publish_package(id).await
 	}
 
-	async fn try_get_package_doc(
+	async fn try_get_package_versions(
 		&self,
 		dependency: &tg::Dependency,
-	) -> tg::Result<Option<serde_json::Value>> {
-		self.try_get_package_doc(dependency).await
+	) -> tg::Result<Option<Vec<String>>> {
+		self.try_get_package_versions(dependency).await
+	}
+
+	async fn yank_package(&self, id: &tg::directory::Id) -> tg::Result<()> {
+		self.yank_package(id).await
+	}
+
+	async fn get_js_runtime_doc(&self) -> tg::Result<serde_json::Value> {
+		self.get_js_runtime_doc().await
 	}
 
 	async fn health(&self) -> tg::Result<tg::Health> {
@@ -770,15 +793,7 @@ impl Handle for Client {
 		self.stop().await
 	}
 
-	async fn create_login(&self) -> tg::Result<tg::user::Login> {
-		self.create_login().await
-	}
-
-	async fn get_login(&self, id: &tg::Id) -> tg::Result<Option<tg::Login>> {
-		self.get_login(id).await
-	}
-
-	async fn get_user_for_token(&self, token: &str) -> tg::Result<Option<tg::User>> {
-		self.get_user_for_token(token).await
+	async fn get_user(&self, token: &str) -> tg::Result<Option<tg::User>> {
+		self.get_user(token).await
 	}
 }

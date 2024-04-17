@@ -3,9 +3,8 @@ use crate::{
 	util::http::{empty, full, Incoming, Outgoing},
 	Http,
 };
-use derive_more::Unwrap;
-use futures::{future, Future, FutureExt, TryFutureExt};
-use http_body_util::BodyExt;
+use futures::{future, Future, FutureExt as _, TryFutureExt as _};
+use http_body_util::BodyExt as _;
 use lsp::{notification::Notification as _, request::Request as _};
 use lsp_types as lsp;
 use std::{
@@ -17,7 +16,7 @@ use std::{
 use tangram_client as tg;
 use tg::package::ROOT_MODULE_FILE_NAMES;
 use tokio::io::{
-	AsyncBufRead, AsyncBufReadExt, AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt,
+	AsyncBufRead, AsyncBufReadExt as _, AsyncReadExt as _, AsyncWrite, AsyncWriteExt as _,
 };
 use url::Url;
 
@@ -95,7 +94,7 @@ enum Request {
 	Symbols(symbols::Request),
 }
 
-#[derive(Debug, serde::Deserialize, Unwrap)]
+#[derive(Debug, derive_more::Unwrap, serde::Deserialize)]
 #[serde(rename_all = "snake_case", tag = "kind", content = "response")]
 enum Response {
 	Check(check::Response),
@@ -153,12 +152,9 @@ impl Server {
 
 	pub async fn serve(
 		self,
-		input: impl AsyncRead + Send + Unpin + 'static,
-		output: impl AsyncWrite + Send + Unpin + 'static,
+		mut input: impl AsyncBufRead + Send + Unpin + 'static,
+		mut output: impl AsyncWrite + Send + Unpin + 'static,
 	) -> tg::Result<()> {
-		let mut input = tokio::io::BufReader::new(input);
-		let mut output = tokio::io::BufWriter::new(output);
-
 		// Create a channel to send outgoing messages.
 		let (outgoing_message_sender, mut outgoing_message_receiver) =
 			tokio::sync::mpsc::unbounded_channel::<jsonrpc::Message>();
@@ -746,7 +742,7 @@ impl crate::Server {
 
 	pub async fn lsp(
 		&self,
-		input: Box<dyn AsyncRead + Send + Unpin + 'static>,
+		input: Box<dyn AsyncBufRead + Send + Unpin + 'static>,
 		output: Box<dyn AsyncWrite + Send + Unpin + 'static>,
 	) -> tg::Result<()> {
 		let language_server = crate::language::Server::new(self, tokio::runtime::Handle::current());
@@ -819,7 +815,7 @@ where
 					.map_err(|source| tg::error!(!source, "failed to perform the upgrade"))?;
 				let io = hyper_util::rt::TokioIo::new(io);
 				let (input, output) = tokio::io::split(io);
-				let input = Box::new(input);
+				let input = Box::new(tokio::io::BufReader::new(input));
 				let output = Box::new(output);
 				let task = server.inner.tg.lsp(input, output);
 				let stop = stop.wait_for(|stop| *stop);

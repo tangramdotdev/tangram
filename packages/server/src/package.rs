@@ -145,7 +145,7 @@ impl Server {
 						tg::error!(source = error, "failed to get or create the lock")
 					}
 				})?;
-			let lock = lock.id(self).await?;
+			let lock = lock.id(self, None).await?;
 			Some(lock)
 		} else {
 			None
@@ -155,7 +155,7 @@ impl Server {
 		let metadata = self.get_package_metadata(&package).await.ok();
 
 		// Get the package ID.
-		let id = package.id(self).await?;
+		let id = package.id(self, None).await?;
 
 		// Get the package's path if requested.
 		let path = if arg.path {
@@ -361,8 +361,8 @@ impl Server {
 
 		// Create the root module.
 		let path = tg::package::get_root_module_path(self, &package).await?;
-		let package = package.id(self).await?;
-		let lock = lock.id(self).await?;
+		let package = package.id(self, None).await?;
+		let lock = lock.id(self, None).await?;
 		let module = tg::Module::Normal(tg::module::Normal {
 			lock,
 			package,
@@ -378,21 +378,6 @@ impl Server {
 		Ok(diagnostics)
 	}
 
-	pub async fn get_runtime_doc(&self) -> tg::Result<serde_json::Value> {
-		// Create the module.
-		let module = tg::Module::Library(tg::module::Library {
-			path: "tangram.d.ts".parse().unwrap(),
-		});
-
-		// Create the language server.
-		let language_server = crate::language::Server::new(self, tokio::runtime::Handle::current());
-
-		// Get the doc.
-		let doc = language_server.doc(&module).await?;
-
-		Ok(doc)
-	}
-
 	pub async fn try_get_package_doc(
 		&self,
 		dependency: &tg::Dependency,
@@ -404,8 +389,8 @@ impl Server {
 
 		// Create the module.
 		let path = tg::package::get_root_module_path(self, &package).await?;
-		let package = package.id(self).await?;
-		let lock = lock.id(self).await?;
+		let package = package.id(self, None).await?;
+		let lock = lock.id(self, None).await?;
 		let module = tg::Module::Normal(tg::module::Normal {
 			lock,
 			package,
@@ -540,24 +525,6 @@ where
 
 		// Get the outdated dependencies.
 		let output = self.inner.tg.get_package_outdated(&dependency).await?;
-		let body = serde_json::to_vec(&output)
-			.map_err(|source| tg::error!(!source, "failed to serialize the body"))?;
-		let body = full(body);
-
-		// Create the response.
-		let response = http::Response::builder().body(body).unwrap();
-
-		Ok(response)
-	}
-
-	pub async fn handle_get_runtime_doc_request(
-		&self,
-		_request: http::Request<Incoming>,
-	) -> tg::Result<http::Response<Outgoing>> {
-		// Get the doc.
-		let output = self.inner.tg.get_runtime_doc().await?;
-
-		// Create the body.
 		let body = serde_json::to_vec(&output)
 			.map_err(|source| tg::error!(!source, "failed to serialize the body"))?;
 		let body = full(body);

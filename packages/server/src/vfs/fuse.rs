@@ -5,13 +5,13 @@ use std::{
 	collections::HashMap,
 	ffi::CString,
 	io::SeekFrom,
-	os::unix::prelude::OsStrExt,
+	os::unix::prelude::OsStrExt as _,
 	path::{Path, PathBuf},
 	sync::{Arc, Weak},
 };
 use tangram_client as tg;
 use tangram_fuse::sys;
-use tokio::io::{AsyncReadExt, AsyncSeekExt};
+use tokio::io::{AsyncReadExt as _, AsyncSeekExt as _};
 use zerocopy::{AsBytes, FromBytes};
 
 /// A FUSE server.
@@ -468,7 +468,7 @@ impl Server {
 		})?;
 		let mut references = Vec::new();
 		for artifact in file_references.iter() {
-			let id = artifact.id(&self.inner.server).await.map_err(|e| {
+			let id = artifact.id(&self.inner.server, None).await.map_err(|e| {
 				tracing::error!(?e, ?artifact, "failed to get ID of artifact");
 				libc::EIO
 			})?;
@@ -800,7 +800,7 @@ impl Server {
 			return Err(libc::EIO);
 		};
 		if let Some(artifact) = artifact.as_ref() {
-			let Ok(id) = artifact.id(&self.inner.server).await else {
+			let Ok(id) = artifact.id(&self.inner.server, None).await else {
 				return Err(libc::EIO);
 			};
 			for _ in 0..node.depth() - 1 {

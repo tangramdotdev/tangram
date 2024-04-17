@@ -1,11 +1,10 @@
 use crate::{
-	self as tg, error,
+	self as tg,
 	util::http::{empty, full},
-	Client,
 };
 use bytes::Bytes;
-use futures::{future, FutureExt, Stream, StreamExt, TryStreamExt};
-use http_body_util::{BodyExt, BodyStream};
+use futures::{future, FutureExt as _, Stream, StreamExt as _, TryStreamExt as _};
+use http_body_util::{BodyExt as _, BodyStream};
 use serde_with::serde_as;
 use tokio_util::io::StreamReader;
 
@@ -35,7 +34,7 @@ pub struct Chunk {
 	pub bytes: Bytes,
 }
 
-impl Client {
+impl tg::Client {
 	pub async fn try_get_build_log(
 		&self,
 		id: &tg::build::Id,
@@ -51,11 +50,11 @@ impl Client {
 			.uri(uri)
 			.header(http::header::ACCEPT, mime::TEXT_EVENT_STREAM.to_string())
 			.body(body)
-			.map_err(|source| error!(!source, "failed to create the request"))?;
+			.map_err(|source| tg::error!(!source, "failed to create the request"))?;
 		let response = self
 			.send(request)
 			.await
-			.map_err(|source| error!(!source, "failed to send the request"))?;
+			.map_err(|source| tg::error!(!source, "failed to send the request"))?;
 		if response.status() == http::StatusCode::NOT_FOUND {
 			return Ok(None);
 		}
@@ -63,48 +62,39 @@ impl Client {
 			let bytes = response
 				.collect()
 				.await
-				.map_err(|source| error!(!source, "failed to collect the response body"))?
+				.map_err(|source| tg::error!(!source, "failed to collect the response body"))?
 				.to_bytes();
 			let error = serde_json::from_slice(&bytes)
-				.unwrap_or_else(|_| error!("the request did not succeed"));
+				.unwrap_or_else(|_| tg::error!("the request did not succeed"));
 			return Err(error);
 		}
-		let stream = BodyStream::new(response.into_body())
-			.filter_map(|frame| async {
-				match frame.map(http_body::Frame::into_data) {
-					Ok(Ok(bytes)) => Some(Ok(bytes)),
-					Err(e) => Some(Err(e)),
-					Ok(Err(_frame)) => None,
-				}
-			})
-			.map_err(|source| error!(!source, "failed to read from the body"));
-		let reader = Box::pin(StreamReader::new(stream.map_err(std::io::Error::other)));
+		let reader = StreamReader::new(
+			BodyStream::new(response.into_body())
+				.try_filter_map(|frame| future::ok(frame.into_data().ok()))
+				.map_err(std::io::Error::other),
+		);
 		let stop = stop.map_or_else(
 			|| future::pending().left_future(),
 			|mut stop| async move { stop.wait_for(|stop| *stop).map(|_| ()).await }.right_future(),
 		);
 		let output = tangram_sse::Decoder::new(reader)
 			.map(|result| {
-				let event = result.map_err(|source| error!(!source, "failed to read an event"))?;
-				let chunk = serde_json::from_str(&event.data)
-					.map_err(|source| error!(!source, "failed to deserialize the event data"))?;
+				let event =
+					result.map_err(|source| tg::error!(!source, "failed to read an event"))?;
+				let chunk = serde_json::from_str(&event.data).map_err(|source| {
+					tg::error!(!source, "failed to deserialize the event data")
+				})?;
 				Ok::<_, tg::Error>(chunk)
 			})
 			.take_until(stop);
 		Ok(Some(output))
 	}
 
-	pub async fn add_build_log(
-		&self,
-		user: Option<&tg::User>,
-		id: &tg::build::Id,
-		bytes: Bytes,
-	) -> tg::Result<()> {
+	pub async fn add_build_log(&self, id: &tg::build::Id, bytes: Bytes) -> tg::Result<()> {
 		let method = http::Method::POST;
 		let uri = format!("/builds/{id}/log");
 		let mut request = http::request::Builder::default().method(method).uri(uri);
-		let user = user.or(self.inner.user.as_ref());
-		if let Some(token) = user.and_then(|user| user.token.as_ref()) {
+		if let Some(token) = self.inner.token.as_ref() {
 			request = request.header(http::header::AUTHORIZATION, format!("Bearer {token}"));
 		}
 		request = request.header(
@@ -115,16 +105,16 @@ impl Client {
 		let body = full(body);
 		let request = request
 			.body(body)
-			.map_err(|source| error!(!source, "failed to create the request"))?;
+			.map_err(|source| tg::error!(!source, "failed to create the request"))?;
 		let response = self.send(request).await?;
 		if !response.status().is_success() {
 			let bytes = response
 				.collect()
 				.await
-				.map_err(|source| error!(!source, "failed to collect the response body"))?
+				.map_err(|source| tg::error!(!source, "failed to collect the response body"))?
 				.to_bytes();
 			let error = serde_json::from_slice(&bytes)
-				.unwrap_or_else(|_| error!("the request did not succeed"));
+				.unwrap_or_else(|_| tg::error!("the request did not succeed"));
 			return Err(error);
 		}
 		Ok(())

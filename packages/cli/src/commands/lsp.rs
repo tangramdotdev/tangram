@@ -9,7 +9,7 @@ impl Cli {
 	pub async fn command_lsp(&self, _args: Args) -> tg::Result<()> {
 		let client = &self.client().await?;
 
-		let stdin = Box::new(tokio::io::stdin());
+		let stdin = Box::new(tokio::io::BufReader::new(tokio::io::stdin()));
 		let stdout = Box::new(tokio::io::stdout());
 
 		client.lsp(stdin, stdout).await?;

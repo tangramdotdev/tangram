@@ -2,20 +2,15 @@ use crate::{
 	util::http::{empty, Incoming, Outgoing},
 	Http, Server,
 };
-use futures::{stream::FuturesUnordered, TryStreamExt};
-use http_body_util::BodyExt;
+use futures::{stream::FuturesUnordered, TryStreamExt as _};
+use http_body_util::BodyExt as _;
 use indoc::formatdoc;
 use tangram_client as tg;
 use tangram_database::{self as db, prelude::*};
 use time::format_description::well_known::Rfc3339;
 
 impl Server {
-	pub async fn put_build(
-		&self,
-		_user: Option<&tg::User>,
-		id: &tg::build::Id,
-		arg: &tg::build::PutArg,
-	) -> tg::Result<()> {
+	pub async fn put_build(&self, id: &tg::build::Id, arg: &tg::build::PutArg) -> tg::Result<()> {
 		// Verify the build is finished.
 		if arg.status != tg::build::Status::Finished {
 			let status = arg.status;
@@ -234,9 +229,6 @@ where
 			.parse()
 			.map_err(|source| tg::error!(!source, "failed to parse the ID"))?;
 
-		// Get the user.
-		let user = self.try_get_user_from_request(&request).await?;
-
 		// Read the body.
 		let bytes = request
 			.into_body()
@@ -248,10 +240,7 @@ where
 			.map_err(|source| tg::error!(!source, "failed to deserialize the body"))?;
 
 		// Put the build.
-		self.inner
-			.tg
-			.put_build(user.as_ref(), &build_id, &arg)
-			.await?;
+		self.inner.tg.put_build(&build_id, &arg).await?;
 
 		// Create the response.
 		let response = http::Response::builder()

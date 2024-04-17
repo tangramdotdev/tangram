@@ -35,8 +35,7 @@ export let start = async (target: Target): Promise<Value> => {
 	}
 
 	// Get the function.
-	let key = encoding.json.encode({ url, name });
-	let function_ = functions[key];
+	let function_ = functions[url]?.[name];
 	if (!function_) {
 		throw new Error("failed to find the function");
 	}

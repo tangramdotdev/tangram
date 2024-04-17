@@ -1,28 +1,28 @@
-use crate::{self as tg, object, template, value, Handle, Template, Value};
-use futures::{stream::FuturesOrdered, TryStreamExt};
-use itertools::Itertools;
+use crate as tg;
+use futures::{stream::FuturesOrdered, TryStreamExt as _};
+use itertools::Itertools as _;
 
 #[derive(Debug, Clone)]
 pub enum Mutation {
 	Unset,
 	Set {
-		value: Box<Value>,
+		value: Box<tg::Value>,
 	},
 	SetIfUnset {
-		value: Box<Value>,
+		value: Box<tg::Value>,
 	},
 	ArrayPrepend {
-		values: Vec<Value>,
+		values: Vec<tg::Value>,
 	},
 	ArrayAppend {
-		values: Vec<Value>,
+		values: Vec<tg::Value>,
 	},
 	TemplatePrepend {
-		template: Template,
+		template: tg::Template,
 		separator: Option<String>,
 	},
 	TemplateAppend {
-		template: Template,
+		template: tg::Template,
 		separator: Option<String>,
 	},
 }
@@ -32,43 +32,50 @@ pub enum Mutation {
 pub enum Data {
 	Unset,
 	Set {
-		value: Box<value::Data>,
+		value: Box<tg::value::Data>,
 	},
 	SetIfUnset {
-		value: Box<value::Data>,
+		value: Box<tg::value::Data>,
 	},
 	ArrayPrepend {
-		values: Vec<value::Data>,
+		values: Vec<tg::value::Data>,
 	},
 	ArrayAppend {
-		values: Vec<value::Data>,
+		values: Vec<tg::value::Data>,
 	},
 	TemplatePrepend {
-		template: template::Data,
+		template: tg::template::Data,
 		#[serde(default, skip_serializing_if = "Option::is_none")]
 		separator: Option<String>,
 	},
 	TemplateAppend {
-		template: template::Data,
+		template: tg::template::Data,
 		#[serde(default, skip_serializing_if = "Option::is_none")]
 		separator: Option<String>,
 	},
 }
 
 impl Mutation {
-	pub async fn data(&self, tg: &impl Handle) -> tg::Result<Data> {
+	pub async fn data<H>(
+		&self,
+		tg: &H,
+		transaction: Option<&H::Transaction<'_>>,
+	) -> tg::Result<Data>
+	where
+		H: tg::Handle,
+	{
 		Ok(match self {
 			Self::Unset => Data::Unset,
 			Self::Set { value } => Data::Set {
-				value: Box::new(Box::pin(value.data(tg)).await?),
+				value: Box::new(Box::pin(value.data(tg, transaction)).await?),
 			},
 			Self::SetIfUnset { value } => Data::SetIfUnset {
-				value: Box::new(Box::pin(value.data(tg)).await?),
+				value: Box::new(Box::pin(value.data(tg, transaction)).await?),
 			},
 			Self::ArrayPrepend { values } => Data::ArrayPrepend {
 				values: values
 					.iter()
-					.map(|value| value.data(tg))
+					.map(|value| value.data(tg, transaction))
 					.collect::<FuturesOrdered<_>>()
 					.try_collect()
 					.await?,
@@ -76,7 +83,7 @@ impl Mutation {
 			Self::ArrayAppend { values } => Data::ArrayAppend {
 				values: values
 					.iter()
-					.map(|value| value.data(tg))
+					.map(|value| value.data(tg, transaction))
 					.collect::<FuturesOrdered<_>>()
 					.try_collect()
 					.await?,
@@ -85,25 +92,25 @@ impl Mutation {
 				template,
 				separator,
 			} => Data::TemplatePrepend {
-				template: template.data(tg).await?,
+				template: template.data(tg, transaction).await?,
 				separator: separator.clone(),
 			},
 			Self::TemplateAppend {
 				template,
 				separator,
 			} => Data::TemplateAppend {
-				template: template.data(tg).await?,
+				template: template.data(tg, transaction).await?,
 				separator: separator.clone(),
 			},
 		})
 	}
 
-	pub fn objects(&self) -> Vec<object::Handle> {
+	pub fn objects(&self) -> Vec<tg::object::Handle> {
 		match self {
 			Self::Unset => vec![],
 			Self::Set { value } | Self::SetIfUnset { value } => value.objects(),
 			Self::ArrayPrepend { values } | Self::ArrayAppend { values } => {
-				values.iter().flat_map(Value::objects).collect()
+				values.iter().flat_map(tg::Value::objects).collect()
 			},
 			Self::TemplatePrepend { template, .. } | Self::TemplateAppend { template, .. } => {
 				template.objects()
@@ -114,12 +121,12 @@ impl Mutation {
 
 impl Data {
 	#[must_use]
-	pub fn children(&self) -> Vec<object::Id> {
+	pub fn children(&self) -> Vec<tg::object::Id> {
 		match self {
 			Self::Unset => vec![],
 			Self::Set { value } | Self::SetIfUnset { value } => value.children(),
 			Self::ArrayPrepend { values } | Self::ArrayAppend { values } => {
-				values.iter().flat_map(value::Data::children).collect()
+				values.iter().flat_map(tg::value::Data::children).collect()
 			},
 			Self::TemplatePrepend { template, .. } | Self::TemplateAppend { template, .. } => {
 				template.children()

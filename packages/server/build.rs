@@ -14,8 +14,12 @@ fn main() {
 	std::fs::create_dir_all(&lib_path).unwrap();
 
 	// Copy the tangram.d.ts.
-	println!("cargo:rerun-if-changed=src/language/tangram.d.ts");
-	std::fs::copy("src/language/tangram.d.ts", lib_path.join("tangram.d.ts")).unwrap();
+	println!("cargo:rerun-if-changed=../../packages/runtime/tangram.d.ts");
+	std::fs::copy(
+		"../../packages/runtime/tangram.d.ts",
+		lib_path.join("tangram.d.ts"),
+	)
+	.unwrap();
 
 	// Copy the typescript libraries.
 	println!("cargo:rerun-if-changed=../../node_modules");

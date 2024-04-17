@@ -1,10 +1,10 @@
-use crate::Location;
+use crate as tg;
 use lsp_types as lsp;
 
 #[derive(Clone, Debug, serde::Serialize, serde::Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Diagnostic {
-	pub location: Option<Location>,
+	pub location: Option<tg::Location>,
 	pub severity: Severity,
 	pub message: String,
 }
@@ -14,7 +14,7 @@ pub struct Diagnostic {
 pub enum Severity {
 	Error,
 	Warning,
-	Information,
+	Info,
 	Hint,
 }
 
@@ -42,7 +42,7 @@ impl From<Severity> for lsp::DiagnosticSeverity {
 		match value {
 			Severity::Error => lsp::DiagnosticSeverity::ERROR,
 			Severity::Warning => lsp::DiagnosticSeverity::WARNING,
-			Severity::Information => lsp::DiagnosticSeverity::INFORMATION,
+			Severity::Info => lsp::DiagnosticSeverity::INFORMATION,
 			Severity::Hint => lsp::DiagnosticSeverity::HINT,
 		}
 	}

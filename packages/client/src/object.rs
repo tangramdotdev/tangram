@@ -1,12 +1,10 @@
 use crate::{
-	self as tg, branch, directory, error, file, id, leaf, lock, symlink, target,
+	self as tg,
 	util::http::{empty, full},
-	Branch, Client, Directory, File, Leaf, Lock, Result, Symlink, Target,
 };
 use bytes::Bytes;
-use derive_more::{Display, From, TryInto, TryUnwrap};
-use futures::{stream::FuturesUnordered, TryStreamExt};
-use http_body_util::BodyExt;
+use futures::{stream::FuturesUnordered, FutureExt as _, TryStreamExt as _};
+use http_body_util::BodyExt as _;
 use std::sync::Arc;
 
 /// An object kind.
@@ -25,40 +23,40 @@ pub enum Kind {
 #[derive(
 	Clone,
 	Debug,
-	Display,
 	Eq,
-	From,
 	Hash,
 	Ord,
 	PartialEq,
 	PartialOrd,
+	derive_more::Display,
+	derive_more::From,
+	derive_more::TryUnwrap,
 	serde::Deserialize,
 	serde::Serialize,
-	TryUnwrap,
 )]
 #[serde(into = "crate::Id", try_from = "crate::Id")]
 #[try_unwrap(ref)]
 pub enum Id {
-	Leaf(leaf::Id),
-	Branch(branch::Id),
-	Directory(directory::Id),
-	File(file::Id),
-	Symlink(symlink::Id),
-	Lock(lock::Id),
-	Target(target::Id),
+	Leaf(tg::leaf::Id),
+	Branch(tg::branch::Id),
+	Directory(tg::directory::Id),
+	File(tg::file::Id),
+	Symlink(tg::symlink::Id),
+	Lock(tg::lock::Id),
+	Target(tg::target::Id),
 }
 
 /// An object.
-#[derive(Clone, Debug, From, TryInto, TryUnwrap)]
+#[derive(Clone, Debug, derive_more::From, derive_more::TryInto, derive_more::TryUnwrap)]
 #[try_unwrap(ref)]
 pub enum Handle {
-	Leaf(Leaf),
-	Branch(Branch),
-	Directory(Directory),
-	File(File),
-	Symlink(Symlink),
-	Lock(Lock),
-	Target(Target),
+	Leaf(tg::Leaf),
+	Branch(tg::Branch),
+	Directory(tg::Directory),
+	File(tg::File),
+	Symlink(tg::Symlink),
+	Lock(tg::Lock),
+	Target(tg::Target),
 }
 
 #[derive(Debug)]
@@ -68,28 +66,28 @@ pub struct State<I, O> {
 }
 
 /// An object.
-#[derive(Clone, Debug, From, TryInto, TryUnwrap)]
+#[derive(Clone, Debug, derive_more::From, derive_more::TryInto, derive_more::TryUnwrap)]
 #[try_unwrap(ref)]
 pub enum Object {
-	Leaf(Arc<leaf::Object>),
-	Branch(Arc<branch::Object>),
-	Directory(Arc<directory::Object>),
-	File(Arc<file::Object>),
-	Symlink(Arc<symlink::Object>),
-	Lock(Arc<lock::Object>),
-	Target(Arc<target::Object>),
+	Leaf(Arc<tg::leaf::Object>),
+	Branch(Arc<tg::branch::Object>),
+	Directory(Arc<tg::directory::Object>),
+	File(Arc<tg::file::Object>),
+	Symlink(Arc<tg::symlink::Object>),
+	Lock(Arc<tg::lock::Object>),
+	Target(Arc<tg::target::Object>),
 }
 
 /// Object data.
-#[derive(Clone, Debug, From, TryInto)]
+#[derive(Clone, Debug, derive_more::From, derive_more::TryInto, derive_more::TryUnwrap)]
 pub enum Data {
-	Leaf(leaf::Data),
-	Branch(branch::Data),
-	Directory(directory::Data),
-	File(file::Data),
-	Symlink(symlink::Data),
-	Lock(lock::Data),
-	Target(target::Data),
+	Leaf(tg::leaf::Data),
+	Branch(tg::branch::Data),
+	Directory(tg::directory::Data),
+	File(tg::file::Data),
+	Symlink(tg::symlink::Data),
+	Lock(tg::lock::Data),
+	Target(tg::target::Data),
 }
 
 #[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
@@ -130,42 +128,47 @@ impl Handle {
 	#[must_use]
 	pub fn with_id(id: Id) -> Self {
 		match id {
-			Id::Leaf(id) => Self::Leaf(Leaf::with_id(id)),
-			Id::Branch(id) => Self::Branch(Branch::with_id(id)),
-			Id::Directory(id) => Self::Directory(Directory::with_id(id)),
-			Id::File(id) => Self::File(File::with_id(id)),
-			Id::Symlink(id) => Self::Symlink(Symlink::with_id(id)),
-			Id::Lock(id) => Self::Lock(Lock::with_id(id)),
-			Id::Target(id) => Self::Target(Target::with_id(id)),
+			Id::Leaf(id) => Self::Leaf(tg::Leaf::with_id(id)),
+			Id::Branch(id) => Self::Branch(tg::Branch::with_id(id)),
+			Id::Directory(id) => Self::Directory(tg::Directory::with_id(id)),
+			Id::File(id) => Self::File(tg::File::with_id(id)),
+			Id::Symlink(id) => Self::Symlink(tg::Symlink::with_id(id)),
+			Id::Lock(id) => Self::Lock(tg::Lock::with_id(id)),
+			Id::Target(id) => Self::Target(tg::Target::with_id(id)),
 		}
 	}
 
 	#[must_use]
 	pub fn with_object(object: Object) -> Self {
 		match object {
-			Object::Leaf(object) => Self::Leaf(Leaf::with_object(object)),
-			Object::Branch(object) => Self::Branch(Branch::with_object(object)),
-			Object::Directory(object) => Self::Directory(Directory::with_object(object)),
-			Object::File(object) => Self::File(File::with_object(object)),
-			Object::Symlink(object) => Self::Symlink(Symlink::with_object(object)),
-			Object::Lock(object) => Self::Lock(Lock::with_object(object)),
-			Object::Target(object) => Self::Target(Target::with_object(object)),
+			Object::Leaf(object) => Self::Leaf(tg::Leaf::with_object(object)),
+			Object::Branch(object) => Self::Branch(tg::Branch::with_object(object)),
+			Object::Directory(object) => Self::Directory(tg::Directory::with_object(object)),
+			Object::File(object) => Self::File(tg::File::with_object(object)),
+			Object::Symlink(object) => Self::Symlink(tg::Symlink::with_object(object)),
+			Object::Lock(object) => Self::Lock(tg::Lock::with_object(object)),
+			Object::Target(object) => Self::Target(tg::Target::with_object(object)),
 		}
 	}
-
-	pub async fn id(&self, tg: &impl crate::Handle) -> tg::Result<Id> {
+	pub async fn id<H>(&self, tg: &H, transaction: Option<&H::Transaction<'_>>) -> tg::Result<Id>
+	where
+		H: crate::Handle,
+	{
 		match self {
-			Self::Leaf(object) => object.id(tg).await.map(Id::Leaf),
-			Self::Branch(object) => object.id(tg).await.map(Id::Branch),
-			Self::Directory(object) => object.id(tg).await.map(Id::Directory),
-			Self::File(object) => object.id(tg).await.map(Id::File),
-			Self::Symlink(object) => object.id(tg).await.map(Id::Symlink),
-			Self::Lock(object) => object.id(tg).await.map(Id::Lock),
-			Self::Target(object) => object.id(tg).await.map(Id::Target),
+			Self::Leaf(object) => object.id(tg, transaction).await.map(Id::Leaf),
+			Self::Branch(object) => object.id(tg, transaction).await.map(Id::Branch),
+			Self::Directory(object) => object.id(tg, transaction).await.map(Id::Directory),
+			Self::File(object) => object.id(tg, transaction).await.map(Id::File),
+			Self::Symlink(object) => object.id(tg, transaction).await.map(Id::Symlink),
+			Self::Lock(object) => object.id(tg, transaction).await.map(Id::Lock),
+			Self::Target(object) => object.id(tg, transaction).await.map(Id::Target),
 		}
 	}
 
-	pub async fn object(&self, tg: &impl crate::Handle) -> tg::Result<Object> {
+	pub async fn object<H>(&self, tg: &H) -> tg::Result<Object>
+	where
+		H: crate::Handle,
+	{
 		match self {
 			Self::Leaf(object) => object.object(tg).await.map(Object::Leaf),
 			Self::Branch(object) => object.object(tg).await.map(Object::Branch),
@@ -177,25 +180,37 @@ impl Handle {
 		}
 	}
 
-	pub async fn data(&self, tg: &impl crate::Handle) -> tg::Result<Data> {
+	pub async fn data<H>(
+		&self,
+		tg: &H,
+		transaction: Option<&H::Transaction<'_>>,
+	) -> tg::Result<Data>
+	where
+		H: crate::Handle,
+	{
 		match self {
-			Self::Leaf(object) => object.data(tg).await.map(Data::Leaf),
-			Self::Branch(object) => object.data(tg).await.map(Data::Branch),
-			Self::Directory(object) => object.data(tg).await.map(Data::Directory),
-			Self::File(object) => object.data(tg).await.map(Data::File),
-			Self::Symlink(object) => object.data(tg).await.map(Data::Symlink),
-			Self::Lock(object) => object.data(tg).await.map(Data::Lock),
-			Self::Target(object) => object.data(tg).await.map(Data::Target),
+			Self::Leaf(object) => object.data(tg, transaction).await.map(Data::Leaf),
+			Self::Branch(object) => object.data(tg, transaction).await.map(Data::Branch),
+			Self::Directory(object) => object.data(tg, transaction).await.map(Data::Directory),
+			Self::File(object) => object.data(tg, transaction).await.map(Data::File),
+			Self::Symlink(object) => object.data(tg, transaction).await.map(Data::Symlink),
+			Self::Lock(object) => object.data(tg, transaction).await.map(Data::Lock),
+			Self::Target(object) => object.data(tg, transaction).await.map(Data::Target),
 		}
 	}
 
-	pub async fn push(
+	pub async fn push<H1, H2>(
 		&self,
-		tg: &impl crate::Handle,
-		remote: &impl crate::Handle,
-	) -> tg::Result<()> {
-		let id = self.id(tg).await?;
-		let data = self.data(tg).await?;
+		tg: &H1,
+		remote: &H2,
+		transaction: Option<&H2::Transaction<'_>>,
+	) -> tg::Result<()>
+	where
+		H1: crate::Handle,
+		H2: crate::Handle,
+	{
+		let id = self.id(tg, None).await?;
+		let data = self.data(tg, None).await?;
 		let bytes = data.serialize()?;
 		let arg = PutArg {
 			bytes,
@@ -203,41 +218,47 @@ impl Handle {
 			weight: None,
 		};
 		let output = remote
-			.put_object(&id.clone(), &arg)
+			.put_object(&id.clone(), arg, transaction)
+			.boxed()
 			.await
-			.map_err(|source| error!(!source, "failed to put the object"))?;
+			.map_err(|source| tg::error!(!source, "failed to put the object"))?;
 		output
 			.incomplete
 			.into_iter()
 			.map(Self::with_id)
-			.map(|object| async move { object.push(tg, remote).await })
+			.map(|object| async move { object.push(tg, remote, transaction).await })
 			.collect::<FuturesUnordered<_>>()
 			.try_collect()
 			.await?;
 		Ok(())
 	}
 
-	pub async fn pull(
+	pub async fn pull<H1, H2>(
 		&self,
-		tg: &impl crate::Handle,
-		remote: &impl crate::Handle,
-	) -> tg::Result<()> {
-		let id = self.id(tg).await?;
+		tg: &H1,
+		remote: &H2,
+		transaction: Option<&H1::Transaction<'_>>,
+	) -> tg::Result<()>
+	where
+		H1: crate::Handle,
+		H2: crate::Handle,
+	{
+		let id = self.id(tg, transaction).await?;
 		let output = remote
 			.get_object(&id)
 			.await
-			.map_err(|source| error!(!source, "failed to put the object"))?;
+			.map_err(|source| tg::error!(!source, "failed to put the object"))?;
 		let arg = tg::object::PutArg {
 			bytes: output.bytes,
 			count: None,
 			weight: None,
 		};
-		let output = tg.put_object(&id, &arg).await?;
+		let output = tg.put_object(&id, arg, transaction).boxed().await?;
 		output
 			.incomplete
 			.into_iter()
 			.map(Self::with_id)
-			.map(|object| async move { object.pull(tg, remote).await })
+			.map(|object| async move { object.pull(tg, remote, transaction).await })
 			.collect::<FuturesUnordered<_>>()
 			.try_collect()
 			.await?;
@@ -287,18 +308,18 @@ impl Data {
 
 	pub fn deserialize(kind: Kind, bytes: &Bytes) -> tg::Result<Self> {
 		match kind {
-			Kind::Leaf => Ok(Self::Leaf(leaf::Data::deserialize(bytes)?)),
-			Kind::Branch => Ok(Self::Branch(branch::Data::deserialize(bytes)?)),
-			Kind::Directory => Ok(Self::Directory(directory::Data::deserialize(bytes)?)),
-			Kind::File => Ok(Self::File(file::Data::deserialize(bytes)?)),
-			Kind::Symlink => Ok(Self::Symlink(symlink::Data::deserialize(bytes)?)),
-			Kind::Lock => Ok(Self::Lock(lock::Data::deserialize(bytes)?)),
-			Kind::Target => Ok(Self::Target(target::Data::deserialize(bytes)?)),
+			Kind::Leaf => Ok(Self::Leaf(tg::leaf::Data::deserialize(bytes)?)),
+			Kind::Branch => Ok(Self::Branch(tg::branch::Data::deserialize(bytes)?)),
+			Kind::Directory => Ok(Self::Directory(tg::directory::Data::deserialize(bytes)?)),
+			Kind::File => Ok(Self::File(tg::file::Data::deserialize(bytes)?)),
+			Kind::Symlink => Ok(Self::Symlink(tg::symlink::Data::deserialize(bytes)?)),
+			Kind::Lock => Ok(Self::Lock(tg::lock::Data::deserialize(bytes)?)),
+			Kind::Target => Ok(Self::Target(tg::target::Data::deserialize(bytes)?)),
 		}
 	}
 }
 
-impl Client {
+impl tg::Client {
 	pub async fn try_get_object(
 		&self,
 		id: &tg::object::Id,
@@ -310,7 +331,7 @@ impl Client {
 			.method(method)
 			.uri(uri)
 			.body(body)
-			.map_err(|source| error!(!source, "failed to create the request"))?;
+			.map_err(|source| tg::error!(!source, "failed to create the request"))?;
 		let response = self.send(request).await?;
 		if response.status() == http::StatusCode::NOT_FOUND {
 			return Ok(None);
@@ -319,16 +340,16 @@ impl Client {
 			let bytes = response
 				.collect()
 				.await
-				.map_err(|source| error!(!source, "failed to collect the response body"))?
+				.map_err(|source| tg::error!(!source, "failed to collect the response body"))?
 				.to_bytes();
 			let error = serde_json::from_slice(&bytes)
-				.unwrap_or_else(|_| error!("the request did not succeed"));
+				.unwrap_or_else(|_| tg::error!("the request did not succeed"));
 			return Err(error);
 		}
 		let bytes = response
 			.collect()
 			.await
-			.map_err(|source| error!(!source, "failed to collect the response body"))?
+			.map_err(|source| tg::error!(!source, "failed to collect the response body"))?
 			.to_bytes();
 		let output = tg::object::GetOutput {
 			bytes,
@@ -341,7 +362,8 @@ impl Client {
 	pub async fn put_object(
 		&self,
 		id: &tg::object::Id,
-		arg: &tg::object::PutArg,
+		arg: tg::object::PutArg,
+		_transaction: Option<&()>,
 	) -> tg::Result<tg::object::PutOutput> {
 		let method = http::Method::PUT;
 		let uri = format!("/objects/{id}");
@@ -350,25 +372,25 @@ impl Client {
 			.method(method)
 			.uri(uri)
 			.body(body)
-			.map_err(|source| error!(!source, "failed to create the request"))?;
+			.map_err(|source| tg::error!(!source, "failed to create the request"))?;
 		let response = self.send(request).await?;
 		if !response.status().is_success() {
 			let bytes = response
 				.collect()
 				.await
-				.map_err(|source| error!(!source, "failed to collect the response body"))?
+				.map_err(|source| tg::error!(!source, "failed to collect the response body"))?
 				.to_bytes();
 			let error = serde_json::from_slice(&bytes)
-				.unwrap_or_else(|_| error!("the request did not succeed"));
+				.unwrap_or_else(|_| tg::error!("the request did not succeed"));
 			return Err(error);
 		}
 		let bytes = response
 			.collect()
 			.await
-			.map_err(|source| error!(!source, "failed to collect the response body"))?
+			.map_err(|source| tg::error!(!source, "failed to collect the response body"))?
 			.to_bytes();
 		let output = serde_json::from_slice(&bytes)
-			.map_err(|source| error!(!source, "failed to deserialize the body"))?;
+			.map_err(|source| tg::error!(!source, "failed to deserialize the body"))?;
 		Ok(output)
 	}
 
@@ -380,16 +402,16 @@ impl Client {
 			.method(method)
 			.uri(uri)
 			.body(body)
-			.map_err(|source| error!(!source, "failed to create the request"))?;
+			.map_err(|source| tg::error!(!source, "failed to create the request"))?;
 		let response = self.send(request).await?;
 		if !response.status().is_success() {
 			let bytes = response
 				.collect()
 				.await
-				.map_err(|source| error!(!source, "failed to collect the response body"))?
+				.map_err(|source| tg::error!(!source, "failed to collect the response body"))?
 				.to_bytes();
 			let error = serde_json::from_slice(&bytes)
-				.unwrap_or_else(|_| error!("the request did not succeed"));
+				.unwrap_or_else(|_| tg::error!("the request did not succeed"));
 			return Err(error);
 		}
 		Ok(())
@@ -403,16 +425,16 @@ impl Client {
 			.method(method)
 			.uri(uri)
 			.body(body)
-			.map_err(|source| error!(!source, "failed to create the request"))?;
+			.map_err(|source| tg::error!(!source, "failed to create the request"))?;
 		let response = self.send(request).await?;
 		if !response.status().is_success() {
 			let bytes = response
 				.collect()
 				.await
-				.map_err(|source| error!(!source, "failed to collect the response body"))?
+				.map_err(|source| tg::error!(!source, "failed to collect the response body"))?
 				.to_bytes();
 			let error = serde_json::from_slice(&bytes)
-				.unwrap_or_else(|_| error!("the request did not succeed"));
+				.unwrap_or_else(|_| tg::error!("the request did not succeed"));
 			return Err(error);
 		}
 		Ok(())
@@ -480,7 +502,7 @@ impl TryFrom<crate::Id> for self::Id {
 			crate::id::Kind::Symlink => Ok(Self::Symlink(value.try_into()?)),
 			crate::id::Kind::Lock => Ok(Self::Lock(value.try_into()?)),
 			crate::id::Kind::Target => Ok(Self::Target(value.try_into()?)),
-			kind => Err(error!(%kind, "expected an object ID")),
+			kind => Err(tg::error!(%kind, "expected an object ID")),
 		}
 	}
 }
@@ -493,7 +515,7 @@ impl std::str::FromStr for Id {
 	}
 }
 
-impl Display for Kind {
+impl std::fmt::Display for Kind {
 	fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
 		write!(f, "{}", tg::id::Kind::from(*self))
 	}
@@ -507,7 +529,7 @@ impl std::str::FromStr for Kind {
 	}
 }
 
-impl From<Kind> for id::Kind {
+impl From<Kind> for tg::id::Kind {
 	fn from(value: Kind) -> Self {
 		match value {
 			Kind::Leaf => Self::Leaf,
@@ -521,19 +543,19 @@ impl From<Kind> for id::Kind {
 	}
 }
 
-impl TryFrom<id::Kind> for Kind {
+impl TryFrom<tg::id::Kind> for Kind {
 	type Error = tg::Error;
 
-	fn try_from(value: id::Kind) -> tg::Result<Self, Self::Error> {
+	fn try_from(value: tg::id::Kind) -> tg::Result<Self, Self::Error> {
 		match value {
-			id::Kind::Leaf => Ok(Self::Leaf),
-			id::Kind::Branch => Ok(Self::Branch),
-			id::Kind::Directory => Ok(Self::Directory),
-			id::Kind::File => Ok(Self::File),
-			id::Kind::Symlink => Ok(Self::Symlink),
-			id::Kind::Lock => Ok(Self::Lock),
-			id::Kind::Target => Ok(Self::Target),
-			kind => Err(error!(%kind, "invalid kind")),
+			tg::id::Kind::Leaf => Ok(Self::Leaf),
+			tg::id::Kind::Branch => Ok(Self::Branch),
+			tg::id::Kind::Directory => Ok(Self::Directory),
+			tg::id::Kind::File => Ok(Self::File),
+			tg::id::Kind::Symlink => Ok(Self::Symlink),
+			tg::id::Kind::Lock => Ok(Self::Lock),
+			tg::id::Kind::Target => Ok(Self::Target),
+			kind => Err(tg::error!(%kind, "invalid kind")),
 		}
 	}
 }
@@ -543,13 +565,15 @@ impl TryFrom<Data> for Object {
 
 	fn try_from(data: Data) -> std::result::Result<Self, Self::Error> {
 		Ok(match data {
-			Data::Leaf(data) => Self::Leaf(Arc::new(leaf::Object::try_from(data)?)),
-			Data::Branch(data) => Self::Branch(Arc::new(branch::Object::try_from(data)?)),
-			Data::Directory(data) => Self::Directory(Arc::new(directory::Object::try_from(data)?)),
-			Data::File(data) => Self::File(Arc::new(file::Object::try_from(data)?)),
-			Data::Symlink(data) => Self::Symlink(Arc::new(symlink::Object::try_from(data)?)),
-			Data::Lock(data) => Self::Lock(Arc::new(lock::Object::try_from(data)?)),
-			Data::Target(data) => Self::Target(Arc::new(target::Object::try_from(data)?)),
+			Data::Leaf(data) => Self::Leaf(Arc::new(tg::leaf::Object::try_from(data)?)),
+			Data::Branch(data) => Self::Branch(Arc::new(tg::branch::Object::try_from(data)?)),
+			Data::Directory(data) => {
+				Self::Directory(Arc::new(tg::directory::Object::try_from(data)?))
+			},
+			Data::File(data) => Self::File(Arc::new(tg::file::Object::try_from(data)?)),
+			Data::Symlink(data) => Self::Symlink(Arc::new(tg::symlink::Object::try_from(data)?)),
+			Data::Lock(data) => Self::Lock(Arc::new(tg::lock::Object::try_from(data)?)),
+			Data::Target(data) => Self::Target(Arc::new(tg::target::Object::try_from(data)?)),
 		})
 	}
 }

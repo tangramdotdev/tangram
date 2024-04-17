@@ -5,15 +5,15 @@ use crate::{
 use bytes::{Bytes, BytesMut};
 use futures::{
 	future::{self, BoxFuture},
-	stream, stream_select, FutureExt, Stream, StreamExt, TryStreamExt,
+	stream, stream_select, FutureExt as _, Stream, StreamExt as _, TryStreamExt as _,
 };
-use http_body_util::{BodyExt, StreamBody};
+use http_body_util::{BodyExt as _, StreamBody};
 use indoc::formatdoc;
 use num::ToPrimitive;
 use std::{io::Cursor, pin::pin, sync::Arc};
 use tangram_client as tg;
 use tangram_database::{self as db, prelude::*};
-use tokio::io::{AsyncRead, AsyncReadExt, AsyncSeek, AsyncSeekExt};
+use tokio::io::{AsyncRead, AsyncReadExt as _, AsyncSeek, AsyncSeekExt as _};
 use tokio_stream::wrappers::IntervalStream;
 
 pub enum Reader {
@@ -259,33 +259,17 @@ impl Server {
 		Ok(Some(log))
 	}
 
-	pub async fn add_build_log(
-		&self,
-		user: Option<&tg::User>,
-		id: &tg::build::Id,
-		bytes: Bytes,
-	) -> tg::Result<()> {
-		if self
-			.try_add_build_log_local(user, id, bytes.clone())
-			.await?
-		{
+	pub async fn add_build_log(&self, id: &tg::build::Id, bytes: Bytes) -> tg::Result<()> {
+		if self.try_add_build_log_local(id, bytes.clone()).await? {
 			return Ok(());
 		}
-		if self
-			.try_add_build_log_remote(user, id, bytes.clone())
-			.await?
-		{
+		if self.try_add_build_log_remote(id, bytes.clone()).await? {
 			return Ok(());
 		}
 		Err(tg::error!("failed to get the build"))
 	}
 
-	async fn try_add_build_log_local(
-		&self,
-		_user: Option<&tg::User>,
-		id: &tg::build::Id,
-		bytes: Bytes,
-	) -> tg::Result<bool> {
+	async fn try_add_build_log_local(&self, id: &tg::build::Id, bytes: Bytes) -> tg::Result<bool> {
 		// Verify the build is local.
 		if !self.get_build_exists_local(id).await? {
 			return Ok(false);
@@ -337,16 +321,11 @@ impl Server {
 		Ok(true)
 	}
 
-	async fn try_add_build_log_remote(
-		&self,
-		user: Option<&tg::User>,
-		id: &tg::build::Id,
-		bytes: Bytes,
-	) -> tg::Result<bool> {
+	async fn try_add_build_log_remote(&self, id: &tg::build::Id, bytes: Bytes) -> tg::Result<bool> {
 		let Some(remote) = self.inner.remotes.first() else {
 			return Ok(false);
 		};
-		remote.add_build_log(user, id, bytes).await?;
+		remote.add_build_log(id, bytes).await?;
 		Ok(true)
 	}
 }
@@ -790,9 +769,6 @@ where
 			.parse()
 			.map_err(|source| tg::error!(!source, "failed to parse the ID"))?;
 
-		// Get the user.
-		let user = self.try_get_user_from_request(&request).await?;
-
 		// Read the body.
 		let bytes = request
 			.into_body()
@@ -801,10 +777,7 @@ where
 			.map_err(|source| tg::error!(!source, "failed to read the body"))?
 			.to_bytes();
 
-		self.inner
-			.tg
-			.add_build_log(user.as_ref(), &build_id, bytes)
-			.await?;
+		self.inner.tg.add_build_log(&build_id, bytes).await?;
 
 		let response = http::Response::builder()
 			.status(http::StatusCode::OK)

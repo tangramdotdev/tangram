@@ -1,9 +1,8 @@
 use crate::{
-	self as tg, directory, error, lock,
+	self as tg,
 	util::http::{empty, full},
-	Client, Dependency, Directory, Handle, Lock,
 };
-use http_body_util::BodyExt;
+use http_body_util::BodyExt as _;
 use serde_with::{serde_as, DisplayFromStr};
 use std::collections::BTreeMap;
 use std::path::Path;
@@ -27,9 +26,9 @@ pub struct GetArg {
 
 #[derive(Debug, Clone, serde::Deserialize, serde::Serialize)]
 pub struct GetOutput {
-	pub dependencies: Option<Vec<Dependency>>,
-	pub id: directory::Id,
-	pub lock: Option<lock::Id>,
+	pub dependencies: Option<Vec<tg::Dependency>>,
+	pub id: tg::directory::Id,
+	pub lock: Option<tg::lock::Id>,
 	pub metadata: Option<Metadata>,
 	pub path: Option<tg::Path>,
 	pub yanked: Option<bool>,
@@ -72,32 +71,35 @@ pub struct SearchArg {
 
 pub type SearchOutput = Vec<String>;
 
-pub async fn get(tg: &impl Handle, dependency: &Dependency) -> tg::Result<Directory> {
+pub async fn get(tg: &impl tg::Handle, dependency: &tg::Dependency) -> tg::Result<tg::Directory> {
 	try_get(tg, dependency)
 		.await?
 		.ok_or_else(|| tg::error!(%dependency, "failed to find the package"))
 }
 
-pub async fn try_get(tg: &impl Handle, dependency: &Dependency) -> tg::Result<Option<Directory>> {
+pub async fn try_get(
+	tg: &impl tg::Handle,
+	dependency: &tg::Dependency,
+) -> tg::Result<Option<tg::Directory>> {
 	let arg = GetArg::default();
 	let output = tg.try_get_package(dependency, arg).await?;
-	let package = output.map(|output| Directory::with_id(output.id));
+	let package = output.map(|output| tg::Directory::with_id(output.id));
 	Ok(package)
 }
 
 pub async fn get_with_lock(
-	tg: &impl Handle,
-	dependency: &Dependency,
-) -> tg::Result<(Directory, Lock)> {
+	tg: &impl tg::Handle,
+	dependency: &tg::Dependency,
+) -> tg::Result<(tg::Directory, tg::Lock)> {
 	try_get_with_lock(tg, dependency)
 		.await?
 		.ok_or_else(|| tg::error!(%dependency, "failed to find the package"))
 }
 
 pub async fn try_get_with_lock(
-	tg: &impl Handle,
-	dependency: &Dependency,
-) -> tg::Result<Option<(Directory, Lock)>> {
+	tg: &impl tg::Handle,
+	dependency: &tg::Dependency,
+) -> tg::Result<Option<(tg::Directory, tg::Lock)>> {
 	let arg = GetArg {
 		lock: true,
 		..Default::default()
@@ -105,29 +107,29 @@ pub async fn try_get_with_lock(
 	let Some(output) = tg.try_get_package(dependency, arg).await? else {
 		return Ok(None);
 	};
-	let package = Directory::with_id(output.id);
+	let package = tg::Directory::with_id(output.id);
 	let lock = output
 		.lock
 		.ok_or_else(|| tg::error!(%dependency, "expected the lock to be set"))?;
-	let lock = Lock::with_id(lock);
+	let lock = tg::Lock::with_id(lock);
 	Ok(Some((package, lock)))
 }
 
 pub async fn get_dependencies(
-	tg: &impl Handle,
-	package: &Directory,
-) -> tg::Result<Vec<Dependency>> {
+	tg: &impl tg::Handle,
+	package: &tg::Directory,
+) -> tg::Result<Vec<tg::Dependency>> {
 	try_get_dependencies(tg, package)
 		.await?
 		.ok_or_else(|| tg::error!(%package, "failed to find the package"))
 }
 
 pub async fn try_get_dependencies(
-	tg: &impl Handle,
-	package: &Directory,
-) -> tg::Result<Option<Vec<Dependency>>> {
-	let id = package.id(tg).await?;
-	let dependency = Dependency::with_id(id);
+	tg: &impl tg::Handle,
+	package: &tg::Directory,
+) -> tg::Result<Option<Vec<tg::Dependency>>> {
+	let id = package.id(tg, None).await?;
+	let dependency = tg::Dependency::with_id(id);
 	let arg = GetArg {
 		dependencies: true,
 		..Default::default()
@@ -141,18 +143,18 @@ pub async fn try_get_dependencies(
 	Ok(Some(dependencies))
 }
 
-pub async fn get_metadata(tg: &impl Handle, package: &Directory) -> tg::Result<Metadata> {
+pub async fn get_metadata(tg: &impl tg::Handle, package: &tg::Directory) -> tg::Result<Metadata> {
 	try_get_metadata(tg, package)
 		.await?
 		.ok_or_else(|| tg::error!(%package, "failed to find the package"))
 }
 
 pub async fn try_get_metadata(
-	tg: &impl Handle,
-	package: &Directory,
+	tg: &impl tg::Handle,
+	package: &tg::Directory,
 ) -> tg::Result<Option<Metadata>> {
-	let id = package.id(tg).await?;
-	let dependency = Dependency::with_id(id);
+	let id = package.id(tg, None).await?;
+	let dependency = tg::Dependency::with_id(id);
 	let arg = GetArg {
 		metadata: true,
 		..Default::default()
@@ -167,18 +169,18 @@ pub async fn try_get_metadata(
 }
 
 pub async fn get_root_module_path(
-	tg: &impl Handle,
-	package: &Directory,
-) -> tg::Result<crate::Path> {
+	tg: &impl tg::Handle,
+	package: &tg::Directory,
+) -> tg::Result<tg::Path> {
 	try_get_root_module_path(tg, package)
 		.await?
 		.ok_or_else(|| tg::error!("failed to find the package's root module"))
 }
 
 pub async fn try_get_root_module_path(
-	tg: &impl Handle,
-	package: &Directory,
-) -> tg::Result<Option<crate::Path>> {
+	tg: &impl tg::Handle,
+	package: &tg::Directory,
+) -> tg::Result<Option<tg::Path>> {
 	let mut root_module_path = None;
 	for module_file_name in ROOT_MODULE_FILE_NAMES {
 		if package
@@ -187,7 +189,7 @@ pub async fn try_get_root_module_path(
 			.is_some()
 		{
 			if root_module_path.is_some() {
-				return Err(error!("found multiple root modules"));
+				return Err(tg::error!("found multiple root modules"));
 			}
 			root_module_path = Some(module_file_name.parse().unwrap());
 		}
@@ -195,13 +197,13 @@ pub async fn try_get_root_module_path(
 	Ok(root_module_path)
 }
 
-pub async fn get_root_module_path_for_path(path: &Path) -> tg::Result<crate::Path> {
+pub async fn get_root_module_path_for_path(path: &Path) -> tg::Result<tg::Path> {
 	try_get_root_module_path_for_path(path)
 		.await?
 		.ok_or_else(|| tg::error!("failed to find the package's root module"))
 }
 
-pub async fn try_get_root_module_path_for_path(path: &Path) -> tg::Result<Option<crate::Path>> {
+pub async fn try_get_root_module_path_for_path(path: &Path) -> tg::Result<Option<tg::Path>> {
 	let mut root_module_path = None;
 	for module_file_name in ROOT_MODULE_FILE_NAMES {
 		if tokio::fs::try_exists(path.join(module_file_name))
@@ -209,7 +211,7 @@ pub async fn try_get_root_module_path_for_path(path: &Path) -> tg::Result<Option
 			.map_err(|source| tg::error!(!source, "failed to get the metadata"))?
 		{
 			if root_module_path.is_some() {
-				return Err(error!("found multiple root modules"));
+				return Err(tg::error!("found multiple root modules"));
 			}
 			root_module_path = Some(module_file_name.parse().unwrap());
 		}
@@ -217,7 +219,7 @@ pub async fn try_get_root_module_path_for_path(path: &Path) -> tg::Result<Option
 	Ok(root_module_path)
 }
 
-impl Client {
+impl tg::Client {
 	pub async fn search_packages(
 		&self,
 		arg: tg::package::SearchArg,
@@ -297,18 +299,17 @@ impl Client {
 		Ok(Some(output))
 	}
 
-	pub async fn try_get_package_versions(
+	pub async fn check_package(
 		&self,
 		dependency: &tg::Dependency,
-	) -> tg::Result<Option<Vec<String>>> {
-		let method = http::Method::GET;
+	) -> tg::Result<Vec<tg::Diagnostic>> {
+		let method = http::Method::POST;
 		let dependency = dependency.to_string();
 		let dependency = urlencoding::encode(&dependency);
-		let uri = format!("/packages/{dependency}/versions");
+		let uri = format!("/packages/{dependency}/check");
+		let request = http::request::Builder::default().method(method).uri(uri);
 		let body = empty();
-		let request = http::request::Builder::default()
-			.method(method)
-			.uri(uri)
+		let request = request
 			.body(body)
 			.map_err(|source| tg::error!(!source, "failed to create the request"))?;
 		let response = self.send(request).await?;
@@ -329,81 +330,17 @@ impl Client {
 			.to_bytes();
 		let output = serde_json::from_slice(&bytes)
 			.map_err(|source| tg::error!(!source, "failed to deserialize the response body"))?;
-		Ok(Some(output))
+		Ok(output)
 	}
 
-	pub async fn publish_package(
-		&self,
-		user: Option<&tg::User>,
-		id: &tg::directory::Id,
-	) -> tg::Result<()> {
-		let method = http::Method::POST;
-		let uri = "/packages";
-		let mut request = http::request::Builder::default().method(method).uri(uri);
-		let user = user.or(self.inner.user.as_ref());
-		if let Some(token) = user.and_then(|user| user.token.as_ref()) {
-			request = request.header(http::header::AUTHORIZATION, format!("Bearer {token}"));
-		}
-		let body = serde_json::to_vec(&id)
-			.map_err(|source| tg::error!(!source, "failed to serialize the body"))?;
-		let body = full(body);
-		let request = request
-			.body(body)
-			.map_err(|source| tg::error!(!source, "failed to create the request"))?;
-		let response = self.send(request).await?;
-		if !response.status().is_success() {
-			let bytes = response
-				.collect()
-				.await
-				.map_err(|source| tg::error!(!source, "failed to collect the response body"))?
-				.to_bytes();
-			let error = serde_json::from_slice(&bytes)
-				.unwrap_or_else(|_| tg::error!("failed to deserialize the error"));
-			return Err(error);
-		}
-		Ok(())
-	}
-
-	pub async fn yank_package(
-		&self,
-		user: Option<&tg::User>,
-		id: &tg::directory::Id,
-	) -> tg::Result<()> {
-		let method = http::Method::POST;
-		let uri = format!("/packages/{id}/yank");
-		let mut request = http::request::Builder::default().method(method).uri(uri);
-		let user = user.or(self.inner.user.as_ref());
-		if let Some(token) = user.and_then(|user| user.token.as_ref()) {
-			request = request.header(http::header::AUTHORIZATION, format!("Bearer {token}"));
-		}
-		let body = serde_json::to_vec(&id)
-			.map_err(|source| tg::error!(!source, "failed to serialize the body"))?;
-		let body = full(body);
-		let request = request
-			.body(body)
-			.map_err(|source| tg::error!(!source, "failed to create the request"))?;
-		let response = self.send(request).await?;
-		if !response.status().is_success() {
-			let bytes = response
-				.collect()
-				.await
-				.map_err(|source| tg::error!(!source, "failed to collect the response body"))?
-				.to_bytes();
-			let error = serde_json::from_slice(&bytes)
-				.unwrap_or_else(|_| tg::error!("failed to deserialize the error"));
-			return Err(error);
-		}
-		Ok(())
-	}
-
-	pub async fn check_package(
+	pub async fn try_get_package_doc(
 		&self,
 		dependency: &tg::Dependency,
-	) -> tg::Result<Vec<tg::Diagnostic>> {
-		let method = http::Method::POST;
+	) -> tg::Result<Option<serde_json::Value>> {
+		let method = http::Method::GET;
 		let dependency = dependency.to_string();
 		let dependency = urlencoding::encode(&dependency);
-		let uri = format!("/packages/{dependency}/check");
+		let uri = format!("/packages/{dependency}/doc");
 		let request = http::request::Builder::default().method(method).uri(uri);
 		let body = empty();
 		let request = request
@@ -470,7 +407,7 @@ impl Client {
 			.map_err(|source| tg::error!(!source, "failed to create the request"))?;
 		let response = self.send(request).await?;
 		if response.status() == http::StatusCode::NOT_FOUND {
-			return Err(error!(%dependency, "could not find package"));
+			return Err(tg::error!(%dependency, "could not find package"));
 		}
 		if !response.status().is_success() {
 			let bytes = response
@@ -492,11 +429,16 @@ impl Client {
 		Ok(output)
 	}
 
-	pub async fn get_runtime_doc(&self) -> tg::Result<serde_json::Value> {
-		let method = http::Method::GET;
-		let uri = "/runtimes/js/doc";
-		let request = http::request::Builder::default().method(method).uri(uri);
-		let body = empty();
+	pub async fn publish_package(&self, id: &tg::directory::Id) -> tg::Result<()> {
+		let method = http::Method::POST;
+		let uri = "/packages";
+		let mut request = http::request::Builder::default().method(method).uri(uri);
+		if let Some(token) = self.inner.token.as_ref() {
+			request = request.header(http::header::AUTHORIZATION, format!("Bearer {token}"));
+		}
+		let body = serde_json::to_vec(&id)
+			.map_err(|source| tg::error!(!source, "failed to serialize the body"))?;
+		let body = full(body);
 		let request = request
 			.body(body)
 			.map_err(|source| tg::error!(!source, "failed to create the request"))?;
@@ -511,27 +453,21 @@ impl Client {
 				.unwrap_or_else(|_| tg::error!("failed to deserialize the error"));
 			return Err(error);
 		}
-		let bytes = response
-			.collect()
-			.await
-			.map_err(|source| tg::error!(!source, "failed to collect the response body"))?
-			.to_bytes();
-		let output = serde_json::from_slice(&bytes)
-			.map_err(|source| tg::error!(!source, "failed to deserialize the response body"))?;
-		Ok(output)
+		Ok(())
 	}
 
-	pub async fn try_get_package_doc(
+	pub async fn try_get_package_versions(
 		&self,
 		dependency: &tg::Dependency,
-	) -> tg::Result<Option<serde_json::Value>> {
+	) -> tg::Result<Option<Vec<String>>> {
 		let method = http::Method::GET;
 		let dependency = dependency.to_string();
 		let dependency = urlencoding::encode(&dependency);
-		let uri = format!("/packages/{dependency}/doc");
-		let request = http::request::Builder::default().method(method).uri(uri);
+		let uri = format!("/packages/{dependency}/versions");
 		let body = empty();
-		let request = request
+		let request = http::request::Builder::default()
+			.method(method)
+			.uri(uri)
 			.body(body)
 			.map_err(|source| tg::error!(!source, "failed to create the request"))?;
 		let response = self.send(request).await?;
@@ -552,6 +488,31 @@ impl Client {
 			.to_bytes();
 		let output = serde_json::from_slice(&bytes)
 			.map_err(|source| tg::error!(!source, "failed to deserialize the response body"))?;
-		Ok(output)
+		Ok(Some(output))
+	}
+
+	pub async fn yank_package(&self, id: &tg::directory::Id) -> tg::Result<()> {
+		let method = http::Method::POST;
+		let uri = format!("/packages/{id}/yank");
+		let mut request = http::request::Builder::default().method(method).uri(uri);
+		if let Some(token) = self.inner.token.as_ref() {
+			request = request.header(http::header::AUTHORIZATION, format!("Bearer {token}"));
+		}
+		let body = empty();
+		let request = request
+			.body(body)
+			.map_err(|source| tg::error!(!source, "failed to create the request"))?;
+		let response = self.send(request).await?;
+		if !response.status().is_success() {
+			let bytes = response
+				.collect()
+				.await
+				.map_err(|source| tg::error!(!source, "failed to collect the response body"))?
+				.to_bytes();
+			let error = serde_json::from_slice(&bytes)
+				.unwrap_or_else(|_| tg::error!("failed to deserialize the error"));
+			return Err(error);
+		}
+		Ok(())
 	}
 }

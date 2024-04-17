@@ -30,7 +30,7 @@ impl Cli {
 
 		// Get the doc.
 		let doc = if args.runtime {
-			client.get_runtime_doc().await?
+			client.get_js_runtime_doc().await?
 		} else {
 			client
 				.try_get_package_doc(&args.package)
