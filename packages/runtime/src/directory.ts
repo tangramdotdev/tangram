@@ -58,7 +58,7 @@ export class Directory {
 				for (let [key, value] of Object.entries(arg)) {
 					// Separate the first normal path component from the trailing path components.
 					let [_, firstComponent, ...trailingComponents] =
-						Path.new(key).components();
+						Path.new(key).components;
 					if (firstComponent === undefined) {
 						throw new Error("the path must have at least one component");
 					}
@@ -161,7 +161,7 @@ export class Directory {
 	async tryGet(arg: Path.Arg): Promise<Directory | File | undefined> {
 		let artifact: Directory | File = this;
 		let currentPath = Path.new();
-		let components = Path.new(arg).components();
+		let components = Path.new(arg).components;
 		for (let i = 1; i < components.length; i++) {
 			let component = components[i]!;
 			if (!Path.Component.isNormal(component)) {

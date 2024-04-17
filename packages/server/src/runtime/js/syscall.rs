@@ -63,9 +63,9 @@ pub fn syscall<'s>(
 		},
 
 		Err(error) => {
-			// Wrap the error.
+			// Create the error.
 			let stack = current_stack_trace(scope).unwrap_or_default();
-			let error = tg::error!(source = error, stack = stack, "{name} failed");
+			let error = tg::error!(source = error, stack = stack, %name, "the syscall failed");
 
 			// Throw an exception.
 			let exception = super::error::to_exception(scope, &error);

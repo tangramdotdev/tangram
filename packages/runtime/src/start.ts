@@ -1,5 +1,4 @@
 import { assert } from "./assert.ts";
-import * as encoding from "./encoding.ts";
 import { Module } from "./module.ts";
 import { resolve } from "./resolve.ts";
 import { Symlink } from "./symlink.ts";

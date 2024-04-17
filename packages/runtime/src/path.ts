@@ -29,14 +29,14 @@ export class Path {
 				}
 				return path;
 			} else if (arg instanceof Path) {
-				return path.join(arg);
+				for (let component of arg.#components) {
+					path.push(component);
+				}
+				return path;
 			} else if (arg instanceof Array) {
 				for (let arg_ of arg) {
 					path = reduce(path, arg_);
 				}
-				return path;
-			} else if (arg === Path.Component.Root) {
-				path.push(Path.Component.Root);
 				return path;
 			} else {
 				return unreachable();
@@ -51,7 +51,7 @@ export class Path {
 		}
 	}
 
-	components(): Array<Path.Component> {
+	get components(): Array<Path.Component> {
 		return this.#components;
 	}
 
@@ -89,8 +89,8 @@ export class Path {
 	}
 
 	join(other: Path.Arg): Path {
-		let path = new Path(this.components());
-		for (let component of Path.new(other).components()) {
+		let path = new Path(this.components);
+		for (let component of Path.new(other).components) {
 			path.push(component);
 		}
 		return path;
@@ -98,8 +98,8 @@ export class Path {
 
 	normalize(): Path {
 		let path = new Path();
-		for (let component of this.components()) {
-			let last = path.components().at(-1);
+		for (let component of this.components) {
+			let last = path.components.at(-1);
 			if (
 				component === Path.Component.Parent &&
 				last !== undefined &&
@@ -116,15 +116,15 @@ export class Path {
 	}
 
 	isInternal(): boolean {
-		return this.components().at(0)! === Path.Component.Current;
+		return this.components.at(0)! === Path.Component.Current;
 	}
 
 	isExternal(): boolean {
-		return this.components().at(0)! === Path.Component.Parent;
+		return this.components.at(0)! === Path.Component.Parent;
 	}
 
 	isAbsolute(): boolean {
-		return this.components().at(0)! === Path.Component.Root;
+		return this.components.at(0)! === Path.Component.Root;
 	}
 
 	toString(): string {

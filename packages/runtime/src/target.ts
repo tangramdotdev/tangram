@@ -3,7 +3,6 @@ import { Artifact } from "./artifact.ts";
 import { assert as assert_, unreachable } from "./assert.ts";
 import type { Checksum } from "./checksum.ts";
 import { Directory } from "./directory.ts";
-import * as encoding from "./encoding.ts";
 import { Lock } from "./lock.ts";
 import { Module } from "./module.ts";
 import { Mutation, mutation } from "./mutation.ts";
@@ -312,10 +311,8 @@ export class Target<
 	}
 
 	async build(...args: A): Promise<Value> {
-		return await syscall(
-			"build",
-			await Target.new<[], R>(this as Target, { args }),
-		);
+		let target = await Target.new<[], R>(this as Target, { args });
+		return await syscall("build", target);
 	}
 }
 
