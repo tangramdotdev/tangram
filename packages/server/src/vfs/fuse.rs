@@ -792,7 +792,7 @@ impl Server {
 		};
 
 		// Render the target.
-		let mut target = String::new();
+		let mut target = tg::Path::new();
 		let Ok(artifact) = symlink.artifact(&self.inner.server).await else {
 			return Err(libc::EIO);
 		};
@@ -804,17 +804,14 @@ impl Server {
 				return Err(libc::EIO);
 			};
 			for _ in 0..node.depth() - 1 {
-				target.push_str("../");
+				target.push(tg::path::Component::Parent);
 			}
-			target.push_str(&id.to_string());
-		}
-		if artifact.is_some() && path.is_some() {
-			target.push('/');
+			target.push(tg::path::Component::Normal(id.to_string()));
 		}
 		if let Some(path) = path.as_ref() {
-			target.push_str(path);
+			target = target.join(path.clone());
 		}
-		let target = CString::new(target).unwrap();
+		let target = CString::new(target.to_string()).unwrap();
 
 		Ok(Response::ReadLink(target))
 	}
