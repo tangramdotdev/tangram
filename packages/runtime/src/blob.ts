@@ -31,7 +31,7 @@ export namespace Blob {
 
 	export type Object_ = Array<[Blob, number]> | Uint8Array;
 
-	export type CompressionFormat = "bz2" | "gz" | "lz" | "xz" | "zst";
+	export type CompressionFormat = "bz2" | "gz" | "xz" | "zst";
 
 	export let new_ = async (...args: Args<Blob.Arg>): Promise<Blob> => {
 		type Apply = { children: Array<Blob> };

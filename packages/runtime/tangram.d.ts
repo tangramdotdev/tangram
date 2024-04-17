@@ -79,7 +79,7 @@ declare namespace tg {
 
 		export type Id = string;
 
-		export type CompressionFormat = "bz2" | "gz" | "lz" | "xz" | "zst";
+		export type CompressionFormat = "bz2" | "gz" | "xz" | "zst";
 	}
 
 	/** Compute the checksum of the provided bytes with the specified algorithm. */
