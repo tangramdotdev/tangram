@@ -123,16 +123,8 @@ impl std::fmt::Display for Dependency {
 			(None, Some(name), Some(version), None) => {
 				write!(f, "{name}@{version}")?;
 			},
-			(None, None, None, Some(path)) => match path.components().first() {
-				Some(tg::path::Component::Root | tg::path::Component::Parent) => {
-					write!(f, "{path}")?;
-				},
-				Some(tg::path::Component::Current) | None => {
-					write!(f, ".")?;
-				},
-				Some(tg::path::Component::Normal(_)) => {
-					write!(f, "./{path}")?;
-				},
+			(None, None, None, Some(path)) => {
+				write!(f, "{path}")?;
 			},
 			_ => {
 				let json = serde_json::to_string(self).unwrap();
