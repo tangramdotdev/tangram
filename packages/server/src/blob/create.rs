@@ -34,7 +34,7 @@ impl Server {
 		);
 		let mut children = chunker
 			.as_stream()
-			.map_err(|source| tg::error!(!source, "failed to read"))
+			.map_err(|source| tg::error!(!source, "failed to read from the reader"))
 			.and_then(|chunk| async {
 				let bytes = Bytes::from(chunk.data);
 				let size = bytes.len().to_u64().unwrap();

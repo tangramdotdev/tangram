@@ -538,9 +538,9 @@ where
 
 		// Read.
 		let cursor = this.cursor.as_ref().unwrap();
-		let bytes = cursor.get_ref();
+		let bytes = &cursor.get_ref()[cursor.position().to_usize().unwrap()..];
 
-		std::task::Poll::Ready(Ok(bytes.as_ref()))
+		std::task::Poll::Ready(Ok(bytes))
 	}
 
 	fn consume(self: Pin<&mut Self>, amt: usize) {
@@ -660,7 +660,7 @@ impl std::str::FromStr for CompressionFormat {
 			"bz2" => Ok(Self::Bz2),
 			"gz" => Ok(Self::Gz),
 			"xz" => Ok(Self::Xz),
-			"zst" | "zstd" => Ok(Self::Zstd),
+			"zst" => Ok(Self::Zstd),
 			extension => Err(tg::error!(%extension, "invalid compression format")),
 		}
 	}
