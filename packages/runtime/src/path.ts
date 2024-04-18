@@ -1,4 +1,4 @@
-import { unreachable, assert as assert_ } from "./assert.ts";
+import { assert as assert_, unreachable } from "./assert.ts";
 
 export let path = (...args: Array<Path.Arg>): Path => {
 	return Path.new(args);

@@ -129,7 +129,7 @@ let stringifyObject = (value: object, visited: WeakSet<object>): string => {
 let stringifyState = (
 	kind: string,
 	state: Object_.State<string, object>,
-	visited: WeakSet<object>
+	visited: WeakSet<object>,
 ): string => {
 	let { id, object } = state;
 	if (id !== undefined) {
