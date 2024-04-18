@@ -3,7 +3,7 @@ use http_body_util::BodyExt as _;
 
 #[derive(Clone, Debug, Default, serde::Deserialize, serde::Serialize)]
 pub struct Health {
-	pub version: String,
+	pub version: Option<String>,
 }
 
 impl tg::Client {

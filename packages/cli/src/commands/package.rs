@@ -94,14 +94,13 @@ impl Cli {
 	}
 
 	pub async fn command_package_get(&self, args: GetArgs) -> tg::Result<()> {
-		let client = &self.client().await?;
 		let arg = tg::package::GetArg {
 			metadata: true,
 			yanked: true,
 			path: true,
 			..Default::default()
 		};
-		let output = client.get_package(&args.package, arg).await.map_err(
+		let output = self.handle.get_package(&args.package, arg).await.map_err(
 			|error| tg::error!(source = error, %dependency = args.package, "failed to get the package"),
 		)?;
 
@@ -126,7 +125,6 @@ impl Cli {
 	}
 
 	pub async fn command_package_outdated(&self, args: OutdatedArgs) -> tg::Result<()> {
-		let client = &self.client().await?;
 		let mut dependency = tg::Dependency::with_path(args.path);
 
 		// Canonicalize the path.
@@ -137,9 +135,13 @@ impl Cli {
 				.try_into()?;
 		}
 
-		let outdated = client.get_package_outdated(&dependency).await.map_err(
-			|source| tg::error!(!source, %dependency, "failed to get outdated packages"),
-		)?;
+		let outdated = self
+			.handle
+			.get_package_outdated(&dependency)
+			.await
+			.map_err(
+				|source| tg::error!(!source, %dependency, "failed to get outdated packages"),
+			)?;
 
 		if args.json {
 			let json = serde_json::to_string_pretty(&outdated).map_err(
@@ -190,7 +192,6 @@ impl Cli {
 	}
 
 	pub async fn command_package_publish(&self, args: PublishArgs) -> tg::Result<()> {
-		let client = &self.client().await?;
 		let mut dependency = args.package;
 
 		// Canonicalize the path.
@@ -202,19 +203,19 @@ impl Cli {
 		}
 
 		// Create the package.
-		let (package, _) = tg::package::get_with_lock(client, &dependency).await?;
+		let (package, _) = tg::package::get_with_lock(&self.handle, &dependency).await?;
 
 		// Get the package ID.
-		let id = package.id(client, None).await?;
+		let id = package.id(&self.handle, None).await?;
 
 		// Publish the package.
-		client
+		self.handle
 			.publish_package(&id)
 			.await
 			.map_err(|source| tg::error!(!source, "failed to publish the package"))?;
 
 		// Display
-		let metadata = tg::package::get_metadata(client, &package).await?;
+		let metadata = tg::package::get_metadata(&self.handle, &package).await?;
 		println!(
 			"{}: published {}@{}",
 			"info".blue(),
@@ -225,11 +226,9 @@ impl Cli {
 	}
 
 	pub async fn command_package_search(&self, args: SearchArgs) -> tg::Result<()> {
-		let client = &self.client().await?;
-
 		// Perform the search.
 		let arg = tg::package::SearchArg { query: args.query };
-		let packages = client.search_packages(arg).await?;
+		let packages = self.handle.search_packages(arg).await?;
 
 		// Print the package names.
 		if packages.is_empty() {
@@ -243,7 +242,6 @@ impl Cli {
 	}
 
 	pub async fn command_package_tree(&self, args: TreeArgs) -> tg::Result<()> {
-		let client = &self.client().await?;
 		let mut dependency = args.package;
 
 		// Canonicalize the path.
@@ -255,13 +253,13 @@ impl Cli {
 		}
 
 		// Create the package.
-		let (package, lock) = tg::package::get_with_lock(client, &dependency)
+		let (package, lock) = tg::package::get_with_lock(&self.handle, &dependency)
 			.await
 			.map_err(|source| tg::error!(!source, %dependency, "failed to get the lock"))?;
 
 		let mut visited = BTreeSet::new();
 		let tree = get_package_tree(
-			client,
+			&self.handle,
 			dependency,
 			package,
 			lock,
@@ -277,7 +275,6 @@ impl Cli {
 	}
 
 	pub async fn command_package_update(&self, args: UpdateArgs) -> tg::Result<()> {
-		let client = &self.client().await?;
 		let mut dependency = tg::Dependency::with_path(args.path);
 
 		// Canonicalize the path.
@@ -291,7 +288,7 @@ impl Cli {
 				.ok();
 		}
 
-		let _ = tg::package::get_with_lock(client, &dependency)
+		let _ = tg::package::get_with_lock(&self.handle, &dependency)
 			.await
 			.map_err(|source| tg::error!(!source, %dependency, "failed to create a new lock"))?;
 
@@ -299,7 +296,6 @@ impl Cli {
 	}
 
 	pub async fn command_package_yank(&self, args: YankArgs) -> tg::Result<()> {
-		let client = &self.client().await?;
 		let mut dependency = args.package;
 
 		// Canonicalize the path.
@@ -318,25 +314,25 @@ impl Cli {
 		}
 
 		// Create the package.
-		let package = tg::package::get(client, &dependency)
+		let package = tg::package::get(&self.handle, &dependency)
 			.await
 			.map_err(|source| tg::error!(!source, %dependency, "failed to get the package"))?;
 
 		// Get the package ID.
-		let id = package.id(client, None).await?;
+		let id = package.id(&self.handle, None).await?;
 
 		// Yank the package.
-		client
+		self.handle
 			.yank_package(&id)
 			.await
 			.map_err(|source| tg::error!(!source, "failed to yank the package"))?;
 
 		// Get the package metadata
-		let metadata = tg::package::get_metadata(client, &package).await?;
+		let metadata = tg::package::get_metadata(&self.handle, &package).await?;
 		println!(
 			"{}: {} {}@{}",
 			"info".blue(),
-			"YANKED".bold().red(),
+			"YANKED".red().bold(),
 			metadata.name.unwrap().red(),
 			metadata.version.unwrap().green()
 		);
@@ -346,18 +342,21 @@ impl Cli {
 }
 
 #[allow(clippy::too_many_arguments)]
-async fn get_package_tree(
-	client: &tg::Client,
+async fn get_package_tree<H>(
+	handle: &H,
 	dependency: tg::Dependency,
 	package: tg::Directory,
 	lock: tg::Lock,
 	visited: &mut BTreeSet<tg::directory::Id>,
 	current_depth: u32,
 	max_depth: Option<u32>,
-) -> tg::Result<Tree> {
+) -> tg::Result<Tree>
+where
+	H: tg::Handle,
+{
 	let mut title = String::new();
 	write!(title, "{dependency}: ").unwrap();
-	if let Ok(metadata) = tg::package::get_metadata(client, &package).await {
+	if let Ok(metadata) = tg::package::get_metadata(handle, &package).await {
 		if let Some(name) = metadata.name {
 			write!(title, "{name}").unwrap();
 		} else {
@@ -370,7 +369,7 @@ async fn get_package_tree(
 		write!(title, "{package}").unwrap();
 	}
 
-	let package_id = package.id(client, None).await?;
+	let package_id = package.id(handle, None).await?;
 	if visited.contains(&package_id)
 		|| max_depth.map_or(false, |max_depth| current_depth == max_depth)
 	{
@@ -380,12 +379,12 @@ async fn get_package_tree(
 	visited.insert(package_id);
 
 	let mut children = Vec::new();
-	for dependency in lock.dependencies(client).await? {
-		let (child_package, lock) = lock.get(client, &dependency).await?;
+	for dependency in lock.dependencies(handle).await? {
+		let (child_package, lock) = lock.get(handle, &dependency).await?;
 		let package = match (child_package, &dependency.path) {
 			(Some(package), _) => package,
 			(None, Some(path)) => package
-				.get(client, path)
+				.get(handle, path)
 				.await
 				.map_err(|source| tg::error!(!source, %path, "could not resolve path dependency"))?
 				.try_unwrap_directory()
@@ -393,7 +392,7 @@ async fn get_package_tree(
 			(None, None) => return Err(tg::error!("invalid lock")),
 		};
 		let child = Box::pin(get_package_tree(
-			client,
+			handle,
 			dependency,
 			package,
 			lock,

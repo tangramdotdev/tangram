@@ -1,5 +1,6 @@
 use crate::Cli;
 use tangram_client as tg;
+use tg::Handle as _;
 
 /// Generate documentation.
 #[derive(Debug, clap::Args)]
@@ -18,8 +19,6 @@ pub struct Args {
 
 impl Cli {
 	pub async fn command_doc(&self, mut args: Args) -> tg::Result<()> {
-		let client = &self.client().await?;
-
 		// Canonicalize the package path.
 		if let Some(path) = args.package.path.as_mut() {
 			*path = tokio::fs::canonicalize(&path)
@@ -30,9 +29,9 @@ impl Cli {
 
 		// Get the doc.
 		let doc = if args.runtime {
-			client.get_js_runtime_doc().await?
+			self.handle.get_js_runtime_doc().await?
 		} else {
-			client
+			self.handle
 				.try_get_package_doc(&args.package)
 				.await?
 				.ok_or_else(|| tg::error!("failed to get the package"))?

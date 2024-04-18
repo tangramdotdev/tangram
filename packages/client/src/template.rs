@@ -269,7 +269,7 @@ mod tests {
 			.read()
 			.unwrap()
 			.id()
-			.clone()
+			.cloned()
 			.unwrap();
 		let right = id;
 		assert_eq!(left, right);

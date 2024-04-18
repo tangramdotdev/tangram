@@ -25,9 +25,8 @@ impl Cli {
 	pub async fn command_checksum(&self, args: Args) -> tg::Result<()> {
 		match args.arg {
 			Arg::Blob(blob) => {
-				let client = &self.client().await?;
 				let blob = tg::Blob::with_id(blob);
-				let mut reader = blob.reader(client).await?;
+				let mut reader = blob.reader(&self.handle).await?;
 				let mut checksum = tg::checksum::Writer::new(args.algorithm);
 				tokio::io::copy(&mut reader, &mut checksum)
 					.await

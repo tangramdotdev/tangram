@@ -12,7 +12,7 @@ pub struct Options {
 	pub path: PathBuf,
 	pub remotes: Vec<Remote>,
 	pub url: Url,
-	pub version: String,
+	pub version: Option<String>,
 	pub vfs: bool,
 }
 

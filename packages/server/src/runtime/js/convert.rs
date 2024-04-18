@@ -43,6 +43,15 @@ impl ToV8 for () {
 	}
 }
 
+impl<'t, T> ToV8 for &'t T
+where
+	T: ToV8,
+{
+	fn to_v8<'a>(&self, scope: &mut v8::HandleScope<'a>) -> tg::Result<v8::Local<'a, v8::Value>> {
+		(*self).to_v8(scope)
+	}
+}
+
 impl FromV8 for () {
 	fn from_v8<'a>(
 		_scope: &mut v8::HandleScope<'a>,

@@ -1,5 +1,6 @@
 use crate::Cli;
 use tangram_client as tg;
+use tg::Handle as _;
 use tokio::io::{AsyncReadExt as _, AsyncWriteExt as _};
 
 /// Format the files in a package.
@@ -14,15 +15,13 @@ pub struct Args {
 
 impl Cli {
 	pub async fn command_format(&self, mut args: Args) -> tg::Result<()> {
-		let client = &self.client().await?;
-
 		if args.stdio {
 			let mut text = String::new();
 			tokio::io::stdin()
 				.read_to_string(&mut text)
 				.await
 				.map_err(|source| tg::error!(!source, "failed to read stdin"))?;
-			let text = client.format(text).await?;
+			let text = self.handle.format(text).await?;
 			tokio::io::stdout()
 				.write_all(text.as_bytes())
 				.await
@@ -39,7 +38,7 @@ impl Cli {
 		}
 
 		// Format the package.
-		client.format_package(&args.package).await?;
+		self.handle.format_package(&args.package).await?;
 
 		Ok(())
 	}

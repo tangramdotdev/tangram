@@ -466,13 +466,13 @@ impl<I, O> State<I, O> {
 	}
 
 	#[must_use]
-	pub fn id(&self) -> &Option<I> {
-		&self.id
+	pub fn id(&self) -> Option<&I> {
+		self.id.as_ref()
 	}
 
 	#[must_use]
-	pub fn object(&self) -> &Option<Arc<O>> {
-		&self.object
+	pub fn object(&self) -> Option<&Arc<O>> {
+		self.object.as_ref()
 	}
 }
 

@@ -82,8 +82,7 @@ impl Cli {
 	}
 
 	pub async fn command_object_get(&self, args: GetArgs) -> tg::Result<()> {
-		let client = &self.client().await?;
-		let tg::object::GetOutput { bytes, .. } = client.get_object(&args.id).await?;
+		let tg::object::GetOutput { bytes, .. } = self.handle.get_object(&args.id).await?;
 		tokio::io::stdout()
 			.write_all(&bytes)
 			.await
@@ -92,7 +91,6 @@ impl Cli {
 	}
 
 	pub async fn command_object_put(&self, args: PutArgs) -> tg::Result<()> {
-		let client = &self.client().await?;
 		let kind = args.kind.into();
 		let bytes = if let Some(bytes) = args.bytes {
 			bytes.into_bytes()
@@ -110,37 +108,37 @@ impl Cli {
 			count: None,
 			weight: None,
 		};
-		client.put_object(&id, arg, None).await?;
+		self.handle.put_object(&id, arg, None).await?;
 		println!("{id}");
 		Ok(())
 	}
 
 	pub async fn command_object_push(&self, args: PushArgs) -> tg::Result<()> {
-		let client = &self.client().await?;
-		client.push_object(&args.id).await?;
+		self.handle.push_object(&args.id).await?;
 		Ok(())
 	}
 
 	pub async fn command_object_pull(&self, args: PullArgs) -> tg::Result<()> {
-		let client = &self.client().await?;
-		client.pull_object(&args.id).await?;
+		self.handle.pull_object(&args.id).await?;
 		Ok(())
 	}
 
 	pub async fn command_object_tree(&self, args: TreeArgs) -> tg::Result<()> {
-		let client = &self.client().await?;
-		let tree = get_object_tree(client, args.id, 1, args.depth).await?;
+		let tree = get_object_tree(&self.handle, args.id, 1, args.depth).await?;
 		tree.print();
 		Ok(())
 	}
 }
 
-async fn get_object_tree(
-	client: &tg::Client,
+async fn get_object_tree<H>(
+	handle: &H,
 	object: tg::object::Id,
 	current_depth: u32,
 	max_depth: Option<u32>,
-) -> tg::Result<Tree> {
+) -> tg::Result<Tree>
+where
+	H: tg::Handle,
+{
 	let title = match &object {
 		tg::object::Id::Leaf(id) => id.to_string().green(),
 		tg::object::Id::Branch(id) => id.to_string().blue(),
@@ -152,13 +150,13 @@ async fn get_object_tree(
 	};
 	let title = title.to_string();
 	let children = tg::Object::with_id(object.clone())
-		.data(client, None)
+		.data(handle, None)
 		.await
 		.map_err(|source| tg::error!(!source, %object, "failed to get the object data"))?
 		.children();
 	let children = if max_depth.map_or(true, |max_depth| current_depth < max_depth) {
 		stream::iter(children)
-			.map(|child| get_object_tree(client, child, current_depth + 1, max_depth))
+			.map(|child| get_object_tree(handle, child, current_depth + 1, max_depth))
 			.collect::<FuturesUnordered<_>>()
 			.await
 			.try_collect::<Vec<_>>()

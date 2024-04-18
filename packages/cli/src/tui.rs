@@ -24,39 +24,54 @@ type Backend = tui::backend::CrosstermBackend<std::fs::File>;
 
 type Terminal = tui::Terminal<Backend>;
 
-struct App {
-	client: tg::Client,
+struct App<H>
+where
+	H: tg::Handle,
+{
 	direction: tui::layout::Direction,
+	handle: H,
 	layout: tui::layout::Layout,
-	log: Log,
-	tree: Tree,
+	log: Log<H>,
+	tree: Tree<H>,
 }
 
-struct Tree {
+struct Tree<H>
+where
+	H: tg::Handle,
+{
 	rect: tui::layout::Rect,
-	root: TreeItem,
+	root: TreeItem<H>,
 	scroll: usize,
-	selected: TreeItem,
+	selected: TreeItem<H>,
 }
 
 #[derive(Clone)]
-struct TreeItem {
-	inner: Arc<TreeItemInner>,
+struct TreeItem<H>
+where
+	H: tg::Handle,
+{
+	inner: Arc<TreeItemInner<H>>,
 }
 
-struct TreeItemInner {
+struct TreeItemInner<H>
+where
+	H: tg::Handle,
+{
 	build: tg::Build,
 	children_task: std::sync::Mutex<Option<tokio::task::JoinHandle<()>>>,
-	client: tg::Client,
+	handle: H,
 	index: usize,
 	indicator_task: std::sync::Mutex<Option<tokio::task::JoinHandle<()>>>,
-	parent: Option<Weak<TreeItemInner>>,
-	state: std::sync::Mutex<TreeItemState>,
+	parent: Option<Weak<TreeItemInner<H>>>,
+	state: std::sync::Mutex<TreeItemState<H>>,
 	title_task: std::sync::Mutex<Option<tokio::task::JoinHandle<()>>>,
 }
 
-struct TreeItemState {
-	children: Option<Vec<TreeItem>>,
+struct TreeItemState<H>
+where
+	H: tg::Handle,
+{
+	children: Option<Vec<TreeItem<H>>>,
 	expanded: bool,
 	indicator: TreeItemIndicator,
 	selected: bool,
@@ -75,25 +90,31 @@ enum TreeItemIndicator {
 }
 
 #[derive(Clone)]
-struct Log {
-	inner: Arc<LogInner>,
+struct Log<H>
+where
+	H: tg::Handle,
+{
+	inner: Arc<LogInner<H>>,
 }
 
-struct LogInner {
+struct LogInner<H>
+where
+	H: tg::Handle,
+{
 	// The build we're logging.
 	build: tg::Build,
 
 	// A buffer of log chunks.
 	chunks: tokio::sync::Mutex<Vec<tg::build::log::Chunk>>,
 
-	// The client.
-	client: tg::Client,
-
 	// Whether we've reached eof or not.
 	eof: AtomicBool,
 
 	// Channel used to send UI events.
 	event_sender: tokio::sync::mpsc::UnboundedSender<LogEvent>,
+
+	// The handle.
+	handle: H,
 
 	// The lines of text that will be displayed.
 	lines: std::sync::Mutex<Vec<String>>,
@@ -125,7 +146,10 @@ enum LogEvent {
 const SPINNER: [char; 10] = ['⠋', '⠙', '⠹', '⠸', '⠼', '⠴', '⠦', '⠧', '⠇', '⠏'];
 
 impl Tui {
-	pub async fn start(client: &tg::Client, build: &tg::Build) -> tg::Result<Self> {
+	pub async fn start<H>(handle: &H, build: &tg::Build) -> tg::Result<Self>
+	where
+		H: tg::Handle,
+	{
 		// Create the terminal.
 		let tty = tokio::fs::OpenOptions::new()
 			.read(true)
@@ -151,13 +175,13 @@ impl Tui {
 
 		// Spawn the task.
 		let task = tokio::task::spawn_blocking({
-			let client = client.clone();
+			let handle = handle.clone();
 			let build = build.clone();
 			let stop = stop.subscribe();
 			move || {
 				// Create the app.
 				let rect = terminal.get_frame().size();
-				let mut app = App::new(&client, &build, rect);
+				let mut app = App::new(&handle, &build, rect);
 
 				// Run the event loop.
 				while !*stop.borrow() {
@@ -226,9 +250,12 @@ impl Tui {
 	}
 }
 
-impl App {
-	fn new(client: &tg::Client, build: &tg::Build, rect: tui::layout::Rect) -> Self {
-		let client = client.clone();
+impl<H> App<H>
+where
+	H: tg::Handle,
+{
+	fn new(handle: &H, build: &tg::Build, rect: tui::layout::Rect) -> Self {
+		let handle = handle.clone();
 		let direction = tui::layout::Direction::Horizontal;
 		let layout = tui::layout::Layout::default()
 			.direction(direction)
@@ -239,13 +266,13 @@ impl App {
 				tui::layout::Constraint::Min(1),
 			]);
 		let layouts = layout.split(rect);
-		let log = Log::new(&client, build, layouts[2]);
-		let root = TreeItem::new(&client, build, None, 0, true);
+		let log = Log::new(&handle, build, layouts[2]);
+		let root = TreeItem::new(&handle, build, None, 0, true);
 		root.expand();
 		let tree = Tree::new(root, layouts[0]);
 		Self {
-			client,
 			direction,
+			handle,
 			layout,
 			log,
 			tree,
@@ -344,7 +371,7 @@ impl App {
 		new_selected_item.inner.state.lock().unwrap().selected = true;
 		self.log.stop();
 		self.log = Log::new(
-			&self.client,
+			&self.handle,
 			&new_selected_item.inner.build,
 			self.log.rect(),
 		);
@@ -372,7 +399,7 @@ impl App {
 				self.tree.selected.inner.state.lock().unwrap().selected = false;
 				parent.inner.state.lock().unwrap().selected = true;
 				self.log.stop();
-				self.log = Log::new(&self.client, &parent.inner.build, self.log.rect());
+				self.log = Log::new(&self.handle, &parent.inner.build, self.log.rect());
 				self.tree.selected = parent;
 			}
 		}
@@ -387,7 +414,7 @@ impl App {
 
 	fn cancel(&mut self) {
 		let build = self.tree.selected.inner.build.clone();
-		let client = self.client.clone();
+		let client = self.handle.clone();
 		tokio::spawn(async move { build.cancel(&client).await.ok() });
 	}
 
@@ -407,8 +434,11 @@ impl App {
 	}
 }
 
-impl Tree {
-	fn new(root: TreeItem, rect: tui::layout::Rect) -> Self {
+impl<H> Tree<H>
+where
+	H: tg::Handle,
+{
+	fn new(root: TreeItem<H>, rect: tui::layout::Rect) -> Self {
 		Self {
 			rect,
 			root: root.clone(),
@@ -417,7 +447,7 @@ impl Tree {
 		}
 	}
 
-	fn expanded_items(&self) -> Vec<TreeItem> {
+	fn expanded_items(&self) -> Vec<TreeItem<H>> {
 		let mut items = Vec::new();
 		let mut stack = VecDeque::from(vec![self.root.clone()]);
 		while let Some(item) = stack.pop_front() {
@@ -472,11 +502,14 @@ impl Tree {
 	}
 }
 
-impl TreeItem {
+impl<H> TreeItem<H>
+where
+	H: tg::Handle,
+{
 	fn new(
-		client: &tg::Client,
+		handle: &H,
 		build: &tg::Build,
-		parent: Option<Weak<TreeItemInner>>,
+		parent: Option<Weak<TreeItemInner<H>>>,
 		index: usize,
 		selected: bool,
 	) -> Self {
@@ -490,7 +523,7 @@ impl TreeItem {
 		let inner = Arc::new(TreeItemInner {
 			build: build.clone(),
 			children_task: std::sync::Mutex::new(None),
-			client: client.clone(),
+			handle: handle.clone(),
 			index,
 			indicator_task: std::sync::Mutex::new(None),
 			parent,
@@ -504,7 +537,7 @@ impl TreeItem {
 			let item = item.clone();
 			async move {
 				let arg = tg::build::status::GetArg::default();
-				let Ok(mut stream) = item.inner.build.status(&item.inner.client, arg).await else {
+				let Ok(mut stream) = item.inner.build.status(&item.inner.handle, arg).await else {
 					item.inner.state.lock().unwrap().indicator = TreeItemIndicator::Errored;
 					return;
 				};
@@ -531,7 +564,7 @@ impl TreeItem {
 						},
 					}
 				}
-				let Ok(outcome) = item.inner.build.outcome(&item.inner.client).await else {
+				let Ok(outcome) = item.inner.build.outcome(&item.inner.handle).await else {
 					item.inner.state.lock().unwrap().indicator = TreeItemIndicator::Errored;
 					return;
 				};
@@ -548,7 +581,7 @@ impl TreeItem {
 		let task = tokio::task::spawn({
 			let item = item.clone();
 			async move {
-				let title = title(&item.inner.client, &item.inner.build)
+				let title = title(&item.inner.handle, &item.inner.build)
 					.await
 					.ok()
 					.flatten();
@@ -560,7 +593,7 @@ impl TreeItem {
 		item
 	}
 
-	fn ancestors(&self) -> Vec<TreeItem> {
+	fn ancestors(&self) -> Vec<TreeItem<H>> {
 		let mut ancestors = Vec::new();
 		let mut parent = self.inner.parent.as_ref().map(|parent| TreeItem {
 			inner: parent.upgrade().unwrap(),
@@ -589,12 +622,12 @@ impl TreeItem {
 					position: Some(SeekFrom::Start(0)),
 					..Default::default()
 				};
-				let Ok(mut children) = item.inner.build.children(&item.inner.client, arg).await
+				let Ok(mut children) = item.inner.build.children(&item.inner.handle, arg).await
 				else {
 					return;
 				};
 				while let Some(Ok(child)) = children.next().await {
-					let client = item.inner.client.clone();
+					let client = item.inner.handle.clone();
 					let parent = Some(Arc::downgrade(&item.inner));
 					let index = item
 						.inner
@@ -741,7 +774,10 @@ impl TreeItem {
 	}
 }
 
-impl Drop for TreeItemInner {
+impl<H> Drop for TreeItemInner<H>
+where
+	H: tg::Handle,
+{
 	fn drop(&mut self) {
 		if let Some(task) = self.children_task.lock().unwrap().take() {
 			task.abort();
@@ -755,17 +791,20 @@ impl Drop for TreeItemInner {
 	}
 }
 
-async fn title(client: &tg::Client, build: &tg::Build) -> tg::Result<Option<String>> {
+async fn title<H>(handle: &H, build: &tg::Build) -> tg::Result<Option<String>>
+where
+	H: tg::Handle,
+{
 	// Get the target.
-	let target = build.target(client).await?;
+	let target = build.target(handle).await?;
 
 	// Get the package.
-	let Some(package) = target.package(client).await? else {
+	let Some(package) = target.package(handle).await? else {
 		return Ok(None);
 	};
 
 	// Get the metadata.
-	let metadata = tg::package::get_metadata(client, &package).await.ok();
+	let metadata = tg::package::get_metadata(handle, &package).await.ok();
 
 	let mut title = String::new();
 	if let Some(metadata) = metadata {
@@ -774,12 +813,15 @@ async fn title(client: &tg::Client, build: &tg::Build) -> tg::Result<Option<Stri
 			title.push_str(&format!("@{version}"));
 		}
 	}
-	let name = target.name(client).await?;
+	let name = target.name(handle).await?;
 	title.push_str(name.as_deref().unwrap_or("<unknown>"));
 	Ok(Some(title))
 }
 
-impl Drop for LogInner {
+impl<H> Drop for LogInner<H>
+where
+	H: tg::Handle,
+{
 	fn drop(&mut self) {
 		if let Some(task) = self.event_task.lock().unwrap().take() {
 			task.abort();
@@ -790,9 +832,12 @@ impl Drop for LogInner {
 	}
 }
 
-impl Log {
-	fn new(client: &tg::Client, build: &tg::Build, rect: Rect) -> Self {
-		let client = client.clone();
+impl<H> Log<H>
+where
+	H: tg::Handle,
+{
+	fn new(handle: &H, build: &tg::Build, rect: Rect) -> Self {
+		let handle = handle.clone();
 		let build = build.clone();
 		let chunks = tokio::sync::Mutex::new(Vec::new());
 		let (event_sender, mut event_receiver) = tokio::sync::mpsc::unbounded_channel();
@@ -803,7 +848,7 @@ impl Log {
 			inner: Arc::new(LogInner {
 				build,
 				chunks,
-				client,
+				handle,
 				eof: AtomicBool::new(false),
 				event_sender,
 				event_task: std::sync::Mutex::new(None),
@@ -856,7 +901,7 @@ impl Log {
 	}
 
 	async fn init(&self) -> tg::Result<()> {
-		let client = &self.inner.client;
+		let client = &self.inner.handle;
 		let position = Some(std::io::SeekFrom::End(0));
 
 		// Get at least one chunk.
@@ -1045,7 +1090,7 @@ impl Log {
 			.inner
 			.build
 			.log(
-				&self.inner.client,
+				&self.inner.handle,
 				tg::build::log::GetArg {
 					length,
 					position,

@@ -1,4 +1,4 @@
-use crate::{host, tree::Tree, tui::Tui, Cli};
+use crate::{tree::Tree, tui::Tui, Cli};
 use crossterm::style::Stylize;
 use futures::{stream::FuturesUnordered, StreamExt as _, TryStreamExt as _};
 use itertools::Itertools as _;
@@ -138,8 +138,6 @@ impl Cli {
 	}
 
 	pub async fn command_build_get_or_create(&self, args: GetOrCreateArgs) -> tg::Result<()> {
-		let client = &self.client().await?;
-
 		let target = if let Some(Ok(id)) = args.target.as_ref().map(|target| target.parse()) {
 			tg::Target::with_id(id)
 		} else {
@@ -155,7 +153,7 @@ impl Cli {
 			}
 
 			// Create the package.
-			let (package, lock) = tg::package::get_with_lock(client, &dependency).await?;
+			let (package, lock) = tg::package::get_with_lock(&self.handle, &dependency).await?;
 
 			// Create the target.
 			let mut env: BTreeMap<String, tg::Value> = args
@@ -172,7 +170,7 @@ impl Cli {
 				let host = if let Some(host) = args.host {
 					host
 				} else {
-					host().to_owned()
+					Cli::host().to_owned()
 				};
 				env.insert("TANGRAM_HOST".to_owned(), host.to_string().into());
 			}
@@ -188,7 +186,7 @@ impl Cli {
 				.try_collect()?;
 			let args_ = vec![args_.into()];
 			let host = "js".to_owned();
-			let path = tg::package::get_root_module_path(client, &package).await?;
+			let path = tg::package::get_root_module_path(&self.handle, &package).await?;
 			let executable = tg::Symlink::new(Some(package.into()), Some(path)).into();
 			tg::target::Builder::new(host, executable)
 				.lock(lock)
@@ -202,7 +200,7 @@ impl Cli {
 		eprintln!(
 			"{}: target {}",
 			"info".blue().bold(),
-			target.id(client, None).await?
+			target.id(&self.handle, None).await?
 		);
 
 		// Build the target.
@@ -210,9 +208,9 @@ impl Cli {
 			parent: None,
 			remote: args.remote,
 			retry: args.retry,
-			target: target.id(client, None).await?,
+			target: target.id(&self.handle, None).await?,
 		};
-		let build = tg::Build::new(client, arg).await?;
+		let build = tg::Build::new(&self.handle, arg).await?;
 
 		// If the detach flag is set, then exit.
 		if args.detach {
@@ -228,7 +226,7 @@ impl Cli {
 			timeout: Some(std::time::Duration::ZERO),
 		};
 		let outcome = build
-			.get_outcome(client, arg)
+			.get_outcome(&self.handle, arg)
 			.await
 			.map_err(|source| tg::error!(!source, "failed to get the build outcome"))?;
 
@@ -239,13 +237,13 @@ impl Cli {
 			// Create the TUI.
 			let tui = !args.no_tui;
 			let tui = if tui {
-				Tui::start(client, &build).await.ok()
+				Tui::start(&self.handle, &build).await.ok()
 			} else {
 				None
 			};
 
 			// Wait for the build's outcome.
-			let outcome = build.outcome(client).await;
+			let outcome = build.outcome(&self.handle).await;
 
 			// Stop the TUI.
 			if let Some(tui) = tui {
@@ -293,7 +291,7 @@ impl Cli {
 			// Check out the artifact.
 			let arg = tg::artifact::CheckOutArg { path, force: false };
 			let output = artifact
-				.check_out(client, arg)
+				.check_out(&self.handle, arg)
 				.await
 				.map_err(|source| tg::error!(!source, "failed to check out the artifact"))?;
 
@@ -308,9 +306,8 @@ impl Cli {
 	}
 
 	pub async fn command_build_get(&self, args: GetArgs) -> tg::Result<()> {
-		let client = &self.client().await?;
 		let arg = tg::build::GetArg::default();
-		let output = client.get_build(&args.id, arg).await?;
+		let output = self.handle.get_build(&args.id, arg).await?;
 		let json = serde_json::to_string(&output)
 			.map_err(|source| tg::error!(!source, "failed to serialize the output"))?;
 		tokio::io::stdout()
@@ -321,7 +318,6 @@ impl Cli {
 	}
 
 	pub async fn command_build_put(&self, args: PutArgs) -> tg::Result<()> {
-		let client = &self.client().await?;
 		let json = if let Some(json) = args.json {
 			json
 		} else {
@@ -334,42 +330,42 @@ impl Cli {
 		};
 		let arg: tg::build::PutArg = serde_json::from_str(&json)
 			.map_err(|source| tg::error!(!source, "failed to deseralize"))?;
-		client.put_build(&arg.id, &arg).await?;
+		self.handle.put_build(&arg.id, &arg).await?;
 		println!("{}", arg.id);
 		Ok(())
 	}
 
 	pub async fn command_build_push(&self, args: PushArgs) -> tg::Result<()> {
-		let client = &self.client().await?;
-		client.push_build(&args.id).await?;
+		self.handle.push_build(&args.id).await?;
 		Ok(())
 	}
 
 	pub async fn command_build_pull(&self, args: PullArgs) -> tg::Result<()> {
-		let client = &self.client().await?;
-		client.pull_build(&args.id).await?;
+		self.handle.pull_build(&args.id).await?;
 		Ok(())
 	}
 
 	pub async fn command_build_tree(&self, args: TreeArgs) -> tg::Result<()> {
-		let client = &self.client().await?;
 		let build = tg::Build::with_id(args.id);
-		let tree = get_build_tree(client, &build, 1, args.depth).await?;
+		let tree = get_build_tree(&self.handle, &build, 1, args.depth).await?;
 		tree.print();
 		Ok(())
 	}
 }
 
-async fn get_build_tree(
-	client: &tg::Client,
+async fn get_build_tree<H>(
+	handle: &H,
 	build: &tg::Build,
 	current_depth: u32,
 	max_depth: Option<u32>,
-) -> tg::Result<Tree> {
+) -> tg::Result<Tree>
+where
+	H: tg::Handle,
+{
 	// Get the build's metadata.
 	let id = build.id().clone();
 	let status = build
-		.status(client, tg::build::status::GetArg::default())
+		.status(handle, tg::build::status::GetArg::default())
 		.await
 		.map_err(|source| tg::error!(!source, %id, "failed to get the build's status"))?
 		.next()
@@ -377,15 +373,15 @@ async fn get_build_tree(
 		.unwrap()
 		.map_err(|source| tg::error!(!source, %id, "failed to get the build's status"))?;
 	let target = build
-		.target(client)
+		.target(handle)
 		.await
 		.map_err(|source| tg::error!(!source, %id, "failed to get build's target"))?;
 	let package = target
-		.package(client)
+		.package(handle)
 		.await
 		.map_err(|source| tg::error!(!source, %target, "failed to get target's package"))?;
 	let name = target
-		.name(client)
+		.name(handle)
 		.await
 		.map_err(|source| tg::error!(!source, %target, "failed to get target's name"))?
 		.clone()
@@ -400,7 +396,7 @@ async fn get_build_tree(
 		tg::build::Status::Started => write!(title, "{}", "⠿".blue()).unwrap(),
 		tg::build::Status::Finished => {
 			let outcome = build
-				.outcome(client)
+				.outcome(handle)
 				.await
 				.map_err(|source| tg::error!(!source, %id, "failed to get the build outcome"))?;
 			match outcome {
@@ -418,7 +414,7 @@ async fn get_build_tree(
 	}
 	write!(title, "{} ", id.to_string().blue()).unwrap();
 	if let Some(package) = package {
-		if let Ok(metadata) = tg::package::get_metadata(client, &package).await {
+		if let Ok(metadata) = tg::package::get_metadata(handle, &package).await {
 			if let Some(name) = metadata.name {
 				write!(title, "{}", name.magenta()).unwrap();
 			} else {
@@ -442,11 +438,11 @@ async fn get_build_tree(
 			..Default::default()
 		};
 		build
-			.children(client, arg)
+			.children(handle, arg)
 			.await
 			.map_err(|source| tg::error!(!source, %id, "failed to get the build's children"))?
 			.map(|child| async move {
-				get_build_tree(client, &child?, current_depth + 1, max_depth).await
+				get_build_tree(handle, &child?, current_depth + 1, max_depth).await
 			})
 			.collect::<FuturesUnordered<_>>()
 			.await

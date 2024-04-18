@@ -92,6 +92,14 @@ pub struct Builder {
 }
 
 impl Client {
+	#[must_use]
+	pub fn new(url: Url, token: Option<String>) -> Self {
+		let sender = tokio::sync::Mutex::new(None);
+		Self {
+			inner: Arc::new(Inner { url, sender, token }),
+		}
+	}
+
 	pub fn with_env() -> tg::Result<Self> {
 		let url = std::env::var("TANGRAM_URL")
 			.map_err(|error| {
@@ -107,11 +115,13 @@ impl Client {
 					"could not parse a URL from the TANGRAM_URL environment variable"
 				)
 			})?;
-		let sender = tokio::sync::Mutex::new(None);
 		let token = None;
-		let inner = Arc::new(Inner { url, sender, token });
-		let client = Client { inner };
-		Ok(client)
+		Ok(Self::new(url, token))
+	}
+
+	#[must_use]
+	pub fn url(&self) -> &Url {
+		&self.inner.url
 	}
 
 	pub async fn connect(&self) -> tg::Result<()> {
@@ -518,10 +528,8 @@ impl Builder {
 	#[must_use]
 	pub fn build(self) -> Client {
 		let url = self.url;
-		let sender = tokio::sync::Mutex::new(None);
 		let token = self.token;
-		let inner = Arc::new(Inner { url, sender, token });
-		Client { inner }
+		Client::new(url, token)
 	}
 }
 

@@ -1,8 +1,9 @@
-use crate::{host, tui::Tui, Cli};
+use crate::{tui::Tui, Cli};
 use crossterm::style::Stylize;
 use itertools::Itertools as _;
 use std::{collections::BTreeMap, os::unix::process::CommandExt as _};
 use tangram_client as tg;
+use tg::Handle as _;
 
 /// Build a target and run a command.
 #[derive(Debug, clap::Args)]
@@ -50,8 +51,6 @@ pub struct Args {
 
 impl Cli {
 	pub async fn command_run(&self, args: Args) -> tg::Result<()> {
-		let client = &self.client().await?;
-
 		let target = if let Some(Ok(id)) = args.target.as_ref().map(|target| target.parse()) {
 			tg::Target::with_id(id)
 		} else {
@@ -67,7 +66,7 @@ impl Cli {
 			}
 
 			// Create the package.
-			let (package, lock) = tg::package::get_with_lock(client, &dependency).await?;
+			let (package, lock) = tg::package::get_with_lock(&self.handle, &dependency).await?;
 
 			// Create the target.
 			let mut env: BTreeMap<String, tg::Value> = args
@@ -84,7 +83,7 @@ impl Cli {
 				let host = if let Some(host) = args.host {
 					host
 				} else {
-					host().to_owned()
+					Cli::host().to_owned()
 				};
 				env.insert("TANGRAM_HOST".to_owned(), host.to_string().into());
 			}
@@ -100,7 +99,7 @@ impl Cli {
 				.try_collect()?;
 			let args_ = vec![args_.into()];
 			let host = "js".to_owned();
-			let path = tg::package::get_root_module_path(client, &package).await?;
+			let path = tg::package::get_root_module_path(&self.handle, &package).await?;
 			let executable = tg::Symlink::new(Some(package.into()), Some(path)).into();
 			tg::target::Builder::new(host, executable)
 				.lock(lock)
@@ -114,7 +113,7 @@ impl Cli {
 		eprintln!(
 			"{}: target {}",
 			"info".blue().bold(),
-			target.id(client, None).await?
+			target.id(&self.handle, None).await?
 		);
 
 		// Build the target.
@@ -122,9 +121,9 @@ impl Cli {
 			parent: None,
 			remote: false,
 			retry: args.retry,
-			target: target.id(client, None).await?,
+			target: target.id(&self.handle, None).await?,
 		};
-		let build = tg::Build::new(client, arg).await?;
+		let build = tg::Build::new(&self.handle, arg).await?;
 
 		// Print the build.
 		eprintln!("{}: build {}", "info".blue().bold(), build.id());
@@ -134,7 +133,7 @@ impl Cli {
 			timeout: Some(std::time::Duration::ZERO),
 		};
 		let outcome = build
-			.get_outcome(client, arg)
+			.get_outcome(&self.handle, arg)
 			.await
 			.map_err(|source| tg::error!(!source, "failed to get the build outcome"))?;
 
@@ -145,13 +144,13 @@ impl Cli {
 			// Create the TUI.
 			let tui = !args.no_tui;
 			let tui = if tui {
-				Tui::start(client, &build).await.ok()
+				Tui::start(&self.handle, &build).await.ok()
 			} else {
 				None
 			};
 
 			// Wait for the build's outcome.
-			let outcome = build.outcome(client).await;
+			let outcome = build.outcome(&self.handle).await;
 
 			// Stop the TUI.
 			if let Some(tui) = tui {
@@ -173,13 +172,14 @@ impl Cli {
 			.map_err(|source| tg::error!(!source, "expected the output to be an artifact"))?;
 
 		// Get the path to the artifact.
-		let artifact_path = client
+		let artifact_path = self
+			.handle
 			.path()
 			.await
 			.map_err(|source| tg::error!(!source, "failed to get the server path"))?
 			.ok_or_else(|| tg::error!("failed to get the server path"))?
 			.join("artifacts")
-			.join(artifact.id(client, None).await?.to_string());
+			.join(artifact.id(&self.handle, None).await?.to_string());
 
 		// Get the executable path.
 		let executable_path = if let Some(executable_path) = args.executable {

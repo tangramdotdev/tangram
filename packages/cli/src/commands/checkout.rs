@@ -18,8 +18,6 @@ pub struct Args {
 
 impl Cli {
 	pub async fn command_checkout(&self, args: Args) -> tg::Result<()> {
-		let client = &self.client().await?;
-
 		// Get the artifact.
 		let artifact = tg::Artifact::with_id(args.id.clone());
 
@@ -55,7 +53,7 @@ impl Cli {
 
 		// Check out the artifact.
 		let output = artifact
-			.check_out(client, arg)
+			.check_out(&self.handle, arg)
 			.await
 			.map_err(|source| tg::error!(!source, "failed to check out the artifact"))?;
 

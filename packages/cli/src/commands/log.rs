@@ -10,10 +10,8 @@ pub struct Args {
 
 impl Cli {
 	pub async fn command_log(&self, args: Args) -> tg::Result<()> {
-		let client = &self.client().await?;
-
 		let build = tg::Build::with_id(args.id);
-		let tui = Tui::start(client, &build).await?;
+		let tui = Tui::start(&self.handle, &build).await?;
 		tui.join().await?;
 
 		Ok(())
