@@ -845,6 +845,15 @@ declare namespace tg {
 		/** Join this path with another path. **/
 		join(other: Path.Arg): Path;
 
+		/** Check if a value is a `Path`. */
+		static is(value: unknown): value is Path;
+
+		/** Expect that a value is a `Path`. */
+		static expect(value: unknown): Path;
+
+		/** Assert that a value is a `Path`. */
+		static assert(value: unknown): asserts value is Path;
+
 		/** Normalize this path. **/
 		normalize(): Path;
 

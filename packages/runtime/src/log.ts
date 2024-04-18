@@ -7,6 +7,7 @@ import { Leaf } from "./leaf.ts";
 import { Lock } from "./lock.ts";
 import { Mutation } from "./mutation.ts";
 import type { Object_ } from "./object.ts";
+import { Path } from "./path.ts";
 import { Symlink } from "./symlink.ts";
 import { Target } from "./target.ts";
 import { Template } from "./template.ts";
@@ -73,6 +74,8 @@ let stringifyObject = (value: object, visited: WeakSet<object>): string => {
 		return value.message;
 	} else if (value instanceof Promise) {
 		return "(promise)";
+	} else if (Path.is(value)) {
+		return `(tg.path "${value}")`;
 	} else if (Leaf.is(value)) {
 		return stringifyState("leaf", value.state, visited);
 	} else if (Branch.is(value)) {
