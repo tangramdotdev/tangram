@@ -39,7 +39,7 @@ struct Args {
 	config: Option<PathBuf>,
 
 	/// This argument controls whether the CLI runs as a client or a server. When set to `auto`, the CLI will run as a client and start a separate server process if the connection fails or the server's version does not match. If the command is `tg server run`, the mode is set to `server`.
-	#[clap(short, long, default_value = "Mode::Auto")]
+	#[clap(short, long, default_value = "auto")]
 	mode: Mode,
 
 	#[clap(subcommand)]
@@ -131,6 +131,7 @@ fn main() -> std::process::ExitCode {
 
 	// Create the future.
 	let future = async move {
+		// Create the CLI.
 		let cli = match Cli::new(mode, config.clone()).await {
 			Ok(cli) => cli,
 			Err(error) => {
@@ -139,6 +140,8 @@ fn main() -> std::process::ExitCode {
 				return Err(1);
 			},
 		};
+
+		// Run the command.
 		let result = cli.command(args.command).await;
 		match result {
 			Ok(()) => (),
@@ -148,6 +151,13 @@ fn main() -> std::process::ExitCode {
 				return Err(1);
 			},
 		};
+
+		// Stop and join the server if necessary.
+		if let Some(server) = cli.handle.right() {
+			server.stop();
+			server.join().await.unwrap();
+		}
+
 		Ok(())
 	};
 
