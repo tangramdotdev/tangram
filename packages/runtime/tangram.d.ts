@@ -16,12 +16,12 @@ declare namespace tg {
 	export namespace Args {
 		export let apply: <
 			A extends Value = Value,
-			R extends { [key: string]: Value } = { [key: string]: Value },
+			R extends { [key: string]: Value } = { [key: string]: Value }
 		>(
 			args: Args<A>,
 			map: (
-				arg: MaybeMutationMap<Exclude<A, Array<Value>>>,
-			) => Promise<MaybeNestedArray<MutationMap<R>>>,
+				arg: MaybeMutationMap<Exclude<A, Array<Value>>>
+			) => Promise<MaybeNestedArray<MutationMap<R>>>
 		) => Promise<Partial<R>>;
 	}
 
@@ -49,14 +49,14 @@ declare namespace tg {
 		/** Extract an artifact from an archive. **/
 		export let extract: (
 			blob: Blob,
-			format: ArchiveFormat,
+			format: ArchiveFormat
 		) => Promise<Artifact>;
 	}
 
 	/** Assert that a condition is truthy. If not, throw an error with an optional message. */
 	export let assert: (
 		condition: unknown,
-		message?: string,
+		message?: string
 	) => asserts condition;
 
 	/** Throw an error indicating that unimplemented code has been reached. */
@@ -85,7 +85,7 @@ declare namespace tg {
 	/** Compute the checksum of the provided bytes with the specified algorithm. */
 	export let checksum: (
 		algorithm: Checksum.Algorithm,
-		bytes: string | Uint8Array,
+		bytes: string | Uint8Array
 	) => Checksum;
 
 	/** A checksum. */
@@ -97,7 +97,7 @@ declare namespace tg {
 		/** Compute the checksum of the provided bytes with the specified algorithm. */
 		export let new_: (
 			algorithm: Algorithm,
-			bytes: string | Uint8Array,
+			bytes: string | Uint8Array
 		) => Checksum;
 		export { new_ as new };
 	}
@@ -385,18 +385,18 @@ declare namespace tg {
 
 	/** Create a mutation. */
 	export function mutation<T extends Value = Value>(
-		arg: Unresolved<Mutation.Arg<T>>,
+		arg: Unresolved<Mutation.Arg<T>>
 	): Promise<Mutation<T>>;
 
 	export class Mutation<T extends Value = Value> {
 		/** Create a mutation. */
 		static new<T extends Value = Value>(
-			arg: Unresolved<Mutation.Arg<T>>,
+			arg: Unresolved<Mutation.Arg<T>>
 		): Promise<Mutation<T>>;
 
 		/** Create a "set" mutation. */
 		static set<T extends Value = Value>(
-			value: Unresolved<T>,
+			value: Unresolved<T>
 		): Promise<Mutation<T>>;
 
 		/** Create an "unset" mutation. */
@@ -404,29 +404,29 @@ declare namespace tg {
 
 		/** Create a "set_if_unset" mutation. */
 		static setIfUnset<T extends Value = Value>(
-			value: Unresolved<T>,
+			value: Unresolved<T>
 		): Promise<Mutation<T>>;
 
 		/** Create an "array_prepend" mutation. */
 		static arrayPrepend<T extends Value = Value>(
-			values: Unresolved<MaybeNestedArray<T>>,
+			values: Unresolved<MaybeNestedArray<T>>
 		): Promise<Mutation<Array<T>>>;
 
 		/** Create an "array_append" mutation. */
 		static arrayAppend<T extends Value = Value>(
-			values: Unresolved<MaybeNestedArray<T>>,
+			values: Unresolved<MaybeNestedArray<T>>
 		): Promise<Mutation<Array<T>>>;
 
 		/** Create a "template_prepend" mutation. */
 		static templatePrepend(
 			template: Unresolved<Template.Arg>,
-			separator?: string | undefined,
+			separator?: string | undefined
 		): Promise<Mutation<Template>>;
 
 		/** Create a "template_append" mutation. */
 		static templateAppend(
 			template: Unresolved<Template.Arg>,
-			separator?: string | undefined,
+			separator?: string | undefined
 		): Promise<Mutation<Template>>;
 
 		static is(value: unknown): value is Mutation;
@@ -527,7 +527,7 @@ declare namespace tg {
 
 	/** Resolve all deeply nested promises in an unresolved value. */
 	export let resolve: <T extends Unresolved<Value>>(
-		value: T,
+		value: T
 	) => Promise<Resolved<T>>;
 
 	/**
@@ -552,10 +552,10 @@ declare namespace tg {
 			| Template
 			? T
 			: T extends Array<infer U extends Value>
-				? Array<Unresolved<U>>
-				: T extends { [key: string]: Value }
-					? { [K in keyof T]: Unresolved<T[K]> }
-					: never
+			? Array<Unresolved<U>>
+			: T extends { [key: string]: Value }
+			? { [K in keyof T]: Unresolved<T[K]> }
+			: never
 	>;
 
 	/**
@@ -582,12 +582,12 @@ declare namespace tg {
 		| Template
 		? T
 		: T extends Array<infer U extends Unresolved<Value>>
-			? Array<Resolved<U>>
-			: T extends { [key: string]: Unresolved<Value> }
-				? { [K in keyof T]: Resolved<T[K]> }
-				: T extends Promise<infer U extends Unresolved<Value>>
-					? Resolved<U>
-					: never;
+		? Array<Resolved<U>>
+		: T extends { [key: string]: Unresolved<Value> }
+		? { [K in keyof T]: Resolved<T[K]> }
+		: T extends Promise<infer U extends Unresolved<Value>>
+		? Resolved<U>
+		: never;
 
 	/** Sleep for the specified duration in seconds. */
 	export let sleep: (duration: number) => Promise<void>;
@@ -646,11 +646,11 @@ declare namespace tg {
 	/** Create a target. */
 	export function target<
 		A extends Array<Value> = Array<Value>,
-		R extends Value = Value,
+		R extends Value = Value
 	>(function_: (...args: A) => Unresolved<R>): Target<A, R>;
 	export function target<
 		A extends Array<Value> = Array<Value>,
-		R extends Value = Value,
+		R extends Value = Value
 	>(...args: Args<Target.Arg>): Promise<Target<A, R>>;
 
 	/** Create and build a target. */
@@ -659,7 +659,7 @@ declare namespace tg {
 	/** A target. */
 	export interface Target<
 		A extends Array<Value> = Array<Value>,
-		R extends Value = Value,
+		R extends Value = Value
 	> {
 		/** Build this target. */
 		// biome-ignore lint/style/useShorthandFunctionType:
@@ -669,7 +669,7 @@ declare namespace tg {
 	/** A target. */
 	export class Target<
 		A extends Array<Value> = Array<Value>,
-		R extends Value = Value,
+		R extends Value = Value
 	> extends globalThis.Function {
 		/** Get a target with an ID. */
 		static withId(id: Target.Id): Target;
@@ -802,15 +802,15 @@ declare namespace tg {
 		| Template
 		? T
 		: T extends { [key: string]: Value }
-			? MutationMap<T>
-			: never;
+		? MutationMap<T>
+		: never;
 
 	export type MaybeNestedArray<T> = T | Array<MaybeNestedArray<T>>;
 
 	export type MaybePromise<T> = T | Promise<T>;
 
 	export type MutationMap<
-		T extends { [key: string]: Value } = { [key: string]: Value },
+		T extends { [key: string]: Value } = { [key: string]: Value }
 	> = {
 		[K in keyof T]?: MaybeMutation<T[K]>;
 	};
@@ -847,6 +847,15 @@ declare namespace tg {
 
 		/** Normalize this path. **/
 		normalize(): Path;
+
+		/** Check if a value is a `Path`. */
+		static is(value: unknown): value is Path;
+
+		/** Expect that a value is a `Path`. */
+		static expect(value: unknown): Path;
+
+		/** Assert that a value is a `Path`. */
+		static assert(value: unknown): asserts value is Path;
 
 		/** Return true if this path begins with a current component. **/
 		isInternal(): boolean;

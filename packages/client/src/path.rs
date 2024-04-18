@@ -88,6 +88,12 @@ impl Path {
 				self.components = vec![Component::Root];
 			},
 
+			// If the component is a normal component following a root component, add it directly.
+			(Component::Normal(name), Component::Root) => {
+				self.string.push_str(&name);
+				self.components.push(Component::Normal(name));
+			},
+
 			// If the component is a normal component, then add it.
 			(Component::Normal(name), _) => {
 				self.string.push('/');
