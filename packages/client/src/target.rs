@@ -103,29 +103,33 @@ impl Target {
 		Self { state }
 	}
 
-	pub async fn id<H>(&self, tg: &H, transaction: Option<&H::Transaction<'_>>) -> tg::Result<Id>
+	pub async fn id<H>(
+		&self,
+		handle: &H,
+		transaction: Option<&H::Transaction<'_>>,
+	) -> tg::Result<Id>
 	where
 		H: tg::Handle,
 	{
-		self.store(tg, transaction).await
+		self.store(handle, transaction).await
 	}
 
-	pub async fn object(&self, tg: &impl tg::Handle) -> tg::Result<Arc<Object>> {
-		self.load(tg).await
+	pub async fn object(&self, handle: &impl tg::Handle) -> tg::Result<Arc<Object>> {
+		self.load(handle).await
 	}
 
-	pub async fn load(&self, tg: &impl tg::Handle) -> tg::Result<Arc<Object>> {
-		self.try_load(tg)
+	pub async fn load(&self, handle: &impl tg::Handle) -> tg::Result<Arc<Object>> {
+		self.try_load(handle)
 			.await?
 			.ok_or_else(|| tg::error!("failed to load the object"))
 	}
 
-	pub async fn try_load(&self, tg: &impl tg::Handle) -> tg::Result<Option<Arc<Object>>> {
+	pub async fn try_load(&self, handle: &impl tg::Handle) -> tg::Result<Option<Arc<Object>>> {
 		if let Some(object) = self.state.read().unwrap().object.clone() {
 			return Ok(Some(object));
 		}
 		let id = self.state.read().unwrap().id.clone().unwrap();
-		let Some(output) = tg.try_get_object(&id.into()).await? else {
+		let Some(output) = handle.try_get_object(&id.into()).await? else {
 			return Ok(None);
 		};
 		let data = Data::deserialize(&output.bytes)
@@ -136,14 +140,18 @@ impl Target {
 		Ok(Some(object))
 	}
 
-	pub async fn store<H>(&self, tg: &H, transaction: Option<&H::Transaction<'_>>) -> tg::Result<Id>
+	pub async fn store<H>(
+		&self,
+		handle: &H,
+		transaction: Option<&H::Transaction<'_>>,
+	) -> tg::Result<Id>
 	where
 		H: tg::Handle,
 	{
 		if let Some(id) = self.state.read().unwrap().id.clone() {
 			return Ok(id);
 		}
-		let data = self.data(tg, transaction).await?;
+		let data = self.data(handle, transaction).await?;
 		let bytes = data.serialize()?;
 		let id = Id::new(&bytes);
 		let arg = tg::object::PutArg {
@@ -151,7 +159,8 @@ impl Target {
 			count: None,
 			weight: None,
 		};
-		tg.put_object(&id.clone().into(), arg, transaction)
+		handle
+			.put_object(&id.clone().into(), arg, transaction)
 			.boxed()
 			.await
 			.map_err(|source| tg::error!(!source, "failed to put the object"))?;
@@ -161,17 +170,17 @@ impl Target {
 
 	pub async fn data<H>(
 		&self,
-		tg: &H,
+		handle: &H,
 		transaction: Option<&H::Transaction<'_>>,
 	) -> tg::Result<Data>
 	where
 		H: tg::Handle,
 	{
-		let object = self.object(tg).await?;
+		let object = self.object(handle).await?;
 		let host = object.host.clone();
-		let executable = object.executable.id(tg, transaction).await?;
+		let executable = object.executable.id(handle, transaction).await?;
 		let lock = if let Some(lock) = &object.lock {
-			Some(lock.id(tg, transaction).await?)
+			Some(lock.id(handle, transaction).await?)
 		} else {
 			None
 		};
@@ -181,7 +190,7 @@ impl Target {
 			.iter()
 			.map(|(key, value)| async move {
 				let key = key.clone();
-				let value = value.data(tg, transaction).await?;
+				let value = value.data(handle, transaction).await?;
 				Ok::<_, tg::Error>((key, value))
 			})
 			.collect::<FuturesUnordered<_>>()
@@ -190,7 +199,7 @@ impl Target {
 		let args = object
 			.args
 			.iter()
-			.map(|value| value.data(tg, transaction))
+			.map(|value| value.data(handle, transaction))
 			.collect::<FuturesOrdered<_>>()
 			.try_collect()
 			.await?;
@@ -210,59 +219,59 @@ impl Target {
 impl Target {
 	pub async fn host(
 		&self,
-		tg: &impl tg::Handle,
+		handle: &impl tg::Handle,
 	) -> tg::Result<impl std::ops::Deref<Target = String>> {
-		Ok(self.object(tg).await?.map(|object| &object.host))
+		Ok(self.object(handle).await?.map(|object| &object.host))
 	}
 
 	pub async fn executable(
 		&self,
-		tg: &impl tg::Handle,
+		handle: &impl tg::Handle,
 	) -> tg::Result<impl std::ops::Deref<Target = tg::Artifact>> {
-		Ok(self.object(tg).await?.map(|object| &object.executable))
+		Ok(self.object(handle).await?.map(|object| &object.executable))
 	}
 
 	pub async fn lock(
 		&self,
-		tg: &impl tg::Handle,
+		handle: &impl tg::Handle,
 	) -> tg::Result<impl std::ops::Deref<Target = Option<tg::Lock>>> {
-		Ok(self.object(tg).await?.map(|object| &object.lock))
+		Ok(self.object(handle).await?.map(|object| &object.lock))
 	}
 
 	pub async fn name(
 		&self,
-		tg: &impl tg::Handle,
+		handle: &impl tg::Handle,
 	) -> tg::Result<impl std::ops::Deref<Target = Option<String>>> {
-		Ok(self.object(tg).await?.map(|object| &object.name))
+		Ok(self.object(handle).await?.map(|object| &object.name))
 	}
 
 	pub async fn env(
 		&self,
-		tg: &impl tg::Handle,
+		handle: &impl tg::Handle,
 	) -> tg::Result<impl std::ops::Deref<Target = BTreeMap<String, tg::Value>>> {
-		Ok(self.object(tg).await?.map(|object| &object.env))
+		Ok(self.object(handle).await?.map(|object| &object.env))
 	}
 
 	pub async fn args(
 		&self,
-		tg: &impl tg::Handle,
+		handle: &impl tg::Handle,
 	) -> tg::Result<impl std::ops::Deref<Target = Vec<tg::Value>>> {
-		Ok(self.object(tg).await?.map(|object| &object.args))
+		Ok(self.object(handle).await?.map(|object| &object.args))
 	}
 
 	pub async fn checksum(
 		&self,
-		tg: &impl tg::Handle,
+		handle: &impl tg::Handle,
 	) -> tg::Result<impl std::ops::Deref<Target = Option<tg::Checksum>>> {
-		Ok(self.object(tg).await?.map(|object| &object.checksum))
+		Ok(self.object(handle).await?.map(|object| &object.checksum))
 	}
 
-	pub async fn package(&self, tg: &impl tg::Handle) -> tg::Result<Option<tg::Directory>> {
-		let object = &self.object(tg).await?;
+	pub async fn package(&self, handle: &impl tg::Handle) -> tg::Result<Option<tg::Directory>> {
+		let object = &self.object(handle).await?;
 		let tg::Artifact::Symlink(symlink) = &object.executable else {
 			return Ok(None);
 		};
-		let Some(artifact) = symlink.artifact(tg).await? else {
+		let Some(artifact) = symlink.artifact(handle).await? else {
 			return Ok(None);
 		};
 		let Some(directory) = artifact.try_unwrap_directory_ref().ok() else {
@@ -273,11 +282,11 @@ impl Target {
 
 	pub async fn build(
 		&self,
-		tg: &impl tg::Handle,
+		handle: &impl tg::Handle,
 		arg: tg::build::GetOrCreateArg,
 	) -> tg::Result<tg::Value> {
-		let build = tg::Build::new(tg, arg.clone()).await?;
-		let outcome = build.outcome(tg).await?;
+		let build = tg::Build::new(handle, arg.clone()).await?;
+		let outcome = build.outcome(handle).await?;
 		match outcome {
 			tg::build::Outcome::Canceled => Err(tg::error!("the build was canceled")),
 			tg::build::Outcome::Failed(error) => Err(error),

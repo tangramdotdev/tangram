@@ -69,7 +69,6 @@ impl Server {
 
 		// Get the outcome.
 		let connection = self
-			
 			.database
 			.connection()
 			.await
@@ -154,7 +153,6 @@ impl Server {
 
 		// Get a database connection.
 		let connection = self
-			
 			.database
 			.connection()
 			.await
@@ -228,7 +226,6 @@ impl Server {
 
 		// Get a database connection.
 		let connection = self
-			
 			.database
 			.connection()
 			.await
@@ -421,8 +418,7 @@ where
 
 		let stop = request.extensions().get().cloned().unwrap();
 		let Some(outcome) = self
-			
-			.tg
+			.handle
 			.try_get_build_outcome(&id, arg, Some(stop))
 			.await?
 		else {
@@ -431,7 +427,7 @@ where
 
 		// Create the body.
 		let outcome = if let Some(outcome) = outcome {
-			Some(outcome.data(&self.tg).await?)
+			Some(outcome.data(&self.handle).await?)
 		} else {
 			None
 		};
@@ -472,7 +468,7 @@ where
 			.map_err(|source| tg::error!(!source, "failed to deserialize the body"))?;
 
 		// Set the outcome.
-		self.tg.set_build_outcome(&id, outcome).await?;
+		self.handle.set_build_outcome(&id, outcome).await?;
 
 		// Create the response.
 		let response = http::Response::builder()

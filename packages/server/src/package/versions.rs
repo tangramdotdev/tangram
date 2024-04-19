@@ -36,7 +36,6 @@ impl Server {
 
 		// Get a database connection.
 		let connection = self
-			
 			.database
 			.connection()
 			.await
@@ -158,7 +157,7 @@ where
 			.map_err(|source| tg::error!(!source, "failed to parse the dependency"))?;
 
 		// Get the package.
-		let Some(output) = self.tg.try_get_package_versions(&dependency).await? else {
+		let Some(output) = self.handle.try_get_package_versions(&dependency).await? else {
 			return Ok(not_found());
 		};
 

@@ -105,7 +105,6 @@ impl Server {
 	) -> tg::Result<tg::build::Status> {
 		// Get a database connection.
 		let connection = self
-			
 			.database
 			.connection()
 			.await
@@ -194,7 +193,6 @@ impl Server {
 
 		// Get a database connection.
 		let connection = self
-			
 			.database
 			.connection()
 			.await
@@ -290,8 +288,7 @@ where
 
 		let stop = request.extensions().get().cloned().unwrap();
 		let Some(stream) = self
-			
-			.tg
+			.handle
 			.try_get_build_status(&id, arg, Some(stop))
 			.await?
 		else {
@@ -354,7 +351,7 @@ where
 		let status = serde_json::from_slice(&bytes)
 			.map_err(|source| tg::error!(!source, "failed to deserialize the body"))?;
 
-		self.tg.set_build_status(&build_id, status).await?;
+		self.handle.set_build_status(&build_id, status).await?;
 
 		// Create the response.
 		let response = http::Response::builder()

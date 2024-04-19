@@ -44,7 +44,7 @@ impl Template {
 
 	pub async fn data<H>(
 		&self,
-		tg: &H,
+		handle: &H,
 		transaction: Option<&H::Transaction<'_>>,
 	) -> tg::Result<Data>
 	where
@@ -53,7 +53,7 @@ impl Template {
 		let components = self
 			.components
 			.iter()
-			.map(|component| component.data(tg, transaction))
+			.map(|component| component.data(handle, transaction))
 			.collect::<FuturesOrdered<_>>()
 			.try_collect()
 			.await?;
@@ -218,7 +218,7 @@ pub mod component {
 	impl Component {
 		pub async fn data<H>(
 			&self,
-			tg: &H,
+			handle: &H,
 			transaction: Option<&H::Transaction<'_>>,
 		) -> tg::Result<Data>
 		where
@@ -226,7 +226,7 @@ pub mod component {
 		{
 			match self {
 				Self::String(string) => Ok(Data::String(string.clone())),
-				Self::Artifact(artifact) => Ok(Data::Artifact(artifact.id(tg, transaction).await?)),
+				Self::Artifact(artifact) => Ok(Data::Artifact(artifact.id(handle, transaction).await?)),
 			}
 		}
 	}

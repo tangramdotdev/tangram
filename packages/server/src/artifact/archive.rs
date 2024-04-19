@@ -44,7 +44,7 @@ where
 			.map_err(|source| tg::error!(!source, "failed to deserialize the body"))?;
 
 		// Archive the artifact.
-		let output = self.tg.archive_artifact(&id, arg).await?;
+		let output = self.handle.archive_artifact(&id, arg).await?;
 
 		// Create the response.
 		let body = serde_json::to_vec(&output)

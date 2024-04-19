@@ -583,10 +583,7 @@ impl Server {
 			},
 			NodeKind::Directory { .. } => FileHandleData::Directory,
 			NodeKind::File { file, .. } => {
-				let reader = file
-					.reader(&self.server)
-					.await
-					.map_err(|_| libc::EIO)?;
+				let reader = file.reader(&self.server).await.map_err(|_| libc::EIO)?;
 				FileHandleData::File {
 					node: node_id,
 					reader,
@@ -598,10 +595,7 @@ impl Server {
 
 		// Add the file handle to the state.
 		let file_handle = self.next_file_handle().await;
-		self
-			.handles
-			.write()
-			.insert(file_handle, file_handle_data);
+		self.handles.write().insert(file_handle, file_handle_data);
 
 		// Create the response.
 		let open_flags = if matches!(&node.kind, NodeKind::Directory { .. }) {
@@ -642,7 +636,6 @@ impl Server {
 		// Get the reader.
 		let file_handle = FileHandle(data.fh);
 		let file_handle_data = self
-			
 			.handles
 			.read()
 			.get(&file_handle)
@@ -949,10 +942,7 @@ impl Server {
 		}
 
 		// Add the child node to the nodes.
-		self
-			.nodes
-			.write()
-			.insert(child_node.id, child_node.clone());
+		self.nodes.write().insert(child_node.id, child_node.clone());
 
 		Ok(child_node)
 	}
@@ -960,7 +950,6 @@ impl Server {
 	// Create a new NodeId.
 	async fn next_node_id(&self) -> NodeId {
 		let node_id = self
-			
 			.node_index
 			.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
 		NodeId(node_id)
@@ -969,7 +958,6 @@ impl Server {
 	// Create a new reader id.
 	async fn next_file_handle(&self) -> FileHandle {
 		let handle = self
-			
 			.handle_index
 			.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
 		FileHandle(handle)
@@ -1103,11 +1091,11 @@ impl Node {
 		}
 	}
 
-	async fn mode(&self, tg: &impl tg::Handle) -> tg::Result<u32, i32> {
+	async fn mode(&self, handle: &impl tg::Handle) -> tg::Result<u32, i32> {
 		let mode = match &self.kind {
 			NodeKind::Root { .. } | NodeKind::Directory { .. } => libc::S_IFDIR | 0o555,
 			NodeKind::File { file, .. } => {
-				let executable = file.executable(tg).await.map_err(|_| libc::EIO)?;
+				let executable = file.executable(handle).await.map_err(|_| libc::EIO)?;
 				libc::S_IFREG | 0o444 | (if executable { 0o111 } else { 0o000 })
 			},
 			NodeKind::Symlink { .. } | NodeKind::Checkout { .. } => libc::S_IFLNK | 0o444,
@@ -1133,9 +1121,12 @@ impl Node {
 		}
 	}
 
-	async fn fuse_entry_out(&self, tg: &impl tg::Handle) -> tg::Result<sys::fuse_entry_out, i32> {
+	async fn fuse_entry_out(
+		&self,
+		handle: &impl tg::Handle,
+	) -> tg::Result<sys::fuse_entry_out, i32> {
 		let nodeid = self.id.0;
-		let attr_out = self.fuse_attr_out(tg).await?;
+		let attr_out = self.fuse_attr_out(handle).await?;
 		let entry_out = sys::fuse_entry_out {
 			nodeid,
 			generation: 0,
@@ -1148,14 +1139,14 @@ impl Node {
 		Ok(entry_out)
 	}
 
-	async fn fuse_attr_out(&self, tg: &impl tg::Handle) -> tg::Result<sys::fuse_attr_out, i32> {
+	async fn fuse_attr_out(&self, handle: &impl tg::Handle) -> tg::Result<sys::fuse_attr_out, i32> {
 		let nodeid = self.id.0;
 		let nlink: u32 = match &self.kind {
 			NodeKind::Root { .. } => 2,
 			_ => 1,
 		};
 		let size = self.size();
-		let mode = self.mode(tg).await?;
+		let mode = self.mode(handle).await?;
 		let attr_out = sys::fuse_attr_out {
 			attr_valid: 1024,
 			attr_valid_nsec: 0,

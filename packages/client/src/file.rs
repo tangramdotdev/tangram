@@ -89,29 +89,33 @@ impl File {
 		Self { state }
 	}
 
-	pub async fn id<H>(&self, tg: &H, transaction: Option<&H::Transaction<'_>>) -> tg::Result<Id>
+	pub async fn id<H>(
+		&self,
+		handle: &H,
+		transaction: Option<&H::Transaction<'_>>,
+	) -> tg::Result<Id>
 	where
 		H: tg::Handle,
 	{
-		self.store(tg, transaction).await
+		self.store(handle, transaction).await
 	}
 
-	pub async fn object(&self, tg: &impl tg::Handle) -> tg::Result<Arc<Object>> {
-		self.load(tg).await
+	pub async fn object(&self, handle: &impl tg::Handle) -> tg::Result<Arc<Object>> {
+		self.load(handle).await
 	}
 
-	pub async fn load(&self, tg: &impl tg::Handle) -> tg::Result<Arc<Object>> {
-		self.try_load(tg)
+	pub async fn load(&self, handle: &impl tg::Handle) -> tg::Result<Arc<Object>> {
+		self.try_load(handle)
 			.await?
 			.ok_or_else(|| tg::error!("failed to load the object"))
 	}
 
-	pub async fn try_load(&self, tg: &impl tg::Handle) -> tg::Result<Option<Arc<Object>>> {
+	pub async fn try_load(&self, handle: &impl tg::Handle) -> tg::Result<Option<Arc<Object>>> {
 		if let Some(object) = self.state.read().unwrap().object.clone() {
 			return Ok(Some(object));
 		}
 		let id = self.state.read().unwrap().id.clone().unwrap();
-		let Some(output) = tg.try_get_object(&id.into()).await? else {
+		let Some(output) = handle.try_get_object(&id.into()).await? else {
 			return Ok(None);
 		};
 		let data = Data::deserialize(&output.bytes)
@@ -122,14 +126,18 @@ impl File {
 		Ok(Some(object))
 	}
 
-	pub async fn store<H>(&self, tg: &H, transaction: Option<&H::Transaction<'_>>) -> tg::Result<Id>
+	pub async fn store<H>(
+		&self,
+		handle: &H,
+		transaction: Option<&H::Transaction<'_>>,
+	) -> tg::Result<Id>
 	where
 		H: tg::Handle,
 	{
 		if let Some(id) = self.state.read().unwrap().id.clone() {
 			return Ok(id);
 		}
-		let data = self.data(tg, transaction).await?;
+		let data = self.data(handle, transaction).await?;
 		let bytes = data.serialize()?;
 		let id = Id::new(&bytes);
 		let arg = tg::object::PutArg {
@@ -137,7 +145,8 @@ impl File {
 			count: None,
 			weight: None,
 		};
-		tg.put_object(&id.clone().into(), arg, transaction)
+		handle
+			.put_object(&id.clone().into(), arg, transaction)
 			.boxed()
 			.await
 			.map_err(|source| tg::error!(!source, "failed to put the object"))?;
@@ -147,19 +156,19 @@ impl File {
 
 	pub async fn data<H>(
 		&self,
-		tg: &H,
+		handle: &H,
 		transaction: Option<&H::Transaction<'_>>,
 	) -> tg::Result<Data>
 	where
 		H: tg::Handle,
 	{
-		let object = self.object(tg).await?;
-		let contents = object.contents.id(tg, transaction).await?.clone();
+		let object = self.object(handle).await?;
+		let contents = object.contents.id(handle, transaction).await?.clone();
 		let executable = object.executable;
 		let references = object
 			.references
 			.iter()
-			.map(|artifact| artifact.id(tg, transaction))
+			.map(|artifact| artifact.id(handle, transaction))
 			.collect::<FuturesOrdered<_>>()
 			.try_collect()
 			.await?;
@@ -186,38 +195,38 @@ impl File {
 		Builder::new(contents)
 	}
 
-	pub async fn contents(&self, tg: &impl tg::Handle) -> tg::Result<tg::Blob> {
-		Ok(self.object(tg).await?.contents.clone())
+	pub async fn contents(&self, handle: &impl tg::Handle) -> tg::Result<tg::Blob> {
+		Ok(self.object(handle).await?.contents.clone())
 	}
 
-	pub async fn executable(&self, tg: &impl tg::Handle) -> tg::Result<bool> {
-		Ok(self.object(tg).await?.executable)
+	pub async fn executable(&self, handle: &impl tg::Handle) -> tg::Result<bool> {
+		Ok(self.object(handle).await?.executable)
 	}
 
 	pub async fn references(
 		&self,
-		tg: &impl tg::Handle,
+		handle: &impl tg::Handle,
 	) -> tg::Result<impl std::ops::Deref<Target = Vec<tg::Artifact>>> {
-		Ok(self.object(tg).await?.map(|object| &object.references))
+		Ok(self.object(handle).await?.map(|object| &object.references))
 	}
 
-	pub async fn reader<H>(&self, tg: &H) -> tg::Result<tg::blob::Reader<H>>
+	pub async fn reader<H>(&self, handle: &H) -> tg::Result<tg::blob::Reader<H>>
 	where
 		H: tg::Handle,
 	{
-		self.contents(tg).await?.reader(tg).await
+		self.contents(handle).await?.reader(handle).await
 	}
 
-	pub async fn size(&self, tg: &impl tg::Handle) -> tg::Result<u64> {
-		self.contents(tg).await?.size(tg).await
+	pub async fn size(&self, handle: &impl tg::Handle) -> tg::Result<u64> {
+		self.contents(handle).await?.size(handle).await
 	}
 
-	pub async fn bytes(&self, tg: &impl tg::Handle) -> tg::Result<Vec<u8>> {
-		self.contents(tg).await?.bytes(tg).await
+	pub async fn bytes(&self, handle: &impl tg::Handle) -> tg::Result<Vec<u8>> {
+		self.contents(handle).await?.bytes(handle).await
 	}
 
-	pub async fn text(&self, tg: &impl tg::Handle) -> tg::Result<String> {
-		self.contents(tg).await?.text(tg).await
+	pub async fn text(&self, handle: &impl tg::Handle) -> tg::Result<String> {
+		self.contents(handle).await?.text(handle).await
 	}
 }
 

@@ -192,7 +192,6 @@ impl Server {
 	) -> tg::Result<u64> {
 		// Get a database connection.
 		let connection = self
-			
 			.database
 			.connection()
 			.await
@@ -226,7 +225,6 @@ impl Server {
 	) -> tg::Result<bool> {
 		// Get a database connection.
 		let connection = self
-			
 			.database
 			.connection()
 			.await
@@ -267,7 +265,6 @@ impl Server {
 	) -> tg::Result<tg::build::children::Chunk> {
 		// Get a database connection.
 		let connection = self
-			
 			.database
 			.connection()
 			.await
@@ -344,7 +341,6 @@ impl Server {
 
 		// Get a database connection.
 		let connection = self
-			
 			.database
 			.connection()
 			.await
@@ -369,10 +365,7 @@ impl Server {
 		drop(connection);
 
 		// Publish the message.
-		self
-			.messenger
-			.publish_to_build_children(build_id)
-			.await?;
+		self.messenger.publish_to_build_children(build_id).await?;
 
 		Ok(true)
 	}
@@ -437,8 +430,7 @@ where
 
 		let stop = request.extensions().get().cloned().unwrap();
 		let Some(stream) = self
-			
-			.tg
+			.handle
 			.try_get_build_children(&id, arg, Some(stop))
 			.await?
 		else {
@@ -517,7 +509,7 @@ where
 			.map_err(|source| tg::error!(!source, "failed to deserialize the body"))?;
 
 		// Add the build child.
-		self.tg.add_build_child(&build_id, &child_id).await?;
+		self.handle.add_build_child(&build_id, &child_id).await?;
 
 		// Create the response.
 		let response = http::Response::builder()

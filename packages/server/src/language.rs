@@ -758,7 +758,7 @@ where
 			.map_err(|source| tg::error!(!source, "failed to deserialize the request body"))?;
 
 		// Format the text.
-		let text = self.tg.format(text).await?;
+		let text = self.handle.format(text).await?;
 
 		// Create the body.
 		let body = full(text.into_bytes());
@@ -805,7 +805,7 @@ where
 				let (input, output) = tokio::io::split(io);
 				let input = Box::new(tokio::io::BufReader::new(input));
 				let output = Box::new(output);
-				let task = server.tg.lsp(input, output);
+				let task = server.handle.lsp(input, output);
 				let stop = stop.wait_for(|stop| *stop);
 				future::select(pin!(task), pin!(stop))
 					.map(|output| match output {

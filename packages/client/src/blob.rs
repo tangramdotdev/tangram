@@ -74,10 +74,10 @@ pub struct DecompressOutput {
 pub struct Reader<H> {
 	blob: Blob,
 	cursor: Option<Cursor<Bytes>>,
+	handle: H,
 	position: u64,
 	read: Option<BoxFuture<'static, tg::Result<Option<Cursor<Bytes>>>>>,
 	size: u64,
-	tg: H,
 }
 
 impl Blob {
@@ -89,13 +89,17 @@ impl Blob {
 		}
 	}
 
-	pub async fn id<H>(&self, tg: &H, transaction: Option<&H::Transaction<'_>>) -> tg::Result<Id>
+	pub async fn id<H>(
+		&self,
+		handle: &H,
+		transaction: Option<&H::Transaction<'_>>,
+	) -> tg::Result<Id>
 	where
 		H: tg::Handle,
 	{
 		match self {
-			Self::Leaf(leaf) => Ok(leaf.id(tg, transaction).await?.into()),
-			Self::Branch(branch) => Ok(branch.id(tg, transaction).await?.into()),
+			Self::Leaf(leaf) => Ok(leaf.id(handle, transaction).await?.into()),
+			Self::Branch(branch) => Ok(branch.id(handle, transaction).await?.into()),
 		}
 	}
 }
@@ -112,42 +116,42 @@ impl Blob {
 	}
 
 	pub async fn with_reader<H>(
-		tg: &H,
+		handle: &H,
 		reader: impl AsyncRead + Send + 'static,
 		transaction: Option<&H::Transaction<'_>>,
 	) -> tg::Result<Self>
 	where
 		H: tg::Handle,
 	{
-		let id = tg.create_blob(reader, transaction).boxed().await?;
+		let id = handle.create_blob(reader, transaction).boxed().await?;
 		let blob = Self::with_id(id);
 		Ok(blob)
 	}
 
-	pub async fn size(&self, tg: &impl tg::Handle) -> tg::Result<u64> {
+	pub async fn size(&self, handle: &impl tg::Handle) -> tg::Result<u64> {
 		match self {
 			Self::Leaf(leaf) => {
-				let bytes = &leaf.bytes(tg).await?;
+				let bytes = &leaf.bytes(handle).await?;
 				let size = bytes.len().to_u64().unwrap();
 				Ok(size)
 			},
 			Self::Branch(branch) => {
-				let children = &branch.children(tg).await?;
+				let children = &branch.children(handle).await?;
 				let size = children.iter().map(|child| child.size).sum();
 				Ok(size)
 			},
 		}
 	}
 
-	pub async fn reader<H>(&self, tg: &H) -> tg::Result<Reader<H>>
+	pub async fn reader<H>(&self, handle: &H) -> tg::Result<Reader<H>>
 	where
 		H: tg::Handle,
 	{
-		Reader::new(tg, self.clone()).await
+		Reader::new(handle, self.clone()).await
 	}
 
-	pub async fn bytes(&self, tg: &impl tg::Handle) -> tg::Result<Vec<u8>> {
-		let mut reader = self.reader(tg).await?;
+	pub async fn bytes(&self, handle: &impl tg::Handle) -> tg::Result<Vec<u8>> {
+		let mut reader = self.reader(handle).await?;
 		let mut bytes = Vec::new();
 		reader
 			.read_to_end(&mut bytes)
@@ -156,8 +160,8 @@ impl Blob {
 		Ok(bytes)
 	}
 
-	pub async fn text(&self, tg: &impl tg::Handle) -> tg::Result<String> {
-		let bytes = self.bytes(tg).await?;
+	pub async fn text(&self, handle: &impl tg::Handle) -> tg::Result<String> {
+		let bytes = self.bytes(handle).await?;
 		let string = String::from_utf8(bytes)
 			.map_err(|source| tg::error!(!source, "failed to decode the blob's bytes as UTF-8"))?;
 		Ok(string)
@@ -165,24 +169,24 @@ impl Blob {
 
 	pub async fn compress(
 		&self,
-		tg: &impl tg::Handle,
+		handle: &impl tg::Handle,
 		format: CompressionFormat,
 	) -> tg::Result<Self> {
-		let id = self.id(tg, None).await?;
+		let id = self.id(handle, None).await?;
 		let arg = CompressArg { format };
-		let output = tg.compress_blob(&id, arg).await?;
+		let output = handle.compress_blob(&id, arg).await?;
 		let blob = Self::with_id(output.id);
 		Ok(blob)
 	}
 
 	pub async fn decompress(
 		&self,
-		tg: &impl tg::Handle,
+		handle: &impl tg::Handle,
 		format: CompressionFormat,
 	) -> tg::Result<Self> {
-		let id = self.id(tg, None).await?;
+		let id = self.id(handle, None).await?;
 		let arg = DecompressArg { format };
-		let output = tg.decompress_blob(&id, arg).await?;
+		let output = handle.decompress_blob(&id, arg).await?;
 		let blob = Self::with_id(output.id);
 		Ok(blob)
 	}
@@ -417,19 +421,19 @@ impl<H> Reader<H>
 where
 	H: tg::Handle,
 {
-	pub async fn new(tg: &H, blob: Blob) -> tg::Result<Self> {
+	pub async fn new(handle: &H, blob: Blob) -> tg::Result<Self> {
 		let cursor = None;
 		let position = 0;
 		let read = None;
-		let size = blob.size(tg).await?;
-		let tg = tg.clone();
+		let size = blob.size(handle).await?;
+		let handle = handle.clone();
 		Ok(Self {
 			blob,
 			cursor,
+			handle,
 			position,
 			read,
 			size,
-			tg,
 		})
 	}
 
@@ -455,10 +459,10 @@ where
 
 		// Create the read future if necessary.
 		if this.cursor.is_none() && this.read.is_none() {
-			let tg = this.tg.clone();
+			let handle = this.handle.clone();
 			let blob = this.blob.clone();
 			let position = this.position;
-			let read = async move { poll_read_inner(&tg, blob, position).await }.boxed();
+			let read = async move { poll_read_inner(&handle, blob, position).await }.boxed();
 			this.read.replace(read);
 		}
 
@@ -510,10 +514,10 @@ where
 
 		// Create the read future if necessary.
 		if this.cursor.is_none() && this.read.is_none() {
-			let tg = this.tg.clone();
+			let handle = this.handle.clone();
 			let blob = this.blob.clone();
 			let position = this.position;
-			let read = async move { poll_read_inner(&tg, blob, position).await }.boxed();
+			let read = async move { poll_read_inner(&handle, blob, position).await }.boxed();
 			this.read.replace(read);
 		}
 
@@ -556,7 +560,7 @@ where
 }
 
 async fn poll_read_inner(
-	tg: &impl tg::Handle,
+	handle: &impl tg::Handle,
 	blob: Blob,
 	position: u64,
 ) -> tg::Result<Option<Cursor<Bytes>>> {
@@ -575,7 +579,7 @@ async fn poll_read_inner(
 				let bytes = if let Some(object) = object {
 					object.bytes.clone()
 				} else {
-					tg.get_object(&id.unwrap().into()).await?.bytes.clone()
+					handle.get_object(&id.unwrap().into()).await?.bytes.clone()
 				};
 				if position < current_blob_position + bytes.len().to_u64().unwrap() {
 					let mut cursor = Cursor::new(bytes.clone());
@@ -585,7 +589,7 @@ async fn poll_read_inner(
 				return Ok(None);
 			},
 			Blob::Branch(branch) => {
-				for child in branch.children(tg).await?.iter() {
+				for child in branch.children(handle).await?.iter() {
 					if position < current_blob_position + child.size {
 						current_blob = child.blob.clone();
 						continue 'a;

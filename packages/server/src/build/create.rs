@@ -150,8 +150,7 @@ impl Server {
 			stop,
 			task: std::sync::Mutex::new(None),
 		});
-		self
-			.build_state
+		self.build_state
 			.write()
 			.unwrap()
 			.insert(build_id.clone(), state);
@@ -215,7 +214,7 @@ where
 			.map_err(|source| tg::error!(!source, "failed to deserialize the body"))?;
 
 		// Get or create the build.
-		let output = self.tg.get_or_create_build(arg).await?;
+		let output = self.handle.get_or_create_build(arg).await?;
 
 		// Create the body.
 		let body = serde_json::to_vec(&output)

@@ -28,7 +28,6 @@ impl Server {
 
 		// Get a database connection.
 		let connection = self
-			
 			.database
 			.connection()
 			.await
@@ -63,7 +62,6 @@ impl Server {
 
 		// Get a database connection.
 		let connection = self
-			
 			.database
 			.connection()
 			.await
@@ -110,7 +108,7 @@ where
 		};
 
 		// Publish the package.
-		self.tg.yank_package(&dependency).await?;
+		self.handle.yank_package(&dependency).await?;
 
 		Ok(ok())
 	}

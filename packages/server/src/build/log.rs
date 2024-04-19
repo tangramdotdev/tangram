@@ -277,7 +277,6 @@ impl Server {
 
 		// Get a database connection.
 		let connection = self
-			
 			.database
 			.connection()
 			.await
@@ -387,7 +386,6 @@ impl DatabaseReader {
 		// Get a database connection.
 		let connection = self
 			.server
-			
 			.database
 			.connection()
 			.await
@@ -526,7 +524,6 @@ async fn poll_read_inner(
 ) -> tg::Result<Option<Cursor<Bytes>>> {
 	// Get a database connection.
 	let connection = server
-		
 		.database
 		.connection()
 		.await
@@ -622,7 +619,6 @@ async fn poll_seek_inner(
 ) -> tg::Result<u64> {
 	// Get a database connection.
 	let connection = server
-		
 		.database
 		.connection()
 		.await
@@ -714,12 +710,7 @@ where
 			.transpose()?;
 
 		let stop = request.extensions().get().cloned().unwrap();
-		let Some(stream) = self
-			
-			.tg
-			.try_get_build_log(&id, arg, Some(stop))
-			.await?
-		else {
+		let Some(stream) = self.handle.try_get_build_log(&id, arg, Some(stop)).await? else {
 			return Ok(not_found());
 		};
 
@@ -777,7 +768,7 @@ where
 			.map_err(|source| tg::error!(!source, "failed to read the body"))?
 			.to_bytes();
 
-		self.tg.add_build_log(&build_id, bytes).await?;
+		self.handle.add_build_log(&build_id, bytes).await?;
 
 		let response = http::Response::builder()
 			.status(http::StatusCode::OK)

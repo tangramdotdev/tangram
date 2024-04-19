@@ -84,7 +84,7 @@ impl Value {
 
 	pub async fn push<H1, H2>(
 		&self,
-		tg: &H1,
+		handle: &H1,
 		remote: &H2,
 		transaction: Option<&H2::Transaction<'_>>,
 	) -> tg::Result<()>
@@ -94,7 +94,7 @@ impl Value {
 	{
 		self.objects()
 			.iter()
-			.map(|object| object.push(tg, remote, transaction))
+			.map(|object| object.push(handle, remote, transaction))
 			.collect::<FuturesUnordered<_>>()
 			.try_collect()
 			.await?;
@@ -103,7 +103,7 @@ impl Value {
 
 	pub async fn pull<H1, H2>(
 		&self,
-		tg: &H1,
+		handle: &H1,
 		remote: &H2,
 		transaction: Option<&H1::Transaction<'_>>,
 	) -> tg::Result<()>
@@ -113,7 +113,7 @@ impl Value {
 	{
 		self.objects()
 			.iter()
-			.map(|object| object.pull(tg, remote, transaction))
+			.map(|object| object.pull(handle, remote, transaction))
 			.collect::<FuturesUnordered<_>>()
 			.try_collect()
 			.await?;
@@ -122,7 +122,7 @@ impl Value {
 
 	pub async fn data<H>(
 		&self,
-		tg: &H,
+		handle: &H,
 		transaction: Option<&H::Transaction<'_>>,
 	) -> tg::Result<Data>
 	where
@@ -136,7 +136,7 @@ impl Value {
 			Self::Array(array) => Data::Array(
 				array
 					.iter()
-					.map(|value| value.data(tg, transaction))
+					.map(|value| value.data(handle, transaction))
 					.collect::<FuturesOrdered<_>>()
 					.try_collect()
 					.await?,
@@ -144,17 +144,17 @@ impl Value {
 			Self::Map(map) => Data::Map(
 				map.iter()
 					.map(|(key, value)| async move {
-						Ok::<_, tg::Error>((key.clone(), value.data(tg, transaction).await?))
+						Ok::<_, tg::Error>((key.clone(), value.data(handle, transaction).await?))
 					})
 					.collect::<FuturesUnordered<_>>()
 					.try_collect()
 					.await?,
 			),
-			Self::Object(object) => Data::Object(object.id(tg, transaction).await?),
+			Self::Object(object) => Data::Object(object.id(handle, transaction).await?),
 			Self::Bytes(bytes) => Data::Bytes(bytes.clone()),
 			Self::Path(path) => Data::Path(path.clone()),
-			Self::Mutation(mutation) => Data::Mutation(mutation.data(tg, transaction).await?),
-			Self::Template(template) => Data::Template(template.data(tg, transaction).await?),
+			Self::Mutation(mutation) => Data::Mutation(mutation.data(handle, transaction).await?),
+			Self::Template(template) => Data::Template(template.data(handle, transaction).await?),
 		};
 		Ok(data)
 	}

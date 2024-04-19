@@ -24,7 +24,7 @@ where
 		&self,
 		_request: http::Request<Incoming>,
 	) -> tg::Result<http::Response<Outgoing>> {
-		let health = self.tg.health().await?;
+		let health = self.handle.health().await?;
 		let body = serde_json::to_vec(&health).unwrap();
 		let response = http::Response::builder()
 			.status(http::StatusCode::OK)
@@ -37,7 +37,7 @@ where
 		&self,
 		_request: http::Request<Incoming>,
 	) -> tg::Result<http::Response<Outgoing>> {
-		let path = self.tg.path().await?;
+		let path = self.handle.path().await?;
 		let body = serde_json::to_string(&path).unwrap();
 		Ok(http::Response::builder()
 			.status(http::StatusCode::OK)
@@ -49,7 +49,7 @@ where
 		&self,
 		_request: http::Request<Incoming>,
 	) -> tg::Result<http::Response<Outgoing>> {
-		self.tg.clean().await?;
+		self.handle.clean().await?;
 		Ok(http::Response::builder()
 			.status(http::StatusCode::OK)
 			.body(empty())

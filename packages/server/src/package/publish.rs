@@ -42,7 +42,6 @@ impl Server {
 
 		// Get a database connection.
 		let connection = self
-			
 			.database
 			.connection()
 			.await
@@ -109,7 +108,7 @@ where
 			.map_err(|source| tg::error!(!source, "invalid request"))?;
 
 		// Publish the package.
-		self.tg.publish_package(&package_id).await?;
+		self.handle.publish_package(&package_id).await?;
 
 		Ok(ok())
 	}

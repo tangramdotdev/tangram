@@ -133,29 +133,29 @@ impl Artifact {
 		}
 	}
 
-	pub async fn id<H>(&self, tg: &H, transaction: Option<&H::Transaction<'_>>) -> tg::Result<Id>
+	pub async fn id<H>(&self, handle: &H, transaction: Option<&H::Transaction<'_>>) -> tg::Result<Id>
 	where
 		H: tg::Handle,
 	{
 		match self {
-			Self::Directory(directory) => Ok(directory.id(tg, transaction).await?.into()),
-			Self::File(file) => Ok(file.id(tg, transaction).await?.into()),
-			Self::Symlink(symlink) => Ok(Box::pin(symlink.id(tg, transaction)).await?.into()),
+			Self::Directory(directory) => Ok(directory.id(handle, transaction).await?.into()),
+			Self::File(file) => Ok(file.id(handle, transaction).await?.into()),
+			Self::Symlink(symlink) => Ok(Box::pin(symlink.id(handle, transaction)).await?.into()),
 		}
 	}
 
 	pub async fn data<H>(
 		&self,
-		tg: &H,
+		handle: &H,
 		transaction: Option<&H::Transaction<'_>>,
 	) -> tg::Result<Data>
 	where
 		H: tg::Handle,
 	{
 		match self {
-			Self::Directory(directory) => Ok(directory.data(tg, transaction).await?.into()),
-			Self::File(file) => Ok(file.data(tg, transaction).await?.into()),
-			Self::Symlink(symlink) => Ok(symlink.data(tg, transaction).await?.into()),
+			Self::Directory(directory) => Ok(directory.data(handle, transaction).await?.into()),
+			Self::File(file) => Ok(file.data(handle, transaction).await?.into()),
+			Self::Symlink(symlink) => Ok(symlink.data(handle, transaction).await?.into()),
 		}
 	}
 }
@@ -163,56 +163,56 @@ impl Artifact {
 impl Artifact {
 	pub async fn archive(
 		&self,
-		tg: &impl tg::Handle,
+		handle: &impl tg::Handle,
 		format: ArchiveFormat,
 	) -> tg::Result<tg::Blob> {
-		let id = self.id(tg, None).await?;
+		let id = self.id(handle, None).await?;
 		let arg = ArchiveArg { format };
-		let output = tg.archive_artifact(&id, arg).await?;
+		let output = handle.archive_artifact(&id, arg).await?;
 		let blob = tg::Blob::with_id(output.id);
 		Ok(blob)
 	}
 
 	pub async fn extract(
-		tg: &impl tg::Handle,
+		handle: &impl tg::Handle,
 		blob: &tg::Blob,
 		format: ArchiveFormat,
 	) -> tg::Result<Self> {
-		let blob = blob.id(tg, None).await?;
+		let blob = blob.id(handle, None).await?;
 		let arg = ExtractArg { blob, format };
-		let output = tg.extract_artifact(arg).await?;
+		let output = handle.extract_artifact(arg).await?;
 		let artifact = Self::with_id(output.id);
 		Ok(artifact)
 	}
 
-	pub async fn bundle(&self, tg: &impl tg::Handle) -> tg::Result<Self> {
-		let id = self.id(tg, None).await?;
-		let output = tg.bundle_artifact(&id).await?;
+	pub async fn bundle(&self, handle: &impl tg::Handle) -> tg::Result<Self> {
+		let id = self.id(handle, None).await?;
+		let output = handle.bundle_artifact(&id).await?;
 		let artifact = Self::with_id(output.id);
 		Ok(artifact)
 	}
 
-	pub async fn check_in(tg: &impl tg::Handle, path: &tg::Path) -> tg::Result<Self> {
+	pub async fn check_in(handle: &impl tg::Handle, path: &tg::Path) -> tg::Result<Self> {
 		let arg = CheckInArg { path: path.clone() };
-		let output = tg.check_in_artifact(arg).await?;
+		let output = handle.check_in_artifact(arg).await?;
 		let artifact = Self::with_id(output.id);
 		Ok(artifact)
 	}
 
 	pub async fn check_out(
 		&self,
-		tg: &impl tg::Handle,
+		handle: &impl tg::Handle,
 		arg: CheckOutArg,
 	) -> tg::Result<CheckOutOutput> {
-		let id = self.id(tg, None).await?;
-		let output = tg.check_out_artifact(&id, arg).await?;
+		let id = self.id(handle, None).await?;
+		let output = handle.check_out_artifact(&id, arg).await?;
 		Ok(output)
 	}
 
 	/// Compute an artifact's checksum.
 	pub async fn checksum(
 		&self,
-		_tg: &impl tg::Handle,
+		_handle: &impl tg::Handle,
 		algorithm: tg::checksum::Algorithm,
 	) -> tg::Result<tg::Checksum> {
 		match algorithm {
@@ -222,28 +222,28 @@ impl Artifact {
 	}
 
 	/// Collect an artifact's references.
-	pub async fn references(&self, tg: &impl tg::Handle) -> tg::Result<Vec<Self>> {
+	pub async fn references(&self, handle: &impl tg::Handle) -> tg::Result<Vec<Self>> {
 		match self {
 			Self::Directory(directory) => Ok(directory
-				.entries(tg)
+				.entries(handle)
 				.await?
 				.values()
-				.map(|artifact| artifact.references(tg))
+				.map(|artifact| artifact.references(handle))
 				.collect::<FuturesOrdered<_>>()
 				.try_collect::<Vec<_>>()
 				.await?
 				.into_iter()
 				.flatten()
 				.collect()),
-			Self::File(file) => Ok(file.references(tg).await?.to_owned()),
-			Self::Symlink(symlink) => Ok(symlink.artifact(tg).await?.clone().into_iter().collect()),
+			Self::File(file) => Ok(file.references(handle).await?.to_owned()),
+			Self::Symlink(symlink) => Ok(symlink.artifact(handle).await?.clone().into_iter().collect()),
 		}
 	}
 
 	/// Collect an artifact's recursive references.
 	pub async fn recursive_references(
 		&self,
-		tg: &impl tg::Handle,
+		handle: &impl tg::Handle,
 	) -> tg::Result<HashSet<Id, fnv::FnvBuildHasher>> {
 		// Create a queue of artifacts and a set of futures.
 		let mut references = HashSet::default();
@@ -253,7 +253,7 @@ impl Artifact {
 
 		while let Some(artifact) = queue.pop_front() {
 			// Add a request for the artifact's references to the futures.
-			futures.push(async move { artifact.references(tg).await });
+			futures.push(async move { artifact.references(handle).await });
 
 			// If the queue is empty, then get more artifacts from the futures.
 			if queue.is_empty() {
@@ -262,7 +262,7 @@ impl Artifact {
 					// Handle each artifact.
 					for artifact in artifacts {
 						// Insert the artifact into the set of references.
-						let inserted = references.insert(artifact.id(tg, None).await?);
+						let inserted = references.insert(artifact.id(handle, None).await?);
 
 						// If the artifact was new, then add it to the queue.
 						if inserted {

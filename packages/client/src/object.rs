@@ -150,58 +150,58 @@ impl Handle {
 			Object::Target(object) => Self::Target(tg::Target::with_object(object)),
 		}
 	}
-	pub async fn id<H>(&self, tg: &H, transaction: Option<&H::Transaction<'_>>) -> tg::Result<Id>
+	pub async fn id<H>(&self, handle: &H, transaction: Option<&H::Transaction<'_>>) -> tg::Result<Id>
 	where
 		H: crate::Handle,
 	{
 		match self {
-			Self::Leaf(object) => object.id(tg, transaction).await.map(Id::Leaf),
-			Self::Branch(object) => object.id(tg, transaction).await.map(Id::Branch),
-			Self::Directory(object) => object.id(tg, transaction).await.map(Id::Directory),
-			Self::File(object) => object.id(tg, transaction).await.map(Id::File),
-			Self::Symlink(object) => object.id(tg, transaction).await.map(Id::Symlink),
-			Self::Lock(object) => object.id(tg, transaction).await.map(Id::Lock),
-			Self::Target(object) => object.id(tg, transaction).await.map(Id::Target),
+			Self::Leaf(object) => object.id(handle, transaction).await.map(Id::Leaf),
+			Self::Branch(object) => object.id(handle, transaction).await.map(Id::Branch),
+			Self::Directory(object) => object.id(handle, transaction).await.map(Id::Directory),
+			Self::File(object) => object.id(handle, transaction).await.map(Id::File),
+			Self::Symlink(object) => object.id(handle, transaction).await.map(Id::Symlink),
+			Self::Lock(object) => object.id(handle, transaction).await.map(Id::Lock),
+			Self::Target(object) => object.id(handle, transaction).await.map(Id::Target),
 		}
 	}
 
-	pub async fn object<H>(&self, tg: &H) -> tg::Result<Object>
+	pub async fn object<H>(&self, handle: &H) -> tg::Result<Object>
 	where
 		H: crate::Handle,
 	{
 		match self {
-			Self::Leaf(object) => object.object(tg).await.map(Object::Leaf),
-			Self::Branch(object) => object.object(tg).await.map(Object::Branch),
-			Self::Directory(object) => object.object(tg).await.map(Object::Directory),
-			Self::File(object) => object.object(tg).await.map(Object::File),
-			Self::Symlink(object) => object.object(tg).await.map(Object::Symlink),
-			Self::Lock(object) => object.object(tg).await.map(Object::Lock),
-			Self::Target(object) => object.object(tg).await.map(Object::Target),
+			Self::Leaf(object) => object.object(handle).await.map(Object::Leaf),
+			Self::Branch(object) => object.object(handle).await.map(Object::Branch),
+			Self::Directory(object) => object.object(handle).await.map(Object::Directory),
+			Self::File(object) => object.object(handle).await.map(Object::File),
+			Self::Symlink(object) => object.object(handle).await.map(Object::Symlink),
+			Self::Lock(object) => object.object(handle).await.map(Object::Lock),
+			Self::Target(object) => object.object(handle).await.map(Object::Target),
 		}
 	}
 
 	pub async fn data<H>(
 		&self,
-		tg: &H,
+		handle: &H,
 		transaction: Option<&H::Transaction<'_>>,
 	) -> tg::Result<Data>
 	where
 		H: crate::Handle,
 	{
 		match self {
-			Self::Leaf(object) => object.data(tg, transaction).await.map(Data::Leaf),
-			Self::Branch(object) => object.data(tg, transaction).await.map(Data::Branch),
-			Self::Directory(object) => object.data(tg, transaction).await.map(Data::Directory),
-			Self::File(object) => object.data(tg, transaction).await.map(Data::File),
-			Self::Symlink(object) => object.data(tg, transaction).await.map(Data::Symlink),
-			Self::Lock(object) => object.data(tg, transaction).await.map(Data::Lock),
-			Self::Target(object) => object.data(tg, transaction).await.map(Data::Target),
+			Self::Leaf(object) => object.data(handle, transaction).await.map(Data::Leaf),
+			Self::Branch(object) => object.data(handle, transaction).await.map(Data::Branch),
+			Self::Directory(object) => object.data(handle, transaction).await.map(Data::Directory),
+			Self::File(object) => object.data(handle, transaction).await.map(Data::File),
+			Self::Symlink(object) => object.data(handle, transaction).await.map(Data::Symlink),
+			Self::Lock(object) => object.data(handle, transaction).await.map(Data::Lock),
+			Self::Target(object) => object.data(handle, transaction).await.map(Data::Target),
 		}
 	}
 
 	pub async fn push<H1, H2>(
 		&self,
-		tg: &H1,
+		handle: &H1,
 		remote: &H2,
 		transaction: Option<&H2::Transaction<'_>>,
 	) -> tg::Result<()>
@@ -209,8 +209,8 @@ impl Handle {
 		H1: crate::Handle,
 		H2: crate::Handle,
 	{
-		let id = self.id(tg, None).await?;
-		let data = self.data(tg, None).await?;
+		let id = self.id(handle, None).await?;
+		let data = self.data(handle, None).await?;
 		let bytes = data.serialize()?;
 		let arg = PutArg {
 			bytes,
@@ -226,7 +226,7 @@ impl Handle {
 			.incomplete
 			.into_iter()
 			.map(Self::with_id)
-			.map(|object| async move { object.push(tg, remote, transaction).await })
+			.map(|object| async move { object.push(handle, remote, transaction).await })
 			.collect::<FuturesUnordered<_>>()
 			.try_collect()
 			.await?;
@@ -235,7 +235,7 @@ impl Handle {
 
 	pub async fn pull<H1, H2>(
 		&self,
-		tg: &H1,
+		handle: &H1,
 		remote: &H2,
 		transaction: Option<&H1::Transaction<'_>>,
 	) -> tg::Result<()>
@@ -243,7 +243,7 @@ impl Handle {
 		H1: crate::Handle,
 		H2: crate::Handle,
 	{
-		let id = self.id(tg, transaction).await?;
+		let id = self.id(handle, transaction).await?;
 		let output = remote
 			.get_object(&id)
 			.await
@@ -253,12 +253,12 @@ impl Handle {
 			count: None,
 			weight: None,
 		};
-		let output = tg.put_object(&id, arg, transaction).boxed().await?;
+		let output = handle.put_object(&id, arg, transaction).boxed().await?;
 		output
 			.incomplete
 			.into_iter()
 			.map(Self::with_id)
-			.map(|object| async move { object.pull(tg, remote, transaction).await })
+			.map(|object| async move { object.pull(handle, remote, transaction).await })
 			.collect::<FuturesUnordered<_>>()
 			.try_collect()
 			.await?;

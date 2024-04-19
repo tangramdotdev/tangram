@@ -27,7 +27,6 @@ impl Server {
 	) -> tg::Result<Option<tg::object::GetOutput>> {
 		// Get a database connection.
 		let connection = self
-			
 			.database
 			.connection()
 			.await
@@ -99,7 +98,7 @@ where
 		};
 
 		// Get the object.
-		let Some(output) = self.tg.try_get_object(&id).await? else {
+		let Some(output) = self.handle.try_get_object(&id).await? else {
 			return Ok(not_found());
 		};
 

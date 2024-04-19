@@ -28,7 +28,6 @@ impl Server {
 	) -> tg::Result<Option<tg::build::GetOutput>> {
 		// Get a database connection.
 		let connection = self
-			
 			.database
 			.connection()
 			.await
@@ -148,7 +147,7 @@ where
 			.unwrap_or_default();
 
 		// Get the build.
-		let Some(output) = self.tg.try_get_build(&id, arg).await? else {
+		let Some(output) = self.handle.try_get_build(&id, arg).await? else {
 			return Ok(not_found());
 		};
 

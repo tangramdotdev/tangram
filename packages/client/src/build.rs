@@ -185,28 +185,28 @@ impl Build {
 		&self.id
 	}
 
-	pub async fn new(tg: &impl tg::Handle, arg: GetOrCreateArg) -> tg::Result<Self> {
-		let output = tg.get_or_create_build(arg).await?;
+	pub async fn new(handle: &impl tg::Handle, arg: GetOrCreateArg) -> tg::Result<Self> {
+		let output = handle.get_or_create_build(arg).await?;
 		let build = Build::with_id(output.id);
 		Ok(build)
 	}
 
 	pub async fn children(
 		&self,
-		tg: &impl tg::Handle,
+		handle: &impl tg::Handle,
 		arg: children::GetArg,
 	) -> tg::Result<impl Stream<Item = tg::Result<Self>> + Send + 'static> {
-		self.try_get_children(tg, arg)
+		self.try_get_children(handle, arg)
 			.await?
 			.ok_or_else(|| tg::error!("failed to get the build"))
 	}
 
 	pub async fn try_get_children(
 		&self,
-		tg: &impl tg::Handle,
+		handle: &impl tg::Handle,
 		arg: children::GetArg,
 	) -> tg::Result<Option<impl Stream<Item = tg::Result<Self>> + Send + 'static>> {
-		Ok(tg
+		Ok(handle
 			.try_get_build_children(self.id(), arg, None)
 			.await?
 			.map(|stream| {
@@ -219,84 +219,85 @@ impl Build {
 			}))
 	}
 
-	pub async fn add_child(&self, tg: &impl tg::Handle, child: &Self) -> tg::Result<()> {
+	pub async fn add_child(&self, handle: &impl tg::Handle, child: &Self) -> tg::Result<()> {
 		let id = self.id();
 		let child_id = child.id();
-		tg.add_build_child(id, child_id).await?;
+		handle.add_build_child(id, child_id).await?;
 		Ok(())
 	}
 
 	pub async fn log(
 		&self,
-		tg: &impl tg::Handle,
+		handle: &impl tg::Handle,
 		arg: log::GetArg,
 	) -> tg::Result<impl Stream<Item = tg::Result<log::Chunk>> + Send + 'static> {
-		self.try_get_log(tg, arg)
+		self.try_get_log(handle, arg)
 			.await?
 			.ok_or_else(|| tg::error!("failed to get the build"))
 	}
 
 	pub async fn try_get_log(
 		&self,
-		tg: &impl tg::Handle,
+		handle: &impl tg::Handle,
 		arg: log::GetArg,
 	) -> tg::Result<Option<impl Stream<Item = tg::Result<log::Chunk>> + Send + 'static>> {
-		tg.try_get_build_log(self.id(), arg, None)
+		handle
+			.try_get_build_log(self.id(), arg, None)
 			.await
 			.map(|option| option.map(futures::StreamExt::boxed))
 	}
 
-	pub async fn add_log(&self, tg: &impl tg::Handle, log: Bytes) -> tg::Result<()> {
+	pub async fn add_log(&self, handle: &impl tg::Handle, log: Bytes) -> tg::Result<()> {
 		let id = self.id();
-		tg.add_build_log(id, log).await?;
+		handle.add_build_log(id, log).await?;
 		Ok(())
 	}
 
-	pub async fn outcome(&self, tg: &impl tg::Handle) -> tg::Result<Outcome> {
-		self.get_outcome(tg, outcome::GetArg::default())
+	pub async fn outcome(&self, handle: &impl tg::Handle) -> tg::Result<Outcome> {
+		self.get_outcome(handle, outcome::GetArg::default())
 			.await?
 			.ok_or_else(|| tg::error!("failed to get the outcome"))
 	}
 
 	pub async fn get_outcome(
 		&self,
-		tg: &impl tg::Handle,
+		handle: &impl tg::Handle,
 		arg: outcome::GetArg,
 	) -> tg::Result<Option<Outcome>> {
-		self.try_get_outcome(tg, arg)
+		self.try_get_outcome(handle, arg)
 			.await?
 			.ok_or_else(|| tg::error!("failed to get the build"))
 	}
 
 	pub async fn try_get_outcome(
 		&self,
-		tg: &impl tg::Handle,
+		handle: &impl tg::Handle,
 		arg: outcome::GetArg,
 	) -> tg::Result<Option<Option<Outcome>>> {
-		tg.try_get_build_outcome(self.id(), arg, None).await
+		handle.try_get_build_outcome(self.id(), arg, None).await
 	}
 
-	pub async fn cancel(&self, tg: &impl tg::Handle) -> tg::Result<()> {
+	pub async fn cancel(&self, handle: &impl tg::Handle) -> tg::Result<()> {
 		let id = self.id();
-		tg.set_build_outcome(id, Outcome::Canceled).await?;
+		handle.set_build_outcome(id, Outcome::Canceled).await?;
 		Ok(())
 	}
 
-	pub async fn set_outcome(&self, tg: &impl tg::Handle, outcome: Outcome) -> tg::Result<()> {
+	pub async fn set_outcome(&self, handle: &impl tg::Handle, outcome: Outcome) -> tg::Result<()> {
 		let id = self.id();
-		tg.set_build_outcome(id, outcome).await?;
+		handle.set_build_outcome(id, outcome).await?;
 		Ok(())
 	}
 
-	pub async fn retry(&self, tg: &impl tg::Handle) -> tg::Result<Retry> {
-		self.try_get_retry(tg)
+	pub async fn retry(&self, handle: &impl tg::Handle) -> tg::Result<Retry> {
+		self.try_get_retry(handle)
 			.await?
 			.ok_or_else(|| tg::error!("failed to get the build"))
 	}
 
-	pub async fn try_get_retry(&self, tg: &impl tg::Handle) -> tg::Result<Option<Retry>> {
+	pub async fn try_get_retry(&self, handle: &impl tg::Handle) -> tg::Result<Option<Retry>> {
 		let arg = tg::build::GetArg::default();
-		let Some(output) = tg.try_get_build(&self.id, arg).await? else {
+		let Some(output) = handle.try_get_build(&self.id, arg).await? else {
 			return Ok(None);
 		};
 		Ok(Some(output.retry))
@@ -304,33 +305,34 @@ impl Build {
 
 	pub async fn status(
 		&self,
-		tg: &impl tg::Handle,
+		handle: &impl tg::Handle,
 		arg: status::GetArg,
 	) -> tg::Result<impl Stream<Item = tg::Result<Status>> + Send + 'static> {
-		self.try_get_status(tg, arg)
+		self.try_get_status(handle, arg)
 			.await?
 			.ok_or_else(|| tg::error!("failed to get the build"))
 	}
 
 	pub async fn try_get_status(
 		&self,
-		tg: &impl tg::Handle,
+		handle: &impl tg::Handle,
 		arg: status::GetArg,
 	) -> tg::Result<Option<impl Stream<Item = tg::Result<Status>> + Send + 'static>> {
-		tg.try_get_build_status(self.id(), arg, None)
+		handle
+			.try_get_build_status(self.id(), arg, None)
 			.await
 			.map(|option| option.map(futures::StreamExt::boxed))
 	}
 
-	pub async fn target(&self, tg: &impl tg::Handle) -> tg::Result<tg::Target> {
-		self.try_get_target(tg)
+	pub async fn target(&self, handle: &impl tg::Handle) -> tg::Result<tg::Target> {
+		self.try_get_target(handle)
 			.await?
 			.ok_or_else(|| tg::error!("failed to get the build"))
 	}
 
-	pub async fn try_get_target(&self, tg: &impl tg::Handle) -> tg::Result<Option<tg::Target>> {
+	pub async fn try_get_target(&self, handle: &impl tg::Handle) -> tg::Result<Option<tg::Target>> {
 		let arg = tg::build::GetArg::default();
-		let Some(output) = tg.try_get_build(&self.id, arg).await? else {
+		let Some(output) = handle.try_get_build(&self.id, arg).await? else {
 			return Ok(None);
 		};
 		let id = output.target.clone();
@@ -338,14 +340,14 @@ impl Build {
 		Ok(Some(target))
 	}
 
-	pub async fn push(&self, tg: &impl tg::Handle, remote: &impl tg::Handle) -> tg::Result<()> {
+	pub async fn push(&self, handle: &impl tg::Handle, remote: &impl tg::Handle) -> tg::Result<()> {
 		let arg = tg::build::GetArg::default();
-		let output = tg.get_build(&self.id, arg).await?;
+		let output = handle.get_build(&self.id, arg).await?;
 		let arg = tg::build::children::GetArg {
 			timeout: Some(std::time::Duration::ZERO),
 			..Default::default()
 		};
-		let children = tg
+		let children = handle
 			.get_build_children(&self.id, arg, None)
 			.await?
 			.map_ok(|chunk| stream::iter(chunk.items).map(Ok::<_, tg::Error>))
@@ -372,7 +374,7 @@ impl Build {
 			.iter()
 			.cloned()
 			.map(Self::with_id)
-			.map(|build| async move { build.push(tg, remote).await })
+			.map(|build| async move { build.push(handle, remote).await })
 			.collect::<FuturesUnordered<_>>()
 			.try_collect()
 			.await?;
@@ -380,7 +382,7 @@ impl Build {
 			.iter()
 			.cloned()
 			.map(tg::object::Handle::with_id)
-			.map(|object| async move { object.push(tg, remote, None).await })
+			.map(|object| async move { object.push(handle, remote, None).await })
 			.collect::<FuturesUnordered<_>>()
 			.try_collect()
 			.await?;
@@ -391,7 +393,11 @@ impl Build {
 		Ok(())
 	}
 
-	pub async fn pull(&self, _tg: &impl tg::Handle, _remote: &impl tg::Handle) -> tg::Result<()> {
+	pub async fn pull(
+		&self,
+		_handle: &impl tg::Handle,
+		_remote: &impl tg::Handle,
+	) -> tg::Result<()> {
 		Err(tg::error!("unimplemented"))
 	}
 }
@@ -454,11 +460,11 @@ impl Outcome {
 		}
 	}
 
-	pub async fn data(&self, tg: &impl tg::Handle) -> tg::Result<outcome::Data> {
+	pub async fn data(&self, handle: &impl tg::Handle) -> tg::Result<outcome::Data> {
 		Ok(match self {
 			Self::Canceled => outcome::Data::Canceled,
 			Self::Failed(error) => outcome::Data::Failed(error.clone()),
-			Self::Succeeded(value) => outcome::Data::Succeeded(value.data(tg, None).await?),
+			Self::Succeeded(value) => outcome::Data::Succeeded(value.data(handle, None).await?),
 		})
 	}
 }

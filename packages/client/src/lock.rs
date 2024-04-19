@@ -115,29 +115,33 @@ impl Lock {
 		Self { state }
 	}
 
-	pub async fn id<H>(&self, tg: &H, transaction: Option<&H::Transaction<'_>>) -> tg::Result<Id>
+	pub async fn id<H>(
+		&self,
+		handle: &H,
+		transaction: Option<&H::Transaction<'_>>,
+	) -> tg::Result<Id>
 	where
 		H: tg::Handle,
 	{
-		self.store(tg, transaction).await
+		self.store(handle, transaction).await
 	}
 
-	pub async fn object(&self, tg: &impl tg::Handle) -> tg::Result<Arc<Object>> {
-		self.load(tg).await
+	pub async fn object(&self, handle: &impl tg::Handle) -> tg::Result<Arc<Object>> {
+		self.load(handle).await
 	}
 
-	pub async fn load(&self, tg: &impl tg::Handle) -> tg::Result<Arc<Object>> {
-		self.try_load(tg)
+	pub async fn load(&self, handle: &impl tg::Handle) -> tg::Result<Arc<Object>> {
+		self.try_load(handle)
 			.await?
 			.ok_or_else(|| tg::error!("failed to load the object"))
 	}
 
-	pub async fn try_load(&self, tg: &impl tg::Handle) -> tg::Result<Option<Arc<Object>>> {
+	pub async fn try_load(&self, handle: &impl tg::Handle) -> tg::Result<Option<Arc<Object>>> {
 		if let Some(object) = self.state.read().unwrap().object.clone() {
 			return Ok(Some(object));
 		}
 		let id = self.state.read().unwrap().id.clone().unwrap();
-		let Some(output) = tg.try_get_object(&id.into()).await? else {
+		let Some(output) = handle.try_get_object(&id.into()).await? else {
 			return Ok(None);
 		};
 		let data = Data::deserialize(&output.bytes)
@@ -148,14 +152,18 @@ impl Lock {
 		Ok(Some(object))
 	}
 
-	pub async fn store<H>(&self, tg: &H, transaction: Option<&H::Transaction<'_>>) -> tg::Result<Id>
+	pub async fn store<H>(
+		&self,
+		handle: &H,
+		transaction: Option<&H::Transaction<'_>>,
+	) -> tg::Result<Id>
 	where
 		H: tg::Handle,
 	{
 		if let Some(id) = self.state.read().unwrap().id.clone() {
 			return Ok(id);
 		}
-		let data = self.data(tg, transaction).await?;
+		let data = self.data(handle, transaction).await?;
 		let bytes = data.serialize()?;
 		let id = Id::new(&bytes);
 		let arg = tg::object::PutArg {
@@ -163,7 +171,8 @@ impl Lock {
 			count: None,
 			weight: None,
 		};
-		tg.put_object(&id.clone().into(), arg, transaction)
+		handle
+			.put_object(&id.clone().into(), arg, transaction)
 			.boxed()
 			.await
 			.map_err(|source| tg::error!(!source, "failed to put the object"))?;
@@ -173,18 +182,18 @@ impl Lock {
 
 	pub async fn data<H>(
 		&self,
-		tg: &H,
+		handle: &H,
 		transaction: Option<&H::Transaction<'_>>,
 	) -> tg::Result<Data>
 	where
 		H: tg::Handle,
 	{
-		let object = self.object(tg).await?;
+		let object = self.object(handle).await?;
 		let root = object.root;
 		let nodes = object
 			.nodes
 			.iter()
-			.map(|node| node.data(tg, transaction))
+			.map(|node| node.data(handle, transaction))
 			.collect::<FuturesOrdered<_>>()
 			.try_collect()
 			.await?;
@@ -193,8 +202,8 @@ impl Lock {
 }
 
 impl Lock {
-	pub async fn dependencies(&self, tg: &impl tg::Handle) -> tg::Result<Vec<tg::Dependency>> {
-		let object = self.object(tg).await?;
+	pub async fn dependencies(&self, handle: &impl tg::Handle) -> tg::Result<Vec<tg::Dependency>> {
+		let object = self.object(handle).await?;
 		let dependencies = object.nodes[object.root]
 			.dependencies
 			.keys()
@@ -205,10 +214,10 @@ impl Lock {
 
 	pub async fn get(
 		&self,
-		tg: &impl tg::Handle,
+		handle: &impl tg::Handle,
 		dependency: &tg::Dependency,
 	) -> tg::Result<(Option<tg::Directory>, Lock)> {
-		let object = self.object(tg).await?;
+		let object = self.object(handle).await?;
 		let root = &object.nodes[object.root];
 		let Entry { package, lock } = root
 			.dependencies
@@ -283,9 +292,9 @@ impl Lock {
 		Ok(Some(lock))
 	}
 
-	pub async fn write(&self, tg: &impl tg::Handle, path: tg::Path) -> tg::Result<()> {
+	pub async fn write(&self, handle: &impl tg::Handle, path: tg::Path) -> tg::Result<()> {
 		let path = path.join(tg::package::LOCKFILE_FILE_NAME);
-		let data = self.data(tg, None).await?;
+		let data = self.data(handle, None).await?;
 		let bytes = serde_json::to_vec_pretty(&data)
 			.map_err(|source| tg::error!(!source, "failed to serialize the lock"))?;
 		tokio::fs::write(&path, &bytes)
@@ -296,9 +305,9 @@ impl Lock {
 }
 
 impl Lock {
-	pub async fn normalize(&self, tg: &impl tg::Handle) -> tg::Result<Self> {
+	pub async fn normalize(&self, handle: &impl tg::Handle) -> tg::Result<Self> {
 		let mut visited = BTreeMap::new();
-		let object = self.object(tg).await?;
+		let object = self.object(handle).await?;
 		Self::normalize_inner(&object.nodes, object.root, &mut visited)
 	}
 
@@ -343,7 +352,7 @@ impl Lock {
 impl Node {
 	pub async fn data<H>(
 		&self,
-		tg: &H,
+		handle: &H,
 		transaction: Option<&H::Transaction<'_>>,
 	) -> tg::Result<data::Node>
 	where
@@ -353,7 +362,7 @@ impl Node {
 			.dependencies
 			.iter()
 			.map(|(dependency, entry)| async move {
-				Ok::<_, tg::Error>((dependency.clone(), entry.data(tg, transaction).await?))
+				Ok::<_, tg::Error>((dependency.clone(), entry.data(handle, transaction).await?))
 			})
 			.collect::<FuturesUnordered<_>>()
 			.try_collect()
@@ -365,19 +374,19 @@ impl Node {
 impl Entry {
 	pub async fn data<H>(
 		&self,
-		tg: &H,
+		handle: &H,
 		transaction: Option<&H::Transaction<'_>>,
 	) -> tg::Result<data::Entry>
 	where
 		H: tg::Handle,
 	{
 		let package = match &self.package {
-			Some(package) => Some(package.id(tg, transaction).await?),
+			Some(package) => Some(package.id(handle, transaction).await?),
 			None => None,
 		};
 		let lock = match &self.lock {
 			Either::Left(index) => Either::Left(*index),
-			Either::Right(lock) => Either::Right(lock.id(tg, transaction).await?),
+			Either::Right(lock) => Either::Right(lock.id(handle, transaction).await?),
 		};
 		Ok(data::Entry { package, lock })
 	}

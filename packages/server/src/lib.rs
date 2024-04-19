@@ -114,7 +114,7 @@ struct HttpInner<H>
 where
 	H: tg::Handle,
 {
-	tg: H,
+	handle: H,
 	task: std::sync::Mutex<Option<tokio::task::JoinHandle<tg::Result<()>>>>,
 	stop: tokio::sync::watch::Sender<bool>,
 }
@@ -504,12 +504,12 @@ impl<H> Http<H>
 where
 	H: tg::Handle,
 {
-	fn start(tg: &H, url: Url) -> Self {
-		let tg = tg.clone();
+	fn start(handle: &H, url: Url) -> Self {
+		let handle = handle.clone();
 		let task = std::sync::Mutex::new(None);
 		let (stop_sender, stop_receiver) = tokio::sync::watch::channel(false);
 		let stop = stop_sender;
-		let server = Self(Arc::new(HttpInner { tg, task, stop }));
+		let server = Self(Arc::new(HttpInner { handle, task, stop }));
 		let task = tokio::spawn({
 			let server = server.clone();
 			async move {
@@ -663,7 +663,7 @@ where
 		};
 
 		// Get the user.
-		let Some(user) = self.tg.get_user(&token).await? else {
+		let Some(user) = self.handle.get_user(&token).await? else {
 			return Ok(None);
 		};
 

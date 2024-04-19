@@ -71,29 +71,33 @@ impl Symlink {
 		Self { state }
 	}
 
-	pub async fn id<H>(&self, tg: &H, transaction: Option<&H::Transaction<'_>>) -> tg::Result<Id>
+	pub async fn id<H>(
+		&self,
+		handle: &H,
+		transaction: Option<&H::Transaction<'_>>,
+	) -> tg::Result<Id>
 	where
 		H: tg::Handle,
 	{
-		self.store(tg, transaction).await
+		self.store(handle, transaction).await
 	}
 
-	pub async fn object(&self, tg: &impl tg::Handle) -> tg::Result<Arc<Object>> {
-		self.load(tg).await
+	pub async fn object(&self, handle: &impl tg::Handle) -> tg::Result<Arc<Object>> {
+		self.load(handle).await
 	}
 
-	pub async fn load(&self, tg: &impl tg::Handle) -> tg::Result<Arc<Object>> {
-		self.try_load(tg)
+	pub async fn load(&self, handle: &impl tg::Handle) -> tg::Result<Arc<Object>> {
+		self.try_load(handle)
 			.await?
 			.ok_or_else(|| tg::error!("failed to load the object"))
 	}
 
-	pub async fn try_load(&self, tg: &impl tg::Handle) -> tg::Result<Option<Arc<Object>>> {
+	pub async fn try_load(&self, handle: &impl tg::Handle) -> tg::Result<Option<Arc<Object>>> {
 		if let Some(object) = self.state.read().unwrap().object.clone() {
 			return Ok(Some(object));
 		}
 		let id = self.state.read().unwrap().id.clone().unwrap();
-		let Some(output) = tg.try_get_object(&id.into()).await? else {
+		let Some(output) = handle.try_get_object(&id.into()).await? else {
 			return Ok(None);
 		};
 		let data = Data::deserialize(&output.bytes)
@@ -104,14 +108,18 @@ impl Symlink {
 		Ok(Some(object))
 	}
 
-	pub async fn store<H>(&self, tg: &H, transaction: Option<&H::Transaction<'_>>) -> tg::Result<Id>
+	pub async fn store<H>(
+		&self,
+		handle: &H,
+		transaction: Option<&H::Transaction<'_>>,
+	) -> tg::Result<Id>
 	where
 		H: tg::Handle,
 	{
 		if let Some(id) = self.state.read().unwrap().id.clone() {
 			return Ok(id);
 		}
-		let data = self.data(tg, transaction).await?;
+		let data = self.data(handle, transaction).await?;
 		let bytes = data.serialize()?;
 		let id = Id::new(&bytes);
 		let arg = tg::object::PutArg {
@@ -119,7 +127,8 @@ impl Symlink {
 			count: None,
 			weight: None,
 		};
-		tg.put_object(&id.clone().into(), arg, transaction)
+		handle
+			.put_object(&id.clone().into(), arg, transaction)
 			.boxed()
 			.await
 			.map_err(|source| tg::error!(!source, "failed to put the object"))?;
@@ -129,15 +138,15 @@ impl Symlink {
 
 	pub async fn data<H>(
 		&self,
-		tg: &H,
+		handle: &H,
 		transaction: Option<&H::Transaction<'_>>,
 	) -> tg::Result<Data>
 	where
 		H: tg::Handle,
 	{
-		let object = self.object(tg).await?;
+		let object = self.object(handle).await?;
 		let artifact = if let Some(artifact) = &object.artifact {
-			Some(artifact.id(tg, transaction).await?)
+			Some(artifact.id(handle, transaction).await?)
 		} else {
 			None
 		};
@@ -152,44 +161,44 @@ impl Symlink {
 		Self::with_object(Object { artifact, path })
 	}
 
-	pub async fn artifact(&self, tg: &impl tg::Handle) -> tg::Result<Option<tg::Artifact>> {
-		Ok(self.object(tg).await?.artifact.clone())
+	pub async fn artifact(&self, handle: &impl tg::Handle) -> tg::Result<Option<tg::Artifact>> {
+		Ok(self.object(handle).await?.artifact.clone())
 	}
 
 	pub async fn path(
 		&self,
-		tg: &impl tg::Handle,
+		handle: &impl tg::Handle,
 	) -> tg::Result<impl std::ops::Deref<Target = Option<tg::Path>>> {
-		Ok(self.object(tg).await?.map(|object| &object.path))
+		Ok(self.object(handle).await?.map(|object| &object.path))
 	}
 
-	pub async fn resolve(&self, tg: &impl tg::Handle) -> tg::Result<Option<tg::Artifact>> {
-		self.resolve_from(tg, None).await
+	pub async fn resolve(&self, handle: &impl tg::Handle) -> tg::Result<Option<tg::Artifact>> {
+		self.resolve_from(handle, None).await
 	}
 
 	pub async fn resolve_from(
 		&self,
-		tg: &impl tg::Handle,
+		handle: &impl tg::Handle,
 		from: Option<Self>,
 	) -> tg::Result<Option<tg::Artifact>> {
 		let mut from_artifact = if let Some(from) = &from {
-			from.artifact(tg).await?.clone()
+			from.artifact(handle).await?.clone()
 		} else {
 			None
 		};
 		if let Some(tg::artifact::Artifact::Symlink(symlink)) = from_artifact {
-			from_artifact = Box::pin(symlink.resolve_from(tg, None)).await?;
+			from_artifact = Box::pin(symlink.resolve_from(handle, None)).await?;
 		}
 		let from_path = if let Some(from) = from {
-			from.path(tg).await?.clone()
+			from.path(handle).await?.clone()
 		} else {
 			None
 		};
-		let mut artifact = self.artifact(tg).await?.clone();
+		let mut artifact = self.artifact(handle).await?.clone();
 		if let Some(tg::artifact::Artifact::Symlink(symlink)) = artifact {
-			artifact = Box::pin(symlink.resolve_from(tg, None)).await?;
+			artifact = Box::pin(symlink.resolve_from(handle, None)).await?;
 		}
-		let path = self.path(tg).await?.clone();
+		let path = self.path(handle).await?.clone();
 		if artifact.is_some() && from_artifact.is_some() {
 			return Err(tg::error!(
 				"expected no `from` value when `artifact` is set"
@@ -204,12 +213,12 @@ impl Symlink {
 					.join(tg::Path::with_components([tg::path::Component::Parent]))
 					.join(path.unwrap_or_default())
 					.normalize();
-				return directory.try_get(tg, &path).await;
+				return directory.try_get(handle, &path).await;
 			}
 			return Err(tg::error!("expected a directory"));
 		} else if artifact.is_some() && path.is_some() {
 			if let Some(tg::artifact::Artifact::Directory(directory)) = artifact {
-				return directory.try_get(tg, &path.unwrap_or_default()).await;
+				return directory.try_get(handle, &path.unwrap_or_default()).await;
 			}
 			return Err(tg::error!("expected a directory"));
 		}

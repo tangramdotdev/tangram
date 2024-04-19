@@ -58,7 +58,7 @@ pub enum Data {
 impl Mutation {
 	pub async fn data<H>(
 		&self,
-		tg: &H,
+		handle: &H,
 		transaction: Option<&H::Transaction<'_>>,
 	) -> tg::Result<Data>
 	where
@@ -67,15 +67,15 @@ impl Mutation {
 		Ok(match self {
 			Self::Unset => Data::Unset,
 			Self::Set { value } => Data::Set {
-				value: Box::new(Box::pin(value.data(tg, transaction)).await?),
+				value: Box::new(Box::pin(value.data(handle, transaction)).await?),
 			},
 			Self::SetIfUnset { value } => Data::SetIfUnset {
-				value: Box::new(Box::pin(value.data(tg, transaction)).await?),
+				value: Box::new(Box::pin(value.data(handle, transaction)).await?),
 			},
 			Self::ArrayPrepend { values } => Data::ArrayPrepend {
 				values: values
 					.iter()
-					.map(|value| value.data(tg, transaction))
+					.map(|value| value.data(handle, transaction))
 					.collect::<FuturesOrdered<_>>()
 					.try_collect()
 					.await?,
@@ -83,7 +83,7 @@ impl Mutation {
 			Self::ArrayAppend { values } => Data::ArrayAppend {
 				values: values
 					.iter()
-					.map(|value| value.data(tg, transaction))
+					.map(|value| value.data(handle, transaction))
 					.collect::<FuturesOrdered<_>>()
 					.try_collect()
 					.await?,
@@ -92,14 +92,14 @@ impl Mutation {
 				template,
 				separator,
 			} => Data::TemplatePrepend {
-				template: template.data(tg, transaction).await?,
+				template: template.data(handle, transaction).await?,
 				separator: separator.clone(),
 			},
 			Self::TemplateAppend {
 				template,
 				separator,
 			} => Data::TemplateAppend {
-				template: template.data(tg, transaction).await?,
+				template: template.data(handle, transaction).await?,
 				separator: separator.clone(),
 			},
 		})

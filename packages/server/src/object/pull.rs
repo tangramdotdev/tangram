@@ -7,7 +7,6 @@ use tangram_client as tg;
 impl Server {
 	pub async fn pull_object(&self, id: &tg::object::Id) -> tg::Result<()> {
 		let remote = self
-			
 			.remotes
 			.first()
 			.ok_or_else(|| tg::error!("the server does not have a remote"))?;
@@ -38,7 +37,7 @@ where
 		};
 
 		// Pull the object.
-		self.tg.pull_object(&id).await?;
+		self.handle.pull_object(&id).await?;
 
 		Ok(ok())
 	}

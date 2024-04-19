@@ -24,7 +24,6 @@ impl Server {
 	) -> tg::Result<tg::artifact::CheckInOutput> {
 		// Get a database connection.
 		let mut connection = self
-			
 			.database
 			.connection()
 			.await
@@ -711,7 +710,7 @@ where
 		let arg = serde_json::from_slice(&bytes)
 			.map_err(|source| tg::error!(!source, "failed to deserialize the body"))?;
 
-		let output = self.tg.check_in_artifact(arg).await?;
+		let output = self.handle.check_in_artifact(arg).await?;
 
 		// Create the response.
 		let body = serde_json::to_vec(&output)
@@ -746,7 +745,7 @@ where
 			.map_err(|source| tg::error!(!source, "failed to deserialize the body"))?;
 
 		// Check out the artifact.
-		let output = self.tg.check_out_artifact(&id, arg).await?;
+		let output = self.handle.check_out_artifact(&id, arg).await?;
 
 		// Create the response.
 		let body = serde_json::to_vec(&output)

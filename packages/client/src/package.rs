@@ -71,40 +71,40 @@ pub struct SearchArg {
 
 pub type SearchOutput = Vec<String>;
 
-pub async fn get(tg: &impl tg::Handle, dependency: &tg::Dependency) -> tg::Result<tg::Directory> {
-	try_get(tg, dependency)
+pub async fn get(handle: &impl tg::Handle, dependency: &tg::Dependency) -> tg::Result<tg::Directory> {
+	try_get(handle, dependency)
 		.await?
 		.ok_or_else(|| tg::error!(%dependency, "failed to find the package"))
 }
 
 pub async fn try_get(
-	tg: &impl tg::Handle,
+	handle: &impl tg::Handle,
 	dependency: &tg::Dependency,
 ) -> tg::Result<Option<tg::Directory>> {
 	let arg = GetArg::default();
-	let output = tg.try_get_package(dependency, arg).await?;
+	let output = handle.try_get_package(dependency, arg).await?;
 	let package = output.map(|output| tg::Directory::with_id(output.id));
 	Ok(package)
 }
 
 pub async fn get_with_lock(
-	tg: &impl tg::Handle,
+	handle: &impl tg::Handle,
 	dependency: &tg::Dependency,
 ) -> tg::Result<(tg::Directory, tg::Lock)> {
-	try_get_with_lock(tg, dependency)
+	try_get_with_lock(handle, dependency)
 		.await?
 		.ok_or_else(|| tg::error!(%dependency, "failed to find the package"))
 }
 
 pub async fn try_get_with_lock(
-	tg: &impl tg::Handle,
+	handle: &impl tg::Handle,
 	dependency: &tg::Dependency,
 ) -> tg::Result<Option<(tg::Directory, tg::Lock)>> {
 	let arg = GetArg {
 		lock: true,
 		..Default::default()
 	};
-	let Some(output) = tg.try_get_package(dependency, arg).await? else {
+	let Some(output) = handle.try_get_package(dependency, arg).await? else {
 		return Ok(None);
 	};
 	let package = tg::Directory::with_id(output.id);
@@ -116,25 +116,25 @@ pub async fn try_get_with_lock(
 }
 
 pub async fn get_dependencies(
-	tg: &impl tg::Handle,
+	handle: &impl tg::Handle,
 	package: &tg::Directory,
 ) -> tg::Result<Vec<tg::Dependency>> {
-	try_get_dependencies(tg, package)
+	try_get_dependencies(handle, package)
 		.await?
 		.ok_or_else(|| tg::error!(%package, "failed to find the package"))
 }
 
 pub async fn try_get_dependencies(
-	tg: &impl tg::Handle,
+	handle: &impl tg::Handle,
 	package: &tg::Directory,
 ) -> tg::Result<Option<Vec<tg::Dependency>>> {
-	let id = package.id(tg, None).await?;
+	let id = package.id(handle, None).await?;
 	let dependency = tg::Dependency::with_id(id);
 	let arg = GetArg {
 		dependencies: true,
 		..Default::default()
 	};
-	let Some(output) = tg.try_get_package(&dependency, arg).await? else {
+	let Some(output) = handle.try_get_package(&dependency, arg).await? else {
 		return Ok(None);
 	};
 	let dependencies = output
@@ -143,23 +143,23 @@ pub async fn try_get_dependencies(
 	Ok(Some(dependencies))
 }
 
-pub async fn get_metadata(tg: &impl tg::Handle, package: &tg::Directory) -> tg::Result<Metadata> {
-	try_get_metadata(tg, package)
+pub async fn get_metadata(handle: &impl tg::Handle, package: &tg::Directory) -> tg::Result<Metadata> {
+	try_get_metadata(handle, package)
 		.await?
 		.ok_or_else(|| tg::error!(%package, "failed to find the package"))
 }
 
 pub async fn try_get_metadata(
-	tg: &impl tg::Handle,
+	handle: &impl tg::Handle,
 	package: &tg::Directory,
 ) -> tg::Result<Option<Metadata>> {
-	let id = package.id(tg, None).await?;
+	let id = package.id(handle, None).await?;
 	let dependency = tg::Dependency::with_id(id);
 	let arg = GetArg {
 		metadata: true,
 		..Default::default()
 	};
-	let Some(output) = tg.try_get_package(&dependency, arg).await? else {
+	let Some(output) = handle.try_get_package(&dependency, arg).await? else {
 		return Ok(None);
 	};
 	let metadata = output
@@ -169,22 +169,22 @@ pub async fn try_get_metadata(
 }
 
 pub async fn get_root_module_path(
-	tg: &impl tg::Handle,
+	handle: &impl tg::Handle,
 	package: &tg::Directory,
 ) -> tg::Result<tg::Path> {
-	try_get_root_module_path(tg, package)
+	try_get_root_module_path(handle, package)
 		.await?
 		.ok_or_else(|| tg::error!("failed to find the package's root module"))
 }
 
 pub async fn try_get_root_module_path(
-	tg: &impl tg::Handle,
+	handle: &impl tg::Handle,
 	package: &tg::Directory,
 ) -> tg::Result<Option<tg::Path>> {
 	let mut root_module_path = None;
 	for module_file_name in ROOT_MODULE_FILE_NAMES {
 		if package
-			.try_get(tg, &module_file_name.parse().unwrap())
+			.try_get(handle, &module_file_name.parse().unwrap())
 			.await?
 			.is_some()
 		{

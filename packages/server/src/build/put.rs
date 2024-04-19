@@ -30,7 +30,6 @@ impl Server {
 	) -> tg::Result<()> {
 		// Get a database connection.
 		let connection = self
-			
 			.database
 			.connection()
 			.await
@@ -240,7 +239,7 @@ where
 			.map_err(|source| tg::error!(!source, "failed to deserialize the body"))?;
 
 		// Put the build.
-		self.tg.put_build(&build_id, &arg).await?;
+		self.handle.put_build(&build_id, &arg).await?;
 
 		// Create the response.
 		let response = http::Response::builder()
