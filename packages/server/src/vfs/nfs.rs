@@ -1,11 +1,13 @@
 use either::Either;
 use fnv::FnvBuildHasher;
+use futures::{future, FutureExt};
 use num::ToPrimitive;
 use std::{
 	collections::HashMap,
 	fmt,
 	os::unix::ffi::OsStrExt as _,
 	path::{Path, PathBuf},
+	pin::pin,
 	sync::{Arc, Weak},
 };
 use tangram_client as tg;
@@ -64,7 +66,9 @@ pub struct Inner {
 	node_index: std::sync::atomic::AtomicU64,
 	nodes: tokio::sync::RwLock<Map<u64, Arc<Node>>>,
 	path: PathBuf,
+	requests: std::sync::Mutex<Option<Vec<tokio::task::JoinHandle<()>>>>,
 	server: crate::Server,
+	stop: tokio::sync::watch::Sender<bool>,
 	task: std::sync::Mutex<Option<tokio::task::JoinHandle<tg::Result<()>>>>,
 }
 
@@ -161,6 +165,8 @@ impl Server {
 			},
 		});
 		let nodes = [(0, root)].into_iter().collect();
+		let requests = std::sync::Mutex::new(Some(Vec::new()));
+		let (stop, stop_receiver) = tokio::sync::watch::channel(false);
 		let task = std::sync::Mutex::new(None);
 		let server = Self(Arc::new(Inner {
 			client_index: std::sync::atomic::AtomicU64::new(1),
@@ -170,7 +176,9 @@ impl Server {
 			node_index: std::sync::atomic::AtomicU64::new(1000),
 			nodes: tokio::sync::RwLock::new(nodes),
 			path: path.to_owned(),
+			requests,
 			server,
+			stop,
 			task,
 		}));
 
@@ -179,7 +187,7 @@ impl Server {
 			let server = server.clone();
 			async move {
 				server
-					.serve(port)
+					.serve(port, stop_receiver)
 					.await
 					.inspect_err(|error| {
 						tracing::error!(?error, "NFS server shutdown");
@@ -245,13 +253,18 @@ impl Server {
 	}
 
 	pub fn stop(&self) {
-		// Abort the task.
-		if let Some(task) = self.task.lock().unwrap().as_ref() {
-			task.abort_handle().abort();
-		};
+		self.stop.send_replace(true);
 	}
 
 	pub async fn join(&self) -> tg::Result<()> {
+		// Join any pending requests.
+		let requests = self.requests.lock().unwrap().take();
+		if let Some(requests) = requests {
+			for task in requests {
+				task.await.ok();
+			}
+		}
+
 		// Join the task.
 		let task = self.task.lock().unwrap().take();
 		if let Some(task) = task {
@@ -269,31 +282,51 @@ impl Server {
 		Ok(())
 	}
 
-	async fn serve(&self, port: u16) -> tg::Result<()> {
+	async fn serve(
+		&self,
+		port: u16,
+		mut stop: tokio::sync::watch::Receiver<bool>,
+	) -> tg::Result<()> {
 		let listener = TcpListener::bind(format!("localhost:{port}"))
 			.await
 			.map_err(|source| tg::error!(!source, "failed to bind the server"))?;
 
 		loop {
-			let (conn, addr) = listener
-				.accept()
-				.await
-				.map_err(|source| tg::error!(!source, "failed to accept the connection"))?;
+			let accept = listener.accept();
+			let stop_ = stop.wait_for(|stop| *stop).map(|_| ());
+
+			let (conn, addr) = match future::select(pin!(accept), pin!(stop_)).await {
+				future::Either::Left((result, _)) => {
+					result.map_err(|source| tg::error!(!source, "failed to accept connection"))?
+				},
+				future::Either::Right(((), _)) => {
+					break;
+				},
+			};
+
 			tracing::info!(?addr, "accepted client connection");
-			let server = self.clone();
-			tokio::spawn(async move {
-				server
-					.handle_connection(conn)
-					.await
-					.inspect_err(|error| {
-						tracing::error!(?addr, ?error, "the connection was closed");
-					})
-					.ok();
+			tokio::spawn({
+				let server = self.clone();
+				let stop = stop.clone();
+				async move {
+					server
+						.handle_connection(conn, stop)
+						.await
+						.inspect_err(|error| {
+							tracing::error!(?addr, ?error, "the connection was closed");
+						})
+						.ok();
+				}
 			});
 		}
+		Ok(())
 	}
 
-	async fn handle_connection(&self, stream: TcpStream) -> tg::Result<()> {
+	async fn handle_connection(
+		&self,
+		stream: TcpStream,
+		mut stop: tokio::sync::watch::Receiver<bool>,
+	) -> tg::Result<()> {
 		let (mut reader, mut writer) = tokio::io::split(stream);
 
 		let (message_sender, mut message_receiver) =
@@ -309,27 +342,44 @@ impl Server {
 
 		// Receive incoming message fragments.
 		loop {
-			let fragments = rpc::read_fragments(&mut reader)
-				.await
-				.map_err(|source| tg::error!(!source, "failed to read message fragments"))?;
+			let read = rpc::read_fragments(&mut reader);
+			let stop_ = stop.wait_for(|stop| *stop).map(|_| ());
+
+			let fragments = match future::select(pin!(read), pin!(stop_)).await {
+				future::Either::Left((result, _)) => {
+					result.map_err(|source| tg::error!(!source, "failed to read fragments"))?
+				},
+				future::Either::Right(((), _)) => {
+					break;
+				},
+			};
 			let message_sender = message_sender.clone();
-			let vfs = self.clone();
-			tokio::task::spawn(async move {
-				let mut decoder = xdr::Decoder::from_bytes(&fragments);
-				let mut buffer = Vec::with_capacity(4096);
-				let mut encoder = xdr::Encoder::new(&mut buffer);
-				while let Ok(message) = decoder.decode::<rpc::Message>() {
-					let xid = message.xid;
-					let Some(body) = vfs.handle_message(message, &mut decoder).await else {
-						continue;
-					};
-					let body = rpc::MessageBody::Reply(body);
-					let message = rpc::Message { xid, body };
-					encoder.encode(&message).unwrap();
+			let request = tokio::task::spawn({
+				let server = self.clone();
+				async move {
+					let mut decoder = xdr::Decoder::from_bytes(&fragments);
+					let mut buffer = Vec::with_capacity(4096);
+					let mut encoder = xdr::Encoder::new(&mut buffer);
+					while let Ok(message) = decoder.decode::<rpc::Message>() {
+						let xid = message.xid;
+						let Some(body) = server.handle_message(message, &mut decoder).await else {
+							continue;
+						};
+						let body = rpc::MessageBody::Reply(body);
+						let message = rpc::Message { xid, body };
+						encoder.encode(&message).unwrap();
+					}
+					message_sender.send(buffer).unwrap();
 				}
-				message_sender.send(buffer).unwrap();
 			});
+			self.requests
+				.lock()
+				.unwrap()
+				.as_mut()
+				.unwrap()
+				.push(request);
 		}
+		Ok(())
 	}
 
 	async fn handle_message(

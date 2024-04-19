@@ -315,6 +315,9 @@ impl Server {
 		let artifacts_path = server.artifacts_path();
 		self::vfs::unmount(&artifacts_path).await.ok();
 		if server.options.vfs {
+			util::fs::rmrf(&artifacts_path)
+				.await
+				.map_err(|source| tg::error!(!source, %path = artifacts_path.display(), "failed to remove the artifacts directory"))?;
 			// Create the artifacts directory.
 			tokio::fs::create_dir_all(&artifacts_path)
 				.await
@@ -452,7 +455,7 @@ impl Server {
 			server.build_state.write().unwrap().clear();
 
 			// Join the vfs server.
-			let vfs = server.vfs.lock().unwrap().clone();
+			let vfs = server.vfs.lock().unwrap().take();
 			if let Some(vfs) = vfs {
 				vfs.stop();
 				vfs.join().await.ok();
