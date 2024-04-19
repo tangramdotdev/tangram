@@ -16,23 +16,23 @@ pub fn syscall<'s>(
 
 	// Invoke the syscall.
 	let result = match name.as_str() {
-		"documents" => syscall_sync(scope, &args, syscall_documents),
-		"encoding_base64_decode" => syscall_sync(scope, &args, syscall_encoding_base64_decode),
-		"encoding_base64_encode" => syscall_sync(scope, &args, syscall_encoding_base64_encode),
-		"encoding_hex_decode" => syscall_sync(scope, &args, syscall_encoding_hex_decode),
-		"encoding_hex_encode" => syscall_sync(scope, &args, syscall_encoding_hex_encode),
-		"encoding_json_decode" => syscall_sync(scope, &args, syscall_encoding_json_decode),
-		"encoding_json_encode" => syscall_sync(scope, &args, syscall_encoding_json_encode),
-		"encoding_toml_decode" => syscall_sync(scope, &args, syscall_encoding_toml_decode),
-		"encoding_toml_encode" => syscall_sync(scope, &args, syscall_encoding_toml_encode),
-		"encoding_utf8_decode" => syscall_sync(scope, &args, syscall_encoding_utf8_decode),
-		"encoding_utf8_encode" => syscall_sync(scope, &args, syscall_encoding_utf8_encode),
-		"encoding_yaml_decode" => syscall_sync(scope, &args, syscall_encoding_yaml_decode),
-		"encoding_yaml_encode" => syscall_sync(scope, &args, syscall_encoding_yaml_encode),
-		"log" => syscall_sync(scope, &args, syscall_log),
-		"module_load" => syscall_sync(scope, &args, syscall_module_load),
-		"module_resolve" => syscall_sync(scope, &args, syscall_module_resolve),
-		"module_version" => syscall_sync(scope, &args, syscall_module_version),
+		"documents" => sync(scope, &args, documents),
+		"encoding_base64_decode" => sync(scope, &args, encoding_base64_decode),
+		"encoding_base64_encode" => sync(scope, &args, encoding_base64_encode),
+		"encoding_hex_decode" => sync(scope, &args, encoding_hex_decode),
+		"encoding_hex_encode" => sync(scope, &args, encoding_hex_encode),
+		"encoding_json_decode" => sync(scope, &args, encoding_json_decode),
+		"encoding_json_encode" => sync(scope, &args, encoding_json_encode),
+		"encoding_toml_decode" => sync(scope, &args, encoding_toml_decode),
+		"encoding_toml_encode" => sync(scope, &args, encoding_toml_encode),
+		"encoding_utf8_decode" => sync(scope, &args, encoding_utf8_decode),
+		"encoding_utf8_encode" => sync(scope, &args, encoding_utf8_encode),
+		"encoding_yaml_decode" => sync(scope, &args, encoding_yaml_decode),
+		"encoding_yaml_encode" => sync(scope, &args, encoding_yaml_encode),
+		"log" => sync(scope, &args, log),
+		"module_load" => sync(scope, &args, module_load),
+		"module_resolve" => sync(scope, &args, module_resolve),
+		"module_version" => sync(scope, &args, module_version),
 		_ => unreachable!(r#"unknown syscall "{name}""#),
 	};
 
@@ -51,7 +51,7 @@ pub fn syscall<'s>(
 	}
 }
 
-fn syscall_documents(
+fn documents(
 	_scope: &mut v8::HandleScope,
 	server: Server,
 	_args: (),
@@ -66,7 +66,7 @@ fn syscall_documents(
 	})
 }
 
-fn syscall_encoding_base64_decode(
+fn encoding_base64_decode(
 	_scope: &mut v8::HandleScope,
 	_server: Server,
 	args: (String,),
@@ -78,7 +78,7 @@ fn syscall_encoding_base64_decode(
 	Ok(bytes.into())
 }
 
-fn syscall_encoding_base64_encode(
+fn encoding_base64_encode(
 	_scope: &mut v8::HandleScope,
 	_server: Server,
 	args: (Bytes,),
@@ -88,7 +88,7 @@ fn syscall_encoding_base64_encode(
 	Ok(encoded)
 }
 
-fn syscall_encoding_hex_decode(
+fn encoding_hex_decode(
 	_scope: &mut v8::HandleScope,
 	_server: Server,
 	args: (String,),
@@ -100,7 +100,7 @@ fn syscall_encoding_hex_decode(
 	Ok(bytes.into())
 }
 
-fn syscall_encoding_hex_encode(
+fn encoding_hex_encode(
 	_scope: &mut v8::HandleScope,
 	_server: Server,
 	args: (Bytes,),
@@ -110,7 +110,7 @@ fn syscall_encoding_hex_encode(
 	Ok(hex)
 }
 
-fn syscall_encoding_json_decode(
+fn encoding_json_decode(
 	_scope: &mut v8::HandleScope,
 	_server: Server,
 	args: (String,),
@@ -121,7 +121,7 @@ fn syscall_encoding_json_decode(
 	Ok(value)
 }
 
-fn syscall_encoding_json_encode(
+fn encoding_json_encode(
 	_scope: &mut v8::HandleScope,
 	_server: Server,
 	args: (serde_json::Value,),
@@ -132,7 +132,7 @@ fn syscall_encoding_json_encode(
 	Ok(json)
 }
 
-fn syscall_encoding_toml_decode(
+fn encoding_toml_decode(
 	_scope: &mut v8::HandleScope,
 	_server: Server,
 	args: (String,),
@@ -143,7 +143,7 @@ fn syscall_encoding_toml_decode(
 	Ok(value)
 }
 
-fn syscall_encoding_toml_encode(
+fn encoding_toml_encode(
 	_scope: &mut v8::HandleScope,
 	_server: Server,
 	args: (toml::Value,),
@@ -154,7 +154,7 @@ fn syscall_encoding_toml_encode(
 	Ok(toml)
 }
 
-fn syscall_encoding_utf8_decode(
+fn encoding_utf8_decode(
 	_scope: &mut v8::HandleScope,
 	_server: Server,
 	args: (Bytes,),
@@ -165,7 +165,7 @@ fn syscall_encoding_utf8_decode(
 	Ok(string)
 }
 
-fn syscall_encoding_utf8_encode(
+fn encoding_utf8_encode(
 	_scope: &mut v8::HandleScope,
 	_server: Server,
 	args: (String,),
@@ -175,7 +175,7 @@ fn syscall_encoding_utf8_encode(
 	Ok(bytes)
 }
 
-fn syscall_encoding_yaml_decode(
+fn encoding_yaml_decode(
 	_scope: &mut v8::HandleScope,
 	_server: Server,
 	args: (String,),
@@ -186,7 +186,7 @@ fn syscall_encoding_yaml_decode(
 	Ok(value)
 }
 
-fn syscall_encoding_yaml_encode(
+fn encoding_yaml_encode(
 	_scope: &mut v8::HandleScope,
 	_server: Server,
 	args: (serde_yaml::Value,),
@@ -197,13 +197,13 @@ fn syscall_encoding_yaml_encode(
 	Ok(yaml)
 }
 
-fn syscall_log(_scope: &mut v8::HandleScope, _server: Server, args: (String,)) -> tg::Result<()> {
+fn log(_scope: &mut v8::HandleScope, _server: Server, args: (String,)) -> tg::Result<()> {
 	let (string,) = args;
 	tracing::debug!("{string}");
 	Ok(())
 }
 
-fn syscall_module_load(
+fn module_load(
 	_scope: &mut v8::HandleScope,
 	server: Server,
 	args: (tg::Module,),
@@ -218,7 +218,7 @@ fn syscall_module_load(
 	})
 }
 
-fn syscall_module_resolve(
+fn module_resolve(
 	_scope: &mut v8::HandleScope,
 	server: Server,
 	args: (tg::Module, String, Option<BTreeMap<String, String>>),
@@ -242,7 +242,7 @@ fn syscall_module_resolve(
 	})
 }
 
-fn syscall_module_version(
+fn module_version(
 	_scope: &mut v8::HandleScope,
 	server: Server,
 	args: (tg::Module,),
@@ -257,7 +257,7 @@ fn syscall_module_version(
 	})
 }
 
-fn syscall_sync<'s, A, T, F>(
+fn sync<'s, A, T, F>(
 	scope: &mut v8::HandleScope<'s>,
 	args: &v8::FunctionCallbackArguments,
 	f: F,

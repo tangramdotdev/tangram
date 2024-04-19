@@ -27,31 +27,31 @@ pub fn syscall<'s>(
 
 	// Invoke the syscall.
 	let result = match name.as_str() {
-		"archive" => syscall_async(scope, &args, syscall_archive),
-		"build" => syscall_async(scope, &args, syscall_build),
-		"bundle" => syscall_async(scope, &args, syscall_bundle),
-		"checksum" => syscall_sync(scope, &args, syscall_checksum),
-		"compress" => syscall_async(scope, &args, syscall_compress),
-		"decompress" => syscall_async(scope, &args, syscall_decompress),
-		"download" => syscall_async(scope, &args, syscall_download),
-		"encoding_base64_decode" => syscall_sync(scope, &args, syscall_encoding_base64_decode),
-		"encoding_base64_encode" => syscall_sync(scope, &args, syscall_encoding_base64_encode),
-		"encoding_hex_decode" => syscall_sync(scope, &args, syscall_encoding_hex_decode),
-		"encoding_hex_encode" => syscall_sync(scope, &args, syscall_encoding_hex_encode),
-		"encoding_json_decode" => syscall_sync(scope, &args, syscall_encoding_json_decode),
-		"encoding_json_encode" => syscall_sync(scope, &args, syscall_encoding_json_encode),
-		"encoding_toml_decode" => syscall_sync(scope, &args, syscall_encoding_toml_decode),
-		"encoding_toml_encode" => syscall_sync(scope, &args, syscall_encoding_toml_encode),
-		"encoding_utf8_decode" => syscall_sync(scope, &args, syscall_encoding_utf8_decode),
-		"encoding_utf8_encode" => syscall_sync(scope, &args, syscall_encoding_utf8_encode),
-		"encoding_yaml_decode" => syscall_sync(scope, &args, syscall_encoding_yaml_decode),
-		"encoding_yaml_encode" => syscall_sync(scope, &args, syscall_encoding_yaml_encode),
-		"extract" => syscall_async(scope, &args, syscall_extract),
-		"load" => syscall_async(scope, &args, syscall_load),
-		"log" => syscall_sync(scope, &args, syscall_log),
-		"read" => syscall_async(scope, &args, syscall_read),
-		"sleep" => syscall_async(scope, &args, syscall_sleep),
-		"store" => syscall_async(scope, &args, syscall_store),
+		"archive" => async_(scope, &args, archive),
+		"build" => async_(scope, &args, build),
+		"bundle" => async_(scope, &args, bundle),
+		"checksum" => sync(scope, &args, checksum),
+		"compress" => async_(scope, &args, compress),
+		"decompress" => async_(scope, &args, decompress),
+		"download" => async_(scope, &args, download),
+		"encoding_base64_decode" => sync(scope, &args, encoding_base64_decode),
+		"encoding_base64_encode" => sync(scope, &args, encoding_base64_encode),
+		"encoding_hex_decode" => sync(scope, &args, encoding_hex_decode),
+		"encoding_hex_encode" => sync(scope, &args, encoding_hex_encode),
+		"encoding_json_decode" => sync(scope, &args, encoding_json_decode),
+		"encoding_json_encode" => sync(scope, &args, encoding_json_encode),
+		"encoding_toml_decode" => sync(scope, &args, encoding_toml_decode),
+		"encoding_toml_encode" => sync(scope, &args, encoding_toml_encode),
+		"encoding_utf8_decode" => sync(scope, &args, encoding_utf8_decode),
+		"encoding_utf8_encode" => sync(scope, &args, encoding_utf8_encode),
+		"encoding_yaml_decode" => sync(scope, &args, encoding_yaml_decode),
+		"encoding_yaml_encode" => sync(scope, &args, encoding_yaml_encode),
+		"extract" => async_(scope, &args, extract),
+		"load" => async_(scope, &args, load),
+		"log" => sync(scope, &args, log),
+		"read" => async_(scope, &args, read),
+		"sleep" => async_(scope, &args, sleep),
+		"store" => async_(scope, &args, store),
 		_ => unreachable!(r#"unknown syscall "{name}""#),
 	};
 
@@ -74,7 +74,7 @@ pub fn syscall<'s>(
 	}
 }
 
-async fn syscall_archive(
+async fn archive(
 	state: Rc<State>,
 	args: (tg::Artifact, tg::artifact::ArchiveFormat),
 ) -> tg::Result<tg::Blob> {
@@ -85,7 +85,7 @@ async fn syscall_archive(
 	Ok(blob)
 }
 
-async fn syscall_build(state: Rc<State>, args: (tg::Target,)) -> tg::Result<tg::Value> {
+async fn build(state: Rc<State>, args: (tg::Target,)) -> tg::Result<tg::Value> {
 	let (target,) = args;
 	let arg = tg::build::GetOrCreateArg {
 		parent: Some(state.build.id().clone()),
@@ -100,7 +100,7 @@ async fn syscall_build(state: Rc<State>, args: (tg::Target,)) -> tg::Result<tg::
 	Ok(output)
 }
 
-async fn syscall_bundle(state: Rc<State>, args: (tg::Artifact,)) -> tg::Result<tg::Artifact> {
+async fn bundle(state: Rc<State>, args: (tg::Artifact,)) -> tg::Result<tg::Artifact> {
 	let (artifact,) = args;
 	let artifact = artifact
 		.bundle(&state.server)
@@ -109,7 +109,7 @@ async fn syscall_bundle(state: Rc<State>, args: (tg::Artifact,)) -> tg::Result<t
 	Ok(artifact)
 }
 
-fn syscall_checksum(
+fn checksum(
 	_scope: &mut v8::HandleScope,
 	_state: Rc<State>,
 	args: (tg::checksum::Algorithm, Bytes),
@@ -121,7 +121,7 @@ fn syscall_checksum(
 	Ok(checksum)
 }
 
-async fn syscall_compress(
+async fn compress(
 	state: Rc<State>,
 	args: (tg::Blob, tg::blob::CompressionFormat),
 ) -> tg::Result<tg::Blob> {
@@ -133,7 +133,7 @@ async fn syscall_compress(
 	Ok(blob)
 }
 
-async fn syscall_decompress(
+async fn decompress(
 	state: Rc<State>,
 	args: (tg::Blob, tg::blob::CompressionFormat),
 ) -> tg::Result<tg::Blob> {
@@ -142,11 +142,10 @@ async fn syscall_decompress(
 	Ok(blob)
 }
 
-async fn syscall_download(state: Rc<State>, args: (Url, tg::Checksum)) -> tg::Result<tg::Blob> {
+async fn download(state: Rc<State>, args: (Url, tg::Checksum)) -> tg::Result<tg::Blob> {
 	let (url, checksum) = args;
 	let _permit = state
 		.server
-		
 		.file_descriptor_semaphore
 		.acquire()
 		.await
@@ -234,7 +233,7 @@ async fn syscall_download(state: Rc<State>, args: (Url, tg::Checksum)) -> tg::Re
 	Ok(blob)
 }
 
-fn syscall_encoding_base64_decode(
+fn encoding_base64_decode(
 	_scope: &mut v8::HandleScope,
 	_state: Rc<State>,
 	args: (String,),
@@ -246,7 +245,7 @@ fn syscall_encoding_base64_decode(
 	Ok(bytes.into())
 }
 
-fn syscall_encoding_base64_encode(
+fn encoding_base64_encode(
 	_scope: &mut v8::HandleScope,
 	_state: Rc<State>,
 	args: (Bytes,),
@@ -256,7 +255,7 @@ fn syscall_encoding_base64_encode(
 	Ok(encoded)
 }
 
-fn syscall_encoding_hex_decode(
+fn encoding_hex_decode(
 	_scope: &mut v8::HandleScope,
 	_state: Rc<State>,
 	args: (String,),
@@ -268,7 +267,7 @@ fn syscall_encoding_hex_decode(
 	Ok(bytes.into())
 }
 
-fn syscall_encoding_hex_encode(
+fn encoding_hex_encode(
 	_scope: &mut v8::HandleScope,
 	_state: Rc<State>,
 	args: (Bytes,),
@@ -278,7 +277,7 @@ fn syscall_encoding_hex_encode(
 	Ok(hex)
 }
 
-fn syscall_encoding_json_decode(
+fn encoding_json_decode(
 	_scope: &mut v8::HandleScope,
 	_state: Rc<State>,
 	args: (String,),
@@ -289,7 +288,7 @@ fn syscall_encoding_json_decode(
 	Ok(value)
 }
 
-fn syscall_encoding_json_encode(
+fn encoding_json_encode(
 	_scope: &mut v8::HandleScope,
 	_state: Rc<State>,
 	args: (serde_json::Value,),
@@ -300,7 +299,7 @@ fn syscall_encoding_json_encode(
 	Ok(json)
 }
 
-fn syscall_encoding_toml_decode(
+fn encoding_toml_decode(
 	_scope: &mut v8::HandleScope,
 	_state: Rc<State>,
 	args: (String,),
@@ -311,7 +310,7 @@ fn syscall_encoding_toml_decode(
 	Ok(value)
 }
 
-fn syscall_encoding_toml_encode(
+fn encoding_toml_encode(
 	_scope: &mut v8::HandleScope,
 	_state: Rc<State>,
 	args: (toml::Value,),
@@ -322,7 +321,7 @@ fn syscall_encoding_toml_encode(
 	Ok(toml)
 }
 
-fn syscall_encoding_utf8_decode(
+fn encoding_utf8_decode(
 	_scope: &mut v8::HandleScope,
 	_state: Rc<State>,
 	args: (Bytes,),
@@ -333,7 +332,7 @@ fn syscall_encoding_utf8_decode(
 	Ok(string)
 }
 
-fn syscall_encoding_utf8_encode(
+fn encoding_utf8_encode(
 	_scope: &mut v8::HandleScope,
 	_state: Rc<State>,
 	args: (String,),
@@ -343,7 +342,7 @@ fn syscall_encoding_utf8_encode(
 	Ok(bytes)
 }
 
-fn syscall_encoding_yaml_decode(
+fn encoding_yaml_decode(
 	_scope: &mut v8::HandleScope,
 	_state: Rc<State>,
 	args: (String,),
@@ -354,7 +353,7 @@ fn syscall_encoding_yaml_decode(
 	Ok(value)
 }
 
-fn syscall_encoding_yaml_encode(
+fn encoding_yaml_encode(
 	_scope: &mut v8::HandleScope,
 	_state: Rc<State>,
 	args: (serde_yaml::Value,),
@@ -365,7 +364,7 @@ fn syscall_encoding_yaml_encode(
 	Ok(yaml)
 }
 
-async fn syscall_extract(
+async fn extract(
 	state: Rc<State>,
 	args: (tg::Blob, tg::artifact::ArchiveFormat),
 ) -> tg::Result<tg::Artifact> {
@@ -376,12 +375,12 @@ async fn syscall_extract(
 	Ok(artifact)
 }
 
-async fn syscall_load(state: Rc<State>, args: (tg::object::Id,)) -> tg::Result<tg::object::Object> {
+async fn load(state: Rc<State>, args: (tg::object::Id,)) -> tg::Result<tg::object::Object> {
 	let (id,) = args;
 	tg::object::Handle::with_id(id).object(&state.server).await
 }
 
-fn syscall_log(_scope: &mut v8::HandleScope, state: Rc<State>, args: (String,)) -> tg::Result<()> {
+fn log(_scope: &mut v8::HandleScope, state: Rc<State>, args: (String,)) -> tg::Result<()> {
 	let (string,) = args;
 	if let Some(log_sender) = state.log_sender.borrow().as_ref() {
 		log_sender.send(string).unwrap();
@@ -389,7 +388,7 @@ fn syscall_log(_scope: &mut v8::HandleScope, state: Rc<State>, args: (String,)) 
 	Ok(())
 }
 
-async fn syscall_read(state: Rc<State>, args: (tg::Blob,)) -> tg::Result<Bytes> {
+async fn read(state: Rc<State>, args: (tg::Blob,)) -> tg::Result<Bytes> {
 	let (blob,) = args;
 	let bytes = blob
 		.bytes(&state.server)
@@ -398,24 +397,21 @@ async fn syscall_read(state: Rc<State>, args: (tg::Blob,)) -> tg::Result<Bytes> 
 	Ok(bytes.into())
 }
 
-async fn syscall_sleep(_state: Rc<State>, args: (f64,)) -> tg::Result<()> {
+async fn sleep(_state: Rc<State>, args: (f64,)) -> tg::Result<()> {
 	let (duration,) = args;
 	let duration = std::time::Duration::from_secs_f64(duration);
 	tokio::time::sleep(duration).await;
 	Ok(())
 }
 
-async fn syscall_store(
-	state: Rc<State>,
-	args: (tg::object::Object,),
-) -> tg::Result<tg::object::Id> {
+async fn store(state: Rc<State>, args: (tg::object::Object,)) -> tg::Result<tg::object::Id> {
 	let (object,) = args;
 	let handle = tg::object::Handle::with_object(object);
 	let id = handle.id(&state.server, None).await?;
 	Ok(id.clone())
 }
 
-fn syscall_sync<'s, A, T, F>(
+fn sync<'s, A, T, F>(
 	scope: &mut v8::HandleScope<'s>,
 	args: &v8::FunctionCallbackArguments,
 	f: F,
@@ -450,7 +446,7 @@ where
 	Ok(value)
 }
 
-fn syscall_async<'s, A, T, F, Fut>(
+fn async_<'s, A, T, F, Fut>(
 	scope: &mut v8::HandleScope<'s>,
 	args: &v8::FunctionCallbackArguments,
 	f: F,
