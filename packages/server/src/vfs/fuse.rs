@@ -27,8 +27,10 @@ pub struct Inner {
 	node_index: std::sync::atomic::AtomicU64,
 	nodes: parking_lot::RwLock<Map<NodeId, Arc<Node>>>,
 	path: std::path::PathBuf,
+	requests: std::sync::Mutex<Option<Vec<tokio::task::JoinHandle<()>>>>,
 	server: crate::Server,
-	task: std::sync::Mutex<Option<tokio::task::JoinHandle<tg::Result<()>>>>,
+	stop_task: std::sync::Mutex<Option<tokio::task::JoinHandle<()>>>,
+	task: std::sync::Mutex<Option<tokio::task::JoinHandle<()>>>,
 }
 
 /// A node in the file system.
@@ -147,7 +149,9 @@ impl Server {
 		let handles = parking_lot::RwLock::new(Map::default());
 		let handle_index = std::sync::atomic::AtomicU64::new(0);
 		let path = path.to_owned();
+		let requests = std::sync::Mutex::new(Some(Vec::new()));
 		let server = server.clone();
+		let stop_task = std::sync::Mutex::new(None);
 		let task = std::sync::Mutex::new(None);
 
 		// Mount.
@@ -160,37 +164,64 @@ impl Server {
 			node_index,
 			nodes,
 			path,
+			requests,
 			server,
+			stop_task,
 			task,
 		}));
 
 		// Spawn the task.
-		let server_ = server.clone();
-		let task = tokio::task::spawn_blocking(move || server_.serve());
+		let task = tokio::task::spawn_blocking({
+			let server = server.clone();
+			move || {
+				server
+					.serve()
+					.inspect_err(|error| tracing::error!(%error, "server task failed."))
+					.ok();
+			}
+		});
 		server.task.lock().unwrap().replace(task);
 
 		Ok(server)
 	}
 
 	pub fn stop(&self) {
-		if let Some(task) = self.task.lock().unwrap().as_ref() {
-			task.abort_handle().abort();
-		};
+		// Unmount.
+		let task = tokio::task::spawn({
+			let path = self.path.clone();
+			async move {
+				Self::unmount(&path)
+					.await
+					.inspect_err(|error| tracing::error!(%error, "failed to unmount"))
+					.ok();
+			}
+		});
+		self.stop_task.lock().unwrap().replace(task);
 	}
 
 	pub async fn join(&self) -> tg::Result<()> {
-		// Unmount.
-		Self::unmount(&self.path).await?;
+		// Wait for fuse to be unmounted.
+		let stop_task = self.stop_task.lock().unwrap().take();
+		if let Some(stop_task) = stop_task {
+			stop_task.await.ok();
+		}
+
+		// Join all pending requests.
+		let requests = self.requests.lock().unwrap().take();
+		if let Some(requests) = requests {
+			for request in requests {
+				request.await.ok();
+			}
+		}
 
 		// Join the task.
 		let task = self.task.lock().unwrap().take();
 		if let Some(task) = task {
 			match task.await {
-				Ok(result) => Ok(result),
-				Err(error) if error.is_cancelled() => Ok(Ok(())),
-				Err(error) => Err(error),
-			}
-			.unwrap()?;
+				Ok(()) => Ok(()),
+				Err(error) if error.is_cancelled() => Ok(()),
+				Err(source) => Err(tg::error!(%source, "task failed")),
+			}?;
 		}
 
 		// Close /dev/fuse.
@@ -281,7 +312,7 @@ impl Server {
 
 			// Spawn a task to handle the request.
 			let server = self.clone();
-			tokio::spawn(async move {
+			let request = tokio::spawn(async move {
 				// Handle the request and get the response.
 				let unique = request.header.unique;
 				// Edge case: Don't send a reply if the kernel sends a FUSE_FORGET/FUSE_BATCH_FORGET request. We don't support these requests anyway (we cannot forget inodes, and duplicate inodes pointing to the same artifact are OK).
@@ -357,6 +388,12 @@ impl Server {
 					},
 				};
 			});
+			self.requests
+				.lock()
+				.unwrap()
+				.as_mut()
+				.unwrap()
+				.push(request);
 		}
 		Ok(())
 	}
