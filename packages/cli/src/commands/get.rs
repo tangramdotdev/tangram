@@ -17,10 +17,11 @@ impl Cli {
 	pub async fn command_get(&self, args: Args) -> tg::Result<()> {
 		match args.arg {
 			Arg::Build(id) => {
-				self.command_build_get(super::build::GetArgs { id }).await?;
+				self.command_build_get(super::build::get::Args { id })
+					.await?;
 			},
 			Arg::Object(id) => {
-				self.command_object_get(super::object::GetArgs { id })
+				self.command_object_get(super::object::get::Args { id })
 					.await?;
 			},
 		}

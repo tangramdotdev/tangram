@@ -21,21 +21,21 @@ impl Cli {
 	pub async fn command_tree(&self, args: Args) -> tg::Result<()> {
 		match args.arg {
 			Arg::Build(id) => {
-				let args = super::build::TreeArgs {
+				let args = super::build::tree::Args {
 					id,
 					depth: args.depth,
 				};
 				self.command_build_tree(args).await?;
 			},
 			Arg::Object(id) => {
-				let args = super::object::TreeArgs {
+				let args = super::object::tree::Args {
 					id,
 					depth: args.depth,
 				};
 				self.command_object_tree(args).await?;
 			},
 			Arg::Package(package) => {
-				let args = super::package::TreeArgs {
+				let args = super::package::tree::Args {
 					package,
 					depth: args.depth,
 				};

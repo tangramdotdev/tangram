@@ -1,11 +1,15 @@
-use crate::{tree::Tree, tui::Tui, Cli};
+use crate::{tui::Tui, Cli};
 use crossterm::style::Stylize;
-use futures::{stream::FuturesUnordered, StreamExt as _, TryStreamExt as _};
 use itertools::Itertools as _;
-use std::{collections::BTreeMap, fmt::Write, path::PathBuf};
+use std::{collections::BTreeMap, path::PathBuf};
 use tangram_client as tg;
-use tg::Handle as _;
-use tokio::io::{AsyncReadExt as _, AsyncWriteExt as _};
+
+pub mod get;
+pub mod list;
+pub mod pull;
+pub mod push;
+pub mod put;
+pub mod tree;
 
 /// Build a target or manage builds.
 #[derive(Debug, clap::Args)]
@@ -22,19 +26,30 @@ pub struct Args {
 pub enum Command {
 	#[clap(hide = true)]
 	GetOrCreate(GetOrCreateArgs),
-	Get(GetArgs),
-	Put(PutArgs),
-	Push(PushArgs),
-	Pull(PullArgs),
-	Tree(TreeArgs),
+	Get(self::get::Args),
+	List(self::list::Args),
+	Put(self::put::Args),
+	Push(self::push::Args),
+	Pull(self::pull::Args),
+	Tree(self::tree::Args),
 }
 
 /// Build a target.
-#[allow(clippy::struct_excessive_bools)]
 #[derive(Debug, clap::Args)]
 pub struct GetOrCreateArgs {
+	#[clap(flatten)]
+	inner: GetOrCreateInnerArgs,
+
+	/// If this flag is set, then the command will exit immediately instead of waiting for the build to finish.
+	#[clap(short, long, conflicts_with = "checkout")]
+	pub detach: bool,
+}
+
+#[allow(clippy::struct_excessive_bools)]
+#[derive(Debug, clap::Args)]
+pub struct GetOrCreateInnerArgs {
 	/// Set the arguments.
-	#[clap(short, long, action = clap::ArgAction::Append)]
+	#[clap(short, long, num_args = 1.., action = clap::ArgAction::Append)]
 	pub arg: Vec<String>,
 
 	/// Whether to check out the output. The output must be an artifact. A path to may be provided.
@@ -42,12 +57,8 @@ pub struct GetOrCreateArgs {
 	#[clap(short, long)]
 	pub checkout: Option<Option<PathBuf>>,
 
-	/// If this flag is set, then the command will exit immediately instead of waiting for the build to finish.
-	#[clap(short, long, conflicts_with = "checkout")]
-	pub detach: bool,
-
 	/// Set the environment variables.
-	#[clap(short, long, action = clap::ArgAction::Append)]
+	#[clap(short, long, num_args = 1.., action = clap::ArgAction::Append)]
 	pub env: Vec<String>,
 
 	/// Set the host.
@@ -79,37 +90,9 @@ pub struct GetOrCreateArgs {
 	pub target: Option<String>,
 }
 
-/// Get a build.
-#[derive(Debug, clap::Args)]
-pub struct GetArgs {
-	pub id: tg::build::Id,
-}
-
-/// Put a build.
-#[derive(Debug, clap::Args)]
-pub struct PutArgs {
-	#[clap(long)]
-	pub json: Option<String>,
-}
-
-/// Push a build.
-#[derive(Debug, clap::Args)]
-pub struct PushArgs {
-	pub id: tg::build::Id,
-}
-
-/// Pull a build.
-#[derive(Debug, clap::Args)]
-pub struct PullArgs {
-	pub id: tg::build::Id,
-}
-
-/// Display the build tree.
-#[derive(Debug, clap::Args)]
-pub struct TreeArgs {
-	pub id: tg::build::Id,
-	#[clap(long)]
-	pub depth: Option<u32>,
+pub enum GetOrCreateInnerOutput {
+	Path(tg::Path),
+	Value(tg::Value),
 }
 
 impl Cli {
@@ -120,6 +103,9 @@ impl Cli {
 			},
 			Command::Get(args) => {
 				self.command_build_get(args).await?;
+			},
+			Command::List(args) => {
+				self.command_build_list(args).await?;
 			},
 			Command::Put(args) => {
 				self.command_build_put(args).await?;
@@ -138,6 +124,31 @@ impl Cli {
 	}
 
 	pub async fn command_build_get_or_create(&self, args: GetOrCreateArgs) -> tg::Result<()> {
+		// Build.
+		let output = self
+			.command_build_get_or_create_inner(args.inner, args.detach)
+			.await?;
+
+		// Handle the output.
+		if let Some(output) = output {
+			match output {
+				GetOrCreateInnerOutput::Path(path) => {
+					println!("{path}");
+				},
+				GetOrCreateInnerOutput::Value(value) => {
+					println!("{value}");
+				},
+			}
+		}
+
+		Ok(())
+	}
+
+	pub async fn command_build_get_or_create_inner(
+		&self,
+		args: GetOrCreateInnerArgs,
+		detach: bool,
+	) -> tg::Result<Option<GetOrCreateInnerOutput>> {
 		let target = if let Some(Ok(id)) = args.target.as_ref().map(|target| target.parse()) {
 			tg::Target::with_id(id)
 		} else {
@@ -162,7 +173,7 @@ impl Cli {
 				.map(|env| {
 					let (key, value) = env
 						.split_once('=')
-						.ok_or_else(|| tg::error!("expected `KEY=value`"))?;
+						.ok_or_else(|| tg::error!("expected `key=value`"))?;
 					Ok::<_, tg::Error>((key.to_owned(), tg::Value::String(value.to_owned())))
 				})
 				.try_collect()?;
@@ -213,9 +224,9 @@ impl Cli {
 		let build = tg::Build::new(&self.handle, arg).await?;
 
 		// If the detach flag is set, then exit.
-		if args.detach {
+		if detach {
 			println!("{}", build.id());
-			return Ok(());
+			return Ok(None);
 		}
 
 		// Print the build.
@@ -295,164 +306,9 @@ impl Cli {
 				.await
 				.map_err(|source| tg::error!(!source, "failed to check out the artifact"))?;
 
-			// Print the path.
-			println!("{}", output.path);
-		} else {
-			// Print the output.
-			println!("{output}");
+			return Ok(Some(GetOrCreateInnerOutput::Path(output.path)));
 		}
 
-		Ok(())
+		Ok(Some(GetOrCreateInnerOutput::Value(output)))
 	}
-
-	pub async fn command_build_get(&self, args: GetArgs) -> tg::Result<()> {
-		let arg = tg::build::GetArg::default();
-		let output = self.handle.get_build(&args.id, arg).await?;
-		let json = serde_json::to_string(&output)
-			.map_err(|source| tg::error!(!source, "failed to serialize the output"))?;
-		tokio::io::stdout()
-			.write_all(json.as_bytes())
-			.await
-			.map_err(|source| tg::error!(!source, "failed to write the data"))?;
-		Ok(())
-	}
-
-	pub async fn command_build_put(&self, args: PutArgs) -> tg::Result<()> {
-		let json = if let Some(json) = args.json {
-			json
-		} else {
-			let mut json = String::new();
-			tokio::io::stdin()
-				.read_to_string(&mut json)
-				.await
-				.map_err(|source| tg::error!(!source, "failed to read stdin"))?;
-			json
-		};
-		let arg: tg::build::PutArg = serde_json::from_str(&json)
-			.map_err(|source| tg::error!(!source, "failed to deseralize"))?;
-		self.handle.put_build(&arg.id, &arg).await?;
-		println!("{}", arg.id);
-		Ok(())
-	}
-
-	pub async fn command_build_push(&self, args: PushArgs) -> tg::Result<()> {
-		self.handle.push_build(&args.id).await?;
-		Ok(())
-	}
-
-	pub async fn command_build_pull(&self, args: PullArgs) -> tg::Result<()> {
-		self.handle.pull_build(&args.id).await?;
-		Ok(())
-	}
-
-	pub async fn command_build_tree(&self, args: TreeArgs) -> tg::Result<()> {
-		let build = tg::Build::with_id(args.id);
-		let tree = get_build_tree(&self.handle, &build, 1, args.depth).await?;
-		tree.print();
-		Ok(())
-	}
-}
-
-async fn get_build_tree<H>(
-	handle: &H,
-	build: &tg::Build,
-	current_depth: u32,
-	max_depth: Option<u32>,
-) -> tg::Result<Tree>
-where
-	H: tg::Handle,
-{
-	// Get the build's metadata.
-	let id = build.id().clone();
-	let status = build
-		.status(handle, tg::build::status::GetArg::default())
-		.await
-		.map_err(|source| tg::error!(!source, %id, "failed to get the build's status"))?
-		.next()
-		.await
-		.unwrap()
-		.map_err(|source| tg::error!(!source, %id, "failed to get the build's status"))?;
-	let target = build
-		.target(handle)
-		.await
-		.map_err(|source| tg::error!(!source, %id, "failed to get build's target"))?;
-	let package = target
-		.package(handle)
-		.await
-		.map_err(|source| tg::error!(!source, %target, "failed to get target's package"))?;
-	let name = target
-		.name(handle)
-		.await
-		.map_err(|source| tg::error!(!source, %target, "failed to get target's name"))?
-		.clone()
-		.unwrap_or_else(|| "<unknown>".into());
-
-	// Render the title
-	let mut title = String::new();
-	match status {
-		tg::build::Status::Created | tg::build::Status::Queued => {
-			write!(title, "{}", "⟳".yellow()).unwrap();
-		},
-		tg::build::Status::Started => write!(title, "{}", "⠿".blue()).unwrap(),
-		tg::build::Status::Finished => {
-			let outcome = build
-				.outcome(handle)
-				.await
-				.map_err(|source| tg::error!(!source, %id, "failed to get the build outcome"))?;
-			match outcome {
-				tg::build::Outcome::Canceled => {
-					write!(title, "{}", "⦻ ".yellow()).unwrap();
-				},
-				tg::build::Outcome::Succeeded(_) => {
-					write!(title, "{}", "✓ ".green()).unwrap();
-				},
-				tg::build::Outcome::Failed(_) => {
-					write!(title, "{}", "✗ ".red()).unwrap();
-				},
-			}
-		},
-	}
-	write!(title, "{} ", id.to_string().blue()).unwrap();
-	if let Some(package) = package {
-		if let Ok(metadata) = tg::package::get_metadata(handle, &package).await {
-			if let Some(name) = metadata.name {
-				write!(title, "{}", name.magenta()).unwrap();
-			} else {
-				write!(title, "{}", "<unknown>".blue()).unwrap();
-			}
-			if let Some(version) = metadata.version {
-				write!(title, "@{}", version.yellow()).unwrap();
-			}
-		} else {
-			write!(title, "{}", "<unknown>".magenta()).unwrap();
-		}
-		write!(title, ":").unwrap();
-	}
-	write!(title, "{}", name.white()).unwrap();
-
-	// Get the build's children.
-	let children = if max_depth.map_or(true, |max_depth| current_depth < max_depth) {
-		let arg = tg::build::children::GetArg {
-			position: Some(std::io::SeekFrom::Start(0)),
-			timeout: Some(std::time::Duration::ZERO),
-			..Default::default()
-		};
-		build
-			.children(handle, arg)
-			.await
-			.map_err(|source| tg::error!(!source, %id, "failed to get the build's children"))?
-			.map(|child| async move {
-				get_build_tree(handle, &child?, current_depth + 1, max_depth).await
-			})
-			.collect::<FuturesUnordered<_>>()
-			.await
-			.try_collect::<Vec<_>>()
-			.await?
-	} else {
-		Vec::new()
-	};
-
-	let tree = Tree { title, children };
-
-	Ok(tree)
 }
