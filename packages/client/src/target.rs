@@ -114,17 +114,26 @@ impl Target {
 		self.store(handle, transaction).await
 	}
 
-	pub async fn object(&self, handle: &impl tg::Handle) -> tg::Result<Arc<Object>> {
+	pub async fn object<H>(&self, handle: &H) -> tg::Result<Arc<Object>>
+	where
+		H: tg::Handle,
+	{
 		self.load(handle).await
 	}
 
-	pub async fn load(&self, handle: &impl tg::Handle) -> tg::Result<Arc<Object>> {
+	pub async fn load<H>(&self, handle: &H) -> tg::Result<Arc<Object>>
+	where
+		H: tg::Handle,
+	{
 		self.try_load(handle)
 			.await?
 			.ok_or_else(|| tg::error!("failed to load the object"))
 	}
 
-	pub async fn try_load(&self, handle: &impl tg::Handle) -> tg::Result<Option<Arc<Object>>> {
+	pub async fn try_load<H>(&self, handle: &H) -> tg::Result<Option<Arc<Object>>>
+	where
+		H: tg::Handle,
+	{
 		if let Some(object) = self.state.read().unwrap().object.clone() {
 			return Ok(Some(object));
 		}
@@ -217,56 +226,77 @@ impl Target {
 }
 
 impl Target {
-	pub async fn host(
-		&self,
-		handle: &impl tg::Handle,
-	) -> tg::Result<impl std::ops::Deref<Target = String>> {
+	pub async fn host<H>(&self, handle: &H) -> tg::Result<impl std::ops::Deref<Target = String>>
+	where
+		H: tg::Handle,
+	{
 		Ok(self.object(handle).await?.map(|object| &object.host))
 	}
 
-	pub async fn executable(
+	pub async fn executable<H>(
 		&self,
-		handle: &impl tg::Handle,
-	) -> tg::Result<impl std::ops::Deref<Target = tg::Artifact>> {
+		handle: &H,
+	) -> tg::Result<impl std::ops::Deref<Target = tg::Artifact>>
+	where
+		H: tg::Handle,
+	{
 		Ok(self.object(handle).await?.map(|object| &object.executable))
 	}
 
-	pub async fn lock(
+	pub async fn lock<H>(
 		&self,
-		handle: &impl tg::Handle,
-	) -> tg::Result<impl std::ops::Deref<Target = Option<tg::Lock>>> {
+		handle: &H,
+	) -> tg::Result<impl std::ops::Deref<Target = Option<tg::Lock>>>
+	where
+		H: tg::Handle,
+	{
 		Ok(self.object(handle).await?.map(|object| &object.lock))
 	}
 
-	pub async fn name(
+	pub async fn name<H>(
 		&self,
-		handle: &impl tg::Handle,
-	) -> tg::Result<impl std::ops::Deref<Target = Option<String>>> {
+		handle: &H,
+	) -> tg::Result<impl std::ops::Deref<Target = Option<String>>>
+	where
+		H: tg::Handle,
+	{
 		Ok(self.object(handle).await?.map(|object| &object.name))
 	}
 
-	pub async fn env(
+	pub async fn env<H>(
 		&self,
-		handle: &impl tg::Handle,
-	) -> tg::Result<impl std::ops::Deref<Target = BTreeMap<String, tg::Value>>> {
+		handle: &H,
+	) -> tg::Result<impl std::ops::Deref<Target = BTreeMap<String, tg::Value>>>
+	where
+		H: tg::Handle,
+	{
 		Ok(self.object(handle).await?.map(|object| &object.env))
 	}
 
-	pub async fn args(
+	pub async fn args<H>(
 		&self,
-		handle: &impl tg::Handle,
-	) -> tg::Result<impl std::ops::Deref<Target = Vec<tg::Value>>> {
+		handle: &H,
+	) -> tg::Result<impl std::ops::Deref<Target = Vec<tg::Value>>>
+	where
+		H: tg::Handle,
+	{
 		Ok(self.object(handle).await?.map(|object| &object.args))
 	}
 
-	pub async fn checksum(
+	pub async fn checksum<H>(
 		&self,
-		handle: &impl tg::Handle,
-	) -> tg::Result<impl std::ops::Deref<Target = Option<tg::Checksum>>> {
+		handle: &H,
+	) -> tg::Result<impl std::ops::Deref<Target = Option<tg::Checksum>>>
+	where
+		H: tg::Handle,
+	{
 		Ok(self.object(handle).await?.map(|object| &object.checksum))
 	}
 
-	pub async fn package(&self, handle: &impl tg::Handle) -> tg::Result<Option<tg::Directory>> {
+	pub async fn package<H>(&self, handle: &H) -> tg::Result<Option<tg::Directory>>
+	where
+		H: tg::Handle,
+	{
 		let object = &self.object(handle).await?;
 		let tg::Artifact::Symlink(symlink) = &object.executable else {
 			return Ok(None);
@@ -280,11 +310,14 @@ impl Target {
 		Ok(Some(directory.clone()))
 	}
 
-	pub async fn build(
+	pub async fn build<H>(
 		&self,
-		handle: &impl tg::Handle,
+		handle: &H,
 		arg: tg::build::GetOrCreateArg,
-	) -> tg::Result<tg::Value> {
+	) -> tg::Result<tg::Value>
+	where
+		H: tg::Handle,
+	{
 		let build = tg::Build::new(handle, arg.clone()).await?;
 		let outcome = build.outcome(handle).await?;
 		match outcome {

@@ -128,7 +128,10 @@ impl Blob {
 		Ok(blob)
 	}
 
-	pub async fn size(&self, handle: &impl tg::Handle) -> tg::Result<u64> {
+	pub async fn size<H>(&self, handle: &H) -> tg::Result<u64>
+	where
+		H: tg::Handle,
+	{
 		match self {
 			Self::Leaf(leaf) => {
 				let bytes = &leaf.bytes(handle).await?;
@@ -150,7 +153,10 @@ impl Blob {
 		Reader::new(handle, self.clone()).await
 	}
 
-	pub async fn bytes(&self, handle: &impl tg::Handle) -> tg::Result<Vec<u8>> {
+	pub async fn bytes<H>(&self, handle: &H) -> tg::Result<Vec<u8>>
+	where
+		H: tg::Handle,
+	{
 		let mut reader = self.reader(handle).await?;
 		let mut bytes = Vec::new();
 		reader
@@ -160,18 +166,20 @@ impl Blob {
 		Ok(bytes)
 	}
 
-	pub async fn text(&self, handle: &impl tg::Handle) -> tg::Result<String> {
+	pub async fn text<H>(&self, handle: &H) -> tg::Result<String>
+	where
+		H: tg::Handle,
+	{
 		let bytes = self.bytes(handle).await?;
 		let string = String::from_utf8(bytes)
 			.map_err(|source| tg::error!(!source, "failed to decode the blob's bytes as UTF-8"))?;
 		Ok(string)
 	}
 
-	pub async fn compress(
-		&self,
-		handle: &impl tg::Handle,
-		format: CompressionFormat,
-	) -> tg::Result<Self> {
+	pub async fn compress<H>(&self, handle: &H, format: CompressionFormat) -> tg::Result<Self>
+	where
+		H: tg::Handle,
+	{
 		let id = self.id(handle, None).await?;
 		let arg = CompressArg { format };
 		let output = handle.compress_blob(&id, arg).await?;
@@ -179,11 +187,10 @@ impl Blob {
 		Ok(blob)
 	}
 
-	pub async fn decompress(
-		&self,
-		handle: &impl tg::Handle,
-		format: CompressionFormat,
-	) -> tg::Result<Self> {
+	pub async fn decompress<H>(&self, handle: &H, format: CompressionFormat) -> tg::Result<Self>
+	where
+		H: tg::Handle,
+	{
 		let id = self.id(handle, None).await?;
 		let arg = DecompressArg { format };
 		let output = handle.decompress_blob(&id, arg).await?;
@@ -559,11 +566,14 @@ where
 	}
 }
 
-async fn poll_read_inner(
-	handle: &impl tg::Handle,
+async fn poll_read_inner<H>(
+	handle: &H,
 	blob: Blob,
 	position: u64,
-) -> tg::Result<Option<Cursor<Bytes>>> {
+) -> tg::Result<Option<Cursor<Bytes>>>
+where
+	H: tg::Handle,
+{
 	let mut current_blob = blob.clone();
 	let mut current_blob_position = 0;
 	'a: loop {

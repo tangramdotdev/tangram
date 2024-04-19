@@ -100,17 +100,26 @@ impl File {
 		self.store(handle, transaction).await
 	}
 
-	pub async fn object(&self, handle: &impl tg::Handle) -> tg::Result<Arc<Object>> {
+	pub async fn object<H>(&self, handle: &H) -> tg::Result<Arc<Object>>
+	where
+		H: tg::Handle,
+	{
 		self.load(handle).await
 	}
 
-	pub async fn load(&self, handle: &impl tg::Handle) -> tg::Result<Arc<Object>> {
+	pub async fn load<H>(&self, handle: &H) -> tg::Result<Arc<Object>>
+	where
+		H: tg::Handle,
+	{
 		self.try_load(handle)
 			.await?
 			.ok_or_else(|| tg::error!("failed to load the object"))
 	}
 
-	pub async fn try_load(&self, handle: &impl tg::Handle) -> tg::Result<Option<Arc<Object>>> {
+	pub async fn try_load<H>(&self, handle: &H) -> tg::Result<Option<Arc<Object>>>
+	where
+		H: tg::Handle,
+	{
 		if let Some(object) = self.state.read().unwrap().object.clone() {
 			return Ok(Some(object));
 		}
@@ -195,18 +204,27 @@ impl File {
 		Builder::new(contents)
 	}
 
-	pub async fn contents(&self, handle: &impl tg::Handle) -> tg::Result<tg::Blob> {
+	pub async fn contents<H>(&self, handle: &H) -> tg::Result<tg::Blob>
+	where
+		H: tg::Handle,
+	{
 		Ok(self.object(handle).await?.contents.clone())
 	}
 
-	pub async fn executable(&self, handle: &impl tg::Handle) -> tg::Result<bool> {
+	pub async fn executable<H>(&self, handle: &H) -> tg::Result<bool>
+	where
+		H: tg::Handle,
+	{
 		Ok(self.object(handle).await?.executable)
 	}
 
-	pub async fn references(
+	pub async fn references<H>(
 		&self,
-		handle: &impl tg::Handle,
-	) -> tg::Result<impl std::ops::Deref<Target = Vec<tg::Artifact>>> {
+		handle: &H,
+	) -> tg::Result<impl std::ops::Deref<Target = Vec<tg::Artifact>>>
+	where
+		H: tg::Handle,
+	{
 		Ok(self.object(handle).await?.map(|object| &object.references))
 	}
 
@@ -217,15 +235,24 @@ impl File {
 		self.contents(handle).await?.reader(handle).await
 	}
 
-	pub async fn size(&self, handle: &impl tg::Handle) -> tg::Result<u64> {
+	pub async fn size<H>(&self, handle: &H) -> tg::Result<u64>
+	where
+		H: tg::Handle,
+	{
 		self.contents(handle).await?.size(handle).await
 	}
 
-	pub async fn bytes(&self, handle: &impl tg::Handle) -> tg::Result<Vec<u8>> {
+	pub async fn bytes<H>(&self, handle: &H) -> tg::Result<Vec<u8>>
+	where
+		H: tg::Handle,
+	{
 		self.contents(handle).await?.bytes(handle).await
 	}
 
-	pub async fn text(&self, handle: &impl tg::Handle) -> tg::Result<String> {
+	pub async fn text<H>(&self, handle: &H) -> tg::Result<String>
+	where
+		H: tg::Handle,
+	{
 		self.contents(handle).await?.text(handle).await
 	}
 }

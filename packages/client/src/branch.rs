@@ -79,17 +79,26 @@ impl Branch {
 		self.store(handle, transaction).await
 	}
 
-	pub async fn object(&self, handle: &impl tg::Handle) -> tg::Result<Arc<Object>> {
+	pub async fn object<H>(&self, handle: &H) -> tg::Result<Arc<Object>>
+	where
+		H: tg::Handle,
+	{
 		self.load(handle).await
 	}
 
-	pub async fn load(&self, handle: &impl tg::Handle) -> tg::Result<Arc<Object>> {
+	pub async fn load<H>(&self, handle: &H) -> tg::Result<Arc<Object>>
+	where
+		H: tg::Handle,
+	{
 		self.try_load(handle)
 			.await?
 			.ok_or_else(|| tg::error!("failed to load the object"))
 	}
 
-	pub async fn try_load(&self, handle: &impl tg::Handle) -> tg::Result<Option<Arc<Object>>> {
+	pub async fn try_load<H>(&self, handle: &H) -> tg::Result<Option<Arc<Object>>>
+	where
+		H: tg::Handle,
+	{
 		if let Some(object) = self.state.read().unwrap().object.clone() {
 			return Ok(Some(object));
 		}
@@ -164,10 +173,13 @@ impl Branch {
 		Self::with_object(Object { children })
 	}
 
-	pub async fn children(
+	pub async fn children<H>(
 		&self,
-		handle: &impl tg::Handle,
-	) -> tg::Result<impl std::ops::Deref<Target = Vec<Child>>> {
+		handle: &H,
+	) -> tg::Result<impl std::ops::Deref<Target = Vec<Child>>>
+	where
+		H: tg::Handle,
+	{
 		Ok(self.object(handle).await?.map(|object| &object.children))
 	}
 }

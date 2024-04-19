@@ -126,17 +126,26 @@ impl Lock {
 		self.store(handle, transaction).await
 	}
 
-	pub async fn object(&self, handle: &impl tg::Handle) -> tg::Result<Arc<Object>> {
+	pub async fn object<H>(&self, handle: &H) -> tg::Result<Arc<Object>>
+	where
+		H: tg::Handle,
+	{
 		self.load(handle).await
 	}
 
-	pub async fn load(&self, handle: &impl tg::Handle) -> tg::Result<Arc<Object>> {
+	pub async fn load<H>(&self, handle: &H) -> tg::Result<Arc<Object>>
+	where
+		H: tg::Handle,
+	{
 		self.try_load(handle)
 			.await?
 			.ok_or_else(|| tg::error!("failed to load the object"))
 	}
 
-	pub async fn try_load(&self, handle: &impl tg::Handle) -> tg::Result<Option<Arc<Object>>> {
+	pub async fn try_load<H>(&self, handle: &H) -> tg::Result<Option<Arc<Object>>>
+	where
+		H: tg::Handle,
+	{
 		if let Some(object) = self.state.read().unwrap().object.clone() {
 			return Ok(Some(object));
 		}
@@ -202,7 +211,10 @@ impl Lock {
 }
 
 impl Lock {
-	pub async fn dependencies(&self, handle: &impl tg::Handle) -> tg::Result<Vec<tg::Dependency>> {
+	pub async fn dependencies<H>(&self, handle: &H) -> tg::Result<Vec<tg::Dependency>>
+	where
+		H: tg::Handle,
+	{
 		let object = self.object(handle).await?;
 		let dependencies = object.nodes[object.root]
 			.dependencies
@@ -212,11 +224,14 @@ impl Lock {
 		Ok(dependencies)
 	}
 
-	pub async fn get(
+	pub async fn get<H>(
 		&self,
-		handle: &impl tg::Handle,
+		handle: &H,
 		dependency: &tg::Dependency,
-	) -> tg::Result<(Option<tg::Directory>, Lock)> {
+	) -> tg::Result<(Option<tg::Directory>, Lock)>
+	where
+		H: tg::Handle,
+	{
 		let object = self.object(handle).await?;
 		let root = &object.nodes[object.root];
 		let Entry { package, lock } = root
@@ -292,7 +307,10 @@ impl Lock {
 		Ok(Some(lock))
 	}
 
-	pub async fn write(&self, handle: &impl tg::Handle, path: tg::Path) -> tg::Result<()> {
+	pub async fn write<H>(&self, handle: &H, path: tg::Path) -> tg::Result<()>
+	where
+		H: tg::Handle,
+	{
 		let path = path.join(tg::package::LOCKFILE_FILE_NAME);
 		let data = self.data(handle, None).await?;
 		let bytes = serde_json::to_vec_pretty(&data)
@@ -305,7 +323,10 @@ impl Lock {
 }
 
 impl Lock {
-	pub async fn normalize(&self, handle: &impl tg::Handle) -> tg::Result<Self> {
+	pub async fn normalize<H>(&self, handle: &H) -> tg::Result<Self>
+	where
+		H: tg::Handle,
+	{
 		let mut visited = BTreeMap::new();
 		let object = self.object(handle).await?;
 		Self::normalize_inner(&object.nodes, object.root, &mut visited)

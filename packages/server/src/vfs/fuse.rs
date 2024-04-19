@@ -1128,7 +1128,10 @@ impl Node {
 		}
 	}
 
-	async fn mode(&self, handle: &impl tg::Handle) -> tg::Result<u32, i32> {
+	async fn mode<H>(&self, handle: &H) -> tg::Result<u32, i32>
+	where
+		H: tg::Handle,
+	{
 		let mode = match &self.kind {
 			NodeKind::Root { .. } | NodeKind::Directory { .. } => libc::S_IFDIR | 0o555,
 			NodeKind::File { file, .. } => {
@@ -1158,10 +1161,10 @@ impl Node {
 		}
 	}
 
-	async fn fuse_entry_out(
-		&self,
-		handle: &impl tg::Handle,
-	) -> tg::Result<sys::fuse_entry_out, i32> {
+	async fn fuse_entry_out<H>(&self, handle: &H) -> tg::Result<sys::fuse_entry_out, i32>
+	where
+		H: tg::Handle,
+	{
 		let nodeid = self.id.0;
 		let attr_out = self.fuse_attr_out(handle).await?;
 		let entry_out = sys::fuse_entry_out {
@@ -1176,7 +1179,10 @@ impl Node {
 		Ok(entry_out)
 	}
 
-	async fn fuse_attr_out(&self, handle: &impl tg::Handle) -> tg::Result<sys::fuse_attr_out, i32> {
+	async fn fuse_attr_out<H>(&self, handle: &H) -> tg::Result<sys::fuse_attr_out, i32>
+	where
+		H: tg::Handle,
+	{
 		let nodeid = self.id.0;
 		let nlink: u32 = match &self.kind {
 			NodeKind::Root { .. } => 2,

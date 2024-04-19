@@ -80,17 +80,26 @@ impl Directory {
 		self.store(handle, transaction).await
 	}
 
-	pub async fn object(&self, handle: &impl tg::Handle) -> tg::Result<Arc<Object>> {
+	pub async fn object<H>(&self, handle: &H) -> tg::Result<Arc<Object>>
+	where
+		H: tg::Handle,
+	{
 		self.load(handle).await
 	}
 
-	pub async fn load(&self, handle: &impl tg::Handle) -> tg::Result<Arc<Object>> {
+	pub async fn load<H>(&self, handle: &H) -> tg::Result<Arc<Object>>
+	where
+		H: tg::Handle,
+	{
 		self.try_load(handle)
 			.await?
 			.ok_or_else(|| tg::error!("failed to load the object"))
 	}
 
-	pub async fn try_load(&self, handle: &impl tg::Handle) -> tg::Result<Option<Arc<Object>>> {
+	pub async fn try_load<H>(&self, handle: &H) -> tg::Result<Option<Arc<Object>>>
+	where
+		H: tg::Handle,
+	{
 		if let Some(object) = self.state.read().unwrap().object.clone() {
 			return Ok(Some(object));
 		}
@@ -162,18 +171,27 @@ impl Directory {
 		Self::with_object(Object { entries })
 	}
 
-	pub async fn builder(&self, handle: &impl tg::Handle) -> tg::Result<Builder> {
+	pub async fn builder<H>(&self, handle: &H) -> tg::Result<Builder>
+	where
+		H: tg::Handle,
+	{
 		Ok(Builder::new(self.object(handle).await?.entries.clone()))
 	}
 
-	pub async fn entries(
+	pub async fn entries<H>(
 		&self,
-		handle: &impl tg::Handle,
-	) -> tg::Result<impl std::ops::Deref<Target = BTreeMap<String, tg::Artifact>>> {
+		handle: &H,
+	) -> tg::Result<impl std::ops::Deref<Target = BTreeMap<String, tg::Artifact>>>
+	where
+		H: tg::Handle,
+	{
 		Ok(self.object(handle).await?.map(|object| &object.entries))
 	}
 
-	pub async fn get(&self, handle: &impl tg::Handle, path: &tg::Path) -> tg::Result<tg::Artifact> {
+	pub async fn get<H>(&self, handle: &H, path: &tg::Path) -> tg::Result<tg::Artifact>
+	where
+		H: tg::Handle,
+	{
 		let artifact = self
 			.try_get(handle, path)
 			.await?
@@ -181,12 +199,10 @@ impl Directory {
 		Ok(artifact)
 	}
 
-	pub async fn try_get(
-		&self,
-		handle: &impl tg::Handle,
-		path: &tg::Path,
-	) -> tg::Result<Option<tg::Artifact>> {
-		// Track the current artifact.
+	pub async fn try_get<H>(&self, handle: &H, path: &tg::Path) -> tg::Result<Option<tg::Artifact>>
+	where
+		H: tg::Handle,
+	{
 		let mut artifact: tg::Artifact = self.clone().into();
 
 		// Track the current path.
@@ -309,12 +325,15 @@ impl Builder {
 		Self { entries }
 	}
 
-	pub async fn add(
+	pub async fn add<H>(
 		mut self,
-		handle: &impl tg::Handle,
+		handle: &H,
 		path: &tg::Path,
 		artifact: tg::Artifact,
-	) -> tg::Result<Self> {
+	) -> tg::Result<Self>
+	where
+		H: tg::Handle,
+	{
 		// Get the first component.
 		let name = path
 			.components()
@@ -356,7 +375,10 @@ impl Builder {
 		Ok(self)
 	}
 
-	pub async fn remove(mut self, handle: &impl tg::Handle, path: &tg::Path) -> tg::Result<Self> {
+	pub async fn remove<H>(mut self, handle: &H, path: &tg::Path) -> tg::Result<Self>
+	where
+		H: tg::Handle,
+	{
 		// Get the first component.
 		let name = path
 			.components()

@@ -71,38 +71,47 @@ pub struct SearchArg {
 
 pub type SearchOutput = Vec<String>;
 
-pub async fn get(
-	handle: &impl tg::Handle,
-	dependency: &tg::Dependency,
-) -> tg::Result<tg::Directory> {
+pub async fn get<H>(handle: &H, dependency: &tg::Dependency) -> tg::Result<tg::Directory>
+where
+	H: tg::Handle,
+{
 	try_get(handle, dependency)
 		.await?
 		.ok_or_else(|| tg::error!(%dependency, "failed to find the package"))
 }
 
-pub async fn try_get(
-	handle: &impl tg::Handle,
+pub async fn try_get<H>(
+	handle: &H,
 	dependency: &tg::Dependency,
-) -> tg::Result<Option<tg::Directory>> {
+) -> tg::Result<Option<tg::Directory>>
+where
+	H: tg::Handle,
+{
 	let arg = GetArg::default();
 	let output = handle.try_get_package(dependency, arg).await?;
 	let package = output.map(|output| tg::Directory::with_id(output.id));
 	Ok(package)
 }
 
-pub async fn get_with_lock(
-	handle: &impl tg::Handle,
+pub async fn get_with_lock<H>(
+	handle: &H,
 	dependency: &tg::Dependency,
-) -> tg::Result<(tg::Directory, tg::Lock)> {
+) -> tg::Result<(tg::Directory, tg::Lock)>
+where
+	H: tg::Handle,
+{
 	try_get_with_lock(handle, dependency)
 		.await?
 		.ok_or_else(|| tg::error!(%dependency, "failed to find the package"))
 }
 
-pub async fn try_get_with_lock(
-	handle: &impl tg::Handle,
+pub async fn try_get_with_lock<H>(
+	handle: &H,
 	dependency: &tg::Dependency,
-) -> tg::Result<Option<(tg::Directory, tg::Lock)>> {
+) -> tg::Result<Option<(tg::Directory, tg::Lock)>>
+where
+	H: tg::Handle,
+{
 	let arg = GetArg {
 		lock: true,
 		..Default::default()
@@ -118,19 +127,25 @@ pub async fn try_get_with_lock(
 	Ok(Some((package, lock)))
 }
 
-pub async fn get_dependencies(
-	handle: &impl tg::Handle,
+pub async fn get_dependencies<H>(
+	handle: &H,
 	package: &tg::Directory,
-) -> tg::Result<Vec<tg::Dependency>> {
+) -> tg::Result<Vec<tg::Dependency>>
+where
+	H: tg::Handle,
+{
 	try_get_dependencies(handle, package)
 		.await?
 		.ok_or_else(|| tg::error!(%package, "failed to find the package"))
 }
 
-pub async fn try_get_dependencies(
-	handle: &impl tg::Handle,
+pub async fn try_get_dependencies<H>(
+	handle: &H,
 	package: &tg::Directory,
-) -> tg::Result<Option<Vec<tg::Dependency>>> {
+) -> tg::Result<Option<Vec<tg::Dependency>>>
+where
+	H: tg::Handle,
+{
 	let id = package.id(handle, None).await?;
 	let dependency = tg::Dependency::with_id(id);
 	let arg = GetArg {
@@ -146,19 +161,22 @@ pub async fn try_get_dependencies(
 	Ok(Some(dependencies))
 }
 
-pub async fn get_metadata(
-	handle: &impl tg::Handle,
-	package: &tg::Directory,
-) -> tg::Result<Metadata> {
+pub async fn get_metadata<H>(handle: &H, package: &tg::Directory) -> tg::Result<Metadata>
+where
+	H: tg::Handle,
+{
 	try_get_metadata(handle, package)
 		.await?
 		.ok_or_else(|| tg::error!(%package, "failed to find the package"))
 }
 
-pub async fn try_get_metadata(
-	handle: &impl tg::Handle,
+pub async fn try_get_metadata<H>(
+	handle: &H,
 	package: &tg::Directory,
-) -> tg::Result<Option<Metadata>> {
+) -> tg::Result<Option<Metadata>>
+where
+	H: tg::Handle,
+{
 	let id = package.id(handle, None).await?;
 	let dependency = tg::Dependency::with_id(id);
 	let arg = GetArg {
@@ -174,19 +192,22 @@ pub async fn try_get_metadata(
 	Ok(Some(metadata))
 }
 
-pub async fn get_root_module_path(
-	handle: &impl tg::Handle,
-	package: &tg::Directory,
-) -> tg::Result<tg::Path> {
+pub async fn get_root_module_path<H>(handle: &H, package: &tg::Directory) -> tg::Result<tg::Path>
+where
+	H: tg::Handle,
+{
 	try_get_root_module_path(handle, package)
 		.await?
 		.ok_or_else(|| tg::error!("failed to find the package's root module"))
 }
 
-pub async fn try_get_root_module_path(
-	handle: &impl tg::Handle,
+pub async fn try_get_root_module_path<H>(
+	handle: &H,
 	package: &tg::Directory,
-) -> tg::Result<Option<tg::Path>> {
+) -> tg::Result<Option<tg::Path>>
+where
+	H: tg::Handle,
+{
 	let mut root_module_path = None;
 	for module_file_name in ROOT_MODULE_FILE_NAMES {
 		if package

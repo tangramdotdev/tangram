@@ -165,11 +165,10 @@ impl Artifact {
 }
 
 impl Artifact {
-	pub async fn archive(
-		&self,
-		handle: &impl tg::Handle,
-		format: ArchiveFormat,
-	) -> tg::Result<tg::Blob> {
+	pub async fn archive<H>(&self, handle: &H, format: ArchiveFormat) -> tg::Result<tg::Blob>
+	where
+		H: tg::Handle,
+	{
 		let id = self.id(handle, None).await?;
 		let arg = ArchiveArg { format };
 		let output = handle.archive_artifact(&id, arg).await?;
@@ -177,11 +176,10 @@ impl Artifact {
 		Ok(blob)
 	}
 
-	pub async fn extract(
-		handle: &impl tg::Handle,
-		blob: &tg::Blob,
-		format: ArchiveFormat,
-	) -> tg::Result<Self> {
+	pub async fn extract<H>(handle: &H, blob: &tg::Blob, format: ArchiveFormat) -> tg::Result<Self>
+	where
+		H: tg::Handle,
+	{
 		let blob = blob.id(handle, None).await?;
 		let arg = ExtractArg { blob, format };
 		let output = handle.extract_artifact(arg).await?;
@@ -189,36 +187,44 @@ impl Artifact {
 		Ok(artifact)
 	}
 
-	pub async fn bundle(&self, handle: &impl tg::Handle) -> tg::Result<Self> {
+	pub async fn bundle<H>(&self, handle: &H) -> tg::Result<Self>
+	where
+		H: tg::Handle,
+	{
 		let id = self.id(handle, None).await?;
 		let output = handle.bundle_artifact(&id).await?;
 		let artifact = Self::with_id(output.id);
 		Ok(artifact)
 	}
 
-	pub async fn check_in(handle: &impl tg::Handle, path: &tg::Path) -> tg::Result<Self> {
+	pub async fn check_in<H>(handle: &H, path: &tg::Path) -> tg::Result<Self>
+	where
+		H: tg::Handle,
+	{
 		let arg = CheckInArg { path: path.clone() };
 		let output = handle.check_in_artifact(arg).await?;
 		let artifact = Self::with_id(output.id);
 		Ok(artifact)
 	}
 
-	pub async fn check_out(
-		&self,
-		handle: &impl tg::Handle,
-		arg: CheckOutArg,
-	) -> tg::Result<CheckOutOutput> {
+	pub async fn check_out<H>(&self, handle: &H, arg: CheckOutArg) -> tg::Result<CheckOutOutput>
+	where
+		H: tg::Handle,
+	{
 		let id = self.id(handle, None).await?;
 		let output = handle.check_out_artifact(&id, arg).await?;
 		Ok(output)
 	}
 
 	/// Compute an artifact's checksum.
-	pub async fn checksum(
+	pub async fn checksum<H>(
 		&self,
-		_handle: &impl tg::Handle,
+		_handle: &H,
 		algorithm: tg::checksum::Algorithm,
-	) -> tg::Result<tg::Checksum> {
+	) -> tg::Result<tg::Checksum>
+	where
+		H: tg::Handle,
+	{
 		match algorithm {
 			tg::checksum::Algorithm::Unsafe => Ok(tg::Checksum::Unsafe),
 			_ => Err(tg::error!("unimplemented")),
@@ -226,7 +232,10 @@ impl Artifact {
 	}
 
 	/// Collect an artifact's references.
-	pub async fn references(&self, handle: &impl tg::Handle) -> tg::Result<Vec<Self>> {
+	pub async fn references<H>(&self, handle: &H) -> tg::Result<Vec<Self>>
+	where
+		H: tg::Handle,
+	{
 		match self {
 			Self::Directory(directory) => Ok(directory
 				.entries(handle)
@@ -250,11 +259,13 @@ impl Artifact {
 	}
 
 	/// Collect an artifact's recursive references.
-	pub async fn recursive_references(
+	pub async fn recursive_references<H>(
 		&self,
-		handle: &impl tg::Handle,
-	) -> tg::Result<HashSet<Id, fnv::FnvBuildHasher>> {
-		// Create a queue of artifacts and a set of futures.
+		handle: &H,
+	) -> tg::Result<HashSet<Id, fnv::FnvBuildHasher>>
+	where
+		H: tg::Handle,
+	{
 		let mut references = HashSet::default();
 		let mut queue = VecDeque::new();
 		let mut futures = FuturesUnordered::new();

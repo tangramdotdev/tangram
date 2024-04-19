@@ -82,17 +82,26 @@ impl Symlink {
 		self.store(handle, transaction).await
 	}
 
-	pub async fn object(&self, handle: &impl tg::Handle) -> tg::Result<Arc<Object>> {
+	pub async fn object<H>(&self, handle: &H) -> tg::Result<Arc<Object>>
+	where
+		H: tg::Handle,
+	{
 		self.load(handle).await
 	}
 
-	pub async fn load(&self, handle: &impl tg::Handle) -> tg::Result<Arc<Object>> {
+	pub async fn load<H>(&self, handle: &H) -> tg::Result<Arc<Object>>
+	where
+		H: tg::Handle,
+	{
 		self.try_load(handle)
 			.await?
 			.ok_or_else(|| tg::error!("failed to load the object"))
 	}
 
-	pub async fn try_load(&self, handle: &impl tg::Handle) -> tg::Result<Option<Arc<Object>>> {
+	pub async fn try_load<H>(&self, handle: &H) -> tg::Result<Option<Arc<Object>>>
+	where
+		H: tg::Handle,
+	{
 		if let Some(object) = self.state.read().unwrap().object.clone() {
 			return Ok(Some(object));
 		}
@@ -161,26 +170,38 @@ impl Symlink {
 		Self::with_object(Object { artifact, path })
 	}
 
-	pub async fn artifact(&self, handle: &impl tg::Handle) -> tg::Result<Option<tg::Artifact>> {
+	pub async fn artifact<H>(&self, handle: &H) -> tg::Result<Option<tg::Artifact>>
+	where
+		H: tg::Handle,
+	{
 		Ok(self.object(handle).await?.artifact.clone())
 	}
 
-	pub async fn path(
+	pub async fn path<H>(
 		&self,
-		handle: &impl tg::Handle,
-	) -> tg::Result<impl std::ops::Deref<Target = Option<tg::Path>>> {
+		handle: &H,
+	) -> tg::Result<impl std::ops::Deref<Target = Option<tg::Path>>>
+	where
+		H: tg::Handle,
+	{
 		Ok(self.object(handle).await?.map(|object| &object.path))
 	}
 
-	pub async fn resolve(&self, handle: &impl tg::Handle) -> tg::Result<Option<tg::Artifact>> {
+	pub async fn resolve<H>(&self, handle: &H) -> tg::Result<Option<tg::Artifact>>
+	where
+		H: tg::Handle,
+	{
 		self.resolve_from(handle, None).await
 	}
 
-	pub async fn resolve_from(
+	pub async fn resolve_from<H>(
 		&self,
-		handle: &impl tg::Handle,
+		handle: &H,
 		from: Option<Self>,
-	) -> tg::Result<Option<tg::Artifact>> {
+	) -> tg::Result<Option<tg::Artifact>>
+	where
+		H: tg::Handle,
+	{
 		let mut from_artifact = if let Some(from) = &from {
 			from.artifact(handle).await?.clone()
 		} else {
