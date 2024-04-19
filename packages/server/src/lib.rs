@@ -1097,18 +1097,18 @@ impl tg::Handle for Server {
 		dependency: &tg::Dependency,
 		arg: tg::package::GetArg,
 	) -> tg::Result<Option<tg::package::GetOutput>> {
-		self.try_get_package(dependency, arg).await
+		Box::pin(self.try_get_package(dependency, arg)).await
 	}
 
 	async fn check_package(&self, dependency: &tg::Dependency) -> tg::Result<Vec<tg::Diagnostic>> {
-		self.check_package(dependency).await
+		Box::pin(self.check_package(dependency)).await
 	}
 
 	async fn try_get_package_doc(
 		&self,
 		dependency: &tg::Dependency,
 	) -> tg::Result<Option<serde_json::Value>> {
-		self.try_get_package_doc(dependency).await
+		Box::pin(self.try_get_package_doc(dependency)).await
 	}
 
 	async fn format_package(&self, dependency: &tg::Dependency) -> tg::Result<()> {
@@ -1119,11 +1119,11 @@ impl tg::Handle for Server {
 		&self,
 		dependency: &tg::Dependency,
 	) -> tg::Result<tg::package::OutdatedOutput> {
-		self.get_package_outdated(dependency).await
+		Box::pin(self.get_package_outdated(dependency)).await
 	}
 
 	async fn publish_package(&self, id: &tg::directory::Id) -> tg::Result<()> {
-		self.publish_package(id).await
+		Box::pin(self.publish_package(id)).await
 	}
 
 	async fn try_get_package_versions(

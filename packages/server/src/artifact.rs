@@ -394,14 +394,14 @@ impl Server {
 		// Call the appropriate function for the artifact's type.
 		match artifact {
 			tg::Artifact::Directory(directory) => {
-				self.check_out_directory(
+				Box::pin(self.check_out_directory(
 					path,
 					directory,
 					existing_artifact,
 					internal,
 					depth,
 					files,
-				)
+				))
 				.await
 				.map_err(
 					|source| tg::error!(!source, %id, %path, "failed to check out the directory"),
@@ -409,7 +409,7 @@ impl Server {
 			},
 
 			tg::Artifact::File(file) => {
-				self.check_out_file(path, file, existing_artifact, internal, files)
+				Box::pin(self.check_out_file(path, file, existing_artifact, internal, files))
 					.await
 					.map_err(
 						|source| tg::error!(!source, %id, %path, "failed to check out the file"),
@@ -417,11 +417,18 @@ impl Server {
 			},
 
 			tg::Artifact::Symlink(symlink) => {
-				self.check_out_symlink(path, symlink, existing_artifact, internal, depth, files)
-					.await
-					.map_err(
-						|source| tg::error!(!source, %id, %path, "failed to check out the symlink"),
-					)?;
+				Box::pin(self.check_out_symlink(
+					path,
+					symlink,
+					existing_artifact,
+					internal,
+					depth,
+					files,
+				))
+				.await
+				.map_err(
+					|source| tg::error!(!source, %id, %path, "failed to check out the symlink"),
+				)?;
 			},
 		}
 

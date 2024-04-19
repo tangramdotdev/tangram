@@ -225,7 +225,7 @@ mod tests {
 			path: Some("path/to/foo".parse().unwrap()),
 			version: Some("1.2.3".into()),
 		};
-		let right = r#"{"name":"foo","path":"path/to/foo","version":"1.2.3"}"#;
+		let right = r#"{"name":"foo","path":"./path/to/foo","version":"1.2.3"}"#;
 		assert_eq!(left.to_string(), right);
 
 		let left = tg::Dependency {

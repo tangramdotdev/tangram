@@ -19,7 +19,7 @@ impl Server {
 		let artifact = tg::Artifact::with_id(id.clone());
 
 		// Collect the artifact's recursive references.
-		let references = artifact.recursive_references(self).await?;
+		let references = Box::pin(artifact.recursive_references(self)).await?;
 
 		// If there are no references, then return the artifact.
 		if references.is_empty() {
@@ -97,19 +97,22 @@ impl Server {
 		match artifact {
 			// If the artifact is a directory, then recurse to remove references from its entries.
 			tg::Artifact::Directory(directory) => {
-				let entries = directory
-					.entries(self)
-					.await?
-					.iter()
-					.map(|(name, artifact)| async move {
-						let artifact = self
-							.remove_references(artifact, depth + 1, transaction)
-							.await?;
-						Ok::<_, tg::Error>((name.clone(), artifact))
-					})
-					.collect::<FuturesOrdered<_>>()
-					.try_collect()
-					.await?;
+				let entries = Box::pin(async move {
+					directory
+						.entries(self)
+						.await?
+						.iter()
+						.map(|(name, artifact)| async move {
+							let artifact = self
+								.remove_references(artifact, depth + 1, transaction)
+								.await?;
+							Ok::<_, tg::Error>((name.clone(), artifact))
+						})
+						.collect::<FuturesOrdered<_>>()
+						.try_collect()
+						.await
+				})
+				.await?;
 
 				let directory = tg::Directory::new(entries);
 				Ok(directory.into())

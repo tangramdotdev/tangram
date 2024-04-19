@@ -134,7 +134,7 @@ impl Server {
 
 				// Get the specified package and lock from the dependencies.
 				let (package, lock) = lock.get(&self.server, &dependency).await.map_err(
-					|source| tg::error!(!source, %dependency, "failed to resolve dependency"),
+					|source| tg::error!(!source, %dependency, %lock, "failed to resolve dependency"),
 				)?;
 				let package = package.unwrap();
 

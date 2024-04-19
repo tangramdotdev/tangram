@@ -5,7 +5,7 @@ members = [
   "packages/client",
   "packages/database",
   "packages/fuse",
-  "packages/nfs",  
+  "packages/nfs",
   "packages/server",
   "packages/sse",
 ]
@@ -31,10 +31,11 @@ pedantic = { level = "warn", priority = -1 }
 similar_names = "allow"
 too_many_lines = "allow"
 unused_async = "allow"
+large_futures = { level = "warn" }
 
 [workspace.dependencies]
 async-broadcast = "0.7"
-async-channel= "2"
+async-channel = "2"
 async-compression = { version = "0.4", features = ["all"] }
 async-nats = "0.34"
 biome_js_formatter = "0.5"
@@ -121,7 +122,10 @@ tangram_sse = { path = "packages/sse" }
 tar = { version = "0.4" }
 time = { version = "0.3", features = ["formatting", "parsing", "serde"] }
 tokio = { version = "1", features = ["full", "tracing"] }
-tokio-postgres = { version = "0.7", features = ["runtime", "with-serde_json-1"] }
+tokio-postgres = { version = "0.7", features = [
+  "runtime",
+  "with-serde_json-1",
+] }
 tokio-rustls = "0.26"
 tokio-stream = { version = "0.1", features = ["full"] }
 tokio-util = { version = "0.7", features = ["full"] }
