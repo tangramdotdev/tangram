@@ -235,6 +235,15 @@ declare namespace tg {
 
 		/** Get this file's references. */
 		references(): Promise<Array<Artifact>>;
+
+		/** Compress this file. */
+		compress(format: Blob.CompressionFormat): Promise<File>;
+
+		/** Decompress this file. */
+		decompress(format: Blob.CompressionFormat): Promise<File>;
+
+		/** Extract an artifact from this file. */
+		extract(format: Artifact.ArchiveFormat): Promise<Artifact>;
 	}
 
 	export namespace File {

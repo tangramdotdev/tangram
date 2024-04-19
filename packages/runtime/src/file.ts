@@ -163,6 +163,26 @@ export class File {
 	async text(): Promise<string> {
 		return (await this.contents()).text();
 	}
+
+	async compress(format: Blob.CompressionFormat): Promise<File> {
+		let contents = await this.contents();
+		contents = await contents.compress(format);
+		let file = await File.new(contents);
+		return file;
+	}
+
+	async decompress(format: Blob.CompressionFormat): Promise<File> {
+		let contents = await this.contents();
+		contents = await contents.decompress(format);
+		let file = await File.new(contents);
+		return file;
+	}
+
+	async extract(format: Artifact.ArchiveFormat): Promise<Artifact> {
+		let contents = await this.contents();
+		let artifact = await contents.extract(format);
+		return artifact;
+	}
 }
 
 export namespace File {

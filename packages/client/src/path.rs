@@ -66,7 +66,8 @@ impl Path {
 	}
 
 	pub fn push(&mut self, component: Component) {
-		match (component, self.components.last().unwrap()) {
+		let last = self.components.last().unwrap();
+		match (component, last) {
 			// If the component is a current component, or is a parent component and follows a root component, then ignore it.
 			(Component::Current, _) | (Component::Parent, Component::Root) => (),
 
@@ -88,15 +89,11 @@ impl Path {
 				self.components = vec![Component::Root];
 			},
 
-			// If the component is a normal component following a root component, add it directly.
-			(Component::Normal(name), Component::Root) => {
-				self.string.push_str(&name);
-				self.components.push(Component::Normal(name));
-			},
-
 			// If the component is a normal component, then add it.
-			(Component::Normal(name), _) => {
-				self.string.push('/');
+			(Component::Normal(name), last) => {
+				if *last != Component::Root {
+					self.string.push('/');
+				}
 				self.string.push_str(&name);
 				self.components.push(Component::Normal(name));
 			},
