@@ -52,7 +52,7 @@ impl Server {
 			}
 
 			// Get the remote.
-			let Some(remote) = self.inner.remotes.first() else {
+			let Some(remote) = self.remotes.first() else {
 				break 'a None;
 			};
 
@@ -117,7 +117,7 @@ impl Server {
 			}
 
 			// Get the remote.
-			let Some(remote) = self.inner.remotes.first() else {
+			let Some(remote) = self.remotes.first() else {
 				break 'a;
 			};
 
@@ -150,7 +150,7 @@ impl Server {
 			stop,
 			task: std::sync::Mutex::new(None),
 		});
-		self.inner
+		self
 			.build_state
 			.write()
 			.unwrap()
@@ -181,7 +181,7 @@ impl Server {
 		}
 
 		// Send the message.
-		self.inner.messenger.publish_to_build_created().await?;
+		self.messenger.publish_to_build_created().await?;
 
 		let output = tg::build::GetOrCreateOutput { id: build_id };
 
@@ -215,7 +215,7 @@ where
 			.map_err(|source| tg::error!(!source, "failed to deserialize the body"))?;
 
 		// Get or create the build.
-		let output = self.inner.tg.get_or_create_build(arg).await?;
+		let output = self.tg.get_or_create_build(arg).await?;
 
 		// Create the body.
 		let body = serde_json::to_vec(&output)

@@ -93,7 +93,7 @@ impl tg::Client {
 		let method = http::Method::POST;
 		let uri = format!("/builds/{build_id}/children");
 		let mut request = http::request::Builder::default().method(method).uri(uri);
-		if let Some(token) = self.inner.token.as_ref() {
+		if let Some(token) = self.token.as_ref() {
 			request = request.header(http::header::AUTHORIZATION, format!("Bearer {token}"));
 		}
 		request = request.header(

@@ -65,7 +65,7 @@ where
 			.map_err(|source| tg::error!(!source, "failed to deserialize the body"))?;
 
 		// Compress the blob.
-		let output = self.inner.tg.compress_blob(&id, arg).await?;
+		let output = self.tg.compress_blob(&id, arg).await?;
 
 		// Create the response.
 		let body = serde_json::to_vec(&output)

@@ -101,7 +101,7 @@ impl Server {
 			if let Some(package_with_path_dependencies) = package_with_path_dependencies {
 				break 'a Some(package_with_path_dependencies);
 			}
-			let Some(remote) = self.inner.remotes.first() else {
+			let Some(remote) = self.remotes.first() else {
 				break 'a None;
 			};
 			let arg = tg::package::GetArg::default();
@@ -437,7 +437,7 @@ where
 			.unwrap_or_default();
 
 		// Get the package.
-		let Some(output) = self.inner.tg.try_get_package(&dependency, arg).await? else {
+		let Some(output) = self.tg.try_get_package(&dependency, arg).await? else {
 			return Ok(not_found());
 		};
 
@@ -469,7 +469,7 @@ where
 			.map_err(|source| tg::error!(!source, "failed to parse the dependency"))?;
 
 		// Check the package.
-		let output = self.inner.tg.check_package(&dependency).await?;
+		let output = self.tg.check_package(&dependency).await?;
 
 		// Create the body.
 		let body = serde_json::to_vec(&output)
@@ -499,7 +499,7 @@ where
 			.map_err(|source| tg::error!(!source, "failed to parse the dependency"))?;
 
 		// Format the package.
-		self.inner.tg.format_package(&dependency).await?;
+		self.tg.format_package(&dependency).await?;
 
 		// Create the response.
 		let response = http::Response::builder().body(empty()).unwrap();
@@ -524,7 +524,7 @@ where
 			.map_err(|source| tg::error!(!source, "failed to parse the dependency"))?;
 
 		// Get the outdated dependencies.
-		let output = self.inner.tg.get_package_outdated(&dependency).await?;
+		let output = self.tg.get_package_outdated(&dependency).await?;
 		let body = serde_json::to_vec(&output)
 			.map_err(|source| tg::error!(!source, "failed to serialize the body"))?;
 		let body = full(body);
@@ -552,7 +552,7 @@ where
 			.map_err(|source| tg::error!(!source, "failed to parse the dependency"))?;
 
 		// Get the doc.
-		let Some(output) = self.inner.tg.try_get_package_doc(&dependency).await? else {
+		let Some(output) = self.tg.try_get_package_doc(&dependency).await? else {
 			return Ok(not_found());
 		};
 

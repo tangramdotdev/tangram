@@ -24,7 +24,7 @@ impl Server {
 	) -> tg::Result<tg::artifact::CheckInOutput> {
 		// Get a database connection.
 		let mut connection = self
-			.inner
+			
 			.database
 			.connection()
 			.await
@@ -96,7 +96,7 @@ impl Server {
 		transaction: &Transaction<'_>,
 	) -> tg::Result<tg::artifact::Id> {
 		let names = {
-			let _permit = self.inner.file_descriptor_semaphore.acquire().await;
+			let _permit = self.file_descriptor_semaphore.acquire().await;
 			let mut read_dir = tokio::fs::read_dir(path)
 				.await
 				.map_err(|source| tg::error!(!source, "failed to read the directory"))?;
@@ -152,7 +152,7 @@ impl Server {
 		transaction: &Transaction<'_>,
 	) -> tg::Result<tg::artifact::Id> {
 		// Create the blob.
-		let permit = self.inner.file_descriptor_semaphore.acquire().await;
+		let permit = self.file_descriptor_semaphore.acquire().await;
 		let file = tokio::fs::File::open(path)
 			.await
 			.map_err(|source| tg::error!(!source, "failed to open the file"))?;
@@ -293,7 +293,7 @@ impl Server {
 			if exists && !arg.force {
 				return Err(tg::error!(%path, "there is already a file system object at the path"));
 			}
-			if (path.as_ref() as &std::path::Path).starts_with(&self.inner.path) {
+			if (path.as_ref() as &std::path::Path).starts_with(&self.path) {
 				return Err(tg::error!(%path, "cannot check out into the server's directory"));
 			}
 
@@ -588,7 +588,7 @@ impl Server {
 		}
 
 		// Check out the file, either from an existing path, an internal path, or from the file reader.
-		let permit = self.inner.file_descriptor_semaphore.acquire().await;
+		let permit = self.file_descriptor_semaphore.acquire().await;
 		let id = file.id(self, None).await?;
 		let existing_path = files.read().unwrap().get(&id).cloned();
 		let internal_path = self.checkouts_path().join(id.to_string());
@@ -711,7 +711,7 @@ where
 		let arg = serde_json::from_slice(&bytes)
 			.map_err(|source| tg::error!(!source, "failed to deserialize the body"))?;
 
-		let output = self.inner.tg.check_in_artifact(arg).await?;
+		let output = self.tg.check_in_artifact(arg).await?;
 
 		// Create the response.
 		let body = serde_json::to_vec(&output)
@@ -746,7 +746,7 @@ where
 			.map_err(|source| tg::error!(!source, "failed to deserialize the body"))?;
 
 		// Check out the artifact.
-		let output = self.inner.tg.check_out_artifact(&id, arg).await?;
+		let output = self.tg.check_out_artifact(&id, arg).await?;
 
 		// Create the response.
 		let body = serde_json::to_vec(&output)

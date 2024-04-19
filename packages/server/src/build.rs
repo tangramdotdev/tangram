@@ -36,14 +36,14 @@ impl Server {
 
 	async fn build_queue_task_inner(&self) -> tg::Result<()> {
 		// Subscribe to messages that builds were created.
-		let mut subscription = self.inner.messenger.subscribe_to_build_created().await?;
+		let mut subscription = self.messenger.subscribe_to_build_created().await?;
 
 		loop {
 			// If the messenger is nats, then wait for a permit.
-			let permit = match self.inner.messenger.kind() {
+			let permit = match self.messenger.kind() {
 				crate::messenger::Kind::Channel => None,
 				crate::messenger::Kind::Nats => {
-					let Ok(permit) = self.inner.build_semaphore.clone().acquire_owned().await
+					let Ok(permit) = self.build_semaphore.clone().acquire_owned().await
 					else {
 						return Ok(());
 					};
@@ -77,7 +77,7 @@ impl Server {
 				let server = self.clone();
 				let build = tg::Build::with_id(build.id.clone());
 				let mut stop = self
-					.inner
+					
 					.build_state
 					.read()
 					.unwrap()
@@ -93,7 +93,7 @@ impl Server {
 						future::Either::Right(_) => tg::build::Outcome::Canceled,
 					};
 					build.set_outcome(&server, outcome).await?;
-					server.inner.build_state.write().unwrap().remove(build.id());
+					server.build_state.write().unwrap().remove(build.id());
 					Ok::<_, tg::Error>(())
 				}
 				.inspect_err(|error| {
@@ -103,7 +103,7 @@ impl Server {
 			});
 
 			// Set the task in the build state.
-			self.inner
+			self
 				.build_state
 				.write()
 				.unwrap()
@@ -128,14 +128,14 @@ impl Server {
 			Permit(Either::Left(permit))
 		} else {
 			let semaphore = self
-				.inner
+				
 				.build_semaphore
 				.clone()
 				.acquire_owned()
 				.map(|result| Permit(Either::Left(result.unwrap())));
 			let parent = self.try_get_build_parent(id).await?;
 			let state = parent
-				.and_then(|parent| self.inner.build_state.read().unwrap().get(&parent).cloned());
+				.and_then(|parent| self.build_state.read().unwrap().get(&parent).cloned());
 			let parent = if let Some(state) = state {
 				state
 					.permit
@@ -153,7 +153,7 @@ impl Server {
 
 		// Set the permit in the build state.
 		let state = self
-			.inner
+			
 			.build_state
 			.write()
 			.unwrap()
@@ -172,7 +172,7 @@ impl Server {
 		// Build the target with the appropriate runtime.
 		let host = target.host(self).await?;
 		let runtime = self
-			.inner
+			
 			.runtimes
 			.read()
 			.unwrap()
@@ -183,7 +183,7 @@ impl Server {
 
 		// Log the error.
 		if let Err(error) = &result {
-			let options = &self.inner.options.advanced.error_trace_options;
+			let options = &self.options.advanced.error_trace_options;
 			let trace = error.trace(options);
 			let log = trace.to_string().into();
 			build.add_log(self, log).await?;
@@ -201,7 +201,7 @@ impl Server {
 	async fn try_get_build_parent(&self, id: &tg::build::Id) -> tg::Result<Option<tg::build::Id>> {
 		// Get a database connection.
 		let connection = self
-			.inner
+			
 			.database
 			.connection()
 			.await
@@ -233,7 +233,7 @@ impl Server {
 	pub(crate) async fn get_build_exists_local(&self, id: &tg::build::Id) -> tg::Result<bool> {
 		// Get a database connection.
 		let connection = self
-			.inner
+			
 			.database
 			.connection()
 			.await

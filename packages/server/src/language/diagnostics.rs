@@ -38,7 +38,7 @@ impl Server {
 
 	pub async fn update_diagnostics(&self) -> tg::Result<()> {
 		// Get the diagnostics.
-		let mut diagnostics = self.inner.diagnostics.write().await;
+		let mut diagnostics = self.diagnostics.write().await;
 
 		// Clear the diagnostics.
 		for (_, diagnostics) in diagnostics.iter_mut() {

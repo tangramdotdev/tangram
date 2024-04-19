@@ -49,11 +49,9 @@ const SNAPSHOT: &[u8] = include_bytes!(concat!(env!("OUT_DIR"), "/language.heaps
 const SOURCE_MAP: &[u8] = include_bytes!(concat!(env!("OUT_DIR"), "/language.js.map"));
 
 #[derive(Clone)]
-pub struct Server {
-	inner: Arc<Inner>,
-}
+pub struct Server(Arc<Inner>);
 
-struct Inner {
+pub struct Inner {
 	/// The published diagnostics.
 	diagnostics: tokio::sync::RwLock<BTreeMap<tg::Module, Vec<tg::Diagnostic>>>,
 
@@ -136,7 +134,7 @@ impl Server {
 		let workspaces = tokio::sync::RwLock::new(BTreeSet::new());
 
 		// Create the server.
-		let inner = Arc::new(Inner {
+		Self(Arc::new(Inner {
 			diagnostics,
 			documents,
 			main_runtime_handle,
@@ -145,9 +143,7 @@ impl Server {
 			sender,
 			server: server.clone(),
 			workspaces,
-		});
-
-		Self { inner }
+		}))
 	}
 
 	pub async fn serve(
@@ -182,8 +178,7 @@ impl Server {
 		});
 
 		// Set the outgoing message sender.
-		self.inner
-			.sender
+		self.sender
 			.write()
 			.unwrap()
 			.replace(outgoing_message_sender);
@@ -213,7 +208,7 @@ impl Server {
 		}
 
 		// Drop the outgoing message sender.
-		self.inner.sender.write().unwrap().take().unwrap();
+		self.sender.write().unwrap().take().unwrap();
 
 		// Wait for the outgoing message task to complete.
 		outgoing_message_task.await.unwrap()?;
@@ -495,8 +490,7 @@ impl Server {
 			result,
 			error,
 		});
-		self.inner
-			.sender
+		self.sender
 			.read()
 			.unwrap()
 			.as_ref()
@@ -515,8 +509,7 @@ impl Server {
 			method: T::METHOD.to_owned(),
 			params: Some(params),
 		});
-		self.inner
-			.sender
+		self.sender
 			.read()
 			.unwrap()
 			.as_ref()
@@ -528,15 +521,11 @@ impl Server {
 	async fn request(&self, request: Request) -> tg::Result<Response> {
 		// Spawn the request handler thread if necessary.
 		{
-			let mut request_thread = self.inner.request_thread.lock().unwrap();
+			let mut request_thread = self.request_thread.lock().unwrap();
 			if request_thread.is_none() {
 				let (request_sender, request_receiver) =
 					tokio::sync::mpsc::unbounded_channel::<(Request, ResponseSender)>();
-				self.inner
-					.request_sender
-					.lock()
-					.unwrap()
-					.replace(request_sender);
+				self.request_sender.lock().unwrap().replace(request_sender);
 				request_thread.replace(std::thread::spawn({
 					let server = self.clone();
 					move || Self::run_request_handler(server, request_receiver)
@@ -548,8 +537,7 @@ impl Server {
 		let (response_sender, response_receiver) = tokio::sync::oneshot::channel();
 
 		// Send the request.
-		self.inner
-			.request_sender
+		self.request_sender
 			.lock()
 			.unwrap()
 			.as_ref()
@@ -770,7 +758,7 @@ where
 			.map_err(|source| tg::error!(!source, "failed to deserialize the request body"))?;
 
 		// Format the text.
-		let text = self.inner.tg.format(text).await?;
+		let text = self.tg.format(text).await?;
 
 		// Create the body.
 		let body = full(text.into_bytes());
@@ -817,7 +805,7 @@ where
 				let (input, output) = tokio::io::split(io);
 				let input = Box::new(tokio::io::BufReader::new(input));
 				let output = Box::new(output);
-				let task = server.inner.tg.lsp(input, output);
+				let task = server.tg.lsp(input, output);
 				let stop = stop.wait_for(|stop| *stop);
 				future::select(pin!(task), pin!(stop))
 					.map(|output| match output {
@@ -839,5 +827,13 @@ where
 			.unwrap();
 
 		Ok(response)
+	}
+}
+
+impl std::ops::Deref for Server {
+	type Target = Inner;
+
+	fn deref(&self) -> &Self::Target {
+		&self.0
 	}
 }

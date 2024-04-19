@@ -64,7 +64,7 @@ where
 		_request: http::Request<Incoming>,
 	) -> tg::Result<http::Response<Outgoing>> {
 		// Get the doc.
-		let output = self.inner.tg.get_js_runtime_doc().await?;
+		let output = self.tg.get_js_runtime_doc().await?;
 
 		// Create the body.
 		let body = serde_json::to_vec(&output)

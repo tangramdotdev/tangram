@@ -14,7 +14,7 @@ impl Tmp {
 		let id = uuid::Uuid::now_v7();
 		let id = ENCODING.encode(&id.into_bytes());
 		let path = server.tmp_path().join(id);
-		let preserve = server.inner.options.advanced.preserve_temp_directories;
+		let preserve = server.options.advanced.preserve_temp_directories;
 		Self { path, preserve }
 	}
 }

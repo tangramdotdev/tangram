@@ -10,7 +10,7 @@ impl Server {
 	pub async fn list_builds(&self, arg: tg::build::ListArg) -> tg::Result<tg::build::ListOutput> {
 		// Get a database connection.
 		let connection = self
-			.inner
+			
 			.database
 			.connection()
 			.await
@@ -88,7 +88,7 @@ where
 		let arg = serde_urlencoded::from_str(query)
 			.map_err(|source| tg::error!(!source, "failed to deserialize the search params"))?;
 
-		let output = self.inner.tg.list_builds(arg).await?;
+		let output = self.tg.list_builds(arg).await?;
 
 		// Create the body.
 		let body = serde_json::to_vec(&output)

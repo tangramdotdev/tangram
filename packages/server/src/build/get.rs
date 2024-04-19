@@ -28,7 +28,7 @@ impl Server {
 	) -> tg::Result<Option<tg::build::GetOutput>> {
 		// Get a database connection.
 		let connection = self
-			.inner
+			
 			.database
 			.connection()
 			.await
@@ -73,7 +73,7 @@ impl Server {
 		id: &tg::build::Id,
 	) -> tg::Result<Option<tg::build::GetOutput>> {
 		// Get the remote.
-		let Some(remote) = self.inner.remotes.first() else {
+		let Some(remote) = self.remotes.first() else {
 			return Ok(None);
 		};
 
@@ -148,7 +148,7 @@ where
 			.unwrap_or_default();
 
 		// Get the build.
-		let Some(output) = self.inner.tg.try_get_build(&id, arg).await? else {
+		let Some(output) = self.tg.try_get_build(&id, arg).await? else {
 			return Ok(not_found());
 		};
 

@@ -169,7 +169,7 @@ where
 		};
 
 		// Bundle the artifact.
-		let output = self.inner.tg.bundle_artifact(&id).await?;
+		let output = self.tg.bundle_artifact(&id).await?;
 
 		// Create the response.
 		let body = serde_json::to_vec(&output)

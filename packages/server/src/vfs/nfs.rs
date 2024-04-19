@@ -54,11 +54,9 @@ const ROOT: nfs_fh4 = nfs_fh4(0);
 type Map<K, V> = HashMap<K, V, FnvBuildHasher>;
 
 #[derive(Clone)]
-pub struct Server {
-	inner: Arc<Inner>,
-}
+pub struct Server(Arc<Inner>);
 
-struct Inner {
+pub struct Inner {
 	client_index: std::sync::atomic::AtomicU64,
 	clients: tokio::sync::RwLock<Map<Vec<u8>, Arc<tokio::sync::RwLock<ClientData>>>>,
 	lock_index: tokio::sync::RwLock<u64>,
@@ -164,19 +162,17 @@ impl Server {
 		});
 		let nodes = [(0, root)].into_iter().collect();
 		let task = std::sync::Mutex::new(None);
-		let server = Self {
-			inner: Arc::new(Inner {
-				client_index: std::sync::atomic::AtomicU64::new(1),
-				clients: tokio::sync::RwLock::new(Map::default()),
-				lock_index: tokio::sync::RwLock::new(1),
-				locks: tokio::sync::RwLock::new(Map::default()),
-				node_index: std::sync::atomic::AtomicU64::new(1000),
-				nodes: tokio::sync::RwLock::new(nodes),
-				path: path.to_owned(),
-				server,
-				task,
-			}),
-		};
+		let server = Self(Arc::new(Inner {
+			client_index: std::sync::atomic::AtomicU64::new(1),
+			clients: tokio::sync::RwLock::new(Map::default()),
+			lock_index: tokio::sync::RwLock::new(1),
+			locks: tokio::sync::RwLock::new(Map::default()),
+			node_index: std::sync::atomic::AtomicU64::new(1000),
+			nodes: tokio::sync::RwLock::new(nodes),
+			path: path.to_owned(),
+			server,
+			task,
+		}));
 
 		// Spawn the task.
 		let task = tokio::spawn({
@@ -192,7 +188,7 @@ impl Server {
 				Ok(())
 			}
 		});
-		server.inner.task.lock().unwrap().replace(task);
+		server.task.lock().unwrap().replace(task);
 
 		// Mount.
 		Self::mount(path, port).await?;
@@ -250,14 +246,14 @@ impl Server {
 
 	pub fn stop(&self) {
 		// Abort the task.
-		if let Some(task) = self.inner.task.lock().unwrap().as_ref() {
+		if let Some(task) = self.task.lock().unwrap().as_ref() {
 			task.abort_handle().abort();
 		};
 	}
 
 	pub async fn join(&self) -> tg::Result<()> {
 		// Join the task.
-		let task = self.inner.task.lock().unwrap().take();
+		let task = self.task.lock().unwrap().take();
 		if let Some(task) = task {
 			match task.await {
 				Ok(result) => Ok(result),
@@ -268,7 +264,7 @@ impl Server {
 		}
 
 		// Unmount.
-		Self::unmount(&self.inner.path).await?;
+		Self::unmount(&self.path).await?;
 
 		Ok(())
 	}
@@ -461,17 +457,17 @@ impl Server {
 						.unwrap();
 					let id: Option<tg::artifact::Id> = match &node.kind {
 						NodeKind::File { file, .. } => file
-							.id(&self.inner.server, None)
+							.id(&self.server, None)
 							.await
 							.ok()
 							.map(tg::artifact::Id::from),
 						NodeKind::Directory { directory, .. } => directory
-							.id(&self.inner.server, None)
+							.id(&self.server, None)
 							.await
 							.ok()
 							.map(tg::artifact::Id::from),
 						NodeKind::Symlink { symlink, .. } => symlink
-							.id(&self.inner.server, None)
+							.id(&self.server, None)
 							.await
 							.ok()
 							.map(tg::artifact::Id::from),
@@ -571,34 +567,34 @@ impl Server {
 	}
 
 	async fn get_node(&self, node: nfs_fh4) -> Option<Arc<Node>> {
-		self.inner.nodes.read().await.get(&node.0).cloned()
+		self.nodes.read().await.get(&node.0).cloned()
 	}
 
 	async fn add_node(&self, id: u64, node: Arc<Node>) {
-		self.inner.nodes.write().await.insert(id, node);
+		self.nodes.write().await.insert(id, node);
 	}
 
 	async fn add_client(&self, id: Vec<u8>, client: Arc<tokio::sync::RwLock<ClientData>>) {
-		self.inner.clients.write().await.insert(id, client);
+		self.clients.write().await.insert(id, client);
 	}
 
 	async fn get_client(
 		&self,
 		client: &nfs_client_id4,
 	) -> Option<Arc<tokio::sync::RwLock<ClientData>>> {
-		self.inner.clients.read().await.get(&client.id).cloned()
+		self.clients.read().await.get(&client.id).cloned()
 	}
 
 	async fn add_lock(&self, id: u64, lock: Arc<tokio::sync::RwLock<LockState>>) {
-		self.inner.locks.write().await.insert(id, lock);
+		self.locks.write().await.insert(id, lock);
 	}
 
 	async fn get_lock(&self, lock: u64) -> Option<Arc<tokio::sync::RwLock<LockState>>> {
-		self.inner.locks.read().await.get(&lock).cloned()
+		self.locks.read().await.get(&lock).cloned()
 	}
 
 	async fn remove_lock(&self, lock: u64) {
-		self.inner.locks.write().await.remove(&lock);
+		self.locks.write().await.remove(&lock);
 	}
 }
 
@@ -621,7 +617,7 @@ impl Server {
 			| NodeKind::NamedAttribute { .. }
 			| NodeKind::Checkout { .. } => ACCESS4_READ,
 			NodeKind::File { file, .. } => {
-				let is_executable = match file.executable(&self.inner.server).await {
+				let is_executable = match file.executable(&self.server).await {
 					Ok(b) => b,
 					Err(e) => {
 						tracing::error!(?e, "failed to lookup executable bit for file");
@@ -721,7 +717,7 @@ impl Server {
 				FileAttrData::new(file_handle, nfs_ftype4::NF4DIR, len, O_RX)
 			},
 			NodeKind::File { file, size, .. } => {
-				let is_executable = match file.executable(&self.inner.server).await {
+				let is_executable = match file.executable(&self.server).await {
 					Ok(b) => b,
 					Err(e) => {
 						tracing::error!(?e, "failed to lookup executable bit for file");
@@ -908,7 +904,7 @@ impl Server {
 					.parse::<tg::artifact::Id>()
 					.map_err(|_| nfsstat4::NFS4ERR_NOENT)?;
 				let path = Path::new("../checkouts").join(id.to_string());
-				let exists = tokio::fs::symlink_metadata(self.inner.path.join(&path))
+				let exists = tokio::fs::symlink_metadata(self.path.join(&path))
 					.await
 					.is_ok();
 				if exists {
@@ -919,7 +915,7 @@ impl Server {
 			},
 
 			NodeKind::Directory { directory, .. } => {
-				let entries = directory.entries(&self.inner.server).await.map_err(|e| {
+				let entries = directory.entries(&self.server).await.map_err(|e| {
 					tracing::error!(?e, ?name, "failed to get directory entries");
 					nfsstat4::NFS4ERR_IO
 				})?;
@@ -942,7 +938,7 @@ impl Server {
 				let NodeKind::File { file, .. } = &grandparent_node.kind else {
 					return Ok(None);
 				};
-				let file_references = match file.references(&self.inner.server).await {
+				let file_references = match file.references(&self.server).await {
 					Ok(references) => references,
 					Err(e) => {
 						tracing::error!(?e, "failed to get file references");
@@ -951,7 +947,7 @@ impl Server {
 				};
 				let mut references = Vec::new();
 				for artifact in file_references.iter() {
-					let id = artifact.id(&self.inner.server, None).await.map_err(|e| {
+					let id = artifact.id(&self.server, None).await.map_err(|e| {
 						tracing::error!(?e, ?artifact, "failed to get artifact ID");
 						nfsstat4::NFS4ERR_IO
 					})?;
@@ -980,7 +976,7 @@ impl Server {
 				}
 			},
 			Either::Left(Either::Right(tg::Artifact::File(file))) => {
-				let size = file.size(&self.inner.server).await.map_err(|e| {
+				let size = file.size(&self.server).await.map_err(|e| {
 					tracing::error!(?e, "failed to get size of file's contents");
 					nfsstat4::NFS4ERR_IO
 				})?;
@@ -1056,27 +1052,25 @@ impl Server {
 	}
 
 	fn next_node_id(&self) -> u64 {
-		self.inner
-			.node_index
+		self.node_index
 			.fetch_add(1, std::sync::atomic::Ordering::SeqCst)
 	}
 
 	fn next_client_id(&self) -> u64 {
-		self.inner
-			.client_index
+		self.client_index
 			.fetch_add(1, std::sync::atomic::Ordering::SeqCst)
 	}
 
 	async fn next_lock_id(&self) -> Option<u64> {
 		// In the extremely unlikely event that the client has more files open then we can represent, return an error.
-		let locks = self.inner.locks.read().await;
+		let locks = self.locks.read().await;
 		if locks.len() == usize::MAX - 2 {
 			tracing::error!("failed to create the file reader");
 			return None;
 		}
 
 		// Find the next freely available lock.
-		let mut lock_index = self.inner.lock_index.write().await;
+		let mut lock_index = self.lock_index.write().await;
 		loop {
 			let index = *lock_index;
 			*lock_index += 1;
@@ -1125,7 +1119,7 @@ impl Server {
 		let stateid = stateid4::new(arg.seqid, index, false);
 
 		if let NodeKind::File { file, .. } = &self.get_node(fh).await.unwrap().kind {
-			let Ok(reader) = file.reader(&self.inner.server).await else {
+			let Ok(reader) = file.reader(&self.server).await else {
 				tracing::error!("failed to create the file reader");
 				return OPEN4res::Error(nfsstat4::NFS4ERR_IO);
 			};
@@ -1183,7 +1177,7 @@ impl Server {
 			};
 		};
 		if file
-			.references(&self.inner.server)
+			.references(&self.server)
 			.await
 			.map_or(true, |references| references.is_empty())
 		{
@@ -1277,7 +1271,7 @@ impl Server {
 			|| lock_state.is_none()
 		{
 			// We need to create a reader just for this request.
-			let Ok(mut reader) = file.reader(&self.inner.server).await else {
+			let Ok(mut reader) = file.reader(&self.server).await else {
 				tracing::error!("failed to create the file reader");
 				return READ4res::Error(nfsstat4::NFS4ERR_IO);
 			};
@@ -1331,7 +1325,7 @@ impl Server {
 		let entries = match &node.kind {
 			NodeKind::Root { .. } => Vec::default(),
 			NodeKind::Directory { directory, .. } => {
-				let Ok(entries) = directory.entries(&self.inner.server).await else {
+				let Ok(entries) = directory.entries(&self.server).await else {
 					return READDIR4res::Error(nfsstat4::NFS4ERR_IO);
 				};
 				entries.keys().cloned().collect::<Vec<_>>()
@@ -1410,14 +1404,14 @@ impl Server {
 			return READLINK4res::Error(nfsstat4::NFS4ERR_INVAL);
 		};
 		let mut target = tg::Path::new();
-		let Ok(artifact) = symlink.artifact(&self.inner.server).await else {
+		let Ok(artifact) = symlink.artifact(&self.server).await else {
 			return READLINK4res::Error(nfsstat4::NFS4ERR_IO);
 		};
-		let Ok(path) = symlink.path(&self.inner.server).await else {
+		let Ok(path) = symlink.path(&self.server).await else {
 			return READLINK4res::Error(nfsstat4::NFS4ERR_IO);
 		};
 		if let Some(artifact) = artifact.as_ref() {
-			let Ok(id) = artifact.id(&self.inner.server, None).await else {
+			let Ok(id) = artifact.id(&self.server, None).await else {
 				return READLINK4res::Error(nfsstat4::NFS4ERR_IO);
 			};
 			for _ in 0..node.depth() - 1 {
@@ -1494,7 +1488,7 @@ impl Server {
 		&self,
 		arg: SETCLIENTID_CONFIRM4args,
 	) -> SETCLIENTID_CONFIRM4res {
-		let clients = self.inner.clients.read().await;
+		let clients = self.clients.read().await;
 		for client in clients.values() {
 			let mut client = client.write().await;
 			if client.server_id == arg.clientid {
@@ -1820,5 +1814,13 @@ impl FileAttrData {
 			};
 		}
 		buf
+	}
+}
+
+impl std::ops::Deref for Server {
+	type Target = Inner;
+
+	fn deref(&self) -> &Self::Target {
+		&self.0
 	}
 }

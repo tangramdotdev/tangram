@@ -7,9 +7,7 @@ use tokio::io::{AsyncBufRead, AsyncRead, AsyncWrite};
 use url::Url;
 
 #[derive(Clone)]
-pub struct Server {
-	inner: Arc<Inner>,
-}
+pub struct Server(Arc<Inner>);
 
 pub struct Inner {
 	build: tg::build::Id,
@@ -55,13 +53,11 @@ impl Server {
 			shutdown,
 			shutdown_task,
 		};
-		let server = Server {
-			inner: Arc::new(inner),
-		};
+		let server = Self(Arc::new(inner));
 
 		// Start the HTTP server.
 		let http = Http::start(&server, url);
-		server.inner.http.lock().unwrap().replace(http);
+		server.http.lock().unwrap().replace(http);
 
 		Ok(server)
 	}
@@ -70,30 +66,29 @@ impl Server {
 		let server = self.clone();
 		let task = tokio::spawn(async move {
 			// Stop the http server.
-			if let Some(http) = server.inner.http.lock().unwrap().as_ref() {
+			if let Some(http) = server.http.lock().unwrap().as_ref() {
 				http.stop();
 			}
 
 			// Join the http server.
-			let http = server.inner.http.lock().unwrap().take();
+			let http = server.http.lock().unwrap().take();
 			if let Some(http) = http {
 				http.join().await?;
 			}
 
 			Ok::<_, tg::Error>(())
 		});
-		self.inner.shutdown_task.lock().unwrap().replace(task);
-		self.inner.shutdown.send_replace(true);
+		self.shutdown_task.lock().unwrap().replace(task);
+		self.shutdown.send_replace(true);
 	}
 
 	pub async fn join(&self) -> tg::Result<()> {
-		self.inner
-			.shutdown
+		self.shutdown
 			.subscribe()
 			.wait_for(|shutdown| *shutdown)
 			.await
 			.unwrap();
-		let task = self.inner.shutdown_task.lock().unwrap().take();
+		let task = self.shutdown_task.lock().unwrap().take();
 		if let Some(task) = task {
 			task.await.unwrap()?;
 		}
@@ -102,7 +97,7 @@ impl Server {
 
 	fn host_path_for_guest_path(&self, path: tg::Path) -> tg::Result<tg::Path> {
 		// Get the path map. If there is no path map, then the guest path is the host path.
-		let Some(path_map) = &self.inner.path_map else {
+		let Some(path_map) = &self.path_map else {
 			return Ok(path);
 		};
 
@@ -125,7 +120,7 @@ impl tg::Handle for Server {
 	type Transaction<'a> = ();
 
 	async fn path(&self) -> tg::Result<Option<tg::Path>> {
-		self.inner.server.path().await
+		self.server.path().await
 	}
 
 	async fn archive_artifact(
@@ -133,21 +128,21 @@ impl tg::Handle for Server {
 		id: &tg::artifact::Id,
 		arg: tg::artifact::ArchiveArg,
 	) -> tg::Result<tg::artifact::ArchiveOutput> {
-		self.inner.server.archive_artifact(id, arg).await
+		self.server.archive_artifact(id, arg).await
 	}
 
 	async fn extract_artifact(
 		&self,
 		arg: tg::artifact::ExtractArg,
 	) -> tg::Result<tg::artifact::ExtractOutput> {
-		self.inner.server.extract_artifact(arg).await
+		self.server.extract_artifact(arg).await
 	}
 
 	async fn bundle_artifact(
 		&self,
 		id: &tg::artifact::Id,
 	) -> tg::Result<tg::artifact::BundleOutput> {
-		self.inner.server.bundle_artifact(id).await
+		self.server.bundle_artifact(id).await
 	}
 
 	async fn check_in_artifact(
@@ -158,10 +153,10 @@ impl tg::Handle for Server {
 		arg.path = self.host_path_for_guest_path(arg.path)?;
 
 		// Perform the checkin.
-		let output = self.inner.server.check_in_artifact(arg).await?;
+		let output = self.server.check_in_artifact(arg).await?;
 
 		// If the VFS is disabled, then check out the artifact.
-		if !self.inner.server.inner.options.vfs {
+		if !self.server.options.vfs {
 			let arg = tg::artifact::CheckOutArg::default();
 			self.check_out_artifact(&output.id, arg).await?;
 		}
@@ -180,7 +175,7 @@ impl tg::Handle for Server {
 		}
 
 		// Perform the checkout.
-		self.inner.server.check_out_artifact(id, arg).await
+		self.server.check_out_artifact(id, arg).await
 	}
 
 	async fn create_blob(
@@ -188,7 +183,7 @@ impl tg::Handle for Server {
 		reader: impl AsyncRead + Send + 'static,
 		_transaction: Option<&Self::Transaction<'_>>,
 	) -> tg::Result<tg::blob::Id> {
-		self.inner.server.create_blob(reader, None).await
+		self.server.create_blob(reader, None).await
 	}
 
 	async fn compress_blob(
@@ -196,7 +191,7 @@ impl tg::Handle for Server {
 		id: &tg::blob::Id,
 		arg: tg::blob::CompressArg,
 	) -> tg::Result<tg::blob::CompressOutput> {
-		self.inner.server.compress_blob(id, arg).await
+		self.server.compress_blob(id, arg).await
 	}
 
 	async fn decompress_blob(
@@ -204,7 +199,7 @@ impl tg::Handle for Server {
 		id: &tg::blob::Id,
 		arg: tg::blob::DecompressArg,
 	) -> tg::Result<tg::blob::DecompressOutput> {
-		self.inner.server.decompress_blob(id, arg).await
+		self.server.decompress_blob(id, arg).await
 	}
 
 	async fn list_builds(&self, _arg: tg::build::ListArg) -> tg::Result<tg::build::ListOutput> {
@@ -216,7 +211,7 @@ impl tg::Handle for Server {
 		id: &tg::build::Id,
 		arg: tg::build::GetArg,
 	) -> tg::Result<Option<tg::build::GetOutput>> {
-		self.inner.server.try_get_build(id, arg).await
+		self.server.try_get_build(id, arg).await
 	}
 
 	async fn put_build(&self, _id: &tg::build::Id, _arg: &tg::build::PutArg) -> tg::Result<()> {
@@ -235,8 +230,8 @@ impl tg::Handle for Server {
 		&self,
 		mut arg: tg::build::GetOrCreateArg,
 	) -> tg::Result<tg::build::GetOrCreateOutput> {
-		arg.parent = Some(self.inner.build.clone());
-		self.inner.server.get_or_create_build(arg).await
+		arg.parent = Some(self.build.clone());
+		self.server.get_or_create_build(arg).await
 	}
 
 	async fn try_get_build_status(
@@ -245,7 +240,7 @@ impl tg::Handle for Server {
 		arg: tg::build::status::GetArg,
 		stop: Option<tokio::sync::watch::Receiver<bool>>,
 	) -> tg::Result<Option<impl Stream<Item = tg::Result<tg::build::Status>> + Send + 'static>> {
-		self.inner.server.try_get_build_status(id, arg, stop).await
+		self.server.try_get_build_status(id, arg, stop).await
 	}
 
 	async fn set_build_status(
@@ -264,10 +259,7 @@ impl tg::Handle for Server {
 	) -> tg::Result<
 		Option<impl Stream<Item = tg::Result<tg::build::children::Chunk>> + Send + 'static>,
 	> {
-		self.inner
-			.server
-			.try_get_build_children(id, arg, stop)
-			.await
+		self.server.try_get_build_children(id, arg, stop).await
 	}
 
 	async fn add_build_child(
@@ -285,7 +277,7 @@ impl tg::Handle for Server {
 		stop: Option<tokio::sync::watch::Receiver<bool>>,
 	) -> tg::Result<Option<impl Stream<Item = tg::Result<tg::build::log::Chunk>> + Send + 'static>>
 	{
-		self.inner.server.try_get_build_log(id, arg, stop).await
+		self.server.try_get_build_log(id, arg, stop).await
 	}
 
 	async fn add_build_log(&self, _build_id: &tg::build::Id, _bytes: Bytes) -> tg::Result<()> {
@@ -298,7 +290,7 @@ impl tg::Handle for Server {
 		arg: tg::build::outcome::GetArg,
 		stop: Option<tokio::sync::watch::Receiver<bool>>,
 	) -> tg::Result<Option<Option<tg::build::Outcome>>> {
-		self.inner.server.try_get_build_outcome(id, arg, stop).await
+		self.server.try_get_build_outcome(id, arg, stop).await
 	}
 
 	async fn set_build_outcome(
@@ -325,7 +317,7 @@ impl tg::Handle for Server {
 		&self,
 		id: &tg::object::Id,
 	) -> tg::Result<Option<tg::object::GetOutput>> {
-		self.inner.server.try_get_object(id).await
+		self.server.try_get_object(id).await
 	}
 
 	async fn put_object(
@@ -334,7 +326,7 @@ impl tg::Handle for Server {
 		arg: tg::object::PutArg,
 		_transaction: Option<&Self::Transaction<'_>>,
 	) -> tg::Result<tg::object::PutOutput> {
-		self.inner.server.put_object(id, arg, None).await
+		self.server.put_object(id, arg, None).await
 	}
 
 	async fn push_object(&self, _id: &tg::object::Id) -> tg::Result<()> {
@@ -415,5 +407,13 @@ impl tg::Handle for Server {
 
 	async fn get_user(&self, _token: &str) -> tg::Result<Option<tg::User>> {
 		Err(tg::error!("forbidden"))
+	}
+}
+
+impl std::ops::Deref for Server {
+	type Target = Inner;
+
+	fn deref(&self) -> &Self::Target {
+		&self.0
 	}
 }

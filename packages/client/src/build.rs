@@ -538,7 +538,7 @@ impl tg::Client {
 		let method = http::Method::PUT;
 		let uri = format!("/builds/{id}");
 		let mut request = http::request::Builder::default().method(method).uri(uri);
-		if let Some(token) = self.inner.token.as_ref() {
+		if let Some(token) = self.token.as_ref() {
 			request = request.header(http::header::AUTHORIZATION, format!("Bearer {token}"));
 		}
 		let json = serde_json::to_string(&arg)
@@ -566,7 +566,7 @@ impl tg::Client {
 		let uri = format!("/builds/{id}/push");
 		let body = empty();
 		let mut request = http::request::Builder::default().method(method).uri(uri);
-		if let Some(token) = self.inner.token.as_ref() {
+		if let Some(token) = self.token.as_ref() {
 			request = request.header(http::header::AUTHORIZATION, format!("Bearer {token}"));
 		}
 		let request = request
@@ -623,7 +623,7 @@ impl tg::Client {
 				http::header::CONTENT_TYPE,
 				mime::APPLICATION_JSON.to_string(),
 			);
-		if let Some(token) = self.inner.token.as_ref() {
+		if let Some(token) = self.token.as_ref() {
 			request = request.header(http::header::AUTHORIZATION, format!("Bearer {token}"));
 		}
 		let json = serde_json::to_vec(&arg)

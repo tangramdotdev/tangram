@@ -7,12 +7,12 @@ use tangram_client as tg;
 impl Server {
 	pub async fn health(&self) -> tg::Result<tg::server::Health> {
 		Ok(tg::server::Health {
-			version: self.inner.options.version.clone(),
+			version: self.options.version.clone(),
 		})
 	}
 
 	pub async fn path(&self) -> tg::Result<Option<tg::Path>> {
-		Ok(Some(self.inner.path.clone().try_into()?))
+		Ok(Some(self.path.clone().try_into()?))
 	}
 }
 
@@ -24,7 +24,7 @@ where
 		&self,
 		_request: http::Request<Incoming>,
 	) -> tg::Result<http::Response<Outgoing>> {
-		let health = self.inner.tg.health().await?;
+		let health = self.tg.health().await?;
 		let body = serde_json::to_vec(&health).unwrap();
 		let response = http::Response::builder()
 			.status(http::StatusCode::OK)
@@ -37,7 +37,7 @@ where
 		&self,
 		_request: http::Request<Incoming>,
 	) -> tg::Result<http::Response<Outgoing>> {
-		let path = self.inner.tg.path().await?;
+		let path = self.tg.path().await?;
 		let body = serde_json::to_string(&path).unwrap();
 		Ok(http::Response::builder()
 			.status(http::StatusCode::OK)
@@ -49,7 +49,7 @@ where
 		&self,
 		_request: http::Request<Incoming>,
 	) -> tg::Result<http::Response<Outgoing>> {
-		self.inner.tg.clean().await?;
+		self.tg.clean().await?;
 		Ok(http::Response::builder()
 			.status(http::StatusCode::OK)
 			.body(empty())

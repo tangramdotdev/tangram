@@ -47,8 +47,8 @@ impl Server {
 		}
 
 		// Create the event stream.
-		let children = self.inner.messenger.subscribe_to_build_children(id).await?;
-		let status = self.inner.messenger.subscribe_to_build_status(id).await?;
+		let children = self.messenger.subscribe_to_build_children(id).await?;
+		let status = self.messenger.subscribe_to_build_status(id).await?;
 		let interval =
 			IntervalStream::new(tokio::time::interval(std::time::Duration::from_secs(60)))
 				.map(|_| ());
@@ -192,7 +192,7 @@ impl Server {
 	) -> tg::Result<u64> {
 		// Get a database connection.
 		let connection = self
-			.inner
+			
 			.database
 			.connection()
 			.await
@@ -226,7 +226,7 @@ impl Server {
 	) -> tg::Result<bool> {
 		// Get a database connection.
 		let connection = self
-			.inner
+			
 			.database
 			.connection()
 			.await
@@ -267,7 +267,7 @@ impl Server {
 	) -> tg::Result<tg::build::children::Chunk> {
 		// Get a database connection.
 		let connection = self
-			.inner
+			
 			.database
 			.connection()
 			.await
@@ -309,7 +309,7 @@ impl Server {
 		arg: tg::build::children::GetArg,
 		stop: Option<tokio::sync::watch::Receiver<bool>>,
 	) -> tg::Result<Option<impl Stream<Item = tg::Result<tg::build::children::Chunk>> + Send>> {
-		let Some(remote) = self.inner.remotes.first() else {
+		let Some(remote) = self.remotes.first() else {
 			return Ok(None);
 		};
 		let Some(stream) = remote.try_get_build_children(id, arg, stop).await? else {
@@ -344,7 +344,7 @@ impl Server {
 
 		// Get a database connection.
 		let connection = self
-			.inner
+			
 			.database
 			.connection()
 			.await
@@ -369,7 +369,7 @@ impl Server {
 		drop(connection);
 
 		// Publish the message.
-		self.inner
+		self
 			.messenger
 			.publish_to_build_children(build_id)
 			.await?;
@@ -382,7 +382,7 @@ impl Server {
 		build_id: &tg::build::Id,
 		child_id: &tg::build::Id,
 	) -> tg::Result<bool> {
-		let Some(remote) = self.inner.remotes.first() else {
+		let Some(remote) = self.remotes.first() else {
 			return Ok(false);
 		};
 		tg::Build::with_id(child_id.clone())
@@ -437,7 +437,7 @@ where
 
 		let stop = request.extensions().get().cloned().unwrap();
 		let Some(stream) = self
-			.inner
+			
 			.tg
 			.try_get_build_children(&id, arg, Some(stop))
 			.await?
@@ -517,7 +517,7 @@ where
 			.map_err(|source| tg::error!(!source, "failed to deserialize the body"))?;
 
 		// Add the build child.
-		self.inner.tg.add_build_child(&build_id, &child_id).await?;
+		self.tg.add_build_child(&build_id, &child_id).await?;
 
 		// Create the response.
 		let response = http::Response::builder()

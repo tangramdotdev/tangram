@@ -9,7 +9,7 @@ use tangram_database::{self as db, Database, Query};
 impl Server {
 	pub async fn get_package_yanked(&self, package: &tg::Directory) -> tg::Result<bool> {
 		let id = package.id(self, None).await?.clone();
-		if let Some(remote) = self.inner.remotes.first() {
+		if let Some(remote) = self.remotes.first() {
 			let dependency = tg::Dependency::with_id(id);
 			let arg = tg::package::GetArg {
 				yanked: true,
@@ -28,7 +28,7 @@ impl Server {
 
 		// Get a database connection.
 		let connection = self
-			.inner
+			
 			.database
 			.connection()
 			.await
@@ -55,7 +55,7 @@ impl Server {
 	}
 
 	pub async fn yank_package(&self, id: &tg::directory::Id) -> tg::Result<()> {
-		if let Some(remote) = self.inner.remotes.first() {
+		if let Some(remote) = self.remotes.first() {
 			self.push_object(&id.clone().into()).await?;
 			remote.yank_package(id).await?;
 			return Ok(());
@@ -63,7 +63,7 @@ impl Server {
 
 		// Get a database connection.
 		let connection = self
-			.inner
+			
 			.database
 			.connection()
 			.await
@@ -110,7 +110,7 @@ where
 		};
 
 		// Publish the package.
-		self.inner.tg.yank_package(&dependency).await?;
+		self.tg.yank_package(&dependency).await?;
 
 		Ok(ok())
 	}

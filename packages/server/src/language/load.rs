@@ -31,12 +31,12 @@ impl Server {
 				let package = tg::Directory::with_id(module.package.clone());
 
 				// Load the module.
-				let entry = package.get(&self.inner.server, &module.path).await?;
+				let entry = package.get(&self.server, &module.path).await?;
 				let file = entry
 					.try_unwrap_file_ref()
 					.ok()
 					.ok_or_else(|| tg::error!("expected a file"))?;
-				let text = file.text(&self.inner.server).await?;
+				let text = file.text(&self.server).await?;
 
 				Ok(text)
 			},

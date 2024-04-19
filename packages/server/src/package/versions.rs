@@ -12,7 +12,7 @@ impl Server {
 		&self,
 		dependency: &tg::Dependency,
 	) -> tg::Result<Option<Vec<String>>> {
-		if let Some(remote) = self.inner.remotes.first() {
+		if let Some(remote) = self.remotes.first() {
 			return remote.try_get_package_versions(dependency).await;
 		}
 
@@ -36,7 +36,7 @@ impl Server {
 
 		// Get a database connection.
 		let connection = self
-			.inner
+			
 			.database
 			.connection()
 			.await
@@ -158,7 +158,7 @@ where
 			.map_err(|source| tg::error!(!source, "failed to parse the dependency"))?;
 
 		// Get the package.
-		let Some(output) = self.inner.tg.try_get_package_versions(&dependency).await? else {
+		let Some(output) = self.tg.try_get_package_versions(&dependency).await? else {
 			return Ok(not_found());
 		};
 

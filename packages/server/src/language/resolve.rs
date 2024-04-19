@@ -92,19 +92,18 @@ impl Server {
 				// Get the lock for the document's package.
 				let path = document.package_path.clone().try_into()?;
 				let dependency_ = tg::Dependency::with_path(path);
-				let (_, lock) =
-					tg::package::get_with_lock(&self.inner.server, &dependency_).await?;
+				let (_, lock) = tg::package::get_with_lock(&self.server, &dependency_).await?;
 
 				// Get the package and lock for the dependency.
-				let (package, lock) = lock.get(&self.inner.server, &dependency).await.map_err(
+				let (package, lock) = lock.get(&self.server, &dependency).await.map_err(
 					|source| tg::error!(!source, %dependency, "failed to resolve dependency"),
 				)?;
 				let package = package.unwrap();
 
 				// Create the module.
-				let path = tg::package::get_root_module_path(&self.inner.server, &package).await?;
-				let lock = lock.id(&self.inner.server, None).await?;
-				let package = package.id(&self.inner.server, None).await?;
+				let path = tg::package::get_root_module_path(&self.server, &package).await?;
+				let lock = lock.id(&self.server, None).await?;
+				let package = package.id(&self.server, None).await?;
 				let module = tg::Module::Normal(tg::module::Normal {
 					lock,
 					package,
@@ -134,15 +133,15 @@ impl Server {
 				let lock = tg::Lock::with_id(module.lock.clone());
 
 				// Get the specified package and lock from the dependencies.
-				let (package, lock) = lock.get(&self.inner.server, &dependency).await.map_err(
+				let (package, lock) = lock.get(&self.server, &dependency).await.map_err(
 					|source| tg::error!(!source, %dependency, "failed to resolve dependency"),
 				)?;
 				let package = package.unwrap();
 
 				// Create the module.
-				let path = tg::package::get_root_module_path(&self.inner.server, &package).await?;
-				let package = package.id(&self.inner.server, None).await?;
-				let lock = lock.id(&self.inner.server, None).await?;
+				let path = tg::package::get_root_module_path(&self.server, &package).await?;
+				let package = package.id(&self.server, None).await?;
+				let lock = lock.id(&self.server, None).await?;
 				let module = tg::Module::Normal(tg::module::Normal {
 					lock,
 					package,

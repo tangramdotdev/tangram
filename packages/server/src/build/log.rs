@@ -66,8 +66,8 @@ impl Server {
 		}
 
 		// Create the event stream.
-		let log = self.inner.messenger.subscribe_to_build_log(id).await?;
-		let status = self.inner.messenger.subscribe_to_build_status(id).await?;
+		let log = self.messenger.subscribe_to_build_log(id).await?;
+		let status = self.messenger.subscribe_to_build_status(id).await?;
 		let interval =
 			IntervalStream::new(tokio::time::interval(std::time::Duration::from_secs(60)))
 				.map(|_| ());
@@ -250,7 +250,7 @@ impl Server {
 		arg: tg::build::log::GetArg,
 		stop: Option<tokio::sync::watch::Receiver<bool>>,
 	) -> tg::Result<Option<impl Stream<Item = tg::Result<tg::build::log::Chunk>> + Send>> {
-		let Some(remote) = self.inner.remotes.first() else {
+		let Some(remote) = self.remotes.first() else {
 			return Ok(None);
 		};
 		let Some(log) = remote.try_get_build_log(id, arg, stop).await? else {
@@ -277,7 +277,7 @@ impl Server {
 
 		// Get a database connection.
 		let connection = self
-			.inner
+			
 			.database
 			.connection()
 			.await
@@ -316,13 +316,13 @@ impl Server {
 		drop(connection);
 
 		// Publish the message.
-		self.inner.messenger.publish_to_build_log(id).await?;
+		self.messenger.publish_to_build_log(id).await?;
 
 		Ok(true)
 	}
 
 	async fn try_add_build_log_remote(&self, id: &tg::build::Id, bytes: Bytes) -> tg::Result<bool> {
-		let Some(remote) = self.inner.remotes.first() else {
+		let Some(remote) = self.remotes.first() else {
 			return Ok(false);
 		};
 		remote.add_build_log(id, bytes).await?;
@@ -387,7 +387,7 @@ impl DatabaseReader {
 		// Get a database connection.
 		let connection = self
 			.server
-			.inner
+			
 			.database
 			.connection()
 			.await
@@ -526,7 +526,7 @@ async fn poll_read_inner(
 ) -> tg::Result<Option<Cursor<Bytes>>> {
 	// Get a database connection.
 	let connection = server
-		.inner
+		
 		.database
 		.connection()
 		.await
@@ -622,7 +622,7 @@ async fn poll_seek_inner(
 ) -> tg::Result<u64> {
 	// Get a database connection.
 	let connection = server
-		.inner
+		
 		.database
 		.connection()
 		.await
@@ -715,7 +715,7 @@ where
 
 		let stop = request.extensions().get().cloned().unwrap();
 		let Some(stream) = self
-			.inner
+			
 			.tg
 			.try_get_build_log(&id, arg, Some(stop))
 			.await?
@@ -777,7 +777,7 @@ where
 			.map_err(|source| tg::error!(!source, "failed to read the body"))?
 			.to_bytes();
 
-		self.inner.tg.add_build_log(&build_id, bytes).await?;
+		self.tg.add_build_log(&build_id, bytes).await?;
 
 		let response = http::Response::builder()
 			.status(http::StatusCode::OK)

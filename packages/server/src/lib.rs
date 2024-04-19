@@ -54,11 +54,9 @@ mod vfs;
 
 /// A server.
 #[derive(Clone)]
-pub struct Server {
-	inner: Arc<Inner>,
-}
+pub struct Server(Arc<Inner>);
 
-struct Inner {
+pub struct Inner {
 	build_queue_task: std::sync::Mutex<Option<tokio::task::JoinHandle<tg::Result<()>>>>,
 	build_queue_task_stop: tokio::sync::watch::Sender<bool>,
 	build_semaphore: Arc<tokio::sync::Semaphore>,
@@ -108,12 +106,9 @@ enum Status {
 }
 
 #[derive(Clone)]
-struct Http<H>
+struct Http<H>(Arc<HttpInner<H>>)
 where
-	H: tg::Handle,
-{
-	inner: Arc<HttpInner<H>>,
-}
+	H: tg::Handle;
 
 struct HttpInner<H>
 where
@@ -273,7 +268,7 @@ impl Server {
 		let vfs = std::sync::Mutex::new(None);
 
 		// Create the server.
-		let inner = Arc::new(Inner {
+		let server = Self(Arc::new(Inner {
 			build_queue_task,
 			build_queue_task_stop,
 			build_semaphore,
@@ -292,11 +287,10 @@ impl Server {
 			status,
 			stop_task,
 			vfs,
-		});
-		let server = Server { inner };
+		}));
 
 		// Cancel unfinished builds.
-		if let Database::Sqlite(database) = &server.inner.database {
+		if let Database::Sqlite(database) = &server.database {
 			let connection = database
 				.connection()
 				.await
@@ -320,7 +314,7 @@ impl Server {
 		// Start the VFS if necessary and set up the checkouts directory.
 		let artifacts_path = server.artifacts_path();
 		self::vfs::unmount(&artifacts_path).await.ok();
-		if server.inner.options.vfs {
+		if server.options.vfs {
 			// Create the artifacts directory.
 			tokio::fs::create_dir_all(&artifacts_path)
 				.await
@@ -333,7 +327,7 @@ impl Server {
 				.await
 				.map_err(|source| tg::error!(!source, "failed to start the VFS"))?;
 
-			server.inner.vfs.lock().unwrap().replace(vfs);
+			server.vfs.lock().unwrap().replace(vfs);
 		} else {
 			// Remove the artifacts directory.
 			rmrf(&artifacts_path).await.map_err(|source| {
@@ -349,63 +343,38 @@ impl Server {
 		// Add the runtimes.
 		let triple = "js".to_owned();
 		let runtime = self::runtime::Runtime::Js(self::runtime::js::Runtime::new(&server));
-		server
-			.inner
-			.runtimes
-			.write()
-			.unwrap()
-			.insert(triple, runtime);
+		server.runtimes.write().unwrap().insert(triple, runtime);
 		#[cfg(all(target_arch = "aarch64", target_os = "macos"))]
 		{
 			let triple = "aarch64-darwin".to_owned();
 			let runtime =
 				self::runtime::Runtime::Darwin(self::runtime::darwin::Runtime::new(&server));
-			server
-				.inner
-				.runtimes
-				.write()
-				.unwrap()
-				.insert(triple, runtime);
+			server.runtimes.write().unwrap().insert(triple, runtime);
 		}
 		#[cfg(all(target_arch = "aarch64", target_os = "linux"))]
 		{
 			let triple = "aarch64-linux".to_owned();
 			let runtime =
 				self::runtime::Runtime::Linux(self::runtime::linux::Runtime::new(&server).await?);
-			server
-				.inner
-				.runtimes
-				.write()
-				.unwrap()
-				.insert(triple, runtime);
+			server.runtimes.write().unwrap().insert(triple, runtime);
 		}
 		#[cfg(all(target_arch = "x86_64", target_os = "macos"))]
 		{
 			let triple = "x86_64-darwin".to_owned();
 			let runtime =
 				self::runtime::Runtime::Darwin(self::runtime::darwin::Runtime::new(&server));
-			server
-				.inner
-				.runtimes
-				.write()
-				.unwrap()
-				.insert(triple, runtime);
+			server.runtimes.write().unwrap().insert(triple, runtime);
 		}
 		#[cfg(all(target_arch = "x86_64", target_os = "linux"))]
 		{
 			let triple = "x86_64-linux".to_owned();
 			let runtime =
 				self::runtime::Runtime::Linux(self::runtime::linux::Runtime::new(&server).await?);
-			server
-				.inner
-				.runtimes
-				.write()
-				.unwrap()
-				.insert(triple, runtime);
+			server.runtimes.write().unwrap().insert(triple, runtime);
 		}
 
 		// Start the build queue task.
-		if server.inner.options.build.is_some() {
+		if server.options.build.is_some() {
 			let task = tokio::spawn({
 				let server = server.clone();
 				async move {
@@ -421,51 +390,50 @@ impl Server {
 					}
 				}
 			});
-			server.inner.build_queue_task.lock().unwrap().replace(task);
+			server.build_queue_task.lock().unwrap().replace(task);
 		}
 
 		// Start the http server.
 		let http = Http::start(&server, url);
-		server.inner.http.lock().unwrap().replace(http);
+		server.http.lock().unwrap().replace(http);
 
 		// Set the status.
-		server.inner.status.send_replace(Status::Started);
+		server.status.send_replace(Status::Started);
 
 		Ok(server)
 	}
 
 	pub fn stop(&self) {
-		self.inner.status.send_replace(Status::Stopping);
+		self.status.send_replace(Status::Stopping);
 		let server = self.clone();
 		let task = tokio::spawn(async move {
 			// Stop the http server.
-			if let Some(http) = server.inner.http.lock().unwrap().as_ref() {
+			if let Some(http) = server.http.lock().unwrap().as_ref() {
 				http.stop();
 			}
 
 			// Join the http server.
-			let http = server.inner.http.lock().unwrap().take();
+			let http = server.http.lock().unwrap().take();
 			if let Some(http) = http {
 				http.join().await.ok();
 			}
 
 			// Stop the build queue task.
-			server.inner.build_queue_task_stop.send_replace(true);
+			server.build_queue_task_stop.send_replace(true);
 
 			// Join the build queue task.
-			let build_queue_task = server.inner.build_queue_task.lock().unwrap().take();
+			let build_queue_task = server.build_queue_task.lock().unwrap().take();
 			if let Some(build_queue_task) = build_queue_task {
 				build_queue_task.await.ok();
 			}
 
 			// Stop all builds.
-			for context in server.inner.build_state.read().unwrap().values() {
+			for context in server.build_state.read().unwrap().values() {
 				context.stop.send_replace(true);
 			}
 
 			// Join all builds.
 			let tasks = server
-				.inner
 				.build_state
 				.read()
 				.unwrap()
@@ -481,30 +449,29 @@ impl Server {
 				.ok();
 
 			// Clear the build state.
-			server.inner.build_state.write().unwrap().clear();
+			server.build_state.write().unwrap().clear();
 
 			// Join the vfs server.
-			let vfs = server.inner.vfs.lock().unwrap().clone();
+			let vfs = server.vfs.lock().unwrap().clone();
 			if let Some(vfs) = vfs {
 				vfs.stop();
 				vfs.join().await.ok();
 			}
 
 			// Remove the runtimes.
-			server.inner.runtimes.write().unwrap().clear();
+			server.runtimes.write().unwrap().clear();
 
 			// Release the lockfile.
-			server.inner.lockfile.lock().unwrap().take();
+			server.lockfile.lock().unwrap().take();
 
 			// Set the status.
-			server.inner.status.send_replace(Status::Stopped);
+			server.status.send_replace(Status::Stopped);
 		});
-		self.inner.stop_task.lock().unwrap().replace(task);
+		self.stop_task.lock().unwrap().replace(task);
 	}
 
 	pub async fn join(&self) -> tg::Result<()> {
-		self.inner
-			.status
+		self.status
 			.subscribe()
 			.wait_for(|status| *status == Status::Stopped)
 			.await
@@ -514,22 +481,22 @@ impl Server {
 
 	#[must_use]
 	pub fn artifacts_path(&self) -> PathBuf {
-		self.inner.path.join("artifacts")
+		self.path.join("artifacts")
 	}
 
 	#[must_use]
 	pub fn checkouts_path(&self) -> PathBuf {
-		self.inner.path.join("checkouts")
+		self.path.join("checkouts")
 	}
 
 	#[must_use]
 	pub fn database_path(&self) -> PathBuf {
-		self.inner.path.join("database")
+		self.path.join("database")
 	}
 
 	#[must_use]
 	pub fn tmp_path(&self) -> PathBuf {
-		self.inner.path.join("tmp")
+		self.path.join("tmp")
 	}
 }
 
@@ -542,8 +509,7 @@ where
 		let task = std::sync::Mutex::new(None);
 		let (stop_sender, stop_receiver) = tokio::sync::watch::channel(false);
 		let stop = stop_sender;
-		let inner = Arc::new(HttpInner { tg, task, stop });
-		let server = Self { inner };
+		let server = Self(Arc::new(HttpInner { tg, task, stop }));
 		let task = tokio::spawn({
 			let server = server.clone();
 			async move {
@@ -556,16 +522,16 @@ where
 				}
 			}
 		});
-		server.inner.task.lock().unwrap().replace(task);
+		server.task.lock().unwrap().replace(task);
 		server
 	}
 
 	fn stop(&self) {
-		self.inner.stop.send_replace(true);
+		self.stop.send_replace(true);
 	}
 
 	async fn join(&self) -> tg::Result<()> {
-		let task = self.inner.task.lock().unwrap().take();
+		let task = self.task.lock().unwrap().take();
 		if let Some(task) = task {
 			match task.await {
 				Ok(result) => Ok(result),
@@ -697,7 +663,7 @@ where
 		};
 
 		// Get the user.
-		let Some(user) = self.inner.tg.get_user(&token).await? else {
+		let Some(user) = self.tg.get_user(&token).await? else {
 			return Ok(None);
 		};
 
@@ -1187,5 +1153,24 @@ impl tg::Handle for Server {
 
 	async fn get_user(&self, token: &str) -> tg::Result<Option<tg::user::User>> {
 		self.get_user(token).await
+	}
+}
+
+impl std::ops::Deref for Server {
+	type Target = Inner;
+
+	fn deref(&self) -> &Self::Target {
+		&self.0
+	}
+}
+
+impl<H> std::ops::Deref for Http<H>
+where
+	H: tg::Handle,
+{
+	type Target = HttpInner<H>;
+
+	fn deref(&self) -> &Self::Target {
+		&self.0
 	}
 }

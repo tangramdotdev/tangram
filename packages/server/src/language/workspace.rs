@@ -10,7 +10,7 @@ impl Server {
 		removed: Vec<lsp::Url>,
 	) -> tg::Result<()> {
 		// Get the state.
-		let mut workspaces = self.inner.workspaces.write().await;
+		let mut workspaces = self.workspaces.write().await;
 
 		// Add the specified workspaces.
 		for uri in added {

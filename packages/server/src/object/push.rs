@@ -7,7 +7,7 @@ use tangram_client as tg;
 impl Server {
 	pub async fn push_object(&self, id: &tg::object::Id) -> tg::Result<()> {
 		let remote = self
-			.inner
+			
 			.remotes
 			.first()
 			.ok_or_else(|| tg::error!("the server does not have a remote"))?;
@@ -38,7 +38,7 @@ where
 		};
 
 		// Push the object.
-		self.inner.tg.push_object(&id).await?;
+		self.tg.push_object(&id).await?;
 
 		Ok(ok())
 	}

@@ -8,13 +8,13 @@ use tangram_database::{self as db, prelude::*};
 
 impl Server {
 	pub async fn get_user(&self, token: &str) -> tg::Result<Option<tg::user::User>> {
-		if let Some(remote) = self.inner.remotes.first() {
+		if let Some(remote) = self.remotes.first() {
 			return remote.get_user(token).await;
 		}
 
 		// Get a database connection.
 		let connection = self
-			.inner
+			
 			.database
 			.connection()
 			.await

@@ -44,7 +44,7 @@ impl Server {
 		}
 
 		// Create the event stream.
-		let status = self.inner.messenger.subscribe_to_build_status(id).await?;
+		let status = self.messenger.subscribe_to_build_status(id).await?;
 		let interval =
 			IntervalStream::new(tokio::time::interval(std::time::Duration::from_secs(60)))
 				.map(|_| ());
@@ -105,7 +105,7 @@ impl Server {
 	) -> tg::Result<tg::build::Status> {
 		// Get a database connection.
 		let connection = self
-			.inner
+			
 			.database
 			.connection()
 			.await
@@ -138,7 +138,7 @@ impl Server {
 		arg: tg::build::status::GetArg,
 		stop: Option<tokio::sync::watch::Receiver<bool>>,
 	) -> tg::Result<Option<impl Stream<Item = tg::Result<tg::build::Status>> + Send>> {
-		let Some(remote) = self.inner.remotes.first() else {
+		let Some(remote) = self.remotes.first() else {
 			return Ok(None);
 		};
 		let Some(stream) = remote.try_get_build_status(id, arg, stop).await? else {
@@ -194,7 +194,7 @@ impl Server {
 
 		// Get a database connection.
 		let connection = self
-			.inner
+			
 			.database
 			.connection()
 			.await
@@ -228,7 +228,7 @@ impl Server {
 		drop(connection);
 
 		// Publish the message.
-		self.inner.messenger.publish_to_build_status(id).await?;
+		self.messenger.publish_to_build_status(id).await?;
 
 		Ok(true)
 	}
@@ -238,7 +238,7 @@ impl Server {
 		id: &tg::build::Id,
 		status: tg::build::Status,
 	) -> tg::Result<bool> {
-		let Some(remote) = self.inner.remotes.first() else {
+		let Some(remote) = self.remotes.first() else {
 			return Ok(false);
 		};
 		remote.set_build_status(id, status).await?;
@@ -290,7 +290,7 @@ where
 
 		let stop = request.extensions().get().cloned().unwrap();
 		let Some(stream) = self
-			.inner
+			
 			.tg
 			.try_get_build_status(&id, arg, Some(stop))
 			.await?
@@ -354,7 +354,7 @@ where
 		let status = serde_json::from_slice(&bytes)
 			.map_err(|source| tg::error!(!source, "failed to deserialize the body"))?;
 
-		self.inner.tg.set_build_status(&build_id, status).await?;
+		self.tg.set_build_status(&build_id, status).await?;
 
 		// Create the response.
 		let response = http::Response::builder()

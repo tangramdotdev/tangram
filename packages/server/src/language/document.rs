@@ -6,7 +6,7 @@ use tangram_client as tg;
 impl Server {
 	/// Get all the server's documents.
 	pub async fn get_documents(&self) -> Vec<tg::Document> {
-		let documents = self.inner.documents.read().await;
+		let documents = self.documents.read().await;
 		documents.keys().cloned().collect()
 	}
 
@@ -25,7 +25,7 @@ impl Server {
 		};
 
 		// Lock the documents.
-		let mut documents = self.inner.documents.write().await;
+		let mut documents = self.documents.write().await;
 
 		// Add the document to the store if it is not present.
 		if !documents.contains_key(&document) {
@@ -53,7 +53,7 @@ impl Server {
 		text: String,
 	) -> tg::Result<()> {
 		// Lock the documents.
-		let mut documents = self.inner.documents.write().await;
+		let mut documents = self.documents.write().await;
 
 		// Set the state.
 		let state = tg::document::State::Opened(tg::document::Opened { version, text });
@@ -71,7 +71,7 @@ impl Server {
 		text: String,
 	) -> tg::Result<()> {
 		// Lock the documents.
-		let mut documents = self.inner.documents.write().await;
+		let mut documents = self.documents.write().await;
 
 		// Get the state.
 		let Some(tg::document::State::Opened(state)) = documents.get_mut(document) else {
@@ -102,7 +102,7 @@ impl Server {
 	/// Close a document.
 	pub async fn close_document(&self, document: &tg::Document) -> tg::Result<()> {
 		// Lock the documents.
-		let mut documents = self.inner.documents.write().await;
+		let mut documents = self.documents.write().await;
 
 		// Remove the document.
 		documents.remove(document);
@@ -122,7 +122,7 @@ impl Server {
 		document: &tg::Document,
 	) -> tg::Result<Option<i32>> {
 		// Lock the documents.
-		let mut documents = self.inner.documents.write().await;
+		let mut documents = self.documents.write().await;
 
 		// Get the state.
 		let Some(state) = documents.get_mut(document) else {
@@ -161,7 +161,7 @@ impl Server {
 		document: &tg::Document,
 	) -> tg::Result<Option<String>> {
 		let path = document.path();
-		let documents = self.inner.documents.read().await;
+		let documents = self.documents.read().await;
 		let Some(document) = documents.get(document) else {
 			return Ok(None);
 		};

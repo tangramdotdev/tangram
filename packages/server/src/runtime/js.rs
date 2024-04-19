@@ -72,7 +72,7 @@ impl Runtime {
 		let (isolate_handle_sender, isolate_handle_receiver) = tokio::sync::watch::channel(None);
 
 		// Spawn the task.
-		let task = server.inner.local_pool_handle.spawn_pinned({
+		let task = server.local_pool_handle.spawn_pinned({
 			let runtime = self.clone();
 			let server = server.clone();
 			let build = build.clone();
@@ -116,7 +116,7 @@ impl Runtime {
 			let server = server.clone();
 			async move {
 				while let Some(string) = log_receiver.recv().await {
-					if server.inner.options.advanced.write_build_logs_to_stderr {
+					if server.options.advanced.write_build_logs_to_stderr {
 						tokio::io::stderr()
 							.write_all(string.as_bytes())
 							.await

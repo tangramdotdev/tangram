@@ -10,7 +10,7 @@ use time::format_description::well_known::Rfc3339;
 
 impl Server {
 	pub async fn publish_package(&self, id: &tg::directory::Id) -> tg::Result<()> {
-		if let Some(remote) = self.inner.remotes.first() {
+		if let Some(remote) = self.remotes.first() {
 			self.push_object(&id.clone().into()).await?;
 			remote.publish_package(id).await?;
 			return Ok(());
@@ -42,7 +42,7 @@ impl Server {
 
 		// Get a database connection.
 		let connection = self
-			.inner
+			
 			.database
 			.connection()
 			.await
@@ -109,7 +109,7 @@ where
 			.map_err(|source| tg::error!(!source, "invalid request"))?;
 
 		// Publish the package.
-		self.inner.tg.publish_package(&package_id).await?;
+		self.tg.publish_package(&package_id).await?;
 
 		Ok(ok())
 	}

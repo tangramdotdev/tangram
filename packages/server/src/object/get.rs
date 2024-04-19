@@ -27,14 +27,14 @@ impl Server {
 	) -> tg::Result<Option<tg::object::GetOutput>> {
 		// Get a database connection.
 		let connection = self
-			.inner
+			
 			.database
 			.connection()
 			.await
 			.map_err(|source| tg::error!(!source, "failed to get a database connection"))?;
 
 		// Get the object.
-		let p = self.inner.database.p();
+		let p = self.database.p();
 		let statement = formatdoc!(
 			"
 				select bytes, count, weight
@@ -59,7 +59,7 @@ impl Server {
 		id: &tg::object::Id,
 	) -> tg::Result<Option<tg::object::GetOutput>> {
 		// Get the remote.
-		let Some(remote) = self.inner.remotes.first() else {
+		let Some(remote) = self.remotes.first() else {
 			return Ok(None);
 		};
 
@@ -99,7 +99,7 @@ where
 		};
 
 		// Get the object.
-		let Some(output) = self.inner.tg.try_get_object(&id).await? else {
+		let Some(output) = self.tg.try_get_object(&id).await? else {
 			return Ok(not_found());
 		};
 

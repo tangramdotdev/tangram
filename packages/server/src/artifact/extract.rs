@@ -82,7 +82,7 @@ where
 			.map_err(|source| tg::error!(!source, "failed to deserialize the body"))?;
 
 		// Extract the blob.
-		let output = self.inner.tg.extract_artifact(arg).await?;
+		let output = self.tg.extract_artifact(arg).await?;
 
 		// Create the response.
 		let body = serde_json::to_vec(&output)

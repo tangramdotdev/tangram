@@ -11,13 +11,13 @@ impl Server {
 		&self,
 		arg: tg::package::SearchArg,
 	) -> tg::Result<tg::package::SearchOutput> {
-		if let Some(remote) = self.inner.remotes.first() {
+		if let Some(remote) = self.remotes.first() {
 			return remote.search_packages(arg).await;
 		}
 
 		// Get a database connection.
 		let connection = self
-			.inner
+			
 			.database
 			.connection()
 			.await
@@ -61,7 +61,7 @@ where
 			.map_err(|source| tg::error!(!source, "failed to deserialize the search params"))?;
 
 		// Perform the search.
-		let output = self.inner.tg.search_packages(arg).await?;
+		let output = self.tg.search_packages(arg).await?;
 
 		// Create the body.
 		let body = serde_json::to_vec(&output)

@@ -18,7 +18,7 @@ impl Server {
 	) -> tg::Result<tg::object::PutOutput> {
 		// Get a database connection.
 		let connection = self
-			.inner
+			
 			.database
 			.connection()
 			.await
@@ -103,7 +103,7 @@ where
 			count: None,
 			weight: None,
 		};
-		let output = self.inner.tg.put_object(&id, arg, None).boxed().await?;
+		let output = self.tg.put_object(&id, arg, None).boxed().await?;
 
 		// Create the body.
 		let body = serde_json::to_vec(&output)

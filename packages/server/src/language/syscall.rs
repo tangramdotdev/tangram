@@ -56,18 +56,14 @@ fn syscall_documents(
 	server: Server,
 	_args: (),
 ) -> tg::Result<Vec<tg::Module>> {
-	server
-		.inner
-		.main_runtime_handle
-		.clone()
-		.block_on(async move {
-			Ok(server
-				.get_documents()
-				.await
-				.into_iter()
-				.map(tg::Module::Document)
-				.collect())
-		})
+	server.main_runtime_handle.clone().block_on(async move {
+		Ok(server
+			.get_documents()
+			.await
+			.into_iter()
+			.map(tg::Module::Document)
+			.collect())
+	})
 }
 
 fn syscall_encoding_base64_decode(
@@ -213,17 +209,13 @@ fn syscall_module_load(
 	args: (tg::Module,),
 ) -> tg::Result<String> {
 	let (module,) = args;
-	server
-		.inner
-		.main_runtime_handle
-		.clone()
-		.block_on(async move {
-			let text = server
-				.load_module(&module)
-				.await
-				.map_err(|source| tg::error!(!source, %module, "failed to load the module"))?;
-			Ok(text)
-		})
+	server.main_runtime_handle.clone().block_on(async move {
+		let text = server
+			.load_module(&module)
+			.await
+			.map_err(|source| tg::error!(!source, %module, "failed to load the module"))?;
+		Ok(text)
+	})
 }
 
 fn syscall_module_resolve(
@@ -234,24 +226,20 @@ fn syscall_module_resolve(
 	let (module, specifier, attributes) = args;
 	let import = tg::Import::with_specifier_and_attributes(&specifier, attributes.as_ref())
 		.map_err(|source| tg::error!(!source, "failed to create the import"))?;
-	server
-		.inner
-		.main_runtime_handle
-		.clone()
-		.block_on(async move {
-			let module = server
-				.resolve_module(&module, &import)
-				.await
-				.map_err(|error| {
-					tg::error!(
-						source = error,
-						%specifier,
-						%module,
-						"failed to resolve specifier relative to the module"
-					)
-				})?;
-			Ok(module)
-		})
+	server.main_runtime_handle.clone().block_on(async move {
+		let module = server
+			.resolve_module(&module, &import)
+			.await
+			.map_err(|error| {
+				tg::error!(
+					source = error,
+					%specifier,
+					%module,
+					"failed to resolve specifier relative to the module"
+				)
+			})?;
+		Ok(module)
+	})
 }
 
 fn syscall_module_version(
@@ -260,17 +248,13 @@ fn syscall_module_version(
 	args: (tg::Module,),
 ) -> tg::Result<String> {
 	let (module,) = args;
-	server
-		.inner
-		.main_runtime_handle
-		.clone()
-		.block_on(async move {
-			let version = server
-				.get_module_version(&module)
-				.await
-				.map_err(|source| tg::error!(!source, "failed to get the module version"))?;
-			Ok(version.to_string())
-		})
+	server.main_runtime_handle.clone().block_on(async move {
+		let version = server
+			.get_module_version(&module)
+			.await
+			.map_err(|source| tg::error!(!source, "failed to get the module version"))?;
+		Ok(version.to_string())
+	})
 }
 
 fn syscall_sync<'s, A, T, F>(

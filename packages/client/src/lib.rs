@@ -75,12 +75,10 @@ mod util;
 pub mod value;
 
 #[derive(Debug, Clone)]
-pub struct Client {
-	inner: Arc<Inner>,
-}
+pub struct Client(Arc<Inner>);
 
 #[derive(Debug)]
-struct Inner {
+pub struct Inner {
 	url: Url,
 	sender: tokio::sync::Mutex<Option<hyper::client::conn::http2::SendRequest<Outgoing>>>,
 	token: Option<String>,
@@ -95,9 +93,7 @@ impl Client {
 	#[must_use]
 	pub fn new(url: Url, token: Option<String>) -> Self {
 		let sender = tokio::sync::Mutex::new(None);
-		Self {
-			inner: Arc::new(Inner { url, sender, token }),
-		}
+		Self(Arc::new(Inner { url, sender, token }))
 	}
 
 	pub fn with_env() -> tg::Result<Self> {
@@ -121,7 +117,7 @@ impl Client {
 
 	#[must_use]
 	pub fn url(&self) -> &Url {
-		&self.inner.url
+		&self.url
 	}
 
 	pub async fn connect(&self) -> tg::Result<()> {
@@ -129,27 +125,26 @@ impl Client {
 	}
 
 	pub async fn disconnect(&self) -> tg::Result<()> {
-		self.inner.sender.lock().await.take();
+		self.sender.lock().await.take();
 		Ok(())
 	}
 
 	async fn sender(&self) -> tg::Result<hyper::client::conn::http2::SendRequest<Outgoing>> {
-		if let Some(sender) = self.inner.sender.lock().await.as_ref().cloned() {
+		if let Some(sender) = self.sender.lock().await.as_ref().cloned() {
 			if sender.is_ready() {
 				return Ok(sender);
 			}
 		}
-		let mut sender_guard = self.inner.sender.lock().await;
+		let mut sender_guard = self.sender.lock().await;
 		let sender = self.connect_h2().await?;
 		sender_guard.replace(sender.clone());
 		Ok(sender)
 	}
 
 	async fn connect_h1(&self) -> tg::Result<hyper::client::conn::http1::SendRequest<Outgoing>> {
-		match self.inner.url.scheme() {
+		match self.url.scheme() {
 			"http+unix" => {
 				let path = self
-					.inner
 					.url
 					.host_str()
 					.ok_or_else(|| tg::error!("invalid url"))?;
@@ -160,12 +155,10 @@ impl Client {
 			},
 			"http" => {
 				let host = self
-					.inner
 					.url
 					.host_str()
 					.ok_or_else(|| tg::error!("invalid url"))?;
 				let port = self
-					.inner
 					.url
 					.port_or_known_default()
 					.ok_or_else(|| tg::error!("invalid url"))?;
@@ -178,13 +171,8 @@ impl Client {
 				}
 				#[cfg(feature = "tls")]
 				{
-					let host = self
-						.inner
-						.url
-						.domain()
-						.ok_or_else(|| tg::error!("invalid url"))?;
+					let host = self.url.domain().ok_or_else(|| tg::error!("invalid url"))?;
 					let port = self
-						.inner
 						.url
 						.port_or_known_default()
 						.ok_or_else(|| tg::error!("invalid url"))?;
@@ -196,10 +184,9 @@ impl Client {
 	}
 
 	async fn connect_h2(&self) -> tg::Result<hyper::client::conn::http2::SendRequest<Outgoing>> {
-		match self.inner.url.scheme() {
+		match self.url.scheme() {
 			"http+unix" => {
 				let path = self
-					.inner
 					.url
 					.host_str()
 					.ok_or_else(|| tg::error!("invalid url"))?;
@@ -210,12 +197,10 @@ impl Client {
 			},
 			"http" => {
 				let host = self
-					.inner
 					.url
 					.host_str()
 					.ok_or_else(|| tg::error!("invalid url"))?;
 				let port = self
-					.inner
 					.url
 					.port_or_known_default()
 					.ok_or_else(|| tg::error!("invalid url"))?;
@@ -228,13 +213,8 @@ impl Client {
 				}
 				#[cfg(feature = "tls")]
 				{
-					let host = self
-						.inner
-						.url
-						.domain()
-						.ok_or_else(|| tg::error!("invalid url"))?;
+					let host = self.url.domain().ok_or_else(|| tg::error!("invalid url"))?;
 					let port = self
-						.inner
 						.url
 						.port_or_known_default()
 						.ok_or_else(|| tg::error!("invalid url"))?;
@@ -803,5 +783,13 @@ impl tg::Handle for Client {
 
 	async fn get_user(&self, token: &str) -> tg::Result<Option<tg::User>> {
 		self.get_user(token).await
+	}
+}
+
+impl std::ops::Deref for Client {
+	type Target = Inner;
+
+	fn deref(&self) -> &Self::Target {
+		&self.0
 	}
 }

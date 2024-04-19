@@ -16,9 +16,7 @@ use zerocopy::{AsBytes, FromBytes};
 
 /// A FUSE server.
 #[derive(Clone)]
-pub struct Server {
-	inner: Arc<Inner>,
-}
+pub struct Server(Arc<Inner>);
 
 type Map<K, V> = HashMap<K, V, FnvBuildHasher>;
 
@@ -155,39 +153,37 @@ impl Server {
 		// Mount.
 		let dev_fuse_fd = Self::mount(&path).await?;
 
-		let server = Self {
-			inner: Arc::new(Inner {
-				dev_fuse_fd,
-				handle_index,
-				handles,
-				node_index,
-				nodes,
-				path,
-				server,
-				task,
-			}),
-		};
+		let server = Self(Arc::new(Inner {
+			dev_fuse_fd,
+			handle_index,
+			handles,
+			node_index,
+			nodes,
+			path,
+			server,
+			task,
+		}));
 
 		// Spawn the task.
 		let server_ = server.clone();
 		let task = tokio::task::spawn_blocking(move || server_.serve());
-		server.inner.task.lock().unwrap().replace(task);
+		server.task.lock().unwrap().replace(task);
 
 		Ok(server)
 	}
 
 	pub fn stop(&self) {
-		if let Some(task) = self.inner.task.lock().unwrap().as_ref() {
+		if let Some(task) = self.task.lock().unwrap().as_ref() {
 			task.abort_handle().abort();
 		};
 	}
 
 	pub async fn join(&self) -> tg::Result<()> {
 		// Unmount.
-		Self::unmount(&self.inner.path).await?;
+		Self::unmount(&self.path).await?;
 
 		// Join the task.
-		let task = self.inner.task.lock().unwrap().take();
+		let task = self.task.lock().unwrap().take();
 		if let Some(task) = task {
 			match task.await {
 				Ok(result) => Ok(result),
@@ -199,7 +195,7 @@ impl Server {
 
 		// Close /dev/fuse.
 		unsafe {
-			libc::close(self.inner.dev_fuse_fd);
+			libc::close(self.dev_fuse_fd);
 		}
 
 		Ok(())
@@ -213,7 +209,7 @@ impl Server {
 		loop {
 			let request_size = unsafe {
 				libc::read(
-					self.inner.dev_fuse_fd,
+					self.dev_fuse_fd,
 					request_buffer.as_mut_ptr().cast(),
 					request_buffer.len(),
 				)
@@ -318,7 +314,7 @@ impl Server {
 							iov_len: header.len(),
 						}];
 						unsafe {
-							libc::writev(server.inner.dev_fuse_fd, iov.as_ptr(), 1);
+							libc::writev(server.dev_fuse_fd, iov.as_ptr(), 1);
 						}
 					},
 					Ok(data) => {
@@ -356,7 +352,7 @@ impl Server {
 							},
 						];
 						unsafe {
-							libc::writev(server.inner.dev_fuse_fd, iov.as_ptr(), 2);
+							libc::writev(server.dev_fuse_fd, iov.as_ptr(), 2);
 						}
 					},
 				};
@@ -437,7 +433,7 @@ impl Server {
 	) -> tg::Result<Response, i32> {
 		let node_id = NodeId(header.nodeid);
 		let node = self.get_node(node_id).await?;
-		let response = node.fuse_attr_out(&self.inner.server).await?;
+		let response = node.fuse_attr_out(&self.server).await?;
 		Ok(Response::GetAttr(response))
 	}
 
@@ -462,13 +458,13 @@ impl Server {
 		if attr_name != tg::file::TANGRAM_FILE_XATTR_NAME {
 			return Err(libc::ENODATA);
 		}
-		let file_references = file.references(&self.inner.server).await.map_err(|e| {
+		let file_references = file.references(&self.server).await.map_err(|e| {
 			tracing::error!(?e, ?file, "failed to get file references");
 			libc::EIO
 		})?;
 		let mut references = Vec::new();
 		for artifact in file_references.iter() {
-			let id = artifact.id(&self.inner.server, None).await.map_err(|e| {
+			let id = artifact.id(&self.server, None).await.map_err(|e| {
 				tracing::error!(?e, ?artifact, "failed to get ID of artifact");
 				libc::EIO
 			})?;
@@ -566,7 +562,7 @@ impl Server {
 		let child_node = self.get_or_create_child_node(parent_node, &name).await?;
 
 		// Create the response.
-		let response = child_node.fuse_entry_out(&self.inner.server).await?;
+		let response = child_node.fuse_entry_out(&self.server).await?;
 
 		Ok(Response::Lookup(response))
 	}
@@ -588,7 +584,7 @@ impl Server {
 			NodeKind::Directory { .. } => FileHandleData::Directory,
 			NodeKind::File { file, .. } => {
 				let reader = file
-					.reader(&self.inner.server)
+					.reader(&self.server)
 					.await
 					.map_err(|_| libc::EIO)?;
 				FileHandleData::File {
@@ -602,7 +598,7 @@ impl Server {
 
 		// Add the file handle to the state.
 		let file_handle = self.next_file_handle().await;
-		self.inner
+		self
 			.handles
 			.write()
 			.insert(file_handle, file_handle_data);
@@ -646,7 +642,7 @@ impl Server {
 		// Get the reader.
 		let file_handle = FileHandle(data.fh);
 		let file_handle_data = self
-			.inner
+			
 			.handles
 			.read()
 			.get(&file_handle)
@@ -713,7 +709,7 @@ impl Server {
 		// Create the response.
 		let mut response = Vec::new();
 		let entries = directory
-			.entries(&self.inner.server)
+			.entries(&self.server)
 			.await
 			.map_err(|_| libc::EIO)?;
 		let names = entries.keys().map(AsRef::as_ref);
@@ -754,7 +750,7 @@ impl Server {
 			};
 			if plus {
 				let entry = sys::fuse_direntplus {
-					entry_out: node.fuse_entry_out(&self.inner.server).await?,
+					entry_out: node.fuse_entry_out(&self.server).await?,
 					dirent: entry,
 				};
 				response.extend_from_slice(entry.as_bytes());
@@ -793,14 +789,14 @@ impl Server {
 
 		// Render the target.
 		let mut target = tg::Path::new();
-		let Ok(artifact) = symlink.artifact(&self.inner.server).await else {
+		let Ok(artifact) = symlink.artifact(&self.server).await else {
 			return Err(libc::EIO);
 		};
-		let Ok(path) = symlink.path(&self.inner.server).await else {
+		let Ok(path) = symlink.path(&self.server).await else {
 			return Err(libc::EIO);
 		};
 		if let Some(artifact) = artifact.as_ref() {
-			let Ok(id) = artifact.id(&self.inner.server, None).await else {
+			let Ok(id) = artifact.id(&self.server, None).await else {
 				return Err(libc::EIO);
 			};
 			for _ in 0..node.depth() - 1 {
@@ -822,7 +818,7 @@ impl Server {
 		data: sys::fuse_release_in,
 	) -> tg::Result<Response, i32> {
 		let file_handle = FileHandle(data.fh);
-		self.inner.handles.write().remove(&file_handle);
+		self.handles.write().remove(&file_handle);
 		Ok(Response::Release)
 	}
 
@@ -832,7 +828,7 @@ impl Server {
 		data: sys::fuse_release_in,
 	) -> tg::Result<Response, i32> {
 		let file_handle = FileHandle(data.fh);
-		self.inner.handles.write().remove(&file_handle);
+		self.handles.write().remove(&file_handle);
 		Ok(Response::ReleaseDir)
 	}
 
@@ -849,7 +845,7 @@ impl Server {
 	}
 
 	async fn get_node(&self, node_id: NodeId) -> tg::Result<Arc<Node>, i32> {
-		let Some(node) = self.inner.nodes.read().get(&node_id).cloned() else {
+		let Some(node) = self.nodes.read().get(&node_id).cloned() else {
 			return Err(libc::ENOENT);
 		};
 		Ok(node)
@@ -895,7 +891,7 @@ impl Server {
 			NodeKind::Root { .. } => {
 				let id = name.parse::<tg::artifact::Id>().map_err(|_| libc::ENOENT)?;
 				let path = Path::new("../checkouts").join(id.to_string());
-				let exists = tokio::fs::symlink_metadata(self.inner.path.join(&path))
+				let exists = tokio::fs::symlink_metadata(self.path.join(&path))
 					.await
 					.is_ok();
 				if exists {
@@ -907,7 +903,7 @@ impl Server {
 
 			NodeKind::Directory { directory, .. } => {
 				let entries = directory
-					.entries(&self.inner.server)
+					.entries(&self.server)
 					.await
 					.map_err(|_| libc::EIO)?;
 				let artifact = entries.get(name).ok_or(libc::ENOENT)?.clone();
@@ -929,7 +925,7 @@ impl Server {
 				}
 			},
 			Either::Right(tg::Artifact::File(file)) => {
-				let size = file.size(&self.inner.server).await.map_err(|_| libc::EIO)?;
+				let size = file.size(&self.server).await.map_err(|_| libc::EIO)?;
 				NodeKind::File { file, size }
 			},
 			Either::Right(tg::Artifact::Symlink(symlink)) => NodeKind::Symlink { symlink },
@@ -953,7 +949,7 @@ impl Server {
 		}
 
 		// Add the child node to the nodes.
-		self.inner
+		self
 			.nodes
 			.write()
 			.insert(child_node.id, child_node.clone());
@@ -964,7 +960,7 @@ impl Server {
 	// Create a new NodeId.
 	async fn next_node_id(&self) -> NodeId {
 		let node_id = self
-			.inner
+			
 			.node_index
 			.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
 		NodeId(node_id)
@@ -973,7 +969,7 @@ impl Server {
 	// Create a new reader id.
 	async fn next_file_handle(&self) -> FileHandle {
 		let handle = self
-			.inner
+			
 			.handle_index
 			.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
 		FileHandle(handle)
@@ -1193,4 +1189,12 @@ where
 {
 	T::read_from_prefix(request_data)
 		.ok_or_else(|| tg::error!("failed to deserialize the request data"))
+}
+
+impl std::ops::Deref for Server {
+	type Target = Inner;
+
+	fn deref(&self) -> &Self::Target {
+		&self.0
+	}
 }

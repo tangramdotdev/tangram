@@ -69,7 +69,7 @@ impl Server {
 
 		// Get the outcome.
 		let connection = self
-			.inner
+			
 			.database
 			.connection()
 			.await
@@ -97,7 +97,7 @@ impl Server {
 		arg: tg::build::outcome::GetArg,
 		stop: Option<tokio::sync::watch::Receiver<bool>>,
 	) -> tg::Result<Option<Option<tg::build::Outcome>>> {
-		let Some(remote) = self.inner.remotes.first() else {
+		let Some(remote) = self.remotes.first() else {
 			return Ok(None);
 		};
 		let Some(outcome) = remote.try_get_build_outcome(id, arg, stop).await? else {
@@ -154,7 +154,7 @@ impl Server {
 
 		// Get a database connection.
 		let connection = self
-			.inner
+			
 			.database
 			.connection()
 			.await
@@ -181,7 +181,7 @@ impl Server {
 
 		// If the build was canceled, then stop the build and cancel the children.
 		if matches!(outcome, tg::build::Outcome::Canceled) {
-			if let Some(state) = self.inner.build_state.read().unwrap().get(id) {
+			if let Some(state) = self.build_state.read().unwrap().get(id) {
 				state.stop.send_replace(true);
 			}
 			children
@@ -228,7 +228,7 @@ impl Server {
 
 		// Get a database connection.
 		let connection = self
-			.inner
+			
 			.database
 			.connection()
 			.await
@@ -365,7 +365,7 @@ impl Server {
 		drop(connection);
 
 		// Publish the message.
-		self.inner.messenger.publish_to_build_status(id).await?;
+		self.messenger.publish_to_build_status(id).await?;
 
 		Ok(true)
 	}
@@ -376,7 +376,7 @@ impl Server {
 		outcome: tg::build::Outcome,
 	) -> tg::Result<bool> {
 		// Get the remote.
-		let Some(remote) = self.inner.remotes.first() else {
+		let Some(remote) = self.remotes.first() else {
 			return Ok(false);
 		};
 
@@ -421,7 +421,7 @@ where
 
 		let stop = request.extensions().get().cloned().unwrap();
 		let Some(outcome) = self
-			.inner
+			
 			.tg
 			.try_get_build_outcome(&id, arg, Some(stop))
 			.await?
@@ -431,7 +431,7 @@ where
 
 		// Create the body.
 		let outcome = if let Some(outcome) = outcome {
-			Some(outcome.data(&self.inner.tg).await?)
+			Some(outcome.data(&self.tg).await?)
 		} else {
 			None
 		};
@@ -472,7 +472,7 @@ where
 			.map_err(|source| tg::error!(!source, "failed to deserialize the body"))?;
 
 		// Set the outcome.
-		self.inner.tg.set_build_outcome(&id, outcome).await?;
+		self.tg.set_build_outcome(&id, outcome).await?;
 
 		// Create the response.
 		let response = http::Response::builder()

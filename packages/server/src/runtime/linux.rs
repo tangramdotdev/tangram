@@ -88,7 +88,7 @@ impl Runtime {
 		let target = build.target(server).await?;
 
 		// If the VFS is disabled, then perform an internal checkout of the target's references.
-		if server.inner.vfs.lock().unwrap().is_none() {
+		if server.vfs.lock().unwrap().is_none() {
 			target
 				.data(server, None)
 				.await?
@@ -107,7 +107,7 @@ impl Runtime {
 		}
 
 		// Get the server directory path.
-		let server_directory_host_path = server.inner.options.path.clone();
+		let server_directory_host_path = server.options.path.clone();
 		let server_directory_guest_path = PathBuf::from(SERVER_DIRECTORY_GUEST_PATH);
 
 		// Create a tempdir for the root.
@@ -632,7 +632,7 @@ impl Runtime {
 						Ok(0) => return Ok(()),
 						Ok(size) => {
 							let log = Bytes::copy_from_slice(&buf[0..size]);
-							if server.inner.options.advanced.write_build_logs_to_stderr {
+							if server.options.advanced.write_build_logs_to_stderr {
 								tokio::io::stderr()
 									.write_all(&log)
 									.await

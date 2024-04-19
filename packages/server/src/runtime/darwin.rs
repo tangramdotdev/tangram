@@ -36,7 +36,7 @@ impl Runtime {
 		let target = build.target(server).await?;
 
 		// If the VFS is disabled, then perform an internal checkout of the target's references.
-		if server.inner.vfs.lock().unwrap().is_none() {
+		if server.vfs.lock().unwrap().is_none() {
 			target
 				.data(server, None)
 				.await?
@@ -55,7 +55,7 @@ impl Runtime {
 		}
 
 		// Get the artifacts path.
-		let artifacts_directory_path = server.inner.path.join("artifacts");
+		let artifacts_directory_path = server.path.join("artifacts");
 
 		let root_directory_tmp = Tmp::new(server);
 		tokio::fs::create_dir_all(&root_directory_tmp)
@@ -387,7 +387,7 @@ impl Runtime {
 						Ok(0) => return Ok(()),
 						Ok(size) => {
 							let log = Bytes::copy_from_slice(&buf[0..size]);
-							if server.inner.options.advanced.write_build_logs_to_stderr {
+							if server.options.advanced.write_build_logs_to_stderr {
 								tokio::io::stderr()
 									.write_all(&log)
 									.await

@@ -117,7 +117,7 @@ where
 		);
 
 		// Create the blob.
-		let output = self.inner.tg.create_blob(reader, None).boxed().await?;
+		let output = self.tg.create_blob(reader, None).boxed().await?;
 
 		// Create the response.
 		let body = serde_json::to_vec(&output)

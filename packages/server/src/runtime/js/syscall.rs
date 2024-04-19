@@ -146,7 +146,7 @@ async fn syscall_download(state: Rc<State>, args: (Url, tg::Checksum)) -> tg::Re
 	let (url, checksum) = args;
 	let _permit = state
 		.server
-		.inner
+		
 		.file_descriptor_semaphore
 		.acquire()
 		.await
