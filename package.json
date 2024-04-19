@@ -6,7 +6,6 @@
   "workspaces": [
     "packages/language",
     "packages/runtime",
-    "packages/tests",
     "packages/vscode"
   ]
 }
