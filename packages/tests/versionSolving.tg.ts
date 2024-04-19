@@ -2,6 +2,7 @@ export let source = tg.target(() =>
 	tg.directory({
 		diamondDependencies: diamondDependenciesSource(),
 		latestVersion: latestVersionSource(),
+		pathDependencies: pathDependenciesSource(),
 		nestedPathDependencies: nestedPathDependenciesSource(),
 		simpleBacktracking: simpleBacktrackingSource(),
 	}),
@@ -60,6 +61,23 @@ export let latestVersionSource = tg.target(() =>
 		"dependencies/latest@1.1.0/tangram.ts": `export let metadata = { name: "latest", version: "1.1.0" };`,
 		"dependencies/latest@1.2.0/tangram.ts": `export let metadata = { name: "latest", version: "1.2.0" };`,
 		"dependencies/latest@1.3.0/tangram.ts": `export let metadata = { name: "latest", version: "1.3.0" };`,
+	}),
+);
+
+export let pathDependenciesSource = tg.target(() =>
+	tg.directory({
+		"dependant/tangram.ts": `
+	import * as foo from "tg:../dependencies/foo";
+	import * as bar from "tg:bar" with {
+		path: "./bar",
+	};
+	`,
+		"dependant/bar/tangram.ts": `
+	export let metadata = {
+		name: "bar"
+	};
+	`,
+		"dependencies/foo/tangram.ts": ``,
 	}),
 );
 

@@ -87,6 +87,16 @@ test("latestVersion", async () => {
 	await runTest("latestVersion", dependencies, expected);
 });
 
+// Test case: can we resolve path dependencies.
+test("pathDependencies", async () => {
+	let dependencies = [];
+	let expected = `${sourcePath}/pathDependencies/dependant: dir_010yqma3msk352ck277z7dryj61hzn6sh4z45ptsnb3rg4h3441d80
+├── ../dependencies/foo: dir_01yceqcsfgzjcghftaacm7n3h7a4xd7r2j9t82x0jqesydngjqdrtg
+└── {"name":"bar","path":"./bar"}: bar
+`;
+	await runTest("pathDependencies", dependencies, expected);
+});
+
 // Test case: can we resolve nested path dependencies in a registry dependency.
 test("nestedPathDependencies", async () => {
 	let dependencies = ["root"];
