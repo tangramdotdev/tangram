@@ -26,7 +26,7 @@ pub struct Advanced {
 
 #[derive(Clone, Debug)]
 pub struct Build {
-	pub max_concurrency: usize,
+	pub concurrency: usize,
 }
 
 #[derive(Clone, Debug)]
@@ -37,13 +37,13 @@ pub enum Database {
 
 #[derive(Clone, Debug)]
 pub struct SqliteDatabase {
-	pub max_connections: usize,
+	pub connections: usize,
 }
 
 #[derive(Clone, Debug)]
 pub struct PostgresDatabase {
 	pub url: Url,
-	pub max_connections: usize,
+	pub connections: usize,
 }
 
 #[derive(Clone, Debug)]

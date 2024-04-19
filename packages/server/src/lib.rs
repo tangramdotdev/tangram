@@ -176,7 +176,7 @@ impl Server {
 		let permits = options
 			.build
 			.as_ref()
-			.map(|build| build.max_concurrency)
+			.map(|build| build.concurrency)
 			.unwrap_or_default();
 		let build_semaphore = Arc::new(tokio::sync::Semaphore::new(permits));
 
@@ -185,13 +185,13 @@ impl Server {
 			self::options::Database::Sqlite(options) => {
 				database::Options::Sqlite(db::sqlite::Options {
 					path: path.join("database"),
-					max_connections: options.max_connections,
+					connections: options.connections,
 				})
 			},
 			self::options::Database::Postgres(options) => {
 				database::Options::Postgres(db::postgres::Options {
 					url: options.url.clone(),
-					max_connections: options.max_connections,
+					connections: options.connections,
 				})
 			},
 		};

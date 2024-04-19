@@ -72,7 +72,7 @@ pub struct Autoenv {
 pub struct Build {
 	/// The maximum number of concurrent builds.
 	#[serde(default, skip_serializing_if = "Option::is_none")]
-	pub max_concurrency: Option<usize>,
+	pub concurrency: Option<usize>,
 }
 
 #[derive(Clone, Debug, serde::Serialize, serde::Deserialize)]
@@ -86,7 +86,7 @@ pub enum Database {
 pub struct SqliteDatabase {
 	/// The maximum number of connections.
 	#[serde(default, skip_serializing_if = "Option::is_none")]
-	pub max_connections: Option<usize>,
+	pub connections: Option<usize>,
 }
 
 #[derive(Clone, Debug, serde::Serialize, serde::Deserialize)]
@@ -96,7 +96,7 @@ pub struct PostgresDatabase {
 
 	/// The maximum number of connections.
 	#[serde(default, skip_serializing_if = "Option::is_none")]
-	pub max_connections: Option<usize>,
+	pub connections: Option<usize>,
 }
 
 #[derive(Clone, Debug, Default, serde::Serialize, serde::Deserialize)]

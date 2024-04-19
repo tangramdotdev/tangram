@@ -16,7 +16,7 @@ pub enum Error {
 #[derive(Clone, Debug)]
 pub struct Options {
 	pub url: Url,
-	pub max_connections: usize,
+	pub connections: usize,
 }
 
 #[derive(Default)]
@@ -62,8 +62,8 @@ impl Cache {
 
 impl Database {
 	pub async fn new(options: Options) -> Result<Self, Error> {
-		let (sender, receiver) = async_channel::bounded(options.max_connections);
-		for _ in 0..options.max_connections {
+		let (sender, receiver) = async_channel::bounded(options.connections);
+		for _ in 0..options.connections {
 			let (client, connection) =
 				postgres::connect(options.url.as_str(), postgres::NoTls).await?;
 			tokio::spawn(async move {

@@ -329,10 +329,10 @@ impl Cli {
 			Some(Either::Right(value)) => Some(Some(value)),
 		};
 		let build = build.map(|build| {
-			let max_concurrency = build
-				.and_then(|build| build.max_concurrency)
+			let concurrency = build
+				.and_then(|build| build.concurrency)
 				.unwrap_or_else(|| std::thread::available_parallelism().unwrap().get());
-			tangram_server::options::Build { max_concurrency }
+			tangram_server::options::Build { concurrency }
 		});
 
 		// Create the database options.
@@ -342,29 +342,26 @@ impl Cli {
 				|| {
 					tangram_server::options::Database::Sqlite(
 						tangram_server::options::SqliteDatabase {
-							max_connections: std::thread::available_parallelism().unwrap().get(),
+							connections: std::thread::available_parallelism().unwrap().get(),
 						},
 					)
 				},
 				|database| match database {
 					crate::config::Database::Sqlite(sqlite) => {
-						let max_connections = sqlite
-							.max_connections
+						let connections = sqlite
+							.connections
 							.unwrap_or_else(|| std::thread::available_parallelism().unwrap().get());
 						tangram_server::options::Database::Sqlite(
-							tangram_server::options::SqliteDatabase { max_connections },
+							tangram_server::options::SqliteDatabase { connections },
 						)
 					},
 					crate::config::Database::Postgres(postgres) => {
 						let url = postgres.url.clone();
-						let max_connections = postgres
-							.max_connections
+						let connections = postgres
+							.connections
 							.unwrap_or_else(|| std::thread::available_parallelism().unwrap().get());
 						tangram_server::options::Database::Postgres(
-							tangram_server::options::PostgresDatabase {
-								url,
-								max_connections,
-							},
+							tangram_server::options::PostgresDatabase { url, connections },
 						)
 					},
 				},

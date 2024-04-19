@@ -15,7 +15,7 @@ pub enum Error {
 #[derive(Clone, Debug)]
 pub struct Options {
 	pub path: PathBuf,
-	pub max_connections: usize,
+	pub connections: usize,
 }
 
 pub struct Database {
@@ -111,7 +111,7 @@ pub struct Json<T>(pub T);
 impl Database {
 	pub async fn new(options: Options) -> Result<Self, Error> {
 		let (sender, receiver) = async_channel::unbounded::<DatabaseMessage>();
-		for _ in 0..options.max_connections {
+		for _ in 0..options.connections {
 			let receiver = receiver.clone();
 			let mut connection = sqlite::Connection::open(&options.path)?;
 			connection.pragma_update(None, "busy_timeout", "86400000")?;
