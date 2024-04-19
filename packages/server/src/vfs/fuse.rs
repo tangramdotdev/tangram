@@ -20,7 +20,7 @@ pub struct Server(Arc<Inner>);
 
 type Map<K, V> = HashMap<K, V, FnvBuildHasher>;
 
-struct Inner {
+pub struct Inner {
 	dev_fuse_fd: std::os::fd::RawFd,
 	handle_index: std::sync::atomic::AtomicU64,
 	handles: parking_lot::RwLock<Map<FileHandle, Arc<tokio::sync::RwLock<FileHandleData>>>>,
