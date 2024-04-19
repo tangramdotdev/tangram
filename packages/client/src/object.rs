@@ -150,7 +150,11 @@ impl Handle {
 			Object::Target(object) => Self::Target(tg::Target::with_object(object)),
 		}
 	}
-	pub async fn id<H>(&self, handle: &H, transaction: Option<&H::Transaction<'_>>) -> tg::Result<Id>
+	pub async fn id<H>(
+		&self,
+		handle: &H,
+		transaction: Option<&H::Transaction<'_>>,
+	) -> tg::Result<Id>
 	where
 		H: crate::Handle,
 	{

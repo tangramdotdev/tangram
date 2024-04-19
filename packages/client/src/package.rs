@@ -71,7 +71,10 @@ pub struct SearchArg {
 
 pub type SearchOutput = Vec<String>;
 
-pub async fn get(handle: &impl tg::Handle, dependency: &tg::Dependency) -> tg::Result<tg::Directory> {
+pub async fn get(
+	handle: &impl tg::Handle,
+	dependency: &tg::Dependency,
+) -> tg::Result<tg::Directory> {
 	try_get(handle, dependency)
 		.await?
 		.ok_or_else(|| tg::error!(%dependency, "failed to find the package"))
@@ -143,7 +146,10 @@ pub async fn try_get_dependencies(
 	Ok(Some(dependencies))
 }
 
-pub async fn get_metadata(handle: &impl tg::Handle, package: &tg::Directory) -> tg::Result<Metadata> {
+pub async fn get_metadata(
+	handle: &impl tg::Handle,
+	package: &tg::Directory,
+) -> tg::Result<Metadata> {
 	try_get_metadata(handle, package)
 		.await?
 		.ok_or_else(|| tg::error!(%package, "failed to find the package"))

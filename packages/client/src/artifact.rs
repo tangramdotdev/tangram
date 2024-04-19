@@ -133,7 +133,11 @@ impl Artifact {
 		}
 	}
 
-	pub async fn id<H>(&self, handle: &H, transaction: Option<&H::Transaction<'_>>) -> tg::Result<Id>
+	pub async fn id<H>(
+		&self,
+		handle: &H,
+		transaction: Option<&H::Transaction<'_>>,
+	) -> tg::Result<Id>
 	where
 		H: tg::Handle,
 	{
@@ -236,7 +240,12 @@ impl Artifact {
 				.flatten()
 				.collect()),
 			Self::File(file) => Ok(file.references(handle).await?.to_owned()),
-			Self::Symlink(symlink) => Ok(symlink.artifact(handle).await?.clone().into_iter().collect()),
+			Self::Symlink(symlink) => Ok(symlink
+				.artifact(handle)
+				.await?
+				.clone()
+				.into_iter()
+				.collect()),
 		}
 	}
 

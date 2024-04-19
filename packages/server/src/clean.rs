@@ -27,7 +27,6 @@ impl Server {
 
 		// Get a database connection.
 		let connection = self
-			
 			.database
 			.connection()
 			.await

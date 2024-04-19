@@ -43,8 +43,7 @@ impl Server {
 			let permit = match self.messenger.kind() {
 				crate::messenger::Kind::Channel => None,
 				crate::messenger::Kind::Nats => {
-					let Ok(permit) = self.build_semaphore.clone().acquire_owned().await
-					else {
+					let Ok(permit) = self.build_semaphore.clone().acquire_owned().await else {
 						return Ok(());
 					};
 					Some(permit)
@@ -77,7 +76,6 @@ impl Server {
 				let server = self.clone();
 				let build = tg::Build::with_id(build.id.clone());
 				let mut stop = self
-					
 					.build_state
 					.read()
 					.unwrap()
@@ -103,8 +101,7 @@ impl Server {
 			});
 
 			// Set the task in the build state.
-			self
-				.build_state
+			self.build_state
 				.write()
 				.unwrap()
 				.get_mut(&id)
@@ -128,14 +125,13 @@ impl Server {
 			Permit(Either::Left(permit))
 		} else {
 			let semaphore = self
-				
 				.build_semaphore
 				.clone()
 				.acquire_owned()
 				.map(|result| Permit(Either::Left(result.unwrap())));
 			let parent = self.try_get_build_parent(id).await?;
-			let state = parent
-				.and_then(|parent| self.build_state.read().unwrap().get(&parent).cloned());
+			let state =
+				parent.and_then(|parent| self.build_state.read().unwrap().get(&parent).cloned());
 			let parent = if let Some(state) = state {
 				state
 					.permit
@@ -153,7 +149,6 @@ impl Server {
 
 		// Set the permit in the build state.
 		let state = self
-			
 			.build_state
 			.write()
 			.unwrap()
@@ -172,7 +167,6 @@ impl Server {
 		// Build the target with the appropriate runtime.
 		let host = target.host(self).await?;
 		let runtime = self
-			
 			.runtimes
 			.read()
 			.unwrap()
@@ -201,7 +195,6 @@ impl Server {
 	async fn try_get_build_parent(&self, id: &tg::build::Id) -> tg::Result<Option<tg::build::Id>> {
 		// Get a database connection.
 		let connection = self
-			
 			.database
 			.connection()
 			.await
@@ -233,7 +226,6 @@ impl Server {
 	pub(crate) async fn get_build_exists_local(&self, id: &tg::build::Id) -> tg::Result<bool> {
 		// Get a database connection.
 		let connection = self
-			
 			.database
 			.connection()
 			.await

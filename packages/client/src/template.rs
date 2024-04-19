@@ -226,7 +226,9 @@ pub mod component {
 		{
 			match self {
 				Self::String(string) => Ok(Data::String(string.clone())),
-				Self::Artifact(artifact) => Ok(Data::Artifact(artifact.id(handle, transaction).await?)),
+				Self::Artifact(artifact) => {
+					Ok(Data::Artifact(artifact.id(handle, transaction).await?))
+				},
 			}
 		}
 	}
