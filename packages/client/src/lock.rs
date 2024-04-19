@@ -327,7 +327,6 @@ impl Lock {
 			.dependencies
 			.iter()
 			.map(|(dependency, entry)| {
-				let dependency = dependency.clone();
 				let Some(index) = entry.lock.as_ref().left().copied() else {
 					return Ok((dependency.clone(), entry.clone()));
 				};

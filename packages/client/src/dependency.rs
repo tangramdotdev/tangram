@@ -61,7 +61,7 @@ impl Dependency {
 	pub fn with_path(path: tg::Path) -> Self {
 		let path = path.normalize();
 		Self {
-			path: Some(path.normalize()),
+			path: Some(path),
 			..Default::default()
 		}
 	}
