@@ -4,8 +4,7 @@
 	"advanced": {
 		"error_trace_options": {
 			"internal": true
-		},
-		"write_build_logs_to_stderr": true
+		}
 	},
 	"tracing": {
 		"filter": "tangram_server::package=debug"

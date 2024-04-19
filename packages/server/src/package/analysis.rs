@@ -56,7 +56,7 @@ impl Server {
 			if let Some(analysis) = analysis {
 				break 'a Some(analysis);
 			}
-			let Some(remote) = self.inner.remotes.first() else {
+			let Some(remote) = self.remotes.first() else {
 				break 'a None;
 			};
 			let arg = tg::package::GetArg::default();

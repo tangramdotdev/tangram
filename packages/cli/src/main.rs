@@ -142,13 +142,12 @@ fn main() -> std::process::ExitCode {
 		};
 
 		// Run the command.
-		let result = cli.command(args.command).await;
-		match result {
-			Ok(()) => (),
+		let result = match cli.command(args.command).await {
+			Ok(()) => Ok(()),
 			Err(error) => {
 				eprintln!("{}: failed to run the command", "error".red().bold());
-				Cli::print_error(Some(cli.handle), &error, config.as_ref()).await;
-				return Err(1);
+				Cli::print_error(Some(cli.handle.clone()), &error, config.as_ref()).await;
+				Err(1)
 			},
 		};
 
@@ -158,7 +157,7 @@ fn main() -> std::process::ExitCode {
 			server.join().await.unwrap();
 		}
 
-		Ok(())
+		result
 	};
 
 	// Create the tokio runtime and block on the future.
