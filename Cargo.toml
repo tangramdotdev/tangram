@@ -75,7 +75,7 @@ num = "0.4"
 num-derive = "0.4"
 num-traits = "0.2"
 oauth2 = "4"
-octocrab = "0.37"
+octocrab = "0.38"
 once_cell = "1"
 parking_lot = "0.12"
 proptest = "1"
@@ -94,7 +94,7 @@ semver = "1"
 serde = { version = "1", features = ["rc", "derive"] }
 serde_json = "1"
 serde_urlencoded = "0.7"
-serde_v8 = { version = "0.181" }
+serde_v8 = { version = "0.186" }
 serde_with = "3"
 serde_yaml = { version = "0.9" }
 sha2 = "0.10"
@@ -119,7 +119,6 @@ tangram_nfs = { path = "packages/nfs" }
 tangram_server = { path = "packages/server" }
 tangram_sse = { path = "packages/sse" }
 tar = { version = "0.4" }
-tempfile = "3"
 time = { version = "0.3", features = ["formatting", "parsing", "serde"] }
 tokio = { version = "1", features = ["full", "tracing"] }
 tokio-postgres = { version = "0.7", features = ["runtime", "with-serde_json-1"] }
@@ -134,7 +133,7 @@ unicode-width = "0.1"
 url = { version = "2", features = ["serde"] }
 urlencoding = "2"
 uuid = { version = "1", features = ["v7"] }
-v8 = { version = "0.89" }
+v8 = { version = "0.91" }
 webbrowser = "0.8"
 webpki-roots = "0.26"
 xattr = { version = "1" }

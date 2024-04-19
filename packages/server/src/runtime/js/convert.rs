@@ -1,7 +1,6 @@
 use bytes::Bytes;
 use either::Either;
 use num::ToPrimitive;
-use serde_v8::Serializable;
 use std::{collections::BTreeMap, sync::Arc};
 use tangram_client as tg;
 use url::Url;
@@ -1899,14 +1898,16 @@ impl ToV8 for tg::Mutation {
 			tg::Mutation::Unset => {
 				let key =
 					v8::String::new_external_onebyte_static(scope, "kind".as_bytes()).unwrap();
-				let value = "unset".to_v8(scope).unwrap();
-				object.set(scope, key.into(), value);
+				let value =
+					v8::String::new_external_onebyte_static(scope, "unset".as_bytes()).unwrap();
+				object.set(scope, key.into(), value.into());
 			},
 			tg::Mutation::Set { value: value_ } => {
 				let key =
 					v8::String::new_external_onebyte_static(scope, "kind".as_bytes()).unwrap();
-				let value = "set".to_v8(scope).unwrap();
-				object.set(scope, key.into(), value);
+				let value =
+					v8::String::new_external_onebyte_static(scope, "set".as_bytes()).unwrap();
+				object.set(scope, key.into(), value.into());
 				let key =
 					v8::String::new_external_onebyte_static(scope, "value".as_bytes()).unwrap();
 				let value = value_.clone().to_v8(scope).unwrap();
@@ -1915,8 +1916,10 @@ impl ToV8 for tg::Mutation {
 			tg::Mutation::SetIfUnset { value: value_ } => {
 				let key =
 					v8::String::new_external_onebyte_static(scope, "kind".as_bytes()).unwrap();
-				let value = "set_if_unset".to_v8(scope).unwrap();
-				object.set(scope, key.into(), value);
+				let value =
+					v8::String::new_external_onebyte_static(scope, "set_if_unset".as_bytes())
+						.unwrap();
+				object.set(scope, key.into(), value.into());
 				let key =
 					v8::String::new_external_onebyte_static(scope, "value".as_bytes()).unwrap();
 				let value = value_.clone().to_v8(scope).unwrap();
@@ -1925,8 +1928,10 @@ impl ToV8 for tg::Mutation {
 			tg::Mutation::ArrayAppend { values } => {
 				let key =
 					v8::String::new_external_onebyte_static(scope, "kind".as_bytes()).unwrap();
-				let value = "array_append".to_v8(scope).unwrap();
-				object.set(scope, key.into(), value);
+				let value =
+					v8::String::new_external_onebyte_static(scope, "array_append".as_bytes())
+						.unwrap();
+				object.set(scope, key.into(), value.into());
 				let key =
 					v8::String::new_external_onebyte_static(scope, "values".as_bytes()).unwrap();
 				let value = values.to_v8(scope)?;
@@ -1935,8 +1940,10 @@ impl ToV8 for tg::Mutation {
 			tg::Mutation::ArrayPrepend { values } => {
 				let key =
 					v8::String::new_external_onebyte_static(scope, "kind".as_bytes()).unwrap();
-				let value = "array_prepend".to_v8(scope).unwrap();
-				object.set(scope, key.into(), value);
+				let value =
+					v8::String::new_external_onebyte_static(scope, "array_prepend".as_bytes())
+						.unwrap();
+				object.set(scope, key.into(), value.into());
 				let key =
 					v8::String::new_external_onebyte_static(scope, "values".as_bytes()).unwrap();
 				let value = values.to_v8(scope)?;
@@ -1948,8 +1955,10 @@ impl ToV8 for tg::Mutation {
 			} => {
 				let key =
 					v8::String::new_external_onebyte_static(scope, "kind".as_bytes()).unwrap();
-				let value = "template_append".to_v8(scope).unwrap();
-				object.set(scope, key.into(), value);
+				let value =
+					v8::String::new_external_onebyte_static(scope, "template_append".as_bytes())
+						.unwrap();
+				object.set(scope, key.into(), value.into());
 				let key =
 					v8::String::new_external_onebyte_static(scope, "template".as_bytes()).unwrap();
 				let value = template.to_v8(scope)?;
@@ -1965,8 +1974,10 @@ impl ToV8 for tg::Mutation {
 			} => {
 				let key =
 					v8::String::new_external_onebyte_static(scope, "kind".as_bytes()).unwrap();
-				let value = "template_prepend".to_v8(scope).unwrap();
-				object.set(scope, key.into(), value);
+				let value =
+					v8::String::new_external_onebyte_static(scope, "template_prepend".as_bytes())
+						.unwrap();
+				object.set(scope, key.into(), value.into());
 				let key =
 					v8::String::new_external_onebyte_static(scope, "template".as_bytes()).unwrap();
 				let value = template.to_v8(scope)?;

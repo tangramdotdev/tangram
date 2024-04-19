@@ -1,4 +1,5 @@
 use crate::{
+	tmp::Tmp,
 	util::http::{full, Incoming, Outgoing},
 	Http, Server,
 };
@@ -16,9 +17,8 @@ impl Server {
 		let reader = blob.reader(self).await?;
 
 		// Create a temporary path.
-		let tempdir = tempfile::TempDir::new()
-			.map_err(|source| tg::error!(!source, "failed to create the temporary directory"))?;
-		let path = tempdir.path().join("archive");
+		let tmp = Tmp::new(self);
+		let path = tmp.as_ref().join("archive");
 
 		// Extract in a blocking task.
 		tokio::task::spawn_blocking({

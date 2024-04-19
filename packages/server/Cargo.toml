@@ -77,7 +77,6 @@ tangram_fuse = { workspace = true }
 tangram_nfs = { workspace = true }
 tangram_sse = { workspace = true }
 tar = { workspace = true }
-tempfile = { workspace = true }
 time = { workspace = true }
 tokio = { workspace = true }
 tokio-postgres = { workspace = true }
