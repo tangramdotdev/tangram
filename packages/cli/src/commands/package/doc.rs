@@ -18,7 +18,7 @@ pub struct Args {
 }
 
 impl Cli {
-	pub async fn command_doc(&self, mut args: Args) -> tg::Result<()> {
+	pub async fn command_package_doc(&self, mut args: Args) -> tg::Result<()> {
 		// Canonicalize the package path.
 		if let Some(path) = args.package.path.as_mut() {
 			*path = tokio::fs::canonicalize(&path)

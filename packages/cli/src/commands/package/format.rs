@@ -14,7 +14,7 @@ pub struct Args {
 }
 
 impl Cli {
-	pub async fn command_format(&self, mut args: Args) -> tg::Result<()> {
+	pub async fn command_package_format(&self, mut args: Args) -> tg::Result<()> {
 		if args.stdio {
 			let mut text = String::new();
 			tokio::io::stdin()

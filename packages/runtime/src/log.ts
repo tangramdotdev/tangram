@@ -69,13 +69,13 @@ let stringifyObject = (value: object, visited: WeakSet<object>): string => {
 			.join(", ")}]`;
 	} else if (value instanceof Uint8Array) {
 		let bytes = encoding.hex.encode(value);
-		return `(tg.bytes ${bytes})`;
+		return `(bytes ${bytes})`;
 	} else if (value instanceof Error) {
 		return value.message;
 	} else if (value instanceof Promise) {
 		return "(promise)";
 	} else if (Path.is(value)) {
-		return `(tg.path "${value}")`;
+		return `(path "${value}")`;
 	} else if (Leaf.is(value)) {
 		return stringifyState("leaf", value.state, visited);
 	} else if (Branch.is(value)) {
@@ -91,7 +91,7 @@ let stringifyObject = (value: object, visited: WeakSet<object>): string => {
 	} else if (Target.is(value)) {
 		return stringifyState("target", value.state, visited);
 	} else if (Mutation.is(value)) {
-		return `(tg.mutation ${stringifyObject(value.inner, visited)})`;
+		return `(mutation ${stringifyObject(value.inner, visited)})`;
 	} else if (Template.is(value)) {
 		return `\`${value.components
 			.map((component) => {
@@ -135,7 +135,7 @@ let stringifyState = (
 	if (id !== undefined) {
 		return id;
 	} else if (object !== undefined) {
-		return `(tg.${kind} ${stringifyObject(object, visited)})`;
+		return `(${kind} ${stringifyObject(object, visited)})`;
 	} else {
 		return unreachable();
 	}

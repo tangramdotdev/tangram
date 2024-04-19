@@ -19,7 +19,7 @@ pub struct Args {
 }
 
 impl Cli {
-	pub async fn command_init(&self, args: Args) -> tg::Result<()> {
+	pub async fn command_package_init(&self, args: Args) -> tg::Result<()> {
 		// Get the path.
 		let mut path = std::env::current_dir()
 			.map_err(|source| tg::error!(!source, "failed to get the working directory"))?;

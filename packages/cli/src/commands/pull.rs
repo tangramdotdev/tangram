@@ -17,11 +17,11 @@ impl Cli {
 	pub async fn command_pull(&self, args: Args) -> tg::Result<()> {
 		match args.arg {
 			Arg::Build(id) => {
-				self.command_build_pull(super::build::PullArgs { id })
+				self.command_build_pull(super::build::pull::Args { id })
 					.await?;
 			},
 			Arg::Object(id) => {
-				self.command_object_pull(super::object::PullArgs { id })
+				self.command_object_pull(super::object::pull::Args { id })
 					.await?;
 			},
 		}

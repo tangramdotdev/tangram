@@ -17,7 +17,7 @@ pub struct Args {
 }
 
 impl Cli {
-	pub async fn command_checkout(&self, args: Args) -> tg::Result<()> {
+	pub async fn command_artifact_checkout(&self, args: Args) -> tg::Result<()> {
 		// Get the artifact.
 		let artifact = tg::Artifact::with_id(args.id.clone());
 
