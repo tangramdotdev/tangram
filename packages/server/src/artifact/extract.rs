@@ -51,7 +51,7 @@ impl Server {
 
 		// Check in the extracted artifact.
 		let path = path.try_into()?;
-		let artifact = tg::Artifact::check_in(self, &path)
+		let artifact = tg::Artifact::check_in(self, path)
 			.await
 			.map_err(|source| tg::error!(!source, "failed to check in the extracted archive"))?;
 

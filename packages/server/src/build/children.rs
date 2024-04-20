@@ -465,7 +465,7 @@ where
 						let event = tangram_sse::Event::with_data(data);
 						hyper::body::Frame::data(event.to_string().into())
 					})
-					.map_err(Into::into);
+					.err_into();
 				let body = Outgoing::new(StreamBody::new(body));
 				(content_type, body)
 			},

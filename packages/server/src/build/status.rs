@@ -308,7 +308,7 @@ where
 						let event = tangram_sse::Event::with_data(data);
 						hyper::body::Frame::data(event.to_string().into())
 					})
-					.map_err(Into::into);
+					.err_into();
 				(content_type, body)
 			},
 			_ => {

@@ -1,4 +1,7 @@
-use crate::{Database as _, Error as _, Row, Value};
+use crate::{
+	pool::{self, Pool},
+	Database as _, Row, Value,
+};
 use futures::{future, Stream, TryStreamExt as _};
 use indexmap::IndexMap;
 use itertools::Itertools as _;
@@ -25,16 +28,13 @@ pub struct Cache {
 }
 
 pub struct Database {
-	options: Options,
-	sender: async_channel::Sender<(postgres::Client, Cache)>,
-	receiver: async_channel::Receiver<(postgres::Client, Cache)>,
+	pool: Pool<Connection>,
 }
 
-pub struct Connection<'a> {
-	marker: std::marker::PhantomData<&'a ()>,
-	sender: async_channel::Sender<(postgres::Client, Cache)>,
-	client: Option<postgres::Client>,
-	cache: Option<Cache>,
+pub struct Connection {
+	options: Options,
+	client: postgres::Client,
+	cache: Cache,
 }
 
 pub struct Transaction<'a> {
@@ -62,69 +62,81 @@ impl Cache {
 
 impl Database {
 	pub async fn new(options: Options) -> Result<Self, Error> {
-		let (sender, receiver) = async_channel::bounded(options.connections);
+		let pool = Pool::new();
 		for _ in 0..options.connections {
-			let (client, connection) =
-				postgres::connect(options.url.as_str(), postgres::NoTls).await?;
-			tokio::spawn(async move {
-				connection
-					.await
-					.inspect_err(|error| tracing::error!(?error, "postgres connection failed"))
-					.ok();
-			});
-			let cache = Cache::default();
-			sender.send((client, cache)).await.ok();
+			let connection = Connection::connect(options.clone()).await?;
+			pool.add(connection);
 		}
-		Ok(Self {
+		Ok(Self { pool })
+	}
+}
+
+impl Connection {
+	pub async fn connect(options: Options) -> Result<Self, Error> {
+		let (client, connection) = postgres::connect(options.url.as_str(), postgres::NoTls).await?;
+		tokio::spawn(async move {
+			connection
+				.await
+				.inspect_err(|error| tracing::error!(?error, "postgres connection failed"))
+				.ok();
+		});
+		let cache = Cache::default();
+		let connection = Self {
 			options,
-			sender,
-			receiver,
-		})
+			client,
+			cache,
+		};
+		Ok(connection)
+	}
+
+	pub async fn reconnect(&mut self) -> Result<(), Error> {
+		let (client, connection) =
+			postgres::connect(self.options.url.as_str(), postgres::NoTls).await?;
+		tokio::spawn(async move {
+			connection
+				.await
+				.inspect_err(|error| tracing::error!(?error, "postgres connection failed"))
+				.ok();
+		});
+		self.client = client;
+		self.cache = Cache::default();
+		Ok(())
 	}
 }
 
 impl super::Database for Database {
 	type Error = Error;
 
-	type Connection<'c> = Connection<'c> where Self: 'c;
+	type T = pool::Guard<Connection>;
 
-	async fn connection(&self) -> Result<Self::Connection<'_>, Self::Error> {
-		let (client, cache) = self
-			.receiver
-			.recv()
-			.await
-			.map_err(|_| Error::other("failed to acquire a database connection"))?;
-		let mut connection = Connection {
-			marker: std::marker::PhantomData {},
-			sender: self.sender.clone(),
-			client: Some(client),
-			cache: Some(cache),
-		};
-		if connection.client.as_ref().unwrap().is_closed() {
-			let (client_, connection_) =
-				postgres::connect(self.options.url.as_str(), postgres::NoTls).await?;
-			tokio::spawn(async move {
-				connection_
-					.await
-					.inspect_err(|error| tracing::error!(?error, "postgres connection failed"))
-					.ok();
-			});
-			connection.cache.replace(Cache::default());
-			connection.client.replace(client_);
+	async fn connection(&self) -> Result<Self::T, Self::Error> {
+		let mut connection = self.pool.get().await;
+		if connection.client.is_closed() {
+			connection.reconnect().await?;
 		}
 		Ok(connection)
 	}
 }
 
-impl<'c> super::Connection for Connection<'c> {
+impl super::Connection for Connection {
 	type Error = Error;
 
 	type Transaction<'t> = Transaction<'t> where Self: 't;
 
 	async fn transaction(&mut self) -> Result<Self::Transaction<'_>, Self::Error> {
-		let transaction = self.client.as_mut().unwrap().transaction().await?;
-		let cache = self.cache.as_ref().unwrap();
+		let transaction = self.client.transaction().await?;
+		let cache = &self.cache;
 		Ok(Transaction { transaction, cache })
+	}
+}
+
+impl super::Connection for pool::Guard<Connection> {
+	type Error = Error;
+
+	type Transaction<'t> = Transaction<'t> where Self: 't;
+
+	async fn transaction(&mut self) -> Result<Self::Transaction<'_>, Self::Error> {
+		self.as_mut().transaction().await
 	}
 }
 
@@ -145,15 +157,13 @@ impl<'t> super::Transaction for Transaction<'t> {
 impl super::Query for Database {
 	type Error = Error;
 
+	fn p(&self) -> &'static str {
+		"$"
+	}
+
 	async fn execute(&self, statement: String, params: Vec<Value>) -> Result<u64, Self::Error> {
 		let connection = self.connection().await?;
-		let n = execute(
-			connection.client.as_ref().unwrap(),
-			connection.cache.as_ref().unwrap(),
-			statement,
-			params,
-		)
-		.await?;
+		let n = execute(&connection.client, &connection.cache, statement, params).await?;
 		Ok(n)
 	}
 
@@ -163,28 +173,20 @@ impl super::Query for Database {
 		params: Vec<Value>,
 	) -> Result<impl Stream<Item = Result<Row, Self::Error>> + Send, Self::Error> {
 		let connection = self.connection().await?;
-		let rows = query(
-			connection.client.as_ref().unwrap(),
-			connection.cache.as_ref().unwrap(),
-			statement,
-			params,
-		)
-		.await?;
+		let rows = query(&connection.client, &connection.cache, statement, params).await?;
 		Ok(rows)
 	}
 }
 
-impl<'a> super::Query for Connection<'a> {
+impl super::Query for Connection {
 	type Error = Error;
 
+	fn p(&self) -> &'static str {
+		"$"
+	}
+
 	async fn execute(&self, statement: String, params: Vec<Value>) -> Result<u64, Self::Error> {
-		execute(
-			self.client.as_ref().unwrap(),
-			self.cache.as_ref().unwrap(),
-			statement,
-			params,
-		)
-		.await
+		execute(&self.client, &self.cache, statement, params).await
 	}
 
 	async fn query(
@@ -192,18 +194,42 @@ impl<'a> super::Query for Connection<'a> {
 		statement: String,
 		params: Vec<Value>,
 	) -> Result<impl Stream<Item = Result<Row, Self::Error>> + Send, Self::Error> {
-		query(
-			self.client.as_ref().unwrap(),
-			self.cache.as_ref().unwrap(),
-			statement,
-			params,
-		)
-		.await
+		query(&self.client, &self.cache, statement, params).await
+	}
+}
+
+impl super::Query for pool::Guard<Connection> {
+	type Error = Error;
+
+	fn p(&self) -> &'static str {
+		self.as_ref().p()
+	}
+
+	fn execute(
+		&self,
+		statement: String,
+		params: Vec<Value>,
+	) -> impl futures::prelude::Future<Output = Result<u64, Self::Error>> {
+		self.as_ref().execute(statement, params)
+	}
+
+	fn query(
+		&self,
+		statement: String,
+		params: Vec<Value>,
+	) -> impl futures::prelude::Future<
+		Output = Result<impl Stream<Item = Result<Row, Self::Error>> + Send, Self::Error>,
+	> {
+		self.as_ref().query(statement, params)
 	}
 }
 
 impl<'a> super::Query for Transaction<'a> {
 	type Error = Error;
+
+	fn p(&self) -> &'static str {
+		"$"
+	}
 
 	async fn execute(&self, statement: String, params: Vec<Value>) -> Result<u64, Self::Error> {
 		execute(&self.transaction, self.cache, statement, params).await
@@ -221,14 +247,6 @@ impl<'a> super::Query for Transaction<'a> {
 impl super::Error for Error {
 	fn other(error: impl Into<Box<dyn std::error::Error + Send + Sync>>) -> Self {
 		Self::Other(error.into())
-	}
-}
-
-impl<'a> Drop for Connection<'a> {
-	fn drop(&mut self) {
-		let client = self.client.take().unwrap();
-		let cache = self.cache.take().unwrap();
-		self.sender.try_send((client, cache)).ok();
 	}
 }
 
@@ -255,16 +273,18 @@ async fn query(
 ) -> Result<impl Stream<Item = Result<Row, Error>> + Send, Error> {
 	let statement = cache.get(client, statement).await?;
 	let rows = client.query_raw(&statement, params).await?;
-	let rows = rows.map_err(Into::into).and_then(|row| {
-		let mut entries = IndexMap::with_capacity(row.columns().len());
-		for (i, column) in row.columns().iter().enumerate() {
-			let name = column.name().to_owned();
-			let value = row.get::<_, Value>(i);
-			entries.insert(name, value);
-		}
-		let row = Row::with_entries(entries);
-		future::ready(Ok(row))
-	});
+	let rows = rows
+		.and_then(|row| {
+			let mut entries = IndexMap::with_capacity(row.columns().len());
+			for (i, column) in row.columns().iter().enumerate() {
+				let name = column.name().to_owned();
+				let value = row.get::<_, Value>(i);
+				entries.insert(name, value);
+			}
+			let row = Row::with_entries(entries);
+			future::ready(Ok(row))
+		})
+		.err_into();
 	Ok(rows)
 }
 

@@ -456,7 +456,7 @@ fn resolve_module(
 		let module = module.clone();
 		let import = import.clone();
 		async move {
-			let module = Box::pin(language_server.resolve_module(&module, &import)).await;
+			let module = language_server.resolve_module(&module, &import).await;
 			sender.send(module).unwrap();
 		}
 	});

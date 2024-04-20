@@ -6,6 +6,7 @@ use itertools::Itertools as _;
 use std::pin::pin;
 
 pub mod either;
+pub mod pool;
 pub mod postgres;
 pub mod row;
 pub mod sqlite;
@@ -22,11 +23,9 @@ pub trait Error {
 pub trait Database {
 	type Error: Error;
 
-	type Connection<'c>: Connection
-	where
-		Self: 'c;
+	type T;
 
-	fn connection(&self) -> impl Future<Output = Result<Self::Connection<'_>, Self::Error>> + Send;
+	fn connection(&self) -> impl Future<Output = Result<Self::T, Self::Error>> + Send;
 }
 
 pub trait Connection {
@@ -51,6 +50,8 @@ pub trait Transaction {
 
 pub trait Query {
 	type Error: Error;
+
+	fn p(&self) -> &'static str;
 
 	fn execute(
 		&self,

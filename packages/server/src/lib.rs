@@ -182,23 +182,28 @@ impl Server {
 		let build_semaphore = Arc::new(tokio::sync::Semaphore::new(permits));
 
 		// Create the database.
-		let database_options = match &options.database {
+		let database = match &options.database {
 			self::options::Database::Sqlite(options) => {
-				database::Options::Sqlite(db::sqlite::Options {
+				let options = db::sqlite::Options {
 					path: path.join("database"),
 					connections: options.connections,
-				})
+				};
+				let database = db::sqlite::Database::new(options)
+					.await
+					.map_err(|source| tg::error!(!source, "failed to create the database"))?;
+				Either::Left(database)
 			},
 			self::options::Database::Postgres(options) => {
-				database::Options::Postgres(db::postgres::Options {
+				let options = db::postgres::Options {
 					url: options.url.clone(),
 					connections: options.connections,
-				})
+				};
+				let database = db::postgres::Database::new(options)
+					.await
+					.map_err(|source| tg::error!(!source, "failed to create the database"))?;
+				Either::Right(database)
 			},
 		};
-		let database = Database::new(database_options)
-			.await
-			.map_err(|source| tg::error!(!source, "failed to create the database"))?;
 
 		// Create the database.
 		let messenger = match &options.messenger {
@@ -291,7 +296,7 @@ impl Server {
 		}));
 
 		// Cancel unfinished builds.
-		if let Database::Sqlite(database) = &server.database {
+		if let Either::Left(database) = &server.database {
 			let connection = database
 				.connection()
 				.await

@@ -3,7 +3,7 @@ use crate::{
 	util::http::{full, Incoming, Outgoing},
 	Http, Server,
 };
-use futures::{stream::FuturesUnordered, TryStreamExt as _};
+use futures::{stream::FuturesUnordered, FutureExt, TryStreamExt as _};
 use http_body_util::BodyExt as _;
 use std::os::unix::prelude::PermissionsExt as _;
 use tangram_client as tg;
@@ -24,6 +24,7 @@ impl Server {
 		// Begin a transaction.
 		let transaction = connection
 			.transaction()
+			.boxed()
 			.await
 			.map_err(|source| tg::error!(!source, "failed to begin the transaction"))?;
 

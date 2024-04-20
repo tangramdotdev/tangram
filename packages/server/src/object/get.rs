@@ -33,7 +33,7 @@ impl Server {
 			.map_err(|source| tg::error!(!source, "failed to get a database connection"))?;
 
 		// Get the object.
-		let p = self.database.p();
+		let p = connection.p();
 		let statement = formatdoc!(
 			"
 				select bytes, count, weight

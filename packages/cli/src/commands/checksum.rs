@@ -41,9 +41,8 @@ impl Cli {
 					.map_err(|source| tg::error!(!source, %url, "failed to perform the request"))?
 					.error_for_status()
 					.map_err(|source| tg::error!(!source, %url, "expected a sucess status"))?;
-				let mut body = Box::pin(StreamReader::new(
-					response.bytes_stream().map_err(std::io::Error::other),
-				));
+				let mut body =
+					StreamReader::new(response.bytes_stream().map_err(std::io::Error::other));
 				let mut checksum = tg::checksum::Writer::new(args.algorithm);
 				tokio::io::copy(&mut body, &mut checksum)
 					.await

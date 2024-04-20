@@ -80,7 +80,7 @@ pub enum AuthStat {
 	Failed = 7,
 }
 
-impl xdr::ToXdr for Auth {
+impl xdr::Encode for Auth {
 	fn encode<W>(&self, encoder: &mut xdr::Encoder<W>) -> Result<(), xdr::Error>
 	where
 		W: std::io::Write,
@@ -91,7 +91,7 @@ impl xdr::ToXdr for Auth {
 	}
 }
 
-impl xdr::FromXdr for Auth {
+impl xdr::Decode for Auth {
 	fn decode(decoder: &mut xdr::Decoder<'_>) -> Result<Self, xdr::Error> {
 		let flavor = decoder.decode()?;
 		let opaque = decoder.decode()?;
@@ -108,7 +108,7 @@ impl Default for Auth {
 	}
 }
 
-impl xdr::ToXdr for AuthFlavor {
+impl xdr::Encode for AuthFlavor {
 	fn encode<W>(&self, encoder: &mut xdr::Encoder<W>) -> Result<(), xdr::Error>
 	where
 		W: std::io::Write,
@@ -123,7 +123,7 @@ impl xdr::ToXdr for AuthFlavor {
 	}
 }
 
-impl xdr::FromXdr for AuthFlavor {
+impl xdr::Decode for AuthFlavor {
 	fn decode(decoder: &mut xdr::Decoder<'_>) -> Result<Self, xdr::Error> {
 		match decoder.decode_int()? {
 			0 => Ok(Self::None),
@@ -134,7 +134,7 @@ impl xdr::FromXdr for AuthFlavor {
 	}
 }
 
-impl xdr::ToXdr for Message {
+impl xdr::Encode for Message {
 	fn encode<W>(&self, encoder: &mut xdr::Encoder<W>) -> Result<(), xdr::Error>
 	where
 		W: std::io::Write,
@@ -145,7 +145,7 @@ impl xdr::ToXdr for Message {
 	}
 }
 
-impl xdr::FromXdr for Message {
+impl xdr::Decode for Message {
 	fn decode(decoder: &mut xdr::Decoder<'_>) -> Result<Self, xdr::Error> {
 		let xid = decoder.decode_uint()?;
 		let body = decoder.decode()?;
@@ -153,7 +153,7 @@ impl xdr::FromXdr for Message {
 	}
 }
 
-impl xdr::ToXdr for MessageBody {
+impl xdr::Encode for MessageBody {
 	fn encode<W>(&self, encoder: &mut xdr::Encoder<W>) -> Result<(), xdr::Error>
 	where
 		W: std::io::Write,
@@ -172,7 +172,7 @@ impl xdr::ToXdr for MessageBody {
 	}
 }
 
-impl xdr::FromXdr for MessageBody {
+impl xdr::Decode for MessageBody {
 	fn decode(decoder: &mut xdr::Decoder<'_>) -> Result<Self, xdr::Error> {
 		let tag = decoder.decode_int()?;
 		match tag {
@@ -191,7 +191,7 @@ impl xdr::FromXdr for MessageBody {
 	}
 }
 
-impl xdr::ToXdr for CallBody {
+impl xdr::Encode for CallBody {
 	fn encode<W>(&self, encoder: &mut xdr::Encoder<W>) -> Result<(), xdr::Error>
 	where
 		W: std::io::Write,
@@ -206,7 +206,7 @@ impl xdr::ToXdr for CallBody {
 	}
 }
 
-impl xdr::FromXdr for CallBody {
+impl xdr::Decode for CallBody {
 	fn decode(decoder: &mut xdr::Decoder<'_>) -> Result<Self, xdr::Error> {
 		let rpcvers = decoder.decode_uint()?;
 		let prog = decoder.decode_uint()?;
@@ -225,7 +225,7 @@ impl xdr::FromXdr for CallBody {
 	}
 }
 
-impl xdr::ToXdr for ReplyBody {
+impl xdr::Encode for ReplyBody {
 	fn encode<W>(&self, encoder: &mut xdr::Encoder<W>) -> Result<(), xdr::Error>
 	where
 		W: std::io::Write,
@@ -244,7 +244,7 @@ impl xdr::ToXdr for ReplyBody {
 	}
 }
 
-impl xdr::FromXdr for ReplyBody {
+impl xdr::Decode for ReplyBody {
 	fn decode(decoder: &mut xdr::Decoder<'_>) -> Result<Self, xdr::Error> {
 		let tag = decoder.decode_int()?;
 		match tag {
@@ -257,7 +257,7 @@ impl xdr::FromXdr for ReplyBody {
 	}
 }
 
-impl xdr::ToXdr for ReplyAccepted {
+impl xdr::Encode for ReplyAccepted {
 	fn encode<W>(&self, encoder: &mut xdr::Encoder<W>) -> Result<(), xdr::Error>
 	where
 		W: std::io::Write,
@@ -268,7 +268,7 @@ impl xdr::ToXdr for ReplyAccepted {
 	}
 }
 
-impl xdr::FromXdr for ReplyAccepted {
+impl xdr::Decode for ReplyAccepted {
 	fn decode(decoder: &mut xdr::Decoder<'_>) -> Result<Self, xdr::Error> {
 		let verf = decoder.decode()?;
 		let stat = decoder.decode()?;
@@ -276,7 +276,7 @@ impl xdr::FromXdr for ReplyAccepted {
 	}
 }
 
-impl xdr::ToXdr for ReplyAcceptedStat {
+impl xdr::Encode for ReplyAcceptedStat {
 	fn encode<W>(&self, encoder: &mut xdr::Encoder<W>) -> Result<(), xdr::Error>
 	where
 		W: std::io::Write,
@@ -308,7 +308,7 @@ impl xdr::ToXdr for ReplyAcceptedStat {
 	}
 }
 
-impl xdr::FromXdr for ReplyAcceptedStat {
+impl xdr::Decode for ReplyAcceptedStat {
 	fn decode(decoder: &mut xdr::Decoder<'_>) -> Result<Self, xdr::Error> {
 		let tag = decoder.decode_int()?;
 		match tag {
@@ -328,7 +328,7 @@ impl xdr::FromXdr for ReplyAcceptedStat {
 	}
 }
 
-impl xdr::ToXdr for ReplyRejected {
+impl xdr::Encode for ReplyRejected {
 	fn encode<W>(&self, encoder: &mut xdr::Encoder<W>) -> Result<(), xdr::Error>
 	where
 		W: std::io::Write,
@@ -345,7 +345,7 @@ impl xdr::ToXdr for ReplyRejected {
 	}
 }
 
-impl xdr::FromXdr for ReplyRejected {
+impl xdr::Decode for ReplyRejected {
 	fn decode(decoder: &mut xdr::Decoder<'_>) -> Result<Self, xdr::Error> {
 		let tag = decoder.decode_int()?;
 		match tag {
@@ -359,7 +359,7 @@ impl xdr::FromXdr for ReplyRejected {
 	}
 }
 
-impl xdr::ToXdr for AuthStat {
+impl xdr::Encode for AuthStat {
 	fn encode<W>(&self, encoder: &mut xdr::Encoder<W>) -> Result<(), xdr::Error>
 	where
 		W: std::io::Write,
@@ -378,7 +378,7 @@ impl xdr::ToXdr for AuthStat {
 	}
 }
 
-impl xdr::FromXdr for AuthStat {
+impl xdr::Decode for AuthStat {
 	fn decode(decoder: &mut xdr::Decoder<'_>) -> Result<Self, xdr::Error> {
 		let int = decoder.decode_int()?;
 		match int {
@@ -429,7 +429,7 @@ where
 #[must_use]
 pub fn success<T>(verf: Option<Auth>, value: T) -> ReplyBody
 where
-	T: xdr::ToXdr,
+	T: xdr::Encode,
 {
 	let verf = verf.unwrap_or_default();
 	let results = xdr::to_bytes(&value);

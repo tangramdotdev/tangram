@@ -462,7 +462,7 @@ impl Runtime {
 			.map_err(|source| tg::error!(!source, "failed to determine if the path exists"))?
 		{
 			// Check in the output.
-			let artifact = tg::Artifact::check_in(server, &output_path.clone().try_into()?)
+			let artifact = tg::Artifact::check_in(server, output_path.clone().try_into()?)
 				.await
 				.map_err(|source| tg::error!(!source, "failed to check in the output"))?;
 

@@ -481,10 +481,7 @@ impl Client {
 		Ok(stream)
 	}
 
-	async fn send(
-		&self,
-		request: http::request::Request<Outgoing>,
-	) -> tg::Result<http::Response<Incoming>> {
+	async fn send(&self, request: http::Request<Outgoing>) -> tg::Result<http::Response<Incoming>> {
 		self.sender()
 			.await?
 			.send_request(request)

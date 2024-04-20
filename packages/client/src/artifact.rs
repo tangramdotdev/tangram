@@ -197,11 +197,11 @@ impl Artifact {
 		Ok(artifact)
 	}
 
-	pub async fn check_in<H>(handle: &H, path: &tg::Path) -> tg::Result<Self>
+	pub async fn check_in<H>(handle: &H, path: tg::Path) -> tg::Result<Self>
 	where
 		H: tg::Handle,
 	{
-		let arg = CheckInArg { path: path.clone() };
+		let arg = CheckInArg { path };
 		let output = handle.check_in_artifact(arg).await?;
 		let artifact = Self::with_id(output.id);
 		Ok(artifact)

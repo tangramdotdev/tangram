@@ -1,5 +1,20 @@
 use num::ToPrimitive;
 
+#[allow(clippy::module_name_repetitions)]
+pub trait Encode {
+	fn encode<W>(&self, encoder: &mut Encoder<W>) -> Result<(), Error>
+	where
+		W: std::io::Write;
+}
+
+#[allow(clippy::module_name_repetitions)]
+pub trait Decode
+where
+	Self: Sized,
+{
+	fn decode(decoder: &mut Decoder<'_>) -> Result<Self, Error>;
+}
+
 pub struct Encoder<W> {
 	output: W,
 }
@@ -71,7 +86,7 @@ where
 
 	pub fn encode<T>(&mut self, value: &T) -> Result<(), Error>
 	where
-		T: ToXdr,
+		T: Encode,
 	{
 		value.encode(self)
 	}
@@ -79,25 +94,13 @@ where
 	#[allow(dead_code)]
 	pub fn encode_array<T>(&mut self, value: &[T]) -> Result<(), Error>
 	where
-		T: ToXdr,
+		T: Encode,
 	{
 		self.encode_uint(value.len().to_u32().unwrap())?;
 		for entity in value {
 			self.encode(entity)?;
 		}
 		Ok(())
-	}
-}
-
-impl From<std::str::Utf8Error> for Error {
-	fn from(value: std::str::Utf8Error) -> Self {
-		Self::Utf8(value)
-	}
-}
-
-impl From<std::io::Error> for Error {
-	fn from(value: std::io::Error) -> Self {
-		Self::Io(value)
 	}
 }
 
@@ -174,34 +177,19 @@ impl<'d> Decoder<'d> {
 
 	pub fn decode<T>(&mut self) -> Result<T, Error>
 	where
-		T: FromXdr,
+		T: Decode,
 	{
-		<T as FromXdr>::decode(self)
+		<T as Decode>::decode(self)
 	}
 }
 
-#[allow(clippy::module_name_repetitions)]
-pub trait FromXdr
-where
-	Self: Sized,
-{
-	fn decode(decoder: &mut Decoder<'_>) -> Result<Self, Error>;
-}
-
-#[allow(clippy::module_name_repetitions)]
-pub trait ToXdr {
-	fn encode<W>(&self, encoder: &mut Encoder<W>) -> Result<(), Error>
-	where
-		W: std::io::Write;
-}
-
-impl FromXdr for i32 {
+impl Decode for i32 {
 	fn decode(decoder: &mut Decoder<'_>) -> Result<Self, Error> {
 		decoder.decode_int()
 	}
 }
 
-impl ToXdr for i32 {
+impl Encode for i32 {
 	fn encode<W>(&self, encoder: &mut Encoder<W>) -> Result<(), Error>
 	where
 		W: std::io::Write,
@@ -210,13 +198,13 @@ impl ToXdr for i32 {
 	}
 }
 
-impl FromXdr for u32 {
+impl Decode for u32 {
 	fn decode(decoder: &mut Decoder<'_>) -> Result<Self, Error> {
 		decoder.decode_uint()
 	}
 }
 
-impl ToXdr for u32 {
+impl Encode for u32 {
 	fn encode<W>(&self, encoder: &mut Encoder<W>) -> Result<(), Error>
 	where
 		W: std::io::Write,
@@ -225,13 +213,13 @@ impl ToXdr for u32 {
 	}
 }
 
-impl FromXdr for i64 {
+impl Decode for i64 {
 	fn decode(decoder: &mut Decoder<'_>) -> Result<Self, Error> {
 		decoder.decode_hyper_int()
 	}
 }
 
-impl ToXdr for i64 {
+impl Encode for i64 {
 	fn encode<W>(&self, encoder: &mut Encoder<W>) -> Result<(), Error>
 	where
 		W: std::io::Write,
@@ -240,13 +228,13 @@ impl ToXdr for i64 {
 	}
 }
 
-impl FromXdr for u64 {
+impl Decode for u64 {
 	fn decode(decoder: &mut Decoder<'_>) -> Result<Self, Error> {
 		decoder.decode_hyper_uint()
 	}
 }
 
-impl ToXdr for u64 {
+impl Encode for u64 {
 	fn encode<W>(&self, encoder: &mut Encoder<W>) -> Result<(), Error>
 	where
 		W: std::io::Write,
@@ -255,13 +243,13 @@ impl ToXdr for u64 {
 	}
 }
 
-impl FromXdr for bool {
+impl Decode for bool {
 	fn decode(decoder: &mut Decoder<'_>) -> Result<Self, Error> {
 		decoder.decode_bool()
 	}
 }
 
-impl ToXdr for bool {
+impl Encode for bool {
 	fn encode<W>(&self, encoder: &mut Encoder<W>) -> Result<(), Error>
 	where
 		W: std::io::Write,
@@ -270,13 +258,13 @@ impl ToXdr for bool {
 	}
 }
 
-impl FromXdr for String {
+impl Decode for String {
 	fn decode(decoder: &mut Decoder<'_>) -> Result<Self, Error> {
 		decoder.decode_str().map(ToOwned::to_owned)
 	}
 }
 
-impl ToXdr for String {
+impl Encode for String {
 	fn encode<W>(&self, encoder: &mut Encoder<W>) -> Result<(), Error>
 	where
 		W: std::io::Write,
@@ -285,13 +273,13 @@ impl ToXdr for String {
 	}
 }
 
-impl FromXdr for Vec<u8> {
+impl Decode for Vec<u8> {
 	fn decode(decoder: &mut Decoder<'_>) -> Result<Self, Error> {
 		decoder.decode_opaque().map(ToOwned::to_owned)
 	}
 }
 
-impl ToXdr for Vec<u8> {
+impl Encode for Vec<u8> {
 	fn encode<W>(&self, encoder: &mut Encoder<W>) -> Result<(), Error>
 	where
 		W: std::io::Write,
@@ -300,9 +288,9 @@ impl ToXdr for Vec<u8> {
 	}
 }
 
-impl<T> FromXdr for Vec<T>
+impl<T> Decode for Vec<T>
 where
-	T: FromXdr,
+	T: Decode,
 {
 	fn decode(decoder: &mut Decoder<'_>) -> Result<Self, Error> {
 		let num_entities = decoder.decode_uint()?.to_usize().unwrap();
@@ -314,9 +302,9 @@ where
 	}
 }
 
-impl<T> ToXdr for Vec<T>
+impl<T> Encode for Vec<T>
 where
-	T: ToXdr,
+	T: Encode,
 {
 	fn encode<W>(&self, encoder: &mut Encoder<W>) -> Result<(), Error>
 	where
@@ -331,7 +319,7 @@ where
 	}
 }
 
-impl ToXdr for () {
+impl Encode for () {
 	fn encode<W>(&self, _encoder: &mut Encoder<W>) -> Result<(), Error>
 	where
 		W: std::io::Write,
@@ -340,15 +328,15 @@ impl ToXdr for () {
 	}
 }
 
-impl FromXdr for () {
+impl Decode for () {
 	fn decode(_decoder: &mut Decoder<'_>) -> Result<Self, Error> {
 		Ok(())
 	}
 }
 
-impl<T> ToXdr for Option<T>
+impl<T> Encode for Option<T>
 where
-	T: ToXdr,
+	T: Encode,
 {
 	fn encode<W>(&self, encoder: &mut Encoder<W>) -> Result<(), Error>
 	where
@@ -367,7 +355,7 @@ where
 
 pub fn to_bytes<T>(arg: &T) -> Vec<u8>
 where
-	T: ToXdr,
+	T: Encode,
 {
 	let mut bytes = Vec::new();
 	let mut encoder = Encoder::new(&mut bytes);
@@ -378,7 +366,7 @@ where
 #[allow(dead_code)]
 pub fn from_bytes<T>(bytes: &[u8]) -> Result<T, Error>
 where
-	T: FromXdr,
+	T: Decode,
 {
 	let mut decoder = Decoder::from_bytes(bytes);
 	decoder.decode()
@@ -446,14 +434,26 @@ where
 	}
 }
 
-impl<'a, T> ToXdr for &'a T
+impl<'a, T> Encode for &'a T
 where
-	T: ToXdr,
+	T: Encode,
 {
 	fn encode<W>(&self, encoder: &mut Encoder<W>) -> Result<(), Error>
 	where
 		W: std::io::Write,
 	{
-		<T as ToXdr>::encode(self, encoder)
+		<T as Encode>::encode(self, encoder)
+	}
+}
+
+impl From<std::str::Utf8Error> for Error {
+	fn from(value: std::str::Utf8Error) -> Self {
+		Self::Utf8(value)
+	}
+}
+
+impl From<std::io::Error> for Error {
+	fn from(value: std::io::Error) -> Self {
+		Self::Io(value)
 	}
 }

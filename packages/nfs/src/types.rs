@@ -1,4 +1,4 @@
-#![allow(non_camel_case_types, dead_code, clippy::match_same_arms)]
+#![allow(clippy::match_same_arms, dead_code, non_camel_case_types)]
 
 use super::xdr;
 use num::ToPrimitive;
@@ -1382,7 +1382,7 @@ pub enum nfs_resop4 {
 	Timeout(nfs_opnum4),
 }
 
-impl xdr::FromXdr for nfs_ftype4 {
+impl xdr::Decode for nfs_ftype4 {
 	fn decode(decoder: &mut xdr::Decoder<'_>) -> Result<Self, xdr::Error> {
 		let tag = decoder.decode_int()?;
 		let ftype = match tag {
@@ -1401,7 +1401,7 @@ impl xdr::FromXdr for nfs_ftype4 {
 	}
 }
 
-impl xdr::ToXdr for nfs_ftype4 {
+impl xdr::Encode for nfs_ftype4 {
 	fn encode<W>(&self, encoder: &mut xdr::Encoder<W>) -> Result<(), xdr::Error>
 	where
 		W: std::io::Write,
@@ -1421,7 +1421,7 @@ impl xdr::ToXdr for nfs_ftype4 {
 	}
 }
 
-impl xdr::ToXdr for nfsstat4 {
+impl xdr::Encode for nfsstat4 {
 	fn encode<W>(&self, encoder: &mut xdr::Encoder<W>) -> Result<(), xdr::Error>
 	where
 		W: std::io::Write,
@@ -1498,7 +1498,7 @@ impl xdr::ToXdr for nfsstat4 {
 	}
 }
 
-impl xdr::ToXdr for nfs_fh4 {
+impl xdr::Encode for nfs_fh4 {
 	fn encode<W>(&self, encoder: &mut xdr::Encoder<W>) -> Result<(), xdr::Error>
 	where
 		W: std::io::Write,
@@ -1508,7 +1508,7 @@ impl xdr::ToXdr for nfs_fh4 {
 	}
 }
 
-impl xdr::FromXdr for nfs_fh4 {
+impl xdr::Decode for nfs_fh4 {
 	fn decode(decoder: &mut xdr::Decoder<'_>) -> Result<Self, xdr::Error> {
 		let bytes = decoder.decode_opaque()?;
 		if bytes.len() != 8 {
@@ -1519,7 +1519,7 @@ impl xdr::FromXdr for nfs_fh4 {
 	}
 }
 
-impl xdr::FromXdr for stateid4 {
+impl xdr::Decode for stateid4 {
 	fn decode(decoder: &mut xdr::Decoder<'_>) -> Result<Self, xdr::Error> {
 		let seqid = decoder.decode()?;
 		let other = decoder.decode_n()?;
@@ -1569,7 +1569,7 @@ impl seqid4 {
 	}
 }
 
-impl xdr::ToXdr for seqid4 {
+impl xdr::Encode for seqid4 {
 	fn encode<W>(&self, encoder: &mut xdr::Encoder<W>) -> Result<(), xdr::Error>
 	where
 		W: std::io::Write,
@@ -1578,13 +1578,13 @@ impl xdr::ToXdr for seqid4 {
 	}
 }
 
-impl xdr::FromXdr for seqid4 {
+impl xdr::Decode for seqid4 {
 	fn decode(decoder: &mut xdr::Decoder<'_>) -> Result<Self, xdr::Error> {
 		Ok(Self(decoder.decode()?))
 	}
 }
 
-impl xdr::ToXdr for change_info4 {
+impl xdr::Encode for change_info4 {
 	fn encode<W>(&self, encoder: &mut xdr::Encoder<W>) -> Result<(), xdr::Error>
 	where
 		W: std::io::Write,
@@ -1596,7 +1596,7 @@ impl xdr::ToXdr for change_info4 {
 	}
 }
 
-impl xdr::ToXdr for stateid4 {
+impl xdr::Encode for stateid4 {
 	fn encode<W>(&self, encoder: &mut xdr::Encoder<W>) -> Result<(), xdr::Error>
 	where
 		W: std::io::Write,
@@ -1607,7 +1607,7 @@ impl xdr::ToXdr for stateid4 {
 	}
 }
 
-impl xdr::ToXdr for open_delegation4 {
+impl xdr::Encode for open_delegation4 {
 	fn encode<W>(&self, encoder: &mut xdr::Encoder<W>) -> Result<(), xdr::Error>
 	where
 		W: std::io::Write,
@@ -1619,7 +1619,7 @@ impl xdr::ToXdr for open_delegation4 {
 	}
 }
 
-impl xdr::ToXdr for fattr4 {
+impl xdr::Encode for fattr4 {
 	fn encode<W>(&self, encoder: &mut xdr::Encoder<W>) -> Result<(), xdr::Error>
 	where
 		W: std::io::Write,
@@ -1630,7 +1630,7 @@ impl xdr::ToXdr for fattr4 {
 	}
 }
 
-impl xdr::FromXdr for fattr4 {
+impl xdr::Decode for fattr4 {
 	fn decode(decoder: &mut xdr::Decoder<'_>) -> Result<Self, xdr::Error> {
 		let attrmask = bitmap4(decoder.decode()?);
 		let attr_vals = decoder.decode_opaque()?.to_owned();
@@ -1641,7 +1641,7 @@ impl xdr::FromXdr for fattr4 {
 	}
 }
 
-impl xdr::ToXdr for cb_client4 {
+impl xdr::Encode for cb_client4 {
 	fn encode<W>(&self, encoder: &mut xdr::Encoder<W>) -> Result<(), xdr::Error>
 	where
 		W: std::io::Write,
@@ -1652,7 +1652,7 @@ impl xdr::ToXdr for cb_client4 {
 	}
 }
 
-impl xdr::FromXdr for cb_client4 {
+impl xdr::Decode for cb_client4 {
 	fn decode(decoder: &mut xdr::Decoder<'_>) -> Result<Self, xdr::Error> {
 		let cb_program = decoder.decode_uint()?;
 		let cb_location = decoder.decode()?;
@@ -1663,7 +1663,7 @@ impl xdr::FromXdr for cb_client4 {
 	}
 }
 
-impl xdr::ToXdr for clientaddr4 {
+impl xdr::Encode for clientaddr4 {
 	fn encode<W>(&self, encoder: &mut xdr::Encoder<W>) -> Result<(), xdr::Error>
 	where
 		W: std::io::Write,
@@ -1674,7 +1674,7 @@ impl xdr::ToXdr for clientaddr4 {
 	}
 }
 
-impl xdr::FromXdr for clientaddr4 {
+impl xdr::Decode for clientaddr4 {
 	fn decode(decoder: &mut xdr::Decoder<'_>) -> Result<Self, xdr::Error> {
 		let r_netid = decoder.decode_str()?.to_owned();
 		let r_addr = decoder.decode_str()?.to_owned();
@@ -1682,7 +1682,7 @@ impl xdr::FromXdr for clientaddr4 {
 	}
 }
 
-impl xdr::ToXdr for fsid4 {
+impl xdr::Encode for fsid4 {
 	fn encode<W>(&self, encoder: &mut xdr::Encoder<W>) -> Result<(), xdr::Error>
 	where
 		W: std::io::Write,
@@ -1693,7 +1693,7 @@ impl xdr::ToXdr for fsid4 {
 	}
 }
 
-impl xdr::ToXdr for nfsace4 {
+impl xdr::Encode for nfsace4 {
 	fn encode<W>(&self, encoder: &mut xdr::Encoder<W>) -> Result<(), xdr::Error>
 	where
 		W: std::io::Write,
@@ -1706,7 +1706,7 @@ impl xdr::ToXdr for nfsace4 {
 	}
 }
 
-impl xdr::ToXdr for fs_locations4 {
+impl xdr::Encode for fs_locations4 {
 	fn encode<W>(&self, encoder: &mut xdr::Encoder<W>) -> Result<(), xdr::Error>
 	where
 		W: std::io::Write,
@@ -1717,7 +1717,7 @@ impl xdr::ToXdr for fs_locations4 {
 	}
 }
 
-impl xdr::ToXdr for fs_location4 {
+impl xdr::Encode for fs_location4 {
 	fn encode<W>(&self, encoder: &mut xdr::Encoder<W>) -> Result<(), xdr::Error>
 	where
 		W: std::io::Write,
@@ -1728,7 +1728,7 @@ impl xdr::ToXdr for fs_location4 {
 	}
 }
 
-impl xdr::ToXdr for specdata4 {
+impl xdr::Encode for specdata4 {
 	fn encode<W>(&self, encoder: &mut xdr::Encoder<W>) -> Result<(), xdr::Error>
 	where
 		W: std::io::Write,
@@ -1739,7 +1739,7 @@ impl xdr::ToXdr for specdata4 {
 	}
 }
 
-impl xdr::ToXdr for nfstime4 {
+impl xdr::Encode for nfstime4 {
 	fn encode<W>(&self, encoder: &mut xdr::Encoder<W>) -> Result<(), xdr::Error>
 	where
 		W: std::io::Write,
@@ -1750,7 +1750,7 @@ impl xdr::ToXdr for nfstime4 {
 	}
 }
 
-impl xdr::FromXdr for nfstime4 {
+impl xdr::Decode for nfstime4 {
 	fn decode(decoder: &mut xdr::Decoder<'_>) -> Result<Self, xdr::Error> {
 		let seconds = decoder.decode()?;
 		let nseconds = decoder.decode()?;
@@ -1758,7 +1758,7 @@ impl xdr::FromXdr for nfstime4 {
 	}
 }
 
-impl xdr::FromXdr for open_owner4 {
+impl xdr::Decode for open_owner4 {
 	fn decode(decoder: &mut xdr::Decoder<'_>) -> Result<Self, xdr::Error> {
 		let clientid = decoder.decode()?;
 		let len = decoder.decode_uint()?;
@@ -1768,7 +1768,7 @@ impl xdr::FromXdr for open_owner4 {
 	}
 }
 
-impl xdr::FromXdr for createhow4 {
+impl xdr::Decode for createhow4 {
 	fn decode(decoder: &mut xdr::Decoder<'_>) -> Result<Self, xdr::Error> {
 		let type_ = decoder.decode_int()?;
 		match type_ {
@@ -1782,7 +1782,7 @@ impl xdr::FromXdr for createhow4 {
 	}
 }
 
-impl xdr::FromXdr for openflag4 {
+impl xdr::Decode for openflag4 {
 	fn decode(decoder: &mut xdr::Decoder<'_>) -> Result<Self, xdr::Error> {
 		let type_ = decoder.decode_int()?;
 		match type_ {
@@ -1793,7 +1793,7 @@ impl xdr::FromXdr for openflag4 {
 	}
 }
 
-impl xdr::FromXdr for open_claim4 {
+impl xdr::Decode for open_claim4 {
 	fn decode(decoder: &mut xdr::Decoder<'_>) -> Result<Self, xdr::Error> {
 		let tag = decoder.decode_int()?;
 		match tag {
@@ -1808,7 +1808,7 @@ impl xdr::FromXdr for open_claim4 {
 	}
 }
 
-impl xdr::FromXdr for open_delegation_type4 {
+impl xdr::Decode for open_delegation_type4 {
 	fn decode(decoder: &mut xdr::Decoder<'_>) -> Result<Self, xdr::Error> {
 		let tag = decoder.decode_int()?;
 		match tag {
@@ -1822,7 +1822,7 @@ impl xdr::FromXdr for open_delegation_type4 {
 	}
 }
 
-impl xdr::FromXdr for open_claim_delegate_cur4 {
+impl xdr::Decode for open_claim_delegate_cur4 {
 	fn decode(decoder: &mut xdr::Decoder<'_>) -> Result<Self, xdr::Error> {
 		let delegate_stateid = decoder.decode()?;
 		let file = decoder.decode()?;
@@ -1833,14 +1833,14 @@ impl xdr::FromXdr for open_claim_delegate_cur4 {
 	}
 }
 
-impl xdr::FromXdr for ACCESS4args {
+impl xdr::Decode for ACCESS4args {
 	fn decode(decoder: &mut xdr::Decoder<'_>) -> Result<Self, xdr::Error> {
 		let access = decoder.decode_uint()?;
 		Ok(Self { access })
 	}
 }
 
-impl xdr::ToXdr for ACCESS4res {
+impl xdr::Encode for ACCESS4res {
 	fn encode<W>(&self, encoder: &mut xdr::Encoder<W>) -> Result<(), xdr::Error>
 	where
 		W: std::io::Write,
@@ -1857,7 +1857,7 @@ impl xdr::ToXdr for ACCESS4res {
 	}
 }
 
-impl xdr::FromXdr for CLOSE4args {
+impl xdr::Decode for CLOSE4args {
 	fn decode(decoder: &mut xdr::Decoder<'_>) -> Result<Self, xdr::Error> {
 		let seqid = decoder.decode()?;
 		let open_stateid = decoder.decode()?;
@@ -1868,7 +1868,7 @@ impl xdr::FromXdr for CLOSE4args {
 	}
 }
 
-impl xdr::ToXdr for CLOSE4res {
+impl xdr::Encode for CLOSE4res {
 	fn encode<W>(&self, encoder: &mut xdr::Encoder<W>) -> Result<(), xdr::Error>
 	where
 		W: std::io::Write,
@@ -1884,14 +1884,14 @@ impl xdr::ToXdr for CLOSE4res {
 	}
 }
 
-impl xdr::FromXdr for GETATTR4args {
+impl xdr::Decode for GETATTR4args {
 	fn decode(decoder: &mut xdr::Decoder<'_>) -> Result<Self, xdr::Error> {
 		let attr_request = bitmap4(decoder.decode()?);
 		Ok(Self { attr_request })
 	}
 }
 
-impl xdr::ToXdr for GETATTR4res {
+impl xdr::Encode for GETATTR4res {
 	fn encode<W>(&self, encoder: &mut xdr::Encoder<W>) -> Result<(), xdr::Error>
 	where
 		W: std::io::Write,
@@ -1907,7 +1907,7 @@ impl xdr::ToXdr for GETATTR4res {
 	}
 }
 
-impl xdr::ToXdr for GETFH4res {
+impl xdr::Encode for GETFH4res {
 	fn encode<W>(&self, encoder: &mut xdr::Encoder<W>) -> Result<(), xdr::Error>
 	where
 		W: std::io::Write,
@@ -1923,14 +1923,14 @@ impl xdr::ToXdr for GETFH4res {
 	}
 }
 
-impl xdr::FromXdr for PUTFH4args {
+impl xdr::Decode for PUTFH4args {
 	fn decode(decoder: &mut xdr::Decoder<'_>) -> Result<Self, xdr::Error> {
 		let object = decoder.decode()?;
 		Ok(Self { object })
 	}
 }
 
-impl xdr::ToXdr for PUTFH4res {
+impl xdr::Encode for PUTFH4res {
 	fn encode<W>(&self, encoder: &mut xdr::Encoder<W>) -> Result<(), xdr::Error>
 	where
 		W: std::io::Write,
@@ -1939,7 +1939,7 @@ impl xdr::ToXdr for PUTFH4res {
 	}
 }
 
-impl xdr::ToXdr for PUTPUBFH4res {
+impl xdr::Encode for PUTPUBFH4res {
 	fn encode<W>(&self, encoder: &mut xdr::Encoder<W>) -> Result<(), xdr::Error>
 	where
 		W: std::io::Write,
@@ -1948,7 +1948,7 @@ impl xdr::ToXdr for PUTPUBFH4res {
 	}
 }
 
-impl xdr::ToXdr for PUTROOTFH4res {
+impl xdr::Encode for PUTROOTFH4res {
 	fn encode<W>(&self, encoder: &mut xdr::Encoder<W>) -> Result<(), xdr::Error>
 	where
 		W: std::io::Write,
@@ -1957,7 +1957,7 @@ impl xdr::ToXdr for PUTROOTFH4res {
 	}
 }
 
-impl xdr::FromXdr for nfs_lock_type4 {
+impl xdr::Decode for nfs_lock_type4 {
 	fn decode(decoder: &mut xdr::Decoder<'_>) -> Result<Self, xdr::Error> {
 		match decoder.decode_int()? {
 			1 => Ok(nfs_lock_type4::READ_LT),
@@ -1969,7 +1969,7 @@ impl xdr::FromXdr for nfs_lock_type4 {
 	}
 }
 
-impl xdr::ToXdr for nfs_lock_type4 {
+impl xdr::Encode for nfs_lock_type4 {
 	fn encode<W>(&self, encoder: &mut xdr::Encoder<W>) -> Result<(), xdr::Error>
 	where
 		W: std::io::Write,
@@ -1985,7 +1985,7 @@ impl xdr::ToXdr for nfs_lock_type4 {
 	}
 }
 
-impl xdr::FromXdr for locker4 {
+impl xdr::Decode for locker4 {
 	fn decode(decoder: &mut xdr::Decoder<'_>) -> Result<Self, xdr::Error> {
 		if decoder.decode_bool()? {
 			let open_seqid = decoder.decode()?;
@@ -2011,7 +2011,7 @@ impl xdr::FromXdr for locker4 {
 	}
 }
 
-impl xdr::FromXdr for lock_owner4 {
+impl xdr::Decode for lock_owner4 {
 	fn decode(decoder: &mut xdr::Decoder<'_>) -> Result<Self, xdr::Error> {
 		let clientid = decoder.decode()?;
 		let owner = decoder.decode_opaque()?.into();
@@ -2019,7 +2019,7 @@ impl xdr::FromXdr for lock_owner4 {
 	}
 }
 
-impl xdr::ToXdr for lock_owner4 {
+impl xdr::Encode for lock_owner4 {
 	fn encode<W>(&self, encoder: &mut xdr::Encoder<W>) -> Result<(), xdr::Error>
 	where
 		W: std::io::Write,
@@ -2030,7 +2030,7 @@ impl xdr::ToXdr for lock_owner4 {
 	}
 }
 
-impl xdr::FromXdr for LOCK4args {
+impl xdr::Decode for LOCK4args {
 	fn decode(decoder: &mut xdr::Decoder<'_>) -> Result<Self, xdr::Error> {
 		let locktype = decoder.decode()?;
 		let reclaim = decoder.decode()?;
@@ -2047,7 +2047,7 @@ impl xdr::FromXdr for LOCK4args {
 	}
 }
 
-impl xdr::ToXdr for LOCK4denied {
+impl xdr::Encode for LOCK4denied {
 	fn encode<W>(&self, encoder: &mut xdr::Encoder<W>) -> Result<(), xdr::Error>
 	where
 		W: std::io::Write,
@@ -2060,7 +2060,7 @@ impl xdr::ToXdr for LOCK4denied {
 	}
 }
 
-impl xdr::ToXdr for LOCK4resok {
+impl xdr::Encode for LOCK4resok {
 	fn encode<W>(&self, encoder: &mut xdr::Encoder<W>) -> Result<(), xdr::Error>
 	where
 		W: std::io::Write,
@@ -2069,7 +2069,7 @@ impl xdr::ToXdr for LOCK4resok {
 	}
 }
 
-impl xdr::ToXdr for LOCK4res {
+impl xdr::Encode for LOCK4res {
 	fn encode<W>(&self, encoder: &mut xdr::Encoder<W>) -> Result<(), xdr::Error>
 	where
 		W: std::io::Write,
@@ -2089,7 +2089,7 @@ impl xdr::ToXdr for LOCK4res {
 	}
 }
 
-impl xdr::FromXdr for LOCKT4args {
+impl xdr::Decode for LOCKT4args {
 	fn decode(decoder: &mut xdr::Decoder<'_>) -> Result<Self, xdr::Error> {
 		let locktype = decoder.decode()?;
 		let offset = decoder.decode()?;
@@ -2104,7 +2104,7 @@ impl xdr::FromXdr for LOCKT4args {
 	}
 }
 
-impl xdr::ToXdr for LOCKT4res {
+impl xdr::Encode for LOCKT4res {
 	fn encode<W>(&self, encoder: &mut xdr::Encoder<W>) -> Result<(), xdr::Error>
 	where
 		W: std::io::Write,
@@ -2121,7 +2121,7 @@ impl xdr::ToXdr for LOCKT4res {
 	}
 }
 
-impl xdr::FromXdr for LOCKU4args {
+impl xdr::Decode for LOCKU4args {
 	fn decode(decoder: &mut xdr::Decoder<'_>) -> Result<Self, xdr::Error> {
 		let locktype = decoder.decode()?;
 		let seqid = decoder.decode()?;
@@ -2138,7 +2138,7 @@ impl xdr::FromXdr for LOCKU4args {
 	}
 }
 
-impl xdr::ToXdr for LOCKU4res {
+impl xdr::Encode for LOCKU4res {
 	fn encode<W>(&self, encoder: &mut xdr::Encoder<W>) -> Result<(), xdr::Error>
 	where
 		W: std::io::Write,
@@ -2156,14 +2156,14 @@ impl xdr::ToXdr for LOCKU4res {
 	}
 }
 
-impl xdr::FromXdr for LOOKUP4args {
+impl xdr::Decode for LOOKUP4args {
 	fn decode(decoder: &mut xdr::Decoder<'_>) -> Result<Self, xdr::Error> {
 		let objname = decoder.decode()?;
 		Ok(Self { objname })
 	}
 }
 
-impl xdr::ToXdr for LOOKUP4res {
+impl xdr::Encode for LOOKUP4res {
 	fn encode<W>(&self, encoder: &mut xdr::Encoder<W>) -> Result<(), xdr::Error>
 	where
 		W: std::io::Write,
@@ -2172,14 +2172,14 @@ impl xdr::ToXdr for LOOKUP4res {
 	}
 }
 
-impl xdr::FromXdr for NVERIFY4args {
+impl xdr::Decode for NVERIFY4args {
 	fn decode(decoder: &mut xdr::Decoder<'_>) -> Result<Self, xdr::Error> {
 		let obj_attributes = decoder.decode()?;
 		Ok(Self { obj_attributes })
 	}
 }
 
-impl xdr::ToXdr for NVERIFY4res {
+impl xdr::Encode for NVERIFY4res {
 	fn encode<W>(&self, encoder: &mut xdr::Encoder<W>) -> Result<(), xdr::Error>
 	where
 		W: std::io::Write,
@@ -2188,7 +2188,7 @@ impl xdr::ToXdr for NVERIFY4res {
 	}
 }
 
-impl xdr::ToXdr for LOOKUPP4res {
+impl xdr::Encode for LOOKUPP4res {
 	fn encode<W>(&self, encoder: &mut xdr::Encoder<W>) -> Result<(), xdr::Error>
 	where
 		W: std::io::Write,
@@ -2197,7 +2197,7 @@ impl xdr::ToXdr for LOOKUPP4res {
 	}
 }
 
-impl xdr::FromXdr for OPEN4args {
+impl xdr::Decode for OPEN4args {
 	fn decode(decoder: &mut xdr::Decoder<'_>) -> Result<Self, xdr::Error> {
 		let seqid = decoder.decode()?;
 		let share_access = decoder.decode()?;
@@ -2216,7 +2216,7 @@ impl xdr::FromXdr for OPEN4args {
 	}
 }
 
-impl xdr::ToXdr for OPEN4res {
+impl xdr::Encode for OPEN4res {
 	fn encode<W>(&self, encoder: &mut xdr::Encoder<W>) -> Result<(), xdr::Error>
 	where
 		W: std::io::Write,
@@ -2236,14 +2236,14 @@ impl xdr::ToXdr for OPEN4res {
 	}
 }
 
-impl xdr::FromXdr for OPENATTR4args {
+impl xdr::Decode for OPENATTR4args {
 	fn decode(decoder: &mut xdr::Decoder<'_>) -> Result<Self, xdr::Error> {
 		let createdir = decoder.decode()?;
 		Ok(Self { createdir })
 	}
 }
 
-impl xdr::ToXdr for OPENATTR4res {
+impl xdr::Encode for OPENATTR4res {
 	fn encode<W>(&self, encoder: &mut xdr::Encoder<W>) -> Result<(), xdr::Error>
 	where
 		W: std::io::Write,
@@ -2252,7 +2252,7 @@ impl xdr::ToXdr for OPENATTR4res {
 	}
 }
 
-impl xdr::FromXdr for OPEN_CONFIRM4args {
+impl xdr::Decode for OPEN_CONFIRM4args {
 	fn decode(decoder: &mut xdr::Decoder<'_>) -> Result<Self, xdr::Error> {
 		let open_stateid = decoder.decode()?;
 		let seqid = decoder.decode()?;
@@ -2263,7 +2263,7 @@ impl xdr::FromXdr for OPEN_CONFIRM4args {
 	}
 }
 
-impl xdr::ToXdr for OPEN_CONFIRM4resok {
+impl xdr::Encode for OPEN_CONFIRM4resok {
 	fn encode<W>(&self, encoder: &mut xdr::Encoder<W>) -> Result<(), xdr::Error>
 	where
 		W: std::io::Write,
@@ -2272,7 +2272,7 @@ impl xdr::ToXdr for OPEN_CONFIRM4resok {
 	}
 }
 
-impl xdr::ToXdr for OPEN_CONFIRM4res {
+impl xdr::Encode for OPEN_CONFIRM4res {
 	fn encode<W>(&self, encoder: &mut xdr::Encoder<W>) -> Result<(), xdr::Error>
 	where
 		W: std::io::Write,
@@ -2288,7 +2288,7 @@ impl xdr::ToXdr for OPEN_CONFIRM4res {
 	}
 }
 
-impl xdr::FromXdr for READ4args {
+impl xdr::Decode for READ4args {
 	fn decode(decoder: &mut xdr::Decoder<'_>) -> Result<Self, xdr::Error> {
 		let stateid = decoder.decode()?;
 		let offset = decoder.decode()?;
@@ -2301,7 +2301,7 @@ impl xdr::FromXdr for READ4args {
 	}
 }
 
-impl xdr::ToXdr for READ4res {
+impl xdr::Encode for READ4res {
 	fn encode<W>(&self, encoder: &mut xdr::Encoder<W>) -> Result<(), xdr::Error>
 	where
 		W: std::io::Write,
@@ -2318,7 +2318,7 @@ impl xdr::ToXdr for READ4res {
 	}
 }
 
-impl xdr::FromXdr for READDIR4args {
+impl xdr::Decode for READDIR4args {
 	fn decode(decoder: &mut xdr::Decoder<'_>) -> Result<Self, xdr::Error> {
 		let cookie = decoder.decode()?;
 		let cookieverf = decoder.decode_n()?;
@@ -2335,7 +2335,7 @@ impl xdr::FromXdr for READDIR4args {
 	}
 }
 
-impl xdr::ToXdr for READDIR4res {
+impl xdr::Encode for READDIR4res {
 	fn encode<W>(&self, encoder: &mut xdr::Encoder<W>) -> Result<(), xdr::Error>
 	where
 		W: std::io::Write,
@@ -2357,7 +2357,7 @@ impl xdr::ToXdr for READDIR4res {
 	}
 }
 
-impl xdr::ToXdr for READLINK4res {
+impl xdr::Encode for READLINK4res {
 	fn encode<W>(&self, encoder: &mut xdr::Encoder<W>) -> Result<(), xdr::Error>
 	where
 		W: std::io::Write,
@@ -2373,14 +2373,14 @@ impl xdr::ToXdr for READLINK4res {
 	}
 }
 
-impl xdr::FromXdr for RENEW4args {
+impl xdr::Decode for RENEW4args {
 	fn decode(decoder: &mut xdr::Decoder<'_>) -> Result<Self, xdr::Error> {
 		let clientid = decoder.decode()?;
 		Ok(Self { clientid })
 	}
 }
 
-impl xdr::ToXdr for RENEW4res {
+impl xdr::Encode for RENEW4res {
 	fn encode<W>(&self, encoder: &mut xdr::Encoder<W>) -> Result<(), xdr::Error>
 	where
 		W: std::io::Write,
@@ -2389,7 +2389,7 @@ impl xdr::ToXdr for RENEW4res {
 	}
 }
 
-impl xdr::ToXdr for RESTOREFH4res {
+impl xdr::Encode for RESTOREFH4res {
 	fn encode<W>(&self, encoder: &mut xdr::Encoder<W>) -> Result<(), xdr::Error>
 	where
 		W: std::io::Write,
@@ -2398,7 +2398,7 @@ impl xdr::ToXdr for RESTOREFH4res {
 	}
 }
 
-impl xdr::ToXdr for SAVEFH4res {
+impl xdr::Encode for SAVEFH4res {
 	fn encode<W>(&self, encoder: &mut xdr::Encoder<W>) -> Result<(), xdr::Error>
 	where
 		W: std::io::Write,
@@ -2407,14 +2407,14 @@ impl xdr::ToXdr for SAVEFH4res {
 	}
 }
 
-impl xdr::FromXdr for SECINFO4args {
+impl xdr::Decode for SECINFO4args {
 	fn decode(decoder: &mut xdr::Decoder<'_>) -> Result<Self, xdr::Error> {
 		let name = decoder.decode()?;
 		Ok(Self { name })
 	}
 }
 
-impl xdr::ToXdr for SECINFO4res {
+impl xdr::Encode for SECINFO4res {
 	fn encode<W>(&self, encoder: &mut xdr::Encoder<W>) -> Result<(), xdr::Error>
 	where
 		W: std::io::Write,
@@ -2430,7 +2430,7 @@ impl xdr::ToXdr for SECINFO4res {
 	}
 }
 
-impl xdr::ToXdr for secinfo4 {
+impl xdr::Encode for secinfo4 {
 	fn encode<W>(&self, encoder: &mut xdr::Encoder<W>) -> Result<(), xdr::Error>
 	where
 		W: std::io::Write,
@@ -2443,7 +2443,7 @@ impl xdr::ToXdr for secinfo4 {
 	}
 }
 
-impl xdr::ToXdr for rpcsec_gss_info {
+impl xdr::Encode for rpcsec_gss_info {
 	fn encode<W>(&self, encoder: &mut xdr::Encoder<W>) -> Result<(), xdr::Error>
 	where
 		W: std::io::Write,
@@ -2455,7 +2455,7 @@ impl xdr::ToXdr for rpcsec_gss_info {
 	}
 }
 
-impl xdr::ToXdr for rpc_gss_svc_t {
+impl xdr::Encode for rpc_gss_svc_t {
 	fn encode<W>(&self, encoder: &mut xdr::Encoder<W>) -> Result<(), xdr::Error>
 	where
 		W: std::io::Write,
@@ -2469,7 +2469,7 @@ impl xdr::ToXdr for rpc_gss_svc_t {
 	}
 }
 
-impl xdr::FromXdr for nfs_client_id4 {
+impl xdr::Decode for nfs_client_id4 {
 	fn decode(decoder: &mut xdr::Decoder<'_>) -> Result<Self, xdr::Error> {
 		let verifier = decoder.decode_n()?;
 		let id = decoder.decode()?;
@@ -2477,7 +2477,7 @@ impl xdr::FromXdr for nfs_client_id4 {
 	}
 }
 
-impl xdr::FromXdr for SETCLIENTID4args {
+impl xdr::Decode for SETCLIENTID4args {
 	fn decode(decoder: &mut xdr::Decoder<'_>) -> Result<Self, xdr::Error> {
 		let client = decoder.decode()?;
 		let callback = decoder.decode()?;
@@ -2490,7 +2490,7 @@ impl xdr::FromXdr for SETCLIENTID4args {
 	}
 }
 
-impl xdr::ToXdr for SETCLIENTID4res {
+impl xdr::Encode for SETCLIENTID4res {
 	fn encode<W>(&self, encoder: &mut xdr::Encoder<W>) -> Result<(), xdr::Error>
 	where
 		W: std::io::Write,
@@ -2511,7 +2511,7 @@ impl xdr::ToXdr for SETCLIENTID4res {
 	}
 }
 
-impl xdr::FromXdr for SETCLIENTID_CONFIRM4args {
+impl xdr::Decode for SETCLIENTID_CONFIRM4args {
 	fn decode(decoder: &mut xdr::Decoder<'_>) -> Result<Self, xdr::Error> {
 		let clientid = decoder.decode()?;
 		let setclientid_confirm = decoder.decode_n()?;
@@ -2522,7 +2522,7 @@ impl xdr::FromXdr for SETCLIENTID_CONFIRM4args {
 	}
 }
 
-impl xdr::ToXdr for SETCLIENTID_CONFIRM4res {
+impl xdr::Encode for SETCLIENTID_CONFIRM4res {
 	fn encode<W>(&self, encoder: &mut xdr::Encoder<W>) -> Result<(), xdr::Error>
 	where
 		W: std::io::Write,
@@ -2531,14 +2531,14 @@ impl xdr::ToXdr for SETCLIENTID_CONFIRM4res {
 	}
 }
 
-impl xdr::FromXdr for RELEASE_LOCKOWNER4args {
+impl xdr::Decode for RELEASE_LOCKOWNER4args {
 	fn decode(decoder: &mut xdr::Decoder<'_>) -> Result<Self, xdr::Error> {
 		let lock_owner = decoder.decode()?;
 		Ok(Self { lock_owner })
 	}
 }
 
-impl xdr::ToXdr for RELEASE_LOCKOWNER4res {
+impl xdr::Encode for RELEASE_LOCKOWNER4res {
 	fn encode<W>(&self, encoder: &mut xdr::Encoder<W>) -> Result<(), xdr::Error>
 	where
 		W: std::io::Write,
@@ -2547,7 +2547,7 @@ impl xdr::ToXdr for RELEASE_LOCKOWNER4res {
 	}
 }
 
-impl xdr::ToXdr for ILLEGAL4res {
+impl xdr::Encode for ILLEGAL4res {
 	fn encode<W>(&self, encoder: &mut xdr::Encoder<W>) -> Result<(), xdr::Error>
 	where
 		W: std::io::Write,
@@ -2556,7 +2556,7 @@ impl xdr::ToXdr for ILLEGAL4res {
 	}
 }
 
-impl xdr::ToXdr for entry4 {
+impl xdr::Encode for entry4 {
 	fn encode<W>(&self, encoder: &mut xdr::Encoder<W>) -> Result<(), xdr::Error>
 	where
 		W: std::io::Write,
@@ -2568,7 +2568,7 @@ impl xdr::ToXdr for entry4 {
 	}
 }
 
-impl xdr::FromXdr for nfs_opnum4 {
+impl xdr::Decode for nfs_opnum4 {
 	fn decode(decoder: &mut xdr::Decoder<'_>) -> Result<Self, xdr::Error> {
 		let opnum = match decoder.decode_int()? {
 			3 => Self::OP_ACCESS,
@@ -2617,7 +2617,7 @@ impl xdr::FromXdr for nfs_opnum4 {
 	}
 }
 
-impl xdr::ToXdr for nfs_opnum4 {
+impl xdr::Encode for nfs_opnum4 {
 	fn encode<W>(&self, encoder: &mut xdr::Encoder<W>) -> Result<(), xdr::Error>
 	where
 		W: std::io::Write,
@@ -2666,7 +2666,7 @@ impl xdr::ToXdr for nfs_opnum4 {
 	}
 }
 
-impl xdr::FromXdr for nfs_argop4 {
+impl xdr::Decode for nfs_argop4 {
 	fn decode(decoder: &mut xdr::Decoder<'_>) -> Result<Self, xdr::Error> {
 		let opnum: nfs_opnum4 = decoder.decode()?;
 		let arg = match opnum {
@@ -2715,7 +2715,7 @@ impl xdr::FromXdr for nfs_argop4 {
 	}
 }
 
-impl xdr::FromXdr for COMPOUND4args {
+impl xdr::Decode for COMPOUND4args {
 	fn decode(decoder: &mut xdr::Decoder<'_>) -> Result<Self, xdr::Error> {
 		let tag = decoder.decode_str()?.to_owned();
 		let minorversion = decoder.decode_uint()?;
@@ -2728,7 +2728,7 @@ impl xdr::FromXdr for COMPOUND4args {
 	}
 }
 
-impl xdr::ToXdr for nfs_resop4 {
+impl xdr::Encode for nfs_resop4 {
 	fn encode<W>(&self, encoder: &mut xdr::Encoder<W>) -> Result<(), xdr::Error>
 	where
 		W: std::io::Write,
@@ -2899,7 +2899,7 @@ impl xdr::ToXdr for nfs_resop4 {
 	}
 }
 
-impl xdr::ToXdr for COMPOUND4res {
+impl xdr::Encode for COMPOUND4res {
 	fn encode<W>(&self, encoder: &mut xdr::Encoder<W>) -> Result<(), xdr::Error>
 	where
 		W: std::io::Write,
@@ -3232,7 +3232,7 @@ pub const ALL_ATTRS: [u32; 77] = [
 
 #[cfg(test)]
 mod test {
-	use super::{xdr::ToXdr, *};
+	use super::{xdr::Encode as _, *};
 
 	#[test]
 	fn setclientid() {
