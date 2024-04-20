@@ -1,6 +1,6 @@
 use crate::{
 	pool::{self, Pool},
-	Database as _, Row, Value,
+	Row, Value,
 };
 use futures::{future, Stream, TryStreamExt as _};
 use indexmap::IndexMap;
@@ -151,30 +151,6 @@ impl<'t> super::Transaction for Transaction<'t> {
 	async fn commit(self) -> Result<(), Self::Error> {
 		self.transaction.commit().await?;
 		Ok(())
-	}
-}
-
-impl super::Query for Database {
-	type Error = Error;
-
-	fn p(&self) -> &'static str {
-		"$"
-	}
-
-	async fn execute(&self, statement: String, params: Vec<Value>) -> Result<u64, Self::Error> {
-		let connection = self.connection().await?;
-		let n = execute(&connection.client, &connection.cache, statement, params).await?;
-		Ok(n)
-	}
-
-	async fn query(
-		&self,
-		statement: String,
-		params: Vec<Value>,
-	) -> Result<impl Stream<Item = Result<Row, Self::Error>> + Send, Self::Error> {
-		let connection = self.connection().await?;
-		let rows = query(&connection.client, &connection.cache, statement, params).await?;
-		Ok(rows)
 	}
 }
 

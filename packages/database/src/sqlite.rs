@@ -2,7 +2,7 @@ use crate::{
 	pool::{self, Pool},
 	Error as _, Row, Value,
 };
-use futures::{stream, Stream};
+use futures::{stream, Future, Stream};
 use indexmap::IndexMap;
 use itertools::Itertools as _;
 use num::ToPrimitive;
@@ -376,6 +376,30 @@ impl super::Query for pool::Guard<Connection> {
 		Output = Result<impl Stream<Item = Result<Row, Self::Error>> + Send, Self::Error>,
 	> {
 		self.as_ref().query(statement, params)
+	}
+
+	fn query_optional(
+		&self,
+		statement: String,
+		params: Vec<Value>,
+	) -> impl Future<Output = Result<Option<Row>, Self::Error>> {
+		self.as_ref().query_optional(statement, params)
+	}
+
+	fn query_one(
+		&self,
+		statement: String,
+		params: Vec<Value>,
+	) -> impl Future<Output = Result<Row, Self::Error>> {
+		self.as_ref().query_one(statement, params)
+	}
+
+	fn query_all(
+		&self,
+		statement: String,
+		params: Vec<Value>,
+	) -> impl Future<Output = Result<Vec<Row>, Self::Error>> {
+		self.as_ref().query_all(statement, params)
 	}
 }
 
