@@ -6,7 +6,7 @@ use crate::Server;
 use futures::{
 	future::{self, LocalBoxFuture},
 	stream::FuturesUnordered,
-	FutureExt as _, StreamExt as _,
+	Future, FutureExt as _, StreamExt as _,
 };
 use num::ToPrimitive;
 use sourcemap::SourceMap;
@@ -692,7 +692,7 @@ fn parse_import_inner<'s>(
 }
 
 impl super::Trait for Runtime {
-	async fn run(&self, build: &tg::Build) -> tg::Result<tg::Value> {
-		self.run(build).await
+	fn run(&self, build: &tg::Build) -> impl Future<Output = tg::Result<tg::Value>> {
+		self.run(build)
 	}
 }

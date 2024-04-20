@@ -1,6 +1,6 @@
 use crate::Http;
 use bytes::Bytes;
-use futures::Stream;
+use futures::{Future, Stream};
 use std::sync::Arc;
 use tangram_client as tg;
 use tokio::io::{AsyncBufRead, AsyncRead, AsyncWrite};
@@ -119,30 +119,30 @@ impl Server {
 impl tg::Handle for Server {
 	type Transaction<'a> = ();
 
-	async fn path(&self) -> tg::Result<Option<tg::Path>> {
-		self.server.path().await
+	fn path(&self) -> impl Future<Output = tg::Result<Option<tg::Path>>> {
+		self.server.path()
 	}
 
-	async fn archive_artifact(
+	fn archive_artifact(
 		&self,
 		id: &tg::artifact::Id,
 		arg: tg::artifact::ArchiveArg,
-	) -> tg::Result<tg::artifact::ArchiveOutput> {
-		self.server.archive_artifact(id, arg).await
+	) -> impl Future<Output = tg::Result<tg::artifact::ArchiveOutput>> {
+		self.server.archive_artifact(id, arg)
 	}
 
-	async fn extract_artifact(
+	fn extract_artifact(
 		&self,
 		arg: tg::artifact::ExtractArg,
-	) -> tg::Result<tg::artifact::ExtractOutput> {
-		self.server.extract_artifact(arg).await
+	) -> impl Future<Output = tg::Result<tg::artifact::ExtractOutput>> {
+		self.server.extract_artifact(arg)
 	}
 
-	async fn bundle_artifact(
+	fn bundle_artifact(
 		&self,
 		id: &tg::artifact::Id,
-	) -> tg::Result<tg::artifact::BundleOutput> {
-		self.server.bundle_artifact(id).await
+	) -> impl Future<Output = tg::Result<tg::artifact::BundleOutput>> {
+		self.server.bundle_artifact(id)
 	}
 
 	async fn check_in_artifact(
@@ -178,40 +178,40 @@ impl tg::Handle for Server {
 		self.server.check_out_artifact(id, arg).await
 	}
 
-	async fn create_blob(
+	fn create_blob(
 		&self,
 		reader: impl AsyncRead + Send + 'static,
 		_transaction: Option<&Self::Transaction<'_>>,
-	) -> tg::Result<tg::blob::Id> {
-		self.server.create_blob(reader, None).await
+	) -> impl Future<Output = tg::Result<tg::blob::Id>> {
+		self.server.create_blob(reader, None)
 	}
 
-	async fn compress_blob(
+	fn compress_blob(
 		&self,
 		id: &tg::blob::Id,
 		arg: tg::blob::CompressArg,
-	) -> tg::Result<tg::blob::CompressOutput> {
-		self.server.compress_blob(id, arg).await
+	) -> impl Future<Output = tg::Result<tg::blob::CompressOutput>> {
+		self.server.compress_blob(id, arg)
 	}
 
-	async fn decompress_blob(
+	fn decompress_blob(
 		&self,
 		id: &tg::blob::Id,
 		arg: tg::blob::DecompressArg,
-	) -> tg::Result<tg::blob::DecompressOutput> {
-		self.server.decompress_blob(id, arg).await
+	) -> impl Future<Output = tg::Result<tg::blob::DecompressOutput>> {
+		self.server.decompress_blob(id, arg)
 	}
 
 	async fn list_builds(&self, _arg: tg::build::ListArg) -> tg::Result<tg::build::ListOutput> {
 		Err(tg::error!("forbidden"))
 	}
 
-	async fn try_get_build(
+	fn try_get_build(
 		&self,
 		id: &tg::build::Id,
 		arg: tg::build::GetArg,
-	) -> tg::Result<Option<tg::build::GetOutput>> {
-		self.server.try_get_build(id, arg).await
+	) -> impl Future<Output = tg::Result<Option<tg::build::GetOutput>>> {
+		self.server.try_get_build(id, arg)
 	}
 
 	async fn put_build(&self, _id: &tg::build::Id, _arg: &tg::build::PutArg) -> tg::Result<()> {
@@ -226,21 +226,25 @@ impl tg::Handle for Server {
 		Err(tg::error!("forbidden"))
 	}
 
-	async fn get_or_create_build(
+	fn get_or_create_build(
 		&self,
 		mut arg: tg::build::GetOrCreateArg,
-	) -> tg::Result<tg::build::GetOrCreateOutput> {
+	) -> impl Future<Output = tg::Result<tg::build::GetOrCreateOutput>> {
 		arg.parent = Some(self.build.clone());
-		self.server.get_or_create_build(arg).await
+		self.server.get_or_create_build(arg)
 	}
 
-	async fn try_get_build_status(
+	fn try_get_build_status(
 		&self,
 		id: &tg::build::Id,
 		arg: tg::build::status::GetArg,
 		stop: Option<tokio::sync::watch::Receiver<bool>>,
-	) -> tg::Result<Option<impl Stream<Item = tg::Result<tg::build::Status>> + Send + 'static>> {
-		self.server.try_get_build_status(id, arg, stop).await
+	) -> impl Future<
+		Output = tg::Result<
+			Option<impl Stream<Item = tg::Result<tg::build::Status>> + Send + 'static>,
+		>,
+	> {
+		self.server.try_get_build_status(id, arg, stop)
 	}
 
 	async fn set_build_status(
@@ -251,15 +255,17 @@ impl tg::Handle for Server {
 		Err(tg::error!("forbidden"))
 	}
 
-	async fn try_get_build_children(
+	fn try_get_build_children(
 		&self,
 		id: &tg::build::Id,
 		arg: tg::build::children::GetArg,
 		stop: Option<tokio::sync::watch::Receiver<bool>>,
-	) -> tg::Result<
-		Option<impl Stream<Item = tg::Result<tg::build::children::Chunk>> + Send + 'static>,
+	) -> impl Future<
+		Output = tg::Result<
+			Option<impl Stream<Item = tg::Result<tg::build::children::Chunk>> + Send + 'static>,
+		>,
 	> {
-		self.server.try_get_build_children(id, arg, stop).await
+		self.server.try_get_build_children(id, arg, stop)
 	}
 
 	async fn add_build_child(
@@ -270,27 +276,30 @@ impl tg::Handle for Server {
 		Err(tg::error!("forbidden"))
 	}
 
-	async fn try_get_build_log(
+	fn try_get_build_log(
 		&self,
 		id: &tg::build::Id,
 		arg: tg::build::log::GetArg,
 		stop: Option<tokio::sync::watch::Receiver<bool>>,
-	) -> tg::Result<Option<impl Stream<Item = tg::Result<tg::build::log::Chunk>> + Send + 'static>>
-	{
-		self.server.try_get_build_log(id, arg, stop).await
+	) -> impl Future<
+		Output = tg::Result<
+			Option<impl Stream<Item = tg::Result<tg::build::log::Chunk>> + Send + 'static>,
+		>,
+	> {
+		self.server.try_get_build_log(id, arg, stop)
 	}
 
 	async fn add_build_log(&self, _build_id: &tg::build::Id, _bytes: Bytes) -> tg::Result<()> {
 		Err(tg::error!("forbidden"))
 	}
 
-	async fn try_get_build_outcome(
+	fn try_get_build_outcome(
 		&self,
 		id: &tg::build::Id,
 		arg: tg::build::outcome::GetArg,
 		stop: Option<tokio::sync::watch::Receiver<bool>>,
-	) -> tg::Result<Option<Option<tg::build::Outcome>>> {
-		self.server.try_get_build_outcome(id, arg, stop).await
+	) -> impl Future<Output = tg::Result<Option<Option<tg::build::Outcome>>>> {
+		self.server.try_get_build_outcome(id, arg, stop)
 	}
 
 	async fn set_build_outcome(
@@ -313,20 +322,20 @@ impl tg::Handle for Server {
 		Err(tg::error!("forbidden"))
 	}
 
-	async fn try_get_object(
+	fn try_get_object(
 		&self,
 		id: &tg::object::Id,
-	) -> tg::Result<Option<tg::object::GetOutput>> {
-		self.server.try_get_object(id).await
+	) -> impl Future<Output = tg::Result<Option<tg::object::GetOutput>>> {
+		self.server.try_get_object(id)
 	}
 
-	async fn put_object(
+	fn put_object(
 		&self,
 		id: &tg::object::Id,
 		arg: tg::object::PutArg,
 		_transaction: Option<&Self::Transaction<'_>>,
-	) -> tg::Result<tg::object::PutOutput> {
-		self.server.put_object(id, arg, None).await
+	) -> impl Future<Output = tg::Result<tg::object::PutOutput>> {
+		self.server.put_object(id, arg, None)
 	}
 
 	async fn push_object(&self, _id: &tg::object::Id) -> tg::Result<()> {

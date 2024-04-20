@@ -543,8 +543,8 @@ fn escape(bytes: impl AsRef<[u8]>) -> String {
 }
 
 impl super::Trait for Runtime {
-	async fn run(&self, build: &tg::Build) -> tg::Result<tg::Value> {
-		self.run(build).await
+	fn run(&self, build: &tg::Build) -> impl futures::Future<Output = tg::Result<tg::Value>> {
+		self.run(build)
 	}
 }
 

@@ -3,7 +3,7 @@ use crate::{tmp::Tmp, Server};
 use bytes::Bytes;
 use futures::{
 	stream::{FuturesOrdered, FuturesUnordered},
-	TryStreamExt as _,
+	Future, TryStreamExt as _,
 };
 use indoc::formatdoc;
 use itertools::Itertools as _;
@@ -805,8 +805,8 @@ impl Runtime {
 }
 
 impl super::Trait for Runtime {
-	async fn run(&self, build: &tg::Build) -> tg::Result<tg::Value> {
-		self.run(build).await
+	fn run(&self, build: &tg::Build) -> impl Future<Output = tg::Result<tg::Value>> {
+		self.run(build)
 	}
 }
 

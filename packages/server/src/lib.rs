@@ -12,7 +12,8 @@ use async_nats as nats;
 use bytes::Bytes;
 use either::Either;
 use futures::{
-	future, stream::FuturesUnordered, FutureExt as _, Stream, TryFutureExt as _, TryStreamExt as _,
+	future, stream::FuturesUnordered, Future, FutureExt as _, Stream, TryFutureExt as _,
+	TryStreamExt as _,
 };
 use http_body_util::BodyExt as _;
 use hyper_util::rt::{TokioExecutor, TokioIo};
@@ -886,267 +887,290 @@ where
 impl tg::Handle for Server {
 	type Transaction<'a> = Transaction<'a>;
 
-	async fn path(&self) -> tg::Result<Option<tg::Path>> {
-		self.path().await
+	fn path(&self) -> impl Future<Output = tg::Result<Option<tg::Path>>> {
+		self.path()
 	}
 
-	async fn archive_artifact(
+	fn archive_artifact(
 		&self,
 		id: &tg::artifact::Id,
 		arg: tg::artifact::ArchiveArg,
-	) -> tg::Result<tg::artifact::ArchiveOutput> {
-		self.archive_artifact(id, arg).await
+	) -> impl Future<Output = tg::Result<tg::artifact::ArchiveOutput>> {
+		self.archive_artifact(id, arg)
 	}
 
-	async fn extract_artifact(
+	fn extract_artifact(
 		&self,
 		arg: tg::artifact::ExtractArg,
-	) -> tg::Result<tg::artifact::ExtractOutput> {
-		self.extract_artifact(arg).await
+	) -> impl Future<Output = tg::Result<tg::artifact::ExtractOutput>> {
+		self.extract_artifact(arg)
 	}
 
-	async fn bundle_artifact(
+	fn bundle_artifact(
 		&self,
 		id: &tg::artifact::Id,
-	) -> tg::Result<tg::artifact::BundleOutput> {
-		self.bundle_artifact(id).await
+	) -> impl Future<Output = tg::Result<tg::artifact::BundleOutput>> {
+		self.bundle_artifact(id)
 	}
 
-	async fn check_in_artifact(
+	fn check_in_artifact(
 		&self,
 		arg: tg::artifact::CheckInArg,
-	) -> tg::Result<tg::artifact::CheckInOutput> {
-		self.check_in_artifact(arg).await
+	) -> impl Future<Output = tg::Result<tg::artifact::CheckInOutput>> {
+		self.check_in_artifact(arg)
 	}
 
-	async fn check_out_artifact(
+	fn check_out_artifact(
 		&self,
 		id: &tg::artifact::Id,
 		arg: tg::artifact::CheckOutArg,
-	) -> tg::Result<tg::artifact::CheckOutOutput> {
-		self.check_out_artifact(id, arg).await
+	) -> impl Future<Output = tg::Result<tg::artifact::CheckOutOutput>> {
+		self.check_out_artifact(id, arg)
 	}
 
-	async fn create_blob(
+	fn create_blob(
 		&self,
 		reader: impl AsyncRead + Send + 'static,
 		transaction: Option<&Self::Transaction<'_>>,
-	) -> tg::Result<tg::blob::Id> {
-		self.create_blob(reader, transaction).await
+	) -> impl Future<Output = tg::Result<tg::blob::Id>> {
+		self.create_blob(reader, transaction)
 	}
 
-	async fn compress_blob(
+	fn compress_blob(
 		&self,
 		id: &tg::blob::Id,
 		arg: tg::blob::CompressArg,
-	) -> tg::Result<tg::blob::CompressOutput> {
-		self.compress_blob(id, arg).await
+	) -> impl Future<Output = tg::Result<tg::blob::CompressOutput>> {
+		self.compress_blob(id, arg)
 	}
 
-	async fn decompress_blob(
+	fn decompress_blob(
 		&self,
 		id: &tg::blob::Id,
 		arg: tg::blob::DecompressArg,
-	) -> tg::Result<tg::blob::DecompressOutput> {
-		self.decompress_blob(id, arg).await
+	) -> impl Future<Output = tg::Result<tg::blob::DecompressOutput>> {
+		self.decompress_blob(id, arg)
 	}
 
-	async fn list_builds(&self, args: tg::build::ListArg) -> tg::Result<tg::build::ListOutput> {
-		self.list_builds(args).await
+	fn list_builds(
+		&self,
+		args: tg::build::ListArg,
+	) -> impl Future<Output = tg::Result<tg::build::ListOutput>> {
+		self.list_builds(args)
 	}
 
-	async fn try_get_build(
+	fn try_get_build(
 		&self,
 		id: &tg::build::Id,
 		arg: tg::build::GetArg,
-	) -> tg::Result<Option<tg::build::GetOutput>> {
-		self.try_get_build(id, arg).await
+	) -> impl Future<Output = tg::Result<Option<tg::build::GetOutput>>> {
+		self.try_get_build(id, arg)
 	}
 
-	async fn put_build(&self, id: &tg::build::Id, arg: &tg::build::PutArg) -> tg::Result<()> {
-		self.put_build(id, arg).await
+	fn put_build(
+		&self,
+		id: &tg::build::Id,
+		arg: &tg::build::PutArg,
+	) -> impl Future<Output = tg::Result<()>> {
+		self.put_build(id, arg)
 	}
 
-	async fn push_build(&self, id: &tg::build::Id) -> tg::Result<()> {
-		self.push_build(id).await
+	fn push_build(&self, id: &tg::build::Id) -> impl Future<Output = tg::Result<()>> {
+		self.push_build(id)
 	}
 
-	async fn pull_build(&self, id: &tg::build::Id) -> tg::Result<()> {
-		self.pull_build(id).await
+	fn pull_build(&self, id: &tg::build::Id) -> impl Future<Output = tg::Result<()>> {
+		self.pull_build(id)
 	}
 
-	async fn get_or_create_build(
+	fn get_or_create_build(
 		&self,
 		arg: tg::build::GetOrCreateArg,
-	) -> tg::Result<tg::build::GetOrCreateOutput> {
-		self.get_or_create_build(arg).await
+	) -> impl Future<Output = tg::Result<tg::build::GetOrCreateOutput>> {
+		self.get_or_create_build(arg)
 	}
 
-	async fn try_get_build_status(
+	fn try_get_build_status(
 		&self,
 		id: &tg::build::Id,
 		arg: tg::build::status::GetArg,
 		stop: Option<tokio::sync::watch::Receiver<bool>>,
-	) -> tg::Result<Option<impl Stream<Item = tg::Result<tg::build::Status>> + Send + 'static>> {
-		self.try_get_build_status(id, arg, stop).await
+	) -> impl Future<
+		Output = tg::Result<
+			Option<impl Stream<Item = tg::Result<tg::build::Status>> + Send + 'static>,
+		>,
+	> {
+		self.try_get_build_status(id, arg, stop)
 	}
 
-	async fn set_build_status(
+	fn set_build_status(
 		&self,
 		id: &tg::build::Id,
 		status: tg::build::Status,
-	) -> tg::Result<()> {
-		self.set_build_status(id, status).await
+	) -> impl Future<Output = tg::Result<()>> {
+		self.set_build_status(id, status)
 	}
 
-	async fn try_get_build_children(
+	fn try_get_build_children(
 		&self,
 		id: &tg::build::Id,
 		arg: tg::build::children::GetArg,
 		stop: Option<tokio::sync::watch::Receiver<bool>>,
-	) -> tg::Result<
-		Option<impl Stream<Item = tg::Result<tg::build::children::Chunk>> + Send + 'static>,
+	) -> impl Future<
+		Output = tg::Result<
+			Option<impl Stream<Item = tg::Result<tg::build::children::Chunk>> + Send + 'static>,
+		>,
 	> {
-		self.try_get_build_children(id, arg, stop).await
+		self.try_get_build_children(id, arg, stop)
 	}
 
-	async fn add_build_child(
+	fn add_build_child(
 		&self,
 		build_id: &tg::build::Id,
 		child_id: &tg::build::Id,
-	) -> tg::Result<()> {
-		self.add_build_child(build_id, child_id).await
+	) -> impl Future<Output = tg::Result<()>> {
+		self.add_build_child(build_id, child_id)
 	}
 
-	async fn try_get_build_log(
+	fn try_get_build_log(
 		&self,
 		id: &tg::build::Id,
 		arg: tg::build::log::GetArg,
 		stop: Option<tokio::sync::watch::Receiver<bool>>,
-	) -> tg::Result<Option<impl Stream<Item = tg::Result<tg::build::log::Chunk>> + Send + 'static>>
-	{
-		self.try_get_build_log(id, arg, stop).await
+	) -> impl Future<
+		Output = tg::Result<
+			Option<impl Stream<Item = tg::Result<tg::build::log::Chunk>> + Send + 'static>,
+		>,
+	> {
+		self.try_get_build_log(id, arg, stop)
 	}
 
-	async fn add_build_log(&self, build_id: &tg::build::Id, bytes: Bytes) -> tg::Result<()> {
-		self.add_build_log(build_id, bytes).await
+	fn add_build_log(
+		&self,
+		build_id: &tg::build::Id,
+		bytes: Bytes,
+	) -> impl Future<Output = tg::Result<()>> {
+		self.add_build_log(build_id, bytes)
 	}
 
-	async fn try_get_build_outcome(
+	fn try_get_build_outcome(
 		&self,
 		id: &tg::build::Id,
 		arg: tg::build::outcome::GetArg,
 		stop: Option<tokio::sync::watch::Receiver<bool>>,
-	) -> tg::Result<Option<Option<tg::build::Outcome>>> {
-		self.try_get_build_outcome(id, arg, stop).await
+	) -> impl Future<Output = tg::Result<Option<Option<tg::build::Outcome>>>> {
+		self.try_get_build_outcome(id, arg, stop)
 	}
 
-	async fn set_build_outcome(
+	fn set_build_outcome(
 		&self,
 		id: &tg::build::Id,
 		outcome: tg::build::Outcome,
-	) -> tg::Result<()> {
-		self.set_build_outcome(id, outcome).await
+	) -> impl Future<Output = tg::Result<()>> {
+		self.set_build_outcome(id, outcome)
 	}
 
-	async fn format(&self, text: String) -> tg::Result<String> {
-		self.format(text).await
+	fn format(&self, text: String) -> impl Future<Output = tg::Result<String>> {
+		self.format(text)
 	}
 
-	async fn lsp(
+	fn lsp(
 		&self,
 		input: Box<dyn AsyncBufRead + Send + Unpin + 'static>,
 		output: Box<dyn AsyncWrite + Send + Unpin + 'static>,
-	) -> tg::Result<()> {
-		self.lsp(input, output).await
+	) -> impl Future<Output = tg::Result<()>> {
+		self.lsp(input, output)
 	}
 
-	async fn try_get_object(
+	fn try_get_object(
 		&self,
 		id: &tg::object::Id,
-	) -> tg::Result<Option<tg::object::GetOutput>> {
-		self.try_get_object(id).await
+	) -> impl Future<Output = tg::Result<Option<tg::object::GetOutput>>> {
+		self.try_get_object(id)
 	}
 
-	async fn put_object(
+	fn put_object(
 		&self,
 		id: &tg::object::Id,
 		arg: tg::object::PutArg,
 		transaction: Option<&Self::Transaction<'_>>,
-	) -> tg::Result<tg::object::PutOutput> {
-		self.put_object(id, arg, transaction).await
+	) -> impl Future<Output = tg::Result<tg::object::PutOutput>> {
+		self.put_object(id, arg, transaction)
 	}
 
-	async fn push_object(&self, id: &tg::object::Id) -> tg::Result<()> {
-		self.push_object(id).await
+	fn push_object(&self, id: &tg::object::Id) -> impl Future<Output = tg::Result<()>> {
+		self.push_object(id)
 	}
 
-	async fn pull_object(&self, id: &tg::object::Id) -> tg::Result<()> {
-		self.pull_object(id).await
+	fn pull_object(&self, id: &tg::object::Id) -> impl Future<Output = tg::Result<()>> {
+		self.pull_object(id)
 	}
 
-	async fn search_packages(
+	fn search_packages(
 		&self,
 		arg: tg::package::SearchArg,
-	) -> tg::Result<tg::package::SearchOutput> {
-		self.search_packages(arg).await
+	) -> impl Future<Output = tg::Result<tg::package::SearchOutput>> {
+		self.search_packages(arg)
 	}
 
-	async fn try_get_package(
+	fn try_get_package(
 		&self,
 		dependency: &tg::Dependency,
 		arg: tg::package::GetArg,
-	) -> tg::Result<Option<tg::package::GetOutput>> {
-		Box::pin(self.try_get_package(dependency, arg)).await
+	) -> impl Future<Output = tg::Result<Option<tg::package::GetOutput>>> {
+		self.try_get_package(dependency, arg)
 	}
 
-	async fn check_package(&self, dependency: &tg::Dependency) -> tg::Result<Vec<tg::Diagnostic>> {
-		Box::pin(self.check_package(dependency)).await
-	}
-
-	async fn try_get_package_doc(
+	fn check_package(
 		&self,
 		dependency: &tg::Dependency,
-	) -> tg::Result<Option<serde_json::Value>> {
-		Box::pin(self.try_get_package_doc(dependency)).await
+	) -> impl Future<Output = tg::Result<Vec<tg::Diagnostic>>> {
+		self.check_package(dependency)
 	}
 
-	async fn format_package(&self, dependency: &tg::Dependency) -> tg::Result<()> {
-		self.format_package(dependency).await
-	}
-
-	async fn get_package_outdated(
+	fn try_get_package_doc(
 		&self,
 		dependency: &tg::Dependency,
-	) -> tg::Result<tg::package::OutdatedOutput> {
-		Box::pin(self.get_package_outdated(dependency)).await
+	) -> impl Future<Output = tg::Result<Option<serde_json::Value>>> {
+		self.try_get_package_doc(dependency)
 	}
 
-	async fn publish_package(&self, id: &tg::directory::Id) -> tg::Result<()> {
-		Box::pin(self.publish_package(id)).await
+	fn format_package(&self, dependency: &tg::Dependency) -> impl Future<Output = tg::Result<()>> {
+		self.format_package(dependency)
 	}
 
-	async fn try_get_package_versions(
+	fn get_package_outdated(
 		&self,
 		dependency: &tg::Dependency,
-	) -> tg::Result<Option<Vec<String>>> {
-		self.try_get_package_versions(dependency).await
+	) -> impl Future<Output = tg::Result<tg::package::OutdatedOutput>> {
+		self.get_package_outdated(dependency)
 	}
 
-	async fn yank_package(&self, id: &tg::directory::Id) -> tg::Result<()> {
-		self.yank_package(id).await
+	fn publish_package(&self, id: &tg::directory::Id) -> impl Future<Output = tg::Result<()>> {
+		self.publish_package(id)
 	}
 
-	async fn get_js_runtime_doc(&self) -> tg::Result<serde_json::Value> {
-		self.get_js_runtime_doc().await
+	fn try_get_package_versions(
+		&self,
+		dependency: &tg::Dependency,
+	) -> impl Future<Output = tg::Result<Option<Vec<String>>>> {
+		self.try_get_package_versions(dependency)
 	}
 
-	async fn health(&self) -> tg::Result<tg::server::Health> {
-		self.health().await
+	fn yank_package(&self, id: &tg::directory::Id) -> impl Future<Output = tg::Result<()>> {
+		self.yank_package(id)
 	}
 
-	async fn clean(&self) -> tg::Result<()> {
-		self.clean().await
+	fn get_js_runtime_doc(&self) -> impl Future<Output = tg::Result<serde_json::Value>> {
+		self.get_js_runtime_doc()
+	}
+
+	fn health(&self) -> impl Future<Output = tg::Result<tg::server::Health>> {
+		self.health()
+	}
+
+	fn clean(&self) -> impl Future<Output = tg::Result<()>> {
+		self.clean()
 	}
 
 	async fn stop(&self) -> tg::Result<()> {
@@ -1154,8 +1178,8 @@ impl tg::Handle for Server {
 		Ok(())
 	}
 
-	async fn get_user(&self, token: &str) -> tg::Result<Option<tg::user::User>> {
-		self.get_user(token).await
+	fn get_user(&self, token: &str) -> impl Future<Output = tg::Result<Option<tg::user::User>>> {
+		self.get_user(token)
 	}
 }
 

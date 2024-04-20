@@ -1,5 +1,5 @@
 use crossterm as ct;
-use futures::{StreamExt as _, TryStreamExt as _};
+use futures::{future, StreamExt as _, TryStreamExt as _};
 use num::ToPrimitive;
 use ratatui as tui;
 use std::{
@@ -801,7 +801,7 @@ where
 						if let Some(mut log_receiver) = log_receiver {
 							log_receiver.changed().await.ok()
 						} else {
-							std::future::pending().await
+							future::pending().await
 						}
 					};
 					tokio::select! {
