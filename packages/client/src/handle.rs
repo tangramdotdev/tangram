@@ -1,7 +1,7 @@
 use crate as tg;
 use bytes::Bytes;
 use either::Either;
-use futures::{Future, FutureExt as _, Stream};
+use futures::{Future, FutureExt, Stream};
 use tokio::io::{AsyncBufRead, AsyncRead, AsyncWrite};
 
 pub trait Handle: Clone + Unpin + Send + Sync + 'static {
@@ -328,210 +328,223 @@ where
 {
 	type Transaction<'a> = Either<L::Transaction<'a>, R::Transaction<'a>>;
 
-	async fn path(&self) -> tg::Result<Option<tg::Path>> {
+	fn path(&self) -> impl Future<Output = tg::Result<Option<tg::Path>>> {
 		match self {
-			Either::Left(s) => s.path().await,
-			Either::Right(s) => s.path().await,
+			Either::Left(s) => s.path().left_future(),
+			Either::Right(s) => s.path().right_future(),
 		}
 	}
 
-	async fn archive_artifact(
+	fn archive_artifact(
 		&self,
 		id: &tg::artifact::Id,
 		arg: tg::artifact::ArchiveArg,
-	) -> tg::Result<tg::artifact::ArchiveOutput> {
+	) -> impl Future<Output = tg::Result<tg::artifact::ArchiveOutput>> {
 		match self {
-			Either::Left(s) => s.archive_artifact(id, arg).await,
-			Either::Right(s) => s.archive_artifact(id, arg).await,
+			Either::Left(s) => s.archive_artifact(id, arg).left_future(),
+			Either::Right(s) => s.archive_artifact(id, arg).right_future(),
 		}
 	}
 
-	async fn extract_artifact(
+	fn extract_artifact(
 		&self,
 		arg: tg::artifact::ExtractArg,
-	) -> tg::Result<tg::artifact::ExtractOutput> {
+	) -> impl Future<Output = tg::Result<tg::artifact::ExtractOutput>> {
 		match self {
-			Either::Left(s) => s.extract_artifact(arg).await,
-			Either::Right(s) => s.extract_artifact(arg).await,
+			Either::Left(s) => s.extract_artifact(arg).left_future(),
+			Either::Right(s) => s.extract_artifact(arg).right_future(),
 		}
 	}
 
-	async fn bundle_artifact(
+	fn bundle_artifact(
 		&self,
 		id: &tg::artifact::Id,
-	) -> tg::Result<tg::artifact::BundleOutput> {
+	) -> impl Future<Output = tg::Result<tg::artifact::BundleOutput>> {
 		match self {
-			Either::Left(s) => s.bundle_artifact(id).await,
-			Either::Right(s) => s.bundle_artifact(id).await,
+			Either::Left(s) => s.bundle_artifact(id).left_future(),
+			Either::Right(s) => s.bundle_artifact(id).right_future(),
 		}
 	}
 
-	async fn check_in_artifact(
+	fn check_in_artifact(
 		&self,
 		arg: tg::artifact::CheckInArg,
-	) -> tg::Result<tg::artifact::CheckInOutput> {
+	) -> impl Future<Output = tg::Result<tg::artifact::CheckInOutput>> {
 		match self {
-			Either::Left(s) => s.check_in_artifact(arg).await,
-			Either::Right(s) => s.check_in_artifact(arg).await,
+			Either::Left(s) => s.check_in_artifact(arg).left_future(),
+			Either::Right(s) => s.check_in_artifact(arg).right_future(),
 		}
 	}
 
-	async fn check_out_artifact(
+	fn check_out_artifact(
 		&self,
 		id: &tg::artifact::Id,
 		arg: tg::artifact::CheckOutArg,
-	) -> tg::Result<tg::artifact::CheckOutOutput> {
+	) -> impl Future<Output = tg::Result<tg::artifact::CheckOutOutput>> {
 		match self {
-			Either::Left(s) => s.check_out_artifact(id, arg).await,
-			Either::Right(s) => s.check_out_artifact(id, arg).await,
+			Either::Left(s) => s.check_out_artifact(id, arg).left_future(),
+			Either::Right(s) => s.check_out_artifact(id, arg).right_future(),
 		}
 	}
 
-	async fn create_blob(
+	fn create_blob(
 		&self,
 		reader: impl AsyncRead + Send + 'static,
 		transaction: Option<&Self::Transaction<'_>>,
-	) -> tg::Result<tg::blob::Id> {
+	) -> impl Future<Output = tg::Result<tg::blob::Id>> {
 		match self {
 			Either::Left(s) => {
 				let transaction = transaction.map(|t| t.as_ref().left().unwrap());
-				s.create_blob(reader, transaction).boxed().await
+				s.create_blob(reader, transaction).left_future()
 			},
 			Either::Right(s) => {
 				let transaction = transaction.map(|t| t.as_ref().right().unwrap());
-				s.create_blob(reader, transaction).boxed().await
+				s.create_blob(reader, transaction).right_future()
 			},
 		}
 	}
 
-	async fn compress_blob(
+	fn compress_blob(
 		&self,
 		id: &tg::blob::Id,
 		arg: tg::blob::CompressArg,
-	) -> tg::Result<tg::blob::CompressOutput> {
+	) -> impl Future<Output = tg::Result<tg::blob::CompressOutput>> {
 		match self {
-			Either::Left(s) => s.compress_blob(id, arg).await,
-			Either::Right(s) => s.compress_blob(id, arg).await,
+			Either::Left(s) => s.compress_blob(id, arg).left_future(),
+			Either::Right(s) => s.compress_blob(id, arg).right_future(),
 		}
 	}
 
-	async fn decompress_blob(
+	fn decompress_blob(
 		&self,
 		id: &tg::blob::Id,
 		arg: tg::blob::DecompressArg,
-	) -> tg::Result<tg::blob::DecompressOutput> {
+	) -> impl Future<Output = tg::Result<tg::blob::DecompressOutput>> {
 		match self {
-			Either::Left(s) => s.decompress_blob(id, arg).await,
-			Either::Right(s) => s.decompress_blob(id, arg).await,
+			Either::Left(s) => s.decompress_blob(id, arg).left_future(),
+			Either::Right(s) => s.decompress_blob(id, arg).right_future(),
 		}
 	}
 
-	async fn list_builds(&self, arg: tg::build::ListArg) -> tg::Result<tg::build::ListOutput> {
+	fn list_builds(
+		&self,
+		arg: tg::build::ListArg,
+	) -> impl Future<Output = tg::Result<tg::build::ListOutput>> {
 		match self {
-			Either::Left(s) => s.list_builds(arg).await,
-			Either::Right(s) => s.list_builds(arg).await,
+			Either::Left(s) => s.list_builds(arg).left_future(),
+			Either::Right(s) => s.list_builds(arg).right_future(),
 		}
 	}
 
-	async fn try_get_build(
+	fn try_get_build(
 		&self,
 		id: &tg::build::Id,
 		arg: tg::build::GetArg,
-	) -> tg::Result<Option<tg::build::GetOutput>> {
+	) -> impl Future<Output = tg::Result<Option<tg::build::GetOutput>>> {
 		match self {
-			Either::Left(s) => s.try_get_build(id, arg).await,
-			Either::Right(s) => s.try_get_build(id, arg).await,
+			Either::Left(s) => s.try_get_build(id, arg).left_future(),
+			Either::Right(s) => s.try_get_build(id, arg).right_future(),
 		}
 	}
 
-	async fn put_build(&self, id: &tg::build::Id, arg: &tg::build::PutArg) -> tg::Result<()> {
+	fn put_build(
+		&self,
+		id: &tg::build::Id,
+		arg: &tg::build::PutArg,
+	) -> impl Future<Output = tg::Result<()>> {
 		match self {
-			Either::Left(s) => s.put_build(id, arg).await,
-			Either::Right(s) => s.put_build(id, arg).await,
+			Either::Left(s) => s.put_build(id, arg).left_future(),
+			Either::Right(s) => s.put_build(id, arg).right_future(),
 		}
 	}
 
-	async fn push_build(&self, id: &tg::build::Id) -> tg::Result<()> {
+	fn push_build(&self, id: &tg::build::Id) -> impl Future<Output = tg::Result<()>> {
 		match self {
-			Either::Left(s) => s.push_build(id).await,
-			Either::Right(s) => s.push_build(id).await,
+			Either::Left(s) => s.push_build(id).left_future(),
+			Either::Right(s) => s.push_build(id).right_future(),
 		}
 	}
 
-	async fn pull_build(&self, id: &tg::build::Id) -> tg::Result<()> {
+	fn pull_build(&self, id: &tg::build::Id) -> impl Future<Output = tg::Result<()>> {
 		match self {
-			Either::Left(s) => s.pull_build(id).await,
-			Either::Right(s) => s.pull_build(id).await,
+			Either::Left(s) => s.pull_build(id).left_future(),
+			Either::Right(s) => s.pull_build(id).right_future(),
 		}
 	}
 
-	async fn get_or_create_build(
+	fn get_or_create_build(
 		&self,
 		arg: tg::build::GetOrCreateArg,
-	) -> tg::Result<tg::build::GetOrCreateOutput> {
+	) -> impl Future<Output = tg::Result<tg::build::GetOrCreateOutput>> {
 		match self {
-			Either::Left(s) => s.get_or_create_build(arg).await,
-			Either::Right(s) => s.get_or_create_build(arg).await,
+			Either::Left(s) => s.get_or_create_build(arg).left_future(),
+			Either::Right(s) => s.get_or_create_build(arg).right_future(),
 		}
 	}
 
-	async fn try_get_build_status(
+	fn try_get_build_status(
 		&self,
 		id: &tg::build::Id,
 		arg: tg::build::status::GetArg,
 		stop: Option<tokio::sync::watch::Receiver<bool>>,
-	) -> tg::Result<Option<impl Stream<Item = tg::Result<tg::build::Status>> + Send + 'static>> {
+	) -> impl Future<
+		Output = tg::Result<
+			Option<impl Stream<Item = tg::Result<tg::build::Status>> + Send + 'static>,
+		>,
+	> {
 		match self {
 			Either::Left(s) => s
 				.try_get_build_status(id, arg, stop)
-				.await
-				.map(|option| option.map(futures::StreamExt::left_stream)),
+				.map(|result| result.map(|option| option.map(futures::StreamExt::left_stream)))
+				.left_future(),
 			Either::Right(s) => s
 				.try_get_build_status(id, arg, stop)
-				.await
-				.map(|option| option.map(futures::StreamExt::right_stream)),
+				.map(|result| result.map(|option| option.map(futures::StreamExt::right_stream)))
+				.right_future(),
 		}
 	}
 
-	async fn set_build_status(
+	fn set_build_status(
 		&self,
 		id: &tg::build::Id,
 		status: tg::build::Status,
-	) -> tg::Result<()> {
+	) -> impl Future<Output = tg::Result<()>> {
 		match self {
-			Either::Left(s) => s.set_build_status(id, status).await,
-			Either::Right(s) => s.set_build_status(id, status).await,
+			Either::Left(s) => s.set_build_status(id, status).left_future(),
+			Either::Right(s) => s.set_build_status(id, status).right_future(),
 		}
 	}
 
-	async fn try_get_build_children(
+	fn try_get_build_children(
 		&self,
 		id: &tg::build::Id,
 		arg: tg::build::children::GetArg,
 		stop: Option<tokio::sync::watch::Receiver<bool>>,
-	) -> tg::Result<
-		Option<impl Stream<Item = tg::Result<tg::build::children::Chunk>> + Send + 'static>,
+	) -> impl Future<
+		Output = tg::Result<
+			Option<impl Stream<Item = tg::Result<tg::build::children::Chunk>> + Send + 'static>,
+		>,
 	> {
 		match self {
 			Either::Left(s) => s
 				.try_get_build_children(id, arg, stop)
-				.await
-				.map(|option| option.map(futures::StreamExt::left_stream)),
+				.map(|result| result.map(|option| option.map(futures::StreamExt::left_stream)))
+				.left_future(),
 			Either::Right(s) => s
 				.try_get_build_children(id, arg, stop)
-				.await
-				.map(|option| option.map(futures::StreamExt::right_stream)),
+				.map(|result| result.map(|option| option.map(futures::StreamExt::right_stream)))
+				.right_future(),
 		}
 	}
 
-	async fn add_build_child(
+	fn add_build_child(
 		&self,
 		build_id: &tg::build::Id,
 		child_id: &tg::build::Id,
-	) -> tg::Result<()> {
+	) -> impl Future<Output = tg::Result<()>> {
 		match self {
-			Either::Left(s) => s.add_build_child(build_id, child_id).await,
-			Either::Right(s) => s.add_build_child(build_id, child_id).await,
+			Either::Left(s) => s.add_build_child(build_id, child_id).left_future(),
+			Either::Right(s) => s.add_build_child(build_id, child_id).right_future(),
 		}
 	}
 
@@ -554,207 +567,214 @@ where
 		}
 	}
 
-	async fn add_build_log(&self, id: &tg::build::Id, bytes: Bytes) -> tg::Result<()> {
+	fn add_build_log(
+		&self,
+		id: &tg::build::Id,
+		bytes: Bytes,
+	) -> impl Future<Output = tg::Result<()>> {
 		match self {
-			Either::Left(s) => s.add_build_log(id, bytes).await,
-			Either::Right(s) => s.add_build_log(id, bytes).await,
+			Either::Left(s) => s.add_build_log(id, bytes).left_future(),
+			Either::Right(s) => s.add_build_log(id, bytes).right_future(),
 		}
 	}
 
-	async fn try_get_build_outcome(
+	fn try_get_build_outcome(
 		&self,
 		id: &tg::build::Id,
 		arg: tg::build::outcome::GetArg,
 		stop: Option<tokio::sync::watch::Receiver<bool>>,
-	) -> tg::Result<Option<Option<tg::build::Outcome>>> {
+	) -> impl Future<Output = tg::Result<Option<Option<tg::build::Outcome>>>> {
 		match self {
-			Either::Left(s) => s.try_get_build_outcome(id, arg, stop).await,
-			Either::Right(s) => s.try_get_build_outcome(id, arg, stop).await,
+			Either::Left(s) => s.try_get_build_outcome(id, arg, stop).left_future(),
+			Either::Right(s) => s.try_get_build_outcome(id, arg, stop).right_future(),
 		}
 	}
 
-	async fn set_build_outcome(
+	fn set_build_outcome(
 		&self,
 		id: &tg::build::Id,
 		outcome: tg::build::Outcome,
-	) -> tg::Result<()> {
+	) -> impl Future<Output = tg::Result<()>> {
 		match self {
-			Either::Left(s) => s.set_build_outcome(id, outcome).await,
-			Either::Right(s) => s.set_build_outcome(id, outcome).await,
+			Either::Left(s) => s.set_build_outcome(id, outcome).left_future(),
+			Either::Right(s) => s.set_build_outcome(id, outcome).right_future(),
 		}
 	}
 
-	async fn format(&self, text: String) -> tg::Result<String> {
+	fn format(&self, text: String) -> impl Future<Output = tg::Result<String>> {
 		match self {
-			Either::Left(s) => s.format(text).await,
-			Either::Right(s) => s.format(text).await,
+			Either::Left(s) => s.format(text).left_future(),
+			Either::Right(s) => s.format(text).right_future(),
 		}
 	}
 
-	async fn lsp(
+	fn lsp(
 		&self,
 		input: Box<dyn AsyncBufRead + Send + Unpin + 'static>,
 		output: Box<dyn AsyncWrite + Send + Unpin + 'static>,
-	) -> tg::Result<()> {
+	) -> impl Future<Output = tg::Result<()>> {
 		match self {
-			Either::Left(s) => s.lsp(input, output).await,
-			Either::Right(s) => s.lsp(input, output).await,
+			Either::Left(s) => s.lsp(input, output).left_future(),
+			Either::Right(s) => s.lsp(input, output).right_future(),
 		}
 	}
 
-	async fn try_get_object(
+	fn try_get_object(
 		&self,
 		id: &tg::object::Id,
-	) -> tg::Result<Option<tg::object::GetOutput>> {
+	) -> impl Future<Output = tg::Result<Option<tg::object::GetOutput>>> {
 		match self {
-			Either::Left(s) => s.try_get_object(id).await,
-			Either::Right(s) => s.try_get_object(id).await,
+			Either::Left(s) => s.try_get_object(id).left_future(),
+			Either::Right(s) => s.try_get_object(id).right_future(),
 		}
 	}
 
-	async fn put_object(
+	fn put_object(
 		&self,
 		id: &tg::object::Id,
 		arg: tg::object::PutArg,
 		transaction: Option<&Self::Transaction<'_>>,
-	) -> tg::Result<tg::object::PutOutput> {
+	) -> impl Future<Output = tg::Result<tg::object::PutOutput>> {
 		match self {
 			Either::Left(s) => {
 				let transaction = transaction.map(|t| t.as_ref().left().unwrap());
-				s.put_object(id, arg, transaction).boxed().await
+				s.put_object(id, arg, transaction).left_future()
 			},
 			Either::Right(s) => {
 				let transaction = transaction.map(|t| t.as_ref().right().unwrap());
-				s.put_object(id, arg, transaction).boxed().await
+				s.put_object(id, arg, transaction).right_future()
 			},
 		}
 	}
 
-	async fn push_object(&self, id: &tg::object::Id) -> tg::Result<()> {
+	fn push_object(&self, id: &tg::object::Id) -> impl Future<Output = tg::Result<()>> {
 		match self {
-			Either::Left(s) => s.push_object(id).await,
-			Either::Right(s) => s.push_object(id).await,
+			Either::Left(s) => s.push_object(id).left_future(),
+			Either::Right(s) => s.push_object(id).right_future(),
 		}
 	}
 
-	async fn pull_object(&self, id: &tg::object::Id) -> tg::Result<()> {
+	fn pull_object(&self, id: &tg::object::Id) -> impl Future<Output = tg::Result<()>> {
 		match self {
-			Either::Left(s) => s.pull_object(id).await,
-			Either::Right(s) => s.pull_object(id).await,
+			Either::Left(s) => s.pull_object(id).left_future(),
+			Either::Right(s) => s.pull_object(id).right_future(),
 		}
 	}
 
-	async fn search_packages(
+	fn search_packages(
 		&self,
 		arg: tg::package::SearchArg,
-	) -> tg::Result<tg::package::SearchOutput> {
+	) -> impl Future<Output = tg::Result<tg::package::SearchOutput>> {
 		match self {
-			Either::Left(s) => s.search_packages(arg).await,
-			Either::Right(s) => s.search_packages(arg).await,
+			Either::Left(s) => s.search_packages(arg).left_future(),
+			Either::Right(s) => s.search_packages(arg).right_future(),
 		}
 	}
 
-	async fn try_get_package(
+	fn try_get_package(
 		&self,
 		dependency: &tg::Dependency,
 		arg: tg::package::GetArg,
-	) -> tg::Result<Option<tg::package::GetOutput>> {
+	) -> impl Future<Output = tg::Result<Option<tg::package::GetOutput>>> {
 		match self {
-			Either::Left(s) => s.try_get_package(dependency, arg).await,
-			Either::Right(s) => s.try_get_package(dependency, arg).await,
+			Either::Left(s) => s.try_get_package(dependency, arg).left_future(),
+			Either::Right(s) => s.try_get_package(dependency, arg).right_future(),
 		}
 	}
 
-	async fn check_package(&self, dependency: &tg::Dependency) -> tg::Result<Vec<tg::Diagnostic>> {
-		match self {
-			Either::Left(s) => s.check_package(dependency).await,
-			Either::Right(s) => s.check_package(dependency).await,
-		}
-	}
-
-	async fn format_package(&self, dependency: &tg::Dependency) -> tg::Result<()> {
-		match self {
-			Either::Left(s) => s.format_package(dependency).await,
-			Either::Right(s) => s.format_package(dependency).await,
-		}
-	}
-
-	async fn try_get_package_doc(
+	fn check_package(
 		&self,
 		dependency: &tg::Dependency,
-	) -> tg::Result<Option<serde_json::Value>> {
+	) -> impl Future<Output = tg::Result<Vec<tg::Diagnostic>>> {
 		match self {
-			Either::Left(s) => s.try_get_package_doc(dependency).await,
-			Either::Right(s) => s.try_get_package_doc(dependency).await,
+			Either::Left(s) => s.check_package(dependency).left_future(),
+			Either::Right(s) => s.check_package(dependency).right_future(),
 		}
 	}
 
-	async fn get_package_outdated(
+	fn format_package(&self, dependency: &tg::Dependency) -> impl Future<Output = tg::Result<()>> {
+		match self {
+			Either::Left(s) => s.format_package(dependency).left_future(),
+			Either::Right(s) => s.format_package(dependency).right_future(),
+		}
+	}
+
+	fn try_get_package_doc(
+		&self,
+		dependency: &tg::Dependency,
+	) -> impl Future<Output = tg::Result<Option<serde_json::Value>>> {
+		match self {
+			Either::Left(s) => s.try_get_package_doc(dependency).left_future(),
+			Either::Right(s) => s.try_get_package_doc(dependency).right_future(),
+		}
+	}
+
+	fn get_package_outdated(
 		&self,
 		arg: &tg::Dependency,
-	) -> tg::Result<tg::package::OutdatedOutput> {
+	) -> impl Future<Output = tg::Result<tg::package::OutdatedOutput>> {
 		match self {
-			Either::Left(s) => s.get_package_outdated(arg).await,
-			Either::Right(s) => s.get_package_outdated(arg).await,
+			Either::Left(s) => s.get_package_outdated(arg).left_future(),
+			Either::Right(s) => s.get_package_outdated(arg).right_future(),
 		}
 	}
 
-	async fn publish_package(&self, id: &tg::directory::Id) -> tg::Result<()> {
+	fn publish_package(&self, id: &tg::directory::Id) -> impl Future<Output = tg::Result<()>> {
 		match self {
-			Either::Left(s) => s.publish_package(id).await,
-			Either::Right(s) => s.publish_package(id).await,
+			Either::Left(s) => s.publish_package(id).left_future(),
+			Either::Right(s) => s.publish_package(id).right_future(),
 		}
 	}
 
-	async fn try_get_package_versions(
+	fn try_get_package_versions(
 		&self,
 		dependency: &tg::Dependency,
-	) -> tg::Result<Option<Vec<String>>> {
+	) -> impl Future<Output = tg::Result<Option<Vec<String>>>> {
 		match self {
-			Either::Left(s) => s.try_get_package_versions(dependency).await,
-			Either::Right(s) => s.try_get_package_versions(dependency).await,
+			Either::Left(s) => s.try_get_package_versions(dependency).left_future(),
+			Either::Right(s) => s.try_get_package_versions(dependency).right_future(),
 		}
 	}
 
-	async fn yank_package(&self, id: &tg::directory::Id) -> tg::Result<()> {
+	fn yank_package(&self, id: &tg::directory::Id) -> impl Future<Output = tg::Result<()>> {
 		match self {
-			Either::Left(s) => s.yank_package(id).await,
-			Either::Right(s) => s.yank_package(id).await,
+			Either::Left(s) => s.yank_package(id).left_future(),
+			Either::Right(s) => s.yank_package(id).right_future(),
 		}
 	}
 
-	async fn get_js_runtime_doc(&self) -> tg::Result<serde_json::Value> {
+	fn get_js_runtime_doc(&self) -> impl Future<Output = tg::Result<serde_json::Value>> {
 		match self {
-			Either::Left(s) => s.get_js_runtime_doc().await,
-			Either::Right(s) => s.get_js_runtime_doc().await,
+			Either::Left(s) => s.get_js_runtime_doc().left_future(),
+			Either::Right(s) => s.get_js_runtime_doc().right_future(),
 		}
 	}
 
-	async fn health(&self) -> tg::Result<tg::Health> {
+	fn health(&self) -> impl Future<Output = tg::Result<tg::Health>> {
 		match self {
-			Either::Left(s) => s.health().await,
-			Either::Right(s) => s.health().await,
+			Either::Left(s) => s.health().left_future(),
+			Either::Right(s) => s.health().right_future(),
 		}
 	}
 
-	async fn clean(&self) -> tg::Result<()> {
+	fn clean(&self) -> impl Future<Output = tg::Result<()>> {
 		match self {
-			Either::Left(s) => s.clean().await,
-			Either::Right(s) => s.clean().await,
+			Either::Left(s) => s.clean().left_future(),
+			Either::Right(s) => s.clean().right_future(),
 		}
 	}
 
-	async fn stop(&self) -> tg::Result<()> {
+	fn stop(&self) -> impl Future<Output = tg::Result<()>> {
 		match self {
-			Either::Left(s) => s.stop().await,
-			Either::Right(s) => s.stop().await,
+			Either::Left(s) => s.stop().left_future(),
+			Either::Right(s) => s.stop().right_future(),
 		}
 	}
 
-	async fn get_user(&self, token: &str) -> tg::Result<Option<tg::User>> {
+	fn get_user(&self, token: &str) -> impl Future<Output = tg::Result<Option<tg::User>>> {
 		match self {
-			Either::Left(s) => s.get_user(token).await,
-			Either::Right(s) => s.get_user(token).await,
+			Either::Left(s) => s.get_user(token).left_future(),
+			Either::Right(s) => s.get_user(token).right_future(),
 		}
 	}
 }
