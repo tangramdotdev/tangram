@@ -862,7 +862,7 @@ pub struct open_read_delegation4 {
 	/// Stateid for delegation
 	pub stateid: stateid4,
 
-	/// Pre-recalled flag for delegations obtainedby reclaim (CLAIM_PREVIOUS).
+	/// Pre-recalled flag for delegations obtainedby reclaim `CLAIM_PREVIOUS`.
 	pub recall: bool,
 
 	/// Defines users who don't need an ACCESS call to open for read.
@@ -874,7 +874,7 @@ pub struct open_write_delegation4 {
 	/// Stateid for delegation
 	pub stateid: stateid4,
 
-	/// Pre-recalled flag for delegations obtained by reclaim (CLAIM_PREVIOUS).
+	/// Pre-recalled flag for delegations obtained by reclaim `CLAIM_PREVIOUS`.
 	pub recall: bool,
 
 	/// Defines condition that the client must check to determine whether the file needs to be flushed to the server on close.
