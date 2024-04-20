@@ -337,8 +337,7 @@ impl Builder {
 		// Get the first component.
 		let name = path
 			.components()
-			.iter()
-			.nth(1)
+			.get(1)
 			.ok_or_else(|| tg::error!("expected the path to have at least one component"))?
 			.try_unwrap_normal_ref()
 			.ok()
@@ -382,8 +381,7 @@ impl Builder {
 		// Get the first component.
 		let name = path
 			.components()
-			.iter()
-			.nth(0)
+			.first()
 			.ok_or_else(|| tg::error!("expected the path to have at least one component"))?
 			.try_unwrap_normal_ref()
 			.ok()

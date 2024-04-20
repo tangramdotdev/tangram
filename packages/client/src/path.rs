@@ -79,13 +79,13 @@ impl Path {
 
 			// If the component is a parent component and follows a current component, then replace the path with a parent component.
 			(Component::Parent, Component::Current) => {
-				self.string = "..".to_owned();
+				self.string = "..".into();
 				self.components = vec![Component::Parent];
 			},
 
 			// If the component is a root component, then replace the path with a root component.
 			(Component::Root, _) => {
-				self.string = "/".to_owned();
+				self.string = "/".into();
 				self.components = vec![Component::Root];
 			},
 

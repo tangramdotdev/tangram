@@ -59,7 +59,7 @@ impl Messenger {
 		Ok(())
 	}
 
-	pub async fn subscribe_to_build_created(&self) -> tg::Result<impl Stream<Item = ()>> {
+	pub async fn subscribe_to_build_created(&self) -> tg::Result<impl Stream<Item = ()> + 'static> {
 		match self {
 			Messenger::Channel(sender) => Ok(BroadcastStream::new(sender.subscribe())
 				.filter_map(|result| future::ready(result.ok()))
@@ -97,7 +97,7 @@ impl Messenger {
 	pub async fn subscribe_to_build_children(
 		&self,
 		id: &tg::build::Id,
-	) -> tg::Result<impl Stream<Item = ()>> {
+	) -> tg::Result<impl Stream<Item = ()> + 'static> {
 		match self {
 			Messenger::Channel(sender) => Ok(BroadcastStream::new(sender.subscribe())
 				.filter_map(|result| future::ready(result.ok()))
@@ -136,7 +136,7 @@ impl Messenger {
 	pub async fn subscribe_to_build_log(
 		&self,
 		id: &tg::build::Id,
-	) -> tg::Result<impl Stream<Item = ()>> {
+	) -> tg::Result<impl Stream<Item = ()> + 'static> {
 		match self {
 			Messenger::Channel(sender) => Ok(BroadcastStream::new(sender.subscribe())
 				.filter_map(|result| future::ready(result.ok()))
@@ -175,7 +175,7 @@ impl Messenger {
 	pub async fn subscribe_to_build_status(
 		&self,
 		id: &tg::build::Id,
-	) -> tg::Result<impl Stream<Item = ()>> {
+	) -> tg::Result<impl Stream<Item = ()> + 'static> {
 		match self {
 			Messenger::Channel(sender) => Ok(BroadcastStream::new(sender.subscribe())
 				.filter_map(|result| future::ready(result.ok()))

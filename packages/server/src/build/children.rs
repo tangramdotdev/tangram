@@ -19,7 +19,9 @@ impl Server {
 		id: &tg::build::Id,
 		arg: tg::build::children::GetArg,
 		stop: Option<tokio::sync::watch::Receiver<bool>>,
-	) -> tg::Result<Option<impl Stream<Item = tg::Result<tg::build::children::Chunk>> + Send>> {
+	) -> tg::Result<
+		Option<impl Stream<Item = tg::Result<tg::build::children::Chunk>> + Send + 'static>,
+	> {
 		if let Some(children) = self
 			.try_get_build_children_local(id, arg.clone(), stop.clone())
 			.await?
@@ -40,7 +42,9 @@ impl Server {
 		id: &tg::build::Id,
 		arg: tg::build::children::GetArg,
 		stop: Option<tokio::sync::watch::Receiver<bool>>,
-	) -> tg::Result<Option<impl Stream<Item = tg::Result<tg::build::children::Chunk>> + Send>> {
+	) -> tg::Result<
+		Option<impl Stream<Item = tg::Result<tg::build::children::Chunk>> + Send + 'static>,
+	> {
 		// Verify the build is local.
 		if !self.get_build_exists_local(id).await? {
 			return Ok(None);
@@ -305,7 +309,9 @@ impl Server {
 		id: &tg::build::Id,
 		arg: tg::build::children::GetArg,
 		stop: Option<tokio::sync::watch::Receiver<bool>>,
-	) -> tg::Result<Option<impl Stream<Item = tg::Result<tg::build::children::Chunk>> + Send>> {
+	) -> tg::Result<
+		Option<impl Stream<Item = tg::Result<tg::build::children::Chunk>> + Send + 'static>,
+	> {
 		let Some(remote) = self.remotes.first() else {
 			return Ok(None);
 		};
