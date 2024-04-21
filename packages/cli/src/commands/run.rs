@@ -1,7 +1,6 @@
 use crate::Cli;
-use std::os::unix::process::CommandExt as _;
+use std::{os::unix::process::CommandExt as _, path::PathBuf};
 use tangram_client as tg;
-use tg::Handle as _;
 
 /// Build a target and run a command.
 #[derive(Debug, clap::Args)]
@@ -31,13 +30,16 @@ impl Cli {
 				let artifact: tg::Artifact = value.try_into().map_err(|source| {
 					tg::error!(!source, "expected the output to be an artifact")
 				})?;
-				self.handle
-					.path()
-					.await
-					.map_err(|source| tg::error!(!source, "failed to get the server path"))?
-					.ok_or_else(|| tg::error!("failed to get the server path"))?
-					.join("artifacts")
+				let path = self
+					.config
+					.as_ref()
+					.and_then(|config| config.path.clone())
+					.unwrap_or_else(|| {
+						PathBuf::from(std::env::var("HOME").unwrap()).join(".tangram")
+					});
+				path.join("artifacts")
 					.join(artifact.id(&self.handle, None).await?.to_string())
+					.try_into()?
 			},
 		};
 

@@ -513,10 +513,6 @@ impl Builder {
 impl tg::Handle for Client {
 	type Transaction<'a> = ();
 
-	fn path(&self) -> impl Future<Output = tg::Result<Option<tg::Path>>> {
-		self.path()
-	}
-
 	fn archive_artifact(
 		&self,
 		id: &tg::artifact::Id,

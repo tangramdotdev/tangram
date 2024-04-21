@@ -7,8 +7,6 @@ use tokio::io::{AsyncBufRead, AsyncRead, AsyncWrite};
 pub trait Handle: Clone + Unpin + Send + Sync + 'static {
 	type Transaction<'a>: Send + Sync;
 
-	fn path(&self) -> impl Future<Output = tg::Result<Option<tg::Path>>> + Send;
-
 	fn archive_artifact(
 		&self,
 		id: &tg::artifact::Id,
@@ -327,13 +325,6 @@ where
 	R: Handle,
 {
 	type Transaction<'a> = Either<L::Transaction<'a>, R::Transaction<'a>>;
-
-	fn path(&self) -> impl Future<Output = tg::Result<Option<tg::Path>>> {
-		match self {
-			Either::Left(s) => s.path().left_future(),
-			Either::Right(s) => s.path().right_future(),
-		}
-	}
 
 	fn archive_artifact(
 		&self,

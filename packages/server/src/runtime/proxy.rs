@@ -119,10 +119,6 @@ impl Server {
 impl tg::Handle for Server {
 	type Transaction<'a> = ();
 
-	fn path(&self) -> impl Future<Output = tg::Result<Option<tg::Path>>> {
-		self.server.path()
-	}
-
 	fn archive_artifact(
 		&self,
 		id: &tg::artifact::Id,

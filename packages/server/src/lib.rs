@@ -838,12 +838,15 @@ where
 				.boxed(),
 
 			// Server.
-			(http::Method::GET, ["health"]) => {
-				self.handle_health_request(request).map(Some).boxed()
+			(http::Method::POST, ["clean"]) => {
+				self.handle_server_clean_request(request).map(Some).boxed()
 			},
-			(http::Method::GET, ["path"]) => self.handle_path_request(request).map(Some).boxed(),
-			(http::Method::POST, ["clean"]) => self.handle_clean_request(request).map(Some).boxed(),
-			(http::Method::POST, ["stop"]) => self.handle_stop_request(request).map(Some).boxed(),
+			(http::Method::GET, ["health"]) => {
+				self.handle_server_health_request(request).map(Some).boxed()
+			},
+			(http::Method::POST, ["stop"]) => {
+				self.handle_server_stop_request(request).map(Some).boxed()
+			},
 
 			// Users.
 			(http::Method::GET, ["user"]) => {
@@ -891,10 +894,6 @@ where
 
 impl tg::Handle for Server {
 	type Transaction<'a> = Transaction<'a>;
-
-	fn path(&self) -> impl Future<Output = tg::Result<Option<tg::Path>>> {
-		self.path()
-	}
 
 	fn archive_artifact(
 		&self,
