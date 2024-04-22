@@ -1,12 +1,12 @@
 use crate::{
 	runtime::Trait as _,
 	util::http::{full, Incoming, Outgoing},
-	BuildState, Http, Permit, Server,
+	Http, Permit, Server,
 };
 use either::Either;
-use futures::{future, FutureExt as _, TryFutureExt as _};
+use futures::{FutureExt as _, TryFutureExt as _};
 use http_body_util::BodyExt as _;
-use std::{pin::pin, sync::Arc};
+use std::sync::Arc;
 use tangram_client as tg;
 
 impl Server {
@@ -139,18 +139,6 @@ impl Server {
 		let target = tg::Target::with_id(arg.target.clone());
 		let host = target.host(self).await?;
 
-		// Create the build state.
-		let permit = Arc::new(tokio::sync::Mutex::new(None));
-		let (stop, _) = tokio::sync::watch::channel(false);
-		let state = Arc::new(BuildState {
-			permit,
-			stop,
-			task: std::sync::Mutex::new(None),
-		});
-
-		// Add the build state.
-		self.build_state.write().unwrap().insert(id.clone(), state);
-
 		// Put the build.
 		let put_arg = tg::build::PutArg {
 			id: id.clone(),
@@ -186,27 +174,27 @@ impl Server {
 		let parent = arg.parent.clone();
 		let build = build.clone();
 		let task = async move {
-			// Get the parent build's state if it is available.
-			let Some(state) =
-				parent.and_then(|parent| server.build_state.read().unwrap().get(&parent).cloned())
-			else {
-				return Ok(());
-			};
-
 			// Acquire the parent's permit.
-			let permit = state
-				.permit
-				.clone()
+			let Some(permit) = parent.as_ref().and_then(|parent| {
+				server
+					.build_permits
+					.get(parent)
+					.map(|permit| permit.clone())
+			}) else {
+				return;
+			};
+			let permit = permit
 				.lock_owned()
 				.map(|guard| Permit(Either::Right(guard)))
 				.await;
 
 			// Start the build.
-			server.start_build(build, permit).await?;
-
-			Ok::<_, tg::Error>(())
-		}
-		.inspect_err(|error| tracing::error!(?error, "failed to start the build"));
+			server
+				.try_start_build(build, permit)
+				.await
+				.inspect_err(|error| tracing::error!(?error, "failed to start the build"))
+				.ok();
+		};
 		tokio::spawn(task);
 
 		let output = tg::build::GetOrCreateOutput { id };
@@ -214,42 +202,35 @@ impl Server {
 		Ok(output)
 	}
 
-	pub(crate) async fn start_build(&self, build: tg::Build, permit: Permit) -> tg::Result<()> {
-		// Set the build's status to started.
-		self.set_build_status(build.id(), tg::build::Status::Started)
-			.await?;
+	pub(crate) async fn try_start_build(
+		&self,
+		build: tg::Build,
+		permit: Permit,
+	) -> tg::Result<bool> {
+		// Attempt to set the build's status to started.
+		let result = self
+			.set_build_status(build.id(), tg::build::Status::Started)
+			.await;
 
-		// Lock the build state.
-		let state = self
-			.build_state
-			.write()
-			.unwrap()
-			.get_mut(build.id())
-			.unwrap()
-			.clone();
+		// If the attempt to set the build's status failed, then return.
+		if let Err(error) = result {
+			tracing::error!(?error, "failed to set the build's status");
+			return Ok(false);
+		};
 
-		// Set the permit.
-		state.permit.lock().await.replace(permit);
+		// Set the permit for the build.
+		let permit = Arc::new(tokio::sync::Mutex::new(Some(permit)));
+		self.build_permits.insert(build.id().clone(), permit);
 
 		// Spawn the task.
 		let server = self.clone();
 		let build = build.clone();
-		let mut stop = self
-			.build_state
-			.read()
-			.unwrap()
-			.get(build.id())
-			.unwrap()
-			.stop
-			.subscribe();
 		let task = async move {
 			// Build.
-			let inner = server.start_build_inner(build.clone());
-			let stop = stop.wait_for(|s| *s);
-			let outcome = match future::select(pin!(inner), pin!(stop)).await {
-				future::Either::Left((Err(error), _)) => return Err(error),
-				future::Either::Left((Ok(outcome), _)) => outcome,
-				future::Either::Right(_) => tg::build::Outcome::Canceled,
+			let result = server.start_build_inner(build.clone()).await;
+			let outcome = match result {
+				Ok(outcome) => outcome,
+				Err(error) => tg::build::Outcome::Failed(error),
 			};
 
 			// Set the build's outcome.
@@ -258,8 +239,8 @@ impl Server {
 				.await
 				.map_err(|source| tg::error!(!source, "failed to set the build outcome"))?;
 
-			// Remove the build state.
-			server.build_state.write().unwrap().remove(build.id());
+			// Drop the build's permit.
+			server.build_permits.remove(build.id());
 
 			Ok::<_, tg::Error>(())
 		}
@@ -267,13 +248,9 @@ impl Server {
 			tracing::error!(?error, "failed to run the build");
 		})
 		.map(|_| ());
-		let task = tokio::spawn(task);
-		state.task.lock().unwrap().replace(task);
+		tokio::spawn(task);
 
-		// Unlock the build state.
-		drop(state);
-
-		Ok(())
+		Ok(true)
 	}
 
 	async fn start_build_inner(&self, build: tg::Build) -> tg::Result<tg::build::Outcome> {

@@ -179,9 +179,6 @@ impl Server {
 
 		// If the build was canceled, then stop the build and cancel the children.
 		if matches!(outcome, tg::build::Outcome::Canceled) {
-			if let Some(state) = self.build_state.read().unwrap().get(id) {
-				state.stop.send_replace(true);
-			}
 			children
 				.iter()
 				.map(|child| async move {

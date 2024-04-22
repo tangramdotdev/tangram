@@ -14,8 +14,7 @@ use dashmap::DashMap;
 use either::Either;
 use futures::{
 	future::{self, BoxFuture},
-	stream::FuturesUnordered,
-	Future, FutureExt as _, Stream, TryFutureExt as _, TryStreamExt as _,
+	Future, FutureExt as _, Stream, TryFutureExt as _,
 };
 use http_body_util::BodyExt as _;
 use hyper_util::rt::{TokioExecutor, TokioIo};
@@ -60,9 +59,9 @@ mod vfs;
 pub struct Server(Arc<Inner>);
 
 pub struct Inner {
-	build_queue_task: std::sync::Mutex<Option<tokio::task::JoinHandle<tg::Result<()>>>>,
+	build_queue_task: std::sync::Mutex<Option<tokio::task::JoinHandle<()>>>,
+	build_permits: BuildPermits,
 	build_semaphore: Arc<tokio::sync::Semaphore>,
-	build_state: std::sync::RwLock<HashMap<tg::build::Id, Arc<BuildState>, fnv::FnvBuildHasher>>,
 	checkouts: Checkouts,
 	database: Database,
 	file_descriptor_semaphore: tokio::sync::Semaphore,
@@ -81,12 +80,8 @@ pub struct Inner {
 	vfs: std::sync::Mutex<Option<self::vfs::Server>>,
 }
 
-#[derive(Debug)]
-struct BuildState {
-	permit: Arc<tokio::sync::Mutex<Option<Permit>>>,
-	stop: tokio::sync::watch::Sender<bool>,
-	task: std::sync::Mutex<Option<tokio::task::JoinHandle<()>>>,
-}
+type BuildPermits =
+	DashMap<tg::build::Id, Arc<tokio::sync::Mutex<Option<Permit>>>, fnv::FnvBuildHasher>;
 
 type Checkouts = DashMap<
 	tg::artifact::Id,
@@ -183,8 +178,8 @@ impl Server {
 		// Create the build queue task.
 		let build_queue_task = std::sync::Mutex::new(None);
 
-		// Create the build state.
-		let build_state = std::sync::RwLock::new(HashMap::default());
+		// Create the build permits.
+		let build_permits = DashMap::default();
 
 		// Create the build semaphore.
 		let permits = options
@@ -292,8 +287,8 @@ impl Server {
 		// Create the server.
 		let server = Self(Arc::new(Inner {
 			build_queue_task,
+			build_permits,
 			build_semaphore,
-			build_state,
 			checkouts,
 			database,
 			file_descriptor_semaphore,
@@ -402,16 +397,7 @@ impl Server {
 		if server.options.build.is_some() {
 			let task = tokio::spawn({
 				let server = server.clone();
-				async move {
-					let result = server.run_build_queue().await;
-					match result {
-						Ok(()) => Ok(()),
-						Err(error) => {
-							tracing::error!(?error);
-							Err(error)
-						},
-					}
-				}
+				async move { server.run_build_queue().await }
 			});
 			server.build_queue_task.lock().unwrap().replace(task);
 		}
@@ -447,30 +433,6 @@ impl Server {
 				build_queue_task.abort();
 				build_queue_task.await.ok();
 			}
-
-			// Stop all builds.
-			for context in server.build_state.read().unwrap().values() {
-				context.stop.send_replace(true);
-			}
-
-			// Join all builds.
-			let tasks = server
-				.build_state
-				.read()
-				.unwrap()
-				.values()
-				.cloned()
-				.filter_map(|context| context.task.lock().unwrap().take())
-				.collect_vec();
-			tasks
-				.into_iter()
-				.collect::<FuturesUnordered<_>>()
-				.try_collect::<Vec<_>>()
-				.await
-				.ok();
-
-			// Clear the build state.
-			server.build_state.write().unwrap().clear();
 
 			// Join the vfs server.
 			let vfs = server.vfs.lock().unwrap().take();
