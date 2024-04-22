@@ -24,7 +24,7 @@ pub struct Inner {
 		HashMap<FileHandle, Arc<tokio::sync::RwLock<FileHandleData>>, fnv::FnvBuildHasher>,
 	>,
 	node_index: std::sync::atomic::AtomicU64,
-	nodes: parking_lot::RwLock<HashMap<NodeId, Arc<Node, fnv::FnvBuildHasher>>>,
+	nodes: parking_lot::RwLock<HashMap<NodeId, Arc<Node>, fnv::FnvBuildHasher>>,
 	path: std::path::PathBuf,
 	requests: std::sync::Mutex<Option<Vec<tokio::task::JoinHandle<()>>>>,
 	server: crate::Server,
@@ -51,7 +51,7 @@ struct Node {
 #[derive(Debug)]
 enum NodeKind {
 	Root {
-		children: parking_lot::RwLock<Map<String, Arc<Node>>>,
+		children: parking_lot::RwLock<HashMap<String, Arc<Node>, fnv::FnvBuildHasher>>,
 	},
 	Directory {
 		directory: tg::Directory,
@@ -139,13 +139,15 @@ impl Server {
 			id: ROOT_NODE_ID,
 			parent: root.clone(),
 			kind: NodeKind::Root {
-				children: parking_lot::RwLock::new(Map::default()),
+				children: parking_lot::RwLock::new(HashMap::default()),
 			},
 		});
-		let nodes = [(ROOT_NODE_ID, root)].into_iter().collect::<Map<_, _>>();
+		let nodes = [(ROOT_NODE_ID, root)]
+			.into_iter()
+			.collect::<HashMap<_, _, _>>();
 		let nodes = parking_lot::RwLock::new(nodes);
 		let node_index = std::sync::atomic::AtomicU64::new(1000);
-		let handles = parking_lot::RwLock::new(Map::default());
+		let handles = parking_lot::RwLock::new(HashMap::default());
 		let handle_index = std::sync::atomic::AtomicU64::new(0);
 		let path = path.to_owned();
 		let requests = std::sync::Mutex::new(Some(Vec::new()));

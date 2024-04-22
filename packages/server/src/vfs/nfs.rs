@@ -1,5 +1,4 @@
 use either::Either;
-use fnv::FnvBuildHasher;
 use futures::{future, FutureExt};
 use num::ToPrimitive;
 use std::{
@@ -53,18 +52,20 @@ use tokio::{
 };
 
 const ROOT: nfs_fh4 = nfs_fh4(0);
-type Map<K, V> = HashMap<K, V, FnvBuildHasher>;
 
 #[derive(Clone)]
 pub struct Server(Arc<Inner>);
 
 pub struct Inner {
 	client_index: std::sync::atomic::AtomicU64,
-	clients: tokio::sync::RwLock<Map<Vec<u8>, Arc<tokio::sync::RwLock<ClientData>>>>,
+	clients: tokio::sync::RwLock<
+		HashMap<Vec<u8>, Arc<tokio::sync::RwLock<ClientData>>, fnv::FnvBuildHasher>,
+	>,
 	lock_index: tokio::sync::RwLock<u64>,
-	locks: tokio::sync::RwLock<Map<u64, Arc<tokio::sync::RwLock<LockState>>>>,
+	locks:
+		tokio::sync::RwLock<HashMap<u64, Arc<tokio::sync::RwLock<LockState>>, fnv::FnvBuildHasher>>,
 	node_index: std::sync::atomic::AtomicU64,
-	nodes: tokio::sync::RwLock<Map<u64, Arc<Node>>>,
+	nodes: tokio::sync::RwLock<HashMap<u64, Arc<Node>, fnv::FnvBuildHasher>>,
 	path: PathBuf,
 	requests: std::sync::Mutex<Option<Vec<tokio::task::JoinHandle<()>>>>,
 	server: crate::Server,
@@ -89,12 +90,12 @@ struct Node {
 #[derive(Debug)]
 enum NodeKind {
 	Root {
-		children: tokio::sync::RwLock<Map<String, Arc<Node>>>,
+		children: tokio::sync::RwLock<HashMap<String, Arc<Node>, fnv::FnvBuildHasher>>,
 		attributes: tokio::sync::RwLock<Option<Arc<Node>>>,
 	},
 	Directory {
 		directory: tg::Directory,
-		children: tokio::sync::RwLock<Map<String, Arc<Node>>>,
+		children: tokio::sync::RwLock<HashMap<String, Arc<Node>, fnv::FnvBuildHasher>>,
 		attributes: tokio::sync::RwLock<Option<Arc<Node>>>,
 	},
 	File {
@@ -110,7 +111,7 @@ enum NodeKind {
 		data: Vec<u8>,
 	},
 	NamedAttributeDirectory {
-		children: tokio::sync::RwLock<Map<String, Arc<Node>>>,
+		children: tokio::sync::RwLock<HashMap<String, Arc<Node>, fnv::FnvBuildHasher>>,
 	},
 	Checkout {
 		path: PathBuf,
@@ -160,7 +161,7 @@ impl Server {
 			id: 0,
 			parent: root.clone(),
 			kind: NodeKind::Root {
-				children: tokio::sync::RwLock::new(Map::default()),
+				children: tokio::sync::RwLock::new(HashMap::default()),
 				attributes: tokio::sync::RwLock::new(None),
 			},
 		});
@@ -170,9 +171,9 @@ impl Server {
 		let task = std::sync::Mutex::new(None);
 		let server = Self(Arc::new(Inner {
 			client_index: std::sync::atomic::AtomicU64::new(1),
-			clients: tokio::sync::RwLock::new(Map::default()),
+			clients: tokio::sync::RwLock::new(HashMap::default()),
 			lock_index: tokio::sync::RwLock::new(1),
-			locks: tokio::sync::RwLock::new(Map::default()),
+			locks: tokio::sync::RwLock::new(HashMap::default()),
 			node_index: std::sync::atomic::AtomicU64::new(1000),
 			nodes: tokio::sync::RwLock::new(nodes),
 			path: path.to_owned(),
@@ -1018,7 +1019,7 @@ impl Server {
 		let kind = match child_data {
 			Either::Left(Either::Left(path)) => NodeKind::Checkout { path },
 			Either::Left(Either::Right(tg::Artifact::Directory(directory))) => {
-				let children = tokio::sync::RwLock::new(Map::default());
+				let children = tokio::sync::RwLock::new(HashMap::default());
 				NodeKind::Directory {
 					directory,
 					children,
@@ -1085,7 +1086,7 @@ impl Server {
 
 				let id = self.next_node_id();
 				let parent = Arc::downgrade(parent_node);
-				let children = tokio::sync::RwLock::new(Map::default());
+				let children = tokio::sync::RwLock::new(HashMap::default());
 				let node = Node {
 					id,
 					parent,
