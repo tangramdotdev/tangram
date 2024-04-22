@@ -8,6 +8,7 @@ use http_body_util::BodyExt as _;
 use indoc::formatdoc;
 use tangram_client as tg;
 use tangram_database::{self as db, prelude::*};
+use time::format_description::well_known::Rfc3339;
 
 impl Server {
 	pub async fn put_object(
@@ -27,13 +28,14 @@ impl Server {
 		let p = connection.p();
 		let statement = formatdoc!(
 			"
-				insert into objects (id, bytes, indexed, complete, count, weight)
-				values ({p}1, {p}2, 0, 0, null, null)
-				on conflict (id) do update set id = excluded.id
+				insert into objects (id, bytes, indexed, complete, count, weight, touched_at)
+				values ({p}1, {p}2, 0, 0, null, null, {p}3)
+				on conflict (id) do update set touched_at = {p}3
 				returning indexed;
 			"
 		);
-		let params = db::params![id, arg.bytes];
+		let now = time::OffsetDateTime::now_utc().format(&Rfc3339).unwrap();
+		let params = db::params![id, arg.bytes, now];
 		let indexed = connection
 			.query_one_value_into(statement, params)
 			.map_err(|source| tg::error!(!source, "failed to execute the statement"))

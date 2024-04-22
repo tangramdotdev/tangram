@@ -15,6 +15,7 @@ mod push;
 mod put;
 mod queue;
 mod status;
+mod touch;
 
 impl Server {
 	pub(crate) async fn get_build_exists_local(&self, id: &tg::build::Id) -> tg::Result<bool> {

@@ -39,6 +39,7 @@ impl Server {
 			"
 				select
 					id,
+					complete,
 					count,
 					host,
 					log,
@@ -48,8 +49,11 @@ impl Server {
 					target,
 					weight,
 					created_at,
+					dequeued_at,
 					started_at,
-					finished_at
+					finished_at,
+					heartbeat_at,
+					touched_at
 				from builds
 				where id = {p}1;
 			"
@@ -107,6 +111,7 @@ impl Server {
 				target: output.target.clone(),
 				weight: output.weight,
 				created_at: output.created_at,
+				dequeued_at: output.dequeued_at,
 				started_at: output.started_at,
 				finished_at: output.finished_at,
 			};

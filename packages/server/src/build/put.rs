@@ -146,8 +146,11 @@ impl Server {
 					target,
 					weight,
 					created_at,
+					dequeued_at,
 					started_at,
-					finished_at
+					finished_at,
+					heartbeat_at,
+					touched_at
 				)
 				values (
 					{p}1,
@@ -162,7 +165,10 @@ impl Server {
 					{p}10,
 					{p}11,
 					{p}12,
-					{p}13
+					{p}13,
+					{p}14,
+					{p}15,
+					{p}16
 				)
 				on conflict (id) do update set 
 					complete = {p}2,
@@ -175,8 +181,11 @@ impl Server {
 					target = {p}9,
 					weight = {p}10,
 					created_at = {p}11,
-					started_at = {p}12,
-					finished_at = {p}13;
+					dequeued_at = {p}12,
+					started_at = {p}13,
+					finished_at = {p}14,
+					heartbeat_at = {p}15,
+					touched_at = {p}16;
 			"
 		);
 		let params = db::params![
@@ -191,8 +200,11 @@ impl Server {
 			arg.target,
 			arg.weight,
 			arg.created_at.format(&Rfc3339).unwrap(),
+			arg.dequeued_at.map(|t| t.format(&Rfc3339).unwrap()),
 			arg.started_at.map(|t| t.format(&Rfc3339).unwrap()),
 			arg.finished_at.map(|t| t.format(&Rfc3339).unwrap()),
+			db::Value::Null,
+			time::OffsetDateTime::now_utc().format(&Rfc3339).unwrap(),
 		];
 		connection
 			.execute(statement, params)

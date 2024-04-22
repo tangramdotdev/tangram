@@ -23,16 +23,10 @@ impl Server {
 				status: None,
 				target: Some(arg.target.clone()),
 			};
-			let Some(build) = self
-				.list_builds(list_arg)
-				.await?
-				.items
-				.first()
-				.cloned()
-				.map(|state| tg::Build::with_id(state.id))
-			else {
+			let Some(output) = self.list_builds(list_arg).await?.items.first().cloned() else {
 				break 'a None;
 			};
+			let build = tg::Build::with_id(output.id);
 
 			// Verify the build satisfies the retry constraint.
 			let outcome_arg = tg::build::outcome::GetArg {
@@ -44,6 +38,9 @@ impl Server {
 					break 'a None;
 				}
 			}
+
+			// Touch the build.
+			self.touch_build(build.id()).await?;
 
 			Some(build)
 		};
@@ -66,16 +63,10 @@ impl Server {
 				status: None,
 				target: Some(arg.target.clone()),
 			};
-			let Some(build) = remote
-				.list_builds(list_arg)
-				.await?
-				.items
-				.first()
-				.cloned()
-				.map(|state| tg::Build::with_id(state.id))
-			else {
+			let Some(output) = remote.list_builds(list_arg).await?.items.first().cloned() else {
 				break 'a None;
 			};
+			let build = tg::Build::with_id(output.id);
 
 			// Verify the build satisfies the retry constraint.
 			let outcome_arg = tg::build::outcome::GetArg {
@@ -87,6 +78,9 @@ impl Server {
 					break 'a None;
 				}
 			}
+
+			// Touch the build.
+			self.touch_build(build.id()).await?;
 
 			Some(build)
 		};
@@ -170,6 +164,7 @@ impl Server {
 			target: arg.target.clone(),
 			weight: None,
 			created_at: time::OffsetDateTime::now_utc(),
+			dequeued_at: None,
 			started_at: None,
 			finished_at: None,
 		};

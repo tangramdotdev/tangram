@@ -202,8 +202,8 @@ impl Server {
 				returning id;
 			"
 		);
-		let timestamp = time::OffsetDateTime::now_utc().format(&Rfc3339).unwrap();
-		let params = db::params![status, timestamp, id];
+		let now = time::OffsetDateTime::now_utc().format(&Rfc3339).unwrap();
+		let params = db::params![status, now, id];
 		connection
 			.query_one(statement, params)
 			.await

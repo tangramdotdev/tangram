@@ -94,6 +94,8 @@ pub trait Handle: Clone + Unpin + Send + Sync + 'static {
 		stop: Option<tokio::sync::watch::Receiver<bool>>,
 	) -> impl Future<Output = tg::Result<Option<tg::build::DequeueOutput>>> + Send;
 
+	fn touch_build(&self, id: &tg::build::Id) -> impl Future<Output = tg::Result<()>> + Send;
+
 	fn get_build_status(
 		&self,
 		id: &tg::build::Id,
@@ -487,6 +489,13 @@ where
 		match self {
 			Either::Left(s) => s.try_dequeue_build(arg, stop).left_future(),
 			Either::Right(s) => s.try_dequeue_build(arg, stop).right_future(),
+		}
+	}
+
+	fn touch_build(&self, id: &tg::build::Id) -> impl Future<Output = tg::Result<()>> + Send {
+		match self {
+			Either::Left(s) => s.touch_build(id).left_future(),
+			Either::Right(s) => s.touch_build(id).right_future(),
 		}
 	}
 

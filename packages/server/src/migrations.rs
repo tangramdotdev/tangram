@@ -127,7 +127,8 @@ async fn migration_0000(path: &Path) -> tg::Result<()> {
 				indexed integer not null,
 				complete integer not null,
 				count integer,
-				weight integer
+				weight integer,
+				touched_at text
 			);
 
 			create table object_children (

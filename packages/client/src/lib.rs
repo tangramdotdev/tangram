@@ -620,6 +620,10 @@ impl tg::Handle for Client {
 		self.try_dequeue_build(arg, stop)
 	}
 
+	fn touch_build(&self, id: &tg::build::Id) -> impl Future<Output = tg::Result<()>> {
+		self.touch_build(id)
+	}
+
 	fn try_get_build_status(
 		&self,
 		id: &tg::build::Id,

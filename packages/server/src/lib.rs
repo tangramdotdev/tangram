@@ -750,6 +750,9 @@ where
 			(http::Method::POST, ["builds", "dequeue"]) => {
 				self.handle_dequeue_build_request(request).map(Some).boxed()
 			},
+			(http::Method::POST, ["builds", _, "touch"]) => {
+				self.handle_touch_build_request(request).map(Some).boxed()
+			},
 			(http::Method::GET, ["builds", _, "status"]) => self
 				.handle_get_build_status_request(request)
 				.map(Some)
@@ -1005,6 +1008,10 @@ impl tg::Handle for Server {
 		stop: Option<tokio::sync::watch::Receiver<bool>>,
 	) -> impl Future<Output = tg::Result<Option<tg::build::DequeueOutput>>> {
 		self.try_dequeue_build(arg, stop)
+	}
+
+	fn touch_build(&self, id: &tg::build::Id) -> impl Future<Output = tg::Result<()>> {
+		self.touch_build(id)
 	}
 
 	fn try_get_build_status(

@@ -100,6 +100,12 @@ pub struct GetOutput {
 		skip_serializing_if = "Option::is_none",
 		with = "time::serde::rfc3339::option"
 	)]
+	pub dequeued_at: Option<time::OffsetDateTime>,
+	#[serde(
+		default,
+		skip_serializing_if = "Option::is_none",
+		with = "time::serde::rfc3339::option"
+	)]
 	pub started_at: Option<time::OffsetDateTime>,
 	#[serde(
 		default,
@@ -127,6 +133,12 @@ pub struct PutArg {
 	pub weight: Option<u64>,
 	#[serde(with = "time::serde::rfc3339")]
 	pub created_at: time::OffsetDateTime,
+	#[serde(
+		default,
+		skip_serializing_if = "Option::is_none",
+		with = "time::serde::rfc3339::option"
+	)]
+	pub dequeued_at: Option<time::OffsetDateTime>,
 	#[serde(
 		default,
 		skip_serializing_if = "Option::is_none",
@@ -422,6 +434,7 @@ impl Build {
 			target: output.target,
 			weight: output.weight,
 			created_at: output.created_at,
+			dequeued_at: output.dequeued_at,
 			started_at: output.started_at,
 			finished_at: output.finished_at,
 		};
@@ -763,6 +776,37 @@ impl tg::Client {
 		let output = serde_json::from_slice(&bytes)
 			.map_err(|source| tg::error!(!source, "failed to deserialize the body"))?;
 		Ok(output)
+	}
+	pub async fn touch_build(&self, id: &tg::build::Id) -> tg::Result<()> {
+		let method = http::Method::POST;
+		let uri = format!("/builds/{id}/touch");
+		let mut request = http::request::Builder::default()
+			.method(method)
+			.uri(uri)
+			.header(http::header::ACCEPT, mime::APPLICATION_JSON.to_string())
+			.header(
+				http::header::CONTENT_TYPE,
+				mime::APPLICATION_JSON.to_string(),
+			);
+		if let Some(token) = self.token.as_ref() {
+			request = request.header(http::header::AUTHORIZATION, format!("Bearer {token}"));
+		}
+		let body = empty();
+		let request = request
+			.body(body)
+			.map_err(|source| tg::error!(!source, "failed to create the request"))?;
+		let response = self.send(request).await?;
+		if !response.status().is_success() {
+			let bytes = response
+				.collect()
+				.await
+				.map_err(|source| tg::error!(!source, "failed to collect the response body"))?
+				.to_bytes();
+			let error = serde_json::from_slice(&bytes)
+				.unwrap_or_else(|_| tg::error!("the request did not succeed"));
+			return Err(error);
+		}
+		Ok(())
 	}
 }
 
