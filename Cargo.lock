@@ -4885,6 +4885,7 @@ dependencies = [
  "biome_js_parser",
  "biome_js_syntax",
  "bytes",
+ "dashmap",
  "data-encoding",
  "data-encoding-macro",
  "derive_more",

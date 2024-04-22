@@ -10,10 +10,12 @@ use self::{
 };
 use async_nats as nats;
 use bytes::Bytes;
+use dashmap::DashMap;
 use either::Either;
 use futures::{
-	future, stream::FuturesUnordered, Future, FutureExt as _, Stream, TryFutureExt as _,
-	TryStreamExt as _,
+	future::{self, BoxFuture},
+	stream::FuturesUnordered,
+	Future, FutureExt as _, Stream, TryFutureExt as _, TryStreamExt as _,
 };
 use http_body_util::BodyExt as _;
 use hyper_util::rt::{TokioExecutor, TokioIo};
@@ -61,6 +63,7 @@ pub struct Inner {
 	build_queue_task: std::sync::Mutex<Option<tokio::task::JoinHandle<tg::Result<()>>>>,
 	build_semaphore: Arc<tokio::sync::Semaphore>,
 	build_state: std::sync::RwLock<HashMap<tg::build::Id, Arc<BuildState>, fnv::FnvBuildHasher>>,
+	checkouts: Checkouts,
 	database: Database,
 	file_descriptor_semaphore: tokio::sync::Semaphore,
 	http: std::sync::Mutex<Option<Http<Server>>>,
@@ -84,6 +87,12 @@ struct BuildState {
 	stop: tokio::sync::watch::Sender<bool>,
 	task: std::sync::Mutex<Option<tokio::task::JoinHandle<()>>>,
 }
+
+type Checkouts = DashMap<
+	tg::artifact::Id,
+	future::Shared<BoxFuture<'static, tg::Result<tg::artifact::CheckOutOutput>>>,
+	fnv::FnvBuildHasher,
+>;
 
 #[derive(Debug)]
 struct Permit(
@@ -185,6 +194,9 @@ impl Server {
 			.unwrap_or_default();
 		let build_semaphore = Arc::new(tokio::sync::Semaphore::new(permits));
 
+		// Create the checkouts.
+		let checkouts = DashMap::default();
+
 		// Create the database.
 		let database = match &options.database {
 			self::options::Database::Sqlite(options) => {
@@ -209,17 +221,6 @@ impl Server {
 			},
 		};
 
-		// Create the database.
-		let messenger = match &options.messenger {
-			self::options::Messenger::Channel => Messenger::new_channel(),
-			self::options::Messenger::Nats(nats) => {
-				let client = nats::connect(nats.url.to_string())
-					.await
-					.map_err(|source| tg::error!(!source, "failed to create the NATS client"))?;
-				Messenger::new_nats(client)
-			},
-		};
-
 		// Create the file system semaphore.
 		let file_descriptor_semaphore =
 			tokio::sync::Semaphore::new(options.advanced.file_descriptor_semaphore_size);
@@ -231,6 +232,17 @@ impl Server {
 		let local_pool_handle = tokio_util::task::LocalPoolHandle::new(
 			std::thread::available_parallelism().unwrap().get(),
 		);
+
+		// Create the messenger.
+		let messenger = match &options.messenger {
+			self::options::Messenger::Channel => Messenger::new_channel(),
+			self::options::Messenger::Nats(nats) => {
+				let client = nats::connect(nats.url.to_string())
+					.await
+					.map_err(|source| tg::error!(!source, "failed to create the NATS client"))?;
+				Messenger::new_nats(client)
+			},
+		};
 
 		// Create the oauth clients.
 		let github = if let Some(oauth) = &options.oauth.github {
@@ -282,6 +294,7 @@ impl Server {
 			build_queue_task,
 			build_semaphore,
 			build_state,
+			checkouts,
 			database,
 			file_descriptor_semaphore,
 			http,

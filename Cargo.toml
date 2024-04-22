@@ -45,6 +45,7 @@ bytes = { version = "1", features = ["serde"] }
 clap = { version = "4", features = ["derive", "env"] }
 console-subscriber = "0.2"
 crossterm = "0.27"
+dashmap = "5"
 data-encoding = "2"
 data-encoding-macro = "0.1"
 deno_core_icudata = "0.73"

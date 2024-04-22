@@ -6,7 +6,7 @@ use crate::{
 	},
 	Http, Server,
 };
-use futures::{stream::FuturesUnordered, TryStreamExt as _};
+use futures::{stream::FuturesUnordered, FutureExt, TryStreamExt as _};
 use http_body_util::BodyExt as _;
 use std::{collections::HashMap, os::unix::fs::PermissionsExt as _, sync::Arc};
 use tangram_client as tg;
@@ -17,8 +17,33 @@ impl Server {
 		id: &tg::artifact::Id,
 		arg: tg::artifact::CheckOutArg,
 	) -> tg::Result<tg::artifact::CheckOutOutput> {
-		let files = Arc::new(std::sync::RwLock::new(HashMap::default()));
-		self.check_out_artifact_with_files(id, arg, files).await
+		// Determine if this is an internal checkout.
+		let internal = arg.path.is_none();
+
+		// If this is an internal checkout, then attempt to get an existing checkout.
+		if internal {
+			if let Some(checkout) = self.checkouts.get(id).map(|checkout| checkout.clone()) {
+				return checkout.await;
+			}
+		}
+
+		// Create the checkout.
+		let checkout = {
+			let server = self.clone();
+			let id = id.clone();
+			let files = Arc::new(std::sync::RwLock::new(HashMap::default()));
+			async move { server.check_out_artifact_with_files(&id, arg, files).await }
+		}
+		.boxed()
+		.shared();
+
+		// If this is an internal checkout, then add it to the map.
+		if internal {
+			self.checkouts.insert(id.clone(), checkout.clone());
+		}
+
+		// Await the checkout
+		checkout.await
 	}
 
 	async fn check_out_artifact_with_files(
