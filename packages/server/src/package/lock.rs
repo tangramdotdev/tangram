@@ -117,7 +117,8 @@ impl Server {
 			};
 			let Some(lock) = self
 				.try_add_path_dependencies_to_lock(analysis, lock.clone())
-				.await?
+				.await
+				.map_err(|source| tg::error!(!source, "failed to add path dependencies to lock"))?
 			else {
 				break 'a None;
 			};
@@ -155,7 +156,8 @@ impl Server {
 			if created {
 				let lock = self
 					.remove_path_dependencies_from_lock(analysis, &lock)
-					.await?;
+					.await
+					.map_err(|source| tg::error!(!source, "failed to remove path dependencies from lock"))?;
 				lock.write(self, path.clone()).await?;
 			}
 		}
@@ -341,7 +343,20 @@ impl Server {
 		analysis: &Analysis,
 		lock: tg::Lock,
 	) -> tg::Result<Option<tg::Lock>> {
-		let mut object = lock.object(self).await?.as_ref().clone();
+		// Try and load the lock's object. If there is any failure, we recreate the lock from the analysis. This can happen if the database is cleared and an old lockfile is reused.
+		let mut object = match lock.object(self).await {
+			Ok(object) => object.as_ref().clone(),
+			Err(error) => {
+				let id: tg::lock::Id = lock.id(self, None).await?;
+				tracing::warn!(%id, %error, "failed to get lock object");
+				self.create_package_lock(analysis)
+					.await?
+					.object(self)
+					.await?
+					.as_ref()
+					.clone()
+			},
+		};
 		let mut stack = vec![(object.root, analysis)];
 		let mut visited = BTreeSet::new();
 		while let Some((index, analysis)) = stack.pop() {

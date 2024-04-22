@@ -44,11 +44,11 @@ impl Server {
 			let lock = self
 				.get_or_create_package_lock(path, &analysis)
 				.await
-				.map_err(|error| {
+				.map_err(|source| {
 					if let Some(path) = path {
-						tg::error!(source = error, %path, "failed to get or create the lock")
+						tg::error!(!source, %path, "failed to get or create the lock")
 					} else {
-						tg::error!(source = error, "failed to get or create the lock")
+						tg::error!(!source, "failed to get or create the lock")
 					}
 				})?;
 			let lock = lock.id(self, None).await?;
