@@ -6,9 +6,10 @@ use crate::{
 	},
 	Http, Server,
 };
+use dashmap::DashMap;
 use futures::{stream::FuturesUnordered, FutureExt, TryStreamExt as _};
 use http_body_util::BodyExt as _;
-use std::{collections::HashMap, os::unix::fs::PermissionsExt as _, sync::Arc};
+use std::{os::unix::fs::PermissionsExt as _, sync::Arc};
 use tangram_client as tg;
 
 impl Server {
@@ -27,13 +28,21 @@ impl Server {
 			}
 		}
 
-		// Create the checkout.
-		let checkout = {
+		// Spawn the checkout.
+		let checkout = tokio::spawn({
 			let server = self.clone();
 			let id = id.clone();
-			let files = Arc::new(std::sync::RwLock::new(HashMap::default()));
-			async move { server.check_out_artifact_with_files(&id, arg, files).await }
-		}
+			let files = Arc::new(DashMap::default());
+			async move {
+				server
+					.check_out_artifact_with_files(&id, arg, files)
+					.inspect(|_| {
+						server.checkouts.remove(&id);
+					})
+					.await
+			}
+		})
+		.map(Result::unwrap)
 		.boxed()
 		.shared();
 
@@ -50,7 +59,7 @@ impl Server {
 		&self,
 		id: &tg::artifact::Id,
 		arg: tg::artifact::CheckOutArg,
-		files: Arc<std::sync::RwLock<HashMap<tg::file::Id, tg::Path>>>,
+		files: Arc<DashMap<tg::file::Id, tg::Path, fnv::FnvBuildHasher>>,
 	) -> tg::Result<tg::artifact::CheckOutOutput> {
 		let artifact = tg::Artifact::with_id(id.clone());
 		if let Some(path) = arg.path {
@@ -111,7 +120,7 @@ impl Server {
 			let tmp = Tmp::new(self);
 
 			// Perform the checkout to the tmp.
-			let existing = Arc::new(std::sync::RwLock::new(HashMap::default()));
+			let existing = Arc::new(DashMap::default());
 			self.check_out_inner(
 				&tmp.path.clone().try_into()?,
 				&artifact,
@@ -149,7 +158,7 @@ impl Server {
 		existing_artifact: Option<&tg::Artifact>,
 		internal: bool,
 		depth: usize,
-		files: Arc<std::sync::RwLock<HashMap<tg::file::Id, tg::Path>>>,
+		files: Arc<DashMap<tg::file::Id, tg::Path, fnv::FnvBuildHasher>>,
 	) -> tg::Result<()> {
 		// If the artifact is the same as the existing artifact, then return.
 		let id = artifact.id(self, None).await?;
@@ -229,7 +238,7 @@ impl Server {
 		existing_artifact: Option<&tg::Artifact>,
 		internal: bool,
 		depth: usize,
-		files: Arc<std::sync::RwLock<HashMap<tg::file::Id, tg::Path>>>,
+		files: Arc<DashMap<tg::file::Id, tg::Path, fnv::FnvBuildHasher>>,
 	) -> tg::Result<()> {
 		// Handle an existing artifact at the path.
 		match existing_artifact {
@@ -315,7 +324,7 @@ impl Server {
 		file: &tg::File,
 		existing_artifact: Option<&tg::Artifact>,
 		internal: bool,
-		files: Arc<std::sync::RwLock<HashMap<tg::file::Id, tg::Path>>>,
+		files: Arc<DashMap<tg::file::Id, tg::Path, fnv::FnvBuildHasher>>,
 	) -> tg::Result<()> {
 		// Handle an existing artifact at the path.
 		match &existing_artifact {
@@ -367,7 +376,7 @@ impl Server {
 		// Check out the file, either from an existing path, an internal path, or from the file reader.
 		let permit = self.file_descriptor_semaphore.acquire().await;
 		let id = file.id(self, None).await?;
-		let existing_path = files.read().unwrap().get(&id).cloned();
+		let existing_path = files.get(&id).map(|path| path.clone());
 		let internal_path = self.checkouts_path().join(id.to_string());
 		if let Some(existing_path) = existing_path {
 			tokio::fs::copy(&existing_path, &path).await.map_err(
@@ -406,7 +415,7 @@ impl Server {
 				)?;
 			}
 
-			files.write().unwrap().insert(id.clone(), path.clone());
+			files.insert(id.clone(), path.clone());
 		}
 
 		Ok(())
@@ -419,7 +428,7 @@ impl Server {
 		existing_artifact: Option<&tg::Artifact>,
 		internal: bool,
 		depth: usize,
-		files: Arc<std::sync::RwLock<HashMap<tg::file::Id, tg::Path>>>,
+		files: Arc<DashMap<tg::file::Id, tg::Path, fnv::FnvBuildHasher>>,
 	) -> tg::Result<()> {
 		// Handle an existing artifact at the path.
 		match &existing_artifact {
