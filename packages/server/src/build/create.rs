@@ -80,7 +80,7 @@ impl Server {
 			}
 
 			// Touch the build.
-			self.touch_build(build.id()).await?;
+			remote.touch_build(build.id()).await?;
 
 			Some(build)
 		};
@@ -151,7 +151,7 @@ impl Server {
 		// Add the build state.
 		self.build_state.write().unwrap().insert(id.clone(), state);
 
-		// Insert the build.
+		// Put the build.
 		let put_arg = tg::build::PutArg {
 			id: id.clone(),
 			children: Vec::new(),
@@ -168,7 +168,7 @@ impl Server {
 			started_at: None,
 			finished_at: None,
 		};
-		self.insert_build(&id, &put_arg).await?;
+		self.put_build(&id, &put_arg).await?;
 
 		// Create the build.
 		let build = tg::Build::with_id(id.clone());

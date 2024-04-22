@@ -11,23 +11,6 @@ use time::format_description::well_known::Rfc3339;
 
 impl Server {
 	pub async fn put_build(&self, id: &tg::build::Id, arg: &tg::build::PutArg) -> tg::Result<()> {
-		// Verify the build is finished.
-		if arg.status != tg::build::Status::Finished {
-			let status = arg.status;
-			return Err(tg::error!(%status, "the build is not finished"));
-		}
-
-		// Insert the build.
-		self.insert_build(id, arg).await?;
-
-		Ok(())
-	}
-
-	pub(crate) async fn insert_build(
-		&self,
-		id: &tg::build::Id,
-		arg: &tg::build::PutArg,
-	) -> tg::Result<()> {
 		// Get a database connection.
 		let connection = self
 			.database

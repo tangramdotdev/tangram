@@ -85,7 +85,7 @@ impl Server {
 			return Ok(None);
 		};
 
-		// Insert the build if it is finished.
+		// Put the build if it is finished.
 		if output.status == tg::build::Status::Finished {
 			let arg = tg::build::children::GetArg {
 				timeout: Some(std::time::Duration::ZERO),
@@ -115,7 +115,7 @@ impl Server {
 				started_at: output.started_at,
 				finished_at: output.finished_at,
 			};
-			self.insert_build(id, &arg).await?;
+			self.put_build(id, &arg).await?;
 		}
 
 		Ok(Some(output))
