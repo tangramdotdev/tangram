@@ -9,6 +9,7 @@ use http_body_util::BodyStream;
 use num::ToPrimitive;
 use std::pin::pin;
 use tangram_client as tg;
+use tangram_database::prelude::*;
 use tokio::io::AsyncRead;
 use tokio_util::io::StreamReader;
 
@@ -22,6 +23,46 @@ impl Server {
 		&self,
 		reader: impl AsyncRead + Send + 'static,
 		transaction: Option<&Transaction<'_>>,
+	) -> tg::Result<tg::blob::Id> {
+		if let Some(transaction) = transaction {
+			self.create_blob_with_transaction(reader, transaction).await
+		} else {
+			// Get a database connection.
+			let mut connection = self
+				.database
+				.connection()
+				.await
+				.map_err(|source| tg::error!(!source, "failed to get a database connection"))?;
+
+			// Begin a transaction.
+			let transaction = connection
+				.transaction()
+				.boxed()
+				.await
+				.map_err(|source| tg::error!(!source, "failed to begin the transaction"))?;
+
+			// Create the blob.
+			let output = self
+				.create_blob_with_transaction(reader, &transaction)
+				.await?;
+
+			// Commit the transaction.
+			transaction
+				.commit()
+				.await
+				.map_err(|source| tg::error!(!source, "failed to commit the transaction"))?;
+
+			// Drop the connection.
+			drop(connection);
+
+			Ok(output)
+		}
+	}
+
+	pub(crate) async fn create_blob_with_transaction(
+		&self,
+		reader: impl AsyncRead + Send + 'static,
+		transaction: &Transaction<'_>,
 	) -> tg::Result<tg::blob::Id> {
 		let reader = pin!(reader);
 
@@ -44,7 +85,7 @@ impl Server {
 					count: None,
 					weight: None,
 				};
-				self.put_object(&id.clone().into(), arg, transaction)
+				self.put_object_with_transaction(&id.clone().into(), arg, transaction)
 					.await?;
 				Ok::<_, tg::Error>(tg::branch::child::Data {
 					blob: id.into(),
@@ -70,7 +111,7 @@ impl Server {
 								count: None,
 								weight: None,
 							};
-							self.put_object(&id.clone().into(), arg, transaction)
+							self.put_object_with_transaction(&id.clone().into(), arg, transaction)
 								.await?;
 							let blob = id.into();
 							let child = tg::branch::child::Data { blob, size };
@@ -94,7 +135,7 @@ impl Server {
 			count: None,
 			weight: None,
 		};
-		self.put_object(&id.clone().into(), arg, transaction)
+		self.put_object_with_transaction(&id.clone().into(), arg, transaction)
 			.await?;
 
 		Ok(id.into())

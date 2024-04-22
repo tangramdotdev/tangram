@@ -15,17 +15,51 @@ impl Server {
 		&self,
 		id: &tg::object::Id,
 		arg: tg::object::PutArg,
-		_transaction: Option<&Transaction<'_>>,
+		transaction: Option<&Transaction<'_>>,
 	) -> tg::Result<tg::object::PutOutput> {
-		// Get a database connection.
-		let connection = self
-			.database
-			.connection()
-			.await
-			.map_err(|source| tg::error!(!source, "failed to get a database connection"))?;
+		if let Some(transaction) = transaction {
+			self.put_object_with_transaction(id, arg, transaction).await
+		} else {
+			// Get a database connection.
+			let mut connection = self
+				.database
+				.connection()
+				.await
+				.map_err(|source| tg::error!(!source, "failed to get a database connection"))?;
 
+			// Begin a transaction.
+			let transaction = connection
+				.transaction()
+				.boxed()
+				.await
+				.map_err(|source| tg::error!(!source, "failed to begin the transaction"))?;
+
+			// Put the object.
+			let output = self
+				.put_object_with_transaction(id, arg, &transaction)
+				.await?;
+
+			// Commit the transaction.
+			transaction
+				.commit()
+				.await
+				.map_err(|source| tg::error!(!source, "failed to commit the transaction"))?;
+
+			// Drop the connection.
+			drop(connection);
+
+			Ok(output)
+		}
+	}
+
+	pub(crate) async fn put_object_with_transaction(
+		&self,
+		id: &tg::object::Id,
+		arg: tg::object::PutArg,
+		transaction: &Transaction<'_>,
+	) -> tg::Result<tg::object::PutOutput> {
 		// Add the object.
-		let p = connection.p();
+		let p = transaction.p();
 		let statement = formatdoc!(
 			"
 				insert into objects (id, bytes, indexed, complete, count, weight, touched_at)
@@ -36,7 +70,7 @@ impl Server {
 		);
 		let now = time::OffsetDateTime::now_utc().format(&Rfc3339).unwrap();
 		let params = db::params![id, arg.bytes, now];
-		let indexed = connection
+		let indexed = transaction
 			.query_one_value_into(statement, params)
 			.map_err(|source| tg::error!(!source, "failed to execute the statement"))
 			.await?;
@@ -44,7 +78,7 @@ impl Server {
 		// Get the incomplete children.
 		let incomplete: Vec<tg::object::Id> = if indexed {
 			// If the object is indexed, then use the object_children table.
-			let p = connection.p();
+			let p = transaction.p();
 			let statement = formatdoc!(
 				"
 					select child
@@ -54,7 +88,7 @@ impl Server {
 				"
 			);
 			let params = db::params![id];
-			connection
+			transaction
 				.query_all_value_into(statement, params)
 				.map_err(|source| tg::error!(!source, "failed to execute the statement"))
 				.await?
@@ -64,9 +98,6 @@ impl Server {
 				.map_err(|source| tg::error!(!source, "failed to deserialize the data"))?;
 			data.children()
 		};
-
-		// Drop the database connection.
-		drop(connection);
 
 		let output = tg::object::PutOutput { incomplete };
 
