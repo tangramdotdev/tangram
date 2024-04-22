@@ -10,7 +10,6 @@ mod format;
 mod lock;
 mod metadata;
 mod outdated;
-mod path;
 mod publish;
 mod search;
 mod versions;
@@ -69,13 +68,7 @@ impl Server {
 		let id = package.id(self, None).await?;
 
 		// Get the package's path if requested.
-		let path = if arg.path {
-			self.try_get_package_path(&package)
-				.await
-				.map_err(|source| tg::error!(!source, "failed to get the package path"))?
-		} else {
-			None
-		};
+		let path = None;
 
 		// Check if the package is yanked.
 		let yanked = if arg.yanked {

@@ -364,7 +364,7 @@ impl super::Query for pool::Guard<Connection> {
 		&self,
 		statement: String,
 		params: Vec<Value>,
-	) -> impl futures::prelude::Future<Output = Result<u64, Self::Error>> {
+	) -> impl Future<Output = Result<u64, Self::Error>> {
 		self.as_ref().execute(statement, params)
 	}
 
@@ -372,9 +372,8 @@ impl super::Query for pool::Guard<Connection> {
 		&self,
 		statement: String,
 		params: Vec<Value>,
-	) -> impl futures::prelude::Future<
-		Output = Result<impl Stream<Item = Result<Row, Self::Error>> + Send, Self::Error>,
-	> {
+	) -> impl Future<Output = Result<impl Stream<Item = Result<Row, Self::Error>> + Send, Self::Error>>
+	{
 		self.as_ref().query(statement, params)
 	}
 

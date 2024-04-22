@@ -146,7 +146,6 @@ impl Server {
 					target,
 					weight,
 					created_at,
-					queued_at,
 					started_at,
 					finished_at
 				)
@@ -163,8 +162,7 @@ impl Server {
 					{p}10,
 					{p}11,
 					{p}12,
-					{p}13,
-					{p}14
+					{p}13
 				)
 				on conflict (id) do update set 
 					complete = {p}2,
@@ -177,9 +175,8 @@ impl Server {
 					target = {p}9,
 					weight = {p}10,
 					created_at = {p}11,
-					queued_at = {p}12,
-					started_at = {p}13,
-					finished_at = {p}14;
+					started_at = {p}12,
+					finished_at = {p}13;
 			"
 		);
 		let params = db::params![
@@ -194,7 +191,6 @@ impl Server {
 			arg.target,
 			arg.weight,
 			arg.created_at.format(&Rfc3339).unwrap(),
-			arg.queued_at.map(|t| t.format(&Rfc3339).unwrap()),
 			arg.started_at.map(|t| t.format(&Rfc3339).unwrap()),
 			arg.finished_at.map(|t| t.format(&Rfc3339).unwrap()),
 		];

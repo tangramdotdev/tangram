@@ -1,9 +1,12 @@
 use crate::{
+	runtime::Trait as _,
 	util::http::{full, Incoming, Outgoing},
-	BuildState, Http, Server,
+	BuildState, Http, Permit, Server,
 };
+use either::Either;
+use futures::{future, FutureExt as _, TryFutureExt as _};
 use http_body_util::BodyExt as _;
-use std::sync::Arc;
+use std::{pin::pin, sync::Arc};
 use tangram_client as tg;
 
 impl Server {
@@ -136,7 +139,7 @@ impl Server {
 		}
 
 		// Otherwise, create a new build.
-		let build_id = tg::build::Id::new();
+		let id = tg::build::Id::new();
 
 		// Get the host.
 		let target = tg::Target::with_id(arg.target.clone());
@@ -150,14 +153,13 @@ impl Server {
 			stop,
 			task: std::sync::Mutex::new(None),
 		});
-		self.build_state
-			.write()
-			.unwrap()
-			.insert(build_id.clone(), state);
+
+		// Add the build state.
+		self.build_state.write().unwrap().insert(id.clone(), state);
 
 		// Insert the build.
 		let put_arg = tg::build::PutArg {
-			id: build_id.clone(),
+			id: id.clone(),
 			children: Vec::new(),
 			count: None,
 			host: host.clone(),
@@ -168,23 +170,149 @@ impl Server {
 			target: arg.target.clone(),
 			weight: None,
 			created_at: time::OffsetDateTime::now_utc(),
-			queued_at: None,
 			started_at: None,
 			finished_at: None,
 		};
-		self.insert_build(&build_id, &put_arg).await?;
+		self.insert_build(&id, &put_arg).await?;
+
+		// Create the build.
+		let build = tg::Build::with_id(id.clone());
 
 		// Add the build to the parent.
 		if let Some(parent) = arg.parent.as_ref() {
-			self.add_build_child(parent, &build_id).await?;
+			self.add_build_child(parent, build.id()).await?;
 		}
 
 		// Send the message.
 		self.messenger.publish_to_build_created().await?;
 
-		let output = tg::build::GetOrCreateOutput { id: build_id };
+		// Spawn a task to dequeue and start the build when the parent's permit is available.
+		let server = self.clone();
+		let parent = arg.parent.clone();
+		let build = build.clone();
+		let task = async move {
+			// Get the parent build's state if it is available.
+			let Some(state) =
+				parent.and_then(|parent| server.build_state.read().unwrap().get(&parent).cloned())
+			else {
+				return Ok(());
+			};
+
+			// Acquire the parent's permit.
+			let permit = state
+				.permit
+				.clone()
+				.lock_owned()
+				.map(|guard| Permit(Either::Right(guard)))
+				.await;
+
+			// Start the build.
+			server.start_build(build, permit).await?;
+
+			Ok::<_, tg::Error>(())
+		}
+		.inspect_err(|error| tracing::error!(?error, "failed to start the build"));
+		tokio::spawn(task);
+
+		let output = tg::build::GetOrCreateOutput { id };
 
 		Ok(output)
+	}
+
+	pub(crate) async fn start_build(&self, build: tg::Build, permit: Permit) -> tg::Result<()> {
+		// Set the build's status to started.
+		self.set_build_status(build.id(), tg::build::Status::Started)
+			.await?;
+
+		// Lock the build state.
+		let state = self
+			.build_state
+			.write()
+			.unwrap()
+			.get_mut(build.id())
+			.unwrap()
+			.clone();
+
+		// Set the permit.
+		state.permit.lock().await.replace(permit);
+
+		// Spawn the task.
+		let server = self.clone();
+		let build = build.clone();
+		let mut stop = self
+			.build_state
+			.read()
+			.unwrap()
+			.get(build.id())
+			.unwrap()
+			.stop
+			.subscribe();
+		let task = async move {
+			// Build.
+			let inner = server.start_build_inner(build.clone());
+			let stop = stop.wait_for(|s| *s);
+			let outcome = match future::select(pin!(inner), pin!(stop)).await {
+				future::Either::Left((Err(error), _)) => return Err(error),
+				future::Either::Left((Ok(outcome), _)) => outcome,
+				future::Either::Right(_) => tg::build::Outcome::Canceled,
+			};
+
+			// Set the build's outcome.
+			build
+				.set_outcome(&server, outcome)
+				.await
+				.map_err(|source| tg::error!(!source, "failed to set the build outcome"))?;
+
+			// Remove the build state.
+			server.build_state.write().unwrap().remove(build.id());
+
+			Ok::<_, tg::Error>(())
+		}
+		.inspect_err(|error| {
+			tracing::error!(?error, "failed to run the build");
+		})
+		.map(|_| ());
+		let task = tokio::spawn(task);
+		state.task.lock().unwrap().replace(task);
+
+		// Unlock the build state.
+		drop(state);
+
+		Ok(())
+	}
+
+	async fn start_build_inner(&self, build: tg::Build) -> tg::Result<tg::build::Outcome> {
+		// Get the runtime.
+		let target = build.target(self).await?;
+		let host = target.host(self).await?;
+		let runtime = self
+			.runtimes
+			.read()
+			.unwrap()
+			.get(&*host)
+			.ok_or_else(
+				|| tg::error!(?id = build.id(), ?host = &*host, "no runtime to build the target"),
+			)?
+			.clone();
+
+		// Build.
+		let result = runtime.run(&build).await;
+
+		// Log an error if one occurred.
+		if let Err(error) = &result {
+			let options = &self.options.advanced.error_trace_options;
+			let trace = error.trace(options);
+			let log = trace.to_string();
+			build.add_log(self, log.into()).await?;
+		}
+
+		// Create the outcome.
+		let outcome = match result {
+			Ok(value) => tg::build::Outcome::Succeeded(value),
+			Err(error) => tg::build::Outcome::Failed(error),
+		};
+
+		Ok(outcome)
 	}
 }
 
@@ -196,13 +324,6 @@ where
 		&self,
 		request: http::Request<Incoming>,
 	) -> tg::Result<http::Response<Outgoing>> {
-		// Get the path params.
-		let path_components: Vec<&str> = request.uri().path().split('/').skip(1).collect();
-		let ["builds"] = path_components.as_slice() else {
-			let path = request.uri().path();
-			return Err(tg::error!(%path, "unexpected path"));
-		};
-
 		// Read the body.
 		let bytes = request
 			.into_body()

@@ -1,11 +1,10 @@
 use either::Either;
-use fnv::FnvBuildHasher;
 use num::ToPrimitive;
 use std::{
 	collections::HashMap,
 	ffi::CString,
 	io::SeekFrom,
-	os::unix::prelude::OsStrExt as _,
+	os::unix::ffi::OsStrExt as _,
 	path::{Path, PathBuf},
 	sync::{Arc, Weak},
 };
@@ -18,14 +17,14 @@ use zerocopy::{AsBytes, FromBytes};
 #[derive(Clone)]
 pub struct Server(Arc<Inner>);
 
-type Map<K, V> = HashMap<K, V, FnvBuildHasher>;
-
 pub struct Inner {
 	dev_fuse_fd: std::os::fd::RawFd,
 	handle_index: std::sync::atomic::AtomicU64,
-	handles: parking_lot::RwLock<Map<FileHandle, Arc<tokio::sync::RwLock<FileHandleData>>>>,
+	handles: parking_lot::RwLock<
+		HashMap<FileHandle, Arc<tokio::sync::RwLock<FileHandleData>>, fnv::FnvBuildHasher>,
+	>,
 	node_index: std::sync::atomic::AtomicU64,
-	nodes: parking_lot::RwLock<Map<NodeId, Arc<Node>>>,
+	nodes: parking_lot::RwLock<HashMap<NodeId, Arc<Node, fnv::FnvBuildHasher>>>,
 	path: std::path::PathBuf,
 	requests: std::sync::Mutex<Option<Vec<tokio::task::JoinHandle<()>>>>,
 	server: crate::Server,
@@ -238,6 +237,7 @@ impl Server {
 
 		// Handle each request.
 		loop {
+			// Read the request size.
 			let request_size = unsafe {
 				libc::read(
 					self.dev_fuse_fd,

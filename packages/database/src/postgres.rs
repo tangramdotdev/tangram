@@ -2,7 +2,7 @@ use crate::{
 	pool::{self, Pool},
 	Row, Value,
 };
-use futures::{future, Stream, TryStreamExt as _};
+use futures::{future, Future, Stream, TryStreamExt as _};
 use indexmap::IndexMap;
 use itertools::Itertools as _;
 pub use postgres::types::Json;
@@ -185,7 +185,7 @@ impl super::Query for pool::Guard<Connection> {
 		&self,
 		statement: String,
 		params: Vec<Value>,
-	) -> impl futures::prelude::Future<Output = Result<u64, Self::Error>> {
+	) -> impl Future<Output = Result<u64, Self::Error>> {
 		self.as_ref().execute(statement, params)
 	}
 
@@ -193,9 +193,8 @@ impl super::Query for pool::Guard<Connection> {
 		&self,
 		statement: String,
 		params: Vec<Value>,
-	) -> impl futures::prelude::Future<
-		Output = Result<impl Stream<Item = Result<Row, Self::Error>> + Send, Self::Error>,
-	> {
+	) -> impl Future<Output = Result<impl Stream<Item = Result<Row, Self::Error>> + Send, Self::Error>>
+	{
 		self.as_ref().query(statement, params)
 	}
 }

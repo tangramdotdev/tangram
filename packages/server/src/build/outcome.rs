@@ -343,12 +343,13 @@ impl Server {
 				where id = {p}7;
 			"
 		);
+		let status = tg::build::Status::Finished;
 		let finished_at = time::OffsetDateTime::now_utc();
 		let params = db::params![
 			count,
 			log,
 			outcome,
-			tg::build::Status::Finished,
+			status,
 			weight,
 			finished_at.format(&Rfc3339).unwrap(),
 			id,

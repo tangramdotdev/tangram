@@ -88,6 +88,12 @@ pub trait Handle: Clone + Unpin + Send + Sync + 'static {
 		arg: tg::build::GetOrCreateArg,
 	) -> impl Future<Output = tg::Result<tg::build::GetOrCreateOutput>> + Send;
 
+	fn try_dequeue_build(
+		&self,
+		arg: tg::build::DequeueArg,
+		stop: Option<tokio::sync::watch::Receiver<bool>>,
+	) -> impl Future<Output = tg::Result<Option<tg::build::DequeueOutput>>> + Send;
+
 	fn get_build_status(
 		&self,
 		id: &tg::build::Id,
@@ -470,6 +476,17 @@ where
 		match self {
 			Either::Left(s) => s.get_or_create_build(arg).left_future(),
 			Either::Right(s) => s.get_or_create_build(arg).right_future(),
+		}
+	}
+
+	fn try_dequeue_build(
+		&self,
+		arg: tg::build::DequeueArg,
+		stop: Option<tokio::sync::watch::Receiver<bool>>,
+	) -> impl Future<Output = tg::Result<Option<tg::build::DequeueOutput>>> {
+		match self {
+			Either::Left(s) => s.try_dequeue_build(arg, stop).left_future(),
+			Either::Right(s) => s.try_dequeue_build(arg, stop).right_future(),
 		}
 	}
 

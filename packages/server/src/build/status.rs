@@ -175,18 +175,10 @@ impl Server {
 			return Err(tg::error!("the status cannot be set to created"));
 		}
 
-		// Get the previous status.
-		let previous_status = match status {
-			tg::build::Status::Created => unreachable!(),
-			tg::build::Status::Queued => tg::build::Status::Created,
-			tg::build::Status::Started => tg::build::Status::Queued,
-			tg::build::Status::Finished => tg::build::Status::Started,
-		};
-
 		// Get the timestamp column.
 		let timestamp_column = match status {
 			tg::build::Status::Created => unreachable!(),
-			tg::build::Status::Queued => "queued_at",
+			tg::build::Status::Dequeued => "dequeued_at",
 			tg::build::Status::Started => "started_at",
 			tg::build::Status::Finished => "finished_at",
 		};
@@ -198,7 +190,7 @@ impl Server {
 			.await
 			.map_err(|source| tg::error!(!source, "failed to get a database connection"))?;
 
-		// Update the database.
+		// Update the status.
 		let p = connection.p();
 		let statement = format!(
 			"
@@ -206,17 +198,12 @@ impl Server {
 				set 
 					status = {p}1,
 					{timestamp_column} = {p}2 
-				where id = {p}3 and status = {p}4
+				where id = {p}3
 				returning id;
 			"
 		);
-		let timestamp = time::OffsetDateTime::now_utc();
-		let params = db::params![
-			status,
-			timestamp.format(&Rfc3339).unwrap(),
-			id,
-			previous_status,
-		];
+		let timestamp = time::OffsetDateTime::now_utc().format(&Rfc3339).unwrap();
+		let params = db::params![status, timestamp, id];
 		connection
 			.query_one(statement, params)
 			.await

@@ -8,7 +8,7 @@ use crate::{
 };
 use futures::{stream::FuturesUnordered, TryStreamExt as _};
 use http_body_util::BodyExt as _;
-use std::{collections::HashMap, os::unix::prelude::PermissionsExt as _, sync::Arc};
+use std::{collections::HashMap, os::unix::fs::PermissionsExt as _, sync::Arc};
 use tangram_client as tg;
 
 impl Server {

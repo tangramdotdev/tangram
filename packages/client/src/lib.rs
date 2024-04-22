@@ -612,6 +612,14 @@ impl tg::Handle for Client {
 		self.get_or_create_build(arg)
 	}
 
+	fn try_dequeue_build(
+		&self,
+		arg: tg::build::DequeueArg,
+		stop: Option<tokio::sync::watch::Receiver<bool>>,
+	) -> impl Future<Output = tg::Result<Option<tg::build::DequeueOutput>>> {
+		self.try_dequeue_build(arg, stop)
+	}
+
 	fn try_get_build_status(
 		&self,
 		id: &tg::build::Id,

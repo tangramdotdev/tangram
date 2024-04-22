@@ -5,7 +5,6 @@ use std::{collections::BTreeMap, path::PathBuf};
 use tangram_client as tg;
 
 pub mod get;
-pub mod list;
 pub mod pull;
 pub mod push;
 pub mod put;
@@ -27,7 +26,6 @@ pub enum Command {
 	#[clap(hide = true)]
 	GetOrCreate(GetOrCreateArgs),
 	Get(self::get::Args),
-	List(self::list::Args),
 	Put(self::put::Args),
 	Push(self::push::Args),
 	Pull(self::pull::Args),
@@ -103,9 +101,6 @@ impl Cli {
 			},
 			Command::Get(args) => {
 				self.command_build_get(args).await?;
-			},
-			Command::List(args) => {
-				self.command_build_list(args).await?;
 			},
 			Command::Put(args) => {
 				self.command_build_put(args).await?;

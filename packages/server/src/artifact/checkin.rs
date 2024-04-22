@@ -5,7 +5,7 @@ use crate::{
 };
 use futures::{stream::FuturesUnordered, FutureExt, TryStreamExt as _};
 use http_body_util::BodyExt as _;
-use std::os::unix::prelude::PermissionsExt as _;
+use std::os::unix::fs::PermissionsExt as _;
 use tangram_client as tg;
 use tangram_database::prelude::*;
 

@@ -10,12 +10,6 @@ pub enum Messenger {
 	Nats(nats::Client),
 }
 
-#[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
-pub enum Kind {
-	Channel,
-	Nats,
-}
-
 #[allow(clippy::enum_variant_names)]
 #[derive(Clone, Debug, derive_more::TryUnwrap)]
 pub enum Message {
@@ -33,13 +27,6 @@ impl Messenger {
 
 	pub fn new_nats(client: nats::Client) -> Self {
 		Self::Nats(client)
-	}
-
-	pub fn kind(&self) -> Kind {
-		match self {
-			Messenger::Channel(_) => Kind::Channel,
-			Messenger::Nats(_) => Kind::Nats,
-		}
 	}
 
 	pub async fn publish_to_build_created(&self) -> tg::Result<()> {
