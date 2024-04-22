@@ -441,6 +441,12 @@ mod tests {
 	#[test]
 	fn diff() {
 		let dst = "/hello/world".parse::<Path>().unwrap();
+		let src = "/hello/world".parse::<Path>().unwrap();
+		let left = dst.diff(&src);
+		let right = Some(".".parse().unwrap());
+		assert_eq!(left, right);
+
+		let dst = "/hello/world".parse::<Path>().unwrap();
 		let src = "/hello".parse::<Path>().unwrap();
 		let left = dst.diff(&src);
 		let right = Some("./world".parse().unwrap());

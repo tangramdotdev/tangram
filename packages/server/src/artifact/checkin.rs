@@ -14,6 +14,31 @@ impl Server {
 		&self,
 		arg: tg::artifact::CheckInArg,
 	) -> tg::Result<tg::artifact::CheckInOutput> {
+		// If this is a checkin of a path in the checkouts directory, then retrieve the corresponding artifact.
+		let checkouts_path = self.checkouts_path().try_into()?;
+		if let Some(path) = arg.path.diff(&checkouts_path).filter(tg::Path::is_internal) {
+			let id = path
+				.components()
+				.get(1)
+				.ok_or_else(|| tg::error!("cannot check in the checkouts directory"))?
+				.try_unwrap_normal_ref()
+				.ok()
+				.ok_or_else(|| tg::error!("invalid path"))?
+				.parse::<tg::artifact::Id>()?;
+			let path = tg::Path::with_components(path.components().iter().skip(2).cloned());
+			if path.components().len() == 1 {
+				return Ok(tg::artifact::CheckInOutput { id });
+			}
+			let artifact = tg::Artifact::with_id(id);
+			let directory = artifact
+				.try_unwrap_directory()
+				.ok()
+				.ok_or_else(|| tg::error!("invalid path"))?;
+			let artifact = directory.get(self, &path).await?;
+			let id = artifact.id(self, None).await?;
+			return Ok(tg::artifact::CheckInOutput { id });
+		}
+
 		// Get a database connection.
 		let mut connection = self
 			.database
