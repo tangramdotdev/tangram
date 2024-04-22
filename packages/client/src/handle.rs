@@ -94,6 +94,11 @@ pub trait Handle: Clone + Unpin + Send + Sync + 'static {
 		stop: Option<tokio::sync::watch::Receiver<bool>>,
 	) -> impl Future<Output = tg::Result<Option<tg::build::DequeueOutput>>> + Send;
 
+	fn try_start_build(
+		&self,
+		id: &tg::build::Id,
+	) -> impl Future<Output = tg::Result<Option<bool>>> + Send;
+
 	fn touch_build(&self, id: &tg::build::Id) -> impl Future<Output = tg::Result<()>> + Send;
 
 	fn get_build_status(
@@ -119,12 +124,6 @@ pub trait Handle: Clone + Unpin + Send + Sync + 'static {
 			Option<impl Stream<Item = tg::Result<tg::build::Status>> + Send + 'static>,
 		>,
 	> + Send;
-
-	fn set_build_status(
-		&self,
-		id: &tg::build::Id,
-		status: tg::build::Status,
-	) -> impl Future<Output = tg::Result<()>> + Send;
 
 	fn get_build_children(
 		&self,
@@ -492,6 +491,16 @@ where
 		}
 	}
 
+	fn try_start_build(
+		&self,
+		id: &tg::build::Id,
+	) -> impl Future<Output = tg::Result<Option<bool>>> + Send {
+		match self {
+			Either::Left(s) => s.try_start_build(id).left_future(),
+			Either::Right(s) => s.try_start_build(id).right_future(),
+		}
+	}
+
 	fn touch_build(&self, id: &tg::build::Id) -> impl Future<Output = tg::Result<()>> + Send {
 		match self {
 			Either::Left(s) => s.touch_build(id).left_future(),
@@ -518,17 +527,6 @@ where
 				.try_get_build_status(id, arg, stop)
 				.map(|result| result.map(|option| option.map(futures::StreamExt::right_stream)))
 				.right_future(),
-		}
-	}
-
-	fn set_build_status(
-		&self,
-		id: &tg::build::Id,
-		status: tg::build::Status,
-	) -> impl Future<Output = tg::Result<()>> {
-		match self {
-			Either::Left(s) => s.set_build_status(id, status).left_future(),
-			Either::Right(s) => s.set_build_status(id, status).right_future(),
 		}
 	}
 

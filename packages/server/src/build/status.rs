@@ -1,13 +1,12 @@
 use crate::{
-	util::http::{empty, not_found, Incoming, Outgoing},
+	util::http::{not_found, Incoming, Outgoing},
 	Http, Server,
 };
 use futures::{future, stream, FutureExt as _, Stream, StreamExt as _, TryStreamExt as _};
-use http_body_util::{BodyExt as _, StreamBody};
+use http_body_util::StreamBody;
 use indoc::formatdoc;
 use tangram_client as tg;
 use tangram_database::{self as db, prelude::*};
-use time::format_description::well_known::Rfc3339;
 use tokio_stream::wrappers::IntervalStream;
 
 impl Server {
@@ -145,90 +144,6 @@ impl Server {
 		};
 		Ok(Some(stream))
 	}
-
-	pub async fn set_build_status(
-		&self,
-		id: &tg::build::Id,
-		status: tg::build::Status,
-	) -> tg::Result<()> {
-		if self.try_set_build_status_local(id, status).await? {
-			return Ok(());
-		}
-		if self.try_set_build_status_remote(id, status).await? {
-			return Ok(());
-		}
-		Err(tg::error!("failed to get the build"))
-	}
-
-	async fn try_set_build_status_local(
-		&self,
-		id: &tg::build::Id,
-		status: tg::build::Status,
-	) -> tg::Result<bool> {
-		// Verify the build is local.
-		if !self.get_build_exists_local(id).await? {
-			return Ok(false);
-		}
-
-		// The status cannot be set to created.
-		if status == tg::build::Status::Created {
-			return Err(tg::error!("the status cannot be set to created"));
-		}
-
-		// Get the timestamp column.
-		let timestamp_column = match status {
-			tg::build::Status::Created => unreachable!(),
-			tg::build::Status::Dequeued => "dequeued_at",
-			tg::build::Status::Started => "started_at",
-			tg::build::Status::Finished => "finished_at",
-		};
-
-		// Get a database connection.
-		let connection = self
-			.database
-			.connection()
-			.await
-			.map_err(|source| tg::error!(!source, "failed to get a database connection"))?;
-
-		// Update the status.
-		let p = connection.p();
-		let statement = format!(
-			"
-				update builds
-				set 
-					status = {p}1,
-					{timestamp_column} = {p}2 
-				where id = {p}3
-				returning id;
-			"
-		);
-		let now = time::OffsetDateTime::now_utc().format(&Rfc3339).unwrap();
-		let params = db::params![status, now, id];
-		connection
-			.query_one(statement, params)
-			.await
-			.map_err(|source| tg::error!(!source, "failed to execute the statement"))?;
-
-		// Drop the database connection.
-		drop(connection);
-
-		// Publish the message.
-		self.messenger.publish_to_build_status(id).await?;
-
-		Ok(true)
-	}
-
-	async fn try_set_build_status_remote(
-		&self,
-		id: &tg::build::Id,
-		status: tg::build::Status,
-	) -> tg::Result<bool> {
-		let Some(remote) = self.remotes.first() else {
-			return Ok(false);
-		};
-		remote.set_build_status(id, status).await?;
-		Ok(true)
-	}
 }
 
 impl<H> Http<H>
@@ -309,41 +224,6 @@ where
 			.status(http::StatusCode::OK)
 			.header(http::header::CONTENT_TYPE, content_type.to_string())
 			.body(body)
-			.unwrap();
-
-		Ok(response)
-	}
-
-	pub async fn handle_set_build_status_request(
-		&self,
-		request: http::Request<Incoming>,
-	) -> tg::Result<hyper::Response<Outgoing>> {
-		// Get the path params.
-		let path_components: Vec<&str> = request.uri().path().split('/').skip(1).collect();
-		let ["builds", id, "status"] = path_components.as_slice() else {
-			let path = request.uri().path();
-			return Err(tg::error!(%path, "unexpected path"));
-		};
-		let build_id: tg::build::Id = id
-			.parse()
-			.map_err(|source| tg::error!(!source, "failed to parse the ID"))?;
-
-		// Read the body.
-		let bytes = request
-			.into_body()
-			.collect()
-			.await
-			.map_err(|source| tg::error!(!source, "failed to read the body"))?
-			.to_bytes();
-		let status = serde_json::from_slice(&bytes)
-			.map_err(|source| tg::error!(!source, "failed to deserialize the body"))?;
-
-		self.handle.set_build_status(&build_id, status).await?;
-
-		// Create the response.
-		let response = http::Response::builder()
-			.status(http::StatusCode::OK)
-			.body(empty())
 			.unwrap();
 
 		Ok(response)

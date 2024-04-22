@@ -725,15 +725,14 @@ where
 			(http::Method::POST, ["builds", "dequeue"]) => {
 				self.handle_dequeue_build_request(request).map(Some).boxed()
 			},
+			(http::Method::POST, ["builds", _, "start"]) => {
+				self.handle_start_build_request(request).map(Some).boxed()
+			},
 			(http::Method::POST, ["builds", _, "touch"]) => {
 				self.handle_touch_build_request(request).map(Some).boxed()
 			},
 			(http::Method::GET, ["builds", _, "status"]) => self
 				.handle_get_build_status_request(request)
-				.map(Some)
-				.boxed(),
-			(http::Method::POST, ["builds", _, "status"]) => self
-				.handle_set_build_status_request(request)
 				.map(Some)
 				.boxed(),
 			(http::Method::GET, ["builds", _, "children"]) => self
@@ -985,6 +984,13 @@ impl tg::Handle for Server {
 		self.try_dequeue_build(arg, stop)
 	}
 
+	fn try_start_build(
+		&self,
+		id: &tg::build::Id,
+	) -> impl Future<Output = tg::Result<Option<bool>>> {
+		self.try_start_build(id)
+	}
+
 	fn touch_build(&self, id: &tg::build::Id) -> impl Future<Output = tg::Result<()>> {
 		self.touch_build(id)
 	}
@@ -1000,14 +1006,6 @@ impl tg::Handle for Server {
 		>,
 	> {
 		self.try_get_build_status(id, arg, stop)
-	}
-
-	fn set_build_status(
-		&self,
-		id: &tg::build::Id,
-		status: tg::build::Status,
-	) -> impl Future<Output = tg::Result<()>> {
-		self.set_build_status(id, status)
 	}
 
 	fn try_get_build_children(

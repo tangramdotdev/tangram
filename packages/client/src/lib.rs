@@ -620,6 +620,13 @@ impl tg::Handle for Client {
 		self.try_dequeue_build(arg, stop)
 	}
 
+	fn try_start_build(
+		&self,
+		id: &tg::build::Id,
+	) -> impl Future<Output = tg::Result<Option<bool>>> {
+		self.try_start_build(id)
+	}
+
 	fn touch_build(&self, id: &tg::build::Id) -> impl Future<Output = tg::Result<()>> {
 		self.touch_build(id)
 	}
@@ -633,14 +640,6 @@ impl tg::Handle for Client {
 		Output = tg::Result<Option<impl Stream<Item = Result<tg::build::Status>> + Send + 'static>>,
 	> {
 		self.try_get_build_status(id, arg, stop)
-	}
-
-	fn set_build_status(
-		&self,
-		id: &tg::build::Id,
-		status: tg::build::Status,
-	) -> impl Future<Output = tg::Result<()>> {
-		self.set_build_status(id, status)
 	}
 
 	fn try_get_build_children(

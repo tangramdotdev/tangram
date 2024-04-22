@@ -238,6 +238,10 @@ impl tg::Handle for Server {
 		Err(tg::error!("forbidden"))
 	}
 
+	async fn try_start_build(&self, _id: &tg::build::Id) -> tg::Result<Option<bool>> {
+		Err(tg::error!("forbidden"))
+	}
+
 	async fn touch_build(&self, _id: &tg::build::Id) -> tg::Result<()> {
 		Err(tg::error!("forbidden"))
 	}
@@ -253,14 +257,6 @@ impl tg::Handle for Server {
 		>,
 	> {
 		self.server.try_get_build_status(id, arg, stop)
-	}
-
-	async fn set_build_status(
-		&self,
-		_id: &tg::build::Id,
-		_status: tg::build::Status,
-	) -> tg::Result<()> {
-		Err(tg::error!("forbidden"))
 	}
 
 	fn try_get_build_children(

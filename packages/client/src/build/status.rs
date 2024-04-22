@@ -1,7 +1,4 @@
-use crate::{
-	self as tg,
-	util::http::{empty, full},
-};
+use crate::{self as tg, util::http::empty};
 use futures::{future, FutureExt as _, Stream, StreamExt as _, TryStreamExt as _};
 use http_body_util::{BodyExt as _, BodyStream};
 use serde_with::serde_as;
@@ -76,37 +73,6 @@ impl tg::Client {
 			})
 			.take_until(stop);
 		Ok(Some(output))
-	}
-
-	pub async fn set_build_status(
-		&self,
-		id: &tg::build::Id,
-		status: tg::build::Status,
-	) -> tg::Result<()> {
-		let method = http::Method::POST;
-		let uri = format!("/builds/{id}/status");
-		let mut request = http::request::Builder::default().method(method).uri(uri);
-		if let Some(token) = self.token.as_ref() {
-			request = request.header(http::header::AUTHORIZATION, format!("Bearer {token}"));
-		}
-		let body = serde_json::to_vec(&status)
-			.map_err(|source| tg::error!(!source, "failed to serialize the body"))?;
-		let body = full(body);
-		let request = request
-			.body(body)
-			.map_err(|source| tg::error!(!source, "failed to create the request"))?;
-		let response = self.send(request).await?;
-		if !response.status().is_success() {
-			let bytes = response
-				.collect()
-				.await
-				.map_err(|source| tg::error!(!source, "failed to collect the response body"))?
-				.to_bytes();
-			let error = serde_json::from_slice(&bytes)
-				.unwrap_or_else(|_| tg::error!("the request did not succeed"));
-			return Err(error);
-		}
-		Ok(())
 	}
 }
 

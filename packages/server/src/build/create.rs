@@ -190,7 +190,7 @@ impl Server {
 
 			// Start the build.
 			server
-				.try_start_build(build, permit)
+				.try_start_build_internal(build, permit)
 				.await
 				.inspect_err(|error| tracing::error!(?error, "failed to start the build"))
 				.ok();
@@ -202,19 +202,17 @@ impl Server {
 		Ok(output)
 	}
 
-	pub(crate) async fn try_start_build(
+	pub(crate) async fn try_start_build_internal(
 		&self,
 		build: tg::Build,
 		permit: Permit,
 	) -> tg::Result<bool> {
-		// Attempt to set the build's status to started.
-		let result = self
-			.set_build_status(build.id(), tg::build::Status::Started)
-			.await;
-
-		// If the attempt to set the build's status failed, then return.
-		if let Err(error) = result {
-			tracing::error!(?error, "failed to set the build's status");
+		// Attempt to start the build.
+		if !self
+			.try_start_build(build.id())
+			.await?
+			.ok_or_else(|| tg::error!("failed to find the build"))?
+		{
 			return Ok(false);
 		};
 
@@ -226,8 +224,8 @@ impl Server {
 		let server = self.clone();
 		let build = build.clone();
 		let task = async move {
-			// Build.
-			let result = server.start_build_inner(build.clone()).await;
+			// Run the build.
+			let result = server.start_build_internal_inner(build.clone()).await;
 			let outcome = match result {
 				Ok(outcome) => outcome,
 				Err(error) => tg::build::Outcome::Failed(error),
@@ -253,7 +251,7 @@ impl Server {
 		Ok(true)
 	}
 
-	async fn start_build_inner(&self, build: tg::Build) -> tg::Result<tg::build::Outcome> {
+	async fn start_build_internal_inner(&self, build: tg::Build) -> tg::Result<tg::build::Outcome> {
 		// Get the runtime.
 		let target = build.target(self).await?;
 		let host = target.host(self).await?;
