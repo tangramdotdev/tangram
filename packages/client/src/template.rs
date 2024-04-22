@@ -86,11 +86,12 @@ impl Template {
 			.join(""))
 	}
 
-	pub fn unrender(string: &str) -> tg::Result<Self> {
+	pub fn unrender(prefix: &str, string: &str) -> tg::Result<Self> {
 		// Create the regex.
+		let prefix = regex::escape(prefix);
 		let regex =
-			r"/\.tangram/artifacts/((?:dir_|fil_|sym_)01[0123456789abcdefghjkmnpqrstvwxyz]{52})";
-		let regex = regex::Regex::new(regex).unwrap();
+			format!(r"{prefix}/((?:dir_|fil_|sym_)01[0123456789abcdefghjkmnpqrstvwxyz]{{52}})");
+		let regex = regex::Regex::new(&regex).unwrap();
 
 		let mut i = 0;
 		let mut components = Vec::new();
@@ -254,8 +255,8 @@ mod tests {
 		let id = "dir_010000000000000000000000000000000000000000000000000000"
 			.parse()
 			.unwrap();
-		let string = format!("foo /.tangram/artifacts/{id} bar");
-		let template = tg::Template::unrender(&string).unwrap();
+		let string = format!("foo /path/to/.tangram/artifacts/{id} bar");
+		let template = tg::Template::unrender("/path/to/.tangram/artifacts", &string).unwrap();
 
 		let left = template.components().first().unwrap().unwrap_string_ref();
 		let right = "foo ";

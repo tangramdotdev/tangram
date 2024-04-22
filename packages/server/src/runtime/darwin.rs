@@ -56,6 +56,7 @@ impl Runtime {
 
 		// Get the artifacts path.
 		let artifacts_directory_path = server.path.join("artifacts");
+		let checkouts_directory_path = server.path.join("checkouts");
 
 		let root_directory_tmp = Tmp::new(server);
 		tokio::fs::create_dir_all(&root_directory_tmp)
@@ -292,9 +293,20 @@ impl Runtime {
 				(allow process-exec* (subpath {0}))
 				(allow file-read* (path-ancestors {0}))
 				(allow file-read* (subpath {0}))
-				(allow file-write* (subpath {0}))
 			"#,
 			escape(artifacts_directory_path.as_os_str().as_bytes())
+		)
+		.unwrap();
+
+		// Allow read access to the checkouts directory.
+		writedoc!(
+			profile,
+			r#"
+				(allow process-exec* (subpath {0}))
+				(allow file-read* (path-ancestors {0}))
+				(allow file-read* (subpath {0}))
+			"#,
+			escape(checkouts_directory_path.as_os_str().as_bytes())
 		)
 		.unwrap();
 

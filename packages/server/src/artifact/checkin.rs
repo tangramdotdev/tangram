@@ -203,7 +203,11 @@ impl Server {
 		let target = target
 			.to_str()
 			.ok_or_else(|| tg::error!("the symlink target must be valid UTF-8"))?;
-		let target = tg::Template::unrender(target)?;
+		let artifacts_path = self.artifacts_path();
+		let artifacts_path = artifacts_path
+			.to_str()
+			.ok_or_else(|| tg::error!("the artifacts path must be valid UTF-8"))?;
+		let target = tg::Template::unrender(artifacts_path, target)?;
 
 		// Get the artifact and path.
 		let (artifact, path) = if target.components.len() == 1 {
