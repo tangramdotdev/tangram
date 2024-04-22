@@ -71,10 +71,10 @@ where
 }
 
 enum TreeItemIndicator {
-	Empty,
+	Loading,
 	Errored,
 	Created,
-	Queued,
+	Dequeued,
 	Started,
 	Canceled,
 	Failed,
@@ -475,7 +475,7 @@ where
 		let state = TreeItemState {
 			children: None,
 			expanded: false,
-			indicator: TreeItemIndicator::Empty,
+			indicator: TreeItemIndicator::Loading,
 			selected,
 			title: None,
 		};
@@ -510,8 +510,8 @@ where
 						tg::build::Status::Created => {
 							item.state.lock().unwrap().indicator = TreeItemIndicator::Created;
 						},
-						tg::build::Status::Queued => {
-							item.state.lock().unwrap().indicator = TreeItemIndicator::Queued;
+						tg::build::Status::Dequeued => {
+							item.state.lock().unwrap().indicator = TreeItemIndicator::Dequeued;
 						},
 						tg::build::Status::Started => {
 							item.state.lock().unwrap().indicator = TreeItemIndicator::Started;
@@ -650,9 +650,10 @@ where
 			"▶"
 		};
 		let indicator = match self.state.lock().unwrap().indicator {
-			TreeItemIndicator::Empty => " ".red(),
+			TreeItemIndicator::Loading => " ".red(),
 			TreeItemIndicator::Errored => "!".red(),
-			TreeItemIndicator::Created | TreeItemIndicator::Queued => "⟳".yellow(),
+			TreeItemIndicator::Created => "⟳".yellow(),
+			TreeItemIndicator::Dequeued => "•".yellow(),
 			TreeItemIndicator::Started => {
 				let now = std::time::SystemTime::now()
 					.duration_since(std::time::UNIX_EPOCH)

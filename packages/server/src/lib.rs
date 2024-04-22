@@ -30,7 +30,7 @@ use std::{
 use tangram_client as tg;
 use tangram_database::{self as db, prelude::*};
 use tokio::{
-	io::{AsyncBufRead, AsyncRead, AsyncWrite},
+	io::{AsyncBufRead, AsyncRead, AsyncWrite, AsyncWriteExt},
 	net::{TcpListener, UnixListener},
 };
 use url::Url;
@@ -59,7 +59,6 @@ pub struct Server(Arc<Inner>);
 
 pub struct Inner {
 	build_queue_task: std::sync::Mutex<Option<tokio::task::JoinHandle<tg::Result<()>>>>,
-	build_queue_task_stop: tokio::sync::watch::Sender<bool>,
 	build_semaphore: Arc<tokio::sync::Semaphore>,
 	build_state: std::sync::RwLock<HashMap<tg::build::Id, Arc<BuildState>, fnv::FnvBuildHasher>>,
 	database: Database,
@@ -133,7 +132,7 @@ impl Server {
 			.map_err(|source| tg::error!(!source, "failed to canonicalize the path"))?;
 
 		// Acquire the lockfile.
-		let lockfile = tokio::fs::OpenOptions::new()
+		let mut lockfile = tokio::fs::OpenOptions::new()
 			.read(true)
 			.write(true)
 			.create(true)
@@ -148,6 +147,15 @@ impl Server {
 				"failed to acquire the lockfile"
 			));
 		}
+		lockfile
+			.set_len(0)
+			.await
+			.map_err(|source| tg::error!(!source, "failed to truncate the lockfile"))?;
+		let pid = std::process::id();
+		lockfile
+			.write_all(pid.to_string().as_bytes())
+			.await
+			.map_err(|source| tg::error!(!source, "failed to write the pid to the lockfile"))?;
 		let lockfile = std::sync::Mutex::new(Some(lockfile));
 
 		// Migrate the path.
@@ -165,10 +173,6 @@ impl Server {
 
 		// Create the build queue task.
 		let build_queue_task = std::sync::Mutex::new(None);
-
-		// Create the build queue task stop channel.
-		let (build_queue_task_stop, build_queue_task_stop_receiver) =
-			tokio::sync::watch::channel(false);
 
 		// Create the build state.
 		let build_state = std::sync::RwLock::new(HashMap::default());
@@ -276,7 +280,6 @@ impl Server {
 		// Create the server.
 		let server = Self(Arc::new(Inner {
 			build_queue_task,
-			build_queue_task_stop,
 			build_semaphore,
 			build_state,
 			database,
@@ -387,9 +390,7 @@ impl Server {
 			let task = tokio::spawn({
 				let server = server.clone();
 				async move {
-					let result = server
-						.build_queue_task(build_queue_task_stop_receiver)
-						.await;
+					let result = server.run_build_queue().await;
 					match result {
 						Ok(()) => Ok(()),
 						Err(error) => {
@@ -427,12 +428,10 @@ impl Server {
 				http.join().await.ok();
 			}
 
-			// Stop the build queue task.
-			server.build_queue_task_stop.send_replace(true);
-
-			// Join the build queue task.
+			// Stop and join the build queue task.
 			let build_queue_task = server.build_queue_task.lock().unwrap().take();
 			if let Some(build_queue_task) = build_queue_task {
+				build_queue_task.abort();
 				build_queue_task.await.ok();
 			}
 
@@ -471,7 +470,10 @@ impl Server {
 			server.runtimes.write().unwrap().clear();
 
 			// Release the lockfile.
-			server.lockfile.lock().unwrap().take();
+			let lockfile = server.lockfile.lock().unwrap().take();
+			if let Some(lockfile) = lockfile {
+				lockfile.set_len(0).await.ok();
+			}
 
 			// Set the status.
 			server.status.send_replace(Status::Stopped);
@@ -745,6 +747,9 @@ where
 				.handle_get_or_create_build_request(request)
 				.map(Some)
 				.boxed(),
+			(http::Method::POST, ["builds", "dequeue"]) => {
+				self.handle_dequeue_build_request(request).map(Some).boxed()
+			},
 			(http::Method::GET, ["builds", _, "status"]) => self
 				.handle_get_build_status_request(request)
 				.map(Some)
@@ -992,6 +997,14 @@ impl tg::Handle for Server {
 		arg: tg::build::GetOrCreateArg,
 	) -> impl Future<Output = tg::Result<tg::build::GetOrCreateOutput>> {
 		self.get_or_create_build(arg)
+	}
+
+	fn try_dequeue_build(
+		&self,
+		arg: tg::build::DequeueArg,
+		stop: Option<tokio::sync::watch::Receiver<bool>>,
+	) -> impl Future<Output = tg::Result<Option<tg::build::DequeueOutput>>> {
+		self.try_dequeue_build(arg, stop)
 	}
 
 	fn try_get_build_status(

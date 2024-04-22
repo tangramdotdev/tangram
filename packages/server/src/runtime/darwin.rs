@@ -11,7 +11,7 @@ use std::{
 	collections::BTreeMap,
 	ffi::{CStr, CString},
 	fmt::Write,
-	os::unix::prelude::OsStrExt as _,
+	os::unix::ffi::OsStrExt as _,
 };
 use tangram_client as tg;
 use tokio::io::{AsyncReadExt as _, AsyncWriteExt as _};

@@ -33,7 +33,7 @@ impl Server {
 			if version >= migrations.len() {
 				let path = path.display();
 				return Err(tg::error!(
-					r#"the path "{path}" has run migrations from a newer version of Tangram. Please run `tg upgrade` to upgrade to the latest version of Tangram"#
+					r#"The path "{path}" has run migrations from a newer version of Tangram. Please run `tg upgrade` to upgrade to the latest version of Tangram."#
 				));
 			}
 		}
@@ -69,14 +69,6 @@ async fn migration_0000(path: &Path) -> tg::Result<()> {
 		.map_err(|source| tg::error!(!source, "failed to set the journal mode"))?;
 	let sql = formatdoc!(
 		"
-			create table artifact_paths (
-				id integer primary key,
-				parent integer,
-				name text not null,
-				mtime integer,
-				artifact text not null
-			);
-
 			create table builds (
 				id text primary key,
 				complete integer not null,
@@ -89,9 +81,11 @@ async fn migration_0000(path: &Path) -> tg::Result<()> {
 				target text not null,
 				weight integer,
 				created_at text not null,
-				queued_at text,
+				dequeued_at text,
 				started_at text,
-				finished_at text
+				finished_at text,
+				heartbeat_at text,
+				touched_at text
 			);
 
 			create index builds_status_created_at_index on builds (status, created_at);
@@ -99,9 +93,9 @@ async fn migration_0000(path: &Path) -> tg::Result<()> {
 			create index builds_target_created_at_index on builds (target, created_at desc);
 
 			create table build_children (
-				build text,
-				position integer,
-				child text
+				build text not null,
+				position integer not null,
+				child text not null
 			);
 
 			create unique index build_children_index on build_children (build, position);
@@ -130,7 +124,7 @@ async fn migration_0000(path: &Path) -> tg::Result<()> {
 			create table objects (
 				id text primary key,
 				bytes blob not null,
-				children integer not null,
+				indexed integer not null,
 				complete integer not null,
 				count integer,
 				weight integer
@@ -148,13 +142,6 @@ async fn migration_0000(path: &Path) -> tg::Result<()> {
 			create table packages (
 				name text primary key
 			);
-
-			create table package_paths (
-				path text primary key,
-				package text not null
-			);
-
-			create index package_paths_package_index on package_paths (package);
 
 			create table package_versions (
 				name text not null references packages (name),

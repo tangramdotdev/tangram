@@ -27,20 +27,21 @@ impl Server {
 		let p = connection.p();
 		let statement = formatdoc!(
 			"
-				insert into objects (id, bytes, children, complete, count, weight)
+				insert into objects (id, bytes, indexed, complete, count, weight)
 				values ({p}1, {p}2, 0, 0, null, null)
 				on conflict (id) do update set id = excluded.id
-				returning children;
+				returning indexed;
 			"
 		);
 		let params = db::params![id, arg.bytes];
-		let children = connection
+		let indexed = connection
 			.query_one_value_into(statement, params)
 			.map_err(|source| tg::error!(!source, "failed to execute the statement"))
 			.await?;
 
-		// Find the incomplete children.
-		let incomplete: Vec<tg::object::Id> = if children {
+		// Get the incomplete children.
+		let incomplete: Vec<tg::object::Id> = if indexed {
+			// If the object is indexed, then use the object_children table.
 			let p = connection.p();
 			let statement = formatdoc!(
 				"
@@ -56,6 +57,7 @@ impl Server {
 				.map_err(|source| tg::error!(!source, "failed to execute the statement"))
 				.await?
 		} else {
+			// If the object is not indexed, then return all the children.
 			let data = tg::object::Data::deserialize(id.kind(), &arg.bytes)
 				.map_err(|source| tg::error!(!source, "failed to deserialize the data"))?;
 			data.children()

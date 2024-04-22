@@ -30,87 +30,78 @@ impl Cli {
 			.map_err(|source| tg::error!(!source, %dependency, "failed to get the lock"))?;
 
 		let mut visited = BTreeSet::new();
-		let tree = get_package_tree(
-			&self.handle,
-			dependency,
-			package,
-			lock,
-			&mut visited,
-			1,
-			args.depth,
-		)
-		.await?;
+		let tree = self
+			.get_package_tree(dependency, package, lock, &mut visited, 1, args.depth)
+			.await?;
 
 		tree.print();
 
 		Ok(())
 	}
-}
 
-#[allow(clippy::too_many_arguments)]
-async fn get_package_tree<H>(
-	handle: &H,
-	dependency: tg::Dependency,
-	package: tg::Directory,
-	lock: tg::Lock,
-	visited: &mut BTreeSet<tg::directory::Id>,
-	current_depth: u32,
-	max_depth: Option<u32>,
-) -> tg::Result<Tree>
-where
-	H: tg::Handle,
-{
-	let mut title = String::new();
-	write!(title, "{dependency}: ").unwrap();
-	if let Ok(metadata) = tg::package::get_metadata(handle, &package).await {
-		if let Some(name) = metadata.name {
-			write!(title, "{name}").unwrap();
+	#[allow(clippy::too_many_arguments)]
+	async fn get_package_tree(
+		&self,
+		dependency: tg::Dependency,
+		package: tg::Directory,
+		lock: tg::Lock,
+		visited: &mut BTreeSet<tg::directory::Id>,
+		current_depth: u32,
+		max_depth: Option<u32>,
+	) -> tg::Result<Tree> {
+		let mut title = String::new();
+		write!(title, "{dependency}: ").unwrap();
+		if let Ok(metadata) = tg::package::get_metadata(&self.handle, &package).await {
+			if let Some(name) = metadata.name {
+				write!(title, "{name}").unwrap();
+			} else {
+				write!(title, "{package}").unwrap();
+			}
+			if let Some(version) = metadata.version {
+				write!(title, "@{version}").unwrap();
+			}
 		} else {
 			write!(title, "{package}").unwrap();
 		}
-		if let Some(version) = metadata.version {
-			write!(title, "@{version}").unwrap();
+
+		let package_id = package.id(&self.handle, None).await?;
+		if visited.contains(&package_id)
+			|| max_depth.map_or(false, |max_depth| current_depth == max_depth)
+		{
+			let children = Vec::new();
+			return Ok(Tree { title, children });
 		}
-	} else {
-		write!(title, "{package}").unwrap();
+		visited.insert(package_id);
+
+		let mut children = Vec::new();
+		for dependency in lock.dependencies(&self.handle).await? {
+			let (child_package, lock) = lock.get(&self.handle, &dependency).await?;
+			let package = match (child_package, &dependency.path) {
+				(Some(package), _) => package,
+				(None, Some(path)) => package
+					.get(&self.handle, path)
+					.await
+					.map_err(
+						|source| tg::error!(!source, %path, "could not resolve path dependency"),
+					)?
+					.try_unwrap_directory()
+					.map_err(|source| tg::error!(!source, "expected a directory"))?,
+				(None, None) => return Err(tg::error!("invalid lock")),
+			};
+			let child = Box::pin(self.get_package_tree(
+				dependency,
+				package,
+				lock,
+				visited,
+				current_depth,
+				max_depth,
+			))
+			.await?;
+			children.push(child);
+		}
+
+		let tree = Tree { title, children };
+
+		Ok(tree)
 	}
-
-	let package_id = package.id(handle, None).await?;
-	if visited.contains(&package_id)
-		|| max_depth.map_or(false, |max_depth| current_depth == max_depth)
-	{
-		let children = Vec::new();
-		return Ok(Tree { title, children });
-	}
-	visited.insert(package_id);
-
-	let mut children = Vec::new();
-	for dependency in lock.dependencies(handle).await? {
-		let (child_package, lock) = lock.get(handle, &dependency).await?;
-		let package = match (child_package, &dependency.path) {
-			(Some(package), _) => package,
-			(None, Some(path)) => package
-				.get(handle, path)
-				.await
-				.map_err(|source| tg::error!(!source, %path, "could not resolve path dependency"))?
-				.try_unwrap_directory()
-				.map_err(|source| tg::error!(!source, "expected a directory"))?,
-			(None, None) => return Err(tg::error!("invalid lock")),
-		};
-		let child = Box::pin(get_package_tree(
-			handle,
-			dependency,
-			package,
-			lock,
-			visited,
-			current_depth,
-			max_depth,
-		))
-		.await?;
-		children.push(child);
-	}
-
-	let tree = Tree { title, children };
-
-	Ok(tree)
 }

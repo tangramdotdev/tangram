@@ -381,12 +381,6 @@ impl Server {
 		// Mark the analyzed dependencies as visited.
 		visited.insert(path.to_owned(), Some(analysis.clone()));
 
-		// Update the package paths table.
-		let path = path.try_into()?;
-		self.set_package_path(&path, &analysis.package)
-			.await
-			.map_err(|source| tg::error!(!source, "failed to update the package path"))?;
-
 		Ok(analysis)
 	}
 }

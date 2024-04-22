@@ -230,6 +230,14 @@ impl tg::Handle for Server {
 		self.server.get_or_create_build(arg)
 	}
 
+	async fn try_dequeue_build(
+		&self,
+		_arg: tg::build::DequeueArg,
+		_stop: Option<tokio::sync::watch::Receiver<bool>>,
+	) -> tg::Result<Option<tg::build::DequeueOutput>> {
+		Err(tg::error!("forbidden"))
+	}
+
 	fn try_get_build_status(
 		&self,
 		id: &tg::build::Id,

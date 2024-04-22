@@ -44,7 +44,6 @@ impl Server {
 					target,
 					weight,
 					created_at,
-					queued_at,
 					started_at,
 					finished_at
 				from builds

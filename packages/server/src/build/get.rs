@@ -48,7 +48,6 @@ impl Server {
 					target,
 					weight,
 					created_at,
-					queued_at,
 					started_at,
 					finished_at
 				from builds
@@ -108,7 +107,6 @@ impl Server {
 				target: output.target.clone(),
 				weight: output.weight,
 				created_at: output.created_at,
-				queued_at: output.queued_at,
 				started_at: output.started_at,
 				finished_at: output.finished_at,
 			};
