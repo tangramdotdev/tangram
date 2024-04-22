@@ -117,7 +117,8 @@ impl Server {
 			};
 			let Some(lock) = self
 				.try_add_path_dependencies_to_lock(analysis, lock.clone())
-				.await?
+				.await
+				.map_err(|source| tg::error!(!source, "failed to add path dependencies to lock"))?
 			else {
 				break 'a None;
 			};
@@ -144,21 +145,25 @@ impl Server {
 			self.create_package_lock(analysis).await?
 		};
 
+		// Write the lock without the resolved path dependencies to the lockfile.
+		if let Some(path) = path {
+			if created {
+				let lock = self
+					.remove_path_dependencies_from_lock(analysis, &lock)
+					.await
+					.map_err(|source| {
+						tg::error!(!source, "failed to remove path dependencies from lock")
+					})?;
+				lock.write(self, path.clone()).await?;
+			}
+		}
+
 		// Normalize the lock.
 		let lock = lock
 			.normalize(self)
 			.await
 			.map_err(|source| tg::error!(!source, "failed to normalize the lock"))?;
 
-		// Write the lock without the resolved path dependencies to the lockfile.
-		if let Some(path) = path {
-			if created {
-				let lock = self
-					.remove_path_dependencies_from_lock(analysis, &lock)
-					.await?;
-				lock.write(self, path.clone()).await?;
-			}
-		}
 		Ok(lock)
 	}
 
