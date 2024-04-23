@@ -183,18 +183,19 @@ impl<'a> Transaction<'a> {
 				TransactionMessage::Rollback(message) => {
 					let result = transaction.rollback().map_err(Into::into);
 					message.sender.send(result).ok();
-					break;
+					return;
 				},
 				TransactionMessage::Commit(message) => {
 					let result = transaction.commit().map_err(Into::into);
 					message.sender.send(result).ok();
-					break;
+					return;
 				},
 				TransactionMessage::With(f) => {
 					f(&mut transaction);
 				},
 			}
 		}
+		transaction.rollback().ok();
 	}
 
 	pub async fn with<F, T, E>(&self, f: F) -> Result<T, E>
