@@ -1,8 +1,10 @@
 use crate::{tui::Tui, Cli};
 use crossterm::style::Stylize;
+use either::Either;
 use itertools::Itertools as _;
 use std::{collections::BTreeMap, path::PathBuf};
 use tangram_client as tg;
+use tg::Handle;
 
 pub mod get;
 pub mod pull;
@@ -213,7 +215,7 @@ impl Cli {
 			target.id(&self.handle, None).await?
 		);
 
-		// Build the target.
+		// Create the build.
 		let arg = tg::build::GetOrCreateArg {
 			parent: None,
 			remote: args.remote,
@@ -221,6 +223,13 @@ impl Cli {
 			target: target.id(&self.handle, None).await?,
 		};
 		let build = tg::Build::new(&self.handle, arg).await?;
+
+		// Add the root if requested.
+		if let Some(root) = args.root {
+			let id = Either::Left(build.id().clone());
+			let arg = tg::root::AddArg { name: root, id };
+			self.handle.add_root(arg).await?;
+		}
 
 		// If the detach flag is set, then exit.
 		if detach {
