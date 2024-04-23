@@ -178,17 +178,15 @@ impl Server {
 		drop(connection);
 
 		// If the build was canceled, then stop the build and cancel the children.
-		if matches!(outcome, tg::build::Outcome::Canceled) {
-			children
-				.iter()
-				.map(|child| async move {
-					self.set_build_outcome(child, tg::build::Outcome::Canceled)
-						.await
-				})
-				.collect::<FuturesUnordered<_>>()
-				.try_collect()
-				.await?;
-		}
+		let _: tg::Result<Vec<_>> = children
+			.iter()
+			.map(|child| async move {
+				self.set_build_outcome(child, tg::build::Outcome::Canceled)
+					.await
+			})
+			.collect::<FuturesUnordered<_>>()
+			.try_collect()
+			.await;
 
 		// If any of the children were canceled, then this build should be canceled.
 		let outcomes = children
