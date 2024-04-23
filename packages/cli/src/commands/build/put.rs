@@ -24,7 +24,7 @@ impl Cli {
 		};
 		let arg: tg::build::PutArg = serde_json::from_str(&json)
 			.map_err(|source| tg::error!(!source, "failed to deseralize"))?;
-		self.handle.put_build(&arg.id, &arg).await?;
+		self.handle.put_build(&arg.id.clone(), arg.clone()).await?;
 		println!("{}", arg.id);
 		Ok(())
 	}

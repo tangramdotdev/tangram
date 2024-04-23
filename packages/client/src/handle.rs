@@ -76,7 +76,7 @@ pub trait Handle: Clone + Unpin + Send + Sync + 'static {
 	fn put_build(
 		&self,
 		id: &tg::build::Id,
-		arg: &tg::build::PutArg,
+		arg: tg::build::PutArg,
 	) -> impl Future<Output = tg::Result<()>> + Send;
 
 	fn push_build(&self, id: &tg::build::Id) -> impl Future<Output = tg::Result<()>> + Send;
@@ -315,6 +315,20 @@ pub trait Handle: Clone + Unpin + Send + Sync + 'static {
 
 	fn yank_package(&self, id: &tg::directory::Id) -> impl Future<Output = tg::Result<()>> + Send;
 
+	fn list_roots(
+		&self,
+		arg: tg::root::ListArg,
+	) -> impl Future<Output = tg::Result<tg::root::ListOutput>> + Send;
+
+	fn try_get_root(
+		&self,
+		name: &str,
+	) -> impl Future<Output = tg::Result<Option<tg::root::GetOutput>>> + Send;
+
+	fn add_root(&self, arg: tg::root::AddArg) -> impl Future<Output = tg::Result<()>> + Send;
+
+	fn remove_root(&self, name: &str) -> impl Future<Output = tg::Result<()>> + Send;
+
 	fn get_js_runtime_doc(&self) -> impl Future<Output = tg::Result<serde_json::Value>> + Send;
 
 	fn health(&self) -> impl Future<Output = tg::Result<tg::server::Health>> + Send;
@@ -448,7 +462,7 @@ where
 	fn put_build(
 		&self,
 		id: &tg::build::Id,
-		arg: &tg::build::PutArg,
+		arg: tg::build::PutArg,
 	) -> impl Future<Output = tg::Result<()>> {
 		match self {
 			Either::Left(s) => s.put_build(id, arg).left_future(),
@@ -755,6 +769,40 @@ where
 		match self {
 			Either::Left(s) => s.yank_package(id).left_future(),
 			Either::Right(s) => s.yank_package(id).right_future(),
+		}
+	}
+
+	fn list_roots(
+		&self,
+		arg: tg::root::ListArg,
+	) -> impl Future<Output = tg::Result<tg::root::ListOutput>> {
+		match self {
+			Either::Left(s) => s.list_roots(arg).left_future(),
+			Either::Right(s) => s.list_roots(arg).right_future(),
+		}
+	}
+
+	fn try_get_root(
+		&self,
+		name: &str,
+	) -> impl Future<Output = tg::Result<Option<tg::root::GetOutput>>> {
+		match self {
+			Either::Left(s) => s.try_get_root(name).left_future(),
+			Either::Right(s) => s.try_get_root(name).right_future(),
+		}
+	}
+
+	fn add_root(&self, arg: tg::root::AddArg) -> impl Future<Output = tg::Result<()>> {
+		match self {
+			Either::Left(s) => s.add_root(arg).left_future(),
+			Either::Right(s) => s.add_root(arg).right_future(),
+		}
+	}
+
+	fn remove_root(&self, name: &str) -> impl Future<Output = tg::Result<()>> {
+		match self {
+			Either::Left(s) => s.remove_root(name).left_future(),
+			Either::Right(s) => s.remove_root(name).right_future(),
 		}
 	}
 

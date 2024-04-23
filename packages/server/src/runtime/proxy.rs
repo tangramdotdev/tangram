@@ -210,7 +210,7 @@ impl tg::Handle for Server {
 		self.server.try_get_build(id, arg)
 	}
 
-	async fn put_build(&self, _id: &tg::build::Id, _arg: &tg::build::PutArg) -> tg::Result<()> {
+	async fn put_build(&self, _id: &tg::build::Id, _arg: tg::build::PutArg) -> tg::Result<()> {
 		Err(tg::error!("forbidden"))
 	}
 
@@ -399,6 +399,22 @@ impl tg::Handle for Server {
 	}
 
 	async fn yank_package(&self, _id: &tg::directory::Id) -> tg::Result<()> {
+		Err(tg::error!("not supported"))
+	}
+
+	async fn list_roots(&self, _arg: tg::root::ListArg) -> tg::Result<tg::root::ListOutput> {
+		Err(tg::error!("not supported"))
+	}
+
+	async fn try_get_root(&self, _name: &str) -> tg::Result<Option<tg::root::GetOutput>> {
+		Err(tg::error!("not supported"))
+	}
+
+	async fn add_root(&self, _arg: tg::root::AddArg) -> tg::Result<()> {
+		Err(tg::error!("not supported"))
+	}
+
+	async fn remove_root(&self, _name: &str) -> tg::Result<()> {
 		Err(tg::error!("not supported"))
 	}
 

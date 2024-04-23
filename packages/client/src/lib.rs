@@ -65,6 +65,7 @@ pub mod package;
 pub mod path;
 pub mod position;
 pub mod range;
+pub mod root;
 pub mod runtime;
 pub mod server;
 pub mod symlink;
@@ -592,7 +593,7 @@ impl tg::Handle for Client {
 	fn put_build(
 		&self,
 		id: &tg::build::Id,
-		arg: &tg::build::PutArg,
+		arg: tg::build::PutArg,
 	) -> impl Future<Output = tg::Result<()>> {
 		self.put_build(id, arg)
 	}
@@ -790,6 +791,28 @@ impl tg::Handle for Client {
 
 	fn yank_package(&self, id: &tg::directory::Id) -> impl Future<Output = tg::Result<()>> {
 		self.yank_package(id)
+	}
+
+	fn list_roots(
+		&self,
+		arg: tg::root::ListArg,
+	) -> impl Future<Output = tg::Result<tg::root::ListOutput>> {
+		self.list_roots(arg)
+	}
+
+	fn try_get_root(
+		&self,
+		name: &str,
+	) -> impl Future<Output = tg::Result<Option<tg::root::GetOutput>>> {
+		self.try_get_root(name)
+	}
+
+	fn add_root(&self, arg: tg::root::AddArg) -> impl Future<Output = tg::Result<()>> {
+		self.add_root(arg)
+	}
+
+	fn remove_root(&self, name: &str) -> impl Future<Output = tg::Result<()>> {
+		self.remove_root(name)
 	}
 
 	fn get_js_runtime_doc(&self) -> impl Future<Output = tg::Result<serde_json::Value>> {

@@ -8,6 +8,7 @@ pub mod object;
 pub mod package;
 pub mod pull;
 pub mod push;
+pub mod root;
 pub mod run;
 pub mod server;
 pub mod tree;

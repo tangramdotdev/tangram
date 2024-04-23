@@ -153,6 +153,11 @@ async fn migration_0000(path: &Path) -> tg::Result<()> {
 				primary key (name, version)
 			);
 
+			create table roots (
+				name text primary key,
+				id text not null
+			);
+
 			create table users (
 				id text primary key,
 				email text not null

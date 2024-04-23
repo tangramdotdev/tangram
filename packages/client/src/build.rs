@@ -455,7 +455,7 @@ impl Build {
 			.try_collect()
 			.await?;
 		remote
-			.put_build(&self.id, &arg)
+			.put_build(&self.id, arg)
 			.await
 			.map_err(|source| tg::error!(!source, "failed to put the object"))?;
 		Ok(())
@@ -611,7 +611,7 @@ impl tg::Client {
 		Ok(Some(output))
 	}
 
-	pub async fn put_build(&self, id: &tg::build::Id, arg: &tg::build::PutArg) -> tg::Result<()> {
+	pub async fn put_build(&self, id: &tg::build::Id, arg: tg::build::PutArg) -> tg::Result<()> {
 		let method = http::Method::PUT;
 		let uri = format!("/builds/{id}");
 		let mut request = http::request::Builder::default().method(method).uri(uri);

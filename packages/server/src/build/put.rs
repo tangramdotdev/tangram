@@ -10,7 +10,7 @@ use tangram_database::{self as db, prelude::*};
 use time::format_description::well_known::Rfc3339;
 
 impl Server {
-	pub async fn put_build(&self, id: &tg::build::Id, arg: &tg::build::PutArg) -> tg::Result<()> {
+	pub async fn put_build(&self, id: &tg::build::Id, arg: tg::build::PutArg) -> tg::Result<()> {
 		// Get a database connection.
 		let connection = self
 			.database
@@ -230,7 +230,7 @@ where
 			.map_err(|source| tg::error!(!source, "failed to deserialize the body"))?;
 
 		// Put the build.
-		self.handle.put_build(&build_id, &arg).await?;
+		self.handle.put_build(&build_id, arg).await?;
 
 		// Create the response.
 		let response = http::Response::builder()

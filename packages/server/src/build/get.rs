@@ -115,7 +115,7 @@ impl Server {
 				started_at: output.started_at,
 				finished_at: output.finished_at,
 			};
-			self.put_build(id, &arg).await?;
+			self.put_build(id, arg).await?;
 		}
 
 		Ok(Some(output))

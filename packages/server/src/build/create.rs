@@ -156,7 +156,7 @@ impl Server {
 			started_at: None,
 			finished_at: None,
 		};
-		self.put_build(&id, &put_arg).await?;
+		self.put_build(&id, put_arg).await?;
 
 		// Create the build.
 		let build = tg::Build::with_id(id.clone());

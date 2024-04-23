@@ -122,6 +122,10 @@ impl Server {
 						select count(*) = 0
 						from package_versions
 						where id = objects.id
+					) and (
+						select count(*) = 0
+						from roots
+						where id = objects.id
 					)
 					limit 100;
 				"

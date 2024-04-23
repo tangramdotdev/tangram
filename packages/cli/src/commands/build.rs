@@ -83,6 +83,10 @@ pub struct GetOrCreateInnerArgs {
 	#[clap(long, default_value_t)]
 	pub retry: tg::build::Retry,
 
+	/// Create a root for this build. If a name is not provided, the package's name will be used.
+	#[clap(long)]
+	pub root: Option<String>,
+
 	/// The name or ID of the target to build.
 	#[clap(short, long)]
 	pub target: Option<String>,

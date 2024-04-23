@@ -102,10 +102,13 @@ where
 			return Ok(not_found());
 		};
 
+		// Create the body.
+		let body = full(output.bytes);
+
 		// Create the response.
 		let response = http::Response::builder()
 			.status(http::StatusCode::OK)
-			.body(full(output.bytes))
+			.body(body)
 			.unwrap();
 
 		Ok(response)

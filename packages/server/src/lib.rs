@@ -47,6 +47,7 @@ mod migrations;
 mod object;
 pub mod options;
 mod package;
+mod root;
 mod runtime;
 mod server;
 mod tmp;
@@ -813,6 +814,20 @@ where
 				self.handle_yank_package_request(request).map(Some).boxed()
 			},
 
+			// Roots.
+			(http::Method::GET, ["roots"]) => {
+				self.handle_list_roots_request(request).map(Some).boxed()
+			},
+			(http::Method::GET, ["roots", _]) => {
+				self.handle_get_root_request(request).map(Some).boxed()
+			},
+			(http::Method::POST, ["roots"]) => {
+				self.handle_add_root_request(request).map(Some).boxed()
+			},
+			(http::Method::DELETE, ["roots", _]) => {
+				self.handle_remove_root_request(request).map(Some).boxed()
+			},
+
 			// Runtimes.
 			(http::Method::GET, ["runtimes", "js", "doc"]) => self
 				.handle_get_js_runtime_doc_request(request)
@@ -956,7 +971,7 @@ impl tg::Handle for Server {
 	fn put_build(
 		&self,
 		id: &tg::build::Id,
-		arg: &tg::build::PutArg,
+		arg: tg::build::PutArg,
 	) -> impl Future<Output = tg::Result<()>> {
 		self.put_build(id, arg)
 	}
@@ -1156,6 +1171,28 @@ impl tg::Handle for Server {
 
 	fn yank_package(&self, id: &tg::directory::Id) -> impl Future<Output = tg::Result<()>> {
 		self.yank_package(id)
+	}
+
+	fn list_roots(
+		&self,
+		arg: tg::root::ListArg,
+	) -> impl Future<Output = tg::Result<tg::root::ListOutput>> {
+		self.list_roots(arg)
+	}
+
+	fn try_get_root(
+		&self,
+		name: &str,
+	) -> impl Future<Output = tg::Result<Option<tg::root::GetOutput>>> {
+		self.try_get_root(name)
+	}
+
+	fn add_root(&self, arg: tg::root::AddArg) -> impl Future<Output = tg::Result<()>> {
+		self.add_root(arg)
+	}
+
+	fn remove_root(&self, name: &str) -> impl Future<Output = tg::Result<()>> {
+		self.remove_root(name)
 	}
 
 	fn get_js_runtime_doc(&self) -> impl Future<Output = tg::Result<serde_json::Value>> {
