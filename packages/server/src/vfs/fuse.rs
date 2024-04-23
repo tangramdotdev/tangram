@@ -1070,6 +1070,7 @@ impl Server {
 				.as_mut_ptr(),
 				msg_iovlen: 1,
 				msg_control: control.as_mut_ptr().cast(),
+				#[allow(clippy::cast_possible_truncation)]
 				msg_controllen: std::mem::size_of_val(&control) as _,
 				msg_flags: 0,
 			});
@@ -1124,9 +1125,9 @@ impl Server {
 impl Node {
 	fn type_(&self) -> u32 {
 		match &self.kind {
-			NodeKind::Root { .. } | NodeKind::Directory { .. } => libc::S_IFDIR as _,
-			NodeKind::File { .. } => libc::S_IFREG as _,
-			NodeKind::Symlink { .. } | NodeKind::Checkout { .. } => libc::S_IFLNK as _,
+			NodeKind::Root { .. } | NodeKind::Directory { .. } => libc::S_IFDIR.to_u32().unwrap(),
+			NodeKind::File { .. } => libc::S_IFREG.to_u32().unwrap(),
+			NodeKind::Symlink { .. } | NodeKind::Checkout { .. } => libc::S_IFLNK.to_u32().unwrap(),
 		}
 	}
 
@@ -1142,7 +1143,7 @@ impl Node {
 			},
 			NodeKind::Symlink { .. } | NodeKind::Checkout { .. } => libc::S_IFLNK | 0o444,
 		};
-		Ok(mode as _)
+		Ok(mode.to_u32().unwrap())
 	}
 
 	fn size(&self) -> u64 {

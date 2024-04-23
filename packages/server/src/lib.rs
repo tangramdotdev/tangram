@@ -331,7 +331,14 @@ impl Server {
 
 		// Start the VFS if necessary and set up the checkouts directory.
 		let artifacts_path = server.artifacts_path();
-		self::vfs::unmount(&artifacts_path).await.ok();
+		let kind = if cfg!(target_os = "macos") {
+			vfs::Kind::Nfs
+		} else if cfg!(target_os = "linux") {
+			vfs::Kind::Fuse
+		} else {
+			unreachable!()
+		};
+		self::vfs::unmount(kind, &artifacts_path).await.ok();
 		if server.options.vfs {
 			util::fs::rmrf(&artifacts_path)
 				.await
@@ -344,7 +351,7 @@ impl Server {
 				})?;
 
 			// Start the VFS server.
-			let vfs = self::vfs::Server::start(&server, &artifacts_path)
+			let vfs = self::vfs::Server::start(&server, kind, &artifacts_path)
 				.await
 				.map_err(|source| tg::error!(!source, "failed to start the VFS"))?;
 
