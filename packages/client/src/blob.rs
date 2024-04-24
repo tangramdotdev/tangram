@@ -42,6 +42,13 @@ pub enum Blob {
 	Branch(tg::Branch),
 }
 
+#[derive(Clone, Debug, derive_more::From, derive_more::TryUnwrap)]
+#[try_unwrap(ref)]
+pub enum Data {
+	Leaf(tg::leaf::Data),
+	Branch(tg::branch::Data),
+}
+
 #[derive(Clone, Copy, Debug, serde_with::DeserializeFromStr, serde_with::SerializeDisplay)]
 pub enum CompressionFormat {
 	Bz2,
@@ -100,6 +107,27 @@ impl Blob {
 		match self {
 			Self::Leaf(leaf) => Ok(leaf.id(handle, transaction).await?.into()),
 			Self::Branch(branch) => Ok(branch.id(handle, transaction).await?.into()),
+		}
+	}
+
+	pub async fn data<H>(
+		&self,
+		handle: &H,
+		transaction: Option<&H::Transaction<'_>>,
+	) -> tg::Result<Data>
+	where
+		H: tg::Handle,
+	{
+		match self {
+			Self::Leaf(leaf) => Ok(leaf.data(handle, transaction).await?.into()),
+			Self::Branch(branch) => Ok(branch.data(handle, transaction).await?.into()),
+		}
+	}
+
+	pub fn unload(&self) {
+		match self {
+			Self::Leaf(leaf) => leaf.unload(),
+			Self::Branch(branch) => branch.unload(),
 		}
 	}
 }

@@ -162,6 +162,14 @@ impl Artifact {
 			Self::Symlink(symlink) => Ok(symlink.data(handle, transaction).await?.into()),
 		}
 	}
+
+	pub fn unload(&self) {
+		match self {
+			Artifact::Directory(directory) => directory.unload(),
+			Artifact::File(file) => file.unload(),
+			Artifact::Symlink(symlink) => symlink.unload(),
+		}
+	}
 }
 
 impl Artifact {

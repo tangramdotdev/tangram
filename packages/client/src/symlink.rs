@@ -117,6 +117,10 @@ impl Symlink {
 		Ok(Some(object))
 	}
 
+	pub fn unload(&self) {
+		self.state.write().unwrap().object.take();
+	}
+
 	pub async fn store<H>(
 		&self,
 		handle: &H,

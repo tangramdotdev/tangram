@@ -65,16 +65,17 @@ impl Server {
 		reader: impl AsyncRead + Send + 'static,
 		transaction: &impl db::Query,
 	) -> tg::Result<tg::blob::Id> {
+		// Create the reader.
 		let reader = pin!(reader);
-
-		// Create the leaves.
-		let mut chunker = fastcdc::v2020::AsyncStreamCDC::new(
+		let mut reader = fastcdc::v2020::AsyncStreamCDC::new(
 			reader,
 			MIN_LEAF_SIZE,
 			AVG_LEAF_SIZE,
 			MAX_LEAF_SIZE,
 		);
-		let mut children = chunker
+
+		// Create the leaves.
+		let mut children = reader
 			.as_stream()
 			.map_err(|source| tg::error!(!source, "failed to read from the reader"))
 			.and_then(|chunk| async {
