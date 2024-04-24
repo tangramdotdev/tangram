@@ -833,6 +833,8 @@ where
 	async fn init(self: &Arc<Self>) -> tg::Result<()> {
 		let client = &self.handle;
 		let position = Some(std::io::SeekFrom::End(0));
+		let length = Some(-1);
+		let timeout = Some(std::time::Duration::from_millis(16));
 
 		// Get at least one chunk.
 		let chunk = self
@@ -840,15 +842,20 @@ where
 			.log(
 				client,
 				tg::build::log::GetArg {
+					length,
 					position,
+					timeout,
 					..Default::default()
 				},
 			)
 			.await?
 			.try_next()
-			.await?
-			.ok_or_else(|| tg::error!("failed to get a log chunk"))?;
-		let max_position = chunk.position + chunk.bytes.len().to_u64().unwrap();
+			.await?;
+
+		let max_position = chunk
+			.map(|chunk| chunk.position + chunk.bytes.len().to_u64().unwrap())
+			.unwrap_or_default();
+
 		self.max_position.store(max_position, Ordering::Relaxed);
 
 		// Seed the front of the log.
