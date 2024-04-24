@@ -21,29 +21,29 @@ impl Server {
 			self.put_object_with_transaction(id, arg, transaction).await
 		} else {
 			// Get a database connection.
-			let mut connection = self
+			let connection = self
 				.database
 				.connection()
 				.await
 				.map_err(|source| tg::error!(!source, "failed to get a database connection"))?;
 
-			// Begin a transaction.
-			let transaction = connection
-				.transaction()
-				.boxed()
-				.await
-				.map_err(|source| tg::error!(!source, "failed to begin the transaction"))?;
+			// // Begin a transaction.
+			// let transaction = connection
+			// 	.transaction()
+			// 	.boxed()
+			// 	.await
+			// 	.map_err(|source| tg::error!(!source, "failed to begin the transaction"))?;
 
 			// Put the object.
 			let output = self
-				.put_object_with_transaction(id, arg, &transaction)
+				.put_object_with_transaction(id, arg, &connection)
 				.await?;
 
-			// Commit the transaction.
-			transaction
-				.commit()
-				.await
-				.map_err(|source| tg::error!(!source, "failed to commit the transaction"))?;
+			// // Commit the transaction.
+			// transaction
+			// 	.commit()
+			// 	.await
+			// 	.map_err(|source| tg::error!(!source, "failed to commit the transaction"))?;
 
 			// Drop the connection.
 			drop(connection);
@@ -56,7 +56,7 @@ impl Server {
 		&self,
 		id: &tg::object::Id,
 		arg: tg::object::PutArg,
-		transaction: &Transaction<'_>,
+		transaction: &impl db::Query,
 	) -> tg::Result<tg::object::PutOutput> {
 		// Add the object.
 		let p = transaction.p();

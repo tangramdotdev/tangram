@@ -9,6 +9,7 @@ use http_body_util::BodyStream;
 use num::ToPrimitive;
 use std::pin::pin;
 use tangram_client as tg;
+use tangram_database as db;
 use tangram_database::prelude::*;
 use tokio::io::AsyncRead;
 use tokio_util::io::StreamReader;
@@ -28,29 +29,29 @@ impl Server {
 			self.create_blob_with_transaction(reader, transaction).await
 		} else {
 			// Get a database connection.
-			let mut connection = self
+			let connection = self
 				.database
 				.connection()
 				.await
 				.map_err(|source| tg::error!(!source, "failed to get a database connection"))?;
 
-			// Begin a transaction.
-			let transaction = connection
-				.transaction()
-				.boxed()
-				.await
-				.map_err(|source| tg::error!(!source, "failed to begin the transaction"))?;
+			// // Begin a transaction.
+			// let transaction = connection
+			// 	.transaction()
+			// 	.boxed()
+			// 	.await
+			// 	.map_err(|source| tg::error!(!source, "failed to begin the transaction"))?;
 
 			// Create the blob.
 			let output = self
-				.create_blob_with_transaction(reader, &transaction)
+				.create_blob_with_transaction(reader, &connection)
 				.await?;
 
-			// Commit the transaction.
-			transaction
-				.commit()
-				.await
-				.map_err(|source| tg::error!(!source, "failed to commit the transaction"))?;
+			// // Commit the transaction.
+			// transaction
+			// 	.commit()
+			// 	.await
+			// 	.map_err(|source| tg::error!(!source, "failed to commit the transaction"))?;
 
 			// Drop the connection.
 			drop(connection);
@@ -62,7 +63,7 @@ impl Server {
 	pub(crate) async fn create_blob_with_transaction(
 		&self,
 		reader: impl AsyncRead + Send + 'static,
-		transaction: &Transaction<'_>,
+		transaction: &impl db::Query,
 	) -> tg::Result<tg::blob::Id> {
 		let reader = pin!(reader);
 

@@ -1,12 +1,12 @@
 use crate::{
-	database::Transaction,
 	util::http::{full, Incoming, Outgoing},
 	Http, Server,
 };
-use futures::{stream::FuturesUnordered, FutureExt, TryStreamExt as _};
+use futures::{stream::FuturesUnordered, TryStreamExt as _};
 use http_body_util::BodyExt as _;
 use std::os::unix::fs::PermissionsExt as _;
 use tangram_client as tg;
+use tangram_database as db;
 use tangram_database::prelude::*;
 
 impl Server {
@@ -40,29 +40,29 @@ impl Server {
 		}
 
 		// Get a database connection.
-		let mut connection = self
+		let connection = self
 			.database
 			.connection()
 			.await
 			.map_err(|source| tg::error!(!source, "failed to get a database connection"))?;
 
-		// Begin a transaction.
-		let transaction = connection
-			.transaction()
-			.boxed()
-			.await
-			.map_err(|source| tg::error!(!source, "failed to begin the transaction"))?;
+		// // Begin a transaction.
+		// let transaction = connection
+		// 	.transaction()
+		// 	.boxed()
+		// 	.await
+		// 	.map_err(|source| tg::error!(!source, "failed to begin the transaction"))?;
 
 		// Check in the artifact.
 		let id = self
-			.check_in_artifact_inner(&arg.path, &transaction)
+			.check_in_artifact_with_transaction(&arg.path, &connection)
 			.await?;
 
-		// Commit the transaction.
-		transaction
-			.commit()
-			.await
-			.map_err(|source| tg::error!(!source, "failed to commit the transaction"))?;
+		// // Commit the transaction.
+		// transaction
+		// 	.commit()
+		// 	.await
+		// 	.map_err(|source| tg::error!(!source, "failed to commit the transaction"))?;
 
 		// Drop the connection.
 		drop(connection);
@@ -73,10 +73,10 @@ impl Server {
 		Ok(output)
 	}
 
-	async fn check_in_artifact_inner(
+	async fn check_in_artifact_with_transaction(
 		&self,
 		path: &tg::Path,
-		transaction: &Transaction<'_>,
+		transaction: &impl db::Query,
 	) -> tg::Result<tg::artifact::Id> {
 		// Get the metadata for the file system object at the path.
 		let metadata = tokio::fs::symlink_metadata(&path).await.map_err(
@@ -110,7 +110,7 @@ impl Server {
 		&self,
 		path: &tg::Path,
 		_metadata: &std::fs::Metadata,
-		transaction: &Transaction<'_>,
+		transaction: &impl db::Query,
 	) -> tg::Result<tg::artifact::Id> {
 		let names = {
 			let _permit = self.file_descriptor_semaphore.acquire().await;
@@ -141,7 +141,9 @@ impl Server {
 			.into_iter()
 			.map(|name| async {
 				let path = path.clone().join(&name);
-				let id = self.check_in_artifact_inner(&path, transaction).await?;
+				let id = self
+					.check_in_artifact_with_transaction(&path, transaction)
+					.await?;
 				Ok::<_, tg::Error>((name, id))
 			})
 			.collect::<FuturesUnordered<_>>()
@@ -157,8 +159,9 @@ impl Server {
 			count: None,
 			weight: None,
 		};
-		self.put_object(&id.clone().into(), arg, Some(transaction))
+		self.put_object_with_transaction(&id.clone().into(), arg, transaction)
 			.await?;
+
 		Ok(id.into())
 	}
 
@@ -166,7 +169,7 @@ impl Server {
 		&self,
 		path: &tg::Path,
 		metadata: &std::fs::Metadata,
-		transaction: &Transaction<'_>,
+		transaction: &impl db::Query,
 	) -> tg::Result<tg::artifact::Id> {
 		// Create the blob.
 		let permit = self.file_descriptor_semaphore.acquire().await;
@@ -174,7 +177,7 @@ impl Server {
 			.await
 			.map_err(|source| tg::error!(!source, "failed to open the file"))?;
 		let contents = self
-			.create_blob(file, Some(transaction))
+			.create_blob_with_transaction(file, transaction)
 			.await
 			.map_err(|source| tg::error!(!source, "failed to create the contents"))?;
 		drop(permit);
@@ -207,7 +210,7 @@ impl Server {
 			count: None,
 			weight: None,
 		};
-		self.put_object(&id.clone().into(), arg, Some(transaction))
+		self.put_object_with_transaction(&id.clone().into(), arg, transaction)
 			.await?;
 
 		Ok(id.into())
@@ -217,7 +220,7 @@ impl Server {
 		&self,
 		path: &tg::Path,
 		_metadata: &std::fs::Metadata,
-		transaction: &Transaction<'_>,
+		transaction: &impl db::Query,
 	) -> tg::Result<tg::artifact::Id> {
 		// Read the target from the symlink.
 		let target = tokio::fs::read_link(path).await.map_err(
@@ -282,7 +285,7 @@ impl Server {
 			count: None,
 			weight: None,
 		};
-		self.put_object(&id.clone().into(), arg, Some(transaction))
+		self.put_object_with_transaction(&id.clone().into(), arg, transaction)
 			.await?;
 
 		Ok(id.into())
