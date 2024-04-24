@@ -13,7 +13,11 @@ pub struct Config {
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub autoenv: Option<Autoenv>,
 
-	#[serde(default, skip_serializing_if = "Option::is_none")]
+	#[serde(
+		default,
+		skip_serializing_if = "Option::is_none",
+		with = "either::serde_untagged_optional"
+	)]
 	pub build: Option<Either<bool, Build>>,
 
 	#[serde(default, skip_serializing_if = "Option::is_none")]
