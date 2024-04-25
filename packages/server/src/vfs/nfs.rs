@@ -64,7 +64,6 @@ pub struct Inner {
 	node_index: std::sync::atomic::AtomicU64,
 	nodes: DashMap<u64, Arc<Node>, fnv::FnvBuildHasher>,
 	path: PathBuf,
-	requests: std::sync::Mutex<Option<Vec<tokio::task::JoinHandle<()>>>>,
 	server: crate::Server,
 	stop: tokio::sync::watch::Sender<bool>,
 	task: std::sync::Mutex<Option<tokio::task::JoinHandle<tg::Result<()>>>>,
@@ -163,7 +162,6 @@ impl Server {
 			},
 		});
 		let nodes = [(0, root)].into_iter().collect();
-		let requests = std::sync::Mutex::new(Some(Vec::new()));
 		let (stop, stop_receiver) = tokio::sync::watch::channel(false);
 		let task = std::sync::Mutex::new(None);
 		let server = Self(Arc::new(Inner {
@@ -174,7 +172,6 @@ impl Server {
 			node_index: AtomicU64::new(1000),
 			nodes,
 			path: path.to_owned(),
-			requests,
 			server,
 			stop,
 			task,
@@ -255,14 +252,6 @@ impl Server {
 	}
 
 	pub async fn join(&self) -> tg::Result<()> {
-		// Join any pending requests.
-		let requests = self.requests.lock().unwrap().take();
-		if let Some(requests) = requests {
-			for task in requests {
-				task.await.ok();
-			}
-		}
-
 		// Join the task.
 		let task = self.task.lock().unwrap().take();
 		if let Some(task) = task {
@@ -352,7 +341,7 @@ impl Server {
 				},
 			};
 			let message_sender = message_sender.clone();
-			let request = tokio::task::spawn({
+			tokio::task::spawn({
 				let server = self.clone();
 				async move {
 					let mut decoder = xdr::Decoder::from_bytes(&fragments);
@@ -370,12 +359,6 @@ impl Server {
 					message_sender.send(buffer).unwrap();
 				}
 			});
-			self.requests
-				.lock()
-				.unwrap()
-				.as_mut()
-				.unwrap()
-				.push(request);
 		}
 		Ok(())
 	}

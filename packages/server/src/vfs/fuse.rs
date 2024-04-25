@@ -24,7 +24,6 @@ pub struct Inner {
 	node_index: std::sync::atomic::AtomicU64,
 	nodes: DashMap<NodeId, Arc<Node>, fnv::FnvBuildHasher>,
 	path: std::path::PathBuf,
-	requests: std::sync::Mutex<Option<Vec<tokio::task::JoinHandle<()>>>>,
 	server: crate::Server,
 	stop_task: std::sync::Mutex<Option<tokio::task::JoinHandle<()>>>,
 	task: std::sync::Mutex<Option<tokio::task::JoinHandle<()>>>,
@@ -147,7 +146,6 @@ impl Server {
 		let handles = DashMap::default();
 		let handle_index = std::sync::atomic::AtomicU64::new(0);
 		let path = path.to_owned();
-		let requests = std::sync::Mutex::new(Some(Vec::new()));
 		let server = server.clone();
 		let stop_task = std::sync::Mutex::new(None);
 		let task = std::sync::Mutex::new(None);
@@ -162,7 +160,6 @@ impl Server {
 			node_index,
 			nodes,
 			path,
-			requests,
 			server,
 			stop_task,
 			task,
@@ -202,14 +199,6 @@ impl Server {
 		let stop_task = self.stop_task.lock().unwrap().take();
 		if let Some(stop_task) = stop_task {
 			stop_task.await.ok();
-		}
-
-		// Join all pending requests.
-		let requests = self.requests.lock().unwrap().take();
-		if let Some(requests) = requests {
-			for request in requests {
-				request.await.ok();
-			}
 		}
 
 		// Join the task.
@@ -311,7 +300,7 @@ impl Server {
 
 			// Spawn a task to handle the request.
 			let server = self.clone();
-			let request = tokio::spawn(async move {
+			tokio::spawn(async move {
 				// Handle the request and get the response.
 				let unique = request.header.unique;
 				// Edge case: Don't send a reply if the kernel sends a FUSE_FORGET/FUSE_BATCH_FORGET request. We don't support these requests anyway (we cannot forget inodes, and duplicate inodes pointing to the same artifact are OK).
@@ -387,12 +376,6 @@ impl Server {
 					},
 				};
 			});
-			self.requests
-				.lock()
-				.unwrap()
-				.as_mut()
-				.unwrap()
-				.push(request);
 		}
 		Ok(())
 	}
