@@ -109,9 +109,7 @@ impl Connection {
 		let (sender, receiver) = tokio::sync::mpsc::unbounded_channel();
 		let connection = sqlite::Connection::open(&options.path)?;
 		connection.pragma_update(None, "busy_timeout", "86400000")?;
-		connection.pragma_update(None, "cache_size", "1000000000")?;
 		connection.pragma_update(None, "synchronous", "off")?;
-		connection.pragma_update(None, "temp_store", "memory")?;
 		tokio::task::spawn_blocking(|| Self::run(connection, receiver));
 		Ok(Self { sender })
 	}
