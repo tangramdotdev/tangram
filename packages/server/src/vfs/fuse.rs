@@ -1,7 +1,7 @@
+use dashmap::DashMap;
 use either::Either;
 use num::ToPrimitive;
 use std::{
-	collections::HashMap,
 	ffi::CString,
 	io::SeekFrom,
 	os::unix::ffi::OsStrExt as _,
@@ -20,11 +20,9 @@ pub struct Server(Arc<Inner>);
 pub struct Inner {
 	dev_fuse_fd: std::os::fd::RawFd,
 	handle_index: std::sync::atomic::AtomicU64,
-	handles: parking_lot::RwLock<
-		HashMap<FileHandle, Arc<tokio::sync::RwLock<FileHandleData>>, fnv::FnvBuildHasher>,
-	>,
+	handles: DashMap<FileHandle, Arc<tokio::sync::RwLock<FileHandleData>>, fnv::FnvBuildHasher>,
 	node_index: std::sync::atomic::AtomicU64,
-	nodes: parking_lot::RwLock<HashMap<NodeId, Arc<Node>, fnv::FnvBuildHasher>>,
+	nodes: DashMap<NodeId, Arc<Node>, fnv::FnvBuildHasher>,
 	path: std::path::PathBuf,
 	requests: std::sync::Mutex<Option<Vec<tokio::task::JoinHandle<()>>>>,
 	server: crate::Server,
@@ -51,7 +49,7 @@ struct Node {
 #[derive(Debug)]
 enum NodeKind {
 	Root {
-		children: parking_lot::RwLock<HashMap<String, Arc<Node>, fnv::FnvBuildHasher>>,
+		children: DashMap<String, Arc<Node>, fnv::FnvBuildHasher>,
 	},
 	Directory {
 		directory: tg::Directory,
@@ -139,15 +137,14 @@ impl Server {
 			id: ROOT_NODE_ID,
 			parent: root.clone(),
 			kind: NodeKind::Root {
-				children: parking_lot::RwLock::new(HashMap::default()),
+				children: DashMap::default(),
 			},
 		});
 		let nodes = [(ROOT_NODE_ID, root)]
 			.into_iter()
-			.collect::<HashMap<_, _, _>>();
-		let nodes = parking_lot::RwLock::new(nodes);
+			.collect::<DashMap<_, _, _>>();
 		let node_index = std::sync::atomic::AtomicU64::new(1000);
-		let handles = parking_lot::RwLock::new(HashMap::default());
+		let handles = DashMap::default();
 		let handle_index = std::sync::atomic::AtomicU64::new(0);
 		let path = path.to_owned();
 		let requests = std::sync::Mutex::new(Some(Vec::new()));
@@ -634,7 +631,7 @@ impl Server {
 
 		// Add the file handle to the state.
 		let file_handle = self.next_file_handle().await;
-		self.handles.write().insert(file_handle, file_handle_data);
+		self.handles.insert(file_handle, file_handle_data);
 
 		// Create the response.
 		let open_flags = if matches!(&node.kind, NodeKind::Directory { .. }) {
@@ -674,12 +671,7 @@ impl Server {
 
 		// Get the reader.
 		let file_handle = FileHandle(data.fh);
-		let file_handle_data = self
-			.handles
-			.read()
-			.get(&file_handle)
-			.ok_or(libc::ENOENT)?
-			.clone();
+		let file_handle_data = self.handles.get(&file_handle).ok_or(libc::ENOENT)?.clone();
 
 		// Get the reader, sanity checking that the file handle was not corrupted.
 		let mut file_handle_data = file_handle_data.write().await;
@@ -850,7 +842,7 @@ impl Server {
 		data: sys::fuse_release_in,
 	) -> tg::Result<Response, i32> {
 		let file_handle = FileHandle(data.fh);
-		self.handles.write().remove(&file_handle);
+		self.handles.remove(&file_handle);
 		Ok(Response::Release)
 	}
 
@@ -860,7 +852,7 @@ impl Server {
 		data: sys::fuse_release_in,
 	) -> tg::Result<Response, i32> {
 		let file_handle = FileHandle(data.fh);
-		self.handles.write().remove(&file_handle);
+		self.handles.remove(&file_handle);
 		Ok(Response::ReleaseDir)
 	}
 
@@ -877,7 +869,7 @@ impl Server {
 	}
 
 	async fn get_node(&self, node_id: NodeId) -> tg::Result<Arc<Node>, i32> {
-		let Some(node) = self.nodes.read().get(&node_id).cloned() else {
+		let Some(node) = self.nodes.get(&node_id).map(|node| node.clone()) else {
 			return Err(libc::ENOENT);
 		};
 		Ok(node)
@@ -902,7 +894,7 @@ impl Server {
 		// If the child already exists, then return it.
 		match &parent_node.kind {
 			NodeKind::Root { children } => {
-				if let Some(child) = children.read().get(name).cloned() {
+				if let Some(child) = children.get(name).map(|child| child.clone()) {
 					return Ok(child);
 				}
 			},
@@ -972,7 +964,7 @@ impl Server {
 		// Add the child node to the parent node.
 		match &parent_node.kind {
 			NodeKind::Root { children } => {
-				children.write().insert(name.to_owned(), child_node.clone());
+				children.insert(name.to_owned(), child_node.clone());
 			},
 			NodeKind::Directory { children, .. } => {
 				children.write().push((name.to_owned(), child_node.clone()));
@@ -981,7 +973,7 @@ impl Server {
 		}
 
 		// Add the child node to the nodes.
-		self.nodes.write().insert(child_node.id, child_node.clone());
+		self.nodes.insert(child_node.id, child_node.clone());
 
 		Ok(child_node)
 	}

@@ -1,13 +1,13 @@
+use dashmap::DashMap;
 use either::Either;
 use futures::{future, FutureExt};
 use num::ToPrimitive;
 use std::{
-	collections::HashMap,
 	fmt,
 	os::unix::ffi::OsStrExt as _,
 	path::{Path, PathBuf},
 	pin::pin,
-	sync::{Arc, Weak},
+	sync::{atomic::AtomicU64, Arc, Weak},
 };
 use tangram_client as tg;
 use tangram_nfs::{
@@ -58,14 +58,11 @@ pub struct Server(Arc<Inner>);
 
 pub struct Inner {
 	client_index: std::sync::atomic::AtomicU64,
-	clients: tokio::sync::RwLock<
-		HashMap<Vec<u8>, Arc<tokio::sync::RwLock<ClientData>>, fnv::FnvBuildHasher>,
-	>,
-	lock_index: tokio::sync::RwLock<u64>,
-	locks:
-		tokio::sync::RwLock<HashMap<u64, Arc<tokio::sync::RwLock<LockState>>, fnv::FnvBuildHasher>>,
+	clients: DashMap<Vec<u8>, Arc<tokio::sync::RwLock<ClientData>>, fnv::FnvBuildHasher>,
+	lock_index: AtomicU64,
+	locks: DashMap<u64, Arc<tokio::sync::RwLock<LockState>>, fnv::FnvBuildHasher>,
 	node_index: std::sync::atomic::AtomicU64,
-	nodes: tokio::sync::RwLock<HashMap<u64, Arc<Node>, fnv::FnvBuildHasher>>,
+	nodes: DashMap<u64, Arc<Node>, fnv::FnvBuildHasher>,
 	path: PathBuf,
 	requests: std::sync::Mutex<Option<Vec<tokio::task::JoinHandle<()>>>>,
 	server: crate::Server,
@@ -90,12 +87,12 @@ struct Node {
 #[derive(Debug)]
 enum NodeKind {
 	Root {
-		children: tokio::sync::RwLock<HashMap<String, Arc<Node>, fnv::FnvBuildHasher>>,
+		children: DashMap<String, Arc<Node>, fnv::FnvBuildHasher>,
 		attributes: tokio::sync::RwLock<Option<Arc<Node>>>,
 	},
 	Directory {
 		directory: tg::Directory,
-		children: tokio::sync::RwLock<HashMap<String, Arc<Node>, fnv::FnvBuildHasher>>,
+		children: DashMap<String, Arc<Node>, fnv::FnvBuildHasher>,
 		attributes: tokio::sync::RwLock<Option<Arc<Node>>>,
 	},
 	File {
@@ -111,7 +108,7 @@ enum NodeKind {
 		data: Vec<u8>,
 	},
 	NamedAttributeDirectory {
-		children: tokio::sync::RwLock<HashMap<String, Arc<Node>, fnv::FnvBuildHasher>>,
+		children: DashMap<String, Arc<Node>, fnv::FnvBuildHasher>,
 	},
 	Checkout {
 		path: PathBuf,
@@ -161,7 +158,7 @@ impl Server {
 			id: 0,
 			parent: root.clone(),
 			kind: NodeKind::Root {
-				children: tokio::sync::RwLock::new(HashMap::default()),
+				children: DashMap::default(),
 				attributes: tokio::sync::RwLock::new(None),
 			},
 		});
@@ -171,11 +168,11 @@ impl Server {
 		let task = std::sync::Mutex::new(None);
 		let server = Self(Arc::new(Inner {
 			client_index: std::sync::atomic::AtomicU64::new(1),
-			clients: tokio::sync::RwLock::new(HashMap::default()),
-			lock_index: tokio::sync::RwLock::new(1),
-			locks: tokio::sync::RwLock::new(HashMap::default()),
-			node_index: std::sync::atomic::AtomicU64::new(1000),
-			nodes: tokio::sync::RwLock::new(nodes),
+			clients: DashMap::default(),
+			lock_index: AtomicU64::new(1),
+			locks: DashMap::default(),
+			node_index: AtomicU64::new(1000),
+			nodes,
 			path: path.to_owned(),
 			requests,
 			server,
@@ -618,34 +615,34 @@ impl Server {
 	}
 
 	async fn get_node(&self, node: nfs_fh4) -> Option<Arc<Node>> {
-		self.nodes.read().await.get(&node.0).cloned()
+		self.nodes.get(&node.0).map(|node| node.clone())
 	}
 
 	async fn add_node(&self, id: u64, node: Arc<Node>) {
-		self.nodes.write().await.insert(id, node);
+		self.nodes.insert(id, node);
 	}
 
 	async fn add_client(&self, id: Vec<u8>, client: Arc<tokio::sync::RwLock<ClientData>>) {
-		self.clients.write().await.insert(id, client);
+		self.clients.insert(id, client);
 	}
 
 	async fn get_client(
 		&self,
 		client: &nfs_client_id4,
 	) -> Option<Arc<tokio::sync::RwLock<ClientData>>> {
-		self.clients.read().await.get(&client.id).cloned()
+		self.clients.get(&client.id).map(|client| client.clone())
 	}
 
 	async fn add_lock(&self, id: u64, lock: Arc<tokio::sync::RwLock<LockState>>) {
-		self.locks.write().await.insert(id, lock);
+		self.locks.insert(id, lock);
 	}
 
 	async fn get_lock(&self, lock: u64) -> Option<Arc<tokio::sync::RwLock<LockState>>> {
-		self.locks.read().await.get(&lock).cloned()
+		self.locks.get(&lock).map(|lock| lock.clone())
 	}
 
 	async fn remove_lock(&self, lock: u64) {
-		self.locks.write().await.remove(&lock);
+		self.locks.remove(&lock);
 	}
 }
 
@@ -764,7 +761,7 @@ impl Server {
 		let data = match &node.kind {
 			NodeKind::Root { .. } => FileAttrData::new(file_handle, nfs_ftype4::NF4DIR, 0, O_RX),
 			NodeKind::Directory { children, .. } => {
-				let len = children.read().await.len();
+				let len = children.len();
 				FileAttrData::new(file_handle, nfs_ftype4::NF4DIR, len, O_RX)
 			},
 			NodeKind::File { file, size, .. } => {
@@ -791,7 +788,7 @@ impl Server {
 				FileAttrData::new(file_handle, nfs_ftype4::NF4NAMEDATTR, len, O_RDONLY)
 			},
 			NodeKind::NamedAttributeDirectory { children, .. } => {
-				let len = children.read().await.len();
+				let len = children.len();
 				FileAttrData::new(file_handle, nfs_ftype4::NF4ATTRDIR, len, O_RX)
 			},
 		};
@@ -938,7 +935,7 @@ impl Server {
 			NodeKind::Root { children, .. }
 			| NodeKind::Directory { children, .. }
 			| NodeKind::NamedAttributeDirectory { children, .. } => {
-				if let Some(child) = children.read().await.get(name).cloned() {
+				if let Some(child) = children.get(name).map(|child| child.clone()) {
 					return Ok(Some(child));
 				}
 			},
@@ -1019,7 +1016,7 @@ impl Server {
 		let kind = match child_data {
 			Either::Left(Either::Left(path)) => NodeKind::Checkout { path },
 			Either::Left(Either::Right(tg::Artifact::Directory(directory))) => {
-				let children = tokio::sync::RwLock::new(HashMap::default());
+				let children = DashMap::default();
 				NodeKind::Directory {
 					directory,
 					children,
@@ -1057,10 +1054,7 @@ impl Server {
 			NodeKind::Root { children, .. }
 			| NodeKind::Directory { children, .. }
 			| NodeKind::NamedAttributeDirectory { children, .. } => {
-				children
-					.write()
-					.await
-					.insert(name.to_owned(), child_node.clone());
+				children.insert(name.to_owned(), child_node.clone());
 			},
 			_ => unreachable!(),
 		}
@@ -1086,7 +1080,7 @@ impl Server {
 
 				let id = self.next_node_id();
 				let parent = Arc::downgrade(parent_node);
-				let children = tokio::sync::RwLock::new(HashMap::default());
+				let children = DashMap::default();
 				let node = Node {
 					id,
 					parent,
@@ -1113,25 +1107,10 @@ impl Server {
 	}
 
 	async fn next_lock_id(&self) -> Option<u64> {
-		// In the extremely unlikely event that the client has more files open then we can represent, return an error.
-		let locks = self.locks.read().await;
-		if locks.len() == usize::MAX - 2 {
-			tracing::error!("failed to create the file reader");
-			return None;
-		}
-
-		// Find the next freely available lock.
-		let mut lock_index = self.lock_index.write().await;
-		loop {
-			let index = *lock_index;
-			*lock_index += 1;
-			if *lock_index == u64::MAX - 1 {
-				*lock_index = 1;
-			}
-			if !locks.contains_key(&lock_index) {
-				return Some(index);
-			}
-		}
+		Some(
+			self.lock_index
+				.fetch_add(1, std::sync::atomic::Ordering::SeqCst),
+		)
 	}
 
 	async fn handle_open(&self, ctx: &mut Context, arg: OPEN4args) -> OPEN4res {
@@ -1539,8 +1518,7 @@ impl Server {
 		&self,
 		arg: SETCLIENTID_CONFIRM4args,
 	) -> SETCLIENTID_CONFIRM4res {
-		let clients = self.clients.read().await;
-		for client in clients.values() {
+		for client in &self.clients {
 			let mut client = client.write().await;
 			if client.server_id == arg.clientid {
 				if client.server_verifier != arg.setclientid_confirm {
