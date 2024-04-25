@@ -95,8 +95,9 @@ impl Runtime {
 				.children()
 				.into_iter()
 				.filter_map(|id| id.try_into().ok())
-				.map(|id| async move {
-					let artifact = tg::Artifact::with_id(id);
+				.map(tg::Artifact::with_id)
+				.chain([self.env.clone().into(), self.sh.clone().into()])
+				.map(|artifact| async move {
 					let arg = tg::artifact::CheckOutArg::default();
 					artifact.check_out(server, arg).await?;
 					Ok::<_, tg::Error>(())
@@ -148,12 +149,11 @@ impl Runtime {
 		tokio::fs::create_dir_all(&sh_path.parent().unwrap())
 			.await
 			.map_err(|source| tg::error!(!source, "failed to create the directory"))?;
-		let env_guest_path = server_directory_guest_path
-			.join("artifacts")
-			.join(self.env.id(server, None).await?.to_string());
-		let sh_guest_path = server_directory_guest_path
-			.join("artifacts")
-			.join(self.sh.id(server, None).await?.to_string());
+		let env_guest_path =
+			artifacts_directory_guest_path.join(self.env.id(server, None).await?.to_string());
+		let sh_guest_path =
+			artifacts_directory_guest_path.join(self.sh.id(server, None).await?.to_string());
+
 		tokio::fs::symlink(&env_guest_path, &env_path)
 			.await
 			.map_err(|source| tg::error!(!source, "failed to create the env symlink"))?;
@@ -189,7 +189,7 @@ impl Runtime {
 			root_host: root_directory_host_path.clone().try_into().unwrap(),
 		};
 
-		// Create the proxy server hsot URL.
+		// Create the proxy server host URL.
 		let proxy_server_socket_guest_path = home_directory_guest_path.join(".tangram/socket");
 		let proxy_server_socket_guest_path = tg::Path::try_from(proxy_server_socket_guest_path)
 			.map_err(|source| tg::error!(!source, "invalid path"))?;
