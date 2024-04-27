@@ -1,6 +1,7 @@
 use crate::Cli;
 use tangram_client as tg;
 
+pub mod cancel;
 pub mod create;
 pub mod get;
 pub mod pull;
@@ -21,6 +22,7 @@ pub struct Args {
 #[allow(clippy::large_enum_variant)]
 #[derive(Debug, clap::Subcommand)]
 pub enum Command {
+	Cancel(self::cancel::Args),
 	#[clap(hide = true)]
 	Create(self::create::Args),
 	Get(self::get::Args),
@@ -33,6 +35,9 @@ pub enum Command {
 impl Cli {
 	pub async fn command_build(&self, args: Args) -> tg::Result<()> {
 		match args.command.unwrap_or(Command::Create(args.args)) {
+			Command::Cancel(args) => {
+				self.command_build_cancel(args).await?;
+			},
 			Command::Create(args) => {
 				self.command_build_create(args).await?;
 			},
