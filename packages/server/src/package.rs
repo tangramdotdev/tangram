@@ -164,13 +164,13 @@ impl Server {
 			.parse()
 			.map_err(|source| tg::error!(!source, "failed to parse the dependency"))?;
 
-		// Get the search params.
+		// Get the query.
 		let arg = request
 			.uri()
 			.query()
 			.map(serde_urlencoded::from_str)
 			.transpose()
-			.map_err(|source| tg::error!(!source, "failed to deserialize the search params"))?
+			.map_err(|source| tg::error!(!source, "failed to deserialize the query"))?
 			.unwrap_or_default();
 
 		// Get the package.

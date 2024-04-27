@@ -1,6 +1,6 @@
 use crate::{
 	self as tg,
-	util::http::{empty, full},
+	util::http::{Outgoing, ResponseExt as _},
 };
 use futures::{future, TryFutureExt as _};
 use http_body_util::BodyExt as _;
@@ -11,29 +11,12 @@ impl tg::Client {
 		let method = http::Method::POST;
 		let uri = "/format";
 		let request = http::request::Builder::default().method(method).uri(uri);
-		let body = full(text);
-		let request = request
-			.body(body)
-			.map_err(|source| tg::error!(!source, "failed to create the request"))?;
+		let body = Outgoing::bytes(text);
+		let request = request.body(body).unwrap();
 		let response = self.send(request).await?;
-		if !response.status().is_success() {
-			let bytes = response
-				.collect()
-				.await
-				.map_err(|source| tg::error!(!source, "failed to collect the response body"))?
-				.to_bytes();
-			let error = serde_json::from_slice(&bytes)
-				.unwrap_or_else(|_| tg::error!("failed to deserialize the error"));
-			return Err(error);
-		}
-		let bytes = response
-			.collect()
-			.await
-			.map_err(|source| tg::error!(!source, "failed to collect the response body"))?
-			.to_bytes();
-		let text = String::from_utf8(bytes.to_vec())
-			.map_err(|source| tg::error!(!source, "failed to deserialize the response body"))?;
-		Ok(text)
+		let response = response.success().await?;
+		let output = response.json().await?;
+		Ok(output)
 	}
 
 	pub async fn lsp(
@@ -44,14 +27,14 @@ impl tg::Client {
 		let mut sender = self.connect_h1().await?;
 		let method = http::Method::POST;
 		let uri = "/lsp";
-		let body = empty();
+		let body = Outgoing::empty();
 		let request = http::request::Builder::default()
 			.method(method)
 			.uri(uri)
 			.header(http::header::CONNECTION, "upgrade")
 			.header(http::header::UPGRADE, "lsp")
 			.body(body)
-			.map_err(|source| tg::error!(!source, "failed to create the request"))?;
+			.unwrap();
 		let response = sender
 			.send_request(request)
 			.await

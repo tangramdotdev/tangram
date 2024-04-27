@@ -1,5 +1,7 @@
-use crate::{self as tg, util::http::empty};
-use http_body_util::BodyExt as _;
+use crate::{
+	self as tg,
+	util::http::{Outgoing, ResponseExt as _},
+};
 
 impl tg::Client {
 	pub async fn yank_package(&self, id: &tg::directory::Id) -> tg::Result<()> {
@@ -9,21 +11,10 @@ impl tg::Client {
 		if let Some(token) = self.token.as_ref() {
 			request = request.header(http::header::AUTHORIZATION, format!("Bearer {token}"));
 		}
-		let body = empty();
-		let request = request
-			.body(body)
-			.map_err(|source| tg::error!(!source, "failed to create the request"))?;
+		let body = Outgoing::empty();
+		let request = request.body(body).unwrap();
 		let response = self.send(request).await?;
-		if !response.status().is_success() {
-			let bytes = response
-				.collect()
-				.await
-				.map_err(|source| tg::error!(!source, "failed to collect the response body"))?
-				.to_bytes();
-			let error = serde_json::from_slice(&bytes)
-				.unwrap_or_else(|_| tg::error!("failed to deserialize the error"));
-			return Err(error);
-		}
+		response.success().await?;
 		Ok(())
 	}
 }

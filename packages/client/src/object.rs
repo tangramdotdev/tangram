@@ -1,7 +1,9 @@
-use crate::{self as tg, util::http::empty};
+use crate::{
+	self as tg,
+	util::http::{Outgoing, ResponseExt as _},
+};
 use bytes::Bytes;
 use futures::{stream::FuturesUnordered, FutureExt as _, TryStreamExt as _};
-use http_body_util::BodyExt as _;
 use std::sync::Arc;
 
 pub mod get;
@@ -310,46 +312,28 @@ impl tg::Client {
 	pub async fn push_object(&self, id: &tg::object::Id) -> tg::Result<()> {
 		let method = http::Method::POST;
 		let uri = format!("/objects/{id}/push");
-		let body = empty();
+		let body = Outgoing::empty();
 		let request = http::request::Builder::default()
 			.method(method)
 			.uri(uri)
 			.body(body)
-			.map_err(|source| tg::error!(!source, "failed to create the request"))?;
+			.unwrap();
 		let response = self.send(request).await?;
-		if !response.status().is_success() {
-			let bytes = response
-				.collect()
-				.await
-				.map_err(|source| tg::error!(!source, "failed to collect the response body"))?
-				.to_bytes();
-			let error = serde_json::from_slice(&bytes)
-				.unwrap_or_else(|_| tg::error!("the request did not succeed"));
-			return Err(error);
-		}
+		response.success().await?;
 		Ok(())
 	}
 
 	pub async fn pull_object(&self, id: &tg::object::Id) -> tg::Result<()> {
 		let method = http::Method::POST;
 		let uri = format!("/objects/{id}/pull");
-		let body = empty();
+		let body = Outgoing::empty();
 		let request = http::request::Builder::default()
 			.method(method)
 			.uri(uri)
 			.body(body)
-			.map_err(|source| tg::error!(!source, "failed to create the request"))?;
+			.unwrap();
 		let response = self.send(request).await?;
-		if !response.status().is_success() {
-			let bytes = response
-				.collect()
-				.await
-				.map_err(|source| tg::error!(!source, "failed to collect the response body"))?
-				.to_bytes();
-			let error = serde_json::from_slice(&bytes)
-				.unwrap_or_else(|_| tg::error!("the request did not succeed"));
-			return Err(error);
-		}
+		response.success().await?;
 		Ok(())
 	}
 }

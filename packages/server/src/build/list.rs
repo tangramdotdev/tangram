@@ -86,7 +86,7 @@ impl Server {
 			return Ok(bad_request());
 		};
 		let arg = serde_urlencoded::from_str(query)
-			.map_err(|source| tg::error!(!source, "failed to deserialize the search params"))?;
+			.map_err(|source| tg::error!(!source, "failed to deserialize the query"))?;
 
 		let output = handle.list_builds(arg).await?;
 

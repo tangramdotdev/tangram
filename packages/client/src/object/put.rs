@@ -1,6 +1,8 @@
-use crate::{self as tg, util::http::full};
+use crate::{
+	self as tg,
+	util::http::{Outgoing, ResponseExt as _},
+};
 use bytes::Bytes;
-use http_body_util::BodyExt as _;
 
 #[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
 pub struct Arg {
@@ -23,30 +25,15 @@ impl tg::Client {
 	) -> tg::Result<tg::object::put::Output> {
 		let method = http::Method::PUT;
 		let uri = format!("/objects/{id}");
-		let body = full(arg.bytes.clone());
+		let body = Outgoing::bytes(arg.bytes.clone());
 		let request = http::request::Builder::default()
 			.method(method)
 			.uri(uri)
 			.body(body)
-			.map_err(|source| tg::error!(!source, "failed to create the request"))?;
+			.unwrap();
 		let response = self.send(request).await?;
-		if !response.status().is_success() {
-			let bytes = response
-				.collect()
-				.await
-				.map_err(|source| tg::error!(!source, "failed to collect the response body"))?
-				.to_bytes();
-			let error = serde_json::from_slice(&bytes)
-				.unwrap_or_else(|_| tg::error!("the request did not succeed"));
-			return Err(error);
-		}
-		let bytes = response
-			.collect()
-			.await
-			.map_err(|source| tg::error!(!source, "failed to collect the response body"))?
-			.to_bytes();
-		let output = serde_json::from_slice(&bytes)
-			.map_err(|source| tg::error!(!source, "failed to deserialize the body"))?;
+		let response = response.success().await?;
+		let output = response.json().await?;
 		Ok(output)
 	}
 }

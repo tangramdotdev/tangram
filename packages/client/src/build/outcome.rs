@@ -1,4 +1,7 @@
-use crate::{self as tg, util::http::empty};
+use crate::{
+	self as tg,
+	util::http::{Outgoing, ResponseExt as _},
+};
 use futures::{future, FutureExt as _};
 use http_body_util::BodyExt as _;
 use serde_with::serde_as;
@@ -121,29 +124,20 @@ impl tg::Client {
 		stop: Option<tokio::sync::watch::Receiver<bool>>,
 	) -> tg::Result<Option<Option<tg::build::Outcome>>> {
 		let method = http::Method::GET;
-		let search_params = serde_urlencoded::to_string(&arg).unwrap();
-		let uri = format!("/builds/{id}/outcome?{search_params}");
-		let body = empty();
+		let query = serde_urlencoded::to_string(&arg).unwrap();
+		let uri = format!("/builds/{id}/outcome?{query}");
+		let body = Outgoing::empty();
 		let request = http::request::Builder::default()
 			.method(method)
 			.uri(uri)
 			.header(http::header::ACCEPT, mime::APPLICATION_JSON.to_string())
 			.body(body)
-			.map_err(|source| tg::error!(!source, "failed to create the request"))?;
+			.unwrap();
 		let response = self.send(request).await?;
 		if response.status() == http::StatusCode::NOT_FOUND {
 			return Ok(None);
 		}
-		if !response.status().is_success() {
-			let bytes = response
-				.collect()
-				.await
-				.map_err(|source| tg::error!(!source, "failed to collect the response body"))?
-				.to_bytes();
-			let error = serde_json::from_slice(&bytes)
-				.unwrap_or_else(|_| tg::error!("the request did not succeed"));
-			return Err(error);
-		}
+		let response = response.success().await?;
 		let stop = stop.map_or_else(
 			|| future::pending().left_future(),
 			|mut stop| async move { stop.wait_for(|stop| *stop).map(|_| ()).await }.right_future(),

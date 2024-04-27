@@ -1,15 +1,15 @@
-use crate::{self as tg, util::http::empty};
+use crate::{self as tg, util::http::Outgoing};
 
 impl tg::Client {
 	pub async fn stop(&self) -> tg::Result<()> {
 		let method = http::Method::POST;
 		let uri = "/stop";
-		let body = empty();
+		let body = Outgoing::empty();
 		let request = http::request::Builder::default()
 			.method(method)
 			.uri(uri)
 			.body(body)
-			.map_err(|source| tg::error!(!source, "failed to create the request"))?;
+			.unwrap();
 		self.send(request).await.ok();
 		Ok(())
 	}
