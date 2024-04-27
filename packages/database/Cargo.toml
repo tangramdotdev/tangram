@@ -24,7 +24,6 @@ indexmap = { workspace = true }
 itertools = { workspace = true }
 num = { workspace = true }
 rusqlite = { workspace = true }
-scopeguard = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
 tokio = { workspace = true }

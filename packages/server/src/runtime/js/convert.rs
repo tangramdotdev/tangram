@@ -2278,13 +2278,13 @@ impl FromV8 for tg::path::Component {
 	}
 }
 
-impl ToV8 for tg::artifact::ArchiveFormat {
+impl ToV8 for tg::artifact::archive::Format {
 	fn to_v8<'a>(&self, scope: &mut v8::HandleScope<'a>) -> tg::Result<v8::Local<'a, v8::Value>> {
 		self.to_string().to_v8(scope)
 	}
 }
 
-impl FromV8 for tg::artifact::ArchiveFormat {
+impl FromV8 for tg::artifact::archive::Format {
 	fn from_v8<'a>(
 		scope: &mut v8::HandleScope<'a>,
 		value: v8::Local<'a, v8::Value>,
@@ -2293,13 +2293,13 @@ impl FromV8 for tg::artifact::ArchiveFormat {
 	}
 }
 
-impl ToV8 for tg::blob::CompressionFormat {
+impl ToV8 for tg::blob::compress::Format {
 	fn to_v8<'a>(&self, scope: &mut v8::HandleScope<'a>) -> tg::Result<v8::Local<'a, v8::Value>> {
 		self.to_string().to_v8(scope)
 	}
 }
 
-impl FromV8 for tg::blob::CompressionFormat {
+impl FromV8 for tg::blob::compress::Format {
 	fn from_v8<'a>(
 		scope: &mut v8::HandleScope<'a>,
 		value: v8::Local<'a, v8::Value>,

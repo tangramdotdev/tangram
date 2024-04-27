@@ -1,6 +1,6 @@
 use crate::{
 	util::http::{empty, not_found, Incoming, Outgoing},
-	Http, Server,
+	Server,
 };
 use futures::{
 	future, stream, stream_select, FutureExt as _, Stream, StreamExt as _, TryStreamExt as _,
@@ -17,7 +17,7 @@ impl Server {
 	pub async fn try_get_build_children(
 		&self,
 		id: &tg::build::Id,
-		arg: tg::build::children::GetArg,
+		arg: tg::build::children::Arg,
 		stop: Option<tokio::sync::watch::Receiver<bool>>,
 	) -> tg::Result<
 		Option<impl Stream<Item = tg::Result<tg::build::children::Chunk>> + Send + 'static>,
@@ -40,7 +40,7 @@ impl Server {
 	async fn try_get_build_children_local(
 		&self,
 		id: &tg::build::Id,
-		arg: tg::build::children::GetArg,
+		arg: tg::build::children::Arg,
 		stop: Option<tokio::sync::watch::Receiver<bool>>,
 	) -> tg::Result<
 		Option<impl Stream<Item = tg::Result<tg::build::children::Chunk>> + Send + 'static>,
@@ -119,7 +119,7 @@ impl Server {
 					return Ok(None);
 				};
 
-				let arg = tg::build::status::GetArg {
+				let arg = tg::build::status::Arg {
 					timeout: Some(std::time::Duration::ZERO),
 				};
 				let status = server
@@ -307,7 +307,7 @@ impl Server {
 	async fn try_get_build_children_remote(
 		&self,
 		id: &tg::build::Id,
-		arg: tg::build::children::GetArg,
+		arg: tg::build::children::Arg,
 		stop: Option<tokio::sync::watch::Receiver<bool>>,
 	) -> tg::Result<
 		Option<impl Stream<Item = tg::Result<tg::build::children::Chunk>> + Send + 'static>,
@@ -392,15 +392,14 @@ impl Server {
 	}
 }
 
-impl<H> Http<H>
-where
-	H: tg::Handle,
-{
-	pub async fn handle_get_build_children_request(
-		&self,
+impl Server {
+	pub(crate) async fn handle_get_build_children_request<H>(
+		handle: &H,
 		request: http::Request<Incoming>,
-	) -> tg::Result<hyper::Response<Outgoing>> {
-		// Get the path params.
+	) -> tg::Result<http::Response<Outgoing>>
+	where
+		H: tg::Handle,
+	{
 		let path_components: Vec<&str> = request.uri().path().split('/').skip(1).collect();
 		let ["builds", id, "children"] = path_components.as_slice() else {
 			let uri = request.uri();
@@ -435,11 +434,7 @@ where
 			.transpose()?;
 
 		let stop = request.extensions().get().cloned().unwrap();
-		let Some(stream) = self
-			.handle
-			.try_get_build_children(&id, arg, Some(stop))
-			.await?
-		else {
+		let Some(stream) = handle.try_get_build_children(&id, arg, Some(stop)).await? else {
 			return Ok(not_found());
 		};
 
@@ -490,11 +485,13 @@ where
 		Ok(response)
 	}
 
-	pub async fn handle_add_build_child_request(
-		&self,
+	pub(crate) async fn handle_add_build_child_request<H>(
+		handle: &H,
 		request: http::Request<Incoming>,
-	) -> tg::Result<hyper::Response<Outgoing>> {
-		// Get the path params.
+	) -> tg::Result<http::Response<Outgoing>>
+	where
+		H: tg::Handle,
+	{
 		let path_components: Vec<&str> = request.uri().path().split('/').skip(1).collect();
 		let ["builds", id, "children"] = path_components.as_slice() else {
 			let path = request.uri().path();
@@ -515,7 +512,7 @@ where
 			.map_err(|source| tg::error!(!source, "failed to deserialize the body"))?;
 
 		// Add the build child.
-		self.handle.add_build_child(&build_id, &child_id).await?;
+		handle.add_build_child(&build_id, &child_id).await?;
 
 		// Create the response.
 		let response = http::Response::builder()

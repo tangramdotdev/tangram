@@ -1,8 +1,5 @@
 use self::syscall::syscall;
-use crate::{
-	util::http::{empty, full, Incoming, Outgoing},
-	Http,
-};
+use crate::util::http::{empty, full, Incoming, Outgoing};
 use futures::{future, Future, FutureExt as _, TryFutureExt as _};
 use http_body_util::BodyExt as _;
 use lsp::{notification::Notification as _, request::Request as _};
@@ -739,15 +736,14 @@ impl crate::Server {
 	}
 }
 
-impl<H> Http<H>
-where
-	H: tg::Handle,
-{
-	pub async fn handle_format_request(
-		&self,
+impl crate::Server {
+	pub(crate) async fn handle_format_request<H>(
+		handle: &H,
 		request: http::Request<Incoming>,
-	) -> tg::Result<http::Response<Outgoing>> {
-		// Read the body.
+	) -> tg::Result<http::Response<Outgoing>>
+	where
+		H: tg::Handle,
+	{
 		let bytes = request
 			.into_body()
 			.collect()
@@ -758,7 +754,7 @@ where
 			.map_err(|source| tg::error!(!source, "failed to deserialize the request body"))?;
 
 		// Format the text.
-		let text = self.handle.format(text).await?;
+		let text = handle.format(text).await?;
 
 		// Create the body.
 		let body = full(text.into_bytes());
@@ -772,10 +768,13 @@ where
 		Ok(response)
 	}
 
-	pub async fn handle_lsp_request(
-		&self,
+	pub(crate) async fn handle_lsp_request<H>(
+		handle: &H,
 		request: http::Request<Incoming>,
-	) -> tg::Result<http::Response<Outgoing>> {
+	) -> tg::Result<http::Response<Outgoing>>
+	where
+		H: tg::Handle,
+	{
 		if !(request
 			.headers()
 			.get(http::header::CONNECTION)
@@ -790,7 +789,7 @@ where
 			));
 		}
 
-		let server = self.clone();
+		let handle = handle.clone();
 		let mut stop = request
 			.extensions()
 			.get::<tokio::sync::watch::Receiver<bool>>()
@@ -805,7 +804,7 @@ where
 				let (input, output) = tokio::io::split(io);
 				let input = Box::new(tokio::io::BufReader::new(input));
 				let output = Box::new(output);
-				let task = server.handle.lsp(input, output);
+				let task = handle.lsp(input, output);
 				let stop = stop.wait_for(|stop| *stop);
 				future::select(pin!(task), pin!(stop))
 					.map(|output| match output {

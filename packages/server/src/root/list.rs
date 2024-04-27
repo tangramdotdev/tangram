@@ -1,13 +1,13 @@
 use crate::{
 	util::http::{bad_request, full, Incoming, Outgoing},
-	Http, Server,
+	Server,
 };
 use indoc::formatdoc;
 use tangram_client as tg;
 use tangram_database::{self as db, prelude::*};
 
 impl Server {
-	pub async fn list_roots(&self, _arg: tg::root::ListArg) -> tg::Result<tg::root::ListOutput> {
+	pub async fn list_roots(&self, _arg: tg::root::list::Arg) -> tg::Result<tg::root::list::Output> {
 		// Get a database connection.
 		let connection = self
 			.database
@@ -32,28 +32,28 @@ impl Server {
 		drop(connection);
 
 		// Create the output.
-		let output = tg::root::ListOutput { items };
+		let output = tg::root::list::Output { items };
 
 		Ok(output)
 	}
 }
 
-impl<H> Http<H>
-where
-	H: tg::Handle,
-{
-	pub async fn handle_list_roots_request(
-		&self,
+impl Server {
+	pub(crate) async fn handle_list_roots_request<H>(
+		handle: &H,
 		request: http::Request<Incoming>,
-	) -> tg::Result<hyper::Response<Outgoing>> {
-		// Read the search params.
+	) -> tg::Result<http::Response<Outgoing>>
+	where
+		H: tg::Handle,
+	{
 		let Some(query) = request.uri().query() else {
 			return Ok(bad_request());
 		};
 		let arg = serde_urlencoded::from_str(query)
 			.map_err(|source| tg::error!(!source, "failed to deserialize the search params"))?;
 
-		let output = self.handle.list_roots(arg).await?;
+		// List the roots.
+		let output = handle.list_roots(arg).await?;
 
 		// Create the body.
 		let body = serde_json::to_vec(&output)

@@ -1,10 +1,12 @@
-use crate::{
-	self as tg,
-	util::http::{empty, full},
-};
+use crate as tg;
 use futures::stream::{FuturesOrdered, FuturesUnordered, TryStreamExt as _};
-use http_body_util::BodyExt as _;
 use std::collections::{HashSet, VecDeque};
+
+pub mod archive;
+pub mod bundle;
+pub mod checkin;
+pub mod checkout;
+pub mod extract;
 
 /// An artifact kind.
 #[derive(Clone, Copy, Debug)]
@@ -68,61 +70,6 @@ pub enum Data {
 	Symlink(tg::symlink::Data),
 }
 
-#[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
-pub struct ArchiveArg {
-	pub format: ArchiveFormat,
-}
-
-#[derive(Clone, Copy, Debug, serde_with::DeserializeFromStr, serde_with::SerializeDisplay)]
-pub enum ArchiveFormat {
-	Tar,
-	Zip,
-}
-
-#[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
-pub struct ArchiveOutput {
-	pub id: tg::blob::Id,
-}
-
-#[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
-pub struct ExtractArg {
-	pub blob: tg::blob::Id,
-	pub format: tg::artifact::ArchiveFormat,
-}
-
-#[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
-pub struct ExtractOutput {
-	pub id: tg::artifact::Id,
-}
-
-#[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
-pub struct BundleOutput {
-	pub id: Id,
-}
-
-#[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
-pub struct CheckInArg {
-	pub path: tg::Path,
-}
-
-#[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
-pub struct CheckInOutput {
-	pub id: Id,
-}
-
-#[derive(Clone, Debug, Default, serde::Deserialize, serde::Serialize)]
-pub struct CheckOutArg {
-	#[serde(default, skip_serializing_if = "std::ops::Not::not")]
-	pub force: bool,
-	#[serde(default, skip_serializing_if = "Option::is_none")]
-	pub path: Option<tg::Path>,
-}
-
-#[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
-pub struct CheckOutOutput {
-	pub path: tg::Path,
-}
-
 impl Artifact {
 	#[must_use]
 	pub fn with_id(id: Id) -> Self {
@@ -173,57 +120,6 @@ impl Artifact {
 }
 
 impl Artifact {
-	pub async fn archive<H>(&self, handle: &H, format: ArchiveFormat) -> tg::Result<tg::Blob>
-	where
-		H: tg::Handle,
-	{
-		let id = self.id(handle, None).await?;
-		let arg = ArchiveArg { format };
-		let output = handle.archive_artifact(&id, arg).await?;
-		let blob = tg::Blob::with_id(output.id);
-		Ok(blob)
-	}
-
-	pub async fn extract<H>(handle: &H, blob: &tg::Blob, format: ArchiveFormat) -> tg::Result<Self>
-	where
-		H: tg::Handle,
-	{
-		let blob = blob.id(handle, None).await?;
-		let arg = ExtractArg { blob, format };
-		let output = handle.extract_artifact(arg).await?;
-		let artifact = Self::with_id(output.id);
-		Ok(artifact)
-	}
-
-	pub async fn bundle<H>(&self, handle: &H) -> tg::Result<Self>
-	where
-		H: tg::Handle,
-	{
-		let id = self.id(handle, None).await?;
-		let output = handle.bundle_artifact(&id).await?;
-		let artifact = Self::with_id(output.id);
-		Ok(artifact)
-	}
-
-	pub async fn check_in<H>(handle: &H, path: tg::Path) -> tg::Result<Self>
-	where
-		H: tg::Handle,
-	{
-		let arg = CheckInArg { path };
-		let output = handle.check_in_artifact(arg).await?;
-		let artifact = Self::with_id(output.id);
-		Ok(artifact)
-	}
-
-	pub async fn check_out<H>(&self, handle: &H, arg: CheckOutArg) -> tg::Result<CheckOutOutput>
-	where
-		H: tg::Handle,
-	{
-		let id = self.id(handle, None).await?;
-		let output = handle.check_out_artifact(&id, arg).await?;
-		Ok(output)
-	}
-
 	/// Compute an artifact's checksum.
 	pub async fn checksum<H>(
 		&self,
@@ -302,183 +198,6 @@ impl Artifact {
 		}
 
 		Ok(references)
-	}
-}
-
-impl tg::Client {
-	pub async fn archive_artifact(
-		&self,
-		id: &tg::artifact::Id,
-		arg: tg::artifact::ArchiveArg,
-	) -> tg::Result<tg::artifact::ArchiveOutput> {
-		let method = http::Method::POST;
-		let uri = format!("/artifacts/{id}/archive");
-		let body = serde_json::to_string(&arg)
-			.map_err(|source| tg::error!(!source, "failed to serialize the body"))?;
-		let body = full(body);
-		let request = http::request::Builder::default()
-			.method(method)
-			.uri(uri)
-			.body(body)
-			.map_err(|source| tg::error!(!source, "failed to create the request"))?;
-		let response = self.send(request).await?;
-		if !response.status().is_success() {
-			let bytes = response
-				.collect()
-				.await
-				.map_err(|source| tg::error!(!source, "failed to collect the response body"))?
-				.to_bytes();
-			let error = serde_json::from_slice(&bytes)
-				.unwrap_or_else(|_| tg::error!("the request did not succeed"));
-			return Err(error);
-		}
-		let bytes = response
-			.collect()
-			.await
-			.map_err(|source| tg::error!(!source, "failed to collect the response body"))?
-			.to_bytes();
-		let output = serde_json::from_slice(&bytes)
-			.map_err(|source| tg::error!(!source, "failed to deserialize the body"))?;
-		Ok(output)
-	}
-
-	pub async fn extract_artifact(
-		&self,
-		arg: tg::artifact::ExtractArg,
-	) -> tg::Result<tg::artifact::ExtractOutput> {
-		let method = http::Method::POST;
-		let uri = "/artifacts/extract";
-		let body = serde_json::to_string(&arg)
-			.map_err(|source| tg::error!(!source, "failed to serialize the body"))?;
-		let body = full(body);
-		let request = http::request::Builder::default()
-			.method(method)
-			.uri(uri)
-			.body(body)
-			.map_err(|source| tg::error!(!source, "failed to create the request"))?;
-		let response = self.send(request).await?;
-		if !response.status().is_success() {
-			let bytes = response
-				.collect()
-				.await
-				.map_err(|source| tg::error!(!source, "failed to collect the response body"))?
-				.to_bytes();
-			let error = serde_json::from_slice(&bytes)
-				.unwrap_or_else(|_| tg::error!("the request did not succeed"));
-			return Err(error);
-		}
-		let bytes = response
-			.collect()
-			.await
-			.map_err(|source| tg::error!(!source, "failed to collect the response body"))?
-			.to_bytes();
-		let output = serde_json::from_slice(&bytes)
-			.map_err(|source| tg::error!(!source, "failed to deserialize the body"))?;
-		Ok(output)
-	}
-
-	pub async fn bundle_artifact(
-		&self,
-		id: &tg::artifact::Id,
-	) -> tg::Result<tg::artifact::BundleOutput> {
-		let method = http::Method::POST;
-		let uri = format!("/artifacts/{id}/bundle");
-		let body = empty();
-		let request = http::request::Builder::default()
-			.method(method)
-			.uri(uri)
-			.body(body)
-			.map_err(|source| tg::error!(!source, "failed to create the request"))?;
-		let response = self.send(request).await?;
-		if !response.status().is_success() {
-			let bytes = response
-				.collect()
-				.await
-				.map_err(|source| tg::error!(!source, "failed to collect the response body"))?
-				.to_bytes();
-			let error = serde_json::from_slice(&bytes)
-				.unwrap_or_else(|_| tg::error!("the request did not succeed"));
-			return Err(error);
-		}
-		let bytes = response
-			.collect()
-			.await
-			.map_err(|source| tg::error!(!source, "failed to collect the response body"))?
-			.to_bytes();
-		let output = serde_json::from_slice(&bytes)
-			.map_err(|source| tg::error!(!source, "failed to deserialize the body"))?;
-		Ok(output)
-	}
-
-	pub async fn check_in_artifact(
-		&self,
-		arg: tg::artifact::CheckInArg,
-	) -> tg::Result<tg::artifact::CheckInOutput> {
-		let method = http::Method::POST;
-		let uri = "/artifacts/checkin";
-		let body = serde_json::to_string(&arg)
-			.map_err(|source| tg::error!(!source, "failed to serialize the body"))?;
-		let body = full(body);
-		let request = http::request::Builder::default()
-			.method(method)
-			.uri(uri)
-			.body(body)
-			.map_err(|source| tg::error!(!source, "failed to create the request"))?;
-		let response = self.send(request).await?;
-		if !response.status().is_success() {
-			let bytes = response
-				.collect()
-				.await
-				.map_err(|source| tg::error!(!source, "failed to collect the response body"))?
-				.to_bytes();
-			let error = serde_json::from_slice(&bytes)
-				.unwrap_or_else(|_| tg::error!("the request did not succeed"));
-			return Err(error);
-		}
-		let bytes = response
-			.collect()
-			.await
-			.map_err(|source| tg::error!(!source, "failed to collect the response body"))?
-			.to_bytes();
-		let output = serde_json::from_slice(&bytes)
-			.map_err(|source| tg::error!(!source, "failed to deserialize the body"))?;
-		Ok(output)
-	}
-
-	pub async fn check_out_artifact(
-		&self,
-		id: &tg::artifact::Id,
-		arg: tg::artifact::CheckOutArg,
-	) -> tg::Result<tg::artifact::CheckOutOutput> {
-		let method = http::Method::POST;
-		let uri = format!("/artifacts/{id}/checkout");
-		let body = serde_json::to_string(&arg)
-			.map_err(|source| tg::error!(!source, "failed to serialize the body"))?;
-		let body = full(body);
-		let request = http::request::Builder::default()
-			.method(method)
-			.uri(uri)
-			.body(body)
-			.map_err(|source| tg::error!(!source, "failed to create the request"))?;
-		let response = self.send(request).await?;
-		if !response.status().is_success() {
-			let bytes = response
-				.collect()
-				.await
-				.map_err(|source| tg::error!(!source, "failed to collect the response body"))?
-				.to_bytes();
-			let error = serde_json::from_slice(&bytes)
-				.unwrap_or_else(|_| tg::error!("the request did not succeed"));
-			return Err(error);
-		}
-		let bytes = response
-			.collect()
-			.await
-			.map_err(|source| tg::error!(!source, "failed to collect the response body"))?
-			.to_bytes();
-		let output = serde_json::from_slice(&bytes)
-			.map_err(|source| tg::error!(!source, "failed to deserialize the body"))?;
-		Ok(output)
 	}
 }
 
@@ -592,45 +311,5 @@ impl TryFrom<tg::Value> for Artifact {
 		tg::object::Handle::try_from(value)
 			.map_err(|source| tg::error!(!source, "invalid value"))?
 			.try_into()
-	}
-}
-
-impl std::fmt::Display for ArchiveFormat {
-	fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-		match self {
-			Self::Tar => {
-				write!(f, "tar")?;
-			},
-			Self::Zip => {
-				write!(f, "zip")?;
-			},
-		}
-		Ok(())
-	}
-}
-
-impl std::str::FromStr for ArchiveFormat {
-	type Err = tg::Error;
-
-	fn from_str(s: &str) -> tg::Result<Self, Self::Err> {
-		match s {
-			"tar" => Ok(Self::Tar),
-			"zip" => Ok(Self::Zip),
-			extension => Err(tg::error!(%extension, "invalid format")),
-		}
-	}
-}
-
-impl From<ArchiveFormat> for String {
-	fn from(value: ArchiveFormat) -> Self {
-		value.to_string()
-	}
-}
-
-impl TryFrom<String> for ArchiveFormat {
-	type Error = tg::Error;
-
-	fn try_from(value: String) -> tg::Result<Self, Self::Error> {
-		value.parse()
 	}
 }

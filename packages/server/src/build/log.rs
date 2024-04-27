@@ -1,6 +1,6 @@
 use crate::{
 	util::http::{empty, not_found, Incoming, Outgoing},
-	Http, Server,
+	Server,
 };
 use bytes::{Bytes, BytesMut};
 use futures::{
@@ -36,7 +36,7 @@ impl Server {
 	pub async fn try_get_build_log(
 		&self,
 		id: &tg::build::Id,
-		arg: tg::build::log::GetArg,
+		arg: tg::build::log::Arg,
 		stop: Option<tokio::sync::watch::Receiver<bool>>,
 	) -> tg::Result<Option<impl Stream<Item = tg::Result<tg::build::log::Chunk>> + Send + 'static>>
 	{
@@ -58,7 +58,7 @@ impl Server {
 	async fn try_get_build_log_local(
 		&self,
 		id: &tg::build::Id,
-		arg: tg::build::log::GetArg,
+		arg: tg::build::log::Arg,
 		stop: Option<tokio::sync::watch::Receiver<bool>>,
 	) -> tg::Result<Option<impl Stream<Item = tg::Result<tg::build::log::Chunk>> + Send + 'static>>
 	{
@@ -140,7 +140,7 @@ impl Server {
 				let status = server
 					.try_get_build_status_local(
 						&id,
-						tg::build::status::GetArg {
+						tg::build::status::Arg {
 							timeout: Some(std::time::Duration::ZERO),
 						},
 						None,
@@ -249,7 +249,7 @@ impl Server {
 	async fn try_get_build_log_remote(
 		&self,
 		id: &tg::build::Id,
-		arg: tg::build::log::GetArg,
+		arg: tg::build::log::Arg,
 		stop: Option<tokio::sync::watch::Receiver<bool>>,
 	) -> tg::Result<Option<impl Stream<Item = tg::Result<tg::build::log::Chunk>> + Send + 'static>>
 	{
@@ -670,15 +670,14 @@ async fn poll_seek_inner(
 	Ok(position)
 }
 
-impl<H> Http<H>
-where
-	H: tg::Handle,
-{
-	pub async fn handle_get_build_log_request(
-		&self,
+impl Server {
+	pub(crate) async fn handle_get_build_log_request<H>(
+		handle: &H,
 		request: http::Request<Incoming>,
-	) -> tg::Result<hyper::Response<Outgoing>> {
-		// Get the path params.
+	) -> tg::Result<http::Response<Outgoing>>
+	where
+		H: tg::Handle,
+	{
 		let path_components: Vec<&str> = request.uri().path().split('/').skip(1).collect();
 		let ["builds", id, "log"] = path_components.as_slice() else {
 			let path = request.uri().path();
@@ -713,7 +712,7 @@ where
 			.transpose()?;
 
 		let stop = request.extensions().get().cloned().unwrap();
-		let Some(stream) = self.handle.try_get_build_log(&id, arg, Some(stop)).await? else {
+		let Some(stream) = handle.try_get_build_log(&id, arg, Some(stop)).await? else {
 			return Ok(not_found());
 		};
 
@@ -749,11 +748,13 @@ where
 		Ok(response)
 	}
 
-	pub async fn handle_add_build_log_request(
-		&self,
+	pub(crate) async fn handle_add_build_log_request<H>(
+		handle: &H,
 		request: http::Request<Incoming>,
-	) -> tg::Result<hyper::Response<Outgoing>> {
-		// Get the path params.
+	) -> tg::Result<http::Response<Outgoing>>
+	where
+		H: tg::Handle,
+	{
 		let path_components: Vec<&str> = request.uri().path().split('/').skip(1).collect();
 		let ["builds", id, "log"] = path_components.as_slice() else {
 			let path = request.uri().path();
@@ -771,7 +772,7 @@ where
 			.map_err(|source| tg::error!(!source, "failed to read the body"))?
 			.to_bytes();
 
-		self.handle.add_build_log(&build_id, bytes).await?;
+		handle.add_build_log(&build_id, bytes).await?;
 
 		let response = http::Response::builder()
 			.status(http::StatusCode::OK)

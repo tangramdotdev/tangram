@@ -1,4 +1,16 @@
 use self::util::http::{Incoming, Outgoing};
+use crate as tg;
+use bytes::Bytes;
+use futures::{Future, Stream};
+use std::{path::PathBuf, sync::Arc};
+use tokio::{
+	io::{AsyncBufRead, AsyncRead, AsyncWrite},
+	net::{TcpStream, UnixStream},
+};
+use url::Url;
+
+mod util;
+
 pub use self::{
 	artifact::Artifact,
 	blob::Blob,
@@ -30,15 +42,6 @@ pub use self::{
 	user::User,
 	value::Value,
 };
-use crate as tg;
-use bytes::Bytes;
-use futures::{Future, Stream};
-use std::{path::PathBuf, sync::Arc};
-use tokio::{
-	io::{AsyncBufRead, AsyncRead, AsyncWrite},
-	net::{TcpStream, UnixStream},
-};
-use url::Url;
 
 pub mod artifact;
 pub mod blob;
@@ -72,7 +75,6 @@ pub mod symlink;
 pub mod target;
 pub mod template;
 pub mod user;
-mod util;
 pub mod value;
 
 #[derive(Debug, Clone)]
@@ -375,7 +377,19 @@ impl Client {
 		port: u16,
 	) -> tg::Result<hyper::client::conn::http1::SendRequest<Outgoing>> {
 		// Connect via TLS over TCP.
-		let stream = self.connect_tcp_tls(host, port).await?;
+		let stream = self
+			.connect_tcp_tls(host, port, vec![b"http/1.1".into()])
+			.await?;
+
+		// Verify the negotiated protocol.
+		let success = stream
+			.get_ref()
+			.1
+			.alpn_protocol()
+			.map_or(false, |protocol| protocol == b"http/1.1");
+		if !success {
+			return Err(tg::error!("failed to negotiate the protocol"));
+		}
 
 		// Perform the HTTP handshake.
 		let io = hyper_util::rt::TokioIo::new(stream);
@@ -410,7 +424,17 @@ impl Client {
 		port: u16,
 	) -> tg::Result<hyper::client::conn::http2::SendRequest<Outgoing>> {
 		// Connect via TLS over TCP.
-		let stream = self.connect_tcp_tls(host, port).await?;
+		let stream = self.connect_tcp_tls(host, port, vec![b"h2".into()]).await?;
+
+		// Verify the negotiated protocol.
+		let success = stream
+			.get_ref()
+			.1
+			.alpn_protocol()
+			.map_or(false, |protocol| protocol == b"h2");
+		if !success {
+			return Err(tg::error!("failed to negotiate the protocol"));
+		}
 
 		// Perform the HTTP handshake.
 		let executor = hyper_util::rt::TokioExecutor::new();
@@ -443,6 +467,7 @@ impl Client {
 		&self,
 		host: &str,
 		port: u16,
+		protocols: Vec<Vec<u8>>,
 	) -> tg::Result<tokio_rustls::client::TlsStream<tokio::net::TcpStream>> {
 		// Connect via TCP.
 		let stream = TcpStream::connect(format!("{host}:{port}"))
@@ -455,7 +480,7 @@ impl Client {
 		let mut config = rustls::ClientConfig::builder()
 			.with_root_certificates(root_store)
 			.with_no_client_auth();
-		config.alpn_protocols = vec!["h2".into()];
+		config.alpn_protocols = protocols;
 		let connector = tokio_rustls::TlsConnector::from(Arc::new(config));
 
 		// Create the server name.
@@ -468,16 +493,6 @@ impl Client {
 			.connect(server_name, stream)
 			.await
 			.map_err(|source| tg::error!(!source, "failed to connect"))?;
-
-		// Verify the negotiated protocol.
-		if !stream
-			.get_ref()
-			.1
-			.alpn_protocol()
-			.map_or(false, |protocol| protocol == b"h2")
-		{
-			return Err(tg::error!("failed to negotiate the HTTP/2 protocol"));
-		}
 
 		Ok(stream)
 	}
@@ -517,37 +532,37 @@ impl tg::Handle for Client {
 	fn archive_artifact(
 		&self,
 		id: &tg::artifact::Id,
-		arg: tg::artifact::ArchiveArg,
-	) -> impl Future<Output = tg::Result<tg::artifact::ArchiveOutput>> {
+		arg: tg::artifact::archive::Arg,
+	) -> impl Future<Output = tg::Result<tg::artifact::archive::Output>> {
 		self.archive_artifact(id, arg)
 	}
 
 	fn extract_artifact(
 		&self,
-		arg: tg::artifact::ExtractArg,
-	) -> impl Future<Output = tg::Result<tg::artifact::ExtractOutput>> {
+		arg: tg::artifact::extract::Arg,
+	) -> impl Future<Output = tg::Result<tg::artifact::extract::Output>> {
 		self.extract_artifact(arg)
 	}
 
 	fn bundle_artifact(
 		&self,
 		id: &tg::artifact::Id,
-	) -> impl Future<Output = tg::Result<tg::artifact::BundleOutput>> {
+	) -> impl Future<Output = tg::Result<tg::artifact::bundle::Output>> {
 		self.bundle_artifact(id)
 	}
 
 	fn check_in_artifact(
 		&self,
-		arg: tg::artifact::CheckInArg,
-	) -> impl Future<Output = tg::Result<tg::artifact::CheckInOutput>> {
+		arg: tg::artifact::checkin::Arg,
+	) -> impl Future<Output = tg::Result<tg::artifact::checkin::Output>> {
 		self.check_in_artifact(arg)
 	}
 
 	fn check_out_artifact(
 		&self,
 		id: &tg::artifact::Id,
-		arg: tg::artifact::CheckOutArg,
-	) -> impl Future<Output = tg::Result<tg::artifact::CheckOutOutput>> {
+		arg: tg::artifact::checkout::Arg,
+	) -> impl Future<Output = tg::Result<tg::artifact::checkout::Output>> {
 		self.check_out_artifact(id, arg)
 	}
 
@@ -562,38 +577,37 @@ impl tg::Handle for Client {
 	fn compress_blob(
 		&self,
 		id: &tg::blob::Id,
-		arg: tg::blob::CompressArg,
-	) -> impl Future<Output = tg::Result<tg::blob::CompressOutput>> {
+		arg: tg::blob::compress::Arg,
+	) -> impl Future<Output = tg::Result<tg::blob::compress::Output>> {
 		self.compress_blob(id, arg)
 	}
 
 	fn decompress_blob(
 		&self,
 		id: &tg::blob::Id,
-		arg: tg::blob::DecompressArg,
-	) -> impl Future<Output = tg::Result<tg::blob::DecompressOutput>> {
+		arg: tg::blob::decompress::Arg,
+	) -> impl Future<Output = tg::Result<tg::blob::decompress::Output>> {
 		self.decompress_blob(id, arg)
 	}
 
 	fn list_builds(
 		&self,
-		arg: tg::build::ListArg,
-	) -> impl Future<Output = tg::Result<tg::build::ListOutput>> {
+		arg: tg::build::list::Arg,
+	) -> impl Future<Output = tg::Result<tg::build::list::Output>> {
 		self.list_builds(arg)
 	}
 
 	fn try_get_build(
 		&self,
 		id: &tg::build::Id,
-		arg: tg::build::GetArg,
-	) -> impl Future<Output = tg::Result<Option<tg::build::GetOutput>>> {
-		self.try_get_build(id, arg)
+	) -> impl Future<Output = tg::Result<Option<tg::build::get::Output>>> {
+		self.try_get_build(id)
 	}
 
 	fn put_build(
 		&self,
 		id: &tg::build::Id,
-		arg: tg::build::PutArg,
+		arg: tg::build::put::Arg,
 	) -> impl Future<Output = tg::Result<()>> {
 		self.put_build(id, arg)
 	}
@@ -606,18 +620,18 @@ impl tg::Handle for Client {
 		self.pull_build(id)
 	}
 
-	fn get_or_create_build(
+	fn create_build(
 		&self,
-		arg: tg::build::GetOrCreateArg,
-	) -> impl Future<Output = tg::Result<tg::build::GetOrCreateOutput>> {
-		self.get_or_create_build(arg)
+		arg: tg::build::create::Arg,
+	) -> impl Future<Output = tg::Result<tg::build::create::Output>> {
+		self.create_build(arg)
 	}
 
 	fn try_dequeue_build(
 		&self,
-		arg: tg::build::DequeueArg,
+		arg: tg::build::dequeue::Arg,
 		stop: Option<tokio::sync::watch::Receiver<bool>>,
-	) -> impl Future<Output = tg::Result<Option<tg::build::DequeueOutput>>> {
+	) -> impl Future<Output = tg::Result<Option<tg::build::dequeue::Output>>> {
 		self.try_dequeue_build(arg, stop)
 	}
 
@@ -628,14 +642,10 @@ impl tg::Handle for Client {
 		self.try_start_build(id)
 	}
 
-	fn touch_build(&self, id: &tg::build::Id) -> impl Future<Output = tg::Result<()>> {
-		self.touch_build(id)
-	}
-
 	fn try_get_build_status(
 		&self,
 		id: &tg::build::Id,
-		arg: tg::build::status::GetArg,
+		arg: tg::build::status::Arg,
 		stop: Option<tokio::sync::watch::Receiver<bool>>,
 	) -> impl Future<
 		Output = tg::Result<Option<impl Stream<Item = Result<tg::build::Status>> + Send + 'static>>,
@@ -646,7 +656,7 @@ impl tg::Handle for Client {
 	fn try_get_build_children(
 		&self,
 		id: &tg::build::Id,
-		arg: tg::build::children::GetArg,
+		arg: tg::build::children::Arg,
 		stop: Option<tokio::sync::watch::Receiver<bool>>,
 	) -> impl Future<
 		Output = tg::Result<
@@ -667,7 +677,7 @@ impl tg::Handle for Client {
 	fn try_get_build_log(
 		&self,
 		id: &tg::build::Id,
-		arg: tg::build::log::GetArg,
+		arg: tg::build::log::Arg,
 		stop: Option<tokio::sync::watch::Receiver<bool>>,
 	) -> impl Future<
 		Output = tg::Result<
@@ -688,18 +698,22 @@ impl tg::Handle for Client {
 	fn try_get_build_outcome(
 		&self,
 		id: &tg::build::Id,
-		arg: tg::build::outcome::GetArg,
+		arg: tg::build::outcome::Arg,
 		stop: Option<tokio::sync::watch::Receiver<bool>>,
 	) -> impl Future<Output = tg::Result<Option<Option<tg::build::Outcome>>>> {
 		self.try_get_build_outcome(id, arg, stop)
 	}
 
-	fn set_build_outcome(
+	fn finish_build(
 		&self,
 		id: &tg::build::Id,
-		outcome: tg::build::Outcome,
+		arg: tg::build::finish::Arg,
 	) -> impl Future<Output = tg::Result<()>> {
-		self.set_build_outcome(id, outcome)
+		self.finish_build(id, arg)
+	}
+
+	fn touch_build(&self, id: &tg::build::Id) -> impl Future<Output = tg::Result<()>> {
+		self.touch_build(id)
 	}
 
 	fn format(&self, text: String) -> impl Future<Output = tg::Result<String>> {
@@ -717,16 +731,16 @@ impl tg::Handle for Client {
 	fn try_get_object(
 		&self,
 		id: &tg::object::Id,
-	) -> impl Future<Output = tg::Result<Option<tg::object::GetOutput>>> {
+	) -> impl Future<Output = tg::Result<Option<tg::object::get::Output>>> {
 		self.try_get_object(id)
 	}
 
 	fn put_object(
 		&self,
 		id: &tg::object::Id,
-		arg: tg::object::PutArg,
+		arg: tg::object::put::Arg,
 		transaction: Option<&Self::Transaction<'_>>,
-	) -> impl Future<Output = tg::Result<tg::object::PutOutput>> {
+	) -> impl Future<Output = tg::Result<tg::object::put::Output>> {
 		self.put_object(id, arg, transaction)
 	}
 
@@ -738,18 +752,18 @@ impl tg::Handle for Client {
 		self.pull_object(id)
 	}
 
-	fn search_packages(
+	fn list_packages(
 		&self,
-		arg: tg::package::SearchArg,
-	) -> impl Future<Output = tg::Result<tg::package::SearchOutput>> {
-		self.search_packages(arg)
+		arg: tg::package::list::Arg,
+	) -> impl Future<Output = tg::Result<tg::package::list::Output>> {
+		self.list_packages(arg)
 	}
 
 	fn try_get_package(
 		&self,
 		dependency: &tg::Dependency,
-		arg: tg::package::GetArg,
-	) -> impl Future<Output = tg::Result<Option<tg::package::GetOutput>>> {
+		arg: tg::package::get::Arg,
+	) -> impl Future<Output = tg::Result<Option<tg::package::get::Output>>> {
 		self.try_get_package(dependency, arg)
 	}
 
@@ -774,7 +788,7 @@ impl tg::Handle for Client {
 	fn get_package_outdated(
 		&self,
 		arg: &tg::Dependency,
-	) -> impl Future<Output = tg::Result<tg::package::OutdatedOutput>> {
+	) -> impl Future<Output = tg::Result<tg::package::outdated::Output>> {
 		self.get_package_outdated(arg)
 	}
 
@@ -795,19 +809,19 @@ impl tg::Handle for Client {
 
 	fn list_roots(
 		&self,
-		arg: tg::root::ListArg,
-	) -> impl Future<Output = tg::Result<tg::root::ListOutput>> {
+		arg: tg::root::list::Arg,
+	) -> impl Future<Output = tg::Result<tg::root::list::Output>> {
 		self.list_roots(arg)
 	}
 
 	fn try_get_root(
 		&self,
 		name: &str,
-	) -> impl Future<Output = tg::Result<Option<tg::root::GetOutput>>> {
+	) -> impl Future<Output = tg::Result<Option<tg::root::get::Output>>> {
 		self.try_get_root(name)
 	}
 
-	fn add_root(&self, arg: tg::root::AddArg) -> impl Future<Output = tg::Result<()>> {
+	fn put_root(&self, arg: tg::root::add::Arg) -> impl Future<Output = tg::Result<()>> {
 		self.add_root(arg)
 	}
 

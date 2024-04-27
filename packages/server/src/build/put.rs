@@ -1,6 +1,6 @@
 use crate::{
 	util::http::{empty, Incoming, Outgoing},
-	Http, Server,
+	Server,
 };
 use futures::{stream::FuturesUnordered, TryStreamExt as _};
 use http_body_util::BodyExt as _;
@@ -10,7 +10,7 @@ use tangram_database::{self as db, prelude::*};
 use time::format_description::well_known::Rfc3339;
 
 impl Server {
-	pub async fn put_build(&self, id: &tg::build::Id, arg: tg::build::PutArg) -> tg::Result<()> {
+	pub async fn put_build(&self, id: &tg::build::Id, arg: tg::build::put::Arg) -> tg::Result<()> {
 		// Get a database connection.
 		let connection = self
 			.database
@@ -201,15 +201,14 @@ impl Server {
 	}
 }
 
-impl<H> Http<H>
-where
-	H: tg::Handle,
-{
-	pub async fn handle_put_build_request(
-		&self,
+impl Server {
+	pub(crate) async fn handle_put_build_request<H>(
+		handle: &H,
 		request: http::Request<Incoming>,
-	) -> tg::Result<hyper::Response<Outgoing>> {
-		// Get the path params.
+	) -> tg::Result<http::Response<Outgoing>>
+	where
+		H: tg::Handle,
+	{
 		let path_components: Vec<&str> = request.uri().path().split('/').skip(1).collect();
 		let ["builds", build_id] = path_components.as_slice() else {
 			let path = request.uri().path();
@@ -230,7 +229,7 @@ where
 			.map_err(|source| tg::error!(!source, "failed to deserialize the body"))?;
 
 		// Put the build.
-		self.handle.put_build(&build_id, arg).await?;
+		handle.put_build(&build_id, arg).await?;
 
 		// Create the response.
 		let response = http::Response::builder()

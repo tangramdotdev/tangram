@@ -903,12 +903,11 @@ pub const OPEN4_RESULT_LOCKTYPE_POSIX: u32 = 0x0000_0004;
 
 #[derive(Clone, Debug)]
 pub struct OPEN4resok {
-	pub stateid: stateid4,   /* Stateid for open */
-	pub cinfo: change_info4, /* Directory change info */
-	pub rflags: uint32_t,    /* Result flags */
-	pub attrset: bitmap4,    /* attribute set for create */
-	pub delegation: open_delegation4, /* Info on any open
-							 delegation */
+	pub stateid: stateid4,            /* Stateid for open */
+	pub cinfo: change_info4,          /* Directory change info */
+	pub rflags: uint32_t,             /* Result flags */
+	pub attrset: bitmap4,             /* attribute set for create */
+	pub delegation: open_delegation4, /* Info on any open delegation */
 }
 
 #[derive(Clone, Debug)]

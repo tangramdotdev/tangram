@@ -1,7 +1,7 @@
 use crate::{
 	database::Transaction,
 	util::http::{full, Incoming, Outgoing},
-	Http, Server,
+	Server,
 };
 use bytes::Bytes;
 use futures::{future, stream, FutureExt as _, StreamExt as _, TryStreamExt as _};
@@ -82,7 +82,7 @@ impl Server {
 				let bytes = Bytes::from(chunk.data);
 				let size = bytes.len().to_u64().unwrap();
 				let id = tg::leaf::Id::new(&bytes);
-				let arg = tg::object::PutArg {
+				let arg = tg::object::put::Arg {
 					bytes,
 					count: None,
 					weight: None,
@@ -108,7 +108,7 @@ impl Server {
 							let data = tg::branch::Data { children: chunk };
 							let bytes = data.serialize()?;
 							let id = tg::branch::Id::new(&bytes);
-							let arg = tg::object::PutArg {
+							let arg = tg::object::put::Arg {
 								bytes,
 								count: None,
 								weight: None,
@@ -132,7 +132,7 @@ impl Server {
 		let data = tg::branch::Data { children };
 		let bytes = data.serialize()?;
 		let id = tg::branch::Id::new(&bytes);
-		let arg = tg::object::PutArg {
+		let arg = tg::object::put::Arg {
 			bytes,
 			count: None,
 			weight: None,
@@ -144,15 +144,14 @@ impl Server {
 	}
 }
 
-impl<H> Http<H>
-where
-	H: tg::Handle,
-{
-	pub async fn handle_create_blob_request(
-		&self,
+impl Server {
+	pub(crate) async fn handle_create_blob_request<H>(
+		handle: &H,
 		request: http::Request<Incoming>,
-	) -> tg::Result<http::Response<Outgoing>> {
-		// Get the reader.
+	) -> tg::Result<http::Response<Outgoing>>
+	where
+		H: tg::Handle,
+	{
 		let reader = StreamReader::new(
 			BodyStream::new(request.into_body())
 				.try_filter_map(|frame| future::ok(frame.into_data().ok()))
@@ -160,7 +159,7 @@ where
 		);
 
 		// Create the blob.
-		let output = self.handle.create_blob(reader, None).boxed().await?;
+		let output = handle.create_blob(reader, None).boxed().await?;
 
 		// Create the response.
 		let body = serde_json::to_vec(&output)

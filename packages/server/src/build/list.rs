@@ -1,13 +1,16 @@
 use crate::{
 	util::http::{bad_request, full, Incoming, Outgoing},
-	Http, Server,
+	Server,
 };
 use indoc::formatdoc;
 use tangram_client as tg;
 use tangram_database::{self as db, prelude::*};
 
 impl Server {
-	pub async fn list_builds(&self, arg: tg::build::ListArg) -> tg::Result<tg::build::ListOutput> {
+	pub async fn list_builds(
+		&self,
+		arg: tg::build::list::Arg,
+	) -> tg::Result<tg::build::list::Output> {
 		// Get a database connection.
 		let connection = self
 			.database
@@ -26,9 +29,9 @@ impl Server {
 		} else {
 			"true"
 		};
-		let order = match arg.order.unwrap_or(tg::build::Order::CreatedAt) {
-			tg::build::Order::CreatedAt => "order by created_at",
-			tg::build::Order::CreatedAtDesc => "order by created_at desc",
+		let order = match arg.order.unwrap_or(tg::build::list::Order::CreatedAt) {
+			tg::build::list::Order::CreatedAt => "order by created_at",
+			tg::build::list::Order::CreatedAtDesc => "order by created_at desc",
 		};
 		let p = connection.p();
 		let statement = formatdoc!(
@@ -65,28 +68,27 @@ impl Server {
 		drop(connection);
 
 		// Create the output.
-		let output = tg::build::ListOutput { items };
+		let output = tg::build::list::Output { items };
 
 		Ok(output)
 	}
 }
 
-impl<H> Http<H>
-where
-	H: tg::Handle,
-{
-	pub async fn handle_list_builds_request(
-		&self,
+impl Server {
+	pub(crate) async fn handle_list_builds_request<H>(
+		handle: &H,
 		request: http::Request<Incoming>,
-	) -> tg::Result<hyper::Response<Outgoing>> {
-		// Read the search params.
+	) -> tg::Result<http::Response<Outgoing>>
+	where
+		H: tg::Handle,
+	{
 		let Some(query) = request.uri().query() else {
 			return Ok(bad_request());
 		};
 		let arg = serde_urlencoded::from_str(query)
 			.map_err(|source| tg::error!(!source, "failed to deserialize the search params"))?;
 
-		let output = self.handle.list_builds(arg).await?;
+		let output = handle.list_builds(arg).await?;
 
 		// Create the body.
 		let body = serde_json::to_vec(&output)

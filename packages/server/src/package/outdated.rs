@@ -6,7 +6,7 @@ impl Server {
 	pub async fn get_package_outdated(
 		&self,
 		dependency: &tg::Dependency,
-	) -> tg::Result<tg::package::OutdatedOutput> {
+	) -> tg::Result<tg::package::outdated::Output> {
 		let (package, lock) = tg::package::get_with_lock(self, dependency)
 			.await
 			.map_err(|source| tg::error!(!source, %dependency, "failed to get package and lock"))?;
@@ -22,8 +22,8 @@ impl Server {
 		dependency: &tg::Dependency,
 		package: tg::Directory,
 		lock: tg::Lock,
-		visited: &mut BTreeMap<tg::lock::Id, tg::package::OutdatedOutput>,
-	) -> tg::Result<tg::package::OutdatedOutput> {
+		visited: &mut BTreeMap<tg::lock::Id, tg::package::outdated::Output>,
+	) -> tg::Result<tg::package::outdated::Output> {
 		let id = lock.id(self, None).await?;
 		if let Some(existing) = visited.get(&id) {
 			return Ok(existing.clone());
@@ -55,13 +55,14 @@ impl Server {
 		let compatible = compatible_versions.and_then(|mut versions| versions.pop());
 		let latest = all_versions.and_then(|mut versions| versions.pop());
 		let yanked = self.get_package_yanked(&package).await?;
-		let info =
-			(current != latest && latest.is_some() || yanked).then(|| tg::package::OutdatedInfo {
+		let info = (current != latest && latest.is_some() || yanked).then(|| {
+			tg::package::outdated::Info {
 				current: current.unwrap(),
 				compatible: compatible.unwrap(),
 				latest: latest.unwrap(),
 				yanked,
-			});
+			}
+		});
 
 		// Visit every dependency.
 		let mut dependencies = BTreeMap::new();
@@ -85,7 +86,7 @@ impl Server {
 				dependencies.insert(dependency.clone(), outdated);
 			}
 		}
-		let outdated = tg::package::OutdatedOutput { info, dependencies };
+		let outdated = tg::package::outdated::Output { info, dependencies };
 
 		// Mark this package as visited.
 		visited.insert(id, outdated.clone());

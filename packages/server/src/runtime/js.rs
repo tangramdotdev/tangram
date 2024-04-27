@@ -147,7 +147,8 @@ impl Runtime {
 		let params = v8::CreateParams::default().snapshot_blob(SNAPSHOT);
 
 		// Create the isolate.
-		let mut isolate = scopeguard::guard(v8::Isolate::new(params), |mut isolate| unsafe {
+		let isolate = v8::Isolate::new(params);
+		let mut isolate = scopeguard::guard(isolate, |mut isolate| unsafe {
 			isolate.enter();
 		});
 		unsafe { isolate.exit() };

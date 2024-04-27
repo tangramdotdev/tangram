@@ -1,7 +1,7 @@
 use crate::{
 	database::Transaction,
 	util::http::{bad_request, full, Incoming, Outgoing},
-	Http, Server,
+	Server,
 };
 use futures::{FutureExt as _, TryFutureExt as _};
 use http_body_util::BodyExt as _;
@@ -14,9 +14,9 @@ impl Server {
 	pub async fn put_object(
 		&self,
 		id: &tg::object::Id,
-		arg: tg::object::PutArg,
+		arg: tg::object::put::Arg,
 		transaction: Option<&Transaction<'_>>,
-	) -> tg::Result<tg::object::PutOutput> {
+	) -> tg::Result<tg::object::put::Output> {
 		if let Some(transaction) = transaction {
 			self.put_object_with_transaction(id, arg, transaction).await
 		} else {
@@ -55,9 +55,9 @@ impl Server {
 	pub(crate) async fn put_object_with_transaction(
 		&self,
 		id: &tg::object::Id,
-		arg: tg::object::PutArg,
+		arg: tg::object::put::Arg,
 		transaction: &impl db::Query,
-	) -> tg::Result<tg::object::PutOutput> {
+	) -> tg::Result<tg::object::put::Output> {
 		// Add the object.
 		let p = transaction.p();
 		let statement = formatdoc!(
@@ -99,21 +99,20 @@ impl Server {
 			data.children()
 		};
 
-		let output = tg::object::PutOutput { incomplete };
+		let output = tg::object::put::Output { incomplete };
 
 		Ok(output)
 	}
 }
 
-impl<H> Http<H>
-where
-	H: tg::Handle,
-{
-	pub async fn handle_put_object_request(
-		&self,
+impl Server {
+	pub(crate) async fn handle_put_object_request<H>(
+		handle: &H,
 		request: http::Request<Incoming>,
-	) -> tg::Result<http::Response<Outgoing>> {
-		// Get the path params.
+	) -> tg::Result<http::Response<Outgoing>>
+	where
+		H: tg::Handle,
+	{
 		let path_components: Vec<&str> = request.uri().path().split('/').skip(1).collect();
 		let ["objects", id] = path_components.as_slice() else {
 			let path = request.uri().path();
@@ -132,12 +131,12 @@ where
 			.to_bytes();
 
 		// Put the object.
-		let arg = tg::object::PutArg {
+		let arg = tg::object::put::Arg {
 			bytes,
 			count: None,
 			weight: None,
 		};
-		let output = self.handle.put_object(&id, arg, None).boxed().await?;
+		let output = handle.put_object(&id, arg, None).boxed().await?;
 
 		// Create the body.
 		let body = serde_json::to_vec(&output)

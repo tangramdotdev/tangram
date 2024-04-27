@@ -1,5 +1,5 @@
 use super::Value;
-pub use serde::de::Error as _;
+use serde::de::Error as _;
 
 #[derive(Debug, derive_more::Display, derive_more::Error, derive_more::From)]
 pub enum Error {

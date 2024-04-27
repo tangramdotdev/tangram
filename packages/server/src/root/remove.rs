@@ -1,6 +1,6 @@
 use crate::{
 	util::http::{empty, Incoming, Outgoing},
-	Http, Server,
+	Server,
 };
 use indoc::formatdoc;
 use tangram_client as tg;
@@ -36,15 +36,14 @@ impl Server {
 	}
 }
 
-impl<H> Http<H>
-where
-	H: tg::Handle,
-{
-	pub async fn handle_remove_root_request(
-		&self,
+impl Server {
+	pub(crate) async fn handle_remove_root_request<H>(
+		handle: &H,
 		request: http::Request<Incoming>,
-	) -> tg::Result<hyper::Response<Outgoing>> {
-		// Get the path params.
+	) -> tg::Result<http::Response<Outgoing>>
+	where
+		H: tg::Handle,
+	{
 		let path_components: Vec<&str> = request.uri().path().split('/').skip(1).collect();
 		let ["roots", name] = path_components.as_slice() else {
 			let path = request.uri().path();
@@ -52,7 +51,7 @@ where
 		};
 
 		// Remove the root.
-		self.handle.remove_root(name).await?;
+		handle.remove_root(name).await?;
 
 		// Create the response.
 		let response = http::Response::builder()

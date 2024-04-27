@@ -1,9 +1,10 @@
-pub use self::{row::Row, value::Value};
 use futures::{
 	Future, FutureExt as _, Stream, StreamExt as _, TryFutureExt as _, TryStreamExt as _,
 };
 use itertools::Itertools as _;
 use std::pin::pin;
+
+pub use self::{row::Row, value::Value};
 
 pub mod either;
 pub mod pool;

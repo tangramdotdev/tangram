@@ -1,8 +1,9 @@
-pub use self::component::Component;
 use crate as tg;
 use futures::{stream::FuturesOrdered, Future, TryStreamExt as _};
 use itertools::Itertools as _;
 use std::borrow::Cow;
+
+pub use self::component::Component;
 
 #[derive(Clone, Debug, Default)]
 pub struct Template {

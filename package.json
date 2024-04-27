@@ -3,9 +3,9 @@
     "@biomejs/biome": "^1",
     "typescript": "^5"
   },
-  "workspaces": [
-    "packages/language",
-    "packages/runtime",
-    "packages/vscode"
-  ]
+  "scripts": {
+    "check": "bun --filter \"@tangramdotdev/*\" check",
+    "format": "bun --filter \"@tangramdotdev/*\" format"
+  },
+  "workspaces": ["packages/language", "packages/runtime", "packages/vscode"]
 }

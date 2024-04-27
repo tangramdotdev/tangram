@@ -62,7 +62,7 @@ impl Server {
 }
 
 impl Server {
-	pub async fn handle_definition_request(
+	pub(crate) async fn handle_definition_request(
 		&self,
 		params: lsp::GotoDefinitionParams,
 	) -> tg::Result<Option<lsp::GotoDefinitionResponse>> {
@@ -95,7 +95,7 @@ impl Server {
 		Ok(Some(response))
 	}
 
-	pub async fn handle_type_definition_request(
+	pub(crate) async fn handle_type_definition_request(
 		&self,
 		params: lsp::GotoDefinitionParams,
 	) -> tg::Result<Option<lsp::GotoDefinitionResponse>> {

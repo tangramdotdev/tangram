@@ -1,6 +1,6 @@
 use crate::{
 	util::http::{bad_request, full, not_found, Incoming, Outgoing},
-	Http, Server,
+	Server,
 };
 use futures::TryFutureExt as _;
 use indoc::formatdoc;
@@ -11,7 +11,7 @@ impl Server {
 	pub async fn try_get_object(
 		&self,
 		id: &tg::object::Id,
-	) -> tg::Result<Option<tg::object::GetOutput>> {
+	) -> tg::Result<Option<tg::object::get::Output>> {
 		if let Some(bytes) = self.try_get_object_local(id).await? {
 			Ok(Some(bytes))
 		} else if let Some(bytes) = self.try_get_object_remote(id).await? {
@@ -24,7 +24,7 @@ impl Server {
 	async fn try_get_object_local(
 		&self,
 		id: &tg::object::Id,
-	) -> tg::Result<Option<tg::object::GetOutput>> {
+	) -> tg::Result<Option<tg::object::get::Output>> {
 		// Get a database connection.
 		let connection = self
 			.database
@@ -56,7 +56,7 @@ impl Server {
 	async fn try_get_object_remote(
 		&self,
 		id: &tg::object::Id,
-	) -> tg::Result<Option<tg::object::GetOutput>> {
+	) -> tg::Result<Option<tg::object::get::Output>> {
 		// Get the remote.
 		let Some(remote) = self.remotes.first() else {
 			return Ok(None);
@@ -68,7 +68,7 @@ impl Server {
 		};
 
 		// Put the object.
-		let arg = tg::object::PutArg {
+		let arg = tg::object::put::Arg {
 			bytes: output.bytes.clone(),
 			count: output.count,
 			weight: output.weight,
@@ -79,15 +79,14 @@ impl Server {
 	}
 }
 
-impl<H> Http<H>
-where
-	H: tg::Handle,
-{
-	pub async fn handle_get_object_request(
-		&self,
+impl Server {
+	pub(crate) async fn handle_get_object_request<H>(
+		handle: &H,
 		request: http::Request<Incoming>,
-	) -> tg::Result<http::Response<Outgoing>> {
-		// Get the path params.
+	) -> tg::Result<http::Response<Outgoing>>
+	where
+		H: tg::Handle,
+	{
 		let path_components: Vec<&str> = request.uri().path().split('/').skip(1).collect();
 		let ["objects", id] = path_components.as_slice() else {
 			let path = request.uri().path();
@@ -98,7 +97,7 @@ where
 		};
 
 		// Get the object.
-		let Some(output) = self.handle.try_get_object(&id).await? else {
+		let Some(output) = handle.try_get_object(&id).await? else {
 			return Ok(not_found());
 		};
 

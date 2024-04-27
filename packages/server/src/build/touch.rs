@@ -1,6 +1,6 @@
 use crate::{
 	util::http::{empty, Incoming, Outgoing},
-	Http, Server,
+	Server,
 };
 use tangram_client as tg;
 use tangram_database::{self as db, prelude::*};
@@ -38,15 +38,14 @@ impl Server {
 	}
 }
 
-impl<H> Http<H>
-where
-	H: tg::Handle,
-{
-	pub async fn handle_touch_build_request(
-		&self,
+impl Server {
+	pub(crate) async fn handle_touch_build_request<H>(
+		handle: &H,
 		request: http::Request<Incoming>,
-	) -> tg::Result<http::Response<Outgoing>> {
-		// Get the path params.
+	) -> tg::Result<http::Response<Outgoing>>
+	where
+		H: tg::Handle,
+	{
 		let path_components: Vec<&str> = request.uri().path().split('/').skip(1).collect();
 		let ["builds", id, "touch"] = path_components.as_slice() else {
 			let path = request.uri().path();
@@ -57,7 +56,7 @@ where
 			.map_err(|source| tg::error!(!source, "failed to parse the ID"))?;
 
 		// Touch the build.
-		self.handle.touch_build(&id).await?;
+		handle.touch_build(&id).await?;
 
 		// Create the response.
 		let body = empty();

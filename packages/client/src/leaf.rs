@@ -131,7 +131,7 @@ impl Leaf {
 		let data = self.data(handle, transaction).await?;
 		let bytes = data.serialize()?;
 		let id = Id::new(&bytes);
-		let arg = tg::object::PutArg {
+		let arg = tg::object::put::Arg {
 			bytes,
 			count: None,
 			weight: None,

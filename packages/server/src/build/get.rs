@@ -1,6 +1,6 @@
 use crate::{
 	util::http::{full, not_found, Incoming, Outgoing},
-	Http, Server,
+	Server,
 };
 use futures::{stream, StreamExt as _, TryStreamExt as _};
 use indoc::formatdoc;
@@ -11,8 +11,7 @@ impl Server {
 	pub async fn try_get_build(
 		&self,
 		id: &tg::build::Id,
-		_arg: tg::build::GetArg,
-	) -> tg::Result<Option<tg::build::GetOutput>> {
+	) -> tg::Result<Option<tg::build::get::Output>> {
 		if let Some(output) = self.try_get_build_local(id).await? {
 			Ok(Some(output))
 		} else if let Some(output) = self.try_get_build_remote(id).await? {
@@ -25,7 +24,7 @@ impl Server {
 	pub(crate) async fn try_get_build_local(
 		&self,
 		id: &tg::build::Id,
-	) -> tg::Result<Option<tg::build::GetOutput>> {
+	) -> tg::Result<Option<tg::build::get::Output>> {
 		// Get a database connection.
 		let connection = self
 			.database
@@ -73,21 +72,20 @@ impl Server {
 	async fn try_get_build_remote(
 		&self,
 		id: &tg::build::Id,
-	) -> tg::Result<Option<tg::build::GetOutput>> {
+	) -> tg::Result<Option<tg::build::get::Output>> {
 		// Get the remote.
 		let Some(remote) = self.remotes.first() else {
 			return Ok(None);
 		};
 
 		// Get the build from the remote server.
-		let arg = tg::build::GetArg::default();
-		let Some(output) = remote.try_get_build(id, arg).await? else {
+		let Some(output) = remote.try_get_build(id).await? else {
 			return Ok(None);
 		};
 
 		// Put the build if it is finished.
 		if output.status == tg::build::Status::Finished {
-			let arg = tg::build::children::GetArg {
+			let arg = tg::build::children::Arg {
 				timeout: Some(std::time::Duration::ZERO),
 				..Default::default()
 			};
@@ -99,7 +97,7 @@ impl Server {
 				.try_flatten()
 				.try_collect()
 				.await?;
-			let arg = tg::build::PutArg {
+			let arg = tg::build::put::Arg {
 				id: output.id.clone(),
 				children,
 				count: output.count,
@@ -122,15 +120,14 @@ impl Server {
 	}
 }
 
-impl<H> Http<H>
-where
-	H: tg::Handle,
-{
-	pub async fn handle_get_build_request(
-		&self,
+impl Server {
+	pub(crate) async fn handle_get_build_request<H>(
+		handle: &H,
 		request: http::Request<Incoming>,
-	) -> tg::Result<hyper::Response<Outgoing>> {
-		// Get the path params.
+	) -> tg::Result<http::Response<Outgoing>>
+	where
+		H: tg::Handle,
+	{
 		let path_components: Vec<&str> = request.uri().path().split('/').skip(1).collect();
 		let ["builds", id] = path_components.as_slice() else {
 			let path = request.uri().path();
@@ -140,17 +137,8 @@ where
 			.parse()
 			.map_err(|source| tg::error!(!source, "failed to parse the ID"))?;
 
-		// Get the search params.
-		let arg = request
-			.uri()
-			.query()
-			.map(serde_urlencoded::from_str)
-			.transpose()
-			.map_err(|source| tg::error!(!source, "failed to deserialize the search params"))?
-			.unwrap_or_default();
-
 		// Get the build.
-		let Some(output) = self.handle.try_get_build(&id, arg).await? else {
+		let Some(output) = handle.try_get_build(&id).await? else {
 			return Ok(not_found());
 		};
 

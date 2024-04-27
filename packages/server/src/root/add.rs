@@ -1,6 +1,6 @@
 use crate::{
 	util::http::{empty, Incoming, Outgoing},
-	Http, Server,
+	Server,
 };
 use http_body_util::BodyExt as _;
 use indoc::formatdoc;
@@ -8,7 +8,7 @@ use tangram_client as tg;
 use tangram_database::{self as db, prelude::*};
 
 impl Server {
-	pub async fn add_root(&self, arg: tg::root::AddArg) -> tg::Result<()> {
+	pub async fn add_root(&self, arg: tg::root::add::Arg) -> tg::Result<()> {
 		// Get a database connection.
 		let connection = self
 			.database
@@ -37,15 +37,14 @@ impl Server {
 	}
 }
 
-impl<H> Http<H>
-where
-	H: tg::Handle,
-{
-	pub async fn handle_add_root_request(
-		&self,
+impl Server {
+	pub(crate) async fn handle_add_root_request<H>(
+		handle: &H,
 		request: http::Request<Incoming>,
-	) -> tg::Result<hyper::Response<Outgoing>> {
-		// Read the body.
+	) -> tg::Result<http::Response<Outgoing>>
+	where
+		H: tg::Handle,
+	{
 		let bytes = request
 			.into_body()
 			.collect()
@@ -56,7 +55,7 @@ where
 			.map_err(|source| tg::error!(!source, "failed to deserialize the body"))?;
 
 		// Add the root.
-		self.handle.add_root(arg).await?;
+		handle.put_root(arg).await?;
 
 		// Create the response.
 		let response = http::Response::builder()

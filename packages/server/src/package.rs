@@ -1,6 +1,6 @@
 use crate::{
 	util::http::{empty, full, not_found, Incoming, Outgoing},
-	Http, Server,
+	Server,
 };
 use tangram_client as tg;
 
@@ -19,8 +19,8 @@ impl Server {
 	pub async fn try_get_package(
 		&self,
 		dependency: &tg::Dependency,
-		arg: tg::package::GetArg,
-	) -> tg::Result<Option<tg::package::GetOutput>> {
+		arg: tg::package::get::Arg,
+	) -> tg::Result<Option<tg::package::get::Output>> {
 		// Analyze the package.
 		let analysis = self
 			.try_analyze_package(dependency)
@@ -80,7 +80,7 @@ impl Server {
 			None
 		};
 
-		Ok(Some(tg::package::GetOutput {
+		Ok(Some(tg::package::get::Output {
 			dependencies,
 			id,
 			lock,
@@ -145,15 +145,14 @@ impl Server {
 	}
 }
 
-impl<H> Http<H>
-where
-	H: tg::Handle,
-{
-	pub async fn handle_get_package_request(
-		&self,
+impl Server {
+	pub(crate) async fn handle_get_package_request<H>(
+		handle: &H,
 		request: http::Request<Incoming>,
-	) -> tg::Result<http::Response<Outgoing>> {
-		// Get the path params.
+	) -> tg::Result<http::Response<Outgoing>>
+	where
+		H: tg::Handle,
+	{
 		let path_components: Vec<&str> = request.uri().path().split('/').skip(1).collect();
 		let ["packages", dependency] = path_components.as_slice() else {
 			let path = request.uri().path();
@@ -175,7 +174,7 @@ where
 			.unwrap_or_default();
 
 		// Get the package.
-		let Some(output) = self.handle.try_get_package(&dependency, arg).await? else {
+		let Some(output) = handle.try_get_package(&dependency, arg).await? else {
 			return Ok(not_found());
 		};
 
@@ -190,11 +189,13 @@ where
 		Ok(response)
 	}
 
-	pub async fn handle_check_package_request(
-		&self,
+	pub(crate) async fn handle_check_package_request<H>(
+		handle: &H,
 		request: http::Request<Incoming>,
-	) -> tg::Result<http::Response<Outgoing>> {
-		// Get the path params.
+	) -> tg::Result<http::Response<Outgoing>>
+	where
+		H: tg::Handle,
+	{
 		let path_components: Vec<&str> = request.uri().path().split('/').skip(1).collect();
 		let ["packages", dependency, "check"] = path_components.as_slice() else {
 			let path = request.uri().path();
@@ -207,7 +208,7 @@ where
 			.map_err(|source| tg::error!(!source, "failed to parse the dependency"))?;
 
 		// Check the package.
-		let output = self.handle.check_package(&dependency).await?;
+		let output = handle.check_package(&dependency).await?;
 
 		// Create the body.
 		let body = serde_json::to_vec(&output)
@@ -220,11 +221,13 @@ where
 		Ok(response)
 	}
 
-	pub async fn handle_format_package_request(
-		&self,
+	pub(crate) async fn handle_format_package_request<H>(
+		handle: &H,
 		request: http::Request<Incoming>,
-	) -> tg::Result<http::Response<Outgoing>> {
-		// Get the path params.
+	) -> tg::Result<http::Response<Outgoing>>
+	where
+		H: tg::Handle,
+	{
 		let path_components: Vec<&str> = request.uri().path().split('/').skip(1).collect();
 		let ["packages", dependency, "format"] = path_components.as_slice() else {
 			let path = request.uri().path();
@@ -237,7 +240,7 @@ where
 			.map_err(|source| tg::error!(!source, "failed to parse the dependency"))?;
 
 		// Format the package.
-		self.handle.format_package(&dependency).await?;
+		handle.format_package(&dependency).await?;
 
 		// Create the response.
 		let response = http::Response::builder().body(empty()).unwrap();
@@ -245,11 +248,13 @@ where
 		Ok(response)
 	}
 
-	pub async fn handle_outdated_package_request(
-		&self,
+	pub(crate) async fn handle_outdated_package_request<H>(
+		handle: &H,
 		request: http::Request<Incoming>,
-	) -> tg::Result<http::Response<Outgoing>> {
-		// Get the path params.
+	) -> tg::Result<http::Response<Outgoing>>
+	where
+		H: tg::Handle,
+	{
 		let path_components: Vec<&str> = request.uri().path().split('/').skip(1).collect();
 		let ["packages", dependency, "outdated"] = path_components.as_slice() else {
 			let path = request.uri().path();
@@ -262,7 +267,7 @@ where
 			.map_err(|source| tg::error!(!source, "failed to parse the dependency"))?;
 
 		// Get the outdated dependencies.
-		let output = self.handle.get_package_outdated(&dependency).await?;
+		let output = handle.get_package_outdated(&dependency).await?;
 		let body = serde_json::to_vec(&output)
 			.map_err(|source| tg::error!(!source, "failed to serialize the body"))?;
 		let body = full(body);
@@ -273,11 +278,13 @@ where
 		Ok(response)
 	}
 
-	pub async fn handle_get_package_doc_request(
-		&self,
+	pub(crate) async fn handle_get_package_doc_request<H>(
+		handle: &H,
 		request: http::Request<Incoming>,
-	) -> tg::Result<http::Response<Outgoing>> {
-		// Get the path params.
+	) -> tg::Result<http::Response<Outgoing>>
+	where
+		H: tg::Handle,
+	{
 		let path_components: Vec<&str> = request.uri().path().split('/').skip(1).collect();
 		let ["packages", dependency, "doc"] = path_components.as_slice() else {
 			let path = request.uri().path();
@@ -290,7 +297,7 @@ where
 			.map_err(|source| tg::error!(!source, "failed to parse the dependency"))?;
 
 		// Get the doc.
-		let Some(output) = self.handle.try_get_package_doc(&dependency).await? else {
+		let Some(output) = handle.try_get_package_doc(&dependency).await? else {
 			return Ok(not_found());
 		};
 

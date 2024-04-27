@@ -1,13 +1,11 @@
 use num::ToPrimitive;
 
-#[allow(clippy::module_name_repetitions)]
 pub trait Encode {
 	fn encode<W>(&self, encoder: &mut Encoder<W>) -> Result<(), Error>
 	where
 		W: std::io::Write;
 }
 
-#[allow(clippy::module_name_repetitions)]
 pub trait Decode
 where
 	Self: Sized,

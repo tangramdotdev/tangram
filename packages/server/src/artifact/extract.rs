@@ -1,7 +1,7 @@
 use crate::{
 	tmp::Tmp,
 	util::http::{full, Incoming, Outgoing},
-	Http, Server,
+	Server,
 };
 use http_body_util::BodyExt as _;
 use tangram_client as tg;
@@ -10,8 +10,8 @@ use tokio_util::io::SyncIoBridge;
 impl Server {
 	pub async fn extract_artifact(
 		&self,
-		arg: tg::artifact::ExtractArg,
-	) -> tg::Result<tg::artifact::ExtractOutput> {
+		arg: tg::artifact::extract::Arg,
+	) -> tg::Result<tg::artifact::extract::Output> {
 		// Create the reader.
 		let blob = tg::Blob::with_id(arg.blob);
 		let reader = blob.reader(self).await?;
@@ -26,7 +26,7 @@ impl Server {
 			let path = path.clone();
 			move || {
 				match arg.format {
-					tg::artifact::ArchiveFormat::Tar => {
+					tg::artifact::archive::Format::Tar => {
 						let mut archive = tar::Archive::new(reader);
 						archive.set_preserve_permissions(false);
 						archive.set_unpack_xattrs(false);
@@ -34,7 +34,7 @@ impl Server {
 							tg::error!(!source, "failed to extract the archive")
 						})?;
 					},
-					tg::artifact::ArchiveFormat::Zip => {
+					tg::artifact::archive::Format::Zip => {
 						let mut archive = zip::ZipArchive::new(reader).map_err(|source| {
 							tg::error!(!source, "failed to extract the archive")
 						})?;
@@ -57,21 +57,20 @@ impl Server {
 
 		// Create the output.
 		let id = artifact.id(self, None).await?;
-		let output = tg::artifact::ExtractOutput { id };
+		let output = tg::artifact::extract::Output { id };
 
 		Ok(output)
 	}
 }
 
-impl<H> Http<H>
-where
-	H: tg::Handle,
-{
-	pub async fn handle_extract_artifact_request(
-		&self,
+impl Server {
+	pub(crate) async fn handle_extract_artifact_request<H>(
+		handle: &H,
 		request: http::Request<Incoming>,
-	) -> tg::Result<http::Response<Outgoing>> {
-		// Read the body.
+	) -> tg::Result<http::Response<Outgoing>>
+	where
+		H: tg::Handle,
+	{
 		let bytes = request
 			.into_body()
 			.collect()
@@ -82,7 +81,7 @@ where
 			.map_err(|source| tg::error!(!source, "failed to deserialize the body"))?;
 
 		// Extract the blob.
-		let output = self.handle.extract_artifact(arg).await?;
+		let output = handle.extract_artifact(arg).await?;
 
 		// Create the response.
 		let body = serde_json::to_vec(&output)

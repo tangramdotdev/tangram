@@ -45,7 +45,7 @@ impl Runtime {
 				.filter_map(|id| id.try_into().ok())
 				.map(|id| async move {
 					let artifact = tg::Artifact::with_id(id);
-					let arg = tg::artifact::CheckOutArg::default();
+					let arg = tg::artifact::checkout::Arg::default();
 					artifact.check_out(server, arg).await?;
 					Ok::<_, tg::Error>(())
 				})
@@ -113,9 +113,9 @@ impl Runtime {
 			.map_err(|source| tg::error!(!source, "failed to parse the proxy server url"))?;
 
 		// Start the proxy server.
-		let proxy = proxy::Server::start(server, build.id(), proxy_server_url.clone(), None)
-			.await
-			.map_err(|source| tg::error!(!source, "failed to start the proxy server"))?;
+		let proxy = proxy::Server::new(server.clone(), build.id().clone(), None);
+		let (_, stop) = tokio::sync::watch::channel(false);
+		let proxy_task = tokio::spawn(Server::serve(proxy, proxy_server_url.clone(), stop));
 
 		// Render the executable.
 		let executable = target.executable(server).await?;
@@ -459,9 +459,8 @@ impl Runtime {
 			.map_err(|source| tg::error!(!source, "failed to join the log task"))?
 			.map_err(|source| tg::error!(!source, "the log task failed"))?;
 
-		// Stop and join the proxy server.
-		proxy.stop();
-		proxy.join().await?;
+		// Abort the proxy task.
+		proxy_task.abort();
 
 		// Return an error if the process did not exit successfully.
 		if !exit_status.success() {

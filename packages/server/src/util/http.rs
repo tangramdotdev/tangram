@@ -1,11 +1,40 @@
 use bytes::Bytes;
 use http_body_util::BodyExt as _;
-use std::collections::BTreeMap;
 use tangram_client as tg;
 
 pub type Incoming = hyper::body::Incoming;
 
 pub type Outgoing = http_body_util::combinators::UnsyncBoxBody<Bytes, tg::Error>;
+
+/// Get a bearer token or cookie with the specified name from an HTTP request.
+pub fn get_token<'a>(request: &'a http::Request<Incoming>, name: Option<&str>) -> Option<&'a str> {
+	let bearer = request
+		.headers()
+		.get(http::header::AUTHORIZATION)
+		.and_then(|authorization| authorization.to_str().ok())
+		.and_then(|authorization| authorization.split_once(' '))
+		.filter(|(name, _)| *name == "Bearer")
+		.map(|(_, value)| value);
+	let cookie = name.and_then(|name| {
+		request
+			.headers()
+			.get(http::header::COOKIE)
+			.and_then(|cookies| cookies.to_str().ok())
+			.and_then(|cookies| {
+				cookies
+					.split("; ")
+					.filter_map(|cookie| {
+						let mut components = cookie.split('=');
+						let key = components.next()?;
+						let value = components.next()?;
+						Some((key, value))
+					})
+					.find(|(key, _)| *key == name)
+					.map(|(_, token)| token)
+			})
+	});
+	bearer.or(cookie)
+}
 
 #[must_use]
 pub fn empty() -> Outgoing {
@@ -55,52 +84,4 @@ pub fn not_found() -> http::Response<Outgoing> {
 		.status(http::StatusCode::NOT_FOUND)
 		.body(full("not found"))
 		.unwrap()
-}
-
-/// Get a bearer token or cookie from an HTTP request.
-pub fn get_token(request: &http::Request<Incoming>, name: Option<&str>) -> Option<String> {
-	if let Some(authorization) = request.headers().get(http::header::AUTHORIZATION) {
-		let Ok(authorization) = authorization.to_str() else {
-			return None;
-		};
-		let mut components = authorization.split(' ');
-		let token = match (components.next(), components.next()) {
-			(Some("Bearer"), Some(token)) => token.to_owned(),
-			_ => return None,
-		};
-		Some(token)
-	} else if let Some(cookies) = request.headers().get(http::header::COOKIE) {
-		if let Some(name) = name {
-			let Ok(cookies) = cookies.to_str() else {
-				return None;
-			};
-			let cookies: BTreeMap<&str, &str> = match parse_cookies(cookies).collect() {
-				Ok(cookies) => cookies,
-				Err(_) => return None,
-			};
-			let token = match cookies.get(name) {
-				Some(&token) => token.to_owned(),
-				None => return None,
-			};
-			Some(token)
-		} else {
-			None
-		}
-	} else {
-		None
-	}
-}
-
-/// Parse an HTTP cookie string.
-fn parse_cookies(cookies: &str) -> impl Iterator<Item = tg::Result<(&str, &str)>> {
-	cookies.split("; ").map(|cookie| {
-		let mut components = cookie.split('=');
-		let key = components
-			.next()
-			.ok_or_else(|| tg::error!("expected a key in the cookie string"))?;
-		let value = components
-			.next()
-			.ok_or_else(|| tg::error!("expected a value in the cookie string"))?;
-		Ok((key, value))
-	})
 }

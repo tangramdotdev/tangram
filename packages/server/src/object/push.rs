@@ -1,6 +1,6 @@
 use crate::{
 	util::http::{bad_request, ok, Incoming, Outgoing},
-	Http, Server,
+	Server,
 };
 use tangram_client as tg;
 
@@ -18,15 +18,14 @@ impl Server {
 	}
 }
 
-impl<H> Http<H>
-where
-	H: tg::Handle,
-{
-	pub async fn handle_push_object_request(
-		&self,
+impl Server {
+	pub(crate) async fn handle_push_object_request<H>(
+		handle: &H,
 		request: http::Request<Incoming>,
-	) -> tg::Result<http::Response<Outgoing>> {
-		// Get the path params.
+	) -> tg::Result<http::Response<Outgoing>>
+	where
+		H: tg::Handle,
+	{
 		let path_components: Vec<&str> = request.uri().path().split('/').skip(1).collect();
 		let ["objects", id, "push"] = path_components.as_slice() else {
 			let path = request.uri().path();
@@ -37,7 +36,7 @@ where
 		};
 
 		// Push the object.
-		self.handle.push_object(&id).await?;
+		handle.push_object(&id).await?;
 
 		Ok(ok())
 	}

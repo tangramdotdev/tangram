@@ -11,10 +11,25 @@ use tg::Client;
 use tracing_subscriber::prelude::*;
 use url::Url;
 
-mod commands;
 mod config;
-mod tree;
 mod tui;
+
+pub mod artifact;
+pub mod build;
+pub mod cat;
+pub mod checksum;
+pub mod get;
+pub mod lsp;
+pub mod object;
+pub mod package;
+pub mod pull;
+pub mod push;
+pub mod root;
+pub mod run;
+pub mod server;
+pub mod tree;
+pub mod upgrade;
+pub mod view;
 
 pub const API_URL: &str = "https://api.tangram.dev";
 
@@ -57,34 +72,34 @@ enum Mode {
 #[allow(clippy::large_enum_variant)]
 #[derive(Debug, clap::Subcommand)]
 pub enum Command {
-	Artifact(self::commands::artifact::Args),
-	Build(self::commands::build::Args),
-	Cat(self::commands::cat::Args),
-	Check(self::commands::package::check::Args),
-	Checkin(self::commands::artifact::checkin::Args),
-	Checkout(self::commands::artifact::checkout::Args),
-	Checksum(self::commands::checksum::Args),
-	Clean(self::commands::server::clean::Args),
-	Doc(self::commands::package::doc::Args),
-	Format(self::commands::package::format::Args),
-	Get(self::commands::get::Args),
-	Init(self::commands::package::init::Args),
-	Lsp(self::commands::lsp::Args),
-	New(self::commands::package::new::Args),
-	Object(self::commands::object::Args),
-	Outdated(self::commands::package::outdated::Args),
-	Publish(self::commands::package::publish::Args),
-	Package(self::commands::package::Args),
-	Pull(self::commands::pull::Args),
-	Push(self::commands::push::Args),
-	Root(self::commands::root::Args),
-	Run(self::commands::run::Args),
-	Search(self::commands::package::search::Args),
-	Server(self::commands::server::Args),
-	Tree(self::commands::tree::Args),
-	Update(self::commands::package::update::Args),
-	Upgrade(self::commands::upgrade::Args),
-	View(self::commands::view::Args),
+	Artifact(self::artifact::Args),
+	Build(self::build::Args),
+	Cat(self::cat::Args),
+	Check(self::package::check::Args),
+	Checkin(self::artifact::checkin::Args),
+	Checkout(self::artifact::checkout::Args),
+	Checksum(self::checksum::Args),
+	Clean(self::server::clean::Args),
+	Doc(self::package::doc::Args),
+	Format(self::package::format::Args),
+	Get(self::get::Args),
+	Init(self::package::init::Args),
+	Lsp(self::lsp::Args),
+	New(self::package::new::Args),
+	Object(self::object::Args),
+	Outdated(self::package::outdated::Args),
+	Publish(self::package::publish::Args),
+	Package(self::package::Args),
+	Pull(self::pull::Args),
+	Push(self::push::Args),
+	Root(self::root::Args),
+	Run(self::run::Args),
+	Search(self::package::search::Args),
+	Server(self::server::Args),
+	Tree(self::tree::Args),
+	Update(self::package::update::Args),
+	Upgrade(self::upgrade::Args),
+	View(self::view::Args),
 }
 
 fn main() -> std::process::ExitCode {
@@ -120,8 +135,8 @@ fn main() -> std::process::ExitCode {
 	// Get the mode. If the command is `tg server run` then set the mode to `server`.
 	let mode = if matches!(
 		args.command,
-		Command::Server(self::commands::server::Args {
-			command: self::commands::server::Command::Run(_),
+		Command::Server(self::server::Args {
+			command: self::server::Command::Run(_),
 			..
 		})
 	) {
@@ -155,7 +170,7 @@ fn main() -> std::process::ExitCode {
 		// Stop and join the server if necessary.
 		if let Some(server) = cli.handle.right() {
 			server.stop();
-			server.join().await.unwrap();
+			server.join().await;
 		}
 
 		result
@@ -629,7 +644,7 @@ impl Cli {
 		H: tg::Handle,
 	{
 		let dependency = tg::Dependency::with_id(package.clone());
-		let arg = tg::package::GetArg {
+		let arg = tg::package::get::Arg {
 			metadata: true,
 			path: true,
 			..Default::default()

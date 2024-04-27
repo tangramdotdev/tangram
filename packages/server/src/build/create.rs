@@ -1,7 +1,7 @@
 use crate::{
 	runtime::Trait as _,
 	util::http::{full, Incoming, Outgoing},
-	Http, Permit, Server,
+	BuildPermit, Server,
 };
 use either::Either;
 use futures::{FutureExt as _, TryFutureExt as _};
@@ -10,16 +10,16 @@ use std::sync::Arc;
 use tangram_client as tg;
 
 impl Server {
-	pub async fn get_or_create_build(
+	pub async fn create_build(
 		&self,
-		arg: tg::build::GetOrCreateArg,
-	) -> tg::Result<tg::build::GetOrCreateOutput> {
+		arg: tg::build::create::Arg,
+	) -> tg::Result<tg::build::create::Output> {
 		// Get a local build if one exists that satisfies the retry constraint.
 		let build = 'a: {
 			// Find a build.
-			let list_arg = tg::build::ListArg {
+			let list_arg = tg::build::list::Arg {
 				limit: Some(1),
-				order: Some(tg::build::Order::CreatedAtDesc),
+				order: Some(tg::build::list::Order::CreatedAtDesc),
 				status: None,
 				target: Some(arg.target.clone()),
 			};
@@ -29,7 +29,7 @@ impl Server {
 			let build = tg::Build::with_id(output.id);
 
 			// Verify the build satisfies the retry constraint.
-			let outcome_arg = tg::build::outcome::GetArg {
+			let outcome_arg = tg::build::outcome::Arg {
 				timeout: Some(std::time::Duration::ZERO),
 			};
 			let outcome = build.get_outcome(self, outcome_arg).await?;
@@ -57,9 +57,9 @@ impl Server {
 			};
 
 			// Find a build.
-			let list_arg = tg::build::ListArg {
+			let list_arg = tg::build::list::Arg {
 				limit: Some(1),
-				order: Some(tg::build::Order::CreatedAtDesc),
+				order: Some(tg::build::list::Order::CreatedAtDesc),
 				status: None,
 				target: Some(arg.target.clone()),
 			};
@@ -69,7 +69,7 @@ impl Server {
 			let build = tg::Build::with_id(output.id);
 
 			// Verify the build satisfies the retry constraint.
-			let outcome_arg = tg::build::outcome::GetArg {
+			let outcome_arg = tg::build::outcome::Arg {
 				timeout: Some(std::time::Duration::ZERO),
 			};
 			let outcome = build.get_outcome(self, outcome_arg).await?;
@@ -92,7 +92,7 @@ impl Server {
 				self.add_build_child(parent, build.id()).await?;
 			}
 
-			let output = tg::build::GetOrCreateOutput {
+			let output = tg::build::create::Output {
 				id: build.id().clone(),
 			};
 
@@ -125,7 +125,7 @@ impl Server {
 			};
 
 			// Get or create the build on the remote.
-			let Ok(output) = remote.get_or_create_build(arg.clone()).await else {
+			let Ok(output) = remote.create_build(arg.clone()).await else {
 				break 'a;
 			};
 
@@ -140,7 +140,7 @@ impl Server {
 		let host = target.host(self).await?;
 
 		// Put the build.
-		let put_arg = tg::build::PutArg {
+		let put_arg = tg::build::put::Arg {
 			id: id.clone(),
 			children: Vec::new(),
 			count: None,
@@ -185,7 +185,7 @@ impl Server {
 			};
 			let permit = permit
 				.lock_owned()
-				.map(|guard| Permit(Either::Right(guard)))
+				.map(|guard| BuildPermit(Either::Right(guard)))
 				.await;
 
 			// Start the build.
@@ -197,7 +197,7 @@ impl Server {
 		};
 		tokio::spawn(task);
 
-		let output = tg::build::GetOrCreateOutput { id };
+		let output = tg::build::create::Output { id };
 
 		Ok(output)
 	}
@@ -205,7 +205,7 @@ impl Server {
 	pub(crate) async fn try_start_build_internal(
 		&self,
 		build: tg::Build,
-		permit: Permit,
+		permit: BuildPermit,
 	) -> tg::Result<bool> {
 		// Attempt to start the build.
 		if !self
@@ -232,8 +232,10 @@ impl Server {
 			};
 
 			// Set the build's outcome.
+			let outcome = outcome.data(&server).await?;
+			let arg = tg::build::finish::Arg { outcome };
 			build
-				.set_outcome(&server, outcome)
+				.finish(&server, arg)
 				.await
 				.map_err(|source| tg::error!(!source, "failed to set the build outcome"))?;
 
@@ -286,15 +288,14 @@ impl Server {
 	}
 }
 
-impl<H> Http<H>
-where
-	H: tg::Handle,
-{
-	pub async fn handle_get_or_create_build_request(
-		&self,
+impl Server {
+	pub(crate) async fn handle_create_build_request<H>(
+		handle: &H,
 		request: http::Request<Incoming>,
-	) -> tg::Result<http::Response<Outgoing>> {
-		// Read the body.
+	) -> tg::Result<http::Response<Outgoing>>
+	where
+		H: tg::Handle,
+	{
 		let bytes = request
 			.into_body()
 			.collect()
@@ -305,7 +306,7 @@ where
 			.map_err(|source| tg::error!(!source, "failed to deserialize the body"))?;
 
 		// Get or create the build.
-		let output = self.handle.get_or_create_build(arg).await?;
+		let output = handle.create_build(arg).await?;
 
 		// Create the body.
 		let body = serde_json::to_vec(&output)

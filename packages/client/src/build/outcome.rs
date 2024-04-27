@@ -1,7 +1,4 @@
-use crate::{
-	self as tg,
-	util::http::{empty, full},
-};
+use crate::{self as tg, util::http::empty};
 use futures::{future, FutureExt as _};
 use http_body_util::BodyExt as _;
 use serde_with::serde_as;
@@ -27,17 +24,100 @@ pub enum Data {
 
 #[serde_as]
 #[derive(Clone, Debug, Default, serde::Serialize, serde::Deserialize)]
-pub struct GetArg {
+pub struct Arg {
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	#[serde_as(as = "Option<serde_with::DurationSeconds>")]
 	pub timeout: Option<std::time::Duration>,
+}
+
+impl Outcome {
+	#[must_use]
+	pub fn retry(&self) -> tg::build::Retry {
+		match self {
+			Self::Canceled => tg::build::Retry::Canceled,
+			Self::Failed(_) => tg::build::Retry::Failed,
+			Self::Succeeded(_) => tg::build::Retry::Succeeded,
+		}
+	}
+
+	pub fn into_result(self) -> tg::Result<tg::Value> {
+		match self {
+			Self::Canceled => Err(tg::error!("the build was canceled")),
+			Self::Failed(error) => Err(error),
+			Self::Succeeded(value) => Ok(value),
+		}
+	}
+
+	pub async fn data<H>(&self, handle: &H) -> tg::Result<tg::build::outcome::Data>
+	where
+		H: tg::Handle,
+	{
+		Ok(match self {
+			Self::Canceled => tg::build::outcome::Data::Canceled,
+			Self::Failed(error) => tg::build::outcome::Data::Failed(error.clone()),
+			Self::Succeeded(value) => {
+				tg::build::outcome::Data::Succeeded(value.data(handle, None).await?)
+			},
+		})
+	}
+}
+
+impl tg::Build {
+	pub async fn outcome<H>(&self, handle: &H) -> tg::Result<tg::build::Outcome>
+	where
+		H: tg::Handle,
+	{
+		self.get_outcome(handle, tg::build::outcome::Arg::default())
+			.await?
+			.ok_or_else(|| tg::error!("failed to get the outcome"))
+	}
+
+	pub async fn get_outcome<H>(
+		&self,
+		handle: &H,
+		arg: tg::build::outcome::Arg,
+	) -> tg::Result<Option<tg::build::Outcome>>
+	where
+		H: tg::Handle,
+	{
+		self.try_get_outcome(handle, arg)
+			.await?
+			.ok_or_else(|| tg::error!("failed to get the build"))
+	}
+
+	pub async fn try_get_outcome<H>(
+		&self,
+		handle: &H,
+		arg: tg::build::outcome::Arg,
+	) -> tg::Result<Option<Option<tg::build::Outcome>>>
+	where
+		H: tg::Handle,
+	{
+		handle.try_get_build_outcome(self.id(), arg, None).await
+	}
+
+	pub async fn cancel<H>(&self, handle: &H) -> tg::Result<()>
+	where
+		H: tg::Handle,
+	{
+		let id = self.id();
+		handle
+			.finish_build(
+				id,
+				tg::build::finish::Arg {
+					outcome: tg::build::outcome::Data::Canceled,
+				},
+			)
+			.await?;
+		Ok(())
+	}
 }
 
 impl tg::Client {
 	pub async fn try_get_build_outcome(
 		&self,
 		id: &tg::build::Id,
-		arg: tg::build::outcome::GetArg,
+		arg: tg::build::outcome::Arg,
 		stop: Option<tokio::sync::watch::Receiver<bool>>,
 	) -> tg::Result<Option<Option<tg::build::Outcome>>> {
 		let method = http::Method::GET;
@@ -87,36 +167,16 @@ impl tg::Client {
 		};
 		Ok(Some(outcome))
 	}
+}
 
-	pub async fn set_build_outcome(
-		&self,
-		id: &tg::build::Id,
-		outcome: tg::build::Outcome,
-	) -> tg::Result<()> {
-		let method = http::Method::POST;
-		let uri = format!("/builds/{id}/outcome");
-		let mut request = http::request::Builder::default().method(method).uri(uri);
-		if let Some(token) = self.token.as_ref() {
-			request = request.header(http::header::AUTHORIZATION, format!("Bearer {token}"));
+impl TryFrom<tg::build::outcome::Data> for Outcome {
+	type Error = tg::Error;
+
+	fn try_from(data: tg::build::outcome::Data) -> tg::Result<Self, Self::Error> {
+		match data {
+			tg::build::outcome::Data::Canceled => Ok(Outcome::Canceled),
+			tg::build::outcome::Data::Failed(error) => Ok(Outcome::Failed(error)),
+			tg::build::outcome::Data::Succeeded(value) => Ok(Outcome::Succeeded(value.try_into()?)),
 		}
-		let outcome = outcome.data(self).await?;
-		let body = serde_json::to_vec(&outcome)
-			.map_err(|source| tg::error!(!source, "failed to serialize the body"))?;
-		let body = full(body);
-		let request = request
-			.body(body)
-			.map_err(|source| tg::error!(!source, "failed to create the request"))?;
-		let response = self.send(request).await?;
-		if !response.status().is_success() {
-			let bytes = response
-				.collect()
-				.await
-				.map_err(|source| tg::error!(!source, "failed to collect the response body"))?
-				.to_bytes();
-			let error = serde_json::from_slice(&bytes)
-				.unwrap_or_else(|_| tg::error!("the request did not succeed"));
-			return Err(error);
-		}
-		Ok(())
 	}
 }

@@ -1,11 +1,13 @@
-use crate::{
-	self as tg,
-	util::http::{empty, full},
-};
+use crate::{self as tg, util::http::empty};
 use bytes::Bytes;
 use futures::{stream::FuturesUnordered, FutureExt as _, TryStreamExt as _};
 use http_body_util::BodyExt as _;
 use std::sync::Arc;
+
+pub mod get;
+pub mod pull;
+pub mod push;
+pub mod put;
 
 /// An object kind.
 #[derive(Clone, Copy, Debug)]
@@ -88,25 +90,6 @@ pub enum Data {
 	Symlink(tg::symlink::Data),
 	Lock(tg::lock::Data),
 	Target(tg::target::Data),
-}
-
-#[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
-pub struct GetOutput {
-	pub bytes: Bytes,
-	pub count: Option<u64>,
-	pub weight: Option<u64>,
-}
-
-#[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
-pub struct PutArg {
-	pub bytes: Bytes,
-	pub count: Option<u64>,
-	pub weight: Option<u64>,
-}
-
-#[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
-pub struct PutOutput {
-	pub incomplete: Vec<Id>,
 }
 
 impl Id {
@@ -216,7 +199,7 @@ impl Handle {
 		let id = self.id(handle, None).await?;
 		let data = self.data(handle, None).await?;
 		let bytes = data.serialize()?;
-		let arg = PutArg {
+		let arg = tg::object::put::Arg {
 			bytes,
 			count: None,
 			weight: None,
@@ -252,7 +235,7 @@ impl Handle {
 			.get_object(&id)
 			.await
 			.map_err(|source| tg::error!(!source, "failed to put the object"))?;
-		let arg = tg::object::PutArg {
+		let arg = tg::object::put::Arg {
 			bytes: output.bytes,
 			count: None,
 			weight: None,
@@ -324,80 +307,6 @@ impl Data {
 }
 
 impl tg::Client {
-	pub async fn try_get_object(
-		&self,
-		id: &tg::object::Id,
-	) -> tg::Result<Option<tg::object::GetOutput>> {
-		let method = http::Method::GET;
-		let uri = format!("/objects/{id}");
-		let body = empty();
-		let request = http::request::Builder::default()
-			.method(method)
-			.uri(uri)
-			.body(body)
-			.map_err(|source| tg::error!(!source, "failed to create the request"))?;
-		let response = self.send(request).await?;
-		if response.status() == http::StatusCode::NOT_FOUND {
-			return Ok(None);
-		}
-		if !response.status().is_success() {
-			let bytes = response
-				.collect()
-				.await
-				.map_err(|source| tg::error!(!source, "failed to collect the response body"))?
-				.to_bytes();
-			let error = serde_json::from_slice(&bytes)
-				.unwrap_or_else(|_| tg::error!("the request did not succeed"));
-			return Err(error);
-		}
-		let bytes = response
-			.collect()
-			.await
-			.map_err(|source| tg::error!(!source, "failed to collect the response body"))?
-			.to_bytes();
-		let output = tg::object::GetOutput {
-			bytes,
-			count: None,
-			weight: None,
-		};
-		Ok(Some(output))
-	}
-
-	pub async fn put_object(
-		&self,
-		id: &tg::object::Id,
-		arg: tg::object::PutArg,
-		_transaction: Option<&()>,
-	) -> tg::Result<tg::object::PutOutput> {
-		let method = http::Method::PUT;
-		let uri = format!("/objects/{id}");
-		let body = full(arg.bytes.clone());
-		let request = http::request::Builder::default()
-			.method(method)
-			.uri(uri)
-			.body(body)
-			.map_err(|source| tg::error!(!source, "failed to create the request"))?;
-		let response = self.send(request).await?;
-		if !response.status().is_success() {
-			let bytes = response
-				.collect()
-				.await
-				.map_err(|source| tg::error!(!source, "failed to collect the response body"))?
-				.to_bytes();
-			let error = serde_json::from_slice(&bytes)
-				.unwrap_or_else(|_| tg::error!("the request did not succeed"));
-			return Err(error);
-		}
-		let bytes = response
-			.collect()
-			.await
-			.map_err(|source| tg::error!(!source, "failed to collect the response body"))?
-			.to_bytes();
-		let output = serde_json::from_slice(&bytes)
-			.map_err(|source| tg::error!(!source, "failed to deserialize the body"))?;
-		Ok(output)
-	}
-
 	pub async fn push_object(&self, id: &tg::object::Id) -> tg::Result<()> {
 		let method = http::Method::POST;
 		let uri = format!("/objects/{id}/push");

@@ -5,10 +5,11 @@ use crate::{
 use futures::{future, Future, Stream, TryStreamExt as _};
 use indexmap::IndexMap;
 use itertools::Itertools as _;
-pub use postgres::types::Json;
 use std::collections::HashMap;
 use tokio_postgres as postgres;
 use url::Url;
+
+pub use postgres::types::Json;
 
 #[derive(Debug, derive_more::Display, derive_more::Error, derive_more::From)]
 pub enum Error {

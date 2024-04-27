@@ -1,6 +1,6 @@
 use crate::{
 	util::http::{bad_request, full, Incoming, Outgoing},
-	Http, Server,
+	Server,
 };
 use http_body_util::BodyExt as _;
 use std::pin::Pin;
@@ -11,40 +11,39 @@ impl Server {
 	pub async fn compress_blob(
 		&self,
 		id: &tg::blob::Id,
-		arg: tg::blob::CompressArg,
-	) -> tg::Result<tg::blob::CompressOutput> {
+		arg: tg::blob::compress::Arg,
+	) -> tg::Result<tg::blob::compress::Output> {
 		let blob = tg::Blob::with_id(id.clone());
 		let reader = blob.reader(self).await?;
 		let reader: Pin<Box<dyn AsyncRead + Send + 'static>> = match arg.format {
-			tg::blob::CompressionFormat::Bz2 => {
+			tg::blob::compress::Format::Bz2 => {
 				Box::pin(async_compression::tokio::bufread::BzEncoder::new(reader))
 			},
-			tg::blob::CompressionFormat::Gz => {
+			tg::blob::compress::Format::Gz => {
 				Box::pin(async_compression::tokio::bufread::GzipEncoder::new(reader))
 			},
-			tg::blob::CompressionFormat::Xz => {
+			tg::blob::compress::Format::Xz => {
 				Box::pin(async_compression::tokio::bufread::XzEncoder::new(reader))
 			},
-			tg::blob::CompressionFormat::Zstd => {
+			tg::blob::compress::Format::Zstd => {
 				Box::pin(async_compression::tokio::bufread::ZstdEncoder::new(reader))
 			},
 		};
 		let blob = tg::Blob::with_reader(self, reader, None).await?;
 		let id = blob.id(self, None).await?;
-		let output = tg::blob::CompressOutput { id };
+		let output = tg::blob::compress::Output { id };
 		Ok(output)
 	}
 }
 
-impl<H> Http<H>
-where
-	H: tg::Handle,
-{
-	pub async fn handle_compress_blob_request(
-		&self,
+impl Server {
+	pub(crate) async fn handle_compress_blob_request<H>(
+		handle: &H,
 		request: http::Request<Incoming>,
-	) -> tg::Result<http::Response<Outgoing>> {
-		// Get the path params.
+	) -> tg::Result<http::Response<Outgoing>>
+	where
+		H: tg::Handle,
+	{
 		let path_components: Vec<&str> = request.uri().path().split('/').skip(1).collect();
 		let ["blobs", id, "compress"] = path_components.as_slice() else {
 			let path = request.uri().path();
@@ -65,7 +64,7 @@ where
 			.map_err(|source| tg::error!(!source, "failed to deserialize the body"))?;
 
 		// Compress the blob.
-		let output = self.handle.compress_blob(&id, arg).await?;
+		let output = handle.compress_blob(&id, arg).await?;
 
 		// Create the response.
 		let body = serde_json::to_vec(&output)

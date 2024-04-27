@@ -4,7 +4,7 @@ use crate::{
 		fs::rmrf,
 		http::{bad_request, full, Incoming, Outgoing},
 	},
-	Http, Server,
+	Server,
 };
 use dashmap::DashMap;
 use futures::{stream::FuturesUnordered, FutureExt, TryStreamExt as _};
@@ -16,8 +16,8 @@ impl Server {
 	pub async fn check_out_artifact(
 		&self,
 		id: &tg::artifact::Id,
-		arg: tg::artifact::CheckOutArg,
-	) -> tg::Result<tg::artifact::CheckOutOutput> {
+		arg: tg::artifact::checkout::Arg,
+	) -> tg::Result<tg::artifact::checkout::Output> {
 		// Determine if this is an internal checkout.
 		let internal = arg.path.is_none();
 
@@ -58,10 +58,21 @@ impl Server {
 	async fn check_out_artifact_with_files(
 		&self,
 		id: &tg::artifact::Id,
-		arg: tg::artifact::CheckOutArg,
+		arg: tg::artifact::checkout::Arg,
 		files: Arc<DashMap<tg::file::Id, tg::Path, fnv::FnvBuildHasher>>,
-	) -> tg::Result<tg::artifact::CheckOutOutput> {
+	) -> tg::Result<tg::artifact::checkout::Output> {
 		let artifact = tg::Artifact::with_id(id.clone());
+
+		// Bundle the artifact if requested.
+		let artifact = if arg.bundle {
+			artifact
+				.bundle(self)
+				.await
+				.map_err(|source| tg::error!(!source, "failed to bundle the artifact"))?
+		} else {
+			artifact
+		};
+
 		if let Some(path) = arg.path {
 			if !path.is_absolute() {
 				return Err(tg::error!(%path, "the path must be absolute"));
@@ -76,15 +87,9 @@ impl Server {
 				return Err(tg::error!(%path, "cannot check out into the server's directory"));
 			}
 
-			// Bundle the artifact.
-			let artifact = artifact
-				.bundle(self)
-				.await
-				.map_err(|source| tg::error!(!source, "failed to bundle the artifact"))?;
-
 			// Check in an existing artifact at the path.
 			let existing_artifact = if exists {
-				let arg = tg::artifact::CheckInArg { path: path.clone() };
+				let arg = tg::artifact::checkin::Arg { path: path.clone() };
 				let output = self.check_in_artifact(arg).await?;
 				Some(tg::Artifact::with_id(output.id))
 			} else {
@@ -102,7 +107,7 @@ impl Server {
 			)
 			.await?;
 
-			Ok(tg::artifact::CheckOutOutput { path })
+			Ok(tg::artifact::checkout::Output { path })
 		} else {
 			// Get the path in the checkouts directory.
 			let id = artifact.id(self, None).await?;
@@ -113,7 +118,7 @@ impl Server {
 				.await
 				.map_err(|source| tg::error!(!source, "failed to stat the path"))?
 			{
-				return Ok(tg::artifact::CheckOutOutput { path });
+				return Ok(tg::artifact::checkout::Output { path });
 			}
 
 			// Create a tmp.
@@ -147,7 +152,7 @@ impl Server {
 				},
 			};
 
-			Ok(tg::artifact::CheckOutOutput { path })
+			Ok(tg::artifact::checkout::Output { path })
 		}
 	}
 
@@ -357,7 +362,8 @@ impl Server {
 			references
 				.iter()
 				.map(|artifact| async {
-					let arg = tg::artifact::CheckOutArg {
+					let arg = tg::artifact::checkout::Arg {
+						bundle: false,
 						path: None,
 						force: false,
 					};
@@ -373,50 +379,67 @@ impl Server {
 				})?;
 		}
 
-		// Check out the file, either from an existing path, an internal path, or from the file reader.
-		let permit = self.file_descriptor_semaphore.acquire().await;
+		// Attempt to copy the file from another file in the checkout.
 		let id = file.id(self, None).await?;
 		let existing_path = files.get(&id).map(|path| path.clone());
-		let internal_path = self.checkouts_path().join(id.to_string());
 		if let Some(existing_path) = existing_path {
+			let permit = self.file_descriptor_semaphore.acquire().await;
 			tokio::fs::copy(&existing_path, &path).await.map_err(
 				|source| tg::error!(!source, %existing_path, %to = &path, %id, "failed to copy the file"),
 			)?;
 			drop(permit);
-		} else if tokio::fs::copy(&internal_path, path).await.is_ok() {
-			drop(permit);
-		} else {
-			// Create the file.
-			tokio::io::copy(
-				&mut file.reader(self).await?,
-				&mut tokio::fs::File::create(path)
-					.await
-					.map_err(|source| tg::error!(!source, "failed to create the file"))?,
-			)
-			.await
-			.map_err(|source| tg::error!(!source, "failed to write the bytes"))?;
-			drop(permit);
-
-			// Make the file executable if necessary.
-			if file.executable(self).await? {
-				let permissions = std::fs::Permissions::from_mode(0o755);
-				tokio::fs::set_permissions(path, permissions)
-					.await
-					.map_err(|source| tg::error!(!source, "failed to set the permissions"))?;
-			}
-
-			// Set the extended attributes if necessary.
-			if !references.is_empty() {
-				let attributes = tg::file::Attributes { references };
-				let attributes = serde_json::to_vec(&attributes)
-					.map_err(|source| tg::error!(!source, "failed to serialize attributes"))?;
-				xattr::set(path, tg::file::TANGRAM_FILE_XATTR_NAME, &attributes).map_err(
-					|source| tg::error!(!source, "failed to set attributes as an xattr"),
-				)?;
-			}
-
-			files.insert(id.clone(), path.clone());
+			return Ok(());
 		}
+
+		// Attempt to use the file from an internal checkout.
+		let internal_checkout_path = self.checkouts_path().join(id.to_string());
+		if internal {
+			// If this checkout is internal, then create a hard link.
+			let result = tokio::fs::hard_link(&internal_checkout_path, path).await;
+			if result.is_ok() {
+				return Ok(());
+			}
+		} else {
+			// If this checkout is external, then copy the file.
+			let permit = self.file_descriptor_semaphore.acquire().await;
+			let result = tokio::fs::copy(&internal_checkout_path, path).await;
+			drop(permit);
+			if result.is_ok() {
+				return Ok(());
+			}
+		}
+
+		// Create the file.
+		let permit = self.file_descriptor_semaphore.acquire().await;
+		tokio::io::copy(
+			&mut file.reader(self).await?,
+			&mut tokio::fs::File::create(path)
+				.await
+				.map_err(|source| tg::error!(!source, "failed to create the file"))?,
+		)
+		.await
+		.map_err(|source| tg::error!(!source, "failed to write the bytes"))?;
+		drop(permit);
+
+		// Make the file executable if necessary.
+		if file.executable(self).await? {
+			let permissions = std::fs::Permissions::from_mode(0o755);
+			tokio::fs::set_permissions(path, permissions)
+				.await
+				.map_err(|source| tg::error!(!source, "failed to set the permissions"))?;
+		}
+
+		// Set the extended attributes if necessary.
+		if !references.is_empty() {
+			let attributes = tg::file::Attributes { references };
+			let attributes = serde_json::to_vec(&attributes)
+				.map_err(|source| tg::error!(!source, "failed to serialize attributes"))?;
+			xattr::set(path, tg::file::TANGRAM_FILE_XATTR_NAME, &attributes)
+				.map_err(|source| tg::error!(!source, "failed to set attributes as an xattr"))?;
+		}
+
+		// Add the path the files map.
+		files.insert(id.clone(), path.clone());
 
 		Ok(())
 	}
@@ -449,7 +472,7 @@ impl Server {
 				));
 			}
 			let id = artifact.id(self, None).await?;
-			let arg = tg::artifact::CheckOutArg::default();
+			let arg = tg::artifact::checkout::Arg::default();
 			Box::pin(self.check_out_artifact_with_files(&id, arg, files)).await?;
 		}
 
@@ -461,7 +484,7 @@ impl Server {
 			for _ in 0..depth {
 				target.push(tg::path::Component::Parent);
 			}
-			target = target.join("../../.tangram/artifacts/".parse::<tg::Path>().unwrap());
+			target = target.join("../../.tangram/artifacts".parse::<tg::Path>().unwrap());
 			let id = &artifact.id(self, None).await?;
 			let component = tg::path::Component::Normal(id.to_string());
 			target.push(component);
@@ -479,15 +502,14 @@ impl Server {
 	}
 }
 
-impl<H> Http<H>
-where
-	H: tg::Handle,
-{
-	pub async fn handle_check_out_artifact_request(
-		&self,
+impl Server {
+	pub(crate) async fn handle_check_out_artifact_request<H>(
+		handle: &H,
 		request: http::Request<Incoming>,
-	) -> tg::Result<http::Response<Outgoing>> {
-		// Get the path params.
+	) -> tg::Result<http::Response<Outgoing>>
+	where
+		H: tg::Handle,
+	{
 		let path_components: Vec<&str> = request.uri().path().split('/').skip(1).collect();
 		let ["artifacts", id, "checkout"] = path_components.as_slice() else {
 			let path = request.uri().path();
@@ -508,7 +530,7 @@ where
 			.map_err(|source| tg::error!(!source, "failed to deserialize the body"))?;
 
 		// Check out the artifact.
-		let output = self.handle.check_out_artifact(&id, arg).await?;
+		let output = handle.check_out_artifact(&id, arg).await?;
 
 		// Create the response.
 		let body = serde_json::to_vec(&output)

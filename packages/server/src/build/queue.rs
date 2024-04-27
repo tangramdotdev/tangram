@@ -1,4 +1,4 @@
-use crate::{Permit, Server};
+use crate::{BuildPermit, Server};
 use either::Either;
 use tangram_client as tg;
 
@@ -7,11 +7,11 @@ impl Server {
 		loop {
 			// Wait for a permit.
 			let permit = self.build_semaphore.clone().acquire_owned().await.unwrap();
-			let permit = Permit(Either::Left(permit));
+			let permit = BuildPermit(Either::Left(permit));
 
 			// Dequeue a build.
 			let output = match self
-				.try_dequeue_build(tg::build::DequeueArg::default(), None)
+				.try_dequeue_build(tg::build::dequeue::Arg::default(), None)
 				.await
 			{
 				Ok(Some(output)) => output,

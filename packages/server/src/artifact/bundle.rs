@@ -1,7 +1,7 @@
 use crate::{
 	database::Transaction,
 	util::http::{bad_request, full, Incoming, Outgoing},
-	Http, Server,
+	Server,
 };
 use futures::{stream::FuturesOrdered, TryStreamExt as _};
 use once_cell::sync::Lazy;
@@ -15,7 +15,7 @@ impl Server {
 	pub async fn bundle_artifact(
 		&self,
 		id: &tg::artifact::Id,
-	) -> tg::Result<tg::artifact::BundleOutput> {
+	) -> tg::Result<tg::artifact::bundle::Output> {
 		let artifact = tg::Artifact::with_id(id.clone());
 
 		// Collect the artifact's recursive references.
@@ -23,7 +23,7 @@ impl Server {
 
 		// If there are no references, then return the artifact.
 		if references.is_empty() {
-			let output = tg::artifact::BundleOutput { id: id.clone() };
+			let output = tg::artifact::bundle::Output { id: id.clone() };
 			return Ok(output);
 		}
 
@@ -82,7 +82,7 @@ impl Server {
 
 		// Create the output.
 		let id = output.id(self, None).await?;
-		let output = tg::artifact::BundleOutput { id };
+		let output = tg::artifact::bundle::Output { id };
 
 		Ok(output)
 	}
@@ -153,15 +153,14 @@ impl Server {
 	}
 }
 
-impl<H> Http<H>
-where
-	H: tg::Handle,
-{
-	pub async fn handle_bundle_artifact_request(
-		&self,
+impl Server {
+	pub(crate) async fn handle_bundle_artifact_request<H>(
+		handle: &H,
 		request: http::Request<Incoming>,
-	) -> tg::Result<http::Response<Outgoing>> {
-		// Get the path params.
+	) -> tg::Result<http::Response<Outgoing>>
+	where
+		H: tg::Handle,
+	{
 		let path_components: Vec<&str> = request.uri().path().split('/').skip(1).collect();
 		let ["artifacts", id, "bundle"] = path_components.as_slice() else {
 			let path = request.uri().path();
@@ -172,7 +171,7 @@ where
 		};
 
 		// Bundle the artifact.
-		let output = self.handle.bundle_artifact(&id).await?;
+		let output = handle.bundle_artifact(&id).await?;
 
 		// Create the response.
 		let body = serde_json::to_vec(&output)

@@ -10,7 +10,7 @@ use tokio_util::io::StreamReader;
 
 #[serde_as]
 #[derive(Clone, Debug, Default, serde::Serialize, serde::Deserialize)]
-pub struct GetArg {
+pub struct Arg {
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub length: Option<i64>,
 
@@ -34,11 +34,49 @@ pub struct Chunk {
 	pub bytes: Bytes,
 }
 
+impl tg::Build {
+	pub async fn log<H>(
+		&self,
+		handle: &H,
+		arg: tg::build::log::Arg,
+	) -> tg::Result<impl Stream<Item = tg::Result<tg::build::log::Chunk>> + Send + 'static>
+	where
+		H: tg::Handle,
+	{
+		self.try_get_log(handle, arg)
+			.await?
+			.ok_or_else(|| tg::error!("failed to get the build"))
+	}
+
+	pub async fn try_get_log<H>(
+		&self,
+		handle: &H,
+		arg: tg::build::log::Arg,
+	) -> tg::Result<Option<impl Stream<Item = tg::Result<tg::build::log::Chunk>> + Send + 'static>>
+	where
+		H: tg::Handle,
+	{
+		handle
+			.try_get_build_log(self.id(), arg, None)
+			.await
+			.map(|option| option.map(futures::StreamExt::boxed))
+	}
+
+	pub async fn add_log<H>(&self, handle: &H, log: Bytes) -> tg::Result<()>
+	where
+		H: tg::Handle,
+	{
+		let id = self.id();
+		handle.add_build_log(id, log).await?;
+		Ok(())
+	}
+}
+
 impl tg::Client {
 	pub async fn try_get_build_log(
 		&self,
 		id: &tg::build::Id,
-		arg: tg::build::log::GetArg,
+		arg: tg::build::log::Arg,
 		stop: Option<tokio::sync::watch::Receiver<bool>>,
 	) -> tg::Result<Option<impl Stream<Item = tg::Result<tg::build::log::Chunk>> + Send + 'static>>
 	{

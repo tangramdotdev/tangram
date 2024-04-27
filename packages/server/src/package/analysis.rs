@@ -59,7 +59,7 @@ impl Server {
 			let Some(remote) = self.remotes.first() else {
 				break 'a None;
 			};
-			let arg = tg::package::GetArg::default();
+			let arg = tg::package::get::Arg::default();
 			let Some(output) = Box::pin(remote.try_get_package(dependency, arg))
 				.await
 				.ok()

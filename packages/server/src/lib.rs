@@ -1,11 +1,10 @@
-pub use self::options::Options;
 use self::{
 	database::{Database, Transaction},
 	messenger::Messenger,
 	runtime::Runtime,
 	util::{
 		fs::rmrf,
-		http::{full, get_token, Incoming, Outgoing},
+		http::{full, Incoming, Outgoing},
 	},
 };
 use async_nats as nats;
@@ -45,7 +44,6 @@ mod language;
 mod messenger;
 mod migrations;
 mod object;
-pub mod options;
 mod package;
 mod root;
 mod runtime;
@@ -55,18 +53,20 @@ mod user;
 mod util;
 mod vfs;
 
+pub use self::options::Options;
+
+pub mod options;
+
 /// A server.
 #[derive(Clone)]
 pub struct Server(Arc<Inner>);
 
 pub struct Inner {
-	build_queue_task: std::sync::Mutex<Option<tokio::task::JoinHandle<()>>>,
 	build_permits: BuildPermits,
 	build_semaphore: Arc<tokio::sync::Semaphore>,
 	checkouts: Checkouts,
 	database: Database,
 	file_descriptor_semaphore: tokio::sync::Semaphore,
-	http: std::sync::Mutex<Option<Http<Server>>>,
 	local_pool_handle: tokio_util::task::LocalPoolHandle,
 	lockfile: std::sync::Mutex<Option<tokio::fs::File>>,
 	messenger: Messenger,
@@ -76,52 +76,26 @@ pub struct Inner {
 	path: PathBuf,
 	remotes: Vec<tg::Client>,
 	runtimes: std::sync::RwLock<HashMap<String, Runtime>>,
-	status: tokio::sync::watch::Sender<Status>,
-	stop_task: std::sync::Mutex<Option<tokio::task::JoinHandle<()>>>,
 	vfs: std::sync::Mutex<Option<self::vfs::Server>>,
 }
 
 type BuildPermits =
-	DashMap<tg::build::Id, Arc<tokio::sync::Mutex<Option<Permit>>>, fnv::FnvBuildHasher>;
+	DashMap<tg::build::Id, Arc<tokio::sync::Mutex<Option<BuildPermit>>>, fnv::FnvBuildHasher>;
 
-type Checkouts = DashMap<
-	tg::artifact::Id,
-	future::Shared<BoxFuture<'static, tg::Result<tg::artifact::CheckOutOutput>>>,
-	fnv::FnvBuildHasher,
->;
-
-#[derive(Debug)]
-struct Permit(
+struct BuildPermit(
 	#[allow(dead_code)]
 	Either<tokio::sync::OwnedSemaphorePermit, tokio::sync::OwnedMutexGuard<Option<Self>>>,
 );
+
+type Checkouts = DashMap<tg::artifact::Id, CheckoutFuture, fnv::FnvBuildHasher>;
+
+type CheckoutFuture =
+	future::Shared<BoxFuture<'static, tg::Result<tg::artifact::checkout::Output>>>;
 
 #[derive(Debug)]
 struct OAuth {
 	#[allow(dead_code)]
 	github: Option<oauth2::basic::BasicClient>,
-}
-
-#[derive(Clone, Copy, Debug, Eq, Ord, PartialEq, PartialOrd)]
-enum Status {
-	Created,
-	Started,
-	Stopping,
-	Stopped,
-}
-
-#[derive(Clone)]
-struct Http<H>(Arc<HttpInner<H>>)
-where
-	H: tg::Handle;
-
-struct HttpInner<H>
-where
-	H: tg::Handle,
-{
-	handle: H,
-	task: std::sync::Mutex<Option<tokio::task::JoinHandle<tg::Result<()>>>>,
-	stop: tokio::sync::watch::Sender<bool>,
 }
 
 impl Server {
@@ -176,9 +150,6 @@ impl Server {
 			.await
 			.map_err(|source| tg::error!(!source, "failed to remove an existing socket file"))?;
 
-		// Create the build queue task.
-		let build_queue_task = std::sync::Mutex::new(None);
-
 		// Create the build permits.
 		let build_permits = DashMap::default();
 
@@ -220,9 +191,6 @@ impl Server {
 		// Create the file system semaphore.
 		let file_descriptor_semaphore =
 			tokio::sync::Semaphore::new(options.advanced.file_descriptor_semaphore_size);
-
-		// Create the http server.
-		let http = std::sync::Mutex::new(None);
 
 		// Create the local pool handle.
 		let local_pool_handle = tokio_util::task::LocalPoolHandle::new(
@@ -273,12 +241,6 @@ impl Server {
 		// Create the runtimes.
 		let runtimes = std::sync::RwLock::new(HashMap::default());
 
-		// Create the status.
-		let (status, _) = tokio::sync::watch::channel(Status::Created);
-
-		// Create the stop task.
-		let stop_task = std::sync::Mutex::new(None);
-
 		// Get the URL.
 		let url = options.url.clone();
 
@@ -287,13 +249,11 @@ impl Server {
 
 		// Create the server.
 		let server = Self(Arc::new(Inner {
-			build_queue_task,
 			build_permits,
 			build_semaphore,
 			checkouts,
 			database,
 			file_descriptor_semaphore,
-			http,
 			local_pool_handle,
 			lockfile,
 			messenger,
@@ -302,8 +262,6 @@ impl Server {
 			path,
 			remotes,
 			runtimes,
-			status,
-			stop_task,
 			vfs,
 		}));
 
@@ -338,23 +296,11 @@ impl Server {
 		} else {
 			unreachable!()
 		};
-		self::vfs::unmount(kind, &artifacts_path).await.ok();
 		if server.options.vfs {
-			util::fs::rmrf(&artifacts_path)
-				.await
-				.map_err(|source| tg::error!(!source, %path = artifacts_path.display(), "failed to remove the artifacts directory"))?;
-			// Create the artifacts directory.
-			tokio::fs::create_dir_all(&artifacts_path)
-				.await
-				.map_err(|source| {
-					tg::error!(!source, "failed to create the artifacts directory")
-				})?;
-
 			// Start the VFS server.
 			let vfs = self::vfs::Server::start(&server, kind, &artifacts_path)
 				.await
 				.map_err(|source| tg::error!(!source, "failed to start the VFS"))?;
-
 			server.vfs.lock().unwrap().replace(vfs);
 		} else {
 			// Remove the artifacts directory.
@@ -401,53 +347,26 @@ impl Server {
 			server.runtimes.write().unwrap().insert(triple, runtime);
 		}
 
-		// Start the build queue task.
+		// Start the build queue.
 		if server.options.build.is_some() {
-			let task = tokio::spawn({
+			tokio::spawn({
 				let server = server.clone();
 				async move { server.run_build_queue().await }
 			});
-			server.build_queue_task.lock().unwrap().replace(task);
 		}
 
-		// Start the http server.
-		let http = Http::start(&server, url);
-		server.http.lock().unwrap().replace(http);
-
-		// Set the status.
-		server.status.send_replace(Status::Started);
+		// Start the http task.
+		let (_, http_stop_receiver) = tokio::sync::watch::channel(false);
+		tokio::spawn(Self::serve(server.clone(), url, http_stop_receiver));
 
 		Ok(server)
 	}
 
 	pub fn stop(&self) {
-		self.status.send_replace(Status::Stopping);
 		let server = self.clone();
-		let task = tokio::spawn(async move {
-			// Stop the http server.
-			if let Some(http) = server.http.lock().unwrap().as_ref() {
-				http.stop();
-			}
-
-			// Join the http server.
-			let http = server.http.lock().unwrap().take();
-			if let Some(http) = http {
-				http.join().await.ok();
-			}
-
-			// Stop and join the build queue task.
-			let build_queue_task = server.build_queue_task.lock().unwrap().take();
-			if let Some(build_queue_task) = build_queue_task {
-				build_queue_task.abort();
-				build_queue_task.await.ok();
-			}
-
-			// Join the vfs server.
-			let vfs = server.vfs.lock().unwrap().take();
-			if let Some(vfs) = vfs {
-				vfs.stop();
-				vfs.join().await.ok();
-			}
+		tokio::spawn(async move {
+			// Stop the database.
+			server.runtimes.write().unwrap().clear();
 
 			// Remove the runtimes.
 			server.runtimes.write().unwrap().clear();
@@ -457,21 +376,10 @@ impl Server {
 			if let Some(lockfile) = lockfile {
 				lockfile.set_len(0).await.ok();
 			}
-
-			// Set the status.
-			server.status.send_replace(Status::Stopped);
 		});
-		self.stop_task.lock().unwrap().replace(task);
 	}
 
-	pub async fn join(&self) -> tg::Result<()> {
-		self.status
-			.subscribe()
-			.wait_for(|status| *status == Status::Stopped)
-			.await
-			.unwrap();
-		Ok(())
-	}
+	pub async fn join(&self) {}
 
 	#[must_use]
 	pub fn artifacts_path(&self) -> PathBuf {
@@ -494,50 +402,15 @@ impl Server {
 	}
 }
 
-impl<H> Http<H>
-where
-	H: tg::Handle,
-{
-	fn start(handle: &H, url: Url) -> Self {
-		let handle = handle.clone();
-		let task = std::sync::Mutex::new(None);
-		let (stop_sender, stop_receiver) = tokio::sync::watch::channel(false);
-		let stop = stop_sender;
-		let server = Self(Arc::new(HttpInner { handle, task, stop }));
-		let task = tokio::spawn({
-			let server = server.clone();
-			async move {
-				match server.serve(url, stop_receiver).await {
-					Ok(()) => Ok(()),
-					Err(error) => {
-						tracing::error!(?error);
-						Err(error)
-					},
-				}
-			}
-		});
-		server.task.lock().unwrap().replace(task);
-		server
-	}
-
-	fn stop(&self) {
-		self.stop.send_replace(true);
-	}
-
-	async fn join(&self) -> tg::Result<()> {
-		let task = self.task.lock().unwrap().take();
-		if let Some(task) = task {
-			match task.await {
-				Ok(result) => Ok(result),
-				Err(error) if error.is_cancelled() => Ok(Ok(())),
-				Err(error) => Err(error),
-			}
-			.unwrap()?;
-		}
-		Ok(())
-	}
-
-	async fn serve(self, url: Url, mut stop: tokio::sync::watch::Receiver<bool>) -> tg::Result<()> {
+impl Server {
+	async fn serve<H>(
+		handle: H,
+		url: Url,
+		mut stop: tokio::sync::watch::Receiver<bool>,
+	) -> tg::Result<()>
+	where
+		H: tg::Handle,
+	{
 		// Create the tasks.
 		let mut tasks = tokio::task::JoinSet::new();
 
@@ -567,7 +440,7 @@ where
 			},
 		};
 
-		tracing::info!("🚀 serving on {url}");
+		tracing::trace!("serving on {url}");
 
 		loop {
 			// Accept a new connection.
@@ -606,14 +479,14 @@ where
 
 			// Create the service.
 			let service = hyper::service::service_fn({
-				let server = self.clone();
+				let handle = handle.clone();
 				let stop = stop.clone();
 				move |mut request| {
-					let server = server.clone();
+					let handle = handle.clone();
 					let stop = stop.clone();
 					async move {
 						request.extensions_mut().insert(stop);
-						let response = server.handle_request(request).await;
+						let response = Self::handle_request(&handle, request).await;
 						Ok::<_, Infallible>(response)
 					}
 				}
@@ -647,27 +520,13 @@ where
 		Ok(())
 	}
 
-	async fn try_get_user_from_request(
-		&self,
-		request: &http::Request<Incoming>,
-	) -> tg::Result<Option<tg::user::User>> {
-		// Get the token.
-		let Some(token) = get_token(request, None) else {
-			return Ok(None);
-		};
-
-		// Get the user.
-		let Some(user) = self.handle.get_user(&token).await? else {
-			return Ok(None);
-		};
-
-		Ok(Some(user))
-	}
-
-	async fn handle_request(
-		&self,
+	async fn handle_request<H>(
+		handle: &H,
 		mut request: http::Request<Incoming>,
-	) -> http::Response<Outgoing> {
+	) -> http::Response<Outgoing>
+	where
+		H: tg::Handle,
+	{
 		let id = tg::Id::new_uuidv7(tg::id::Kind::Request);
 		request.extensions_mut().insert(id.clone());
 
@@ -677,185 +536,232 @@ where
 		let path_components = request.uri().path().split('/').skip(1).collect_vec();
 		let response = match (method, path_components.as_slice()) {
 			// Artifacts.
-			(http::Method::POST, ["artifacts", _, "archive"]) => self
-				.handle_archive_artifact_request(request)
-				.map(Some)
-				.boxed(),
-			(http::Method::POST, ["artifacts", "extract"]) => self
-				.handle_extract_artifact_request(request)
-				.map(Some)
-				.boxed(),
-			(http::Method::POST, ["artifacts", _, "bundle"]) => self
-				.handle_bundle_artifact_request(request)
-				.map(Some)
-				.boxed(),
-			(http::Method::POST, ["artifacts", "checkin"]) => self
-				.handle_check_in_artifact_request(request)
-				.map(Some)
-				.boxed(),
-			(http::Method::POST, ["artifacts", _, "checkout"]) => self
-				.handle_check_out_artifact_request(request)
-				.map(Some)
-				.boxed(),
+			(http::Method::POST, ["artifacts", _, "archive"]) => {
+				Self::handle_archive_artifact_request(handle, request)
+					.map(Some)
+					.boxed()
+			},
+			(http::Method::POST, ["artifacts", "extract"]) => {
+				Self::handle_extract_artifact_request(handle, request)
+					.map(Some)
+					.boxed()
+			},
+			(http::Method::POST, ["artifacts", _, "bundle"]) => {
+				Self::handle_bundle_artifact_request(handle, request)
+					.map(Some)
+					.boxed()
+			},
+			(http::Method::POST, ["artifacts", "checkin"]) => {
+				Self::handle_check_in_artifact_request(handle, request)
+					.map(Some)
+					.boxed()
+			},
+			(http::Method::POST, ["artifacts", _, "checkout"]) => {
+				Self::handle_check_out_artifact_request(handle, request)
+					.map(Some)
+					.boxed()
+			},
 
 			// Blobs.
-			(http::Method::POST, ["blobs"]) => {
-				self.handle_create_blob_request(request).map(Some).boxed()
-			},
-			(http::Method::POST, ["blobs", _, "compress"]) => {
-				self.handle_compress_blob_request(request).map(Some).boxed()
-			},
-			(http::Method::POST, ["blobs", _, "decompress"]) => self
-				.handle_decompress_blob_request(request)
+			(http::Method::POST, ["blobs"]) => Self::handle_create_blob_request(handle, request)
 				.map(Some)
 				.boxed(),
+			(http::Method::POST, ["blobs", _, "compress"]) => {
+				Self::handle_compress_blob_request(handle, request)
+					.map(Some)
+					.boxed()
+			},
+			(http::Method::POST, ["blobs", _, "decompress"]) => {
+				Self::handle_decompress_blob_request(handle, request)
+					.map(Some)
+					.boxed()
+			},
 
 			// Builds.
-			(http::Method::GET, ["builds"]) => {
-				self.handle_list_builds_request(request).map(Some).boxed()
-			},
-			(http::Method::GET, ["builds", _]) => {
-				self.handle_get_build_request(request).map(Some).boxed()
-			},
-			(http::Method::PUT, ["builds", _]) => {
-				self.handle_put_build_request(request).map(Some).boxed()
-			},
+			(http::Method::GET, ["builds"]) => Self::handle_list_builds_request(handle, request)
+				.map(Some)
+				.boxed(),
+			(http::Method::GET, ["builds", _]) => Self::handle_get_build_request(handle, request)
+				.map(Some)
+				.boxed(),
+			(http::Method::PUT, ["builds", _]) => Self::handle_put_build_request(handle, request)
+				.map(Some)
+				.boxed(),
 			(http::Method::POST, ["builds", _, "push"]) => {
-				self.handle_push_build_request(request).map(Some).boxed()
+				Self::handle_push_build_request(handle, request)
+					.map(Some)
+					.boxed()
 			},
 			(http::Method::POST, ["builds", _, "pull"]) => {
-				self.handle_pull_build_request(request).map(Some).boxed()
+				Self::handle_pull_build_request(handle, request)
+					.map(Some)
+					.boxed()
 			},
-			(http::Method::POST, ["builds"]) => self
-				.handle_get_or_create_build_request(request)
+			(http::Method::POST, ["builds"]) => Self::handle_create_build_request(handle, request)
 				.map(Some)
 				.boxed(),
 			(http::Method::POST, ["builds", "dequeue"]) => {
-				self.handle_dequeue_build_request(request).map(Some).boxed()
+				Self::handle_dequeue_build_request(handle, request)
+					.map(Some)
+					.boxed()
 			},
 			(http::Method::POST, ["builds", _, "start"]) => {
-				self.handle_start_build_request(request).map(Some).boxed()
+				Self::handle_start_build_request(handle, request)
+					.map(Some)
+					.boxed()
 			},
-			(http::Method::POST, ["builds", _, "touch"]) => {
-				self.handle_touch_build_request(request).map(Some).boxed()
+			(http::Method::GET, ["builds", _, "status"]) => {
+				Self::handle_get_build_status_request(handle, request)
+					.map(Some)
+					.boxed()
 			},
-			(http::Method::GET, ["builds", _, "status"]) => self
-				.handle_get_build_status_request(request)
-				.map(Some)
-				.boxed(),
-			(http::Method::GET, ["builds", _, "children"]) => self
-				.handle_get_build_children_request(request)
-				.map(Some)
-				.boxed(),
-			(http::Method::POST, ["builds", _, "children"]) => self
-				.handle_add_build_child_request(request)
-				.map(Some)
-				.boxed(),
+			(http::Method::GET, ["builds", _, "children"]) => {
+				Self::handle_get_build_children_request(handle, request)
+					.map(Some)
+					.boxed()
+			},
+			(http::Method::POST, ["builds", _, "children"]) => {
+				Self::handle_add_build_child_request(handle, request)
+					.map(Some)
+					.boxed()
+			},
 			(http::Method::GET, ["builds", _, "log"]) => {
-				self.handle_get_build_log_request(request).map(Some).boxed()
+				Self::handle_get_build_log_request(handle, request)
+					.map(Some)
+					.boxed()
 			},
 			(http::Method::POST, ["builds", _, "log"]) => {
-				self.handle_add_build_log_request(request).map(Some).boxed()
+				Self::handle_add_build_log_request(handle, request)
+					.map(Some)
+					.boxed()
 			},
-			(http::Method::GET, ["builds", _, "outcome"]) => self
-				.handle_get_build_outcome_request(request)
-				.map(Some)
-				.boxed(),
-			(http::Method::POST, ["builds", _, "outcome"]) => self
-				.handle_set_build_outcome_request(request)
-				.map(Some)
-				.boxed(),
+			(http::Method::GET, ["builds", _, "outcome"]) => {
+				Self::handle_get_build_outcome_request(handle, request)
+					.map(Some)
+					.boxed()
+			},
+			(http::Method::POST, ["builds", _, "finish"]) => {
+				Self::handle_finish_build_request(handle, request)
+					.map(Some)
+					.boxed()
+			},
+			(http::Method::POST, ["builds", _, "touch"]) => {
+				Self::handle_touch_build_request(handle, request)
+					.map(Some)
+					.boxed()
+			},
 
 			// Objects.
-			(http::Method::GET, ["objects", _]) => {
-				self.handle_get_object_request(request).map(Some).boxed()
-			},
-			(http::Method::PUT, ["objects", _]) => {
-				self.handle_put_object_request(request).map(Some).boxed()
-			},
+			(http::Method::GET, ["objects", _]) => Self::handle_get_object_request(handle, request)
+				.map(Some)
+				.boxed(),
+			(http::Method::PUT, ["objects", _]) => Self::handle_put_object_request(handle, request)
+				.map(Some)
+				.boxed(),
 			(http::Method::POST, ["objects", _, "push"]) => {
-				self.handle_push_object_request(request).map(Some).boxed()
+				Self::handle_push_object_request(handle, request)
+					.map(Some)
+					.boxed()
 			},
 			(http::Method::POST, ["objects", _, "pull"]) => {
-				self.handle_pull_object_request(request).map(Some).boxed()
+				Self::handle_pull_object_request(handle, request)
+					.map(Some)
+					.boxed()
 			},
 
 			// Language.
-			(http::Method::POST, ["format"]) => {
-				self.handle_format_request(request).map(Some).boxed()
+			(http::Method::POST, ["format"]) => Self::handle_format_request(handle, request)
+				.map(Some)
+				.boxed(),
+			(http::Method::POST, ["lsp"]) => {
+				Self::handle_lsp_request(handle, request).map(Some).boxed()
 			},
-			(http::Method::POST, ["lsp"]) => self.handle_lsp_request(request).map(Some).boxed(),
 
 			// Packages.
-			(http::Method::GET, ["packages", "search"]) => self
-				.handle_search_packages_request(request)
-				.map(Some)
-				.boxed(),
+			(http::Method::GET, ["packages"]) => {
+				Self::handle_list_packages_request(handle, request)
+					.map(Some)
+					.boxed()
+			},
 			(http::Method::GET, ["packages", _]) => {
-				self.handle_get_package_request(request).map(Some).boxed()
+				Self::handle_get_package_request(handle, request)
+					.map(Some)
+					.boxed()
 			},
 			(http::Method::POST, ["packages", _, "check"]) => {
-				self.handle_check_package_request(request).map(Some).boxed()
+				Self::handle_check_package_request(handle, request)
+					.map(Some)
+					.boxed()
 			},
-			(http::Method::GET, ["packages", _, "doc"]) => self
-				.handle_get_package_doc_request(request)
-				.map(Some)
-				.boxed(),
-			(http::Method::POST, ["packages", _, "format"]) => self
-				.handle_format_package_request(request)
-				.map(Some)
-				.boxed(),
-			(http::Method::POST, ["packages", _, "outdated"]) => self
-				.handle_outdated_package_request(request)
-				.map(Some)
-				.boxed(),
-			(http::Method::POST, ["packages"]) => self
-				.handle_publish_package_request(request)
-				.map(Some)
-				.boxed(),
-			(http::Method::GET, ["packages", _, "versions"]) => self
-				.handle_get_package_versions_request(request)
-				.map(Some)
-				.boxed(),
+			(http::Method::GET, ["packages", _, "doc"]) => {
+				Self::handle_get_package_doc_request(handle, request)
+					.map(Some)
+					.boxed()
+			},
+			(http::Method::POST, ["packages", _, "format"]) => {
+				Self::handle_format_package_request(handle, request)
+					.map(Some)
+					.boxed()
+			},
+			(http::Method::POST, ["packages", _, "outdated"]) => {
+				Self::handle_outdated_package_request(handle, request)
+					.map(Some)
+					.boxed()
+			},
+			(http::Method::POST, ["packages"]) => {
+				Self::handle_publish_package_request(handle, request)
+					.map(Some)
+					.boxed()
+			},
+			(http::Method::GET, ["packages", _, "versions"]) => {
+				Self::handle_get_package_versions_request(handle, request)
+					.map(Some)
+					.boxed()
+			},
 			(http::Method::POST, ["packages", _, "yank"]) => {
-				self.handle_yank_package_request(request).map(Some).boxed()
+				Self::handle_yank_package_request(handle, request)
+					.map(Some)
+					.boxed()
 			},
 
 			// Roots.
-			(http::Method::GET, ["roots"]) => {
-				self.handle_list_roots_request(request).map(Some).boxed()
-			},
-			(http::Method::GET, ["roots", _]) => {
-				self.handle_get_root_request(request).map(Some).boxed()
-			},
-			(http::Method::POST, ["roots"]) => {
-				self.handle_add_root_request(request).map(Some).boxed()
-			},
+			(http::Method::GET, ["roots"]) => Self::handle_list_roots_request(handle, request)
+				.map(Some)
+				.boxed(),
+			(http::Method::GET, ["roots", _]) => Self::handle_get_root_request(handle, request)
+				.map(Some)
+				.boxed(),
+			(http::Method::POST, ["roots"]) => Self::handle_add_root_request(handle, request)
+				.map(Some)
+				.boxed(),
 			(http::Method::DELETE, ["roots", _]) => {
-				self.handle_remove_root_request(request).map(Some).boxed()
+				Self::handle_remove_root_request(handle, request)
+					.map(Some)
+					.boxed()
 			},
 
 			// Runtimes.
-			(http::Method::GET, ["runtimes", "js", "doc"]) => self
-				.handle_get_js_runtime_doc_request(request)
+			(http::Method::GET, ["runtimes", "js", "doc"]) => {
+				Self::handle_get_js_runtime_doc_request(handle, request)
+					.map(Some)
+					.boxed()
+			},
+
+			// Server.
+			(http::Method::POST, ["clean"]) => Self::handle_server_clean_request(handle, request)
+				.map(Some)
+				.boxed(),
+			(http::Method::GET, ["health"]) => Self::handle_server_health_request(handle, request)
+				.map(Some)
+				.boxed(),
+			(http::Method::POST, ["stop"]) => Self::handle_server_stop_request(handle, request)
 				.map(Some)
 				.boxed(),
 
-			// Server.
-			(http::Method::POST, ["clean"]) => {
-				self.handle_server_clean_request(request).map(Some).boxed()
-			},
-			(http::Method::GET, ["health"]) => {
-				self.handle_server_health_request(request).map(Some).boxed()
-			},
-			(http::Method::POST, ["stop"]) => {
-				self.handle_server_stop_request(request).map(Some).boxed()
-			},
-
 			// Users.
-			(http::Method::GET, ["user"]) => {
-				self.handle_get_user_request(request).map(Some).boxed()
-			},
+			(http::Method::GET, ["user"]) => Self::handle_get_user_request(handle, request)
+				.map(Some)
+				.boxed(),
 
 			(_, _) => future::ready(None).boxed(),
 		}
@@ -902,37 +808,37 @@ impl tg::Handle for Server {
 	fn archive_artifact(
 		&self,
 		id: &tg::artifact::Id,
-		arg: tg::artifact::ArchiveArg,
-	) -> impl Future<Output = tg::Result<tg::artifact::ArchiveOutput>> {
+		arg: tg::artifact::archive::Arg,
+	) -> impl Future<Output = tg::Result<tg::artifact::archive::Output>> {
 		self.archive_artifact(id, arg)
 	}
 
 	fn extract_artifact(
 		&self,
-		arg: tg::artifact::ExtractArg,
-	) -> impl Future<Output = tg::Result<tg::artifact::ExtractOutput>> {
+		arg: tg::artifact::extract::Arg,
+	) -> impl Future<Output = tg::Result<tg::artifact::extract::Output>> {
 		self.extract_artifact(arg)
 	}
 
 	fn bundle_artifact(
 		&self,
 		id: &tg::artifact::Id,
-	) -> impl Future<Output = tg::Result<tg::artifact::BundleOutput>> {
+	) -> impl Future<Output = tg::Result<tg::artifact::bundle::Output>> {
 		self.bundle_artifact(id)
 	}
 
 	fn check_in_artifact(
 		&self,
-		arg: tg::artifact::CheckInArg,
-	) -> impl Future<Output = tg::Result<tg::artifact::CheckInOutput>> {
+		arg: tg::artifact::checkin::Arg,
+	) -> impl Future<Output = tg::Result<tg::artifact::checkin::Output>> {
 		self.check_in_artifact(arg)
 	}
 
 	fn check_out_artifact(
 		&self,
 		id: &tg::artifact::Id,
-		arg: tg::artifact::CheckOutArg,
-	) -> impl Future<Output = tg::Result<tg::artifact::CheckOutOutput>> {
+		arg: tg::artifact::checkout::Arg,
+	) -> impl Future<Output = tg::Result<tg::artifact::checkout::Output>> {
 		self.check_out_artifact(id, arg)
 	}
 
@@ -947,38 +853,37 @@ impl tg::Handle for Server {
 	fn compress_blob(
 		&self,
 		id: &tg::blob::Id,
-		arg: tg::blob::CompressArg,
-	) -> impl Future<Output = tg::Result<tg::blob::CompressOutput>> {
+		arg: tg::blob::compress::Arg,
+	) -> impl Future<Output = tg::Result<tg::blob::compress::Output>> {
 		self.compress_blob(id, arg)
 	}
 
 	fn decompress_blob(
 		&self,
 		id: &tg::blob::Id,
-		arg: tg::blob::DecompressArg,
-	) -> impl Future<Output = tg::Result<tg::blob::DecompressOutput>> {
+		arg: tg::blob::decompress::Arg,
+	) -> impl Future<Output = tg::Result<tg::blob::decompress::Output>> {
 		self.decompress_blob(id, arg)
 	}
 
 	fn list_builds(
 		&self,
-		args: tg::build::ListArg,
-	) -> impl Future<Output = tg::Result<tg::build::ListOutput>> {
+		args: tg::build::list::Arg,
+	) -> impl Future<Output = tg::Result<tg::build::list::Output>> {
 		self.list_builds(args)
 	}
 
 	fn try_get_build(
 		&self,
 		id: &tg::build::Id,
-		arg: tg::build::GetArg,
-	) -> impl Future<Output = tg::Result<Option<tg::build::GetOutput>>> {
-		self.try_get_build(id, arg)
+	) -> impl Future<Output = tg::Result<Option<tg::build::get::Output>>> {
+		self.try_get_build(id)
 	}
 
 	fn put_build(
 		&self,
 		id: &tg::build::Id,
-		arg: tg::build::PutArg,
+		arg: tg::build::put::Arg,
 	) -> impl Future<Output = tg::Result<()>> {
 		self.put_build(id, arg)
 	}
@@ -991,18 +896,18 @@ impl tg::Handle for Server {
 		self.pull_build(id)
 	}
 
-	fn get_or_create_build(
+	fn create_build(
 		&self,
-		arg: tg::build::GetOrCreateArg,
-	) -> impl Future<Output = tg::Result<tg::build::GetOrCreateOutput>> {
-		self.get_or_create_build(arg)
+		arg: tg::build::create::Arg,
+	) -> impl Future<Output = tg::Result<tg::build::create::Output>> {
+		self.create_build(arg)
 	}
 
 	fn try_dequeue_build(
 		&self,
-		arg: tg::build::DequeueArg,
+		arg: tg::build::dequeue::Arg,
 		stop: Option<tokio::sync::watch::Receiver<bool>>,
-	) -> impl Future<Output = tg::Result<Option<tg::build::DequeueOutput>>> {
+	) -> impl Future<Output = tg::Result<Option<tg::build::dequeue::Output>>> {
 		self.try_dequeue_build(arg, stop)
 	}
 
@@ -1013,14 +918,10 @@ impl tg::Handle for Server {
 		self.try_start_build(id)
 	}
 
-	fn touch_build(&self, id: &tg::build::Id) -> impl Future<Output = tg::Result<()>> {
-		self.touch_build(id)
-	}
-
 	fn try_get_build_status(
 		&self,
 		id: &tg::build::Id,
-		arg: tg::build::status::GetArg,
+		arg: tg::build::status::Arg,
 		stop: Option<tokio::sync::watch::Receiver<bool>>,
 	) -> impl Future<
 		Output = tg::Result<
@@ -1033,7 +934,7 @@ impl tg::Handle for Server {
 	fn try_get_build_children(
 		&self,
 		id: &tg::build::Id,
-		arg: tg::build::children::GetArg,
+		arg: tg::build::children::Arg,
 		stop: Option<tokio::sync::watch::Receiver<bool>>,
 	) -> impl Future<
 		Output = tg::Result<
@@ -1054,7 +955,7 @@ impl tg::Handle for Server {
 	fn try_get_build_log(
 		&self,
 		id: &tg::build::Id,
-		arg: tg::build::log::GetArg,
+		arg: tg::build::log::Arg,
 		stop: Option<tokio::sync::watch::Receiver<bool>>,
 	) -> impl Future<
 		Output = tg::Result<
@@ -1075,18 +976,22 @@ impl tg::Handle for Server {
 	fn try_get_build_outcome(
 		&self,
 		id: &tg::build::Id,
-		arg: tg::build::outcome::GetArg,
+		arg: tg::build::outcome::Arg,
 		stop: Option<tokio::sync::watch::Receiver<bool>>,
 	) -> impl Future<Output = tg::Result<Option<Option<tg::build::Outcome>>>> {
 		self.try_get_build_outcome(id, arg, stop)
 	}
 
-	fn set_build_outcome(
+	fn finish_build(
 		&self,
 		id: &tg::build::Id,
-		outcome: tg::build::Outcome,
+		arg: tg::build::finish::Arg,
 	) -> impl Future<Output = tg::Result<()>> {
-		self.set_build_outcome(id, outcome)
+		self.finish_build(id, arg)
+	}
+
+	fn touch_build(&self, id: &tg::build::Id) -> impl Future<Output = tg::Result<()>> {
+		self.touch_build(id)
 	}
 
 	fn format(&self, text: String) -> impl Future<Output = tg::Result<String>> {
@@ -1104,16 +1009,16 @@ impl tg::Handle for Server {
 	fn try_get_object(
 		&self,
 		id: &tg::object::Id,
-	) -> impl Future<Output = tg::Result<Option<tg::object::GetOutput>>> {
+	) -> impl Future<Output = tg::Result<Option<tg::object::get::Output>>> {
 		self.try_get_object(id)
 	}
 
 	fn put_object(
 		&self,
 		id: &tg::object::Id,
-		arg: tg::object::PutArg,
+		arg: tg::object::put::Arg,
 		transaction: Option<&Self::Transaction<'_>>,
-	) -> impl Future<Output = tg::Result<tg::object::PutOutput>> {
+	) -> impl Future<Output = tg::Result<tg::object::put::Output>> {
 		self.put_object(id, arg, transaction)
 	}
 
@@ -1125,18 +1030,18 @@ impl tg::Handle for Server {
 		self.pull_object(id)
 	}
 
-	fn search_packages(
+	fn list_packages(
 		&self,
-		arg: tg::package::SearchArg,
-	) -> impl Future<Output = tg::Result<tg::package::SearchOutput>> {
-		self.search_packages(arg)
+		arg: tg::package::list::Arg,
+	) -> impl Future<Output = tg::Result<tg::package::list::Output>> {
+		self.list_packages(arg)
 	}
 
 	fn try_get_package(
 		&self,
 		dependency: &tg::Dependency,
-		arg: tg::package::GetArg,
-	) -> impl Future<Output = tg::Result<Option<tg::package::GetOutput>>> {
+		arg: tg::package::get::Arg,
+	) -> impl Future<Output = tg::Result<Option<tg::package::get::Output>>> {
 		self.try_get_package(dependency, arg)
 	}
 
@@ -1161,7 +1066,7 @@ impl tg::Handle for Server {
 	fn get_package_outdated(
 		&self,
 		dependency: &tg::Dependency,
-	) -> impl Future<Output = tg::Result<tg::package::OutdatedOutput>> {
+	) -> impl Future<Output = tg::Result<tg::package::outdated::Output>> {
 		self.get_package_outdated(dependency)
 	}
 
@@ -1182,19 +1087,19 @@ impl tg::Handle for Server {
 
 	fn list_roots(
 		&self,
-		arg: tg::root::ListArg,
-	) -> impl Future<Output = tg::Result<tg::root::ListOutput>> {
+		arg: tg::root::list::Arg,
+	) -> impl Future<Output = tg::Result<tg::root::list::Output>> {
 		self.list_roots(arg)
 	}
 
 	fn try_get_root(
 		&self,
 		name: &str,
-	) -> impl Future<Output = tg::Result<Option<tg::root::GetOutput>>> {
+	) -> impl Future<Output = tg::Result<Option<tg::root::get::Output>>> {
 		self.try_get_root(name)
 	}
 
-	fn add_root(&self, arg: tg::root::AddArg) -> impl Future<Output = tg::Result<()>> {
+	fn put_root(&self, arg: tg::root::add::Arg) -> impl Future<Output = tg::Result<()>> {
 		self.add_root(arg)
 	}
 
@@ -1226,17 +1131,6 @@ impl tg::Handle for Server {
 
 impl std::ops::Deref for Server {
 	type Target = Inner;
-
-	fn deref(&self) -> &Self::Target {
-		&self.0
-	}
-}
-
-impl<H> std::ops::Deref for Http<H>
-where
-	H: tg::Handle,
-{
-	type Target = HttpInner<H>;
 
 	fn deref(&self) -> &Self::Target {
 		&self.0

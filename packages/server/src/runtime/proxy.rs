@@ -1,21 +1,16 @@
-use crate::Http;
 use bytes::Bytes;
 use futures::{Future, Stream};
 use std::sync::Arc;
 use tangram_client as tg;
 use tokio::io::{AsyncBufRead, AsyncRead, AsyncWrite};
-use url::Url;
 
 #[derive(Clone)]
 pub struct Server(Arc<Inner>);
 
 pub struct Inner {
 	build: tg::build::Id,
-	http: std::sync::Mutex<Option<Http<Server>>>,
 	path_map: Option<PathMap>,
 	server: crate::Server,
-	shutdown: tokio::sync::watch::Sender<bool>,
-	shutdown_task: std::sync::Mutex<Option<tokio::task::JoinHandle<tg::Result<()>>>>,
 }
 
 #[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
@@ -26,73 +21,13 @@ pub struct PathMap {
 }
 
 impl Server {
-	pub async fn start(
-		server: &crate::Server,
-		build: &tg::build::Id,
-		url: Url,
-		path_map: Option<PathMap>,
-	) -> tg::Result<Self> {
-		// Create an owned copy of the parent build id to be used in the proxy server.
-		let build = build.clone();
-
-		// Set up a mutex to store an HTTP server.
-		let http = std::sync::Mutex::new(None);
-
-		// Create the shutdown channel.
-		let (shutdown, _) = tokio::sync::watch::channel(false);
-
-		// Create the shutdown task.
-		let shutdown_task = std::sync::Mutex::new(None);
-
-		// Create the server.
+	pub fn new(server: crate::Server, build: tg::build::Id, path_map: Option<PathMap>) -> Self {
 		let inner = Inner {
 			build,
-			http,
 			path_map,
-			server: server.clone(),
-			shutdown,
-			shutdown_task,
+			server,
 		};
-		let server = Self(Arc::new(inner));
-
-		// Start the HTTP server.
-		let http = Http::start(&server, url);
-		server.http.lock().unwrap().replace(http);
-
-		Ok(server)
-	}
-
-	pub fn stop(&self) {
-		let server = self.clone();
-		let task = tokio::spawn(async move {
-			// Stop the http server.
-			if let Some(http) = server.http.lock().unwrap().as_ref() {
-				http.stop();
-			}
-
-			// Join the http server.
-			let http = server.http.lock().unwrap().take();
-			if let Some(http) = http {
-				http.join().await?;
-			}
-
-			Ok::<_, tg::Error>(())
-		});
-		self.shutdown_task.lock().unwrap().replace(task);
-		self.shutdown.send_replace(true);
-	}
-
-	pub async fn join(&self) -> tg::Result<()> {
-		self.shutdown
-			.subscribe()
-			.wait_for(|shutdown| *shutdown)
-			.await
-			.unwrap();
-		let task = self.shutdown_task.lock().unwrap().take();
-		if let Some(task) = task {
-			task.await.unwrap()?;
-		}
-		Ok(())
+		Self(Arc::new(inner))
 	}
 
 	fn host_path_for_guest_path(&self, path: tg::Path) -> tg::Result<tg::Path> {
@@ -122,29 +57,29 @@ impl tg::Handle for Server {
 	fn archive_artifact(
 		&self,
 		id: &tg::artifact::Id,
-		arg: tg::artifact::ArchiveArg,
-	) -> impl Future<Output = tg::Result<tg::artifact::ArchiveOutput>> {
+		arg: tg::artifact::archive::Arg,
+	) -> impl Future<Output = tg::Result<tg::artifact::archive::Output>> {
 		self.server.archive_artifact(id, arg)
 	}
 
 	fn extract_artifact(
 		&self,
-		arg: tg::artifact::ExtractArg,
-	) -> impl Future<Output = tg::Result<tg::artifact::ExtractOutput>> {
+		arg: tg::artifact::extract::Arg,
+	) -> impl Future<Output = tg::Result<tg::artifact::extract::Output>> {
 		self.server.extract_artifact(arg)
 	}
 
 	fn bundle_artifact(
 		&self,
 		id: &tg::artifact::Id,
-	) -> impl Future<Output = tg::Result<tg::artifact::BundleOutput>> {
+	) -> impl Future<Output = tg::Result<tg::artifact::bundle::Output>> {
 		self.server.bundle_artifact(id)
 	}
 
 	async fn check_in_artifact(
 		&self,
-		mut arg: tg::artifact::CheckInArg,
-	) -> tg::Result<tg::artifact::CheckInOutput> {
+		mut arg: tg::artifact::checkin::Arg,
+	) -> tg::Result<tg::artifact::checkin::Output> {
 		// Replace the path with the host path.
 		arg.path = self.host_path_for_guest_path(arg.path)?;
 
@@ -153,7 +88,7 @@ impl tg::Handle for Server {
 
 		// If the VFS is disabled, then check out the artifact.
 		if !self.server.options.vfs {
-			let arg = tg::artifact::CheckOutArg::default();
+			let arg = tg::artifact::checkout::Arg::default();
 			self.check_out_artifact(&output.id, arg).await?;
 		}
 
@@ -163,8 +98,8 @@ impl tg::Handle for Server {
 	async fn check_out_artifact(
 		&self,
 		id: &tg::artifact::Id,
-		mut arg: tg::artifact::CheckOutArg,
-	) -> tg::Result<tg::artifact::CheckOutOutput> {
+		mut arg: tg::artifact::checkout::Arg,
+	) -> tg::Result<tg::artifact::checkout::Output> {
 		// Replace the path with the host path.
 		if let Some(path) = &mut arg.path {
 			*path = self.host_path_for_guest_path(path.clone())?;
@@ -185,32 +120,31 @@ impl tg::Handle for Server {
 	fn compress_blob(
 		&self,
 		id: &tg::blob::Id,
-		arg: tg::blob::CompressArg,
-	) -> impl Future<Output = tg::Result<tg::blob::CompressOutput>> {
+		arg: tg::blob::compress::Arg,
+	) -> impl Future<Output = tg::Result<tg::blob::compress::Output>> {
 		self.server.compress_blob(id, arg)
 	}
 
 	fn decompress_blob(
 		&self,
 		id: &tg::blob::Id,
-		arg: tg::blob::DecompressArg,
-	) -> impl Future<Output = tg::Result<tg::blob::DecompressOutput>> {
+		arg: tg::blob::decompress::Arg,
+	) -> impl Future<Output = tg::Result<tg::blob::decompress::Output>> {
 		self.server.decompress_blob(id, arg)
 	}
 
-	async fn list_builds(&self, _arg: tg::build::ListArg) -> tg::Result<tg::build::ListOutput> {
+	async fn list_builds(&self, _arg: tg::build::list::Arg) -> tg::Result<tg::build::list::Output> {
 		Err(tg::error!("forbidden"))
 	}
 
 	fn try_get_build(
 		&self,
 		id: &tg::build::Id,
-		arg: tg::build::GetArg,
-	) -> impl Future<Output = tg::Result<Option<tg::build::GetOutput>>> {
-		self.server.try_get_build(id, arg)
+	) -> impl Future<Output = tg::Result<Option<tg::build::get::Output>>> {
+		self.server.try_get_build(id)
 	}
 
-	async fn put_build(&self, _id: &tg::build::Id, _arg: tg::build::PutArg) -> tg::Result<()> {
+	async fn put_build(&self, _id: &tg::build::Id, _arg: tg::build::put::Arg) -> tg::Result<()> {
 		Err(tg::error!("forbidden"))
 	}
 
@@ -222,19 +156,19 @@ impl tg::Handle for Server {
 		Err(tg::error!("forbidden"))
 	}
 
-	fn get_or_create_build(
+	fn create_build(
 		&self,
-		mut arg: tg::build::GetOrCreateArg,
-	) -> impl Future<Output = tg::Result<tg::build::GetOrCreateOutput>> {
+		mut arg: tg::build::create::Arg,
+	) -> impl Future<Output = tg::Result<tg::build::create::Output>> {
 		arg.parent = Some(self.build.clone());
-		self.server.get_or_create_build(arg)
+		self.server.create_build(arg)
 	}
 
 	async fn try_dequeue_build(
 		&self,
-		_arg: tg::build::DequeueArg,
+		_arg: tg::build::dequeue::Arg,
 		_stop: Option<tokio::sync::watch::Receiver<bool>>,
-	) -> tg::Result<Option<tg::build::DequeueOutput>> {
+	) -> tg::Result<Option<tg::build::dequeue::Output>> {
 		Err(tg::error!("forbidden"))
 	}
 
@@ -242,14 +176,10 @@ impl tg::Handle for Server {
 		Err(tg::error!("forbidden"))
 	}
 
-	async fn touch_build(&self, _id: &tg::build::Id) -> tg::Result<()> {
-		Err(tg::error!("forbidden"))
-	}
-
 	fn try_get_build_status(
 		&self,
 		id: &tg::build::Id,
-		arg: tg::build::status::GetArg,
+		arg: tg::build::status::Arg,
 		stop: Option<tokio::sync::watch::Receiver<bool>>,
 	) -> impl Future<
 		Output = tg::Result<
@@ -262,7 +192,7 @@ impl tg::Handle for Server {
 	fn try_get_build_children(
 		&self,
 		id: &tg::build::Id,
-		arg: tg::build::children::GetArg,
+		arg: tg::build::children::Arg,
 		stop: Option<tokio::sync::watch::Receiver<bool>>,
 	) -> impl Future<
 		Output = tg::Result<
@@ -283,7 +213,7 @@ impl tg::Handle for Server {
 	fn try_get_build_log(
 		&self,
 		id: &tg::build::Id,
-		arg: tg::build::log::GetArg,
+		arg: tg::build::log::Arg,
 		stop: Option<tokio::sync::watch::Receiver<bool>>,
 	) -> impl Future<
 		Output = tg::Result<
@@ -300,17 +230,21 @@ impl tg::Handle for Server {
 	fn try_get_build_outcome(
 		&self,
 		id: &tg::build::Id,
-		arg: tg::build::outcome::GetArg,
+		arg: tg::build::outcome::Arg,
 		stop: Option<tokio::sync::watch::Receiver<bool>>,
 	) -> impl Future<Output = tg::Result<Option<Option<tg::build::Outcome>>>> {
 		self.server.try_get_build_outcome(id, arg, stop)
 	}
 
-	async fn set_build_outcome(
+	async fn finish_build(
 		&self,
 		_id: &tg::build::Id,
-		_outcome: tg::build::Outcome,
+		_arg: tg::build::finish::Arg,
 	) -> tg::Result<()> {
+		Err(tg::error!("forbidden"))
+	}
+
+	async fn touch_build(&self, _id: &tg::build::Id) -> tg::Result<()> {
 		Err(tg::error!("forbidden"))
 	}
 
@@ -329,16 +263,16 @@ impl tg::Handle for Server {
 	fn try_get_object(
 		&self,
 		id: &tg::object::Id,
-	) -> impl Future<Output = tg::Result<Option<tg::object::GetOutput>>> {
+	) -> impl Future<Output = tg::Result<Option<tg::object::get::Output>>> {
 		self.server.try_get_object(id)
 	}
 
 	fn put_object(
 		&self,
 		id: &tg::object::Id,
-		arg: tg::object::PutArg,
+		arg: tg::object::put::Arg,
 		_transaction: Option<&Self::Transaction<'_>>,
-	) -> impl Future<Output = tg::Result<tg::object::PutOutput>> {
+	) -> impl Future<Output = tg::Result<tg::object::put::Output>> {
 		self.server.put_object(id, arg, None)
 	}
 
@@ -350,18 +284,18 @@ impl tg::Handle for Server {
 		Err(tg::error!("forbidden"))
 	}
 
-	async fn search_packages(
+	async fn list_packages(
 		&self,
-		_arg: tg::package::SearchArg,
-	) -> tg::Result<tg::package::SearchOutput> {
+		_arg: tg::package::list::Arg,
+	) -> tg::Result<tg::package::list::Output> {
 		Err(tg::error!("forbidden"))
 	}
 
 	async fn try_get_package(
 		&self,
 		_dependency: &tg::Dependency,
-		_arg: tg::package::GetArg,
-	) -> tg::Result<Option<tg::package::GetOutput>> {
+		_arg: tg::package::get::Arg,
+	) -> tg::Result<Option<tg::package::get::Output>> {
 		Err(tg::error!("forbidden"))
 	}
 
@@ -383,7 +317,7 @@ impl tg::Handle for Server {
 	async fn get_package_outdated(
 		&self,
 		_dependency: &tg::Dependency,
-	) -> tg::Result<tg::package::OutdatedOutput> {
+	) -> tg::Result<tg::package::outdated::Output> {
 		Err(tg::error!("forbidden"))
 	}
 
@@ -402,15 +336,15 @@ impl tg::Handle for Server {
 		Err(tg::error!("not supported"))
 	}
 
-	async fn list_roots(&self, _arg: tg::root::ListArg) -> tg::Result<tg::root::ListOutput> {
+	async fn list_roots(&self, _arg: tg::root::list::Arg) -> tg::Result<tg::root::list::Output> {
 		Err(tg::error!("not supported"))
 	}
 
-	async fn try_get_root(&self, _name: &str) -> tg::Result<Option<tg::root::GetOutput>> {
+	async fn try_get_root(&self, _name: &str) -> tg::Result<Option<tg::root::get::Output>> {
 		Err(tg::error!("not supported"))
 	}
 
-	async fn add_root(&self, _arg: tg::root::AddArg) -> tg::Result<()> {
+	async fn put_root(&self, _arg: tg::root::add::Arg) -> tg::Result<()> {
 		Err(tg::error!("not supported"))
 	}
 

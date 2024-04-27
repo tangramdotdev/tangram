@@ -1,18 +1,18 @@
 use crate::{
 	util::http::{bad_request, full, Incoming, Outgoing},
-	Http, Server,
+	Server,
 };
 use indoc::formatdoc;
 use tangram_client as tg;
 use tangram_database::{self as db, prelude::*};
 
 impl Server {
-	pub async fn search_packages(
+	pub async fn list_packages(
 		&self,
-		arg: tg::package::SearchArg,
-	) -> tg::Result<tg::package::SearchOutput> {
+		arg: tg::package::list::Arg,
+	) -> tg::Result<tg::package::list::Output> {
 		if let Some(remote) = self.remotes.first() {
-			return remote.search_packages(arg).await;
+			return remote.list_packages(arg).await;
 		}
 
 		// Get a database connection.
@@ -44,23 +44,23 @@ impl Server {
 	}
 }
 
-impl<H> Http<H>
-where
-	H: tg::Handle,
-{
-	pub async fn handle_search_packages_request(
-		&self,
+impl Server {
+	pub(crate) async fn handle_list_packages_request<H>(
+		handle: &H,
 		request: http::Request<Incoming>,
-	) -> tg::Result<http::Response<Outgoing>> {
-		// Read the search params.
+	) -> tg::Result<http::Response<Outgoing>>
+	where
+		H: tg::Handle,
+	{
 		let Some(query) = request.uri().query() else {
 			return Ok(bad_request());
 		};
-		let arg = serde_urlencoded::from_str(query)
-			.map_err(|source| tg::error!(!source, "failed to deserialize the search params"))?;
+		let Ok(arg) = serde_urlencoded::from_str(query) else {
+			return Ok(bad_request());
+		};
 
 		// Perform the search.
-		let output = self.handle.search_packages(arg).await?;
+		let output = handle.list_packages(arg).await?;
 
 		// Create the body.
 		let body = serde_json::to_vec(&output)

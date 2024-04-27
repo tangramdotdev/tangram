@@ -76,7 +76,7 @@ pub fn syscall<'s>(
 
 async fn archive(
 	state: Rc<State>,
-	args: (tg::Artifact, tg::artifact::ArchiveFormat),
+	args: (tg::Artifact, tg::artifact::archive::Format),
 ) -> tg::Result<tg::Blob> {
 	let (artifact, format) = args;
 	let blob = artifact.archive(&state.server, format).await.map_err(
@@ -87,7 +87,7 @@ async fn archive(
 
 async fn build(state: Rc<State>, args: (tg::Target,)) -> tg::Result<tg::Value> {
 	let (target,) = args;
-	let arg = tg::build::GetOrCreateArg {
+	let arg = tg::build::create::Arg {
 		parent: Some(state.build.id().clone()),
 		remote: false,
 		retry: state.build.retry(&state.server).await?,
@@ -123,7 +123,7 @@ fn checksum(
 
 async fn compress(
 	state: Rc<State>,
-	args: (tg::Blob, tg::blob::CompressionFormat),
+	args: (tg::Blob, tg::blob::compress::Format),
 ) -> tg::Result<tg::Blob> {
 	let (blob, format) = args;
 	let blob = blob
@@ -135,7 +135,7 @@ async fn compress(
 
 async fn decompress(
 	state: Rc<State>,
-	args: (tg::Blob, tg::blob::CompressionFormat),
+	args: (tg::Blob, tg::blob::compress::Format),
 ) -> tg::Result<tg::Blob> {
 	let (blob, format) = args;
 	let blob = blob.decompress(&state.server, format).await?;
@@ -366,7 +366,7 @@ fn encoding_yaml_encode(
 
 async fn extract(
 	state: Rc<State>,
-	args: (tg::Blob, tg::artifact::ArchiveFormat),
+	args: (tg::Blob, tg::artifact::archive::Format),
 ) -> tg::Result<tg::Artifact> {
 	let (blob, format) = args;
 	let artifact = tg::Artifact::extract(&state.server, &blob, format)

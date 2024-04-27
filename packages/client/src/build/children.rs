@@ -3,14 +3,14 @@ use crate::{
 	self as tg,
 	util::http::{empty, full},
 };
-use futures::{future, FutureExt as _, Stream, StreamExt as _, TryStreamExt as _};
+use futures::{future, stream, FutureExt as _, Stream, StreamExt as _, TryStreamExt as _};
 use http_body_util::{BodyExt as _, BodyStream};
 use serde_with::serde_as;
 use tokio_util::io::StreamReader;
 
 #[serde_as]
 #[derive(Clone, Debug, Default, serde::Serialize, serde::Deserialize)]
-pub struct GetArg {
+pub struct Arg {
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub length: Option<u64>,
 
@@ -32,11 +32,57 @@ pub struct Chunk {
 	pub items: Vec<Id>,
 }
 
+impl tg::Build {
+	pub async fn children<H>(
+		&self,
+		handle: &H,
+		arg: tg::build::children::Arg,
+	) -> tg::Result<impl Stream<Item = tg::Result<Self>> + Send + 'static>
+	where
+		H: tg::Handle,
+	{
+		self.try_get_children(handle, arg)
+			.await?
+			.ok_or_else(|| tg::error!("failed to get the build"))
+	}
+
+	pub async fn try_get_children<H>(
+		&self,
+		handle: &H,
+		arg: tg::build::children::Arg,
+	) -> tg::Result<Option<impl Stream<Item = tg::Result<Self>> + Send + 'static>>
+	where
+		H: tg::Handle,
+	{
+		Ok(handle
+			.try_get_build_children(self.id(), arg, None)
+			.await?
+			.map(|stream| {
+				stream
+					.map_ok(|chunk| {
+						stream::iter(chunk.items.into_iter().map(tg::Build::with_id).map(Ok))
+					})
+					.try_flatten()
+					.boxed()
+			}))
+	}
+
+	pub async fn add_child<H>(&self, handle: &H, child: &Self) -> tg::Result<()>
+	where
+		H: tg::Handle,
+	{
+		let id = self.id();
+		let child_id = child.id();
+		handle.add_build_child(id, child_id).await?;
+		Ok(())
+	}
+}
+
 impl tg::Client {
 	pub async fn try_get_build_children(
 		&self,
 		id: &tg::build::Id,
-		arg: tg::build::children::GetArg,
+		arg: tg::build::children::Arg,
 		stop: Option<tokio::sync::watch::Receiver<bool>>,
 	) -> tg::Result<
 		Option<impl Stream<Item = tg::Result<tg::build::children::Chunk>> + Send + 'static>,

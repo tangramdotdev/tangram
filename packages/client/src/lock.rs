@@ -1,4 +1,3 @@
-pub use self::data::Data;
 use crate as tg;
 use bytes::Bytes;
 use either::Either;
@@ -8,6 +7,8 @@ use futures::{
 };
 use itertools::Itertools as _;
 use std::{collections::BTreeMap, path::Path, sync::Arc};
+
+pub use self::data::Data;
 
 #[derive(
 	Clone,
@@ -179,7 +180,7 @@ impl Lock {
 		let data = self.data(handle, transaction).await?;
 		let bytes = data.serialize()?;
 		let id = Id::new(&bytes);
-		let arg = tg::object::PutArg {
+		let arg = tg::object::put::Arg {
 			bytes,
 			count: None,
 			weight: None,

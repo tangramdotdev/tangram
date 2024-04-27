@@ -11,7 +11,7 @@ use std::{
 use tangram_client as tg;
 use tangram_fuse::sys;
 use tokio::io::{AsyncReadExt as _, AsyncSeekExt as _};
-use zerocopy::{AsBytes, FromBytes};
+use zerocopy::{AsBytes as _, FromBytes as _};
 
 /// A FUSE server.
 #[derive(Clone)]
@@ -1197,7 +1197,7 @@ impl Node {
 
 fn read_data<T>(request_data: &[u8]) -> tg::Result<T>
 where
-	T: FromBytes,
+	T: zerocopy::FromBytes,
 {
 	T::read_from_prefix(request_data)
 		.ok_or_else(|| tg::error!("failed to deserialize the request data"))

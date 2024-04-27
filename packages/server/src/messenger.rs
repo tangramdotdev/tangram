@@ -54,8 +54,9 @@ impl Messenger {
 				.left_stream()),
 			Messenger::Nats(client) => {
 				let subject = "builds.created";
+				let queue_group = "queue".to_owned();
 				Ok(client
-					.subscribe(subject)
+					.queue_subscribe(subject, queue_group)
 					.await
 					.map_err(|source| tg::error!(!source, "failed to subscribe"))?
 					.map(|_| ())

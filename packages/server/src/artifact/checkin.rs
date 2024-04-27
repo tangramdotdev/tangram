@@ -1,6 +1,6 @@
 use crate::{
 	util::http::{full, Incoming, Outgoing},
-	Http, Server,
+	Server,
 };
 use futures::{stream::FuturesUnordered, TryStreamExt as _};
 use http_body_util::BodyExt as _;
@@ -12,8 +12,8 @@ use tangram_database::prelude::*;
 impl Server {
 	pub async fn check_in_artifact(
 		&self,
-		arg: tg::artifact::CheckInArg,
-	) -> tg::Result<tg::artifact::CheckInOutput> {
+		arg: tg::artifact::checkin::Arg,
+	) -> tg::Result<tg::artifact::checkin::Output> {
 		// If this is a checkin of a path in the checkouts directory, then retrieve the corresponding artifact.
 		let checkouts_path = self.checkouts_path().try_into()?;
 		if let Some(path) = arg.path.diff(&checkouts_path).filter(tg::Path::is_internal) {
@@ -27,7 +27,7 @@ impl Server {
 				.parse::<tg::artifact::Id>()?;
 			let path = tg::Path::with_components(path.components().iter().skip(2).cloned());
 			if path.components().len() == 1 {
-				return Ok(tg::artifact::CheckInOutput { id });
+				return Ok(tg::artifact::checkin::Output { id });
 			}
 			let artifact = tg::Artifact::with_id(id);
 			let directory = artifact
@@ -36,7 +36,7 @@ impl Server {
 				.ok_or_else(|| tg::error!("invalid path"))?;
 			let artifact = directory.get(self, &path).await?;
 			let id = artifact.id(self, None).await?;
-			return Ok(tg::artifact::CheckInOutput { id });
+			return Ok(tg::artifact::checkin::Output { id });
 		}
 
 		// Get a database connection.
@@ -68,7 +68,7 @@ impl Server {
 		drop(connection);
 
 		// Create the output.
-		let output = tg::artifact::CheckInOutput { id };
+		let output = tg::artifact::checkin::Output { id };
 
 		Ok(output)
 	}
@@ -154,7 +154,7 @@ impl Server {
 		let data = tg::directory::Data { entries };
 		let bytes = data.serialize()?;
 		let id = tg::directory::Id::new(&bytes);
-		let arg = tg::object::PutArg {
+		let arg = tg::object::put::Arg {
 			bytes,
 			count: None,
 			weight: None,
@@ -205,7 +205,7 @@ impl Server {
 		};
 		let bytes = data.serialize()?;
 		let id = tg::file::Id::new(&bytes);
-		let arg = tg::object::PutArg {
+		let arg = tg::object::put::Arg {
 			bytes,
 			count: None,
 			weight: None,
@@ -280,7 +280,7 @@ impl Server {
 		let data = tg::symlink::Data { artifact, path };
 		let bytes = data.serialize()?;
 		let id = tg::symlink::Id::new(&bytes);
-		let arg = tg::object::PutArg {
+		let arg = tg::object::put::Arg {
 			bytes,
 			count: None,
 			weight: None,
@@ -292,15 +292,14 @@ impl Server {
 	}
 }
 
-impl<H> Http<H>
-where
-	H: tg::Handle,
-{
-	pub async fn handle_check_in_artifact_request(
-		&self,
+impl Server {
+	pub(crate) async fn handle_check_in_artifact_request<H>(
+		handle: &H,
 		request: http::Request<Incoming>,
-	) -> tg::Result<http::Response<Outgoing>> {
-		// Read the body.
+	) -> tg::Result<http::Response<Outgoing>>
+	where
+		H: tg::Handle,
+	{
 		let bytes = request
 			.into_body()
 			.collect()
@@ -310,7 +309,7 @@ where
 		let arg = serde_json::from_slice(&bytes)
 			.map_err(|source| tg::error!(!source, "failed to deserialize the body"))?;
 
-		let output = self.handle.check_in_artifact(arg).await?;
+		let output = handle.check_in_artifact(arg).await?;
 
 		// Create the response.
 		let body = serde_json::to_vec(&output)

@@ -1,6 +1,6 @@
 use crate::{
 	util::http::{bad_request, full, Incoming, Outgoing},
-	Http, Server,
+	Server,
 };
 use http_body_util::BodyExt as _;
 use tangram_client as tg;
@@ -9,21 +9,20 @@ impl Server {
 	pub async fn archive_artifact(
 		&self,
 		_id: &tg::artifact::Id,
-		_arg: tg::artifact::ArchiveArg,
-	) -> tg::Result<tg::artifact::ArchiveOutput> {
+		_arg: tg::artifact::archive::Arg,
+	) -> tg::Result<tg::artifact::archive::Output> {
 		Err(tg::error!("unimplemented"))
 	}
 }
 
-impl<H> Http<H>
-where
-	H: tg::Handle,
-{
-	pub async fn handle_archive_artifact_request(
-		&self,
+impl Server {
+	pub(crate) async fn handle_archive_artifact_request<H>(
+		handle: &H,
 		request: http::Request<Incoming>,
-	) -> tg::Result<http::Response<Outgoing>> {
-		// Get the path params.
+	) -> tg::Result<http::Response<Outgoing>>
+	where
+		H: tg::Handle,
+	{
 		let path_components: Vec<&str> = request.uri().path().split('/').skip(1).collect();
 		let ["artifacts", id, "archive"] = path_components.as_slice() else {
 			let path = request.uri().path();
@@ -44,7 +43,7 @@ where
 			.map_err(|source| tg::error!(!source, "failed to deserialize the body"))?;
 
 		// Archive the artifact.
-		let output = self.handle.archive_artifact(&id, arg).await?;
+		let output = handle.archive_artifact(&id, arg).await?;
 
 		// Create the response.
 		let body = serde_json::to_vec(&output)

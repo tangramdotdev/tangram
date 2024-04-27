@@ -167,7 +167,7 @@ impl Target {
 		let data = self.data(handle, transaction).await?;
 		let bytes = data.serialize()?;
 		let id = Id::new(&bytes);
-		let arg = tg::object::PutArg {
+		let arg = tg::object::put::Arg {
 			bytes,
 			count: None,
 			weight: None,
@@ -317,7 +317,7 @@ impl Target {
 	pub async fn build<H>(
 		&self,
 		handle: &H,
-		arg: tg::build::GetOrCreateArg,
+		arg: tg::build::create::Arg,
 	) -> tg::Result<tg::Value>
 	where
 		H: tg::Handle,

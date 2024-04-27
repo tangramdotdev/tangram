@@ -1,6 +1,6 @@
 use crate::{
 	util::http::{ok, Incoming, Outgoing},
-	Http, Server,
+	Server,
 };
 use http_body_util::BodyExt as _;
 use indoc::formatdoc;
@@ -89,15 +89,14 @@ impl Server {
 	}
 }
 
-impl<H> Http<H>
-where
-	H: tg::Handle,
-{
-	pub async fn handle_publish_package_request(
-		&self,
+impl Server {
+	pub(crate) async fn handle_publish_package_request<H>(
+		handle: &H,
 		request: http::Request<Incoming>,
-	) -> tg::Result<http::Response<Outgoing>> {
-		// Read the body.
+	) -> tg::Result<http::Response<Outgoing>>
+	where
+		H: tg::Handle,
+	{
 		let bytes = request
 			.into_body()
 			.collect()
@@ -108,7 +107,7 @@ where
 			.map_err(|source| tg::error!(!source, "invalid request"))?;
 
 		// Publish the package.
-		self.handle.publish_package(&package_id).await?;
+		handle.publish_package(&package_id).await?;
 
 		Ok(ok())
 	}

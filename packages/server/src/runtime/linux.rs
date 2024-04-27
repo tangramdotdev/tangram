@@ -98,7 +98,7 @@ impl Runtime {
 				.map(tg::Artifact::with_id)
 				.chain([self.env.clone().into(), self.sh.clone().into()])
 				.map(|artifact| async move {
-					let arg = tg::artifact::CheckOutArg::default();
+					let arg = tg::artifact::checkout::Arg::default();
 					artifact.check_out(server, arg).await?;
 					Ok::<_, tg::Error>(())
 				})
@@ -210,10 +210,9 @@ impl Runtime {
 			.map_err(|source| tg::error!(!source, "failed to parse the proxy server url"))?;
 
 		// Start the proxy server.
-		let proxy_server =
-			proxy::Server::start(server, build.id(), proxy_server_host_url, Some(path_map))
-				.await
-				.map_err(|source| tg::error!(!source, "failed to create the proxy server"))?;
+		let proxy = proxy::Server::new(server.clone(), build.id().clone(), None);
+		let (_, stop) = tokio::sync::watch::channel(false);
+		let proxy_task = tokio::spawn(Server::serve(proxy, proxy_server_host_url.clone(), stop));
 
 		// Render the executable.
 		let executable = target.executable(server).await?;
@@ -597,7 +596,7 @@ impl Runtime {
 			let ret = unsafe { libc::kill(root_process_pid, libc::SIGKILL) };
 			if ret != 0 {
 				let error = std::io::Error::last_os_error();
-				tracing::error!(?ret, ?error, "failed to kill the root process");
+				tracing::trace!(?ret, ?error, "failed to kill the root process");
 				return;
 			}
 
@@ -613,7 +612,7 @@ impl Runtime {
 				};
 				if ret == -1 {
 					let error = std::io::Error::last_os_error();
-					tracing::error!(?ret, ?error, "failed to wait for the root process to exit");
+					tracing::trace!(?ret, ?error, "failed to wait for the root process to exit");
 				}
 			});
 		};
@@ -767,12 +766,8 @@ impl Runtime {
 			},
 		};
 
-		// Stop and join the proxy server.
-		proxy_server.stop();
-		proxy_server
-			.join()
-			.await
-			.map_err(|source| tg::error!(!source, "failed to stop the proxy server"))?;
+		// Abort the proxy task.
+		proxy_task.abort();
 
 		// Create the output.
 		let value = if tokio::fs::try_exists(&output_host_path)

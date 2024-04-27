@@ -1,6 +1,6 @@
 use crate::{
 	util::http::{not_found, Incoming, Outgoing},
-	Http, Server,
+	Server,
 };
 use futures::{future, stream, FutureExt as _, Stream, StreamExt as _, TryStreamExt as _};
 use http_body_util::StreamBody;
@@ -13,7 +13,7 @@ impl Server {
 	pub async fn try_get_build_status(
 		&self,
 		id: &tg::build::Id,
-		arg: tg::build::status::GetArg,
+		arg: tg::build::status::Arg,
 		stop: Option<tokio::sync::watch::Receiver<bool>>,
 	) -> tg::Result<Option<impl Stream<Item = tg::Result<tg::build::Status>> + Send + 'static>> {
 		if let Some(status) = self
@@ -34,7 +34,7 @@ impl Server {
 	pub(crate) async fn try_get_build_status_local(
 		&self,
 		id: &tg::build::Id,
-		arg: tg::build::status::GetArg,
+		arg: tg::build::status::Arg,
 		stop: Option<tokio::sync::watch::Receiver<bool>>,
 	) -> tg::Result<Option<impl Stream<Item = tg::Result<tg::build::Status>> + Send + 'static>> {
 		// Verify the build is local.
@@ -98,7 +98,7 @@ impl Server {
 		Ok(Some(stream))
 	}
 
-	pub async fn try_get_build_status_local_inner(
+	async fn try_get_build_status_local_inner(
 		&self,
 		id: &tg::build::Id,
 	) -> tg::Result<tg::build::Status> {
@@ -133,7 +133,7 @@ impl Server {
 	async fn try_get_build_status_remote(
 		&self,
 		id: &tg::build::Id,
-		arg: tg::build::status::GetArg,
+		arg: tg::build::status::Arg,
 		stop: Option<tokio::sync::watch::Receiver<bool>>,
 	) -> tg::Result<Option<impl Stream<Item = tg::Result<tg::build::Status>> + Send + 'static>> {
 		let Some(remote) = self.remotes.first() else {
@@ -146,15 +146,14 @@ impl Server {
 	}
 }
 
-impl<H> Http<H>
-where
-	H: tg::Handle,
-{
-	pub async fn handle_get_build_status_request(
-		&self,
+impl Server {
+	pub(crate) async fn handle_get_build_status_request<H>(
+		handle: &H,
 		request: http::Request<Incoming>,
-	) -> tg::Result<hyper::Response<Outgoing>> {
-		// Get the path params.
+	) -> tg::Result<http::Response<Outgoing>>
+	where
+		H: tg::Handle,
+	{
 		let path_components: Vec<&str> = request.uri().path().split('/').skip(1).collect();
 		let ["builds", id, "status"] = path_components.as_slice() else {
 			let path = request.uri().path();
@@ -189,11 +188,7 @@ where
 			.transpose()?;
 
 		let stop = request.extensions().get().cloned().unwrap();
-		let Some(stream) = self
-			.handle
-			.try_get_build_status(&id, arg, Some(stop))
-			.await?
-		else {
+		let Some(stream) = handle.try_get_build_status(&id, arg, Some(stop)).await? else {
 			return Ok(not_found());
 		};
 

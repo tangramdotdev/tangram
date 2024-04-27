@@ -1,6 +1,6 @@
 use crate::{
 	util::http::{full, Incoming, Outgoing},
-	Http, Server,
+	Server,
 };
 use futures::{future, stream, FutureExt as _, StreamExt as _};
 use http_body_util::BodyExt as _;
@@ -13,9 +13,9 @@ use tokio_stream::wrappers::IntervalStream;
 impl Server {
 	pub async fn try_dequeue_build(
 		&self,
-		arg: tg::build::DequeueArg,
+		arg: tg::build::dequeue::Arg,
 		stop: Option<tokio::sync::watch::Receiver<bool>>,
-	) -> tg::Result<Option<tg::build::DequeueOutput>> {
+	) -> tg::Result<Option<tg::build::dequeue::Output>> {
 		// Create the event stream.
 		let created = self.messenger.subscribe_to_build_created().await?;
 		let interval =
@@ -62,21 +62,21 @@ impl Server {
 			else {
 				continue;
 			};
-			return Ok(Some(tg::build::DequeueOutput { id }));
+			return Ok(Some(tg::build::dequeue::Output { id }));
 		}
 
 		Ok(None)
 	}
 }
 
-impl<H> Http<H>
-where
-	H: tg::Handle,
-{
-	pub async fn handle_dequeue_build_request(
-		&self,
+impl Server {
+	pub(crate) async fn handle_dequeue_build_request<H>(
+		handle: &H,
 		request: http::Request<Incoming>,
-	) -> tg::Result<http::Response<Outgoing>> {
+	) -> tg::Result<http::Response<Outgoing>>
+	where
+		H: tg::Handle,
+	{
 		let stop = request.extensions().get().cloned().unwrap();
 
 		// Read the body.
@@ -90,7 +90,7 @@ where
 			.map_err(|source| tg::error!(!source, "failed to deserialize the body"))?;
 
 		// Dequeue a build.
-		let output = self.handle.try_dequeue_build(arg, stop).await?;
+		let output = handle.try_dequeue_build(arg, stop).await?;
 
 		// Create the body.
 		let body = serde_json::to_vec(&output)

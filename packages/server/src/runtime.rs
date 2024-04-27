@@ -1,17 +1,18 @@
 use crate::{
 	util::http::{full, Incoming, Outgoing},
-	Http, Server,
+	Server,
 };
 use futures::Future;
 use tangram_client as tg;
+
+mod proxy;
+mod util;
 
 #[cfg(target_os = "macos")]
 pub mod darwin;
 pub mod js;
 #[cfg(target_os = "linux")]
 pub mod linux;
-mod proxy;
-pub mod util;
 
 pub trait Trait: Clone {
 	fn run(&self, build: &tg::Build) -> impl Future<Output = tg::Result<tg::Value>> + Send;
@@ -55,16 +56,15 @@ impl Server {
 	}
 }
 
-impl<H> Http<H>
-where
-	H: tg::Handle,
-{
-	pub async fn handle_get_js_runtime_doc_request(
-		&self,
+impl Server {
+	pub(crate) async fn handle_get_js_runtime_doc_request<H>(
+		handle: &H,
 		_request: http::Request<Incoming>,
-	) -> tg::Result<http::Response<Outgoing>> {
-		// Get the doc.
-		let output = self.handle.get_js_runtime_doc().await?;
+	) -> tg::Result<http::Response<Outgoing>>
+	where
+		H: tg::Handle,
+	{
+		let output = handle.get_js_runtime_doc().await?;
 
 		// Create the body.
 		let body = serde_json::to_vec(&output)

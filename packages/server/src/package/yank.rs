@@ -1,6 +1,6 @@
 use crate::{
 	util::http::{bad_request, ok, Incoming, Outgoing},
-	Http, Server,
+	Server,
 };
 use indoc::formatdoc;
 use tangram_client as tg;
@@ -11,7 +11,7 @@ impl Server {
 		let id = package.id(self, None).await?.clone();
 		if let Some(remote) = self.remotes.first() {
 			let dependency = tg::Dependency::with_id(id);
-			let arg = tg::package::GetArg {
+			let arg = tg::package::get::Arg {
 				yanked: true,
 				..Default::default()
 			};
@@ -89,15 +89,14 @@ impl Server {
 	}
 }
 
-impl<H> Http<H>
-where
-	H: tg::Handle,
-{
-	pub async fn handle_yank_package_request(
-		&self,
+impl Server {
+	pub(crate) async fn handle_yank_package_request<H>(
+		handle: &H,
 		request: http::Request<Incoming>,
-	) -> tg::Result<http::Response<Outgoing>> {
-		// Get the path params.
+	) -> tg::Result<http::Response<Outgoing>>
+	where
+		H: tg::Handle,
+	{
 		let path_components: Vec<&str> = request.uri().path().split('/').skip(1).collect();
 		let ["packages", dependency, "yank"] = path_components.as_slice() else {
 			let path = request.uri().path();
@@ -108,7 +107,7 @@ where
 		};
 
 		// Publish the package.
-		self.handle.yank_package(&dependency).await?;
+		handle.yank_package(&dependency).await?;
 
 		Ok(ok())
 	}

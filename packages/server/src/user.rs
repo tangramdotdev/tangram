@@ -1,6 +1,6 @@
 use crate::{
-	util::http::{full, unauthorized, Incoming, Outgoing},
-	Http, Server,
+	util::http::{full, get_token, unauthorized, Incoming, Outgoing},
+	Server,
 };
 use indoc::formatdoc;
 use tangram_client as tg;
@@ -42,16 +42,15 @@ impl Server {
 	}
 }
 
-impl<H> Http<H>
-where
-	H: tg::Handle,
-{
-	pub async fn handle_get_user_request(
-		&self,
+impl Server {
+	pub(crate) async fn handle_get_user_request<H>(
+		handle: &H,
 		request: http::Request<Incoming>,
-	) -> tg::Result<http::Response<Outgoing>> {
-		// Get the user from the request.
-		let Some(user) = self.try_get_user_from_request(&request).await? else {
+	) -> tg::Result<http::Response<Outgoing>>
+	where
+		H: tg::Handle,
+	{
+		let Some(user) = Self::try_get_user_from_request(handle, &request).await? else {
 			return Ok(unauthorized());
 		};
 
@@ -67,5 +66,25 @@ where
 			.unwrap();
 
 		Ok(response)
+	}
+
+	async fn try_get_user_from_request<H>(
+		handle: &H,
+		request: &http::Request<Incoming>,
+	) -> tg::Result<Option<tg::user::User>>
+	where
+		H: tg::Handle,
+	{
+		// Get the token.
+		let Some(token) = get_token(request, None) else {
+			return Ok(None);
+		};
+
+		// Get the user.
+		let Some(user) = handle.get_user(token).await? else {
+			return Ok(None);
+		};
+
+		Ok(Some(user))
 	}
 }

@@ -3,7 +3,6 @@ use either::Either;
 use futures::{future, FutureExt};
 use num::ToPrimitive;
 use std::{
-	fmt,
 	os::unix::ffi::OsStrExt as _,
 	path::{Path, PathBuf},
 	pin::pin,
@@ -129,24 +128,6 @@ pub struct Context {
 	minor_version: u32,
 	current_file_handle: Option<nfs_fh4>,
 	saved_file_handle: Option<nfs_fh4>,
-}
-
-impl fmt::Display for Context {
-	fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-		write!(f, "(current: ")?;
-		if let Some(current) = self.current_file_handle {
-			write!(f, "{}", current.0)?;
-		} else {
-			write!(f, "nil")?;
-		}
-		write!(f, " saved: ")?;
-		if let Some(saved) = self.saved_file_handle {
-			write!(f, "{}", saved.0)?;
-		} else {
-			write!(f, "nil")?;
-		}
-		write!(f, ")")
-	}
 }
 
 impl Server {

@@ -46,15 +46,3 @@ impl Server {
 		}
 	}
 }
-
-pub async fn unmount(kind: Kind, path: &Path) -> tg::Result<()> {
-	match kind {
-		Kind::Fuse => {
-			fuse::Server::unmount(path).await?;
-		},
-		Kind::Nfs => {
-			nfs::Server::unmount(path).await?;
-		},
-	}
-	Ok(())
-}

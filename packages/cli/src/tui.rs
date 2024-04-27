@@ -85,17 +85,20 @@ struct Log<H>
 where
 	H: tg::Handle,
 {
-	// The build we're logging.
+	// The build.
 	build: tg::Build,
 
 	// A buffer of log chunks.
 	chunks: tokio::sync::Mutex<Vec<tg::build::log::Chunk>>,
 
-	// Whether we've reached eof or not.
+	// Whether the log has reached EOF.
 	eof: AtomicBool,
 
 	// Channel used to send UI events.
 	event_sender: tokio::sync::mpsc::UnboundedSender<LogEvent>,
+
+	// The event handler task.
+	event_task: std::sync::Mutex<Option<tokio::task::JoinHandle<tg::Result<()>>>>,
 
 	// The handle.
 	handle: H,
@@ -103,23 +106,20 @@ where
 	// The lines of text that will be displayed.
 	lines: std::sync::Mutex<Vec<String>>,
 
-	// The log streaming task.
-	task: std::sync::Mutex<Option<tokio::task::JoinHandle<tg::Result<()>>>>,
-
-	// A watch to be notified when new logs are received from the log task.
-	watch: tokio::sync::Mutex<Option<tokio::sync::watch::Receiver<()>>>,
-
-	// The maximum position of the log we've seen so far.
+	// The maximum position of the log seen so far.
 	max_position: AtomicU64,
-
-	// The event handler task.
-	event_task: std::sync::Mutex<Option<tokio::task::JoinHandle<tg::Result<()>>>>,
 
 	// The bounding box of the log view.
 	rect: tokio::sync::watch::Sender<Rect>,
 
 	// The current state of the log's scrolling position.
 	scroll: tokio::sync::Mutex<Option<scroll::Scroll>>,
+
+	// The log streaming task.
+	task: std::sync::Mutex<Option<tokio::task::JoinHandle<tg::Result<()>>>>,
+
+	// A watch to be notified when new logs are received from the log task.
+	watch: tokio::sync::Mutex<Option<tokio::sync::watch::Receiver<()>>>,
 }
 
 enum LogEvent {
@@ -493,7 +493,7 @@ where
 		let task = tokio::task::spawn({
 			let item = item.clone();
 			async move {
-				let arg = tg::build::status::GetArg::default();
+				let arg = tg::build::status::Arg::default();
 				let Ok(mut stream) = item.build.status(&item.handle, arg).await else {
 					item.state.lock().unwrap().indicator = TreeItemIndicator::Errored;
 					return;
@@ -566,7 +566,7 @@ where
 		let children_task = tokio::task::spawn({
 			let item = self.clone();
 			async move {
-				let arg = tg::build::children::GetArg {
+				let arg = tg::build::children::Arg {
 					position: Some(SeekFrom::Start(0)),
 					..Default::default()
 				};
@@ -841,7 +841,7 @@ where
 			.build
 			.log(
 				client,
-				tg::build::log::GetArg {
+				tg::build::log::Arg {
 					length,
 					position,
 					timeout,
@@ -1024,7 +1024,7 @@ where
 			.build
 			.log(
 				&self.handle,
-				tg::build::log::GetArg {
+				tg::build::log::Arg {
 					length,
 					position,
 					..Default::default()

@@ -52,6 +52,7 @@ deno_core_icudata = "0.73"
 derive_more = { version = "1.0.0-beta.6", features = ["full"] }
 dialoguer = "0.11"
 either = { version = "1", features = ["serde"] }
+erased-serde = "0.4"
 fastcdc = { version = "3", features = ["tokio"] }
 filetime = "0.2"
 fnv = "1"
