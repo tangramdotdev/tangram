@@ -75,6 +75,7 @@ swc_core = { workspace = true }
 tangram_client = { workspace = true }
 tangram_database = { workspace = true }
 tangram_fuse = { workspace = true }
+tangram_messenger  = { workspace = true }
 tangram_nfs = { workspace = true }
 tangram_sse = { workspace = true }
 tar = { workspace = true }

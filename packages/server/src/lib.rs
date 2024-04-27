@@ -199,12 +199,14 @@ impl Server {
 
 		// Create the messenger.
 		let messenger = match &options.messenger {
-			self::options::Messenger::Channel => Messenger::new_channel(),
+			self::options::Messenger::Memory => {
+				Messenger::Left(tangram_messenger::memory::Messenger::new())
+			},
 			self::options::Messenger::Nats(nats) => {
 				let client = nats::connect(nats.url.to_string())
 					.await
 					.map_err(|source| tg::error!(!source, "failed to create the NATS client"))?;
-				Messenger::new_nats(client)
+				Messenger::Right(tangram_messenger::nats::Messenger::new(client))
 			},
 		};
 

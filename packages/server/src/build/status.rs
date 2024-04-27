@@ -7,6 +7,7 @@ use http_body_util::StreamBody;
 use indoc::formatdoc;
 use tangram_client as tg;
 use tangram_database::{self as db, prelude::*};
+use tangram_messenger::Messenger as _;
 use tokio_stream::wrappers::IntervalStream;
 
 impl Server {
@@ -43,7 +44,12 @@ impl Server {
 		}
 
 		// Create the event stream.
-		let status = self.messenger.subscribe_to_build_status(id).await?;
+		let status = self
+			.messenger
+			.subscribe(format!("builds.{id}.status"), None)
+			.await
+			.map_err(|source| tg::error!(!source, "failed to subscribe"))?
+			.map(|_| ());
 		let interval =
 			IntervalStream::new(tokio::time::interval(std::time::Duration::from_secs(60)))
 				.map(|_| ());

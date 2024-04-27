@@ -2,8 +2,10 @@ use crate::{
 	util::http::{full, not_found, Incoming, Outgoing},
 	Server,
 };
+use bytes::Bytes;
 use tangram_client as tg;
 use tangram_database::{self as db, prelude::*};
+use tangram_messenger::Messenger as _;
 use time::format_description::well_known::Rfc3339;
 
 impl Server {
@@ -53,7 +55,10 @@ impl Server {
 
 		// Publish the message.
 		if output {
-			self.messenger.publish_to_build_status(id).await?;
+			self.messenger
+				.publish(format!("builds.{id}.status"), Bytes::new())
+				.await
+				.map_err(|source| tg::error!(!source, "failed to publish"))?;
 		}
 
 		Ok(Some(output))

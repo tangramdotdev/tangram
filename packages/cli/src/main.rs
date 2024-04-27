@@ -386,11 +386,9 @@ impl Cli {
 		let messenger = config
 			.and_then(|config| config.messenger.as_ref())
 			.map_or_else(
-				|| tangram_server::options::Messenger::Channel,
+				|| tangram_server::options::Messenger::Memory,
 				|messenger| match messenger {
-					crate::config::Messenger::Channel => {
-						tangram_server::options::Messenger::Channel
-					},
+					crate::config::Messenger::Memory => tangram_server::options::Messenger::Memory,
 					crate::config::Messenger::Nats(nats) => {
 						let url = nats.url.clone();
 						tangram_server::options::Messenger::Nats(

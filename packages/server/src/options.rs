@@ -48,7 +48,7 @@ pub struct PostgresDatabase {
 
 #[derive(Clone, Debug)]
 pub enum Messenger {
-	Channel,
+	Memory,
 	Nats(NatsMessenger),
 }
 

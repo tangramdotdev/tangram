@@ -13,6 +13,7 @@ use num::ToPrimitive;
 use std::{io::Cursor, pin::pin, sync::Arc};
 use tangram_client as tg;
 use tangram_database::{self as db, prelude::*};
+use tangram_messenger::Messenger as _;
 use tokio::io::{AsyncRead, AsyncReadExt as _, AsyncSeek, AsyncSeekExt as _};
 use tokio_stream::wrappers::IntervalStream;
 
@@ -68,8 +69,20 @@ impl Server {
 		}
 
 		// Create the event stream.
-		let log = self.messenger.subscribe_to_build_log(id).await?;
-		let status = self.messenger.subscribe_to_build_status(id).await?;
+		let log = self
+			.messenger
+			.subscribe(format!("builds.{id}.log"), None)
+			.await
+			.map_err(|source| tg::error!(!source, "failed to subscribe"))?
+			.map(|_| ())
+			.boxed();
+		let status = self
+			.messenger
+			.subscribe(format!("builds.{id}.status"), None)
+			.await
+			.map_err(|source| tg::error!(!source, "failed to subscribe"))?
+			.map(|_| ())
+			.boxed();
 		let interval =
 			IntervalStream::new(tokio::time::interval(std::time::Duration::from_secs(60)))
 				.map(|_| ());
@@ -318,7 +331,10 @@ impl Server {
 		drop(connection);
 
 		// Publish the message.
-		self.messenger.publish_to_build_log(id).await?;
+		self.messenger
+			.publish(format!("builds.{id}.log"), Bytes::new())
+			.await
+			.map_err(|source| tg::error!(!source, "failed to publish"))?;
 
 		Ok(true)
 	}

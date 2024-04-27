@@ -3,12 +3,14 @@ use crate::{
 	util::http::{empty, Incoming, Outgoing},
 	Server,
 };
+use bytes::Bytes;
 use futures::{stream::FuturesUnordered, TryStreamExt as _};
 use http_body_util::BodyExt as _;
 use indoc::formatdoc;
 use std::pin::pin;
 use tangram_client as tg;
 use tangram_database::{self as db, prelude::*};
+use tangram_messenger::Messenger as _;
 use time::format_description::well_known::Rfc3339;
 
 impl Server {
@@ -252,7 +254,10 @@ impl Server {
 		drop(connection);
 
 		// Publish the message.
-		self.messenger.publish_to_build_status(id).await?;
+		self.messenger
+			.publish(format!("builds.{id}.status"), Bytes::new())
+			.await
+			.map_err(|source| tg::error!(!source, "failed to publish"))?;
 
 		Ok(true)
 	}

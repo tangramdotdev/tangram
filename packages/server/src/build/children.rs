@@ -2,6 +2,7 @@ use crate::{
 	util::http::{empty, not_found, Incoming, Outgoing},
 	Server,
 };
+use bytes::Bytes;
 use futures::{
 	future, stream, stream_select, FutureExt as _, Stream, StreamExt as _, TryStreamExt as _,
 };
@@ -11,6 +12,7 @@ use num::ToPrimitive;
 use std::{pin::pin, sync::Arc};
 use tangram_client as tg;
 use tangram_database::{self as db, prelude::*};
+use tangram_messenger::Messenger as _;
 use tokio_stream::wrappers::IntervalStream;
 
 impl Server {
@@ -51,8 +53,20 @@ impl Server {
 		}
 
 		// Create the event stream.
-		let children = self.messenger.subscribe_to_build_children(id).await?;
-		let status = self.messenger.subscribe_to_build_status(id).await?;
+		let children = self
+			.messenger
+			.subscribe(format!("builds.{id}.children"), None)
+			.await
+			.map_err(|source| tg::error!(!source, "failed to subscribe"))?
+			.map(|_| ())
+			.boxed();
+		let status = self
+			.messenger
+			.subscribe(format!("builds.{id}.status"), None)
+			.await
+			.map_err(|source| tg::error!(!source, "failed to subscribe"))?
+			.map(|_| ())
+			.boxed();
 		let interval =
 			IntervalStream::new(tokio::time::interval(std::time::Duration::from_secs(60)))
 				.map(|_| ());
@@ -371,7 +385,10 @@ impl Server {
 		drop(connection);
 
 		// Publish the message.
-		self.messenger.publish_to_build_children(build_id).await?;
+		self.messenger
+			.publish(format!("builds.{build_id}.children"), Bytes::new())
+			.await
+			.map_err(|source| tg::error!(!source, "failed to publish"))?;
 
 		Ok(true)
 	}

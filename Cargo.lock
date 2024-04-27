@@ -4859,6 +4859,24 @@ dependencies = [
 ]
 
 [[package]]
+name = "tangram_messenger"
+version = "0.0.0"
+dependencies = [
+ "async-broadcast",
+ "async-channel",
+ "async-nats",
+ "bytes",
+ "dashmap",
+ "either",
+ "fnv",
+ "futures",
+ "pin-project",
+ "tokio",
+ "tracing",
+ "url",
+]
+
+[[package]]
 name = "tangram_nfs"
 version = "0.0.0"
 dependencies = [
@@ -4926,6 +4944,7 @@ dependencies = [
  "tangram_client",
  "tangram_database",
  "tangram_fuse",
+ "tangram_messenger",
  "tangram_nfs",
  "tangram_sse",
  "tar",

@@ -5,6 +5,7 @@ members = [
   "packages/client",
   "packages/database",
   "packages/fuse",
+  "packages/messenger",
   "packages/nfs",
   "packages/server",
   "packages/sse",
@@ -80,6 +81,7 @@ oauth2 = "4"
 octocrab = "0.38"
 once_cell = "1"
 parking_lot = "0.12"
+pin-project = "1"
 proptest = "1"
 rand = "0.8"
 ratatui = "0.26"
@@ -117,6 +119,7 @@ tangram_cli = { path = "packages/cli" }
 tangram_client = { path = "packages/client" }
 tangram_database = { path = "packages/database" }
 tangram_fuse = { path = "packages/fuse" }
+tangram_messenger = { path = "packages/messenger" }
 tangram_nfs = { path = "packages/nfs" }
 tangram_server = { path = "packages/server" }
 tangram_sse = { path = "packages/sse" }

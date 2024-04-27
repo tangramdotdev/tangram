@@ -107,7 +107,7 @@ pub struct PostgresDatabase {
 #[serde(tag = "kind", rename_all = "snake_case")]
 pub enum Messenger {
 	#[default]
-	Channel,
+	Memory,
 	Nats(NatsMessenger),
 }
 

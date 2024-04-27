@@ -3,11 +3,13 @@ use crate::{
 	util::http::{full, Incoming, Outgoing},
 	BuildPermit, Server,
 };
+use bytes::Bytes;
 use either::Either;
 use futures::{FutureExt as _, TryFutureExt as _};
 use http_body_util::BodyExt as _;
 use std::sync::Arc;
 use tangram_client as tg;
+use tangram_messenger::Messenger as _;
 
 impl Server {
 	pub async fn create_build(
@@ -167,7 +169,10 @@ impl Server {
 		}
 
 		// Send the message.
-		self.messenger.publish_to_build_created().await?;
+		self.messenger
+			.publish("builds.created".to_owned(), Bytes::new())
+			.await
+			.map_err(|source| tg::error!(!source, "failed to publish"))?;
 
 		// Spawn a task to dequeue and start the build when the parent's permit is available.
 		let server = self.clone();
