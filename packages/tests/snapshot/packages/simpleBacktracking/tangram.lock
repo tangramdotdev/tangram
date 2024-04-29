@@ -1,0 +1,22 @@
+{
+  "root": 2,
+  "nodes": [
+    {},
+    {
+      "baz@=2.0.*": {
+        "package": "dir_012vqfnge0vnbwt39s42mm2xbzmrz0btatdnsrjwt0zbehamz7d6y0",
+        "lock": 0
+      }
+    },
+    {
+      "bar@^2": {
+        "package": "dir_0162h96c52mb1e1ahbd7xsxseccyrkrw5d889mk8vgcn4t4p69e4kg",
+        "lock": 1
+      },
+      "baz@=2.0.*": {
+        "package": "dir_012vqfnge0vnbwt39s42mm2xbzmrz0btatdnsrjwt0zbehamz7d6y0",
+        "lock": 0
+      }
+    }
+  ]
+}

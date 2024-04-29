@@ -1,0 +1,12 @@
+{
+  "root": 1,
+  "nodes": [
+    {},
+    {
+      "latest@^1": {
+        "package": "dir_01m2jnyfyxhng1zabrw0ft9xthn2c2874az8y1hdp33vkf8xjkesq0",
+        "lock": 0
+      }
+    }
+  ]
+}
