@@ -77,9 +77,14 @@ impl Cli {
 
 		// Write the files.
 		for (path, contents) in files {
+			let exists = tokio::fs::try_exists(&path).await.map_err(
+				|source| tg::error!(!source, %path = path.display(), "failed to check if path exists"),
+			)?;
+			if exists {
+				return Err(tg::error!(%path = path.display(), "failed to create file, path exists"));
+			}
 			tokio::fs::write(&path, &contents).await.map_err(|source| {
-				let path = path.display();
-				tg::error!(!source, %path, "failed to write the file")
+				tg::error!(!source, %path = path.display(), "failed to write the file")
 			})?;
 		}
 
