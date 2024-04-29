@@ -1,0 +1,96 @@
+{
+  "root": 9,
+  "nodes": [
+    {},
+    {
+      "{\"name\":\"download\",\"path\":\"./download\"}": {
+        "lock": 0
+      }
+    },
+    {
+      "{\"name\":\"std\",\"path\":\"../std\"}": {
+        "lock": 1
+      }
+    },
+    {
+      "{\"name\":\"m4\",\"path\":\"../m4\"}": {
+        "lock": 2
+      },
+      "{\"name\":\"std\",\"path\":\"../std\"}": {
+        "lock": 1
+      }
+    },
+    {
+      "{\"name\":\"bison\",\"path\":\"../bison\"}": {
+        "lock": 3
+      },
+      "{\"name\":\"libffi\",\"path\":\"../libffi\"}": {
+        "lock": 2
+      },
+      "{\"name\":\"m4\",\"path\":\"../m4\"}": {
+        "lock": 2
+      },
+      "{\"name\":\"std\",\"path\":\"../std\"}": {
+        "lock": 1
+      },
+      "{\"name\":\"zlib\",\"path\":\"../zlib\"}": {
+        "lock": 2
+      }
+    },
+    {
+      "{\"name\":\"perl\",\"path\":\"../perl\"}": {
+        "lock": 4
+      },
+      "{\"name\":\"std\",\"path\":\"../std\"}": {
+        "lock": 1
+      }
+    },
+    {
+      "{\"name\":\"bison\",\"path\":\"../bison\"}": {
+        "lock": 3
+      },
+      "{\"name\":\"libiconv\",\"path\":\"../libiconv\"}": {
+        "lock": 2
+      },
+      "{\"name\":\"m4\",\"path\":\"../m4\"}": {
+        "lock": 2
+      },
+      "{\"name\":\"std\",\"path\":\"../std\"}": {
+        "lock": 1
+      },
+      "{\"name\":\"zlib\",\"path\":\"../zlib\"}": {
+        "lock": 2
+      }
+    },
+    {
+      "{\"name\":\"openssl\",\"path\":\"../openssl\"}": {
+        "lock": 5
+      },
+      "{\"name\":\"pkgconfig\",\"path\":\"../pkgconfig\"}": {
+        "lock": 6
+      },
+      "{\"name\":\"std\",\"path\":\"../std\"}": {
+        "lock": 1
+      },
+      "{\"name\":\"zlib\",\"path\":\"../zlib\"}": {
+        "lock": 2
+      }
+    },
+    {
+      "{\"name\":\"rust\",\"path\":\"../packages/packages/rust\"}": {
+        "lock": 7
+      },
+      "{\"name\":\"std\",\"path\":\"../packages/packages/std\"}": {
+        "lock": 1
+      }
+    },
+    {
+      "{\"name\":\"std\",\"path\":\"../../../packages/packages/std\"}": {
+        "lock": 1
+      },
+      "{\"name\":\"tangram\",\"path\":\"../..\"}": {
+        "lock": 8
+      }
+    }
+  ]
+}
