@@ -1,10 +1,8 @@
-use crate::{
-	util::http::{full, get_token, unauthorized, Incoming, Outgoing},
-	Server,
-};
+use crate::Server;
 use indoc::formatdoc;
 use tangram_client as tg;
 use tangram_database::{self as db, prelude::*};
+use tangram_http::{incoming::RequestExt as _, Incoming, Outgoing};
 
 impl Server {
 	pub async fn get_user(&self, token: &str) -> tg::Result<Option<tg::user::User>> {
@@ -51,13 +49,16 @@ impl Server {
 		H: tg::Handle,
 	{
 		let Some(user) = Self::try_get_user_from_request(handle, &request).await? else {
-			return Ok(unauthorized());
+			return Ok(http::Response::builder()
+				.status(http::StatusCode::UNAUTHORIZED)
+				.body(Outgoing::empty())
+				.unwrap());
 		};
 
 		// Create the body.
 		let body = serde_json::to_vec(&user)
 			.map_err(|source| tg::error!(!source, "failed to serialize the body"))?;
-		let body = full(body);
+		let body = Outgoing::bytes(body);
 
 		// Create the response.
 		let response = http::Response::builder()
@@ -76,7 +77,7 @@ impl Server {
 		H: tg::Handle,
 	{
 		// Get the token.
-		let Some(token) = get_token(request, None) else {
+		let Some(token) = request.token(None) else {
 			return Ok(None);
 		};
 

@@ -1,14 +1,11 @@
-use crate::{
-	runtime::Trait as _,
-	util::http::{full, Incoming, Outgoing},
-	BuildPermit, Server,
-};
+use crate::{runtime::Trait as _, BuildPermit, Server};
 use bytes::Bytes;
 use either::Either;
 use futures::{FutureExt as _, TryFutureExt as _};
 use http_body_util::BodyExt as _;
 use std::sync::Arc;
 use tangram_client as tg;
+use tangram_http::{Incoming, Outgoing};
 use tangram_messenger::Messenger as _;
 
 impl Server {
@@ -313,13 +310,10 @@ impl Server {
 		// Get or create the build.
 		let output = handle.create_build(arg).await?;
 
-		// Create the body.
-		let body = serde_json::to_vec(&output)
-			.map_err(|source| tg::error!(!source, "failed to serialize the body"))?;
-		let body = full(body);
-
 		// Create the response.
-		let response = http::Response::builder().body(body).unwrap();
+		let response = http::Response::builder()
+			.body(Outgoing::json(output))
+			.unwrap();
 
 		Ok(response)
 	}

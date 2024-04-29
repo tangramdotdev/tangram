@@ -1,11 +1,9 @@
-use crate::{
-	util::http::{empty, Incoming, Outgoing},
-	Server,
-};
+use crate::Server;
 use http_body_util::BodyExt as _;
 use indoc::formatdoc;
 use tangram_client as tg;
 use tangram_database::{self as db, prelude::*};
+use tangram_http::{Incoming, Outgoing};
 
 impl Server {
 	pub async fn add_root(&self, arg: tg::root::add::Arg) -> tg::Result<()> {
@@ -60,7 +58,7 @@ impl Server {
 		// Create the response.
 		let response = http::Response::builder()
 			.status(http::StatusCode::OK)
-			.body(empty())
+			.body(Outgoing::empty())
 			.unwrap();
 
 		Ok(response)

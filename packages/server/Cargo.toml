@@ -35,6 +35,7 @@ data-encoding = { workspace = true }
 data-encoding-macro = { workspace = true }
 derive_more = { workspace = true }
 either = { workspace = true }
+erased-serde = { workspace = true }
 fastcdc = { workspace = true }
 filetime = { workspace = true }
 fnv = { workspace = true }
@@ -75,9 +76,9 @@ swc_core = { workspace = true }
 tangram_client = { workspace = true }
 tangram_database = { workspace = true }
 tangram_fuse = { workspace = true }
+tangram_http = { workspace = true }
 tangram_messenger  = { workspace = true }
 tangram_nfs = { workspace = true }
-tangram_sse = { workspace = true }
 tar = { workspace = true }
 time = { workspace = true }
 tokio = { workspace = true }

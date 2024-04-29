@@ -1,11 +1,8 @@
-use crate::{
-	database::Transaction,
-	util::http::{bad_request, full, Incoming, Outgoing},
-	Server,
-};
+use crate::{database::Transaction, Server};
 use futures::{stream::FuturesOrdered, TryStreamExt as _};
 use once_cell::sync::Lazy;
 use tangram_client as tg;
+use tangram_http::{Incoming, Outgoing};
 
 static TANGRAM_ARTIFACTS_PATH: Lazy<tg::Path> = Lazy::new(|| ".tangram/artifacts".parse().unwrap());
 
@@ -156,28 +153,17 @@ impl Server {
 impl Server {
 	pub(crate) async fn handle_bundle_artifact_request<H>(
 		handle: &H,
-		request: http::Request<Incoming>,
+		_request: http::Request<Incoming>,
+		id: &str,
 	) -> tg::Result<http::Response<Outgoing>>
 	where
 		H: tg::Handle,
 	{
-		let path_components: Vec<&str> = request.uri().path().split('/').skip(1).collect();
-		let ["artifacts", id, "bundle"] = path_components.as_slice() else {
-			let path = request.uri().path();
-			return Err(tg::error!(%path, "unexpected path"));
-		};
-		let Ok(id) = id.parse() else {
-			return Ok(bad_request());
-		};
-
-		// Bundle the artifact.
+		let id = id.parse()?;
 		let output = handle.bundle_artifact(&id).await?;
-
-		// Create the response.
-		let body = serde_json::to_vec(&output)
-			.map_err(|source| tg::error!(!source, "failed to serialize the response"))?;
-		let response = http::Response::builder().body(full(body)).unwrap();
-
+		let response = http::Response::builder()
+			.body(Outgoing::json(output))
+			.unwrap();
 		Ok(response)
 	}
 }

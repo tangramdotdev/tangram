@@ -1,11 +1,9 @@
 use super::Id;
-use crate::{
-	self as tg,
-	util::http::{Outgoing, ResponseExt as _},
-};
+use crate as tg;
 use futures::{future, stream, FutureExt as _, Stream, StreamExt as _, TryStreamExt as _};
 use http_body_util::BodyStream;
 use serde_with::serde_as;
+use tangram_http::{incoming::ResponseExt as _, Outgoing};
 use tokio_util::io::StreamReader;
 
 #[serde_as]
@@ -101,7 +99,10 @@ impl tg::Client {
 		if response.status() == http::StatusCode::NOT_FOUND {
 			return Ok(None);
 		}
-		let response = response.success().await?;
+		if !response.status().is_success() {
+			let error = response.json().await?;
+			return Err(error);
+		}
 		let reader = StreamReader::new(
 			BodyStream::new(response.into_body())
 				.try_filter_map(|frame| future::ok(frame.into_data().ok()))
@@ -111,7 +112,7 @@ impl tg::Client {
 			|| future::pending().left_future(),
 			|mut stop| async move { stop.wait_for(|stop| *stop).map(|_| ()).await }.right_future(),
 		);
-		let output = tangram_sse::Decoder::new(reader)
+		let output = tangram_http::sse::Decoder::new(reader)
 			.map(|result| {
 				let event =
 					result.map_err(|source| tg::error!(!source, "failed to read an event"))?;
@@ -131,18 +132,20 @@ impl tg::Client {
 	) -> tg::Result<()> {
 		let method = http::Method::POST;
 		let uri = format!("/builds/{build_id}/children");
-		let mut request = http::request::Builder::default().method(method).uri(uri);
-		if let Some(token) = self.token.as_ref() {
-			request = request.header(http::header::AUTHORIZATION, format!("Bearer {token}"));
-		}
-		request = request.header(
-			http::header::CONTENT_TYPE,
-			mime::APPLICATION_JSON.to_string(),
-		);
-		let body = Outgoing::json(child_id.clone());
-		let request = request.body(body).unwrap();
+		let request = http::request::Builder::default()
+			.method(method)
+			.uri(uri)
+			.header(
+				http::header::CONTENT_TYPE,
+				mime::APPLICATION_JSON.to_string(),
+			)
+			.body(Outgoing::json(child_id.clone()))
+			.unwrap();
 		let response = self.send(request).await?;
-		response.success().await?;
+		if !response.status().is_success() {
+			let error = response.json().await?;
+			return Err(error);
+		}
 		Ok(())
 	}
 }

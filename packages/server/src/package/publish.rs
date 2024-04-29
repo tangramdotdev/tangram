@@ -1,11 +1,9 @@
-use crate::{
-	util::http::{ok, Incoming, Outgoing},
-	Server,
-};
+use crate::Server;
 use http_body_util::BodyExt as _;
 use indoc::formatdoc;
 use tangram_client as tg;
 use tangram_database::{self as db, prelude::*};
+use tangram_http::{outgoing::ResponseExt as _, Incoming, Outgoing};
 use time::format_description::well_known::Rfc3339;
 
 impl Server {
@@ -109,6 +107,9 @@ impl Server {
 		// Publish the package.
 		handle.publish_package(&package_id).await?;
 
-		Ok(ok())
+		// Create the response.
+		let response = http::Response::ok();
+
+		Ok(response)
 	}
 }

@@ -1,9 +1,7 @@
-use crate::{
-	util::http::{empty, Incoming, Outgoing},
-	Server,
-};
+use crate::Server;
 use tangram_client as tg;
 use tangram_database::{self as db, prelude::*};
+use tangram_http::{Incoming, Outgoing};
 use time::format_description::well_known::Rfc3339;
 
 impl Server {
@@ -41,27 +39,18 @@ impl Server {
 impl Server {
 	pub(crate) async fn handle_touch_build_request<H>(
 		handle: &H,
-		request: http::Request<Incoming>,
+		_request: http::Request<Incoming>,
+		id: &str,
 	) -> tg::Result<http::Response<Outgoing>>
 	where
 		H: tg::Handle,
 	{
-		let path_components: Vec<&str> = request.uri().path().split('/').skip(1).collect();
-		let ["builds", id, "touch"] = path_components.as_slice() else {
-			let path = request.uri().path();
-			return Err(tg::error!(%path, "unexpected path"));
-		};
-		let id = id
-			.parse()
-			.map_err(|source| tg::error!(!source, "failed to parse the ID"))?;
-
-		// Touch the build.
+		let id = id.parse()?;
 		handle.touch_build(&id).await?;
-
-		// Create the response.
-		let body = empty();
-		let response = http::Response::builder().body(body).unwrap();
-
+		let response = http::Response::builder()
+			.status(http::StatusCode::OK)
+			.body(Outgoing::empty())
+			.unwrap();
 		Ok(response)
 	}
 }

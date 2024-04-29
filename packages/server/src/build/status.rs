@@ -1,12 +1,10 @@
-use crate::{
-	util::http::{not_found, Incoming, Outgoing},
-	Server,
-};
+use crate::Server;
 use futures::{future, stream, FutureExt as _, Stream, StreamExt as _, TryStreamExt as _};
 use http_body_util::StreamBody;
 use indoc::formatdoc;
 use tangram_client as tg;
 use tangram_database::{self as db, prelude::*};
+use tangram_http::{outgoing::ResponseExt as _, Incoming, Outgoing};
 use tangram_messenger::Messenger as _;
 use tokio_stream::wrappers::IntervalStream;
 
@@ -156,18 +154,13 @@ impl Server {
 	pub(crate) async fn handle_get_build_status_request<H>(
 		handle: &H,
 		request: http::Request<Incoming>,
+		id: &str,
 	) -> tg::Result<http::Response<Outgoing>>
 	where
 		H: tg::Handle,
 	{
-		let path_components: Vec<&str> = request.uri().path().split('/').skip(1).collect();
-		let ["builds", id, "status"] = path_components.as_slice() else {
-			let path = request.uri().path();
-			return Err(tg::error!(%path, "unexpected path"));
-		};
-		let id = id
-			.parse()
-			.map_err(|source| tg::error!(!source, "failed to parse the ID"))?;
+		// Parse the ID.
+		let id = id.parse()?;
 
 		// Get the query.
 		let arg = request
@@ -195,7 +188,7 @@ impl Server {
 
 		let stop = request.extensions().get().cloned().unwrap();
 		let Some(stream) = handle.try_get_build_status(&id, arg, Some(stop)).await? else {
-			return Ok(not_found());
+			return Ok(http::Response::not_found());
 		};
 
 		// Create the body.
@@ -208,7 +201,7 @@ impl Server {
 				let body = stream
 					.map_ok(|chunk| {
 						let data = serde_json::to_string(&chunk).unwrap();
-						let event = tangram_sse::Event::with_data(data);
+						let event = tangram_http::sse::Event::with_data(data);
 						hyper::body::Frame::data(event.to_string().into())
 					})
 					.err_into();
@@ -218,7 +211,7 @@ impl Server {
 				return Err(tg::error!(?accept, "invalid accept header"));
 			},
 		};
-		let body = Outgoing::new(StreamBody::new(body));
+		let body = Outgoing::body(StreamBody::new(body));
 
 		// Create the response.
 		let response = http::Response::builder()

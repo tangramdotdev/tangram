@@ -1,16 +1,9 @@
-use crate::{
-	tmp::Tmp,
-	util::{
-		fs::rmrf,
-		http::{bad_request, full, Incoming, Outgoing},
-	},
-	Server,
-};
+use crate::{tmp::Tmp, Server};
 use dashmap::DashMap;
 use futures::{stream::FuturesUnordered, FutureExt, TryStreamExt as _};
-use http_body_util::BodyExt as _;
 use std::{os::unix::fs::PermissionsExt as _, sync::Arc};
 use tangram_client as tg;
+use tangram_http::{incoming::RequestExt, Incoming, Outgoing};
 
 impl Server {
 	pub async fn check_out_artifact(
@@ -143,8 +136,10 @@ impl Server {
 				Err(ref error)
 					if matches!(error.raw_os_error(), Some(libc::ENOTEMPTY | libc::EEXIST)) =>
 				{
-					rmrf(&tmp).await?;
+					tokio::fs::remove_dir_all(&tmp).await.ok();
 				},
+
+				// Otherwise, return the error.
 				Err(source) => {
 					return Err(
 						tg::error!(!source, %tmp = tmp.path.display(), %path, "failed to move the checkout to the checkouts directory"),
@@ -247,7 +242,7 @@ impl Server {
 	) -> tg::Result<()> {
 		// Handle an existing artifact at the path.
 		match existing_artifact {
-			// If there is already a directory, then remove any extraneous entries.
+			// If there is an existing directory, then remove any extraneous entries.
 			Some(tg::Artifact::Directory(existing_directory)) => {
 				existing_directory
 					.entries(self)
@@ -256,7 +251,7 @@ impl Server {
 					.map(|(name, _)| async move {
 						if !directory.entries(self).await?.contains_key(name) {
 							let entry_path = path.clone().join(name);
-							rmrf(&entry_path).await?;
+							tokio::fs::remove_dir_all(&entry_path).await.ok();
 						}
 						Ok::<_, tg::Error>(())
 					})
@@ -265,9 +260,9 @@ impl Server {
 					.await?;
 			},
 
-			// If there is an existing artifact at the path and it is not a directory, then remove it, create a directory, and continue.
+			// If there is an existing file system object at the path and it is not a directory, then remove it, create a directory, and continue.
 			Some(_) => {
-				rmrf(path).await?;
+				tokio::fs::remove_dir_all(path).await.ok();
 				tokio::fs::create_dir_all(path)
 					.await
 					.map_err(|source| tg::error!(!source, "failed to create the directory"))?;
@@ -335,7 +330,7 @@ impl Server {
 		match &existing_artifact {
 			// If there is an existing file system object at the path, then remove it and continue.
 			Some(_) => {
-				rmrf(path).await?;
+				tokio::fs::remove_dir_all(path).await.ok();
 			},
 
 			// If there is no file system object at this path, then continue.
@@ -457,7 +452,7 @@ impl Server {
 		match &existing_artifact {
 			// If there is an existing file system object at the path, then remove it and continue.
 			Some(_) => {
-				rmrf(&path).await?;
+				tokio::fs::remove_dir_all(&path).await.ok();
 			},
 
 			// If there is no file system object at this path, then continue.
@@ -506,37 +501,17 @@ impl Server {
 	pub(crate) async fn handle_check_out_artifact_request<H>(
 		handle: &H,
 		request: http::Request<Incoming>,
+		id: &str,
 	) -> tg::Result<http::Response<Outgoing>>
 	where
 		H: tg::Handle,
 	{
-		let path_components: Vec<&str> = request.uri().path().split('/').skip(1).collect();
-		let ["artifacts", id, "checkout"] = path_components.as_slice() else {
-			let path = request.uri().path();
-			return Err(tg::error!(%path, "unexpected path"));
-		};
-		let Ok(id) = id.parse() else {
-			return Ok(bad_request());
-		};
-
-		// Read the body.
-		let bytes = request
-			.into_body()
-			.collect()
-			.await
-			.map_err(|source| tg::error!(!source, "failed to read the body"))?
-			.to_bytes();
-		let arg = serde_json::from_slice(&bytes)
-			.map_err(|source| tg::error!(!source, "failed to deserialize the body"))?;
-
-		// Check out the artifact.
+		let id = id.parse()?;
+		let arg = request.json().await?;
 		let output = handle.check_out_artifact(&id, arg).await?;
-
-		// Create the response.
-		let body = serde_json::to_vec(&output)
-			.map_err(|source| tg::error!(!source, "failed to serialize the response"))?;
-		let response = http::Response::builder().body(full(body)).unwrap();
-
+		let response = http::Response::builder()
+			.body(Outgoing::json(output))
+			.unwrap();
 		Ok(response)
 	}
 }

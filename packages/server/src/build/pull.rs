@@ -1,8 +1,6 @@
-use crate::{
-	util::http::{bad_request, ok, Incoming, Outgoing},
-	Server,
-};
+use crate::Server;
 use tangram_client as tg;
+use tangram_http::{outgoing::ResponseExt as _, Incoming, Outgoing};
 
 impl Server {
 	pub async fn pull_build(&self, id: &tg::build::Id) -> tg::Result<()> {
@@ -21,23 +19,14 @@ impl Server {
 impl Server {
 	pub(crate) async fn handle_pull_build_request<H>(
 		handle: &H,
-		request: http::Request<Incoming>,
+		_request: http::Request<Incoming>,
+		id: &str,
 	) -> tg::Result<http::Response<Outgoing>>
 	where
 		H: tg::Handle,
 	{
-		let path_components: Vec<&str> = request.uri().path().split('/').skip(1).collect();
-		let ["build", id, "pull"] = path_components.as_slice() else {
-			let path = request.uri().path();
-			return Err(tg::error!(%path, "unexpected path"));
-		};
-		let Ok(id) = id.parse() else {
-			return Ok(bad_request());
-		};
-
-		// Pull the build.
-		handle.pull_build(&id).await?;
-
-		Ok(ok())
+		let id = id.parse()?;
+		handle.push_build(&id).await?;
+		Ok(http::Response::ok())
 	}
 }

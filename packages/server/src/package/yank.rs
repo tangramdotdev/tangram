@@ -1,10 +1,8 @@
-use crate::{
-	util::http::{bad_request, ok, Incoming, Outgoing},
-	Server,
-};
+use crate::Server;
 use indoc::formatdoc;
 use tangram_client as tg;
 use tangram_database::{self as db, Database, Query};
+use tangram_http::{outgoing::ResponseExt as _, Incoming, Outgoing};
 
 impl Server {
 	pub async fn get_package_yanked(&self, package: &tg::Directory) -> tg::Result<bool> {
@@ -92,23 +90,25 @@ impl Server {
 impl Server {
 	pub(crate) async fn handle_yank_package_request<H>(
 		handle: &H,
-		request: http::Request<Incoming>,
+		_request: http::Request<Incoming>,
+		dependency: &str,
 	) -> tg::Result<http::Response<Outgoing>>
 	where
 		H: tg::Handle,
 	{
-		let path_components: Vec<&str> = request.uri().path().split('/').skip(1).collect();
-		let ["packages", dependency, "yank"] = path_components.as_slice() else {
-			let path = request.uri().path();
-			return Err(tg::error!(%path, "unexpected path"));
+		let Ok(dependency) = urlencoding::decode(dependency) else {
+			return Ok(http::Response::bad_request());
 		};
 		let Ok(dependency) = dependency.parse() else {
-			return Ok(bad_request());
+			return Ok(http::Response::bad_request());
 		};
 
 		// Publish the package.
 		handle.yank_package(&dependency).await?;
 
-		Ok(ok())
+		// Create the response.
+		let response = http::Response::ok();
+
+		Ok(response)
 	}
 }

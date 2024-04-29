@@ -1,6 +1,7 @@
 use crate::Server;
 use std::collections::BTreeMap;
 use tangram_client as tg;
+use tangram_http::{outgoing::ResponseExt as _, Incoming, Outgoing};
 
 impl Server {
 	pub async fn get_package_outdated(
@@ -92,5 +93,33 @@ impl Server {
 		visited.insert(id, outdated.clone());
 
 		Ok(outdated)
+	}
+}
+
+impl Server {
+	pub(crate) async fn handle_outdated_package_request<H>(
+		handle: &H,
+		_request: http::Request<Incoming>,
+		dependency: &str,
+	) -> tg::Result<http::Response<Outgoing>>
+	where
+		H: tg::Handle,
+	{
+		let Ok(dependency) = urlencoding::decode(dependency) else {
+			return Ok(http::Response::bad_request());
+		};
+		let Ok(dependency) = dependency.parse() else {
+			return Ok(http::Response::bad_request());
+		};
+
+		// Get the outdated dependencies.
+		let output = handle.get_package_outdated(&dependency).await?;
+
+		// Create the response.
+		let response = http::Response::builder()
+			.body(Outgoing::json(output))
+			.unwrap();
+
+		Ok(response)
 	}
 }

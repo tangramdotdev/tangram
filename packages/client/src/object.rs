@@ -1,10 +1,8 @@
-use crate::{
-	self as tg,
-	util::http::{Outgoing, ResponseExt as _},
-};
+use crate as tg;
 use bytes::Bytes;
 use futures::{stream::FuturesUnordered, FutureExt as _, TryStreamExt as _};
 use std::sync::Arc;
+use tangram_http::{incoming::ResponseExt as _, Outgoing};
 
 pub mod get;
 pub mod pull;
@@ -319,7 +317,10 @@ impl tg::Client {
 			.body(body)
 			.unwrap();
 		let response = self.send(request).await?;
-		response.success().await?;
+		if !response.status().is_success() {
+			let error = response.json().await?;
+			return Err(error);
+		}
 		Ok(())
 	}
 
@@ -333,7 +334,10 @@ impl tg::Client {
 			.body(body)
 			.unwrap();
 		let response = self.send(request).await?;
-		response.success().await?;
+		if !response.status().is_success() {
+			let error = response.json().await?;
+			return Err(error);
+		}
 		Ok(())
 	}
 }

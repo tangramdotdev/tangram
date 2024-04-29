@@ -1,9 +1,7 @@
-use crate::{
-	self as tg,
-	util::http::{Outgoing, ResponseExt as _},
-};
+use crate as tg;
 use serde_with::{serde_as, DisplayFromStr};
 use std::collections::BTreeMap;
+use tangram_http::{incoming::ResponseExt as _, Outgoing};
 
 #[serde_as]
 #[derive(Debug, Clone, serde::Deserialize, serde::Serialize)]
@@ -44,7 +42,10 @@ impl tg::Client {
 		if response.status() == http::StatusCode::NOT_FOUND {
 			return Err(tg::error!(%dependency, "could not find package"));
 		}
-		let response = response.success().await?;
+		if !response.status().is_success() {
+			let error = response.json().await?;
+			return Err(error);
+		}
 		let output = response.json().await?;
 		Ok(output)
 	}

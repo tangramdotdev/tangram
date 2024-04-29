@@ -1,7 +1,5 @@
-use crate::{
-	self as tg,
-	util::http::{Outgoing, ResponseExt as _},
-};
+use crate as tg;
+use tangram_http::{incoming::ResponseExt as _, Outgoing};
 
 #[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
 pub struct Arg {
@@ -65,14 +63,16 @@ impl tg::Client {
 	pub async fn put_build(&self, id: &tg::build::Id, arg: tg::build::put::Arg) -> tg::Result<()> {
 		let method = http::Method::PUT;
 		let uri = format!("/builds/{id}");
-		let mut request = http::request::Builder::default().method(method).uri(uri);
-		if let Some(token) = self.token.as_ref() {
-			request = request.header(http::header::AUTHORIZATION, format!("Bearer {token}"));
-		}
-		let body = Outgoing::json(arg);
-		let request = request.body(body).unwrap();
+		let request = http::request::Builder::default()
+			.method(method)
+			.uri(uri)
+			.body(Outgoing::json(arg))
+			.unwrap();
 		let response = self.send(request).await?;
-		response.success().await?;
+		if !response.status().is_success() {
+			let error = response.json().await?;
+			return Err(error);
+		}
 		Ok(())
 	}
 }

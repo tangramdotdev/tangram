@@ -1,8 +1,6 @@
-use crate::{
-	self as tg,
-	util::http::{Outgoing, ResponseExt as _},
-};
+use crate as tg;
 use bytes::Bytes;
+use tangram_http::{incoming::ResponseExt as _, Outgoing};
 
 #[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
 pub struct Output {
@@ -28,7 +26,10 @@ impl tg::Client {
 		if response.status() == http::StatusCode::NOT_FOUND {
 			return Ok(None);
 		}
-		let response = response.success().await?;
+		if !response.status().is_success() {
+			let error = response.json().await?;
+			return Err(error);
+		}
 		let bytes = response.bytes().await?;
 		let output = tg::object::get::Output {
 			bytes,

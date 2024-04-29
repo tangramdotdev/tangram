@@ -1,5 +1,4 @@
 use self::syscall::syscall;
-use crate::util::http::{empty, full, Incoming, Outgoing};
 use futures::{future, Future, FutureExt as _, TryFutureExt as _};
 use http_body_util::BodyExt as _;
 use lsp::{notification::Notification as _, request::Request as _};
@@ -11,6 +10,7 @@ use std::{
 	sync::Arc,
 };
 use tangram_client as tg;
+use tangram_http::{Incoming, Outgoing};
 use tg::package::ROOT_MODULE_FILE_NAMES;
 use tokio::io::{
 	AsyncBufRead, AsyncBufReadExt as _, AsyncReadExt as _, AsyncWrite, AsyncWriteExt as _,
@@ -757,7 +757,7 @@ impl crate::Server {
 		let text = handle.format(text).await?;
 
 		// Create the body.
-		let body = full(text.into_bytes());
+		let body = Outgoing::bytes(text.into_bytes());
 
 		// Create the response.
 		let response = http::Response::builder()
@@ -775,20 +775,23 @@ impl crate::Server {
 	where
 		H: tg::Handle,
 	{
-		if !(request
+		if !request
 			.headers()
 			.get(http::header::CONNECTION)
 			.is_some_and(|value| value == "upgrade")
-			&& request
-				.headers()
-				.get(http::header::UPGRADE)
-				.is_some_and(|value| value == "lsp"))
 		{
-			return Err(tg::error!(
-				"expected headers specifying connection upgrade to lsp"
-			));
+			return Err(tg::error!("expected connection header set to upgrade"));
 		}
 
+		if !request
+			.headers()
+			.get(http::header::UPGRADE)
+			.is_some_and(|value| value == "lsp")
+		{
+			return Err(tg::error!("expected upgrade header set to lsp"));
+		}
+
+		// Spawn the LSP.
 		let handle = handle.clone();
 		let mut stop = request
 			.extensions()
@@ -822,7 +825,7 @@ impl crate::Server {
 			.status(http::StatusCode::SWITCHING_PROTOCOLS)
 			.header(http::header::CONNECTION, "upgrade")
 			.header(http::header::UPGRADE, "lsp")
-			.body(empty())
+			.body(Outgoing::empty())
 			.unwrap();
 
 		Ok(response)

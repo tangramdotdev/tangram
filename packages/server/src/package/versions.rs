@@ -1,11 +1,9 @@
-use crate::{
-	util::http::{full, not_found, Incoming, Outgoing},
-	Server,
-};
+use crate::Server;
 use indoc::formatdoc;
 use itertools::Itertools as _;
 use tangram_client as tg;
 use tangram_database::{self as db, prelude::*};
+use tangram_http::{outgoing::ResponseExt as _, Incoming, Outgoing};
 
 impl Server {
 	pub async fn try_get_package_versions(
@@ -139,34 +137,28 @@ impl Server {
 impl Server {
 	pub(crate) async fn handle_get_package_versions_request<H>(
 		handle: &H,
-		request: http::Request<Incoming>,
+		_request: http::Request<Incoming>,
+		dependency: &str,
 	) -> tg::Result<http::Response<Outgoing>>
 	where
 		H: tg::Handle,
 	{
-		let path_components: Vec<&str> = request.uri().path().split('/').skip(1).collect();
-		let ["packages", dependency, "versions"] = path_components.as_slice() else {
-			let path = request.uri().path();
-			return Err(tg::error!(%path, "unexpected path"));
+		let Ok(dependency) = urlencoding::decode(dependency) else {
+			return Ok(http::Response::bad_request());
 		};
-		let dependency = urlencoding::decode(dependency)
-			.map_err(|source| tg::error!(!source, "failed to decode the dependency"))?;
-		let dependency = dependency
-			.parse()
-			.map_err(|source| tg::error!(!source, "failed to parse the dependency"))?;
+		let Ok(dependency) = dependency.parse() else {
+			return Ok(http::Response::bad_request());
+		};
 
 		// Get the package.
 		let Some(output) = handle.try_get_package_versions(&dependency).await? else {
-			return Ok(not_found());
+			return Ok(http::Response::not_found());
 		};
 
-		// Create the body.
-		let body = serde_json::to_vec(&output)
-			.map_err(|source| tg::error!(!source, "failed to serialize the body"))?;
-		let body = full(body);
-
 		// Create the response.
-		let response = http::Response::builder().body(body).unwrap();
+		let response = http::Response::builder()
+			.body(Outgoing::json(output))
+			.unwrap();
 
 		Ok(response)
 	}

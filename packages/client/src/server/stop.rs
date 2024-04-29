@@ -1,4 +1,5 @@
-use crate::{self as tg, util::http::Outgoing};
+use crate as tg;
+use tangram_http::Outgoing;
 
 impl tg::Client {
 	pub async fn stop(&self) -> tg::Result<()> {

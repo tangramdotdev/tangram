@@ -1,17 +1,15 @@
-use crate::{
-	util::http::{empty, not_found, Incoming, Outgoing},
-	Server,
-};
+use crate::Server;
 use bytes::Bytes;
 use futures::{
 	future, stream, stream_select, FutureExt as _, Stream, StreamExt as _, TryStreamExt as _,
 };
-use http_body_util::{BodyExt as _, StreamBody};
+use http_body_util::StreamBody;
 use indoc::formatdoc;
 use num::ToPrimitive;
 use std::{pin::pin, sync::Arc};
 use tangram_client as tg;
 use tangram_database::{self as db, prelude::*};
+use tangram_http::{incoming::RequestExt as _, outgoing::ResponseExt as _, Incoming, Outgoing};
 use tangram_messenger::Messenger as _;
 use tokio_stream::wrappers::IntervalStream;
 
@@ -413,20 +411,12 @@ impl Server {
 	pub(crate) async fn handle_get_build_children_request<H>(
 		handle: &H,
 		request: http::Request<Incoming>,
+		id: &str,
 	) -> tg::Result<http::Response<Outgoing>>
 	where
 		H: tg::Handle,
 	{
-		let path_components: Vec<&str> = request.uri().path().split('/').skip(1).collect();
-		let ["builds", id, "children"] = path_components.as_slice() else {
-			let uri = request.uri();
-			return Err(tg::error!(%uri, "unexpected path"));
-		};
-		let id = id
-			.parse()
-			.map_err(|source| tg::error!(!source, "failed to parse the ID"))?;
-
-		// Get the query.
+		let id = id.parse()?;
 		let arg = request
 			.uri()
 			.query()
@@ -452,7 +442,7 @@ impl Server {
 
 		let stop = request.extensions().get().cloned().unwrap();
 		let Some(stream) = handle.try_get_build_children(&id, arg, Some(stop)).await? else {
-			return Ok(not_found());
+			return Ok(http::Response::not_found());
 		};
 
 		// Create the body.
@@ -472,7 +462,7 @@ impl Server {
 						.map_err(|source| tg::error!(!source, "failed to serialize the body"))?;
 					Ok(hyper::body::Frame::data(json.into_bytes().into()))
 				});
-				let body = Outgoing::new(StreamBody::new(body));
+				let body = Outgoing::body(StreamBody::new(body));
 				(content_type, body)
 			},
 			Some((mime::TEXT, mime::EVENT_STREAM)) => {
@@ -480,11 +470,11 @@ impl Server {
 				let body = stream
 					.map_ok(|chunk| {
 						let data = serde_json::to_string(&chunk).unwrap();
-						let event = tangram_sse::Event::with_data(data);
+						let event = tangram_http::sse::Event::with_data(data);
 						hyper::body::Frame::data(event.to_string().into())
 					})
 					.err_into();
-				let body = Outgoing::new(StreamBody::new(body));
+				let body = Outgoing::body(StreamBody::new(body));
 				(content_type, body)
 			},
 			_ => {
@@ -505,38 +495,18 @@ impl Server {
 	pub(crate) async fn handle_add_build_child_request<H>(
 		handle: &H,
 		request: http::Request<Incoming>,
+		id: &str,
 	) -> tg::Result<http::Response<Outgoing>>
 	where
 		H: tg::Handle,
 	{
-		let path_components: Vec<&str> = request.uri().path().split('/').skip(1).collect();
-		let ["builds", id, "children"] = path_components.as_slice() else {
-			let path = request.uri().path();
-			return Err(tg::error!(%path, "unexpected path"));
-		};
-		let build_id: tg::build::Id = id
-			.parse()
-			.map_err(|source| tg::error!(!source, "failed to parse the ID"))?;
-
-		// Read the body.
-		let bytes = request
-			.into_body()
-			.collect()
-			.await
-			.map_err(|source| tg::error!(!source, "failed to read the body"))?
-			.to_bytes();
-		let child_id = serde_json::from_slice(&bytes)
-			.map_err(|source| tg::error!(!source, "failed to deserialize the body"))?;
-
-		// Add the build child.
+		let build_id = id.parse()?;
+		let child_id = request.json().await?;
 		handle.add_build_child(&build_id, &child_id).await?;
-
-		// Create the response.
 		let response = http::Response::builder()
 			.status(http::StatusCode::OK)
-			.body(empty())
+			.body(Outgoing::empty())
 			.unwrap();
-
 		Ok(response)
 	}
 }

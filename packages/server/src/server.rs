@@ -1,8 +1,6 @@
-use crate::{
-	util::http::{empty, full, ok, Incoming, Outgoing},
-	Server,
-};
+use crate::Server;
 use tangram_client as tg;
+use tangram_http::{outgoing::ResponseExt as _, Incoming, Outgoing};
 
 impl Server {
 	pub async fn health(&self) -> tg::Result<tg::server::Health> {
@@ -23,7 +21,7 @@ impl Server {
 		handle.clean().await?;
 		Ok(http::Response::builder()
 			.status(http::StatusCode::OK)
-			.body(empty())
+			.body(Outgoing::empty())
 			.unwrap())
 	}
 
@@ -38,7 +36,7 @@ impl Server {
 		let body = serde_json::to_vec(&health).unwrap();
 		let response = http::Response::builder()
 			.status(http::StatusCode::OK)
-			.body(full(body))
+			.body(Outgoing::bytes(body))
 			.unwrap();
 		Ok(response)
 	}
@@ -52,6 +50,6 @@ impl Server {
 		H: tg::Handle,
 	{
 		handle.stop().await?;
-		Ok(ok())
+		Ok(http::Response::ok())
 	}
 }

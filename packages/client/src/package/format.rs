@@ -1,7 +1,5 @@
-use crate::{
-	self as tg,
-	util::http::{Outgoing, ResponseExt as _},
-};
+use crate as tg;
+use tangram_http::{incoming::ResponseExt as _, Outgoing};
 
 impl tg::Client {
 	pub async fn format_package(&self, dependency: &tg::Dependency) -> tg::Result<()> {
@@ -13,7 +11,10 @@ impl tg::Client {
 		let body = Outgoing::empty();
 		let request = request.body(body).unwrap();
 		let response = self.send(request).await?;
-		response.success().await?;
+		if !response.status().is_success() {
+			let error = response.json().await?;
+			return Err(error);
+		}
 		Ok(())
 	}
 }

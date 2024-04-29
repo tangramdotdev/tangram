@@ -1,8 +1,8 @@
-use self::util::http::{Incoming, Outgoing};
 use crate as tg;
 use bytes::Bytes;
 use futures::{Future, Stream};
 use std::{path::PathBuf, sync::Arc};
+use tangram_http::{Incoming, Outgoing};
 use tokio::{
 	io::{AsyncBufRead, AsyncRead, AsyncWrite},
 	net::{TcpStream, UnixStream},

@@ -10,8 +10,10 @@ pub struct Args {
 
 impl Cli {
 	pub async fn command_package_search(&self, args: Args) -> tg::Result<()> {
-		// Perform the search.
-		let arg = tg::package::list::Arg { query: args.query };
+		// List the packages.
+		let arg = tg::package::list::Arg {
+			query: Some(args.query),
+		};
 		let packages = self.handle.list_packages(arg).await?;
 
 		// Print the package names.

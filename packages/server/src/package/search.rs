@@ -1,10 +1,8 @@
-use crate::{
-	util::http::{bad_request, full, Incoming, Outgoing},
-	Server,
-};
+use crate::Server;
 use indoc::formatdoc;
 use tangram_client as tg;
 use tangram_database::{self as db, prelude::*};
+use tangram_http::{Incoming, Outgoing};
 
 impl Server {
 	pub async fn list_packages(
@@ -52,23 +50,22 @@ impl Server {
 	where
 		H: tg::Handle,
 	{
-		let Some(query) = request.uri().query() else {
-			return Ok(bad_request());
-		};
-		let Ok(arg) = serde_urlencoded::from_str(query) else {
-			return Ok(bad_request());
-		};
+		// Get the query.
+		let arg = request
+			.uri()
+			.query()
+			.map(serde_urlencoded::from_str)
+			.transpose()
+			.map_err(|source| tg::error!(!source, "failed to deserialize the query"))?
+			.unwrap_or_default();
 
 		// Perform the search.
 		let output = handle.list_packages(arg).await?;
 
-		// Create the body.
-		let body = serde_json::to_vec(&output)
-			.map_err(|source| tg::error!(!source, "failed to serialize the body"))?;
-		let body = full(body);
-
 		// Create the response.
-		let response = http::Response::builder().body(body).unwrap();
+		let response = http::Response::builder()
+			.body(Outgoing::json(output))
+			.unwrap();
 
 		Ok(response)
 	}

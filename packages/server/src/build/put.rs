@@ -1,12 +1,9 @@
-use crate::{
-	util::http::{empty, Incoming, Outgoing},
-	Server,
-};
+use crate::Server;
 use futures::{stream::FuturesUnordered, TryStreamExt as _};
-use http_body_util::BodyExt as _;
 use indoc::formatdoc;
 use tangram_client as tg;
 use tangram_database::{self as db, prelude::*};
+use tangram_http::{incoming::RequestExt as _, Incoming, Outgoing};
 use time::format_description::well_known::Rfc3339;
 
 impl Server {
@@ -205,38 +202,18 @@ impl Server {
 	pub(crate) async fn handle_put_build_request<H>(
 		handle: &H,
 		request: http::Request<Incoming>,
+		id: &str,
 	) -> tg::Result<http::Response<Outgoing>>
 	where
 		H: tg::Handle,
 	{
-		let path_components: Vec<&str> = request.uri().path().split('/').skip(1).collect();
-		let ["builds", build_id] = path_components.as_slice() else {
-			let path = request.uri().path();
-			return Err(tg::error!(%path, "unexpected path"));
-		};
-		let build_id = build_id
-			.parse()
-			.map_err(|source| tg::error!(!source, "failed to parse the ID"))?;
-
-		// Read the body.
-		let bytes = request
-			.into_body()
-			.collect()
-			.await
-			.map_err(|source| tg::error!(!source, "failed to read the body"))?
-			.to_bytes();
-		let arg = serde_json::from_slice(&bytes)
-			.map_err(|source| tg::error!(!source, "failed to deserialize the body"))?;
-
-		// Put the build.
-		handle.put_build(&build_id, arg).await?;
-
-		// Create the response.
+		let id = id.parse()?;
+		let arg = request.json().await?;
+		handle.put_build(&id, arg).await?;
 		let response = http::Response::builder()
 			.status(http::StatusCode::OK)
-			.body(empty())
+			.body(Outgoing::empty())
 			.unwrap();
-
 		Ok(response)
 	}
 }

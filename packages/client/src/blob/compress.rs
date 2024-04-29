@@ -1,7 +1,5 @@
-use crate::{
-	self as tg,
-	util::http::{Outgoing, ResponseExt as _},
-};
+use crate as tg;
+use tangram_http::{incoming::ResponseExt as _, Outgoing};
 
 #[derive(Clone, Copy, Debug, serde_with::DeserializeFromStr, serde_with::SerializeDisplay)]
 pub enum Format {
@@ -49,7 +47,10 @@ impl tg::Client {
 			.body(body)
 			.unwrap();
 		let response = self.send(request).await?;
-		let response = response.success().await?;
+		if !response.status().is_success() {
+			let error = response.json().await?;
+			return Err(error);
+		}
 		let output = response.json().await?;
 		Ok(output)
 	}

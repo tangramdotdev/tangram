@@ -4814,7 +4814,7 @@ dependencies = [
  "serde_urlencoded",
  "serde_with",
  "sha2",
- "tangram_sse",
+ "tangram_http",
  "time",
  "tokio",
  "tokio-rustls 0.26.0",
@@ -4856,6 +4856,23 @@ version = "0.0.0"
 dependencies = [
  "num",
  "zerocopy",
+]
+
+[[package]]
+name = "tangram_http"
+version = "0.0.0"
+dependencies = [
+ "bytes",
+ "erased-serde",
+ "futures",
+ "http 1.1.0",
+ "http-body 1.0.0",
+ "http-body-util",
+ "hyper 1.3.1",
+ "hyper-util",
+ "serde",
+ "serde_json",
+ "tokio",
 ]
 
 [[package]]
@@ -4902,6 +4919,7 @@ dependencies = [
  "data-encoding-macro",
  "derive_more",
  "either",
+ "erased-serde",
  "fastcdc",
  "filetime",
  "fnv",
@@ -4944,9 +4962,9 @@ dependencies = [
  "tangram_client",
  "tangram_database",
  "tangram_fuse",
+ "tangram_http",
  "tangram_messenger",
  "tangram_nfs",
- "tangram_sse",
  "tar",
  "time",
  "tokio",
@@ -4962,14 +4980,6 @@ dependencies = [
  "xattr",
  "zerocopy",
  "zip",
-]
-
-[[package]]
-name = "tangram_sse"
-version = "0.0.0"
-dependencies = [
- "futures",
- "tokio",
 ]
 
 [[package]]

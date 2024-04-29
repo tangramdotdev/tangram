@@ -1,10 +1,7 @@
-use crate::{
-	tmp::Tmp,
-	util::http::{full, Incoming, Outgoing},
-	Server,
-};
+use crate::{tmp::Tmp, Server};
 use http_body_util::BodyExt as _;
 use tangram_client as tg;
+use tangram_http::{Incoming, Outgoing};
 use tokio_util::io::SyncIoBridge;
 
 impl Server {
@@ -84,9 +81,9 @@ impl Server {
 		let output = handle.extract_artifact(arg).await?;
 
 		// Create the response.
-		let body = serde_json::to_vec(&output)
-			.map_err(|source| tg::error!(!source, "failed to serialize the response"))?;
-		let response = http::Response::builder().body(full(body)).unwrap();
+		let response = http::Response::builder()
+			.body(Outgoing::json(output))
+			.unwrap();
 
 		Ok(response)
 	}

@@ -1,10 +1,7 @@
-use crate::{
-	util::http::{bad_request, full, Incoming, Outgoing},
-	Server,
-};
-use http_body_util::BodyExt as _;
+use crate::Server;
 use std::pin::Pin;
 use tangram_client as tg;
+use tangram_http::{incoming::RequestExt, Incoming, Outgoing};
 use tokio::io::AsyncRead;
 
 impl Server {
@@ -40,37 +37,17 @@ impl Server {
 	pub(crate) async fn handle_compress_blob_request<H>(
 		handle: &H,
 		request: http::Request<Incoming>,
+		id: &str,
 	) -> tg::Result<http::Response<Outgoing>>
 	where
 		H: tg::Handle,
 	{
-		let path_components: Vec<&str> = request.uri().path().split('/').skip(1).collect();
-		let ["blobs", id, "compress"] = path_components.as_slice() else {
-			let path = request.uri().path();
-			return Err(tg::error!(%path, "unexpected path"));
-		};
-		let Ok(id) = id.parse() else {
-			return Ok(bad_request());
-		};
-
-		// Read the body.
-		let bytes = request
-			.into_body()
-			.collect()
-			.await
-			.map_err(|source| tg::error!(!source, "failed to read the body"))?
-			.to_bytes();
-		let arg = serde_json::from_slice(&bytes)
-			.map_err(|source| tg::error!(!source, "failed to deserialize the body"))?;
-
-		// Compress the blob.
+		let id = id.parse()?;
+		let arg = request.json().await?;
 		let output = handle.compress_blob(&id, arg).await?;
-
-		// Create the response.
-		let body = serde_json::to_vec(&output)
-			.map_err(|source| tg::error!(!source, "failed to serialize the response"))?;
-		let response = http::Response::builder().body(full(body)).unwrap();
-
+		let response = http::Response::builder()
+			.body(Outgoing::json(output))
+			.unwrap();
 		Ok(response)
 	}
 }

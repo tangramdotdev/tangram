@@ -2,10 +2,6 @@ use self::{
 	database::{Database, Transaction},
 	messenger::Messenger,
 	runtime::Runtime,
-	util::{
-		fs::rmrf,
-		http::{full, Incoming, Outgoing},
-	},
 };
 use async_nats as nats;
 use bytes::Bytes;
@@ -29,6 +25,7 @@ use std::{
 };
 use tangram_client as tg;
 use tangram_database::{self as db, prelude::*};
+use tangram_http::{Incoming, Outgoing};
 use tokio::{
 	io::{AsyncBufRead, AsyncRead, AsyncWrite, AsyncWriteExt},
 	net::{TcpListener, UnixListener},
@@ -146,9 +143,7 @@ impl Server {
 			.map_err(|source| tg::error!(!source, "failed to write the PID file"))?;
 
 		// Remove an existing socket file.
-		rmrf(&path.join("socket"))
-			.await
-			.map_err(|source| tg::error!(!source, "failed to remove an existing socket file"))?;
+		tokio::fs::remove_dir_all(&path.join("socket")).await.ok();
 
 		// Create the build permits.
 		let build_permits = DashMap::default();
@@ -306,9 +301,7 @@ impl Server {
 			server.vfs.lock().unwrap().replace(vfs);
 		} else {
 			// Remove the artifacts directory.
-			rmrf(&artifacts_path).await.map_err(|source| {
-				tg::error!(!source, "failed to remove the artifacts directory")
-			})?;
+			tokio::fs::remove_dir_all(&artifacts_path).await.ok();
 
 			// Create a symlink from the artifacts directory to the checkouts directory.
 			tokio::fs::symlink("checkouts", artifacts_path)
@@ -535,255 +528,187 @@ impl Server {
 		tracing::trace!(?id, method = ?request.method(), path = ?request.uri().path(), "received request");
 
 		let method = request.method().clone();
-		let path_components = request.uri().path().split('/').skip(1).collect_vec();
+		let path = request.uri().path().to_owned();
+		let path_components = path.split('/').skip(1).collect_vec();
 		let response = match (method, path_components.as_slice()) {
 			// Artifacts.
-			(http::Method::POST, ["artifacts", _, "archive"]) => {
-				Self::handle_archive_artifact_request(handle, request)
-					.map(Some)
-					.boxed()
+			(http::Method::POST, ["artifacts", id, "archive"]) => {
+				Self::handle_archive_artifact_request(handle, request, id).boxed()
 			},
 			(http::Method::POST, ["artifacts", "extract"]) => {
-				Self::handle_extract_artifact_request(handle, request)
-					.map(Some)
-					.boxed()
+				Self::handle_extract_artifact_request(handle, request).boxed()
 			},
-			(http::Method::POST, ["artifacts", _, "bundle"]) => {
-				Self::handle_bundle_artifact_request(handle, request)
-					.map(Some)
-					.boxed()
+			(http::Method::POST, ["artifacts", id, "bundle"]) => {
+				Self::handle_bundle_artifact_request(handle, request, id).boxed()
 			},
 			(http::Method::POST, ["artifacts", "checkin"]) => {
-				Self::handle_check_in_artifact_request(handle, request)
-					.map(Some)
-					.boxed()
+				Self::handle_check_in_artifact_request(handle, request).boxed()
 			},
-			(http::Method::POST, ["artifacts", _, "checkout"]) => {
-				Self::handle_check_out_artifact_request(handle, request)
-					.map(Some)
-					.boxed()
+			(http::Method::POST, ["artifacts", id, "checkout"]) => {
+				Self::handle_check_out_artifact_request(handle, request, id).boxed()
 			},
 
 			// Blobs.
-			(http::Method::POST, ["blobs"]) => Self::handle_create_blob_request(handle, request)
-				.map(Some)
-				.boxed(),
-			(http::Method::POST, ["blobs", _, "compress"]) => {
-				Self::handle_compress_blob_request(handle, request)
-					.map(Some)
-					.boxed()
+			(http::Method::POST, ["blobs"]) => {
+				Self::handle_create_blob_request(handle, request).boxed()
 			},
-			(http::Method::POST, ["blobs", _, "decompress"]) => {
-				Self::handle_decompress_blob_request(handle, request)
-					.map(Some)
-					.boxed()
+			(http::Method::POST, ["blobs", id, "compress"]) => {
+				Self::handle_compress_blob_request(handle, request, id).boxed()
+			},
+			(http::Method::POST, ["blobs", id, "decompress"]) => {
+				Self::handle_decompress_blob_request(handle, request, id).boxed()
 			},
 
 			// Builds.
-			(http::Method::GET, ["builds"]) => Self::handle_list_builds_request(handle, request)
-				.map(Some)
-				.boxed(),
-			(http::Method::GET, ["builds", _]) => Self::handle_get_build_request(handle, request)
-				.map(Some)
-				.boxed(),
-			(http::Method::PUT, ["builds", _]) => Self::handle_put_build_request(handle, request)
-				.map(Some)
-				.boxed(),
-			(http::Method::POST, ["builds", _, "push"]) => {
-				Self::handle_push_build_request(handle, request)
-					.map(Some)
-					.boxed()
+			(http::Method::GET, ["builds"]) => {
+				Self::handle_list_builds_request(handle, request).boxed()
 			},
-			(http::Method::POST, ["builds", _, "pull"]) => {
-				Self::handle_pull_build_request(handle, request)
-					.map(Some)
-					.boxed()
+			(http::Method::GET, ["builds", id]) => {
+				Self::handle_get_build_request(handle, request, id).boxed()
 			},
-			(http::Method::POST, ["builds"]) => Self::handle_create_build_request(handle, request)
-				.map(Some)
-				.boxed(),
+			(http::Method::PUT, ["builds", id]) => {
+				Self::handle_put_build_request(handle, request, id).boxed()
+			},
+			(http::Method::POST, ["builds", id, "push"]) => {
+				Self::handle_push_build_request(handle, request, id).boxed()
+			},
+			(http::Method::POST, ["builds", id, "pull"]) => {
+				Self::handle_pull_build_request(handle, request, id).boxed()
+			},
+			(http::Method::POST, ["builds"]) => {
+				Self::handle_create_build_request(handle, request).boxed()
+			},
 			(http::Method::POST, ["builds", "dequeue"]) => {
-				Self::handle_dequeue_build_request(handle, request)
-					.map(Some)
-					.boxed()
+				Self::handle_dequeue_build_request(handle, request).boxed()
 			},
-			(http::Method::POST, ["builds", _, "start"]) => {
-				Self::handle_start_build_request(handle, request)
-					.map(Some)
-					.boxed()
+			(http::Method::POST, ["builds", id, "start"]) => {
+				Self::handle_start_build_request(handle, request, id).boxed()
 			},
-			(http::Method::GET, ["builds", _, "status"]) => {
-				Self::handle_get_build_status_request(handle, request)
-					.map(Some)
-					.boxed()
+			(http::Method::GET, ["builds", id, "status"]) => {
+				Self::handle_get_build_status_request(handle, request, id).boxed()
 			},
-			(http::Method::GET, ["builds", _, "children"]) => {
-				Self::handle_get_build_children_request(handle, request)
-					.map(Some)
-					.boxed()
+			(http::Method::GET, ["builds", id, "children"]) => {
+				Self::handle_get_build_children_request(handle, request, id).boxed()
 			},
-			(http::Method::POST, ["builds", _, "children"]) => {
-				Self::handle_add_build_child_request(handle, request)
-					.map(Some)
-					.boxed()
+			(http::Method::POST, ["builds", id, "children"]) => {
+				Self::handle_add_build_child_request(handle, request, id).boxed()
 			},
-			(http::Method::GET, ["builds", _, "log"]) => {
-				Self::handle_get_build_log_request(handle, request)
-					.map(Some)
-					.boxed()
+			(http::Method::GET, ["builds", id, "log"]) => {
+				Self::handle_get_build_log_request(handle, request, id).boxed()
 			},
-			(http::Method::POST, ["builds", _, "log"]) => {
-				Self::handle_add_build_log_request(handle, request)
-					.map(Some)
-					.boxed()
+			(http::Method::POST, ["builds", id, "log"]) => {
+				Self::handle_add_build_log_request(handle, request, id).boxed()
 			},
-			(http::Method::GET, ["builds", _, "outcome"]) => {
-				Self::handle_get_build_outcome_request(handle, request)
-					.map(Some)
-					.boxed()
+			(http::Method::GET, ["builds", id, "outcome"]) => {
+				Self::handle_get_build_outcome_request(handle, request, id).boxed()
 			},
-			(http::Method::POST, ["builds", _, "finish"]) => {
-				Self::handle_finish_build_request(handle, request)
-					.map(Some)
-					.boxed()
+			(http::Method::POST, ["builds", id, "finish"]) => {
+				Self::handle_finish_build_request(handle, request, id).boxed()
 			},
-			(http::Method::POST, ["builds", _, "touch"]) => {
-				Self::handle_touch_build_request(handle, request)
-					.map(Some)
-					.boxed()
+			(http::Method::POST, ["builds", id, "touch"]) => {
+				Self::handle_touch_build_request(handle, request, id).boxed()
 			},
 
 			// Objects.
-			(http::Method::GET, ["objects", _]) => Self::handle_get_object_request(handle, request)
-				.map(Some)
-				.boxed(),
-			(http::Method::PUT, ["objects", _]) => Self::handle_put_object_request(handle, request)
-				.map(Some)
-				.boxed(),
-			(http::Method::POST, ["objects", _, "push"]) => {
-				Self::handle_push_object_request(handle, request)
-					.map(Some)
-					.boxed()
+			(http::Method::GET, ["objects", id]) => {
+				Self::handle_get_object_request(handle, request, id).boxed()
 			},
-			(http::Method::POST, ["objects", _, "pull"]) => {
-				Self::handle_pull_object_request(handle, request)
-					.map(Some)
-					.boxed()
+			(http::Method::PUT, ["objects", id]) => {
+				Self::handle_put_object_request(handle, request, id).boxed()
+			},
+			(http::Method::POST, ["objects", id, "push"]) => {
+				Self::handle_push_object_request(handle, request, id).boxed()
+			},
+			(http::Method::POST, ["objects", id, "pull"]) => {
+				Self::handle_pull_object_request(handle, request, id).boxed()
 			},
 
 			// Language.
-			(http::Method::POST, ["format"]) => Self::handle_format_request(handle, request)
-				.map(Some)
-				.boxed(),
-			(http::Method::POST, ["lsp"]) => {
-				Self::handle_lsp_request(handle, request).map(Some).boxed()
+			(http::Method::POST, ["format"]) => {
+				Self::handle_format_request(handle, request).boxed()
 			},
+			(http::Method::POST, ["lsp"]) => Self::handle_lsp_request(handle, request).boxed(),
 
 			// Packages.
 			(http::Method::GET, ["packages"]) => {
-				Self::handle_list_packages_request(handle, request)
-					.map(Some)
-					.boxed()
+				Self::handle_list_packages_request(handle, request).boxed()
 			},
-			(http::Method::GET, ["packages", _]) => {
-				Self::handle_get_package_request(handle, request)
-					.map(Some)
-					.boxed()
+			(http::Method::GET, ["packages", dependency]) => {
+				Self::handle_get_package_request(handle, request, dependency).boxed()
 			},
-			(http::Method::POST, ["packages", _, "check"]) => {
-				Self::handle_check_package_request(handle, request)
-					.map(Some)
-					.boxed()
+			(http::Method::POST, ["packages", dependency, "check"]) => {
+				Self::handle_check_package_request(handle, request, dependency).boxed()
 			},
-			(http::Method::GET, ["packages", _, "doc"]) => {
-				Self::handle_get_package_doc_request(handle, request)
-					.map(Some)
-					.boxed()
+			(http::Method::GET, ["packages", dependency, "doc"]) => {
+				Self::handle_get_package_doc_request(handle, request, dependency).boxed()
 			},
-			(http::Method::POST, ["packages", _, "format"]) => {
-				Self::handle_format_package_request(handle, request)
-					.map(Some)
-					.boxed()
+			(http::Method::POST, ["packages", dependency, "format"]) => {
+				Self::handle_format_package_request(handle, request, dependency).boxed()
 			},
-			(http::Method::POST, ["packages", _, "outdated"]) => {
-				Self::handle_outdated_package_request(handle, request)
-					.map(Some)
-					.boxed()
+			(http::Method::POST, ["packages", dependency, "outdated"]) => {
+				Self::handle_outdated_package_request(handle, request, dependency).boxed()
 			},
 			(http::Method::POST, ["packages"]) => {
-				Self::handle_publish_package_request(handle, request)
-					.map(Some)
-					.boxed()
+				Self::handle_publish_package_request(handle, request).boxed()
 			},
-			(http::Method::GET, ["packages", _, "versions"]) => {
-				Self::handle_get_package_versions_request(handle, request)
-					.map(Some)
-					.boxed()
+			(http::Method::GET, ["packages", dependency, "versions"]) => {
+				Self::handle_get_package_versions_request(handle, request, dependency).boxed()
 			},
-			(http::Method::POST, ["packages", _, "yank"]) => {
-				Self::handle_yank_package_request(handle, request)
-					.map(Some)
-					.boxed()
+			(http::Method::POST, ["packages", dependency, "yank"]) => {
+				Self::handle_yank_package_request(handle, request, dependency).boxed()
 			},
 
 			// Roots.
-			(http::Method::GET, ["roots"]) => Self::handle_list_roots_request(handle, request)
-				.map(Some)
-				.boxed(),
-			(http::Method::GET, ["roots", _]) => Self::handle_get_root_request(handle, request)
-				.map(Some)
-				.boxed(),
-			(http::Method::POST, ["roots"]) => Self::handle_add_root_request(handle, request)
-				.map(Some)
-				.boxed(),
-			(http::Method::DELETE, ["roots", _]) => {
-				Self::handle_remove_root_request(handle, request)
-					.map(Some)
-					.boxed()
+			(http::Method::GET, ["roots"]) => {
+				Self::handle_list_roots_request(handle, request).boxed()
+			},
+			(http::Method::GET, ["roots", name]) => {
+				Self::handle_get_root_request(handle, request, name).boxed()
+			},
+			(http::Method::POST, ["roots"]) => {
+				Self::handle_add_root_request(handle, request).boxed()
+			},
+			(http::Method::DELETE, ["roots", name]) => {
+				Self::handle_remove_root_request(handle, request, name).boxed()
 			},
 
 			// Runtimes.
 			(http::Method::GET, ["runtimes", "js", "doc"]) => {
-				Self::handle_get_js_runtime_doc_request(handle, request)
-					.map(Some)
-					.boxed()
+				Self::handle_get_js_runtime_doc_request(handle, request).boxed()
 			},
 
 			// Server.
-			(http::Method::POST, ["clean"]) => Self::handle_server_clean_request(handle, request)
-				.map(Some)
-				.boxed(),
-			(http::Method::GET, ["health"]) => Self::handle_server_health_request(handle, request)
-				.map(Some)
-				.boxed(),
-			(http::Method::POST, ["stop"]) => Self::handle_server_stop_request(handle, request)
-				.map(Some)
-				.boxed(),
+			(http::Method::POST, ["clean"]) => {
+				Self::handle_server_clean_request(handle, request).boxed()
+			},
+			(http::Method::GET, ["health"]) => {
+				Self::handle_server_health_request(handle, request).boxed()
+			},
+			(http::Method::POST, ["stop"]) => {
+				Self::handle_server_stop_request(handle, request).boxed()
+			},
 
 			// Users.
-			(http::Method::GET, ["user"]) => Self::handle_get_user_request(handle, request)
-				.map(Some)
-				.boxed(),
+			(http::Method::GET, ["user"]) => Self::handle_get_user_request(handle, request).boxed(),
 
-			(_, _) => future::ready(None).boxed(),
+			(_, _) => future::ok(
+				http::Response::builder()
+					.status(http::StatusCode::NOT_FOUND)
+					.body(Outgoing::bytes("not found"))
+					.unwrap(),
+			)
+			.boxed(),
 		}
 		.await;
 
-		let mut response = match response {
-			None => http::Response::builder()
-				.status(http::StatusCode::NOT_FOUND)
-				.body(full("not found"))
-				.unwrap(),
-			Some(Err(error)) => {
-				let body = serde_json::to_string(&error)
-					.unwrap_or_else(|_| "internal server error".to_owned());
-				http::Response::builder()
-					.status(http::StatusCode::INTERNAL_SERVER_ERROR)
-					.body(full(body))
-					.unwrap()
-			},
-			Some(Ok(response)) => response,
-		};
+		// Handle an error.
+		let mut response = response.unwrap_or_else(|error| {
+			tracing::error!(?error);
+			http::Response::builder()
+				.status(http::StatusCode::INTERNAL_SERVER_ERROR)
+				.body(Outgoing::json(error))
+				.unwrap()
+		});
 
 		// Add the request ID to the response.
 		let key = http::HeaderName::from_static("x-tangram-request-id");
@@ -792,7 +717,7 @@ impl Server {
 
 		// Add tracing for response body errors.
 		let response = response.map(|body| {
-			Outgoing::new(body.map_err(|error| {
+			Outgoing::body(body.map_err(|error| {
 				tracing::error!(?error, "response body error");
 				error
 			}))

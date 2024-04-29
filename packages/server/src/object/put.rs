@@ -1,13 +1,9 @@
-use crate::{
-	database::Transaction,
-	util::http::{bad_request, full, Incoming, Outgoing},
-	Server,
-};
+use crate::{database::Transaction, Server};
 use futures::{FutureExt as _, TryFutureExt as _};
-use http_body_util::BodyExt as _;
 use indoc::formatdoc;
 use tangram_client as tg;
 use tangram_database::{self as db, prelude::*};
+use tangram_http::{incoming::RequestExt as _, Incoming, Outgoing};
 use time::format_description::well_known::Rfc3339;
 
 impl Server {
@@ -27,23 +23,10 @@ impl Server {
 				.await
 				.map_err(|source| tg::error!(!source, "failed to get a database connection"))?;
 
-			// // Begin a transaction.
-			// let transaction = connection
-			// 	.transaction()
-			// 	.boxed()
-			// 	.await
-			// 	.map_err(|source| tg::error!(!source, "failed to begin the transaction"))?;
-
 			// Put the object.
 			let output = self
 				.put_object_with_transaction(id, arg, &connection)
 				.await?;
-
-			// // Commit the transaction.
-			// transaction
-			// 	.commit()
-			// 	.await
-			// 	.map_err(|source| tg::error!(!source, "failed to commit the transaction"))?;
 
 			// Drop the connection.
 			drop(connection);
@@ -109,46 +92,24 @@ impl Server {
 	pub(crate) async fn handle_put_object_request<H>(
 		handle: &H,
 		request: http::Request<Incoming>,
+		id: &str,
 	) -> tg::Result<http::Response<Outgoing>>
 	where
 		H: tg::Handle,
 	{
-		let path_components: Vec<&str> = request.uri().path().split('/').skip(1).collect();
-		let ["objects", id] = path_components.as_slice() else {
-			let path = request.uri().path();
-			return Err(tg::error!(%path, "unexpected path"));
-		};
-		let Ok(id) = id.parse() else {
-			return Ok(bad_request());
-		};
-
-		// Read the body.
-		let bytes = request
-			.into_body()
-			.collect()
-			.await
-			.map_err(|source| tg::error!(!source, "failed to read the body"))?
-			.to_bytes();
-
-		// Put the object.
+		let id = id.parse()?;
+		let bytes = request.bytes().await?;
 		let arg = tg::object::put::Arg {
 			bytes,
 			count: None,
 			weight: None,
 		};
 		let output = handle.put_object(&id, arg, None).boxed().await?;
-
-		// Create the body.
-		let body = serde_json::to_vec(&output)
-			.map_err(|source| tg::error!(!source, "failed to serialize the body"))?;
-		let body = full(body);
-
-		// Create the response.
+		let body = Outgoing::json(output);
 		let response = http::Response::builder()
 			.status(http::StatusCode::OK)
 			.body(body)
 			.unwrap();
-
 		Ok(response)
 	}
 }

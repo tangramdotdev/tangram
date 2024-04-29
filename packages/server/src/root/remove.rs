@@ -1,10 +1,8 @@
-use crate::{
-	util::http::{empty, Incoming, Outgoing},
-	Server,
-};
+use crate::Server;
 use indoc::formatdoc;
 use tangram_client as tg;
 use tangram_database::{self as db, prelude::*};
+use tangram_http::{Incoming, Outgoing};
 
 impl Server {
 	pub async fn remove_root(&self, name: &str) -> tg::Result<()> {
@@ -39,24 +37,19 @@ impl Server {
 impl Server {
 	pub(crate) async fn handle_remove_root_request<H>(
 		handle: &H,
-		request: http::Request<Incoming>,
+		_request: http::Request<Incoming>,
+		name: &str,
 	) -> tg::Result<http::Response<Outgoing>>
 	where
 		H: tg::Handle,
 	{
-		let path_components: Vec<&str> = request.uri().path().split('/').skip(1).collect();
-		let ["roots", name] = path_components.as_slice() else {
-			let path = request.uri().path();
-			return Err(tg::error!(%path, "unexpected path"));
-		};
-
 		// Remove the root.
 		handle.remove_root(name).await?;
 
 		// Create the response.
 		let response = http::Response::builder()
 			.status(http::StatusCode::OK)
-			.body(empty())
+			.body(Outgoing::empty())
 			.unwrap();
 
 		Ok(response)

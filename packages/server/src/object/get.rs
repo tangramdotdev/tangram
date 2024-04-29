@@ -1,11 +1,9 @@
-use crate::{
-	util::http::{bad_request, full, not_found, Incoming, Outgoing},
-	Server,
-};
+use crate::Server;
 use futures::TryFutureExt as _;
 use indoc::formatdoc;
 use tangram_client as tg;
 use tangram_database::{self as db, prelude::*};
+use tangram_http::{outgoing::ResponseExt as _, Incoming, Outgoing};
 
 impl Server {
 	pub async fn try_get_object(
@@ -82,34 +80,21 @@ impl Server {
 impl Server {
 	pub(crate) async fn handle_get_object_request<H>(
 		handle: &H,
-		request: http::Request<Incoming>,
+		_request: http::Request<Incoming>,
+		id: &str,
 	) -> tg::Result<http::Response<Outgoing>>
 	where
 		H: tg::Handle,
 	{
-		let path_components: Vec<&str> = request.uri().path().split('/').skip(1).collect();
-		let ["objects", id] = path_components.as_slice() else {
-			let path = request.uri().path();
-			return Err(tg::error!(%path, "unexpected path"));
-		};
-		let Ok(id) = id.parse() else {
-			return Ok(bad_request());
-		};
-
-		// Get the object.
+		let id = id.parse()?;
 		let Some(output) = handle.try_get_object(&id).await? else {
-			return Ok(not_found());
+			return Ok(http::Response::not_found());
 		};
-
-		// Create the body.
-		let body = full(output.bytes);
-
-		// Create the response.
+		let body = Outgoing::bytes(output.bytes);
 		let response = http::Response::builder()
 			.status(http::StatusCode::OK)
 			.body(body)
 			.unwrap();
-
 		Ok(response)
 	}
 }

@@ -1,13 +1,11 @@
-use crate::{
-	util::http::{full, Incoming, Outgoing},
-	Server,
-};
+use crate::Server;
 use futures::{stream::FuturesUnordered, TryStreamExt as _};
 use http_body_util::BodyExt as _;
 use std::os::unix::fs::PermissionsExt as _;
 use tangram_client as tg;
 use tangram_database as db;
 use tangram_database::prelude::*;
+use tangram_http::{Incoming, Outgoing};
 
 impl Server {
 	pub async fn check_in_artifact(
@@ -312,9 +310,9 @@ impl Server {
 		let output = handle.check_in_artifact(arg).await?;
 
 		// Create the response.
-		let body = serde_json::to_vec(&output)
-			.map_err(|source| tg::error!(!source, "failed to serialize the response"))?;
-		let response = http::Response::builder().body(full(body)).unwrap();
+		let response = http::Response::builder()
+			.body(Outgoing::json(output))
+			.unwrap();
 
 		Ok(response)
 	}

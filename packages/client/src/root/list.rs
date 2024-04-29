@@ -1,7 +1,5 @@
-use crate::{
-	self as tg,
-	util::http::{Outgoing, ResponseExt as _},
-};
+use crate as tg;
+use tangram_http::{incoming::ResponseExt as _, Outgoing};
 
 #[derive(Clone, Debug, Default, serde::Deserialize, serde::Serialize)]
 pub struct Arg {}
@@ -14,14 +12,16 @@ pub struct Output {
 impl tg::Client {
 	pub async fn list_roots(&self, arg: tg::root::list::Arg) -> tg::Result<tg::root::list::Output> {
 		let method = http::Method::GET;
-		let query = serde_urlencoded::to_string(&arg)
-			.map_err(|source| tg::error!(!source, "failed to serialize the query"))?;
+		let query = serde_urlencoded::to_string(&arg).unwrap();
 		let uri = format!("/roots?{query}");
 		let request = http::request::Builder::default().method(method).uri(uri);
 		let body = Outgoing::empty();
 		let request = request.body(body).unwrap();
 		let response = self.send(request).await?;
-		let response = response.success().await?;
+		if !response.status().is_success() {
+			let error = response.json().await?;
+			return Err(error);
+		}
 		let output = response.json().await?;
 		Ok(output)
 	}

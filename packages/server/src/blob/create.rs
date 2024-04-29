@@ -1,8 +1,4 @@
-use crate::{
-	database::Transaction,
-	util::http::{full, Incoming, Outgoing},
-	Server,
-};
+use crate::{database::Transaction, Server};
 use bytes::Bytes;
 use futures::{future, stream, FutureExt as _, StreamExt as _, TryStreamExt as _};
 use http_body_util::BodyStream;
@@ -11,6 +7,7 @@ use std::pin::pin;
 use tangram_client as tg;
 use tangram_database as db;
 use tangram_database::prelude::*;
+use tangram_http::{Incoming, Outgoing};
 use tokio::io::AsyncRead;
 use tokio_util::io::StreamReader;
 
@@ -162,9 +159,9 @@ impl Server {
 		let output = handle.create_blob(reader, None).boxed().await?;
 
 		// Create the response.
-		let body = serde_json::to_vec(&output)
-			.map_err(|source| tg::error!(!source, "failed to serialize the response"))?;
-		let response = http::Response::builder().body(full(body)).unwrap();
+		let response = http::Response::builder()
+			.body(Outgoing::json(output))
+			.unwrap();
 
 		Ok(response)
 	}

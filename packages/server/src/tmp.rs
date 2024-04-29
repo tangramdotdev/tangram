@@ -1,4 +1,5 @@
-use crate::{util::fs::rmrf, Server};
+use crate::Server;
+use futures::FutureExt as _;
 use std::path::{Path, PathBuf};
 
 pub struct Tmp {
@@ -28,7 +29,7 @@ impl AsRef<Path> for Tmp {
 impl Drop for Tmp {
 	fn drop(&mut self) {
 		if !self.preserve {
-			tokio::spawn(rmrf(self.path.clone()));
+			tokio::spawn(tokio::fs::remove_dir_all(self.path.clone()).map(|_| ()));
 		}
 	}
 }

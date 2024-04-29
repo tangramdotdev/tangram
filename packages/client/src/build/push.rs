@@ -1,11 +1,9 @@
-use crate::{
-	self as tg,
-	util::http::{Outgoing, ResponseExt as _},
-};
+use crate as tg;
 use futures::{
 	stream::{self, FuturesUnordered},
 	TryStreamExt as _,
 };
+use tangram_http::{incoming::ResponseExt as _, Outgoing};
 use tokio_stream::StreamExt as _;
 
 impl tg::Build {
@@ -71,13 +69,16 @@ impl tg::Client {
 		let method = http::Method::POST;
 		let uri = format!("/builds/{id}/push");
 		let body = Outgoing::empty();
-		let mut request = http::request::Builder::default().method(method).uri(uri);
-		if let Some(token) = self.token.as_ref() {
-			request = request.header(http::header::AUTHORIZATION, format!("Bearer {token}"));
-		}
-		let request = request.body(body).unwrap();
+		let request = http::request::Builder::default()
+			.method(method)
+			.uri(uri)
+			.body(body)
+			.unwrap();
 		let response = self.send(request).await?;
-		response.success().await?;
+		if !response.status().is_success() {
+			let error = response.json().await?;
+			return Err(error);
+		}
 		Ok(())
 	}
 }

@@ -314,11 +314,7 @@ impl Target {
 		Ok(Some(directory.clone()))
 	}
 
-	pub async fn build<H>(
-		&self,
-		handle: &H,
-		arg: tg::build::create::Arg,
-	) -> tg::Result<tg::Value>
+	pub async fn build<H>(&self, handle: &H, arg: tg::build::create::Arg) -> tg::Result<tg::Value>
 	where
 		H: tg::Handle,
 	{
