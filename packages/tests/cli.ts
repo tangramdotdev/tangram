@@ -62,8 +62,8 @@ export let tree = tg.target(() => {
 		tg tree ./package > $OUTPUT/package
 
 		# Builds
-		tg build --no-tui -p ./package 2>&1 | grep -oh bld_.* > $OUTPUT/build.txt
-		tg tree $(cat $OUTPUT/build.txt | head -1) > $OUTPUT/build || true
+		tg build --no-tui -p ./package 2>&1 | grep -oh bld_.* > build.txt
+		tg tree $(cat build.txt | head -1) | sed -E 's/bld_[0-9a-z]+//g' > $OUTPUT/build || true
 
 		# Objects
 		echo "hello, world!" > hello.txt

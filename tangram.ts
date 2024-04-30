@@ -12,7 +12,6 @@ export let source = tg.target(() =>
 		"packages/database": tg.include("packages/database"),
 		"packages/fuse": tg.include("packages/fuse"),
 		"packages/language": tg.include("packages/language"),
-		"packages/messenger": tg.include("packages/messenger"),
 		"packages/nfs": tg.include("packages/nfs"),
 		"packages/runtime": tg.include("packages/runtime"),
 		"packages/server": tg.include("packages/server"),
