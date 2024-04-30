@@ -21,6 +21,7 @@ pub struct Advanced {
 	pub error_trace_options: tg::error::TraceOptions,
 	pub file_descriptor_semaphore_size: usize,
 	pub preserve_temp_directories: bool,
+	pub write_build_logs_to_file: bool,
 	pub write_build_logs_to_stderr: bool,
 }
 

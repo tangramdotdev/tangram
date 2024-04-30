@@ -18,6 +18,7 @@ export let snapshots = tg.target(() =>
 		artifacts: testArtifacts(),
 		builds: testBuilds(),
 		cli: testCli(),
+		logs: testLogs(),
 		mutations: testMutations(),
 		packages: testPackages(),
 	}),
@@ -48,6 +49,7 @@ export let env = tg.target(async (): Promise<tg.Directory> => {
 			"error_trace_options": {
 				"internal": true
 			},
+			"write_build_logs_to_file": true,
 			"write_build_logs_to_stderr": true
 		},
 		"path": "/tmp/.tangram",
@@ -85,6 +87,9 @@ export let sandboxSource = tg.target(() =>
 // CLI tests.
 import testCli_ from "./cli.ts";
 export let testCli = tg.target(() => testCli_());
+
+import testLogs_ from "./logs.ts";
+export let testLogs = tg.target(() => testLogs_());
 
 // Mutation evaluation.
 export let testMutations = tg.target(() => test(mutationsSource()));

@@ -16,12 +16,13 @@ use tangram_http::{
 	Incoming, Outgoing,
 };
 use tangram_messenger::Messenger as _;
-use tokio::io::{AsyncRead, AsyncReadExt as _, AsyncSeek, AsyncSeekExt as _};
+use tokio::io::{AsyncRead, AsyncReadExt as _, AsyncSeek, AsyncSeekExt as _, AsyncWriteExt as _};
 use tokio_stream::wrappers::IntervalStream;
 
 pub enum Reader {
 	Blob(tg::blob::Reader<Server>),
 	Database(DatabaseReader),
+	File(tokio::fs::File),
 }
 
 pub struct DatabaseReader {
@@ -124,9 +125,13 @@ impl Server {
 				}
 
 				if let Some(length) = length {
-					let state = state.lock().await;
+					let mut state = state.lock().await;
+					let position = state.reader.stream_position().await.map_err(|source| {
+						tg::error!(!source, "failed to get stream position")
+					})?;
+
 					if (state.read >= length.abs().to_u64().unwrap())
-						|| (state.reader.position() == 0 && length < 0)
+						|| (position == 0 && length < 0)
 					{
 						return Ok(None);
 					}
@@ -164,6 +169,10 @@ impl Server {
 							let mut state_ = state.lock().await;
 
 							// Determine the size.
+							let position =
+								state_.reader.stream_position().await.map_err(|source| {
+									tg::error!(!source, "failed to get stream position")
+								})?;
 							let size = match length {
 								None => size,
 								Some(length) => {
@@ -171,7 +180,7 @@ impl Server {
 										size.min(length.abs().to_u64().unwrap() - state_.read)
 									} else {
 										size.min(length.abs().to_u64().unwrap() - state_.read)
-											.min(state_.reader.position())
+											.min(position)
 									}
 								},
 							};
@@ -185,7 +194,10 @@ impl Server {
 							}
 
 							// Read the chunk.
-							let position = state_.reader.position();
+							let position =
+								state_.reader.stream_position().await.map_err(|source| {
+									tg::error!(!source, "failed to get stream position")
+								})?;
 							let mut data = vec![0u8; size.to_usize().unwrap()];
 							let mut read = 0;
 							while read < data.len() {
@@ -269,6 +281,45 @@ impl Server {
 	}
 
 	async fn try_add_build_log_local(&self, id: &tg::build::Id, bytes: Bytes) -> tg::Result<bool> {
+		if self.options.advanced.write_build_logs_to_file {
+			self.try_add_build_log_local_file(id, bytes).await
+		} else {
+			self.try_add_build_log_local_database(id, bytes).await
+		}
+	}
+
+	async fn try_add_build_log_local_file(
+		&self,
+		id: &tg::build::Id,
+		bytes: Bytes,
+	) -> tg::Result<bool> {
+		// Write to the log file.
+		let path = self.logs_path().join(id.to_string());
+		let mut file = tokio::fs::File::options()
+			.append(true)
+			.open(&path)
+			.await
+			.map_err(
+				|source| tg::error!(!source, %path = path.display(), "failed to open log file"),
+			)?;
+		file.write_all(&bytes).await.map_err(
+			|source| tg::error!(!source, %path = path.display(), "failed to write to log file"),
+		)?;
+
+		// Publish the message.
+		self.messenger
+			.publish(format!("builds.{id}.log"), Bytes::new())
+			.await
+			.map_err(|source| tg::error!(!source, "failed to publish"))?;
+
+		Ok(true)
+	}
+
+	async fn try_add_build_log_local_database(
+		&self,
+		id: &tg::build::Id,
+		bytes: Bytes,
+	) -> tg::Result<bool> {
 		// Verify the build is local.
 		if !self.get_build_exists_local(id).await? {
 			return Ok(false);
@@ -341,16 +392,15 @@ impl Reader {
 			let blob = tg::Blob::with_id(log);
 			let reader = blob.reader(server).await?;
 			Ok(Self::Blob(reader))
+		} else if server.options.advanced.write_build_logs_to_file {
+			let path = server.logs_path().join(id.to_string());
+			let file = tokio::fs::File::open(&path).await.map_err(
+				|source| tg::error!(!source, %path = path.display(), "failed to open log file"),
+			)?;
+			Ok(Self::File(file))
 		} else {
 			let reader = DatabaseReader::new(server, id);
 			Ok(Self::Database(reader))
-		}
-	}
-
-	pub fn position(&self) -> u64 {
-		match self {
-			Reader::Blob(reader) => reader.position(),
-			Reader::Database(reader) => reader.position(),
 		}
 	}
 
@@ -358,6 +408,7 @@ impl Reader {
 		match self {
 			Reader::Blob(reader) => Ok(reader.end()),
 			Reader::Database(reader) => reader.end().await,
+			Reader::File(_) => Ok(false),
 		}
 	}
 }
@@ -378,10 +429,6 @@ impl DatabaseReader {
 			seek,
 			server,
 		}
-	}
-
-	fn position(&self) -> u64 {
-		self.position
 	}
 
 	pub async fn end(&self) -> tg::Result<bool> {
@@ -439,6 +486,7 @@ impl AsyncRead for Reader {
 		match self.get_mut() {
 			Reader::Blob(reader) => std::pin::Pin::new(reader).poll_read(cx, buf),
 			Reader::Database(reader) => std::pin::Pin::new(reader).poll_read(cx, buf),
+			Reader::File(reader) => std::pin::Pin::new(reader).poll_read(cx, buf),
 		}
 	}
 }
@@ -451,6 +499,7 @@ impl AsyncSeek for Reader {
 		match self.get_mut() {
 			Reader::Blob(reader) => std::pin::Pin::new(reader).start_seek(position),
 			Reader::Database(reader) => std::pin::Pin::new(reader).start_seek(position),
+			Reader::File(reader) => std::pin::Pin::new(reader).start_seek(position),
 		}
 	}
 
@@ -461,6 +510,7 @@ impl AsyncSeek for Reader {
 		match self.get_mut() {
 			Reader::Blob(reader) => std::pin::Pin::new(reader).poll_complete(cx),
 			Reader::Database(reader) => std::pin::Pin::new(reader).poll_complete(cx),
+			Reader::File(reader) => std::pin::Pin::new(reader).poll_complete(cx),
 		}
 	}
 }

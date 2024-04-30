@@ -127,19 +127,28 @@ impl Server {
 			.await
 			.map_err(|source| tg::error!(!source, "failed to get a database connection"))?;
 
-		// Remove the log from the database.
-		let p = connection.p();
-		let statement = formatdoc!(
-			"
-				delete from build_logs
-				where build = {p}1;
-			"
-		);
-		let params = db::params![id];
-		connection
-			.execute(statement, params)
-			.await
-			.map_err(|source| tg::error!(!source, "failed to execute the statement"))?;
+		// Remove the log from the database or delete the log file.
+		if self.options.advanced.write_build_logs_to_file {
+			// Log and swallow errors instead of failing.
+			let path = self.logs_path().join(id.to_string());
+			tokio::fs::remove_file(path)
+				.await
+				.inspect_err(|error| tg::error!(%error, "failed to remove build log"))
+				.ok();
+		} else {
+			let p = connection.p();
+			let statement = formatdoc!(
+				"
+					delete from build_logs
+					where build = {p}1;
+				"
+			);
+			let params = db::params![id];
+			connection
+				.execute(statement, params)
+				.await
+				.map_err(|source| tg::error!(!source, "failed to execute the statement"))?;
+		}
 
 		// Add the log object to the build objects.
 		let p = connection.p();
