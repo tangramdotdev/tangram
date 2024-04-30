@@ -14,14 +14,14 @@ impl Cli {
 			let server = server.clone();
 			async move {
 				tokio::signal::ctrl_c().await.unwrap();
-				server.stop();
+				server.cancel();
 				tokio::signal::ctrl_c().await.unwrap();
 				std::process::exit(130);
 			}
 		});
 
 		// Join the server.
-		server.join().await;
+		server.wait().await;
 
 		Ok(())
 	}

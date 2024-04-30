@@ -135,7 +135,7 @@ pub(super) fn from_exception<'s>(
 	}
 }
 
-pub fn current_stack_trace(scope: &mut v8::HandleScope<'_>) -> Option<Vec<tg::error::Location>> {
+pub fn capture_stack_trace(scope: &mut v8::HandleScope<'_>) -> Option<Vec<tg::error::Location>> {
 	// Get the context.
 	let context = scope.get_current_context();
 
@@ -145,6 +145,7 @@ pub fn current_stack_trace(scope: &mut v8::HandleScope<'_>) -> Option<Vec<tg::er
 	// Get the current stack trace.
 	let stack = v8::StackTrace::current_stack_trace(scope, 1024 * 1024)?;
 
+	// Collect the stack frames.
 	let stack = (0..stack.get_frame_count())
 		.rev()
 		.filter_map(|index| {
@@ -165,7 +166,8 @@ pub fn current_stack_trace(scope: &mut v8::HandleScope<'_>) -> Option<Vec<tg::er
 				Some(column),
 			)
 		})
-		.collect::<Vec<_>>();
+		.collect();
+
 	Some(stack)
 }
 

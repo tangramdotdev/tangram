@@ -364,10 +364,6 @@ impl tg::Handle for Server {
 		Err(tg::error!("forbidden"))
 	}
 
-	async fn stop(&self) -> tg::Result<()> {
-		Err(tg::error!("forbidden"))
-	}
-
 	async fn get_user(&self, _token: &str) -> tg::Result<Option<tg::User>> {
 		Err(tg::error!("forbidden"))
 	}

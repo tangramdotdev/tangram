@@ -334,7 +334,5 @@ pub trait Handle: Clone + Unpin + Send + Sync + 'static {
 
 	fn clean(&self) -> impl Future<Output = tg::Result<()>> + Send;
 
-	fn stop(&self) -> impl Future<Output = tg::Result<()>> + Send;
-
 	fn get_user(&self, token: &str) -> impl Future<Output = tg::Result<Option<tg::User>>> + Send;
 }

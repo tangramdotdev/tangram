@@ -18,7 +18,7 @@ use itertools::Itertools as _;
 use std::{
 	collections::HashMap,
 	convert::Infallible,
-	os::fd::AsRawFd,
+	os::fd::{AsRawFd, IntoRawFd as _},
 	path::{Path, PathBuf},
 	pin::pin,
 	sync::Arc,
@@ -65,7 +65,7 @@ pub struct Inner {
 	database: Database,
 	file_descriptor_semaphore: tokio::sync::Semaphore,
 	local_pool_handle: tokio_util::task::LocalPoolHandle,
-	lockfile: std::sync::Mutex<Option<tokio::fs::File>>,
+	lock_file: std::sync::Mutex<Option<tokio::fs::File>>,
 	messenger: Messenger,
 	#[allow(dead_code)]
 	oauth: OAuth,
@@ -97,50 +97,91 @@ struct OAuth {
 
 impl Server {
 	pub async fn start(options: Options) -> tg::Result<Server> {
+		// Canonicalize the path.
+		let parent = options
+			.path
+			.parent()
+			.ok_or_else(|| tg::error!("invalid path"))?;
+		let file_name = options
+			.path
+			.file_name()
+			.ok_or_else(|| tg::error!("invalid path"))?;
+		let path = tokio::fs::canonicalize(&parent)
+			.await
+			.map_err(|source| tg::error!(!source, "failed to canonicalize the path"))?;
+		let path = path.join(file_name);
+
 		// Ensure the path exists.
-		tokio::fs::create_dir_all(&options.path)
+		tokio::fs::create_dir_all(&path)
 			.await
 			.map_err(|source| tg::error!(!source, "failed to create the directory"))?;
 
-		// Canonicalize the path.
-		let path = tokio::fs::canonicalize(&options.path)
-			.await
-			.map_err(|source| tg::error!(!source, "failed to canonicalize the path"))?;
+		// Redirect stdout and std to the log file.
+		let log_path = path.join("log");
+		let log = std::fs::File::create(log_path)
+			.map_err(|source| tg::error!(!source, "failed to create the log file"))?;
+		let log = log.into_raw_fd();
+		let ret = unsafe { libc::dup2(log, libc::STDOUT_FILENO) };
+		if ret == -1 {
+			let source = std::io::Error::last_os_error();
+			return Err(tg::error!(!source, "failed to dup stdout to the log file"));
+		}
+		let ret = unsafe { libc::dup2(log, libc::STDERR_FILENO) };
+		if ret == -1 {
+			let source = std::io::Error::last_os_error();
+			return Err(tg::error!(!source, "failed to dup stderr to the log file"));
+		}
 
-		// Acquire the lockfile.
-		let mut lockfile = tokio::fs::OpenOptions::new()
+		// Lock the lock file.
+		let lock_path = path.join("lock");
+		let mut lock_file = tokio::fs::OpenOptions::new()
 			.read(true)
 			.write(true)
 			.create(true)
 			.truncate(true)
-			.open(path.join("lock"))
+			.open(lock_path)
 			.await
-			.map_err(|source| tg::error!(!source, "failed to open the lockfile"))?;
-		let ret = unsafe { libc::flock(lockfile.as_raw_fd(), libc::LOCK_EX | libc::LOCK_NB) };
+			.map_err(|source| tg::error!(!source, "failed to open the lock file"))?;
+		let ret = unsafe { libc::flock(lock_file.as_raw_fd(), libc::LOCK_EX | libc::LOCK_NB) };
 		if ret != 0 {
 			return Err(tg::error!(
 				source = std::io::Error::last_os_error(),
-				"failed to acquire the lockfile"
+				"failed to lock the lock file"
 			));
 		}
-		lockfile
-			.set_len(0)
-			.await
-			.map_err(|source| tg::error!(!source, "failed to truncate the lockfile"))?;
 		let pid = std::process::id();
-		lockfile
+		lock_file
 			.write_all(pid.to_string().as_bytes())
 			.await
-			.map_err(|source| tg::error!(!source, "failed to write the pid to the lockfile"))?;
-		let lockfile = std::sync::Mutex::new(Some(lockfile));
+			.map_err(|source| tg::error!(!source, "failed to write the pid to the lock file"))?;
+		let lock_file = std::sync::Mutex::new(Some(lock_file));
 
-		// Migrate the path.
+		// Migrate the directory.
 		Self::migrate(&path).await?;
 
-		// Write the PID file.
-		tokio::fs::write(&path.join("pid"), std::process::id().to_string())
+		// Ensure the blobs directory exists.
+		let blobs_path = path.join("blobs");
+		tokio::fs::create_dir_all(&blobs_path)
 			.await
-			.map_err(|source| tg::error!(!source, "failed to write the PID file"))?;
+			.map_err(|source| tg::error!(!source, "failed to create the blobs directory"))?;
+
+		// Ensure the checkouts directory exists.
+		let checkouts_path = path.join("checkouts");
+		tokio::fs::create_dir_all(&checkouts_path)
+			.await
+			.map_err(|source| tg::error!(!source, "failed to create the checkouts directory"))?;
+
+		// Ensure the logs directory exists.
+		let logs_path = path.join("logs");
+		tokio::fs::create_dir_all(&logs_path)
+			.await
+			.map_err(|source| tg::error!(!source, "failed to create the logs directory"))?;
+
+		// Ensure the tmp directory exists.
+		let tmp_path = path.join("tmp");
+		tokio::fs::create_dir_all(&tmp_path)
+			.await
+			.map_err(|source| tg::error!(!source, "failed to create the tmp directory"))?;
 
 		// Remove an existing socket file.
 		tokio::fs::remove_dir_all(&path.join("socket")).await.ok();
@@ -238,9 +279,6 @@ impl Server {
 		// Create the runtimes.
 		let runtimes = std::sync::RwLock::new(HashMap::default());
 
-		// Get the URL.
-		let url = options.url.clone();
-
 		// Create the vfs.
 		let vfs = std::sync::Mutex::new(None);
 
@@ -252,7 +290,7 @@ impl Server {
 			database,
 			file_descriptor_semaphore,
 			local_pool_handle,
-			lockfile,
+			lock_file,
 			messenger,
 			oauth,
 			options,
@@ -284,7 +322,7 @@ impl Server {
 				.await?;
 		}
 
-		// Start the VFS if necessary and set up the checkouts directory.
+		// Start the VFS if necessary.
 		let artifacts_path = server.artifacts_path();
 		let kind = if cfg!(target_os = "macos") {
 			vfs::Kind::Nfs
@@ -294,16 +332,14 @@ impl Server {
 			unreachable!()
 		};
 		if server.options.vfs {
-			// Start the VFS server.
+			// If the VFS is enabled, then start the VFS server.
 			let vfs = self::vfs::Server::start(&server, kind, &artifacts_path)
 				.await
 				.map_err(|source| tg::error!(!source, "failed to start the VFS"))?;
 			server.vfs.lock().unwrap().replace(vfs);
 		} else {
-			// Remove the artifacts directory.
+			// Otherwise, create a symlink from the artifacts directory to the checkouts directory.
 			tokio::fs::remove_dir_all(&artifacts_path).await.ok();
-
-			// Create a symlink from the artifacts directory to the checkouts directory.
 			tokio::fs::symlink("checkouts", artifacts_path)
 				.await
 				.map_err(|source|tg::error!(!source, "failed to create a symlink from the artifacts directory to the checkouts directory"))?;
@@ -342,7 +378,7 @@ impl Server {
 			server.runtimes.write().unwrap().insert(triple, runtime);
 		}
 
-		// Start the build queue.
+		// Spawn the build task.
 		if server.options.build.is_some() {
 			tokio::spawn({
 				let server = server.clone();
@@ -350,35 +386,41 @@ impl Server {
 			});
 		}
 
-		// Start the http task.
+		// Spawn the http task.
 		let (_, http_stop_receiver) = tokio::sync::watch::channel(false);
-		tokio::spawn(Self::serve(server.clone(), url, http_stop_receiver));
+		tokio::spawn(Self::serve(
+			server.clone(),
+			server.options.url.clone(),
+			http_stop_receiver,
+		));
 
 		Ok(server)
 	}
 
-	pub fn stop(&self) {
+	pub fn cancel(&self) {
 		let server = self.clone();
 		tokio::spawn(async move {
-			// Stop the database.
-			server.runtimes.write().unwrap().clear();
-
 			// Remove the runtimes.
 			server.runtimes.write().unwrap().clear();
 
-			// Release the lockfile.
-			let lockfile = server.lockfile.lock().unwrap().take();
-			if let Some(lockfile) = lockfile {
-				lockfile.set_len(0).await.ok();
+			// Release the lock file.
+			let lock_file = server.lock_file.lock().unwrap().take();
+			if let Some(lock_file) = lock_file {
+				lock_file.set_len(0).await.ok();
 			}
 		});
 	}
 
-	pub async fn join(&self) {}
+	pub async fn wait(&self) {}
 
 	#[must_use]
 	pub fn artifacts_path(&self) -> PathBuf {
 		self.path.join("artifacts")
+	}
+
+	#[must_use]
+	pub fn blobs_path(&self) -> PathBuf {
+		self.path.join("blobs")
 	}
 
 	#[must_use]
@@ -389,6 +431,11 @@ impl Server {
 	#[must_use]
 	pub fn database_path(&self) -> PathBuf {
 		self.path.join("database")
+	}
+
+	#[must_use]
+	pub fn logs_path(&self) -> PathBuf {
+		self.path.join("logs")
 	}
 
 	#[must_use]
@@ -683,9 +730,6 @@ impl Server {
 			},
 			(http::Method::GET, ["health"]) => {
 				Self::handle_server_health_request(handle, request).boxed()
-			},
-			(http::Method::POST, ["stop"]) => {
-				Self::handle_server_stop_request(handle, request).boxed()
 			},
 
 			// Users.
@@ -1044,11 +1088,6 @@ impl tg::Handle for Server {
 
 	fn clean(&self) -> impl Future<Output = tg::Result<()>> {
 		self.clean()
-	}
-
-	async fn stop(&self) -> tg::Result<()> {
-		self.stop();
-		Ok(())
 	}
 
 	fn get_user(&self, token: &str) -> impl Future<Output = tg::Result<Option<tg::user::User>>> {

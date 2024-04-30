@@ -4,6 +4,7 @@ use crossterm::style::Stylize;
 use either::Either;
 use futures::FutureExt as _;
 use itertools::Itertools as _;
+use num::ToPrimitive;
 use std::{fmt::Write, path::PathBuf};
 use tangram_client as tg;
 use tangram_server::Server;
@@ -132,7 +133,7 @@ fn main() -> std::process::ExitCode {
 		})
 		.ok();
 
-	// Get the mode. If the command is `tg server run` then set the mode to `server`.
+	// Get the mode. If the command is `tg server run`, then set the mode to `server`.
 	let mode = if matches!(
 		args.command,
 		Command::Server(self::server::Args {
@@ -167,10 +168,10 @@ fn main() -> std::process::ExitCode {
 			},
 		};
 
-		// Stop and join the server if necessary.
+		// Cancel and join the server if necessary.
 		if let Some(server) = cli.handle.right() {
-			server.stop();
-			server.join().await;
+			server.cancel();
+			server.wait().await;
 		}
 
 		result
@@ -212,33 +213,59 @@ impl Cli {
 		let client = Self::client(config).await?;
 
 		// Attempt to connect to the server.
-		let mut connected = client.connect().await.is_ok();
+		client.connect().await.ok();
 
 		// If the client is not connected and the URL is local, then start the server and attempt to connect.
 		let local = client.url().scheme() == "http+unix"
 			|| matches!(client.url().host_str(), Some("localhost" | "0.0.0.0"));
-		if !connected && local {
-			Self::start_server(config).await?;
+		if !client.connected().await && local {
+			// Start the server.
+			Self::start_server().await?;
+
+			// Try to connect for up to one second.
 			for _ in 0..10 {
-				tokio::time::sleep(std::time::Duration::from_millis(100)).await;
 				if client.connect().await.is_ok() {
-					connected = true;
 					break;
 				}
+				tokio::time::sleep(std::time::Duration::from_millis(100)).await;
 			}
-		};
 
-		// If the client is not connected, then return an error.
-		if !connected {
-			return Err(tg::error!(%url = client.url(), "failed to connect to the server"));
+			// If the client is not connected, then return an error.
+			if !client.connected().await {
+				return Err(tg::error!(%url = client.url(), "failed to connect to the server"));
+			}
 		}
 
-		// Check the version.
-		let client_version = VERSION;
-		let server_version = &client.health().await?.version;
-		if let Some(server_version) = server_version {
-			if client_version != server_version {
-				eprintln!("{}: the client version {client_version} does not match the server version {server_version}", "warning".yellow().bold());
+		// If the URL is local and the server's version is different from the client, then disconnect and restart the server.
+		if local {
+			let client_version = VERSION;
+			let server_version = &client.health().await?.version;
+			if let Some(server_version) = server_version {
+				if client_version != server_version {
+					// Disconnect.
+					client.disconnect().await?;
+
+					// Stop the server.
+					Self::stop_server(config).await?;
+
+					// Start the server.
+					Self::start_server().await?;
+
+					// Try to connect for up to one second.
+					for _ in 0..10 {
+						if client.connect().await.is_ok() {
+							break;
+						}
+						tokio::time::sleep(std::time::Duration::from_millis(100)).await;
+					}
+
+					// If the client is not connected, then return an error.
+					if !client.connected().await {
+						return Err(
+							tg::error!(%url = client.url(), "failed to connect to the server"),
+						);
+					}
+				}
 			}
 		}
 
@@ -246,32 +273,77 @@ impl Cli {
 	}
 
 	/// Start the server.
-	async fn start_server(config: Option<&Config>) -> tg::Result<()> {
+	async fn start_server() -> tg::Result<()> {
+		// Get the path to the current executable.
 		let executable = std::env::current_exe()
 			.map_err(|source| tg::error!(!source, "failed to get the current executable path"))?;
+
+		// Spawn the server.
+		tokio::process::Command::new(executable)
+			.args(["server", "run"])
+			.stdin(std::process::Stdio::null())
+			.spawn()
+			.map_err(|source| tg::error!(!source, "failed to spawn the server"))?;
+
+		Ok(())
+	}
+
+	/// Stop the server.
+	async fn stop_server(config: Option<&Config>) -> tg::Result<()> {
+		// Get the lock file path.
 		let path = config
 			.as_ref()
 			.and_then(|config| config.path.clone())
 			.unwrap_or_else(|| PathBuf::from(std::env::var("HOME").unwrap()).join(".tangram"));
-		tokio::fs::create_dir_all(&path)
+		let lock_path = path.join("lock");
+
+		// Read the PID from the lock file.
+		let pid = tokio::fs::read_to_string(&lock_path)
 			.await
-			.map_err(|source| tg::error!(!source, "failed to create the server path"))?;
-		let stdout = tokio::fs::File::create(path.join("log"))
-			.await
-			.map_err(|source| tg::error!(!source, "failed to create the server log file"))?;
-		let stderr = stdout
-			.try_clone()
-			.await
-			.map_err(|source| tg::error!(!source, "failed to clone the server log file"))?;
-		tokio::process::Command::new(executable)
-			.args(["server", "run"])
-			.current_dir(&path)
-			.stdin(std::process::Stdio::null())
-			.stdout(stdout.into_std().await)
-			.stderr(stderr.into_std().await)
-			.spawn()
-			.map_err(|source| tg::error!(!source, "failed to spawn the server"))?;
-		Ok(())
+			.map_err(|source| tg::error!(!source, "failed to read the pid from the lock file"))?
+			.parse::<u32>()
+			.map_err(|source| tg::error!(!source, "invalid lock file"))?;
+
+		// Send SIGINT to the server.
+		let ret = unsafe { libc::kill(pid.to_i32().unwrap(), libc::SIGINT) };
+		if ret != 0 {
+			return Err(tg::error!("failed to send SIGINT to the server"));
+		}
+
+		// Wait up to five seconds for the server to exit.
+		for _ in 0..50 {
+			// If the server has exited, then return.
+			let ret = unsafe { libc::kill(pid.to_i32().unwrap(), libc::SIGINT) };
+			if ret != 0 {
+				return Ok(());
+			}
+
+			// Otherwise, sleep.
+			let duration = std::time::Duration::from_millis(100);
+			tokio::time::sleep(duration).await;
+		}
+
+		// If the server has still not exited, then send SIGTERM.
+		let ret = unsafe { libc::kill(pid.to_i32().unwrap(), libc::SIGTERM) };
+		if ret != 0 {
+			return Err(tg::error!("failed to send SIGTERM to the server"));
+		}
+
+		// Wait up to one second for the server to exit.
+		for _ in 0..10 {
+			// If the server has exited, then return.
+			let ret = unsafe { libc::kill(pid.to_i32().unwrap(), libc::SIGINT) };
+			if ret != 0 {
+				return Ok(());
+			}
+
+			// Otherwise, sleep.
+			let duration = std::time::Duration::from_millis(100);
+			tokio::time::sleep(duration).await;
+		}
+
+		// If the server has still not exited, then return an error.
+		Err(tg::error!("failed to terminate the server"))
 	}
 
 	async fn client(config: Option<&Config>) -> tg::Result<Client> {
@@ -664,6 +736,7 @@ impl Cli {
 		Ok(format!("{name}@{version}"))
 	}
 
+	/// Initialize V8.
 	fn initialize_v8() {
 		// Set the ICU data.
 		v8::icu::set_common_data_73(deno_core_icudata::ICU_DATA).unwrap();
@@ -679,6 +752,7 @@ impl Cli {
 		v8::V8::initialize();
 	}
 
+	/// Initialize tracing.
 	fn initialize_tracing(config: Option<&Config>) {
 		let console_layer = if config
 			.as_ref()
@@ -735,6 +809,7 @@ impl Cli {
 		Ok(())
 	}
 
+	// Get the host.
 	fn host() -> &'static str {
 		#[cfg(all(target_arch = "aarch64", target_os = "macos"))]
 		{

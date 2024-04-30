@@ -23,7 +23,7 @@ impl Server {
 			"
 				select users.id, users.email, tokens.token
 				from users
-				join tokens on tokens.user_id = users.id
+				join tokens on tokens.user = users.id
 				where tokens.token = {p}1;
 			"
 		);

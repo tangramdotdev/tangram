@@ -9,6 +9,14 @@
 // 	cancellation_token: tokio_util::sync::CancellationToken,
 // }
 
+// pub struct Token;
+
+// impl<T> Task<T> {
+// 	pub fn new<F, Fut>(f: F) -> Self where F: FnOnce(Cancel) -> Fut, Fut: {
+// 		todo!()
+// 	}
+// }
+
 // impl<T> Task<T> {
 // 	pub fn abort()
 

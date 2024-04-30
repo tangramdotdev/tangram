@@ -5,7 +5,7 @@ use std::path::Path;
 use tangram_client as tg;
 
 impl Server {
-	pub async fn migrate(path: &Path) -> tg::Result<()> {
+	pub(crate) async fn migrate(path: &Path) -> tg::Result<()> {
 		let migrations = vec![migration_0000(path).boxed()];
 
 		// Read the version from the version file.
@@ -119,7 +119,7 @@ async fn migration_0000(path: &Path) -> tg::Result<()> {
 
 			create unique index build_objects_index on build_objects (build, object);
 
-			create index build_objects_child_index on build_objects (object);
+			create index build_objects_object_index on build_objects (object);
 
 			create table objects (
 				id text primary key,
@@ -165,25 +165,13 @@ async fn migration_0000(path: &Path) -> tg::Result<()> {
 
 			create table tokens (
 				id text primary key,
-				user_id text not null references users (id)
+				user text not null references users (id)
 			);
 		"
 	);
 	connection
 		.execute_batch(&sql)
 		.map_err(|source| tg::error!(!source, "failed to create the database tables"))?;
-
-	// Create the checkouts directory.
-	let checkouts_path = path.join("checkouts");
-	tokio::fs::create_dir_all(&checkouts_path)
-		.await
-		.map_err(|source| tg::error!(!source, "failed to create the checkouts directory"))?;
-
-	// Create the tmp directory.
-	let tmp_path = path.join("tmp");
-	tokio::fs::create_dir_all(&tmp_path)
-		.await
-		.map_err(|source| tg::error!(!source, "failed to create the tmp directory"))?;
 
 	Ok(())
 }

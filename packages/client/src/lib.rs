@@ -127,6 +127,15 @@ impl Client {
 		self.sender().await.map(|_| ())
 	}
 
+	pub async fn connected(&self) -> bool {
+		self.0
+			.sender
+			.lock()
+			.await
+			.as_ref()
+			.is_some_and(hyper::client::conn::http2::SendRequest::is_ready)
+	}
+
 	pub async fn disconnect(&self) -> tg::Result<()> {
 		self.sender.lock().await.take();
 		Ok(())
@@ -839,10 +848,6 @@ impl tg::Handle for Client {
 
 	fn clean(&self) -> impl Future<Output = tg::Result<()>> {
 		self.clean()
-	}
-
-	fn stop(&self) -> impl Future<Output = tg::Result<()>> {
-		self.stop()
 	}
 
 	fn get_user(&self, token: &str) -> impl Future<Output = tg::Result<Option<tg::User>>> {

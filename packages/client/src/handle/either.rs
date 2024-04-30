@@ -490,13 +490,6 @@ where
 		}
 	}
 
-	fn stop(&self) -> impl Future<Output = tg::Result<()>> {
-		match self {
-			Either::Left(s) => s.stop().left_future(),
-			Either::Right(s) => s.stop().right_future(),
-		}
-	}
-
 	fn get_user(&self, token: &str) -> impl Future<Output = tg::Result<Option<tg::User>>> {
 		match self {
 			Either::Left(s) => s.get_user(token).left_future(),

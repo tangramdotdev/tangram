@@ -2,7 +2,7 @@
 
 use super::{
 	convert::{from_v8, FromV8, ToV8},
-	error::current_stack_trace,
+	error::capture_stack_trace,
 	State,
 };
 use bytes::Bytes;
@@ -64,7 +64,7 @@ pub fn syscall<'s>(
 
 		Err(error) => {
 			// Create the error.
-			let stack = current_stack_trace(scope).unwrap_or_default();
+			let stack = capture_stack_trace(scope).unwrap_or_default();
 			let error = tg::error!(source = error, stack = stack, %name, "the syscall failed");
 
 			// Throw an exception.

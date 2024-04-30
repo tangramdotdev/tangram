@@ -1,6 +1,6 @@
 use crate::Server;
 use tangram_client as tg;
-use tangram_http::{outgoing::ResponseExt as _, Incoming, Outgoing};
+use tangram_http::{Incoming, Outgoing};
 
 impl Server {
 	pub async fn health(&self) -> tg::Result<tg::server::Health> {
@@ -39,17 +39,5 @@ impl Server {
 			.body(Outgoing::bytes(body))
 			.unwrap();
 		Ok(response)
-	}
-
-	#[allow(clippy::unnecessary_wraps)]
-	pub(crate) async fn handle_server_stop_request<H>(
-		handle: &H,
-		_request: http::Request<Incoming>,
-	) -> tg::Result<http::Response<Outgoing>>
-	where
-		H: tg::Handle,
-	{
-		handle.stop().await?;
-		Ok(http::Response::ok())
 	}
 }
