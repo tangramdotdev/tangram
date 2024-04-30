@@ -52,7 +52,7 @@ enum NodeKind {
 	},
 	Directory {
 		directory: tg::Directory,
-		children: parking_lot::RwLock<Vec<(String, Arc<Node>)>>,
+		children: std::sync::RwLock<Vec<(String, Arc<Node>)>>,
 	},
 	File {
 		file: tg::File,
@@ -131,6 +131,9 @@ enum Response {
 
 impl Server {
 	pub async fn start(server: &crate::Server, path: &Path) -> tg::Result<Self> {
+		// Mount.
+		let dev_fuse_fd = Self::mount(path).await?;
+
 		// Create the server.
 		let root = Arc::new_cyclic(|root| Node {
 			id: ROOT_NODE_ID,
@@ -149,10 +152,6 @@ impl Server {
 		let server = server.clone();
 		let stop_task = std::sync::Mutex::new(None);
 		let task = std::sync::Mutex::new(None);
-
-		// Mount.
-		let dev_fuse_fd = Self::mount(&path).await?;
-
 		let server = Self(Arc::new(Inner {
 			dev_fuse_fd,
 			handle_index,
@@ -496,17 +495,16 @@ impl Server {
 			return Err(libc::EIO);
 		};
 
-		// If "0" is passed in as an argument, the caller is requesting the size of this xattr.
 		if data.size == 0 {
+			// If "0" is passed in as an argument, the caller is requesting the size of this xattr.
 			let response = sys::fuse_getxattr_out {
 				size: attributes.len().to_u32().unwrap(),
 				padding: 0,
 			};
 			let response = response.as_bytes().to_vec();
 			Ok(Response::GetXattr(response))
-		}
-		// If the size is too small, return ERANGE.
-		else if data.size.to_usize().unwrap() < attributes.len() {
+		} else if data.size.to_usize().unwrap() < attributes.len() {
+			// If the size is too small, return ERANGE.
 			Err(libc::ERANGE)
 		} else {
 			Ok(Response::GetXattr(attributes))
@@ -884,6 +882,7 @@ impl Server {
 			NodeKind::Directory { children, .. } => {
 				let child = children
 					.read()
+					.unwrap()
 					.iter()
 					.find_map(|(path_, node)| (path_.as_str() == name).then_some(node.clone()));
 				if let Some(child) = child {
@@ -925,7 +924,7 @@ impl Server {
 		let kind = match child {
 			Either::Left(path) => NodeKind::Checkout { path },
 			Either::Right(tg::Artifact::Directory(directory)) => {
-				let children = parking_lot::RwLock::new(Vec::default());
+				let children = std::sync::RwLock::new(Vec::default());
 				NodeKind::Directory {
 					directory,
 					children,
@@ -950,7 +949,10 @@ impl Server {
 				children.insert(name.to_owned(), child_node.clone());
 			},
 			NodeKind::Directory { children, .. } => {
-				children.write().push((name.to_owned(), child_node.clone()));
+				children
+					.write()
+					.unwrap()
+					.push((name.to_owned(), child_node.clone()));
 			},
 			_ => return Err(libc::EIO),
 		}
