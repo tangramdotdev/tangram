@@ -17,12 +17,8 @@ mod scroll;
 
 pub struct Tui {
 	stop: tokio::sync::watch::Sender<bool>,
-	task: Option<tokio::task::JoinHandle<std::io::Result<Terminal>>>,
+	task: Option<tokio::task::JoinHandle<tg::Result<()>>>,
 }
-
-type Backend = tui::backend::CrosstermBackend<std::fs::File>;
-
-type Terminal = tui::Terminal<Backend>;
 
 struct App<H>
 where
@@ -134,26 +130,6 @@ impl Tui {
 	where
 		H: tg::Handle,
 	{
-		// Create the terminal.
-		let tty = tokio::fs::OpenOptions::new()
-			.read(true)
-			.write(true)
-			.open("/dev/tty")
-			.await
-			.map_err(|source| tg::error!(!source, "failed to open /dev/tty"))?;
-		let tty = tty.into_std().await;
-		let backend = Backend::new(tty);
-		let mut terminal = Terminal::new(backend)
-			.map_err(|source| tg::error!(!source, "failed to create the terminal backend"))?;
-		ct::terminal::enable_raw_mode()
-			.map_err(|source| tg::error!(!source, "failed to enable the terminal's raw mode"))?;
-		ct::execute!(
-			terminal.backend_mut(),
-			ct::event::EnableMouseCapture,
-			ct::terminal::EnterAlternateScreen,
-		)
-		.map_err(|source| tg::error!(!source, "failed to set up the terminal"))?;
-
 		// Create the stop flag.
 		let (stop, _) = tokio::sync::watch::channel(false);
 
@@ -163,6 +139,26 @@ impl Tui {
 			let build = build.clone();
 			let stop = stop.subscribe();
 			move || {
+				// Create the terminal.
+				let tty = std::fs::OpenOptions::new()
+					.read(true)
+					.write(true)
+					.open("/dev/tty")
+					.map_err(|source| tg::error!(!source, "failed to open /dev/tty"))?;
+				let backend = tui::backend::CrosstermBackend::new(tty);
+				let mut terminal = tui::Terminal::new(backend).map_err(|source| {
+					tg::error!(!source, "failed to create the terminal backend")
+				})?;
+				ct::terminal::enable_raw_mode().map_err(|source| {
+					tg::error!(!source, "failed to enable the terminal's raw mode")
+				})?;
+				ct::execute!(
+					terminal.backend_mut(),
+					ct::event::EnableMouseCapture,
+					ct::terminal::EnterAlternateScreen,
+				)
+				.map_err(|source| tg::error!(!source, "failed to set up the terminal"))?;
+
 				// Create the app.
 				let rect = terminal.get_frame().size();
 				let mut app = App::new(&handle, &build, rect);
@@ -170,8 +166,11 @@ impl Tui {
 				// Run the event loop.
 				while !*stop.borrow() {
 					// Wait for and handle an event.
-					if ct::event::poll(std::time::Duration::from_millis(16))? {
-						let event = ct::event::read()?;
+					if ct::event::poll(std::time::Duration::from_millis(16))
+						.map_err(|source| tg::error!(!source, "failed to poll for an event"))?
+					{
+						let event = ct::event::read()
+							.map_err(|source| tg::error!(!source, "failed to read an event"))?;
 
 						// Quit the TUI if requested.
 						if let ct::event::Event::Key(event) = event {
@@ -188,10 +187,26 @@ impl Tui {
 					}
 
 					// Render.
-					terminal.draw(|frame| app.render(frame.size(), frame.buffer_mut()))?;
+					terminal
+						.draw(|frame| app.render(frame.size(), frame.buffer_mut()))
+						.map_err(|source| tg::error!(!source, "failed to draw a frame"))?;
 				}
 
-				Ok(terminal)
+				// Reset the terminal.
+				terminal
+					.clear()
+					.map_err(|source| tg::error!(!source, "failed to clear the terminal"))?;
+				ct::execute!(
+					terminal.backend_mut(),
+					ct::event::DisableMouseCapture,
+					ct::terminal::LeaveAlternateScreen
+				)
+				.map_err(|source| tg::error!(!source, "failed to reset the terminal"))?;
+				ct::terminal::disable_raw_mode().map_err(|source| {
+					tg::error!(!source, "failed to disable the terminal's raw mode")
+				})?;
+
+				Ok(())
 			}
 		});
 
@@ -211,24 +226,10 @@ impl Tui {
 			return Ok(());
 		};
 
-		// Join the task and get the terminal.
-		let mut terminal = task
-			.await
+		// Join the task.
+		task.await
 			.unwrap()
 			.map_err(|source| tg::error!(!source, "the task did not succeed"))?;
-
-		// Reset the terminal.
-		terminal
-			.clear()
-			.map_err(|source| tg::error!(!source, "failed to clear the terminal"))?;
-		ct::execute!(
-			terminal.backend_mut(),
-			ct::event::DisableMouseCapture,
-			ct::terminal::LeaveAlternateScreen
-		)
-		.map_err(|source| tg::error!(!source, "failed to reset the terminal"))?;
-		ct::terminal::disable_raw_mode()
-			.map_err(|source| tg::error!(!source, "failed to disable the terminal's raw mode"))?;
 
 		Ok(())
 	}

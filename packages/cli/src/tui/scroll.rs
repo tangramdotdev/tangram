@@ -281,7 +281,7 @@ impl<'a, 'b> GraphemeParserState<'a, 'b> {
 		let mut cursor = GraphemeCursor::new(self.start, len, true);
 
 		loop {
-			// Tryc and scan the next codepoint.
+			// Try to scan the next codepoint.
 			let (is_valid_utf8, num_bytes) = self.try_scan()?;
 			if !is_valid_utf8 {
 				// If we have invalid UTF-8 and the buffer is empty, the caller must replace with a unicode replacement character.
@@ -335,6 +335,7 @@ impl<'a, 'b> GraphemeParserState<'a, 'b> {
 				Err(_) => unreachable!(),
 			}
 		}
+
 		Ok(true)
 	}
 
