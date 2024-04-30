@@ -77,7 +77,7 @@ impl Server {
 		// Drop the connection.
 		drop(connection);
 
-		// If the build was canceled, then stop the build and cancel the children.
+		// Cancel unfinished children.
 		children
 			.iter()
 			.map(|child| async move {
@@ -127,7 +127,7 @@ impl Server {
 			.await
 			.map_err(|source| tg::error!(!source, "failed to get a database connection"))?;
 
-		// Remove the build log.
+		// Remove the log from the database.
 		let p = connection.p();
 		let statement = formatdoc!(
 			"
@@ -141,7 +141,7 @@ impl Server {
 			.await
 			.map_err(|source| tg::error!(!source, "failed to execute the statement"))?;
 
-		// Add the log to the build objects.
+		// Add the log object to the build objects.
 		let p = connection.p();
 		let statement = formatdoc!(
 			"
@@ -178,70 +178,22 @@ impl Server {
 				.map_err(|source| tg::error!(!source, "failed to execute the statement"))?;
 		}
 
-		// Compute the count.
-		let p = connection.p();
-		let statement = formatdoc!(
-			"
-				select 1 + (
-					select count(*)
-					from build_children
-					where build = {p}1
-				) as count;
-			"
-		);
-		let params = db::params![id];
-		let count = connection
-			.query_one_value_into::<Option<u64>>(statement, params)
-			.await
-			.map_err(|source| tg::error!(!source, "failed to execute the statement"))?;
-
-		// Compute the weight.
-		let p = connection.p();
-		let statement = formatdoc!(
-			"
-				select (
-					select sum(weight)
-					from objects
-					where id in (
-						select object
-						from build_objects
-						where build = {p}1
-					)
-				) + (
-					select sum(weight)
-					from builds
-					where id in (
-						select child
-						from build_children
-						where build = {p}1
-					)
-				) as weight;
-			"
-		);
-		let params = db::params![id];
-		let weight = connection
-			.query_one_value_into::<Option<u64>>(statement, params)
-			.await
-			.map_err(|source| tg::error!(!source, "failed to execute the statement"))?;
-
 		// Update the build.
 		let p = connection.p();
 		let statement = formatdoc!(
 			"
 				update builds
 				set
-					count = {p}1,
-					log = {p}2,
-					outcome = {p}3,
-					status = {p}4,
-					weight = {p}5,
-					finished_at = {p}6
-				where id = {p}7;
+					log = {p}1,
+					outcome = {p}2,
+					status = {p}3,
+					finished_at = {p}4
+				where id = {p}5;
 			"
 		);
 		let status = tg::build::Status::Finished;
 		let finished_at = time::OffsetDateTime::now_utc().format(&Rfc3339).unwrap();
-		let params = db::params![count, log, outcome, status, weight, finished_at, id];
+		let params = db::params![log, outcome, status, finished_at, id];
 		connection
 			.execute(statement, params)
 			.await
@@ -250,7 +202,7 @@ impl Server {
 		// Drop the connection.
 		drop(connection);
 
-		// Publish the message.
+		// Publish a message that the build's status has changed.
 		self.messenger
 			.publish(format!("builds.{id}.status"), Bytes::new())
 			.await

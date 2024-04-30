@@ -244,6 +244,7 @@ impl Server {
 							}
 
 							drop(state_);
+
 							Ok::<_, tg::Error>(Some((chunk, (server, id, state, end))))
 						},
 					);
