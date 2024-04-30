@@ -60,6 +60,7 @@ pub mod options;
 pub struct Server(Arc<Inner>);
 
 pub struct Inner {
+	build_monitor: std::sync::Mutex<Option<build::monitor::Monitor>>,
 	build_permits: BuildPermits,
 	build_queue_task: std::sync::Mutex<Option<tokio::task::JoinHandle<()>>>,
 	build_semaphore: Arc<tokio::sync::Semaphore>,
@@ -170,6 +171,9 @@ impl Server {
 		let socket_path = path.join("socket");
 		tokio::fs::remove_file(&socket_path).await.ok();
 
+		// Create the build monitor.
+		let build_monitor = std::sync::Mutex::new(None);
+
 		// Create the build permits.
 		let build_permits = DashMap::default();
 
@@ -252,6 +256,7 @@ impl Server {
 
 		// Create the server.
 		let server = Self(Arc::new(Inner {
+			build_monitor,
 			build_permits,
 			build_queue_task,
 			build_semaphore,
@@ -356,6 +361,12 @@ impl Server {
 			self.build_queue_task.lock().unwrap().replace(task);
 		}
 
+		// Start the build monitor.
+		if let Some(options) = &self.options.build_monitor {
+			let build_monitor = self.try_start_build_monitor(options).await?;
+			self.build_monitor.lock().unwrap().replace(build_monitor);
+		}
+
 		// Serve.
 		Self::serve(self.clone(), self.options.url.clone(), self.stop.clone()).await?;
 
@@ -364,6 +375,13 @@ impl Server {
 		if let Some(task) = option {
 			task.abort();
 			task.await.ok();
+		}
+
+		// Stop the build monitor.
+		let option = self.build_monitor.lock().unwrap().take();
+		if let Some(build_monitor) = option {
+			build_monitor.stop();
+			build_monitor.wait().await;
 		}
 
 		// Remove the runtimes.
@@ -627,7 +645,9 @@ impl Server {
 			(http::Method::POST, ["builds", id, "touch"]) => {
 				Self::handle_touch_build_request(handle, request, id).boxed()
 			},
-
+			(http::Method::POST, ["builds", id, "heartbeat"]) => {
+				Self::handle_heartbeat_build_request(handle, request, id).boxed()
+			},
 			// Objects.
 			(http::Method::GET, ["objects", id]) => {
 				Self::handle_get_object_request(handle, request, id).boxed()
@@ -951,6 +971,13 @@ impl tg::Handle for Server {
 
 	fn touch_build(&self, id: &tg::build::Id) -> impl Future<Output = tg::Result<()>> {
 		self.touch_build(id)
+	}
+
+	fn heartbeat_build(
+		&self,
+		id: &tg::build::Id,
+	) -> impl Future<Output = tg::Result<tg::build::heartbeat::Output>> + Send {
+		self.heartbeat_build(id)
 	}
 
 	fn format(&self, text: String) -> impl Future<Output = tg::Result<String>> {

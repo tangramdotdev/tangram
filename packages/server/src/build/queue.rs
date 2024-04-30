@@ -25,7 +25,17 @@ impl Server {
 			let build = tg::Build::with_id(output.build);
 
 			// Start the build.
-			self.try_start_build_internal(build, permit).await.ok();
+			self.try_start_build_internal(build.clone(), permit)
+				.await
+				.ok();
+
+			// Create the build's heartbeat.
+			self.try_start_heartbeat_for_build(&build)
+				.await
+				.inspect_err(
+					|error| tracing::error!(%error, "failed to start the build's heartbeat"),
+				)
+				.ok();
 		}
 	}
 }

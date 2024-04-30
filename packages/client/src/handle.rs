@@ -213,6 +213,11 @@ pub trait Handle: Clone + Unpin + Send + Sync + 'static {
 
 	fn touch_build(&self, id: &tg::build::Id) -> impl Future<Output = tg::Result<()>> + Send;
 
+	fn heartbeat_build(
+		&self,
+		id: &tg::build::Id,
+	) -> impl Future<Output = tg::Result<tg::build::heartbeat::Output>> + Send;
+
 	fn format(&self, text: String) -> impl Future<Output = tg::Result<String>> + Send;
 
 	fn lsp(

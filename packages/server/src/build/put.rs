@@ -19,7 +19,7 @@ impl Server {
 		let connection = std::sync::Arc::new(connection);
 
 		// Delete any existing children.
-		let p = connection.p();
+		let p: &str = connection.p();
 		let statement = formatdoc!(
 			"
 				delete from build_children
@@ -152,7 +152,7 @@ impl Server {
 					{p}15,
 					{p}16
 				)
-				on conflict (id) do update set 
+				on conflict (id) do update set
 					complete = {p}2,
 					count = {p}3,
 					host = {p}4,

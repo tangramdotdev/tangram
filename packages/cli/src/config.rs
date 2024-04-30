@@ -21,6 +21,9 @@ pub struct Config {
 	pub build: Option<Either<bool, Build>>,
 
 	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub build_monitor: Option<BuildMonitor>,
+
+	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub database: Option<Database>,
 
 	#[serde(default, skip_serializing_if = "Option::is_none")]
@@ -66,6 +69,19 @@ pub struct Advanced {
 	pub write_build_logs_to_stderr: Option<bool>,
 }
 
+#[derive(Copy, Clone, Debug, Default, serde::Serialize, serde::Deserialize)]
+pub struct BuildMonitor {
+	/// The frequency at which the build monitor will check dequeu and heartbeat timeouts for builds.
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub interval: Option<f32>,
+
+	/// The dequeue timeout, in seconds. Builds that are dequeued but not started by this time will be reenqueued.
+	pub dequeue_timeout: f32,
+
+	/// The build timeout, in seconds. Builds that don't have a heartbeat after this duration will be canceled.
+	pub heartbeat_timeout: f32,
+}
+
 #[derive(Clone, Debug, Default, serde::Serialize, serde::Deserialize)]
 pub struct Authentication {
 	#[serde(default, skip_serializing_if = "Option::is_none")]
@@ -92,6 +108,9 @@ pub struct Build {
 	/// The maximum number of concurrent builds.
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub concurrency: Option<usize>,
+
+	/// The heartbeat interval, in seconds. Builds will send a heartbeat at this interval.
+	pub heartbeat_interval: Option<f32>,
 }
 
 #[derive(Clone, Debug, serde::Serialize, serde::Deserialize)]
@@ -145,6 +164,7 @@ pub struct Remote {
 pub struct Tracing {
 	#[serde(default, skip_serializing_if = "String::is_empty")]
 	pub filter: String,
+
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub format: Option<TracingFormat>,
 }

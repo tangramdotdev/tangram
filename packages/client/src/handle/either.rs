@@ -310,6 +310,16 @@ where
 		}
 	}
 
+	fn heartbeat_build(
+			&self,
+			id: &tg::build::Id,
+		) -> impl Future<Output = tg::Result<tg::build::heartbeat::Output>> + Send {
+		match self {
+			Either::Left(s) => s.heartbeat_build(id).left_future(),
+			Either::Right(s) => s.heartbeat_build(id).right_future(),
+		}
+	}
+
 	fn format(&self, text: String) -> impl Future<Output = tg::Result<String>> {
 		match self {
 			Either::Left(s) => s.format(text).left_future(),

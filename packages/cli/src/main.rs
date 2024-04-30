@@ -489,8 +489,32 @@ impl Cli {
 			let concurrency = build
 				.and_then(|build| build.concurrency)
 				.unwrap_or_else(|| std::thread::available_parallelism().unwrap().get());
-			tangram_server::options::Build { concurrency }
+			let heartbeat_interval = build.and_then(|build| build.heartbeat_interval).map_or(
+				std::time::Duration::from_secs(1),
+				std::time::Duration::from_secs_f32,
+			);
+			tangram_server::options::Build {
+				concurrency,
+				heartbeat_interval,
+			}
 		});
+
+		// Create the build monitor options
+		let build_monitor =
+			config
+				.and_then(|config| config.build_monitor.as_ref())
+				.map(|build_monitor| {
+					let heartbeat_timeout = build_monitor.heartbeat_timeout;
+					let dequeue_timeout = build_monitor.dequeue_timeout;
+					let interval = build_monitor
+						.interval
+						.unwrap_or(heartbeat_timeout.min(dequeue_timeout));
+					tangram_server::options::BuildMonitor {
+						interval: std::time::Duration::from_secs_f32(interval),
+						dequeue_timeout: std::time::Duration::from_secs_f32(heartbeat_timeout),
+						heartbeat_timeout: std::time::Duration::from_secs_f32(dequeue_timeout),
+					}
+				});
 
 		// Create the database options.
 		let database = config
@@ -577,6 +601,7 @@ impl Cli {
 			advanced,
 			authentication,
 			build,
+			build_monitor,
 			database,
 			messenger,
 			path,

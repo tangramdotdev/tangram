@@ -339,7 +339,6 @@ impl Runtime {
 		log_task
 			.await
 			.map_err(|source| tg::error!(!source, "failed to join the log task"))?;
-
 		result
 	}
 }
