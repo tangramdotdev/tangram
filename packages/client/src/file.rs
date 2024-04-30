@@ -28,13 +28,8 @@ pub type State = tg::object::State<Id, Object>;
 /// A file value.
 #[derive(Clone, Debug)]
 pub struct Object {
-	/// The file's contents.
 	pub contents: tg::Blob,
-
-	/// Whether the file is executable.
 	pub executable: bool,
-
-	/// The file's references.
 	pub references: Vec<tg::Artifact>,
 }
 

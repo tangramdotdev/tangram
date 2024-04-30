@@ -47,12 +47,6 @@ impl Cli {
 			.package(&self.handle)
 			.await
 			.map_err(|source| tg::error!(!source, %target, "failed to get the target's package"))?;
-		let name = target
-			.name(&self.handle)
-			.await
-			.map_err(|source| tg::error!(!source, %target, "failed to get the target's name"))?
-			.clone()
-			.unwrap_or_else(|| "<unknown>".into());
 
 		// Create the title.
 		let mut title = String::new();
@@ -96,7 +90,6 @@ impl Cli {
 			}
 			write!(title, ":").unwrap();
 		}
-		write!(title, "{}", name.white()).unwrap();
 
 		// Get the build's children.
 		let children = if max_depth.map_or(true, |max_depth| current_depth < max_depth) {

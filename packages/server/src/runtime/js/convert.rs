@@ -1784,10 +1784,6 @@ impl ToV8 for tg::target::Object {
 		let value = self.lock.to_v8(scope)?;
 		object.set(scope, key.into(), value);
 
-		let key = v8::String::new_external_onebyte_static(scope, "name".as_bytes()).unwrap();
-		let value = self.name.to_v8(scope)?;
-		object.set(scope, key.into(), value);
-
 		let key = v8::String::new_external_onebyte_static(scope, "env".as_bytes()).unwrap();
 		let value = self.env.to_v8(scope)?;
 		object.set(scope, key.into(), value);
@@ -1827,11 +1823,6 @@ impl FromV8 for tg::target::Object {
 		let lock = from_v8(scope, lock)
 			.map_err(|source| tg::error!(!source, "failed to deserialize the lock"))?;
 
-		let name = v8::String::new_external_onebyte_static(scope, "name".as_bytes()).unwrap();
-		let name = value.get(scope, name.into()).unwrap();
-		let name = from_v8(scope, name)
-			.map_err(|source| tg::error!(!source, "failed to deserialize the name"))?;
-
 		let env = v8::String::new_external_onebyte_static(scope, "env".as_bytes()).unwrap();
 		let env = value.get(scope, env.into()).unwrap();
 		let env = from_v8(scope, env)
@@ -1852,7 +1843,6 @@ impl FromV8 for tg::target::Object {
 			host,
 			executable,
 			lock,
-			name,
 			env,
 			args,
 			checksum,

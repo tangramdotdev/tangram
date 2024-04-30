@@ -700,23 +700,20 @@ declare namespace tg {
 		/** Get this target's ID. */
 		id(): Promise<Target.Id>;
 
-		/** Get this target's lock. */
-		lock(): Promise<string | undefined>;
-
 		/** Get this target's host. */
 		host(): Promise<string>;
 
 		/** Get this target's executable. */
 		executable(): Promise<Artifact>;
 
-		/** Get this target's name. */
-		name_(): Promise<string | undefined>;
+		/** Get this target's arguments. */
+		args(): Promise<Array<Value>>;
 
 		/** Get this target's environment. */
 		env(): Promise<Record<string, Value>>;
 
-		/** Get this target's arguments. */
-		args(): Promise<Array<Value>>;
+		/** Get this target's lock. */
+		lock(): Promise<string | undefined>;
 
 		/** Get this target's checksum. */
 		checksum(): Promise<Checksum | undefined>;
@@ -744,9 +741,6 @@ declare namespace tg {
 
 			/** The target's lock. */
 			lock?: Lock | undefined;
-
-			/** The target's name. */
-			name?: string | undefined;
 
 			/** The target's environment variables. */
 			env?: MaybeNestedArray<MutationMap>;

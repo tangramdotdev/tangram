@@ -82,15 +82,14 @@ export function target<
 			object: {
 				host: "js",
 				executable,
-				lock,
-				name: arg.name,
-				args: [],
 				env: getCurrentTarget().expectObject().env,
+				args: [arg.name],
+				lock,
 				checksum: undefined,
 			},
 		});
 	} else {
-		return Target.new(...args);
+		return Target.new(...(args as unknown as Args<Target.Arg>));
 	}
 }
 
@@ -151,19 +150,17 @@ export class Target<
 		type Apply = {
 			host?: string;
 			executable?: Artifact;
-			lock?: Lock | undefined;
-			name?: string | undefined;
-			env?: MaybeNestedArray<MutationMap>;
 			args?: Array<Value>;
+			env?: MaybeNestedArray<MutationMap>;
+			lock?: Lock | undefined;
 			checksum?: Checksum | undefined;
 		};
 		let {
 			host,
 			executable,
-			lock,
-			name,
-			env: env_,
 			args: args_,
+			env: env_,
+			lock,
 			checksum,
 		} = await Args.apply<Target.Arg, Apply>(
 			[{ env: await getCurrentTarget().env() }, ...args],
@@ -219,10 +216,9 @@ export class Target<
 			object: {
 				host,
 				executable,
-				lock,
-				name,
-				env,
 				args: args_,
+				env,
+				lock,
 				checksum,
 			},
 		});
@@ -290,20 +286,16 @@ export class Target<
 		return (await this.object()).executable;
 	}
 
-	async lock(): Promise<Lock | undefined> {
-		return (await this.object()).lock;
-	}
-
-	async name_(): Promise<string | undefined> {
-		return (await this.object()).name;
+	async args(): Promise<Array<Value>> {
+		return (await this.object()).args;
 	}
 
 	async env(): Promise<Record<string, Value>> {
 		return (await this.object()).env;
 	}
 
-	async args(): Promise<Array<Value>> {
-		return (await this.object()).args;
+	async lock(): Promise<Lock | undefined> {
+		return (await this.object()).lock;
 	}
 
 	async checksum(): Promise<Checksum | undefined> {
@@ -329,10 +321,9 @@ export namespace Target {
 	export type ArgObject = {
 		host?: string;
 		executable?: Artifact;
-		lock?: Lock | undefined;
-		name?: string | undefined;
-		env?: MaybeNestedArray<MutationMap>;
 		args?: Array<Value>;
+		env?: MaybeNestedArray<MutationMap>;
+		lock?: Lock | undefined;
 		checksum?: Checksum | undefined;
 	};
 
@@ -341,10 +332,9 @@ export namespace Target {
 	export type Object_ = {
 		host: string;
 		executable: Artifact;
-		lock: Lock | undefined;
-		name: string | undefined;
-		env: Record<string, Value>;
 		args: Array<Value>;
+		env: Record<string, Value>;
+		lock: Lock | undefined;
 		checksum: Checksum | undefined;
 	};
 

@@ -29,28 +29,13 @@ pub struct Target {
 
 pub type State = tg::object::State<Id, Object>;
 
-/// A target object.
 #[derive(Clone, Debug)]
 pub struct Object {
-	/// The system to build the target on.
 	pub host: String,
-
-	/// The target's executable.
 	pub executable: tg::Artifact,
-
-	/// The target's lock.
-	pub lock: Option<tg::Lock>,
-
-	/// The target's name.
-	pub name: Option<String>,
-
-	/// The target's env.
-	pub env: BTreeMap<String, tg::Value>,
-
-	/// The target's args.
 	pub args: Vec<tg::Value>,
-
-	/// If a checksum of the target's output is provided, then the target will have access to the network.
+	pub env: BTreeMap<String, tg::Value>,
+	pub lock: Option<tg::Lock>,
 	pub checksum: Option<tg::Checksum>,
 }
 
@@ -59,14 +44,12 @@ pub struct Object {
 pub struct Data {
 	pub host: String,
 	pub executable: tg::artifact::Id,
-	#[serde(default, skip_serializing_if = "Option::is_none")]
-	pub lock: Option<tg::lock::Id>,
-	#[serde(default, skip_serializing_if = "Option::is_none")]
-	pub name: Option<String>,
-	#[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
-	pub env: BTreeMap<String, tg::value::Data>,
 	#[serde(default, skip_serializing_if = "Vec::is_empty")]
 	pub args: Vec<tg::value::Data>,
+	#[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+	pub env: BTreeMap<String, tg::value::Data>,
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub lock: Option<tg::lock::Id>,
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub checksum: Option<tg::Checksum>,
 }
@@ -197,7 +180,6 @@ impl Target {
 		} else {
 			None
 		};
-		let name = object.name.clone();
 		let env = object
 			.env
 			.iter()
@@ -221,7 +203,6 @@ impl Target {
 			host,
 			executable,
 			lock,
-			name,
 			env,
 			args,
 			checksum,
@@ -247,24 +228,14 @@ impl Target {
 		Ok(self.object(handle).await?.map(|object| &object.executable))
 	}
 
-	pub async fn lock<H>(
+	pub async fn args<H>(
 		&self,
 		handle: &H,
-	) -> tg::Result<impl std::ops::Deref<Target = Option<tg::Lock>>>
+	) -> tg::Result<impl std::ops::Deref<Target = Vec<tg::Value>>>
 	where
 		H: tg::Handle,
 	{
-		Ok(self.object(handle).await?.map(|object| &object.lock))
-	}
-
-	pub async fn name<H>(
-		&self,
-		handle: &H,
-	) -> tg::Result<impl std::ops::Deref<Target = Option<String>>>
-	where
-		H: tg::Handle,
-	{
-		Ok(self.object(handle).await?.map(|object| &object.name))
+		Ok(self.object(handle).await?.map(|object| &object.args))
 	}
 
 	pub async fn env<H>(
@@ -277,14 +248,14 @@ impl Target {
 		Ok(self.object(handle).await?.map(|object| &object.env))
 	}
 
-	pub async fn args<H>(
+	pub async fn lock<H>(
 		&self,
 		handle: &H,
-	) -> tg::Result<impl std::ops::Deref<Target = Vec<tg::Value>>>
+	) -> tg::Result<impl std::ops::Deref<Target = Option<tg::Lock>>>
 	where
 		H: tg::Handle,
 	{
-		Ok(self.object(handle).await?.map(|object| &object.args))
+		Ok(self.object(handle).await?.map(|object| &object.lock))
 	}
 
 	pub async fn checksum<H>(
@@ -344,9 +315,9 @@ impl Data {
 	pub fn children(&self) -> Vec<tg::object::Id> {
 		std::iter::empty()
 			.chain(std::iter::once(self.executable.clone().into()))
-			.chain(self.lock.clone().map(Into::into))
-			.chain(self.env.values().flat_map(tg::value::Data::children))
 			.chain(self.args.iter().flat_map(tg::value::Data::children))
+			.chain(self.env.values().flat_map(tg::value::Data::children))
+			.chain(self.lock.clone().map(Into::into))
 			.collect()
 	}
 }
@@ -355,18 +326,23 @@ impl TryFrom<Data> for Object {
 	type Error = tg::Error;
 
 	fn try_from(data: Data) -> std::result::Result<Self, Self::Error> {
+		let host = data.host;
+		let executable = tg::Artifact::with_id(data.executable);
+		let args = data.args.into_iter().map(TryInto::try_into).try_collect()?;
+		let env = data
+			.env
+			.into_iter()
+			.map(|(key, data)| Ok::<_, tg::Error>((key, data.try_into()?)))
+			.try_collect()?;
+		let lock = data.lock.map(tg::Lock::with_id);
+		let checksum = data.checksum;
 		Ok(Self {
-			host: data.host,
-			executable: tg::Artifact::with_id(data.executable),
-			lock: data.lock.map(tg::Lock::with_id),
-			name: data.name,
-			env: data
-				.env
-				.into_iter()
-				.map(|(key, data)| Ok::<_, tg::Error>((key, data.try_into()?)))
-				.try_collect()?,
-			args: data.args.into_iter().map(TryInto::try_into).try_collect()?,
-			checksum: data.checksum,
+			host,
+			executable,
+			args,
+			env,
+			lock,
+			checksum,
 		})
 	}
 }
@@ -411,10 +387,9 @@ impl std::str::FromStr for Id {
 pub struct Builder {
 	host: String,
 	executable: tg::Artifact,
-	lock: Option<tg::Lock>,
-	name: Option<String>,
-	env: BTreeMap<String, tg::Value>,
 	args: Vec<tg::Value>,
+	env: BTreeMap<String, tg::Value>,
+	lock: Option<tg::Lock>,
 	checksum: Option<tg::Checksum>,
 }
 
@@ -424,10 +399,9 @@ impl Builder {
 		Self {
 			host,
 			executable,
-			lock: None,
-			name: None,
-			env: BTreeMap::new(),
 			args: Vec::new(),
+			env: BTreeMap::new(),
+			lock: None,
 			checksum: None,
 		}
 	}
@@ -445,14 +419,8 @@ impl Builder {
 	}
 
 	#[must_use]
-	pub fn lock(mut self, lock: tg::Lock) -> Self {
-		self.lock = Some(lock);
-		self
-	}
-
-	#[must_use]
-	pub fn name(mut self, name: String) -> Self {
-		self.name = Some(name);
+	pub fn args(mut self, args: Vec<tg::Value>) -> Self {
+		self.args = args;
 		self
 	}
 
@@ -463,8 +431,8 @@ impl Builder {
 	}
 
 	#[must_use]
-	pub fn args(mut self, args: Vec<tg::Value>) -> Self {
-		self.args = args;
+	pub fn lock(mut self, lock: tg::Lock) -> Self {
+		self.lock = Some(lock);
 		self
 	}
 
@@ -477,12 +445,11 @@ impl Builder {
 	#[must_use]
 	pub fn build(self) -> Target {
 		Target::with_object(Object {
-			lock: self.lock,
 			host: self.host,
 			executable: self.executable,
-			name: self.name,
-			env: self.env,
 			args: self.args,
+			env: self.env,
+			lock: self.lock,
 			checksum: self.checksum,
 		})
 	}

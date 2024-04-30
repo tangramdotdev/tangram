@@ -41,10 +41,6 @@ pub struct InnerArgs {
 	#[clap(long)]
 	pub locked: bool,
 
-	/// Disable the TUI.
-	#[clap(long, default_value = "false")]
-	pub no_tui: bool,
-
 	/// The package to build.
 	#[clap(short, long)]
 	pub package: Option<tg::Dependency>,
@@ -64,6 +60,16 @@ pub struct InnerArgs {
 	/// The name or ID of the target to build.
 	#[clap(short, long)]
 	pub target: Option<String>,
+
+	/// Choose the view.
+	#[clap(long, default_value = "tui")]
+	pub view: View,
+}
+
+#[derive(Clone, Debug, clap::ValueEnum)]
+pub enum View {
+	None,
+	Tui,
 }
 
 pub enum InnerOutput {
@@ -144,15 +150,14 @@ impl Cli {
 					Ok::<_, tg::Error>((key.to_owned(), tg::Value::String(value.to_owned())))
 				})
 				.try_collect()?;
-			let args_ = vec![args_.into()];
 			let host = "js".to_owned();
 			let path = tg::package::get_root_module_path(&self.handle, &package).await?;
 			let executable = tg::Symlink::new(Some(package.into()), Some(path)).into();
+			let args_ = vec![target.into(), args_.into()];
 			tg::target::Builder::new(host, executable)
-				.lock(lock)
-				.name(target.clone())
-				.env(env)
 				.args(args_)
+				.env(env)
+				.lock(lock)
 				.build()
 		};
 
@@ -202,11 +207,9 @@ impl Cli {
 			outcome
 		} else {
 			// Create the TUI.
-			let tui = !args.no_tui;
-			let tui = if tui {
-				Tui::start(&self.handle, &build).await.ok()
-			} else {
-				None
+			let tui = match args.view {
+				View::Tui => Tui::start(&self.handle, &build).await.ok(),
+				View::None => None,
 			};
 
 			// Wait for the build's outcome.

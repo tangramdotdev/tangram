@@ -739,6 +739,7 @@ where
 	// Get the metadata.
 	let metadata = tg::package::get_metadata(handle, &package).await.ok();
 
+	// Create the title
 	let mut title = String::new();
 	if let Some(metadata) = metadata {
 		title.push_str(metadata.name.as_deref().unwrap_or("<unknown>"));
@@ -746,8 +747,7 @@ where
 			title.push_str(&format!("@{version}"));
 		}
 	}
-	let name = target.name(handle).await?;
-	title.push_str(name.as_deref().unwrap_or("<unknown>"));
+
 	Ok(Some(title))
 }
 

@@ -6,8 +6,10 @@ import { type Target, functions, setCurrentTarget } from "./target.ts";
 import type { Value } from "./value.ts";
 
 export let start = async (target: Target): Promise<Value> => {
-	// Set the current target.
+	// Load the target.
 	await target.load();
+
+	// Set the current target.
 	setCurrentTarget(target);
 
 	// Load the executable.
@@ -27,10 +29,16 @@ export let start = async (target: Target): Promise<Value> => {
 	});
 	await import(url);
 
-	// Get the target.
-	let name = await target.name_();
-	if (!name) {
-		throw new Error("the target must have a name");
+	// Get the args.
+	let args = await target.args();
+
+	// Get the target name.
+	if (args.length < 1) {
+		throw new Error("the target must have at least one arg");
+	}
+	let name = args.at(0);
+	if (typeof name !== "string") {
+		throw new Error("the target's first arg must be a string");
 	}
 
 	// Get the function.
@@ -39,11 +47,8 @@ export let start = async (target: Target): Promise<Value> => {
 		throw new Error("failed to find the function");
 	}
 
-	// Get the args.
-	let args = await target.args();
-
 	// Call the function.
-	let output = await resolve(function_(...args));
+	let output = await resolve(function_(...args.slice(1)));
 
 	return output;
 };

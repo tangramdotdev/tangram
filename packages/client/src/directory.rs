@@ -27,13 +27,11 @@ pub type State = tg::object::State<Id, Object>;
 
 #[derive(Clone, Debug)]
 pub struct Object {
-	/// The directory's entries.
 	pub entries: BTreeMap<String, tg::Artifact>,
 }
 
 #[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
 pub struct Data {
-	/// The directory's entries.
 	pub entries: BTreeMap<String, tg::artifact::Id>,
 }
 
