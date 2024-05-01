@@ -7,6 +7,7 @@ use tangram_client as tg;
 use tg::Handle;
 
 pub mod get;
+pub mod log;
 pub mod pull;
 pub mod push;
 pub mod put;
@@ -28,6 +29,7 @@ pub enum Command {
 	#[clap(hide = true)]
 	GetOrCreate(GetOrCreateArgs),
 	Get(self::get::Args),
+	Log(self::log::Args),
 	Put(self::put::Args),
 	Push(self::push::Args),
 	Pull(self::pull::Args),
@@ -107,6 +109,9 @@ impl Cli {
 			},
 			Command::Get(args) => {
 				self.command_build_get(args).await?;
+			},
+			Command::Log(args) => {
+				self.command_build_log(args).await?;
 			},
 			Command::Put(args) => {
 				self.command_build_put(args).await?;
