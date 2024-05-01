@@ -10,7 +10,7 @@ pub mod tree;
 /// Manage objects.
 #[derive(Debug, clap::Args)]
 pub struct Args {
-	#[clap(subcommand)]
+	#[command(subcommand)]
 	pub command: Command,
 }
 

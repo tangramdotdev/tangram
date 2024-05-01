@@ -7,7 +7,7 @@ pub mod checkout;
 /// Manage objects.
 #[derive(Debug, clap::Args)]
 pub struct Args {
-	#[clap(subcommand)]
+	#[command(subcommand)]
 	pub command: Command,
 }
 

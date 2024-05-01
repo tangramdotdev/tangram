@@ -8,10 +8,10 @@ use tangram_client::{self as tg, Handle as _};
 #[derive(Debug, clap::Args)]
 pub struct Args {
 	/// Print as JSON.
-	#[clap(long)]
+	#[arg(long)]
 	pub json: bool,
 
-	#[clap(short, long, default_value = ".")]
+	#[arg(short, long, default_value = ".")]
 	pub path: tg::Path,
 }
 

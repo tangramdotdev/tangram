@@ -42,7 +42,7 @@ struct Cli {
 }
 
 #[derive(Debug, clap::Parser)]
-#[clap(
+#[command(
 	about = env!("CARGO_PKG_DESCRIPTION"),
 	disable_help_subcommand = true,
 	long_version = env!("CARGO_PKG_VERSION"),
@@ -51,14 +51,14 @@ struct Cli {
 )]
 struct Args {
 	/// The path to the config file.
-	#[clap(long)]
+	#[arg(long)]
 	config: Option<PathBuf>,
 
 	/// This argument controls whether the CLI runs as a client or a server. When set to `auto`, the CLI will run as a client and start a separate server process if the connection fails or the server's version does not match. If the command is `tg server run`, the mode is set to `server`.
-	#[clap(short, long, default_value = "auto")]
+	#[arg(short, long, default_value = "auto")]
 	mode: Mode,
 
-	#[clap(subcommand)]
+	#[command(subcommand)]
 	command: Command,
 }
 

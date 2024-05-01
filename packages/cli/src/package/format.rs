@@ -6,10 +6,10 @@ use tokio::io::{AsyncReadExt as _, AsyncWriteExt as _};
 /// Format the files in a package.
 #[derive(Debug, clap::Args)]
 pub struct Args {
-	#[clap(short, long, default_value = ".")]
+	#[arg(short, long, default_value = ".")]
 	pub package: tg::Dependency,
 
-	#[clap(long)]
+	#[arg(long)]
 	pub stdio: bool,
 }
 

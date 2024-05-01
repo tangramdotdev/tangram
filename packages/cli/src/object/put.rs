@@ -6,9 +6,9 @@ use tokio::io::AsyncReadExt as _;
 /// Put an object.
 #[derive(Debug, clap::Args)]
 pub struct Args {
-	#[clap(short, long)]
+	#[arg(short, long)]
 	bytes: Option<String>,
-	#[clap(short, long)]
+	#[arg(short, long)]
 	kind: tg::object::Kind,
 }
 

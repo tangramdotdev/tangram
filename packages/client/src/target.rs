@@ -202,9 +202,9 @@ impl Target {
 		Ok(Data {
 			host,
 			executable,
-			lock,
-			env,
 			args,
+			env,
+			lock,
 			checksum,
 		})
 	}

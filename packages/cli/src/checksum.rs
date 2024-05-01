@@ -8,7 +8,7 @@ use url::Url;
 #[derive(Debug, clap::Args)]
 pub struct Args {
 	/// The checksum algorithm to use.
-	#[clap(short, long)]
+	#[arg(short, long)]
 	pub algorithm: tg::checksum::Algorithm,
 
 	/// The blob or URL to checksum.

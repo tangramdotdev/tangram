@@ -10,7 +10,7 @@ use tangram_client as tg;
 #[derive(Debug, clap::Args)]
 pub struct Args {
 	pub id: tg::object::Id,
-	#[clap(short, long)]
+	#[arg(short, long)]
 	pub depth: Option<u32>,
 }
 

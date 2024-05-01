@@ -6,14 +6,14 @@ use tg::Handle as _;
 #[derive(Debug, clap::Args)]
 pub struct Args {
 	/// If this flag is set, the package's lockfile will not be updated.
-	#[clap(long)]
+	#[arg(long)]
 	pub locked: bool,
 
-	#[clap(short, long, default_value = ".")]
+	#[arg(short, long, default_value = ".")]
 	pub package: tg::Dependency,
 
 	/// Generate the documentation for the runtime.
-	#[clap(short, long, default_value = "false")]
+	#[arg(short, long, default_value = "false")]
 	pub runtime: bool,
 }
 

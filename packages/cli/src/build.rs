@@ -11,11 +11,12 @@ pub mod tree;
 
 /// Build a target or manage builds.
 #[derive(Debug, clap::Args)]
-#[clap(args_conflicts_with_subcommands = true)]
+#[command(args_conflicts_with_subcommands = true)]
 pub struct Args {
-	#[clap(flatten)]
+	#[command(flatten)]
 	pub args: self::create::Args,
-	#[clap(subcommand)]
+
+	#[command(subcommand)]
 	pub command: Option<Command>,
 }
 
@@ -23,7 +24,7 @@ pub struct Args {
 #[derive(Debug, clap::Subcommand)]
 pub enum Command {
 	Cancel(self::cancel::Args),
-	#[clap(hide = true)]
+	#[command(hide = true)]
 	Create(self::create::Args),
 	Get(self::get::Args),
 	Put(self::put::Args),

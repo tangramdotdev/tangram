@@ -5,10 +5,10 @@ use tangram_client as tg;
 /// Display a package's dependencies.
 #[derive(Debug, clap::Args)]
 pub struct Args {
-	#[clap(default_value = ".")]
+	#[arg(default_value = ".")]
 	pub package: tg::Dependency,
 
-	#[clap(short, long)]
+	#[arg(short, long)]
 	pub depth: Option<u32>,
 }
 

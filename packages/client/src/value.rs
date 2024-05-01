@@ -33,10 +33,10 @@ pub enum Value {
 	String(String),
 
 	/// An array value.
-	Array(Vec<Value>),
+	Array(Array),
 
 	/// A map value.
-	Map(BTreeMap<String, Value>),
+	Map(Map),
 
 	/// An object value.
 	Object(tg::object::Handle),
@@ -53,6 +53,10 @@ pub enum Value {
 	/// A template value.
 	Template(tg::Template),
 }
+
+pub type Array = Vec<Value>;
+
+pub type Map = BTreeMap<String, Value>;
 
 /// Value data.
 #[derive(Clone, Debug)]

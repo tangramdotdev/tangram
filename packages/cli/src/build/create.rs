@@ -2,18 +2,18 @@ use crate::{tui::Tui, Cli};
 use crossterm::style::Stylize;
 use either::Either;
 use itertools::Itertools as _;
-use std::{collections::BTreeMap, path::PathBuf};
+use std::path::PathBuf;
 use tangram_client as tg;
 use tg::Handle;
 
 /// Build a target.
 #[derive(Debug, clap::Args)]
 pub struct Args {
-	#[clap(flatten)]
+	#[command(flatten)]
 	inner: InnerArgs,
 
 	/// If this flag is set, then the command will exit immediately instead of waiting for the build to finish.
-	#[clap(short, long, conflicts_with = "checkout")]
+	#[arg(short, long, conflicts_with = "checkout")]
 	pub detach: bool,
 }
 
@@ -21,48 +21,48 @@ pub struct Args {
 #[derive(Debug, clap::Args)]
 pub struct InnerArgs {
 	/// Set the arguments.
-	#[clap(short, long, num_args = 1.., action = clap::ArgAction::Append)]
-	pub arg: Vec<String>,
+	#[arg(short, long, num_args = 1.., action = clap::ArgAction::Append)]
+	pub arg: Vec<Vec<String>>,
 
-	/// Whether to check out the output. The output must be an artifact. A path to may be provided.
+	/// Whether to check out the output. The output must be an artifact. A path to check out to may be provided.
 	#[allow(clippy::option_option)]
-	#[clap(short, long)]
+	#[arg(short, long)]
 	pub checkout: Option<Option<PathBuf>>,
 
 	/// Set the environment variables.
-	#[clap(short, long, num_args = 1.., action = clap::ArgAction::Append)]
-	pub env: Vec<String>,
+	#[arg(short, long, num_args = 1.., action = clap::ArgAction::Append)]
+	pub env: Vec<Vec<String>>,
 
 	/// Set the host.
-	#[clap(long)]
+	#[arg(long)]
 	pub host: Option<String>,
 
 	/// If this flag is set, the package's lockfile will not be updated.
-	#[clap(long)]
+	#[arg(long)]
 	pub locked: bool,
 
 	/// The package to build.
-	#[clap(short, long)]
+	#[arg(short, long)]
 	pub package: Option<tg::Dependency>,
 
 	/// Whether to build on a remote.
-	#[clap(long, default_value_t)]
+	#[arg(long, default_value_t)]
 	pub remote: bool,
 
 	/// The retry strategy to use.
-	#[clap(long, default_value_t)]
+	#[arg(long, default_value_t)]
 	pub retry: tg::build::Retry,
 
 	/// Create a root for this build. If a name is not provided, the package's name will be used.
-	#[clap(long)]
+	#[arg(long)]
 	pub root: Option<String>,
 
 	/// The name or ID of the target to build.
-	#[clap(short, long)]
+	#[arg(short, long)]
 	pub target: Option<String>,
 
 	/// Choose the view.
-	#[clap(long, default_value = "tui")]
+	#[arg(long, default_value = "tui")]
 	pub view: View,
 }
 
@@ -107,7 +107,10 @@ impl Cli {
 		let target = if let Some(Ok(id)) = args.target.as_ref().map(|target| target.parse()) {
 			tg::Target::with_id(id)
 		} else {
+			// Get the dependency.
 			let mut dependency = args.package.unwrap_or(".".parse().unwrap());
+
+			// Get the target.
 			let target = args.target.unwrap_or("default".parse().unwrap());
 
 			// Canonicalize the path.
@@ -122,14 +125,15 @@ impl Cli {
 			let (package, lock) = tg::package::get_with_lock(&self.handle, &dependency).await?;
 
 			// Create the target.
-			let mut env: BTreeMap<String, tg::Value> = args
+			let mut env: tg::value::Map = args
 				.env
 				.into_iter()
+				.flatten()
 				.map(|env| {
 					let (key, value) = env
 						.split_once('=')
 						.ok_or_else(|| tg::error!("expected `key=value`"))?;
-					Ok::<_, tg::Error>((key.to_owned(), tg::Value::String(value.to_owned())))
+					Ok::<_, tg::Error>((key.to_owned(), value.to_owned().into()))
 				})
 				.try_collect()?;
 			if !env.contains_key("TANGRAM_HOST") {
@@ -140,20 +144,25 @@ impl Cli {
 				};
 				env.insert("TANGRAM_HOST".to_owned(), host.to_string().into());
 			}
-			let args_: BTreeMap<String, tg::Value> = args
+			let mut args_: Vec<tg::Value> = args
 				.arg
 				.into_iter()
 				.map(|arg| {
-					let (key, value) = arg
-						.split_once('=')
-						.ok_or_else(|| tg::error!("expected `key=value`"))?;
-					Ok::<_, tg::Error>((key.to_owned(), tg::Value::String(value.to_owned())))
+					arg.into_iter()
+						.map(|arg| {
+							let (key, value) = arg
+								.split_once('=')
+								.ok_or_else(|| tg::error!("expected `key=value`"))?;
+							Ok::<_, tg::Error>((key.to_owned(), value.to_owned().into()))
+						})
+						.collect::<Result<tg::value::Map, tg::Error>>()
+						.map(Into::into)
 				})
 				.try_collect()?;
+			args_.insert(0, target.into());
 			let host = "js".to_owned();
 			let path = tg::package::get_root_module_path(&self.handle, &package).await?;
 			let executable = tg::Symlink::new(Some(package.into()), Some(path)).into();
-			let args_ = vec![target.into(), args_.into()];
 			tg::target::Builder::new(host, executable)
 				.args(args_)
 				.env(env)

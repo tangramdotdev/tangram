@@ -10,11 +10,11 @@ pub struct Args {
 	pub path: Option<PathBuf>,
 
 	/// The name of the package. Defaults to the directory name.
-	#[clap(long)]
+	#[arg(long)]
 	pub name: Option<String>,
 
 	/// The version of the package. Defaults to "0.0.0".
-	#[clap(long, default_value = "0.0.0")]
+	#[arg(long, default_value = "0.0.0")]
 	pub version: String,
 }
 

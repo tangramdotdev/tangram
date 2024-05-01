@@ -4,9 +4,10 @@ use tangram_client as tg;
 /// Display a build, object, or package tree.
 #[derive(Debug, clap::Args)]
 pub struct Args {
-	#[clap(default_value = ".")]
+	#[arg(default_value = ".")]
 	arg: Arg,
-	#[clap(short, long)]
+
+	#[arg(short, long)]
 	depth: Option<u32>,
 }
 

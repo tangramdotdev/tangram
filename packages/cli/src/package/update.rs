@@ -4,7 +4,7 @@ use tangram_client as tg;
 /// Update a package's lockfile.
 #[derive(Debug, clap::Args)]
 pub struct Args {
-	#[clap(short, long, default_value = ".")]
+	#[arg(short, long, default_value = ".")]
 	pub path: tg::Path,
 }
 
