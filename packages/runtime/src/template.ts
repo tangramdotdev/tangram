@@ -2,9 +2,12 @@ import { Args } from "./args.ts";
 import { Artifact } from "./artifact.ts";
 import { assert as assert_, unreachable } from "./assert.ts";
 import { mutation } from "./mutation.ts";
-import type { Unresolved } from "./resolve.ts";
+import { type Unresolved, resolve } from "./resolve.ts";
+import type { MaybeNestedArray } from "./util.ts";
 
-export let template = (...args: Args<Template.Arg>): Promise<Template> => {
+export let template = (
+	...args: Array<Unresolved<MaybeNestedArray<Template.Arg>>>
+): Promise<Template> => {
 	return Template.new(...args);
 };
 
@@ -15,12 +18,14 @@ export class Template {
 		this.#components = components;
 	}
 
-	static async new(...args: Args<Template.Arg>): Promise<Template> {
+	static async new(
+		...args: Array<Unresolved<MaybeNestedArray<Template.Arg>>>
+	): Promise<Template> {
 		type Apply = {
 			components: Array<Template.Component>;
 		};
 		let { components } = await Args.apply<Template.Arg, Apply>(
-			args,
+			await Promise.all(args.map(resolve)),
 			async (arg) => {
 				if (arg === undefined) {
 					return {};

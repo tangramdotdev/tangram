@@ -1,14 +1,18 @@
 import { assert as assert_, unreachable } from "./assert.ts";
+import type { MaybeNestedArray } from "./util.ts";
 
-export let path = (...args: Array<Path.Arg>): Path => {
+export let path = (...args: Array<MaybeNestedArray<Path.Arg>>): Path => {
 	return Path.new(args);
 };
 
 export class Path {
 	#components: Array<Path.Component>;
 
-	static new(...args: Array<Path.Arg>): Path {
-		return args.reduce(function reduce(path: Path, arg: Path.Arg): Path {
+	static new(...args: Array<MaybeNestedArray<Path.Arg>>): Path {
+		return args.reduce(function reduce(
+			path: Path,
+			arg: MaybeNestedArray<Path.Arg>,
+		): Path {
 			if (arg === undefined) {
 				return path;
 			} else if (typeof arg === "string") {
@@ -168,7 +172,7 @@ export class Path {
 }
 
 export namespace Path {
-	export type Arg = undefined | Component | Path | Array<Arg>;
+	export type Arg = undefined | Component | Path;
 
 	export type Component =
 		| Component.Normal

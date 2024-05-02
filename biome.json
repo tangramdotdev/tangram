@@ -21,6 +21,7 @@
 			},
 			"suspicious": {
 				"noExplicitAny": "off",
+				"noRedeclare": "off",
 				"useIsArray": "off"
 			}
 		}

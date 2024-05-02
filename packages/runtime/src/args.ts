@@ -1,7 +1,6 @@
 import { Artifact } from "./artifact.ts";
 import { assert } from "./assert.ts";
 import { Mutation } from "./mutation.ts";
-import { type Unresolved, resolve } from "./resolve.ts";
 import { Template, template } from "./template.ts";
 import {
 	type MaybeMutation,
@@ -13,7 +12,7 @@ import {
 import type { Value } from "./value.ts";
 
 export type Args<T extends Value = Value> = Array<
-	Unresolved<MaybeNestedArray<MaybeMutationMap<T>>>
+	MaybeNestedArray<MaybeMutationMap<T>>
 >;
 
 export namespace Args {
@@ -26,10 +25,10 @@ export namespace Args {
 			arg: MaybeMutationMap<Exclude<A, Array<Value>>>,
 		) => Promise<MaybeNestedArray<MutationMap<R>>>,
 	): Promise<Partial<R>> => {
-		return flatten(
+		return await flatten(
 			await Promise.all(
-				flatten(await Promise.all(args.map(resolve))).map((arg) =>
-					map(arg as unknown as MaybeMutationMap<Exclude<A, Array<Value>>>),
+				flatten(args).map((arg) =>
+					map(arg as MaybeMutationMap<Exclude<A, Array<Value>>>),
 				),
 			),
 		).reduce(async (object, mutations) => {

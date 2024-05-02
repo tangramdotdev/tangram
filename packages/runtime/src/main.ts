@@ -14,23 +14,28 @@ import { Lock, lock } from "./lock.ts";
 import { log } from "./log.ts";
 import { Mutation, mutation } from "./mutation.ts";
 import { path, Path } from "./path.ts";
-import { resolve } from "./resolve.ts";
+import { type Unresolved, resolve } from "./resolve.ts";
 import { sleep } from "./sleep.ts";
 import { start } from "./start.ts";
 import { Symlink, symlink } from "./symlink.ts";
 import { Target, build, getCurrentTarget, target } from "./target.ts";
 import { Template, template } from "./template.ts";
+import type { MaybeNestedArray } from "./util.ts";
 import { Value } from "./value.ts";
 
+let console = {};
+Object.defineProperties(console, {
+	log: { value: log },
+});
 Object.defineProperties(globalThis, {
-	console: { value: { log } },
+	console: { value: console },
 });
 
 async function tg(
 	strings: TemplateStringsArray,
-	...placeholders: Args<Template.Arg>
+	...placeholders: Array<Unresolved<MaybeNestedArray<Template.Arg>>>
 ): Promise<Template> {
-	let components: Args<Template.Arg> = [];
+	let components = [];
 	for (let i = 0; i < strings.length - 1; i++) {
 		let string = strings[i]!;
 		components.push(string);

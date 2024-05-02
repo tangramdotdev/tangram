@@ -2002,8 +2002,8 @@ let convertIntersectionTypeNode = (
 // LiteralTypeNode.
 let convertLiteralTypeNode = (
 	_typeChecker: ts.TypeChecker,
-	packageExports: Array<ts.Symbol>,
-	thisModule: Module,
+	_packageExports: Array<ts.Symbol>,
+	_thisModule: Module,
 	node: ts.LiteralTypeNode,
 ): LiteralType => {
 	if (node.literal.kind === ts.SyntaxKind.StringLiteral) {
@@ -2076,8 +2076,8 @@ let convertParameterNode = (
 	node: ts.ParameterDeclaration,
 ): Parameter => {
 	return {
-		optional: node.questionToken ? true : false,
-		dotDotDotToken: node.dotDotDotToken ? true : false,
+		optional: node.questionToken !== undefined,
+		dotDotDotToken: node.dotDotDotToken !== undefined,
 		type: node.type
 			? convertTypeNode(typeChecker, packageExports, thisModule, node.type)
 			: convertType(

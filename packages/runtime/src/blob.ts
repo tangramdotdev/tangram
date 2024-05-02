@@ -5,10 +5,14 @@ import type { Checksum } from "./checksum.ts";
 import * as encoding from "./encoding.ts";
 import { Leaf } from "./leaf.ts";
 import { mutation } from "./mutation.ts";
+import { type Unresolved, resolve } from "./resolve.ts";
+import type { MaybeMutationMap, MaybeNestedArray } from "./util.ts";
 
 export type Blob = Leaf | Branch;
 
-export let blob = async (...args: Args<Blob.Arg>) => {
+export let blob = async (
+	...args: Array<Unresolved<MaybeNestedArray<MaybeMutationMap<Blob.Arg>>>>
+) => {
 	return await Blob.new(...args);
 };
 
@@ -20,7 +24,9 @@ export let download = async (
 };
 
 export declare namespace Blob {
-	let new_: (...args: Args<Blob.Arg>) => Promise<Blob>;
+	let new_: (
+		...args: Array<Unresolved<MaybeNestedArray<MaybeMutationMap<Blob.Arg>>>>
+	) => Promise<Blob>;
 	export { new_ as new };
 }
 
@@ -33,10 +39,12 @@ export namespace Blob {
 
 	export type CompressionFormat = "bz2" | "gz" | "xz" | "zst";
 
-	export let new_ = async (...args: Args<Blob.Arg>): Promise<Blob> => {
+	export let new_ = async (
+		...args: Array<Unresolved<MaybeNestedArray<MaybeMutationMap<Blob.Arg>>>>
+	): Promise<Blob> => {
 		type Apply = { children: Array<Blob> };
 		let { children: children_ } = await Args.apply<Blob.Arg, Apply>(
-			args,
+			await Promise.all(args.map(resolve)),
 			async (arg) => {
 				if (arg === undefined) {
 					return {};

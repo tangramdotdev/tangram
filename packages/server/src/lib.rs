@@ -411,7 +411,9 @@ impl Server {
 		});
 	}
 
-	pub async fn wait(&self) {}
+	pub async fn wait(&self) {
+		tokio::time::sleep(std::time::Duration::from_secs(1_000_000)).await;
+	}
 
 	#[must_use]
 	pub fn artifacts_path(&self) -> PathBuf {

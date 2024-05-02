@@ -5,12 +5,12 @@
  */
 declare function tg(
 	strings: TemplateStringsArray,
-	...placeholders: tg.Args<tg.Template.Arg>
+	...placeholders: Array<tg.Unresolved<tg.MaybeNestedArray<tg.Template.Arg>>>
 ): Promise<tg.Template>;
 
 declare namespace tg {
 	export type Args<T extends Value = Value> = Array<
-		Unresolved<MaybeNestedArray<MaybeMutationMap<T>>>
+		MaybeNestedArray<MaybeMutationMap<T>>
 	>;
 
 	export namespace Args {
@@ -46,6 +46,12 @@ declare namespace tg {
 		/** Assert that a value is an `Artifact`. */
 		export let assert: (value: unknown) => asserts value is Artifact;
 
+		/** Archive an artifact. **/
+		export let archive: (
+			artifact: Artifact,
+			format: ArchiveFormat,
+		) => Promise<Blob>;
+
 		/** Extract an artifact from an archive. **/
 		export let extract: (
 			blob: Blob,
@@ -66,7 +72,9 @@ declare namespace tg {
 	export let unreachable: (message?: string) => never;
 
 	/** Create a blob. */
-	export let blob: (...args: Args<Blob.Arg>) => Promise<Blob>;
+	export let blob: (
+		...args: Array<Unresolved<MaybeNestedArray<MaybeMutationMap<Blob.Arg>>>>
+	) => Promise<Blob>;
 
 	/** Download the contents of a URL. */
 	export let download: (url: string, checksum: Checksum) => Promise<Blob>;
@@ -75,17 +83,16 @@ declare namespace tg {
 	export type Blob = Leaf | Branch;
 
 	export namespace Blob {
-		export type Arg = undefined | string | Uint8Array | Blob | Array<Arg>;
+		export type Arg = undefined | string | Uint8Array | Blob;
 
 		export type Id = string;
 
 		export type CompressionFormat = "bz2" | "gz" | "xz" | "zst";
 	}
 
-	/** Compute the checksum of the provided bytes with the specified algorithm. */
 	export let checksum: (
-		algorithm: Checksum.Algorithm,
-		bytes: string | Uint8Array,
+		input: string | Uint8Array | Blob | Artifact,
+		algorithm: Algorithm,
 	) => Checksum;
 
 	/** A checksum. */
@@ -94,16 +101,17 @@ declare namespace tg {
 	export namespace Checksum {
 		export type Algorithm = "blake3" | "sha256" | "sha512";
 
-		/** Compute the checksum of the provided bytes with the specified algorithm. */
 		export let new_: (
+			input: string | Uint8Array | Blob | Artifact,
 			algorithm: Algorithm,
-			bytes: string | Uint8Array,
 		) => Checksum;
 		export { new_ as new };
 	}
 
 	/** Create a directory. */
-	export let directory: (...args: Args<Directory.Arg>) => Promise<Directory>;
+	export let directory: (
+		...args: Array<Unresolved<MaybeNestedArray<Directory.Arg>>>
+	) => Promise<Directory>;
 
 	/** A directory. */
 	export class Directory {
@@ -111,7 +119,9 @@ declare namespace tg {
 		static withId(id: Directory.Id): Directory;
 
 		/** Create a directory. */
-		static new(...args: Args<Directory.Arg>): Promise<Directory>;
+		static new(
+			...args: Array<Unresolved<MaybeNestedArray<Directory.Arg>>>
+		): Promise<Directory>;
 
 		/** Check if a value is a `tg.Directory`. */
 		static is(value: unknown): value is Directory;
@@ -148,7 +158,7 @@ declare namespace tg {
 	}
 
 	export namespace Directory {
-		export type Arg = undefined | Directory | ArgObject | Array<Arg>;
+		export type Arg = undefined | Directory | ArgObject;
 
 		type ArgObject = {
 			[key: string]:
@@ -196,7 +206,9 @@ declare namespace tg {
 	}
 
 	/** Create a file. */
-	export let file: (...args: Args<File.Arg>) => Promise<File>;
+	export let file: (
+		...args: Array<Unresolved<MaybeNestedArray<MaybeMutationMap<File.Arg>>>>
+	) => Promise<File>;
 
 	/** A file. */
 	export class File {
@@ -204,7 +216,9 @@ declare namespace tg {
 		static withId(id: File.Id): File;
 
 		/** Create a file. */
-		static new(...args: Args<File.Arg>): Promise<File>;
+		static new(
+			...args: Array<Unresolved<MaybeNestedArray<MaybeMutationMap<File.Arg>>>>
+		): Promise<File>;
 
 		/** Check if a value is a `tg.File`. */
 		static is(value: unknown): value is File;
@@ -247,14 +261,7 @@ declare namespace tg {
 	}
 
 	export namespace File {
-		export type Arg =
-			| undefined
-			| string
-			| Uint8Array
-			| Blob
-			| File
-			| ArgObject
-			| Array<Arg>;
+		export type Arg = undefined | string | Uint8Array | Blob | File | ArgObject;
 
 		type ArgObject = {
 			contents: Blob.Arg;
@@ -269,7 +276,9 @@ declare namespace tg {
 	export let include: (path: string) => Promise<Artifact>;
 
 	/** Create a branch. */
-	export let branch: (...args: Args<Branch.Arg>) => Promise<Branch>;
+	export let branch: (
+		...args: Array<Unresolved<MaybeNestedArray<MaybeMutationMap<Branch.Arg>>>>
+	) => Promise<Branch>;
 
 	/** A branch. */
 	export class Branch {
@@ -277,7 +286,9 @@ declare namespace tg {
 		static withId(id: Branch.Id): Branch;
 
 		/** Create a branch. */
-		static new(...args: Args<Branch.Arg>): Promise<Branch>;
+		static new(
+			...args: Array<Unresolved<MaybeNestedArray<MaybeMutationMap<Branch.Arg>>>>
+		): Promise<Branch>;
 
 		/** Check if a value is a `tg.Branch`. */
 		static is(value: unknown): value is Branch;
@@ -313,7 +324,7 @@ declare namespace tg {
 	}
 
 	export namespace Branch {
-		export type Arg = undefined | Branch | ArgObject | Array<Arg>;
+		export type Arg = undefined | Branch | ArgObject;
 
 		type ArgObject = {
 			children?: Array<Child>;
@@ -325,14 +336,18 @@ declare namespace tg {
 	}
 
 	/** Create a leaf. */
-	export let leaf: (...args: Args<Leaf.Arg>) => Promise<Leaf>;
+	export let leaf: (
+		...args: Array<Unresolved<MaybeNestedArray<MaybeMutationMap<Leaf.Arg>>>>
+	) => Promise<Leaf>;
 
 	export class Leaf {
 		/** Get a leaf with an ID. */
 		static withId(id: Leaf.Id): Leaf;
 
 		/** Create a leaf. */
-		static new(...args: Args<Leaf.Arg>): Promise<Leaf>;
+		static new(
+			...args: Array<Unresolved<MaybeNestedArray<MaybeMutationMap<Leaf.Arg>>>>
+		): Promise<Leaf>;
 
 		/** Check if a value is a `tg.Leaf`. */
 		static is(value: unknown): value is Leaf;
@@ -366,13 +381,7 @@ declare namespace tg {
 	}
 
 	export namespace Leaf {
-		export type Arg =
-			| undefined
-			| string
-			| Uint8Array
-			| Leaf
-			| ArgObject
-			| Array<Arg>;
+		export type Arg = undefined | string | Uint8Array | Leaf | ArgObject;
 
 		type ArgObject = {
 			bytes?: Uint8Array;
@@ -496,7 +505,9 @@ declare namespace tg {
 	}
 
 	/** Create a lock. */
-	export let lock: (...args: Args<Lock.Arg>) => Promise<Lock>;
+	export let lock: (
+		...args: Array<Unresolved<MaybeNestedArray<MaybeMutationMap<Lock.Arg>>>>
+	) => Promise<Lock>;
 
 	/** A lock. */
 	export class Lock {
@@ -504,7 +515,9 @@ declare namespace tg {
 		static withId(id: Lock.Id): Lock;
 
 		/** Create a lock. */
-		static new(...args: Args<Lock.Arg>): Promise<Lock>;
+		static new(
+			...args: Array<Unresolved<MaybeNestedArray<MaybeMutationMap<Lock.Arg>>>>
+		): Promise<Lock>;
 
 		/** Check if a value is a `tg.Lock`. */
 		static is(value: unknown): value is Lock;
@@ -520,7 +533,7 @@ declare namespace tg {
 	}
 
 	export namespace Lock {
-		export type Arg = Lock | ArgObject | Array<Arg>;
+		export type Arg = Lock | ArgObject;
 
 		export type ArgObject = {
 			root?: number;
@@ -602,7 +615,9 @@ declare namespace tg {
 	export let sleep: (duration: number) => Promise<void>;
 
 	/** Create a symlink. */
-	export let symlink: (...args: Args<Symlink.Arg>) => Promise<Symlink>;
+	export let symlink: (
+		...args: Array<Unresolved<MaybeNestedArray<MaybeMutationMap<Symlink.Arg>>>>
+	) => Promise<Symlink>;
 
 	/** A symlink. */
 	export class Symlink {
@@ -610,7 +625,11 @@ declare namespace tg {
 		static withId(id: Symlink.Id): Symlink;
 
 		/** Create a symlink. */
-		static new(...args: Args<Symlink.Arg>): Promise<Symlink>;
+		static new(
+			...args: Array<
+				Unresolved<MaybeNestedArray<MaybeMutationMap<Symlink.Arg>>>
+			>
+		): Promise<Symlink>;
 
 		/** Check if a value is a `tg.Symlink`. */
 		static is(value: unknown): value is Symlink;
@@ -660,10 +679,14 @@ declare namespace tg {
 	export function target<
 		A extends Array<Value> = Array<Value>,
 		R extends Value = Value,
-	>(...args: Args<Target.Arg>): Promise<Target<A, R>>;
+	>(
+		...args: Array<Unresolved<MaybeNestedArray<MaybeMutationMap<Target.Arg>>>>
+	): Promise<Target<A, R>>;
 
 	/** Create and build a target. */
-	export let build: (...args: Args<Target.Arg>) => Promise<Value>;
+	export let build: (
+		...args: Array<Unresolved<MaybeNestedArray<MaybeMutationMap<Target.Arg>>>>
+	) => Promise<Value>;
 
 	/** A target. */
 	export interface Target<
@@ -685,7 +708,7 @@ declare namespace tg {
 
 		/** Create a target. */
 		static new<A extends Array<Value> = Array<Value>, R extends Value = Value>(
-			...args: Args<Target.Arg>
+			...args: Array<Unresolved<MaybeNestedArray<MaybeMutationMap<Target.Arg>>>>
 		): Promise<Target<A, R>>;
 
 		/** Check if a value is a `tg.Target`. */
@@ -729,8 +752,7 @@ declare namespace tg {
 			| Artifact
 			| Template
 			| Target
-			| ArgObject
-			| Array<Arg>;
+			| ArgObject;
 
 		type ArgObject = {
 			/** The system to build the target on. */
@@ -759,11 +781,15 @@ declare namespace tg {
 	export let current: Target;
 
 	/** Create a template. */
-	export let template: (...args: Args<Template.Arg>) => Promise<Template>;
+	export let template: (
+		...args: Array<Unresolved<MaybeNestedArray<Template.Arg>>>
+	) => Promise<Template>;
 
 	/** A template. */
 	export class Template {
-		static new(...args: Args<Template.Arg>): Promise<Template>;
+		static new(
+			...args: Array<Unresolved<MaybeNestedArray<Template.Arg>>>
+		): Promise<Template>;
 
 		/** Check if a value is a `tg.Template`. */
 		static is(value: unknown): value is Template;
@@ -785,7 +811,7 @@ declare namespace tg {
 	}
 
 	export namespace Template {
-		export type Arg = undefined | Component | Template | Array<Arg>;
+		export type Arg = undefined | Component | Template;
 
 		export type Component = string | Artifact;
 	}
@@ -834,7 +860,7 @@ declare namespace tg {
 	export class Path {
 		/** Create a path. **/
 		// biome-ignore lint/suspicious/noMisleadingInstantiator:
-		static new(...args: Array<Path.Arg>): Path;
+		static new(...args: Array<MaybeNestedArray<Path.Arg>>): Path;
 
 		/** Get this path's components. **/
 		components(): Array<Path.Component>;
@@ -874,7 +900,7 @@ declare namespace tg {
 	}
 
 	export namespace Path {
-		export type Arg = undefined | Component | Path | Array<Arg>;
+		export type Arg = undefined | Component | Path;
 
 		/** A path component. **/
 		export type Component =

@@ -188,9 +188,10 @@ impl Runtime {
 			let syscall_string =
 				v8::String::new_external_onebyte_static(scope, "syscall".as_bytes()).unwrap();
 			let syscall = v8::Function::new(scope, syscall).unwrap();
+			let syscall_descriptor = v8::PropertyDescriptor::new_from_value(syscall.into());
 			context
 				.global(scope)
-				.set(scope, syscall_string.into(), syscall.into())
+				.define_property(scope, syscall_string.into(), &syscall_descriptor)
 				.unwrap();
 
 			v8::Global::new(scope, context)

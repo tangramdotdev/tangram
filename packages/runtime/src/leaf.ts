@@ -5,9 +5,16 @@ import type { Blob } from "./blob.ts";
 import * as encoding from "./encoding.ts";
 import { Mutation, mutation } from "./mutation.ts";
 import type { Object_ } from "./object.ts";
-import type { MutationMap } from "./util.ts";
+import { type Unresolved, resolve } from "./resolve.ts";
+import type {
+	MaybeMutationMap,
+	MaybeNestedArray,
+	MutationMap,
+} from "./util.ts";
 
-export let leaf = async (...args: Args<Leaf.Arg>): Promise<Leaf> => {
+export let leaf = async (
+	...args: Array<Unresolved<MaybeNestedArray<MaybeMutationMap<Leaf.Arg>>>>
+): Promise<Leaf> => {
 	return await Leaf.new(...args);
 };
 
@@ -26,12 +33,14 @@ export class Leaf {
 		return new Leaf({ id });
 	}
 
-	static async new(...args: Args<Leaf.Arg>): Promise<Leaf> {
+	static async new(
+		...args: Array<Unresolved<MaybeNestedArray<MaybeMutationMap<Leaf.Arg>>>>
+	): Promise<Leaf> {
 		type Apply = {
 			bytes: Array<Uint8Array>;
 		};
 		let { bytes: bytes_ } = await Args.apply<Leaf.Arg, Apply>(
-			args,
+			await Promise.all(args.map(resolve)),
 			async (arg) => {
 				if (arg === undefined) {
 					return {};
@@ -149,13 +158,7 @@ export class Leaf {
 }
 
 export namespace Leaf {
-	export type Arg =
-		| undefined
-		| string
-		| Uint8Array
-		| Leaf
-		| ArgObject
-		| Array<Arg>;
+	export type Arg = undefined | string | Uint8Array | Leaf | ArgObject;
 
 	export type ArgObject = {
 		bytes?: Uint8Array;

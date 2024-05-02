@@ -5,9 +5,16 @@ import type { Blob } from "./blob.ts";
 import * as encoding from "./encoding.ts";
 import { Mutation, mutation } from "./mutation.ts";
 import type { Object_ } from "./object.ts";
-import type { MutationMap } from "./util.ts";
+import { type Unresolved, resolve } from "./resolve.ts";
+import type {
+	MaybeMutationMap,
+	MaybeNestedArray,
+	MutationMap,
+} from "./util.ts";
 
-export let branch = async (...args: Args<Branch.Arg>): Promise<Branch> => {
+export let branch = async (
+	...args: Array<Unresolved<MaybeNestedArray<MaybeMutationMap<Branch.Arg>>>>
+): Promise<Branch> => {
 	return await Branch.new(...args);
 };
 
@@ -26,12 +33,14 @@ export class Branch {
 		return new Branch({ id });
 	}
 
-	static async new(...args: Args<Branch.Arg>): Promise<Branch> {
+	static async new(
+		...args: Array<Unresolved<MaybeNestedArray<MaybeMutationMap<Branch.Arg>>>>
+	): Promise<Branch> {
 		type Apply = {
 			children: Array<Branch.Child>;
 		};
 		let { children } = await Args.apply<Branch.Arg, Apply>(
-			args,
+			await Promise.all(args.map(resolve)),
 			async (arg) => {
 				if (arg === undefined) {
 					return {};
@@ -134,7 +143,7 @@ export class Branch {
 }
 
 export namespace Branch {
-	export type Arg = undefined | Branch | ArgObject | Array<Arg>;
+	export type Arg = undefined | Branch | ArgObject;
 
 	export type ArgObject = {
 		children?: Array<Child>;

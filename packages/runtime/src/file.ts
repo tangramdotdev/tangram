@@ -4,9 +4,16 @@ import { assert as assert_, unreachable } from "./assert.ts";
 import { Blob, blob } from "./blob.ts";
 import { Mutation, mutation } from "./mutation.ts";
 import type { Object_ } from "./object.ts";
-import type { MutationMap } from "./util.ts";
+import { type Unresolved, resolve } from "./resolve.ts";
+import type {
+	MaybeMutationMap,
+	MaybeNestedArray,
+	MutationMap,
+} from "./util.ts";
 
-export let file = async (...args: Args<File.Arg>) => {
+export let file = async (
+	...args: Array<Unresolved<MaybeNestedArray<MaybeMutationMap<File.Arg>>>>
+) => {
 	return await File.new(...args);
 };
 
@@ -25,7 +32,9 @@ export class File {
 		return new File({ id });
 	}
 
-	static async new(...args: Args<File.Arg>): Promise<File> {
+	static async new(
+		...args: Array<Unresolved<MaybeNestedArray<MaybeMutationMap<File.Arg>>>>
+	): Promise<File> {
 		type Apply = {
 			contents?: Array<Blob.Arg>;
 			executable?: Array<boolean>;
@@ -35,63 +44,66 @@ export class File {
 			contents: contents_,
 			executable: executable_,
 			references: references_,
-		} = await Args.apply<File.Arg, Apply>(args, async (arg) => {
-			if (arg === undefined) {
-				return {};
-			} else if (
-				typeof arg === "string" ||
-				arg instanceof Uint8Array ||
-				Blob.is(arg)
-			) {
-				return {
-					contents: await mutation({ kind: "array_append", values: [arg] }),
-				};
-			} else if (File.is(arg)) {
-				return {
-					contents: await mutation({
-						kind: "array_append",
-						values: [await arg.contents()],
-					}),
-					executable: await mutation({
-						kind: "array_append",
-						values: [await arg.executable()],
-					}),
-					references: await mutation({
-						kind: "array_append",
-						values: [await arg.references()],
-					}),
-				};
-			} else if (typeof arg === "object") {
-				let object: Partial<MutationMap<Apply>> = {};
-				if (arg.contents !== undefined) {
-					object.contents = Mutation.is(arg.contents)
-						? arg.contents
-						: await mutation({
-								kind: "array_append",
-								values: [arg.contents],
-							});
+		} = await Args.apply<File.Arg, Apply>(
+			await Promise.all(args.map(resolve)),
+			async (arg) => {
+				if (arg === undefined) {
+					return {};
+				} else if (
+					typeof arg === "string" ||
+					arg instanceof Uint8Array ||
+					Blob.is(arg)
+				) {
+					return {
+						contents: await mutation({ kind: "array_append", values: [arg] }),
+					};
+				} else if (File.is(arg)) {
+					return {
+						contents: await mutation({
+							kind: "array_append",
+							values: [await arg.contents()],
+						}),
+						executable: await mutation({
+							kind: "array_append",
+							values: [await arg.executable()],
+						}),
+						references: await mutation({
+							kind: "array_append",
+							values: [await arg.references()],
+						}),
+					};
+				} else if (typeof arg === "object") {
+					let object: Partial<MutationMap<Apply>> = {};
+					if (arg.contents !== undefined) {
+						object.contents = Mutation.is(arg.contents)
+							? arg.contents
+							: await mutation({
+									kind: "array_append",
+									values: [arg.contents],
+								});
+					}
+					if (arg.executable !== undefined) {
+						object.executable = Mutation.is(arg.executable)
+							? arg.executable
+							: await mutation({
+									kind: "array_append",
+									values: [arg.executable],
+								});
+					}
+					if (arg.references !== undefined) {
+						object.references = Mutation.is(arg.references)
+							? arg.references
+							: await mutation({
+									kind: "array_append",
+									values: [arg.references],
+								});
+					}
+					return object;
+				} else {
+					return unreachable();
 				}
-				if (arg.executable !== undefined) {
-					object.executable = Mutation.is(arg.executable)
-						? arg.executable
-						: await mutation({
-								kind: "array_append",
-								values: [arg.executable],
-							});
-				}
-				if (arg.references !== undefined) {
-					object.references = Mutation.is(arg.references)
-						? arg.references
-						: await mutation({
-								kind: "array_append",
-								values: [arg.references],
-							});
-				}
-				return object;
-			} else {
-				return unreachable();
-			}
-		});
+			},
+		);
 		let contents = await blob(contents_);
 		let executable = (executable_ ?? []).some((executable) => executable);
 		let references = references_ ?? [];
@@ -186,14 +198,7 @@ export class File {
 }
 
 export namespace File {
-	export type Arg =
-		| undefined
-		| string
-		| Uint8Array
-		| Blob
-		| File
-		| ArgObject
-		| Array<Arg>;
+	export type Arg = undefined | string | Uint8Array | Blob | File | ArgObject;
 
 	export type ArgObject = {
 		contents?: Blob.Arg;

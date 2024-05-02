@@ -1842,9 +1842,9 @@ impl FromV8 for tg::target::Object {
 		Ok(Self {
 			host,
 			executable,
-			lock,
-			env,
 			args,
+			env,
+			lock,
 			checksum,
 		})
 	}

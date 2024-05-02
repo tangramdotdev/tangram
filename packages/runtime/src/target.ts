@@ -8,10 +8,11 @@ import { Module } from "./module.ts";
 import { Mutation, mutation } from "./mutation.ts";
 import type { Object_ } from "./object.ts";
 import { Path } from "./path.ts";
-import type { Unresolved } from "./resolve.ts";
+import { type Unresolved, resolve } from "./resolve.ts";
 import { Symlink, symlink } from "./symlink.ts";
 import { Template } from "./template.ts";
 import {
+	type MaybeMutationMap,
 	type MaybeNestedArray,
 	type MaybePromise,
 	type MutationMap,
@@ -47,11 +48,17 @@ export function target<
 export function target<
 	A extends Array<Value> = Array<Value>,
 	R extends Value = Value,
->(...args: Args<Target.Arg>): Promise<Target<A, R>>;
+>(
+	...args: Array<Unresolved<MaybeNestedArray<MaybeMutationMap<Target.Arg>>>>
+): Promise<Target<A, R>>;
 export function target<
 	A extends Array<Value> = Array<Value>,
 	R extends Value = Value,
->(...args: [FunctionArg<A, R>] | Args<Target.Arg>): MaybePromise<Target<A, R>> {
+>(
+	...args:
+		| [FunctionArg<A, R>]
+		| Array<Unresolved<MaybeNestedArray<MaybeMutationMap<Target.Arg>>>>
+): MaybePromise<Target<A, R>> {
 	if (
 		args.length === 1 &&
 		typeof args[0] === "object" &&
@@ -89,7 +96,11 @@ export function target<
 			},
 		});
 	} else {
-		return Target.new(...(args as unknown as Args<Target.Arg>));
+		return Target.new(
+			...(args as Array<
+				Unresolved<MaybeNestedArray<MaybeMutationMap<Target.Arg>>>
+			>),
+		);
 	}
 }
 
@@ -146,7 +157,9 @@ export class Target<
 	static async new<
 		A extends Array<Value> = Array<Value>,
 		R extends Value = Value,
-	>(...args: Args<Target.Arg>): Promise<Target<A, R>> {
+	>(
+		...args: Array<Unresolved<MaybeNestedArray<MaybeMutationMap<Target.Arg>>>>
+	): Promise<Target<A, R>> {
 		type Apply = {
 			host?: string;
 			executable?: Artifact;
@@ -163,7 +176,10 @@ export class Target<
 			lock,
 			checksum,
 		} = await Args.apply<Target.Arg, Apply>(
-			[{ env: await getCurrentTarget().env() }, ...args],
+			[
+				{ env: await getCurrentTarget().env() },
+				...(await Promise.all(args.map(resolve))),
+			],
 			async (arg) => {
 				if (
 					typeof arg === "string" ||
@@ -210,7 +226,10 @@ export class Target<
 		if (!executable) {
 			throw new Error("cannot create a target without an executable");
 		}
-		let env = await Args.apply(flatten(env_ ?? []), async (arg) => arg);
+		let env = await Args.apply(
+			flatten(env_ ?? []),
+			async (arg) => arg as MutationMap,
+		);
 		args_ ??= [];
 		return new Target({
 			object: {
@@ -315,8 +334,7 @@ export namespace Target {
 		| Artifact
 		| Template
 		| Target
-		| ArgObject
-		| Array<Arg>;
+		| ArgObject;
 
 	export type ArgObject = {
 		host?: string;

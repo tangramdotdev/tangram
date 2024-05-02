@@ -6,11 +6,17 @@ import type { File } from "./file.ts";
 import { mutation } from "./mutation.ts";
 import type { Object_ } from "./object.ts";
 import { Path } from "./path.ts";
-import type { Unresolved } from "./resolve.ts";
+import { type Unresolved, resolve } from "./resolve.ts";
 import { Template } from "./template.ts";
-import type { MutationMap } from "./util.ts";
+import type {
+	MaybeMutationMap,
+	MaybeNestedArray,
+	MutationMap,
+} from "./util.ts";
 
-export let symlink = async (...args: Args<Symlink.Arg>): Promise<Symlink> => {
+export let symlink = async (
+	...args: Array<Unresolved<MaybeNestedArray<MaybeMutationMap<Symlink.Arg>>>>
+): Promise<Symlink> => {
 	return await Symlink.new(...args);
 };
 
@@ -29,13 +35,15 @@ export class Symlink {
 		return new Symlink({ id });
 	}
 
-	static async new(...args: Args<Symlink.Arg>): Promise<Symlink> {
+	static async new(
+		...args: Array<Unresolved<MaybeNestedArray<MaybeMutationMap<Symlink.Arg>>>>
+	): Promise<Symlink> {
 		type Apply = {
 			artifact?: Artifact | undefined;
 			path?: Array<Path>;
 		};
 		let { artifact, path: path_ } = await Args.apply<Symlink.Arg, Apply>(
-			args,
+			await Promise.all(args.map(resolve)),
 			async (arg) => {
 				if (arg === undefined) {
 					return {};
@@ -204,8 +212,7 @@ export namespace Symlink {
 		| Artifact
 		| Template
 		| Symlink
-		| ArgObject
-		| Array<Arg>;
+		| ArgObject;
 
 	export type ArgObject = {
 		artifact?: Artifact | undefined;

@@ -10,8 +10,12 @@ import * as references from "./references.ts";
 import * as rename from "./rename.ts";
 import * as symbols from "./symbols.ts";
 
+let console = {};
+Object.defineProperties(console, {
+	log: { value: log },
+});
 Object.defineProperties(globalThis, {
-	console: { value: { log } },
+	console: { value: console },
 });
 
 type Request =

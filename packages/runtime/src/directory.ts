@@ -6,8 +6,11 @@ import type { Object_ } from "./object.ts";
 import { Path } from "./path.ts";
 import { type Unresolved, resolve } from "./resolve.ts";
 import { Symlink } from "./symlink.ts";
+import type { MaybeNestedArray } from "./util.ts";
 
-export let directory = async (...args: Array<Unresolved<Directory.Arg>>) => {
+export let directory = async (
+	...args: Array<Unresolved<MaybeNestedArray<Directory.Arg>>>
+) => {
 	return await Directory.new(...args);
 };
 
@@ -27,7 +30,7 @@ export class Directory {
 	}
 
 	static async new(
-		...args: Array<Unresolved<Directory.Arg>>
+		...args: Array<Unresolved<MaybeNestedArray<Directory.Arg>>>
 	): Promise<Directory> {
 		let entries = await (await Promise.all(args.map(resolve))).reduce<
 			Promise<Record<string, Artifact>>
@@ -226,7 +229,7 @@ export class Directory {
 }
 
 export namespace Directory {
-	export type Arg = undefined | Directory | ArgObject | Array<Arg>;
+	export type Arg = undefined | Directory | ArgObject;
 
 	type ArgObject = {
 		[name: string]:

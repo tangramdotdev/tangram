@@ -2,9 +2,16 @@ import { Args } from "./args.ts";
 import { assert as assert_, unreachable } from "./assert.ts";
 import { Mutation } from "./mutation.ts";
 import type { Object_ } from "./object.ts";
-import type { MutationMap } from "./util.ts";
+import { type Unresolved, resolve } from "./resolve.ts";
+import type {
+	MaybeMutationMap,
+	MaybeNestedArray,
+	MutationMap,
+} from "./util.ts";
 
-export let lock = async (...args: Args<Lock.Arg>): Promise<Lock> => {
+export let lock = async (
+	...args: Array<Unresolved<MaybeNestedArray<MaybeMutationMap<Lock.Arg>>>>
+): Promise<Lock> => {
 	return await Lock.new(...args);
 };
 
@@ -23,13 +30,15 @@ export class Lock {
 		return new Lock({ id });
 	}
 
-	static async new(...args: Args<Lock.Arg>): Promise<Lock> {
+	static async new(
+		...args: Array<Unresolved<MaybeNestedArray<MaybeMutationMap<Lock.Arg>>>>
+	): Promise<Lock> {
 		type Apply = {
 			root: number;
 			nodeArgs: Array<Lock.NodeArg>;
 		};
 		let { root, nodeArgs } = await Args.apply<Lock.Arg, Apply>(
-			args,
+			await Promise.all(args.map(resolve)),
 			async (arg) => {
 				if (arg === undefined) {
 					return {};
@@ -122,7 +131,7 @@ export class Lock {
 }
 
 export namespace Lock {
-	export type Arg = Lock | ArgObject | Array<Arg>;
+	export type Arg = Lock | ArgObject;
 
 	export type ArgObject = {
 		root?: number;
