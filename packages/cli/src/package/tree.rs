@@ -44,9 +44,9 @@ impl Cli {
 	async fn get_package_tree(
 		&self,
 		dependency: tg::Dependency,
-		package: tg::Directory,
+		package: tg::Artifact,
 		lock: tg::Lock,
-		visited: &mut BTreeSet<tg::directory::Id>,
+		visited: &mut BTreeSet<tg::artifact::Id>,
 		current_depth: u32,
 		max_depth: Option<u32>,
 	) -> tg::Result<Tree> {
@@ -78,15 +78,16 @@ impl Cli {
 		for dependency in lock.dependencies(&self.handle).await? {
 			let (child_package, lock) = lock.get(&self.handle, &dependency).await?;
 			let package = match (child_package, &dependency.path) {
-				(Some(package), _) => package,
+				(Some(package), _) => package.into(),
 				(None, Some(path)) => package
+					.try_unwrap_directory_ref()
+					.ok()
+					.ok_or_else(|| tg::error!("expected a directory"))?
 					.get(&self.handle, path)
 					.await
 					.map_err(
 						|source| tg::error!(!source, %path, "could not resolve path dependency"),
-					)?
-					.try_unwrap_directory()
-					.map_err(|source| tg::error!(!source, "expected a directory"))?,
+					)?,
 				(None, None) => return Err(tg::error!("invalid lock")),
 			};
 			let child = Box::pin(self.get_package_tree(

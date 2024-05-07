@@ -56,14 +56,10 @@ fn documents(
 	server: Server,
 	_args: (),
 ) -> tg::Result<Vec<tg::Module>> {
-	server.main_runtime_handle.clone().block_on(async move {
-		Ok(server
-			.get_documents()
-			.await
-			.into_iter()
-			.map(tg::Module::Document)
-			.collect())
-	})
+	server
+		.main_runtime_handle
+		.clone()
+		.block_on(async move { Ok(server.get_documents().await) })
 }
 
 fn encoding_base64_decode(

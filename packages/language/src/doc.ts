@@ -1,6 +1,6 @@
 import ts from "typescript";
 import { assert } from "./assert.ts";
-import type { Module } from "./module.ts";
+import type { Module, PackageArtifact } from "./module.ts";
 import type { Range } from "./range.ts";
 import { compilerOptions, host } from "./typescript.ts";
 import * as typescript from "./typescript.ts";
@@ -2273,17 +2273,10 @@ let convertLocation = (node: ts.Node): Location => {
 	let end = ts.getLineAndCharacterOfPosition(sourceFile, node.getEnd());
 	let module_ = typescript.moduleFromFileName(sourceFile.fileName);
 	let docModule: Module;
-	if (module_.kind === "library") {
+	if (module_.kind === "dts") {
 		docModule = module_;
-	} else if (module_.kind === "normal") {
-		docModule = {
-			kind: "normal",
-			value: {
-				path: module_.value.path,
-				package: module_.value.package,
-				lock: module_.value.lock,
-			},
-		};
+	} else if (module_.kind === "js" || module_.kind === "ts") {
+		docModule = module_;
 	} else {
 		throw new Error("invalid module kind");
 	}
@@ -2303,14 +2296,27 @@ function isExported(
 	symbol: ts.Symbol,
 	node: ts.Node,
 ) {
+	assert(
+		thisModule.kind === "ts" ||
+			(thisModule.kind === "js" &&
+				thisModule.value.kind === "package_artifact"),
+	);
+
 	// If the symbol is not from our package, then it is exported.
 	let module_ = typescript.moduleFromFileName(node.getSourceFile().fileName);
 	// If the symbol is from a library file, then it is exported.
-	if (module_.kind === "library") {
+	if (module_.kind === "dts") {
 		return true;
-	} else if (module_.kind === "normal" && thisModule.kind === "normal") {
+	} else if (
+		module_.kind === "js" &&
+		thisModule.kind === "ts" &&
+		module_.value.kind === "package_artifact"
+	) {
 		// If the symbol is from a different package, then it is exported.
-		if (module_.value.package !== thisModule.value.package) {
+		if (
+			(module_.value.value as PackageArtifact).artifact !==
+			(thisModule.value.value as PackageArtifact).artifact
+		) {
 			return true;
 		}
 	}

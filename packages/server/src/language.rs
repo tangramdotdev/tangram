@@ -52,8 +52,8 @@ pub struct Inner {
 	/// The published diagnostics.
 	diagnostics: tokio::sync::RwLock<BTreeMap<tg::Module, Vec<tg::Diagnostic>>>,
 
-	/// The documents.
-	documents: tokio::sync::RwLock<HashMap<tg::Document, tg::document::State, fnv::FnvBuildHasher>>,
+	/// The modules tracked by the language server.
+	modules: tokio::sync::RwLock<HashMap<tg::Module, tg::document::State, fnv::FnvBuildHasher>>,
 
 	/// A handle to the main tokio runtime.
 	main_runtime_handle: tokio::runtime::Handle,
@@ -133,7 +133,7 @@ impl Server {
 		// Create the server.
 		Self(Arc::new(Inner {
 			diagnostics,
-			documents,
+			modules: documents,
 			main_runtime_handle,
 			request_sender,
 			request_thread,
@@ -692,10 +692,7 @@ impl Server {
 					})?;
 
 				// Get or create the document.
-				let document = self.get_document(package_path, module_path).await?;
-
-				// Create the module.
-				let module = tg::Module::Document(document);
+				let module = self.get_document(package_path, module_path).await?;
 
 				Ok(module)
 			},
@@ -708,12 +705,15 @@ impl Server {
 	#[must_use]
 	fn url_for_module(&self, module: &tg::Module) -> Url {
 		match module {
-			tg::Module::Document(document) => {
-				let path = document.package_path.join(&document.path);
-				let path = path.display();
-				format!("file://{path}").parse().unwrap()
+			tg::Module::Js(tg::module::Js::PackagePath(package_path))
+			| tg::Module::Ts(tg::module::Js::PackagePath(package_path)) => {
+				let path = package_path
+					.package_path
+					.clone()
+					.join(package_path.path.clone());
+				format!("file://{}", path.display()).parse().unwrap()
 			},
-			_ => module.clone().into(),
+			module => module.clone().into(),
 		}
 	}
 }

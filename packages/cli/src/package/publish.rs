@@ -26,7 +26,12 @@ impl Cli {
 		let (package, _) = tg::package::get_with_lock(&self.handle, &dependency).await?;
 
 		// Get the package ID.
-		let id = package.id(&self.handle, None).await?;
+		let id = package
+			.id(&self.handle, None)
+			.await?
+			.try_into()
+			.ok()
+			.ok_or_else(|| tg::error!("expected a directory"))?;
 
 		// Publish the package.
 		self.handle

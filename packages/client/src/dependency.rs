@@ -16,7 +16,7 @@ use crate as tg;
 pub struct Dependency {
 	/// The package's ID.
 	#[serde(default, skip_serializing_if = "Option::is_none")]
-	pub id: Option<tg::directory::Id>,
+	pub id: Option<tg::artifact::Id>,
 
 	/// The name of the package.
 	#[serde(default, skip_serializing_if = "Option::is_none")]
@@ -33,7 +33,7 @@ pub struct Dependency {
 
 impl Dependency {
 	#[must_use]
-	pub fn with_id(id: tg::directory::Id) -> Self {
+	pub fn with_id(id: tg::artifact::Id) -> Self {
 		Self {
 			id: Some(id),
 			..Default::default()
@@ -177,8 +177,8 @@ impl From<Dependency> for String {
 	}
 }
 
-impl From<tg::directory::Id> for Dependency {
-	fn from(value: tg::directory::Id) -> Self {
+impl From<tg::artifact::Id> for Dependency {
+	fn from(value: tg::artifact::Id) -> Self {
 		Self {
 			id: Some(value),
 			..Default::default()

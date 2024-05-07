@@ -1,7 +1,7 @@
 use crate as tg;
 use std::path::Path;
 
-pub async fn get_root_module_path<H>(handle: &H, package: &tg::Directory) -> tg::Result<tg::Path>
+pub async fn get_root_module_path<H>(handle: &H, package: &tg::Artifact) -> tg::Result<tg::Path>
 where
 	H: tg::Handle,
 {
@@ -12,11 +12,14 @@ where
 
 pub async fn try_get_root_module_path<H>(
 	handle: &H,
-	package: &tg::Directory,
+	package: &tg::Artifact,
 ) -> tg::Result<Option<tg::Path>>
 where
 	H: tg::Handle,
 {
+	let Ok(package) = package.try_unwrap_directory_ref() else {
+		return Ok(None);
+	};
 	let mut root_module_path = None;
 	for module_file_name in tg::package::ROOT_MODULE_FILE_NAMES {
 		if package

@@ -203,8 +203,17 @@ fn get_location(
 		// Get the module and get the package and path.
 		let modules = state.modules.borrow();
 		let module = modules.iter().find(|m| m.module == module)?;
-		let package = module.module.unwrap_normal_ref().package.clone();
-		let path = module.module.unwrap_normal_ref().path.clone();
+		let (package, path) = match &module.module {
+			tg::Module::Js(tg::module::Js::PackageArtifact(package_artifact))
+			| tg::Module::Ts(tg::module::Js::PackageArtifact(package_artifact)) => (
+				package_artifact.artifact.clone(),
+				Some(package_artifact.path.clone()),
+			),
+			tg::Module::Js(tg::module::Js::File(artifact))
+			| tg::Module::Ts(tg::module::Js::File(artifact)) => (artifact.clone(), None),
+			_ => return None,
+		};
+
 		let source = tg::error::Source::External { package, path };
 
 		// Get the line and column and apply a source map if one is available.

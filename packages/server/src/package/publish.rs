@@ -6,7 +6,7 @@ use tangram_http::{outgoing::ResponseExt as _, Incoming, Outgoing};
 use time::format_description::well_known::Rfc3339;
 
 impl Server {
-	pub async fn publish_package(&self, id: &tg::directory::Id) -> tg::Result<()> {
+	pub async fn publish_package(&self, id: &tg::artifact::Id) -> tg::Result<()> {
 		if let Some(remote) = self.remotes.first() {
 			self.push_object(&id.clone().into()).await?;
 			remote.publish_package(id).await?;
@@ -14,10 +14,13 @@ impl Server {
 		}
 
 		// Get the package.
-		let package = tg::Directory::with_id(id.clone());
+		let package = tg::Artifact::with_id(id.clone())
+			.try_unwrap_directory()
+			.ok()
+			.ok_or_else(|| tg::error!("expected a directory"))?;
 
 		// Get the metadata.
-		let metadata = tg::package::get_metadata(self, &package).await?;
+		let metadata = tg::package::get_metadata(self, &package.clone().into()).await?;
 
 		// Get the package name and version.
 		let name = metadata

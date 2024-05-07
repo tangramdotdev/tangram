@@ -2,7 +2,7 @@ import * as std from "tg:std" with { path: "../../../packages/packages/std" };
 import { tangram } from "tg:tangram" with { path: "../../" };
 
 export default tg.target(async () => {
-	let previous = tg.include("snapshots");
+	let previous = await import("snapshots");
 	let current = snapshots();
 	let diff = await tg.File.expect(
 		await std.build(tg`
@@ -70,17 +70,17 @@ export let env = tg.target(async (): Promise<tg.Directory> => {
 
 // Artifact creation.
 export let testArtifacts = tg.target(() => test(artifactsSource()));
-export let artifactsSource = tg.target(() =>
+export let artifactsSource = tg.target(async () =>
 	tg.directory({
-		"tangram.ts": tg.include("./src/artifacts.ts"),
+		"tangram.ts": (await import("./src/artifacts.ts", { with: { type: "file" }})).default,
 	}),
 );
 
 // Builds.
 export let testBuilds = tg.target(() => test(sandboxSource()));
-export let sandboxSource = tg.target(() =>
+export let sandboxSource = tg.target(async () =>
 	tg.directory({
-		"tangram.ts": tg.include("./src/builds.ts"),
+		"tangram.ts": (await import("./src/builds.ts", { with: { type: "file" }}).default),
 	}),
 );
 
@@ -95,7 +95,7 @@ export let testLogs = tg.target(() => testLogs_());
 export let testMutations = tg.target(() => test(mutationsSource()));
 export let mutationsSource = tg.target(() =>
 	tg.directory({
-		"tangram.ts": tg.include("./src/mutations.ts"),
+		"tangram.ts": (await import("./src/mutations.ts"), { with: { type: "file" }}).default,
 	}),
 );
 

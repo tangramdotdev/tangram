@@ -20,7 +20,6 @@ pub use self::{
 	dependency::Dependency,
 	diagnostic::Diagnostic,
 	directory::Directory,
-	document::Document,
 	error::{ok, Error, Result},
 	file::File,
 	handle::Handle,
@@ -792,7 +791,7 @@ impl tg::Handle for Client {
 		self.get_package_outdated(arg)
 	}
 
-	fn publish_package(&self, id: &tg::directory::Id) -> impl Future<Output = tg::Result<()>> {
+	fn publish_package(&self, id: &tg::artifact::Id) -> impl Future<Output = tg::Result<()>> {
 		self.publish_package(id)
 	}
 
@@ -803,7 +802,7 @@ impl tg::Handle for Client {
 		self.try_get_package_versions(dependency)
 	}
 
-	fn yank_package(&self, id: &tg::directory::Id) -> impl Future<Output = tg::Result<()>> {
+	fn yank_package(&self, id: &tg::artifact::Id) -> impl Future<Output = tg::Result<()>> {
 		self.yank_package(id)
 	}
 

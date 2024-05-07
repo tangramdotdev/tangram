@@ -1,6 +1,5 @@
 use super::Server;
 use include_dir::include_dir;
-use itertools::Itertools as _;
 use tangram_client as tg;
 
 const LIB: include_dir::Dir = include_dir!("$OUT_DIR/lib");
@@ -9,37 +8,72 @@ impl Server {
 	/// Load a module.
 	pub async fn load_module(&self, module: &tg::Module) -> tg::Result<String> {
 		match module {
-			// Load a library module.
-			tg::Module::Library(module) => {
-				let path = module.path.components().iter().skip(1).join("/");
-				let text = LIB
-					.get_file(&path)
-					.ok_or_else(
-						|| tg::error!(%path, "could not find a library module at the path"),
-					)?
-					.contents_utf8()
-					.ok_or_else(|| tg::error!("failed to read the file as UTF-8"))?;
-				Ok(text.to_owned())
-			},
-
-			// Load a module from a document.
-			tg::Module::Document(document) => self.get_document_text(document).await,
-
-			// Load a module from a package.
-			tg::Module::Normal(module) => {
-				// Get the package.
-				let package = tg::Directory::with_id(module.package.clone());
-
-				// Load the module.
-				let entry = package.get(&self.server, &module.path).await?;
-				let file = entry
-					.try_unwrap_file_ref()
-					.ok()
+			tg::Module::Dts(module) => {
+				let file = LIB
+					.get_file(module.path.as_str())
 					.ok_or_else(|| tg::error!("expected a file"))?;
-				let text = file.text(&self.server).await?;
-
-				Ok(text)
+				Ok(file.contents_utf8().unwrap().to_owned())
 			},
+			tg::Module::Artifact(tg::module::Artifact::Id(module)) => {
+				Ok(format!(r#"export default tg.Artifact.withId("{module}");"#))
+			},
+			tg::Module::Directory(tg::module::Directory::Id(module)) => Ok(format!(
+				r#"export default tg.Directory.withId("{module}");"#
+			)),
+			tg::Module::File(tg::module::File::Id(module)) => {
+				Ok(format!(r#"export default tg.File.withId("{module}");"#))
+			},
+			tg::Module::Symlink(tg::module::Symlink::Id(module)) => {
+				Ok(format!(r#"export default tg.Symlink.withId("{module}");"#))
+			},
+			tg::Module::Artifact(tg::module::Artifact::Path(_)) => {
+				Ok("export default undefined as tg.Artifact;".into())
+			},
+			tg::Module::Directory(tg::module::Directory::Path(_)) => {
+				Ok("export default undefined as tg.Directory;".into())
+			},
+			tg::Module::File(tg::module::File::Path(_)) => {
+				Ok("export default undefined as tg.File;".into())
+			},
+			tg::Module::Symlink(tg::module::Symlink::Path(_)) => {
+				Ok("export default undefined as tg.Symlink;".into())
+			},
+			tg::Module::Js(tg::module::Js::File(module))
+			| tg::Module::Ts(tg::module::Js::File(module)) => {
+				let artifact = tg::Artifact::with_id(module.clone());
+				let file = match artifact {
+					tg::Artifact::File(file) => file,
+					tg::Artifact::Symlink(symlink) => symlink
+						.resolve(&self.server)
+						.await?
+						.ok_or_else(|| tg::error!("failed to resolve symlink"))?
+						.try_unwrap_file()
+						.ok()
+						.ok_or_else(|| tg::error!("expected a file"))?,
+					tg::Artifact::Directory(_) => return Err(tg::error!("expected a directory")),
+				};
+				file.text(&self.server).await
+			},
+			tg::Module::Js(tg::module::Js::PackageArtifact(module))
+			| tg::Module::Ts(tg::module::Js::PackageArtifact(module)) => {
+				tg::Directory::with_id(
+					module
+						.artifact
+						.clone()
+						.try_into()
+						.ok()
+						.ok_or_else(|| tg::error!("expected a directory"))?,
+				)
+				.get(&self.server, &module.path)
+				.await?
+				.try_unwrap_file()
+				.ok()
+				.ok_or_else(|| tg::error!("expected a file"))?
+				.text(&self.server)
+				.await
+			},
+			tg::Module::Js(tg::module::Js::PackagePath(_))
+			| tg::Module::Ts(tg::module::Js::PackagePath(_)) => self.get_document_text(module).await,
 		}
 	}
 }

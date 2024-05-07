@@ -725,8 +725,12 @@ impl Cli {
 							} else {
 								package.to_string()
 							};
-							let path = path.components().iter().skip(1).join("/");
-							format!("{source}:{path}")
+							if let Some(path) = path {
+								let path = path.components().iter().skip(1).join("/");
+								format!("{source}:{path}")
+							} else {
+								source.to_string()
+							}
 						},
 					};
 					let mut string = String::new();
@@ -766,19 +770,20 @@ impl Cli {
 		};
 		eprint!("{} {} ", "->".red(), diagnostic.message);
 		if let Some(location) = &diagnostic.location {
-			let (package, path) = location.module.source();
-			if let Some(package) = package {
-				let package = tg::Directory::with_id(package);
-				let metadata = tg::package::get_metadata(&self.handle, &package).await.ok();
+			if let Some(artifact) = location.module.artifact() {
+				let metadata =
+					tg::package::try_get_metadata(&self.handle, &tg::Artifact::with_id(artifact))
+						.await?;
 				let (name, version) = metadata
 					.map(|metadata| (metadata.name, metadata.version))
 					.unwrap_or_default();
 				let name = name.as_deref().unwrap_or("<unknown>");
 				let version = version.as_deref().unwrap_or("<unknown>");
-				eprint!("{name}@{version}: {path}:");
-			} else {
+				eprint!("{name}@{version}: ");
+			}
+			if let Some(path) = location.module.path() {
 				eprint!("{path}:");
-			};
+			}
 			eprint!(
 				"{}:{}",
 				location.range.start.line + 1,
@@ -791,7 +796,7 @@ impl Cli {
 
 	async fn get_description_for_package<H>(
 		handle: &H,
-		package: &tg::directory::Id,
+		package: &tg::artifact::Id,
 	) -> tg::Result<String>
 	where
 		H: tg::Handle,

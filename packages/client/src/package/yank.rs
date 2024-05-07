@@ -2,7 +2,7 @@ use crate as tg;
 use tangram_http::{incoming::ResponseExt as _, outgoing::RequestBuilderExt};
 
 impl tg::Client {
-	pub async fn yank_package(&self, id: &tg::directory::Id) -> tg::Result<()> {
+	pub async fn yank_package(&self, id: &tg::artifact::Id) -> tg::Result<()> {
 		let method = http::Method::POST;
 		let uri = format!("/packages/{id}/yank");
 		let request = http::request::Builder::default()

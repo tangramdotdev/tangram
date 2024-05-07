@@ -14,14 +14,7 @@ impl Server {
 		let (package, lock) = tg::package::get_with_lock(self, dependency).await?;
 
 		// Create the root module.
-		let path = tg::package::get_root_module_path(self, &package).await?;
-		let package = package.id(self, None).await?;
-		let lock = lock.id(self, None).await?;
-		let module = tg::Module::Normal(tg::module::Normal {
-			lock,
-			package,
-			path,
-		});
+		let module = tg::Module::from_package(self, &package, &lock).await?;
 
 		// Create the language server.
 		let language_server = crate::language::Server::new(self, tokio::runtime::Handle::current());

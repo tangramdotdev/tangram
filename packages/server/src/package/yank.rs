@@ -5,7 +5,7 @@ use tangram_database::{self as db, Database, Query};
 use tangram_http::{outgoing::ResponseExt as _, Incoming, Outgoing};
 
 impl Server {
-	pub async fn get_package_yanked(&self, package: &tg::Directory) -> tg::Result<bool> {
+	pub async fn get_package_yanked(&self, package: &tg::Artifact) -> tg::Result<bool> {
 		let id = package.id(self, None).await?.clone();
 		if let Some(remote) = self.remotes.first() {
 			let dependency = tg::Dependency::with_id(id);
@@ -51,7 +51,7 @@ impl Server {
 		Ok(row.yanked)
 	}
 
-	pub async fn yank_package(&self, id: &tg::directory::Id) -> tg::Result<()> {
+	pub async fn yank_package(&self, id: &tg::artifact::Id) -> tg::Result<()> {
 		if let Some(remote) = self.remotes.first() {
 			self.push_object(&id.clone().into()).await?;
 			remote.yank_package(id).await?;

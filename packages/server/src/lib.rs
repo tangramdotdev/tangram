@@ -1045,7 +1045,7 @@ impl tg::Handle for Server {
 		self.get_package_outdated(dependency)
 	}
 
-	fn publish_package(&self, id: &tg::directory::Id) -> impl Future<Output = tg::Result<()>> {
+	fn publish_package(&self, id: &tg::artifact::Id) -> impl Future<Output = tg::Result<()>> {
 		self.publish_package(id)
 	}
 
@@ -1056,7 +1056,7 @@ impl tg::Handle for Server {
 		self.try_get_package_versions(dependency)
 	}
 
-	fn yank_package(&self, id: &tg::directory::Id) -> impl Future<Output = tg::Result<()>> {
+	fn yank_package(&self, id: &tg::artifact::Id) -> impl Future<Output = tg::Result<()>> {
 		self.yank_package(id)
 	}
 

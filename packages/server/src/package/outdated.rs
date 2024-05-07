@@ -24,7 +24,7 @@ impl Server {
 	pub async fn get_outdated_inner(
 		&self,
 		dependency: &tg::Dependency,
-		package: tg::Directory,
+		package: tg::Artifact,
 		lock: tg::Lock,
 		visited: &mut BTreeMap<tg::lock::Id, tg::package::outdated::Output>,
 	) -> tg::Result<tg::package::outdated::Output> {
@@ -52,7 +52,7 @@ impl Server {
 			(None, None)
 		};
 
-		let metadata = tg::package::get_metadata(self, &package).await.ok();
+		let metadata = tg::package::get_metadata(self, &package.clone()).await.ok();
 		let current = metadata
 			.as_ref()
 			.and_then(|metadata| metadata.version.clone());
@@ -73,15 +73,16 @@ impl Server {
 		for dependency in lock.dependencies(self).await? {
 			let (child_package, lock) = lock.get(self, &dependency).await?;
 			let package = match (child_package, &dependency.path) {
-				(Some(package), _) => package,
+				(Some(package), _) => package.into(),
 				(None, Some(path)) => package
+					.try_unwrap_directory_ref()
+					.ok()
+					.ok_or_else(|| tg::error!("expected a directory"))?
 					.get(self, path)
 					.await
 					.map_err(
 						|source| tg::error!(!source, %path, "could not resolve path dependency"),
-					)?
-					.try_unwrap_directory()
-					.map_err(|source| tg::error!(!source, "expected a directory"))?,
+					)?,
 				(None, None) => return Err(tg::error!("invalid lock")),
 			};
 			let outdated =

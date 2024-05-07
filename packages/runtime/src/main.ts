@@ -8,7 +8,6 @@ import { Directory, directory } from "./directory.ts";
 import * as encoding from "./encoding.ts";
 import { Error_ } from "./error.ts";
 import { File, file } from "./file.ts";
-import { include } from "./include.ts";
 import { Leaf, leaf } from "./leaf.ts";
 import { Lock, lock } from "./lock.ts";
 import { log } from "./log.ts";
@@ -74,7 +73,6 @@ Object.assign(tg, {
 	download,
 	encoding,
 	file,
-	include,
 	leaf,
 	lock,
 	log,

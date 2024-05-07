@@ -438,7 +438,7 @@ where
 		}
 	}
 
-	fn publish_package(&self, id: &tg::directory::Id) -> impl Future<Output = tg::Result<()>> {
+	fn publish_package(&self, id: &tg::artifact::Id) -> impl Future<Output = tg::Result<()>> {
 		match self {
 			Either::Left(s) => s.publish_package(id).left_future(),
 			Either::Right(s) => s.publish_package(id).right_future(),
@@ -455,7 +455,7 @@ where
 		}
 	}
 
-	fn yank_package(&self, id: &tg::directory::Id) -> impl Future<Output = tg::Result<()>> {
+	fn yank_package(&self, id: &tg::artifact::Id) -> impl Future<Output = tg::Result<()>> {
 		match self {
 			Either::Left(s) => s.yank_package(id).left_future(),
 			Either::Right(s) => s.yank_package(id).right_future(),
