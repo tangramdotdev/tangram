@@ -61,13 +61,13 @@ impl Server {
 		#[derive(serde::Deserialize, Debug)]
 		struct Row {
 			version: String,
+			artifact: tg::directory::Id,
 			yanked: bool,
-			id: tg::directory::Id,
 		}
 		let p = connection.p();
 		let statement = formatdoc!(
 			"
-				select version, id, yanked
+				select version, artifact, yanked
 				from package_versions
 				where name = {p}1
 				order by published_at asc
@@ -86,7 +86,7 @@ impl Server {
 		let Some(version) = version else {
 			let versions = versions
 				.into_iter()
-				.filter_map(|row| (!row.yanked).then_some((row.version, row.id)))
+				.filter_map(|row| (!row.yanked).then_some((row.version, row.artifact)))
 				.collect();
 			return Ok(Some(versions));
 		};
@@ -105,7 +105,7 @@ impl Server {
 					req.matches(&version) && !row.yanked
 				})
 				.sorted_unstable_by_key(|row| semver::Version::parse(&row.version).unwrap())
-				.map(|row| (row.version, row.id))
+				.map(|row| (row.version, row.artifact))
 				.collect();
 			return Ok(Some(versions));
 		}
@@ -118,7 +118,8 @@ impl Server {
 			let versions = versions
 				.into_iter()
 				.filter_map(|row| {
-					(regex.is_match(&row.version) && !row.yanked).then_some((row.version, row.id))
+					(regex.is_match(&row.version) && !row.yanked)
+						.then_some((row.version, row.artifact))
 				})
 				.collect();
 			return Ok(Some(versions));
@@ -127,7 +128,7 @@ impl Server {
 		// Otherwise, use string equality.
 		let versions = versions
 			.into_iter()
-			.filter_map(|row| (&row.version == version).then_some((row.version, row.id)))
+			.filter_map(|row| (&row.version == version).then_some((row.version, row.artifact)))
 			.collect::<Vec<_>>();
 
 		Ok(Some(versions))

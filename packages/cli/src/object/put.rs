@@ -5,6 +5,7 @@ use tokio::io::AsyncReadExt as _;
 
 /// Put an object.
 #[derive(Debug, clap::Args)]
+#[group(skip)]
 pub struct Args {
 	#[arg(short, long)]
 	bytes: Option<String>,

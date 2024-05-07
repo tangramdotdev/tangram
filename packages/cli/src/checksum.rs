@@ -6,6 +6,7 @@ use url::Url;
 
 /// Compute a checksum.
 #[derive(Debug, clap::Args)]
+#[group(skip)]
 pub struct Args {
 	/// The checksum algorithm to use.
 	#[arg(short, long)]

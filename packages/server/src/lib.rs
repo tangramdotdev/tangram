@@ -45,6 +45,7 @@ mod package;
 mod root;
 mod runtime;
 mod server;
+mod target;
 mod tmp;
 mod user;
 mod util;
@@ -67,8 +68,6 @@ pub struct Inner {
 	local_pool_handle: tokio_util::task::LocalPoolHandle,
 	lock_file: std::sync::Mutex<Option<tokio::fs::File>>,
 	messenger: Messenger,
-	#[allow(dead_code)]
-	oauth: OAuth,
 	options: Options,
 	path: PathBuf,
 	remotes: Vec<tg::Client>,
@@ -88,12 +87,6 @@ type Checkouts = DashMap<tg::artifact::Id, CheckoutFuture, fnv::FnvBuildHasher>;
 
 type CheckoutFuture =
 	future::Shared<BoxFuture<'static, tg::Result<tg::artifact::checkout::Output>>>;
-
-#[derive(Debug)]
-struct OAuth {
-	#[allow(dead_code)]
-	github: Option<oauth2::basic::BasicClient>,
-}
 
 impl Server {
 	pub async fn start(options: Options) -> tg::Result<Server> {
@@ -246,29 +239,6 @@ impl Server {
 			},
 		};
 
-		// Create the oauth clients.
-		let github = if let Some(oauth) = &options.oauth.github {
-			let client_id = oauth2::ClientId::new(oauth.client_id.clone());
-			let client_secret = oauth2::ClientSecret::new(oauth.client_secret.clone());
-			let auth_url = oauth2::AuthUrl::new(oauth.auth_url.clone())
-				.map_err(|source| tg::error!(!source, "failed to create the auth URL"))?;
-			let token_url = oauth2::TokenUrl::new(oauth.token_url.clone())
-				.map_err(|source| tg::error!(!source, "failed to create the token URL"))?;
-			let oauth_client = oauth2::basic::BasicClient::new(
-				client_id,
-				Some(client_secret),
-				auth_url,
-				Some(token_url),
-			);
-			let redirect_url = oauth2::RedirectUrl::new(oauth.redirect_url.clone())
-				.map_err(|source| tg::error!(!source, "failed to create the redirect URL"))?;
-			let oauth_client = oauth_client.set_redirect_uri(redirect_url);
-			Some(oauth_client)
-		} else {
-			None
-		};
-		let oauth = OAuth { github };
-
 		// Get the remotes.
 		let remotes = options
 			.remotes
@@ -292,7 +262,6 @@ impl Server {
 			local_pool_handle,
 			lock_file,
 			messenger,
-			oauth,
 			options,
 			path,
 			remotes,
@@ -397,7 +366,7 @@ impl Server {
 		Ok(server)
 	}
 
-	pub fn cancel(&self) {
+	pub fn stop(&self) {
 		let server = self.clone();
 		tokio::spawn(async move {
 			// Remove the runtimes.
@@ -581,6 +550,12 @@ impl Server {
 		let path_components = path.split('/').skip(1).collect_vec();
 		let response = match (method, path_components.as_slice()) {
 			// Artifacts.
+			(http::Method::POST, ["artifacts", "checkin"]) => {
+				Self::handle_check_in_artifact_request(handle, request).boxed()
+			},
+			(http::Method::POST, ["artifacts", id, "checkout"]) => {
+				Self::handle_check_out_artifact_request(handle, request, id).boxed()
+			},
 			(http::Method::POST, ["artifacts", id, "archive"]) => {
 				Self::handle_archive_artifact_request(handle, request, id).boxed()
 			},
@@ -590,11 +565,8 @@ impl Server {
 			(http::Method::POST, ["artifacts", id, "bundle"]) => {
 				Self::handle_bundle_artifact_request(handle, request, id).boxed()
 			},
-			(http::Method::POST, ["artifacts", "checkin"]) => {
-				Self::handle_check_in_artifact_request(handle, request).boxed()
-			},
-			(http::Method::POST, ["artifacts", id, "checkout"]) => {
-				Self::handle_check_out_artifact_request(handle, request, id).boxed()
+			(http::Method::POST, ["artifacts", id, "checksum"]) => {
+				Self::handle_checksum_artifact_request(handle, request, id).boxed()
 			},
 
 			// Blobs.
@@ -606,6 +578,12 @@ impl Server {
 			},
 			(http::Method::POST, ["blobs", id, "decompress"]) => {
 				Self::handle_decompress_blob_request(handle, request, id).boxed()
+			},
+			(http::Method::POST, ["blobs", "download"]) => {
+				Self::handle_download_blob_request(handle, request).boxed()
+			},
+			(http::Method::POST, ["blobs", id, "checksum"]) => {
+				Self::handle_checksum_blob_request(handle, request, id).boxed()
 			},
 
 			// Builds.
@@ -623,9 +601,6 @@ impl Server {
 			},
 			(http::Method::POST, ["builds", id, "pull"]) => {
 				Self::handle_pull_build_request(handle, request, id).boxed()
-			},
-			(http::Method::POST, ["builds"]) => {
-				Self::handle_create_build_request(handle, request).boxed()
 			},
 			(http::Method::POST, ["builds", "dequeue"]) => {
 				Self::handle_dequeue_build_request(handle, request).boxed()
@@ -691,17 +666,17 @@ impl Server {
 			(http::Method::GET, ["packages", dependency, "doc"]) => {
 				Self::handle_get_package_doc_request(handle, request, dependency).boxed()
 			},
+			(http::Method::GET, ["packages", dependency, "versions"]) => {
+				Self::handle_get_package_versions_request(handle, request, dependency).boxed()
+			},
 			(http::Method::POST, ["packages", dependency, "format"]) => {
 				Self::handle_format_package_request(handle, request, dependency).boxed()
 			},
 			(http::Method::POST, ["packages", dependency, "outdated"]) => {
 				Self::handle_outdated_package_request(handle, request, dependency).boxed()
 			},
-			(http::Method::POST, ["packages"]) => {
-				Self::handle_publish_package_request(handle, request).boxed()
-			},
-			(http::Method::GET, ["packages", dependency, "versions"]) => {
-				Self::handle_get_package_versions_request(handle, request, dependency).boxed()
+			(http::Method::POST, ["packages", id, "publish"]) => {
+				Self::handle_publish_package_request(handle, request, id).boxed()
 			},
 			(http::Method::POST, ["packages", dependency, "yank"]) => {
 				Self::handle_yank_package_request(handle, request, dependency).boxed()
@@ -714,11 +689,11 @@ impl Server {
 			(http::Method::GET, ["roots", name]) => {
 				Self::handle_get_root_request(handle, request, name).boxed()
 			},
-			(http::Method::POST, ["roots"]) => {
-				Self::handle_add_root_request(handle, request).boxed()
+			(http::Method::PUT, ["roots", name]) => {
+				Self::handle_put_root_request(handle, request, name).boxed()
 			},
 			(http::Method::DELETE, ["roots", name]) => {
-				Self::handle_remove_root_request(handle, request, name).boxed()
+				Self::handle_delete_root_request(handle, request, name).boxed()
 			},
 
 			// Runtimes.
@@ -732,6 +707,11 @@ impl Server {
 			},
 			(http::Method::GET, ["health"]) => {
 				Self::handle_server_health_request(handle, request).boxed()
+			},
+
+			// Targets.
+			(http::Method::POST, ["targets", id, "build"]) => {
+				Self::handle_build_target_request(handle, request, id).boxed()
 			},
 
 			// Users.
@@ -800,6 +780,14 @@ impl tg::Handle for Server {
 		self.bundle_artifact(id)
 	}
 
+	fn checksum_artifact(
+		&self,
+		id: &tg::artifact::Id,
+		arg: tg::artifact::checksum::Arg,
+	) -> impl Future<Output = tg::Result<tg::artifact::checksum::Output>> {
+		self.checksum_artifact(id, arg)
+	}
+
 	fn check_in_artifact(
 		&self,
 		arg: tg::artifact::checkin::Arg,
@@ -839,6 +827,21 @@ impl tg::Handle for Server {
 		self.decompress_blob(id, arg)
 	}
 
+	fn download_blob(
+		&self,
+		arg: tg::blob::download::Arg,
+	) -> impl Future<Output = tg::Result<tg::blob::download::Output>> {
+		self.download_blob(arg)
+	}
+
+	fn checksum_blob(
+		&self,
+		id: &tg::blob::Id,
+		arg: tg::blob::checksum::Arg,
+	) -> impl Future<Output = tg::Result<tg::blob::checksum::Output>> {
+		self.checksum_blob(id, arg)
+	}
+
 	fn list_builds(
 		&self,
 		args: tg::build::list::Arg,
@@ -867,13 +870,6 @@ impl tg::Handle for Server {
 
 	fn pull_build(&self, id: &tg::build::Id) -> impl Future<Output = tg::Result<()>> {
 		self.pull_build(id)
-	}
-
-	fn create_build(
-		&self,
-		arg: tg::build::create::Arg,
-	) -> impl Future<Output = tg::Result<tg::build::create::Output>> {
-		self.create_build(arg)
 	}
 
 	fn try_dequeue_build(
@@ -1072,11 +1068,15 @@ impl tg::Handle for Server {
 		self.try_get_root(name)
 	}
 
-	fn put_root(&self, arg: tg::root::add::Arg) -> impl Future<Output = tg::Result<()>> {
-		self.add_root(arg)
+	fn put_root(
+		&self,
+		name: &str,
+		arg: tg::root::put::Arg,
+	) -> impl Future<Output = tg::Result<()>> {
+		self.put_root(name, arg)
 	}
 
-	fn remove_root(&self, name: &str) -> impl Future<Output = tg::Result<()>> {
+	fn delete_root(&self, name: &str) -> impl Future<Output = tg::Result<()>> {
 		self.remove_root(name)
 	}
 
@@ -1090,6 +1090,14 @@ impl tg::Handle for Server {
 
 	fn clean(&self) -> impl Future<Output = tg::Result<()>> {
 		self.clean()
+	}
+
+	fn build_target(
+		&self,
+		id: &tg::target::Id,
+		arg: tg::target::build::Arg,
+	) -> impl Future<Output = tg::Result<tg::target::build::Output>> {
+		self.build_target(id, arg)
 	}
 
 	fn get_user(&self, token: &str) -> impl Future<Output = tg::Result<Option<tg::user::User>>> {

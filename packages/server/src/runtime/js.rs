@@ -8,7 +8,7 @@ use futures::{
 	stream::FuturesUnordered,
 	Future, FutureExt as _, StreamExt as _,
 };
-use num::ToPrimitive;
+use num::ToPrimitive as _;
 use sourcemap::SourceMap;
 use std::{
 	cell::RefCell, collections::BTreeMap, future::poll_fn, num::NonZeroI32, pin::pin, rc::Rc,

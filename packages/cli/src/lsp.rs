@@ -4,6 +4,7 @@ use tg::Handle as _;
 
 /// Run the language server.
 #[derive(Debug, clap::Args)]
+#[group(skip)]
 pub struct Args {}
 
 impl Cli {

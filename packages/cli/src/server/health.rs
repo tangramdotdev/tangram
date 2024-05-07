@@ -4,6 +4,7 @@ use tg::Handle as _;
 
 /// Get the server's health.
 #[derive(Debug, clap::Args)]
+#[group(skip)]
 pub struct Args {}
 
 impl Cli {

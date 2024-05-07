@@ -4,6 +4,7 @@ use tangram_client::{self as tg, Handle as _};
 
 /// Yank a package.
 #[derive(Debug, clap::Args)]
+#[group(skip)]
 pub struct Args {
 	#[arg(short, long, default_value = ".")]
 	pub package: tg::Dependency,

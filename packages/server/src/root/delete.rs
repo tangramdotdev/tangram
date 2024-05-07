@@ -1,12 +1,11 @@
 use crate::Server;
-use http_body_util::BodyExt as _;
 use indoc::formatdoc;
 use tangram_client as tg;
 use tangram_database::{self as db, prelude::*};
-use tangram_http::{Incoming, Outgoing};
+use tangram_http::{outgoing::ResponseBuilderExt, Incoming, Outgoing};
 
 impl Server {
-	pub async fn add_root(&self, arg: tg::root::add::Arg) -> tg::Result<()> {
+	pub async fn remove_root(&self, name: &str) -> tg::Result<()> {
 		// Get a database connection.
 		let connection = self
 			.database
@@ -18,11 +17,11 @@ impl Server {
 		let p = connection.p();
 		let statement = formatdoc!(
 			"
-				insert into roots (name, id)
-				values ({p}1, {p}2);
+				delete from roots
+				where name = {p}1;
 			"
 		);
-		let params = db::params![arg.name, arg.id];
+		let params = db::params![name];
 		connection
 			.execute(statement, params)
 			.await
@@ -36,31 +35,19 @@ impl Server {
 }
 
 impl Server {
-	pub(crate) async fn handle_add_root_request<H>(
+	pub(crate) async fn handle_delete_root_request<H>(
 		handle: &H,
-		request: http::Request<Incoming>,
+		_request: http::Request<Incoming>,
+		name: &str,
 	) -> tg::Result<http::Response<Outgoing>>
 	where
 		H: tg::Handle,
 	{
-		let bytes = request
-			.into_body()
-			.collect()
-			.await
-			.map_err(|source| tg::error!(!source, "failed to read the body"))?
-			.to_bytes();
-		let arg = serde_json::from_slice(&bytes)
-			.map_err(|source| tg::error!(!source, "failed to deserialize the body"))?;
-
-		// Add the root.
-		handle.put_root(arg).await?;
-
-		// Create the response.
+		handle.delete_root(name).await?;
 		let response = http::Response::builder()
 			.status(http::StatusCode::OK)
-			.body(Outgoing::empty())
+			.empty()
 			.unwrap();
-
 		Ok(response)
 	}
 }

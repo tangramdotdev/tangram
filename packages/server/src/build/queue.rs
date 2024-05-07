@@ -22,7 +22,7 @@ impl Server {
 					continue;
 				},
 			};
-			let build = tg::Build::with_id(output.id);
+			let build = tg::Build::with_id(output.build);
 
 			// Start the build.
 			self.try_start_build_internal(build, permit).await.ok();

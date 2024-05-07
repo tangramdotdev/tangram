@@ -9,6 +9,7 @@ pub mod tree;
 
 /// Manage objects.
 #[derive(Debug, clap::Args)]
+#[group(skip)]
 pub struct Args {
 	#[command(subcommand)]
 	pub command: Command,
@@ -29,14 +30,14 @@ impl Cli {
 			Command::Get(args) => {
 				self.command_object_get(args).await?;
 			},
-			Command::Put(args) => {
-				self.command_object_put(args).await?;
+			Command::Pull(args) => {
+				self.command_object_pull(args).await?;
 			},
 			Command::Push(args) => {
 				self.command_object_push(args).await?;
 			},
-			Command::Pull(args) => {
-				self.command_object_pull(args).await?;
+			Command::Put(args) => {
+				self.command_object_put(args).await?;
 			},
 			Command::Tree(args) => {
 				self.command_object_tree(args).await?;

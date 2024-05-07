@@ -1,6 +1,6 @@
 use dashmap::DashMap;
 use either::Either;
-use num::ToPrimitive;
+use num::ToPrimitive as _;
 use std::{
 	ffi::CString,
 	io::SeekFrom,
@@ -193,7 +193,7 @@ impl Server {
 		self.stop_task.lock().unwrap().replace(task);
 	}
 
-	pub async fn join(&self) -> tg::Result<()> {
+	pub async fn wait(&self) -> tg::Result<()> {
 		// Wait for fuse to be unmounted.
 		let stop_task = self.stop_task.lock().unwrap().take();
 		if let Some(stop_task) = stop_task {
@@ -981,11 +981,7 @@ impl Server {
 
 	async fn mount(path: &Path) -> tg::Result<std::os::unix::io::RawFd> {
 		unsafe {
-			// Set up the arguments.
-			let uid = libc::getuid();
-			let gid = libc::getgid();
-			let options =
-				format!("rootmode=40755,user_id={uid},group_id={gid},default_permissions\0");
+			let fusermount3 = c"/usr/bin/fusermount3";
 
 			let mut fds = [0, 0];
 			let ret = libc::socketpair(libc::AF_UNIX, libc::SOCK_STREAM, 0, fds.as_mut_ptr());
@@ -993,41 +989,39 @@ impl Server {
 				Err(std::io::Error::last_os_error())
 					.map_err(|source| tg::error!(!source, "failed to create the socket pair"))?;
 			}
+			let fuse_commfd = CString::new(fds[0].to_string()).unwrap();
 
-			let fusermount3 = std::ffi::CString::new("/usr/bin/fusermount3").unwrap();
-			let fuse_commfd = std::ffi::CString::new(fds[0].to_string()).unwrap();
+			let uid = libc::getuid();
+			let gid = libc::getgid();
+			let options = CString::new(format!(
+				"rootmode=40755,user_id={uid},group_id={gid},default_permissions"
+			))
+			.unwrap();
 
-			// Produce a null-terminated path.
-			let path = std::ffi::CString::new(path.as_os_str().as_bytes()).unwrap();
+			let path = CString::new(path.as_os_str().as_bytes()).unwrap();
 
 			// Fork.
 			let pid = libc::fork();
 			if pid == -1 {
 				libc::close(fds[0]);
 				libc::close(fds[1]);
-				return Err(tg::error!(
-					source = std::io::Error::last_os_error(),
-					"failed to fork"
-				));
+				let source = std::io::Error::last_os_error();
+				return Err(tg::error!(!source, "failed to fork"));
 			}
 
-			// Exec the program.
+			// Exec.
 			if pid == 0 {
 				let argv = [
 					fusermount3.as_ptr(),
-					b"-o\0".as_ptr().cast(),
-					options.as_ptr().cast(),
-					b"--\0".as_ptr().cast(),
-					path.as_ptr().cast(),
+					c"-o".as_ptr(),
+					options.as_ptr(),
+					c"--".as_ptr(),
+					path.as_ptr(),
 					std::ptr::null(),
 				];
 				libc::close(fds[1]);
 				libc::fcntl(fds[0], libc::F_SETFD, 0);
-				libc::setenv(
-					b"_FUSE_COMMFD\0".as_ptr().cast(),
-					fuse_commfd.as_ptr().cast(),
-					1,
-				);
+				libc::setenv(c"_FUSE_COMMFD".as_ptr(), fuse_commfd.as_ptr(), 1);
 				libc::execv(argv[0], argv.as_ptr());
 				libc::close(fds[0]);
 				libc::exit(1);

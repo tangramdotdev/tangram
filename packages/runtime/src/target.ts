@@ -107,7 +107,7 @@ export function target<
 export let build = async (
 	...args: Array<Unresolved<Target.Arg>>
 ): Promise<Value> => {
-	return await (await target(...args)).build();
+	return await (await target(...args)).output();
 };
 
 export interface Target<
@@ -282,7 +282,7 @@ export class Target<
 
 	async load() {
 		if (this.#state.object === undefined) {
-			let object = await syscall("load", this.#state.id!);
+			let object = await syscall("object_load", this.#state.id!);
 			assert_(object.kind === "target");
 			this.#state.object = object.value;
 		}
@@ -290,7 +290,7 @@ export class Target<
 
 	async store() {
 		if (this.#state.id === undefined) {
-			this.#state.id = await syscall("store", {
+			this.#state.id = await syscall("object_store", {
 				kind: "target",
 				value: this.#state.object!,
 			});
@@ -321,9 +321,8 @@ export class Target<
 		return (await this.object()).checksum;
 	}
 
-	async build(...args: A): Promise<Value> {
-		let target = await Target.new<[], R>(this as Target, { args });
-		return await syscall("build", target);
+	async output(): Promise<R> {
+		return (await syscall("target_output", this as Target<[], R>)) as R;
 	}
 }
 

@@ -4,7 +4,6 @@ use tangram_client as tg;
 use tangram_database::{self as db, prelude::*};
 
 mod children;
-mod create;
 mod dequeue;
 mod finish;
 mod get;

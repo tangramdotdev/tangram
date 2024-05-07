@@ -1,5 +1,5 @@
 use crate as tg;
-use tangram_http::{incoming::ResponseExt as _, Outgoing};
+use tangram_http::{incoming::ResponseExt as _, outgoing::RequestBuilderExt as _};
 
 #[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
 pub struct Arg {
@@ -14,7 +14,7 @@ pub enum Format {
 
 #[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
 pub struct Output {
-	pub id: tg::blob::Id,
+	pub blob: tg::blob::Id,
 }
 
 impl tg::Artifact {
@@ -25,7 +25,7 @@ impl tg::Artifact {
 		let id = self.id(handle, None).await?;
 		let arg = Arg { format };
 		let output = handle.archive_artifact(&id, arg).await?;
-		let blob = tg::Blob::with_id(output.id);
+		let blob = tg::Blob::with_id(output.blob);
 		Ok(blob)
 	}
 }
@@ -38,11 +38,10 @@ impl tg::Client {
 	) -> tg::Result<tg::artifact::archive::Output> {
 		let method = http::Method::POST;
 		let uri = format!("/artifacts/{id}/archive");
-		let body = Outgoing::json(arg);
 		let request = http::request::Builder::default()
 			.method(method)
 			.uri(uri)
-			.body(body)
+			.json(arg)
 			.unwrap();
 		let response = self.send(request).await?;
 		if !response.status().is_success() {

@@ -2,7 +2,7 @@ use crate::{database::Transaction, Server};
 use bytes::Bytes;
 use futures::{future, stream, FutureExt as _, StreamExt as _, TryStreamExt as _};
 use http_body_util::BodyStream;
-use num::ToPrimitive;
+use num::ToPrimitive as _;
 use std::pin::pin;
 use tangram_client as tg;
 use tangram_database as db;

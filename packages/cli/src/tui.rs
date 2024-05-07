@@ -1,6 +1,6 @@
 use crossterm as ct;
 use futures::{future, StreamExt as _, TryStreamExt as _};
-use num::ToPrimitive;
+use num::ToPrimitive as _;
 use ratatui as tui;
 use std::{
 	collections::VecDeque,
@@ -220,7 +220,7 @@ impl Tui {
 		self.stop.send_replace(true);
 	}
 
-	pub async fn join(mut self) -> tg::Result<()> {
+	pub async fn wait(mut self) -> tg::Result<()> {
 		// Get the task.
 		let Some(task) = self.task.take() else {
 			return Ok(());
@@ -601,7 +601,6 @@ where
 		if let Some(children_task) = self.children_task.lock().unwrap().take() {
 			children_task.abort();
 		}
-
 		let children = self
 			.state
 			.lock()
@@ -984,12 +983,13 @@ where
 			watch.changed().await.ok();
 			return Ok(());
 		}
-		// Otherwise abort any existing log task.
+
+		// Otherwise, abort an existing log task.
 		if let Some(task) = self.task.lock().unwrap().take() {
 			task.abort();
 		}
 
-		// Compute position and length.
+		// Compute the position and length.
 		let area = self.rect().area().to_i64().unwrap();
 		let mut chunks = self.chunks.lock().await;
 		let max_position = self.max_position.load(Ordering::Relaxed);
@@ -1071,17 +1071,17 @@ where
 		*self.rect.borrow()
 	}
 
-	/// Issue a scroll up event.
+	/// Send a scroll up event.
 	fn up(&self) {
 		self.event_sender.send(LogEvent::ScrollUp).ok();
 	}
 
-	/// Issue a scroll down event.
+	/// Send a scroll down event.
 	fn down(&self) {
 		self.event_sender.send(LogEvent::ScrollDown).ok();
 	}
 
-	/// Issue a resize event.
+	/// Send a resize event.
 	fn resize(&self, rect: Rect) {
 		self.rect.send(rect).ok();
 	}

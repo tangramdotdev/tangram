@@ -1,7 +1,7 @@
 use crate as tg;
 use bytes::Bytes;
 use either::Either;
-use futures::{Future, FutureExt as _, Stream};
+use futures::{Future, FutureExt, Stream};
 use tokio::io::{AsyncBufRead, AsyncRead, AsyncWrite};
 
 impl<L, R> tg::Handle for Either<L, R>
@@ -39,6 +39,17 @@ where
 		match self {
 			Either::Left(s) => s.bundle_artifact(id).left_future(),
 			Either::Right(s) => s.bundle_artifact(id).right_future(),
+		}
+	}
+
+	fn checksum_artifact(
+		&self,
+		id: &tg::artifact::Id,
+		arg: tg::artifact::checksum::Arg,
+	) -> impl Future<Output = tg::Result<tg::artifact::checksum::Output>> {
+		match self {
+			Either::Left(s) => s.checksum_artifact(id, arg).left_future(),
+			Either::Right(s) => s.checksum_artifact(id, arg).right_future(),
 		}
 	}
 
@@ -102,6 +113,27 @@ where
 		}
 	}
 
+	fn download_blob(
+		&self,
+		arg: tg::blob::download::Arg,
+	) -> impl Future<Output = tg::Result<tg::blob::download::Output>> {
+		match self {
+			Either::Left(s) => s.download_blob(arg).left_future(),
+			Either::Right(s) => s.download_blob(arg).right_future(),
+		}
+	}
+
+	fn checksum_blob(
+		&self,
+		id: &tg::blob::Id,
+		arg: tg::blob::checksum::Arg,
+	) -> impl Future<Output = tg::Result<tg::blob::checksum::Output>> {
+		match self {
+			Either::Left(s) => s.checksum_blob(id, arg).left_future(),
+			Either::Right(s) => s.checksum_blob(id, arg).right_future(),
+		}
+	}
+
 	fn list_builds(
 		&self,
 		arg: tg::build::list::Arg,
@@ -144,16 +176,6 @@ where
 		match self {
 			Either::Left(s) => s.pull_build(id).left_future(),
 			Either::Right(s) => s.pull_build(id).right_future(),
-		}
-	}
-
-	fn create_build(
-		&self,
-		arg: tg::build::create::Arg,
-	) -> impl Future<Output = tg::Result<tg::build::create::Output>> {
-		match self {
-			Either::Left(s) => s.create_build(arg).left_future(),
-			Either::Right(s) => s.create_build(arg).right_future(),
 		}
 	}
 
@@ -455,17 +477,21 @@ where
 		}
 	}
 
-	fn put_root(&self, arg: tg::root::add::Arg) -> impl Future<Output = tg::Result<()>> {
+	fn put_root(
+		&self,
+		name: &str,
+		arg: tg::root::put::Arg,
+	) -> impl Future<Output = tg::Result<()>> {
 		match self {
-			Either::Left(s) => s.put_root(arg).left_future(),
-			Either::Right(s) => s.put_root(arg).right_future(),
+			Either::Left(s) => s.put_root(name, arg).left_future(),
+			Either::Right(s) => s.put_root(name, arg).right_future(),
 		}
 	}
 
-	fn remove_root(&self, name: &str) -> impl Future<Output = tg::Result<()>> {
+	fn delete_root(&self, name: &str) -> impl Future<Output = tg::Result<()>> {
 		match self {
-			Either::Left(s) => s.remove_root(name).left_future(),
-			Either::Right(s) => s.remove_root(name).right_future(),
+			Either::Left(s) => s.delete_root(name).left_future(),
+			Either::Right(s) => s.delete_root(name).right_future(),
 		}
 	}
 
@@ -487,6 +513,17 @@ where
 		match self {
 			Either::Left(s) => s.clean().left_future(),
 			Either::Right(s) => s.clean().right_future(),
+		}
+	}
+
+	fn build_target(
+		&self,
+		id: &tg::target::Id,
+		arg: tg::target::build::Arg,
+	) -> impl Future<Output = tg::Result<tg::target::build::Output>> {
+		match self {
+			Either::Left(s) => s.build_target(id, arg).left_future(),
+			Either::Right(s) => s.build_target(id, arg).right_future(),
 		}
 	}
 

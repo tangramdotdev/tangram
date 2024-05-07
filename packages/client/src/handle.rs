@@ -24,6 +24,12 @@ pub trait Handle: Clone + Unpin + Send + Sync + 'static {
 		id: &tg::artifact::Id,
 	) -> impl Future<Output = tg::Result<tg::artifact::bundle::Output>> + Send;
 
+	fn checksum_artifact(
+		&self,
+		id: &tg::artifact::Id,
+		arg: tg::artifact::checksum::Arg,
+	) -> impl Future<Output = tg::Result<tg::artifact::checksum::Output>> + Send;
+
 	fn check_in_artifact(
 		&self,
 		arg: tg::artifact::checkin::Arg,
@@ -53,6 +59,17 @@ pub trait Handle: Clone + Unpin + Send + Sync + 'static {
 		arg: tg::blob::decompress::Arg,
 	) -> impl Future<Output = tg::Result<tg::blob::decompress::Output>> + Send;
 
+	fn download_blob(
+		&self,
+		arg: tg::blob::download::Arg,
+	) -> impl Future<Output = tg::Result<tg::blob::download::Output>> + Send;
+
+	fn checksum_blob(
+		&self,
+		id: &tg::blob::Id,
+		arg: tg::blob::checksum::Arg,
+	) -> impl Future<Output = tg::Result<tg::blob::checksum::Output>> + Send;
+
 	fn list_builds(
 		&self,
 		arg: tg::build::list::Arg,
@@ -81,11 +98,6 @@ pub trait Handle: Clone + Unpin + Send + Sync + 'static {
 	fn push_build(&self, id: &tg::build::Id) -> impl Future<Output = tg::Result<()>> + Send;
 
 	fn pull_build(&self, id: &tg::build::Id) -> impl Future<Output = tg::Result<()>> + Send;
-
-	fn create_build(
-		&self,
-		arg: tg::build::create::Arg,
-	) -> impl Future<Output = tg::Result<tg::build::create::Output>> + Send;
 
 	fn try_dequeue_build(
 		&self,
@@ -324,15 +336,25 @@ pub trait Handle: Clone + Unpin + Send + Sync + 'static {
 		name: &str,
 	) -> impl Future<Output = tg::Result<Option<tg::root::get::Output>>> + Send;
 
-	fn put_root(&self, arg: tg::root::add::Arg) -> impl Future<Output = tg::Result<()>> + Send;
+	fn put_root(
+		&self,
+		name: &str,
+		arg: tg::root::put::Arg,
+	) -> impl Future<Output = tg::Result<()>> + Send;
 
-	fn remove_root(&self, name: &str) -> impl Future<Output = tg::Result<()>> + Send;
+	fn delete_root(&self, name: &str) -> impl Future<Output = tg::Result<()>> + Send;
 
 	fn get_js_runtime_doc(&self) -> impl Future<Output = tg::Result<serde_json::Value>> + Send;
 
 	fn health(&self) -> impl Future<Output = tg::Result<tg::server::Health>> + Send;
 
 	fn clean(&self) -> impl Future<Output = tg::Result<()>> + Send;
+
+	fn build_target(
+		&self,
+		id: &tg::target::Id,
+		arg: tg::target::build::Arg,
+	) -> impl Future<Output = tg::Result<tg::target::build::Output>> + Send;
 
 	fn get_user(&self, token: &str) -> impl Future<Output = tg::Result<Option<tg::User>>> + Send;
 }

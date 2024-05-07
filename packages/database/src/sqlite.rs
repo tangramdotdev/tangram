@@ -5,7 +5,7 @@ use crate::{
 use futures::{stream, Future, Stream};
 use indexmap::IndexMap;
 use itertools::Itertools as _;
-use num::ToPrimitive;
+use num::ToPrimitive as _;
 use rusqlite as sqlite;
 use std::path::PathBuf;
 

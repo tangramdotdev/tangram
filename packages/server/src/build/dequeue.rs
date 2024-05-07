@@ -1,10 +1,11 @@
 use crate::Server;
 use futures::{future, stream, FutureExt as _, StreamExt as _};
-use http_body_util::BodyExt as _;
 use indoc::formatdoc;
 use tangram_client as tg;
 use tangram_database::{self as db, prelude::*};
-use tangram_http::{Incoming, Outgoing};
+use tangram_http::{
+	incoming::RequestExt as _, outgoing::ResponseBuilderExt as _, Incoming, Outgoing,
+};
 use tangram_messenger::Messenger as _;
 use time::format_description::well_known::Rfc3339;
 use tokio_stream::wrappers::IntervalStream;
@@ -66,7 +67,7 @@ impl Server {
 			else {
 				continue;
 			};
-			return Ok(Some(tg::build::dequeue::Output { id }));
+			return Ok(Some(tg::build::dequeue::Output { build: id }));
 		}
 
 		Ok(None)
@@ -82,25 +83,9 @@ impl Server {
 		H: tg::Handle,
 	{
 		let stop = request.extensions().get().cloned().unwrap();
-
-		// Read the body.
-		let bytes = request
-			.into_body()
-			.collect()
-			.await
-			.map_err(|source| tg::error!(!source, "failed to read the body"))?
-			.to_bytes();
-		let arg = serde_json::from_slice(&bytes)
-			.map_err(|source| tg::error!(!source, "failed to deserialize the body"))?;
-
-		// Dequeue a build.
+		let arg = request.json().await?;
 		let output = handle.try_dequeue_build(arg, stop).await?;
-
-		// Create the response.
-		let response = http::Response::builder()
-			.body(Outgoing::json(output))
-			.unwrap();
-
+		let response = http::Response::builder().json(output).unwrap();
 		Ok(response)
 	}
 }

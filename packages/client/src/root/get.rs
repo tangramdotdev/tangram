@@ -6,7 +6,7 @@ use tangram_http::{incoming::ResponseExt as _, Outgoing};
 pub struct Output {
 	pub name: String,
 	#[serde(with = "either::serde_untagged")]
-	pub id: Either<tg::build::Id, tg::object::Id>,
+	pub build_or_object: Either<tg::build::Id, tg::object::Id>,
 }
 
 impl tg::Client {

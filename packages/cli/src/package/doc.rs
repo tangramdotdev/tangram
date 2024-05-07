@@ -4,6 +4,7 @@ use tg::Handle as _;
 
 /// Generate documentation.
 #[derive(Debug, clap::Args)]
+#[group(skip)]
 pub struct Args {
 	/// If this flag is set, the package's lockfile will not be updated.
 	#[arg(long)]

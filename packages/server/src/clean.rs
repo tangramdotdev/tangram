@@ -121,7 +121,7 @@ impl Server {
 					) and (
 						select count(*) = 0
 						from package_versions
-						where id = objects.id
+						where artifact = objects.id
 					) and (
 						select count(*) = 0
 						from roots

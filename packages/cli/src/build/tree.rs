@@ -6,15 +6,16 @@ use tangram_client as tg;
 
 /// Display the build tree.
 #[derive(Debug, clap::Args)]
+#[group(skip)]
 pub struct Args {
-	pub id: tg::build::Id,
+	pub build: tg::build::Id,
 	#[arg(long)]
 	pub depth: Option<u32>,
 }
 
 impl Cli {
 	pub async fn command_build_tree(&self, args: Args) -> tg::Result<()> {
-		let build = tg::Build::with_id(args.id);
+		let build = tg::Build::with_id(args.build);
 		let tree = self.get_build_tree(&build, 1, args.depth).await?;
 		tree.print();
 		Ok(())

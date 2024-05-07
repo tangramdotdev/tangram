@@ -6,6 +6,7 @@ use tangram_client::{self as tg, Handle as _};
 
 /// Get a package's outdated dependencies.
 #[derive(Debug, clap::Args)]
+#[group(skip)]
 pub struct Args {
 	/// Print as JSON.
 	#[arg(long)]

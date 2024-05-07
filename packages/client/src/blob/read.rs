@@ -1,14 +1,13 @@
-use super::Blob;
-use crate::{self as tg};
+use crate as tg;
 use bytes::{Buf, Bytes};
 use futures::{future::BoxFuture, FutureExt as _};
-use num::ToPrimitive;
+use num::ToPrimitive as _;
 use std::{io::Cursor, pin::Pin};
-use tokio::io::{AsyncBufRead, AsyncRead, AsyncSeek};
+use tokio::io::{AsyncBufRead, AsyncRead, AsyncReadExt as _, AsyncSeek};
 
 /// A blob reader.
 pub struct Reader<H> {
-	blob: Blob,
+	blob: tg::Blob,
 	cursor: Option<Cursor<Bytes>>,
 	handle: H,
 	position: u64,
@@ -18,11 +17,43 @@ pub struct Reader<H> {
 
 unsafe impl<H> Sync for Reader<H> {}
 
+impl tg::Blob {
+	pub async fn reader<H>(&self, handle: &H) -> tg::Result<Reader<H>>
+	where
+		H: tg::Handle,
+	{
+		Reader::new(handle, self.clone()).await
+	}
+
+	pub async fn bytes<H>(&self, handle: &H) -> tg::Result<Vec<u8>>
+	where
+		H: tg::Handle,
+	{
+		let mut reader = self.reader(handle).await?;
+		let mut bytes = Vec::new();
+		reader
+			.read_to_end(&mut bytes)
+			.await
+			.map_err(|source| tg::error!(!source, "failed to read the blob"))?;
+		Ok(bytes)
+	}
+
+	pub async fn text<H>(&self, handle: &H) -> tg::Result<String>
+	where
+		H: tg::Handle,
+	{
+		let bytes = self.bytes(handle).await?;
+		let string = String::from_utf8(bytes)
+			.map_err(|source| tg::error!(!source, "failed to decode the blob's bytes as UTF-8"))?;
+		Ok(string)
+	}
+}
+
 impl<H> Reader<H>
 where
 	H: tg::Handle,
 {
-	pub async fn new(handle: &H, blob: Blob) -> tg::Result<Self> {
+	pub async fn new(handle: &H, blob: tg::Blob) -> tg::Result<Self> {
 		let cursor = None;
 		let position = 0;
 		let read = None;
@@ -162,7 +193,7 @@ where
 
 async fn poll_read_inner<H>(
 	handle: &H,
-	blob: Blob,
+	blob: tg::Blob,
 	position: u64,
 ) -> tg::Result<Option<Cursor<Bytes>>>
 where
@@ -172,7 +203,7 @@ where
 	let mut current_blob_position = 0;
 	'a: loop {
 		match current_blob {
-			Blob::Leaf(leaf) => {
+			tg::Blob::Leaf(leaf) => {
 				let (id, object) = {
 					let state = leaf.state().read().unwrap();
 					(
@@ -192,7 +223,7 @@ where
 				}
 				return Ok(None);
 			},
-			Blob::Branch(branch) => {
+			tg::Blob::Branch(branch) => {
 				for child in branch.children(handle).await?.iter() {
 					if position < current_blob_position + child.size {
 						current_blob = child.blob.clone();

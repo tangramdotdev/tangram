@@ -8,7 +8,7 @@ pub struct Arg {
 
 #[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
 pub struct Output {
-	pub id: tg::build::Id,
+	pub build: tg::build::Id,
 }
 
 impl tg::Client {
@@ -22,11 +22,6 @@ impl tg::Client {
 		let request = http::request::Builder::default()
 			.method(method)
 			.uri(uri)
-			.header(http::header::ACCEPT, mime::APPLICATION_JSON.to_string())
-			.header(
-				http::header::CONTENT_TYPE,
-				mime::APPLICATION_JSON.to_string(),
-			)
 			.body(Outgoing::json(arg))
 			.unwrap();
 		let response = self.send(request).await?;

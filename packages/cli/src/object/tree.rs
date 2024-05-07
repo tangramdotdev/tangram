@@ -8,15 +8,16 @@ use tangram_client as tg;
 
 /// Display the object tree.
 #[derive(Debug, clap::Args)]
+#[group(skip)]
 pub struct Args {
-	pub id: tg::object::Id,
+	pub object: tg::object::Id,
 	#[arg(short, long)]
 	pub depth: Option<u32>,
 }
 
 impl Cli {
 	pub async fn command_object_tree(&self, args: Args) -> tg::Result<()> {
-		let tree = self.get_object_tree(args.id, 1, args.depth).await?;
+		let tree = self.get_object_tree(args.object, 1, args.depth).await?;
 		tree.print();
 		Ok(())
 	}

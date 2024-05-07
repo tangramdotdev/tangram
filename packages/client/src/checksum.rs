@@ -26,6 +26,14 @@ pub enum Encoding {
 	Hex,
 }
 
+#[derive(Debug)]
+pub enum Writer {
+	Unsafe,
+	Blake3(Box<blake3::Hasher>),
+	Sha256(Box<sha2::Sha256>),
+	Sha512(Box<sha2::Sha512>),
+}
+
 impl Checksum {
 	#[must_use]
 	pub fn algorithm(&self) -> Algorithm {
@@ -145,14 +153,6 @@ impl std::str::FromStr for Algorithm {
 		};
 		Ok(system)
 	}
-}
-
-#[derive(Debug)]
-pub enum Writer {
-	Unsafe,
-	Blake3(Box<blake3::Hasher>),
-	Sha256(Box<sha2::Sha256>),
-	Sha512(Box<sha2::Sha512>),
 }
 
 impl Writer {

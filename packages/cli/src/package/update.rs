@@ -3,6 +3,7 @@ use tangram_client as tg;
 
 /// Update a package's lockfile.
 #[derive(Debug, clap::Args)]
+#[group(skip)]
 pub struct Args {
 	#[arg(short, long, default_value = ".")]
 	pub path: tg::Path,

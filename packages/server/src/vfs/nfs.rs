@@ -1,7 +1,7 @@
 use dashmap::DashMap;
 use either::Either;
 use futures::{future, FutureExt};
-use num::ToPrimitive;
+use num::ToPrimitive as _;
 use std::{
 	os::unix::ffi::OsStrExt as _,
 	path::{Path, PathBuf},
@@ -232,7 +232,7 @@ impl Server {
 		self.stop.send_replace(true);
 	}
 
-	pub async fn join(&self) -> tg::Result<()> {
+	pub async fn wait(&self) -> tg::Result<()> {
 		// Join the task.
 		let task = self.task.lock().unwrap().take();
 		if let Some(task) = task {

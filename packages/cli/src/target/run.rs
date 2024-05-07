@@ -4,9 +4,10 @@ use tangram_client as tg;
 
 /// Build a target and run a command.
 #[derive(Debug, clap::Args)]
+#[group(skip)]
 pub struct Args {
 	#[command(flatten)]
-	pub inner: super::build::create::InnerArgs,
+	pub inner: crate::target::build::InnerArgs,
 
 	/// The path to the executable in the artifact to run.
 	#[arg(short = 'x', long)]
@@ -19,12 +20,12 @@ pub struct Args {
 
 impl Cli {
 	pub async fn command_run(&self, args: Args) -> tg::Result<()> {
-		let output = self.command_build_create_inner(args.inner, false).await?;
+		let output = self.command_target_build_inner(args.inner, false).await?;
 
 		// Get the path to the artifact.
 		let mut artifact_path = match output.unwrap() {
-			super::build::create::InnerOutput::Path(path) => path,
-			super::build::create::InnerOutput::Value(value) => {
+			crate::target::build::InnerOutput::Path(path) => path,
+			crate::target::build::InnerOutput::Value(value) => {
 				let artifact: tg::Artifact = value.try_into().map_err(|source| {
 					tg::error!(!source, "expected the output to be an artifact")
 				})?;

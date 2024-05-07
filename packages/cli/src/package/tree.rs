@@ -4,6 +4,7 @@ use tangram_client as tg;
 
 /// Display a package's dependencies.
 #[derive(Debug, clap::Args)]
+#[group(skip)]
 pub struct Args {
 	#[arg(default_value = ".")]
 	pub package: tg::Dependency,

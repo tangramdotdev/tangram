@@ -4,6 +4,7 @@ use tg::Handle as _;
 
 /// Remove unused objects.
 #[derive(Debug, clap::Args)]
+#[group(skip)]
 pub struct Args {}
 
 impl Cli {

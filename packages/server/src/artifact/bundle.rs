@@ -20,7 +20,9 @@ impl Server {
 
 		// If there are no references, then return the artifact.
 		if references.is_empty() {
-			let output = tg::artifact::bundle::Output { id: id.clone() };
+			let output = tg::artifact::bundle::Output {
+				artifact: id.clone(),
+			};
 			return Ok(output);
 		}
 
@@ -79,7 +81,7 @@ impl Server {
 
 		// Create the output.
 		let id = output.id(self, None).await?;
-		let output = tg::artifact::bundle::Output { id };
+		let output = tg::artifact::bundle::Output { artifact: id };
 
 		Ok(output)
 	}

@@ -57,6 +57,15 @@ declare namespace tg {
 			blob: Blob,
 			format: ArchiveFormat,
 		) => Promise<Artifact>;
+
+		/** Bundle an artifact. **/
+		export let bundle: (artifact: Artifact) => Promise<Artifact>;
+
+		/** Checksum an artifact. **/
+		export let checksum: (
+			artifact: Artifact,
+			algorithm: Checksum.Algorithm,
+		) => Promise<Checksum>;
 	}
 
 	/** Assert that a condition is truthy. If not, throw an error with an optional message. */
@@ -88,6 +97,27 @@ declare namespace tg {
 		export type Id = string;
 
 		export type CompressionFormat = "bz2" | "gz" | "xz" | "zst";
+
+		/** Compress a blob. **/
+		export let compress: (
+			blob: Blob,
+			format: CompressionFormat,
+		) => Promise<Blob>;
+
+		/** Decompress a blob. **/
+		export let decompress: (
+			blob: Blob,
+			format: CompressionFormat,
+		) => Promise<Blob>;
+
+		/** Download a blob. **/
+		export let download: (url: string, checksum: Checksum) => Promise<Blob>;
+
+		/** Checksum a blob. **/
+		export let checksum: (
+			blob: Blob,
+			algorithm: Checksum.Algorithm,
+		) => Promise<Checksum>;
 	}
 
 	export let checksum: (
@@ -143,12 +173,6 @@ declare namespace tg {
 
 		/** Try to get the child at the specified path. This method returns `undefined` if the path does not exist. */
 		tryGet(arg: Path.Arg): Promise<Artifact | undefined>;
-
-		/** Archive this directory. */
-		archive: (format: Artifact.ArchiveFormat) => Promise<Blob>;
-
-		/** Bundle this directory. */
-		bundle: () => Promise<Directory>;
 
 		/** Get an async iterator of this directory's recursive entries. */
 		walk(): AsyncIterableIterator<[string, Artifact]>;
@@ -249,15 +273,6 @@ declare namespace tg {
 
 		/** Get this file's references. */
 		references(): Promise<Array<Artifact>>;
-
-		/** Compress this file. */
-		compress(format: Blob.CompressionFormat): Promise<File>;
-
-		/** Decompress this file. */
-		decompress(format: Blob.CompressionFormat): Promise<File>;
-
-		/** Extract an artifact from this file. */
-		extract(format: Artifact.ArchiveFormat): Promise<Artifact>;
 	}
 
 	export namespace File {
@@ -312,15 +327,6 @@ declare namespace tg {
 
 		/** Get this branch as a string. */
 		text(): Promise<string>;
-
-		/** Compress this branch. */
-		compress(format: Blob.CompressionFormat): Promise<Blob>;
-
-		/** Decompress this branch. */
-		decompress(format: Blob.CompressionFormat): Promise<Blob>;
-
-		/** Extract an artifact from this branch. */
-		extract(format: Artifact.ArchiveFormat): Promise<Artifact>;
 	}
 
 	export namespace Branch {
@@ -369,15 +375,6 @@ declare namespace tg {
 
 		/** Get this leaf as a string. */
 		text(): Promise<string>;
-
-		/** Compress this leaf. */
-		compress(format: Blob.CompressionFormat): Promise<Blob>;
-
-		/** Decompress this leaf. */
-		decompress(format: Blob.CompressionFormat): Promise<Blob>;
-
-		/** Extract an artifact from this leaf. */
-		extract(format: Artifact.ArchiveFormat): Promise<Artifact>;
 	}
 
 	export namespace Leaf {
@@ -683,7 +680,7 @@ declare namespace tg {
 		...args: Array<Unresolved<MaybeNestedArray<MaybeMutationMap<Target.Arg>>>>
 	): Promise<Target<A, R>>;
 
-	/** Create and build a target. */
+	/** Create a target, build it, and return the build's output. */
 	export let build: (
 		...args: Array<Unresolved<MaybeNestedArray<MaybeMutationMap<Target.Arg>>>>
 	) => Promise<Value>;
@@ -694,7 +691,7 @@ declare namespace tg {
 		R extends Value = Value,
 	> {
 		/** Build this target. */
-		// biome-ignore lint/style/useShorthandFunctionType:
+		// biome-ignore lint/style/useShorthandFunctionType: interface is necessary .
 		(...args: { [K in keyof A]: Unresolved<A[K]> }): Promise<R>;
 	}
 
@@ -741,8 +738,8 @@ declare namespace tg {
 		/** Get this target's checksum. */
 		checksum(): Promise<Checksum | undefined>;
 
-		/** Build this target. */
-		build(...args: { [K in keyof A]: Unresolved<A[K]> }): Promise<R>;
+		/** Build this target and return the build's output. */
+		output(): Promise<R>;
 	}
 
 	export namespace Target {

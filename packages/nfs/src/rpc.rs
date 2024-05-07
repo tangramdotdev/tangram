@@ -1,5 +1,5 @@
 use super::xdr;
-use num::ToPrimitive;
+use num::ToPrimitive as _;
 use tokio::io::{AsyncRead, AsyncReadExt as _, AsyncWrite, AsyncWriteExt as _};
 
 #[derive(Clone, Debug)]

@@ -1,5 +1,5 @@
 use crate as tg;
-use tangram_http::{incoming::ResponseExt as _, Outgoing};
+use tangram_http::{incoming::ResponseExt as _, outgoing::RequestBuilderExt as _};
 
 #[derive(Clone, Copy, Debug, serde_with::DeserializeFromStr, serde_with::SerializeDisplay)]
 pub enum Format {
@@ -16,7 +16,7 @@ pub struct Arg {
 
 #[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
 pub struct Output {
-	pub id: tg::blob::Id,
+	pub blob: tg::blob::Id,
 }
 
 impl tg::Blob {
@@ -27,7 +27,7 @@ impl tg::Blob {
 		let id = self.id(handle, None).await?;
 		let arg = Arg { format };
 		let output = handle.compress_blob(&id, arg).await?;
-		let blob = Self::with_id(output.id);
+		let blob = Self::with_id(output.blob);
 		Ok(blob)
 	}
 }
@@ -40,11 +40,10 @@ impl tg::Client {
 	) -> tg::Result<tg::blob::compress::Output> {
 		let method = http::Method::POST;
 		let uri = format!("/blobs/{id}/compress");
-		let body = Outgoing::json(arg);
 		let request = http::request::Builder::default()
 			.method(method)
 			.uri(uri)
-			.body(body)
+			.json(arg)
 			.unwrap();
 		let response = self.send(request).await?;
 		if !response.status().is_success() {

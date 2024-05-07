@@ -10,12 +10,14 @@ import * as references from "./references.ts";
 import * as rename from "./rename.ts";
 import * as symbols from "./symbols.ts";
 
-let console = {};
-Object.defineProperties(console, {
-	log: { value: log },
-});
+let console = { log };
 Object.defineProperties(globalThis, {
-	console: { value: console },
+	console: {
+		value: console,
+		configurable: true,
+		enumerable: true,
+		writable: true,
+	},
 });
 
 type Request =

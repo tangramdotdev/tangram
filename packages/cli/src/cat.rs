@@ -1,40 +1,49 @@
 use crate::Cli;
 use tangram_client as tg;
 
-/// Output a file or a blob.
+/// Cat blobs and artifacts.
 #[derive(Debug, clap::Args)]
+#[group(skip)]
 pub struct Args {
-	pub ids: Vec<tg::Id>,
+	pub ids: Vec<Arg>,
+}
+
+#[derive(Debug, Clone)]
+pub enum Arg {
+	Blob(tg::blob::Id),
+	Artifact(tg::artifact::Id),
 }
 
 impl Cli {
 	pub async fn command_cat(&self, args: Args) -> tg::Result<()> {
 		for id in args.ids {
-			let blob = if let Ok(id) = tg::blob::Id::try_from(id.clone()) {
-				tg::Blob::with_id(id)
-			} else if let Ok(id) = tg::file::Id::try_from(id.clone()) {
-				let file = tg::File::with_id(id);
-				file.contents(&self.handle)
-					.await
-					.map_err(|source| tg::error!(!source, "failed to get file contents"))?
-					.clone()
-			} else {
-				return Err(tg::error!("expected a file or blob id"));
+			match id {
+				Arg::Blob(blob) => {
+					self.command_blob_cat(crate::blob::cat::Args { blobs: vec![blob] })
+						.await?;
+				},
+				Arg::Artifact(artifact) => {
+					self.command_artifact_cat(crate::artifact::cat::Args {
+						artifacts: vec![artifact],
+					})
+					.await?;
+				},
 			};
-			let mut reader = blob
-				.reader(&self.handle)
-				.await
-				.map_err(|source| tg::error!(!source, "failed to create the blob reader"))?;
-			let mut writer = tokio::io::stdout();
-			tokio::io::copy(&mut reader, &mut writer)
-				.await
-				.map_err(|error| {
-					tg::error!(
-						source = error,
-						"failed to write the blob contents to stdout"
-					)
-				})?;
 		}
 		Ok(())
+	}
+}
+
+impl std::str::FromStr for Arg {
+	type Err = tg::Error;
+
+	fn from_str(s: &str) -> tg::Result<Self, Self::Err> {
+		if let Ok(blob) = s.parse() {
+			return Ok(Arg::Blob(blob));
+		}
+		if let Ok(artifat) = s.parse() {
+			return Ok(Arg::Artifact(artifat));
+		}
+		Err(tg::error!(%s, "expected a blob or artifact"))
 	}
 }

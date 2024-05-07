@@ -4,9 +4,10 @@ use tangram_client as tg;
 
 /// Check out an artifact.
 #[derive(Debug, clap::Args)]
+#[group(skip)]
 pub struct Args {
-	/// The ID of the artifact to check out.
-	pub id: tg::artifact::Id,
+	/// The artifact to check out.
+	pub artifact: tg::artifact::Id,
 
 	/// The path to check out the artifact to. The default is the artifact's ID in the checkouts directory.
 	pub path: Option<PathBuf>,
@@ -19,7 +20,7 @@ pub struct Args {
 impl Cli {
 	pub async fn command_artifact_checkout(&self, args: Args) -> tg::Result<()> {
 		// Get the artifact.
-		let artifact = tg::Artifact::with_id(args.id.clone());
+		let artifact = tg::Artifact::with_id(args.artifact.clone());
 
 		// Get the path.
 		let path = if let Some(path) = args.path {

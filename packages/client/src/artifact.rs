@@ -6,6 +6,7 @@ pub mod archive;
 pub mod bundle;
 pub mod checkin;
 pub mod checkout;
+pub mod checksum;
 pub mod extract;
 
 /// An artifact kind.
@@ -120,21 +121,6 @@ impl Artifact {
 }
 
 impl Artifact {
-	/// Compute an artifact's checksum.
-	pub async fn checksum<H>(
-		&self,
-		_handle: &H,
-		algorithm: tg::checksum::Algorithm,
-	) -> tg::Result<tg::Checksum>
-	where
-		H: tg::Handle,
-	{
-		match algorithm {
-			tg::checksum::Algorithm::Unsafe => Ok(tg::Checksum::Unsafe),
-			_ => Err(tg::error!("unimplemented")),
-		}
-	}
-
 	/// Collect an artifact's references.
 	pub async fn references<H>(&self, handle: &H) -> tg::Result<Vec<Self>>
 	where

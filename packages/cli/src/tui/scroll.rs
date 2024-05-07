@@ -1,4 +1,4 @@
-use num::ToPrimitive;
+use num::ToPrimitive as _;
 use ratatui::layout::Rect;
 use tangram_client as tg;
 use tg::build::log::Chunk;
@@ -465,7 +465,7 @@ mod tests {
 	use crate::tui::scroll::{scroll_down_inner, scroll_up_inner};
 
 	use super::{next_grapheme, Error, Scroll};
-	use num::ToPrimitive;
+	use num::ToPrimitive as _;
 	use ratatui::layout::Rect;
 	use tangram_client as tg;
 

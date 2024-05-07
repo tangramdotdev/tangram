@@ -3,6 +3,7 @@ use tangram_client as tg;
 
 /// Stop the server.
 #[derive(Debug, clap::Args)]
+#[group(skip)]
 pub struct Args {}
 
 impl Cli {

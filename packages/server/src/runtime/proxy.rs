@@ -76,6 +76,14 @@ impl tg::Handle for Server {
 		self.server.bundle_artifact(id)
 	}
 
+	fn checksum_artifact(
+		&self,
+		id: &tg::artifact::Id,
+		arg: tg::artifact::checksum::Arg,
+	) -> impl Future<Output = tg::Result<tg::artifact::checksum::Output>> {
+		self.server.checksum_artifact(id, arg)
+	}
+
 	async fn check_in_artifact(
 		&self,
 		mut arg: tg::artifact::checkin::Arg,
@@ -89,7 +97,7 @@ impl tg::Handle for Server {
 		// If the VFS is disabled, then check out the artifact.
 		if !self.server.options.vfs {
 			let arg = tg::artifact::checkout::Arg::default();
-			self.check_out_artifact(&output.id, arg).await?;
+			self.check_out_artifact(&output.artifact, arg).await?;
 		}
 
 		Ok(output)
@@ -133,6 +141,21 @@ impl tg::Handle for Server {
 		self.server.decompress_blob(id, arg)
 	}
 
+	fn download_blob(
+		&self,
+		arg: tg::blob::download::Arg,
+	) -> impl Future<Output = tg::Result<tg::blob::download::Output>> {
+		self.server.download_blob(arg)
+	}
+
+	fn checksum_blob(
+		&self,
+		id: &tg::blob::Id,
+		arg: tg::blob::checksum::Arg,
+	) -> impl Future<Output = tg::Result<tg::blob::checksum::Output>> {
+		self.server.checksum_blob(id, arg)
+	}
+
 	async fn list_builds(&self, _arg: tg::build::list::Arg) -> tg::Result<tg::build::list::Output> {
 		Err(tg::error!("forbidden"))
 	}
@@ -154,14 +177,6 @@ impl tg::Handle for Server {
 
 	async fn pull_build(&self, _id: &tg::build::Id) -> tg::Result<()> {
 		Err(tg::error!("forbidden"))
-	}
-
-	fn create_build(
-		&self,
-		mut arg: tg::build::create::Arg,
-	) -> impl Future<Output = tg::Result<tg::build::create::Output>> {
-		arg.parent = Some(self.build.clone());
-		self.server.create_build(arg)
 	}
 
 	async fn try_dequeue_build(
@@ -344,11 +359,11 @@ impl tg::Handle for Server {
 		Err(tg::error!("not supported"))
 	}
 
-	async fn put_root(&self, _arg: tg::root::add::Arg) -> tg::Result<()> {
+	async fn put_root(&self, _name: &str, _arg: tg::root::put::Arg) -> tg::Result<()> {
 		Err(tg::error!("not supported"))
 	}
 
-	async fn remove_root(&self, _name: &str) -> tg::Result<()> {
+	async fn delete_root(&self, _name: &str) -> tg::Result<()> {
 		Err(tg::error!("not supported"))
 	}
 
@@ -362,6 +377,15 @@ impl tg::Handle for Server {
 
 	async fn clean(&self) -> tg::Result<()> {
 		Err(tg::error!("forbidden"))
+	}
+
+	fn build_target(
+		&self,
+		id: &tg::target::Id,
+		mut arg: tg::target::build::Arg,
+	) -> impl Future<Output = tg::Result<tg::target::build::Output>> {
+		arg.parent = Some(self.build.clone());
+		self.server.build_target(id, arg)
 	}
 
 	async fn get_user(&self, _token: &str) -> tg::Result<Option<tg::User>> {

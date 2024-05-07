@@ -6,7 +6,7 @@ use futures::{
 	TryStreamExt as _,
 };
 use indoc::writedoc;
-use num::ToPrimitive;
+use num::ToPrimitive as _;
 use std::{
 	collections::BTreeMap,
 	ffi::{CStr, CString},

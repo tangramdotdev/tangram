@@ -1,10 +1,10 @@
 use self::config::Config;
-use clap::Parser;
-use crossterm::style::Stylize;
+use clap::Parser as _;
+use crossterm::style::Stylize as _;
 use either::Either;
 use futures::FutureExt as _;
 use itertools::Itertools as _;
-use num::ToPrimitive;
+use num::ToPrimitive as _;
 use std::{fmt::Write, path::PathBuf};
 use tangram_client as tg;
 use tangram_server::Server;
@@ -12,29 +12,27 @@ use tg::Client;
 use tracing_subscriber::prelude::*;
 use url::Url;
 
+mod artifact;
+mod blob;
+mod build;
+mod cat;
+mod checksum;
 mod config;
+mod get;
+mod lsp;
+mod object;
+mod package;
+mod pull;
+mod push;
+mod root;
+mod server;
+mod target;
+mod tree;
 mod tui;
+mod upgrade;
+mod view;
 
-pub mod artifact;
-pub mod build;
-pub mod cat;
-pub mod checksum;
-pub mod get;
-pub mod lsp;
-pub mod object;
-pub mod package;
-pub mod pull;
-pub mod push;
-pub mod root;
-pub mod run;
-pub mod server;
-pub mod tree;
-pub mod upgrade;
-pub mod view;
-
-pub const API_URL: &str = "https://api.tangram.dev";
-
-pub const VERSION: &str = env!("CARGO_PKG_VERSION");
+const VERSION: &str = env!("CARGO_PKG_VERSION");
 
 struct Cli {
 	config: Option<Config>,
@@ -72,8 +70,9 @@ enum Mode {
 
 #[allow(clippy::large_enum_variant)]
 #[derive(Debug, clap::Subcommand)]
-pub enum Command {
+enum Command {
 	Artifact(self::artifact::Args),
+	Blob(self::blob::Args),
 	Build(self::build::Args),
 	Cat(self::cat::Args),
 	Check(self::package::check::Args),
@@ -82,6 +81,7 @@ pub enum Command {
 	Checksum(self::checksum::Args),
 	Clean(self::server::clean::Args),
 	Doc(self::package::doc::Args),
+	Download(self::blob::download::Args),
 	Format(self::package::format::Args),
 	Get(self::get::Args),
 	Init(self::package::init::Args),
@@ -89,12 +89,12 @@ pub enum Command {
 	New(self::package::new::Args),
 	Object(self::object::Args),
 	Outdated(self::package::outdated::Args),
-	Publish(self::package::publish::Args),
 	Package(self::package::Args),
+	Publish(self::package::publish::Args),
 	Pull(self::pull::Args),
 	Push(self::push::Args),
 	Root(self::root::Args),
-	Run(self::run::Args),
+	Run(self::target::run::Args),
 	Search(self::package::search::Args),
 	Server(self::server::Args),
 	Tree(self::tree::Args),
@@ -170,7 +170,7 @@ fn main() -> std::process::ExitCode {
 
 		// Cancel and join the server if necessary.
 		if let Some(server) = cli.handle.right() {
-			server.cancel();
+			server.stop();
 			server.wait().await;
 		}
 
@@ -180,9 +180,9 @@ fn main() -> std::process::ExitCode {
 	// Create the tokio runtime and block on the future.
 	let mut builder = tokio::runtime::Builder::new_multi_thread();
 	builder.enable_all();
-	builder.disable_lifo_slot();
 	let runtime = builder.build().unwrap();
 	let result = runtime.block_on(future);
+	runtime.shutdown_background();
 
 	// Handle the result.
 	match result {
@@ -192,7 +192,7 @@ fn main() -> std::process::ExitCode {
 }
 
 impl Cli {
-	pub async fn new(mode: Mode, config: Option<Config>) -> tg::Result<Self> {
+	async fn new(mode: Mode, config: Option<Config>) -> tg::Result<Self> {
 		// Create the handle.
 		let handle = match mode {
 			Mode::Auto => Either::Left(Self::auto(config.as_ref()).await?),
@@ -237,35 +237,39 @@ impl Cli {
 		}
 
 		// If the URL is local and the server's version is different from the client, then disconnect and restart the server.
-		if local {
-			let client_version = VERSION;
-			let server_version = &client.health().await?.version;
-			if let Some(server_version) = server_version {
-				if client_version != server_version {
-					// Disconnect.
-					client.disconnect().await?;
+		'a: {
+			if !local {
+				break 'a;
+			}
 
-					// Stop the server.
-					Self::stop_server(config).await?;
+			let Some(server_version) = &client.health().await?.version else {
+				break 'a;
+			};
 
-					// Start the server.
-					Self::start_server().await?;
+			if VERSION == server_version {
+				break 'a;
+			};
 
-					// Try to connect for up to one second.
-					for _ in 0..10 {
-						if client.connect().await.is_ok() {
-							break;
-						}
-						tokio::time::sleep(std::time::Duration::from_millis(100)).await;
-					}
+			// Disconnect.
+			client.disconnect().await?;
 
-					// If the client is not connected, then return an error.
-					if !client.connected().await {
-						return Err(
-							tg::error!(%url = client.url(), "failed to connect to the server"),
-						);
-					}
+			// Stop the server.
+			Self::stop_server(config).await?;
+
+			// Start the server.
+			Self::start_server().await?;
+
+			// Try to connect for up to one second.
+			for _ in 0..10 {
+				if client.connect().await.is_ok() {
+					break;
 				}
+				tokio::time::sleep(std::time::Duration::from_millis(100)).await;
+			}
+
+			// If the client is not connected, then return an error.
+			if !client.connected().await {
+				return Err(tg::error!(%url = client.url(), "failed to connect to the server"));
 			}
 		}
 
@@ -363,7 +367,7 @@ impl Cli {
 			});
 
 		// Create the client.
-		let client = tg::Client::new(url, None);
+		let client = tg::Client::new(url);
 
 		Ok(client)
 	}
@@ -408,6 +412,27 @@ impl Cli {
 			preserve_temp_directories,
 			write_build_logs_to_stderr,
 		};
+
+		// Create the authentication options.
+		let authentication = config
+			.and_then(|config| config.authentication.as_ref())
+			.map(|authentication| {
+				let providers =
+					authentication.providers.as_ref().map(|providers| {
+						let github = providers.github.as_ref().map(|client| {
+							tangram_server::options::Oauth {
+								auth_url: client.auth_url.clone(),
+								client_id: client.client_id.clone(),
+								client_secret: client.client_secret.clone(),
+								redirect_url: client.redirect_url.clone(),
+								token_url: client.token_url.clone(),
+							}
+						});
+						tangram_server::options::AuthenticationProviders { github }
+					});
+				tangram_server::options::Authentication { providers }
+			})
+			.unwrap_or_default();
 
 		// Create the build options.
 		let build = match config.and_then(|config| config.build.as_ref()) {
@@ -470,25 +495,6 @@ impl Cli {
 				},
 			);
 
-		// Create the oauth options.
-		let oauth = config
-			.and_then(|config| config.oauth.as_ref())
-			.map(|oauth| {
-				let github =
-					oauth
-						.github
-						.as_ref()
-						.map(|client| tangram_server::options::OauthClient {
-							auth_url: client.auth_url.clone(),
-							client_id: client.client_id.clone(),
-							client_secret: client.client_secret.clone(),
-							redirect_url: client.redirect_url.clone(),
-							token_url: client.token_url.clone(),
-						});
-				tangram_server::options::Oauth { github }
-			})
-			.unwrap_or_default();
-
 		// Create the remote options.
 		let remotes = config
 			.and_then(|config| config.remotes.as_ref())
@@ -498,7 +504,7 @@ impl Cli {
 					.map(|remote| {
 						let build = remote.build.unwrap_or_default();
 						let url = remote.url.clone();
-						let client = tg::Client::new(url, None);
+						let client = tg::Client::new(url);
 						let remote = tangram_server::options::Remote { build, client };
 						Ok::<_, tg::Error>(remote)
 					})
@@ -509,8 +515,8 @@ impl Cli {
 			remotes
 		} else {
 			let build = false;
-			let url = Url::parse(API_URL).unwrap();
-			let client = tg::Client::new(url, None);
+			let url = Url::parse("https://api.tangram.dev").unwrap();
+			let client = tg::Client::new(url);
 			let remote = tangram_server::options::Remote { build, client };
 			vec![remote]
 		};
@@ -524,10 +530,10 @@ impl Cli {
 		// Create the options.
 		let options = tangram_server::Options {
 			advanced,
+			authentication,
 			build,
 			database,
 			messenger,
-			oauth,
 			path,
 			remotes,
 			url,
@@ -547,6 +553,7 @@ impl Cli {
 	async fn command(&self, command: Command) -> tg::Result<()> {
 		match command {
 			Command::Artifact(args) => self.command_artifact(args).boxed(),
+			Command::Blob(args) => self.command_blob(args).boxed(),
 			Command::Build(args) => self.command_build(args).boxed(),
 			Command::Cat(args) => self.command_cat(args).boxed(),
 			Command::Check(args) => self.command_package_check(args).boxed(),
@@ -555,13 +562,14 @@ impl Cli {
 			Command::Checksum(args) => self.command_checksum(args).boxed(),
 			Command::Clean(args) => self.command_server_clean(args).boxed(),
 			Command::Doc(args) => self.command_package_doc(args).boxed(),
+			Command::Download(args) => self.command_blob_download(args).boxed(),
 			Command::Format(args) => self.command_package_format(args).boxed(),
 			Command::Get(args) => self.command_get(args).boxed(),
 			Command::Init(args) => self.command_package_init(args).boxed(),
 			Command::Lsp(args) => self.command_lsp(args).boxed(),
 			Command::New(args) => self.command_package_new(args).boxed(),
-			Command::Outdated(args) => self.command_package_outdated(args).boxed(),
 			Command::Object(args) => self.command_object(args).boxed(),
+			Command::Outdated(args) => self.command_package_outdated(args).boxed(),
 			Command::Package(args) => self.command_package(args).boxed(),
 			Command::Publish(args) => self.command_package_publish(args).boxed(),
 			Command::Pull(args) => self.command_pull(args).boxed(),

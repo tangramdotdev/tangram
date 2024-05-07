@@ -8,38 +8,59 @@ import type { Value } from "./value.ts";
 
 declare global {
 	function syscall(
-		syscall: "archive",
+		syscall: "artifact_archive",
 		artifact: Artifact,
 		format: Artifact.ArchiveFormat,
 	): Promise<Blob>;
 
-	function syscall(syscall: "build", target: Target): Promise<Value>;
-
-	function syscall(syscall: "bundle", artifact: Artifact): Promise<Directory>;
+	function syscall(
+		syscall: "artifact_extract",
+		blob: Blob,
+		format: Artifact.ArchiveFormat,
+	): Promise<Artifact>;
 
 	function syscall(
-		syscall: "checksum",
+		syscall: "artifact_bundle",
+		artifact: Artifact,
+	): Promise<Directory>;
+
+	function syscall(
+		syscall: "artifact_checksum",
+		artifact: Artifact,
 		algorithm: Checksum.Algorithm,
-		bytes: string | Uint8Array,
-	): Checksum;
+	): Promise<Checksum>;
 
 	function syscall(
-		syscall: "compress",
+		syscall: "blob_compress",
 		blob: Blob,
 		format: Blob.CompressionFormat,
 	): Promise<Blob>;
 
 	function syscall(
-		syscall: "decompress",
+		syscall: "blob_decompress",
 		blob: Blob,
 		format: Blob.CompressionFormat,
 	): Promise<Blob>;
 
 	function syscall(
-		syscall: "download",
+		syscall: "blob_download",
 		url: string,
 		checksum: Checksum,
 	): Promise<Blob>;
+
+	function syscall(
+		syscall: "blob_checksum",
+		blob: Blob,
+		algorithm: Checksum.Algorithm,
+	): Promise<Checksum>;
+
+	function syscall(syscall: "blob_read", blob: Blob): Promise<Uint8Array>;
+
+	function syscall(
+		syscall: "checksum",
+		input: string | Uint8Array,
+		algorithm: Checksum.Algorithm,
+	): Checksum;
 
 	function syscall(
 		syscall: "encoding_base64_decode",
@@ -71,22 +92,19 @@ declare global {
 
 	function syscall(syscall: "encoding_yaml_encode", value: unknown): string;
 
-	function syscall(
-		syscall: "extract",
-		blob: Blob,
-		format: Artifact.ArchiveFormat,
-	): Promise<Artifact>;
-
-	function syscall(syscall: "load", id: Object_.Id): Promise<Object_.Object_>;
-
 	function syscall(syscall: "log", value: string): void;
 
-	function syscall(syscall: "read", blob: Blob): Promise<Uint8Array>;
+	function syscall(
+		syscall: "object_load",
+		id: Object_.Id,
+	): Promise<Object_.Object_>;
 
 	function syscall(
-		syscall: "store",
+		syscall: "object_store",
 		object: Object_.Object_,
 	): Promise<Object_.Id>;
 
 	function syscall(syscall: "sleep", duration: number): Promise<void>;
+
+	function syscall(syscall: "target_output", target: Target): Promise<Value>;
 }

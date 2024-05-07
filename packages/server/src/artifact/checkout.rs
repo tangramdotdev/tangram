@@ -84,7 +84,7 @@ impl Server {
 			let existing_artifact = if exists {
 				let arg = tg::artifact::checkin::Arg { path: path.clone() };
 				let output = self.check_in_artifact(arg).await?;
-				Some(tg::Artifact::with_id(output.id))
+				Some(tg::Artifact::with_id(output.artifact))
 			} else {
 				None
 			};

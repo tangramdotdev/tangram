@@ -106,7 +106,7 @@ export class Lock {
 
 	async load() {
 		if (this.#state.object === undefined) {
-			let object = await syscall("load", this.#state.id!);
+			let object = await syscall("object_load", this.#state.id!);
 			assert_(object.kind === "lock");
 			this.#state.object = object.value;
 		}
@@ -114,7 +114,7 @@ export class Lock {
 
 	async store() {
 		if (this.#state.id === undefined) {
-			this.#state.id = await syscall("store", {
+			this.#state.id = await syscall("object_store", {
 				kind: "lock",
 				value: this.#state.object!,
 			});

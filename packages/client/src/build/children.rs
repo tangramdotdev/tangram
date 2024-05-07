@@ -135,10 +135,6 @@ impl tg::Client {
 		let request = http::request::Builder::default()
 			.method(method)
 			.uri(uri)
-			.header(
-				http::header::CONTENT_TYPE,
-				mime::APPLICATION_JSON.to_string(),
-			)
 			.body(Outgoing::json(child_id.clone()))
 			.unwrap();
 		let response = self.send(request).await?;

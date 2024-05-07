@@ -91,3 +91,43 @@ impl ResponseExt for http::Response<Outgoing> {
 			.unwrap()
 	}
 }
+
+pub trait ResponseBuilderExt: Sized {
+	fn empty(self) -> http::Result<http::Response<Outgoing>>;
+	fn json<T>(self, value: T) -> http::Result<http::Response<Outgoing>>
+	where
+		T: serde::Serialize + Send + 'static;
+}
+
+impl ResponseBuilderExt for http::response::Builder {
+	fn empty(self) -> http::Result<http::Response<Outgoing>> {
+		self.body(Outgoing::empty())
+	}
+
+	fn json<T>(self, value: T) -> http::Result<http::Response<Outgoing>>
+	where
+		T: serde::Serialize + Send + 'static,
+	{
+		self.body(Outgoing::json(value))
+	}
+}
+
+pub trait RequestBuilderExt: Sized {
+	fn empty(self) -> http::Result<http::Request<Outgoing>>;
+	fn json<T>(self, value: T) -> http::Result<http::Request<Outgoing>>
+	where
+		T: serde::Serialize + Send + 'static;
+}
+
+impl RequestBuilderExt for http::request::Builder {
+	fn empty(self) -> http::Result<http::Request<Outgoing>> {
+		self.body(Outgoing::empty())
+	}
+
+	fn json<T>(self, value: T) -> http::Result<http::Request<Outgoing>>
+	where
+		T: serde::Serialize + Send + 'static,
+	{
+		self.body(Outgoing::json(value))
+	}
+}

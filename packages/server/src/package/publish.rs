@@ -1,5 +1,4 @@
 use crate::Server;
-use http_body_util::BodyExt as _;
 use indoc::formatdoc;
 use tangram_client as tg;
 use tangram_database::{self as db, prelude::*};
@@ -64,7 +63,7 @@ impl Server {
 		let p = connection.p();
 		let statement = formatdoc!(
 			"
-				insert into package_versions (name, version, id, published_at, yanked)
+				insert into package_versions (name, version, artifact, published_at, yanked)
 				values ({p}1, {p}2, {p}3, {p}4, {p}5);
 			"
 		);
@@ -90,22 +89,17 @@ impl Server {
 impl Server {
 	pub(crate) async fn handle_publish_package_request<H>(
 		handle: &H,
-		request: http::Request<Incoming>,
+		_request: http::Request<Incoming>,
+		id: &str,
 	) -> tg::Result<http::Response<Outgoing>>
 	where
 		H: tg::Handle,
 	{
-		let bytes = request
-			.into_body()
-			.collect()
-			.await
-			.map_err(|source| tg::error!(!source, "failed to read the body"))?
-			.to_bytes();
-		let package_id = serde_json::from_slice(&bytes)
-			.map_err(|source| tg::error!(!source, "invalid request"))?;
+		// Parse the ID.
+		let id = id.parse()?;
 
 		// Publish the package.
-		handle.publish_package(&package_id).await?;
+		handle.publish_package(&id).await?;
 
 		// Create the response.
 		let response = http::Response::ok();

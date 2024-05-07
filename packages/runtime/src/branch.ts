@@ -1,5 +1,4 @@
 import { Args } from "./args.ts";
-import type { Artifact } from "./artifact.ts";
 import { assert as assert_, unreachable } from "./assert.ts";
 import type { Blob } from "./blob.ts";
 import * as encoding from "./encoding.ts";
@@ -96,7 +95,7 @@ export class Branch {
 
 	async load() {
 		if (this.#state.object === undefined) {
-			let object = await syscall("load", this.#state.id!);
+			let object = await syscall("object_load", this.#state.id!);
 			assert_(object.kind === "branch");
 			this.#state.object = object.value;
 		}
@@ -104,7 +103,7 @@ export class Branch {
 
 	async store() {
 		if (this.#state.id === undefined) {
-			this.#state.id = await syscall("store", {
+			this.#state.id = await syscall("object_store", {
 				kind: "branch",
 				value: this.#state.object!,
 			});
@@ -122,23 +121,11 @@ export class Branch {
 	}
 
 	async bytes(): Promise<Uint8Array> {
-		return await syscall("read", this);
+		return await syscall("blob_read", this);
 	}
 
 	async text(): Promise<string> {
-		return encoding.utf8.decode(await syscall("read", this));
-	}
-
-	async compress(format: Blob.CompressionFormat): Promise<Blob> {
-		return await syscall("compress", this, format);
-	}
-
-	async decompress(format: Blob.CompressionFormat): Promise<Blob> {
-		return await syscall("decompress", this, format);
-	}
-
-	async extract(format: Artifact.ArchiveFormat): Promise<Artifact> {
-		return await syscall("extract", this, format);
+		return encoding.utf8.decode(await this.bytes());
 	}
 }
 

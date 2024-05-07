@@ -4,6 +4,7 @@ use tg::Handle as _;
 
 /// List roots.
 #[derive(Debug, clap::Args)]
+#[group(skip)]
 pub struct Args {}
 
 impl Cli {
@@ -11,7 +12,7 @@ impl Cli {
 		let arg = tg::root::list::Arg::default();
 		let roots = self.handle.list_roots(arg).await?;
 		for root in roots.items {
-			println!("{} {}", root.name, root.id);
+			println!("{} {}", root.name, root.build_or_object);
 		}
 		Ok(())
 	}

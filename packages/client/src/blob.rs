@@ -1,14 +1,16 @@
 use crate as tg;
 use futures::FutureExt as _;
 use num::ToPrimitive as _;
-use tokio::io::{AsyncRead, AsyncReadExt as _};
+use tokio::io::AsyncRead;
 
-pub use self::reader::Reader;
+pub use self::read::Reader;
 
+pub mod checksum;
 pub mod compress;
 pub mod create;
 pub mod decompress;
-pub mod reader;
+pub mod download;
+pub mod read;
 
 /// A blob kind.
 #[derive(Clone, Copy, Debug)]
@@ -134,36 +136,6 @@ impl Blob {
 				Ok(size)
 			},
 		}
-	}
-
-	pub async fn reader<H>(&self, handle: &H) -> tg::Result<Reader<H>>
-	where
-		H: tg::Handle,
-	{
-		Reader::new(handle, self.clone()).await
-	}
-
-	pub async fn bytes<H>(&self, handle: &H) -> tg::Result<Vec<u8>>
-	where
-		H: tg::Handle,
-	{
-		let mut reader = self.reader(handle).await?;
-		let mut bytes = Vec::new();
-		reader
-			.read_to_end(&mut bytes)
-			.await
-			.map_err(|source| tg::error!(!source, "failed to read the blob"))?;
-		Ok(bytes)
-	}
-
-	pub async fn text<H>(&self, handle: &H) -> tg::Result<String>
-	where
-		H: tg::Handle,
-	{
-		let bytes = self.bytes(handle).await?;
-		let string = String::from_utf8(bytes)
-			.map_err(|source| tg::error!(!source, "failed to decode the blob's bytes as UTF-8"))?;
-		Ok(string)
 	}
 }
 

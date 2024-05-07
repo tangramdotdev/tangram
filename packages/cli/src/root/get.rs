@@ -4,6 +4,7 @@ use tg::Handle;
 
 /// Get a root.
 #[derive(Debug, clap::Args)]
+#[group(skip)]
 pub struct Args {
 	pub name: String,
 }
@@ -15,7 +16,7 @@ impl Cli {
 			.try_get_root(&args.name)
 			.await?
 			.ok_or_else(|| tg::error!("failed to find root"))?;
-		println!("{}", root.id);
+		println!("{}", root.build_or_object);
 		Ok(())
 	}
 }

@@ -16,6 +16,7 @@ pub mod yank;
 
 /// Manage packages.
 #[derive(Debug, clap::Args)]
+#[group(skip)]
 pub struct Args {
 	#[command(subcommand)]
 	pub command: Command,

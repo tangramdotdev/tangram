@@ -3,6 +3,7 @@ use tangram_client as tg;
 
 /// Display a build, object, or package tree.
 #[derive(Debug, clap::Args)]
+#[group(skip)]
 pub struct Args {
 	#[arg(default_value = ".")]
 	arg: Arg,
@@ -29,14 +30,14 @@ impl Cli {
 		match args.arg {
 			Arg::Build(id) => {
 				let args = super::build::tree::Args {
-					id,
+					build: id,
 					depth: args.depth,
 				};
 				self.command_build_tree(args).await?;
 			},
 			Arg::Object(id) => {
 				let args = super::object::tree::Args {
-					id,
+					object: id,
 					depth: args.depth,
 				};
 				self.command_object_tree(args).await?;

@@ -28,7 +28,7 @@ impl Server {
 		};
 		let blob = tg::Blob::with_reader(self, reader, None).await?;
 		let id = blob.id(self, None).await?;
-		let output = tg::blob::decompress::Output { id };
+		let output = tg::blob::decompress::Output { blob: id };
 		Ok(output)
 	}
 }

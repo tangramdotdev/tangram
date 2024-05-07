@@ -147,7 +147,7 @@ async fn migration_0000(path: &Path) -> tg::Result<()> {
 			create table package_versions (
 				name text not null references packages (name),
 				version text not null,
-				id text not null,
+				artifact text not null,
 				published_at text not null,
 				yanked integer not null,
 				primary key (name, version)
@@ -155,7 +155,7 @@ async fn migration_0000(path: &Path) -> tg::Result<()> {
 
 			create table roots (
 				name text primary key,
-				id text not null
+				build_or_object text not null
 			);
 
 			create table users (

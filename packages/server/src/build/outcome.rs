@@ -128,7 +128,7 @@ impl Server {
 
 		// Create the body.
 		let outcome = if let Some(outcome) = outcome {
-			Some(outcome.data(handle).await?)
+			Some(outcome.data(handle, None).await?)
 		} else {
 			None
 		};

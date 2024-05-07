@@ -5,9 +5,10 @@ use tg::Handle as _;
 
 /// Add a root.
 #[derive(Debug, clap::Args)]
+#[group(skip)]
 pub struct Args {
 	pub name: String,
-	pub id: Arg,
+	pub build_or_object: Arg,
 }
 
 #[derive(Debug, Clone)]
@@ -19,12 +20,12 @@ pub enum Arg {
 impl Cli {
 	pub async fn command_root_add(&self, args: Args) -> tg::Result<()> {
 		let name = args.name;
-		let id = match args.id {
-			Arg::Build(id) => Either::Left(id),
-			Arg::Object(id) => Either::Right(id),
+		let build_or_object = match args.build_or_object {
+			Arg::Build(build) => Either::Left(build),
+			Arg::Object(object) => Either::Right(object),
 		};
-		let arg = tg::root::add::Arg { name, id };
-		self.handle.put_root(arg).await?;
+		let arg = tg::root::put::Arg { build_or_object };
+		self.handle.put_root(&name, arg).await?;
 		Ok(())
 	}
 }

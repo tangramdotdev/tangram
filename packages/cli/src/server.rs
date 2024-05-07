@@ -9,6 +9,7 @@ pub mod stop;
 
 /// Manage the server.
 #[derive(Debug, clap::Args)]
+#[group(skip)]
 pub struct Args {
 	#[command(subcommand)]
 	pub command: Command,

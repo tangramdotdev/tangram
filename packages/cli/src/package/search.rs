@@ -4,6 +4,7 @@ use tg::Handle as _;
 
 /// Search for packages.
 #[derive(Debug, clap::Args)]
+#[group(skip)]
 pub struct Args {
 	pub query: String,
 }

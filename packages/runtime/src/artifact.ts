@@ -1,5 +1,6 @@
 import { assert as assert_ } from "./assert.ts";
 import type { Blob } from "./blob.ts";
+import type { Checksum } from "./checksum.ts";
 import { Directory } from "./directory.ts";
 import { File } from "./file.ts";
 import { Symlink } from "./symlink.ts";
@@ -41,11 +42,28 @@ export namespace Artifact {
 		assert_(is(value));
 	};
 
-	/** Extract an artifact from an archive. **/
+	export let archive = async (
+		artifact: Artifact,
+		format: ArchiveFormat,
+	): Promise<Blob> => {
+		return await syscall("artifact_archive", artifact, format);
+	};
+
 	export let extract = async (
 		blob: Blob,
 		format: ArchiveFormat,
 	): Promise<Artifact> => {
-		return await blob.extract(format);
+		return await syscall("artifact_extract", blob, format);
+	};
+
+	export let bundle = async (artifact: Artifact): Promise<Artifact> => {
+		return await syscall("artifact_bundle", artifact);
+	};
+
+	export let checksum = async (
+		artifact: Artifact,
+		algorithm: Checksum.Algorithm,
+	): Promise<Checksum> => {
+		return await syscall("artifact_checksum", artifact, algorithm);
 	};
 }

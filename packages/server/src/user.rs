@@ -2,7 +2,7 @@ use crate::Server;
 use indoc::formatdoc;
 use tangram_client as tg;
 use tangram_database::{self as db, prelude::*};
-use tangram_http::{incoming::RequestExt as _, Incoming, Outgoing};
+use tangram_http::{incoming::RequestExt as _, outgoing::ResponseBuilderExt, Incoming, Outgoing};
 
 impl Server {
 	pub async fn get_user(&self, token: &str) -> tg::Result<Option<tg::user::User>> {
@@ -51,7 +51,7 @@ impl Server {
 		let Some(user) = Self::try_get_user_from_request(handle, &request).await? else {
 			return Ok(http::Response::builder()
 				.status(http::StatusCode::UNAUTHORIZED)
-				.body(Outgoing::empty())
+				.empty()
 				.unwrap());
 		};
 

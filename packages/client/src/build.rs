@@ -3,7 +3,6 @@ use crate as tg;
 pub use self::{outcome::Outcome, retry::Retry, status::Status};
 
 pub mod children;
-pub mod create;
 pub mod dequeue;
 pub mod finish;
 pub mod get;
@@ -56,15 +55,6 @@ impl Build {
 	#[must_use]
 	pub fn id(&self) -> &Id {
 		&self.id
-	}
-
-	pub async fn new<H>(handle: &H, arg: tg::build::create::Arg) -> tg::Result<Self>
-	where
-		H: tg::Handle,
-	{
-		let output = handle.create_build(arg).await?;
-		let build = Build::with_id(output.id);
-		Ok(build)
 	}
 
 	pub async fn target<H>(&self, handle: &H) -> tg::Result<tg::Target>

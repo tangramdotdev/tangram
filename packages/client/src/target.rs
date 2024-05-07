@@ -7,6 +7,8 @@ use futures::{
 use itertools::Itertools as _;
 use std::{collections::BTreeMap, sync::Arc};
 
+pub mod build;
+
 #[derive(
 	Clone,
 	Debug,
@@ -175,11 +177,13 @@ impl Target {
 		let object = self.object(handle).await?;
 		let host = object.host.clone();
 		let executable = object.executable.id(handle, transaction).await?;
-		let lock = if let Some(lock) = &object.lock {
-			Some(lock.id(handle, transaction).await?)
-		} else {
-			None
-		};
+		let args = object
+			.args
+			.iter()
+			.map(|value| value.data(handle, transaction))
+			.collect::<FuturesOrdered<_>>()
+			.try_collect()
+			.await?;
 		let env = object
 			.env
 			.iter()
@@ -191,13 +195,11 @@ impl Target {
 			.collect::<FuturesUnordered<_>>()
 			.try_collect()
 			.await?;
-		let args = object
-			.args
-			.iter()
-			.map(|value| value.data(handle, transaction))
-			.collect::<FuturesOrdered<_>>()
-			.try_collect()
-			.await?;
+		let lock = if let Some(lock) = &object.lock {
+			Some(lock.id(handle, transaction).await?)
+		} else {
+			None
+		};
 		let checksum = object.checksum.clone();
 		Ok(Data {
 			host,
@@ -283,19 +285,6 @@ impl Target {
 			return Ok(None);
 		};
 		Ok(Some(directory.clone()))
-	}
-
-	pub async fn build<H>(&self, handle: &H, arg: tg::build::create::Arg) -> tg::Result<tg::Value>
-	where
-		H: tg::Handle,
-	{
-		let build = tg::Build::new(handle, arg.clone()).await?;
-		let outcome = build.outcome(handle).await?;
-		match outcome {
-			tg::build::Outcome::Canceled => Err(tg::error!("the build was canceled")),
-			tg::build::Outcome::Failed(error) => Err(error),
-			tg::build::Outcome::Succeeded(value) => Ok(value),
-		}
 	}
 }
 

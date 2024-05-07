@@ -1,7 +1,7 @@
 #![allow(clippy::match_same_arms, dead_code, non_camel_case_types)]
 
 use super::xdr;
-use num::ToPrimitive;
+use num::ToPrimitive as _;
 
 // RPC constants.
 pub const RPC_VERS: u32 = 2;

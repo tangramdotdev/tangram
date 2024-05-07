@@ -1,11 +1,10 @@
 use crate::Server;
 use futures::{stream::FuturesUnordered, TryStreamExt as _};
-use http_body_util::BodyExt as _;
 use std::os::unix::fs::PermissionsExt as _;
 use tangram_client as tg;
 use tangram_database as db;
 use tangram_database::prelude::*;
-use tangram_http::{Incoming, Outgoing};
+use tangram_http::{incoming::RequestExt, outgoing::ResponseBuilderExt as _, Incoming, Outgoing};
 
 impl Server {
 	pub async fn check_in_artifact(
@@ -25,7 +24,7 @@ impl Server {
 				.parse::<tg::artifact::Id>()?;
 			let path = tg::Path::with_components(path.components().iter().skip(2).cloned());
 			if path.components().len() == 1 {
-				return Ok(tg::artifact::checkin::Output { id });
+				return Ok(tg::artifact::checkin::Output { artifact: id });
 			}
 			let artifact = tg::Artifact::with_id(id);
 			let directory = artifact
@@ -34,7 +33,7 @@ impl Server {
 				.ok_or_else(|| tg::error!("invalid path"))?;
 			let artifact = directory.get(self, &path).await?;
 			let id = artifact.id(self, None).await?;
-			return Ok(tg::artifact::checkin::Output { id });
+			return Ok(tg::artifact::checkin::Output { artifact: id });
 		}
 
 		// Get a database connection.
@@ -66,7 +65,7 @@ impl Server {
 		drop(connection);
 
 		// Create the output.
-		let output = tg::artifact::checkin::Output { id };
+		let output = tg::artifact::checkin::Output { artifact: id };
 
 		Ok(output)
 	}
@@ -298,22 +297,9 @@ impl Server {
 	where
 		H: tg::Handle,
 	{
-		let bytes = request
-			.into_body()
-			.collect()
-			.await
-			.map_err(|source| tg::error!(!source, "failed to read the body"))?
-			.to_bytes();
-		let arg = serde_json::from_slice(&bytes)
-			.map_err(|source| tg::error!(!source, "failed to deserialize the body"))?;
-
+		let arg = request.json().await?;
 		let output = handle.check_in_artifact(arg).await?;
-
-		// Create the response.
-		let response = http::Response::builder()
-			.body(Outgoing::json(output))
-			.unwrap();
-
+		let response = http::Response::builder().json(output).unwrap();
 		Ok(response)
 	}
 }

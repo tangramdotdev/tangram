@@ -5,6 +5,7 @@ use tangram_client as tg;
 
 /// Initialize a new package.
 #[derive(Debug, clap::Args)]
+#[group(skip)]
 pub struct Args {
 	/// The directory to initialize the package in.
 	pub path: Option<PathBuf>,

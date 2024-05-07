@@ -5,7 +5,7 @@ use futures::{
 	TryStreamExt as _,
 };
 use itertools::Itertools as _;
-use num::ToPrimitive;
+use num::ToPrimitive as _;
 use std::collections::BTreeMap;
 
 /// A value.

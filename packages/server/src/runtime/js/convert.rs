@@ -1,6 +1,6 @@
 use bytes::Bytes;
 use either::Either;
-use num::ToPrimitive;
+use num::ToPrimitive as _;
 use std::{collections::BTreeMap, sync::Arc};
 use tangram_client as tg;
 use url::Url;
@@ -381,6 +381,34 @@ where
 		value: v8::Local<'a, v8::Value>,
 	) -> tg::Result<Self> {
 		Ok(Self::new(from_v8(scope, value)?))
+	}
+}
+
+impl<L, R> ToV8 for Either<L, R>
+where
+	L: ToV8,
+	R: ToV8,
+{
+	fn to_v8<'a>(&self, scope: &mut v8::HandleScope<'a>) -> tg::Result<v8::Local<'a, v8::Value>> {
+		match self {
+			Either::Left(s) => s.to_v8(scope),
+			Either::Right(s) => s.to_v8(scope),
+		}
+	}
+}
+
+impl<L, R> FromV8 for Either<L, R>
+where
+	L: FromV8,
+	R: FromV8,
+{
+	fn from_v8<'a>(
+		scope: &mut v8::HandleScope<'a>,
+		value: v8::Local<'a, v8::Value>,
+	) -> tg::Result<Self> {
+		from_v8(scope, value)
+			.map(Either::Left)
+			.or_else(|_| from_v8(scope, value).map(Either::Right))
 	}
 }
 

@@ -67,7 +67,7 @@ impl Server {
 			else {
 				break 'a None;
 			};
-			let package = tg::Directory::with_id(output.id);
+			let package = tg::Directory::with_id(output.artifact);
 			Some(self.analyze_package(&package).await?)
 		};
 

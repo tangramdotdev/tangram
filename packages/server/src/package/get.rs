@@ -69,7 +69,7 @@ impl Server {
 
 		Ok(Some(tg::package::get::Output {
 			dependencies,
-			id,
+			artifact: id,
 			lock,
 			metadata,
 			path,

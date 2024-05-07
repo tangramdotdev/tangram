@@ -17,7 +17,7 @@ impl Server {
 		let p = connection.p();
 		let statement = formatdoc!(
 			"
-				select name, id
+				select name, build_or_object
 				from roots
 				where name = {p}1;
 			"

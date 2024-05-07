@@ -5,6 +5,7 @@ use tokio::io::AsyncReadExt as _;
 
 // Put a build.
 #[derive(Debug, clap::Args)]
+#[group(skip)]
 pub struct Args {
 	#[arg(long)]
 	pub json: Option<String>,

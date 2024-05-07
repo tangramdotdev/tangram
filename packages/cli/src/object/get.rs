@@ -5,13 +5,14 @@ use tokio::io::AsyncWriteExt as _;
 
 /// Get an object.
 #[derive(Debug, clap::Args)]
+#[group(skip)]
 pub struct Args {
-	pub id: tg::object::Id,
+	pub object: tg::object::Id,
 }
 
 impl Cli {
 	pub async fn command_object_get(&self, args: Args) -> tg::Result<()> {
-		let tg::object::get::Output { bytes, .. } = self.handle.get_object(&args.id).await?;
+		let tg::object::get::Output { bytes, .. } = self.handle.get_object(&args.object).await?;
 		tokio::io::stdout()
 			.write_all(&bytes)
 			.await

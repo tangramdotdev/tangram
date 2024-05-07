@@ -4,6 +4,7 @@ use tangram_client as tg;
 
 /// Check in an artifact.
 #[derive(Debug, clap::Args)]
+#[group(skip)]
 pub struct Args {
 	/// The path to check in.
 	pub path: Option<PathBuf>,

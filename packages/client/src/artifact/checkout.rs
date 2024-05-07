@@ -1,5 +1,5 @@
 use crate as tg;
-use tangram_http::{incoming::ResponseExt as _, Outgoing};
+use tangram_http::{incoming::ResponseExt as _, outgoing::RequestBuilderExt as _};
 
 #[derive(Clone, Debug, Default, serde::Deserialize, serde::Serialize)]
 pub struct Arg {
@@ -35,11 +35,10 @@ impl tg::Client {
 	) -> tg::Result<tg::artifact::checkout::Output> {
 		let method = http::Method::POST;
 		let uri = format!("/artifacts/{id}/checkout");
-		let body = Outgoing::json(arg);
 		let request = http::request::Builder::default()
 			.method(method)
 			.uri(uri)
-			.body(body)
+			.json(arg)
 			.unwrap();
 		let response = self.send(request).await?;
 		if !response.status().is_success() {

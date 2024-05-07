@@ -1,6 +1,9 @@
 use crate::Server;
 use tangram_client as tg;
-use tangram_http::{outgoing::ResponseExt as _, Incoming, Outgoing};
+use tangram_http::{
+	outgoing::{ResponseBuilderExt as _, ResponseExt as _},
+	Incoming, Outgoing,
+};
 
 impl Server {
 	pub async fn format_package(&self, dependency: &tg::Dependency) -> tg::Result<()> {
@@ -85,13 +88,8 @@ impl Server {
 		let Ok(dependency) = dependency.parse() else {
 			return Ok(http::Response::bad_request());
 		};
-
-		// Format the package.
 		handle.format_package(&dependency).await?;
-
-		// Create the response.
-		let response = http::Response::builder().body(Outgoing::empty()).unwrap();
-
+		let response = http::Response::builder().empty().unwrap();
 		Ok(response)
 	}
 }

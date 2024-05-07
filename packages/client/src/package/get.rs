@@ -14,7 +14,7 @@ pub struct Arg {
 #[derive(Debug, Clone, serde::Deserialize, serde::Serialize)]
 pub struct Output {
 	pub dependencies: Option<Vec<tg::Dependency>>,
-	pub id: tg::directory::Id,
+	pub artifact: tg::directory::Id,
 	pub lock: Option<tg::lock::Id>,
 	pub metadata: Option<tg::package::Metadata>,
 	pub path: Option<tg::Path>,
@@ -40,7 +40,7 @@ where
 {
 	let arg = tg::package::get::Arg::default();
 	let output = handle.try_get_package(dependency, arg).await?;
-	let package = output.map(|output| tg::Directory::with_id(output.id));
+	let package = output.map(|output| tg::Directory::with_id(output.artifact));
 	Ok(package)
 }
 
@@ -71,7 +71,7 @@ where
 	let Some(output) = handle.try_get_package(dependency, arg).await? else {
 		return Ok(None);
 	};
-	let package = tg::Directory::with_id(output.id);
+	let package = tg::Directory::with_id(output.artifact);
 	let lock = output
 		.lock
 		.ok_or_else(|| tg::error!(%dependency, "expected the lock to be set"))?;

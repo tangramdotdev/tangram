@@ -1,5 +1,5 @@
 use crate as tg;
-use tangram_http::{incoming::ResponseExt as _, Outgoing};
+use tangram_http::{incoming::ResponseExt as _, outgoing::RequestBuilderExt};
 
 impl tg::Client {
 	pub async fn try_start_build(&self, id: &tg::build::Id) -> tg::Result<Option<bool>> {
@@ -8,7 +8,7 @@ impl tg::Client {
 		let request = http::request::Builder::default()
 			.method(method)
 			.uri(uri)
-			.body(Outgoing::empty())
+			.empty()
 			.unwrap();
 		let response = self.send(request).await?;
 		if response.status() == http::StatusCode::NOT_FOUND {

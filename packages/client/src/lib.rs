@@ -84,19 +84,13 @@ pub struct Client(Arc<Inner>);
 pub struct Inner {
 	url: Url,
 	sender: tokio::sync::Mutex<Option<hyper::client::conn::http2::SendRequest<Outgoing>>>,
-	token: Option<String>,
-}
-
-pub struct Builder {
-	url: Url,
-	token: Option<String>,
 }
 
 impl Client {
 	#[must_use]
-	pub fn new(url: Url, token: Option<String>) -> Self {
+	pub fn new(url: Url) -> Self {
 		let sender = tokio::sync::Mutex::new(None);
-		Self(Arc::new(Inner { url, sender, token }))
+		Self(Arc::new(Inner { url, sender }))
 	}
 
 	pub fn with_env() -> tg::Result<Self> {
@@ -114,8 +108,7 @@ impl Client {
 					"could not parse a URL from the TANGRAM_URL environment variable"
 				)
 			})?;
-		let token = None;
-		Ok(Self::new(url, token))
+		Ok(Self::new(url))
 	}
 
 	#[must_use]
@@ -515,26 +508,6 @@ impl Client {
 	}
 }
 
-impl Builder {
-	#[must_use]
-	pub fn new(url: Url) -> Self {
-		Self { url, token: None }
-	}
-
-	#[must_use]
-	pub fn token(mut self, token: Option<String>) -> Self {
-		self.token = token;
-		self
-	}
-
-	#[must_use]
-	pub fn build(self) -> Client {
-		let url = self.url;
-		let token = self.token;
-		Client::new(url, token)
-	}
-}
-
 impl tg::Handle for Client {
 	type Transaction<'a> = ();
 
@@ -558,6 +531,14 @@ impl tg::Handle for Client {
 		id: &tg::artifact::Id,
 	) -> impl Future<Output = tg::Result<tg::artifact::bundle::Output>> {
 		self.bundle_artifact(id)
+	}
+
+	fn checksum_artifact(
+		&self,
+		id: &tg::artifact::Id,
+		arg: tg::artifact::checksum::Arg,
+	) -> impl Future<Output = tg::Result<tg::artifact::checksum::Output>> {
+		self.checksum_artifact(id, arg)
 	}
 
 	fn check_in_artifact(
@@ -599,6 +580,21 @@ impl tg::Handle for Client {
 		self.decompress_blob(id, arg)
 	}
 
+	fn download_blob(
+		&self,
+		arg: tg::blob::download::Arg,
+	) -> impl Future<Output = tg::Result<tg::blob::download::Output>> {
+		self.download_blob(arg)
+	}
+
+	fn checksum_blob(
+		&self,
+		id: &tg::blob::Id,
+		arg: tg::blob::checksum::Arg,
+	) -> impl Future<Output = tg::Result<tg::blob::checksum::Output>> {
+		self.checksum_blob(id, arg)
+	}
+
 	fn list_builds(
 		&self,
 		arg: tg::build::list::Arg,
@@ -627,13 +623,6 @@ impl tg::Handle for Client {
 
 	fn pull_build(&self, id: &tg::build::Id) -> impl Future<Output = tg::Result<()>> {
 		self.pull_build(id)
-	}
-
-	fn create_build(
-		&self,
-		arg: tg::build::create::Arg,
-	) -> impl Future<Output = tg::Result<tg::build::create::Output>> {
-		self.create_build(arg)
 	}
 
 	fn try_dequeue_build(
@@ -830,12 +819,16 @@ impl tg::Handle for Client {
 		self.try_get_root(name)
 	}
 
-	fn put_root(&self, arg: tg::root::add::Arg) -> impl Future<Output = tg::Result<()>> {
-		self.add_root(arg)
+	fn put_root(
+		&self,
+		name: &str,
+		arg: tg::root::put::Arg,
+	) -> impl Future<Output = tg::Result<()>> {
+		self.put_root(name, arg)
 	}
 
-	fn remove_root(&self, name: &str) -> impl Future<Output = tg::Result<()>> {
-		self.remove_root(name)
+	fn delete_root(&self, name: &str) -> impl Future<Output = tg::Result<()>> {
+		self.delete_root(name)
 	}
 
 	fn get_js_runtime_doc(&self) -> impl Future<Output = tg::Result<serde_json::Value>> {
@@ -848,6 +841,14 @@ impl tg::Handle for Client {
 
 	fn clean(&self) -> impl Future<Output = tg::Result<()>> {
 		self.clean()
+	}
+
+	fn build_target(
+		&self,
+		id: &tg::target::Id,
+		arg: tg::target::build::Arg,
+	) -> impl Future<Output = tg::Result<tg::target::build::Output>> {
+		self.build_target(id, arg)
 	}
 
 	fn get_user(&self, token: &str) -> impl Future<Output = tg::Result<Option<tg::User>>> {

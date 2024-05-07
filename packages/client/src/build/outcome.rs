@@ -49,7 +49,11 @@ impl Outcome {
 		}
 	}
 
-	pub async fn data<H>(&self, handle: &H) -> tg::Result<tg::build::outcome::Data>
+	pub async fn data<H>(
+		&self,
+		handle: &H,
+		transaction: Option<&H::Transaction<'_>>,
+	) -> tg::Result<tg::build::outcome::Data>
 	where
 		H: tg::Handle,
 	{
@@ -57,7 +61,7 @@ impl Outcome {
 			Self::Canceled => tg::build::outcome::Data::Canceled,
 			Self::Failed(error) => tg::build::outcome::Data::Failed(error.clone()),
 			Self::Succeeded(value) => {
-				tg::build::outcome::Data::Succeeded(value.data(handle, None).await?)
+				tg::build::outcome::Data::Succeeded(value.data(handle, transaction).await?)
 			},
 		})
 	}
@@ -97,20 +101,16 @@ impl tg::Build {
 		handle.try_get_build_outcome(self.id(), arg, None).await
 	}
 
-	pub async fn cancel<H>(&self, handle: &H) -> tg::Result<()>
+	pub async fn output<H>(&self, handle: &H) -> tg::Result<tg::Value>
 	where
 		H: tg::Handle,
 	{
-		let id = self.id();
-		handle
-			.finish_build(
-				id,
-				tg::build::finish::Arg {
-					outcome: tg::build::outcome::Data::Canceled,
-				},
-			)
-			.await?;
-		Ok(())
+		let outcome = self.outcome(handle).await?;
+		match outcome {
+			tg::build::Outcome::Canceled => Err(tg::error!("the build was canceled")),
+			tg::build::Outcome::Failed(error) => Err(error),
+			tg::build::Outcome::Succeeded(value) => Ok(value),
+		}
 	}
 }
 

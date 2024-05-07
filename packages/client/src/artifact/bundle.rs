@@ -3,7 +3,7 @@ use tangram_http::{incoming::ResponseExt as _, Outgoing};
 
 #[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
 pub struct Output {
-	pub id: tg::artifact::Id,
+	pub artifact: tg::artifact::Id,
 }
 
 impl tg::Artifact {
@@ -13,7 +13,7 @@ impl tg::Artifact {
 	{
 		let id = self.id(handle, None).await?;
 		let output = handle.bundle_artifact(&id).await?;
-		let artifact = Self::with_id(output.id);
+		let artifact = Self::with_id(output.artifact);
 		Ok(artifact)
 	}
 }

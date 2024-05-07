@@ -5,10 +5,10 @@ use url::Url;
 #[derive(Clone, Debug)]
 pub struct Options {
 	pub advanced: Advanced,
+	pub authentication: Authentication,
 	pub build: Option<Build>,
 	pub database: Database,
 	pub messenger: Messenger,
-	pub oauth: Oauth,
 	pub path: PathBuf,
 	pub remotes: Vec<Remote>,
 	pub url: Url,
@@ -22,6 +22,25 @@ pub struct Advanced {
 	pub file_descriptor_semaphore_size: usize,
 	pub preserve_temp_directories: bool,
 	pub write_build_logs_to_stderr: bool,
+}
+
+#[derive(Clone, Debug, Default)]
+pub struct Authentication {
+	pub providers: Option<AuthenticationProviders>,
+}
+
+#[derive(Clone, Debug, Default)]
+pub struct AuthenticationProviders {
+	pub github: Option<Oauth>,
+}
+
+#[derive(Clone, Debug)]
+pub struct Oauth {
+	pub auth_url: String,
+	pub client_id: String,
+	pub client_secret: String,
+	pub redirect_url: String,
+	pub token_url: String,
 }
 
 #[derive(Clone, Debug)]
@@ -55,20 +74,6 @@ pub enum Messenger {
 #[derive(Clone, Debug)]
 pub struct NatsMessenger {
 	pub url: Url,
-}
-
-#[derive(Clone, Debug, Default)]
-pub struct Oauth {
-	pub github: Option<OauthClient>,
-}
-
-#[derive(Clone, Debug)]
-pub struct OauthClient {
-	pub auth_url: String,
-	pub client_id: String,
-	pub client_secret: String,
-	pub redirect_url: String,
-	pub token_url: String,
 }
 
 #[derive(Clone, Debug)]

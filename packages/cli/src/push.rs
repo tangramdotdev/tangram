@@ -3,6 +3,7 @@ use tangram_client as tg;
 
 /// Push a build or an object.
 #[derive(Debug, clap::Args)]
+#[group(skip)]
 pub struct Args {
 	pub arg: Arg,
 }
@@ -16,12 +17,12 @@ pub enum Arg {
 impl Cli {
 	pub async fn command_push(&self, args: Args) -> tg::Result<()> {
 		match args.arg {
-			Arg::Build(id) => {
-				self.command_build_push(super::build::push::Args { id })
+			Arg::Build(arg) => {
+				self.command_build_push(super::build::push::Args { build: arg })
 					.await?;
 			},
-			Arg::Object(id) => {
-				self.command_object_push(super::object::push::Args { id })
+			Arg::Object(arg) => {
+				self.command_object_push(super::object::push::Args { object: arg })
 					.await?;
 			},
 		}

@@ -5,11 +5,15 @@ use futures::{
 };
 use http_body_util::StreamBody;
 use indoc::formatdoc;
-use num::ToPrimitive;
+use num::ToPrimitive as _;
 use std::{pin::pin, sync::Arc};
 use tangram_client as tg;
 use tangram_database::{self as db, prelude::*};
-use tangram_http::{incoming::RequestExt as _, outgoing::ResponseExt as _, Incoming, Outgoing};
+use tangram_http::{
+	incoming::RequestExt as _,
+	outgoing::{ResponseBuilderExt, ResponseExt as _},
+	Incoming, Outgoing,
+};
 use tangram_messenger::Messenger as _;
 use tokio_stream::wrappers::IntervalStream;
 
@@ -505,7 +509,7 @@ impl Server {
 		handle.add_build_child(&build_id, &child_id).await?;
 		let response = http::Response::builder()
 			.status(http::StatusCode::OK)
-			.body(Outgoing::empty())
+			.empty()
 			.unwrap();
 		Ok(response)
 	}

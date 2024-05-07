@@ -2,7 +2,7 @@ use super::{
 	convert::{from_v8, ToV8},
 	State,
 };
-use num::ToPrimitive;
+use num::ToPrimitive as _;
 use std::{collections::BTreeMap, rc::Rc, sync::Arc};
 use tangram_client as tg;
 use tg::error::Error;

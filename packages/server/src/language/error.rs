@@ -1,5 +1,5 @@
 use super::SOURCE_MAP;
-use num::ToPrimitive;
+use num::ToPrimitive as _;
 use sourcemap::SourceMap;
 use std::{collections::BTreeMap, sync::Arc};
 use tangram_client as tg;

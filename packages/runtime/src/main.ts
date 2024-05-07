@@ -23,12 +23,14 @@ import { Template, template } from "./template.ts";
 import type { MaybeNestedArray } from "./util.ts";
 import { Value } from "./value.ts";
 
-let console = {};
-Object.defineProperties(console, {
-	log: { value: log },
-});
+let console = { log };
 Object.defineProperties(globalThis, {
-	console: { value: console },
+	console: {
+		value: console,
+		configurable: true,
+		enumerable: true,
+		writable: true,
+	},
 });
 
 async function tg(

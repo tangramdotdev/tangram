@@ -10,7 +10,7 @@ use std::{
 	sync::Arc,
 };
 use tangram_client as tg;
-use tangram_http::{Incoming, Outgoing};
+use tangram_http::{outgoing::ResponseBuilderExt, Incoming, Outgoing};
 use tg::package::ROOT_MODULE_FILE_NAMES;
 use tokio::io::{
 	AsyncBufRead, AsyncBufReadExt as _, AsyncReadExt as _, AsyncWrite, AsyncWriteExt as _,
@@ -825,7 +825,7 @@ impl crate::Server {
 			.status(http::StatusCode::SWITCHING_PROTOCOLS)
 			.header(http::header::CONNECTION, "upgrade")
 			.header(http::header::UPGRADE, "lsp")
-			.body(Outgoing::empty())
+			.empty()
 			.unwrap();
 
 		Ok(response)

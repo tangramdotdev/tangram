@@ -1,6 +1,6 @@
 use crate::Server;
 use tangram_client as tg;
-use tangram_http::{Incoming, Outgoing};
+use tangram_http::{outgoing::ResponseBuilderExt, Incoming, Outgoing};
 
 impl Server {
 	pub async fn health(&self) -> tg::Result<tg::server::Health> {
@@ -21,7 +21,7 @@ impl Server {
 		handle.clean().await?;
 		Ok(http::Response::builder()
 			.status(http::StatusCode::OK)
-			.body(Outgoing::empty())
+			.empty()
 			.unwrap())
 	}
 

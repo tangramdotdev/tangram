@@ -4,13 +4,14 @@ use tg::Handle as _;
 
 /// Pull a build.
 #[derive(Debug, clap::Args)]
+#[group(skip)]
 pub struct Args {
-	pub id: tg::build::Id,
+	pub build: tg::build::Id,
 }
 
 impl Cli {
 	pub async fn command_build_pull(&self, args: Args) -> tg::Result<()> {
-		self.handle.pull_build(&args.id).await?;
+		self.handle.pull_build(&args.build).await?;
 		Ok(())
 	}
 }

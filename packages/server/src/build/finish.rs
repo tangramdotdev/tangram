@@ -6,7 +6,7 @@ use indoc::formatdoc;
 use std::pin::pin;
 use tangram_client as tg;
 use tangram_database::{self as db, prelude::*};
-use tangram_http::{incoming::RequestExt as _, Incoming, Outgoing};
+use tangram_http::{incoming::RequestExt as _, outgoing::ResponseBuilderExt, Incoming, Outgoing};
 use tangram_messenger::Messenger as _;
 use time::format_description::well_known::Rfc3339;
 
@@ -249,7 +249,7 @@ impl Server {
 		handle.finish_build(&id, arg).await?;
 		let response = http::Response::builder()
 			.status(http::StatusCode::OK)
-			.body(Outgoing::empty())
+			.empty()
 			.unwrap();
 		Ok(response)
 	}

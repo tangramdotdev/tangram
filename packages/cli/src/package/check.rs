@@ -2,8 +2,9 @@ use crate::Cli;
 use tangram_client as tg;
 use tg::Handle as _;
 
-/// Check a package for errors.
+/// Check a package.
 #[derive(Debug, clap::Args)]
+#[group(skip)]
 pub struct Args {
 	/// If this flag is set, the package's lockfile will not be updated.
 	#[arg(long)]

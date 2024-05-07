@@ -1,7 +1,7 @@
 use crate::Server;
 use tangram_client as tg;
 use tangram_database::{self as db, prelude::*};
-use tangram_http::{Incoming, Outgoing};
+use tangram_http::{outgoing::ResponseBuilderExt, Incoming, Outgoing};
 use time::format_description::well_known::Rfc3339;
 
 impl Server {
@@ -49,7 +49,7 @@ impl Server {
 		handle.touch_build(&id).await?;
 		let response = http::Response::builder()
 			.status(http::StatusCode::OK)
-			.body(Outgoing::empty())
+			.empty()
 			.unwrap();
 		Ok(response)
 	}

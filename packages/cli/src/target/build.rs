@@ -1,5 +1,5 @@
 use crate::{tui::Tui, Cli};
-use crossterm::style::Stylize;
+use crossterm::style::Stylize as _;
 use either::Either;
 use itertools::Itertools as _;
 use std::path::PathBuf;
@@ -8,6 +8,7 @@ use tg::Handle;
 
 /// Build a target.
 #[derive(Debug, clap::Args)]
+#[group(skip)]
 pub struct Args {
 	#[command(flatten)]
 	inner: InnerArgs,
@@ -19,6 +20,7 @@ pub struct Args {
 
 #[allow(clippy::struct_excessive_bools)]
 #[derive(Debug, clap::Args)]
+#[group(skip)]
 pub struct InnerArgs {
 	/// Set the arguments.
 	#[arg(short, long, num_args = 1.., action = clap::ArgAction::Append)]
@@ -78,10 +80,10 @@ pub enum InnerOutput {
 }
 
 impl Cli {
-	pub async fn command_build_create(&self, args: Args) -> tg::Result<()> {
+	pub async fn command_target_build(&self, args: Args) -> tg::Result<()> {
 		// Build.
 		let output = self
-			.command_build_create_inner(args.inner, args.detach)
+			.command_target_build_inner(args.inner, args.detach)
 			.await?;
 
 		// Handle the output.
@@ -99,7 +101,7 @@ impl Cli {
 		Ok(())
 	}
 
-	pub async fn command_build_create_inner(
+	pub(crate) async fn command_target_build_inner(
 		&self,
 		args: InnerArgs,
 		detach: bool,
@@ -177,23 +179,24 @@ impl Cli {
 			target.id(&self.handle, None).await?
 		);
 
-		// Create the build.
-		let arg = tg::build::create::Arg {
+		// Build the target.
+		let id = target.id(&self.handle, None).await?;
+		let arg = tg::target::build::Arg {
 			parent: None,
 			remote: args.remote,
 			retry: args.retry,
-			target: target.id(&self.handle, None).await?,
 		};
-		let build = tg::Build::new(&self.handle, arg).await?;
+		let output = self.handle.build_target(&id, arg).await?;
+		let build = tg::Build::with_id(output.build);
 
 		// Add the root if requested.
-		if let Some(root) = args.root {
-			let id = Either::Left(build.id().clone());
-			let arg = tg::root::add::Arg { name: root, id };
-			self.handle.put_root(arg).await?;
+		if let Some(name) = args.root {
+			let build_or_object = Either::Left(build.id().clone());
+			let arg = tg::root::put::Arg { build_or_object };
+			self.handle.put_root(&name, arg).await?;
 		}
 
-		// If the detach flag is set, then exit.
+		// If the detach flag is set, then print the build and exit.
 		if detach {
 			println!("{}", build.id());
 			return Ok(None);
@@ -215,11 +218,23 @@ impl Cli {
 		let outcome = if let Some(outcome) = outcome {
 			outcome
 		} else {
-			// Create the TUI.
+			// Start the TUI.
 			let tui = match args.view {
 				View::Tui => Tui::start(&self.handle, &build).await.ok(),
 				View::None => None,
 			};
+
+			// Spawn a task to cancel the build on the first interrupt signal and exit the process on the second.
+			tokio::spawn({
+				let handle = self.handle.clone();
+				let build = build.clone();
+				async move {
+					tokio::signal::ctrl_c().await.unwrap();
+					build.cancel(&handle).await.ok();
+					tokio::signal::ctrl_c().await.unwrap();
+					std::process::exit(130);
+				}
+			});
 
 			// Wait for the build's outcome.
 			let outcome = build.outcome(&self.handle).await;
@@ -227,7 +242,7 @@ impl Cli {
 			// Stop the TUI.
 			if let Some(tui) = tui {
 				tui.stop();
-				tui.join().await?;
+				tui.wait().await?;
 			}
 
 			outcome.map_err(|source| tg::error!(!source, "failed to get the build outcome"))?

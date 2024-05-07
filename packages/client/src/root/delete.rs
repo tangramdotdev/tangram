@@ -1,15 +1,15 @@
 use crate as tg;
-use tangram_http::{incoming::ResponseExt as _, Outgoing};
+use tangram_http::{incoming::ResponseExt as _, outgoing::RequestBuilderExt};
 
 impl tg::Client {
-	pub async fn remove_root(&self, name: &str) -> tg::Result<()> {
+	pub async fn delete_root(&self, name: &str) -> tg::Result<()> {
 		let method = http::Method::DELETE;
 		let name = urlencoding::encode(name);
 		let uri = format!("/roots/{name}");
 		let request = http::request::Builder::default()
 			.method(method)
 			.uri(uri)
-			.body(Outgoing::empty())
+			.empty()
 			.unwrap();
 		let response = self.send(request).await?;
 		if !response.status().is_success() {

@@ -4,8 +4,9 @@ use tg::Handle;
 
 /// Cancel a build.
 #[derive(Debug, clap::Args)]
+#[group(skip)]
 pub struct Args {
-	pub id: tg::build::Id,
+	pub build: tg::build::Id,
 }
 
 impl Cli {
@@ -13,7 +14,7 @@ impl Cli {
 		let arg = tg::build::finish::Arg {
 			outcome: tg::build::outcome::Data::Canceled,
 		};
-		self.handle.finish_build(&args.id, arg).await?;
+		self.handle.finish_build(&args.build, arg).await?;
 		Ok(())
 	}
 }

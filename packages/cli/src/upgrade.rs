@@ -3,6 +3,7 @@ use tangram_client as tg;
 
 /// Upgrade to the latest version of Tangram.
 #[derive(Debug, clap::Args)]
+#[group(skip)]
 pub struct Args {}
 
 impl Cli {

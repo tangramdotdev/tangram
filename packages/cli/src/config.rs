@@ -11,7 +11,7 @@ pub struct Config {
 	pub advanced: Option<Advanced>,
 
 	#[serde(default, skip_serializing_if = "Option::is_none")]
-	pub autoenv: Option<Autoenv>,
+	pub authentication: Option<Authentication>,
 
 	#[serde(
 		default,
@@ -25,9 +25,6 @@ pub struct Config {
 
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub messenger: Option<Messenger>,
-
-	#[serde(default, skip_serializing_if = "Option::is_none")]
-	pub oauth: Option<Oauth>,
 
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub path: Option<PathBuf>,
@@ -67,9 +64,24 @@ pub struct Advanced {
 }
 
 #[derive(Clone, Debug, Default, serde::Serialize, serde::Deserialize)]
-pub struct Autoenv {
-	#[serde(default, skip_serializing_if = "Vec::is_empty")]
-	pub paths: Vec<PathBuf>,
+pub struct Authentication {
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub providers: Option<AuthenticationProviders>,
+}
+
+#[derive(Clone, Debug, Default, serde::Serialize, serde::Deserialize)]
+pub struct AuthenticationProviders {
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub github: Option<Oauth>,
+}
+
+#[derive(Clone, Debug, serde::Serialize, serde::Deserialize)]
+pub struct Oauth {
+	pub auth_url: String,
+	pub client_id: String,
+	pub client_secret: String,
+	pub redirect_url: String,
+	pub token_url: String,
 }
 
 #[derive(Clone, Debug, Default, serde::Serialize, serde::Deserialize)]
@@ -88,7 +100,7 @@ pub enum Database {
 
 #[derive(Clone, Debug, serde::Serialize, serde::Deserialize)]
 pub struct SqliteDatabase {
-	/// The maximum number of connections.
+	/// The number of connections.
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub connections: Option<usize>,
 }
@@ -98,7 +110,7 @@ pub struct PostgresDatabase {
 	/// The URL.
 	pub url: Url,
 
-	/// The maximum number of connections.
+	/// The number of connections.
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub connections: Option<usize>,
 }
@@ -114,21 +126,6 @@ pub enum Messenger {
 #[derive(Clone, Debug, serde::Serialize, serde::Deserialize)]
 pub struct NatsMessenger {
 	pub url: Url,
-}
-
-#[derive(Clone, Debug, Default, serde::Serialize, serde::Deserialize)]
-pub struct Oauth {
-	#[serde(default, skip_serializing_if = "Option::is_none")]
-	pub github: Option<OauthClient>,
-}
-
-#[derive(Clone, Debug, serde::Serialize, serde::Deserialize)]
-pub struct OauthClient {
-	pub auth_url: String,
-	pub client_id: String,
-	pub client_secret: String,
-	pub redirect_url: String,
-	pub token_url: String,
 }
 
 #[derive(Clone, Debug, serde::Serialize, serde::Deserialize)]

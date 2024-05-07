@@ -3,24 +3,25 @@ use tangram_client as tg;
 
 /// Run the server in the foreground.
 #[derive(Debug, clap::Args)]
+#[group(skip)]
 pub struct Args {}
 
 impl Cli {
 	pub async fn command_server_run(&self, _args: Args) -> tg::Result<()> {
 		let server = self.handle.as_ref().right().unwrap();
 
-		// Stop the server if an interrupt signal is received.
+		// Spawn a task to stop the server on the first interrupt signal and exit the process on the second.
 		tokio::spawn({
 			let server = server.clone();
 			async move {
 				tokio::signal::ctrl_c().await.unwrap();
-				server.cancel();
+				server.stop();
 				tokio::signal::ctrl_c().await.unwrap();
 				std::process::exit(130);
 			}
 		});
 
-		// Join the server.
+		// Wait for the server to stop.
 		server.wait().await;
 
 		Ok(())

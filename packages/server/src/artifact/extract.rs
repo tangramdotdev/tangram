@@ -1,7 +1,6 @@
 use crate::{tmp::Tmp, Server};
-use http_body_util::BodyExt as _;
 use tangram_client as tg;
-use tangram_http::{Incoming, Outgoing};
+use tangram_http::{incoming::RequestExt, Incoming, Outgoing};
 use tokio_util::io::SyncIoBridge;
 
 impl Server {
@@ -22,7 +21,10 @@ impl Server {
 			let reader = SyncIoBridge::new(reader);
 			let path = path.clone();
 			move || {
-				match arg.format {
+				let format = arg
+					.format
+					.ok_or_else(|| tg::error!("archive format detection not yet implemented"))?;
+				match format {
 					tg::artifact::archive::Format::Tar => {
 						let mut archive = tar::Archive::new(reader);
 						archive.set_preserve_permissions(false);
@@ -54,7 +56,7 @@ impl Server {
 
 		// Create the output.
 		let id = artifact.id(self, None).await?;
-		let output = tg::artifact::extract::Output { id };
+		let output = tg::artifact::extract::Output { artifact: id };
 
 		Ok(output)
 	}
@@ -68,23 +70,11 @@ impl Server {
 	where
 		H: tg::Handle,
 	{
-		let bytes = request
-			.into_body()
-			.collect()
-			.await
-			.map_err(|source| tg::error!(!source, "failed to read the body"))?
-			.to_bytes();
-		let arg = serde_json::from_slice(&bytes)
-			.map_err(|source| tg::error!(!source, "failed to deserialize the body"))?;
-
-		// Extract the blob.
+		let arg = request.json().await?;
 		let output = handle.extract_artifact(arg).await?;
-
-		// Create the response.
 		let response = http::Response::builder()
 			.body(Outgoing::json(output))
 			.unwrap();
-
 		Ok(response)
 	}
 }

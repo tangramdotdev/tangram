@@ -15,6 +15,22 @@ impl tg::Build {
 		handle.finish_build(id, arg).await?;
 		Ok(())
 	}
+
+	pub async fn cancel<H>(&self, handle: &H) -> tg::Result<()>
+	where
+		H: tg::Handle,
+	{
+		let id = self.id();
+		handle
+			.finish_build(
+				id,
+				tg::build::finish::Arg {
+					outcome: tg::build::outcome::Data::Canceled,
+				},
+			)
+			.await?;
+		Ok(())
+	}
 }
 
 impl tg::Client {

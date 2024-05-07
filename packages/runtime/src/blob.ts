@@ -20,7 +20,7 @@ export let download = async (
 	url: string,
 	checksum: Checksum,
 ): Promise<Blob> => {
-	return await syscall("download", url, checksum);
+	return await syscall("blob_download", url, checksum);
 };
 
 export declare namespace Blob {
@@ -34,8 +34,6 @@ export namespace Blob {
 	export type Arg = undefined | string | Uint8Array | Blob | Array<Arg>;
 
 	export type Id = string;
-
-	export type Object_ = Array<[Blob, number]> | Uint8Array;
 
 	export type CompressionFormat = "bz2" | "gz" | "xz" | "zst";
 
@@ -86,7 +84,7 @@ export namespace Blob {
 			return children_[0]!;
 		} else {
 			let children = await Promise.all(
-				children_.map<Promise<Branch.Child>>(async (blob) => {
+				children_.map(async (blob) => {
 					return { blob, size: await blob.size() };
 				}),
 			);
@@ -108,5 +106,33 @@ export namespace Blob {
 
 	export let assert = (value: unknown): asserts value is Blob => {
 		assert_(is(value));
+	};
+
+	export let compress = async (
+		blob: Blob,
+		format: CompressionFormat,
+	): Promise<Blob> => {
+		return await syscall("blob_compress", blob, format);
+	};
+
+	export let decompress = async (
+		blob: Blob,
+		format: CompressionFormat,
+	): Promise<Blob> => {
+		return await syscall("blob_decompress", blob, format);
+	};
+
+	export let download = async (
+		url: string,
+		checksum: Checksum,
+	): Promise<Blob> => {
+		return await syscall("blob_download", url, checksum);
+	};
+
+	export let checksum = async (
+		blob: Blob,
+		algorithm: Checksum.Algorithm,
+	): Promise<Checksum> => {
+		return await syscall("blob_checksum", blob, algorithm);
 	};
 }

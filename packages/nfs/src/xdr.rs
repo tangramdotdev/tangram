@@ -1,4 +1,4 @@
-use num::ToPrimitive;
+use num::ToPrimitive as _;
 
 pub trait Encode {
 	fn encode<W>(&self, encoder: &mut Encoder<W>) -> Result<(), Error>
