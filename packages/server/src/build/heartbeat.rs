@@ -1,5 +1,6 @@
 use std::sync::Arc;
 
+use crate::Server;
 use futures::{future, stream, StreamExt};
 use hyper::body::Incoming;
 use tangram_client as tg;
@@ -7,7 +8,6 @@ use tangram_database::{self as db, prelude::*};
 use tangram_http::Outgoing;
 use time::format_description::well_known::Rfc3339;
 use tokio_stream::wrappers::IntervalStream;
-use crate::Server;
 
 impl Server {
 	/// Try to start a task that sends build heartbeats.
