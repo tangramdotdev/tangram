@@ -15,7 +15,6 @@ impl tg::Client {
 	pub async fn try_dequeue_build(
 		&self,
 		arg: tg::build::dequeue::Arg,
-		_stop: Option<tokio::sync::watch::Receiver<bool>>,
 	) -> tg::Result<Option<tg::build::dequeue::Output>> {
 		let method = http::Method::POST;
 		let uri = "/builds/dequeue";

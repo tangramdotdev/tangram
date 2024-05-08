@@ -13,17 +13,10 @@ impl Server {
 		&self,
 		id: &tg::build::Id,
 		arg: tg::build::status::Arg,
-		stop: Option<tokio::sync::watch::Receiver<bool>>,
 	) -> tg::Result<Option<impl Stream<Item = tg::Result<tg::build::Status>> + Send + 'static>> {
-		if let Some(status) = self
-			.try_get_build_status_local(id, arg.clone(), stop.clone())
-			.await?
-		{
+		if let Some(status) = self.try_get_build_status_local(id, arg.clone()).await? {
 			Ok(Some(status.left_stream()))
-		} else if let Some(status) = self
-			.try_get_build_status_remote(id, arg.clone(), stop.clone())
-			.await?
-		{
+		} else if let Some(status) = self.try_get_build_status_remote(id, arg.clone()).await? {
 			Ok(Some(status.right_stream()))
 		} else {
 			Ok(None)
@@ -34,7 +27,6 @@ impl Server {
 		&self,
 		id: &tg::build::Id,
 		arg: tg::build::status::Arg,
-		stop: Option<tokio::sync::watch::Receiver<bool>>,
 	) -> tg::Result<Option<impl Stream<Item = tg::Result<tg::build::Status>> + Send + 'static>> {
 		// Verify the build is local.
 		if !self.get_build_exists_local(id).await? {
@@ -55,16 +47,8 @@ impl Server {
 			|| future::pending().left_future(),
 			|timeout| tokio::time::sleep(timeout).right_future(),
 		);
-		let stop = stop.map_or_else(
-			|| future::pending().left_future(),
-			|mut stop| async move { stop.wait_for(|stop| *stop).map(|_| ()).await }.right_future(),
-		);
 		let events = stream::once(future::ready(()))
-			.chain(
-				stream::select(status, interval)
-					.take_until(timeout)
-					.take_until(stop),
-			)
+			.chain(stream::select(status, interval).take_until(timeout))
 			.boxed();
 
 		// Create the stream.
@@ -138,12 +122,11 @@ impl Server {
 		&self,
 		id: &tg::build::Id,
 		arg: tg::build::status::Arg,
-		stop: Option<tokio::sync::watch::Receiver<bool>>,
 	) -> tg::Result<Option<impl Stream<Item = tg::Result<tg::build::Status>> + Send + 'static>> {
 		let Some(remote) = self.remotes.first() else {
 			return Ok(None);
 		};
-		let Some(stream) = remote.try_get_build_status(id, arg, stop).await? else {
+		let Some(stream) = remote.try_get_build_status(id, arg).await? else {
 			return Ok(None);
 		};
 		Ok(Some(stream))
@@ -186,10 +169,19 @@ impl Server {
 			})
 			.transpose()?;
 
-		let stop = request.extensions().get().cloned().unwrap();
-		let Some(stream) = handle.try_get_build_status(&id, arg, Some(stop)).await? else {
+		// Get the stream.
+		let Some(stream) = handle.try_get_build_status(&id, arg).await? else {
 			return Ok(http::Response::not_found());
 		};
+
+		// Stop the stream when the server stops.
+		let mut stop = request
+			.extensions()
+			.get::<tokio::sync::watch::Receiver<bool>>()
+			.cloned()
+			.unwrap();
+		let stop = async move { stop.wait_for(|stop| *stop).map(|_| ()).await };
+		let stream = stream.take_until(stop);
 
 		// Create the body.
 		let (content_type, body) = match accept

@@ -40,7 +40,7 @@ impl Server {
 			timeout: Some(std::time::Duration::ZERO),
 		};
 		let status = self
-			.try_get_build_status_local(id, status_arg, None)
+			.try_get_build_status_local(id, status_arg)
 			.await?
 			.ok_or_else(|| tg::error!("expected the build to exist"))?;
 		let status = pin!(status)
@@ -99,7 +99,7 @@ impl Server {
 				let arg = tg::build::outcome::Arg {
 					timeout: Some(std::time::Duration::ZERO),
 				};
-				self.try_get_build_outcome(child_id, arg, None)
+				self.try_get_build_outcome(child_id, arg)
 					.await?
 					.ok_or_else(|| tg::error!(%child_id, "failed to get the build"))?
 					.ok_or_else(|| tg::error!(%child_id, "expected the build to be finished"))

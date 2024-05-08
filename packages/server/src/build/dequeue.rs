@@ -14,7 +14,6 @@ impl Server {
 	pub async fn try_dequeue_build(
 		&self,
 		arg: tg::build::dequeue::Arg,
-		stop: Option<tokio::sync::watch::Receiver<bool>>,
 	) -> tg::Result<Option<tg::build::dequeue::Output>> {
 		// Create the event stream.
 		let created = self
@@ -30,16 +29,8 @@ impl Server {
 			|| future::pending().left_future(),
 			|timeout| tokio::time::sleep(timeout).right_future(),
 		);
-		let stop = stop.map_or_else(
-			|| future::pending().left_future(),
-			|mut stop| async move { stop.wait_for(|stop| *stop).map(|_| ()).await }.right_future(),
-		);
 		let mut events = stream::once(future::ready(()))
-			.chain(
-				stream::select(created, interval)
-					.take_until(timeout)
-					.take_until(stop),
-			)
+			.chain(stream::select(created, interval).take_until(timeout))
 			.boxed();
 
 		// Attempt to dequeue a build after each event.
@@ -82,9 +73,8 @@ impl Server {
 	where
 		H: tg::Handle,
 	{
-		let stop = request.extensions().get().cloned().unwrap();
 		let arg = request.json().await?;
-		let output = handle.try_dequeue_build(arg, stop).await?;
+		let output = handle.try_dequeue_build(arg).await?;
 		let response = http::Response::builder().json(output).unwrap();
 		Ok(response)
 	}

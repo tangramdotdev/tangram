@@ -11,7 +11,7 @@ impl Server {
 
 			// Dequeue a build.
 			let output = match self
-				.try_dequeue_build(tg::build::dequeue::Arg::default(), None)
+				.try_dequeue_build(tg::build::dequeue::Arg::default())
 				.await
 			{
 				Ok(Some(output)) => output,

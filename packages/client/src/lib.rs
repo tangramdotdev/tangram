@@ -628,9 +628,8 @@ impl tg::Handle for Client {
 	fn try_dequeue_build(
 		&self,
 		arg: tg::build::dequeue::Arg,
-		stop: Option<tokio::sync::watch::Receiver<bool>>,
 	) -> impl Future<Output = tg::Result<Option<tg::build::dequeue::Output>>> {
-		self.try_dequeue_build(arg, stop)
+		self.try_dequeue_build(arg)
 	}
 
 	fn try_start_build(
@@ -644,24 +643,22 @@ impl tg::Handle for Client {
 		&self,
 		id: &tg::build::Id,
 		arg: tg::build::status::Arg,
-		stop: Option<tokio::sync::watch::Receiver<bool>>,
 	) -> impl Future<
 		Output = tg::Result<Option<impl Stream<Item = Result<tg::build::Status>> + Send + 'static>>,
 	> {
-		self.try_get_build_status(id, arg, stop)
+		self.try_get_build_status(id, arg)
 	}
 
 	fn try_get_build_children(
 		&self,
 		id: &tg::build::Id,
 		arg: tg::build::children::Arg,
-		stop: Option<tokio::sync::watch::Receiver<bool>>,
 	) -> impl Future<
 		Output = tg::Result<
 			Option<impl Stream<Item = Result<tg::build::children::Chunk>> + Send + 'static>,
 		>,
 	> {
-		self.try_get_build_children(id, arg, stop)
+		self.try_get_build_children(id, arg)
 	}
 
 	fn add_build_child(
@@ -676,13 +673,12 @@ impl tg::Handle for Client {
 		&self,
 		id: &tg::build::Id,
 		arg: tg::build::log::Arg,
-		stop: Option<tokio::sync::watch::Receiver<bool>>,
 	) -> impl Future<
 		Output = tg::Result<
 			Option<impl Stream<Item = Result<tg::build::log::Chunk>> + Send + 'static>,
 		>,
 	> {
-		self.try_get_build_log(id, arg, stop)
+		self.try_get_build_log(id, arg)
 	}
 
 	fn add_build_log(
@@ -697,9 +693,8 @@ impl tg::Handle for Client {
 		&self,
 		id: &tg::build::Id,
 		arg: tg::build::outcome::Arg,
-		stop: Option<tokio::sync::watch::Receiver<bool>>,
 	) -> impl Future<Output = tg::Result<Option<Option<tg::build::Outcome>>>> {
-		self.try_get_build_outcome(id, arg, stop)
+		self.try_get_build_outcome(id, arg)
 	}
 
 	fn finish_build(

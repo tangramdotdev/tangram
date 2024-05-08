@@ -1,6 +1,6 @@
 use super::Id;
 use crate as tg;
-use futures::{future, stream, FutureExt as _, Stream, StreamExt as _, TryStreamExt as _};
+use futures::{future, stream, Stream, StreamExt as _, TryStreamExt as _};
 use http_body_util::BodyStream;
 use serde_with::serde_as;
 use tangram_http::{incoming::ResponseExt as _, Outgoing};
@@ -53,7 +53,7 @@ impl tg::Build {
 		H: tg::Handle,
 	{
 		Ok(handle
-			.try_get_build_children(self.id(), arg, None)
+			.try_get_build_children(self.id(), arg)
 			.await?
 			.map(|stream| {
 				stream
@@ -81,7 +81,6 @@ impl tg::Client {
 		&self,
 		id: &tg::build::Id,
 		arg: tg::build::children::Arg,
-		stop: Option<tokio::sync::watch::Receiver<bool>>,
 	) -> tg::Result<
 		Option<impl Stream<Item = tg::Result<tg::build::children::Chunk>> + Send + 'static>,
 	> {
@@ -108,20 +107,12 @@ impl tg::Client {
 				.try_filter_map(|frame| future::ok(frame.into_data().ok()))
 				.map_err(std::io::Error::other),
 		);
-		let stop = stop.map_or_else(
-			|| future::pending().left_future(),
-			|mut stop| async move { stop.wait_for(|stop| *stop).map(|_| ()).await }.right_future(),
-		);
-		let output = tangram_http::sse::Decoder::new(reader)
-			.map(|result| {
-				let event =
-					result.map_err(|source| tg::error!(!source, "failed to read an event"))?;
-				let chunk = serde_json::from_str(&event.data).map_err(|source| {
-					tg::error!(!source, "failed to deserialize the event data")
-				})?;
-				Ok::<_, tg::Error>(chunk)
-			})
-			.take_until(stop);
+		let output = tangram_http::sse::Decoder::new(reader).map(|result| {
+			let event = result.map_err(|source| tg::error!(!source, "failed to read an event"))?;
+			let chunk = serde_json::from_str(&event.data)
+				.map_err(|source| tg::error!(!source, "failed to deserialize the event data"))?;
+			Ok::<_, tg::Error>(chunk)
+		});
 		Ok(Some(output))
 	}
 

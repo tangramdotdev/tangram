@@ -182,11 +182,10 @@ where
 	fn try_dequeue_build(
 		&self,
 		arg: tg::build::dequeue::Arg,
-		stop: Option<tokio::sync::watch::Receiver<bool>>,
 	) -> impl Future<Output = tg::Result<Option<tg::build::dequeue::Output>>> {
 		match self {
-			Either::Left(s) => s.try_dequeue_build(arg, stop).left_future(),
-			Either::Right(s) => s.try_dequeue_build(arg, stop).right_future(),
+			Either::Left(s) => s.try_dequeue_build(arg).left_future(),
+			Either::Right(s) => s.try_dequeue_build(arg).right_future(),
 		}
 	}
 
@@ -204,7 +203,6 @@ where
 		&self,
 		id: &tg::build::Id,
 		arg: tg::build::status::Arg,
-		stop: Option<tokio::sync::watch::Receiver<bool>>,
 	) -> impl Future<
 		Output = tg::Result<
 			Option<impl Stream<Item = tg::Result<tg::build::Status>> + Send + 'static>,
@@ -212,11 +210,11 @@ where
 	> {
 		match self {
 			Either::Left(s) => s
-				.try_get_build_status(id, arg, stop)
+				.try_get_build_status(id, arg)
 				.map(|result| result.map(|option| option.map(futures::StreamExt::left_stream)))
 				.left_future(),
 			Either::Right(s) => s
-				.try_get_build_status(id, arg, stop)
+				.try_get_build_status(id, arg)
 				.map(|result| result.map(|option| option.map(futures::StreamExt::right_stream)))
 				.right_future(),
 		}
@@ -226,7 +224,6 @@ where
 		&self,
 		id: &tg::build::Id,
 		arg: tg::build::children::Arg,
-		stop: Option<tokio::sync::watch::Receiver<bool>>,
 	) -> impl Future<
 		Output = tg::Result<
 			Option<impl Stream<Item = tg::Result<tg::build::children::Chunk>> + Send + 'static>,
@@ -234,11 +231,11 @@ where
 	> {
 		match self {
 			Either::Left(s) => s
-				.try_get_build_children(id, arg, stop)
+				.try_get_build_children(id, arg)
 				.map(|result| result.map(|option| option.map(futures::StreamExt::left_stream)))
 				.left_future(),
 			Either::Right(s) => s
-				.try_get_build_children(id, arg, stop)
+				.try_get_build_children(id, arg)
 				.map(|result| result.map(|option| option.map(futures::StreamExt::right_stream)))
 				.right_future(),
 		}
@@ -259,16 +256,15 @@ where
 		&self,
 		id: &tg::build::Id,
 		arg: tg::build::log::Arg,
-		stop: Option<tokio::sync::watch::Receiver<bool>>,
 	) -> tg::Result<Option<impl Stream<Item = tg::Result<tg::build::log::Chunk>> + Send + 'static>>
 	{
 		match self {
 			Either::Left(s) => s
-				.try_get_build_log(id, arg, stop)
+				.try_get_build_log(id, arg)
 				.await
 				.map(|option| option.map(futures::StreamExt::left_stream)),
 			Either::Right(s) => s
-				.try_get_build_log(id, arg, stop)
+				.try_get_build_log(id, arg)
 				.await
 				.map(|option| option.map(futures::StreamExt::right_stream)),
 		}
@@ -289,11 +285,10 @@ where
 		&self,
 		id: &tg::build::Id,
 		arg: tg::build::outcome::Arg,
-		stop: Option<tokio::sync::watch::Receiver<bool>>,
 	) -> impl Future<Output = tg::Result<Option<Option<tg::build::Outcome>>>> {
 		match self {
-			Either::Left(s) => s.try_get_build_outcome(id, arg, stop).left_future(),
-			Either::Right(s) => s.try_get_build_outcome(id, arg, stop).right_future(),
+			Either::Left(s) => s.try_get_build_outcome(id, arg).left_future(),
+			Either::Right(s) => s.try_get_build_outcome(id, arg).right_future(),
 		}
 	}
 

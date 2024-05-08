@@ -11,17 +11,10 @@ impl Server {
 		&self,
 		id: &tg::build::Id,
 		arg: tg::build::outcome::Arg,
-		stop: Option<tokio::sync::watch::Receiver<bool>>,
 	) -> tg::Result<Option<Option<tg::build::Outcome>>> {
-		if let Some(outcome) = self
-			.try_get_build_outcome_local(id, arg.clone(), stop.clone())
-			.await?
-		{
+		if let Some(outcome) = self.try_get_build_outcome_local(id, arg.clone()).await? {
 			Ok(Some(outcome))
-		} else if let Some(outcome) = self
-			.try_get_build_outcome_remote(id, arg.clone(), stop.clone())
-			.await?
-		{
+		} else if let Some(outcome) = self.try_get_build_outcome_remote(id, arg.clone()).await? {
 			Ok(Some(outcome))
 		} else {
 			Ok(None)
@@ -32,7 +25,6 @@ impl Server {
 		&self,
 		id: &tg::build::Id,
 		arg: tg::build::outcome::Arg,
-		stop: Option<tokio::sync::watch::Receiver<bool>>,
 	) -> tg::Result<Option<Option<tg::build::Outcome>>> {
 		// Verify the build is local.
 		if !self.get_build_exists_local(id).await? {
@@ -44,7 +36,7 @@ impl Server {
 			timeout: arg.timeout,
 		};
 		let status = self
-			.try_get_build_status_local(id, arg, stop)
+			.try_get_build_status_local(id, arg)
 			.await?
 			.ok_or_else(|| tg::error!("expected the build to exist"))?;
 		let finished = status.try_filter_map(|status| {
@@ -89,12 +81,11 @@ impl Server {
 		&self,
 		id: &tg::build::Id,
 		arg: tg::build::outcome::Arg,
-		stop: Option<tokio::sync::watch::Receiver<bool>>,
 	) -> tg::Result<Option<Option<tg::build::Outcome>>> {
 		let Some(remote) = self.remotes.first() else {
 			return Ok(None);
 		};
-		let Some(outcome) = remote.try_get_build_outcome(id, arg, stop).await? else {
+		let Some(outcome) = remote.try_get_build_outcome(id, arg).await? else {
 			return Ok(None);
 		};
 		Ok(Some(outcome))
@@ -121,8 +112,7 @@ impl Server {
 			.map_err(|source| tg::error!(!source, "failed to deserialize the query"))?
 			.unwrap_or_default();
 
-		let stop = request.extensions().get().cloned().unwrap();
-		let Some(outcome) = handle.try_get_build_outcome(&id, arg, Some(stop)).await? else {
+		let Some(outcome) = handle.try_get_build_outcome(&id, arg).await? else {
 			return Ok(http::Response::not_found());
 		};
 

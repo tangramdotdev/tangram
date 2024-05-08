@@ -22,19 +22,12 @@ impl Server {
 		&self,
 		id: &tg::build::Id,
 		arg: tg::build::children::Arg,
-		stop: Option<tokio::sync::watch::Receiver<bool>>,
 	) -> tg::Result<
 		Option<impl Stream<Item = tg::Result<tg::build::children::Chunk>> + Send + 'static>,
 	> {
-		if let Some(children) = self
-			.try_get_build_children_local(id, arg.clone(), stop.clone())
-			.await?
-		{
+		if let Some(children) = self.try_get_build_children_local(id, arg.clone()).await? {
 			Ok(Some(children.left_stream()))
-		} else if let Some(children) = self
-			.try_get_build_children_remote(id, arg.clone(), stop.clone())
-			.await?
-		{
+		} else if let Some(children) = self.try_get_build_children_remote(id, arg.clone()).await? {
 			Ok(Some(children.right_stream()))
 		} else {
 			Ok(None)
@@ -45,7 +38,6 @@ impl Server {
 		&self,
 		id: &tg::build::Id,
 		arg: tg::build::children::Arg,
-		stop: Option<tokio::sync::watch::Receiver<bool>>,
 	) -> tg::Result<
 		Option<impl Stream<Item = tg::Result<tg::build::children::Chunk>> + Send + 'static>,
 	> {
@@ -76,16 +68,8 @@ impl Server {
 			|| future::pending().left_future(),
 			|timeout| tokio::time::sleep(timeout).right_future(),
 		);
-		let stop = stop.map_or_else(
-			|| future::pending().left_future(),
-			|mut stop| async move { stop.wait_for(|stop| *stop).map(|_| ()).await }.right_future(),
-		);
 		let events = stream::once(future::ready(()))
-			.chain(
-				stream_select!(children, status, interval)
-					.take_until(timeout)
-					.take_until(stop),
-			)
+			.chain(stream_select!(children, status, interval).take_until(timeout))
 			.boxed();
 
 		// Get the position.
@@ -139,7 +123,7 @@ impl Server {
 					timeout: Some(std::time::Duration::ZERO),
 				};
 				let status = server
-					.try_get_build_status_local(&id, arg, None)
+					.try_get_build_status_local(&id, arg)
 					.await?
 					.ok_or_else(|| tg::error!("expected the build to exist"))?;
 				let status = pin!(status)
@@ -324,14 +308,13 @@ impl Server {
 		&self,
 		id: &tg::build::Id,
 		arg: tg::build::children::Arg,
-		stop: Option<tokio::sync::watch::Receiver<bool>>,
 	) -> tg::Result<
 		Option<impl Stream<Item = tg::Result<tg::build::children::Chunk>> + Send + 'static>,
 	> {
 		let Some(remote) = self.remotes.first() else {
 			return Ok(None);
 		};
-		let Some(stream) = remote.try_get_build_children(id, arg, stop).await? else {
+		let Some(stream) = remote.try_get_build_children(id, arg).await? else {
 			return Ok(None);
 		};
 		Ok(Some(stream))
@@ -444,10 +427,19 @@ impl Server {
 			})
 			.transpose()?;
 
-		let stop = request.extensions().get().cloned().unwrap();
-		let Some(stream) = handle.try_get_build_children(&id, arg, Some(stop)).await? else {
+		// Get the stream.
+		let Some(stream) = handle.try_get_build_children(&id, arg).await? else {
 			return Ok(http::Response::not_found());
 		};
+
+		// Stop the stream when the server stops.
+		let mut stop = request
+			.extensions()
+			.get::<tokio::sync::watch::Receiver<bool>>()
+			.cloned()
+			.unwrap();
+		let stop = async move { stop.wait_for(|stop| *stop).map(|_| ()).await };
+		let stream = stream.take_until(stop);
 
 		// Create the body.
 		let (content_type, body) = match accept

@@ -1,8 +1,5 @@
 use crate as tg;
-use futures::{future, FutureExt as _};
-use http_body_util::BodyExt as _;
 use serde_with::serde_as;
-use std::pin::pin;
 use tangram_http::{incoming::ResponseExt as _, Outgoing};
 
 #[derive(Clone, Debug, derive_more::TryUnwrap, serde::Deserialize)]
@@ -98,7 +95,7 @@ impl tg::Build {
 	where
 		H: tg::Handle,
 	{
-		handle.try_get_build_outcome(self.id(), arg, None).await
+		handle.try_get_build_outcome(self.id(), arg).await
 	}
 
 	pub async fn output<H>(&self, handle: &H) -> tg::Result<tg::Value>
@@ -119,7 +116,6 @@ impl tg::Client {
 		&self,
 		id: &tg::build::Id,
 		arg: tg::build::outcome::Arg,
-		stop: Option<tokio::sync::watch::Receiver<bool>>,
 	) -> tg::Result<Option<Option<tg::build::Outcome>>> {
 		let method = http::Method::GET;
 		let query = serde_urlencoded::to_string(&arg).unwrap();
@@ -139,27 +135,7 @@ impl tg::Client {
 			let error = response.json().await?;
 			return Err(error);
 		}
-		let stop = stop.map_or_else(
-			|| future::pending().left_future(),
-			|mut stop| async move { stop.wait_for(|stop| *stop).map(|_| ()).await }.right_future(),
-		);
-		let outcome = async move {
-			let bytes = response
-				.collect()
-				.await
-				.map_err(|source| tg::error!(!source, "failed to collect the response body"))?
-				.to_bytes();
-			let outcome = serde_json::from_slice(&bytes)
-				.map_err(|source| tg::error!(!source, "failed to deserialize the response body"))?;
-			Ok(outcome)
-		};
-		let stop = stop.map(|()| Ok(None));
-		let outcome = match future::try_select(pin!(outcome), pin!(stop)).await {
-			Ok(future::Either::Left((outcome, _)) | future::Either::Right((outcome, _))) => outcome,
-			Err(future::Either::Left((error, _)) | future::Either::Right((error, _))) => {
-				return Err(error)
-			},
-		};
+		let outcome = response.json().await?;
 		Ok(Some(outcome))
 	}
 }

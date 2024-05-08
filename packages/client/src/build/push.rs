@@ -18,7 +18,7 @@ impl tg::Build {
 			..Default::default()
 		};
 		let children = handle
-			.get_build_children(&self.id, arg, None)
+			.get_build_children(&self.id, arg)
 			.await?
 			.map_ok(|chunk| stream::iter(chunk.items).map(Ok::<_, tg::Error>))
 			.try_flatten()

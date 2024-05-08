@@ -102,7 +102,6 @@ pub trait Handle: Clone + Unpin + Send + Sync + 'static {
 	fn try_dequeue_build(
 		&self,
 		arg: tg::build::dequeue::Arg,
-		stop: Option<tokio::sync::watch::Receiver<bool>>,
 	) -> impl Future<Output = tg::Result<Option<tg::build::dequeue::Output>>> + Send;
 
 	fn try_start_build(
@@ -114,11 +113,10 @@ pub trait Handle: Clone + Unpin + Send + Sync + 'static {
 		&self,
 		id: &tg::build::Id,
 		arg: tg::build::status::Arg,
-		stop: Option<tokio::sync::watch::Receiver<bool>>,
 	) -> impl Future<
 		Output = tg::Result<impl Stream<Item = tg::Result<tg::build::Status>> + Send + 'static>,
 	> + Send {
-		self.try_get_build_status(id, arg, stop).map(|result| {
+		self.try_get_build_status(id, arg).map(|result| {
 			result.and_then(|option| option.ok_or_else(|| tg::error!("failed to get the build")))
 		})
 	}
@@ -127,7 +125,6 @@ pub trait Handle: Clone + Unpin + Send + Sync + 'static {
 		&self,
 		id: &tg::build::Id,
 		arg: tg::build::status::Arg,
-		stop: Option<tokio::sync::watch::Receiver<bool>>,
 	) -> impl Future<
 		Output = tg::Result<
 			Option<impl Stream<Item = tg::Result<tg::build::Status>> + Send + 'static>,
@@ -138,13 +135,12 @@ pub trait Handle: Clone + Unpin + Send + Sync + 'static {
 		&self,
 		id: &tg::build::Id,
 		arg: tg::build::children::Arg,
-		stop: Option<tokio::sync::watch::Receiver<bool>>,
 	) -> impl Future<
 		Output = tg::Result<
 			impl Stream<Item = tg::Result<tg::build::children::Chunk>> + Send + 'static,
 		>,
 	> + Send {
-		self.try_get_build_children(id, arg, stop).map(|result| {
+		self.try_get_build_children(id, arg).map(|result| {
 			result.and_then(|option| option.ok_or_else(|| tg::error!("failed to get the build")))
 		})
 	}
@@ -153,7 +149,6 @@ pub trait Handle: Clone + Unpin + Send + Sync + 'static {
 		&self,
 		id: &tg::build::Id,
 		arg: tg::build::children::Arg,
-		stop: Option<tokio::sync::watch::Receiver<bool>>,
 	) -> impl Future<
 		Output = tg::Result<
 			Option<impl Stream<Item = tg::Result<tg::build::children::Chunk>> + Send + 'static>,
@@ -170,11 +165,10 @@ pub trait Handle: Clone + Unpin + Send + Sync + 'static {
 		&self,
 		id: &tg::build::Id,
 		arg: tg::build::log::Arg,
-		stop: Option<tokio::sync::watch::Receiver<bool>>,
 	) -> impl Future<
 		Output = tg::Result<impl Stream<Item = tg::Result<tg::build::log::Chunk>> + Send + 'static>,
 	> + Send {
-		self.try_get_build_log(id, arg, stop).map(|result| {
+		self.try_get_build_log(id, arg).map(|result| {
 			result.and_then(|option| option.ok_or_else(|| tg::error!("failed to get the build")))
 		})
 	}
@@ -183,7 +177,6 @@ pub trait Handle: Clone + Unpin + Send + Sync + 'static {
 		&self,
 		id: &tg::build::Id,
 		arg: tg::build::log::Arg,
-		stop: Option<tokio::sync::watch::Receiver<bool>>,
 	) -> impl Future<
 		Output = tg::Result<
 			Option<impl Stream<Item = tg::Result<tg::build::log::Chunk>> + Send + 'static>,
@@ -200,9 +193,8 @@ pub trait Handle: Clone + Unpin + Send + Sync + 'static {
 		&self,
 		id: &tg::build::Id,
 		arg: tg::build::outcome::Arg,
-		stop: Option<tokio::sync::watch::Receiver<bool>>,
 	) -> impl Future<Output = tg::Result<Option<tg::build::Outcome>>> + Send {
-		self.try_get_build_outcome(id, arg, stop).map(|result| {
+		self.try_get_build_outcome(id, arg).map(|result| {
 			result.and_then(|option| option.ok_or_else(|| tg::error!("failed to get the build")))
 		})
 	}
@@ -211,7 +203,6 @@ pub trait Handle: Clone + Unpin + Send + Sync + 'static {
 		&self,
 		id: &tg::build::Id,
 		arg: tg::build::outcome::Arg,
-		stop: Option<tokio::sync::watch::Receiver<bool>>,
 	) -> impl Future<Output = tg::Result<Option<Option<tg::build::Outcome>>>> + Send;
 
 	fn finish_build(
