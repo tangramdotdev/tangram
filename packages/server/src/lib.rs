@@ -969,8 +969,8 @@ impl tg::Handle for Server {
 
 	fn lsp(
 		&self,
-		input: Box<dyn AsyncBufRead + Send + Unpin + 'static>,
-		output: Box<dyn AsyncWrite + Send + Unpin + 'static>,
+		input: impl AsyncBufRead + Send + Unpin + 'static,
+		output: impl AsyncWrite + Send + Unpin + 'static,
 	) -> impl Future<Output = tg::Result<()>> {
 		self.lsp(input, output)
 	}

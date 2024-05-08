@@ -96,6 +96,7 @@ enum Command {
 	Root(self::root::Args),
 	Run(self::target::run::Args),
 	Search(self::package::search::Args),
+	Serve(self::server::run::Args),
 	Server(self::server::Args),
 	Tree(self::tree::Args),
 	Update(self::package::update::Args),
@@ -286,6 +287,8 @@ impl Cli {
 		tokio::process::Command::new(executable)
 			.args(["server", "run"])
 			.stdin(std::process::Stdio::null())
+			.stdout(std::process::Stdio::null())
+			.stderr(std::process::Stdio::null())
 			.spawn()
 			.map_err(|source| tg::error!(!source, "failed to spawn the server"))?;
 
@@ -577,6 +580,7 @@ impl Cli {
 			Command::Root(args) => self.command_root(args).boxed(),
 			Command::Run(args) => self.command_run(args).boxed(),
 			Command::Search(args) => self.command_package_search(args).boxed(),
+			Command::Serve(args) => self.command_server_run(args).boxed(),
 			Command::Server(args) => self.command_server(args).boxed(),
 			Command::Tree(args) => self.command_tree(args).boxed(),
 			Command::Update(args) => self.command_package_update(args).boxed(),

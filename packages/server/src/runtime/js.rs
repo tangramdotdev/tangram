@@ -324,16 +324,14 @@ impl Runtime {
 		let mut rejection = state.rejection.subscribe();
 		let rejection = rejection
 			.wait_for(Option::is_some)
-			.map(|result| result.map(|option| option.as_ref().unwrap().clone()));
+			.map(Result::unwrap)
+			.map(|option| option.as_ref().unwrap().clone());
 		let result = match future::select(pin!(future), pin!(rejection)).await {
 			future::Either::Left((result, _)) => result,
-			future::Either::Right((result, _)) => {
-				let error = result.unwrap();
-				Err(tg::error!(
-					source = error,
-					"an unhandled promise rejection occurred"
-				))
-			},
+			future::Either::Right((error, _)) => Err(tg::error!(
+				source = error,
+				"an unhandled promise rejection occurred"
+			)),
 		};
 
 		// Join the log task.

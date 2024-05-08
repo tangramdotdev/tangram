@@ -727,8 +727,8 @@ impl crate::Server {
 
 	pub async fn lsp(
 		&self,
-		input: Box<dyn AsyncBufRead + Send + Unpin + 'static>,
-		output: Box<dyn AsyncWrite + Send + Unpin + 'static>,
+		input: impl AsyncBufRead + Send + Unpin + 'static,
+		output: impl AsyncWrite + Send + Unpin + 'static,
 	) -> tg::Result<()> {
 		let language_server = crate::language::Server::new(self, tokio::runtime::Handle::current());
 		language_server.serve(input, output).await?;
@@ -805,8 +805,7 @@ impl crate::Server {
 					.map_err(|source| tg::error!(!source, "failed to perform the upgrade"))?;
 				let io = hyper_util::rt::TokioIo::new(io);
 				let (input, output) = tokio::io::split(io);
-				let input = Box::new(tokio::io::BufReader::new(input));
-				let output = Box::new(output);
+				let input = tokio::io::BufReader::new(input);
 				let task = handle.lsp(input, output);
 				let stop = stop.wait_for(|stop| *stop);
 				future::select(pin!(task), pin!(stop))

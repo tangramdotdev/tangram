@@ -22,8 +22,8 @@ impl tg::Client {
 
 	pub async fn lsp(
 		&self,
-		mut input: Box<dyn AsyncBufRead + Send + Unpin + 'static>,
-		mut output: Box<dyn AsyncWrite + Send + Unpin + 'static>,
+		mut input: impl AsyncBufRead + Send + Unpin + 'static,
+		mut output: impl AsyncWrite + Send + Unpin + 'static,
 	) -> tg::Result<()> {
 		let mut sender = self.connect_h1().await?;
 		let method = http::Method::POST;

@@ -269,8 +269,8 @@ impl tg::Handle for Server {
 
 	async fn lsp(
 		&self,
-		_input: Box<dyn AsyncBufRead + Send + Unpin + 'static>,
-		_output: Box<dyn AsyncWrite + Send + Unpin + 'static>,
+		_input: impl AsyncBufRead + Send + Unpin + 'static,
+		_output: impl AsyncWrite + Send + Unpin + 'static,
 	) -> tg::Result<()> {
 		Err(tg::error!("forbidden"))
 	}
