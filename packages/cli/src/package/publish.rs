@@ -18,7 +18,7 @@ impl Cli {
 		if let Some(path) = dependency.path.as_mut() {
 			*path = tokio::fs::canonicalize(&path)
 				.await
-				.map_err(|source| tg::error!(!source, "failed to canonicalize the path"))?
+				.map_err(|source| tg::error!(!source, %path, "failed to canonicalize the path"))?
 				.try_into()?;
 		}
 

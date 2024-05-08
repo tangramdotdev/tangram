@@ -1,5 +1,5 @@
 {
-  "root": 8,
+  "root": 9,
   "nodes": [
     {},
     {
@@ -82,6 +82,14 @@
       },
       "{\"name\":\"std\",\"path\":\"../packages/packages/std\"}": {
         "lock": 1
+      }
+    },
+    {
+      "{\"name\":\"std\",\"path\":\"../../../packages/packages/std\"}": {
+        "lock": 1
+      },
+      "{\"name\":\"tangram\",\"path\":\"../..\"}": {
+        "lock": 8
       }
     }
   ]
