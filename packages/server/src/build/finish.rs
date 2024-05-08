@@ -133,7 +133,7 @@ impl Server {
 			let path = self.logs_path().join(id.to_string());
 			tokio::fs::remove_file(path)
 				.await
-				.inspect_err(|error| tg::error!(%error, "failed to remove build log"))
+				.map_err(|source| tg::error!(!source, "failed to remove the build log"))
 				.ok();
 		} else {
 			let p = connection.p();
