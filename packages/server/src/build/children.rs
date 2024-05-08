@@ -106,19 +106,23 @@ impl Server {
 		let stream = stream::try_unfold(
 			(self.clone(), id.clone(), events, state, false),
 			move |(server, id, mut events, state, mut end)| async move {
+				// If the stream should end, return None.
 				if end {
 					return Ok(None);
 				}
 
+				// Check if the length has been reached.
 				let read = state.lock().await.read;
 				if length.is_some_and(|length| read >= length) {
 					return Ok(None);
 				}
 
+				// Wait for the next event.
 				let Some(()) = events.next().await else {
 					return Ok(None);
 				};
 
+				// Get the build status.
 				let arg = tg::build::status::Arg {
 					timeout: Some(std::time::Duration::ZERO),
 				};

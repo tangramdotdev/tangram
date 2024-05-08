@@ -57,13 +57,20 @@ impl Server {
 		let stream = stream::try_unfold(
 			(server, id, events, None, false),
 			move |(server, id, mut events, mut previous, mut end)| async move {
+				// If the stream should end, return None.
 				if end {
 					return Ok(None);
 				}
+
+				// Wait for the next event.
 				let Some(()) = events.next().await else {
 					return Ok(None);
 				};
+
+				// Get the current status.
 				let status = server.try_get_build_status_local_inner(&id).await?;
+
+				// Handle the previous status.
 				if Some(status) == previous {
 					return Ok::<_, tg::Error>(Some((
 						stream::iter(None),
@@ -71,9 +78,12 @@ impl Server {
 					)));
 				}
 				previous = Some(status);
+
+				// If the build is finished, then the stream should end.
 				if status == tg::build::Status::Finished {
 					end = true;
 				}
+
 				Ok::<_, tg::Error>(Some((
 					stream::iter(Some(Ok(status))),
 					(server, id, events, previous, end),
