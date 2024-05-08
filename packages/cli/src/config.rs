@@ -80,6 +80,9 @@ pub struct BuildMonitor {
 
 	/// The build timeout, in seconds. Builds that don't have a heartbeat after this duration will be canceled.
 	pub heartbeat_timeout: f32,
+
+	/// The maximum number of builds that will be reaped at a time.
+	pub heartbeat_limit: Option<u32>,
 }
 
 #[derive(Clone, Debug, Default, serde::Serialize, serde::Deserialize)]

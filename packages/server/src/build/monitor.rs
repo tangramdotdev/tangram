@@ -28,13 +28,13 @@ impl Server {
 		let heartbeat_task = tokio::task::spawn({
 			let server = self.clone();
 			let mut stop = stop.subscribe();
-			let interval = options.interval;
 			let timeout = options.heartbeat_timeout;
+			let interval = options.interval;
+			let limit = options.heartbeat_limit;
 			async move {
-				let mut interval = tokio::time::interval(interval);
 				loop {
 					let stop = stop.wait_for(|s| *s);
-					let tick = interval.tick();
+					let tick = tokio::time::sleep(interval);
 
 					// Wait for either the stop signal or an interval.
 					if let Either::Left(_) = future::select(pin!(stop), pin!(tick)).await {
@@ -43,7 +43,7 @@ impl Server {
 
 					// Reap stale builds if the timeout is set.
 					server
-						.try_reap_builds(timeout)
+						.try_reap_builds(timeout, limit)
 						.await
 						.inspect_err(|error| tracing::error!(%error, "failed to reap builds"))
 						.ok();
@@ -58,10 +58,9 @@ impl Server {
 			let interval = options.interval;
 			let timeout = options.dequeue_timeout;
 			async move {
-				let mut interval = tokio::time::interval(interval);
 				loop {
 					let stop = stop.wait_for(|s| *s);
-					let tick = interval.tick();
+					let tick = tokio::time::sleep(interval);
 
 					// Wait for either the stop signal or an interval.
 					if let Either::Left(_) = future::select(pin!(stop), pin!(tick)).await {
@@ -87,7 +86,7 @@ impl Server {
 		})
 	}
 
-	async fn try_reap_builds(&self, timeout: std::time::Duration) -> tg::Result<()> {
+	async fn try_reap_builds(&self, timeout: std::time::Duration, limit: u32) -> tg::Result<()> {
 		// Get a database connection.
 		let connection = self
 			.database
@@ -108,11 +107,11 @@ impl Server {
 					where
 						heartbeat_at <= {p}1 and
 						status = 'started'
-					limit 100;
+					limit {p}2;
 				"
 			);
 			let time = time::OffsetDateTime::now_utc() - timeout;
-			let params = db::params!(time.format(&Rfc3339).unwrap());
+			let params = db::params![time.format(&Rfc3339).unwrap(), limit];
 			let builds = connection
 				.query_all_into::<Row>(statement, params)
 				.await

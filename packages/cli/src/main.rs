@@ -504,15 +504,15 @@ impl Cli {
 			config
 				.and_then(|config| config.build_monitor.as_ref())
 				.map(|build_monitor| {
-					let heartbeat_timeout = build_monitor.heartbeat_timeout;
+					let interval = build_monitor.interval.unwrap_or(1.0);
 					let dequeue_timeout = build_monitor.dequeue_timeout;
-					let interval = build_monitor
-						.interval
-						.unwrap_or(heartbeat_timeout.min(dequeue_timeout));
+					let heartbeat_timeout = build_monitor.heartbeat_timeout;
+					let heartbeat_limit = build_monitor.heartbeat_limit.unwrap_or(100);
 					tangram_server::options::BuildMonitor {
 						interval: std::time::Duration::from_secs_f32(interval),
 						dequeue_timeout: std::time::Duration::from_secs_f32(heartbeat_timeout),
 						heartbeat_timeout: std::time::Duration::from_secs_f32(dequeue_timeout),
+						heartbeat_limit,
 					}
 				});
 
