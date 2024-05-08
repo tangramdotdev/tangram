@@ -10,7 +10,7 @@ use num::ToPrimitive as _;
 use std::{
 	collections::BTreeMap,
 	ffi::{CStr, CString},
-	fmt::Write,
+	fmt::Write as _,
 	os::unix::ffi::OsStrExt as _,
 };
 use tangram_client as tg;

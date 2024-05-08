@@ -5,7 +5,7 @@ use either::Either;
 use futures::FutureExt as _;
 use itertools::Itertools as _;
 use num::ToPrimitive as _;
-use std::{fmt::Write, path::PathBuf};
+use std::{fmt::Write as _, path::PathBuf};
 use tangram_client as tg;
 use tangram_server::Server;
 use tg::Client;

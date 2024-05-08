@@ -1,7 +1,7 @@
 use crate::{tree::Tree, Cli};
 use crossterm::style::Stylize as _;
 use futures::{stream::FuturesUnordered, StreamExt as _, TryStreamExt as _};
-use std::fmt::Write;
+use std::fmt::Write as _;
 use tangram_client as tg;
 
 /// Display the build tree.
