@@ -405,6 +405,10 @@ impl Cli {
 			.and_then(|config| config.advanced.as_ref())
 			.and_then(|advanced| advanced.file_descriptor_semaphore_size)
 			.unwrap_or(1024);
+		let write_build_logs_to_file = config
+			.and_then(|config| config.advanced.as_ref())
+			.and_then(|advanced| advanced.write_build_logs_to_file)
+			.unwrap_or(false);
 		let write_build_logs_to_stderr = config
 			.and_then(|config| config.advanced.as_ref())
 			.and_then(|advanced| advanced.write_build_logs_to_stderr)
@@ -413,6 +417,7 @@ impl Cli {
 			error_trace_options,
 			file_descriptor_semaphore_size,
 			preserve_temp_directories,
+			write_build_logs_to_file,
 			write_build_logs_to_stderr,
 		};
 

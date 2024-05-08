@@ -60,6 +60,9 @@ pub struct Advanced {
 	pub tokio_console: bool,
 
 	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub write_build_logs_to_file: Option<bool>,
+
+	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub write_build_logs_to_stderr: Option<bool>,
 }
 

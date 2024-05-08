@@ -117,7 +117,8 @@ impl Server {
 		};
 
 		// Create a blob from the log.
-		let log = tg::Blob::with_reader(self, log::Reader::new(self, id).await?, None).await?;
+		let reader = log::Reader::new(self, id).await?;
+		let log = tg::Blob::with_reader(self, reader, None).await?;
 		let log = log.id(self, None).await?;
 
 		// Get a database connection.
@@ -126,6 +127,10 @@ impl Server {
 			.connection()
 			.await
 			.map_err(|source| tg::error!(!source, "failed to get a database connection"))?;
+
+		// Remove the log file if it exists.
+		let path = self.logs_path().join(id.to_string());
+		tokio::fs::remove_file(path).await.ok();
 
 		// Remove the log from the database.
 		let p = connection.p();

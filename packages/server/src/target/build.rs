@@ -160,6 +160,14 @@ impl Server {
 		// Create the build.
 		let build = tg::Build::with_id(build_id.clone());
 
+		// Create the build's log if necessary.
+		if self.options.advanced.write_build_logs_to_file {
+			let path = self.logs_path().join(id.to_string());
+			tokio::fs::File::create(&path).await.map_err(
+				|source| tg::error!(!source, %path = path.display(), "failed to create the log file"),
+			)?;
+		}
+
 		// Add the build to the parent.
 		if let Some(parent) = arg.parent.as_ref() {
 			self.add_build_child(parent, build.id()).await?;
