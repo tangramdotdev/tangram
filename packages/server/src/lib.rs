@@ -2,6 +2,7 @@ use self::{
 	database::{Database, Transaction},
 	messenger::Messenger,
 	runtime::Runtime,
+	util::{fs::remove, task::Stop},
 };
 use async_nats as nats;
 use bytes::Bytes;
@@ -9,22 +10,21 @@ use dashmap::DashMap;
 use either::Either;
 use futures::{
 	future::{self, BoxFuture},
-	Future, FutureExt as _, Stream, TryFutureExt as _,
+	Future, FutureExt as _, Stream,
 };
 use http_body_util::BodyExt as _;
 use hyper_util::rt::{TokioExecutor, TokioIo};
-use indoc::formatdoc;
 use itertools::Itertools as _;
 use std::{
 	collections::HashMap,
 	convert::Infallible,
-	os::fd::{AsRawFd, IntoRawFd as _},
+	os::fd::AsRawFd,
 	path::{Path, PathBuf},
 	pin::pin,
 	sync::Arc,
 };
 use tangram_client as tg;
-use tangram_database::{self as db, prelude::*};
+use tangram_database as db;
 use tangram_http::{Incoming, Outgoing};
 use tokio::{
 	io::{AsyncBufRead, AsyncRead, AsyncWrite, AsyncWriteExt},
@@ -61,6 +61,7 @@ pub struct Server(Arc<Inner>);
 
 pub struct Inner {
 	build_permits: BuildPermits,
+	build_queue_task: std::sync::Mutex<Option<tokio::task::JoinHandle<()>>>,
 	build_semaphore: Arc<tokio::sync::Semaphore>,
 	checkouts: Checkouts,
 	database: Database,
@@ -72,6 +73,8 @@ pub struct Inner {
 	path: PathBuf,
 	remotes: Vec<tg::Client>,
 	runtimes: std::sync::RwLock<HashMap<String, Runtime>>,
+	stop: Stop,
+	task: std::sync::Mutex<Option<future::Shared<BoxFuture<'static, tg::Result<()>>>>>,
 	vfs: std::sync::Mutex<Option<self::vfs::Server>>,
 }
 
@@ -109,22 +112,6 @@ impl Server {
 			.await
 			.map_err(|source| tg::error!(!source, "failed to create the directory"))?;
 
-		// Redirect stdout and std to the log file.
-		let log_path = path.join("log");
-		let log = std::fs::File::create(log_path)
-			.map_err(|source| tg::error!(!source, "failed to create the log file"))?;
-		let log = log.into_raw_fd();
-		let ret = unsafe { libc::dup2(log, libc::STDOUT_FILENO) };
-		if ret == -1 {
-			let source = std::io::Error::last_os_error();
-			return Err(tg::error!(!source, "failed to dup stdout to the log file"));
-		}
-		let ret = unsafe { libc::dup2(log, libc::STDERR_FILENO) };
-		if ret == -1 {
-			let source = std::io::Error::last_os_error();
-			return Err(tg::error!(!source, "failed to dup stderr to the log file"));
-		}
-
 		// Lock the lock file.
 		let lock_path = path.join("lock");
 		let mut lock_file = tokio::fs::OpenOptions::new()
@@ -134,6 +121,9 @@ impl Server {
 			.truncate(true)
 			.open(lock_path)
 			.await
+			.inspect_err(|e| {
+				dbg!(e);
+			})
 			.map_err(|source| tg::error!(!source, "failed to open the lock file"))?;
 		let ret = unsafe { libc::flock(lock_file.as_raw_fd(), libc::LOCK_EX | libc::LOCK_NB) };
 		if ret != 0 {
@@ -177,10 +167,14 @@ impl Server {
 			.map_err(|source| tg::error!(!source, "failed to create the tmp directory"))?;
 
 		// Remove an existing socket file.
-		tokio::fs::remove_dir_all(&path.join("socket")).await.ok();
+		let socket_path = path.join("socket");
+		tokio::fs::remove_file(&socket_path).await.ok();
 
 		// Create the build permits.
 		let build_permits = DashMap::default();
+
+		// Create the build queue task.
+		let build_queue_task = std::sync::Mutex::new(None);
 
 		// Create the build semaphore.
 		let permits = options
@@ -249,12 +243,17 @@ impl Server {
 		// Create the runtimes.
 		let runtimes = std::sync::RwLock::new(HashMap::default());
 
+		// Create the task.
+		let stop = Stop::new();
+		let task = std::sync::Mutex::new(None);
+
 		// Create the vfs.
 		let vfs = std::sync::Mutex::new(None);
 
 		// Create the server.
 		let server = Self(Arc::new(Inner {
 			build_permits,
+			build_queue_task,
 			build_semaphore,
 			checkouts,
 			database,
@@ -266,33 +265,36 @@ impl Server {
 			path,
 			remotes,
 			runtimes,
+			stop,
+			task,
 			vfs,
 		}));
 
-		// Cancel unfinished builds.
-		if let Either::Left(database) = &server.database {
-			let connection = database
-				.connection()
-				.await
-				.map_err(|source| tg::error!(!source, "failed to get a database connection"))?;
-			let statement = formatdoc!(
-				r#"
-					update builds
-					set
-						outcome = '{{"kind":"canceled"}}',
-						status = 'finished'
-					where status != 'finished';
-				"#
-			);
-			let params = db::params![];
-			connection
-				.execute(statement, params)
-				.map_err(|source| tg::error!(!source, "failed to execute the statement"))
-				.await?;
-		}
+		// Start the task.
+		let task = tokio::spawn({
+			let server = server.clone();
+			async move { server.task().await }
+		})
+		.map(Result::unwrap)
+		.boxed()
+		.shared();
+		server.task.lock().unwrap().replace(task);
 
+		Ok(server)
+	}
+
+	pub fn stop(&self) {
+		self.stop.stop();
+	}
+
+	pub async fn wait(&self) -> tg::Result<()> {
+		let future = self.task.lock().unwrap().clone().unwrap();
+		future.await
+	}
+
+	pub async fn task(&self) -> tg::Result<()> {
 		// Start the VFS if necessary.
-		let artifacts_path = server.artifacts_path();
+		let artifacts_path = self.artifacts_path();
 		let kind = if cfg!(target_os = "macos") {
 			vfs::Kind::Nfs
 		} else if cfg!(target_os = "linux") {
@@ -300,15 +302,15 @@ impl Server {
 		} else {
 			unreachable!()
 		};
-		if server.options.vfs {
+		if self.options.vfs {
 			// If the VFS is enabled, then start the VFS server.
-			let vfs = self::vfs::Server::start(&server, kind, &artifacts_path)
+			let vfs = self::vfs::Server::start(self, kind, &artifacts_path)
 				.await
 				.map_err(|source| tg::error!(!source, "failed to start the VFS"))?;
-			server.vfs.lock().unwrap().replace(vfs);
+			self.vfs.lock().unwrap().replace(vfs);
 		} else {
 			// Otherwise, create a symlink from the artifacts directory to the checkouts directory.
-			tokio::fs::remove_dir_all(&artifacts_path).await.ok();
+			remove(&artifacts_path).await.ok();
 			tokio::fs::symlink("checkouts", artifacts_path)
 				.await
 				.map_err(|source|tg::error!(!source, "failed to create a symlink from the artifacts directory to the checkouts directory"))?;
@@ -316,72 +318,71 @@ impl Server {
 
 		// Add the runtimes.
 		let triple = "js".to_owned();
-		let runtime = self::runtime::Runtime::Js(self::runtime::js::Runtime::new(&server));
-		server.runtimes.write().unwrap().insert(triple, runtime);
+		let runtime = self::runtime::Runtime::Js(self::runtime::js::Runtime::new(self));
+		self.runtimes.write().unwrap().insert(triple, runtime);
 		#[cfg(all(target_arch = "aarch64", target_os = "macos"))]
 		{
 			let triple = "aarch64-darwin".to_owned();
-			let runtime =
-				self::runtime::Runtime::Darwin(self::runtime::darwin::Runtime::new(&server));
-			server.runtimes.write().unwrap().insert(triple, runtime);
+			let runtime = self::runtime::Runtime::Darwin(self::runtime::darwin::Runtime::new(self));
+			self.runtimes.write().unwrap().insert(triple, runtime);
 		}
 		#[cfg(all(target_arch = "aarch64", target_os = "linux"))]
 		{
 			let triple = "aarch64-linux".to_owned();
 			let runtime =
-				self::runtime::Runtime::Linux(self::runtime::linux::Runtime::new(&server).await?);
-			server.runtimes.write().unwrap().insert(triple, runtime);
+				self::runtime::Runtime::Linux(self::runtime::linux::Runtime::new(self).await?);
+			self.runtimes.write().unwrap().insert(triple, runtime);
 		}
 		#[cfg(all(target_arch = "x86_64", target_os = "macos"))]
 		{
 			let triple = "x86_64-darwin".to_owned();
-			let runtime =
-				self::runtime::Runtime::Darwin(self::runtime::darwin::Runtime::new(&server));
-			server.runtimes.write().unwrap().insert(triple, runtime);
+			let runtime = self::runtime::Runtime::Darwin(self::runtime::darwin::Runtime::new(self));
+			self.runtimes.write().unwrap().insert(triple, runtime);
 		}
 		#[cfg(all(target_arch = "x86_64", target_os = "linux"))]
 		{
 			let triple = "x86_64-linux".to_owned();
 			let runtime =
-				self::runtime::Runtime::Linux(self::runtime::linux::Runtime::new(&server).await?);
-			server.runtimes.write().unwrap().insert(triple, runtime);
+				self::runtime::Runtime::Linux(self::runtime::linux::Runtime::new(self).await?);
+			self.runtimes.write().unwrap().insert(triple, runtime);
 		}
 
-		// Spawn the build task.
-		if server.options.build.is_some() {
-			tokio::spawn({
-				let server = server.clone();
+		// Start the build queue task.
+		if self.options.build.is_some() {
+			let task = tokio::spawn({
+				let server = self.clone();
 				async move { server.run_build_queue().await }
 			});
+			self.build_queue_task.lock().unwrap().replace(task);
 		}
 
-		// Spawn the http task.
-		let (_, http_stop_receiver) = tokio::sync::watch::channel(false);
-		tokio::spawn(Self::serve(
-			server.clone(),
-			server.options.url.clone(),
-			http_stop_receiver,
-		));
+		// Serve.
+		Self::serve(self.clone(), self.options.url.clone(), self.stop.clone()).await?;
 
-		Ok(server)
-	}
+		// Stop the build queue task.
+		let option = self.build_queue_task.lock().unwrap().take();
+		if let Some(task) = option {
+			task.abort();
+			task.await.ok();
+		}
 
-	pub fn stop(&self) {
-		let server = self.clone();
-		tokio::spawn(async move {
-			// Remove the runtimes.
-			server.runtimes.write().unwrap().clear();
+		// Remove the runtimes.
+		self.runtimes.write().unwrap().clear();
 
-			// Release the lock file.
-			let lock_file = server.lock_file.lock().unwrap().take();
-			if let Some(lock_file) = lock_file {
-				lock_file.set_len(0).await.ok();
-			}
-		});
-	}
+		// Stop the VFS.
+		let vfs = self.vfs.lock().unwrap().take();
+		if let Some(vfs) = vfs {
+			vfs.stop();
+			vfs.wait().await;
+		}
 
-	pub async fn wait(&self) {
-		tokio::time::sleep(std::time::Duration::from_secs(1_000_000)).await;
+		// Release the lock file.
+		let lock_file = self.lock_file.lock().unwrap().take();
+		if let Some(lock_file) = lock_file {
+			lock_file.set_len(0).await.ok();
+		}
+
+		Ok(())
 	}
 
 	#[must_use]
@@ -416,16 +417,12 @@ impl Server {
 }
 
 impl Server {
-	async fn serve<H>(
-		handle: H,
-		url: Url,
-		mut stop: tokio::sync::watch::Receiver<bool>,
-	) -> tg::Result<()>
+	async fn serve<H>(handle: H, url: Url, stop: Stop) -> tg::Result<()>
 	where
 		H: tg::Handle,
 	{
-		// Create the tasks.
-		let mut tasks = tokio::task::JoinSet::new();
+		// Create the task tracker.
+		let task_tracker = tokio_util::task::TaskTracker::new();
 
 		// Create the listener.
 		let listener = match url.scheme() {
@@ -435,7 +432,7 @@ impl Server {
 					.map_err(|source| tg::error!(!source, "invalid url"))?;
 				let path = Path::new(path.as_ref());
 				let listener = UnixListener::bind(path)
-					.map_err(|source| tg::error!(!source, "failed to create the UNIX listener"))?;
+					.map_err(|source| tg::error!(!source, "failed to bind"))?;
 				tokio_util::either::Either::Left(listener)
 			},
 			"http" => {
@@ -445,7 +442,7 @@ impl Server {
 					.ok_or_else(|| tg::error!("invalid url"))?;
 				let listener = TcpListener::bind(format!("{host}:{port}"))
 					.await
-					.map_err(|source| tg::error!(!source, "failed to create the TCP listener"))?;
+					.map_err(|source| tg::error!(!source, "failed to bind"))?;
 				tokio_util::either::Either::Right(listener)
 			},
 			_ => {
@@ -482,8 +479,7 @@ impl Server {
 				};
 				Ok::<_, tg::Error>(TokioIo::new(stream))
 			};
-			let stop_ = stop.wait_for(|stop| *stop).map(|_| ());
-			let stream = match future::select(pin!(accept), pin!(stop_)).await {
+			let stream = match future::select(pin!(accept), pin!(stop.stopped())).await {
 				future::Either::Left((result, _)) => result?,
 				future::Either::Right(((), _)) => {
 					break;
@@ -506,14 +502,14 @@ impl Server {
 			});
 
 			// Spawn a task to serve the connection.
-			tasks.spawn({
-				let mut stop = stop.clone();
+			task_tracker.spawn({
+				let stop = stop.clone();
 				async move {
 					let builder =
 						hyper_util::server::conn::auto::Builder::new(TokioExecutor::new());
 					let connection = builder.serve_connection_with_upgrades(stream, service);
-					let stop = stop.wait_for(|stop| *stop).map(|_| ());
-					let result = match future::select(pin!(connection), pin!(stop)).await {
+					let result = match future::select(pin!(connection), pin!(stop.stopped())).await
+					{
 						future::Either::Left((result, _)) => result,
 						future::Either::Right(((), mut connection)) => {
 							connection.as_mut().graceful_shutdown();
@@ -525,10 +521,9 @@ impl Server {
 			});
 		}
 
-		// Join all tasks.
-		while let Some(result) = tasks.join_next().await {
-			result.unwrap();
-		}
+		// Wait for all tasks to complete.
+		task_tracker.close();
+		task_tracker.wait().await;
 
 		Ok(())
 	}

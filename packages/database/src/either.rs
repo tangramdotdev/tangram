@@ -1,6 +1,8 @@
 use crate::{Connection, Database, Query, Row, Transaction, Value};
 use either::Either;
-use futures::{Future, FutureExt, Stream, StreamExt as _, TryFutureExt, TryStreamExt as _};
+use futures::{
+	Future, FutureExt as _, Stream, StreamExt as _, TryFutureExt as _, TryStreamExt as _,
+};
 
 #[derive(Debug, derive_more::Display, derive_more::Error, derive_more::From)]
 pub enum Error<L, R> {

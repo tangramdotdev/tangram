@@ -33,14 +33,14 @@ impl Cli {
 			Command::Health(args) => {
 				self.command_server_health(args).await?;
 			},
+			Command::Run(args) => {
+				self.command_server_run(args).await?;
+			},
 			Command::Start(args) => {
 				self.command_server_start(args).await?;
 			},
 			Command::Stop(args) => {
 				self.command_server_stop(args).await?;
-			},
-			Command::Run(args) => {
-				self.command_server_run(args).await?;
 			},
 		}
 		Ok(())

@@ -190,7 +190,9 @@ impl Server {
 			.get::<tokio::sync::watch::Receiver<bool>>()
 			.cloned()
 			.unwrap();
-		let stop = async move { stop.wait_for(|stop| *stop).map(|_| ()).await };
+		let stop = async move {
+			stop.wait_for(|stop| *stop).await.unwrap();
+		};
 		let stream = stream.take_until(stop);
 
 		// Create the body.

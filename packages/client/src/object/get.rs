@@ -6,7 +6,6 @@ use tangram_http::{incoming::ResponseExt as _, Outgoing};
 #[serde_as]
 #[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
 pub struct Output {
-	#[serde_as(as = "crate::util::serde::BytesBase64")]
 	pub bytes: Bytes,
 	pub count: Option<u64>,
 	pub weight: Option<u64>,

@@ -1,7 +1,7 @@
 use crate as tg;
 use bytes::Bytes;
 use either::Either;
-use futures::{Future, FutureExt, Stream};
+use futures::{Future, FutureExt as _, Stream};
 use tokio::io::{AsyncBufRead, AsyncRead, AsyncWrite};
 
 impl<L, R> tg::Handle for Either<L, R>

@@ -1,4 +1,4 @@
-use crate::Server;
+use crate::{util::fs::remove, Server};
 use futures::FutureExt as _;
 use std::path::{Path, PathBuf};
 
@@ -29,7 +29,7 @@ impl AsRef<Path> for Tmp {
 impl Drop for Tmp {
 	fn drop(&mut self) {
 		if !self.preserve {
-			tokio::spawn(tokio::fs::remove_dir_all(self.path.clone()).map(|_| ()));
+			tokio::spawn(remove(self.path.clone()).map(|_| ()));
 		}
 	}
 }

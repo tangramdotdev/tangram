@@ -1,5 +1,5 @@
 use super::{proxy, util::render};
-use crate::{tmp::Tmp, Server};
+use crate::{tmp::Tmp, util::task::Stop, Server};
 use bytes::Bytes;
 use futures::{
 	stream::{FuturesOrdered, FuturesUnordered},
@@ -114,7 +114,7 @@ impl Runtime {
 
 		// Start the proxy server.
 		let proxy = proxy::Server::new(server.clone(), build.id().clone(), None);
-		let (_, stop) = tokio::sync::watch::channel(false);
+		let stop = Stop::new();
 		let proxy_task = tokio::spawn(Server::serve(proxy, proxy_server_url.clone(), stop));
 
 		// Render the executable.

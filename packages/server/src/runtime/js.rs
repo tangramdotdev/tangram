@@ -6,7 +6,7 @@ use crate::Server;
 use futures::{
 	future::{self, LocalBoxFuture},
 	stream::FuturesUnordered,
-	Future, FutureExt as _, StreamExt as _,
+	Future, FutureExt as _, StreamExt as _, TryFutureExt as _,
 };
 use num::ToPrimitive as _;
 use sourcemap::SourceMap;
@@ -324,8 +324,8 @@ impl Runtime {
 		let mut rejection = state.rejection.subscribe();
 		let rejection = rejection
 			.wait_for(Option::is_some)
-			.map(Result::unwrap)
-			.map(|option| option.as_ref().unwrap().clone());
+			.map_ok(|option| option.as_ref().unwrap().clone())
+			.map(Result::unwrap);
 		let result = match future::select(pin!(future), pin!(rejection)).await {
 			future::Either::Left((result, _)) => result,
 			future::Either::Right((error, _)) => Err(tg::error!(
@@ -450,7 +450,7 @@ fn resolve_module(
 	let context = scope.get_current_context();
 	let state = context.get_slot::<Rc<State>>(scope).unwrap().clone();
 
-	let (sender, receiver) = std::sync::mpsc::channel();
+	let (sender, receiver) = tokio::sync::oneshot::channel();
 	state.main_runtime_handle.spawn({
 		let language_server = state.language_server.clone();
 		let module = module.clone();
@@ -461,9 +461,11 @@ fn resolve_module(
 		}
 	});
 
-	let module = match receiver.recv().unwrap().map_err(
-		|source| tg::error!(!source, %import, %module, "failed to resolve import relative to module"),
-	) {
+	let module = match tokio::task::block_in_place(|| receiver.blocking_recv())
+		.unwrap()
+		.map_err(
+			|source| tg::error!(!source, %import, %module, "failed to resolve import relative to module"),
+		) {
 		Ok(module) => module,
 		Err(error) => {
 			let exception = error::to_exception(scope, &error);
@@ -471,6 +473,7 @@ fn resolve_module(
 			return None;
 		},
 	};
+
 	Some(module)
 }
 
@@ -518,7 +521,7 @@ fn load_module<'s>(
 	);
 
 	// Load the module.
-	let (sender, receiver) = std::sync::mpsc::channel();
+	let (sender, receiver) = tokio::sync::oneshot::channel();
 	state.main_runtime_handle.spawn({
 		let language_server = state.language_server.clone();
 		let module = module.clone();
@@ -527,11 +530,10 @@ fn load_module<'s>(
 			sender.send(result).unwrap();
 		}
 	});
-	let text = match receiver
-		.recv()
+	let result = tokio::task::block_in_place(|| receiver.blocking_recv())
 		.unwrap()
-		.map_err(|source| tg::error!(!source, %module, "failed to load module"))
-	{
+		.map_err(|source| tg::error!(!source, %module, "failed to load the module"));
+	let text = match result {
 		Ok(text) => text,
 		Err(error) => {
 			let exception = error::to_exception(scope, &error);

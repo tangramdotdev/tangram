@@ -3,7 +3,9 @@ use futures::{stream::FuturesUnordered, TryStreamExt as _};
 use indoc::formatdoc;
 use tangram_client as tg;
 use tangram_database::{self as db, prelude::*};
-use tangram_http::{incoming::RequestExt as _, outgoing::ResponseBuilderExt, Incoming, Outgoing};
+use tangram_http::{
+	incoming::RequestExt as _, outgoing::ResponseBuilderExt as _, Incoming, Outgoing,
+};
 use time::format_description::well_known::Rfc3339;
 
 impl Server {

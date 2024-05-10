@@ -1,6 +1,6 @@
 use crate::Server;
 use tangram_client as tg;
-use tangram_http::{outgoing::ResponseBuilderExt, Incoming, Outgoing};
+use tangram_http::{outgoing::ResponseBuilderExt as _, Incoming, Outgoing};
 
 impl Server {
 	pub async fn health(&self) -> tg::Result<tg::server::Health> {

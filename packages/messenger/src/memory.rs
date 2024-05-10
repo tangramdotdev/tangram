@@ -2,7 +2,8 @@ use crate::Message;
 use bytes::Bytes;
 use dashmap::DashMap;
 use futures::{
-	future, stream::FuturesUnordered, Future, FutureExt as _, Stream, StreamExt, TryStreamExt,
+	future, stream::FuturesUnordered, Future, FutureExt as _, Stream, StreamExt as _,
+	TryStreamExt as _,
 };
 use std::{convert::Infallible, sync::Arc};
 

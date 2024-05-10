@@ -1,9 +1,9 @@
-use crate::{tmp::Tmp, Server};
+use crate::{tmp::Tmp, util::fs::remove, Server};
 use dashmap::DashMap;
-use futures::{stream::FuturesUnordered, FutureExt, TryStreamExt as _};
+use futures::{stream::FuturesUnordered, FutureExt as _, TryStreamExt as _};
 use std::{os::unix::fs::PermissionsExt as _, sync::Arc};
 use tangram_client as tg;
-use tangram_http::{incoming::RequestExt, Incoming, Outgoing};
+use tangram_http::{incoming::RequestExt as _, Incoming, Outgoing};
 
 impl Server {
 	pub async fn check_out_artifact(
@@ -136,7 +136,7 @@ impl Server {
 				Err(ref error)
 					if matches!(error.raw_os_error(), Some(libc::ENOTEMPTY | libc::EEXIST)) =>
 				{
-					tokio::fs::remove_dir_all(&tmp).await.ok();
+					remove(&tmp).await.ok();
 				},
 
 				// Otherwise, return the error.
@@ -251,7 +251,7 @@ impl Server {
 					.map(|(name, _)| async move {
 						if !directory.entries(self).await?.contains_key(name) {
 							let entry_path = path.clone().join(name);
-							tokio::fs::remove_dir_all(&entry_path).await.ok();
+							remove(&entry_path).await.ok();
 						}
 						Ok::<_, tg::Error>(())
 					})
@@ -262,7 +262,7 @@ impl Server {
 
 			// If there is an existing file system object at the path and it is not a directory, then remove it, create a directory, and continue.
 			Some(_) => {
-				tokio::fs::remove_dir_all(path).await.ok();
+				remove(path).await.ok();
 				tokio::fs::create_dir_all(path)
 					.await
 					.map_err(|source| tg::error!(!source, "failed to create the directory"))?;
@@ -330,7 +330,7 @@ impl Server {
 		match &existing_artifact {
 			// If there is an existing file system object at the path, then remove it and continue.
 			Some(_) => {
-				tokio::fs::remove_dir_all(path).await.ok();
+				remove(path).await.ok();
 			},
 
 			// If there is no file system object at this path, then continue.
@@ -452,7 +452,7 @@ impl Server {
 		match &existing_artifact {
 			// If there is an existing file system object at the path, then remove it and continue.
 			Some(_) => {
-				tokio::fs::remove_dir_all(&path).await.ok();
+				remove(&path).await.ok();
 			},
 
 			// If there is no file system object at this path, then continue.

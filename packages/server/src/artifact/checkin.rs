@@ -4,7 +4,9 @@ use std::os::unix::fs::PermissionsExt as _;
 use tangram_client as tg;
 use tangram_database as db;
 use tangram_database::prelude::*;
-use tangram_http::{incoming::RequestExt, outgoing::ResponseBuilderExt as _, Incoming, Outgoing};
+use tangram_http::{
+	incoming::RequestExt as _, outgoing::ResponseBuilderExt as _, Incoming, Outgoing,
+};
 
 impl Server {
 	pub async fn check_in_artifact(

@@ -1,9 +1,13 @@
+use crate::util::task::Stop;
 use dashmap::DashMap;
 use either::Either;
+use futures::{
+	future::{self, BoxFuture},
+	FutureExt as _,
+};
 use num::ToPrimitive as _;
 use std::{
 	ffi::CString,
-	io::SeekFrom,
 	os::unix::ffi::OsStrExt as _,
 	path::{Path, PathBuf},
 	sync::{Arc, Weak},
@@ -13,27 +17,23 @@ use tangram_fuse::sys;
 use tokio::io::{AsyncReadExt as _, AsyncSeekExt as _};
 use zerocopy::{AsBytes as _, FromBytes as _};
 
-/// A FUSE server.
 #[derive(Clone)]
 pub struct Server(Arc<Inner>);
 
 pub struct Inner {
-	dev_fuse_fd: std::os::fd::RawFd,
 	handle_index: std::sync::atomic::AtomicU64,
 	handles: DashMap<FileHandle, Arc<tokio::sync::RwLock<FileHandleData>>, fnv::FnvBuildHasher>,
 	node_index: std::sync::atomic::AtomicU64,
 	nodes: DashMap<NodeId, Arc<Node>, fnv::FnvBuildHasher>,
 	path: std::path::PathBuf,
 	server: crate::Server,
-	stop_task: std::sync::Mutex<Option<tokio::task::JoinHandle<()>>>,
-	task: std::sync::Mutex<Option<tokio::task::JoinHandle<()>>>,
+	stop: Stop,
+	task: std::sync::Mutex<Option<future::Shared<BoxFuture<'static, ()>>>>,
 }
 
-/// A node in the file system.
 #[derive(Clone, Copy, Debug, Eq, Ord, PartialEq, PartialOrd, Hash)]
 struct NodeId(u64);
 
-/// The root node has ID 1.
 const ROOT_NODE_ID: NodeId = NodeId(1);
 
 /// A node.
@@ -44,7 +44,6 @@ struct Node {
 	kind: NodeKind,
 }
 
-/// An node's kind.
 #[derive(Debug)]
 enum NodeKind {
 	Root {
@@ -91,6 +90,7 @@ struct Request {
 #[derive(Clone, Debug)]
 enum RequestData {
 	BatchForget(sys::fuse_batch_forget_in),
+	Destroy,
 	Flush(sys::fuse_flush_in),
 	Forget(sys::fuse_forget_in),
 	GetAttr(sys::fuse_getattr_in),
@@ -118,7 +118,6 @@ enum Response {
 	Init(sys::fuse_init_out),
 	ListXattr(Vec<u8>),
 	Lookup(sys::fuse_entry_out),
-	None,
 	Open(sys::fuse_open_out),
 	OpenDir(sys::fuse_open_out),
 	Read(Vec<u8>),
@@ -131,9 +130,6 @@ enum Response {
 
 impl Server {
 	pub async fn start(server: &crate::Server, path: &Path) -> tg::Result<Self> {
-		// Mount.
-		let dev_fuse_fd = Self::mount(path).await?;
-
 		// Create the server.
 		let root = Arc::new_cyclic(|root| Node {
 			id: ROOT_NODE_ID,
@@ -150,17 +146,16 @@ impl Server {
 		let handle_index = std::sync::atomic::AtomicU64::new(0);
 		let path = path.to_owned();
 		let server = server.clone();
-		let stop_task = std::sync::Mutex::new(None);
+		let stop = Stop::new();
 		let task = std::sync::Mutex::new(None);
 		let server = Self(Arc::new(Inner {
-			dev_fuse_fd,
 			handle_index,
 			handles,
 			node_index,
 			nodes,
 			path,
 			server,
-			stop_task,
+			stop,
 			task,
 		}));
 
@@ -169,233 +164,297 @@ impl Server {
 			let server = server.clone();
 			move || {
 				server
-					.serve()
-					.inspect_err(|error| tracing::error!(%error, "server task failed."))
+					.task()
+					.inspect_err(|error| tracing::error!(%error))
 					.ok();
 			}
-		});
+		})
+		.map(Result::unwrap)
+		.boxed()
+		.shared();
 		server.task.lock().unwrap().replace(task);
 
 		Ok(server)
 	}
 
 	pub fn stop(&self) {
-		// Unmount.
-		let task = tokio::task::spawn({
-			let path = self.path.clone();
-			async move {
-				Self::unmount(&path)
-					.await
-					.inspect_err(|error| tracing::error!(%error, "failed to unmount"))
-					.ok();
-			}
-		});
-		self.stop_task.lock().unwrap().replace(task);
+		self.stop.stop();
 	}
 
-	pub async fn wait(&self) -> tg::Result<()> {
-		// Wait for fuse to be unmounted.
-		let stop_task = self.stop_task.lock().unwrap().take();
-		if let Some(stop_task) = stop_task {
-			stop_task.await.ok();
-		}
-
-		// Join the task.
-		let task = self.task.lock().unwrap().take();
-		if let Some(task) = task {
-			match task.await {
-				Ok(()) => Ok(()),
-				Err(error) if error.is_cancelled() => Ok(()),
-				Err(source) => Err(tg::error!(%source, "task failed")),
-			}?;
-		}
-
-		// Close /dev/fuse.
-		unsafe {
-			libc::close(self.dev_fuse_fd);
-		}
-
-		Ok(())
+	pub async fn wait(&self) {
+		let future = self.task.lock().unwrap().clone().unwrap();
+		future.await;
 	}
 
-	fn serve(&self) -> tg::Result<()> {
-		// Create a buffer to read requests into.
-		let mut request_buffer = vec![0u8; 1024 * 1024 + 4096];
+	fn task(&self) -> tg::Result<()> {
+		// Mount.
+		let fd = Self::mount(&self.path)?;
+
+		// Create the task tracker.
+		let task_tracker = tokio_util::task::TaskTracker::new();
+
+		// Create the request buffer.
+		let mut buffer = vec![0u8; 1024 * 1024 + 4096];
 
 		// Handle each request.
 		loop {
-			// Read the request size.
-			let request_size = unsafe {
-				libc::read(
-					self.dev_fuse_fd,
-					request_buffer.as_mut_ptr().cast(),
-					request_buffer.len(),
-				)
-			};
-			if request_size < 0 {
-				let error = std::io::Error::last_os_error();
-				match error.raw_os_error() {
-					Some(libc::ENOENT | libc::EINTR | libc::EAGAIN) => continue,
-					Some(libc::ENODEV) => return Ok(()),
-					_ => return Err(tg::error!(source = error, "failed to read the request")),
-				}
+			// Check if the server should stop.
+			if self.stop.is_stopped() {
+				break;
 			}
-			let request_size = request_size.to_usize().unwrap();
-			let request_bytes = &request_buffer[..request_size];
+
+			// Read a request.
+			let Some(bytes) = Self::read_request(fd, &mut buffer)? else {
+				break;
+			};
 
 			// Deserialize the request.
-			let request_header = sys::fuse_in_header::read_from_prefix(request_bytes)
-				.ok_or_else(|| tg::error!("failed to deserialize the request header"))?;
-			let request_header_len = std::mem::size_of::<sys::fuse_in_header>();
-			let request_data = &request_bytes[request_header_len..];
-			let request_data = match request_header.opcode {
-				sys::fuse_opcode::FUSE_DESTROY => {
-					break;
-				},
-				sys::fuse_opcode::FUSE_FLUSH => RequestData::Flush(read_data(request_data)?),
-				sys::fuse_opcode::FUSE_FORGET => RequestData::Forget(read_data(request_data)?),
-				sys::fuse_opcode::FUSE_BATCH_FORGET => {
-					RequestData::BatchForget(read_data(request_data)?)
-				},
-				sys::fuse_opcode::FUSE_GETATTR => RequestData::GetAttr(read_data(request_data)?),
-				sys::fuse_opcode::FUSE_INIT => RequestData::Init(read_data(request_data)?),
-				sys::fuse_opcode::FUSE_LOOKUP => {
-					let data =
-						CString::from_vec_with_nul(request_data.to_owned()).map_err(|error| {
-							tg::error!(source = error, "failed to deserialize the request")
-						})?;
-					RequestData::Lookup(data)
-				},
-				sys::fuse_opcode::FUSE_OPEN => RequestData::Open(read_data(request_data)?),
-				sys::fuse_opcode::FUSE_OPENDIR => RequestData::OpenDir(read_data(request_data)?),
-				sys::fuse_opcode::FUSE_READ => RequestData::Read(read_data(request_data)?),
-				sys::fuse_opcode::FUSE_READDIR => RequestData::ReadDir(read_data(request_data)?),
-				sys::fuse_opcode::FUSE_READDIRPLUS => {
-					RequestData::ReadDirPlus(read_data(request_data)?)
-				},
-				sys::fuse_opcode::FUSE_READLINK => RequestData::ReadLink,
-				sys::fuse_opcode::FUSE_RELEASE => RequestData::Release(read_data(request_data)?),
-				sys::fuse_opcode::FUSE_RELEASEDIR => {
-					RequestData::ReleaseDir(read_data(request_data)?)
-				},
-				sys::fuse_opcode::FUSE_GETXATTR => {
-					let (fuse_getxattr_in, name) =
-						request_data.split_at(std::mem::size_of::<sys::fuse_getxattr_in>());
-					let fuse_getxattr_in = read_data(fuse_getxattr_in)?;
-					let name = CString::from_vec_with_nul(name.to_owned()).map_err(|error| {
-						tg::error!(source = error, "failed to deserialize the request")
-					})?;
-					RequestData::GetXattr(fuse_getxattr_in, name)
-				},
-				sys::fuse_opcode::FUSE_LISTXATTR => {
-					RequestData::ListXattr(read_data(request_data)?)
-				},
-				_ => RequestData::Unsupported(request_header.opcode),
-			};
-			let request = Request {
-				header: request_header,
-				data: request_data,
-			};
+			let request = Self::deserialize_request(bytes)?;
 
 			// Spawn a task to handle the request.
 			let server = self.clone();
-			tokio::spawn(async move {
-				// Handle the request and get the response.
+			task_tracker.spawn(async move {
+				// Get the unique identifier for the request.
 				let unique = request.header.unique;
-				// Edge case: Don't send a reply if the kernel sends a FUSE_FORGET/FUSE_BATCH_FORGET request. We don't support these requests anyway (we cannot forget inodes, and duplicate inodes pointing to the same artifact are OK).
-				if [
-					sys::fuse_opcode::FUSE_FORGET,
-					sys::fuse_opcode::FUSE_BATCH_FORGET,
-				]
-				.contains(&request.header.opcode)
-				{
-					tracing::warn!(?request, "ignoring FORGET/FORGET_BATCH request");
-					return;
-				}
 
+				// Handle the request.
 				let result = server.handle_request(request).await.inspect_err(|error| {
 					tracing::error!(?error, "request failed");
 				});
 
-				// Serialize the response.
-				match result {
+				// Handle an error.
+				let response = match result {
+					Ok(response) => response,
 					Err(error) => {
-						let len = std::mem::size_of::<sys::fuse_out_header>();
-						let header = sys::fuse_out_header {
-							unique,
-							len: len.to_u32().unwrap(),
-							error: -error,
-						};
-						let header = header.as_bytes();
-						let iov = [libc::iovec {
-							iov_base: header.as_bytes().as_ptr() as *mut _,
-							iov_len: header.len(),
-						}];
-						unsafe {
-							libc::writev(server.dev_fuse_fd, iov.as_ptr(), 1);
-						}
-					},
-					Ok(data) => {
-						let data = match &data {
-							Response::Flush
-							| Response::None
-							| Response::Release
-							| Response::ReleaseDir => &[],
-							Response::GetAttr(data) => data.as_bytes(),
-							Response::Init(data) => data.as_bytes(),
-							Response::Lookup(data) => data.as_bytes(),
-							Response::Open(data) | Response::OpenDir(data) => data.as_bytes(),
-							Response::Read(data)
-							| Response::ReadDir(data)
-							| Response::ReadDirPlus(data)
-							| Response::GetXattr(data)
-							| Response::ListXattr(data) => data.as_bytes(),
-							Response::ReadLink(data) => data.as_bytes(),
-						};
-						let len = std::mem::size_of::<sys::fuse_out_header>() + data.len();
-						let header = sys::fuse_out_header {
-							unique,
-							len: len.to_u32().unwrap(),
-							error: 0,
-						};
-						let header = header.as_bytes();
-						let iov = [
-							libc::iovec {
-								iov_base: header.as_bytes().as_ptr() as *mut _,
-								iov_len: header.len(),
-							},
-							libc::iovec {
-								iov_base: data.as_bytes().as_ptr() as *mut _,
-								iov_len: data.len(),
-							},
-						];
-						unsafe {
-							libc::writev(server.dev_fuse_fd, iov.as_ptr(), 2);
-						}
+						Self::write_error(fd, unique, error);
+						return;
 					},
 				};
+
+				// Handle an empty response.
+				let Some(response) = response else {
+					return;
+				};
+
+				// Write the response.
+				Self::write_response(fd, unique, &response);
 			});
 		}
+
+		// Wait for all tasks to complete.
+		let (sender, receiver) = tokio::sync::oneshot::channel();
+		tokio::spawn(async move {
+			task_tracker.close();
+			task_tracker.wait().await;
+			sender.send(()).unwrap();
+		});
+		receiver.blocking_recv().unwrap();
+
+		// Unmount.
+		Self::unmount(&self.path)
+			.inspect_err(|error| tracing::error!(%error, "failed to unmount"))
+			.ok();
+
+		// Close the file descriptor.
+		let ret = unsafe { libc::close(fd) };
+		if ret == -1 {
+			let error = std::io::Error::last_os_error();
+			tracing::error!(%error);
+		}
+
 		Ok(())
 	}
 
+	fn mount(path: &Path) -> tg::Result<std::os::unix::io::RawFd> {
+		unsafe {
+			// Create the file socket pair.
+			let mut fds = [0, 0];
+			let ret = libc::socketpair(libc::AF_UNIX, libc::SOCK_STREAM, 0, fds.as_mut_ptr());
+			if ret != 0 {
+				Err(std::io::Error::last_os_error())
+					.map_err(|source| tg::error!(!source, "failed to create the socket pair"))?;
+			}
+			let fuse_commfd = CString::new(fds[0].to_string()).unwrap();
+
+			// Create the args.
+			let uid = libc::getuid();
+			let gid = libc::getgid();
+			let options = CString::new(format!(
+				"rootmode=40755,user_id={uid},group_id={gid},default_permissions"
+			))
+			.unwrap();
+			let path = CString::new(path.as_os_str().as_bytes()).unwrap();
+
+			// Fork.
+			let pid = libc::fork();
+			if pid == -1 {
+				libc::close(fds[0]);
+				libc::close(fds[1]);
+				let source = std::io::Error::last_os_error();
+				return Err(tg::error!(!source, "failed to fork"));
+			}
+
+			// Exec.
+			if pid == 0 {
+				let argv = [
+					c"fusermount3".as_ptr(),
+					c"-o".as_ptr(),
+					options.as_ptr(),
+					c"--".as_ptr(),
+					path.as_ptr(),
+					std::ptr::null(),
+				];
+				libc::close(fds[1]);
+				libc::fcntl(fds[0], libc::F_SETFD, 0);
+				libc::setenv(c"_FUSE_COMMFD".as_ptr(), fuse_commfd.as_ptr(), 1);
+				libc::execvp(argv[0], argv.as_ptr());
+				libc::close(fds[0]);
+				libc::exit(1);
+			}
+			libc::close(fds[0]);
+
+			// Create the control message.
+			let mut control = vec![0u8; libc::CMSG_SPACE(4) as usize];
+			let mut buffer = vec![0u8; 8];
+			let mut msg = Box::new(libc::msghdr {
+				msg_name: std::ptr::null_mut(),
+				msg_namelen: 0,
+				msg_iov: [libc::iovec {
+					iov_base: buffer.as_mut_ptr().cast(),
+					iov_len: buffer.len(),
+				}]
+				.as_mut_ptr(),
+				msg_iovlen: 1,
+				msg_control: control.as_mut_ptr().cast(),
+				#[allow(clippy::cast_possible_truncation)]
+				msg_controllen: std::mem::size_of_val(&control) as _,
+				msg_flags: 0,
+			});
+			let msg: *mut libc::msghdr = msg.as_mut() as _;
+
+			// Receive the control message.
+			let ret = libc::recvmsg(fds[1], msg, 0);
+			if ret == -1 {
+				return Err(tg::error!(
+					source = std::io::Error::last_os_error(),
+					"failed to receive the message"
+				));
+			}
+			if ret == 0 {
+				return Err(tg::error!("failed to read the control message"));
+			}
+
+			// Read the file descriptor.
+			let cmsg = libc::CMSG_FIRSTHDR(msg);
+			if cmsg.is_null() {
+				return Err(tg::error!("missing control message"));
+			}
+			let mut fd: std::os::unix::io::RawFd = 0;
+			libc::memcpy(
+				std::ptr::addr_of_mut!(fd).cast(),
+				libc::CMSG_DATA(cmsg).cast(),
+				std::mem::size_of_val(&fd),
+			);
+			if fd > 0 {
+				libc::fcntl(fd, libc::F_SETFD, libc::FD_CLOEXEC);
+			}
+
+			Ok(fd)
+		}
+	}
+
+	pub fn unmount(path: &Path) -> tg::Result<()> {
+		std::process::Command::new("/usr/bin/fusermount3")
+			.arg("-q")
+			.arg("-u")
+			.arg(path)
+			.stdin(std::process::Stdio::null())
+			.stdout(std::process::Stdio::null())
+			.stderr(std::process::Stdio::null())
+			.status()
+			.map_err(|source| tg::error!(!source, "failed to unmount"))?;
+		Ok(())
+	}
+
+	fn read_request(fd: i32, request_buffer: &mut Vec<u8>) -> tg::Result<Option<&[u8]>> {
+		// Read the request.
+		let n = unsafe { libc::read(fd, request_buffer.as_mut_ptr().cast(), request_buffer.len()) };
+		if n < 0 {
+			let error = std::io::Error::last_os_error();
+			match error.raw_os_error() {
+				Some(libc::ENOENT | libc::EINTR | libc::EAGAIN) => {
+					return Ok(None);
+				},
+				_ => {
+					return Err(tg::error!(source = error, "failed to read the request"));
+				},
+			}
+		}
+		let n = n.to_usize().unwrap();
+		let bytes = &request_buffer[..n];
+		Ok(Some(bytes))
+	}
+
+	fn deserialize_request(buffer: &[u8]) -> tg::Result<Request> {
+		let header = sys::fuse_in_header::read_from_prefix(buffer)
+			.ok_or_else(|| tg::error!("failed to deserialize the request header"))?;
+		let header_len = std::mem::size_of::<sys::fuse_in_header>();
+		let data = &buffer[header_len..];
+		let data = match header.opcode {
+			sys::fuse_opcode::FUSE_BATCH_FORGET => RequestData::BatchForget(read_data(data)?),
+			sys::fuse_opcode::FUSE_DESTROY => RequestData::Destroy,
+			sys::fuse_opcode::FUSE_FLUSH => RequestData::Flush(read_data(data)?),
+			sys::fuse_opcode::FUSE_FORGET => RequestData::Forget(read_data(data)?),
+			sys::fuse_opcode::FUSE_GETATTR => RequestData::GetAttr(read_data(data)?),
+			sys::fuse_opcode::FUSE_GETXATTR => {
+				let (fuse_getxattr_in, name) =
+					data.split_at(std::mem::size_of::<sys::fuse_getxattr_in>());
+				let fuse_getxattr_in = read_data(fuse_getxattr_in)?;
+				let name = CString::from_vec_with_nul(name.to_owned()).map_err(|error| {
+					tg::error!(source = error, "failed to deserialize the request")
+				})?;
+				RequestData::GetXattr(fuse_getxattr_in, name)
+			},
+			sys::fuse_opcode::FUSE_INIT => RequestData::Init(read_data(data)?),
+			sys::fuse_opcode::FUSE_LISTXATTR => RequestData::ListXattr(read_data(data)?),
+			sys::fuse_opcode::FUSE_LOOKUP => {
+				let data = CString::from_vec_with_nul(data.to_owned()).map_err(|error| {
+					tg::error!(source = error, "failed to deserialize the request")
+				})?;
+				RequestData::Lookup(data)
+			},
+			sys::fuse_opcode::FUSE_OPEN => RequestData::Open(read_data(data)?),
+			sys::fuse_opcode::FUSE_OPENDIR => RequestData::OpenDir(read_data(data)?),
+			sys::fuse_opcode::FUSE_READ => RequestData::Read(read_data(data)?),
+			sys::fuse_opcode::FUSE_READDIR => RequestData::ReadDir(read_data(data)?),
+			sys::fuse_opcode::FUSE_READDIRPLUS => RequestData::ReadDirPlus(read_data(data)?),
+			sys::fuse_opcode::FUSE_READLINK => RequestData::ReadLink,
+			sys::fuse_opcode::FUSE_RELEASE => RequestData::Release(read_data(data)?),
+			sys::fuse_opcode::FUSE_RELEASEDIR => RequestData::ReleaseDir(read_data(data)?),
+			_ => RequestData::Unsupported(header.opcode),
+		};
+		let request = Request { header, data };
+		Ok(request)
+	}
+
 	/// Handle a request.
-	async fn handle_request(&self, request: Request) -> tg::Result<Response, i32> {
+	async fn handle_request(&self, request: Request) -> Result<Option<Response>, i32> {
 		match request.data {
-			RequestData::Flush(data) => self.handle_flush_request(request.header, data).await,
 			RequestData::BatchForget(data) => {
 				self.handle_batch_forget_request(request.header, data).await
 			},
+			RequestData::Destroy => Ok(None),
+			RequestData::Flush(data) => self.handle_flush_request(request.header, data).await,
 			RequestData::Forget(data) => self.handle_forget_request(request.header, data).await,
 			RequestData::GetAttr(data) => self.handle_get_attr_request(request.header, data).await,
 			RequestData::GetXattr(data, name) => {
 				self.handle_get_xattr_request(request.header, data, name)
 					.await
 			},
+			RequestData::Init(data) => self.handle_init_request(request.header, data).await,
 			RequestData::ListXattr(data) => {
 				self.handle_list_xattr_request(request.header, data).await
 			},
-			RequestData::Init(data) => self.handle_init_request(request.header, data).await,
 			RequestData::Lookup(data) => self.handle_lookup_request(request.header, data).await,
 			RequestData::Open(data) => self.handle_open_request(request.header, data).await,
 			RequestData::OpenDir(data) => self.handle_open_dir_request(request.header, data).await,
@@ -420,39 +479,97 @@ impl Server {
 		}
 	}
 
-	async fn handle_flush_request(
-		&self,
-		_header: sys::fuse_in_header,
-		_data: sys::fuse_flush_in,
-	) -> tg::Result<Response, i32> {
-		Ok(Response::Flush)
+	fn write_error(fd: i32, unique: u64, error: i32) {
+		let len = std::mem::size_of::<sys::fuse_out_header>();
+		let header = sys::fuse_out_header {
+			unique,
+			len: len.to_u32().unwrap(),
+			error: -error,
+		};
+		let header = header.as_bytes();
+		let iov = [libc::iovec {
+			iov_base: header.as_ptr() as *mut _,
+			iov_len: header.len(),
+		}];
+		let ret = unsafe { libc::writev(fd, iov.as_ptr(), 1) };
+		if ret == -1 {
+			let error = std::io::Error::last_os_error();
+			tracing::error!(%error);
+		}
+	}
+
+	fn write_response(fd: i32, unique: u64, response: &Response) {
+		// Write the response.
+		let data = match response {
+			Response::Flush | Response::Release | Response::ReleaseDir => &[],
+			Response::GetAttr(data) => data.as_bytes(),
+			Response::Init(data) => data.as_bytes(),
+			Response::Lookup(data) => data.as_bytes(),
+			Response::Open(data) | Response::OpenDir(data) => data.as_bytes(),
+			Response::Read(data)
+			| Response::ReadDir(data)
+			| Response::ReadDirPlus(data)
+			| Response::GetXattr(data)
+			| Response::ListXattr(data) => data.as_bytes(),
+			Response::ReadLink(data) => data.as_bytes(),
+		};
+		let len = std::mem::size_of::<sys::fuse_out_header>() + data.len();
+		let header = sys::fuse_out_header {
+			unique,
+			len: len.to_u32().unwrap(),
+			error: 0,
+		};
+		let header = header.as_bytes();
+		let iov = [
+			libc::iovec {
+				iov_base: header.as_ptr() as *mut _,
+				iov_len: header.len(),
+			},
+			libc::iovec {
+				iov_base: data.as_ptr() as *mut _,
+				iov_len: data.len(),
+			},
+		];
+		let ret = unsafe { libc::writev(fd, iov.as_ptr(), 2) };
+		if ret == -1 {
+			let error = std::io::Error::last_os_error();
+			tracing::error!(%error);
+		}
 	}
 
 	async fn handle_batch_forget_request(
 		&self,
 		_header: sys::fuse_in_header,
 		_data: sys::fuse_batch_forget_in,
-	) -> tg::Result<Response, i32> {
-		Ok(Response::None)
+	) -> tg::Result<Option<Response>, i32> {
+		Ok(None)
+	}
+
+	async fn handle_flush_request(
+		&self,
+		_header: sys::fuse_in_header,
+		_data: sys::fuse_flush_in,
+	) -> tg::Result<Option<Response>, i32> {
+		Ok(Some(Response::Flush))
 	}
 
 	async fn handle_forget_request(
 		&self,
 		_header: sys::fuse_in_header,
 		_data: sys::fuse_forget_in,
-	) -> tg::Result<Response, i32> {
-		Ok(Response::None)
+	) -> tg::Result<Option<Response>, i32> {
+		Ok(None)
 	}
 
 	async fn handle_get_attr_request(
 		&self,
 		header: sys::fuse_in_header,
 		_data: sys::fuse_getattr_in,
-	) -> tg::Result<Response, i32> {
+	) -> tg::Result<Option<Response>, i32> {
 		let node_id = NodeId(header.nodeid);
 		let node = self.get_node(node_id).await?;
 		let response = node.fuse_attr_out(&self.server).await?;
-		Ok(Response::GetAttr(response))
+		Ok(Some(Response::GetAttr(response)))
 	}
 
 	async fn handle_get_xattr_request(
@@ -460,7 +577,7 @@ impl Server {
 		header: sys::fuse_in_header,
 		data: sys::fuse_getxattr_in,
 		name: CString,
-	) -> tg::Result<Response, i32> {
+	) -> tg::Result<Option<Response>, i32> {
 		// Get the node and check that it's a file.
 		let node_id = NodeId(header.nodeid);
 		let node = self.get_node(node_id).await?;
@@ -502,20 +619,42 @@ impl Server {
 				padding: 0,
 			};
 			let response = response.as_bytes().to_vec();
-			Ok(Response::GetXattr(response))
+			Ok(Some(Response::GetXattr(response)))
 		} else if data.size.to_usize().unwrap() < attributes.len() {
 			// If the size is too small, return ERANGE.
 			Err(libc::ERANGE)
 		} else {
-			Ok(Response::GetXattr(attributes))
+			Ok(Some(Response::GetXattr(attributes)))
 		}
+	}
+
+	async fn handle_init_request(
+		&self,
+		_header: sys::fuse_in_header,
+		data: sys::fuse_init_in,
+	) -> tg::Result<Option<Response>, i32> {
+		let response = sys::fuse_init_out {
+			major: 7,
+			minor: 21,
+			max_readahead: data.max_readahead,
+			flags: sys::FUSE_DO_READDIRPLUS,
+			max_background: 0,
+			congestion_threshold: 0,
+			max_write: 1024 * 1024,
+			time_gran: 0,
+			max_pages: 0,
+			map_alignment: 0,
+			flags2: 0,
+			unused: [0; 7],
+		};
+		Ok(Some(Response::Init(response)))
 	}
 
 	async fn handle_list_xattr_request(
 		&self,
 		header: sys::fuse_in_header,
 		data: sys::fuse_getxattr_in,
-	) -> tg::Result<Response, i32> {
+	) -> tg::Result<Option<Response>, i32> {
 		// Get the node and check that it's a file.
 		let node_id = NodeId(header.nodeid);
 		let node = self.get_node(node_id).await?;
@@ -533,41 +672,19 @@ impl Server {
 				padding: 0,
 			};
 			let response = response.as_bytes().to_vec();
-			Ok(Response::ListXattr(response))
+			Ok(Some(Response::ListXattr(response)))
 		} else if data.size.to_usize().unwrap() < names.len() {
 			Err(libc::ERANGE)
 		} else {
-			Ok(Response::ListXattr(names))
+			Ok(Some(Response::ListXattr(names)))
 		}
-	}
-
-	async fn handle_init_request(
-		&self,
-		_header: sys::fuse_in_header,
-		data: sys::fuse_init_in,
-	) -> tg::Result<Response, i32> {
-		let response = sys::fuse_init_out {
-			major: 7,
-			minor: 21,
-			max_readahead: data.max_readahead,
-			flags: sys::FUSE_DO_READDIRPLUS,
-			max_background: 0,
-			congestion_threshold: 0,
-			max_write: 1024 * 1024,
-			time_gran: 0,
-			max_pages: 0,
-			map_alignment: 0,
-			flags2: 0,
-			unused: [0; 7],
-		};
-		Ok(Response::Init(response))
 	}
 
 	async fn handle_lookup_request(
 		&self,
 		header: sys::fuse_in_header,
 		data: CString,
-	) -> tg::Result<Response, i32> {
+	) -> tg::Result<Option<Response>, i32> {
 		// Get the parent node.
 		let parent_node_id = NodeId(header.nodeid);
 		let parent_node = self.get_node(parent_node_id).await?;
@@ -581,14 +698,14 @@ impl Server {
 		// Create the response.
 		let response = child_node.fuse_entry_out(&self.server).await?;
 
-		Ok(Response::Lookup(response))
+		Ok(Some(Response::Lookup(response)))
 	}
 
 	async fn handle_open_request(
 		&self,
 		header: sys::fuse_in_header,
 		_data: sys::fuse_open_in,
-	) -> tg::Result<Response, i32> {
+	) -> tg::Result<Option<Response>, i32> {
 		// Get the node.
 		let node_id = NodeId(header.nodeid);
 		let node = self.get_node(node_id).await?;
@@ -627,27 +744,27 @@ impl Server {
 			padding: 0,
 		};
 
-		Ok(Response::Open(response))
+		Ok(Some(Response::Open(response)))
 	}
 
 	async fn handle_open_dir_request(
 		&self,
 		header: sys::fuse_in_header,
 		data: sys::fuse_open_in,
-	) -> tg::Result<Response, i32> {
-		self.handle_open_request(header, data)
-			.await
-			.map(|response| match response {
+	) -> tg::Result<Option<Response>, i32> {
+		self.handle_open_request(header, data).await.map(|option| {
+			option.map(|response| match response {
 				Response::Open(response) => Response::OpenDir(response),
 				_ => unreachable!(),
 			})
+		})
 	}
 
 	async fn handle_read_request(
 		&self,
 		header: sys::fuse_in_header,
 		data: sys::fuse_read_in,
-	) -> tg::Result<Response, i32> {
+	) -> tg::Result<Option<Response>, i32> {
 		let node_id = NodeId(header.nodeid);
 
 		// Get the reader.
@@ -669,7 +786,7 @@ impl Server {
 
 		// Seek to the offset.
 		blob_reader
-			.seek(SeekFrom::Start(data.offset))
+			.seek(std::io::SeekFrom::Start(data.offset))
 			.await
 			.map_err(|_| libc::EIO)?;
 
@@ -688,7 +805,7 @@ impl Server {
 		}
 		bytes.truncate(size);
 
-		Ok(Response::Read(bytes))
+		Ok(Some(Response::Read(bytes)))
 	}
 
 	async fn handle_read_dir_request(
@@ -696,14 +813,14 @@ impl Server {
 		header: sys::fuse_in_header,
 		data: sys::fuse_read_in,
 		plus: bool,
-	) -> tg::Result<Response, i32> {
+	) -> tg::Result<Option<Response>, i32> {
 		// Get the node.
 		let node_id = NodeId(header.nodeid);
 		let node = self.get_node(node_id).await?;
 
 		// If the node is the root, then return an empty response.
 		if let NodeKind::Root { .. } = &node.kind {
-			return Ok(Response::ReadDir(vec![]));
+			return Ok(Some(Response::ReadDir(vec![])));
 		};
 
 		// Otherwise, the node must be a directory.
@@ -766,17 +883,19 @@ impl Server {
 			response.extend((0..padding).map(|_| 0));
 		}
 
-		Ok(if plus {
+		let response = if plus {
 			Response::ReadDirPlus(response)
 		} else {
 			Response::ReadDir(response)
-		})
+		};
+
+		Ok(Some(response))
 	}
 
 	async fn handle_read_link_request(
 		&self,
 		header: sys::fuse_in_header,
-	) -> tg::Result<Response, i32> {
+	) -> tg::Result<Option<Response>, i32> {
 		// Get the node.
 		let node_id = NodeId(header.nodeid);
 		let node = self.get_node(node_id).await?;
@@ -787,7 +906,7 @@ impl Server {
 			NodeKind::Checkout { path } => {
 				let target =
 					CString::new(path.as_os_str().as_bytes().to_vec()).map_err(|_| libc::EIO)?;
-				return Ok(Response::ReadLink(target));
+				return Ok(Some(Response::ReadLink(target)));
 			},
 			_ => return Err(libc::EINVAL),
 		};
@@ -814,38 +933,38 @@ impl Server {
 		}
 		let target = CString::new(target.to_string()).unwrap();
 
-		Ok(Response::ReadLink(target))
+		Ok(Some(Response::ReadLink(target)))
 	}
 
 	async fn handle_release_request(
 		&self,
 		_header: sys::fuse_in_header,
 		data: sys::fuse_release_in,
-	) -> tg::Result<Response, i32> {
+	) -> tg::Result<Option<Response>, i32> {
 		let file_handle = FileHandle(data.fh);
 		self.handles.remove(&file_handle);
-		Ok(Response::Release)
+		Ok(Some(Response::Release))
 	}
 
 	async fn handle_release_dir_request(
 		&self,
 		_header: sys::fuse_in_header,
 		data: sys::fuse_release_in,
-	) -> tg::Result<Response, i32> {
+	) -> tg::Result<Option<Response>, i32> {
 		let file_handle = FileHandle(data.fh);
 		self.handles.remove(&file_handle);
-		Ok(Response::ReleaseDir)
+		Ok(Some(Response::ReleaseDir))
 	}
 
 	async fn handle_unsupported_request(
 		&self,
 		_header: sys::fuse_in_header,
 		opcode: u32,
-	) -> tg::Result<Response, i32> {
+	) -> tg::Result<Option<Response>, i32> {
 		if opcode == sys::fuse_opcode::FUSE_IOCTL {
 			return Err(libc::ENOTTY);
 		}
-		tracing::error!(?opcode, "unsupported FUSE request");
+		tracing::error!(?opcode, "unsupported request");
 		Err(libc::ENOSYS)
 	}
 
@@ -977,119 +1096,6 @@ impl Server {
 			.handle_index
 			.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
 		FileHandle(handle)
-	}
-
-	async fn mount(path: &Path) -> tg::Result<std::os::unix::io::RawFd> {
-		unsafe {
-			let fusermount3 = c"/usr/bin/fusermount3";
-
-			let mut fds = [0, 0];
-			let ret = libc::socketpair(libc::AF_UNIX, libc::SOCK_STREAM, 0, fds.as_mut_ptr());
-			if ret != 0 {
-				Err(std::io::Error::last_os_error())
-					.map_err(|source| tg::error!(!source, "failed to create the socket pair"))?;
-			}
-			let fuse_commfd = CString::new(fds[0].to_string()).unwrap();
-
-			let uid = libc::getuid();
-			let gid = libc::getgid();
-			let options = CString::new(format!(
-				"rootmode=40755,user_id={uid},group_id={gid},default_permissions"
-			))
-			.unwrap();
-
-			let path = CString::new(path.as_os_str().as_bytes()).unwrap();
-
-			// Fork.
-			let pid = libc::fork();
-			if pid == -1 {
-				libc::close(fds[0]);
-				libc::close(fds[1]);
-				let source = std::io::Error::last_os_error();
-				return Err(tg::error!(!source, "failed to fork"));
-			}
-
-			// Exec.
-			if pid == 0 {
-				let argv = [
-					fusermount3.as_ptr(),
-					c"-o".as_ptr(),
-					options.as_ptr(),
-					c"--".as_ptr(),
-					path.as_ptr(),
-					std::ptr::null(),
-				];
-				libc::close(fds[1]);
-				libc::fcntl(fds[0], libc::F_SETFD, 0);
-				libc::setenv(c"_FUSE_COMMFD".as_ptr(), fuse_commfd.as_ptr(), 1);
-				libc::execv(argv[0], argv.as_ptr());
-				libc::close(fds[0]);
-				libc::exit(1);
-			}
-			libc::close(fds[0]);
-
-			// Create the control message. We make sure all pointers are on the heap to avoid being overwritten by the call to recvmsg(). This is safe because it occurs only in the original process after the call to fork(), and the Box<> will live until the function exits.
-			let mut control = vec![0u8; libc::CMSG_SPACE(4) as usize];
-			let mut buffer = vec![0u8; 8];
-			let mut msg = Box::new(libc::msghdr {
-				msg_name: std::ptr::null_mut(),
-				msg_namelen: 0,
-				msg_iov: [libc::iovec {
-					iov_base: buffer.as_mut_ptr().cast(),
-					iov_len: buffer.len(),
-				}]
-				.as_mut_ptr(),
-				msg_iovlen: 1,
-				msg_control: control.as_mut_ptr().cast(),
-				#[allow(clippy::cast_possible_truncation)]
-				msg_controllen: std::mem::size_of_val(&control) as _,
-				msg_flags: 0,
-			});
-			let msg: *mut libc::msghdr = msg.as_mut() as _;
-
-			// Receive the control message.
-			let ret = libc::recvmsg(fds[1], msg, 0);
-			if ret == -1 {
-				return Err(tg::error!(
-					source = std::io::Error::last_os_error(),
-					"failed to receive the message"
-				));
-			}
-			if ret == 0 {
-				return Err(tg::error!("failed to read the control message"));
-			}
-
-			// Read the file descriptor.
-			let cmsg = libc::CMSG_FIRSTHDR(msg);
-			if cmsg.is_null() {
-				return Err(tg::error!("missing control message"));
-			}
-			let mut fd: std::os::unix::io::RawFd = 0;
-			libc::memcpy(
-				std::ptr::addr_of_mut!(fd).cast(),
-				libc::CMSG_DATA(cmsg).cast(),
-				std::mem::size_of_val(&fd),
-			);
-
-			if fd > 0 {
-				libc::fcntl(fd, libc::F_SETFD, libc::FD_CLOEXEC);
-			}
-
-			Ok(fd)
-		}
-	}
-
-	pub async fn unmount(path: &Path) -> tg::Result<()> {
-		tokio::process::Command::new("/usr/bin/fusermount3")
-			.arg("-q")
-			.arg("-u")
-			.arg(path)
-			.stdout(std::process::Stdio::null())
-			.stderr(std::process::Stdio::null())
-			.status()
-			.await
-			.map_err(|source| tg::error!(!source, "failed to execute the unmount command"))?;
-		Ok(())
 	}
 }
 

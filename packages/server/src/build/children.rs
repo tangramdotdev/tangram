@@ -11,7 +11,7 @@ use tangram_client as tg;
 use tangram_database::{self as db, prelude::*};
 use tangram_http::{
 	incoming::RequestExt as _,
-	outgoing::{ResponseBuilderExt, ResponseExt as _},
+	outgoing::{ResponseBuilderExt as _, ResponseExt as _},
 	Incoming, Outgoing,
 };
 use tangram_messenger::Messenger as _;
@@ -442,7 +442,9 @@ impl Server {
 			.get::<tokio::sync::watch::Receiver<bool>>()
 			.cloned()
 			.unwrap();
-		let stop = async move { stop.wait_for(|stop| *stop).map(|_| ()).await };
+		let stop = async move {
+			stop.wait_for(|stop| *stop).await.unwrap();
+		};
 		let stream = stream.take_until(stop);
 
 		// Create the body.

@@ -10,7 +10,7 @@ use std::{
 	sync::Arc,
 };
 use tangram_client as tg;
-use tangram_http::{outgoing::ResponseBuilderExt, Incoming, Outgoing};
+use tangram_http::{outgoing::ResponseBuilderExt as _, Incoming, Outgoing};
 use tg::package::ROOT_MODULE_FILE_NAMES;
 use tokio::io::{
 	AsyncBufRead, AsyncBufReadExt as _, AsyncReadExt as _, AsyncWrite, AsyncWriteExt as _,
@@ -807,7 +807,9 @@ impl crate::Server {
 				let (input, output) = tokio::io::split(io);
 				let input = tokio::io::BufReader::new(input);
 				let task = handle.lsp(input, output);
-				let stop = stop.wait_for(|stop| *stop);
+				let stop = async {
+					stop.wait_for(|stop| *stop).await.unwrap();
+				};
 				future::select(pin!(task), pin!(stop))
 					.map(|output| match output {
 						future::Either::Left((Err(error), _)) => Err(error),

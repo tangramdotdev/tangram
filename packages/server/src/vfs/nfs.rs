@@ -1,6 +1,9 @@
 use dashmap::DashMap;
 use either::Either;
-use futures::{future, FutureExt};
+use futures::{
+	future::{self, BoxFuture},
+	FutureExt as _,
+};
 use num::ToPrimitive as _;
 use std::{
 	os::unix::ffi::OsStrExt as _,
@@ -50,6 +53,8 @@ use tokio::{
 	net::{TcpListener, TcpStream},
 };
 
+use crate::util::task::Stop;
+
 const ROOT: nfs_fh4 = nfs_fh4(0);
 
 #[derive(Clone)]
@@ -64,8 +69,8 @@ pub struct Inner {
 	nodes: DashMap<u64, Arc<Node>, fnv::FnvBuildHasher>,
 	path: PathBuf,
 	server: crate::Server,
-	stop: tokio::sync::watch::Sender<bool>,
-	task: std::sync::Mutex<Option<tokio::task::JoinHandle<tg::Result<()>>>>,
+	stop: Stop,
+	task: std::sync::Mutex<Option<future::Shared<BoxFuture<'static, ()>>>>,
 }
 
 struct LockState {
@@ -143,7 +148,7 @@ impl Server {
 			},
 		});
 		let nodes = [(0, root)].into_iter().collect();
-		let (stop, stop_receiver) = tokio::sync::watch::channel(false);
+		let stop = Stop::new();
 		let task = std::sync::Mutex::new(None);
 		let server = Self(Arc::new(Inner {
 			client_index: std::sync::atomic::AtomicU64::new(1),
@@ -154,7 +159,7 @@ impl Server {
 			nodes,
 			path: path.to_owned(),
 			server,
-			stop,
+			stop: stop.clone(),
 			task,
 		}));
 
@@ -163,21 +168,80 @@ impl Server {
 			let server = server.clone();
 			async move {
 				server
-					.serve(port, stop_receiver)
+					.task(port)
 					.await
 					.inspect_err(|error| {
-						tracing::error!(?error, "NFS server shutdown");
+						tracing::error!(?error);
 					})
 					.ok();
-				Ok(())
 			}
-		});
+		})
+		.map(Result::unwrap)
+		.boxed()
+		.shared();
 		server.task.lock().unwrap().replace(task);
 
-		// Mount.
-		Self::mount(path, port).await?;
-
 		Ok(server)
+	}
+
+	pub fn stop(&self) {
+		self.stop.stop();
+	}
+
+	pub async fn wait(&self) {
+		let future = self.task.lock().unwrap().clone().unwrap();
+		future.await;
+	}
+
+	async fn task(&self, port: u16) -> tg::Result<()> {
+		// Mount.
+		Self::mount(&self.path, port).await?;
+
+		// Create the task tracker.
+		let task_tracker = tokio_util::task::TaskTracker::new();
+
+		// Bind.
+		let addr = format!("localhost:{port}");
+		let listener = TcpListener::bind(addr)
+			.await
+			.map_err(|source| tg::error!(!source, "failed to bind"))?;
+
+		loop {
+			// Accept.
+			let accept = listener.accept();
+			let (connection, _addr) =
+				match future::select(pin!(accept), pin!(self.stop.stopped())).await {
+					future::Either::Left((result, _)) => {
+						result.map_err(|source| tg::error!(!source, "failed to accept"))?
+					},
+					future::Either::Right(((), _)) => {
+						break;
+					},
+				};
+
+			// Spawn a task to handle the connection.
+			task_tracker.spawn({
+				let server = self.clone();
+				async move {
+					server
+						.handle_connection(connection)
+						.await
+						.inspect_err(|error| {
+							tracing::error!(?error);
+						})
+						.ok();
+				}
+			});
+		}
+
+		// Wait for all tasks to complete.
+		task_tracker.close();
+		task_tracker.wait().await;
+
+		// Unmount.
+		Self::unmount(&self.path).await?;
+
+		Ok(())
 	}
 
 	async fn mount(path: &Path, port: u16) -> tg::Result<()> {
@@ -211,7 +275,7 @@ impl Server {
 			.map_err(|source|tg::error!(!source, "failed to mount"))?
 			.success()
 			.then_some(())
-			.ok_or_else(||tg::error!("failed to mount the VFS"))?;
+			.ok_or_else(||tg::error!("failed to mount"))?;
 
 		Ok(())
 	}
@@ -224,96 +288,32 @@ impl Server {
 			.stderr(std::process::Stdio::null())
 			.status()
 			.await
-			.map_err(|source| tg::error!(!source, "failed to unmount the VFS"))?;
+			.map_err(|source| tg::error!(!source, "failed to unmount"))?;
 		Ok(())
 	}
 
-	pub fn stop(&self) {
-		self.stop.send_replace(true);
-	}
-
-	pub async fn wait(&self) -> tg::Result<()> {
-		// Join the task.
-		let task = self.task.lock().unwrap().take();
-		if let Some(task) = task {
-			match task.await {
-				Ok(result) => Ok(result),
-				Err(error) if error.is_cancelled() => Ok(Ok(())),
-				Err(error) => Err(error),
-			}
-			.unwrap()?;
-		}
-
-		// Unmount.
-		Self::unmount(&self.path).await?;
-
-		Ok(())
-	}
-
-	async fn serve(
-		&self,
-		port: u16,
-		mut stop: tokio::sync::watch::Receiver<bool>,
-	) -> tg::Result<()> {
-		let listener = TcpListener::bind(format!("localhost:{port}"))
-			.await
-			.map_err(|source| tg::error!(!source, "failed to bind the server"))?;
-
-		loop {
-			let accept = listener.accept();
-			let stop_ = stop.wait_for(|stop| *stop).map(|_| ());
-
-			let (conn, addr) = match future::select(pin!(accept), pin!(stop_)).await {
-				future::Either::Left((result, _)) => {
-					result.map_err(|source| tg::error!(!source, "failed to accept connection"))?
-				},
-				future::Either::Right(((), _)) => {
-					break;
-				},
-			};
-
-			tracing::info!(?addr, "accepted client connection");
-			tokio::spawn({
-				let server = self.clone();
-				let stop = stop.clone();
-				async move {
-					server
-						.handle_connection(conn, stop)
-						.await
-						.inspect_err(|error| {
-							tracing::error!(?addr, ?error, "the connection was closed");
-						})
-						.ok();
-				}
-			});
-		}
-		Ok(())
-	}
-
-	async fn handle_connection(
-		&self,
-		stream: TcpStream,
-		mut stop: tokio::sync::watch::Receiver<bool>,
-	) -> tg::Result<()> {
+	async fn handle_connection(&self, stream: TcpStream) -> tg::Result<()> {
 		let (mut reader, mut writer) = tokio::io::split(stream);
 
-		let (message_sender, mut message_receiver) =
-			tokio::sync::mpsc::unbounded_channel::<Vec<u8>>();
+		// Create the task tracker.
+		let task_tracker = tokio_util::task::TaskTracker::new();
 
 		// Create the writer task.
-		tokio::spawn(async move {
+		let (message_sender, mut message_receiver) =
+			tokio::sync::mpsc::unbounded_channel::<Vec<u8>>();
+		task_tracker.spawn(async move {
 			while let Some(message) = message_receiver.recv().await {
-				rpc::write_fragments(&mut writer, &message).await?;
+				rpc::write_fragments(&mut writer, &message)
+					.await
+					.inspect_err(|error| tracing::error!(%error))
+					.ok();
 			}
-			Ok::<_, xdr::Error>(())
 		});
 
 		// Receive incoming message fragments.
 		loop {
 			let read = rpc::read_fragments(&mut reader);
-			let stop_ = stop.wait_for(|stop| *stop).map(|_| ());
-
-			let fragments = match future::select(pin!(read), pin!(stop_)).await {
+			let fragments = match future::select(pin!(read), pin!(self.stop.stopped())).await {
 				future::Either::Left((result, _)) => {
 					result.map_err(|source| tg::error!(!source, "failed to read fragments"))?
 				},
@@ -321,9 +321,10 @@ impl Server {
 					break;
 				},
 			};
-			let message_sender = message_sender.clone();
-			tokio::task::spawn({
+
+			task_tracker.spawn({
 				let server = self.clone();
+				let message_sender = message_sender.clone();
 				async move {
 					let mut decoder = xdr::Decoder::from_bytes(&fragments);
 					let mut buffer = Vec::with_capacity(4096);
@@ -341,6 +342,11 @@ impl Server {
 				}
 			});
 		}
+
+		// Wait for all tasks to complete.
+		task_tracker.close();
+		task_tracker.wait().await;
+
 		Ok(())
 	}
 
@@ -432,7 +438,6 @@ impl Server {
 			Err(stat) => return rpc::reject(rpc::ReplyRejected::AuthError(stat)),
 		};
 
-		// Handle the operations.
 		let COMPOUND4args {
 			tag,
 			minorversion,
@@ -447,8 +452,8 @@ impl Server {
 			saved_file_handle: None,
 		};
 
-		let mut resarray = Vec::new(); // Result buffer.
-		let mut status = nfsstat4::NFS4_OK; // Most recent status code.
+		let mut resarray = Vec::new();
+		let mut status = nfsstat4::NFS4_OK;
 		for arg in argarray {
 			let opnum = arg.opnum();
 			let result = tokio::time::timeout(

@@ -39,7 +39,7 @@ impl Server {
 		}
 	}
 
-	pub async fn wait(&self) -> tg::Result<()> {
+	pub async fn wait(&self) {
 		match self {
 			Server::Fuse(server) => server.wait().await,
 			Server::Nfs(server) => server.wait().await,

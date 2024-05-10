@@ -4,7 +4,7 @@ use either::Either;
 use futures::{FutureExt as _, TryFutureExt as _};
 use std::sync::Arc;
 use tangram_client as tg;
-use tangram_http::{incoming::RequestExt, Incoming, Outgoing};
+use tangram_http::{incoming::RequestExt as _, Incoming, Outgoing};
 use tangram_messenger::Messenger as _;
 
 impl Server {

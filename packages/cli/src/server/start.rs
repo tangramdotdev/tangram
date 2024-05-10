@@ -8,7 +8,7 @@ pub struct Args {}
 
 impl Cli {
 	pub async fn command_server_start(&self, _args: Args) -> tg::Result<()> {
-		Self::start_server().await?;
+		Self::start_server(self.config.as_ref()).await?;
 		Ok(())
 	}
 }

@@ -134,13 +134,17 @@ fn main() -> std::process::ExitCode {
 		})
 		.ok();
 
-	// Get the mode. If the command is `tg server run`, then set the mode to `server`.
+	// Get the mode. If the command is `tg serve` or `tg server run`, then set the mode to `server`.
 	let mode = if matches!(
-		args.command,
-		Command::Server(self::server::Args {
-			command: self::server::Command::Run(_),
+		args,
+		Args {
+			command: Command::Serve(_)
+				| Command::Server(self::server::Args {
+					command: self::server::Command::Run(_),
+					..
+				}),
 			..
-		})
+		}
 	) {
 		Mode::Server
 	} else {
@@ -169,10 +173,18 @@ fn main() -> std::process::ExitCode {
 			},
 		};
 
-		// Cancel and join the server if necessary.
+		// Stop the server if necessary.
 		if let Some(server) = cli.handle.right() {
 			server.stop();
-			server.wait().await;
+			let result = server.wait().await;
+			match result {
+				Ok(()) => (),
+				Err(error) => {
+					eprintln!("{}: an error occurred", "error".red().bold());
+					Cli::print_error(None::<Client>, &error, config.as_ref()).await;
+					return Err(1);
+				},
+			}
 		}
 
 		result
@@ -221,7 +233,7 @@ impl Cli {
 			|| matches!(client.url().host_str(), Some("localhost" | "0.0.0.0"));
 		if !client.connected().await && local {
 			// Start the server.
-			Self::start_server().await?;
+			Self::start_server(config).await?;
 
 			// Try to connect for up to one second.
 			for _ in 0..10 {
@@ -258,7 +270,7 @@ impl Cli {
 			Self::stop_server(config).await?;
 
 			// Start the server.
-			Self::start_server().await?;
+			Self::start_server(config).await?;
 
 			// Try to connect for up to one second.
 			for _ in 0..10 {
@@ -278,17 +290,42 @@ impl Cli {
 	}
 
 	/// Start the server.
-	async fn start_server() -> tg::Result<()> {
+	async fn start_server(config: Option<&Config>) -> tg::Result<()> {
+		// Get the log file path.
+		let path = config
+			.as_ref()
+			.and_then(|config| config.path.clone())
+			.unwrap_or_else(|| PathBuf::from(std::env::var("HOME").unwrap()).join(".tangram"));
+		let log_path = path.join("log");
+
 		// Get the path to the current executable.
 		let executable = std::env::current_exe()
 			.map_err(|source| tg::error!(!source, "failed to get the current executable path"))?;
 
 		// Spawn the server.
+		let stdout = tokio::fs::OpenOptions::new()
+			.create(true)
+			.write(true)
+			.truncate(true)
+			.open(&log_path)
+			.await
+			.map_err(|source| tg::error!(!source, "failed to open the log file"))?
+			.into_std()
+			.await;
+		let stderr = tokio::fs::OpenOptions::new()
+			.create(true)
+			.write(true)
+			.truncate(true)
+			.open(&log_path)
+			.await
+			.map_err(|source| tg::error!(!source, "failed to open the log file"))?
+			.into_std()
+			.await;
 		tokio::process::Command::new(executable)
 			.args(["server", "run"])
 			.stdin(std::process::Stdio::null())
-			.stdout(std::process::Stdio::null())
-			.stderr(std::process::Stdio::null())
+			.stdout(stdout)
+			.stderr(stderr)
 			.spawn()
 			.map_err(|source| tg::error!(!source, "failed to spawn the server"))?;
 
