@@ -1,7 +1,7 @@
 use crate::Server;
 use futures::Future;
 use tangram_client as tg;
-use tangram_http::{Incoming, Outgoing};
+use tangram_http::{outgoing::ResponseBuilderExt as _, Incoming, Outgoing};
 
 mod proxy;
 mod util;
@@ -65,9 +65,7 @@ impl Server {
 		let output = handle.get_js_runtime_doc().await?;
 
 		// Create the response.
-		let response = http::Response::builder()
-			.body(Outgoing::json(output))
-			.unwrap();
+		let response = http::Response::builder().json(output).unwrap();
 
 		Ok(response)
 	}

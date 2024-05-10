@@ -1,7 +1,9 @@
 use crate::Server;
 use std::pin::Pin;
 use tangram_client as tg;
-use tangram_http::{incoming::RequestExt as _, Incoming, Outgoing};
+use tangram_http::{
+	incoming::RequestExt as _, outgoing::ResponseBuilderExt as _, Incoming, Outgoing,
+};
 use tokio::io::AsyncRead;
 
 impl Server {
@@ -45,9 +47,7 @@ impl Server {
 		let id = id.parse()?;
 		let arg = request.json().await?;
 		let output = handle.decompress_blob(&id, arg).await?;
-		let response = http::Response::builder()
-			.body(Outgoing::json(output))
-			.unwrap();
+		let response = http::Response::builder().json(output).unwrap();
 		Ok(response)
 	}
 }

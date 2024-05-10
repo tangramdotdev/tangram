@@ -1,5 +1,5 @@
 use super::{proxy, util::render};
-use crate::{tmp::Tmp, util::task::Stop, Server};
+use crate::{tmp::Tmp, Server};
 use bytes::Bytes;
 use futures::{
 	stream::{FuturesOrdered, FuturesUnordered},
@@ -14,6 +14,7 @@ use std::{
 	path::{Path, PathBuf},
 };
 use tangram_client as tg;
+use tangram_futures::task::Stop;
 use tokio::io::{AsyncReadExt as _, AsyncWriteExt as _};
 use url::Url;
 
@@ -87,7 +88,7 @@ impl Runtime {
 		// Get the target.
 		let target = build.target(server).await?;
 
-		// If the VFS is disabled, then perform an internal checkout of the target's references.
+		// If the VFS is disabled, then checkout the target's references.
 		if server.vfs.lock().unwrap().is_none() {
 			target
 				.data(server, None)

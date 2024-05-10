@@ -4901,6 +4901,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "tangram_futures"
+version = "0.0.0"
+dependencies = [
+ "dashmap",
+ "futures",
+ "tokio",
+ "tokio-util",
+]
+
+[[package]]
 name = "tangram_http"
 version = "0.0.0"
 dependencies = [
@@ -5003,6 +5013,7 @@ dependencies = [
  "tangram_client",
  "tangram_database",
  "tangram_fuse",
+ "tangram_futures",
  "tangram_http",
  "tangram_messenger",
  "tangram_nfs",

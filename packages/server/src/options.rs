@@ -53,10 +53,12 @@ pub struct Build {
 
 #[derive(Clone, Debug)]
 pub struct BuildMonitor {
-	pub interval: std::time::Duration,
+	pub dequeue_interval: std::time::Duration,
+	pub dequeue_limit: u64,
 	pub dequeue_timeout: std::time::Duration,
+	pub heartbeat_interval: std::time::Duration,
+	pub heartbeat_limit: u64,
 	pub heartbeat_timeout: std::time::Duration,
-	pub heartbeat_limit: u32,
 }
 
 #[derive(Clone, Debug)]

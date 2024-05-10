@@ -71,18 +71,23 @@ pub struct Advanced {
 
 #[derive(Copy, Clone, Debug, Default, serde::Serialize, serde::Deserialize)]
 pub struct BuildMonitor {
-	/// The frequency at which the build monitor will check dequeu and heartbeat timeouts for builds.
-	#[serde(default, skip_serializing_if = "Option::is_none")]
-	pub interval: Option<f32>,
+	/// The duration to pause when there are no builds that need to be reenqueued.
+	pub dequeue_interval: Option<u64>,
 
-	/// The dequeue timeout, in seconds. Builds that are dequeued but not started by this time will be reenqueued.
-	pub dequeue_timeout: f32,
+	/// The maximum number of builds that will be reenqueued at a time.
+	pub dequeue_limit: Option<u64>,
 
-	/// The build timeout, in seconds. Builds that don't have a heartbeat after this duration will be canceled.
-	pub heartbeat_timeout: f32,
+	/// The duration without being started before a build is reenqueued.
+	pub dequeue_timeout: Option<u64>,
 
-	/// The maximum number of builds that will be reaped at a time.
-	pub heartbeat_limit: Option<u32>,
+	/// The duration to pause when there are no builds that need to be canceled.
+	pub heartbeat_interval: Option<u64>,
+
+	/// The maximum number of builds that will be canceled at a time.
+	pub heartbeat_limit: Option<u64>,
+
+	/// The duration without a heartbeat before a build is canceled.
+	pub heartbeat_timeout: Option<u64>,
 }
 
 #[derive(Clone, Debug, Default, serde::Serialize, serde::Deserialize)]
@@ -113,7 +118,7 @@ pub struct Build {
 	pub concurrency: Option<usize>,
 
 	/// The heartbeat interval, in seconds. Builds will send a heartbeat at this interval.
-	pub heartbeat_interval: Option<f32>,
+	pub heartbeat_interval: Option<f64>,
 }
 
 #[derive(Clone, Debug, serde::Serialize, serde::Deserialize)]

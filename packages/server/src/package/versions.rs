@@ -3,7 +3,10 @@ use indoc::formatdoc;
 use itertools::Itertools as _;
 use tangram_client as tg;
 use tangram_database::{self as db, prelude::*};
-use tangram_http::{outgoing::ResponseExt as _, Incoming, Outgoing};
+use tangram_http::{
+	outgoing::{ResponseBuilderExt as _, ResponseExt as _},
+	Incoming, Outgoing,
+};
 
 impl Server {
 	pub async fn try_get_package_versions(
@@ -157,9 +160,7 @@ impl Server {
 		};
 
 		// Create the response.
-		let response = http::Response::builder()
-			.body(Outgoing::json(output))
-			.unwrap();
+		let response = http::Response::builder().json(output).unwrap();
 
 		Ok(response)
 	}

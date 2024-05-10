@@ -1,4 +1,3 @@
-use crate::util::task::Stop;
 use dashmap::DashMap;
 use either::Either;
 use futures::{
@@ -14,6 +13,7 @@ use std::{
 };
 use tangram_client as tg;
 use tangram_fuse::sys;
+use tangram_futures::task::Stop;
 use tokio::io::{AsyncReadExt as _, AsyncSeekExt as _};
 use zerocopy::{AsBytes as _, FromBytes as _};
 

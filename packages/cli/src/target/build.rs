@@ -4,7 +4,7 @@ use either::Either;
 use itertools::Itertools as _;
 use std::path::PathBuf;
 use tangram_client as tg;
-use tg::Handle;
+use tg::Handle as _;
 
 /// Build a target.
 #[derive(Debug, clap::Args)]

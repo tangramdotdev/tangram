@@ -6,6 +6,15 @@ pub struct Output {
 	pub stop: bool,
 }
 
+impl tg::Build {
+	pub async fn heartbeat<H>(&self, handle: &H) -> tg::Result<tg::build::heartbeat::Output>
+	where
+		H: tg::Handle,
+	{
+		handle.heartbeat_build(self.id()).await
+	}
+}
+
 impl tg::Client {
 	pub async fn heartbeat_build(&self, id: &tg::build::Id) -> tg::Result<Output> {
 		let method = http::Method::POST;

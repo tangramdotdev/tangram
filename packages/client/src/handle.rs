@@ -99,10 +99,25 @@ pub trait Handle: Clone + Unpin + Send + Sync + 'static {
 
 	fn pull_build(&self, id: &tg::build::Id) -> impl Future<Output = tg::Result<()>> + Send;
 
+	fn dequeue_build(
+		&self,
+		arg: tg::build::dequeue::Arg,
+	) -> impl Future<Output = tg::Result<tg::build::dequeue::Output>> + Send {
+		self.try_dequeue_build(arg).map(|result| {
+			result.and_then(|option| option.ok_or_else(|| tg::error!("failed to dequeue a build")))
+		})
+	}
+
 	fn try_dequeue_build(
 		&self,
 		arg: tg::build::dequeue::Arg,
 	) -> impl Future<Output = tg::Result<Option<tg::build::dequeue::Output>>> + Send;
+
+	fn start_build(&self, id: &tg::build::Id) -> impl Future<Output = tg::Result<bool>> + Send {
+		self.try_start_build(id).map(|result| {
+			result.and_then(|option| option.ok_or_else(|| tg::error!("failed to find the build")))
+		})
+	}
 
 	fn try_start_build(
 		&self,

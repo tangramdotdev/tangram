@@ -1,9 +1,12 @@
 use crate::{tmp::Tmp, util::fs::remove, Server};
 use dashmap::DashMap;
-use futures::{stream::FuturesUnordered, FutureExt as _, TryStreamExt as _};
+use futures::{stream::FuturesUnordered, TryStreamExt as _};
 use std::{os::unix::fs::PermissionsExt as _, sync::Arc};
 use tangram_client as tg;
-use tangram_http::{incoming::RequestExt as _, Incoming, Outgoing};
+use tangram_futures::task::Task;
+use tangram_http::{
+	incoming::RequestExt as _, outgoing::ResponseBuilderExt as _, Incoming, Outgoing,
+};
 
 impl Server {
 	pub async fn check_out_artifact(
@@ -14,38 +17,23 @@ impl Server {
 		// Determine if this is an internal checkout.
 		let internal = arg.path.is_none();
 
-		// If this is an internal checkout, then attempt to get an existing checkout.
-		if internal {
-			if let Some(checkout) = self.checkouts.get(id).map(|checkout| checkout.clone()) {
-				return checkout.await;
-			}
-		}
+		// Get or spawn the task.
+		let spawn = || {
+			Task::spawn(|_| {
+				let server = self.clone();
+				let id = id.clone();
+				let files = Arc::new(DashMap::default());
+				async move { server.check_out_artifact_with_files(&id, arg, files).await }
+			})
+		};
+		let task = if internal {
+			self.checkouts.get_or_spawn(id.clone(), spawn)
+		} else {
+			spawn()
+		};
 
-		// Spawn the checkout.
-		let checkout = tokio::spawn({
-			let server = self.clone();
-			let id = id.clone();
-			let files = Arc::new(DashMap::default());
-			async move {
-				server
-					.check_out_artifact_with_files(&id, arg, files)
-					.inspect(|_| {
-						server.checkouts.remove(&id);
-					})
-					.await
-			}
-		})
-		.map(Result::unwrap)
-		.boxed()
-		.shared();
-
-		// If this is an internal checkout, then add it to the map.
-		if internal {
-			self.checkouts.insert(id.clone(), checkout.clone());
-		}
-
-		// Await the checkout
-		checkout.await
+		// Await the task.
+		task.wait().await
 	}
 
 	async fn check_out_artifact_with_files(
@@ -509,9 +497,7 @@ impl Server {
 		let id = id.parse()?;
 		let arg = request.json().await?;
 		let output = handle.check_out_artifact(&id, arg).await?;
-		let response = http::Response::builder()
-			.body(Outgoing::json(output))
-			.unwrap();
+		let response = http::Response::builder().json(output).unwrap();
 		Ok(response)
 	}
 }

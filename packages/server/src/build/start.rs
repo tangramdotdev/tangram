@@ -2,7 +2,10 @@ use crate::Server;
 use bytes::Bytes;
 use tangram_client as tg;
 use tangram_database::{self as db, prelude::*};
-use tangram_http::{outgoing::ResponseExt as _, Incoming, Outgoing};
+use tangram_http::{
+	outgoing::{ResponseBuilderExt as _, ResponseExt as _},
+	Incoming, Outgoing,
+};
 use tangram_messenger::Messenger as _;
 use time::format_description::well_known::Rfc3339;
 
@@ -88,7 +91,7 @@ impl Server {
 		};
 		let response = http::Response::builder()
 			.status(http::StatusCode::OK)
-			.body(Outgoing::json(output))
+			.json(output)
 			.unwrap();
 		Ok(response)
 	}

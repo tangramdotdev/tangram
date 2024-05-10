@@ -491,7 +491,7 @@ impl Cli {
 				.unwrap_or_else(|| std::thread::available_parallelism().unwrap().get());
 			let heartbeat_interval = build.and_then(|build| build.heartbeat_interval).map_or(
 				std::time::Duration::from_secs(1),
-				std::time::Duration::from_secs_f32,
+				std::time::Duration::from_secs_f64,
 			);
 			tangram_server::options::Build {
 				concurrency,
@@ -504,15 +504,19 @@ impl Cli {
 			config
 				.and_then(|config| config.build_monitor.as_ref())
 				.map(|build_monitor| {
-					let interval = build_monitor.interval.unwrap_or(1.0);
-					let dequeue_timeout = build_monitor.dequeue_timeout;
-					let heartbeat_timeout = build_monitor.heartbeat_timeout;
+					let dequeue_interval = build_monitor.dequeue_interval.unwrap_or(1);
+					let dequeue_limit = build_monitor.dequeue_limit.unwrap_or(100);
+					let dequeue_timeout = build_monitor.dequeue_timeout.unwrap_or(60);
+					let heartbeat_interval = build_monitor.heartbeat_interval.unwrap_or(1);
 					let heartbeat_limit = build_monitor.heartbeat_limit.unwrap_or(100);
+					let heartbeat_timeout = build_monitor.heartbeat_timeout.unwrap_or(60);
 					tangram_server::options::BuildMonitor {
-						interval: std::time::Duration::from_secs_f32(interval),
-						dequeue_timeout: std::time::Duration::from_secs_f32(heartbeat_timeout),
-						heartbeat_timeout: std::time::Duration::from_secs_f32(dequeue_timeout),
+						dequeue_interval: std::time::Duration::from_secs(dequeue_interval),
+						dequeue_limit,
+						dequeue_timeout: std::time::Duration::from_secs(dequeue_timeout),
+						heartbeat_interval: std::time::Duration::from_secs(heartbeat_interval),
 						heartbeat_limit,
+						heartbeat_timeout: std::time::Duration::from_secs(heartbeat_timeout),
 					}
 				});
 

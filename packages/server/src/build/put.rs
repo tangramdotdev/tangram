@@ -19,7 +19,7 @@ impl Server {
 		let connection = std::sync::Arc::new(connection);
 
 		// Delete any existing children.
-		let p: &str = connection.p();
+		let p = connection.p();
 		let statement = formatdoc!(
 			"
 				delete from build_children
