@@ -1,4 +1,4 @@
-use crate::{options, Server};
+use crate::{options, util::task::Stop, Server};
 use db::{Database, Query};
 use futures::{
 	future::{self, Either},
@@ -11,7 +11,7 @@ use tangram_database as db;
 use time::format_description::well_known::Rfc3339;
 
 pub struct Monitor {
-	stop: tokio::sync::watch::Sender<bool>,
+	stop: Stop,
 	heartbeat_task: std::sync::Mutex<Option<tokio::task::JoinHandle<()>>>,
 	enqueue_task: std::sync::Mutex<Option<tokio::task::JoinHandle<()>>>,
 }
@@ -22,18 +22,18 @@ impl Server {
 		options: &options::BuildMonitor,
 	) -> tg::Result<Monitor> {
 		// Create the stop signal.
-		let (stop, _) = tokio::sync::watch::channel(false);
+		let stop = Stop::new();
 
 		// Create the heartbeat task.
 		let heartbeat_task = tokio::task::spawn({
 			let server = self.clone();
-			let mut stop = stop.subscribe();
+			let stop = stop.clone();
 			let timeout = options.heartbeat_timeout;
 			let interval = options.interval;
 			let limit = options.heartbeat_limit;
 			async move {
 				loop {
-					let stop = stop.wait_for(|s| *s);
+					let stop = stop.stopped();
 					let tick = tokio::time::sleep(interval);
 
 					// Wait for either the stop signal or an interval.
@@ -54,12 +54,12 @@ impl Server {
 		// Create the enqueue task.
 		let enqueue_task = tokio::task::spawn({
 			let server = self.clone();
-			let mut stop = stop.subscribe();
+			let stop = stop.clone();
 			let interval = options.interval;
 			let timeout = options.dequeue_timeout;
 			async move {
 				loop {
-					let stop = stop.wait_for(|s| *s);
+					let stop = stop.stopped();
 					let tick = tokio::time::sleep(interval);
 
 					// Wait for either the stop signal or an interval.
@@ -173,7 +173,7 @@ impl Server {
 
 impl Monitor {
 	pub fn stop(&self) {
-		self.stop.send(true).ok();
+		self.stop.stop();
 	}
 
 	pub async fn wait(&self) {
