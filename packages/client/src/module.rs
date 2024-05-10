@@ -131,11 +131,7 @@ impl TryFrom<Url> for Module {
 
 impl std::fmt::Display for Module {
 	fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-		let (package, path) = self.source();
-		if let Some(package) = package {
-			write!(f, "{package}/")?;
-		}
-		write!(f, "{path}")
+		write!(f, "{}", Url::from(self.clone()))
 	}
 }
 

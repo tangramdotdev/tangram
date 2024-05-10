@@ -390,10 +390,27 @@ fn host_import_module_dynamically_callback<'s>(
 	// Instantiate the module.
 	module.instantiate_module(scope, resolve_module_callback)?;
 
+	// Get the module namespace.
+	let namespace = module.get_module_namespace();
+	let namespace = v8::Global::new(scope, namespace);
+	let namespace = v8::Local::new(scope, namespace);
+
 	// Evaluate the module.
 	let output = module.evaluate(scope)?;
+	let output = v8::Local::<v8::Promise>::try_from(output).unwrap();
 
-	let promise = v8::Local::<v8::Promise>::try_from(output).unwrap();
+	// Create a promise that resolves to the module namespace when evaluation completes.
+	let handler = v8::Function::builder(
+		|_scope: &mut v8::HandleScope,
+		 args: v8::FunctionCallbackArguments,
+		 mut return_value: v8::ReturnValue| {
+			return_value.set(args.data());
+		},
+	)
+	.data(namespace)
+	.build(scope)
+	.unwrap();
+	let promise = output.then(scope, handler).unwrap();
 
 	Some(promise)
 }
