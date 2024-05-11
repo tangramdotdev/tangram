@@ -4,15 +4,20 @@ use std::path::PathBuf;
 use tangram_client as tg;
 use url::Url;
 
+use crate::Mode;
+
 #[serde_as]
 #[derive(Clone, Debug, Default, serde::Serialize, serde::Deserialize)]
 pub struct Config {
+	/// Advanced configuration.
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub advanced: Option<Advanced>,
 
+	/// Configure authentication.
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub authentication: Option<Authentication>,
 
+	/// Configure builds.
 	#[serde(
 		default,
 		skip_serializing_if = "Option::is_none",
@@ -20,27 +25,38 @@ pub struct Config {
 	)]
 	pub build: Option<Either<bool, Build>>,
 
+	/// Configure the build monitor.
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub build_monitor: Option<BuildMonitor>,
 
+	/// Configure the database.
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub database: Option<Database>,
 
+	/// Configure the messenger.
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub messenger: Option<Messenger>,
 
+	/// This setting controls whether the CLI runs as a client or a server. When set to `auto`, the CLI will run as a client and start a separate server process if the connection fails or the server's version does not match. If the command is `tg server run`, the mode is set to `server`.
+	pub mode: Option<Mode>,
+
+	/// The path where a client will look for a socket file and where a server will store its data.
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub path: Option<PathBuf>,
 
+	/// Configure remotes.
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub remotes: Option<Vec<Remote>>,
 
+	/// Configure tracing.
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub tracing: Option<Tracing>,
 
+	/// The URL a client will connect to and the server will bind to.
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub url: Option<Url>,
 
+	/// Enable or disable the VFS.
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub vfs: Option<bool>,
 }

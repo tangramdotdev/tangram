@@ -3,7 +3,7 @@ use tangram_client as tg;
 use tg::Handle as _;
 
 /// Generate documentation.
-#[derive(Debug, clap::Args)]
+#[derive(Clone, Debug, clap::Args)]
 #[group(skip)]
 pub struct Args {
 	/// If this flag is set, the package's lockfile will not be updated.

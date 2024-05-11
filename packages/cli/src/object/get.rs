@@ -4,7 +4,7 @@ use tg::Handle as _;
 use tokio::io::AsyncWriteExt as _;
 
 /// Get an object.
-#[derive(Debug, clap::Args)]
+#[derive(Clone, Debug, clap::Args)]
 #[group(skip)]
 pub struct Args {
 	pub object: tg::object::Id,

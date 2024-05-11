@@ -2,7 +2,7 @@ use crate::Cli;
 use tangram_client as tg;
 
 /// Cat blobs.
-#[derive(Debug, clap::Args)]
+#[derive(Clone, Debug, clap::Args)]
 #[group(skip)]
 pub struct Args {
 	pub blobs: Vec<tg::blob::Id>,

@@ -9,14 +9,14 @@ pub mod checksum;
 pub mod extract;
 
 /// Manage artifacts.
-#[derive(Debug, clap::Args)]
+#[derive(Clone, Debug, clap::Args)]
 #[group(skip)]
 pub struct Args {
 	#[command(subcommand)]
 	pub command: Command,
 }
 
-#[derive(Debug, clap::Subcommand)]
+#[derive(Clone, Debug, clap::Subcommand)]
 pub enum Command {
 	Archive(self::archive::Args),
 	Cat(self::cat::Args),

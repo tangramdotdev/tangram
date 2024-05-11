@@ -4,7 +4,7 @@ use tg::Handle as _;
 use tokio::io::AsyncWriteExt as _;
 
 /// Get a build.
-#[derive(Debug, clap::Args)]
+#[derive(Clone, Debug, clap::Args)]
 #[group(skip)]
 pub struct Args {
 	pub build: tg::build::Id,

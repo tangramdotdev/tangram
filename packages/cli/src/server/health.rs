@@ -3,7 +3,7 @@ use tangram_client as tg;
 use tg::Handle as _;
 
 /// Get the server's health.
-#[derive(Debug, clap::Args)]
+#[derive(Clone, Debug, clap::Args)]
 #[group(skip)]
 pub struct Args {}
 

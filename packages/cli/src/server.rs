@@ -8,14 +8,14 @@ pub mod start;
 pub mod stop;
 
 /// Manage the server.
-#[derive(Debug, clap::Args)]
+#[derive(Clone, Debug, clap::Args)]
 #[group(skip)]
 pub struct Args {
 	#[command(subcommand)]
 	pub command: Command,
 }
 
-#[derive(Debug, clap::Subcommand)]
+#[derive(Clone, Debug, clap::Subcommand)]
 pub enum Command {
 	Clean(self::clean::Args),
 	Health(self::health::Args),

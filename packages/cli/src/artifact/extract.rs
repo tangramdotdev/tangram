@@ -2,7 +2,7 @@ use crate::Cli;
 use tangram_client as tg;
 
 /// Extract an artifact from a blob.
-#[derive(Debug, clap::Args)]
+#[derive(Clone, Debug, clap::Args)]
 #[group(skip)]
 pub struct Args {
 	#[arg(long)]

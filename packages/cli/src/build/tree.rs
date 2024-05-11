@@ -5,7 +5,7 @@ use std::fmt::Write as _;
 use tangram_client as tg;
 
 /// Display the build tree.
-#[derive(Debug, clap::Args)]
+#[derive(Clone, Debug, clap::Args)]
 #[group(skip)]
 pub struct Args {
 	pub build: tg::build::Id,

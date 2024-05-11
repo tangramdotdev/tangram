@@ -2,7 +2,7 @@ use crate::{tui::Tui, Cli};
 use tangram_client as tg;
 
 /// View a build.
-#[derive(Debug, clap::Args)]
+#[derive(Clone, Debug, clap::Args)]
 #[group(skip)]
 pub struct Args {
 	/// The build to view.

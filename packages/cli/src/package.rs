@@ -15,14 +15,14 @@ pub mod update;
 pub mod yank;
 
 /// Manage packages.
-#[derive(Debug, clap::Args)]
+#[derive(Clone, Debug, clap::Args)]
 #[group(skip)]
 pub struct Args {
 	#[command(subcommand)]
 	pub command: Command,
 }
 
-#[derive(Debug, clap::Subcommand)]
+#[derive(Clone, Debug, clap::Subcommand)]
 pub enum Command {
 	Check(self::check::Args),
 	Doc(self::doc::Args),

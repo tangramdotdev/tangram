@@ -4,7 +4,7 @@ use tangram_client as tg;
 use tokio::io::AsyncWriteExt as _;
 
 /// Get a build's log.
-#[derive(Debug, clap::Args)]
+#[derive(Clone, Debug, clap::Args)]
 #[group(skip)]
 pub struct Args {
 	pub build: tg::build::Id,

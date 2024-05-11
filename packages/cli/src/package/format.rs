@@ -4,7 +4,7 @@ use tg::Handle as _;
 use tokio::io::{AsyncReadExt as _, AsyncWriteExt as _};
 
 /// Format a package.
-#[derive(Debug, clap::Args)]
+#[derive(Clone, Debug, clap::Args)]
 #[group(skip)]
 pub struct Args {
 	/// The package to format.

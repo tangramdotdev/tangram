@@ -7,14 +7,14 @@ pub mod list;
 pub mod remove;
 
 /// Manage roots.
-#[derive(Debug, clap::Args)]
+#[derive(Clone, Debug, clap::Args)]
 #[group(skip)]
 pub struct Args {
 	#[command(subcommand)]
 	pub command: Command,
 }
 
-#[derive(Debug, clap::Subcommand)]
+#[derive(Clone, Debug, clap::Subcommand)]
 pub enum Command {
 	Add(self::add::Args),
 	Get(self::get::Args),

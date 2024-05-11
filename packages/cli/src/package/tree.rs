@@ -3,7 +3,7 @@ use std::{collections::BTreeSet, fmt::Write};
 use tangram_client as tg;
 
 /// Display a package's dependencies.
-#[derive(Debug, clap::Args)]
+#[derive(Clone, Debug, clap::Args)]
 #[group(skip)]
 pub struct Args {
 	#[arg(default_value = ".")]

@@ -5,7 +5,7 @@ use tokio_util::io::StreamReader;
 use url::Url;
 
 /// Compute a checksum.
-#[derive(Debug, clap::Args)]
+#[derive(Clone, Debug, clap::Args)]
 #[group(skip)]
 pub struct Args {
 	/// The checksum algorithm to use.

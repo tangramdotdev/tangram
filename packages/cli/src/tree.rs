@@ -2,7 +2,7 @@ use crate::Cli;
 use tangram_client as tg;
 
 /// Display a build, object, or package tree.
-#[derive(Debug, clap::Args)]
+#[derive(Clone, Debug, clap::Args)]
 #[group(skip)]
 pub struct Args {
 	#[arg(default_value = ".")]

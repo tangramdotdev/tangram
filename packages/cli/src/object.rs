@@ -8,14 +8,14 @@ pub mod put;
 pub mod tree;
 
 /// Manage objects.
-#[derive(Debug, clap::Args)]
+#[derive(Clone, Debug, clap::Args)]
 #[group(skip)]
 pub struct Args {
 	#[command(subcommand)]
 	pub command: Command,
 }
 
-#[derive(Debug, clap::Subcommand)]
+#[derive(Clone, Debug, clap::Subcommand)]
 pub enum Command {
 	Get(self::get::Args),
 	Pull(self::pull::Args),

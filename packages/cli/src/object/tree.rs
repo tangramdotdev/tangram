@@ -7,7 +7,7 @@ use futures::{
 use tangram_client as tg;
 
 /// Display the object tree.
-#[derive(Debug, clap::Args)]
+#[derive(Clone, Debug, clap::Args)]
 #[group(skip)]
 pub struct Args {
 	pub object: tg::object::Id,

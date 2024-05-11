@@ -2,7 +2,7 @@ use crate::Cli;
 use tangram_client as tg;
 
 /// Pull a build or an object.
-#[derive(Debug, clap::Args)]
+#[derive(Clone, Debug, clap::Args)]
 #[group(skip)]
 pub struct Args {
 	pub arg: Arg,

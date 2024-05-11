@@ -2,7 +2,7 @@ use crate::Cli;
 use tangram_client as tg;
 
 /// Run the server in the foreground.
-#[derive(Debug, clap::Args)]
+#[derive(Clone, Debug, clap::Args)]
 #[group(skip)]
 pub struct Args {}
 

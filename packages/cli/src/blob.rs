@@ -8,14 +8,14 @@ pub mod decompress;
 pub mod download;
 
 /// Manage blobs.
-#[derive(Debug, clap::Args)]
+#[derive(Clone, Debug, clap::Args)]
 #[group(skip)]
 pub struct Args {
 	#[clap(subcommand)]
 	pub command: Command,
 }
 
-#[derive(Debug, clap::Subcommand)]
+#[derive(Clone, Debug, clap::Subcommand)]
 pub enum Command {
 	Cat(self::cat::Args),
 	Checksum(self::checksum::Args),

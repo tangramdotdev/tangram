@@ -35,11 +35,12 @@ mod view;
 const VERSION: &str = env!("CARGO_PKG_VERSION");
 
 struct Cli {
+	args: Args,
 	config: Option<Config>,
 	handle: Either<Client, Server>,
 }
 
-#[derive(Debug, clap::Parser)]
+#[derive(Clone, Debug, clap::Parser)]
 #[command(
 	about = env!("CARGO_PKG_DESCRIPTION"),
 	disable_help_subcommand = true,
@@ -52,15 +53,24 @@ struct Args {
 	#[arg(long)]
 	config: Option<PathBuf>,
 
-	/// This argument controls whether the CLI runs as a client or a server. When set to `auto`, the CLI will run as a client and start a separate server process if the connection fails or the server's version does not match. If the command is `tg server run`, the mode is set to `server`.
+	/// Override the `mode` key in the config.
 	#[arg(short, long, default_value = "auto")]
-	mode: Mode,
+	mode: Option<Mode>,
+
+	/// Override the `path` key in the config.
+	#[arg(short, long)]
+	path: Option<PathBuf>,
+
+	/// Override the `url` key in the config.
+	#[arg(short, long)]
+	url: Option<Url>,
 
 	#[command(subcommand)]
 	command: Command,
 }
 
-#[derive(Clone, Debug, Default, clap::ValueEnum)]
+#[derive(Clone, Copy, Debug, Default, clap::ValueEnum, serde::Deserialize, serde::Serialize)]
+#[serde(rename_all = "snake_case")]
 enum Mode {
 	#[default]
 	Auto,
@@ -69,7 +79,7 @@ enum Mode {
 }
 
 #[allow(clippy::large_enum_variant)]
-#[derive(Debug, clap::Subcommand)]
+#[derive(Clone, Debug, clap::Subcommand)]
 enum Command {
 	Artifact(self::artifact::Args),
 	Blob(self::blob::Args),
@@ -134,27 +144,10 @@ fn main() -> std::process::ExitCode {
 		})
 		.ok();
 
-	// Get the mode. If the command is `tg serve` or `tg server run`, then set the mode to `server`.
-	let mode = if matches!(
-		args,
-		Args {
-			command: Command::Serve(_)
-				| Command::Server(self::server::Args {
-					command: self::server::Command::Run(_),
-					..
-				}),
-			..
-		}
-	) {
-		Mode::Server
-	} else {
-		args.mode
-	};
-
 	// Create the future.
 	let future = async move {
 		// Create the CLI.
-		let cli = match Cli::new(mode, config.clone()).await {
+		let cli = match Cli::new(args.clone(), config.clone()).await {
 			Ok(cli) => cli,
 			Err(error) => {
 				eprintln!("{}: an error occurred", "error".red().bold());
@@ -205,16 +198,35 @@ fn main() -> std::process::ExitCode {
 }
 
 impl Cli {
-	async fn new(mode: Mode, config: Option<Config>) -> tg::Result<Self> {
+	async fn new(args: Args, config: Option<Config>) -> tg::Result<Self> {
+		// Get the mode. If the command is `tg serve` or `tg server run`, then set the mode to `server`.
+		let mode = if matches!(
+			args,
+			Args {
+				command: Command::Serve(_)
+					| Command::Server(self::server::Args {
+						command: self::server::Command::Run(_),
+						..
+					}),
+				..
+			}
+		) {
+			Some(Mode::Server)
+		} else {
+			args.mode
+		}
+		.unwrap_or_default();
+
 		// Create the handle.
 		let handle = match mode {
-			Mode::Auto => Either::Left(Self::auto(config.as_ref()).await?),
-			Mode::Client => Either::Left(Self::client(config.as_ref()).await?),
-			Mode::Server => Either::Right(Self::server(config.as_ref()).await?),
+			Mode::Auto => Either::Left(Self::auto(&args, config.as_ref()).await?),
+			Mode::Client => Either::Left(Self::client(&args, config.as_ref()).await?),
+			Mode::Server => Either::Right(Self::server(&args, config.as_ref()).await?),
 		};
 
 		// Create the CLI.
 		let cli = Cli {
+			args,
 			config: config.clone(),
 			handle,
 		};
@@ -222,8 +234,8 @@ impl Cli {
 		Ok(cli)
 	}
 
-	async fn auto(config: Option<&Config>) -> tg::Result<tg::Client> {
-		let client = Self::client(config).await?;
+	async fn auto(args: &Args, config: Option<&Config>) -> tg::Result<tg::Client> {
+		let client = Self::client(args, config).await?;
 
 		// Attempt to connect to the server.
 		client.connect().await.ok();
@@ -233,7 +245,7 @@ impl Cli {
 			|| matches!(client.url().host_str(), Some("localhost" | "0.0.0.0"));
 		if !client.connected().await && local {
 			// Start the server.
-			Self::start_server(config).await?;
+			Self::start_server(args, config).await?;
 
 			// Try to connect for up to one second.
 			for _ in 0..10 {
@@ -267,10 +279,10 @@ impl Cli {
 			client.disconnect().await?;
 
 			// Stop the server.
-			Self::stop_server(config).await?;
+			Self::stop_server(args, config).await?;
 
 			// Start the server.
-			Self::start_server(config).await?;
+			Self::start_server(args, config).await?;
 
 			// Try to connect for up to one second.
 			for _ in 0..10 {
@@ -290,11 +302,12 @@ impl Cli {
 	}
 
 	/// Start the server.
-	async fn start_server(config: Option<&Config>) -> tg::Result<()> {
+	async fn start_server(args: &Args, config: Option<&Config>) -> tg::Result<()> {
 		// Get the log file path.
-		let path = config
-			.as_ref()
-			.and_then(|config| config.path.clone())
+		let path = args
+			.path
+			.clone()
+			.or(config.as_ref().and_then(|config| config.path.clone()))
 			.unwrap_or_else(|| PathBuf::from(std::env::var("HOME").unwrap()).join(".tangram"));
 		let log_path = path.join("log");
 
@@ -333,11 +346,12 @@ impl Cli {
 	}
 
 	/// Stop the server.
-	async fn stop_server(config: Option<&Config>) -> tg::Result<()> {
+	async fn stop_server(args: &Args, config: Option<&Config>) -> tg::Result<()> {
 		// Get the lock file path.
-		let path = config
-			.as_ref()
-			.and_then(|config| config.path.clone())
+		let path = args
+			.path
+			.clone()
+			.or(config.as_ref().and_then(|config| config.path.clone()))
 			.unwrap_or_else(|| PathBuf::from(std::env::var("HOME").unwrap()).join(".tangram"));
 		let lock_path = path.join("lock");
 
@@ -390,15 +404,19 @@ impl Cli {
 		Err(tg::error!("failed to terminate the server"))
 	}
 
-	async fn client(config: Option<&Config>) -> tg::Result<Client> {
+	async fn client(args: &Args, config: Option<&Config>) -> tg::Result<Client> {
 		// Get the path.
-		let path = config
-			.and_then(|config| config.path.clone())
+		let path = args
+			.path
+			.clone()
+			.or(config.and_then(|config| config.path.clone()))
 			.unwrap_or_else(|| PathBuf::from(std::env::var("HOME").unwrap()).join(".tangram"));
 
 		// Get the url.
-		let url = config
-			.and_then(|config| config.url.clone())
+		let url = args
+			.url
+			.clone()
+			.or(config.and_then(|config| config.url.clone()))
 			.unwrap_or_else(|| {
 				let path = path.join("socket");
 				let path = path.to_str().unwrap();
@@ -412,15 +430,19 @@ impl Cli {
 		Ok(client)
 	}
 
-	async fn server(config: Option<&Config>) -> tg::Result<Server> {
+	async fn server(args: &Args, config: Option<&Config>) -> tg::Result<Server> {
 		// Get the path.
-		let path = config
-			.and_then(|config| config.path.clone())
+		let path = args
+			.path
+			.clone()
+			.or(config.and_then(|config| config.path.clone()))
 			.unwrap_or_else(|| PathBuf::from(std::env::var("HOME").unwrap()).join(".tangram"));
 
 		// Get the url.
-		let url = config
-			.and_then(|config| config.url.clone())
+		let url = args
+			.url
+			.clone()
+			.or(config.and_then(|config| config.url.clone()))
 			.unwrap_or_else(|| {
 				let path = path.join("socket");
 				let path = path.to_str().unwrap();
@@ -662,9 +684,9 @@ impl Cli {
 	}
 
 	fn read_config(path: Option<PathBuf>) -> tg::Result<Option<Config>> {
-		let home = std::env::var("HOME")
-			.map_err(|source| tg::error!(!source, "failed to get the HOME environment variable"))?;
-		let path = path.unwrap_or_else(|| PathBuf::from(home).join(".config/tangram/config.json"));
+		let path = path.unwrap_or_else(|| {
+			PathBuf::from(std::env::var("HOME").unwrap()).join(".config/tangram/config.json")
+		});
 		let config = match std::fs::read_to_string(&path) {
 			Ok(config) => config,
 			Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(None),
@@ -681,9 +703,9 @@ impl Cli {
 	}
 
 	fn _write_config(config: &Config, path: Option<PathBuf>) -> tg::Result<()> {
-		let home = std::env::var("HOME")
-			.map_err(|source| tg::error!(!source, "failed to get the HOME environment variable"))?;
-		let path = path.unwrap_or_else(|| PathBuf::from(home).join(".config/tangram/config.json"));
+		let path = path.unwrap_or_else(|| {
+			PathBuf::from(std::env::var("HOME").unwrap()).join(".config/tangram/config.json")
+		});
 		let config = serde_json::to_string_pretty(&config)
 			.map_err(|source| tg::error!(!source, "failed to serialize the config"))?;
 		std::fs::write(path, config)

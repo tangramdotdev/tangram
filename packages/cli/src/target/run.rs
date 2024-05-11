@@ -3,7 +3,7 @@ use std::{os::unix::process::CommandExt as _, path::PathBuf};
 use tangram_client as tg;
 
 /// Build a target and run a command.
-#[derive(Debug, clap::Args)]
+#[derive(Clone, Debug, clap::Args)]
 #[group(skip)]
 pub struct Args {
 	#[command(flatten)]

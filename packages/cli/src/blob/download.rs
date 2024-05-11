@@ -3,7 +3,7 @@ use tangram_client as tg;
 use url::Url;
 
 /// Download a blob.
-#[derive(Debug, clap::Args)]
+#[derive(Clone, Debug, clap::Args)]
 #[group(skip)]
 pub struct Args {
 	pub checksum: Option<tg::Checksum>,

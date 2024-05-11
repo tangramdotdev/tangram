@@ -7,7 +7,7 @@ use tangram_client as tg;
 use tg::Handle as _;
 
 /// Build a target.
-#[derive(Debug, clap::Args)]
+#[derive(Clone, Debug, clap::Args)]
 #[group(skip)]
 pub struct Args {
 	#[command(flatten)]
@@ -19,7 +19,7 @@ pub struct Args {
 }
 
 #[allow(clippy::struct_excessive_bools)]
-#[derive(Debug, clap::Args)]
+#[derive(Clone, Debug, clap::Args)]
 #[group(skip)]
 pub struct InnerArgs {
 	/// Set the arguments.

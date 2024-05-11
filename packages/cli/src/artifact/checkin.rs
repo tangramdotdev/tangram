@@ -3,7 +3,7 @@ use std::path::PathBuf;
 use tangram_client as tg;
 
 /// Check in an artifact.
-#[derive(Debug, clap::Args)]
+#[derive(Clone, Debug, clap::Args)]
 #[group(skip)]
 pub struct Args {
 	/// The path to check in.

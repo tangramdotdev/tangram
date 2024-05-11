@@ -4,7 +4,7 @@ use tangram_client as tg;
 use tg::Handle as _;
 
 /// Add a root.
-#[derive(Debug, clap::Args)]
+#[derive(Clone, Debug, clap::Args)]
 #[group(skip)]
 pub struct Args {
 	pub name: String,

@@ -3,7 +3,7 @@ use tangram_client as tg;
 use tg::Handle as _;
 
 /// Push a build.
-#[derive(Debug, clap::Args)]
+#[derive(Clone, Debug, clap::Args)]
 #[group(skip)]
 pub struct Args {
 	pub build: tg::build::Id,

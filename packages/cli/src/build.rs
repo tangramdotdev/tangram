@@ -12,7 +12,7 @@ pub mod put;
 pub mod tree;
 
 /// Build a target or manage builds.
-#[derive(Debug, clap::Args)]
+#[derive(Clone, Debug, clap::Args)]
 #[command(args_conflicts_with_subcommands = true)]
 #[group(skip)]
 pub struct Args {
@@ -24,7 +24,7 @@ pub struct Args {
 }
 
 #[allow(clippy::large_enum_variant)]
-#[derive(Debug, clap::Subcommand)]
+#[derive(Clone, Debug, clap::Subcommand)]
 pub enum Command {
 	Cancel(self::cancel::Args),
 	Get(self::get::Args),

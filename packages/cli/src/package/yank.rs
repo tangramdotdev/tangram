@@ -3,7 +3,7 @@ use crossterm::style::Stylize as _;
 use tangram_client::{self as tg, Handle as _};
 
 /// Yank a package.
-#[derive(Debug, clap::Args)]
+#[derive(Clone, Debug, clap::Args)]
 #[group(skip)]
 pub struct Args {
 	#[arg(short, long, default_value = ".")]
