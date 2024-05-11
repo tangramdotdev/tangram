@@ -316,10 +316,8 @@ pub trait Handle: Clone + Unpin + Send + Sync + 'static {
 		dependency: &tg::Dependency,
 	) -> impl Future<Output = tg::Result<tg::package::outdated::Output>> + Send;
 
-	fn publish_package(
-		&self,
-		id: &tg::directory::Id,
-	) -> impl Future<Output = tg::Result<()>> + Send;
+	fn publish_package(&self, id: &tg::artifact::Id)
+		-> impl Future<Output = tg::Result<()>> + Send;
 
 	fn get_package_versions(
 		&self,
@@ -335,7 +333,7 @@ pub trait Handle: Clone + Unpin + Send + Sync + 'static {
 		dependency: &tg::Dependency,
 	) -> impl Future<Output = tg::Result<Option<Vec<String>>>> + Send;
 
-	fn yank_package(&self, id: &tg::directory::Id) -> impl Future<Output = tg::Result<()>> + Send;
+	fn yank_package(&self, id: &tg::artifact::Id) -> impl Future<Output = tg::Result<()>> + Send;
 
 	fn list_roots(
 		&self,

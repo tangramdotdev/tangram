@@ -164,7 +164,7 @@ impl Cli {
 			args_.insert(0, target.into());
 			let host = "js".to_owned();
 			let path = tg::package::get_root_module_path(&self.handle, &package).await?;
-			let executable = tg::Symlink::new(Some(package.into()), Some(path)).into();
+			let executable = tg::Symlink::new(Some(package), Some(path)).into();
 			tg::target::Builder::new(host, executable)
 				.args(args_)
 				.env(env)

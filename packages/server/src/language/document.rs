@@ -1,11 +1,12 @@
+use std::path::PathBuf;
+
 use super::Server;
 use lsp_types as lsp;
-use std::path::PathBuf;
 use tangram_client as tg;
 
 impl Server {
 	/// Get all the server's documents.
-	pub async fn get_documents(&self) -> Vec<tg::Document> {
+	pub async fn get_documents(&self) -> Vec<tg::Module> {
 		let documents = self.documents.read().await;
 		documents.keys().cloned().collect()
 	}
@@ -15,21 +16,16 @@ impl Server {
 		&self,
 		package_path: PathBuf,
 		module_path: tg::Path,
-	) -> tg::Result<tg::Document> {
-		let path = package_path.join(&module_path);
+	) -> tg::Result<tg::Module> {
+		// Get the module.
+		let module =
+			tg::Module::with_package_path(&self.server, package_path.clone(), module_path.clone())
+				.await?;
 
-		// Create the document.
-		let document = tg::Document {
-			package_path,
-			path: module_path,
-		};
-
-		// Lock the documents.
+		// Add to the documents if necessary.
 		let mut documents = self.documents.write().await;
-
-		// Add the document to the store if it is not present.
-		if !documents.contains_key(&document) {
-			let metadata = tokio::fs::metadata(&path)
+		if !documents.contains_key(&module) {
+			let metadata = tokio::fs::metadata(&package_path.join(&module_path))
 				.await
 				.map_err(|source| tg::error!(!source, "failed to get the metadata"))?;
 			let modified = metadata.modified().map_err(|error| {
@@ -39,16 +35,16 @@ impl Server {
 				version: 0,
 				modified,
 			});
-			documents.insert(document.clone(), state);
+			documents.insert(module.clone(), state);
 		}
 
-		Ok(document)
+		Ok(module)
 	}
 
 	/// Open a document.
 	pub async fn open_document(
 		&self,
-		document: &tg::Document,
+		module: &tg::Module,
 		version: i32,
 		text: String,
 	) -> tg::Result<()> {
@@ -57,7 +53,7 @@ impl Server {
 
 		// Set the state.
 		let state = tg::document::State::Opened(tg::document::Opened { version, text });
-		documents.insert(document.clone(), state);
+		documents.insert(module.clone(), state);
 
 		Ok(())
 	}
@@ -65,7 +61,7 @@ impl Server {
 	/// Update a document.
 	pub async fn update_document(
 		&self,
-		document: &tg::Document,
+		document: &tg::Module,
 		range: Option<tg::Range>,
 		version: i32,
 		text: String,
@@ -75,12 +71,7 @@ impl Server {
 
 		// Get the state.
 		let Some(tg::document::State::Opened(state)) = documents.get_mut(document) else {
-			let path = document.path();
-			let path = path.display();
-			return Err(tg::error!(
-				%path,
-				"could not find an open document"
-			));
+			return Err(tg::error!("could not find an open document"));
 		};
 
 		// Update the version.
@@ -100,7 +91,7 @@ impl Server {
 	}
 
 	/// Close a document.
-	pub async fn close_document(&self, document: &tg::Document) -> tg::Result<()> {
+	pub async fn close_document(&self, document: &tg::Module) -> tg::Result<()> {
 		// Lock the documents.
 		let mut documents = self.documents.write().await;
 
@@ -110,28 +101,29 @@ impl Server {
 		Ok(())
 	}
 
-	pub async fn _get_document_version(&self, document: &tg::Document) -> tg::Result<i32> {
+	pub async fn _get_document_version(&self, document: &tg::Module) -> tg::Result<i32> {
 		self.try_get_document_version(document)
 			.await?
 			.ok_or_else(|| tg::error!("expected the document to exist"))
 	}
 
 	/// Get a document's version.
-	pub async fn try_get_document_version(
-		&self,
-		document: &tg::Document,
-	) -> tg::Result<Option<i32>> {
+	pub async fn try_get_document_version(&self, module: &tg::Module) -> tg::Result<Option<i32>> {
 		// Lock the documents.
 		let mut documents = self.documents.write().await;
 
 		// Get the state.
-		let Some(state) = documents.get_mut(document) else {
+		let Some(state) = documents.get_mut(module) else {
 			return Ok(None);
 		};
 
 		let version = match state {
 			tg::document::State::Closed(closed) => {
-				let metadata = tokio::fs::metadata(document.path())
+				let path = module
+					.path()
+					.ok_or_else(|| tg::error!("expected a module path"))?;
+
+				let metadata = tokio::fs::metadata(&path)
 					.await
 					.map_err(|source| tg::error!(!source, "failed to get the metadata"))?;
 				let modified = metadata.modified().map_err(|error| {
@@ -149,23 +141,24 @@ impl Server {
 		Ok(Some(version))
 	}
 
-	pub async fn get_document_text(&self, document: &tg::Document) -> tg::Result<String> {
-		self.try_get_document_text(document)
+	pub async fn get_document_text(&self, module: &tg::Module) -> tg::Result<String> {
+		self.try_get_document_text(module)
 			.await?
 			.ok_or_else(|| tg::error!("expected the document to exist"))
 	}
 
 	/// Get a document's text.
-	pub async fn try_get_document_text(
-		&self,
-		document: &tg::Document,
-	) -> tg::Result<Option<String>> {
-		let path = document.path();
+	pub async fn try_get_document_text(&self, module: &tg::Module) -> tg::Result<Option<String>> {
 		let documents = self.documents.read().await;
-		let Some(document) = documents.get(document) else {
+		let Some(state) = documents.get(module) else {
 			return Ok(None);
 		};
-		let text = match document {
+
+		let Some(path) = module.path() else {
+			return Ok(None);
+		};
+
+		let text = match state {
 			tg::document::State::Closed(_) => tokio::fs::read_to_string(&path)
 				.await
 				.map_err(|source| tg::error!(!source, "failed to read the file"))?,
@@ -184,11 +177,9 @@ impl Server {
 		let module = self.module_for_url(&params.text_document.uri).await?;
 
 		// Open the document.
-		if let tg::Module::Document(document) = &module {
-			let version = params.text_document.version;
-			let text = params.text_document.text;
-			self.open_document(document, version, text).await?;
-		}
+		let version = params.text_document.version;
+		let text = params.text_document.text;
+		self.open_document(&module, version, text).await?;
 
 		// Update all diagnostics.
 		self.update_diagnostics().await?;
@@ -203,17 +194,15 @@ impl Server {
 		// Get the module.
 		let module = self.module_for_url(&params.text_document.uri).await?;
 
-		if let tg::Module::Document(document) = &module {
-			// Apply the changes.
-			for change in params.content_changes {
-				self.update_document(
-					document,
-					change.range.map(Into::into),
-					params.text_document.version,
-					change.text,
-				)
-				.await?;
-			}
+		// Apply the changes.
+		for change in params.content_changes {
+			self.update_document(
+				&module,
+				change.range.map(Into::into),
+				params.text_document.version,
+				change.text,
+			)
+			.await?;
 		}
 
 		// Update all diagnostics.
@@ -229,10 +218,8 @@ impl Server {
 		// Get the module.
 		let module = self.module_for_url(&params.text_document.uri).await?;
 
-		if let tg::Module::Document(document) = &module {
-			// Close the document.
-			self.close_document(document).await?;
-		}
+		// Close the document.
+		self.close_document(&module).await?;
 
 		// Update all diagnostics.
 		self.update_diagnostics().await?;

@@ -39,12 +39,6 @@ impl Server {
 				errors: Vec::new(),
 			};
 
-			// Create the include visitor.
-			let mut include_visitor = IncludeVisitor {
-				source_map: source_map.clone(),
-				errors: Vec::new(),
-			};
-
 			// Create the stripper.
 			let mut stripper = swc::ecma::transforms::typescript::strip(top_level_mark);
 
@@ -54,7 +48,6 @@ impl Server {
 			// Visit the module.
 			program.visit_mut_with(&mut resolver);
 			program.visit_mut_with(&mut target_visitor);
-			program.visit_mut_with(&mut include_visitor);
 			program.visit_mut_with(&mut stripper);
 			program.visit_mut_with(&mut fixer);
 
@@ -314,83 +307,6 @@ impl TargetVisitor {
 		}];
 	}
 }
-
-struct IncludeVisitor {
-	source_map: Rc<swc::common::SourceMap>,
-	errors: Vec<Error>,
-}
-
-impl swc::ecma::visit::VisitMut for IncludeVisitor {
-	fn visit_mut_call_expr(&mut self, n: &mut ast::CallExpr) {
-		// Ignore call expression that are not tg.include.
-		let Some(callee) = n.callee.as_expr().and_then(|callee| callee.as_member()) else {
-			n.visit_mut_children_with(self);
-			return;
-		};
-		let Some(obj) = callee.obj.as_ident() else {
-			n.visit_mut_children_with(self);
-			return;
-		};
-		let Some(prop) = callee.prop.as_ident() else {
-			n.visit_mut_children_with(self);
-			return;
-		};
-		if !(&obj.sym == "tg" && &prop.sym == "include") {
-			n.visit_mut_children_with(self);
-			return;
-		}
-
-		// Get the location of the call.
-		let loc = self.source_map.lookup_char_pos(n.span.lo);
-
-		// Get the argument and verify it is a string literal.
-		if n.args.len() != 1 {
-			self.errors.push(Error::new(
-				"tg.include must be called with exactly one argument",
-				&loc,
-			));
-
-			return;
-		}
-		let Some(arg) = n.args[0].expr.as_lit() else {
-			self.errors.push(Error::new(
-				"the argument to tg.include must be a string literal",
-				&loc,
-			));
-			return;
-		};
-
-		// Create the arg.
-		let import_meta = ast::Expr::MetaProp(ast::MetaPropExpr {
-			span: swc::common::DUMMY_SP,
-			kind: ast::MetaPropKind::ImportMeta,
-		});
-		let import_meta_url = ast::MemberExpr {
-			span: swc::common::DUMMY_SP,
-			obj: Box::new(import_meta),
-			prop: ast::Ident::new("url".into(), n.span).into(),
-		};
-		let url_prop = ast::PropOrSpread::Prop(Box::new(ast::Prop::KeyValue(ast::KeyValueProp {
-			key: ast::Ident::new("url".into(), n.span).into(),
-			value: Box::new(import_meta_url.into()),
-		})));
-		let path_prop = ast::PropOrSpread::Prop(Box::new(ast::Prop::KeyValue(ast::KeyValueProp {
-			key: ast::Ident::new("path".into(), n.span).into(),
-			value: Box::new(arg.clone().into()),
-		})));
-		let object = ast::ObjectLit {
-			props: vec![url_prop, path_prop],
-			span: swc::common::DUMMY_SP,
-		};
-
-		// Set the args.
-		n.args = vec![ast::ExprOrSpread {
-			spread: None,
-			expr: object.into(),
-		}];
-	}
-}
-
 #[cfg(test)]
 mod tests {
 	use super::*;
@@ -456,27 +372,6 @@ mod tests {
 					url: import.meta.url,
 					name: "named",
 					function: ()=>{}
-				});
-			"#
-		);
-		assert_eq!(left, right);
-	}
-
-	#[test]
-	fn test_include() {
-		let text = indoc!(
-			r#"
-				tg.include("./hello_world.txt");
-			"#
-		);
-		let left = Server::transpile_module(text.to_owned())
-			.unwrap()
-			.transpiled_text;
-		let right = indoc!(
-			r#"
-				tg.include({
-					url: import.meta.url,
-					path: "./hello_world.txt"
 				});
 			"#
 		);

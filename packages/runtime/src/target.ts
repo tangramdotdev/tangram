@@ -3,6 +3,7 @@ import { Artifact } from "./artifact.ts";
 import { assert as assert_, unreachable } from "./assert.ts";
 import type { Checksum } from "./checksum.ts";
 import { Directory } from "./directory.ts";
+import { File } from "./file.ts";
 import { Lock } from "./lock.ts";
 import { Module } from "./module.ts";
 import { Mutation, mutation } from "./mutation.ts";
@@ -71,18 +72,28 @@ export function target<
 			[arg.name]: arg.function,
 		};
 
-		// Get the package.
+		// Get the module.
 		let module_ = Module.fromUrl(arg.url);
-		assert_(module_.kind === "normal");
-		let lock = Lock.withId(module_.value.lock);
 
-		// Create the executable.
-		let executable = new Symlink({
-			object: {
-				artifact: Directory.withId(module_.value.package),
-				path: Path.new(module_.value.path),
-			},
-		});
+		// Get the executable and lock.
+		let executable: File | Symlink | undefined = undefined;
+		let lock = undefined;
+		if (module_.kind === "js" || module_.kind === "ts") {
+			if (module_.value.kind === "package_artifact") {
+				let package_artifact = module_.value.value;
+				lock = Lock.withId(package_artifact.lock);
+				executable = new Symlink({
+					object: {
+						artifact: Directory.withId(package_artifact.artifact),
+						path: Path.new(package_artifact.path),
+					},
+				});
+			} else if (module_.value.kind === "file") {
+				let file = module_.value.value;
+				executable = File.withId(file);
+			}
+		}
+		assert_(executable, "failed to create the executable");
 
 		// Create the target.
 		return new Target({

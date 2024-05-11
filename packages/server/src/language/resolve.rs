@@ -1,87 +1,71 @@
 use super::Server;
+use std::path::PathBuf;
 use tangram_client as tg;
 
 impl Server {
 	/// Resolve an import from a module.
 	pub async fn resolve_module(
 		&self,
-		module: &tg::Module,
+		referrer: &tg::Module,
 		import: &tg::Import,
 	) -> tg::Result<tg::Module> {
-		match (module, import) {
-			(tg::Module::Library(module), tg::Import::Module(path)) => {
-				let path = module.path.clone().parent().join(path.clone()).normalize();
-				Ok(tg::Module::Library(tg::module::Library { path }))
+		match referrer {
+			tg::Module::Js(tg::module::Js::PackageArtifact(package_artifact))
+			| tg::Module::Ts(tg::module::Js::PackageArtifact(package_artifact)) => {
+				self.resolve_package_artifact(package_artifact, import)
+					.await
 			},
 
-			(tg::Module::Library(_), tg::Import::Dependency(_)) => Err(tg::error!(
-				r#"cannot resolve a dependency import from a library module"#
-			)),
+			tg::Module::Js(tg::module::Js::PackagePath(package_path))
+			| tg::Module::Ts(tg::module::Js::PackagePath(package_path)) => {
+				self.resolve_package_path(package_path, import).await
+			},
 
-			(tg::Module::Document(document), tg::Import::Module(path)) => {
-				// Resolve the module path.
-				let package_path = document.package_path.clone();
-				let module_path = document
+			tg::Module::Js(tg::module::Js::File(_)) | tg::Module::Ts(tg::module::Js::File(_)) => {
+				Err(tg::error!(
+					"cannot import from a js or ts module with no package"
+				))
+			},
+
+			tg::Module::Dts(_) => Err(tg::error!("unimplemented")),
+
+			tg::Module::Artifact(_)
+			| tg::Module::File(_)
+			| tg::Module::Directory(_)
+			| tg::Module::Symlink(_) => Err(tg::error!("cannot import from an artifact")),
+		}
+	}
+
+	async fn resolve_package_artifact(
+		&self,
+		referrer: &tg::module::PackageArtifact,
+		import: &tg::Import,
+	) -> tg::Result<tg::Module> {
+		let id = referrer
+			.artifact
+			.clone()
+			.try_unwrap_directory()
+			.ok()
+			.ok_or_else(|| tg::error!("expected a directory"))?;
+		let package = tg::Directory::with_id(id);
+		let lock = tg::Lock::with_id(referrer.lock.clone());
+		match &import.specifier {
+			tg::import::Specifier::Path(path) => {
+				let path = referrer
 					.path
 					.clone()
 					.parent()
 					.join(path.clone())
 					.normalize();
-
-				// Ensure that the module exists.
-				let module_absolute_path = package_path.join(&module_path);
-				let exists =
-					tokio::fs::try_exists(&module_absolute_path)
-						.await
-						.map_err(|error| {
-							tg::error!(source = error, "failed to determine if the path exists")
-						})?;
-				if !exists {
-					let path = module_absolute_path.display();
-					return Err(tg::error!(%path, "could not find a module"));
-				}
-
-				// Get or create the document.
-				let document = self.get_document(package_path, module_path).await?;
-
-				// Create the module.
-				let module = tg::Module::Document(document);
-
-				Ok(module)
-			},
-
-			(tg::Module::Document(document), tg::Import::Dependency(dependency))
-				if dependency.path.is_some() =>
-			{
-				// Resolve the package path.
-				let dependency_path = document
-					.path
-					.clone()
-					.parent()
-					.join(dependency.path.as_ref().unwrap().clone())
-					.normalize();
-				let package_path = document.package_path.join(&dependency_path);
-				let package_path = tokio::fs::canonicalize(package_path)
+				self.resolve_package_artifact_with_path(package, lock, &path, import.r#type)
 					.await
-					.map_err(|source| tg::error!(!source, "failed to canonicalize the path"))?;
-
-				// Get the package's root module path.
-				let module_path = tg::package::get_root_module_path_for_path(&package_path).await?;
-
-				// Get or create the document.
-				let document = self.get_document(package_path, module_path).await?;
-
-				// Create the module.
-				let module = tg::Module::Document(document);
-
-				Ok(module)
 			},
 
-			(tg::Module::Document(document), tg::Import::Dependency(dependency)) => {
+			tg::import::Specifier::Dependency(dependency) => {
 				// Make the dependency path relative to the package.
 				let mut dependency = dependency.clone();
 				if let Some(path) = dependency.path.as_mut() {
-					*path = document
+					*path = referrer
 						.path
 						.clone()
 						.parent()
@@ -89,67 +73,243 @@ impl Server {
 						.normalize();
 				}
 
-				// Get the lock for the document's package.
-				let path = document.package_path.clone().try_into()?;
-				let dependency_ = tg::Dependency::with_path(path);
-				let (_, lock) = tg::package::get_with_lock(&self.server, &dependency_).await?;
+				// Resolve the dependency using the lock.
+				let (package, lock) = lock.get(&self.server, &dependency).await?;
+				let package = package.unwrap().into();
 
-				// Get the package and lock for the dependency.
-				let (package, lock) = lock.get(&self.server, &dependency).await.map_err(
-					|source| tg::error!(!source, %dependency, "failed to resolve dependency"),
-				)?;
-				let package = package.unwrap();
+				// Create a module for the package.
+				self.module_for_package_with_type(package, lock, import.r#type)
+					.await
+			},
+		}
+	}
 
-				// Create the module.
-				let path = tg::package::get_root_module_path(&self.server, &package).await?;
-				let lock = lock.id(&self.server, None).await?;
-				let package = package.id(&self.server, None).await?;
-				let module = tg::Module::Normal(tg::module::Normal {
-					lock,
-					package,
-					path,
-				});
-
-				Ok(module)
+	async fn resolve_package_path(
+		&self,
+		referrer: &tg::module::PackagePath,
+		import: &tg::Import,
+	) -> tg::Result<tg::Module> {
+		match &import.specifier {
+			tg::import::Specifier::Path(path) => {
+				let path = referrer
+					.path
+					.clone()
+					.parent()
+					.join(path.clone())
+					.normalize();
+				self.resolve_package_path_with_path(&referrer.package_path, &path, import.r#type)
+					.await
 			},
 
-			(tg::Module::Normal(module), tg::Import::Module(path)) => {
-				let path = module.path.clone().parent().join(path.clone()).normalize();
-				Ok(tg::Module::Normal(tg::module::Normal {
-					package: module.package.clone(),
-					path,
-					lock: module.lock.clone(),
-				}))
-			},
-
-			(tg::Module::Normal(module), tg::Import::Dependency(dependency)) => {
+			tg::import::Specifier::Dependency(dependency) => {
 				// Make the dependency path relative to the package.
 				let mut dependency = dependency.clone();
 				if let Some(path) = dependency.path.as_mut() {
-					*path = module.path.clone().parent().join(path.clone()).normalize();
+					*path = referrer
+						.path
+						.clone()
+						.parent()
+						.join(path.clone())
+						.normalize();
 				}
 
-				// Get this module's lock.
-				let lock = tg::Lock::with_id(module.lock.clone());
+				// Get the package and lock for the dependency.
+				let (package, lock) = tg::package::get_with_lock(&self.server, &dependency).await?;
 
-				// Get the specified package and lock from the dependencies.
-				let (package, lock) = lock.get(&self.server, &dependency).await.map_err(
-					|source| tg::error!(!source, %dependency, %lock, "failed to resolve dependency"),
-				)?;
-				let package = package.unwrap();
-
-				// Create the module.
-				let path = tg::package::get_root_module_path(&self.server, &package).await?;
-				let package = package.id(&self.server, None).await?;
-				let lock = lock.id(&self.server, None).await?;
-				let module = tg::Module::Normal(tg::module::Normal {
-					lock,
-					package,
-					path,
-				});
-
-				Ok(module)
+				// Create a module for the package.
+				self.module_for_package_with_type(package, lock, import.r#type)
+					.await
 			},
 		}
+	}
+
+	#[allow(clippy::ptr_arg)]
+	async fn resolve_package_path_with_path(
+		&self,
+		package_path: &PathBuf,
+		module_path: &tg::Path,
+		r#type: Option<tg::import::Type>,
+	) -> tg::Result<tg::Module> {
+		let path = package_path.clone().join(module_path).try_into()?;
+		let metadata = tokio::fs::symlink_metadata(&path)
+			.await
+			.map_err(|source| tg::error!(!source, "failed to get the metadata"))?;
+		let target = match r#type {
+			None | Some(tg::import::Type::Artifact) => {
+				tg::Module::Artifact(tg::module::Artifact::Path(path))
+			},
+
+			Some(tg::import::Type::Directory) => {
+				if !metadata.file_type().is_dir() {
+					return Err(tg::error!("expected a directory"));
+				}
+				tg::Module::Directory(tg::module::Directory::Path(path))
+			},
+
+			Some(tg::import::Type::File) => {
+				if !metadata.file_type().is_file() {
+					return Err(tg::error!("expected a file"));
+				}
+				tg::Module::File(tg::module::File::Path(path))
+			},
+
+			Some(tg::import::Type::Symlink) => {
+				if !metadata.file_type().is_symlink() {
+					return Err(tg::error!("expected a symlink"));
+				}
+				tg::Module::Symlink(tg::module::Symlink::Path(path))
+			},
+
+			Some(tg::import::Type::Js) => {
+				let package_path = tg::module::PackagePath {
+					package_path: package_path.clone(),
+					path: module_path.clone(),
+				};
+				tg::Module::Js(tg::module::Js::PackagePath(package_path))
+			},
+
+			Some(tg::import::Type::Ts) => {
+				let package_path = tg::module::PackagePath {
+					package_path: package_path.clone(),
+					path: module_path.clone(),
+				};
+				tg::Module::Ts(tg::module::Js::PackagePath(package_path))
+			},
+
+			_ => return Err(tg::error!("invalid type for import within a package path")),
+		};
+		Ok(target)
+	}
+
+	async fn module_for_package_with_type(
+		&self,
+		package: tg::Artifact,
+		lock: tg::Lock,
+		r#type: Option<tg::import::Type>,
+	) -> tg::Result<tg::Module> {
+		let id = package.id(&self.server, None).await?;
+		let module = match r#type {
+			None => tg::Module::with_package_and_lock(&self.server, &package, &lock).await?,
+
+			Some(tg::import::Type::Js) => tg::Module::Js(tg::module::Js::PackageArtifact(
+				self.create_package_artifact(package, lock).await?,
+			)),
+
+			Some(tg::import::Type::Ts) => tg::Module::Ts(tg::module::Js::PackageArtifact(
+				self.create_package_artifact(package, lock).await?,
+			)),
+
+			Some(tg::import::Type::Artifact) => tg::Module::Artifact(tg::module::Artifact::Id(id)),
+
+			Some(tg::import::Type::Directory) => {
+				let id = id
+					.try_unwrap_directory()
+					.ok()
+					.ok_or_else(|| tg::error!("expected a directory"))?;
+				tg::Module::Directory(tg::module::Directory::Id(id))
+			},
+
+			Some(tg::import::Type::File) => {
+				let id = id
+					.try_unwrap_file()
+					.ok()
+					.ok_or_else(|| tg::error!("expected a file"))?;
+				tg::Module::File(tg::module::File::Id(id))
+			},
+
+			Some(tg::import::Type::Symlink) => {
+				let id = id
+					.try_unwrap_symlink()
+					.ok()
+					.ok_or_else(|| tg::error!("expected a symlink"))?;
+				tg::Module::Symlink(tg::module::Symlink::Id(id))
+			},
+
+			_ => {
+				return Err(tg::error!("invalid type for import from a package"));
+			},
+		};
+		Ok(module)
+	}
+
+	async fn resolve_package_artifact_with_path(
+		&self,
+		package: tg::Directory,
+		lock: tg::Lock,
+		module_path: &tg::Path,
+		r#type: Option<tg::import::Type>,
+	) -> tg::Result<tg::Module> {
+		let artifact = package
+			.get(&self.server, module_path)
+			.await
+			.map_err(|source| tg::error!(!source, %path = module_path, %package, "failed to find the artifact within the package"))?
+			.id(&self.server, None)
+			.await?;
+		let target = match r#type {
+			Some(tg::import::Type::Js) => {
+				let package_artifact = tg::module::PackageArtifact {
+					artifact: package.id(&self.server, None).await?.into(),
+					lock: lock.id(&self.server, None).await?,
+					path: module_path.clone(),
+				};
+				tg::Module::Js(tg::module::Js::PackageArtifact(package_artifact))
+			},
+
+			Some(tg::import::Type::Ts) => {
+				let package_artifact = tg::module::PackageArtifact {
+					artifact: package.id(&self.server, None).await?.into(),
+					lock: lock.id(&self.server, None).await?,
+					path: module_path.clone(),
+				};
+				tg::Module::Js(tg::module::Js::PackageArtifact(package_artifact))
+			},
+
+			None | Some(tg::import::Type::Artifact) => {
+				tg::Module::Artifact(tg::module::Artifact::Id(artifact))
+			},
+
+			Some(tg::import::Type::Directory) => {
+				let id = artifact
+					.try_into()
+					.ok()
+					.ok_or_else(|| tg::error!("expected a directory"))?;
+				tg::Module::Directory(tg::module::Directory::Id(id))
+			},
+
+			Some(tg::import::Type::File) => {
+				let id = artifact
+					.try_into()
+					.ok()
+					.ok_or_else(|| tg::error!("expected a directory"))?;
+				tg::Module::File(tg::module::File::Id(id))
+			},
+
+			Some(tg::import::Type::Symlink) => {
+				let id = artifact
+					.try_into()
+					.ok()
+					.ok_or_else(|| tg::error!("expected a directory"))?;
+				tg::Module::Symlink(tg::module::Symlink::Id(id))
+			},
+
+			_ => return Err(tg::error!("invalid type for import within a package")),
+		};
+		Ok(target)
+	}
+
+	async fn create_package_artifact(
+		&self,
+		package: tg::Artifact,
+		lock: tg::Lock,
+	) -> tg::Result<tg::module::PackageArtifact> {
+		let artifact = package.id(&self.server, None).await?;
+		let path = tg::package::get_root_module_path(&self.server, &package).await?;
+		let lock = lock.id(&self.server, None).await?;
+		let package_artifact = tg::module::PackageArtifact {
+			artifact,
+			lock,
+			path,
+		};
+		Ok(package_artifact)
 	}
 }

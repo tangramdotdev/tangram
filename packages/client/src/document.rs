@@ -1,19 +1,3 @@
-use crate as tg;
-use std::path::PathBuf;
-
-/// A document.
-#[derive(
-	Clone, PartialOrd, Ord, PartialEq, Eq, Hash, Debug, serde::Serialize, serde::Deserialize,
-)]
-#[serde(rename_all = "camelCase")]
-pub struct Document {
-	/// The path to the package.
-	pub package_path: PathBuf,
-
-	/// The module's path.
-	pub path: tg::Path,
-}
-
 /// A document's state.
 #[derive(Clone, Debug)]
 pub enum State {
@@ -42,12 +26,4 @@ pub struct Opened {
 
 	/// The document's text.
 	pub text: String,
-}
-
-impl Document {
-	/// Get the document's path.
-	#[must_use]
-	pub fn path(&self) -> PathBuf {
-		self.package_path.join(&self.path)
-	}
 }

@@ -21,6 +21,9 @@ impl Server {
 			let Some(id) = dependency.id.clone() else {
 				break 'a None;
 			};
+			let Ok(id) = id.try_into() else {
+				break 'a None;
+			};
 			let package = tg::Directory::with_id(id);
 			Some(self.analyze_package(&package).await?)
 		};
@@ -67,7 +70,13 @@ impl Server {
 			else {
 				break 'a None;
 			};
-			let package = tg::Directory::with_id(output.artifact);
+
+			let package = output
+				.artifact
+				.try_into()
+				.ok()
+				.ok_or_else(|| tg::error!("expected a directory"))?;
+			let package = tg::Directory::with_id(package);
 			Some(self.analyze_package(&package).await?)
 		};
 
@@ -105,7 +114,7 @@ impl Server {
 		// Get the root module.
 		let root_module_path = path
 			.clone()
-			.join(tg::package::get_root_module_path(self, package).await?);
+			.join(tg::package::get_root_module_path(self, &package.clone().into()).await?);
 
 		// Create a queue of module paths to visit and a visited set.
 		let mut queue = VecDeque::from(vec![root_module_path]);
@@ -138,54 +147,55 @@ impl Server {
 				.map_err(|source| tg::error!(!source, "failed to analyze the module"))?;
 
 			// Recurse into the path dependencies.
-			for import in &analysis.imports {
-				if let tg::Import::Dependency(
-					dependency @ tg::Dependency {
-						path: Some(dependency_path),
-						..
-					},
-				) = import
-				{
-					let dependency = dependency.clone();
+			let iter = analysis
+				.imports
+				.iter()
+				.filter_map(|import| match &import.specifier {
+					tg::import::Specifier::Dependency(
+						dependency @ tg::Dependency {
+							path: Some(path), ..
+						},
+					) => Some((dependency.clone(), path.clone())),
+					_ => None,
+				});
+			for (dependency, dependency_path) in iter {
+				// Get the dependency path relative to the root
+				let path = path.clone().join(dependency_path.clone()).normalize();
 
-					// Get the dependency path relative to the root
-					let path = path.clone().join(dependency_path.clone()).normalize();
+				// Get the dependency.
+				let package = root
+					.get(self, &path)
+					.await
+					.map_err(
+						|source| tg::error!(!source, %path, %package = id, "failed to resolve the dependency"),
+					)?
+					.try_unwrap_directory()
+					.map_err(|source| tg::error!(!source, "expected a directory"))?;
 
-					// Get the dependency.
-					let package = root
-						.get(self, &path)
-						.await
-						.map_err(
-							|source| tg::error!(!source, %path, %package = id, "failed to resolve the dependency"),
-						)?
-						.try_unwrap_directory()
-						.map_err(|source| tg::error!(!source, "expected a directory"))?;
+				// Recurse into the path dependency.
+				let child =
+					Box::pin(self.analyze_package_inner(root, path, &package, visited)).await?;
 
-					// Recurse into the path dependency.
-					let child =
-						Box::pin(self.analyze_package_inner(root, path, &package, visited)).await?;
-
-					// Insert the path dependency.
-					path_dependencies.insert(dependency, child);
-				}
+				// Insert the path dependency.
+				path_dependencies.insert(dependency, child);
 			}
 
 			// Add the module path to the visited set.
 			visited_module_paths.insert(module_path.clone());
 
 			// Add the unvisited path imports to the queue.
-			for import in &analysis.imports {
-				if let tg::Import::Module(import) = import {
-					let imported_module_path = module_path
-						.clone()
-						.parent()
-						.join(import.clone())
-						.normalize();
-					if !visited_module_paths.contains(&imported_module_path)
-						&& !queue.contains(&imported_module_path)
-					{
-						queue.push_back(imported_module_path);
-					}
+			let iter = analysis.imports.iter().filter_map(|import| {
+				if let tg::import::Specifier::Path(path) = &import.specifier {
+					Some(path.clone())
+				} else {
+					None
+				}
+			});
+			for imported_module_path in iter {
+				if !visited_module_paths.contains(&imported_module_path)
+					&& !queue.contains(&imported_module_path)
+				{
+					queue.push_back(imported_module_path);
 				}
 			}
 		}
@@ -194,7 +204,9 @@ impl Server {
 		let dependencies = self.get_package_dependencies(package).await?;
 
 		// Get the package metadata.
-		let metadata = self.try_get_package_metadata(package).await?;
+		let metadata = self
+			.try_get_package_metadata(&package.clone().into())
+			.await?;
 
 		// Create the analysis.
 		let package = package.clone();
@@ -277,86 +289,69 @@ impl Server {
 			let analysis = crate::language::Server::analyze_module(text)
 				.map_err(|source| tg::error!(!source, "failed to analyze the module"))?;
 
-			// Handle the includes.
-			for include_path in analysis.includes {
-				// Get the included artifact's path in the package.
-				let included_artifact_path = module_path
-					.clone()
-					.parent()
-					.join(include_path.clone())
-					.normalize();
-
-				// Get the included artifact's path.
-				let included_artifact_absolute_path =
-					path.join(&included_artifact_path).try_into()?;
-
-				// Check in the artifact at the included path.
-				let included_artifact =
-					tg::Artifact::check_in(self, included_artifact_absolute_path).await?;
-
-				// Add the included artifact to the directory.
-				package = package
-					.add(self, &included_artifact_path, included_artifact)
-					.await?;
-			}
-
 			// Recurse into the path dependencies.
-			for import in &analysis.imports {
-				if let tg::Import::Dependency(dependency @ tg::Dependency { path: Some(_), .. }) =
-					import
-				{
-					// Make the dependency path relative to the package.
-					let mut dependency = dependency.clone();
-					dependency.path.replace(
-						module_path
-							.clone()
-							.parent()
-							.join(dependency.path.as_ref().unwrap().clone())
-							.normalize(),
-					);
+			let iter = analysis
+				.imports
+				.iter()
+				.filter_map(|import| match &import.specifier {
+					tg::import::Specifier::Dependency(
+						dependency @ tg::Dependency {
+							path: Some(path), ..
+						},
+					) => Some((dependency.clone(), path.clone())),
+					_ => None,
+				});
+			for (mut dependency, dependency_path) in iter {
+				// Make the dependency path relative to the package.
+				dependency.path.replace(
+					module_path
+						.clone()
+						.parent()
+						.join(dependency_path)
+						.normalize(),
+				);
 
-					// Get the dependency's absolute path.
-					let dependency_path = path.join(dependency.path.as_ref().unwrap());
-					let dependency_absolute_path =
-						tokio::fs::canonicalize(&dependency_path).await.map_err(
-							|error| tg::error!(source = error, %dependency, "failed to canonicalize the dependency path"),
-						)?;
+				// Get the dependency's absolute path.
+				let dependency_path = path.join(dependency.path.as_ref().unwrap());
+				let dependency_absolute_path =
+					tokio::fs::canonicalize(&dependency_path).await.map_err(
+						|error| tg::error!(source = error, %dependency, "failed to canonicalize the dependency path"),
+					)?;
 
-					// Recurse into the path dependency.
-					let child = Box::pin(
-						self.analyze_package_at_path_inner(&dependency_absolute_path, visited),
-					)
-					.await?;
+				// Recurse into the path dependency.
+				let child = Box::pin(
+					self.analyze_package_at_path_inner(&dependency_absolute_path, visited),
+				)
+				.await?;
 
-					// Check if this is a child of the root and add it if necessary.
-					if let Ok(subpath) = dependency_absolute_path.strip_prefix(path) {
-						let subpath = subpath.try_into()?;
-						package = package
-							.add(self, &subpath, child.package.clone().into())
-							.await?;
-					}
-
-					// Insert the path dependency.
-					path_dependencies.insert(dependency, child);
+				// Check if this is a child of the root and add it if necessary.
+				if let Ok(subpath) = dependency_absolute_path.strip_prefix(path) {
+					let subpath = subpath.try_into()?;
+					package = package
+						.add(self, &subpath, child.package.clone().into())
+						.await?;
 				}
+
+				// Insert the path dependency.
+				path_dependencies.insert(dependency, child);
 			}
 
 			// Add the module path to the visited set.
 			visited_module_paths.insert(module_path.clone());
 
 			// Add the unvisited path imports to the queue.
-			for import in &analysis.imports {
-				if let tg::Import::Module(import) = import {
-					let imported_module_path = module_path
-						.clone()
-						.parent()
-						.join(import.clone())
-						.normalize();
-					if !visited_module_paths.contains(&imported_module_path)
-						&& !queue.contains(&imported_module_path)
-					{
-						queue.push_back(imported_module_path);
-					}
+			let iter = analysis.imports.iter().filter_map(|import| {
+				if let tg::import::Specifier::Path(path) = &import.specifier {
+					Some(path.clone())
+				} else {
+					None
+				}
+			});
+			for imported_module_path in iter {
+				if !visited_module_paths.contains(&imported_module_path)
+					&& !queue.contains(&imported_module_path)
+				{
+					queue.push_back(imported_module_path);
 				}
 			}
 		}
@@ -368,7 +363,9 @@ impl Server {
 		let dependencies = self.get_package_dependencies(&package).await?;
 
 		// Get the package metadata.
-		let metadata = self.try_get_package_metadata(&package).await?;
+		let metadata = self
+			.try_get_package_metadata(&package.clone().into())
+			.await?;
 
 		// Create the analysis.
 		let analysis = Analysis {

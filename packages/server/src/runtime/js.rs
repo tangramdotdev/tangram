@@ -358,7 +358,7 @@ fn host_import_module_dynamically_callback<'s>(
 
 	// Get the module.
 	let module = if resource_name == "[global]" {
-		let module = specifier.to_rust_string_lossy(scope);
+		let module: String = specifier.to_rust_string_lossy(scope);
 		match module.parse() {
 			Ok(module) => module,
 			Err(error) => {
@@ -380,7 +380,6 @@ fn host_import_module_dynamically_callback<'s>(
 
 		// Parse the import.
 		let import = parse_import(scope, specifier, attributes)?;
-
 		resolve_module(scope, &module, &import)?
 	};
 
@@ -479,7 +478,7 @@ fn resolve_module(
 	});
 
 	let module = match receiver.recv().unwrap().map_err(
-		|source| tg::error!(!source, %import, %module, "failed to resolve import relative to module"),
+		|source| tg::error!(!source, %import = import.specifier, %module, "failed to resolve import relative to module"),
 	) {
 		Ok(module) => module,
 		Err(error) => {
@@ -681,7 +680,7 @@ fn parse_import_inner<'s>(
 	let attributes = if attributes.length() > 0 {
 		let mut map = BTreeMap::default();
 		let mut i = 0;
-		while i < attributes.length() % 2 {
+		while i < attributes.length() {
 			let key = attributes
 				.get(scope, i)
 				.ok_or_else(|| tg::error!("failed to get the key"))?;
@@ -691,7 +690,7 @@ fn parse_import_inner<'s>(
 			i += 1;
 			let value = attributes
 				.get(scope, i)
-				.ok_or_else(|| tg::error!("failed to get the value"))?;
+				.ok_or_else(|| tg::error!(%key, "failed to get the attribute value"))?;
 			let value = v8::Local::<v8::Value>::try_from(value)
 				.map_err(|source| tg::error!(!source, "failed to convert the value"))?;
 			let value = value.to_rust_string_lossy(scope);

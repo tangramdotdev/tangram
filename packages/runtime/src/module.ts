@@ -1,24 +1,45 @@
 import { assert } from "./assert.ts";
 
 export type Module =
-	| { kind: "document"; value: Document }
-	| { kind: "library"; value: Library }
-	| { kind: "normal"; value: Normal };
+	| { kind: "js"; value: Js }
+	| { kind: "ts"; value: Js }
+	| { kind: "dts"; value: { path: string } }
+	| { kind: "artifact"; value: Artifact }
+	| { kind: "directory"; value: Directory }
+	| { kind: "file"; value: File }
+	| { kind: "symlink"; value: Symlink };
 
-export type Document = {
-	package: string;
-	path: string;
-};
+export type Js =
+	| { kind: "file"; value: string }
+	| { kind: "package_artifact"; value: PackageArtifact }
+	| { kind: "package_path"; value: PackagePath };
 
-export type Library = {
-	path: string;
-};
-
-export type Normal = {
+export type PackageArtifact = {
+	artifact: string;
 	lock: string;
-	package: string;
 	path: string;
 };
+
+export type PackagePath = {
+	package_path: string;
+	path: string;
+};
+
+export type Artifact =
+	| { kind: "path"; value: string }
+	| { kind: "id"; value: string };
+
+export type Directory =
+	| { kind: "path"; value: string }
+	| { kind: "id"; value: string };
+
+export type File =
+	| { kind: "path"; value: string }
+	| { kind: "id"; value: string };
+
+export type Symlink =
+	| { kind: "path"; value: string }
+	| { kind: "id"; value: string };
 
 export namespace Module {
 	export let toUrl = (module: Module): string => {
@@ -26,7 +47,23 @@ export namespace Module {
 			"encoding_hex_encode",
 			syscall("encoding_utf8_encode", syscall("encoding_json_encode", module)),
 		);
-		return `tg://${data}/${module.value.path.slice(2)}`;
+		if (
+			(module.kind === "js" || module.kind === "ts") &&
+			module.value.kind !== "file"
+		) {
+			return `tg://${data}/${module.value.value.path.slice(2)}`;
+		} else if (module.kind === "dts") {
+			return `tg://${data}/${module.value.path.slice(2)}`;
+		} else if (
+			module.kind === "artifact" ||
+			module.kind === "directory" ||
+			module.kind === "file" ||
+			(module.kind === "symlink" && module.value.value)
+		) {
+			return `tg://${data}/${module.value.value.slice(2)}`;
+		} else {
+			return `tg://${data}`;
+		}
 	};
 
 	export let fromUrl = (url: string): Module => {

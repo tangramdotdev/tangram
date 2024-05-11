@@ -12,7 +12,6 @@ use tangram_client as tg;
 pub struct Analysis {
 	pub metadata: Option<tg::package::Metadata>,
 	pub imports: HashSet<tg::Import, fnv::FnvBuildHasher>,
-	pub includes: HashSet<tg::Path, fnv::FnvBuildHasher>,
 }
 
 pub struct Error {
@@ -50,7 +49,6 @@ impl Server {
 		let output = Analysis {
 			metadata: visitor.metadata,
 			imports: visitor.imports,
-			includes: visitor.includes,
 		};
 
 		Ok(output)
@@ -85,7 +83,6 @@ struct Visitor {
 	errors: Vec<Error>,
 	metadata: Option<tg::package::Metadata>,
 	imports: HashSet<tg::Import, fnv::FnvBuildHasher>,
-	includes: HashSet<tg::Path, fnv::FnvBuildHasher>,
 }
 
 impl Visitor {
@@ -147,56 +144,6 @@ impl swc::ecma::visit::Visit for Visitor {
 
 	fn visit_call_expr(&mut self, n: &ast::CallExpr) {
 		match &n.callee {
-			// Handle a call expression.
-			ast::Callee::Expr(callee) => {
-				// Ignore call expressions that are not tg.include().
-				let Some(callee) = callee.as_member() else {
-					n.visit_children_with(self);
-					return;
-				};
-				let Some(obj) = callee.obj.as_ident() else {
-					n.visit_children_with(self);
-					return;
-				};
-				let Some(prop) = callee.prop.as_ident() else {
-					n.visit_children_with(self);
-					return;
-				};
-				if !(&obj.sym == "tg" && &prop.sym == "include") {
-					n.visit_children_with(self);
-					return;
-				}
-
-				// Get the location of the call.
-				let loc = self.source_map.lookup_char_pos(n.span.lo);
-
-				// Get the argument and verify it is a string literal.
-				if n.args.len() != 1 {
-					self.errors.push(Error::new(
-						"tg.include must be called with exactly one argument",
-						&loc,
-					));
-					return;
-				}
-				let Some(ast::Lit::Str(arg)) = n.args[0].expr.as_lit() else {
-					self.errors.push(Error::new(
-						"the argument to tg.include must be a string literal",
-						&loc,
-					));
-					return;
-				};
-
-				// Parse the argument and add it to the set of includes.
-				let Ok(include) = arg.value.to_string().parse() else {
-					self.errors.push(Error::new(
-						"failed to parse the argument to tg.include",
-						&loc,
-					));
-					return;
-				};
-				self.includes.insert(include);
-			},
-
 			// Handle a dynamic import.
 			ast::Callee::Import(_) => {
 				let Some(ast::Lit::Str(arg)) = n.args.first().and_then(|arg| arg.expr.as_lit())
@@ -208,12 +155,35 @@ impl swc::ecma::visit::Visit for Visitor {
 					));
 					return;
 				};
-				let with = n.args.get(1).and_then(|arg| arg.expr.as_object());
+				// Get the attributes, { with: { ... }}
+				let with = n
+					.args
+					.get(1)
+					.and_then(|arg| arg.expr.as_object())
+					.and_then(|object| {
+						object.props.iter().find_map(|prop| {
+							let ast::PropOrSpread::Prop(prop) = prop else {
+								return None;
+							};
+							let ast::Prop::KeyValue(prop) = prop.as_ref() else {
+								return None;
+							};
+							match &prop.key {
+								ast::PropName::Ident(ident) if ident.sym.as_ref() == "with" => {
+									prop.value.as_object()
+								},
+								ast::PropName::Str(str) if str.value.as_ref() == "with" => {
+									prop.value.as_object()
+								},
+								_ => None,
+							}
+						})
+					});
 				self.add_import(&arg.value, with, n.span);
 			},
 
-			// Ignore a call to super.
-			ast::Callee::Super(_) => {
+			// Ignore other calls.
+			_ => {
 				n.visit_children_with(self);
 			},
 		}
@@ -340,10 +310,10 @@ mod tests {
 			import { namedImport } from "./named_import.tg.js";
 			import * as namespaceImport from "tg:namespace_import";
 			let dynamicImport = import("./dynamic_import.tg.ts");
-			let include = tg.include("./include.txt");
+			let include = import("./include.txt");
 			export let nested = tg.target(() => {
 				let nestedDynamicImport = import("tg:nested_dynamic_import");
-				let nestedInclude = tg.include("./nested_include.txt");
+				let nestedInclude = import("./nested_include.txt");
 			});
 			export { namedExport } from "tg:named_export";
 			export * as namespaceExport from "./namespace_export.ts";
@@ -362,18 +332,15 @@ mod tests {
 			"tg:nested_dynamic_import",
 			"tg:named_export",
 			"./namespace_export.ts",
+			"./include.txt",
+			"./nested_include.txt",
 		]
 		.into_iter()
-		.map(|import| import.parse().unwrap())
+		.map(|specifier| tg::Import::with_specifier_and_attributes(specifier, None).unwrap())
 		.collect();
-		let includes = ["./include.txt", "./nested_include.txt"]
-			.into_iter()
-			.map(|include| include.parse().unwrap())
-			.collect();
 		let right = Analysis {
 			metadata: Some(metadata),
 			imports,
-			includes,
 		};
 		assert_eq!(left, right);
 	}

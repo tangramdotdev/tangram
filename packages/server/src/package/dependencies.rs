@@ -11,7 +11,8 @@ impl Server {
 		let mut dependencies: BTreeSet<tg::Dependency> = BTreeSet::default();
 
 		// Get the root module path.
-		let root_module_path = tg::package::get_root_module_path(self, package).await?;
+		let root_module_path =
+			tg::package::get_root_module_path(self, &package.clone().into()).await?;
 
 		// Create a queue of module paths to visit and a visited set.
 		let mut queue: VecDeque<tg::Path> = VecDeque::from(vec![root_module_path]);
@@ -33,34 +34,39 @@ impl Server {
 				.map_err(|source| tg::error!(!source, "failed to analyze the module"))?;
 
 			// Recurse into the dependencies.
-			for import in &analysis.imports {
-				if let tg::Import::Dependency(dependency) = import {
-					let mut dependency = dependency.clone();
-
-					// Normalize the path dependency to be relative to the root.
-					dependency.path = dependency
-						.path
-						.take()
-						.map(|path| module_path.clone().parent().join(path).normalize());
-
-					dependencies.insert(dependency.clone());
+			let iter = analysis.imports.iter().filter_map(|import| {
+				if let tg::import::Specifier::Dependency(dependency) = &import.specifier {
+					Some(dependency.clone())
+				} else {
+					None
 				}
+			});
+			for mut dependency in iter {
+				// Normalize the path dependency to be relative to the root.
+				dependency.path = dependency
+					.path
+					.take()
+					.map(|path| module_path.clone().parent().join(path).normalize());
+
+				dependencies.insert(dependency.clone());
 			}
 
 			// Add the module path to the visited set.
 			visited.insert(module_path.clone());
 
 			// Add the unvisited module imports to the queue.
-			for import in &analysis.imports {
-				if let tg::Import::Module(import) = import {
-					let imported_module_path = module_path
-						.clone()
-						.parent()
-						.join(import.clone())
-						.normalize();
-					if !visited.contains(&imported_module_path) {
-						queue.push_back(imported_module_path);
-					}
+			let iter = analysis.imports.iter().filter_map(|import| {
+				if let tg::import::Specifier::Path(path) = &import.specifier {
+					Some(path.clone())
+				} else {
+					None
+				}
+			});
+			for module_path in iter {
+				let imported_module_path =
+					module_path.clone().parent().join(module_path).normalize();
+				if !visited.contains(&imported_module_path) {
+					queue.push_back(imported_module_path);
 				}
 			}
 		}

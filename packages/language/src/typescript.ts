@@ -134,7 +134,7 @@ export let languageService = ts.createLanguageService(host, documentRegistry);
 
 /** Convert a module to a TypeScript file name. */
 export let fileNameFromModule = (module_: Module): string => {
-	if (module_.kind === "library") {
+	if (module_.kind === "dts") {
 		return `/library/${module_.value.path.slice(2)}`;
 	} else {
 		let data = syscall(
@@ -142,12 +142,12 @@ export let fileNameFromModule = (module_: Module): string => {
 			syscall("encoding_utf8_encode", syscall("encoding_json_encode", module_)),
 		);
 		let extension: string | undefined;
-		if (module_.value.path.endsWith(".js")) {
+		if (module_.kind === "js") {
 			extension = ".js";
-		} else if (module_.value.path.endsWith(".ts")) {
+		} else if (module_.kind === "ts") {
 			extension = ".ts";
 		} else {
-			throw new Error("invalid extension");
+			throw new Error("invalid module kind");
 		}
 		return `/${data}${extension}`;
 	}
@@ -158,7 +158,7 @@ export let moduleFromFileName = (fileName: string): Module => {
 	let module_: Module;
 	if (fileName.startsWith("/library/")) {
 		let path = fileName.slice(9);
-		module_ = { kind: "library", value: { path } };
+		module_ = { kind: "dts", value: { path } };
 	} else {
 		let data = fileName.slice(1, -3);
 		module_ = syscall(

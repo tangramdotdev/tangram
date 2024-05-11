@@ -28,10 +28,14 @@ pub enum Kind {
 	PartialOrd,
 	derive_more::From,
 	derive_more::TryInto,
+	derive_more::TryUnwrap,
+	derive_more::Unwrap,
 	serde::Deserialize,
 	serde::Serialize,
 )]
 #[serde(into = "crate::Id", try_from = "crate::Id")]
+#[try_unwrap(ref)]
+#[unwrap(ref)]
 pub enum Id {
 	/// A directory ID.
 	Directory(tg::directory::Id),

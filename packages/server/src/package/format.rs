@@ -58,8 +58,12 @@ impl Server {
 		};
 
 		for import in analysis.imports {
-			if let tg::Import::Module(module) = import {
-				let module_path = module_path.clone().parent().normalize().join(module);
+			if let tg::import::Specifier::Path(module_path) = &import.specifier {
+				let module_path = module_path
+					.clone()
+					.parent()
+					.normalize()
+					.join(module_path.clone());
 				let exists = tokio::fs::try_exists(&module_path).await.map_err(
 					|source| tg::error!(!source, %module_path, "failed to check if module exists"),
 				)?;

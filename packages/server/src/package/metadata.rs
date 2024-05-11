@@ -4,7 +4,7 @@ use tangram_client as tg;
 impl Server {
 	pub async fn get_package_metadata(
 		&self,
-		package: &tg::Directory,
+		package: &tg::Artifact,
 	) -> tg::Result<tg::package::Metadata> {
 		self.try_get_package_metadata(package)
 			.await?
@@ -13,9 +13,12 @@ impl Server {
 
 	pub async fn try_get_package_metadata(
 		&self,
-		package: &tg::Directory,
+		package: &tg::Artifact,
 	) -> tg::Result<Option<tg::package::Metadata>> {
-		let path = tg::package::get_root_module_path(self, package).await?;
+		let Some(path) = tg::package::try_get_root_module_path(self, package).await? else {
+			return Ok(None);
+		};
+		let package = package.unwrap_directory_ref();
 		let file = package
 			.get(self, &path)
 			.await?

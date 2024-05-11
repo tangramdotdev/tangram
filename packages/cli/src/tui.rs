@@ -736,7 +736,9 @@ where
 	};
 
 	// Get the metadata.
-	let metadata = tg::package::get_metadata(handle, &package).await.ok();
+	let metadata = tg::package::get_metadata(handle, &package.clone().into())
+		.await
+		.ok();
 
 	// Create the title
 	let mut title = String::new();

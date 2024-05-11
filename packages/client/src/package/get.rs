@@ -14,14 +14,14 @@ pub struct Arg {
 #[derive(Debug, Clone, serde::Deserialize, serde::Serialize)]
 pub struct Output {
 	pub dependencies: Option<Vec<tg::Dependency>>,
-	pub artifact: tg::directory::Id,
+	pub artifact: tg::artifact::Id,
 	pub lock: Option<tg::lock::Id>,
 	pub metadata: Option<tg::package::Metadata>,
 	pub path: Option<tg::Path>,
 	pub yanked: Option<bool>,
 }
 
-pub async fn get<H>(handle: &H, dependency: &tg::Dependency) -> tg::Result<tg::Directory>
+pub async fn get<H>(handle: &H, dependency: &tg::Dependency) -> tg::Result<tg::Artifact>
 where
 	H: tg::Handle,
 {
@@ -31,16 +31,13 @@ where
 }
 
 #[allow(clippy::module_name_repetitions)]
-pub async fn try_get<H>(
-	handle: &H,
-	dependency: &tg::Dependency,
-) -> tg::Result<Option<tg::Directory>>
+pub async fn try_get<H>(handle: &H, dependency: &tg::Dependency) -> tg::Result<Option<tg::Artifact>>
 where
 	H: tg::Handle,
 {
 	let arg = tg::package::get::Arg::default();
 	let output = handle.try_get_package(dependency, arg).await?;
-	let package = output.map(|output| tg::Directory::with_id(output.artifact));
+	let package = output.map(|output| tg::Artifact::with_id(output.artifact));
 	Ok(package)
 }
 
@@ -48,7 +45,7 @@ where
 pub async fn get_with_lock<H>(
 	handle: &H,
 	dependency: &tg::Dependency,
-) -> tg::Result<(tg::Directory, tg::Lock)>
+) -> tg::Result<(tg::Artifact, tg::Lock)>
 where
 	H: tg::Handle,
 {
@@ -60,7 +57,7 @@ where
 pub async fn try_get_with_lock<H>(
 	handle: &H,
 	dependency: &tg::Dependency,
-) -> tg::Result<Option<(tg::Directory, tg::Lock)>>
+) -> tg::Result<Option<(tg::Artifact, tg::Lock)>>
 where
 	H: tg::Handle,
 {
@@ -71,7 +68,7 @@ where
 	let Some(output) = handle.try_get_package(dependency, arg).await? else {
 		return Ok(None);
 	};
-	let package = tg::Directory::with_id(output.artifact);
+	let package = tg::Artifact::with_id(output.artifact);
 	let lock = output
 		.lock
 		.ok_or_else(|| tg::error!(%dependency, "expected the lock to be set"))?;
@@ -82,7 +79,7 @@ where
 #[allow(clippy::module_name_repetitions)]
 pub async fn get_dependencies<H>(
 	handle: &H,
-	package: &tg::Directory,
+	package: &tg::Artifact,
 ) -> tg::Result<Vec<tg::Dependency>>
 where
 	H: tg::Handle,
@@ -94,7 +91,7 @@ where
 
 pub async fn try_get_dependencies<H>(
 	handle: &H,
-	package: &tg::Directory,
+	package: &tg::Artifact,
 ) -> tg::Result<Option<Vec<tg::Dependency>>>
 where
 	H: tg::Handle,
@@ -117,7 +114,7 @@ where
 #[allow(clippy::module_name_repetitions)]
 pub async fn get_metadata<H>(
 	handle: &H,
-	package: &tg::Directory,
+	package: &tg::Artifact,
 ) -> tg::Result<tg::package::Metadata>
 where
 	H: tg::Handle,
@@ -129,7 +126,7 @@ where
 
 pub async fn try_get_metadata<H>(
 	handle: &H,
-	package: &tg::Directory,
+	package: &tg::Artifact,
 ) -> tg::Result<Option<tg::package::Metadata>>
 where
 	H: tg::Handle,

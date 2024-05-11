@@ -23,7 +23,7 @@ impl Server {
 		};
 
 		// Get the package.
-		let package = analysis.package.clone();
+		let package: tg::Artifact = analysis.package.clone().into();
 
 		// Get the dependencies if requested.
 		let dependencies = arg.dependencies.then(|| analysis.dependencies.clone());

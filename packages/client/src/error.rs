@@ -47,8 +47,8 @@ pub enum Source {
 		path: tg::Path,
 	},
 	External {
-		package: tg::directory::Id,
-		path: tg::Path,
+		package: tg::artifact::Id,
+		path: Option<tg::Path>,
 	},
 }
 
@@ -193,7 +193,11 @@ impl std::fmt::Display for Source {
 	fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
 		match self {
 			Source::Internal { path } => write!(f, "{path}"),
-			Source::External { package, path } => write!(f, "{package}:{path}"),
+			Source::External {
+				package,
+				path: Some(path),
+			} => write!(f, "{package}:{path}"),
+			Source::External { package, .. } => write!(f, "{package}"),
 		}
 	}
 }

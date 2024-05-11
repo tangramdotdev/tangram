@@ -338,7 +338,7 @@ impl tg::Handle for Server {
 		Err(tg::error!("forbidden"))
 	}
 
-	async fn publish_package(&self, _id: &tg::directory::Id) -> tg::Result<()> {
+	async fn publish_package(&self, _id: &tg::artifact::Id) -> tg::Result<()> {
 		Err(tg::error!("forbidden"))
 	}
 
@@ -349,7 +349,7 @@ impl tg::Handle for Server {
 		Err(tg::error!("forbidden"))
 	}
 
-	async fn yank_package(&self, _id: &tg::directory::Id) -> tg::Result<()> {
+	async fn yank_package(&self, _id: &tg::artifact::Id) -> tg::Result<()> {
 		Err(tg::error!("not supported"))
 	}
 
