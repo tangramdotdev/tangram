@@ -44,7 +44,6 @@ pub trait Handle: Clone + Unpin + Send + Sync + 'static {
 	fn create_blob(
 		&self,
 		reader: impl AsyncRead + Send + 'static,
-		transaction: Option<&Self::Transaction<'_>>,
 	) -> impl Future<Output = tg::Result<tg::blob::Id>> + Send;
 
 	fn compress_blob(

@@ -8,7 +8,6 @@ impl tg::Client {
 	pub async fn create_blob(
 		&self,
 		reader: impl AsyncRead + Send + 'static,
-		_transaction: Option<&()>,
 	) -> tg::Result<tg::blob::Id> {
 		let method = http::Method::POST;
 		let uri = "/blobs";

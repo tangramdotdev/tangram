@@ -811,9 +811,8 @@ impl tg::Handle for Server {
 	fn create_blob(
 		&self,
 		reader: impl AsyncRead + Send + 'static,
-		transaction: Option<&Self::Transaction<'_>>,
 	) -> impl Future<Output = tg::Result<tg::blob::Id>> {
-		self.create_blob(reader, transaction)
+		self.create_blob(reader)
 	}
 
 	fn compress_blob(

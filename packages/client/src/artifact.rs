@@ -1,6 +1,9 @@
 use crate as tg;
 use futures::stream::{FuturesOrdered, FuturesUnordered, TryStreamExt as _};
-use std::collections::{HashSet, VecDeque};
+use std::{
+	collections::{HashSet, VecDeque},
+	sync::Arc,
+};
 
 pub mod archive;
 pub mod bundle;
@@ -64,6 +67,19 @@ pub enum Artifact {
 
 #[derive(Clone, Debug, derive_more::From, derive_more::TryUnwrap)]
 #[try_unwrap(ref)]
+pub enum Object {
+	/// A directory.
+	Directory(Arc<tg::directory::Object>),
+
+	/// A file.
+	File(Arc<tg::file::Object>),
+
+	/// A symlink.
+	Symlink(Arc<tg::symlink::Object>),
+}
+
+#[derive(Clone, Debug, derive_more::From, derive_more::TryUnwrap)]
+#[try_unwrap(ref)]
 pub enum Data {
 	/// A directory.
 	Directory(tg::directory::Data),
@@ -115,11 +131,39 @@ impl Artifact {
 		}
 	}
 
+	pub async fn load<H>(&self, handle: &H) -> tg::Result<Object>
+	where
+		H: tg::Handle,
+	{
+		match self {
+			Self::Directory(directory) => directory.load(handle).await.map(Into::into),
+			Self::File(file) => file.load(handle).await.map(Into::into),
+			Self::Symlink(symlink) => symlink.load(handle).await.map(Into::into),
+		}
+	}
+
 	pub fn unload(&self) {
 		match self {
-			Artifact::Directory(directory) => directory.unload(),
-			Artifact::File(file) => file.unload(),
-			Artifact::Symlink(symlink) => symlink.unload(),
+			Self::Directory(directory) => directory.unload(),
+			Self::File(file) => file.unload(),
+			Self::Symlink(symlink) => symlink.unload(),
+		}
+	}
+
+	pub async fn store<H>(
+		&self,
+		handle: &H,
+		transaction: Option<&H::Transaction<'_>>,
+	) -> tg::Result<Id>
+	where
+		H: tg::Handle,
+	{
+		match self {
+			Self::Directory(directory) => {
+				directory.store(handle, transaction).await.map(Into::into)
+			},
+			Self::File(file) => file.store(handle, transaction).await.map(Into::into),
+			Self::Symlink(symlink) => symlink.store(handle, transaction).await.map(Into::into),
 		}
 	}
 }

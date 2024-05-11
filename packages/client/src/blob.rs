@@ -1,6 +1,7 @@
 use crate as tg;
 use futures::FutureExt as _;
 use num::ToPrimitive as _;
+use std::sync::Arc;
 use tokio::io::AsyncRead;
 
 pub use self::read::Reader;
@@ -51,6 +52,12 @@ pub enum Data {
 	Branch(tg::branch::Data),
 }
 
+#[derive(Clone, Debug, derive_more::From, derive_more::TryUnwrap)]
+pub enum Object {
+	Leaf(Arc<tg::leaf::Object>),
+	Branch(Arc<tg::branch::Object>),
+}
+
 impl Blob {
 	#[must_use]
 	pub fn with_id(id: Id) -> Self {
@@ -88,10 +95,34 @@ impl Blob {
 		}
 	}
 
+	pub async fn load<H>(&self, handle: &H) -> tg::Result<Object>
+	where
+		H: tg::Handle,
+	{
+		match self {
+			Self::Leaf(leaf) => leaf.load(handle).await.map(Into::into),
+			Self::Branch(branch) => branch.load(handle).await.map(Into::into),
+		}
+	}
+
 	pub fn unload(&self) {
 		match self {
 			Self::Leaf(leaf) => leaf.unload(),
 			Self::Branch(branch) => branch.unload(),
+		}
+	}
+
+	pub async fn store<H>(
+		&self,
+		handle: &H,
+		transaction: Option<&H::Transaction<'_>>,
+	) -> tg::Result<Id>
+	where
+		H: tg::Handle,
+	{
+		match self {
+			Self::Leaf(leaf) => leaf.store(handle, transaction).await.map(Into::into),
+			Self::Branch(branch) => branch.store(handle, transaction).await.map(Into::into),
 		}
 	}
 }
@@ -110,12 +141,11 @@ impl Blob {
 	pub async fn with_reader<H>(
 		handle: &H,
 		reader: impl AsyncRead + Send + 'static,
-		transaction: Option<&H::Transaction<'_>>,
 	) -> tg::Result<Self>
 	where
 		H: tg::Handle,
 	{
-		let id = handle.create_blob(reader, transaction).boxed().await?;
+		let id = handle.create_blob(reader).boxed().await?;
 		let blob = Self::with_id(id);
 		Ok(blob)
 	}

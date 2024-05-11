@@ -28,7 +28,7 @@ impl Server {
 				Box::pin(async_compression::tokio::bufread::ZstdDecoder::new(reader))
 			},
 		};
-		let blob = tg::Blob::with_reader(self, reader, None).await?;
+		let blob = tg::Blob::with_reader(self, reader).await?;
 		let id = blob.id(self, None).await?;
 		let output = tg::blob::decompress::Output { blob: id };
 		Ok(output)

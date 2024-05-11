@@ -1,5 +1,5 @@
 use crate::Server;
-use futures::{stream::FuturesUnordered, TryStreamExt as _};
+use futures::{stream::FuturesUnordered, FutureExt as _, TryStreamExt as _};
 use std::os::unix::fs::PermissionsExt as _;
 use tangram_client as tg;
 use tangram_database::{self as db, prelude::*};
@@ -44,23 +44,10 @@ impl Server {
 			.await
 			.map_err(|source| tg::error!(!source, "failed to get a database connection"))?;
 
-		// // Begin a transaction.
-		// let transaction = connection
-		// 	.transaction()
-		// 	.boxed()
-		// 	.await
-		// 	.map_err(|source| tg::error!(!source, "failed to begin the transaction"))?;
-
 		// Check in the artifact.
 		let id = self
 			.check_in_artifact_with_transaction(&arg.path, &connection)
 			.await?;
-
-		// // Commit the transaction.
-		// transaction
-		// 	.commit()
-		// 	.await
-		// 	.map_err(|source| tg::error!(!source, "failed to commit the transaction"))?;
 
 		// Drop the connection.
 		drop(connection);
@@ -175,7 +162,8 @@ impl Server {
 			.await
 			.map_err(|source| tg::error!(!source, "failed to open the file"))?;
 		let contents = self
-			.create_blob_with_transaction(file, transaction)
+			.create_blob(file)
+			.boxed()
 			.await
 			.map_err(|source| tg::error!(!source, "failed to create the contents"))?;
 		drop(permit);

@@ -77,17 +77,10 @@ where
 	fn create_blob(
 		&self,
 		reader: impl AsyncRead + Send + 'static,
-		transaction: Option<&Self::Transaction<'_>>,
 	) -> impl Future<Output = tg::Result<tg::blob::Id>> {
 		match self {
-			Either::Left(s) => {
-				let transaction = transaction.map(|t| t.as_ref().left().unwrap());
-				s.create_blob(reader, transaction).left_future()
-			},
-			Either::Right(s) => {
-				let transaction = transaction.map(|t| t.as_ref().right().unwrap());
-				s.create_blob(reader, transaction).right_future()
-			},
+			Either::Left(s) => s.create_blob(reader).left_future(),
+			Either::Right(s) => s.create_blob(reader).right_future(),
 		}
 	}
 

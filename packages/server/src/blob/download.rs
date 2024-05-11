@@ -72,7 +72,7 @@ impl Server {
 			});
 
 		// Create the blob and validate.
-		let blob = tg::Blob::with_reader(self, StreamReader::new(stream), None)
+		let blob = tg::Blob::with_reader(self, StreamReader::new(stream))
 			.await
 			.map_err(|source| tg::error!(!source, "failed to create the blob"))?;
 

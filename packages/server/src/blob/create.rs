@@ -1,11 +1,11 @@
-use crate::{database::Transaction, Server};
+use crate::Server;
 use bytes::Bytes;
 use futures::{future, stream, FutureExt as _, StreamExt as _, TryStreamExt as _};
 use http_body_util::BodyStream;
 use num::ToPrimitive as _;
 use std::pin::pin;
 use tangram_client as tg;
-use tangram_database::{self as db, prelude::*};
+use tangram_database::prelude::*;
 use tangram_http::{outgoing::ResponseBuilderExt as _, Incoming, Outgoing};
 use tokio::io::AsyncRead;
 use tokio_util::io::StreamReader;
@@ -19,48 +19,14 @@ impl Server {
 	pub async fn create_blob(
 		&self,
 		reader: impl AsyncRead + Send + 'static,
-		transaction: Option<&Transaction<'_>>,
 	) -> tg::Result<tg::blob::Id> {
-		if let Some(transaction) = transaction {
-			self.create_blob_with_transaction(reader, transaction).await
-		} else {
-			// Get a database connection.
-			let connection = self
-				.database
-				.connection()
-				.await
-				.map_err(|source| tg::error!(!source, "failed to get a database connection"))?;
+		// Get a database connection.
+		let connection = self
+			.database
+			.connection()
+			.await
+			.map_err(|source| tg::error!(!source, "failed to get a database connection"))?;
 
-			// // Begin a transaction.
-			// let transaction = connection
-			// 	.transaction()
-			// 	.boxed()
-			// 	.await
-			// 	.map_err(|source| tg::error!(!source, "failed to begin the transaction"))?;
-
-			// Create the blob.
-			let output = self
-				.create_blob_with_transaction(reader, &connection)
-				.await?;
-
-			// // Commit the transaction.
-			// transaction
-			// 	.commit()
-			// 	.await
-			// 	.map_err(|source| tg::error!(!source, "failed to commit the transaction"))?;
-
-			// Drop the connection.
-			drop(connection);
-
-			Ok(output)
-		}
-	}
-
-	pub(crate) async fn create_blob_with_transaction(
-		&self,
-		reader: impl AsyncRead + Send + 'static,
-		transaction: &impl db::Query,
-	) -> tg::Result<tg::blob::Id> {
 		// Create the reader.
 		let reader = pin!(reader);
 		let mut reader = fastcdc::v2020::AsyncStreamCDC::new(
@@ -77,16 +43,11 @@ impl Server {
 			.and_then(|chunk| async {
 				let bytes = Bytes::from(chunk.data);
 				let size = bytes.len().to_u64().unwrap();
-				let id = tg::leaf::Id::new(&bytes);
-				let arg = tg::object::put::Arg {
-					bytes,
-					count: None,
-					weight: None,
-				};
-				self.put_object_with_transaction(&id.clone().into(), arg, transaction)
-					.await?;
-				Ok::<_, tg::Error>(tg::branch::child::Data {
-					blob: id.into(),
+				let leaf = tg::Leaf::new(bytes);
+				leaf.store(self, None).await?;
+				leaf.unload();
+				Ok::<_, tg::Error>(tg::branch::Child {
+					blob: leaf.into(),
 					size,
 				})
 			})
@@ -101,18 +62,13 @@ impl Server {
 					if chunk.len() == MAX_BRANCH_CHILDREN {
 						stream::once(async move {
 							let size = chunk.iter().map(|blob| blob.size).sum();
-							let data = tg::branch::Data { children: chunk };
-							let bytes = data.serialize()?;
-							let id = tg::branch::Id::new(&bytes);
-							let arg = tg::object::put::Arg {
-								bytes,
-								count: None,
-								weight: None,
+							let branch = tg::Branch::new(chunk);
+							branch.store(self, None).await?;
+							branch.unload();
+							let child = tg::branch::Child {
+								blob: branch.into(),
+								size,
 							};
-							self.put_object_with_transaction(&id.clone().into(), arg, transaction)
-								.await?;
-							let blob = id.into();
-							let child = tg::branch::child::Data { blob, size };
 							Ok::<_, tg::Error>(child)
 						})
 						.left_stream()
@@ -125,18 +81,15 @@ impl Server {
 		}
 
 		// Create the blob.
-		let data = tg::branch::Data { children };
-		let bytes = data.serialize()?;
-		let id = tg::branch::Id::new(&bytes);
-		let arg = tg::object::put::Arg {
-			bytes,
-			count: None,
-			weight: None,
-		};
-		self.put_object_with_transaction(&id.clone().into(), arg, transaction)
-			.await?;
+		let blob = tg::Blob::new(children);
+		blob.store(self, None).await?;
+		blob.unload();
+		let id = blob.id(self, None).await?;
 
-		Ok(id.into())
+		// Drop the connection.
+		drop(connection);
+
+		Ok(id)
 	}
 }
 
@@ -155,7 +108,7 @@ impl Server {
 		);
 
 		// Create the blob.
-		let output = handle.create_blob(reader, None).boxed().await?;
+		let output = handle.create_blob(reader).boxed().await?;
 
 		// Create the response.
 		let response = http::Response::builder().json(output).unwrap();
