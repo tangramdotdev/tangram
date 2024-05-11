@@ -1,11 +1,11 @@
 {
-  "dependencies": {
-    "@biomejs/biome": "^1",
-    "typescript": "^5"
-  },
-  "scripts": {
-    "check": "bun --filter \"@tangramdotdev/*\" check",
-    "format": "bun --filter \"@tangramdotdev/*\" format"
-  },
-  "workspaces": ["packages/language", "packages/runtime", "packages/vscode"]
+	"dependencies": {
+		"@biomejs/biome": "^1",
+		"typescript": "^5"
+	},
+	"scripts": {
+		"check": "bun --filter \"@tangramdotdev/*\" check",
+		"format": "bun --filter \"@tangramdotdev/*\" format"
+	},
+	"workspaces": ["packages/compiler", "packages/runtime", "packages/vscode"]
 }

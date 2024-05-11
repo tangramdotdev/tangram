@@ -44,11 +44,11 @@ impl Server {
 			path: "tangram.d.ts".parse().unwrap(),
 		});
 
-		// Create the language server.
-		let language_server = crate::language::Server::new(self, tokio::runtime::Handle::current());
+		// Create the compiler.
+		let compiler = crate::compiler::Compiler::new(self, tokio::runtime::Handle::current());
 
 		// Get the doc.
-		let doc = language_server.doc(&module).await?;
+		let doc = compiler.doc(&module).await?;
 
 		Ok(doc)
 	}

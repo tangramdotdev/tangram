@@ -1,6 +1,6 @@
 #![allow(clippy::needless_pass_by_value, clippy::unnecessary_wraps)]
 
-use super::Server;
+use super::Compiler;
 use bytes::Bytes;
 use itertools::Itertools as _;
 use std::collections::BTreeMap;
@@ -53,7 +53,7 @@ pub fn syscall<'s>(
 
 fn documents(
 	_scope: &mut v8::HandleScope,
-	server: Server,
+	server: Compiler,
 	_args: (),
 ) -> tg::Result<Vec<tg::Module>> {
 	server
@@ -64,7 +64,7 @@ fn documents(
 
 fn encoding_base64_decode(
 	_scope: &mut v8::HandleScope,
-	_server: Server,
+	_server: Compiler,
 	args: (String,),
 ) -> tg::Result<Bytes> {
 	let (value,) = args;
@@ -76,7 +76,7 @@ fn encoding_base64_decode(
 
 fn encoding_base64_encode(
 	_scope: &mut v8::HandleScope,
-	_server: Server,
+	_server: Compiler,
 	args: (Bytes,),
 ) -> tg::Result<String> {
 	let (value,) = args;
@@ -86,7 +86,7 @@ fn encoding_base64_encode(
 
 fn encoding_hex_decode(
 	_scope: &mut v8::HandleScope,
-	_server: Server,
+	_server: Compiler,
 	args: (String,),
 ) -> tg::Result<Bytes> {
 	let (string,) = args;
@@ -98,7 +98,7 @@ fn encoding_hex_decode(
 
 fn encoding_hex_encode(
 	_scope: &mut v8::HandleScope,
-	_server: Server,
+	_server: Compiler,
 	args: (Bytes,),
 ) -> tg::Result<String> {
 	let (bytes,) = args;
@@ -108,7 +108,7 @@ fn encoding_hex_encode(
 
 fn encoding_json_decode(
 	_scope: &mut v8::HandleScope,
-	_server: Server,
+	_server: Compiler,
 	args: (String,),
 ) -> tg::Result<serde_json::Value> {
 	let (json,) = args;
@@ -119,7 +119,7 @@ fn encoding_json_decode(
 
 fn encoding_json_encode(
 	_scope: &mut v8::HandleScope,
-	_server: Server,
+	_server: Compiler,
 	args: (serde_json::Value,),
 ) -> tg::Result<String> {
 	let (value,) = args;
@@ -130,7 +130,7 @@ fn encoding_json_encode(
 
 fn encoding_toml_decode(
 	_scope: &mut v8::HandleScope,
-	_server: Server,
+	_server: Compiler,
 	args: (String,),
 ) -> tg::Result<toml::Value> {
 	let (toml,) = args;
@@ -141,7 +141,7 @@ fn encoding_toml_decode(
 
 fn encoding_toml_encode(
 	_scope: &mut v8::HandleScope,
-	_server: Server,
+	_server: Compiler,
 	args: (toml::Value,),
 ) -> tg::Result<String> {
 	let (value,) = args;
@@ -152,7 +152,7 @@ fn encoding_toml_encode(
 
 fn encoding_utf8_decode(
 	_scope: &mut v8::HandleScope,
-	_server: Server,
+	_server: Compiler,
 	args: (Bytes,),
 ) -> tg::Result<String> {
 	let (bytes,) = args;
@@ -163,7 +163,7 @@ fn encoding_utf8_decode(
 
 fn encoding_utf8_encode(
 	_scope: &mut v8::HandleScope,
-	_server: Server,
+	_server: Compiler,
 	args: (String,),
 ) -> tg::Result<Bytes> {
 	let (string,) = args;
@@ -173,7 +173,7 @@ fn encoding_utf8_encode(
 
 fn encoding_yaml_decode(
 	_scope: &mut v8::HandleScope,
-	_server: Server,
+	_server: Compiler,
 	args: (String,),
 ) -> tg::Result<serde_yaml::Value> {
 	let (yaml,) = args;
@@ -184,7 +184,7 @@ fn encoding_yaml_decode(
 
 fn encoding_yaml_encode(
 	_scope: &mut v8::HandleScope,
-	_server: Server,
+	_server: Compiler,
 	args: (serde_yaml::Value,),
 ) -> tg::Result<String> {
 	let (value,) = args;
@@ -193,7 +193,7 @@ fn encoding_yaml_encode(
 	Ok(yaml)
 }
 
-fn log(_scope: &mut v8::HandleScope, _server: Server, args: (String,)) -> tg::Result<()> {
+fn log(_scope: &mut v8::HandleScope, _server: Compiler, args: (String,)) -> tg::Result<()> {
 	let (string,) = args;
 	tracing::debug!("{string}");
 	Ok(())
@@ -201,7 +201,7 @@ fn log(_scope: &mut v8::HandleScope, _server: Server, args: (String,)) -> tg::Re
 
 fn module_load(
 	_scope: &mut v8::HandleScope,
-	server: Server,
+	server: Compiler,
 	args: (tg::Module,),
 ) -> tg::Result<String> {
 	let (module,) = args;
@@ -216,7 +216,7 @@ fn module_load(
 
 fn module_resolve(
 	_scope: &mut v8::HandleScope,
-	server: Server,
+	server: Compiler,
 	args: (tg::Module, String, Option<BTreeMap<String, String>>),
 ) -> tg::Result<tg::Module> {
 	let (module, specifier, attributes) = args;
@@ -240,7 +240,7 @@ fn module_resolve(
 
 fn module_version(
 	_scope: &mut v8::HandleScope,
-	server: Server,
+	server: Compiler,
 	args: (tg::Module,),
 ) -> tg::Result<String> {
 	let (module,) = args;
@@ -261,13 +261,13 @@ fn sync<'s, A, T, F>(
 where
 	A: serde::de::DeserializeOwned,
 	T: serde::Serialize,
-	F: FnOnce(&mut v8::HandleScope<'s>, Server, A) -> tg::Result<T>,
+	F: FnOnce(&mut v8::HandleScope<'s>, Compiler, A) -> tg::Result<T>,
 {
 	// Get the context.
 	let context = scope.get_current_context();
 
 	// Get the server.
-	let server = context.get_slot::<Server>(scope).unwrap().clone();
+	let server = context.get_slot::<Compiler>(scope).unwrap().clone();
 
 	// Collect the args.
 	let args = (1..args.length()).map(|i| args.get(i)).collect_vec();

@@ -1,7 +1,7 @@
-use super::Server;
+use super::Compiler;
 use tangram_client as tg;
 
-impl Server {
+impl Compiler {
 	pub async fn get_module_version(&self, module: &tg::Module) -> tg::Result<i32> {
 		self.try_get_module_version(module)
 			.await?

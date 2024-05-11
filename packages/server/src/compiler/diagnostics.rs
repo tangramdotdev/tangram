@@ -1,4 +1,4 @@
-use super::Server;
+use super::Compiler;
 use itertools::Itertools as _;
 use lsp_types as lsp;
 use serde_with::{serde_as, DisplayFromStr};
@@ -17,7 +17,7 @@ pub struct Response {
 	pub diagnostics: BTreeMap<tg::Module, Vec<tg::Diagnostic>>,
 }
 
-impl Server {
+impl Compiler {
 	pub async fn get_diagnostics(&self) -> tg::Result<BTreeMap<tg::Module, Vec<tg::Diagnostic>>> {
 		// Create the request.
 		let request = super::Request::Diagnostics(Request {});

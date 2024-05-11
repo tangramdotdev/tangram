@@ -35,7 +35,7 @@ struct State {
 	build: tg::Build,
 	futures: RefCell<Futures>,
 	global_source_map: Option<SourceMap>,
-	language_server: crate::language::Server,
+	compiler: crate::compiler::Compiler,
 	log_sender: RefCell<Option<tokio::sync::mpsc::UnboundedSender<String>>>,
 	main_runtime_handle: tokio::runtime::Handle,
 	modules: RefCell<Vec<Module>>,
@@ -135,7 +135,7 @@ impl Runtime {
 			build: build.clone(),
 			futures: RefCell::new(FuturesUnordered::new()),
 			global_source_map: Some(SourceMap::from_slice(SOURCE_MAP).unwrap()),
-			language_server: crate::language::Server::new(server, main_runtime_handle.clone()),
+			compiler: crate::compiler::Compiler::new(server, main_runtime_handle.clone()),
 			log_sender: RefCell::new(Some(log_sender)),
 			main_runtime_handle,
 			modules: RefCell::new(Vec::new()),
@@ -468,11 +468,11 @@ fn resolve_module(
 
 	let (sender, receiver) = std::sync::mpsc::channel();
 	state.main_runtime_handle.spawn({
-		let language_server = state.language_server.clone();
+		let compiler = state.compiler.clone();
 		let module = module.clone();
 		let import = import.clone();
 		async move {
-			let module = language_server.resolve_module(&module, &import).await;
+			let module = compiler.resolve_module(&module, &import).await;
 			sender.send(module).unwrap();
 		}
 	});
@@ -537,10 +537,10 @@ fn load_module<'s>(
 	// Load the module.
 	let (sender, receiver) = std::sync::mpsc::channel();
 	state.main_runtime_handle.spawn({
-		let language_server = state.language_server.clone();
+		let compiler = state.compiler.clone();
 		let module = module.clone();
 		async move {
-			let result = language_server.load_module(&module).await;
+			let result = compiler.load_module(&module).await;
 			sender.send(result).unwrap();
 		}
 	});
@@ -558,10 +558,10 @@ fn load_module<'s>(
 	};
 
 	// Transpile the module.
-	let crate::language::transpile::Output {
+	let crate::compiler::transpile::Output {
 		transpiled_text,
 		source_map,
-	} = match crate::language::Server::transpile_module(text)
+	} = match crate::compiler::Compiler::transpile_module(text)
 		.map_err(|source| tg::error!(!source, "failed to transpile the module"))
 	{
 		Ok(output) => output,

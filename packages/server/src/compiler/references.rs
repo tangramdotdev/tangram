@@ -1,4 +1,4 @@
-use super::Server;
+use super::Compiler;
 use lsp_types as lsp;
 use tangram_client as tg;
 
@@ -15,7 +15,7 @@ pub struct Response {
 	pub locations: Option<Vec<tg::Location>>,
 }
 
-impl Server {
+impl Compiler {
 	pub(super) async fn handle_references_request(
 		&self,
 		params: lsp::ReferenceParams,

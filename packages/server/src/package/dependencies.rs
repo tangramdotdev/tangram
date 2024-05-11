@@ -30,7 +30,7 @@ impl Server {
 			let text: String = file.text(self).await?;
 
 			// Analyze the module.
-			let analysis = crate::language::Server::analyze_module(text)
+			let analysis = crate::compiler::Compiler::analyze_module(text)
 				.map_err(|source| tg::error!(!source, "failed to analyze the module"))?;
 
 			// Recurse into the dependencies.

@@ -1,8 +1,8 @@
-use super::Server;
+use super::Compiler;
 use lsp_types as lsp;
 use tangram_client as tg;
 
-impl Server {
+impl Compiler {
 	pub async fn format(&self, text: String) -> tg::Result<String> {
 		let source_type = biome_js_syntax::JsFileSource::ts();
 		let options = biome_js_parser::JsParserOptions::default();
@@ -18,7 +18,7 @@ impl Server {
 	}
 }
 
-impl Server {
+impl Compiler {
 	pub(super) async fn handle_format_request(
 		&self,
 		params: lsp::DocumentFormattingParams,

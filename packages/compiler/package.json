@@ -1,5 +1,5 @@
 {
-	"name": "@tangramdotdev/language",
+	"name": "@tangramdotdev/compiler",
 	"private": true,
 	"scripts": {
 		"check": "tsc && biome check src",

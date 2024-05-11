@@ -39,25 +39,25 @@ fn main() {
 	)
 	.unwrap();
 
-	// Build the language.
+	// Build the compiler.
 	println!("cargo:rerun-if-changed=../../node_modules");
-	println!("cargo:rerun-if-changed=../../packages/language");
+	println!("cargo:rerun-if-changed=../../packages/compiler");
 	std::process::Command::new("bunx")
 		.args([
 			"esbuild",
 			"--bundle",
-			"--entry-names=language",
+			"--entry-names=compiler",
 			"--minify",
 			&format!("--outdir={}", out_dir_path.display()),
 			"--sourcemap=external",
-			"../../packages/language/src/main.ts",
+			"../../packages/compiler/src/main.ts",
 		])
 		.status()
 		.unwrap()
 		.success()
 		.then_some(())
 		.unwrap();
-	fixup_source_map(out_dir_path.join("language.js.map"));
+	fixup_source_map(out_dir_path.join("compiler.js.map"));
 
 	// Build the runtime.
 	println!("cargo:rerun-if-changed=../../node_modules");
@@ -79,9 +79,9 @@ fn main() {
 		.unwrap();
 	fixup_source_map(out_dir_path.join("runtime.js.map"));
 
-	// Create the language snapshot.
-	let path = out_dir_path.join("language.heapsnapshot");
-	let snapshot = create_snapshot(out_dir_path.join("language.js"));
+	// Create the compiler snapshot.
+	let path = out_dir_path.join("compiler.heapsnapshot");
+	let snapshot = create_snapshot(out_dir_path.join("compiler.js"));
 	std::fs::write(path, snapshot).unwrap();
 
 	// Create the runtime snapshot.

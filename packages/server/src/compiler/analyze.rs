@@ -1,4 +1,4 @@
-use super::Server;
+use super::Compiler;
 use itertools::Itertools as _;
 use std::{
 	collections::{BTreeMap, HashSet},
@@ -20,7 +20,7 @@ pub struct Error {
 	pub column: usize,
 }
 
-impl Server {
+impl Compiler {
 	/// Analyze a module.
 	pub fn analyze_module(text: String) -> tg::Result<Analysis> {
 		// Parse the text.
@@ -318,7 +318,7 @@ mod tests {
 			export { namedExport } from "tg:named_export";
 			export * as namespaceExport from "./namespace_export.ts";
 		"#;
-		let left = Server::analyze_module(text.to_owned()).unwrap();
+		let left = Compiler::analyze_module(text.to_owned()).unwrap();
 		let metadata = tg::package::Metadata {
 			name: Some("name".to_owned()),
 			version: Some("version".to_owned()),

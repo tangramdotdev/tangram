@@ -53,7 +53,7 @@ impl Server {
 			)?;
 
 		// Attempt to analyze the module.
-		let Ok(analysis) = crate::language::Server::analyze_module(text) else {
+		let Ok(analysis) = crate::compiler::Compiler::analyze_module(text) else {
 			return Ok(());
 		};
 

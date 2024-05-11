@@ -1,10 +1,10 @@
 use std::path::PathBuf;
 
-use super::Server;
+use super::Compiler;
 use lsp_types as lsp;
 use tangram_client as tg;
 
-impl Server {
+impl Compiler {
 	/// Get all the server's documents.
 	pub async fn get_documents(&self) -> Vec<tg::Module> {
 		let documents = self.documents.read().await;
@@ -168,7 +168,7 @@ impl Server {
 	}
 }
 
-impl Server {
+impl Compiler {
 	pub(super) async fn handle_did_open_notification(
 		&self,
 		params: lsp::DidOpenTextDocumentParams,

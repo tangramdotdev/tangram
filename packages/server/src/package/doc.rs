@@ -18,11 +18,11 @@ impl Server {
 		// Create the module.
 		let module = tg::Module::with_package_and_lock(self, &package, &lock).await?;
 
-		// Create the language server.
-		let language_server = crate::language::Server::new(self, tokio::runtime::Handle::current());
+		// Create the compiler.
+		let compiler = crate::compiler::Compiler::new(self, tokio::runtime::Handle::current());
 
 		// Get the doc.
-		let doc = language_server.doc(&module).await?;
+		let doc = compiler.doc(&module).await?;
 
 		Ok(Some(doc))
 	}

@@ -26,7 +26,7 @@ impl Server {
 			.ok()
 			.ok_or_else(|| tg::error!(%path, "expected the module to be a file"))?;
 		let text = file.text(self).await?;
-		let metadata = crate::language::Server::analyze_module(text)
+		let metadata = crate::compiler::Compiler::analyze_module(text)
 			.map_err(|source| tg::error!(!source, %path, "failed to analyze module"))?
 			.metadata;
 		Ok(metadata)

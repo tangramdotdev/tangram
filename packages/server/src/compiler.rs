@@ -41,18 +41,18 @@ pub mod version;
 pub mod virtual_text_document;
 pub mod workspace;
 
-const SNAPSHOT: &[u8] = include_bytes!(concat!(env!("OUT_DIR"), "/language.heapsnapshot"));
+const SNAPSHOT: &[u8] = include_bytes!(concat!(env!("OUT_DIR"), "/compiler.heapsnapshot"));
 
-const SOURCE_MAP: &[u8] = include_bytes!(concat!(env!("OUT_DIR"), "/language.js.map"));
+const SOURCE_MAP: &[u8] = include_bytes!(concat!(env!("OUT_DIR"), "/compiler.js.map"));
 
 #[derive(Clone)]
-pub struct Server(Arc<Inner>);
+pub struct Compiler(Arc<Inner>);
 
 pub struct Inner {
 	/// The published diagnostics.
 	diagnostics: tokio::sync::RwLock<BTreeMap<tg::Module, Vec<tg::Diagnostic>>>,
 
-	/// The modules tracked by the language server.
+	/// The documents.
 	documents: tokio::sync::RwLock<HashMap<tg::Module, tg::document::State, fnv::FnvBuildHasher>>,
 
 	/// A handle to the main tokio runtime.
@@ -109,7 +109,7 @@ type RequestReceiver = tokio::sync::mpsc::UnboundedReceiver<(Request, ResponseSe
 type ResponseSender = tokio::sync::oneshot::Sender<tg::Result<Response>>;
 type _ResponseReceiver = tokio::sync::oneshot::Receiver<tg::Result<Response>>;
 
-impl Server {
+impl Compiler {
 	#[must_use]
 	pub fn new(server: &crate::Server, main_runtime_handle: tokio::runtime::Handle) -> Self {
 		// Create the published diagnostics.
@@ -581,12 +581,11 @@ impl Server {
 
 		// Get the handle function.
 		let global = context.global(scope);
-		let language =
-			v8::String::new_external_onebyte_static(scope, "language".as_bytes()).unwrap();
-		let language = global.get(scope, language.into()).unwrap();
-		let language = v8::Local::<v8::Object>::try_from(language).unwrap();
+		let tg = v8::String::new_external_onebyte_static(scope, "tg".as_bytes()).unwrap();
+		let tg = global.get(scope, tg.into()).unwrap();
+		let tg = v8::Local::<v8::Object>::try_from(tg).unwrap();
 		let handle = v8::String::new_external_onebyte_static(scope, "handle".as_bytes()).unwrap();
-		let handle = language.get(scope, handle.into()).unwrap();
+		let handle = tg.get(scope, handle.into()).unwrap();
 		let handle = v8::Local::<v8::Function>::try_from(handle).unwrap();
 
 		while let Some((request, response_sender)) = request_receiver.blocking_recv() {
@@ -720,8 +719,8 @@ impl Server {
 
 impl crate::Server {
 	pub async fn format(&self, text: String) -> tg::Result<String> {
-		let language_server = crate::language::Server::new(self, tokio::runtime::Handle::current());
-		let text = language_server.format(text).await?;
+		let compiler = crate::compiler::Compiler::new(self, tokio::runtime::Handle::current());
+		let text = compiler.format(text).await?;
 		Ok(text)
 	}
 
@@ -730,8 +729,8 @@ impl crate::Server {
 		input: impl AsyncBufRead + Send + Unpin + 'static,
 		output: impl AsyncWrite + Send + Unpin + 'static,
 	) -> tg::Result<()> {
-		let language_server = crate::language::Server::new(self, tokio::runtime::Handle::current());
-		language_server.serve(input, output).await?;
+		let compiler = crate::compiler::Compiler::new(self, tokio::runtime::Handle::current());
+		compiler.serve(input, output).await?;
 		Ok(())
 	}
 }
@@ -833,7 +832,7 @@ impl crate::Server {
 	}
 }
 
-impl std::ops::Deref for Server {
+impl std::ops::Deref for Compiler {
 	type Target = Inner;
 
 	fn deref(&self) -> &Self::Target {

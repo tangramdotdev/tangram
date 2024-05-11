@@ -1,8 +1,8 @@
-use super::Server;
+use super::Compiler;
 use lsp_types as lsp;
 use tangram_client as tg;
 
-impl Server {
+impl Compiler {
 	pub(super) async fn handle_initialize_request(
 		&self,
 		params: lsp::InitializeParams,

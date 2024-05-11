@@ -1,4 +1,4 @@
-use super::Server;
+use super::Compiler;
 use lsp_types as lsp;
 use tangram_client as tg;
 
@@ -21,7 +21,7 @@ pub struct Entry {
 	pub name: String,
 }
 
-impl Server {
+impl Compiler {
 	pub async fn completion(
 		&self,
 		module: &tg::Module,
@@ -45,7 +45,7 @@ impl Server {
 	}
 }
 
-impl Server {
+impl Compiler {
 	pub(super) async fn handle_completion_request(
 		&self,
 		params: lsp::CompletionParams,

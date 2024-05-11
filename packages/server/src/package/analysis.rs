@@ -143,7 +143,7 @@ impl Server {
 			)?;
 
 			// Analyze the module.
-			let analysis = crate::language::Server::analyze_module(text)
+			let analysis = crate::compiler::Compiler::analyze_module(text)
 				.map_err(|source| tg::error!(!source, "failed to analyze the module"))?;
 
 			// Recurse into the path dependencies.
@@ -286,7 +286,7 @@ impl Server {
 				.map_err(|source| tg::error!(!source, "failed to read the module"))?;
 
 			// Analyze the module.
-			let analysis = crate::language::Server::analyze_module(text)
+			let analysis = crate::compiler::Compiler::analyze_module(text)
 				.map_err(|source| tg::error!(!source, "failed to analyze the module"))?;
 
 			// Recurse into the path dependencies.

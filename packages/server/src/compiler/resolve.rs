@@ -1,8 +1,8 @@
-use super::Server;
+use super::Compiler;
 use std::path::PathBuf;
 use tangram_client as tg;
 
-impl Server {
+impl Compiler {
 	/// Resolve an import from a module.
 	pub async fn resolve_module(
 		&self,

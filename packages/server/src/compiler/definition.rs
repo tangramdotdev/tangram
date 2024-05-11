@@ -1,4 +1,4 @@
-use super::Server;
+use super::Compiler;
 use lsp_types as lsp;
 use tangram_client as tg;
 
@@ -15,7 +15,7 @@ pub struct Response {
 	pub locations: Option<Vec<tg::Location>>,
 }
 
-impl Server {
+impl Compiler {
 	pub async fn definition(
 		&self,
 		module: &tg::Module,
@@ -61,7 +61,7 @@ impl Server {
 	}
 }
 
-impl Server {
+impl Compiler {
 	pub(crate) async fn handle_definition_request(
 		&self,
 		params: lsp::GotoDefinitionParams,

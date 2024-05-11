@@ -1,4 +1,4 @@
-use super::Server;
+use super::Compiler;
 use lsp_types as lsp;
 use tangram_client as tg;
 
@@ -62,7 +62,7 @@ pub enum Tag {
 	Deprecated,
 }
 
-impl Server {
+impl Compiler {
 	pub async fn symbols(&self, module: &tg::Module) -> tg::Result<Option<Vec<Symbol>>> {
 		// Create the request.
 		let request = super::Request::Symbols(Request {
@@ -164,7 +164,7 @@ fn collect_symbol_tree(symbol: Symbol) -> lsp::DocumentSymbol {
 	}
 }
 
-impl Server {
+impl Compiler {
 	pub(super) async fn handle_symbols_request(
 		&self,
 		params: lsp::DocumentSymbolParams,

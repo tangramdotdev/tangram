@@ -1,4 +1,4 @@
-use super::Server;
+use super::Compiler;
 use std::rc::Rc;
 use swc::ecma::{ast, visit::VisitMutWith};
 use swc_core as swc;
@@ -16,7 +16,7 @@ pub struct Error {
 	column: usize,
 }
 
-impl Server {
+impl Compiler {
 	pub fn transpile_module(text: String) -> tg::Result<Output> {
 		let globals = swc::common::Globals::default();
 		swc::common::GLOBALS.set(&globals, move || {
@@ -319,7 +319,7 @@ mod tests {
 				export default tg.target(() => {});
 			"
 		);
-		let left = Server::transpile_module(text.to_owned())
+		let left = Compiler::transpile_module(text.to_owned())
 			.unwrap()
 			.transpiled_text;
 		let right = indoc!(
@@ -341,7 +341,7 @@ mod tests {
 				export let named = tg.target(() => {});
 			"
 		);
-		let left = Server::transpile_module(text.to_owned())
+		let left = Compiler::transpile_module(text.to_owned())
 			.unwrap()
 			.transpiled_text;
 		let right = indoc!(
@@ -363,7 +363,7 @@ mod tests {
 				tg.target("named", () => {});
 			"#
 		);
-		let left = Server::transpile_module(text.to_owned())
+		let left = Compiler::transpile_module(text.to_owned())
 			.unwrap()
 			.transpiled_text;
 		let right = indoc!(

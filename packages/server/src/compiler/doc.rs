@@ -1,4 +1,4 @@
-use super::Server;
+use super::Compiler;
 use tangram_client as tg;
 
 #[derive(Debug, serde::Serialize)]
@@ -9,7 +9,7 @@ pub struct Request {
 
 pub type Response = serde_json::Value;
 
-impl Server {
+impl Compiler {
 	/// Get the documentation for a module.
 	pub async fn doc(&self, module: &tg::Module) -> tg::Result<Response> {
 		// Create the request.

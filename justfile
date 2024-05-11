@@ -1,6 +1,6 @@
 check:
 	cargo clippy --all
-	bun run --cwd packages/language check
+	bun run --cwd packages/compiler check
 	bun run --cwd packages/runtime check
 	bun run --cwd packages/vscode check
 
@@ -15,7 +15,7 @@ clean_path_orb:
 
 format:
 	cargo fmt --all
-	bun run --cwd packages/language format
+	bun run --cwd packages/compiler format
 	bun run --cwd packages/runtime format
 	bun run --cwd packages/vscode format
 

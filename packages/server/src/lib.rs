@@ -34,8 +34,8 @@ mod artifact;
 mod blob;
 mod build;
 mod clean;
+mod compiler;
 mod database;
-mod language;
 mod messenger;
 mod migrations;
 mod object;
@@ -637,6 +637,13 @@ impl Server {
 			(http::Method::POST, ["builds", id, "heartbeat"]) => {
 				Self::handle_heartbeat_build_request(handle, request, id).boxed()
 			},
+
+			// Compilers.
+			(http::Method::POST, ["format"]) => {
+				Self::handle_format_request(handle, request).boxed()
+			},
+			(http::Method::POST, ["lsp"]) => Self::handle_lsp_request(handle, request).boxed(),
+
 			// Objects.
 			(http::Method::GET, ["objects", id]) => {
 				Self::handle_get_object_request(handle, request, id).boxed()
@@ -650,12 +657,6 @@ impl Server {
 			(http::Method::POST, ["objects", id, "pull"]) => {
 				Self::handle_pull_object_request(handle, request, id).boxed()
 			},
-
-			// Language.
-			(http::Method::POST, ["format"]) => {
-				Self::handle_format_request(handle, request).boxed()
-			},
-			(http::Method::POST, ["lsp"]) => Self::handle_lsp_request(handle, request).boxed(),
 
 			// Packages.
 			(http::Method::GET, ["packages"]) => {

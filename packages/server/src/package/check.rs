@@ -16,11 +16,11 @@ impl Server {
 		// Create the root module.
 		let module = tg::Module::with_package_and_lock(self, &package, &lock).await?;
 
-		// Create the language server.
-		let language_server = crate::language::Server::new(self, tokio::runtime::Handle::current());
+		// Create the compiler.
+		let compiler = crate::compiler::Compiler::new(self, tokio::runtime::Handle::current());
 
 		// Get the diagnostics.
-		let diagnostics = language_server.check(vec![module]).await?;
+		let diagnostics = compiler.check(vec![module]).await?;
 
 		Ok(diagnostics)
 	}

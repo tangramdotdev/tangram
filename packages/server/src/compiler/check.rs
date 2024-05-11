@@ -1,4 +1,4 @@
-use super::Server;
+use super::Compiler;
 use tangram_client as tg;
 
 #[derive(Debug, serde::Serialize)]
@@ -13,7 +13,7 @@ pub struct Response {
 	pub diagnostics: Vec<tg::Diagnostic>,
 }
 
-impl Server {
+impl Compiler {
 	/// Get all diagnostics for the provided modules.
 	pub async fn check(&self, modules: Vec<tg::Module>) -> tg::Result<Vec<tg::Diagnostic>> {
 		// Create the request.

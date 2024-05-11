@@ -89,11 +89,11 @@ let handle = ({ kind, request }: Request): Response => {
 	}
 };
 
-let language = {
+let tg = {
 	Error: Error_,
 	handle,
 };
 
 Object.defineProperties(globalThis, {
-	language: { value: language },
+	tg: { value: tg },
 });

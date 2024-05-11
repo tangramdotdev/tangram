@@ -1,4 +1,4 @@
-use super::Server;
+use super::Compiler;
 use lsp_types as lsp;
 use tangram_client as tg;
 
@@ -16,7 +16,7 @@ pub struct Params {
 	pub text_document: lsp::TextDocumentIdentifier,
 }
 
-impl Server {
+impl Compiler {
 	pub(super) async fn handle_virtual_text_document_request(
 		&self,
 		params: Params,

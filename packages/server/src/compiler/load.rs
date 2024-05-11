@@ -1,10 +1,10 @@
-use super::Server;
+use super::Compiler;
 use include_dir::include_dir;
 use tangram_client as tg;
 
 const LIB: include_dir::Dir = include_dir!("$OUT_DIR/lib");
 
-impl Server {
+impl Compiler {
 	/// Load a module.
 	pub async fn load_module(&self, module: &tg::Module) -> tg::Result<String> {
 		match module {
