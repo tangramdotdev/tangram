@@ -1,29 +1,13 @@
 import { assert } from "./assert.ts";
 
 export type Module =
+	| { kind: "js"; value: Js }
+	| { kind: "ts"; value: Js }
 	| { kind: "dts"; value: { path: string } }
 	| { kind: "artifact"; value: Artifact }
 	| { kind: "directory"; value: Directory }
 	| { kind: "file"; value: File }
-	| { kind: "symlink"; value: Symlink }
-	| { kind: "js"; value: Js }
-	| { kind: "ts"; value: Js };
-
-export type Artifact =
-	| { kind: "path"; value: string }
-	| { kind: "id"; value: string };
-
-export type Directory =
-	| { kind: "path"; value: string }
-	| { kind: "id"; value: string };
-
-export type File =
-	| { kind: "path"; value: string }
-	| { kind: "id"; value: string };
-
-export type Symlink =
-	| { kind: "path"; value: string }
-	| { kind: "id"; value: string };
+	| { kind: "symlink"; value: Symlink };
 
 export type Js =
 	| { kind: "file"; value: string }
@@ -41,25 +25,40 @@ export type PackagePath = {
 	path: string;
 };
 
+export type Artifact =
+	| { kind: "path"; value: string }
+	| { kind: "id"; value: string };
+
+export type Directory =
+	| { kind: "path"; value: string }
+	| { kind: "id"; value: string };
+
+export type File =
+	| { kind: "path"; value: string }
+	| { kind: "id"; value: string };
+
+export type Symlink =
+	| { kind: "path"; value: string }
+	| { kind: "id"; value: string };
+
 export namespace Module {
 	export let toUrl = (module: Module): string => {
 		let data = syscall(
 			"encoding_hex_encode",
 			syscall("encoding_utf8_encode", syscall("encoding_json_encode", module)),
 		);
-		if (module.kind === "dts") {
-			return `tg://${data}/${module.value.path.slice(2)}`;
-		} else if (
-			module.kind === "js" ||
-			(module.kind === "ts" && module.value.kind)
+		if (
+			(module.kind === "js" || module.kind === "ts") &&
+			module.value.kind !== "file"
 		) {
-			let package_ = module.value.value as PackagePath | PackageArtifact;
-			return `tg://${data}/${package_.path.slice(2)}`;
+			return `tg://${data}/${module.value.value.path.slice(2)}`;
+		} else if (module.kind === "dts") {
+			return `tg://${data}/${module.value.path.slice(2)}`;
 		} else if (
 			module.kind === "artifact" ||
 			module.kind === "directory" ||
 			module.kind === "file" ||
-			(module.kind === "symlink" && module.value.kind === "path")
+			(module.kind === "symlink" && module.value.value)
 		) {
 			return `tg://${data}/${module.value.value.slice(2)}`;
 		} else {

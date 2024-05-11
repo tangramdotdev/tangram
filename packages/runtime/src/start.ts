@@ -25,32 +25,23 @@ export let start = async (target: Target): Promise<Value> => {
 	assert(path !== undefined);
 
 	// Create the module.
-	let module: Module;
-	if (path.toString().endsWith(".ts")) {
-		module = {
-			kind: "ts",
-			value: {
-				kind: "package_artifact",
-				value: {
-					artifact: packageId,
-					lock: lockId,
-					path: path.toString(),
-				},
-			},
-		};
+	let kind: "js" | "ts";
+	if (path.toString().endsWith(".js")) {
+		kind = "js";
 	} else {
-		module = {
-			kind: "js",
-			value: {
-				kind: "package_artifact",
-				value: {
-					artifact: packageId,
-					lock: lockId,
-					path: path.toString(),
-				},
-			},
-		};
+		kind = "ts";
 	}
+	let module: Module = {
+		kind,
+		value: {
+			kind: "package_artifact",
+			value: {
+				artifact: packageId,
+				lock: lockId,
+				path: path.toString(),
+			},
+		},
+	};
 
 	let url = Module.toUrl(module);
 	await import(url);

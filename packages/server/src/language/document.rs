@@ -7,7 +7,7 @@ use tangram_client as tg;
 impl Server {
 	/// Get all the server's documents.
 	pub async fn get_documents(&self) -> Vec<tg::Module> {
-		let documents = self.modules.read().await;
+		let documents = self.documents.read().await;
 		documents.keys().cloned().collect()
 	}
 
@@ -19,13 +19,13 @@ impl Server {
 	) -> tg::Result<tg::Module> {
 		// Get the module.
 		let module =
-			tg::Module::from_path(&self.server, package_path.clone(), module_path.clone()).await?;
-		let module_absolute_path = package_path.join(&module_path);
+			tg::Module::with_package_path(&self.server, package_path.clone(), module_path.clone())
+				.await?;
 
-		// Add to the modules table if necessary.
-		let mut modules = self.modules.write().await;
-		if !modules.contains_key(&module) {
-			let metadata = tokio::fs::metadata(&module_absolute_path)
+		// Add to the documents if necessary.
+		let mut documents = self.documents.write().await;
+		if !documents.contains_key(&module) {
+			let metadata = tokio::fs::metadata(&package_path.join(&module_path))
 				.await
 				.map_err(|source| tg::error!(!source, "failed to get the metadata"))?;
 			let modified = metadata.modified().map_err(|error| {
@@ -35,7 +35,7 @@ impl Server {
 				version: 0,
 				modified,
 			});
-			modules.insert(module.clone(), state);
+			documents.insert(module.clone(), state);
 		}
 
 		Ok(module)
@@ -48,12 +48,12 @@ impl Server {
 		version: i32,
 		text: String,
 	) -> tg::Result<()> {
-		// Lock the modules.
-		let mut modules = self.modules.write().await;
+		// Lock the documents.
+		let mut documents = self.documents.write().await;
 
 		// Set the state.
 		let state = tg::document::State::Opened(tg::document::Opened { version, text });
-		modules.insert(module.clone(), state);
+		documents.insert(module.clone(), state);
 
 		Ok(())
 	}
@@ -66,11 +66,11 @@ impl Server {
 		version: i32,
 		text: String,
 	) -> tg::Result<()> {
-		// Lock the modules.
-		let mut modules = self.modules.write().await;
+		// Lock the documents.
+		let mut documents = self.documents.write().await;
 
 		// Get the state.
-		let Some(tg::document::State::Opened(state)) = modules.get_mut(document) else {
+		let Some(tg::document::State::Opened(state)) = documents.get_mut(document) else {
 			return Err(tg::error!("could not find an open document"));
 		};
 
@@ -93,7 +93,7 @@ impl Server {
 	/// Close a document.
 	pub async fn close_document(&self, document: &tg::Module) -> tg::Result<()> {
 		// Lock the documents.
-		let mut documents = self.modules.write().await;
+		let mut documents = self.documents.write().await;
 
 		// Remove the document.
 		documents.remove(document);
@@ -110,7 +110,7 @@ impl Server {
 	/// Get a document's version.
 	pub async fn try_get_document_version(&self, module: &tg::Module) -> tg::Result<Option<i32>> {
 		// Lock the documents.
-		let mut documents = self.modules.write().await;
+		let mut documents = self.documents.write().await;
 
 		// Get the state.
 		let Some(state) = documents.get_mut(module) else {
@@ -149,8 +149,8 @@ impl Server {
 
 	/// Get a document's text.
 	pub async fn try_get_document_text(&self, module: &tg::Module) -> tg::Result<Option<String>> {
-		let modules = self.modules.read().await;
-		let Some(state) = modules.get(module) else {
+		let documents = self.documents.read().await;
+		let Some(state) = documents.get(module) else {
 			return Ok(None);
 		};
 

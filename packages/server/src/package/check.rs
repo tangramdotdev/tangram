@@ -14,7 +14,7 @@ impl Server {
 		let (package, lock) = tg::package::get_with_lock(self, dependency).await?;
 
 		// Create the root module.
-		let module = tg::Module::from_package(self, &package, &lock).await?;
+		let module = tg::Module::with_package_and_lock(self, &package, &lock).await?;
 
 		// Create the language server.
 		let language_server = crate::language::Server::new(self, tokio::runtime::Handle::current());
@@ -41,13 +41,8 @@ impl Server {
 		let Ok(dependency) = dependency.parse() else {
 			return Ok(http::Response::bad_request());
 		};
-
-		// Check the package.
 		let output = handle.check_package(&dependency).await?;
-
-		// Create the response.
 		let response = http::Response::builder().json(output).unwrap();
-
 		Ok(response)
 	}
 }

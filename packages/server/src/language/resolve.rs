@@ -1,6 +1,5 @@
-use std::path::PathBuf;
-
 use super::Server;
+use std::path::PathBuf;
 use tangram_client as tg;
 
 impl Server {
@@ -11,30 +10,29 @@ impl Server {
 		import: &tg::Import,
 	) -> tg::Result<tg::Module> {
 		match referrer {
-			// .d.ts file imports are never resolved, ignore.
+			tg::Module::Js(tg::module::Js::PackageArtifact(package_artifact))
+			| tg::Module::Ts(tg::module::Js::PackageArtifact(package_artifact)) => {
+				self.resolve_package_artifact(package_artifact, import)
+					.await
+			},
+
+			tg::Module::Js(tg::module::Js::PackagePath(package_path))
+			| tg::Module::Ts(tg::module::Js::PackagePath(package_path)) => {
+				self.resolve_package_path(package_path, import).await
+			},
+
+			tg::Module::Js(tg::module::Js::File(_)) | tg::Module::Ts(tg::module::Js::File(_)) => {
+				Err(tg::error!(
+					"cannot import from a js or ts module with no package"
+				))
+			},
+
 			tg::Module::Dts(_) => Err(tg::error!("unimplemented")),
 
-			// Artifacts are forbidden from importing.
 			tg::Module::Artifact(_)
 			| tg::Module::File(_)
 			| tg::Module::Directory(_)
-			| tg::Module::Symlink(_)
-			| tg::Module::Js(tg::module::Js::File(_))
-			| tg::Module::Ts(tg::module::Js::File(_)) => {
-				Err(tg::error!("cannot import from within an artifact"))
-			},
-
-			// Resolve package artifact imports.
-			tg::Module::Js(tg::module::Js::PackageArtifact(referrer))
-			| tg::Module::Ts(tg::module::Js::PackageArtifact(referrer)) => {
-				self.resolve_package_artifact(referrer, import).await
-			},
-
-			// Resolve package path imports.
-			tg::Module::Js(tg::module::Js::PackagePath(referrer))
-			| tg::Module::Ts(tg::module::Js::PackagePath(referrer)) => {
-				self.resolve_package_path(referrer, import).await
-			},
+			| tg::Module::Symlink(_) => Err(tg::error!("cannot import from an artifact")),
 		}
 	}
 
@@ -43,29 +41,26 @@ impl Server {
 		referrer: &tg::module::PackageArtifact,
 		import: &tg::Import,
 	) -> tg::Result<tg::Module> {
-		let package = tg::Directory::with_id(
-			referrer
-				.artifact
-				.clone()
-				.try_into()
-				.ok()
-				.ok_or_else(|| tg::error!("expected a directory"))?,
-		);
+		let id = referrer
+			.artifact
+			.clone()
+			.try_unwrap_directory()
+			.ok()
+			.ok_or_else(|| tg::error!("expected a directory"))?;
+		let package = tg::Directory::with_id(id);
 		let lock = tg::Lock::with_id(referrer.lock.clone());
-
-		// Get the target of the import.
 		match &import.specifier {
 			tg::import::Specifier::Path(path) => {
-				// Find the module within this package.
 				let path = referrer
 					.path
 					.clone()
 					.parent()
 					.join(path.clone())
 					.normalize();
-				self.get_module_within_package(package, lock, &path, import.r#type)
+				self.resolve_package_artifact_with_path(package, lock, &path, import.r#type)
 					.await
 			},
+
 			tg::import::Specifier::Dependency(dependency) => {
 				// Make the dependency path relative to the package.
 				let mut dependency = dependency.clone();
@@ -83,7 +78,7 @@ impl Server {
 				let package = package.unwrap().into();
 
 				// Create a module for the package.
-				self.get_module_for_package(package, lock, import.r#type)
+				self.module_for_package_with_type(package, lock, import.r#type)
 					.await
 			},
 		}
@@ -96,16 +91,16 @@ impl Server {
 	) -> tg::Result<tg::Module> {
 		match &import.specifier {
 			tg::import::Specifier::Path(path) => {
-				// Resolve this module within the same package path.
 				let path = referrer
 					.path
 					.clone()
 					.parent()
 					.join(path.clone())
 					.normalize();
-				self.get_module_within_path(&referrer.package_path, &path, import.r#type)
+				self.resolve_package_path_with_path(&referrer.package_path, &path, import.r#type)
 					.await
 			},
+
 			tg::import::Specifier::Dependency(dependency) => {
 				// Make the dependency path relative to the package.
 				let mut dependency = dependency.clone();
@@ -122,45 +117,49 @@ impl Server {
 				let (package, lock) = tg::package::get_with_lock(&self.server, &dependency).await?;
 
 				// Create a module for the package.
-				self.get_module_for_package(package, lock, import.r#type)
+				self.module_for_package_with_type(package, lock, import.r#type)
 					.await
 			},
 		}
 	}
 
 	#[allow(clippy::ptr_arg)]
-	async fn get_module_within_path(
+	async fn resolve_package_path_with_path(
 		&self,
 		package_path: &PathBuf,
 		module_path: &tg::Path,
 		r#type: Option<tg::import::Type>,
 	) -> tg::Result<tg::Module> {
-		let module_absolute_path = package_path.clone().join(module_path).try_into()?;
-		let metadata = tokio::fs::symlink_metadata(&module_absolute_path)
+		let path = package_path.clone().join(module_path).try_into()?;
+		let metadata = tokio::fs::symlink_metadata(&path)
 			.await
-			.map_err(|source| tg::error!(!source, "failed to get module metadata"))?;
+			.map_err(|source| tg::error!(!source, "failed to get the metadata"))?;
 		let target = match r#type {
 			None | Some(tg::import::Type::Artifact) => {
-				tg::Module::Artifact(tg::module::Artifact::Path(module_absolute_path))
+				tg::Module::Artifact(tg::module::Artifact::Path(path))
 			},
-			Some(tg::import::Type::Directory) if metadata.file_type().is_dir() => {
-				tg::Module::Directory(tg::module::Directory::Path(module_absolute_path))
-			},
+
 			Some(tg::import::Type::Directory) => {
-				return Err(tg::error!("expected a directory"));
+				if !metadata.file_type().is_dir() {
+					return Err(tg::error!("expected a directory"));
+				}
+				tg::Module::Directory(tg::module::Directory::Path(path))
 			},
-			Some(tg::import::Type::File) if metadata.file_type().is_file() => {
-				tg::Module::File(tg::module::File::Path(module_absolute_path))
-			},
+
 			Some(tg::import::Type::File) => {
-				return Err(tg::error!("expected a file"));
+				if !metadata.file_type().is_file() {
+					return Err(tg::error!("expected a file"));
+				}
+				tg::Module::File(tg::module::File::Path(path))
 			},
-			Some(tg::import::Type::Symlink) if metadata.file_type().is_symlink() => {
-				tg::Module::Symlink(tg::module::Symlink::Path(module_absolute_path))
-			},
+
 			Some(tg::import::Type::Symlink) => {
-				return Err(tg::error!("expected a symlink"));
+				if !metadata.file_type().is_symlink() {
+					return Err(tg::error!("expected a symlink"));
+				}
+				tg::Module::Symlink(tg::module::Symlink::Path(path))
 			},
+
 			Some(tg::import::Type::Js) => {
 				let package_path = tg::module::PackagePath {
 					package_path: package_path.clone(),
@@ -168,6 +167,7 @@ impl Server {
 				};
 				tg::Module::Js(tg::module::Js::PackagePath(package_path))
 			},
+
 			Some(tg::import::Type::Ts) => {
 				let package_path = tg::module::PackagePath {
 					package_path: package_path.clone(),
@@ -175,56 +175,64 @@ impl Server {
 				};
 				tg::Module::Ts(tg::module::Js::PackagePath(package_path))
 			},
+
 			_ => return Err(tg::error!("invalid type for import within a package path")),
 		};
 		Ok(target)
 	}
 
-	async fn get_module_for_package(
+	async fn module_for_package_with_type(
 		&self,
 		package: tg::Artifact,
 		lock: tg::Lock,
 		r#type: Option<tg::import::Type>,
 	) -> tg::Result<tg::Module> {
-		let package_id = package.id(&self.server, None).await?;
-		let target = match r#type {
-			Some(tg::import::Type::Artifact) => {
-				tg::Module::Artifact(tg::module::Artifact::Id(package_id))
-			},
-			Some(tg::import::Type::Directory) => {
-				let artifact = package_id
-					.try_into()
-					.ok()
-					.ok_or_else(|| tg::error!("expected a directory"))?;
-				tg::Module::Directory(tg::module::Directory::Id(artifact))
-			},
-			Some(tg::import::Type::File) => {
-				let artifact = package_id
-					.try_into()
-					.ok()
-					.ok_or_else(|| tg::error!("expected a file"))?;
-				tg::Module::File(tg::module::File::Id(artifact))
-			},
-			Some(tg::import::Type::Symlink) => {
-				let artifact = package_id
-					.try_into()
-					.ok()
-					.ok_or_else(|| tg::error!("expected a symlink"))?;
-				tg::Module::Symlink(tg::module::Symlink::Id(artifact))
-			},
+		let id = package.id(&self.server, None).await?;
+		let module = match r#type {
+			None => tg::Module::with_package_and_lock(&self.server, &package, &lock).await?,
+
 			Some(tg::import::Type::Js) => tg::Module::Js(tg::module::Js::PackageArtifact(
 				self.create_package_artifact(package, lock).await?,
 			)),
+
 			Some(tg::import::Type::Ts) => tg::Module::Ts(tg::module::Js::PackageArtifact(
 				self.create_package_artifact(package, lock).await?,
 			)),
-			None => tg::Module::from_package(&self.server, &package, &lock).await?,
-			_ => return Err(tg::error!("invalid type for import from a package")),
+
+			Some(tg::import::Type::Artifact) => tg::Module::Artifact(tg::module::Artifact::Id(id)),
+
+			Some(tg::import::Type::Directory) => {
+				let id = id
+					.try_unwrap_directory()
+					.ok()
+					.ok_or_else(|| tg::error!("expected a directory"))?;
+				tg::Module::Directory(tg::module::Directory::Id(id))
+			},
+
+			Some(tg::import::Type::File) => {
+				let id = id
+					.try_unwrap_file()
+					.ok()
+					.ok_or_else(|| tg::error!("expected a file"))?;
+				tg::Module::File(tg::module::File::Id(id))
+			},
+
+			Some(tg::import::Type::Symlink) => {
+				let id = id
+					.try_unwrap_symlink()
+					.ok()
+					.ok_or_else(|| tg::error!("expected a symlink"))?;
+				tg::Module::Symlink(tg::module::Symlink::Id(id))
+			},
+
+			_ => {
+				return Err(tg::error!("invalid type for import from a package"));
+			},
 		};
-		Ok(target)
+		Ok(module)
 	}
 
-	async fn get_module_within_package(
+	async fn resolve_package_artifact_with_path(
 		&self,
 		package: tg::Directory,
 		lock: tg::Lock,
@@ -238,27 +246,6 @@ impl Server {
 			.id(&self.server, None)
 			.await?;
 		let target = match r#type {
-			None | Some(tg::import::Type::Artifact) => {
-				tg::Module::Artifact(tg::module::Artifact::Id(artifact))
-			},
-			Some(tg::import::Type::Directory) => tg::Module::Directory(tg::module::Directory::Id(
-				artifact
-					.try_into()
-					.ok()
-					.ok_or_else(|| tg::error!("expected a directory"))?,
-			)),
-			Some(tg::import::Type::File) => tg::Module::File(tg::module::File::Id(
-				artifact
-					.try_into()
-					.ok()
-					.ok_or_else(|| tg::error!("expected a directory"))?,
-			)),
-			Some(tg::import::Type::Symlink) => tg::Module::Symlink(tg::module::Symlink::Id(
-				artifact
-					.try_into()
-					.ok()
-					.ok_or_else(|| tg::error!("expected a directory"))?,
-			)),
 			Some(tg::import::Type::Js) => {
 				let package_artifact = tg::module::PackageArtifact {
 					artifact: package.id(&self.server, None).await?.into(),
@@ -267,6 +254,7 @@ impl Server {
 				};
 				tg::Module::Js(tg::module::Js::PackageArtifact(package_artifact))
 			},
+
 			Some(tg::import::Type::Ts) => {
 				let package_artifact = tg::module::PackageArtifact {
 					artifact: package.id(&self.server, None).await?.into(),
@@ -275,6 +263,35 @@ impl Server {
 				};
 				tg::Module::Js(tg::module::Js::PackageArtifact(package_artifact))
 			},
+
+			None | Some(tg::import::Type::Artifact) => {
+				tg::Module::Artifact(tg::module::Artifact::Id(artifact))
+			},
+
+			Some(tg::import::Type::Directory) => {
+				let id = artifact
+					.try_into()
+					.ok()
+					.ok_or_else(|| tg::error!("expected a directory"))?;
+				tg::Module::Directory(tg::module::Directory::Id(id))
+			},
+
+			Some(tg::import::Type::File) => {
+				let id = artifact
+					.try_into()
+					.ok()
+					.ok_or_else(|| tg::error!("expected a directory"))?;
+				tg::Module::File(tg::module::File::Id(id))
+			},
+
+			Some(tg::import::Type::Symlink) => {
+				let id = artifact
+					.try_into()
+					.ok()
+					.ok_or_else(|| tg::error!("expected a directory"))?;
+				tg::Module::Symlink(tg::module::Symlink::Id(id))
+			},
+
 			_ => return Err(tg::error!("invalid type for import within a package")),
 		};
 		Ok(target)
@@ -288,10 +305,11 @@ impl Server {
 		let artifact = package.id(&self.server, None).await?;
 		let path = tg::package::get_root_module_path(&self.server, &package).await?;
 		let lock = lock.id(&self.server, None).await?;
-		Ok(tg::module::PackageArtifact {
+		let package_artifact = tg::module::PackageArtifact {
 			artifact,
 			lock,
 			path,
-		})
+		};
+		Ok(package_artifact)
 	}
 }

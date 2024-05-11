@@ -5,7 +5,7 @@ import type { Checksum } from "./checksum.ts";
 import { Directory } from "./directory.ts";
 import { File } from "./file.ts";
 import { Lock } from "./lock.ts";
-import { Module, type PackageArtifact } from "./module.ts";
+import { Module } from "./module.ts";
 import { Mutation, mutation } from "./mutation.ts";
 import type { Object_ } from "./object.ts";
 import { Path } from "./path.ts";
@@ -72,13 +72,15 @@ export function target<
 			[arg.name]: arg.function,
 		};
 
+		// Get the module.
+		let module_ = Module.fromUrl(arg.url);
+
 		// Get the executable and lock.
 		let executable: File | Symlink | undefined = undefined;
 		let lock = undefined;
-		let module_ = Module.fromUrl(arg.url);
 		if (module_.kind === "js" || module_.kind === "ts") {
 			if (module_.value.kind === "package_artifact") {
-				let package_artifact = module_.value.value as PackageArtifact;
+				let package_artifact = module_.value.value;
 				lock = Lock.withId(package_artifact.lock);
 				executable = new Symlink({
 					object: {
@@ -87,11 +89,11 @@ export function target<
 					},
 				});
 			} else if (module_.value.kind === "file") {
-				let file = module_.value.value as string;
+				let file = module_.value.value;
 				executable = File.withId(file);
 			}
 		}
-		assert_(executable, "missing executable");
+		assert_(executable, "failed to create the executable");
 
 		// Create the target.
 		return new Target({

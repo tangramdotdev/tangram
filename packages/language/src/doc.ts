@@ -2273,9 +2273,9 @@ let convertLocation = (node: ts.Node): Location => {
 	let end = ts.getLineAndCharacterOfPosition(sourceFile, node.getEnd());
 	let module_ = typescript.moduleFromFileName(sourceFile.fileName);
 	let docModule: Module;
-	if (module_.kind === "dts") {
+	if (module_.kind === "js" || module_.kind === "ts") {
 		docModule = module_;
-	} else if (module_.kind === "js" || module_.kind === "ts") {
+	} else if (module_.kind === "dts") {
 		docModule = module_;
 	} else {
 		throw new Error("invalid module kind");
@@ -2304,10 +2304,8 @@ function isExported(
 
 	// If the symbol is not from our package, then it is exported.
 	let module_ = typescript.moduleFromFileName(node.getSourceFile().fileName);
-	// If the symbol is from a library file, then it is exported.
-	if (module_.kind === "dts") {
-		return true;
-	} else if (
+
+	if (
 		module_.kind === "js" &&
 		thisModule.kind === "ts" &&
 		module_.value.kind === "package_artifact"
@@ -2319,6 +2317,9 @@ function isExported(
 		) {
 			return true;
 		}
+	} else if (module_.kind === "dts") {
+		// If the symbol is from a library file, then it is exported.
+		return true;
 	}
 
 	// Go through all globalExports to see if our symbol is there.

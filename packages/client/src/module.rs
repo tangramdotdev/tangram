@@ -1,7 +1,5 @@
-// TODO move this to server crate
-use std::path::PathBuf;
-
 use crate as tg;
+use std::path::PathBuf;
 use url::Url;
 
 /// A module.
@@ -10,26 +8,48 @@ use url::Url;
 )]
 #[serde(tag = "kind", content = "value", rename_all = "snake_case")]
 pub enum Module {
-	/// An imported artifact of unknown type.
-	Artifact(Artifact),
-
-	/// An imported file.
-	File(File),
-
-	/// An imported directory.
-	Directory(Directory),
-
-	/// An imported symlink.
-	Symlink(Symlink),
-
-	/// .d.ts module.
-	Dts(Dts),
-
-	/// A .js module.
 	Js(Js),
-
-	/// A .ts module.
 	Ts(Js),
+	Dts(Dts),
+	Artifact(Artifact),
+	Directory(Directory),
+	File(File),
+	Symlink(Symlink),
+}
+
+/// A JavaScript module.
+#[derive(
+	Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd, serde::Deserialize, serde::Serialize,
+)]
+#[serde(tag = "kind", content = "value", rename_all = "snake_case")]
+pub enum Js {
+	File(tg::artifact::Id),
+	PackageArtifact(PackageArtifact),
+	PackagePath(PackagePath),
+}
+
+#[derive(
+	Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd, serde::Deserialize, serde::Serialize,
+)]
+pub struct PackageArtifact {
+	pub artifact: tg::artifact::Id,
+	pub lock: tg::lock::Id,
+	pub path: tg::Path,
+}
+
+#[derive(
+	Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd, serde::Deserialize, serde::Serialize,
+)]
+pub struct PackagePath {
+	pub package_path: PathBuf,
+	pub path: tg::Path,
+}
+
+#[derive(
+	Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd, serde::Deserialize, serde::Serialize,
+)]
+pub struct Dts {
+	pub path: tg::Path,
 }
 
 #[derive(
@@ -45,18 +65,18 @@ pub enum Artifact {
 	Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd, serde::Deserialize, serde::Serialize,
 )]
 #[serde(tag = "kind", content = "value", rename_all = "snake_case")]
-pub enum File {
+pub enum Directory {
 	Path(tg::Path),
-	Id(tg::file::Id),
+	Id(tg::directory::Id),
 }
 
 #[derive(
 	Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd, serde::Deserialize, serde::Serialize,
 )]
 #[serde(tag = "kind", content = "value", rename_all = "snake_case")]
-pub enum Directory {
+pub enum File {
 	Path(tg::Path),
-	Id(tg::directory::Id),
+	Id(tg::file::Id),
 }
 
 #[derive(
@@ -67,68 +87,15 @@ pub enum Symlink {
 	Path(tg::Path),
 	Id(tg::symlink::Id),
 }
-/// A .d.ts library or import.
-#[derive(
-	Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd, serde::Deserialize, serde::Serialize,
-)]
-pub struct Dts {
-	/// The relative path of the .d.ts file.
-	pub path: tg::Path,
-}
-
-/// A javascript (or typescript) module.
-#[derive(
-	Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd, serde::Deserialize, serde::Serialize,
-)]
-#[serde(tag = "kind", content = "value", rename_all = "snake_case")]
-pub enum Js {
-	/// A Javascript module that is just a file.
-	File(tg::artifact::Id),
-
-	/// A Javascript module that is contained within a package.
-	PackageArtifact(PackageArtifact),
-
-	/// A Javascript module that is somewhere on local disk.
-	PackagePath(PackagePath),
-}
-
-#[derive(
-	Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd, serde::Deserialize, serde::Serialize,
-)]
-pub struct PackageArtifact {
-	/// The package artifact containing the module.
-	pub artifact: tg::artifact::Id,
-
-	/// The package's lock.
-	pub lock: tg::lock::Id,
-
-	/// The path to the module within the package.
-	pub path: tg::Path,
-}
-
-#[derive(
-	Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd, serde::Deserialize, serde::Serialize,
-)]
-pub struct PackagePath {
-	/// The package's absolute path on disk.
-	pub package_path: PathBuf,
-
-	/// The path to the module within the package.
-	pub path: tg::Path,
-}
 
 impl Module {
-	pub async fn from_path(
+	pub async fn with_package_path(
 		_handle: &impl tg::Handle,
 		package: PathBuf,
 		path: tg::Path,
 	) -> tg::Result<Self> {
 		let r#type = tg::import::Type::try_from_path(&path);
-		let target = match r#type {
-			Some(tg::import::Type::DTs) => {
-				let dts = Dts { path };
-				Module::Dts(dts)
-			},
+		let module = match r#type {
 			Some(tg::import::Type::Js) => {
 				let package_path = PackagePath {
 					package_path: package,
@@ -142,6 +109,10 @@ impl Module {
 					path,
 				};
 				Module::Ts(Js::PackagePath(package_path))
+			},
+			Some(tg::import::Type::Dts) => {
+				let dts = Dts { path };
+				Module::Dts(dts)
 			},
 			Some(_) => return Err(tg::error!("unexpected import type")),
 			None => {
@@ -160,36 +131,40 @@ impl Module {
 				}
 			},
 		};
-		Ok(target)
+		Ok(module)
 	}
 
-	pub async fn from_package(
+	pub async fn with_package_and_lock(
 		handle: &impl tg::Handle,
 		package: &tg::Artifact,
 		lock: &tg::Lock,
 	) -> tg::Result<Self> {
-		let package_id = package.id(handle, None).await?;
-		let lock_id = lock.id(handle, None).await?;
-
 		let module_path = tg::package::try_get_root_module_path(handle, package).await?;
 		let (root_module, r#type) = if let Some(path) = &module_path {
-			(
-				package.unwrap_directory_ref().try_get(handle, path).await?,
-				tg::import::Type::try_from_path(path),
-			)
+			let r#type = tg::import::Type::try_from_path(path);
+			let package = &package
+				.try_unwrap_directory_ref()
+				.ok()
+				.ok_or_else(|| tg::error!("expected a directory"))?;
+			let root_module = package.try_get(handle, path).await?;
+			(root_module, r#type)
 		} else {
 			(None, None)
 		};
 		match (r#type, root_module) {
 			(Some(tg::import::Type::Js), Some(_)) => {
+				let artifact = package.id(handle, None).await?;
+				let lock = lock.id(handle, None).await?;
 				let package_artifact = PackageArtifact {
-					artifact: package_id.clone(),
-					lock: lock_id,
+					artifact,
+					lock,
 					path: module_path.unwrap(),
 				};
 				Ok(Module::Js(Js::PackageArtifact(package_artifact)))
 			},
 			(Some(tg::import::Type::Ts), Some(_)) => {
+				let package_id = package.id(handle, None).await?;
+				let lock_id = lock.id(handle, None).await?;
 				let package_artifact = PackageArtifact {
 					artifact: package_id.clone(),
 					lock: lock_id,
@@ -198,10 +173,19 @@ impl Module {
 				Ok(Module::Ts(Js::PackageArtifact(package_artifact)))
 			},
 			(Some(_), _) => Err(tg::error!("unexpected import type")),
-			(None, _) => match package_id {
-				tg::artifact::Id::Directory(id) => Ok(Module::Directory(Directory::Id(id))),
-				tg::artifact::Id::File(id) => Ok(Module::File(File::Id(id))),
-				tg::artifact::Id::Symlink(id) => Ok(Module::Symlink(Symlink::Id(id))),
+			(None, _) => match package {
+				tg::Artifact::Directory(directory) => {
+					let id = directory.id(handle, None).await?;
+					Ok(Module::Directory(Directory::Id(id)))
+				},
+				tg::Artifact::File(file) => {
+					let id = file.id(handle, None).await?;
+					Ok(Module::File(File::Id(id)))
+				},
+				tg::Artifact::Symlink(symlink) => {
+					let id = symlink.id(handle, None).await?;
+					Ok(Module::Symlink(Symlink::Id(id)))
+				},
 			},
 		}
 	}
@@ -224,10 +208,6 @@ impl Module {
 	#[must_use]
 	pub fn path(&self) -> Option<tg::Path> {
 		match self {
-			Self::Artifact(Artifact::Path(path))
-			| Self::Directory(Directory::Path(path))
-			| Self::File(File::Path(path))
-			| Self::Symlink(Symlink::Path(path)) => Some(path.clone()),
 			Self::Dts(dts) => Some(dts.path.clone()),
 			Self::Js(Js::PackageArtifact(js)) | Self::Ts(Js::PackageArtifact(js)) => {
 				Some(js.path.clone())
@@ -236,6 +216,10 @@ impl Module {
 				let package_path: tg::Path = js.package_path.clone().try_into().ok()?;
 				Some(package_path.join(js.path.clone()))
 			},
+			Self::Artifact(Artifact::Path(path))
+			| Self::Directory(Directory::Path(path))
+			| Self::File(File::Path(path))
+			| Self::Symlink(Symlink::Path(path)) => Some(path.clone()),
 			_ => None,
 		}
 	}
@@ -244,8 +228,9 @@ impl Module {
 impl From<Module> for Url {
 	fn from(value: Module) -> Self {
 		// Serialize and encode the module.
-		let data =
-			data_encoding::HEXLOWER.encode(serde_json::to_string(&value).unwrap().as_bytes());
+		let data = serde_json::to_string(&value).unwrap();
+		let data = data_encoding::HEXLOWER.encode(data.as_bytes());
+
 		// Create the URL.
 		if let Some(path) = value.path() {
 			format!("tg://{data}/{path}").parse().unwrap()

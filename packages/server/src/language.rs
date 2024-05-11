@@ -53,7 +53,7 @@ pub struct Inner {
 	diagnostics: tokio::sync::RwLock<BTreeMap<tg::Module, Vec<tg::Diagnostic>>>,
 
 	/// The modules tracked by the language server.
-	modules: tokio::sync::RwLock<HashMap<tg::Module, tg::document::State, fnv::FnvBuildHasher>>,
+	documents: tokio::sync::RwLock<HashMap<tg::Module, tg::document::State, fnv::FnvBuildHasher>>,
 
 	/// A handle to the main tokio runtime.
 	main_runtime_handle: tokio::runtime::Handle,
@@ -133,7 +133,7 @@ impl Server {
 		// Create the server.
 		Self(Arc::new(Inner {
 			diagnostics,
-			modules: documents,
+			documents,
 			main_runtime_handle,
 			request_sender,
 			request_thread,
