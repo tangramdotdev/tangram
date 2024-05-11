@@ -2,7 +2,7 @@ use crate::Server;
 use indoc::formatdoc;
 use tangram_client as tg;
 use tangram_database::{self as db, prelude::*};
-use tangram_http::{Incoming, Outgoing};
+use tangram_http::{outgoing::ResponseBuilderExt as _, Incoming, Outgoing};
 
 impl Server {
 	pub async fn list_builds(
@@ -95,7 +95,7 @@ impl Server {
 		// Create the response.
 		let response = http::Response::builder()
 			.status(http::StatusCode::OK)
-			.body(Outgoing::json(output))
+			.json(output)
 			.unwrap();
 
 		Ok(response)

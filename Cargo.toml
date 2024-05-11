@@ -5,6 +5,7 @@ members = [
   "packages/client",
   "packages/database",
   "packages/fuse",
+  "packages/futures",
   "packages/http",
   "packages/messenger",
   "packages/nfs",
@@ -118,6 +119,7 @@ tangram_cli = { path = "packages/cli" }
 tangram_client = { path = "packages/client" }
 tangram_database = { path = "packages/database" }
 tangram_fuse = { path = "packages/fuse" }
+tangram_futures = { path = "packages/futures" }
 tangram_http = { path = "packages/http" }
 tangram_messenger = { path = "packages/messenger" }
 tangram_nfs = { path = "packages/nfs" }

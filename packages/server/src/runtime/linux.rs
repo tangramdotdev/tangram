@@ -1,5 +1,5 @@
 use super::{proxy, util::render};
-use crate::{tmp::Tmp, util::task::Stop, Server};
+use crate::{tmp::Tmp, Server};
 use bytes::Bytes;
 use futures::{
 	stream::{FuturesOrdered, FuturesUnordered},
@@ -14,6 +14,7 @@ use std::{
 	path::{Path, PathBuf},
 };
 use tangram_client as tg;
+use tangram_futures::task::Stop;
 use tokio::io::{AsyncReadExt as _, AsyncWriteExt as _};
 use url::Url;
 
@@ -87,7 +88,7 @@ impl Runtime {
 		// Get the target.
 		let target = build.target(server).await?;
 
-		// If the VFS is disabled, then perform an internal checkout of the target's references.
+		// If the VFS is disabled, then checkout the target's references.
 		if server.vfs.lock().unwrap().is_none() {
 			target
 				.data(server, None)
@@ -1047,13 +1048,13 @@ fn guest(context: &Context) {
 		}
 
 		// Pivot the root.
-		let ret = libc::syscall(libc::SYS_pivot_root, b".\0".as_ptr(), b".\0".as_ptr());
+		let ret = libc::syscall(libc::SYS_pivot_root, c".".as_ptr(), c".".as_ptr());
 		if ret == -1 {
 			abort_errno!("failed to pivot the root");
 		}
 
 		// Unmount the root.
-		let ret = libc::umount2(b".\0".as_ptr().cast(), libc::MNT_DETACH);
+		let ret = libc::umount2(c".".as_ptr().cast(), libc::MNT_DETACH);
 		if ret == -1 {
 			abort_errno!("failed to unmount the root");
 		}
@@ -1061,7 +1062,7 @@ fn guest(context: &Context) {
 		// Remount the root as read-only.
 		let ret = libc::mount(
 			std::ptr::null(),
-			b"/\0".as_ptr().cast(),
+			c"/".as_ptr().cast(),
 			std::ptr::null(),
 			libc::MS_BIND | libc::MS_PRIVATE | libc::MS_RDONLY | libc::MS_REC | libc::MS_REMOUNT,
 			std::ptr::null(),

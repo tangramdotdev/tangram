@@ -7,6 +7,7 @@ pub struct Options {
 	pub advanced: Advanced,
 	pub authentication: Authentication,
 	pub build: Option<Build>,
+	pub build_monitor: Option<BuildMonitor>,
 	pub database: Database,
 	pub messenger: Messenger,
 	pub path: PathBuf,
@@ -47,6 +48,17 @@ pub struct Oauth {
 #[derive(Clone, Debug)]
 pub struct Build {
 	pub concurrency: usize,
+	pub heartbeat_interval: std::time::Duration,
+}
+
+#[derive(Clone, Debug)]
+pub struct BuildMonitor {
+	pub dequeue_interval: std::time::Duration,
+	pub dequeue_limit: u64,
+	pub dequeue_timeout: std::time::Duration,
+	pub heartbeat_interval: std::time::Duration,
+	pub heartbeat_limit: u64,
+	pub heartbeat_timeout: std::time::Duration,
 }
 
 #[derive(Clone, Debug)]

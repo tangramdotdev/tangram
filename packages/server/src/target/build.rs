@@ -1,10 +1,11 @@
-use crate::{runtime::Trait as _, BuildPermit, Server};
+use crate::{BuildPermit, Server};
 use bytes::Bytes;
 use either::Either;
-use futures::{FutureExt as _, TryFutureExt as _};
-use std::sync::Arc;
+use futures::FutureExt as _;
 use tangram_client as tg;
-use tangram_http::{incoming::RequestExt as _, Incoming, Outgoing};
+use tangram_http::{
+	incoming::RequestExt as _, outgoing::ResponseBuilderExt as _, Incoming, Outgoing,
+};
 use tangram_messenger::Messenger as _;
 
 impl Server {
@@ -179,11 +180,11 @@ impl Server {
 			.await
 			.map_err(|source| tg::error!(!source, "failed to publish"))?;
 
-		// Spawn a task to dequeue and start the build when the parent's permit is available.
+		// Spawn a task to spawn the build when the parent's permit is available.
 		let server = self.clone();
 		let parent = arg.parent.clone();
 		let build = build.clone();
-		let task = async move {
+		tokio::spawn(async move {
 			// Acquire the parent's permit.
 			let Some(permit) = parent.as_ref().and_then(|parent| {
 				server
@@ -200,101 +201,15 @@ impl Server {
 
 			// Start the build.
 			server
-				.try_start_build_internal(build, permit)
+				.spawn_build(build, permit, None)
 				.await
-				.inspect_err(|error| tracing::error!(?error, "failed to start the build"))
+				.inspect_err(|error| tracing::error!(?error, "failed to spawn the build"))
 				.ok();
-		};
-		tokio::spawn(task);
+		});
 
 		let output = tg::target::build::Output { build: build_id };
 
 		Ok(output)
-	}
-
-	pub(crate) async fn try_start_build_internal(
-		&self,
-		build: tg::Build,
-		permit: BuildPermit,
-	) -> tg::Result<bool> {
-		// Attempt to start the build.
-		if !self
-			.try_start_build(build.id())
-			.await?
-			.ok_or_else(|| tg::error!("failed to find the build"))?
-		{
-			return Ok(false);
-		};
-
-		// Set the permit for the build.
-		let permit = Arc::new(tokio::sync::Mutex::new(Some(permit)));
-		self.build_permits.insert(build.id().clone(), permit);
-
-		// Spawn the task.
-		let server = self.clone();
-		let build = build.clone();
-		let task = async move {
-			// Run the build.
-			let result = server.start_build_internal_inner(build.clone()).await;
-			let outcome = match result {
-				Ok(outcome) => outcome,
-				Err(error) => tg::build::Outcome::Failed(error),
-			};
-
-			// Set the build's outcome.
-			let outcome = outcome.data(&server, None).await?;
-			let arg = tg::build::finish::Arg { outcome };
-			build
-				.finish(&server, arg)
-				.await
-				.map_err(|source| tg::error!(!source, "failed to set the build outcome"))?;
-
-			// Drop the build's permit.
-			server.build_permits.remove(build.id());
-
-			Ok::<_, tg::Error>(())
-		}
-		.inspect_err(|error| {
-			tracing::error!(?error, "failed to run the build");
-		})
-		.map(|_| ());
-		tokio::spawn(task);
-
-		Ok(true)
-	}
-
-	async fn start_build_internal_inner(&self, build: tg::Build) -> tg::Result<tg::build::Outcome> {
-		// Get the runtime.
-		let target = build.target(self).await?;
-		let host = target.host(self).await?;
-		let runtime = self
-			.runtimes
-			.read()
-			.unwrap()
-			.get(&*host)
-			.ok_or_else(
-				|| tg::error!(?id = build.id(), ?host = &*host, "no runtime to build the target"),
-			)?
-			.clone();
-
-		// Build.
-		let result = runtime.run(&build).await;
-
-		// Log an error if one occurred.
-		if let Err(error) = &result {
-			let options = &self.options.advanced.error_trace_options;
-			let trace = error.trace(options);
-			let log = trace.to_string();
-			build.add_log(self, log.into()).await?;
-		}
-
-		// Create the outcome.
-		let outcome = match result {
-			Ok(value) => tg::build::Outcome::Succeeded(value),
-			Err(error) => tg::build::Outcome::Failed(error),
-		};
-
-		Ok(outcome)
 	}
 }
 
@@ -310,9 +225,7 @@ impl Server {
 		let id = id.parse()?;
 		let arg = request.json().await?;
 		let output = handle.build_target(&id, arg).await?;
-		let response = http::Response::builder()
-			.body(Outgoing::json(output))
-			.unwrap();
+		let response = http::Response::builder().json(output).unwrap();
 		Ok(response)
 	}
 }

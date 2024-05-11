@@ -2,16 +2,13 @@ use self::{
 	database::{Database, Transaction},
 	messenger::Messenger,
 	runtime::Runtime,
-	util::{fs::remove, task::Stop},
+	util::fs::remove,
 };
 use async_nats as nats;
 use bytes::Bytes;
 use dashmap::DashMap;
 use either::Either;
-use futures::{
-	future::{self, BoxFuture},
-	Future, FutureExt as _, Stream,
-};
+use futures::{future, Future, FutureExt as _, Stream};
 use http_body_util::BodyExt as _;
 use hyper_util::rt::{TokioExecutor, TokioIo};
 use itertools::Itertools as _;
@@ -25,6 +22,7 @@ use std::{
 };
 use tangram_client as tg;
 use tangram_database as db;
+use tangram_futures::task::{Stop, Task, TaskMap};
 use tangram_http::{Incoming, Outgoing};
 use tokio::{
 	io::{AsyncBufRead, AsyncRead, AsyncWrite, AsyncWriteExt},
@@ -61,9 +59,9 @@ pub struct Server(Arc<Inner>);
 
 pub struct Inner {
 	build_permits: BuildPermits,
-	build_queue_task: std::sync::Mutex<Option<tokio::task::JoinHandle<()>>>,
 	build_semaphore: Arc<tokio::sync::Semaphore>,
-	checkouts: Checkouts,
+	builds: BuildTasks,
+	checkouts: CheckoutTasks,
 	database: Database,
 	file_descriptor_semaphore: tokio::sync::Semaphore,
 	local_pool_handle: tokio_util::task::LocalPoolHandle,
@@ -73,8 +71,7 @@ pub struct Inner {
 	path: PathBuf,
 	remotes: Vec<tg::Client>,
 	runtimes: std::sync::RwLock<HashMap<String, Runtime>>,
-	stop: Stop,
-	task: std::sync::Mutex<Option<future::Shared<BoxFuture<'static, tg::Result<()>>>>>,
+	task: std::sync::Mutex<Option<Task<tg::Result<()>>>>,
 	vfs: std::sync::Mutex<Option<self::vfs::Server>>,
 }
 
@@ -86,10 +83,10 @@ struct BuildPermit(
 	Either<tokio::sync::OwnedSemaphorePermit, tokio::sync::OwnedMutexGuard<Option<Self>>>,
 );
 
-type Checkouts = DashMap<tg::artifact::Id, CheckoutFuture, fnv::FnvBuildHasher>;
+type BuildTasks = TaskMap<tg::build::Id, (), fnv::FnvBuildHasher>;
 
-type CheckoutFuture =
-	future::Shared<BoxFuture<'static, tg::Result<tg::artifact::checkout::Output>>>;
+type CheckoutTasks =
+	TaskMap<tg::artifact::Id, tg::Result<tg::artifact::checkout::Output>, fnv::FnvBuildHasher>;
 
 impl Server {
 	pub async fn start(options: Options) -> tg::Result<Server> {
@@ -173,9 +170,6 @@ impl Server {
 		// Create the build permits.
 		let build_permits = DashMap::default();
 
-		// Create the build queue task.
-		let build_queue_task = std::sync::Mutex::new(None);
-
 		// Create the build semaphore.
 		let permits = options
 			.build
@@ -184,8 +178,11 @@ impl Server {
 			.unwrap_or_default();
 		let build_semaphore = Arc::new(tokio::sync::Semaphore::new(permits));
 
-		// Create the checkouts.
-		let checkouts = DashMap::default();
+		// Create the build tasks.
+		let builds = TaskMap::default();
+
+		// Create the checkout tasks.
+		let checkouts = TaskMap::default();
 
 		// Create the database.
 		let database = match &options.database {
@@ -244,7 +241,6 @@ impl Server {
 		let runtimes = std::sync::RwLock::new(HashMap::default());
 
 		// Create the task.
-		let stop = Stop::new();
 		let task = std::sync::Mutex::new(None);
 
 		// Create the vfs.
@@ -253,8 +249,8 @@ impl Server {
 		// Create the server.
 		let server = Self(Arc::new(Inner {
 			build_permits,
-			build_queue_task,
 			build_semaphore,
+			builds,
 			checkouts,
 			database,
 			file_descriptor_semaphore,
@@ -265,45 +261,41 @@ impl Server {
 			path,
 			remotes,
 			runtimes,
-			stop,
 			task,
 			vfs,
 		}));
 
 		// Start the task.
-		let task = tokio::spawn({
+		let task = Task::spawn(|stop| {
 			let server = server.clone();
-			async move { server.task().await }
-		})
-		.map(Result::unwrap)
-		.boxed()
-		.shared();
+			async move { server.task(stop).await }
+		});
 		server.task.lock().unwrap().replace(task);
 
 		Ok(server)
 	}
 
 	pub fn stop(&self) {
-		self.stop.stop();
+		self.task.lock().unwrap().as_ref().unwrap().stop();
 	}
 
 	pub async fn wait(&self) -> tg::Result<()> {
-		let future = self.task.lock().unwrap().clone().unwrap();
-		future.await
+		let task = self.task.lock().unwrap().clone().unwrap();
+		task.wait().await
 	}
 
-	pub async fn task(&self) -> tg::Result<()> {
+	pub async fn task(&self, stop: Stop) -> tg::Result<()> {
 		// Start the VFS if necessary.
 		let artifacts_path = self.artifacts_path();
-		let kind = if cfg!(target_os = "macos") {
-			vfs::Kind::Nfs
-		} else if cfg!(target_os = "linux") {
-			vfs::Kind::Fuse
-		} else {
-			unreachable!()
-		};
 		if self.options.vfs {
 			// If the VFS is enabled, then start the VFS server.
+			let kind = if cfg!(target_os = "macos") {
+				vfs::Kind::Nfs
+			} else if cfg!(target_os = "linux") {
+				vfs::Kind::Fuse
+			} else {
+				unreachable!()
+			};
 			let vfs = self::vfs::Server::start(self, kind, &artifacts_path)
 				.await
 				.map_err(|source| tg::error!(!source, "failed to start the VFS"))?;
@@ -348,20 +340,35 @@ impl Server {
 		}
 
 		// Start the build queue task.
-		if self.options.build.is_some() {
-			let task = tokio::spawn({
+		let build_queue_task = if self.options.build.is_some() {
+			Some(tokio::spawn({
 				let server = self.clone();
-				async move { server.run_build_queue().await }
-			});
-			self.build_queue_task.lock().unwrap().replace(task);
-		}
+				async move { server.build_queue_task().await }
+			}))
+		} else {
+			None
+		};
+
+		// Start the build monitor task.
+		let build_monitor_task = self.options.build_monitor.as_ref().map(|options| {
+			tokio::spawn({
+				let server = self.clone();
+				let options = options.clone();
+				async move { server.build_monitor_task(&options).await }
+			})
+		});
 
 		// Serve.
-		Self::serve(self.clone(), self.options.url.clone(), self.stop.clone()).await?;
+		Self::serve(self.clone(), self.options.url.clone(), stop.clone()).await?;
 
 		// Stop the build queue task.
-		let option = self.build_queue_task.lock().unwrap().take();
-		if let Some(task) = option {
+		if let Some(task) = build_queue_task {
+			task.abort();
+			task.await.ok();
+		}
+
+		// Stop the build monitor task.
+		if let Some(task) = build_monitor_task {
 			task.abort();
 			task.await.ok();
 		}
@@ -627,7 +634,9 @@ impl Server {
 			(http::Method::POST, ["builds", id, "touch"]) => {
 				Self::handle_touch_build_request(handle, request, id).boxed()
 			},
-
+			(http::Method::POST, ["builds", id, "heartbeat"]) => {
+				Self::handle_heartbeat_build_request(handle, request, id).boxed()
+			},
 			// Objects.
 			(http::Method::GET, ["objects", id]) => {
 				Self::handle_get_object_request(handle, request, id).boxed()
@@ -951,6 +960,13 @@ impl tg::Handle for Server {
 
 	fn touch_build(&self, id: &tg::build::Id) -> impl Future<Output = tg::Result<()>> {
 		self.touch_build(id)
+	}
+
+	fn heartbeat_build(
+		&self,
+		id: &tg::build::Id,
+	) -> impl Future<Output = tg::Result<tg::build::heartbeat::Output>> + Send {
+		self.heartbeat_build(id)
 	}
 
 	fn format(&self, text: String) -> impl Future<Output = tg::Result<String>> {

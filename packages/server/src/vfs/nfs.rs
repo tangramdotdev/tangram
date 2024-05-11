@@ -12,6 +12,7 @@ use std::{
 	sync::{atomic::AtomicU64, Arc, Weak},
 };
 use tangram_client as tg;
+use tangram_futures::task::Stop;
 use tangram_nfs::{
 	rpc,
 	types::{
@@ -52,8 +53,6 @@ use tokio::{
 	io::{AsyncReadExt as _, AsyncSeekExt as _},
 	net::{TcpListener, TcpStream},
 };
-
-use crate::util::task::Stop;
 
 const ROOT: nfs_fh4 = nfs_fh4(0);
 

@@ -1,6 +1,6 @@
 use crate::Cli;
 use tangram_client as tg;
-use tg::Handle;
+use tg::Handle as _;
 
 /// Get a root.
 #[derive(Debug, clap::Args)]

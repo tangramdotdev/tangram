@@ -639,6 +639,13 @@ impl tg::Handle for Client {
 		self.try_start_build(id)
 	}
 
+	fn heartbeat_build(
+		&self,
+		id: &tg::build::Id,
+	) -> impl Future<Output = tg::Result<tg::build::heartbeat::Output>> {
+		self.heartbeat_build(id)
+	}
+
 	fn try_get_build_status(
 		&self,
 		id: &tg::build::Id,

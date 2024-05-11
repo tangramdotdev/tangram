@@ -258,6 +258,13 @@ impl tg::Handle for Server {
 		Err(tg::error!("forbidden"))
 	}
 
+	fn heartbeat_build(
+		&self,
+		id: &tg::build::Id,
+	) -> impl Future<Output = tg::Result<tg::build::heartbeat::Output>> + Send {
+		self.server.heartbeat_build(id)
+	}
+
 	async fn format(&self, _text: String) -> tg::Result<String> {
 		Err(tg::error!("forbidden"))
 	}

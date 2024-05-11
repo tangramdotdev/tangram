@@ -5,9 +5,8 @@ use http_body_util::BodyStream;
 use num::ToPrimitive as _;
 use std::pin::pin;
 use tangram_client as tg;
-use tangram_database as db;
-use tangram_database::prelude::*;
-use tangram_http::{Incoming, Outgoing};
+use tangram_database::{self as db, prelude::*};
+use tangram_http::{outgoing::ResponseBuilderExt as _, Incoming, Outgoing};
 use tokio::io::AsyncRead;
 use tokio_util::io::StreamReader;
 
@@ -159,9 +158,7 @@ impl Server {
 		let output = handle.create_blob(reader, None).boxed().await?;
 
 		// Create the response.
-		let response = http::Response::builder()
-			.body(Outgoing::json(output))
-			.unwrap();
+		let response = http::Response::builder().json(output).unwrap();
 
 		Ok(response)
 	}

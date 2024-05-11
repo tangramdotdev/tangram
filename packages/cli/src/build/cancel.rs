@@ -1,6 +1,6 @@
 use crate::Cli;
 use tangram_client as tg;
-use tg::Handle;
+use tg::Handle as _;
 
 /// Cancel a build.
 #[derive(Debug, clap::Args)]

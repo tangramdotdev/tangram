@@ -3,7 +3,10 @@ use futures::{stream, StreamExt as _, TryStreamExt as _};
 use indoc::formatdoc;
 use tangram_client as tg;
 use tangram_database::{self as db, prelude::*};
-use tangram_http::{outgoing::ResponseExt as _, Incoming, Outgoing};
+use tangram_http::{
+	outgoing::{ResponseBuilderExt as _, ResponseExt as _},
+	Incoming, Outgoing,
+};
 
 impl Server {
 	pub async fn try_get_build(
@@ -133,7 +136,7 @@ impl Server {
 		};
 		let response = http::Response::builder()
 			.status(http::StatusCode::OK)
-			.body(Outgoing::json(output))
+			.json(output)
 			.unwrap();
 		Ok(response)
 	}
