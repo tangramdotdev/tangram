@@ -1,8 +1,13 @@
-use crate::Error;
+use crate::{sse, Error};
 use bytes::Bytes;
-use futures::{Stream, StreamExt as _};
+use futures::{
+	future, stream, Future, FutureExt as _, Stream, StreamExt as _, TryFutureExt as _,
+	TryStreamExt as _,
+};
 use http_body::Body;
 use std::pin::{pin, Pin};
+use tokio::io::AsyncRead;
+use tokio_util::io::ReaderStream;
 
 pub enum Outgoing {
 	Empty,
@@ -18,20 +23,74 @@ impl Outgoing {
 		Self::Empty
 	}
 
-	pub fn bytes(bytes: impl Into<Bytes>) -> Self {
+	pub fn bytes<T>(bytes: T) -> Self
+	where
+		T: Into<Bytes>,
+	{
 		Self::Bytes(Some(bytes.into()))
 	}
 
-	pub fn json(json: impl erased_serde::Serialize + Send + 'static) -> Self {
+	pub fn json<T>(json: T) -> Self
+	where
+		T: erased_serde::Serialize + Send + 'static,
+	{
 		Self::Json(Some(Box::new(json)))
 	}
 
-	pub fn stream(stream: impl Stream<Item = Result<Bytes, Error>> + Send + 'static) -> Self {
-		Self::Stream(Box::pin(stream))
+	pub fn stream<S, T, E>(stream: S) -> Self
+	where
+		S: Stream<Item = Result<T, E>> + Send + 'static,
+		T: Into<Bytes> + 'static,
+		E: Into<Error> + 'static,
+	{
+		Self::Stream(Box::pin(stream.map_ok(Into::into).map_err(Into::into)))
 	}
 
-	pub fn body(body: impl Body<Data = Bytes, Error = Error> + Send + 'static) -> Self {
+	pub fn body<B>(body: B) -> Self
+	where
+		B: Body<Data = Bytes, Error = Error> + Send + 'static,
+	{
 		Self::Body(Box::pin(body))
+	}
+
+	pub fn reader<R>(reader: R) -> Self
+	where
+		R: AsyncRead + Send + 'static,
+	{
+		Self::stream(ReaderStream::new(reader))
+	}
+
+	pub fn future_bytes<F, T, E>(value: F) -> Self
+	where
+		F: Future<Output = Result<T, E>> + Send + 'static,
+		T: Into<Bytes> + 'static,
+		E: Into<Error> + 'static,
+	{
+		Self::stream(stream::once(value.map_into().err_into()))
+	}
+
+	pub fn future_json<F, T, E>(value: F) -> Self
+	where
+		F: Future<Output = Result<T, E>> + Send + 'static,
+		T: serde::Serialize,
+		E: Into<Error> + 'static,
+	{
+		Self::future_bytes(value.err_into().and_then(|output| {
+			future::ready(
+				serde_json::to_vec(&output)
+					.map(Bytes::from)
+					.map_err(Error::from),
+			)
+		}))
+	}
+
+	pub fn sse<S, T, E>(value: S) -> Self
+	where
+		S: Stream<Item = Result<T, E>> + Send + 'static,
+		T: Into<sse::Event> + 'static,
+		E: Into<Error> + 'static,
+	{
+		Self::stream(value.map_ok(|event| event.into().to_string()))
 	}
 }
 
@@ -92,28 +151,13 @@ impl ResponseExt for http::Response<Outgoing> {
 	}
 }
 
-pub trait ResponseBuilderExt: Sized {
-	fn empty(self) -> http::Result<http::Response<Outgoing>>;
-	fn json<T>(self, value: T) -> http::Result<http::Response<Outgoing>>
-	where
-		T: serde::Serialize + Send + 'static;
-}
-
-impl ResponseBuilderExt for http::response::Builder {
-	fn empty(self) -> http::Result<http::Response<Outgoing>> {
-		self.body(Outgoing::empty())
-	}
-
-	fn json<T>(self, value: T) -> http::Result<http::Response<Outgoing>>
-	where
-		T: serde::Serialize + Send + 'static,
-	{
-		self.body(Outgoing::json(value))
-	}
-}
-
 pub trait RequestBuilderExt: Sized {
 	fn empty(self) -> http::Result<http::Request<Outgoing>>;
+
+	fn bytes<T>(self, value: T) -> http::Result<http::Request<Outgoing>>
+	where
+		T: Into<Bytes>;
+
 	fn json<T>(self, value: T) -> http::Result<http::Request<Outgoing>>
 	where
 		T: serde::Serialize + Send + 'static;
@@ -124,10 +168,94 @@ impl RequestBuilderExt for http::request::Builder {
 		self.body(Outgoing::empty())
 	}
 
+	fn bytes<T>(self, value: T) -> http::Result<http::Request<Outgoing>>
+	where
+		T: Into<Bytes>,
+	{
+		self.body(Outgoing::bytes(value))
+	}
+
 	fn json<T>(self, value: T) -> http::Result<http::Request<Outgoing>>
 	where
 		T: serde::Serialize + Send + 'static,
 	{
 		self.body(Outgoing::json(value))
+	}
+}
+
+pub trait ResponseBuilderExt: Sized {
+	fn empty(self) -> http::Result<http::Response<Outgoing>>;
+
+	fn bytes<T>(self, value: T) -> http::Result<http::Response<Outgoing>>
+	where
+		T: Into<Bytes>;
+
+	fn json<T>(self, value: T) -> http::Result<http::Response<Outgoing>>
+	where
+		T: serde::Serialize + Send + 'static;
+
+	fn stream<S, T, E>(self, value: S) -> http::Result<http::Response<Outgoing>>
+	where
+		S: Stream<Item = Result<T, E>> + Send + 'static,
+		T: Into<Bytes> + 'static,
+		E: Into<Error> + 'static;
+
+	fn future_bytes<F, T, E>(self, value: F) -> http::Result<http::Response<Outgoing>>
+	where
+		F: Future<Output = Result<T, E>> + Send + 'static,
+		T: Into<Bytes> + 'static,
+		E: Into<Error> + 'static;
+
+	fn future_json<F, T, E>(self, value: F) -> http::Result<http::Response<Outgoing>>
+	where
+		F: Future<Output = Result<T, E>> + Send + 'static,
+		T: serde::Serialize,
+		E: Into<Error> + 'static;
+}
+
+impl ResponseBuilderExt for http::response::Builder {
+	fn empty(self) -> http::Result<http::Response<Outgoing>> {
+		self.body(Outgoing::empty())
+	}
+
+	fn bytes<T>(self, value: T) -> http::Result<http::Response<Outgoing>>
+	where
+		T: Into<Bytes>,
+	{
+		self.body(Outgoing::bytes(value))
+	}
+
+	fn json<T>(self, value: T) -> http::Result<http::Response<Outgoing>>
+	where
+		T: serde::Serialize + Send + 'static,
+	{
+		self.body(Outgoing::json(value))
+	}
+
+	fn stream<S, T, E>(self, value: S) -> http::Result<http::Response<Outgoing>>
+	where
+		S: Stream<Item = Result<T, E>> + Send + 'static,
+		T: Into<Bytes> + 'static,
+		E: Into<Error> + 'static,
+	{
+		self.body(Outgoing::stream(value.err_into()))
+	}
+
+	fn future_bytes<F, T, E>(self, value: F) -> http::Result<http::Response<Outgoing>>
+	where
+		F: Future<Output = Result<T, E>> + Send + 'static,
+		T: Into<Bytes> + 'static,
+		E: Into<Error> + 'static,
+	{
+		self.body(Outgoing::future_bytes(value))
+	}
+
+	fn future_json<F, T, E>(self, value: F) -> http::Result<http::Response<Outgoing>>
+	where
+		F: Future<Output = Result<T, E>> + Send + 'static,
+		T: serde::Serialize,
+		E: Into<Error> + 'static,
+	{
+		self.body(Outgoing::future_json(value))
 	}
 }

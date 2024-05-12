@@ -1,14 +1,14 @@
 use crate::Server;
 use bytes::Bytes;
-use futures::{future, stream, FutureExt as _, StreamExt as _, TryStreamExt as _};
-use http_body_util::BodyStream;
+use futures::{stream, FutureExt as _, StreamExt as _, TryStreamExt as _};
 use num::ToPrimitive as _;
 use std::pin::pin;
 use tangram_client as tg;
 use tangram_database::prelude::*;
-use tangram_http::{outgoing::ResponseBuilderExt as _, Incoming, Outgoing};
+use tangram_http::{
+	incoming::RequestExt as _, outgoing::ResponseBuilderExt as _, Incoming, Outgoing,
+};
 use tokio::io::AsyncRead;
-use tokio_util::io::StreamReader;
 
 const MAX_BRANCH_CHILDREN: usize = 1024;
 const MIN_LEAF_SIZE: u32 = 4096;
@@ -101,18 +101,8 @@ impl Server {
 	where
 		H: tg::Handle,
 	{
-		let reader = StreamReader::new(
-			BodyStream::new(request.into_body())
-				.try_filter_map(|frame| future::ok(frame.into_data().ok()))
-				.map_err(std::io::Error::other),
-		);
-
-		// Create the blob.
-		let output = handle.create_blob(reader).boxed().await?;
-
-		// Create the response.
+		let output = handle.create_blob(request.reader()).boxed().await?;
 		let response = http::Response::builder().json(output).unwrap();
-
 		Ok(response)
 	}
 }

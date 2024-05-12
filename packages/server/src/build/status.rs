@@ -1,9 +1,9 @@
 use crate::Server;
 use futures::{future, stream, FutureExt as _, Stream, StreamExt as _, TryStreamExt as _};
-use http_body_util::StreamBody;
 use indoc::formatdoc;
 use tangram_client as tg;
 use tangram_database::{self as db, prelude::*};
+use tangram_futures::task::Stop;
 use tangram_http::{outgoing::ResponseExt as _, Incoming, Outgoing};
 use tangram_messenger::Messenger as _;
 use tokio_stream::wrappers::IntervalStream;
@@ -185,15 +185,8 @@ impl Server {
 		};
 
 		// Stop the stream when the server stops.
-		let mut stop = request
-			.extensions()
-			.get::<tokio::sync::watch::Receiver<bool>>()
-			.cloned()
-			.unwrap();
-		let stop = async move {
-			stop.wait_for(|stop| *stop).await.unwrap();
-		};
-		let stream = stream.take_until(stop);
+		let stop = request.extensions().get::<Stop>().cloned().unwrap();
+		let stream = stream.take_until(async move { stop.stopped().await });
 
 		// Create the body.
 		let (content_type, body) = match accept
@@ -202,20 +195,17 @@ impl Server {
 		{
 			Some((mime::TEXT, mime::EVENT_STREAM)) => {
 				let content_type = mime::TEXT_EVENT_STREAM;
-				let body = stream
-					.map_ok(|chunk| {
-						let data = serde_json::to_string(&chunk).unwrap();
-						let event = tangram_http::sse::Event::with_data(data);
-						hyper::body::Frame::data(event.to_string().into())
-					})
-					.err_into();
+				let body = stream.map_ok(|chunk| {
+					let data = serde_json::to_string(&chunk).unwrap();
+					tangram_http::sse::Event::with_data(data)
+				});
+				let body = Outgoing::sse(body);
 				(content_type, body)
 			},
 			_ => {
 				return Err(tg::error!(?accept, "invalid accept header"));
 			},
 		};
-		let body = Outgoing::body(StreamBody::new(body));
 
 		// Create the response.
 		let response = http::Response::builder()

@@ -1,6 +1,6 @@
 use crate::{BuildPermit, Server};
 use either::Either;
-use futures::{future, FutureExt, TryFutureExt as _};
+use futures::{future, FutureExt as _, TryFutureExt as _};
 use tangram_client as tg;
 use tg::Handle as _;
 

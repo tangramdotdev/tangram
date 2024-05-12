@@ -1,7 +1,7 @@
 use crate as tg;
 use bytes::Bytes;
 use serde_with::serde_as;
-use tangram_http::{incoming::ResponseExt as _, Outgoing};
+use tangram_http::{incoming::ResponseExt as _, outgoing::RequestBuilderExt as _};
 
 #[serde_as]
 #[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
@@ -18,11 +18,10 @@ impl tg::Client {
 	) -> tg::Result<Option<tg::object::get::Output>> {
 		let method = http::Method::GET;
 		let uri = format!("/objects/{id}");
-		let body = Outgoing::empty();
 		let request = http::request::Builder::default()
 			.method(method)
 			.uri(uri)
-			.body(body)
+			.empty()
 			.unwrap();
 		let response = self.send(request).await?;
 		if response.status() == http::StatusCode::NOT_FOUND {

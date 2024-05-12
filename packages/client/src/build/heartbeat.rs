@@ -1,5 +1,5 @@
 use crate as tg;
-use tangram_http::{incoming::ResponseExt as _, outgoing::RequestBuilderExt};
+use tangram_http::{incoming::ResponseExt as _, outgoing::RequestBuilderExt as _};
 
 #[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
 pub struct Output {

@@ -1,5 +1,5 @@
 use crate as tg;
-use tangram_http::{incoming::ResponseExt as _, Outgoing};
+use tangram_http::{incoming::ResponseExt as _, outgoing::RequestBuilderExt as _};
 
 #[derive(Debug, Clone, Default, serde::Deserialize, serde::Serialize)]
 pub struct Arg {
@@ -16,11 +16,10 @@ impl tg::Client {
 		let method = http::Method::GET;
 		let query = serde_urlencoded::to_string(arg).unwrap();
 		let uri = format!("/packages?{query}");
-		let body = Outgoing::empty();
 		let request = http::request::Builder::default()
 			.method(method)
 			.uri(uri)
-			.body(body)
+			.empty()
 			.unwrap();
 		let response = self.send(request).await?;
 		if !response.status().is_success() {

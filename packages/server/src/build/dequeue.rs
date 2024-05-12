@@ -74,8 +74,9 @@ impl Server {
 		H: tg::Handle,
 	{
 		let arg = request.json().await?;
-		let output = handle.try_dequeue_build(arg).await?;
-		let response = http::Response::builder().json(output).unwrap();
+		let handle = handle.clone();
+		let future = async move { handle.try_dequeue_build(arg).await };
+		let response = http::Response::builder().future_json(future).unwrap();
 		Ok(response)
 	}
 }

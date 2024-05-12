@@ -276,17 +276,17 @@ macro_rules! error {
 		$crate::error!({ $error }, $($arg)*)
 	};
 	({ $error:ident }, !$source:expr, $($arg:tt)*) => {
-		$error.source.replace(std::sync::Arc::new({
-			let source: Box<dyn std::error::Error + Send + Sync + 'static> = Box::new($source);
-			source.into()
-		}));
+		let source = Box::<dyn std::error::Error + Send + Sync + 'static>::from($source);
+		let source = $crate::Error::from(source);
+		let source = std::sync::Arc::new(source);
+		$error.source.replace(source);
 		$crate::error!({ $error }, $($arg)*)
 	};
 	({ $error:ident }, source = $source:expr, $($arg:tt)*) => {
-		$error.source.replace(std::sync::Arc::new({
-			let source: Box<dyn std::error::Error + Send + Sync + 'static> = Box::new($source);
-			source.into()
-		}));
+		let source = Box::<dyn std::error::Error + Send + Sync + 'static>::from($source);
+		let source = $crate::Error::from(source);
+		let source = std::sync::Arc::new(source);
+		$error.source.replace(source);
 		$crate::error!({ $error }, $($arg)*)
 	};
 	({ $error:ident }, stack = $stack:expr, $($arg:tt)*) => {

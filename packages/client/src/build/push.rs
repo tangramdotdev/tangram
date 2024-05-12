@@ -3,7 +3,7 @@ use futures::{
 	stream::{self, FuturesUnordered},
 	TryStreamExt as _,
 };
-use tangram_http::{incoming::ResponseExt as _, Outgoing};
+use tangram_http::{incoming::ResponseExt as _, outgoing::RequestBuilderExt as _};
 use tokio_stream::StreamExt as _;
 
 impl tg::Build {
@@ -68,11 +68,10 @@ impl tg::Client {
 	pub async fn push_build(&self, id: &tg::build::Id) -> tg::Result<()> {
 		let method = http::Method::POST;
 		let uri = format!("/builds/{id}/push");
-		let body = Outgoing::empty();
 		let request = http::request::Builder::default()
 			.method(method)
 			.uri(uri)
-			.body(body)
+			.empty()
 			.unwrap();
 		let response = self.send(request).await?;
 		if !response.status().is_success() {

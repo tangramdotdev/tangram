@@ -25,7 +25,7 @@ use tangram_database as db;
 use tangram_futures::task::{Stop, Task, TaskMap};
 use tangram_http::{Incoming, Outgoing};
 use tokio::{
-	io::{AsyncBufRead, AsyncRead, AsyncWrite, AsyncWriteExt},
+	io::{AsyncBufRead, AsyncRead, AsyncWrite, AsyncWriteExt as _},
 	net::{TcpListener, UnixListener},
 };
 use url::Url;

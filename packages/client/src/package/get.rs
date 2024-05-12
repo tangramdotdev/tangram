@@ -1,5 +1,5 @@
 use crate as tg;
-use tangram_http::{incoming::ResponseExt as _, Outgoing};
+use tangram_http::{incoming::ResponseExt as _, outgoing::RequestBuilderExt as _};
 
 #[allow(clippy::struct_excessive_bools)]
 #[derive(Debug, Clone, Default, serde::Deserialize, serde::Serialize)]
@@ -157,11 +157,10 @@ impl tg::Client {
 		let dependency = urlencoding::encode(&dependency);
 		let query = serde_urlencoded::to_string(&arg).unwrap();
 		let uri = format!("/packages/{dependency}?{query}");
-		let body = Outgoing::empty();
 		let request = http::request::Builder::default()
 			.method(method)
 			.uri(uri)
-			.body(body)
+			.empty()
 			.unwrap();
 		let response = self.send(request).await?;
 		if response.status() == http::StatusCode::NOT_FOUND {

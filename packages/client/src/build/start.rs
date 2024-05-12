@@ -1,5 +1,5 @@
 use crate as tg;
-use tangram_http::{incoming::ResponseExt as _, outgoing::RequestBuilderExt};
+use tangram_http::{incoming::ResponseExt as _, outgoing::RequestBuilderExt as _};
 
 impl tg::Client {
 	pub async fn try_start_build(&self, id: &tg::build::Id) -> tg::Result<Option<bool>> {

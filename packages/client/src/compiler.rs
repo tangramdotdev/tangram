@@ -1,7 +1,7 @@
 use crate as tg;
 use futures::{future, TryFutureExt as _};
 use http_body_util::BodyExt as _;
-use tangram_http::{incoming::ResponseExt as _, Outgoing};
+use tangram_http::{incoming::ResponseExt as _, outgoing::RequestBuilderExt as _};
 use tokio::io::{AsyncBufRead, AsyncWrite};
 
 impl tg::Client {
@@ -9,8 +9,7 @@ impl tg::Client {
 		let method = http::Method::POST;
 		let uri = "/format";
 		let request = http::request::Builder::default().method(method).uri(uri);
-		let body = Outgoing::bytes(text);
-		let request = request.body(body).unwrap();
+		let request = request.bytes(text).unwrap();
 		let response = self.send(request).await?;
 		if !response.status().is_success() {
 			let error = response.json().await?;
@@ -28,13 +27,12 @@ impl tg::Client {
 		let mut sender = self.connect_h1().await?;
 		let method = http::Method::POST;
 		let uri = "/lsp";
-		let body = Outgoing::empty();
 		let request = http::request::Builder::default()
 			.method(method)
 			.uri(uri)
 			.header(http::header::CONNECTION, "upgrade")
 			.header(http::header::UPGRADE, "lsp")
-			.body(body)
+			.empty()
 			.unwrap();
 		let response = sender
 			.send_request(request)

@@ -1,7 +1,7 @@
 use crate as tg;
 use serde_with::{serde_as, DisplayFromStr};
 use std::collections::BTreeMap;
-use tangram_http::{incoming::ResponseExt as _, Outgoing};
+use tangram_http::{incoming::ResponseExt as _, outgoing::RequestBuilderExt as _};
 
 #[serde_as]
 #[derive(Debug, Clone, serde::Deserialize, serde::Serialize)]
@@ -32,11 +32,10 @@ impl tg::Client {
 		let dependency = dependency.to_string();
 		let dependency = urlencoding::encode(&dependency);
 		let uri = format!("/packages/{dependency}/outdated");
-		let body = Outgoing::empty();
 		let request = http::request::Builder::default()
 			.method(method)
 			.uri(uri)
-			.body(body)
+			.empty()
 			.unwrap();
 		let response = self.send(request).await?;
 		if response.status() == http::StatusCode::NOT_FOUND {

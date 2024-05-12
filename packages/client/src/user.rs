@@ -1,5 +1,5 @@
 use crate as tg;
-use tangram_http::{incoming::ResponseExt as _, Outgoing};
+use tangram_http::{incoming::ResponseExt as _, outgoing::RequestBuilderExt as _};
 
 #[derive(
 	Clone,
@@ -26,12 +26,11 @@ impl tg::Client {
 	pub async fn get_user(&self, token: &str) -> tg::Result<Option<tg::User>> {
 		let method = http::Method::GET;
 		let uri = "/user";
-		let body = Outgoing::empty();
 		let request = http::request::Builder::default()
 			.method(method)
 			.uri(uri)
 			.header(http::header::AUTHORIZATION, format!("Bearer {token}"))
-			.body(body)
+			.empty()
 			.unwrap();
 		let response = self.send(request).await?;
 		if !response.status().is_success() {

@@ -3,12 +3,12 @@ use bytes::Bytes;
 use futures::{
 	future, stream, stream_select, FutureExt as _, Stream, StreamExt as _, TryStreamExt as _,
 };
-use http_body_util::StreamBody;
 use indoc::formatdoc;
 use num::ToPrimitive as _;
 use std::{pin::pin, sync::Arc};
 use tangram_client as tg;
 use tangram_database::{self as db, prelude::*};
+use tangram_futures::task::Stop;
 use tangram_http::{
 	incoming::RequestExt as _,
 	outgoing::{ResponseBuilderExt as _, ResponseExt as _},
@@ -437,15 +437,8 @@ impl Server {
 		};
 
 		// Stop the stream when the server stops.
-		let mut stop = request
-			.extensions()
-			.get::<tokio::sync::watch::Receiver<bool>>()
-			.cloned()
-			.unwrap();
-		let stop = async move {
-			stop.wait_for(|stop| *stop).await.unwrap();
-		};
-		let stream = stream.take_until(stop);
+		let stop = request.extensions().get::<Stop>().cloned().unwrap();
+		let stream = stream.take_until(async move { stop.stopped().await });
 
 		// Create the body.
 		let (content_type, body) = match accept
@@ -454,7 +447,7 @@ impl Server {
 		{
 			None | Some((mime::STAR, mime::STAR) | (mime::APPLICATION, mime::JSON)) => {
 				let content_type = mime::APPLICATION_JSON;
-				let body = stream::once(async move {
+				let future = async move {
 					let children: Vec<tg::build::Id> = stream
 						.map_ok(|chunk| stream::iter(chunk.items).map(Ok::<_, tg::Error>))
 						.try_flatten()
@@ -462,21 +455,18 @@ impl Server {
 						.await?;
 					let json = serde_json::to_string(&children)
 						.map_err(|source| tg::error!(!source, "failed to serialize the body"))?;
-					Ok(hyper::body::Frame::data(json.into_bytes().into()))
-				});
-				let body = Outgoing::body(StreamBody::new(body));
+					Ok::<_, tg::Error>(json)
+				};
+				let body = Outgoing::future_json(future);
 				(content_type, body)
 			},
 			Some((mime::TEXT, mime::EVENT_STREAM)) => {
 				let content_type = mime::TEXT_EVENT_STREAM;
-				let body = stream
-					.map_ok(|chunk| {
-						let data = serde_json::to_string(&chunk).unwrap();
-						let event = tangram_http::sse::Event::with_data(data);
-						hyper::body::Frame::data(event.to_string().into())
-					})
-					.err_into();
-				let body = Outgoing::body(StreamBody::new(body));
+				let body = stream.map_ok(|chunk| {
+					let data = serde_json::to_string(&chunk).unwrap();
+					tangram_http::sse::Event::with_data(data)
+				});
+				let body = Outgoing::sse(body);
 				(content_type, body)
 			},
 			_ => {

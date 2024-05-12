@@ -1,15 +1,14 @@
 use crate as tg;
-use tangram_http::Outgoing;
+use tangram_http::outgoing::RequestBuilderExt as _;
 
 impl tg::Client {
 	pub async fn stop(&self) -> tg::Result<()> {
 		let method = http::Method::POST;
 		let uri = "/stop";
-		let body = Outgoing::empty();
 		let request = http::request::Builder::default()
 			.method(method)
 			.uri(uri)
-			.body(body)
+			.empty()
 			.unwrap();
 		self.send(request).await.ok();
 		Ok(())

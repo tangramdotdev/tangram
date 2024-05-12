@@ -1,5 +1,5 @@
 use crate as tg;
-use tangram_http::{incoming::ResponseExt as _, Outgoing};
+use tangram_http::{incoming::ResponseExt as _, outgoing::RequestBuilderExt as _};
 
 pub type Output = Vec<String>;
 
@@ -12,11 +12,10 @@ impl tg::Client {
 		let dependency = dependency.to_string();
 		let dependency = urlencoding::encode(&dependency);
 		let uri = format!("/packages/{dependency}/versions");
-		let body = Outgoing::empty();
 		let request = http::request::Builder::default()
 			.method(method)
 			.uri(uri)
-			.body(body)
+			.empty()
 			.unwrap();
 		let response = self.send(request).await?;
 		if !response.status().is_success() {

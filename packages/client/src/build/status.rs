@@ -1,9 +1,7 @@
 use crate as tg;
-use futures::{future, Stream, StreamExt as _, TryStreamExt as _};
-use http_body_util::BodyStream;
+use futures::{future, Stream, TryStreamExt as _};
 use serde_with::serde_as;
-use tangram_http::{incoming::ResponseExt as _, Outgoing};
-use tokio_util::io::StreamReader;
+use tangram_http::{incoming::ResponseExt as _, outgoing::RequestBuilderExt as _};
 
 #[derive(
 	Clone, Copy, Debug, Eq, PartialEq, serde_with::DeserializeFromStr, serde_with::SerializeDisplay,
@@ -61,12 +59,11 @@ impl tg::Client {
 		let method = http::Method::GET;
 		let query = serde_urlencoded::to_string(&arg).unwrap();
 		let uri = format!("/builds/{id}/status?{query}");
-		let body = Outgoing::empty();
 		let request = http::request::Builder::default()
 			.method(method)
 			.uri(uri)
 			.header(http::header::ACCEPT, mime::TEXT_EVENT_STREAM.to_string())
-			.body(body)
+			.empty()
 			.unwrap();
 		let response = self.send(request).await?;
 		if response.status() == http::StatusCode::NOT_FOUND {
@@ -76,17 +73,10 @@ impl tg::Client {
 			let error = response.json().await?;
 			return Err(error);
 		}
-		let reader = StreamReader::new(
-			BodyStream::new(response.into_body())
-				.try_filter_map(|frame| future::ok(frame.into_data().ok()))
-				.map_err(std::io::Error::other),
-		);
-		let output = tangram_http::sse::Decoder::new(reader).map(|result| {
-			let event = result.map_err(|source| tg::error!(!source, "failed to read an event"))?;
-			let chunk = serde_json::from_str(&event.data)
-				.map_err(|source| tg::error!(!source, "failed to deserialize the event data"))?;
-			Ok::<_, tg::Error>(chunk)
-		});
+		let output = response
+			.sse()
+			.and_then(|event| future::ready(serde_json::from_str(&event.data).map_err(Into::into)))
+			.map_err(|source| tg::error!(!source, "failed to read an event"));
 		Ok(Some(output))
 	}
 }

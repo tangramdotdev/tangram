@@ -1,5 +1,5 @@
 use crate as tg;
-use tangram_http::{incoming::ResponseExt as _, Outgoing};
+use tangram_http::{incoming::ResponseExt as _, outgoing::RequestBuilderExt as _};
 
 impl tg::Client {
 	pub async fn try_get_package_doc(
@@ -11,8 +11,7 @@ impl tg::Client {
 		let dependency = urlencoding::encode(&dependency);
 		let uri = format!("/packages/{dependency}/doc");
 		let request = http::request::Builder::default().method(method).uri(uri);
-		let body = Outgoing::empty();
-		let request = request.body(body).unwrap();
+		let request = request.empty().unwrap();
 		let response = self.send(request).await?;
 		if !response.status().is_success() {
 			let error = response.json().await?;

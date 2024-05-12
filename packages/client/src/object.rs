@@ -2,7 +2,7 @@ use crate as tg;
 use bytes::Bytes;
 use futures::{stream::FuturesUnordered, FutureExt as _, TryStreamExt as _};
 use std::sync::Arc;
-use tangram_http::{incoming::ResponseExt as _, Outgoing};
+use tangram_http::{incoming::ResponseExt as _, outgoing::RequestBuilderExt as _};
 
 pub mod get;
 pub mod pull;
@@ -310,11 +310,10 @@ impl tg::Client {
 	pub async fn push_object(&self, id: &tg::object::Id) -> tg::Result<()> {
 		let method = http::Method::POST;
 		let uri = format!("/objects/{id}/push");
-		let body = Outgoing::empty();
 		let request = http::request::Builder::default()
 			.method(method)
 			.uri(uri)
-			.body(body)
+			.empty()
 			.unwrap();
 		let response = self.send(request).await?;
 		if !response.status().is_success() {
@@ -327,11 +326,10 @@ impl tg::Client {
 	pub async fn pull_object(&self, id: &tg::object::Id) -> tg::Result<()> {
 		let method = http::Method::POST;
 		let uri = format!("/objects/{id}/pull");
-		let body = Outgoing::empty();
 		let request = http::request::Builder::default()
 			.method(method)
 			.uri(uri)
-			.body(body)
+			.empty()
 			.unwrap();
 		let response = self.send(request).await?;
 		if !response.status().is_success() {

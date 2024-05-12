@@ -10,6 +10,7 @@ use std::{
 	sync::Arc,
 };
 use tangram_client as tg;
+use tangram_futures::task::Stop;
 use tangram_http::{outgoing::ResponseBuilderExt as _, Incoming, Outgoing};
 use tg::package::ROOT_MODULE_FILE_NAMES;
 use tokio::io::{
@@ -792,11 +793,7 @@ impl crate::Server {
 
 		// Spawn the LSP.
 		let handle = handle.clone();
-		let mut stop = request
-			.extensions()
-			.get::<tokio::sync::watch::Receiver<bool>>()
-			.cloned()
-			.unwrap();
+		let stop = request.extensions().get::<Stop>().cloned().unwrap();
 		tokio::spawn(
 			async move {
 				let io = hyper::upgrade::on(request)
@@ -806,10 +803,7 @@ impl crate::Server {
 				let (input, output) = tokio::io::split(io);
 				let input = tokio::io::BufReader::new(input);
 				let task = handle.lsp(input, output);
-				let stop = async {
-					stop.wait_for(|stop| *stop).await.unwrap();
-				};
-				future::select(pin!(task), pin!(stop))
+				future::select(pin!(task), pin!(stop.stopped()))
 					.map(|output| match output {
 						future::Either::Left((Err(error), _)) => Err(error),
 						_ => Ok(()),
