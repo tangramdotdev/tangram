@@ -9,6 +9,9 @@ use std::pin::{pin, Pin};
 use tokio::io::AsyncRead;
 use tokio_util::io::ReaderStream;
 
+pub mod request;
+pub mod response;
+
 pub enum Outgoing {
 	Empty,
 	Bytes(Option<Bytes>),
@@ -119,143 +122,5 @@ impl hyper::body::Body for Outgoing {
 				.map(|option| option.map(|result| result.map(hyper::body::Frame::data))),
 			Outgoing::Body(body) => pin!(body).poll_frame(cx),
 		}
-	}
-}
-
-pub trait ResponseExt: Sized {
-	fn ok() -> Self;
-	fn bad_request() -> Self;
-	fn not_found() -> Self;
-}
-
-impl ResponseExt for http::Response<Outgoing> {
-	fn ok() -> Self {
-		http::Response::builder()
-			.status(http::StatusCode::OK)
-			.body(Outgoing::empty())
-			.unwrap()
-	}
-
-	fn bad_request() -> Self {
-		http::Response::builder()
-			.status(http::StatusCode::BAD_REQUEST)
-			.body(Outgoing::empty())
-			.unwrap()
-	}
-
-	fn not_found() -> Self {
-		http::Response::builder()
-			.status(http::StatusCode::NOT_FOUND)
-			.body(Outgoing::empty())
-			.unwrap()
-	}
-}
-
-pub trait RequestBuilderExt: Sized {
-	fn empty(self) -> http::Result<http::Request<Outgoing>>;
-
-	fn bytes<T>(self, value: T) -> http::Result<http::Request<Outgoing>>
-	where
-		T: Into<Bytes>;
-
-	fn json<T>(self, value: T) -> http::Result<http::Request<Outgoing>>
-	where
-		T: serde::Serialize + Send + 'static;
-}
-
-impl RequestBuilderExt for http::request::Builder {
-	fn empty(self) -> http::Result<http::Request<Outgoing>> {
-		self.body(Outgoing::empty())
-	}
-
-	fn bytes<T>(self, value: T) -> http::Result<http::Request<Outgoing>>
-	where
-		T: Into<Bytes>,
-	{
-		self.body(Outgoing::bytes(value))
-	}
-
-	fn json<T>(self, value: T) -> http::Result<http::Request<Outgoing>>
-	where
-		T: serde::Serialize + Send + 'static,
-	{
-		self.body(Outgoing::json(value))
-	}
-}
-
-pub trait ResponseBuilderExt: Sized {
-	fn empty(self) -> http::Result<http::Response<Outgoing>>;
-
-	fn bytes<T>(self, value: T) -> http::Result<http::Response<Outgoing>>
-	where
-		T: Into<Bytes>;
-
-	fn json<T>(self, value: T) -> http::Result<http::Response<Outgoing>>
-	where
-		T: serde::Serialize + Send + 'static;
-
-	fn stream<S, T, E>(self, value: S) -> http::Result<http::Response<Outgoing>>
-	where
-		S: Stream<Item = Result<T, E>> + Send + 'static,
-		T: Into<Bytes> + 'static,
-		E: Into<Error> + 'static;
-
-	fn future_bytes<F, T, E>(self, value: F) -> http::Result<http::Response<Outgoing>>
-	where
-		F: Future<Output = Result<T, E>> + Send + 'static,
-		T: Into<Bytes> + 'static,
-		E: Into<Error> + 'static;
-
-	fn future_json<F, T, E>(self, value: F) -> http::Result<http::Response<Outgoing>>
-	where
-		F: Future<Output = Result<T, E>> + Send + 'static,
-		T: serde::Serialize,
-		E: Into<Error> + 'static;
-}
-
-impl ResponseBuilderExt for http::response::Builder {
-	fn empty(self) -> http::Result<http::Response<Outgoing>> {
-		self.body(Outgoing::empty())
-	}
-
-	fn bytes<T>(self, value: T) -> http::Result<http::Response<Outgoing>>
-	where
-		T: Into<Bytes>,
-	{
-		self.body(Outgoing::bytes(value))
-	}
-
-	fn json<T>(self, value: T) -> http::Result<http::Response<Outgoing>>
-	where
-		T: serde::Serialize + Send + 'static,
-	{
-		self.body(Outgoing::json(value))
-	}
-
-	fn stream<S, T, E>(self, value: S) -> http::Result<http::Response<Outgoing>>
-	where
-		S: Stream<Item = Result<T, E>> + Send + 'static,
-		T: Into<Bytes> + 'static,
-		E: Into<Error> + 'static,
-	{
-		self.body(Outgoing::stream(value.err_into()))
-	}
-
-	fn future_bytes<F, T, E>(self, value: F) -> http::Result<http::Response<Outgoing>>
-	where
-		F: Future<Output = Result<T, E>> + Send + 'static,
-		T: Into<Bytes> + 'static,
-		E: Into<Error> + 'static,
-	{
-		self.body(Outgoing::future_bytes(value))
-	}
-
-	fn future_json<F, T, E>(self, value: F) -> http::Result<http::Response<Outgoing>>
-	where
-		F: Future<Output = Result<T, E>> + Send + 'static,
-		T: serde::Serialize,
-		E: Into<Error> + 'static,
-	{
-		self.body(Outgoing::future_json(value))
 	}
 }

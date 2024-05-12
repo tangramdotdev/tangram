@@ -3,7 +3,7 @@ use indoc::formatdoc;
 use tangram_client as tg;
 use tangram_database::{self as db, prelude::*};
 use tangram_http::{
-	outgoing::{ResponseBuilderExt as _, ResponseExt as _},
+	outgoing::response::Ext as _,
 	Incoming, Outgoing,
 };
 
@@ -52,7 +52,7 @@ impl Server {
 	{
 		// Get the root.
 		let Some(output) = handle.try_get_root(name).await? else {
-			return Ok(http::Response::not_found());
+			return Ok(http::Response::builder().not_found().empty().unwrap());
 		};
 
 		// Create the response.

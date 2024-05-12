@@ -4,7 +4,7 @@ use indoc::formatdoc;
 use tangram_client as tg;
 use tangram_database::{self as db, prelude::*};
 use tangram_futures::task::Stop;
-use tangram_http::{outgoing::ResponseExt as _, Incoming, Outgoing};
+use tangram_http::{outgoing::response::Ext as _, Incoming, Outgoing};
 use tangram_messenger::Messenger as _;
 use tokio_stream::wrappers::IntervalStream;
 
@@ -181,7 +181,7 @@ impl Server {
 
 		// Get the stream.
 		let Some(stream) = handle.try_get_build_status(&id, arg).await? else {
-			return Ok(http::Response::not_found());
+			return Ok(http::Response::builder().not_found().empty().unwrap());
 		};
 
 		// Stop the stream when the server stops.

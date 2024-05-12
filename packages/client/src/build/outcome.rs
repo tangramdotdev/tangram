@@ -1,6 +1,7 @@
 use crate as tg;
+use futures::{Future, FutureExt as _, TryFutureExt as _};
 use serde_with::serde_as;
-use tangram_http::{incoming::ResponseExt as _, outgoing::RequestBuilderExt as _};
+use tangram_http::{incoming::response::Ext as _, outgoing::request::Ext as _};
 
 #[derive(Clone, Debug, derive_more::TryUnwrap, serde::Deserialize)]
 #[serde(try_from = "Data")]
@@ -84,18 +85,25 @@ impl tg::Build {
 	{
 		self.try_get_outcome(handle, arg)
 			.await?
-			.ok_or_else(|| tg::error!("failed to get the build"))
+			.ok_or_else(|| tg::error!("failed to get the build"))?
+			.await
 	}
 
 	pub async fn try_get_outcome<H>(
 		&self,
 		handle: &H,
 		arg: tg::build::outcome::Arg,
-	) -> tg::Result<Option<Option<tg::build::Outcome>>>
+	) -> tg::Result<
+		Option<impl Future<Output = tg::Result<Option<tg::build::Outcome>>> + Send + 'static>,
+	>
 	where
 		H: tg::Handle,
 	{
-		handle.try_get_build_outcome(self.id(), arg).await
+		handle
+			.try_get_build_outcome(self.id(), arg)
+			.boxed()
+			.await
+			.map(|option| option.map(futures::FutureExt::boxed))
 	}
 
 	pub async fn output<H>(&self, handle: &H) -> tg::Result<tg::Value>
@@ -116,7 +124,7 @@ impl tg::Client {
 		&self,
 		id: &tg::build::Id,
 		arg: tg::build::outcome::Arg,
-	) -> tg::Result<Option<Option<tg::build::Outcome>>> {
+	) -> tg::Result<Option<impl Future<Output = tg::Result<Option<tg::build::Outcome>>>>> {
 		let method = http::Method::GET;
 		let query = serde_urlencoded::to_string(&arg).unwrap();
 		let uri = format!("/builds/{id}/outcome?{query}");
@@ -134,7 +142,7 @@ impl tg::Client {
 			let error = response.json().await?;
 			return Err(error);
 		}
-		let outcome = response.json().await?;
+		let outcome = response.json().err_into();
 		Ok(Some(outcome))
 	}
 }

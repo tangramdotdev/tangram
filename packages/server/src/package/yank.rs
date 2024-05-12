@@ -2,7 +2,7 @@ use crate::Server;
 use indoc::formatdoc;
 use tangram_client as tg;
 use tangram_database::{self as db, Database, Query};
-use tangram_http::{outgoing::ResponseExt as _, Incoming, Outgoing};
+use tangram_http::{outgoing::response::Ext as _, Incoming, Outgoing};
 
 impl Server {
 	pub async fn get_package_yanked(&self, package: &tg::Artifact) -> tg::Result<bool> {
@@ -97,17 +97,17 @@ impl Server {
 		H: tg::Handle,
 	{
 		let Ok(dependency) = urlencoding::decode(dependency) else {
-			return Ok(http::Response::bad_request());
+			return Ok(http::Response::builder().bad_request().empty().unwrap());
 		};
 		let Ok(dependency) = dependency.parse() else {
-			return Ok(http::Response::bad_request());
+			return Ok(http::Response::builder().bad_request().empty().unwrap());
 		};
 
 		// Publish the package.
 		handle.yank_package(&dependency).await?;
 
 		// Create the response.
-		let response = http::Response::ok();
+		let response = http::Response::builder().ok().empty().unwrap();
 
 		Ok(response)
 	}

@@ -1,7 +1,7 @@
 use crate::Server;
 use tangram_client as tg;
 use tangram_http::{
-	incoming::RequestExt as _, outgoing::ResponseBuilderExt as _, Incoming, Outgoing,
+	incoming::request::Ext as _, outgoing::response::Ext as _, Incoming, Outgoing,
 };
 
 impl Server {

@@ -1,6 +1,6 @@
 use crate as tg;
 use either::Either;
-use tangram_http::{incoming::ResponseExt as _, outgoing::RequestBuilderExt as _};
+use tangram_http::{incoming::response::Ext as _, outgoing::request::Ext as _};
 
 #[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
 pub struct Output {

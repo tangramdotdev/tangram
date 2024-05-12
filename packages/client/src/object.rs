@@ -2,7 +2,7 @@ use crate as tg;
 use bytes::Bytes;
 use futures::{stream::FuturesUnordered, FutureExt as _, TryStreamExt as _};
 use std::sync::Arc;
-use tangram_http::{incoming::ResponseExt as _, outgoing::RequestBuilderExt as _};
+use tangram_http::{incoming::response::Ext as _, outgoing::request::Ext as _};
 
 pub mod get;
 pub mod pull;

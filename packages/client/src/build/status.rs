@@ -1,7 +1,7 @@
 use crate as tg;
 use futures::{future, Stream, TryStreamExt as _};
 use serde_with::serde_as;
-use tangram_http::{incoming::ResponseExt as _, outgoing::RequestBuilderExt as _};
+use tangram_http::{incoming::response::Ext as _, outgoing::request::Ext as _};
 
 #[derive(
 	Clone, Copy, Debug, Eq, PartialEq, serde_with::DeserializeFromStr, serde_with::SerializeDisplay,

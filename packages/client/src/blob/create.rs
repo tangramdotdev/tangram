@@ -1,5 +1,5 @@
 use crate as tg;
-use tangram_http::{incoming::ResponseExt as _, Outgoing};
+use tangram_http::{incoming::response::Ext as _, Outgoing};
 use tokio::io::AsyncRead;
 
 impl tg::Client {

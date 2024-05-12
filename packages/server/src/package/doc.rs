@@ -1,7 +1,7 @@
 use crate::Server;
 use tangram_client as tg;
 use tangram_http::{
-	outgoing::{ResponseBuilderExt as _, ResponseExt as _},
+	outgoing::response::Ext as _,
 	Incoming, Outgoing,
 };
 
@@ -38,15 +38,15 @@ impl Server {
 		H: tg::Handle,
 	{
 		let Ok(dependency) = urlencoding::decode(dependency) else {
-			return Ok(http::Response::bad_request());
+			return Ok(http::Response::builder().bad_request().empty().unwrap());
 		};
 		let Ok(dependency) = dependency.parse() else {
-			return Ok(http::Response::bad_request());
+			return Ok(http::Response::builder().bad_request().empty().unwrap());
 		};
 
 		// Get the doc.
 		let Some(output) = handle.try_get_package_doc(&dependency).await? else {
-			return Ok(http::Response::not_found());
+			return Ok(http::Response::builder().not_found().empty().unwrap());
 		};
 
 		// Create the response.

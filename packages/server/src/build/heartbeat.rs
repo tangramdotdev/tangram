@@ -2,7 +2,7 @@ use crate::Server;
 use hyper::body::Incoming;
 use tangram_client as tg;
 use tangram_database::{self as db, prelude::*};
-use tangram_http::{outgoing::ResponseBuilderExt as _, Outgoing};
+use tangram_http::{outgoing::response::Ext as _, Outgoing};
 use time::format_description::well_known::Rfc3339;
 
 impl Server {

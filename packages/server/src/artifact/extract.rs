@@ -1,8 +1,6 @@
 use crate::{tmp::Tmp, Server};
 use tangram_client as tg;
-use tangram_http::{
-	incoming::RequestExt as _, outgoing::ResponseBuilderExt as _, Incoming, Outgoing,
-};
+use tangram_http::{incoming::request::Ext as _, outgoing::response::Ext as _, Incoming, Outgoing};
 use tokio_util::io::SyncIoBridge;
 
 impl Server {

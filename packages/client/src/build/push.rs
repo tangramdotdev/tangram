@@ -3,7 +3,7 @@ use futures::{
 	stream::{self, FuturesUnordered},
 	TryStreamExt as _,
 };
-use tangram_http::{incoming::ResponseExt as _, outgoing::RequestBuilderExt as _};
+use tangram_http::{incoming::response::Ext as _, outgoing::request::Ext as _};
 use tokio_stream::StreamExt as _;
 
 impl tg::Build {

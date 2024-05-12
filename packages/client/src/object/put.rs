@@ -1,6 +1,6 @@
 use crate as tg;
 use bytes::Bytes;
-use tangram_http::{incoming::ResponseExt as _, Outgoing};
+use tangram_http::{incoming::response::Ext as _, Outgoing};
 
 #[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
 pub struct Arg {

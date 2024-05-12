@@ -3,7 +3,7 @@ use futures::TryFutureExt as _;
 use indoc::formatdoc;
 use tangram_client as tg;
 use tangram_database::{self as db, prelude::*};
-use tangram_http::{outgoing::ResponseExt as _, Incoming, Outgoing};
+use tangram_http::{outgoing::response::Ext as _, Incoming, Outgoing};
 
 impl Server {
 	pub async fn try_get_object(
@@ -88,7 +88,7 @@ impl Server {
 	{
 		let id = id.parse()?;
 		let Some(output) = handle.try_get_object(&id).await? else {
-			return Ok(http::Response::not_found());
+			return Ok(http::Response::builder().not_found().empty().unwrap());
 		};
 		let body = Outgoing::bytes(output.bytes);
 		let response = http::Response::builder()

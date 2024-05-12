@@ -1,7 +1,7 @@
 use crate::Server;
 use futures::Future;
 use tangram_client as tg;
-use tangram_http::{outgoing::ResponseBuilderExt as _, Incoming, Outgoing};
+use tangram_http::{outgoing::response::Ext as _, Incoming, Outgoing};
 
 mod proxy;
 mod util;

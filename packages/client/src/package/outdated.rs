@@ -1,7 +1,7 @@
 use crate as tg;
 use serde_with::{serde_as, DisplayFromStr};
 use std::collections::BTreeMap;
-use tangram_http::{incoming::ResponseExt as _, outgoing::RequestBuilderExt as _};
+use tangram_http::{incoming::response::Ext as _, outgoing::request::Ext as _};
 
 #[serde_as]
 #[derive(Debug, Clone, serde::Deserialize, serde::Serialize)]

@@ -2,7 +2,7 @@ use crate::{database::Transaction, Server};
 use futures::{stream::FuturesOrdered, TryStreamExt as _};
 use once_cell::sync::Lazy;
 use tangram_client as tg;
-use tangram_http::{outgoing::ResponseBuilderExt as _, Incoming, Outgoing};
+use tangram_http::{outgoing::response::Ext as _, Incoming, Outgoing};
 
 static TANGRAM_ARTIFACTS_PATH: Lazy<tg::Path> = Lazy::new(|| ".tangram/artifacts".parse().unwrap());
 

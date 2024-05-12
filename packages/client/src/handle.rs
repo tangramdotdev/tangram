@@ -114,7 +114,7 @@ pub trait Handle: Clone + Unpin + Send + Sync + 'static {
 
 	fn start_build(&self, id: &tg::build::Id) -> impl Future<Output = tg::Result<bool>> + Send {
 		self.try_start_build(id).map(|result| {
-			result.and_then(|option| option.ok_or_else(|| tg::error!("failed to find the build")))
+			result.and_then(|option| option.ok_or_else(|| tg::error!("failed to dequeue a build")))
 		})
 	}
 
@@ -203,21 +203,15 @@ pub trait Handle: Clone + Unpin + Send + Sync + 'static {
 		bytes: Bytes,
 	) -> impl Future<Output = tg::Result<()>> + Send;
 
-	fn get_build_outcome(
-		&self,
-		id: &tg::build::Id,
-		arg: tg::build::outcome::Arg,
-	) -> impl Future<Output = tg::Result<Option<tg::build::Outcome>>> + Send {
-		self.try_get_build_outcome(id, arg).map(|result| {
-			result.and_then(|option| option.ok_or_else(|| tg::error!("failed to get the build")))
-		})
-	}
-
 	fn try_get_build_outcome(
 		&self,
 		id: &tg::build::Id,
 		arg: tg::build::outcome::Arg,
-	) -> impl Future<Output = tg::Result<Option<Option<tg::build::Outcome>>>> + Send;
+	) -> impl Future<
+		Output = tg::Result<
+			Option<impl Future<Output = tg::Result<Option<tg::build::Outcome>>> + Send + 'static>,
+		>,
+	> + Send;
 
 	fn finish_build(
 		&self,

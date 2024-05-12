@@ -278,10 +278,20 @@ where
 		&self,
 		id: &tg::build::Id,
 		arg: tg::build::outcome::Arg,
-	) -> impl Future<Output = tg::Result<Option<Option<tg::build::Outcome>>>> {
+	) -> impl Future<
+		Output = tg::Result<
+			Option<impl Future<Output = tg::Result<Option<tg::build::Outcome>>> + 'static>,
+		>,
+	> {
 		match self {
-			Either::Left(s) => s.try_get_build_outcome(id, arg).left_future(),
-			Either::Right(s) => s.try_get_build_outcome(id, arg).right_future(),
+			Either::Left(s) => s
+				.try_get_build_outcome(id, arg)
+				.map(|result| result.map(|option| option.map(futures::FutureExt::left_future)))
+				.left_future(),
+			Either::Right(s) => s
+				.try_get_build_outcome(id, arg)
+				.map(|result| result.map(|option| option.map(futures::FutureExt::right_future)))
+				.right_future(),
 		}
 	}
 

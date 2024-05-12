@@ -4,7 +4,7 @@ use indoc::formatdoc;
 use tangram_client as tg;
 use tangram_database::{self as db, prelude::*};
 use tangram_http::{
-	outgoing::{ResponseBuilderExt as _, ResponseExt as _},
+	outgoing::response::Ext as _,
 	Incoming, Outgoing,
 };
 
@@ -132,7 +132,7 @@ impl Server {
 	{
 		let id = id.parse()?;
 		let Some(output) = handle.try_get_build(&id).await? else {
-			return Ok(http::Response::not_found());
+			return Ok(http::Response::builder().not_found().empty().unwrap());
 		};
 		let response = http::Response::builder()
 			.status(http::StatusCode::OK)

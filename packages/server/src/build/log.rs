@@ -11,8 +11,8 @@ use tangram_client as tg;
 use tangram_database::{self as db, prelude::*};
 use tangram_futures::task::Stop;
 use tangram_http::{
-	incoming::RequestExt as _,
-	outgoing::{ResponseBuilderExt as _, ResponseExt as _},
+	incoming::request::Ext as _,
+	outgoing::response::Ext as _,
 	Incoming, Outgoing,
 };
 use tangram_messenger::Messenger as _;
@@ -776,7 +776,7 @@ impl Server {
 
 		// Get the stream.
 		let Some(stream) = handle.try_get_build_log(&id, arg).await? else {
-			return Ok(http::Response::not_found());
+			return Ok(http::Response::builder().not_found().empty().unwrap());
 		};
 
 		// Stop the stream when the server stops.

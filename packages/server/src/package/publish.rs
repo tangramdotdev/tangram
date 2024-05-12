@@ -2,7 +2,7 @@ use crate::Server;
 use indoc::formatdoc;
 use tangram_client as tg;
 use tangram_database::{self as db, prelude::*};
-use tangram_http::{outgoing::ResponseExt as _, Incoming, Outgoing};
+use tangram_http::{outgoing::response::Ext as _, Incoming, Outgoing};
 use time::format_description::well_known::Rfc3339;
 
 impl Server {
@@ -105,7 +105,7 @@ impl Server {
 		handle.publish_package(&id).await?;
 
 		// Create the response.
-		let response = http::Response::ok();
+		let response = http::Response::builder().ok().empty().unwrap();
 
 		Ok(response)
 	}

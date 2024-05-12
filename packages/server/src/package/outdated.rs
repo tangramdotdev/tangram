@@ -2,7 +2,7 @@ use crate::Server;
 use std::collections::BTreeMap;
 use tangram_client as tg;
 use tangram_http::{
-	outgoing::{ResponseBuilderExt as _, ResponseExt as _},
+	outgoing::response::Ext as _,
 	Incoming, Outgoing,
 };
 
@@ -110,10 +110,10 @@ impl Server {
 		H: tg::Handle,
 	{
 		let Ok(dependency) = urlencoding::decode(dependency) else {
-			return Ok(http::Response::bad_request());
+			return Ok(http::Response::builder().bad_request().empty().unwrap());
 		};
 		let Ok(dependency) = dependency.parse() else {
-			return Ok(http::Response::bad_request());
+			return Ok(http::Response::builder().bad_request().empty().unwrap());
 		};
 
 		// Get the outdated dependencies.

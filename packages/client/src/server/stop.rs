@@ -1,5 +1,5 @@
 use crate as tg;
-use tangram_http::outgoing::RequestBuilderExt as _;
+use tangram_http::outgoing::request::Ext as _;
 
 impl tg::Client {
 	pub async fn stop(&self) -> tg::Result<()> {

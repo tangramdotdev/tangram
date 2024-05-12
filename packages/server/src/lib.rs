@@ -946,7 +946,11 @@ impl tg::Handle for Server {
 		&self,
 		id: &tg::build::Id,
 		arg: tg::build::outcome::Arg,
-	) -> impl Future<Output = tg::Result<Option<Option<tg::build::Outcome>>>> {
+	) -> impl Future<
+		Output = tg::Result<
+			Option<impl Future<Output = tg::Result<Option<tg::build::Outcome>>> + Send + 'static>,
+		>,
+	> {
 		self.try_get_build_outcome(id, arg)
 	}
 

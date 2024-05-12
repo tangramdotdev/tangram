@@ -11,7 +11,7 @@ use std::{
 };
 use tangram_client as tg;
 use tangram_futures::task::Stop;
-use tangram_http::{outgoing::ResponseBuilderExt as _, Incoming, Outgoing};
+use tangram_http::{outgoing::response::Ext as _, Incoming, Outgoing};
 use tg::package::ROOT_MODULE_FILE_NAMES;
 use tokio::io::{
 	AsyncBufRead, AsyncBufReadExt as _, AsyncReadExt as _, AsyncWrite, AsyncWriteExt as _,

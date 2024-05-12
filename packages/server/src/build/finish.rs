@@ -6,9 +6,7 @@ use indoc::formatdoc;
 use std::pin::pin;
 use tangram_client as tg;
 use tangram_database::{self as db, prelude::*};
-use tangram_http::{
-	incoming::RequestExt as _, outgoing::ResponseBuilderExt as _, Incoming, Outgoing,
-};
+use tangram_http::{incoming::request::Ext as _, outgoing::response::Ext as _, Incoming, Outgoing};
 use tangram_messenger::Messenger as _;
 use time::format_description::well_known::Rfc3339;
 
@@ -104,6 +102,7 @@ impl Server {
 				self.try_get_build_outcome(child_id, arg)
 					.await?
 					.ok_or_else(|| tg::error!(%child_id, "failed to get the build"))?
+					.await?
 					.ok_or_else(|| tg::error!(%child_id, "expected the build to be finished"))
 			})
 			.collect::<FuturesUnordered<_>>()

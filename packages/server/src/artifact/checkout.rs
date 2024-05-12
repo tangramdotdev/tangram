@@ -5,7 +5,7 @@ use std::{os::unix::fs::PermissionsExt as _, sync::Arc};
 use tangram_client as tg;
 use tangram_futures::task::Task;
 use tangram_http::{
-	incoming::RequestExt as _, outgoing::ResponseBuilderExt as _, Incoming, Outgoing,
+	incoming::request::Ext as _, outgoing::response::Ext as _, Incoming, Outgoing,
 };
 
 impl Server {

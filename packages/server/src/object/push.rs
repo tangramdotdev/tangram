@@ -1,6 +1,6 @@
 use crate::Server;
 use tangram_client as tg;
-use tangram_http::{outgoing::ResponseExt as _, Incoming, Outgoing};
+use tangram_http::{outgoing::response::Ext as _, Incoming, Outgoing};
 
 impl Server {
 	pub async fn push_object(&self, id: &tg::object::Id) -> tg::Result<()> {
@@ -27,7 +27,7 @@ impl Server {
 	{
 		let id = id.parse()?;
 		handle.push_object(&id).await?;
-		let response = http::Response::ok();
+		let response = http::Response::builder().ok().empty().unwrap();
 		Ok(response)
 	}
 }

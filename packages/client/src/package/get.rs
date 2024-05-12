@@ -1,5 +1,5 @@
 use crate as tg;
-use tangram_http::{incoming::ResponseExt as _, outgoing::RequestBuilderExt as _};
+use tangram_http::{incoming::response::Ext as _, outgoing::request::Ext as _};
 
 #[allow(clippy::struct_excessive_bools)]
 #[derive(Debug, Clone, Default, serde::Deserialize, serde::Serialize)]
