@@ -12,6 +12,12 @@ pub trait Ext: Sized {
 	#[must_use]
 	fn not_found(self) -> Self;
 
+	fn header_json<K, V>(self, key: K, value: V) -> Result<Self, Error>
+	where
+		http::HeaderName: TryFrom<K>,
+		<http::HeaderName as TryFrom<K>>::Error: Into<http::Error>,
+		V: serde::Serialize;
+
 	fn empty(self) -> http::Result<http::Response<Outgoing>>;
 
 	fn bytes<T>(self, value: T) -> http::Result<http::Response<Outgoing>>
@@ -52,6 +58,16 @@ impl Ext for http::response::Builder {
 
 	fn not_found(self) -> Self {
 		self.status(http::StatusCode::NOT_FOUND)
+	}
+
+	fn header_json<K, V>(self, key: K, value: V) -> Result<Self, Error>
+	where
+		http::HeaderName: TryFrom<K>,
+		<http::HeaderName as TryFrom<K>>::Error: Into<http::Error>,
+		V: serde::Serialize,
+	{
+		let value = serde_json::to_string(&value)?;
+		Ok(self.header(key, value))
 	}
 
 	fn empty(self) -> http::Result<http::Response<Outgoing>> {

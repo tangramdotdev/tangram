@@ -10,11 +10,14 @@ pub trait Ext {
 	where
 		T: serde::de::DeserializeOwned;
 
-	fn parse_header<K, T, E>(&self, key: K) -> Option<Result<T, Error>>
+	fn parse_header<T, E>(&self, key: impl http::header::AsHeaderName) -> Option<Result<T, Error>>
 	where
-		K: http::header::AsHeaderName,
 		T: std::str::FromStr<Err = E>,
 		E: std::error::Error + Send + Sync + 'static;
+
+	fn header_json<T>(&self, key: impl http::header::AsHeaderName) -> Option<Result<T, Error>>
+	where
+		T: serde::de::DeserializeOwned;
 
 	/// Get a bearer token or cookie with the specified name from an HTTP request.
 	fn token(&self, name: Option<&str>) -> Option<&str>;
@@ -40,15 +43,25 @@ impl Ext for http::Request<Incoming> {
 			.map(|query| serde_urlencoded::from_str(query).map_err(Into::into))
 	}
 
-	fn parse_header<K, T, E>(&self, key: K) -> Option<Result<T, Error>>
+	fn parse_header<T, E>(&self, key: impl http::header::AsHeaderName) -> Option<Result<T, Error>>
 	where
-		K: http::header::AsHeaderName,
 		T: std::str::FromStr<Err = E>,
 		E: std::error::Error + Send + Sync + 'static,
 	{
 		self.headers().get(key).map(|value| {
 			let value = value.to_str()?;
 			let value = value.parse()?;
+			Ok(value)
+		})
+	}
+
+	fn header_json<T>(&self, key: impl http::header::AsHeaderName) -> Option<Result<T, Error>>
+	where
+		T: serde::de::DeserializeOwned,
+	{
+		self.headers().get(key).map(|value| {
+			let value = value.to_str()?;
+			let value = serde_json::from_str(value)?;
 			Ok(value)
 		})
 	}

@@ -90,10 +90,21 @@ impl Server {
 		let Some(output) = handle.try_get_object(&id).await? else {
 			return Ok(http::Response::builder().not_found().empty().unwrap());
 		};
-		let body = Outgoing::bytes(output.bytes);
-		let response = http::Response::builder()
-			.body(body)
-			.unwrap();
+		let metadata = if output.count.is_some() || output.weight.is_some() {
+			Some(tg::object::get::Metadata {
+				count: output.count,
+				weight: output.weight,
+			})
+		} else {
+			None
+		};
+		let mut response = http::Response::builder();
+		if let Some(metadata) = metadata {
+			response = response
+				.header_json(tg::object::get::OBJECT_METADATA_HEADER, metadata)
+				.unwrap();
+		}
+		let response = response.bytes(output.bytes).unwrap();
 		Ok(response)
 	}
 }
