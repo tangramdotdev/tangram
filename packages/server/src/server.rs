@@ -20,7 +20,6 @@ impl Server {
 	{
 		handle.clean().await?;
 		Ok(http::Response::builder()
-			.status(http::StatusCode::OK)
 			.empty()
 			.unwrap())
 	}
@@ -35,7 +34,6 @@ impl Server {
 		let health = handle.health().await?;
 		let body = serde_json::to_vec(&health).unwrap();
 		let response = http::Response::builder()
-			.status(http::StatusCode::OK)
 			.body(Outgoing::bytes(body))
 			.unwrap();
 		Ok(response)

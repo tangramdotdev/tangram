@@ -87,10 +87,7 @@ impl Server {
 	{
 		let id = id.parse()?;
 		let output = handle.heartbeat_build(&id).await?;
-		let response = http::Response::builder()
-			.status(http::StatusCode::OK)
-			.json(output)
-			.unwrap();
+		let response = http::Response::builder().json(output).unwrap();
 		Ok(response)
 	}
 }

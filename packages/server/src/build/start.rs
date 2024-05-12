@@ -2,10 +2,7 @@ use crate::Server;
 use bytes::Bytes;
 use tangram_client as tg;
 use tangram_database::{self as db, prelude::*};
-use tangram_http::{
-	outgoing::response::Ext as _,
-	Incoming, Outgoing,
-};
+use tangram_http::{outgoing::response::Ext as _, Incoming, Outgoing};
 use tangram_messenger::Messenger as _;
 use time::format_description::well_known::Rfc3339;
 
@@ -89,10 +86,7 @@ impl Server {
 		let Some(output) = handle.try_start_build(&id).await? else {
 			return Ok(http::Response::builder().not_found().empty().unwrap());
 		};
-		let response = http::Response::builder()
-			.status(http::StatusCode::OK)
-			.json(output)
-			.unwrap();
+		let response = http::Response::builder().json(output).unwrap();
 		Ok(response)
 	}
 }

@@ -45,7 +45,6 @@ impl Server {
 	{
 		handle.delete_root(name).await?;
 		let response = http::Response::builder()
-			.status(http::StatusCode::OK)
 			.empty()
 			.unwrap();
 		Ok(response)

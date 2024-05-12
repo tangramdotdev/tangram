@@ -404,28 +404,12 @@ impl Server {
 		H: tg::Handle,
 	{
 		let id = id.parse()?;
-		let arg = request
-			.uri()
-			.query()
-			.map(serde_urlencoded::from_str)
-			.transpose()
-			.map_err(|source| tg::error!(!source, "failed to deserialize the query"))?
-			.unwrap_or_default();
+
+		// Get the query.
+		let arg = request.query_params().transpose()?.unwrap_or_default();
 
 		// Get the accept header.
-		let accept = request
-			.headers()
-			.get(http::header::ACCEPT)
-			.map(|accept| {
-				let accept = accept
-					.to_str()
-					.map_err(|source| tg::error!(!source, "invalid content type"))?;
-				let accept = accept
-					.parse::<mime::Mime>()
-					.map_err(|source| tg::error!(!source, "invalid content type"))?;
-				Ok::<_, tg::Error>(accept)
-			})
-			.transpose()?;
+		let accept: Option<mime::Mime> = request.parse_header(http::header::ACCEPT).transpose()?;
 
 		// Get the stream.
 		let Some(stream) = handle.try_get_build_children(&id, arg).await? else {
@@ -472,7 +456,6 @@ impl Server {
 
 		// Create the response.
 		let response = http::Response::builder()
-			.status(http::StatusCode::OK)
 			.header(http::header::CONTENT_TYPE, content_type.to_string())
 			.body(body)
 			.unwrap();
@@ -492,7 +475,6 @@ impl Server {
 		let child_id = request.json().await?;
 		handle.add_build_child(&build_id, &child_id).await?;
 		let response = http::Response::builder()
-			.status(http::StatusCode::OK)
 			.empty()
 			.unwrap();
 		Ok(response)

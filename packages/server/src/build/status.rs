@@ -4,7 +4,7 @@ use indoc::formatdoc;
 use tangram_client as tg;
 use tangram_database::{self as db, prelude::*};
 use tangram_futures::task::Stop;
-use tangram_http::{outgoing::response::Ext as _, Incoming, Outgoing};
+use tangram_http::{incoming::request::Ext as _, outgoing::response::Ext as _, Incoming, Outgoing};
 use tangram_messenger::Messenger as _;
 use tokio_stream::wrappers::IntervalStream;
 
@@ -156,28 +156,10 @@ impl Server {
 		let id = id.parse()?;
 
 		// Get the query.
-		let arg = request
-			.uri()
-			.query()
-			.map(serde_urlencoded::from_str)
-			.transpose()
-			.map_err(|source| tg::error!(!source, "failed to deserialize the query"))?
-			.unwrap_or_default();
+		let arg = request.query_params().transpose()?.unwrap_or_default();
 
 		// Get the accept header.
-		let accept = request
-			.headers()
-			.get(http::header::ACCEPT)
-			.map(|accept| {
-				let accept = accept
-					.to_str()
-					.map_err(|source| tg::error!(!source, "invalid content type"))?;
-				let accept = accept
-					.parse::<mime::Mime>()
-					.map_err(|source| tg::error!(!source, "invalid content type"))?;
-				Ok::<_, tg::Error>(accept)
-			})
-			.transpose()?;
+		let accept: Option<mime::Mime> = request.parse_header(http::header::ACCEPT).transpose()?;
 
 		// Get the stream.
 		let Some(stream) = handle.try_get_build_status(&id, arg).await? else {
@@ -209,7 +191,6 @@ impl Server {
 
 		// Create the response.
 		let response = http::Response::builder()
-			.status(http::StatusCode::OK)
 			.header(http::header::CONTENT_TYPE, content_type.to_string())
 			.body(body)
 			.unwrap();

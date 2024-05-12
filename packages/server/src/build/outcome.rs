@@ -4,7 +4,7 @@ use indoc::formatdoc;
 use std::pin::pin;
 use tangram_client as tg;
 use tangram_database::{self as db, prelude::*};
-use tangram_http::{outgoing::response::Ext as _, Incoming, Outgoing};
+use tangram_http::{incoming::request::Ext as _, outgoing::response::Ext as _, Incoming, Outgoing};
 
 impl Server {
 	pub async fn try_get_build_outcome(
@@ -121,13 +121,7 @@ impl Server {
 		let id = id.parse()?;
 
 		// Get the query.
-		let arg = request
-			.uri()
-			.query()
-			.map(serde_urlencoded::from_str)
-			.transpose()
-			.map_err(|source| tg::error!(!source, "failed to deserialize the query"))?
-			.unwrap_or_default();
+		let arg = request.query_params().transpose()?.unwrap_or_default();
 
 		let Some(future) = handle.try_get_build_outcome(&id, arg).await? else {
 			return Ok(http::Response::builder().not_found().empty().unwrap());
@@ -146,10 +140,7 @@ impl Server {
 		});
 
 		// Create the response.
-		let response = http::Response::builder()
-			.status(http::StatusCode::OK)
-			.future_json(future)
-			.unwrap();
+		let response = http::Response::builder().future_json(future).unwrap();
 
 		Ok(response)
 	}

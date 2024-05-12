@@ -213,7 +213,6 @@ impl Server {
 		let arg = request.json().await?;
 		handle.put_build(&id, arg).await?;
 		let response = http::Response::builder()
-			.status(http::StatusCode::OK)
 			.empty()
 			.unwrap();
 		Ok(response)

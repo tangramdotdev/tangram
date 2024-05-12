@@ -2,7 +2,7 @@ use crate::Server;
 use indoc::formatdoc;
 use tangram_client as tg;
 use tangram_database::{self as db, prelude::*};
-use tangram_http::{outgoing::response::Ext as _, Incoming, Outgoing};
+use tangram_http::{incoming::request::Ext as _, outgoing::response::Ext as _, Incoming, Outgoing};
 
 impl Server {
 	pub async fn list_builds(
@@ -81,22 +81,13 @@ impl Server {
 		H: tg::Handle,
 	{
 		// Get the query.
-		let arg = request
-			.uri()
-			.query()
-			.map(serde_urlencoded::from_str)
-			.transpose()
-			.map_err(|source| tg::error!(!source, "failed to deserialize the query"))?
-			.unwrap_or_default();
+		let arg = request.query_params().transpose()?.unwrap_or_default();
 
 		// List the builds.
 		let output = handle.list_builds(arg).await?;
 
 		// Create the response.
-		let response = http::Response::builder()
-			.status(http::StatusCode::OK)
-			.json(output)
-			.unwrap();
+		let response = http::Response::builder().json(output).unwrap();
 
 		Ok(response)
 	}

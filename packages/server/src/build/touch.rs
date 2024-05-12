@@ -47,10 +47,7 @@ impl Server {
 	{
 		let id = id.parse()?;
 		handle.touch_build(&id).await?;
-		let response = http::Response::builder()
-			.status(http::StatusCode::OK)
-			.empty()
-			.unwrap();
+		let response = http::Response::builder().empty().unwrap();
 		Ok(response)
 	}
 }

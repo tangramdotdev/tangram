@@ -92,7 +92,6 @@ impl Server {
 		};
 		let body = Outgoing::bytes(output.bytes);
 		let response = http::Response::builder()
-			.status(http::StatusCode::OK)
 			.body(body)
 			.unwrap();
 		Ok(response)

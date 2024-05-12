@@ -760,10 +760,7 @@ impl crate::Server {
 		let body = Outgoing::bytes(text.into_bytes());
 
 		// Create the response.
-		let response = http::Response::builder()
-			.status(http::StatusCode::OK)
-			.body(body)
-			.unwrap();
+		let response = http::Response::builder().body(body).unwrap();
 
 		Ok(response)
 	}

@@ -57,7 +57,6 @@ impl Server {
 
 		// Create the response.
 		let response = http::Response::builder()
-			.status(http::StatusCode::OK)
 			.json(output)
 			.unwrap();
 

@@ -135,7 +135,6 @@ impl Server {
 			return Ok(http::Response::builder().not_found().empty().unwrap());
 		};
 		let response = http::Response::builder()
-			.status(http::StatusCode::OK)
 			.json(output)
 			.unwrap();
 		Ok(response)

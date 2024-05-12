@@ -6,6 +6,16 @@ use tokio::io::AsyncBufRead;
 use tokio_util::io::StreamReader;
 
 pub trait Ext {
+	fn query_params<T>(&self) -> Option<Result<T, Error>>
+	where
+		T: serde::de::DeserializeOwned;
+
+	fn parse_header<K, T, E>(&self, key: K) -> Option<Result<T, Error>>
+	where
+		K: http::header::AsHeaderName,
+		T: std::str::FromStr<Err = E>,
+		E: std::error::Error + Send + Sync + 'static;
+
 	/// Get a bearer token or cookie with the specified name from an HTTP request.
 	fn token(&self, name: Option<&str>) -> Option<&str>;
 
@@ -21,6 +31,28 @@ pub trait Ext {
 }
 
 impl Ext for http::Request<Incoming> {
+	fn query_params<T>(&self) -> Option<Result<T, Error>>
+	where
+		T: serde::de::DeserializeOwned,
+	{
+		self.uri()
+			.query()
+			.map(|query| serde_urlencoded::from_str(query).map_err(Into::into))
+	}
+
+	fn parse_header<K, T, E>(&self, key: K) -> Option<Result<T, Error>>
+	where
+		K: http::header::AsHeaderName,
+		T: std::str::FromStr<Err = E>,
+		E: std::error::Error + Send + Sync + 'static,
+	{
+		self.headers().get(key).map(|value| {
+			let value = value.to_str()?;
+			let value = value.parse()?;
+			Ok(value)
+		})
+	}
+
 	fn token(&self, name: Option<&str>) -> Option<&str> {
 		let bearer = self
 			.headers()
