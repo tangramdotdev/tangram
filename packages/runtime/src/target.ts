@@ -149,7 +149,7 @@ export class Target<
 				}
 			},
 			apply: async (target, _, args) => {
-				return await target.build(...args);
+				return await (await Target.new(target, { args })).output();
 			},
 			getPrototypeOf: (_target) => {
 				return Object.getPrototypeOf(this_);
