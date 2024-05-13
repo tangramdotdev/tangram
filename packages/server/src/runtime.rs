@@ -1,5 +1,4 @@
 use crate::Server;
-use futures::Future;
 use tangram_client as tg;
 use tangram_http::{outgoing::response::Ext as _, Incoming, Outgoing};
 
@@ -12,10 +11,6 @@ pub mod js;
 #[cfg(target_os = "linux")]
 pub mod linux;
 
-pub trait Trait: Clone {
-	fn run(&self, build: &tg::Build) -> impl Future<Output = tg::Result<tg::Value>> + Send;
-}
-
 #[derive(Clone)]
 pub enum Runtime {
 	#[cfg(target_os = "macos")]
@@ -25,12 +20,16 @@ pub enum Runtime {
 	Linux(linux::Runtime),
 }
 
-impl Trait for Runtime {
-	async fn run(&self, build: &tg::Build) -> tg::Result<tg::Value> {
+impl Runtime {
+	pub async fn run(
+		&self,
+		build: &tg::Build,
+		remote: Option<tg::Client>,
+	) -> tg::Result<tg::Value> {
 		match self {
 			#[cfg(target_os = "macos")]
 			Runtime::Darwin(runtime) => runtime.run(build).await,
-			Runtime::Js(runtime) => runtime.run(build).await,
+			Runtime::Js(runtime) => runtime.run(build, remote).await,
 			#[cfg(target_os = "linux")]
 			Runtime::Linux(runtime) => runtime.run(build).await,
 		}

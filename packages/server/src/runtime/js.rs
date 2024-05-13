@@ -6,7 +6,7 @@ use crate::Server;
 use futures::{
 	future::{self, LocalBoxFuture},
 	stream::FuturesUnordered,
-	Future, FutureExt as _, StreamExt as _, TryFutureExt as _,
+	FutureExt as _, StreamExt as _, TryFutureExt as _,
 };
 use num::ToPrimitive as _;
 use sourcemap::SourceMap;
@@ -40,6 +40,7 @@ struct State {
 	main_runtime_handle: tokio::runtime::Handle,
 	modules: RefCell<Vec<Module>>,
 	rejection: tokio::sync::watch::Sender<Option<tg::Error>>,
+	_remote: Option<tg::Client>,
 	server: Server,
 }
 
@@ -62,7 +63,11 @@ impl Runtime {
 		}
 	}
 
-	pub async fn run(&self, build: &tg::Build) -> tg::Result<tg::Value> {
+	pub async fn run(
+		&self,
+		build: &tg::Build,
+		remote: Option<tg::Client>,
+	) -> tg::Result<tg::Value> {
 		let server = &self.server;
 
 		// Create a handle to the main runtime.
@@ -81,6 +86,7 @@ impl Runtime {
 					.run_inner(
 						&server,
 						&build,
+						remote,
 						main_runtime_handle.clone(),
 						isolate_handle_sender,
 					)
@@ -103,6 +109,7 @@ impl Runtime {
 		&self,
 		server: &Server,
 		build: &tg::Build,
+		remote: Option<tg::Client>,
 		main_runtime_handle: tokio::runtime::Handle,
 		isolate_handle_sender: tokio::sync::watch::Sender<Option<v8::IsolateHandle>>,
 	) -> tg::Result<tg::Value> {
@@ -140,6 +147,7 @@ impl Runtime {
 			main_runtime_handle,
 			modules: RefCell::new(Vec::new()),
 			rejection: tokio::sync::watch::channel(None).0,
+			_remote: remote.clone(),
 			server: server.clone(),
 		});
 
@@ -706,10 +714,4 @@ fn parse_import_inner<'s>(
 	let import = tg::Import::with_specifier_and_attributes(&specifier, attributes.as_ref())?;
 
 	Ok(import)
-}
-
-impl super::Trait for Runtime {
-	fn run(&self, build: &tg::Build) -> impl Future<Output = tg::Result<tg::Value>> {
-		self.run(build)
-	}
 }

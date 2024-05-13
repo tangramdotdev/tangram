@@ -1,3 +1,4 @@
+use crate::Server;
 use bytes::Bytes;
 use futures::{Future, Stream};
 use std::sync::Arc;
@@ -5,12 +6,12 @@ use tangram_client as tg;
 use tokio::io::{AsyncBufRead, AsyncRead, AsyncWrite};
 
 #[derive(Clone)]
-pub struct Server(Arc<Inner>);
+pub struct Proxy(Arc<Inner>);
 
 pub struct Inner {
 	build: tg::build::Id,
 	path_map: Option<PathMap>,
-	server: crate::Server,
+	server: Server,
 }
 
 #[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
@@ -20,7 +21,7 @@ pub struct PathMap {
 	pub root_host: tg::Path,
 }
 
-impl Server {
+impl Proxy {
 	pub fn new(server: crate::Server, build: tg::build::Id, path_map: Option<PathMap>) -> Self {
 		let inner = Inner {
 			build,
@@ -51,7 +52,7 @@ impl Server {
 	}
 }
 
-impl tg::Handle for Server {
+impl tg::Handle for Proxy {
 	type Transaction<'a> = ();
 
 	fn archive_artifact(
@@ -398,7 +399,7 @@ impl tg::Handle for Server {
 	}
 }
 
-impl std::ops::Deref for Server {
+impl std::ops::Deref for Proxy {
 	type Target = Inner;
 
 	fn deref(&self) -> &Self::Target {

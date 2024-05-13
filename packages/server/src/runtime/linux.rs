@@ -1,9 +1,12 @@
-use super::{proxy, util::render};
+use super::{
+	proxy::{self, Proxy},
+	util::render,
+};
 use crate::{tmp::Tmp, Server};
 use bytes::Bytes;
 use futures::{
 	stream::{FuturesOrdered, FuturesUnordered},
-	Future, TryStreamExt as _,
+	TryStreamExt as _,
 };
 use indoc::formatdoc;
 use itertools::Itertools as _;
@@ -69,10 +72,10 @@ pub struct Runtime {
 
 impl Runtime {
 	pub async fn new(server: &Server) -> tg::Result<Self> {
-		let env = tg::File::builder(tg::Blob::with_reader(server, ENV, None).await?)
+		let env = tg::File::builder(tg::Blob::with_reader(server, ENV).await?)
 			.executable(true)
 			.build();
-		let sh = tg::File::builder(tg::Blob::with_reader(server, SH, None).await?)
+		let sh = tg::File::builder(tg::Blob::with_reader(server, SH).await?)
 			.executable(true)
 			.build();
 		Ok(Self {
@@ -211,7 +214,7 @@ impl Runtime {
 			.map_err(|source| tg::error!(!source, "failed to parse the proxy server url"))?;
 
 		// Start the proxy server.
-		let proxy = proxy::Server::new(server.clone(), build.id().clone(), None);
+		let proxy = Proxy::new(server.clone(), build.id().clone(), Some(path_map));
 		let stop = Stop::new();
 		let proxy_task = tokio::spawn(Server::serve(proxy, proxy_server_host_url.clone(), stop));
 
@@ -797,12 +800,6 @@ impl Runtime {
 		};
 
 		Ok(value)
-	}
-}
-
-impl super::Trait for Runtime {
-	fn run(&self, build: &tg::Build) -> impl Future<Output = tg::Result<tg::Value>> {
-		self.run(build)
 	}
 }
 

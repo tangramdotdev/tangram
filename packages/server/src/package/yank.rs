@@ -31,24 +31,21 @@ impl Server {
 			.await
 			.map_err(|source| tg::error!(!source, "failed to get a database connection"))?;
 
-		#[derive(serde::Deserialize)]
-		struct Row {
-			yanked: bool,
-		}
-
 		let p = connection.p();
 		let statement = formatdoc!(
 			"
-				select yanked from package_versions
+				select yanked
+				from package_versions
 				where id = {p}1;
 			"
 		);
 		let params = db::params![id];
-		let row = connection
-			.query_one_into::<Row>(statement, params)
+		let yanked = connection
+			.query_one_value_into::<bool>(statement, params)
 			.await
 			.map_err(|source| tg::error!(!source, "failed to perform the query"))?;
-		Ok(row.yanked)
+
+		Ok(yanked)
 	}
 
 	pub async fn yank_package(&self, id: &tg::artifact::Id) -> tg::Result<()> {

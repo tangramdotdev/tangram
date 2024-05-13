@@ -1,4 +1,4 @@
-use crate::{runtime::Trait as _, BuildPermit, Server};
+use crate::{BuildPermit, Server};
 use either::Either;
 use futures::{future, FutureExt as _, TryFutureExt as _};
 use std::{pin::pin, sync::Arc};
@@ -29,7 +29,8 @@ impl Server {
 			Task::spawn(|stop| {
 				let server = self.clone();
 				let build = build.clone();
-				async move { server.build_task(build, permit, stop).await }
+				let remote = remote.clone();
+				async move { server.build_task(build, permit, remote, stop).await }
 					.inspect_err(|error| {
 						tracing::error!(?error, "the build task failed");
 					})
@@ -41,6 +42,7 @@ impl Server {
 		tokio::spawn({
 			let server = self.clone();
 			let build = build.clone();
+			let remote = remote.clone();
 			async move { server.heartbeat_task(build, remote).await }
 				.inspect_err(|error| {
 					tracing::error!(?error, "the heartbeat task failed");
@@ -55,6 +57,7 @@ impl Server {
 		&self,
 		build: tg::Build,
 		permit: BuildPermit,
+		remote: Option<tg::Client>,
 		stop: Stop,
 	) -> tg::Result<()> {
 		// Set the build's permit.
@@ -63,7 +66,7 @@ impl Server {
 
 		// Build.
 		let outcome = match future::select(
-			pin!(self.build_task_inner(build.clone())),
+			pin!(self.build_task_inner(build.clone(), remote)),
 			pin!(stop.stopped()),
 		)
 		.await
@@ -92,7 +95,11 @@ impl Server {
 		Ok::<_, tg::Error>(())
 	}
 
-	async fn build_task_inner(&self, build: tg::Build) -> tg::Result<tg::build::Outcome> {
+	async fn build_task_inner(
+		&self,
+		build: tg::Build,
+		remote: Option<tg::Client>,
+	) -> tg::Result<tg::build::Outcome> {
 		// Get the runtime.
 		let target = build.target(self).await?;
 		let host = target.host(self).await?;
@@ -107,7 +114,7 @@ impl Server {
 			.clone();
 
 		// Build.
-		let result = runtime.run(&build).await;
+		let result = runtime.run(&build, remote).await;
 
 		// Log an error if one occurred.
 		if let Err(error) = &result {

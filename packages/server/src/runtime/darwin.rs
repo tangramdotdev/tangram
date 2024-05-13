@@ -1,4 +1,4 @@
-use super::{proxy, util::render};
+use super::{proxy::Proxy, util::render};
 use crate::{tmp::Tmp, Server};
 use bytes::Bytes;
 use futures::{
@@ -14,7 +14,7 @@ use std::{
 	os::unix::ffi::OsStrExt as _,
 };
 use tangram_client as tg;
-use tangram_futures::task::Stop;
+use tangram_futures::task::Task;
 use tokio::io::{AsyncReadExt as _, AsyncWriteExt as _};
 use url::Url;
 
@@ -114,9 +114,8 @@ impl Runtime {
 			.map_err(|source| tg::error!(!source, "failed to parse the proxy server url"))?;
 
 		// Start the proxy server.
-		let proxy = proxy::Server::new(server.clone(), build.id().clone(), None);
-		let stop = Stop::new();
-		let proxy_task = tokio::spawn(Server::serve(proxy, proxy_server_url.clone(), stop));
+		let proxy = Proxy::new(server.clone(), build.id().clone(), None);
+		let proxy_task = Task::spawn(|stop| Server::serve(proxy, proxy_server_url.clone(), stop));
 
 		// Render the executable.
 		let executable = target.executable(server).await?;
@@ -552,12 +551,6 @@ fn escape(bytes: impl AsRef<[u8]>) -> String {
 	}
 	output.push('"');
 	output
-}
-
-impl super::Trait for Runtime {
-	fn run(&self, build: &tg::Build) -> impl futures::Future<Output = tg::Result<tg::Value>> {
-		self.run(build)
-	}
 }
 
 #[cfg(test)]
