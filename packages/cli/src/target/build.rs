@@ -52,8 +52,9 @@ pub struct InnerArgs {
 	pub remote: bool,
 
 	/// The retry strategy to use.
-	#[arg(long, default_value_t)]
-	pub retry: tg::build::Retry,
+	#[allow(clippy::option_option)]
+	#[arg(long)]
+	pub retry: Option<Option<tg::build::Retry>>,
 
 	/// Create a root for this build. If a name is not provided, the package's name will be used.
 	#[arg(long)]
@@ -172,6 +173,13 @@ impl Cli {
 				.build()
 		};
 
+		// Determine the retry.
+		let retry = match args.retry {
+			None => tg::build::Retry::default(),
+			Some(None) => tg::build::Retry::Succeeded,
+			Some(Some(retry)) => retry,
+		};
+
 		// Print the target.
 		eprintln!(
 			"{}: target {}",
@@ -184,7 +192,7 @@ impl Cli {
 		let arg = tg::target::build::Arg {
 			parent: None,
 			remote: args.remote,
-			retry: args.retry,
+			retry,
 		};
 		let output = self.handle.build_target(&id, arg).await?;
 		let build = tg::Build::with_id(output.build);
