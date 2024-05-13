@@ -64,7 +64,8 @@ impl Server {
 			// Add the unvisited path imports to the queue.
 			let iter = analysis.imports.iter().filter_map(|import| {
 				if let tg::import::Specifier::Path(path) = &import.specifier {
-					Some((path.clone(), import.r#type))
+					let path = module_path.clone().parent().join(path.clone()).normalize();
+					Some((path, import.r#type))
 				} else {
 					None
 				}
