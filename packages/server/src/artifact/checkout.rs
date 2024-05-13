@@ -4,9 +4,7 @@ use futures::{stream::FuturesUnordered, TryStreamExt as _};
 use std::{os::unix::fs::PermissionsExt as _, sync::Arc};
 use tangram_client as tg;
 use tangram_futures::task::Task;
-use tangram_http::{
-	incoming::request::Ext as _, outgoing::response::Ext as _, Incoming, Outgoing,
-};
+use tangram_http::{incoming::request::Ext as _, outgoing::response::Ext as _, Incoming, Outgoing};
 
 impl Server {
 	pub async fn check_out_artifact(
@@ -18,18 +16,16 @@ impl Server {
 		let internal = arg.path.is_none();
 
 		// Get or spawn the task.
-		let spawn = || {
-			Task::spawn(|_| {
-				let server = self.clone();
-				let id = id.clone();
-				let files = Arc::new(DashMap::default());
-				async move { server.check_out_artifact_with_files(&id, arg, files).await }
-			})
+		let spawn = |_| {
+			let server = self.clone();
+			let id = id.clone();
+			let files = Arc::new(DashMap::default());
+			async move { server.check_out_artifact_with_files(&id, arg, files).await }
 		};
 		let task = if internal {
 			self.checkouts.get_or_spawn(id.clone(), spawn)
 		} else {
-			spawn()
+			Task::spawn(spawn)
 		};
 
 		// Await the task.

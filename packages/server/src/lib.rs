@@ -60,8 +60,8 @@ pub struct Server(Arc<Inner>);
 pub struct Inner {
 	build_permits: BuildPermits,
 	build_semaphore: Arc<tokio::sync::Semaphore>,
-	builds: BuildTasks,
-	checkouts: CheckoutTasks,
+	builds: BuildTaskMap,
+	checkouts: CheckoutTaskMap,
 	database: Database,
 	file_descriptor_semaphore: tokio::sync::Semaphore,
 	local_pool_handle: tokio_util::task::LocalPoolHandle,
@@ -83,9 +83,9 @@ struct BuildPermit(
 	Either<tokio::sync::OwnedSemaphorePermit, tokio::sync::OwnedMutexGuard<Option<Self>>>,
 );
 
-type BuildTasks = TaskMap<tg::build::Id, (), fnv::FnvBuildHasher>;
+type BuildTaskMap = TaskMap<tg::build::Id, (), fnv::FnvBuildHasher>;
 
-type CheckoutTasks =
+type CheckoutTaskMap =
 	TaskMap<tg::artifact::Id, tg::Result<tg::artifact::checkout::Output>, fnv::FnvBuildHasher>;
 
 impl Server {

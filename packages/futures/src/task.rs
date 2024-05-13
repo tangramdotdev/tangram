@@ -3,7 +3,10 @@ use futures::{
 	future::{self, BoxFuture},
 	Future, FutureExt as _, TryFutureExt as _,
 };
-use std::sync::Arc;
+use std::{
+	hash::{BuildHasher, Hash},
+	sync::Arc,
+};
 
 #[derive(Clone)]
 pub struct Task<T> {
@@ -14,7 +17,7 @@ pub struct Task<T> {
 
 #[allow(clippy::module_name_repetitions)]
 pub struct TaskMap<K, T, H> {
-	map: DashMap<K, Task<T>, H>,
+	map: Arc<DashMap<K, Task<T>, H>>,
 }
 
 #[derive(Clone)]
@@ -55,16 +58,31 @@ where
 
 impl<K, T, H> TaskMap<K, T, H>
 where
-	K: std::hash::Hash + Eq,
-	T: Clone + Send + 'static,
-	H: std::hash::BuildHasher + Default + Clone,
+	K: Hash + Eq + Clone + Send + Sync + 'static,
+	T: Clone + Send + Sync + 'static,
+	H: BuildHasher + Default + Clone + Send + Sync + 'static,
 {
 	pub fn spawn(&self, key: K, task: Task<T>) {
 		self.map.insert(key, task);
 	}
 
-	pub fn get_or_spawn(&self, key: K, f: impl FnOnce() -> Task<T>) -> Task<T> {
-		self.map.entry(key).or_insert_with(f).value().clone()
+	pub fn get_or_spawn<F, Fut>(&self, key: K, f: F) -> Task<T>
+	where
+		F: FnOnce(Stop) -> Fut,
+		Fut: Future<Output = T> + Send + 'static,
+	{
+		let map = self.map.clone();
+		self.map
+			.entry(key.clone())
+			.or_insert_with(move || {
+				Task::spawn(move |stop| {
+					f(stop).inspect(move |_| {
+						map.remove(&key);
+					})
+				})
+			})
+			.value()
+			.clone()
 	}
 
 	pub fn abort(&self, key: &K) {
@@ -108,11 +126,12 @@ impl Stop {
 
 impl<K, T, H> Default for TaskMap<K, T, H>
 where
-	K: std::hash::Hash + Eq,
-	H: std::hash::BuildHasher + Default + Clone,
+	K: Hash + Eq + Clone + Send + Sync + 'static,
+	T: Clone + Send + Sync + 'static,
+	H: BuildHasher + Default + Clone + Send + Sync + 'static,
 {
 	fn default() -> Self {
-		let map = DashMap::default();
+		let map = Arc::new(DashMap::default());
 		Self { map }
 	}
 }
