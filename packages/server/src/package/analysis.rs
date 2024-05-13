@@ -195,7 +195,8 @@ impl Server {
 			// Add the unvisited path imports to the queue.
 			let iter = analysis.imports.iter().filter_map(|import| {
 				if let tg::import::Specifier::Path(path) = &import.specifier {
-					Some((path.clone(), import.r#type))
+					let path = module_path.clone().parent().join(path.clone()).normalize();
+					Some((path, import.r#type))
 				} else {
 					None
 				}
@@ -283,7 +284,9 @@ impl Server {
 
 			// Add the module to the package directory.
 			let artifact =
-				tg::Artifact::check_in(self, module_absolute_path.clone().try_into()?).await?;
+				tg::Artifact::check_in(self, module_absolute_path.clone().try_into()?)
+				.await
+				.map_err(|source| tg::error!(!source, %referrer = path.display(), %module = module_absolute_path.display(), "failed to check in the module"))?;
 			package = package.add(self, &module_path, artifact).await?;
 
 			// Add the module path to the visited set.
@@ -353,7 +356,8 @@ impl Server {
 			// Add the unvisited path imports to the queue.
 			let iter = analysis.imports.iter().filter_map(|import| {
 				if let tg::import::Specifier::Path(path) = &import.specifier {
-					Some((path.clone(), import.r#type))
+					let path = module_path.clone().parent().join(path.clone()).normalize();
+					Some((path, import.r#type))
 				} else {
 					None
 				}
