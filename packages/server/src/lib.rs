@@ -118,9 +118,6 @@ impl Server {
 			.truncate(true)
 			.open(lock_path)
 			.await
-			.inspect_err(|e| {
-				dbg!(e);
-			})
 			.map_err(|source| tg::error!(!source, "failed to open the lock file"))?;
 		let ret = unsafe { libc::flock(lock_file.as_raw_fd(), libc::LOCK_EX | libc::LOCK_NB) };
 		if ret != 0 {

@@ -56,6 +56,12 @@ struct Module {
 	v8_module: v8::Global<v8::Module>,
 }
 
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum ImportKind {
+	Static,
+	Dynamic,
+}
+
 impl Runtime {
 	pub fn new(server: &Server) -> Self {
 		Self {
@@ -387,7 +393,9 @@ fn host_import_module_dynamically_callback<'s>(
 		};
 
 		// Parse the import.
-		let import = parse_import(scope, specifier, attributes)?;
+		let import = parse_import(scope, specifier, attributes, ImportKind::Dynamic)?;
+
+		// Resolve the module.
 		resolve_module(scope, &module, &import)?
 	};
 
@@ -454,7 +462,7 @@ fn resolve_module_callback<'s>(
 	};
 
 	// Parse the import.
-	let import = parse_import(scope, specifier, attributes)?;
+	let import = parse_import(scope, specifier, attributes, ImportKind::Static)?;
 
 	// Resolve the module.
 	let module = resolve_module(scope, &module, &import)?;
@@ -665,8 +673,9 @@ fn parse_import<'s>(
 	scope: &mut v8::HandleScope<'s>,
 	specifier: v8::Local<'s, v8::String>,
 	attributes: v8::Local<'s, v8::FixedArray>,
+	kind: ImportKind,
 ) -> Option<tg::Import> {
-	match parse_import_inner(scope, specifier, attributes) {
+	match parse_import_inner(scope, specifier, attributes, kind) {
 		Ok(import) => Some(import),
 		Err(error) => {
 			let exception = error::to_exception(scope, &error);
@@ -680,6 +689,7 @@ fn parse_import_inner<'s>(
 	scope: &mut v8::HandleScope<'s>,
 	specifier: v8::Local<'s, v8::String>,
 	attributes: v8::Local<'s, v8::FixedArray>,
+	kind: ImportKind,
 ) -> tg::Result<tg::Import> {
 	// Get the specifier.
 	let specifier = specifier.to_rust_string_lossy(scope);
@@ -689,6 +699,7 @@ fn parse_import_inner<'s>(
 		let mut map = BTreeMap::default();
 		let mut i = 0;
 		while i < attributes.length() {
+			// Get the key.
 			let key = attributes
 				.get(scope, i)
 				.ok_or_else(|| tg::error!("failed to get the key"))?;
@@ -696,6 +707,8 @@ fn parse_import_inner<'s>(
 				.map_err(|source| tg::error!(!source, "failed to convert the key"))?;
 			let key = key.to_rust_string_lossy(scope);
 			i += 1;
+
+			// Get the value.
 			let value = attributes
 				.get(scope, i)
 				.ok_or_else(|| tg::error!(%key, "failed to get the attribute value"))?;
@@ -703,6 +716,12 @@ fn parse_import_inner<'s>(
 				.map_err(|source| tg::error!(!source, "failed to convert the value"))?;
 			let value = value.to_rust_string_lossy(scope);
 			i += 1;
+
+			// Static imports include the source offset in the attributes array. Skip it.
+			if kind == ImportKind::Static {
+				i += 1;
+			}
+
 			map.insert(key, value);
 		}
 		Some(map)
