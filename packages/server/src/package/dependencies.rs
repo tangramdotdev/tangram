@@ -22,15 +22,6 @@ impl Server {
 
 		// Visit each module.
 		while let Some((module_path, r#type)) = queue.pop_front() {
-			// Get the file.
-			let file = package
-				.get(self, &module_path.clone())
-				.await?
-				.try_unwrap_file()
-				.ok()
-				.ok_or_else(|| tg::error!("expected the module to be a file"))?;
-			let text: String = file.text(self).await?;
-
 			// Add the module path to the visited set.
 			visited.insert((module_path.clone(), r#type));
 
@@ -38,6 +29,15 @@ impl Server {
 			if !matches!(r#type, Some(tg::import::Type::Js | tg::import::Type::Ts)) {
 				continue;
 			}
+
+			// Get the file.
+			let file = package
+				.get(self, &module_path.clone())
+				.await?
+				.try_unwrap_file()
+				.ok()
+				.ok_or_else(|| tg::error!("expected the module to be a file"))?;
+			let text = file.text(self).await?;
 
 			// Analyze the module.
 			let analysis = crate::compiler::Compiler::analyze_module(text)
