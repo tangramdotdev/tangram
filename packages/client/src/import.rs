@@ -92,7 +92,6 @@ impl std::str::FromStr for Specifier {
 	fn from_str(value: &str) -> tg::Result<Self, Self::Err> {
 		if value.starts_with('.') {
 			let path = value.parse::<tg::Path>()?;
-			#[allow(clippy::case_sensitive_file_extension_comparisons)]
 			Ok(Specifier::Path(path))
 		} else if let Some(value) = value.strip_prefix("tg:") {
 			let dependency = value

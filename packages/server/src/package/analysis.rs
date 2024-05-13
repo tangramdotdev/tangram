@@ -117,14 +117,18 @@ impl Server {
 			.join(tg::package::get_root_module_path(self, &package.clone().into()).await?);
 
 		// Create a queue of module paths to visit and a visited set.
-		let mut queue = VecDeque::from(vec![root_module_path]);
-		let mut visited_module_paths: HashSet<tg::Path, fnv::FnvBuildHasher> = HashSet::default();
+		let r#type = tg::import::Type::try_from_path(&root_module_path);
+		let mut queue = VecDeque::from(vec![(root_module_path, r#type)]);
+		let mut visited_module_paths: HashSet<
+			(tg::Path, Option<tg::import::Type>),
+			fnv::FnvBuildHasher,
+		> = HashSet::default();
 
 		// Create the path dependencies.
 		let mut path_dependencies = BTreeMap::default();
 
 		// Visit each module.
-		while let Some(module_path) = queue.pop_front() {
+		while let Some((module_path, r#type)) = queue.pop_front() {
 			// Add the module to the package directory.
 			let artifact = root
 				.get(self, &module_path)
@@ -136,6 +140,14 @@ impl Server {
 				.map_err(
 					|source| tg::error!(!source, %module_path, %package = id, "expected a file"),
 				)?;
+
+			// Add the module path to the visited set.
+			visited_module_paths.insert((module_path.clone(), r#type));
+
+			// If this is not a JavaScript or TypeScript module, then continue.
+			if !matches!(r#type, Some(tg::import::Type::Js | tg::import::Type::Ts)) {
+				continue;
+			}
 
 			// Get the module's text.
 			let text = artifact.text(self).await.map_err(
@@ -180,22 +192,17 @@ impl Server {
 				path_dependencies.insert(dependency, child);
 			}
 
-			// Add the module path to the visited set.
-			visited_module_paths.insert(module_path.clone());
-
 			// Add the unvisited path imports to the queue.
 			let iter = analysis.imports.iter().filter_map(|import| {
 				if let tg::import::Specifier::Path(path) = &import.specifier {
-					Some(path.clone())
+					Some((path.clone(), import.r#type))
 				} else {
 					None
 				}
 			});
-			for imported_module_path in iter {
-				if !visited_module_paths.contains(&imported_module_path)
-					&& !queue.contains(&imported_module_path)
-				{
-					queue.push_back(imported_module_path);
+			for entry in iter {
+				if !visited_module_paths.contains(&entry) && !queue.contains(&entry) {
+					queue.push_back(entry);
 				}
 			}
 		}
@@ -259,26 +266,33 @@ impl Server {
 		let root_module_path = tg::package::get_root_module_path_for_path(path).await?;
 
 		// Create a queue of module paths to visit and a visited set.
-		let mut queue = VecDeque::from(vec![root_module_path]);
-		let mut visited_module_paths: HashSet<tg::Path, fnv::FnvBuildHasher> = HashSet::default();
+		let r#type = tg::import::Type::try_from_path(&root_module_path);
+		let mut queue = VecDeque::from(vec![(root_module_path, r#type)]);
+		let mut visited_module_paths: HashSet<
+			(tg::Path, Option<tg::import::Type>),
+			fnv::FnvBuildHasher,
+		> = HashSet::default();
 
 		// Create the path dependencies.
 		let mut path_dependencies = BTreeMap::default();
 
 		// Visit each module.
-		while let Some(module_path) = queue.pop_front() {
+		while let Some((module_path, r#type)) = queue.pop_front() {
 			// Get the module's absolute path.
 			let module_absolute_path = path.join(module_path.clone());
-			let module_absolute_path = tokio::fs::canonicalize(&module_absolute_path)
-				.await
-				.map_err(|error| {
-					tg::error!(source = error, "failed to canonicalize the module path")
-				})?;
 
 			// Add the module to the package directory.
 			let artifact =
 				tg::Artifact::check_in(self, module_absolute_path.clone().try_into()?).await?;
 			package = package.add(self, &module_path, artifact).await?;
+
+			// Add the module path to the visited set.
+			visited_module_paths.insert((module_path.clone(), r#type));
+
+			// If this is not a JavaScript or TypeScript module, then continue.
+			if !matches!(r#type, Some(tg::import::Type::Js | tg::import::Type::Ts)) {
+				continue;
+			}
 
 			// Get the module's text.
 			let text = tokio::fs::read_to_string(&module_absolute_path)
@@ -336,22 +350,17 @@ impl Server {
 				path_dependencies.insert(dependency, child);
 			}
 
-			// Add the module path to the visited set.
-			visited_module_paths.insert(module_path.clone());
-
 			// Add the unvisited path imports to the queue.
 			let iter = analysis.imports.iter().filter_map(|import| {
 				if let tg::import::Specifier::Path(path) = &import.specifier {
-					Some(path.clone())
+					Some((path.clone(), import.r#type))
 				} else {
 					None
 				}
 			});
-			for imported_module_path in iter {
-				if !visited_module_paths.contains(&imported_module_path)
-					&& !queue.contains(&imported_module_path)
-				{
-					queue.push_back(imported_module_path);
+			for entry in iter {
+				if !visited_module_paths.contains(&entry) && !queue.contains(&entry) {
+					queue.push_back(entry);
 				}
 			}
 		}
