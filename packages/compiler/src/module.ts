@@ -42,37 +42,20 @@ export type Symlink =
 
 export namespace Module {
 	export let toUrl = (module: Module): string => {
-		let data = syscall(
-			"encoding_hex_encode",
-			syscall("encoding_utf8_encode", syscall("encoding_json_encode", module)),
-		);
-		if (
-			(module.kind === "js" || module.kind === "ts") &&
-			module.value.kind !== "file"
-		) {
-			return `tg://${data}/${module.value.value.path.slice(2)}`;
-		} else if (module.kind === "dts") {
-			return `tg://${data}/${module.value.path.slice(2)}`;
-		} else if (
-			module.kind === "artifact" ||
-			module.kind === "directory" ||
-			module.kind === "file" ||
-			(module.kind === "symlink" && module.value.value)
-		) {
-			return `tg://${data}/${module.value.value.slice(2)}`;
-		} else {
-			return `tg://${data}`;
-		}
+		let prefix = "tg://";
+		let json = syscall("encoding_json_encode", module);
+		let utf8 = syscall("encoding_utf8_encode", json);
+		let hex = syscall("encoding_hex_encode", utf8);
+		return `${prefix}${hex}`;
 	};
 
 	export let fromUrl = (url: string): Module => {
-		let match = url.match(/^tg:\/\/([0-9a-f]+)/);
-		assert(match);
-		let [_, data] = match;
-		assert(data !== undefined);
-		return syscall(
-			"encoding_json_decode",
-			syscall("encoding_utf8_decode", syscall("encoding_hex_decode", data)),
-		) as Module;
+		let prefix = "tg://";
+		assert(url.startsWith(prefix));
+		let hex = url.slice(prefix.length);
+		let utf8 = syscall("encoding_hex_decode", hex);
+		let json = syscall("encoding_utf8_decode", utf8);
+		let module = syscall("encoding_json_decode", json) as Module;
+		return module;
 	};
 }

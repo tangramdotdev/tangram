@@ -1,11 +1,13 @@
 import ts from "typescript";
 import { assert } from "./assert.ts";
 import type { Diagnostic, Severity } from "./diagnostics.ts";
+import { log } from "./log.ts";
 import type { Module } from "./module.ts";
 
 // Create the TypeScript compiler options.
 export let compilerOptions: ts.CompilerOptions = {
 	allowJs: true,
+	allowArbitraryExtensions: true,
 	isolatedModules: true,
 	module: ts.ModuleKind.ESNext,
 	noEmit: true,
@@ -42,14 +44,15 @@ export let host: ts.LanguageServiceHost & ts.CompilerHost = {
 	},
 
 	getScriptFileNames: () => {
-		return syscall("documents").map(fileNameFromModule);
+		return syscall("document_list").map(fileNameFromModule);
 	},
 
 	getScriptSnapshot: (fileName) => {
 		let text: string | undefined;
 		try {
 			text = syscall("module_load", moduleFromFileName(fileName));
-		} catch {
+		} catch (e) {
+			log(e);
 			return undefined;
 		}
 		return ts.ScriptSnapshot.fromString(text);
@@ -63,7 +66,8 @@ export let host: ts.LanguageServiceHost & ts.CompilerHost = {
 		let text: string | undefined;
 		try {
 			text = syscall("module_load", moduleFromFileName(fileName));
-		} catch {
+		} catch (e) {
+			log(e);
 			return undefined;
 		}
 		let sourceFile = ts.createSourceFile(fileName, text, languageVersion);
@@ -104,7 +108,8 @@ export let host: ts.LanguageServiceHost & ts.CompilerHost = {
 						attributes,
 					),
 				);
-			} catch {
+			} catch (e) {
+				log(e);
 				return { resolvedModule: undefined };
 			}
 			let extension = resolvedFileName.slice(-3);
@@ -133,40 +138,38 @@ export let documentRegistry = ts.createDocumentRegistry();
 export let languageService = ts.createLanguageService(host, documentRegistry);
 
 /** Convert a module to a TypeScript file name. */
-export let fileNameFromModule = (module_: Module): string => {
-	if (module_.kind === "dts") {
-		return `/library/${module_.value.path.slice(2)}`;
+export let fileNameFromModule = (module: Module): string => {
+	if (module.kind === "dts") {
+		return `/library/${module.value.path.slice(2)}`;
 	} else {
-		let data = syscall(
-			"encoding_hex_encode",
-			syscall("encoding_utf8_encode", syscall("encoding_json_encode", module_)),
-		);
-		let extension: string | undefined;
-		if (module_.kind === "js") {
+		let json = syscall("encoding_json_encode", module);
+		let utf8 = syscall("encoding_utf8_encode", json);
+		let hex = syscall("encoding_hex_encode", utf8);
+		let extension: string;
+		if (module.kind === "js") {
 			extension = ".js";
-		} else if (module_.kind === "ts") {
+		} else if (module.kind === "ts") {
 			extension = ".ts";
 		} else {
-			throw new Error("invalid module kind");
+			extension = ".js";
 		}
-		return `/${data}${extension}`;
+		return `/${hex}${extension}`;
 	}
 };
 
 /** Convert a TypeScript file name to a module. */
 export let moduleFromFileName = (fileName: string): Module => {
-	let module_: Module;
+	let module: Module;
 	if (fileName.startsWith("/library/")) {
 		let path = fileName.slice(9);
-		module_ = { kind: "dts", value: { path } };
+		module = { kind: "dts", value: { path } };
 	} else {
-		let data = fileName.slice(1, -3);
-		module_ = syscall(
-			"encoding_json_decode",
-			syscall("encoding_utf8_decode", syscall("encoding_hex_decode", data)),
-		) as Module;
+		let hex = fileName.slice(1, -3);
+		let utf8 = syscall("encoding_hex_decode", hex);
+		let json = syscall("encoding_utf8_decode", utf8);
+		module = syscall("encoding_json_decode", json) as Module;
 	}
-	return module_;
+	return module;
 };
 
 /** Convert a diagnostic. */

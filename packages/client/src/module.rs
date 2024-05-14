@@ -57,8 +57,8 @@ pub struct Dts {
 )]
 #[serde(tag = "kind", content = "value", rename_all = "snake_case")]
 pub enum Artifact {
-	Path(tg::Path),
 	Id(tg::artifact::Id),
+	Path(tg::Path),
 }
 
 #[derive(
@@ -66,8 +66,8 @@ pub enum Artifact {
 )]
 #[serde(tag = "kind", content = "value", rename_all = "snake_case")]
 pub enum Directory {
-	Path(tg::Path),
 	Id(tg::directory::Id),
+	Path(tg::Path),
 }
 
 #[derive(
@@ -75,8 +75,8 @@ pub enum Directory {
 )]
 #[serde(tag = "kind", content = "value", rename_all = "snake_case")]
 pub enum File {
-	Path(tg::Path),
 	Id(tg::file::Id),
+	Path(tg::Path),
 }
 
 #[derive(
@@ -84,16 +84,12 @@ pub enum File {
 )]
 #[serde(tag = "kind", content = "value", rename_all = "snake_case")]
 pub enum Symlink {
-	Path(tg::Path),
 	Id(tg::symlink::Id),
+	Path(tg::Path),
 }
 
 impl Module {
-	pub async fn with_package_path(
-		_handle: &impl tg::Handle,
-		package: PathBuf,
-		path: tg::Path,
-	) -> tg::Result<Self> {
+	pub async fn with_package_path(package: PathBuf, path: tg::Path) -> tg::Result<Self> {
 		let r#type = tg::import::Type::try_from_path(&path);
 		let module = match r#type {
 			Some(tg::import::Type::Js) => {
@@ -189,54 +185,16 @@ impl Module {
 			},
 		}
 	}
-
-	#[must_use]
-	pub fn artifact(&self) -> Option<tg::artifact::Id> {
-		match self {
-			Self::Artifact(Artifact::Id(id)) => Some(id.clone()),
-			Self::Directory(Directory::Id(id)) => Some(id.clone().into()),
-			Self::File(File::Id(id)) => Some(id.clone().into()),
-			Self::Symlink(Symlink::Id(id)) => Some(id.clone().into()),
-			Self::Js(Js::PackageArtifact(module)) | Self::Ts(Js::PackageArtifact(module)) => {
-				Some(module.artifact.clone())
-			},
-			Self::Js(Js::File(module)) | Self::Ts(Js::File(module)) => Some(module.clone()),
-			_ => None,
-		}
-	}
-
-	#[must_use]
-	pub fn path(&self) -> Option<tg::Path> {
-		match self {
-			Self::Dts(dts) => Some(dts.path.clone()),
-			Self::Js(Js::PackageArtifact(js)) | Self::Ts(Js::PackageArtifact(js)) => {
-				Some(js.path.clone())
-			},
-			Self::Js(Js::PackagePath(js)) | Self::Ts(Js::PackagePath(js)) => {
-				let package_path: tg::Path = js.package_path.clone().try_into().ok()?;
-				Some(package_path.join(js.path.clone()))
-			},
-			Self::Artifact(Artifact::Path(path))
-			| Self::Directory(Directory::Path(path))
-			| Self::File(File::Path(path))
-			| Self::Symlink(Symlink::Path(path)) => Some(path.clone()),
-			_ => None,
-		}
-	}
 }
 
 impl From<Module> for Url {
 	fn from(value: Module) -> Self {
 		// Serialize and encode the module.
-		let data = serde_json::to_string(&value).unwrap();
-		let data = data_encoding::HEXLOWER.encode(data.as_bytes());
+		let json = serde_json::to_string(&value).unwrap();
+		let hex = data_encoding::HEXLOWER.encode(json.as_bytes());
 
 		// Create the URL.
-		if let Some(path) = value.path() {
-			format!("tg://{data}/{path}").parse().unwrap()
-		} else {
-			format!("tg://{data}").parse().unwrap()
-		}
+		format!("tg://{hex}").parse().unwrap()
 	}
 }
 
@@ -250,17 +208,17 @@ impl TryFrom<Url> for Module {
 		}
 
 		// Get the domain.
-		let data = url
+		let hex = url
 			.domain()
 			.ok_or_else(|| tg::error!(%url, "the URL must have a domain"))?;
 
-		// Decode the data.
-		let data = data_encoding::HEXLOWER
-			.decode(data.as_bytes())
+		// Decode.
+		let json = data_encoding::HEXLOWER
+			.decode(hex.as_bytes())
 			.map_err(|source| tg::error!(!source, "failed to deserialize the path"))?;
 
-		// Deserialize the data.
-		let module = serde_json::from_slice(&data)
+		// Deserialize.
+		let module = serde_json::from_slice(&json)
 			.map_err(|source| tg::error!(!source, "failed to deserialize the module"))?;
 
 		Ok(module)

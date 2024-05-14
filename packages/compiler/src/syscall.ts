@@ -1,8 +1,7 @@
 import type { Module } from "./module.ts";
 
 declare global {
-	/** Get the modules for all documents. */
-	function syscall(name: "documents"): Array<Module>;
+	function syscall(name: "document_list"): Array<Module>;
 
 	function syscall(
 		syscall: "encoding_base64_decode",

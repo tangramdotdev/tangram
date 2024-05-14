@@ -25,7 +25,11 @@ impl Cli {
 				.read_to_string(&mut text)
 				.await
 				.map_err(|source| tg::error!(!source, "failed to read stdin"))?;
-			let text = self.handle.format(text).await?;
+			let text = self
+				.handle
+				.format(text)
+				.await
+				.map_err(|source| tg::error!(!source, "failed to format"))?;
 			tokio::io::stdout()
 				.write_all(text.as_bytes())
 				.await

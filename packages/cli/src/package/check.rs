@@ -29,7 +29,7 @@ impl Cli {
 
 		// Print the diagnostics.
 		for diagnostic in &diagnostics {
-			self.print_diagnostic(diagnostic).await?;
+			self.print_diagnostic(diagnostic).await;
 		}
 
 		if !diagnostics.is_empty() {

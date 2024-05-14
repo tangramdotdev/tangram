@@ -1,10 +1,13 @@
 #![allow(clippy::needless_pass_by_value, clippy::unnecessary_wraps)]
 
 use super::Compiler;
-use bytes::Bytes;
 use itertools::Itertools as _;
-use std::collections::BTreeMap;
 use tangram_client as tg;
+
+mod document;
+mod encoding;
+mod log;
+mod module;
 
 pub fn syscall<'s>(
 	scope: &mut v8::HandleScope<'s>,
@@ -16,23 +19,23 @@ pub fn syscall<'s>(
 
 	// Invoke the syscall.
 	let result = match name.as_str() {
-		"documents" => sync(scope, &args, documents),
-		"encoding_base64_decode" => sync(scope, &args, encoding_base64_decode),
-		"encoding_base64_encode" => sync(scope, &args, encoding_base64_encode),
-		"encoding_hex_decode" => sync(scope, &args, encoding_hex_decode),
-		"encoding_hex_encode" => sync(scope, &args, encoding_hex_encode),
-		"encoding_json_decode" => sync(scope, &args, encoding_json_decode),
-		"encoding_json_encode" => sync(scope, &args, encoding_json_encode),
-		"encoding_toml_decode" => sync(scope, &args, encoding_toml_decode),
-		"encoding_toml_encode" => sync(scope, &args, encoding_toml_encode),
-		"encoding_utf8_decode" => sync(scope, &args, encoding_utf8_decode),
-		"encoding_utf8_encode" => sync(scope, &args, encoding_utf8_encode),
-		"encoding_yaml_decode" => sync(scope, &args, encoding_yaml_decode),
-		"encoding_yaml_encode" => sync(scope, &args, encoding_yaml_encode),
-		"log" => sync(scope, &args, log),
-		"module_load" => sync(scope, &args, module_load),
-		"module_resolve" => sync(scope, &args, module_resolve),
-		"module_version" => sync(scope, &args, module_version),
+		"document_list" => sync(scope, &args, self::document::list),
+		"encoding_base64_decode" => sync(scope, &args, self::encoding::base64_decode),
+		"encoding_base64_encode" => sync(scope, &args, self::encoding::base64_encode),
+		"encoding_hex_decode" => sync(scope, &args, self::encoding::hex_decode),
+		"encoding_hex_encode" => sync(scope, &args, self::encoding::hex_encode),
+		"encoding_json_decode" => sync(scope, &args, self::encoding::json_decode),
+		"encoding_json_encode" => sync(scope, &args, self::encoding::json_encode),
+		"encoding_toml_decode" => sync(scope, &args, self::encoding::toml_decode),
+		"encoding_toml_encode" => sync(scope, &args, self::encoding::toml_encode),
+		"encoding_utf8_decode" => sync(scope, &args, self::encoding::utf8_decode),
+		"encoding_utf8_encode" => sync(scope, &args, self::encoding::utf8_encode),
+		"encoding_yaml_decode" => sync(scope, &args, self::encoding::yaml_decode),
+		"encoding_yaml_encode" => sync(scope, &args, self::encoding::yaml_encode),
+		"log" => sync(scope, &args, self::log::log),
+		"module_load" => sync(scope, &args, self::module::load),
+		"module_resolve" => sync(scope, &args, self::module::resolve),
+		"module_version" => sync(scope, &args, self::module::version),
 		_ => unreachable!(r#"unknown syscall "{name}""#),
 	};
 
@@ -51,208 +54,6 @@ pub fn syscall<'s>(
 	}
 }
 
-fn documents(
-	_scope: &mut v8::HandleScope,
-	server: Compiler,
-	_args: (),
-) -> tg::Result<Vec<tg::Module>> {
-	server
-		.main_runtime_handle
-		.clone()
-		.block_on(async move { Ok(server.get_documents().await) })
-}
-
-fn encoding_base64_decode(
-	_scope: &mut v8::HandleScope,
-	_server: Compiler,
-	args: (String,),
-) -> tg::Result<Bytes> {
-	let (value,) = args;
-	let bytes = data_encoding::BASE64
-		.decode(value.as_bytes())
-		.map_err(|source| tg::error!(!source, "failed to decode the bytes"))?;
-	Ok(bytes.into())
-}
-
-fn encoding_base64_encode(
-	_scope: &mut v8::HandleScope,
-	_server: Compiler,
-	args: (Bytes,),
-) -> tg::Result<String> {
-	let (value,) = args;
-	let encoded = data_encoding::BASE64.encode(&value);
-	Ok(encoded)
-}
-
-fn encoding_hex_decode(
-	_scope: &mut v8::HandleScope,
-	_server: Compiler,
-	args: (String,),
-) -> tg::Result<Bytes> {
-	let (string,) = args;
-	let bytes = data_encoding::HEXLOWER
-		.decode(string.as_bytes())
-		.map_err(|source| tg::error!(!source, "failed to decode the string as hex"))?;
-	Ok(bytes.into())
-}
-
-fn encoding_hex_encode(
-	_scope: &mut v8::HandleScope,
-	_server: Compiler,
-	args: (Bytes,),
-) -> tg::Result<String> {
-	let (bytes,) = args;
-	let hex = data_encoding::HEXLOWER.encode(&bytes);
-	Ok(hex)
-}
-
-fn encoding_json_decode(
-	_scope: &mut v8::HandleScope,
-	_server: Compiler,
-	args: (String,),
-) -> tg::Result<serde_json::Value> {
-	let (json,) = args;
-	let value = serde_json::from_str(&json)
-		.map_err(|source| tg::error!(!source, "failed to decode the string as json"))?;
-	Ok(value)
-}
-
-fn encoding_json_encode(
-	_scope: &mut v8::HandleScope,
-	_server: Compiler,
-	args: (serde_json::Value,),
-) -> tg::Result<String> {
-	let (value,) = args;
-	let json = serde_json::to_string(&value)
-		.map_err(|source| tg::error!(!source, "failed to encode the value"))?;
-	Ok(json)
-}
-
-fn encoding_toml_decode(
-	_scope: &mut v8::HandleScope,
-	_server: Compiler,
-	args: (String,),
-) -> tg::Result<toml::Value> {
-	let (toml,) = args;
-	let value = toml::from_str(&toml)
-		.map_err(|source| tg::error!(!source, "failed to decode the string as toml"))?;
-	Ok(value)
-}
-
-fn encoding_toml_encode(
-	_scope: &mut v8::HandleScope,
-	_server: Compiler,
-	args: (toml::Value,),
-) -> tg::Result<String> {
-	let (value,) = args;
-	let toml = toml::to_string(&value)
-		.map_err(|source| tg::error!(!source, "failed to encode the value"))?;
-	Ok(toml)
-}
-
-fn encoding_utf8_decode(
-	_scope: &mut v8::HandleScope,
-	_server: Compiler,
-	args: (Bytes,),
-) -> tg::Result<String> {
-	let (bytes,) = args;
-	let string = String::from_utf8(bytes.into())
-		.map_err(|source| tg::error!(!source, "failed to decode the bytes as UTF-8"))?;
-	Ok(string)
-}
-
-fn encoding_utf8_encode(
-	_scope: &mut v8::HandleScope,
-	_server: Compiler,
-	args: (String,),
-) -> tg::Result<Bytes> {
-	let (string,) = args;
-	let bytes = string.into_bytes().into();
-	Ok(bytes)
-}
-
-fn encoding_yaml_decode(
-	_scope: &mut v8::HandleScope,
-	_server: Compiler,
-	args: (String,),
-) -> tg::Result<serde_yaml::Value> {
-	let (yaml,) = args;
-	let value = serde_yaml::from_str(&yaml)
-		.map_err(|source| tg::error!(!source, "failed to decode the string as yaml"))?;
-	Ok(value)
-}
-
-fn encoding_yaml_encode(
-	_scope: &mut v8::HandleScope,
-	_server: Compiler,
-	args: (serde_yaml::Value,),
-) -> tg::Result<String> {
-	let (value,) = args;
-	let yaml = serde_yaml::to_string(&value)
-		.map_err(|source| tg::error!(!source, "failed to encode the value"))?;
-	Ok(yaml)
-}
-
-fn log(_scope: &mut v8::HandleScope, _server: Compiler, args: (String,)) -> tg::Result<()> {
-	let (string,) = args;
-	tracing::debug!("{string}");
-	Ok(())
-}
-
-fn module_load(
-	_scope: &mut v8::HandleScope,
-	server: Compiler,
-	args: (tg::Module,),
-) -> tg::Result<String> {
-	let (module,) = args;
-	server.main_runtime_handle.clone().block_on(async move {
-		let text = server
-			.load_module(&module)
-			.await
-			.map_err(|source| tg::error!(!source, %module, "failed to load the module"))?;
-		Ok(text)
-	})
-}
-
-fn module_resolve(
-	_scope: &mut v8::HandleScope,
-	server: Compiler,
-	args: (tg::Module, String, Option<BTreeMap<String, String>>),
-) -> tg::Result<tg::Module> {
-	let (module, specifier, attributes) = args;
-	let import = tg::Import::with_specifier_and_attributes(&specifier, attributes.as_ref())
-		.map_err(|source| tg::error!(!source, "failed to create the import"))?;
-	server.main_runtime_handle.clone().block_on(async move {
-		let module = server
-			.resolve_module(&module, &import)
-			.await
-			.map_err(|error| {
-				tg::error!(
-					source = error,
-					%specifier,
-					%module,
-					"failed to resolve specifier relative to the module"
-				)
-			})?;
-		Ok(module)
-	})
-}
-
-fn module_version(
-	_scope: &mut v8::HandleScope,
-	server: Compiler,
-	args: (tg::Module,),
-) -> tg::Result<String> {
-	let (module,) = args;
-	server.main_runtime_handle.clone().block_on(async move {
-		let version = server
-			.get_module_version(&module)
-			.await
-			.map_err(|source| tg::error!(!source, "failed to get the module version"))?;
-		Ok(version.to_string())
-	})
-}
-
 fn sync<'s, A, T, F>(
 	scope: &mut v8::HandleScope<'s>,
 	args: &v8::FunctionCallbackArguments,
@@ -266,8 +67,8 @@ where
 	// Get the context.
 	let context = scope.get_current_context();
 
-	// Get the server.
-	let server = context.get_slot::<Compiler>(scope).unwrap().clone();
+	// Get the compiler.
+	let compiler = context.get_slot::<Compiler>(scope).unwrap().clone();
 
 	// Collect the args.
 	let args = (1..args.length()).map(|i| args.get(i)).collect_vec();
@@ -278,7 +79,7 @@ where
 		.map_err(|source| tg::error!(!source, "failed to deserialize the args"))?;
 
 	// Call the function.
-	let value = f(scope, server, args)?;
+	let value = f(scope, compiler, args)?;
 
 	// Serialize the value.
 	let value = serde_v8::to_v8(scope, &value)

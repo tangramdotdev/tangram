@@ -50,12 +50,12 @@ impl Compiler {
 
 		// Publish the diagnostics.
 		for (module, diagnostics) in diagnostics.iter() {
-			let version = self.try_get_module_version(module).await?;
+			let version = self.get_module_version(module).await?;
 			let diagnostics = diagnostics.iter().cloned().map_into().collect();
 			let params = lsp::PublishDiagnosticsParams {
 				uri: self.url_for_module(module),
 				diagnostics,
-				version,
+				version: Some(version),
 			};
 			self.send_notification::<lsp::notification::PublishDiagnostics>(params);
 		}

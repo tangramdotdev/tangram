@@ -15,7 +15,7 @@ impl tg::Client {
 			let error = response.json().await?;
 			return Err(error);
 		}
-		let output = response.json().await?;
+		let output = response.text().await?;
 		Ok(output)
 	}
 

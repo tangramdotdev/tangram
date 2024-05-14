@@ -17,6 +17,8 @@ pub trait Ext: Sized {
 
 	fn bytes(self) -> impl Future<Output = Result<Bytes, Error>> + Send;
 
+	fn text(self) -> impl Future<Output = Result<String, Error>> + Send;
+
 	fn json<T>(self) -> impl Future<Output = Result<T, Error>> + Send
 	where
 		T: serde::de::DeserializeOwned;
@@ -53,6 +55,12 @@ impl Ext for http::Response<Incoming> {
 	async fn bytes(self) -> Result<Bytes, Error> {
 		let collected = self.collect().await?;
 		Ok(collected.to_bytes())
+	}
+
+	async fn text(self) -> Result<String, Error> {
+		let bytes = self.bytes().await?;
+		let text = String::from_utf8(bytes.to_vec())?;
+		Ok(text)
 	}
 
 	async fn json<T>(self) -> Result<T, Error>

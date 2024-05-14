@@ -1,6 +1,7 @@
-use self::syscall::syscall;
+use self::{document::Document, syscall::syscall};
+use crate::Server;
+use dashmap::DashMap;
 use futures::{future, Future, FutureExt as _, TryFutureExt as _};
-use http_body_util::BodyExt as _;
 use lsp::{notification::Notification as _, request::Request as _};
 use lsp_types as lsp;
 use std::{
@@ -11,14 +12,14 @@ use std::{
 };
 use tangram_client as tg;
 use tangram_futures::task::Stop;
-use tangram_http::{outgoing::response::Ext as _, Incoming, Outgoing};
+use tangram_http::{incoming::request::Ext as _, outgoing::response::Ext as _, Incoming, Outgoing};
 use tg::package::ROOT_MODULE_FILE_NAMES;
 use tokio::io::{
 	AsyncBufRead, AsyncBufReadExt as _, AsyncReadExt as _, AsyncWrite, AsyncWriteExt as _,
 };
 use url::Url;
 
-pub mod analyze;
+pub mod analysis;
 pub mod check;
 pub mod completion;
 pub mod definition;
@@ -54,7 +55,7 @@ pub struct Inner {
 	diagnostics: tokio::sync::RwLock<BTreeMap<tg::Module, Vec<tg::Diagnostic>>>,
 
 	/// The documents.
-	documents: tokio::sync::RwLock<HashMap<tg::Module, tg::document::State, fnv::FnvBuildHasher>>,
+	documents: DashMap<tg::Module, Document, fnv::FnvBuildHasher>,
 
 	/// A handle to the main tokio runtime.
 	main_runtime_handle: tokio::runtime::Handle,
@@ -68,8 +69,8 @@ pub struct Inner {
 	/// The sender.
 	sender: std::sync::RwLock<Option<tokio::sync::mpsc::UnboundedSender<jsonrpc::Message>>>,
 
-	/// The Tangram server.
-	server: crate::Server,
+	/// The server.
+	server: Server,
 
 	/// The workspaces.
 	workspaces: tokio::sync::RwLock<BTreeSet<PathBuf>>,
@@ -117,7 +118,7 @@ impl Compiler {
 		let diagnostics = tokio::sync::RwLock::new(BTreeMap::default());
 
 		// Create the documents.
-		let documents = tokio::sync::RwLock::new(HashMap::default());
+		let documents = DashMap::default();
 
 		// Create the request sender.
 		let request_sender = std::sync::Mutex::new(None);
@@ -691,8 +692,8 @@ impl Compiler {
 						tg::error!(source = error, %path, "failed to parse the module path")
 					})?;
 
-				// Get or create the document.
-				let module = self.get_document(package_path, module_path).await?;
+				// Create the module.
+				let module = tg::Module::with_package_path(package_path, module_path).await?;
 
 				Ok(module)
 			},
@@ -744,14 +745,8 @@ impl crate::Server {
 	where
 		H: tg::Handle,
 	{
-		let bytes = request
-			.into_body()
-			.collect()
-			.await
-			.map_err(|source| tg::error!(!source, "failed to read the body"))?
-			.to_bytes();
-		let text = String::from_utf8(bytes.to_vec())
-			.map_err(|source| tg::error!(!source, "failed to deserialize the request body"))?;
+		// Get the text.
+		let text = request.text().await?;
 
 		// Format the text.
 		let text = handle.format(text).await?;

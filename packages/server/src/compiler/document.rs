@@ -1,44 +1,24 @@
-use std::path::PathBuf;
-
 use super::Compiler;
 use lsp_types as lsp;
 use tangram_client as tg;
 
+/// A document.
+#[derive(Clone, Debug)]
+pub struct Document {
+	pub open: bool,
+	pub version: i32,
+	pub modified: Option<std::time::SystemTime>,
+	pub text: Option<String>,
+}
+
 impl Compiler {
-	/// Get all the server's documents.
-	pub async fn get_documents(&self) -> Vec<tg::Module> {
-		let documents = self.documents.read().await;
-		documents.keys().cloned().collect()
-	}
-
-	/// Get a document.
-	pub async fn get_document(
-		&self,
-		package_path: PathBuf,
-		module_path: tg::Path,
-	) -> tg::Result<tg::Module> {
-		// Get the module.
-		let module =
-			tg::Module::with_package_path(&self.server, package_path.clone(), module_path.clone())
-				.await?;
-
-		// Add to the documents if necessary.
-		let mut documents = self.documents.write().await;
-		if !documents.contains_key(&module) {
-			let metadata = tokio::fs::metadata(&package_path.join(&module_path))
-				.await
-				.map_err(|source| tg::error!(!source, "failed to get the metadata"))?;
-			let modified = metadata.modified().map_err(|error| {
-				tg::error!(source = error, "failed to get the last modification time")
-			})?;
-			let state = tg::document::State::Closed(tg::document::Closed {
-				version: 0,
-				modified,
-			});
-			documents.insert(module.clone(), state);
-		}
-
-		Ok(module)
+	/// List the documents.
+	pub async fn list_documents(&self) -> Vec<tg::Module> {
+		self.documents
+			.iter()
+			.filter(|entry| entry.open)
+			.map(|entry| entry.key().clone())
+			.collect()
 	}
 
 	/// Open a document.
@@ -48,123 +28,89 @@ impl Compiler {
 		version: i32,
 		text: String,
 	) -> tg::Result<()> {
-		// Lock the documents.
-		let mut documents = self.documents.write().await;
-
-		// Set the state.
-		let state = tg::document::State::Opened(tg::document::Opened { version, text });
-		documents.insert(module.clone(), state);
-
+		let document = Document {
+			open: true,
+			version,
+			modified: None,
+			text: Some(text),
+		};
+		self.documents.insert(module.clone(), document);
 		Ok(())
 	}
 
 	/// Update a document.
 	pub async fn update_document(
 		&self,
-		document: &tg::Module,
+		module: &tg::Module,
 		range: Option<tg::Range>,
 		version: i32,
 		text: String,
 	) -> tg::Result<()> {
-		// Lock the documents.
-		let mut documents = self.documents.write().await;
-
-		// Get the state.
-		let Some(tg::document::State::Opened(state)) = documents.get_mut(document) else {
-			return Err(tg::error!("could not find an open document"));
+		// Get the document.
+		let Some(mut document) = self.documents.get_mut(module) else {
+			return Err(tg::error!("could not find the document"));
 		};
 
+		// Ensure the document is open.
+		if !document.open {
+			return Err(tg::error!("expected the document to open"));
+		}
+
 		// Update the version.
-		state.version = version;
+		document.version = version;
 
 		// Convert the range to bytes.
 		let range = if let Some(range) = range {
-			range.to_byte_range_in_string(&state.text)
+			range.to_byte_range_in_string(document.text.as_ref().unwrap())
 		} else {
-			0..state.text.len()
+			0..document.text.as_mut().unwrap().len()
 		};
 
 		// Replace the text.
-		state.text.replace_range(range, &text);
+		document.text.as_mut().unwrap().replace_range(range, &text);
 
 		Ok(())
 	}
 
 	/// Close a document.
-	pub async fn close_document(&self, document: &tg::Module) -> tg::Result<()> {
-		// Lock the documents.
-		let mut documents = self.documents.write().await;
+	pub async fn close_document(&self, module: &tg::Module) -> tg::Result<()> {
+		// Get the document.
+		let Some(mut document) = self.documents.get_mut(module) else {
+			return Err(tg::error!("could not find the document"));
+		};
 
-		// Remove the document.
-		documents.remove(document);
+		// Ensure the document is open.
+		if !document.open {
+			return Err(tg::error!("expected the document to open"));
+		}
+
+		// Mark the document as closed.
+		document.open = false;
+
+		// Clear the document's text.
+		document.text = None;
+
+		// Set the document's modified time.
+		let path = match module {
+			tg::Module::Js(tg::module::Js::PackagePath(package_path))
+			| tg::Module::Ts(tg::module::Js::PackagePath(package_path)) => {
+				package_path.package_path.join(&package_path.path)
+			},
+			tg::Module::Artifact(tg::module::Artifact::Path(path))
+			| tg::Module::Directory(tg::module::Directory::Path(path))
+			| tg::Module::File(tg::module::File::Path(path))
+			| tg::Module::Symlink(tg::module::Symlink::Path(path)) => path.clone().into(),
+			_ => return Err(tg::error!("invalid module")),
+		};
+		let metadata = tokio::fs::metadata(&path)
+			.await
+			.map_err(|source| tg::error!(!source, "failed to get the metadata"))?;
+		let modified = metadata.modified().map_err(|error| {
+			tg::error!(source = error, "failed to get the last modification time")
+		})?;
+		document.modified = Some(modified);
 
 		Ok(())
-	}
-
-	pub async fn _get_document_version(&self, document: &tg::Module) -> tg::Result<i32> {
-		self.try_get_document_version(document)
-			.await?
-			.ok_or_else(|| tg::error!("expected the document to exist"))
-	}
-
-	/// Get a document's version.
-	pub async fn try_get_document_version(&self, module: &tg::Module) -> tg::Result<Option<i32>> {
-		// Lock the documents.
-		let mut documents = self.documents.write().await;
-
-		// Get the state.
-		let Some(state) = documents.get_mut(module) else {
-			return Ok(None);
-		};
-
-		let version = match state {
-			tg::document::State::Closed(closed) => {
-				let path = module
-					.path()
-					.ok_or_else(|| tg::error!("expected a module path"))?;
-
-				let metadata = tokio::fs::metadata(&path)
-					.await
-					.map_err(|source| tg::error!(!source, "failed to get the metadata"))?;
-				let modified = metadata.modified().map_err(|error| {
-					tg::error!(source = error, "failed to get the last modification time")
-				})?;
-				if modified > closed.modified {
-					closed.modified = modified;
-					closed.version += 1;
-				}
-				closed.version
-			},
-			tg::document::State::Opened(opened) => opened.version,
-		};
-
-		Ok(Some(version))
-	}
-
-	pub async fn get_document_text(&self, module: &tg::Module) -> tg::Result<String> {
-		self.try_get_document_text(module)
-			.await?
-			.ok_or_else(|| tg::error!("expected the document to exist"))
-	}
-
-	/// Get a document's text.
-	pub async fn try_get_document_text(&self, module: &tg::Module) -> tg::Result<Option<String>> {
-		let documents = self.documents.read().await;
-		let Some(state) = documents.get(module) else {
-			return Ok(None);
-		};
-
-		let Some(path) = module.path() else {
-			return Ok(None);
-		};
-
-		let text = match state {
-			tg::document::State::Closed(_) => tokio::fs::read_to_string(&path)
-				.await
-				.map_err(|source| tg::error!(!source, "failed to read the file"))?,
-			tg::document::State::Opened(opened) => opened.text.clone(),
-		};
-		Ok(Some(text))
 	}
 }
 

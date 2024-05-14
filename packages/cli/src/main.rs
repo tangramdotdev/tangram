@@ -304,12 +304,14 @@ impl Cli {
 
 	/// Start the server.
 	async fn start_server(args: &Args, config: Option<&Config>) -> tg::Result<()> {
+		let home = PathBuf::from(std::env::var("HOME").unwrap());
+
 		// Get the log file path.
 		let path = args
 			.path
 			.clone()
 			.or(config.as_ref().and_then(|config| config.path.clone()))
-			.unwrap_or_else(|| PathBuf::from(std::env::var("HOME").unwrap()).join(".tangram"));
+			.unwrap_or_else(|| home.join(".tangram"));
 		let log_path = path.join("log");
 
 		// Get the path to the current executable.
@@ -337,6 +339,7 @@ impl Cli {
 			.await;
 		tokio::process::Command::new(executable)
 			.args(["server", "run"])
+			.current_dir(home)
 			.stdin(std::process::Stdio::null())
 			.stdout(stdout)
 			.stderr(stderr)
@@ -785,37 +788,64 @@ impl Cli {
 		}
 	}
 
-	async fn print_diagnostic(&self, diagnostic: &tg::Diagnostic) -> tg::Result<()> {
-		match diagnostic.severity {
-			tg::diagnostic::Severity::Error => eprintln!("{}:", "error".red().bold()),
-			tg::diagnostic::Severity::Warning => eprintln!("{}:", "warning".yellow().bold()),
-			tg::diagnostic::Severity::Info => eprintln!("{}:", "info".blue().bold()),
-			tg::diagnostic::Severity::Hint => eprintln!("{}:", "hint".cyan().bold()),
+	async fn print_diagnostic(&self, diagnostic: &tg::Diagnostic) {
+		let title = match diagnostic.severity {
+			tg::diagnostic::Severity::Error => "error".red().bold(),
+			tg::diagnostic::Severity::Warning => "warning".yellow().bold(),
+			tg::diagnostic::Severity::Info => "info".blue().bold(),
+			tg::diagnostic::Severity::Hint => "hint".cyan().bold(),
 		};
-		eprint!("{} {} ", "->".red(), diagnostic.message);
+		eprintln!("{title}: {}", diagnostic.message);
+		let mut string = String::new();
 		if let Some(location) = &diagnostic.location {
-			if let Some(artifact) = location.module.artifact() {
-				let metadata =
-					tg::package::try_get_metadata(&self.handle, &tg::Artifact::with_id(artifact))
-						.await?;
-				let (name, version) = metadata
-					.map(|metadata| (metadata.name, metadata.version))
-					.unwrap_or_default();
-				let name = name.as_deref().unwrap_or("<unknown>");
-				let version = version.as_deref().unwrap_or("<unknown>");
-				eprint!("{name}@{version}: ");
+			match &location.module {
+				tg::Module::Js(tg::module::Js::PackageArtifact(package_artifact))
+				| tg::Module::Ts(tg::module::Js::PackageArtifact(package_artifact)) => {
+					let id = package_artifact.artifact.clone();
+					let artifact = tg::Artifact::with_id(id.clone());
+					let metadata = tg::package::try_get_metadata(&self.handle, &artifact)
+						.await
+						.ok();
+					if let Some(metadata) = metadata {
+						let (name, version) = metadata
+							.map(|metadata| (metadata.name, metadata.version))
+							.unwrap_or_default();
+						let name = name.as_deref().unwrap_or("<unknown>");
+						let version = version.as_deref().unwrap_or("<unknown>");
+						write!(string, "{name}@{version}").unwrap();
+					} else {
+						write!(string, "{id}").unwrap();
+					}
+				},
+
+				tg::Module::Js(tg::module::Js::PackagePath(package_path))
+				| tg::Module::Ts(tg::module::Js::PackagePath(package_path)) => {
+					let path = package_path.package_path.join(&package_path.path);
+					let path = path.display();
+					write!(string, "{path}").unwrap();
+				},
+
+				tg::Module::Artifact(tg::module::Artifact::Path(path))
+				| tg::Module::Directory(tg::module::Directory::Path(path))
+				| tg::Module::File(tg::module::File::Path(path))
+				| tg::Module::Symlink(tg::module::Symlink::Path(path)) => {
+					let path = path.clone();
+					write!(string, "{path}").unwrap();
+				},
+
+				_ => (),
 			}
-			if let Some(path) = location.module.path() {
-				eprint!("{path}:");
-			}
-			eprint!(
-				"{}:{}",
-				location.range.start.line + 1,
-				location.range.start.character + 1,
-			);
+			let mut string = if string.is_empty() {
+				"<unknown>".to_owned()
+			} else {
+				string
+			};
+			let line = location.range.start.line + 1;
+			let character = location.range.start.character + 1;
+			write!(string, ":{line}:{character}").unwrap();
+			eprint!("   {}", string.yellow());
 		}
 		eprintln!();
-		Ok(())
 	}
 
 	async fn get_description_for_package<H>(

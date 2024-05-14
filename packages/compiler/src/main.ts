@@ -5,20 +5,9 @@ import * as diagnostics from "./diagnostics.ts";
 import * as doc from "./doc.ts";
 import { Error_ } from "./error.ts";
 import * as hover from "./hover.ts";
-import { log } from "./log.ts";
 import * as references from "./references.ts";
 import * as rename from "./rename.ts";
 import * as symbols from "./symbols.ts";
-
-let console = { log };
-Object.defineProperties(globalThis, {
-	console: {
-		value: console,
-		configurable: true,
-		enumerable: true,
-		writable: true,
-	},
-});
 
 type Request =
 	| { kind: "check"; request: check.Request }

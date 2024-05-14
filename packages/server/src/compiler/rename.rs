@@ -46,7 +46,7 @@ impl Compiler {
 			let uri = self.url_for_module(&location.module);
 
 			// Get the version.
-			let version = self.try_get_module_version(&location.module).await?;
+			let version = self.get_module_version(&location.module).await?;
 
 			if edit.get_mut(&uri).is_none() {
 				edit.insert(
@@ -54,7 +54,7 @@ impl Compiler {
 					lsp::TextDocumentEdit {
 						text_document: lsp::OptionalVersionedTextDocumentIdentifier {
 							uri: uri.clone(),
-							version,
+							version: Some(version),
 						},
 						edits: Vec::<lsp::OneOf<lsp::TextEdit, lsp::AnnotatedTextEdit>>::new(),
 					},

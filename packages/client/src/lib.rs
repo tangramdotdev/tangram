@@ -51,7 +51,6 @@ pub mod compiler;
 pub mod dependency;
 pub mod diagnostic;
 pub mod directory;
-pub mod document;
 pub mod error;
 pub mod file;
 pub mod handle;

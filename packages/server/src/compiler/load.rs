@@ -45,13 +45,35 @@ impl Compiler {
 				Ok(text)
 			},
 
-			tg::Module::Js(tg::module::Js::PackagePath(_))
-			| tg::Module::Ts(tg::module::Js::PackagePath(_)) => self.get_document_text(module).await,
+			tg::Module::Js(tg::module::Js::PackagePath(package_path))
+			| tg::Module::Ts(tg::module::Js::PackagePath(package_path)) => {
+				// If there is an opened document, then return its contents.
+				if let Some(document) = self.documents.get(module) {
+					if document.open {
+						return Ok(document.text.clone().unwrap());
+					}
+				}
+
+				// Otherwise, load from the path.
+				let path = package_path.package_path.join(&package_path.path);
+				let text = tokio::fs::read_to_string(&path)
+					.await
+					.map_err(|source| tg::error!(!source, "failed to read the file"))?;
+
+				Ok(text)
+			},
 
 			tg::Module::Dts(module) => {
+				let path = module
+					.path
+					.components()
+					.iter()
+					.nth(1)
+					.ok_or_else(|| tg::error!("invalid path"))?
+					.to_string();
 				let file = LIB
-					.get_file(module.path.as_str())
-					.ok_or_else(|| tg::error!("expected a file"))?;
+					.get_file(&path)
+					.ok_or_else(|| tg::error!(%path, "failed to find the library module"))?;
 				let text = file.contents_utf8().unwrap().to_owned();
 				Ok(text)
 			},
