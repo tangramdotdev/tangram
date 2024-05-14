@@ -3,9 +3,7 @@ use futures::{stream::FuturesUnordered, TryStreamExt as _};
 use indoc::formatdoc;
 use tangram_client as tg;
 use tangram_database::{self as db, prelude::*};
-use tangram_http::{
-	incoming::request::Ext as _, outgoing::response::Ext as _, Incoming, Outgoing,
-};
+use tangram_http::{incoming::request::Ext as _, outgoing::response::Ext as _, Incoming, Outgoing};
 use time::format_description::well_known::Rfc3339;
 
 impl Server {
@@ -212,9 +210,7 @@ impl Server {
 		let id = id.parse()?;
 		let arg = request.json().await?;
 		handle.put_build(&id, arg).await?;
-		let response = http::Response::builder()
-			.empty()
-			.unwrap();
+		let response = http::Response::builder().empty().unwrap();
 		Ok(response)
 	}
 }

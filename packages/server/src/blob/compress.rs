@@ -1,9 +1,7 @@
 use crate::Server;
 use std::pin::Pin;
 use tangram_client as tg;
-use tangram_http::{
-	incoming::request::Ext as _, outgoing::response::Ext as _, Incoming, Outgoing,
-};
+use tangram_http::{incoming::request::Ext as _, outgoing::response::Ext as _, Incoming, Outgoing};
 use tokio::io::AsyncRead;
 
 impl Server {

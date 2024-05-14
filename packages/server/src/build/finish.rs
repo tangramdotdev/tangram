@@ -253,9 +253,7 @@ impl Server {
 		let id = id.parse()?;
 		let arg = request.json().await?;
 		handle.finish_build(&id, arg).await?;
-		let response = http::Response::builder()
-			.empty()
-			.unwrap();
+		let response = http::Response::builder().empty().unwrap();
 		Ok(response)
 	}
 }

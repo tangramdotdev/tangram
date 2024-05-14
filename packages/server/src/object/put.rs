@@ -106,9 +106,7 @@ impl Server {
 		};
 		let output = handle.put_object(&id, arg, None).boxed().await?;
 		let body = Outgoing::json(output);
-		let response = http::Response::builder()
-			.body(body)
-			.unwrap();
+		let response = http::Response::builder().body(body).unwrap();
 		Ok(response)
 	}
 }

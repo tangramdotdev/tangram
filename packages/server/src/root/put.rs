@@ -2,9 +2,7 @@ use crate::Server;
 use indoc::formatdoc;
 use tangram_client as tg;
 use tangram_database::{self as db, prelude::*};
-use tangram_http::{
-	incoming::request::Ext as _, outgoing::response::Ext as _, Incoming, Outgoing,
-};
+use tangram_http::{incoming::request::Ext as _, outgoing::response::Ext as _, Incoming, Outgoing};
 
 impl Server {
 	pub async fn put_root(&self, name: &str, arg: tg::root::put::Arg) -> tg::Result<()> {

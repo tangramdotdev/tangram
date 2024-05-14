@@ -1,9 +1,6 @@
 use crate::Server;
 use tangram_client as tg;
-use tangram_http::{
-	outgoing::response::Ext as _,
-	Incoming, Outgoing,
-};
+use tangram_http::{outgoing::response::Ext as _, Incoming, Outgoing};
 
 impl Server {
 	pub async fn check_package(

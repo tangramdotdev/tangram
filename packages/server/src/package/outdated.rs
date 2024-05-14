@@ -1,10 +1,7 @@
 use crate::Server;
 use std::collections::BTreeMap;
 use tangram_client as tg;
-use tangram_http::{
-	outgoing::response::Ext as _,
-	Incoming, Outgoing,
-};
+use tangram_http::{outgoing::response::Ext as _, Incoming, Outgoing};
 
 impl Server {
 	pub async fn get_package_outdated(

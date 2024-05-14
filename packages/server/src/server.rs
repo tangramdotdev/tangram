@@ -19,9 +19,7 @@ impl Server {
 		H: tg::Handle,
 	{
 		handle.clean().await?;
-		Ok(http::Response::builder()
-			.empty()
-			.unwrap())
+		Ok(http::Response::builder().empty().unwrap())
 	}
 
 	pub(crate) async fn handle_server_health_request<H>(

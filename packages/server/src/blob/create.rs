@@ -5,9 +5,7 @@ use num::ToPrimitive as _;
 use std::pin::pin;
 use tangram_client as tg;
 use tangram_database::prelude::*;
-use tangram_http::{
-	incoming::request::Ext as _, outgoing::response::Ext as _, Incoming, Outgoing,
-};
+use tangram_http::{incoming::request::Ext as _, outgoing::response::Ext as _, Incoming, Outgoing};
 use tokio::io::AsyncRead;
 
 const MAX_BRANCH_CHILDREN: usize = 1024;

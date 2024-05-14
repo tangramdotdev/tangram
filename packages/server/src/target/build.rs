@@ -3,9 +3,7 @@ use bytes::Bytes;
 use either::Either;
 use futures::FutureExt as _;
 use tangram_client as tg;
-use tangram_http::{
-	incoming::request::Ext as _, outgoing::response::Ext as _, Incoming, Outgoing,
-};
+use tangram_http::{incoming::request::Ext as _, outgoing::response::Ext as _, Incoming, Outgoing};
 use tangram_messenger::Messenger as _;
 
 impl Server {

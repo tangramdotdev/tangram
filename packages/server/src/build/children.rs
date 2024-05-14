@@ -474,9 +474,7 @@ impl Server {
 		let build_id = id.parse()?;
 		let child_id = request.json().await?;
 		handle.add_build_child(&build_id, &child_id).await?;
-		let response = http::Response::builder()
-			.empty()
-			.unwrap();
+		let response = http::Response::builder().empty().unwrap();
 		Ok(response)
 	}
 }

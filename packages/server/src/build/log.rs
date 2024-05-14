@@ -800,9 +800,7 @@ impl Server {
 		let id = id.parse()?;
 		let bytes = request.bytes().await?;
 		handle.add_build_log(&id, bytes).await?;
-		let response = http::Response::builder()
-			.empty()
-			.unwrap();
+		let response = http::Response::builder().empty().unwrap();
 		Ok(response)
 	}
 }

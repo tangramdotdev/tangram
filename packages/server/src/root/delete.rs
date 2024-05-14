@@ -44,9 +44,7 @@ impl Server {
 		H: tg::Handle,
 	{
 		handle.delete_root(name).await?;
-		let response = http::Response::builder()
-			.empty()
-			.unwrap();
+		let response = http::Response::builder().empty().unwrap();
 		Ok(response)
 	}
 }
