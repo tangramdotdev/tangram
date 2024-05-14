@@ -7,6 +7,7 @@ use futures::{
 use indoc::formatdoc;
 use num::ToPrimitive as _;
 use std::{io::Cursor, pin::pin, sync::Arc};
+use sync_wrapper::SyncWrapper;
 use tangram_client as tg;
 use tangram_database::{self as db, prelude::*};
 use tangram_futures::task::Stop;
@@ -25,12 +26,14 @@ pub struct DatabaseReader {
 	cursor: Option<Cursor<Bytes>>,
 	id: tg::build::Id,
 	position: u64,
-	read: Option<BoxFuture<'static, tg::Result<Option<Cursor<Bytes>>>>>,
-	seek: Option<BoxFuture<'static, tg::Result<u64>>>,
+	read: Option<SyncWrapper<ReadFuture>>,
+	seek: Option<SyncWrapper<SeekFuture>>,
 	server: Server,
 }
 
-unsafe impl Sync for DatabaseReader {}
+type ReadFuture = BoxFuture<'static, tg::Result<Option<Cursor<Bytes>>>>;
+
+type SeekFuture = BoxFuture<'static, tg::Result<u64>>;
 
 impl Server {
 	pub async fn try_get_build_log(
@@ -545,13 +548,15 @@ impl AsyncRead for DatabaseReader {
 			let id = this.id.clone();
 			let position = this.position;
 			let length = (buf.capacity() - buf.filled().len()).to_u64().unwrap();
-			let read = async move { poll_read_inner(server, id, position, length).await }.boxed();
+			let read = SyncWrapper::new(
+				async move { poll_read_inner(server, id, position, length).await }.boxed(),
+			);
 			this.read = Some(read);
 		}
 
 		// Poll the read future if necessary.
 		if let Some(read) = this.read.as_mut() {
-			match read.as_mut().poll(cx) {
+			match read.get_mut().as_mut().poll(cx) {
 				std::task::Poll::Pending => return std::task::Poll::Pending,
 				std::task::Poll::Ready(Err(error)) => {
 					this.read.take();
@@ -648,7 +653,9 @@ impl AsyncSeek for DatabaseReader {
 		let server = self.server.clone();
 		let position = self.position;
 		let id = self.id.clone();
-		let seek = async move { poll_seek_inner(server, id, position, seek).await }.boxed();
+		let seek = SyncWrapper::new(
+			async move { poll_seek_inner(server, id, position, seek).await }.boxed(),
+		);
 		self.seek = Some(seek);
 		Ok(())
 	}
@@ -660,7 +667,7 @@ impl AsyncSeek for DatabaseReader {
 		let Some(seek) = self.seek.as_mut() else {
 			return std::task::Poll::Ready(Ok(self.position));
 		};
-		let position = match seek.as_mut().poll(cx) {
+		let position = match seek.get_mut().as_mut().poll(cx) {
 			std::task::Poll::Ready(Ok(position)) => {
 				self.seek.take();
 				position

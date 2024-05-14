@@ -30,7 +30,6 @@ pub fn hex_decode(
 	args: (String,),
 ) -> tg::Result<Bytes> {
 	let (string,) = args;
-	dbg!(&string);
 	let bytes = data_encoding::HEXLOWER
 		.decode(string.as_bytes())
 		.map_err(|source| tg::error!(!source, "failed to decode the string as hex"))?;

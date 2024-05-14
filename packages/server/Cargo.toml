@@ -72,6 +72,7 @@ serde_with = { workspace = true }
 serde_yaml = { workspace = true }
 sourcemap = { workspace = true }
 swc_core = { workspace = true }
+sync_wrapper = { workspace = true }
 tangram_client = { workspace = true }
 tangram_database = { workspace = true }
 tangram_fuse = { workspace = true }

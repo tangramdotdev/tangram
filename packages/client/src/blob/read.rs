@@ -3,6 +3,7 @@ use bytes::{Buf, Bytes};
 use futures::{future::BoxFuture, FutureExt as _};
 use num::ToPrimitive as _;
 use std::{io::Cursor, pin::Pin};
+use sync_wrapper::SyncWrapper;
 use tokio::io::{AsyncBufRead, AsyncRead, AsyncReadExt as _, AsyncSeek};
 
 /// A blob reader.
@@ -11,11 +12,11 @@ pub struct Reader<H> {
 	cursor: Option<Cursor<Bytes>>,
 	handle: H,
 	position: u64,
-	read: Option<BoxFuture<'static, tg::Result<Option<Cursor<Bytes>>>>>,
+	read: Option<SyncWrapper<ReadFuture>>,
 	size: u64,
 }
 
-unsafe impl<H> Sync for Reader<H> {}
+type ReadFuture = BoxFuture<'static, tg::Result<Option<Cursor<Bytes>>>>;
 
 impl tg::Blob {
 	pub async fn reader<H>(&self, handle: &H) -> tg::Result<Reader<H>>
@@ -94,13 +95,15 @@ where
 			let handle = this.handle.clone();
 			let blob = this.blob.clone();
 			let position = this.position;
-			let read = async move { poll_read_inner(&handle, blob, position).await }.boxed();
+			let read = SyncWrapper::new(
+				async move { poll_read_inner(&handle, blob, position).await }.boxed(),
+			);
 			this.read.replace(read);
 		}
 
 		// Poll the read future if necessary.
 		if let Some(read) = this.read.as_mut() {
-			match read.as_mut().poll(cx) {
+			match read.get_mut().as_mut().poll(cx) {
 				std::task::Poll::Pending => return std::task::Poll::Pending,
 				std::task::Poll::Ready(Err(error)) => {
 					this.read.take();
@@ -149,13 +152,15 @@ where
 			let handle = this.handle.clone();
 			let blob = this.blob.clone();
 			let position = this.position;
-			let read = async move { poll_read_inner(&handle, blob, position).await }.boxed();
+			let read = SyncWrapper::new(
+				async move { poll_read_inner(&handle, blob, position).await }.boxed(),
+			);
 			this.read.replace(read);
 		}
 
 		// Poll the read future if necessary.
 		if let Some(read) = this.read.as_mut() {
-			match read.as_mut().poll(cx) {
+			match read.get_mut().as_mut().poll(cx) {
 				std::task::Poll::Pending => return std::task::Poll::Pending,
 				std::task::Poll::Ready(Err(error)) => {
 					this.read.take();

@@ -115,6 +115,7 @@ swc_core = { version = "0.91", features = [
   "ecma_transforms_typescript",
   "ecma_visit",
 ] }
+sync_wrapper = "1"
 tangram_cli = { path = "packages/cli" }
 tangram_client = { path = "packages/client" }
 tangram_database = { path = "packages/database" }
