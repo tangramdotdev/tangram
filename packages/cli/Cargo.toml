@@ -21,6 +21,7 @@ path = "src/main.rs"
 bytes = { workspace = true }
 clap = { workspace = true }
 console-subscriber = { workspace = true }
+copypasta = { workspace = true }
 crossterm = { workspace = true }
 deno_core_icudata = { workspace = true }
 dialoguer = { workspace = true }
@@ -38,6 +39,7 @@ serde = { workspace = true }
 serde_json = { workspace = true }
 serde_with = { workspace = true }
 tangram_client = { workspace = true }
+tangram_futures = { workspace = true }
 tangram_server = { workspace = true }
 tokio = { workspace = true }
 tokio-util = { workspace = true }

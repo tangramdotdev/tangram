@@ -253,7 +253,9 @@ impl Cli {
 		} else {
 			// Start the TUI.
 			let tui = match args.view {
-				View::Tui => Tui::start(&self.handle, &build).await.ok(),
+				View::Tui => Tui::start(&self.handle, Either::Left(build.clone()))
+					.await
+					.ok(),
 				View::None => None,
 			};
 

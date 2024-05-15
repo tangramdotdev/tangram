@@ -462,9 +462,7 @@ impl<'a, 'b> GraphemeParserState<'a, 'b> {
 
 #[cfg(test)]
 mod tests {
-	use crate::tui::scroll::{scroll_down_inner, scroll_up_inner};
-
-	use super::{next_grapheme, Error, Scroll};
+	use super::{next_grapheme, scroll_down_inner, scroll_up_inner, Error, Scroll};
 	use num::ToPrimitive as _;
 	use ratatui::layout::Rect;
 	use tangram_client as tg;
