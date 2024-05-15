@@ -15,18 +15,18 @@ impl Server {
 			tg::package::get_root_module_path(self, &package.clone().into()).await?;
 
 		// Create a queue of module paths to visit and a visited set.
-		let r#type = tg::import::Type::try_from_path(&root_module_path);
-		let mut queue = VecDeque::from(vec![(root_module_path, r#type)]);
-		let mut visited: HashSet<(tg::Path, Option<tg::import::Type>), fnv::FnvBuildHasher> =
+		let kind = tg::import::Kind::try_from_path(&root_module_path);
+		let mut queue = VecDeque::from(vec![(root_module_path, kind)]);
+		let mut visited: HashSet<(tg::Path, Option<tg::import::Kind>), fnv::FnvBuildHasher> =
 			HashSet::default();
 
 		// Visit each module.
-		while let Some((module_path, r#type)) = queue.pop_front() {
+		while let Some((module_path, kind)) = queue.pop_front() {
 			// Add the module path to the visited set.
-			visited.insert((module_path.clone(), r#type));
+			visited.insert((module_path.clone(), kind));
 
 			// If this is not a JavaScript or TypeScript module, then continue.
-			if !matches!(r#type, Some(tg::import::Type::Js | tg::import::Type::Ts)) {
+			if !matches!(kind, Some(tg::import::Kind::Js | tg::import::Kind::Ts)) {
 				continue;
 			}
 
@@ -65,7 +65,7 @@ impl Server {
 			let iter = analysis.imports.iter().filter_map(|import| {
 				if let tg::import::Specifier::Path(path) = &import.specifier {
 					let path = module_path.clone().parent().join(path.clone()).normalize();
-					Some((path, import.r#type))
+					Some((path, import.kind))
 				} else {
 					None
 				}

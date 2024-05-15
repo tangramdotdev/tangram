@@ -7,8 +7,8 @@ pub struct Import {
 	/// The import specifier.
 	pub specifier: Specifier,
 
-	/// The type of the import.
-	pub r#type: Option<Type>,
+	/// The kind of the import.
+	pub kind: Option<Kind>,
 }
 
 /// An import specifier.
@@ -22,7 +22,7 @@ pub enum Specifier {
 }
 
 #[derive(Debug, Copy, Clone, PartialEq, Eq, Hash)]
-pub enum Type {
+pub enum Kind {
 	Js,
 	Ts,
 	Dts,
@@ -52,27 +52,27 @@ impl Import {
 
 		// Parse the type.
 		let attributes = attributes.cloned().unwrap_or_default();
-		let r#type = attributes.get("type").map(String::as_str);
-		let r#type = match r#type {
-			Some("js") => Some(Type::Js),
-			Some("ts") => Some(Type::Ts),
-			Some("dts") => Some(Type::Dts),
-			Some("artifact") => Some(Type::Artifact),
-			Some("directory") => Some(Type::Directory),
-			Some("file") => Some(Type::File),
-			Some("symlink") => Some(Type::Symlink),
-			Some(r#type) => return Err(tg::error!("unknown import type: {type}")),
+		let kind = attributes.get("type").map(String::as_str);
+		let kind = match kind {
+			Some("js") => Some(Kind::Js),
+			Some("ts") => Some(Kind::Ts),
+			Some("dts") => Some(Kind::Dts),
+			Some("artifact") => Some(Kind::Artifact),
+			Some("directory") => Some(Kind::Directory),
+			Some("file") => Some(Kind::File),
+			Some("symlink") => Some(Kind::Symlink),
+			Some(kind) => return Err(tg::error!(%kind, "unknown import type")),
 			None => match &specifier {
-				Specifier::Path(path) => Type::try_from_path(path),
+				Specifier::Path(path) => Kind::try_from_path(path),
 				Specifier::Dependency(_) => None,
 			},
 		};
 
-		Ok(Import { specifier, r#type })
+		Ok(Import { specifier, kind })
 	}
 }
 
-impl Type {
+impl Kind {
 	#[must_use]
 	pub fn try_from_path(path: &tg::Path) -> Option<Self> {
 		if path.as_str().to_lowercase().ends_with(".d.ts") {
@@ -115,7 +115,7 @@ impl fmt::Display for Specifier {
 
 #[cfg(test)]
 mod tests {
-	use super::{Specifier, Type};
+	use super::{Kind, Specifier};
 	use crate as tg;
 
 	#[test]
@@ -155,7 +155,7 @@ mod tests {
 			import.specifier,
 			Specifier::Path("./module.ts".parse().unwrap())
 		);
-		assert_eq!(import.r#type, Some(Type::Ts));
+		assert_eq!(import.kind, Some(Kind::Ts));
 
 		let dependency_specifier = "tg:foo";
 		let attributes = [
@@ -175,6 +175,6 @@ mod tests {
 				"1.2.3".to_owned()
 			))
 		);
-		assert_eq!(import.r#type, Some(Type::Directory));
+		assert_eq!(import.kind, Some(Kind::Directory));
 	}
 }

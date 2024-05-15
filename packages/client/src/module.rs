@@ -90,27 +90,27 @@ pub enum Symlink {
 
 impl Module {
 	pub async fn with_package_path(package: PathBuf, path: tg::Path) -> tg::Result<Self> {
-		let r#type = tg::import::Type::try_from_path(&path);
-		let module = match r#type {
-			Some(tg::import::Type::Js) => {
+		let kind = tg::import::Kind::try_from_path(&path);
+		let module = match kind {
+			Some(tg::import::Kind::Js) => {
 				let package_path = PackagePath {
 					package_path: package,
 					path,
 				};
 				Module::Js(Js::PackagePath(package_path))
 			},
-			Some(tg::import::Type::Ts) => {
+			Some(tg::import::Kind::Ts) => {
 				let package_path = PackagePath {
 					package_path: package,
 					path,
 				};
 				Module::Ts(Js::PackagePath(package_path))
 			},
-			Some(tg::import::Type::Dts) => {
+			Some(tg::import::Kind::Dts) => {
 				let dts = Dts { path };
 				Module::Dts(dts)
 			},
-			Some(_) => return Err(tg::error!("unexpected import type")),
+			Some(_) => return Err(tg::error!("unexpected import kind")),
 			None => {
 				let absolute_path = package.join(&path);
 				let metadata = tokio::fs::symlink_metadata(&absolute_path)
@@ -123,7 +123,9 @@ impl Module {
 				} else if metadata.is_symlink() {
 					Module::Symlink(Symlink::Path(absolute_path.try_into().unwrap()))
 				} else {
-					return Err(tg::error!(%path = absolute_path.display(), "invalid file type"));
+					return Err(
+						tg::error!(%path = absolute_path.display(), "expected a directory, file, or symlink"),
+					);
 				}
 			},
 		};
@@ -136,19 +138,19 @@ impl Module {
 		lock: &tg::Lock,
 	) -> tg::Result<Self> {
 		let module_path = tg::package::try_get_root_module_path(handle, package).await?;
-		let (root_module, r#type) = if let Some(path) = &module_path {
-			let r#type = tg::import::Type::try_from_path(path);
+		let (root_module, kind) = if let Some(path) = &module_path {
+			let kind = tg::import::Kind::try_from_path(path);
 			let package = &package
 				.try_unwrap_directory_ref()
 				.ok()
 				.ok_or_else(|| tg::error!("expected a directory"))?;
 			let root_module = package.try_get(handle, path).await?;
-			(root_module, r#type)
+			(root_module, kind)
 		} else {
 			(None, None)
 		};
-		match (r#type, root_module) {
-			(Some(tg::import::Type::Js), Some(_)) => {
+		match (kind, root_module) {
+			(Some(tg::import::Kind::Js), Some(_)) => {
 				let artifact = package.id(handle, None).await?;
 				let lock = lock.id(handle, None).await?;
 				let package_artifact = PackageArtifact {
@@ -158,7 +160,7 @@ impl Module {
 				};
 				Ok(Module::Js(Js::PackageArtifact(package_artifact)))
 			},
-			(Some(tg::import::Type::Ts), Some(_)) => {
+			(Some(tg::import::Kind::Ts), Some(_)) => {
 				let package_id = package.id(handle, None).await?;
 				let lock_id = lock.id(handle, None).await?;
 				let package_artifact = PackageArtifact {
@@ -168,7 +170,7 @@ impl Module {
 				};
 				Ok(Module::Ts(Js::PackageArtifact(package_artifact)))
 			},
-			(Some(_), _) => Err(tg::error!("unexpected import type")),
+			(Some(_), _) => Err(tg::error!("unexpected import kind")),
 			(None, _) => match package {
 				tg::Artifact::Directory(directory) => {
 					let id = directory.id(handle, None).await?;

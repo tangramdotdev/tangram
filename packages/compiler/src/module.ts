@@ -16,6 +16,7 @@ export type Js =
 
 export type PackageArtifact = {
 	artifact: string;
+	lock: string;
 	path: string;
 };
 
