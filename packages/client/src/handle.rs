@@ -169,20 +169,6 @@ pub trait Handle: Clone + Unpin + Send + Sync + 'static {
 		})
 	}
 
-	fn get_build_children_all(
-		&self,
-		id: &tg::build::Id,
-		arg: tg::build::children::Arg,
-	) -> impl Future<
-		Output = tg::Result<
-			impl Stream<Item = tg::Result<tg::build::children::Chunk>> + Send + 'static,
-		>,
-	> + Send {
-		self.try_get_build_children(id, arg).map(|result| {
-			result.and_then(|option| option.ok_or_else(|| tg::error!("failed to get the build")))
-		})
-	}
-
 	fn add_build_child(
 		&self,
 		id: &tg::build::Id,
