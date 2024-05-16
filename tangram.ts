@@ -1,7 +1,7 @@
+export default tg.target(() => tg.file("Hello, World!"));
+
 // import * as rust from "tg:rust" with { path: "../packages/packages/rust" };
 // import * as std from "tg:std" with { path: "../packages/packages/std" };
-
-export default tg.target(() => tg.file("Hello, World!"));
 
 // export let source = tg.target(() =>
 // 	tg.directory({

@@ -22,7 +22,7 @@ fn main() {
 	.unwrap();
 
 	// Copy the typescript libraries.
-	println!("cargo:rerun-if-changed=../../node_modules");
+	println!("cargo:rerun-if-changed=../../node_modules/typescript/lib");
 	let paths = glob::glob("../../node_modules/typescript/lib/lib.es*.d.ts").unwrap();
 	for path in paths {
 		let path = path.unwrap();

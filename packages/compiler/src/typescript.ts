@@ -1,5 +1,5 @@
 import ts from "typescript";
-import { assert } from "./assert.ts";
+import { assert, unreachable } from "./assert.ts";
 import type { Diagnostic, Severity } from "./diagnostics.ts";
 import { log } from "./log.ts";
 import type { Module } from "./module.ts";
@@ -85,19 +85,19 @@ export let host: ts.LanguageServiceHost & ts.CompilerHost = {
 	resolveModuleNameLiterals: (imports, module) => {
 		return imports.map((import_) => {
 			let specifier = import_.text;
-			let declaration = import_.parent;
-			assert(
-				ts.isImportDeclaration(declaration) ||
-					ts.isExportDeclaration(declaration),
-			);
-			let attributes = Object.fromEntries(
-				(declaration.attributes?.elements ?? []).map((attribute) => {
-					let key = attribute.name.text;
-					assert(ts.isStringLiteral(attribute.value));
-					let value = attribute.value.text;
-					return [key, value];
-				}),
-			);
+			let parent = import_.parent;
+			let attributes: { [key: string]: string } | undefined;
+			if (ts.isImportDeclaration(parent) || ts.isExportDeclaration(parent)) {
+				attributes = getImportAttributesFromImportDeclaration(parent);
+			} else if (
+				ts.isCallExpression(parent) &&
+				parent.expression.kind === ts.SyntaxKind.ImportKeyword
+			) {
+				attributes = getImportAttributesFromImportExpression(parent);
+			} else {
+				return unreachable();
+			}
+			log(specifier, attributes);
 			let resolvedFileName: string | undefined;
 			try {
 				resolvedFileName = fileNameFromModule(
@@ -131,11 +131,59 @@ export let host: ts.LanguageServiceHost & ts.CompilerHost = {
 	},
 };
 
-// Create the document registry.
-export let documentRegistry = ts.createDocumentRegistry();
+let getImportAttributesFromImportDeclaration = (
+	declaration: ts.ImportDeclaration | ts.ExportDeclaration,
+): { [key: string]: string } | undefined => {
+	if (declaration.attributes === undefined) {
+		return undefined;
+	}
+	let attributes: { [key: string]: string } = {};
+	for (let attribute of declaration.attributes.elements) {
+		let key = attribute.name.text;
+		assert(ts.isStringLiteral(attribute.value));
+		let value = attribute.value.text;
+		attributes[key] = value;
+	}
+	return attributes;
+};
 
-// Create the TypeScript language service.
-export let languageService = ts.createLanguageService(host, documentRegistry);
+let getImportAttributesFromImportExpression = (
+	expression: ts.CallExpression,
+): { [key: string]: string } | undefined => {
+	let argument = expression.arguments.at(1);
+	if (argument === undefined) {
+		return undefined;
+	}
+	assert(ts.isObjectLiteralExpression(argument));
+	let with_: ts.Expression | undefined;
+	for (let property of argument.properties) {
+		assert(
+			ts.isPropertyAssignment(property) &&
+				(ts.isIdentifier(property.name) || ts.isStringLiteral(property.name)),
+		);
+		if (property.name.text !== "with") {
+			continue;
+		}
+		with_ = property.initializer;
+		break;
+	}
+	if (with_ === undefined) {
+		return undefined;
+	}
+	assert(ts.isObjectLiteralExpression(with_));
+	let attributes: { [key: string]: string } = {};
+	for (let property of with_.properties) {
+		assert(
+			ts.isPropertyAssignment(property) &&
+				(ts.isIdentifier(property.name) || ts.isStringLiteral(property.name)) &&
+				ts.isStringLiteral(property.initializer),
+		);
+		let key = property.name.text;
+		let value = property.initializer.text;
+		attributes[key] = value;
+	}
+	return attributes;
+};
 
 /** Convert a module to a TypeScript file name. */
 export let fileNameFromModule = (module: Module): string => {
@@ -244,3 +292,9 @@ export let convertDiagnostic = (diagnostic: ts.Diagnostic): Diagnostic => {
 		message,
 	};
 };
+
+// Create the document registry.
+export let documentRegistry = ts.createDocumentRegistry();
+
+// Create the TypeScript language service.
+export let languageService = ts.createLanguageService(host, documentRegistry);

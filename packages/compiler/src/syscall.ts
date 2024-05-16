@@ -44,7 +44,7 @@ declare global {
 		name: "module_resolve",
 		module: Module,
 		specifier: string,
-		attributes: { [key: string]: string },
+		attributes: { [key: string]: string } | undefined,
 	): Module;
 
 	/** Get the version of a module. */
