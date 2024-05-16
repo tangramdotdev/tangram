@@ -51,7 +51,7 @@ enum NodeKind {
 	},
 	Directory {
 		directory: tg::Directory,
-		children: std::sync::RwLock<Vec<(String, Arc<Node>)>>,
+		children: DashMap<String, Arc<Node>, fnv::FnvBuildHasher>,
 	},
 	File {
 		file: tg::File,
@@ -999,11 +999,9 @@ impl Server {
 				}
 			},
 			NodeKind::Directory { children, .. } => {
-				let child = children
-					.read()
-					.unwrap()
-					.iter()
-					.find_map(|(path_, node)| (path_.as_str() == name).then_some(node.clone()));
+				let child = children.iter().find_map(|entry| {
+					(entry.key().as_str() == name).then_some(entry.value().clone())
+				});
 				if let Some(child) = child {
 					return Ok(child);
 				}
@@ -1043,7 +1041,7 @@ impl Server {
 		let kind = match child {
 			Either::Left(path) => NodeKind::Checkout { path },
 			Either::Right(tg::Artifact::Directory(directory)) => {
-				let children = std::sync::RwLock::new(Vec::default());
+				let children = DashMap::default();
 				NodeKind::Directory {
 					directory,
 					children,
@@ -1064,14 +1062,8 @@ impl Server {
 
 		// Add the child node to the parent node.
 		match &parent_node.kind {
-			NodeKind::Root { children } => {
+			NodeKind::Root { children } | NodeKind::Directory { children, .. } => {
 				children.insert(name.to_owned(), child_node.clone());
-			},
-			NodeKind::Directory { children, .. } => {
-				children
-					.write()
-					.unwrap()
-					.push((name.to_owned(), child_node.clone()));
 			},
 			_ => return Err(libc::EIO),
 		}
