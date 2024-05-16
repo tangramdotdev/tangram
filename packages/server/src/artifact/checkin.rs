@@ -1,8 +1,8 @@
 use crate::Server;
 use futures::{stream::FuturesUnordered, FutureExt as _, TryStreamExt as _};
+use itertools::Itertools as _;
 use std::os::unix::fs::PermissionsExt as _;
 use tangram_client as tg;
-use tangram_database::{self as db, prelude::*};
 use tangram_http::{incoming::request::Ext as _, outgoing::response::Ext as _, Incoming, Outgoing};
 
 impl Server {
@@ -35,32 +35,17 @@ impl Server {
 			return Ok(tg::artifact::checkin::Output { artifact: id });
 		}
 
-		// Get a database connection.
-		let connection = self
-			.database
-			.connection()
-			.await
-			.map_err(|source| tg::error!(!source, "failed to get a database connection"))?;
-
 		// Check in the artifact.
-		let id = self
-			.check_in_artifact_with_transaction(&arg.path, &connection)
-			.await?;
-
-		// Drop the connection.
-		drop(connection);
+		let artifact = self.check_in_artifact_inner(&arg.path).await?;
+		let artifact = artifact.id(self, None).await?;
 
 		// Create the output.
-		let output = tg::artifact::checkin::Output { artifact: id };
+		let output = tg::artifact::checkin::Output { artifact };
 
 		Ok(output)
 	}
 
-	async fn check_in_artifact_with_transaction(
-		&self,
-		path: &tg::Path,
-		transaction: &impl db::Query,
-	) -> tg::Result<tg::artifact::Id> {
+	async fn check_in_artifact_inner(&self, path: &tg::Path) -> tg::Result<tg::Artifact> {
 		// Get the metadata for the file system object at the path.
 		let metadata = tokio::fs::symlink_metadata(&path).await.map_err(
 			|source| tg::error!(!source, %path, "failed to get the metadata for the path"),
@@ -68,15 +53,15 @@ impl Server {
 
 		// Call the appropriate function for the file system object at the path.
 		if metadata.is_dir() {
-			self.check_in_directory(path, &metadata, transaction)
+			self.check_in_directory(path, &metadata)
 				.await
 				.map_err(|source| tg::error!(!source, %path, "failed to check in the directory"))
 		} else if metadata.is_file() {
-			self.check_in_file(path, &metadata, transaction)
+			self.check_in_file(path, &metadata)
 				.await
 				.map_err(|source| tg::error!(!source, %path, "failed to check in the file"))
 		} else if metadata.is_symlink() {
-			self.check_in_symlink(path, &metadata, transaction)
+			self.check_in_symlink(path, &metadata)
 				.await
 				.map_err(|source| tg::error!(!source, %path, "failed to check in the symlink"))
 		} else {
@@ -93,8 +78,7 @@ impl Server {
 		&self,
 		path: &tg::Path,
 		_metadata: &std::fs::Metadata,
-		transaction: &impl db::Query,
-	) -> tg::Result<tg::artifact::Id> {
+	) -> tg::Result<tg::Artifact> {
 		let names = {
 			let _permit = self.file_descriptor_semaphore.acquire().await;
 			let mut read_dir = tokio::fs::read_dir(path)
@@ -124,9 +108,7 @@ impl Server {
 			.into_iter()
 			.map(|name| async {
 				let path = path.clone().join(&name);
-				let id = self
-					.check_in_artifact_with_transaction(&path, transaction)
-					.await?;
+				let id = self.check_in_artifact_inner(&path).await?;
 				Ok::<_, tg::Error>((name, id))
 			})
 			.collect::<FuturesUnordered<_>>()
@@ -134,26 +116,18 @@ impl Server {
 			.await?;
 
 		// Create the directory.
-		let data = tg::directory::Data { entries };
-		let bytes = data.serialize()?;
-		let id = tg::directory::Id::new(&bytes);
-		let arg = tg::object::put::Arg {
-			bytes,
-			count: None,
-			weight: None,
-		};
-		self.put_object_with_transaction(&id.clone().into(), arg, transaction)
-			.await?;
+		let directory = tg::Directory::new(entries);
+		directory.store(self, None).await?;
+		directory.unload();
 
-		Ok(id.into())
+		Ok(directory.into())
 	}
 
 	async fn check_in_file(
 		&self,
 		path: &tg::Path,
 		metadata: &std::fs::Metadata,
-		transaction: &impl db::Query,
-	) -> tg::Result<tg::artifact::Id> {
+	) -> tg::Result<tg::Artifact> {
 		// Create the blob.
 		let permit = self.file_descriptor_semaphore.acquire().await;
 		let file = tokio::fs::File::open(path)
@@ -164,6 +138,7 @@ impl Server {
 			.boxed()
 			.await
 			.map_err(|source| tg::error!(!source, "failed to create the contents"))?;
+		let contents = tg::Blob::with_id(contents);
 		drop(permit);
 
 		// Determine if the file is executable.
@@ -177,35 +152,29 @@ impl Server {
 				.and_then(|attributes| serde_json::from_slice(&attributes).ok());
 		let references = attributes
 			.map(|attributes| attributes.references)
+			.map(|references| {
+				references
+					.into_iter()
+					.map(tg::Artifact::with_id)
+					.collect_vec()
+			})
 			.unwrap_or_default()
 			.into_iter()
 			.collect();
 
 		// Create the file.
-		let data = tg::file::Data {
-			contents,
-			executable,
-			references,
-		};
-		let bytes = data.serialize()?;
-		let id = tg::file::Id::new(&bytes);
-		let arg = tg::object::put::Arg {
-			bytes,
-			count: None,
-			weight: None,
-		};
-		self.put_object_with_transaction(&id.clone().into(), arg, transaction)
-			.await?;
+		let file = tg::File::new(contents, executable, references);
+		file.store(self, None).await?;
+		file.unload();
 
-		Ok(id.into())
+		Ok(file.into())
 	}
 
 	async fn check_in_symlink(
 		&self,
 		path: &tg::Path,
 		_metadata: &std::fs::Metadata,
-		transaction: &impl db::Query,
-	) -> tg::Result<tg::artifact::Id> {
+	) -> tg::Result<tg::Artifact> {
 		// Read the target from the symlink.
 		let target = tokio::fs::read_link(path).await.map_err(
 			|source| tg::error!(!source, %path, r#"failed to read the symlink at path"#,),
@@ -236,16 +205,8 @@ impl Server {
 			let artifact = target.components[0]
 				.try_unwrap_artifact_ref()
 				.ok()
-				.ok_or_else(|| tg::error!("invalid symlink"))?;
-			let artifact = match artifact {
-				tg::Artifact::Directory(directory) => {
-					directory.state().read().unwrap().id.clone().unwrap().into()
-				},
-				tg::Artifact::File(file) => file.state().read().unwrap().id.clone().unwrap().into(),
-				tg::Artifact::Symlink(symlink) => {
-					symlink.state().read().unwrap().id.clone().unwrap().into()
-				},
-			};
+				.ok_or_else(|| tg::error!("invalid symlink"))?
+				.clone();
 			let path = target.components[1]
 				.try_unwrap_string_ref()
 				.ok()
@@ -261,18 +222,11 @@ impl Server {
 		};
 
 		// Create the symlink.
-		let data = tg::symlink::Data { artifact, path };
-		let bytes = data.serialize()?;
-		let id = tg::symlink::Id::new(&bytes);
-		let arg = tg::object::put::Arg {
-			bytes,
-			count: None,
-			weight: None,
-		};
-		self.put_object_with_transaction(&id.clone().into(), arg, transaction)
-			.await?;
+		let symlink = tg::Symlink::new(artifact, path);
+		symlink.store(self, None).await?;
+		symlink.unload();
 
-		Ok(id.into())
+		Ok(symlink.into())
 	}
 }
 

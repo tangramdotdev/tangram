@@ -4,7 +4,6 @@ use futures::{stream, FutureExt as _, StreamExt as _, TryStreamExt as _};
 use num::ToPrimitive as _;
 use std::pin::pin;
 use tangram_client as tg;
-use tangram_database::prelude::*;
 use tangram_http::{incoming::request::Ext as _, outgoing::response::Ext as _, Incoming, Outgoing};
 use tokio::io::AsyncRead;
 
@@ -18,13 +17,6 @@ impl Server {
 		&self,
 		reader: impl AsyncRead + Send + 'static,
 	) -> tg::Result<tg::blob::Id> {
-		// Get a database connection.
-		let connection = self
-			.database
-			.connection()
-			.await
-			.map_err(|source| tg::error!(!source, "failed to get a database connection"))?;
-
 		// Create the reader.
 		let reader = pin!(reader);
 		let mut reader = fastcdc::v2020::AsyncStreamCDC::new(
@@ -83,9 +75,6 @@ impl Server {
 		blob.store(self, None).await?;
 		blob.unload();
 		let id = blob.id(self, None).await?;
-
-		// Drop the connection.
-		drop(connection);
 
 		Ok(id)
 	}
