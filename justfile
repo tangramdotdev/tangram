@@ -31,16 +31,16 @@ release:
 test *ARGS:
 	cargo test --workspace {{ARGS}}
 
-tg +ARGS:
+tg *ARGS:
 	cargo run -- {{ARGS}}
 
-tgr +ARGS:
+tgr *ARGS:
 	cargo run --release -- {{ARGS}}
 
-tgo +ARGS:
+tgo *ARGS:
 	cargo build --target aarch64-unknown-linux-gnu
 	orb sh -c "./target/aarch64-unknown-linux-gnu/debug/tg {{ARGS}}"
 
-tgor +ARGS:
+tgor *ARGS:
 	cargo build --release --target aarch64-unknown-linux-gnu
 	orb sh -c "./target/aarch64-unknown-linux-gnu/release/tg {{ARGS}}"

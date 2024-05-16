@@ -14,7 +14,7 @@ use std::{
 	os::unix::ffi::OsStrExt as _,
 };
 use tangram_client as tg;
-use tangram_futures::task::Task;
+use tangram_futures::task::Stop;
 use tokio::io::{AsyncReadExt as _, AsyncWriteExt as _};
 use url::Url;
 
@@ -115,7 +115,8 @@ impl Runtime {
 
 		// Start the proxy server.
 		let proxy = Proxy::new(server.clone(), build.id().clone(), None);
-		let proxy_task = Task::spawn(|stop| Server::serve(proxy, proxy_server_url.clone(), stop));
+		let stop = Stop::new();
+		let proxy_task = tokio::spawn(Server::serve(proxy, proxy_server_url.clone(), stop));
 
 		// Render the executable.
 		let executable = target.executable(server).await?;

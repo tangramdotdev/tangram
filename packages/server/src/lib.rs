@@ -377,7 +377,7 @@ impl Server {
 		let vfs = self.vfs.lock().unwrap().take();
 		if let Some(vfs) = vfs {
 			vfs.stop();
-			vfs.wait().await;
+			vfs.wait().await?;
 		}
 
 		// Release the lock file.

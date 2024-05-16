@@ -1,19 +1,20 @@
 use dashmap::DashMap;
 use either::Either;
-use futures::{
-	future::{self, BoxFuture},
-	FutureExt as _,
-};
+use futures::{future, FutureExt as _};
 use num::ToPrimitive as _;
 use std::{
 	ffi::CString,
-	os::unix::ffi::OsStrExt as _,
+	os::{
+		fd::{AsRawFd, FromRawFd, OwnedFd, RawFd},
+		unix::ffi::OsStrExt as _,
+	},
 	path::{Path, PathBuf},
-	sync::{Arc, Weak},
+	pin::pin,
+	sync::{atomic::AtomicU64, Arc, Weak},
 };
 use tangram_client as tg;
 use tangram_fuse::sys;
-use tangram_futures::task::Stop;
+use tangram_futures::task::{Stop, Task};
 use tokio::io::{AsyncReadExt as _, AsyncSeekExt as _};
 use zerocopy::{AsBytes as _, FromBytes as _};
 
@@ -21,14 +22,14 @@ use zerocopy::{AsBytes as _, FromBytes as _};
 pub struct Server(Arc<Inner>);
 
 pub struct Inner {
-	handle_index: std::sync::atomic::AtomicU64,
-	handles: DashMap<FileHandle, Arc<tokio::sync::RwLock<FileHandleData>>, fnv::FnvBuildHasher>,
-	node_index: std::sync::atomic::AtomicU64,
+	file_handle_index: AtomicU64,
+	file_handles:
+		DashMap<FileHandle, Arc<tokio::sync::RwLock<FileHandleState>>, fnv::FnvBuildHasher>,
+	node_index: AtomicU64,
 	nodes: DashMap<NodeId, Arc<Node>, fnv::FnvBuildHasher>,
 	path: std::path::PathBuf,
 	server: crate::Server,
-	stop: Stop,
-	task: std::sync::Mutex<Option<future::Shared<BoxFuture<'static, ()>>>>,
+	task: std::sync::Mutex<Option<Task<tg::Result<()>>>>,
 }
 
 #[derive(Clone, Copy, Debug, Eq, Ord, PartialEq, PartialOrd, Hash)]
@@ -69,8 +70,8 @@ enum NodeKind {
 #[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
 struct FileHandle(u64);
 
-/// The data associated with a file handle.
-enum FileHandleData {
+/// The state associated with a file handle.
+enum FileHandleState {
 	Directory,
 	File {
 		node: NodeId,
@@ -138,134 +139,135 @@ impl Server {
 				children: DashMap::default(),
 			},
 		});
+		let node_index = AtomicU64::new(1000);
 		let nodes = [(ROOT_NODE_ID, root)]
 			.into_iter()
 			.collect::<DashMap<_, _, _>>();
-		let node_index = std::sync::atomic::AtomicU64::new(1000);
-		let handles = DashMap::default();
-		let handle_index = std::sync::atomic::AtomicU64::new(0);
+		let file_handle_index = AtomicU64::new(0);
+		let file_handles = DashMap::default();
 		let path = path.to_owned();
 		let server = server.clone();
-		let stop = Stop::new();
 		let task = std::sync::Mutex::new(None);
 		let server = Self(Arc::new(Inner {
-			handle_index,
-			handles,
+			file_handle_index,
+			file_handles,
 			node_index,
 			nodes,
 			path,
 			server,
-			stop,
 			task,
 		}));
 
 		// Spawn the task.
-		let task = tokio::task::spawn_blocking({
+		let task = Task::spawn(|stop| {
 			let server = server.clone();
-			move || {
+			async move {
 				server
-					.task()
+					.task(stop)
+					.await
 					.inspect_err(|error| tracing::error!(%error))
-					.ok();
 			}
-		})
-		.map(Result::unwrap)
-		.boxed()
-		.shared();
+		});
 		server.task.lock().unwrap().replace(task);
 
 		Ok(server)
 	}
 
 	pub fn stop(&self) {
-		self.stop.stop();
+		self.task.lock().unwrap().as_ref().unwrap().stop();
 	}
 
-	pub async fn wait(&self) {
-		let future = self.task.lock().unwrap().clone().unwrap();
-		future.await;
+	pub async fn wait(&self) -> tg::Result<()> {
+		let task = self.task.lock().unwrap().clone().unwrap();
+		task.wait().await
 	}
 
-	fn task(&self) -> tg::Result<()> {
+	async fn task(&self, stop: Stop) -> tg::Result<()> {
 		// Mount.
-		let fd = Self::mount(&self.path)?;
+		let fd = Self::mount(&self.path).await?;
 
 		// Create the task tracker.
 		let task_tracker = tokio_util::task::TaskTracker::new();
 
-		// Create the request buffer.
-		let mut buffer = vec![0u8; 1024 * 1024 + 4096];
+		// Create the request channel.
+		let (request_sender, request_receiver) = async_channel::bounded(10);
+
+		// Spawn the request task.
+		tokio::task::spawn_blocking({
+			let fd = fd.clone();
+			move || {
+				Self::request_task(fd, request_sender).inspect_err(|error| tracing::error!(%error))
+			}
+		});
 
 		// Handle each request.
 		loop {
-			// Check if the server should stop.
-			if self.stop.is_stopped() {
-				break;
-			}
-
-			// Read a request.
-			let Some(bytes) = Self::read_request(fd, &mut buffer)? else {
+			// Get a request.
+			let read = request_receiver.recv().map(Result::unwrap);
+			let stop = stop.stopped();
+			let future::Either::Left((request, _)) = future::select(pin!(read), pin!(stop)).await
+			else {
 				break;
 			};
 
-			// Deserialize the request.
-			let request = Self::deserialize_request(bytes)?;
-
 			// Spawn a task to handle the request.
-			let server = self.clone();
-			task_tracker.spawn(async move {
-				// Get the unique identifier for the request.
-				let unique = request.header.unique;
+			task_tracker.spawn({
+				let server = self.clone();
+				let fd = fd.clone();
+				async move {
+					// Get the unique identifier for the request.
+					let unique = request.header.unique;
 
-				// Handle the request.
-				let result = server.handle_request(request).await.inspect_err(|error| {
-					tracing::error!(?error, "request failed");
-				});
+					// Handle the request.
+					let result = server.handle_request(request).await.inspect_err(|error| {
+						tracing::error!(?error, "request failed");
+					});
 
-				// Handle an error.
-				let response = match result {
-					Ok(response) => response,
-					Err(error) => {
-						Self::write_error(fd, unique, error);
-						return;
-					},
-				};
-
-				// Handle an empty response.
-				let Some(response) = response else {
-					return;
-				};
-
-				// Write the response.
-				Self::write_response(fd, unique, &response);
+					// Write the response.
+					match result {
+						Ok(Some(response)) => {
+							Self::write_response(fd.as_raw_fd(), unique, &response)
+								.inspect_err(|error| {
+									tracing::error!(?error, "failed to write the response");
+								})
+								.ok();
+						},
+						Ok(None) => (),
+						Err(error) => {
+							Self::write_error(fd.as_raw_fd(), unique, error)
+								.inspect_err(|error| {
+									tracing::error!(?error, "failed to write the error");
+								})
+								.ok();
+						},
+					}
+				}
 			});
 		}
 
 		// Wait for all tasks to complete.
-		let (sender, receiver) = tokio::sync::oneshot::channel();
-		tokio::spawn(async move {
-			task_tracker.close();
-			task_tracker.wait().await;
-			sender.send(()).unwrap();
-		});
-		receiver.blocking_recv().unwrap();
+		task_tracker.close();
+		task_tracker.wait().await;
 
 		// Unmount.
 		Self::unmount(&self.path)
+			.await
 			.inspect_err(|error| tracing::error!(%error, "failed to unmount"))
 			.ok();
-
-		// Close the file descriptor.
-		let ret = unsafe { libc::close(fd) };
-		if ret == -1 {
-			let error = std::io::Error::last_os_error();
-			tracing::error!(%error);
-		}
 
 		Ok(())
 	}
 
-	fn mount(path: &Path) -> tg::Result<std::os::unix::io::RawFd> {
+	async fn mount(path: &Path) -> tg::Result<Arc<OwnedFd>> {
+		// Unmount.
+		Self::unmount(path).await.ok();
+
+		// Remove a file at the path if one exists.
+		std::fs::remove_file(path).ok();
+
+		// Create a directory at the path if necessary.
+		std::fs::create_dir_all(path).ok();
+
 		unsafe {
 			// Create the file socket pair.
 			let mut fds = [0, 0];
@@ -344,27 +346,41 @@ impl Server {
 				return Err(tg::error!("failed to read the control message"));
 			}
 
-			// Read the file descriptor.
+			// Get the file descriptor.
 			let cmsg = libc::CMSG_FIRSTHDR(msg);
 			if cmsg.is_null() {
 				return Err(tg::error!("missing control message"));
 			}
-			let mut fd: std::os::unix::io::RawFd = 0;
+			let mut fd: RawFd = 0;
 			libc::memcpy(
 				std::ptr::addr_of_mut!(fd).cast(),
 				libc::CMSG_DATA(cmsg).cast(),
 				std::mem::size_of_val(&fd),
 			);
-			if fd > 0 {
-				libc::fcntl(fd, libc::F_SETFD, libc::FD_CLOEXEC);
+			let ret = libc::fcntl(fd, libc::F_SETFD, libc::FD_CLOEXEC);
+			if ret == -1 {
+				return Err(tg::error!(
+					source = std::io::Error::last_os_error(),
+					"failed to set close on exec"
+				));
+			}
+			let fd = Arc::new(OwnedFd::from_raw_fd(fd));
+
+			// Reap the process.
+			let ret = libc::waitpid(pid, std::ptr::null_mut(), 0);
+			if ret == -1 {
+				return Err(tg::error!(
+					source = std::io::Error::last_os_error(),
+					"failed to reap the process"
+				));
 			}
 
 			Ok(fd)
 		}
 	}
 
-	pub fn unmount(path: &Path) -> tg::Result<()> {
-		std::process::Command::new("/usr/bin/fusermount3")
+	pub async fn unmount(path: &Path) -> tg::Result<()> {
+		tokio::process::Command::new("fusermount3")
 			.arg("-q")
 			.arg("-u")
 			.arg(path)
@@ -372,27 +388,46 @@ impl Server {
 			.stdout(std::process::Stdio::null())
 			.stderr(std::process::Stdio::null())
 			.status()
+			.await
 			.map_err(|source| tg::error!(!source, "failed to unmount"))?;
 		Ok(())
 	}
 
-	fn read_request(fd: i32, request_buffer: &mut Vec<u8>) -> tg::Result<Option<&[u8]>> {
-		// Read the request.
-		let n = unsafe { libc::read(fd, request_buffer.as_mut_ptr().cast(), request_buffer.len()) };
-		if n < 0 {
-			let error = std::io::Error::last_os_error();
-			match error.raw_os_error() {
-				Some(libc::ENOENT | libc::EINTR | libc::EAGAIN) => {
-					return Ok(None);
-				},
-				_ => {
-					return Err(tg::error!(source = error, "failed to read the request"));
-				},
+	#[allow(clippy::needless_pass_by_value)]
+	fn request_task(fd: Arc<OwnedFd>, sender: async_channel::Sender<Request>) -> tg::Result<()> {
+		// Create the request buffer.
+		let mut buffer = vec![0u8; 1024 * 1024 + 4096];
+
+		loop {
+			// Read.
+			let n = unsafe { libc::read(fd.as_raw_fd(), buffer.as_mut_ptr().cast(), buffer.len()) };
+
+			// Handle a read error.
+			if n < 0 {
+				let error = std::io::Error::last_os_error();
+				if matches!(
+					error.raw_os_error(),
+					Some(libc::ENOENT | libc::EINTR | libc::EAGAIN)
+				) {
+					continue;
+				}
+				let error = tg::error!(source = error, "failed to read a request");
+				return Err(error);
+			}
+			let n = n.to_usize().unwrap();
+
+			// Copy the request.
+			let bytes = &buffer[..n];
+
+			// Deserialize the request.
+			let request = Self::deserialize_request(bytes)?;
+
+			// Send the request.
+			let result = sender.send_blocking(request);
+			if result.is_err() {
+				return Ok(());
 			}
 		}
-		let n = n.to_usize().unwrap();
-		let bytes = &request_buffer[..n];
-		Ok(Some(bytes))
 	}
 
 	fn deserialize_request(buffer: &[u8]) -> tg::Result<Request> {
@@ -411,7 +446,7 @@ impl Server {
 					data.split_at(std::mem::size_of::<sys::fuse_getxattr_in>());
 				let fuse_getxattr_in = read_data(fuse_getxattr_in)?;
 				let name = CString::from_vec_with_nul(name.to_owned()).map_err(|error| {
-					tg::error!(source = error, "failed to deserialize the request")
+					tg::error!(source = error, "failed to deserialize the request data")
 				})?;
 				RequestData::GetXattr(fuse_getxattr_in, name)
 			},
@@ -419,7 +454,7 @@ impl Server {
 			sys::fuse_opcode::FUSE_LISTXATTR => RequestData::ListXattr(read_data(data)?),
 			sys::fuse_opcode::FUSE_LOOKUP => {
 				let data = CString::from_vec_with_nul(data.to_owned()).map_err(|error| {
-					tg::error!(source = error, "failed to deserialize the request")
+					tg::error!(source = error, "failed to deserialize the request data")
 				})?;
 				RequestData::Lookup(data)
 			},
@@ -479,7 +514,7 @@ impl Server {
 		}
 	}
 
-	fn write_error(fd: i32, unique: u64, error: i32) {
+	fn write_error(fd: RawFd, unique: u64, error: i32) -> std::io::Result<()> {
 		let len = std::mem::size_of::<sys::fuse_out_header>();
 		let header = sys::fuse_out_header {
 			unique,
@@ -491,15 +526,14 @@ impl Server {
 			iov_base: header.as_ptr() as *mut _,
 			iov_len: header.len(),
 		}];
-		let ret = unsafe { libc::writev(fd, iov.as_ptr(), 1) };
+		let ret = unsafe { libc::writev(fd.as_raw_fd(), iov.as_ptr(), 1) };
 		if ret == -1 {
-			let error = std::io::Error::last_os_error();
-			tracing::error!(%error);
+			return Err(std::io::Error::last_os_error());
 		}
+		Ok(())
 	}
 
-	fn write_response(fd: i32, unique: u64, response: &Response) {
-		// Write the response.
+	fn write_response(fd: RawFd, unique: u64, response: &Response) -> std::io::Result<()> {
 		let data = match response {
 			Response::Flush | Response::Release | Response::ReleaseDir => &[],
 			Response::GetAttr(data) => data.as_bytes(),
@@ -530,11 +564,11 @@ impl Server {
 				iov_len: data.len(),
 			},
 		];
-		let ret = unsafe { libc::writev(fd, iov.as_ptr(), 2) };
+		let ret = unsafe { libc::writev(fd.as_raw_fd(), iov.as_ptr(), 2) };
 		if ret == -1 {
-			let error = std::io::Error::last_os_error();
-			tracing::error!(%error);
+			return Err(std::io::Error::last_os_error());
 		}
+		Ok(())
 	}
 
 	async fn handle_batch_forget_request(
@@ -711,25 +745,25 @@ impl Server {
 		let node = self.get_node(node_id).await?;
 
 		// Create the file handle.
-		let file_handle_data = match &node.kind {
+		let file_handle_state = match &node.kind {
 			NodeKind::Root { .. } => {
 				return Err(libc::EPERM);
 			},
-			NodeKind::Directory { .. } => FileHandleData::Directory,
+			NodeKind::Directory { .. } => FileHandleState::Directory,
 			NodeKind::File { file, .. } => {
 				let reader = file.reader(&self.server).await.map_err(|_| libc::EIO)?;
-				FileHandleData::File {
+				FileHandleState::File {
 					node: node_id,
 					reader,
 				}
 			},
-			NodeKind::Symlink { .. } | NodeKind::Checkout { .. } => FileHandleData::Symlink,
+			NodeKind::Symlink { .. } | NodeKind::Checkout { .. } => FileHandleState::Symlink,
 		};
-		let file_handle_data = Arc::new(tokio::sync::RwLock::new(file_handle_data));
+		let file_handle_state = Arc::new(tokio::sync::RwLock::new(file_handle_state));
 
 		// Add the file handle to the state.
 		let file_handle = self.next_file_handle().await;
-		self.handles.insert(file_handle, file_handle_data);
+		self.file_handles.insert(file_handle, file_handle_state);
 
 		// Create the response.
 		let open_flags = if matches!(&node.kind, NodeKind::Directory { .. }) {
@@ -769,19 +803,20 @@ impl Server {
 
 		// Get the reader.
 		let file_handle = FileHandle(data.fh);
-		let file_handle_data = self.handles.get(&file_handle).ok_or(libc::ENOENT)?.clone();
-
-		// Get the reader, sanity checking that the file handle was not corrupted.
-		let mut file_handle_data = file_handle_data.write().await;
-
-		let blob_reader = match &mut *file_handle_data {
-			FileHandleData::File { node, .. } if node.0 != node_id.0 => {
+		let file_handle_state = self
+			.file_handles
+			.get(&file_handle)
+			.ok_or(libc::ENOENT)?
+			.clone();
+		let mut file_handle_state = file_handle_state.write().await;
+		let blob_reader = match &mut *file_handle_state {
+			FileHandleState::File { node, .. } if node.0 != node_id.0 => {
 				tracing::error!(?file_handle, ?node, "file handle corrupted");
 				return Err(libc::EIO);
 			},
-			FileHandleData::File { reader, .. } => reader,
-			FileHandleData::Directory => return Err(libc::EISDIR),
-			FileHandleData::Symlink => return Err(libc::EINVAL),
+			FileHandleState::File { reader, .. } => reader,
+			FileHandleState::Directory => return Err(libc::EISDIR),
+			FileHandleState::Symlink => return Err(libc::EINVAL),
 		};
 
 		// Seek to the offset.
@@ -942,7 +977,7 @@ impl Server {
 		data: sys::fuse_release_in,
 	) -> tg::Result<Option<Response>, i32> {
 		let file_handle = FileHandle(data.fh);
-		self.handles.remove(&file_handle);
+		self.file_handles.remove(&file_handle);
 		Ok(Some(Response::Release))
 	}
 
@@ -952,7 +987,7 @@ impl Server {
 		data: sys::fuse_release_in,
 	) -> tg::Result<Option<Response>, i32> {
 		let file_handle = FileHandle(data.fh);
-		self.handles.remove(&file_handle);
+		self.file_handles.remove(&file_handle);
 		Ok(Some(Response::ReleaseDir))
 	}
 
@@ -1085,7 +1120,7 @@ impl Server {
 	// Create a new reader id.
 	async fn next_file_handle(&self) -> FileHandle {
 		let handle = self
-			.handle_index
+			.file_handle_index
 			.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
 		FileHandle(handle)
 	}

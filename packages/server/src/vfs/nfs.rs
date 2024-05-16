@@ -1,9 +1,6 @@
 use dashmap::DashMap;
 use either::Either;
-use futures::{
-	future::{self, BoxFuture},
-	FutureExt as _,
-};
+use futures::future;
 use num::ToPrimitive as _;
 use std::{
 	os::unix::ffi::OsStrExt as _,
@@ -12,7 +9,7 @@ use std::{
 	sync::{atomic::AtomicU64, Arc, Weak},
 };
 use tangram_client as tg;
-use tangram_futures::task::Stop;
+use tangram_futures::task::{Stop, Task};
 use tangram_nfs::{
 	rpc,
 	types::{
@@ -60,16 +57,15 @@ const ROOT: nfs_fh4 = nfs_fh4(0);
 pub struct Server(Arc<Inner>);
 
 pub struct Inner {
-	client_index: std::sync::atomic::AtomicU64,
+	client_index: AtomicU64,
 	clients: DashMap<Vec<u8>, Arc<tokio::sync::RwLock<ClientData>>, fnv::FnvBuildHasher>,
 	lock_index: AtomicU64,
 	locks: DashMap<u64, Arc<tokio::sync::RwLock<LockState>>, fnv::FnvBuildHasher>,
-	node_index: std::sync::atomic::AtomicU64,
+	node_index: AtomicU64,
 	nodes: DashMap<u64, Arc<Node>, fnv::FnvBuildHasher>,
 	path: PathBuf,
 	server: crate::Server,
-	stop: Stop,
-	task: std::sync::Mutex<Option<future::Shared<BoxFuture<'static, ()>>>>,
+	task: std::sync::Mutex<Option<Task<tg::Result<()>>>>,
 }
 
 struct LockState {
@@ -147,10 +143,9 @@ impl Server {
 			},
 		});
 		let nodes = [(0, root)].into_iter().collect();
-		let stop = Stop::new();
 		let task = std::sync::Mutex::new(None);
 		let server = Self(Arc::new(Inner {
-			client_index: std::sync::atomic::AtomicU64::new(1),
+			client_index: AtomicU64::new(1),
 			clients: DashMap::default(),
 			lock_index: AtomicU64::new(1),
 			locks: DashMap::default(),
@@ -158,41 +153,33 @@ impl Server {
 			nodes,
 			path: path.to_owned(),
 			server,
-			stop: stop.clone(),
 			task,
 		}));
 
 		// Spawn the task.
-		let task = tokio::spawn({
+		let task = Task::spawn(|stop| {
 			let server = server.clone();
 			async move {
-				server
-					.task(port)
-					.await
-					.inspect_err(|error| {
-						tracing::error!(?error);
-					})
-					.ok();
+				server.task(stop, port).await.inspect_err(|error| {
+					tracing::error!(?error);
+				})
 			}
-		})
-		.map(Result::unwrap)
-		.boxed()
-		.shared();
+		});
 		server.task.lock().unwrap().replace(task);
 
 		Ok(server)
 	}
 
 	pub fn stop(&self) {
-		self.stop.stop();
+		self.task.lock().unwrap().as_ref().unwrap().stop();
 	}
 
-	pub async fn wait(&self) {
-		let future = self.task.lock().unwrap().clone().unwrap();
-		future.await;
+	pub async fn wait(&self) -> tg::Result<()> {
+		let task = self.task.lock().unwrap().clone().unwrap();
+		task.wait().await
 	}
 
-	async fn task(&self, port: u16) -> tg::Result<()> {
+	async fn task(&self, stop: Stop, port: u16) -> tg::Result<()> {
 		// Mount.
 		Self::mount(&self.path, port).await?;
 
@@ -208,22 +195,22 @@ impl Server {
 		loop {
 			// Accept.
 			let accept = listener.accept();
-			let (connection, _addr) =
-				match future::select(pin!(accept), pin!(self.stop.stopped())).await {
-					future::Either::Left((result, _)) => {
-						result.map_err(|source| tg::error!(!source, "failed to accept"))?
-					},
-					future::Either::Right(((), _)) => {
-						break;
-					},
-				};
+			let stop = stop.clone();
+			let (stream, _addr) = match future::select(pin!(accept), pin!(stop.stopped())).await {
+				future::Either::Left((result, _)) => {
+					result.map_err(|source| tg::error!(!source, "failed to accept"))?
+				},
+				future::Either::Right(((), _)) => {
+					break;
+				},
+			};
 
 			// Spawn a task to handle the connection.
 			task_tracker.spawn({
 				let server = self.clone();
 				async move {
 					server
-						.handle_connection(connection)
+						.handle_connection(stream, stop)
 						.await
 						.inspect_err(|error| {
 							tracing::error!(?error);
@@ -244,6 +231,15 @@ impl Server {
 	}
 
 	async fn mount(path: &Path, port: u16) -> tg::Result<()> {
+		// Unmount.
+		Self::unmount(path).await.ok();
+
+		// Remove a file at the path if one exists.
+		tokio::fs::remove_file(path).await.ok();
+
+		// Create a directory at the path if necessary.
+		tokio::fs::create_dir_all(path).await.ok();
+
 		tokio::process::Command::new("dns-sd")
 			.args([
 				"-P",
@@ -291,7 +287,7 @@ impl Server {
 		Ok(())
 	}
 
-	async fn handle_connection(&self, stream: TcpStream) -> tg::Result<()> {
+	async fn handle_connection(&self, stream: TcpStream, stop: Stop) -> tg::Result<()> {
 		let (mut reader, mut writer) = tokio::io::split(stream);
 
 		// Create the task tracker.
@@ -312,7 +308,7 @@ impl Server {
 		// Receive incoming message fragments.
 		loop {
 			let read = rpc::read_fragments(&mut reader);
-			let fragments = match future::select(pin!(read), pin!(self.stop.stopped())).await {
+			let fragments = match future::select(pin!(read), pin!(stop.stopped())).await {
 				future::Either::Left((result, _)) => {
 					result.map_err(|source| tg::error!(!source, "failed to read fragments"))?
 				},

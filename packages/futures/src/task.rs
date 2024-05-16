@@ -10,7 +10,7 @@ use std::{
 
 #[derive(Clone)]
 pub struct Task<T> {
-	abort: Arc<tokio::task::AbortHandle>,
+	_abort: Arc<tokio::task::AbortHandle>,
 	stop: Stop,
 	future: future::Shared<BoxFuture<'static, T>>,
 }
@@ -37,14 +37,10 @@ where
 		let abort = Arc::new(task.abort_handle());
 		let future = task.map(Result::unwrap).boxed().shared();
 		Self {
-			abort,
+			_abort: abort,
 			stop,
 			future,
 		}
-	}
-
-	pub fn abort(&self) {
-		self.abort.abort();
 	}
 
 	pub fn stop(&self) {
@@ -83,12 +79,6 @@ where
 			})
 			.value()
 			.clone()
-	}
-
-	pub fn abort(&self, key: &K) {
-		if let Some(task) = self.map.get(key) {
-			task.abort();
-		}
 	}
 
 	pub fn stop(&self, key: &K) {
