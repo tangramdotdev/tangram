@@ -74,6 +74,11 @@ pub trait Handle: Clone + Unpin + Send + Sync + 'static {
 		arg: tg::build::list::Arg,
 	) -> impl Future<Output = tg::Result<tg::build::list::Output>> + Send;
 
+	fn try_get_build(
+		&self,
+		id: &tg::build::Id,
+	) -> impl Future<Output = tg::Result<Option<tg::build::get::Output>>> + Send;
+
 	fn get_build(
 		&self,
 		id: &tg::build::Id,
@@ -82,11 +87,6 @@ pub trait Handle: Clone + Unpin + Send + Sync + 'static {
 			result.and_then(|option| option.ok_or_else(|| tg::error!("failed to get the build")))
 		})
 	}
-
-	fn try_get_build(
-		&self,
-		id: &tg::build::Id,
-	) -> impl Future<Output = tg::Result<Option<tg::build::get::Output>>> + Send;
 
 	fn put_build(
 		&self,
@@ -98,6 +98,11 @@ pub trait Handle: Clone + Unpin + Send + Sync + 'static {
 
 	fn pull_build(&self, id: &tg::build::Id) -> impl Future<Output = tg::Result<()>> + Send;
 
+	fn try_dequeue_build(
+		&self,
+		arg: tg::build::dequeue::Arg,
+	) -> impl Future<Output = tg::Result<Option<tg::build::dequeue::Output>>> + Send;
+
 	fn dequeue_build(
 		&self,
 		arg: tg::build::dequeue::Arg,
@@ -106,11 +111,6 @@ pub trait Handle: Clone + Unpin + Send + Sync + 'static {
 			result.and_then(|option| option.ok_or_else(|| tg::error!("failed to dequeue a build")))
 		})
 	}
-
-	fn try_dequeue_build(
-		&self,
-		arg: tg::build::dequeue::Arg,
-	) -> impl Future<Output = tg::Result<Option<tg::build::dequeue::Output>>> + Send;
 
 	fn start_build(&self, id: &tg::build::Id) -> impl Future<Output = tg::Result<bool>> + Send {
 		self.try_start_build(id).map(|result| {
@@ -122,6 +122,16 @@ pub trait Handle: Clone + Unpin + Send + Sync + 'static {
 		&self,
 		id: &tg::build::Id,
 	) -> impl Future<Output = tg::Result<Option<bool>>> + Send;
+
+	fn try_get_build_status(
+		&self,
+		id: &tg::build::Id,
+		arg: tg::build::status::Arg,
+	) -> impl Future<
+		Output = tg::Result<
+			Option<impl Stream<Item = tg::Result<tg::build::Status>> + Send + 'static>,
+		>,
+	> + Send;
 
 	fn get_build_status(
 		&self,
@@ -135,13 +145,13 @@ pub trait Handle: Clone + Unpin + Send + Sync + 'static {
 		})
 	}
 
-	fn try_get_build_status(
+	fn try_get_build_children(
 		&self,
 		id: &tg::build::Id,
-		arg: tg::build::status::Arg,
+		arg: tg::build::children::Arg,
 	) -> impl Future<
 		Output = tg::Result<
-			Option<impl Stream<Item = tg::Result<tg::build::Status>> + Send + 'static>,
+			Option<impl Stream<Item = tg::Result<tg::build::children::Chunk>> + Send + 'static>,
 		>,
 	> + Send;
 
@@ -159,21 +169,35 @@ pub trait Handle: Clone + Unpin + Send + Sync + 'static {
 		})
 	}
 
-	fn try_get_build_children(
+	fn get_build_children_all(
 		&self,
 		id: &tg::build::Id,
 		arg: tg::build::children::Arg,
 	) -> impl Future<
 		Output = tg::Result<
-			Option<impl Stream<Item = tg::Result<tg::build::children::Chunk>> + Send + 'static>,
+			impl Stream<Item = tg::Result<tg::build::children::Chunk>> + Send + 'static,
 		>,
-	> + Send;
+	> + Send {
+		self.try_get_build_children(id, arg).map(|result| {
+			result.and_then(|option| option.ok_or_else(|| tg::error!("failed to get the build")))
+		})
+	}
 
 	fn add_build_child(
 		&self,
 		id: &tg::build::Id,
 		child_id: &tg::build::Id,
 	) -> impl Future<Output = tg::Result<()>> + Send;
+
+	fn try_get_build_log(
+		&self,
+		id: &tg::build::Id,
+		arg: tg::build::log::Arg,
+	) -> impl Future<
+		Output = tg::Result<
+			Option<impl Stream<Item = tg::Result<tg::build::log::Chunk>> + Send + 'static>,
+		>,
+	> + Send;
 
 	fn get_build_log(
 		&self,
@@ -186,16 +210,6 @@ pub trait Handle: Clone + Unpin + Send + Sync + 'static {
 			result.and_then(|option| option.ok_or_else(|| tg::error!("failed to get the build")))
 		})
 	}
-
-	fn try_get_build_log(
-		&self,
-		id: &tg::build::Id,
-		arg: tg::build::log::Arg,
-	) -> impl Future<
-		Output = tg::Result<
-			Option<impl Stream<Item = tg::Result<tg::build::log::Chunk>> + Send + 'static>,
-		>,
-	> + Send;
 
 	fn add_build_log(
 		&self,
@@ -212,6 +226,20 @@ pub trait Handle: Clone + Unpin + Send + Sync + 'static {
 			Option<impl Future<Output = tg::Result<Option<tg::build::Outcome>>> + Send + 'static>,
 		>,
 	> + Send;
+
+	fn get_build_outcome(
+		&self,
+		id: &tg::build::Id,
+		arg: tg::build::outcome::Arg,
+	) -> impl Future<
+		Output = tg::Result<
+			impl Future<Output = tg::Result<Option<tg::build::Outcome>>> + Send + 'static,
+		>,
+	> + Send {
+		self.try_get_build_outcome(id, arg).map(|result| {
+			result.and_then(|option| option.ok_or_else(|| tg::error!("failed to get the build")))
+		})
+	}
 
 	fn finish_build(
 		&self,
@@ -234,6 +262,11 @@ pub trait Handle: Clone + Unpin + Send + Sync + 'static {
 		output: impl AsyncWrite + Send + Unpin + 'static,
 	) -> impl Future<Output = tg::Result<()>> + Send;
 
+	fn try_get_object(
+		&self,
+		id: &tg::object::Id,
+	) -> impl Future<Output = tg::Result<Option<tg::object::get::Output>>> + Send;
+
 	fn get_object(
 		&self,
 		id: &tg::object::Id,
@@ -242,11 +275,6 @@ pub trait Handle: Clone + Unpin + Send + Sync + 'static {
 			result.and_then(|option| option.ok_or_else(|| tg::error!("failed to get the object")))
 		})
 	}
-
-	fn try_get_object(
-		&self,
-		id: &tg::object::Id,
-	) -> impl Future<Output = tg::Result<Option<tg::object::get::Output>>> + Send;
 
 	fn put_object(
 		&self,
@@ -264,6 +292,12 @@ pub trait Handle: Clone + Unpin + Send + Sync + 'static {
 		arg: tg::package::list::Arg,
 	) -> impl Future<Output = tg::Result<tg::package::list::Output>> + Send;
 
+	fn try_get_package(
+		&self,
+		dependency: &tg::Dependency,
+		arg: tg::package::get::Arg,
+	) -> impl Future<Output = tg::Result<Option<tg::package::get::Output>>> + Send;
+
 	fn get_package(
 		&self,
 		dependency: &tg::Dependency,
@@ -274,16 +308,15 @@ pub trait Handle: Clone + Unpin + Send + Sync + 'static {
 		})
 	}
 
-	fn try_get_package(
-		&self,
-		dependency: &tg::Dependency,
-		arg: tg::package::get::Arg,
-	) -> impl Future<Output = tg::Result<Option<tg::package::get::Output>>> + Send;
-
 	fn check_package(
 		&self,
 		dependency: &tg::Dependency,
 	) -> impl Future<Output = tg::Result<Vec<tg::Diagnostic>>> + Send;
+
+	fn try_get_package_doc(
+		&self,
+		dependency: &tg::Dependency,
+	) -> impl Future<Output = tg::Result<Option<serde_json::Value>>> + Send;
 
 	fn get_package_doc(
 		&self,
@@ -293,11 +326,6 @@ pub trait Handle: Clone + Unpin + Send + Sync + 'static {
 			result.and_then(|option| option.ok_or_else(|| tg::error!("failed to get the package")))
 		})
 	}
-
-	fn try_get_package_doc(
-		&self,
-		dependency: &tg::Dependency,
-	) -> impl Future<Output = tg::Result<Option<serde_json::Value>>> + Send;
 
 	fn format_package(
 		&self,
@@ -312,6 +340,11 @@ pub trait Handle: Clone + Unpin + Send + Sync + 'static {
 	fn publish_package(&self, id: &tg::artifact::Id)
 		-> impl Future<Output = tg::Result<()>> + Send;
 
+	fn try_get_package_versions(
+		&self,
+		dependency: &tg::Dependency,
+	) -> impl Future<Output = tg::Result<Option<Vec<String>>>> + Send;
+
 	fn get_package_versions(
 		&self,
 		dependency: &tg::Dependency,
@@ -320,11 +353,6 @@ pub trait Handle: Clone + Unpin + Send + Sync + 'static {
 			result.and_then(|option| option.ok_or_else(|| tg::error!("failed to get the package")))
 		})
 	}
-
-	fn try_get_package_versions(
-		&self,
-		dependency: &tg::Dependency,
-	) -> impl Future<Output = tg::Result<Option<Vec<String>>>> + Send;
 
 	fn yank_package(&self, id: &tg::artifact::Id) -> impl Future<Output = tg::Result<()>> + Send;
 
