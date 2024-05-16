@@ -8,13 +8,12 @@ import type { Module } from "./module.ts";
 export let compilerOptions: ts.CompilerOptions = {
 	allowJs: true,
 	allowArbitraryExtensions: true,
+	exactOptionalPropertyTypes: true,
 	isolatedModules: true,
 	module: ts.ModuleKind.ESNext,
-	noEmit: true,
 	noUncheckedIndexedAccess: true,
 	skipLibCheck: true,
 	strict: true,
-	target: ts.ScriptTarget.ESNext,
 };
 
 // Create the host implementation for the TypeScript language service and compiler.

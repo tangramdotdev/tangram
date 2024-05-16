@@ -13,7 +13,7 @@ clean_path_orb:
 
 format:
 	cargo fmt --all
-	bun run --filter "*" check
+	bun run --filter "*" format
 
 release:
 	#!/bin/sh
