@@ -1,7 +1,7 @@
 import { Args } from "./args.ts";
-import { Artifact } from "./artifact.ts";
+import { Artifact, archive, bundle, extract } from "./artifact.ts";
 import { assert, unimplemented, unreachable } from "./assert.ts";
-import { Blob, blob, download } from "./blob.ts";
+import { Blob, blob, compress, decompress, download } from "./blob.ts";
 import { Branch, branch } from "./branch.ts";
 import { Checksum, checksum } from "./checksum.ts";
 import { Directory, directory } from "./directory.ts";
@@ -13,13 +13,12 @@ import { Lock, lock } from "./lock.ts";
 import { log } from "./log.ts";
 import { Mutation, mutation } from "./mutation.ts";
 import { path, Path } from "./path.ts";
-import { type Unresolved, resolve } from "./resolve.ts";
+import { resolve } from "./resolve.ts";
 import { sleep } from "./sleep.ts";
 import { start } from "./start.ts";
 import { Symlink, symlink } from "./symlink.ts";
 import { Target, build, getCurrentTarget, target } from "./target.ts";
 import { Template, template } from "./template.ts";
-import type { MaybeNestedArray } from "./util.ts";
 import { Value } from "./value.ts";
 
 let console = { log };
@@ -34,7 +33,7 @@ Object.defineProperties(globalThis, {
 
 async function tg(
 	strings: TemplateStringsArray,
-	...placeholders: Array<Unresolved<MaybeNestedArray<Template.Arg>>>
+	...placeholders: Args<Template.Arg>
 ): Promise<Template> {
 	let components = [];
 	for (let i = 0; i < strings.length - 1; i++) {
@@ -64,14 +63,19 @@ Object.assign(tg, {
 	Target,
 	Template,
 	Value,
+	archive,
 	assert,
 	blob,
 	branch,
 	build,
+	bundle,
 	checksum,
+	compress,
+	decompress,
 	directory,
 	download,
 	encoding,
+	extract,
 	file,
 	leaf,
 	lock,

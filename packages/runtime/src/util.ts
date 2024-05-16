@@ -19,7 +19,7 @@ export let flatten = <T>(value: MaybeNestedArray<T>): Array<T> => {
 
 export type MaybeMutation<T extends Value = Value> = T | Mutation<T>;
 
-export type MaybeMutationMap<T extends Value = Value> = T extends
+export type ValueOrMaybeMutationMap<T extends Value = Value> = T extends
 	| undefined
 	| boolean
 	| number
@@ -36,15 +36,21 @@ export type MaybeMutationMap<T extends Value = Value> = T extends
 	| Array<infer _U extends Value>
 	? T
 	: T extends { [key: string]: Value }
-		? MutationMap<T>
+		? MaybeMutationMap<T>
 		: never;
 
-export type MaybeNestedArray<T> = T | Array<MaybeNestedArray<T>>;
-
-export type MaybePromise<T> = T | Promise<T>;
-
-export type MutationMap<
+export type MaybeMutationMap<
 	T extends { [key: string]: Value } = { [key: string]: Value },
 > = {
 	[K in keyof T]?: MaybeMutation<T[K]>;
 };
+
+export type MutationMap<
+	T extends { [key: string]: Value } = { [key: string]: Value },
+> = {
+	[K in keyof T]?: Mutation<T[K]>;
+};
+
+export type MaybeNestedArray<T> = T | Array<MaybeNestedArray<T>>;
+
+export type MaybePromise<T> = T | Promise<T>;

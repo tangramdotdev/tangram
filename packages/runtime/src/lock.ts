@@ -1,17 +1,10 @@
 import { Args } from "./args.ts";
-import { assert as assert_, unreachable } from "./assert.ts";
-import { Mutation } from "./mutation.ts";
+import { assert as assert_ } from "./assert.ts";
 import type { Object_ } from "./object.ts";
-import { type Unresolved, resolve } from "./resolve.ts";
-import type {
-	MaybeMutationMap,
-	MaybeNestedArray,
-	MutationMap,
-} from "./util.ts";
+import { resolve } from "./resolve.ts";
+import { flatten } from "./util.ts";
 
-export let lock = async (
-	...args: Array<Unresolved<MaybeNestedArray<MaybeMutationMap<Lock.Arg>>>>
-): Promise<Lock> => {
+export let lock = async (...args: Args<Lock.Arg>): Promise<Lock> => {
 	return await Lock.new(...args);
 };
 
@@ -30,49 +23,21 @@ export class Lock {
 		return new Lock({ id });
 	}
 
-	static async new(
-		...args: Array<Unresolved<MaybeNestedArray<MaybeMutationMap<Lock.Arg>>>>
-	): Promise<Lock> {
-		type Apply = {
-			root: number;
-			nodeArgs: Array<Lock.NodeArg>;
-		};
-		let { root, nodeArgs } = await Args.apply<Lock.Arg, Apply>(
-			await Promise.all(args.map(resolve)),
-			async (arg) => {
-				if (arg === undefined) {
-					return {};
-				} else if (Lock.is(arg)) {
-					return {
-						root: await arg.root(),
-						nodes: await Mutation.arrayAppend(await arg.nodes()),
-					};
-				} else if (typeof arg === "object") {
-					let object: MutationMap<Apply> = {};
-					if (arg.root !== undefined) {
-						object.root = arg.root;
-					}
-					if (arg.nodes !== undefined) {
-						object.nodeArgs = Mutation.is(arg.nodes)
-							? arg.nodes
-							: await Mutation.arrayAppend(arg.nodes);
-					}
-					return object;
-				} else {
-					return unreachable();
-				}
-			},
-		);
-		root ??= 0;
-		nodeArgs ??= [];
+	static async new(...args: Args<Lock.Arg>): Promise<Lock> {
+		let arg = await Lock.arg(...args);
+		let root = arg.root ?? 0;
 		let nodes = await Promise.all(
-			nodeArgs.map(async (argObject) => {
-				let dependenciesKeys = Object.keys(argObject.dependencies ?? {});
-				let dependencies: { [dependency: string]: Lock } = {};
-				for (let key of dependenciesKeys) {
-					let dependency = argObject.dependencies![key];
+			(arg.nodes ?? []).map(async (node) => {
+				let keys = Object.keys(node.dependencies ?? {});
+				let dependencies: { [dependency: string]: Lock | number } = {};
+				for (let key of keys) {
+					let dependency = node.dependencies![key];
 					if (dependency) {
-						dependencies[key] = await Lock.new(dependency);
+						if (typeof dependency === "number") {
+							dependencies[key] = dependency;
+						} else {
+							dependencies[key] = await Lock.new(dependency);
+						}
 					}
 				}
 				return { dependencies };
@@ -81,17 +46,34 @@ export class Lock {
 		return new Lock({ object: { root, nodes } });
 	}
 
-	static is(value: unknown): value is Lock {
-		return value instanceof Lock;
+	static async arg(...args: Args<Lock.Arg>): Promise<Lock.ArgObject> {
+		let resolved = await Promise.all(args.map(resolve));
+		let flattened = flatten(resolved);
+		let objects = await Promise.all(
+			flattened.map(async (arg) => {
+				if (arg === undefined) {
+					return {};
+				} else if (arg instanceof Lock) {
+					return arg.object();
+				} else {
+					return arg;
+				}
+			}),
+		);
+		let mutations = await Args.createMutations(objects, {
+			nodes: "array_append",
+		});
+		let arg = await Args.applyMutations(mutations);
+		return arg;
 	}
 
 	static expect(value: unknown): Lock {
-		assert_(Lock.is(value));
+		assert_(value instanceof Lock);
 		return value;
 	}
 
 	static assert(value: unknown): asserts value is Lock {
-		assert_(Lock.is(value));
+		assert_(value instanceof Lock);
 	}
 
 	async id(): Promise<Lock.Id> {
@@ -139,7 +121,7 @@ export namespace Lock {
 	};
 
 	export type NodeArg = {
-		dependencies?: { [dependency: string]: Lock.Arg };
+		dependencies?: { [dependency: string]: Lock.Arg | number };
 	};
 
 	export type Id = string;

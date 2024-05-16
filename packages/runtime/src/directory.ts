@@ -33,19 +33,22 @@ export class Directory {
 		...args: Array<Unresolved<MaybeNestedArray<Directory.Arg>>>
 	): Promise<Directory> {
 		let entries = await (await Promise.all(args.map(resolve))).reduce<
-			Promise<Record<string, Artifact>>
+			Promise<{ [key: string]: Artifact }>
 		>(async function reduce(promiseEntries, arg) {
 			let entries = await promiseEntries;
 			if (arg === undefined) {
 				// If the arg is undefined, then continue.
-			} else if (Directory.is(arg)) {
+			} else if (arg instanceof Directory) {
 				// If the arg is a directory, then apply each entry.
 				for (let [name, entry] of Object.entries(await arg.entries())) {
 					// Get an existing entry.
 					let existingEntry = entries[name];
 
 					// Merge the existing entry with the entry if they are both directories.
-					if (Directory.is(existingEntry) && Directory.is(entry)) {
+					if (
+						existingEntry instanceof Directory &&
+						entry instanceof Directory
+					) {
 						entry = await Directory.new(existingEntry, entry);
 					}
 
@@ -74,7 +77,7 @@ export class Directory {
 					let existingEntry = entries[name];
 
 					// Remove the entry if it is not a directory.
-					if (!Directory.is(existingEntry)) {
+					if (!(existingEntry instanceof Directory)) {
 						existingEntry = undefined;
 					}
 
@@ -100,7 +103,7 @@ export class Directory {
 						) {
 							let newEntry = await file(value);
 							entries[name] = newEntry;
-						} else if (File.is(value) || Symlink.is(value)) {
+						} else if (value instanceof File || value instanceof Symlink) {
 							entries[name] = value;
 						} else {
 							entries[name] = await Directory.new(existingEntry, value);
@@ -115,17 +118,13 @@ export class Directory {
 		return new Directory({ object: { entries } });
 	}
 
-	static is(value: unknown): value is Directory {
-		return value instanceof Directory;
-	}
-
 	static expect(value: unknown): Directory {
-		assert_(Directory.is(value));
+		assert_(value instanceof Directory);
 		return value;
 	}
 
 	static assert(value: unknown): asserts value is Directory {
-		assert_(Directory.is(value));
+		assert_(value instanceof Directory);
 	}
 
 	async id(): Promise<Directory.Id> {
@@ -170,14 +169,14 @@ export class Directory {
 			if (!Path.Component.isNormal(component)) {
 				throw new Error("all path components must be normal");
 			}
-			if (!Directory.is(artifact)) {
+			if (!(artifact instanceof Directory)) {
 				return undefined;
 			}
 			currentPath.push(component);
 			let entry: Artifact | undefined = (await artifact.entries())[component];
 			if (entry === undefined) {
 				return undefined;
-			} else if (Symlink.is(entry)) {
+			} else if (entry instanceof Symlink) {
 				let resolved = await entry.resolve({
 					artifact: this,
 					path: currentPath,
@@ -193,8 +192,8 @@ export class Directory {
 		return artifact;
 	}
 
-	async entries(): Promise<Record<string, Artifact>> {
-		let entries: Record<string, Artifact> = {};
+	async entries(): Promise<{ [key: string]: Artifact }> {
+		let entries: { [key: string]: Artifact } = {};
 		for await (let [name, artifact] of this) {
 			entries[name] = artifact;
 		}
@@ -204,7 +203,7 @@ export class Directory {
 	async *walk(): AsyncIterableIterator<[Path, Artifact]> {
 		for await (let [name, artifact] of this) {
 			yield [Path.new(name), artifact];
-			if (Directory.is(artifact)) {
+			if (artifact instanceof Directory) {
 				for await (let [entryName, entryArtifact] of artifact.walk()) {
 					yield [Path.new(name).join(entryName), entryArtifact];
 				}
@@ -224,7 +223,7 @@ export namespace Directory {
 	export type Arg = undefined | Directory | ArgObject;
 
 	type ArgObject = {
-		[name: string]:
+		[key: string]:
 			| undefined
 			| string
 			| Uint8Array

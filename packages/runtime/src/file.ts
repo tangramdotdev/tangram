@@ -1,19 +1,12 @@
 import { Args } from "./args.ts";
 import type { Artifact } from "./artifact.ts";
-import { assert as assert_, unreachable } from "./assert.ts";
+import { assert as assert_ } from "./assert.ts";
 import { Blob, blob } from "./blob.ts";
-import { Mutation, mutation } from "./mutation.ts";
 import type { Object_ } from "./object.ts";
-import { type Unresolved, resolve } from "./resolve.ts";
-import type {
-	MaybeMutationMap,
-	MaybeNestedArray,
-	MutationMap,
-} from "./util.ts";
+import { resolve } from "./resolve.ts";
+import { flatten } from "./util.ts";
 
-export let file = async (
-	...args: Array<Unresolved<MaybeNestedArray<MaybeMutationMap<File.Arg>>>>
-) => {
+export let file = async (...args: Args<File.Arg>) => {
 	return await File.new(...args);
 };
 
@@ -32,21 +25,21 @@ export class File {
 		return new File({ id });
 	}
 
-	static async new(
-		...args: Array<Unresolved<MaybeNestedArray<MaybeMutationMap<File.Arg>>>>
-	): Promise<File> {
-		type Apply = {
-			contents?: Array<Blob.Arg>;
-			executable?: Array<boolean>;
-			references?: Array<Artifact>;
-		};
-		let {
-			contents: contents_,
-			executable: executable_,
-			references: references_,
-		} = await Args.apply<File.Arg, Apply>(
-			await Promise.all(args.map(resolve)),
-			async (arg) => {
+	static async new(...args: Args<File.Arg>): Promise<File> {
+		let arg = await File.arg(...args);
+		let contents = await blob(arg.contents);
+		let executable = arg.executable ?? false;
+		let references = arg.references ?? [];
+		return new File({
+			object: { contents, executable, references },
+		});
+	}
+
+	static async arg(...args: Args<File.Arg>): Promise<File.ArgObject> {
+		let resolved = await Promise.all(args.map(resolve));
+		let flattened = flatten(resolved);
+		let objects = await Promise.all(
+			flattened.map(async (arg) => {
 				if (arg === undefined) {
 					return {};
 				} else if (
@@ -54,75 +47,33 @@ export class File {
 					arg instanceof Uint8Array ||
 					Blob.is(arg)
 				) {
+					return { contents: arg };
+				} else if (arg instanceof File) {
+					let object = await arg.object();
 					return {
-						contents: await mutation({ kind: "array_append", values: [arg] }),
+						contents: object.contents,
+						references: object.references,
 					};
-				} else if (File.is(arg)) {
-					return {
-						contents: await mutation({
-							kind: "array_append",
-							values: [await arg.contents()],
-						}),
-						executable: await mutation({
-							kind: "array_append",
-							values: [await arg.executable()],
-						}),
-						references: await mutation({
-							kind: "array_append",
-							values: [await arg.references()],
-						}),
-					};
-				} else if (typeof arg === "object") {
-					let object: Partial<MutationMap<Apply>> = {};
-					if (arg.contents !== undefined) {
-						object.contents = Mutation.is(arg.contents)
-							? arg.contents
-							: await mutation({
-									kind: "array_append",
-									values: [arg.contents],
-								});
-					}
-					if (arg.executable !== undefined) {
-						object.executable = Mutation.is(arg.executable)
-							? arg.executable
-							: await mutation({
-									kind: "array_append",
-									values: [arg.executable],
-								});
-					}
-					if (arg.references !== undefined) {
-						object.references = Mutation.is(arg.references)
-							? arg.references
-							: await mutation({
-									kind: "array_append",
-									values: [arg.references],
-								});
-					}
-					return object;
 				} else {
-					return unreachable();
+					return arg;
 				}
-			},
+			}),
 		);
-		let contents = await blob(contents_);
-		let executable = (executable_ ?? []).some((executable) => executable);
-		let references = references_ ?? [];
-		return new File({
-			object: { contents, executable, references },
+		let mutations = await Args.createMutations(objects, {
+			contents: "array_append",
+			references: "array_append",
 		});
-	}
-
-	static is(value: unknown): value is File {
-		return value instanceof File;
+		let arg = await Args.applyMutations(mutations);
+		return arg;
 	}
 
 	static expect(value: unknown): File {
-		assert_(File.is(value));
+		assert_(value instanceof File);
 		return value;
 	}
 
 	static assert(value: unknown): asserts value is File {
-		assert_(File.is(value));
+		assert_(value instanceof File);
 	}
 
 	async id(): Promise<File.Id> {

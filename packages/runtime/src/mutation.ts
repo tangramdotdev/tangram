@@ -18,9 +18,9 @@ export class Mutation<T extends Value = Value> {
 	}
 
 	static async new<T extends Value = Value>(
-		unresolvedArg: Unresolved<Mutation.Arg<T>>,
+		unresolved: Unresolved<Mutation.Arg<T>>,
 	): Promise<Mutation<T>> {
-		let arg = await resolve(unresolvedArg);
+		let arg = await resolve(unresolved);
 		if (arg.kind === "array_prepend" || arg.kind === "array_append") {
 			return new Mutation({ kind: arg.kind, values: flatten(arg.values) });
 		} else if (
@@ -95,20 +95,13 @@ export class Mutation<T extends Value = Value> {
 		});
 	}
 
-	/** Check if a value is a `tg.Mutation`. */
-	static is(value: unknown): value is Mutation {
-		return value instanceof Mutation;
-	}
-
-	/** Expect that a value is a `tg.Mutation`. */
 	static expect(value: unknown): Mutation {
-		assert_(Mutation.is(value));
+		assert_(value instanceof Mutation);
 		return value;
 	}
 
-	/** Assert that a value is a `tg.Mutation`. */
 	static assert(value: unknown): asserts value is Mutation {
-		assert_(Mutation.is(value));
+		assert_(value instanceof Mutation);
 	}
 
 	get inner() {
@@ -162,4 +155,13 @@ export namespace Mutation {
 				template: Template;
 				separator: string | undefined;
 		  };
+
+	export type Kind =
+		| "set"
+		| "unset"
+		| "set_if_unset"
+		| "array_prepend"
+		| "array_append"
+		| "template_prepend"
+		| "template_append";
 }

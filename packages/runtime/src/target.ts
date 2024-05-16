@@ -1,12 +1,11 @@
 import { Args } from "./args.ts";
 import { Artifact } from "./artifact.ts";
-import { assert as assert_, unreachable } from "./assert.ts";
+import { assert as assert_ } from "./assert.ts";
 import type { Checksum } from "./checksum.ts";
 import { Directory } from "./directory.ts";
 import { File } from "./file.ts";
 import { Lock } from "./lock.ts";
 import { Module } from "./module.ts";
-import { Mutation, mutation } from "./mutation.ts";
 import type { Object_ } from "./object.ts";
 import { Path } from "./path.ts";
 import { type Unresolved, resolve } from "./resolve.ts";
@@ -16,7 +15,6 @@ import {
 	type MaybeMutationMap,
 	type MaybeNestedArray,
 	type MaybePromise,
-	type MutationMap,
 	flatten,
 } from "./util.ts";
 import type { Value } from "./value.ts";
@@ -49,17 +47,11 @@ export function target<
 export function target<
 	A extends Array<Value> = Array<Value>,
 	R extends Value = Value,
->(
-	...args: Array<Unresolved<MaybeNestedArray<MaybeMutationMap<Target.Arg>>>>
-): Promise<Target<A, R>>;
+>(...args: Args<Target.Arg>): Promise<Target<A, R>>;
 export function target<
 	A extends Array<Value> = Array<Value>,
 	R extends Value = Value,
->(
-	...args:
-		| [FunctionArg<A, R>]
-		| Array<Unresolved<MaybeNestedArray<MaybeMutationMap<Target.Arg>>>>
-): MaybePromise<Target<A, R>> {
+>(...args: [FunctionArg<A, R>] | Args<Target.Arg>): MaybePromise<Target<A, R>> {
 	if (
 		args.length === 1 &&
 		typeof args[0] === "object" &&
@@ -107,17 +99,11 @@ export function target<
 			},
 		});
 	} else {
-		return Target.new(
-			...(args as Array<
-				Unresolved<MaybeNestedArray<MaybeMutationMap<Target.Arg>>>
-			>),
-		);
+		return Target.new(...(args as Args<Target.Arg>));
 	}
 }
 
-export let build = async (
-	...args: Array<Unresolved<Target.Arg>>
-): Promise<Value> => {
+export let build = async (...args: Args<Target.Arg>): Promise<Value> => {
 	return await (await target(...args)).output();
 };
 
@@ -168,103 +154,65 @@ export class Target<
 	static async new<
 		A extends Array<Value> = Array<Value>,
 		R extends Value = Value,
-	>(
-		...args: Array<Unresolved<MaybeNestedArray<MaybeMutationMap<Target.Arg>>>>
-	): Promise<Target<A, R>> {
-		type Apply = {
-			host?: string;
-			executable?: Artifact;
-			args?: Array<Value>;
-			env?: MaybeNestedArray<MutationMap>;
-			lock?: Lock | undefined;
-			checksum?: Checksum | undefined;
-		};
-		let {
-			host,
-			executable,
+	>(...args: Args<Target.Arg>): Promise<Target<A, R>> {
+		let arg = await Target.arg(...args);
+		if (!arg.host) {
+			throw new Error("cannot create a target without a host");
+		}
+		if (!arg.executable) {
+			throw new Error("cannot create a target without an executable");
+		}
+		let env = await Args.applyMutations(flatten(arg.env ?? []));
+		let args_ = arg.args ?? [];
+		let object = {
+			host: arg.host,
+			executable: arg.executable,
 			args: args_,
-			env: env_,
-			lock,
-			checksum,
-		} = await Args.apply<Target.Arg, Apply>(
-			[
-				{ env: await getCurrentTarget().env() },
-				...(await Promise.all(args.map(resolve))),
-			],
-			async (arg) => {
-				if (
+			env,
+			lock: arg.lock,
+			checksum: arg.checksum,
+		};
+		return new Target({ object });
+	}
+
+	static async arg(...args: Args<Target.Arg>): Promise<Target.ArgObject> {
+		let resolved = await Promise.all(args.map(resolve));
+		let flattened = flatten(resolved);
+		let objects = await Promise.all(
+			flattened.map(async (arg) => {
+				if (arg === undefined) {
+					return {};
+				} else if (
 					typeof arg === "string" ||
 					Artifact.is(arg) ||
 					arg instanceof Template
 				) {
 					return {
-						host: (await getCurrentTarget().env()).TANGRAM_HOST as string,
 						executable: await symlink("/bin/sh"),
 						args: ["-c", arg],
 					};
-				} else if (Target.is(arg)) {
+				} else if (arg instanceof Target) {
 					return await arg.object();
-				} else if (typeof arg === "object") {
-					let object: MutationMap<Apply> = {};
-					if (arg.env !== undefined) {
-						object.env = Mutation.is(arg.env)
-							? arg.env
-							: await mutation({
-									kind: "array_append",
-									values: flatten([arg.env]),
-								});
-					}
-					if (arg.args !== undefined) {
-						object.args = Mutation.is(arg.args)
-							? arg.args
-							: await mutation({
-									kind: "array_append",
-									values: [...arg.args],
-								});
-					}
-					return {
-						...arg,
-						...object,
-					};
 				} else {
-					return unreachable();
+					return arg;
 				}
-			},
+			}),
 		);
-		if (!host) {
-			throw new Error("cannot create a target without a host");
-		}
-		if (!executable) {
-			throw new Error("cannot create a target without an executable");
-		}
-		let env = await Args.apply(
-			flatten(env_ ?? []),
-			async (arg) => arg as MutationMap,
-		);
-		args_ ??= [];
-		return new Target({
-			object: {
-				host,
-				executable,
-				args: args_,
-				env,
-				lock,
-				checksum,
-			},
+		let mutations = await Args.createMutations(objects, {
+			args: "array_append",
+			env: "array_append",
 		});
-	}
-
-	static is(value: unknown): value is Target {
-		return value instanceof Target;
+		let arg = await Args.applyMutations(mutations);
+		return arg;
 	}
 
 	static expect(value: unknown): Target {
-		assert_(Target.is(value));
+		assert_(value instanceof Target);
 		return value;
 	}
 
 	static assert(value: unknown): asserts value is Target {
-		assert_(Target.is(value));
+		assert_(value instanceof Target);
 	}
 
 	async id(): Promise<Target.Id> {
@@ -316,16 +264,16 @@ export class Target<
 		return (await this.object()).executable;
 	}
 
-	async args(): Promise<Array<Value>> {
-		return (await this.object()).args;
+	async lock(): Promise<Lock | undefined> {
+		return (await this.object()).lock;
 	}
 
-	async env(): Promise<Record<string, Value>> {
+	async env(): Promise<{ [key: string]: Value }> {
 		return (await this.object()).env;
 	}
 
-	async lock(): Promise<Lock | undefined> {
-		return (await this.object()).lock;
+	async args(): Promise<Array<Value>> {
+		return (await this.object()).args;
 	}
 
 	async checksum(): Promise<Checksum | undefined> {
@@ -350,7 +298,7 @@ export namespace Target {
 		host?: string;
 		executable?: Artifact;
 		args?: Array<Value>;
-		env?: MaybeNestedArray<MutationMap>;
+		env?: MaybeNestedArray<MaybeMutationMap>;
 		lock?: Lock | undefined;
 		checksum?: Checksum | undefined;
 	};
@@ -361,7 +309,7 @@ export namespace Target {
 		host: string;
 		executable: Artifact;
 		args: Array<Value>;
-		env: Record<string, Value>;
+		env: { [key: string]: Value };
 		lock: Lock | undefined;
 		checksum: Checksum | undefined;
 	};

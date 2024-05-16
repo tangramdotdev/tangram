@@ -43,7 +43,7 @@ let stringifyInner = (value: unknown, visited: WeakSet<object>): string => {
 			}
 		}
 		case "function": {
-			if (Target.is(value)) {
+			if (value instanceof Target) {
 				return stringifyObject(value, visited);
 			} else {
 				return `(function "${value.name ?? "(anonymous)"}")`;
@@ -63,36 +63,32 @@ let stringifyObject = (value: object, visited: WeakSet<object>): string => {
 		return "(circular)";
 	}
 	visited.add(value);
-	if (value instanceof Array) {
-		return `[${value
-			.map((value) => stringifyInner(value, visited))
-			.join(", ")}]`;
-	} else if (value instanceof Uint8Array) {
-		let bytes = encoding.hex.encode(value);
-		return `(bytes ${bytes})`;
-	} else if (value instanceof Error) {
+	if (value instanceof Error) {
 		return value.message;
 	} else if (value instanceof Promise) {
 		return "(promise)";
-	} else if (Path.is(value)) {
-		return `(path "${value}")`;
-	} else if (Leaf.is(value)) {
+	} else if (value instanceof Leaf) {
 		return stringifyState("leaf", value.state, visited);
-	} else if (Branch.is(value)) {
+	} else if (value instanceof Branch) {
 		return stringifyState("branch", value.state, visited);
-	} else if (Directory.is(value)) {
+	} else if (value instanceof Directory) {
 		return stringifyState("directory", value.state, visited);
-	} else if (File.is(value)) {
+	} else if (value instanceof File) {
 		return stringifyState("file", value.state, visited);
-	} else if (Symlink.is(value)) {
+	} else if (value instanceof Symlink) {
 		return stringifyState("symlink", value.state, visited);
-	} else if (Lock.is(value)) {
+	} else if (value instanceof Lock) {
 		return stringifyState("lock", value.state, visited);
-	} else if (Target.is(value)) {
+	} else if (value instanceof Target) {
 		return stringifyState("target", value.state, visited);
-	} else if (Mutation.is(value)) {
+	} else if (value instanceof Uint8Array) {
+		let bytes = encoding.hex.encode(value);
+		return `(bytes ${bytes})`;
+	} else if (value instanceof Path) {
+		return `(path "${value}")`;
+	} else if (value instanceof Mutation) {
 		return `(mutation ${stringifyObject(value.inner, visited)})`;
-	} else if (Template.is(value)) {
+	} else if (value instanceof Template) {
 		return `\`${value.components
 			.map((component) => {
 				if (typeof component === "string") {
@@ -102,6 +98,10 @@ let stringifyObject = (value: object, visited: WeakSet<object>): string => {
 				}
 			})
 			.join("")}\``;
+	} else if (value instanceof Array) {
+		return `[${value
+			.map((value) => stringifyInner(value, visited))
+			.join(", ")}]`;
 	} else {
 		let string = "";
 		if (

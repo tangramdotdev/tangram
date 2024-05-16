@@ -1,18 +1,11 @@
-import { Args } from "./args.ts";
-import { assert as assert_, unreachable } from "./assert.ts";
+import type { Args } from "./args.ts";
+import { assert as assert_ } from "./assert.ts";
 import * as encoding from "./encoding.ts";
-import { Mutation, mutation } from "./mutation.ts";
 import type { Object_ } from "./object.ts";
-import { type Unresolved, resolve } from "./resolve.ts";
-import type {
-	MaybeMutationMap,
-	MaybeNestedArray,
-	MutationMap,
-} from "./util.ts";
+import { resolve } from "./resolve.ts";
+import { flatten } from "./util.ts";
 
-export let leaf = async (
-	...args: Array<Unresolved<MaybeNestedArray<MaybeMutationMap<Leaf.Arg>>>>
-): Promise<Leaf> => {
+export let leaf = async (...args: Args<Leaf.Arg>): Promise<Leaf> => {
 	return await Leaf.new(...args);
 };
 
@@ -31,76 +24,40 @@ export class Leaf {
 		return new Leaf({ id });
 	}
 
-	static async new(
-		...args: Array<Unresolved<MaybeNestedArray<MaybeMutationMap<Leaf.Arg>>>>
-	): Promise<Leaf> {
-		type Apply = {
-			bytes: Array<Uint8Array>;
-		};
-		let { bytes: bytes_ } = await Args.apply<Leaf.Arg, Apply>(
-			await Promise.all(args.map(resolve)),
-			async (arg) => {
+	static async new(...args: Args<Leaf.Arg>): Promise<Leaf> {
+		let resolved = await Promise.all(args.map(resolve));
+		let flattened = flatten(resolved);
+		let objects = await Promise.all(
+			flattened.map(async (arg) => {
 				if (arg === undefined) {
-					return {};
+					return new Uint8Array();
 				} else if (typeof arg === "string") {
-					return {
-						bytes: await mutation({
-							kind: "array_append",
-							values: [encoding.utf8.encode(arg)],
-						}),
-					};
+					return encoding.utf8.encode(arg);
 				} else if (arg instanceof Uint8Array) {
-					return {
-						bytes: await mutation({
-							kind: "array_append",
-							values: [arg],
-						}),
-					};
-				} else if (Leaf.is(arg)) {
-					return {
-						bytes: await mutation({
-							kind: "array_append",
-							values: [await arg.bytes()],
-						}),
-					};
-				} else if (typeof arg === "object") {
-					let object: MutationMap<Apply> = {};
-					if (arg.bytes !== undefined) {
-						object.bytes = Mutation.is(arg.bytes)
-							? arg.bytes
-							: await mutation({
-									kind: "array_append",
-									values: [arg.bytes],
-								});
-					}
-					return object;
+					return arg;
 				} else {
-					return unreachable();
+					return await arg.bytes();
 				}
-			},
+			}),
 		);
-		bytes_ ??= [];
-		let size = bytes_.reduce((size, bytes) => size + bytes.byteLength, 0);
+		let size = objects.reduce((size, bytes) => size + bytes.byteLength, 0);
 		let bytes = new Uint8Array(size);
 		let offset = 0;
-		for (let entry of bytes_) {
+		for (let entry of objects) {
 			bytes.set(entry, offset);
 			offset += entry.byteLength;
 		}
-		return new Leaf({ object: { bytes } });
-	}
-
-	static is(value: unknown): value is Leaf {
-		return value instanceof Leaf;
+		let object = { bytes };
+		return new Leaf({ object: object });
 	}
 
 	static expect(value: unknown): Leaf {
-		assert_(Leaf.is(value));
+		assert_(value instanceof Leaf);
 		return value;
 	}
 
 	static assert(value: unknown): asserts value is Leaf {
-		assert_(Leaf.is(value));
+		assert_(value instanceof Leaf);
 	}
 
 	async id(): Promise<Leaf.Id> {
@@ -144,11 +101,7 @@ export class Leaf {
 }
 
 export namespace Leaf {
-	export type Arg = undefined | string | Uint8Array | Leaf | ArgObject;
-
-	export type ArgObject = {
-		bytes?: Uint8Array;
-	};
+	export type Arg = undefined | string | Uint8Array | Leaf;
 
 	export type Id = string;
 

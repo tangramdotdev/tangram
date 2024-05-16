@@ -131,17 +131,13 @@ export class Path {
 		return this.components.at(0)! === Path.Component.Root;
 	}
 
-	static is(value: unknown): value is Path {
-		return value instanceof Path;
-	}
-
 	static expect(value: unknown): Path {
-		assert_(Path.is(value));
+		assert_(value instanceof Path);
 		return value;
 	}
 
 	static assert(value: unknown): asserts value is Path {
-		assert_(Path.is(value));
+		assert_(value instanceof Path);
 	}
 
 	toString(): string {

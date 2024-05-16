@@ -5,28 +5,31 @@
  */
 declare function tg(
 	strings: TemplateStringsArray,
-	...placeholders: Array<tg.Unresolved<tg.MaybeNestedArray<tg.Template.Arg>>>
+	...placeholders: tg.Args<tg.Template.Arg>
 ): Promise<tg.Template>;
 
 declare namespace tg {
-	export type Args<T extends Value = Value> = Array<
-		MaybeNestedArray<MaybeMutationMap<T>>
+	type Args<T extends Value = Value> = Array<
+		Unresolved<MaybeNestedArray<ValueOrMaybeMutationMap<T>>>
 	>;
-
-	export namespace Args {
-		export let apply: <
-			A extends Value = Value,
-			R extends { [key: string]: Value } = { [key: string]: Value },
-		>(
-			args: Args<A>,
-			map: (
-				arg: MaybeMutationMap<Exclude<A, Array<Value>>>,
-			) => Promise<MaybeNestedArray<MutationMap<R>>>,
-		) => Promise<Partial<R>>;
-	}
 
 	/** An artifact. */
 	export type Artifact = Directory | File | Symlink;
+
+	/** Archive an artifact. **/
+	export let archive: (
+		artifact: Artifact,
+		format: Artifact.ArchiveFormat,
+	) => Promise<Blob>;
+
+	/** Extract an artifact from an archive. **/
+	export let extract: (
+		blob: Blob,
+		format: Artifact.ArchiveFormat,
+	) => Promise<Artifact>;
+
+	/** Bundle an artifact. **/
+	export let bundle: (artifact: Artifact) => Promise<Artifact>;
 
 	export namespace Artifact {
 		/** An artifact ID. */
@@ -81,8 +84,18 @@ declare namespace tg {
 	export let unreachable: (message?: string) => never;
 
 	/** Create a blob. */
-	export let blob: (
-		...args: Array<Unresolved<MaybeNestedArray<MaybeMutationMap<Blob.Arg>>>>
+	export let blob: (...args: Args<Blob.Arg>) => Promise<Blob>;
+
+	/** Compress a blob. **/
+	export let compress: (
+		blob: Blob,
+		format: Blob.CompressionFormat,
+	) => Promise<Blob>;
+
+	/** Decompress a blob. **/
+	export let decompress: (
+		blob: Blob,
+		format: Blob.CompressionFormat,
 	) => Promise<Blob>;
 
 	/** Download the contents of a URL. */
@@ -97,6 +110,15 @@ declare namespace tg {
 		export type Id = string;
 
 		export type CompressionFormat = "bz2" | "gz" | "xz" | "zst";
+
+		/** Check if a value is a `Blob`. */
+		export let is: (value: unknown) => value is Artifact;
+
+		/** Expect that a value is a `Blob`. */
+		export let expect: (value: unknown) => Artifact;
+
+		/** Assert that a value is a `Blob`. */
+		export let assert: (value: unknown) => asserts value is Artifact;
 
 		/** Compress a blob. **/
 		export let compress: (
@@ -153,9 +175,6 @@ declare namespace tg {
 			...args: Array<Unresolved<MaybeNestedArray<Directory.Arg>>>
 		): Promise<Directory>;
 
-		/** Check if a value is a `tg.Directory`. */
-		static is(value: unknown): value is Directory;
-
 		/** Expect that a value is a `tg.Directory`. */
 		static expect(value: unknown): Directory;
 
@@ -166,7 +185,7 @@ declare namespace tg {
 		id(): Promise<Directory.Id>;
 
 		/** Get this directory's entries. */
-		entries(): Promise<Record<string, Artifact>>;
+		entries(): Promise<{ [key: string]: Artifact }>;
 
 		/** Get the child at the specified path. This method throws an error if the path does not exist. */
 		get(arg: Path.Arg): Promise<Artifact>;
@@ -230,9 +249,7 @@ declare namespace tg {
 	}
 
 	/** Create a file. */
-	export let file: (
-		...args: Array<Unresolved<MaybeNestedArray<MaybeMutationMap<File.Arg>>>>
-	) => Promise<File>;
+	export let file: (...args: Args<File.Arg>) => Promise<File>;
 
 	/** A file. */
 	export class File {
@@ -240,12 +257,7 @@ declare namespace tg {
 		static withId(id: File.Id): File;
 
 		/** Create a file. */
-		static new(
-			...args: Array<Unresolved<MaybeNestedArray<MaybeMutationMap<File.Arg>>>>
-		): Promise<File>;
-
-		/** Check if a value is a `tg.File`. */
-		static is(value: unknown): value is File;
+		static new(...args: Args<File.Arg>): Promise<File>;
 
 		/** Expect that a value is a `tg.File`. */
 		static expect(value: unknown): File;
@@ -291,9 +303,7 @@ declare namespace tg {
 	export let include: (path: string) => Promise<Artifact>;
 
 	/** Create a branch. */
-	export let branch: (
-		...args: Array<Unresolved<MaybeNestedArray<MaybeMutationMap<Branch.Arg>>>>
-	) => Promise<Branch>;
+	export let branch: (...args: Args<Branch.Arg>) => Promise<Branch>;
 
 	/** A branch. */
 	export class Branch {
@@ -301,12 +311,7 @@ declare namespace tg {
 		static withId(id: Branch.Id): Branch;
 
 		/** Create a branch. */
-		static new(
-			...args: Array<Unresolved<MaybeNestedArray<MaybeMutationMap<Branch.Arg>>>>
-		): Promise<Branch>;
-
-		/** Check if a value is a `tg.Branch`. */
-		static is(value: unknown): value is Branch;
+		static new(...args: Args<Branch.Arg>): Promise<Branch>;
 
 		/** Expect that a value is a `tg.Branch`. */
 		static expect(value: unknown): Branch;
@@ -342,21 +347,14 @@ declare namespace tg {
 	}
 
 	/** Create a leaf. */
-	export let leaf: (
-		...args: Array<Unresolved<MaybeNestedArray<MaybeMutationMap<Leaf.Arg>>>>
-	) => Promise<Leaf>;
+	export let leaf: (...args: Args<Leaf.Arg>) => Promise<Leaf>;
 
 	export class Leaf {
 		/** Get a leaf with an ID. */
 		static withId(id: Leaf.Id): Leaf;
 
 		/** Create a leaf. */
-		static new(
-			...args: Array<Unresolved<MaybeNestedArray<MaybeMutationMap<Leaf.Arg>>>>
-		): Promise<Leaf>;
-
-		/** Check if a value is a `tg.Leaf`. */
-		static is(value: unknown): value is Leaf;
+		static new(...args: Args<Leaf.Arg>): Promise<Leaf>;
 
 		/** Expect that a value is a `tg.Leaf`. */
 		static expect(value: unknown): Leaf;
@@ -378,11 +376,7 @@ declare namespace tg {
 	}
 
 	export namespace Leaf {
-		export type Arg = undefined | string | Uint8Array | Leaf | ArgObject;
-
-		type ArgObject = {
-			bytes?: Uint8Array;
-		};
+		export type Arg = undefined | string | Uint8Array | Leaf;
 
 		export type Id = string;
 	}
@@ -444,8 +438,6 @@ declare namespace tg {
 			separator?: string | undefined,
 		): Promise<Mutation<Template>>;
 
-		static is(value: unknown): value is Mutation;
-
 		static expect(value: unknown): Mutation;
 
 		static assert(value: unknown): asserts value is Mutation;
@@ -499,12 +491,19 @@ declare namespace tg {
 					template: Template;
 					separator: string | undefined;
 			  };
+
+		export type Kind =
+			| "set"
+			| "unset"
+			| "set_if_unset"
+			| "array_prepend"
+			| "array_append"
+			| "template_prepend"
+			| "template_append";
 	}
 
 	/** Create a lock. */
-	export let lock: (
-		...args: Array<Unresolved<MaybeNestedArray<MaybeMutationMap<Lock.Arg>>>>
-	) => Promise<Lock>;
+	export let lock: (...args: Args<Lock.Arg>) => Promise<Lock>;
 
 	/** A lock. */
 	export class Lock {
@@ -512,12 +511,7 @@ declare namespace tg {
 		static withId(id: Lock.Id): Lock;
 
 		/** Create a lock. */
-		static new(
-			...args: Array<Unresolved<MaybeNestedArray<MaybeMutationMap<Lock.Arg>>>>
-		): Promise<Lock>;
-
-		/** Check if a value is a `tg.Lock`. */
-		static is(value: unknown): value is Lock;
+		static new(...args: Args<Lock.Arg>): Promise<Lock>;
 
 		/** Expect that a value is a `tg.Lock`. */
 		static expect(value: unknown): Lock;
@@ -526,7 +520,7 @@ declare namespace tg {
 		static assert(value: unknown): asserts value is Lock;
 
 		/** Get this lock's dependencies. */
-		dependencies(): Promise<Record<string, Lock>>;
+		dependencies(): Promise<{ [key: string]: Lock }>;
 	}
 
 	export namespace Lock {
@@ -538,7 +532,7 @@ declare namespace tg {
 		};
 
 		export type NodeArg = {
-			dependencies?: { [dependency: string]: Lock.Arg };
+			dependencies?: { [dependency: string]: Lock.Arg | number };
 		};
 
 		export type Id = string;
@@ -564,7 +558,7 @@ declare namespace tg {
 			| boolean
 			| number
 			| string
-			| Object_
+			| Object
 			| Uint8Array
 			| Path
 			| Mutation
@@ -594,7 +588,7 @@ declare namespace tg {
 		| boolean
 		| number
 		| string
-		| Object_
+		| Object
 		| Uint8Array
 		| Path
 		| Mutation
@@ -612,9 +606,7 @@ declare namespace tg {
 	export let sleep: (duration: number) => Promise<void>;
 
 	/** Create a symlink. */
-	export let symlink: (
-		...args: Array<Unresolved<MaybeNestedArray<MaybeMutationMap<Symlink.Arg>>>>
-	) => Promise<Symlink>;
+	export let symlink: (...args: Args<Symlink.Arg>) => Promise<Symlink>;
 
 	/** A symlink. */
 	export class Symlink {
@@ -622,14 +614,7 @@ declare namespace tg {
 		static withId(id: Symlink.Id): Symlink;
 
 		/** Create a symlink. */
-		static new(
-			...args: Array<
-				Unresolved<MaybeNestedArray<MaybeMutationMap<Symlink.Arg>>>
-			>
-		): Promise<Symlink>;
-
-		/** Check if a value is a `tg.Symlink`. */
-		static is(value: unknown): value is Symlink;
+		static new(...args: Args<Symlink.Arg>): Promise<Symlink>;
 
 		/** Expect that a value is a `tg.Symlink`. */
 		static expect(value: unknown): Symlink;
@@ -676,14 +661,10 @@ declare namespace tg {
 	export function target<
 		A extends Array<Value> = Array<Value>,
 		R extends Value = Value,
-	>(
-		...args: Array<Unresolved<MaybeNestedArray<MaybeMutationMap<Target.Arg>>>>
-	): Promise<Target<A, R>>;
+	>(...args: Args<Target.Arg>): Promise<Target<A, R>>;
 
 	/** Create a target, build it, and return the build's output. */
-	export let build: (
-		...args: Array<Unresolved<MaybeNestedArray<MaybeMutationMap<Target.Arg>>>>
-	) => Promise<Value>;
+	export let build: (...args: Args<Target.Arg>) => Promise<Value>;
 
 	/** A target. */
 	export interface Target<
@@ -705,11 +686,8 @@ declare namespace tg {
 
 		/** Create a target. */
 		static new<A extends Array<Value> = Array<Value>, R extends Value = Value>(
-			...args: Array<Unresolved<MaybeNestedArray<MaybeMutationMap<Target.Arg>>>>
+			...args: Args<Target.Arg>
 		): Promise<Target<A, R>>;
-
-		/** Check if a value is a `tg.Target`. */
-		static is(value: unknown): value is Target;
 
 		/** Expect that a value is a `tg.Target`. */
 		static expect(value: unknown): Target;
@@ -730,7 +708,7 @@ declare namespace tg {
 		args(): Promise<Array<Value>>;
 
 		/** Get this target's environment. */
-		env(): Promise<Record<string, Value>>;
+		env(): Promise<{ [key: string]: Value }>;
 
 		/** Get this target's lock. */
 		lock(): Promise<string | undefined>;
@@ -762,7 +740,7 @@ declare namespace tg {
 			lock?: Lock | undefined;
 
 			/** The target's environment variables. */
-			env?: MaybeNestedArray<MutationMap>;
+			env?: MaybeNestedArray<MaybeMutationMap>;
 
 			/** The target's command line arguments. */
 			args?: Array<Value>;
@@ -778,18 +756,11 @@ declare namespace tg {
 	export let current: Target;
 
 	/** Create a template. */
-	export let template: (
-		...args: Array<Unresolved<MaybeNestedArray<Template.Arg>>>
-	) => Promise<Template>;
+	export let template: (...args: Args<Template.Arg>) => Promise<Template>;
 
 	/** A template. */
 	export class Template {
-		static new(
-			...args: Array<Unresolved<MaybeNestedArray<Template.Arg>>>
-		): Promise<Template>;
-
-		/** Check if a value is a `tg.Template`. */
-		static is(value: unknown): value is Template;
+		static new(...args: Args<Template.Arg>): Promise<Template>;
 
 		/** Expect that a value is a `tg.Template`. */
 		static expect(value: unknown): Template;
@@ -800,7 +771,7 @@ declare namespace tg {
 		/** Join an array of templates with a separator. */
 		static join(
 			separator: Template.Arg,
-			...args: Array<Unresolved<Template.Arg>>
+			...args: Args<Template.Arg>
 		): Promise<Template>;
 
 		/** Get this template's components. */
@@ -813,35 +784,45 @@ declare namespace tg {
 		export type Component = string | Artifact;
 	}
 
-	export type MaybeMutation<T extends Value = Value> = T | Mutation<T>;
+	type MaybeMutation<T extends Value = Value> = T | Mutation<T>;
 
-	export type MaybeMutationMap<T extends Value = Value> = T extends
-		| undefined
-		| boolean
-		| number
-		| string
-		| Array<infer _U extends Value>
-		| Object_
-		| Uint8Array
-		| Path
-		| Mutation
-		| Template
-		? T
-		: T extends { [key: string]: Value }
-			? MutationMap<T>
-			: never;
+	type MutationMap<
+		T extends { [key: string]: Value } = { [key: string]: Value },
+	> = {
+		[K in keyof T]?: Mutation<T[K]>;
+	};
 
-	export type MaybeNestedArray<T> = T | Array<MaybeNestedArray<T>>;
-
-	export type MaybePromise<T> = T | Promise<T>;
-
-	export type MutationMap<
+	type MaybeMutationMap<
 		T extends { [key: string]: Value } = { [key: string]: Value },
 	> = {
 		[K in keyof T]?: MaybeMutation<T[K]>;
 	};
 
-	export type Object_ =
+	type ValueOrMaybeMutationMap<T extends Value = Value> = T extends
+		| undefined
+		| boolean
+		| number
+		| string
+		| Uint8Array
+		| Blob
+		| Directory
+		| File
+		| Symlink
+		| Lock
+		| Target
+		| Mutation
+		| Template
+		| Array<infer _U extends Value>
+		? T
+		: T extends { [key: string]: Value }
+			? MaybeMutationMap<T>
+			: never;
+
+	type MaybeNestedArray<T> = T | Array<MaybeNestedArray<T>>;
+
+	type MaybePromise<T> = T | Promise<T>;
+
+	export type Object =
 		| Leaf
 		| Branch
 		| Directory
@@ -870,9 +851,6 @@ declare namespace tg {
 
 		/** Join this path with another path. **/
 		join(other: Path.Arg): Path;
-
-		/** Check if a value is a `Path`. */
-		static is(value: unknown): value is Path;
 
 		/** Expect that a value is a `Path`. */
 		static expect(value: unknown): Path;
@@ -933,7 +911,7 @@ declare namespace tg {
 		| string
 		| Array<Value>
 		| { [key: string]: Value }
-		| Object_
+		| Object
 		| Uint8Array
 		| Path
 		| Mutation

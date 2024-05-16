@@ -7,6 +7,27 @@ import { Symlink } from "./symlink.ts";
 
 export type Artifact = Directory | File | Symlink;
 
+/** Archive an artifact. **/
+export let archive = async (
+	artifact: Artifact,
+	format: Artifact.ArchiveFormat,
+): Promise<Blob> => {
+	return await syscall("artifact_archive", artifact, format);
+};
+
+/** Extract an artifact from an archive. **/
+export let extract = async (
+	blob: Blob,
+	format: Artifact.ArchiveFormat,
+): Promise<Artifact> => {
+	return await syscall("artifact_extract", blob, format);
+};
+
+/** Bundle an artifact. **/
+export let bundle = async (artifact: Artifact): Promise<Artifact> => {
+	return await syscall("artifact_bundle", artifact);
+};
+
 export namespace Artifact {
 	export type Id = string;
 

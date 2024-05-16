@@ -1,19 +1,12 @@
 import { Args } from "./args.ts";
-import { assert as assert_, unreachable } from "./assert.ts";
+import { assert as assert_ } from "./assert.ts";
 import type { Blob } from "./blob.ts";
 import * as encoding from "./encoding.ts";
-import { Mutation, mutation } from "./mutation.ts";
 import type { Object_ } from "./object.ts";
-import { type Unresolved, resolve } from "./resolve.ts";
-import type {
-	MaybeMutationMap,
-	MaybeNestedArray,
-	MutationMap,
-} from "./util.ts";
+import { resolve } from "./resolve.ts";
+import { flatten } from "./util.ts";
 
-export let branch = async (
-	...args: Array<Unresolved<MaybeNestedArray<MaybeMutationMap<Branch.Arg>>>>
-): Promise<Branch> => {
+export let branch = async (...args: Args<Branch.Arg>): Promise<Branch> => {
 	return await Branch.new(...args);
 };
 
@@ -32,55 +25,44 @@ export class Branch {
 		return new Branch({ id });
 	}
 
-	static async new(
-		...args: Array<Unresolved<MaybeNestedArray<MaybeMutationMap<Branch.Arg>>>>
-	): Promise<Branch> {
-		type Apply = {
-			children: Array<Branch.Child>;
-		};
-		let { children } = await Args.apply<Branch.Arg, Apply>(
-			await Promise.all(args.map(resolve)),
-			async (arg) => {
-				if (arg === undefined) {
-					return {};
-				} else if (Branch.is(arg)) {
-					return {
-						children: await mutation({
-							kind: "array_append",
-							values: [{ blob: arg, size: await arg.size() }],
-						}),
-					};
-				} else if (typeof arg === "object") {
-					let object: MutationMap<Apply> = {};
-					if (arg.children !== undefined) {
-						object.children = Mutation.is(arg.children)
-							? arg.children
-							: await mutation({
-									kind: "array_append",
-									values: arg.children ?? [],
-								});
-					}
-					return object;
-				} else {
-					return unreachable();
-				}
-			},
-		);
-		children ??= [];
-		return new Branch({ object: { children } });
+	static async new(...args: Args<Branch.Arg>): Promise<Branch> {
+		let arg = await Branch.arg(...args);
+		let children = arg.children ?? [];
+		let object = { children };
+		return new Branch({ object });
 	}
 
-	static is(value: unknown): value is Branch {
-		return value instanceof Branch;
+	static async arg(...args: Args<Branch.Arg>): Promise<Branch.ArgObject> {
+		let resolved = await Promise.all(args.map(resolve));
+		let flattened = flatten(resolved);
+		let objects = await Promise.all(
+			flattened.map(async (arg) => {
+				if (arg === undefined) {
+					return {};
+				} else if (arg instanceof Branch) {
+					let child = { blob: arg, size: await arg.size() };
+					return {
+						children: [child],
+					};
+				} else {
+					return arg;
+				}
+			}),
+		);
+		let mutations = await Args.createMutations(objects, {
+			children: "array_append",
+		});
+		let arg = await Args.applyMutations(mutations);
+		return arg;
 	}
 
 	static expect(value: unknown): Branch {
-		assert_(Branch.is(value));
+		assert_(value instanceof Branch);
 		return value;
 	}
 
 	static assert(value: unknown): asserts value is Branch {
-		assert_(Branch.is(value));
+		assert_(value instanceof Branch);
 	}
 
 	async id(): Promise<Branch.Id> {

@@ -1,22 +1,16 @@
 import { Args } from "./args.ts";
 import { Artifact } from "./artifact.ts";
-import { assert as assert_, unreachable } from "./assert.ts";
+import { assert as assert_ } from "./assert.ts";
 import { Directory } from "./directory.ts";
 import type { File } from "./file.ts";
-import { mutation } from "./mutation.ts";
+import { Mutation } from "./mutation.ts";
 import type { Object_ } from "./object.ts";
 import { Path } from "./path.ts";
-import { type Unresolved, resolve } from "./resolve.ts";
+import { resolve } from "./resolve.ts";
 import { Template } from "./template.ts";
-import type {
-	MaybeMutationMap,
-	MaybeNestedArray,
-	MutationMap,
-} from "./util.ts";
+import { flatten } from "./util.ts";
 
-export let symlink = async (
-	...args: Array<Unresolved<MaybeNestedArray<MaybeMutationMap<Symlink.Arg>>>>
-): Promise<Symlink> => {
+export let symlink = async (...args: Args<Symlink.Arg>): Promise<Symlink> => {
 	return await Symlink.new(...args);
 };
 
@@ -35,51 +29,38 @@ export class Symlink {
 		return new Symlink({ id });
 	}
 
-	static async new(
-		...args: Array<Unresolved<MaybeNestedArray<MaybeMutationMap<Symlink.Arg>>>>
-	): Promise<Symlink> {
-		type Apply = {
-			artifact?: Artifact | undefined;
-			path?: Array<Path>;
-		};
-		let { artifact, path: path_ } = await Args.apply<Symlink.Arg, Apply>(
-			await Promise.all(args.map(resolve)),
-			async (arg) => {
+	static async new(...args: Args<Symlink.Arg>): Promise<Symlink> {
+		let arg = await Symlink.arg(...args);
+		let artifact = arg.artifact;
+		let path = arg.path !== undefined ? Path.new(arg.path) : undefined;
+		let object = { artifact, path };
+		return new Symlink({ object });
+	}
+
+	static async arg(...args: Args<Symlink.Arg>): Promise<Symlink.ArgObject> {
+		let resolved = await Promise.all(args.map(resolve));
+		let flattened = flatten(resolved);
+		let objects = await Promise.all(
+			flattened.map(async (arg) => {
 				if (arg === undefined) {
 					return {};
 				} else if (typeof arg === "string") {
-					return {
-						path: await mutation({
-							kind: "array_append",
-							values: [Path.new(arg)],
-						}),
-					};
+					return { path: Path.new(arg) };
 				} else if (Artifact.is(arg)) {
-					return {
-						artifact: arg,
-						path: await mutation({ kind: "unset" }),
-					};
-				} else if (Template.is(arg)) {
+					return { artifact: arg, path: Mutation.unset() };
+				} else if (arg instanceof Template) {
 					assert_(arg.components.length <= 2);
 					let [firstComponent, secondComponent] = arg.components;
 					if (
 						typeof firstComponent === "string" &&
 						secondComponent === undefined
 					) {
-						return {
-							path: await mutation({
-								kind: "array_append",
-								values: [Path.new(firstComponent)],
-							}),
-						};
+						return { path: Path.new(firstComponent) };
 					} else if (
 						Artifact.is(firstComponent) &&
 						secondComponent === undefined
 					) {
-						return {
-							artifact: firstComponent,
-							path: await mutation({ kind: "unset" }),
-						};
+						return { artifact: firstComponent, path: Mutation.unset() };
 					} else if (
 						Artifact.is(firstComponent) &&
 						typeof secondComponent === "string"
@@ -87,46 +68,33 @@ export class Symlink {
 						assert_(secondComponent.startsWith("/"));
 						return {
 							artifact: firstComponent,
-							path: [Path.new(secondComponent.slice(1))],
+							path: Path.new(secondComponent.slice(1)),
 						};
 					} else {
 						throw new Error("invalid template");
 					}
-				} else if (Symlink.is(arg)) {
+				} else if (arg instanceof Symlink) {
 					let path = await arg.path();
-					return {
-						artifact: await arg.artifact(),
-						path: path !== undefined ? [path] : [],
-					};
-				} else if (typeof arg === "object") {
-					let object: MutationMap<Apply> = {};
-					if (arg.artifact !== undefined) {
-						object.artifact = arg.artifact;
-					}
-					if (arg.path !== undefined) {
-						object.path = await mutation({ kind: "set", value: [arg.path] });
-					}
-					return object;
+					return { artifact: await arg.artifact(), path };
 				} else {
-					return unreachable();
+					return arg;
 				}
-			},
+			}),
 		);
-		let path = path_ !== undefined ? Path.new(path_) : undefined;
-		return new Symlink({ object: { artifact, path } });
-	}
-
-	static is(value: unknown): value is Symlink {
-		return value instanceof Symlink;
+		let mutations = await Args.createMutations(objects, {
+			path: "array_append",
+		});
+		let arg = await Args.applyMutations(mutations);
+		return arg;
 	}
 
 	static expect(value: unknown): Symlink {
-		assert_(Symlink.is(value));
+		assert_(value instanceof Symlink);
 		return value;
 	}
 
 	static assert(value: unknown): asserts value is Symlink {
-		assert_(Symlink.is(value));
+		assert_(value instanceof Symlink);
 	}
 
 	async id(): Promise<Symlink.Id> {
@@ -166,17 +134,15 @@ export class Symlink {
 		return object.path;
 	}
 
-	async resolve(
-		from?: Unresolved<Symlink.Arg>,
-	): Promise<Directory | File | undefined> {
+	async resolve(from?: Symlink.Arg): Promise<Directory | File | undefined> {
 		from = from ? await symlink(from) : undefined;
 		let fromArtifact = await from?.artifact();
-		if (Symlink.is(fromArtifact)) {
+		if (fromArtifact instanceof Symlink) {
 			fromArtifact = await fromArtifact.resolve();
 		}
 		let fromPath = await from?.path();
 		let artifact = await this.artifact();
-		if (Symlink.is(artifact)) {
+		if (artifact instanceof Symlink) {
 			artifact = await artifact.resolve();
 		}
 		let path = await this.path();
@@ -188,14 +154,14 @@ export class Symlink {
 		if (artifact !== undefined && !path) {
 			return artifact;
 		} else if (artifact === undefined && path) {
-			if (!Directory.is(fromArtifact)) {
+			if (!(fromArtifact instanceof Directory)) {
 				throw new Error("expected a directory");
 			}
 			return await fromArtifact.tryGet(
 				Path.new(fromPath).join("..").join(path).normalize().toString(),
 			);
 		} else if (artifact !== undefined && path) {
-			if (!Directory.is(artifact)) {
+			if (!(artifact instanceof Directory)) {
 				throw new Error("expected a directory");
 			}
 			return await artifact.tryGet(path);
