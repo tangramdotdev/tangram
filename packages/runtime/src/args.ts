@@ -48,35 +48,35 @@ export namespace Args {
 					} else if (typeof mutation === "string") {
 						switch (mutation) {
 							case "set":
-								object[key] = await Mutation.set<typeof value>(value);
+								object[key] = await Mutation.set(value);
 								break;
 							case "unset":
 								object[key] = Mutation.unset();
 								break;
 							case "set_if_unset":
-								object[key] = await Mutation.setIfUnset<typeof value>(value);
+								object[key] = await Mutation.setIfUnset(value);
 								break;
-							case "array_prepend":
-								object[key] = await Mutation.arrayPrepend<typeof value>(value);
+							case "prepend":
+								object[key] = await Mutation.prepend(value);
 								break;
-							case "array_append":
-								object[key] = await Mutation.arrayAppend<typeof value>(value);
+							case "append":
+								object[key] = await Mutation.append(value);
 								break;
-							case "template_prepend":
+							case "prefix":
 								assert_(
 									value instanceof Template ||
 										Artifact.is(value) ||
 										typeof value === "string",
 								);
-								object[key] = await Mutation.templatePrepend(value);
+								object[key] = await Mutation.prefix(value);
 								break;
-							case "template_append":
+							case "suffix":
 								assert_(
 									value instanceof Template ||
 										Artifact.is(value) ||
 										typeof value === "string",
 								);
-								object[key] = await Mutation.templateAppend(value);
+								object[key] = await Mutation.suffix(value);
 								break;
 							default:
 								return unreachable(`unknown mutation kind "${mutation}"`);
@@ -122,21 +122,21 @@ let mutate = async (
 		if (!(key in object)) {
 			object[key] = mutation.inner.value;
 		}
-	} else if (mutation.inner.kind === "array_prepend") {
+	} else if (mutation.inner.kind === "prepend") {
 		if (!(key in object) || object[key] === undefined) {
 			object[key] = [];
 		}
 		let array = object[key];
 		assert_(array instanceof Array);
 		object[key] = [...flatten(mutation.inner.values), ...array];
-	} else if (mutation.inner.kind === "array_append") {
+	} else if (mutation.inner.kind === "append") {
 		if (!(key in object) || object[key] === undefined) {
 			object[key] = [];
 		}
 		let array = object[key];
 		assert_(array instanceof Array);
 		object[key] = [...array, ...flatten(mutation.inner.values)];
-	} else if (mutation.inner.kind === "template_prepend") {
+	} else if (mutation.inner.kind === "prefix") {
 		if (!(key in object)) {
 			object[key] = await template();
 		}
@@ -152,7 +152,7 @@ let mutate = async (
 			mutation.inner.template,
 			value,
 		);
-	} else if (mutation.inner.kind === "template_append") {
+	} else if (mutation.inner.kind === "suffix") {
 		if (!(key in object)) {
 			object[key] = await template();
 		}

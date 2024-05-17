@@ -50,7 +50,7 @@ export class Branch {
 			}),
 		);
 		let mutations = await Args.createMutations(objects, {
-			children: "array_append",
+			children: "append",
 		});
 		let arg = await Args.applyMutations(mutations);
 		return arg;

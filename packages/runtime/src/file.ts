@@ -60,8 +60,8 @@ export class File {
 			}),
 		);
 		let mutations = await Args.createMutations(objects, {
-			contents: "array_append",
-			references: "array_append",
+			contents: "append",
+			references: "append",
 		});
 		let arg = await Args.applyMutations(mutations);
 		return arg;

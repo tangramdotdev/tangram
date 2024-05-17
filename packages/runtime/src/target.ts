@@ -199,8 +199,8 @@ export class Target<
 			}),
 		);
 		let mutations = await Args.createMutations(objects, {
-			args: "array_append",
-			env: "array_append",
+			args: "append",
+			env: "append",
 		});
 		let arg = await Args.applyMutations(mutations);
 		return arg;

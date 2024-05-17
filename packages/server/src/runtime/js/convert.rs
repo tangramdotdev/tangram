@@ -1943,39 +1943,36 @@ impl ToV8 for tg::Mutation {
 				let value = value_.clone().to_v8(scope).unwrap();
 				object.set(scope, key.into(), value);
 			},
-			tg::Mutation::ArrayAppend { values } => {
+			tg::Mutation::Prepend { values } => {
 				let key =
 					v8::String::new_external_onebyte_static(scope, "kind".as_bytes()).unwrap();
 				let value =
-					v8::String::new_external_onebyte_static(scope, "array_append".as_bytes())
-						.unwrap();
+					v8::String::new_external_onebyte_static(scope, "prepend".as_bytes()).unwrap();
 				object.set(scope, key.into(), value.into());
 				let key =
 					v8::String::new_external_onebyte_static(scope, "values".as_bytes()).unwrap();
 				let value = values.to_v8(scope)?;
 				object.set(scope, key.into(), value);
 			},
-			tg::Mutation::ArrayPrepend { values } => {
+			tg::Mutation::Append { values } => {
 				let key =
 					v8::String::new_external_onebyte_static(scope, "kind".as_bytes()).unwrap();
 				let value =
-					v8::String::new_external_onebyte_static(scope, "array_prepend".as_bytes())
-						.unwrap();
+					v8::String::new_external_onebyte_static(scope, "append".as_bytes()).unwrap();
 				object.set(scope, key.into(), value.into());
 				let key =
 					v8::String::new_external_onebyte_static(scope, "values".as_bytes()).unwrap();
 				let value = values.to_v8(scope)?;
 				object.set(scope, key.into(), value);
 			},
-			tg::Mutation::TemplateAppend {
+			tg::Mutation::Prefix {
 				template,
 				separator,
 			} => {
 				let key =
 					v8::String::new_external_onebyte_static(scope, "kind".as_bytes()).unwrap();
 				let value =
-					v8::String::new_external_onebyte_static(scope, "template_append".as_bytes())
-						.unwrap();
+					v8::String::new_external_onebyte_static(scope, "prefix".as_bytes()).unwrap();
 				object.set(scope, key.into(), value.into());
 				let key =
 					v8::String::new_external_onebyte_static(scope, "template".as_bytes()).unwrap();
@@ -1986,15 +1983,14 @@ impl ToV8 for tg::Mutation {
 				let value = separator.to_v8(scope)?;
 				object.set(scope, key.into(), value);
 			},
-			tg::Mutation::TemplatePrepend {
+			tg::Mutation::Suffix {
 				template,
 				separator,
 			} => {
 				let key =
 					v8::String::new_external_onebyte_static(scope, "kind".as_bytes()).unwrap();
 				let value =
-					v8::String::new_external_onebyte_static(scope, "template_prepend".as_bytes())
-						.unwrap();
+					v8::String::new_external_onebyte_static(scope, "suffix".as_bytes()).unwrap();
 				object.set(scope, key.into(), value.into());
 				let key =
 					v8::String::new_external_onebyte_static(scope, "template".as_bytes()).unwrap();
@@ -2074,23 +2070,23 @@ impl FromV8 for tg::Mutation {
 				let value_ = Box::new(value_);
 				Ok(tg::Mutation::SetIfUnset { value: value_ })
 			},
-			"array_prepend" => {
+			"prepend" => {
 				let values =
 					v8::String::new_external_onebyte_static(scope, "values".as_bytes()).unwrap();
 				let values = inner.get(scope, values.into()).unwrap();
 				let values = from_v8(scope, values)
 					.map_err(|source| tg::error!(!source, "failed to deserialize the values"))?;
-				Ok(tg::Mutation::ArrayPrepend { values })
+				Ok(tg::Mutation::Prepend { values })
 			},
-			"array_append" => {
+			"append" => {
 				let values =
 					v8::String::new_external_onebyte_static(scope, "values".as_bytes()).unwrap();
 				let values = inner.get(scope, values.into()).unwrap();
 				let values = from_v8(scope, values)
 					.map_err(|source| tg::error!(!source, "failed to deserialize the values"))?;
-				Ok(tg::Mutation::ArrayAppend { values })
+				Ok(tg::Mutation::Append { values })
 			},
-			"template_prepend" => {
+			"prefix" => {
 				let template =
 					v8::String::new_external_onebyte_static(scope, "template".as_bytes()).unwrap();
 				let template = inner.get(scope, template.into()).unwrap();
@@ -2101,12 +2097,12 @@ impl FromV8 for tg::Mutation {
 				let separator = inner.get(scope, separator.into()).unwrap();
 				let separator = from_v8(scope, separator)
 					.map_err(|source| tg::error!(!source, "failed to deserialize the separator"))?;
-				Ok(tg::Mutation::TemplatePrepend {
+				Ok(tg::Mutation::Prefix {
 					template,
 					separator,
 				})
 			},
-			"template_append" => {
+			"suffix" => {
 				let template =
 					v8::String::new_external_onebyte_static(scope, "template".as_bytes()).unwrap();
 				let template = inner.get(scope, template.into()).unwrap();
@@ -2117,7 +2113,7 @@ impl FromV8 for tg::Mutation {
 				let separator = inner.get(scope, separator.into()).unwrap();
 				let separator = from_v8(scope, separator)
 					.map_err(|source| tg::error!(!source, "failed to deserialize the separator"))?;
-				Ok(tg::Mutation::TemplateAppend {
+				Ok(tg::Mutation::Suffix {
 					template,
 					separator,
 				})

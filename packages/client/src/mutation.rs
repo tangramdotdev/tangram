@@ -11,17 +11,17 @@ pub enum Mutation {
 	SetIfUnset {
 		value: Box<tg::Value>,
 	},
-	ArrayPrepend {
+	Prepend {
 		values: Vec<tg::Value>,
 	},
-	ArrayAppend {
+	Append {
 		values: Vec<tg::Value>,
 	},
-	TemplatePrepend {
+	Prefix {
 		template: tg::Template,
 		separator: Option<String>,
 	},
-	TemplateAppend {
+	Suffix {
 		template: tg::Template,
 		separator: Option<String>,
 	},
@@ -37,18 +37,18 @@ pub enum Data {
 	SetIfUnset {
 		value: Box<tg::value::Data>,
 	},
-	ArrayPrepend {
+	Prepend {
 		values: Vec<tg::value::Data>,
 	},
-	ArrayAppend {
+	Append {
 		values: Vec<tg::value::Data>,
 	},
-	TemplatePrepend {
+	Prefix {
 		template: tg::template::Data,
 		#[serde(default, skip_serializing_if = "Option::is_none")]
 		separator: Option<String>,
 	},
-	TemplateAppend {
+	Suffix {
 		template: tg::template::Data,
 		#[serde(default, skip_serializing_if = "Option::is_none")]
 		separator: Option<String>,
@@ -72,7 +72,7 @@ impl Mutation {
 			Self::SetIfUnset { value } => Data::SetIfUnset {
 				value: Box::new(Box::pin(value.data(handle, transaction)).await?),
 			},
-			Self::ArrayPrepend { values } => Data::ArrayPrepend {
+			Self::Prepend { values } => Data::Prepend {
 				values: values
 					.iter()
 					.map(|value| value.data(handle, transaction))
@@ -80,7 +80,7 @@ impl Mutation {
 					.try_collect()
 					.await?,
 			},
-			Self::ArrayAppend { values } => Data::ArrayAppend {
+			Self::Append { values } => Data::Append {
 				values: values
 					.iter()
 					.map(|value| value.data(handle, transaction))
@@ -88,17 +88,17 @@ impl Mutation {
 					.try_collect()
 					.await?,
 			},
-			Self::TemplatePrepend {
+			Self::Prefix {
 				template,
 				separator,
-			} => Data::TemplatePrepend {
+			} => Data::Prefix {
 				template: template.data(handle, transaction).await?,
 				separator: separator.clone(),
 			},
-			Self::TemplateAppend {
+			Self::Suffix {
 				template,
 				separator,
-			} => Data::TemplateAppend {
+			} => Data::Suffix {
 				template: template.data(handle, transaction).await?,
 				separator: separator.clone(),
 			},
@@ -109,12 +109,10 @@ impl Mutation {
 		match self {
 			Self::Unset => vec![],
 			Self::Set { value } | Self::SetIfUnset { value } => value.objects(),
-			Self::ArrayPrepend { values } | Self::ArrayAppend { values } => {
+			Self::Prepend { values } | Self::Append { values } => {
 				values.iter().flat_map(tg::Value::objects).collect()
 			},
-			Self::TemplatePrepend { template, .. } | Self::TemplateAppend { template, .. } => {
-				template.objects()
-			},
+			Self::Prefix { template, .. } | Self::Suffix { template, .. } => template.objects(),
 		}
 	}
 }
@@ -125,12 +123,10 @@ impl Data {
 		match self {
 			Self::Unset => vec![],
 			Self::Set { value } | Self::SetIfUnset { value } => value.children(),
-			Self::ArrayPrepend { values } | Self::ArrayAppend { values } => {
+			Self::Prepend { values } | Self::Append { values } => {
 				values.iter().flat_map(tg::value::Data::children).collect()
 			},
-			Self::TemplatePrepend { template, .. } | Self::TemplateAppend { template, .. } => {
-				template.children()
-			},
+			Self::Prefix { template, .. } | Self::Suffix { template, .. } => template.children(),
 		}
 	}
 }
@@ -147,23 +143,23 @@ impl TryFrom<Data> for Mutation {
 			Data::SetIfUnset { value } => Self::SetIfUnset {
 				value: Box::new((*value).try_into()?),
 			},
-			Data::ArrayPrepend { values } => Self::ArrayPrepend {
+			Data::Prepend { values } => Self::Prepend {
 				values: values.into_iter().map(TryInto::try_into).try_collect()?,
 			},
-			Data::ArrayAppend { values } => Self::ArrayAppend {
+			Data::Append { values } => Self::Append {
 				values: values.into_iter().map(TryInto::try_into).try_collect()?,
 			},
-			Data::TemplatePrepend {
+			Data::Prefix {
 				template,
 				separator,
-			} => Self::TemplatePrepend {
+			} => Self::Prefix {
 				template: template.try_into()?,
 				separator,
 			},
-			Data::TemplateAppend {
+			Data::Suffix {
 				template,
 				separator,
-			} => Self::TemplateAppend {
+			} => Self::Suffix {
 				template: template.try_into()?,
 				separator,
 			},

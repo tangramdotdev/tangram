@@ -82,7 +82,7 @@ export class Symlink {
 			}),
 		);
 		let mutations = await Args.createMutations(objects, {
-			path: "array_append",
+			path: "append",
 		});
 		let arg = await Args.applyMutations(mutations);
 		return arg;

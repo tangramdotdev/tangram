@@ -61,7 +61,7 @@ export class Lock {
 			}),
 		);
 		let mutations = await Args.createMutations(objects, {
-			nodes: "array_append",
+			nodes: "append",
 		});
 		let arg = await Args.applyMutations(mutations);
 		return arg;

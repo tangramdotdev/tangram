@@ -403,37 +403,37 @@ declare namespace tg {
 			arg: Unresolved<Mutation.Arg<T>>,
 		): Promise<Mutation<T>>;
 
-		/** Create a "set" mutation. */
+		/** Create an unset mutation. */
+		static unset(): Mutation;
+
+		/** Create a set mutation. */
 		static set<T extends Value = Value>(
 			value: Unresolved<T>,
 		): Promise<Mutation<T>>;
 
-		/** Create an "unset" mutation. */
-		static unset(): Mutation;
-
-		/** Create a "set_if_unset" mutation. */
+		/** Create a set if unset mutation. */
 		static setIfUnset<T extends Value = Value>(
 			value: Unresolved<T>,
 		): Promise<Mutation<T>>;
 
-		/** Create an "array_prepend" mutation. */
-		static arrayPrepend<T extends Value = Value>(
+		/** Create an prepend mutation. */
+		static prepend<T extends Value = Value>(
 			values: Unresolved<MaybeNestedArray<T>>,
 		): Promise<Mutation<Array<T>>>;
 
-		/** Create an "array_append" mutation. */
-		static arrayAppend<T extends Value = Value>(
+		/** Create an append mutation. */
+		static append<T extends Value = Value>(
 			values: Unresolved<MaybeNestedArray<T>>,
 		): Promise<Mutation<Array<T>>>;
 
-		/** Create a "template_prepend" mutation. */
-		static templatePrepend(
+		/** Create a prefix mutation. */
+		static prefix(
 			template: Unresolved<Template.Arg>,
 			separator?: string | undefined,
 		): Promise<Mutation<Template>>;
 
-		/** Create a "template_append" mutation. */
-		static templateAppend(
+		/** Create a suffix mutation. */
+		static suffix(
 			template: Unresolved<Template.Arg>,
 			separator?: string | undefined,
 		): Promise<Mutation<Template>>;
@@ -451,20 +451,20 @@ declare namespace tg {
 			| { kind: "set"; value: T }
 			| { kind: "set_if_unset"; value: T }
 			| {
-					kind: "array_prepend";
+					kind: "prepend";
 					values: T extends Array<infer U> ? MaybeNestedArray<U> : never;
 			  }
 			| {
-					kind: "array_append";
+					kind: "append";
 					values: T extends Array<infer U> ? MaybeNestedArray<U> : never;
 			  }
 			| {
-					kind: "template_prepend";
+					kind: "prefix";
 					template: T extends Template ? Template.Arg : never;
 					separator?: string | undefined;
 			  }
 			| {
-					kind: "template_append";
+					kind: "suffix";
 					template: T extends Template ? Template.Arg : never;
 					separator?: string | undefined;
 			  };
@@ -474,20 +474,20 @@ declare namespace tg {
 			| { kind: "set"; value: Value }
 			| { kind: "set_if_unset"; value: Value }
 			| {
-					kind: "array_prepend";
+					kind: "prepend";
 					values: Array<Value>;
 			  }
 			| {
-					kind: "array_append";
+					kind: "append";
 					values: Array<Value>;
 			  }
 			| {
-					kind: "template_prepend";
+					kind: "prefix";
 					template: Template;
 					separator: string | undefined;
 			  }
 			| {
-					kind: "template_append";
+					kind: "suffix";
 					template: Template;
 					separator: string | undefined;
 			  };
@@ -496,10 +496,10 @@ declare namespace tg {
 			| "set"
 			| "unset"
 			| "set_if_unset"
-			| "array_prepend"
-			| "array_append"
-			| "template_prepend"
-			| "template_append";
+			| "prepend"
+			| "append"
+			| "prefix"
+			| "suffix";
 	}
 
 	/** Create a lock. */

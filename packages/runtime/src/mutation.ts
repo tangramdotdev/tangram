@@ -21,12 +21,9 @@ export class Mutation<T extends Value = Value> {
 		unresolved: Unresolved<Mutation.Arg<T>>,
 	): Promise<Mutation<T>> {
 		let arg = await resolve(unresolved);
-		if (arg.kind === "array_prepend" || arg.kind === "array_append") {
+		if (arg.kind === "prepend" || arg.kind === "append") {
 			return new Mutation({ kind: arg.kind, values: flatten(arg.values) });
-		} else if (
-			arg.kind === "template_prepend" ||
-			arg.kind === "template_append"
-		) {
+		} else if (arg.kind === "prefix" || arg.kind === "suffix") {
 			return new Mutation({
 				kind: arg.kind,
 				template: await template(arg.template),
@@ -55,41 +52,41 @@ export class Mutation<T extends Value = Value> {
 		return Mutation.new({ kind: "set_if_unset", value } as any);
 	}
 
-	static arrayPrepend<T extends Value = Value>(
+	static prepend<T extends Value = Value>(
 		values: Unresolved<MaybeNestedArray<T>>,
 	): Promise<Mutation<Array<T>>> {
 		return Mutation.new({
-			kind: "array_prepend",
+			kind: "prepend",
 			values,
 		} as any);
 	}
 
-	static arrayAppend<T extends Value = Value>(
+	static append<T extends Value = Value>(
 		values: Unresolved<MaybeNestedArray<T>>,
 	): Promise<Mutation<Array<T>>> {
 		return Mutation.new({
-			kind: "array_append",
+			kind: "append",
 			values,
 		} as any);
 	}
 
-	static templatePrepend(
+	static prefix(
 		template: Unresolved<Template.Arg>,
 		separator?: string | undefined,
 	): Promise<Mutation<Template>> {
 		return Mutation.new({
-			kind: "template_prepend",
+			kind: "prefix",
 			template,
 			separator,
 		});
 	}
 
-	static templateAppend(
+	static suffix(
 		template: Unresolved<Template.Arg>,
 		separator?: string | undefined,
 	): Promise<Mutation<Template>> {
 		return Mutation.new({
-			kind: "template_append",
+			kind: "suffix",
 			template,
 			separator,
 		});
@@ -115,20 +112,20 @@ export namespace Mutation {
 		| { kind: "set"; value: T }
 		| { kind: "set_if_unset"; value: T }
 		| {
-				kind: "array_prepend";
+				kind: "prepend";
 				values: T extends Array<infer U> ? MaybeNestedArray<U> : never;
 		  }
 		| {
-				kind: "array_append";
+				kind: "append";
 				values: T extends Array<infer U> ? MaybeNestedArray<U> : never;
 		  }
 		| {
-				kind: "template_prepend";
+				kind: "prefix";
 				template: T extends Template ? Template.Arg : never;
 				separator?: string | undefined;
 		  }
 		| {
-				kind: "template_append";
+				kind: "suffix";
 				template: T extends Template ? Template.Arg : never;
 				separator?: string | undefined;
 		  };
@@ -138,20 +135,20 @@ export namespace Mutation {
 		| { kind: "set"; value: Value }
 		| { kind: "set_if_unset"; value: Value }
 		| {
-				kind: "array_prepend";
+				kind: "prepend";
 				values: Array<Value>;
 		  }
 		| {
-				kind: "array_append";
+				kind: "append";
 				values: Array<Value>;
 		  }
 		| {
-				kind: "template_prepend";
+				kind: "prefix";
 				template: Template;
 				separator: string | undefined;
 		  }
 		| {
-				kind: "template_append";
+				kind: "suffix";
 				template: Template;
 				separator: string | undefined;
 		  };
@@ -160,8 +157,8 @@ export namespace Mutation {
 		| "set"
 		| "unset"
 		| "set_if_unset"
-		| "array_prepend"
-		| "array_append"
-		| "template_prepend"
-		| "template_append";
+		| "prepend"
+		| "append"
+		| "prefix"
+		| "suffix";
 }

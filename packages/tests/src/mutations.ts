@@ -13,14 +13,14 @@ export let template = tg.target(() => {
 	};
 	let foo = {
 		ENV_VAR: tg.mutation({
-			kind: "template_prepend",
+			kind: "prefix",
 			template: "foo",
 			separator: ":",
 		}),
 	};
 	let baz = {
 		ENV_VAR: tg.mutation({
-			kind: "template_append",
+			kind: "suffix",
 			template: "baz",
 			separator: ":",
 		}),
