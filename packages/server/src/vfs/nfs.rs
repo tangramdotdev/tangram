@@ -176,7 +176,9 @@ impl Server {
 
 	pub async fn wait(&self) -> tg::Result<()> {
 		let task = self.task.lock().unwrap().clone().unwrap();
-		task.wait().await
+		task.wait()
+			.await
+			.map_err(|source| tg::error!(!source, "the task failed"))?
 	}
 
 	async fn task(&self, stop: Stop, port: u16) -> tg::Result<()> {

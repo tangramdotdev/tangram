@@ -3,6 +3,7 @@ use futures::{
 	future::{self, BoxFuture},
 	Future, FutureExt as _, TryFutureExt as _,
 };
+use itertools::Itertools as _;
 use std::{
 	hash::{BuildHasher, Hash},
 	sync::Arc,
@@ -10,9 +11,9 @@ use std::{
 
 #[derive(Clone)]
 pub struct Task<T> {
-	_abort: Arc<tokio::task::AbortHandle>,
+	abort: Arc<tokio::task::AbortHandle>,
 	stop: Stop,
-	future: future::Shared<BoxFuture<'static, T>>,
+	future: future::Shared<BoxFuture<'static, Result<T, Arc<tokio::task::JoinError>>>>,
 }
 
 #[allow(clippy::module_name_repetitions)]
@@ -35,19 +36,23 @@ where
 		let stop = Stop::new();
 		let task = tokio::spawn(f(stop.clone()));
 		let abort = Arc::new(task.abort_handle());
-		let future = task.map(Result::unwrap).boxed().shared();
+		let future = task.map_err(Arc::new).boxed().shared();
 		Self {
-			_abort: abort,
+			abort,
 			stop,
 			future,
 		}
+	}
+
+	pub fn abort(&self) {
+		self.abort.abort();
 	}
 
 	pub fn stop(&self) {
 		self.stop.stop();
 	}
 
-	pub async fn wait(&self) -> T {
+	pub async fn wait(&self) -> Result<T, Arc<tokio::task::JoinError>> {
 		self.future.clone().await
 	}
 }
@@ -81,9 +86,38 @@ where
 			.clone()
 	}
 
+	pub fn abort(&self, key: &K) {
+		if let Some(task) = self.map.get(key) {
+			task.abort();
+		}
+	}
+
 	pub fn stop(&self, key: &K) {
 		if let Some(task) = self.map.get(key) {
 			task.stop();
+		}
+	}
+
+	pub fn abort_all(&self) {
+		for task in self.map.iter() {
+			task.abort();
+		}
+	}
+
+	pub fn stop_all(&self) {
+		for task in self.map.iter() {
+			task.stop();
+		}
+	}
+
+	pub async fn wait(&self) {
+		let tasks = self
+			.map
+			.iter()
+			.map(|entry| entry.value().clone())
+			.collect_vec();
+		for task in tasks {
+			task.wait().await.ok();
 		}
 	}
 }

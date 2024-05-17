@@ -16,5 +16,6 @@ workspace = true
 [dependencies]
 dashmap = { workspace = true }
 futures = { workspace = true }
+itertools = { workspace = true }
 tokio = { workspace = true }
 tokio-util = { workspace = true }

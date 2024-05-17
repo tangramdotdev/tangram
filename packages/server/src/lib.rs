@@ -278,7 +278,9 @@ impl Server {
 
 	pub async fn wait(&self) -> tg::Result<()> {
 		let task = self.task.lock().unwrap().clone().unwrap();
-		task.wait().await
+		task.wait()
+			.await
+			.map_err(|source| tg::error!(!source, "the task failed"))?
 	}
 
 	pub async fn task(&self, stop: Stop) -> tg::Result<()> {
@@ -358,20 +360,28 @@ impl Server {
 		// Serve.
 		Self::serve(self.clone(), self.options.url.clone(), stop.clone()).await?;
 
-		// Stop the build queue task.
+		// Abort the build queue task.
 		if let Some(task) = build_queue_task {
 			task.abort();
 			task.await.ok();
 		}
 
-		// Stop the build monitor task.
+		// Abort the build monitor task.
 		if let Some(task) = build_monitor_task {
 			task.abort();
 			task.await.ok();
 		}
 
+		// Abort the build tasks.
+		self.builds.abort_all();
+		self.builds.wait().await;
+
 		// Remove the runtimes.
 		self.runtimes.write().unwrap().clear();
+
+		// Abort the checkouts.
+		self.checkouts.abort_all();
+		self.checkouts.wait().await;
 
 		// Stop the VFS.
 		let vfs = self.vfs.lock().unwrap().take();

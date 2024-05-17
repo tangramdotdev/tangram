@@ -29,7 +29,9 @@ impl Server {
 		};
 
 		// Await the task.
-		task.wait().await
+		task.wait()
+			.await
+			.map_err(|source| tg::error!(!source, "the task failed"))?
 	}
 
 	async fn check_out_artifact_with_files(

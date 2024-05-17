@@ -4914,6 +4914,7 @@ version = "0.0.0"
 dependencies = [
  "dashmap",
  "futures",
+ "itertools",
  "tokio",
  "tokio-util",
 ]

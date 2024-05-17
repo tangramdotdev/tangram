@@ -1,9 +1,9 @@
 use crate::{BuildPermit, Server};
 use either::Either;
-use futures::{future, FutureExt as _, TryFutureExt as _};
-use std::{pin::pin, sync::Arc};
+use futures::{FutureExt as _, TryFutureExt as _};
+use std::sync::Arc;
 use tangram_client as tg;
-use tangram_futures::task::{Stop, Task};
+use tangram_futures::task::Task;
 use tg::Handle as _;
 
 impl Server {
@@ -26,11 +26,11 @@ impl Server {
 		// Spawn the build task.
 		self.builds.spawn(
 			build.id().clone(),
-			Task::spawn(|stop| {
+			Task::spawn(|_| {
 				let server = self.clone();
 				let build = build.clone();
 				let remote = remote.clone();
-				async move { server.build_task(build, permit, remote, stop).await }
+				async move { server.build_task(build, permit, remote).await }
 					.inspect_err(|error| {
 						tracing::error!(?error, "the build task failed");
 					})
@@ -58,39 +58,29 @@ impl Server {
 		build: tg::Build,
 		permit: BuildPermit,
 		remote: Option<tg::Client>,
-		stop: Stop,
 	) -> tg::Result<()> {
 		// Set the build's permit.
 		let permit = Arc::new(tokio::sync::Mutex::new(Some(permit)));
 		self.build_permits.insert(build.id().clone(), permit);
 
+		scopeguard::defer! {
+			self.build_permits.remove(build.id());
+		}
+
 		// Build.
-		let outcome = match future::select(
-			pin!(self.build_task_inner(build.clone(), remote)),
-			pin!(stop.stopped()),
-		)
-		.await
-		{
-			future::Either::Left((result, _)) => Some(result),
-			future::Either::Right(((), _)) => None,
-		};
-		let outcome = outcome.map(|result| match result {
+		let result = self.build_task_inner(build.clone(), remote).await;
+		let outcome = match result {
 			Ok(outcome) => outcome,
 			Err(error) => tg::build::Outcome::Failed(error),
-		});
+		};
 
-		// Remove the build's permit.
-		self.build_permits.remove(build.id());
-
-		// If the build was not stopped, then finish the build.
-		if let Some(outcome) = outcome {
-			let outcome = outcome.data(self, None).await?;
-			let arg = tg::build::finish::Arg { outcome };
-			build
-				.finish(self, arg)
-				.await
-				.map_err(|source| tg::error!(!source, "failed to finish the build"))?;
-		}
+		// Finish the build.
+		let outcome = outcome.data(self, None).await?;
+		let arg = tg::build::finish::Arg { outcome };
+		build
+			.finish(self, arg)
+			.await
+			.map_err(|source| tg::error!(!source, "failed to finish the build"))?;
 
 		Ok::<_, tg::Error>(())
 	}
