@@ -11,48 +11,6 @@ where
 {
 	type Transaction<'a> = Either<L::Transaction<'a>, R::Transaction<'a>>;
 
-	fn archive_artifact(
-		&self,
-		id: &tg::artifact::Id,
-		arg: tg::artifact::archive::Arg,
-	) -> impl Future<Output = tg::Result<tg::artifact::archive::Output>> {
-		match self {
-			Either::Left(s) => s.archive_artifact(id, arg).left_future(),
-			Either::Right(s) => s.archive_artifact(id, arg).right_future(),
-		}
-	}
-
-	fn extract_artifact(
-		&self,
-		arg: tg::artifact::extract::Arg,
-	) -> impl Future<Output = tg::Result<tg::artifact::extract::Output>> {
-		match self {
-			Either::Left(s) => s.extract_artifact(arg).left_future(),
-			Either::Right(s) => s.extract_artifact(arg).right_future(),
-		}
-	}
-
-	fn bundle_artifact(
-		&self,
-		id: &tg::artifact::Id,
-	) -> impl Future<Output = tg::Result<tg::artifact::bundle::Output>> {
-		match self {
-			Either::Left(s) => s.bundle_artifact(id).left_future(),
-			Either::Right(s) => s.bundle_artifact(id).right_future(),
-		}
-	}
-
-	fn checksum_artifact(
-		&self,
-		id: &tg::artifact::Id,
-		arg: tg::artifact::checksum::Arg,
-	) -> impl Future<Output = tg::Result<tg::artifact::checksum::Output>> {
-		match self {
-			Either::Left(s) => s.checksum_artifact(id, arg).left_future(),
-			Either::Right(s) => s.checksum_artifact(id, arg).right_future(),
-		}
-	}
-
 	fn check_in_artifact(
 		&self,
 		arg: tg::artifact::checkin::Arg,
@@ -81,49 +39,6 @@ where
 		match self {
 			Either::Left(s) => s.create_blob(reader).left_future(),
 			Either::Right(s) => s.create_blob(reader).right_future(),
-		}
-	}
-
-	fn compress_blob(
-		&self,
-		id: &tg::blob::Id,
-		arg: tg::blob::compress::Arg,
-	) -> impl Future<Output = tg::Result<tg::blob::compress::Output>> {
-		match self {
-			Either::Left(s) => s.compress_blob(id, arg).left_future(),
-			Either::Right(s) => s.compress_blob(id, arg).right_future(),
-		}
-	}
-
-	fn decompress_blob(
-		&self,
-		id: &tg::blob::Id,
-		arg: tg::blob::decompress::Arg,
-	) -> impl Future<Output = tg::Result<tg::blob::decompress::Output>> {
-		match self {
-			Either::Left(s) => s.decompress_blob(id, arg).left_future(),
-			Either::Right(s) => s.decompress_blob(id, arg).right_future(),
-		}
-	}
-
-	fn download_blob(
-		&self,
-		arg: tg::blob::download::Arg,
-	) -> impl Future<Output = tg::Result<tg::blob::download::Output>> {
-		match self {
-			Either::Left(s) => s.download_blob(arg).left_future(),
-			Either::Right(s) => s.download_blob(arg).right_future(),
-		}
-	}
-
-	fn checksum_blob(
-		&self,
-		id: &tg::blob::Id,
-		arg: tg::blob::checksum::Arg,
-	) -> impl Future<Output = tg::Result<tg::blob::checksum::Output>> {
-		match self {
-			Either::Left(s) => s.checksum_blob(id, arg).left_future(),
-			Either::Right(s) => s.checksum_blob(id, arg).right_future(),
 		}
 	}
 

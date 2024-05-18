@@ -63,6 +63,10 @@ impl Id {
 }
 
 impl Target {
+	pub fn builder(host: impl Into<String>, executable: impl Into<tg::Artifact>) -> Builder {
+		Builder::new(host, executable)
+	}
+
 	#[must_use]
 	pub fn with_state(state: State) -> Self {
 		let state = Arc::new(std::sync::RwLock::new(state));
@@ -384,10 +388,10 @@ pub struct Builder {
 
 impl Builder {
 	#[must_use]
-	pub fn new(host: String, executable: tg::Artifact) -> Self {
+	pub fn new(host: impl Into<String>, executable: impl Into<tg::Artifact>) -> Self {
 		Self {
-			host,
-			executable,
+			host: host.into(),
+			executable: executable.into(),
 			args: Vec::new(),
 			env: BTreeMap::new(),
 			lock: None,

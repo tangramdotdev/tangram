@@ -1,15 +1,14 @@
 use crate::{tmp::Tmp, Server};
 use tangram_client as tg;
-use tangram_http::{incoming::request::Ext as _, outgoing::response::Ext as _, Incoming, Outgoing};
 use tokio_util::io::SyncIoBridge;
 
 impl Server {
 	pub async fn extract_artifact(
 		&self,
-		arg: tg::artifact::extract::Arg,
-	) -> tg::Result<tg::artifact::extract::Output> {
+		blob: &tg::Blob,
+		format: Option<tg::artifact::archive::Format>,
+	) -> tg::Result<tg::Artifact> {
 		// Create the reader.
-		let blob = tg::Blob::with_id(arg.blob);
 		let reader = blob.reader(self).await?;
 
 		// Create a temporary path.
@@ -21,8 +20,7 @@ impl Server {
 			let reader = SyncIoBridge::new(reader);
 			let path = path.clone();
 			move || {
-				let format = arg
-					.format
+				let format = format
 					.ok_or_else(|| tg::error!("archive format detection not yet implemented"))?;
 				match format {
 					tg::artifact::archive::Format::Tar => {
@@ -54,25 +52,6 @@ impl Server {
 			.await
 			.map_err(|source| tg::error!(!source, "failed to check in the extracted archive"))?;
 
-		// Create the output.
-		let id = artifact.id(self, None).await?;
-		let output = tg::artifact::extract::Output { artifact: id };
-
-		Ok(output)
-	}
-}
-
-impl Server {
-	pub(crate) async fn handle_extract_artifact_request<H>(
-		handle: &H,
-		request: http::Request<Incoming>,
-	) -> tg::Result<http::Response<Outgoing>>
-	where
-		H: tg::Handle,
-	{
-		let arg = request.json().await?;
-		let output = handle.extract_artifact(arg).await?;
-		let response = http::Response::builder().json(output).unwrap();
-		Ok(response)
+		Ok(artifact)
 	}
 }

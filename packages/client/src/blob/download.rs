@@ -1,47 +1,32 @@
 use crate as tg;
-use tangram_http::{incoming::response::Ext as _, outgoing::request::Ext as _};
+use futures::FutureExt as _;
 use url::Url;
 
-#[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
-pub struct Arg {
-	pub url: Url,
-	pub checksum: tg::Checksum,
-}
-
-#[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
-pub struct Output {
-	pub blob: tg::blob::Id,
-}
-
 impl tg::Blob {
-	pub async fn download<H>(handle: &H, arg: tg::blob::download::Arg) -> tg::Result<Self>
+	pub async fn download<H>(handle: &H, url: &Url, checksum: &tg::Checksum) -> tg::Result<Self>
 	where
 		H: tg::Handle,
 	{
-		let output = handle.download_blob(arg).await?;
-		let blob = Self::with_id(output.blob);
+		let target = Self::download_target(url, checksum);
+		let arg = tg::target::build::Arg::default();
+		let output = target.output(handle, arg).boxed().await?;
+		let blob = output
+			.try_unwrap_object()
+			.ok()
+			.ok_or_else(|| tg::error!("expected an object"))?
+			.try_into()?;
 		Ok(blob)
 	}
-}
 
-impl tg::Client {
-	pub async fn download_blob(
-		&self,
-		arg: tg::blob::download::Arg,
-	) -> tg::Result<tg::blob::download::Output> {
-		let method = http::Method::POST;
-		let uri = "/blobs/download";
-		let request = http::request::Builder::default()
-			.method(method)
-			.uri(uri)
-			.json(arg)
-			.unwrap();
-		let response = self.send(request).await?;
-		if !response.status().is_success() {
-			let error = response.json().await?;
-			return Err(error);
-		}
-		let output = response.json().await?;
-		Ok(output)
+	#[must_use]
+	pub fn download_target(url: &Url, checksum: &tg::Checksum) -> tg::Target {
+		let host = "js";
+		let executable = "export default tg.target((...args) => tg.download(...args));";
+		let args = vec![
+			"default".into(),
+			url.to_string().into(),
+			checksum.to_string().into(),
+		];
+		tg::Target::builder(host, executable).args(args).build()
 	}
 }

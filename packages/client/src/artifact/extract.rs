@@ -1,16 +1,5 @@
 use crate as tg;
-use tangram_http::{incoming::response::Ext as _, outgoing::request::Ext as _};
-
-#[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
-pub struct Arg {
-	pub blob: tg::blob::Id,
-	pub format: Option<tg::artifact::archive::Format>,
-}
-
-#[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
-pub struct Output {
-	pub artifact: tg::artifact::Id,
-}
+use futures::FutureExt as _;
 
 impl tg::Artifact {
 	pub async fn extract<H>(
@@ -21,32 +10,25 @@ impl tg::Artifact {
 	where
 		H: tg::Handle,
 	{
-		let blob = blob.id(handle, None).await?;
-		let arg = Arg { blob, format };
-		let output = handle.extract_artifact(arg).await?;
-		let artifact = Self::with_id(output.artifact);
+		let target = Self::extract_target(blob, format);
+		let arg = tg::target::build::Arg::default();
+		let output = target.output(handle, arg).boxed().await?;
+		let artifact = output.try_into()?;
 		Ok(artifact)
 	}
-}
 
-impl tg::Client {
-	pub async fn extract_artifact(
-		&self,
-		arg: tg::artifact::extract::Arg,
-	) -> tg::Result<tg::artifact::extract::Output> {
-		let method = http::Method::POST;
-		let uri = "/artifacts/extract";
-		let request = http::request::Builder::default()
-			.method(method)
-			.uri(uri)
-			.json(arg)
-			.unwrap();
-		let response = self.send(request).await?;
-		if !response.status().is_success() {
-			let error = response.json().await?;
-			return Err(error);
-		}
-		let output = response.json().await?;
-		Ok(output)
+	#[must_use]
+	pub fn extract_target(
+		blob: &tg::Blob,
+		format: Option<tg::artifact::archive::Format>,
+	) -> tg::Target {
+		let host = "js";
+		let executable = "export default tg.target((...args) => tg.extract(...args));";
+		let args = vec![
+			"default".into(),
+			blob.clone().into(),
+			format.map(|format| format.to_string()).into(),
+		];
+		tg::Target::builder(host, executable).args(args).build()
 	}
 }

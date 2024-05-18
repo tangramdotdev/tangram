@@ -2,28 +2,19 @@ use crate::{database::Transaction, Server};
 use futures::{stream::FuturesOrdered, TryStreamExt as _};
 use once_cell::sync::Lazy;
 use tangram_client as tg;
-use tangram_http::{outgoing::response::Ext as _, Incoming, Outgoing};
 
 static TANGRAM_ARTIFACTS_PATH: Lazy<tg::Path> = Lazy::new(|| ".tangram/artifacts".parse().unwrap());
 
 static TANGRAM_RUN_PATH: Lazy<tg::Path> = Lazy::new(|| ".tangram/run".parse().unwrap());
 
 impl Server {
-	pub async fn bundle_artifact(
-		&self,
-		id: &tg::artifact::Id,
-	) -> tg::Result<tg::artifact::bundle::Output> {
-		let artifact = tg::Artifact::with_id(id.clone());
-
+	pub async fn bundle_artifact(&self, artifact: &tg::Artifact) -> tg::Result<tg::Artifact> {
 		// Collect the artifact's recursive references.
 		let references = Box::pin(artifact.recursive_references(self)).await?;
 
 		// If there are no references, then return the artifact.
 		if references.is_empty() {
-			let output = tg::artifact::bundle::Output {
-				artifact: id.clone(),
-			};
-			return Ok(output);
+			return Ok(artifact.clone());
 		}
 
 		// Create the artifacts directory by removing all references from the referenced artifacts.
@@ -78,10 +69,6 @@ impl Server {
 			.await?
 			.build()
 			.into();
-
-		// Create the output.
-		let id = output.id(self, None).await?;
-		let output = tg::artifact::bundle::Output { artifact: id };
 
 		Ok(output)
 	}
@@ -149,21 +136,5 @@ impl Server {
 				Ok(symlink.into())
 			},
 		}
-	}
-}
-
-impl Server {
-	pub(crate) async fn handle_bundle_artifact_request<H>(
-		handle: &H,
-		_request: http::Request<Incoming>,
-		id: &str,
-	) -> tg::Result<http::Response<Outgoing>>
-	where
-		H: tg::Handle,
-	{
-		let id = id.parse()?;
-		let output = handle.bundle_artifact(&id).await?;
-		let response = http::Response::builder().json(output).unwrap();
-		Ok(response)
 	}
 }

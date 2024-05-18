@@ -12,14 +12,17 @@ pub struct Args {
 
 impl Cli {
 	pub async fn command_blob_download(&self, args: Args) -> tg::Result<()> {
+		let url = args.url;
 		let checksum = args.checksum.unwrap_or(tg::Checksum::Unsafe);
-		let arg = tg::blob::download::Arg {
-			url: args.url,
-			checksum,
+		let target = tg::Blob::download_target(&url, &checksum);
+		let target = target.id(&self.handle, None).await?;
+		let args = crate::target::build::InnerArgs {
+			target: Some(target.to_string()),
+			..Default::default()
 		};
-		let blob = tg::Blob::download(&self.handle, arg).await?;
-		let id = blob.id(&self.handle, None).await?;
-		println!("{id}");
+		let output = self.command_target_build_inner(args, false).await?;
+		let output = output.unwrap().unwrap_value();
+		println!("{output}");
 		Ok(())
 	}
 }

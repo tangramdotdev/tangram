@@ -199,8 +199,13 @@ impl File {
 	}
 
 	#[must_use]
-	pub fn builder(contents: tg::Blob) -> Builder {
+	pub fn builder(contents: impl Into<tg::Blob>) -> Builder {
 		Builder::new(contents)
+	}
+
+	#[must_use]
+	pub fn with_contents(contents: impl Into<tg::Blob>) -> Self {
+		Self::builder(contents).build()
 	}
 
 	pub async fn contents<H>(&self, handle: &H) -> tg::Result<tg::Blob>
@@ -339,9 +344,9 @@ pub struct Builder {
 
 impl Builder {
 	#[must_use]
-	pub fn new(contents: tg::Blob) -> Self {
+	pub fn new(contents: impl Into<tg::Blob>) -> Self {
 		Self {
-			contents,
+			contents: contents.into(),
 			executable: false,
 			references: Vec::new(),
 		}
@@ -368,5 +373,23 @@ impl Builder {
 	#[must_use]
 	pub fn build(self) -> File {
 		File::new(self.contents, self.executable, self.references)
+	}
+}
+
+impl From<tg::Blob> for File {
+	fn from(value: tg::Blob) -> Self {
+		Self::with_contents(value)
+	}
+}
+
+impl From<String> for File {
+	fn from(value: String) -> Self {
+		Self::with_contents(value)
+	}
+}
+
+impl From<&str> for File {
+	fn from(value: &str) -> Self {
+		Self::with_contents(value)
 	}
 }

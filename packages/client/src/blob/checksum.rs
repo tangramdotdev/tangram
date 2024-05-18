@@ -1,12 +1,5 @@
 use crate as tg;
-use tangram_http::{incoming::response::Ext as _, outgoing::request::Ext as _};
-
-#[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
-pub struct Arg {
-	pub algorithm: tg::checksum::Algorithm,
-}
-
-pub type Output = tg::Checksum;
+use futures::FutureExt as _;
 
 impl tg::Blob {
 	pub async fn checksum<H>(
@@ -17,32 +10,26 @@ impl tg::Blob {
 	where
 		H: tg::Handle,
 	{
-		let id = self.id(handle, None).await?;
-		let arg = Arg { algorithm };
-		let checksum = handle.checksum_blob(&id, arg).await?;
+		let target = self.checksum_target(algorithm);
+		let arg = tg::target::build::Arg::default();
+		let output = target.output(handle, arg).boxed().await?;
+		let checksum = output
+			.try_unwrap_string()
+			.ok()
+			.ok_or_else(|| tg::error!("expected a string"))?
+			.parse()?;
 		Ok(checksum)
 	}
-}
 
-impl tg::Client {
-	pub async fn checksum_blob(
-		&self,
-		id: &tg::blob::Id,
-		arg: tg::blob::checksum::Arg,
-	) -> tg::Result<tg::blob::checksum::Output> {
-		let method = http::Method::POST;
-		let uri = format!("/blobs/{id}/checksum");
-		let request = http::request::Builder::default()
-			.method(method)
-			.uri(uri)
-			.json(arg)
-			.unwrap();
-		let response = self.send(request).await?;
-		if !response.status().is_success() {
-			let error = response.json().await?;
-			return Err(error);
-		}
-		let output = response.json().await?;
-		Ok(output)
+	#[must_use]
+	pub fn checksum_target(&self, algorithm: tg::checksum::Algorithm) -> tg::Target {
+		let host = "js";
+		let executable = "export default tg.target((...args) => tg.checksum(...args));";
+		let args = vec![
+			"default".into(),
+			self.clone().into(),
+			algorithm.to_string().into(),
+		];
+		tg::Target::builder(host, executable).args(args).build()
 	}
 }

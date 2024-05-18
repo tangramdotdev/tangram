@@ -15,8 +15,16 @@ pub struct Args {
 impl Cli {
 	pub async fn command_blob_checksum(&self, args: Args) -> tg::Result<()> {
 		let blob = tg::Blob::with_id(args.blob);
-		let checksum = blob.checksum(&self.handle, args.algorithm).await?;
-		println!("{checksum}");
+		let algorithm = args.algorithm;
+		let target = blob.checksum_target(algorithm);
+		let target = target.id(&self.handle, None).await?;
+		let args = crate::target::build::InnerArgs {
+			target: Some(target.to_string()),
+			..Default::default()
+		};
+		let output = self.command_target_build_inner(args, false).await?;
+		let output = output.unwrap().unwrap_value();
+		println!("{output}");
 		Ok(())
 	}
 }

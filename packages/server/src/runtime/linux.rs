@@ -85,7 +85,7 @@ impl Runtime {
 		})
 	}
 
-	pub async fn run(&self, build: &tg::Build) -> tg::Result<tg::Value> {
+	pub async fn build(&self, build: &tg::Build) -> tg::Result<tg::Value> {
 		let server = &self.server;
 
 		// Get the target.

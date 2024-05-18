@@ -75,6 +75,7 @@ pub enum View {
 	Tui,
 }
 
+#[derive(Clone, Debug, derive_more::Unwrap)]
 pub enum InnerOutput {
 	Path(tg::Path),
 	Value(tg::Value),
@@ -163,9 +164,9 @@ impl Cli {
 				})
 				.try_collect()?;
 			args_.insert(0, target.into());
-			let host = "js".to_owned();
+			let host = "js";
 			let path = tg::package::get_root_module_path(&self.handle, &package).await?;
-			let executable = tg::Symlink::new(Some(package), Some(path)).into();
+			let executable = tg::Symlink::new(Some(package), Some(path));
 			tg::target::Builder::new(host, executable)
 				.args(args_)
 				.env(env)
@@ -305,5 +306,23 @@ impl Cli {
 		}
 
 		Ok(Some(InnerOutput::Value(output)))
+	}
+}
+
+impl Default for InnerArgs {
+	fn default() -> Self {
+		Self {
+			arg: vec![],
+			checkout: None,
+			env: vec![],
+			host: None,
+			locked: false,
+			package: None,
+			remote: false,
+			retry: None,
+			root: None,
+			target: None,
+			view: crate::target::build::View::Tui,
+		}
 	}
 }

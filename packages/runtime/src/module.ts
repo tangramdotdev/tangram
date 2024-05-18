@@ -26,20 +26,20 @@ export type PackagePath = {
 };
 
 export type Artifact =
-	| { kind: "path"; value: string }
-	| { kind: "id"; value: string };
+	| { kind: "id"; value: string }
+	| { kind: "path"; value: string };
 
 export type Directory =
-	| { kind: "path"; value: string }
-	| { kind: "id"; value: string };
+	| { kind: "id"; value: string }
+	| { kind: "path"; value: string };
 
 export type File =
-	| { kind: "path"; value: string }
-	| { kind: "id"; value: string };
+	| { kind: "id"; value: string }
+	| { kind: "path"; value: string };
 
 export type Symlink =
-	| { kind: "path"; value: string }
-	| { kind: "id"; value: string };
+	| { kind: "id"; value: string }
+	| { kind: "path"; value: string };
 
 export namespace Module {
 	export let toUrl = (module: Module): string => {

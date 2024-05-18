@@ -69,7 +69,7 @@ impl Runtime {
 		}
 	}
 
-	pub async fn run(
+	pub async fn build(
 		&self,
 		build: &tg::Build,
 		remote: Option<tg::Client>,

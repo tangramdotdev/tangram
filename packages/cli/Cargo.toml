@@ -24,6 +24,7 @@ console-subscriber = { workspace = true }
 crossterm = { workspace = true }
 deno_core_icudata = { workspace = true }
 dialoguer = { workspace = true }
+derive_more = { workspace = true }
 either = { workspace = true }
 futures = { workspace = true }
 indicatif = { workspace = true }

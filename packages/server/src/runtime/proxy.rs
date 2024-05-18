@@ -55,36 +55,6 @@ impl Proxy {
 impl tg::Handle for Proxy {
 	type Transaction<'a> = ();
 
-	fn archive_artifact(
-		&self,
-		id: &tg::artifact::Id,
-		arg: tg::artifact::archive::Arg,
-	) -> impl Future<Output = tg::Result<tg::artifact::archive::Output>> {
-		self.server.archive_artifact(id, arg)
-	}
-
-	fn extract_artifact(
-		&self,
-		arg: tg::artifact::extract::Arg,
-	) -> impl Future<Output = tg::Result<tg::artifact::extract::Output>> {
-		self.server.extract_artifact(arg)
-	}
-
-	fn bundle_artifact(
-		&self,
-		id: &tg::artifact::Id,
-	) -> impl Future<Output = tg::Result<tg::artifact::bundle::Output>> {
-		self.server.bundle_artifact(id)
-	}
-
-	fn checksum_artifact(
-		&self,
-		id: &tg::artifact::Id,
-		arg: tg::artifact::checksum::Arg,
-	) -> impl Future<Output = tg::Result<tg::artifact::checksum::Output>> {
-		self.server.checksum_artifact(id, arg)
-	}
-
 	async fn check_in_artifact(
 		&self,
 		mut arg: tg::artifact::checkin::Arg,
@@ -123,37 +93,6 @@ impl tg::Handle for Proxy {
 		reader: impl AsyncRead + Send + 'static,
 	) -> impl Future<Output = tg::Result<tg::blob::Id>> {
 		self.server.create_blob(reader)
-	}
-
-	fn compress_blob(
-		&self,
-		id: &tg::blob::Id,
-		arg: tg::blob::compress::Arg,
-	) -> impl Future<Output = tg::Result<tg::blob::compress::Output>> {
-		self.server.compress_blob(id, arg)
-	}
-
-	fn decompress_blob(
-		&self,
-		id: &tg::blob::Id,
-		arg: tg::blob::decompress::Arg,
-	) -> impl Future<Output = tg::Result<tg::blob::decompress::Output>> {
-		self.server.decompress_blob(id, arg)
-	}
-
-	fn download_blob(
-		&self,
-		arg: tg::blob::download::Arg,
-	) -> impl Future<Output = tg::Result<tg::blob::download::Output>> {
-		self.server.download_blob(arg)
-	}
-
-	fn checksum_blob(
-		&self,
-		id: &tg::blob::Id,
-		arg: tg::blob::checksum::Arg,
-	) -> impl Future<Output = tg::Result<tg::blob::checksum::Output>> {
-		self.server.checksum_blob(id, arg)
 	}
 
 	async fn list_builds(&self, _arg: tg::build::list::Arg) -> tg::Result<tg::build::list::Output> {

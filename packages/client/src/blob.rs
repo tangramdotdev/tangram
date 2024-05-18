@@ -279,3 +279,15 @@ impl TryFrom<tg::Value> for Blob {
 			.try_into()
 	}
 }
+
+impl From<String> for Blob {
+	fn from(value: String) -> Self {
+		tg::Leaf::from(value).into()
+	}
+}
+
+impl From<&str> for Blob {
+	fn from(value: &str) -> Self {
+		tg::Leaf::from(value).into()
+	}
+}

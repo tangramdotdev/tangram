@@ -43,6 +43,7 @@ biome_js_formatter = "0.5"
 biome_js_parser = "0.5"
 biome_js_syntax = "0.5"
 blake3 = "1"
+byte-unit = { version = "5", features = ["byte"] }
 bytes = { version = "1", features = ["serde"] }
 clap = { version = "4", features = ["derive", "env", "unstable-v5"] }
 console-subscriber = "0.2"

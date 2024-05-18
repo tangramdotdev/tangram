@@ -240,3 +240,23 @@ impl std::str::FromStr for Id {
 		crate::Id::from_str(s)?.try_into()
 	}
 }
+
+impl From<Bytes> for Leaf {
+	fn from(value: Bytes) -> Self {
+		Self::with_object(Object { bytes: value })
+	}
+}
+
+impl From<String> for Leaf {
+	fn from(value: String) -> Self {
+		Self::with_object(Object {
+			bytes: value.into(),
+		})
+	}
+}
+
+impl From<&str> for Leaf {
+	fn from(value: &str) -> Self {
+		value.to_owned().into()
+	}
+}

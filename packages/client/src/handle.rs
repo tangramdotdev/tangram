@@ -8,28 +8,6 @@ mod either;
 pub trait Handle: Clone + Unpin + Send + Sync + 'static {
 	type Transaction<'a>: Send + Sync;
 
-	fn archive_artifact(
-		&self,
-		id: &tg::artifact::Id,
-		arg: tg::artifact::archive::Arg,
-	) -> impl Future<Output = tg::Result<tg::artifact::archive::Output>> + Send;
-
-	fn extract_artifact(
-		&self,
-		arg: tg::artifact::extract::Arg,
-	) -> impl Future<Output = tg::Result<tg::artifact::extract::Output>> + Send;
-
-	fn bundle_artifact(
-		&self,
-		id: &tg::artifact::Id,
-	) -> impl Future<Output = tg::Result<tg::artifact::bundle::Output>> + Send;
-
-	fn checksum_artifact(
-		&self,
-		id: &tg::artifact::Id,
-		arg: tg::artifact::checksum::Arg,
-	) -> impl Future<Output = tg::Result<tg::artifact::checksum::Output>> + Send;
-
 	fn check_in_artifact(
 		&self,
 		arg: tg::artifact::checkin::Arg,
@@ -45,29 +23,6 @@ pub trait Handle: Clone + Unpin + Send + Sync + 'static {
 		&self,
 		reader: impl AsyncRead + Send + 'static,
 	) -> impl Future<Output = tg::Result<tg::blob::Id>> + Send;
-
-	fn compress_blob(
-		&self,
-		id: &tg::blob::Id,
-		arg: tg::blob::compress::Arg,
-	) -> impl Future<Output = tg::Result<tg::blob::compress::Output>> + Send;
-
-	fn decompress_blob(
-		&self,
-		id: &tg::blob::Id,
-		arg: tg::blob::decompress::Arg,
-	) -> impl Future<Output = tg::Result<tg::blob::decompress::Output>> + Send;
-
-	fn download_blob(
-		&self,
-		arg: tg::blob::download::Arg,
-	) -> impl Future<Output = tg::Result<tg::blob::download::Output>> + Send;
-
-	fn checksum_blob(
-		&self,
-		id: &tg::blob::Id,
-		arg: tg::blob::checksum::Arg,
-	) -> impl Future<Output = tg::Result<tg::blob::checksum::Output>> + Send;
 
 	fn list_builds(
 		&self,

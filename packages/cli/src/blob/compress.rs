@@ -14,9 +14,16 @@ pub struct Args {
 impl Cli {
 	pub async fn command_blob_compress(&self, args: Args) -> tg::Result<()> {
 		let blob = tg::Blob::with_id(args.blob);
-		let blob = blob.compress(&self.handle, args.format).await?;
-		let blob = blob.id(&self.handle, None).await?;
-		println!("{blob}");
+		let format = args.format;
+		let target = blob.compress_target(format);
+		let target = target.id(&self.handle, None).await?;
+		let args = crate::target::build::InnerArgs {
+			target: Some(target.to_string()),
+			..Default::default()
+		};
+		let output = self.command_target_build_inner(args, false).await?;
+		let output = output.unwrap().unwrap_value();
+		println!("{output}");
 		Ok(())
 	}
 }

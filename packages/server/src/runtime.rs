@@ -21,17 +21,17 @@ pub enum Runtime {
 }
 
 impl Runtime {
-	pub async fn run(
+	pub async fn build(
 		&self,
 		build: &tg::Build,
 		remote: Option<tg::Client>,
 	) -> tg::Result<tg::Value> {
 		match self {
-			#[cfg(target_os = "macos")]
-			Runtime::Darwin(runtime) => runtime.run(build).await,
-			Runtime::Js(runtime) => runtime.run(build, remote).await,
+			// #[cfg(target_os = "macos")]
+			Runtime::Darwin(runtime) => runtime.build(build).await,
+			Runtime::Js(runtime) => runtime.build(build, remote).await,
 			#[cfg(target_os = "linux")]
-			Runtime::Linux(runtime) => runtime.run(build).await,
+			Runtime::Linux(runtime) => runtime.build(build).await,
 		}
 	}
 }

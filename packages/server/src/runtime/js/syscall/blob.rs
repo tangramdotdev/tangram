@@ -10,10 +10,7 @@ pub async fn compress(
 ) -> tg::Result<tg::Blob> {
 	let server = &state.server;
 	let (blob, format) = args;
-	let id = blob.id(server, None).await?;
-	let arg = tg::blob::compress::Arg { format };
-	let output = server.compress_blob(&id, arg).await?;
-	let blob = tg::Blob::with_id(output.blob);
+	let blob = server.compress_blob(&blob, format).await?;
 	Ok(blob)
 }
 
@@ -23,9 +20,7 @@ pub async fn checksum(
 ) -> tg::Result<tg::Checksum> {
 	let server = &state.server;
 	let (blob, algorithm) = args;
-	let blob = blob.id(server, None).await?;
-	let arg = tangram_client::blob::checksum::Arg { algorithm };
-	let checksum = server.checksum_blob(&blob, arg).await?;
+	let checksum = server.checksum_blob(&blob, algorithm).await?;
 	Ok(checksum)
 }
 
@@ -35,19 +30,14 @@ pub async fn decompress(
 ) -> tg::Result<tg::Blob> {
 	let server = &state.server;
 	let (blob, format) = args;
-	let id = blob.id(server, None).await?;
-	let arg = tg::blob::decompress::Arg { format };
-	let output = server.decompress_blob(&id, arg).await?;
-	let blob = tg::Blob::with_id(output.blob);
+	let blob = server.decompress_blob(&blob, format).await?;
 	Ok(blob)
 }
 
 pub async fn download(state: Rc<State>, args: (Url, tg::Checksum)) -> tg::Result<tg::Blob> {
 	let server = &state.server;
 	let (url, checksum) = args;
-	let arg = tg::blob::download::Arg { url, checksum };
-	let output = server.download_blob(arg).await?;
-	let blob = tg::Blob::with_id(output.blob);
+	let blob = server.download_blob(&url, &checksum, &state.build).await?;
 	Ok(blob)
 }
 

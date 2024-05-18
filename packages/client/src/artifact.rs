@@ -347,3 +347,15 @@ impl TryFrom<tg::Value> for Artifact {
 			.try_into()
 	}
 }
+
+impl From<String> for Artifact {
+	fn from(value: String) -> Self {
+		tg::File::from(value).into()
+	}
+}
+
+impl From<&str> for Artifact {
+	fn from(value: &str) -> Self {
+		tg::File::from(value).into()
+	}
+}

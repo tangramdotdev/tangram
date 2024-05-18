@@ -104,7 +104,7 @@ impl Server {
 			.clone();
 
 		// Build.
-		let result = runtime.run(&build, remote).await;
+		let result = runtime.build(&build, remote).await;
 
 		// Log an error if one occurred.
 		if let Err(error) = &result {

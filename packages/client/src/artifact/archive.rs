@@ -1,10 +1,5 @@
 use crate as tg;
-use tangram_http::{incoming::response::Ext as _, outgoing::request::Ext as _};
-
-#[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
-pub struct Arg {
-	pub format: Format,
-}
+use futures::FutureExt as _;
 
 #[derive(Clone, Copy, Debug, serde_with::DeserializeFromStr, serde_with::SerializeDisplay)]
 pub enum Format {
@@ -12,44 +7,28 @@ pub enum Format {
 	Zip,
 }
 
-#[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
-pub struct Output {
-	pub blob: tg::blob::Id,
-}
-
 impl tg::Artifact {
 	pub async fn archive<H>(&self, handle: &H, format: Format) -> tg::Result<tg::Blob>
 	where
 		H: tg::Handle,
 	{
-		let id = self.id(handle, None).await?;
-		let arg = Arg { format };
-		let output = handle.archive_artifact(&id, arg).await?;
-		let blob = tg::Blob::with_id(output.blob);
+		let target = self.archive_target(format);
+		let arg = tg::target::build::Arg::default();
+		let output = target.output(handle, arg).boxed().await?;
+		let blob = output.try_into()?;
 		Ok(blob)
 	}
-}
 
-impl tg::Client {
-	pub async fn archive_artifact(
-		&self,
-		id: &tg::artifact::Id,
-		arg: tg::artifact::archive::Arg,
-	) -> tg::Result<tg::artifact::archive::Output> {
-		let method = http::Method::POST;
-		let uri = format!("/artifacts/{id}/archive");
-		let request = http::request::Builder::default()
-			.method(method)
-			.uri(uri)
-			.json(arg)
-			.unwrap();
-		let response = self.send(request).await?;
-		if !response.status().is_success() {
-			let error = response.json().await?;
-			return Err(error);
-		}
-		let output = response.json().await?;
-		Ok(output)
+	#[must_use]
+	pub fn archive_target(&self, format: Format) -> tg::Target {
+		let host = "js";
+		let executable = "export default tg.target((...args) => tg.archive(...args));";
+		let args = vec![
+			"default".into(),
+			self.clone().into(),
+			format.to_string().into(),
+		];
+		tg::Target::builder(host, executable).args(args).build()
 	}
 }
 

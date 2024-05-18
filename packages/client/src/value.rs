@@ -465,3 +465,21 @@ impl<'de> serde::Deserialize<'de> for Data {
 		deserializer.deserialize_any(Visitor)
 	}
 }
+
+impl From<&str> for Value {
+	fn from(value: &str) -> Self {
+		value.to_owned().into()
+	}
+}
+
+impl<T> From<Option<T>> for Value
+where
+	T: Into<Value>,
+{
+	fn from(value: Option<T>) -> Self {
+		match value {
+			Some(value) => value.into(),
+			None => Self::Null,
+		}
+	}
+}

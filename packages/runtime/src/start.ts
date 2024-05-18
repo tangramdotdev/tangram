@@ -1,4 +1,5 @@
 import { assert } from "./assert.ts";
+import { File } from "./file.ts";
 import { Module } from "./module.ts";
 import { resolve } from "./resolve.ts";
 import { Symlink } from "./symlink.ts";
@@ -12,36 +13,47 @@ export let start = async (target: Target): Promise<Value> => {
 	// Set the current target.
 	setCurrentTarget(target);
 
-	// Load the executable.
-	let lock = await target.lock();
-	assert(lock !== undefined);
-	let lockId = await lock.id();
-	let executable = await target.executable();
-	Symlink.assert(executable);
-	let package_ = await executable.artifact();
-	assert(package_ !== undefined);
-	let packageId = await package_.id();
-	let path = await executable.path();
-	assert(path !== undefined);
-
 	// Create the module.
-	let kind: "js" | "ts";
-	if (path.toString().endsWith(".js")) {
-		kind = "js";
-	} else {
-		kind = "ts";
-	}
-	let module: Module = {
-		kind,
-		value: {
-			kind: "package_artifact",
+	let executable = await target.executable();
+	let module: Module;
+	if (executable instanceof Symlink) {
+		let package_ = await executable.artifact();
+		assert(package_ !== undefined);
+		let packageId = await package_.id();
+		let lock = await target.lock();
+		assert(lock !== undefined);
+		let lockId = await lock.id();
+		let path = await executable.path();
+		assert(path !== undefined);
+		let kind: "js" | "ts";
+		if (path.toString().endsWith(".js")) {
+			kind = "js";
+		} else {
+			kind = "ts";
+		}
+		module = {
+			kind,
 			value: {
-				artifact: packageId,
-				lock: lockId,
-				path: path.toString(),
+				kind: "package_artifact",
+				value: {
+					artifact: packageId,
+					lock: lockId,
+					path: path.toString(),
+				},
 			},
-		},
-	};
+		};
+	} else if (executable instanceof File) {
+		let id = await executable.id();
+		module = {
+			kind: "js",
+			value: {
+				kind: "file",
+				value: id,
+			},
+		};
+	} else {
+		throw new Error("invalid target");
+	}
 
 	let url = Module.toUrl(module);
 	await import(url);
