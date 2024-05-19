@@ -1,6 +1,6 @@
 use crate::Server;
 use bytes::Bytes;
-use futures::{stream, FutureExt as _, StreamExt as _, TryStreamExt as _};
+use futures::{stream, StreamExt as _, TryStreamExt as _};
 use num::ToPrimitive as _;
 use std::pin::pin;
 use tangram_client as tg;
@@ -88,7 +88,7 @@ impl Server {
 	where
 		H: tg::Handle,
 	{
-		let output = handle.create_blob(request.reader()).boxed().await?;
+		let output = handle.create_blob(request.reader()).await?;
 		let response = http::Response::builder().json(output).unwrap();
 		Ok(response)
 	}

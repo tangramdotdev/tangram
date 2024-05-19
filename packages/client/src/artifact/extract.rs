@@ -1,5 +1,4 @@
 use crate as tg;
-use futures::FutureExt as _;
 
 impl tg::Artifact {
 	pub async fn extract<H>(
@@ -12,7 +11,7 @@ impl tg::Artifact {
 	{
 		let target = Self::extract_target(blob, format);
 		let arg = tg::target::build::Arg::default();
-		let output = target.output(handle, arg).boxed().await?;
+		let output = target.output(handle, arg).await?;
 		let artifact = output.try_into()?;
 		Ok(artifact)
 	}

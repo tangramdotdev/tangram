@@ -1,5 +1,5 @@
 use crate::Server;
-use futures::{stream::FuturesUnordered, FutureExt as _, TryStreamExt as _};
+use futures::{stream::FuturesUnordered, TryStreamExt as _};
 use itertools::Itertools as _;
 use std::os::unix::fs::PermissionsExt as _;
 use tangram_client as tg;
@@ -135,7 +135,6 @@ impl Server {
 			.map_err(|source| tg::error!(!source, "failed to open the file"))?;
 		let contents = self
 			.create_blob(file)
-			.boxed()
 			.await
 			.map_err(|source| tg::error!(!source, "failed to create the contents"))?;
 		let contents = tg::Blob::with_id(contents);

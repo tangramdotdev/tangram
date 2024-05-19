@@ -1,5 +1,5 @@
 use crate as tg;
-use futures::{Future, FutureExt as _, TryFutureExt as _};
+use futures::{Future, TryFutureExt as _};
 use serde_with::serde_as;
 use tangram_http::{incoming::response::Ext as _, outgoing::request::Ext as _};
 
@@ -101,7 +101,6 @@ impl tg::Build {
 	{
 		handle
 			.try_get_build_outcome(self.id(), arg)
-			.boxed()
 			.await
 			.map(|option| option.map(futures::FutureExt::boxed))
 	}

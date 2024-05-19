@@ -1,5 +1,4 @@
 use crate as tg;
-use futures::FutureExt as _;
 
 impl tg::Blob {
 	pub async fn checksum<H>(
@@ -12,7 +11,7 @@ impl tg::Blob {
 	{
 		let target = self.checksum_target(algorithm);
 		let arg = tg::target::build::Arg::default();
-		let output = target.output(handle, arg).boxed().await?;
+		let output = target.output(handle, arg).await?;
 		let checksum = output
 			.try_unwrap_string()
 			.ok()

@@ -1,5 +1,4 @@
 use crate as tg;
-use futures::FutureExt as _;
 use url::Url;
 
 impl tg::Blob {
@@ -9,7 +8,7 @@ impl tg::Blob {
 	{
 		let target = Self::download_target(url, checksum);
 		let arg = tg::target::build::Arg::default();
-		let output = target.output(handle, arg).boxed().await?;
+		let output = target.output(handle, arg).await?;
 		let blob = output
 			.try_unwrap_object()
 			.ok()

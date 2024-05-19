@@ -1,5 +1,4 @@
 use crate as tg;
-use futures::FutureExt as _;
 
 impl tg::Blob {
 	pub async fn decompress<H>(
@@ -12,7 +11,7 @@ impl tg::Blob {
 	{
 		let target = self.decompress_target(format);
 		let arg = tg::target::build::Arg::default();
-		let output = target.output(handle, arg).boxed().await?;
+		let output = target.output(handle, arg).await?;
 		let blob = output.try_into()?;
 		Ok(blob)
 	}
