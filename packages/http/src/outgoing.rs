@@ -5,7 +5,10 @@ use futures::{
 	TryStreamExt as _,
 };
 use http_body::Body;
-use std::pin::{pin, Pin};
+use std::{
+	pin::{pin, Pin},
+	sync::Arc,
+};
 use tokio::io::AsyncRead;
 use tokio_util::io::ReaderStream;
 
@@ -15,12 +18,21 @@ pub mod response;
 pub enum Outgoing {
 	Empty,
 	Bytes(Option<Bytes>),
-	Json(Option<Box<dyn erased_serde::Serialize + Send>>),
+	Json(Option<Arc<dyn erased_serde::Serialize + Send + Sync + 'static>>),
 	Stream(Pin<Box<dyn Stream<Item = Result<Bytes, Error>> + Send + 'static>>),
 	Body(Pin<Box<dyn Body<Data = Bytes, Error = Error> + Send + 'static>>),
 }
 
 impl Outgoing {
+	pub fn try_clone(&self) -> Option<Self> {
+		match self {
+			Self::Empty => Some(Self::Empty),
+			Self::Bytes(bytes) => Some(Self::Bytes(bytes.clone())),
+			Self::Json(json) => Some(Self::Json(json.clone())),
+			Self::Stream(_) | Self::Body(_) => None,
+		}
+	}
+
 	#[must_use]
 	pub fn empty() -> Self {
 		Self::Empty
@@ -35,9 +47,9 @@ impl Outgoing {
 
 	pub fn json<T>(json: T) -> Self
 	where
-		T: erased_serde::Serialize + Send + 'static,
+		T: erased_serde::Serialize + Send + Sync + 'static,
 	{
-		Self::Json(Some(Box::new(json)))
+		Self::Json(Some(Arc::new(json)))
 	}
 
 	pub fn stream<S, T, E>(stream: S) -> Self

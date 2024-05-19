@@ -11,7 +11,7 @@ pub trait Ext: Sized {
 
 	fn json<T>(self, value: T) -> http::Result<http::Request<Outgoing>>
 	where
-		T: serde::Serialize + Send + 'static;
+		T: serde::Serialize + Send + Sync + 'static;
 }
 
 impl Ext for http::request::Builder {
@@ -28,7 +28,7 @@ impl Ext for http::request::Builder {
 
 	fn json<T>(self, value: T) -> http::Result<http::Request<Outgoing>>
 	where
-		T: serde::Serialize + Send + 'static,
+		T: serde::Serialize + Send + Sync + 'static,
 	{
 		self.body(Outgoing::json(value))
 	}
