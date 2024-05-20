@@ -69,7 +69,7 @@ impl tg::Build {
 }
 
 impl tg::Client {
-	pub async fn try_get_build_log(
+	pub async fn try_get_build_log_stream(
 		&self,
 		id: &tg::build::Id,
 		arg: tg::build::log::Arg,

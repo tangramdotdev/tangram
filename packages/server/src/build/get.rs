@@ -88,7 +88,7 @@ impl Server {
 				..Default::default()
 			};
 			let children = self
-				.try_get_build_children(id, arg)
+				.try_get_build_children_stream(id, arg)
 				.await?
 				.ok_or_else(|| tg::error!("expected the build to exist"))?
 				.map_ok(|chunk| stream::iter(chunk.items).map(Ok::<_, tg::Error>))

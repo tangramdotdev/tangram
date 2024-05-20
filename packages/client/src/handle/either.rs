@@ -107,7 +107,7 @@ where
 		}
 	}
 
-	fn try_get_build_status(
+	fn try_get_build_status_stream(
 		&self,
 		id: &tg::build::Id,
 		arg: tg::build::status::Arg,
@@ -128,7 +128,7 @@ where
 		}
 	}
 
-	fn try_get_build_children(
+	fn try_get_build_children_stream(
 		&self,
 		id: &tg::build::Id,
 		arg: tg::build::children::Arg,
@@ -160,7 +160,7 @@ where
 		}
 	}
 
-	async fn try_get_build_log(
+	async fn try_get_build_log_stream(
 		&self,
 		id: &tg::build::Id,
 		arg: tg::build::log::Arg,
@@ -189,7 +189,7 @@ where
 		}
 	}
 
-	fn try_get_build_outcome(
+	fn try_get_build_outcome_future(
 		&self,
 		id: &tg::build::Id,
 		arg: tg::build::outcome::Arg,

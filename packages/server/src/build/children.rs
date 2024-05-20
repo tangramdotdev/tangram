@@ -14,7 +14,7 @@ use tangram_messenger::Messenger as _;
 use tokio_stream::wrappers::IntervalStream;
 
 impl Server {
-	pub async fn try_get_build_children(
+	pub async fn try_get_build_children_stream(
 		&self,
 		id: &tg::build::Id,
 		arg: tg::build::children::Arg,
@@ -314,7 +314,7 @@ impl Server {
 		let Some(remote) = self.remotes.first() else {
 			return Ok(None);
 		};
-		let Some(stream) = remote.try_get_build_children(id, arg).await? else {
+		let Some(stream) = remote.try_get_build_children_stream(id, arg).await? else {
 			return Ok(None);
 		};
 		Ok(Some(stream))

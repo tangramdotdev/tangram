@@ -1,6 +1,12 @@
 use crate as tg;
 use bytes::Bytes;
-use futures::{Future, FutureExt as _, Stream};
+use futures::{
+	future,
+	stream::{self, BoxStream},
+	Future, FutureExt as _, Stream, StreamExt as _, TryStreamExt as _,
+};
+use num::ToPrimitive;
+use std::sync::{Arc, Mutex};
 use tokio::io::{AsyncBufRead, AsyncRead, AsyncWrite};
 
 mod either;
@@ -78,7 +84,7 @@ pub trait Handle: Clone + Unpin + Send + Sync + 'static {
 		id: &tg::build::Id,
 	) -> impl Future<Output = tg::Result<Option<bool>>> + Send;
 
-	fn try_get_build_status(
+	fn try_get_build_status_stream(
 		&self,
 		id: &tg::build::Id,
 		arg: tg::build::status::Arg,
@@ -87,6 +93,47 @@ pub trait Handle: Clone + Unpin + Send + Sync + 'static {
 			Option<impl Stream<Item = tg::Result<tg::build::Status>> + Send + 'static>,
 		>,
 	> + Send;
+
+	fn try_get_build_status(
+		&self,
+		id: &tg::build::Id,
+		arg: tg::build::status::Arg,
+	) -> impl Future<
+		Output = tg::Result<
+			Option<impl Stream<Item = tg::Result<tg::build::Status>> + Send + 'static>,
+		>,
+	> + Send {
+		async move {
+			let handle = self.clone();
+			let id = id.clone();
+			let Some(stream) = handle.try_get_build_status_stream(&id, arg.clone()).await? else {
+				return Ok(None);
+			};
+			let stream = stream.boxed();
+			let timeout = arg.timeout.map_or_else(
+				|| future::pending().left_future(),
+				|timeout| tokio::time::sleep(timeout).right_future(),
+			);
+			let stream = stream::try_unfold((Some(stream), id, arg), move |(stream, id, arg)| {
+				let handle = handle.clone();
+				async move {
+					let stream = if let Some(stream) = stream {
+						stream
+					} else {
+						handle
+							.try_get_build_status_stream(&id, arg.clone())
+							.await?
+							.ok_or_else(|| tg::error!("expected the build to exist"))?
+							.boxed()
+					};
+					Ok::<_, tg::Error>(Some((stream, (None, id, arg))))
+				}
+			})
+			.try_flatten()
+			.take_until(timeout);
+			Ok(Some(stream))
+		}
+	}
 
 	fn get_build_status(
 		&self,
@@ -100,7 +147,7 @@ pub trait Handle: Clone + Unpin + Send + Sync + 'static {
 		})
 	}
 
-	fn try_get_build_children(
+	fn try_get_build_children_stream(
 		&self,
 		id: &tg::build::Id,
 		arg: tg::build::children::Arg,
@@ -109,6 +156,59 @@ pub trait Handle: Clone + Unpin + Send + Sync + 'static {
 			Option<impl Stream<Item = tg::Result<tg::build::children::Chunk>> + Send + 'static>,
 		>,
 	> + Send;
+
+	fn try_get_build_children(
+		&self,
+		id: &tg::build::Id,
+		arg: tg::build::children::Arg,
+	) -> impl Future<
+		Output = tg::Result<
+			Option<impl Stream<Item = tg::Result<tg::build::children::Chunk>> + Send + 'static>,
+		>,
+	> + Send {
+		async move {
+			let handle = self.clone();
+			let id = id.clone();
+			let Some(stream) = handle
+				.try_get_build_children_stream(&id, arg.clone())
+				.await?
+			else {
+				return Ok(None);
+			};
+			let stream = stream.boxed();
+			let timeout = arg.timeout.map_or_else(
+				|| future::pending().left_future(),
+				|timeout| tokio::time::sleep(timeout).right_future(),
+			);
+			let arg = Arc::new(Mutex::new(arg));
+			let stream = stream::try_unfold((Some(stream), id, arg), move |(stream, id, arg)| {
+				let handle = handle.clone();
+				async move {
+					let arg_ = arg.lock().unwrap().clone();
+					let stream = if let Some(stream) = stream {
+						stream
+					} else {
+						handle
+							.try_get_build_children_stream(&id, arg_)
+							.await?
+							.unwrap()
+							.inspect_ok({
+								let arg = arg.clone();
+								move |chunk| {
+									let x = chunk.position;
+									dbg!(&arg, &x);
+								}
+							})
+							.boxed()
+					};
+					Ok::<_, tg::Error>(Some((stream, (None, id, arg))))
+				}
+			})
+			.try_flatten()
+			.take_until(timeout);
+			Ok(Some(stream))
+		}
+	}
 
 	fn get_build_children(
 		&self,
@@ -130,7 +230,7 @@ pub trait Handle: Clone + Unpin + Send + Sync + 'static {
 		child_id: &tg::build::Id,
 	) -> impl Future<Output = tg::Result<()>> + Send;
 
-	fn try_get_build_log(
+	fn try_get_build_log_stream(
 		&self,
 		id: &tg::build::Id,
 		arg: tg::build::log::Arg,
@@ -139,6 +239,74 @@ pub trait Handle: Clone + Unpin + Send + Sync + 'static {
 			Option<impl Stream<Item = tg::Result<tg::build::log::Chunk>> + Send + 'static>,
 		>,
 	> + Send;
+
+	fn try_get_build_log(
+		&self,
+		id: &tg::build::Id,
+		arg: tg::build::log::Arg,
+	) -> impl Future<
+		Output = tg::Result<
+			Option<impl Stream<Item = tg::Result<tg::build::log::Chunk>> + Send + 'static>,
+		>,
+	> + Send {
+		async move {
+			let handle = self.clone();
+			let id = id.clone();
+			let Some(stream) = handle.try_get_build_log_stream(&id, arg.clone()).await? else {
+				return Ok(None);
+			};
+			let stream = stream.boxed();
+			let timeout = arg.timeout.map_or_else(
+				|| future::pending().left_future(),
+				|timeout| tokio::time::sleep(timeout).right_future(),
+			);
+			struct State {
+				stream: Option<BoxStream<'static, tg::Result<tg::build::log::Chunk>>>,
+				id: tg::build::Id,
+				arg: tg::build::log::Arg,
+			}
+			let state = State {
+				stream: Some(stream),
+				id,
+				arg,
+			};
+			let state = Arc::new(Mutex::new(state));
+			let stream = stream::try_unfold(state, move |state| {
+				let handle = handle.clone();
+				async move {
+					let mut state_ = state.lock().unwrap();
+					let stream = if let Some(stream) = state_.stream.take() {
+						stream
+					} else {
+						let id = state_.id.clone();
+						let arg = state_.arg.clone();
+						handle
+							.try_get_build_log_stream(&id, arg)
+							.await?
+							.unwrap()
+							.inspect_ok({
+								let state = state.clone();
+								move |chunk| {
+									let mut state = state.lock().unwrap();
+									match &mut state.arg.position {
+										Some(std::io::SeekFrom::Start(position)) => {
+											position += chunk.bytes.len().to_u64().unwrap();
+										},
+										None => todo!(),
+									}
+								}
+							})
+							.boxed()
+					};
+					drop(state_);
+					Ok::<_, tg::Error>(Some((stream, state)))
+				}
+			})
+			.try_flatten()
+			.take_until(timeout);
+			Ok(Some(stream))
+		}
+	}
 
 	fn get_build_log(
 		&self,
@@ -158,7 +326,7 @@ pub trait Handle: Clone + Unpin + Send + Sync + 'static {
 		bytes: Bytes,
 	) -> impl Future<Output = tg::Result<()>> + Send;
 
-	fn try_get_build_outcome(
+	fn try_get_build_outcome_future(
 		&self,
 		id: &tg::build::Id,
 		arg: tg::build::outcome::Arg,
@@ -167,6 +335,39 @@ pub trait Handle: Clone + Unpin + Send + Sync + 'static {
 			Option<impl Future<Output = tg::Result<Option<tg::build::Outcome>>> + Send + 'static>,
 		>,
 	> + Send;
+
+	fn try_get_build_outcome(
+		&self,
+		id: &tg::build::Id,
+		arg: tg::build::outcome::Arg,
+	) -> impl Future<
+		Output = tg::Result<
+			Option<impl Future<Output = tg::Result<Option<tg::build::Outcome>>> + Send + 'static>,
+		>,
+	> + Send {
+		async move {
+			let Some(future) = self.try_get_build_outcome_future(id, arg.clone()).await? else {
+				return Ok(None);
+			};
+			Ok(Some({
+				let mut future = future.boxed();
+				let handle = self.clone();
+				let id = id.clone();
+				async move {
+					loop {
+						if let Some(outcome) = future.await? {
+							return Ok(Some(outcome));
+						};
+						future = handle
+							.try_get_build_outcome_future(&id, arg.clone())
+							.await?
+							.ok_or_else(|| tg::error!("expected the build to exist"))?
+							.boxed();
+					}
+				}
+			}))
+		}
+	}
 
 	fn get_build_outcome(
 		&self,
