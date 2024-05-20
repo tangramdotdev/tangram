@@ -20,7 +20,7 @@ pub struct Args {
 
 #[allow(clippy::struct_excessive_bools)]
 #[derive(Clone, Debug, clap::Args)]
-#[command(group(clap::ArgGroup::new("arg").required(true).args(&["specifier", "target", "arg_"])))]
+#[command(group(clap::ArgGroup::new("arg_group").args(&["specifier", "target", "arg_"]).required(true)))]
 #[group(skip)]
 pub struct InnerArgs {
 	/// Set the arguments.
