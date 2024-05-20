@@ -18,7 +18,7 @@ impl Cli {
 		let target = artifact.checksum_target(algorithm);
 		let target = target.id(&self.handle, None).await?;
 		let args = crate::target::build::InnerArgs {
-			target: Some(target.to_string()),
+			target: Some(target),
 			..Default::default()
 		};
 		let output = self.command_target_build_inner(args, false).await?;

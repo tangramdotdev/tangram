@@ -17,7 +17,7 @@ impl Cli {
 		let target = tg::Blob::download_target(&url, &checksum);
 		let target = target.id(&self.handle, None).await?;
 		let args = crate::target::build::InnerArgs {
-			target: Some(target.to_string()),
+			target: Some(target),
 			..Default::default()
 		};
 		let output = self.command_target_build_inner(args, false).await?;

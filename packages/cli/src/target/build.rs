@@ -20,6 +20,7 @@ pub struct Args {
 
 #[allow(clippy::struct_excessive_bools)]
 #[derive(Clone, Debug, clap::Args)]
+#[command(group(clap::ArgGroup::new("arg").required(true).args(&["specifier", "target", "arg_"])))]
 #[group(skip)]
 pub struct InnerArgs {
 	/// Set the arguments.
@@ -43,10 +44,6 @@ pub struct InnerArgs {
 	#[arg(long)]
 	pub locked: bool,
 
-	/// The package to build.
-	#[arg(short, long)]
-	pub package: Option<tg::Dependency>,
-
 	/// Whether to build on a remote.
 	#[arg(long, default_value_t)]
 	pub remote: bool,
@@ -60,19 +57,39 @@ pub struct InnerArgs {
 	#[arg(long)]
 	pub root: Option<String>,
 
-	/// The name or ID of the target to build.
-	#[arg(short, long)]
-	pub target: Option<String>,
+	/// The specifier of the target to build.
+	#[arg(short, long, conflicts_with_all = ["target", "arg_"])]
+	pub specifier: Option<Specifier>,
+
+	/// The target to build.
+	#[arg(short, long, conflicts_with_all = ["specifier", "arg_"])]
+	pub target: Option<tg::target::Id>,
 
 	/// Choose the view.
 	#[arg(long, default_value = "tui")]
 	pub view: View,
+
+	/// The target to build.
+	#[arg(conflicts_with_all = ["specifier", "target"])]
+	pub arg_: Option<Arg>,
 }
 
 #[derive(Clone, Debug, clap::ValueEnum)]
 pub enum View {
 	None,
 	Tui,
+}
+
+#[derive(Clone, Debug)]
+pub enum Arg {
+	Specifier(Specifier),
+	Target(tg::target::Id),
+}
+
+#[derive(Clone, Debug)]
+pub struct Specifier {
+	package: tg::Dependency,
+	target: String,
 }
 
 #[derive(Clone, Debug, derive_more::Unwrap)]
@@ -108,70 +125,77 @@ impl Cli {
 		args: InnerArgs,
 		detach: bool,
 	) -> tg::Result<Option<InnerOutput>> {
-		let target = if let Some(Ok(id)) = args.target.as_ref().map(|target| target.parse()) {
-			tg::Target::with_id(id)
+		// Get the arg.
+		let arg = if let Some(specifier) = args.specifier {
+			Arg::Specifier(specifier)
+		} else if let Some(target) = args.target {
+			Arg::Target(target)
 		} else {
-			// Get the dependency.
-			let mut dependency = args.package.unwrap_or(".".parse().unwrap());
+			args.arg_.unwrap()
+		};
 
-			// Get the target.
-			let target = args.target.unwrap_or("default".parse().unwrap());
+		// Create the target.
+		let target = match arg {
+			Arg::Specifier(mut specifier) => {
+				// Canonicalize the path.
+				if let Some(path) = specifier.package.path.as_mut() {
+					*path = tokio::fs::canonicalize(&path)
+						.await
+						.map_err(|source| tg::error!(!source, "failed to canonicalize the path"))?
+						.try_into()?;
+				}
 
-			// Canonicalize the path.
-			if let Some(path) = dependency.path.as_mut() {
-				*path = tokio::fs::canonicalize(&path)
-					.await
-					.map_err(|source| tg::error!(!source, "failed to canonicalize the path"))?
-					.try_into()?;
-			}
+				// Create the package.
+				let (package, lock) =
+					tg::package::get_with_lock(&self.handle, &specifier.package).await?;
 
-			// Create the package.
-			let (package, lock) = tg::package::get_with_lock(&self.handle, &dependency).await?;
+				// Create the target.
+				let host = "js";
+				let path = tg::package::get_root_module_path(&self.handle, &package).await?;
+				let executable = tg::Symlink::new(Some(package), Some(path));
+				let mut args_: Vec<tg::Value> = args
+					.arg
+					.into_iter()
+					.map(|arg| {
+						arg.into_iter()
+							.map(|arg| {
+								let (key, value) = arg
+									.split_once('=')
+									.ok_or_else(|| tg::error!("expected `key=value`"))?;
+								Ok::<_, tg::Error>((key.to_owned(), value.to_owned().into()))
+							})
+							.collect::<Result<tg::value::Map, tg::Error>>()
+							.map(Into::into)
+					})
+					.try_collect()?;
+				args_.insert(0, specifier.target.into());
+				let mut env: tg::value::Map = args
+					.env
+					.into_iter()
+					.flatten()
+					.map(|env| {
+						let (key, value) = env
+							.split_once('=')
+							.ok_or_else(|| tg::error!("expected `key=value`"))?;
+						Ok::<_, tg::Error>((key.to_owned(), value.to_owned().into()))
+					})
+					.try_collect()?;
+				if !env.contains_key("TANGRAM_HOST") {
+					let host = if let Some(host) = args.host {
+						host
+					} else {
+						Cli::host().to_owned()
+					};
+					env.insert("TANGRAM_HOST".to_owned(), host.to_string().into());
+				}
+				tg::target::Builder::new(host, executable)
+					.args(args_)
+					.env(env)
+					.lock(lock)
+					.build()
+			},
 
-			// Create the target.
-			let mut env: tg::value::Map = args
-				.env
-				.into_iter()
-				.flatten()
-				.map(|env| {
-					let (key, value) = env
-						.split_once('=')
-						.ok_or_else(|| tg::error!("expected `key=value`"))?;
-					Ok::<_, tg::Error>((key.to_owned(), value.to_owned().into()))
-				})
-				.try_collect()?;
-			if !env.contains_key("TANGRAM_HOST") {
-				let host = if let Some(host) = args.host {
-					host
-				} else {
-					Cli::host().to_owned()
-				};
-				env.insert("TANGRAM_HOST".to_owned(), host.to_string().into());
-			}
-			let mut args_: Vec<tg::Value> = args
-				.arg
-				.into_iter()
-				.map(|arg| {
-					arg.into_iter()
-						.map(|arg| {
-							let (key, value) = arg
-								.split_once('=')
-								.ok_or_else(|| tg::error!("expected `key=value`"))?;
-							Ok::<_, tg::Error>((key.to_owned(), value.to_owned().into()))
-						})
-						.collect::<Result<tg::value::Map, tg::Error>>()
-						.map(Into::into)
-				})
-				.try_collect()?;
-			args_.insert(0, target.into());
-			let host = "js";
-			let path = tg::package::get_root_module_path(&self.handle, &package).await?;
-			let executable = tg::Symlink::new(Some(package), Some(path));
-			tg::target::Builder::new(host, executable)
-				.args(args_)
-				.env(env)
-				.lock(lock)
-				.build()
+			Arg::Target(target) => tg::Target::with_id(target),
 		};
 
 		// Determine the retry.
@@ -317,12 +341,54 @@ impl Default for InnerArgs {
 			env: vec![],
 			host: None,
 			locked: false,
-			package: None,
 			remote: false,
 			retry: None,
 			root: None,
+			specifier: None,
 			target: None,
 			view: crate::target::build::View::Tui,
+			arg_: None,
 		}
+	}
+}
+
+impl std::str::FromStr for Arg {
+	type Err = tg::Error;
+
+	fn from_str(s: &str) -> tg::Result<Self, Self::Err> {
+		if let Ok(target) = s.parse() {
+			return Ok(Arg::Target(target));
+		}
+		if let Ok(specifier) = s.parse() {
+			return Ok(Arg::Specifier(specifier));
+		}
+		Err(tg::error!(%s, "expected a build or an object"))
+	}
+}
+
+impl std::str::FromStr for Specifier {
+	type Err = tg::Error;
+
+	fn from_str(s: &str) -> tg::Result<Self, Self::Err> {
+		// Split the string by the colon character.
+		let (package, target) = s
+			.split_once(':')
+			.ok_or_else(|| tg::error!("a target specifier must have a colon"))?;
+
+		// Get the package.
+		let package = if package.is_empty() {
+			".".parse().unwrap()
+		} else {
+			package.parse()?
+		};
+
+		// Get the target.
+		let target = if target.is_empty() {
+			"default".to_owned()
+		} else {
+			target.to_owned()
+		};
+
+		Ok(Self { package, target })
 	}
 }
