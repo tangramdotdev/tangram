@@ -27,7 +27,7 @@ impl Runtime {
 		remote: Option<tg::Client>,
 	) -> tg::Result<tg::Value> {
 		match self {
-			// #[cfg(target_os = "macos")]
+			#[cfg(target_os = "macos")]
 			Runtime::Darwin(runtime) => runtime.build(build).await,
 			Runtime::Js(runtime) => runtime.build(build, remote).await,
 			#[cfg(target_os = "linux")]
