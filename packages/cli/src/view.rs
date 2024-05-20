@@ -8,16 +8,16 @@ use tangram_client as tg;
 #[group(skip)]
 pub struct Args {
 	/// The build to view.
-	#[arg(short, long, conflicts_with_all = ["package", "object", "arg"])]
+	#[arg(short, long, conflicts_with_all = ["object", "package", "arg"])]
 	pub build: Option<tg::build::Id>,
-
-	/// The package to view.
-	#[arg(short, long, conflicts_with_all = ["build", "object", "arg"])]
-	pub package: Option<tg::Dependency>,
 
 	/// The object to view.
 	#[arg(short, long, conflicts_with_all = ["build", "package", "arg"])]
 	pub object: Option<tg::object::Id>,
+
+	/// The package to view.
+	#[arg(short, long, conflicts_with_all = ["build", "object", "arg"])]
+	pub package: Option<tg::Dependency>,
 
 	/// The build, package, or object to view.
 	pub arg: Option<Arg>,
@@ -61,7 +61,8 @@ impl Cli {
 			return Err(tg::error!("expected an object to view."));
 		};
 
-		let object = match arg {
+		// Get the item.
+		let item = match arg {
 			Arg::Build(build) => tui::Item::Build(tg::Build::with_id(build)),
 			Arg::Object(object) => tui::Item::Value {
 				value: tg::Object::with_id(object).into(),
@@ -78,8 +79,13 @@ impl Cli {
 				}
 			},
 		};
-		let tui = tui::Tui::start(&self.handle, object).await?;
+
+		// Start the TUI.
+		let tui = tui::Tui::start(&self.handle, item).await?;
+
+		// Wait for the TUI to finish.
 		tui.wait().await?;
+
 		Ok(())
 	}
 }

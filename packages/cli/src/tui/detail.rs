@@ -22,8 +22,8 @@ impl<H> Detail<H>
 where
 	H: tg::Handle,
 {
-	pub fn new(handle: &H, object: &Item, area: Rect) -> Arc<Self> {
-		let data = match &object {
+	pub fn new(handle: &H, item: &Item, area: Rect) -> Arc<Self> {
+		let data = match &item {
 			Item::Build(build) => Some(Either::Left(Log::new(handle, build, area))),
 			Item::Value { value, .. }
 				if matches!(
@@ -36,7 +36,7 @@ where
 			_ => None,
 		};
 
-		let info = Info::new(handle, object, area);
+		let info = Info::new(handle, item, area);
 
 		let state = RwLock::new(State { selected_tab: 0 });
 		Arc::new(Self { info, data, state })
@@ -154,21 +154,21 @@ impl<H> Info<H>
 where
 	H: tg::Handle,
 {
-	fn new(handle: &H, object: &Item, area: Rect) -> Arc<Self> {
+	fn new(handle: &H, item: &Item, area: Rect) -> Arc<Self> {
 		let handle = handle.clone();
 		let state = RwLock::new(DataState {
 			area,
 			text: String::new(),
 			scroll: 0,
 		});
-		let value = object.clone();
-		let data = Arc::new(Self {
+		let value = item.clone();
+		let info = Arc::new(Self {
 			handle,
 			value,
 			state,
 		});
 		tokio::task::spawn({
-			let data = data.clone();
+			let data = info.clone();
 			async move {
 				let text = data
 					.get_text()
@@ -177,7 +177,7 @@ where
 				data.state.write().unwrap().text = text;
 			}
 		});
-		data
+		info
 	}
 
 	fn resize(&self, area: Rect) {
