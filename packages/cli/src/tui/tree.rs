@@ -1,3 +1,4 @@
+use super::Item;
 use futures::{future, StreamExt};
 use num::ToPrimitive;
 use ratatui as tui;
@@ -9,8 +10,6 @@ use std::{
 use tangram_client as tg;
 use tangram_futures::task::Task;
 use tui::prelude::*;
-
-use super::Item;
 
 pub struct Tree<H> {
 	state: RwLock<TreeState<H>>,

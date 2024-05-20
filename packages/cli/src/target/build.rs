@@ -23,7 +23,6 @@ pub struct Args {
 
 #[allow(clippy::struct_excessive_bools)]
 #[derive(Clone, Debug, clap::Args)]
-#[command(group(clap::ArgGroup::new("arg_group").args(&["specifier", "target", "arg_"]).required(true)))]
 #[group(skip)]
 pub struct InnerArgs {
 	/// Set the arguments.
@@ -133,8 +132,10 @@ impl Cli {
 			Arg::Specifier(specifier)
 		} else if let Some(target) = args.target {
 			Arg::Target(target)
+		} else if let Some(arg) = args.arg_ {
+			arg
 		} else {
-			args.arg_.unwrap()
+			Arg::default()
 		};
 
 		// Create the target.
@@ -357,6 +358,12 @@ impl Default for InnerArgs {
 	}
 }
 
+impl Default for Arg {
+	fn default() -> Self {
+		Self::Specifier(Specifier::default())
+	}
+}
+
 impl std::str::FromStr for Arg {
 	type Err = tg::Error;
 
@@ -368,6 +375,15 @@ impl std::str::FromStr for Arg {
 			return Ok(Arg::Specifier(specifier));
 		}
 		Err(tg::error!(%s, "expected a build or an object"))
+	}
+}
+
+impl Default for Specifier {
+	fn default() -> Self {
+		Self {
+			package: ".".parse().unwrap(),
+			target: "default".to_owned(),
+		}
 	}
 }
 

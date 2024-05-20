@@ -54,7 +54,7 @@ struct Args {
 	config: Option<PathBuf>,
 
 	/// Override the `mode` key in the config.
-	#[arg(short, long, default_value = "auto")]
+	#[arg(short, long)]
 	mode: Option<Mode>,
 
 	/// Override the `path` key in the config.
@@ -201,7 +201,7 @@ fn main() -> std::process::ExitCode {
 impl Cli {
 	async fn new(args: Args, config: Option<Config>) -> tg::Result<Self> {
 		// Get the mode. If the command is `tg serve` or `tg server run`, then set the mode to `server`.
-		let mode = if matches!(
+		let mode = matches!(
 			args,
 			Args {
 				command: Command::Serve(_)
@@ -211,12 +211,12 @@ impl Cli {
 					}),
 				..
 			}
-		) {
-			Some(Mode::Server)
-		} else {
-			args.mode
-		}
-		.unwrap_or_default();
+		)
+		.then_some(Mode::Server);
+		let mode = mode
+			.or(args.mode)
+			.or(config.as_ref().and_then(|config| config.mode))
+			.unwrap_or_default();
 
 		// Create the handle.
 		let handle = match mode {
@@ -304,14 +304,18 @@ impl Cli {
 
 	/// Start the server.
 	async fn start_server(args: &Args, config: Option<&Config>) -> tg::Result<()> {
+		// Ensure the path exists.
 		let home = PathBuf::from(std::env::var("HOME").unwrap());
-
-		// Get the log file path.
 		let path = args
 			.path
 			.clone()
 			.or(config.as_ref().and_then(|config| config.path.clone()))
 			.unwrap_or_else(|| home.join(".tangram"));
+		tokio::fs::create_dir_all(&path)
+			.await
+			.map_err(|source| tg::error!(!source, "failed to create the directory"))?;
+
+		// Get the log file path.
 		let log_path = path.join("log");
 
 		// Get the path to the current executable.
