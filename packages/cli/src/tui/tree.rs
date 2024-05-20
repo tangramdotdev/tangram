@@ -10,7 +10,7 @@ use tangram_client as tg;
 use tangram_futures::task::Task;
 use tui::prelude::*;
 
-use super::Kind;
+use super::Item;
 
 pub struct Tree<H> {
 	state: RwLock<TreeState<H>>,
@@ -37,7 +37,7 @@ struct NodeState<H> {
 	expand_build_children: bool,
 	expand_object_children: bool,
 	indicator: Option<Indicator>,
-	kind: Kind,
+	kind: Item,
 	parent: Option<Weak<Node<H>>>,
 	selected: bool,
 	title: Option<String>,
@@ -63,16 +63,16 @@ where
 	H: tg::Handle,
 {
 	/// Create a new tree widget.
-	pub fn new(handle: &H, roots: &[Kind], rect: Rect) -> Arc<Self> {
+	pub fn new(handle: &H, roots: &[Item], rect: Rect) -> Arc<Self> {
 		// Create the root node.
-		let root = Node::new(handle, None, 0, Kind::Root);
+		let root = Node::new(handle, None, 0, Item::Root);
 
 		// Create the root's children.
 		let build_children = roots
 			.iter()
 			.enumerate()
 			.filter_map(|(index, object)| {
-				let Kind::Build(_) = object else {
+				let Item::Build(_) = object else {
 					return None;
 				};
 				Some(Node::new(handle, Some(&root), index, object.clone()))
@@ -83,7 +83,7 @@ where
 			.enumerate()
 			.filter_map(|(index, object)| {
 				let kind = match object.clone() {
-					Kind::Build(_) => return None,
+					Item::Build(_) => return None,
 					kind => kind.clone(),
 				};
 				Some(Node::new(handle, Some(&root), index, kind))
@@ -229,7 +229,7 @@ where
 			let state = node.state.read().unwrap();
 
 			// Add the node if it's not a root node.
-			if !matches!(state.kind, Kind::Root) {
+			if !matches!(state.kind, Item::Root) {
 				nodes.push(node.clone());
 			}
 
@@ -308,7 +308,7 @@ where
 		self.state.write().unwrap().rect = area;
 	}
 
-	pub fn get_selected(&self) -> Kind {
+	pub fn get_selected(&self) -> Item {
 		self.selected().state.read().unwrap().kind.clone()
 	}
 
@@ -326,7 +326,7 @@ where
 	H: tg::Handle,
 {
 	// Create a new tree node.
-	fn new(handle: &H, parent: Option<&Arc<Self>>, index: usize, kind: Kind) -> Arc<Self> {
+	fn new(handle: &H, parent: Option<&Arc<Self>>, index: usize, kind: Item) -> Arc<Self> {
 		// Create the node.
 		let handle = handle.clone();
 		let parent = parent.map(Arc::downgrade);
@@ -463,8 +463,8 @@ where
 		};
 		let parent_state = parent.state.read().unwrap();
 		match (&parent_state.kind, &state.kind) {
-			(Kind::Build(_), Kind::Build(_)) if parent_state.expand_object_children => false,
-			(Kind::Build(_) | Kind::Root, Kind::Build(_)) => {
+			(Item::Build(_), Item::Build(_)) if parent_state.expand_object_children => false,
+			(Item::Build(_) | Item::Root, Item::Build(_)) => {
 				self.index == parent_state.build_children.as_ref().map_or(0, Vec::len) - 1
 			},
 			_ => self.index == parent_state.object_children.as_ref().map_or(0, Vec::len) - 1,
@@ -554,26 +554,26 @@ where
 	async fn try_get_object_children(self: &Arc<Self>) -> tg::Result<Vec<Arc<Self>>> {
 		let kind = self.state.read().unwrap().kind.clone();
 		match kind {
-			Kind::Root => unreachable!(),
-			Kind::Build(build) => {
+			Item::Root => unreachable!(),
+			Item::Build(build) => {
 				let target = build.target(&self.handle).await?;
 				let parent = Some(self);
 				let index = 0;
-				let kind = Kind::Value {
+				let kind = Item::Value {
 					name: Some("target".into()),
 					value: tg::Value::Object(target.into()),
 				};
 				let child = Self::new(&self.handle, parent, index, kind);
 				Ok(vec![child])
 			},
-			Kind::Value {
+			Item::Value {
 				value: tg::Value::Object(tg::Object::Branch(object)),
 				..
 			} => {
 				let mut children = Vec::new();
 				for (index, child) in object.children(&self.handle).await?.iter().enumerate() {
 					let parent = Some(self);
-					let kind = Kind::Value {
+					let kind = Item::Value {
 						name: None,
 						value: child.blob.clone().into(),
 					};
@@ -582,7 +582,7 @@ where
 				}
 				Ok(children)
 			},
-			Kind::Value {
+			Item::Value {
 				value: tg::Value::Object(tg::Object::Directory(object)),
 				..
 			} => {
@@ -591,7 +591,7 @@ where
 					object.entries(&self.handle).await?.iter().enumerate()
 				{
 					let parent = Some(self);
-					let kind = Kind::Value {
+					let kind = Item::Value {
 						name: Some(name.clone()),
 						value: tg::Value::Object(artifact.clone().into()),
 					};
@@ -600,20 +600,20 @@ where
 				}
 				Ok(children)
 			},
-			Kind::Value {
+			Item::Value {
 				value: tg::Value::Object(tg::Object::File(object)),
 				..
 			} => {
 				let contents = object.contents(&self.handle).await?;
 				let parent = Some(self);
-				let kind = Kind::Value {
+				let kind = Item::Value {
 					name: Some("contents".into()),
 					value: contents.into(),
 				};
 				let child = Self::new(&self.handle, parent, 0, kind);
 				Ok(vec![child])
 			},
-			Kind::Value {
+			Item::Value {
 				value: tg::Value::Object(tg::Object::Symlink(object)),
 				..
 			} => {
@@ -622,7 +622,7 @@ where
 				if let Some(artifact) = artifact {
 					let parent = Some(self);
 					let index = children.len();
-					let kind = Kind::Value {
+					let kind = Item::Value {
 						name: Some("artifact".into()),
 						value: tg::Value::Object(artifact.into()),
 					};
@@ -633,7 +633,7 @@ where
 				if let Some(path) = path {
 					let parent = Some(self);
 					let index = children.len();
-					let kind = Kind::Value {
+					let kind = Item::Value {
 						name: Some("path".into()),
 						value: path.into(),
 					};
@@ -642,14 +642,14 @@ where
 				}
 				Ok(children)
 			},
-			Kind::Value {
+			Item::Value {
 				value: tg::Value::Object(tg::Object::Target(object)),
 				..
 			} => {
 				let executable = &*object.executable(&self.handle).await?;
 				let parent = Some(self);
 				let index = 0;
-				let kind = Kind::Value {
+				let kind = Item::Value {
 					name: Some("executable".into()),
 					value: executable.clone().into(),
 				};
@@ -658,7 +658,7 @@ where
 				let args = &*object.args(&self.handle).await?;
 				let parent = Some(self);
 				let index = 1;
-				let kind = Kind::Value {
+				let kind = Item::Value {
 					name: Some("args".into()),
 					value: args.clone().into(),
 				};
@@ -667,7 +667,7 @@ where
 				let env = &*object.env(&self.handle).await?;
 				let parent = Some(self);
 				let index = 2;
-				let kind = Kind::Value {
+				let kind = Item::Value {
 					name: Some("env".into()),
 					value: env.clone().into(),
 				};
@@ -679,7 +679,7 @@ where
 				if let Some(lock) = lock {
 					let parent = Some(self);
 					let index = children.len();
-					let kind = Kind::Value {
+					let kind = Item::Value {
 						name: Some("lock".into()),
 						value: tg::Value::Object(lock.clone().into()),
 					};
@@ -689,7 +689,7 @@ where
 
 				Ok(children)
 			},
-			Kind::Value {
+			Item::Value {
 				value: tg::Value::Object(tg::Object::Lock(object)),
 				..
 			} => {
@@ -698,7 +698,7 @@ where
 				for (index, dependency) in dependencies.into_iter().enumerate() {
 					let (artifact, lock) = object.get(&self.handle, &dependency).await?;
 					let parent = Some(self);
-					let kind = Kind::Package {
+					let kind = Item::Package {
 						dependency,
 						artifact: artifact.map(tg::Artifact::from),
 						lock,
@@ -708,7 +708,7 @@ where
 				}
 				Ok(children)
 			},
-			Kind::Value {
+			Item::Value {
 				value: tg::Value::Map(value),
 				..
 			} => {
@@ -716,7 +716,7 @@ where
 				for (name, value) in value {
 					let parent = Some(self);
 					let index = children.len();
-					let kind = Kind::Value {
+					let kind = Item::Value {
 						name: Some(name),
 						value,
 					};
@@ -725,7 +725,7 @@ where
 				}
 				Ok(children)
 			},
-			Kind::Value {
+			Item::Value {
 				value: tg::Value::Array(value),
 				..
 			} => {
@@ -733,20 +733,20 @@ where
 				for value in value {
 					let parent = Some(self);
 					let index = children.len();
-					let kind = Kind::Value { name: None, value };
+					let kind = Item::Value { name: None, value };
 					let child = Self::new(&self.handle, parent, index, kind);
 					children.push(child);
 				}
 				Ok(children)
 			},
-			Kind::Value {
+			Item::Value {
 				value: tg::Value::Template(value),
 				..
 			} => {
 				let mut children = Vec::new();
 				for (index, child) in value.artifacts().enumerate() {
 					let parent = Some(self);
-					let kind = Kind::Value {
+					let kind = Item::Value {
 						name: None,
 						value: tg::Value::Object(child.clone().into()),
 					};
@@ -755,12 +755,12 @@ where
 				}
 				Ok(children)
 			},
-			Kind::Package { artifact, lock, .. } => {
+			Item::Package { artifact, lock, .. } => {
 				let mut children = Vec::new();
 				if let Some(artifact) = artifact {
 					let parent = Some(self);
 					let index = 0;
-					let kind = Kind::Value {
+					let kind = Item::Value {
 						name: Some("artifact".into()),
 						value: tg::Value::Object(artifact.into()),
 					};
@@ -772,7 +772,7 @@ where
 					let index = children.len();
 					let (artifact, lock) = lock.get(&self.handle, &dependency).await?;
 					let parent = Some(self);
-					let kind = Kind::Package {
+					let kind = Item::Package {
 						dependency,
 						artifact: artifact.map(tg::Artifact::from),
 						lock,
@@ -782,7 +782,7 @@ where
 				}
 				Ok(children)
 			},
-			Kind::Value { .. } => Ok(Vec::new()),
+			Item::Value { .. } => Ok(Vec::new()),
 		}
 	}
 
@@ -792,7 +792,7 @@ where
 			let node = self.clone();
 			|stop| async move {
 				let kind = node.state.read().unwrap().kind.clone();
-				let Kind::Build(build) = kind else {
+				let Item::Build(build) = kind else {
 					return;
 				};
 				let arg = tg::build::children::Arg {
@@ -827,7 +827,7 @@ where
 					let children = state.build_children.as_mut().unwrap();
 					let parent = Some(&node);
 					let index = children.len();
-					let kind = Kind::Build(child);
+					let kind = Item::Build(child);
 					let child_node = Self::new(&node.handle, parent, index, kind);
 
 					// Add the new child node.
@@ -842,7 +842,7 @@ where
 		Task::spawn({
 			let node = self.clone();
 			|stop| async move {
-				let Kind::Build(build) = node.state.read().unwrap().kind.clone() else {
+				let Item::Build(build) = node.state.read().unwrap().kind.clone() else {
 					return;
 				};
 				let arg = tg::build::status::Arg::default();
@@ -887,10 +887,10 @@ where
 			|_| async move {
 				let kind = node.state.read().unwrap().kind.clone();
 				let result = match kind {
-					Kind::Root => return,
-					Kind::Build(build) => node.set_build_title(build).await,
-					Kind::Value { name, value } => node.set_value_title(name, value).await,
-					Kind::Package { dependency, .. } => {
+					Item::Root => return,
+					Item::Build(build) => node.set_build_title(build).await,
+					Item::Value { name, value } => node.set_value_title(name, value).await,
+					Item::Package { dependency, .. } => {
 						node.state
 							.write()
 							.unwrap()

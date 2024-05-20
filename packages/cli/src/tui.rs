@@ -24,7 +24,7 @@ where
 
 // multiroot
 #[derive(Clone)]
-pub enum Kind {
+pub enum Item {
 	Root,
 	Build(tg::Build),
 	Value {
@@ -42,7 +42,7 @@ impl<H> Tui<H>
 where
 	H: Handle,
 {
-	pub async fn start(handle: &H, root: Kind) -> tg::Result<Self>
+	pub async fn start(handle: &H, item: Item) -> tg::Result<Self>
 	where
 		H: tg::Handle,
 	{
@@ -58,7 +58,7 @@ where
 
 		// Create the app.
 		let rect = terminal.get_frame().size();
-		let app = app::App::new(handle, root, rect);
+		let app = app::App::new(handle, item, rect);
 
 		// Spawn the task.
 		let task = tokio::task::spawn_blocking({

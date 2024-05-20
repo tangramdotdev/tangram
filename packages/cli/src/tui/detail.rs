@@ -1,4 +1,4 @@
-use super::{data::Data, log::Log, Kind};
+use super::{data::Data, log::Log, Item};
 use either::Either;
 use ratatui::{
 	prelude::*,
@@ -22,10 +22,10 @@ impl<H> Detail<H>
 where
 	H: tg::Handle,
 {
-	pub fn new(handle: &H, object: &Kind, area: Rect) -> Arc<Self> {
+	pub fn new(handle: &H, object: &Item, area: Rect) -> Arc<Self> {
 		let data = match &object {
-			Kind::Build(build) => Some(Either::Left(Log::new(handle, build, area))),
-			Kind::Value { value, .. }
+			Item::Build(build) => Some(Either::Left(Log::new(handle, build, area))),
+			Item::Value { value, .. }
 				if matches!(
 					value,
 					tg::Value::Object(tg::Object::Leaf(_) | tg::Object::File(_))
@@ -140,7 +140,7 @@ where
 
 pub struct Info<H> {
 	handle: H,
-	value: Kind,
+	value: Item,
 	state: RwLock<DataState>,
 }
 
@@ -154,7 +154,7 @@ impl<H> Info<H>
 where
 	H: tg::Handle,
 {
-	fn new(handle: &H, object: &Kind, area: Rect) -> Arc<Self> {
+	fn new(handle: &H, object: &Item, area: Rect) -> Arc<Self> {
 		let handle = handle.clone();
 		let state = RwLock::new(DataState {
 			area,
@@ -211,58 +211,58 @@ where
 
 	async fn get_text(&self) -> tg::Result<String> {
 		match &self.value {
-			Kind::Root => Ok(String::new()),
-			Kind::Build(build) => {
+			Item::Root => Ok(String::new()),
+			Item::Build(build) => {
 				let info = self.handle.get_build(build.id()).await?;
 				Ok(serde_json::to_string_pretty(&info).unwrap())
 			},
-			Kind::Value {
+			Item::Value {
 				value: tg::Value::Object(tg::Object::Leaf(_)),
 				..
 			} => Ok("(bytes)".into()),
-			Kind::Value {
+			Item::Value {
 				value: tg::Value::Object(tg::Object::Branch(object)),
 				..
 			} => {
 				let data = object.data(&self.handle, None).await?;
 				Ok(serde_json::to_string_pretty(&data).unwrap())
 			},
-			Kind::Value {
+			Item::Value {
 				value: tg::Value::Object(tg::Object::Directory(object)),
 				..
 			} => {
 				let data = object.data(&self.handle, None).await?;
 				Ok(serde_json::to_string_pretty(&data).unwrap())
 			},
-			Kind::Value {
+			Item::Value {
 				value: tg::Value::Object(tg::Object::File(object)),
 				..
 			} => {
 				let data = object.data(&self.handle, None).await?;
 				Ok(serde_json::to_string_pretty(&data).unwrap())
 			},
-			Kind::Value {
+			Item::Value {
 				value: tg::Value::Object(tg::Object::Symlink(object)),
 				..
 			} => {
 				let data = object.data(&self.handle, None).await?;
 				Ok(serde_json::to_string_pretty(&data).unwrap())
 			},
-			Kind::Value {
+			Item::Value {
 				value: tg::Value::Object(tg::Object::Target(object)),
 				..
 			} => {
 				let data = object.data(&self.handle, None).await?;
 				Ok(serde_json::to_string_pretty(&data).unwrap())
 			},
-			Kind::Value {
+			Item::Value {
 				value: tg::Value::Object(tg::Object::Lock(object)),
 				..
 			} => {
 				let data = object.data(&self.handle, None).await?;
 				Ok(serde_json::to_string_pretty(&data).unwrap())
 			},
-			Kind::Value { value, .. } => {
+			Item::Value { value, .. } => {
 				let data = value.data(&self.handle, None).await?;
 				match &data {
 					tg::value::Data::Null => Ok("null".into()),
@@ -296,7 +296,7 @@ where
 					},
 				}
 			},
-			Kind::Package {
+			Item::Package {
 				dependency,
 				artifact,
 				lock,

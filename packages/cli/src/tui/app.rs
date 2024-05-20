@@ -1,5 +1,5 @@
 use super::{
-	commands::Commands, detail::Detail, tree::Tree, util::render_block_and_get_area, Kind,
+	commands::Commands, detail::Detail, tree::Tree, util::render_block_and_get_area, Item,
 };
 use copypasta::ClipboardProvider;
 use crossterm::event::{Event, KeyEvent, MouseEvent, MouseEventKind};
@@ -32,7 +32,7 @@ impl<H> App<H>
 where
 	H: tg::Handle,
 {
-	pub fn new(handle: &H, root: Kind, rect: tui::layout::Rect) -> Arc<Self> {
+	pub fn new(handle: &H, root: Item, rect: tui::layout::Rect) -> Arc<Self> {
 		let handle = handle.clone();
 		let layout = tui::layout::Layout::default()
 			.direction(Direction::Vertical)
@@ -158,7 +158,7 @@ where
 	}
 
 	pub fn cancel(&self) {
-		let Kind::Build(build) = self.tree.get_selected() else {
+		let Item::Build(build) = self.tree.get_selected() else {
 			return;
 		};
 		let client = self.handle.clone();
@@ -198,7 +198,7 @@ where
 	}
 
 	pub fn expand_children(&self) {
-		if let Kind::Build(_) = self.tree.get_selected() {
+		if let Item::Build(_) = self.tree.get_selected() {
 			self.tree.expand_build_children();
 		} else {
 			self.tree.expand_object_children();
@@ -215,10 +215,10 @@ where
 		};
 		let selected = self.tree.get_selected();
 		let text = match selected {
-			Kind::Root => return,
-			Kind::Build(build) => build.id().to_string(),
-			Kind::Value { value, .. } => value.to_string(),
-			Kind::Package { dependency, .. } => dependency.to_string(),
+			Item::Root => return,
+			Item::Build(build) => build.id().to_string(),
+			Item::Value { value, .. } => value.to_string(),
+			Item::Package { dependency, .. } => dependency.to_string(),
 		};
 		ctx.set_contents(text).ok();
 	}
