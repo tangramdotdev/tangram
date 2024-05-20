@@ -85,6 +85,7 @@ proptest = "1"
 ratatui = "0.26"
 regex = "1"
 reqwest = { version = "0.12", default-features = false, features = [
+  "blocking",
   "json",
   "stream",
   "rustls-tls",
@@ -152,6 +153,7 @@ zip = { version = "1", default-features = false, features = [
   "bzip2",
   "time",
 ] }
+zstd = "0.13"
 
 [profile.dev.package.blake3]
 opt-level = 3

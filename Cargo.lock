@@ -3813,6 +3813,7 @@ checksum = "566cafdd92868e0939d3fb961bd0dc25fcfaaed179291093b3d43e6b3150ea10"
 dependencies = [
  "base64 0.22.1",
  "bytes",
+ "futures-channel",
  "futures-core",
  "futures-util",
  "http 1.1.0",
@@ -5398,6 +5399,7 @@ dependencies = [
  "serde_v8",
  "serde_with",
  "serde_yaml",
+ "sha2",
  "sourcemap",
  "swc_core",
  "sync_wrapper 1.0.1",
@@ -5423,6 +5425,7 @@ dependencies = [
  "xattr",
  "zerocopy",
  "zip",
+ "zstd",
 ]
 
 [[package]]

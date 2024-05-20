@@ -1,3 +1,6 @@
+use sha2::Digest as _;
+use std::io::Read as _;
+
 fn main() {
 	println!("cargo:rerun-if-changed=build.rs");
 
@@ -8,6 +11,63 @@ fn main() {
 
 	// Get the out dir path.
 	let out_dir_path = std::path::PathBuf::from(std::env::var_os("OUT_DIR").unwrap());
+
+	// Get the dash and env binaries.
+	let version = "v2024.04.02";
+	let binaries = [
+		(
+			"dash_aarch64_linux",
+			"./bin/dash",
+			"89a1cab57834f81cdb188d5f40b2e98aaff2a5bdae4e8a5d74ad0b2a7672d36b",
+		),
+		(
+			"dash_x86_64_linux",
+			"./bin/dash",
+			"899adb46ccf4cddc7bfeb7e83a6b2953124035c350d6f00f339365e3b01b920e",
+		),
+		(
+			"env_aarch64_linux",
+			"./bin/env",
+			"da4fed85cc4536de95b32f5a445e169381ca438e76decdbb4f117a1d115b0184",
+		),
+		(
+			"env_x86_64_linux",
+			"./bin/env",
+			"ea7b6f8ffa359519660847780a61665bb66748aee432dec8a35efb0855217b95",
+		),
+	];
+	for (name, path, expected) in binaries {
+		// Download.
+		let url = format!(
+			"https://github.com/tangramdotdev/bootstrap/releases/download/{version}/{name}.tar.zst"
+		);
+		let bytes = reqwest::blocking::get(url).unwrap().bytes().unwrap();
+
+		// Verify.
+		let mut hasher = sha2::Sha256::new();
+		hasher.update(&bytes);
+		let hash = hasher.finalize();
+		let expected = data_encoding::HEXLOWER.decode(expected.as_bytes()).unwrap();
+		assert_eq!(hash.as_slice(), expected);
+
+		// Decompress.
+		let bytes = zstd::decode_all(std::io::Cursor::new(bytes)).unwrap();
+
+		// Unpack.
+		let mut read = Vec::new();
+		tar::Archive::new(std::io::Cursor::new(bytes))
+			.entries()
+			.unwrap()
+			.map(|entry| entry.unwrap())
+			.find(|entry| entry.path().unwrap().as_ref().to_str().unwrap() == path)
+			.unwrap()
+			.read_to_end(&mut read)
+			.unwrap();
+		let bytes = read;
+
+		// Write.
+		std::fs::write(out_dir_path.join(name), bytes).unwrap();
+	}
 
 	// Create the lib path.
 	let lib_path = out_dir_path.join("lib");

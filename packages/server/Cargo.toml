@@ -14,9 +14,14 @@ version = { workspace = true }
 workspace = true
 
 [build-dependencies]
+data-encoding = { workspace = true }
 glob = { workspace = true }
+reqwest = { workspace = true }
 serde_json = { workspace = true }
+sha2 = { workspace = true }
+tar = { workspace = true }
 v8 = { workspace = true }
+zstd = { workspace = true }
 
 [dev-dependencies]
 proptest = { workspace = true }
