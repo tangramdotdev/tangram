@@ -14,5 +14,4 @@ version = { workspace = true }
 workspace = true
 
 [dependencies]
-num = { workspace = true }
 zerocopy = { workspace = true }

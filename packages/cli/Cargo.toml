@@ -18,7 +18,6 @@ name = "tg"
 path = "src/main.rs"
 
 [dependencies]
-bytes = { workspace = true }
 clap = { workspace = true }
 console-subscriber = { workspace = true }
 copypasta = { workspace = true }

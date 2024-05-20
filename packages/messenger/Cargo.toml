@@ -22,7 +22,3 @@ dashmap = { workspace = true }
 either = { workspace = true }
 fnv = { workspace = true }
 futures = { workspace = true }
-pin-project = { workspace = true }
-tokio = { workspace = true }
-tracing = { workspace = true }
-url = { workspace = true }
