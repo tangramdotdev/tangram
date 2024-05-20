@@ -166,6 +166,9 @@ where
 	pub fn push(&self) {
 		let mut state = self.state.write().unwrap();
 		let new_root = state.selected.clone();
+		if new_root.state.read().unwrap().is_root {
+			return;
+		}
 		state
 			.root
 			.last()

@@ -114,6 +114,7 @@ where
 	pub fn show_tree(&self) {
 		let mut state = self.state.write().unwrap();
 		state.show_detail = false;
+		state.show_help = false;
 	}
 
 	pub fn tab(&self) {
