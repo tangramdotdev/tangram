@@ -119,6 +119,7 @@ impl Server {
 					complete,
 					count,
 					host,
+					indexed,
 					log,
 					outcome,
 					retry,
@@ -148,24 +149,26 @@ impl Server {
 					{p}13,
 					{p}14,
 					{p}15,
-					{p}16
+					{p}16,
+					{p}17
 				)
 				on conflict (id) do update set
 					complete = {p}2,
 					count = {p}3,
 					host = {p}4,
-					log = {p}5,
-					outcome = {p}6,
-					retry = {p}7,
-					status = {p}8,
-					target = {p}9,
-					weight = {p}10,
-					created_at = {p}11,
-					dequeued_at = {p}12,
-					started_at = {p}13,
-					finished_at = {p}14,
-					heartbeat_at = {p}15,
-					touched_at = {p}16;
+					indexed = {p}5,
+					log = {p}6,
+					outcome = {p}7,
+					retry = {p}8,
+					status = {p}9,
+					target = {p}10,
+					weight = {p}11,
+					created_at = {p}12,
+					dequeued_at = {p}13,
+					started_at = {p}14,
+					finished_at = {p}15,
+					heartbeat_at = {p}16,
+					touched_at = {p}17;
 			"
 		);
 		let params = db::params![
@@ -173,6 +176,7 @@ impl Server {
 			false,
 			db::Value::Null,
 			arg.host,
+			false,
 			arg.log,
 			arg.outcome,
 			arg.retry,

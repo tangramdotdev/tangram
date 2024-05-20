@@ -74,6 +74,7 @@ async fn migration_0000(path: &Path) -> tg::Result<()> {
 				complete integer not null,
 				count integer,
 				host text not null,
+				indexed integer not null,
 				log text,
 				outcome text,
 				retry text not null,
