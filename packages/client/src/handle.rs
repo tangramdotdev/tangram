@@ -6,7 +6,10 @@ use futures::{
 	Future, FutureExt as _, Stream, StreamExt as _, TryStreamExt as _,
 };
 use num::ToPrimitive;
-use std::sync::{Arc, Mutex};
+use std::{
+	io::SeekFrom,
+	sync::{Arc, Mutex},
+};
 use tokio::io::{AsyncBufRead, AsyncRead, AsyncWrite};
 
 mod either;
@@ -114,22 +117,44 @@ pub trait Handle: Clone + Unpin + Send + Sync + 'static {
 				|| future::pending().left_future(),
 				|timeout| tokio::time::sleep(timeout).right_future(),
 			);
-			let stream = stream::try_unfold((Some(stream), id, arg), move |(stream, id, arg)| {
+			struct State {
+				stream: Option<stream::BoxStream<'static, tg::Result<tg::build::Status>>>,
+				is_finished: bool,
+			}
+			let state = Arc::new(Mutex::new(State {
+				stream: Some(stream),
+				is_finished: false,
+			}));
+			let stream = stream::try_unfold(state.clone(), move |state| {
 				let handle = handle.clone();
+				let id = id.clone();
+				let arg = arg.clone();
 				async move {
+					if state.lock().unwrap().is_finished {
+						return Ok(None);
+					}
+
+					let stream = state.lock().unwrap().stream.take();
 					let stream = if let Some(stream) = stream {
 						stream
 					} else {
 						handle
 							.try_get_build_status_stream(&id, arg.clone())
 							.await?
-							.ok_or_else(|| tg::error!("expected the build to exist"))?
+							.unwrap()
 							.boxed()
 					};
-					Ok::<_, tg::Error>(Some((stream, (None, id, arg))))
+					Ok::<_, tg::Error>(Some((stream, state)))
 				}
 			})
 			.try_flatten()
+			.inspect_ok({
+				let state = state.clone();
+				move |status| {
+					state.lock().unwrap().is_finished =
+						matches!(status, tg::build::Status::Finished);
+				}
+			})
 			.take_until(timeout);
 			Ok(Some(stream))
 		}
@@ -180,31 +205,59 @@ pub trait Handle: Clone + Unpin + Send + Sync + 'static {
 				|| future::pending().left_future(),
 				|timeout| tokio::time::sleep(timeout).right_future(),
 			);
-			let arg = Arc::new(Mutex::new(arg));
-			let stream = stream::try_unfold((Some(stream), id, arg), move |(stream, id, arg)| {
+			struct State {
+				stream: Option<stream::BoxStream<'static, tg::Result<tg::build::children::Chunk>>>,
+				arg: tg::build::children::Arg,
+				is_finished: bool,
+			}
+			let state = Arc::new(Mutex::new(State {
+				stream: Some(stream),
+				arg,
+				is_finished: false,
+			}));
+			let stream = stream::try_unfold(state.clone(), move |state| {
 				let handle = handle.clone();
+				let id = id.clone();
 				async move {
-					let arg_ = arg.lock().unwrap().clone();
-					let stream = if let Some(stream) = stream {
-						stream
-					} else {
+					if state.lock().unwrap().is_finished {
+						return Ok(None);
+					}
+					let stream = 'a: {
+						if let Some(stream) = state.lock().unwrap().stream.take() {
+							break 'a stream;
+						}
+						let arg = state.lock().unwrap().arg.clone();
 						handle
-							.try_get_build_children_stream(&id, arg_)
+							.try_get_build_children_stream(&id, arg)
 							.await?
 							.unwrap()
-							.inspect_ok({
-								let arg = arg.clone();
-								move |chunk| {
-									let x = chunk.position;
-									dbg!(&arg, &x);
-								}
-							})
 							.boxed()
 					};
-					Ok::<_, tg::Error>(Some((stream, (None, id, arg))))
+					Ok::<_, tg::Error>(Some((stream, state)))
 				}
 			})
 			.try_flatten()
+			.inspect_ok({
+				let state = state.clone();
+				move |chunk| {
+					let mut state = state.lock().unwrap();
+
+					// End the stream if the chunk is empty.
+					if chunk.items.is_empty() {
+						state.is_finished = true;
+						return;
+					}
+
+					// Update the length argument if necessary.
+					if let Some(length) = &mut state.arg.length {
+						*length -= chunk.items.len().to_u64().unwrap();
+					}
+
+					// Update the stream position. We don't care about the original argument, only that the next argument is consistent with the most recent chunk returned by the stream.
+					let position = chunk.position + chunk.items.len().to_u64().unwrap();
+					state.arg.position = Some(SeekFrom::Start(position));
+				}
+			})
 			.take_until(timeout);
 			Ok(Some(stream))
 		}
@@ -264,46 +317,70 @@ pub trait Handle: Clone + Unpin + Send + Sync + 'static {
 				stream: Option<BoxStream<'static, tg::Result<tg::build::log::Chunk>>>,
 				id: tg::build::Id,
 				arg: tg::build::log::Arg,
+				is_finished: bool,
 			}
 			let state = State {
 				stream: Some(stream),
 				id,
 				arg,
+				is_finished: false,
 			};
 			let state = Arc::new(Mutex::new(state));
-			let stream = stream::try_unfold(state, move |state| {
+			let stream = stream::try_unfold(state.clone(), move |state| {
 				let handle = handle.clone();
 				async move {
-					let mut state_ = state.lock().unwrap();
-					let stream = if let Some(stream) = state_.stream.take() {
-						stream
-					} else {
-						let id = state_.id.clone();
-						let arg = state_.arg.clone();
+					if state.lock().unwrap().is_finished {
+						return Ok(None);
+					}
+					let stream = 'a: {
+						// Consume the existing stream, if necessary.
+						if let Some(stream) = state.lock().unwrap().stream.take() {
+							break 'a stream;
+						}
+
+						// Otherwise, create a new stream.
+						let (id, arg) = {
+							let state = state.lock().unwrap();
+							(state.id.clone(), state.arg.clone())
+						};
 						handle
 							.try_get_build_log_stream(&id, arg)
 							.await?
 							.unwrap()
-							.inspect_ok({
-								let state = state.clone();
-								move |chunk| {
-									let mut state = state.lock().unwrap();
-									match &mut state.arg.position {
-										Some(std::io::SeekFrom::Start(position)) => {
-											position += chunk.bytes.len().to_u64().unwrap();
-										},
-										None => todo!(),
-									}
-								}
-							})
 							.boxed()
 					};
-					drop(state_);
 					Ok::<_, tg::Error>(Some((stream, state)))
 				}
 			})
 			.try_flatten()
+			.inspect_ok(move |chunk| {
+				let mut state = state.lock().unwrap();
+
+				if chunk.bytes.is_empty() {
+					state.is_finished = true;
+					return;
+				}
+
+				// Update the length argument if necessary.
+				if let Some(length) = &mut state.arg.length {
+					if *length >= 0 {
+						*length -= chunk.bytes.len().to_i64().unwrap();
+					} else {
+						*length += chunk.bytes.len().to_i64().unwrap();
+					}
+				}
+
+				// Update the stream position. We don't care about the original argument, only that the next argument is consistent with the most recent chunk returned by the stream.
+				let forward = state.arg.length.map_or(true, |l| l >= 0);
+				let position = if forward {
+					chunk.position + chunk.bytes.len().to_u64().unwrap()
+				} else {
+					chunk.position
+				};
+				state.arg.position = Some(SeekFrom::Start(position));
+			})
 			.take_until(timeout);
+
 			Ok(Some(stream))
 		}
 	}
