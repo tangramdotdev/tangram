@@ -44,7 +44,7 @@ where
 		let layouts = layout.split(rect);
 		let commands = Commands::new();
 		let detail = Detail::new(&handle, object.clone(), layouts[1]);
-		let tree = Tree::new(&handle, object, layouts[0]);
+		let tree = Tree::new(&handle, &[object], layouts[0]);
 		let stop = AtomicBool::new(false);
 
 		let state = RwLock::new(State {

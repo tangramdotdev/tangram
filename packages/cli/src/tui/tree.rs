@@ -58,8 +58,9 @@ enum Indicator {
 }
 
 // multiroot
-#[derive(Clone, Debug)]
+#[derive(Clone)]
 enum Kind {
+	Root,
 	Build(tg::Build),
 	Value {
 		name: Option<String>,
@@ -77,16 +78,54 @@ where
 	H: tg::Handle,
 {
 	/// Create a new tree widget.
-	pub fn new(handle: &H, object: Either<tg::Build, tg::Value>, rect: Rect) -> Arc<Self> {
-		let kind = match object {
-			Either::Left(build) => Kind::Build(build),
-			Either::Right(value) => Kind::Value { name: None, value },
-		};
+	pub fn new(handle: &H, roots: &[Either<tg::Build, tg::Value>], rect: Rect) -> Arc<Self> {
+		// Create the root node.
+		let root = Node::new(handle, None, 0, Kind::Root);
 
-		let selected = Node::new(handle, None, 0, kind);
+		// Create the root's children.
+		let build_children = roots
+			.iter()
+			.enumerate()
+			.filter_map(|(index, object)| {
+				let build = object.as_ref().left()?.clone();
+				let kind = Kind::Build(build);
+				Some(Node::new(handle, Some(&root), index, kind))
+			})
+			.collect::<Vec<_>>();
+		let object_children = roots
+			.iter()
+			.enumerate()
+			.filter_map(|(index, object)| {
+				let value = object.as_ref().right()?.clone();
+				let kind = Kind::Value { name: None, value };
+				Some(Node::new(handle, Some(&root), index, kind))
+			})
+			.collect::<Vec<_>>();
+
+		// Select the first item
+		let selected = build_children
+			.first()
+			.cloned()
+			.unwrap_or_else(|| object_children.first().unwrap().clone());
 		selected.state.write().unwrap().selected = true;
-		selected.state.write().unwrap().is_root = true;
-		let root = vec![selected.clone()];
+
+		// Update the root's state.
+		root.state.write().unwrap().is_root = true;
+		root.state
+			.write()
+			.unwrap()
+			.build_children
+			.replace(build_children);
+		root.state
+			.write()
+			.unwrap()
+			.object_children
+			.replace(object_children);
+		root.state.write().unwrap().expand_build_children = true;
+		root.state.write().unwrap().expand_object_children = true;
+
+		// Create the tree.
+		let root = vec![root.clone()];
 		let scroll = 0;
 		let state = RwLock::new(TreeState {
 			rect,
@@ -199,9 +238,12 @@ where
 		let mut stack = vec![self.root()];
 
 		while let Some(node) = stack.pop() {
-			// Add the node.
-			nodes.push(node.clone());
 			let state = node.state.read().unwrap();
+
+			// Add the node if it's not a root node.
+			if !matches!(state.kind, Kind::Root) {
+				nodes.push(node.clone());
+			}
 
 			// Add the object children.
 			let object_children = state.object_children.iter().flatten().rev().cloned();
@@ -280,6 +322,7 @@ where
 
 	pub fn get_selected(&self) -> Either<tg::Build, tg::Value> {
 		match self.selected().state.read().unwrap().kind.clone() {
+			Kind::Root => unreachable!(),
 			Kind::Build(build) => Either::Left(build),
 			Kind::Value { value, .. } => Either::Right(value),
 			Kind::Package { lock, .. } => Either::Right(tg::Value::Object(lock.into())),
@@ -439,7 +482,7 @@ where
 		let parent_state = parent.state.read().unwrap();
 		match (&parent_state.kind, &state.kind) {
 			(Kind::Build(_), Kind::Build(_)) if parent_state.expand_object_children => false,
-			(Kind::Build(_), Kind::Build(_)) => {
+			(Kind::Build(_) | Kind::Root, Kind::Build(_)) => {
 				self.index == parent_state.build_children.as_ref().map_or(0, Vec::len) - 1
 			},
 			_ => self.index == parent_state.object_children.as_ref().map_or(0, Vec::len) - 1,
@@ -529,6 +572,7 @@ where
 	async fn try_get_object_children(self: &Arc<Self>) -> tg::Result<Vec<Arc<Self>>> {
 		let kind = self.state.read().unwrap().kind.clone();
 		match kind {
+			Kind::Root => unreachable!(),
 			Kind::Build(build) => {
 				let target = build.target(&self.handle).await?;
 				let child = Self::new(
@@ -821,13 +865,11 @@ where
 					let child = match future::select(pin!(stopped), stream.next()).await {
 						// If the task is stopped or the stream is ended, return.
 						future::Either::Left(_) | future::Either::Right((None, _)) => {
-							eprintln!("stopped/last child");
 							return;
 						},
 
 						// If the stream errors, attempt to reconnect.
 						future::Either::Right((Some(Err(error)), _)) => {
-							eprintln!("error: {error}");
 							tracing::error!(%error, "error reading from stream");
 							return;
 						},
@@ -835,7 +877,6 @@ where
 						// Otherwise add the child to the tree.
 						future::Either::Right((Some(Ok(child)), _)) => child,
 					};
-					eprintln!("got child");
 
 					// Create a new tree node for the child.
 					let mut state = node.state.write().unwrap();
@@ -904,6 +945,7 @@ where
 			|_| async move {
 				let kind = node.state.read().unwrap().kind.clone();
 				let result = match kind {
+					Kind::Root => return,
 					Kind::Build(build) => node.set_build_title(build).await,
 					Kind::Value { name, value } => node.set_value_title(name, value).await,
 					Kind::Package { dependency, .. } => {
