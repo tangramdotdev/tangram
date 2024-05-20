@@ -320,8 +320,8 @@ impl Server {
 		#[cfg(all(target_arch = "aarch64", target_os = "linux"))]
 		{
 			let triple = "aarch64-linux".to_owned();
-			let runtime =
-				self::runtime::Runtime::Linux(self::runtime::linux::Runtime::new(self).await?);
+			let runtime = self::runtime::linux::Runtime::new(self).await?;
+			let runtime = self::runtime::Runtime::Linux(runtime);
 			self.runtimes.write().unwrap().insert(triple, runtime);
 		}
 		#[cfg(all(target_arch = "x86_64", target_os = "macos"))]
@@ -333,8 +333,8 @@ impl Server {
 		#[cfg(all(target_arch = "x86_64", target_os = "linux"))]
 		{
 			let triple = "x86_64-linux".to_owned();
-			let runtime =
-				self::runtime::Runtime::Linux(self::runtime::linux::Runtime::new(self).await?);
+			let runtime = self::runtime::linux::Runtime::new(self).await?;
+			let runtime = self::runtime::Runtime::Linux(runtime);
 			self.runtimes.write().unwrap().insert(triple, runtime);
 		}
 

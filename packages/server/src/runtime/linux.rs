@@ -72,17 +72,12 @@ pub struct Runtime {
 
 impl Runtime {
 	pub async fn new(server: &Server) -> tg::Result<Self> {
-		let env = tg::File::builder(tg::Blob::with_reader(server, ENV).await?)
-			.executable(true)
-			.build();
-		let sh = tg::File::builder(tg::Blob::with_reader(server, SH).await?)
-			.executable(true)
-			.build();
-		Ok(Self {
-			server: server.clone(),
-			env,
-			sh,
-		})
+		let env = tg::Blob::with_reader(server, ENV).await?;
+		let env = tg::File::builder(env).executable(true).build();
+		let sh = tg::Blob::with_reader(server, SH).await?;
+		let sh = tg::File::builder(sh).executable(true).build();
+		let server = server.clone();
+		Ok(Self { server, env, sh })
 	}
 
 	pub async fn build(&self, build: &tg::Build) -> tg::Result<tg::Value> {

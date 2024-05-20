@@ -1,4 +1,5 @@
 use crate as tg;
+use futures::FutureExt as _;
 use num::ToPrimitive as _;
 use std::sync::Arc;
 use tokio::io::AsyncRead;
@@ -144,7 +145,7 @@ impl Blob {
 	where
 		H: tg::Handle,
 	{
-		let id = handle.create_blob(reader).await?;
+		let id = handle.create_blob(reader).boxed().await?;
 		let blob = Self::with_id(id);
 		Ok(blob)
 	}
