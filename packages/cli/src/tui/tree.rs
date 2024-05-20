@@ -57,19 +57,18 @@ enum Indicator {
 	Succeeded,
 }
 
-// multiroot
 #[derive(Clone)]
 enum Kind {
 	Root,
 	Build(tg::Build),
-	Value {
-		name: Option<String>,
-		value: tg::Value,
-	},
 	Package {
 		dependency: tg::Dependency,
 		artifact: Option<tg::Artifact>,
 		lock: tg::Lock,
+	},
+	Value {
+		name: Option<String>,
+		value: tg::Value,
 	},
 }
 
@@ -378,7 +377,6 @@ where
 		state.title_task.replace(title_task);
 		drop(state);
 
-		// Return the node.
 		node
 	}
 
@@ -575,15 +573,13 @@ where
 			Kind::Root => unreachable!(),
 			Kind::Build(build) => {
 				let target = build.target(&self.handle).await?;
-				let child = Self::new(
-					&self.handle,
-					Some(self),
-					0,
-					Kind::Value {
-						name: Some("target".into()),
-						value: tg::Value::Object(target.into()),
-					},
-				);
+				let parent = Some(self);
+				let index = 0;
+				let kind = Kind::Value {
+					name: Some("target".into()),
+					value: tg::Value::Object(target.into()),
+				};
+				let child = Self::new(&self.handle, parent, index, kind);
 				Ok(vec![child])
 			},
 			Kind::Value {
@@ -592,15 +588,12 @@ where
 			} => {
 				let mut children = Vec::new();
 				for (index, child) in object.children(&self.handle).await?.iter().enumerate() {
-					let child = Self::new(
-						&self.handle,
-						Some(self),
-						index,
-						Kind::Value {
-							name: None,
-							value: child.blob.clone().into(),
-						},
-					);
+					let parent = Some(self);
+					let kind = Kind::Value {
+						name: None,
+						value: child.blob.clone().into(),
+					};
+					let child = Self::new(&self.handle, parent, index, kind);
 					children.push(child);
 				}
 				Ok(children)
@@ -613,15 +606,12 @@ where
 				for (index, (name, artifact)) in
 					object.entries(&self.handle).await?.iter().enumerate()
 				{
-					let child = Self::new(
-						&self.handle,
-						Some(self),
-						index,
-						Kind::Value {
-							name: Some(name.clone()),
-							value: tg::Value::Object(artifact.clone().into()),
-						},
-					);
+					let parent = Some(self);
+					let kind = Kind::Value {
+						name: Some(name.clone()),
+						value: tg::Value::Object(artifact.clone().into()),
+					};
+					let child = Self::new(&self.handle, parent, index, kind);
 					children.push(child);
 				}
 				Ok(children)
@@ -631,15 +621,12 @@ where
 				..
 			} => {
 				let contents = object.contents(&self.handle).await?;
-				let child = Self::new(
-					&self.handle,
-					Some(self),
-					0,
-					Kind::Value {
-						name: Some("contents".into()),
-						value: contents.into(),
-					},
-				);
+				let parent = Some(self);
+				let kind = Kind::Value {
+					name: Some("contents".into()),
+					value: contents.into(),
+				};
+				let child = Self::new(&self.handle, parent, 0, kind);
 				Ok(vec![child])
 			},
 			Kind::Value {
@@ -649,28 +636,24 @@ where
 				let mut children = Vec::new();
 				let artifact = object.artifact(&self.handle).await?.clone();
 				if let Some(artifact) = artifact {
-					let child = Self::new(
-						&self.handle,
-						Some(self),
-						children.len(),
-						Kind::Value {
-							name: Some("artifact".into()),
-							value: tg::Value::Object(artifact.into()),
-						},
-					);
+					let parent = Some(self);
+					let index = children.len();
+					let kind = Kind::Value {
+						name: Some("artifact".into()),
+						value: tg::Value::Object(artifact.into()),
+					};
+					let child = Self::new(&self.handle, parent, index, kind);
 					children.push(child);
 				}
 				let path = object.path(&self.handle).await?.clone();
 				if let Some(path) = path {
-					let child = Self::new(
-						&self.handle,
-						Some(self),
-						children.len(),
-						Kind::Value {
-							name: Some("path".into()),
-							value: path.into(),
-						},
-					);
+					let parent = Some(self);
+					let index = children.len();
+					let kind = Kind::Value {
+						name: Some("path".into()),
+						value: path.into(),
+					};
+					let child = Self::new(&self.handle, parent, index, kind);
 					children.push(child);
 				}
 				Ok(children)
@@ -680,51 +663,43 @@ where
 				..
 			} => {
 				let executable = &*object.executable(&self.handle).await?;
-				let executable = Self::new(
-					&self.handle,
-					Some(self),
-					0,
-					Kind::Value {
-						name: Some("executable".into()),
-						value: executable.clone().into(),
-					},
-				);
+				let parent = Some(self);
+				let index = 0;
+				let kind = Kind::Value {
+					name: Some("executable".into()),
+					value: executable.clone().into(),
+				};
+				let executable = Self::new(&self.handle, parent, index, kind);
 
 				let args = &*object.args(&self.handle).await?;
-				let args = Self::new(
-					&self.handle,
-					Some(self),
-					1,
-					Kind::Value {
-						name: Some("args".into()),
-						value: args.clone().into(),
-					},
-				);
+				let parent = Some(self);
+				let index = 1;
+				let kind = Kind::Value {
+					name: Some("args".into()),
+					value: args.clone().into(),
+				};
+				let args = Self::new(&self.handle, parent, index, kind);
 
 				let env = &*object.env(&self.handle).await?;
-				let env = Self::new(
-					&self.handle,
-					Some(self),
-					2,
-					Kind::Value {
-						name: Some("env".into()),
-						value: env.clone().into(),
-					},
-				);
+				let parent = Some(self);
+				let index = 2;
+				let kind = Kind::Value {
+					name: Some("env".into()),
+					value: env.clone().into(),
+				};
+				let env = Self::new(&self.handle, parent, index, kind);
 
 				let mut children = vec![executable, args, env];
 
 				let lock = &*object.lock(&self.handle).await?;
 				if let Some(lock) = lock {
-					let lock = Self::new(
-						&self.handle,
-						Some(self),
-						children.len(),
-						Kind::Value {
-							name: Some("lock".into()),
-							value: tg::Value::Object(lock.clone().into()),
-						},
-					);
+					let parent = Some(self);
+					let index = children.len();
+					let kind = Kind::Value {
+						name: Some("lock".into()),
+						value: tg::Value::Object(lock.clone().into()),
+					};
+					let lock = Self::new(&self.handle, parent, index, kind);
 					children.push(lock);
 				}
 
@@ -738,16 +713,13 @@ where
 				let mut children = Vec::with_capacity(dependencies.len());
 				for (index, dependency) in dependencies.into_iter().enumerate() {
 					let (artifact, lock) = object.get(&self.handle, &dependency).await?;
-					let child = Self::new(
-						&self.handle,
-						Some(self),
-						index,
-						Kind::Package {
-							dependency,
-							artifact: artifact.map(tg::Artifact::from),
-							lock,
-						},
-					);
+					let parent = Some(self);
+					let kind = Kind::Package {
+						dependency,
+						artifact: artifact.map(tg::Artifact::from),
+						lock,
+					};
+					let child = Self::new(&self.handle, parent, index, kind);
 					children.push(child);
 				}
 				Ok(children)
@@ -758,15 +730,13 @@ where
 			} => {
 				let mut children = Vec::with_capacity(value.len());
 				for (name, value) in value {
-					let child = Self::new(
-						&self.handle,
-						Some(self),
-						children.len(),
-						Kind::Value {
-							name: Some(name),
-							value,
-						},
-					);
+					let parent = Some(self);
+					let index = children.len();
+					let kind = Kind::Value {
+						name: Some(name),
+						value,
+					};
+					let child = Self::new(&self.handle, parent, index, kind);
 					children.push(child);
 				}
 				Ok(children)
@@ -777,12 +747,10 @@ where
 			} => {
 				let mut children = Vec::with_capacity(value.len());
 				for value in value {
-					let child = Self::new(
-						&self.handle,
-						Some(self),
-						children.len(),
-						Kind::Value { name: None, value },
-					);
+					let parent = Some(self);
+					let index = children.len();
+					let kind = Kind::Value { name: None, value };
+					let child = Self::new(&self.handle, parent, index, kind);
 					children.push(child);
 				}
 				Ok(children)
@@ -793,15 +761,12 @@ where
 			} => {
 				let mut children = Vec::new();
 				for (index, child) in value.artifacts().enumerate() {
-					let child = Self::new(
-						&self.handle,
-						Some(self),
-						index,
-						Kind::Value {
-							name: None,
-							value: tg::Value::Object(child.clone().into()),
-						},
-					);
+					let parent = Some(self);
+					let kind = Kind::Value {
+						name: None,
+						value: tg::Value::Object(child.clone().into()),
+					};
+					let child = Self::new(&self.handle, parent, index, kind);
 					children.push(child);
 				}
 				Ok(children)
@@ -809,31 +774,26 @@ where
 			Kind::Package { artifact, lock, .. } => {
 				let mut children = Vec::new();
 				if let Some(artifact) = artifact {
-					let child = Self::new(
-						&self.handle,
-						Some(self),
-						0,
-						Kind::Value {
-							name: Some("artifact".into()),
-							value: tg::Value::Object(artifact.into()),
-						},
-					);
+					let parent = Some(self);
+					let index = 0;
+					let kind = Kind::Value {
+						name: Some("artifact".into()),
+						value: tg::Value::Object(artifact.into()),
+					};
+					let child = Self::new(&self.handle, parent, index, kind);
 					children.push(child);
 				}
 				let dependencies = lock.dependencies(&self.handle).await?;
 				for dependency in dependencies {
 					let index = children.len();
 					let (artifact, lock) = lock.get(&self.handle, &dependency).await?;
-					let child = Self::new(
-						&self.handle,
-						Some(self),
-						index,
-						Kind::Package {
-							dependency,
-							artifact: artifact.map(tg::Artifact::from),
-							lock,
-						},
-					);
+					let parent = Some(self);
+					let kind = Kind::Package {
+						dependency,
+						artifact: artifact.map(tg::Artifact::from),
+						lock,
+					};
+					let child = Self::new(&self.handle, parent, index, kind);
 					children.push(child);
 				}
 				Ok(children)
@@ -881,12 +841,10 @@ where
 					// Create a new tree node for the child.
 					let mut state = node.state.write().unwrap();
 					let children = state.build_children.as_mut().unwrap();
-					let child_node = Self::new(
-						&node.handle,
-						Some(&node),
-						children.len(),
-						Kind::Build(child),
-					);
+					let parent = Some(&node);
+					let index = children.len();
+					let kind = Kind::Build(child);
+					let child_node = Self::new(&node.handle, parent, index, kind);
 
 					// Add the new child node.
 					children.push(child_node);
@@ -1067,22 +1025,22 @@ where
 		// Wait for all the tasks.
 		let title_task = self.state.write().unwrap().title_task.take();
 		if let Some(task) = title_task {
-			task.wait().await;
+			task.wait().await.ok();
 		}
 
 		let status_task = self.state.write().unwrap().status_task.take();
 		if let Some(task) = status_task {
-			task.wait().await;
+			task.wait().await.ok();
 		}
 
 		let build_children_task = self.state.write().unwrap().build_children_task.take();
 		if let Some(task) = build_children_task {
-			task.wait().await;
+			task.wait().await.ok();
 		}
 
 		let object_children_task = self.state.write().unwrap().object_children_task.take();
 		if let Some(task) = object_children_task {
-			task.wait().await;
+			task.wait().await.ok();
 		}
 
 		// Wait for the chilren.

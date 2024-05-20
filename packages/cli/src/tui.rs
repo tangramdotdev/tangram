@@ -1,13 +1,11 @@
-use std::sync::Arc;
-
+use self::app::App;
 use crossterm as ct;
 use ct::event;
 use either::Either;
 use ratatui as tui;
+use std::sync::Arc;
 use tangram_client as tg;
 use tg::Handle;
-
-use self::app::App;
 
 mod app;
 mod commands;
@@ -29,7 +27,7 @@ impl<H> Tui<H>
 where
 	H: Handle,
 {
-	pub async fn start(handle: &H, object: Either<tg::Build, tg::Value>) -> tg::Result<Self>
+	pub async fn start(handle: &H, item: Either<tg::Build, tg::Value>) -> tg::Result<Self>
 	where
 		H: tg::Handle,
 	{
@@ -45,63 +43,12 @@ where
 
 		// Create the app.
 		let rect = terminal.get_frame().size();
-		let app = app::App::new(handle, object, rect);
+		let app = app::App::new(handle, item, rect);
 
 		// Spawn the task.
 		let task = tokio::task::spawn_blocking({
 			let app = app.clone();
-			move || {
-				// Enable raw mode.
-				ct::terminal::enable_raw_mode().map_err(|source| {
-					tg::error!(!source, "failed to enable the terminal's raw mode")
-				})?;
-
-				// Enable mouse capture and the alternate screen.
-				ct::execute!(
-					terminal.backend_mut(),
-					ct::event::EnableMouseCapture,
-					ct::terminal::EnterAlternateScreen,
-				)
-				.map_err(|source| tg::error!(!source, "failed to set up the terminal"))?;
-
-				// Run the event loop.
-				while !app.stopped() {
-					// Render.
-					terminal
-						.draw(|frame| app.render(frame.size(), frame.buffer_mut()))
-						.ok();
-
-					// Wait for and handle an event, swallowing any errors.
-					let Ok(has_event) = event::poll(std::time::Duration::from_millis(10)) else {
-						break;
-					};
-					if !has_event {
-						continue;
-					}
-					let Ok(event) = event::read() else {
-						break;
-					};
-					app.handle_event(&event);
-				}
-
-				// Reset the terminal.
-				terminal.clear().ok();
-
-				ct::execute!(
-					terminal.backend_mut(),
-					ct::event::DisableMouseCapture,
-					ct::terminal::LeaveAlternateScreen
-				)
-				.ok();
-
-				ct::terminal::disable_raw_mode()
-					.map_err(|source| {
-						tg::error!(!source, "failed to disable the terminal's raw mode")
-					})
-					.ok();
-
-				Ok(())
-			}
+			move || Self::task(&mut terminal, &app)
 		});
 
 		Ok(Self {
@@ -125,6 +72,59 @@ where
 
 		// Join the app.
 		self.app.wait().await;
+
+		Ok(())
+	}
+
+	fn task(
+		terminal: &mut tui::Terminal<tui::backend::CrosstermBackend<std::fs::File>>,
+		app: &App<H>,
+	) -> tg::Result<()> {
+		// Enable raw mode.
+		ct::terminal::enable_raw_mode()
+			.map_err(|source| tg::error!(!source, "failed to enable the terminal's raw mode"))?;
+
+		// Enable mouse capture and the alternate screen.
+		ct::execute!(
+			terminal.backend_mut(),
+			ct::event::EnableMouseCapture,
+			ct::terminal::EnterAlternateScreen,
+		)
+		.map_err(|source| tg::error!(!source, "failed to set up the terminal"))?;
+
+		// Run the event loop.
+		while !app.stopped() {
+			// Render.
+			terminal
+				.draw(|frame| app.render(frame.size(), frame.buffer_mut()))
+				.ok();
+
+			// Wait for and handle an event, swallowing any errors.
+			let Ok(has_event) = event::poll(std::time::Duration::from_millis(10)) else {
+				break;
+			};
+			if !has_event {
+				continue;
+			}
+			let Ok(event) = event::read() else {
+				break;
+			};
+			app.handle_event(&event);
+		}
+
+		// Reset the terminal.
+		terminal.clear().ok();
+
+		ct::execute!(
+			terminal.backend_mut(),
+			ct::event::DisableMouseCapture,
+			ct::terminal::LeaveAlternateScreen
+		)
+		.ok();
+
+		ct::terminal::disable_raw_mode()
+			.map_err(|source| tg::error!(!source, "failed to disable the terminal's raw mode"))
+			.ok();
 
 		Ok(())
 	}

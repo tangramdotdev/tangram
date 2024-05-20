@@ -118,6 +118,7 @@ where
 			}
 		});
 		log.event_task.lock().unwrap().replace(event_task);
+
 		log
 	}
 
