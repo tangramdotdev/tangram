@@ -40,16 +40,16 @@ const TANGRAM_UID: libc::uid_t = 1000;
 const WORKING_DIRECTORY_GUEST_PATH: &str = "/home/tangram/work";
 
 #[cfg(target_arch = "aarch64")]
-const DASH: &[u8] = include_bytes!(concat!(env!("OUT_DIR"), "dash_aarch64_linux"));
+const DASH: &[u8] = include_bytes!(concat!(env!("OUT_DIR"), "/dash_aarch64_linux"));
 
 #[cfg(target_arch = "x86_64")]
-const DASH: &[u8] = include_bytes!(concat!(env!("OUT_DIR"), "dash_x86_64_linux"));
+const DASH: &[u8] = include_bytes!(concat!(env!("OUT_DIR"), "/dash_x86_64_linux"));
 
 #[cfg(target_arch = "aarch64")]
-const ENV: &[u8] = include_bytes!(concat!(env!("OUT_DIR"), "env_aarch64_linux"));
+const ENV: &[u8] = include_bytes!(concat!(env!("OUT_DIR"), "/env_aarch64_linux"));
 
 #[cfg(target_arch = "x86_64")]
-const ENV: &[u8] = include_bytes!(concat!(env!("OUT_DIR"), "env_x86_64_linux"));
+const ENV: &[u8] = include_bytes!(concat!(env!("OUT_DIR"), "/env_x86_64_linux"));
 
 #[derive(Clone)]
 pub struct Runtime {
