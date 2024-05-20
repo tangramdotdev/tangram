@@ -247,9 +247,9 @@ dependencies = [
 
 [[package]]
 name = "async-nats"
-version = "0.34.0"
+version = "0.35.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "eea7b126ebfa4db78e9e788b2a792b6329f35b4f2fdd56dbc646dedc2beec7a5"
+checksum = "ab8df97cb8fc4a884af29ab383e9292ea0939cfcdd7d2a17179086dc6c427e7f"
 dependencies = [
  "base64 0.22.1",
  "bytes",
@@ -272,7 +272,7 @@ dependencies = [
  "thiserror",
  "time",
  "tokio",
- "tokio-rustls 0.25.0",
+ "tokio-rustls 0.26.0",
  "tracing",
  "tryhard",
  "url",
@@ -467,7 +467,7 @@ dependencies = [
  "bitflags 2.5.0",
  "cexpr",
  "clang-sys",
- "itertools",
+ "itertools 0.12.1",
  "lazy_static",
  "lazycell",
  "log",
@@ -2570,6 +2570,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "itertools"
+version = "0.13.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "413ee7dfc52ee1a4949ceeb7dbc8a33f2d6c088194d9f922fb8318faf1f01186"
+dependencies = [
+ "either",
+]
+
+[[package]]
 name = "itoa"
 version = "1.0.11"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -3542,7 +3551,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "81bddcdb20abf9501610992b6759a4c888aef7d1a7247ef75e2404275ac24af1"
 dependencies = [
  "anyhow",
- "itertools",
+ "itertools 0.12.1",
  "proc-macro2",
  "quote",
  "syn 2.0.65",
@@ -3674,7 +3683,7 @@ dependencies = [
  "cassowary",
  "compact_str",
  "crossterm",
- "itertools",
+ "itertools 0.12.1",
  "lru",
  "paste",
  "stability",
@@ -3991,6 +4000,7 @@ dependencies = [
  "aws-lc-rs",
  "log",
  "once_cell",
+ "ring",
  "rustls-pki-types",
  "rustls-webpki 0.102.4",
  "subtle",
@@ -4823,9 +4833,9 @@ dependencies = [
 
 [[package]]
 name = "swc_core"
-version = "0.91.4"
+version = "0.92.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "928db865b085ffb7fb4b41eefebb9a49223f2130e7acaf994131cebabff2eca9"
+checksum = "e317f6f8b15019358d1e48631c0e6d098d9a3d00d666ea99650201661abea855"
 dependencies = [
  "swc_atoms",
  "swc_common",
@@ -5191,7 +5201,7 @@ dependencies = [
  "futures",
  "indicatif",
  "indoc",
- "itertools",
+ "itertools 0.13.0",
  "libc",
  "num",
  "ratatui",
@@ -5234,7 +5244,7 @@ dependencies = [
  "hyper-util",
  "include_dir",
  "indoc",
- "itertools",
+ "itertools 0.13.0",
  "lsp-types",
  "mime",
  "num",
@@ -5275,7 +5285,7 @@ dependencies = [
  "fnv",
  "futures",
  "indexmap 2.2.6",
- "itertools",
+ "itertools 0.13.0",
  "num",
  "rusqlite",
  "serde",
@@ -5300,7 +5310,7 @@ version = "0.0.0"
 dependencies = [
  "dashmap",
  "futures",
- "itertools",
+ "itertools 0.13.0",
  "tokio",
  "tokio-util",
 ]
@@ -5384,7 +5394,7 @@ dependencies = [
  "include_dir",
  "indexmap 2.2.6",
  "indoc",
- "itertools",
+ "itertools 0.13.0",
  "libc",
  "lsp-types",
  "mime",
@@ -5989,7 +5999,7 @@ version = "1.0.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "5a5fbabedabe362c618c714dbefda9927b5afc8e2a8102f47f081089a9019226"
 dependencies = [
- "itertools",
+ "itertools 0.12.1",
  "unicode-width",
 ]
 
