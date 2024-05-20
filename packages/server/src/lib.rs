@@ -309,12 +309,14 @@ impl Server {
 
 		// Add the runtimes.
 		let triple = "js".to_owned();
-		let runtime = self::runtime::Runtime::Js(self::runtime::js::Runtime::new(self));
+		let runtime = self::runtime::js::Runtime::new(self);
+		let runtime = self::runtime::Runtime::Js(runtime);
 		self.runtimes.write().unwrap().insert(triple, runtime);
 		#[cfg(all(target_arch = "aarch64", target_os = "macos"))]
 		{
 			let triple = "aarch64-darwin".to_owned();
-			let runtime = self::runtime::Runtime::Darwin(self::runtime::darwin::Runtime::new(self));
+			let runtime = self::runtime::darwin::Runtime::new(self);
+			let runtime = self::runtime::Runtime::Darwin(runtime);
 			self.runtimes.write().unwrap().insert(triple, runtime);
 		}
 		#[cfg(all(target_arch = "aarch64", target_os = "linux"))]
@@ -327,7 +329,8 @@ impl Server {
 		#[cfg(all(target_arch = "x86_64", target_os = "macos"))]
 		{
 			let triple = "x86_64-darwin".to_owned();
-			let runtime = self::runtime::Runtime::Darwin(self::runtime::darwin::Runtime::new(self));
+			let runtime = self::runtime::darwin::Runtime::new(self);
+			let runtime = self::runtime::Runtime::Darwin(runtime);
 			self.runtimes.write().unwrap().insert(triple, runtime);
 		}
 		#[cfg(all(target_arch = "x86_64", target_os = "linux"))]
