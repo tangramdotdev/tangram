@@ -47,6 +47,7 @@ byte-unit = { version = "5", features = ["byte"] }
 bytes = { version = "1", features = ["serde"] }
 clap = { version = "4", features = ["derive", "env", "unstable-v5"] }
 console-subscriber = "0.2"
+copypasta = "0.10"
 crossterm = "0.27"
 dashmap = "5"
 data-encoding = "2"

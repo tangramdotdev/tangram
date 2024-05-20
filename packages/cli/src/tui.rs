@@ -1,223 +1,79 @@
+use self::app::App;
 use crossterm as ct;
-use futures::{future, StreamExt as _, TryStreamExt as _};
-use num::ToPrimitive as _;
+use ct::event;
 use ratatui as tui;
-use std::{
-	collections::VecDeque,
-	io::SeekFrom,
-	sync::{
-		atomic::{AtomicBool, AtomicU64, Ordering},
-		Arc, Weak,
-	},
-};
+use std::sync::Arc;
 use tangram_client as tg;
-use tui::{layout::Rect, style::Stylize, widgets::Widget};
+use tg::Handle;
 
-mod scroll;
+mod app;
+mod commands;
+mod data;
+mod detail;
+mod log;
+mod tree;
+mod util;
 
-pub struct Tui {
-	stop: tokio::sync::watch::Sender<bool>,
+pub struct Tui<H>
+where
+	H: tg::Handle,
+{
+	app: Arc<App<H>>,
 	task: Option<tokio::task::JoinHandle<tg::Result<()>>>,
 }
 
-struct App<H>
+// multiroot
+#[derive(Clone)]
+pub enum Item {
+	Root,
+	Build(tg::Build),
+	Value {
+		name: Option<String>,
+		value: tg::Value,
+	},
+	Package {
+		dependency: tg::Dependency,
+		artifact: Option<tg::Artifact>,
+		lock: tg::Lock,
+	},
+}
+
+impl<H> Tui<H>
 where
-	H: tg::Handle,
+	H: Handle,
 {
-	direction: tui::layout::Direction,
-	handle: H,
-	layout: tui::layout::Layout,
-	log: Arc<Log<H>>,
-	tree: Tree<H>,
-}
-
-struct Tree<H>
-where
-	H: tg::Handle,
-{
-	rect: tui::layout::Rect,
-	root: Arc<TreeItem<H>>,
-	scroll: usize,
-	selected: Arc<TreeItem<H>>,
-}
-
-struct TreeItem<H>
-where
-	H: tg::Handle,
-{
-	build: tg::Build,
-	children_task: std::sync::Mutex<Option<tokio::task::JoinHandle<()>>>,
-	handle: H,
-	index: usize,
-	indicator_task: std::sync::Mutex<Option<tokio::task::JoinHandle<()>>>,
-	parent: Option<Weak<TreeItem<H>>>,
-	state: std::sync::Mutex<TreeItemState<H>>,
-	title_task: std::sync::Mutex<Option<tokio::task::JoinHandle<()>>>,
-}
-
-struct TreeItemState<H>
-where
-	H: tg::Handle,
-{
-	children: Option<Vec<Arc<TreeItem<H>>>>,
-	expanded: bool,
-	indicator: TreeItemIndicator,
-	selected: bool,
-	title: Option<String>,
-}
-
-enum TreeItemIndicator {
-	Loading,
-	Errored,
-	Created,
-	Dequeued,
-	Started,
-	Canceled,
-	Failed,
-	Succeeded,
-}
-
-struct Log<H>
-where
-	H: tg::Handle,
-{
-	// The build.
-	build: tg::Build,
-
-	// A buffer of log chunks.
-	chunks: tokio::sync::Mutex<Vec<tg::build::log::Chunk>>,
-
-	// Whether the log has reached EOF.
-	eof: AtomicBool,
-
-	// Channel used to send UI events.
-	event_sender: tokio::sync::mpsc::UnboundedSender<LogEvent>,
-
-	// The event handler task.
-	event_task: std::sync::Mutex<Option<tokio::task::JoinHandle<tg::Result<()>>>>,
-
-	// The handle.
-	handle: H,
-
-	// The lines of text that will be displayed.
-	lines: std::sync::Mutex<Vec<String>>,
-
-	// The maximum position of the log seen so far.
-	max_position: AtomicU64,
-
-	// The bounding box of the log view.
-	rect: tokio::sync::watch::Sender<Rect>,
-
-	// The current state of the log's scrolling position.
-	scroll: tokio::sync::Mutex<Option<scroll::Scroll>>,
-
-	// The log streaming task.
-	task: std::sync::Mutex<Option<tokio::task::JoinHandle<tg::Result<()>>>>,
-
-	// A watch to be notified when new logs are received from the log task.
-	watch: tokio::sync::Mutex<Option<tokio::sync::watch::Receiver<()>>>,
-}
-
-enum LogEvent {
-	ScrollUp,
-	ScrollDown,
-}
-
-const SPINNER: [char; 10] = ['⠋', '⠙', '⠹', '⠸', '⠼', '⠴', '⠦', '⠧', '⠇', '⠏'];
-
-impl Tui {
-	pub async fn start<H>(handle: &H, build: &tg::Build) -> tg::Result<Self>
+	pub async fn start(handle: &H, item: Item) -> tg::Result<Self>
 	where
 		H: tg::Handle,
 	{
-		// Create the stop flag.
-		let (stop, _) = tokio::sync::watch::channel(false);
+		// Create the terminal.
+		let tty = std::fs::OpenOptions::new()
+			.read(true)
+			.write(true)
+			.open("/dev/tty")
+			.map_err(|source| tg::error!(!source, "failed to open /dev/tty"))?;
+		let backend = tui::backend::CrosstermBackend::new(tty);
+		let mut terminal = tui::Terminal::new(backend)
+			.map_err(|source| tg::error!(!source, "failed to create the terminal backend"))?;
+
+		// Create the app.
+		let rect = terminal.get_frame().size();
+		let app = app::App::new(handle, item, rect);
 
 		// Spawn the task.
 		let task = tokio::task::spawn_blocking({
-			let handle = handle.clone();
-			let build = build.clone();
-			let stop = stop.subscribe();
-			move || {
-				// Create the terminal.
-				let tty = std::fs::OpenOptions::new()
-					.read(true)
-					.write(true)
-					.open("/dev/tty")
-					.map_err(|source| tg::error!(!source, "failed to open /dev/tty"))?;
-				let backend = tui::backend::CrosstermBackend::new(tty);
-				let mut terminal = tui::Terminal::new(backend).map_err(|source| {
-					tg::error!(!source, "failed to create the terminal backend")
-				})?;
-				ct::terminal::enable_raw_mode().map_err(|source| {
-					tg::error!(!source, "failed to enable the terminal's raw mode")
-				})?;
-				ct::execute!(
-					terminal.backend_mut(),
-					ct::event::EnableMouseCapture,
-					ct::terminal::EnterAlternateScreen,
-				)
-				.map_err(|source| tg::error!(!source, "failed to set up the terminal"))?;
-
-				// Create the app.
-				let rect = terminal.get_frame().size();
-				let mut app = App::new(&handle, &build, rect);
-
-				// Run the event loop.
-				while !*stop.borrow() {
-					// Wait for and handle an event.
-					if ct::event::poll(std::time::Duration::from_millis(16))
-						.map_err(|source| tg::error!(!source, "failed to poll for an event"))?
-					{
-						let event = ct::event::read()
-							.map_err(|source| tg::error!(!source, "failed to read an event"))?;
-
-						// Quit the TUI if requested.
-						if let ct::event::Event::Key(event) = event {
-							if event.code == ct::event::KeyCode::Char('q')
-								|| (event.code == ct::event::KeyCode::Char('c')
-									&& event.modifiers == ct::event::KeyModifiers::CONTROL)
-							{
-								break;
-							}
-						}
-
-						// Handle the event.
-						app.event(&event);
-					}
-
-					// Render.
-					terminal
-						.draw(|frame| app.render(frame.size(), frame.buffer_mut()))
-						.map_err(|source| tg::error!(!source, "failed to draw a frame"))?;
-				}
-
-				// Reset the terminal.
-				terminal
-					.clear()
-					.map_err(|source| tg::error!(!source, "failed to clear the terminal"))?;
-				ct::execute!(
-					terminal.backend_mut(),
-					ct::event::DisableMouseCapture,
-					ct::terminal::LeaveAlternateScreen
-				)
-				.map_err(|source| tg::error!(!source, "failed to reset the terminal"))?;
-				ct::terminal::disable_raw_mode().map_err(|source| {
-					tg::error!(!source, "failed to disable the terminal's raw mode")
-				})?;
-
-				Ok(())
-			}
+			let app = app.clone();
+			move || Self::task(&mut terminal, &app)
 		});
 
 		Ok(Self {
-			stop,
+			app,
 			task: Some(task),
 		})
 	}
 
 	pub fn stop(&self) {
-		self.stop.send_replace(true);
+		self.app.stop();
 	}
 
 	pub async fn wait(mut self) -> tg::Result<()> {
@@ -227,872 +83,64 @@ impl Tui {
 		};
 
 		// Join the task.
-		task.await
-			.unwrap()
-			.map_err(|source| tg::error!(!source, "the task did not succeed"))?;
+		task.await.unwrap().ok();
+
+		// Join the app.
+		self.app.wait().await;
 
 		Ok(())
 	}
-}
 
-impl<H> App<H>
-where
-	H: tg::Handle,
-{
-	fn new(handle: &H, build: &tg::Build, rect: tui::layout::Rect) -> Self {
-		let handle = handle.clone();
-		let direction = tui::layout::Direction::Horizontal;
-		let layout = tui::layout::Layout::default()
-			.direction(direction)
-			.margin(0)
-			.constraints([
-				tui::layout::Constraint::Percentage(50),
-				tui::layout::Constraint::Length(1),
-				tui::layout::Constraint::Min(1),
-			]);
-		let layouts = layout.split(rect);
-		let log = Log::new(&handle, build, layouts[2]);
-		let root = TreeItem::new(&handle, build, None, 0, true);
-		root.expand();
-		let tree = Tree::new(root, layouts[0]);
-		Self {
-			direction,
-			handle,
-			layout,
-			log,
-			tree,
-		}
-	}
+	fn task(
+		terminal: &mut tui::Terminal<tui::backend::CrosstermBackend<std::fs::File>>,
+		app: &App<H>,
+	) -> tg::Result<()> {
+		// Enable raw mode.
+		ct::terminal::enable_raw_mode()
+			.map_err(|source| tg::error!(!source, "failed to enable the terminal's raw mode"))?;
 
-	fn event(&mut self, event: &ct::event::Event) {
-		match event {
-			ct::event::Event::Key(event) => self.key(*event),
-			ct::event::Event::Mouse(event) => self.mouse(*event),
-			ct::event::Event::Resize(width, height) => {
-				self.resize(tui::layout::Rect::new(0, 0, *width, *height));
-			},
-			_ => (),
-		}
-	}
+		// Enable mouse capture and the alternate screen.
+		ct::execute!(
+			terminal.backend_mut(),
+			ct::event::EnableMouseCapture,
+			ct::terminal::EnterAlternateScreen,
+		)
+		.map_err(|source| tg::error!(!source, "failed to set up the terminal"))?;
 
-	fn key(&mut self, event: ct::event::KeyEvent) {
-		match event.code {
-			ct::event::KeyCode::Char('c') => {
-				self.cancel();
-			},
-			ct::event::KeyCode::Left | ct::event::KeyCode::Char('h') => {
-				self.collapse();
-			},
-			ct::event::KeyCode::Down | ct::event::KeyCode::Char('j') => {
-				self.down();
-			},
-			ct::event::KeyCode::Up | ct::event::KeyCode::Char('k') => {
-				self.up();
-			},
-			ct::event::KeyCode::Right | ct::event::KeyCode::Char('l') => {
-				self.expand();
-			},
-			ct::event::KeyCode::Char('r') => {
-				self.rotate();
-			},
-			ct::event::KeyCode::Char('[') => {
-				self.log.up();
-			},
-			ct::event::KeyCode::Char(']') => {
-				self.log.down();
-			},
-			_ => (),
-		}
-	}
+		// Run the event loop.
+		while !app.stopped() {
+			// Render.
+			terminal
+				.draw(|frame| app.render(frame.size(), frame.buffer_mut()))
+				.ok();
 
-	fn mouse(&mut self, event: ct::event::MouseEvent) {
-		match event.kind {
-			ct::event::MouseEventKind::ScrollDown => {
-				self.log.down();
-			},
-			ct::event::MouseEventKind::ScrollUp => {
-				self.log.up();
-			},
-			_ => (),
-		}
-	}
-
-	fn resize(&mut self, rect: tui::layout::Rect) {
-		let rects = self.layout.split(rect);
-		self.log.resize(rects[2]);
-	}
-
-	fn down(&mut self) {
-		self.select(true);
-	}
-
-	fn up(&mut self) {
-		self.select(false);
-	}
-
-	fn select(&mut self, down: bool) {
-		let expanded_items = self.tree.expanded_items();
-		let previous_selected_index = expanded_items
-			.iter()
-			.position(|item| Arc::ptr_eq(item, &self.tree.selected))
-			.unwrap();
-		let new_selected_index = if down {
-			(previous_selected_index + 1).min(expanded_items.len() - 1)
-		} else {
-			previous_selected_index.saturating_sub(1)
-		};
-		if new_selected_index == previous_selected_index {
-			return;
-		}
-
-		let height = self.tree.rect.height.to_usize().unwrap();
-		if new_selected_index < self.tree.scroll {
-			self.tree.scroll -= 1;
-		} else if new_selected_index >= self.tree.scroll + height {
-			self.tree.scroll += 1;
-		}
-		let new_selected_item = expanded_items[new_selected_index].clone();
-		self.tree.selected.state.lock().unwrap().selected = false;
-		new_selected_item.state.lock().unwrap().selected = true;
-		self.log.stop();
-		self.log = Log::new(&self.handle, &new_selected_item.build, self.log.rect());
-		self.tree.selected = new_selected_item;
-	}
-
-	fn expand(&mut self) {
-		self.tree.selected.expand();
-	}
-
-	fn collapse(&mut self) {
-		if self.tree.selected.state.lock().unwrap().expanded {
-			self.tree.selected.collapse();
-		} else {
-			let parent = self
-				.tree
-				.selected
-				.parent
-				.as_ref()
-				.map(|parent| parent.upgrade().unwrap());
-			if let Some(parent) = parent {
-				self.tree.selected.state.lock().unwrap().selected = false;
-				parent.state.lock().unwrap().selected = true;
-				self.log.stop();
-				self.log = Log::new(&self.handle, &parent.build, self.log.rect());
-				self.tree.selected = parent;
+			// Wait for and handle an event, swallowing any errors.
+			let Ok(has_event) = event::poll(std::time::Duration::from_millis(10)) else {
+				break;
+			};
+			if !has_event {
+				continue;
 			}
+			let Ok(event) = event::read() else {
+				break;
+			};
+			app.handle_event(&event);
 		}
-	}
 
-	fn rotate(&mut self) {
-		self.direction = match self.direction {
-			tui::layout::Direction::Horizontal => tui::layout::Direction::Vertical,
-			tui::layout::Direction::Vertical => tui::layout::Direction::Horizontal,
-		}
-	}
+		// Reset the terminal.
+		terminal.clear().ok();
 
-	fn cancel(&mut self) {
-		let build = self.tree.selected.build.clone();
-		let client = self.handle.clone();
-		tokio::spawn(async move { build.cancel(&client).await.ok() });
-	}
-
-	fn render(&self, rect: tui::layout::Rect, buf: &mut tui::buffer::Buffer) {
-		let rects = self.layout.split(rect);
-
-		self.tree.render(rects[0], buf);
-
-		let borders = match self.direction {
-			tui::layout::Direction::Horizontal => tui::widgets::Borders::LEFT,
-			tui::layout::Direction::Vertical => tui::widgets::Borders::BOTTOM,
-		};
-		let block = tui::widgets::Block::default().borders(borders);
-		block.render(rects[1], buf);
-
-		self.log.render(rects[2], buf);
-	}
-}
-
-impl<H> Tree<H>
-where
-	H: tg::Handle,
-{
-	fn new(root: Arc<TreeItem<H>>, rect: tui::layout::Rect) -> Self {
-		Self {
-			rect,
-			root: root.clone(),
-			scroll: 0,
-			selected: root,
-		}
-	}
-
-	fn expanded_items(&self) -> Vec<Arc<TreeItem<H>>> {
-		let mut items = Vec::new();
-		let mut stack = VecDeque::from(vec![self.root.clone()]);
-		while let Some(item) = stack.pop_front() {
-			items.push(item.clone());
-			if item.state.lock().unwrap().expanded {
-				for child in item.state.lock().unwrap().children.iter().flatten().rev() {
-					stack.push_front(child.clone());
-				}
-			}
-		}
-		items
-	}
-
-	fn render(&self, rect: tui::layout::Rect, buf: &mut tui::buffer::Buffer) {
-		let mut stack = VecDeque::from(vec![self.root.clone()]);
-		let mut index = 0;
-		while let Some(item) = stack.pop_front() {
-			if item.state.lock().unwrap().expanded {
-				for child in item.state.lock().unwrap().children.iter().flatten().rev() {
-					stack.push_front(child.clone());
-				}
-			}
-			if index >= self.scroll && index < self.scroll + rect.height.to_usize().unwrap() {
-				let rect = tui::layout::Rect {
-					x: rect.x,
-					y: rect.y + (index - self.scroll).to_u16().unwrap(),
-					width: rect.width,
-					height: 1,
-				};
-				item.render(rect, buf);
-			}
-			index += 1;
-		}
-	}
-}
-
-impl<H> TreeItem<H>
-where
-	H: tg::Handle,
-{
-	fn new(
-		handle: &H,
-		build: &tg::Build,
-		parent: Option<Weak<TreeItem<H>>>,
-		index: usize,
-		selected: bool,
-	) -> Arc<Self> {
-		let state = TreeItemState {
-			children: None,
-			expanded: false,
-			indicator: TreeItemIndicator::Loading,
-			selected,
-			title: None,
-		};
-		let item = Arc::new(TreeItem {
-			build: build.clone(),
-			children_task: std::sync::Mutex::new(None),
-			handle: handle.clone(),
-			index,
-			indicator_task: std::sync::Mutex::new(None),
-			parent,
-			state: std::sync::Mutex::new(state),
-			title_task: std::sync::Mutex::new(None),
-		});
-
-		let task = tokio::task::spawn({
-			let item = item.clone();
-			async move {
-				let arg = tg::build::status::Arg::default();
-				let Ok(mut stream) = item.build.status(&item.handle, arg).await else {
-					item.state.lock().unwrap().indicator = TreeItemIndicator::Errored;
-					return;
-				};
-				loop {
-					let Ok(status) = stream.try_next().await else {
-						item.state.lock().unwrap().indicator = TreeItemIndicator::Errored;
-						return;
-					};
-					let Some(status) = status else {
-						break;
-					};
-					match status {
-						tg::build::Status::Created => {
-							item.state.lock().unwrap().indicator = TreeItemIndicator::Created;
-						},
-						tg::build::Status::Dequeued => {
-							item.state.lock().unwrap().indicator = TreeItemIndicator::Dequeued;
-						},
-						tg::build::Status::Started => {
-							item.state.lock().unwrap().indicator = TreeItemIndicator::Started;
-						},
-						tg::build::Status::Finished => {
-							break;
-						},
-					}
-				}
-				let Ok(outcome) = item.build.outcome(&item.handle).await else {
-					item.state.lock().unwrap().indicator = TreeItemIndicator::Errored;
-					return;
-				};
-				let indicator = match outcome {
-					tg::build::Outcome::Canceled => TreeItemIndicator::Canceled,
-					tg::build::Outcome::Failed(_) => TreeItemIndicator::Failed,
-					tg::build::Outcome::Succeeded(_) => TreeItemIndicator::Succeeded,
-				};
-				item.state.lock().unwrap().indicator = indicator;
-			}
-		});
-		item.indicator_task.lock().unwrap().replace(task);
-
-		let task = tokio::task::spawn({
-			let item = item.clone();
-			async move {
-				let title = title(&item.handle, &item.build).await.ok().flatten();
-				item.state.lock().unwrap().title = title;
-			}
-		});
-		item.title_task.lock().unwrap().replace(task);
-
-		item
-	}
-
-	fn ancestors(&self) -> Vec<Arc<TreeItem<H>>> {
-		let mut ancestors = Vec::new();
-		let mut parent = self.parent.as_ref().map(|parent| parent.upgrade().unwrap());
-		while let Some(parent_) = parent {
-			ancestors.push(parent_.clone());
-			parent = parent_
-				.parent
-				.as_ref()
-				.map(|parent| parent.upgrade().unwrap());
-		}
-		ancestors
-	}
-
-	fn expand(self: &Arc<Self>) {
-		self.state.lock().unwrap().expanded = true;
-		self.state.lock().unwrap().children.replace(Vec::new());
-		let children_task = tokio::task::spawn({
-			let item = self.clone();
-			async move {
-				let arg = tg::build::children::Arg {
-					position: Some(SeekFrom::Start(0)),
-					..Default::default()
-				};
-				let Ok(mut children) = item.build.children(&item.handle, arg).await else {
-					return;
-				};
-				while let Some(Ok(child)) = children.next().await {
-					let client = item.handle.clone();
-					let parent = Some(Arc::downgrade(&item));
-					let index = item.state.lock().unwrap().children.as_ref().unwrap().len();
-					let selected = false;
-					let child = TreeItem::new(&client, &child, parent, index, selected);
-					item.state
-						.lock()
-						.unwrap()
-						.children
-						.as_mut()
-						.unwrap()
-						.push(child);
-				}
-			}
-		});
-		let children_task = self.children_task.lock().unwrap().replace(children_task);
-		if let Some(task) = children_task {
-			task.abort();
-		}
-	}
-
-	fn collapse(&self) {
-		self.state.lock().unwrap().expanded = false;
-		if let Some(children_task) = self.children_task.lock().unwrap().take() {
-			children_task.abort();
-		}
-		let children = self
-			.state
-			.lock()
-			.unwrap()
-			.children
-			.take()
-			.into_iter()
-			.flatten();
-		for child in children {
-			child.stop();
-			child.collapse();
-		}
-	}
-
-	fn render(&self, rect: tui::layout::Rect, buf: &mut tui::buffer::Buffer) {
-		let mut prefix = String::new();
-		for item in self.ancestors().iter().rev().skip(1) {
-			let parent = item.parent.clone().unwrap();
-			let parent_children_count = parent
-				.upgrade()
-				.unwrap()
-				.state
-				.lock()
-				.unwrap()
-				.children
-				.as_ref()
-				.map_or(0, Vec::len);
-			let last = item.index == parent_children_count - 1;
-			prefix.push_str(if last { "  " } else { "│ " });
-		}
-		if let Some(parent) = self.parent.as_ref() {
-			let parent_children_count = parent
-				.upgrade()
-				.unwrap()
-				.state
-				.lock()
-				.unwrap()
-				.children
-				.as_ref()
-				.map_or(0, Vec::len);
-			let last = self.index == parent_children_count - 1;
-			prefix.push_str(if last { "└─" } else { "├─" });
-		}
-		let disclosure = if self.state.lock().unwrap().expanded {
-			"▼"
-		} else {
-			"▶"
-		};
-		let indicator = match self.state.lock().unwrap().indicator {
-			TreeItemIndicator::Loading => " ".red(),
-			TreeItemIndicator::Errored => "!".red(),
-			TreeItemIndicator::Created => "⟳".yellow(),
-			TreeItemIndicator::Dequeued => "•".yellow(),
-			TreeItemIndicator::Started => {
-				let now = std::time::SystemTime::now()
-					.duration_since(std::time::UNIX_EPOCH)
-					.unwrap()
-					.as_millis();
-				let position = (now / (1000 / 10)) % 10;
-				let position = position.to_usize().unwrap();
-				SPINNER[position].to_string().blue()
-			},
-			TreeItemIndicator::Canceled => "⦻".yellow(),
-			TreeItemIndicator::Failed => "✗".red(),
-			TreeItemIndicator::Succeeded => "✓".green(),
-		};
-		let title = self
-			.state
-			.lock()
-			.unwrap()
-			.title
-			.clone()
-			.unwrap_or_else(|| "<unknown>".to_owned());
-		let title = tui::text::Line::from(vec![
-			prefix.into(),
-			disclosure.into(),
-			" ".into(),
-			indicator,
-			" ".into(),
-			title.into(),
-		]);
-		let style = if self.state.lock().unwrap().selected {
-			tui::style::Style::default()
-				.bg(tui::style::Color::White)
-				.fg(tui::style::Color::Black)
-		} else {
-			tui::style::Style::default()
-		};
-		let paragraph = tui::widgets::Paragraph::new(title).style(style);
-		paragraph.render(rect, buf);
-	}
-
-	fn stop(&self) {
-		if let Some(task) = self.children_task.lock().unwrap().take() {
-			task.abort();
-		}
-		if let Some(task) = self.indicator_task.lock().unwrap().take() {
-			task.abort();
-		}
-		if let Some(task) = self.title_task.lock().unwrap().take() {
-			task.abort();
-		}
-	}
-}
-
-impl<H> Drop for TreeItem<H>
-where
-	H: tg::Handle,
-{
-	fn drop(&mut self) {
-		if let Some(task) = self.children_task.lock().unwrap().take() {
-			task.abort();
-		}
-		if let Some(task) = self.indicator_task.lock().unwrap().take() {
-			task.abort();
-		}
-		if let Some(task) = self.title_task.lock().unwrap().take() {
-			task.abort();
-		}
-	}
-}
-
-async fn title<H>(handle: &H, build: &tg::Build) -> tg::Result<Option<String>>
-where
-	H: tg::Handle,
-{
-	// Get the target.
-	let target = build.target(handle).await?;
-
-	// Get the package.
-	let Some(package) = target.package(handle).await? else {
-		return Ok(None);
-	};
-
-	// Get the metadata.
-	let metadata = tg::package::get_metadata(handle, &package.clone().into())
-		.await
+		ct::execute!(
+			terminal.backend_mut(),
+			ct::event::DisableMouseCapture,
+			ct::terminal::LeaveAlternateScreen
+		)
 		.ok();
 
-	// Create the title
-	let mut title = String::new();
-	if let Some(metadata) = metadata {
-		title.push_str(metadata.name.as_deref().unwrap_or("<unknown>"));
-		if let Some(version) = &metadata.version {
-			title.push_str(&format!("@{version}"));
-		}
-	}
-
-	Ok(Some(title))
-}
-
-impl<H> Drop for Log<H>
-where
-	H: tg::Handle,
-{
-	fn drop(&mut self) {
-		if let Some(task) = self.event_task.lock().unwrap().take() {
-			task.abort();
-		}
-		if let Some(task) = self.task.lock().unwrap().take() {
-			task.abort();
-		}
-	}
-}
-
-impl<H> Log<H>
-where
-	H: tg::Handle,
-{
-	fn new(handle: &H, build: &tg::Build, rect: Rect) -> Arc<Self> {
-		let handle = handle.clone();
-		let build = build.clone();
-		let chunks = tokio::sync::Mutex::new(Vec::new());
-		let (event_sender, mut event_receiver) = tokio::sync::mpsc::unbounded_channel();
-		let lines = std::sync::Mutex::new(Vec::new());
-		let (rect, mut rect_receiver) = tokio::sync::watch::channel(rect);
-
-		let log = Arc::new(Log {
-			build,
-			chunks,
-			handle,
-			eof: AtomicBool::new(false),
-			event_sender,
-			event_task: std::sync::Mutex::new(None),
-			lines,
-			task: std::sync::Mutex::new(None),
-			watch: tokio::sync::Mutex::new(None),
-			max_position: AtomicU64::new(0),
-			rect,
-			scroll: tokio::sync::Mutex::new(None),
-		});
-
-		// Create the event handler task.
-		let event_task = tokio::task::spawn({
-			let log = log.clone();
-			async move {
-				log.init().await?;
-				loop {
-					let log_receiver = log.watch.lock().await.clone();
-					let log_receiver = async move {
-						if let Some(mut log_receiver) = log_receiver {
-							log_receiver.changed().await.ok()
-						} else {
-							future::pending().await
-						}
-					};
-					tokio::select! {
-						event = event_receiver.recv() => match event.unwrap() {
-							LogEvent::ScrollDown => {
-								log.down_impl().await.ok();
-							}
-							LogEvent::ScrollUp => {
-								log.up_impl().await.ok();
-							}
-						},
-						_ = log_receiver => (),
-						_ = rect_receiver.changed() => {
-							let mut scroll = log.scroll.lock().await;
-							if let Some(scroll) = scroll.as_mut() {
-								scroll.rect = log.rect();
-							}
-						},
-					}
-					log.update_lines().await?;
-				}
-			}
-		});
-		log.event_task.lock().unwrap().replace(event_task);
-		log
-	}
-
-	async fn init(self: &Arc<Self>) -> tg::Result<()> {
-		let client = &self.handle;
-		let position = Some(std::io::SeekFrom::End(0));
-		let length = Some(-1);
-		let timeout = Some(std::time::Duration::from_millis(16));
-
-		// Get at least one chunk.
-		let chunk = self
-			.build
-			.log(
-				client,
-				tg::build::log::Arg {
-					length,
-					position,
-					timeout,
-					..Default::default()
-				},
-			)
-			.await?
-			.try_next()
-			.await?;
-
-		let max_position = chunk
-			.map(|chunk| chunk.position + chunk.bytes.len().to_u64().unwrap())
-			.unwrap_or_default();
-
-		self.max_position.store(max_position, Ordering::Relaxed);
-
-		// Seed the front of the log.
-		self.update_log_stream(false).await?;
-
-		// Start tailing if necessary.
-		self.update_log_stream(true).await?;
-		Ok(())
-	}
-
-	fn stop(&self) {
-		if let Some(task) = self.task.lock().unwrap().take() {
-			task.abort();
-		}
-		if let Some(task) = self.event_task.lock().unwrap().take() {
-			task.abort();
-		}
-	}
-
-	fn is_complete(&self) -> bool {
-		self.eof.load(Ordering::SeqCst)
-	}
-
-	// Handle a scroll up event.
-	async fn up_impl(self: &Arc<Self>) -> tg::Result<()> {
-		// Create the scroll state if necessary.
-		if self.scroll.lock().await.is_none() {
-			loop {
-				let chunks = self.chunks.lock().await;
-				match scroll::Scroll::new(self.rect(), &chunks) {
-					Ok(inner) => {
-						self.scroll.lock().await.replace(inner);
-						break;
-					},
-					Err(error) => {
-						drop(chunks);
-						self.update_log_stream(matches!(error, scroll::Error::Append))
-							.await?;
-					},
-				}
-			}
-		};
-
-		// Attempt to scroll up by 1 line.
-		loop {
-			let mut scroll = self.scroll.lock().await;
-			let scroll = scroll.as_mut().unwrap();
-			let chunks = self.chunks.lock().await;
-			match scroll.scroll_up(1, &chunks) {
-				Ok(_) => return Ok(()),
-				// If we need to append or prepend, update the log stream and try again.
-				Err(error) => {
-					drop(chunks);
-					self.update_log_stream(matches!(error, scroll::Error::Append))
-						.await?;
-				},
-			}
-		}
-	}
-
-	// Handle a scroll down event.
-	async fn down_impl(self: &Arc<Self>) -> tg::Result<()> {
-		loop {
-			let mut scroll = self.scroll.lock().await;
-			let Some(scroll_) = scroll.as_mut() else {
-				return Ok(());
-			};
-			let chunks = self.chunks.lock().await;
-			match scroll_.scroll_down(1, &chunks) {
-				// If the scroll succeeded but we didn't scroll any lines and the build is not yet complete, we need to start tailing.
-				Ok(count) if count != 1 && !self.is_complete() => {
-					drop(chunks);
-					scroll.take();
-					self.update_log_stream(true).await?;
-				},
-				Ok(_) => return Ok(()),
-				Err(error) => {
-					drop(chunks);
-					self.update_log_stream(matches!(error, scroll::Error::Append))
-						.await?;
-				},
-			}
-		}
-	}
-
-	// Update the rendered lines.
-	async fn update_lines(self: &Arc<Self>) -> tg::Result<()> {
-		loop {
-			let chunks = self.chunks.lock().await;
-			if chunks.is_empty() {
-				self.lines.lock().unwrap().clear();
-				return Ok(());
-			}
-			let mut scroll = self.scroll.lock().await;
-			let result = scroll.as_mut().map_or_else(
-				|| {
-					let mut scroll = scroll::Scroll::new(self.rect(), &chunks)?;
-					scroll.read_lines(&chunks)
-				},
-				|scroll| scroll.read_lines(&chunks),
-			);
-
-			// Update the list of lines and break out if successful.
-			match result {
-				Ok(lines) => {
-					*self.lines.lock().unwrap() = lines;
-					break;
-				},
-				Err(error) => {
-					drop(chunks);
-					self.update_log_stream(matches!(error, scroll::Error::Append))
-						.await?;
-				},
-			}
-		}
+		ct::terminal::disable_raw_mode()
+			.map_err(|source| tg::error!(!source, "failed to disable the terminal's raw mode"))
+			.ok();
 
 		Ok(())
-	}
-
-	// Update the log stream. If prepend is Some, the tailing stream is destroyed and bytes are appended to the the front.
-	async fn update_log_stream(self: &Arc<Self>, append: bool) -> tg::Result<()> {
-		// If we're appending and the task already exists, just wait for more data to be available.
-		if append && self.watch.lock().await.is_some() {
-			let mut watch = self.watch.lock().await.clone().unwrap();
-			watch.changed().await.ok();
-			return Ok(());
-		}
-
-		// Otherwise, abort an existing log task.
-		if let Some(task) = self.task.lock().unwrap().take() {
-			task.abort();
-		}
-
-		// Compute the position and length.
-		let area = self.rect().area().to_i64().unwrap();
-		let mut chunks = self.chunks.lock().await;
-		let max_position = self.max_position.load(Ordering::Relaxed);
-		let (position, length) = if append {
-			let last_position = chunks
-				.last()
-				.map(|chunk| chunk.position + chunk.bytes.len().to_u64().unwrap());
-			match last_position {
-				Some(position) if position == max_position => {
-					(Some(SeekFrom::Start(position)), None)
-				},
-				Some(position) => (Some(SeekFrom::Start(position)), Some(3 * area / 2)),
-				None => (None, None),
-			}
-		} else {
-			let position = chunks.first().map(|chunk| chunk.position);
-
-			let length = (3 * area / 2).to_u64().unwrap();
-			match position {
-				Some(position) if position >= length => {
-					(Some(SeekFrom::Start(0)), Some(position.to_i64().unwrap()))
-				},
-				Some(position) => (
-					Some(SeekFrom::Start(position)),
-					Some(-length.to_i64().unwrap()),
-				),
-				None => (None, Some(-length.to_i64().unwrap())),
-			}
-		};
-
-		// Create the stream.
-		let mut stream = self
-			.build
-			.log(
-				&self.handle,
-				tg::build::log::Arg {
-					length,
-					position,
-					..Default::default()
-				},
-			)
-			.await?;
-
-		// Spawn the log task if necessary.
-		if append && chunks.last().map_or(true, |chunk| !chunk.bytes.is_empty()) {
-			drop(chunks);
-			let log = self.clone();
-			let (tx, rx) = tokio::sync::watch::channel(());
-			let task = tokio::spawn(async move {
-				while let Some(chunk) = stream.try_next().await? {
-					let mut chunks = log.chunks.lock().await;
-					if chunk.bytes.is_empty() {
-						log.eof.store(true, Ordering::SeqCst);
-						break;
-					}
-					let max_position = chunk.position + chunk.bytes.len().to_u64().unwrap();
-					log.max_position.fetch_max(max_position, Ordering::AcqRel);
-					chunks.push(chunk);
-					drop(chunks);
-					tx.send(()).ok();
-				}
-				log.watch.lock().await.take();
-				Ok::<_, tg::Error>(())
-			});
-			self.task.lock().unwrap().replace(task);
-			self.watch.lock().await.replace(rx);
-		} else {
-			// Drain the stream and prepend the chunks.
-			let new_chunks = stream.try_collect::<Vec<_>>().await?;
-			let mid = chunks.len();
-			chunks.extend_from_slice(&new_chunks);
-			chunks.rotate_left(mid);
-		}
-		Ok(())
-	}
-
-	/// Get the bounding box of the log widget.
-	fn rect(&self) -> tui::layout::Rect {
-		*self.rect.borrow()
-	}
-
-	/// Send a scroll up event.
-	fn up(&self) {
-		self.event_sender.send(LogEvent::ScrollUp).ok();
-	}
-
-	/// Send a scroll down event.
-	fn down(&self) {
-		self.event_sender.send(LogEvent::ScrollDown).ok();
-	}
-
-	/// Send a resize event.
-	fn resize(&self, rect: Rect) {
-		self.rect.send(rect).ok();
-	}
-
-	/// Render the log.
-	fn render(&self, rect: tui::layout::Rect, buf: &mut tui::buffer::Buffer) {
-		let lines = self.lines.lock().unwrap();
-		for (y, line) in (0..rect.height).zip(lines.iter()) {
-			buf.set_line(rect.x, rect.y + y, &tui::text::Line::raw(line), rect.width);
-		}
 	}
 }

@@ -5,11 +5,23 @@ use tangram_client as tg;
 #[derive(Clone, Debug, clap::Args)]
 #[group(skip)]
 pub struct Args {
-	#[arg(default_value = ".")]
-	arg: Arg,
+	/// The tree depth.
+	pub depth: Option<u32>,
 
-	#[arg(short, long)]
-	depth: Option<u32>,
+	/// The build to view.
+	#[arg(short, long, conflicts_with_all = ["package", "object", "arg"])]
+	pub build: Option<tg::build::Id>,
+
+	/// The package to view.
+	#[arg(short, long, conflicts_with_all = ["build", "object", "arg"])]
+	pub package: Option<tg::Dependency>,
+
+	/// The object to view.
+	#[arg(short, long, conflicts_with_all = ["build", "package", "arg"])]
+	pub object: Option<tg::object::Id>,
+
+	/// The build, package, or object to view.
+	pub arg: Option<Arg>,
 }
 
 #[derive(Debug, Clone)]
@@ -27,7 +39,19 @@ pub struct Tree {
 
 impl Cli {
 	pub async fn command_tree(&self, args: Args) -> tg::Result<()> {
-		match args.arg {
+		let arg = if let Some(arg) = args.build {
+			Arg::Build(arg)
+		} else if let Some(arg) = args.object {
+			Arg::Object(arg)
+		} else if let Some(arg) = args.package {
+			Arg::Package(arg)
+		} else if let Some(arg) = args.arg {
+			arg
+		} else {
+			Arg::Package(".".parse().unwrap())
+		};
+
+		match arg {
 			Arg::Build(id) => {
 				let args = super::build::tree::Args {
 					build: id,
