@@ -95,6 +95,7 @@ where
 			.cloned()
 			.unwrap_or_else(|| object_children.first().unwrap().clone());
 		selected.state.write().unwrap().selected = true;
+		selected.state.write().unwrap().is_root = true;
 
 		// Update the root's state.
 		root.state.write().unwrap().is_root = true;

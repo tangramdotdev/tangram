@@ -190,17 +190,10 @@ where
 		}
 	}
 
-	pub fn expand_objects(&self) {
-		self.tree.expand_object_children();
-	}
-
-	pub fn collapse_objects(&self) {
-		self.tree.collapse_object_children();
-	}
-
 	pub fn expand_children(&self) {
 		if let Item::Build(_) = self.tree.get_selected() {
 			self.tree.expand_build_children();
+			self.tree.expand_object_children();
 		} else {
 			self.tree.expand_object_children();
 		}
@@ -208,6 +201,7 @@ where
 
 	pub fn collapse_children(&self) {
 		self.tree.collapse_build_children();
+		self.tree.collapse_object_children();
 	}
 
 	pub fn copy_selected_to_clipboard(&self) {

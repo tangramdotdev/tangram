@@ -123,21 +123,6 @@ where
 				callback: Box::new(App::expand_children),
 			},
 			Command {
-				name: "Expand Objects".to_owned(),
-				description: "View object children".to_owned(),
-				keybindings: vec![
-					KeyBinding {
-						keycode: KeyCode::Char('o'),
-						modifiers: None,
-					},
-					KeyBinding {
-						keycode: KeyCode::Right,
-						modifiers: Some(KeyModifiers::SHIFT),
-					},
-				],
-				callback: Box::new(App::expand_objects),
-			},
-			Command {
 				name: "Collapse".to_owned(),
 				description: "Collapse children.".to_owned(),
 				keybindings: vec![
@@ -152,7 +137,6 @@ where
 				],
 				callback: Box::new(|app| {
 					app.collapse_children();
-					app.collapse_objects();
 				}),
 			},
 			Command {
