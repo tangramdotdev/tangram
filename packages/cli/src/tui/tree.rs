@@ -1,4 +1,3 @@
-use either::Either;
 use futures::{future, StreamExt};
 use num::ToPrimitive;
 use ratatui as tui;
@@ -10,6 +9,8 @@ use std::{
 use tangram_client as tg;
 use tangram_futures::task::Task;
 use tui::prelude::*;
+
+use super::Kind;
 
 pub struct Tree<H> {
 	state: RwLock<TreeState<H>>,
@@ -57,27 +58,12 @@ enum Indicator {
 	Succeeded,
 }
 
-#[derive(Clone)]
-enum Kind {
-	Root,
-	Build(tg::Build),
-	Package {
-		dependency: tg::Dependency,
-		artifact: Option<tg::Artifact>,
-		lock: tg::Lock,
-	},
-	Value {
-		name: Option<String>,
-		value: tg::Value,
-	},
-}
-
 impl<H> Tree<H>
 where
 	H: tg::Handle,
 {
 	/// Create a new tree widget.
-	pub fn new(handle: &H, roots: &[Either<tg::Build, tg::Value>], rect: Rect) -> Arc<Self> {
+	pub fn new(handle: &H, roots: &[Kind], rect: Rect) -> Arc<Self> {
 		// Create the root node.
 		let root = Node::new(handle, None, 0, Kind::Root);
 
@@ -86,17 +72,20 @@ where
 			.iter()
 			.enumerate()
 			.filter_map(|(index, object)| {
-				let build = object.as_ref().left()?.clone();
-				let kind = Kind::Build(build);
-				Some(Node::new(handle, Some(&root), index, kind))
+				let Kind::Build(_) = object else {
+					return None;
+				};
+				Some(Node::new(handle, Some(&root), index, object.clone()))
 			})
 			.collect::<Vec<_>>();
 		let object_children = roots
 			.iter()
 			.enumerate()
 			.filter_map(|(index, object)| {
-				let value = object.as_ref().right()?.clone();
-				let kind = Kind::Value { name: None, value };
+				let kind = match object.clone() {
+					Kind::Build(_) => return None,
+					kind => kind.clone(),
+				};
 				Some(Node::new(handle, Some(&root), index, kind))
 			})
 			.collect::<Vec<_>>();
@@ -319,13 +308,8 @@ where
 		self.state.write().unwrap().rect = area;
 	}
 
-	pub fn get_selected(&self) -> Either<tg::Build, tg::Value> {
-		match self.selected().state.read().unwrap().kind.clone() {
-			Kind::Root => unreachable!(),
-			Kind::Build(build) => Either::Left(build),
-			Kind::Value { value, .. } => Either::Right(value),
-			Kind::Package { lock, .. } => Either::Right(tg::Value::Object(lock.into())),
-		}
+	pub fn get_selected(&self) -> Kind {
+		self.selected().state.read().unwrap().kind.clone()
 	}
 
 	pub fn stop(&self) {

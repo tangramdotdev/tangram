@@ -6,7 +6,7 @@ use ratatui::{
 use std::sync::{Arc, RwLock};
 use tangram_client as tg;
 
-pub struct Info<H> {
+pub struct Data<H> {
 	handle: H,
 	value: tg::Value,
 	state: RwLock<State>,
@@ -18,7 +18,7 @@ struct State {
 	scroll: usize,
 }
 
-impl<H> Info<H>
+impl<H> Data<H>
 where
 	H: tg::Handle,
 {

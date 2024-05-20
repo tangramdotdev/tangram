@@ -1,7 +1,8 @@
-use super::{commands::Commands, detail::Detail, tree::Tree, util::render_block_and_get_area};
+use super::{
+	commands::Commands, detail::Detail, tree::Tree, util::render_block_and_get_area, Kind,
+};
 use copypasta::ClipboardProvider;
 use crossterm::event::{Event, KeyEvent, MouseEvent, MouseEventKind};
-use either::Either;
 use ratatui as tui;
 use std::sync::{
 	atomic::{AtomicBool, Ordering},
@@ -31,11 +32,7 @@ impl<H> App<H>
 where
 	H: tg::Handle,
 {
-	pub fn new(
-		handle: &H,
-		object: Either<tg::Build, tg::Value>,
-		rect: tui::layout::Rect,
-	) -> Arc<Self> {
+	pub fn new(handle: &H, root: Kind, rect: tui::layout::Rect) -> Arc<Self> {
 		let handle = handle.clone();
 		let layout = tui::layout::Layout::default()
 			.direction(Direction::Vertical)
@@ -43,8 +40,8 @@ where
 			.constraints([Constraint::Max(1), Constraint::Fill(1), Constraint::Max(3)]);
 		let layouts = layout.split(rect);
 		let commands = Commands::new();
-		let detail = Detail::new(&handle, object.clone(), layouts[1]);
-		let tree = Tree::new(&handle, &[object], layouts[0]);
+		let detail = Detail::new(&handle, &root.clone(), layouts[1]);
+		let tree = Tree::new(&handle, &[root], layouts[0]);
 		let stop = AtomicBool::new(false);
 
 		let state = RwLock::new(State {
@@ -161,7 +158,7 @@ where
 	}
 
 	pub fn cancel(&self) {
-		let Either::Left(build) = self.tree.get_selected() else {
+		let Kind::Build(build) = self.tree.get_selected() else {
 			return;
 		};
 		let client = self.handle.clone();
@@ -178,7 +175,7 @@ where
 			state.detail.up();
 		} else {
 			self.tree.up();
-			state.detail = Detail::new(&self.handle, self.tree.get_selected(), state.detail_area);
+			state.detail = Detail::new(&self.handle, &self.tree.get_selected(), state.detail_area);
 		}
 	}
 
@@ -188,7 +185,7 @@ where
 			state.detail.down();
 		} else {
 			self.tree.down();
-			state.detail = Detail::new(&self.handle, self.tree.get_selected(), state.detail_area);
+			state.detail = Detail::new(&self.handle, &self.tree.get_selected(), state.detail_area);
 		}
 	}
 
@@ -201,9 +198,10 @@ where
 	}
 
 	pub fn expand_children(&self) {
-		match self.tree.get_selected() {
-			Either::Left(_) => self.tree.expand_build_children(),
-			Either::Right(_) => self.tree.expand_object_children(),
+		if let Kind::Build(_) = self.tree.get_selected() {
+			self.tree.expand_build_children();
+		} else {
+			self.tree.expand_object_children();
 		}
 	}
 
@@ -216,14 +214,13 @@ where
 			return;
 		};
 		let selected = self.tree.get_selected();
-		match selected {
-			Either::Left(build) => {
-				ctx.set_contents(build.id().to_string()).ok();
-			},
-			Either::Right(value) => {
-				ctx.set_contents(value.to_string()).ok();
-			},
-		}
+		let text = match selected {
+			Kind::Root => return,
+			Kind::Build(build) => build.id().to_string(),
+			Kind::Value { value, .. } => value.to_string(),
+			Kind::Package { dependency, .. } => dependency.to_string(),
+		};
+		ctx.set_contents(text).ok();
 	}
 
 	pub fn push(&self) {

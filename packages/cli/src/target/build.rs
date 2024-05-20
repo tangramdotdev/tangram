@@ -1,4 +1,7 @@
-use crate::{tui::Tui, Cli};
+use crate::{
+	tui::{self, Tui},
+	Cli,
+};
 use crossterm::style::Stylize as _;
 use either::Either;
 use itertools::Itertools as _;
@@ -253,7 +256,7 @@ impl Cli {
 		} else {
 			// Start the TUI.
 			let tui = match args.view {
-				View::Tui => Tui::start(&self.handle, Either::Left(build.clone()))
+				View::Tui => Tui::start(&self.handle, tui::Kind::Build(build.clone()))
 					.await
 					.ok(),
 				View::None => None,

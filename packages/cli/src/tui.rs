@@ -1,7 +1,6 @@
 use self::app::App;
 use crossterm as ct;
 use ct::event;
-use either::Either;
 use ratatui as tui;
 use std::sync::Arc;
 use tangram_client as tg;
@@ -9,8 +8,8 @@ use tg::Handle;
 
 mod app;
 mod commands;
+mod data;
 mod detail;
-mod info;
 mod log;
 mod tree;
 mod util;
@@ -23,11 +22,27 @@ where
 	task: Option<tokio::task::JoinHandle<tg::Result<()>>>,
 }
 
+// multiroot
+#[derive(Clone)]
+pub enum Kind {
+	Root,
+	Build(tg::Build),
+	Value {
+		name: Option<String>,
+		value: tg::Value,
+	},
+	Package {
+		dependency: tg::Dependency,
+		artifact: Option<tg::Artifact>,
+		lock: tg::Lock,
+	},
+}
+
 impl<H> Tui<H>
 where
 	H: Handle,
 {
-	pub async fn start(handle: &H, item: Either<tg::Build, tg::Value>) -> tg::Result<Self>
+	pub async fn start(handle: &H, root: Kind) -> tg::Result<Self>
 	where
 		H: tg::Handle,
 	{
@@ -43,7 +58,7 @@ where
 
 		// Create the app.
 		let rect = terminal.get_frame().size();
-		let app = app::App::new(handle, item, rect);
+		let app = app::App::new(handle, root, rect);
 
 		// Spawn the task.
 		let task = tokio::task::spawn_blocking({

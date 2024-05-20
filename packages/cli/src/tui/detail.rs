@@ -1,4 +1,4 @@
-use super::{info::Info, log::Log};
+use super::{data::Data, log::Log, Kind};
 use either::Either;
 use ratatui::{
 	prelude::*,
@@ -7,9 +7,10 @@ use ratatui::{
 use std::sync::{Arc, RwLock};
 use tangram_client as tg;
 
+#[allow(clippy::type_complexity)]
 pub struct Detail<H> {
-	info: Arc<Data<H>>,
-	data: Either<Arc<Log<H>>, Arc<Info<H>>>,
+	info: Arc<Info<H>>,
+	data: Option<Either<Arc<Log<H>>, Arc<Data<H>>>>,
 	state: RwLock<State>,
 }
 
@@ -21,11 +22,22 @@ impl<H> Detail<H>
 where
 	H: tg::Handle,
 {
-	pub fn new(handle: &H, object: Either<tg::Build, tg::Value>, area: Rect) -> Arc<Self> {
-		let info = Data::new(handle, &object, area);
-		let data = object
-			.map_left(|build| Log::new(handle, &build, area))
-			.map_right(|value| Info::new(handle, &value, area));
+	pub fn new(handle: &H, object: &Kind, area: Rect) -> Arc<Self> {
+		let data = match &object {
+			Kind::Build(build) => Some(Either::Left(Log::new(handle, build, area))),
+			Kind::Value { value, .. }
+				if matches!(
+					value,
+					tg::Value::Object(tg::Object::Leaf(_) | tg::Object::File(_))
+				) =>
+			{
+				Some(Either::Right(Data::new(handle, value, area)))
+			},
+			_ => None,
+		};
+
+		let info = Info::new(handle, object, area);
+
 		let state = RwLock::new(State { selected_tab: 0 });
 		Arc::new(Self { info, data, state })
 	}
@@ -33,13 +45,14 @@ where
 	pub fn resize(&self, area: Rect) {
 		self.info.resize(area);
 		match &self.data {
-			Either::Left(log) => log.resize(area),
-			Either::Right(info) => info.resize(area),
+			Some(Either::Left(log)) => log.resize(area),
+			Some(Either::Right(info)) => info.resize(area),
+			None => (),
 		};
 	}
 
 	pub fn stop(&self) {
-		let Either::Left(log) = &self.data else {
+		let Some(Either::Left(log)) = &self.data else {
 			return;
 		};
 		log.stop();
@@ -49,8 +62,8 @@ where
 		let tab = self.state.read().unwrap().selected_tab;
 		if tab == 0 {
 			self.info.down();
-		} else {
-			match &self.data {
+		} else if let Some(data) = &self.data {
+			match data {
 				Either::Left(log) => log.down(),
 				Either::Right(info) => info.down(),
 			}
@@ -61,8 +74,8 @@ where
 		let tab = self.state.read().unwrap().selected_tab;
 		if tab == 0 {
 			self.info.up();
-		} else {
-			match &self.data {
+		} else if let Some(data) = &self.data {
+			match data {
 				Either::Left(log) => log.up(),
 				Either::Right(info) => info.up(),
 			}
@@ -87,34 +100,47 @@ where
 			.constraints([Constraint::Max(1), Constraint::Fill(1)]);
 		let rects = layout.split(area);
 		let (tab_area, view_area) = (rects[0], rects[1]);
-		let titles = [
-			"Info (1)",
-			if self.data.is_left() {
-				"Log (2)"
-			} else {
-				"Data (2)"
-			},
-		];
 
-		Tabs::new(titles)
-			.select(state.selected_tab)
-			.divider(" ")
-			.render(tab_area, buf);
-
-		match state.selected_tab {
-			0 => self.info.render(view_area, buf),
-			1 => match &self.data {
-				Either::Left(data) => data.render(view_area, buf),
-				Either::Right(data) => data.render(view_area, buf),
+		match &self.data {
+			Some(Either::Left(log)) => {
+				let titles = ["Info (1)", "Log (2)"];
+				Tabs::new(titles)
+					.select(state.selected_tab)
+					.divider(" ")
+					.render(tab_area, buf);
+				match state.selected_tab {
+					0 => self.info.render(view_area, buf),
+					1 => log.render(view_area, buf),
+					_ => unreachable!(),
+				}
 			},
-			_ => unreachable!(),
+			Some(Either::Right(data)) => {
+				let titles = ["Info (1)", "Data (2)"];
+				Tabs::new(titles)
+					.select(state.selected_tab)
+					.divider(" ")
+					.render(tab_area, buf);
+				match state.selected_tab {
+					0 => self.info.render(view_area, buf),
+					1 => data.render(view_area, buf),
+					_ => unreachable!(),
+				}
+			},
+			None => {
+				let titles = ["Info (1)"];
+				Tabs::new(titles)
+					.select(0)
+					.divider(" ")
+					.render(tab_area, buf);
+				self.info.render(view_area, buf);
+			},
 		}
 	}
 }
 
-pub struct Data<H> {
+pub struct Info<H> {
 	handle: H,
-	value: Either<tg::Build, tg::Value>,
+	value: Kind,
 	state: RwLock<DataState>,
 }
 
@@ -124,18 +150,18 @@ struct DataState {
 	scroll: usize,
 }
 
-impl<H> Data<H>
+impl<H> Info<H>
 where
 	H: tg::Handle,
 {
-	fn new(handle: &H, value: &Either<tg::Build, tg::Value>, area: Rect) -> Arc<Self> {
+	fn new(handle: &H, object: &Kind, area: Rect) -> Arc<Self> {
 		let handle = handle.clone();
 		let state = RwLock::new(DataState {
 			area,
 			text: String::new(),
 			scroll: 0,
 		});
-		let value = value.clone();
+		let value = object.clone();
 		let data = Arc::new(Self {
 			handle,
 			value,
@@ -185,36 +211,58 @@ where
 
 	async fn get_text(&self) -> tg::Result<String> {
 		match &self.value {
-			Either::Left(build) => {
+			Kind::Root => Ok(String::new()),
+			Kind::Build(build) => {
 				let info = self.handle.get_build(build.id()).await?;
 				Ok(serde_json::to_string_pretty(&info).unwrap())
 			},
-			Either::Right(tg::Value::Object(tg::Object::Leaf(_))) => Ok("(bytes)".into()),
-			Either::Right(tg::Value::Object(tg::Object::Branch(object))) => {
+			Kind::Value {
+				value: tg::Value::Object(tg::Object::Leaf(_)),
+				..
+			} => Ok("(bytes)".into()),
+			Kind::Value {
+				value: tg::Value::Object(tg::Object::Branch(object)),
+				..
+			} => {
 				let data = object.data(&self.handle, None).await?;
 				Ok(serde_json::to_string_pretty(&data).unwrap())
 			},
-			Either::Right(tg::Value::Object(tg::Object::Directory(object))) => {
+			Kind::Value {
+				value: tg::Value::Object(tg::Object::Directory(object)),
+				..
+			} => {
 				let data = object.data(&self.handle, None).await?;
 				Ok(serde_json::to_string_pretty(&data).unwrap())
 			},
-			Either::Right(tg::Value::Object(tg::Object::File(object))) => {
+			Kind::Value {
+				value: tg::Value::Object(tg::Object::File(object)),
+				..
+			} => {
 				let data = object.data(&self.handle, None).await?;
 				Ok(serde_json::to_string_pretty(&data).unwrap())
 			},
-			Either::Right(tg::Value::Object(tg::Object::Symlink(object))) => {
+			Kind::Value {
+				value: tg::Value::Object(tg::Object::Symlink(object)),
+				..
+			} => {
 				let data = object.data(&self.handle, None).await?;
 				Ok(serde_json::to_string_pretty(&data).unwrap())
 			},
-			Either::Right(tg::Value::Object(tg::Object::Target(object))) => {
+			Kind::Value {
+				value: tg::Value::Object(tg::Object::Target(object)),
+				..
+			} => {
 				let data = object.data(&self.handle, None).await?;
 				Ok(serde_json::to_string_pretty(&data).unwrap())
 			},
-			Either::Right(tg::Value::Object(tg::Object::Lock(object))) => {
+			Kind::Value {
+				value: tg::Value::Object(tg::Object::Lock(object)),
+				..
+			} => {
 				let data = object.data(&self.handle, None).await?;
 				Ok(serde_json::to_string_pretty(&data).unwrap())
 			},
-			Either::Right(value) => {
+			Kind::Value { value, .. } => {
 				let data = value.data(&self.handle, None).await?;
 				match &data {
 					tg::value::Data::Null => Ok("null".into()),
@@ -247,6 +295,31 @@ where
 						Ok(serde_json::to_string_pretty(value).unwrap())
 					},
 				}
+			},
+			Kind::Package {
+				dependency,
+				artifact,
+				lock,
+			} => {
+				#[derive(serde::Serialize)]
+				struct Data {
+					dependency: tg::Dependency,
+					#[serde(skip_serializing_if = "Option::is_none")]
+					artifact: Option<tg::artifact::Id>,
+					lock: tg::lock::Id,
+				}
+				let artifact = if let Some(artifact) = artifact {
+					Some(artifact.id(&self.handle, None).await?)
+				} else {
+					None
+				};
+				let lock = lock.id(&self.handle, None).await?;
+				let data = Data {
+					dependency: dependency.clone(),
+					artifact,
+					lock,
+				};
+				Ok(serde_json::to_string_pretty(&data).unwrap())
 			},
 		}
 	}
