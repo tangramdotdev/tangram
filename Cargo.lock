@@ -5298,13 +5298,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "tangram_fuse"
-version = "0.0.0"
-dependencies = [
- "zerocopy",
-]
-
-[[package]]
 name = "tangram_futures"
 version = "0.0.0"
 dependencies = [
@@ -5346,15 +5339,6 @@ dependencies = [
  "either",
  "fnv",
  "futures",
-]
-
-[[package]]
-name = "tangram_nfs"
-version = "0.0.0"
-dependencies = [
- "num",
- "tokio",
- "tracing",
 ]
 
 [[package]]
@@ -5414,11 +5398,10 @@ dependencies = [
  "sync_wrapper 1.0.1",
  "tangram_client",
  "tangram_database",
- "tangram_fuse",
  "tangram_futures",
  "tangram_http",
  "tangram_messenger",
- "tangram_nfs",
+ "tangram_vfs",
  "tar",
  "time",
  "tokio",
@@ -5435,6 +5418,16 @@ dependencies = [
  "zerocopy",
  "zip",
  "zstd",
+]
+
+[[package]]
+name = "tangram_vfs"
+version = "0.0.0"
+dependencies = [
+ "num",
+ "tokio",
+ "tracing",
+ "zerocopy",
 ]
 
 [[package]]

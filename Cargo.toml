@@ -4,12 +4,11 @@ members = [
   "packages/cli",
   "packages/client",
   "packages/database",
-  "packages/fuse",
   "packages/futures",
   "packages/http",
   "packages/messenger",
-  "packages/nfs",
   "packages/server",
+  "packages/vfs",
 ]
 resolver = "2"
 
@@ -118,12 +117,11 @@ sync_wrapper = "1"
 tangram_cli = { path = "packages/cli" }
 tangram_client = { path = "packages/client" }
 tangram_database = { path = "packages/database" }
-tangram_fuse = { path = "packages/fuse" }
 tangram_futures = { path = "packages/futures" }
 tangram_http = { path = "packages/http" }
 tangram_messenger = { path = "packages/messenger" }
-tangram_nfs = { path = "packages/nfs" }
 tangram_server = { path = "packages/server" }
+tangram_vfs = { path = "packages/vfs" }
 tar = { version = "0.4" }
 time = { version = "0.3", features = ["formatting", "parsing", "serde"] }
 tokio = { version = "1", features = ["full", "tracing"] }

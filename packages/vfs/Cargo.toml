@@ -1,5 +1,5 @@
 [package]
-name = "tangram_nfs"
+name = "tangram_vfs"
 
 description = { workspace = true }
 edition = { workspace = true }
@@ -17,4 +17,4 @@ workspace = true
 num = { workspace = true }
 tokio = { workspace = true }
 tracing = { workspace = true }
-
+zerocopy = { workspace = true }

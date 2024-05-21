@@ -10,7 +10,7 @@ use std::{
 };
 use tangram_client as tg;
 use tangram_futures::task::{Stop, Task};
-use tangram_nfs::{
+use tangram_vfs::nfs::{
 	rpc,
 	types::{
 		bitmap4, cb_client4, change_info4, dirlist4, entry4, fattr4, fs_locations4, fsid4, length4,

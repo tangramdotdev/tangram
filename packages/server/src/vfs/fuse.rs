@@ -13,8 +13,8 @@ use std::{
 	sync::{atomic::AtomicU64, Arc, Weak},
 };
 use tangram_client as tg;
-use tangram_fuse::sys;
 use tangram_futures::task::{Stop, Task};
+use tangram_vfs::fuse::sys;
 use tokio::io::{AsyncReadExt as _, AsyncSeekExt as _};
 use zerocopy::{AsBytes as _, FromBytes as _};
 
