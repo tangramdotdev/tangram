@@ -2,6 +2,7 @@ use crate::Cli;
 use tangram_client as tg;
 
 pub mod cancel;
+pub mod children;
 pub mod get;
 pub mod log;
 pub mod outcome;
@@ -9,6 +10,7 @@ pub mod output;
 pub mod pull;
 pub mod push;
 pub mod put;
+pub mod status;
 pub mod tree;
 
 /// Build a target or manage builds.
@@ -27,6 +29,7 @@ pub struct Args {
 #[derive(Clone, Debug, clap::Subcommand)]
 pub enum Command {
 	Cancel(self::cancel::Args),
+	Children(self::children::Args),
 	Get(self::get::Args),
 	Log(self::log::Args),
 	Outcome(self::outcome::Args),
@@ -34,6 +37,7 @@ pub enum Command {
 	Pull(self::pull::Args),
 	Push(self::push::Args),
 	Put(self::put::Args),
+	Status(self::status::Args),
 	Tree(self::tree::Args),
 }
 
@@ -45,6 +49,9 @@ impl Cli {
 			},
 			Some(Command::Cancel(args)) => {
 				self.command_build_cancel(args).await?;
+			},
+			Some(Command::Children(args)) => {
+				self.command_build_children(args).await?;
 			},
 			Some(Command::Get(args)) => {
 				self.command_build_get(args).await?;
@@ -66,6 +73,9 @@ impl Cli {
 			},
 			Some(Command::Put(args)) => {
 				self.command_build_put(args).await?;
+			},
+			Some(Command::Status(args)) => {
+				self.command_build_status(args).await?;
 			},
 			Some(Command::Tree(args)) => {
 				self.command_build_tree(args).await?;

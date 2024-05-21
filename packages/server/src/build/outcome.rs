@@ -7,7 +7,7 @@ use tangram_database::{self as db, prelude::*};
 use tangram_http::{incoming::request::Ext as _, outgoing::response::Ext as _, Incoming, Outgoing};
 
 impl Server {
-	pub async fn try_get_build_outcome(
+	pub async fn try_get_build_outcome_future(
 		&self,
 		id: &tg::build::Id,
 		arg: tg::build::outcome::Arg,
@@ -102,7 +102,7 @@ impl Server {
 		let Some(remote) = self.remotes.first() else {
 			return Ok(None);
 		};
-		let Some(outcome) = remote.try_get_build_outcome(id, arg).await? else {
+		let Some(outcome) = remote.try_get_build_outcome_future(id, arg).await? else {
 			return Ok(None);
 		};
 		Ok(Some(outcome))

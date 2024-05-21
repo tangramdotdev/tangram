@@ -9,7 +9,7 @@ use tangram_messenger::Messenger as _;
 use tokio_stream::wrappers::IntervalStream;
 
 impl Server {
-	pub async fn try_get_build_status(
+	pub async fn try_get_build_status_stream(
 		&self,
 		id: &tg::build::Id,
 		arg: tg::build::status::Arg,
@@ -136,7 +136,7 @@ impl Server {
 		let Some(remote) = self.remotes.first() else {
 			return Ok(None);
 		};
-		let Some(stream) = remote.try_get_build_status(id, arg).await? else {
+		let Some(stream) = remote.try_get_build_status_stream(id, arg).await? else {
 			return Ok(None);
 		};
 		Ok(Some(stream))

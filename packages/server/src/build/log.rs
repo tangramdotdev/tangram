@@ -36,7 +36,7 @@ type ReadFuture = BoxFuture<'static, tg::Result<Option<Cursor<Bytes>>>>;
 type SeekFuture = BoxFuture<'static, tg::Result<u64>>;
 
 impl Server {
-	pub async fn try_get_build_log(
+	pub async fn try_get_build_log_stream(
 		&self,
 		id: &tg::build::Id,
 		arg: tg::build::log::Arg,
@@ -268,7 +268,7 @@ impl Server {
 		let Some(remote) = self.remotes.first() else {
 			return Ok(None);
 		};
-		let Some(log) = remote.try_get_build_log(id, arg).await? else {
+		let Some(log) = remote.try_get_build_log_stream(id, arg).await? else {
 			return Ok(None);
 		};
 		Ok(Some(log))

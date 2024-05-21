@@ -129,7 +129,7 @@ impl tg::Handle for Proxy {
 		Err(tg::error!("forbidden"))
 	}
 
-	fn try_get_build_status(
+	fn try_get_build_status_stream(
 		&self,
 		id: &tg::build::Id,
 		arg: tg::build::status::Arg,
@@ -138,10 +138,10 @@ impl tg::Handle for Proxy {
 			Option<impl Stream<Item = tg::Result<tg::build::Status>> + Send + 'static>,
 		>,
 	> {
-		self.server.try_get_build_status(id, arg)
+		self.server.try_get_build_status_stream(id, arg)
 	}
 
-	fn try_get_build_children(
+	fn try_get_build_children_stream(
 		&self,
 		id: &tg::build::Id,
 		arg: tg::build::children::Arg,
@@ -150,7 +150,7 @@ impl tg::Handle for Proxy {
 			Option<impl Stream<Item = tg::Result<tg::build::children::Chunk>> + Send + 'static>,
 		>,
 	> {
-		self.server.try_get_build_children(id, arg)
+		self.server.try_get_build_children_stream(id, arg)
 	}
 
 	async fn add_build_child(
@@ -161,7 +161,7 @@ impl tg::Handle for Proxy {
 		Err(tg::error!("forbidden"))
 	}
 
-	fn try_get_build_log(
+	fn try_get_build_log_stream(
 		&self,
 		id: &tg::build::Id,
 		arg: tg::build::log::Arg,
@@ -170,14 +170,14 @@ impl tg::Handle for Proxy {
 			Option<impl Stream<Item = tg::Result<tg::build::log::Chunk>> + Send + 'static>,
 		>,
 	> {
-		self.server.try_get_build_log(id, arg)
+		self.server.try_get_build_log_stream(id, arg)
 	}
 
 	async fn add_build_log(&self, _build_id: &tg::build::Id, _bytes: Bytes) -> tg::Result<()> {
 		Err(tg::error!("forbidden"))
 	}
 
-	fn try_get_build_outcome(
+	fn try_get_build_outcome_future(
 		&self,
 		id: &tg::build::Id,
 		arg: tg::build::outcome::Arg,
@@ -186,7 +186,7 @@ impl tg::Handle for Proxy {
 			Option<impl Future<Output = tg::Result<Option<tg::build::Outcome>>> + Send + 'static>,
 		>,
 	> {
-		self.server.try_get_build_outcome(id, arg)
+		self.server.try_get_build_outcome_future(id, arg)
 	}
 
 	async fn finish_build(

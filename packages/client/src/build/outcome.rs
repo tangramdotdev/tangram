@@ -119,7 +119,7 @@ impl tg::Build {
 }
 
 impl tg::Client {
-	pub async fn try_get_build_outcome(
+	pub async fn try_get_build_outcome_future(
 		&self,
 		id: &tg::build::Id,
 		arg: tg::build::outcome::Arg,
