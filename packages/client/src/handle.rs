@@ -119,18 +119,18 @@ pub trait Handle: Clone + Unpin + Send + Sync + 'static {
 			);
 			struct State {
 				stream: Option<stream::BoxStream<'static, tg::Result<tg::build::Status>>>,
-				is_finished: bool,
+				end: bool,
 			}
 			let state = Arc::new(Mutex::new(State {
 				stream: Some(stream),
-				is_finished: false,
+				end: false,
 			}));
 			let stream = stream::try_unfold(state.clone(), move |state| {
 				let handle = handle.clone();
 				let id = id.clone();
 				let arg = arg.clone();
 				async move {
-					if state.lock().unwrap().is_finished {
+					if state.lock().unwrap().end {
 						return Ok(None);
 					}
 
@@ -151,8 +151,7 @@ pub trait Handle: Clone + Unpin + Send + Sync + 'static {
 			.inspect_ok({
 				let state = state.clone();
 				move |status| {
-					state.lock().unwrap().is_finished =
-						matches!(status, tg::build::Status::Finished);
+					state.lock().unwrap().end = matches!(status, tg::build::Status::Finished);
 				}
 			})
 			.take_until(timeout);
@@ -208,24 +207,24 @@ pub trait Handle: Clone + Unpin + Send + Sync + 'static {
 			struct State {
 				stream: Option<stream::BoxStream<'static, tg::Result<tg::build::children::Chunk>>>,
 				arg: tg::build::children::Arg,
-				is_finished: bool,
+				end: bool,
 			}
 			let state = Arc::new(Mutex::new(State {
 				stream: Some(stream),
 				arg,
-				is_finished: false,
+				end: false,
 			}));
 			let stream = stream::try_unfold(state.clone(), move |state| {
 				let handle = handle.clone();
 				let id = id.clone();
 				async move {
-					if state.lock().unwrap().is_finished {
+					if state.lock().unwrap().end {
 						return Ok(None);
 					}
-					let stream = 'a: {
-						if let Some(stream) = state.lock().unwrap().stream.take() {
-							break 'a stream;
-						}
+					let stream = state.lock().unwrap().stream.take();
+					let stream = if let Some(stream) = stream {
+						stream
+					} else {
 						let arg = state.lock().unwrap().arg.clone();
 						handle
 							.try_get_build_children_stream(&id, arg)
@@ -242,9 +241,9 @@ pub trait Handle: Clone + Unpin + Send + Sync + 'static {
 				move |chunk| {
 					let mut state = state.lock().unwrap();
 
-					// End the stream if the chunk is empty.
+					// If the chunk is empty, then end the stream.
 					if chunk.items.is_empty() {
-						state.is_finished = true;
+						state.end = true;
 						return;
 					}
 
@@ -253,7 +252,7 @@ pub trait Handle: Clone + Unpin + Send + Sync + 'static {
 						*length -= chunk.items.len().to_u64().unwrap();
 					}
 
-					// Update the stream position. We don't care about the original argument, only that the next argument is consistent with the most recent chunk returned by the stream.
+					// Update the position argument.
 					let position = chunk.position + chunk.items.len().to_u64().unwrap();
 					state.arg.position = Some(SeekFrom::Start(position));
 				}
@@ -315,34 +314,27 @@ pub trait Handle: Clone + Unpin + Send + Sync + 'static {
 			);
 			struct State {
 				stream: Option<BoxStream<'static, tg::Result<tg::build::log::Chunk>>>,
-				id: tg::build::Id,
 				arg: tg::build::log::Arg,
-				is_finished: bool,
+				end: bool,
 			}
 			let state = State {
 				stream: Some(stream),
-				id,
 				arg,
-				is_finished: false,
+				end: false,
 			};
 			let state = Arc::new(Mutex::new(state));
 			let stream = stream::try_unfold(state.clone(), move |state| {
 				let handle = handle.clone();
+				let id = id.clone();
 				async move {
-					if state.lock().unwrap().is_finished {
+					if state.lock().unwrap().end {
 						return Ok(None);
 					}
-					let stream = 'a: {
-						// Consume the existing stream, if necessary.
-						if let Some(stream) = state.lock().unwrap().stream.take() {
-							break 'a stream;
-						}
-
-						// Otherwise, create a new stream.
-						let (id, arg) = {
-							let state = state.lock().unwrap();
-							(state.id.clone(), state.arg.clone())
-						};
+					let stream = state.lock().unwrap().stream.take();
+					let stream = if let Some(stream) = stream {
+						stream
+					} else {
+						let arg = state.lock().unwrap().arg.clone();
 						handle
 							.try_get_build_log_stream(&id, arg)
 							.await?
@@ -356,8 +348,9 @@ pub trait Handle: Clone + Unpin + Send + Sync + 'static {
 			.inspect_ok(move |chunk| {
 				let mut state = state.lock().unwrap();
 
+				// If the chunk is empty, then end the stream.
 				if chunk.bytes.is_empty() {
-					state.is_finished = true;
+					state.end = true;
 					return;
 				}
 
@@ -370,7 +363,7 @@ pub trait Handle: Clone + Unpin + Send + Sync + 'static {
 					}
 				}
 
-				// Update the stream position. We don't care about the original argument, only that the next argument is consistent with the most recent chunk returned by the stream.
+				// Update the position argument.
 				let forward = state.arg.length.map_or(true, |l| l >= 0);
 				let position = if forward {
 					chunk.position + chunk.bytes.len().to_u64().unwrap()
@@ -426,17 +419,15 @@ pub trait Handle: Clone + Unpin + Send + Sync + 'static {
 			let Some(future) = self.try_get_build_outcome_future(id, arg.clone()).await? else {
 				return Ok(None);
 			};
-			Ok(Some({
+			let timeout = arg.timeout.map_or_else(
+				|| future::pending().left_future(),
+				|timeout| tokio::time::sleep(timeout).right_future(),
+			);
+			let future = {
 				let mut future = future.boxed();
 				let handle = self.clone();
 				let id = id.clone();
-
-				let timeout = arg.timeout.map_or_else(
-					|| future::pending().left_future(),
-					|timeout| tokio::time::sleep(timeout).right_future(),
-				);
-
-				let retry = async move {
+				async move {
 					loop {
 						if let Some(outcome) = future.await? {
 							return Ok(Some(outcome));
@@ -447,15 +438,16 @@ pub trait Handle: Clone + Unpin + Send + Sync + 'static {
 							.ok_or_else(|| tg::error!("expected the build to exist"))?
 							.boxed();
 					}
-				};
-
-				future::select(Box::pin(timeout), Box::pin(retry)).then(|result| async move {
+				}
+			};
+			let future =
+				future::select(Box::pin(timeout), Box::pin(future)).then(|result| async move {
 					match result {
 						future::Either::Left(_) => Ok(None),
 						future::Either::Right((result, _)) => result,
 					}
-				})
-			}))
+				});
+			Ok(Some(future))
 		}
 	}
 
