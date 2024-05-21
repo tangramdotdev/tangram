@@ -1,8 +1,10 @@
 use std::path::Path;
 use tangram_client as tg;
+use tangram_database as db;
+use tangram_vfs as vfs;
 
-mod fuse;
-mod nfs;
+mod provider;
+use provider::Provider;
 
 #[derive(Debug, Clone, Copy)]
 pub enum Kind {
@@ -12,22 +14,57 @@ pub enum Kind {
 
 #[derive(Clone)]
 pub enum Server {
-	Fuse(fuse::Server),
-	Nfs(nfs::Server),
+	Fuse(vfs::fuse::Vfs<Provider>),
+	Nfs(vfs::nfs::Vfs<Provider>),
 }
 
 impl Server {
 	pub async fn start(server: &crate::Server, kind: Kind, path: &Path) -> tg::Result<Self> {
+		// Remove a file at the path if one exists.
+		std::fs::remove_file(path).ok();
+
+		// Create a directory at the path if necessary.
+		std::fs::create_dir_all(path).ok();
+
+		let options = db::sqlite::Options {
+			path: server.path.join("vfs"),
+			connections: 8,
+		};
+		let provider = Provider::new(server, options).await?;
+
 		match kind {
 			Kind::Fuse => {
-				let fuse = fuse::Server::start(server, path).await?;
-				let server = Self::Fuse(fuse);
-				Ok(server)
+				let fuse = vfs::fuse::Vfs::start(provider, path, None)
+					.await
+					.map_err(|source| tg::error!(!source, "failed to start FUSE server"))?;
+				Ok(Server::Fuse(fuse))
 			},
 			Kind::Nfs => {
-				let nfs = nfs::Server::start(server, path, 8437).await?;
-				let server = Self::Nfs(nfs);
-				Ok(server)
+				let port = 8476;
+				let url = if cfg!(target_os = "macos") {
+					tokio::process::Command::new("dns-sd")
+						.args([
+							"-P",
+							"Tangram",
+							"_nfs._tcp",
+							"local",
+							&port.to_string(),
+							"Tangram",
+							"::1",
+							"path=/",
+						])
+						.stdout(std::process::Stdio::null())
+						.stderr(std::process::Stdio::null())
+						.spawn()
+						.map_err(|source| tg::error!(!source, "failed to spawn dns-sd"))?;
+					"Tangram"
+				} else {
+					"localhost"
+				};
+				let nfs = vfs::nfs::Vfs::start(provider, path, url.into(), port, None)
+					.await
+					.map_err(|source| tg::error!(!source, "failed to start NFS server"))?;
+				Ok(Self::Nfs(nfs))
 			},
 		}
 	}
@@ -39,10 +76,11 @@ impl Server {
 		}
 	}
 
-	pub async fn wait(&self) -> tg::Result<()> {
+	pub async fn wait(self) -> tg::Result<()> {
 		match self {
 			Server::Fuse(server) => server.wait().await,
 			Server::Nfs(server) => server.wait().await,
 		}
+		Ok(())
 	}
 }

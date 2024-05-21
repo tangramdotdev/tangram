@@ -1,5 +1,7 @@
 #![allow(clippy::match_same_arms, dead_code, non_camel_case_types)]
 
+use crate::TimeSpec;
+
 use super::xdr;
 use num::ToPrimitive as _;
 
@@ -2956,6 +2958,15 @@ impl nfstime4 {
 		Self {
 			seconds: dur.as_secs().to_i64().unwrap(),
 			nseconds: dur.subsec_nanos(),
+		}
+	}
+}
+
+impl From<TimeSpec> for nfstime4 {
+	fn from(value: TimeSpec) -> Self {
+		nfstime4 {
+			seconds: value.secs.to_i64().unwrap(),
+			nseconds: value.nanos,
 		}
 	}
 }

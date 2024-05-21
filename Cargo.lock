@@ -5423,9 +5423,19 @@ dependencies = [
 name = "tangram_vfs"
 version = "0.0.0"
 dependencies = [
+ "async-channel",
+ "bytes",
+ "clap",
+ "dashmap",
+ "either",
+ "futures",
+ "libc",
  "num",
+ "tangram_futures",
  "tokio",
+ "tokio-util",
  "tracing",
+ "tracing-subscriber",
  "zerocopy",
 ]
 
