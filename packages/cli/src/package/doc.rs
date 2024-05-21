@@ -33,7 +33,12 @@ impl Cli {
 			self.handle.get_js_runtime_doc().await?
 		} else {
 			self.handle
-				.try_get_package_doc(&args.package)
+				.try_get_package_doc(
+					&args.package,
+					tg::package::doc::Arg {
+						locked: args.locked,
+					},
+				)
 				.await?
 				.ok_or_else(|| tg::error!("failed to get the package"))?
 		};

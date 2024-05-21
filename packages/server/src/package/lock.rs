@@ -102,6 +102,7 @@ impl Server {
 		&self,
 		path: Option<&tg::Path>,
 		analysis: &Analysis,
+		locked: bool,
 	) -> tg::Result<tg::Lock> {
 		// If this is a path dependency, then attempt to read the lock from the lockfile.
 		let lock = if let Some(path) = path {
@@ -135,6 +136,11 @@ impl Server {
 			}
 			Some(lock)
 		};
+
+		// Avoid creating a lock file if the caller requested it.
+		if locked {
+			return lock.ok_or_else(|| tg::error!("missing lock file"));
+		}
 
 		// Otherwise, create the lock.
 		let mut created = false;

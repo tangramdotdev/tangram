@@ -11,6 +11,10 @@ pub struct Args {
 
 	#[arg(short, long)]
 	pub depth: Option<u32>,
+
+	/// If this flag is set, the package's lockfile will not be updated.
+	#[arg(long)]
+	pub locked: bool,
 }
 
 impl Cli {
@@ -26,9 +30,8 @@ impl Cli {
 		}
 
 		// Create the package.
-		let (package, lock) = tg::package::get_with_lock(&self.handle, &dependency)
-			.await
-			.map_err(|source| tg::error!(!source, %dependency, "failed to get the lock"))?;
+		let (package, lock) =
+			tg::package::get_with_lock(&self.handle, &dependency, args.locked).await?;
 
 		let mut visited = BTreeSet::new();
 		let tree = self

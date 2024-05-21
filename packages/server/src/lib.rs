@@ -651,7 +651,7 @@ impl Server {
 			(http::Method::GET, ["packages", dependency]) => {
 				Self::handle_get_package_request(handle, request, dependency).boxed()
 			},
-			(http::Method::POST, ["packages", dependency, "check"]) => {
+			(http::Method::GET, ["packages", dependency, "check"]) => {
 				Self::handle_check_package_request(handle, request, dependency).boxed()
 			},
 			(http::Method::GET, ["packages", dependency, "doc"]) => {
@@ -663,7 +663,7 @@ impl Server {
 			(http::Method::POST, ["packages", dependency, "format"]) => {
 				Self::handle_format_package_request(handle, request, dependency).boxed()
 			},
-			(http::Method::POST, ["packages", dependency, "outdated"]) => {
+			(http::Method::GET, ["packages", dependency, "outdated"]) => {
 				Self::handle_outdated_package_request(handle, request, dependency).boxed()
 			},
 			(http::Method::POST, ["packages", id, "publish"]) => {
@@ -952,15 +952,17 @@ impl tg::Handle for Server {
 	fn check_package(
 		&self,
 		dependency: &tg::Dependency,
+		arg: tg::package::check::Arg,
 	) -> impl Future<Output = tg::Result<Vec<tg::Diagnostic>>> {
-		self.check_package(dependency)
+		self.check_package(dependency, arg)
 	}
 
 	fn try_get_package_doc(
 		&self,
 		dependency: &tg::Dependency,
+		arg: tg::package::doc::Arg,
 	) -> impl Future<Output = tg::Result<Option<serde_json::Value>>> {
-		self.try_get_package_doc(dependency)
+		self.try_get_package_doc(dependency, arg)
 	}
 
 	fn format_package(&self, dependency: &tg::Dependency) -> impl Future<Output = tg::Result<()>> {
@@ -970,8 +972,9 @@ impl tg::Handle for Server {
 	fn get_package_outdated(
 		&self,
 		dependency: &tg::Dependency,
+		arg: tg::package::outdated::Arg,
 	) -> impl Future<Output = tg::Result<tg::package::outdated::Output>> {
-		self.get_package_outdated(dependency)
+		self.get_package_outdated(dependency, arg)
 	}
 
 	fn publish_package(&self, id: &tg::artifact::Id) -> impl Future<Output = tg::Result<()>> {

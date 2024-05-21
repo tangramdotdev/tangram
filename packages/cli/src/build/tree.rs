@@ -9,6 +9,7 @@ use tangram_client as tg;
 #[group(skip)]
 pub struct Args {
 	pub build: tg::build::Id,
+
 	#[arg(long)]
 	pub depth: Option<u32>,
 }

@@ -322,10 +322,11 @@ where
 	fn check_package(
 		&self,
 		dependency: &tg::Dependency,
+		arg: tg::package::check::Arg,
 	) -> impl Future<Output = tg::Result<Vec<tg::Diagnostic>>> {
 		match self {
-			Either::Left(s) => s.check_package(dependency).left_future(),
-			Either::Right(s) => s.check_package(dependency).right_future(),
+			Either::Left(s) => s.check_package(dependency, arg).left_future(),
+			Either::Right(s) => s.check_package(dependency, arg).right_future(),
 		}
 	}
 
@@ -339,20 +340,22 @@ where
 	fn try_get_package_doc(
 		&self,
 		dependency: &tg::Dependency,
+		arg: tg::package::doc::Arg,
 	) -> impl Future<Output = tg::Result<Option<serde_json::Value>>> {
 		match self {
-			Either::Left(s) => s.try_get_package_doc(dependency).left_future(),
-			Either::Right(s) => s.try_get_package_doc(dependency).right_future(),
+			Either::Left(s) => s.try_get_package_doc(dependency, arg).left_future(),
+			Either::Right(s) => s.try_get_package_doc(dependency, arg).right_future(),
 		}
 	}
 
 	fn get_package_outdated(
 		&self,
-		arg: &tg::Dependency,
+		package: &tg::Dependency,
+		arg: tg::package::outdated::Arg,
 	) -> impl Future<Output = tg::Result<tg::package::outdated::Output>> {
 		match self {
-			Either::Left(s) => s.get_package_outdated(arg).left_future(),
-			Either::Right(s) => s.get_package_outdated(arg).right_future(),
+			Either::Left(s) => s.get_package_outdated(package, arg).left_future(),
+			Either::Right(s) => s.get_package_outdated(package, arg).right_future(),
 		}
 	}
 

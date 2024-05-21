@@ -24,7 +24,7 @@ impl Cli {
 				.ok();
 		}
 
-		let _ = tg::package::get_with_lock(&self.handle, &dependency)
+		let _ = tg::package::get_with_lock(&self.handle, &dependency, false)
 			.await
 			.map_err(|source| tg::error!(!source, %dependency, "failed to create a new lock"))?;
 

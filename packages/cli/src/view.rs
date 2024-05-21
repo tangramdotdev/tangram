@@ -10,6 +10,10 @@ pub struct Args {
 	#[arg(short, long, conflicts_with_all = ["object", "package", "arg"])]
 	pub build: Option<tg::build::Id>,
 
+	/// If this flag is set, the package's lockfile will not be updated.
+	#[arg(long)]
+	pub locked: bool,
+
 	/// The object to view.
 	#[arg(short, long, conflicts_with_all = ["build", "package", "arg"])]
 	pub object: Option<tg::object::Id>,
@@ -60,9 +64,12 @@ impl Cli {
 				}
 
 				// Create the package and lock.
-				let (package, lock) = tg::package::get_with_lock(&self.handle, &dependency)
-					.await
-					.map_err(|source| tg::error!(!source, "failed to get the package and lock"))?;
+				let (package, lock) =
+					tg::package::get_with_lock(&self.handle, &dependency, args.locked)
+						.await
+						.map_err(|source| {
+							tg::error!(!source, "failed to get the package and lock")
+						})?;
 
 				tui::Item::Package {
 					dependency,

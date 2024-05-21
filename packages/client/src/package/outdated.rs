@@ -3,6 +3,11 @@ use serde_with::{serde_as, DisplayFromStr};
 use std::collections::BTreeMap;
 use tangram_http::{incoming::response::Ext as _, outgoing::request::Ext as _};
 
+#[derive(Debug, Clone, Default, serde::Deserialize, serde::Serialize)]
+pub struct Arg {
+	pub locked: bool,
+}
+
 #[serde_as]
 #[derive(Debug, Clone, serde::Deserialize, serde::Serialize)]
 pub struct Output {
@@ -27,11 +32,13 @@ impl tg::Client {
 	pub async fn get_package_outdated(
 		&self,
 		dependency: &tg::Dependency,
+		arg: Arg,
 	) -> tg::Result<tg::package::outdated::Output> {
-		let method = http::Method::POST;
+		let method = http::Method::GET;
 		let dependency = dependency.to_string();
 		let dependency = urlencoding::encode(&dependency);
-		let uri = format!("/packages/{dependency}/outdated");
+		let query = serde_urlencoded::to_string(&arg).unwrap();
+		let uri = format!("/packages/{dependency}/outdated?{query}");
 		let request = http::request::Builder::default()
 			.method(method)
 			.uri(uri)

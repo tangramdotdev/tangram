@@ -1,15 +1,22 @@
 use crate as tg;
 use tangram_http::{incoming::response::Ext as _, outgoing::request::Ext as _};
 
+#[derive(Debug, Default, Clone, serde::Serialize, serde::Deserialize)]
+pub struct Arg {
+	pub locked: bool,
+}
+
 impl tg::Client {
 	pub async fn try_get_package_doc(
 		&self,
 		dependency: &tg::Dependency,
+		arg: Arg,
 	) -> tg::Result<Option<serde_json::Value>> {
 		let method = http::Method::GET;
 		let dependency = dependency.to_string();
 		let dependency = urlencoding::encode(&dependency);
-		let uri = format!("/packages/{dependency}/doc");
+		let query = serde_urlencoded::to_string(&arg).unwrap();
+		let uri = format!("/packages/{dependency}/doc?{query}");
 		let request = http::request::Builder::default().method(method).uri(uri);
 		let request = request.empty().unwrap();
 		let response = self.send(request).await?;

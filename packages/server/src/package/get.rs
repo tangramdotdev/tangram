@@ -29,7 +29,7 @@ impl Server {
 		let lock = if arg.lock {
 			let path = dependency.path.as_ref();
 			let lock = self
-				.get_or_create_package_lock(path, &analysis)
+				.get_or_create_package_lock(path, &analysis, arg.locked)
 				.await
 				.map_err(|error| {
 					if let Some(path) = path {

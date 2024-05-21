@@ -535,18 +535,21 @@ pub trait Handle: Clone + Unpin + Send + Sync + 'static {
 	fn check_package(
 		&self,
 		dependency: &tg::Dependency,
+		arg: tg::package::check::Arg,
 	) -> impl Future<Output = tg::Result<Vec<tg::Diagnostic>>> + Send;
 
 	fn try_get_package_doc(
 		&self,
 		dependency: &tg::Dependency,
+		arg: tg::package::doc::Arg,
 	) -> impl Future<Output = tg::Result<Option<serde_json::Value>>> + Send;
 
 	fn get_package_doc(
 		&self,
 		dependency: &tg::Dependency,
+		arg: tg::package::doc::Arg,
 	) -> impl Future<Output = tg::Result<serde_json::Value>> + Send {
-		self.try_get_package_doc(dependency).map(|result| {
+		self.try_get_package_doc(dependency, arg).map(|result| {
 			result.and_then(|option| option.ok_or_else(|| tg::error!("failed to get the package")))
 		})
 	}
@@ -559,6 +562,7 @@ pub trait Handle: Clone + Unpin + Send + Sync + 'static {
 	fn get_package_outdated(
 		&self,
 		dependency: &tg::Dependency,
+		arg: tg::package::outdated::Arg,
 	) -> impl Future<Output = tg::Result<tg::package::outdated::Output>> + Send;
 
 	fn publish_package(&self, id: &tg::artifact::Id)
