@@ -952,15 +952,17 @@ impl tg::Handle for Server {
 	fn check_package(
 		&self,
 		dependency: &tg::Dependency,
+		arg: tg::package::check::Arg,
 	) -> impl Future<Output = tg::Result<Vec<tg::Diagnostic>>> {
-		self.check_package(dependency)
+		self.check_package(dependency, arg)
 	}
 
 	fn try_get_package_doc(
 		&self,
 		dependency: &tg::Dependency,
+		arg: tg::package::doc::Arg,
 	) -> impl Future<Output = tg::Result<Option<serde_json::Value>>> {
-		self.try_get_package_doc(dependency)
+		self.try_get_package_doc(dependency, arg)
 	}
 
 	fn format_package(&self, dependency: &tg::Dependency) -> impl Future<Output = tg::Result<()>> {
@@ -970,8 +972,9 @@ impl tg::Handle for Server {
 	fn get_package_outdated(
 		&self,
 		dependency: &tg::Dependency,
+		arg: tg::package::outdated::Arg,
 	) -> impl Future<Output = tg::Result<tg::package::outdated::Output>> {
-		self.get_package_outdated(dependency)
+		self.get_package_outdated(dependency, arg)
 	}
 
 	fn publish_package(&self, id: &tg::artifact::Id) -> impl Future<Output = tg::Result<()>> {

@@ -151,7 +151,8 @@ impl Cli {
 
 				// Create the package.
 				let (package, lock) =
-					tg::package::get_with_lock(&self.handle, &specifier.package).await?;
+					tg::package::get_with_lock(&self.handle, &specifier.package, args.locked)
+						.await?;
 
 				// Create the target.
 				let host = "js";

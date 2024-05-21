@@ -12,6 +12,10 @@ pub struct Args {
 	#[arg(short, long, conflicts_with_all = ["package", "object", "arg"])]
 	pub build: Option<tg::build::Id>,
 
+	/// Force the use of an existing lockfile.
+	#[arg(long, default_value = "false")]
+	pub locked: bool,
+
 	/// The package to view.
 	#[arg(short, long, conflicts_with_all = ["build", "object", "arg"])]
 	pub package: Option<tg::Dependency>,
@@ -70,6 +74,7 @@ impl Cli {
 				let args = super::package::tree::Args {
 					package,
 					depth: args.depth,
+					locked: args.locked,
 				};
 				self.command_package_tree(args).await?;
 			},

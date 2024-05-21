@@ -8,6 +8,9 @@ use tangram_client::{self as tg, Handle as _};
 pub struct Args {
 	#[arg(short, long, default_value = ".")]
 	pub package: tg::Dependency,
+
+	#[arg(long, default_value = "false")]
+	pub locked: bool,
 }
 
 impl Cli {
@@ -23,7 +26,9 @@ impl Cli {
 		}
 
 		// Create the package.
-		let (package, _) = tg::package::get_with_lock(&self.handle, &dependency).await?;
+		let (package, _) = tg::package::get_with_lock(&self.handle, &dependency, args.locked)
+			.await
+			.map_err(|source| tg::error!(!source, "failed to get the package"))?;
 
 		// Get the package ID.
 		let id = package.id(&self.handle, None).await?;

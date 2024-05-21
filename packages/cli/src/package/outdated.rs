@@ -12,6 +12,10 @@ pub struct Args {
 	#[arg(long)]
 	pub json: bool,
 
+	/// If this flag is set, the package's lockfile will not be updated.
+	#[arg(long)]
+	pub locked: bool,
+
 	#[arg(short, long, default_value = ".")]
 	pub path: tg::Path,
 }
@@ -30,7 +34,12 @@ impl Cli {
 
 		let outdated = self
 			.handle
-			.get_package_outdated(&dependency)
+			.get_package_outdated(
+				&dependency,
+				tg::package::outdated::Arg {
+					locked: args.locked,
+				},
+			)
 			.await
 			.map_err(
 				|source| tg::error!(!source, %dependency, "failed to get outdated packages"),

@@ -114,7 +114,8 @@ impl Compiler {
 				}
 
 				// Get the package and lock for the dependency.
-				let (package, lock) = tg::package::get_with_lock(&self.server, &dependency).await?;
+				let (package, lock) =
+					tg::package::get_with_lock(&self.server, &dependency, false).await?;
 
 				// Create a module for the package.
 				self.module_for_package_with_kind(package, lock, import.kind)

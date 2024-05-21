@@ -1,14 +1,15 @@
 use crate::Server;
 use std::collections::BTreeMap;
 use tangram_client as tg;
-use tangram_http::{outgoing::response::Ext as _, Incoming, Outgoing};
+use tangram_http::{incoming::request::Ext as _, outgoing::response::Ext as _, Incoming, Outgoing};
 
 impl Server {
 	pub async fn get_package_outdated(
 		&self,
 		dependency: &tg::Dependency,
+		arg: tg::package::outdated::Arg,
 	) -> tg::Result<tg::package::outdated::Output> {
-		let (package, lock) = tg::package::get_with_lock(self, dependency)
+		let (package, lock) = tg::package::get_with_lock(self, dependency, arg.locked)
 			.await
 			.map_err(|source| tg::error!(!source, %dependency, "failed to get package and lock"))?;
 		let mut visited = BTreeMap::new();
@@ -100,7 +101,7 @@ impl Server {
 impl Server {
 	pub(crate) async fn handle_outdated_package_request<H>(
 		handle: &H,
-		_request: http::Request<Incoming>,
+		request: http::Request<Incoming>,
 		dependency: &str,
 	) -> tg::Result<http::Response<Outgoing>>
 	where
@@ -112,9 +113,10 @@ impl Server {
 		let Ok(dependency) = dependency.parse() else {
 			return Ok(http::Response::builder().bad_request().empty().unwrap());
 		};
+		let arg = request.query_params().transpose()?.unwrap_or_default();
 
 		// Get the outdated dependencies.
-		let output = handle.get_package_outdated(&dependency).await?;
+		let output = handle.get_package_outdated(&dependency, arg).await?;
 
 		// Create the response.
 		let response = http::Response::builder().json(output).unwrap();

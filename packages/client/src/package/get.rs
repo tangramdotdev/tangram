@@ -6,6 +6,7 @@ use tangram_http::{incoming::response::Ext as _, outgoing::request::Ext as _};
 pub struct Arg {
 	pub dependencies: bool,
 	pub lock: bool,
+	pub locked: bool,
 	pub metadata: bool,
 	pub path: bool,
 	pub yanked: bool,
@@ -45,11 +46,12 @@ where
 pub async fn get_with_lock<H>(
 	handle: &H,
 	dependency: &tg::Dependency,
+	locked: bool,
 ) -> tg::Result<(tg::Artifact, tg::Lock)>
 where
 	H: tg::Handle,
 {
-	try_get_with_lock(handle, dependency)
+	try_get_with_lock(handle, dependency, locked)
 		.await?
 		.ok_or_else(|| tg::error!(%dependency, "failed to find the package"))
 }
@@ -57,12 +59,14 @@ where
 pub async fn try_get_with_lock<H>(
 	handle: &H,
 	dependency: &tg::Dependency,
+	locked: bool,
 ) -> tg::Result<Option<(tg::Artifact, tg::Lock)>>
 where
 	H: tg::Handle,
 {
 	let arg = tg::package::get::Arg {
 		lock: true,
+		locked,
 		..Default::default()
 	};
 	let Some(output) = handle.try_get_package(dependency, arg).await? else {

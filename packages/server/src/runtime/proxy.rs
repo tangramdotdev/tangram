@@ -259,13 +259,18 @@ impl tg::Handle for Proxy {
 		Err(tg::error!("forbidden"))
 	}
 
-	async fn check_package(&self, _dependency: &tg::Dependency) -> tg::Result<Vec<tg::Diagnostic>> {
+	async fn check_package(
+		&self,
+		_dependency: &tg::Dependency,
+		_arg: tg::package::check::Arg,
+	) -> tg::Result<Vec<tg::Diagnostic>> {
 		Err(tg::error!("forbidden"))
 	}
 
 	async fn try_get_package_doc(
 		&self,
 		_dependency: &tg::Dependency,
+		_arg: tg::package::doc::Arg,
 	) -> tg::Result<Option<serde_json::Value>> {
 		Err(tg::error!("forbidden"))
 	}
@@ -277,6 +282,7 @@ impl tg::Handle for Proxy {
 	async fn get_package_outdated(
 		&self,
 		_dependency: &tg::Dependency,
+		_arg: tg::package::outdated::Arg,
 	) -> tg::Result<tg::package::outdated::Output> {
 		Err(tg::error!("forbidden"))
 	}

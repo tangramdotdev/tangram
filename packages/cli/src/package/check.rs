@@ -25,7 +25,10 @@ impl Cli {
 		}
 
 		// Check the package.
-		let diagnostics = self.handle.check_package(&args.package).await?;
+		let arg = tg::package::check::Arg {
+			locked: args.locked,
+		};
+		let diagnostics = self.handle.check_package(&args.package, arg).await?;
 
 		// Print the diagnostics.
 		for diagnostic in &diagnostics {
