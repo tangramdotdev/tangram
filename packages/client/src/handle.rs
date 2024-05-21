@@ -430,7 +430,13 @@ pub trait Handle: Clone + Unpin + Send + Sync + 'static {
 				let mut future = future.boxed();
 				let handle = self.clone();
 				let id = id.clone();
-				async move {
+
+				let timeout = arg.timeout.map_or_else(
+					|| future::pending().left_future(),
+					|timeout| tokio::time::sleep(timeout).right_future(),
+				);
+
+				let retry = async move {
 					loop {
 						if let Some(outcome) = future.await? {
 							return Ok(Some(outcome));
@@ -441,7 +447,14 @@ pub trait Handle: Clone + Unpin + Send + Sync + 'static {
 							.ok_or_else(|| tg::error!("expected the build to exist"))?
 							.boxed();
 					}
-				}
+				};
+
+				future::select(Box::pin(timeout), Box::pin(retry)).then(|result| async move {
+					match result {
+						future::Either::Left(_) => Ok(None),
+						future::Either::Right((result, _)) => result,
+					}
+				})
 			}))
 		}
 	}
