@@ -37,18 +37,30 @@ fn main() {
 		),
 	];
 	for (name, path, expected) in binaries {
-		// Download.
-		let url = format!(
-			"https://github.com/tangramdotdev/bootstrap/releases/download/{version}/{name}.tar.zst"
-		);
-		let bytes = reqwest::blocking::get(url).unwrap().bytes().unwrap();
+		// Determine the cache path.
+		let cache_path = out_dir_path.join(expected);
 
-		// Verify.
-		let mut hasher = sha2::Sha256::new();
-		hasher.update(&bytes);
-		let hash = hasher.finalize();
-		let expected = data_encoding::HEXLOWER.decode(expected.as_bytes()).unwrap();
-		assert_eq!(hash.as_slice(), expected);
+		// Download if necessary.
+		if !cache_path.exists() {
+			// Compute the URL.
+			let url = format!("https://github.com/tangramdotdev/bootstrap/releases/download/{version}/{name}.tar.zst");
+
+			// Download.
+			let bytes = reqwest::blocking::get(url).unwrap().bytes().unwrap();
+
+			// Verify.
+			let mut hasher = sha2::Sha256::new();
+			hasher.update(&bytes);
+			let actual = hasher.finalize();
+			let expected = data_encoding::HEXLOWER.decode(expected.as_bytes()).unwrap();
+			assert_eq!(actual.as_slice(), expected);
+
+			// Write to the cache path.
+			std::fs::write(&cache_path, &bytes).unwrap();
+		}
+
+		// Read.
+		let bytes = std::fs::read(&cache_path).unwrap();
 
 		// Decompress.
 		let bytes = zstd::decode_all(std::io::Cursor::new(bytes)).unwrap();
