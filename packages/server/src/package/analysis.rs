@@ -130,16 +130,9 @@ impl Server {
 		// Visit each module.
 		while let Some((module_path, kind)) = queue.pop_front() {
 			// Add the module to the package directory.
-			let artifact = root
-				.get(self, &module_path)
-				.await
-				.map_err(
-					|source| tg::error!(!source, %module_path, %package = id, "failed to get module"),
-				)?
-				.try_unwrap_file()
-				.map_err(
-					|source| tg::error!(!source, %module_path, %package = id, "expected a file"),
-				)?;
+			let artifact = root.get(self, &module_path).await.map_err(
+				|source| tg::error!(!source, %module_path, %package = id, "failed to get module"),
+			)?;
 
 			// Add the module path to the visited set.
 			visited_module_paths.insert((module_path.clone(), kind));
@@ -148,6 +141,10 @@ impl Server {
 			if !matches!(kind, Some(tg::import::Kind::Js | tg::import::Kind::Ts)) {
 				continue;
 			}
+
+			let artifact = artifact.try_unwrap_file().map_err(
+				|source| tg::error!(!source, %module_path, %package = id, "expected a file"),
+			)?;
 
 			// Get the module's text.
 			let text = artifact.text(self).await.map_err(
