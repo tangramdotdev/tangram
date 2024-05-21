@@ -188,6 +188,7 @@ export class Target<
 					arg instanceof Template
 				) {
 					return {
+						host: (await getCurrentTarget().env()).TANGRAM_HOST as string,
 						executable: await symlink("/bin/sh"),
 						args: ["-c", arg],
 					};
