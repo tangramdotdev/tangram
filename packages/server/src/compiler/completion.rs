@@ -52,7 +52,7 @@ impl Compiler {
 	) -> tg::Result<Option<lsp::CompletionResponse>> {
 		// Get the module.
 		let module = self
-			.module_for_url(&params.text_document_position.text_document.uri)
+			.module_for_uri(&params.text_document_position.text_document.uri)
 			.await?;
 
 		// Get the position for the request.

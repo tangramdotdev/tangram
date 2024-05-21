@@ -2,7 +2,6 @@ use super::Compiler;
 use lsp_types as lsp;
 use std::collections::HashMap;
 use tangram_client as tg;
-use url::Url;
 
 #[derive(Debug, serde::Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -24,7 +23,7 @@ impl Compiler {
 	) -> tg::Result<Option<lsp::WorkspaceEdit>> {
 		// Get the module.
 		let module = self
-			.module_for_url(&params.text_document_position.text_document.uri)
+			.module_for_uri(&params.text_document_position.text_document.uri)
 			.await?;
 
 		// Get the position for the request.
@@ -40,10 +39,11 @@ impl Compiler {
 		};
 
 		// Convert the edits.
-		let mut edit = HashMap::<Url, lsp::TextDocumentEdit>::new();
+		#[allow(clippy::mutable_key_type)]
+		let mut edit = HashMap::<lsp::Uri, lsp::TextDocumentEdit>::new();
 		for location in locations {
 			// Create the URI.
-			let uri = self.url_for_module(&location.module);
+			let uri = self.uri_for_module(&location.module);
 
 			// Get the version.
 			let version = self.get_module_version(&location.module).await?;

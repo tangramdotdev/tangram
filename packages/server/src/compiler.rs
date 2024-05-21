@@ -17,7 +17,6 @@ use tg::package::ROOT_MODULE_FILE_NAMES;
 use tokio::io::{
 	AsyncBufRead, AsyncBufReadExt as _, AsyncReadExt as _, AsyncWrite, AsyncWriteExt as _,
 };
-use url::Url;
 
 pub mod analysis;
 pub mod check;
@@ -633,11 +632,11 @@ impl Compiler {
 		}
 	}
 
-	async fn module_for_url(&self, url: &Url) -> tg::Result<tg::Module> {
-		match url.scheme() {
+	async fn module_for_uri(&self, uri: &lsp::Uri) -> tg::Result<tg::Module> {
+		match uri.scheme().unwrap().as_str() {
 			"file" => {
 				// Get the path and file name.
-				let path = Path::new(url.path());
+				let path = Path::new(uri.path().as_str());
 				let file_name = path
 					.file_name()
 					.ok_or_else(|| tg::error!("the path must have a file name"))?
@@ -698,13 +697,13 @@ impl Compiler {
 				Ok(module)
 			},
 
-			_ => url.clone().try_into(),
+			_ => uri.as_str().parse(),
 		}
 	}
 
 	#[allow(clippy::unused_self)]
 	#[must_use]
-	fn url_for_module(&self, module: &tg::Module) -> Url {
+	fn uri_for_module(&self, module: &tg::Module) -> lsp::Uri {
 		match module {
 			tg::Module::Js(tg::module::Js::PackagePath(package_path))
 			| tg::Module::Ts(tg::module::Js::PackagePath(package_path)) => {
@@ -714,7 +713,7 @@ impl Compiler {
 					.join(package_path.path.clone());
 				format!("file://{}", path.display()).parse().unwrap()
 			},
-			module => module.clone().into(),
+			module => module.to_string().parse().unwrap(),
 		}
 	}
 }

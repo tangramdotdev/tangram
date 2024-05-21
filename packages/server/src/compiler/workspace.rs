@@ -6,16 +6,16 @@ use tangram_client as tg;
 impl Compiler {
 	pub(crate) async fn update_workspaces(
 		&self,
-		added: Vec<lsp::Url>,
-		removed: Vec<lsp::Url>,
+		added: Vec<lsp::Uri>,
+		removed: Vec<lsp::Uri>,
 	) -> tg::Result<()> {
 		// Get the state.
 		let mut workspaces = self.workspaces.write().await;
 
 		// Add the specified workspaces.
 		for uri in added {
-			let package_path = match uri.scheme() {
-				"file" => PathBuf::from(uri.path()),
+			let package_path = match uri.scheme().unwrap().as_str() {
+				"file" => PathBuf::from(uri.path().as_str()),
 				scheme => return Err(tg::error!(%scheme, "invalid URI for workspace folder")),
 			};
 			workspaces.insert(package_path);
@@ -23,8 +23,8 @@ impl Compiler {
 
 		// Remove the specified workspaces.
 		for uri in removed {
-			let package_path = match uri.scheme() {
-				"file" => PathBuf::from(uri.path()),
+			let package_path = match uri.scheme().unwrap().as_str() {
+				"file" => PathBuf::from(uri.path().as_str()),
 				scheme => return Err(tg::error!(%scheme, "invalid URI for workspace folder")),
 			};
 			workspaces.remove(&package_path);
