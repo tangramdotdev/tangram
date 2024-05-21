@@ -651,7 +651,7 @@ impl Server {
 			(http::Method::GET, ["packages", dependency]) => {
 				Self::handle_get_package_request(handle, request, dependency).boxed()
 			},
-			(http::Method::POST, ["packages", dependency, "check"]) => {
+			(http::Method::GET, ["packages", dependency, "check"]) => {
 				Self::handle_check_package_request(handle, request, dependency).boxed()
 			},
 			(http::Method::GET, ["packages", dependency, "doc"]) => {
@@ -663,7 +663,7 @@ impl Server {
 			(http::Method::POST, ["packages", dependency, "format"]) => {
 				Self::handle_format_package_request(handle, request, dependency).boxed()
 			},
-			(http::Method::POST, ["packages", dependency, "outdated"]) => {
+			(http::Method::GET, ["packages", dependency, "outdated"]) => {
 				Self::handle_outdated_package_request(handle, request, dependency).boxed()
 			},
 			(http::Method::POST, ["packages", id, "publish"]) => {

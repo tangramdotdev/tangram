@@ -12,7 +12,7 @@ impl tg::Client {
 		dependency: &tg::Dependency,
 		arg: Arg,
 	) -> tg::Result<Vec<tg::Diagnostic>> {
-		let method = http::Method::POST;
+		let method = http::Method::GET;
 		let dependency = dependency.to_string();
 		let dependency = urlencoding::encode(&dependency);
 		let query = serde_urlencoded::to_string(&arg).unwrap();

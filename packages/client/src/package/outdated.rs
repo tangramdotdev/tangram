@@ -34,7 +34,7 @@ impl tg::Client {
 		dependency: &tg::Dependency,
 		arg: Arg,
 	) -> tg::Result<tg::package::outdated::Output> {
-		let method = http::Method::POST;
+		let method = http::Method::GET;
 		let dependency = dependency.to_string();
 		let dependency = urlencoding::encode(&dependency);
 		let query = serde_urlencoded::to_string(&arg).unwrap();
