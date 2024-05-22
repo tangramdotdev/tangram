@@ -264,13 +264,13 @@ impl Cli {
 				View::None => None,
 			};
 
-			// Spawn a task to cancel the build on the first interrupt signal and exit the process on the second.
+			// Spawn a task to attempt to cancel the build on the first interrupt signal and exit the process on the second.
 			tokio::spawn({
 				let handle = self.handle.clone();
 				let build = build.clone();
 				async move {
 					tokio::signal::ctrl_c().await.unwrap();
-					build.cancel(&handle).await.ok();
+					tokio::spawn(async move { build.cancel(&handle).await.ok() });
 					tokio::signal::ctrl_c().await.unwrap();
 					std::process::exit(130);
 				}

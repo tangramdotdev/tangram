@@ -23,7 +23,8 @@ struct Group {
 impl Messenger {
 	#[must_use]
 	pub fn new() -> Self {
-		let (sender, receiver) = async_broadcast::broadcast(1_000);
+		let (mut sender, receiver) = async_broadcast::broadcast(1_000);
+		sender.set_overflow(true);
 		let groups = DashMap::default();
 		Self(Arc::new(Inner {
 			sender,
@@ -34,7 +35,7 @@ impl Messenger {
 
 	async fn publish(&self, subject: String, payload: Bytes) {
 		let message = Message { subject, payload };
-		self.sender.broadcast(message.clone()).await.unwrap();
+		self.sender.broadcast_direct(message.clone()).await.unwrap();
 		self.groups
 			.iter()
 			.map(|group| {

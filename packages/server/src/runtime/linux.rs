@@ -74,7 +74,7 @@ impl Runtime {
 		// Get the target.
 		let target = build.target(server).await?;
 
-		// If the VFS is disabled, then checkout the target's references.
+		// If the VFS is disabled, then check out the target's references.
 		if server.vfs.lock().unwrap().is_none() {
 			target
 				.data(server, None)
@@ -513,7 +513,7 @@ impl Runtime {
 			})?;
 
 		// Create the log socket pair.
-		let (log_send, mut log_recv) = tokio::net::UnixStream::pair()
+		let (log_send, log_recv) = tokio::net::UnixStream::pair()
 			.map_err(|source| tg::error!(!source, "failed to create stdout socket"))?;
 		let log = log_send
 			.into_std()
@@ -605,31 +605,30 @@ impl Runtime {
 		};
 
 		// Spawn the log task.
+		let mut reader = log_recv;
 		let log_task = tokio::task::spawn({
 			let build = build.clone();
 			let server = server.clone();
 			async move {
-				let mut buf = vec![0; 512];
+				let mut buffer = vec![0; 4096];
 				loop {
-					match log_recv.read(&mut buf).await {
-						Err(error) => {
-							return Err(tg::error!(source = error, "failed to read from the log"))
-						},
-						Ok(0) => return Ok(()),
-						Ok(size) => {
-							let log = Bytes::copy_from_slice(&buf[0..size]);
-							if server.options.advanced.write_build_logs_to_stderr {
-								tokio::io::stderr()
-									.write_all(&log)
-									.await
-									.inspect_err(|e| {
-										tracing::error!(?e, "failed to write build log to stderr");
-									})
-									.ok();
-							}
-							build.add_log(&server, log).await?;
-						},
+					let size = reader
+						.read(&mut buffer)
+						.await
+						.map_err(|source| tg::error!(!source, "failed to read from the log"))?;
+					if size == 0 {
+						return Ok::<_, tg::Error>(());
 					}
+					let bytes = Bytes::copy_from_slice(&buffer[0..size]);
+					if server.options.advanced.write_build_logs_to_stderr {
+						tokio::io::stderr()
+							.write_all(&bytes)
+							.await
+							.map_err(|source| {
+								tg::error!(!source, "failed to write the build log to stderr")
+							})?;
+					}
+					build.add_log(&server, bytes).await?;
 				}
 			}
 		});

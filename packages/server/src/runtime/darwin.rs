@@ -36,7 +36,7 @@ impl Runtime {
 		// Get the target.
 		let target = build.target(server).await?;
 
-		// If the VFS is disabled, then checkout the target's references.
+		// If the VFS is disabled, then check out the target's references.
 		if server.vfs.lock().unwrap().is_none() {
 			target
 				.data(server, None)
@@ -385,37 +385,6 @@ impl Runtime {
 			.spawn()
 			.map_err(|source| tg::error!(!source, %executable, "failed to spawn the process"))?;
 
-		// Create the log task.
-		let mut stdout = child.stdout.take().unwrap();
-		let log_task = tokio::task::spawn({
-			let build = build.clone();
-			let server = server.clone();
-			async move {
-				let mut buf = [0; 512];
-				loop {
-					match stdout.read(&mut buf).await {
-						Err(error) => {
-							return Err(tg::error!(source = error, "failed to read from the log"))
-						},
-						Ok(0) => return Ok(()),
-						Ok(size) => {
-							let log = Bytes::copy_from_slice(&buf[0..size]);
-							if server.options.advanced.write_build_logs_to_stderr {
-								tokio::io::stderr()
-									.write_all(&log)
-									.await
-									.inspect_err(|e| {
-										tracing::error!(?e, "failed to write build log to stderr");
-									})
-									.ok();
-							}
-							build.add_log(&server, log).await?;
-						},
-					}
-				}
-			}
-		});
-
 		// If this future is dropped, then kill its process tree.
 		let pid = child.id().unwrap();
 		scopeguard::defer! {
@@ -447,6 +416,35 @@ impl Runtime {
 				unsafe { libc::waitpid(*pid, std::ptr::addr_of_mut!(status), 0) };
 			}
 		}
+
+		// Spawn the log task.
+		let mut reader = child.stdout.take().unwrap();
+		let log_task = tokio::task::spawn({
+			let build = build.clone();
+			let server = server.clone();
+			async move {
+				let mut buffer = vec![0; 4096];
+				loop {
+					let size = reader
+						.read(&mut buffer)
+						.await
+						.map_err(|source| tg::error!(!source, "failed to read from the log"))?;
+					if size == 0 {
+						return Ok::<_, tg::Error>(());
+					}
+					let bytes = Bytes::copy_from_slice(&buffer[0..size]);
+					if server.options.advanced.write_build_logs_to_stderr {
+						tokio::io::stderr()
+							.write_all(&bytes)
+							.await
+							.map_err(|source| {
+								tg::error!(!source, "failed to write the build log to stderr")
+							})?;
+					}
+					build.add_log(&server, bytes).await?;
+				}
+			}
+		});
 
 		// Wait for the process to exit.
 		let exit_status = child

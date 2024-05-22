@@ -62,7 +62,6 @@ impl Server {
 		// Set the build's permit.
 		let permit = Arc::new(tokio::sync::Mutex::new(Some(permit)));
 		self.build_permits.insert(build.id().clone(), permit);
-
 		scopeguard::defer! {
 			self.build_permits.remove(build.id());
 		}
