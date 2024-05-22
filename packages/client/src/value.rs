@@ -15,10 +15,12 @@ use std::collections::BTreeMap;
 	derive_more::From,
 	derive_more::TryInto,
 	derive_more::TryUnwrap,
+	derive_more::Unwrap,
 	serde::Deserialize,
 )]
 #[serde(try_from = "Data")]
 #[try_unwrap(ref)]
+#[unwrap(ref)]
 pub enum Value {
 	/// A null value.
 	Null,

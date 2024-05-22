@@ -9,7 +9,7 @@ pub struct Args {
 	#[arg(default_value = ".")]
 	pub package: tg::Dependency,
 
-	#[arg(short, long)]
+	#[arg(long)]
 	pub depth: Option<u32>,
 
 	/// If this flag is set, the package's lockfile will not be updated.

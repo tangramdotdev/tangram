@@ -12,7 +12,7 @@ impl Cli {
 		let arg = tg::root::list::Arg::default();
 		let roots = self.handle.list_roots(arg).await?;
 		for root in roots.items {
-			println!("{} {}", root.name, root.build_or_object);
+			println!("{} {}", root.name, root.item);
 		}
 		Ok(())
 	}

@@ -11,7 +11,8 @@ use tangram_client as tg;
 #[group(skip)]
 pub struct Args {
 	pub object: tg::object::Id,
-	#[arg(short, long)]
+
+	#[arg(long)]
 	pub depth: Option<u32>,
 }
 

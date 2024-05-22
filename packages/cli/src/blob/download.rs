@@ -6,7 +6,9 @@ use url::Url;
 #[derive(Clone, Debug, clap::Args)]
 #[group(skip)]
 pub struct Args {
+	#[arg(long)]
 	pub checksum: Option<tg::Checksum>,
+
 	pub url: Url,
 }
 
@@ -16,13 +18,14 @@ impl Cli {
 		let checksum = args.checksum.unwrap_or(tg::Checksum::Unsafe);
 		let target = tg::Blob::download_target(&url, &checksum);
 		let target = target.id(&self.handle, None).await?;
-		let args = crate::target::build::InnerArgs {
-			target: Some(target),
-			..Default::default()
+		let args = crate::target::build::Args {
+			inner: crate::target::build::InnerArgs {
+				target: Some(target),
+				..Default::default()
+			},
+			detach: false,
 		};
-		let output = self.command_target_build_inner(args, false).await?;
-		let output = output.unwrap().unwrap_value();
-		println!("{output}");
+		self.command_target_build(args).await?;
 		Ok(())
 	}
 }

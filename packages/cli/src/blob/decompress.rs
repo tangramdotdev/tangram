@@ -17,13 +17,14 @@ impl Cli {
 		let format = args.format;
 		let target = blob.decompress_target(format);
 		let target = target.id(&self.handle, None).await?;
-		let args = crate::target::build::InnerArgs {
-			target: Some(target),
-			..Default::default()
+		let args = crate::target::build::Args {
+			inner: crate::target::build::InnerArgs {
+				target: Some(target),
+				..Default::default()
+			},
+			detach: false,
 		};
-		let output = self.command_target_build_inner(args, false).await?;
-		let output = output.unwrap().unwrap_value();
-		println!("{output}");
+		self.command_target_build(args).await?;
 		Ok(())
 	}
 }

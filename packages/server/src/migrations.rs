@@ -156,7 +156,7 @@ async fn migration_0000(path: &Path) -> tg::Result<()> {
 
 			create table roots (
 				name text primary key,
-				build_or_object text not null
+				item text not null
 			);
 
 			create table users (

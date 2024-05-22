@@ -14,11 +14,9 @@ pub struct Args {
 }
 
 impl Cli {
-	pub async fn command_package_publish(&self, args: Args) -> tg::Result<()> {
-		let mut dependency = args.package;
-
+	pub async fn command_package_publish(&self, mut args: Args) -> tg::Result<()> {
 		// Canonicalize the path.
-		if let Some(path) = dependency.path.as_mut() {
+		if let Some(path) = args.package.path.as_mut() {
 			*path = tokio::fs::canonicalize(&path)
 				.await
 				.map_err(|source| tg::error!(!source, %path, "failed to canonicalize the path"))?
@@ -26,7 +24,7 @@ impl Cli {
 		}
 
 		// Create the package.
-		let (package, _) = tg::package::get_with_lock(&self.handle, &dependency, args.locked)
+		let (package, _) = tg::package::get_with_lock(&self.handle, &args.package, args.locked)
 			.await
 			.map_err(|source| tg::error!(!source, "failed to get the package"))?;
 

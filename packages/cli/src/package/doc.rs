@@ -14,7 +14,7 @@ pub struct Args {
 	pub package: tg::Dependency,
 
 	/// Generate the documentation for the runtime.
-	#[arg(short, long, default_value = "false")]
+	#[arg(long, default_value = "false")]
 	pub runtime: bool,
 }
 

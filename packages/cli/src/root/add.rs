@@ -7,8 +7,11 @@ use tg::Handle as _;
 #[derive(Clone, Debug, clap::Args)]
 #[group(skip)]
 pub struct Args {
+	/// The name of the root.
 	pub name: String,
-	pub build_or_object: Arg,
+
+	/// The build or object.
+	pub arg: Arg,
 }
 
 #[derive(Debug, Clone)]
@@ -20,11 +23,11 @@ pub enum Arg {
 impl Cli {
 	pub async fn command_root_add(&self, args: Args) -> tg::Result<()> {
 		let name = args.name;
-		let build_or_object = match args.build_or_object {
+		let item = match args.arg {
 			Arg::Build(build) => Either::Left(build),
 			Arg::Object(object) => Either::Right(object),
 		};
-		let arg = tg::root::put::Arg { build_or_object };
+		let arg = tg::root::put::Arg { item };
 		self.handle.put_root(&name, arg).await?;
 		Ok(())
 	}
@@ -40,6 +43,6 @@ impl std::str::FromStr for Arg {
 		if let Ok(object) = s.parse() {
 			return Ok(Arg::Object(object));
 		}
-		Err(tg::error!(%s, "expected a build or object"))
+		Err(tg::error!(%s, "expected a build or an object"))
 	}
 }

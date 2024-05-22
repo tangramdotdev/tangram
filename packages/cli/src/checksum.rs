@@ -1,7 +1,6 @@
 use crate::Cli;
-use futures::TryStreamExt as _;
+use indoc::formatdoc;
 use tangram_client as tg;
-use tokio_util::io::StreamReader;
 use url::Url;
 
 /// Compute a checksum.
@@ -9,47 +8,95 @@ use url::Url;
 #[group(skip)]
 pub struct Args {
 	/// The checksum algorithm to use.
-	#[arg(short, long)]
+	#[arg(long)]
 	pub algorithm: tg::checksum::Algorithm,
 
-	/// The blob or URL to checksum.
-	pub arg: Arg,
+	/// The artifact to checksum.
+	#[arg(long, conflicts_with_all = ["blob", "url", "arg"])]
+	pub artifact: Option<tg::artifact::Id>,
+
+	/// The blob to checksum.
+	#[arg(long, conflicts_with_all = ["artifact", "url", "arg"])]
+	pub blob: Option<tg::blob::Id>,
+
+	/// The url to checksum.
+	#[arg(long, conflicts_with_all = ["artifact", "blob", "arg"])]
+	pub url: Option<Url>,
+
+	/// The artifact, blob, or URL to checksum.
+	#[arg(conflicts_with_all = ["artifact", "blob", "url"])]
+	pub arg: Option<Arg>,
 }
 
 #[derive(Debug, Clone)]
 pub enum Arg {
+	Artifact(tg::artifact::Id),
 	Blob(tg::blob::Id),
 	Url(Url),
 }
 
 impl Cli {
 	pub async fn command_checksum(&self, args: Args) -> tg::Result<()> {
-		match args.arg {
+		let arg = if let Some(artifact) = args.artifact {
+			Arg::Artifact(artifact)
+		} else if let Some(blob) = args.blob {
+			Arg::Blob(blob)
+		} else if let Some(url) = args.url {
+			Arg::Url(url)
+		} else {
+			return Err(tg::error!("no arg provided"));
+		};
+		match arg {
+			Arg::Artifact(artifact) => {
+				let args = crate::artifact::checksum::Args {
+					algorithm: args.algorithm,
+					artifact,
+				};
+				self.command_artifact_checksum(args).await?;
+			},
+
 			Arg::Blob(blob) => {
-				let blob = tg::Blob::with_id(blob);
-				let mut reader = blob.reader(&self.handle).await?;
-				let mut checksum = tg::checksum::Writer::new(args.algorithm);
-				tokio::io::copy(&mut reader, &mut checksum)
-					.await
-					.map_err(|source| tg::error!(!source, "failed to read the blob"))?;
-				let checksum = checksum.finalize();
-				println!("{checksum}");
+				let args = crate::blob::checksum::Args {
+					algorithm: args.algorithm,
+					blob,
+				};
+				self.command_blob_checksum(args).await?;
 			},
 
 			Arg::Url(url) => {
-				let response = reqwest::get(url.clone())
-					.await
-					.map_err(|source| tg::error!(!source, %url, "failed to perform the request"))?
-					.error_for_status()
-					.map_err(|source| tg::error!(!source, %url, "expected a sucess status"))?;
-				let mut body =
-					StreamReader::new(response.bytes_stream().map_err(std::io::Error::other));
-				let mut checksum = tg::checksum::Writer::new(args.algorithm);
-				tokio::io::copy(&mut body, &mut checksum)
-					.await
-					.map_err(|source| tg::error!(!source, "failed to read the body"))?;
-				let checksum = checksum.finalize();
-				println!("{checksum}");
+				let host = "js";
+				let executable = formatdoc!(
+					r#"
+						export default tg.target(async (url, algorithm) => {{
+							let blob = await tg.build({{
+								host: "js",
+								executable: tg.file("export default tg.target((...args) => tg.download(...args));"),
+								args: ["default", url, "unsafe"],
+							}});
+							let checksum = await tg.build({{
+								host: "js",
+								executable: tg.file("export default tg.target((...args) => tg.checksum(...args));"),
+								args: ["default", blob, algorithm],
+							}});
+							return checksum;
+						}});
+					"#
+				);
+				let args = vec![
+					"default".into(),
+					url.to_string().into(),
+					args.algorithm.to_string().into(),
+				];
+				let target = tg::Target::builder(host, executable).args(args).build();
+				let target = target.id(&self.handle, None).await?;
+				let args = crate::target::build::Args {
+					inner: crate::target::build::InnerArgs {
+						target: Some(target),
+						..Default::default()
+					},
+					detach: false,
+				};
+				self.command_target_build(args).await?;
 			},
 		}
 		Ok(())
@@ -60,12 +107,15 @@ impl std::str::FromStr for Arg {
 	type Err = tg::Error;
 
 	fn from_str(s: &str) -> tg::Result<Self, Self::Err> {
+		if let Ok(artifact) = s.parse() {
+			return Ok(Arg::Artifact(artifact));
+		}
 		if let Ok(blob) = s.parse() {
 			return Ok(Arg::Blob(blob));
 		}
 		if let Ok(url) = s.parse() {
 			return Ok(Arg::Url(url));
 		}
-		Err(tg::error!(%s, "expected a blob or url"))
+		Err(tg::error!(%s, "expected an artifact, blob, or url"))
 	}
 }

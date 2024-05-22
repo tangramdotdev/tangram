@@ -4,10 +4,9 @@ use tangram_client as tg;
 /// View a build, object, package, or value.
 #[derive(Clone, Debug, clap::Args)]
 #[group(skip)]
-#[group(skip)]
 pub struct Args {
 	/// The build to view.
-	#[arg(short, long, conflicts_with_all = ["object", "package", "arg"])]
+	#[arg(long, conflicts_with_all = ["object", "package", "arg"])]
 	pub build: Option<tg::build::Id>,
 
 	/// If this flag is set, the package's lockfile will not be updated.
@@ -15,14 +14,15 @@ pub struct Args {
 	pub locked: bool,
 
 	/// The object to view.
-	#[arg(short, long, conflicts_with_all = ["build", "package", "arg"])]
+	#[arg(long, conflicts_with_all = ["build", "package", "arg"])]
 	pub object: Option<tg::object::Id>,
 
 	/// The package to view.
-	#[arg(short, long, conflicts_with_all = ["build", "object", "arg"])]
+	#[arg(long, conflicts_with_all = ["build", "object", "arg"])]
 	pub package: Option<tg::Dependency>,
 
 	/// The build, package, or object to view.
+	#[arg(conflicts_with_all = ["build", "object", "package"])]
 	pub arg: Option<Arg>,
 }
 

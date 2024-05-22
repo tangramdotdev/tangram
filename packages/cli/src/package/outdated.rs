@@ -16,38 +16,37 @@ pub struct Args {
 	#[arg(long)]
 	pub locked: bool,
 
+	/// The package.
 	#[arg(short, long, default_value = ".")]
-	pub path: tg::Path,
+	pub package: tg::Dependency,
 }
 
 impl Cli {
-	pub async fn command_package_outdated(&self, args: Args) -> tg::Result<()> {
-		let mut dependency = tg::Dependency::with_path(args.path);
-
+	pub async fn command_package_outdated(&self, mut args: Args) -> tg::Result<()> {
 		// Canonicalize the path.
-		if let Some(path) = dependency.path.as_mut() {
+		if let Some(path) = args.package.path.as_mut() {
 			*path = tokio::fs::canonicalize(&path)
 				.await
 				.map_err(|source| tg::error!(!source, "failed to canonicalize the path"))?
 				.try_into()?;
 		}
 
+		// Get the outdated dependencies.
+		let arg = tg::package::outdated::Arg {
+			locked: args.locked,
+		};
 		let outdated = self
 			.handle
-			.get_package_outdated(
-				&dependency,
-				tg::package::outdated::Arg {
-					locked: args.locked,
-				},
-			)
+			.get_package_outdated(&args.package, arg)
 			.await
 			.map_err(
-				|source| tg::error!(!source, %dependency, "failed to get outdated packages"),
+				|source| tg::error!(!source, %package = args.package, "failed to get outdated packages"),
 			)?;
 
+		// Render the outdated dependencies as JSON if requested.
 		if args.json {
 			let json = serde_json::to_string_pretty(&outdated).map_err(
-				|source| tg::error!(!source, %dependency, "failed to serialize outdated packages"),
+				|source| tg::error!(!source, %package = args.package, "failed to serialize outdated packages"),
 			)?;
 			println!("{json}");
 			return Ok(());
@@ -55,8 +54,9 @@ impl Cli {
 
 		// Flatten the tree.
 		let mut queue = VecDeque::new();
-		queue.push_back((vec![dependency.clone()], outdated));
+		queue.push_back((vec![args.package.clone()], outdated));
 
+		// Render the outdated dependencies.
 		while let Some((path, outdated)) = queue.pop_front() {
 			let tg::package::outdated::Output { info, dependencies } = outdated;
 			if let Some(info) = info {

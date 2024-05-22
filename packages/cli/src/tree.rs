@@ -9,7 +9,7 @@ pub struct Args {
 	pub depth: Option<u32>,
 
 	/// The build to view.
-	#[arg(short, long, conflicts_with_all = ["package", "object", "arg"])]
+	#[arg(long, conflicts_with_all = ["package", "object", "arg"])]
 	pub build: Option<tg::build::Id>,
 
 	/// Force the use of an existing lockfile.
@@ -17,14 +17,15 @@ pub struct Args {
 	pub locked: bool,
 
 	/// The package to view.
-	#[arg(short, long, conflicts_with_all = ["build", "object", "arg"])]
+	#[arg(long, conflicts_with_all = ["build", "object", "arg"])]
 	pub package: Option<tg::Dependency>,
 
 	/// The object to view.
-	#[arg(short, long, conflicts_with_all = ["build", "package", "arg"])]
+	#[arg(long, conflicts_with_all = ["build", "package", "arg"])]
 	pub object: Option<tg::object::Id>,
 
 	/// The build, package, or object to view.
+	#[arg(conflicts_with_all = ["build", "package", "object"])]
 	pub arg: Option<Arg>,
 }
 

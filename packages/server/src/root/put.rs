@@ -17,11 +17,11 @@ impl Server {
 		let p = connection.p();
 		let statement = formatdoc!(
 			"
-				insert into roots (name, build_or_object)
+				insert into roots (name, item)
 				values ({p}1, {p}2);
 			"
 		);
-		let params = db::params![name, arg.build_or_object];
+		let params = db::params![name, arg.item];
 		connection
 			.execute(statement, params)
 			.await

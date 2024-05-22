@@ -5,7 +5,7 @@ use tangram_http::{incoming::response::Ext as _, outgoing::request::Ext as _};
 #[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
 pub struct Arg {
 	#[serde(with = "either::serde_untagged")]
-	pub build_or_object: Either<tg::build::Id, tg::object::Id>,
+	pub item: Either<tg::build::Id, tg::object::Id>,
 }
 
 impl tg::Client {

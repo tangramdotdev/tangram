@@ -437,7 +437,7 @@ where
 			.get_index(scope, 0)
 			.ok_or_else(|| tg::error!("expected a value"))?;
 		let value0 = from_v8(scope, value0)
-			.map_err(|source| tg::error!(!source, "failed to deserialize the value0"))?;
+			.map_err(|source| tg::error!(!source, "failed to deserialize the first value"))?;
 		Ok((value0,))
 	}
 }
@@ -473,9 +473,9 @@ where
 			.get_index(scope, 1)
 			.ok_or_else(|| tg::error!("expected a value"))?;
 		let value0 = from_v8(scope, value0)
-			.map_err(|source| tg::error!(!source, "failed to deserialize the value0"))?;
+			.map_err(|source| tg::error!(!source, "failed to deserialize the first value"))?;
 		let value1 = from_v8(scope, value1)
-			.map_err(|source| tg::error!(!source, "failed to deserialize the value1"))?;
+			.map_err(|source| tg::error!(!source, "failed to deserialize the second value"))?;
 		Ok((value0, value1))
 	}
 }

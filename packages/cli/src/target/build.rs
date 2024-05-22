@@ -14,7 +14,7 @@ use tg::Handle as _;
 #[group(skip)]
 pub struct Args {
 	#[command(flatten)]
-	inner: InnerArgs,
+	pub inner: InnerArgs,
 
 	/// If this flag is set, then the command will exit immediately instead of waiting for the build to finish.
 	#[arg(short, long, conflicts_with = "checkout")]
@@ -60,11 +60,11 @@ pub struct InnerArgs {
 	pub root: Option<String>,
 
 	/// The specifier of the target to build.
-	#[arg(short, long, conflicts_with_all = ["target", "arg_"])]
+	#[arg(long, conflicts_with_all = ["target", "arg_"])]
 	pub specifier: Option<Specifier>,
 
 	/// The target to build.
-	#[arg(short, long, conflicts_with_all = ["specifier", "arg_"])]
+	#[arg(long, conflicts_with_all = ["specifier", "arg_"])]
 	pub target: Option<tg::target::Id>,
 
 	/// Choose the view.
@@ -229,8 +229,8 @@ impl Cli {
 
 		// Add the root if requested.
 		if let Some(name) = args.root {
-			let build_or_object = Either::Left(build.id().clone());
-			let arg = tg::root::put::Arg { build_or_object };
+			let item = Either::Left(build.id().clone());
+			let arg = tg::root::put::Arg { item };
 			self.handle.put_root(&name, arg).await?;
 		}
 
