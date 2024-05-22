@@ -6,11 +6,12 @@ import type { Module } from "./module.ts";
 
 // Create the TypeScript compiler options.
 export let compilerOptions: ts.CompilerOptions = {
-	allowJs: true,
 	allowArbitraryExtensions: true,
+	allowJs: true,
 	exactOptionalPropertyTypes: true,
 	isolatedModules: true,
 	module: ts.ModuleKind.ESNext,
+	noEmit: true,
 	noUncheckedIndexedAccess: true,
 	skipLibCheck: true,
 	strict: true,
@@ -198,7 +199,7 @@ export let fileNameFromModule = (module: Module): string => {
 		} else if (module.kind === "ts") {
 			extension = ".ts";
 		} else {
-			extension = ".js";
+			extension = ".ts";
 		}
 		return `/${hex}${extension}`;
 	}

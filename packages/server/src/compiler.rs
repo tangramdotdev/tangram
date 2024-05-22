@@ -713,6 +713,12 @@ impl Compiler {
 					.join(package_path.path.clone());
 				format!("file://{}", path.display()).parse().unwrap()
 			},
+			tg::Module::Artifact(tg::module::Artifact::Path(path))
+			| tg::Module::Directory(tg::module::Directory::Path(path))
+			| tg::Module::File(tg::module::File::Path(path))
+			| tg::Module::Symlink(tg::module::Symlink::Path(path)) => {
+				format!("file://{path}").parse().unwrap()
+			},
 			module => module.to_string().parse().unwrap(),
 		}
 	}
