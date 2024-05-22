@@ -136,6 +136,22 @@ impl Compiler {
 			.await
 			.map_err(|source| tg::error!(!source, "failed to get the metadata"))?;
 		let target = match kind {
+			Some(tg::import::Kind::Js) => {
+				let package_path = tg::module::PackagePath {
+					package_path: package_path.clone(),
+					path: module_path.clone(),
+				};
+				tg::Module::Js(tg::module::Js::PackagePath(package_path))
+			},
+
+			Some(tg::import::Kind::Ts) => {
+				let package_path = tg::module::PackagePath {
+					package_path: package_path.clone(),
+					path: module_path.clone(),
+				};
+				tg::Module::Ts(tg::module::Js::PackagePath(package_path))
+			},
+
 			None | Some(tg::import::Kind::Artifact) => {
 				tg::Module::Artifact(tg::module::Artifact::Path(path))
 			},
@@ -161,23 +177,9 @@ impl Compiler {
 				tg::Module::Symlink(tg::module::Symlink::Path(path))
 			},
 
-			Some(tg::import::Kind::Js) => {
-				let package_path = tg::module::PackagePath {
-					package_path: package_path.clone(),
-					path: module_path.clone(),
-				};
-				tg::Module::Js(tg::module::Js::PackagePath(package_path))
+			_ => {
+				return Err(tg::error!("invalid kind for import within a package path"));
 			},
-
-			Some(tg::import::Kind::Ts) => {
-				let package_path = tg::module::PackagePath {
-					package_path: package_path.clone(),
-					path: module_path.clone(),
-				};
-				tg::Module::Ts(tg::module::Js::PackagePath(package_path))
-			},
-
-			_ => return Err(tg::error!("invalid kind for import within a package path")),
 		};
 		Ok(target)
 	}
@@ -293,7 +295,9 @@ impl Compiler {
 				tg::Module::Symlink(tg::module::Symlink::Id(id))
 			},
 
-			_ => return Err(tg::error!("invalid kind for import within a package")),
+			_ => {
+				return Err(tg::error!("invalid kind for import within a package"));
+			},
 		};
 		Ok(target)
 	}

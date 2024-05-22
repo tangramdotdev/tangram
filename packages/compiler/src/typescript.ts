@@ -6,7 +6,6 @@ import type { Module } from "./module.ts";
 
 // Create the TypeScript compiler options.
 export let compilerOptions: ts.CompilerOptions = {
-	allowArbitraryExtensions: true,
 	allowJs: true,
 	exactOptionalPropertyTypes: true,
 	isolatedModules: true,
@@ -97,7 +96,6 @@ export let host: ts.LanguageServiceHost & ts.CompilerHost = {
 			} else {
 				return unreachable();
 			}
-			log(specifier, attributes);
 			let resolvedFileName: string | undefined;
 			try {
 				resolvedFileName = fileNameFromModule(
