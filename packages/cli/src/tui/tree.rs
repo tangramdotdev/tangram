@@ -144,22 +144,15 @@ where
 		self.state.read().unwrap().selected.expand_object_children();
 	}
 
-	/// Collapse any build children of the node.
-	pub fn collapse_build_children(&self) {
-		self.state
-			.read()
-			.unwrap()
-			.selected
-			.collapse_build_children();
-	}
-
-	/// Collapse any object children of the node.
-	pub fn collapse_object_children(&self) {
-		self.state
-			.read()
-			.unwrap()
-			.selected
-			.collapse_object_children();
+	/// Collapse any children of the selected node.
+	pub fn collapse_children(&self) {
+		let selected = self.selected();
+		if selected.is_collapsed() {
+			self.up();
+		} else {
+			selected.collapse_build_children();
+			selected.collapse_object_children();
+		}
 	}
 
 	/// Make the currently selected node the root.
@@ -396,6 +389,11 @@ where
 		{
 			task.abort();
 		}
+	}
+
+	fn is_collapsed(&self) -> bool {
+		let state = self.state.read().unwrap();
+		!state.expand_build_children && !state.expand_object_children
 	}
 
 	fn collapse_build_children(self: &Arc<Self>) {

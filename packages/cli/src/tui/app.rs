@@ -44,13 +44,21 @@ where
 		let tree = Tree::new(&handle, &[root], layouts[0]);
 		let stop = AtomicBool::new(false);
 
+		let (split, direction) = if rect.width >= 80 {
+			(true, Direction::Horizontal)
+		} else if rect.height >= 30 {
+			(true, Direction::Vertical)
+		} else {
+			(false, Direction::Horizontal)
+		};
+
 		let state = RwLock::new(State {
 			detail,
 			detail_area: layouts[0],
 			show_help: false,
 			show_detail: false,
-			split: false,
-			direction: Direction::Horizontal,
+			split,
+			direction,
 		});
 
 		Arc::new(Self {
@@ -200,8 +208,7 @@ where
 	}
 
 	pub fn collapse_children(&self) {
-		self.tree.collapse_build_children();
-		self.tree.collapse_object_children();
+		self.tree.collapse_children();
 	}
 
 	pub fn copy_selected_to_clipboard(&self) {
@@ -229,7 +236,7 @@ where
 	pub fn render(&self, rect: tui::layout::Rect, buf: &mut tui::buffer::Buffer) {
 		let state = self.state.read().unwrap();
 		if state.show_help {
-			let area = render_block_and_get_area("Help", rect, buf);
+			let area = render_block_and_get_area("Help", true, rect, buf);
 			self.commands.render_full(area, buf);
 			return;
 		}
@@ -247,16 +254,17 @@ where
 			let rects = layout.split(view_area);
 			let (tree_area, detail_area) = (rects[0], rects[1]);
 
-			let tree_area = render_block_and_get_area("Tree", tree_area, buf);
+			let tree_area = render_block_and_get_area("Tree", !state.show_detail, tree_area, buf);
 			self.tree.render(tree_area, buf);
 
-			let detail_area = render_block_and_get_area("Detail", detail_area, buf);
+			let detail_area =
+				render_block_and_get_area("Detail", state.show_detail, detail_area, buf);
 			state.detail.render(detail_area, buf);
 		} else if state.show_detail {
-			let view_area = render_block_and_get_area("Detail", view_area, buf);
+			let view_area = render_block_and_get_area("Detail", true, view_area, buf);
 			state.detail.render(view_area, buf);
 		} else {
-			let view_area = render_block_and_get_area("Tree", view_area, buf);
+			let view_area = render_block_and_get_area("Tree", true, view_area, buf);
 			self.tree.render(view_area, buf);
 		}
 	}
