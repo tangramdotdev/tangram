@@ -262,7 +262,7 @@ impl Compiler {
 					lock: lock.id(&self.server, None).await?,
 					path: module_path.clone(),
 				};
-				tg::Module::Js(tg::module::Js::PackageArtifact(package_artifact))
+				tg::Module::Ts(tg::module::Js::PackageArtifact(package_artifact))
 			},
 
 			None | Some(tg::import::Kind::Artifact) => {
