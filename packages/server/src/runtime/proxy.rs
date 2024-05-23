@@ -335,8 +335,11 @@ impl tg::Handle for Proxy {
 		id: &tg::target::Id,
 		mut arg: tg::target::build::Arg,
 	) -> impl Future<Output = tg::Result<tg::target::build::Output>> {
-		arg.parent = Some(self.build.clone());
-		self.server.build_target(id, arg)
+		async move {
+			arg.parent = Some(self.build.clone());
+			arg.retry = tg::Build::with_id(self.build.clone()).retry(self).await?;
+			self.server.build_target(id, arg).await
+		}
 	}
 
 	async fn get_user(&self, _token: &str) -> tg::Result<Option<tg::User>> {
