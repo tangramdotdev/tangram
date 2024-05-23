@@ -34,16 +34,10 @@ where
 {
 	pub fn new(handle: &H, root: Item, rect: tui::layout::Rect) -> Arc<Self> {
 		let handle = handle.clone();
-		let layout = tui::layout::Layout::default()
-			.direction(Direction::Vertical)
-			.margin(0)
-			.constraints([Constraint::Max(1), Constraint::Fill(1), Constraint::Max(3)]);
-		let layouts = layout.split(rect);
 		let commands = Commands::new();
-		let detail = Detail::new(&handle, &root.clone(), layouts[1]);
-		let tree = Tree::new(&handle, &[root], layouts[0]);
+		let detail = Detail::new(&handle, &root.clone(), rect);
+		let tree = Tree::new(&handle, &[root], rect);
 		let stop = AtomicBool::new(false);
-
 		let (split, direction) = if rect.width >= 80 {
 			(true, Direction::Horizontal)
 		} else if rect.height >= 30 {
@@ -54,20 +48,22 @@ where
 
 		let state = RwLock::new(State {
 			detail,
-			detail_area: layouts[0],
+			detail_area: rect,
 			show_help: false,
 			show_detail: false,
 			split,
 			direction,
 		});
 
-		Arc::new(Self {
+		let app = Arc::new(Self {
 			handle,
 			commands,
 			tree,
 			state,
 			stop,
-		})
+		});
+		app.resize(rect);
+		app
 	}
 
 	pub fn handle_event(&self, event: &Event) {
@@ -145,7 +141,7 @@ where
 			.direction(Direction::Vertical)
 			.constraints([Constraint::Fill(1), Constraint::Max(1)]);
 		let rects = layout.split(rect);
-		let view_area = rects[1];
+		let view_area = rects[0];
 		if state.split {
 			let layout = Layout::default()
 				.direction(state.direction)
@@ -155,11 +151,6 @@ where
 			self.tree.resize(tree_area);
 			state.detail_area = detail_area;
 		} else {
-			let layout = Layout::default()
-				.direction(Direction::Vertical)
-				.constraints([Constraint::Max(1), Constraint::Fill(1)]);
-			let rects = layout.split(view_area);
-			let view_area = rects[0];
 			self.tree.resize(view_area);
 			state.detail_area = view_area;
 		}

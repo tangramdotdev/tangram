@@ -277,11 +277,11 @@ where
 		state.selected = expanded_nodes[new_selected_index].clone();
 
 		// Update the scroll if necessary.
-		let height = state.rect.height.to_usize().unwrap();
-		if new_selected_index > state.scroll {
-			state.scroll = state.scroll.saturating_sub(1);
-		} else if (new_selected_index - state.scroll) > height {
+		let height = state.rect.height.to_usize().unwrap().saturating_sub(2);
+		if new_selected_index >= state.scroll && (new_selected_index - state.scroll) >= height {
 			state.scroll += 1;
+		} else if new_selected_index < state.scroll {
+			state.scroll = state.scroll.saturating_sub(1);
 		}
 	}
 
