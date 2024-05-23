@@ -102,15 +102,15 @@ impl Compiler {
 			},
 
 			tg::import::Specifier::Dependency(dependency) => {
-				// Make the dependency path relative to the package.
+				// Get the absolute path of the dependency if necessary.
 				let mut dependency = dependency.clone();
 				if let Some(path) = dependency.path.as_mut() {
-					*path = referrer
-						.path
-						.clone()
-						.parent()
-						.join(path.clone())
-						.normalize();
+					let package_path: tg::Path =
+						referrer.package_path.clone().try_into().map_err(|source| {
+							tg::error!(!source, "failed to convert package path")
+						})?;
+					let referrer_path = package_path.join(referrer.path.clone());
+					*path = referrer_path.parent().join(path.clone()).normalize();
 				}
 
 				// Get the package and lock for the dependency.
