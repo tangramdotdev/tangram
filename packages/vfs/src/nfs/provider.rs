@@ -74,8 +74,8 @@ where
 					let len = self
 						.inner
 						.getxattr(file.node, &file.name)
-						.await
-						.map_or(0, |s| s.as_bytes().len());
+						.await?
+						.map_or(0, |s| s.len());
 					Ok(ExtAttr::AttrFile(len))
 				},
 			}
@@ -161,7 +161,7 @@ where
 			let content = self
 				.inner
 				.getxattr(attr_file.node, &attr_file.name)
-				.await
+				.await?
 				.ok_or_else(|| Error::from_raw_os_error(libc::ENOENT))?
 				.into_bytes();
 			let handle = AttrFileHandle { content };
@@ -203,8 +203,8 @@ where
 		Err(Error::from_raw_os_error(libc::ENOSYS))
 	}
 
-	async fn getxattr(&self, _handle: u64, _name: &str) -> Option<String> {
-		None
+	async fn getxattr(&self, _handle: u64, _name: &str) -> Result<Option<String>> {
+		Err(Error::from_raw_os_error(libc::ENOSYS))
 	}
 
 	async fn opendir(&self, handle: u64) -> Result<u64> {

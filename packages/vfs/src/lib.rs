@@ -23,7 +23,7 @@ pub trait Provider {
 	fn listxattrs(&self, id: u64) -> impl Future<Output = Result<Vec<String>>> + Send;
 
 	/// Get the value for an extended attribute for a node.
-	fn getxattr(&self, id: u64, name: &str) -> impl Future<Output = Option<String>> + Send;
+	fn getxattr(&self, id: u64, name: &str) -> impl Future<Output = Result<Option<String>>> + Send;
 
 	/// Open a directory.
 	fn opendir(&self, id: u64) -> impl Future<Output = Result<u64>> + Send;

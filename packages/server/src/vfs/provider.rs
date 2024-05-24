@@ -246,42 +246,35 @@ impl vfs::Provider for Provider {
 		Ok(vec![tg::file::TANGRAM_FILE_XATTR_NAME.to_owned()])
 	}
 
-	async fn getxattr(&self, id: u64, name: &str) -> Option<String> {
-		let node = self.get(id).await.ok()?;
+	async fn getxattr(&self, id: u64, name: &str) -> std::io::Result<Option<String>> {
+		let node = self.get(id).await?;
 		let Some(tg::Artifact::File(file)) = node.artifact.map(tg::Artifact::with_id) else {
 			tracing::warn!("called xattr on non file");
-			return None;
+			return Err(std::io::Error::from_raw_os_error(libc::EIO));
 		};
-
 		// Compute the attribute data.
 		if name != tg::file::TANGRAM_FILE_XATTR_NAME {
 			tracing::warn!(?name, "name mismatch");
-			return None;
+			return Err(std::io::Error::from_raw_os_error(libc::EIO));
 		}
 
-		let artifacts = file
-			.references(&self.server)
-			.await
-			.inspect_err(|e| {
-				tracing::error!(?e, ?file, "failed to get file references");
-			})
-			.ok()?;
+		let artifacts = file.references(&self.server).await.map_err(|e| {
+			tracing::error!(?e, ?file, "failed to get file references");
+			std::io::Error::from_raw_os_error(libc::EIO)
+		})?;
 
 		let mut references = Vec::with_capacity(artifacts.len());
 		for artifact in artifacts.iter() {
-			let id = artifact
-				.id(&self.server, None)
-				.await
-				.inspect_err(|e| {
-					tracing::error!(?e, ?artifact, "failed to get ID of artifact");
-				})
-				.ok()?;
+			let id = artifact.id(&self.server, None).await.map_err(|e| {
+				tracing::error!(?e, ?artifact, "failed to get ID of artifact");
+				std::io::Error::from_raw_os_error(libc::EIO)
+			})?;
 			references.push(id);
 		}
 
 		let attributes = tg::file::Attributes { references };
 		let result = serde_json::to_string(&attributes).unwrap();
-		Some(result)
+		Ok(Some(result))
 	}
 
 	async fn opendir(&self, id: u64) -> std::io::Result<u64> {

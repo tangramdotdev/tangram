@@ -396,7 +396,7 @@ where
 			.0
 			.provider
 			.getxattr(header.nodeid, name)
-			.await
+			.await?
 			.ok_or_else(|| Error::from_raw_os_error(libc::ENODATA))?;
 
 		// If the request size is 0, the driver is requesting the size of the xattr.
