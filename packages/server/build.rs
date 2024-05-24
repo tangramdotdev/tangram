@@ -116,6 +116,7 @@ fn main() {
 	println!("cargo:rerun-if-changed=../../packages/compiler");
 	std::process::Command::new("bunx")
 		.args([
+			"--bun",
 			"esbuild",
 			"--bundle",
 			"--entry-names=compiler",
@@ -136,6 +137,7 @@ fn main() {
 	println!("cargo:rerun-if-changed=../../packages/runtime");
 	std::process::Command::new("bunx")
 		.args([
+			"--bun",
 			"esbuild",
 			"--bundle",
 			"--entry-names=runtime",

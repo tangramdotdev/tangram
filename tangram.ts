@@ -1,39 +1,70 @@
+import esbuild from "tg:esbuild" with { path: "../packages/packages/esbuild" };
 import * as rust from "tg:rust" with { path: "../packages/packages/rust" };
 import * as std from "tg:std" with { path: "../packages/packages/std" };
 
+import cargoToml from "./Cargo.toml" with { type: "file" };
+import cargoLock from "./Cargo.lock" with { type: "file" };
+import biomeJson from "./biome.json" with { type: "file" };
+import bunLockb from "./bun.lockb" with { type: "file" };
+import packageJson from "./package.json" with { type: "file" };
+import cli from "./packages/cli" with { type: "directory" };
+import client from "./packages/client" with { type: "directory" };
+import compiler from "./packages/compiler" with { type: "directory" };
+import database from "./packages/database" with { type: "directory" };
+import futures from "./packages/futures" with { type: "directory" };
+import http from "./packages/http" with { type: "directory" };
+import messenger from "./packages/messenger" with { type: "directory" };
+import runtime from "./packages/runtime" with { type: "directory" };
+import server from "./packages/server" with { type: "directory" };
+import vfs from "./packages/vfs" with { type: "directory" };
+
 export let source = tg.target(() =>
 	tg.directory({
-		"Cargo.toml": tg.include("Cargo.toml"),
-		"Cargo.lock": tg.include("Cargo.lock"),
-		node_modules: tg.include("node_modules"),
-		"packages/cli": tg.include("packages/cli"),
-		"packages/client": tg.include("packages/client"),
-		"packages/compiler": tg.include("packages/compiler"),
-		"packages/database": tg.include("packages/database"),
-		"packages/fuse": tg.include("packages/fuse"),
-		"packages/nfs": tg.include("packages/nfs"),
-		"packages/runtime": tg.include("packages/runtime"),
-		"packages/server": tg.include("packages/server"),
-		"packages/sse": tg.include("packages/sse"),
-		"packages/vscode": tg.include("packages/vscode"),
+		"Cargo.toml": cargoToml,
+		"Cargo.lock": cargoLock,
+		"biome.json": biomeJson,
+		"bun.lockb": bunLockb,
+		"package.json": packageJson,
+		"packages/cli": cli,
+		"packages/client": client,
+		"packages/compiler": compiler,
+		"packages/database": database,
+		"packages/futures": futures,
+		"packages/http": http,
+		"packages/messenger": messenger,
+		"packages/runtime": runtime,
+		"packages/server": server,
+		"packages/vfs": vfs,
 	}),
 );
 
 export default tg.target(() => {
 	let host = std.triple.host();
-	return rust.build({
-		source: source(),
-		env: std.env.arg(
-			bun(host),
+	let env = std.env.arg(bun(host), esbuild({ host }), {
+		RUSTY_V8_ARCHIVE: librustyv8(host),
+	});
+
+	let nodeModules = std
+		.build(
+			tg`bun install ${source()} --frozen-lockfile && cp -R node_modules $OUTPUT`,
 			{
-				RUSTY_V8_ARCHIVE: librustyv8(host),
-				RUSTFLAGS: "--cfg tokio_unstable",
+				env,
+				checksum: "unsafe",
 			},
-		),
+		)
+		.then(tg.Directory.expect);
+	let sourceDir = tg.directory(source(), { node_modules: nodeModules });
+
+	return rust.build({
+		checksum: "unsafe",
+		source: sourceDir,
+		env,
+		useCargoVendor: true,
 	});
 });
 
-export let bun = tg.target(async (host: string) => {
+export let bun = tg.target(async (hostArg?: string) => {
+	let host = hostArg ?? (await std.triple.host());
 	let arch;
 	if (std.triple.arch(host) === "aarch64") {
 		arch = "aarch64";
@@ -58,7 +89,8 @@ export let bun = tg.target(async (host: string) => {
 	});
 });
 
-export let librustyv8 = tg.target(async (host: string) => {
+export let librustyv8 = tg.target(async (hostArg?: string) => {
+	let host = hostArg ?? (await std.triple.host());
 	let os;
 	if (std.triple.os(host) === "darwin") {
 		os = "apple-darwin";
