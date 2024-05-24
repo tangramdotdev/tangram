@@ -145,7 +145,7 @@ declare namespace tg {
 	export let checksum: (
 		input: string | Uint8Array | Blob | Artifact,
 		algorithm: Algorithm,
-	) => Checksum;
+	) => Promise<Checksum>;
 
 	/** A checksum. */
 	export type Checksum = string;
