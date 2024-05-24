@@ -299,9 +299,6 @@ declare namespace tg {
 		export type Id = string;
 	}
 
-	/** Include an artifact at a path relative to the module this function is called from. The path must be a string literal so that it can be statically analyzed. */
-	export let include: (path: string) => Promise<Artifact>;
-
 	/** Create a branch. */
 	export let branch: (...args: Args<Branch.Arg>) => Promise<Branch>;
 
