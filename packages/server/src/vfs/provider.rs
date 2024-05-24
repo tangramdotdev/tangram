@@ -47,6 +47,13 @@ enum NodeKind {
 
 impl vfs::Provider for Provider {
 	async fn lookup(&self, parent: u64, name: &str) -> std::io::Result<Option<u64>> {
+		if name == "." {
+			return Ok(Some(parent));
+		} else if name == ".." {
+			let id = self.lookup_parent(parent).await?;
+			return Ok(Some(id));
+		}
+
 		let connection = self.database.connection().await.map_err(|error| {
 			tracing::error!(%error, "failed to get database connection");
 			std::io::Error::from_raw_os_error(libc::EIO)
@@ -249,13 +256,12 @@ impl vfs::Provider for Provider {
 	async fn getxattr(&self, id: u64, name: &str) -> std::io::Result<Option<String>> {
 		let node = self.get(id).await?;
 		let Some(tg::Artifact::File(file)) = node.artifact.map(tg::Artifact::with_id) else {
-			tracing::warn!("called xattr on non file");
-			return Err(std::io::Error::from_raw_os_error(libc::EIO));
+			return Ok(None);
 		};
+
 		// Compute the attribute data.
 		if name != tg::file::TANGRAM_FILE_XATTR_NAME {
-			tracing::warn!(?name, "name mismatch");
-			return Err(std::io::Error::from_raw_os_error(libc::EIO));
+			return Ok(None);
 		}
 
 		let artifacts = file.references(&self.server).await.map_err(|e| {
@@ -309,6 +315,8 @@ impl vfs::Provider for Provider {
 			std::io::Error::from_raw_os_error(libc::EIO)
 		})?;
 		let mut result = Vec::with_capacity(entries.len());
+		result.push((".".to_owned(), handle.node));
+		result.push(("..".to_owned(), self.lookup_parent(handle.node).await?));
 		for name in entries.keys() {
 			let id = self.lookup(handle.node, name).await?.unwrap();
 			result.push((name.clone(), id));

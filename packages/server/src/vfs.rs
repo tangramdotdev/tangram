@@ -34,7 +34,7 @@ impl Server {
 
 		match kind {
 			Kind::Fuse => {
-				let fuse = vfs::fuse::Vfs::start(provider, path, None)
+				let fuse = vfs::fuse::Vfs::start(provider, path)
 					.await
 					.map_err(|source| tg::error!(!source, "failed to start FUSE server"))?;
 				Ok(Server::Fuse(fuse))
@@ -61,7 +61,7 @@ impl Server {
 				} else {
 					"localhost"
 				};
-				let nfs = vfs::nfs::Vfs::start(provider, path, url.into(), port, None)
+				let nfs = vfs::nfs::Vfs::start(provider, path, url.into(), port)
 					.await
 					.map_err(|source| tg::error!(!source, "failed to start NFS server"))?;
 				Ok(Self::Nfs(nfs))

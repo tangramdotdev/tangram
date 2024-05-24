@@ -210,7 +210,7 @@ async fn main() -> Result<()> {
 
 async fn fuse(path: PathBuf) -> Result<()> {
 	let provider = Provider::new();
-	let server = tangram_vfs::fuse::Vfs::start(provider, path, None).await?;
+	let server = tangram_vfs::fuse::Vfs::start(provider, path).await?;
 	tokio::spawn({
 		let server = server.clone();
 		async move {
@@ -226,7 +226,7 @@ async fn fuse(path: PathBuf) -> Result<()> {
 
 async fn nfs(url: String, port: u16, path: PathBuf) -> Result<()> {
 	let provider = Provider::new();
-	let server = tangram_vfs::nfs::Vfs::start(provider, path, url, port, None).await?;
+	let server = tangram_vfs::nfs::Vfs::start(provider, path, url, port).await?;
 	tokio::spawn({
 		let server = server.clone();
 		async move {

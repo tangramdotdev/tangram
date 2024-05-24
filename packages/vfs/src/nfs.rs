@@ -1,5 +1,4 @@
 use crate::{
-	options::{Mount, Options},
 	Attrs, FileType, Provider as _,
 };
 use dashmap::DashMap;
@@ -62,8 +61,8 @@ impl<P> Clone for Vfs<P> {
 }
 
 struct Inner<P> {
-	options: Options,
 	path: PathBuf,
+	port: u16,
 	provider: Provider<P>,
 	url: String,
 	client_index: AtomicU64,
@@ -97,25 +96,12 @@ where
 		path: impl AsRef<Path>,
 		url: String,
 		port: u16,
-		options: Option<Options>,
 	) -> Result<Self, std::io::Error> {
-		let options = options.unwrap_or_else(move || {
-            let command = "mount_nfs".to_owned();
-            let args = vec![
-                "-o".to_owned(),
-                format!("nobrowse,async,actimeo=60,mutejukebox,noquota,noacl,rdonly,rsize=2097152,nocallback,tcp,vers=4.0,namedattr,port={port}"),
-            ];
-            let mount = Mount { command, args };
-            let command = "umount".to_owned();
-            let args = vec!["-f".to_owned()];
-            let unmount = Mount { command, args };
-            Options { mount, unmount }
-        });
 
 		let provider = Provider::new(provider);
 		let server = Self(Arc::new(Inner {
-			options,
 			path: path.as_ref().to_owned(),
+			port,
 			provider,
 			url,
 			task: Mutex::new(None),
@@ -128,7 +114,7 @@ where
 			let server = Self(server.0.clone());
 			async move {
 				server
-					.task(stop, port)
+					.task(stop)
 					.await
 					.inspect_err(|error| {
 						tracing::error!(?error);
@@ -150,7 +136,7 @@ where
 		task.wait().await.ok();
 	}
 
-	async fn task(&self, stop: Stop, port: u16) -> Result<(), std::io::Error> {
+	async fn task(&self, stop: Stop) -> Result<(), std::io::Error> {
 		// Unmount.
 		self.unmount()
 			.await
@@ -173,6 +159,7 @@ where
 		});
 
 		// Bind.
+		let port = &self.0.port;
 		let addr = format!("localhost:{port}");
 		let listener = TcpListener::bind(&addr).await?;
 
@@ -213,13 +200,14 @@ where
 	}
 
 	async fn mount(&self) -> Result<(), std::io::Error> {
-		let options = &self.0.options.mount;
 		let url = &self.0.url;
+		let port = &self.0.port;
 		let path = &self.0.path;
-		let status = tokio::process::Command::new(&options.command)
-			.args(&options.args)
-			.arg("-v")
-			.arg(format!("{url}:/"))
+		let status = tokio::process::Command::new("mount_nfs")
+			.arg("-o")
+			.arg(format!(
+				"async,actimeo=60,mutejukebox,noacl,noquota,nobrowse,rdonly,rsize=2097152,nocallback,tcp,vers=4.0,namedattr,port={port}"
+			))			.arg(format!("{url}:/"))
 			.arg(path)
 			.stdout(std::process::Stdio::null())
 			.stderr(std::process::Stdio::null())
@@ -232,10 +220,9 @@ where
 	}
 
 	async fn unmount(&self) -> Result<(), std::io::Error> {
-		let options = &self.0.options.unmount;
 		let path = &self.0.path;
-		tokio::process::Command::new(&options.command)
-			.args(&options.args)
+		tokio::process::Command::new("umount")
+			.args(["-f"])
 			.arg(path)
 			.stdout(std::process::Stdio::null())
 			.stderr(std::process::Stdio::null())

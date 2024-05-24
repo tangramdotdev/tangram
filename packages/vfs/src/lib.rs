@@ -3,7 +3,6 @@ use futures::Future;
 
 pub mod fuse;
 pub mod nfs;
-pub mod options;
 
 pub type Result<T> = std::io::Result<T>;
 pub const ROOT_NODE_ID: u64 = 1;

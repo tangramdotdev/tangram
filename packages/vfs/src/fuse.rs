@@ -19,7 +19,6 @@ use self::sys::{
 	fuse_read_in, fuse_release_in,
 };
 use crate::{
-	options::{Mount, Options},
 	FileType, Provider, Result,
 };
 use std::io::Error;
@@ -34,7 +33,6 @@ impl<P> Clone for Vfs<P> {
 }
 
 struct Inner<P> {
-	options: Options,
 	path: PathBuf,
 	provider: P,
 	task: Mutex<Option<Task<()>>>,
@@ -96,34 +94,11 @@ where
 	pub async fn start(
 		provider: P,
 		path: impl AsRef<Path>,
-		options: Option<Options>,
 	) -> Result<Self> {
-		let options = options.unwrap_or_else(|| {
-			let (uid, gid) = unsafe { (libc::getuid(), libc::getgid()) };
-			let command = "fusermount3".to_owned();
-			let options = [
-				"rootmode=40755".into(),
-				"default_permissions".into(),
-				format!("user_id={uid}"),
-				format!("group_id={gid}"),
-			]
-			.join(",");
-			let mount = Mount {
-				command: command.clone(),
-				args: vec!["-o".to_owned(), options],
-			};
-			let unmount = Mount {
-				command: command.clone(),
-				args: vec!["-u".to_owned(), "-q".to_owned()],
-			};
-			Options { mount, unmount }
-		});
 		let path = path.as_ref().to_owned();
-
 		let vfs = Vfs(Arc::new(Inner {
 			provider,
 			path,
-			options,
 			task: Mutex::new(None),
 		}));
 
@@ -726,9 +701,8 @@ where
 
 	async fn unmount(&self) -> Result<()> {
 		let path = &self.0.path;
-		let options = &self.0.options.unmount;
-		tokio::process::Command::new(&options.command)
-			.args(&options.args)
+		tokio::process::Command::new("fusermount3")
+			.args(["-u", "-f"])
 			.arg(path)
 			.stdin(std::process::Stdio::null())
 			.stdout(std::process::Stdio::null())
