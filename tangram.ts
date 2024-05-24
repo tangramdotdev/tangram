@@ -1,5 +1,3 @@
-export default tg.target(() => tg.file("Hello, World!"));
-
 import * as rust from "tg:rust" with { path: "../packages/packages/rust" };
 import * as std from "tg:std" with { path: "../packages/packages/std" };
 
@@ -21,7 +19,7 @@ export let source = tg.target(() =>
 	}),
 );
 
-export let tangram = tg.target(() => {
+export default tg.target(() => {
 	let host = std.triple.host();
 	return rust.build({
 		source: source(),
@@ -45,7 +43,7 @@ export let bun = tg.target(async (host: string) => {
 		throw new Error(`unsupported host ${host}`);
 	}
 	let file = `bun-${std.triple.os(host)}-${arch}`;
-	let checksum = "unsafe"; // TODO: verify checksum.
+	let checksum = "unsafe";
 	let dl = tg.Directory.expect(
 		await std.download({
 			checksum,
@@ -69,7 +67,7 @@ export let librustyv8 = tg.target(async (host: string) => {
 	} else {
 		throw new Error(`unsupported host ${host}`);
 	}
-	let checksum = "unsafe"; // TODO: verify checksum.
+	let checksum = "unsafe";
 	let file = `librusty_v8_release_${std.triple.arch(host)}-${os}.a.gz`;
 	let lib = await std.download({
 		checksum,
