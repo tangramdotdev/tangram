@@ -56,6 +56,7 @@ indoc = { workspace = true }
 itertools = { workspace = true }
 libc = { workspace = true }
 lsp-types = { workspace = true }
+moka = { workspace = true }
 mime = { workspace = true }
 notify = { workspace = true }
 num = { workspace = true }

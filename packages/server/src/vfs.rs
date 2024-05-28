@@ -26,9 +26,14 @@ impl Server {
 		// Create a directory at the path if necessary.
 		std::fs::create_dir_all(path).ok();
 
-		let options = db::sqlite::Options {
+		let database = db::sqlite::Options {
 			path: server.path.join("vfs"),
-			connections: 8,
+			connections: 4,
+		};
+		let options = provider::Options {
+			cache_ttl: 10.0,
+			cache_size: 2048,
+			database,
 		};
 		let provider = Provider::new(server, options).await?;
 

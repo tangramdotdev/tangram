@@ -15,11 +15,12 @@ use tokio::io::{AsyncReadExt, AsyncSeekExt};
 use crate::Server;
 
 pub struct Provider {
-	server: Server,
-	database: db::sqlite::Database,
+	cache: moka::future::Cache<u64, tg::Artifact, fnv::FnvBuildHasher>,
 	counter: AtomicU64,
+	database: db::sqlite::Database,
 	open_dirs: DashMap<u64, DirectoryHandle, fnv::FnvBuildHasher>,
 	open_files: DashMap<u64, FileHandle, fnv::FnvBuildHasher>,
+	server: Server,
 }
 
 pub type FileHandle = tg::blob::Reader<Server>;
@@ -52,6 +53,17 @@ impl vfs::Provider for Provider {
 		} else if name == ".." {
 			let id = self.lookup_parent(parent).await?;
 			return Ok(Some(id));
+		}
+
+		// Check the cache to see if the node is there to vaoid going to the database if we don't need to.
+		if let Some(tg::Artifact::Directory(object)) = self.cache.get(&parent).await {
+			let entries = object.entries(&self.server).await.map_err(|error| {
+				tracing::error!(%error, %parent, %name, "failed to get directory entries");
+				std::io::Error::from_raw_os_error(libc::EIO)
+			})?;
+			if !entries.contains_key(name) {
+				return Ok(None);
+			}
 		}
 
 		let connection = self.database.connection().await.map_err(|error| {
@@ -334,25 +346,37 @@ impl vfs::Provider for Provider {
 	}
 }
 
-impl Provider {
-	pub async fn new(server: &Server, options: db::sqlite::Options) -> tg::Result<Self> {
-		// Create the database if it doesn't exist.
-		let created = tokio::fs::try_exists(&options.path).await.map_err(
-			|source| tg::error!(!source, %path = options.path.display(), "failed to check if the path exists"),
-		)?;
+pub struct Options {
+	pub cache_ttl: f64,
+	pub cache_size: u64,
+	pub database: db::sqlite::Options,
+}
 
-		let server = server.clone();
-		let database = db::sqlite::Database::new(options)
+impl Provider {
+	pub async fn new(server: &Server, options: Options) -> tg::Result<Self> {
+		// Create the database if it doesn't exist.
+		let created = tokio::fs::try_exists(&options.database.path)
+			.await
+			.map_err(
+				|source| tg::error!(!source, %path = options.database.path.display(), "failed to check if the path exists"),
+			)?;
+
+		let cache = moka::future::CacheBuilder::new(options.cache_size)
+			.time_to_idle(std::time::Duration::from_secs_f64(options.cache_ttl))
+			.build_with_hasher(fnv::FnvBuildHasher::default());
+		let database = db::sqlite::Database::new(options.database)
 			.await
 			.map_err(|source| tg::error!(!source, "failed to create database"))?;
 		let open_dirs = DashMap::default();
 		let open_files = DashMap::default();
+		let server = server.clone();
 		let provider = Self {
-			server,
-			database,
+			cache,
 			counter: AtomicU64::new(1000),
+			database,
 			open_dirs,
 			open_files,
+			server,
 		};
 		if !created {
 			provider.create_database().await?;
@@ -432,6 +456,11 @@ impl Provider {
 	}
 
 	async fn get(&self, id: u64) -> std::io::Result<Node> {
+		// Attempt to get from the cache.
+		if let Some(artifact) = self.cache.get(&id).await {
+			return self.create_node(&artifact).await;
+		}
+
 		let connection = self.database.connection().await.map_err(|error| {
 			tracing::error!(%error, "failed to get database connection");
 			std::io::Error::from_raw_os_error(libc::EIO)
@@ -455,10 +484,22 @@ impl Provider {
 				tracing::error!(%error, %id, "failed to get node data from database");
 				std::io::Error::from_raw_os_error(libc::EIO)
 			})?;
+
+		// Update the cache.
+		if let Some(artifact) = row.data.artifact.clone() {
+			self.cache.insert(id, tg::Artifact::with_id(artifact)).await;
+		}
 		Ok(row.data)
 	}
 
 	async fn put(&self, parent: u64, name: &str, data: Node) -> std::io::Result<u64> {
+		// Update the cache.
+		if let Some(artifact) = data.artifact.clone() {
+			self.cache
+				.insert(parent, tg::Artifact::with_id(artifact))
+				.await;
+		}
+
 		let connection = self.database.connection().await.map_err(|error| {
 			tracing::error!(%error, "failed to get database connection");
 			std::io::Error::from_raw_os_error(libc::EIO)
