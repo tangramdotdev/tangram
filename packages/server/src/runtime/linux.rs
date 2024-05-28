@@ -748,7 +748,11 @@ impl Runtime {
 				return Err(tg::error!(r#"the process exited with code "{code}""#));
 			},
 			ExitStatus::Signal(signal) => {
-				return Err(tg::error!(r#"the process exited with signal "{signal}""#));
+				let signame =
+					unsafe { std::ffi::CStr::from_ptr(libc::strsignal(signal)).to_string_lossy() };
+				return Err(tg::error!(
+					r#"the process exited with signal: {signame} ({signal})"#
+				));
 			},
 		};
 
