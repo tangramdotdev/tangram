@@ -193,11 +193,26 @@ impl vfs::Provider for Provider {
 			tracing::error!(%id, "tried to read from an invalid file handle");
 			return Err(std::io::Error::from_raw_os_error(libc::ENOENT));
 		};
+
+		// Seek to the given position.
 		reader.seek(std::io::SeekFrom::Start(position)).await?;
-		let mut buf = vec![0u8; length.to_usize().unwrap()];
-		let len = reader.read(&mut buf).await?;
-		buf.truncate(len);
-		Ok(buf.into())
+
+		// Read the requested number of bytes.
+		let mut bytes = vec![0u8; length.to_usize().unwrap()];
+		let mut size = 0;
+		while size < length.to_usize().unwrap() {
+			let n = reader
+				.read(&mut bytes[size..])
+				.await?;
+			size += n;
+			if n == 0 {
+				break;
+			}
+		}
+
+		// Truncate the request and bail.
+		bytes.truncate(size);
+		Ok(bytes.into())
 	}
 
 	async fn readlink(&self, id: u64) -> std::io::Result<Bytes> {
@@ -255,10 +270,8 @@ impl vfs::Provider for Provider {
 		if let Some(path) = path.as_ref() {
 			target = target.join(path.clone());
 		}
-		let target = target.to_string();
-		tracing::debug!(%target, "readlink target");
-		let target = target.into_bytes().into();
-		Ok(target)
+		let target = target.to_string().into_bytes().into();
+		return Ok(target);
 	}
 
 	async fn listxattrs(&self, id: u64) -> std::io::Result<Vec<String>> {
