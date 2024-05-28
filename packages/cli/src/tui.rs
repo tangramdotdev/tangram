@@ -4,7 +4,7 @@ use ct::event;
 use ratatui as tui;
 use std::sync::Arc;
 use tangram_client as tg;
-use tg::Handle;
+use tg::Handle as _;
 
 mod app;
 mod commands;
@@ -22,7 +22,6 @@ where
 	task: Option<tokio::task::JoinHandle<tg::Result<()>>>,
 }
 
-// multiroot
 #[derive(Clone)]
 pub enum Item {
 	Root,
@@ -40,7 +39,7 @@ pub enum Item {
 
 impl<H> Tui<H>
 where
-	H: Handle,
+	H: tg::Handle,
 {
 	pub async fn start(handle: &H, item: Item) -> tg::Result<Self>
 	where

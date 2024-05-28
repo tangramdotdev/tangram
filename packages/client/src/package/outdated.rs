@@ -14,7 +14,6 @@ pub struct Output {
 	#[serde(flatten)]
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub info: Option<Info>,
-
 	#[serde_as(as = "BTreeMap<DisplayFromStr, _>")]
 	#[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
 	pub dependencies: BTreeMap<tg::Dependency, Self>,

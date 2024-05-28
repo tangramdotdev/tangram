@@ -40,6 +40,7 @@ mod messenger;
 mod migrations;
 mod object;
 mod package;
+mod remote;
 mod root;
 mod runtime;
 mod server;
@@ -64,12 +65,13 @@ pub struct Inner {
 	checkouts: CheckoutTaskMap,
 	database: Database,
 	file_descriptor_semaphore: tokio::sync::Semaphore,
+	object_index_queue: ObjectIndexQueue,
 	local_pool_handle: tokio_util::task::LocalPoolHandle,
 	lock_file: std::sync::Mutex<Option<tokio::fs::File>>,
 	messenger: Messenger,
 	options: Options,
 	path: PathBuf,
-	remotes: Vec<tg::Client>,
+	remotes: DashMap<String, tg::Client>,
 	runtimes: std::sync::RwLock<HashMap<String, Runtime>>,
 	task: std::sync::Mutex<Option<Task<tg::Result<()>>>>,
 	vfs: std::sync::Mutex<Option<self::vfs::Server>>,
@@ -88,23 +90,15 @@ type BuildTaskMap = TaskMap<tg::build::Id, (), fnv::FnvBuildHasher>;
 type CheckoutTaskMap =
 	TaskMap<tg::artifact::Id, tg::Result<tg::artifact::checkout::Output>, fnv::FnvBuildHasher>;
 
+struct ObjectIndexQueue {
+	sender: async_channel::Sender<tg::object::Id>,
+	receiver: async_channel::Receiver<tg::object::Id>,
+}
+
 impl Server {
 	pub async fn start(options: Options) -> tg::Result<Server> {
-		// Canonicalize the path.
-		let parent = options
-			.path
-			.parent()
-			.ok_or_else(|| tg::error!("invalid path"))?;
-		let file_name = options
-			.path
-			.file_name()
-			.ok_or_else(|| tg::error!("invalid path"))?;
-		let path = tokio::fs::canonicalize(&parent)
-			.await
-			.map_err(|source| tg::error!(!source, "failed to canonicalize the path"))?;
-		let path = path.join(file_name);
-
 		// Ensure the path exists.
+		let path = options.path.clone();
 		tokio::fs::create_dir_all(&path)
 			.await
 			.map_err(|source| tg::error!(!source, "failed to create the directory"))?;
@@ -209,6 +203,10 @@ impl Server {
 		let file_descriptor_semaphore =
 			tokio::sync::Semaphore::new(options.advanced.file_descriptor_semaphore_size);
 
+		// Create the object index queue.
+		let (sender, receiver) = async_channel::unbounded();
+		let object_index_queue = ObjectIndexQueue { sender, receiver };
+
 		// Create the local pool handle.
 		let local_pool_handle = tokio_util::task::LocalPoolHandle::new(
 			std::thread::available_parallelism().unwrap().get(),
@@ -231,7 +229,7 @@ impl Server {
 		let remotes = options
 			.remotes
 			.iter()
-			.map(|remote| remote.client.clone())
+			.map(|remote| (remote.name.clone(), remote.client.clone()))
 			.collect();
 
 		// Create the runtimes.
@@ -251,6 +249,7 @@ impl Server {
 			checkouts,
 			database,
 			file_descriptor_semaphore,
+			object_index_queue,
 			local_pool_handle,
 			lock_file,
 			messenger,
@@ -349,11 +348,11 @@ impl Server {
 			self.runtimes.write().unwrap().insert(triple, runtime);
 		}
 
-		// Start the build queue task.
+		// Start the build spawn task.
 		let build_queue_task = if self.options.build.is_some() {
 			Some(tokio::spawn({
 				let server = self.clone();
-				async move { server.build_queue_task().await }
+				async move { server.build_spawn_task().await }
 			}))
 		} else {
 			None
@@ -368,8 +367,24 @@ impl Server {
 			})
 		});
 
+		// Start the index task.
+		let index_task = if true {
+			Some(tokio::spawn({
+				let server = self.clone();
+				async move { server.index_task().await }
+			}))
+		} else {
+			None
+		};
+
 		// Serve.
 		Self::serve(self.clone(), self.options.url.clone(), stop.clone()).await?;
+
+		// Abort the index task.
+		if let Some(task) = index_task {
+			task.abort();
+			task.await.ok();
+		}
 
 		// Abort the build queue task.
 		if let Some(task) = build_queue_task {
@@ -573,8 +588,8 @@ impl Server {
 			(http::Method::POST, ["artifacts", "checkin"]) => {
 				Self::handle_check_in_artifact_request(handle, request).boxed()
 			},
-			(http::Method::POST, ["artifacts", id, "checkout"]) => {
-				Self::handle_check_out_artifact_request(handle, request, id).boxed()
+			(http::Method::POST, ["artifacts", artifact, "checkout"]) => {
+				Self::handle_check_out_artifact_request(handle, request, artifact).boxed()
 			},
 
 			// Blobs.
@@ -586,70 +601,73 @@ impl Server {
 			(http::Method::GET, ["builds"]) => {
 				Self::handle_list_builds_request(handle, request).boxed()
 			},
-			(http::Method::GET, ["builds", id]) => {
-				Self::handle_get_build_request(handle, request, id).boxed()
+			(http::Method::GET, ["builds", build]) => {
+				Self::handle_get_build_request(handle, request, build).boxed()
 			},
-			(http::Method::PUT, ["builds", id]) => {
-				Self::handle_put_build_request(handle, request, id).boxed()
+			(http::Method::PUT, ["builds", build]) => {
+				Self::handle_put_build_request(handle, request, build).boxed()
 			},
-			(http::Method::POST, ["builds", id, "push"]) => {
-				Self::handle_push_build_request(handle, request, id).boxed()
+			(http::Method::POST, ["builds", build, "push"]) => {
+				Self::handle_push_build_request(handle, request, build).boxed()
 			},
-			(http::Method::POST, ["builds", id, "pull"]) => {
-				Self::handle_pull_build_request(handle, request, id).boxed()
+			(http::Method::POST, ["builds", build, "pull"]) => {
+				Self::handle_pull_build_request(handle, request, build).boxed()
 			},
 			(http::Method::POST, ["builds", "dequeue"]) => {
 				Self::handle_dequeue_build_request(handle, request).boxed()
 			},
-			(http::Method::POST, ["builds", id, "start"]) => {
-				Self::handle_start_build_request(handle, request, id).boxed()
+			(http::Method::POST, ["builds", build, "start"]) => {
+				Self::handle_start_build_request(handle, request, build).boxed()
 			},
-			(http::Method::GET, ["builds", id, "status"]) => {
-				Self::handle_get_build_status_request(handle, request, id).boxed()
+			(http::Method::GET, ["builds", build, "status"]) => {
+				Self::handle_get_build_status_request(handle, request, build).boxed()
 			},
-			(http::Method::GET, ["builds", id, "children"]) => {
-				Self::handle_get_build_children_request(handle, request, id).boxed()
+			(http::Method::GET, ["builds", build, "children"]) => {
+				Self::handle_get_build_children_request(handle, request, build).boxed()
 			},
-			(http::Method::POST, ["builds", id, "children"]) => {
-				Self::handle_add_build_child_request(handle, request, id).boxed()
+			(http::Method::POST, ["builds", build, "children"]) => {
+				Self::handle_add_build_child_request(handle, request, build).boxed()
 			},
-			(http::Method::GET, ["builds", id, "log"]) => {
-				Self::handle_get_build_log_request(handle, request, id).boxed()
+			(http::Method::GET, ["builds", build, "log"]) => {
+				Self::handle_get_build_log_request(handle, request, build).boxed()
 			},
-			(http::Method::POST, ["builds", id, "log"]) => {
-				Self::handle_add_build_log_request(handle, request, id).boxed()
+			(http::Method::POST, ["builds", build, "log"]) => {
+				Self::handle_add_build_log_request(handle, request, build).boxed()
 			},
-			(http::Method::GET, ["builds", id, "outcome"]) => {
-				Self::handle_get_build_outcome_request(handle, request, id).boxed()
+			(http::Method::GET, ["builds", build, "outcome"]) => {
+				Self::handle_get_build_outcome_request(handle, request, build).boxed()
 			},
-			(http::Method::POST, ["builds", id, "finish"]) => {
-				Self::handle_finish_build_request(handle, request, id).boxed()
+			(http::Method::POST, ["builds", build, "finish"]) => {
+				Self::handle_finish_build_request(handle, request, build).boxed()
 			},
-			(http::Method::POST, ["builds", id, "touch"]) => {
-				Self::handle_touch_build_request(handle, request, id).boxed()
+			(http::Method::POST, ["builds", build, "touch"]) => {
+				Self::handle_touch_build_request(handle, request, build).boxed()
 			},
-			(http::Method::POST, ["builds", id, "heartbeat"]) => {
-				Self::handle_heartbeat_build_request(handle, request, id).boxed()
+			(http::Method::POST, ["builds", build, "heartbeat"]) => {
+				Self::handle_heartbeat_build_request(handle, request, build).boxed()
 			},
 
-			// Compilers.
+			// Compiler.
 			(http::Method::POST, ["format"]) => {
 				Self::handle_format_request(handle, request).boxed()
 			},
 			(http::Method::POST, ["lsp"]) => Self::handle_lsp_request(handle, request).boxed(),
 
 			// Objects.
-			(http::Method::GET, ["objects", id]) => {
-				Self::handle_get_object_request(handle, request, id).boxed()
+			(http::Method::HEAD, ["objects", object]) => {
+				Self::handle_head_object_request(handle, request, object).boxed()
 			},
-			(http::Method::PUT, ["objects", id]) => {
-				Self::handle_put_object_request(handle, request, id).boxed()
+			(http::Method::GET, ["objects", object]) => {
+				Self::handle_get_object_request(handle, request, object).boxed()
 			},
-			(http::Method::POST, ["objects", id, "push"]) => {
-				Self::handle_push_object_request(handle, request, id).boxed()
+			(http::Method::PUT, ["objects", object]) => {
+				Self::handle_put_object_request(handle, request, object).boxed()
 			},
-			(http::Method::POST, ["objects", id, "pull"]) => {
-				Self::handle_pull_object_request(handle, request, id).boxed()
+			(http::Method::POST, ["objects", object, "push"]) => {
+				Self::handle_push_object_request(handle, request, object).boxed()
+			},
+			(http::Method::POST, ["objects", object, "pull"]) => {
+				Self::handle_pull_object_request(handle, request, object).boxed()
 			},
 
 			// Packages.
@@ -674,11 +692,25 @@ impl Server {
 			(http::Method::GET, ["packages", dependency, "outdated"]) => {
 				Self::handle_outdated_package_request(handle, request, dependency).boxed()
 			},
-			(http::Method::POST, ["packages", id, "publish"]) => {
-				Self::handle_publish_package_request(handle, request, id).boxed()
+			(http::Method::POST, ["packages", artifact, "publish"]) => {
+				Self::handle_publish_package_request(handle, request, artifact).boxed()
 			},
 			(http::Method::POST, ["packages", dependency, "yank"]) => {
 				Self::handle_yank_package_request(handle, request, dependency).boxed()
+			},
+
+			// Remotes.
+			(http::Method::GET, ["remotes"]) => {
+				Self::handle_list_remotes_request(handle, request).boxed()
+			},
+			(http::Method::GET, ["remotes", name]) => {
+				Self::handle_get_remote_request(handle, request, name).boxed()
+			},
+			(http::Method::PUT, ["remotes", name]) => {
+				Self::handle_put_remote_request(handle, request, name).boxed()
+			},
+			(http::Method::DELETE, ["remotes", name]) => {
+				Self::handle_delete_remote_request(handle, request, name).boxed()
 			},
 
 			// Roots.
@@ -709,8 +741,8 @@ impl Server {
 			},
 
 			// Targets.
-			(http::Method::POST, ["targets", id, "build"]) => {
-				Self::handle_build_target_request(handle, request, id).boxed()
+			(http::Method::POST, ["targets", target, "build"]) => {
+				Self::handle_build_target_request(handle, request, target).boxed()
 			},
 
 			// Users.
@@ -801,12 +833,24 @@ impl tg::Handle for Server {
 		self.put_build(id, arg)
 	}
 
-	fn push_build(&self, id: &tg::build::Id) -> impl Future<Output = tg::Result<()>> {
-		self.push_build(id)
+	fn push_build(
+		&self,
+		id: &tg::build::Id,
+		arg: tg::build::push::Arg,
+	) -> impl Future<
+		Output = tg::Result<impl Stream<Item = tg::Result<tg::build::Progress>> + Send + 'static>,
+	> {
+		self.push_build(id, arg)
 	}
 
-	fn pull_build(&self, id: &tg::build::Id) -> impl Future<Output = tg::Result<()>> {
-		self.pull_build(id)
+	fn pull_build(
+		&self,
+		id: &tg::build::Id,
+		arg: tg::build::pull::Arg,
+	) -> impl Future<
+		Output = tg::Result<impl Stream<Item = tg::Result<tg::build::Progress>> + Send + 'static>,
+	> {
+		self.pull_build(id, arg)
 	}
 
 	fn try_dequeue_build(
@@ -918,6 +962,13 @@ impl tg::Handle for Server {
 		self.lsp(input, output)
 	}
 
+	fn try_get_object_metadata(
+		&self,
+		id: &tg::object::Id,
+	) -> impl Future<Output = tg::Result<Option<tg::object::Metadata>>> {
+		self.try_get_object_metadata(id)
+	}
+
 	fn try_get_object(
 		&self,
 		id: &tg::object::Id,
@@ -934,12 +985,24 @@ impl tg::Handle for Server {
 		self.put_object(id, arg, transaction)
 	}
 
-	fn push_object(&self, id: &tg::object::Id) -> impl Future<Output = tg::Result<()>> {
-		self.push_object(id)
+	fn push_object(
+		&self,
+		id: &tg::object::Id,
+		arg: tg::object::push::Arg,
+	) -> impl Future<
+		Output = tg::Result<impl Stream<Item = tg::Result<tg::object::Progress>> + Send + 'static>,
+	> + Send {
+		self.push_object(id, arg)
 	}
 
-	fn pull_object(&self, id: &tg::object::Id) -> impl Future<Output = tg::Result<()>> {
-		self.pull_object(id)
+	fn pull_object(
+		&self,
+		id: &tg::object::Id,
+		arg: tg::object::pull::Arg,
+	) -> impl Future<
+		Output = tg::Result<impl Stream<Item = tg::Result<tg::object::Progress>> + Send + 'static>,
+	> + Send {
+		self.pull_object(id, arg)
 	}
 
 	fn list_packages(
@@ -985,8 +1048,12 @@ impl tg::Handle for Server {
 		self.get_package_outdated(dependency, arg)
 	}
 
-	fn publish_package(&self, id: &tg::artifact::Id) -> impl Future<Output = tg::Result<()>> {
-		self.publish_package(id)
+	fn publish_package(
+		&self,
+		id: &tg::artifact::Id,
+		arg: tg::package::publish::Arg,
+	) -> impl Future<Output = tg::Result<()>> {
+		self.publish_package(id, arg)
 	}
 
 	fn try_get_package_versions(
@@ -996,8 +1063,38 @@ impl tg::Handle for Server {
 		self.try_get_package_versions(dependency)
 	}
 
-	fn yank_package(&self, id: &tg::artifact::Id) -> impl Future<Output = tg::Result<()>> {
-		self.yank_package(id)
+	fn yank_package(
+		&self,
+		id: &tg::artifact::Id,
+		arg: tg::package::yank::Arg,
+	) -> impl Future<Output = tg::Result<()>> {
+		self.yank_package(id, arg)
+	}
+
+	fn list_remotes(
+		&self,
+		arg: tg::remote::list::Arg,
+	) -> impl Future<Output = tg::Result<tg::remote::list::Output>> {
+		self.list_remotes(arg)
+	}
+
+	fn try_get_remote(
+		&self,
+		name: &str,
+	) -> impl Future<Output = tg::Result<Option<tg::remote::get::Output>>> {
+		self.try_get_remote(name)
+	}
+
+	fn put_remote(
+		&self,
+		name: &str,
+		arg: tg::remote::put::Arg,
+	) -> impl Future<Output = tg::Result<()>> {
+		self.put_remote(name, arg)
+	}
+
+	fn delete_remote(&self, name: &str) -> impl Future<Output = tg::Result<()>> {
+		self.remove_remote(name)
 	}
 
 	fn list_roots(

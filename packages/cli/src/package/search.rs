@@ -7,6 +7,9 @@ use tg::Handle as _;
 #[group(skip)]
 pub struct Args {
 	pub query: String,
+
+	#[arg(short, long)]
+	pub remote: Option<String>,
 }
 
 impl Cli {
@@ -14,6 +17,7 @@ impl Cli {
 		// List the packages.
 		let arg = tg::package::list::Arg {
 			query: Some(args.query),
+			remote: args.remote,
 		};
 		let packages = self.handle.list_packages(arg).await?;
 

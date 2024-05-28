@@ -11,6 +11,7 @@ use tangram_database::{self as db, prelude::*};
 use tangram_futures::task::Stop;
 use tangram_http::{incoming::request::Ext as _, outgoing::response::Ext as _, Incoming, Outgoing};
 use tangram_messenger::Messenger as _;
+use tg::Handle as _;
 use tokio_stream::wrappers::IntervalStream;
 
 impl Server {
@@ -311,10 +312,21 @@ impl Server {
 	) -> tg::Result<
 		Option<impl Stream<Item = tg::Result<tg::build::children::Chunk>> + Send + 'static>,
 	> {
-		let Some(remote) = self.remotes.first() else {
-			return Ok(None);
-		};
-		let Some(stream) = remote.try_get_build_children_stream(id, arg).await? else {
+		let futures = self.remotes.iter().map(|remote| {
+			{
+				let remote = remote.clone();
+				let id = id.clone();
+				let arg = arg.clone();
+				async move {
+					remote
+						.get_build_children(&id, arg)
+						.await
+						.map(futures::StreamExt::boxed)
+				}
+			}
+			.boxed()
+		});
+		let Ok((stream, _)) = future::select_ok(futures).await else {
 			return Ok(None);
 		};
 		Ok(Some(stream))
@@ -325,23 +337,9 @@ impl Server {
 		build_id: &tg::build::Id,
 		child_id: &tg::build::Id,
 	) -> tg::Result<()> {
-		if self.try_add_build_child_local(build_id, child_id).await? {
-			return Ok(());
-		}
-		if self.try_add_build_child_remote(build_id, child_id).await? {
-			return Ok(());
-		}
-		Err(tg::error!("failed to get the build"))
-	}
-
-	async fn try_add_build_child_local(
-		&self,
-		build_id: &tg::build::Id,
-		child_id: &tg::build::Id,
-	) -> tg::Result<bool> {
 		// Verify the build is local.
 		if !self.get_build_exists_local(build_id).await? {
-			return Ok(false);
+			return Err(tg::error!("failed to find the build"));
 		}
 
 		// Get a database connection.
@@ -375,22 +373,7 @@ impl Server {
 			.await
 			.map_err(|source| tg::error!(!source, "failed to publish"))?;
 
-		Ok(true)
-	}
-
-	async fn try_add_build_child_remote(
-		&self,
-		build_id: &tg::build::Id,
-		child_id: &tg::build::Id,
-	) -> tg::Result<bool> {
-		let Some(remote) = self.remotes.first() else {
-			return Ok(false);
-		};
-		tg::Build::with_id(child_id.clone())
-			.push(self, remote)
-			.await?;
-		remote.add_build_child(build_id, child_id).await?;
-		Ok(true)
+		Ok(())
 	}
 }
 
@@ -442,11 +425,11 @@ impl Server {
 			},
 			Some((mime::TEXT, mime::EVENT_STREAM)) => {
 				let content_type = mime::TEXT_EVENT_STREAM;
-				let body = stream.map_ok(|chunk| {
+				let sse = stream.map_ok(|chunk| {
 					let data = serde_json::to_string(&chunk).unwrap();
 					tangram_http::sse::Event::with_data(data)
 				});
-				let body = Outgoing::sse(body);
+				let body = Outgoing::sse(sse);
 				(content_type, body)
 			},
 			_ => {

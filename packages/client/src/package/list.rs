@@ -4,6 +4,7 @@ use tangram_http::{incoming::response::Ext as _, outgoing::request::Ext as _};
 #[derive(Debug, Clone, Default, serde::Deserialize, serde::Serialize)]
 pub struct Arg {
 	pub query: Option<String>,
+	pub remote: Option<String>,
 }
 
 pub type Output = Vec<String>;

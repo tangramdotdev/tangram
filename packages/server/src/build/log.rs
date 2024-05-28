@@ -13,6 +13,7 @@ use tangram_database::{self as db, prelude::*};
 use tangram_futures::task::Stop;
 use tangram_http::{incoming::request::Ext as _, outgoing::response::Ext as _, Incoming, Outgoing};
 use tangram_messenger::Messenger as _;
+use tg::Handle as _;
 use tokio::io::{AsyncRead, AsyncReadExt as _, AsyncSeek, AsyncSeekExt as _, AsyncWriteExt as _};
 use tokio_stream::wrappers::IntervalStream;
 
@@ -265,38 +266,42 @@ impl Server {
 		arg: tg::build::log::Arg,
 	) -> tg::Result<Option<impl Stream<Item = tg::Result<tg::build::log::Chunk>> + Send + 'static>>
 	{
-		let Some(remote) = self.remotes.first() else {
+		let futures = self.remotes.iter().map(|remote| {
+			{
+				let remote = remote.clone();
+				let id = id.clone();
+				let arg = arg.clone();
+				async move {
+					remote
+						.get_build_log(&id, arg)
+						.await
+						.map(futures::StreamExt::boxed)
+				}
+			}
+			.boxed()
+		});
+		let Ok((stream, _)) = future::select_ok(futures).await else {
 			return Ok(None);
 		};
-		let Some(log) = remote.try_get_build_log_stream(id, arg).await? else {
-			return Ok(None);
-		};
-		Ok(Some(log))
+		Ok(Some(stream))
 	}
 
 	pub async fn add_build_log(&self, id: &tg::build::Id, bytes: Bytes) -> tg::Result<()> {
-		if self.try_add_build_log_local(id, bytes.clone()).await? {
-			return Ok(());
+		// Verify the build is local.
+		if !self.get_build_exists_local(id).await? {
+			return Err(tg::error!("failed to find the build"));
 		}
-		if self.try_add_build_log_remote(id, bytes.clone()).await? {
-			return Ok(());
-		}
-		Err(tg::error!("failed to get the build"))
-	}
 
-	async fn try_add_build_log_local(&self, id: &tg::build::Id, bytes: Bytes) -> tg::Result<bool> {
-		if self.options.advanced.write_build_logs_to_file {
-			self.try_add_build_log_local_file(id, bytes).await
+		if self.options.advanced.write_build_logs_to_database {
+			self.try_add_build_log_database(id, bytes).await?;
 		} else {
-			self.try_add_build_log_local_database(id, bytes).await
+			self.try_add_build_log_file(id, bytes).await?;
 		}
+
+		Ok(())
 	}
 
-	async fn try_add_build_log_local_file(
-		&self,
-		id: &tg::build::Id,
-		bytes: Bytes,
-	) -> tg::Result<bool> {
+	async fn try_add_build_log_file(&self, id: &tg::build::Id, bytes: Bytes) -> tg::Result<()> {
 		// Write to the log file.
 		let path = self.logs_path().join(id.to_string());
 		let mut file = tokio::fs::File::options()
@@ -316,19 +321,10 @@ impl Server {
 			.await
 			.map_err(|source| tg::error!(!source, "failed to publish"))?;
 
-		Ok(true)
+		Ok(())
 	}
 
-	async fn try_add_build_log_local_database(
-		&self,
-		id: &tg::build::Id,
-		bytes: Bytes,
-	) -> tg::Result<bool> {
-		// Verify the build is local.
-		if !self.get_build_exists_local(id).await? {
-			return Ok(false);
-		}
-
+	async fn try_add_build_log_database(&self, id: &tg::build::Id, bytes: Bytes) -> tg::Result<()> {
 		// Get a database connection.
 		let connection = self
 			.database
@@ -374,15 +370,7 @@ impl Server {
 			.await
 			.map_err(|source| tg::error!(!source, "failed to publish"))?;
 
-		Ok(true)
-	}
-
-	async fn try_add_build_log_remote(&self, id: &tg::build::Id, bytes: Bytes) -> tg::Result<bool> {
-		let Some(remote) = self.remotes.first() else {
-			return Ok(false);
-		};
-		remote.add_build_log(id, bytes).await?;
-		Ok(true)
+		Ok(())
 	}
 }
 
@@ -775,11 +763,11 @@ impl Server {
 		{
 			Some((mime::TEXT, mime::EVENT_STREAM)) => {
 				let content_type = mime::TEXT_EVENT_STREAM;
-				let body = stream.map_ok(|chunk| {
+				let sse = stream.map_ok(|chunk| {
 					let data = serde_json::to_string(&chunk).unwrap();
 					tangram_http::sse::Event::with_data(data)
 				});
-				let body = Outgoing::sse(body);
+				let body = Outgoing::sse(sse);
 				(content_type, body)
 			},
 			_ => {

@@ -1,20 +1,36 @@
 use crate as tg;
+use futures::{future, Stream, StreamExt as _, TryStreamExt as _};
 use tangram_http::{incoming::response::Ext as _, outgoing::request::Ext as _};
 
+#[derive(Clone, Debug, Default, serde::Deserialize, serde::Serialize)]
+pub struct Arg {
+	pub remote: Option<String>,
+}
+
 impl tg::Build {
-	pub async fn pull<H1, H2>(&self, _handle: &H1, _remote: &H2) -> tg::Result<()>
+	pub async fn pull<H>(
+		&self,
+		handle: &H,
+		arg: tg::build::pull::Arg,
+	) -> tg::Result<impl Stream<Item = tg::Result<tg::build::Progress>> + Send + 'static>
 	where
-		H1: tg::Handle,
-		H2: tg::Handle,
+		H: tg::Handle,
 	{
-		Err(tg::error!("unimplemented"))
+		let id = self.id();
+		let stream = handle.pull_build(id, arg).await?;
+		Ok(stream.boxed())
 	}
 }
 
 impl tg::Client {
-	pub async fn pull_build(&self, id: &tg::build::Id) -> tg::Result<()> {
+	pub async fn pull_build(
+		&self,
+		id: &tg::build::Id,
+		arg: tg::build::pull::Arg,
+	) -> tg::Result<impl Stream<Item = tg::Result<tg::build::Progress>> + Send + 'static> {
 		let method = http::Method::POST;
-		let uri = format!("/builds/{id}/pull");
+		let query = serde_urlencoded::to_string(arg).unwrap();
+		let uri = format!("/builds/{id}/pull?{query}");
 		let request = http::request::Builder::default()
 			.method(method)
 			.uri(uri)
@@ -25,6 +41,10 @@ impl tg::Client {
 			let error = response.json().await?;
 			return Err(error);
 		}
-		Ok(())
+		let output = response
+			.sse()
+			.and_then(|event| future::ready(serde_json::from_str(&event.data).map_err(Into::into)))
+			.map_err(|source| tg::error!(!source, "failed to read an event"));
+		Ok(output)
 	}
 }

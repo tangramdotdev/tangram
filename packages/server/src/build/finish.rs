@@ -16,23 +16,9 @@ impl Server {
 		id: &tg::build::Id,
 		arg: tg::build::finish::Arg,
 	) -> tg::Result<()> {
-		if self.try_set_build_outcome_local(id, arg.clone()).await? {
-			return Ok(());
-		}
-		if self.try_set_build_outcome_remote(id, arg.clone()).await? {
-			return Ok(());
-		}
-		Err(tg::error!("failed to get the build"))
-	}
-
-	async fn try_set_build_outcome_local(
-		&self,
-		id: &tg::build::Id,
-		arg: tg::build::finish::Arg,
-	) -> tg::Result<bool> {
 		// Verify the build is local.
 		if !self.get_build_exists_local(id).await? {
-			return Ok(false);
+			return Err(tg::error!("failed to find the build"));
 		}
 
 		// If the build is finished, then return.
@@ -48,7 +34,7 @@ impl Server {
 			.await?
 			.ok_or_else(|| tg::error!("failed to get the status"))?;
 		if status == tg::build::Status::Finished {
-			return Ok(true);
+			return Ok(());
 		}
 
 		// Get a database connection.
@@ -214,30 +200,7 @@ impl Server {
 			.await
 			.map_err(|source| tg::error!(!source, "failed to publish"))?;
 
-		Ok(true)
-	}
-
-	async fn try_set_build_outcome_remote(
-		&self,
-		id: &tg::build::Id,
-		arg: tg::build::finish::Arg,
-	) -> tg::Result<bool> {
-		// Get the remote.
-		let Some(remote) = self.remotes.first() else {
-			return Ok(false);
-		};
-
-		// Push the output.
-		if let tg::build::outcome::Data::Succeeded(value) = &arg.outcome {
-			tg::Value::try_from(value.clone())?
-				.push(self, remote, None)
-				.await?;
-		}
-
-		// Set the outcome.
-		remote.finish_build(id, arg).await?;
-
-		Ok(true)
+		Ok(())
 	}
 }
 

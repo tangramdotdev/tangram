@@ -4,8 +4,6 @@ use tangram_http::{incoming::response::Ext as _, outgoing::request::Ext as _};
 #[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
 pub struct Output {
 	pub id: tg::build::Id,
-	#[serde(default, skip_serializing_if = "Option::is_none")]
-	pub count: Option<u64>,
 	pub host: String,
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub log: Option<tg::blob::Id>,
@@ -14,8 +12,6 @@ pub struct Output {
 	pub retry: tg::build::Retry,
 	pub status: tg::build::Status,
 	pub target: tg::target::Id,
-	#[serde(default, skip_serializing_if = "Option::is_none")]
-	pub weight: Option<u64>,
 	#[serde(with = "time::serde::rfc3339")]
 	pub created_at: time::OffsetDateTime,
 	#[serde(

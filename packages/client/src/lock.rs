@@ -53,7 +53,7 @@ pub mod data {
 	use super::Id;
 	use crate as tg;
 	use either::Either;
-	use serde_with::{serde_as, DisplayFromStr};
+	use serde_with::serde_as;
 	use std::collections::BTreeMap;
 
 	#[serde_as]
@@ -69,7 +69,7 @@ pub mod data {
 	)]
 	#[serde(transparent)]
 	pub struct Node {
-		#[serde_as(as = "BTreeMap<DisplayFromStr, _>")]
+		#[serde_as(as = "serde_with::Seq<(_, _)>")]
 		pub dependencies: BTreeMap<tg::Dependency, Entry>,
 	}
 
@@ -180,11 +180,7 @@ impl Lock {
 		let data = self.data(handle, transaction).await?;
 		let bytes = data.serialize()?;
 		let id = Id::new(&bytes);
-		let arg = tg::object::put::Arg {
-			bytes,
-			count: None,
-			weight: None,
-		};
+		let arg = tg::object::put::Arg { bytes };
 		handle
 			.put_object(&id.clone().into(), arg, transaction)
 			.boxed()

@@ -11,6 +11,9 @@ pub struct Args {
 
 	#[arg(long, default_value = "false")]
 	pub locked: bool,
+
+	#[arg(short, long)]
+	pub remote: Option<String>,
 }
 
 impl Cli {
@@ -32,8 +35,11 @@ impl Cli {
 		let id = package.id(&self.handle, None).await?;
 
 		// Publish the package.
+		let arg = tg::package::publish::Arg {
+			remote: args.remote,
+		};
 		self.handle
-			.publish_package(&id)
+			.publish_package(&id, arg)
 			.await
 			.map_err(|source| tg::error!(!source, "failed to publish the package"))?;
 

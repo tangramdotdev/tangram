@@ -6,8 +6,11 @@ use tangram_client::{self as tg, Handle as _};
 #[derive(Clone, Debug, clap::Args)]
 #[group(skip)]
 pub struct Args {
-	#[arg(short, long, default_value = ".")]
+	#[arg(default_value = ".")]
 	pub package: tg::Dependency,
+
+	#[arg(short, long)]
+	pub remote: Option<String>,
 }
 
 impl Cli {
@@ -38,8 +41,11 @@ impl Cli {
 		let id = package.id(&self.handle, None).await?;
 
 		// Yank the package.
+		let arg = tg::package::yank::Arg {
+			remote: args.remote,
+		};
 		self.handle
-			.yank_package(&id)
+			.yank_package(&id, arg)
 			.await
 			.map_err(|source| tg::error!(!source, "failed to yank the package"))?;
 

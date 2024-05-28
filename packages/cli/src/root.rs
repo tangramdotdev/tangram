@@ -1,10 +1,10 @@
 use crate::Cli;
 use tangram_client as tg;
 
-pub mod add;
+pub mod delete;
 pub mod get;
 pub mod list;
-pub mod remove;
+pub mod put;
 
 /// Manage roots.
 #[derive(Clone, Debug, clap::Args)]
@@ -16,17 +16,17 @@ pub struct Args {
 
 #[derive(Clone, Debug, clap::Subcommand)]
 pub enum Command {
-	Add(self::add::Args),
+	Delete(self::delete::Args),
 	Get(self::get::Args),
 	List(self::list::Args),
-	Remove(self::remove::Args),
+	Put(self::put::Args),
 }
 
 impl Cli {
 	pub async fn command_root(&self, args: Args) -> tg::Result<()> {
 		match args.command {
-			Command::Add(args) => {
-				self.command_root_add(args).await?;
+			Command::Delete(args) => {
+				self.command_root_delete(args).await?;
 			},
 			Command::Get(args) => {
 				self.command_root_get(args).await?;
@@ -34,8 +34,8 @@ impl Cli {
 			Command::List(args) => {
 				self.command_root_list(args).await?;
 			},
-			Command::Remove(args) => {
-				self.command_root_remove(args).await?;
+			Command::Put(args) => {
+				self.command_root_put(args).await?;
 			},
 		}
 		Ok(())

@@ -10,21 +10,30 @@ impl Server {
 		&self,
 		dependency: &tg::Dependency,
 	) -> tg::Result<Option<Vec<String>>> {
-		if let Some(remote) = self.remotes.first() {
-			return remote.try_get_package_versions(dependency).await;
+		match &self.options.registry {
+			None => {
+				let versions = self
+					.try_get_package_versions_local(dependency)
+					.await?
+					.map(|versions| versions.into_iter().map(|(version, _)| version).collect());
+				Ok(versions)
+			},
+			Some(remote) => {
+				let remote = self
+					.remotes
+					.get(remote)
+					.ok_or_else(|| tg::error!("the remote does not exist"))?
+					.clone();
+				let versions = remote.try_get_package_versions(dependency).await?;
+				Ok(versions)
+			},
 		}
-
-		let versions = self
-			.try_get_package_versions_local(dependency)
-			.await?
-			.map(|versions| versions.into_iter().map(|(version, _)| version).collect());
-		Ok(versions)
 	}
 
 	pub(super) async fn try_get_package_versions_local(
 		&self,
 		dependency: &tg::Dependency,
-	) -> tg::Result<Option<Vec<(String, tg::directory::Id)>>> {
+	) -> tg::Result<Option<Vec<(String, tg::artifact::Id)>>> {
 		// Get the dependency name and version.
 		let name = dependency
 			.name
@@ -39,35 +48,17 @@ impl Server {
 			.await
 			.map_err(|source| tg::error!(!source, "failed to get a database connection"))?;
 
-		// Confirm the package exists.
-		let p = connection.p();
-		let statement = formatdoc!(
-			"
-				select count(*) != 0
-				from packages
-				where name = {p}1;
-			"
-		);
-		let params = db::params![name];
-		let exists = connection
-			.query_one_value_into::<bool>(statement, params)
-			.await
-			.map_err(|source| tg::error!(!source, "failed to execute the statement"))?;
-		if !exists {
-			return Ok(None);
-		}
-
 		// Get the package versions.
 		#[derive(serde::Deserialize, Debug)]
 		struct Row {
+			artifact: tg::artifact::Id,
 			version: String,
-			artifact: tg::directory::Id,
 			yanked: bool,
 		}
 		let p = connection.p();
 		let statement = formatdoc!(
 			"
-				select version, artifact, yanked
+				select artifact, version, yanked
 				from package_versions
 				where name = {p}1
 				order by published_at asc
@@ -150,15 +141,10 @@ impl Server {
 		let Ok(dependency) = dependency.parse() else {
 			return Ok(http::Response::builder().bad_request().empty().unwrap());
 		};
-
-		// Get the package.
 		let Some(output) = handle.try_get_package_versions(&dependency).await? else {
 			return Ok(http::Response::builder().not_found().empty().unwrap());
 		};
-
-		// Create the response.
 		let response = http::Response::builder().json(output).unwrap();
-
 		Ok(response)
 	}
 }

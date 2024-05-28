@@ -3,14 +3,11 @@ use either::Either;
 use tangram_client as tg;
 use tg::Handle as _;
 
-/// Add a root.
+/// Put a root.
 #[derive(Clone, Debug, clap::Args)]
 #[group(skip)]
 pub struct Args {
-	/// The name of the root.
 	pub name: String,
-
-	/// The build or object.
 	pub arg: Arg,
 }
 
@@ -21,7 +18,7 @@ pub enum Arg {
 }
 
 impl Cli {
-	pub async fn command_root_add(&self, args: Args) -> tg::Result<()> {
+	pub async fn command_root_put(&self, args: Args) -> tg::Result<()> {
 		let name = args.name;
 		let item = match args.arg {
 			Arg::Build(build) => Either::Left(build),

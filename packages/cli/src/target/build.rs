@@ -47,8 +47,8 @@ pub struct InnerArgs {
 	pub locked: bool,
 
 	/// Whether to build on a remote.
-	#[arg(long, default_value_t)]
-	pub remote: bool,
+	#[arg(short, long)]
+	pub remote: Option<Option<String>>,
 
 	/// The retry strategy to use.
 	#[allow(clippy::option_option)]
@@ -90,7 +90,7 @@ pub enum Arg {
 
 #[derive(Clone, Debug)]
 pub struct Specifier {
-	package: tg::Dependency,
+	dependency: tg::Dependency,
 	target: String,
 }
 
@@ -142,7 +142,7 @@ impl Cli {
 		let target = match arg {
 			Arg::Specifier(mut specifier) => {
 				// Canonicalize the path.
-				if let Some(path) = specifier.package.path.as_mut() {
+				if let Some(path) = specifier.dependency.path.as_mut() {
 					*path = tokio::fs::canonicalize(&path)
 						.await
 						.map_err(|source| tg::error!(!source, "failed to canonicalize the path"))?
@@ -151,7 +151,7 @@ impl Cli {
 
 				// Create the package.
 				let (package, lock) =
-					tg::package::get_with_lock(&self.handle, &specifier.package, args.locked)
+					tg::package::get_with_lock(&self.handle, &specifier.dependency, args.locked)
 						.await?;
 
 				// Create the target.
@@ -219,9 +219,14 @@ impl Cli {
 
 		// Build the target.
 		let id = target.id(&self.handle, None).await?;
+		let remote = match args.remote {
+			None => None,
+			Some(None) => Some(Either::Left(true)),
+			Some(Some(remote)) => Some(Either::Right(remote)),
+		};
 		let arg = tg::target::build::Arg {
 			parent: None,
-			remote: args.remote,
+			remote,
 			retry,
 		};
 		let output = self.handle.build_target(&id, arg).await?;
@@ -348,7 +353,7 @@ impl Default for InnerArgs {
 			env: vec![],
 			host: None,
 			locked: false,
-			remote: false,
+			remote: None,
 			retry: None,
 			root: None,
 			specifier: None,
@@ -382,7 +387,7 @@ impl std::str::FromStr for Arg {
 impl Default for Specifier {
 	fn default() -> Self {
 		Self {
-			package: ".".parse().unwrap(),
+			dependency: ".".parse().unwrap(),
 			target: "default".to_owned(),
 		}
 	}
@@ -397,8 +402,8 @@ impl std::str::FromStr for Specifier {
 			.split_once(':')
 			.ok_or_else(|| tg::error!("a target specifier must have a colon"))?;
 
-		// Get the package.
-		let package = if package.is_empty() {
+		// Get the dependency.
+		let dependency = if package.is_empty() {
 			".".parse().unwrap()
 		} else {
 			package.parse()?
@@ -411,6 +416,6 @@ impl std::str::FromStr for Specifier {
 			target.to_owned()
 		};
 
-		Ok(Self { package, target })
+		Ok(Self { dependency, target })
 	}
 }

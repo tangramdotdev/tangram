@@ -1,10 +1,11 @@
 use crate::Server;
-use futures::{future, Future, FutureExt, TryFutureExt as _, TryStreamExt as _};
+use futures::{future, Future, FutureExt as _, TryFutureExt as _, TryStreamExt as _};
 use indoc::formatdoc;
 use std::pin::pin;
 use tangram_client as tg;
 use tangram_database::{self as db, prelude::*};
 use tangram_http::{incoming::request::Ext as _, outgoing::response::Ext as _, Incoming, Outgoing};
+use tg::Handle as _;
 
 impl Server {
 	pub async fn try_get_build_outcome_future(
@@ -99,13 +100,24 @@ impl Server {
 	) -> tg::Result<
 		Option<impl Future<Output = tg::Result<Option<tg::build::Outcome>>> + Send + 'static>,
 	> {
-		let Some(remote) = self.remotes.first() else {
+		let futures = self.remotes.iter().map(|remote| {
+			{
+				let remote = remote.clone();
+				let id = id.clone();
+				let arg = arg.clone();
+				async move {
+					remote
+						.get_build_outcome(&id, arg)
+						.await
+						.map(futures::FutureExt::boxed)
+				}
+			}
+			.boxed()
+		});
+		let Ok((future, _)) = future::select_ok(futures).await else {
 			return Ok(None);
 		};
-		let Some(outcome) = remote.try_get_build_outcome_future(id, arg).await? else {
-			return Ok(None);
-		};
-		Ok(Some(outcome))
+		Ok(Some(future))
 	}
 }
 

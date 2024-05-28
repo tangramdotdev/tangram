@@ -21,11 +21,7 @@ pub enum Runtime {
 }
 
 impl Runtime {
-	pub async fn build(
-		&self,
-		build: &tg::Build,
-		remote: Option<tg::Client>,
-	) -> tg::Result<tg::Value> {
+	pub async fn build(&self, build: &tg::Build, remote: Option<String>) -> tg::Result<tg::Value> {
 		match self {
 			#[cfg(target_os = "macos")]
 			Runtime::Darwin(runtime) => runtime.build(build).await,
@@ -62,10 +58,7 @@ impl Server {
 		H: tg::Handle,
 	{
 		let output = handle.get_js_runtime_doc().await?;
-
-		// Create the response.
 		let response = http::Response::builder().json(output).unwrap();
-
 		Ok(response)
 	}
 }

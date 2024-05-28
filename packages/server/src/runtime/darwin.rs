@@ -12,6 +12,7 @@ use std::{
 	ffi::{CStr, CString},
 	fmt::Write as _,
 	os::unix::ffi::OsStrExt as _,
+	path::PathBuf,
 };
 use tangram_client as tg;
 use tangram_futures::task::Stop;
@@ -68,7 +69,7 @@ impl Runtime {
 					"failed to create the root temporary directory"
 				)
 			})?;
-		let root_directory_path = std::path::PathBuf::from(root_directory_tmp.as_ref());
+		let root_directory_path = PathBuf::from(root_directory_tmp.as_ref());
 
 		// Create a tempdir for the output.
 		let output_parent_directory_tmp = Tmp::new(server);
@@ -80,8 +81,7 @@ impl Runtime {
 					"failed to create the output parent directory"
 				)
 			})?;
-		let output_parent_directory_path =
-			std::path::PathBuf::from(output_parent_directory_tmp.as_ref());
+		let output_parent_directory_path = PathBuf::from(output_parent_directory_tmp.as_ref());
 
 		// Create the output path.
 		let output_path = output_parent_directory_path.join("output");

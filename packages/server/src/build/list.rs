@@ -80,15 +80,9 @@ impl Server {
 	where
 		H: tg::Handle,
 	{
-		// Get the query.
 		let arg = request.query_params().transpose()?.unwrap_or_default();
-
-		// List the builds.
 		let output = handle.list_builds(arg).await?;
-
-		// Create the response.
 		let response = http::Response::builder().json(output).unwrap();
-
 		Ok(response)
 	}
 }

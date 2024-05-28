@@ -66,6 +66,7 @@ pub mod package;
 pub mod path;
 pub mod position;
 pub mod range;
+pub mod remote;
 pub mod root;
 pub mod runtime;
 pub mod server;
@@ -594,12 +595,24 @@ impl tg::Handle for Client {
 		self.put_build(id, arg)
 	}
 
-	fn push_build(&self, id: &tg::build::Id) -> impl Future<Output = tg::Result<()>> {
-		self.push_build(id)
+	fn push_build(
+		&self,
+		id: &tg::build::Id,
+		arg: tg::build::push::Arg,
+	) -> impl Future<
+		Output = tg::Result<impl Stream<Item = tg::Result<tg::build::Progress>> + Send + 'static>,
+	> {
+		self.push_build(id, arg)
 	}
 
-	fn pull_build(&self, id: &tg::build::Id) -> impl Future<Output = tg::Result<()>> {
-		self.pull_build(id)
+	fn pull_build(
+		&self,
+		id: &tg::build::Id,
+		arg: tg::build::pull::Arg,
+	) -> impl Future<
+		Output = tg::Result<impl Stream<Item = tg::Result<tg::build::Progress>> + Send + 'static>,
+	> {
+		self.pull_build(id, arg)
 	}
 
 	fn try_dequeue_build(
@@ -709,6 +722,13 @@ impl tg::Handle for Client {
 		self.lsp(input, output)
 	}
 
+	fn try_get_object_metadata(
+		&self,
+		id: &tg::object::Id,
+	) -> impl Future<Output = tg::Result<Option<tg::object::Metadata>>> {
+		self.try_get_object_metadata(id)
+	}
+
 	fn try_get_object(
 		&self,
 		id: &tg::object::Id,
@@ -725,12 +745,24 @@ impl tg::Handle for Client {
 		self.put_object(id, arg, transaction)
 	}
 
-	fn push_object(&self, id: &tg::object::Id) -> impl Future<Output = tg::Result<()>> {
-		self.push_object(id)
+	fn push_object(
+		&self,
+		id: &tg::object::Id,
+		arg: tg::object::push::Arg,
+	) -> impl Future<
+		Output = tg::Result<impl Stream<Item = tg::Result<tg::object::Progress>> + Send + 'static>,
+	> + Send {
+		self.push_object(id, arg)
 	}
 
-	fn pull_object(&self, id: &tg::object::Id) -> impl Future<Output = tg::Result<()>> {
-		self.pull_object(id)
+	fn pull_object(
+		&self,
+		id: &tg::object::Id,
+		arg: tg::object::pull::Arg,
+	) -> impl Future<
+		Output = tg::Result<impl Stream<Item = tg::Result<tg::object::Progress>> + Send + 'static>,
+	> + Send {
+		self.pull_object(id, arg)
 	}
 
 	fn list_packages(
@@ -776,8 +808,12 @@ impl tg::Handle for Client {
 		self.get_package_outdated(package, arg)
 	}
 
-	fn publish_package(&self, id: &tg::artifact::Id) -> impl Future<Output = tg::Result<()>> {
-		self.publish_package(id)
+	fn publish_package(
+		&self,
+		id: &tg::artifact::Id,
+		arg: tg::package::publish::Arg,
+	) -> impl Future<Output = tg::Result<()>> {
+		self.publish_package(id, arg)
 	}
 
 	fn try_get_package_versions(
@@ -787,8 +823,38 @@ impl tg::Handle for Client {
 		self.try_get_package_versions(dependency)
 	}
 
-	fn yank_package(&self, id: &tg::artifact::Id) -> impl Future<Output = tg::Result<()>> {
-		self.yank_package(id)
+	fn yank_package(
+		&self,
+		id: &tg::artifact::Id,
+		arg: tg::package::yank::Arg,
+	) -> impl Future<Output = tg::Result<()>> {
+		self.yank_package(id, arg)
+	}
+
+	fn list_remotes(
+		&self,
+		arg: tg::remote::list::Arg,
+	) -> impl Future<Output = tg::Result<tg::remote::list::Output>> {
+		self.list_remotes(arg)
+	}
+
+	fn try_get_remote(
+		&self,
+		name: &str,
+	) -> impl Future<Output = tg::Result<Option<tg::remote::get::Output>>> {
+		self.try_get_remote(name)
+	}
+
+	fn put_remote(
+		&self,
+		name: &str,
+		arg: tg::remote::put::Arg,
+	) -> impl Future<Output = tg::Result<()>> {
+		self.put_remote(name, arg)
+	}
+
+	fn delete_remote(&self, name: &str) -> impl Future<Output = tg::Result<()>> {
+		self.delete_remote(name)
 	}
 
 	fn list_roots(

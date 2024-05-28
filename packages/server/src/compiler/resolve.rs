@@ -1,6 +1,7 @@
 use super::Compiler;
 use std::path::PathBuf;
 use tangram_client as tg;
+use tg::Handle as _;
 
 impl Compiler {
 	/// Resolve an import from a module.
@@ -114,8 +115,16 @@ impl Compiler {
 				}
 
 				// Get the package and lock for the dependency.
-				let (package, lock) =
-					tg::package::get_with_lock(&self.server, &dependency, false).await?;
+				let arg = tg::package::get::Arg {
+					lock: true,
+					..Default::default()
+				};
+				let output = self.server.get_package(&dependency, arg).await?;
+				let package = tg::Artifact::with_id(output.artifact);
+				let lock = output
+					.lock
+					.ok_or_else(|| tg::error!("expected the lock to be set"))?;
+				let lock = tg::Lock::with_id(lock);
 
 				// Create a module for the package.
 				self.module_for_package_with_kind(package, lock, import.kind)

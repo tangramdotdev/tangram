@@ -5,8 +5,6 @@ use tangram_http::{incoming::response::Ext as _, Outgoing};
 pub struct Arg {
 	pub id: tg::build::Id,
 	pub children: Vec<tg::build::Id>,
-	#[serde(default, skip_serializing_if = "Option::is_none")]
-	pub count: Option<u64>,
 	pub host: String,
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub log: Option<tg::blob::Id>,
@@ -15,8 +13,6 @@ pub struct Arg {
 	pub retry: tg::build::Retry,
 	pub status: tg::build::Status,
 	pub target: tg::target::Id,
-	#[serde(default, skip_serializing_if = "Option::is_none")]
-	pub weight: Option<u64>,
 	#[serde(with = "time::serde::rfc3339")]
 	pub created_at: time::OffsetDateTime,
 	#[serde(

@@ -14,28 +14,27 @@ use crate as tg;
 	serde::Serialize,
 )]
 pub struct Dependency {
-	/// The package's ID.
 	#[serde(default, skip_serializing_if = "Option::is_none")]
-	pub id: Option<tg::artifact::Id>,
+	pub artifact: Option<tg::artifact::Id>,
 
-	/// The name of the package.
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub name: Option<String>,
 
-	/// The package's path.
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub path: Option<tg::Path>,
 
-	/// The package's version.
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub remote: Option<String>,
+
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub version: Option<String>,
 }
 
 impl Dependency {
 	#[must_use]
-	pub fn with_id(id: tg::artifact::Id) -> Self {
+	pub fn with_artifact(artifact: tg::artifact::Id) -> Self {
 		Self {
-			id: Some(id),
+			artifact: Some(artifact),
 			..Default::default()
 		}
 	}
@@ -67,8 +66,8 @@ impl Dependency {
 	}
 
 	pub fn merge(&mut self, other: Self) {
-		if let Some(id) = other.id {
-			self.id = Some(id);
+		if let Some(artifact) = other.artifact {
+			self.artifact = Some(artifact);
 		}
 		if let Some(name) = other.name {
 			self.name = Some(name);
@@ -115,9 +114,9 @@ impl Dependency {
 
 impl std::fmt::Display for Dependency {
 	fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-		match (&self.id, &self.name, &self.version, &self.path) {
-			(Some(id), None, None, None) => {
-				write!(f, "{id}")?;
+		match (&self.artifact, &self.name, &self.version, &self.path) {
+			(Some(artifact), None, None, None) => {
+				write!(f, "{artifact}")?;
 			},
 			(None, Some(name), None, None) => write!(f, "{name}")?,
 			(None, Some(name), Some(version), None) => {
@@ -142,9 +141,9 @@ impl std::str::FromStr for Dependency {
 		if value.starts_with('{') {
 			serde_json::from_str(value)
 				.map_err(|source| tg::error!(!source, "failed to deserialize the dependency"))
-		} else if let Ok(id) = value.parse() {
+		} else if let Ok(artifact) = value.parse() {
 			Ok(Self {
-				id: Some(id),
+				artifact: Some(artifact),
 				..Default::default()
 			})
 		} else if value.starts_with('/') || value.starts_with('.') {
@@ -180,7 +179,7 @@ impl From<Dependency> for String {
 impl From<tg::artifact::Id> for Dependency {
 	fn from(value: tg::artifact::Id) -> Self {
 		Self {
-			id: Some(value),
+			artifact: Some(value),
 			..Default::default()
 		}
 	}
@@ -193,45 +192,50 @@ mod tests {
 	#[test]
 	fn display() {
 		let left = tg::Dependency {
-			id: None,
+			artifact: None,
 			name: Some("foo".into()),
 			path: None,
+			remote: None,
 			version: None,
 		};
 		let right = "foo";
 		assert_eq!(left.to_string(), right);
 
 		let left = tg::Dependency {
-			id: None,
+			artifact: None,
 			name: Some("foo".into()),
 			path: None,
+			remote: None,
 			version: Some("1.2.3".into()),
 		};
 		let right = "foo@1.2.3";
 		assert_eq!(left.to_string(), right);
 
 		let left = tg::Dependency {
-			id: None,
+			artifact: None,
 			name: Some("foo".into()),
 			path: None,
+			remote: None,
 			version: Some(r"/1\.2\.*".into()),
 		};
 		let right = r"foo@/1\.2\.*";
 		assert_eq!(left.to_string(), right);
 
 		let left = tg::Dependency {
-			id: None,
+			artifact: None,
 			name: Some("foo".into()),
 			path: Some("path/to/foo".parse().unwrap()),
+			remote: None,
 			version: Some("1.2.3".into()),
 		};
 		let right = r#"{"name":"foo","path":"./path/to/foo","version":"1.2.3"}"#;
 		assert_eq!(left.to_string(), right);
 
 		let left = tg::Dependency {
-			id: None,
+			artifact: None,
 			name: None,
 			path: Some("path/to/foo".parse().unwrap()),
+			remote: None,
 			version: None,
 		};
 		let right = "./path/to/foo";
@@ -242,18 +246,20 @@ mod tests {
 	fn parse() {
 		let left: tg::Dependency = "foo".parse().unwrap();
 		let right = tg::Dependency {
-			id: None,
+			artifact: None,
 			name: Some("foo".into()),
 			path: None,
+			remote: None,
 			version: None,
 		};
 		assert_eq!(left, right);
 
 		let left: tg::Dependency = "foo@1.2.3".parse().unwrap();
 		let right = tg::Dependency {
-			id: None,
+			artifact: None,
 			name: Some("foo".into()),
 			path: None,
+			remote: None,
 			version: Some("1.2.3".into()),
 		};
 		assert_eq!(left, right);
@@ -262,27 +268,30 @@ mod tests {
 			.parse()
 			.unwrap();
 		let right = tg::Dependency {
-			id: None,
+			artifact: None,
 			name: Some("foo".into()),
 			path: Some("path/to/foo".parse().unwrap()),
+			remote: None,
 			version: Some("1.2.3".into()),
 		};
 		assert_eq!(left, right);
 
 		let left: tg::Dependency = "./path/to/foo".parse().unwrap();
 		let right = tg::Dependency {
-			id: None,
+			artifact: None,
 			name: None,
 			path: Some("path/to/foo".parse().unwrap()),
+			remote: None,
 			version: None,
 		};
 		assert_eq!(left, right);
 
 		let left: tg::Dependency = r#"{"path":"path/to/foo"}"#.parse().unwrap();
 		let right = tg::Dependency {
-			id: None,
+			artifact: None,
 			name: None,
 			path: Some("path/to/foo".parse().unwrap()),
+			remote: None,
 			version: None,
 		};
 		assert_eq!(left, right);

@@ -8,16 +8,6 @@ use time::format_description::well_known::Rfc3339;
 
 impl Server {
 	pub async fn try_start_build(&self, id: &tg::build::Id) -> tg::Result<Option<bool>> {
-		if let Some(output) = self.try_start_build_local(id).await? {
-			return Ok(Some(output));
-		}
-		if let Some(output) = self.try_start_build_remote(id).await? {
-			return Ok(Some(output));
-		}
-		Ok(None)
-	}
-
-	async fn try_start_build_local(&self, id: &tg::build::Id) -> tg::Result<Option<bool>> {
 		// Verify the build is local.
 		if !self.get_build_exists_local(id).await? {
 			return Ok(None);
@@ -59,16 +49,6 @@ impl Server {
 				.map_err(|source| tg::error!(!source, "failed to publish"))?;
 		}
 
-		Ok(Some(output))
-	}
-
-	async fn try_start_build_remote(&self, id: &tg::build::Id) -> tg::Result<Option<bool>> {
-		let Some(remote) = self.remotes.first() else {
-			return Ok(None);
-		};
-		let Some(output) = remote.try_start_build(id).await? else {
-			return Ok(None);
-		};
 		Ok(Some(output))
 	}
 }

@@ -9,11 +9,19 @@ impl Server {
 		arg: tg::package::doc::Arg,
 	) -> tg::Result<Option<serde_json::Value>> {
 		// Get the package.
-		let Some((package, lock)) =
-			tg::package::try_get_with_lock(self, dependency, arg.locked).await?
-		else {
+		let arg = tg::package::get::Arg {
+			lock: true,
+			locked: arg.locked,
+			..Default::default()
+		};
+		let Some(output) = self.try_get_package(&dependency, arg).await? else {
 			return Ok(None);
 		};
+		let package = tg::Artifact::with_id(output.artifact);
+		let lock = output
+			.lock
+			.ok_or_else(|| tg::error!("expected the lock to be set"))?;
+		let lock = tg::Lock::with_id(lock);
 
 		// Create the module.
 		let module = tg::Module::with_package_and_lock(self, &package, &lock).await?;
@@ -44,15 +52,10 @@ impl Server {
 			return Ok(http::Response::builder().bad_request().empty().unwrap());
 		};
 		let arg = request.query_params().transpose()?.unwrap_or_default();
-
-		// Get the doc.
 		let Some(output) = handle.try_get_package_doc(&dependency, arg).await? else {
 			return Ok(http::Response::builder().not_found().empty().unwrap());
 		};
-
-		// Create the response.
 		let response = http::Response::builder().json(output).unwrap();
-
 		Ok(response)
 	}
 }

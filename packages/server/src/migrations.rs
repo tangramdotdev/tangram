@@ -60,8 +60,6 @@ impl Server {
 
 async fn migration_0000(path: &Path) -> tg::Result<()> {
 	let path = path.to_owned();
-
-	// Create the database.
 	let connection = rusqlite::Connection::open(path.join("database"))
 		.map_err(|source| tg::error!(!source, "failed to create the database"))?;
 	connection
@@ -71,16 +69,13 @@ async fn migration_0000(path: &Path) -> tg::Result<()> {
 		"
 			create table builds (
 				id text primary key,
-				complete integer not null,
-				count integer,
+				children integer not null,
 				host text not null,
-				indexed integer not null,
 				log text,
 				outcome text,
 				retry text not null,
 				status text not null,
 				target text not null,
-				weight integer,
 				created_at text not null,
 				dequeued_at text,
 				started_at text,
@@ -124,9 +119,9 @@ async fn migration_0000(path: &Path) -> tg::Result<()> {
 
 			create table objects (
 				id text primary key,
-				bytes blob not null,
-				indexed integer not null,
-				complete integer not null,
+				bytes blob,
+				children integer not null default 0,
+				complete integer not null default 0,
 				count integer,
 				weight integer,
 				touched_at text
@@ -141,12 +136,8 @@ async fn migration_0000(path: &Path) -> tg::Result<()> {
 
 			create index object_children_child_index on object_children (child);
 
-			create table packages (
-				name text primary key
-			);
-
 			create table package_versions (
-				name text not null references packages (name),
+				name text not null,
 				version text not null,
 				artifact text not null,
 				published_at text not null,
@@ -166,13 +157,12 @@ async fn migration_0000(path: &Path) -> tg::Result<()> {
 
 			create table tokens (
 				id text primary key,
-				user text not null references users (id)
+				user text not null
 			);
 		"
 	);
 	connection
 		.execute_batch(&sql)
 		.map_err(|source| tg::error!(!source, "failed to create the database tables"))?;
-
 	Ok(())
 }

@@ -40,7 +40,7 @@ struct State {
 	main_runtime_handle: tokio::runtime::Handle,
 	modules: RefCell<Vec<Module>>,
 	rejection: tokio::sync::watch::Sender<Option<tg::Error>>,
-	_remote: Option<tg::Client>,
+	remote: Option<String>,
 	server: Server,
 }
 
@@ -69,11 +69,7 @@ impl Runtime {
 		}
 	}
 
-	pub async fn build(
-		&self,
-		build: &tg::Build,
-		remote: Option<tg::Client>,
-	) -> tg::Result<tg::Value> {
+	pub async fn build(&self, build: &tg::Build, remote: Option<String>) -> tg::Result<tg::Value> {
 		let server = &self.server;
 
 		// Create a handle to the main runtime.
@@ -115,7 +111,7 @@ impl Runtime {
 		&self,
 		server: &Server,
 		build: &tg::Build,
-		remote: Option<tg::Client>,
+		remote: Option<String>,
 		main_runtime_handle: tokio::runtime::Handle,
 		isolate_handle_sender: tokio::sync::watch::Sender<Option<v8::IsolateHandle>>,
 	) -> tg::Result<tg::Value> {
@@ -153,7 +149,7 @@ impl Runtime {
 			main_runtime_handle,
 			modules: RefCell::new(Vec::new()),
 			rejection: tokio::sync::watch::channel(None).0,
-			_remote: remote.clone(),
+			remote: remote.clone(),
 			server: server.clone(),
 		});
 
