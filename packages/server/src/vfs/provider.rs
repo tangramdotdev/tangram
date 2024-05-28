@@ -15,7 +15,7 @@ use tokio::io::{AsyncReadExt, AsyncSeekExt};
 use crate::Server;
 
 pub struct Provider {
-	cache: moka::future::Cache<u64, tg::Artifact, fnv::FnvBuildHasher>,
+	cache: moka::future::Cache<u64, (tg::Artifact, bool), fnv::FnvBuildHasher>,
 	counter: AtomicU64,
 	database: db::sqlite::Database,
 	open_dirs: DashMap<u64, DirectoryHandle, fnv::FnvBuildHasher>,
@@ -29,23 +29,6 @@ pub struct DirectoryHandle {
 	directory: Option<tg::Directory>,
 }
 
-#[derive(Clone, Debug, serde::Serialize, serde::Deserialize)]
-pub struct Node {
-	#[serde(default, skip_serializing_if = "Option::is_none")]
-	artifact: Option<tg::artifact::Id>,
-	kind: NodeKind,
-}
-
-#[derive(Copy, Clone, Debug, serde::Serialize, serde::Deserialize)]
-#[serde(tag = "kind", rename_all = "snake_case")]
-enum NodeKind {
-	Root,
-	File { executable: bool, size: u64 },
-	Directory,
-	Symlink,
-	Checkout,
-}
-
 impl vfs::Provider for Provider {
 	async fn lookup(&self, parent: u64, name: &str) -> std::io::Result<Option<u64>> {
 		if name == "." {
@@ -56,7 +39,7 @@ impl vfs::Provider for Provider {
 		}
 
 		// Check the cache to see if the node is there to vaoid going to the database if we don't need to.
-		if let Some(tg::Artifact::Directory(object)) = self.cache.get(&parent).await {
+		if let Some((tg::Artifact::Directory(object), _)) = self.cache.get(&parent).await {
 			let entries = object.entries(&self.server).await.map_err(|error| {
 				tracing::error!(%error, %parent, %name, "failed to get directory entries");
 				std::io::Error::from_raw_os_error(libc::EIO)
@@ -96,34 +79,29 @@ impl vfs::Provider for Provider {
 		}
 
 		// If the parent is the root, create a new node or lookup as a checkout.
-		let data = 'a: {
+		let mut checkout = false;
+		let artifact = 'a: {
 			if parent != vfs::ROOT_NODE_ID {
 				break 'a None;
 			};
 			let Ok(artifact) = name.parse() else {
 				return Ok(None);
 			};
-			if matches!(
+			let artifact = tg::Artifact::with_id(artifact);
+			checkout = matches!(
 				tokio::fs::try_exists(self.server.checkouts_path().join(name)).await,
 				Ok(true)
-			) {
-				break 'a Some(Node {
-					artifact: Some(artifact),
-					kind: NodeKind::Checkout,
-				});
-			}
-			let artifact = tg::Artifact::with_id(artifact);
-			Some(self.create_node(&artifact).await?)
+			);
+			Some(artifact)
 		};
 
 		// Otherwise, get the parent artifact and attempt to lookup.
-		let data = 'a: {
-			if let Some(data) = data {
-				break 'a Some(data);
+		let artifact = 'a: {
+			if let Some(artifact) = artifact {
+				break 'a Some(artifact);
 			}
-			let parent = self.get(parent).await?;
-			let Some(tg::Artifact::Directory(parent)) = parent.artifact.map(tg::Artifact::with_id)
-			else {
+			let (artifact, _) = self.get(parent).await?;
+			let Some(tg::Artifact::Directory(parent)) = artifact else {
 				return Ok(None);
 			};
 			let entries = parent.entries(&self.server).await.map_err(|error| {
@@ -133,14 +111,14 @@ impl vfs::Provider for Provider {
 			let Some(artifact) = entries.get(name) else {
 				return Ok(None);
 			};
-			Some(self.create_node(artifact).await?)
+			Some(artifact.clone())
 		};
 
-		let Some(data) = data else {
+		let Some(artifact) = artifact else {
 			return Ok(None);
 		};
 
-		let id = self.put(parent, name, data).await?;
+		let id = self.put(parent, name, artifact, checkout).await?;
 		Ok(Some(id))
 	}
 
@@ -172,19 +150,30 @@ impl vfs::Provider for Provider {
 	}
 
 	async fn getattr(&self, id: u64) -> std::io::Result<vfs::Attrs> {
-		let node = self.get(id).await?;
-		match node.kind {
-			NodeKind::Root | NodeKind::Directory => Ok(vfs::Attrs::new(vfs::FileType::Directory)),
-			NodeKind::Symlink | NodeKind::Checkout => Ok(vfs::Attrs::new(vfs::FileType::Symlink)),
-			NodeKind::File { executable, size } => {
+		match self.get(id).await? {
+			(Some(tg::Artifact::File(file)), false) => {
+				let executable = file.executable(&self.server).await.map_err(|error| {
+					tracing::error!(%error, "failed to get file's executable bit");
+					std::io::Error::from_raw_os_error(libc::EIO)
+				})?;
+				let size = file.size(&self.server).await.map_err(|error| {
+					tracing::error!(%error, "failed to get file's size");
+					std::io::Error::from_raw_os_error(libc::EIO)
+				})?;
 				Ok(vfs::Attrs::new(vfs::FileType::File { executable, size }))
+			},
+			(Some(tg::Artifact::Directory(_)), false) | (None, _) => {
+				Ok(vfs::Attrs::new(vfs::FileType::Directory))
+			},
+			(Some(tg::Artifact::Symlink(_)), false) | (_, true) => {
+				Ok(vfs::Attrs::new(vfs::FileType::Symlink))
 			},
 		}
 	}
 
 	async fn open(&self, id: u64) -> std::io::Result<u64> {
-		let node = self.get(id).await?;
-		let Some(tg::Artifact::File(file)) = node.artifact.map(tg::Artifact::with_id) else {
+		let (artifact, _) = self.get(id).await?;
+		let Some(tg::Artifact::File(file)) = artifact else {
 			tracing::error!(%id, "tried to open a non-regular file");
 			return Err(std::io::Error::other("expected a file"));
 		};
@@ -212,19 +201,32 @@ impl vfs::Provider for Provider {
 	}
 
 	async fn readlink(&self, id: u64) -> std::io::Result<Bytes> {
-		let node = self.get(id).await?;
-		if let NodeKind::Checkout = node.kind {
+		let (artifact, checkout) = self.get(id).await.map_err(|error| {
+			tracing::error!(%error, "failed to lookup node");
+			std::io::Error::from_raw_os_error(libc::EIO)
+		})?;
+
+		if checkout {
+			let id = artifact
+				.unwrap()
+				.id(&self.server, None)
+				.await
+				.map_err(|error| {
+					tracing::error!(%error, "failed to get artifact id");
+					std::io::Error::from_raw_os_error(libc::EIO)
+				})?;
 			let path = self
 				.server
 				.checkouts_path()
-				.join(node.artifact.as_ref().unwrap().to_string())
+				.join(id.to_string())
 				.as_os_str()
 				.as_bytes()
 				.to_vec()
 				.into();
 			return Ok(path);
 		}
-		let Some(tg::Artifact::Symlink(symlink)) = node.artifact.map(tg::Artifact::with_id) else {
+
+		let Some(tg::Artifact::Symlink(symlink)) = artifact else {
 			tracing::error!(%id, "tried to readlink on an invalid file type");
 			return Err(std::io::Error::other("expected a symlink"));
 		};
@@ -253,21 +255,23 @@ impl vfs::Provider for Provider {
 		if let Some(path) = path.as_ref() {
 			target = target.join(path.clone());
 		}
-		let target = target.to_string().into_bytes().into();
+		let target = target.to_string();
+		tracing::debug!(%target, "readlink target");
+		let target = target.into_bytes().into();
 		Ok(target)
 	}
 
 	async fn listxattrs(&self, id: u64) -> std::io::Result<Vec<String>> {
-		let node = self.get(id).await?;
-		let NodeKind::File { .. } = node.kind else {
+		let (artifact, _) = self.get(id).await?;
+		let Some(tg::Artifact::File(_)) = artifact else {
 			return Ok(Vec::new());
 		};
 		Ok(vec![tg::file::TANGRAM_FILE_XATTR_NAME.to_owned()])
 	}
 
 	async fn getxattr(&self, id: u64, name: &str) -> std::io::Result<Option<String>> {
-		let node = self.get(id).await?;
-		let Some(tg::Artifact::File(file)) = node.artifact.map(tg::Artifact::with_id) else {
+		let (artifact, _) = self.get(id).await?;
+		let Some(tg::Artifact::File(file)) = artifact else {
 			return Ok(None);
 		};
 
@@ -296,10 +300,10 @@ impl vfs::Provider for Provider {
 	}
 
 	async fn opendir(&self, id: u64) -> std::io::Result<u64> {
-		let node = self.get(id).await?;
-		let directory = match node.artifact.map(tg::Artifact::with_id) {
-			None => None,
+		let (artifact, _) = self.get(id).await?;
+		let directory = match artifact {
 			Some(tg::Artifact::Directory(directory)) => Some(directory),
+			None => None,
 			Some(_) => {
 				tracing::error!(%id, "called opendir on a file or symlink");
 				return Err(std::io::Error::other("expected a directory"));
@@ -400,7 +404,8 @@ impl Provider {
 					id integer primary key autoincrement,
 					parent integer not null,
 					name text,
-					data text not null
+					artifact text,
+					checkout integer not null
 				);
 
 				create index node_parent_name_index on nodes (id, parent);
@@ -412,14 +417,10 @@ impl Provider {
 			.map_err(|source| tg::error!(!source, "failed to create the database"))?;
 
 		// Insert the root node.
-		let node = Node {
-			artifact: None,
-			kind: NodeKind::Root,
-		};
 		let p = connection.p();
 		let statement =
-			formatdoc!("insert into nodes (id, parent, data) values ({p}1, {p}1, {p}2)");
-		let params = db::params![vfs::ROOT_NODE_ID, node];
+			formatdoc!("insert into nodes (id, parent, checkout) values ({p}1, {p}1, {p}2)");
+		let params = db::params![vfs::ROOT_NODE_ID, false];
 		connection
 			.execute(statement, params)
 			.await
@@ -427,38 +428,11 @@ impl Provider {
 		Ok(())
 	}
 
-	async fn create_node(&self, artifact: &tg::Artifact) -> std::io::Result<Node> {
-		let kind = match artifact {
-			tg::Artifact::Directory(_) => NodeKind::Directory,
-			tg::Artifact::Symlink(_) => NodeKind::Symlink,
-			tg::Artifact::File(file) => {
-				let executable = file.executable(&self.server).await.map_err(|error| {
-					tracing::error!(%error, "failed to get file metadata");
-					std::io::Error::from_raw_os_error(libc::EIO)
-				})?;
-				let size = file.size(&self.server).await.map_err(|error| {
-					tracing::error!(%error, "failed to get file metadata");
-					std::io::Error::from_raw_os_error(libc::EIO)
-				})?;
-				NodeKind::File { executable, size }
-			},
-		};
-
-		let artifact = artifact.id(&self.server, None).await.map_err(|error| {
-			tracing::error!(%error, "failed to get artifact id");
-			std::io::Error::from_raw_os_error(libc::EIO)
-		})?;
-
-		Ok(Node {
-			artifact: Some(artifact),
-			kind,
-		})
-	}
-
-	async fn get(&self, id: u64) -> std::io::Result<Node> {
+	async fn get(&self, id: u64) -> std::io::Result<(Option<tg::Artifact>, bool)> {
 		// Attempt to get from the cache.
-		if let Some(artifact) = self.cache.get(&id).await {
-			return self.create_node(&artifact).await;
+		if let Some((artifact, checkout)) = self.cache.get(&id).await {
+			// return self.create_node(&artifact).await;
+			return Ok((Some(artifact), checkout));
 		}
 
 		let connection = self.database.connection().await.map_err(|error| {
@@ -468,12 +442,13 @@ impl Provider {
 
 		#[derive(serde::Deserialize)]
 		struct Row {
-			data: Node,
+			artifact: Option<tg::artifact::Id>,
+			checkout: bool,
 		}
 		let p = connection.p();
 		let statement = formatdoc!(
 			"
-				select data from nodes where id = {p}1;
+				select artifact, checkout from nodes where id = {p}1;
 			"
 		);
 		let params = db::params![id];
@@ -485,20 +460,28 @@ impl Provider {
 				std::io::Error::from_raw_os_error(libc::EIO)
 			})?;
 
-		// Update the cache.
-		if let Some(artifact) = row.data.artifact.clone() {
-			self.cache.insert(id, tg::Artifact::with_id(artifact)).await;
+		// Get the artifact and update the cache.
+		let artifact = row.artifact.map(tg::Artifact::with_id);
+		if let Some(artifact) = artifact.clone() {
+			self.cache.insert(id, (artifact, row.checkout)).await;
 		}
-		Ok(row.data)
+		Ok((artifact, row.checkout))
 	}
 
-	async fn put(&self, parent: u64, name: &str, data: Node) -> std::io::Result<u64> {
-		// Update the cache.
-		if let Some(artifact) = data.artifact.clone() {
-			self.cache
-				.insert(parent, tg::Artifact::with_id(artifact))
-				.await;
-		}
+	async fn put(
+		&self,
+		parent: u64,
+		name: &str,
+		artifact: tg::Artifact,
+		checkout: bool,
+	) -> std::io::Result<u64> {
+		self.cache
+			.insert(parent, (artifact.clone(), checkout))
+			.await;
+		let artifact = artifact.id(&self.server, None).await.map_err(|error| {
+			tracing::error!(%error, "failed to get artifact id");
+			std::io::Error::from_raw_os_error(libc::EIO)
+		})?;
 
 		let connection = self.database.connection().await.map_err(|error| {
 			tracing::error!(%error, "failed to get database connection");
@@ -512,12 +495,12 @@ impl Provider {
 		let p = connection.p();
 		let statement = formatdoc!(
 			"
-				insert into nodes (parent, name, data)
-				values ({p}1, {p}2, {p}3)
+				insert into nodes (parent, name, artifact, checkout)
+				values ({p}1, {p}2, {p}3, {p}4)
 				returning id;
 			"
 		);
-		let params = db::params![parent, name, data];
+		let params = db::params![parent, name, artifact, checkout];
 		let row = connection
 			.query_one_into::<Row>(statement, params)
 			.await

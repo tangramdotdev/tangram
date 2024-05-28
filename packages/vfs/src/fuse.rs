@@ -123,7 +123,10 @@ where
 
 	async fn task(&self, stop: Stop) -> Result<()> {
 		// Unmount.
-		self.unmount().await.ok();
+		self.unmount()
+			.await
+			.inspect_err(|error| tracing::warn!(%error, "failed to unmount"))
+			.ok();
 
 		// Mount.
 		let fd = self
@@ -584,9 +587,10 @@ where
 
 	async fn handle_unsupported_request(
 		&self,
-		_header: fuse_in_header,
-		_request: u32,
+		header: fuse_in_header,
+		request: u32,
 	) -> Result<Option<Response>> {
+		tracing::error!(?header, %request, "unsupported request");
 		Err(Error::from_raw_os_error(libc::ENOSYS))
 	}
 
@@ -697,7 +701,7 @@ where
 	async fn unmount(&self) -> Result<()> {
 		let path = &self.0.path;
 		tokio::process::Command::new("fusermount3")
-			.args(["-u", "-f"])
+			.args(["-u"])
 			.arg(path)
 			.stdin(std::process::Stdio::null())
 			.stdout(std::process::Stdio::null())
