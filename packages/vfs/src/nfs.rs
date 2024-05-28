@@ -1,6 +1,4 @@
-use crate::{
-	Attrs, FileType, Provider as _,
-};
+use crate::{Attrs, FileType, Provider as _};
 use dashmap::DashMap;
 use futures::{future, TryFutureExt};
 use num::ToPrimitive;
@@ -97,7 +95,6 @@ where
 		url: String,
 		port: u16,
 	) -> Result<Self, std::io::Error> {
-
 		let provider = Provider::new(provider);
 		let server = Self(Arc::new(Inner {
 			path: path.as_ref().to_owned(),

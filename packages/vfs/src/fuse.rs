@@ -18,9 +18,7 @@ use self::sys::{
 	fuse_in_header, fuse_init_in, fuse_init_out, fuse_open_in, fuse_open_out, fuse_out_header,
 	fuse_read_in, fuse_release_in,
 };
-use crate::{
-	FileType, Provider, Result,
-};
+use crate::{FileType, Provider, Result};
 use std::io::Error;
 use std::pin::pin;
 
@@ -91,10 +89,7 @@ impl<P> Vfs<P>
 where
 	P: Provider + Send + Sync + 'static,
 {
-	pub async fn start(
-		provider: P,
-		path: impl AsRef<Path>,
-	) -> Result<Self> {
+	pub async fn start(provider: P, path: impl AsRef<Path>) -> Result<Self> {
 		let path = path.as_ref().to_owned();
 		let vfs = Vfs(Arc::new(Inner {
 			provider,
