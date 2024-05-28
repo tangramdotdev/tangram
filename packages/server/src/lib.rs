@@ -285,7 +285,6 @@ impl Server {
 
 	pub async fn task(&self, stop: Stop) -> tg::Result<()> {
 		// Start the VFS if necessary.
-		let artifacts_path = self.artifacts_path();
 		if self.options.vfs {
 			// If the VFS is enabled, then start the VFS server.
 			let kind = if cfg!(target_os = "macos") {
@@ -295,12 +294,21 @@ impl Server {
 			} else {
 				unreachable!()
 			};
+			let artifacts_path = self.artifacts_path();
 			let vfs = self::vfs::Server::start(self, kind, &artifacts_path)
 				.await
-				.map_err(|source| tg::error!(!source, "failed to start the VFS"))?;
-			self.vfs.lock().unwrap().replace(vfs);
-		} else {
-			// Otherwise, create a symlink from the artifacts directory to the checkouts directory.
+				.inspect_err(|source| {
+					tracing::error!(%source, "failed to start the VFS");
+				})
+				.ok();
+			if let Some(vfs) = vfs {
+				self.vfs.lock().unwrap().replace(vfs);
+			}
+		}
+
+		// If there is no VFS, then create a symlink from the artifacts directory to the checkouts directory.
+		if self.vfs.lock().unwrap().is_none() {
+			let artifacts_path = self.artifacts_path();
 			remove(&artifacts_path).await.ok();
 			tokio::fs::symlink("checkouts", artifacts_path)
 				.await

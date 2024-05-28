@@ -4,7 +4,6 @@ use futures::Future;
 pub mod fuse;
 pub mod nfs;
 
-pub type Result<T> = std::io::Result<T>;
 pub const ROOT_NODE_ID: u64 = 1;
 
 /// A virtual filesystem provider.
@@ -71,6 +70,8 @@ pub struct TimeSpec {
 	pub secs: u64,
 	pub nanos: u32,
 }
+
+pub type Result<T> = std::io::Result<T>;
 
 impl Attrs {
 	#[must_use]

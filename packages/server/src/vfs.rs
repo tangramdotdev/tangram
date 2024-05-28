@@ -1,10 +1,9 @@
+use provider::Provider;
 use std::path::Path;
 use tangram_client as tg;
-use tangram_database as db;
 use tangram_vfs as vfs;
 
 mod provider;
-use provider::Provider;
 
 #[derive(Debug, Clone, Copy)]
 pub enum Kind {
@@ -21,28 +20,25 @@ pub enum Server {
 impl Server {
 	pub async fn start(server: &crate::Server, kind: Kind, path: &Path) -> tg::Result<Self> {
 		// Remove a file at the path if one exists.
-		std::fs::remove_file(path).ok();
+		tokio::fs::remove_file(path).await.ok();
 
 		// Create a directory at the path if necessary.
-		std::fs::create_dir_all(path).ok();
+		tokio::fs::create_dir_all(path).await.ok();
 
-		let database = db::sqlite::Options {
-			path: server.path.join("vfs"),
-			connections: 4,
-		};
+		// Create the provider.
 		let options = provider::Options {
 			cache_ttl: 10.0,
 			cache_size: 2048,
-			database,
+			connections: 4,
 		};
 		let provider = Provider::new(server, options).await?;
 
-		match kind {
+		let vfs = match kind {
 			Kind::Fuse => {
 				let fuse = vfs::fuse::Vfs::start(provider, path)
 					.await
 					.map_err(|source| tg::error!(!source, "failed to start FUSE server"))?;
-				Ok(Server::Fuse(fuse))
+				Server::Fuse(fuse)
 			},
 			Kind::Nfs => {
 				let port = 8476;
@@ -69,9 +65,11 @@ impl Server {
 				let nfs = vfs::nfs::Vfs::start(provider, path, url.into(), port)
 					.await
 					.map_err(|source| tg::error!(!source, "failed to start NFS server"))?;
-				Ok(Self::Nfs(nfs))
+				Self::Nfs(nfs)
 			},
-		}
+		};
+
+		Ok(vfs)
 	}
 
 	pub fn stop(&self) {

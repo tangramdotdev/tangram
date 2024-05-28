@@ -1,22 +1,3 @@
-use crate::{Attrs, FileType, Provider as _};
-use dashmap::DashMap;
-use futures::{future, TryFutureExt};
-use num::ToPrimitive;
-use std::{
-	io::Error,
-	path::{Path, PathBuf},
-	pin::pin,
-	sync::{atomic::AtomicU64, Arc, Mutex},
-};
-use tangram_futures::task::{Stop, Task};
-use tokio::net::{TcpListener, TcpStream};
-mod provider;
-use provider::{ExtAttr, Provider};
-
-pub mod rpc;
-pub mod types;
-pub mod xdr;
-
 use self::types::{
 	bitmap4, cb_client4, change_info4, dirlist4, entry4, fattr4, fs_locations4, fsid4, locker4,
 	nfs_argop4, nfs_fh4, nfs_ftype4, nfs_lock_type4, nfs_opnum4, nfs_resop4, nfsace4, nfsstat4,
@@ -47,18 +28,31 @@ use self::types::{
 	OPEN4_RESULT_CONFIRM, OPEN4_RESULT_LOCKTYPE_POSIX, OPEN4_SHARE_ACCESS_BOTH,
 	OPEN4_SHARE_ACCESS_WRITE, READ_BYPASS_STATE_ID, RPC_VERS,
 };
+use crate::{Attrs, FileType, Provider as _};
+use dashmap::DashMap;
+use futures::{future, TryFutureExt as _};
+use num::ToPrimitive as _;
+use provider::{ExtAttr, Provider};
+use std::{
+	io::Error,
+	path::{Path, PathBuf},
+	pin::pin,
+	sync::{atomic::AtomicU64, Arc, Mutex},
+};
+use tangram_futures::task::{Stop, Task};
+use tokio::net::{TcpListener, TcpStream};
+
+mod provider;
+
+pub mod rpc;
+pub mod types;
+pub mod xdr;
 
 const ROOT: nfs_fh4 = nfs_fh4(crate::ROOT_NODE_ID);
 
 pub struct Vfs<P>(Arc<Inner<P>>);
 
-impl<P> Clone for Vfs<P> {
-	fn clone(&self) -> Self {
-		Self(self.0.clone())
-	}
-}
-
-struct Inner<P> {
+pub struct Inner<P> {
 	path: PathBuf,
 	port: u16,
 	provider: Provider<P>,
@@ -108,7 +102,7 @@ where
 
 		// Spawn the task.
 		let task = Task::spawn(|stop| {
-			let server = Self(server.0.clone());
+			let server = server.clone();
 			async move {
 				server
 					.task(stop)
@@ -120,16 +114,16 @@ where
 			}
 		});
 
-		server.0.task.lock().unwrap().replace(task);
+		server.task.lock().unwrap().replace(task);
 		Ok(server)
 	}
 
 	pub fn stop(&self) {
-		self.0.task.lock().unwrap().as_ref().unwrap().stop();
+		self.task.lock().unwrap().as_ref().unwrap().stop();
 	}
 
 	pub async fn wait(self) {
-		let task = self.0.task.lock().unwrap().clone().unwrap();
+		let task = self.task.lock().unwrap().clone().unwrap();
 		task.wait().await.ok();
 	}
 
@@ -156,7 +150,7 @@ where
 		});
 
 		// Bind.
-		let port = &self.0.port;
+		let port = &self.port;
 		let addr = format!("localhost:{port}");
 		let listener = TcpListener::bind(&addr).await?;
 
@@ -173,7 +167,7 @@ where
 
 			// Spawn a task to handle the connection.
 			task_tracker.spawn({
-				let server = Self(self.0.clone());
+				let server = self.clone();
 				async move {
 					server
 						.handle_connection(stream, stop)
@@ -197,13 +191,13 @@ where
 	}
 
 	async fn mount(&self) -> Result<(), std::io::Error> {
-		let url = &self.0.url;
-		let port = &self.0.port;
-		let path = &self.0.path;
+		let url = &self.url;
+		let port = &self.port;
+		let path = &self.path;
 		let status = tokio::process::Command::new("mount_nfs")
 			.arg("-o")
 			.arg(format!(
-				"async,actimeo=60,mutejukebox,noacl,noquota,nobrowse,rdonly,rsize=2097152,nocallback,tcp,vers=4.0,namedattr,port={port}"
+				"async,actimeo=60,mutejukebox,noacl,noquota,nobrowse,rdonly,rsize=2097152,nocallback,tcp,vers=4,namedattr,port={port}"
 			))			.arg(format!("{url}:/"))
 			.arg(path)
 			.stdout(std::process::Stdio::null())
@@ -217,7 +211,7 @@ where
 	}
 
 	async fn unmount(&self) -> Result<(), std::io::Error> {
-		let path = &self.0.path;
+		let path = &self.path;
 		tokio::process::Command::new("umount")
 			.args(["-f"])
 			.arg(path)
@@ -257,7 +251,7 @@ where
 			};
 
 			task_tracker.spawn({
-				let server = Self(self.0.clone());
+				let server = self.clone();
 				let message_sender = message_sender.clone();
 				async move {
 					let mut decoder = xdr::Decoder::from_bytes(&fragments);
@@ -509,7 +503,7 @@ where
 			return ACCESS4res::Error(nfsstat4::NFS4ERR_NOFILEHANDLE);
 		};
 
-		let attr = match self.0.provider.get_attr_ext(fh.0).await {
+		let attr = match self.provider.get_attr_ext(fh.0).await {
 			Ok(attr) => attr,
 			Err(error) => return ACCESS4res::Error(error.into()),
 		};
@@ -547,7 +541,7 @@ where
 			return CLOSE4res::Error(nfsstat4::NFS4ERR_NOFILEHANDLE);
 		};
 		let mut stateid = arg.open_stateid;
-		self.0.provider.close(stateid.index()).await;
+		self.provider.close(stateid.index()).await;
 		stateid.seqid = stateid.seqid.increment();
 		CLOSE4res::NFS4_OK(stateid)
 	}
@@ -591,14 +585,14 @@ where
 			return Some(FileAttrData::new(file_handle, nfs_ftype4::NF4DIR, 0, O_RX));
 		}
 
-		let attr = self.0.provider.get_attr_ext(file_handle.0).await.ok()?;
+		let attr = self.provider.get_attr_ext(file_handle.0).await.ok()?;
 		let data = match attr {
 			ExtAttr::Normal(Attrs {
 				typ: FileType::Directory,
 				..
 			}) => {
-				let handle = self.0.provider.opendir(file_handle.0).await.ok()?;
-				let children = self.0.provider.readdir(handle).await.ok()?;
+				let handle = self.provider.opendir(file_handle.0).await.ok()?;
+				let children = self.provider.readdir(handle).await.ok()?;
 				let len = children.len();
 				FileAttrData::new(file_handle, nfs_ftype4::NF4DIR, len, O_RX)
 			},
@@ -707,7 +701,7 @@ where
 				status: nfsstat4::NFS4ERR_NOFILEHANDLE,
 			};
 		};
-		let Ok(parent) = self.0.provider.lookup_parent(fh.0).await else {
+		let Ok(parent) = self.provider.lookup_parent(fh.0).await else {
 			return LOOKUPP4res {
 				status: nfsstat4::NFS4ERR_BADHANDLE,
 			};
@@ -719,8 +713,7 @@ where
 	}
 
 	async fn lookup(&self, parent: nfs_fh4, name: &str) -> Result<Option<nfs_fh4>, nfsstat4> {
-		self.0
-			.provider
+		self.provider
 			.lookup(parent.0, name)
 			.map_ok(|id| id.map(nfs_fh4))
 			.map_err(nfsstat4::from)
@@ -728,8 +721,7 @@ where
 	}
 
 	fn next_client_id(&self) -> u64 {
-		self.0
-			.client_index
+		self.client_index
 			.fetch_add(1, std::sync::atomic::Ordering::SeqCst)
 	}
 
@@ -762,7 +754,7 @@ where
 		ctx.current_file_handle = Some(fh);
 
 		// Open the file and create the state id.
-		let Ok(handle) = self.0.provider.open(fh.0).await else {
+		let Ok(handle) = self.provider.open(fh.0).await else {
 			return OPEN4res::Error(nfsstat4::NFS4ERR_IO);
 		};
 		let stateid = stateid4::new(arg.seqid, handle, false);
@@ -797,7 +789,7 @@ where
 				status: nfsstat4::NFS4ERR_NOFILEHANDLE,
 			};
 		};
-		let attr_node = match self.0.provider.get_attr_dir(fh.0).await {
+		let attr_node = match self.provider.get_attr_dir(fh.0).await {
 			Ok(attr) => attr,
 			Err(error) => {
 				return OPENATTR4res {
@@ -829,7 +821,7 @@ where
 		let Some(fh) = ctx.current_file_handle else {
 			return READ4res::Error(nfsstat4::NFS4ERR_NOFILEHANDLE);
 		};
-		let Ok(attr) = self.0.provider.get_attr_ext(fh.0).await else {
+		let Ok(attr) = self.provider.get_attr_ext(fh.0).await else {
 			return READ4res::Error(nfsstat4::NFS4ERR_BADHANDLE);
 		};
 
@@ -878,24 +870,22 @@ where
 
 		// This fallback exists for special state ids that indicate a file has not been opened.
 		let (data, eof) = if [ANONYMOUS_STATE_ID, READ_BYPASS_STATE_ID].contains(&arg.stateid) {
-			let Ok(read_handle) = self.0.provider.open(fh.0).await else {
+			let Ok(read_handle) = self.provider.open(fh.0).await else {
 				return READ4res::Error(nfsstat4::NFS4ERR_IO);
 			};
 			let Ok(bytes) = self
-				.0
 				.provider
 				.read(read_handle, arg.offset, read_size.to_u64().unwrap())
 				.await
 			else {
 				return READ4res::Error(nfsstat4::NFS4ERR_IO);
 			};
-			self.0.provider.close(read_handle).await;
+			self.provider.close(read_handle).await;
 			let eof = (arg.offset + arg.count.to_u64().unwrap()) >= size;
 			(bytes.to_vec(), eof)
 		} else {
 			let read_handle = arg.stateid.index();
 			let Ok(bytes) = self
-				.0
 				.provider
 				.read(read_handle, arg.offset, read_size.to_u64().unwrap())
 				.await
@@ -916,13 +906,13 @@ where
 
 		let mut handle = u64::from_be_bytes(arg.cookieverf);
 		if handle == 0 {
-			handle = match self.0.provider.opendir(fh.0).await {
+			handle = match self.provider.opendir(fh.0).await {
 				Ok(handle) => handle,
 				Err(error) => return READDIR4res::Error(error.into()),
 			};
 		}
 
-		let entries = match self.0.provider.readdir(handle).await {
+		let entries = match self.provider.readdir(handle).await {
 			Ok(entries) => entries,
 			Err(error) => return READDIR4res::Error(error.into()),
 		};
@@ -973,7 +963,7 @@ where
 			return READLINK4res::Error(nfsstat4::NFS4ERR_NOFILEHANDLE);
 		};
 
-		match self.0.provider.readlink(fh.0).await {
+		match self.provider.readlink(fh.0).await {
 			Ok(link) => READLINK4res::NFS4_OK(READLINK4resok {
 				link: link.to_vec(),
 			}),
@@ -999,7 +989,6 @@ where
 
 	async fn handle_set_client_id(&self, arg: SETCLIENTID4args) -> SETCLIENTID4res {
 		let client = self
-			.0
 			.clients
 			.get(&arg.client.id)
 			.map(|client| client.clone());
@@ -1015,8 +1004,7 @@ where
 				confirmed: false,
 			};
 
-			self.0
-				.clients
+			self.clients
 				.insert(arg.client.id, Arc::new(tokio::sync::RwLock::new(record)));
 
 			return SETCLIENTID4res::NFS4_OK(SETCLIENTID4resok {
@@ -1050,7 +1038,7 @@ where
 		&self,
 		arg: SETCLIENTID_CONFIRM4args,
 	) -> SETCLIENTID_CONFIRM4res {
-		for client in &self.0.clients {
+		for client in &self.clients {
 			let mut client = client.write().await;
 			if client.server_id == arg.clientid {
 				if client.server_verifier != arg.setclientid_confirm {
@@ -1106,6 +1094,20 @@ where
 		RESTOREFH4res {
 			status: nfsstat4::NFS4_OK,
 		}
+	}
+}
+
+impl<P> Clone for Vfs<P> {
+	fn clone(&self) -> Self {
+		Self(self.0.clone())
+	}
+}
+
+impl<P> std::ops::Deref for Vfs<P> {
+	type Target = Inner<P>;
+
+	fn deref(&self) -> &Self::Target {
+		&self.0
 	}
 }
 
@@ -1233,7 +1235,6 @@ impl FileAttrData {
 			supported_attrs.set(attr.to_usize().unwrap());
 		}
 		let change = nfstime4::now().seconds.to_u64().unwrap();
-		// Note: The "named_attr" attribute represents whether the named attribute directory is non-empty, not whether or not it exists.
 		let named_attr = matches!(file_type, nfs_ftype4::NF4REG);
 		FileAttrData {
 			supported_attrs,

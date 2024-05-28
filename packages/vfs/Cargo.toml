@@ -13,20 +13,20 @@ version = { workspace = true }
 [lints]
 workspace = true
 
+[dev-dependencies]
+clap = { workspace = true }
+tracing-subscriber = { workspace = true }
+
 [dependencies]
 async-channel = { workspace = true }
 bytes = { workspace = true }
 dashmap = { workspace = true }
 either = { workspace = true }
 futures = { workspace = true }
+libc = { workspace = true }
 num = { workspace = true }
 tangram_futures = { workspace = true }
 tokio = { workspace = true }
 tokio-util = { workspace = true }
 tracing = { workspace = true }
 zerocopy = { workspace = true }
-libc = { workspace = true }
-
-[dev-dependencies]
-clap = { workspace = true }
-tracing-subscriber = { workspace = true }

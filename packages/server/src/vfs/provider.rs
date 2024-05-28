@@ -1,6 +1,6 @@
+use crate::{tmp::Tmp, Server};
 use bytes::Bytes;
 use dashmap::DashMap;
-use db::{Connection, Database, Query};
 use indoc::formatdoc;
 use num::ToPrimitive;
 use std::{
@@ -8,29 +8,39 @@ use std::{
 	sync::atomic::{AtomicU64, Ordering},
 };
 use tangram_client as tg;
-use tangram_database as db;
+use tangram_database::{self as db, prelude::*};
 use tangram_vfs as vfs;
 use tokio::io::{AsyncReadExt, AsyncSeekExt};
 
-use crate::Server;
-
 pub struct Provider {
-	cache: moka::future::Cache<u64, (tg::Artifact, bool), fnv::FnvBuildHasher>,
+	cache: moka::future::Cache<u64, Node, fnv::FnvBuildHasher>,
 	counter: AtomicU64,
 	database: db::sqlite::Database,
-	open_dirs: DashMap<u64, DirectoryHandle, fnv::FnvBuildHasher>,
-	open_files: DashMap<u64, FileHandle, fnv::FnvBuildHasher>,
+	directory_handles: DashMap<u64, DirectoryHandle, fnv::FnvBuildHasher>,
+	file_handles: DashMap<u64, FileHandle, fnv::FnvBuildHasher>,
 	server: Server,
+	#[allow(dead_code)]
+	tmp: Tmp,
 }
 
-pub type FileHandle = tg::blob::Reader<Server>;
 pub struct DirectoryHandle {
 	node: u64,
 	directory: Option<tg::Directory>,
 }
 
+pub struct FileHandle {
+	reader: tg::blob::Reader<Server>,
+}
+
+#[derive(Clone)]
+struct Node {
+	artifact: Option<tg::Artifact>,
+	checkout: bool,
+}
+
 impl vfs::Provider for Provider {
 	async fn lookup(&self, parent: u64, name: &str) -> std::io::Result<Option<u64>> {
+		// Handle "." and "..".
 		if name == "." {
 			return Ok(Some(parent));
 		} else if name == ".." {
@@ -38,8 +48,12 @@ impl vfs::Provider for Provider {
 			return Ok(Some(id));
 		}
 
-		// Check the cache to see if the node is there to vaoid going to the database if we don't need to.
-		if let Some((tg::Artifact::Directory(object), _)) = self.cache.get(&parent).await {
+		// Check the cache to see if the node is there to avoid going to the database if we don't need to.
+		if let Some(Node {
+			artifact: Some(tg::Artifact::Directory(object)),
+			..
+		}) = self.cache.get(&parent).await
+		{
 			let entries = object.entries(&self.server).await.map_err(|error| {
 				tracing::error!(%error, %parent, %name, "failed to get directory entries");
 				std::io::Error::from_raw_os_error(libc::EIO)
@@ -49,12 +63,11 @@ impl vfs::Provider for Provider {
 			}
 		}
 
+		// First, try to look up in the database.
 		let connection = self.database.connection().await.map_err(|error| {
-			tracing::error!(%error, "failed to get database connection");
+			tracing::error!(%error, "failed to get database a connection");
 			std::io::Error::from_raw_os_error(libc::EIO)
 		})?;
-
-		// First, try and lookup in the database.
 		#[derive(serde::Deserialize)]
 		struct Row {
 			id: u64,
@@ -62,7 +75,9 @@ impl vfs::Provider for Provider {
 		let p = connection.p();
 		let statement = formatdoc!(
 			"
-				select id from nodes where parent = {p}1 and name = {p}2;
+				select id
+				from nodes
+				where parent = {p}1 and name = {p}2;
 			"
 		);
 		let params = db::params![parent, name];
@@ -78,7 +93,7 @@ impl vfs::Provider for Provider {
 			return Ok(Some(id));
 		}
 
-		// If the parent is the root, create a new node or lookup as a checkout.
+		// If the parent is the root, then create a new node or lookup as a checkout.
 		let mut checkout = false;
 		let artifact = 'a: {
 			if parent != vfs::ROOT_NODE_ID {
@@ -88,10 +103,8 @@ impl vfs::Provider for Provider {
 				return Ok(None);
 			};
 			let artifact = tg::Artifact::with_id(artifact);
-			checkout = matches!(
-				tokio::fs::try_exists(self.server.checkouts_path().join(name)).await,
-				Ok(true)
-			);
+			let exists = tokio::fs::try_exists(self.server.checkouts_path().join(name)).await;
+			checkout = matches!(exists, Ok(true));
 			Some(artifact)
 		};
 
@@ -100,7 +113,7 @@ impl vfs::Provider for Provider {
 			if let Some(artifact) = artifact {
 				break 'a Some(artifact);
 			}
-			let (artifact, _) = self.get(parent).await?;
+			let Node { artifact, .. } = self.get(parent).await?;
 			let Some(tg::Artifact::Directory(parent)) = artifact else {
 				return Ok(None);
 			};
@@ -114,16 +127,17 @@ impl vfs::Provider for Provider {
 			Some(artifact.clone())
 		};
 
+		// Insert the node.
 		let id = self.put(parent, name, artifact.unwrap(), checkout).await?;
+
 		Ok(Some(id))
 	}
 
 	async fn lookup_parent(&self, id: u64) -> std::io::Result<u64> {
 		let connection = self.database.connection().await.map_err(|error| {
-			tracing::error!(%error, "failed to get database connection");
+			tracing::error!(%error, "failed to get database a connection");
 			std::io::Error::from_raw_os_error(libc::EIO)
 		})?;
-
 		#[derive(serde::Deserialize)]
 		struct Row {
 			parent: u64,
@@ -131,7 +145,9 @@ impl vfs::Provider for Provider {
 		let p = connection.p();
 		let statement = formatdoc!(
 			"
-				select parent from nodes where id = {p}1;
+				select parent
+				from nodes
+				where id = {p}1;
 			"
 		);
 		let params = db::params![id];
@@ -147,7 +163,10 @@ impl vfs::Provider for Provider {
 
 	async fn getattr(&self, id: u64) -> std::io::Result<vfs::Attrs> {
 		match self.get(id).await? {
-			(Some(tg::Artifact::File(file)), false) => {
+			Node {
+				artifact: Some(tg::Artifact::File(file)),
+				checkout: false,
+			} => {
 				let executable = file.executable(&self.server).await.map_err(|error| {
 					tracing::error!(%error, "failed to get file's executable bit");
 					std::io::Error::from_raw_os_error(libc::EIO)
@@ -158,65 +177,83 @@ impl vfs::Provider for Provider {
 				})?;
 				Ok(vfs::Attrs::new(vfs::FileType::File { executable, size }))
 			},
-			(Some(tg::Artifact::Directory(_)), false) | (None, _) => {
-				Ok(vfs::Attrs::new(vfs::FileType::Directory))
-			},
-			(Some(tg::Artifact::Symlink(_)), false) | (_, true) => {
-				Ok(vfs::Attrs::new(vfs::FileType::Symlink))
-			},
+			Node {
+				artifact: Some(tg::Artifact::Directory(_)),
+				checkout: false,
+			}
+			| Node { artifact: None, .. } => Ok(vfs::Attrs::new(vfs::FileType::Directory)),
+			Node {
+				artifact: Some(tg::Artifact::Symlink(_)),
+				checkout: false,
+			}
+			| Node { checkout: true, .. } => Ok(vfs::Attrs::new(vfs::FileType::Symlink)),
 		}
 	}
 
 	async fn open(&self, id: u64) -> std::io::Result<u64> {
-		let (artifact, _) = self.get(id).await?;
+		// Get the node.
+		let Node { artifact, .. } = self.get(id).await?;
+
+		// Ensure it is a file.
 		let Some(tg::Artifact::File(file)) = artifact else {
 			tracing::error!(%id, "tried to open a non-regular file");
 			return Err(std::io::Error::other("expected a file"));
 		};
 
+		// Create the reader.
 		let reader = file.reader(&self.server).await.map_err(|error| {
 			tracing::error!(%error, %file, "failed to create reader");
 			std::io::Error::from_raw_os_error(libc::EIO)
 		})?;
 
+		// Create the file handle.
+		let file_handle = FileHandle { reader };
+
+		// Insert the file handle.
 		let id = self.counter.fetch_add(1, Ordering::SeqCst);
-		self.open_files.insert(id, reader);
+		self.file_handles.insert(id, file_handle);
+
 		Ok(id)
 	}
 
 	async fn read(&self, id: u64, position: u64, length: u64) -> std::io::Result<Bytes> {
-		let Some(mut reader) = self.open_files.get_mut(&id) else {
+		// Get the file handle.
+		let Some(mut file_handle) = self.file_handles.get_mut(&id) else {
 			tracing::error!(%id, "tried to read from an invalid file handle");
 			return Err(std::io::Error::from_raw_os_error(libc::ENOENT));
 		};
 
 		// Seek to the given position.
-		reader.seek(std::io::SeekFrom::Start(position)).await?;
+		file_handle
+			.reader
+			.seek(std::io::SeekFrom::Start(position))
+			.await?;
 
 		// Read the requested number of bytes.
 		let mut bytes = vec![0u8; length.to_usize().unwrap()];
 		let mut size = 0;
 		while size < length.to_usize().unwrap() {
-			let n = reader
-				.read(&mut bytes[size..])
-				.await?;
+			let n = file_handle.reader.read(&mut bytes[size..]).await?;
 			size += n;
 			if n == 0 {
 				break;
 			}
 		}
 
-		// Truncate the request and bail.
+		// Truncate the bytes.
 		bytes.truncate(size);
+
 		Ok(bytes.into())
 	}
 
 	async fn readlink(&self, id: u64) -> std::io::Result<Bytes> {
-		let (artifact, checkout) = self.get(id).await.map_err(|error| {
+		// Get the node.
+		let Node { artifact, checkout } = self.get(id).await.map_err(|error| {
 			tracing::error!(%error, "failed to lookup node");
 			std::io::Error::from_raw_os_error(libc::EIO)
 		})?;
 
+		// Handle the case that it is checked out.
 		if checkout {
 			let id = artifact
 				.unwrap()
@@ -237,6 +274,7 @@ impl vfs::Provider for Provider {
 			return Ok(path);
 		}
 
+		// Ensure it is a symlink.
 		let Some(tg::Artifact::Symlink(symlink)) = artifact else {
 			tracing::error!(%id, "tried to readlink on an invalid file type");
 			return Err(std::io::Error::other("expected a symlink"));
@@ -267,33 +305,40 @@ impl vfs::Provider for Provider {
 			target = target.join(path.clone());
 		}
 		let target = target.to_string().into_bytes().into();
-		return Ok(target);
+
+		Ok(target)
 	}
 
 	async fn listxattrs(&self, id: u64) -> std::io::Result<Vec<String>> {
-		let (artifact, _) = self.get(id).await?;
+		let Node { artifact, .. } = self.get(id).await?;
 		let Some(tg::Artifact::File(_)) = artifact else {
 			return Ok(Vec::new());
 		};
-		Ok(vec![tg::file::TANGRAM_FILE_XATTR_NAME.to_owned()])
+		let var_name = vec![tg::file::TANGRAM_FILE_XATTR_NAME.to_owned()];
+		Ok(var_name)
 	}
 
 	async fn getxattr(&self, id: u64, name: &str) -> std::io::Result<Option<String>> {
-		let (artifact, _) = self.get(id).await?;
+		// Get the node.
+		let Node { artifact, .. } = self.get(id).await?;
+
+		// Ensure it is a file.
 		let Some(tg::Artifact::File(file)) = artifact else {
 			return Ok(None);
 		};
 
-		// Compute the attribute data.
+		// Ensure the xattr name is supported.
 		if name != tg::file::TANGRAM_FILE_XATTR_NAME {
 			return Ok(None);
 		}
 
+		// Get the references.
 		let artifacts = file.references(&self.server).await.map_err(|e| {
 			tracing::error!(?e, ?file, "failed to get file references");
 			std::io::Error::from_raw_os_error(libc::EIO)
 		})?;
 
+		// Create the output.
 		let mut references = Vec::with_capacity(artifacts.len());
 		for artifact in artifacts.iter() {
 			let id = artifact.id(&self.server, None).await.map_err(|e| {
@@ -302,14 +347,15 @@ impl vfs::Provider for Provider {
 			})?;
 			references.push(id);
 		}
-
 		let attributes = tg::file::Attributes { references };
-		let result = serde_json::to_string(&attributes).unwrap();
-		Ok(Some(result))
+		let output = serde_json::to_string(&attributes).unwrap();
+
+		Ok(Some(output))
 	}
 
 	async fn opendir(&self, id: u64) -> std::io::Result<u64> {
-		let (artifact, _) = self.get(id).await?;
+		// Get the node.
+		let Node { artifact, .. } = self.get(id).await?;
 		let directory = match artifact {
 			Some(tg::Artifact::Directory(directory)) => Some(directory),
 			None => None,
@@ -323,12 +369,12 @@ impl vfs::Provider for Provider {
 			node: id,
 			directory,
 		};
-		self.open_dirs.insert(handle_id, handle);
+		self.directory_handles.insert(handle_id, handle);
 		Ok(handle_id)
 	}
 
 	async fn readdir(&self, id: u64) -> std::io::Result<Vec<(String, u64)>> {
-		let Some(handle) = self.open_dirs.get(&id) else {
+		let Some(handle) = self.directory_handles.get(&id) else {
 			tracing::error!(%id, "tried to read from an invalid file handle");
 			return Err(std::io::Error::from_raw_os_error(libc::ENOENT));
 		};
@@ -350,11 +396,11 @@ impl vfs::Provider for Provider {
 	}
 
 	async fn close(&self, id: u64) {
-		if self.open_dirs.contains_key(&id) {
-			self.open_dirs.remove(&id);
+		if self.directory_handles.contains_key(&id) {
+			self.directory_handles.remove(&id);
 		}
-		if self.open_files.contains_key(&id) {
-			self.open_files.remove(&id);
+		if self.file_handles.contains_key(&id) {
+			self.file_handles.remove(&id);
 		}
 	}
 }
@@ -362,51 +408,41 @@ impl vfs::Provider for Provider {
 pub struct Options {
 	pub cache_ttl: f64,
 	pub cache_size: u64,
-	pub database: db::sqlite::Options,
+	pub connections: usize,
 }
 
 impl Provider {
 	pub async fn new(server: &Server, options: Options) -> tg::Result<Self> {
-		// Create the database if it doesn't exist.
-		let created = tokio::fs::try_exists(&options.database.path)
-			.await
-			.map_err(
-				|source| tg::error!(!source, %path = options.database.path.display(), "failed to check if the path exists"),
-			)?;
-
+		// Create the cache.
 		let cache = moka::future::CacheBuilder::new(options.cache_size)
 			.time_to_idle(std::time::Duration::from_secs_f64(options.cache_ttl))
 			.build_with_hasher(fnv::FnvBuildHasher::default());
-		let database = db::sqlite::Database::new(options.database)
+
+		// Create the database.
+		let tmp = Tmp::new(server);
+		tokio::fs::create_dir_all(&tmp)
+			.await
+			.map_err(|source| tg::error!(!source, "failed to create the database directory"))?;
+		let path = tmp.path.join("vfs");
+		let database_options = db::sqlite::Options {
+			path,
+			connections: options.connections,
+		};
+		let database = db::sqlite::Database::new(database_options)
 			.await
 			.map_err(|source| tg::error!(!source, "failed to create database"))?;
-		let open_dirs = DashMap::default();
-		let open_files = DashMap::default();
-		let server = server.clone();
-		let provider = Self {
-			cache,
-			counter: AtomicU64::new(1000),
-			database,
-			open_dirs,
-			open_files,
-			server,
-		};
-		if !created {
-			provider.create_database().await?;
-		}
-		Ok(provider)
-	}
-
-	#[allow(clippy::unused_async)]
-	async fn create_database(&self) -> tg::Result<()> {
-		// Create the connection
-		let connection = self
-			.database
+		let connection = database
 			.connection()
 			.await
 			.map_err(|source| tg::error!(!source, "failed to get database connection"))?;
-
-		// Initialize the database.
+		connection
+			.with(|connection| {
+				connection
+					.pragma_update(None, "journal_mode", "wal")
+					.map_err(|source| tg::error!(!source, "failed to set the journal mode"))?;
+				Ok::<_, tg::Error>(())
+			})
+			.await?;
 		let statement = formatdoc!(
 			r#"
 				create table nodes (
@@ -424,31 +460,50 @@ impl Provider {
 			.execute(statement, Vec::new())
 			.await
 			.map_err(|source| tg::error!(!source, "failed to create the database"))?;
-
-		// Insert the root node.
 		let p = connection.p();
-		let statement =
-			formatdoc!("insert into nodes (id, parent, checkout) values ({p}1, {p}1, {p}2)");
+		let statement = formatdoc!(
+			"
+				insert into nodes (id, parent, checkout)
+				values ({p}1, {p}1, {p}2);
+			"
+		);
 		let params = db::params![vfs::ROOT_NODE_ID, false];
 		connection
 			.execute(statement, params)
 			.await
 			.map_err(|source| tg::error!(!source, "failed to insert the root node"))?;
-		Ok(())
+
+		// Create the provider.
+		let counter = AtomicU64::new(1000);
+		let directory_handles = DashMap::default();
+		let file_handles = DashMap::default();
+		let server = server.clone();
+		let provider = Self {
+			cache,
+			counter,
+			database,
+			directory_handles,
+			file_handles,
+			server,
+			tmp,
+		};
+
+		Ok(provider)
 	}
 
-	async fn get(&self, id: u64) -> std::io::Result<(Option<tg::Artifact>, bool)> {
-		// Attempt to get from the cache.
-		if let Some((artifact, checkout)) = self.cache.get(&id).await {
-			// return self.create_node(&artifact).await;
-			return Ok((Some(artifact), checkout));
+	async fn get(&self, id: u64) -> std::io::Result<Node> {
+		// Attempt to read from the cache.
+		if let Some(node) = self.cache.get(&id).await {
+			return Ok(node);
 		}
 
+		// Get a database connection.
 		let connection = self.database.connection().await.map_err(|error| {
-			tracing::error!(%error, "failed to get database connection");
+			tracing::error!(%error, "failed to get a database connection");
 			std::io::Error::from_raw_os_error(libc::EIO)
 		})?;
 
+		// Get the node from the database.
 		#[derive(serde::Deserialize)]
 		struct Row {
 			artifact: Option<tg::artifact::Id>,
@@ -457,7 +512,9 @@ impl Provider {
 		let p = connection.p();
 		let statement = formatdoc!(
 			"
-				select artifact, checkout from nodes where id = {p}1;
+				select artifact, checkout
+				from nodes
+				where id = {p}1;
 			"
 		);
 		let params = db::params![id];
@@ -465,16 +522,19 @@ impl Provider {
 			.query_one_into::<Row>(statement, params)
 			.await
 			.map_err(|error| {
-				tracing::error!(%error, %id, "failed to get node data from database");
+				tracing::error!(%error, %id, "failed to get the node data from the database");
 				std::io::Error::from_raw_os_error(libc::EIO)
 			})?;
 
-		// Get the artifact and update the cache.
+		// Create the node.
 		let artifact = row.artifact.map(tg::Artifact::with_id);
-		if let Some(artifact) = artifact.clone() {
-			self.cache.insert(id, (artifact, row.checkout)).await;
-		}
-		Ok((artifact, row.checkout))
+		let checkout = row.checkout;
+		let node = Node { artifact, checkout };
+
+		// Add the node to the cache.
+		self.cache.insert(id, node.clone()).await;
+
+		Ok(node)
 	}
 
 	async fn put(
@@ -484,16 +544,19 @@ impl Provider {
 		artifact: tg::Artifact,
 		checkout: bool,
 	) -> std::io::Result<u64> {
+		// Get the artifact.
 		let artifact = artifact.id(&self.server, None).await.map_err(|error| {
 			tracing::error!(%error, "failed to get artifact id");
 			std::io::Error::from_raw_os_error(libc::EIO)
 		})?;
 
+		// Get a connection.
 		let connection = self.database.connection().await.map_err(|error| {
-			tracing::error!(%error, "failed to get database connection");
+			tracing::error!(%error, "failed to get database a connection");
 			std::io::Error::from_raw_os_error(libc::EIO)
 		})?;
 
+		// Insert the node.
 		#[derive(serde::Deserialize)]
 		struct Row {
 			id: u64,
@@ -515,47 +578,59 @@ impl Provider {
 				std::io::Error::from_raw_os_error(libc::EIO)
 			})?;
 
-		self.cache
-			.insert(row.id, (tg::Artifact::with_id(artifact), checkout))
-			.await;
+		// Create the node.
+		let artifact = tg::Artifact::with_id(artifact);
+		let node = Node {
+			artifact: Some(artifact),
+			checkout,
+		};
+
+		// Add the node to the cache.
+		self.cache.insert(row.id, node).await;
 
 		Ok(row.id)
 	}
 
 	async fn depth(&self, mut node: u64) -> std::io::Result<usize> {
+		// Get a database connection.
 		let mut connection = self.database.connection().await.map_err(|error| {
 			tracing::error!(%error, "failed to create database connection");
 			std::io::Error::from_raw_os_error(libc::EIO)
 		})?;
+
+		// Create a transaction.
 		let transaction = connection.transaction().await.map_err(|error| {
 			tracing::error!(%error, "failed to create transaction");
 			std::io::Error::from_raw_os_error(libc::EIO)
 		})?;
 
-		#[derive(serde::Deserialize)]
-		struct Row {
-			parent: u64,
-		}
-		let p = transaction.p();
-		let statement: String = formatdoc!(
-			"
-				select parent from nodes where id = {p}1;
-			"
-		);
-
+		// Compute the depth.
 		let mut depth = 0;
 		while node != vfs::ROOT_NODE_ID {
 			depth += 1;
+			#[derive(serde::Deserialize)]
+			struct Row {
+				parent: u64,
+			}
+			let p = transaction.p();
+			let statement: String = formatdoc!(
+				"
+					select parent
+					from nodes
+					where id = {p}1;
+				"
+			);
 			let params = db::params![node];
 			let row = transaction
-				.query_one_into::<Row>(statement.clone(), params)
+				.query_one_into::<Row>(statement, params)
 				.await
 				.map_err(|error| {
-					tracing::error!(%error, %node, "failed to get node parent from database");
+					tracing::error!(%error, %node, "failed to get the node parent from the database");
 					std::io::Error::from_raw_os_error(libc::EIO)
 				})?;
 			node = row.parent;
 		}
+
 		Ok(depth)
 	}
 }

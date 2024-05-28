@@ -1,5 +1,14 @@
-use futures::{future, FutureExt};
-use num::ToPrimitive;
+use self::sys::{
+	fuse_attr, fuse_attr_out, fuse_batch_forget_in, fuse_dirent, fuse_direntplus, fuse_entry_out,
+	fuse_flush_in, fuse_forget_in, fuse_getattr_in, fuse_getxattr_in, fuse_getxattr_out,
+	fuse_in_header, fuse_init_in, fuse_init_out, fuse_open_in, fuse_open_out, fuse_out_header,
+	fuse_read_in, fuse_release_in,
+};
+use crate::{FileType, Provider, Result};
+use futures::{future, FutureExt as _};
+use num::ToPrimitive as _;
+use std::io::Error;
+use std::pin::pin;
 use std::{
 	ffi::CString,
 	os::{
@@ -11,26 +20,12 @@ use std::{
 };
 use tangram_futures::task::{Stop, Task};
 use zerocopy::{AsBytes, FromBytes};
+
 pub mod sys;
-use self::sys::{
-	fuse_attr, fuse_attr_out, fuse_batch_forget_in, fuse_dirent, fuse_direntplus, fuse_entry_out,
-	fuse_flush_in, fuse_forget_in, fuse_getattr_in, fuse_getxattr_in, fuse_getxattr_out,
-	fuse_in_header, fuse_init_in, fuse_init_out, fuse_open_in, fuse_open_out, fuse_out_header,
-	fuse_read_in, fuse_release_in,
-};
-use crate::{FileType, Provider, Result};
-use std::io::Error;
-use std::pin::pin;
 
 pub struct Vfs<P>(Arc<Inner<P>>);
 
-impl<P> Clone for Vfs<P> {
-	fn clone(&self) -> Self {
-		Self(self.0.clone())
-	}
-}
-
-struct Inner<P> {
+pub struct Inner<P> {
 	path: PathBuf,
 	provider: P,
 	task: Mutex<Option<Task<()>>>,
@@ -98,24 +93,24 @@ where
 		}));
 
 		let task = Task::spawn(|stop| {
-			let vfs = Vfs(vfs.0.clone());
+			let vfs = vfs.clone();
 			async move {
 				vfs.task(stop).await.ok();
 			}
 		});
-		vfs.0.task.lock().unwrap().replace(task);
+		vfs.task.lock().unwrap().replace(task);
 		Ok(vfs)
 	}
 
 	pub fn stop(&self) {
-		let task = self.0.task.lock().unwrap();
+		let task = self.task.lock().unwrap();
 		if let Some(task) = task.as_ref() {
 			task.stop();
 		}
 	}
 
 	pub async fn wait(self) {
-		let task = self.0.task.lock().unwrap().take();
+		let task = self.task.lock().unwrap().take();
 		if let Some(task) = task {
 			task.wait().await.ok();
 		}
@@ -159,7 +154,7 @@ where
 
 			// Spawn a task to handle the request.
 			task_tracker.spawn({
-				let server = Self(self.0.clone());
+				let server = self.clone();
 				let fd = fd.clone();
 				async move {
 					// Get the unique identifier for the request.
@@ -368,7 +363,6 @@ where
 			.to_str()
 			.map_err(|_| Error::from_raw_os_error(libc::ENODATA))?;
 		let attr = self
-			.0
 			.provider
 			.getxattr(header.nodeid, name)
 			.await?
@@ -417,7 +411,6 @@ where
 		request: fuse_getxattr_in,
 	) -> Result<Option<Response>> {
 		let attrs = self
-			.0
 			.provider
 			.listxattrs(header.nodeid)
 			.await?
@@ -452,7 +445,6 @@ where
 			.to_str()
 			.map_err(|_| Error::from_raw_os_error(libc::EINVAL))?;
 		let node = self
-			.0
 			.provider
 			.lookup(header.nodeid, name)
 			.await?
@@ -466,7 +458,7 @@ where
 		header: fuse_in_header,
 		_request: fuse_open_in,
 	) -> Result<Option<Response>> {
-		let fh = self.0.provider.open(header.nodeid).await?;
+		let fh = self.provider.open(header.nodeid).await?;
 		let out = fuse_open_out {
 			fh,
 			open_flags: sys::FOPEN_NOFLUSH | sys::FOPEN_KEEP_CACHE,
@@ -480,7 +472,7 @@ where
 		header: fuse_in_header,
 		_request: fuse_open_in,
 	) -> Result<Option<Response>> {
-		let fh = self.0.provider.opendir(header.nodeid).await?;
+		let fh = self.provider.opendir(header.nodeid).await?;
 		let out = fuse_open_out {
 			fh,
 			open_flags: sys::FOPEN_CACHE_DIR | sys::FOPEN_KEEP_CACHE,
@@ -495,7 +487,6 @@ where
 		request: fuse_read_in,
 	) -> Result<Option<Response>> {
 		let bytes = self
-			.0
 			.provider
 			.read(request.fh, request.offset, request.size.to_u64().unwrap())
 			.await?;
@@ -508,7 +499,7 @@ where
 		request: fuse_read_in,
 		plus: bool,
 	) -> Result<Option<Response>> {
-		let entries = self.0.provider.readdir(request.fh).await?;
+		let entries = self.provider.readdir(request.fh).await?;
 
 		let struct_size = if plus {
 			std::mem::size_of::<fuse_direntplus>()
@@ -522,7 +513,7 @@ where
 			.enumerate();
 		let mut response = Vec::with_capacity(request.size.to_usize().unwrap());
 		for (offset, (name, node)) in entries {
-			let attr = self.0.provider.getattr(node).await?;
+			let attr = self.provider.getattr(node).await?;
 			let name = name.into_bytes();
 			let padding = (8 - (struct_size + name.len()) % 8) % 8;
 			let entry_size = struct_size + name.len() + padding;
@@ -564,7 +555,7 @@ where
 	}
 
 	async fn handle_read_link_request(&self, header: fuse_in_header) -> Result<Option<Response>> {
-		let target = self.0.provider.readlink(header.nodeid).await?;
+		let target = self.provider.readlink(header.nodeid).await?;
 		let target = CString::new(target.as_bytes()).unwrap();
 		Ok(Some(Response::ReadLink(target)))
 	}
@@ -574,7 +565,7 @@ where
 		_header: fuse_in_header,
 		request: fuse_release_in,
 	) -> Result<Option<Response>> {
-		self.0.provider.close(request.fh).await;
+		self.provider.close(request.fh).await;
 		Ok(Some(Response::Release))
 	}
 
@@ -583,7 +574,7 @@ where
 		_header: fuse_in_header,
 		request: fuse_release_in,
 	) -> Result<Option<Response>> {
-		self.0.provider.close(request.fh).await;
+		self.provider.close(request.fh).await;
 		Ok(Some(Response::ReleaseDir))
 	}
 
@@ -597,7 +588,7 @@ where
 	}
 
 	async fn mount(&self) -> Result<Arc<OwnedFd>> {
-		let path = &self.0.path;
+		let path = &self.path;
 
 		unsafe {
 			// Create the file socket pair.
@@ -701,7 +692,7 @@ where
 	}
 
 	async fn unmount(&self) -> Result<()> {
-		let path = &self.0.path;
+		let path = &self.path;
 		tokio::process::Command::new("fusermount3")
 			.args(["-u"])
 			.arg(path)
@@ -714,7 +705,7 @@ where
 	}
 
 	async fn fuse_attr_out(&self, node: u64) -> Result<fuse_attr_out> {
-		let attr = self.0.provider.getattr(node).await?;
+		let attr = self.provider.getattr(node).await?;
 		let (size, mode) = match attr.typ {
 			FileType::Directory => (0, libc::S_IFDIR | 0o555),
 			FileType::File { executable, size } => (
@@ -828,4 +819,18 @@ fn write_response(fd: RawFd, unique: u64, response: &Response) -> std::io::Resul
 		return Err(std::io::Error::last_os_error());
 	}
 	Ok(())
+}
+
+impl<P> Clone for Vfs<P> {
+	fn clone(&self) -> Self {
+		Self(self.0.clone())
+	}
+}
+
+impl<P> std::ops::Deref for Vfs<P> {
+	type Target = Inner<P>;
+
+	fn deref(&self) -> &Self::Target {
+		&self.0
+	}
 }
