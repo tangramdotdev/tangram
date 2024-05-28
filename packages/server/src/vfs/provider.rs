@@ -105,7 +105,7 @@ impl vfs::Provider for Provider {
 				return Ok(None);
 			};
 			let entries = parent.entries(&self.server).await.map_err(|error| {
-				tracing::error!(%error, "failed to get directory entries");
+				tracing::error!(%error, "failed to get parent directory entries");
 				std::io::Error::from_raw_os_error(libc::EIO)
 			})?;
 			let Some(artifact) = entries.get(name) else {
@@ -114,11 +114,7 @@ impl vfs::Provider for Provider {
 			Some(artifact.clone())
 		};
 
-		let Some(artifact) = artifact else {
-			return Ok(None);
-		};
-
-		let id = self.put(parent, name, artifact, checkout).await?;
+		let id = self.put(parent, name, artifact.unwrap(), checkout).await?;
 		Ok(Some(id))
 	}
 
@@ -488,9 +484,6 @@ impl Provider {
 		artifact: tg::Artifact,
 		checkout: bool,
 	) -> std::io::Result<u64> {
-		self.cache
-			.insert(parent, (artifact.clone(), checkout))
-			.await;
 		let artifact = artifact.id(&self.server, None).await.map_err(|error| {
 			tracing::error!(%error, "failed to get artifact id");
 			std::io::Error::from_raw_os_error(libc::EIO)
@@ -521,6 +514,10 @@ impl Provider {
 				tracing::error!(%error, %parent, %name, "failed to put node data into database");
 				std::io::Error::from_raw_os_error(libc::EIO)
 			})?;
+
+		self.cache
+			.insert(row.id, (tg::Artifact::with_id(artifact), checkout))
+			.await;
 
 		Ok(row.id)
 	}

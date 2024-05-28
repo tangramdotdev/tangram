@@ -223,6 +223,8 @@ where
 					Some(libc::ENOENT | libc::EINTR | libc::EAGAIN)
 				) {
 					continue;
+				} else if matches!(error.raw_os_error(), Some(libc::ENODEV)) {
+					return Ok(());
 				}
 				return Err(error);
 			}
