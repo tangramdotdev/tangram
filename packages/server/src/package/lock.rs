@@ -10,16 +10,16 @@ struct Context {
 	output: BTreeMap<tg::Dependency, tg::package::get::Output>,
 }
 
-// A stack frame, used for backtracking. Implicitly, a single stack frame corresponds to a single dependant (the top of the dependant stack).
+// A stack frame, used for backtracking. Implicitly, a single stack frame corresponds to a single edge (the top of the edge stack).
 #[derive(Clone, Debug)]
 struct Frame {
 	// The current solution space.
 	solution: Solution,
 
-	// The list of remaining dependants to solve.
-	dependants: im::Vector<Dependant>,
+	// The list of remaining edges to solve.
+	edges: im::Vector<Edge>,
 
-	// The list of remaining versions for a given dependant.
+	// The list of remaining versions for a given edge.
 	remaining_versions: Option<im::Vector<String>>,
 
 	// The last error seen, used for error reporting.
@@ -30,15 +30,15 @@ struct Frame {
 #[derive(Clone, Debug, Default)]
 struct Solution {
 	// A table of package names to resolved package ids.
-	permanent: im::HashMap<String, Result<tg::artifact::Id, Error>>,
+	global: im::HashMap<String, Result<tg::artifact::Id, Error>>,
 
-	// The partial solution for each individual dependant.
-	partial: im::HashMap<Dependant, Mark>,
+	// A table of visited edges.
+	visited: im::HashMap<Edge, Mark>,
 }
 
-// A dependant represents an edge in the dependency graph.
+// An edge in the dependency graph.
 #[derive(Clone, Debug, Hash, PartialEq, Eq)]
-struct Dependant {
+struct Edge {
 	artifact: tg::artifact::Id,
 	dependency: tg::Dependency,
 }
@@ -46,17 +46,17 @@ struct Dependant {
 // A Mark is used to detect cyclic dependencies.
 #[derive(Clone, Debug)]
 enum Mark {
-	// A preliminary guess at what package may resolve a dependant.
+	// A preliminary guess at what package may resolve an edge.
 	Temporary(tg::artifact::Id),
 
-	// A permanent solution for a dependant, either success or an error.
+	// A permanent solution for an edge, either success or an error.
 	Permanent(Result<tg::artifact::Id, Error>),
 }
 
 /// An error type that can be pretty printed to describe why version solving failed.
 struct Report {
-	// List of errors and the corresponding Dependant structures they correspond to.
-	errors: Vec<(Dependant, Error)>,
+	// List of errors and the corresponding Edge structures they correspond to.
+	errors: Vec<(Edge, Error)>,
 
 	// The context, used for formatting.
 	context: Context,
@@ -74,7 +74,7 @@ enum Error {
 	/// A package cycle exists.
 	PackageCycleExists {
 		/// The terminal edge of a cycle in the dependency graph.
-		dependant: Dependant,
+		edge: Edge,
 	},
 
 	/// A nested error that arises during backtracking.
@@ -208,20 +208,20 @@ impl Server {
 		artifact: &tg::artifact::Id,
 		dependencies: &BTreeMap<tg::Dependency, Option<tg::package::get::Output>>,
 	) -> tg::Result<tg::Lock> {
-		// Construct the version solving context and initial set of dependants.
-		let (output, dependants) = self.flatten_output(artifact, dependencies)?;
+		// Construct the version solving context and initial set of edges.
+		let (output, edges) = self.flatten_output(artifact, dependencies)?;
 
 		let mut context = Context { output };
 
 		// Solve.
-		let solution = self.solve(&mut context, dependants.into()).await?;
+		let solution = self.solve(&mut context, edges.into()).await?;
 
 		// Collect the errors.
 		let errors = solution
-			.partial
+			.visited
 			.iter()
-			.filter_map(|(dependant, partial)| match partial {
-				Mark::Permanent(Err(e)) => Some((dependant.clone(), e.clone())),
+			.filter_map(|(edge, partial)| match partial {
+				Mark::Permanent(Err(e)) => Some((edge.clone(), e.clone())),
 				_ => None,
 			})
 			.collect::<Vec<_>>();
@@ -284,13 +284,13 @@ impl Server {
 			let artifact = if let Some(output) = output {
 				output.artifact.clone()
 			} else {
-				// Resolve by dependant.
-				let dependant = Dependant {
+				// Resolve by edge.
+				let edge = Edge {
 					artifact: artifact.clone(),
 					dependency: dependency.clone(),
 				};
-				let Some(Mark::Permanent(Ok(artifact))) = solution.partial.get(&dependant) else {
-					return Err(tg::error!(?dependant, "missing solution"));
+				let Some(Mark::Permanent(Ok(artifact))) = solution.visited.get(&edge) else {
+					return Err(tg::error!(?edge, "missing solution"));
 				};
 				artifact.clone()
 			};
@@ -323,12 +323,12 @@ impl Server {
 		dependencies: &BTreeMap<tg::Dependency, Option<tg::package::get::Output>>,
 	) -> tg::Result<(
 		BTreeMap<tg::Dependency, tg::package::get::Output>,
-		Vec<Dependant>,
+		Vec<Edge>,
 	)> {
 
 		let mut stack = vec![(root, dependencies)];
 		let mut output = BTreeMap::new();
-		let mut dependants = Vec::new();
+		let mut edges = Vec::new();
 
 		// Walk the dependencies.
 		while let Some((artifact, dependencies)) = stack.pop() {
@@ -346,7 +346,7 @@ impl Server {
 			};
 			output.insert(key, output_);
 			for (dependency, output_) in dependencies {
-				dependants.push(Dependant {
+				edges.push(Edge {
 					artifact: artifact.clone(),
 					dependency: dependency.clone(),
 				});
@@ -359,7 +359,7 @@ impl Server {
 				stack.push((artifact, dependencies_))
 			}
 		}
-		Ok((output, dependants))
+		Ok((output, edges))
 	}
 
 	pub(super) async fn try_add_path_dependencies_to_lock(
@@ -452,7 +452,7 @@ impl Server {
 	async fn solve(
 		&self,
 		context: &mut Context,
-		dependants: im::Vector<Dependant>,
+		edges: im::Vector<Edge>,
 	) -> tg::Result<Solution> {
 		// Create the first stack frame.
 		let solution = Solution::default();
@@ -460,49 +460,49 @@ impl Server {
 		let remaining_versions = None;
 		let mut current_frame = Frame {
 			solution,
-			dependants,
+			edges,
 			remaining_versions,
 			last_error,
 		};
 		let mut history = im::Vector::new();
 
 		// The main driver loop operates on the current stack frame, and iteratively tries to build up the next stack frame.
-		while let Some((new_dependants, dependant)) = current_frame.next_dependant() {
+		while let Some((new_edges, edge)) = current_frame.next_edge() {
 			let mut next_frame = Frame {
-				dependants: new_dependants,
+				edges: new_edges,
 				solution: current_frame.solution.clone(),
 				remaining_versions: None,
 				last_error: None,
 			};
 
-			// Get the permanent and partial solutions for this edge.
-			let permanent = current_frame.solution.get_permanent(context, &dependant);
-			let partial = current_frame.solution.partial.get(&dependant);
+			// Get the global solution and mark of this edge.
+			let global = current_frame.solution.get_global(context, &edge);
+			let mark = current_frame.solution.visited.get(&edge);
 
-			match (permanent, partial) {
+			match (global, mark) {
 				// Case 0: There is no solution for this package yet.
 				(None, None) => {
 					// Try and resolve the dependency.
 					match context
-						.resolve_dependency(self, &dependant, &mut current_frame.remaining_versions)
+						.resolve_dependency(self, &edge, &mut current_frame.remaining_versions)
 						.await
 					{
 						// We successfully got a version.
 						Ok(artifact) => {
 							next_frame.solution = next_frame
 								.solution
-								.mark_temporarily(dependant.clone(), artifact.clone());
+								.mark_temporarily(edge.clone(), artifact.clone());
 
 							// Add this dependency to the top of the stack before adding all its dependencies.
-							next_frame.dependants.push_back(dependant.clone());
+							next_frame.edges.push_back(edge.clone());
 
 							// Add all the dependencies to the stack.
 							for child_dependency in context.get_dependencies(&artifact) {
-								let dependant = Dependant {
+								let edge = Edge {
 									artifact: artifact.clone(),
 									dependency: child_dependency.clone(),
 								};
-								next_frame.dependants.push_back(dependant);
+								next_frame.edges.push_back(edge);
 							}
 
 							// Update the stack. If we backtrack, we use the next version in the version stack.
@@ -513,24 +513,24 @@ impl Server {
 							next_frame.solution =
 								next_frame
 									.solution
-									.mark_permanently(context, &dependant, Err(e));
+									.mark_permanently(context, &edge, Err(e));
 						},
 					}
 				},
 
 				// Case 1: There exists a global version for the package but we haven't solved this dependency constraint.
-				(Some(permanent), None) => {
-					match permanent {
+				(Some(global), None) => {
+					match global {
 						// Case 1.1: The happy path. Our version is solved and it matches this constraint.
 						Ok(artifact) => {
 							// Check if the version constraint matches the existing solution.
 							let version = context.get_version(artifact);
-							match dependant.dependency.try_match_version(&version) {
+							match edge.dependency.try_match_version(&version) {
 								// Success: we can use this version.
 								Ok(true) => {
 									next_frame.solution = next_frame.solution.mark_permanently(
 										context,
-										&dependant,
+										&edge,
 										Ok(artifact.clone()),
 									);
 								},
@@ -539,7 +539,7 @@ impl Server {
 									let error = Error::PackageVersionConflict;
 									if let Some(frame_) = try_backtrack(
 										&history,
-										dependant.dependency.name.as_ref().unwrap(),
+										edge.dependency.name.as_ref().unwrap(),
 										error.clone(),
 									) {
 										next_frame = frame_;
@@ -547,7 +547,7 @@ impl Server {
 										// There is no solution for this package. Add an error.
 										next_frame.solution = next_frame.solution.mark_permanently(
 											context,
-											&dependant,
+											&edge,
 											Err(error),
 										);
 									}
@@ -556,7 +556,7 @@ impl Server {
 								Err(e) => {
 									next_frame.solution = next_frame.solution.mark_permanently(
 										context,
-										&dependant,
+										&edge,
 										Err(Error::Other(e)),
 									);
 								},
@@ -566,7 +566,7 @@ impl Server {
 						Err(e) => {
 							next_frame.solution = next_frame.solution.mark_permanently(
 								context,
-								&dependant,
+								&edge,
 								Err(e.clone()),
 							);
 						},
@@ -578,12 +578,12 @@ impl Server {
 					let dependencies = context.get_dependencies(artifact);
 					let mut erroneous_children = vec![];
 					for child_dependency in dependencies {
-						let child_dependant = Dependant {
+						let child_edge = Edge {
 							artifact: artifact.clone(),
 							dependency: child_dependency.clone(),
 						};
 
-						let child = next_frame.solution.partial.get(&child_dependant).unwrap();
+						let child = next_frame.solution.visited.get(&child_edge).unwrap();
 						match child {
 							// The child dependency has been solved.
 							Mark::Permanent(Ok(_)) => (),
@@ -591,16 +591,16 @@ impl Server {
 							// The child dependency has been solved, but it is an error.
 							Mark::Permanent(Err(e)) => {
 								let error = e.clone();
-								erroneous_children.push((child_dependant.dependency, error));
+								erroneous_children.push((child_edge.dependency, error));
 							},
 
 							// The child dependency has not been solved.
 							Mark::Temporary(_version) => {
 								// Uh oh. We've detected a cycle. First try and backtrack. If backtracking fails, bail out.
 								let error = Error::PackageCycleExists {
-									dependant: dependant.clone(),
+									edge: edge.clone(),
 								};
-								erroneous_children.push((child_dependant.dependency, error));
+								erroneous_children.push((child_edge.dependency, error));
 							},
 						}
 					}
@@ -609,7 +609,7 @@ impl Server {
 					if erroneous_children.is_empty() {
 						next_frame.solution = next_frame.solution.mark_permanently(
 							context,
-							&dependant,
+							&edge,
 							Ok(artifact.clone()),
 						);
 					} else {
@@ -622,7 +622,7 @@ impl Server {
 
 						if let Some(frame_) = try_backtrack(
 							&history,
-							dependant.dependency.name.as_ref().unwrap(),
+							edge.dependency.name.as_ref().unwrap(),
 							error.clone(),
 						) {
 							next_frame = frame_;
@@ -630,7 +630,7 @@ impl Server {
 							// This means that backtracking totally failed and we need to fail with an error.
 							next_frame.solution = next_frame.solution.mark_permanently(
 								context,
-								&dependant,
+								&edge,
 								Err(error),
 							);
 						}
@@ -641,7 +641,7 @@ impl Server {
 				(_, Some(Mark::Permanent(_complete))) => (),
 			}
 
-			// Replace the solution and dependants if needed.
+			// Replace the solution and edges if needed.
 			current_frame = next_frame;
 		}
 
@@ -650,16 +650,16 @@ impl Server {
 }
 
 impl Context {
-	// Checks if the dependant edge can be solved using the output of get_package.
-	fn solution_in_output(&self, dependant: &Dependant) -> bool {
-		let key = tg::Dependency::with_artifact(dependant.artifact.clone());
+	// Checks if the edge can be solved using the output of get_package.
+	fn solution_in_output(&self, edge: &Edge) -> bool {
+		let key = tg::Dependency::with_artifact(edge.artifact.clone());
 		self.output
 			.get(&key)
 			.unwrap()
 			.dependencies
 			.as_ref()
 			.unwrap()
-			.get(&dependant.dependency)
+			.get(&edge.dependency)
 			.unwrap()
 			.is_some()
 	}
@@ -694,10 +694,10 @@ impl Context {
 	async fn resolve_dependency(
 		&mut self,
 		server: &Server,
-		dependant: &Dependant,
+		edge: &Edge,
 		remaining_versions: &mut Option<im::Vector<String>>,
 	) -> Result<tg::artifact::Id, Error> {
-		self.try_resolve_dependency(server, dependant, remaining_versions)
+		self.try_resolve_dependency(server, edge, remaining_versions)
 			.await?
 			.ok_or_else(|| Error::PackageVersionConflict)
 	}
@@ -705,11 +705,11 @@ impl Context {
 	async fn try_resolve_dependency(
 		&mut self,
 		server: &Server,
-		dependant: &Dependant,
+		edge: &Edge,
 		remaining_versions: &mut Option<im::Vector<String>>,
 	) -> Result<Option<tg::artifact::Id>, Error> {
 		// Lookup this package in the local cache.
-		let key = tg::Dependency::with_artifact(dependant.artifact.clone());
+		let key = tg::Dependency::with_artifact(edge.artifact.clone());
 		let output = self.output.get(&key).unwrap().clone();
 
 		// Try and resolve the dependency using the existing output.
@@ -717,7 +717,7 @@ impl Context {
 			.dependencies
 			.as_ref()
 			.unwrap()
-			.get(&dependant.dependency)
+			.get(&edge.dependency)
 		{
 			// Update the cache with this dependency's information.
 			let key = tg::Dependency::with_artifact(resolved.artifact.clone());
@@ -729,11 +729,11 @@ impl Context {
 		// Seed the list of versions if necessary.
 		if remaining_versions.is_none() {
 			let Some(versions) = server
-				.try_get_package_versions(&dependant.dependency)
+				.try_get_package_versions(&edge.dependency)
 				.await
 				.map_err(|source| {
 					Error::Other(
-						tg::error!(!source, %dependency = &dependant.dependency, "failed to get package versions"),
+						tg::error!(!source, %dependency = &edge.dependency, "failed to get package versions"),
 					)
 				})?
 			else {
@@ -745,8 +745,8 @@ impl Context {
 		let remaining_versions = remaining_versions.as_mut().unwrap();
 
 		// Get the name and version to try next.
-		let name = dependant.dependency.name.clone().ok_or_else(|| {
-			Error::Other(tg::error!(%dependency = &dependant.dependency, "missing dependency name"))
+		let name = edge.dependency.name.clone().ok_or_else(|| {
+			Error::Other(tg::error!(%dependency = &edge.dependency, "missing dependency name"))
 		})?;
 
 		let Some(version) = remaining_versions.pop_back() else {
@@ -792,63 +792,63 @@ fn try_backtrack(history: &im::Vector<Frame>, package_name: &str, error: Error) 
 }
 
 impl Solution {
-	// If there's an existing solution for this dependant, return it. Path dependencies are ignored.
-	fn get_permanent(
+	// If there's an existing solution for this edge, return it. Path dependencies are ignored.
+	fn get_global(
 		&self,
 		_context: &Context,
-		dependant: &Dependant,
+		edge: &Edge,
 	) -> Option<&Result<tg::artifact::Id, Error>> {
-		self.permanent.get(dependant.dependency.name.as_ref()?)
+		self.global.get(edge.dependency.name.as_ref()?)
 	}
 
-	/// Mark this dependant with a temporary solution.
-	fn mark_temporarily(&self, dependant: Dependant, artifact: tg::artifact::Id) -> Self {
+	/// Mark this edge with a temporary solution.
+	fn mark_temporarily(&self, edge: Edge, artifact: tg::artifact::Id) -> Self {
 		let mut solution = self.clone();
-		solution.partial.insert(dependant, Mark::Temporary(artifact));
+		solution.visited.insert(edge, Mark::Temporary(artifact));
 		solution
 	}
 
-	/// Mark the dependant permanently, adding it to the list of known solutions and the partial solutions.
+	/// Mark the edge permanently, adding it to the table of known solutions.
 	fn mark_permanently(
 		&self,
 		context: &Context,
-		dependant: &Dependant,
+		edge: &Edge,
 		complete: Result<tg::artifact::Id, Error>,
 	) -> Self {
 		let mut solution = self.clone();
 
 		// Update the local solution.
 		solution
-			.partial
-			.insert(dependant.clone(), Mark::Permanent(complete.clone()));
+			.visited
+			.insert(edge.clone(), Mark::Permanent(complete.clone()));
 
 		// If the solution doesn't appear in the output we add it to the global solution.
-		if !context.solution_in_output(dependant) {
+		if !context.solution_in_output(edge) {
 			solution
-				.permanent
-				.insert(dependant.dependency.name.clone().unwrap(), complete);
+				.global
+				.insert(edge.dependency.name.clone().unwrap(), complete);
 		}
 
 		solution
 	}
 
 	fn contains(&self, package_name: &str) -> bool {
-		self.permanent.contains_key(package_name)
+		self.global.contains_key(package_name)
 	}
 }
 
 impl Frame {
-	fn next_dependant(&self) -> Option<(im::Vector<Dependant>, Dependant)> {
-		let mut dependants = self.dependants.clone();
-		let dependant = dependants.pop_back()?;
-		Some((dependants, dependant))
+	fn next_edge(&self) -> Option<(im::Vector<Edge>, Edge)> {
+		let mut edges = self.edges.clone();
+		let edge = edges.pop_back()?;
+		Some((edges, edge))
 	}
 }
 
 impl std::fmt::Display for Report {
 	fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-		for (dependant, error) in &self.errors {
-			self.format(f, dependant, error)?;
+		for (edge, error) in &self.errors {
+			self.format(f, edge, error)?;
 		}
 		Ok(())
 	}
@@ -858,13 +858,13 @@ impl Report {
 	fn format(
 		&self,
 		f: &mut std::fmt::Formatter<'_>,
-		dependant: &Dependant,
+		edge: &Edge,
 		error: &Error,
 	) -> std::fmt::Result {
-		let Dependant {
+		let Edge {
 			artifact,
 			dependency,
-		} = dependant;
+		} = edge;
 		let key = tg::Dependency::with_artifact(artifact.clone());
 		let metadata = self.context.output.get(&key).unwrap().metadata.as_ref();
 		let name = metadata
@@ -875,8 +875,8 @@ impl Report {
 			.unwrap_or("<unknown>");
 		write!(f, "{name}@{version} requires {dependency}, but ")?;
 		match error {
-			Error::PackageCycleExists { dependant } => {
-				let key = tg::Dependency::with_artifact(dependant.artifact.clone());
+			Error::PackageCycleExists { edge } => {
+				let key = tg::Dependency::with_artifact(edge.artifact.clone());
 				let metadata = self.context.output.get(&key).unwrap().metadata.as_ref();
 				let name = metadata
 					.and_then(|metadata| metadata.name.as_deref())
@@ -891,13 +891,13 @@ impl Report {
 					f,
 					"no version could be found that satisfies the constraints"
 				)?;
-				let shared_dependants = self
+				let shared_edges = self
 					.solution
-					.partial
+					.visited
 					.keys()
-					.filter(|dependant| dependant.dependency.name == dependency.name);
-				for shared in shared_dependants {
-					let Dependant {
+					.filter(|edge| edge.dependency.name == dependency.name);
+				for shared in shared_edges {
+					let Edge {
 						artifact,
 						dependency,
 					} = shared;
@@ -920,11 +920,11 @@ impl Report {
 				let name = dependency.name.as_ref().unwrap();
 				writeln!(f, "{name} {previous_version} has errors:")?;
 				for (child, error) in erroneous_dependencies {
-					let dependant = Dependant {
+					let edge = Edge {
 						artifact: artifact.clone(),
 						dependency: child.clone(),
 					};
-					self.format(f, &dependant, error)?;
+					self.format(f, &edge, error)?;
 				}
 			},
 			Error::Other(e) => {
