@@ -47,7 +47,9 @@ impl Server {
 			|| future::pending().left_future(),
 			|timeout| tokio::time::sleep(timeout).right_future(),
 		);
-		let events = stream::select(status, interval).take_until(timeout).boxed();
+		let events = stream::once(future::ready(()))
+			.chain(stream::select(status, interval).take_until(timeout))
+			.boxed();
 
 		// Create the stream.
 		let server = self.clone();

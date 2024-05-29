@@ -2,7 +2,7 @@ use crate::Server;
 use bytes::{Bytes, BytesMut};
 use futures::{
 	future::{self, BoxFuture},
-	stream, FutureExt as _, Stream, StreamExt as _, TryStreamExt as _,
+	stream, stream_select, FutureExt as _, Stream, StreamExt as _, TryStreamExt as _,
 };
 use indoc::formatdoc;
 use num::ToPrimitive as _;
@@ -84,8 +84,8 @@ impl Server {
 			|| future::pending().left_future(),
 			|timeout| tokio::time::sleep(timeout).right_future(),
 		);
-		let events = futures::stream_select!(log, status, interval)
-			.take_until(timeout)
+		let events = stream::once(future::ready(()))
+			.chain(stream_select!(log, status, interval).take_until(timeout))
 			.boxed();
 
 		// Create the reader.
