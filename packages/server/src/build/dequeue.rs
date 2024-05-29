@@ -43,7 +43,12 @@ impl Server {
 				"
 					update builds
 					set status = 'dequeued', dequeued_at = {p}1
-					where status = 'created'
+					where id in (
+						select id
+						from builds
+						where status = 'created'
+						limit 1
+					)
 					returning id;
 				"
 			);
