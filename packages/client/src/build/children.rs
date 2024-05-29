@@ -1,5 +1,5 @@
 use crate as tg;
-use futures::{future, stream, Stream, StreamExt as _, TryStreamExt as _};
+use futures::{stream, Stream, StreamExt as _, TryStreamExt as _};
 use serde_with::serde_as;
 use tangram_http::{incoming::response::Ext as _, outgoing::request::Ext as _, Outgoing};
 
@@ -98,10 +98,22 @@ impl tg::Client {
 			let error = response.json().await?;
 			return Err(error);
 		}
-		let output = response
-			.sse()
-			.and_then(|event| future::ready(serde_json::from_str(&event.data).map_err(Into::into)))
-			.map_err(|source| tg::error!(!source, "failed to read an event"));
+		let output = response.sse().map(|result| {
+			let event = result.map_err(|source| tg::error!(!source, "failed to read an event"))?;
+			match event.event.as_deref() {
+				None | Some("data") => {
+					let data = serde_json::from_str(&event.data)
+						.map_err(|source| tg::error!(!source, "failed to deserialize the data"))?;
+					Ok(data)
+				},
+				Some("error") => {
+					let error = serde_json::from_str(&event.data)
+						.map_err(|source| tg::error!(!source, "failed to deserialize the error"))?;
+					Err(error)
+				},
+				_ => Err(tg::error!("invalid event")),
+			}
+		});
 		Ok(Some(output))
 	}
 

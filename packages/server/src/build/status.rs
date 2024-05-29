@@ -189,9 +189,20 @@ impl Server {
 		{
 			Some((mime::TEXT, mime::EVENT_STREAM)) => {
 				let content_type = mime::TEXT_EVENT_STREAM;
-				let sse = stream.map_ok(|chunk| {
-					let data = serde_json::to_string(&chunk).unwrap();
-					tangram_http::sse::Event::with_data(data)
+				let sse = stream.map(|result| match result {
+					Ok(data) => {
+						let data = serde_json::to_string(&data).unwrap();
+						Ok::<_, tg::Error>(tangram_http::sse::Event::with_data(data))
+					},
+					Err(error) => {
+						let data = serde_json::to_string(&error).unwrap();
+						let event = "error".to_owned();
+						Ok::<_, tg::Error>(tangram_http::sse::Event {
+							data,
+							event: Some(event),
+							..Default::default()
+						})
+					},
 				});
 				let body = Outgoing::sse(sse);
 				(content_type, body)
