@@ -348,32 +348,30 @@ pub trait Handle: Clone + Unpin + Send + Sync + 'static {
 			.inspect_ok(move |chunk| {
 				let mut state = state.lock().unwrap();
 
-				// If the chunk is empty, then end the stream.
-				if chunk.bytes.is_empty() {
-					state.end = true;
-					return;
-				}
+				// Compute the end condition.
+				let forward = state.arg.length.map_or(true, |l| l >= 0);
+				state.end = chunk.bytes.is_empty()
+					|| (!forward && chunk.position == 0)
+					|| matches!(state.arg.length, Some(0));
 
-				// Update the length argument if necessary.
+				// Update the length argument.
 				if let Some(length) = &mut state.arg.length {
 					if *length >= 0 {
-						*length -= chunk.bytes.len().to_i64().unwrap();
+						*length -= chunk.bytes.len().to_i64().unwrap().min(*length);
 					} else {
-						*length += chunk.bytes.len().to_i64().unwrap();
+						*length += chunk.bytes.len().to_i64().unwrap().min(length.abs());
 					}
 				}
 
 				// Update the position argument.
-				let forward = state.arg.length.map_or(true, |l| l >= 0);
 				let position = if forward {
 					chunk.position + chunk.bytes.len().to_u64().unwrap()
 				} else {
-					chunk.position
+					chunk.position - 1
 				};
 				state.arg.position = Some(SeekFrom::Start(position));
 			})
 			.take_until(timeout);
-
 			Ok(Some(stream))
 		}
 	}

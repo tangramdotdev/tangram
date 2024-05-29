@@ -125,7 +125,7 @@ where
 	async fn init(self: &Arc<Self>) -> tg::Result<()> {
 		let client = &self.handle;
 		let position = Some(std::io::SeekFrom::End(0));
-		let length = Some(-1);
+		let length = Some(0);
 		let timeout = Some(std::time::Duration::from_millis(16));
 
 		// Get at least one chunk.
@@ -145,13 +145,13 @@ where
 			.await?;
 
 		let max_position = chunk
-			.map(|chunk| chunk.position + chunk.bytes.len().to_u64().unwrap())
-			.unwrap_or_default();
-
+			.map_or(0, |chunk| chunk.position + chunk.bytes.len().to_u64().unwrap());
 		self.max_position.store(max_position, Ordering::Relaxed);
 
 		// Seed the front of the log.
-		self.update_log_stream(false).await?;
+		if max_position > 0 {
+			self.update_log_stream(false).await?;
+		}
 
 		// Start tailing if necessary.
 		self.update_log_stream(true).await?;
@@ -350,7 +350,9 @@ where
 			self.watch.lock().await.replace(rx);
 		} else {
 			// Drain the stream and prepend the chunks.
-			let new_chunks = stream.try_collect::<Vec<_>>().await?;
+			let new_chunks = stream
+				.try_collect::<Vec<_>>()
+				.await?;
 			let mid = chunks.len();
 			chunks.extend_from_slice(&new_chunks);
 			chunks.rotate_left(mid);
