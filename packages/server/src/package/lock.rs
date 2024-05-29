@@ -643,7 +643,9 @@ impl Context {
 	// Checks if the dependant edge can be solved using the output of get_package.
 	fn solution_in_output(&self, dependant: &Dependant) -> bool {
 		let key = tg::Dependency::with_artifact(dependant.artifact.clone());
-		self.output.get(&key).unwrap()
+		self.output
+			.get(&key)
+			.unwrap()
 			.dependencies
 			.as_ref()
 			.unwrap()
@@ -754,8 +756,7 @@ impl Context {
 			metadata: true,
 			..Default::default()
 		};
-		let output = server
-			.get_package(&dependency_with_name_and_version, arg)
+		let output = Box::pin(server.get_package(&dependency_with_name_and_version, arg))
 			.await
 			.map_err(Error::Other)?;
 
