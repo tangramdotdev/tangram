@@ -1,4 +1,5 @@
 use crate as tg;
+use serde_with::serde_as;
 use std::collections::BTreeMap;
 use tangram_http::{incoming::response::Ext as _, outgoing::request::Ext as _};
 
@@ -13,10 +14,12 @@ pub struct Arg {
 	pub yanked: bool,
 }
 
+#[serde_as]
 #[derive(Debug, Clone, serde::Deserialize, serde::Serialize)]
 pub struct Output {
 	pub artifact: tg::artifact::Id,
 	#[serde(default, skip_serializing_if = "Option::is_none")]
+	#[serde_as(as = "Option<serde_with::Seq<(_, _)>>")]
 	pub dependencies: Option<BTreeMap<tg::Dependency, Option<Self>>>,
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub lock: Option<tg::lock::Id>,
