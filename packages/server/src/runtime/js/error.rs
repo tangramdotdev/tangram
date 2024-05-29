@@ -4,8 +4,7 @@ use super::{
 };
 use num::ToPrimitive as _;
 use std::{collections::BTreeMap, rc::Rc, sync::Arc};
-use tangram_client as tg;
-use tg::error::Error;
+use tangram_client::{self as tg, error::Error};
 
 #[derive(Debug, serde::Deserialize)]
 #[serde(rename_all = "camelCase")]

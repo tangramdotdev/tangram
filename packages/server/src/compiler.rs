@@ -13,7 +13,6 @@ use std::{
 use tangram_client as tg;
 use tangram_futures::task::Stop;
 use tangram_http::{incoming::request::Ext as _, outgoing::response::Ext as _, Incoming, Outgoing};
-use tg::package::ROOT_MODULE_FILE_NAMES;
 use tokio::io::{
 	AsyncBufRead, AsyncBufReadExt as _, AsyncReadExt as _, AsyncWrite, AsyncWriteExt as _,
 };
@@ -644,7 +643,7 @@ impl Compiler {
 					.ok_or_else(|| tg::error!("invalid file name"))?;
 
 				// Determine the package path.
-				let package_path = if ROOT_MODULE_FILE_NAMES.contains(&file_name) {
+				let package_path = if tg::package::ROOT_MODULE_FILE_NAMES.contains(&file_name) {
 					// If the path refers to a root module, then use its path as the package path.
 					path.parent()
 						.ok_or_else(|| tg::error!("expected the path to have a parent"))?

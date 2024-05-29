@@ -1,10 +1,9 @@
 use crate::{options, Server};
-use db::Query;
 use futures::future;
 use futures::{stream::FuturesUnordered, StreamExt as _};
 use num::ToPrimitive;
 use tangram_client as tg;
-use tangram_database::{self as db, prelude::*};
+use tangram_database::{self as db, prelude::*, Query};
 use time::format_description::well_known::Rfc3339;
 
 impl Server {

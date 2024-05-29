@@ -1,7 +1,6 @@
 use num::ToPrimitive as _;
-use ratatui::layout::Rect;
-use tangram_client as tg;
-use tg::build::log::Chunk;
+use ratatui as tui;
+use tangram_client::{self as tg, build::log::Chunk};
 use unicode_segmentation::{GraphemeCursor, GraphemeIncomplete};
 use unicode_width::UnicodeWidthStr;
 
@@ -9,7 +8,7 @@ use unicode_width::UnicodeWidthStr;
 #[derive(Clone, Debug)]
 pub struct Scroll {
 	/// The area of the log view.
-	pub(super) rect: Rect,
+	pub(super) rect: tui::layout::Rect,
 
 	/// The start position of the log text.
 	start: u64,
@@ -38,7 +37,7 @@ struct GraphemeParserState<'a, 'b> {
 }
 
 impl Scroll {
-	pub fn new(rect: Rect, chunks: &[Chunk]) -> tg::Result<Self, Error> {
+	pub fn new(rect: tui::layout::Rect, chunks: &[Chunk]) -> tg::Result<Self, Error> {
 		let mut buffer = Vec::with_capacity(64);
 		let chunk = chunks.last().unwrap();
 		let end = chunk.position + chunk.bytes.len().to_u64().unwrap();
