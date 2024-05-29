@@ -72,7 +72,6 @@ where
 {
 	let arg = tg::package::get::Arg {
 		lock: true,
-		dependencies: true,
 		locked,
 		..Default::default()
 	};

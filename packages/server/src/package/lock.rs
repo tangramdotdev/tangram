@@ -248,9 +248,9 @@ impl Server {
 					.dependencies
 					.into_iter()
 					.map(|(dependency, entry)| {
-						let package = entry.package.map(tg::Artifact::with_id);
+						let artifact = entry.artifact.map(tg::Artifact::with_id);
 						let lock = entry.lock.map_right(tg::Lock::with_id);
-						let entry = tg::lock::Entry { package, lock };
+						let entry = tg::lock::Entry { artifact, lock };
 						(dependency, entry)
 					})
 					.collect();
@@ -265,13 +265,13 @@ impl Server {
 
 	async fn create_package_lock_inner(
 		&self,
-		package: &tg::artifact::Id,
+		artifact: &tg::artifact::Id,
 		context: &Context,
 		solution: &Solution,
 		nodes: &mut Vec<tg::lock::data::Node>,
 	) -> tg::Result<usize> {
 		// Get the cached analysis.
-		let key = tg::Dependency::with_artifact(package.clone());
+		let key = tg::Dependency::with_artifact(artifact.clone());
 		let output = context
 			.output
 			.get(&key)
@@ -281,25 +281,25 @@ impl Server {
 		let mut dependencies = BTreeMap::new();
 		for (dependency, output) in output.dependencies.as_ref().unwrap() {
 			// Check if there is an existing solution in the output.
-			let package = if let Some(output) = output {
+			let artifact = if let Some(output) = output {
 				output.artifact.clone()
 			} else {
 				// Resolve by dependant.
 				let dependant = Dependant {
-					artifact: package.clone(),
+					artifact: artifact.clone(),
 					dependency: dependency.clone(),
 				};
-				let Some(Mark::Permanent(Ok(package))) = solution.partial.get(&dependant) else {
+				let Some(Mark::Permanent(Ok(artifact))) = solution.partial.get(&dependant) else {
 					return Err(tg::error!(?dependant, "missing solution"));
 				};
-				package.clone()
+				artifact.clone()
 			};
 			let lock = Either::Left(
-				Box::pin(self.create_package_lock_inner(&package, context, solution, nodes))
+				Box::pin(self.create_package_lock_inner(&artifact, context, solution, nodes))
 					.await?,
 			);
 			let entry = tg::lock::data::Entry {
-				package: Some(package.clone()),
+				artifact: Some(artifact.clone()),
 				lock,
 			};
 			dependencies.insert(dependency.clone(), entry);
@@ -325,15 +325,26 @@ impl Server {
 		BTreeMap<tg::Dependency, tg::package::get::Output>,
 		Vec<Dependant>,
 	)> {
+
 		let mut stack = vec![(root, dependencies)];
 		let mut output = BTreeMap::new();
 		let mut dependants = Vec::new();
 
+		// Walk the dependencies.
 		while let Some((artifact, dependencies)) = stack.pop() {
 			let key = tg::Dependency::with_artifact(artifact.clone());
 			if output.contains_key(&key) {
 				continue;
 			}
+			let output_ = tg::package::get::Output {
+				artifact: artifact.clone(),
+				dependencies: Some(dependencies.clone()),
+				lock: None,
+				metadata: None,
+				path: None,
+				yanked: None
+			};
+			output.insert(key, output_);
 			for (dependency, output_) in dependencies {
 				dependants.push(Dependant {
 					artifact: artifact.clone(),
@@ -342,7 +353,6 @@ impl Server {
 				let Some(output_) = output_.as_ref() else {
 					continue;
 				};
-				output.insert(key.clone(), output_.clone());
 				let Some(dependencies_) = output_.dependencies.as_ref() else {
 					continue;
 				};
@@ -375,7 +385,7 @@ impl Server {
 					continue;
 				};
 				let artifact = tg::Artifact::with_id(artifact);
-				entry.package.replace(artifact);
+				entry.artifact.replace(artifact);
 				let Some(dependencies) = output
 					.as_ref()
 					.and_then(|output| output.dependencies.as_ref())
@@ -412,14 +422,14 @@ impl Server {
 			visited.insert(index);
 			let node = &mut object.nodes[index];
 			for (dependency, output) in dependencies {
-				if !dependency.path.is_none() {
+				if dependency.path.is_none() {
 					continue;
 				}
 				let entry = node
 					.dependencies
 					.get_mut(dependency)
 					.ok_or_else(|| tg::error!("invalid lock file"))?;
-				entry.package.take();
+				entry.artifact.take();
 				let Some(dependencies) = output
 					.as_ref()
 					.and_then(|output| output.dependencies.as_ref())
@@ -478,18 +488,18 @@ impl Server {
 						.await
 					{
 						// We successfully got a version.
-						Ok(package) => {
+						Ok(artifact) => {
 							next_frame.solution = next_frame
 								.solution
-								.mark_temporarily(dependant.clone(), package.clone());
+								.mark_temporarily(dependant.clone(), artifact.clone());
 
 							// Add this dependency to the top of the stack before adding all its dependencies.
 							next_frame.dependants.push_back(dependant.clone());
 
 							// Add all the dependencies to the stack.
-							for child_dependency in context.get_dependencies(&package) {
+							for child_dependency in context.get_dependencies(&artifact) {
 								let dependant = Dependant {
-									artifact: package.clone(),
+									artifact: artifact.clone(),
 									dependency: child_dependency.clone(),
 								};
 								next_frame.dependants.push_back(dependant);
@@ -512,16 +522,16 @@ impl Server {
 				(Some(permanent), None) => {
 					match permanent {
 						// Case 1.1: The happy path. Our version is solved and it matches this constraint.
-						Ok(package) => {
+						Ok(artifact) => {
 							// Check if the version constraint matches the existing solution.
-							let version = context.get_version(package);
+							let version = context.get_version(artifact);
 							match dependant.dependency.try_match_version(&version) {
 								// Success: we can use this version.
 								Ok(true) => {
 									next_frame.solution = next_frame.solution.mark_permanently(
 										context,
 										&dependant,
-										Ok(package.clone()),
+										Ok(artifact.clone()),
 									);
 								},
 								// Failure: we need to attempt to backtrack.
@@ -564,12 +574,12 @@ impl Server {
 				},
 
 				// Case 2: We only have a partial solution for this dependency and need to make sure we didn't create a cycle.
-				(_, Some(Mark::Temporary(package))) => {
-					let dependencies = context.get_dependencies(package);
+				(_, Some(Mark::Temporary(artifact))) => {
+					let dependencies = context.get_dependencies(artifact);
 					let mut erroneous_children = vec![];
 					for child_dependency in dependencies {
 						let child_dependant = Dependant {
-							artifact: package.clone(),
+							artifact: artifact.clone(),
 							dependency: child_dependency.clone(),
 						};
 
@@ -600,12 +610,12 @@ impl Server {
 						next_frame.solution = next_frame.solution.mark_permanently(
 							context,
 							&dependant,
-							Ok(package.clone()),
+							Ok(artifact.clone()),
 						);
 					} else {
-						let previous_version = context.get_version(package);
+						let previous_version = context.get_version(artifact);
 						let error = Error::Backtrack {
-							artifact: package.clone(),
+							artifact: artifact.clone(),
 							previous_version,
 							erroneous_dependencies: erroneous_children,
 						};
@@ -760,18 +770,21 @@ impl Context {
 			.await
 			.map_err(Error::Other)?;
 
-		// Update the internal context with knowledge of this package.
+		// Update the cached output with the knowledge of this package.
 		self.output
 			.insert(dependency_with_name_and_version, output.clone());
+		let key = tg::Dependency::with_artifact(output.artifact.clone());
+		self.output
+			.insert(key, output.clone());
 
 		Ok(Some(output.artifact))
 	}
 }
 
-fn try_backtrack(history: &im::Vector<Frame>, package: &str, error: Error) -> Option<Frame> {
+fn try_backtrack(history: &im::Vector<Frame>, package_name: &str, error: Error) -> Option<Frame> {
 	let index = history
 		.iter()
-		.take_while(|frame| !frame.solution.contains(package))
+		.take_while(|frame| !frame.solution.contains(package_name))
 		.count();
 	let mut frame = history.get(index).cloned()?;
 	frame.last_error = Some(error);
@@ -789,9 +802,9 @@ impl Solution {
 	}
 
 	/// Mark this dependant with a temporary solution.
-	fn mark_temporarily(&self, dependant: Dependant, package: tg::artifact::Id) -> Self {
+	fn mark_temporarily(&self, dependant: Dependant, artifact: tg::artifact::Id) -> Self {
 		let mut solution = self.clone();
-		solution.partial.insert(dependant, Mark::Temporary(package));
+		solution.partial.insert(dependant, Mark::Temporary(artifact));
 		solution
 	}
 
@@ -819,8 +832,8 @@ impl Solution {
 		solution
 	}
 
-	fn contains(&self, package: &str) -> bool {
-		self.permanent.contains_key(package)
+	fn contains(&self, package_name: &str) -> bool {
+		self.permanent.contains_key(package_name)
 	}
 }
 

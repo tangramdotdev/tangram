@@ -45,7 +45,7 @@ pub struct Node {
 
 #[derive(Clone, Debug)]
 pub struct Entry {
-	pub package: Option<tg::Artifact>,
+	pub artifact: Option<tg::Artifact>,
 	pub lock: Either<usize, Lock>,
 }
 
@@ -78,7 +78,7 @@ pub mod data {
 	)]
 	pub struct Entry {
 		#[serde(default, skip_serializing_if = "Option::is_none")]
-		pub package: Option<tg::artifact::Id>,
+		pub artifact: Option<tg::artifact::Id>,
 		#[serde(with = "either::serde_untagged")]
 		pub lock: Either<usize, Id>,
 	}
@@ -235,7 +235,7 @@ impl Lock {
 	{
 		let object = self.object(handle).await?;
 		let root = &object.nodes[object.root];
-		let Entry { package, lock } = root
+		let Entry { artifact: package, lock } = root
 			.dependencies
 			.get(dependency)
 			.ok_or_else(|| tg::error!(%dependency, "failed to lookup dependency in lock"))?;
@@ -260,13 +260,13 @@ impl Lock {
 			.dependencies
 			.iter()
 			.map(|(dependency, lock)| {
-				let Entry { package, lock } = lock;
+				let Entry { artifact: package, lock } = lock;
 				let package = package.clone();
 				let lock = lock
 					.as_ref()
 					.map_left(|index| Self::get_inner(nodes, object, *index))
 					.map_right(Lock::clone);
-				let entry = Entry { package, lock };
+				let entry = Entry { artifact: package, lock };
 				(dependency.clone(), entry)
 			})
 			.collect();
@@ -354,7 +354,7 @@ impl Lock {
 				};
 				let lock = Self::normalize_inner(nodes, index, visited)?;
 				let entry = Entry {
-					package: entry.package.clone(),
+					artifact: entry.artifact.clone(),
 					lock: Either::Right(lock),
 				};
 				Ok::<_, tg::Error>((dependency.clone(), entry))
@@ -402,7 +402,7 @@ impl Entry {
 	where
 		H: tg::Handle,
 	{
-		let package = match &self.package {
+		let package = match &self.artifact {
 			Some(package) => Some(package.id(handle, transaction).await?),
 			None => None,
 		};
@@ -410,7 +410,7 @@ impl Entry {
 			Either::Left(index) => Either::Left(*index),
 			Either::Right(lock) => Either::Right(lock.id(handle, transaction).await?),
 		};
-		Ok(data::Entry { package, lock })
+		Ok(data::Entry { artifact: package, lock })
 	}
 }
 
@@ -431,7 +431,7 @@ impl Data {
 		let mut children = Vec::new();
 		for node in &self.nodes {
 			for entry in node.dependencies.values() {
-				if let Some(package) = &entry.package {
+				if let Some(package) = &entry.artifact {
 					children.push(package.clone().into());
 				}
 				if let Either::Right(id) = &entry.lock {
@@ -474,12 +474,12 @@ impl TryFrom<data::Entry> for Entry {
 	type Error = tg::Error;
 
 	fn try_from(value: data::Entry) -> std::result::Result<Self, Self::Error> {
-		let package = value.package.map(tg::Artifact::with_id);
+		let package = value.artifact.map(tg::Artifact::with_id);
 		let lock = match value.lock {
 			Either::Left(index) => Either::Left(index),
 			Either::Right(id) => Either::Right(Lock::with_id(id)),
 		};
-		Ok(Self { package, lock })
+		Ok(Self { artifact: package, lock })
 	}
 }
 
@@ -553,7 +553,7 @@ mod test {
 					dependencies: [(
 						Dependency::with_path("foo/bar".parse().unwrap()),
 						Entry {
-							package: None,
+							artifact: None,
 							lock: Either::Left(0),
 						},
 					)]

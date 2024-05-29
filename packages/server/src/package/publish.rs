@@ -55,6 +55,12 @@ impl Server {
 			.ok_or_else(|| tg::error!(%id, "the package must have a version"))?
 			.as_str();
 
+		// Check if the package has been published already.
+		let mut published_versions =  self.try_get_package_versions_local(&tg::Dependency::with_name(name.to_owned())).await?.into_iter().flatten();
+		if published_versions.find(|(published, _)| published == version).is_some() {
+			return Err(tg::error!(%name, %version, "package already exists"));
+		}
+
 		// Get the published at timestamp.
 		let published_at = time::OffsetDateTime::now_utc();
 

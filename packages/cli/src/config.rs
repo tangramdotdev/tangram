@@ -44,7 +44,11 @@ pub struct Config {
 	pub path: Option<PathBuf>,
 
 	/// Configure the default registry for this server. If this option is set to `true`, then the server will act as the default registry. Otherwise, provide the name of the remote. The default value is "default".
-	#[serde(default, skip_serializing_if = "Option::is_none")]
+	#[serde(
+		default,
+		skip_serializing_if = "Option::is_none",
+		with = "either::serde_untagged_optional"
+	)]
 	pub registry: Option<Either<bool, String>>,
 
 	/// Configure remotes.

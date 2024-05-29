@@ -183,8 +183,10 @@ impl Server {
 					)?;
 
 				// Recurse into the path dependency.
-				let mut arg = arg.clone();
-				arg.lock = false;
+				let arg = tg::package::get::Arg {
+					dependencies: true,
+					..Default::default()
+				};
 				let child = Box::pin(
 					self.try_get_package_with_artifact_inner(root, path, &artifact, &arg, visited),
 				)
@@ -368,8 +370,10 @@ impl Server {
 				let dependency_path = path.clone().join(dependency_path);
 
 				// Recurse into the path dependency, clearing the lock flag.
-				let mut arg = arg.clone();
-				arg.lock = false;
+				let arg = tg::package::get::Arg {
+					dependencies: true,
+					..Default::default()
+				};
 				let child =
 					Box::pin(self.try_get_package_with_path_inner(&dependency_path, &arg, visited))
 						.await?

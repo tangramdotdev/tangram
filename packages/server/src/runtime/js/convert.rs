@@ -1690,7 +1690,7 @@ impl ToV8 for tg::lock::Entry {
 		let object = v8::Object::new(scope);
 
 		let key = v8::String::new_external_onebyte_static(scope, "package".as_bytes()).unwrap();
-		let value = self.package.to_v8(scope)?;
+		let value = self.artifact.to_v8(scope)?;
 		object.set(scope, key.into(), value);
 
 		let key = v8::String::new_external_onebyte_static(scope, "lock".as_bytes()).unwrap();
@@ -1726,7 +1726,7 @@ impl FromV8 for tg::lock::Entry {
 			return Err(tg::error!("invalid value"));
 		};
 
-		Ok(Self { package, lock })
+		Ok(Self { artifact: package, lock })
 	}
 }
 
