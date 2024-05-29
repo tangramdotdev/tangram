@@ -45,7 +45,7 @@ pub struct Node {
 
 #[derive(Clone, Debug)]
 pub struct Entry {
-	pub package: Option<tg::Directory>,
+	pub package: Option<tg::Artifact>,
 	pub lock: Either<usize, Lock>,
 }
 
@@ -78,7 +78,7 @@ pub mod data {
 	)]
 	pub struct Entry {
 		#[serde(default, skip_serializing_if = "Option::is_none")]
-		pub package: Option<tg::directory::Id>,
+		pub package: Option<tg::artifact::Id>,
 		#[serde(with = "either::serde_untagged")]
 		pub lock: Either<usize, Id>,
 	}
@@ -229,7 +229,7 @@ impl Lock {
 		&self,
 		handle: &H,
 		dependency: &tg::Dependency,
-	) -> tg::Result<(Option<tg::Directory>, Lock)>
+	) -> tg::Result<(Option<tg::Artifact>, Lock)>
 	where
 		H: tg::Handle,
 	{
@@ -474,7 +474,7 @@ impl TryFrom<data::Entry> for Entry {
 	type Error = tg::Error;
 
 	fn try_from(value: data::Entry) -> std::result::Result<Self, Self::Error> {
-		let package = value.package.map(tg::Directory::with_id);
+		let package = value.package.map(tg::Artifact::with_id);
 		let lock = match value.lock {
 			Either::Left(index) => Either::Left(index),
 			Either::Right(id) => Either::Right(Lock::with_id(id)),

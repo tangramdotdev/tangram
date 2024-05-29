@@ -183,8 +183,10 @@ impl Server {
 					)?;
 
 				// Recurse into the path dependency.
+				let mut arg = arg.clone();
+				arg.lock = false;
 				let child = Box::pin(
-					self.try_get_package_with_artifact_inner(root, path, &artifact, arg, visited),
+					self.try_get_package_with_artifact_inner(root, path, &artifact, &arg, visited),
 				)
 				.await?
 				.ok_or_else(|| tg::error!("failed to get the package"))?;
@@ -209,18 +211,20 @@ impl Server {
 			}
 		}
 
-		// Get the dependencies if requested.
-		let dependencies = if arg.dependencies {
-			Some(dependencies)
+		// Create the lock if requested.
+		let lock = if arg.lock {
+			let lock = self
+				.get_or_create_package_lock(&id, None, &dependencies, arg.locked)
+				.await?;
+			let lock = lock.id(self, None).await?;
+			Some(lock)
 		} else {
 			None
 		};
 
-		// Create the lock if requested.
-		let lock = if arg.lock {
-			let lock = self.get_or_create_package_lock(&id, arg.locked).await?;
-			let lock = lock.id(self, None).await?;
-			Some(lock)
+		// Get the dependencies if requested.
+		let dependencies = if arg.dependencies {
+			Some(dependencies)
 		} else {
 			None
 		};
@@ -363,9 +367,11 @@ impl Server {
 				let dependency_path = dependency.path.as_ref().unwrap().clone();
 				let dependency_path = path.clone().join(dependency_path);
 
-				// Recurse into the path dependency.
+				// Recurse into the path dependency, clearing the lock flag.
+				let mut arg = arg.clone();
+				arg.lock = false;
 				let child =
-					Box::pin(self.try_get_package_with_path_inner(&dependency_path, arg, visited))
+					Box::pin(self.try_get_package_with_path_inner(&dependency_path, &arg, visited))
 						.await?
 						.ok_or_else(|| tg::error!("failed to get the package"))?;
 
@@ -399,18 +405,20 @@ impl Server {
 		let artifact: tg::Artifact = builder.build().into();
 		let id = artifact.id(self, None).await?;
 
-		// Get the dependencies if requested.
-		let dependencies = if arg.dependencies {
-			Some(dependencies)
+		// Create the lock if requested.
+		let lock = if arg.lock {
+			let lock = self
+				.get_or_create_package_lock(&id, Some(path), &dependencies, arg.locked)
+				.await?;
+			let lock = lock.id(self, None).await?;
+			Some(lock)
 		} else {
 			None
 		};
 
-		// Create the lock if requested.
-		let lock = if arg.lock {
-			let lock = self.get_or_create_package_lock(&id, arg.locked).await?;
-			let lock = lock.id(self, None).await?;
-			Some(lock)
+		// Get the dependencies if requested.
+		let dependencies = if arg.dependencies {
+			Some(dependencies)
 		} else {
 			None
 		};
