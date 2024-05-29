@@ -4,6 +4,7 @@ use dashmap::DashMap;
 use indoc::formatdoc;
 use num::ToPrimitive;
 use std::{
+	collections::BTreeSet,
 	os::unix::ffi::OsStrExt,
 	sync::atomic::{AtomicU64, Ordering},
 };
@@ -339,13 +340,13 @@ impl vfs::Provider for Provider {
 		})?;
 
 		// Create the output.
-		let mut references = Vec::with_capacity(artifacts.len());
+		let mut references = BTreeSet::new();
 		for artifact in artifacts.iter() {
 			let id = artifact.id(&self.server, None).await.map_err(|e| {
 				tracing::error!(?e, ?artifact, "failed to get ID of artifact");
 				std::io::Error::from_raw_os_error(libc::EIO)
 			})?;
-			references.push(id);
+			references.insert(id);
 		}
 		let attributes = tg::file::Attributes { references };
 		let output = serde_json::to_string(&attributes).unwrap();
