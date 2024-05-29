@@ -35,7 +35,7 @@ where
 	fn create_blob(
 		&self,
 		reader: impl AsyncRead + Send + 'static,
-	) -> impl Future<Output = tg::Result<tg::blob::Id>> {
+	) -> impl Future<Output = tg::Result<tg::blob::create::Output>> {
 		match self {
 			Either::Left(s) => s.create_blob(reader).left_future(),
 			Either::Right(s) => s.create_blob(reader).right_future(),

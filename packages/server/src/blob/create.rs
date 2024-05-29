@@ -16,7 +16,7 @@ impl Server {
 	pub async fn create_blob(
 		&self,
 		reader: impl AsyncRead + Send + 'static,
-	) -> tg::Result<tg::blob::Id> {
+	) -> tg::Result<tg::blob::create::Output> {
 		// Create the reader.
 		let reader = pin!(reader);
 		let mut reader = fastcdc::v2020::AsyncStreamCDC::new(
@@ -74,9 +74,12 @@ impl Server {
 		let blob = tg::Blob::new(children);
 		blob.store(self, None).await?;
 		blob.unload();
-		let id = blob.id(self, None).await?;
+		let blob = blob.id(self, None).await?;
 
-		Ok(id)
+		// Create the output.
+		let output = tg::blob::create::Output { blob };
+
+		Ok(output)
 	}
 }
 

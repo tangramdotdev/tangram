@@ -31,7 +31,7 @@ pub trait Handle: Clone + Unpin + Send + Sync + 'static {
 	fn create_blob(
 		&self,
 		reader: impl AsyncRead + Send + 'static,
-	) -> impl Future<Output = tg::Result<tg::blob::Id>> + Send;
+	) -> impl Future<Output = tg::Result<tg::blob::create::Output>> + Send;
 
 	fn list_builds(
 		&self,
