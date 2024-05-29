@@ -43,7 +43,8 @@ impl Server {
 			.map(|_| ());
 		let interval =
 			IntervalStream::new(tokio::time::interval(std::time::Duration::from_secs(60)))
-				.map(|_| ());
+				.map(|_| ())
+				.skip(1);
 		let timeout = arg.timeout.map_or_else(
 			|| future::pending().left_future(),
 			|timeout| tokio::time::sleep(timeout).right_future(),
