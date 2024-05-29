@@ -27,8 +27,8 @@ impl Server {
 			|| future::pending().left_future(),
 			|timeout| tokio::time::sleep(timeout).right_future(),
 		);
-		let mut events = stream::once(future::ready(()))
-			.chain(stream::select(created, interval).take_until(timeout))
+		let mut events = stream::select(created, interval)
+			.take_until(timeout)
 			.boxed();
 
 		// Attempt to dequeue a build after each event.

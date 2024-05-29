@@ -1,8 +1,6 @@
 use crate::Server;
 use bytes::Bytes;
-use futures::{
-	future, stream, stream_select, FutureExt as _, Stream, StreamExt as _, TryStreamExt as _,
-};
+use futures::{future, stream, FutureExt as _, Stream, StreamExt as _, TryStreamExt as _};
 use indoc::formatdoc;
 use num::ToPrimitive as _;
 use std::{pin::pin, sync::Arc};
@@ -64,8 +62,8 @@ impl Server {
 			|| future::pending().left_future(),
 			|timeout| tokio::time::sleep(timeout).right_future(),
 		);
-		let events = stream::once(future::ready(()))
-			.chain(stream_select!(children, status, interval).take_until(timeout))
+		let events = futures::stream_select!(children, status, interval)
+			.take_until(timeout)
 			.boxed();
 
 		// Get the position.
