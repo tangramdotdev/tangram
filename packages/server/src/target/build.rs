@@ -38,7 +38,13 @@ impl Server {
 			}
 
 			// Touch the build.
-			self.touch_build(build.id()).await?;
+			tokio::spawn({
+				let server = self.clone();
+				let build = build.clone();
+				async move {
+					server.touch_build(build.id()).await.ok();
+				}
+			});
 
 			Some(build)
 		};
@@ -87,7 +93,7 @@ impl Server {
 				break 'a None;
 			};
 
-			// Touch the build asynchronously.
+			// Touch the build.
 			tokio::spawn({
 				let remote = remote.clone();
 				let build = build.clone();
@@ -113,7 +119,18 @@ impl Server {
 			return Ok(output);
 		}
 
-		// Otherwise, create a new build.
+		// Otherwise, if the remote arg was set, then build the target remotely.
+		if let Some(remote) = arg.remote.as_ref() {
+			let remote = self
+				.remotes
+				.get(remote)
+				.ok_or_else(|| tg::error!("the remote does not exist"))?
+				.clone();
+			let output = remote.build_target(id, arg).await?;
+			return Ok(output);
+		}
+
+		// Finally, create a new build.
 		let build_id = tg::build::Id::new();
 
 		// Get the host.
@@ -153,11 +170,18 @@ impl Server {
 			self.add_build_child(parent, build.id()).await?;
 		}
 
-		// Send the message.
-		self.messenger
-			.publish("builds.created".to_owned(), Bytes::new())
-			.await
-			.map_err(|source| tg::error!(!source, "failed to publish"))?;
+		// Publish the message.
+		tokio::spawn({
+			let server = self.clone();
+			async move {
+				server
+					.messenger
+					.publish("builds.created".to_owned(), Bytes::new())
+					.await
+					.inspect_err(|error| tracing::error!(%error, "failed to publish"))
+					.ok();
+			}
+		});
 
 		// Spawn a task to spawn the build when the parent's permit is available.
 		let server = self.clone();

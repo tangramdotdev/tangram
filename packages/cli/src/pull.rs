@@ -7,8 +7,9 @@ use tangram_client as tg;
 pub struct Args {
 	pub arg: Arg,
 
+	#[allow(clippy::option_option)]
 	#[arg(short, long)]
-	pub remote: Option<String>,
+	pub remote: Option<Option<String>>,
 }
 
 #[derive(Debug, Clone)]

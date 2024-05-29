@@ -316,10 +316,18 @@ impl Server {
 		)?;
 
 		// Publish the message.
-		self.messenger
-			.publish(format!("builds.{id}.log"), Bytes::new())
-			.await
-			.map_err(|source| tg::error!(!source, "failed to publish"))?;
+		tokio::spawn({
+			let server = self.clone();
+			let id = id.clone();
+			async move {
+				server
+					.messenger
+					.publish(format!("builds.{id}.log"), Bytes::new())
+					.await
+					.inspect_err(|error| tracing::error!(%error, "failed to publish"))
+					.ok();
+			}
+		});
 
 		Ok(())
 	}

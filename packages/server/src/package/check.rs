@@ -15,7 +15,7 @@ impl Server {
 			locked: arg.locked,
 			..Default::default()
 		};
-		let output = self.get_package(&dependency, arg).await?;
+		let output = self.get_package(dependency, arg).await?;
 		let package = tg::Artifact::with_id(output.artifact);
 		let lock = output
 			.lock

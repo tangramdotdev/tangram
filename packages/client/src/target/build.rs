@@ -1,11 +1,10 @@
 use crate as tg;
-use either::Either;
 use tangram_http::{incoming::response::Ext as _, Outgoing};
 
 #[derive(Clone, Debug, Default, serde::Deserialize, serde::Serialize)]
 pub struct Arg {
 	pub parent: Option<tg::build::Id>,
-	pub remote: Option<Either<bool, String>>,
+	pub remote: Option<String>,
 	pub retry: tg::build::Retry,
 }
 

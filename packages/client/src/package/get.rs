@@ -1,5 +1,4 @@
 use crate as tg;
-use either::Either;
 use std::collections::BTreeMap;
 use tangram_http::{incoming::response::Ext as _, outgoing::request::Ext as _};
 

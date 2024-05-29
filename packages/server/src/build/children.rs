@@ -368,10 +368,18 @@ impl Server {
 		drop(connection);
 
 		// Publish the message.
-		self.messenger
-			.publish(format!("builds.{build_id}.children"), Bytes::new())
-			.await
-			.map_err(|source| tg::error!(!source, "failed to publish"))?;
+		tokio::spawn({
+			let server = self.clone();
+			let build_id = build_id.clone();
+			async move {
+				server
+					.messenger
+					.publish(format!("builds.{build_id}.children"), Bytes::new())
+					.await
+					.inspect_err(|error| tracing::error!(%error, "failed to publish"))
+					.ok();
+			}
+		});
 
 		Ok(())
 	}

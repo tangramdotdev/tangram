@@ -5,10 +5,11 @@ use tangram_client as tg;
 #[derive(Clone, Debug, clap::Args)]
 #[group(skip)]
 pub struct Args {
-	#[arg(short, long)]
-	pub remote: Option<String>,
-
 	pub arg: Arg,
+
+	#[allow(clippy::option_option)]
+	#[arg(short, long)]
+	pub remote: Option<Option<String>>,
 }
 
 #[derive(Debug, Clone)]
@@ -22,15 +23,15 @@ impl Cli {
 		match args.arg {
 			Arg::Build(arg) => {
 				self.command_build_push(super::build::push::Args {
-					remote: args.remote,
 					build: arg,
+					remote: args.remote,
 				})
 				.await?;
 			},
 			Arg::Object(arg) => {
 				self.command_object_push(super::object::push::Args {
-					remote: args.remote,
 					object: arg,
+					remote: args.remote,
 				})
 				.await?;
 			},

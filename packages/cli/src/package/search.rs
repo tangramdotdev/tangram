@@ -8,16 +8,21 @@ use tg::Handle as _;
 pub struct Args {
 	pub query: String,
 
+
+	#[allow(clippy::option_option)]
 	#[arg(short, long)]
-	pub remote: Option<String>,
+	pub remote: Option<Option<String>>,
 }
 
 impl Cli {
 	pub async fn command_package_search(&self, args: Args) -> tg::Result<()> {
 		// List the packages.
+		let remote = args
+			.remote
+			.map(|remote| remote.unwrap_or_else(|| "default".to_owned()));
 		let arg = tg::package::list::Arg {
 			query: Some(args.query),
-			remote: args.remote,
+			remote,
 		};
 		let packages = self.handle.list_packages(arg).await?;
 

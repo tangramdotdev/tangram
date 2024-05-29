@@ -14,7 +14,7 @@ impl Server {
 			locked: arg.locked,
 			..Default::default()
 		};
-		let Some(output) = self.try_get_package(&dependency, arg).await? else {
+		let Some(output) = self.try_get_package(dependency, arg).await? else {
 			return Ok(None);
 		};
 		let package = tg::Artifact::with_id(output.artifact);

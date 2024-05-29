@@ -47,6 +47,7 @@ pub struct InnerArgs {
 	pub locked: bool,
 
 	/// Whether to build on a remote.
+	#[allow(clippy::option_option)]
 	#[arg(short, long)]
 	pub remote: Option<Option<String>>,
 
@@ -219,11 +220,9 @@ impl Cli {
 
 		// Build the target.
 		let id = target.id(&self.handle, None).await?;
-		let remote = match args.remote {
-			None => None,
-			Some(None) => Some(Either::Left(true)),
-			Some(Some(remote)) => Some(Either::Right(remote)),
-		};
+		let remote = args
+			.remote
+			.map(|remote| remote.unwrap_or_else(|| "default".to_owned()));
 		let arg = tg::target::build::Arg {
 			parent: None,
 			remote,

@@ -4,7 +4,6 @@ use ct::event;
 use ratatui as tui;
 use std::sync::Arc;
 use tangram_client as tg;
-use tg::Handle as _;
 
 mod app;
 mod commands;

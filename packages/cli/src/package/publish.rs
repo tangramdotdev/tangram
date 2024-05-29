@@ -12,8 +12,9 @@ pub struct Args {
 	#[arg(long, default_value = "false")]
 	pub locked: bool,
 
+	#[allow(clippy::option_option)]
 	#[arg(short, long)]
-	pub remote: Option<String>,
+	pub remote: Option<Option<String>>,
 }
 
 impl Cli {
@@ -35,9 +36,10 @@ impl Cli {
 		let id = package.id(&self.handle, None).await?;
 
 		// Publish the package.
-		let arg = tg::package::publish::Arg {
-			remote: args.remote,
-		};
+		let remote = args
+			.remote
+			.map(|remote| remote.unwrap_or_else(|| "default".to_owned()));
+		let arg = tg::package::publish::Arg { remote };
 		self.handle
 			.publish_package(&id, arg)
 			.await

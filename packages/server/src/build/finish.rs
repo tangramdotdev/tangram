@@ -194,11 +194,19 @@ impl Server {
 		// Drop the connection.
 		drop(connection);
 
-		// Publish a message that the build's status has changed.
-		self.messenger
-			.publish(format!("builds.{id}.status"), Bytes::new())
-			.await
-			.map_err(|source| tg::error!(!source, "failed to publish"))?;
+		// Publish the message.
+		tokio::spawn({
+			let server = self.clone();
+			let id = id.clone();
+			async move {
+				server
+					.messenger
+					.publish(format!("builds.{id}.status"), Bytes::new())
+					.await
+					.inspect_err(|error| tracing::error!(%error, "failed to publish"))
+					.ok();
+			}
+		});
 
 		Ok(())
 	}
