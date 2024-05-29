@@ -1,5 +1,5 @@
 use crate::Server;
-use futures::{stream, Stream, TryStreamExt as _};
+use futures::{stream, Stream, StreamExt as _};
 use tangram_client as tg;
 use tangram_http::{incoming::request::Ext as _, outgoing::response::Ext as _, Incoming, Outgoing};
 
@@ -25,9 +25,20 @@ impl Server {
 		let id = id.parse()?;
 		let arg = request.query_params().transpose()?.unwrap_or_default();
 		let stream = handle.push_object(&id, arg).await?;
-		let sse = stream.map_ok(|event| {
-			let data = serde_json::to_string(&event).unwrap();
-			tangram_http::sse::Event::with_data(data)
+		let sse = stream.map(|result| match result {
+			Ok(data) => {
+				let data = serde_json::to_string(&data).unwrap();
+				Ok::<_, tg::Error>(tangram_http::sse::Event::with_data(data))
+			},
+			Err(error) => {
+				let data = serde_json::to_string(&error).unwrap();
+				let event = "error".to_owned();
+				Ok::<_, tg::Error>(tangram_http::sse::Event {
+					data,
+					event: Some(event),
+					..Default::default()
+				})
+			},
 		});
 		let body = Outgoing::sse(sse);
 		let response = http::Response::builder().ok().body(body).unwrap();

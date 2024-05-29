@@ -95,10 +95,10 @@ pub enum Data {
 
 #[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
 pub struct Progress {
-	current_count: u64,
-	total_count: u64,
-	current_weight: u64,
-	total_weight: u64,
+	pub current_count: u64,
+	pub total_count: u64,
+	pub current_weight: u64,
+	pub total_weight: u64,
 }
 
 impl Id {
