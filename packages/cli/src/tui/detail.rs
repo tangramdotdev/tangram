@@ -197,10 +197,12 @@ where
 		tokio::task::spawn({
 			let data = info.clone();
 			async move {
-				let text = data
-					.get_text()
+				let value = data
+					.get_value()
 					.await
-					.unwrap_or_else(|error| format!("error: {error}"));
+					.ok()
+					.map(|value| serde_json::to_string_pretty(&value).unwrap());
+				let text = value.unwrap_or("missing".into());
 				data.state.write().unwrap().text = text;
 			}
 		});
@@ -248,91 +250,31 @@ where
 			.render(area, buf);
 	}
 
-	async fn get_text(&self) -> tg::Result<String> {
+	async fn get_value(&self) -> tg::Result<serde_json::Value> {
 		match &self.value {
-			Item::Root => Ok(String::new()),
+			Item::Root => Ok(serde_json::Value::Null),
 			Item::Build { build, .. } => {
 				let info = self.handle.get_build(build.id()).await?;
-				Ok(serde_json::to_string_pretty(&info).unwrap())
+				Ok(serde_json::to_value(&info).unwrap())
 			},
 			Item::Value {
-				value: tg::Value::Object(tg::Object::Leaf(_)),
+				value: tg::Value::Object(object),
 				..
-			} => Ok("(bytes)".into()),
-			Item::Value {
-				value: tg::Value::Object(tg::Object::Branch(object)),
-				..
-			} => {
-				let data = object.data(&self.handle).await?;
-				Ok(serde_json::to_string_pretty(&data).unwrap())
-			},
-			Item::Value {
-				value: tg::Value::Object(tg::Object::Directory(object)),
-				..
-			} => {
-				let data = object.data(&self.handle).await?;
-				Ok(serde_json::to_string_pretty(&data).unwrap())
-			},
-			Item::Value {
-				value: tg::Value::Object(tg::Object::File(object)),
-				..
-			} => {
-				let data = object.data(&self.handle).await?;
-				Ok(serde_json::to_string_pretty(&data).unwrap())
-			},
-			Item::Value {
-				value: tg::Value::Object(tg::Object::Symlink(object)),
-				..
-			} => {
-				let data = object.data(&self.handle).await?;
-				Ok(serde_json::to_string_pretty(&data).unwrap())
-			},
-			Item::Value {
-				value: tg::Value::Object(tg::Object::Target(object)),
-				..
-			} => {
-				let data = object.data(&self.handle).await?;
-				Ok(serde_json::to_string_pretty(&data).unwrap())
-			},
-			Item::Value {
-				value: tg::Value::Object(tg::Object::Lock(object)),
-				..
-			} => {
-				let data = object.data(&self.handle).await?;
-				Ok(serde_json::to_string_pretty(&data).unwrap())
-			},
+			} => self.get_object_value(object).await,
 			Item::Value { value, .. } => {
 				let data = value.data(&self.handle).await?;
 				match &data {
 					tg::value::Data::Null => Ok("null".into()),
-					tg::value::Data::Bool(value) => {
-						Ok(serde_json::to_string_pretty(value).unwrap())
-					},
-					tg::value::Data::Number(value) => {
-						Ok(serde_json::to_string_pretty(value).unwrap())
-					},
-					tg::value::Data::String(value) => {
-						Ok(serde_json::to_string_pretty(value).unwrap())
-					},
-					tg::value::Data::Array(value) => {
-						Ok(serde_json::to_string_pretty(value).unwrap())
-					},
-					tg::value::Data::Map(value) => Ok(serde_json::to_string_pretty(value).unwrap()),
-					tg::value::Data::Object(value) => {
-						Ok(serde_json::to_string_pretty(value).unwrap())
-					},
-					tg::value::Data::Bytes(value) => {
-						Ok(serde_json::to_string_pretty(value).unwrap())
-					},
-					tg::value::Data::Path(value) => {
-						Ok(serde_json::to_string_pretty(value).unwrap())
-					},
-					tg::value::Data::Mutation(value) => {
-						Ok(serde_json::to_string_pretty(value).unwrap())
-					},
-					tg::value::Data::Template(value) => {
-						Ok(serde_json::to_string_pretty(value).unwrap())
-					},
+					tg::value::Data::Bool(value) => Ok(serde_json::to_value(value).unwrap()),
+					tg::value::Data::Number(value) => Ok(serde_json::to_value(value).unwrap()),
+					tg::value::Data::String(value) => Ok(serde_json::to_value(value).unwrap()),
+					tg::value::Data::Array(value) => Ok(serde_json::to_value(value).unwrap()),
+					tg::value::Data::Map(value) => Ok(serde_json::to_value(value).unwrap()),
+					tg::value::Data::Object(value) => Ok(serde_json::to_value(value).unwrap()),
+					tg::value::Data::Bytes(value) => Ok(serde_json::to_value(value).unwrap()),
+					tg::value::Data::Path(value) => Ok(serde_json::to_value(value).unwrap()),
+					tg::value::Data::Mutation(value) => Ok(serde_json::to_value(value).unwrap()),
+					tg::value::Data::Template(value) => Ok(serde_json::to_value(value).unwrap()),
 				}
 			},
 			Item::Package {
@@ -358,8 +300,59 @@ where
 					artifact,
 					lock,
 				};
-				Ok(serde_json::to_string_pretty(&data).unwrap())
+				Ok(serde_json::to_value(data).unwrap())
 			},
 		}
+	}
+
+	async fn get_object_value(&self, object: &tg::Object) -> tg::Result<serde_json::Value> {
+		let id = object.id(&self.handle).await?;
+		let output = self.handle.get_object(&id).await?;
+		let data = match object {
+			tg::Object::Branch(object) => {
+				let data = object.data(&self.handle).await?;
+				serde_json::to_value(data).unwrap()
+			},
+			tg::Object::Leaf(_) => serde_json::to_value("(bytes)").unwrap(),
+			tg::Object::Directory(object) => {
+				let data = object.data(&self.handle).await?;
+				serde_json::to_value(data).unwrap()
+			},
+			tg::Object::File(object) => {
+				let data = object.data(&self.handle).await?;
+				serde_json::to_value(data).unwrap()
+			},
+			tg::Object::Symlink(object) => {
+				let data = object.data(&self.handle).await?;
+				serde_json::to_value(data).unwrap()
+			},
+			tg::Object::Target(object) => {
+				let data = object.data(&self.handle).await?;
+				serde_json::to_value(data).unwrap()
+			},
+			tg::Object::Lock(object) => {
+				let data = object.data(&self.handle).await?;
+				serde_json::to_value(data).unwrap()
+			},
+		};
+
+		#[derive(serde::Serialize)]
+		struct Info {
+			id: tg::object::Id,
+			#[serde(skip_serializing_if = "Option::is_none")]
+			count: Option<u64>,
+			#[serde(skip_serializing_if = "Option::is_none")]
+			weight: Option<u64>,
+			data: serde_json::Value,
+		}
+
+		let info = Info {
+			id,
+			count: output.metadata.count,
+			weight: output.metadata.weight,
+			data,
+		};
+
+		Ok(serde_json::to_value(&info).unwrap())
 	}
 }
