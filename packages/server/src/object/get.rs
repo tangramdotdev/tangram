@@ -2,6 +2,7 @@ use crate::Server;
 use bytes::Bytes;
 use futures::{future, FutureExt as _, TryFutureExt as _};
 use indoc::formatdoc;
+use itertools::Itertools as _;
 use tangram_client as tg;
 use tangram_database::{self as db, prelude::*};
 use tangram_http::{outgoing::response::Ext as _, Incoming, Outgoing};
@@ -81,7 +82,11 @@ impl Server {
 		let futures = self
 			.remotes
 			.iter()
-			.map(|remote| async move { remote.get_object(id).await }.boxed());
+			.map(|remote| async move { remote.get_object(id).await }.boxed())
+			.collect_vec();
+		if futures.is_empty() {
+			return Ok(None);
+		}
 		let Ok((output, _)) = future::select_ok(futures).await else {
 			return Ok(None);
 		};

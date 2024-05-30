@@ -1,6 +1,7 @@
 use crate::Server;
 use futures::{future, Future, FutureExt as _, TryFutureExt as _, TryStreamExt as _};
 use indoc::formatdoc;
+use itertools::Itertools as _;
 use std::pin::pin;
 use tangram_client as tg;
 use tangram_database::{self as db, prelude::*};
@@ -100,20 +101,27 @@ impl Server {
 	) -> tg::Result<
 		Option<impl Future<Output = tg::Result<Option<tg::build::Outcome>>> + Send + 'static>,
 	> {
-		let futures = self.remotes.iter().map(|remote| {
-			{
-				let remote = remote.clone();
-				let id = id.clone();
-				let arg = arg.clone();
-				async move {
-					remote
-						.get_build_outcome(&id, arg)
-						.await
-						.map(futures::FutureExt::boxed)
+		let futures = self
+			.remotes
+			.iter()
+			.map(|remote| {
+				{
+					let remote = remote.clone();
+					let id = id.clone();
+					let arg = arg.clone();
+					async move {
+						remote
+							.get_build_outcome(&id, arg)
+							.await
+							.map(futures::FutureExt::boxed)
+					}
 				}
-			}
-			.boxed()
-		});
+				.boxed()
+			})
+			.collect_vec();
+		if futures.is_empty() {
+			return Ok(None);
+		}
 		let Ok((future, _)) = future::select_ok(futures).await else {
 			return Ok(None);
 		};

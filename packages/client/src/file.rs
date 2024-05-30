@@ -270,7 +270,7 @@ impl Data {
 	}
 
 	#[must_use]
-	pub fn children(&self) -> Vec<tg::object::Id> {
+	pub fn children(&self) -> BTreeSet<tg::object::Id> {
 		std::iter::once(self.contents.clone().into())
 			.chain(self.references.iter().cloned().map(Into::into))
 			.collect()

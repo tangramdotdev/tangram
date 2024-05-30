@@ -1,7 +1,10 @@
 use crate::{self as tg, util::arc::Ext as _};
 use bytes::Bytes;
 use futures::{stream::FuturesOrdered, FutureExt as _, TryStreamExt as _};
-use std::{collections::BTreeMap, sync::Arc};
+use std::{
+	collections::{BTreeMap, BTreeSet},
+	sync::Arc,
+};
 
 #[derive(
 	Clone,
@@ -258,7 +261,7 @@ impl Data {
 	}
 
 	#[must_use]
-	pub fn children(&self) -> Vec<tg::object::Id> {
+	pub fn children(&self) -> BTreeSet<tg::object::Id> {
 		self.entries.values().cloned().map(Into::into).collect()
 	}
 }

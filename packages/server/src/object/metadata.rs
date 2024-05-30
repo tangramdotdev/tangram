@@ -1,6 +1,7 @@
 use crate::Server;
 use futures::{future, FutureExt as _};
 use indoc::formatdoc;
+use itertools::Itertools as _;
 use tangram_client as tg;
 use tangram_database::{self as db, prelude::*};
 use tangram_http::{outgoing::response::Ext as _, Incoming, Outgoing};
@@ -35,7 +36,7 @@ impl Server {
 		let p = connection.p();
 		let statement = formatdoc!(
 			"
-				select count, weight
+				select count, length(bytes) as size, weight
 				from objects
 				where id = {p}1;
 			",
@@ -60,7 +61,11 @@ impl Server {
 		let futures = self
 			.remotes
 			.iter()
-			.map(|remote| async move { remote.get_object_metadata(id).await }.boxed());
+			.map(|remote| async move { remote.get_object_metadata(id).await }.boxed())
+			.collect_vec();
+		if futures.is_empty() {
+			return Ok(None);
+		}
 		let Ok((metadata, _)) = future::select_ok(futures).await else {
 			return Ok(None);
 		};

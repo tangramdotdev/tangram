@@ -9,7 +9,6 @@ pub struct Args {
 	#[arg(default_value = ".")]
 	pub package: tg::Dependency,
 
-
 	#[allow(clippy::option_option)]
 	#[arg(short, long)]
 	pub remote: Option<Option<String>>,
@@ -46,9 +45,7 @@ impl Cli {
 		let remote = args
 			.remote
 			.map(|remote| remote.unwrap_or_else(|| "default".to_owned()));
-		let arg = tg::package::yank::Arg {
-			remote,
-		};
+		let arg = tg::package::yank::Arg { remote };
 		self.handle
 			.yank_package(&id, arg)
 			.await
@@ -57,8 +54,8 @@ impl Cli {
 		// Get the package metadata
 		let metadata = tg::package::get_metadata(&self.handle, &package).await?;
 		println!(
-			"{}: {} {}@{}",
-			"info".blue(),
+			"{} {} {}@{}",
+			"info".blue().bold(),
 			"YANKED".red().bold(),
 			metadata.name.unwrap().red(),
 			metadata.version.unwrap().green()

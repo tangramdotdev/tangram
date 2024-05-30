@@ -106,7 +106,7 @@ impl Server {
 		current_weight: Arc<AtomicU64>,
 	) -> tg::Result<(u64, u64)> {
 		// Get the object.
-		let tg::object::get::Output { bytes, metadata } = remote
+		let tg::object::get::Output { bytes, metadata } = self
 			.get_object(object)
 			.await
 			.map_err(|source| tg::error!(!source, "failed to get the object"))?;
@@ -118,6 +118,7 @@ impl Server {
 			.boxed()
 			.await
 			.map_err(|source| tg::error!(!source, "failed to put the object"))?;
+		tokio::time::sleep(std::time::Duration::from_millis(1000)).await;
 
 		// Increment the count and add the objects size to the weight.
 		current_count.fetch_add(1, std::sync::atomic::Ordering::Relaxed);

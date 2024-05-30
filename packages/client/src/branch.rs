@@ -1,7 +1,7 @@
 use crate::{self as tg, util::arc::Ext as _};
 use bytes::Bytes;
 use futures::{stream::FuturesOrdered, FutureExt as _, TryStreamExt as _};
-use std::sync::Arc;
+use std::{collections::BTreeSet, sync::Arc};
 
 pub use self::child::Child;
 
@@ -198,7 +198,7 @@ impl Data {
 	}
 
 	#[must_use]
-	pub fn children(&self) -> Vec<tg::object::Id> {
+	pub fn children(&self) -> BTreeSet<tg::object::Id> {
 		self.children
 			.iter()
 			.map(|child| child.blob.clone().into())

@@ -1,10 +1,10 @@
 use crate::Server;
+use bytes::Bytes;
 use futures::{stream::FuturesUnordered, TryStreamExt as _};
 use indoc::formatdoc;
 use num::ToPrimitive;
 use tangram_client as tg;
 use tangram_database::{self as db, prelude::*};
-use tg::Handle as _;
 
 impl Server {
 	pub(crate) async fn index_task(&self) -> tg::Result<()> {
@@ -15,13 +15,6 @@ impl Server {
 	}
 
 	async fn index_object(&self, id: &tg::object::Id) -> tg::Result<()> {
-		// Get the object.
-		let tg::object::get::Output { bytes, .. } = self.get_object(id).await?;
-
-		// Deserialize the object.
-		let data = tg::object::Data::deserialize(id.kind(), &bytes)
-			.map_err(|source| tg::error!(!source, "failed to deserialize the data"))?;
-
 		// Get a database connection.
 		let connection = self
 			.database
@@ -29,9 +22,10 @@ impl Server {
 			.await
 			.map_err(|source| tg::error!(!source, "failed to get a database connection"))?;
 
-		// Get the current values for children, complete, count, and weight.
+		// Get the object.
 		#[derive(serde::Deserialize)]
 		struct Row {
+			bytes: Bytes,
 			children: bool,
 			complete: bool,
 			count: Option<u64>,
@@ -40,13 +34,14 @@ impl Server {
 		let p = connection.p();
 		let statement = formatdoc!(
 			"
-				select children, complete, count, weight
+				select bytes, children, complete, count, weight
 				from objects
 				where id = {p}1;
 			"
 		);
 		let params = db::params![id];
 		let Row {
+			bytes,
 			children,
 			complete,
 			count,
@@ -58,6 +53,10 @@ impl Server {
 
 		// Drop the connection.
 		drop(connection);
+
+		// Deserialize the object.
+		let data = tg::object::Data::deserialize(id.kind(), &bytes)
+			.map_err(|source| tg::error!(!source, "failed to deserialize the data"))?;
 
 		// If the children were not set, then add them.
 		if !children {
@@ -135,7 +134,7 @@ impl Server {
 				.map(|count| count + 1);
 			let weight = children_metadata
 				.iter()
-				.map(|option| option.as_ref().and_then(|metadata| metadata.count))
+				.map(|option| option.as_ref().and_then(|metadata| metadata.weight))
 				.sum::<Option<u64>>()
 				.map(|weight| weight + bytes.len().to_u64().unwrap());
 

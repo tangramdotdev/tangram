@@ -1,6 +1,6 @@
 use crate as tg;
 use bytes::Bytes;
-use std::sync::Arc;
+use std::{collections::BTreeSet, sync::Arc};
 
 pub use self::metadata::Metadata;
 
@@ -203,7 +203,7 @@ impl Data {
 	}
 
 	#[must_use]
-	pub fn children(&self) -> Vec<self::Id> {
+	pub fn children(&self) -> BTreeSet<self::Id> {
 		match self {
 			Self::Leaf(data) => data.children(),
 			Self::Branch(data) => data.children(),

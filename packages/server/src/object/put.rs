@@ -1,3 +1,5 @@
+use std::collections::BTreeSet;
+
 use crate::{database::Transaction, Server};
 use futures::FutureExt as _;
 use indoc::formatdoc;
@@ -75,7 +77,7 @@ impl Server {
 		}
 
 		// Get the incomplete children.
-		let incomplete: Vec<tg::object::Id> = if children {
+		let incomplete: BTreeSet<tg::object::Id> = if children {
 			// If the object's children are set, then get the incomplete children.
 			let p = transaction.p();
 			let statement = formatdoc!(
@@ -91,6 +93,8 @@ impl Server {
 				.query_all_value_into(statement, params)
 				.await
 				.map_err(|source| tg::error!(!source, "failed to execute the statement"))?
+				.into_iter()
+				.collect()
 		} else {
 			// If the children are not set, then return all the children.
 			let data = tg::object::Data::deserialize(id.kind(), &arg.bytes)
@@ -119,7 +123,6 @@ impl Server {
 		let output = handle.put_object(&id, arg, None).boxed().await?;
 		let body = Outgoing::json(output);
 		let response = http::Response::builder().body(body).unwrap();
-		tokio::time::sleep(std::time::Duration::from_secs(1)).await;
 		Ok(response)
 	}
 }

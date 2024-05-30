@@ -5,6 +5,7 @@ use futures::{
 	stream, stream_select, FutureExt as _, Stream, StreamExt as _, TryStreamExt as _,
 };
 use indoc::formatdoc;
+use itertools::Itertools as _;
 use num::ToPrimitive as _;
 use std::{io::Cursor, pin::pin, sync::Arc};
 use sync_wrapper::SyncWrapper;
@@ -267,20 +268,27 @@ impl Server {
 		arg: tg::build::log::Arg,
 	) -> tg::Result<Option<impl Stream<Item = tg::Result<tg::build::log::Chunk>> + Send + 'static>>
 	{
-		let futures = self.remotes.iter().map(|remote| {
-			{
-				let remote = remote.clone();
-				let id = id.clone();
-				let arg = arg.clone();
-				async move {
-					remote
-						.get_build_log(&id, arg)
-						.await
-						.map(futures::StreamExt::boxed)
+		let futures = self
+			.remotes
+			.iter()
+			.map(|remote| {
+				{
+					let remote = remote.clone();
+					let id = id.clone();
+					let arg = arg.clone();
+					async move {
+						remote
+							.get_build_log(&id, arg)
+							.await
+							.map(futures::StreamExt::boxed)
+					}
 				}
-			}
-			.boxed()
-		});
+				.boxed()
+			})
+			.collect_vec();
+		if futures.is_empty() {
+			return Ok(None);
+		}
 		let Ok((stream, _)) = future::select_ok(futures).await else {
 			return Ok(None);
 		};

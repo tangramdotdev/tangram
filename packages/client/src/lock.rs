@@ -6,7 +6,11 @@ use futures::{
 	FutureExt as _, TryStreamExt as _,
 };
 use itertools::Itertools as _;
-use std::{collections::BTreeMap, path::Path, sync::Arc};
+use std::{
+	collections::{BTreeMap, BTreeSet},
+	path::Path,
+	sync::Arc,
+};
 
 pub use self::data::Data;
 
@@ -235,7 +239,10 @@ impl Lock {
 	{
 		let object = self.object(handle).await?;
 		let root = &object.nodes[object.root];
-		let Entry { artifact: package, lock } = root
+		let Entry {
+			artifact: package,
+			lock,
+		} = root
 			.dependencies
 			.get(dependency)
 			.ok_or_else(|| tg::error!(%dependency, "failed to lookup dependency in lock"))?;
@@ -260,13 +267,19 @@ impl Lock {
 			.dependencies
 			.iter()
 			.map(|(dependency, lock)| {
-				let Entry { artifact: package, lock } = lock;
+				let Entry {
+					artifact: package,
+					lock,
+				} = lock;
 				let package = package.clone();
 				let lock = lock
 					.as_ref()
 					.map_left(|index| Self::get_inner(nodes, object, *index))
 					.map_right(Lock::clone);
-				let entry = Entry { artifact: package, lock };
+				let entry = Entry {
+					artifact: package,
+					lock,
+				};
 				(dependency.clone(), entry)
 			})
 			.collect();
@@ -410,7 +423,10 @@ impl Entry {
 			Either::Left(index) => Either::Left(*index),
 			Either::Right(lock) => Either::Right(lock.id(handle, transaction).await?),
 		};
-		Ok(data::Entry { artifact: package, lock })
+		Ok(data::Entry {
+			artifact: package,
+			lock,
+		})
 	}
 }
 
@@ -427,15 +443,15 @@ impl Data {
 	}
 
 	#[must_use]
-	pub fn children(&self) -> Vec<tg::object::Id> {
-		let mut children = Vec::new();
+	pub fn children(&self) -> BTreeSet<tg::object::Id> {
+		let mut children = BTreeSet::new();
 		for node in &self.nodes {
 			for entry in node.dependencies.values() {
 				if let Some(package) = &entry.artifact {
-					children.push(package.clone().into());
+					children.insert(package.clone().into());
 				}
 				if let Either::Right(id) = &entry.lock {
-					children.push(id.clone().into());
+					children.insert(id.clone().into());
 				}
 			}
 		}
@@ -479,7 +495,10 @@ impl TryFrom<data::Entry> for Entry {
 			Either::Left(index) => Either::Left(index),
 			Either::Right(id) => Either::Right(Lock::with_id(id)),
 		};
-		Ok(Self { artifact: package, lock })
+		Ok(Self {
+			artifact: package,
+			lock,
+		})
 	}
 }
 

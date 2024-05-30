@@ -213,7 +213,7 @@ impl Cli {
 
 		// Print the target.
 		eprintln!(
-			"{}: target {}",
+			"{} target {}",
 			"info".blue().bold(),
 			target.id(&self.handle, None).await?
 		);
@@ -245,7 +245,7 @@ impl Cli {
 		}
 
 		// Print the build.
-		eprintln!("{}: build {}", "info".blue().bold(), build.id());
+		eprintln!("{} build {}", "info".blue().bold(), build.id());
 
 		// Attempt to get the build's outcome with zero timeout.
 		let arg = tg::build::outcome::Arg {

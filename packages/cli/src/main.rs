@@ -127,7 +127,7 @@ fn main() -> std::process::ExitCode {
 	let config = match Cli::read_config(args.config.clone()) {
 		Ok(config) => config,
 		Err(error) => {
-			eprintln!("{}: failed to read the config", "error".red().bold());
+			eprintln!("{} failed to read the config", "error".red().bold());
 			futures::executor::block_on(Cli::print_error(None::<Client>, &error, None));
 			return 1.into();
 		},
@@ -140,7 +140,7 @@ fn main() -> std::process::ExitCode {
 	Cli::set_file_descriptor_limit(config.as_ref())
 		.inspect_err(|_| {
 			eprintln!(
-				"{}: failed to set the file descriptor limit",
+				"{} failed to set the file descriptor limit",
 				"warning".yellow().bold(),
 			);
 		})
@@ -152,7 +152,7 @@ fn main() -> std::process::ExitCode {
 		let cli = match Cli::new(args.clone(), config.clone()).await {
 			Ok(cli) => cli,
 			Err(error) => {
-				eprintln!("{}: an error occurred", "error".red().bold());
+				eprintln!("{} an error occurred", "error".red().bold());
 				Cli::print_error(None::<Client>, &error, config.as_ref()).await;
 				return Err(1);
 			},
@@ -162,7 +162,7 @@ fn main() -> std::process::ExitCode {
 		let result = match cli.command(args.command).await {
 			Ok(()) => Ok(()),
 			Err(error) => {
-				eprintln!("{}: failed to run the command", "error".red().bold());
+				eprintln!("{} failed to run the command", "error".red().bold());
 				Cli::print_error(Some(cli.handle.clone()), &error, config.as_ref()).await;
 				Err(1)
 			},
@@ -175,7 +175,7 @@ fn main() -> std::process::ExitCode {
 			match result {
 				Ok(()) => (),
 				Err(error) => {
-					eprintln!("{}: an error occurred", "error".red().bold());
+					eprintln!("{} an error occurred", "error".red().bold());
 					Cli::print_error(None::<Client>, &error, config.as_ref()).await;
 					return Err(1);
 				},

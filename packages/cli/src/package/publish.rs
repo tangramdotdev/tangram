@@ -48,8 +48,8 @@ impl Cli {
 		// Display
 		let metadata = tg::package::get_metadata(&self.handle, &package).await?;
 		println!(
-			"{}: published {}@{}",
-			"info".blue(),
+			"{} published {}@{}",
+			"info".blue().bold(),
 			metadata.name.unwrap().red(),
 			metadata.version.unwrap().green()
 		);
