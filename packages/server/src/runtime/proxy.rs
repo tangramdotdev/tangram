@@ -227,13 +227,26 @@ impl tg::Handle for Proxy {
 		self.server.try_get_object(id)
 	}
 
-	fn put_object(
+	async fn put_object(
 		&self,
 		id: &tg::object::Id,
 		arg: tg::object::put::Arg,
 		_transaction: Option<&Self::Transaction<'_>>,
-	) -> impl Future<Output = tg::Result<tg::object::put::Output>> {
-		self.server.put_object(id, arg, None)
+	) -> tg::Result<tg::object::put::Output> {
+		let result = self.server.put_object(id, arg, None).await;
+		// If the VFS is disabled and the object is an artifact, then check out the artifact.
+		if !self.server.options.vfs {
+			if let Ok(artifact_id) = tg::artifact::Id::try_from(id.clone()) {
+				self.server.local_pool_handle.spawn_pinned({
+					let server = self.server.clone();
+					|| async move {
+						let arg = tg::artifact::checkout::Arg::default();
+						server.check_out_artifact(&artifact_id, arg).await
+					}
+				});
+			}
+		}
+		result
 	}
 
 	async fn push_object(&self, _id: &tg::object::Id) -> tg::Result<()> {
