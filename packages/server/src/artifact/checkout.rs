@@ -90,14 +90,17 @@ impl Server {
 		} else {
 			// Get the path in the checkouts directory.
 			let id = artifact.id(self, None).await?;
-			let path = self.checkouts_path().join(id.to_string()).try_into()?;
+			let path: tg::Path = self.checkouts_path().join(id.to_string()).try_into()?;
+			let artifact_path = self.artifacts_path().join(id.to_string()).try_into()?;
 
 			// If there is already a file system object at the path, then return.
 			if tokio::fs::try_exists(&path)
 				.await
 				.map_err(|source| tg::error!(!source, "failed to stat the path"))?
 			{
-				return Ok(tg::artifact::checkout::Output { path });
+				return Ok(tg::artifact::checkout::Output {
+					path: artifact_path,
+				});
 			}
 
 			// Create a tmp.
@@ -133,7 +136,9 @@ impl Server {
 				},
 			};
 
-			Ok(tg::artifact::checkout::Output { path })
+			Ok(tg::artifact::checkout::Output {
+				path: artifact_path,
+			})
 		}
 	}
 
