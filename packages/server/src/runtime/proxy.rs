@@ -82,6 +82,17 @@ impl tg::Handle for Proxy {
 		// Replace the path with the host path.
 		if let Some(path) = &mut arg.path {
 			*path = self.host_path_for_guest_path(path.clone())?;
+		} else {
+			// If there's no path set (internal checkout) and the VFS is enabled, ignore the request.
+			if self.server.options.vfs {
+				return Ok(tg::artifact::checkout::Output {
+					path: self
+						.server
+						.artifacts_path()
+						.join(id.to_string())
+						.try_into()?,
+				});
+			}
 		}
 
 		// Perform the checkout.
