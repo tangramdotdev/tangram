@@ -59,7 +59,6 @@ export default tg.target(() => {
 		checksum: "unsafe",
 		source: sourceDir,
 		env,
-		useCargoVendor: true,
 	});
 });
 
@@ -79,7 +78,7 @@ export let bun = tg.target(async (hostArg?: string) => {
 		await std.download({
 			checksum,
 			extract: true,
-			url: `https://github.com/oven-sh/bun/releases/download/bun-v1.1.9/${file}.zip`,
+			url: `https://github.com/oven-sh/bun/releases/download/bun-v1.1.10/${file}.zip`,
 		}),
 	);
 	let bun = tg.File.expect(await dl.get(`${file}/bun`));
