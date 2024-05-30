@@ -1,6 +1,6 @@
 use crate::Server;
 use either::Either;
-use futures::{stream::FuturesUnordered, TryStreamExt as _};
+use futures::{future, stream::FuturesUnordered, TryStreamExt as _};
 use std::collections::{BTreeMap, BTreeSet};
 use tangram_client::{self as tg, Handle};
 
@@ -94,9 +94,9 @@ enum Error {
 }
 
 impl Server {
-	pub(crate) async fn get_or_create_package_lock(
+	pub(crate) async fn get_or_create_lock(
 		&self,
-		id: &tg::artifact::Id,
+		artifact: &tg::artifact::Id,
 		path: Option<&tg::Path>,
 		dependencies: &BTreeMap<tg::Dependency, Option<tg::package::get::Output>>,
 		locked: bool,
@@ -123,7 +123,7 @@ impl Server {
 			Some(lock)
 		};
 
-		// Verify that the lock's dependencies matches the analyzed path dependencies.
+		// Verify that the dependencies match the lock.
 		let lock = 'a: {
 			let Some(lock) = lock else {
 				break 'a None;
@@ -134,9 +134,9 @@ impl Server {
 			Some(lock)
 		};
 
-		// Avoid creating a lock file if the caller requested it.
+		// If `locked` is true, then require the lock to exist and match.
 		if locked {
-			return lock.ok_or_else(|| tg::error!("missing lock file"));
+			return lock.ok_or_else(|| tg::error!("missing lockfile"));
 		}
 
 		// Otherwise, create the lock.
@@ -145,7 +145,7 @@ impl Server {
 			lock
 		} else {
 			created = true;
-			self.create_package_lock(id, dependencies).await?
+			self.create_package_lock(artifact, dependencies).await?
 		};
 
 		// Write the lock without the resolved path dependencies to the lockfile.
@@ -175,11 +175,8 @@ impl Server {
 		dependencies: &BTreeMap<tg::Dependency, Option<tg::package::get::Output>>,
 		lock: &tg::Lock,
 	) -> tg::Result<bool> {
-		// Get the dependencies from the package and its lock.
-		let deps_in_lock = lock.dependencies(self).await?;
-
 		// Verify that the dependencies match.
-		if !itertools::equal(dependencies.keys(), deps_in_lock.iter()) {
+		if !itertools::equal(dependencies.keys(), lock.dependencies(self).await?.iter()) {
 			return Ok(false);
 		}
 
@@ -197,7 +194,7 @@ impl Server {
 				self.dependencies_match_lock(dependencies, &lock).await
 			})
 			.collect::<FuturesUnordered<_>>()
-			.try_all(|matches| async move { matches })
+			.try_all(future::ready)
 			.await?;
 
 		Ok(true)
@@ -209,11 +206,10 @@ impl Server {
 		dependencies: &BTreeMap<tg::Dependency, Option<tg::package::get::Output>>,
 	) -> tg::Result<tg::Lock> {
 		// Construct the version solving context and initial set of edges.
-		let (output, edges) = self.flatten_output(artifact, dependencies)?;
-
-		let mut context = Context { output };
+		let (output, edges) = Self::flatten_output(artifact, dependencies);
 
 		// Solve.
+		let mut context = Context { output };
 		let solution = self.solve(&mut context, edges.into()).await?;
 
 		// Collect the errors.
@@ -226,7 +222,7 @@ impl Server {
 			})
 			.collect::<Vec<_>>();
 
-		// If the report is not empty, return an error.
+		// If the report is not empty, then return an error.
 		if !errors.is_empty() {
 			let report = Report {
 				errors,
@@ -318,14 +314,12 @@ impl Server {
 	}
 
 	fn flatten_output(
-		&self,
 		root: &tg::artifact::Id,
 		dependencies: &BTreeMap<tg::Dependency, Option<tg::package::get::Output>>,
-	) -> tg::Result<(
+	) -> (
 		BTreeMap<tg::Dependency, tg::package::get::Output>,
 		Vec<Edge>,
-	)> {
-
+	) {
 		let mut stack = vec![(root, dependencies)];
 		let mut output = BTreeMap::new();
 		let mut edges = Vec::new();
@@ -342,7 +336,7 @@ impl Server {
 				lock: None,
 				metadata: None,
 				path: None,
-				yanked: None
+				yanked: None,
 			};
 			output.insert(key, output_);
 			for (dependency, output_) in dependencies {
@@ -356,10 +350,10 @@ impl Server {
 				let Some(dependencies_) = output_.dependencies.as_ref() else {
 					continue;
 				};
-				stack.push((artifact, dependencies_))
+				stack.push((artifact, dependencies_));
 			}
 		}
-		Ok((output, edges))
+		(output, edges)
 	}
 
 	pub(super) async fn try_add_path_dependencies_to_lock(
@@ -449,11 +443,7 @@ impl Server {
 		Ok(tg::Lock::with_object(object))
 	}
 
-	async fn solve(
-		&self,
-		context: &mut Context,
-		edges: im::Vector<Edge>,
-	) -> tg::Result<Solution> {
+	async fn solve(&self, context: &mut Context, edges: im::Vector<Edge>) -> tg::Result<Solution> {
 		// Create the first stack frame.
 		let solution = Solution::default();
 		let last_error = None;
@@ -511,9 +501,7 @@ impl Server {
 						// Something went wrong. Mark permanently as an error.
 						Err(e) => {
 							next_frame.solution =
-								next_frame
-									.solution
-									.mark_permanently(context, &edge, Err(e));
+								next_frame.solution.mark_permanently(context, &edge, Err(e));
 						},
 					}
 				},
@@ -597,9 +585,7 @@ impl Server {
 							// The child dependency has not been solved.
 							Mark::Temporary(_version) => {
 								// Uh oh. We've detected a cycle. First try and backtrack. If backtracking fails, bail out.
-								let error = Error::PackageCycleExists {
-									edge: edge.clone(),
-								};
+								let error = Error::PackageCycleExists { edge: edge.clone() };
 								erroneous_children.push((child_edge.dependency, error));
 							},
 						}
@@ -628,11 +614,10 @@ impl Server {
 							next_frame = frame_;
 						} else {
 							// This means that backtracking totally failed and we need to fail with an error.
-							next_frame.solution = next_frame.solution.mark_permanently(
-								context,
-								&edge,
-								Err(error),
-							);
+							next_frame.solution =
+								next_frame
+									.solution
+									.mark_permanently(context, &edge, Err(error));
 						}
 					}
 				},
@@ -713,12 +698,7 @@ impl Context {
 		let output = self.output.get(&key).unwrap().clone();
 
 		// Try and resolve the dependency using the existing output.
-		if let Some(Some(resolved)) = output
-			.dependencies
-			.as_ref()
-			.unwrap()
-			.get(&edge.dependency)
-		{
+		if let Some(Some(resolved)) = output.dependencies.as_ref().unwrap().get(&edge.dependency) {
 			// Update the cache with this dependency's information.
 			let key = tg::Dependency::with_artifact(resolved.artifact.clone());
 			self.output.insert(key, resolved.clone());
@@ -774,8 +754,7 @@ impl Context {
 		self.output
 			.insert(dependency_with_name_and_version, output.clone());
 		let key = tg::Dependency::with_artifact(output.artifact.clone());
-		self.output
-			.insert(key, output.clone());
+		self.output.insert(key, output.clone());
 
 		Ok(Some(output.artifact))
 	}

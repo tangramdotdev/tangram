@@ -63,7 +63,9 @@ pub trait Handle: Clone + Unpin + Send + Sync + 'static {
 		id: &tg::build::Id,
 		arg: tg::build::push::Arg,
 	) -> impl Future<
-		Output = tg::Result<impl Stream<Item = tg::Result<tg::build::Progress>> + Send + 'static>,
+		Output = tg::Result<
+			impl Stream<Item = tg::Result<tg::build::push::Event>> + Send + 'static,
+		>,
 	> + Send;
 
 	fn pull_build(
@@ -71,7 +73,9 @@ pub trait Handle: Clone + Unpin + Send + Sync + 'static {
 		id: &tg::build::Id,
 		arg: tg::build::pull::Arg,
 	) -> impl Future<
-		Output = tg::Result<impl Stream<Item = tg::Result<tg::build::Progress>> + Send + 'static>,
+		Output = tg::Result<
+			impl Stream<Item = tg::Result<tg::build::pull::Event>> + Send + 'static,
+		>,
 	> + Send;
 
 	fn try_dequeue_build(
@@ -88,8 +92,12 @@ pub trait Handle: Clone + Unpin + Send + Sync + 'static {
 		})
 	}
 
-	fn start_build(&self, id: &tg::build::Id) -> impl Future<Output = tg::Result<bool>> + Send {
-		self.try_start_build(id).map(|result| {
+	fn start_build(
+		&self,
+		id: &tg::build::Id,
+		arg: tg::build::start::Arg,
+	) -> impl Future<Output = tg::Result<bool>> + Send {
+		self.try_start_build(id, arg).map(|result| {
 			result.and_then(|option| option.ok_or_else(|| tg::error!("failed to dequeue a build")))
 		})
 	}
@@ -97,6 +105,7 @@ pub trait Handle: Clone + Unpin + Send + Sync + 'static {
 	fn try_start_build(
 		&self,
 		id: &tg::build::Id,
+		arg: tg::build::start::Arg,
 	) -> impl Future<Output = tg::Result<Option<bool>>> + Send;
 
 	fn try_get_build_status_stream(
@@ -480,11 +489,16 @@ pub trait Handle: Clone + Unpin + Send + Sync + 'static {
 		arg: tg::build::finish::Arg,
 	) -> impl Future<Output = tg::Result<()>> + Send;
 
-	fn touch_build(&self, id: &tg::build::Id) -> impl Future<Output = tg::Result<()>> + Send;
+	fn touch_build(
+		&self,
+		id: &tg::build::Id,
+		arg: tg::build::touch::Arg,
+	) -> impl Future<Output = tg::Result<()>> + Send;
 
 	fn heartbeat_build(
 		&self,
 		id: &tg::build::Id,
+		arg: tg::build::heartbeat::Arg,
 	) -> impl Future<Output = tg::Result<tg::build::heartbeat::Output>> + Send;
 
 	fn format(&self, text: String) -> impl Future<Output = tg::Result<String>> + Send;
@@ -535,7 +549,9 @@ pub trait Handle: Clone + Unpin + Send + Sync + 'static {
 		id: &tg::object::Id,
 		arg: tg::object::push::Arg,
 	) -> impl Future<
-		Output = tg::Result<impl Stream<Item = tg::Result<tg::object::Progress>> + Send + 'static>,
+		Output = tg::Result<
+			impl Stream<Item = tg::Result<tg::object::push::Event>> + Send + 'static,
+		>,
 	> + Send;
 
 	fn pull_object(
@@ -543,7 +559,9 @@ pub trait Handle: Clone + Unpin + Send + Sync + 'static {
 		id: &tg::object::Id,
 		arg: tg::object::pull::Arg,
 	) -> impl Future<
-		Output = tg::Result<impl Stream<Item = tg::Result<tg::object::Progress>> + Send + 'static>,
+		Output = tg::Result<
+			impl Stream<Item = tg::Result<tg::object::pull::Event>> + Send + 'static,
+		>,
 	> + Send;
 
 	fn list_packages(

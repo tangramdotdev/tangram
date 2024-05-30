@@ -4,15 +4,19 @@ use tangram_http::{incoming::response::Ext as _, outgoing::request::Ext as _};
 
 #[derive(Clone, Debug, Default, serde::Deserialize, serde::Serialize)]
 pub struct Arg {
-	pub remote: Option<String>,
+	pub remote: String,
 }
+
+pub type Event = super::push::Event;
+
+pub type Progress = super::push::Progress;
 
 impl tg::Object {
 	pub async fn pull<H>(
 		&self,
 		handle: &H,
 		arg: tg::object::pull::Arg,
-	) -> tg::Result<impl Stream<Item = tg::Result<tg::object::Progress>> + Send + 'static>
+	) -> tg::Result<impl Stream<Item = tg::Result<tg::object::pull::Event>> + Send + 'static>
 	where
 		H: tg::Handle,
 	{
@@ -27,7 +31,7 @@ impl tg::Client {
 		&self,
 		id: &tg::object::Id,
 		arg: tg::object::pull::Arg,
-	) -> tg::Result<impl Stream<Item = tg::Result<tg::object::Progress>> + Send + 'static> {
+	) -> tg::Result<impl Stream<Item = tg::Result<tg::object::pull::Event>> + Send + 'static> {
 		let method = http::Method::POST;
 		let query = serde_urlencoded::to_string(&arg).unwrap();
 		let uri = format!("/objects/{id}/pull?{query}");

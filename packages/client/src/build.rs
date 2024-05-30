@@ -39,12 +39,6 @@ pub struct Build {
 	id: Id,
 }
 
-#[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
-pub struct Progress {
-	current_count: u64,
-	total_count: u64,
-}
-
 impl Id {
 	#[allow(clippy::new_without_default)]
 	#[must_use]

@@ -4,7 +4,21 @@ use tangram_http::{incoming::response::Ext as _, outgoing::request::Ext as _};
 
 #[derive(Clone, Debug, Default, serde::Deserialize, serde::Serialize)]
 pub struct Arg {
-	pub remote: Option<String>,
+	pub remote: String,
+}
+
+#[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
+pub enum Event {
+	Progress(Progress),
+	End,
+}
+
+#[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
+pub struct Progress {
+	pub current_count: u64,
+	pub total_count: Option<u64>,
+	pub current_weight: u64,
+	pub total_weight: Option<u64>,
 }
 
 impl tg::Object {
@@ -12,7 +26,7 @@ impl tg::Object {
 		&self,
 		handle: &H,
 		arg: tg::object::push::Arg,
-	) -> tg::Result<impl Stream<Item = tg::Result<tg::object::Progress>> + Send + 'static>
+	) -> tg::Result<impl Stream<Item = tg::Result<tg::object::push::Event>> + Send + 'static>
 	where
 		H: tg::Handle,
 	{
@@ -27,7 +41,7 @@ impl tg::Client {
 		&self,
 		id: &tg::object::Id,
 		arg: tg::object::push::Arg,
-	) -> tg::Result<impl Stream<Item = tg::Result<tg::object::Progress>> + Send + 'static> {
+	) -> tg::Result<impl Stream<Item = tg::Result<tg::object::push::Event>> + Send + 'static> {
 		let method = http::Method::POST;
 		let query = serde_urlencoded::to_string(&arg).unwrap();
 		let uri = format!("/objects/{id}/push?{query}");

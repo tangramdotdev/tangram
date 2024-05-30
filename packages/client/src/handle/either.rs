@@ -78,7 +78,9 @@ where
 		id: &tg::build::Id,
 		arg: tg::build::push::Arg,
 	) -> impl Future<
-		Output = tg::Result<impl Stream<Item = tg::Result<tg::build::Progress>> + Send + 'static>,
+		Output = tg::Result<
+			impl Stream<Item = tg::Result<tg::build::push::Event>> + Send + 'static,
+		>,
 	> {
 		match self {
 			Either::Left(s) => s
@@ -97,7 +99,9 @@ where
 		id: &tg::build::Id,
 		arg: tg::build::pull::Arg,
 	) -> impl Future<
-		Output = tg::Result<impl Stream<Item = tg::Result<tg::build::Progress>> + Send + 'static>,
+		Output = tg::Result<
+			impl Stream<Item = tg::Result<tg::build::pull::Event>> + Send + 'static,
+		>,
 	> {
 		match self {
 			Either::Left(s) => s
@@ -124,10 +128,11 @@ where
 	fn try_start_build(
 		&self,
 		id: &tg::build::Id,
+		arg: tg::build::start::Arg,
 	) -> impl Future<Output = tg::Result<Option<bool>>> + Send {
 		match self {
-			Either::Left(s) => s.try_start_build(id).left_future(),
-			Either::Right(s) => s.try_start_build(id).right_future(),
+			Either::Left(s) => s.try_start_build(id, arg).left_future(),
+			Either::Right(s) => s.try_start_build(id, arg).right_future(),
 		}
 	}
 
@@ -245,20 +250,25 @@ where
 		}
 	}
 
-	fn touch_build(&self, id: &tg::build::Id) -> impl Future<Output = tg::Result<()>> + Send {
+	fn touch_build(
+		&self,
+		id: &tg::build::Id,
+		arg: tg::build::touch::Arg,
+	) -> impl Future<Output = tg::Result<()>> + Send {
 		match self {
-			Either::Left(s) => s.touch_build(id).left_future(),
-			Either::Right(s) => s.touch_build(id).right_future(),
+			Either::Left(s) => s.touch_build(id, arg).left_future(),
+			Either::Right(s) => s.touch_build(id, arg).right_future(),
 		}
 	}
 
 	fn heartbeat_build(
 		&self,
 		id: &tg::build::Id,
+		arg: tg::build::heartbeat::Arg,
 	) -> impl Future<Output = tg::Result<tg::build::heartbeat::Output>> + Send {
 		match self {
-			Either::Left(s) => s.heartbeat_build(id).left_future(),
-			Either::Right(s) => s.heartbeat_build(id).right_future(),
+			Either::Left(s) => s.heartbeat_build(id, arg).left_future(),
+			Either::Right(s) => s.heartbeat_build(id, arg).right_future(),
 		}
 	}
 
@@ -323,7 +333,9 @@ where
 		id: &tg::object::Id,
 		arg: tg::object::push::Arg,
 	) -> impl Future<
-		Output = tg::Result<impl Stream<Item = tg::Result<tg::object::Progress>> + Send + 'static>,
+		Output = tg::Result<
+			impl Stream<Item = tg::Result<tg::object::push::Event>> + Send + 'static,
+		>,
 	> + Send {
 		match self {
 			Either::Left(s) => s
@@ -342,7 +354,9 @@ where
 		id: &tg::object::Id,
 		arg: tg::object::pull::Arg,
 	) -> impl Future<
-		Output = tg::Result<impl Stream<Item = tg::Result<tg::object::Progress>> + Send + 'static>,
+		Output = tg::Result<
+			impl Stream<Item = tg::Result<tg::object::pull::Event>> + Send + 'static,
+		>,
 	> + Send {
 		match self {
 			Either::Left(s) => s

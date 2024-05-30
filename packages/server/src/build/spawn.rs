@@ -57,24 +57,11 @@ impl Server {
 		permit: BuildPermit,
 		remote: Option<String>,
 	) -> tg::Result<bool> {
-		// Get the handle.
-		let handle = match &remote {
-			None => {
-				let server = self.clone();
-				Either::Left(server)
-			},
-			Some(remote) => {
-				let remote = self
-					.remotes
-					.get(remote)
-					.ok_or_else(|| tg::error!("the remote does not exist"))?
-					.clone();
-				Either::Right(remote)
-			},
-		};
-
 		// Attempt to start the build.
-		if !handle.start_build(build.id()).await? {
+		let arg = tg::build::start::Arg {
+			remote: remote.clone(),
+		};
+		if !self.start_build(build.id(), arg).await? {
 			return Ok(false);
 		};
 
@@ -114,22 +101,6 @@ impl Server {
 		permit: BuildPermit,
 		remote: Option<String>,
 	) -> tg::Result<()> {
-		// Get the handle.
-		let handle = match &remote {
-			None => {
-				let server = self.clone();
-				Either::Left(server)
-			},
-			Some(remote) => {
-				let remote = self
-					.remotes
-					.get(remote)
-					.ok_or_else(|| tg::error!("the remote does not exist"))?
-					.clone();
-				Either::Right(remote)
-			},
-		};
-
 		// Set the build's permit.
 		let permit = Arc::new(tokio::sync::Mutex::new(Some(permit)));
 		self.build_permits.insert(build.id().clone(), permit);
@@ -145,22 +116,27 @@ impl Server {
 		};
 		let outcome = outcome.data(self, None).await?;
 
-		// Push the output.
-		if let tg::build::outcome::Data::Succeeded(value) = &outcome {
-			let arg = tg::object::push::Arg { remote };
-			tg::Value::try_from(value.clone())?
-				.objects()
-				.iter()
-				.map(|object| object.push(self, arg.clone()))
-				.collect::<FuturesUnordered<_>>()
-				.try_collect::<Vec<_>>()
-				.await?;
+		// Push the output if the build is remote.
+		if let Some(remote) = remote.clone() {
+			if let tg::build::outcome::Data::Succeeded(value) = &outcome {
+				let arg = tg::object::push::Arg { remote };
+				tg::Value::try_from(value.clone())?
+					.objects()
+					.iter()
+					.map(|object| object.push(self, arg.clone()))
+					.collect::<FuturesUnordered<_>>()
+					.try_collect::<Vec<_>>()
+					.await?;
+			}
 		}
 
 		// Finish the build.
-		let arg = tg::build::finish::Arg { outcome };
+		let arg = tg::build::finish::Arg {
+			outcome,
+			remote: remote.clone(),
+		};
 		build
-			.finish(&handle, arg)
+			.finish(self, arg)
 			.await
 			.map_err(|source| tg::error!(!source, "failed to finish the build"))?;
 
@@ -172,22 +148,6 @@ impl Server {
 		build: tg::Build,
 		remote: Option<String>,
 	) -> tg::Result<tg::build::Outcome> {
-		// Get the handle.
-		let handle = match &remote {
-			None => {
-				let server = self.clone();
-				Either::Left(server)
-			},
-			Some(remote) => {
-				let remote = self
-					.remotes
-					.get(remote)
-					.ok_or_else(|| tg::error!("the remote does not exist"))?
-					.clone();
-				Either::Right(remote)
-			},
-		};
-
 		// Get the runtime.
 		let target = build.target(self).await?;
 		let host = target.host(self).await?;
@@ -209,7 +169,7 @@ impl Server {
 			let options = &self.options.advanced.error_trace_options;
 			let trace = error.trace(options);
 			let log = trace.to_string();
-			build.add_log(&handle, log.into()).await?;
+			build.add_log(self, log.into()).await?;
 		}
 
 		// Create the outcome.
@@ -222,26 +182,12 @@ impl Server {
 	}
 
 	async fn heartbeat_task(&self, build: tg::Build, remote: Option<String>) -> tg::Result<()> {
-		// Get the handle.
-		let handle = match &remote {
-			None => {
-				let server = self.clone();
-				Either::Left(server)
-			},
-			Some(remote) => {
-				let remote = self
-					.remotes
-					.get(remote)
-					.ok_or_else(|| tg::error!("the remote does not exist"))?
-					.clone();
-				Either::Right(remote)
-			},
-		};
-
-		// Heartbeat.
 		let interval = self.options.build.as_ref().unwrap().heartbeat_interval;
 		loop {
-			let result = build.heartbeat(&handle).await;
+			let arg = tg::build::heartbeat::Arg {
+				remote: remote.clone(),
+			};
+			let result = build.heartbeat(self, arg).await;
 			if let Ok(output) = result {
 				if output.stop {
 					self.builds.stop(build.id());
@@ -250,7 +196,6 @@ impl Server {
 			}
 			tokio::time::sleep(interval).await;
 		}
-
 		Ok(())
 	}
 }

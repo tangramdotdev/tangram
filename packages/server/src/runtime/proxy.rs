@@ -125,7 +125,7 @@ impl tg::Handle for Proxy {
 		&self,
 		_id: &tg::build::Id,
 		_arg: tg::build::push::Arg,
-	) -> tg::Result<impl Stream<Item = tg::Result<tg::build::Progress>> + Send + 'static> {
+	) -> tg::Result<impl Stream<Item = tg::Result<tg::build::push::Event>> + Send + 'static> {
 		Err::<stream::Empty<_>, _>(tg::error!("forbidden"))
 	}
 
@@ -133,7 +133,7 @@ impl tg::Handle for Proxy {
 		&self,
 		_id: &tg::build::Id,
 		_arg: tg::build::pull::Arg,
-	) -> tg::Result<impl Stream<Item = tg::Result<tg::build::Progress>> + Send + 'static> {
+	) -> tg::Result<impl Stream<Item = tg::Result<tg::build::pull::Event>> + Send + 'static> {
 		Err::<stream::Empty<_>, _>(tg::error!("forbidden"))
 	}
 
@@ -144,7 +144,11 @@ impl tg::Handle for Proxy {
 		Err(tg::error!("forbidden"))
 	}
 
-	async fn try_start_build(&self, _id: &tg::build::Id) -> tg::Result<Option<bool>> {
+	async fn try_start_build(
+		&self,
+		_id: &tg::build::Id,
+		_arg: tg::build::start::Arg,
+	) -> tg::Result<Option<bool>> {
 		Err(tg::error!("forbidden"))
 	}
 
@@ -216,15 +220,20 @@ impl tg::Handle for Proxy {
 		Err(tg::error!("forbidden"))
 	}
 
-	async fn touch_build(&self, _id: &tg::build::Id) -> tg::Result<()> {
+	async fn touch_build(
+		&self,
+		_id: &tg::build::Id,
+		_arg: tg::build::touch::Arg,
+	) -> tg::Result<()> {
 		Err(tg::error!("forbidden"))
 	}
 
-	fn heartbeat_build(
+	async fn heartbeat_build(
 		&self,
-		id: &tg::build::Id,
-	) -> impl Future<Output = tg::Result<tg::build::heartbeat::Output>> + Send {
-		self.server.heartbeat_build(id)
+		_id: &tg::build::Id,
+		_arg: tg::build::heartbeat::Arg,
+	) -> tg::Result<tg::build::heartbeat::Output> {
+		Err(tg::error!("forbidden"))
 	}
 
 	async fn format(&self, _text: String) -> tg::Result<String> {
@@ -266,7 +275,7 @@ impl tg::Handle for Proxy {
 		&self,
 		_id: &tg::object::Id,
 		_arg: tg::object::push::Arg,
-	) -> tg::Result<impl Stream<Item = tg::Result<tg::object::Progress>> + Send + 'static> {
+	) -> tg::Result<impl Stream<Item = tg::Result<tg::object::push::Event>> + Send + 'static> {
 		Err::<stream::Empty<_>, _>(tg::error!("forbidden"))
 	}
 
@@ -274,7 +283,7 @@ impl tg::Handle for Proxy {
 		&self,
 		_id: &tg::object::Id,
 		_arg: tg::object::pull::Arg,
-	) -> tg::Result<impl Stream<Item = tg::Result<tg::object::Progress>> + Send + 'static> {
+	) -> tg::Result<impl Stream<Item = tg::Result<tg::object::pull::Event>> + Send + 'static> {
 		Err::<stream::Empty<_>, _>(tg::error!("forbidden"))
 	}
 

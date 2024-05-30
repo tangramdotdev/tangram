@@ -8,7 +8,7 @@ impl Server {
 		&self,
 		id: &tg::object::Id,
 		arg: tg::object::pull::Arg,
-	) -> tg::Result<impl Stream<Item = tg::Result<tg::object::Progress>> + Send + 'static> {
+	) -> tg::Result<impl Stream<Item = tg::Result<tg::object::pull::Event>> + Send + 'static> {
 		Ok(stream::empty())
 	}
 }
@@ -26,18 +26,31 @@ impl Server {
 		let arg = request.query_params().transpose()?.unwrap_or_default();
 		let stream = handle.pull_object(&id, arg).await?;
 		let sse = stream.map(|result| match result {
-			Ok(data) => {
-				let data = serde_json::to_string(&data).unwrap();
-				Ok::<_, tg::Error>(tangram_http::sse::Event::with_data(data))
+			Ok(tg::object::pull::Event::Progress(progress)) => {
+				let data = serde_json::to_string(&progress).unwrap();
+				let event = tangram_http::sse::Event {
+					data,
+					..Default::default()
+				};
+				Ok::<_, tg::Error>(event)
+			},
+			Ok(tg::object::pull::Event::End) => {
+				let event = "end".to_owned();
+				let event = tangram_http::sse::Event {
+					event: Some(event),
+					..Default::default()
+				};
+				Ok::<_, tg::Error>(event)
 			},
 			Err(error) => {
 				let data = serde_json::to_string(&error).unwrap();
 				let event = "error".to_owned();
-				Ok::<_, tg::Error>(tangram_http::sse::Event {
+				let event = tangram_http::sse::Event {
 					data,
 					event: Some(event),
 					..Default::default()
-				})
+				};
+				Ok::<_, tg::Error>(event)
 			},
 		});
 		let body = Outgoing::sse(sse);
@@ -45,33 +58,3 @@ impl Server {
 		Ok(response)
 	}
 }
-
-// pub async fn pull<H1, H2>(
-// 	&self,
-// 	handle: &H1,
-// 	remote: &H2,
-// 	transaction: Option<&H1::Transaction<'_>>,
-// ) -> tg::Result<impl Stream<Item = tg::Result<tg::object::Progress>>>
-// where
-// 	H1: crate::Handle,
-// 	H2: crate::Handle,
-// {
-// 	let id = self.id(handle, transaction).await?;
-// 	let output = remote
-// 		.get_object(&id)
-// 		.await
-// 		.map_err(|source| tg::error!(!source, "failed to put the object"))?;
-// 	let arg = tg::object::put::Arg {
-// 		bytes: output.bytes,
-// 	};
-// 	let output = handle.put_object(&id, arg, transaction).boxed().await?;
-// 	output
-// 		.incomplete
-// 		.into_iter()
-// 		.map(Self::with_id)
-// 		.map(|object| async move { object.pull(handle, remote, transaction).await })
-// 		.collect::<FuturesUnordered<_>>()
-// 		.try_collect()
-// 		.await?;
-// 	Ok(())
-// }

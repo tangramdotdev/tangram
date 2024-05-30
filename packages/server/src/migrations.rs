@@ -66,7 +66,7 @@ async fn migration_0000(path: &Path) -> tg::Result<()> {
 		.pragma_update(None, "journal_mode", "wal")
 		.map_err(|source| tg::error!(!source, "failed to set the journal mode"))?;
 	let sql = formatdoc!(
-		"
+		r#"
 			create table builds (
 				id text primary key,
 				children integer not null,
@@ -157,9 +157,9 @@ async fn migration_0000(path: &Path) -> tg::Result<()> {
 
 			create table tokens (
 				id text primary key,
-				user text not null
+				"user" text not null
 			);
-		"
+		"#
 	);
 	connection
 		.execute_batch(&sql)

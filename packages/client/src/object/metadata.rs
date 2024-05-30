@@ -5,6 +5,7 @@ use crate as tg;
 #[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
 pub struct Metadata {
 	pub count: Option<u64>,
+	pub size: u64,
 	pub weight: Option<u64>,
 }
 

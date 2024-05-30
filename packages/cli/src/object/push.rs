@@ -9,9 +9,8 @@ use tg::Handle as _;
 pub struct Args {
 	pub object: tg::object::Id,
 
-	#[allow(clippy::option_option)]
 	#[arg(short, long)]
-	pub remote: Option<Option<String>>,
+	pub remote: Option<String>,
 }
 
 impl Cli {
@@ -20,9 +19,7 @@ impl Cli {
 		let metadata = self.handle.get_object_metadata(&args.object).await?;
 
 		// Push the object.
-		let remote = args
-			.remote
-			.map(|remote| remote.unwrap_or_else(|| "default".to_owned()));
+		let remote = args.remote.unwrap_or_else(|| "default".to_owned());
 		let arg = tg::object::push::Arg { remote };
 		let mut stream = self.handle.push_object(&args.object, arg).await?.boxed();
 
@@ -34,11 +31,22 @@ impl Cli {
 		progress_bar.add(weight_progress_bar.clone());
 
 		// Update the progress bars.
-		while let Some(progress) = stream.try_next().await? {
-			count_progress_bar.set_position(progress.current_count);
-			count_progress_bar.set_length(progress.total_count);
-			weight_progress_bar.set_position(progress.current_weight);
-			weight_progress_bar.set_length(progress.total_weight);
+		while let Some(event) = stream.try_next().await? {
+			match event {
+				tg::object::push::Event::Progress(progress) => {
+					count_progress_bar.set_position(progress.current_count);
+					if let Some(total_count) = progress.total_count {
+						count_progress_bar.set_length(total_count);
+					}
+					weight_progress_bar.set_position(progress.current_weight);
+					if let Some(total_weight) = progress.total_weight {
+						weight_progress_bar.set_length(total_weight);
+					}
+				},
+				tg::object::push::Event::End => {
+					break;
+				},
+			}
 		}
 
 		// Clear the progress bar.

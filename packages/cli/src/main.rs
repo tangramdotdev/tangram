@@ -6,9 +6,8 @@ use futures::FutureExt as _;
 use itertools::Itertools as _;
 use num::ToPrimitive as _;
 use std::{fmt::Write as _, path::PathBuf};
-use tangram_client as tg;
+use tangram_client::{self as tg, Client};
 use tangram_server::Server;
-use tg::Client;
 use tracing_subscriber::prelude::*;
 use url::Url;
 

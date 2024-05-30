@@ -81,7 +81,7 @@ impl Server {
 		for dependency in lock.dependencies(self).await? {
 			let (child_package, lock) = lock.get(self, &dependency).await?;
 			let package = match (child_package, &dependency.path) {
-				(Some(package), _) => package.into(),
+				(Some(package), _) => package,
 				(None, Some(path)) => artifact
 					.try_unwrap_directory_ref()
 					.ok()

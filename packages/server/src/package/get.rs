@@ -216,7 +216,7 @@ impl Server {
 		// Create the lock if requested.
 		let lock = if arg.lock {
 			let lock = self
-				.get_or_create_package_lock(&id, None, &dependencies, arg.locked)
+				.get_or_create_lock(&id, None, &dependencies, arg.locked)
 				.await?;
 			let lock = lock.id(self, None).await?;
 			Some(lock)
@@ -412,7 +412,7 @@ impl Server {
 		// Create the lock if requested.
 		let lock = if arg.lock {
 			let lock = self
-				.get_or_create_package_lock(&id, Some(path), &dependencies, arg.locked)
+				.get_or_create_lock(&id, Some(path), &dependencies, arg.locked)
 				.await?;
 			let lock = lock.id(self, None).await?;
 			Some(lock)

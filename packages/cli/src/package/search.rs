@@ -8,7 +8,6 @@ use tg::Handle as _;
 pub struct Args {
 	pub query: String,
 
-
 	#[allow(clippy::option_option)]
 	#[arg(short, long)]
 	pub remote: Option<Option<String>>,

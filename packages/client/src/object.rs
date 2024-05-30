@@ -93,14 +93,6 @@ pub enum Data {
 	Target(tg::target::Data),
 }
 
-#[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
-pub struct Progress {
-	pub current_count: u64,
-	pub total_count: u64,
-	pub current_weight: u64,
-	pub total_weight: u64,
-}
-
 impl Id {
 	#[must_use]
 	pub fn kind(&self) -> Kind {

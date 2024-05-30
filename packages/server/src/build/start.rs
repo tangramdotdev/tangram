@@ -2,12 +2,16 @@ use crate::Server;
 use bytes::Bytes;
 use tangram_client as tg;
 use tangram_database::{self as db, prelude::*};
-use tangram_http::{outgoing::response::Ext as _, Incoming, Outgoing};
+use tangram_http::{incoming::request::Ext as _, outgoing::response::Ext as _, Incoming, Outgoing};
 use tangram_messenger::Messenger as _;
 use time::format_description::well_known::Rfc3339;
 
 impl Server {
-	pub async fn try_start_build(&self, id: &tg::build::Id) -> tg::Result<Option<bool>> {
+	pub async fn try_start_build(
+		&self,
+		id: &tg::build::Id,
+		arg: tg::build::start::Arg,
+	) -> tg::Result<Option<bool>> {
 		// Verify the build is local.
 		if !self.get_build_exists_local(id).await? {
 			return Ok(None);
@@ -64,14 +68,15 @@ impl Server {
 impl Server {
 	pub(crate) async fn handle_start_build_request<H>(
 		handle: &H,
-		_request: http::Request<Incoming>,
+		request: http::Request<Incoming>,
 		id: &str,
 	) -> tg::Result<http::Response<Outgoing>>
 	where
 		H: tg::Handle,
 	{
 		let id = id.parse()?;
-		let Some(output) = handle.try_start_build(&id).await? else {
+		let arg = request.json().await?;
+		let Some(output) = handle.try_start_build(&id, arg).await? else {
 			return Ok(http::Response::builder().not_found().empty().unwrap());
 		};
 		let response = http::Response::builder().json(output).unwrap();

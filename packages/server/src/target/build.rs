@@ -42,7 +42,8 @@ impl Server {
 				let server = self.clone();
 				let build = build.clone();
 				async move {
-					server.touch_build(build.id()).await.ok();
+					let arg = tg::build::touch::Arg { remote: None };
+					server.touch_build(build.id(), arg).await.ok();
 				}
 			});
 
@@ -98,7 +99,8 @@ impl Server {
 				let remote = remote.clone();
 				let build = build.clone();
 				async move {
-					remote.touch_build(build.id()).await.ok();
+					let arg = tg::build::touch::Arg { remote: None };
+					remote.touch_build(build.id(), arg).await.ok();
 				}
 			});
 

@@ -69,6 +69,7 @@ impl Server {
 			.map(|child| async move {
 				let arg = tg::build::finish::Arg {
 					outcome: tg::build::outcome::Data::Canceled,
+					remote: None,
 				};
 				self.finish_build(child, arg).await?;
 				Ok::<_, tg::Error>(())
