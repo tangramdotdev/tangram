@@ -1,6 +1,6 @@
-use super::Item;
-use futures::{future, StreamExt as _};
-use num::ToPrimitive as _;
+use super::{commands::Commands, Item};
+use futures::{future, StreamExt};
+use num::ToPrimitive;
 use ratatui::{self as tui, prelude::*};
 use std::{
 	io::SeekFrom,
@@ -11,6 +11,7 @@ use tangram_client as tg;
 use tangram_futures::task::Task;
 
 pub struct Tree<H> {
+	pub(super) commands: Arc<Commands<H>>,
 	state: RwLock<TreeState<H>>,
 }
 
@@ -120,7 +121,30 @@ where
 			scroll,
 			selected,
 		});
-		Arc::new(Self { state })
+		let commands = Commands::tree();
+		Arc::new(Self { commands, state })
+	}
+
+	/// Scroll to the top of the tree.
+	pub fn top(&self) {
+		let nodes = self.expanded_nodes();
+		let mut state = self.state.write().unwrap();
+		state.selected.state.write().unwrap().selected = false;
+		state.selected = nodes[0].clone();
+		state.selected.state.write().unwrap().selected = true;
+		state.scroll = 0;
+	}
+
+	/// Scroll to the bottom of the tree.
+	pub fn bottom(&self) {
+		let nodes = self.expanded_nodes();
+		let mut state = self.state.write().unwrap();
+		state.scroll = nodes
+			.len()
+			.saturating_sub(state.rect.height.to_usize().unwrap().saturating_sub(2));
+		state.selected.state.write().unwrap().selected = false;
+		state.selected = nodes.last().unwrap().clone();
+		state.selected.state.write().unwrap().selected = true;
 	}
 
 	/// Scroll up one item in the tree.
@@ -147,7 +171,20 @@ where
 	pub fn collapse_children(&self) {
 		let selected = self.selected();
 		if selected.is_collapsed() {
-			self.up();
+			let Some(parent) = selected.parent().clone() else {
+				return;
+			};
+			selected.state.write().unwrap().selected = false;
+			parent.state.write().unwrap().selected = true;
+			self.state.write().unwrap().selected = parent.clone();
+			let expanded_nodes = self.expanded_nodes();
+			let index = expanded_nodes
+				.iter()
+				.position(|node| Arc::ptr_eq(node, &parent))
+				.unwrap();
+			if index < self.state.read().unwrap().scroll {
+				self.state.write().unwrap().scroll = index;
+			}
 		} else {
 			selected.collapse_build_children();
 			selected.collapse_object_children();

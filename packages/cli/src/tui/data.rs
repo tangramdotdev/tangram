@@ -1,4 +1,5 @@
 #![allow(dead_code)]
+use num::ToPrimitive;
 use ratatui::{
 	prelude::*,
 	widgets::{Paragraph, Wrap},
@@ -64,6 +65,18 @@ where
 	pub fn resize(&self, area: Rect) {
 		let mut state = self.state.write().unwrap();
 		state.area = area;
+	}
+
+	pub fn bottom(&self) {
+		let mut state = self.state.write().unwrap();
+		let num_lines = state.text.lines().count();
+		state.scroll =
+			num_lines.saturating_sub(state.area.height.to_usize().unwrap().saturating_sub(2));
+	}
+
+	pub fn top(&self) {
+		let mut state = self.state.write().unwrap();
+		state.scroll = 0;
 	}
 
 	pub fn down(&self) {

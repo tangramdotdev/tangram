@@ -12,19 +12,30 @@ use tangram_client as tg;
 
 pub struct App<H> {
 	handle: H,
-	commands: Arc<Commands<H>>,
 	tree: Arc<Tree<H>>,
 	state: RwLock<State<H>>,
 	stop: AtomicBool,
 }
 
 struct State<H> {
+	area: Rect,
 	detail_area: Rect,
 	detail: Arc<Detail<H>>,
 	show_help: bool,
-	show_detail: bool,
-	split: bool,
-	direction: Direction,
+	view: View,
+}
+
+#[derive(Copy, Clone, Debug)]
+enum View {
+	Split(Direction, Selected),
+	Tree,
+	Detail,
+}
+
+#[derive(Copy, Clone, Debug)]
+enum Selected {
+	Tree,
+	Detail,
 }
 
 impl<H> App<H>
@@ -33,30 +44,28 @@ where
 {
 	pub fn new(handle: &H, root: Item, rect: tui::layout::Rect) -> Arc<Self> {
 		let handle = handle.clone();
-		let commands = Commands::new();
 		let detail = Detail::new(&handle, &root.clone(), rect);
 		let tree = Tree::new(&handle, &[root], rect);
 		let stop = AtomicBool::new(false);
-		let (split, direction) = if rect.width >= 80 {
-			(true, Direction::Horizontal)
+
+		let view = if rect.width >= 80 {
+			View::Split(Direction::Horizontal, Selected::Tree)
 		} else if rect.height >= 30 {
-			(true, Direction::Vertical)
+			View::Split(Direction::Vertical, Selected::Tree)
 		} else {
-			(false, Direction::Horizontal)
+			View::Tree
 		};
 
 		let state = RwLock::new(State {
+			area: rect,
 			detail,
 			detail_area: rect,
 			show_help: false,
-			show_detail: false,
-			split,
-			direction,
+			view,
 		});
 
 		let app = Arc::new(Self {
 			handle,
-			commands,
 			tree,
 			state,
 			stop,
@@ -77,31 +86,73 @@ where
 	}
 
 	pub fn key(&self, event: KeyEvent) {
-		self.commands.dispatch(event, self);
+		if self.state.read().unwrap().show_help {
+			let commands = Commands::help();
+			commands.dispatch(event, self);
+		}
+		let view = self.state.read().unwrap().view;
+		match view {
+			View::Split(_, Selected::Tree) | View::Tree => {
+				self.tree.commands.dispatch(event, self);
+			},
+			View::Split(_, Selected::Detail) | View::Detail => {
+				let detail = self.state.read().unwrap().detail.clone();
+				detail.commands.dispatch(event, self);
+			},
+		}
 	}
 
 	pub fn mouse(&self, event: MouseEvent) {
-		let state = self.state.read().unwrap();
-		if state.split || state.show_detail {
-			match event.kind {
-				MouseEventKind::ScrollDown => state.detail.down(),
-				MouseEventKind::ScrollUp => state.detail.up(),
+		let view = self.state.read().unwrap().view;
+		match view {
+			View::Split(_, Selected::Tree) | View::Tree => match event.kind {
+				MouseEventKind::ScrollUp => self.tree.up(),
+				MouseEventKind::ScrollDown => self.tree.down(),
 				_ => (),
-			}
+			},
+			View::Split(_, Selected::Detail) | View::Detail => {
+				let detail = self.state.read().unwrap().detail.clone();
+				match event.kind {
+					MouseEventKind::ScrollUp => detail.up(),
+					MouseEventKind::ScrollDown => detail.down(),
+					_ => (),
+				}
+			},
 		}
 	}
 
 	pub fn toggle_split(&self) {
 		let mut state = self.state.write().unwrap();
-		state.split = !state.split;
+		state.view = match state.view {
+			View::Split(_, Selected::Tree) => View::Tree,
+			View::Split(_, Selected::Detail) => View::Detail,
+			View::Tree => {
+				let direction = if state.area.height >= 30 {
+					Direction::Vertical
+				} else {
+					Direction::Horizontal
+				};
+				View::Split(direction, Selected::Tree)
+			},
+			View::Detail => {
+				let direction = if state.area.height >= 30 {
+					Direction::Vertical
+				} else {
+					Direction::Horizontal
+				};
+				View::Split(direction, Selected::Detail)
+			},
+		};
 	}
 
 	pub fn rotate(&self) {
 		let mut state = self.state.write().unwrap();
-		state.direction = match state.direction {
-			Direction::Vertical => Direction::Horizontal,
-			Direction::Horizontal => Direction::Vertical,
-		}
+		if let View::Split(direction, _) = &mut state.view {
+			*direction = match direction {
+				Direction::Vertical => Direction::Horizontal,
+				Direction::Horizontal => Direction::Vertical,
+			};
+		};
 	}
 
 	pub fn toggle_help(&self) {
@@ -109,29 +160,93 @@ where
 		state.show_help = !state.show_help;
 	}
 
-	pub fn show_detail(&self) {
+	pub fn top(&self) {
 		let mut state = self.state.write().unwrap();
-		state.show_detail = true;
+		match state.view {
+			View::Split(_, Selected::Tree) | View::Tree => {
+				self.tree.top();
+				let selected = self.tree.get_selected();
+				state.detail = Detail::new(&self.handle, &selected, state.detail_area);
+			},
+			View::Split(_, Selected::Detail) | View::Detail => {
+				state.detail.top();
+			},
+		}
 	}
 
-	pub fn show_tree(&self) {
+	pub fn bottom(&self) {
 		let mut state = self.state.write().unwrap();
-		state.show_detail = false;
-		state.show_help = false;
+		match state.view {
+			View::Split(_, Selected::Tree) | View::Tree => {
+				self.tree.bottom();
+				let selected = self.tree.get_selected();
+				state.detail = Detail::new(&self.handle, &selected, state.detail_area);
+			},
+			View::Split(_, Selected::Detail) | View::Detail => {
+				state.detail.bottom();
+			},
+		}
+	}
+
+	pub fn up(&self) {
+		let mut state = self.state.write().unwrap();
+		match state.view {
+			View::Split(_, Selected::Tree) | View::Tree => {
+				self.tree.up();
+				let selected = self.tree.get_selected();
+				state.detail = Detail::new(&self.handle, &selected, state.detail_area);
+			},
+			View::Split(_, Selected::Detail) | View::Detail => {
+				state.detail.up();
+			},
+		}
+	}
+
+	pub fn down(&self) {
+		let mut state = self.state.write().unwrap();
+		match state.view {
+			View::Split(_, Selected::Tree) | View::Tree => {
+				self.tree.down();
+				let selected = self.tree.get_selected();
+				state.detail = Detail::new(&self.handle, &selected, state.detail_area);
+			},
+			View::Split(_, Selected::Detail) | View::Detail => {
+				state.detail.down();
+			},
+		}
+	}
+
+	pub fn enter(&self) {
+		let mut state = self.state.write().unwrap();
+		state.view = match state.view {
+			View::Split(direction, Selected::Tree) => View::Split(direction, Selected::Detail),
+			View::Tree => View::Detail,
+			_ => return,
+		};
+	}
+
+	pub fn back(&self) {
+		let mut state = self.state.write().unwrap();
+		state.view = match state.view {
+			View::Split(direction, Selected::Detail) => View::Split(direction, Selected::Tree),
+			View::Detail => View::Tree,
+			_ => return,
+		};
 	}
 
 	pub fn tab(&self) {
-		let state = self.state.read().unwrap();
-		if state.show_detail || state.split {
-			state.detail.tab();
-		}
+		let mut state = self.state.write().unwrap();
+		state.view = match state.view {
+			View::Split(direction, Selected::Tree) => View::Split(direction, Selected::Detail),
+			View::Split(direction, Selected::Detail) => View::Split(direction, Selected::Tree),
+			View::Tree => View::Detail,
+			View::Detail => View::Tree,
+		};
 	}
 
 	pub fn set_tab(&self, n: usize) {
 		let state = self.state.read().unwrap();
-		if state.show_detail || state.split {
-			state.detail.set_tab(n);
-		}
+		state.detail.set_tab(n);
 	}
 
 	pub fn resize(&self, rect: Rect) {
@@ -141,9 +256,9 @@ where
 			.constraints([Constraint::Fill(1), Constraint::Max(1)]);
 		let rects = layout.split(rect);
 		let view_area = rects[0];
-		if state.split {
+		if let View::Split(direction, _) = state.view {
 			let layout = Layout::default()
-				.direction(state.direction)
+				.direction(direction)
 				.constraints([Constraint::Fill(1), Constraint::Fill(1)]);
 			let rects = layout.split(view_area);
 			let (tree_area, detail_area) = (rects[0], rects[1]);
@@ -154,7 +269,6 @@ where
 			self.tree.resize(view_area);
 			state.detail_area = view_area;
 		}
-		state.detail.resize(state.detail_area);
 	}
 
 	pub fn cancel(&self) {
@@ -171,26 +285,6 @@ where
 
 	pub fn quit(&self) {
 		self.stop();
-	}
-
-	pub fn up(&self) {
-		let mut state = self.state.write().unwrap();
-		if state.show_detail {
-			state.detail.up();
-		} else {
-			self.tree.up();
-			state.detail = Detail::new(&self.handle, &self.tree.get_selected(), state.detail_area);
-		}
-	}
-
-	pub fn down(&self) {
-		let mut state = self.state.write().unwrap();
-		if state.show_detail {
-			state.detail.down();
-		} else {
-			self.tree.down();
-			state.detail = Detail::new(&self.handle, &self.tree.get_selected(), state.detail_area);
-		}
 	}
 
 	pub fn expand_children(&self) {
@@ -230,9 +324,14 @@ where
 
 	pub fn render(&self, rect: tui::layout::Rect, buf: &mut tui::buffer::Buffer) {
 		let state = self.state.read().unwrap();
+		let commands = match state.view {
+			View::Split(_, Selected::Tree) | View::Tree => self.tree.commands.clone(),
+			View::Split(_, Selected::Detail) | View::Detail => state.detail.commands.clone(),
+		};
+
 		if state.show_help {
 			let area = render_block_and_get_area("Help", true, rect, buf);
-			self.commands.render_full(area, buf);
+			commands.render_full(area, buf);
 			return;
 		}
 
@@ -241,26 +340,40 @@ where
 			.constraints([Constraint::Fill(1), Constraint::Max(1)]);
 		let rects = layout.split(rect);
 		let (view_area, help_area) = (rects[0], rects[1]);
-		self.commands.render_short(help_area, buf);
-		if state.split {
-			let layout = Layout::default()
-				.direction(state.direction)
-				.constraints([Constraint::Fill(1), Constraint::Fill(1)]);
-			let rects = layout.split(view_area);
-			let (tree_area, detail_area) = (rects[0], rects[1]);
+		commands.render_short(help_area, buf);
 
-			let tree_area = render_block_and_get_area("Tree", !state.show_detail, tree_area, buf);
-			self.tree.render(tree_area, buf);
+		match state.view {
+			View::Split(direction, selected) => {
+				let layout = Layout::default()
+					.direction(direction)
+					.constraints([Constraint::Fill(1), Constraint::Fill(1)]);
+				let rects = layout.split(view_area);
+				let (tree_area, detail_area) = (rects[0], rects[1]);
 
-			let detail_area =
-				render_block_and_get_area("Detail", state.show_detail, detail_area, buf);
-			state.detail.render(detail_area, buf);
-		} else if state.show_detail {
-			let view_area = render_block_and_get_area("Detail", true, view_area, buf);
-			state.detail.render(view_area, buf);
-		} else {
-			let view_area = render_block_and_get_area("Tree", true, view_area, buf);
-			self.tree.render(view_area, buf);
+				let tree_area = render_block_and_get_area(
+					"Tree",
+					matches!(selected, Selected::Tree),
+					tree_area,
+					buf,
+				);
+				self.tree.render(tree_area, buf);
+
+				let detail_area = render_block_and_get_area(
+					"Detail",
+					matches!(selected, Selected::Detail),
+					detail_area,
+					buf,
+				);
+				state.detail.render(detail_area, buf);
+			},
+			View::Detail => {
+				let view_area = render_block_and_get_area("Detail", true, view_area, buf);
+				state.detail.render(view_area, buf);
+			},
+			View::Tree => {
+				let view_area = render_block_and_get_area("Tree", true, view_area, buf);
+				self.tree.render(view_area, buf);
+			},
 		}
 	}
 

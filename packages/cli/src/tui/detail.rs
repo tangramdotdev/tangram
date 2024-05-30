@@ -1,5 +1,6 @@
-use super::{data::Data, log::Log, Item};
+use super::{commands::Commands, data::Data, log::Log, Item};
 use either::Either;
+use num::ToPrimitive;
 use ratatui::{
 	prelude::*,
 	widgets::{Paragraph, Tabs, Wrap},
@@ -9,6 +10,7 @@ use tangram_client as tg;
 
 #[allow(clippy::type_complexity)]
 pub struct Detail<H> {
+	pub(super) commands: Arc<Commands<H>>,
 	info: Arc<Info<H>>,
 	data: Option<Either<Arc<Log<H>>, Arc<Data<H>>>>,
 	state: RwLock<State>,
@@ -23,6 +25,7 @@ where
 	H: tg::Handle,
 {
 	pub fn new(handle: &H, item: &Item, area: Rect) -> Arc<Self> {
+		let commands = Commands::detail();
 		let data = match &item {
 			Item::Build { build, .. } => Some(Either::Left(Log::new(handle, build, area))),
 			Item::Value { value, .. }
@@ -39,7 +42,12 @@ where
 		let info = Info::new(handle, item, area);
 
 		let state = RwLock::new(State { selected_tab: 0 });
-		Arc::new(Self { info, data, state })
+		Arc::new(Self {
+			commands,
+			info,
+			data,
+			state,
+		})
 	}
 
 	pub fn resize(&self, area: Rect) {
@@ -56,6 +64,30 @@ where
 			return;
 		};
 		log.stop();
+	}
+
+	pub fn top(&self) {
+		let tab = self.state.read().unwrap().selected_tab;
+		if tab == 0 {
+			self.info.top();
+		} else if let Some(data) = &self.data {
+			match data {
+				Either::Left(_) => (),
+				Either::Right(data) => data.top(),
+			}
+		}
+	}
+
+	pub fn bottom(&self) {
+		let tab = self.state.read().unwrap().selected_tab;
+		if tab == 0 {
+			self.info.bottom();
+		} else if let Some(data) = &self.data {
+			match data {
+				Either::Left(_) => (),
+				Either::Right(data) => data.bottom(),
+			}
+		}
 	}
 
 	pub fn down(&self) {
@@ -80,11 +112,6 @@ where
 				Either::Right(info) => info.up(),
 			}
 		}
-	}
-
-	pub fn tab(&self) {
-		let mut state = self.state.write().unwrap();
-		state.selected_tab = (state.selected_tab + 1) % 2;
 	}
 
 	pub fn set_tab(&self, n: usize) {
@@ -183,6 +210,18 @@ where
 	fn resize(&self, area: Rect) {
 		let mut state = self.state.write().unwrap();
 		state.area = area;
+	}
+
+	fn bottom(&self) {
+		let mut state = self.state.write().unwrap();
+		let num_lines = state.text.lines().count();
+		state.scroll =
+			num_lines.saturating_sub(state.area.height.to_usize().unwrap().saturating_sub(2));
+	}
+
+	fn top(&self) {
+		let mut state = self.state.write().unwrap();
+		state.scroll = 0;
 	}
 
 	fn down(&self) {
