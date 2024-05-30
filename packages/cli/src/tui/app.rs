@@ -151,7 +151,6 @@ where
 			self.tree.resize(tree_area);
 			state.detail.resize(detail_area);
 			state.detail_area = detail_area;
-
 		} else {
 			self.tree.resize(view_area);
 			state.detail_area = view_area;
