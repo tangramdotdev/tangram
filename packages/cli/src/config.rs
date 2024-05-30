@@ -197,6 +197,7 @@ pub struct Tracing {
 )]
 pub enum TracingFormat {
 	Compact,
+	Hierarchical,
 	Json,
 	#[default]
 	Pretty,
@@ -205,9 +206,10 @@ pub enum TracingFormat {
 impl std::fmt::Display for TracingFormat {
 	fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
 		match self {
-			TracingFormat::Compact => write!(f, "compact"),
-			TracingFormat::Json => write!(f, "json"),
-			TracingFormat::Pretty => write!(f, "pretty"),
+			Self::Compact => write!(f, "compact"),
+			Self::Hierarchical => write!(f, "hierarchical"),
+			Self::Json => write!(f, "json"),
+			Self::Pretty => write!(f, "pretty"),
 		}
 	}
 }
@@ -218,6 +220,7 @@ impl std::str::FromStr for TracingFormat {
 	fn from_str(s: &str) -> tg::Result<Self, Self::Err> {
 		match s {
 			"compact" => Ok(Self::Compact),
+			"hierarchical" => Ok(Self::Hierarchical),
 			"json" => Ok(Self::Json),
 			"pretty" => Ok(Self::Pretty),
 			_ => Err(tg::error!("invalid tracing format")),

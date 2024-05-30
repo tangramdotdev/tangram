@@ -909,28 +909,43 @@ impl Cli {
 		} else {
 			None
 		};
-		let format_layer = config
+		let output_layer = config
 			.as_ref()
 			.and_then(|config| config.tracing.as_ref())
 			.map(|tracing| {
 				let filter =
 					tracing_subscriber::filter::EnvFilter::try_new(&tracing.filter).unwrap();
-				let layer = tracing_subscriber::fmt::layer()
-					.with_span_events(tracing_subscriber::fmt::format::FmtSpan::NEW)
-					.with_writer(std::io::stderr);
-				let layer = match tracing
+				let format = tracing
 					.format
-					.unwrap_or(self::config::TracingFormat::Pretty)
-				{
-					self::config::TracingFormat::Compact => layer.compact().boxed(),
-					self::config::TracingFormat::Json => layer.json().boxed(),
-					self::config::TracingFormat::Pretty => layer.pretty().boxed(),
+					.unwrap_or(self::config::TracingFormat::Pretty);
+				let output_layer = match format {
+					self::config::TracingFormat::Compact
+					| self::config::TracingFormat::Json
+					| self::config::TracingFormat::Pretty => {
+						let layer = tracing_subscriber::fmt::layer()
+							.with_span_events(tracing_subscriber::fmt::format::FmtSpan::FULL)
+							.with_writer(std::io::stderr);
+						let layer = match format {
+							self::config::TracingFormat::Compact => layer.compact().boxed(),
+							self::config::TracingFormat::Hierarchical => unreachable!(),
+							self::config::TracingFormat::Json => layer.json().boxed(),
+							self::config::TracingFormat::Pretty => layer.pretty().boxed(),
+						};
+						layer.boxed()
+					},
+					self::config::TracingFormat::Hierarchical => {
+						tracing_tree::HierarchicalLayer::new(2)
+							.with_bracketed_fields(true)
+							.with_span_retrace(true)
+							.with_targets(true)
+							.boxed()
+					},
 				};
-				layer.with_filter(filter)
+				output_layer.with_filter(filter)
 			});
 		tracing_subscriber::registry()
 			.with(console_layer)
-			.with(format_layer)
+			.with(output_layer)
 			.init();
 	}
 

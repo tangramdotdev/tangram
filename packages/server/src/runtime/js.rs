@@ -124,7 +124,7 @@ impl Runtime {
 
 		// Start the log task.
 		let (log_sender, mut log_receiver) = tokio::sync::mpsc::unbounded_channel::<String>();
-		let log_task = tokio::spawn({
+		let log_task = main_runtime_handle.spawn({
 			let build = build.clone();
 			let server = server.clone();
 			async move {
@@ -246,15 +246,13 @@ impl Runtime {
 		let future = poll_fn(|cx| {
 			loop {
 				// Poll the futures.
-				let mut futures = state.futures.borrow_mut();
-				match futures.poll_next_unpin(cx) {
+				let poll = state.futures.borrow_mut().poll_next_unpin(cx);
+				match poll {
 					// If the futures are not ready, then return pending.
 					Poll::Pending => return Poll::Pending,
 
 					// If there is a result, then resolve or reject the promise.
 					Poll::Ready(Some((result, promise_resolver))) => {
-						drop(futures);
-
 						// Enter the isolate.
 						unsafe { isolate.enter() };
 
@@ -492,7 +490,6 @@ fn resolve_module(
 			sender.send(module).unwrap();
 		}
 	});
-
 	let module = match receiver.recv().unwrap().map_err(
 		|source| tg::error!(!source, %import = import.specifier, %module, "failed to resolve import relative to module"),
 	) {

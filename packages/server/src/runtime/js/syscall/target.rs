@@ -4,6 +4,7 @@ use tangram_client as tg;
 
 pub async fn output(state: Rc<State>, args: (tg::Target,)) -> tg::Result<tg::Value> {
 	let (target,) = args;
+	let server = state.server.clone();
 	let parent = state.build.id().clone();
 	let remote = false;
 	let retry = state.build.retry(&state.server).await?;
@@ -12,9 +13,11 @@ pub async fn output(state: Rc<State>, args: (tg::Target,)) -> tg::Result<tg::Val
 		remote,
 		retry,
 	};
-	let output = target
-		.output(&state.server, arg)
+	let output = state
+		.main_runtime_handle
+		.spawn(async move { target.output(&server, arg).await })
 		.await
-		.map_err(|source| tg::error!(!source, %target, "failed to build the target"))?;
+		.unwrap()
+		.map_err(|source| tg::error!(!source, "failed to build the target"))?;
 	Ok(output)
 }

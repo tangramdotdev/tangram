@@ -55,7 +55,10 @@ export let start = async (target: Target): Promise<Value> => {
 		throw new Error("invalid target");
 	}
 
+	// Create the URL.
 	let url = Module.toUrl(module);
+
+	// Import the module.
 	await import(url);
 
 	// Get the args.

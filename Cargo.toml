@@ -136,6 +136,7 @@ tokio-util = { version = "0.7", features = ["full"] }
 toml = { version = "0.8" }
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter", "json"] }
+tracing-tree = "0.3"
 unicode-segmentation = "1"
 unicode-width = "0.1"
 url = { version = "2", features = ["serde"] }

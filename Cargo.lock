@@ -207,7 +207,7 @@ version = "0.7.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "258b52a1aa741b9f09783b2d86cf0aeeb617bbf847f6933340a39644227acbdb"
 dependencies = [
- "event-listener 5.3.0",
+ "event-listener 5.3.1",
  "event-listener-strategy 0.5.2",
  "futures-core",
  "pin-project-lite",
@@ -227,9 +227,9 @@ dependencies = [
 
 [[package]]
 name = "async-compression"
-version = "0.4.10"
+version = "0.4.11"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "9c90a406b4495d129f00461241616194cb8a032c8d1c53c657f0961d5f8e0498"
+checksum = "cd066d0b4ef8ecb03a55319dc13aa6910616d0f44008a045bb1835af830abff5"
 dependencies = [
  "brotli",
  "bzip2",
@@ -1148,9 +1148,9 @@ dependencies = [
 
 [[package]]
 name = "clang-sys"
-version = "1.8.0"
+version = "1.8.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "a483f3cbf7cec2e153d424d0e92329d816becc6421389bd494375c6065921b9b"
+checksum = "f803f94ecf597339c7a34eed2036ef83f86aaba937f001f7c5b5e251f043f1f9"
 dependencies = [
  "glob",
  "libc",
@@ -1780,9 +1780,9 @@ dependencies = [
 
 [[package]]
 name = "event-listener"
-version = "5.3.0"
+version = "5.3.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "6d9944b8ca13534cdfb2800775f8dd4902ff3fc75a50101466decadfdf322a24"
+checksum = "6032be9bd27023a771701cc49f9f053c751055f71efb2e0ae5c15809093675ba"
 dependencies = [
  "concurrent-queue",
  "parking",
@@ -1805,7 +1805,7 @@ version = "0.5.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "0f214dc438f977e6d4e3500aaa277f5ad94ca83fbbd9b1a15713ce2344ccc5a1"
 dependencies = [
- "event-listener 5.3.0",
+ "event-listener 5.3.1",
  "pin-project-lite",
 ]
 
@@ -2923,7 +2923,7 @@ dependencies = [
  "crossbeam-channel",
  "crossbeam-epoch",
  "crossbeam-utils",
- "event-listener 5.3.0",
+ "event-listener 5.3.1",
  "futures-util",
  "once_cell",
  "parking_lot",
@@ -3009,6 +3009,15 @@ checksum = "77a8165726e8236064dbb45459242600304b42a5ea24ee2948e18e023bf7ba84"
 dependencies = [
  "overload",
  "winapi",
+]
+
+[[package]]
+name = "nu-ansi-term"
+version = "0.50.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "dd2800e1520bdc966782168a627aa5d1ad92e33b984bf7c7615d31280c83ff14"
+dependencies = [
+ "windows-sys 0.48.0",
 ]
 
 [[package]]
@@ -5336,6 +5345,7 @@ dependencies = [
  "tokio-util",
  "tracing",
  "tracing-subscriber",
+ "tracing-tree",
  "unicode-segmentation",
  "unicode-width",
  "url",
@@ -5979,7 +5989,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "ad0f048c97dbd9faa9b7df56362b8ebcaa52adb06b498c050d2f4e32f90a7a8b"
 dependencies = [
  "matchers",
- "nu-ansi-term",
+ "nu-ansi-term 0.46.0",
  "once_cell",
  "regex",
  "serde",
@@ -5991,6 +6001,18 @@ dependencies = [
  "tracing-core",
  "tracing-log",
  "tracing-serde",
+]
+
+[[package]]
+name = "tracing-tree"
+version = "0.3.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "b56c62d2c80033cb36fae448730a2f2ef99410fe3ecbffc916681a32f6807dbe"
+dependencies = [
+ "nu-ansi-term 0.50.0",
+ "tracing-core",
+ "tracing-log",
+ "tracing-subscriber",
 ]
 
 [[package]]
