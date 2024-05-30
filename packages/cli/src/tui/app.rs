@@ -149,6 +149,7 @@ where
 			let rects = layout.split(view_area);
 			let (tree_area, detail_area) = (rects[0], rects[1]);
 			self.tree.resize(tree_area);
+			state.detail.resize(detail_area);
 			state.detail_area = detail_area;
 		} else {
 			self.tree.resize(view_area);
