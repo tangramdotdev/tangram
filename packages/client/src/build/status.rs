@@ -13,6 +13,13 @@ pub enum Status {
 	Finished,
 }
 
+
+#[derive(Clone, Debug)]
+pub enum Event {
+	Data(Status),
+	End,
+}
+
 #[serde_as]
 #[derive(Clone, Debug, Default, serde::Serialize, serde::Deserialize)]
 pub struct Arg {
@@ -55,7 +62,7 @@ impl tg::Client {
 		&self,
 		id: &tg::build::Id,
 		arg: tg::build::status::Arg,
-	) -> tg::Result<Option<impl Stream<Item = tg::Result<tg::build::Status>> + Send + 'static>> {
+	) -> tg::Result<Option<impl Stream<Item = tg::Result<tg::build::status::Event>> + Send + 'static>> {
 		let method = http::Method::GET;
 		let query = serde_urlencoded::to_string(&arg).unwrap();
 		let uri = format!("/builds/{id}/status?{query}");
@@ -79,8 +86,9 @@ impl tg::Client {
 				None | Some("data") => {
 					let data = serde_json::from_str(&event.data)
 						.map_err(|source| tg::error!(!source, "failed to deserialize the data"))?;
-					Ok(data)
+					Ok(Event::Data(data))
 				},
+				Some("end") => Ok(Event::End),
 				Some("error") => {
 					let error = serde_json::from_str(&event.data)
 						.map_err(|source| tg::error!(!source, "failed to deserialize the error"))?;

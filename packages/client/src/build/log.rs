@@ -22,8 +22,7 @@ pub struct Arg {
 	pub timeout: Option<std::time::Duration>,
 }
 
-#[derive(Clone, Debug, serde::Serialize, serde::Deserialize)]
-#[serde(tag = "kind", rename_all = "snake_case")]
+#[derive(Clone, Debug)]
 pub enum Event {
 	Data(Chunk),
 	End,

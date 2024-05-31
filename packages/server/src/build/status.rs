@@ -15,14 +15,20 @@ impl Server {
 		&self,
 		id: &tg::build::Id,
 		arg: tg::build::status::Arg,
-	) -> tg::Result<Option<impl Stream<Item = tg::Result<tg::build::Status>> + Send + 'static>> {
-		if let Some(status) = self.try_get_build_status_local(id, arg.clone()).await? {
-			Ok(Some(status.left_stream()))
+	) -> tg::Result<Option<impl Stream<Item = tg::Result<tg::build::status::Event>> + Send + 'static>>
+	{
+		let status = if let Some(status) = self.try_get_build_status_local(id, arg.clone()).await? {
+			status.left_stream()
 		} else if let Some(status) = self.try_get_build_status_remote(id, arg.clone()).await? {
-			Ok(Some(status.right_stream()))
+			status.right_stream()
 		} else {
-			Ok(None)
-		}
+			return Ok(None);
+		};
+		let end = stream::once(future::ready(Ok::<_, tg::Error>(
+			tg::build::status::Event::End,
+		)));
+		let status = status.map_ok(tg::build::status::Event::Data).chain(end);
+		Ok(Some(status))
 	}
 
 	pub(crate) async fn try_get_build_status_local(
@@ -183,7 +189,7 @@ impl Server {
 		let accept: Option<mime::Mime> = request.parse_header(http::header::ACCEPT).transpose()?;
 
 		// Get the stream.
-		let Some(stream) = handle.try_get_build_status(&id, arg).await? else {
+		let Some(stream) = handle.try_get_build_status_stream(&id, arg).await? else {
 			return Ok(http::Response::builder().not_found().empty().unwrap());
 		};
 
@@ -199,9 +205,16 @@ impl Server {
 			Some((mime::TEXT, mime::EVENT_STREAM)) => {
 				let content_type = mime::TEXT_EVENT_STREAM;
 				let sse = stream.map(|result| match result {
-					Ok(data) => {
+					Ok(tg::build::status::Event::Data(data)) => {
 						let data = serde_json::to_string(&data).unwrap();
 						Ok::<_, tg::Error>(tangram_http::sse::Event::with_data(data))
+					},
+					Ok(tg::build::status::Event::End) => {
+						let event = "end".to_owned();
+						Ok::<_, tg::Error>(tangram_http::sse::Event {
+							event: Some(event),
+							..Default::default()
+						})
 					},
 					Err(error) => {
 						let data = serde_json::to_string(&error).unwrap();

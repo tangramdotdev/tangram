@@ -51,11 +51,11 @@ impl Server {
 		} else {
 			return Ok(None);
 		};
-		let end = stream::once(async move {
-			Ok::<_, tg::Error>(tg::build::log::Event::End)
-		});
+		let end = stream::once(
+			future::ready(Ok::<_, tg::Error>(tg::build::log::Event::End))
+		);
 		let log = log
-			.map(|data| data.map(tg::build::log::Event::Data))
+			.map_ok(tg::build::log::Event::Data)
 			.chain(end);
 		Ok(Some(log))
 	}

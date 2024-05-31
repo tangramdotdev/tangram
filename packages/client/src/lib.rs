@@ -647,7 +647,7 @@ impl tg::Handle for Client {
 		id: &tg::build::Id,
 		arg: tg::build::status::Arg,
 	) -> impl Future<
-		Output = tg::Result<Option<impl Stream<Item = Result<tg::build::Status>> + Send + 'static>>,
+		Output = tg::Result<Option<impl Stream<Item = Result<tg::build::status::Event>> + Send + 'static>>,
 	> {
 		self.try_get_build_status_stream(id, arg)
 	}
@@ -658,7 +658,7 @@ impl tg::Handle for Client {
 		arg: tg::build::children::Arg,
 	) -> impl Future<
 		Output = tg::Result<
-			Option<impl Stream<Item = Result<tg::build::children::Chunk>> + Send + 'static>,
+			Option<impl Stream<Item = Result<tg::build::children::Event>> + Send + 'static>,
 		>,
 	> {
 		self.try_get_build_children_stream(id, arg)

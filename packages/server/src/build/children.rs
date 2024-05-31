@@ -21,15 +21,23 @@ impl Server {
 		id: &tg::build::Id,
 		arg: tg::build::children::Arg,
 	) -> tg::Result<
-		Option<impl Stream<Item = tg::Result<tg::build::children::Chunk>> + Send + 'static>,
+		Option<impl Stream<Item = tg::Result<tg::build::children::Event>> + Send + 'static>,
 	> {
-		if let Some(children) = self.try_get_build_children_local(id, arg.clone()).await? {
-			Ok(Some(children.left_stream()))
+		let children = if let Some(children) = self.try_get_build_children_local(id, arg.clone()).await? {
+			children.left_stream()
 		} else if let Some(children) = self.try_get_build_children_remote(id, arg.clone()).await? {
-			Ok(Some(children.right_stream()))
+			children.right_stream()
 		} else {
-			Ok(None)
-		}
+			return Ok(None);
+		};
+
+		let end = stream::once(
+			future::ready(Ok::<_, tg::Error>(tg::build::children::Event::End))
+		);
+		let children = children
+			.map_ok(tg::build::children::Event::Data)
+			.chain(end);
+		Ok(Some(children))
 	}
 
 	async fn try_get_build_children_local(
@@ -412,7 +420,7 @@ impl Server {
 		let accept: Option<mime::Mime> = request.parse_header(http::header::ACCEPT).transpose()?;
 
 		// Get the stream.
-		let Some(stream) = handle.try_get_build_children(&id, arg).await? else {
+		let Some(stream) = handle.try_get_build_children_stream(&id, arg).await? else {
 			return Ok(http::Response::builder().not_found().empty().unwrap());
 		};
 
@@ -429,7 +437,15 @@ impl Server {
 				let content_type = mime::APPLICATION_JSON;
 				let future = async move {
 					let children: Vec<tg::build::Id> = stream
-						.map_ok(|chunk| stream::iter(chunk.items).map(Ok::<_, tg::Error>))
+						.take_while(|event| {
+							future::ready(!matches!(event, Ok(tg::build::children::Event::End)))
+						})
+						.map_ok(|event| {
+							let tg::build::children::Event::Data(chunk) = event else {
+								unreachable!()
+							};
+							stream::iter(chunk.items.into_iter()).map(Ok::<_, tg::Error>)
+						})
 						.try_flatten()
 						.try_collect()
 						.await?;
@@ -443,10 +459,17 @@ impl Server {
 			Some((mime::TEXT, mime::EVENT_STREAM)) => {
 				let content_type = mime::TEXT_EVENT_STREAM;
 				let sse = stream.map(|result| match result {
-					Ok(data) => {
+					Ok(tg::build::children::Event::Data(data)) => {
 						let data = serde_json::to_string(&data).unwrap();
 						Ok::<_, tg::Error>(tangram_http::sse::Event::with_data(data))
 					},
+					Ok(tg::build::children::Event::End) => {
+						let event = "end".to_owned();
+						Ok::<_, tg::Error>(tangram_http::sse::Event {
+							event: Some(event),
+							..Default::default()
+						})
+					}
 					Err(error) => {
 						let data = serde_json::to_string(&error).unwrap();
 						let event = "error".to_owned();

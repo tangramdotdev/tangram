@@ -158,7 +158,7 @@ impl tg::Handle for Proxy {
 		arg: tg::build::status::Arg,
 	) -> impl Future<
 		Output = tg::Result<
-			Option<impl Stream<Item = tg::Result<tg::build::Status>> + Send + 'static>,
+			Option<impl Stream<Item = tg::Result<tg::build::status::Event>> + Send + 'static>,
 		>,
 	> {
 		self.server.try_get_build_status_stream(id, arg)
@@ -170,7 +170,7 @@ impl tg::Handle for Proxy {
 		arg: tg::build::children::Arg,
 	) -> impl Future<
 		Output = tg::Result<
-			Option<impl Stream<Item = tg::Result<tg::build::children::Chunk>> + Send + 'static>,
+			Option<impl Stream<Item = tg::Result<tg::build::children::Event>> + Send + 'static>,
 		>,
 	> {
 		self.server.try_get_build_children_stream(id, arg)

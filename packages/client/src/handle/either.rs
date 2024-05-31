@@ -142,16 +142,16 @@ where
 		arg: tg::build::status::Arg,
 	) -> impl Future<
 		Output = tg::Result<
-			Option<impl Stream<Item = tg::Result<tg::build::Status>> + Send + 'static>,
+			Option<impl Stream<Item = tg::Result<tg::build::status::Event>> + Send + 'static>,
 		>,
 	> {
 		match self {
 			Either::Left(s) => s
-				.try_get_build_status(id, arg)
+				.try_get_build_status_stream(id, arg)
 				.map(|result| result.map(|option| option.map(futures::StreamExt::left_stream)))
 				.left_future(),
 			Either::Right(s) => s
-				.try_get_build_status(id, arg)
+				.try_get_build_status_stream(id, arg)
 				.map(|result| result.map(|option| option.map(futures::StreamExt::right_stream)))
 				.right_future(),
 		}
@@ -163,16 +163,16 @@ where
 		arg: tg::build::children::Arg,
 	) -> impl Future<
 		Output = tg::Result<
-			Option<impl Stream<Item = tg::Result<tg::build::children::Chunk>> + Send + 'static>,
+			Option<impl Stream<Item = tg::Result<tg::build::children::Event>> + Send + 'static>,
 		>,
 	> {
 		match self {
 			Either::Left(s) => s
-				.try_get_build_children(id, arg)
+				.try_get_build_children_stream(id, arg)
 				.map(|result| result.map(|option| option.map(futures::StreamExt::left_stream)))
 				.left_future(),
 			Either::Right(s) => s
-				.try_get_build_children(id, arg)
+				.try_get_build_children_stream(id, arg)
 				.map(|result| result.map(|option| option.map(futures::StreamExt::right_stream)))
 				.right_future(),
 		}
