@@ -3,6 +3,7 @@ use futures::{
 	stream::{self, FuturesUnordered},
 	FutureExt as _, Stream, StreamExt as _, TryStreamExt as _,
 };
+use num::ToPrimitive as _;
 use std::sync::{atomic::AtomicU64, Arc, Mutex};
 use tangram_client::{self as tg, Handle as _};
 use tangram_http::{incoming::request::Ext as _, outgoing::response::Ext as _, Incoming, Outgoing};
@@ -110,6 +111,7 @@ impl Server {
 			.get_object(object)
 			.await
 			.map_err(|source| tg::error!(!source, "failed to get the object"))?;
+		let size = bytes.len().to_u64().unwrap();
 
 		// Put the object.
 		let arg = tg::object::put::Arg { bytes };
@@ -121,7 +123,7 @@ impl Server {
 
 		// Increment the count and add the objects size to the weight.
 		current_count.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
-		current_weight.fetch_add(metadata.size, std::sync::atomic::Ordering::Relaxed);
+		current_weight.fetch_add(size, std::sync::atomic::Ordering::Relaxed);
 
 		// Recurse into the incomplete children.
 		let (incomplete_count, incomplete_weight) = output
@@ -149,16 +151,14 @@ impl Server {
 		// If the weight is set, then add the weight not yet added.
 		if let Some(weight) = metadata.weight {
 			current_weight.fetch_add(
-				weight - metadata.size - incomplete_weight,
+				weight - size - incomplete_weight,
 				std::sync::atomic::Ordering::Relaxed,
 			);
 		}
 
 		// Compute the count and weight that this call added.
 		let count = metadata.count.unwrap_or_else(|| 1 + incomplete_count);
-		let weight = metadata
-			.weight
-			.unwrap_or_else(|| metadata.size + incomplete_weight);
+		let weight = metadata.weight.unwrap_or_else(|| size + incomplete_weight);
 
 		Ok((count, weight))
 	}

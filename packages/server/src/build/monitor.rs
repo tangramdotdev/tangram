@@ -120,8 +120,12 @@ impl Server {
 			.iter()
 			.map(|id| async move {
 				let build = tg::Build::with_id(id.clone());
+				let arg = tg::build::finish::Arg {
+					outcome: tg::build::outcome::Data::Canceled,
+					remote: None,
+				};
 				build
-					.cancel(self)
+					.finish(self, arg)
 					.await
 					.inspect_err(|error| tracing::error!(%error, %id, "failed to cancel the build"))
 					.ok()

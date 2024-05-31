@@ -76,7 +76,7 @@ impl Compiler {
 
 				// Resolve the dependency using the lock.
 				let (package, lock) = lock.get(&self.server, &dependency).await?;
-				let package = package.unwrap().into();
+				let package = package.unwrap();
 
 				// Create a module for the package.
 				self.module_for_package_with_kind(package, lock, import.kind)

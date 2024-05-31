@@ -92,6 +92,12 @@ pub trait Handle: Clone + Unpin + Send + Sync + 'static {
 		})
 	}
 
+	fn try_start_build(
+		&self,
+		id: &tg::build::Id,
+		arg: tg::build::start::Arg,
+	) -> impl Future<Output = tg::Result<Option<bool>>> + Send;
+
 	fn start_build(
 		&self,
 		id: &tg::build::Id,
@@ -101,12 +107,6 @@ pub trait Handle: Clone + Unpin + Send + Sync + 'static {
 			result.and_then(|option| option.ok_or_else(|| tg::error!("failed to dequeue a build")))
 		})
 	}
-
-	fn try_start_build(
-		&self,
-		id: &tg::build::Id,
-		arg: tg::build::start::Arg,
-	) -> impl Future<Output = tg::Result<Option<bool>>> + Send;
 
 	fn try_get_build_status_stream(
 		&self,

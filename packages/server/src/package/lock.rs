@@ -1,7 +1,10 @@
 use crate::Server;
 use either::Either;
 use futures::{future, stream::FuturesUnordered, TryStreamExt as _};
-use std::collections::{BTreeMap, BTreeSet};
+use std::{
+	collections::{BTreeMap, BTreeSet},
+	path::Path,
+};
 use tangram_client::{self as tg, Handle};
 
 // Mutable state used during the version solving algorithm to cache package metadata and published packages.
@@ -103,7 +106,7 @@ impl Server {
 	) -> tg::Result<tg::Lock> {
 		// If this is a path dependency, then attempt to read the lock from the lockfile.
 		let lock = if let Some(path) = path {
-			tg::Lock::try_read(path).await?
+			self.try_read_lockfile(path).await?
 		} else {
 			None
 		};
@@ -157,7 +160,7 @@ impl Server {
 					.map_err(|source| {
 						tg::error!(!source, "failed to remove path dependencies from lock")
 					})?;
-				lock.write(self, path.clone()).await?;
+				self.write_lockfile(&lock, path.clone()).await?;
 			}
 		}
 
@@ -168,6 +171,38 @@ impl Server {
 			.map_err(|source| tg::error!(!source, "failed to normalize the lock"))?;
 
 		Ok(lock)
+	}
+
+	pub async fn try_read_lockfile(&self, path: impl AsRef<Path>) -> tg::Result<Option<tg::Lock>> {
+		let path = path.as_ref().join(tg::package::LOCKFILE_FILE_NAME);
+		let bytes = match tokio::fs::read(&path).await {
+			Ok(bytes) => bytes,
+			Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
+				return Ok(None);
+			},
+			Err(error) => {
+				let path = path.display();
+				return Err(tg::error!(source = error, %path, "failed to read the lockfile"));
+			},
+		};
+		let data: tg::lock::Data = serde_json::from_slice(&bytes).map_err(|error| {
+			let path = path.display();
+			tg::error!(source = error, %path, "failed to deserialize the lockfile")
+		})?;
+		let object: tg::lock::Object = data.try_into()?;
+		let lock = tg::Lock::with_object(object);
+		Ok(Some(lock))
+	}
+
+	async fn write_lockfile(&self, lock: &tg::Lock, path: impl AsRef<Path>) -> tg::Result<()> {
+		let path = path.as_ref().join(tg::package::LOCKFILE_FILE_NAME);
+		let data = lock.data(self, None).await?;
+		let bytes = serde_json::to_vec_pretty(&data)
+			.map_err(|source| tg::error!(!source, "failed to serialize the lock"))?;
+		tokio::fs::write(&path, &bytes).await.map_err(
+			|source| tg::error!(!source, %path = path.display(), "failed to write the lock file"),
+		)?;
+		Ok(())
 	}
 
 	async fn dependencies_match_lock(

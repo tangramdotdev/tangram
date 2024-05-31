@@ -12,6 +12,29 @@ impl Server {
 		id: &tg::build::Id,
 		arg: tg::build::start::Arg,
 	) -> tg::Result<Option<bool>> {
+		let remote = arg.remote.as_ref();
+		match remote {
+			None => {
+				let output = self.try_start_build_local(id, arg).await?;
+				Ok(output)
+			},
+			Some(remote) => {
+				let remote = self
+					.remotes
+					.get(remote)
+					.ok_or_else(|| tg::error!("the remote does not exist"))?
+					.clone();
+				let output = remote.try_start_build(id, arg).await?;
+				Ok(output)
+			},
+		}
+	}
+
+	pub async fn try_start_build_local(
+		&self,
+		id: &tg::build::Id,
+		_arg: tg::build::start::Arg,
+	) -> tg::Result<Option<bool>> {
 		// Verify the build is local.
 		if !self.get_build_exists_local(id).await? {
 			return Ok(None);

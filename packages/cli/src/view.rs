@@ -49,7 +49,10 @@ impl Cli {
 
 		// Get the item.
 		let item = match arg {
-			Arg::Build(build) => tui::Item::Build(tg::Build::with_id(build)),
+			Arg::Build(build) => tui::Item::Build {
+				build: tg::Build::with_id(build),
+				remote: None,
+			},
 			Arg::Object(object) => tui::Item::Value {
 				value: tg::Object::with_id(object).into(),
 				name: None,

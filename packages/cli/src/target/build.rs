@@ -225,7 +225,7 @@ impl Cli {
 			.map(|remote| remote.unwrap_or_else(|| "default".to_owned()));
 		let arg = tg::target::build::Arg {
 			parent: None,
-			remote,
+			remote: remote.clone(),
 			retry,
 		};
 		let output = self.handle.build_target(&id, arg).await?;
@@ -262,9 +262,13 @@ impl Cli {
 		} else {
 			// Start the TUI.
 			let tui = match args.view {
-				View::Tui => Tui::start(&self.handle, tui::Item::Build(build.clone()))
-					.await
-					.ok(),
+				View::Tui => {
+					let item = tui::Item::Build {
+						build: build.clone(),
+						remote: remote.clone(),
+					};
+					Tui::start(&self.handle, item).await.ok()
+				},
 				View::None => None,
 			};
 
@@ -274,7 +278,11 @@ impl Cli {
 				let build = build.clone();
 				async move {
 					tokio::signal::ctrl_c().await.unwrap();
-					tokio::spawn(async move { build.cancel(&handle).await.ok() });
+					tokio::spawn(async move {
+						let outcome = tg::build::outcome::Data::Canceled;
+						let arg = tg::build::finish::Arg { outcome, remote };
+						build.finish(&handle, arg).await.ok();
+					});
 					tokio::signal::ctrl_c().await.unwrap();
 					std::process::exit(130);
 				}

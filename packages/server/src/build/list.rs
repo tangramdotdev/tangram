@@ -36,15 +36,14 @@ impl Server {
 			"
 				select
 					id,
-					count,
 					host,
 					log,
 					outcome,
 					retry,
 					status,
 					target,
-					weight,
 					created_at,
+					dequeued_at,
 					started_at,
 					finished_at
 				from builds

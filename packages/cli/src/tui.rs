@@ -1,6 +1,5 @@
 use self::app::App;
 use crossterm as ct;
-use ct::event;
 use ratatui as tui;
 use std::sync::Arc;
 use tangram_client as tg;
@@ -24,7 +23,10 @@ where
 #[derive(Clone)]
 pub enum Item {
 	Root,
-	Build(tg::Build),
+	Build {
+		build: tg::Build,
+		remote: Option<String>,
+	},
 	Value {
 		name: Option<String>,
 		value: tg::Value,
@@ -113,13 +115,13 @@ where
 				.ok();
 
 			// Wait for and handle an event, swallowing any errors.
-			let Ok(has_event) = event::poll(std::time::Duration::from_millis(10)) else {
+			let Ok(has_event) = ct::event::poll(std::time::Duration::from_millis(10)) else {
 				break;
 			};
 			if !has_event {
 				continue;
 			}
-			let Ok(event) = event::read() else {
+			let Ok(event) = ct::event::read() else {
 				break;
 			};
 			app.handle_event(&event);

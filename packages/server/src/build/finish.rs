@@ -86,11 +86,13 @@ impl Server {
 				let arg = tg::build::outcome::Arg {
 					timeout: Some(std::time::Duration::ZERO),
 				};
-				self.try_get_build_outcome_future(child_id, arg)
+				let outcome = self
+					.try_get_build_outcome_future(child_id, arg)
 					.await?
 					.ok_or_else(|| tg::error!(%child_id, "failed to get the build"))?
 					.await?
-					.ok_or_else(|| tg::error!(%child_id, "expected the build to be finished"))
+					.ok_or_else(|| tg::error!(%child_id, "expected the build to be finished"))?;
+				Ok::<_, tg::Error>(outcome)
 			})
 			.collect::<FuturesUnordered<_>>()
 			.try_collect::<Vec<_>>()

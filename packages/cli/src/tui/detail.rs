@@ -24,7 +24,7 @@ where
 {
 	pub fn new(handle: &H, item: &Item, area: Rect) -> Arc<Self> {
 		let data = match &item {
-			Item::Build(build) => Some(Either::Left(Log::new(handle, build, area))),
+			Item::Build { build, .. } => Some(Either::Left(Log::new(handle, build, area))),
 			Item::Value { value, .. }
 				if matches!(
 					value,
@@ -212,7 +212,7 @@ where
 	async fn get_text(&self) -> tg::Result<String> {
 		match &self.value {
 			Item::Root => Ok(String::new()),
-			Item::Build(build) => {
+			Item::Build { build, .. } => {
 				let info = self.handle.get_build(build.id()).await?;
 				Ok(serde_json::to_string_pretty(&info).unwrap())
 			},

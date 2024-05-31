@@ -8,7 +8,6 @@ use futures::{
 use itertools::Itertools as _;
 use std::{
 	collections::{BTreeMap, BTreeSet},
-	path::Path,
 	sync::Arc,
 };
 
@@ -287,52 +286,6 @@ impl Lock {
 		let index = nodes.len();
 		nodes.push(node);
 		index
-	}
-}
-
-impl Lock {
-	/// Read a lockfile.
-	pub async fn read(path: impl AsRef<Path>) -> tg::Result<Self> {
-		Self::try_read(path)
-			.await?
-			.ok_or_else(|| tg::error!("expected a lockfile to exist"))
-	}
-
-	/// Attempt to read a lockfile.
-	pub async fn try_read(path: impl AsRef<Path>) -> tg::Result<Option<Self>> {
-		let path = path.as_ref().join(tg::package::LOCKFILE_FILE_NAME);
-		let bytes = match tokio::fs::read(&path).await {
-			Ok(bytes) => bytes,
-			Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
-				return Ok(None);
-			},
-			Err(error) => {
-				let path = path.display();
-				return Err(tg::error!(source = error, %path, "failed to read the lockfile"));
-			},
-		};
-		let data: Data = serde_json::from_slice(&bytes).map_err(|error| {
-			let path = path.display();
-			tg::error!(source = error, %path, "failed to deserialize the lockfile")
-		})?;
-		let object: Object = data.try_into()?;
-		let lock = Self::with_object(object);
-
-		Ok(Some(lock))
-	}
-
-	pub async fn write<H>(&self, handle: &H, path: tg::Path) -> tg::Result<()>
-	where
-		H: tg::Handle,
-	{
-		let path = path.join(tg::package::LOCKFILE_FILE_NAME);
-		let data = self.data(handle, None).await?;
-		let bytes = serde_json::to_vec_pretty(&data)
-			.map_err(|source| tg::error!(!source, "failed to serialize the lock"))?;
-		tokio::fs::write(&path, &bytes)
-			.await
-			.map_err(|source| tg::error!(!source, %path, "failed to write the lock file"))?;
-		Ok(())
 	}
 }
 

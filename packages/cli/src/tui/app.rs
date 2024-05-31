@@ -158,11 +158,15 @@ where
 	}
 
 	pub fn cancel(&self) {
-		let Item::Build(build) = self.tree.get_selected() else {
+		let Item::Build { build, remote } = self.tree.get_selected() else {
 			return;
 		};
 		let client = self.handle.clone();
-		tokio::spawn(async move { build.cancel(&client).await.ok() });
+		tokio::spawn(async move {
+			let outcome = tg::build::outcome::Data::Canceled;
+			let arg = tg::build::finish::Arg { outcome, remote };
+			build.finish(&client, arg).await.ok();
+		});
 	}
 
 	pub fn quit(&self) {
@@ -190,7 +194,7 @@ where
 	}
 
 	pub fn expand_children(&self) {
-		if let Item::Build(_) = self.tree.get_selected() {
+		if let Item::Build { .. } = self.tree.get_selected() {
 			self.tree.expand_build_children();
 			self.tree.expand_object_children();
 		} else {
@@ -203,17 +207,17 @@ where
 	}
 
 	pub fn copy_selected_to_clipboard(&self) {
-		let Ok(mut ctx) = copypasta::ClipboardContext::new() else {
+		let Ok(mut context) = copypasta::ClipboardContext::new() else {
 			return;
 		};
 		let selected = self.tree.get_selected();
 		let text = match selected {
 			Item::Root => return,
-			Item::Build(build) => build.id().to_string(),
+			Item::Build { build, .. } => build.id().to_string(),
 			Item::Value { value, .. } => value.to_string(),
 			Item::Package { dependency, .. } => dependency.to_string(),
 		};
-		ctx.set_contents(text).ok();
+		context.set_contents(text).ok();
 	}
 
 	pub fn push(&self) {

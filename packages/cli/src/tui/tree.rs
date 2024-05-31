@@ -70,7 +70,7 @@ where
 			.iter()
 			.enumerate()
 			.filter_map(|(index, object)| {
-				let Item::Build(_) = object else {
+				let Item::Build { .. } = object else {
 					return None;
 				};
 				Some(Node::new(handle, Some(&root), index, object.clone()))
@@ -81,7 +81,7 @@ where
 			.enumerate()
 			.filter_map(|(index, object)| {
 				let kind = match object.clone() {
-					Item::Build(_) => return None,
+					Item::Build { .. } => return None,
 					kind => kind.clone(),
 				};
 				Some(Node::new(handle, Some(&root), index, kind))
@@ -463,8 +463,10 @@ where
 		};
 		let parent_state = parent.state.read().unwrap();
 		match (&parent_state.kind, &state.kind) {
-			(Item::Build(_), Item::Build(_)) if parent_state.expand_object_children => false,
-			(Item::Build(_) | Item::Root, Item::Build(_)) => {
+			(Item::Build { .. }, Item::Build { .. }) if parent_state.expand_object_children => {
+				false
+			},
+			(Item::Build { .. } | Item::Root, Item::Build { .. }) => {
 				self.index == parent_state.build_children.as_ref().map_or(0, Vec::len) - 1
 			},
 			_ => self.index == parent_state.object_children.as_ref().map_or(0, Vec::len) - 1,
@@ -555,7 +557,7 @@ where
 		let kind = self.state.read().unwrap().kind.clone();
 		match kind {
 			Item::Root => unreachable!(),
-			Item::Build(build) => {
+			Item::Build { build, .. } => {
 				let target = build.target(&self.handle).await?;
 				let parent = Some(self);
 				let index = 0;
@@ -792,7 +794,7 @@ where
 			let node = self.clone();
 			|stop| async move {
 				let kind = node.state.read().unwrap().kind.clone();
-				let Item::Build(build) = kind else {
+				let Item::Build { build, remote } = kind else {
 					return;
 				};
 				let arg = tg::build::children::Arg {
@@ -827,7 +829,10 @@ where
 					let children = state.build_children.as_mut().unwrap();
 					let parent = Some(&node);
 					let index = children.len();
-					let kind = Item::Build(child);
+					let kind = Item::Build {
+						build: child,
+						remote: remote.clone(),
+					};
 					let child_node = Self::new(&node.handle, parent, index, kind);
 
 					// Add the new child node.
@@ -842,7 +847,7 @@ where
 		Task::spawn({
 			let node = self.clone();
 			|stop| async move {
-				let Item::Build(build) = node.state.read().unwrap().kind.clone() else {
+				let Item::Build { build, .. } = node.state.read().unwrap().kind.clone() else {
 					return;
 				};
 				let arg = tg::build::status::Arg::default();
@@ -888,7 +893,7 @@ where
 				let kind = node.state.read().unwrap().kind.clone();
 				let result = match kind {
 					Item::Root => return,
-					Item::Build(build) => node.set_build_title(build).await,
+					Item::Build { build, .. } => node.set_build_title(build).await,
 					Item::Value { name, value } => node.set_value_title(name, value).await,
 					Item::Package { dependency, .. } => {
 						node.state

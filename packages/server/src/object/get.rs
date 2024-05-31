@@ -38,13 +38,12 @@ impl Server {
 		struct Row {
 			bytes: Bytes,
 			count: Option<u64>,
-			size: u64,
 			weight: Option<u64>,
 		}
 		let p = connection.p();
 		let statement = formatdoc!(
 			"
-				select bytes, count, length(bytes) as size, weight
+				select bytes, count, weight
 				from objects
 				where id = {p}1;
 			",
@@ -63,7 +62,6 @@ impl Server {
 			bytes: row.bytes,
 			metadata: tg::object::Metadata {
 				count: row.count,
-				size: row.size,
 				weight: row.weight,
 			},
 		};
