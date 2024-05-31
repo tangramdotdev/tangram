@@ -1,7 +1,7 @@
 use crate::{self as tg, util::arc::Ext as _};
 use bytes::Bytes;
 use futures::{stream::FuturesOrdered, FutureExt as _, TryStreamExt as _};
-use std::sync::Arc;
+use std::{collections::BTreeSet, sync::Arc};
 
 #[derive(
 	Clone,
@@ -39,14 +39,14 @@ pub struct Data {
 	pub contents: tg::blob::Id,
 	#[serde(default, skip_serializing_if = "std::ops::Not::not")]
 	pub executable: bool,
-	#[serde(default, skip_serializing_if = "Vec::is_empty")]
-	pub references: Vec<tg::artifact::Id>,
+	#[serde(default, skip_serializing_if = "BTreeSet::is_empty")]
+	pub references: BTreeSet<tg::artifact::Id>,
 }
 
 /// The extended attributes of files.
 #[derive(serde::Serialize, serde::Deserialize, Debug, Clone)]
 pub struct Attributes {
-	pub references: Vec<tg::artifact::Id>,
+	pub references: BTreeSet<tg::artifact::Id>,
 }
 
 /// The extended attributes key used to store the [`Attributes`].
@@ -148,11 +148,7 @@ impl File {
 		let data = self.data(handle, transaction).await?;
 		let bytes = data.serialize()?;
 		let id = Id::new(&bytes);
-		let arg = tg::object::put::Arg {
-			bytes,
-			count: None,
-			weight: None,
-		};
+		let arg = tg::object::put::Arg { bytes };
 		handle
 			.put_object(&id.clone().into(), arg, transaction)
 			.boxed()
@@ -274,7 +270,7 @@ impl Data {
 	}
 
 	#[must_use]
-	pub fn children(&self) -> Vec<tg::object::Id> {
+	pub fn children(&self) -> BTreeSet<tg::object::Id> {
 		std::iter::once(self.contents.clone().into())
 			.chain(self.references.iter().cloned().map(Into::into))
 			.collect()

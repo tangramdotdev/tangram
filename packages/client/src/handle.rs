@@ -31,7 +31,7 @@ pub trait Handle: Clone + Unpin + Send + Sync + 'static {
 	fn create_blob(
 		&self,
 		reader: impl AsyncRead + Send + 'static,
-	) -> impl Future<Output = tg::Result<tg::blob::Id>> + Send;
+	) -> impl Future<Output = tg::Result<tg::blob::create::Output>> + Send;
 
 	fn list_builds(
 		&self,
@@ -58,9 +58,25 @@ pub trait Handle: Clone + Unpin + Send + Sync + 'static {
 		arg: tg::build::put::Arg,
 	) -> impl Future<Output = tg::Result<()>> + Send;
 
-	fn push_build(&self, id: &tg::build::Id) -> impl Future<Output = tg::Result<()>> + Send;
+	fn push_build(
+		&self,
+		id: &tg::build::Id,
+		arg: tg::build::push::Arg,
+	) -> impl Future<
+		Output = tg::Result<
+			impl Stream<Item = tg::Result<tg::build::push::Event>> + Send + 'static,
+		>,
+	> + Send;
 
-	fn pull_build(&self, id: &tg::build::Id) -> impl Future<Output = tg::Result<()>> + Send;
+	fn pull_build(
+		&self,
+		id: &tg::build::Id,
+		arg: tg::build::pull::Arg,
+	) -> impl Future<
+		Output = tg::Result<
+			impl Stream<Item = tg::Result<tg::build::pull::Event>> + Send + 'static,
+		>,
+	> + Send;
 
 	fn try_dequeue_build(
 		&self,
@@ -76,8 +92,12 @@ pub trait Handle: Clone + Unpin + Send + Sync + 'static {
 		})
 	}
 
-	fn start_build(&self, id: &tg::build::Id) -> impl Future<Output = tg::Result<bool>> + Send {
-		self.try_start_build(id).map(|result| {
+	fn start_build(
+		&self,
+		id: &tg::build::Id,
+		arg: tg::build::start::Arg,
+	) -> impl Future<Output = tg::Result<bool>> + Send {
+		self.try_start_build(id, arg).map(|result| {
 			result.and_then(|option| option.ok_or_else(|| tg::error!("failed to dequeue a build")))
 		})
 	}
@@ -85,6 +105,7 @@ pub trait Handle: Clone + Unpin + Send + Sync + 'static {
 	fn try_start_build(
 		&self,
 		id: &tg::build::Id,
+		arg: tg::build::start::Arg,
 	) -> impl Future<Output = tg::Result<Option<bool>>> + Send;
 
 	fn try_get_build_status_stream(
@@ -133,7 +154,6 @@ pub trait Handle: Clone + Unpin + Send + Sync + 'static {
 					if state.lock().unwrap().end {
 						return Ok(None);
 					}
-
 					let stream = state.lock().unwrap().stream.take();
 					let stream = if let Some(stream) = stream {
 						stream
@@ -439,10 +459,10 @@ pub trait Handle: Clone + Unpin + Send + Sync + 'static {
 				}
 			};
 			let future =
-				future::select(Box::pin(timeout), Box::pin(future)).then(|result| async move {
+				future::select(future.boxed(), timeout.boxed()).then(|result| async move {
 					match result {
-						future::Either::Left(_) => Ok(None),
-						future::Either::Right((result, _)) => result,
+						future::Either::Left((result, _)) => result,
+						future::Either::Right(_) => Ok(None),
 					}
 				});
 			Ok(Some(future))
@@ -469,11 +489,16 @@ pub trait Handle: Clone + Unpin + Send + Sync + 'static {
 		arg: tg::build::finish::Arg,
 	) -> impl Future<Output = tg::Result<()>> + Send;
 
-	fn touch_build(&self, id: &tg::build::Id) -> impl Future<Output = tg::Result<()>> + Send;
+	fn touch_build(
+		&self,
+		id: &tg::build::Id,
+		arg: tg::build::touch::Arg,
+	) -> impl Future<Output = tg::Result<()>> + Send;
 
 	fn heartbeat_build(
 		&self,
 		id: &tg::build::Id,
+		arg: tg::build::heartbeat::Arg,
 	) -> impl Future<Output = tg::Result<tg::build::heartbeat::Output>> + Send;
 
 	fn format(&self, text: String) -> impl Future<Output = tg::Result<String>> + Send;
@@ -483,6 +508,20 @@ pub trait Handle: Clone + Unpin + Send + Sync + 'static {
 		input: impl AsyncBufRead + Send + Unpin + 'static,
 		output: impl AsyncWrite + Send + Unpin + 'static,
 	) -> impl Future<Output = tg::Result<()>> + Send;
+
+	fn get_object_metadata(
+		&self,
+		id: &tg::object::Id,
+	) -> impl Future<Output = tg::Result<tg::object::Metadata>> + Send {
+		self.try_get_object_metadata(id).map(|result| {
+			result.and_then(|option| option.ok_or_else(|| tg::error!("failed to get the object")))
+		})
+	}
+
+	fn try_get_object_metadata(
+		&self,
+		id: &tg::object::Id,
+	) -> impl Future<Output = tg::Result<Option<tg::object::Metadata>>> + Send;
 
 	fn try_get_object(
 		&self,
@@ -505,9 +544,25 @@ pub trait Handle: Clone + Unpin + Send + Sync + 'static {
 		transaction: Option<&Self::Transaction<'_>>,
 	) -> impl Future<Output = tg::Result<tg::object::put::Output>> + Send;
 
-	fn push_object(&self, id: &tg::object::Id) -> impl Future<Output = tg::Result<()>> + Send;
+	fn push_object(
+		&self,
+		id: &tg::object::Id,
+		arg: tg::object::push::Arg,
+	) -> impl Future<
+		Output = tg::Result<
+			impl Stream<Item = tg::Result<tg::object::push::Event>> + Send + 'static,
+		>,
+	> + Send;
 
-	fn pull_object(&self, id: &tg::object::Id) -> impl Future<Output = tg::Result<()>> + Send;
+	fn pull_object(
+		&self,
+		id: &tg::object::Id,
+		arg: tg::object::pull::Arg,
+	) -> impl Future<
+		Output = tg::Result<
+			impl Stream<Item = tg::Result<tg::object::pull::Event>> + Send + 'static,
+		>,
+	> + Send;
 
 	fn list_packages(
 		&self,
@@ -563,8 +618,11 @@ pub trait Handle: Clone + Unpin + Send + Sync + 'static {
 		arg: tg::package::outdated::Arg,
 	) -> impl Future<Output = tg::Result<tg::package::outdated::Output>> + Send;
 
-	fn publish_package(&self, id: &tg::artifact::Id)
-		-> impl Future<Output = tg::Result<()>> + Send;
+	fn publish_package(
+		&self,
+		id: &tg::artifact::Id,
+		arg: tg::package::publish::Arg,
+	) -> impl Future<Output = tg::Result<()>> + Send;
 
 	fn try_get_package_versions(
 		&self,
@@ -580,7 +638,29 @@ pub trait Handle: Clone + Unpin + Send + Sync + 'static {
 		})
 	}
 
-	fn yank_package(&self, id: &tg::artifact::Id) -> impl Future<Output = tg::Result<()>> + Send;
+	fn yank_package(
+		&self,
+		id: &tg::artifact::Id,
+		arg: tg::package::yank::Arg,
+	) -> impl Future<Output = tg::Result<()>> + Send;
+
+	fn list_remotes(
+		&self,
+		arg: tg::remote::list::Arg,
+	) -> impl Future<Output = tg::Result<tg::remote::list::Output>> + Send;
+
+	fn try_get_remote(
+		&self,
+		name: &str,
+	) -> impl Future<Output = tg::Result<Option<tg::remote::get::Output>>> + Send;
+
+	fn put_remote(
+		&self,
+		name: &str,
+		arg: tg::remote::put::Arg,
+	) -> impl Future<Output = tg::Result<()>> + Send;
+
+	fn delete_remote(&self, name: &str) -> impl Future<Output = tg::Result<()>> + Send;
 
 	fn list_roots(
 		&self,

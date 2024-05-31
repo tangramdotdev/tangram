@@ -5,7 +5,7 @@ use futures::{
 	FutureExt as _, TryStreamExt as _,
 };
 use itertools::Itertools as _;
-use std::{collections::BTreeMap, sync::Arc};
+use std::{collections::{BTreeMap, BTreeSet}, sync::Arc};
 
 pub mod build;
 
@@ -156,11 +156,7 @@ impl Target {
 		let data = self.data(handle, transaction).await?;
 		let bytes = data.serialize()?;
 		let id = Id::new(&bytes);
-		let arg = tg::object::put::Arg {
-			bytes,
-			count: None,
-			weight: None,
-		};
+		let arg = tg::object::put::Arg { bytes };
 		handle
 			.put_object(&id.clone().into(), arg, transaction)
 			.boxed()
@@ -305,7 +301,7 @@ impl Data {
 	}
 
 	#[must_use]
-	pub fn children(&self) -> Vec<tg::object::Id> {
+	pub fn children(&self) -> BTreeSet<tg::object::Id> {
 		std::iter::empty()
 			.chain(std::iter::once(self.executable.clone().into()))
 			.chain(self.args.iter().flat_map(tg::value::Data::children))

@@ -1,7 +1,10 @@
 use crate::{self as tg, util::arc::Ext as _};
 use bytes::Bytes;
 use futures::{stream::FuturesOrdered, FutureExt as _, TryStreamExt as _};
-use std::{collections::BTreeMap, sync::Arc};
+use std::{
+	collections::{BTreeMap, BTreeSet},
+	sync::Arc,
+};
 
 #[derive(
 	Clone,
@@ -131,11 +134,7 @@ impl Directory {
 		let data = self.data(handle, transaction).await?;
 		let bytes = data.serialize()?;
 		let id = Id::new(&bytes);
-		let arg = tg::object::put::Arg {
-			bytes,
-			count: None,
-			weight: None,
-		};
+		let arg = tg::object::put::Arg { bytes };
 		handle
 			.put_object(&id.clone().into(), arg, transaction)
 			.boxed()
@@ -262,7 +261,7 @@ impl Data {
 	}
 
 	#[must_use]
-	pub fn children(&self) -> Vec<tg::object::Id> {
+	pub fn children(&self) -> BTreeSet<tg::object::Id> {
 		self.entries.values().cloned().map(Into::into).collect()
 	}
 }

@@ -35,7 +35,7 @@ where
 	fn create_blob(
 		&self,
 		reader: impl AsyncRead + Send + 'static,
-	) -> impl Future<Output = tg::Result<tg::blob::Id>> {
+	) -> impl Future<Output = tg::Result<tg::blob::create::Output>> {
 		match self {
 			Either::Left(s) => s.create_blob(reader).left_future(),
 			Either::Right(s) => s.create_blob(reader).right_future(),
@@ -73,17 +73,45 @@ where
 		}
 	}
 
-	fn push_build(&self, id: &tg::build::Id) -> impl Future<Output = tg::Result<()>> {
+	fn push_build(
+		&self,
+		id: &tg::build::Id,
+		arg: tg::build::push::Arg,
+	) -> impl Future<
+		Output = tg::Result<
+			impl Stream<Item = tg::Result<tg::build::push::Event>> + Send + 'static,
+		>,
+	> {
 		match self {
-			Either::Left(s) => s.push_build(id).left_future(),
-			Either::Right(s) => s.push_build(id).right_future(),
+			Either::Left(s) => s
+				.push_build(id, arg)
+				.map(|result| result.map(futures::StreamExt::left_stream))
+				.left_future(),
+			Either::Right(s) => s
+				.push_build(id, arg)
+				.map(|result| result.map(futures::StreamExt::right_stream))
+				.right_future(),
 		}
 	}
 
-	fn pull_build(&self, id: &tg::build::Id) -> impl Future<Output = tg::Result<()>> {
+	fn pull_build(
+		&self,
+		id: &tg::build::Id,
+		arg: tg::build::pull::Arg,
+	) -> impl Future<
+		Output = tg::Result<
+			impl Stream<Item = tg::Result<tg::build::pull::Event>> + Send + 'static,
+		>,
+	> {
 		match self {
-			Either::Left(s) => s.pull_build(id).left_future(),
-			Either::Right(s) => s.pull_build(id).right_future(),
+			Either::Left(s) => s
+				.pull_build(id, arg)
+				.map(|result| result.map(futures::StreamExt::left_stream))
+				.left_future(),
+			Either::Right(s) => s
+				.pull_build(id, arg)
+				.map(|result| result.map(futures::StreamExt::right_stream))
+				.right_future(),
 		}
 	}
 
@@ -100,10 +128,11 @@ where
 	fn try_start_build(
 		&self,
 		id: &tg::build::Id,
+		arg: tg::build::start::Arg,
 	) -> impl Future<Output = tg::Result<Option<bool>>> + Send {
 		match self {
-			Either::Left(s) => s.try_start_build(id).left_future(),
-			Either::Right(s) => s.try_start_build(id).right_future(),
+			Either::Left(s) => s.try_start_build(id, arg).left_future(),
+			Either::Right(s) => s.try_start_build(id, arg).right_future(),
 		}
 	}
 
@@ -221,20 +250,25 @@ where
 		}
 	}
 
-	fn touch_build(&self, id: &tg::build::Id) -> impl Future<Output = tg::Result<()>> + Send {
+	fn touch_build(
+		&self,
+		id: &tg::build::Id,
+		arg: tg::build::touch::Arg,
+	) -> impl Future<Output = tg::Result<()>> + Send {
 		match self {
-			Either::Left(s) => s.touch_build(id).left_future(),
-			Either::Right(s) => s.touch_build(id).right_future(),
+			Either::Left(s) => s.touch_build(id, arg).left_future(),
+			Either::Right(s) => s.touch_build(id, arg).right_future(),
 		}
 	}
 
 	fn heartbeat_build(
 		&self,
 		id: &tg::build::Id,
+		arg: tg::build::heartbeat::Arg,
 	) -> impl Future<Output = tg::Result<tg::build::heartbeat::Output>> + Send {
 		match self {
-			Either::Left(s) => s.heartbeat_build(id).left_future(),
-			Either::Right(s) => s.heartbeat_build(id).right_future(),
+			Either::Left(s) => s.heartbeat_build(id, arg).left_future(),
+			Either::Right(s) => s.heartbeat_build(id, arg).right_future(),
 		}
 	}
 
@@ -253,6 +287,16 @@ where
 		match self {
 			Either::Left(s) => s.lsp(input, output).left_future(),
 			Either::Right(s) => s.lsp(input, output).right_future(),
+		}
+	}
+
+	fn try_get_object_metadata(
+		&self,
+		id: &tg::object::Id,
+	) -> impl Future<Output = tg::Result<Option<tg::object::Metadata>>> {
+		match self {
+			Either::Left(s) => s.try_get_object_metadata(id).left_future(),
+			Either::Right(s) => s.try_get_object_metadata(id).right_future(),
 		}
 	}
 
@@ -284,17 +328,45 @@ where
 		}
 	}
 
-	fn push_object(&self, id: &tg::object::Id) -> impl Future<Output = tg::Result<()>> {
+	fn push_object(
+		&self,
+		id: &tg::object::Id,
+		arg: tg::object::push::Arg,
+	) -> impl Future<
+		Output = tg::Result<
+			impl Stream<Item = tg::Result<tg::object::push::Event>> + Send + 'static,
+		>,
+	> + Send {
 		match self {
-			Either::Left(s) => s.push_object(id).left_future(),
-			Either::Right(s) => s.push_object(id).right_future(),
+			Either::Left(s) => s
+				.push_object(id, arg)
+				.map(|result| result.map(futures::StreamExt::left_stream))
+				.left_future(),
+			Either::Right(s) => s
+				.push_object(id, arg)
+				.map(|result| result.map(futures::StreamExt::right_stream))
+				.right_future(),
 		}
 	}
 
-	fn pull_object(&self, id: &tg::object::Id) -> impl Future<Output = tg::Result<()>> {
+	fn pull_object(
+		&self,
+		id: &tg::object::Id,
+		arg: tg::object::pull::Arg,
+	) -> impl Future<
+		Output = tg::Result<
+			impl Stream<Item = tg::Result<tg::object::pull::Event>> + Send + 'static,
+		>,
+	> + Send {
 		match self {
-			Either::Left(s) => s.pull_object(id).left_future(),
-			Either::Right(s) => s.pull_object(id).right_future(),
+			Either::Left(s) => s
+				.pull_object(id, arg)
+				.map(|result| result.map(futures::StreamExt::left_stream))
+				.left_future(),
+			Either::Right(s) => s
+				.pull_object(id, arg)
+				.map(|result| result.map(futures::StreamExt::right_stream))
+				.right_future(),
 		}
 	}
 
@@ -359,10 +431,14 @@ where
 		}
 	}
 
-	fn publish_package(&self, id: &tg::artifact::Id) -> impl Future<Output = tg::Result<()>> {
+	fn publish_package(
+		&self,
+		id: &tg::artifact::Id,
+		arg: tg::package::publish::Arg,
+	) -> impl Future<Output = tg::Result<()>> {
 		match self {
-			Either::Left(s) => s.publish_package(id).left_future(),
-			Either::Right(s) => s.publish_package(id).right_future(),
+			Either::Left(s) => s.publish_package(id, arg).left_future(),
+			Either::Right(s) => s.publish_package(id, arg).right_future(),
 		}
 	}
 
@@ -376,10 +452,52 @@ where
 		}
 	}
 
-	fn yank_package(&self, id: &tg::artifact::Id) -> impl Future<Output = tg::Result<()>> {
+	fn yank_package(
+		&self,
+		id: &tg::artifact::Id,
+		arg: tg::package::yank::Arg,
+	) -> impl Future<Output = tg::Result<()>> {
 		match self {
-			Either::Left(s) => s.yank_package(id).left_future(),
-			Either::Right(s) => s.yank_package(id).right_future(),
+			Either::Left(s) => s.yank_package(id, arg).left_future(),
+			Either::Right(s) => s.yank_package(id, arg).right_future(),
+		}
+	}
+
+	fn list_remotes(
+		&self,
+		arg: tg::remote::list::Arg,
+	) -> impl Future<Output = tg::Result<tg::remote::list::Output>> {
+		match self {
+			Either::Left(s) => s.list_remotes(arg).left_future(),
+			Either::Right(s) => s.list_remotes(arg).right_future(),
+		}
+	}
+
+	fn try_get_remote(
+		&self,
+		name: &str,
+	) -> impl Future<Output = tg::Result<Option<tg::remote::get::Output>>> {
+		match self {
+			Either::Left(s) => s.try_get_remote(name).left_future(),
+			Either::Right(s) => s.try_get_remote(name).right_future(),
+		}
+	}
+
+	fn put_remote(
+		&self,
+		name: &str,
+		arg: tg::remote::put::Arg,
+	) -> impl Future<Output = tg::Result<()>> {
+		match self {
+			Either::Left(s) => s.put_remote(name, arg).left_future(),
+			Either::Right(s) => s.put_remote(name, arg).right_future(),
+		}
+	}
+
+	fn delete_remote(&self, name: &str) -> impl Future<Output = tg::Result<()>> {
+		match self {
+			Either::Left(s) => s.delete_remote(name).left_future(),
+			Either::Right(s) => s.delete_remote(name).right_future(),
 		}
 	}
 

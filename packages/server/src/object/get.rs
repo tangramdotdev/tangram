@@ -1,19 +1,22 @@
 use crate::Server;
-use futures::TryFutureExt as _;
+use bytes::Bytes;
+use futures::{future, FutureExt as _, TryFutureExt as _};
 use indoc::formatdoc;
+use itertools::Itertools as _;
 use tangram_client as tg;
 use tangram_database::{self as db, prelude::*};
 use tangram_http::{outgoing::response::Ext as _, Incoming, Outgoing};
+use tg::Handle as _;
 
 impl Server {
 	pub async fn try_get_object(
 		&self,
 		id: &tg::object::Id,
 	) -> tg::Result<Option<tg::object::get::Output>> {
-		if let Some(bytes) = self.try_get_object_local(id).await? {
-			Ok(Some(bytes))
-		} else if let Some(bytes) = self.try_get_object_remote(id).await? {
-			Ok(Some(bytes))
+		if let Some(output) = self.try_get_object_local(id).await? {
+			Ok(Some(output))
+		} else if let Some(output) = self.try_get_object_remote(id).await? {
+			Ok(Some(output))
 		} else {
 			Ok(None)
 		}
@@ -31,45 +34,66 @@ impl Server {
 			.map_err(|source| tg::error!(!source, "failed to get a database connection"))?;
 
 		// Get the object.
+		#[derive(serde::Deserialize)]
+		struct Row {
+			bytes: Bytes,
+			count: Option<u64>,
+			size: u64,
+			weight: Option<u64>,
+		}
 		let p = connection.p();
 		let statement = formatdoc!(
 			"
-				select bytes, count, weight
+				select bytes, count, length(bytes) as size, weight
 				from objects
 				where id = {p}1;
 			",
 		);
 		let params = db::params![id];
-		let output = connection
-			.query_optional_into(statement, params)
+		let Some(row) = connection
+			.query_optional_into::<Row>(statement, params)
 			.map_err(|source| tg::error!(!source, "failed to execute the statement"))
-			.await?;
+			.await?
+		else {
+			return Ok(None);
+		};
+
+		// Create the output.
+		let output = tg::object::get::Output {
+			bytes: row.bytes,
+			metadata: tg::object::Metadata {
+				count: row.count,
+				size: row.size,
+				weight: row.weight,
+			},
+		};
 
 		// Drop the database connection.
 		drop(connection);
 
-		Ok(output)
+		Ok(Some(output))
 	}
 
 	async fn try_get_object_remote(
 		&self,
 		id: &tg::object::Id,
 	) -> tg::Result<Option<tg::object::get::Output>> {
-		// Get the remote.
-		let Some(remote) = self.remotes.first() else {
+		// Attempt to get the object from the remotes.
+		let futures = self
+			.remotes
+			.iter()
+			.map(|remote| async move { remote.get_object(id).await }.boxed())
+			.collect_vec();
+		if futures.is_empty() {
 			return Ok(None);
-		};
-
-		// Get the object from the remote server.
-		let Some(output) = remote.try_get_object(id).await? else {
+		}
+		let Ok((output, _)) = future::select_ok(futures).await else {
 			return Ok(None);
 		};
 
 		// Put the object.
 		let arg = tg::object::put::Arg {
 			bytes: output.bytes.clone(),
-			count: output.count,
-			weight: output.weight,
 		};
 		self.put_object(id, arg, None).await?;
 
@@ -90,20 +114,10 @@ impl Server {
 		let Some(output) = handle.try_get_object(&id).await? else {
 			return Ok(http::Response::builder().not_found().empty().unwrap());
 		};
-		let metadata = if output.count.is_some() || output.weight.is_some() {
-			Some(tg::object::get::Metadata {
-				count: output.count,
-				weight: output.weight,
-			})
-		} else {
-			None
-		};
 		let mut response = http::Response::builder();
-		if let Some(metadata) = metadata {
-			response = response
-				.header_json(tg::object::get::OBJECT_METADATA_HEADER, metadata)
-				.unwrap();
-		}
+		response = response
+			.header_json(tg::object::metadata::HEADER, output.metadata)
+			.unwrap();
 		let response = response.bytes(output.bytes).unwrap();
 		Ok(response)
 	}

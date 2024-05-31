@@ -1,5 +1,7 @@
+use std::collections::BTreeSet;
+
 use crate::{database::Transaction, Server};
-use futures::{FutureExt as _, TryFutureExt as _};
+use futures::FutureExt as _;
 use indoc::formatdoc;
 use tangram_client as tg;
 use tangram_database::{self as db, prelude::*};
@@ -41,42 +43,60 @@ impl Server {
 		arg: tg::object::put::Arg,
 		transaction: &impl db::Query,
 	) -> tg::Result<tg::object::put::Output> {
-		// Add the object.
+		// Insert the object.
+		#[derive(serde::Deserialize)]
+		struct Row {
+			children: bool,
+			complete: bool,
+		}
 		let p = transaction.p();
 		let statement = formatdoc!(
 			"
-				insert into objects (id, bytes, indexed, complete, count, weight, touched_at)
-				values ({p}1, {p}2, 0, 0, null, null, {p}3)
+				insert into objects (id, bytes, touched_at)
+				values ({p}1, {p}2, {p}3)
 				on conflict (id) do update set touched_at = {p}3
-				returning indexed;
+				returning children, complete;
 			"
 		);
 		let now = time::OffsetDateTime::now_utc().format(&Rfc3339).unwrap();
 		let params = db::params![id, arg.bytes, now];
-		let indexed = transaction
-			.query_one_value_into(statement, params)
-			.map_err(|source| tg::error!(!source, "failed to execute the statement"))
-			.await?;
+		let Row { children, complete } = transaction
+			.query_one_into::<Row>(statement, params)
+			.await
+			.map_err(|source| tg::error!(!source, "failed to execute the statement"))?;
+
+		// If this object is not complete, then add it to the object index queue.
+		if !complete {
+			tokio::spawn({
+				let server = self.clone();
+				let id = id.clone();
+				async move {
+					server.object_index_queue.sender.send(id).await.unwrap();
+				}
+			});
+		}
 
 		// Get the incomplete children.
-		let incomplete: Vec<tg::object::Id> = if indexed {
-			// If the object is indexed, then use the object_children table.
+		let incomplete: BTreeSet<tg::object::Id> = if children {
+			// If the object's children are set, then get the incomplete children.
 			let p = transaction.p();
 			let statement = formatdoc!(
 				"
 					select child
 					from object_children
 					left join objects on objects.id = object_children.child
-					where object = {p}1 and complete = 0;
+					where object_children.object = {p}1 and (objects.complete = 0 or objects.complete is null);
 				"
 			);
 			let params = db::params![id];
 			transaction
 				.query_all_value_into(statement, params)
-				.map_err(|source| tg::error!(!source, "failed to execute the statement"))
-				.await?
+				.await
+				.map_err(|source| tg::error!(!source, "failed to execute the statement"))?
+				.into_iter()
+				.collect()
 		} else {
-			// If the object is not indexed, then return all the children.
+			// If the children are not set, then return all the children.
 			let data = tg::object::Data::deserialize(id.kind(), &arg.bytes)
 				.map_err(|source| tg::error!(!source, "failed to deserialize the data"))?;
 			data.children()
@@ -99,11 +119,7 @@ impl Server {
 	{
 		let id = id.parse()?;
 		let bytes = request.bytes().await?;
-		let arg = tg::object::put::Arg {
-			bytes,
-			count: None,
-			weight: None,
-		};
+		let arg = tg::object::put::Arg { bytes };
 		let output = handle.put_object(&id, arg, None).boxed().await?;
 		let body = Outgoing::json(output);
 		let response = http::Response::builder().body(body).unwrap();

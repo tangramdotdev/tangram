@@ -1,6 +1,6 @@
 use crate::Server;
 use std::collections::BTreeMap;
-use tangram_client as tg;
+use tangram_client::{self as tg, Handle as _};
 use tangram_http::{incoming::request::Ext as _, outgoing::response::Ext as _, Incoming, Outgoing};
 
 impl Server {
@@ -22,25 +22,24 @@ impl Server {
 	pub async fn get_outdated_inner(
 		&self,
 		dependency: &tg::Dependency,
-		package: tg::Artifact,
+		artifact: tg::Artifact,
 		lock: tg::Lock,
 		visited: &mut BTreeMap<tg::lock::Id, tg::package::outdated::Output>,
 	) -> tg::Result<tg::package::outdated::Output> {
-		let id = lock.id(self, None).await?;
-		if let Some(existing) = visited.get(&id) {
+		// Use an existing output if possible.
+		let lock_id = lock.id(self, None).await?;
+		if let Some(existing) = visited.get(&lock_id) {
 			return Ok(existing.clone());
 		}
 
 		// Get the relevent versions of this package.
 		let (compatible_versions, all_versions) = if dependency.name.is_some() {
-			// Get the current, compatible, and latest versions.
 			let compatible_versions = self.try_get_package_versions(dependency).await.map_err(
 				|source| tg::error!(!source, %dependency, "failed to get compatible package versions"),
 			)?;
+			let dependency_with_name = tg::Dependency::with_name(dependency.name.clone().unwrap());
 			let all_versions = self
-				.try_get_package_versions(&tg::Dependency::with_name(
-					dependency.name.clone().unwrap(),
-				))
+				.try_get_package_versions(&dependency_with_name)
 				.await
 				.map_err(
 					|source| tg::error!(!source, %dependency, "failed to get package versions"),
@@ -50,13 +49,24 @@ impl Server {
 			(None, None)
 		};
 
-		let metadata = tg::package::get_metadata(self, &package.clone()).await.ok();
-		let current = metadata
+		// Create the outdated info.
+		let id = artifact.id(self, None).await?;
+		let dependency = tg::Dependency::with_artifact(id);
+		let arg = tg::package::get::Arg {
+			metadata: true,
+			yanked: true,
+			..Default::default()
+		};
+		let output = self.get_package(&dependency, arg).await?;
+		let current = output
+			.metadata
 			.as_ref()
 			.and_then(|metadata| metadata.version.clone());
 		let compatible = compatible_versions.and_then(|mut versions| versions.pop());
 		let latest = all_versions.and_then(|mut versions| versions.pop());
-		let yanked = self.get_package_yanked(&package).await?;
+		let yanked = output
+			.yanked
+			.ok_or_else(|| tg::error!("expected yanked to be set"))?;
 		let info = (current != latest && latest.is_some() || yanked).then(|| {
 			tg::package::outdated::Info {
 				current: current.unwrap(),
@@ -71,8 +81,8 @@ impl Server {
 		for dependency in lock.dependencies(self).await? {
 			let (child_package, lock) = lock.get(self, &dependency).await?;
 			let package = match (child_package, &dependency.path) {
-				(Some(package), _) => package.into(),
-				(None, Some(path)) => package
+				(Some(package), _) => package,
+				(None, Some(path)) => artifact
 					.try_unwrap_directory_ref()
 					.ok()
 					.ok_or_else(|| tg::error!("expected a directory"))?
@@ -89,12 +99,14 @@ impl Server {
 				dependencies.insert(dependency.clone(), outdated);
 			}
 		}
-		let outdated = tg::package::outdated::Output { info, dependencies };
+
+		// Create the output.
+		let output = tg::package::outdated::Output { info, dependencies };
 
 		// Mark this package as visited.
-		visited.insert(id, outdated.clone());
+		visited.insert(lock_id, output.clone());
 
-		Ok(outdated)
+		Ok(output)
 	}
 }
 
@@ -114,13 +126,8 @@ impl Server {
 			return Ok(http::Response::builder().bad_request().empty().unwrap());
 		};
 		let arg = request.query_params().transpose()?.unwrap_or_default();
-
-		// Get the outdated dependencies.
 		let output = handle.get_package_outdated(&dependency, arg).await?;
-
-		// Create the response.
 		let response = http::Response::builder().json(output).unwrap();
-
 		Ok(response)
 	}
 }

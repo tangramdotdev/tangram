@@ -47,15 +47,9 @@ impl Server {
 	where
 		H: tg::Handle,
 	{
-		// Get the query.
 		let arg = request.query_params().transpose()?.unwrap_or_default();
-
-		// List the roots.
 		let output = handle.list_roots(arg).await?;
-
-		// Create the response.
 		let response = http::Response::builder().json(output).unwrap();
-
 		Ok(response)
 	}
 }

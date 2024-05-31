@@ -29,14 +29,14 @@ impl Cli {
 		if let Some(metadata) = output.metadata {
 			let name = metadata.name.as_deref().unwrap_or("<unknown>");
 			let version = metadata.version.as_deref().unwrap_or("<unknown>");
-			eprintln!("{}: {name}@{version}", "info".blue());
+			eprintln!("{} {name}@{version}", "info".blue().bold());
 			if let Some(description) = &metadata.description {
-				eprintln!("{}: {}", "info".blue(), description);
+				eprintln!("{} {}", "info".blue().bold(), description);
 			}
 		}
 
 		if let Some(path) = output.path {
-			eprintln!("{}: at {}", "info".blue(), path);
+			eprintln!("{} at {}", "info".blue().bold(), path);
 		}
 
 		Ok(())

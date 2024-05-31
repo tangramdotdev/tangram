@@ -1,6 +1,7 @@
 use crate::Server;
 use tangram_client as tg;
 use tangram_http::{incoming::request::Ext as _, outgoing::response::Ext as _, Incoming, Outgoing};
+use tg::Handle as _;
 
 impl Server {
 	pub async fn check_package(
@@ -9,9 +10,17 @@ impl Server {
 		arg: tg::package::check::Arg,
 	) -> tg::Result<Vec<tg::Diagnostic>> {
 		// Get the package.
-		let (package, lock) = tg::package::get_with_lock(self, dependency, arg.locked)
-			.await
-			.map_err(|source| tg::error!(!source, "failed to get the package and lock"))?;
+		let arg = tg::package::get::Arg {
+			lock: true,
+			locked: arg.locked,
+			..Default::default()
+		};
+		let output = self.get_package(dependency, arg).await?;
+		let package = tg::Artifact::with_id(output.artifact);
+		let lock = output
+			.lock
+			.ok_or_else(|| tg::error!("expected the lock to be set"))?;
+		let lock = tg::Lock::with_id(lock);
 
 		// Create the root module.
 		let module = tg::Module::with_package_and_lock(self, &package, &lock).await?;

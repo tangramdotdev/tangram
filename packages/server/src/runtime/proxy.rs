@@ -1,6 +1,6 @@
 use crate::Server;
 use bytes::Bytes;
-use futures::{Future, Stream};
+use futures::{stream, Future, Stream};
 use std::sync::Arc;
 use tangram_client as tg;
 use tokio::io::{AsyncBufRead, AsyncRead, AsyncWrite};
@@ -102,7 +102,7 @@ impl tg::Handle for Proxy {
 	fn create_blob(
 		&self,
 		reader: impl AsyncRead + Send + 'static,
-	) -> impl Future<Output = tg::Result<tg::blob::Id>> {
+	) -> impl Future<Output = tg::Result<tg::blob::create::Output>> {
 		self.server.create_blob(reader)
 	}
 
@@ -121,12 +121,20 @@ impl tg::Handle for Proxy {
 		Err(tg::error!("forbidden"))
 	}
 
-	async fn push_build(&self, _id: &tg::build::Id) -> tg::Result<()> {
-		Err(tg::error!("forbidden"))
+	async fn push_build(
+		&self,
+		_id: &tg::build::Id,
+		_arg: tg::build::push::Arg,
+	) -> tg::Result<impl Stream<Item = tg::Result<tg::build::push::Event>> + Send + 'static> {
+		Err::<stream::Empty<_>, _>(tg::error!("forbidden"))
 	}
 
-	async fn pull_build(&self, _id: &tg::build::Id) -> tg::Result<()> {
-		Err(tg::error!("forbidden"))
+	async fn pull_build(
+		&self,
+		_id: &tg::build::Id,
+		_arg: tg::build::pull::Arg,
+	) -> tg::Result<impl Stream<Item = tg::Result<tg::build::pull::Event>> + Send + 'static> {
+		Err::<stream::Empty<_>, _>(tg::error!("forbidden"))
 	}
 
 	async fn try_dequeue_build(
@@ -136,7 +144,11 @@ impl tg::Handle for Proxy {
 		Err(tg::error!("forbidden"))
 	}
 
-	async fn try_start_build(&self, _id: &tg::build::Id) -> tg::Result<Option<bool>> {
+	async fn try_start_build(
+		&self,
+		_id: &tg::build::Id,
+		_arg: tg::build::start::Arg,
+	) -> tg::Result<Option<bool>> {
 		Err(tg::error!("forbidden"))
 	}
 
@@ -208,15 +220,20 @@ impl tg::Handle for Proxy {
 		Err(tg::error!("forbidden"))
 	}
 
-	async fn touch_build(&self, _id: &tg::build::Id) -> tg::Result<()> {
+	async fn touch_build(
+		&self,
+		_id: &tg::build::Id,
+		_arg: tg::build::touch::Arg,
+	) -> tg::Result<()> {
 		Err(tg::error!("forbidden"))
 	}
 
-	fn heartbeat_build(
+	async fn heartbeat_build(
 		&self,
-		id: &tg::build::Id,
-	) -> impl Future<Output = tg::Result<tg::build::heartbeat::Output>> + Send {
-		self.server.heartbeat_build(id)
+		_id: &tg::build::Id,
+		_arg: tg::build::heartbeat::Arg,
+	) -> tg::Result<tg::build::heartbeat::Output> {
+		Err(tg::error!("forbidden"))
 	}
 
 	async fn format(&self, _text: String) -> tg::Result<String> {
@@ -229,6 +246,13 @@ impl tg::Handle for Proxy {
 		_output: impl AsyncWrite + Send + Unpin + 'static,
 	) -> tg::Result<()> {
 		Err(tg::error!("forbidden"))
+	}
+
+	fn try_get_object_metadata(
+		&self,
+		id: &tg::object::Id,
+	) -> impl Future<Output = tg::Result<Option<tg::object::Metadata>>> {
+		self.server.try_get_object_metadata(id)
 	}
 
 	fn try_get_object(
@@ -247,12 +271,20 @@ impl tg::Handle for Proxy {
 		self.server.put_object(id, arg, None)
 	}
 
-	async fn push_object(&self, _id: &tg::object::Id) -> tg::Result<()> {
-		Err(tg::error!("forbidden"))
+	async fn push_object(
+		&self,
+		_id: &tg::object::Id,
+		_arg: tg::object::push::Arg,
+	) -> tg::Result<impl Stream<Item = tg::Result<tg::object::push::Event>> + Send + 'static> {
+		Err::<stream::Empty<_>, _>(tg::error!("forbidden"))
 	}
 
-	async fn pull_object(&self, _id: &tg::object::Id) -> tg::Result<()> {
-		Err(tg::error!("forbidden"))
+	async fn pull_object(
+		&self,
+		_id: &tg::object::Id,
+		_arg: tg::object::pull::Arg,
+	) -> tg::Result<impl Stream<Item = tg::Result<tg::object::pull::Event>> + Send + 'static> {
+		Err::<stream::Empty<_>, _>(tg::error!("forbidden"))
 	}
 
 	async fn list_packages(
@@ -298,7 +330,11 @@ impl tg::Handle for Proxy {
 		Err(tg::error!("forbidden"))
 	}
 
-	async fn publish_package(&self, _id: &tg::artifact::Id) -> tg::Result<()> {
+	async fn publish_package(
+		&self,
+		_id: &tg::artifact::Id,
+		_arg: tg::package::publish::Arg,
+	) -> tg::Result<()> {
 		Err(tg::error!("forbidden"))
 	}
 
@@ -309,24 +345,47 @@ impl tg::Handle for Proxy {
 		Err(tg::error!("forbidden"))
 	}
 
-	async fn yank_package(&self, _id: &tg::artifact::Id) -> tg::Result<()> {
-		Err(tg::error!("not supported"))
+	async fn yank_package(
+		&self,
+		_id: &tg::artifact::Id,
+		_arg: tg::package::yank::Arg,
+	) -> tg::Result<()> {
+		Err(tg::error!("forbidden"))
+	}
+
+	async fn list_remotes(
+		&self,
+		_arg: tg::remote::list::Arg,
+	) -> tg::Result<tg::remote::list::Output> {
+		Err(tg::error!("forbidden"))
+	}
+
+	async fn try_get_remote(&self, _name: &str) -> tg::Result<Option<tg::remote::get::Output>> {
+		Err(tg::error!("forbidden"))
+	}
+
+	async fn put_remote(&self, _name: &str, _arg: tg::remote::put::Arg) -> tg::Result<()> {
+		Err(tg::error!("forbidden"))
+	}
+
+	async fn delete_remote(&self, _name: &str) -> tg::Result<()> {
+		Err(tg::error!("forbidden"))
 	}
 
 	async fn list_roots(&self, _arg: tg::root::list::Arg) -> tg::Result<tg::root::list::Output> {
-		Err(tg::error!("not supported"))
+		Err(tg::error!("forbidden"))
 	}
 
 	async fn try_get_root(&self, _name: &str) -> tg::Result<Option<tg::root::get::Output>> {
-		Err(tg::error!("not supported"))
+		Err(tg::error!("forbidden"))
 	}
 
 	async fn put_root(&self, _name: &str, _arg: tg::root::put::Arg) -> tg::Result<()> {
-		Err(tg::error!("not supported"))
+		Err(tg::error!("forbidden"))
 	}
 
 	async fn delete_root(&self, _name: &str) -> tg::Result<()> {
-		Err(tg::error!("not supported"))
+		Err(tg::error!("forbidden"))
 	}
 
 	async fn get_js_runtime_doc(&self) -> tg::Result<serde_json::Value> {

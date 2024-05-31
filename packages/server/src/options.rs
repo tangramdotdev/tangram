@@ -11,6 +11,7 @@ pub struct Options {
 	pub database: Database,
 	pub messenger: Messenger,
 	pub path: PathBuf,
+	pub registry: Option<String>,
 	pub remotes: Vec<Remote>,
 	pub url: Url,
 	pub version: Option<String>,
@@ -22,7 +23,7 @@ pub struct Advanced {
 	pub error_trace_options: tg::error::TraceOptions,
 	pub file_descriptor_semaphore_size: usize,
 	pub preserve_temp_directories: bool,
-	pub write_build_logs_to_file: bool,
+	pub write_build_logs_to_database: bool,
 	pub write_build_logs_to_stderr: bool,
 }
 
@@ -93,4 +94,5 @@ pub struct NatsMessenger {
 pub struct Remote {
 	pub build: bool,
 	pub client: tg::Client,
+	pub name: String,
 }

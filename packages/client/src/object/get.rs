@@ -1,21 +1,15 @@
 use crate as tg;
 use bytes::Bytes;
+use serde_with::serde_as;
 use tangram_http::{incoming::response::Ext as _, outgoing::request::Ext as _};
 
+#[serde_as]
 #[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
 pub struct Output {
+	#[serde_as(as = "crate::util::serde::BytesBase64")]
 	pub bytes: Bytes,
-	pub count: Option<u64>,
-	pub weight: Option<u64>,
+	pub metadata: tg::object::Metadata,
 }
-
-#[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
-pub struct Metadata {
-	pub count: Option<u64>,
-	pub weight: Option<u64>,
-}
-
-pub const OBJECT_METADATA_HEADER: &str = "x-tg-object-metadata";
 
 impl tg::Client {
 	pub async fn try_get_object(
@@ -38,16 +32,11 @@ impl tg::Client {
 			return Err(error);
 		}
 		let metadata = response
-			.header_json::<Metadata>(OBJECT_METADATA_HEADER)
-			.transpose()?;
-		let count = metadata.as_ref().and_then(|metadata| metadata.count);
-		let weight = metadata.as_ref().and_then(|metadata| metadata.weight);
+			.header_json::<tg::object::Metadata>(tg::object::metadata::HEADER)
+			.transpose()?
+			.ok_or_else(|| tg::error!("expected the metadata header to be set"))?;
 		let bytes = response.bytes().await?;
-		let output = tg::object::get::Output {
-			bytes,
-			count,
-			weight,
-		};
+		let output = tg::object::get::Output { bytes, metadata };
 		Ok(Some(output))
 	}
 }

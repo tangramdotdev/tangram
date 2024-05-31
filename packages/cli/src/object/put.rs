@@ -29,8 +29,6 @@ impl Cli {
 		let id = tg::Id::new_blake3(kind, &bytes).try_into().unwrap();
 		let arg = tg::object::put::Arg {
 			bytes: bytes.into(),
-			count: None,
-			weight: None,
 		};
 		self.handle.put_object(&id, arg, None).await?;
 		println!("{id}");

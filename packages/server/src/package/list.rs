@@ -9,10 +9,28 @@ impl Server {
 		&self,
 		arg: tg::package::list::Arg,
 	) -> tg::Result<tg::package::list::Output> {
-		if let Some(remote) = self.remotes.first() {
-			return remote.list_packages(arg).await;
+		let remote = arg.remote.as_ref().or(self.options.registry.as_ref());
+		match remote {
+			None => {
+				let packages = self.list_packages_local(arg).await?;
+				Ok(packages)
+			},
+			Some(remote) => {
+				let remote = self
+					.remotes
+					.get(remote)
+					.ok_or_else(|| tg::error!("the remote does not exist"))?
+					.clone();
+				let packages = remote.list_packages(arg).await?;
+				Ok(packages)
+			},
 		}
+	}
 
+	pub async fn list_packages_local(
+		&self,
+		arg: tg::package::list::Arg,
+	) -> tg::Result<tg::package::list::Output> {
 		// Get a database connection.
 		let connection = self
 			.database
@@ -24,8 +42,8 @@ impl Server {
 		let p = connection.p();
 		let statement = formatdoc!(
 			"
-				select name
-				from packages
+				select distinct name
+				from package_versions
 				where name like {p}1 || '%';
 			"
 		);
@@ -50,15 +68,9 @@ impl Server {
 	where
 		H: tg::Handle,
 	{
-		// Get the query.
 		let arg = request.query_params().transpose()?.unwrap_or_default();
-
-		// Perform the search.
 		let output = handle.list_packages(arg).await?;
-
-		// Create the response.
 		let response = http::Response::builder().json(output).unwrap();
-
 		Ok(response)
 	}
 }

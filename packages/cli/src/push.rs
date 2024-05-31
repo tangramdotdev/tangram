@@ -6,6 +6,9 @@ use tangram_client as tg;
 #[group(skip)]
 pub struct Args {
 	pub arg: Arg,
+
+	#[arg(short, long)]
+	pub remote: Option<String>,
 }
 
 #[derive(Debug, Clone)]
@@ -18,12 +21,18 @@ impl Cli {
 	pub async fn command_push(&self, args: Args) -> tg::Result<()> {
 		match args.arg {
 			Arg::Build(arg) => {
-				self.command_build_push(super::build::push::Args { build: arg })
-					.await?;
+				self.command_build_push(super::build::push::Args {
+					build: arg,
+					remote: args.remote,
+				})
+				.await?;
 			},
 			Arg::Object(arg) => {
-				self.command_object_push(super::object::push::Args { object: arg })
-					.await?;
+				self.command_object_push(super::object::push::Args {
+					object: arg,
+					remote: args.remote,
+				})
+				.await?;
 			},
 		}
 		Ok(())

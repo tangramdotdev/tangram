@@ -6,8 +6,12 @@ use tangram_client::{self as tg, Handle as _};
 #[derive(Clone, Debug, clap::Args)]
 #[group(skip)]
 pub struct Args {
-	#[arg(short, long, default_value = ".")]
+	#[arg(default_value = ".")]
 	pub package: tg::Dependency,
+
+	#[allow(clippy::option_option)]
+	#[arg(short, long)]
+	pub remote: Option<Option<String>>,
 }
 
 impl Cli {
@@ -38,16 +42,20 @@ impl Cli {
 		let id = package.id(&self.handle, None).await?;
 
 		// Yank the package.
+		let remote = args
+			.remote
+			.map(|remote| remote.unwrap_or_else(|| "default".to_owned()));
+		let arg = tg::package::yank::Arg { remote };
 		self.handle
-			.yank_package(&id)
+			.yank_package(&id, arg)
 			.await
 			.map_err(|source| tg::error!(!source, "failed to yank the package"))?;
 
 		// Get the package metadata
 		let metadata = tg::package::get_metadata(&self.handle, &package).await?;
 		println!(
-			"{}: {} {}@{}",
-			"info".blue(),
+			"{} {} {}@{}",
+			"info".blue().bold(),
 			"YANKED".red().bold(),
 			metadata.name.unwrap().red(),
 			metadata.version.unwrap().green()

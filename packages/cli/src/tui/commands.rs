@@ -1,11 +1,9 @@
 use super::app::App;
-use crossterm as ct;
-use ct::event::{KeyCode, KeyEvent, KeyModifiers};
+use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
 use itertools::Itertools;
 use ratatui::{self as tui, prelude::*};
 use std::sync::Arc;
 use tangram_client as tg;
-use tui::widgets::{Cell, Row, Table};
 
 pub struct Commands<H> {
 	commands: Vec<Command<H>>,
@@ -250,11 +248,11 @@ where
 				.map(KeyBinding::to_string)
 				.join(", ");
 			let cells = vec![
-				Cell::new(Text::raw(keybindings).left_aligned()),
-				Cell::new(Text::raw(command.name.clone()).left_aligned()),
-				Cell::new(Text::raw(command.description.clone()).left_aligned()),
+				tui::widgets::Cell::new(Text::raw(keybindings).left_aligned()),
+				tui::widgets::Cell::new(Text::raw(command.name.clone()).left_aligned()),
+				tui::widgets::Cell::new(Text::raw(command.description.clone()).left_aligned()),
 			];
-			Row::new(cells)
+			tui::widgets::Row::new(cells)
 		});
 		let widths = [
 			Constraint::Percentage(10),
@@ -262,13 +260,13 @@ where
 			Constraint::Percentage(33),
 		];
 
-		let title_row = Row::new([
-			Cell::new("KEY".bold()).underlined(),
-			Cell::new("COMMAND").bold().underlined(),
-			Cell::new("DESCRIPTION").bold().underlined(),
+		let title_row = tui::widgets::Row::new([
+			tui::widgets::Cell::new("KEY".bold()).underlined(),
+			tui::widgets::Cell::new("COMMAND").bold().underlined(),
+			tui::widgets::Cell::new("DESCRIPTION").bold().underlined(),
 		]);
-		let table = Table::new(std::iter::once(title_row).chain(rows), widths);
-		<Table as Widget>::render(table, area, buf);
+		let table = tui::widgets::Table::new(std::iter::once(title_row).chain(rows), widths);
+		<tui::widgets::Table as Widget>::render(table, area, buf);
 	}
 
 	pub fn render_short(&self, area: Rect, buf: &mut Buffer) {

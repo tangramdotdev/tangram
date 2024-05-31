@@ -1,6 +1,6 @@
-use futures::{future, TryStreamExt};
-use num::ToPrimitive;
-use ratatui as tui;
+use futures::{future, TryStreamExt as _};
+use num::ToPrimitive as _;
+use ratatui::{self as tui, prelude::*};
 use std::{
 	io::SeekFrom,
 	sync::{
@@ -9,7 +9,6 @@ use std::{
 	},
 };
 use tangram_client as tg;
-use tui::prelude::*;
 mod scroll;
 
 pub struct Log<H> {

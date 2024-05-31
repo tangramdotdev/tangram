@@ -43,6 +43,14 @@ pub struct Config {
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub path: Option<PathBuf>,
 
+	/// Configure the default registry for this server. If this option is set to `true`, then the server will act as the default registry. Otherwise, provide the name of the remote. The default value is "default".
+	#[serde(
+		default,
+		skip_serializing_if = "Option::is_none",
+		with = "either::serde_untagged_optional"
+	)]
+	pub registry: Option<Either<bool, String>>,
+
 	/// Configure remotes.
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub remotes: Option<Vec<Remote>>,
@@ -66,6 +74,9 @@ pub struct Advanced {
 	pub error_trace_options: Option<tg::error::TraceOptions>,
 
 	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub duplicate_build_logs_to_stderr: Option<bool>,
+
+	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub file_descriptor_limit: Option<u64>,
 
 	#[serde(default, skip_serializing_if = "Option::is_none")]
@@ -78,10 +89,7 @@ pub struct Advanced {
 	pub tokio_console: bool,
 
 	#[serde(default, skip_serializing_if = "Option::is_none")]
-	pub write_build_logs_to_file: Option<bool>,
-
-	#[serde(default, skip_serializing_if = "Option::is_none")]
-	pub write_build_logs_to_stderr: Option<bool>,
+	pub write_build_logs_to_database: Option<bool>,
 }
 
 #[derive(Copy, Clone, Debug, Default, serde::Serialize, serde::Deserialize)]
@@ -175,6 +183,9 @@ pub struct NatsMessenger {
 
 #[derive(Clone, Debug, serde::Serialize, serde::Deserialize)]
 pub struct Remote {
+	/// The remote's name.
+	pub name: String,
+
 	/// The server's url.
 	pub url: Url,
 

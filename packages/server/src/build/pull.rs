@@ -1,32 +1,60 @@
 use crate::Server;
+use futures::{stream, Stream, StreamExt as _};
 use tangram_client as tg;
-use tangram_http::{outgoing::response::Ext as _, Incoming, Outgoing};
+use tangram_http::{incoming::request::Ext as _, outgoing::response::Ext as _, Incoming, Outgoing};
 
 impl Server {
-	pub async fn pull_build(&self, id: &tg::build::Id) -> tg::Result<()> {
-		let remote = self
-			.remotes
-			.first()
-			.ok_or_else(|| tg::error!("the server does not have a remote"))?;
-		tg::Build::with_id(id.clone())
-			.pull(self, remote)
-			.await
-			.map_err(|source| tg::error!(!source, "failed to pull the build"))?;
-		Ok(())
+	pub async fn pull_build(
+		&self,
+		id: &tg::build::Id,
+		arg: tg::build::pull::Arg,
+	) -> tg::Result<impl Stream<Item = tg::Result<tg::build::pull::Event>> + Send + 'static> {
+		Ok(stream::empty())
 	}
 }
 
 impl Server {
 	pub(crate) async fn handle_pull_build_request<H>(
 		handle: &H,
-		_request: http::Request<Incoming>,
+		request: http::Request<Incoming>,
 		id: &str,
 	) -> tg::Result<http::Response<Outgoing>>
 	where
 		H: tg::Handle,
 	{
 		let id = id.parse()?;
-		handle.push_build(&id).await?;
-		Ok(http::Response::builder().ok().empty().unwrap())
+		let arg = request.query_params().transpose()?.unwrap_or_default();
+		let stream = handle.pull_build(&id, arg).await?;
+		let sse = stream.map(|result| match result {
+			Ok(tg::build::pull::Event::Progress(progress)) => {
+				let data = serde_json::to_string(&progress).unwrap();
+				let event = tangram_http::sse::Event {
+					data,
+					..Default::default()
+				};
+				Ok::<_, tg::Error>(event)
+			},
+			Ok(tg::build::pull::Event::End) => {
+				let event = "end".to_owned();
+				let event = tangram_http::sse::Event {
+					event: Some(event),
+					..Default::default()
+				};
+				Ok::<_, tg::Error>(event)
+			},
+			Err(error) => {
+				let data = serde_json::to_string(&error).unwrap();
+				let event = "error".to_owned();
+				let event = tangram_http::sse::Event {
+					data,
+					event: Some(event),
+					..Default::default()
+				};
+				Ok::<_, tg::Error>(event)
+			},
+		});
+		let body = Outgoing::sse(sse);
+		let response = http::Response::builder().ok().body(body).unwrap();
+		Ok(response)
 	}
 }

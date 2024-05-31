@@ -15,7 +15,7 @@ impl Cli {
 			.handle
 			.try_get_root(&args.name)
 			.await?
-			.ok_or_else(|| tg::error!("failed to find root"))?;
+			.ok_or_else(|| tg::error!("failed to find the root"))?;
 		println!("{}", root.item);
 		Ok(())
 	}

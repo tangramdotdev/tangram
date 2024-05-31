@@ -6,7 +6,11 @@ use futures::{
 	FutureExt as _, TryStreamExt as _,
 };
 use itertools::Itertools as _;
-use std::{collections::BTreeMap, path::Path, sync::Arc};
+use std::{
+	collections::{BTreeMap, BTreeSet},
+	path::Path,
+	sync::Arc,
+};
 
 pub use self::data::Data;
 
@@ -45,7 +49,7 @@ pub struct Node {
 
 #[derive(Clone, Debug)]
 pub struct Entry {
-	pub package: Option<tg::Directory>,
+	pub artifact: Option<tg::Artifact>,
 	pub lock: Either<usize, Lock>,
 }
 
@@ -53,7 +57,7 @@ pub mod data {
 	use super::Id;
 	use crate as tg;
 	use either::Either;
-	use serde_with::{serde_as, DisplayFromStr};
+	use serde_with::serde_as;
 	use std::collections::BTreeMap;
 
 	#[serde_as]
@@ -69,7 +73,7 @@ pub mod data {
 	)]
 	#[serde(transparent)]
 	pub struct Node {
-		#[serde_as(as = "BTreeMap<DisplayFromStr, _>")]
+		#[serde_as(as = "serde_with::Seq<(_, _)>")]
 		pub dependencies: BTreeMap<tg::Dependency, Entry>,
 	}
 
@@ -78,7 +82,7 @@ pub mod data {
 	)]
 	pub struct Entry {
 		#[serde(default, skip_serializing_if = "Option::is_none")]
-		pub package: Option<tg::directory::Id>,
+		pub artifact: Option<tg::artifact::Id>,
 		#[serde(with = "either::serde_untagged")]
 		pub lock: Either<usize, Id>,
 	}
@@ -180,11 +184,7 @@ impl Lock {
 		let data = self.data(handle, transaction).await?;
 		let bytes = data.serialize()?;
 		let id = Id::new(&bytes);
-		let arg = tg::object::put::Arg {
-			bytes,
-			count: None,
-			weight: None,
-		};
+		let arg = tg::object::put::Arg { bytes };
 		handle
 			.put_object(&id.clone().into(), arg, transaction)
 			.boxed()
@@ -233,13 +233,16 @@ impl Lock {
 		&self,
 		handle: &H,
 		dependency: &tg::Dependency,
-	) -> tg::Result<(Option<tg::Directory>, Lock)>
+	) -> tg::Result<(Option<tg::Artifact>, Lock)>
 	where
 		H: tg::Handle,
 	{
 		let object = self.object(handle).await?;
 		let root = &object.nodes[object.root];
-		let Entry { package, lock } = root
+		let Entry {
+			artifact: package,
+			lock,
+		} = root
 			.dependencies
 			.get(dependency)
 			.ok_or_else(|| tg::error!(%dependency, "failed to lookup dependency in lock"))?;
@@ -264,13 +267,19 @@ impl Lock {
 			.dependencies
 			.iter()
 			.map(|(dependency, lock)| {
-				let Entry { package, lock } = lock;
+				let Entry {
+					artifact: package,
+					lock,
+				} = lock;
 				let package = package.clone();
 				let lock = lock
 					.as_ref()
 					.map_left(|index| Self::get_inner(nodes, object, *index))
 					.map_right(Lock::clone);
-				let entry = Entry { package, lock };
+				let entry = Entry {
+					artifact: package,
+					lock,
+				};
 				(dependency.clone(), entry)
 			})
 			.collect();
@@ -358,7 +367,7 @@ impl Lock {
 				};
 				let lock = Self::normalize_inner(nodes, index, visited)?;
 				let entry = Entry {
-					package: entry.package.clone(),
+					artifact: entry.artifact.clone(),
 					lock: Either::Right(lock),
 				};
 				Ok::<_, tg::Error>((dependency.clone(), entry))
@@ -406,7 +415,7 @@ impl Entry {
 	where
 		H: tg::Handle,
 	{
-		let package = match &self.package {
+		let package = match &self.artifact {
 			Some(package) => Some(package.id(handle, transaction).await?),
 			None => None,
 		};
@@ -414,7 +423,10 @@ impl Entry {
 			Either::Left(index) => Either::Left(*index),
 			Either::Right(lock) => Either::Right(lock.id(handle, transaction).await?),
 		};
-		Ok(data::Entry { package, lock })
+		Ok(data::Entry {
+			artifact: package,
+			lock,
+		})
 	}
 }
 
@@ -431,15 +443,15 @@ impl Data {
 	}
 
 	#[must_use]
-	pub fn children(&self) -> Vec<tg::object::Id> {
-		let mut children = Vec::new();
+	pub fn children(&self) -> BTreeSet<tg::object::Id> {
+		let mut children = BTreeSet::new();
 		for node in &self.nodes {
 			for entry in node.dependencies.values() {
-				if let Some(package) = &entry.package {
-					children.push(package.clone().into());
+				if let Some(package) = &entry.artifact {
+					children.insert(package.clone().into());
 				}
 				if let Either::Right(id) = &entry.lock {
-					children.push(id.clone().into());
+					children.insert(id.clone().into());
 				}
 			}
 		}
@@ -478,12 +490,15 @@ impl TryFrom<data::Entry> for Entry {
 	type Error = tg::Error;
 
 	fn try_from(value: data::Entry) -> std::result::Result<Self, Self::Error> {
-		let package = value.package.map(tg::Directory::with_id);
+		let package = value.artifact.map(tg::Artifact::with_id);
 		let lock = match value.lock {
 			Either::Left(index) => Either::Left(index),
 			Either::Right(id) => Either::Right(Lock::with_id(id)),
 		};
-		Ok(Self { package, lock })
+		Ok(Self {
+			artifact: package,
+			lock,
+		})
 	}
 }
 
@@ -557,7 +572,7 @@ mod test {
 					dependencies: [(
 						Dependency::with_path("foo/bar".parse().unwrap()),
 						Entry {
-							package: None,
+							artifact: None,
 							lock: Either::Left(0),
 						},
 					)]

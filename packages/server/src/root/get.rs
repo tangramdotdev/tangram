@@ -47,14 +47,10 @@ impl Server {
 	where
 		H: tg::Handle,
 	{
-		// Get the root.
 		let Some(output) = handle.try_get_root(name).await? else {
 			return Ok(http::Response::builder().not_found().empty().unwrap());
 		};
-
-		// Create the response.
 		let response = http::Response::builder().json(output).unwrap();
-
 		Ok(response)
 	}
 }

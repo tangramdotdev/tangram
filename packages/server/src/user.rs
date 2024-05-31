@@ -6,10 +6,6 @@ use tangram_http::{incoming::request::Ext as _, outgoing::response::Ext as _, In
 
 impl Server {
 	pub async fn get_user(&self, token: &str) -> tg::Result<Option<tg::user::User>> {
-		if let Some(remote) = self.remotes.first() {
-			return remote.get_user(token).await;
-		}
-
 		// Get a database connection.
 		let connection = self
 			.database
@@ -49,20 +45,13 @@ impl Server {
 		H: tg::Handle,
 	{
 		let Some(user) = Self::try_get_user_from_request(handle, &request).await? else {
-			return Ok(http::Response::builder()
+			let response = http::Response::builder()
 				.status(http::StatusCode::UNAUTHORIZED)
 				.empty()
-				.unwrap());
+				.unwrap();
+			return Ok(response);
 		};
-
-		// Create the body.
-		let body = serde_json::to_vec(&user)
-			.map_err(|source| tg::error!(!source, "failed to serialize the body"))?;
-		let body = Outgoing::bytes(body);
-
-		// Create the response.
-		let response = http::Response::builder().body(body).unwrap();
-
+		let response = http::Response::builder().json(user).unwrap();
 		Ok(response)
 	}
 

@@ -1,4 +1,6 @@
 use crate as tg;
+use serde_with::serde_as;
+use std::collections::BTreeMap;
 use tangram_http::{incoming::response::Ext as _, outgoing::request::Ext as _};
 
 #[allow(clippy::struct_excessive_bools)]
@@ -12,13 +14,20 @@ pub struct Arg {
 	pub yanked: bool,
 }
 
+#[serde_as]
 #[derive(Debug, Clone, serde::Deserialize, serde::Serialize)]
 pub struct Output {
-	pub dependencies: Option<Vec<tg::Dependency>>,
 	pub artifact: tg::artifact::Id,
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	#[serde_as(as = "Option<serde_with::Seq<(_, _)>>")]
+	pub dependencies: Option<BTreeMap<tg::Dependency, Option<Self>>>,
+	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub lock: Option<tg::lock::Id>,
+	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub metadata: Option<tg::package::Metadata>,
+	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub path: Option<tg::Path>,
+	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub yanked: Option<bool>,
 }
 
@@ -101,7 +110,7 @@ where
 	H: tg::Handle,
 {
 	let id = package.id(handle, None).await?;
-	let dependency = tg::Dependency::with_id(id);
+	let dependency = tg::Dependency::with_artifact(id);
 	let arg = tg::package::get::Arg {
 		dependencies: true,
 		..Default::default()
@@ -111,7 +120,9 @@ where
 	};
 	let dependencies = output
 		.dependencies
-		.ok_or_else(|| tg::error!("expected the dependencies to be set"))?;
+		.ok_or_else(|| tg::error!("expected the dependencies to be set"))?
+		.into_keys()
+		.collect();
 	Ok(Some(dependencies))
 }
 
@@ -136,7 +147,7 @@ where
 	H: tg::Handle,
 {
 	let id = package.id(handle, None).await?;
-	let dependency = tg::Dependency::with_id(id);
+	let dependency = tg::Dependency::with_artifact(id);
 	let arg = tg::package::get::Arg {
 		metadata: true,
 		..Default::default()

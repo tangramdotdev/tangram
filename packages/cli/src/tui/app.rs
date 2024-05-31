@@ -3,13 +3,12 @@ use super::{
 };
 use copypasta::ClipboardProvider;
 use crossterm::event::{Event, KeyEvent, MouseEvent, MouseEventKind};
-use ratatui as tui;
+use ratatui::{self as tui, prelude::*};
 use std::sync::{
 	atomic::{AtomicBool, Ordering},
 	Arc, RwLock,
 };
 use tangram_client as tg;
-use tui::prelude::*;
 
 pub struct App<H> {
 	handle: H,

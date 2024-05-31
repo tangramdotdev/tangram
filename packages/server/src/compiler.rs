@@ -749,18 +749,9 @@ impl crate::Server {
 	where
 		H: tg::Handle,
 	{
-		// Get the text.
 		let text = request.text().await?;
-
-		// Format the text.
 		let text = handle.format(text).await?;
-
-		// Create the body.
-		let body = Outgoing::bytes(text.into_bytes());
-
-		// Create the response.
-		let response = http::Response::builder().body(body).unwrap();
-
+		let response = http::Response::builder().bytes(text).unwrap();
 		Ok(response)
 	}
 
@@ -771,6 +762,7 @@ impl crate::Server {
 	where
 		H: tg::Handle,
 	{
+		// Ensure the connection header is set correctly.
 		if !request
 			.headers()
 			.get(http::header::CONNECTION)
@@ -779,6 +771,7 @@ impl crate::Server {
 			return Err(tg::error!("expected connection header set to upgrade"));
 		}
 
+		// Ensure the upgrade header is set correctly.
 		if !request
 			.headers()
 			.get(http::header::UPGRADE)

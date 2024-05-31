@@ -1,9 +1,10 @@
 use crate as tg;
-use tangram_http::{incoming::response::Ext as _, Outgoing};
+use tangram_http::{incoming::response::Ext as _, outgoing::request::Ext as _};
 
 #[derive(Clone, Debug, serde::Serialize, serde::Deserialize)]
 pub struct Arg {
 	pub outcome: tg::build::outcome::Data,
+	pub remote: Option<String>,
 }
 
 impl tg::Build {
@@ -21,14 +22,11 @@ impl tg::Build {
 		H: tg::Handle,
 	{
 		let id = self.id();
-		handle
-			.finish_build(
-				id,
-				tg::build::finish::Arg {
-					outcome: tg::build::outcome::Data::Canceled,
-				},
-			)
-			.await?;
+		let arg = tg::build::finish::Arg {
+			outcome: tg::build::outcome::Data::Canceled,
+			remote: None,
+		};
+		handle.finish_build(id, arg).await?;
 		Ok(())
 	}
 }
@@ -44,7 +42,7 @@ impl tg::Client {
 		let request = http::request::Builder::default()
 			.method(method)
 			.uri(uri)
-			.body(Outgoing::json(arg))
+			.json(arg)
 			.unwrap();
 		let response = self.send(request).await?;
 		if !response.status().is_success() {

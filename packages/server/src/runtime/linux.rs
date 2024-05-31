@@ -105,7 +105,7 @@ impl Runtime {
 			.map_err(|source| {
 				tg::error!(!source, "failed to create the root temporary directory")
 			})?;
-		let root_directory_host_path = std::path::PathBuf::from(root_directory_tmp.as_ref());
+		let root_directory_host_path = PathBuf::from(root_directory_tmp.as_ref());
 
 		// Create a tempdir for the output.
 		let output_parent_directory_tmp = Tmp::new(server);

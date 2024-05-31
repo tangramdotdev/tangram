@@ -116,16 +116,12 @@ impl Server {
 			"
 				insert into builds (
 					id,
-					complete,
-					count,
 					host,
-					indexed,
 					log,
 					outcome,
 					retry,
 					status,
 					target,
-					weight,
 					created_at,
 					dequeued_at,
 					started_at,
@@ -146,34 +142,25 @@ impl Server {
 					{p}10,
 					{p}11,
 					{p}12,
-					{p}13,
-					{p}14,
-					{p}15,
-					{p}16,
-					{p}17
+					{p}13
 				)
 				on conflict (id) do update set
-					complete = {p}2,
-					count = {p}3,
-					host = {p}4,
-					indexed = {p}5,
-					log = {p}6,
-					outcome = {p}7,
-					retry = {p}8,
-					status = {p}9,
-					target = {p}10,
-					weight = {p}11,
-					created_at = {p}12,
-					dequeued_at = {p}13,
-					started_at = {p}14,
-					finished_at = {p}15,
-					heartbeat_at = {p}16,
-					touched_at = {p}17;
+					host = {p}2,
+					log = {p}3,
+					outcome = {p}4,
+					retry = {p}5,
+					status = {p}6,
+					target = {p}7,
+					created_at = {p}8,
+					dequeued_at = {p}9,
+					started_at = {p}10,
+					finished_at = {p}11,
+					heartbeat_at = {p}12,
+					touched_at = {p}13;
 			"
 		);
 		let params = db::params![
 			id,
-			false,
 			db::Value::Null,
 			arg.host,
 			false,
@@ -182,7 +169,6 @@ impl Server {
 			arg.retry,
 			arg.status,
 			arg.target,
-			arg.weight,
 			arg.created_at.format(&Rfc3339).unwrap(),
 			arg.dequeued_at.map(|t| t.format(&Rfc3339).unwrap()),
 			arg.started_at.map(|t| t.format(&Rfc3339).unwrap()),

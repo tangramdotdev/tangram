@@ -133,11 +133,11 @@ impl Server {
 		let file = tokio::fs::File::open(path)
 			.await
 			.map_err(|source| tg::error!(!source, "failed to open the file"))?;
-		let contents = self
+		let output = self
 			.create_blob(file)
 			.await
 			.map_err(|source| tg::error!(!source, "failed to create the contents"))?;
-		let contents = tg::Blob::with_id(contents);
+		let contents = tg::Blob::with_id(output.blob);
 		drop(permit);
 
 		// Determine if the file is executable.

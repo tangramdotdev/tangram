@@ -1,10 +1,11 @@
 use crate as tg;
 use bytes::Bytes;
-use futures::{stream::FuturesUnordered, FutureExt as _, TryStreamExt as _};
-use std::sync::Arc;
-use tangram_http::{incoming::response::Ext as _, outgoing::request::Ext as _};
+use std::{collections::BTreeSet, sync::Arc};
+
+pub use self::metadata::Metadata;
 
 pub mod get;
+pub mod metadata;
 pub mod pull;
 pub mod push;
 pub mod put;
@@ -185,72 +186,6 @@ impl Handle {
 			Self::Target(object) => object.data(handle, transaction).await.map(Data::Target),
 		}
 	}
-
-	pub async fn push<H1, H2>(
-		&self,
-		handle: &H1,
-		remote: &H2,
-		transaction: Option<&H2::Transaction<'_>>,
-	) -> tg::Result<()>
-	where
-		H1: crate::Handle,
-		H2: crate::Handle,
-	{
-		let id = self.id(handle, None).await?;
-		let data = self.data(handle, None).await?;
-		let bytes = data.serialize()?;
-		let arg = tg::object::put::Arg {
-			bytes,
-			count: None,
-			weight: None,
-		};
-		let output = remote
-			.put_object(&id.clone(), arg, transaction)
-			.boxed()
-			.await
-			.map_err(|source| tg::error!(!source, "failed to put the object"))?;
-		output
-			.incomplete
-			.into_iter()
-			.map(Self::with_id)
-			.map(|object| async move { object.push(handle, remote, transaction).await })
-			.collect::<FuturesUnordered<_>>()
-			.try_collect()
-			.await?;
-		Ok(())
-	}
-
-	pub async fn pull<H1, H2>(
-		&self,
-		handle: &H1,
-		remote: &H2,
-		transaction: Option<&H1::Transaction<'_>>,
-	) -> tg::Result<()>
-	where
-		H1: crate::Handle,
-		H2: crate::Handle,
-	{
-		let id = self.id(handle, transaction).await?;
-		let output = remote
-			.get_object(&id)
-			.await
-			.map_err(|source| tg::error!(!source, "failed to put the object"))?;
-		let arg = tg::object::put::Arg {
-			bytes: output.bytes,
-			count: None,
-			weight: None,
-		};
-		let output = handle.put_object(&id, arg, transaction).boxed().await?;
-		output
-			.incomplete
-			.into_iter()
-			.map(Self::with_id)
-			.map(|object| async move { object.pull(handle, remote, transaction).await })
-			.collect::<FuturesUnordered<_>>()
-			.try_collect()
-			.await?;
-		Ok(())
-	}
 }
 
 impl Data {
@@ -268,7 +203,7 @@ impl Data {
 	}
 
 	#[must_use]
-	pub fn children(&self) -> Vec<self::Id> {
+	pub fn children(&self) -> BTreeSet<self::Id> {
 		match self {
 			Self::Leaf(data) => data.children(),
 			Self::Branch(data) => data.children(),
@@ -303,40 +238,6 @@ impl Data {
 			Kind::Lock => Ok(Self::Lock(tg::lock::Data::deserialize(bytes)?)),
 			Kind::Target => Ok(Self::Target(tg::target::Data::deserialize(bytes)?)),
 		}
-	}
-}
-
-impl tg::Client {
-	pub async fn push_object(&self, id: &tg::object::Id) -> tg::Result<()> {
-		let method = http::Method::POST;
-		let uri = format!("/objects/{id}/push");
-		let request = http::request::Builder::default()
-			.method(method)
-			.uri(uri)
-			.empty()
-			.unwrap();
-		let response = self.send(request).await?;
-		if !response.status().is_success() {
-			let error = response.json().await?;
-			return Err(error);
-		}
-		Ok(())
-	}
-
-	pub async fn pull_object(&self, id: &tg::object::Id) -> tg::Result<()> {
-		let method = http::Method::POST;
-		let uri = format!("/objects/{id}/pull");
-		let request = http::request::Builder::default()
-			.method(method)
-			.uri(uri)
-			.empty()
-			.unwrap();
-		let response = self.send(request).await?;
-		if !response.status().is_success() {
-			let error = response.json().await?;
-			return Err(error);
-		}
-		Ok(())
 	}
 }
 

@@ -88,44 +88,6 @@ impl Value {
 		}
 	}
 
-	pub async fn push<H1, H2>(
-		&self,
-		handle: &H1,
-		remote: &H2,
-		transaction: Option<&H2::Transaction<'_>>,
-	) -> tg::Result<()>
-	where
-		H1: tg::Handle,
-		H2: tg::Handle,
-	{
-		self.objects()
-			.iter()
-			.map(|object| object.push(handle, remote, transaction))
-			.collect::<FuturesUnordered<_>>()
-			.try_collect()
-			.await?;
-		Ok(())
-	}
-
-	pub async fn pull<H1, H2>(
-		&self,
-		handle: &H1,
-		remote: &H2,
-		transaction: Option<&H1::Transaction<'_>>,
-	) -> tg::Result<()>
-	where
-		H1: tg::Handle,
-		H2: tg::Handle,
-	{
-		self.objects()
-			.iter()
-			.map(|object| object.pull(handle, remote, transaction))
-			.collect::<FuturesUnordered<_>>()
-			.try_collect()
-			.await?;
-		Ok(())
-	}
-
 	pub async fn data<H>(
 		&self,
 		handle: &H,

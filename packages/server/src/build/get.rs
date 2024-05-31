@@ -1,9 +1,11 @@
 use crate::Server;
-use futures::{stream, StreamExt as _, TryStreamExt as _};
+use futures::{future, stream, FutureExt as _, StreamExt as _, TryStreamExt as _};
 use indoc::formatdoc;
+use itertools::Itertools as _;
 use tangram_client as tg;
 use tangram_database::{self as db, prelude::*};
 use tangram_http::{outgoing::response::Ext as _, Incoming, Outgoing};
+use tg::Handle as _;
 
 impl Server {
 	pub async fn try_get_build(
@@ -36,21 +38,16 @@ impl Server {
 			"
 				select
 					id,
-					complete,
-					count,
 					host,
 					log,
 					outcome,
 					retry,
 					status,
 					target,
-					weight,
 					created_at,
 					dequeued_at,
 					started_at,
-					finished_at,
-					heartbeat_at,
-					touched_at
+					finished_at
 				from builds
 				where id = {p}1;
 			"
@@ -71,13 +68,16 @@ impl Server {
 		&self,
 		id: &tg::build::Id,
 	) -> tg::Result<Option<tg::build::get::Output>> {
-		// Get the remote.
-		let Some(remote) = self.remotes.first() else {
+		// Attempt to get the build from the remotes.
+		let futures = self
+			.remotes
+			.iter()
+			.map(|remote| async move { remote.get_build(id).await }.boxed())
+			.collect_vec();
+		if futures.is_empty() {
 			return Ok(None);
-		};
-
-		// Get the build from the remote server.
-		let Some(output) = remote.try_get_build(id).await? else {
+		}
+		let Ok((output, _)) = future::select_ok(futures).await else {
 			return Ok(None);
 		};
 
@@ -98,14 +98,12 @@ impl Server {
 			let arg = tg::build::put::Arg {
 				id: output.id.clone(),
 				children,
-				count: output.count,
 				host: output.host.clone(),
 				log: output.log.clone(),
 				outcome: output.outcome.clone(),
 				retry: output.retry,
 				status: output.status,
 				target: output.target.clone(),
-				weight: output.weight,
 				created_at: output.created_at,
 				dequeued_at: output.dequeued_at,
 				started_at: output.started_at,

@@ -1,29 +1,25 @@
-use super::analysis::Analysis;
 use crate::Server;
 use either::Either;
-use futures::{stream::FuturesUnordered, TryStreamExt as _};
+use futures::{future, stream::FuturesUnordered, TryStreamExt as _};
 use std::collections::{BTreeMap, BTreeSet};
-use tangram_client as tg;
+use tangram_client::{self as tg, Handle};
 
 // Mutable state used during the version solving algorithm to cache package metadata and published packages.
 struct Context {
-	// A cache of package analysis (metadata, direct dependencies).
-	analysis: BTreeMap<tg::directory::Id, Analysis>,
-
-	// A cache of published packages that we know about.
-	published_packages: im::HashMap<tg::Dependency, tg::directory::Id>,
+	// A cache of get_package output.
+	output: BTreeMap<tg::Dependency, tg::package::get::Output>,
 }
 
-// A stack frame, used for backtracking. Implicitly, a single stack frame corresponds to a single dependant (the top of the dependant stack).
+// A stack frame, used for backtracking. Implicitly, a single stack frame corresponds to a single edge (the top of the edge stack).
 #[derive(Clone, Debug)]
 struct Frame {
 	// The current solution space.
 	solution: Solution,
 
-	// The list of remaining dependants to solve.
-	dependants: im::Vector<Dependant>,
+	// The list of remaining edges to solve.
+	edges: im::Vector<Edge>,
 
-	// The list of remaining versions for a given dependant.
+	// The list of remaining versions for a given edge.
 	remaining_versions: Option<im::Vector<String>>,
 
 	// The last error seen, used for error reporting.
@@ -34,33 +30,33 @@ struct Frame {
 #[derive(Clone, Debug, Default)]
 struct Solution {
 	// A table of package names to resolved package ids.
-	permanent: im::HashMap<String, Result<tg::directory::Id, Error>>,
+	global: im::HashMap<String, Result<tg::artifact::Id, Error>>,
 
-	// The partial solution for each individual dependant.
-	partial: im::HashMap<Dependant, Mark>,
+	// A table of visited edges.
+	visited: im::HashMap<Edge, Mark>,
 }
 
-// A dependant represents an edge in the dependency graph.
+// An edge in the dependency graph.
 #[derive(Clone, Debug, Hash, PartialEq, Eq)]
-struct Dependant {
-	package: tg::directory::Id,
+struct Edge {
+	artifact: tg::artifact::Id,
 	dependency: tg::Dependency,
 }
 
 // A Mark is used to detect cyclic dependencies.
 #[derive(Clone, Debug)]
 enum Mark {
-	// A preliminary guess at what package may resolve a dependant.
-	Temporary(tg::directory::Id),
+	// A preliminary guess at what package may resolve an edge.
+	Temporary(tg::artifact::Id),
 
-	// A permanent solution for a dependant, either success or an error.
-	Permanent(Result<tg::directory::Id, Error>),
+	// A permanent solution for an edge, either success or an error.
+	Permanent(Result<tg::artifact::Id, Error>),
 }
 
 /// An error type that can be pretty printed to describe why version solving failed.
 struct Report {
-	// List of errors and the corresponding Dependant structures they correspond to.
-	errors: Vec<(Dependant, Error)>,
+	// List of errors and the corresponding Edge structures they correspond to.
+	errors: Vec<(Edge, Error)>,
 
 	// The context, used for formatting.
 	context: Context,
@@ -78,13 +74,13 @@ enum Error {
 	/// A package cycle exists.
 	PackageCycleExists {
 		/// The terminal edge of a cycle in the dependency graph.
-		dependant: Dependant,
+		edge: Edge,
 	},
 
 	/// A nested error that arises during backtracking.
 	Backtrack {
 		/// The package that we backtracked from.
-		package: tg::directory::Id,
+		artifact: tg::artifact::Id,
 
 		/// The version that was tried previously and failed.
 		previous_version: String,
@@ -98,10 +94,11 @@ enum Error {
 }
 
 impl Server {
-	pub(super) async fn get_or_create_package_lock(
+	pub(crate) async fn get_or_create_lock(
 		&self,
+		artifact: &tg::artifact::Id,
 		path: Option<&tg::Path>,
-		analysis: &Analysis,
+		dependencies: &BTreeMap<tg::Dependency, Option<tg::package::get::Output>>,
 		locked: bool,
 	) -> tg::Result<tg::Lock> {
 		// If this is a path dependency, then attempt to read the lock from the lockfile.
@@ -117,7 +114,7 @@ impl Server {
 				break 'a None;
 			};
 			let Some(lock) = self
-				.try_add_path_dependencies_to_lock(analysis, lock.clone())
+				.try_add_path_dependencies_to_lock(dependencies, lock.clone())
 				.await
 				.map_err(|source| tg::error!(!source, "failed to add path dependencies to lock"))?
 			else {
@@ -126,20 +123,20 @@ impl Server {
 			Some(lock)
 		};
 
-		// Verify that the lock's dependencies matches the analyzed path dependencies.
+		// Verify that the dependencies match the lock.
 		let lock = 'a: {
 			let Some(lock) = lock else {
 				break 'a None;
 			};
-			if !self.analysis_matches_lock(analysis, &lock).await? {
+			if !self.dependencies_match_lock(dependencies, &lock).await? {
 				break 'a None;
 			}
 			Some(lock)
 		};
 
-		// Avoid creating a lock file if the caller requested it.
+		// If `locked` is true, then require the lock to exist and match.
 		if locked {
-			return lock.ok_or_else(|| tg::error!("missing lock file"));
+			return lock.ok_or_else(|| tg::error!("missing lockfile"));
 		}
 
 		// Otherwise, create the lock.
@@ -148,14 +145,14 @@ impl Server {
 			lock
 		} else {
 			created = true;
-			self.create_package_lock(analysis).await?
+			self.create_package_lock(artifact, dependencies).await?
 		};
 
 		// Write the lock without the resolved path dependencies to the lockfile.
 		if let Some(path) = path {
 			if created {
 				let lock = self
-					.remove_path_dependencies_from_lock(analysis, &lock)
+					.remove_path_dependencies_from_lock(dependencies, &lock)
 					.await
 					.map_err(|source| {
 						tg::error!(!source, "failed to remove path dependencies from lock")
@@ -173,31 +170,31 @@ impl Server {
 		Ok(lock)
 	}
 
-	async fn analysis_matches_lock(
+	async fn dependencies_match_lock(
 		&self,
-		analysis: &Analysis,
+		dependencies: &BTreeMap<tg::Dependency, Option<tg::package::get::Output>>,
 		lock: &tg::Lock,
 	) -> tg::Result<bool> {
-		// Get the dependencies from the package and its lock.
-		let deps_in_package = self.get_package_dependencies(&analysis.package).await?;
-		let deps_in_lock = lock.dependencies(self).await?;
-
 		// Verify that the dependencies match.
-		if !itertools::equal(deps_in_package, deps_in_lock) {
+		if !itertools::equal(dependencies.keys(), lock.dependencies(self).await?.iter()) {
 			return Ok(false);
 		}
 
 		// Recurse.
-		analysis
-			.path_dependencies
+		dependencies
 			.iter()
-			.map(|(dependency, analysis)| async {
+			.filter_map(|(dependency, output)| {
+				let dependencies = output
+					.as_ref()
+					.and_then(|output| output.dependencies.as_ref())?;
+				Some((dependency, dependencies))
+			})
+			.map(|(dependency, dependencies)| async {
 				let (_, lock) = lock.get(self, dependency).await?;
-
-				self.analysis_matches_lock(analysis, &lock).await
+				self.dependencies_match_lock(dependencies, &lock).await
 			})
 			.collect::<FuturesUnordered<_>>()
-			.try_all(|matches| async move { matches })
+			.try_all(future::ready)
 			.await?;
 
 		Ok(true)
@@ -205,30 +202,27 @@ impl Server {
 
 	pub(super) async fn create_package_lock(
 		&self,
-		root_analysis: &Analysis,
+		artifact: &tg::artifact::Id,
+		dependencies: &BTreeMap<tg::Dependency, Option<tg::package::get::Output>>,
 	) -> tg::Result<tg::Lock> {
-		// Construct the version solving context and initial set of dependants.
-		let (analysis, dependants) = self.collect_analysis(root_analysis).await?;
-		let published_packages = im::HashMap::new();
-		let mut context = Context {
-			analysis,
-			published_packages,
-		};
+		// Construct the version solving context and initial set of edges.
+		let (output, edges) = Self::flatten_output(artifact, dependencies);
 
 		// Solve.
-		let solution = self.solve(&mut context, dependants.into()).await?;
+		let mut context = Context { output };
+		let solution = self.solve(&mut context, edges.into()).await?;
 
 		// Collect the errors.
 		let errors = solution
-			.partial
+			.visited
 			.iter()
-			.filter_map(|(dependant, partial)| match partial {
-				Mark::Permanent(Err(e)) => Some((dependant.clone(), e.clone())),
+			.filter_map(|(edge, partial)| match partial {
+				Mark::Permanent(Err(e)) => Some((edge.clone(), e.clone())),
 				_ => None,
 			})
 			.collect::<Vec<_>>();
 
-		// If the report is not empty, return an error.
+		// If the report is not empty, then return an error.
 		if !errors.is_empty() {
 			let report = Report {
 				errors,
@@ -239,10 +233,9 @@ impl Server {
 		}
 
 		// Create the lock.
-		let root = root_analysis.package.id(self, None).await?;
 		let mut nodes = Vec::new();
 		let root = self
-			.create_package_lock_inner(&root, &context, &solution, &mut nodes)
+			.create_package_lock_inner(artifact, &context, &solution, &mut nodes)
 			.await?;
 		let nodes = nodes
 			.into_iter()
@@ -251,9 +244,9 @@ impl Server {
 					.dependencies
 					.into_iter()
 					.map(|(dependency, entry)| {
-						let package = entry.package.map(tg::Directory::with_id);
+						let artifact = entry.artifact.map(tg::Artifact::with_id);
 						let lock = entry.lock.map_right(tg::Lock::with_id);
-						let entry = tg::lock::Entry { package, lock };
+						let entry = tg::lock::Entry { artifact, lock };
 						(dependency, entry)
 					})
 					.collect();
@@ -268,44 +261,41 @@ impl Server {
 
 	async fn create_package_lock_inner(
 		&self,
-		package: &tg::directory::Id,
+		artifact: &tg::artifact::Id,
 		context: &Context,
 		solution: &Solution,
 		nodes: &mut Vec<tg::lock::data::Node>,
 	) -> tg::Result<usize> {
 		// Get the cached analysis.
-		let analysis = context
-			.analysis
-			.get(package)
+		let key = tg::Dependency::with_artifact(artifact.clone());
+		let output = context
+			.output
+			.get(&key)
 			.ok_or_else(|| tg::error!("missing package in solution"))?;
 
 		// Recursively create the nodes.
 		let mut dependencies = BTreeMap::new();
-		for dependency in &analysis.dependencies {
-			// Check if this is resolved as a path dependency.
-			let package = if let Some(package) = analysis
-				.path_dependencies
-				.get(dependency)
-				.map(|p| &p.package)
-			{
-				package.id(self, None).await?
+		for (dependency, output) in output.dependencies.as_ref().unwrap() {
+			// Check if there is an existing solution in the output.
+			let artifact = if let Some(output) = output {
+				output.artifact.clone()
 			} else {
-				// Resolve by dependant.
-				let dependant = Dependant {
-					package: package.clone(),
+				// Resolve by edge.
+				let edge = Edge {
+					artifact: artifact.clone(),
 					dependency: dependency.clone(),
 				};
-				let Some(Mark::Permanent(Ok(package))) = solution.partial.get(&dependant) else {
-					return Err(tg::error!(?dependant, "missing solution"));
+				let Some(Mark::Permanent(Ok(artifact))) = solution.visited.get(&edge) else {
+					return Err(tg::error!(?edge, "missing solution"));
 				};
-				package.clone()
+				artifact.clone()
 			};
 			let lock = Either::Left(
-				Box::pin(self.create_package_lock_inner(&package, context, solution, nodes))
+				Box::pin(self.create_package_lock_inner(&artifact, context, solution, nodes))
 					.await?,
 			);
 			let entry = tg::lock::data::Entry {
-				package: Some(package.clone()),
+				artifact: Some(artifact.clone()),
 				lock,
 			};
 			dependencies.insert(dependency.clone(), entry);
@@ -323,60 +313,87 @@ impl Server {
 		Ok(index)
 	}
 
-	async fn collect_analysis(
-		&self,
-		analysis: &Analysis,
-	) -> tg::Result<(BTreeMap<tg::directory::Id, Analysis>, Vec<Dependant>)> {
-		let mut stack = vec![analysis];
-		let mut analysis = BTreeMap::new();
-		let mut dependants = Vec::new();
+	fn flatten_output(
+		root: &tg::artifact::Id,
+		dependencies: &BTreeMap<tg::Dependency, Option<tg::package::get::Output>>,
+	) -> (
+		BTreeMap<tg::Dependency, tg::package::get::Output>,
+		Vec<Edge>,
+	) {
+		let mut stack = vec![(root, dependencies)];
+		let mut output = BTreeMap::new();
+		let mut edges = Vec::new();
 
-		while let Some(analysis_) = stack.pop() {
-			let id = analysis_.package.id(self, None).await?;
-			if analysis.contains_key(&id) {
+		// Walk the dependencies.
+		while let Some((artifact, dependencies)) = stack.pop() {
+			let key = tg::Dependency::with_artifact(artifact.clone());
+			if output.contains_key(&key) {
 				continue;
 			}
-			analysis.insert(id.clone(), analysis_.clone());
-			dependants.extend(analysis_.dependencies.iter().map(|dependency| Dependant {
-				package: id.clone(),
-				dependency: dependency.clone(),
-			}));
-			stack.extend(analysis_.path_dependencies.values());
+			let output_ = tg::package::get::Output {
+				artifact: artifact.clone(),
+				dependencies: Some(dependencies.clone()),
+				lock: None,
+				metadata: None,
+				path: None,
+				yanked: None,
+			};
+			output.insert(key, output_);
+			for (dependency, output_) in dependencies {
+				edges.push(Edge {
+					artifact: artifact.clone(),
+					dependency: dependency.clone(),
+				});
+				let Some(output_) = output_.as_ref() else {
+					continue;
+				};
+				let Some(dependencies_) = output_.dependencies.as_ref() else {
+					continue;
+				};
+				stack.push((artifact, dependencies_));
+			}
 		}
-
-		Ok((analysis, dependants))
+		(output, edges)
 	}
 
 	pub(super) async fn try_add_path_dependencies_to_lock(
 		&self,
-		analysis: &Analysis,
+		dependencies: &BTreeMap<tg::Dependency, Option<tg::package::get::Output>>,
 		lock: tg::Lock,
 	) -> tg::Result<Option<tg::Lock>> {
 		let mut object = lock.object(self).await?.as_ref().clone();
-		let mut stack = vec![(object.root, analysis)];
+		let mut stack = vec![(object.root, dependencies)];
 		let mut visited = BTreeSet::new();
-		while let Some((index, analysis)) = stack.pop() {
+
+		while let Some((index, dependencies)) = stack.pop() {
 			if visited.contains(&index) {
 				continue;
 			}
 			visited.insert(index);
 			let node = &mut object.nodes[index];
-			for (dependency, analysis) in &analysis.path_dependencies {
+			for (dependency, output) in dependencies {
 				let Some(entry) = node.dependencies.get_mut(dependency) else {
 					return Ok(None);
 				};
-				entry.package.replace(analysis.package.clone());
+				let Some(artifact) = output.as_ref().map(|output| output.artifact.clone()) else {
+					continue;
+				};
+				let artifact = tg::Artifact::with_id(artifact);
+				entry.artifact.replace(artifact);
+				let Some(dependencies) = output
+					.as_ref()
+					.and_then(|output| output.dependencies.as_ref())
+				else {
+					continue;
+				};
 				match &mut entry.lock {
-					Either::Left(index) => stack.push((*index, analysis)),
+					Either::Left(index) => stack.push((*index, dependencies)),
 					Either::Right(lock) => {
-						*lock = if let Some(lock) =
-							Box::pin(self.try_add_path_dependencies_to_lock(analysis, lock.clone()))
-								.await?
-						{
-							lock
-						} else {
-							return Ok(None);
-						};
+						*lock = Box::pin(
+							self.try_add_path_dependencies_to_lock(dependencies, lock.clone()),
+						)
+						.await?
+						.unwrap();
 					},
 				}
 			}
@@ -386,29 +403,39 @@ impl Server {
 
 	async fn remove_path_dependencies_from_lock(
 		&self,
-		analysis: &Analysis,
+		dependencies: &BTreeMap<tg::Dependency, Option<tg::package::get::Output>>,
 		lock: &tg::Lock,
 	) -> tg::Result<tg::Lock> {
 		let mut object = lock.object(self).await?.as_ref().clone();
-		let mut stack = vec![(object.root, analysis)];
+		let mut stack = vec![(object.root, dependencies)];
 		let mut visited = BTreeSet::new();
-		while let Some((index, analysis)) = stack.pop() {
+		while let Some((index, dependencies)) = stack.pop() {
 			if visited.contains(&index) {
 				continue;
 			}
 			visited.insert(index);
 			let node = &mut object.nodes[index];
-			for (dependency, analysis) in &analysis.path_dependencies {
+			for (dependency, output) in dependencies {
+				if dependency.path.is_none() {
+					continue;
+				}
 				let entry = node
 					.dependencies
 					.get_mut(dependency)
 					.ok_or_else(|| tg::error!("invalid lock file"))?;
-				entry.package.take();
+				entry.artifact.take();
+				let Some(dependencies) = output
+					.as_ref()
+					.and_then(|output| output.dependencies.as_ref())
+				else {
+					continue;
+				};
 				match &mut entry.lock {
-					Either::Left(index) => stack.push((*index, analysis)),
+					Either::Left(index) => stack.push((*index, dependencies)),
 					Either::Right(lock) => {
-						*lock = Box::pin(self.remove_path_dependencies_from_lock(analysis, lock))
-							.await?;
+						*lock =
+							Box::pin(self.remove_path_dependencies_from_lock(dependencies, lock))
+								.await?;
 					},
 				}
 			}
@@ -416,60 +443,56 @@ impl Server {
 		Ok(tg::Lock::with_object(object))
 	}
 
-	async fn solve(
-		&self,
-		context: &mut Context,
-		dependants: im::Vector<Dependant>,
-	) -> tg::Result<Solution> {
+	async fn solve(&self, context: &mut Context, edges: im::Vector<Edge>) -> tg::Result<Solution> {
 		// Create the first stack frame.
 		let solution = Solution::default();
 		let last_error = None;
 		let remaining_versions = None;
 		let mut current_frame = Frame {
 			solution,
-			dependants,
+			edges,
 			remaining_versions,
 			last_error,
 		};
 		let mut history = im::Vector::new();
 
 		// The main driver loop operates on the current stack frame, and iteratively tries to build up the next stack frame.
-		while let Some((new_dependants, dependant)) = current_frame.next_dependant() {
+		while let Some((new_edges, edge)) = current_frame.next_edge() {
 			let mut next_frame = Frame {
-				dependants: new_dependants,
+				edges: new_edges,
 				solution: current_frame.solution.clone(),
 				remaining_versions: None,
 				last_error: None,
 			};
 
-			// Get the permanent and partial solutions for this edge.
-			let permanent = current_frame.solution.get_permanent(context, &dependant);
-			let partial = current_frame.solution.partial.get(&dependant);
+			// Get the global solution and mark of this edge.
+			let global = current_frame.solution.get_global(context, &edge);
+			let mark = current_frame.solution.visited.get(&edge);
 
-			match (permanent, partial) {
+			match (global, mark) {
 				// Case 0: There is no solution for this package yet.
 				(None, None) => {
 					// Try and resolve the dependency.
 					match context
-						.resolve_dependency(self, &dependant, &mut current_frame.remaining_versions)
+						.resolve_dependency(self, &edge, &mut current_frame.remaining_versions)
 						.await
 					{
 						// We successfully got a version.
-						Ok(package) => {
+						Ok(artifact) => {
 							next_frame.solution = next_frame
 								.solution
-								.mark_temporarily(dependant.clone(), package.clone());
+								.mark_temporarily(edge.clone(), artifact.clone());
 
 							// Add this dependency to the top of the stack before adding all its dependencies.
-							next_frame.dependants.push_back(dependant.clone());
+							next_frame.edges.push_back(edge.clone());
 
 							// Add all the dependencies to the stack.
-							for child_dependency in context.get_dependencies(&package) {
-								let dependant = Dependant {
-									package: package.clone(),
+							for child_dependency in context.get_dependencies(&artifact) {
+								let edge = Edge {
+									artifact: artifact.clone(),
 									dependency: child_dependency.clone(),
 								};
-								next_frame.dependants.push_back(dependant);
+								next_frame.edges.push_back(edge);
 							}
 
 							// Update the stack. If we backtrack, we use the next version in the version stack.
@@ -478,27 +501,25 @@ impl Server {
 						// Something went wrong. Mark permanently as an error.
 						Err(e) => {
 							next_frame.solution =
-								next_frame
-									.solution
-									.mark_permanently(context, &dependant, Err(e));
+								next_frame.solution.mark_permanently(context, &edge, Err(e));
 						},
 					}
 				},
 
 				// Case 1: There exists a global version for the package but we haven't solved this dependency constraint.
-				(Some(permanent), None) => {
-					match permanent {
+				(Some(global), None) => {
+					match global {
 						// Case 1.1: The happy path. Our version is solved and it matches this constraint.
-						Ok(package) => {
+						Ok(artifact) => {
 							// Check if the version constraint matches the existing solution.
-							let version = context.get_version(package);
-							match dependant.dependency.try_match_version(&version) {
+							let version = context.get_version(artifact);
+							match edge.dependency.try_match_version(&version) {
 								// Success: we can use this version.
 								Ok(true) => {
 									next_frame.solution = next_frame.solution.mark_permanently(
 										context,
-										&dependant,
-										Ok(package.clone()),
+										&edge,
+										Ok(artifact.clone()),
 									);
 								},
 								// Failure: we need to attempt to backtrack.
@@ -506,7 +527,7 @@ impl Server {
 									let error = Error::PackageVersionConflict;
 									if let Some(frame_) = try_backtrack(
 										&history,
-										dependant.dependency.name.as_ref().unwrap(),
+										edge.dependency.name.as_ref().unwrap(),
 										error.clone(),
 									) {
 										next_frame = frame_;
@@ -514,7 +535,7 @@ impl Server {
 										// There is no solution for this package. Add an error.
 										next_frame.solution = next_frame.solution.mark_permanently(
 											context,
-											&dependant,
+											&edge,
 											Err(error),
 										);
 									}
@@ -523,7 +544,7 @@ impl Server {
 								Err(e) => {
 									next_frame.solution = next_frame.solution.mark_permanently(
 										context,
-										&dependant,
+										&edge,
 										Err(Error::Other(e)),
 									);
 								},
@@ -533,7 +554,7 @@ impl Server {
 						Err(e) => {
 							next_frame.solution = next_frame.solution.mark_permanently(
 								context,
-								&dependant,
+								&edge,
 								Err(e.clone()),
 							);
 						},
@@ -541,16 +562,16 @@ impl Server {
 				},
 
 				// Case 2: We only have a partial solution for this dependency and need to make sure we didn't create a cycle.
-				(_, Some(Mark::Temporary(package))) => {
-					let dependencies = context.get_dependencies(package);
+				(_, Some(Mark::Temporary(artifact))) => {
+					let dependencies = context.get_dependencies(artifact);
 					let mut erroneous_children = vec![];
 					for child_dependency in dependencies {
-						let child_dependant = Dependant {
-							package: package.clone(),
+						let child_edge = Edge {
+							artifact: artifact.clone(),
 							dependency: child_dependency.clone(),
 						};
 
-						let child = next_frame.solution.partial.get(&child_dependant).unwrap();
+						let child = next_frame.solution.visited.get(&child_edge).unwrap();
 						match child {
 							// The child dependency has been solved.
 							Mark::Permanent(Ok(_)) => (),
@@ -558,16 +579,14 @@ impl Server {
 							// The child dependency has been solved, but it is an error.
 							Mark::Permanent(Err(e)) => {
 								let error = e.clone();
-								erroneous_children.push((child_dependant.dependency, error));
+								erroneous_children.push((child_edge.dependency, error));
 							},
 
 							// The child dependency has not been solved.
 							Mark::Temporary(_version) => {
 								// Uh oh. We've detected a cycle. First try and backtrack. If backtracking fails, bail out.
-								let error = Error::PackageCycleExists {
-									dependant: dependant.clone(),
-								};
-								erroneous_children.push((child_dependant.dependency, error));
+								let error = Error::PackageCycleExists { edge: edge.clone() };
+								erroneous_children.push((child_edge.dependency, error));
 							},
 						}
 					}
@@ -576,30 +595,29 @@ impl Server {
 					if erroneous_children.is_empty() {
 						next_frame.solution = next_frame.solution.mark_permanently(
 							context,
-							&dependant,
-							Ok(package.clone()),
+							&edge,
+							Ok(artifact.clone()),
 						);
 					} else {
-						let previous_version = context.get_version(package);
+						let previous_version = context.get_version(artifact);
 						let error = Error::Backtrack {
-							package: package.clone(),
+							artifact: artifact.clone(),
 							previous_version,
 							erroneous_dependencies: erroneous_children,
 						};
 
 						if let Some(frame_) = try_backtrack(
 							&history,
-							dependant.dependency.name.as_ref().unwrap(),
+							edge.dependency.name.as_ref().unwrap(),
 							error.clone(),
 						) {
 							next_frame = frame_;
 						} else {
 							// This means that backtracking totally failed and we need to fail with an error.
-							next_frame.solution = next_frame.solution.mark_permanently(
-								context,
-								&dependant,
-								Err(error),
-							);
+							next_frame.solution =
+								next_frame
+									.solution
+									.mark_permanently(context, &edge, Err(error));
 						}
 					}
 				},
@@ -608,7 +626,7 @@ impl Server {
 				(_, Some(Mark::Permanent(_complete))) => (),
 			}
 
-			// Replace the solution and dependants if needed.
+			// Replace the solution and edges if needed.
 			current_frame = next_frame;
 		}
 
@@ -617,24 +635,36 @@ impl Server {
 }
 
 impl Context {
-	// Check if the dependant can be resolved as a path dependency. Returns an error if we haven't analyzed the `dependant.package` yet.
-	fn is_path_dependency(&self, dependant: &Dependant) -> bool {
-		// We guarantee that the context already knows about the dependant package by the time this function is called.
-		let analysis = self.analysis.get(&dependant.package).unwrap();
-		analysis
-			.path_dependencies
-			.contains_key(&dependant.dependency)
+	// Checks if the edge can be solved using the output of get_package.
+	fn solution_in_output(&self, edge: &Edge) -> bool {
+		let key = tg::Dependency::with_artifact(edge.artifact.clone());
+		self.output
+			.get(&key)
+			.unwrap()
+			.dependencies
+			.as_ref()
+			.unwrap()
+			.get(&edge.dependency)
+			.unwrap()
+			.is_some()
 	}
 
 	// Get the dependencies of a package.
-	fn get_dependencies(&mut self, package: &tg::directory::Id) -> &[tg::Dependency] {
-		&self.analysis.get(package).unwrap().dependencies
+	fn get_dependencies(
+		&self,
+		artifact: &tg::artifact::Id,
+	) -> impl Iterator<Item = &tg::Dependency> + '_ {
+		let key = tg::Dependency::with_artifact(artifact.clone());
+		let output = self.output.get(&key).unwrap();
+		let dependencies = output.dependencies.as_ref().unwrap();
+		dependencies.keys()
 	}
 
 	// Get the version of a package.
-	fn get_version(&mut self, package: &tg::directory::Id) -> String {
-		self.analysis
-			.get(package)
+	fn get_version(&mut self, artifact: &tg::artifact::Id) -> String {
+		let key = tg::Dependency::with_artifact(artifact.clone());
+		self.output
+			.get(&key)
 			.unwrap()
 			.metadata
 			.as_ref()
@@ -649,10 +679,10 @@ impl Context {
 	async fn resolve_dependency(
 		&mut self,
 		server: &Server,
-		dependant: &Dependant,
+		edge: &Edge,
 		remaining_versions: &mut Option<im::Vector<String>>,
-	) -> Result<tg::directory::Id, Error> {
-		self.try_resolve_dependency(server, dependant, remaining_versions)
+	) -> Result<tg::artifact::Id, Error> {
+		self.try_resolve_dependency(server, edge, remaining_versions)
 			.await?
 			.ok_or_else(|| Error::PackageVersionConflict)
 	}
@@ -660,31 +690,30 @@ impl Context {
 	async fn try_resolve_dependency(
 		&mut self,
 		server: &Server,
-		dependant: &Dependant,
+		edge: &Edge,
 		remaining_versions: &mut Option<im::Vector<String>>,
-	) -> Result<Option<tg::directory::Id>, Error> {
+	) -> Result<Option<tg::artifact::Id>, Error> {
 		// Lookup this package in the local cache.
-		let analysis = self.analysis.get(&dependant.package).unwrap();
+		let key = tg::Dependency::with_artifact(edge.artifact.clone());
+		let output = self.output.get(&key).unwrap().clone();
 
-		// Try and resolve the dependency as a path dependency.
-		if let Some(analysis) = analysis.path_dependencies.get(&dependant.dependency) {
-			let package = analysis
-				.package
-				.id(server, None)
-				.await
-				.map_err(Error::Other)?;
-			self.analysis.insert(package.clone(), analysis.clone());
-			return Ok(Some(package));
+		// Try and resolve the dependency using the existing output.
+		if let Some(Some(resolved)) = output.dependencies.as_ref().unwrap().get(&edge.dependency) {
+			// Update the cache with this dependency's information.
+			let key = tg::Dependency::with_artifact(resolved.artifact.clone());
+			self.output.insert(key, resolved.clone());
+			let artifact = resolved.artifact.clone();
+			return Ok(Some(artifact));
 		}
 
 		// Seed the list of versions if necessary.
 		if remaining_versions.is_none() {
 			let Some(versions) = server
-				.try_get_package_versions(&dependant.dependency)
+				.try_get_package_versions(&edge.dependency)
 				.await
 				.map_err(|source| {
 					Error::Other(
-						tg::error!(!source, %dependency = &dependant.dependency, "failed to get package versions"),
+						tg::error!(!source, %dependency = &edge.dependency, "failed to get package versions"),
 					)
 				})?
 			else {
@@ -696,8 +725,8 @@ impl Context {
 		let remaining_versions = remaining_versions.as_mut().unwrap();
 
 		// Get the name and version to try next.
-		let name = dependant.dependency.name.clone().ok_or_else(|| {
-			Error::Other(tg::error!(%dependency = &dependant.dependency, "missing dependency name"))
+		let name = edge.dependency.name.clone().ok_or_else(|| {
+			Error::Other(tg::error!(%dependency = &edge.dependency, "missing dependency name"))
 		})?;
 
 		let Some(version) = remaining_versions.pop_back() else {
@@ -706,45 +735,35 @@ impl Context {
 		let dependency_with_name_and_version =
 			tg::Dependency::with_name_and_version(name.clone(), version.clone());
 
-		// Check if there's an existing solution for this package.
-		if let Some(package) = self
-			.published_packages
-			.get(&dependency_with_name_and_version)
-		{
-			return Ok(Some(package.clone()));
+		// Check if there's an existing entry.
+		if let Some(output) = self.output.get(&dependency_with_name_and_version) {
+			return Ok(Some(output.artifact.clone()));
 		}
 
-		// Otherwise go out to the server.
-		let analysis = server
-			.try_analyze_package(&dependency_with_name_and_version)
-			.await
-			.map_err(Error::Other)?
-			.ok_or_else(|| {
-				Error::Other(tg::error!(
-					?dependant,
-					"internal error: failed to analyze dependency"
-				))
-			})?;
-
-		// Get the package.
-		let package = analysis
-			.package
-			.id(server, None)
+		// Otherwise get the package.
+		let arg = tg::package::get::Arg {
+			dependencies: true,
+			metadata: true,
+			..Default::default()
+		};
+		let output = Box::pin(server.get_package(&dependency_with_name_and_version, arg))
 			.await
 			.map_err(Error::Other)?;
 
-		// Update the internal context with knowledge of this package.
-		self.published_packages
-			.insert(dependency_with_name_and_version, package.clone());
-		self.analysis.insert(package.clone(), analysis);
-		Ok(Some(package))
+		// Update the cached output with the knowledge of this package.
+		self.output
+			.insert(dependency_with_name_and_version, output.clone());
+		let key = tg::Dependency::with_artifact(output.artifact.clone());
+		self.output.insert(key, output.clone());
+
+		Ok(Some(output.artifact))
 	}
 }
 
-fn try_backtrack(history: &im::Vector<Frame>, package: &str, error: Error) -> Option<Frame> {
+fn try_backtrack(history: &im::Vector<Frame>, package_name: &str, error: Error) -> Option<Frame> {
 	let index = history
 		.iter()
-		.take_while(|frame| !frame.solution.contains(package))
+		.take_while(|frame| !frame.solution.contains(package_name))
 		.count();
 	let mut frame = history.get(index).cloned()?;
 	frame.last_error = Some(error);
@@ -752,63 +771,63 @@ fn try_backtrack(history: &im::Vector<Frame>, package: &str, error: Error) -> Op
 }
 
 impl Solution {
-	// If there's an existing solution for this dependant, return it. Path dependencies are ignored.
-	fn get_permanent(
+	// If there's an existing solution for this edge, return it. Path dependencies are ignored.
+	fn get_global(
 		&self,
 		_context: &Context,
-		dependant: &Dependant,
-	) -> Option<&Result<tg::directory::Id, Error>> {
-		self.permanent.get(dependant.dependency.name.as_ref()?)
+		edge: &Edge,
+	) -> Option<&Result<tg::artifact::Id, Error>> {
+		self.global.get(edge.dependency.name.as_ref()?)
 	}
 
-	/// Mark this dependant with a temporary solution.
-	fn mark_temporarily(&self, dependant: Dependant, package: tg::directory::Id) -> Self {
+	/// Mark this edge with a temporary solution.
+	fn mark_temporarily(&self, edge: Edge, artifact: tg::artifact::Id) -> Self {
 		let mut solution = self.clone();
-		solution.partial.insert(dependant, Mark::Temporary(package));
+		solution.visited.insert(edge, Mark::Temporary(artifact));
 		solution
 	}
 
-	/// Mark the dependant permanently, adding it to the list of known solutions and the partial solutions.
+	/// Mark the edge permanently, adding it to the table of known solutions.
 	fn mark_permanently(
 		&self,
 		context: &Context,
-		dependant: &Dependant,
-		complete: Result<tg::directory::Id, Error>,
+		edge: &Edge,
+		complete: Result<tg::artifact::Id, Error>,
 	) -> Self {
 		let mut solution = self.clone();
 
 		// Update the local solution.
 		solution
-			.partial
-			.insert(dependant.clone(), Mark::Permanent(complete.clone()));
+			.visited
+			.insert(edge.clone(), Mark::Permanent(complete.clone()));
 
-		// If this is not a path dependency then we add it to the global solution.
-		if !context.is_path_dependency(dependant) {
+		// If the solution doesn't appear in the output we add it to the global solution.
+		if !context.solution_in_output(edge) {
 			solution
-				.permanent
-				.insert(dependant.dependency.name.clone().unwrap(), complete);
+				.global
+				.insert(edge.dependency.name.clone().unwrap(), complete);
 		}
 
 		solution
 	}
 
-	fn contains(&self, package: &str) -> bool {
-		self.permanent.contains_key(package)
+	fn contains(&self, package_name: &str) -> bool {
+		self.global.contains_key(package_name)
 	}
 }
 
 impl Frame {
-	fn next_dependant(&self) -> Option<(im::Vector<Dependant>, Dependant)> {
-		let mut dependants = self.dependants.clone();
-		let dependant = dependants.pop_back()?;
-		Some((dependants, dependant))
+	fn next_edge(&self) -> Option<(im::Vector<Edge>, Edge)> {
+		let mut edges = self.edges.clone();
+		let edge = edges.pop_back()?;
+		Some((edges, edge))
 	}
 }
 
 impl std::fmt::Display for Report {
 	fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-		for (dependant, error) in &self.errors {
-			self.format(f, dependant, error)?;
+		for (edge, error) in &self.errors {
+			self.format(f, edge, error)?;
 		}
 		Ok(())
 	}
@@ -818,20 +837,15 @@ impl Report {
 	fn format(
 		&self,
 		f: &mut std::fmt::Formatter<'_>,
-		dependant: &Dependant,
+		edge: &Edge,
 		error: &Error,
 	) -> std::fmt::Result {
-		let Dependant {
-			package,
+		let Edge {
+			artifact,
 			dependency,
-		} = dependant;
-		let metadata = self
-			.context
-			.analysis
-			.get(package)
-			.unwrap()
-			.metadata
-			.as_ref();
+		} = edge;
+		let key = tg::Dependency::with_artifact(artifact.clone());
+		let metadata = self.context.output.get(&key).unwrap().metadata.as_ref();
 		let name = metadata
 			.and_then(|metadata| metadata.name.as_deref())
 			.unwrap_or("<unknown>");
@@ -840,14 +854,9 @@ impl Report {
 			.unwrap_or("<unknown>");
 		write!(f, "{name}@{version} requires {dependency}, but ")?;
 		match error {
-			Error::PackageCycleExists { dependant } => {
-				let metadata = self
-					.context
-					.analysis
-					.get(&dependant.package)
-					.unwrap()
-					.metadata
-					.as_ref();
+			Error::PackageCycleExists { edge } => {
+				let key = tg::Dependency::with_artifact(edge.artifact.clone());
+				let metadata = self.context.output.get(&key).unwrap().metadata.as_ref();
 				let name = metadata
 					.and_then(|metadata| metadata.name.as_deref())
 					.unwrap_or("<unknown>");
@@ -861,24 +870,18 @@ impl Report {
 					f,
 					"no version could be found that satisfies the constraints"
 				)?;
-				let shared_dependants = self
+				let shared_edges = self
 					.solution
-					.partial
+					.visited
 					.keys()
-					.filter(|dependant| dependant.dependency.name == dependency.name);
-				for shared in shared_dependants {
-					let Dependant {
-						package,
+					.filter(|edge| edge.dependency.name == dependency.name);
+				for shared in shared_edges {
+					let Edge {
+						artifact,
 						dependency,
-						..
 					} = shared;
-					let metadata = self
-						.context
-						.analysis
-						.get(package)
-						.unwrap()
-						.metadata
-						.as_ref();
+					let key = tg::Dependency::with_artifact(artifact.clone());
+					let metadata = self.context.output.get(&key).unwrap().metadata.as_ref();
 					let name = metadata
 						.and_then(|metadata| metadata.name.as_deref())
 						.unwrap_or("<unknown>");
@@ -889,18 +892,18 @@ impl Report {
 				}
 			},
 			Error::Backtrack {
-				package,
+				artifact,
 				previous_version,
 				erroneous_dependencies,
 			} => {
 				let name = dependency.name.as_ref().unwrap();
 				writeln!(f, "{name} {previous_version} has errors:")?;
 				for (child, error) in erroneous_dependencies {
-					let dependant = Dependant {
-						package: package.clone(),
+					let edge = Edge {
+						artifact: artifact.clone(),
 						dependency: child.clone(),
 					};
-					self.format(f, &dependant, error)?;
+					self.format(f, &edge, error)?;
 				}
 			},
 			Error::Other(e) => {

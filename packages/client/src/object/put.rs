@@ -1,17 +1,16 @@
 use crate as tg;
 use bytes::Bytes;
+use std::collections::BTreeSet;
 use tangram_http::{incoming::response::Ext as _, Outgoing};
 
 #[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
 pub struct Arg {
 	pub bytes: Bytes,
-	pub count: Option<u64>,
-	pub weight: Option<u64>,
 }
 
 #[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
 pub struct Output {
-	pub incomplete: Vec<tg::object::Id>,
+	pub incomplete: BTreeSet<tg::object::Id>,
 }
 
 impl tg::Client {

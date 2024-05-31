@@ -2,11 +2,16 @@ use crate as tg;
 use tangram_http::{incoming::response::Ext as _, Outgoing};
 use tokio::io::AsyncRead;
 
+#[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
+pub struct Output {
+	pub blob: tg::blob::Id,
+}
+
 impl tg::Client {
 	pub async fn create_blob(
 		&self,
 		reader: impl AsyncRead + Send + 'static,
-	) -> tg::Result<tg::blob::Id> {
+	) -> tg::Result<tg::blob::create::Output> {
 		let method = http::Method::POST;
 		let uri = "/blobs";
 		let body = Outgoing::reader(reader);

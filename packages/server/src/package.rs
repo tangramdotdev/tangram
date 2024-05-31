@@ -1,12 +1,9 @@
-mod analysis;
 mod check;
-mod dependencies;
 mod doc;
 mod format;
 mod get;
 mod list;
 mod lock;
-mod metadata;
 mod outdated;
 mod publish;
 mod versions;

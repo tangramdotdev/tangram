@@ -6,9 +6,8 @@ use futures::FutureExt as _;
 use itertools::Itertools as _;
 use num::ToPrimitive as _;
 use std::{fmt::Write as _, path::PathBuf};
-use tangram_client as tg;
+use tangram_client::{self as tg, Client};
 use tangram_server::Server;
-use tg::Client;
 use tracing_subscriber::prelude::*;
 use url::Url;
 
@@ -24,6 +23,7 @@ mod object;
 mod package;
 mod pull;
 mod push;
+mod remote;
 mod root;
 mod server;
 mod target;
@@ -104,6 +104,7 @@ enum Command {
 	Publish(self::package::publish::Args),
 	Pull(self::pull::Args),
 	Push(self::push::Args),
+	Remote(self::remote::Args),
 	Root(self::root::Args),
 	Run(self::target::run::Args),
 	Search(self::package::search::Args),
@@ -126,7 +127,7 @@ fn main() -> std::process::ExitCode {
 	let config = match Cli::read_config(args.config.clone()) {
 		Ok(config) => config,
 		Err(error) => {
-			eprintln!("{}: failed to read the config", "error".red().bold());
+			eprintln!("{} failed to read the config", "error".red().bold());
 			futures::executor::block_on(Cli::print_error(None::<Client>, &error, None));
 			return 1.into();
 		},
@@ -139,7 +140,7 @@ fn main() -> std::process::ExitCode {
 	Cli::set_file_descriptor_limit(config.as_ref())
 		.inspect_err(|_| {
 			eprintln!(
-				"{}: failed to set the file descriptor limit",
+				"{} failed to set the file descriptor limit",
 				"warning".yellow().bold(),
 			);
 		})
@@ -151,7 +152,7 @@ fn main() -> std::process::ExitCode {
 		let cli = match Cli::new(args.clone(), config.clone()).await {
 			Ok(cli) => cli,
 			Err(error) => {
-				eprintln!("{}: an error occurred", "error".red().bold());
+				eprintln!("{} an error occurred", "error".red().bold());
 				Cli::print_error(None::<Client>, &error, config.as_ref()).await;
 				return Err(1);
 			},
@@ -161,7 +162,7 @@ fn main() -> std::process::ExitCode {
 		let result = match cli.command(args.command).await {
 			Ok(()) => Ok(()),
 			Err(error) => {
-				eprintln!("{}: failed to run the command", "error".red().bold());
+				eprintln!("{} failed to run the command", "error".red().bold());
 				Cli::print_error(Some(cli.handle.clone()), &error, config.as_ref()).await;
 				Err(1)
 			},
@@ -174,7 +175,7 @@ fn main() -> std::process::ExitCode {
 			match result {
 				Ok(()) => (),
 				Err(error) => {
-					eprintln!("{}: an error occurred", "error".red().bold());
+					eprintln!("{} an error occurred", "error".red().bold());
 					Cli::print_error(None::<Client>, &error, config.as_ref()).await;
 					return Err(1);
 				},
@@ -474,17 +475,17 @@ impl Cli {
 			.unwrap_or(1024);
 		let write_build_logs_to_file = config
 			.and_then(|config| config.advanced.as_ref())
-			.and_then(|advanced| advanced.write_build_logs_to_file)
+			.and_then(|advanced| advanced.write_build_logs_to_database)
 			.unwrap_or(false);
 		let write_build_logs_to_stderr = config
 			.and_then(|config| config.advanced.as_ref())
-			.and_then(|advanced| advanced.write_build_logs_to_stderr)
+			.and_then(|advanced| advanced.duplicate_build_logs_to_stderr)
 			.unwrap_or(false);
 		let advanced = tangram_server::options::Advanced {
 			error_trace_options,
 			file_descriptor_semaphore_size,
 			preserve_temp_directories,
-			write_build_logs_to_file,
+			write_build_logs_to_database: write_build_logs_to_file,
 			write_build_logs_to_stderr,
 		};
 
@@ -598,6 +599,13 @@ impl Cli {
 				},
 			);
 
+		// Create the regisry option.
+		let registry = match config.as_ref().and_then(|config| config.registry.as_ref()) {
+			Some(Either::Left(_)) => None,
+			Some(Either::Right(registry)) => Some(registry.clone()),
+			None => Some("default".to_owned()),
+		};
+
 		// Create the remote options.
 		let remotes = config
 			.and_then(|config| config.remotes.as_ref())
@@ -608,7 +616,12 @@ impl Cli {
 						let build = remote.build.unwrap_or_default();
 						let url = remote.url.clone();
 						let client = tg::Client::new(url);
-						let remote = tangram_server::options::Remote { build, client };
+						let name = remote.name.clone();
+						let remote = tangram_server::options::Remote {
+							build,
+							client,
+							name,
+						};
 						Ok::<_, tg::Error>(remote)
 					})
 					.collect()
@@ -620,7 +633,12 @@ impl Cli {
 			let build = false;
 			let url = Url::parse("https://api.tangram.dev").unwrap();
 			let client = tg::Client::new(url);
-			let remote = tangram_server::options::Remote { build, client };
+			let name = "default".to_owned();
+			let remote = tangram_server::options::Remote {
+				build,
+				client,
+				name,
+			};
 			vec![remote]
 		};
 
@@ -639,6 +657,7 @@ impl Cli {
 			database,
 			messenger,
 			path,
+			registry,
 			remotes,
 			url,
 			version,
@@ -679,6 +698,7 @@ impl Cli {
 			Command::Publish(args) => self.command_package_publish(args).boxed(),
 			Command::Pull(args) => self.command_pull(args).boxed(),
 			Command::Push(args) => self.command_push(args).boxed(),
+			Command::Remote(args) => self.command_remote(args).boxed(),
 			Command::Root(args) => self.command_root(args).boxed(),
 			Command::Run(args) => self.command_run(args).boxed(),
 			Command::Search(args) => self.command_package_search(args).boxed(),
@@ -859,7 +879,7 @@ impl Cli {
 	where
 		H: tg::Handle,
 	{
-		let dependency = tg::Dependency::with_id(package.clone());
+		let dependency = tg::Dependency::with_artifact(package.clone());
 		let arg = tg::package::get::Arg {
 			metadata: true,
 			path: true,

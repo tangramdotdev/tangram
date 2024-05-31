@@ -1,5 +1,8 @@
 use sha2::Digest as _;
-use std::io::Read as _;
+use std::{
+	io::Read as _,
+	path::{Path, PathBuf},
+};
 
 fn main() {
 	println!("cargo:rerun-if-changed=build.rs");
@@ -10,7 +13,7 @@ fn main() {
 	v8::V8::initialize();
 
 	// Get the out dir path.
-	let out_dir_path = std::path::PathBuf::from(std::env::var_os("OUT_DIR").unwrap());
+	let out_dir_path = PathBuf::from(std::env::var_os("OUT_DIR").unwrap());
 
 	// Get the dash and env binaries.
 	let version = "v2024.04.02";
@@ -164,7 +167,7 @@ fn main() {
 	std::fs::write(path, snapshot).unwrap();
 }
 
-fn create_snapshot(path: impl AsRef<std::path::Path>) -> v8::StartupData {
+fn create_snapshot(path: impl AsRef<Path>) -> v8::StartupData {
 	// Create the isolate.
 	let mut isolate = v8::Isolate::snapshot_creator(None);
 
@@ -210,7 +213,7 @@ fn create_snapshot(path: impl AsRef<std::path::Path>) -> v8::StartupData {
 	isolate.create_blob(v8::FunctionCodeHandling::Keep).unwrap()
 }
 
-fn fixup_source_map(path: impl AsRef<std::path::Path>) {
+fn fixup_source_map(path: impl AsRef<Path>) {
 	let bytes = std::fs::read(&path).unwrap();
 	let mut json = serde_json::from_slice::<serde_json::Value>(&bytes).unwrap();
 	let sources = json.get_mut("sources").unwrap().as_array_mut().unwrap();

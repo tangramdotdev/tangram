@@ -7,11 +7,16 @@ use tg::Handle as _;
 #[group(skip)]
 pub struct Args {
 	pub build: tg::build::Id,
+
+	#[arg(short, long)]
+	pub remote: Option<String>,
 }
 
 impl Cli {
 	pub async fn command_build_push(&self, args: Args) -> tg::Result<()> {
-		self.handle.push_build(&args.build).await?;
+		let remote = args.remote.unwrap_or_else(|| "default".to_owned());
+		let arg = tg::build::push::Arg { remote };
+		self.handle.push_build(&args.build, arg).await?;
 		Ok(())
 	}
 }
