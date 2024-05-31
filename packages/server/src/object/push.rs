@@ -118,7 +118,6 @@ impl Server {
 			.boxed()
 			.await
 			.map_err(|source| tg::error!(!source, "failed to put the object"))?;
-		tokio::time::sleep(std::time::Duration::from_millis(1000)).await;
 
 		// Increment the count and add the objects size to the weight.
 		current_count.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
