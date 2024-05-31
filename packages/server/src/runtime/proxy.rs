@@ -64,7 +64,7 @@ impl tg::Handle for Proxy {
 		let output = self.server.check_in_artifact(arg).await?;
 
 		// If the VFS is disabled, then check out the artifact.
-		if !self.server.options.vfs {
+		if self.server.options.vfs.is_none() {
 			let arg = tg::artifact::checkout::Arg::default();
 			self.check_out_artifact(&output.artifact, arg).await?;
 		}
@@ -82,7 +82,7 @@ impl tg::Handle for Proxy {
 			*path = self.host_path_for_guest_path(path.clone())?;
 		} else {
 			// If there's no path set (internal checkout) and the VFS is enabled, ignore the request.
-			if self.server.options.vfs {
+			if self.server.options.vfs.is_some() {
 				return Ok(tg::artifact::checkout::Output {
 					path: self
 						.server

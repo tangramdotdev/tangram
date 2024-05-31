@@ -18,7 +18,12 @@ pub enum Server {
 }
 
 impl Server {
-	pub async fn start(server: &crate::Server, kind: Kind, path: &Path) -> tg::Result<Self> {
+	pub async fn start(
+		server: &crate::Server,
+		kind: Kind,
+		path: &Path,
+		options: crate::options::Vfs,
+	) -> tg::Result<Self> {
 		// Remove a file at the path if one exists.
 		tokio::fs::remove_file(path).await.ok();
 
@@ -26,11 +31,6 @@ impl Server {
 		tokio::fs::create_dir_all(path).await.ok();
 
 		// Create the provider.
-		let options = provider::Options {
-			cache_ttl: 10.0,
-			cache_size: 2048,
-			connections: 4,
-		};
 		let provider = Provider::new(server, options).await?;
 
 		let vfs = match kind {
