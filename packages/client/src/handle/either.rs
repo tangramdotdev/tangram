@@ -445,10 +445,11 @@ where
 	fn try_get_package_versions(
 		&self,
 		dependency: &tg::Dependency,
+		arg: tg::package::versions::Arg,
 	) -> impl Future<Output = tg::Result<Option<Vec<String>>>> {
 		match self {
-			Either::Left(s) => s.try_get_package_versions(dependency).left_future(),
-			Either::Right(s) => s.try_get_package_versions(dependency).right_future(),
+			Either::Left(s) => s.try_get_package_versions(dependency, arg).left_future(),
+			Either::Right(s) => s.try_get_package_versions(dependency, arg).right_future(),
 		}
 	}
 

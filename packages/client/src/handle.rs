@@ -627,13 +627,15 @@ pub trait Handle: Clone + Unpin + Send + Sync + 'static {
 	fn try_get_package_versions(
 		&self,
 		dependency: &tg::Dependency,
+		arg: tg::package::versions::Arg,
 	) -> impl Future<Output = tg::Result<Option<Vec<String>>>> + Send;
 
 	fn get_package_versions(
 		&self,
 		dependency: &tg::Dependency,
+		arg: tg::package::versions::Arg,
 	) -> impl Future<Output = tg::Result<tg::package::versions::Output>> + Send {
-		self.try_get_package_versions(dependency).map(|result| {
+		self.try_get_package_versions(dependency, arg).map(|result| {
 			result.and_then(|option| option.ok_or_else(|| tg::error!("failed to get the package")))
 		})
 	}

@@ -341,6 +341,7 @@ impl tg::Handle for Proxy {
 	async fn try_get_package_versions(
 		&self,
 		_dependency: &tg::Dependency,
+		_arg: tg::package::versions::Arg,
 	) -> tg::Result<Option<Vec<String>>> {
 		Err(tg::error!("forbidden"))
 	}
