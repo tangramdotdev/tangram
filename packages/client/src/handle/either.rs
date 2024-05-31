@@ -193,15 +193,15 @@ where
 		&self,
 		id: &tg::build::Id,
 		arg: tg::build::log::Arg,
-	) -> tg::Result<Option<impl Stream<Item = tg::Result<tg::build::log::Chunk>> + Send + 'static>>
+	) -> tg::Result<Option<impl Stream<Item = tg::Result<tg::build::log::Event>> + Send + 'static>>
 	{
 		match self {
 			Either::Left(s) => s
-				.try_get_build_log(id, arg)
+				.try_get_build_log_stream(id, arg)
 				.await
 				.map(|option| option.map(futures::StreamExt::left_stream)),
 			Either::Right(s) => s
-				.try_get_build_log(id, arg)
+				.try_get_build_log_stream(id, arg)
 				.await
 				.map(|option| option.map(futures::StreamExt::right_stream)),
 		}

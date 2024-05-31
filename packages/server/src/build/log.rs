@@ -42,15 +42,22 @@ impl Server {
 		&self,
 		id: &tg::build::Id,
 		arg: tg::build::log::Arg,
-	) -> tg::Result<Option<impl Stream<Item = tg::Result<tg::build::log::Chunk>> + Send + 'static>>
+	) -> tg::Result<Option<impl Stream<Item = tg::Result<tg::build::log::Event>> + Send + 'static>>
 	{
-		if let Some(log) = self.try_get_build_log_local(id, arg.clone()).await? {
-			Ok(Some(log.left_stream()))
+		let log = if let Some(log) = self.try_get_build_log_local(id, arg.clone()).await? {
+			log.left_stream()
 		} else if let Some(log) = self.try_get_build_log_remote(id, arg.clone()).await? {
-			Ok(Some(log.right_stream()))
+			log.right_stream()
 		} else {
-			Ok(None)
-		}
+			return Ok(None);
+		};
+		let end = stream::once(async move {
+			Ok::<_, tg::Error>(tg::build::log::Event::End)
+		});
+		let log = log
+			.map(|data| data.map(tg::build::log::Event::Data))
+			.chain(end);
+		Ok(Some(log))
 	}
 
 	async fn try_get_build_log_local(
@@ -314,6 +321,7 @@ impl Server {
 		// Write to the log file.
 		let path = self.logs_path().join(id.to_string());
 		let mut file = tokio::fs::File::options()
+			.create(true)
 			.append(true)
 			.open(&path)
 			.await
@@ -765,7 +773,7 @@ impl Server {
 		let accept: Option<mime::Mime> = request.parse_header(http::header::ACCEPT).transpose()?;
 
 		// Get the stream.
-		let Some(stream) = handle.try_get_build_log(&id, arg).await? else {
+		let Some(stream) = handle.try_get_build_log_stream(&id, arg).await? else {
 			return Ok(http::Response::builder().not_found().empty().unwrap());
 		};
 
@@ -781,9 +789,16 @@ impl Server {
 			Some((mime::TEXT, mime::EVENT_STREAM)) => {
 				let content_type = mime::TEXT_EVENT_STREAM;
 				let sse = stream.map(|result| match result {
-					Ok(data) => {
+					Ok(tg::build::log::Event::Data(data)) => {
 						let data = serde_json::to_string(&data).unwrap();
 						Ok::<_, tg::Error>(tangram_http::sse::Event::with_data(data))
+					},
+					Ok(tg::build::log::Event::End) => {
+						let event = "end".to_owned();
+						Ok::<_, tg::Error>(tangram_http::sse::Event {
+							event: Some(event),
+							..Default::default()
+						})
 					},
 					Err(error) => {
 						let data = serde_json::to_string(&error).unwrap();

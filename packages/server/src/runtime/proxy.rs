@@ -190,7 +190,7 @@ impl tg::Handle for Proxy {
 		arg: tg::build::log::Arg,
 	) -> impl Future<
 		Output = tg::Result<
-			Option<impl Stream<Item = tg::Result<tg::build::log::Chunk>> + Send + 'static>,
+			Option<impl Stream<Item = tg::Result<tg::build::log::Event>> + Send + 'static>,
 		>,
 	> {
 		self.server.try_get_build_log_stream(id, arg)

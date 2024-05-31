@@ -678,7 +678,7 @@ impl tg::Handle for Client {
 		arg: tg::build::log::Arg,
 	) -> impl Future<
 		Output = tg::Result<
-			Option<impl Stream<Item = Result<tg::build::log::Chunk>> + Send + 'static>,
+			Option<impl Stream<Item = Result<tg::build::log::Event>> + Send + 'static>,
 		>,
 	> {
 		self.try_get_build_log_stream(id, arg)
