@@ -56,8 +56,9 @@ impl Server {
 			.as_str();
 
 		// Check if the package has been published already.
+		let arg = tg::package::versions::Arg { yanked: true };
 		let mut published_versions = self
-			.try_get_package_versions_local(&tg::Dependency::with_name(name.to_owned()))
+			.try_get_package_versions_local(&tg::Dependency::with_name(name.to_owned()), arg)
 			.await?
 			.into_iter()
 			.flatten();

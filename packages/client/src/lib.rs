@@ -833,8 +833,9 @@ impl tg::Handle for Client {
 	fn try_get_package_versions(
 		&self,
 		dependency: &tg::Dependency,
+		arg: tg::package::versions::Arg,
 	) -> impl Future<Output = tg::Result<Option<Vec<String>>>> {
-		self.try_get_package_versions(dependency)
+		self.try_get_package_versions(dependency, arg)
 	}
 
 	fn yank_package(

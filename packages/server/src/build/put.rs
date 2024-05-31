@@ -161,9 +161,7 @@ impl Server {
 		);
 		let params = db::params![
 			id,
-			db::Value::Null,
 			arg.host,
-			false,
 			arg.log,
 			arg.outcome,
 			arg.retry,

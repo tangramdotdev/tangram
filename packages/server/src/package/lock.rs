@@ -744,7 +744,7 @@ impl Context {
 		// Seed the list of versions if necessary.
 		if remaining_versions.is_none() {
 			let Some(versions) = server
-				.try_get_package_versions(&edge.dependency)
+				.try_get_package_versions(&edge.dependency, tg::package::versions::Arg::default())
 				.await
 				.map_err(|source| {
 					Error::Other(
