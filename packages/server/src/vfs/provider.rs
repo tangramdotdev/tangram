@@ -40,6 +40,7 @@ pub struct FileHandle {
 
 #[derive(Clone)]
 struct Node {
+	parent: u64,
 	artifact: Option<tg::Artifact>,
 	checkout: bool,
 }
@@ -140,6 +141,10 @@ impl vfs::Provider for Provider {
 	}
 
 	async fn lookup_parent(&self, id: u64) -> std::io::Result<u64> {
+		if let Some(node) = self.cache.get(&id).await {
+			return Ok(node.parent);
+		}
+
 		let connection = self.database.connection().await.map_err(|error| {
 			tracing::error!(%error, "failed to get database a connection");
 			std::io::Error::from_raw_os_error(libc::EIO)
@@ -172,6 +177,7 @@ impl vfs::Provider for Provider {
 			Node {
 				artifact: Some(tg::Artifact::File(file)),
 				checkout: false,
+				..
 			} => {
 				let executable = file.executable(&self.server).await.map_err(|error| {
 					tracing::error!(%error, "failed to get file's executable bit");
@@ -186,11 +192,13 @@ impl vfs::Provider for Provider {
 			Node {
 				artifact: Some(tg::Artifact::Directory(_)),
 				checkout: false,
+				..
 			}
 			| Node { artifact: None, .. } => Ok(vfs::Attrs::new(vfs::FileType::Directory)),
 			Node {
 				artifact: Some(tg::Artifact::Symlink(_)),
 				checkout: false,
+				..
 			}
 			| Node { checkout: true, .. } => Ok(vfs::Attrs::new(vfs::FileType::Symlink)),
 		}
@@ -254,7 +262,7 @@ impl vfs::Provider for Provider {
 
 	async fn readlink(&self, id: u64) -> std::io::Result<Bytes> {
 		// Get the node.
-		let Node { artifact, checkout } = self.get(id).await.map_err(|error| {
+		let Node { artifact, checkout, .. } = self.get(id).await.map_err(|error| {
 			tracing::error!(%error, "failed to lookup node");
 			std::io::Error::from_raw_os_error(libc::EIO)
 		})?;
@@ -413,7 +421,7 @@ impl Provider {
 		let cache = moka::future::CacheBuilder::new(options.cache_size)
 			.time_to_idle(std::time::Duration::from_secs_f64(options.cache_ttl))
 			.build_with_hasher(fnv::FnvBuildHasher::default());
-
+		
 		// Create the database.
 		let tmp = Tmp::new(server);
 		tokio::fs::create_dir_all(&tmp)
@@ -494,7 +502,7 @@ impl Provider {
 	async fn get(&self, id: u64) -> std::io::Result<Node> {
 		// Attempt to read from the cache.
 		if let Some(node) = self.cache.get(&id).await {
-			return Ok(node);
+			return Ok(node.clone());
 		}
 
 		// Attempt to read from any pending writes.
@@ -511,13 +519,14 @@ impl Provider {
 		// Get the node from the database.
 		#[derive(serde::Deserialize)]
 		struct Row {
+			parent: u64,
 			artifact: Option<tg::artifact::Id>,
 			checkout: bool,
 		}
 		let p = connection.p();
 		let statement = formatdoc!(
 			"
-				select artifact, checkout
+				select parent, artifact, checkout
 				from nodes
 				where id = {p}1;
 			"
@@ -532,9 +541,10 @@ impl Provider {
 			})?;
 
 		// Create the node.
+		let parent = row.parent;
 		let artifact = row.artifact.map(tg::Artifact::with_id);
 		let checkout = row.checkout;
-		let node = Node { artifact, checkout };
+		let node = Node { parent, artifact, checkout };
 
 		// Add the node to the cache.
 		self.cache.insert(id, node.clone()).await;
@@ -551,6 +561,7 @@ impl Provider {
 	) -> std::io::Result<u64> {
 		// Create the node.
 		let node = Node {
+			parent,
 			artifact: Some(artifact.clone()),
 			checkout,
 		};
