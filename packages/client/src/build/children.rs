@@ -27,7 +27,6 @@ pub enum Event {
 	End,
 }
 
-
 #[derive(Clone, Debug, Default, serde::Serialize, serde::Deserialize)]
 pub struct Chunk {
 	pub position: u64,
@@ -113,9 +112,7 @@ impl tg::Client {
 						.map_err(|source| tg::error!(!source, "failed to deserialize the data"))?;
 					Ok(Event::Data(data))
 				},
-				Some("end") => {
-					Ok(Event::End)
-				}
+				Some("end") => Ok(Event::End),
 				Some("error") => {
 					let error = serde_json::from_str(&event.data)
 						.map_err(|source| tg::error!(!source, "failed to deserialize the error"))?;

@@ -17,25 +17,25 @@ impl Server {
 		arg: tg::build::status::Arg,
 	) -> tg::Result<Option<impl Stream<Item = tg::Result<tg::build::status::Event>> + Send + 'static>>
 	{
-		let status = if let Some(status) = self.try_get_build_status_local(id, arg.clone()).await? {
-			status.left_stream()
+		if let Some(status) = self.try_get_build_status_local(id, arg.clone()).await? {
+			Ok(Some(status.left_stream()))
 		} else if let Some(status) = self.try_get_build_status_remote(id, arg.clone()).await? {
-			status.right_stream()
+			let status = status
+				.map_ok(tg::build::status::Event::Data)
+				.chain(stream::once(future::ok(tg::build::status::Event::End)))
+				.right_stream();
+			Ok(Some(status))
 		} else {
-			return Ok(None);
-		};
-		let end = stream::once(future::ready(Ok::<_, tg::Error>(
-			tg::build::status::Event::End,
-		)));
-		let status = status.map_ok(tg::build::status::Event::Data).chain(end);
-		Ok(Some(status))
+			Ok(None)
+		}
 	}
 
 	pub(crate) async fn try_get_build_status_local(
 		&self,
 		id: &tg::build::Id,
 		arg: tg::build::status::Arg,
-	) -> tg::Result<Option<impl Stream<Item = tg::Result<tg::build::Status>> + Send + 'static>> {
+	) -> tg::Result<Option<impl Stream<Item = tg::Result<tg::build::status::Event>> + Send + 'static>>
+	{
 		// Verify the build is local.
 		if !self.get_build_exists_local(id).await? {
 			return Ok(None);
@@ -100,6 +100,8 @@ impl Server {
 			},
 		)
 		.try_flatten()
+		.map_ok(tg::build::status::Event::Data)
+		.chain(stream::once(future::ok(tg::build::status::Event::End)))
 		.boxed();
 
 		Ok(Some(stream))

@@ -13,8 +13,7 @@ pub enum Status {
 	Finished,
 }
 
-
-#[derive(Clone, Debug)]
+#[derive(Copy, Clone, Debug)]
 pub enum Event {
 	Data(Status),
 	End,
@@ -62,7 +61,8 @@ impl tg::Client {
 		&self,
 		id: &tg::build::Id,
 		arg: tg::build::status::Arg,
-	) -> tg::Result<Option<impl Stream<Item = tg::Result<tg::build::status::Event>> + Send + 'static>> {
+	) -> tg::Result<Option<impl Stream<Item = tg::Result<tg::build::status::Event>> + Send + 'static>>
+	{
 		let method = http::Method::GET;
 		let query = serde_urlencoded::to_string(&arg).unwrap();
 		let uri = format!("/builds/{id}/status?{query}");

@@ -2,7 +2,7 @@ use crate::Server;
 use bytes::{Bytes, BytesMut};
 use futures::{
 	future::{self, BoxFuture},
-	stream, stream_select, FutureExt as _, Stream, StreamExt as _, TryStreamExt as _,
+	stream, stream_select, FutureExt as _, Stream, StreamExt, TryStreamExt as _,
 };
 use indoc::formatdoc;
 use itertools::Itertools as _;
@@ -44,27 +44,24 @@ impl Server {
 		arg: tg::build::log::Arg,
 	) -> tg::Result<Option<impl Stream<Item = tg::Result<tg::build::log::Event>> + Send + 'static>>
 	{
-		let log = if let Some(log) = self.try_get_build_log_local(id, arg.clone()).await? {
-			log.left_stream()
+		if let Some(log) = self.try_get_build_log_local(id, arg.clone()).await? {
+			Ok(Some(log.left_stream()))
 		} else if let Some(log) = self.try_get_build_log_remote(id, arg.clone()).await? {
-			log.right_stream()
+			let log = log
+				.map_ok(tg::build::log::Event::Data)
+				.chain(stream::once(future::ok(tg::build::log::Event::End)))
+				.right_stream();
+			Ok(Some(log))
 		} else {
-			return Ok(None);
-		};
-		let end = stream::once(
-			future::ready(Ok::<_, tg::Error>(tg::build::log::Event::End))
-		);
-		let log = log
-			.map_ok(tg::build::log::Event::Data)
-			.chain(end);
-		Ok(Some(log))
+			Ok(None)
+		}
 	}
 
 	async fn try_get_build_log_local(
 		&self,
 		id: &tg::build::Id,
 		arg: tg::build::log::Arg,
-	) -> tg::Result<Option<impl Stream<Item = tg::Result<tg::build::log::Chunk>> + Send + 'static>>
+	) -> tg::Result<Option<impl Stream<Item = tg::Result<tg::build::log::Event>> + Send + 'static>>
 	{
 		// Verify the build is local.
 		if !self.get_build_exists_local(id).await? {
@@ -164,106 +161,113 @@ impl Server {
 					.try_next()
 					.await?
 					.ok_or_else(|| tg::error!("expected the status to exist"))?;
-				if status == tg::build::Status::Finished {
+				if matches!(
+					status,
+					tg::build::status::Event::Data(tg::build::Status::Finished)
+				) {
 					end = true;
 				}
 
 				// Create the stream.
-				let stream = stream::try_unfold(
-					(server.clone(), id.clone(), state.clone(), false),
-					move |(server, id, state, end)| async move {
-						if end {
-							return Ok(None);
-						}
-
-						// Lock the state.
-						let mut state_ = state.lock().await;
-
-						// Determine the size.
-						let position = state_.reader.stream_position().await.map_err(|source| {
-							tg::error!(!source, "failed to get the stream position")
-						})?;
-						let size = match length {
-							None => size,
-							Some(length) => {
-								if length >= 0 {
-									size.min(length.abs().to_u64().unwrap() - state_.read)
-								} else {
-									size.min(length.abs().to_u64().unwrap() - state_.read)
-										.min(position)
-								}
-							},
-						};
-
-						// Seek if necessary.
-						if length.is_some_and(|length| length < 0) {
-							let seek = std::io::SeekFrom::Current(-size.to_i64().unwrap());
-							state_.reader.seek(seek).await.map_err(|source| {
-								tg::error!(!source, "failed to seek the reader")
-							})?;
-						}
-
-						// Read the chunk.
-						let position = state_.reader.stream_position().await.map_err(|source| {
-							tg::error!(!source, "failed to get the stream position")
-						})?;
-						let mut data = vec![0u8; size.to_usize().unwrap()];
-						let mut read = 0;
-						while read < data.len() {
-							let n =
-								state_
-									.reader
-									.read(&mut data[read..])
-									.await
-									.map_err(|source| {
-										tg::error!(!source, "failed to read from the reader")
-									})?;
-							read += n;
-							if n == 0 {
-								break;
+				let stream =
+					stream::try_unfold(
+						(server.clone(), id.clone(), state.clone(), false),
+						move |(server, id, state, end)| async move {
+							if end {
+								return Ok(None);
 							}
-						}
-						data.truncate(read);
-						let chunk = tg::build::log::Chunk {
-							position,
-							bytes: data.into(),
-						};
 
-						// Update the state.
-						state_.read += read.to_u64().unwrap();
+							// Lock the state.
+							let mut state_ = state.lock().await;
 
-						// Seek if necessary.
-						if length.is_some_and(|length| length < 0) {
-							let seek = std::io::SeekFrom::Current(-read.to_i64().unwrap());
-							state_.reader.seek(seek).await.map_err(|source| {
-								tg::error!(!source, "failed to seek the reader")
-							})?;
-						}
+							// Determine the size.
+							let position =
+								state_.reader.stream_position().await.map_err(|source| {
+									tg::error!(!source, "failed to get the stream position")
+								})?;
+							let size = match length {
+								None => size,
+								Some(length) => {
+									if length >= 0 {
+										size.min(length.abs().to_u64().unwrap() - state_.read)
+									} else {
+										size.min(length.abs().to_u64().unwrap() - state_.read)
+											.min(position)
+									}
+								},
+							};
 
-						// If the chunk is empty, then only return it if the build is finished and the reader is at the end.
-						if chunk.bytes.is_empty() {
-							if status == tg::build::Status::Finished && state_.reader.end().await? {
+							// Seek if necessary.
+							if length.is_some_and(|length| length < 0) {
+								let seek = std::io::SeekFrom::Current(-size.to_i64().unwrap());
+								state_.reader.seek(seek).await.map_err(|source| {
+									tg::error!(!source, "failed to seek the reader")
+								})?;
+							}
+
+							// Read the chunk.
+							let position =
+								state_.reader.stream_position().await.map_err(|source| {
+									tg::error!(!source, "failed to get the stream position")
+								})?;
+							let mut data = vec![0u8; size.to_usize().unwrap()];
+							let mut read = 0;
+							while read < data.len() {
+								let n = state_.reader.read(&mut data[read..]).await.map_err(
+									|source| tg::error!(!source, "failed to read from the reader"),
+								)?;
+								read += n;
+								if n == 0 {
+									break;
+								}
+							}
+							data.truncate(read);
+							let chunk = tg::build::log::Chunk {
+								position,
+								bytes: data.into(),
+							};
+
+							// Update the state.
+							state_.read += read.to_u64().unwrap();
+
+							// Seek if necessary.
+							if length.is_some_and(|length| length < 0) {
+								let seek = std::io::SeekFrom::Current(-read.to_i64().unwrap());
+								state_.reader.seek(seek).await.map_err(|source| {
+									tg::error!(!source, "failed to seek the reader")
+								})?;
+							}
+
+							// If the chunk is empty, then only return it if the build is finished and the reader is at the end.
+							if chunk.bytes.is_empty() {
+								if matches!(
+									status,
+									tg::build::status::Event::Data(tg::build::Status::Finished)
+								) && state_.reader.end().await?
+								{
+									drop(state_);
+									return Ok::<_, tg::Error>(Some((
+										chunk,
+										(server, id, state, true),
+									)));
+								}
+
 								drop(state_);
-								return Ok::<_, tg::Error>(Some((
-									chunk,
-									(server, id, state, true),
-								)));
+								return Ok(None);
 							}
 
 							drop(state_);
-							return Ok(None);
-						}
 
-						drop(state_);
-
-						Ok::<_, tg::Error>(Some((chunk, (server, id, state, end))))
-					},
-				);
+							Ok::<_, tg::Error>(Some((chunk, (server, id, state, end))))
+						},
+					);
 
 				Ok::<_, tg::Error>(Some((stream, (events, server, id, state, end))))
 			},
 		)
 		.try_flatten()
+		.map_ok(tg::build::log::Event::Data)
+		.chain(stream::once(future::ok(tg::build::log::Event::End)))
 		.boxed();
 
 		Ok(Some(stream))

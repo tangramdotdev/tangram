@@ -1726,7 +1726,10 @@ impl FromV8 for tg::lock::Entry {
 			return Err(tg::error!("invalid value"));
 		};
 
-		Ok(Self { artifact: package, lock })
+		Ok(Self {
+			artifact: package,
+			lock,
+		})
 	}
 }
 
