@@ -143,8 +143,9 @@ where
 			.try_next()
 			.await?;
 
-		let max_position = chunk
-			.map_or(0, |chunk| chunk.position + chunk.bytes.len().to_u64().unwrap());
+		let max_position = chunk.map_or(0, |chunk| {
+			chunk.position + chunk.bytes.len().to_u64().unwrap()
+		});
 		self.max_position.store(max_position, Ordering::Relaxed);
 
 		// Seed the front of the log.
@@ -349,9 +350,7 @@ where
 			self.watch.lock().await.replace(rx);
 		} else {
 			// Drain the stream and prepend the chunks.
-			let new_chunks = stream
-				.try_collect::<Vec<_>>()
-				.await?;
+			let new_chunks = stream.try_collect::<Vec<_>>().await?;
 			let mid = chunks.len();
 			chunks.extend_from_slice(&new_chunks);
 			chunks.rotate_left(mid);

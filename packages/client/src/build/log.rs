@@ -22,6 +22,12 @@ pub struct Arg {
 	pub timeout: Option<std::time::Duration>,
 }
 
+#[derive(Clone, Debug)]
+pub enum Event {
+	Data(Chunk),
+	End,
+}
+
 #[serde_as]
 #[derive(Clone, Debug, serde::Serialize, serde::Deserialize)]
 pub struct Chunk {
@@ -73,7 +79,7 @@ impl tg::Client {
 		&self,
 		id: &tg::build::Id,
 		arg: tg::build::log::Arg,
-	) -> tg::Result<Option<impl Stream<Item = tg::Result<tg::build::log::Chunk>> + Send + 'static>>
+	) -> tg::Result<Option<impl Stream<Item = tg::Result<tg::build::log::Event>> + Send + 'static>>
 	{
 		let method = http::Method::GET;
 		let query = serde_urlencoded::to_string(&arg).unwrap();
@@ -98,8 +104,9 @@ impl tg::Client {
 				None | Some("data") => {
 					let data = serde_json::from_str(&event.data)
 						.map_err(|source| tg::error!(!source, "failed to deserialize the data"))?;
-					Ok(data)
+					Ok(tg::build::log::Event::Data(data))
 				},
+				Some("end") => Ok(tg::build::log::Event::End),
 				Some("error") => {
 					let error = serde_json::from_str(&event.data)
 						.map_err(|source| tg::error!(!source, "failed to deserialize the error"))?;

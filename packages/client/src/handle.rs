@@ -114,7 +114,7 @@ pub trait Handle: Clone + Unpin + Send + Sync + 'static {
 		arg: tg::build::status::Arg,
 	) -> impl Future<
 		Output = tg::Result<
-			Option<impl Stream<Item = tg::Result<tg::build::Status>> + Send + 'static>,
+			Option<impl Stream<Item = tg::Result<tg::build::status::Event>> + Send + 'static>,
 		>,
 	> + Send;
 
@@ -139,7 +139,7 @@ pub trait Handle: Clone + Unpin + Send + Sync + 'static {
 				|timeout| tokio::time::sleep(timeout).right_future(),
 			);
 			struct State {
-				stream: Option<stream::BoxStream<'static, tg::Result<tg::build::Status>>>,
+				stream: Option<stream::BoxStream<'static, tg::Result<tg::build::status::Event>>>,
 				end: bool,
 			}
 			let state = Arc::new(Mutex::new(State {
@@ -168,6 +168,12 @@ pub trait Handle: Clone + Unpin + Send + Sync + 'static {
 				}
 			})
 			.try_flatten()
+			.take_while(|event| future::ready(!matches!(event, Ok(tg::build::status::Event::End))))
+			.map(|event| match event {
+				Ok(tg::build::status::Event::Data(status)) => Ok(status),
+				Err(e) => Err(e),
+				_ => unreachable!(),
+			})
 			.inspect_ok({
 				let state = state.clone();
 				move |status| {
@@ -197,7 +203,7 @@ pub trait Handle: Clone + Unpin + Send + Sync + 'static {
 		arg: tg::build::children::Arg,
 	) -> impl Future<
 		Output = tg::Result<
-			Option<impl Stream<Item = tg::Result<tg::build::children::Chunk>> + Send + 'static>,
+			Option<impl Stream<Item = tg::Result<tg::build::children::Event>> + Send + 'static>,
 		>,
 	> + Send;
 
@@ -225,7 +231,7 @@ pub trait Handle: Clone + Unpin + Send + Sync + 'static {
 				|timeout| tokio::time::sleep(timeout).right_future(),
 			);
 			struct State {
-				stream: Option<stream::BoxStream<'static, tg::Result<tg::build::children::Chunk>>>,
+				stream: Option<stream::BoxStream<'static, tg::Result<tg::build::children::Event>>>,
 				arg: tg::build::children::Arg,
 				end: bool,
 			}
@@ -256,6 +262,14 @@ pub trait Handle: Clone + Unpin + Send + Sync + 'static {
 				}
 			})
 			.try_flatten()
+			.take_while(|event| {
+				future::ready(!matches!(event, Ok(tg::build::children::Event::End)))
+			})
+			.map(|event| match event {
+				Ok(tg::build::children::Event::Data(chunk)) => Ok(chunk),
+				Err(e) => Err(e),
+				_ => unreachable!(),
+			})
 			.inspect_ok({
 				let state = state.clone();
 				move |chunk| {
@@ -308,7 +322,7 @@ pub trait Handle: Clone + Unpin + Send + Sync + 'static {
 		arg: tg::build::log::Arg,
 	) -> impl Future<
 		Output = tg::Result<
-			Option<impl Stream<Item = tg::Result<tg::build::log::Chunk>> + Send + 'static>,
+			Option<impl Stream<Item = tg::Result<tg::build::log::Event>> + Send + 'static>,
 		>,
 	> + Send;
 
@@ -333,7 +347,7 @@ pub trait Handle: Clone + Unpin + Send + Sync + 'static {
 				|timeout| tokio::time::sleep(timeout).right_future(),
 			);
 			struct State {
-				stream: Option<BoxStream<'static, tg::Result<tg::build::log::Chunk>>>,
+				stream: Option<BoxStream<'static, tg::Result<tg::build::log::Event>>>,
 				arg: tg::build::log::Arg,
 				end: bool,
 			}
@@ -365,6 +379,12 @@ pub trait Handle: Clone + Unpin + Send + Sync + 'static {
 				}
 			})
 			.try_flatten()
+			.take_while(|event| future::ready(!matches!(event, Ok(tg::build::log::Event::End))))
+			.map(|event| match event {
+				Ok(tg::build::log::Event::Data(chunk)) => Ok(chunk),
+				Err(e) => Err(e),
+				_ => unreachable!(),
+			})
 			.inspect_ok(move |chunk| {
 				let mut state = state.lock().unwrap();
 

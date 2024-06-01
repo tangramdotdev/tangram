@@ -21,12 +21,16 @@ impl Server {
 		id: &tg::build::Id,
 		arg: tg::build::children::Arg,
 	) -> tg::Result<
-		Option<impl Stream<Item = tg::Result<tg::build::children::Chunk>> + Send + 'static>,
+		Option<impl Stream<Item = tg::Result<tg::build::children::Event>> + Send + 'static>,
 	> {
 		if let Some(children) = self.try_get_build_children_local(id, arg.clone()).await? {
 			Ok(Some(children.left_stream()))
 		} else if let Some(children) = self.try_get_build_children_remote(id, arg.clone()).await? {
-			Ok(Some(children.right_stream()))
+			let children = children
+				.map_ok(tg::build::children::Event::Data)
+				.chain(stream::once(future::ok(tg::build::children::Event::End)))
+				.right_stream();
+			Ok(Some(children))
 		} else {
 			Ok(None)
 		}
@@ -37,7 +41,7 @@ impl Server {
 		id: &tg::build::Id,
 		arg: tg::build::children::Arg,
 	) -> tg::Result<
-		Option<impl Stream<Item = tg::Result<tg::build::children::Chunk>> + Send + 'static>,
+		Option<impl Stream<Item = tg::Result<tg::build::children::Event>> + Send + 'static>,
 	> {
 		// Verify the build is local.
 		if !self.get_build_exists_local(id).await? {
@@ -83,10 +87,7 @@ impl Server {
 				.ok_or_else(|| tg::error!("invalid offset"))?
 				.to_u64()
 				.ok_or_else(|| tg::error!("invalid offset"))?,
-			None => {
-				self.try_get_build_children_local_current_position(id)
-					.await?
-			},
+			None => 0,
 		};
 
 		// Get the length.
@@ -133,7 +134,10 @@ impl Server {
 					.try_next()
 					.await?
 					.ok_or_else(|| tg::error!("expected the status to exist"))?;
-				if status == tg::build::Status::Finished {
+				if matches!(
+					status,
+					tg::build::status::Event::Data(tg::build::Status::Finished)
+				) {
 					end = true;
 				}
 
@@ -166,23 +170,22 @@ impl Server {
 
 						drop(state_);
 
-						// If the chunk is empty, then only return it if the build is finished and the position is at the end.
+						// If the chunk is empty, the stream is finished.
 						if chunk.items.is_empty() {
-							let end = server
-								.try_get_build_children_local_end(&id, chunk.position)
-								.await?;
-							if end {
-								return Ok::<_, tg::Error>(Some((
-									chunk,
-									(server, id, state, true),
-								)));
-							}
 							return Ok(None);
 						}
 
 						Ok::<_, tg::Error>(Some((chunk, (server, id, state, false))))
 					},
-				);
+				)
+				.filter(|chunk| {
+					let Ok(chunk) = chunk else {
+						return future::ready(true);
+					};
+					future::ready(!chunk.items.is_empty())
+				})
+				.map_ok(tg::build::children::Event::Data)
+				.chain(stream::once(future::ok(tg::build::children::Event::End)));
 
 				Ok::<_, tg::Error>(Some((stream, (server, id, events, state, end))))
 			},
@@ -223,45 +226,6 @@ impl Server {
 		drop(connection);
 
 		Ok(position)
-	}
-
-	async fn try_get_build_children_local_end(
-		&self,
-		id: &tg::build::Id,
-		position: u64,
-	) -> tg::Result<bool> {
-		// Get a database connection.
-		let connection = self
-			.database
-			.connection()
-			.await
-			.map_err(|source| tg::error!(!source, "failed to get a database connection"))?;
-
-		// Get the end.
-		let p = connection.p();
-		let statement = formatdoc!(
-			"
-				select (
-					select status = 'finished'
-					from builds
-					where id = {p}1
-				) and (
-					select {p}2 >= count(*)
-					from build_children
-					where build = {p}1
-				);
-			"
-		);
-		let params = db::params![id, position];
-		let end = connection
-			.query_one_value_into(statement, params)
-			.await
-			.map_err(|source| tg::error!(!source, "failed to execute the statement"))?;
-
-		// Drop the database connection.
-		drop(connection);
-
-		Ok(end)
 	}
 
 	async fn try_get_build_children_local_inner(
@@ -412,7 +376,7 @@ impl Server {
 		let accept: Option<mime::Mime> = request.parse_header(http::header::ACCEPT).transpose()?;
 
 		// Get the stream.
-		let Some(stream) = handle.try_get_build_children(&id, arg).await? else {
+		let Some(stream) = handle.try_get_build_children_stream(&id, arg).await? else {
 			return Ok(http::Response::builder().not_found().empty().unwrap());
 		};
 
@@ -429,7 +393,15 @@ impl Server {
 				let content_type = mime::APPLICATION_JSON;
 				let future = async move {
 					let children: Vec<tg::build::Id> = stream
-						.map_ok(|chunk| stream::iter(chunk.items).map(Ok::<_, tg::Error>))
+						.take_while(|event| {
+							future::ready(!matches!(event, Ok(tg::build::children::Event::End)))
+						})
+						.map_ok(|event| {
+							let tg::build::children::Event::Data(chunk) = event else {
+								unreachable!()
+							};
+							stream::iter(chunk.items.into_iter()).map(Ok::<_, tg::Error>)
+						})
 						.try_flatten()
 						.try_collect()
 						.await?;
@@ -443,9 +415,16 @@ impl Server {
 			Some((mime::TEXT, mime::EVENT_STREAM)) => {
 				let content_type = mime::TEXT_EVENT_STREAM;
 				let sse = stream.map(|result| match result {
-					Ok(data) => {
+					Ok(tg::build::children::Event::Data(data)) => {
 						let data = serde_json::to_string(&data).unwrap();
 						Ok::<_, tg::Error>(tangram_http::sse::Event::with_data(data))
+					},
+					Ok(tg::build::children::Event::End) => {
+						let event = "end".to_owned();
+						Ok::<_, tg::Error>(tangram_http::sse::Event {
+							event: Some(event),
+							..Default::default()
+						})
 					},
 					Err(error) => {
 						let data = serde_json::to_string(&error).unwrap();

@@ -56,11 +56,16 @@ impl Server {
 			.await?
 			.ok_or_else(|| tg::error!("expected the build to exist"))?;
 		let finished = status.try_filter_map(|status| {
-			future::ready(Ok(if status == tg::build::Status::Finished {
-				Some(())
-			} else {
-				None
-			}))
+			future::ready(Ok(
+				if matches!(
+					status,
+					tg::build::status::Event::Data(tg::build::Status::Finished)
+				) {
+					Some(())
+				} else {
+					None
+				},
+			))
 		});
 		let finished = pin!(finished)
 			.try_next()

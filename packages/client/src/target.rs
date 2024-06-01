@@ -5,7 +5,10 @@ use futures::{
 	FutureExt as _, TryStreamExt as _,
 };
 use itertools::Itertools as _;
-use std::{collections::{BTreeMap, BTreeSet}, sync::Arc};
+use std::{
+	collections::{BTreeMap, BTreeSet},
+	sync::Arc,
+};
 
 pub mod build;
 

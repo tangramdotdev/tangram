@@ -33,7 +33,10 @@ impl Server {
 			.try_next()
 			.await?
 			.ok_or_else(|| tg::error!("failed to get the status"))?;
-		if status == tg::build::Status::Finished {
+		if matches!(
+			status,
+			tg::build::status::Event::Data(tg::build::Status::Finished)
+		) {
 			return Ok(());
 		}
 
