@@ -1,21 +1,45 @@
 use crate::Server;
 use bytes::Bytes;
-use futures::{stream::FuturesUnordered, TryStreamExt as _};
+use futures::{stream::FuturesUnordered, StreamExt as _, TryStreamExt as _};
 use indoc::formatdoc;
 use num::ToPrimitive as _;
+use std::pin::pin;
 use tangram_client as tg;
 use tangram_database::{self as db, prelude::*};
+use tangram_messenger::Messenger as _;
 
 impl Server {
 	pub(crate) async fn object_index_task(&self) -> tg::Result<()> {
-		while let Ok(id) = self.object_index_queue.receiver.recv().await {
+		let stream = self
+			.messenger
+			.subscribe("objects.index".to_owned(), Some("queue".to_owned()))
+			.await
+			.map_err(|source| tg::error!(!source, "failed to subscribe"))?;
+		let mut stream = pin!(stream);
+		while let Some(message) = { stream.next().await } {
+			let id = match std::str::from_utf8(&message.payload) {
+				Ok(id) => id,
+				Err(error) => {
+					tracing::error!(?error);
+					continue;
+				},
+			};
+			let id = match id.parse() {
+				Ok(id) => id,
+				Err(error) => {
+					tracing::error!(?error);
+					continue;
+				},
+			};
 			tokio::spawn({
 				let server = self.clone();
 				async move {
 					server
 						.index_object(&id)
 						.await
-						.inspect_err(|error| tracing::error!(?error))
+						.inspect_err(|error| {
+							tracing::error!(?error);
+						})
 						.ok();
 				}
 			});
@@ -269,7 +293,7 @@ impl Server {
 			);
 			let params = db::params![id];
 			let objects = connection
-				.query_all_value_into(statement, params)
+				.query_all_value_into::<tg::object::Id>(statement, params)
 				.await
 				.map_err(|source| tg::error!(!source, "failed to execute the statement"))?;
 
@@ -278,7 +302,15 @@ impl Server {
 
 			// Add the incomplete parents to the object index queue.
 			for object in objects {
-				self.object_index_queue.sender.send(object).await.unwrap();
+				tokio::spawn({
+					let server = self.clone();
+					async move {
+						let subject = "objects.index".to_owned();
+						let payload = object.to_string().into();
+						tracing::debug!(?object, "publish");
+						server.messenger.publish(subject, payload).await.ok();
+					}
+				});
 			}
 		}
 
@@ -309,7 +341,7 @@ impl Server {
 			);
 			let params = db::params![id];
 			let builds = connection
-				.query_all_value_into(statement, params)
+				.query_all_value_into::<tg::build::Id>(statement, params)
 				.await
 				.map_err(|source| tg::error!(!source, "failed to execute the statement"))?;
 
@@ -318,7 +350,14 @@ impl Server {
 
 			// Add the incomplete builds to the build index queue.
 			for build in builds {
-				self.build_index_queue.sender.send(build).await.unwrap();
+				tokio::spawn({
+					let server = self.clone();
+					async move {
+						let subject = "builds.index".to_owned();
+						let payload = build.to_string().into();
+						server.messenger.publish(subject, payload).await.ok();
+					}
+				});
 			}
 		}
 

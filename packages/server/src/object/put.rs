@@ -1,11 +1,11 @@
-use std::collections::BTreeSet;
-
 use crate::{database::Transaction, Server};
 use futures::FutureExt as _;
 use indoc::formatdoc;
+use std::collections::BTreeSet;
 use tangram_client as tg;
 use tangram_database::{self as db, prelude::*};
 use tangram_http::{incoming::request::Ext as _, Incoming, Outgoing};
+use tangram_messenger::Messenger as _;
 use time::format_description::well_known::Rfc3339;
 
 impl Server {
@@ -71,7 +71,9 @@ impl Server {
 				let server = self.clone();
 				let id = id.clone();
 				async move {
-					server.object_index_queue.sender.send(id).await.unwrap();
+					let subject = "objects.index".to_owned();
+					let payload = id.to_string().into();
+					server.messenger.publish(subject, payload).await.ok();
 				}
 			});
 		}

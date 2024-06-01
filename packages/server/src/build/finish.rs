@@ -205,7 +205,9 @@ impl Server {
 			let server = self.clone();
 			let id = id.clone();
 			async move {
-				server.build_index_queue.sender.send(id).await.unwrap();
+				let subject = "builds.index".to_owned();
+				let payload = id.to_string().into();
+				server.messenger.publish(subject, payload).await.ok();
 			}
 		});
 

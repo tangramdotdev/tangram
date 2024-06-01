@@ -21,7 +21,7 @@ pub trait Messenger {
 	) -> impl Future<Output = Result<impl Stream<Item = Message> + Send + 'static, Self::Error>> + Send;
 }
 
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 pub struct Message {
 	pub subject: String,
 	pub payload: Bytes,

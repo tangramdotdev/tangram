@@ -59,14 +59,12 @@ pub mod options;
 pub struct Server(Arc<Inner>);
 
 pub struct Inner {
-	build_index_queue: BuildIndexQueue,
 	build_permits: BuildPermits,
 	build_semaphore: Arc<tokio::sync::Semaphore>,
 	builds: BuildTaskMap,
 	checkouts: CheckoutTaskMap,
 	database: Database,
 	file_descriptor_semaphore: tokio::sync::Semaphore,
-	object_index_queue: ObjectIndexQueue,
 	local_pool_handle: tokio_util::task::LocalPoolHandle,
 	lock_file: std::sync::Mutex<Option<tokio::fs::File>>,
 	messenger: Messenger,
@@ -76,11 +74,6 @@ pub struct Inner {
 	runtimes: std::sync::RwLock<HashMap<String, Runtime>>,
 	task: std::sync::Mutex<Option<Task<tg::Result<()>>>>,
 	vfs: std::sync::Mutex<Option<self::vfs::Server>>,
-}
-
-struct BuildIndexQueue {
-	sender: async_channel::Sender<tg::build::Id>,
-	receiver: async_channel::Receiver<tg::build::Id>,
 }
 
 type BuildPermits =
@@ -95,11 +88,6 @@ type BuildTaskMap = TaskMap<tg::build::Id, (), fnv::FnvBuildHasher>;
 
 type CheckoutTaskMap =
 	TaskMap<tg::artifact::Id, tg::Result<tg::artifact::checkout::Output>, fnv::FnvBuildHasher>;
-
-struct ObjectIndexQueue {
-	sender: async_channel::Sender<tg::object::Id>,
-	receiver: async_channel::Receiver<tg::object::Id>,
-}
 
 impl Server {
 	pub async fn start(options: Options) -> tg::Result<Server> {
@@ -164,10 +152,6 @@ impl Server {
 		let socket_path = path.join("socket");
 		tokio::fs::remove_file(&socket_path).await.ok();
 
-		// Create the build index queue.
-		let (sender, receiver) = async_channel::unbounded();
-		let build_index_queue = BuildIndexQueue { sender, receiver };
-
 		// Create the build permits.
 		let build_permits = DashMap::default();
 
@@ -213,10 +197,6 @@ impl Server {
 		let file_descriptor_semaphore =
 			tokio::sync::Semaphore::new(options.advanced.file_descriptor_semaphore_size);
 
-		// Create the object index queue.
-		let (sender, receiver) = async_channel::unbounded();
-		let object_index_queue = ObjectIndexQueue { sender, receiver };
-
 		// Create the local pool handle.
 		let local_pool_handle = tokio_util::task::LocalPoolHandle::new(
 			std::thread::available_parallelism().unwrap().get(),
@@ -253,14 +233,12 @@ impl Server {
 
 		// Create the server.
 		let server = Self(Arc::new(Inner {
-			build_index_queue,
 			build_permits,
 			build_semaphore,
 			builds,
 			checkouts,
 			database,
 			file_descriptor_semaphore,
-			object_index_queue,
 			local_pool_handle,
 			lock_file,
 			messenger,
