@@ -99,6 +99,24 @@ impl Outgoing {
 		}))
 	}
 
+	pub fn future_optional_json<F, T, E>(value: F) -> Self
+	where
+		F: Future<Output = Result<Option<T>, E>> + Send + 'static,
+		T: serde::Serialize,
+		E: Into<Error> + 'static,
+	{
+		Self::future_bytes(value.err_into().and_then(|option| {
+			future::ready(option.map_or_else(
+				|| Ok(Bytes::new()),
+				|output| {
+					serde_json::to_vec(&output)
+						.map(Bytes::from)
+						.map_err(Error::from)
+				},
+			))
+		}))
+	}
+
 	pub fn sse<S, T, E>(value: S) -> Self
 	where
 		S: Stream<Item = Result<T, E>> + Send + 'static,

@@ -5,6 +5,7 @@ use itertools::Itertools as _;
 use std::pin::pin;
 use tangram_client as tg;
 use tangram_database::{self as db, prelude::*};
+use tangram_futures::task::Stop;
 use tangram_http::{incoming::request::Ext as _, outgoing::response::Ext as _, Incoming, Outgoing};
 use tg::Handle as _;
 
@@ -143,6 +144,7 @@ impl Server {
 	where
 		H: tg::Handle,
 	{
+		// Parse the ID.
 		let id = id.parse()?;
 
 		// Get the query.
@@ -151,6 +153,14 @@ impl Server {
 		let Some(future) = handle.try_get_build_outcome(&id, arg).await? else {
 			return Ok(http::Response::builder().not_found().empty().unwrap());
 		};
+
+		// Stop the future when the server stops.
+		let stop = request.extensions().get::<Stop>().cloned().unwrap();
+		let future = future::select(future.boxed(), async move { stop.stopped().await }.boxed())
+			.map(|result| match result {
+				future::Either::Left((result, _)) => result,
+				future::Either::Right(((), _)) => Ok(None),
+			});
 
 		// Create the body.
 		let future = future.and_then({
@@ -165,7 +175,9 @@ impl Server {
 		});
 
 		// Create the response.
-		let response = http::Response::builder().future_json(future).unwrap();
+		let response = http::Response::builder()
+			.future_optional_json(future)
+			.unwrap();
 
 		Ok(response)
 	}

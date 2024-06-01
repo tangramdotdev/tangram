@@ -45,6 +45,12 @@ pub trait Ext: Sized {
 		F: Future<Output = Result<T, E>> + Send + 'static,
 		T: serde::Serialize,
 		E: Into<Error> + 'static;
+
+	fn future_optional_json<F, T, E>(self, value: F) -> http::Result<http::Response<Outgoing>>
+	where
+		F: Future<Output = Result<Option<T>, E>> + Send + 'static,
+		T: serde::Serialize,
+		E: Into<Error> + 'static;
 }
 
 impl Ext for http::response::Builder {
@@ -113,5 +119,14 @@ impl Ext for http::response::Builder {
 		E: Into<Error> + 'static,
 	{
 		self.body(Outgoing::future_json(value))
+	}
+
+	fn future_optional_json<F, T, E>(self, value: F) -> http::Result<http::Response<Outgoing>>
+	where
+		F: Future<Output = Result<Option<T>, E>> + Send + 'static,
+		T: serde::Serialize,
+		E: Into<Error> + 'static,
+	{
+		self.body(Outgoing::future_optional_json(value))
 	}
 }

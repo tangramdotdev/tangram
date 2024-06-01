@@ -26,10 +26,7 @@ impl Server {
 		if let Some(children) = self.try_get_build_children_local(id, arg.clone()).await? {
 			Ok(Some(children.left_stream()))
 		} else if let Some(children) = self.try_get_build_children_remote(id, arg.clone()).await? {
-			let children = children
-				.map_ok(tg::build::children::Event::Data)
-				.chain(stream::once(future::ok(tg::build::children::Event::End)))
-				.right_stream();
+			let children = children.right_stream();
 			Ok(Some(children))
 		} else {
 			Ok(None)
@@ -276,7 +273,7 @@ impl Server {
 		id: &tg::build::Id,
 		arg: tg::build::children::Arg,
 	) -> tg::Result<
-		Option<impl Stream<Item = tg::Result<tg::build::children::Chunk>> + Send + 'static>,
+		Option<impl Stream<Item = tg::Result<tg::build::children::Event>> + Send + 'static>,
 	> {
 		let futures = self
 			.remotes
@@ -302,6 +299,9 @@ impl Server {
 		let Ok((stream, _)) = future::select_ok(futures).await else {
 			return Ok(None);
 		};
+		let stream = stream
+			.map_ok(tg::build::children::Event::Data)
+			.chain(stream::once(future::ok(tg::build::children::Event::End)));
 		Ok(Some(stream))
 	}
 
@@ -367,6 +367,7 @@ impl Server {
 	where
 		H: tg::Handle,
 	{
+		// Parse the ID.
 		let id = id.parse()?;
 
 		// Get the query.
@@ -417,7 +418,10 @@ impl Server {
 				let sse = stream.map(|result| match result {
 					Ok(tg::build::children::Event::Data(data)) => {
 						let data = serde_json::to_string(&data).unwrap();
-						Ok::<_, tg::Error>(tangram_http::sse::Event::with_data(data))
+						Ok::<_, tg::Error>(tangram_http::sse::Event {
+							data,
+							..Default::default()
+						})
 					},
 					Ok(tg::build::children::Event::End) => {
 						let event = "end".to_owned();

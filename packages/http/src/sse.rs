@@ -9,16 +9,6 @@ pub struct Event {
 	pub retry: Option<u64>,
 }
 
-impl Event {
-	#[must_use]
-	pub fn with_data(data: String) -> Self {
-		Self {
-			data,
-			..Default::default()
-		}
-	}
-}
-
 impl std::fmt::Display for Event {
 	fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
 		if let Some(event) = self.event.as_ref() {

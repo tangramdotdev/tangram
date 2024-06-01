@@ -1,5 +1,5 @@
 use crate::Cli;
-use futures::{StreamExt, TryStreamExt as _};
+use futures::{StreamExt as _, TryStreamExt as _};
 use tangram_client::{self as tg, Handle as _};
 
 /// Get a build's children.

@@ -20,10 +20,7 @@ impl Server {
 		if let Some(status) = self.try_get_build_status_local(id, arg.clone()).await? {
 			Ok(Some(status.left_stream()))
 		} else if let Some(status) = self.try_get_build_status_remote(id, arg.clone()).await? {
-			let status = status
-				.map_ok(tg::build::status::Event::Data)
-				.chain(stream::once(future::ok(tg::build::status::Event::End)))
-				.right_stream();
+			let status = status.right_stream();
 			Ok(Some(status))
 		} else {
 			Ok(None)
@@ -143,7 +140,8 @@ impl Server {
 		&self,
 		id: &tg::build::Id,
 		arg: tg::build::status::Arg,
-	) -> tg::Result<Option<impl Stream<Item = tg::Result<tg::build::Status>> + Send + 'static>> {
+	) -> tg::Result<Option<impl Stream<Item = tg::Result<tg::build::status::Event>> + Send + 'static>>
+	{
 		let futures = self
 			.remotes
 			.iter()
@@ -168,6 +166,9 @@ impl Server {
 		let Ok((stream, _)) = future::select_ok(futures).await else {
 			return Ok(None);
 		};
+		let stream = stream
+			.map_ok(tg::build::status::Event::Data)
+			.chain(stream::once(future::ok(tg::build::status::Event::End)));
 		Ok(Some(stream))
 	}
 }
@@ -209,7 +210,10 @@ impl Server {
 				let sse = stream.map(|result| match result {
 					Ok(tg::build::status::Event::Data(data)) => {
 						let data = serde_json::to_string(&data).unwrap();
-						Ok::<_, tg::Error>(tangram_http::sse::Event::with_data(data))
+						Ok::<_, tg::Error>(tangram_http::sse::Event {
+							data,
+							..Default::default()
+						})
 					},
 					Ok(tg::build::status::Event::End) => {
 						let event = "end".to_owned();

@@ -141,8 +141,8 @@ impl tg::Client {
 			let error = response.json().await?;
 			return Err(error);
 		}
-		let outcome = response.json().err_into();
-		Ok(Some(outcome))
+		let output = response.optional_json().err_into();
+		Ok(Some(output))
 	}
 }
 

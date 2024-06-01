@@ -2,7 +2,7 @@ use crate::Server;
 use bytes::{Bytes, BytesMut};
 use futures::{
 	future::{self, BoxFuture},
-	stream, stream_select, FutureExt as _, Stream, StreamExt, TryStreamExt as _,
+	stream, stream_select, FutureExt as _, Stream, StreamExt as _, TryStreamExt as _,
 };
 use indoc::formatdoc;
 use itertools::Itertools as _;
@@ -47,10 +47,7 @@ impl Server {
 		if let Some(log) = self.try_get_build_log_local(id, arg.clone()).await? {
 			Ok(Some(log.left_stream()))
 		} else if let Some(log) = self.try_get_build_log_remote(id, arg.clone()).await? {
-			let log = log
-				.map_ok(tg::build::log::Event::Data)
-				.chain(stream::once(future::ok(tg::build::log::Event::End)))
-				.right_stream();
+			let log = log.right_stream();
 			Ok(Some(log))
 		} else {
 			Ok(None)
@@ -157,12 +154,12 @@ impl Server {
 					.try_get_build_status_local(&id, arg)
 					.await?
 					.ok_or_else(|| tg::error!("expected the build to exist"))?;
-				let status = pin!(status)
+				let event = pin!(status)
 					.try_next()
 					.await?
 					.ok_or_else(|| tg::error!("expected the status to exist"))?;
 				if matches!(
-					status,
+					event,
 					tg::build::status::Event::Data(tg::build::Status::Finished)
 				) {
 					end = true;
@@ -241,7 +238,7 @@ impl Server {
 							// If the chunk is empty, then only return it if the build is finished and the reader is at the end.
 							if chunk.bytes.is_empty() {
 								if matches!(
-									status,
+									event,
 									tg::build::status::Event::Data(tg::build::Status::Finished)
 								) && state_.reader.end().await?
 								{
@@ -277,7 +274,7 @@ impl Server {
 		&self,
 		id: &tg::build::Id,
 		arg: tg::build::log::Arg,
-	) -> tg::Result<Option<impl Stream<Item = tg::Result<tg::build::log::Chunk>> + Send + 'static>>
+	) -> tg::Result<Option<impl Stream<Item = tg::Result<tg::build::log::Event>> + Send + 'static>>
 	{
 		let futures = self
 			.remotes
@@ -303,6 +300,9 @@ impl Server {
 		let Ok((stream, _)) = future::select_ok(futures).await else {
 			return Ok(None);
 		};
+		let stream = stream
+			.map_ok(tg::build::log::Event::Data)
+			.chain(stream::once(future::ok(tg::build::log::Event::End)));
 		Ok(Some(stream))
 	}
 
@@ -312,29 +312,12 @@ impl Server {
 			return Err(tg::error!("failed to find the build"));
 		}
 
+		// Log.
 		if self.options.advanced.write_build_logs_to_database {
-			self.try_add_build_log_database(id, bytes).await?;
+			self.try_add_build_log_to_database(id, bytes).await?;
 		} else {
-			self.try_add_build_log_file(id, bytes).await?;
+			self.try_add_build_log_to_file(id, bytes).await?;
 		}
-
-		Ok(())
-	}
-
-	async fn try_add_build_log_file(&self, id: &tg::build::Id, bytes: Bytes) -> tg::Result<()> {
-		// Write to the log file.
-		let path = self.logs_path().join(id.to_string());
-		let mut file = tokio::fs::File::options()
-			.create(true)
-			.append(true)
-			.open(&path)
-			.await
-			.map_err(
-				|source| tg::error!(!source, %path = path.display(), "failed to open the log file"),
-			)?;
-		file.write_all(&bytes).await.map_err(
-			|source| tg::error!(!source, %path = path.display(), "failed to write to the log file"),
-		)?;
 
 		// Publish the message.
 		tokio::spawn({
@@ -353,7 +336,29 @@ impl Server {
 		Ok(())
 	}
 
-	async fn try_add_build_log_database(&self, id: &tg::build::Id, bytes: Bytes) -> tg::Result<()> {
+	async fn try_add_build_log_to_file(&self, id: &tg::build::Id, bytes: Bytes) -> tg::Result<()> {
+		// Write to the log file.
+		let path = self.logs_path().join(id.to_string());
+		let mut file = tokio::fs::File::options()
+			.create(true)
+			.append(true)
+			.open(&path)
+			.await
+			.map_err(
+				|source| tg::error!(!source, %path = path.display(), "failed to open the log file"),
+			)?;
+		file.write_all(&bytes).await.map_err(
+			|source| tg::error!(!source, %path = path.display(), "failed to write to the log file"),
+		)?;
+
+		Ok(())
+	}
+
+	async fn try_add_build_log_to_database(
+		&self,
+		id: &tg::build::Id,
+		bytes: Bytes,
+	) -> tg::Result<()> {
 		// Get a database connection.
 		let connection = self
 			.database
@@ -392,12 +397,6 @@ impl Server {
 
 		// Drop the database connection.
 		drop(connection);
-
-		// Publish the message.
-		self.messenger
-			.publish(format!("builds.{id}.log"), Bytes::new())
-			.await
-			.map_err(|source| tg::error!(!source, "failed to publish"))?;
 
 		Ok(())
 	}
@@ -768,6 +767,7 @@ impl Server {
 	where
 		H: tg::Handle,
 	{
+		// Parse the ID.
 		let id = id.parse()?;
 
 		// Get the query.
@@ -795,7 +795,10 @@ impl Server {
 				let sse = stream.map(|result| match result {
 					Ok(tg::build::log::Event::Data(data)) => {
 						let data = serde_json::to_string(&data).unwrap();
-						Ok::<_, tg::Error>(tangram_http::sse::Event::with_data(data))
+						Ok::<_, tg::Error>(tangram_http::sse::Event {
+							data,
+							..Default::default()
+						})
 					},
 					Ok(tg::build::log::Event::End) => {
 						let event = "end".to_owned();

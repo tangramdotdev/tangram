@@ -23,6 +23,10 @@ pub trait Ext: Sized {
 	where
 		T: serde::de::DeserializeOwned;
 
+	fn optional_json<T>(self) -> impl Future<Output = Result<Option<T>, Error>> + Send
+	where
+		T: serde::de::DeserializeOwned;
+
 	fn reader(self) -> impl AsyncBufRead + Send + 'static;
 
 	fn sse(self) -> impl Stream<Item = Result<sse::Event, Error>> + Send + 'static;
@@ -68,6 +72,18 @@ impl Ext for http::Response<Incoming> {
 		T: serde::de::DeserializeOwned,
 	{
 		let bytes = self.bytes().await?;
+		let json = serde_json::from_slice(&bytes)?;
+		Ok(json)
+	}
+
+	async fn optional_json<T>(self) -> Result<Option<T>, Error>
+	where
+		T: serde::de::DeserializeOwned,
+	{
+		let bytes = self.bytes().await?;
+		if bytes.is_empty() {
+			return Ok(None);
+		}
 		let json = serde_json::from_slice(&bytes)?;
 		Ok(json)
 	}
