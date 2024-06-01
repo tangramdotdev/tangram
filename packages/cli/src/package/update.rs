@@ -5,7 +5,7 @@ use tangram_client as tg;
 #[derive(Clone, Debug, clap::Args)]
 #[group(skip)]
 pub struct Args {
-	#[arg(short, long, default_value = ".")]
+	#[arg(default_value = ".")]
 	pub path: tg::Path,
 }
 

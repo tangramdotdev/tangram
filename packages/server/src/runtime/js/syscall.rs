@@ -10,14 +10,14 @@ use itertools::Itertools as _;
 use std::rc::Rc;
 use tangram_client as tg;
 
-mod artifact;
-mod blob;
 mod checksum;
 mod encoding;
+mod load;
 mod log;
-mod object;
+mod output;
+mod read;
 mod sleep;
-mod target;
+mod store;
 
 pub fn syscall<'s>(
 	scope: &mut v8::HandleScope<'s>,
@@ -29,15 +29,6 @@ pub fn syscall<'s>(
 
 	// Invoke the syscall.
 	let result = match name.as_str() {
-		"artifact_archive" => async_(scope, &args, self::artifact::archive),
-		"artifact_bundle" => async_(scope, &args, self::artifact::bundle),
-		"artifact_checksum" => async_(scope, &args, self::artifact::checksum),
-		"artifact_extract" => async_(scope, &args, self::artifact::extract),
-		"blob_checksum" => async_(scope, &args, self::blob::checksum),
-		"blob_compress" => async_(scope, &args, self::blob::compress),
-		"blob_decompress" => async_(scope, &args, self::blob::decompress),
-		"blob_download" => async_(scope, &args, self::blob::download),
-		"blob_read" => async_(scope, &args, self::blob::read),
 		"checksum" => async_(scope, &args, self::checksum::checksum),
 		"encoding_base64_decode" => sync(scope, &args, self::encoding::base64_decode),
 		"encoding_base64_encode" => sync(scope, &args, self::encoding::base64_encode),
@@ -51,11 +42,12 @@ pub fn syscall<'s>(
 		"encoding_utf8_encode" => sync(scope, &args, self::encoding::utf8_encode),
 		"encoding_yaml_decode" => sync(scope, &args, self::encoding::yaml_decode),
 		"encoding_yaml_encode" => sync(scope, &args, self::encoding::yaml_encode),
+		"load" => async_(scope, &args, self::load::load),
 		"log" => sync(scope, &args, self::log::log),
-		"object_load" => async_(scope, &args, self::object::load),
-		"object_store" => async_(scope, &args, self::object::store),
+		"output" => async_(scope, &args, self::output::output),
+		"read" => async_(scope, &args, self::read::read),
 		"sleep" => async_(scope, &args, self::sleep::sleep),
-		"target_output" => async_(scope, &args, self::target::output),
+		"store" => async_(scope, &args, self::store::store),
 		_ => unreachable!(r#"unknown syscall "{name}""#),
 	};
 

@@ -6,7 +6,7 @@ use tangram_client::{self as tg, Handle as _};
 #[derive(Clone, Debug, clap::Args)]
 #[group(skip)]
 pub struct Args {
-	#[arg(short, long, default_value = ".")]
+	#[arg(default_value = ".")]
 	pub package: tg::Dependency,
 }
 

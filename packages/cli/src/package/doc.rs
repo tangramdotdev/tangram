@@ -10,7 +10,7 @@ pub struct Args {
 	#[arg(long)]
 	pub locked: bool,
 
-	#[arg(short, long, default_value = ".")]
+	#[arg(default_value = ".")]
 	pub package: tg::Dependency,
 
 	/// Generate the documentation for the runtime.

@@ -194,7 +194,8 @@ impl Cli {
 					};
 					env.insert("TANGRAM_HOST".to_owned(), host.to_string().into());
 				}
-				tg::target::Builder::new(host, executable)
+				tg::target::Builder::new(host)
+					.executable(tg::Artifact::from(executable))
 					.args(args_)
 					.env(env)
 					.lock(lock)

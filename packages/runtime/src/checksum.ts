@@ -20,7 +20,7 @@ export declare namespace Checksum {
 }
 
 export namespace Checksum {
-	export type Algorithm = "blake3" | "sha256" | "sha512";
+	export type Algorithm = "blake3" | "sha256" | "sha512" | "unsafe";
 
 	export let new_ = async (
 		input: string | Uint8Array | Blob | Artifact,
@@ -29,12 +29,24 @@ export namespace Checksum {
 		if (typeof input === "string" || input instanceof Uint8Array) {
 			return syscall("checksum", input, algorithm);
 		} else if (Blob.is(input)) {
-			return await syscall("blob_checksum", input, algorithm);
+			return await Blob.checksum(input, algorithm);
 		} else if (Artifact.is(input)) {
-			return await syscall("artifact_checksum", input, algorithm);
+			return await Artifact.checksum(input, algorithm);
 		} else {
 			return unreachable();
 		}
 	};
 	Checksum.new = new_;
+
+	export let algorithm = (checksum: Checksum): Algorithm => {
+		if (checksum.includes(":")) {
+			return checksum.split(":")[0]! as Algorithm;
+		} else if (checksum.includes("-")) {
+			return checksum.split("-")[0]! as Algorithm;
+		} else if (checksum === "unsafe") {
+			return "unsafe";
+		} else {
+			throw new Error("invalid checksum");
+		}
+	};
 }

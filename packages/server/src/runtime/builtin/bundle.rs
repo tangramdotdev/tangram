@@ -1,4 +1,5 @@
-use crate::{database::Transaction, Server};
+use super::Runtime;
+use crate::database::Transaction;
 use futures::{stream::FuturesOrdered, TryStreamExt as _};
 use once_cell::sync::Lazy;
 use tangram_client as tg;
@@ -7,14 +8,36 @@ static TANGRAM_ARTIFACTS_PATH: Lazy<tg::Path> = Lazy::new(|| ".tangram/artifacts
 
 static TANGRAM_RUN_PATH: Lazy<tg::Path> = Lazy::new(|| ".tangram/run".parse().unwrap());
 
-impl Server {
-	pub async fn bundle_artifact(&self, artifact: &tg::Artifact) -> tg::Result<tg::Artifact> {
+impl Runtime {
+	pub async fn bundle(
+		&self,
+		build: &tg::Build,
+		_remote: Option<String>,
+	) -> tg::Result<tg::Value> {
+		let server = &self.server;
+
+		// Get the target.
+		let target = build.target(server).await?;
+
+		// Get the args.
+		let args = target.args(server).await?;
+
+		// Get the artifact.
+		let artifact: tg::Artifact = args
+			.iter()
+			.nth(1)
+			.ok_or_else(|| tg::error!("invalid number of arguments"))?
+			.clone()
+			.try_into()
+			.ok()
+			.ok_or_else(|| tg::error!("expected an artifact"))?;
+
 		// Collect the artifact's recursive references.
-		let references = Box::pin(artifact.recursive_references(self)).await?;
+		let references = Box::pin(artifact.recursive_references(server)).await?;
 
 		// If there are no references, then return the artifact.
 		if references.is_empty() {
-			return Ok(artifact.clone());
+			return Ok(artifact.into());
 		}
 
 		// Create the artifacts directory by removing all references from the referenced artifacts.
@@ -36,9 +59,9 @@ impl Server {
 			tg::Artifact::Directory(directory) => directory.clone().into(),
 
 			// If the artifact is an executable file, then create a directory and place the executable at `.tangram/run`.
-			tg::Artifact::File(file) if file.executable(self).await? => {
+			tg::Artifact::File(file) if file.executable(server).await? => {
 				tg::directory::Builder::default()
-					.add(self, &TANGRAM_RUN_PATH, file.clone().into())
+					.add(server, &TANGRAM_RUN_PATH, file.clone().into())
 					.await?
 					.build()
 					.into()
@@ -62,15 +85,14 @@ impl Server {
 			.ok_or_else(|| tg::error!("the artifact must be a directory"))?;
 
 		// Add the artifacts directory to the bundled artifact at `.tangram/artifacts`.
-		let output: tg::Artifact = output
-			.builder(self)
+		let output = output
+			.builder(server)
 			.await?
-			.add(self, &TANGRAM_ARTIFACTS_PATH, artifacts_directory.into())
+			.add(server, &TANGRAM_ARTIFACTS_PATH, artifacts_directory.into())
 			.await?
-			.build()
-			.into();
+			.build();
 
-		Ok(output)
+		Ok(output.into())
 	}
 
 	/// Remove all references from an artifact and its children recursively.
@@ -80,12 +102,13 @@ impl Server {
 		depth: usize,
 		transaction: Option<&Transaction<'_>>,
 	) -> tg::Result<tg::Artifact> {
+		let server = &self.server;
 		match artifact {
 			// If the artifact is a directory, then recurse to remove references from its entries.
 			tg::Artifact::Directory(directory) => {
 				let entries = Box::pin(async move {
 					directory
-						.entries(self)
+						.entries(server)
 						.await?
 						.iter()
 						.map(|(name, artifact)| async move {
@@ -106,8 +129,8 @@ impl Server {
 
 			// If the artifact is a file, then return the file without any references.
 			tg::Artifact::File(file) => {
-				let contents = file.contents(self).await?.clone();
-				let executable = file.executable(self).await?;
+				let contents = file.contents(server).await?.clone();
+				let executable = file.executable(server).await?;
 				let references = vec![];
 				let file = tg::File::new(contents, executable, references);
 				Ok(file.into())
@@ -117,8 +140,8 @@ impl Server {
 			tg::Artifact::Symlink(symlink) => {
 				// Render the target.
 				let mut target = tg::Path::new();
-				let artifact = symlink.artifact(self).await?;
-				let path = symlink.path(self).await?;
+				let artifact = symlink.artifact(server).await?;
+				let path = symlink.path(server).await?;
 				if let Some(artifact) = artifact.as_ref() {
 					for _ in 0..depth - 1 {
 						target.push(tg::path::Component::Parent);
@@ -126,7 +149,7 @@ impl Server {
 					target = target.join(
 						TANGRAM_ARTIFACTS_PATH
 							.clone()
-							.join(artifact.id(self, None).await?.to_string()),
+							.join(artifact.id(server, None).await?.to_string()),
 					);
 				}
 				if let Some(path) = path.as_ref() {

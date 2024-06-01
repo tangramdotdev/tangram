@@ -117,12 +117,9 @@ fn main() {
 	// Build the compiler.
 	println!("cargo:rerun-if-changed=../../node_modules");
 	println!("cargo:rerun-if-changed=../../packages/compiler");
-	std::process::Command::new("bunx")
+	std::process::Command::new("bun")
 		.args([
-			"--bun",
-			"esbuild",
-			"--bundle",
-			"--entry-names=compiler",
+			"build",
 			"--minify",
 			&format!("--outdir={}", out_dir_path.display()),
 			"--sourcemap=external",
@@ -133,17 +130,24 @@ fn main() {
 		.success()
 		.then_some(())
 		.unwrap();
+	std::fs::rename(
+		out_dir_path.join("main.js"),
+		out_dir_path.join("compiler.js"),
+	)
+	.unwrap();
+	std::fs::rename(
+		out_dir_path.join("main.js.map"),
+		out_dir_path.join("compiler.js.map"),
+	)
+	.unwrap();
 	fixup_source_map(out_dir_path.join("compiler.js.map"));
 
 	// Build the runtime.
 	println!("cargo:rerun-if-changed=../../node_modules");
 	println!("cargo:rerun-if-changed=../../packages/runtime");
-	std::process::Command::new("bunx")
+	std::process::Command::new("bun")
 		.args([
-			"--bun",
-			"esbuild",
-			"--bundle",
-			"--entry-names=runtime",
+			"build",
 			"--minify",
 			&format!("--outdir={}", out_dir_path.display()),
 			"--sourcemap=external",
@@ -154,6 +158,16 @@ fn main() {
 		.success()
 		.then_some(())
 		.unwrap();
+	std::fs::rename(
+		out_dir_path.join("main.js"),
+		out_dir_path.join("runtime.js"),
+	)
+	.unwrap();
+	std::fs::rename(
+		out_dir_path.join("main.js.map"),
+		out_dir_path.join("runtime.js.map"),
+	)
+	.unwrap();
 	fixup_source_map(out_dir_path.join("runtime.js.map"));
 
 	// Create the compiler snapshot.

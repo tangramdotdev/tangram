@@ -26,14 +26,13 @@ impl tg::Blob {
 
 	#[must_use]
 	pub fn compress_target(&self, format: tg::blob::compress::Format) -> tg::Target {
-		let host = "js";
-		let executable = "export default tg.target((...args) => tg.compress(...args));";
+		let host = "builtin";
 		let args = vec![
-			"default".into(),
+			"compress".into(),
 			self.clone().into(),
 			format.to_string().into(),
 		];
-		tg::Target::builder(host, executable).args(args).build()
+		tg::Target::builder(host).args(args).build()
 	}
 }
 

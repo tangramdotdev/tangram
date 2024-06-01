@@ -447,3 +447,44 @@ where
 		}
 	}
 }
+
+impl From<tg::Leaf> for Value {
+	fn from(value: tg::Leaf) -> Self {
+		tg::Object::from(value).into()
+	}
+}
+
+impl From<tg::Branch> for Value {
+	fn from(value: tg::Branch) -> Self {
+		tg::Object::from(value).into()
+	}
+}
+
+impl From<tg::Directory> for Value {
+	fn from(value: tg::Directory) -> Self {
+		tg::Object::from(value).into()
+	}
+}
+impl From<tg::File> for Value {
+	fn from(value: tg::File) -> Self {
+		tg::Object::from(value).into()
+	}
+}
+
+impl From<tg::Symlink> for Value {
+	fn from(value: tg::Symlink) -> Self {
+		tg::Object::from(value).into()
+	}
+}
+
+impl From<tg::Target> for Value {
+	fn from(value: tg::Target) -> Self {
+		tg::Object::from(value).into()
+	}
+}
+
+impl From<tg::Lock> for Value {
+	fn from(value: tg::Lock) -> Self {
+		tg::Object::from(value).into()
+	}
+}

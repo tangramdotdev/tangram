@@ -1,7 +1,7 @@
 {
   "dependencies": {
-    "@biomejs/biome": "^1",
-    "typescript": "^5"
+    "@biomejs/biome": "^1.7.3",
+    "typescript": "^5.4.5"
   },
   "scripts": {
     "check": "bun --filter \"@tangramdotdev/*\" check",

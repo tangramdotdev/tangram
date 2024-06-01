@@ -1,4 +1,4 @@
-use crate::Server;
+use super::Runtime;
 use futures::TryStreamExt as _;
 use num::ToPrimitive as _;
 use std::sync::{atomic::AtomicU64, Arc};
@@ -6,14 +6,43 @@ use tangram_client as tg;
 use tokio_util::io::StreamReader;
 use url::Url;
 
-impl Server {
-	pub async fn download_blob(
+impl Runtime {
+	pub async fn download(
 		&self,
-		url: &Url,
-		checksum: &tg::Checksum,
 		build: &tg::Build,
-	) -> tg::Result<tg::Blob> {
-		let _permit = self.file_descriptor_semaphore.acquire().await.unwrap();
+		_remote: Option<String>,
+	) -> tg::Result<tg::Value> {
+		let server = &self.server;
+
+		// Get the target.
+		let target = build.target(server).await?;
+
+		// Get the args.
+		let args = target.args(server).await?;
+
+		// Get the URL.
+		let url = args
+			.iter()
+			.nth(1)
+			.ok_or_else(|| tg::error!("invalid number of arguments"))?
+			.try_unwrap_string_ref()
+			.ok()
+			.ok_or_else(|| tg::error!("expected a string"))?
+			.parse::<Url>()
+			.map_err(|source| tg::error!(!source, "invalid url"))?;
+
+		// Get the checksum.
+		let checksum = args
+			.iter()
+			.nth(2)
+			.ok_or_else(|| tg::error!("invalid number of arguments"))?
+			.try_unwrap_string_ref()
+			.ok()
+			.ok_or_else(|| tg::error!("expected a string"))?
+			.parse::<tg::Checksum>()
+			.map_err(|source| tg::error!(!source, "invalid checksum"))?;
+
+		let _permit = server.file_descriptor_semaphore.acquire().await.unwrap();
 		let response = reqwest::get(url.clone())
 			.await
 			.map_err(|source| tg::error!(!source, %url, "failed to perform the request"))?
@@ -24,7 +53,7 @@ impl Server {
 		let downloaded = Arc::new(AtomicU64::new(0));
 		let content_length = response.content_length();
 		let log_task = tokio::spawn({
-			let server = self.clone();
+			let server = server.clone();
 			let build = build.clone();
 			let url = url.clone();
 			let downloaded = downloaded.clone();
@@ -78,7 +107,7 @@ impl Server {
 			});
 
 		// Create the blob and validate.
-		let blob = tg::Blob::with_reader(self, StreamReader::new(stream))
+		let blob = tg::Blob::with_reader(server, StreamReader::new(stream))
 			.await
 			.map_err(|source| tg::error!(!source, "failed to create the blob"))?;
 
@@ -87,17 +116,17 @@ impl Server {
 
 		// Log that the download finished.
 		let message = format!("finished download from \"{url}\"\n");
-		build.add_log(self, message.into()).await.ok();
+		build.add_log(server, message.into()).await.ok();
 
 		// Verify the checksum.
 		let checksum_writer = checksum_writer.lock().unwrap().take().unwrap();
 		let actual = checksum_writer.finalize();
-		if &actual != checksum {
+		if actual != checksum {
 			return Err(
 				tg::error!(%url = url, %actual, %expected = checksum, "the checksum did not match"),
 			);
 		}
 
-		Ok(blob)
+		Ok(blob.into())
 	}
 }

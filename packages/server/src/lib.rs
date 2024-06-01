@@ -326,10 +326,18 @@ impl Server {
 		}
 
 		// Add the runtimes.
-		let triple = "js".to_owned();
-		let runtime = self::runtime::js::Runtime::new(self);
-		let runtime = self::runtime::Runtime::Js(runtime);
-		self.runtimes.write().unwrap().insert(triple, runtime);
+		{
+			let triple = "builtin".to_owned();
+			let runtime = self::runtime::builtin::Runtime::new(self);
+			let runtime = self::runtime::Runtime::Builtin(runtime);
+			self.runtimes.write().unwrap().insert(triple, runtime);
+		}
+		{
+			let triple = "js".to_owned();
+			let runtime = self::runtime::js::Runtime::new(self);
+			let runtime = self::runtime::Runtime::Js(runtime);
+			self.runtimes.write().unwrap().insert(triple, runtime);
+		}
 		#[cfg(all(target_arch = "aarch64", target_os = "macos"))]
 		{
 			let triple = "aarch64-darwin".to_owned();

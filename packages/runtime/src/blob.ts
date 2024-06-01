@@ -1,36 +1,16 @@
 import type { Args } from "./args.ts";
 import { assert as assert_ } from "./assert.ts";
 import { Branch } from "./branch.ts";
-import type { Checksum } from "./checksum.ts";
+import { Checksum } from "./checksum.ts";
 import { Leaf, leaf } from "./leaf.ts";
 import { resolve } from "./resolve.ts";
+import { build } from "./target.ts";
 import { flatten } from "./util.ts";
 
 export type Blob = Leaf | Branch;
 
 export let blob = async (...args: Args<Blob.Arg>) => {
 	return await Blob.new(...args);
-};
-
-export let compress = async (
-	blob: Blob,
-	format: Blob.CompressionFormat,
-): Promise<Blob> => {
-	return await syscall("blob_compress", blob, format);
-};
-
-export let decompress = async (
-	blob: Blob,
-	format: Blob.CompressionFormat,
-): Promise<Blob> => {
-	return await syscall("blob_decompress", blob, format);
-};
-
-export let download = async (
-	url: string,
-	checksum: Checksum,
-): Promise<Blob> => {
-	return await syscall("blob_download", url, checksum);
 };
 
 export declare namespace Blob {
@@ -101,27 +81,56 @@ export namespace Blob {
 		blob: Blob,
 		format: CompressionFormat,
 	): Promise<Blob> => {
-		return await syscall("blob_compress", blob, format);
+		let value = await build({
+			host: "builtin",
+			args: ["compress", blob, format],
+		});
+		assert_(Blob.is(value));
+		return value;
 	};
 
 	export let decompress = async (
 		blob: Blob,
 		format: CompressionFormat,
 	): Promise<Blob> => {
-		return await syscall("blob_decompress", blob, format);
+		let value = await build({
+			host: "builtin",
+			args: ["decompress", blob, format],
+		});
+		assert_(Blob.is(value));
+		return value;
 	};
 
 	export let download = async (
 		url: string,
 		checksum: Checksum,
 	): Promise<Blob> => {
-		return await syscall("blob_download", url, checksum);
+		let value = await build({
+			host: "builtin",
+			args: ["download", url, "unsafe"],
+		});
+		assert_(Blob.is(value));
+		let algorithm = Checksum.algorithm(checksum);
+		let actual = await build({
+			host: "builtin",
+			args: ["checksum", value, algorithm],
+		});
+		if (actual !== checksum) {
+			throw new Error(
+				`invalid checksum, expected ${checksum} but got ${actual}`,
+			);
+		}
+		return value;
 	};
 
 	export let checksum = async (
 		blob: Blob,
 		algorithm: Checksum.Algorithm,
 	): Promise<Checksum> => {
-		return await syscall("blob_checksum", blob, algorithm);
+		let value = await build({
+			host: "builtin",
+			args: ["checksum", blob, algorithm],
+		});
+		return value as Checksum;
 	};
 }

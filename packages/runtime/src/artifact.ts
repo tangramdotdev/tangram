@@ -1,32 +1,12 @@
 import { assert as assert_ } from "./assert.ts";
-import type { Blob } from "./blob.ts";
+import { Blob } from "./blob.ts";
 import type { Checksum } from "./checksum.ts";
 import { Directory } from "./directory.ts";
 import { File } from "./file.ts";
 import { Symlink } from "./symlink.ts";
+import { build } from "./target.ts";
 
 export type Artifact = Directory | File | Symlink;
-
-/** Archive an artifact. **/
-export let archive = async (
-	artifact: Artifact,
-	format: Artifact.ArchiveFormat,
-): Promise<Blob> => {
-	return await syscall("artifact_archive", artifact, format);
-};
-
-/** Extract an artifact from an archive. **/
-export let extract = async (
-	blob: Blob,
-	format: Artifact.ArchiveFormat,
-): Promise<Artifact> => {
-	return await syscall("artifact_extract", blob, format);
-};
-
-/** Bundle an artifact. **/
-export let bundle = async (artifact: Artifact): Promise<Artifact> => {
-	return await syscall("artifact_bundle", artifact);
-};
 
 export namespace Artifact {
 	export type Id = string;
@@ -67,24 +47,43 @@ export namespace Artifact {
 		artifact: Artifact,
 		format: ArchiveFormat,
 	): Promise<Blob> => {
-		return await syscall("artifact_archive", artifact, format);
+		let value = await build({
+			host: "builtin",
+			args: ["archive", artifact, format],
+		});
+		assert_(Blob.is(value));
+		return value;
 	};
 
 	export let extract = async (
 		blob: Blob,
 		format: ArchiveFormat,
 	): Promise<Artifact> => {
-		return await syscall("artifact_extract", blob, format);
+		let value = await build({
+			host: "builtin",
+			args: ["extract", blob, format],
+		});
+		assert_(Artifact.is(value));
+		return value;
 	};
 
 	export let bundle = async (artifact: Artifact): Promise<Artifact> => {
-		return await syscall("artifact_bundle", artifact);
+		let value = await build({
+			host: "builtin",
+			args: ["bundle", artifact],
+		});
+		assert_(Artifact.is(value));
+		return value;
 	};
 
 	export let checksum = async (
 		artifact: Artifact,
 		algorithm: Checksum.Algorithm,
 	): Promise<Checksum> => {
-		return await syscall("artifact_checksum", artifact, algorithm);
+		let value = await build({
+			host: "builtin",
+			args: ["checksum", artifact, algorithm],
+		});
+		return value as Checksum;
 	};
 }

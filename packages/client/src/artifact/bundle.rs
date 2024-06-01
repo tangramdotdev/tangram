@@ -15,9 +15,8 @@ impl tg::Artifact {
 
 	#[must_use]
 	pub fn bundle_target(&self) -> tg::Target {
-		let host = "js";
-		let executable = "export default tg.target((...args) => tg.bundle(...args));";
-		let args = vec!["default".into(), self.clone().into()];
-		tg::Target::builder(host, executable).args(args).build()
+		let host = "builtin";
+		let args = vec!["bundle".into(), self.clone().into()];
+		tg::Target::builder(host).args(args).build()
 	}
 }

@@ -159,9 +159,6 @@ export class Target<
 		if (!arg.host) {
 			throw new Error("cannot create a target without a host");
 		}
-		if (!arg.executable) {
-			throw new Error("cannot create a target without an executable");
-		}
 		let env = await Args.applyMutations(flatten(arg.env ?? []));
 		let args_ = arg.args ?? [];
 		let object = {
@@ -242,7 +239,7 @@ export class Target<
 
 	async load() {
 		if (this.#state.object === undefined) {
-			let object = await syscall("object_load", this.#state.id!);
+			let object = await syscall("load", this.#state.id!);
 			assert_(object.kind === "target");
 			this.#state.object = object.value;
 		}
@@ -250,7 +247,7 @@ export class Target<
 
 	async store() {
 		if (this.#state.id === undefined) {
-			this.#state.id = await syscall("object_store", {
+			this.#state.id = await syscall("store", {
 				kind: "target",
 				value: this.#state.object!,
 			});
@@ -282,7 +279,7 @@ export class Target<
 	}
 
 	async output(): Promise<R> {
-		return (await syscall("target_output", this as Target<[], R>)) as R;
+		return (await syscall("output", this as Target<[], R>)) as R;
 	}
 }
 
@@ -308,7 +305,7 @@ export namespace Target {
 
 	export type Object_ = {
 		host: string;
-		executable: Artifact;
+		executable: Artifact | undefined;
 		args: Array<Value>;
 		env: { [key: string]: Value };
 		lock: Lock | undefined;

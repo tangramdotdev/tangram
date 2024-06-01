@@ -136,7 +136,9 @@ impl std::str::FromStr for Id {
 					.ok()
 					.ok_or_else(|| tg::error!("invalid body"))?,
 			),
-			_ => return Err(tg::error!(%id, "invalid ID")),
+			_ => {
+				return Err(tg::error!(%id, "invalid ID"));
+			},
 		};
 		Ok(Self::V0(V0 { kind, body }))
 	}
@@ -178,7 +180,9 @@ impl std::str::FromStr for Kind {
 			"usr" => Kind::User,
 			"tok" => Kind::Token,
 			"req" => Kind::Request,
-			kind => return Err(tg::error!(%kind, "invalid kind")),
+			kind => {
+				return Err(tg::error!(%kind, "invalid kind"));
+			},
 		})
 	}
 }

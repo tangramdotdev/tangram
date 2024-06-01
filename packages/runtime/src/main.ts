@@ -1,7 +1,7 @@
 import { Args } from "./args.ts";
-import { Artifact, archive, bundle, extract } from "./artifact.ts";
+import { Artifact } from "./artifact.ts";
 import { assert, unimplemented, unreachable } from "./assert.ts";
-import { Blob, blob, compress, decompress, download } from "./blob.ts";
+import { Blob, blob } from "./blob.ts";
 import { Branch, branch } from "./branch.ts";
 import { Checksum, checksum } from "./checksum.ts";
 import { Directory, directory } from "./directory.ts";
@@ -45,6 +45,13 @@ async function tg(
 	components.push(strings[strings.length - 1]!);
 	return await template(...components);
 }
+
+let archive = Artifact.archive;
+let bundle = Artifact.bundle;
+let compress = Blob.compress;
+let decompress = Blob.decompress;
+let download = Blob.download;
+let extract = Artifact.extract;
 
 Object.assign(tg, {
 	Args,

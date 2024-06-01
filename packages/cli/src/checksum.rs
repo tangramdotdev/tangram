@@ -8,7 +8,7 @@ use url::Url;
 #[group(skip)]
 pub struct Args {
 	/// The checksum algorithm to use.
-	#[arg(long)]
+	#[arg(long, default_value_t = tg::checksum::Algorithm::Sha256)]
 	pub algorithm: tg::checksum::Algorithm,
 
 	/// The artifact to checksum.
@@ -43,6 +43,8 @@ impl Cli {
 			Arg::Blob(blob)
 		} else if let Some(url) = args.url {
 			Arg::Url(url)
+		} else if let Some(arg) = args.arg {
+			arg
 		} else {
 			return Err(tg::error!("no arg provided"));
 		};
@@ -68,16 +70,8 @@ impl Cli {
 				let executable = formatdoc!(
 					r#"
 						export default tg.target(async (url, algorithm) => {{
-							let blob = await tg.build({{
-								host: "js",
-								executable: tg.file("export default tg.target((...args) => tg.download(...args));"),
-								args: ["default", url, "unsafe"],
-							}});
-							let checksum = await tg.build({{
-								host: "js",
-								executable: tg.file("export default tg.target((...args) => tg.checksum(...args));"),
-								args: ["default", blob, algorithm],
-							}});
+							let blob = await tg.download(url, "unsafe");
+							let checksum = await tg.checksum(blob, algorithm);
 							return checksum;
 						}});
 					"#
@@ -87,7 +81,10 @@ impl Cli {
 					url.to_string().into(),
 					args.algorithm.to_string().into(),
 				];
-				let target = tg::Target::builder(host, executable).args(args).build();
+				let target = tg::Target::builder(host)
+					.executable(tg::Artifact::from(executable))
+					.args(args)
+					.build();
 				let target = target.id(&self.handle, None).await?;
 				let args = crate::target::build::Args {
 					inner: crate::target::build::InnerArgs {

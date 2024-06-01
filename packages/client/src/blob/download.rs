@@ -19,13 +19,12 @@ impl tg::Blob {
 
 	#[must_use]
 	pub fn download_target(url: &Url, checksum: &tg::Checksum) -> tg::Target {
-		let host = "js";
-		let executable = "export default tg.target((...args) => tg.download(...args));";
+		let host = "builtin";
 		let args = vec![
-			"default".into(),
+			"download".into(),
 			url.to_string().into(),
 			checksum.to_string().into(),
 		];
-		tg::Target::builder(host, executable).args(args).build()
+		tg::Target::builder(host).args(args).build()
 	}
 }

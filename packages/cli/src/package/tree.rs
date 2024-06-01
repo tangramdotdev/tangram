@@ -6,15 +6,15 @@ use tangram_client as tg;
 #[derive(Clone, Debug, clap::Args)]
 #[group(skip)]
 pub struct Args {
-	#[arg(default_value = ".")]
-	pub package: tg::Dependency,
-
 	#[arg(long)]
 	pub depth: Option<u32>,
 
 	/// If this flag is set, the package's lockfile will not be updated.
 	#[arg(long)]
 	pub locked: bool,
+
+	#[arg(default_value = ".")]
+	pub package: tg::Dependency,
 }
 
 impl Cli {

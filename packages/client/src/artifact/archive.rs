@@ -20,14 +20,13 @@ impl tg::Artifact {
 
 	#[must_use]
 	pub fn archive_target(&self, format: Format) -> tg::Target {
-		let host = "js";
-		let executable = "export default tg.target((...args) => tg.archive(...args));";
+		let host = "builtin";
 		let args = vec![
-			"default".into(),
+			"archive".into(),
 			self.clone().into(),
 			format.to_string().into(),
 		];
-		tg::Target::builder(host, executable).args(args).build()
+		tg::Target::builder(host).args(args).build()
 	}
 }
 

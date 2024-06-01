@@ -8,8 +8,7 @@ use tokio::io::{AsyncReadExt as _, AsyncWriteExt as _};
 #[group(skip)]
 pub struct Args {
 	/// The package to format.
-	#[arg(short, long, default_value = ".")]
-	pub package: tg::Dependency,
+	pub package: Option<tg::Dependency>,
 
 	/// Format
 	#[arg(long)]
@@ -17,7 +16,7 @@ pub struct Args {
 }
 
 impl Cli {
-	pub async fn command_package_format(&self, mut args: Args) -> tg::Result<()> {
+	pub async fn command_package_format(&self, args: Args) -> tg::Result<()> {
 		// Format via stdio if requested.
 		if args.stdio {
 			let mut text = String::new();
@@ -38,7 +37,10 @@ impl Cli {
 		}
 
 		// Canonicalize the package path.
-		if let Some(path) = args.package.path.as_mut() {
+		let mut package = args
+			.package
+			.ok_or_else(|| tg::error!("The package to format must be provided."))?;
+		if let Some(path) = package.path.as_mut() {
 			*path = tokio::fs::canonicalize(&path)
 				.await
 				.map_err(|source| tg::error!(!source, "failed to canonicalize the path"))?
@@ -46,7 +48,7 @@ impl Cli {
 		}
 
 		// Format the package.
-		self.handle.format_package(&args.package).await?;
+		self.handle.format_package(&package).await?;
 
 		Ok(())
 	}

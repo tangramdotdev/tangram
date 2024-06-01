@@ -18,13 +18,12 @@ impl tg::Blob {
 
 	#[must_use]
 	pub fn decompress_target(&self, format: tg::blob::compress::Format) -> tg::Target {
-		let host = "js";
-		let executable = "export default tg.target((...args) => tg.decompress(...args));";
+		let host = "builtin";
 		let args = vec![
-			"default".into(),
+			"decompress".into(),
 			self.clone().into(),
 			format.to_string().into(),
 		];
-		tg::Target::builder(host, executable).args(args).build()
+		tg::Target::builder(host).args(args).build()
 	}
 }

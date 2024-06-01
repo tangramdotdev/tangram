@@ -21,13 +21,12 @@ impl tg::Artifact {
 		blob: &tg::Blob,
 		format: Option<tg::artifact::archive::Format>,
 	) -> tg::Target {
-		let host = "js";
-		let executable = "export default tg.target((...args) => tg.extract(...args));";
+		let host = "builtin";
 		let args = vec![
-			"default".into(),
+			"extract".into(),
 			blob.clone().into(),
 			format.map(|format| format.to_string()).into(),
 		];
-		tg::Target::builder(host, executable).args(args).build()
+		tg::Target::builder(host).args(args).build()
 	}
 }

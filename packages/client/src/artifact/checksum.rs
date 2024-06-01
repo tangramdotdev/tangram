@@ -23,13 +23,12 @@ impl tg::Artifact {
 
 	#[must_use]
 	pub fn checksum_target(&self, algorithm: tg::checksum::Algorithm) -> tg::Target {
-		let host = "js";
-		let executable = "export default tg.target((...args) => tg.checksum(...args));";
+		let host = "builtin";
 		let args = vec![
-			"default".into(),
+			"checksum".into(),
 			self.clone().into(),
 			algorithm.to_string().into(),
 		];
-		tg::Target::builder(host, executable).args(args).build()
+		tg::Target::builder(host).args(args).build()
 	}
 }

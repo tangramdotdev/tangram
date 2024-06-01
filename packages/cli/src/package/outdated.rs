@@ -17,7 +17,7 @@ pub struct Args {
 	pub locked: bool,
 
 	/// The package.
-	#[arg(short, long, default_value = ".")]
+	#[arg(default_value = ".")]
 	pub package: tg::Dependency,
 }
 

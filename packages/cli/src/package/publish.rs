@@ -6,11 +6,11 @@ use tangram_client::{self as tg, Handle as _};
 #[derive(Clone, Debug, clap::Args)]
 #[group(skip)]
 pub struct Args {
-	#[arg(short, long, default_value = ".")]
-	pub package: tg::Dependency,
-
 	#[arg(long, default_value = "false")]
 	pub locked: bool,
+
+	#[arg(default_value = ".")]
+	pub package: tg::Dependency,
 
 	#[allow(clippy::option_option)]
 	#[arg(short, long)]

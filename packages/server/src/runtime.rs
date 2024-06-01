@@ -5,6 +5,7 @@ use tangram_http::{outgoing::response::Ext as _, Incoming, Outgoing};
 mod proxy;
 mod util;
 
+pub mod builtin;
 #[cfg(target_os = "macos")]
 pub mod darwin;
 pub mod js;
@@ -13,6 +14,7 @@ pub mod linux;
 
 #[derive(Clone)]
 pub enum Runtime {
+	Builtin(builtin::Runtime),
 	#[cfg(target_os = "macos")]
 	Darwin(darwin::Runtime),
 	Js(js::Runtime),
@@ -23,6 +25,7 @@ pub enum Runtime {
 impl Runtime {
 	pub async fn build(&self, build: &tg::Build, remote: Option<String>) -> tg::Result<tg::Value> {
 		match self {
+			Runtime::Builtin(runtime) => runtime.build(build, remote).await,
 			#[cfg(target_os = "macos")]
 			Runtime::Darwin(runtime) => runtime.build(build).await,
 			Runtime::Js(runtime) => runtime.build(build, remote).await,

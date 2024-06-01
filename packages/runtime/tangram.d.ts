@@ -151,7 +151,7 @@ declare namespace tg {
 	export type Checksum = string;
 
 	export namespace Checksum {
-		export type Algorithm = "blake3" | "sha256" | "sha512";
+		export type Algorithm = "blake3" | "sha256" | "sha512" | "unsafe";
 
 		export let new_: (
 			input: string | Uint8Array | Blob | Artifact,
@@ -699,7 +699,7 @@ declare namespace tg {
 		host(): Promise<string>;
 
 		/** Get this target's executable. */
-		executable(): Promise<Artifact>;
+		executable(): Promise<Artifact | undefined>;
 
 		/** Get this target's arguments. */
 		args(): Promise<Array<Value>>;
@@ -731,7 +731,7 @@ declare namespace tg {
 			host?: string;
 
 			/** The target's executable. */
-			executable?: Artifact;
+			executable?: Artifact | undefined;
 
 			/** The target's lock. */
 			lock?: Lock | undefined;
