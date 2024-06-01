@@ -200,6 +200,15 @@ impl Server {
 		// Drop the connection.
 		drop(connection);
 
+		// Add the build to the build index queue.
+		tokio::spawn({
+			let server = self.clone();
+			let id = id.clone();
+			async move {
+				server.build_index_queue.sender.send(id).await.unwrap();
+			}
+		});
+
 		// Publish the message.
 		tokio::spawn({
 			let server = self.clone();

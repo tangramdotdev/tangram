@@ -8,6 +8,7 @@ mod dequeue;
 mod finish;
 mod get;
 mod heartbeat;
+mod index;
 mod list;
 mod log;
 mod monitor;

@@ -59,6 +59,7 @@ pub mod options;
 pub struct Server(Arc<Inner>);
 
 pub struct Inner {
+	build_index_queue: BuildIndexQueue,
 	build_permits: BuildPermits,
 	build_semaphore: Arc<tokio::sync::Semaphore>,
 	builds: BuildTaskMap,
@@ -75,6 +76,11 @@ pub struct Inner {
 	runtimes: std::sync::RwLock<HashMap<String, Runtime>>,
 	task: std::sync::Mutex<Option<Task<tg::Result<()>>>>,
 	vfs: std::sync::Mutex<Option<self::vfs::Server>>,
+}
+
+struct BuildIndexQueue {
+	sender: async_channel::Sender<tg::build::Id>,
+	receiver: async_channel::Receiver<tg::build::Id>,
 }
 
 type BuildPermits =
@@ -157,6 +163,10 @@ impl Server {
 		// Remove an existing socket file.
 		let socket_path = path.join("socket");
 		tokio::fs::remove_file(&socket_path).await.ok();
+
+		// Create the build index queue.
+		let (sender, receiver) = async_channel::unbounded();
+		let build_index_queue = BuildIndexQueue { sender, receiver };
 
 		// Create the build permits.
 		let build_permits = DashMap::default();
@@ -243,6 +253,7 @@ impl Server {
 
 		// Create the server.
 		let server = Self(Arc::new(Inner {
+			build_index_queue,
 			build_permits,
 			build_semaphore,
 			builds,
@@ -367,11 +378,21 @@ impl Server {
 			})
 		});
 
-		// Start the index task.
-		let index_task = if true {
+		// Start the build index task.
+		let build_index_task = if true {
 			Some(tokio::spawn({
 				let server = self.clone();
-				async move { server.index_task().await }
+				async move { server.build_index_task().await }
+			}))
+		} else {
+			None
+		};
+
+		// Start the object index task.
+		let object_index_task = if true {
+			Some(tokio::spawn({
+				let server = self.clone();
+				async move { server.object_index_task().await }
 			}))
 		} else {
 			None
@@ -380,8 +401,14 @@ impl Server {
 		// Serve.
 		Self::serve(self.clone(), self.options.url.clone(), stop.clone()).await?;
 
-		// Abort the index task.
-		if let Some(task) = index_task {
+		// Abort the object index task.
+		if let Some(task) = object_index_task {
+			task.abort();
+			task.await.ok();
+		}
+
+		// Abort the build index task.
+		if let Some(task) = build_index_task {
 			task.abort();
 			task.await.ok();
 		}

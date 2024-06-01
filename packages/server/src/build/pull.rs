@@ -23,7 +23,7 @@ impl Server {
 		H: tg::Handle,
 	{
 		let id = id.parse()?;
-		let arg = request.query_params().transpose()?.unwrap_or_default();
+		let arg = request.json().await?;
 		let stream = handle.pull_build(&id, arg).await?;
 		let sse = stream.map(|result| match result {
 			Ok(tg::build::pull::Event::Progress(progress)) => {

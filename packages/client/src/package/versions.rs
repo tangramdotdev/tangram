@@ -1,12 +1,12 @@
 use crate as tg;
 use tangram_http::{incoming::response::Ext as _, outgoing::request::Ext as _};
 
-pub type Output = Vec<String>;
-
 #[derive(Debug, Copy, Clone, Default, serde::Deserialize, serde::Serialize)]
 pub struct Arg {
 	pub yanked: bool,
 }
+
+pub type Output = Vec<String>;
 
 impl tg::Client {
 	pub async fn try_get_package_versions(
@@ -17,7 +17,7 @@ impl tg::Client {
 		let method = http::Method::GET;
 		let dependency = dependency.to_string();
 		let dependency = urlencoding::encode(&dependency);
-		let query = serde_urlencoded::to_string(&arg).unwrap();
+		let query = serde_urlencoded::to_string(arg).unwrap();
 		let uri = format!("/packages/{dependency}/versions?{query}");
 		let request = http::request::Builder::default()
 			.method(method)

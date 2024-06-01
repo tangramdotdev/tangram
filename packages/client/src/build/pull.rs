@@ -4,7 +4,10 @@ use tangram_http::{incoming::response::Ext as _, outgoing::request::Ext as _};
 
 #[derive(Clone, Debug, Default, serde::Deserialize, serde::Serialize)]
 pub struct Arg {
+	pub logs: bool,
+	pub recursive: bool,
 	pub remote: String,
+	pub targets: bool,
 }
 
 pub type Event = super::push::Event;
@@ -33,12 +36,11 @@ impl tg::Client {
 		arg: tg::build::pull::Arg,
 	) -> tg::Result<impl Stream<Item = tg::Result<tg::build::pull::Event>> + Send + 'static> {
 		let method = http::Method::POST;
-		let query = serde_urlencoded::to_string(arg).unwrap();
-		let uri = format!("/builds/{id}/pull?{query}");
+		let uri = format!("/builds/{id}/pull");
 		let request = http::request::Builder::default()
 			.method(method)
 			.uri(uri)
-			.empty()
+			.json(arg)
 			.unwrap();
 		let response = self.send(request).await?;
 		if !response.status().is_success() {

@@ -1,5 +1,6 @@
 use crate::Server;
 use futures::{
+	future,
 	stream::{self, FuturesUnordered},
 	FutureExt as _, Stream, StreamExt as _, TryStreamExt as _,
 };
@@ -64,15 +65,12 @@ impl Server {
 			current_weight,
 			result: result.clone(),
 		};
-		let stream = stream::try_unfold((state, false), move |(mut state, end)| async move {
-			if end {
-				return Ok(None);
-			}
+		let stream = stream::try_unfold(state, move |mut state| async move {
 			let result = state.result.lock().unwrap().take();
 			if let Some(result) = result {
 				match result {
 					Ok(()) => {
-						return Ok(Some((tg::object::push::Event::End, (state, true))));
+						return Ok(None);
 					},
 					Err(error) => {
 						return Err(error);
@@ -93,8 +91,9 @@ impl Server {
 				total_weight,
 			};
 			let event = tg::object::push::Event::Progress(progress);
-			Ok(Some((event, (state, end))))
-		});
+			Ok(Some((event, state)))
+		})
+		.chain(stream::once(future::ok(tg::object::push::Event::End)));
 
 		Ok(stream)
 	}
@@ -174,7 +173,7 @@ impl Server {
 		H: tg::Handle,
 	{
 		let id = id.parse()?;
-		let arg = request.query_params().transpose()?.unwrap_or_default();
+		let arg = request.json().await?;
 		let stream = handle.push_object(&id, arg).await?;
 		let sse = stream.map(|result| match result {
 			Ok(tg::object::push::Event::Progress(progress)) => {

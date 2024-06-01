@@ -1,5 +1,5 @@
 use crate::Cli;
-use futures::StreamExt;
+use futures::{StreamExt, TryStreamExt as _};
 use tangram_client::{self as tg, Handle as _};
 
 /// Get a build's children.
@@ -37,10 +37,9 @@ impl Cli {
 			.boxed();
 
 		// Print the children.
-		while let Some(chunk) = stream.next().await {
-			let chunk = chunk.map_err(|source| tg::error!(!source, "expected a chunk"))?;
-			for item in chunk.items {
-				println!("{item}");
+		while let Some(chunk) = stream.try_next().await? {
+			for child in chunk.items {
+				println!("{child}");
 			}
 		}
 

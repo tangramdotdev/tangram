@@ -1,6 +1,7 @@
 use crate::Server;
 use futures::{stream::FuturesUnordered, TryStreamExt as _};
 use indoc::formatdoc;
+use std::sync::Arc;
 use tangram_client as tg;
 use tangram_database::{self as db, prelude::*};
 use tangram_http::{incoming::request::Ext as _, outgoing::response::Ext as _, Incoming, Outgoing};
@@ -9,15 +10,21 @@ use time::format_description::well_known::Rfc3339;
 impl Server {
 	pub async fn put_build(&self, id: &tg::build::Id, arg: tg::build::put::Arg) -> tg::Result<()> {
 		// Get a database connection.
-		let connection = self
+		let mut connection = self
 			.database
 			.connection()
 			.await
 			.map_err(|source| tg::error!(!source, "failed to get a database connection"))?;
-		let connection = std::sync::Arc::new(connection);
+
+		// Begin a transaction.
+		let transaction = connection
+			.transaction()
+			.await
+			.map_err(|source| tg::error!(!source, "failed to begin a transaction"))?;
+		let transaction = Arc::new(transaction);
 
 		// Delete any existing children.
-		let p = connection.p();
+		let p = transaction.p();
 		let statement = formatdoc!(
 			"
 				delete from build_children
@@ -25,13 +32,13 @@ impl Server {
 			"
 		);
 		let params = db::params![id];
-		connection
+		transaction
 			.execute(statement, params)
 			.await
 			.map_err(|source| tg::error!(!source, "failed to execute the statement"))?;
 
 		// Insert the children.
-		let p = connection.p();
+		let p = transaction.p();
 		let statement = formatdoc!(
 			"
 				insert into build_children (build, position, child)
@@ -42,11 +49,11 @@ impl Server {
 			.iter()
 			.enumerate()
 			.map(|(position, child)| {
-				let connection = connection.clone();
+				let transaction = transaction.clone();
 				let statement = statement.clone();
 				async move {
 					let params = db::params![id, position, child];
-					connection
+					transaction
 						.execute(statement, params)
 						.await
 						.map_err(|source| tg::error!(!source, "failed to execute the statement"))?;
@@ -58,7 +65,7 @@ impl Server {
 			.await?;
 
 		// Delete any existing objects.
-		let p = connection.p();
+		let p = transaction.p();
 		let statement = formatdoc!(
 			"
 				delete from build_objects
@@ -66,13 +73,13 @@ impl Server {
 			"
 		);
 		let params = db::params![id];
-		connection
+		transaction
 			.execute(statement, params)
 			.await
 			.map_err(|source| tg::error!(!source, "failed to execute the statement"))?;
 
 		// Add the objects.
-		let p = connection.p();
+		let p = transaction.p();
 		let statement = formatdoc!(
 			"
 				insert into build_objects (build, object)
@@ -95,11 +102,11 @@ impl Server {
 			.chain(std::iter::once(arg.target.clone().into()));
 		objects
 			.map(|object| {
-				let connection = connection.clone();
+				let transaction = transaction.clone();
 				let statement = statement.clone();
 				async move {
 					let params = db::params![id, object];
-					connection
+					transaction
 						.execute(statement, params)
 						.await
 						.map_err(|source| tg::error!(!source, "failed to execute the statement"))?;
@@ -111,7 +118,7 @@ impl Server {
 			.await?;
 
 		// Insert the build.
-		let p = connection.p();
+		let p = transaction.p();
 		let statement = formatdoc!(
 			"
 				insert into builds (
@@ -174,10 +181,17 @@ impl Server {
 			db::Value::Null,
 			time::OffsetDateTime::now_utc().format(&Rfc3339).unwrap(),
 		];
-		connection
+		transaction
 			.execute(statement, params)
 			.await
 			.map_err(|source| tg::error!(!source, "failed to execute the statement"))?;
+
+		// Commit the transaction.
+		Arc::into_inner(transaction)
+			.unwrap()
+			.commit()
+			.await
+			.map_err(|source| tg::error!(!source, "failed to commit the transaction"))?;
 
 		// Drop the database connection.
 		drop(connection);

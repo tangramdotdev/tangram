@@ -655,9 +655,12 @@ pub trait Handle: Clone + Unpin + Send + Sync + 'static {
 		dependency: &tg::Dependency,
 		arg: tg::package::versions::Arg,
 	) -> impl Future<Output = tg::Result<tg::package::versions::Output>> + Send {
-		self.try_get_package_versions(dependency, arg).map(|result| {
-			result.and_then(|option| option.ok_or_else(|| tg::error!("failed to get the package")))
-		})
+		self.try_get_package_versions(dependency, arg)
+			.map(|result| {
+				result.and_then(|option| {
+					option.ok_or_else(|| tg::error!("failed to get the package"))
+				})
+			})
 	}
 
 	fn yank_package(

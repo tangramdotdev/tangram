@@ -34,12 +34,18 @@ impl Server {
 
 		// Get the relevent versions of this package.
 		let (compatible_versions, all_versions) = if dependency.name.is_some() {
-			let compatible_versions = self.try_get_package_versions(dependency, tg::package::versions::Arg::default()).await.map_err(
-				|source| tg::error!(!source, %dependency, "failed to get compatible package versions"),
-			)?;
+			let compatible_versions = self
+				.try_get_package_versions(dependency, tg::package::versions::Arg::default())
+				.await
+				.map_err(
+					|source| tg::error!(!source, %dependency, "failed to get compatible package versions"),
+				)?;
 			let dependency_with_name = tg::Dependency::with_name(dependency.name.clone().unwrap());
 			let all_versions = self
-				.try_get_package_versions(&dependency_with_name, tg::package::versions::Arg::default())
+				.try_get_package_versions(
+					&dependency_with_name,
+					tg::package::versions::Arg::default(),
+				)
 				.await
 				.map_err(
 					|source| tg::error!(!source, %dependency, "failed to get package versions"),

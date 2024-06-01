@@ -33,12 +33,11 @@ impl tg::Client {
 		arg: tg::object::pull::Arg,
 	) -> tg::Result<impl Stream<Item = tg::Result<tg::object::pull::Event>> + Send + 'static> {
 		let method = http::Method::POST;
-		let query = serde_urlencoded::to_string(&arg).unwrap();
-		let uri = format!("/objects/{id}/pull?{query}");
+		let uri = format!("/objects/{id}/pull");
 		let request = http::request::Builder::default()
 			.method(method)
 			.uri(uri)
-			.empty()
+			.json(arg)
 			.unwrap();
 		let response = self.send(request).await?;
 		if !response.status().is_success() {

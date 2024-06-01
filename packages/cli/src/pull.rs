@@ -23,7 +23,10 @@ impl Cli {
 			Arg::Build(arg) => {
 				let args = super::build::pull::Args {
 					build: arg,
+					logs: false,
+					recursive: false,
 					remote: args.remote,
+					targets: false,
 				};
 				self.command_build_pull(args).await?;
 			},

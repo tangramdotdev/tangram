@@ -2,14 +2,23 @@ use crate::Server;
 use bytes::Bytes;
 use futures::{stream::FuturesUnordered, TryStreamExt as _};
 use indoc::formatdoc;
-use num::ToPrimitive;
+use num::ToPrimitive as _;
 use tangram_client as tg;
 use tangram_database::{self as db, prelude::*};
 
 impl Server {
-	pub(crate) async fn index_task(&self) -> tg::Result<()> {
+	pub(crate) async fn object_index_task(&self) -> tg::Result<()> {
 		while let Ok(id) = self.object_index_queue.receiver.recv().await {
-			self.index_object(&id).await.ok();
+			tokio::spawn({
+				let server = self.clone();
+				async move {
+					server
+						.index_object(&id)
+						.await
+						.inspect_err(|error| tracing::error!(?error))
+						.ok();
+				}
+			});
 		}
 		Ok(())
 	}
@@ -115,47 +124,42 @@ impl Server {
 			drop(connection);
 		}
 
-		// If the count or weight are not set, then attempt to compute them.
-		if count.is_none() || weight.is_none() {
-			// Get the children's metadata.
-			let children_metadata: Vec<Option<tg::object::Metadata>> = data
-				.children()
-				.into_iter()
-				.map(|id| async move { self.try_get_object_metadata(&id).await })
-				.collect::<FuturesUnordered<_>>()
-				.try_collect()
-				.await?;
+		// Get the children's metadata.
+		let children_metadata: Vec<Option<tg::object::Metadata>> = data
+			.children()
+			.into_iter()
+			.map(|id| async move { self.try_get_object_metadata(&id).await })
+			.collect::<FuturesUnordered<_>>()
+			.try_collect()
+			.await?;
 
-			// Attempt to compute the count and weight.
+		// Attempt to set the count if necessary.
+		if count.is_none() {
+			// Attempt to compute the count.
 			let count = children_metadata
 				.iter()
 				.map(|option| option.as_ref().and_then(|metadata| metadata.count))
-				.sum::<Option<u64>>()
-				.map(|count| count + 1);
-			let weight = children_metadata
-				.iter()
-				.map(|option| option.as_ref().and_then(|metadata| metadata.weight))
-				.sum::<Option<u64>>()
-				.map(|weight| weight + bytes.len().to_u64().unwrap());
+				.chain(std::iter::once(Some(1)))
+				.sum::<Option<u64>>();
 
-			// Set the count and weight if they are availble.
-			if count.is_some() || weight.is_some() {
+			// Set the count if possible.
+			if count.is_some() {
 				// Get a database connection.
 				let connection =
 					self.database.connection().await.map_err(|source| {
 						tg::error!(!source, "failed to get a database connection")
 					})?;
 
-				// Set the count and weight.
+				// Set the count.
 				let p = connection.p();
 				let statement = formatdoc!(
 					"
 						update objects
-						set count = {p}1, weight = {p}2
-						where id = {p}3;
+						set count = {p}1
+						where id = {p}2;
 					"
 				);
-				let params = db::params![count, weight, id];
+				let params = db::params![count, id];
 				connection
 					.execute(statement, params)
 					.await
@@ -166,7 +170,44 @@ impl Server {
 			}
 		}
 
-		// If the object is not complete, then attempt to set the complete flag.
+		// Attempt to set the weight if necessary.
+		if weight.is_none() {
+			// Attempt to compute the weight.
+			let weight = children_metadata
+				.iter()
+				.map(|option| option.as_ref().and_then(|metadata| metadata.weight))
+				.chain(std::iter::once(Some(bytes.len().to_u64().unwrap())))
+				.sum::<Option<u64>>();
+
+			// Set the weight if possible.
+			if weight.is_some() {
+				// Get a database connection.
+				let connection =
+					self.database.connection().await.map_err(|source| {
+						tg::error!(!source, "failed to get a database connection")
+					})?;
+
+				// Set the weight.
+				let p = connection.p();
+				let statement = formatdoc!(
+					"
+						update objects
+						set weight = {p}1
+						where id = {p}2;
+					"
+				);
+				let params = db::params![weight, id];
+				connection
+					.execute(statement, params)
+					.await
+					.map_err(|source| tg::error!(!source, "failed to execute the statement"))?;
+
+				// Drop the connection.
+				drop(connection);
+			}
+		}
+
+		// Attempt to set the complete flag if necessary.
 		let completed = if complete {
 			false
 		} else {
@@ -184,7 +225,7 @@ impl Server {
 					update objects
 					set complete = (
 						select case
-							when count(*) = count(objects.complete) then coalesce(min(complete), 1)
+							when count(*) = count(complete) then coalesce(min(complete), 1)
 							else 0
 						end
 						from object_children
@@ -223,22 +264,62 @@ impl Server {
 					select object
 					from object_children
 					left join objects on objects.id = object_children.object
-					where object_children.child = {p}1 and (objects.complete = 0 or objects.complete is null);
+					where object_children.child = {p}1 and objects.complete = 0;
 				"
 			);
 			let params = db::params![id];
-			let incomplete = connection
+			let objects = connection
 				.query_all_value_into(statement, params)
 				.await
 				.map_err(|source| tg::error!(!source, "failed to execute the statement"))?;
 
+			// Drop the connection.
+			drop(connection);
+
 			// Add the incomplete parents to the object index queue.
-			for id in incomplete {
-				self.object_index_queue.sender.send(id).await.unwrap();
+			for object in objects {
+				self.object_index_queue.sender.send(object).await.unwrap();
 			}
+		}
+
+		// If the object became complete, then add its builds with incomplete logs, outcomes, or targets to the build index queue.
+		if completed {
+			// Get a database connection.
+			let connection = self
+				.database
+				.connection()
+				.await
+				.map_err(|source| tg::error!(!source, "failed to get a database connection"))?;
+
+			// Get the incomplete builds.
+			let p = connection.p();
+			let statement = formatdoc!(
+				"
+					select build
+					from build_objects
+					left join builds on builds.id = build_objects.build
+					where 
+						build_objects.object = {p}1 and
+						builds.status = 'finished' and (
+							(builds.logs_complete = 0 and builds.log = {p}1) or
+							builds.outcomes_complete = 0 or
+							(builds.targets_complete = 0 and builds.target = {p}1)
+						);
+				"
+			);
+			let params = db::params![id];
+			let builds = connection
+				.query_all_value_into(statement, params)
+				.await
+				.map_err(|source| tg::error!(!source, "failed to execute the statement"))?;
 
 			// Drop the connection.
 			drop(connection);
+
+			// Add the incomplete builds to the build index queue.
+			for build in builds {
+				self.build_index_queue.sender.send(build).await.unwrap();
+			}
 		}
 
 		Ok(())

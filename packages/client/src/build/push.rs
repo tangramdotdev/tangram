@@ -4,7 +4,10 @@ use tangram_http::{incoming::response::Ext as _, outgoing::request::Ext as _};
 
 #[derive(Clone, Debug, Default, serde::Deserialize, serde::Serialize)]
 pub struct Arg {
+	pub logs: bool,
+	pub recursive: bool,
 	pub remote: String,
+	pub targets: bool,
 }
 
 #[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
@@ -16,7 +19,9 @@ pub enum Event {
 #[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
 pub struct Progress {
 	pub current_count: u64,
-	pub total_count: u64,
+	pub total_count: Option<u64>,
+	pub current_weight: u64,
+	pub total_weight: Option<u64>,
 }
 
 impl tg::Build {
@@ -41,12 +46,11 @@ impl tg::Client {
 		arg: tg::build::push::Arg,
 	) -> tg::Result<impl Stream<Item = tg::Result<tg::build::push::Event>> + Send + 'static> {
 		let method = http::Method::POST;
-		let query = serde_urlencoded::to_string(arg).unwrap();
-		let uri = format!("/builds/{id}/push?{query}");
+		let uri = format!("/builds/{id}/push");
 		let request = http::request::Builder::default()
 			.method(method)
 			.uri(uri)
-			.empty()
+			.json(arg)
 			.unwrap();
 		let response = self.send(request).await?;
 		if !response.status().is_success() {
