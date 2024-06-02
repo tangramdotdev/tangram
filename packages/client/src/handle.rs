@@ -519,8 +519,6 @@ pub trait Handle: Clone + Unpin + Send + Sync + 'static {
 		arg: tg::build::heartbeat::Arg,
 	) -> impl Future<Output = tg::Result<tg::build::heartbeat::Output>> + Send;
 
-	fn format(&self, text: String) -> impl Future<Output = tg::Result<String>> + Send;
-
 	fn lsp(
 		&self,
 		input: impl AsyncBufRead + Send + Unpin + 'static,

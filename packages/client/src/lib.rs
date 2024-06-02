@@ -720,10 +720,6 @@ impl tg::Handle for Client {
 		self.touch_build(id, arg)
 	}
 
-	fn format(&self, text: String) -> impl Future<Output = tg::Result<String>> {
-		self.format(text)
-	}
-
 	fn lsp(
 		&self,
 		input: impl AsyncBufRead + Send + Unpin + 'static,

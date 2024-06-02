@@ -270,13 +270,6 @@ where
 		}
 	}
 
-	fn format(&self, text: String) -> impl Future<Output = tg::Result<String>> {
-		match self {
-			Either::Left(s) => s.format(text).left_future(),
-			Either::Right(s) => s.format(text).right_future(),
-		}
-	}
-
 	fn lsp(
 		&self,
 		input: impl AsyncBufRead + Send + Unpin + 'static,

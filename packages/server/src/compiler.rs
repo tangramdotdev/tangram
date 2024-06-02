@@ -12,7 +12,7 @@ use std::{
 };
 use tangram_client as tg;
 use tangram_futures::task::Stop;
-use tangram_http::{incoming::request::Ext as _, outgoing::response::Ext as _, Incoming, Outgoing};
+use tangram_http::{outgoing::response::Ext as _, Incoming, Outgoing};
 use tokio::io::{
 	AsyncBufRead, AsyncBufReadExt as _, AsyncReadExt as _, AsyncWrite, AsyncWriteExt as _,
 };
@@ -742,19 +742,6 @@ impl crate::Server {
 }
 
 impl crate::Server {
-	pub(crate) async fn handle_format_request<H>(
-		handle: &H,
-		request: http::Request<Incoming>,
-	) -> tg::Result<http::Response<Outgoing>>
-	where
-		H: tg::Handle,
-	{
-		let text = request.text().await?;
-		let text = handle.format(text).await?;
-		let response = http::Response::builder().bytes(text).unwrap();
-		Ok(response)
-	}
-
 	pub(crate) async fn handle_lsp_request<H>(
 		handle: &H,
 		request: http::Request<Incoming>,

@@ -656,9 +656,6 @@ impl Server {
 			},
 
 			// Compiler.
-			(http::Method::POST, ["format"]) => {
-				Self::handle_format_request(handle, request).boxed()
-			},
 			(http::Method::POST, ["lsp"]) => Self::handle_lsp_request(handle, request).boxed(),
 
 			// Objects.
@@ -964,10 +961,6 @@ impl tg::Handle for Server {
 		arg: tg::build::heartbeat::Arg,
 	) -> impl Future<Output = tg::Result<tg::build::heartbeat::Output>> + Send {
 		self.heartbeat_build(id, arg)
-	}
-
-	fn format(&self, text: String) -> impl Future<Output = tg::Result<String>> {
-		self.format(text)
 	}
 
 	fn lsp(

@@ -234,10 +234,6 @@ impl tg::Handle for Proxy {
 		Err(tg::error!("forbidden"))
 	}
 
-	async fn format(&self, _text: String) -> tg::Result<String> {
-		Err(tg::error!("forbidden"))
-	}
-
 	async fn lsp(
 		&self,
 		_input: impl AsyncBufRead + Send + Unpin + 'static,
