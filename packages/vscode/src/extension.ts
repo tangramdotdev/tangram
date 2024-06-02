@@ -6,6 +6,9 @@ import { TangramTextDocumentContentProvider } from "./virtual_text_document";
 let languageClient = new TangramLanguageClient();
 
 export let activate = async (context: vscode.ExtensionContext) => {
+	// Start the language client.
+	languageClient.start();
+
 	// Restart the language client whenever the workspace configuration changes.
 	let onDidChangeConfiguration = vscode.workspace.onDidChangeConfiguration(
 		async (event) => {
@@ -14,7 +17,6 @@ export let activate = async (context: vscode.ExtensionContext) => {
 			}
 		},
 	);
-
 	context.subscriptions.push(onDidChangeConfiguration);
 
 	// Register the content provider for virtual files.
@@ -24,9 +26,6 @@ export let activate = async (context: vscode.ExtensionContext) => {
 			new TangramTextDocumentContentProvider(languageClient),
 		),
 	);
-
-	// Start the language client.
-	languageClient.start();
 
 	// Register a command to restart the Tangram language server.
 	let restartCommand = vscode.commands.registerCommand(
