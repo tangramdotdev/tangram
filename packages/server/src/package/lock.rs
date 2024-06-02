@@ -196,7 +196,7 @@ impl Server {
 
 	async fn write_lockfile(&self, lock: &tg::Lock, path: impl AsRef<Path>) -> tg::Result<()> {
 		let path = path.as_ref().join(tg::package::LOCKFILE_FILE_NAME);
-		let data = lock.data(self, None).await?;
+		let data = lock.data(self).await?;
 		let bytes = serde_json::to_vec_pretty(&data)
 			.map_err(|source| tg::error!(!source, "failed to serialize the lock"))?;
 		tokio::fs::write(&path, &bytes).await.map_err(

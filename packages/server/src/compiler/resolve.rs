@@ -199,7 +199,7 @@ impl Compiler {
 		lock: tg::Lock,
 		kind: Option<tg::import::Kind>,
 	) -> tg::Result<tg::Module> {
-		let id = package.id(&self.server, None).await?;
+		let id = package.id(&self.server).await?;
 		let module = match kind {
 			None => tg::Module::with_package_and_lock(&self.server, &package, &lock).await?,
 
@@ -255,13 +255,13 @@ impl Compiler {
 			.get(&self.server, module_path)
 			.await
 			.map_err(|source| tg::error!(!source, %path = module_path, %package, "failed to find the artifact within the package"))?
-			.id(&self.server, None)
+			.id(&self.server)
 			.await?;
 		let target = match kind {
 			Some(tg::import::Kind::Js) => {
 				let package_artifact = tg::module::PackageArtifact {
-					artifact: package.id(&self.server, None).await?.into(),
-					lock: lock.id(&self.server, None).await?,
+					artifact: package.id(&self.server).await?.into(),
+					lock: lock.id(&self.server).await?,
 					path: module_path.clone(),
 				};
 				tg::Module::Js(tg::module::Js::PackageArtifact(package_artifact))
@@ -269,8 +269,8 @@ impl Compiler {
 
 			Some(tg::import::Kind::Ts) => {
 				let package_artifact = tg::module::PackageArtifact {
-					artifact: package.id(&self.server, None).await?.into(),
-					lock: lock.id(&self.server, None).await?,
+					artifact: package.id(&self.server).await?.into(),
+					lock: lock.id(&self.server).await?,
 					path: module_path.clone(),
 				};
 				tg::Module::Ts(tg::module::Js::PackageArtifact(package_artifact))
@@ -316,9 +316,9 @@ impl Compiler {
 		package: tg::Artifact,
 		lock: tg::Lock,
 	) -> tg::Result<tg::module::PackageArtifact> {
-		let artifact = package.id(&self.server, None).await?;
+		let artifact = package.id(&self.server).await?;
 		let path = tg::package::get_root_module_path(&self.server, &package).await?;
-		let lock = lock.id(&self.server, None).await?;
+		let lock = lock.id(&self.server).await?;
 		let package_artifact = tg::module::PackageArtifact {
 			artifact,
 			lock,

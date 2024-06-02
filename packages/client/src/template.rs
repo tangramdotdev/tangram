@@ -43,18 +43,14 @@ impl Template {
 			.collect()
 	}
 
-	pub async fn data<H>(
-		&self,
-		handle: &H,
-		transaction: Option<&H::Transaction<'_>>,
-	) -> tg::Result<Data>
+	pub async fn data<H>(&self, handle: &H) -> tg::Result<Data>
 	where
 		H: tg::Handle,
 	{
 		let components = self
 			.components
 			.iter()
-			.map(|component| component.data(handle, transaction))
+			.map(|component| component.data(handle))
 			.collect::<FuturesOrdered<_>>()
 			.try_collect()
 			.await?;
@@ -218,19 +214,13 @@ pub mod component {
 	}
 
 	impl Component {
-		pub async fn data<H>(
-			&self,
-			handle: &H,
-			transaction: Option<&H::Transaction<'_>>,
-		) -> tg::Result<Data>
+		pub async fn data<H>(&self, handle: &H) -> tg::Result<Data>
 		where
 			H: tg::Handle,
 		{
 			match self {
 				Self::String(string) => Ok(Data::String(string.clone())),
-				Self::Artifact(artifact) => {
-					Ok(Data::Artifact(artifact.id(handle, transaction).await?))
-				},
+				Self::Artifact(artifact) => Ok(Data::Artifact(artifact.id(handle).await?)),
 			}
 		}
 	}

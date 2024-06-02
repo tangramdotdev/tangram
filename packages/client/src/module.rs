@@ -151,8 +151,8 @@ impl Module {
 		};
 		match (kind, root_module) {
 			(Some(tg::import::Kind::Js), Some(_)) => {
-				let artifact = package.id(handle, None).await?;
-				let lock = lock.id(handle, None).await?;
+				let artifact = package.id(handle).await?;
+				let lock = lock.id(handle).await?;
 				let package_artifact = PackageArtifact {
 					artifact,
 					lock,
@@ -161,8 +161,8 @@ impl Module {
 				Ok(Module::Js(Js::PackageArtifact(package_artifact)))
 			},
 			(Some(tg::import::Kind::Ts), Some(_)) => {
-				let package_id = package.id(handle, None).await?;
-				let lock_id = lock.id(handle, None).await?;
+				let package_id = package.id(handle).await?;
+				let lock_id = lock.id(handle).await?;
 				let package_artifact = PackageArtifact {
 					artifact: package_id.clone(),
 					lock: lock_id,
@@ -173,15 +173,15 @@ impl Module {
 			(Some(_), _) => Err(tg::error!("unexpected import kind")),
 			(None, _) => match package {
 				tg::Artifact::Directory(directory) => {
-					let id = directory.id(handle, None).await?;
+					let id = directory.id(handle).await?;
 					Ok(Module::Directory(Directory::Id(id)))
 				},
 				tg::Artifact::File(file) => {
-					let id = file.id(handle, None).await?;
+					let id = file.id(handle).await?;
 					Ok(Module::File(File::Id(id)))
 				},
 				tg::Artifact::Symlink(symlink) => {
-					let id = symlink.id(handle, None).await?;
+					let id = symlink.id(handle).await?;
 					Ok(Module::Symlink(Symlink::Id(id)))
 				},
 			},

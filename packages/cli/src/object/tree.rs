@@ -40,7 +40,7 @@ impl Cli {
 		};
 		let title = title.to_string();
 		let children = tg::Object::with_id(object.clone())
-			.data(&self.handle, None)
+			.data(&self.handle)
 			.await
 			.map_err(|source| tg::error!(!source, %object, "failed to get the object data"))?
 			.children();

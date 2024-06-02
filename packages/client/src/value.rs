@@ -88,11 +88,7 @@ impl Value {
 		}
 	}
 
-	pub async fn data<H>(
-		&self,
-		handle: &H,
-		transaction: Option<&H::Transaction<'_>>,
-	) -> tg::Result<Data>
+	pub async fn data<H>(&self, handle: &H) -> tg::Result<Data>
 	where
 		H: tg::Handle,
 	{
@@ -104,7 +100,7 @@ impl Value {
 			Self::Array(array) => Data::Array(
 				array
 					.iter()
-					.map(|value| value.data(handle, transaction))
+					.map(|value| value.data(handle))
 					.collect::<FuturesOrdered<_>>()
 					.try_collect()
 					.await?,
@@ -112,17 +108,17 @@ impl Value {
 			Self::Map(map) => Data::Map(
 				map.iter()
 					.map(|(key, value)| async move {
-						Ok::<_, tg::Error>((key.clone(), value.data(handle, transaction).await?))
+						Ok::<_, tg::Error>((key.clone(), value.data(handle).await?))
 					})
 					.collect::<FuturesUnordered<_>>()
 					.try_collect()
 					.await?,
 			),
-			Self::Object(object) => Data::Object(object.id(handle, transaction).await?),
+			Self::Object(object) => Data::Object(object.id(handle).await?),
 			Self::Bytes(bytes) => Data::Bytes(bytes.clone()),
 			Self::Path(path) => Data::Path(path.clone()),
-			Self::Mutation(mutation) => Data::Mutation(mutation.data(handle, transaction).await?),
-			Self::Template(template) => Data::Template(template.data(handle, transaction).await?),
+			Self::Mutation(mutation) => Data::Mutation(mutation.data(handle).await?),
+			Self::Template(template) => Data::Template(template.data(handle).await?),
 		};
 		Ok(data)
 	}

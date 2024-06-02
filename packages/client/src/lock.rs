@@ -119,15 +119,11 @@ impl Lock {
 		Self { state }
 	}
 
-	pub async fn id<H>(
-		&self,
-		handle: &H,
-		transaction: Option<&H::Transaction<'_>>,
-	) -> tg::Result<Id>
+	pub async fn id<H>(&self, handle: &H) -> tg::Result<Id>
 	where
 		H: tg::Handle,
 	{
-		self.store(handle, transaction).await
+		self.store(handle).await
 	}
 
 	pub async fn object<H>(&self, handle: &H) -> tg::Result<Arc<Object>>
@@ -169,23 +165,19 @@ impl Lock {
 		self.state.write().unwrap().object.take();
 	}
 
-	pub async fn store<H>(
-		&self,
-		handle: &H,
-		transaction: Option<&H::Transaction<'_>>,
-	) -> tg::Result<Id>
+	pub async fn store<H>(&self, handle: &H) -> tg::Result<Id>
 	where
 		H: tg::Handle,
 	{
 		if let Some(id) = self.state.read().unwrap().id.clone() {
 			return Ok(id);
 		}
-		let data = self.data(handle, transaction).await?;
+		let data = self.data(handle).await?;
 		let bytes = data.serialize()?;
 		let id = Id::new(&bytes);
 		let arg = tg::object::put::Arg { bytes };
 		handle
-			.put_object(&id.clone().into(), arg, transaction)
+			.put_object(&id.clone().into(), arg)
 			.boxed()
 			.await
 			.map_err(|source| tg::error!(!source, "failed to put the object"))?;
@@ -193,11 +185,7 @@ impl Lock {
 		Ok(id)
 	}
 
-	pub async fn data<H>(
-		&self,
-		handle: &H,
-		transaction: Option<&H::Transaction<'_>>,
-	) -> tg::Result<Data>
+	pub async fn data<H>(&self, handle: &H) -> tg::Result<Data>
 	where
 		H: tg::Handle,
 	{
@@ -206,7 +194,7 @@ impl Lock {
 		let nodes = object
 			.nodes
 			.iter()
-			.map(|node| node.data(handle, transaction))
+			.map(|node| node.data(handle))
 			.collect::<FuturesOrdered<_>>()
 			.try_collect()
 			.await?;
@@ -338,11 +326,7 @@ impl Lock {
 }
 
 impl Node {
-	pub async fn data<H>(
-		&self,
-		handle: &H,
-		transaction: Option<&H::Transaction<'_>>,
-	) -> tg::Result<data::Node>
+	pub async fn data<H>(&self, handle: &H) -> tg::Result<data::Node>
 	where
 		H: tg::Handle,
 	{
@@ -350,7 +334,7 @@ impl Node {
 			.dependencies
 			.iter()
 			.map(|(dependency, entry)| async move {
-				Ok::<_, tg::Error>((dependency.clone(), entry.data(handle, transaction).await?))
+				Ok::<_, tg::Error>((dependency.clone(), entry.data(handle).await?))
 			})
 			.collect::<FuturesUnordered<_>>()
 			.try_collect()
@@ -360,21 +344,17 @@ impl Node {
 }
 
 impl Entry {
-	pub async fn data<H>(
-		&self,
-		handle: &H,
-		transaction: Option<&H::Transaction<'_>>,
-	) -> tg::Result<data::Entry>
+	pub async fn data<H>(&self, handle: &H) -> tg::Result<data::Entry>
 	where
 		H: tg::Handle,
 	{
 		let package = match &self.artifact {
-			Some(package) => Some(package.id(handle, transaction).await?),
+			Some(package) => Some(package.id(handle).await?),
 			None => None,
 		};
 		let lock = match &self.lock {
 			Either::Left(index) => Either::Left(*index),
-			Either::Right(lock) => Either::Right(lock.id(handle, transaction).await?),
+			Either::Right(lock) => Either::Right(lock.id(handle).await?),
 		};
 		Ok(data::Entry {
 			artifact: package,

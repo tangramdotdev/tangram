@@ -84,11 +84,11 @@ where
 				Ok(String::from_utf8_lossy(&bytes).into())
 			},
 			tg::Value::Object(tg::Object::Branch(object)) => {
-				let data = object.data(&self.handle, None).await?;
+				let data = object.data(&self.handle).await?;
 				Ok(serde_json::to_string_pretty(&data).unwrap())
 			},
 			tg::Value::Object(tg::Object::Directory(object)) => {
-				let data = object.data(&self.handle, None).await?;
+				let data = object.data(&self.handle).await?;
 				Ok(serde_json::to_string_pretty(&data).unwrap())
 			},
 			tg::Value::Object(tg::Object::File(object)) => {
@@ -96,19 +96,19 @@ where
 				Ok(text)
 			},
 			tg::Value::Object(tg::Object::Symlink(object)) => {
-				let data = object.data(&self.handle, None).await?;
+				let data = object.data(&self.handle).await?;
 				Ok(serde_json::to_string_pretty(&data).unwrap())
 			},
 			tg::Value::Object(tg::Object::Target(object)) => {
-				let data = object.data(&self.handle, None).await?;
+				let data = object.data(&self.handle).await?;
 				Ok(serde_json::to_string_pretty(&data).unwrap())
 			},
 			tg::Value::Object(tg::Object::Lock(object)) => {
-				let data = object.data(&self.handle, None).await?;
+				let data = object.data(&self.handle).await?;
 				Ok(serde_json::to_string_pretty(&data).unwrap())
 			},
 			value => {
-				let data = value.data(&self.handle, None).await?;
+				let data = value.data(&self.handle).await?;
 				match &data {
 					tg::value::Data::Null => Ok("null".into()),
 					tg::value::Data::Bool(value) => {

@@ -40,7 +40,7 @@ impl Runtime {
 		// If the VFS is disabled, then check out the target's references.
 		if server.vfs.lock().unwrap().is_none() {
 			target
-				.data(server, None)
+				.data(server)
 				.await?
 				.children()
 				.into_iter()

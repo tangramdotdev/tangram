@@ -16,7 +16,7 @@ impl Cli {
 		let artifact = tg::Artifact::with_id(args.artifact);
 		let format = args.format;
 		let target = artifact.archive_target(format);
-		let target = target.id(&self.handle, None).await?;
+		let target = target.id(&self.handle).await?;
 		let args = crate::target::build::Args {
 			inner: crate::target::build::InnerArgs {
 				target: Some(target),

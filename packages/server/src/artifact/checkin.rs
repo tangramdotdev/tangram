@@ -31,13 +31,13 @@ impl Server {
 				.ok()
 				.ok_or_else(|| tg::error!("invalid path"))?;
 			let artifact = directory.get(self, &path).await?;
-			let id = artifact.id(self, None).await?;
+			let id = artifact.id(self).await?;
 			return Ok(tg::artifact::checkin::Output { artifact: id });
 		}
 
 		// Check in the artifact.
 		let artifact = self.check_in_artifact_inner(&arg.path).await?;
-		let artifact = artifact.id(self, None).await?;
+		let artifact = artifact.id(self).await?;
 
 		// Create the output.
 		let output = tg::artifact::checkin::Output { artifact };
@@ -117,7 +117,7 @@ impl Server {
 
 		// Create the directory.
 		let directory = tg::Directory::new(entries);
-		directory.store(self, None).await?;
+		directory.store(self).await?;
 		directory.unload();
 
 		Ok(directory.into())
@@ -163,7 +163,7 @@ impl Server {
 
 		// Create the file.
 		let file = tg::File::new(contents, executable, references);
-		file.store(self, None).await?;
+		file.store(self).await?;
 		file.unload();
 
 		Ok(file.into())
@@ -222,7 +222,7 @@ impl Server {
 
 		// Create the symlink.
 		let symlink = tg::Symlink::new(artifact, path);
-		symlink.store(self, None).await?;
+		symlink.store(self).await?;
 		symlink.unload();
 
 		Ok(symlink.into())

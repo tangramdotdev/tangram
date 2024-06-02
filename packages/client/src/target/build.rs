@@ -18,7 +18,7 @@ impl tg::Target {
 	where
 		H: tg::Handle,
 	{
-		let id = self.id(handle, None).await?;
+		let id = self.id(handle).await?;
 		let output = handle.build_target(&id, arg).await?;
 		let build = tg::Build::with_id(output.build);
 		Ok(build)

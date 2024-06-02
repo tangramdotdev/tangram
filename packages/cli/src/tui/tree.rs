@@ -972,7 +972,7 @@ where
 			tg::Value::Mutation(_) => title.push_str("mutation"),
 			tg::Value::Path(value) => title.push_str(value.as_ref()),
 			tg::Value::Object(value) => {
-				let id = value.id(&self.handle, None).await?;
+				let id = value.id(&self.handle).await?;
 				title.push_str(&id.to_string());
 			},
 			value => title.push_str(&value.to_string()),

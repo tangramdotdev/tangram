@@ -224,46 +224,46 @@ where
 				value: tg::Value::Object(tg::Object::Branch(object)),
 				..
 			} => {
-				let data = object.data(&self.handle, None).await?;
+				let data = object.data(&self.handle).await?;
 				Ok(serde_json::to_string_pretty(&data).unwrap())
 			},
 			Item::Value {
 				value: tg::Value::Object(tg::Object::Directory(object)),
 				..
 			} => {
-				let data = object.data(&self.handle, None).await?;
+				let data = object.data(&self.handle).await?;
 				Ok(serde_json::to_string_pretty(&data).unwrap())
 			},
 			Item::Value {
 				value: tg::Value::Object(tg::Object::File(object)),
 				..
 			} => {
-				let data = object.data(&self.handle, None).await?;
+				let data = object.data(&self.handle).await?;
 				Ok(serde_json::to_string_pretty(&data).unwrap())
 			},
 			Item::Value {
 				value: tg::Value::Object(tg::Object::Symlink(object)),
 				..
 			} => {
-				let data = object.data(&self.handle, None).await?;
+				let data = object.data(&self.handle).await?;
 				Ok(serde_json::to_string_pretty(&data).unwrap())
 			},
 			Item::Value {
 				value: tg::Value::Object(tg::Object::Target(object)),
 				..
 			} => {
-				let data = object.data(&self.handle, None).await?;
+				let data = object.data(&self.handle).await?;
 				Ok(serde_json::to_string_pretty(&data).unwrap())
 			},
 			Item::Value {
 				value: tg::Value::Object(tg::Object::Lock(object)),
 				..
 			} => {
-				let data = object.data(&self.handle, None).await?;
+				let data = object.data(&self.handle).await?;
 				Ok(serde_json::to_string_pretty(&data).unwrap())
 			},
 			Item::Value { value, .. } => {
-				let data = value.data(&self.handle, None).await?;
+				let data = value.data(&self.handle).await?;
 				match &data {
 					tg::value::Data::Null => Ok("null".into()),
 					tg::value::Data::Bool(value) => {
@@ -309,11 +309,11 @@ where
 					lock: tg::lock::Id,
 				}
 				let artifact = if let Some(artifact) = artifact {
-					Some(artifact.id(&self.handle, None).await?)
+					Some(artifact.id(&self.handle).await?)
 				} else {
 					None
 				};
-				let lock = lock.id(&self.handle, None).await?;
+				let lock = lock.id(&self.handle).await?;
 				let data = Data {
 					dependency: dependency.clone(),
 					artifact,

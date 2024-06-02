@@ -27,7 +27,7 @@ impl Server {
 		visited: &mut BTreeMap<tg::lock::Id, tg::package::outdated::Output>,
 	) -> tg::Result<tg::package::outdated::Output> {
 		// Use an existing output if possible.
-		let lock_id = lock.id(self, None).await?;
+		let lock_id = lock.id(self).await?;
 		if let Some(existing) = visited.get(&lock_id) {
 			return Ok(existing.clone());
 		}
@@ -56,7 +56,7 @@ impl Server {
 		};
 
 		// Create the outdated info.
-		let id = artifact.id(self, None).await?;
+		let id = artifact.id(self).await?;
 		let dependency = tg::Dependency::with_artifact(id);
 		let arg = tg::package::get::Arg {
 			metadata: true,

@@ -17,7 +17,7 @@ impl Cli {
 		let url = args.url;
 		let checksum = args.checksum.unwrap_or(tg::Checksum::Unsafe);
 		let target = tg::Blob::download_target(&url, &checksum);
-		let target = target.id(&self.handle, None).await?;
+		let target = target.id(&self.handle).await?;
 		let args = crate::target::build::Args {
 			inner: crate::target::build::InnerArgs {
 				target: Some(target),

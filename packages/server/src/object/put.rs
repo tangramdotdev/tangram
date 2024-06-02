@@ -1,4 +1,4 @@
-use crate::{database::Transaction, Server};
+use crate::Server;
 use futures::FutureExt as _;
 use indoc::formatdoc;
 use std::collections::BTreeSet;
@@ -13,43 +13,21 @@ impl Server {
 		&self,
 		id: &tg::object::Id,
 		arg: tg::object::put::Arg,
-		transaction: Option<&Transaction<'_>>,
 	) -> tg::Result<tg::object::put::Output> {
-		if let Some(transaction) = transaction {
-			self.put_object_with_transaction(id, arg, transaction).await
-		} else {
-			// Get a database connection.
-			let connection = self
-				.database
-				.connection()
-				.await
-				.map_err(|source| tg::error!(!source, "failed to get a database connection"))?;
+		// Get a database connection.
+		let connection = self
+			.database
+			.connection()
+			.await
+			.map_err(|source| tg::error!(!source, "failed to get a database connection"))?;
 
-			// Put the object.
-			let output = self
-				.put_object_with_transaction(id, arg, &connection)
-				.await?;
-
-			// Drop the connection.
-			drop(connection);
-
-			Ok(output)
-		}
-	}
-
-	pub(crate) async fn put_object_with_transaction(
-		&self,
-		id: &tg::object::Id,
-		arg: tg::object::put::Arg,
-		transaction: &impl db::Query,
-	) -> tg::Result<tg::object::put::Output> {
 		// Insert the object.
 		#[derive(serde::Deserialize)]
 		struct Row {
 			children: bool,
 			complete: bool,
 		}
-		let p = transaction.p();
+		let p = connection.p();
 		let statement = formatdoc!(
 			"
 				insert into objects (id, bytes, touched_at)
@@ -60,7 +38,7 @@ impl Server {
 		);
 		let now = time::OffsetDateTime::now_utc().format(&Rfc3339).unwrap();
 		let params = db::params![id, arg.bytes, now];
-		let Row { children, complete } = transaction
+		let Row { children, complete } = connection
 			.query_one_into::<Row>(statement, params)
 			.await
 			.map_err(|source| tg::error!(!source, "failed to execute the statement"))?;
@@ -81,7 +59,7 @@ impl Server {
 		// Get the incomplete children.
 		let incomplete: BTreeSet<tg::object::Id> = if children {
 			// If the object's children are set, then get the incomplete children.
-			let p = transaction.p();
+			let p = connection.p();
 			let statement = formatdoc!(
 				"
 					select child
@@ -91,7 +69,7 @@ impl Server {
 				"
 			);
 			let params = db::params![id];
-			transaction
+			connection
 				.query_all_value_into(statement, params)
 				.await
 				.map_err(|source| tg::error!(!source, "failed to execute the statement"))?
@@ -104,6 +82,10 @@ impl Server {
 			data.children()
 		};
 
+		// Drop the connection.
+		drop(connection);
+
+		// Create the output.
 		let output = tg::object::put::Output { incomplete };
 
 		Ok(output)
@@ -122,7 +104,7 @@ impl Server {
 		let id = id.parse()?;
 		let bytes = request.bytes().await?;
 		let arg = tg::object::put::Arg { bytes };
-		let output = handle.put_object(&id, arg, None).boxed().await?;
+		let output = handle.put_object(&id, arg).boxed().await?;
 		let body = Outgoing::json(output);
 		let response = http::Response::builder().body(body).unwrap();
 		Ok(response)

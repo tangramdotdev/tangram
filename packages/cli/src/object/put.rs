@@ -30,7 +30,7 @@ impl Cli {
 		let arg = tg::object::put::Arg {
 			bytes: bytes.into(),
 		};
-		self.handle.put_object(&id, arg, None).await?;
+		self.handle.put_object(&id, arg).await?;
 		println!("{id}");
 		Ok(())
 	}

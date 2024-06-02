@@ -67,15 +67,11 @@ impl Leaf {
 		Self { state }
 	}
 
-	pub async fn id<H>(
-		&self,
-		handle: &H,
-		transaction: Option<&H::Transaction<'_>>,
-	) -> tg::Result<Id>
+	pub async fn id<H>(&self, handle: &H) -> tg::Result<Id>
 	where
 		H: tg::Handle,
 	{
-		self.store(handle, transaction).await
+		self.store(handle).await
 	}
 
 	pub async fn object<H>(&self, handle: &H) -> tg::Result<Arc<Object>>
@@ -117,23 +113,19 @@ impl Leaf {
 		self.state.write().unwrap().object.take();
 	}
 
-	pub async fn store<H>(
-		&self,
-		handle: &H,
-		transaction: Option<&H::Transaction<'_>>,
-	) -> tg::Result<Id>
+	pub async fn store<H>(&self, handle: &H) -> tg::Result<Id>
 	where
 		H: tg::Handle,
 	{
 		if let Some(id) = self.state.read().unwrap().id.clone() {
 			return Ok(id);
 		}
-		let data = self.data(handle, transaction).await?;
+		let data = self.data(handle).await?;
 		let bytes = data.serialize()?;
 		let id = Id::new(&bytes);
 		let arg = tg::object::put::Arg { bytes };
 		handle
-			.put_object(&id.clone().into(), arg, transaction)
+			.put_object(&id.clone().into(), arg)
 			.boxed()
 			.await
 			.map_err(|source| tg::error!(!source, "failed to put the object"))?;
@@ -141,11 +133,7 @@ impl Leaf {
 		Ok(id)
 	}
 
-	pub async fn data<H>(
-		&self,
-		handle: &H,
-		_transaction: Option<&H::Transaction<'_>>,
-	) -> tg::Result<Data>
+	pub async fn data<H>(&self, handle: &H) -> tg::Result<Data>
 	where
 		H: tg::Handle,
 	{

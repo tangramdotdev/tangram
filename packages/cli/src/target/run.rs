@@ -37,7 +37,7 @@ impl Cli {
 						PathBuf::from(std::env::var("HOME").unwrap()).join(".tangram")
 					});
 				path.join("artifacts")
-					.join(artifact.id(&self.handle, None).await?.to_string())
+					.join(artifact.id(&self.handle).await?.to_string())
 					.try_into()?
 			},
 		};

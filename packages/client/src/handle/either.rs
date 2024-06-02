@@ -9,8 +9,6 @@ where
 	L: tg::Handle,
 	R: tg::Handle,
 {
-	type Transaction<'a> = Either<L::Transaction<'a>, R::Transaction<'a>>;
-
 	fn check_in_artifact(
 		&self,
 		arg: tg::artifact::checkin::Arg,
@@ -314,17 +312,10 @@ where
 		&self,
 		id: &tg::object::Id,
 		arg: tg::object::put::Arg,
-		transaction: Option<&Self::Transaction<'_>>,
 	) -> impl Future<Output = tg::Result<tg::object::put::Output>> {
 		match self {
-			Either::Left(s) => {
-				let transaction = transaction.map(|t| t.as_ref().left().unwrap());
-				s.put_object(id, arg, transaction).left_future()
-			},
-			Either::Right(s) => {
-				let transaction = transaction.map(|t| t.as_ref().right().unwrap());
-				s.put_object(id, arg, transaction).right_future()
-			},
+			Either::Left(s) => s.put_object(id, arg).left_future(),
+			Either::Right(s) => s.put_object(id, arg).right_future(),
 		}
 	}
 

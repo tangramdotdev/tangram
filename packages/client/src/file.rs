@@ -84,15 +84,11 @@ impl File {
 		Self { state }
 	}
 
-	pub async fn id<H>(
-		&self,
-		handle: &H,
-		transaction: Option<&H::Transaction<'_>>,
-	) -> tg::Result<Id>
+	pub async fn id<H>(&self, handle: &H) -> tg::Result<Id>
 	where
 		H: tg::Handle,
 	{
-		self.store(handle, transaction).await
+		self.store(handle).await
 	}
 
 	pub async fn object<H>(&self, handle: &H) -> tg::Result<Arc<Object>>
@@ -134,23 +130,19 @@ impl File {
 		self.state.write().unwrap().object.take();
 	}
 
-	pub async fn store<H>(
-		&self,
-		handle: &H,
-		transaction: Option<&H::Transaction<'_>>,
-	) -> tg::Result<Id>
+	pub async fn store<H>(&self, handle: &H) -> tg::Result<Id>
 	where
 		H: tg::Handle,
 	{
 		if let Some(id) = self.state.read().unwrap().id.clone() {
 			return Ok(id);
 		}
-		let data = self.data(handle, transaction).await?;
+		let data = self.data(handle).await?;
 		let bytes = data.serialize()?;
 		let id = Id::new(&bytes);
 		let arg = tg::object::put::Arg { bytes };
 		handle
-			.put_object(&id.clone().into(), arg, transaction)
+			.put_object(&id.clone().into(), arg)
 			.boxed()
 			.await
 			.map_err(|source| tg::error!(!source, "failed to put the object"))?;
@@ -158,21 +150,17 @@ impl File {
 		Ok(id)
 	}
 
-	pub async fn data<H>(
-		&self,
-		handle: &H,
-		transaction: Option<&H::Transaction<'_>>,
-	) -> tg::Result<Data>
+	pub async fn data<H>(&self, handle: &H) -> tg::Result<Data>
 	where
 		H: tg::Handle,
 	{
 		let object = self.object(handle).await?;
-		let contents = object.contents.id(handle, transaction).await?.clone();
+		let contents = object.contents.id(handle).await?.clone();
 		let executable = object.executable;
 		let references = object
 			.references
 			.iter()
-			.map(|artifact| artifact.id(handle, transaction))
+			.map(|artifact| artifact.id(handle))
 			.collect::<FuturesOrdered<_>>()
 			.try_collect()
 			.await?;

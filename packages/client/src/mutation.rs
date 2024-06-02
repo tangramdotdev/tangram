@@ -56,26 +56,22 @@ pub enum Data {
 }
 
 impl Mutation {
-	pub async fn data<H>(
-		&self,
-		handle: &H,
-		transaction: Option<&H::Transaction<'_>>,
-	) -> tg::Result<Data>
+	pub async fn data<H>(&self, handle: &H) -> tg::Result<Data>
 	where
 		H: tg::Handle,
 	{
 		Ok(match self {
 			Self::Unset => Data::Unset,
 			Self::Set { value } => Data::Set {
-				value: Box::new(Box::pin(value.data(handle, transaction)).await?),
+				value: Box::new(Box::pin(value.data(handle)).await?),
 			},
 			Self::SetIfUnset { value } => Data::SetIfUnset {
-				value: Box::new(Box::pin(value.data(handle, transaction)).await?),
+				value: Box::new(Box::pin(value.data(handle)).await?),
 			},
 			Self::Prepend { values } => Data::Prepend {
 				values: values
 					.iter()
-					.map(|value| value.data(handle, transaction))
+					.map(|value| value.data(handle))
 					.collect::<FuturesOrdered<_>>()
 					.try_collect()
 					.await?,
@@ -83,7 +79,7 @@ impl Mutation {
 			Self::Append { values } => Data::Append {
 				values: values
 					.iter()
-					.map(|value| value.data(handle, transaction))
+					.map(|value| value.data(handle))
 					.collect::<FuturesOrdered<_>>()
 					.try_collect()
 					.await?,
@@ -92,14 +88,14 @@ impl Mutation {
 				template,
 				separator,
 			} => Data::Prefix {
-				template: template.data(handle, transaction).await?,
+				template: template.data(handle).await?,
 				separator: separator.clone(),
 			},
 			Self::Suffix {
 				template,
 				separator,
 			} => Data::Suffix {
-				template: template.data(handle, transaction).await?,
+				template: template.data(handle).await?,
 				separator: separator.clone(),
 			},
 		})

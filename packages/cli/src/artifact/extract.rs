@@ -16,7 +16,7 @@ impl Cli {
 		let blob = tg::Blob::with_id(args.blob);
 		let format = args.format;
 		let target = tg::Artifact::extract_target(&blob, format);
-		let target = target.id(&self.handle, None).await?;
+		let target = target.id(&self.handle).await?;
 		let args = crate::target::build::Args {
 			inner: crate::target::build::InnerArgs {
 				target: Some(target),

@@ -114,7 +114,7 @@ impl Server {
 			Ok(outcome) => outcome,
 			Err(error) => tg::build::Outcome::Failed(error),
 		};
-		let outcome = outcome.data(self, None).await?;
+		let outcome = outcome.data(self).await?;
 
 		// Push the output if the build is remote.
 		if let Some(remote) = remote.clone() {

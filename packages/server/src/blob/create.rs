@@ -34,7 +34,7 @@ impl Server {
 				let bytes = Bytes::from(chunk.data);
 				let size = bytes.len().to_u64().unwrap();
 				let leaf = tg::Leaf::new(bytes);
-				leaf.store(self, None).await?;
+				leaf.store(self).await?;
 				leaf.unload();
 				Ok::<_, tg::Error>(tg::branch::Child {
 					blob: leaf.into(),
@@ -53,7 +53,7 @@ impl Server {
 						stream::once(async move {
 							let size = chunk.iter().map(|blob| blob.size).sum();
 							let branch = tg::Branch::new(chunk);
-							branch.store(self, None).await?;
+							branch.store(self).await?;
 							branch.unload();
 							let child = tg::branch::Child {
 								blob: branch.into(),
@@ -72,9 +72,9 @@ impl Server {
 
 		// Create the blob.
 		let blob = tg::Blob::new(children);
-		blob.store(self, None).await?;
+		blob.store(self).await?;
 		blob.unload();
-		let blob = blob.id(self, None).await?;
+		let blob = blob.id(self).await?;
 
 		// Create the output.
 		let output = tg::blob::create::Output { blob };

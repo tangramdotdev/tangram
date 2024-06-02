@@ -88,7 +88,7 @@ impl Server {
 		visited: &mut BTreeMap<tg::artifact::Id, Option<tg::package::get::Output>>,
 	) -> tg::Result<Option<tg::package::get::Output>> {
 		// Check if this package has already been visited.
-		let id = artifact.id(self, None).await?;
+		let id = artifact.id(self).await?;
 		match visited.get(&id) {
 			Some(Some(output)) => return Ok(Some(output.clone())),
 			Some(None) => {
@@ -222,7 +222,7 @@ impl Server {
 			let lock = self
 				.get_or_create_lock(&id, None, &dependencies, arg.locked)
 				.await?;
-			let lock = lock.id(self, None).await?;
+			let lock = lock.id(self).await?;
 			Some(lock)
 		} else {
 			None
@@ -411,14 +411,14 @@ impl Server {
 
 		// Create the artifact.
 		let artifact: tg::Artifact = builder.build().into();
-		let id = artifact.id(self, None).await?;
+		let id = artifact.id(self).await?;
 
 		// Create the lock if requested.
 		let lock = if arg.lock {
 			let lock = self
 				.get_or_create_lock(&id, Some(path), &dependencies, arg.locked)
 				.await?;
-			let lock = lock.id(self, None).await?;
+			let lock = lock.id(self).await?;
 			Some(lock)
 		} else {
 			None

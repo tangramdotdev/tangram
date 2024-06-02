@@ -1,9 +1,4 @@
-use self::{
-	database::{Database, Transaction},
-	messenger::Messenger,
-	runtime::Runtime,
-	util::fs::remove,
-};
+use self::{database::Database, messenger::Messenger, runtime::Runtime, util::fs::remove};
 use async_nats as nats;
 use bytes::Bytes;
 use dashmap::DashMap;
@@ -800,8 +795,6 @@ impl Server {
 }
 
 impl tg::Handle for Server {
-	type Transaction<'a> = Transaction<'a>;
-
 	fn check_in_artifact(
 		&self,
 		arg: tg::artifact::checkin::Arg,
@@ -1003,9 +996,8 @@ impl tg::Handle for Server {
 		&self,
 		id: &tg::object::Id,
 		arg: tg::object::put::Arg,
-		transaction: Option<&Self::Transaction<'_>>,
 	) -> impl Future<Output = tg::Result<tg::object::put::Output>> {
-		self.put_object(id, arg, transaction)
+		self.put_object(id, arg)
 	}
 
 	fn push_object(

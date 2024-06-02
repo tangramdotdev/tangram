@@ -15,8 +15,6 @@ use tokio::io::{AsyncBufRead, AsyncRead, AsyncWrite};
 mod either;
 
 pub trait Handle: Clone + Unpin + Send + Sync + 'static {
-	type Transaction<'a>: Send + Sync;
-
 	fn check_in_artifact(
 		&self,
 		arg: tg::artifact::checkin::Arg,
@@ -561,7 +559,6 @@ pub trait Handle: Clone + Unpin + Send + Sync + 'static {
 		&self,
 		id: &tg::object::Id,
 		arg: tg::object::put::Arg,
-		transaction: Option<&Self::Transaction<'_>>,
 	) -> impl Future<Output = tg::Result<tg::object::put::Output>> + Send;
 
 	fn push_object(

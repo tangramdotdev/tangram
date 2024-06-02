@@ -67,31 +67,23 @@ impl Blob {
 		}
 	}
 
-	pub async fn id<H>(
-		&self,
-		handle: &H,
-		transaction: Option<&H::Transaction<'_>>,
-	) -> tg::Result<Id>
+	pub async fn id<H>(&self, handle: &H) -> tg::Result<Id>
 	where
 		H: tg::Handle,
 	{
 		match self {
-			Self::Leaf(leaf) => Ok(leaf.id(handle, transaction).await?.into()),
-			Self::Branch(branch) => Ok(branch.id(handle, transaction).await?.into()),
+			Self::Leaf(leaf) => Ok(leaf.id(handle).await?.into()),
+			Self::Branch(branch) => Ok(branch.id(handle).await?.into()),
 		}
 	}
 
-	pub async fn data<H>(
-		&self,
-		handle: &H,
-		transaction: Option<&H::Transaction<'_>>,
-	) -> tg::Result<Data>
+	pub async fn data<H>(&self, handle: &H) -> tg::Result<Data>
 	where
 		H: tg::Handle,
 	{
 		match self {
-			Self::Leaf(leaf) => Ok(leaf.data(handle, transaction).await?.into()),
-			Self::Branch(branch) => Ok(branch.data(handle, transaction).await?.into()),
+			Self::Leaf(leaf) => Ok(leaf.data(handle).await?.into()),
+			Self::Branch(branch) => Ok(branch.data(handle).await?.into()),
 		}
 	}
 
@@ -112,17 +104,13 @@ impl Blob {
 		}
 	}
 
-	pub async fn store<H>(
-		&self,
-		handle: &H,
-		transaction: Option<&H::Transaction<'_>>,
-	) -> tg::Result<Id>
+	pub async fn store<H>(&self, handle: &H) -> tg::Result<Id>
 	where
 		H: tg::Handle,
 	{
 		match self {
-			Self::Leaf(leaf) => leaf.store(handle, transaction).await.map(Into::into),
-			Self::Branch(branch) => branch.store(handle, transaction).await.map(Into::into),
+			Self::Leaf(leaf) => leaf.store(handle).await.map(Into::into),
+			Self::Branch(branch) => branch.store(handle).await.map(Into::into),
 		}
 	}
 }

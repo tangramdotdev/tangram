@@ -101,33 +101,25 @@ impl Artifact {
 		}
 	}
 
-	pub async fn id<H>(
-		&self,
-		handle: &H,
-		transaction: Option<&H::Transaction<'_>>,
-	) -> tg::Result<Id>
+	pub async fn id<H>(&self, handle: &H) -> tg::Result<Id>
 	where
 		H: tg::Handle,
 	{
 		match self {
-			Self::Directory(directory) => Ok(directory.id(handle, transaction).await?.into()),
-			Self::File(file) => Ok(file.id(handle, transaction).await?.into()),
-			Self::Symlink(symlink) => Ok(Box::pin(symlink.id(handle, transaction)).await?.into()),
+			Self::Directory(directory) => Ok(directory.id(handle).await?.into()),
+			Self::File(file) => Ok(file.id(handle).await?.into()),
+			Self::Symlink(symlink) => Ok(Box::pin(symlink.id(handle)).await?.into()),
 		}
 	}
 
-	pub async fn data<H>(
-		&self,
-		handle: &H,
-		transaction: Option<&H::Transaction<'_>>,
-	) -> tg::Result<Data>
+	pub async fn data<H>(&self, handle: &H) -> tg::Result<Data>
 	where
 		H: tg::Handle,
 	{
 		match self {
-			Self::Directory(directory) => Ok(directory.data(handle, transaction).await?.into()),
-			Self::File(file) => Ok(file.data(handle, transaction).await?.into()),
-			Self::Symlink(symlink) => Ok(symlink.data(handle, transaction).await?.into()),
+			Self::Directory(directory) => Ok(directory.data(handle).await?.into()),
+			Self::File(file) => Ok(file.data(handle).await?.into()),
+			Self::Symlink(symlink) => Ok(symlink.data(handle).await?.into()),
 		}
 	}
 
@@ -150,20 +142,14 @@ impl Artifact {
 		}
 	}
 
-	pub async fn store<H>(
-		&self,
-		handle: &H,
-		transaction: Option<&H::Transaction<'_>>,
-	) -> tg::Result<Id>
+	pub async fn store<H>(&self, handle: &H) -> tg::Result<Id>
 	where
 		H: tg::Handle,
 	{
 		match self {
-			Self::Directory(directory) => {
-				directory.store(handle, transaction).await.map(Into::into)
-			},
-			Self::File(file) => file.store(handle, transaction).await.map(Into::into),
-			Self::Symlink(symlink) => symlink.store(handle, transaction).await.map(Into::into),
+			Self::Directory(directory) => directory.store(handle).await.map(Into::into),
+			Self::File(file) => file.store(handle).await.map(Into::into),
+			Self::Symlink(symlink) => symlink.store(handle).await.map(Into::into),
 		}
 	}
 }
@@ -220,7 +206,7 @@ impl Artifact {
 					// Handle each artifact.
 					for artifact in artifacts {
 						// Insert the artifact into the set of references.
-						let inserted = references.insert(artifact.id(handle, None).await?);
+						let inserted = references.insert(artifact.id(handle).await?);
 
 						// If the artifact was new, then add it to the queue.
 						if inserted {

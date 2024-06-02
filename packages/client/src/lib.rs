@@ -549,8 +549,6 @@ impl Client {
 }
 
 impl tg::Handle for Client {
-	type Transaction<'a> = ();
-
 	fn check_in_artifact(
 		&self,
 		arg: tg::artifact::checkin::Arg,
@@ -752,9 +750,8 @@ impl tg::Handle for Client {
 		&self,
 		id: &tg::object::Id,
 		arg: tg::object::put::Arg,
-		transaction: Option<&Self::Transaction<'_>>,
 	) -> impl Future<Output = tg::Result<tg::object::put::Output>> {
-		self.put_object(id, arg, transaction)
+		self.put_object(id, arg)
 	}
 
 	fn push_object(

@@ -21,7 +21,7 @@ impl tg::Artifact {
 	where
 		H: tg::Handle,
 	{
-		let id = self.id(handle, None).await?;
+		let id = self.id(handle).await?;
 		let output = handle.check_out_artifact(&id, arg).await?;
 		Ok(output)
 	}

@@ -112,7 +112,7 @@ impl Server {
 		// Create a blob from the log.
 		let reader = log::Reader::new(self, id).await?;
 		let log = tg::Blob::with_reader(self, reader).await?;
-		let log = log.id(self, None).await?;
+		let log = log.id(self).await?;
 
 		// Get a database connection.
 		let connection = self

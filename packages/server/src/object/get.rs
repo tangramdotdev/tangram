@@ -93,7 +93,7 @@ impl Server {
 		let arg = tg::object::put::Arg {
 			bytes: output.bytes.clone(),
 		};
-		self.put_object(id, arg, None).await?;
+		self.put_object(id, arg).await?;
 
 		Ok(Some(output))
 	}

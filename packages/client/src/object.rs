@@ -134,22 +134,18 @@ impl Handle {
 			Object::Target(object) => Self::Target(tg::Target::with_object(object)),
 		}
 	}
-	pub async fn id<H>(
-		&self,
-		handle: &H,
-		transaction: Option<&H::Transaction<'_>>,
-	) -> tg::Result<Id>
+	pub async fn id<H>(&self, handle: &H) -> tg::Result<Id>
 	where
 		H: crate::Handle,
 	{
 		match self {
-			Self::Leaf(object) => object.id(handle, transaction).await.map(Id::Leaf),
-			Self::Branch(object) => object.id(handle, transaction).await.map(Id::Branch),
-			Self::Directory(object) => object.id(handle, transaction).await.map(Id::Directory),
-			Self::File(object) => object.id(handle, transaction).await.map(Id::File),
-			Self::Symlink(object) => object.id(handle, transaction).await.map(Id::Symlink),
-			Self::Lock(object) => object.id(handle, transaction).await.map(Id::Lock),
-			Self::Target(object) => object.id(handle, transaction).await.map(Id::Target),
+			Self::Leaf(object) => object.id(handle).await.map(Id::Leaf),
+			Self::Branch(object) => object.id(handle).await.map(Id::Branch),
+			Self::Directory(object) => object.id(handle).await.map(Id::Directory),
+			Self::File(object) => object.id(handle).await.map(Id::File),
+			Self::Symlink(object) => object.id(handle).await.map(Id::Symlink),
+			Self::Lock(object) => object.id(handle).await.map(Id::Lock),
+			Self::Target(object) => object.id(handle).await.map(Id::Target),
 		}
 	}
 
@@ -168,22 +164,18 @@ impl Handle {
 		}
 	}
 
-	pub async fn data<H>(
-		&self,
-		handle: &H,
-		transaction: Option<&H::Transaction<'_>>,
-	) -> tg::Result<Data>
+	pub async fn data<H>(&self, handle: &H) -> tg::Result<Data>
 	where
 		H: crate::Handle,
 	{
 		match self {
-			Self::Leaf(object) => object.data(handle, transaction).await.map(Data::Leaf),
-			Self::Branch(object) => object.data(handle, transaction).await.map(Data::Branch),
-			Self::Directory(object) => object.data(handle, transaction).await.map(Data::Directory),
-			Self::File(object) => object.data(handle, transaction).await.map(Data::File),
-			Self::Symlink(object) => object.data(handle, transaction).await.map(Data::Symlink),
-			Self::Lock(object) => object.data(handle, transaction).await.map(Data::Lock),
-			Self::Target(object) => object.data(handle, transaction).await.map(Data::Target),
+			Self::Leaf(object) => object.data(handle).await.map(Data::Leaf),
+			Self::Branch(object) => object.data(handle).await.map(Data::Branch),
+			Self::Directory(object) => object.data(handle).await.map(Data::Directory),
+			Self::File(object) => object.data(handle).await.map(Data::File),
+			Self::Symlink(object) => object.data(handle).await.map(Data::Symlink),
+			Self::Lock(object) => object.data(handle).await.map(Data::Lock),
+			Self::Target(object) => object.data(handle).await.map(Data::Target),
 		}
 	}
 }

@@ -101,15 +101,11 @@ impl Target {
 		Self { state }
 	}
 
-	pub async fn id<H>(
-		&self,
-		handle: &H,
-		transaction: Option<&H::Transaction<'_>>,
-	) -> tg::Result<Id>
+	pub async fn id<H>(&self, handle: &H) -> tg::Result<Id>
 	where
 		H: tg::Handle,
 	{
-		self.store(handle, transaction).await
+		self.store(handle).await
 	}
 
 	pub async fn object<H>(&self, handle: &H) -> tg::Result<Arc<Object>>
@@ -151,23 +147,19 @@ impl Target {
 		self.state.write().unwrap().object.take();
 	}
 
-	pub async fn store<H>(
-		&self,
-		handle: &H,
-		transaction: Option<&H::Transaction<'_>>,
-	) -> tg::Result<Id>
+	pub async fn store<H>(&self, handle: &H) -> tg::Result<Id>
 	where
 		H: tg::Handle,
 	{
 		if let Some(id) = self.state.read().unwrap().id.clone() {
 			return Ok(id);
 		}
-		let data = self.data(handle, transaction).await?;
+		let data = self.data(handle).await?;
 		let bytes = data.serialize()?;
 		let id = Id::new(&bytes);
 		let arg = tg::object::put::Arg { bytes };
 		handle
-			.put_object(&id.clone().into(), arg, transaction)
+			.put_object(&id.clone().into(), arg)
 			.boxed()
 			.await
 			.map_err(|source| tg::error!(!source, "failed to put the object"))?;
@@ -175,25 +167,21 @@ impl Target {
 		Ok(id)
 	}
 
-	pub async fn data<H>(
-		&self,
-		handle: &H,
-		transaction: Option<&H::Transaction<'_>>,
-	) -> tg::Result<Data>
+	pub async fn data<H>(&self, handle: &H) -> tg::Result<Data>
 	where
 		H: tg::Handle,
 	{
 		let object = self.object(handle).await?;
 		let host = object.host.clone();
 		let executable = if let Some(executable) = object.executable.as_ref() {
-			Some(executable.id(handle, transaction).await?)
+			Some(executable.id(handle).await?)
 		} else {
 			None
 		};
 		let args = object
 			.args
 			.iter()
-			.map(|value| value.data(handle, transaction))
+			.map(|value| value.data(handle))
 			.collect::<FuturesOrdered<_>>()
 			.try_collect()
 			.await?;
@@ -202,14 +190,14 @@ impl Target {
 			.iter()
 			.map(|(key, value)| async move {
 				let key = key.clone();
-				let value = value.data(handle, transaction).await?;
+				let value = value.data(handle).await?;
 				Ok::<_, tg::Error>((key, value))
 			})
 			.collect::<FuturesUnordered<_>>()
 			.try_collect()
 			.await?;
 		let lock = if let Some(lock) = &object.lock {
-			Some(lock.id(handle, transaction).await?)
+			Some(lock.id(handle).await?)
 		} else {
 			None
 		};

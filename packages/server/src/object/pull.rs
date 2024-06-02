@@ -115,7 +115,7 @@ impl Server {
 		// Put the object.
 		let arg = tg::object::put::Arg { bytes };
 		let output = self
-			.put_object(object, arg, None)
+			.put_object(object, arg)
 			.boxed()
 			.await
 			.map_err(|source| tg::error!(!source, "failed to put the object"))?;

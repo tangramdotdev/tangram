@@ -109,7 +109,7 @@ pub async fn try_get_dependencies<H>(
 where
 	H: tg::Handle,
 {
-	let id = package.id(handle, None).await?;
+	let id = package.id(handle).await?;
 	let dependency = tg::Dependency::with_artifact(id);
 	let arg = tg::package::get::Arg {
 		dependencies: true,
@@ -146,7 +146,7 @@ pub async fn try_get_metadata<H>(
 where
 	H: tg::Handle,
 {
-	let id = package.id(handle, None).await?;
+	let id = package.id(handle).await?;
 	let dependency = tg::Dependency::with_artifact(id);
 	let arg = tg::package::get::Arg {
 		metadata: true,

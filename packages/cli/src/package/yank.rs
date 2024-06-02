@@ -39,7 +39,7 @@ impl Cli {
 			.map_err(|source| tg::error!(!source, %dependency, "failed to get the package"))?;
 
 		// Get the package ID.
-		let id = package.id(&self.handle, None).await?;
+		let id = package.id(&self.handle).await?;
 
 		// Yank the package.
 		let remote = args

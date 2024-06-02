@@ -18,7 +18,6 @@ impl tg::Client {
 		&self,
 		id: &tg::object::Id,
 		arg: tg::object::put::Arg,
-		_transaction: Option<&()>,
 	) -> tg::Result<tg::object::put::Output> {
 		let method = http::Method::PUT;
 		let uri = format!("/objects/{id}");

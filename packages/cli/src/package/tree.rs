@@ -68,7 +68,7 @@ impl Cli {
 			write!(title, "{package}").unwrap();
 		}
 
-		let package_id = package.id(&self.handle, None).await?;
+		let package_id = package.id(&self.handle).await?;
 		if visited.contains(&package_id)
 			|| max_depth.map_or(false, |max_depth| current_depth == max_depth)
 		{

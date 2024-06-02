@@ -20,7 +20,7 @@ impl tg::Object {
 	where
 		H: tg::Handle,
 	{
-		let id = self.id(handle, None).await?;
+		let id = self.id(handle).await?;
 		let stream = handle.pull_object(&id, arg).await?.boxed();
 		Ok(stream)
 	}

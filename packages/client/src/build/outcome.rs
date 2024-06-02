@@ -47,11 +47,7 @@ impl Outcome {
 		}
 	}
 
-	pub async fn data<H>(
-		&self,
-		handle: &H,
-		transaction: Option<&H::Transaction<'_>>,
-	) -> tg::Result<tg::build::outcome::Data>
+	pub async fn data<H>(&self, handle: &H) -> tg::Result<tg::build::outcome::Data>
 	where
 		H: tg::Handle,
 	{
@@ -59,7 +55,7 @@ impl Outcome {
 			Self::Canceled => tg::build::outcome::Data::Canceled,
 			Self::Failed(error) => tg::build::outcome::Data::Failed(error.clone()),
 			Self::Succeeded(value) => {
-				tg::build::outcome::Data::Succeeded(value.data(handle, transaction).await?)
+				tg::build::outcome::Data::Succeeded(value.data(handle).await?)
 			},
 		})
 	}

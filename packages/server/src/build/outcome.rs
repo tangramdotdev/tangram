@@ -167,7 +167,7 @@ impl Server {
 			let handle = handle.clone();
 			move |option| async move {
 				if let Some(outcome) = option {
-					outcome.data(&handle, None).await.map(Some)
+					outcome.data(&handle).await.map(Some)
 				} else {
 					Ok(None)
 				}

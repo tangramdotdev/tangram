@@ -256,14 +256,10 @@ impl vfs::Provider for Provider {
 
 		// Handle the case that it is checked out.
 		if checkout {
-			let id = artifact
-				.unwrap()
-				.id(&self.server, None)
-				.await
-				.map_err(|error| {
-					tracing::error!(%error, "failed to get artifact id");
-					std::io::Error::from_raw_os_error(libc::EIO)
-				})?;
+			let id = artifact.unwrap().id(&self.server).await.map_err(|error| {
+				tracing::error!(%error, "failed to get artifact id");
+				std::io::Error::from_raw_os_error(libc::EIO)
+			})?;
 			let path = self
 				.server
 				.checkouts_path()
@@ -296,7 +292,7 @@ impl vfs::Provider for Provider {
 			for _ in 0..depth - 1 {
 				target.push(tg::path::Component::Parent);
 			}
-			let Ok(artifact) = artifact.id(&self.server, None).await else {
+			let Ok(artifact) = artifact.id(&self.server).await else {
 				tracing::error!("failed to get the symlink's artifact id");
 				return Err(std::io::Error::from_raw_os_error(libc::EIO));
 			};
@@ -342,7 +338,7 @@ impl vfs::Provider for Provider {
 		// Create the output.
 		let mut references = BTreeSet::new();
 		for artifact in artifacts.iter() {
-			let id = artifact.id(&self.server, None).await.map_err(|e| {
+			let id = artifact.id(&self.server).await.map_err(|e| {
 				tracing::error!(?e, ?artifact, "failed to get ID of artifact");
 				std::io::Error::from_raw_os_error(libc::EIO)
 			})?;
@@ -546,7 +542,7 @@ impl Provider {
 		checkout: bool,
 	) -> std::io::Result<u64> {
 		// Get the artifact.
-		let artifact = artifact.id(&self.server, None).await.map_err(|error| {
+		let artifact = artifact.id(&self.server).await.map_err(|error| {
 			tracing::error!(%error, "failed to get artifact id");
 			std::io::Error::from_raw_os_error(libc::EIO)
 		})?;

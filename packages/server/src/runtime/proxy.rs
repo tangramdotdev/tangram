@@ -53,8 +53,6 @@ impl Proxy {
 }
 
 impl tg::Handle for Proxy {
-	type Transaction<'a> = ();
-
 	async fn check_in_artifact(
 		&self,
 		mut arg: tg::artifact::checkin::Arg,
@@ -266,9 +264,8 @@ impl tg::Handle for Proxy {
 		&self,
 		id: &tg::object::Id,
 		arg: tg::object::put::Arg,
-		_transaction: Option<&Self::Transaction<'_>>,
 	) -> impl Future<Output = tg::Result<tg::object::put::Output>> {
-		self.server.put_object(id, arg, None)
+		self.server.put_object(id, arg)
 	}
 
 	async fn push_object(

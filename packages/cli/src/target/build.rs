@@ -216,11 +216,11 @@ impl Cli {
 		eprintln!(
 			"{} target {}",
 			"info".blue().bold(),
-			target.id(&self.handle, None).await?
+			target.id(&self.handle).await?
 		);
 
 		// Build the target.
-		let id = target.id(&self.handle, None).await?;
+		let id = target.id(&self.handle).await?;
 		let remote = args
 			.remote
 			.map(|remote| remote.unwrap_or_else(|| "default".to_owned()));

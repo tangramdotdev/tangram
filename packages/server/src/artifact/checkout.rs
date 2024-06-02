@@ -89,7 +89,7 @@ impl Server {
 			Ok(tg::artifact::checkout::Output { path })
 		} else {
 			// Get the path in the checkouts directory.
-			let id = artifact.id(self, None).await?;
+			let id = artifact.id(self).await?;
 			let path: tg::Path = self.checkouts_path().join(id.to_string()).try_into()?;
 			let artifact_path = self.artifacts_path().join(id.to_string()).try_into()?;
 
@@ -152,11 +152,11 @@ impl Server {
 		files: Arc<DashMap<tg::file::Id, tg::Path, fnv::FnvBuildHasher>>,
 	) -> tg::Result<()> {
 		// If the artifact is the same as the existing artifact, then return.
-		let id = artifact.id(self, None).await?;
+		let id = artifact.id(self).await?;
 		match existing_artifact {
 			None => (),
 			Some(existing_artifact) => {
-				if id == existing_artifact.id(self, None).await? {
+				if id == existing_artifact.id(self).await? {
 					return Ok(());
 				}
 			},
@@ -334,7 +334,7 @@ impl Server {
 			.await
 			.map_err(|source| tg::error!(!source, "failed to get the file's references"))?
 			.iter()
-			.map(|artifact| artifact.id(self, None))
+			.map(|artifact| artifact.id(self))
 			.collect::<FuturesUnordered<_>>()
 			.try_collect::<BTreeSet<_>>()
 			.await
@@ -366,7 +366,7 @@ impl Server {
 		}
 
 		// Attempt to copy the file from another file in the checkout.
-		let id = file.id(self, None).await?;
+		let id = file.id(self).await?;
 		let existing_path = files.get(&id).map(|path| path.clone());
 		if let Some(existing_path) = existing_path {
 			let permit = self.file_descriptor_semaphore.acquire().await;
@@ -457,7 +457,7 @@ impl Server {
 					r#"cannot perform an external check out of a symlink with an artifact"#
 				));
 			}
-			let id = artifact.id(self, None).await?;
+			let id = artifact.id(self).await?;
 			let arg = tg::artifact::checkout::Arg::default();
 			Box::pin(self.check_out_artifact_with_files(&id, arg, files)).await?;
 		}
@@ -471,7 +471,7 @@ impl Server {
 				target.push(tg::path::Component::Parent);
 			}
 			target = target.join("../../.tangram/artifacts".parse::<tg::Path>().unwrap());
-			let id = &artifact.id(self, None).await?;
+			let id = &artifact.id(self).await?;
 			let component = tg::path::Component::Normal(id.to_string());
 			target.push(component);
 		}

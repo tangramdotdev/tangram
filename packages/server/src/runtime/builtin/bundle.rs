@@ -149,7 +149,7 @@ impl Runtime {
 					target = target.join(
 						TANGRAM_ARTIFACTS_PATH
 							.clone()
-							.join(artifact.id(server, None).await?.to_string()),
+							.join(artifact.id(server).await?.to_string()),
 					);
 				}
 				if let Some(path) = path.as_ref() {

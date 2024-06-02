@@ -85,7 +85,7 @@ impl Cli {
 					.executable(tg::Artifact::from(executable))
 					.args(args)
 					.build();
-				let target = target.id(&self.handle, None).await?;
+				let target = target.id(&self.handle).await?;
 				let args = crate::target::build::Args {
 					inner: crate::target::build::InnerArgs {
 						target: Some(target),
