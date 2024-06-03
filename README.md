@@ -4,10 +4,4 @@
 
 # Tangram
 
-Tangram is a programmable build system and package manager.
-
-## Quickstart.
-
-```
-curl https://tangram.dev/install.sh | sh
-```
+Tangram is a programmable build system and package manager. Tangram is a work in progress and will be ready to try soon!
