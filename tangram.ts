@@ -1,4 +1,3 @@
-import esbuild from "tg:esbuild" with { path: "../packages/packages/esbuild" };
 import * as rust from "tg:rust" with { path: "../packages/packages/rust" };
 import * as std from "tg:std" with { path: "../packages/packages/std" };
 
@@ -40,7 +39,7 @@ export let source = tg.target(() =>
 
 export default tg.target(() => {
 	let host = std.triple.host();
-	let env = std.env.arg(bun(host), esbuild({ host }), {
+	let env = std.env.arg(bun(host), {
 		RUSTY_V8_ARCHIVE: librustyv8(host),
 	});
 
@@ -78,7 +77,7 @@ export let bun = tg.target(async (hostArg?: string) => {
 		await std.download({
 			checksum,
 			extract: true,
-			url: `https://github.com/oven-sh/bun/releases/download/bun-v1.1.10/${file}.zip`,
+			url: `https://github.com/oven-sh/bun/releases/download/bun-v1.1.12/${file}.zip`,
 		}),
 	);
 	let bun = tg.File.expect(await dl.get(`${file}/bun`));
