@@ -77,7 +77,7 @@ impl Runtime {
 		// If the VFS is disabled, then check out the target's references.
 		if server.vfs.lock().unwrap().is_none() {
 			target
-				.data(server, None)
+				.data(server)
 				.await?
 				.children()
 				.into_iter()
@@ -137,9 +137,9 @@ impl Runtime {
 			.await
 			.map_err(|source| tg::error!(!source, "failed to create the directory"))?;
 		let env_guest_path =
-			artifacts_directory_guest_path.join(self.env.id(server, None).await?.to_string());
+			artifacts_directory_guest_path.join(self.env.id(server).await?.to_string());
 		let sh_guest_path =
-			artifacts_directory_guest_path.join(self.sh.id(server, None).await?.to_string());
+			artifacts_directory_guest_path.join(self.sh.id(server).await?.to_string());
 
 		tokio::fs::symlink(&env_guest_path, &env_path)
 			.await
