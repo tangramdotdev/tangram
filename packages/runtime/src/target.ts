@@ -258,7 +258,7 @@ export class Target<
 		return (await this.object()).host;
 	}
 
-	async executable(): Promise<Artifact> {
+	async executable(): Promise<Artifact | undefined> {
 		return (await this.object()).executable;
 	}
 
