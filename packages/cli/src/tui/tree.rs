@@ -340,6 +340,12 @@ where
 		self.state.write().unwrap().rect = area;
 	}
 
+	pub fn hit_test(&self, x: u16, y: u16) -> bool {
+		let state = self.state.read().unwrap();
+		let position = tui::layout::Position::new(x, y);
+		state.rect.contains(position)
+	}
+
 	pub fn get_selected(&self) -> Item {
 		self.selected().state.read().unwrap().kind.clone()
 	}
@@ -737,10 +743,12 @@ where
 				for (index, dependency) in dependencies.into_iter().enumerate() {
 					let (artifact, lock) = object.get(&self.handle, &dependency).await?;
 					let parent = Some(self);
+					let path = None;
 					let kind = Item::Package {
 						dependency,
 						artifact: artifact.map(tg::Artifact::from),
 						lock,
+						path,
 					};
 					let child = Self::new(&self.handle, parent, index, kind);
 					children.push(child);
@@ -794,7 +802,12 @@ where
 				}
 				Ok(children)
 			},
-			Item::Package { artifact, lock, .. } => {
+			Item::Package {
+				artifact,
+				lock,
+				path,
+				..
+			} => {
 				let mut children = Vec::new();
 				if let Some(artifact) = artifact {
 					let parent = Some(self);
@@ -811,10 +824,14 @@ where
 					let index = children.len();
 					let (artifact, lock) = lock.get(&self.handle, &dependency).await?;
 					let parent = Some(self);
+					let path = path
+						.clone()
+						.and_then(|path| Some(path.join(dependency.path.clone()?).normalize()));
 					let kind = Item::Package {
 						dependency,
 						artifact: artifact.map(tg::Artifact::from),
 						lock,
+						path,
 					};
 					let child = Self::new(&self.handle, parent, index, kind);
 					children.push(child);

@@ -1,4 +1,5 @@
 #![allow(dead_code)]
+use layout::Position;
 use num::ToPrimitive;
 use ratatui::{
 	prelude::*,
@@ -67,6 +68,11 @@ where
 		state.area = area;
 	}
 
+	pub fn hit_test(&self, x: u16, y: u16) -> bool {
+		let state = self.state.read().unwrap();
+		state.area.contains(Position { x, y })
+	}
+
 	pub fn bottom(&self) {
 		let mut state = self.state.write().unwrap();
 		let num_lines = state.text.lines().count();
@@ -81,8 +87,10 @@ where
 
 	pub fn down(&self) {
 		let mut state = self.state.write().unwrap();
+		let height = state.area.height.to_usize().unwrap();
 		let num_lines = state.text.lines().count();
-		state.scroll = (state.scroll + 1).min(num_lines);
+		let max_scroll = num_lines.saturating_sub(height);
+		state.scroll = (state.scroll + 1).min(max_scroll);
 	}
 
 	pub fn up(&self) {
@@ -96,64 +104,11 @@ where
 				let bytes = leaf.bytes(&self.handle).await?;
 				Ok(String::from_utf8_lossy(&bytes).into())
 			},
-			tg::Value::Object(tg::Object::Branch(object)) => {
-				let data = object.data(&self.handle).await?;
-				Ok(serde_json::to_string_pretty(&data).unwrap())
-			},
-			tg::Value::Object(tg::Object::Directory(object)) => {
-				let data = object.data(&self.handle).await?;
-				Ok(serde_json::to_string_pretty(&data).unwrap())
-			},
 			tg::Value::Object(tg::Object::File(object)) => {
 				let text = object.text(&self.handle).await?;
 				Ok(text)
 			},
-			tg::Value::Object(tg::Object::Symlink(object)) => {
-				let data = object.data(&self.handle).await?;
-				Ok(serde_json::to_string_pretty(&data).unwrap())
-			},
-			tg::Value::Object(tg::Object::Target(object)) => {
-				let data = object.data(&self.handle).await?;
-				Ok(serde_json::to_string_pretty(&data).unwrap())
-			},
-			tg::Value::Object(tg::Object::Lock(object)) => {
-				let data = object.data(&self.handle).await?;
-				Ok(serde_json::to_string_pretty(&data).unwrap())
-			},
-			value => {
-				let data = value.data(&self.handle).await?;
-				match &data {
-					tg::value::Data::Null => Ok("null".into()),
-					tg::value::Data::Bool(value) => {
-						Ok(serde_json::to_string_pretty(value).unwrap())
-					},
-					tg::value::Data::Number(value) => {
-						Ok(serde_json::to_string_pretty(value).unwrap())
-					},
-					tg::value::Data::String(value) => {
-						Ok(serde_json::to_string_pretty(value).unwrap())
-					},
-					tg::value::Data::Array(value) => {
-						Ok(serde_json::to_string_pretty(value).unwrap())
-					},
-					tg::value::Data::Map(value) => Ok(serde_json::to_string_pretty(value).unwrap()),
-					tg::value::Data::Object(value) => {
-						Ok(serde_json::to_string_pretty(value).unwrap())
-					},
-					tg::value::Data::Bytes(value) => {
-						Ok(serde_json::to_string_pretty(value).unwrap())
-					},
-					tg::value::Data::Path(value) => {
-						Ok(serde_json::to_string_pretty(value).unwrap())
-					},
-					tg::value::Data::Mutation(value) => {
-						Ok(serde_json::to_string_pretty(value).unwrap())
-					},
-					tg::value::Data::Template(value) => {
-						Ok(serde_json::to_string_pretty(value).unwrap())
-					},
-				}
-			},
+			_ => unreachable!(),
 		}
 	}
 }

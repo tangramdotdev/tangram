@@ -103,7 +103,7 @@ where
 						modifiers: None,
 					},
 				],
-				callback: Box::new(App::down),
+				callback: Box::new(|app| app.down(false)),
 			},
 			Command {
 				name: "Up".to_owned(),
@@ -118,7 +118,7 @@ where
 						modifiers: None,
 					},
 				],
-				callback: Box::new(App::up),
+				callback: Box::new(|app| app.up(false)),
 			},
 			Command {
 				name: "Bottom".to_owned(),
@@ -266,35 +266,15 @@ where
 
 	pub fn detail() -> Arc<Self> {
 		let mut commands = Self::common();
-		commands.extend([
-			Command {
-				name: "Back".to_owned(),
-				description: String::new(),
-				keybindings: vec![KeyBinding {
-					keycode: KeyCode::Backspace,
-					modifiers: None,
-				}],
-				callback: Box::new(App::back),
-			},
-			Command {
-				name: "1".to_owned(),
-				description: "Select first tab".to_owned(),
-				keybindings: vec![KeyBinding {
-					keycode: KeyCode::Char('1'),
-					modifiers: None,
-				}],
-				callback: Box::new(|app| app.set_tab(0)),
-			},
-			Command {
-				name: "2".to_owned(),
-				description: "Select second tab".to_owned(),
-				keybindings: vec![KeyBinding {
-					keycode: KeyCode::Char('2'),
-					modifiers: None,
-				}],
-				callback: Box::new(|app| app.set_tab(1)),
-			},
-		]);
+		commands.extend([Command {
+			name: "Back".to_owned(),
+			description: String::new(),
+			keybindings: vec![KeyBinding {
+				keycode: KeyCode::Backspace,
+				modifiers: None,
+			}],
+			callback: Box::new(App::back),
+		}]);
 		Arc::new(Self { commands })
 	}
 

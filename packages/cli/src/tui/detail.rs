@@ -1,10 +1,9 @@
-use super::{commands::Commands, data::Data, log::Log, Item};
-use either::Either;
-use num::ToPrimitive;
-use ratatui::{
-	prelude::*,
-	widgets::{Paragraph, Tabs, Wrap},
+use super::{
+	app::Focus, commands::Commands, data::Data, info::Info, log::Log,
+	util::render_block_and_get_area, Item,
 };
+use either::Either;
+use ratatui::prelude::*;
 use std::sync::{Arc, RwLock};
 use tangram_client as tg;
 
@@ -17,7 +16,7 @@ pub struct Detail<H> {
 }
 
 struct State {
-	selected_tab: usize,
+	focus: Focus,
 }
 
 impl<H> Detail<H>
@@ -31,32 +30,78 @@ where
 			Item::Value { value, .. }
 				if matches!(
 					value,
-					tg::Value::Object(tg::Object::Leaf(_) | tg::Object::File(_))
+					tg::Value::Object(tg::Object::File(_) | tg::Object::Leaf(_))
 				) =>
 			{
 				Some(Either::Right(Data::new(handle, value, area)))
 			},
 			_ => None,
 		};
-
 		let info = Info::new(handle, item, area);
-
-		let state = RwLock::new(State { selected_tab: 0 });
-		Arc::new(Self {
+		let state = RwLock::new(State { focus: Focus::Tree });
+		let info = Arc::new(Self {
 			commands,
 			info,
 			data,
 			state,
-		})
+		});
+		info.resize(area);
+		info
+	}
+
+	pub fn hit_test(&self, x: u16, y: u16) -> bool {
+		self.info.hit_test(x, y)
+			|| self.data.as_ref().map_or(false, |data| match data {
+				Either::Left(log) => log.hit_test(x, y),
+				Either::Right(data) => data.hit_test(x, y),
+			})
+	}
+
+	pub fn mouse_scroll(&self, x: u16, y: u16, up: bool) {
+		if self.info.hit_test(x, y) {
+			if up {
+				self.info.up();
+			} else {
+				self.info.down();
+			}
+			return;
+		}
+		let Some(data) = self.data.as_ref() else {
+			return;
+		};
+		match data {
+			Either::Left(log) if log.hit_test(x, y) => {
+				if up {
+					log.up();
+				} else {
+					log.down();
+				}
+			},
+			Either::Right(data) if data.hit_test(x, y) => {
+				if up {
+					data.up();
+				} else {
+					data.down();
+				}
+			},
+			_ => (),
+		}
 	}
 
 	pub fn resize(&self, area: Rect) {
-		self.info.resize(area);
-		match &self.data {
-			Some(Either::Left(log)) => log.resize(area),
-			Some(Either::Right(info)) => info.resize(area),
-			None => (),
-		};
+		if let Some(data) = self.data.as_ref() {
+			let layout = Layout::default()
+				.direction(Direction::Vertical)
+				.constraints([Constraint::Percentage(50), Constraint::Percentage(50)])
+				.split(area);
+			self.info.resize(layout[0]);
+			match data {
+				Either::Left(log) => log.resize(layout[1]),
+				Either::Right(data) => data.resize(layout[1]),
+			}
+		} else {
+			self.info.resize(area);
+		}
 	}
 
 	pub fn stop(&self) {
@@ -67,292 +112,67 @@ where
 	}
 
 	pub fn top(&self) {
-		let tab = self.state.read().unwrap().selected_tab;
-		if tab == 0 {
-			self.info.top();
-		} else if let Some(data) = &self.data {
-			match data {
-				Either::Left(_) => (),
-				Either::Right(data) => data.top(),
-			}
-		}
+		self.info.top();
 	}
 
 	pub fn bottom(&self) {
-		let tab = self.state.read().unwrap().selected_tab;
-		if tab == 0 {
-			self.info.bottom();
-		} else if let Some(data) = &self.data {
-			match data {
-				Either::Left(_) => (),
-				Either::Right(data) => data.bottom(),
-			}
-		}
+		self.info.bottom();
 	}
 
 	pub fn down(&self) {
-		let tab = self.state.read().unwrap().selected_tab;
-		if tab == 0 {
-			self.info.down();
-		} else if let Some(data) = &self.data {
-			match data {
-				Either::Left(log) => log.down(),
-				Either::Right(info) => info.down(),
-			}
-		}
+		let focus = self.state.read().unwrap().focus;
+		match focus {
+			Focus::Tree => (),
+			Focus::DetailOne => self.info.down(),
+			Focus::DetailTwo => match self.data.as_ref() {
+				Some(Either::Left(log)) => log.down(),
+				Some(Either::Right(data)) => data.down(),
+				_ => (),
+			},
+		};
 	}
 
 	pub fn up(&self) {
-		let tab = self.state.read().unwrap().selected_tab;
-		if tab == 0 {
-			self.info.up();
-		} else if let Some(data) = &self.data {
-			match data {
-				Either::Left(log) => log.up(),
-				Either::Right(info) => info.up(),
-			}
-		}
+		let focus = self.state.read().unwrap().focus;
+		match focus {
+			Focus::Tree => (),
+			Focus::DetailOne => self.info.up(),
+			Focus::DetailTwo => match self.data.as_ref() {
+				Some(Either::Left(log)) => log.up(),
+				Some(Either::Right(data)) => data.up(),
+				_ => (),
+			},
+		};
 	}
 
-	pub fn set_tab(&self, n: usize) {
-		let mut state = self.state.write().unwrap();
-		state.selected_tab = n;
+	pub fn set_focus(&self, focus: Focus) {
+		self.state.write().unwrap().focus = focus;
 	}
 
 	pub fn render(&self, area: Rect, buf: &mut Buffer) {
-		let state = self.state.read().unwrap();
-
-		let layout = Layout::default()
-			.direction(Direction::Vertical)
-			.constraints([Constraint::Max(1), Constraint::Fill(1)]);
-		let rects = layout.split(area);
-		let (tab_area, view_area) = (rects[0], rects[1]);
-
-		match &self.data {
-			Some(Either::Left(log)) => {
-				let titles = ["Info (1)", "Log (2)"];
-				Tabs::new(titles)
-					.select(state.selected_tab)
-					.divider(" ")
-					.render(tab_area, buf);
-				match state.selected_tab {
-					0 => self.info.render(view_area, buf),
-					1 => log.render(view_area, buf),
-					_ => unreachable!(),
-				}
-			},
-			Some(Either::Right(data)) => {
-				let titles = ["Info (1)", "Data (2)"];
-				Tabs::new(titles)
-					.select(state.selected_tab)
-					.divider(" ")
-					.render(tab_area, buf);
-				match state.selected_tab {
-					0 => self.info.render(view_area, buf),
-					1 => data.render(view_area, buf),
-					_ => unreachable!(),
-				}
-			},
-			None => {
-				let titles = ["Info (1)"];
-				Tabs::new(titles)
-					.select(0)
-					.divider(" ")
-					.render(tab_area, buf);
-				self.info.render(view_area, buf);
-			},
-		}
-	}
-}
-
-pub struct Info<H> {
-	handle: H,
-	value: Item,
-	state: RwLock<DataState>,
-}
-
-struct DataState {
-	area: Rect,
-	text: String,
-	scroll: usize,
-}
-
-impl<H> Info<H>
-where
-	H: tg::Handle,
-{
-	fn new(handle: &H, item: &Item, area: Rect) -> Arc<Self> {
-		let handle = handle.clone();
-		let state = RwLock::new(DataState {
-			area,
-			text: String::new(),
-			scroll: 0,
-		});
-		let value = item.clone();
-		let info = Arc::new(Self {
-			handle,
-			value,
-			state,
-		});
-		tokio::task::spawn({
-			let data = info.clone();
-			async move {
-				let value = data
-					.get_value()
-					.await
-					.ok()
-					.map(|value| serde_json::to_string_pretty(&value).unwrap());
-				let text = value.unwrap_or("missing".into());
-				data.state.write().unwrap().text = text;
+		let state: std::sync::RwLockReadGuard<State> = self.state.read().unwrap();
+		if let Some(data) = self.data.as_ref() {
+			let layout = Layout::default()
+				.direction(Direction::Vertical)
+				.constraints([Constraint::Percentage(50), Constraint::Percentage(50)])
+				.split(area);
+			let info_focus = matches!(state.focus, Focus::DetailOne);
+			let info_area = render_block_and_get_area("Info", info_focus, layout[0], buf);
+			let data_focus = matches!(state.focus, Focus::DetailTwo);
+			let data_area = render_block_and_get_area("Data", data_focus, layout[1], buf);
+			self.info.render(info_area, buf);
+			match data {
+				Either::Left(log) => log.render(data_area, buf),
+				Either::Right(data) => data.render(data_area, buf),
 			}
-		});
-		info
-	}
-
-	fn resize(&self, area: Rect) {
-		let mut state = self.state.write().unwrap();
-		state.area = area;
-	}
-
-	fn bottom(&self) {
-		let mut state = self.state.write().unwrap();
-		let num_lines = state.text.lines().count();
-		state.scroll =
-			num_lines.saturating_sub(state.area.height.to_usize().unwrap().saturating_sub(2));
-	}
-
-	fn top(&self) {
-		let mut state = self.state.write().unwrap();
-		state.scroll = 0;
-	}
-
-	fn down(&self) {
-		let mut state = self.state.write().unwrap();
-		let num_lines = state.text.lines().count();
-		state.scroll = (state.scroll + 1).min(num_lines);
-	}
-
-	fn up(&self) {
-		let mut state = self.state.write().unwrap();
-		state.scroll = state.scroll.saturating_sub(1);
-	}
-
-	fn render(&self, area: Rect, buf: &mut Buffer) {
-		let state = self.state.read().unwrap();
-		let lines = state
-			.text
-			.lines()
-			.skip(state.scroll)
-			.map(Line::raw)
-			.collect::<Vec<_>>();
-		Paragraph::new(lines)
-			.wrap(Wrap { trim: false })
-			.render(area, buf);
-	}
-
-	async fn get_value(&self) -> tg::Result<serde_json::Value> {
-		match &self.value {
-			Item::Root => Ok(serde_json::Value::Null),
-			Item::Build { build, .. } => {
-				let info = self.handle.get_build(build.id()).await?;
-				Ok(serde_json::to_value(&info).unwrap())
-			},
-			Item::Value {
-				value: tg::Value::Object(object),
-				..
-			} => self.get_object_value(object).await,
-			Item::Value { value, .. } => {
-				let data = value.data(&self.handle).await?;
-				match &data {
-					tg::value::Data::Null => Ok("null".into()),
-					tg::value::Data::Bool(value) => Ok(serde_json::to_value(value).unwrap()),
-					tg::value::Data::Number(value) => Ok(serde_json::to_value(value).unwrap()),
-					tg::value::Data::String(value) => Ok(serde_json::to_value(value).unwrap()),
-					tg::value::Data::Array(value) => Ok(serde_json::to_value(value).unwrap()),
-					tg::value::Data::Map(value) => Ok(serde_json::to_value(value).unwrap()),
-					tg::value::Data::Object(value) => Ok(serde_json::to_value(value).unwrap()),
-					tg::value::Data::Bytes(value) => Ok(serde_json::to_value(value).unwrap()),
-					tg::value::Data::Path(value) => Ok(serde_json::to_value(value).unwrap()),
-					tg::value::Data::Mutation(value) => Ok(serde_json::to_value(value).unwrap()),
-					tg::value::Data::Template(value) => Ok(serde_json::to_value(value).unwrap()),
-				}
-			},
-			Item::Package {
-				dependency,
-				artifact,
-				lock,
-			} => {
-				#[derive(serde::Serialize)]
-				struct Data {
-					dependency: tg::Dependency,
-					#[serde(skip_serializing_if = "Option::is_none")]
-					artifact: Option<tg::artifact::Id>,
-					lock: tg::lock::Id,
-				}
-				let artifact = if let Some(artifact) = artifact {
-					Some(artifact.id(&self.handle).await?)
-				} else {
-					None
-				};
-				let lock = lock.id(&self.handle).await?;
-				let data = Data {
-					dependency: dependency.clone(),
-					artifact,
-					lock,
-				};
-				Ok(serde_json::to_value(data).unwrap())
-			},
+		} else {
+			let focus = matches!(state.focus, Focus::DetailOne | Focus::DetailTwo);
+			let area = render_block_and_get_area("Info", focus, area, buf);
+			self.info.render(area, buf);
 		}
 	}
 
-	async fn get_object_value(&self, object: &tg::Object) -> tg::Result<serde_json::Value> {
-		let id = object.id(&self.handle).await?;
-		let output = self.handle.get_object(&id).await?;
-		let data = match object {
-			tg::Object::Branch(object) => {
-				let data = object.data(&self.handle).await?;
-				serde_json::to_value(data).unwrap()
-			},
-			tg::Object::Leaf(_) => serde_json::to_value("(bytes)").unwrap(),
-			tg::Object::Directory(object) => {
-				let data = object.data(&self.handle).await?;
-				serde_json::to_value(data).unwrap()
-			},
-			tg::Object::File(object) => {
-				let data = object.data(&self.handle).await?;
-				serde_json::to_value(data).unwrap()
-			},
-			tg::Object::Symlink(object) => {
-				let data = object.data(&self.handle).await?;
-				serde_json::to_value(data).unwrap()
-			},
-			tg::Object::Target(object) => {
-				let data = object.data(&self.handle).await?;
-				serde_json::to_value(data).unwrap()
-			},
-			tg::Object::Lock(object) => {
-				let data = object.data(&self.handle).await?;
-				serde_json::to_value(data).unwrap()
-			},
-		};
-
-		#[derive(serde::Serialize)]
-		struct Info {
-			id: tg::object::Id,
-			#[serde(skip_serializing_if = "Option::is_none")]
-			count: Option<u64>,
-			#[serde(skip_serializing_if = "Option::is_none")]
-			weight: Option<u64>,
-			data: serde_json::Value,
-		}
-
-		let info = Info {
-			id,
-			count: output.metadata.count,
-			weight: output.metadata.weight,
-			data,
-		};
-
-		Ok(serde_json::to_value(&info).unwrap())
+	pub fn has_log(&self) -> bool {
+		self.data.is_some()
 	}
 }

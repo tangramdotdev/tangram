@@ -378,6 +378,11 @@ where
 		self.rect.send(rect).ok();
 	}
 
+	pub fn hit_test(&self, x: u16, y: u16) -> bool {
+		let position = tui::layout::Position::new(x, y);
+		self.rect().contains(position)
+	}
+
 	/// Render the log.
 	pub fn render(&self, area: tui::layout::Rect, buf: &mut tui::buffer::Buffer) {
 		let lines = self.lines.lock().unwrap();
