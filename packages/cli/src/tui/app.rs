@@ -3,6 +3,7 @@ use super::{
 };
 use copypasta::ClipboardProvider;
 use crossterm::event::{Event, KeyEvent, MouseEvent, MouseEventKind};
+use derive_more::Debug;
 use ratatui::{self as tui, prelude::*};
 use std::sync::{
 	atomic::{AtomicBool, Ordering},
@@ -12,19 +13,25 @@ use tangram_client as tg;
 
 pub struct App<H> {
 	handle: H,
-	commands: Arc<Commands<H>>,
 	tree: Arc<Tree<H>>,
 	state: RwLock<State<H>>,
 	stop: AtomicBool,
 }
 
 struct State<H> {
+	area: Rect,
 	detail_area: Rect,
 	detail: Arc<Detail<H>>,
 	show_help: bool,
-	show_detail: bool,
-	split: bool,
-	direction: Direction,
+	split: Option<Direction>,
+	focus: Focus,
+}
+
+#[derive(Clone, Copy, Debug)]
+pub enum Focus {
+	Tree,
+	DetailOne,
+	DetailTwo,
 }
 
 impl<H> App<H>
@@ -33,30 +40,31 @@ where
 {
 	pub fn new(handle: &H, root: Item, rect: tui::layout::Rect) -> Arc<Self> {
 		let handle = handle.clone();
-		let commands = Commands::new();
 		let detail = Detail::new(&handle, &root.clone(), rect);
 		let tree = Tree::new(&handle, &[root], rect);
 		let stop = AtomicBool::new(false);
-		let (split, direction) = if rect.width >= 80 {
-			(true, Direction::Horizontal)
+
+		let split = if rect.width >= 80 {
+			Some(Direction::Horizontal)
 		} else if rect.height >= 30 {
-			(true, Direction::Vertical)
+			Some(Direction::Vertical)
 		} else {
-			(false, Direction::Horizontal)
+			None
 		};
 
+		let focus = Focus::Tree;
+
 		let state = RwLock::new(State {
+			area: rect,
 			detail,
 			detail_area: rect,
 			show_help: false,
-			show_detail: false,
 			split,
-			direction,
+			focus,
 		});
 
 		let app = Arc::new(Self {
 			handle,
-			commands,
 			tree,
 			state,
 			stop,
@@ -77,15 +85,40 @@ where
 	}
 
 	pub fn key(&self, event: KeyEvent) {
-		self.commands.dispatch(event, self);
+		let (show_help, focus) = {
+			let state = self.state.read().unwrap();
+			(state.show_help, state.focus)
+		};
+		if show_help {
+			let commands = Commands::help();
+			commands.dispatch(event, self);
+		}
+		match focus {
+			Focus::Tree => self.tree.commands.dispatch(event, self),
+			Focus::DetailOne | Focus::DetailTwo => {
+				let detail = self.state.read().unwrap().detail.clone();
+				detail.commands.dispatch(event, self);
+			},
+		}
 	}
 
 	pub fn mouse(&self, event: MouseEvent) {
 		let state = self.state.read().unwrap();
-		if state.split || state.show_detail {
+		if state.show_help {
+			return;
+		}
+		let detail = &state.detail;
+		if self.tree.hit_test(event.column, event.row) && matches!(state.focus, Focus::Tree) {
+			drop(state);
 			match event.kind {
-				MouseEventKind::ScrollDown => state.detail.down(),
-				MouseEventKind::ScrollUp => state.detail.up(),
+				MouseEventKind::ScrollDown => self.down(true),
+				MouseEventKind::ScrollUp => self.up(true),
+				_ => (),
+			}
+		} else if detail.hit_test(event.column, event.row) {
+			match event.kind {
+				MouseEventKind::ScrollDown => detail.mouse_scroll(event.column, event.row, false),
+				MouseEventKind::ScrollUp => detail.mouse_scroll(event.column, event.row, true),
 				_ => (),
 			}
 		}
@@ -93,14 +126,25 @@ where
 
 	pub fn toggle_split(&self) {
 		let mut state = self.state.write().unwrap();
-		state.split = !state.split;
+		state.split = if state.split.is_none() {
+			let direction = if state.area.height >= 30 {
+				Direction::Vertical
+			} else {
+				Direction::Horizontal
+			};
+			Some(direction)
+		} else {
+			None
+		}
 	}
 
 	pub fn rotate(&self) {
 		let mut state = self.state.write().unwrap();
-		state.direction = match state.direction {
-			Direction::Vertical => Direction::Horizontal,
-			Direction::Horizontal => Direction::Vertical,
+		if let Some(direction) = &mut state.split {
+			*direction = match direction {
+				Direction::Vertical => Direction::Horizontal,
+				Direction::Horizontal => Direction::Vertical,
+			};
 		}
 	}
 
@@ -109,29 +153,91 @@ where
 		state.show_help = !state.show_help;
 	}
 
-	pub fn show_detail(&self) {
+	pub fn top(&self) {
 		let mut state = self.state.write().unwrap();
-		state.show_detail = true;
+		match state.focus {
+			Focus::Tree => {
+				self.tree.top();
+				let selected = self.tree.get_selected();
+				state.detail = Detail::new(&self.handle, &selected, state.detail_area);
+			},
+			Focus::DetailOne | Focus::DetailTwo => {
+				state.detail.top();
+			},
+		}
 	}
 
-	pub fn show_tree(&self) {
+	pub fn bottom(&self) {
 		let mut state = self.state.write().unwrap();
-		state.show_detail = false;
-		state.show_help = false;
+		match state.focus {
+			Focus::Tree => {
+				self.tree.bottom();
+				let selected = self.tree.get_selected();
+				state.detail = Detail::new(&self.handle, &selected, state.detail_area);
+			},
+			Focus::DetailOne | Focus::DetailTwo => {
+				state.detail.bottom();
+			},
+		}
+	}
+
+	pub fn up(&self, mouse: bool) {
+		let mut state = self.state.write().unwrap();
+		if mouse | matches!(state.focus, Focus::Tree) {
+			self.tree.up();
+			let selected = self.tree.get_selected();
+			state.detail = Detail::new(&self.handle, &selected, state.detail_area);
+		} else {
+			state.detail.up();
+		}
+	}
+
+	pub fn down(&self, mouse: bool) {
+		let mut state = self.state.write().unwrap();
+		if mouse | matches!(state.focus, Focus::Tree) {
+			self.tree.down();
+			let selected = self.tree.get_selected();
+			state.detail = Detail::new(&self.handle, &selected, state.detail_area);
+		} else {
+			state.detail.down();
+		}
+	}
+
+	pub fn enter(&self) {
+		let mut state = self.state.write().unwrap();
+		match state.focus {
+			Focus::Tree => state.focus = Focus::DetailOne,
+			Focus::DetailOne | Focus::DetailTwo => (),
+		}
+		state.detail.set_focus(state.focus);
+	}
+
+	pub fn back(&self) {
+		let mut state = self.state.write().unwrap();
+		match state.focus {
+			Focus::Tree => (),
+			Focus::DetailOne | Focus::DetailTwo => state.focus = Focus::Tree,
+		}
+		state.detail.set_focus(state.focus);
 	}
 
 	pub fn tab(&self) {
-		let state = self.state.read().unwrap();
-		if state.show_detail || state.split {
-			state.detail.tab();
-		}
-	}
-
-	pub fn set_tab(&self, n: usize) {
-		let state = self.state.read().unwrap();
-		if state.show_detail || state.split {
-			state.detail.set_tab(n);
-		}
+		let (focus, is_split, has_data) = {
+			let state = self.state.read().unwrap();
+			(state.focus, state.split.is_some(), state.detail.has_log())
+		};
+		#[allow(clippy::match_same_arms)]
+		let focus = match (focus, is_split, has_data) {
+			(Focus::Tree, true, _) => Focus::DetailOne,
+			(Focus::Tree, false, _) => Focus::Tree,
+			(Focus::DetailOne, _, true) => Focus::DetailTwo,
+			(Focus::DetailOne, true, false) => Focus::Tree,
+			(Focus::DetailOne, false, false) => Focus::DetailOne,
+			(Focus::DetailTwo, false, _) => Focus::DetailOne,
+			(Focus::DetailTwo, true, _) => Focus::Tree,
+		};
+		self.state.write().unwrap().focus = focus;
+		self.state.read().unwrap().detail.set_focus(focus);
 	}
 
 	pub fn resize(&self, rect: Rect) {
@@ -141,9 +247,10 @@ where
 			.constraints([Constraint::Fill(1), Constraint::Max(1)]);
 		let rects = layout.split(rect);
 		let view_area = rects[0];
-		if state.split {
+
+		if let Some(direction) = state.split {
 			let layout = Layout::default()
-				.direction(state.direction)
+				.direction(direction)
 				.constraints([Constraint::Fill(1), Constraint::Fill(1)]);
 			let rects = layout.split(view_area);
 			let (tree_area, detail_area) = (rects[0], rects[1]);
@@ -154,7 +261,6 @@ where
 			self.tree.resize(view_area);
 			state.detail_area = view_area;
 		}
-		state.detail.resize(state.detail_area);
 	}
 
 	pub fn cancel(&self) {
@@ -171,26 +277,6 @@ where
 
 	pub fn quit(&self) {
 		self.stop();
-	}
-
-	pub fn up(&self) {
-		let mut state = self.state.write().unwrap();
-		if state.show_detail {
-			state.detail.up();
-		} else {
-			self.tree.up();
-			state.detail = Detail::new(&self.handle, &self.tree.get_selected(), state.detail_area);
-		}
-	}
-
-	pub fn down(&self) {
-		let mut state = self.state.write().unwrap();
-		if state.show_detail {
-			state.detail.down();
-		} else {
-			self.tree.down();
-			state.detail = Detail::new(&self.handle, &self.tree.get_selected(), state.detail_area);
-		}
 	}
 
 	pub fn expand_children(&self) {
@@ -230,9 +316,14 @@ where
 
 	pub fn render(&self, rect: tui::layout::Rect, buf: &mut tui::buffer::Buffer) {
 		let state = self.state.read().unwrap();
+		let commands = match state.focus {
+			Focus::Tree => self.tree.commands.clone(),
+			Focus::DetailOne | Focus::DetailTwo => state.detail.commands.clone(),
+		};
+
 		if state.show_help {
 			let area = render_block_and_get_area("Help", true, rect, buf);
-			self.commands.render_full(area, buf);
+			commands.render_full(area, buf);
 			return;
 		}
 
@@ -241,26 +332,23 @@ where
 			.constraints([Constraint::Fill(1), Constraint::Max(1)]);
 		let rects = layout.split(rect);
 		let (view_area, help_area) = (rects[0], rects[1]);
-		self.commands.render_short(help_area, buf);
-		if state.split {
+		commands.render_short(help_area, buf);
+
+		if let Some(direction) = state.split {
 			let layout = Layout::default()
-				.direction(state.direction)
+				.direction(direction)
 				.constraints([Constraint::Fill(1), Constraint::Fill(1)]);
 			let rects = layout.split(view_area);
 			let (tree_area, detail_area) = (rects[0], rects[1]);
-
-			let tree_area = render_block_and_get_area("Tree", !state.show_detail, tree_area, buf);
+			let tree_focus = matches!(state.focus, Focus::Tree);
+			let tree_area = render_block_and_get_area("Tree", tree_focus, tree_area, buf);
 			self.tree.render(tree_area, buf);
-
-			let detail_area =
-				render_block_and_get_area("Detail", state.show_detail, detail_area, buf);
 			state.detail.render(detail_area, buf);
-		} else if state.show_detail {
-			let view_area = render_block_and_get_area("Detail", true, view_area, buf);
-			state.detail.render(view_area, buf);
-		} else {
+		} else if matches!(state.focus, Focus::Tree) {
 			let view_area = render_block_and_get_area("Tree", true, view_area, buf);
 			self.tree.render(view_area, buf);
+		} else {
+			state.detail.render(rect, buf);
 		}
 	}
 

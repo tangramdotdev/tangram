@@ -74,10 +74,12 @@ impl Cli {
 							tg::error!(!source, "failed to get the package and lock")
 						})?;
 
+				let path = dependency.path.clone();
 				tui::Item::Package {
 					dependency,
 					artifact: Some(package),
 					lock,
+					path,
 				}
 			},
 		};

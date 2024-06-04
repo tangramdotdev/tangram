@@ -28,8 +28,32 @@ impl<H> Commands<H>
 where
 	H: tg::Handle,
 {
-	pub fn new() -> Arc<Self> {
+	pub fn help() -> Arc<Self> {
 		let commands = vec![
+			Command {
+				name: "Quit".to_owned(),
+				description: "Exit the application.".to_owned(),
+				keybindings: vec![KeyBinding {
+					keycode: KeyCode::Char('q'),
+					modifiers: None,
+				}],
+				callback: Box::new(App::quit),
+			},
+			Command {
+				name: "Exit".to_owned(),
+				description: "Toggle help".to_owned(),
+				keybindings: vec![KeyBinding {
+					keycode: KeyCode::Esc,
+					modifiers: None,
+				}],
+				callback: Box::new(App::toggle_help),
+			},
+		];
+		Arc::new(Self { commands })
+	}
+
+	fn common() -> Vec<Command<H>> {
+		vec![
 			Command {
 				name: "Split".to_owned(),
 				description: "Toggle split view".to_owned(),
@@ -38,15 +62,6 @@ where
 					modifiers: None,
 				}],
 				callback: Box::new(App::toggle_split),
-			},
-			Command {
-				name: "Copy".to_owned(),
-				description: "Copy the selected item to the clipboard.".to_owned(),
-				keybindings: vec![KeyBinding {
-					keycode: KeyCode::Char('y'),
-					modifiers: None,
-				}],
-				callback: Box::new(App::copy_selected_to_clipboard),
 			},
 			Command {
 				name: "Rotate".to_owned(),
@@ -58,15 +73,6 @@ where
 				callback: Box::new(App::rotate),
 			},
 			Command {
-				name: "Cancel".to_owned(),
-				description: "Cancel the selected build".to_owned(),
-				keybindings: vec![KeyBinding {
-					keycode: KeyCode::Char('c'),
-					modifiers: None,
-				}],
-				callback: Box::new(App::cancel),
-			},
-			Command {
 				name: "Quit".to_owned(),
 				description: "Exit the application.".to_owned(),
 				keybindings: vec![KeyBinding {
@@ -74,6 +80,15 @@ where
 					modifiers: None,
 				}],
 				callback: Box::new(App::quit),
+			},
+			Command {
+				name: "Help".to_owned(),
+				description: "Toggle help".to_owned(),
+				keybindings: vec![KeyBinding {
+					keycode: KeyCode::Char('?'),
+					modifiers: None,
+				}],
+				callback: Box::new(App::toggle_help),
 			},
 			Command {
 				name: "Down".to_owned(),
@@ -88,7 +103,7 @@ where
 						modifiers: None,
 					},
 				],
-				callback: Box::new(App::down),
+				callback: Box::new(|app| app.down(false)),
 			},
 			Command {
 				name: "Up".to_owned(),
@@ -103,7 +118,58 @@ where
 						modifiers: None,
 					},
 				],
-				callback: Box::new(App::up),
+				callback: Box::new(|app| app.up(false)),
+			},
+			Command {
+				name: "Bottom".to_owned(),
+				description: String::new(),
+				keybindings: vec![KeyBinding {
+					keycode: KeyCode::Char('G'),
+					modifiers: Some(KeyModifiers::SHIFT),
+				}],
+				callback: Box::new(App::bottom),
+			},
+			Command {
+				name: "Top".to_owned(),
+				description: String::new(),
+				keybindings: vec![KeyBinding {
+					keycode: KeyCode::Char('g'),
+					modifiers: None,
+				}],
+				callback: Box::new(App::top),
+			},
+			Command {
+				name: String::new(),
+				description: String::new(),
+				keybindings: vec![KeyBinding {
+					keycode: KeyCode::Tab,
+					modifiers: None,
+				}],
+				callback: Box::new(App::tab),
+			},
+		]
+	}
+
+	pub fn tree() -> Arc<Self> {
+		let mut commands = Self::common();
+		commands.extend([
+			Command {
+				name: "Copy".to_owned(),
+				description: "Copy the selected item to the clipboard.".to_owned(),
+				keybindings: vec![KeyBinding {
+					keycode: KeyCode::Char('y'),
+					modifiers: None,
+				}],
+				callback: Box::new(App::copy_selected_to_clipboard),
+			},
+			Command {
+				name: "Cancel".to_owned(),
+				description: "Cancel the selected build".to_owned(),
+				keybindings: vec![KeyBinding {
+					keycode: KeyCode::Char('c'),
+					modifiers: None,
+				}],
+				callback: Box::new(App::cancel),
 			},
 			Command {
 				name: "Expand Children".to_owned(),
@@ -177,22 +243,13 @@ where
 				callback: Box::new(App::toggle_help),
 			},
 			Command {
-				name: "Details".to_owned(),
+				name: "Enter".to_owned(),
 				description: "Show details about the selected item.".to_owned(),
 				keybindings: vec![KeyBinding {
 					keycode: KeyCode::Enter,
 					modifiers: None,
 				}],
-				callback: Box::new(App::show_detail),
-			},
-			Command {
-				name: "Back".to_owned(),
-				description: "Return to the tree view.".to_owned(),
-				keybindings: vec![KeyBinding {
-					keycode: KeyCode::Esc,
-					modifiers: None,
-				}],
-				callback: Box::new(App::show_tree),
+				callback: Box::new(App::enter),
 			},
 			Command {
 				name: String::new(),
@@ -203,25 +260,21 @@ where
 				}],
 				callback: Box::new(App::tab),
 			},
-			Command {
-				name: String::new(),
-				description: String::new(),
-				keybindings: vec![KeyBinding {
-					keycode: KeyCode::Char('1'),
-					modifiers: None,
-				}],
-				callback: Box::new(|app| app.set_tab(0)),
-			},
-			Command {
-				name: String::new(),
-				description: String::new(),
-				keybindings: vec![KeyBinding {
-					keycode: KeyCode::Char('2'),
-					modifiers: None,
-				}],
-				callback: Box::new(|app| app.set_tab(1)),
-			},
-		];
+		]);
+		Arc::new(Self { commands })
+	}
+
+	pub fn detail() -> Arc<Self> {
+		let mut commands = Self::common();
+		commands.extend([Command {
+			name: "Back".to_owned(),
+			description: String::new(),
+			keybindings: vec![KeyBinding {
+				keycode: KeyCode::Backspace,
+				modifiers: None,
+			}],
+			callback: Box::new(App::back),
+		}]);
 		Arc::new(Self { commands })
 	}
 

@@ -8,6 +8,7 @@ mod app;
 mod commands;
 mod data;
 mod detail;
+mod info;
 mod log;
 mod tree;
 mod util;
@@ -35,6 +36,7 @@ pub enum Item {
 		dependency: tg::Dependency,
 		artifact: Option<tg::Artifact>,
 		lock: tg::Lock,
+		path: Option<tg::Path>,
 	},
 }
 
