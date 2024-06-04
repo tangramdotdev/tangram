@@ -8,7 +8,7 @@ pub struct Args {
 	pub ids: Vec<Arg>,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Clone, Debug)]
 pub enum Arg {
 	Blob(tg::blob::Id),
 	Artifact(tg::artifact::Id),

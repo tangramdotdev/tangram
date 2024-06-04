@@ -144,7 +144,7 @@ pub type verifier4 = [u8; NFS4_VERIFIER_SIZE];
 /*
  * Timeval
  */
-#[derive(Debug, Clone, Copy)]
+#[derive(Clone, Debug, Copy)]
 pub struct nfstime4 {
 	pub seconds: int64_t,
 	pub nseconds: uint32_t,
@@ -156,7 +156,7 @@ pub enum time_how4 {
 	SET_TO_CLIENT_TIME4 = 1,
 }
 
-#[derive(Debug, Clone, Copy)]
+#[derive(Clone, Debug, Copy)]
 pub enum settime4 {
 	SET_TO_SERVER_TIME4(nfstime4),
 	SET_TO_CLIENT_TIME4,
@@ -170,7 +170,7 @@ pub enum settime4 {
  * FSID structure for major/minor
  */
 
-#[derive(Debug, Clone, Copy)]
+#[derive(Clone, Debug, Copy)]
 pub struct fsid4 {
 	pub major: uint64_t,
 	pub minor: uint64_t,
@@ -180,13 +180,13 @@ pub struct fsid4 {
  * File system locations attribute for relocation/migration
  */
 
-#[derive(Debug, Clone)]
+#[derive(Clone, Debug)]
 pub struct fs_location4 {
 	pub server: pathname4,
 	pub rootpath: Vec<String>,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Clone, Debug)]
 pub struct fs_locations4 {
 	pub fs_root: pathname4,
 	pub locations: Vec<fs_location4>,
@@ -946,36 +946,36 @@ pub enum OPEN_CONFIRM4res {
 	Error(nfsstat4),
 }
 
-#[derive(Debug, Clone)]
+#[derive(Clone, Debug)]
 pub struct PUTFH4args {
 	pub object: nfs_fh4,
 }
 
-#[derive(Debug, Clone, Copy)]
+#[derive(Clone, Debug, Copy)]
 pub struct PUTFH4res {
 	/* CURRENT_FH */
 	pub status: nfsstat4,
 }
 
-#[derive(Debug, Clone, Copy)]
+#[derive(Clone, Debug, Copy)]
 pub struct PUTPUBFH4res {
 	/* CURRENT_FH: */
 	pub status: nfsstat4,
 }
 
-#[derive(Debug, Clone, Copy)]
+#[derive(Clone, Debug, Copy)]
 pub struct PUTFPUBH4res {
 	/* CURRENT_FH: pub fh */
 	pub status: nfsstat4,
 }
 
-#[derive(Debug, Clone, Copy)]
+#[derive(Clone, Debug, Copy)]
 pub struct PUTROOTFH4res {
 	/* CURRENT_FH: root fh */
 	pub status: nfsstat4,
 }
 
-#[derive(Debug, Clone, Copy)]
+#[derive(Clone, Debug, Copy)]
 pub struct READ4args {
 	/* CURRENT_FH: file */
 	pub stateid: stateid4,
@@ -983,19 +983,19 @@ pub struct READ4args {
 	pub count: count4,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Clone, Debug)]
 pub struct READ4resok {
 	pub eof: bool,
 	pub data: Vec<u8>,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Clone, Debug)]
 pub enum READ4res {
 	NFS4_OK(READ4resok),
 	Error(nfsstat4),
 }
 
-#[derive(Debug, Clone)]
+#[derive(Clone, Debug)]
 pub struct READDIR4args {
 	/* CURRENT_FH: directory */
 	pub cookie: nfs_cookie4,
@@ -1005,37 +1005,37 @@ pub struct READDIR4args {
 	pub attr_request: bitmap4,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Clone, Debug)]
 pub struct entry4 {
 	pub cookie: nfs_cookie4,
 	pub name: component4,
 	pub attrs: fattr4,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Clone, Debug)]
 pub struct dirlist4 {
 	pub entries: Vec<entry4>,
 	pub eof: bool,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Clone, Debug)]
 pub struct READDIR4resok {
 	pub cookieverf: verifier4,
 	pub reply: dirlist4,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Clone, Debug)]
 pub enum READDIR4res {
 	NFS4_OK(READDIR4resok),
 	Error(nfsstat4),
 }
 
-#[derive(Debug, Clone)]
+#[derive(Clone, Debug)]
 pub struct READLINK4resok {
 	pub link: linktext4,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Clone, Debug)]
 pub enum READLINK4res {
 	NFS4_OK(READLINK4resok),
 	Error(nfsstat4),

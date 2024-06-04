@@ -61,7 +61,9 @@ pub type Array = Vec<Value>;
 pub type Map = BTreeMap<String, Value>;
 
 /// Value data.
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, derive_more::TryUnwrap, derive_more::Unwrap)]
+#[try_unwrap(ref)]
+#[unwrap(ref)]
 pub enum Data {
 	Null,
 	Bool(bool),

@@ -1,7 +1,7 @@
 use crate::Message;
 use async_nats as nats;
 use either::Either;
-use futures::{Future, FutureExt as _, Stream, StreamExt as _, TryFutureExt as _};
+use futures::prelude::*;
 
 pub struct Messenger {
 	client: nats::Client,
@@ -31,9 +31,9 @@ impl crate::Messenger for Messenger {
 		group: Option<String>,
 	) -> impl Future<Output = Result<impl Stream<Item = Message> + 'static, Self::Error>> {
 		match group {
-			Some(group) => self
+			None => self
 				.client
-				.queue_subscribe(subject, group)
+				.subscribe(subject)
 				.map_ok(|subscriber| {
 					subscriber
 						.map(|message| Message {
@@ -44,9 +44,9 @@ impl crate::Messenger for Messenger {
 				})
 				.map_err(Either::Right)
 				.left_future(),
-			None => self
+			Some(group) => self
 				.client
-				.subscribe(subject)
+				.queue_subscribe(subject, group)
 				.map_ok(|subscriber| {
 					subscriber
 						.map(|message| Message {

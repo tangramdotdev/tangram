@@ -29,7 +29,7 @@ pub struct Args {
 	pub arg: Option<Arg>,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Clone, Debug)]
 pub enum Arg {
 	Build(tg::build::Id),
 	Object(tg::object::Id),

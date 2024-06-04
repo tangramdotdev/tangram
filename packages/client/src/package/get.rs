@@ -4,7 +4,7 @@ use std::collections::BTreeMap;
 use tangram_http::{incoming::response::Ext as _, outgoing::request::Ext as _};
 
 #[allow(clippy::struct_excessive_bools)]
-#[derive(Debug, Clone, Default, serde::Deserialize, serde::Serialize)]
+#[derive(Clone, Debug, Default, serde::Deserialize, serde::Serialize)]
 pub struct Arg {
 	pub dependencies: bool,
 	pub lock: bool,
@@ -15,7 +15,7 @@ pub struct Arg {
 }
 
 #[serde_as]
-#[derive(Debug, Clone, serde::Deserialize, serde::Serialize)]
+#[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
 pub struct Output {
 	pub artifact: tg::artifact::Id,
 	#[serde(default, skip_serializing_if = "Option::is_none")]

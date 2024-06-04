@@ -7,9 +7,12 @@ pub struct Options {
 	pub advanced: Advanced,
 	pub authentication: Authentication,
 	pub build: Option<Build>,
-	pub build_monitor: Option<BuildMonitor>,
+	pub build_dequeue_timeout: Option<std::time::Duration>,
+	pub build_heartbeat_monitor: Option<BuildHeartbeatMonitor>,
+	pub build_indexer: Option<BuildIndexer>,
 	pub database: Database,
 	pub messenger: Messenger,
+	pub object_indexer: Option<ObjectIndexer>,
 	pub path: PathBuf,
 	pub registry: Option<String>,
 	pub remotes: Vec<Remote>,
@@ -53,13 +56,20 @@ pub struct Build {
 }
 
 #[derive(Clone, Debug)]
-pub struct BuildMonitor {
-	pub dequeue_interval: std::time::Duration,
-	pub dequeue_limit: u64,
-	pub dequeue_timeout: std::time::Duration,
-	pub heartbeat_interval: std::time::Duration,
-	pub heartbeat_limit: u64,
-	pub heartbeat_timeout: std::time::Duration,
+pub struct BuildHeartbeatMonitor {
+	pub interval: std::time::Duration,
+	pub limit: u64,
+	pub timeout: std::time::Duration,
+}
+
+#[derive(Clone, Debug)]
+pub struct BuildIndexer {}
+
+#[derive(Clone, Debug)]
+pub struct BuildDequeueMonitor {
+	pub interval: std::time::Duration,
+	pub limit: u64,
+	pub timeout: std::time::Duration,
 }
 
 #[derive(Clone, Debug)]
@@ -89,6 +99,9 @@ pub enum Messenger {
 pub struct NatsMessenger {
 	pub url: Url,
 }
+
+#[derive(Clone, Debug)]
+pub struct ObjectIndexer {}
 
 #[derive(Clone, Debug)]
 pub struct Remote {

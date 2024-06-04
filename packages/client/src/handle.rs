@@ -109,7 +109,6 @@ pub trait Handle: Clone + Unpin + Send + Sync + 'static {
 	fn try_get_build_status_stream(
 		&self,
 		id: &tg::build::Id,
-		arg: tg::build::status::Arg,
 	) -> impl Future<
 		Output = tg::Result<
 			Option<impl Stream<Item = tg::Result<tg::build::status::Event>> + Send + 'static>,
@@ -119,7 +118,6 @@ pub trait Handle: Clone + Unpin + Send + Sync + 'static {
 	fn try_get_build_status(
 		&self,
 		id: &tg::build::Id,
-		arg: tg::build::status::Arg,
 	) -> impl Future<
 		Output = tg::Result<
 			Option<impl Stream<Item = tg::Result<tg::build::Status>> + Send + 'static>,
@@ -128,14 +126,10 @@ pub trait Handle: Clone + Unpin + Send + Sync + 'static {
 		async move {
 			let handle = self.clone();
 			let id = id.clone();
-			let Some(stream) = handle.try_get_build_status_stream(&id, arg.clone()).await? else {
+			let Some(stream) = handle.try_get_build_status_stream(&id).await? else {
 				return Ok(None);
 			};
 			let stream = stream.boxed();
-			let timeout = arg.timeout.map_or_else(
-				|| future::pending().left_future(),
-				|timeout| tokio::time::sleep(timeout).right_future(),
-			);
 			struct State {
 				stream: Option<stream::BoxStream<'static, tg::Result<tg::build::status::Event>>>,
 				end: bool,
@@ -147,7 +141,6 @@ pub trait Handle: Clone + Unpin + Send + Sync + 'static {
 			let stream = stream::try_unfold(state.clone(), move |state| {
 				let handle = handle.clone();
 				let id = id.clone();
-				let arg = arg.clone();
 				async move {
 					if state.lock().unwrap().end {
 						return Ok(None);
@@ -157,7 +150,7 @@ pub trait Handle: Clone + Unpin + Send + Sync + 'static {
 						stream
 					} else {
 						handle
-							.try_get_build_status_stream(&id, arg.clone())
+							.try_get_build_status_stream(&id)
 							.await?
 							.unwrap()
 							.boxed()
@@ -177,8 +170,7 @@ pub trait Handle: Clone + Unpin + Send + Sync + 'static {
 				move |status| {
 					state.lock().unwrap().end = matches!(status, tg::build::Status::Finished);
 				}
-			})
-			.take_until(timeout);
+			});
 			Ok(Some(stream))
 		}
 	}
@@ -186,11 +178,10 @@ pub trait Handle: Clone + Unpin + Send + Sync + 'static {
 	fn get_build_status(
 		&self,
 		id: &tg::build::Id,
-		arg: tg::build::status::Arg,
 	) -> impl Future<
 		Output = tg::Result<impl Stream<Item = tg::Result<tg::build::Status>> + Send + 'static>,
 	> + Send {
-		self.try_get_build_status(id, arg).map(|result| {
+		self.try_get_build_status(id).map(|result| {
 			result.and_then(|option| option.ok_or_else(|| tg::error!("failed to get the build")))
 		})
 	}
@@ -211,7 +202,7 @@ pub trait Handle: Clone + Unpin + Send + Sync + 'static {
 		arg: tg::build::children::Arg,
 	) -> impl Future<
 		Output = tg::Result<
-			Option<impl Stream<Item = tg::Result<tg::build::children::Chunk>> + Send + 'static>,
+			Option<impl Stream<Item = tg::Result<tg::build::children::Data>> + Send + 'static>,
 		>,
 	> + Send {
 		async move {
@@ -224,10 +215,6 @@ pub trait Handle: Clone + Unpin + Send + Sync + 'static {
 				return Ok(None);
 			};
 			let stream = stream.boxed();
-			let timeout = arg.timeout.map_or_else(
-				|| future::pending().left_future(),
-				|timeout| tokio::time::sleep(timeout).right_future(),
-			);
 			struct State {
 				stream: Option<stream::BoxStream<'static, tg::Result<tg::build::children::Event>>>,
 				arg: tg::build::children::Arg,
@@ -288,8 +275,7 @@ pub trait Handle: Clone + Unpin + Send + Sync + 'static {
 					let position = chunk.position + chunk.items.len().to_u64().unwrap();
 					state.arg.position = Some(SeekFrom::Start(position));
 				}
-			})
-			.take_until(timeout);
+			});
 			Ok(Some(stream))
 		}
 	}
@@ -300,7 +286,7 @@ pub trait Handle: Clone + Unpin + Send + Sync + 'static {
 		arg: tg::build::children::Arg,
 	) -> impl Future<
 		Output = tg::Result<
-			impl Stream<Item = tg::Result<tg::build::children::Chunk>> + Send + 'static,
+			impl Stream<Item = tg::Result<tg::build::children::Data>> + Send + 'static,
 		>,
 	> + Send {
 		self.try_get_build_children(id, arg).map(|result| {
@@ -340,10 +326,6 @@ pub trait Handle: Clone + Unpin + Send + Sync + 'static {
 				return Ok(None);
 			};
 			let stream = stream.boxed();
-			let timeout = arg.timeout.map_or_else(
-				|| future::pending().left_future(),
-				|timeout| tokio::time::sleep(timeout).right_future(),
-			);
 			struct State {
 				stream: Option<BoxStream<'static, tg::Result<tg::build::log::Event>>>,
 				arg: tg::build::log::Arg,
@@ -408,8 +390,7 @@ pub trait Handle: Clone + Unpin + Send + Sync + 'static {
 					chunk.position - 1
 				};
 				state.arg.position = Some(SeekFrom::Start(position));
-			})
-			.take_until(timeout);
+			});
 			Ok(Some(stream))
 		}
 	}
@@ -435,7 +416,6 @@ pub trait Handle: Clone + Unpin + Send + Sync + 'static {
 	fn try_get_build_outcome_future(
 		&self,
 		id: &tg::build::Id,
-		arg: tg::build::outcome::Arg,
 	) -> impl Future<
 		Output = tg::Result<
 			Option<impl Future<Output = tg::Result<Option<tg::build::Outcome>>> + Send + 'static>,
@@ -445,20 +425,15 @@ pub trait Handle: Clone + Unpin + Send + Sync + 'static {
 	fn try_get_build_outcome(
 		&self,
 		id: &tg::build::Id,
-		arg: tg::build::outcome::Arg,
 	) -> impl Future<
 		Output = tg::Result<
 			Option<impl Future<Output = tg::Result<Option<tg::build::Outcome>>> + Send + 'static>,
 		>,
 	> + Send {
 		async move {
-			let Some(future) = self.try_get_build_outcome_future(id, arg.clone()).await? else {
+			let Some(future) = self.try_get_build_outcome_future(id).await? else {
 				return Ok(None);
 			};
-			let timeout = arg.timeout.map_or_else(
-				|| future::pending().left_future(),
-				|timeout| tokio::time::sleep(timeout).right_future(),
-			);
 			let future = {
 				let mut future = future.boxed();
 				let handle = self.clone();
@@ -469,20 +444,13 @@ pub trait Handle: Clone + Unpin + Send + Sync + 'static {
 							return Ok(Some(outcome));
 						};
 						future = handle
-							.try_get_build_outcome_future(&id, arg.clone())
+							.try_get_build_outcome_future(&id)
 							.await?
 							.ok_or_else(|| tg::error!("expected the build to exist"))?
 							.boxed();
 					}
 				}
 			};
-			let future =
-				future::select(future.boxed(), timeout.boxed()).then(|result| async move {
-					match result {
-						future::Either::Left((result, _)) => result,
-						future::Either::Right(_) => Ok(None),
-					}
-				});
 			Ok(Some(future))
 		}
 	}
@@ -490,13 +458,12 @@ pub trait Handle: Clone + Unpin + Send + Sync + 'static {
 	fn get_build_outcome(
 		&self,
 		id: &tg::build::Id,
-		arg: tg::build::outcome::Arg,
 	) -> impl Future<
 		Output = tg::Result<
 			impl Future<Output = tg::Result<Option<tg::build::Outcome>>> + Send + 'static,
 		>,
 	> + Send {
-		self.try_get_build_outcome(id, arg).map(|result| {
+		self.try_get_build_outcome(id).map(|result| {
 			result.and_then(|option| option.ok_or_else(|| tg::error!("failed to get the build")))
 		})
 	}

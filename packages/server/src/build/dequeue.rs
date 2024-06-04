@@ -47,14 +47,24 @@ impl Server {
 					where id in (
 						select id
 						from builds
-						where status = 'created'
+						where
+							status = 'created' or
+							(status = 'dequeued' and dequeued_at <= {p}2)
+						order by created_at
 						limit 1
 					)
 					returning id;
 				"
 			);
 			let now = time::OffsetDateTime::now_utc().format(&Rfc3339).unwrap();
-			let params = db::params![now];
+			let timeout = self
+				.options
+				.build_dequeue_timeout
+				.unwrap_or(std::time::Duration::from_secs(3600));
+			let time = (time::OffsetDateTime::now_utc() - timeout)
+				.format(&Rfc3339)
+				.unwrap();
+			let params = db::params![now, time];
 			let Some(id) = connection
 				.query_optional_value_into(statement, params)
 				.await

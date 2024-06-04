@@ -2,7 +2,7 @@ use crate as tg;
 use std::{collections::BTreeMap, fmt};
 
 /// An import in a module.
-#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+#[derive(Clone, Debug, PartialEq, Eq, Hash)]
 pub struct Import {
 	/// The import specifier.
 	pub specifier: Specifier,
@@ -12,7 +12,7 @@ pub struct Import {
 }
 
 /// An import specifier.
-#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+#[derive(Clone, Debug, PartialEq, Eq, Hash)]
 pub enum Specifier {
 	/// A path to a module, like "./module.ts"
 	Path(tg::Path),

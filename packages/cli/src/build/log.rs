@@ -16,9 +16,6 @@ pub struct Args {
 	#[arg(long)]
 	pub size: Option<u64>,
 
-	#[arg(long)]
-	pub timeout: Option<f64>,
-
 	pub build: tg::build::Id,
 }
 
@@ -30,7 +27,6 @@ impl Cli {
 			length: args.length,
 			position: args.position.map(std::io::SeekFrom::Start),
 			size: args.size,
-			timeout: args.timeout.map(std::time::Duration::from_secs_f64),
 		};
 		let mut log = build
 			.log(&self.handle, arg)

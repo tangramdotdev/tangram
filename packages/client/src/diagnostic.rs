@@ -1,7 +1,7 @@
 use crate as tg;
 use lsp_types as lsp;
 
-#[derive(Clone, Debug, serde::Serialize, serde::Deserialize)]
+#[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Diagnostic {
 	pub location: Option<tg::Location>,
@@ -9,7 +9,7 @@ pub struct Diagnostic {
 	pub message: String,
 }
 
-#[derive(Clone, Copy, Debug, serde::Serialize, serde::Deserialize)]
+#[derive(Clone, Copy, Debug, serde::Deserialize, serde::Serialize)]
 #[serde(rename_all = "camelCase")]
 pub enum Severity {
 	Error,

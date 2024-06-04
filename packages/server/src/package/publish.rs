@@ -66,12 +66,6 @@ impl Server {
 			return Err(tg::error!(%name, %version, "package already exists"));
 		}
 
-		// Get the published at timestamp.
-		let published_at = time::OffsetDateTime::now_utc();
-
-		// Initialize yanked to false.
-		let yanked = false;
-
 		// Get a database connection.
 		let connection = self
 			.database
@@ -83,17 +77,12 @@ impl Server {
 		let p = connection.p();
 		let statement = formatdoc!(
 			"
-				insert into package_versions (name, version, artifact, published_at, yanked)
+				insert into package_versions (name, version, artifact, created_at, yanked)
 				values ({p}1, {p}2, {p}3, {p}4, {p}5);
 			"
 		);
-		let params = db::params![
-			name,
-			version,
-			id,
-			published_at.format(&Rfc3339).unwrap(),
-			yanked
-		];
+		let now = time::OffsetDateTime::now_utc().format(&Rfc3339).unwrap();
+		let params = db::params![name, version, id, now, false];
 		connection
 			.execute(statement, params)
 			.await

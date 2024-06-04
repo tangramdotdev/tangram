@@ -1,5 +1,7 @@
 use crate::Server;
+use futures::{stream::FuturesUnordered, StreamExt as _};
 use hyper::body::Incoming;
+use num::ToPrimitive;
 use tangram_client as tg;
 use tangram_database::{self as db, prelude::*};
 use tangram_http::{incoming::request::Ext as _, outgoing::response::Ext as _, Outgoing};
@@ -70,6 +72,76 @@ impl Server {
 		let output = tg::build::heartbeat::Output { stop };
 
 		Ok(output)
+	}
+
+	pub async fn build_heartbeat_monitor_task(
+		&self,
+		options: &crate::options::BuildHeartbeatMonitor,
+	) {
+		loop {
+			let result = self
+				.build_monitor_heartbeat_task_inner(options.timeout, options.limit)
+				.await
+				.inspect_err(|error| tracing::error!(%error, "failed to cancel builds"));
+			if matches!(result, Err(_) | Ok(0)) {
+				tokio::time::sleep(options.interval).await;
+			}
+		}
+	}
+
+	pub(crate) async fn build_monitor_heartbeat_task_inner(
+		&self,
+		timeout: std::time::Duration,
+		limit: u64,
+	) -> tg::Result<u64> {
+		// Get a database connection.
+		let connection = self
+			.database
+			.connection()
+			.await
+			.map_err(|source| tg::error!(!source, "failed to get a database connection"))?;
+
+		// Get all started builds whose heartbeat_at exceeds the timeout.
+		let p = connection.p();
+		let statement = format!(
+			"
+				select id
+				from builds
+				where
+					status = 'started' and
+					heartbeat_at <= {p}1
+				limit {p}2;
+			"
+		);
+		let time = (time::OffsetDateTime::now_utc() - timeout)
+			.format(&Rfc3339)
+			.unwrap();
+		let params = db::params![time, limit];
+		let builds = connection
+			.query_all_value_into::<tg::build::Id>(statement, params)
+			.await
+			.map_err(|source| tg::error!(!source, "failed to execute the statement"))?;
+
+		// Cancel the builds.
+		builds
+			.iter()
+			.map(|id| async move {
+				let build = tg::Build::with_id(id.clone());
+				let arg = tg::build::finish::Arg {
+					outcome: tg::build::outcome::Data::Canceled,
+					remote: None,
+				};
+				build
+					.finish(self, arg)
+					.await
+					.inspect_err(|error| tracing::error!(%error, %id, "failed to cancel the build"))
+					.ok()
+			})
+			.collect::<FuturesUnordered<_>>()
+			.collect::<Vec<_>>()
+			.await;
+
+		Ok(builds.len().to_u64().unwrap())
 	}
 }
 

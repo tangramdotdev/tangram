@@ -1,6 +1,5 @@
 use crate as tg;
 use futures::{Future, TryFutureExt as _};
-use serde_with::serde_as;
 use tangram_http::{incoming::response::Ext as _, outgoing::request::Ext as _};
 
 #[derive(Clone, Debug, derive_more::TryUnwrap, serde::Deserialize)]
@@ -19,14 +18,6 @@ pub enum Data {
 	Canceled,
 	Failed(tg::Error),
 	Succeeded(tg::value::Data),
-}
-
-#[serde_as]
-#[derive(Clone, Debug, Default, serde::Serialize, serde::Deserialize)]
-pub struct Arg {
-	#[serde(default, skip_serializing_if = "Option::is_none")]
-	#[serde_as(as = "Option<serde_with::DurationSeconds>")]
-	pub timeout: Option<std::time::Duration>,
 }
 
 impl Outcome {
@@ -66,20 +57,16 @@ impl tg::Build {
 	where
 		H: tg::Handle,
 	{
-		self.get_outcome(handle, tg::build::outcome::Arg::default())
+		self.get_outcome(handle)
 			.await?
 			.ok_or_else(|| tg::error!("failed to get the outcome"))
 	}
 
-	pub async fn get_outcome<H>(
-		&self,
-		handle: &H,
-		arg: tg::build::outcome::Arg,
-	) -> tg::Result<Option<tg::build::Outcome>>
+	pub async fn get_outcome<H>(&self, handle: &H) -> tg::Result<Option<tg::build::Outcome>>
 	where
 		H: tg::Handle,
 	{
-		self.try_get_outcome(handle, arg)
+		self.try_get_outcome(handle)
 			.await?
 			.ok_or_else(|| tg::error!("failed to get the build"))?
 			.await
@@ -88,7 +75,6 @@ impl tg::Build {
 	pub async fn try_get_outcome<H>(
 		&self,
 		handle: &H,
-		arg: tg::build::outcome::Arg,
 	) -> tg::Result<
 		Option<impl Future<Output = tg::Result<Option<tg::build::Outcome>>> + Send + 'static>,
 	>
@@ -96,7 +82,7 @@ impl tg::Build {
 		H: tg::Handle,
 	{
 		handle
-			.try_get_build_outcome(self.id(), arg)
+			.try_get_build_outcome(self.id())
 			.await
 			.map(|option| option.map(futures::FutureExt::boxed))
 	}
@@ -118,11 +104,9 @@ impl tg::Client {
 	pub async fn try_get_build_outcome_future(
 		&self,
 		id: &tg::build::Id,
-		arg: tg::build::outcome::Arg,
 	) -> tg::Result<Option<impl Future<Output = tg::Result<Option<tg::build::Outcome>>>>> {
 		let method = http::Method::GET;
-		let query = serde_urlencoded::to_string(&arg).unwrap();
-		let uri = format!("/builds/{id}/outcome?{query}");
+		let uri = format!("/builds/{id}/outcome");
 		let request = http::request::Builder::default()
 			.method(method)
 			.uri(uri)

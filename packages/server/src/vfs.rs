@@ -5,7 +5,7 @@ use tangram_vfs as vfs;
 
 mod provider;
 
-#[derive(Debug, Clone, Copy)]
+#[derive(Clone, Debug, Copy)]
 pub enum Kind {
 	Fuse,
 	Nfs,

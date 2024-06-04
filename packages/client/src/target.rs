@@ -2,7 +2,7 @@ use crate::{self as tg, util::arc::Ext as _};
 use bytes::Bytes;
 use futures::{
 	stream::{FuturesOrdered, FuturesUnordered},
-	FutureExt as _, TryStreamExt as _,
+	TryStreamExt as _,
 };
 use itertools::Itertools as _;
 use std::{
@@ -160,7 +160,6 @@ impl Target {
 		let arg = tg::object::put::Arg { bytes };
 		handle
 			.put_object(&id.clone().into(), arg)
-			.boxed()
 			.await
 			.map_err(|source| tg::error!(!source, "failed to put the object"))?;
 		self.state.write().unwrap().id.replace(id.clone());

@@ -3,13 +3,13 @@ use serde_with::{serde_as, DisplayFromStr};
 use std::collections::BTreeMap;
 use tangram_http::{incoming::response::Ext as _, outgoing::request::Ext as _};
 
-#[derive(Debug, Clone, Default, serde::Deserialize, serde::Serialize)]
+#[derive(Clone, Debug, Default, serde::Deserialize, serde::Serialize)]
 pub struct Arg {
 	pub locked: bool,
 }
 
 #[serde_as]
-#[derive(Debug, Clone, serde::Deserialize, serde::Serialize)]
+#[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
 pub struct Output {
 	#[serde(flatten)]
 	#[serde(default, skip_serializing_if = "Option::is_none")]
@@ -19,7 +19,7 @@ pub struct Output {
 	pub dependencies: BTreeMap<tg::Dependency, Self>,
 }
 
-#[derive(Debug, Clone, serde::Deserialize, serde::Serialize)]
+#[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
 pub struct Info {
 	pub current: String,
 	pub compatible: String,

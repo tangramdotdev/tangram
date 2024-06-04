@@ -6,7 +6,7 @@ use tangram_client as tg;
 use url::Url;
 
 #[serde_as]
-#[derive(Clone, Debug, Default, serde::Serialize, serde::Deserialize)]
+#[derive(Clone, Debug, Default, serde::Deserialize, serde::Serialize)]
 pub struct Config {
 	/// Advanced configuration.
 	#[serde(default, skip_serializing_if = "Option::is_none")]
@@ -24,9 +24,17 @@ pub struct Config {
 	)]
 	pub build: Option<Either<bool, Build>>,
 
-	/// Configure the build monitor.
+	/// The duration after which a build that is dequeued but not started may be dequeued again.
 	#[serde(default, skip_serializing_if = "Option::is_none")]
-	pub build_monitor: Option<BuildMonitor>,
+	pub build_dequeue_timeout: Option<std::time::Duration>,
+
+	/// Configure the build heartbeat monitor.
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub build_heartbeat_monitor: Option<BuildHeartbeatMonitor>,
+
+	/// Configure the build indexer.
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub build_indexer: Option<BuildIndexer>,
 
 	/// Configure the database.
 	#[serde(default, skip_serializing_if = "Option::is_none")]
@@ -38,6 +46,10 @@ pub struct Config {
 
 	/// This setting controls whether the CLI runs as a client or a server. When set to `auto`, the CLI will run as a client and start a separate server process if the connection fails or the server's version does not match. If the command is `tg server run`, the mode is set to `server`.
 	pub mode: Option<Mode>,
+
+	/// Configure the object indexer.
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub object_indexer: Option<ObjectIndexer>,
 
 	/// The path where a client will look for a socket file and where a server will store its data.
 	#[serde(default, skip_serializing_if = "Option::is_none")]
@@ -68,13 +80,13 @@ pub struct Config {
 	pub vfs: Option<bool>,
 }
 
-#[derive(Clone, Debug, Default, serde::Serialize, serde::Deserialize)]
+#[derive(Clone, Debug, Default, serde::Deserialize, serde::Serialize)]
 pub struct Advanced {
 	#[serde(default, skip_serializing_if = "Option::is_none")]
-	pub error_trace_options: Option<tg::error::TraceOptions>,
+	pub duplicate_build_logs_to_stderr: Option<bool>,
 
 	#[serde(default, skip_serializing_if = "Option::is_none")]
-	pub duplicate_build_logs_to_stderr: Option<bool>,
+	pub error_trace_options: Option<tg::error::TraceOptions>,
 
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub file_descriptor_limit: Option<u64>,
@@ -92,40 +104,37 @@ pub struct Advanced {
 	pub write_build_logs_to_database: Option<bool>,
 }
 
-#[derive(Copy, Clone, Debug, Default, serde::Serialize, serde::Deserialize)]
-pub struct BuildMonitor {
-	/// The duration to pause when there are no builds that need to be reenqueued.
-	pub dequeue_interval: Option<u64>,
-
-	/// The maximum number of builds that will be reenqueued at a time.
-	pub dequeue_limit: Option<u64>,
-
-	/// The duration without being started before a build is reenqueued.
-	pub dequeue_timeout: Option<u64>,
-
+#[derive(Copy, Clone, Debug, Default, serde::Deserialize, serde::Serialize)]
+pub struct BuildHeartbeatMonitor {
 	/// The duration to pause when there are no builds that need to be canceled.
-	pub heartbeat_interval: Option<u64>,
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub interval: Option<u64>,
 
 	/// The maximum number of builds that will be canceled at a time.
-	pub heartbeat_limit: Option<u64>,
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub limit: Option<u64>,
 
 	/// The duration without a heartbeat before a build is canceled.
-	pub heartbeat_timeout: Option<u64>,
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub timeout: Option<u64>,
 }
 
-#[derive(Clone, Debug, Default, serde::Serialize, serde::Deserialize)]
+#[derive(Copy, Clone, Debug, Default, serde::Deserialize, serde::Serialize)]
+pub struct BuildIndexer {}
+
+#[derive(Clone, Debug, Default, serde::Deserialize, serde::Serialize)]
 pub struct Authentication {
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub providers: Option<AuthenticationProviders>,
 }
 
-#[derive(Clone, Debug, Default, serde::Serialize, serde::Deserialize)]
+#[derive(Clone, Debug, Default, serde::Deserialize, serde::Serialize)]
 pub struct AuthenticationProviders {
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub github: Option<Oauth>,
 }
 
-#[derive(Clone, Debug, serde::Serialize, serde::Deserialize)]
+#[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
 pub struct Oauth {
 	pub auth_url: String,
 	pub client_id: String,
@@ -134,31 +143,32 @@ pub struct Oauth {
 	pub token_url: String,
 }
 
-#[derive(Clone, Debug, Default, serde::Serialize, serde::Deserialize)]
+#[derive(Clone, Debug, Default, serde::Deserialize, serde::Serialize)]
 pub struct Build {
 	/// The maximum number of concurrent builds.
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub concurrency: Option<usize>,
 
 	/// The heartbeat interval, in seconds. Builds will send a heartbeat at this interval.
+	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub heartbeat_interval: Option<f64>,
 }
 
-#[derive(Clone, Debug, serde::Serialize, serde::Deserialize)]
+#[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
 #[serde(tag = "kind", rename_all = "snake_case")]
 pub enum Database {
 	Sqlite(SqliteDatabase),
 	Postgres(PostgresDatabase),
 }
 
-#[derive(Clone, Debug, serde::Serialize, serde::Deserialize)]
+#[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
 pub struct SqliteDatabase {
 	/// The number of connections.
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub connections: Option<usize>,
 }
 
-#[derive(Clone, Debug, serde::Serialize, serde::Deserialize)]
+#[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
 pub struct PostgresDatabase {
 	/// The URL.
 	pub url: Url,
@@ -168,7 +178,7 @@ pub struct PostgresDatabase {
 	pub connections: Option<usize>,
 }
 
-#[derive(Clone, Debug, Default, serde::Serialize, serde::Deserialize)]
+#[derive(Clone, Debug, Default, serde::Deserialize, serde::Serialize)]
 #[serde(tag = "kind", rename_all = "snake_case")]
 pub enum Messenger {
 	#[default]
@@ -176,12 +186,15 @@ pub enum Messenger {
 	Nats(NatsMessenger),
 }
 
-#[derive(Clone, Debug, serde::Serialize, serde::Deserialize)]
+#[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
 pub struct NatsMessenger {
 	pub url: Url,
 }
 
-#[derive(Clone, Debug, serde::Serialize, serde::Deserialize)]
+#[derive(Copy, Clone, Debug, Default, serde::Deserialize, serde::Serialize)]
+pub struct ObjectIndexer {}
+
+#[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
 pub struct Remote {
 	/// The remote's name.
 	pub name: String,
@@ -194,7 +207,7 @@ pub struct Remote {
 	pub build: Option<bool>,
 }
 
-#[derive(Clone, Debug, Default, serde::Serialize, serde::Deserialize)]
+#[derive(Clone, Debug, Default, serde::Deserialize, serde::Serialize)]
 pub struct Tracing {
 	#[serde(default, skip_serializing_if = "String::is_empty")]
 	pub filter: String,
@@ -204,7 +217,14 @@ pub struct Tracing {
 }
 
 #[derive(
-	Clone, Copy, Debug, Default, serde_with::SerializeDisplay, serde_with::DeserializeFromStr,
+	Clone,
+	Copy,
+	Debug,
+	Default,
+	derive_more::Display,
+	derive_more::FromStr,
+	serde_with::DeserializeFromStr,
+	serde_with::SerializeDisplay,
 )]
 pub enum TracingFormat {
 	Compact,
@@ -212,29 +232,4 @@ pub enum TracingFormat {
 	Json,
 	#[default]
 	Pretty,
-}
-
-impl std::fmt::Display for TracingFormat {
-	fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-		match self {
-			Self::Compact => write!(f, "compact"),
-			Self::Hierarchical => write!(f, "hierarchical"),
-			Self::Json => write!(f, "json"),
-			Self::Pretty => write!(f, "pretty"),
-		}
-	}
-}
-
-impl std::str::FromStr for TracingFormat {
-	type Err = tg::Error;
-
-	fn from_str(s: &str) -> tg::Result<Self, Self::Err> {
-		match s {
-			"compact" => Ok(Self::Compact),
-			"hierarchical" => Ok(Self::Hierarchical),
-			"json" => Ok(Self::Json),
-			"pretty" => Ok(Self::Pretty),
-			_ => Err(tg::error!("invalid tracing format")),
-		}
-	}
 }

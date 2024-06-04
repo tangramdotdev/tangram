@@ -16,7 +16,7 @@ impl Server {
 			.await
 			.map_err(|source| tg::error!(!source, "failed to get a database connection"))?;
 
-		// Get the builds.
+		// List the builds.
 		let status = if arg.status.is_some() {
 			"false"
 		} else {

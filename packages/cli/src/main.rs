@@ -49,6 +49,9 @@ struct Cli {
 	version = env!("CARGO_PKG_VERSION"),
 )]
 struct Args {
+	#[command(subcommand)]
+	command: Command,
+
 	/// The path to the config file.
 	#[arg(long)]
 	config: Option<PathBuf>,
@@ -64,9 +67,6 @@ struct Args {
 	/// Override the `url` key in the config.
 	#[arg(short, long)]
 	url: Option<Url>,
-
-	#[command(subcommand)]
-	command: Command,
 }
 
 #[derive(Clone, Copy, Debug, Default, clap::ValueEnum, serde::Deserialize, serde::Serialize)]
@@ -530,26 +530,29 @@ impl Cli {
 			}
 		});
 
-		// Create the build monitor options
-		let build_monitor =
-			config
-				.and_then(|config| config.build_monitor.as_ref())
-				.map(|build_monitor| {
-					let dequeue_interval = build_monitor.dequeue_interval.unwrap_or(1);
-					let dequeue_limit = build_monitor.dequeue_limit.unwrap_or(100);
-					let dequeue_timeout = build_monitor.dequeue_timeout.unwrap_or(60);
-					let heartbeat_interval = build_monitor.heartbeat_interval.unwrap_or(1);
-					let heartbeat_limit = build_monitor.heartbeat_limit.unwrap_or(100);
-					let heartbeat_timeout = build_monitor.heartbeat_timeout.unwrap_or(60);
-					tangram_server::options::BuildMonitor {
-						dequeue_interval: std::time::Duration::from_secs(dequeue_interval),
-						dequeue_limit,
-						dequeue_timeout: std::time::Duration::from_secs(dequeue_timeout),
-						heartbeat_interval: std::time::Duration::from_secs(heartbeat_interval),
-						heartbeat_limit,
-						heartbeat_timeout: std::time::Duration::from_secs(heartbeat_timeout),
-					}
-				});
+		// Create the build dequeue timeout.
+		let build_dequeue_timeout = config.and_then(|config| config.build_dequeue_timeout.clone());
+
+		// Create the build heartbeat monitor options.
+		let build_heartbeat_monitor = config
+			.and_then(|config| config.build_heartbeat_monitor.as_ref())
+			.map(|config| {
+				let interval = config.interval.unwrap_or(1);
+				let limit = config.limit.unwrap_or(100);
+				let timeout = config.timeout.unwrap_or(60);
+				let interval = std::time::Duration::from_secs(interval);
+				let timeout = std::time::Duration::from_secs(timeout);
+				tangram_server::options::BuildHeartbeatMonitor {
+					interval,
+					limit,
+					timeout,
+				}
+			});
+
+		// Create the build indexer options.
+		let build_indexer = config
+			.and_then(|config| config.build_indexer.as_ref())
+			.map(|_| tangram_server::options::BuildIndexer {});
 
 		// Create the database options.
 		let database = config
@@ -599,7 +602,12 @@ impl Cli {
 				},
 			);
 
-		// Create the regisry option.
+		// Create the object indexer options.
+		let object_indexer = config
+			.and_then(|config| config.object_indexer.as_ref())
+			.map(|_| tangram_server::options::ObjectIndexer {});
+
+		// Create the registry option.
 		let registry = match config.as_ref().and_then(|config| config.registry.as_ref()) {
 			Some(Either::Left(_)) => None,
 			Some(Either::Right(registry)) => Some(registry.clone()),
@@ -653,9 +661,12 @@ impl Cli {
 			advanced,
 			authentication,
 			build,
-			build_monitor,
+			build_dequeue_timeout,
+			build_heartbeat_monitor,
+			build_indexer,
 			database,
 			messenger,
+			object_indexer,
 			path,
 			registry,
 			remotes,

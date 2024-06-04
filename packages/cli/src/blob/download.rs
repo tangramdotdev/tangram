@@ -1,4 +1,5 @@
 use crate::Cli;
+use indoc::formatdoc;
 use tangram_client as tg;
 use url::Url;
 
@@ -14,9 +15,21 @@ pub struct Args {
 
 impl Cli {
 	pub async fn command_blob_download(&self, args: Args) -> tg::Result<()> {
-		let url = args.url;
-		let checksum = args.checksum.unwrap_or(tg::Checksum::Unsafe);
-		let target = tg::Blob::download_target(&url, &checksum);
+		let host = "js";
+		let executable = formatdoc!(
+			r#"
+				export default tg.target((url, checksum) => tg.download(url, checksum));
+			"#
+		);
+		let args = vec![
+			"default".into(),
+			args.url.to_string().into(),
+			args.checksum.map(|checksum| checksum.to_string()).into(),
+		];
+		let target = tg::Target::builder(host)
+			.executable(tg::Artifact::from(executable))
+			.args(args)
+			.build();
 		let target = target.id(&self.handle).await?;
 		let args = crate::target::build::Args {
 			inner: crate::target::build::InnerArgs {

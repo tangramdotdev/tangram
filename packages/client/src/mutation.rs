@@ -2,7 +2,7 @@ use crate as tg;
 use futures::{stream::FuturesOrdered, TryStreamExt as _};
 use itertools::Itertools as _;
 
-#[derive(Debug, Clone)]
+#[derive(Clone, Debug)]
 pub enum Mutation {
 	Unset,
 	Set {
@@ -27,7 +27,7 @@ pub enum Mutation {
 	},
 }
 
-#[derive(Debug, Clone, serde::Deserialize, serde::Serialize)]
+#[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
 #[serde(tag = "kind", rename_all = "snake_case")]
 pub enum Data {
 	Unset,

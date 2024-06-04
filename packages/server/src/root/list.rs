@@ -16,7 +16,7 @@ impl Server {
 			.await
 			.map_err(|source| tg::error!(!source, "failed to get a database connection"))?;
 
-		// Get the builds.
+		// List the roots.
 		let statement = formatdoc!(
 			"
 				select name, id

@@ -1,6 +1,5 @@
 use crate as tg;
 use bytes::Bytes;
-use futures::FutureExt as _;
 use std::{collections::BTreeSet, sync::Arc};
 
 #[derive(
@@ -126,7 +125,6 @@ impl Leaf {
 		let arg = tg::object::put::Arg { bytes };
 		handle
 			.put_object(&id.clone().into(), arg)
-			.boxed()
 			.await
 			.map_err(|source| tg::error!(!source, "failed to put the object"))?;
 		self.state.write().unwrap().id.replace(id.clone());

@@ -11,7 +11,6 @@ mod heartbeat;
 mod index;
 mod list;
 mod log;
-mod monitor;
 mod outcome;
 mod pull;
 mod push;

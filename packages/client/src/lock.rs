@@ -3,7 +3,7 @@ use bytes::Bytes;
 use either::Either;
 use futures::{
 	stream::{FuturesOrdered, FuturesUnordered},
-	FutureExt as _, TryStreamExt as _,
+	TryStreamExt as _,
 };
 use itertools::Itertools as _;
 use std::{
@@ -178,7 +178,6 @@ impl Lock {
 		let arg = tg::object::put::Arg { bytes };
 		handle
 			.put_object(&id.clone().into(), arg)
-			.boxed()
 			.await
 			.map_err(|source| tg::error!(!source, "failed to put the object"))?;
 		self.state.write().unwrap().id.replace(id.clone());

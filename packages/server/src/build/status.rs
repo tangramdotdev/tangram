@@ -14,12 +14,11 @@ impl Server {
 	pub async fn try_get_build_status_stream(
 		&self,
 		id: &tg::build::Id,
-		arg: tg::build::status::Arg,
 	) -> tg::Result<Option<impl Stream<Item = tg::Result<tg::build::status::Event>> + Send + 'static>>
 	{
-		if let Some(status) = self.try_get_build_status_local(id, arg.clone()).await? {
+		if let Some(status) = self.try_get_build_status_local(id).await? {
 			Ok(Some(status.left_stream()))
-		} else if let Some(status) = self.try_get_build_status_remote(id, arg.clone()).await? {
+		} else if let Some(status) = self.try_get_build_status_remote(id).await? {
 			let status = status.right_stream();
 			Ok(Some(status))
 		} else {
@@ -30,7 +29,6 @@ impl Server {
 	pub(crate) async fn try_get_build_status_local(
 		&self,
 		id: &tg::build::Id,
-		arg: tg::build::status::Arg,
 	) -> tg::Result<Option<impl Stream<Item = tg::Result<tg::build::status::Event>> + Send + 'static>>
 	{
 		// Verify the build is local.
@@ -38,68 +36,56 @@ impl Server {
 			return Ok(None);
 		}
 
-		// Create the event stream.
+		// Subscribe to status events.
+		let subject = format!("builds.{id}.status");
 		let status = self
 			.messenger
-			.subscribe(format!("builds.{id}.status"), None)
+			.subscribe(subject, None)
 			.await
 			.map_err(|source| tg::error!(!source, "failed to subscribe"))?
 			.map(|_| ());
+
+		// Create the interval.
 		let interval =
 			IntervalStream::new(tokio::time::interval(std::time::Duration::from_secs(60)))
-				.map(|_| ())
-				.skip(1);
-		let timeout = arg.timeout.map_or_else(
-			|| future::pending().left_future(),
-			|timeout| tokio::time::sleep(timeout).right_future(),
-		);
-		let events = stream::once(future::ready(()))
-			.chain(stream::select(status, interval).take_until(timeout))
-			.boxed();
+				.map(|_| ());
 
 		// Create the stream.
 		let server = self.clone();
 		let id = id.clone();
-		let stream = stream::try_unfold(
-			(server, id, events, None, false),
-			move |(server, id, mut events, mut previous, mut end)| async move {
-				// If the stream should end, return None.
+		let mut previous: Option<tg::build::Status> = None;
+		let mut end = false;
+		let stream = stream::select(status, interval)
+			.boxed()
+			.then(move |_| {
+				let server = server.clone();
+				let id = id.clone();
+				async move { server.try_get_build_status_local_inner(&id).await }
+			})
+			.try_filter(move |status| {
+				future::ready(match (previous.as_mut(), *status) {
+					(None, status) => {
+						previous.replace(status);
+						true
+					},
+					(Some(previous), status) if *previous == status => false,
+					(Some(previous), status) => {
+						*previous = status;
+						true
+					},
+				})
+			})
+			.take_while(move |result| {
 				if end {
-					return Ok(None);
+					return future::ready(false);
 				}
-
-				// Wait for the next event.
-				let Some(()) = events.next().await else {
-					return Ok(None);
-				};
-
-				// Get the current status.
-				let status = server.try_get_build_status_local_inner(&id).await?;
-
-				// Handle the previous status.
-				if Some(status) == previous {
-					return Ok::<_, tg::Error>(Some((
-						stream::iter(None),
-						(server, id, events, previous, end),
-					)));
-				}
-				previous = Some(status);
-
-				// If the build is finished, then the stream should end.
-				if status == tg::build::Status::Finished {
+				if matches!(result, Ok(tangram_client::build::Status::Finished)) {
 					end = true;
 				}
-
-				Ok::<_, tg::Error>(Some((
-					stream::iter(Some(Ok(status))),
-					(server, id, events, previous, end),
-				)))
-			},
-		)
-		.try_flatten()
-		.map_ok(tg::build::status::Event::Data)
-		.chain(stream::once(future::ok(tg::build::status::Event::End)))
-		.boxed();
+				future::ready(true)
+			})
+			.map_ok(tg::build::status::Event::Data)
+			.chain(stream::once(future::ok(tg::build::status::Event::End)));
 
 		Ok(Some(stream))
 	}
@@ -139,7 +125,6 @@ impl Server {
 	async fn try_get_build_status_remote(
 		&self,
 		id: &tg::build::Id,
-		arg: tg::build::status::Arg,
 	) -> tg::Result<Option<impl Stream<Item = tg::Result<tg::build::status::Event>> + Send + 'static>>
 	{
 		let futures = self
@@ -149,10 +134,9 @@ impl Server {
 				{
 					let remote = remote.clone();
 					let id = id.clone();
-					let arg = arg.clone();
 					async move {
 						remote
-							.get_build_status(&id, arg)
+							.get_build_status(&id)
 							.await
 							.map(futures::StreamExt::boxed)
 					}
@@ -185,20 +169,18 @@ impl Server {
 		// Parse the ID.
 		let id = id.parse()?;
 
-		// Get the query.
-		let arg = request.query_params().transpose()?.unwrap_or_default();
-
 		// Get the accept header.
 		let accept: Option<mime::Mime> = request.parse_header(http::header::ACCEPT).transpose()?;
 
 		// Get the stream.
-		let Some(stream) = handle.try_get_build_status_stream(&id, arg).await? else {
+		let Some(stream) = handle.try_get_build_status_stream(&id).await? else {
 			return Ok(http::Response::builder().not_found().empty().unwrap());
 		};
 
 		// Stop the stream when the server stops.
 		let stop = request.extensions().get::<Stop>().cloned().unwrap();
-		let stream = stream.take_until(async move { stop.stopped().await });
+		let stop = async move { stop.stopped().await };
+		let stream = stream.take_until(stop);
 
 		// Create the body.
 		let (content_type, body) = match accept

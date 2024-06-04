@@ -1,14 +1,23 @@
 use crate::Server;
 use futures::{
-	future,
 	stream::{self, FuturesUnordered},
 	FutureExt as _, Stream, StreamExt as _, TryStreamExt as _,
 };
 use num::ToPrimitive as _;
-use std::sync::{atomic::AtomicU64, Arc, Mutex};
+use std::sync::{atomic::AtomicU64, Arc};
 use tangram_client::{self as tg, Handle as _};
 use tangram_http::{incoming::request::Ext as _, outgoing::response::Ext as _, Incoming, Outgoing};
 use tokio_stream::wrappers::IntervalStream;
+
+struct State {
+	objects: ProgressState,
+	bytes: ProgressState,
+}
+
+struct ProgressState {
+	current: AtomicU64,
+	total: Option<AtomicU64>,
+}
 
 impl Server {
 	pub async fn push_object(
@@ -25,75 +34,68 @@ impl Server {
 
 		// Get the metadata.
 		let metadata = self.get_object_metadata(object).await?;
-		let total_count = metadata.count;
-		let total_weight = metadata.weight;
 
 		// Create the state.
-		let current_count = Arc::new(AtomicU64::new(0));
-		let current_weight = Arc::new(AtomicU64::new(0));
-		let result = Arc::new(Mutex::new(None));
+		let state = Arc::new(State {
+			objects: ProgressState {
+				current: AtomicU64::new(0),
+				total: metadata.count.map(AtomicU64::new),
+			},
+			bytes: ProgressState {
+				current: AtomicU64::new(0),
+				total: metadata.weight.map(AtomicU64::new),
+			},
+		});
 
 		// Spawn the task.
+		let (result_sender, result_receiver) = tokio::sync::oneshot::channel();
 		tokio::spawn({
 			let server = self.clone();
 			let object = object.clone();
-			let current_count = current_count.clone();
-			let current_weight = current_weight.clone();
-			let result = result.clone();
+			let state = state.clone();
 			async move {
-				let result_ = server
-					.push_object_inner(&object, &remote, current_count, current_weight)
+				let result = server
+					.push_object_inner(&object, &remote, &state)
 					.await
 					.map(|_| ());
-				result.lock().unwrap().replace(result_);
+				result_sender.send(result).unwrap();
 			}
 		});
 
 		// Create the stream.
 		let interval = std::time::Duration::from_millis(100);
 		let interval = tokio::time::interval(interval);
-		let interval = IntervalStream::new(interval);
-		struct State {
-			interval: IntervalStream,
-			current_count: Arc<AtomicU64>,
-			current_weight: Arc<AtomicU64>,
-			result: Arc<Mutex<Option<tg::Result<()>>>>,
-		}
-		let state = State {
-			interval,
-			current_count,
-			current_weight,
-			result: result.clone(),
-		};
-		let stream = stream::try_unfold(state, move |mut state| async move {
-			let result = state.result.lock().unwrap().take();
-			if let Some(result) = result {
-				match result {
-					Ok(()) => {
-						return Ok(None);
-					},
-					Err(error) => {
-						return Err(error);
-					},
-				}
-			}
-			state.interval.next().await;
-			let current_count = state
-				.current_count
-				.load(std::sync::atomic::Ordering::Relaxed);
-			let current_weight = state
-				.current_weight
-				.load(std::sync::atomic::Ordering::Relaxed);
-			let progress = tg::object::push::Progress {
-				current_count,
-				total_count,
-				current_weight,
-				total_weight,
-			};
-			let event = tg::object::push::Event::Progress(progress);
-			Ok(Some((event, state)))
-		})
-		.chain(stream::once(future::ok(tg::object::push::Event::End)));
+		let result = result_receiver.map(Result::unwrap).shared();
+		let stream = IntervalStream::new(interval)
+			.map(move |_| {
+				let current = state
+					.objects
+					.current
+					.load(std::sync::atomic::Ordering::Relaxed);
+				let total = state
+					.objects
+					.total
+					.as_ref()
+					.map(|total| total.load(std::sync::atomic::Ordering::Relaxed));
+				let objects = tg::Progress { current, total };
+				let current = state
+					.bytes
+					.current
+					.load(std::sync::atomic::Ordering::Relaxed);
+				let total = state
+					.bytes
+					.total
+					.as_ref()
+					.map(|total| total.load(std::sync::atomic::Ordering::Relaxed));
+				let bytes = tg::Progress { current, total };
+				let progress = tg::object::push::Progress { objects, bytes };
+				Ok(tg::object::push::Event::Progress(progress))
+			})
+			.take_until(result.clone())
+			.chain(stream::once(result.map(|result| match result {
+				Ok(_) => Ok(tg::object::push::Event::End),
+				Err(error) => Err(error),
+			})));
 
 		Ok(stream)
 	}
@@ -102,8 +104,7 @@ impl Server {
 		&self,
 		object: &tg::object::Id,
 		remote: &tg::Client,
-		current_count: Arc<AtomicU64>,
-		current_weight: Arc<AtomicU64>,
+		state: &State,
 	) -> tg::Result<(u64, u64)> {
 		// Get the object.
 		let tg::object::get::Output { bytes, metadata } = self
@@ -116,23 +117,24 @@ impl Server {
 		let arg = tg::object::put::Arg { bytes };
 		let output = remote
 			.put_object(object, arg)
-			.boxed()
 			.await
 			.map_err(|source| tg::error!(!source, "failed to put the object"))?;
 
-		// Increment the count and add the objects size to the weight.
-		current_count.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
-		current_weight.fetch_add(size, std::sync::atomic::Ordering::Relaxed);
+		// Increment the count and add the object's size to the weight.
+		state
+			.objects
+			.current
+			.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+		state
+			.bytes
+			.current
+			.fetch_add(size, std::sync::atomic::Ordering::Relaxed);
 
 		// Recurse into the incomplete children.
 		let (incomplete_count, incomplete_weight) = output
 			.incomplete
 			.into_iter()
-			.map(|object| {
-				let count = current_count.clone();
-				let weight = current_weight.clone();
-				async move { self.push_object_inner(&object, remote, count, weight).await }
-			})
+			.map(|object| async move { self.push_object_inner(&object, remote, state).await })
 			.collect::<FuturesUnordered<_>>()
 			.try_collect::<Vec<_>>()
 			.await?
@@ -141,7 +143,7 @@ impl Server {
 
 		// If the count is set, then add the count not yet added.
 		if let Some(count) = metadata.count {
-			current_count.fetch_add(
+			state.objects.current.fetch_add(
 				count - 1 - incomplete_count,
 				std::sync::atomic::Ordering::Relaxed,
 			);
@@ -149,7 +151,7 @@ impl Server {
 
 		// If the weight is set, then add the weight not yet added.
 		if let Some(weight) = metadata.weight {
-			current_weight.fetch_add(
+			state.bytes.current.fetch_add(
 				weight - size - incomplete_weight,
 				std::sync::atomic::Ordering::Relaxed,
 			);

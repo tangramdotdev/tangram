@@ -129,12 +129,11 @@ impl Server {
 					retry,
 					status,
 					target,
+					touched_at,
 					created_at,
 					dequeued_at,
 					started_at,
-					finished_at,
-					heartbeat_at,
-					touched_at
+					finished_at
 				)
 				values (
 					{p}1,
@@ -148,8 +147,7 @@ impl Server {
 					{p}9,
 					{p}10,
 					{p}11,
-					{p}12,
-					{p}13
+					{p}12
 				)
 				on conflict (id) do update set
 					host = {p}2,
@@ -158,12 +156,11 @@ impl Server {
 					retry = {p}5,
 					status = {p}6,
 					target = {p}7,
-					created_at = {p}8,
-					dequeued_at = {p}9,
-					started_at = {p}10,
-					finished_at = {p}11,
-					heartbeat_at = {p}12,
-					touched_at = {p}13;
+					touched_at = {p}8,
+					created_at = {p}9,
+					dequeued_at = {p}10,
+					started_at = {p}11,
+					finished_at = {p}12
 			"
 		);
 		let params = db::params![
@@ -174,12 +171,11 @@ impl Server {
 			arg.retry,
 			arg.status,
 			arg.target,
+			time::OffsetDateTime::now_utc().format(&Rfc3339).unwrap(),
 			arg.created_at.format(&Rfc3339).unwrap(),
 			arg.dequeued_at.map(|t| t.format(&Rfc3339).unwrap()),
 			arg.started_at.map(|t| t.format(&Rfc3339).unwrap()),
 			arg.finished_at.map(|t| t.format(&Rfc3339).unwrap()),
-			db::Value::Null,
-			time::OffsetDateTime::now_utc().format(&Rfc3339).unwrap(),
 		];
 		transaction
 			.execute(statement, params)
@@ -195,6 +191,17 @@ impl Server {
 
 		// Drop the database connection.
 		drop(connection);
+
+		// If the build is finished, then enqueue the build for indexing.
+		if arg.status == tg::build::Status::Finished {
+			tokio::spawn({
+				let server = self.clone();
+				let id = id.clone();
+				async move {
+					server.enqueue_build_for_indexing(&id).await.ok();
+				}
+			});
+		}
 
 		Ok(())
 	}

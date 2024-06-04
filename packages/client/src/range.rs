@@ -2,7 +2,7 @@ use crate as tg;
 use lsp_types as lsp;
 
 /// A range in a string, such as a text editor selection. The end is exclusive. This type maps cleanly to the `Range` type in the Language Server Protocol.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+#[derive(Clone, Debug, Copy, PartialEq, Eq, serde::Deserialize, serde::Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Range {
 	pub start: tg::Position,

@@ -93,10 +93,7 @@ impl Server {
 
 		// Put the build if it is finished.
 		if output.status == tg::build::Status::Finished {
-			let arg = tg::build::children::Arg {
-				timeout: Some(std::time::Duration::ZERO),
-				..Default::default()
-			};
+			let arg = tg::build::children::Arg::default();
 			let children = self
 				.try_get_build_children(id, arg)
 				.await?

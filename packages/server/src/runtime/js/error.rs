@@ -13,7 +13,7 @@ struct StackTrace {
 }
 
 #[allow(dead_code, clippy::struct_excessive_bools)]
-#[derive(Debug, serde::Serialize, serde::Deserialize)]
+#[derive(Debug, serde::Deserialize, serde::Serialize)]
 #[serde(rename_all = "camelCase")]
 struct CallSite {
 	type_name: Option<String>,

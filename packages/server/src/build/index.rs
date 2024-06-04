@@ -1,35 +1,82 @@
 use crate::Server;
-use futures::{stream::FuturesUnordered, StreamExt as _, TryStreamExt as _};
+use futures::{future, stream::FuturesUnordered, StreamExt as _, TryStreamExt as _};
 use indoc::formatdoc;
 use itertools::Itertools as _;
 use std::pin::pin;
 use tangram_client::{self as tg, Handle as _};
 use tangram_database::{self as db, prelude::*};
 use tangram_messenger::Messenger as _;
+use time::format_description::well_known::Rfc3339;
 
 impl Server {
-	pub(crate) async fn build_index_task(&self) -> tg::Result<()> {
-		let stream = self
+	pub(crate) async fn build_indexer_task(&self) -> tg::Result<()> {
+		// Subscribe to build indexing events.
+		let mut events = self
 			.messenger
 			.subscribe("builds.index".to_owned(), Some("queue".to_owned()))
 			.await
-			.map_err(|source| tg::error!(!source, "failed to subscribe"))?;
-		let mut stream = pin!(stream);
-		while let Some(message) = stream.next().await {
-			let id = match std::str::from_utf8(&message.payload) {
-				Ok(id) => id,
+			.map_err(|source| tg::error!(!source, "failed to subscribe"))?
+			.boxed();
+
+		loop {
+			// Attempt to get a build to index.
+			let connection = match self.database.connection().await {
+				Ok(connection) => connection,
 				Err(error) => {
-					tracing::error!(?error);
+					tracing::error!(?error, "failed to get a database connection");
+					let duration = std::time::Duration::from_secs(1);
+					tokio::time::sleep(duration).await;
 					continue;
 				},
 			};
-			let id = match id.parse() {
-				Ok(id) => id,
+			let p = connection.p();
+			let statement = formatdoc!(
+				"
+					update builds
+					set
+						indexing_status = 'started',
+						indexing_started_at = {p}1
+					where id in (
+						select id
+						from builds
+						where
+							indexing_status is 'enqueued' or
+							(indexing_status = 'started' and indexing_started_at <= {p}2)
+						limit 1
+					)
+					returning id;
+				"
+			);
+			let now = (time::OffsetDateTime::now_utc()).format(&Rfc3339).unwrap();
+			let time = (time::OffsetDateTime::now_utc() - std::time::Duration::from_secs(60))
+				.format(&Rfc3339)
+				.unwrap();
+			let params = db::params![now, time];
+			let result = connection
+				.query_optional_value_into::<tg::build::Id>(statement, params)
+				.await
+				.map_err(|source| tg::error!(!source, "failed to execute the statement"));
+			drop(connection);
+			let id = match result {
+				Ok(Some(id)) => id,
+
+				// If there are no builds enqueued for indexing, then wait to receive a build indexing event or for a timeout to pass.
+				Ok(None) => {
+					let timeout = std::time::Duration::from_secs(60);
+					let timeout = tokio::time::sleep(timeout);
+					future::select(events.next(), pin!(timeout)).await;
+					continue;
+				},
+
 				Err(error) => {
-					tracing::error!(?error);
+					tracing::error!(?error, "failed to get a database connection");
+					let duration = std::time::Duration::from_secs(1);
+					tokio::time::sleep(duration).await;
 					continue;
 				},
 			};
+
+			// Spawn a task to index the build.
 			tokio::spawn({
 				let server = self.clone();
 				async move {
@@ -43,7 +90,6 @@ impl Server {
 				}
 			});
 		}
-		Ok(())
 	}
 
 	async fn index_build(&self, id: &tg::build::Id) -> tg::Result<()> {
@@ -56,10 +102,7 @@ impl Server {
 		}
 
 		// Get the children.
-		let arg = tg::build::children::Arg {
-			timeout: Some(std::time::Duration::ZERO),
-			..Default::default()
-		};
+		let arg = tg::build::children::Arg::default();
 		let children = self
 			.get_build_children(id, arg)
 			.await?
@@ -344,16 +387,9 @@ impl Server {
 			// Drop the connection.
 			drop(connection);
 
-			// Add the parents with incomplete logs to the build index queue.
+			// Index the parents with incomplete logs.
 			for build in builds {
-				tokio::spawn({
-					let server = self.clone();
-					async move {
-						let subject = "builds.index".to_owned();
-						let payload = build.to_string().into();
-						server.messenger.publish(subject, payload).await.ok();
-					}
-				});
+				self.enqueue_build_for_indexing(&build).await?;
 			}
 		}
 
@@ -555,16 +591,9 @@ impl Server {
 			// Drop the connection.
 			drop(connection);
 
-			// Add the parents with incomplete outcomes to the build index queue.
+			// Index the parents with incomplete outcomes.
 			for build in builds {
-				tokio::spawn({
-					let server = self.clone();
-					async move {
-						let subject = "builds.index".to_owned();
-						let payload = build.to_string().into();
-						server.messenger.publish(subject, payload).await.ok();
-					}
-				});
+				self.enqueue_build_for_indexing(&build).await?;
 			}
 		}
 
@@ -732,18 +761,79 @@ impl Server {
 			// Drop the connection.
 			drop(connection);
 
-			// Add the parents with incomplete targets to the build index queue.
+			// Index the parents with incomplete targets.
 			for build in builds {
-				tokio::spawn({
-					let server = self.clone();
-					async move {
-						let subject = "builds.index".to_owned();
-						let payload = build.to_string().into();
-						server.messenger.publish(subject, payload).await.ok();
-					}
-				});
+				self.enqueue_build_for_indexing(&build).await?;
 			}
 		}
+
+		// Get a database connection.
+		let connection = self
+			.database
+			.connection()
+			.await
+			.map_err(|source| tg::error!(!source, "failed to get a database connection"))?;
+
+		// Set the indexing status to null if it is started. If it is enqueued then do not change it.
+		let p = connection.p();
+		let statement = formatdoc!(
+			"
+				update builds
+				set
+					indexing_status = null,
+					indexing_started_at = null
+				where
+					id = {p}1 and
+					indexing_status = 'started';
+			"
+		);
+		let params = db::params![id];
+		connection
+			.execute(statement, params)
+			.await
+			.map_err(|source| tg::error!(!source, "failed to execute the statement"))?;
+
+		// Drop the connection.
+		drop(connection);
+
+		Ok(())
+	}
+
+	pub(crate) async fn enqueue_build_for_indexing(&self, id: &tg::build::Id) -> tg::Result<()> {
+		// Get a database connection.
+		let connection = self
+			.database
+			.connection()
+			.await
+			.map_err(|source| tg::error!(!source, "failed to get a database connection"))?;
+
+		// Set the build's indexing status.
+		let p = connection.p();
+		let statement = formatdoc!(
+			"
+				update builds
+				set
+					indexing_status = 'enqueued',
+					indexing_started_at = null
+				where id = {p}1;
+			"
+		);
+		let params = db::params![id];
+		connection
+			.execute(statement, params)
+			.await
+			.map_err(|source| tg::error!(!source, "failed to execute the statement"))?;
+
+		// Drop the connection.
+		drop(connection);
+
+		// Publish the build indexing message.
+		let subject = "builds.index".to_owned();
+		let payload = id.to_string().into();
+		self.messenger
+			.publish(subject, payload)
+			.await
+			.map_err(|source| tg::error!(!source, "failed to publish the message"))?;
 
 		Ok(())
 	}

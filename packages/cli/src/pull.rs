@@ -11,7 +11,7 @@ pub struct Args {
 	pub remote: Option<String>,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Clone, Debug)]
 pub enum Arg {
 	Build(tg::build::Id),
 	Object(tg::object::Id),

@@ -4,7 +4,7 @@ use serde_with::serde_as;
 use tangram_http::{incoming::response::Ext as _, outgoing::request::Ext as _, Outgoing};
 
 #[serde_as]
-#[derive(Clone, Debug, Default, serde::Serialize, serde::Deserialize)]
+#[derive(Clone, Debug, Default, serde::Deserialize, serde::Serialize)]
 pub struct Arg {
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub length: Option<u64>,
@@ -15,20 +15,16 @@ pub struct Arg {
 
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub size: Option<u64>,
-
-	#[serde(default, skip_serializing_if = "Option::is_none")]
-	#[serde_as(as = "Option<serde_with::DurationSeconds>")]
-	pub timeout: Option<std::time::Duration>,
 }
 
 #[derive(Clone, Debug)]
 pub enum Event {
-	Data(Chunk),
+	Data(Data),
 	End,
 }
 
-#[derive(Clone, Debug, Default, serde::Serialize, serde::Deserialize)]
-pub struct Chunk {
+#[derive(Clone, Debug, Default, serde::Deserialize, serde::Serialize)]
+pub struct Data {
 	pub position: u64,
 	pub items: Vec<tg::build::Id>,
 }

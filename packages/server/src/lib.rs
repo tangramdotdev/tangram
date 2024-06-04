@@ -340,8 +340,41 @@ impl Server {
 			self.runtimes.write().unwrap().insert(triple, runtime);
 		}
 
+		// Start the build heartbeat monitor task.
+		let build_heartbeat_monitor_task =
+			self.options
+				.build_heartbeat_monitor
+				.as_ref()
+				.map(|options| {
+					tokio::spawn({
+						let server = self.clone();
+						let options = options.clone();
+						async move { server.build_heartbeat_monitor_task(&options).await }
+					})
+				});
+
+		// Start the build indexer task.
+		let build_indexer_task = if true {
+			Some(tokio::spawn({
+				let server = self.clone();
+				async move { server.build_indexer_task().await }
+			}))
+		} else {
+			None
+		};
+
+		// Start the object indexer task.
+		let object_indexer_task = if true {
+			Some(tokio::spawn({
+				let server = self.clone();
+				async move { server.object_indexer_task().await }
+			}))
+		} else {
+			None
+		};
+
 		// Start the build spawn task.
-		let build_queue_task = if self.options.build.is_some() {
+		let build_spawn_task = if self.options.build.is_some() {
 			Some(tokio::spawn({
 				let server = self.clone();
 				async move { server.build_spawn_task().await }
@@ -350,58 +383,29 @@ impl Server {
 			None
 		};
 
-		// Start the build monitor task.
-		let build_monitor_task = self.options.build_monitor.as_ref().map(|options| {
-			tokio::spawn({
-				let server = self.clone();
-				let options = options.clone();
-				async move { server.build_monitor_task(&options).await }
-			})
-		});
-
-		// Start the build index task.
-		let build_index_task = if true {
-			Some(tokio::spawn({
-				let server = self.clone();
-				async move { server.build_index_task().await }
-			}))
-		} else {
-			None
-		};
-
-		// Start the object index task.
-		let object_index_task = if true {
-			Some(tokio::spawn({
-				let server = self.clone();
-				async move { server.object_index_task().await }
-			}))
-		} else {
-			None
-		};
-
 		// Serve.
 		Self::serve(self.clone(), self.options.url.clone(), stop.clone()).await?;
 
+		// Abort the build spawn task.
+		if let Some(task) = build_spawn_task {
+			task.abort();
+			task.await.ok();
+		}
+
 		// Abort the object index task.
-		if let Some(task) = object_index_task {
+		if let Some(task) = object_indexer_task {
 			task.abort();
 			task.await.ok();
 		}
 
 		// Abort the build index task.
-		if let Some(task) = build_index_task {
+		if let Some(task) = build_indexer_task {
 			task.abort();
 			task.await.ok();
 		}
 
-		// Abort the build queue task.
-		if let Some(task) = build_queue_task {
-			task.abort();
-			task.await.ok();
-		}
-
-		// Abort the build monitor task.
-		if let Some(task) = build_monitor_task {
+		// Abort the build heartbeat monitor task.
+		if let Some(task) = build_heartbeat_monitor_task {
 			task.abort();
 			task.await.ok();
 		}
@@ -878,13 +882,12 @@ impl tg::Handle for Server {
 	fn try_get_build_status_stream(
 		&self,
 		id: &tg::build::Id,
-		arg: tg::build::status::Arg,
 	) -> impl Future<
 		Output = tg::Result<
 			Option<impl Stream<Item = tg::Result<tg::build::status::Event>> + Send + 'static>,
 		>,
 	> {
-		self.try_get_build_status_stream(id, arg)
+		self.try_get_build_status_stream(id)
 	}
 
 	fn try_get_build_children_stream(
@@ -930,13 +933,12 @@ impl tg::Handle for Server {
 	fn try_get_build_outcome_future(
 		&self,
 		id: &tg::build::Id,
-		arg: tg::build::outcome::Arg,
 	) -> impl Future<
 		Output = tg::Result<
 			Option<impl Future<Output = tg::Result<Option<tg::build::Outcome>>> + Send + 'static>,
 		>,
 	> {
-		self.try_get_build_outcome_future(id, arg)
+		self.try_get_build_outcome_future(id)
 	}
 
 	fn finish_build(

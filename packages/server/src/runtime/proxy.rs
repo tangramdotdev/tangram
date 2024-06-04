@@ -153,13 +153,12 @@ impl tg::Handle for Proxy {
 	fn try_get_build_status_stream(
 		&self,
 		id: &tg::build::Id,
-		arg: tg::build::status::Arg,
 	) -> impl Future<
 		Output = tg::Result<
 			Option<impl Stream<Item = tg::Result<tg::build::status::Event>> + Send + 'static>,
 		>,
 	> {
-		self.server.try_get_build_status_stream(id, arg)
+		self.server.try_get_build_status_stream(id)
 	}
 
 	fn try_get_build_children_stream(
@@ -201,13 +200,12 @@ impl tg::Handle for Proxy {
 	fn try_get_build_outcome_future(
 		&self,
 		id: &tg::build::Id,
-		arg: tg::build::outcome::Arg,
 	) -> impl Future<
 		Output = tg::Result<
 			Option<impl Future<Output = tg::Result<Option<tg::build::Outcome>>> + Send + 'static>,
 		>,
 	> {
-		self.server.try_get_build_outcome_future(id, arg)
+		self.server.try_get_build_outcome_future(id)
 	}
 
 	async fn finish_build(

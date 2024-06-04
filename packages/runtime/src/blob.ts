@@ -107,7 +107,8 @@ export namespace Blob {
 	): Promise<Blob> => {
 		let value = await build({
 			host: "builtin",
-			args: ["download", url, "unsafe"],
+			args: ["download", url],
+			checksum: "unsafe",
 		});
 		assert_(Blob.is(value));
 		let algorithm = Checksum.algorithm(checksum);

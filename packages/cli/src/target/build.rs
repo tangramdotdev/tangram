@@ -4,6 +4,7 @@ use crate::{
 };
 use crossterm::style::Stylize as _;
 use either::Either;
+use futures::TryStreamExt as _;
 use itertools::Itertools as _;
 use std::path::PathBuf;
 use tangram_client as tg;
@@ -248,14 +249,24 @@ impl Cli {
 		// Print the build.
 		eprintln!("{} build {}", "info".blue().bold(), build.id());
 
-		// Attempt to get the build's outcome with zero timeout.
-		let arg = tg::build::outcome::Arg {
-			timeout: Some(std::time::Duration::ZERO),
+		// Get the build's status.
+		let status = build
+			.status(&self.handle)
+			.await?
+			.try_next()
+			.await?
+			.ok_or_else(|| tg::error!("failed to get the status"))?;
+
+		// If the build is finished, then get the build's outcome.
+		let outcome = if status == tg::build::Status::Finished {
+			let outcome = build
+				.outcome(&self.handle)
+				.await
+				.map_err(|source| tg::error!(!source, "failed to get the outcome"))?;
+			Some(outcome)
+		} else {
+			None
 		};
-		let outcome = build
-			.get_outcome(&self.handle, arg)
-			.await
-			.map_err(|source| tg::error!(!source, "failed to get the build outcome"))?;
 
 		// If the outcome is not immediatey available, then wait for it while showing the TUI if enabled.
 		let outcome = if let Some(outcome) = outcome {

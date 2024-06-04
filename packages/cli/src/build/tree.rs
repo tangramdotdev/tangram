@@ -17,7 +17,7 @@ pub struct Args {
 impl Cli {
 	pub async fn command_build_tree(&self, args: Args) -> tg::Result<()> {
 		let build = tg::Build::with_id(args.build);
-		let tree = self.get_build_tree(&build, 1, args.depth).await?;
+		let tree = self.get_build_tree(&build, 0, args.depth).await?;
 		tree.print();
 		Ok(())
 	}
@@ -30,11 +30,8 @@ impl Cli {
 	) -> tg::Result<Tree> {
 		// Get the build's metadata.
 		let id = build.id().clone();
-		let arg = tg::build::status::Arg {
-			timeout: Some(std::time::Duration::ZERO),
-		};
 		let status = build
-			.status(&self.handle, arg)
+			.status(&self.handle)
 			.await
 			.map_err(|source| tg::error!(!source, %id, "failed to get the build's status"))?
 			.next()
@@ -96,12 +93,9 @@ impl Cli {
 		}
 
 		// Get the build's children.
-		let children = if max_depth.map_or(true, |max_depth| current_depth < max_depth) {
-			let arg = tg::build::children::Arg {
-				position: Some(std::io::SeekFrom::Start(0)),
-				timeout: Some(std::time::Duration::ZERO),
-				..Default::default()
-			};
+		let children = max_depth.map_or(true, |max_depth| current_depth < max_depth);
+		let children = if children {
+			let arg = tg::build::children::Arg::default();
 			build
 				.children(&self.handle, arg)
 				.await

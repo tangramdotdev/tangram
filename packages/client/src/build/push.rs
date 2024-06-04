@@ -18,10 +18,9 @@ pub enum Event {
 
 #[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
 pub struct Progress {
-	pub current_count: u64,
-	pub total_count: Option<u64>,
-	pub current_weight: u64,
-	pub total_weight: Option<u64>,
+	pub builds: tg::Progress,
+	pub objects: tg::Progress,
+	pub bytes: tg::Progress,
 }
 
 impl tg::Build {

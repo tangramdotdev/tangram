@@ -1,7 +1,7 @@
 use crate as tg;
 use tangram_http::{incoming::response::Ext as _, outgoing::request::Ext as _};
 
-#[derive(Debug, Default, Clone, serde::Serialize, serde::Deserialize)]
+#[derive(Debug, Default, Clone, serde::Deserialize, serde::Serialize)]
 pub struct Arg {
 	pub locked: bool,
 }

@@ -1,6 +1,6 @@
 use crate::{self as tg, util::arc::Ext as _};
 use bytes::Bytes;
-use futures::{stream::FuturesOrdered, FutureExt as _, TryStreamExt as _};
+use futures::{stream::FuturesOrdered, TryStreamExt as _};
 use std::{collections::BTreeSet, sync::Arc};
 
 pub use self::child::Child;
@@ -128,7 +128,6 @@ impl Branch {
 		let arg = tg::object::put::Arg { bytes };
 		handle
 			.put_object(&id.clone().into(), arg)
-			.boxed()
 			.await
 			.map_err(|source| tg::error!(!source, "failed to put the object"))?;
 		self.state.write().unwrap().id.replace(id.clone());

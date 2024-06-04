@@ -20,11 +20,10 @@ impl tg::Blob {
 	#[must_use]
 	pub fn download_target(url: &Url, checksum: &tg::Checksum) -> tg::Target {
 		let host = "builtin";
-		let args = vec![
-			"download".into(),
-			url.to_string().into(),
-			checksum.to_string().into(),
-		];
-		tg::Target::builder(host).args(args).build()
+		let args = vec!["download".into(), url.to_string().into()];
+		tg::Target::builder(host)
+			.args(args)
+			.checksum(checksum.clone())
+			.build()
 	}
 }

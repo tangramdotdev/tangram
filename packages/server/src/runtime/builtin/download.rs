@@ -17,6 +17,11 @@ impl Runtime {
 		// Get the target.
 		let target = build.target(server).await?;
 
+		// Ensure the target has a checksum.
+		if target.checksum(server).await?.is_none() {
+			return Err(tg::error!("a download must have a checksum"));
+		}
+
 		// Get the args.
 		let args = target.args(server).await?;
 
@@ -30,17 +35,6 @@ impl Runtime {
 			.ok_or_else(|| tg::error!("expected a string"))?
 			.parse::<Url>()
 			.map_err(|source| tg::error!(!source, "invalid url"))?;
-
-		// Get the checksum.
-		let checksum = args
-			.iter()
-			.nth(2)
-			.ok_or_else(|| tg::error!("invalid number of arguments"))?
-			.try_unwrap_string_ref()
-			.ok()
-			.ok_or_else(|| tg::error!("expected a string"))?
-			.parse::<tg::Checksum>()
-			.map_err(|source| tg::error!(!source, "invalid checksum"))?;
 
 		let _permit = server.file_descriptor_semaphore.acquire().await.unwrap();
 		let response = reqwest::get(url.clone())
@@ -83,49 +77,34 @@ impl Runtime {
 			log_task_abort_handle.abort();
 		};
 
-		// Create a stream of chunks.
-		let checksum_writer = tg::checksum::Writer::new(checksum.algorithm());
-		let checksum_writer = Arc::new(std::sync::Mutex::new(Some(checksum_writer)));
-		let stream = response
-			.bytes_stream()
-			.map_err(std::io::Error::other)
-			.inspect_ok({
-				let n = downloaded.clone();
-				let checksum_writer = checksum_writer.clone();
-				move |chunk| {
-					n.fetch_add(
-						chunk.len().to_u64().unwrap(),
-						std::sync::atomic::Ordering::Relaxed,
-					);
-					checksum_writer
-						.lock()
-						.unwrap()
-						.as_mut()
-						.unwrap()
-						.update(chunk);
-				}
-			});
+		// Create the reader.
+		let reader = StreamReader::new(
+			response
+				.bytes_stream()
+				.map_err(std::io::Error::other)
+				.inspect_ok({
+					let n = downloaded.clone();
+					move |bytes| {
+						n.fetch_add(
+							bytes.len().to_u64().unwrap(),
+							std::sync::atomic::Ordering::Relaxed,
+						);
+					}
+				}),
+		);
 
-		// Create the blob and validate.
-		let blob = tg::Blob::with_reader(server, StreamReader::new(stream))
+		// Create the blob.
+		let blob = tg::Blob::with_reader(server, reader)
 			.await
 			.map_err(|source| tg::error!(!source, "failed to create the blob"))?;
 
 		// Abort the log task.
 		log_task.abort();
+		log_task.await.ok();
 
 		// Log that the download finished.
 		let message = format!("finished download from \"{url}\"\n");
 		build.add_log(server, message.into()).await.ok();
-
-		// Verify the checksum.
-		let checksum_writer = checksum_writer.lock().unwrap().take().unwrap();
-		let actual = checksum_writer.finalize();
-		if actual != checksum {
-			return Err(
-				tg::error!(%url = url, %actual, %expected = checksum, "the checksum did not match"),
-			);
-		}
 
 		Ok(blob.into())
 	}

@@ -1,11 +1,9 @@
 use crate::Server;
-use futures::FutureExt as _;
 use indoc::formatdoc;
 use std::collections::BTreeSet;
 use tangram_client as tg;
 use tangram_database::{self as db, prelude::*};
 use tangram_http::{incoming::request::Ext as _, Incoming, Outgoing};
-use tangram_messenger::Messenger as _;
 use time::format_description::well_known::Rfc3339;
 
 impl Server {
@@ -43,19 +41,6 @@ impl Server {
 			.await
 			.map_err(|source| tg::error!(!source, "failed to execute the statement"))?;
 
-		// If this object is not complete, then add it to the object index queue.
-		if !complete {
-			tokio::spawn({
-				let server = self.clone();
-				let id = id.clone();
-				async move {
-					let subject = "objects.index".to_owned();
-					let payload = id.to_string().into();
-					server.messenger.publish(subject, payload).await.ok();
-				}
-			});
-		}
-
 		// Get the incomplete children.
 		let incomplete: BTreeSet<tg::object::Id> = if children {
 			// If the object's children are set, then get the incomplete children.
@@ -65,7 +50,7 @@ impl Server {
 					select child
 					from object_children
 					left join objects on objects.id = object_children.child
-					where object_children.object = {p}1 and (objects.complete = 0 or objects.complete is null);
+					where object_children.object = {p}1 and objects.complete = 0;
 				"
 			);
 			let params = db::params![id];
@@ -88,6 +73,21 @@ impl Server {
 		// Create the output.
 		let output = tg::object::put::Output { incomplete };
 
+		// If the object is not complete, then enqueue the object for indexing.
+		if !complete {
+			tokio::spawn({
+				let server = self.clone();
+				let id = id.clone();
+				async move {
+					server
+						.enqueue_object_for_indexing(&id)
+						.await
+						.inspect_err(|error| tracing::error!(?error))
+						.ok();
+				}
+			});
+		}
+
 		Ok(output)
 	}
 }
@@ -104,7 +104,7 @@ impl Server {
 		let id = id.parse()?;
 		let bytes = request.bytes().await?;
 		let arg = tg::object::put::Arg { bytes };
-		let output = handle.put_object(&id, arg).boxed().await?;
+		let output = handle.put_object(&id, arg).await?;
 		let body = Outgoing::json(output);
 		let response = http::Response::builder().body(body).unwrap();
 		Ok(response)

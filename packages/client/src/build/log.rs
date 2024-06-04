@@ -5,7 +5,7 @@ use serde_with::serde_as;
 use tangram_http::{incoming::response::Ext as _, outgoing::request::Ext as _};
 
 #[serde_as]
-#[derive(Clone, Debug, Default, serde::Serialize, serde::Deserialize)]
+#[derive(Clone, Debug, Default, serde::Deserialize, serde::Serialize)]
 pub struct Arg {
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub length: Option<i64>,
@@ -16,10 +16,6 @@ pub struct Arg {
 
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub size: Option<u64>,
-
-	#[serde(default, skip_serializing_if = "Option::is_none")]
-	#[serde_as(as = "Option<serde_with::DurationSeconds>")]
-	pub timeout: Option<std::time::Duration>,
 }
 
 #[derive(Clone, Debug)]
@@ -29,7 +25,7 @@ pub enum Event {
 }
 
 #[serde_as]
-#[derive(Clone, Debug, serde::Serialize, serde::Deserialize)]
+#[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
 pub struct Chunk {
 	pub position: u64,
 	#[serde_as(as = "crate::util::serde::BytesBase64")]

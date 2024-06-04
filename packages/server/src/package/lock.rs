@@ -69,7 +69,7 @@ struct Report {
 }
 
 /// Errors that may arise during version solving.
-#[derive(Debug, Clone)]
+#[derive(Clone, Debug)]
 enum Error {
 	/// No version could be found that satisfies all constraints.
 	PackageVersionConflict,

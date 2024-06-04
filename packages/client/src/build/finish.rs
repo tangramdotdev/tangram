@@ -1,7 +1,7 @@
 use crate as tg;
 use tangram_http::{incoming::response::Ext as _, outgoing::request::Ext as _};
 
-#[derive(Clone, Debug, serde::Serialize, serde::Deserialize)]
+#[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
 pub struct Arg {
 	pub outcome: tg::build::outcome::Data,
 	pub remote: Option<String>,

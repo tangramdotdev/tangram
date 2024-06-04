@@ -16,7 +16,7 @@ use tangram_http::{incoming::response::Ext as _, outgoing::request::Ext as _};
 #[serde(into = "crate::Id", try_from = "crate::Id")]
 pub struct Id(crate::Id);
 
-#[derive(Clone, Debug, serde::Serialize, serde::Deserialize)]
+#[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
 pub struct User {
 	pub id: Id,
 	pub email: String,

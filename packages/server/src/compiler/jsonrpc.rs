@@ -1,6 +1,6 @@
 pub const VERSION: &str = "2.0";
 
-#[derive(Debug, serde::Serialize, serde::Deserialize)]
+#[derive(Debug, serde::Deserialize, serde::Serialize)]
 #[serde(untagged)]
 pub enum Message {
 	Request(Request),
@@ -8,14 +8,14 @@ pub enum Message {
 	Notification(Notification),
 }
 
-#[derive(Debug, serde::Serialize, serde::Deserialize)]
+#[derive(Debug, serde::Deserialize, serde::Serialize)]
 #[serde(untagged)]
 pub enum Id {
 	String(String),
 	I32(i32),
 }
 
-#[derive(Debug, serde::Serialize, serde::Deserialize)]
+#[derive(Debug, serde::Deserialize, serde::Serialize)]
 pub struct Request {
 	pub jsonrpc: String,
 	pub id: Id,
@@ -24,7 +24,7 @@ pub struct Request {
 	pub params: Option<serde_json::Value>,
 }
 
-#[derive(Debug, serde::Serialize, serde::Deserialize)]
+#[derive(Debug, serde::Deserialize, serde::Serialize)]
 pub struct Response {
 	pub jsonrpc: String,
 	pub id: Id,
@@ -34,13 +34,13 @@ pub struct Response {
 	pub error: Option<ResponseError>,
 }
 
-#[derive(Debug, serde::Serialize, serde::Deserialize)]
+#[derive(Debug, serde::Deserialize, serde::Serialize)]
 pub struct ResponseError {
 	pub code: ResponseErrorCode,
 	pub message: String,
 }
 
-#[derive(Debug, serde::Serialize, serde::Deserialize)]
+#[derive(Debug, serde::Deserialize, serde::Serialize)]
 pub enum ResponseErrorCode {
 	// The following error codes are defined by JSON-RPC.
 	ParseError = -32700,
@@ -58,7 +58,7 @@ pub enum ResponseErrorCode {
 	RequestCancelled = -32800,
 }
 
-#[derive(Debug, serde::Serialize, serde::Deserialize)]
+#[derive(Debug, serde::Deserialize, serde::Serialize)]
 pub struct Notification {
 	pub jsonrpc: String,
 	pub method: String,

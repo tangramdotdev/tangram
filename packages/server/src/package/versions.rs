@@ -63,7 +63,7 @@ impl Server {
 				select artifact, version, yanked
 				from package_versions
 				where name = {p}1
-				order by published_at asc
+				order by created_at asc
 			"
 		);
 		let params = db::params![name];

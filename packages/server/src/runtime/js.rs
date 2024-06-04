@@ -44,9 +44,12 @@ struct State {
 	server: Server,
 }
 
-type Futures = FuturesUnordered<
-	LocalBoxFuture<'static, (tg::Result<Box<dyn ToV8>>, v8::Global<v8::PromiseResolver>)>,
->;
+type Futures = FuturesUnordered<LocalBoxFuture<'static, FutureOutput>>;
+
+struct FutureOutput {
+	promise_resolver: v8::Global<v8::PromiseResolver>,
+	result: tg::Result<Box<dyn ToV8>>,
+}
 
 #[allow(clippy::struct_field_names)]
 struct Module {
@@ -248,7 +251,12 @@ impl Runtime {
 					Poll::Pending => return Poll::Pending,
 
 					// If there is a result, then resolve or reject the promise.
-					Poll::Ready(Some((result, promise_resolver))) => {
+					Poll::Ready(Some(output)) => {
+						let FutureOutput {
+							promise_resolver,
+							result,
+						} = output;
+
 						// Enter the isolate.
 						unsafe { isolate.enter() };
 

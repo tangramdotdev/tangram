@@ -71,7 +71,7 @@ struct ClientData {
 	confirmed: bool,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Clone, Debug)]
 struct Context {
 	#[allow(dead_code)]
 	minor_version: u32,

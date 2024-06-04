@@ -6,20 +6,19 @@ use std::pin::pin;
 use tangram_client as tg;
 use tangram_database::{self as db, prelude::*};
 use tangram_futures::task::Stop;
-use tangram_http::{incoming::request::Ext as _, outgoing::response::Ext as _, Incoming, Outgoing};
+use tangram_http::{outgoing::response::Ext as _, Incoming, Outgoing};
 use tg::Handle as _;
 
 impl Server {
 	pub async fn try_get_build_outcome_future(
 		&self,
 		id: &tg::build::Id,
-		arg: tg::build::outcome::Arg,
 	) -> tg::Result<
 		Option<impl Future<Output = tg::Result<Option<tg::build::Outcome>>> + Send + 'static>,
 	> {
-		if let Some(outcome) = self.try_get_build_outcome_local(id, arg.clone()).await? {
+		if let Some(outcome) = self.try_get_build_outcome_local(id).await? {
 			Ok(Some(outcome.left_future()))
-		} else if let Some(outcome) = self.try_get_build_outcome_remote(id, arg.clone()).await? {
+		} else if let Some(outcome) = self.try_get_build_outcome_remote(id).await? {
 			Ok(Some(outcome.right_future()))
 		} else {
 			Ok(None)
@@ -29,7 +28,6 @@ impl Server {
 	async fn try_get_build_outcome_local(
 		&self,
 		id: &tg::build::Id,
-		arg: tg::build::outcome::Arg,
 	) -> tg::Result<
 		Option<impl Future<Output = tg::Result<Option<tg::build::Outcome>>> + Send + 'static>,
 	> {
@@ -39,21 +37,17 @@ impl Server {
 		}
 		let server = self.clone();
 		let id = id.clone();
-		let future = async move { server.try_get_build_outcome_local_inner(&id, arg).await };
+		let future = async move { server.try_get_build_outcome_local_inner(&id).await };
 		Ok(Some(future))
 	}
 
 	async fn try_get_build_outcome_local_inner(
 		&self,
 		id: &tg::build::Id,
-		arg: tg::build::outcome::Arg,
 	) -> tg::Result<Option<tg::build::Outcome>> {
 		// Wait for the build to finish.
-		let arg = tg::build::status::Arg {
-			timeout: arg.timeout,
-		};
 		let status = self
-			.try_get_build_status_local(id, arg)
+			.try_get_build_status_local(id)
 			.await?
 			.ok_or_else(|| tg::error!("expected the build to exist"))?;
 		let finished = status.try_filter_map(|status| {
@@ -103,7 +97,6 @@ impl Server {
 	async fn try_get_build_outcome_remote(
 		&self,
 		id: &tg::build::Id,
-		arg: tg::build::outcome::Arg,
 	) -> tg::Result<
 		Option<impl Future<Output = tg::Result<Option<tg::build::Outcome>>> + Send + 'static>,
 	> {
@@ -114,10 +107,9 @@ impl Server {
 				{
 					let remote = remote.clone();
 					let id = id.clone();
-					let arg = arg.clone();
 					async move {
 						remote
-							.get_build_outcome(&id, arg)
+							.get_build_outcome(&id)
 							.await
 							.map(futures::FutureExt::boxed)
 					}
@@ -147,20 +139,19 @@ impl Server {
 		// Parse the ID.
 		let id = id.parse()?;
 
-		// Get the query.
-		let arg = request.query_params().transpose()?.unwrap_or_default();
-
-		let Some(future) = handle.try_get_build_outcome(&id, arg).await? else {
+		// Get the future.
+		let Some(future) = handle.try_get_build_outcome(&id).await? else {
 			return Ok(http::Response::builder().not_found().empty().unwrap());
 		};
 
 		// Stop the future when the server stops.
 		let stop = request.extensions().get::<Stop>().cloned().unwrap();
-		let future = future::select(future.boxed(), async move { stop.stopped().await }.boxed())
-			.map(|result| match result {
-				future::Either::Left((result, _)) => result,
-				future::Either::Right(((), _)) => Ok(None),
-			});
+		let future = future.boxed();
+		let stop = async move { stop.stopped().await }.boxed();
+		let future = future::select(future, stop).map(|result| match result {
+			future::Either::Left((result, _)) => result,
+			future::Either::Right(((), _)) => Ok(None),
+		});
 
 		// Create the body.
 		let future = future.and_then({

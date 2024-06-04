@@ -3,7 +3,7 @@
 use super::{
 	convert::{from_v8, FromV8, ToV8},
 	error::capture_stack_trace,
-	State,
+	FutureOutput, State,
 };
 use futures::{Future, FutureExt as _};
 use itertools::Itertools as _;
@@ -144,7 +144,10 @@ where
 			let result = f(state, args)
 				.await
 				.map(|value| Box::new(value) as Box<dyn ToV8>);
-			(result, promise_resolver)
+			FutureOutput {
+				promise_resolver,
+				result,
+			}
 		}
 		.boxed_local()
 	};

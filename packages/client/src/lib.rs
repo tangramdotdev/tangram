@@ -76,13 +76,19 @@ pub mod template;
 pub mod user;
 pub mod value;
 
-#[derive(Debug, Clone)]
+#[derive(Clone, Debug)]
 pub struct Client(Arc<Inner>);
 
 #[derive(Debug)]
 pub struct Inner {
 	url: Url,
 	sender: tokio::sync::Mutex<Option<hyper::client::conn::http2::SendRequest<Outgoing>>>,
+}
+
+#[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
+pub struct Progress {
+	pub current: u64,
+	pub total: Option<u64>,
 }
 
 impl Client {
@@ -643,13 +649,12 @@ impl tg::Handle for Client {
 	fn try_get_build_status_stream(
 		&self,
 		id: &tg::build::Id,
-		arg: tg::build::status::Arg,
 	) -> impl Future<
 		Output = tg::Result<
 			Option<impl Stream<Item = Result<tg::build::status::Event>> + Send + 'static>,
 		>,
 	> {
-		self.try_get_build_status_stream(id, arg)
+		self.try_get_build_status_stream(id)
 	}
 
 	fn try_get_build_children_stream(
@@ -695,13 +700,12 @@ impl tg::Handle for Client {
 	fn try_get_build_outcome_future(
 		&self,
 		id: &tg::build::Id,
-		arg: tg::build::outcome::Arg,
 	) -> impl Future<
 		Output = tg::Result<
 			Option<impl Future<Output = tg::Result<Option<tg::build::Outcome>>> + 'static>,
 		>,
 	> {
-		self.try_get_build_outcome_future(id, arg)
+		self.try_get_build_outcome_future(id)
 	}
 
 	fn finish_build(

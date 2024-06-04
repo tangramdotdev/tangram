@@ -21,25 +21,25 @@ impl Cli {
 		let mut stream = self.handle.pull_object(&args.object, arg).await?.boxed();
 
 		// Create the progress bar.
-		let count_progress_bar = indicatif::ProgressBar::new_spinner();
-		let weight_progress_bar = indicatif::ProgressBar::new_spinner();
+		let objects_progress_bar = indicatif::ProgressBar::new_spinner();
+		let bytes_progress_bar = indicatif::ProgressBar::new_spinner();
 		let progress_bar = indicatif::MultiProgress::new();
-		progress_bar.add(count_progress_bar.clone());
-		progress_bar.add(weight_progress_bar.clone());
+		progress_bar.add(objects_progress_bar.clone());
+		progress_bar.add(bytes_progress_bar.clone());
 
 		// Update the progress bars.
 		while let Some(event) = stream.try_next().await? {
 			match event {
 				tg::object::pull::Event::Progress(progress) => {
-					count_progress_bar.set_position(progress.current_count);
-					if let Some(total_count) = progress.total_count {
-						count_progress_bar.set_style(indicatif::ProgressStyle::default_bar());
-						count_progress_bar.set_length(total_count);
+					objects_progress_bar.set_position(progress.objects.current);
+					if let Some(total) = progress.objects.total {
+						objects_progress_bar.set_style(indicatif::ProgressStyle::default_bar());
+						objects_progress_bar.set_length(total);
 					}
-					weight_progress_bar.set_position(progress.current_weight);
-					if let Some(total_weight) = progress.total_weight {
-						weight_progress_bar.set_style(indicatif::ProgressStyle::default_bar());
-						weight_progress_bar.set_length(total_weight);
+					bytes_progress_bar.set_position(progress.bytes.current);
+					if let Some(total) = progress.bytes.total {
+						bytes_progress_bar.set_style(indicatif::ProgressStyle::default_bar());
+						bytes_progress_bar.set_length(total);
 					}
 				},
 				tg::object::pull::Event::End => {

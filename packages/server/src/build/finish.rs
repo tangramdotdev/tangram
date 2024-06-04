@@ -16,17 +16,14 @@ impl Server {
 		id: &tg::build::Id,
 		arg: tg::build::finish::Arg,
 	) -> tg::Result<()> {
-		// Verify the build is local.
-		if !self.get_build_exists_local(id).await? {
+		// Get the build.
+		let Some(output) = self.try_get_build_local(id).await? else {
 			return Err(tg::error!("failed to find the build"));
-		}
+		};
 
 		// If the build is finished, then return.
-		let status_arg = tg::build::status::Arg {
-			timeout: Some(std::time::Duration::ZERO),
-		};
 		let status = self
-			.try_get_build_status_local(id, status_arg)
+			.try_get_build_status_local(id)
 			.await?
 			.ok_or_else(|| tg::error!("expected the build to exist"))?;
 		let status = pin!(status)
@@ -82,15 +79,15 @@ impl Server {
 			.await
 			.ok();
 
+		// Get the outcome.
+		let mut outcome = arg.outcome;
+
 		// If any of the children were canceled, then this build should be canceled.
 		let outcomes = children
 			.iter()
 			.map(|child_id| async move {
-				let arg = tg::build::outcome::Arg {
-					timeout: Some(std::time::Duration::ZERO),
-				};
 				let outcome = self
-					.try_get_build_outcome_future(child_id, arg)
+					.try_get_build_outcome_future(child_id)
 					.await?
 					.ok_or_else(|| tg::error!(%child_id, "failed to get the build"))?
 					.await?
@@ -100,13 +97,46 @@ impl Server {
 			.collect::<FuturesUnordered<_>>()
 			.try_collect::<Vec<_>>()
 			.await?;
-		let outcome = if outcomes
+		if outcomes
 			.iter()
 			.any(|outcome| outcome.try_unwrap_canceled_ref().is_ok())
 		{
-			tg::build::outcome::Data::Canceled
-		} else {
-			arg.outcome
+			outcome = tg::build::outcome::Data::Canceled;
+		};
+
+		// Verify the checksum if one was provided.
+		let target = tg::Target::with_id(output.target);
+		if let Some(expected) = target.checksum(self).await?.clone() {
+			if let Ok(tg::value::Data::Object(object)) = outcome.try_unwrap_succeeded_ref().cloned()
+			{
+				if let Ok(artifact) = tg::artifact::Id::try_from(object.clone()) {
+					let actual = tg::Artifact::with_id(artifact)
+						.checksum(self, expected.algorithm())
+						.await
+						.map_err(|source| tg::error!(!source, "failed to compute the checksum"))?;
+					if expected != tg::Checksum::Unsafe && expected != actual {
+						outcome = tg::build::outcome::Data::Failed(tg::error!(
+							%expected,
+							%actual,
+							"the checksum did not match"
+						));
+					}
+				} else if let Ok(blob) = tg::blob::Id::try_from(object.clone()) {
+					let actual = tg::Blob::with_id(blob)
+						.checksum(self, expected.algorithm())
+						.await
+						.map_err(|source| tg::error!(!source, "failed to compute the checksum"))?;
+					if expected != tg::Checksum::Unsafe && expected != actual {
+						outcome = tg::build::outcome::Data::Failed(tg::error!(
+							%expected,
+							%actual,
+							"the checksum did not match"
+						));
+					}
+				} else {
+					outcome = tg::build::outcome::Data::Failed(tg::error!("a target with a checksum must have an output that is either an artifact or a blob"));
+				}
+			}
 		};
 
 		// Create a blob from the log.
@@ -182,6 +212,7 @@ impl Server {
 			"
 				update builds
 				set
+					heartbeat_at = null,
 					log = {p}1,
 					outcome = {p}2,
 					status = {p}3,
@@ -200,18 +231,20 @@ impl Server {
 		// Drop the connection.
 		drop(connection);
 
-		// Add the build to the build index queue.
+		// Enqueue the build for indexing.
 		tokio::spawn({
 			let server = self.clone();
 			let id = id.clone();
 			async move {
-				let subject = "builds.index".to_owned();
-				let payload = id.to_string().into();
-				server.messenger.publish(subject, payload).await.ok();
+				server
+					.enqueue_build_for_indexing(&id)
+					.await
+					.inspect_err(|error| tracing::error!(?error))
+					.ok();
 			}
 		});
 
-		// Publish the message.
+		// Publish the status message.
 		tokio::spawn({
 			let server = self.clone();
 			let id = id.clone();

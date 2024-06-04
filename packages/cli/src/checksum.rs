@@ -28,7 +28,7 @@ pub struct Args {
 	pub arg: Option<Arg>,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Clone, Debug)]
 pub enum Arg {
 	Artifact(tg::artifact::Id),
 	Blob(tg::blob::Id),

@@ -471,27 +471,10 @@ impl Runtime {
 			.await
 			.map_err(|source| tg::error!(!source, "failed to determine if the path exists"))?
 		{
-			// Check in the output.
-			let artifact = tg::Artifact::check_in(server, output_path.clone().try_into()?)
+			tg::Artifact::check_in(server, output_path.clone().try_into()?)
 				.await
-				.map_err(|source| tg::error!(!source, "failed to check in the output"))?;
-
-			// Verify the checksum if one was provided.
-			if let Some(expected) = target.checksum(server).await?.clone() {
-				let actual = artifact
-					.checksum(server, expected.algorithm())
-					.await
-					.map_err(|source| tg::error!(!source, "failed to compute the checksum"))?;
-				if expected != tg::Checksum::Unsafe && expected != actual {
-					return Err(tg::error!(
-						%expected,
-						%actual,
-						"the checksum did not match"
-					));
-				}
-			}
-
-			artifact.into()
+				.map_err(|source| tg::error!(!source, "failed to check in the output"))?
+				.into()
 		} else {
 			tg::Value::Null
 		};

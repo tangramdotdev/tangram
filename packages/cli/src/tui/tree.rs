@@ -850,8 +850,7 @@ where
 				let Item::Build { build, .. } = node.state.read().unwrap().kind.clone() else {
 					return;
 				};
-				let arg = tg::build::status::Arg::default();
-				let Ok(mut stream) = build.status(&node.handle, arg).await else {
+				let Ok(mut stream) = build.status(&node.handle).await else {
 					return;
 				};
 

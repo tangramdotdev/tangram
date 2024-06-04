@@ -1,7 +1,7 @@
 use crate::{BuildPermit, Server};
 use bytes::Bytes;
 use either::Either;
-use futures::{future, FutureExt as _};
+use futures::{future, FutureExt as _, TryStreamExt as _};
 use itertools::Itertools as _;
 use tangram_client as tg;
 use tangram_http::{incoming::request::Ext as _, outgoing::response::Ext as _, Incoming, Outgoing};
@@ -27,14 +27,21 @@ impl Server {
 			};
 			let build = tg::Build::with_id(output.id);
 
-			// Verify that the build's outcome satisfies the retry constraint.
-			let outcome_arg = tg::build::outcome::Arg {
-				timeout: Some(std::time::Duration::ZERO),
-			};
-			let outcome = build.get_outcome(self, outcome_arg).await?;
-			if let Some(outcome) = outcome {
-				if outcome.retry() <= arg.retry {
-					break 'a None;
+			// Get the build's status.
+			let status = build
+				.status(self)
+				.await?
+				.try_next()
+				.await?
+				.ok_or_else(|| tg::error!("failed to get the build's status"))?;
+
+			// If the build is finished, then verify that the build's outcome satisfies the retry constraint.
+			if status == tg::build::Status::Finished {
+				let outcome = build.get_outcome(self).await?;
+				if let Some(outcome) = outcome {
+					if outcome.retry() <= arg.retry {
+						break 'a None;
+					}
 				}
 			}
 
@@ -58,42 +65,47 @@ impl Server {
 			}
 
 			// Find a build.
-			let futures = self
-				.remotes
-				.iter()
-				.map(|remote| {
-					let remote = remote.clone();
-					async move {
-						// Find a build.
-						let list_arg = tg::build::list::Arg {
-							limit: Some(1),
-							order: Some(tg::build::list::Order::CreatedAtDesc),
-							status: None,
-							target: Some(id.clone()),
-						};
-						let Some(output) =
-							remote.list_builds(list_arg).await?.items.first().cloned()
-						else {
-							return Ok::<_, tg::Error>(None);
-						};
-						let build = tg::Build::with_id(output.id);
+			let futures =
+				self.remotes
+					.iter()
+					.map(|remote| {
+						let remote = remote.clone();
+						async move {
+							// Find a build.
+							let list_arg = tg::build::list::Arg {
+								limit: Some(1),
+								order: Some(tg::build::list::Order::CreatedAtDesc),
+								status: None,
+								target: Some(id.clone()),
+							};
+							let Some(output) =
+								remote.list_builds(list_arg).await?.items.first().cloned()
+							else {
+								return Ok::<_, tg::Error>(None);
+							};
+							let build = tg::Build::with_id(output.id);
 
-						// Verify that the build's outcome satisfies the retry constraint.
-						let outcome_arg = tg::build::outcome::Arg {
-							timeout: Some(std::time::Duration::ZERO),
-						};
-						let outcome = build.get_outcome(&remote, outcome_arg).await?;
-						if let Some(outcome) = outcome {
-							if outcome.retry() <= arg.retry {
-								return Ok(None);
+							// Get the build's status.
+							let status =
+								build.status(&remote).await?.try_next().await?.ok_or_else(
+									|| tg::error!("failed to get the build's status"),
+								)?;
+
+							// If the build is finished, then verify that the build's outcome satisfies the retry constraint.
+							if status == tg::build::Status::Finished {
+								let outcome = build.get_outcome(&remote).await?;
+								if let Some(outcome) = outcome {
+									if outcome.retry() <= arg.retry {
+										return Ok(None);
+									}
+								}
 							}
-						}
 
-						Ok(Some((build, remote.clone())))
-					}
-					.boxed()
-				})
-				.collect_vec();
+							Ok(Some((build, remote.clone())))
+						}
+						.boxed()
+					})
+					.collect_vec();
 
 			// Wait for the first build.
 			if futures.is_empty() {

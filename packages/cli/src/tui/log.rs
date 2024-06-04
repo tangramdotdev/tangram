@@ -1,4 +1,4 @@
-use futures::{future, TryStreamExt as _};
+use futures::{future, StreamExt as _, TryStreamExt as _};
 use num::ToPrimitive as _;
 use ratatui::{self as tui, prelude::*};
 use std::{
@@ -123,23 +123,23 @@ where
 
 	async fn init(self: &Arc<Self>) -> tg::Result<()> {
 		let client = &self.handle;
-		let position = Some(std::io::SeekFrom::End(0));
-		let length = Some(0);
-		let timeout = Some(std::time::Duration::from_millis(16));
 
 		// Get at least one chunk.
+		let position = Some(std::io::SeekFrom::End(0));
+		let length = Some(0);
+		let timeout = std::time::Duration::from_millis(16);
+		let timeout = tokio::time::sleep(timeout);
+		let arg = tg::build::log::Arg {
+			length,
+			position,
+			..Default::default()
+		};
 		let chunk = self
 			.build
-			.log(
-				client,
-				tg::build::log::Arg {
-					length,
-					position,
-					timeout,
-					..Default::default()
-				},
-			)
+			.log(client, arg)
 			.await?
+			.take_until(timeout)
+			.boxed()
 			.try_next()
 			.await?;
 

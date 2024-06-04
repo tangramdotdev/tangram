@@ -70,7 +70,10 @@ async fn migration_0000(path: &Path) -> tg::Result<()> {
 			create table builds (
 				id text primary key,
 				count integer,
+				heartbeat_at text,
 				host text not null,
+				indexing_status text,
+				indexing_started_at text,
 				log text,
 				logs_complete integer not null default 0,
 				logs_count integer,
@@ -85,12 +88,11 @@ async fn migration_0000(path: &Path) -> tg::Result<()> {
 				targets_complete integer not null default 0,
 				targets_count integer,
 				targets_weight integer,
+				touched_at text,
 				created_at text not null,
 				dequeued_at text,
 				started_at text,
-				finished_at text,
-				heartbeat_at text,
-				touched_at text
+				finished_at text
 			);
 
 			create index builds_status_created_at_index on builds (status, created_at);
@@ -132,8 +134,10 @@ async fn migration_0000(path: &Path) -> tg::Result<()> {
 				children integer not null default 0,
 				complete integer not null default 0,
 				count integer,
-				weight integer,
-				touched_at text
+				indexing_status text,
+				indexing_started_at text,
+				touched_at text,
+				weight integer
 			);
 
 			create table object_children (
@@ -149,7 +153,7 @@ async fn migration_0000(path: &Path) -> tg::Result<()> {
 				name text not null,
 				version text not null,
 				artifact text not null,
-				published_at text not null,
+				created_at text not null,
 				yanked integer not null,
 				primary key (name, version)
 			);

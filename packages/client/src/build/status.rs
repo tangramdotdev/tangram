@@ -1,6 +1,5 @@
 use crate as tg;
 use futures::{Stream, StreamExt as _};
-use serde_with::serde_as;
 use tangram_http::{incoming::response::Ext as _, outgoing::request::Ext as _};
 
 #[derive(
@@ -13,30 +12,21 @@ pub enum Status {
 	Finished,
 }
 
-#[derive(Copy, Clone, Debug)]
+#[derive(Copy, Clone, Debug, derive_more::TryUnwrap)]
 pub enum Event {
 	Data(Status),
 	End,
-}
-
-#[serde_as]
-#[derive(Clone, Debug, Default, serde::Serialize, serde::Deserialize)]
-pub struct Arg {
-	#[serde(default, skip_serializing_if = "Option::is_none")]
-	#[serde_as(as = "Option<serde_with::DurationSeconds>")]
-	pub timeout: Option<std::time::Duration>,
 }
 
 impl tg::Build {
 	pub async fn status<H>(
 		&self,
 		handle: &H,
-		arg: tg::build::status::Arg,
 	) -> tg::Result<impl Stream<Item = tg::Result<tg::build::Status>> + Send + 'static>
 	where
 		H: tg::Handle,
 	{
-		self.try_get_status(handle, arg)
+		self.try_get_status(handle)
 			.await?
 			.ok_or_else(|| tg::error!("failed to get the build"))
 	}
@@ -44,13 +34,12 @@ impl tg::Build {
 	pub async fn try_get_status<H>(
 		&self,
 		handle: &H,
-		arg: tg::build::status::Arg,
 	) -> tg::Result<Option<impl Stream<Item = tg::Result<tg::build::Status>> + Send + 'static>>
 	where
 		H: tg::Handle,
 	{
 		handle
-			.try_get_build_status(self.id(), arg)
+			.try_get_build_status(self.id())
 			.await
 			.map(|option| option.map(futures::StreamExt::boxed))
 	}
@@ -60,12 +49,10 @@ impl tg::Client {
 	pub async fn try_get_build_status_stream(
 		&self,
 		id: &tg::build::Id,
-		arg: tg::build::status::Arg,
 	) -> tg::Result<Option<impl Stream<Item = tg::Result<tg::build::status::Event>> + Send + 'static>>
 	{
 		let method = http::Method::GET;
-		let query = serde_urlencoded::to_string(&arg).unwrap();
-		let uri = format!("/builds/{id}/status?{query}");
+		let uri = format!("/builds/{id}/status");
 		let request = http::request::Builder::default()
 			.method(method)
 			.uri(uri)

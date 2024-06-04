@@ -1,12 +1,9 @@
 use crate::Server;
 use bytes::Bytes;
-use futures::{
-	future, stream, stream_select, FutureExt as _, Stream, StreamExt as _, TryStreamExt as _,
-};
+use futures::{future, stream, FutureExt as _, Stream, StreamExt as _, TryStreamExt as _};
 use indoc::formatdoc;
 use itertools::Itertools as _;
 use num::ToPrimitive as _;
-use std::{pin::pin, sync::Arc};
 use tangram_client as tg;
 use tangram_database::{self as db, prelude::*};
 use tangram_futures::task::Stop;
@@ -45,33 +42,30 @@ impl Server {
 			return Ok(None);
 		}
 
-		// Create the event stream.
-		let children = self
-			.messenger
-			.subscribe(format!("builds.{id}.children"), None)
-			.await
-			.map_err(|source| tg::error!(!source, "failed to subscribe"))?
-			.map(|_| ())
-			.boxed();
-		let status = self
-			.messenger
-			.subscribe(format!("builds.{id}.status"), None)
-			.await
-			.map_err(|source| tg::error!(!source, "failed to subscribe"))?
-			.map(|_| ())
-			.boxed();
-		let interval =
-			IntervalStream::new(tokio::time::interval(std::time::Duration::from_secs(60)))
-				.map(|_| ())
-				.skip(1);
-		let timeout = arg.timeout.map_or_else(
-			|| future::pending().left_future(),
-			|timeout| tokio::time::sleep(timeout).right_future(),
-		);
-		let events = stream::once(future::ready(()))
-			.chain(stream_select!(children, status, interval).take_until(timeout))
-			.boxed();
+		// Create the channel.
+		let (sender, receiver) = async_channel::unbounded();
 
+		// Spawn the task.
+		let server = self.clone();
+		let id = id.clone();
+		tokio::spawn(async move {
+			let result = server
+				.try_get_build_children_local_task(&id, arg, sender.clone())
+				.await;
+			if let Err(error) = result {
+				sender.try_send(Err(error)).ok();
+			}
+		});
+
+		Ok(Some(receiver))
+	}
+
+	async fn try_get_build_children_local_task(
+		&self,
+		id: &tg::build::Id,
+		arg: tg::build::children::Arg,
+		sender: async_channel::Sender<tg::Result<tg::build::children::Event>>,
+	) -> tg::Result<()> {
 		// Get the position.
 		let position = match arg.position {
 			Some(std::io::SeekFrom::Start(seek)) => seek,
@@ -87,110 +81,98 @@ impl Server {
 			None => 0,
 		};
 
-		// Get the length.
-		let length = arg.length;
+		// Subscribe to children events.
+		let subject = format!("builds.{id}.children");
+		let children = self
+			.messenger
+			.subscribe(subject, None)
+			.await
+			.map_err(|source| tg::error!(!source, "failed to subscribe"))?
+			.map(|_| ())
+			.boxed();
 
-		// Get the size.
+		// Subscribe to status events.
+		let subject = format!("builds.{id}.status");
+		let status = self
+			.messenger
+			.subscribe(subject, None)
+			.await
+			.map_err(|source| tg::error!(!source, "failed to subscribe"))?
+			.map(|_| ())
+			.boxed();
+
+		// Create the interval.
+		let interval =
+			IntervalStream::new(tokio::time::interval(std::time::Duration::from_secs(60)))
+				.map(|_| ())
+				.boxed();
+
+		// Create the events stream.
+		let mut events = stream::select_all([children, status, interval]).boxed();
+
+		// Create the state.
 		let size = arg.size.unwrap_or(10);
+		let mut position = position;
+		let mut read = 0;
 
-		// Create the stream.
-		struct State {
-			position: u64,
-			read: u64,
+		// Send the events.
+		loop {
+			// Get the build's status.
+			let status = self
+				.try_get_build_status_local(id)
+				.await?
+				.unwrap()
+				.boxed()
+				.try_next()
+				.await?
+				.unwrap()
+				.try_unwrap_data()
+				.unwrap();
+
+			// Send as many data events as possible.
+			loop {
+				// Determine the size.
+				let size = match arg.length {
+					None => size,
+					Some(length) => size.min(length - read),
+				};
+
+				// Read the data.
+				let data = self
+					.try_get_build_children_local_inner(&id, position, size)
+					.await?;
+
+				// If the data is empty, then break.
+				if data.items.is_empty() {
+					break;
+				}
+
+				// Update the state.
+				position += data.items.len().to_u64().unwrap();
+				read += data.items.len().to_u64().unwrap();
+
+				// Send the data.
+				let result = sender.try_send(Ok(tg::build::children::Event::Data(data)));
+				if result.is_err() {
+					return Ok(());
+				}
+			}
+
+			// If the build was finished or the length was reached, then send the end event and break.
+			let end = arg.length.is_some_and(|length| read >= length);
+			if end || status == tg::build::Status::Finished {
+				let result = sender.try_send(Ok(tg::build::children::Event::End));
+				if result.is_err() {
+					return Ok(());
+				}
+				break;
+			}
+
+			// Wait for an event before returning to the top of the loop.
+			events.next().await;
 		}
-		let state = State { position, read: 0 };
-		let state = Arc::new(tokio::sync::Mutex::new(state));
-		let stream = stream::try_unfold(
-			(self.clone(), id.clone(), events, state, false),
-			move |(server, id, mut events, state, mut end)| async move {
-				// If the stream should end, return None.
-				if end {
-					return Ok(None);
-				}
 
-				// Check if the length has been reached.
-				let read = state.lock().await.read;
-				if length.is_some_and(|length| read >= length) {
-					return Ok(None);
-				}
-
-				// Wait for the next event.
-				let Some(()) = events.next().await else {
-					return Ok(None);
-				};
-
-				// Get the build status.
-				let arg = tg::build::status::Arg {
-					timeout: Some(std::time::Duration::ZERO),
-				};
-				let status = server
-					.try_get_build_status_local(&id, arg)
-					.await?
-					.ok_or_else(|| tg::error!("expected the build to exist"))?;
-				let status = pin!(status)
-					.try_next()
-					.await?
-					.ok_or_else(|| tg::error!("expected the status to exist"))?;
-				if matches!(
-					status,
-					tg::build::status::Event::Data(tg::build::Status::Finished)
-				) {
-					end = true;
-				}
-
-				// Create the stream.
-				let stream = stream::try_unfold(
-					(server.clone(), id.clone(), state.clone(), false),
-					move |(server, id, state, end)| async move {
-						if end {
-							return Ok(None);
-						}
-
-						// Lock the state.
-						let mut state_ = state.lock().await;
-
-						// Determine the size.
-						let size = match length {
-							None => size,
-							Some(length) => size.min(length - state_.read),
-						};
-
-						// Read the chunk.
-						let chunk = server
-							.try_get_build_children_local_inner(&id, state_.position, size)
-							.await?;
-						let read = chunk.items.len().to_u64().unwrap();
-
-						// Update the state.
-						state_.position += read;
-						state_.read += read;
-
-						drop(state_);
-
-						// If the chunk is empty, the stream is finished.
-						if chunk.items.is_empty() {
-							return Ok(None);
-						}
-
-						Ok::<_, tg::Error>(Some((chunk, (server, id, state, false))))
-					},
-				)
-				.filter(|chunk| {
-					let Ok(chunk) = chunk else {
-						return future::ready(true);
-					};
-					future::ready(!chunk.items.is_empty())
-				})
-				.map_ok(tg::build::children::Event::Data)
-				.chain(stream::once(future::ok(tg::build::children::Event::End)));
-
-				Ok::<_, tg::Error>(Some((stream, (server, id, events, state, end))))
-			},
-		)
-		.try_flatten()
-		.boxed();
-
-		Ok(Some(stream))
+		Ok(())
 	}
 
 	async fn try_get_build_children_local_current_position(
@@ -230,7 +212,7 @@ impl Server {
 		id: &tg::build::Id,
 		position: u64,
 		length: u64,
-	) -> tg::Result<tg::build::children::Chunk> {
+	) -> tg::Result<tg::build::children::Data> {
 		// Get a database connection.
 		let connection = self
 			.database
@@ -260,7 +242,7 @@ impl Server {
 		drop(connection);
 
 		// Create the chunk.
-		let chunk = tg::build::children::Chunk {
+		let chunk = tg::build::children::Data {
 			position,
 			items: children,
 		};
@@ -345,9 +327,11 @@ impl Server {
 			let server = self.clone();
 			let build_id = build_id.clone();
 			async move {
+				let subject = format!("builds.{build_id}.children");
+				let payload = Bytes::new();
 				server
 					.messenger
-					.publish(format!("builds.{build_id}.children"), Bytes::new())
+					.publish(subject, payload)
 					.await
 					.inspect_err(|error| tracing::error!(%error, "failed to publish"))
 					.ok();
@@ -383,7 +367,8 @@ impl Server {
 
 		// Stop the stream when the server stops.
 		let stop = request.extensions().get::<Stop>().cloned().unwrap();
-		let stream = stream.take_until(async move { stop.stopped().await });
+		let stop = async move { stop.stopped().await };
+		let stream = stream.take_until(stop);
 
 		// Create the body.
 		let (content_type, body) = match accept

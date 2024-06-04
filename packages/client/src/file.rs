@@ -1,6 +1,6 @@
 use crate::{self as tg, util::arc::Ext as _};
 use bytes::Bytes;
-use futures::{stream::FuturesOrdered, FutureExt as _, TryStreamExt as _};
+use futures::{stream::FuturesOrdered, TryStreamExt as _};
 use std::{collections::BTreeSet, sync::Arc};
 
 #[derive(
@@ -44,7 +44,7 @@ pub struct Data {
 }
 
 /// The extended attributes of files.
-#[derive(serde::Serialize, serde::Deserialize, Debug, Clone)]
+#[derive(serde::Deserialize, serde::Serialize, Clone, Debug)]
 pub struct Attributes {
 	pub references: BTreeSet<tg::artifact::Id>,
 }
@@ -143,7 +143,6 @@ impl File {
 		let arg = tg::object::put::Arg { bytes };
 		handle
 			.put_object(&id.clone().into(), arg)
-			.boxed()
 			.await
 			.map_err(|source| tg::error!(!source, "failed to put the object"))?;
 		self.state.write().unwrap().id.replace(id.clone());

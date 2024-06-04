@@ -2,12 +2,12 @@ use crate::Server;
 use bytes::{Bytes, BytesMut};
 use futures::{
 	future::{self, BoxFuture},
-	stream, stream_select, FutureExt as _, Stream, StreamExt as _, TryStreamExt as _,
+	stream, FutureExt as _, Stream, StreamExt as _, TryStreamExt as _,
 };
 use indoc::formatdoc;
 use itertools::Itertools as _;
-use num::ToPrimitive as _;
-use std::{io::Cursor, pin::pin, sync::Arc};
+use num::ToPrimitive;
+use std::io::Cursor;
 use sync_wrapper::SyncWrapper;
 use tangram_client as tg;
 use tangram_database::{self as db, prelude::*};
@@ -65,32 +65,58 @@ impl Server {
 			return Ok(None);
 		}
 
-		// Create the event stream.
+		// Create the channel.
+		let (sender, receiver) = async_channel::unbounded();
+
+		// Spawn the task.
+		let server = self.clone();
+		let id = id.clone();
+		tokio::spawn(async move {
+			let result = server
+				.try_get_build_log_local_task(&id, arg, sender.clone())
+				.await;
+			if let Err(error) = result {
+				sender.try_send(Err(error)).ok();
+			}
+		});
+
+		Ok(Some(receiver))
+	}
+
+	async fn try_get_build_log_local_task(
+		&self,
+		id: &tg::build::Id,
+		arg: tg::build::log::Arg,
+		sender: async_channel::Sender<tg::Result<tg::build::log::Event>>,
+	) -> tg::Result<()> {
+		// Subscribe to log events.
+		let subject = format!("builds.{id}.log");
 		let log = self
 			.messenger
-			.subscribe(format!("builds.{id}.log"), None)
+			.subscribe(subject, None)
 			.await
 			.map_err(|source| tg::error!(!source, "failed to subscribe"))?
 			.map(|_| ())
 			.boxed();
+
+		// Subscribe to status events.
+		let subject = format!("builds.{id}.status");
 		let status = self
 			.messenger
-			.subscribe(format!("builds.{id}.status"), None)
+			.subscribe(subject, None)
 			.await
 			.map_err(|source| tg::error!(!source, "failed to subscribe"))?
 			.map(|_| ())
 			.boxed();
+
+		// Create the interval.
 		let interval =
 			IntervalStream::new(tokio::time::interval(std::time::Duration::from_secs(60)))
 				.map(|_| ())
-				.skip(1);
-		let timeout = arg.timeout.map_or_else(
-			|| future::pending().left_future(),
-			|timeout| tokio::time::sleep(timeout).right_future(),
-		);
-		let events = stream::once(future::ready(()))
-			.chain(stream_select!(log, status, interval).take_until(timeout))
-			.boxed();
+				.boxed();
+
+		// Create the events stream.
+		let mut events = stream::select_all([log, status, interval]).boxed();
 
 		// Create the reader.
 		let mut reader = Reader::new(self, id).await?;
@@ -106,168 +132,123 @@ impl Server {
 			.await
 			.map_err(|source| tg::error!(!source, "failed to seek the stream"))?;
 
-		// Get the length.
-		let length = arg.length;
-
-		// Get the size.
+		// Create the state.
 		let size = arg.size.unwrap_or(4096);
+		let mut read = 0;
 
-		// Create the stream.
-		struct State {
-			read: u64,
-			reader: Reader,
-		}
-		let state = Arc::new(tokio::sync::Mutex::new(State { read: 0, reader }));
-		let server = self.clone();
-		let id = id.clone();
-		let stream = stream::try_unfold(
-			(events, server, id, state, false),
-			move |(mut events, server, id, state, mut end)| async move {
-				// If the stream should end, return None.
-				if end {
-					return Ok(None);
+		loop {
+			// Get the build's status.
+			let status = self
+				.try_get_build_status_local(id)
+				.await?
+				.unwrap()
+				.boxed()
+				.try_next()
+				.await?
+				.unwrap()
+				.try_unwrap_data()
+				.unwrap();
+
+			// Send as many data events as possible.
+			loop {
+				// Get the position.
+				let position = reader
+					.stream_position()
+					.await
+					.map_err(|source| tg::error!(!source, "failed to get the stream position"))?;
+
+				// Determine the size.
+				let size = match arg.length {
+					None => size,
+					Some(length) => {
+						if length >= 0 {
+							size.min(length.abs().to_u64().unwrap() - read)
+						} else {
+							size.min(length.abs().to_u64().unwrap() - read)
+								.min(position)
+						}
+					},
+				};
+
+				// Seek if necessary.
+				if arg.length.is_some_and(|length| length < 0) {
+					let seek = std::io::SeekFrom::Current(-size.to_i64().unwrap());
+					reader
+						.seek(seek)
+						.await
+						.map_err(|source| tg::error!(!source, "failed to seek the reader"))?;
 				}
 
-				// Check if the length has been reached.
-				if let Some(length) = length {
-					let mut state = state.lock().await;
-					let position = state.reader.stream_position().await.map_err(|source| {
-						tg::error!(!source, "failed to get the stream position")
-					})?;
-					if (state.read >= length.abs().to_u64().unwrap())
-						|| (position == 0 && length < 0)
-					{
-						return Ok(None);
+				// Read the chunk.
+				let position = reader
+					.stream_position()
+					.await
+					.map_err(|source| tg::error!(!source, "failed to get the stream position"))?;
+				let mut data = vec![0u8; size.to_usize().unwrap()];
+				let mut n = 0;
+				while n < data.len() {
+					let n_ = reader
+						.read(&mut data[n..])
+						.await
+						.map_err(|source| tg::error!(!source, "failed to read from the reader"))?;
+					n += n_;
+					if n_ == 0 {
+						break;
 					}
 				}
-
-				// Wait for the next event.
-				let Some(()) = events.next().await else {
-					return Ok(None);
+				data.truncate(n);
+				let data = tg::build::log::Chunk {
+					position,
+					bytes: data.into(),
 				};
 
-				// Get the build status.
-				let arg = tg::build::status::Arg {
-					timeout: Some(std::time::Duration::ZERO),
-				};
-				let status = server
-					.try_get_build_status_local(&id, arg)
-					.await?
-					.ok_or_else(|| tg::error!("expected the build to exist"))?;
-				let event = pin!(status)
-					.try_next()
-					.await?
-					.ok_or_else(|| tg::error!("expected the status to exist"))?;
-				if matches!(
-					event,
-					tg::build::status::Event::Data(tg::build::Status::Finished)
-				) {
-					end = true;
+				// Update the state.
+				read += n.to_u64().unwrap();
+
+				// Seek if necessary.
+				if arg.length.is_some_and(|length| length < 0) {
+					let seek = std::io::SeekFrom::Current(-n.to_i64().unwrap());
+					reader
+						.seek(seek)
+						.await
+						.map_err(|source| tg::error!(!source, "failed to seek the reader"))?;
 				}
 
-				// Create the stream.
-				let stream =
-					stream::try_unfold(
-						(server.clone(), id.clone(), state.clone(), false),
-						move |(server, id, state, end)| async move {
-							if end {
-								return Ok(None);
-							}
+				// If the data is empty, then break.
+				if data.bytes.is_empty() {
+					break;
+				}
 
-							// Lock the state.
-							let mut state_ = state.lock().await;
+				// Send the data.
+				let result = sender.try_send(Ok(tg::build::log::Event::Data(data)));
+				if result.is_err() {
+					return Ok(());
+				}
+			}
 
-							// Determine the size.
-							let position =
-								state_.reader.stream_position().await.map_err(|source| {
-									tg::error!(!source, "failed to get the stream position")
-								})?;
-							let size = match length {
-								None => size,
-								Some(length) => {
-									if length >= 0 {
-										size.min(length.abs().to_u64().unwrap() - state_.read)
-									} else {
-										size.min(length.abs().to_u64().unwrap() - state_.read)
-											.min(position)
-									}
-								},
-							};
+			// If the build was finished or the length was reached, then send the end event and break.
+			let end = if let Some(length) = arg.length {
+				let position = reader
+					.stream_position()
+					.await
+					.map_err(|source| tg::error!(!source, "failed to get the stream position"))?;
+				(read >= length.abs().to_u64().unwrap()) || (position == 0 && length < 0)
+			} else {
+				false
+			};
+			if end || status == tg::build::Status::Finished {
+				let result = sender.try_send(Ok(tg::build::log::Event::End));
+				if result.is_err() {
+					return Ok(());
+				}
+				break;
+			}
 
-							// Seek if necessary.
-							if length.is_some_and(|length| length < 0) {
-								let seek = std::io::SeekFrom::Current(-size.to_i64().unwrap());
-								state_.reader.seek(seek).await.map_err(|source| {
-									tg::error!(!source, "failed to seek the reader")
-								})?;
-							}
+			// Wait for an event before returning to the top of the loop.
+			events.next().await;
+		}
 
-							// Read the chunk.
-							let position =
-								state_.reader.stream_position().await.map_err(|source| {
-									tg::error!(!source, "failed to get the stream position")
-								})?;
-							let mut data = vec![0u8; size.to_usize().unwrap()];
-							let mut read = 0;
-							while read < data.len() {
-								let n = state_.reader.read(&mut data[read..]).await.map_err(
-									|source| tg::error!(!source, "failed to read from the reader"),
-								)?;
-								read += n;
-								if n == 0 {
-									break;
-								}
-							}
-							data.truncate(read);
-							let chunk = tg::build::log::Chunk {
-								position,
-								bytes: data.into(),
-							};
-
-							// Update the state.
-							state_.read += read.to_u64().unwrap();
-
-							// Seek if necessary.
-							if length.is_some_and(|length| length < 0) {
-								let seek = std::io::SeekFrom::Current(-read.to_i64().unwrap());
-								state_.reader.seek(seek).await.map_err(|source| {
-									tg::error!(!source, "failed to seek the reader")
-								})?;
-							}
-
-							// If the chunk is empty, then only return it if the build is finished and the reader is at the end.
-							if chunk.bytes.is_empty() {
-								if matches!(
-									event,
-									tg::build::status::Event::Data(tg::build::Status::Finished)
-								) && state_.reader.end().await?
-								{
-									drop(state_);
-									return Ok::<_, tg::Error>(Some((
-										chunk,
-										(server, id, state, true),
-									)));
-								}
-
-								drop(state_);
-								return Ok(None);
-							}
-
-							drop(state_);
-
-							Ok::<_, tg::Error>(Some((chunk, (server, id, state, end))))
-						},
-					);
-
-				Ok::<_, tg::Error>(Some((stream, (events, server, id, state, end))))
-			},
-		)
-		.try_flatten()
-		.map_ok(tg::build::log::Event::Data)
-		.chain(stream::once(future::ok(tg::build::log::Event::End)))
-		.boxed();
-
-		Ok(Some(stream))
+		Ok(())
 	}
 
 	async fn try_get_build_log_remote(
@@ -336,24 +317,6 @@ impl Server {
 		Ok(())
 	}
 
-	async fn try_add_build_log_to_file(&self, id: &tg::build::Id, bytes: Bytes) -> tg::Result<()> {
-		// Write to the log file.
-		let path = self.logs_path().join(id.to_string());
-		let mut file = tokio::fs::File::options()
-			.create(true)
-			.append(true)
-			.open(&path)
-			.await
-			.map_err(
-				|source| tg::error!(!source, %path = path.display(), "failed to open the log file"),
-			)?;
-		file.write_all(&bytes).await.map_err(
-			|source| tg::error!(!source, %path = path.display(), "failed to write to the log file"),
-		)?;
-
-		Ok(())
-	}
-
 	async fn try_add_build_log_to_database(
 		&self,
 		id: &tg::build::Id,
@@ -400,6 +363,24 @@ impl Server {
 
 		Ok(())
 	}
+
+	async fn try_add_build_log_to_file(&self, id: &tg::build::Id, bytes: Bytes) -> tg::Result<()> {
+		// Write to the log file.
+		let path = self.logs_path().join(id.to_string());
+		let mut file = tokio::fs::File::options()
+			.create(true)
+			.append(true)
+			.open(&path)
+			.await
+			.map_err(
+				|source| tg::error!(!source, %path = path.display(), "failed to open the log file"),
+			)?;
+		file.write_all(&bytes).await.map_err(
+			|source| tg::error!(!source, %path = path.display(), "failed to write to the log file"),
+		)?;
+
+		Ok(())
+	}
 }
 
 impl Reader {
@@ -433,25 +414,6 @@ impl Reader {
 		let reader = DatabaseReader::new(server, id);
 		Ok(Self::Database(reader))
 	}
-
-	pub async fn end(&mut self) -> tg::Result<bool> {
-		match self {
-			Reader::Blob(reader) => Ok(reader.end()),
-			Reader::Database(reader) => reader.end().await,
-			Reader::File(file) => {
-				let position = file
-					.stream_position()
-					.await
-					.map_err(|source| tg::error!(!source, "failed to get the position"))?;
-				let size = file
-					.metadata()
-					.await
-					.map_err(|source| tg::error!(!source, "failed to get the metadata"))?
-					.len();
-				Ok(position == size)
-			},
-		}
-	}
 }
 
 impl DatabaseReader {
@@ -470,45 +432,6 @@ impl DatabaseReader {
 			seek,
 			server,
 		}
-	}
-
-	pub async fn end(&self) -> tg::Result<bool> {
-		// Get a database connection.
-		let connection = self
-			.server
-			.database
-			.connection()
-			.await
-			.map_err(|source| tg::error!(!source, "failed to get a database connection"))?;
-
-		// Determine if the position is at the end.
-		let p = connection.p();
-		let statement = formatdoc!(
-			"
-				select coalesce(
-					(
-						select {p}2 >= position + length(bytes)
-						from build_logs
-						where build = {p}1 and position = (
-							select max(position)
-							from build_logs
-							where build = {p}1
-						)
-					),
-					true
-				);
-			"
-		);
-		let params = db::params![self.id, self.position];
-		let end = connection
-			.query_one_value_into(statement, params)
-			.await
-			.map_err(|source| tg::error!(!source, "failed to execute the statement"))?;
-
-		// Drop the database connection.
-		drop(connection);
-
-		Ok(end)
 	}
 }
 
@@ -783,7 +706,8 @@ impl Server {
 
 		// Stop the stream when the server stops.
 		let stop = request.extensions().get::<Stop>().cloned().unwrap();
-		let stream = stream.take_until(async move { stop.stopped().await });
+		let stop = async move { stop.stopped().await };
+		let stream = stream.take_until(stop);
 
 		// Create the body.
 		let (content_type, body) = match accept
