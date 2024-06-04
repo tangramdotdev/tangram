@@ -509,8 +509,8 @@ where
 
 		let entries = entries
 			.into_iter()
-			.skip(request.offset.to_usize().unwrap())
-			.enumerate();
+			.enumerate()
+			.skip(request.offset.to_usize().unwrap());
 		let mut response = Vec::with_capacity(request.size.to_usize().unwrap());
 		for (offset, (name, node)) in entries {
 			let attr = self.provider.getattr(node).await?;

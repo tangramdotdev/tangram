@@ -17,7 +17,7 @@ use tangram_vfs as vfs;
 use tokio::io::{AsyncReadExt, AsyncSeekExt};
 
 pub struct Provider {
-	cache: moka::future::Cache<u64, Node, fnv::FnvBuildHasher>,
+	cache: moka::sync::Cache<u64, Node, fnv::FnvBuildHasher>,
 	node_count: AtomicU64,
 	file_handle_count: AtomicU64,
 	database: db::sqlite::Database,
@@ -59,7 +59,7 @@ impl vfs::Provider for Provider {
 		if let Some(Node {
 			artifact: Some(tg::Artifact::Directory(object)),
 			..
-		}) = self.cache.get(&parent).await
+		}) = self.cache.get(&parent)
 		{
 			let entries = object.entries(&self.server).await.map_err(|error| {
 				tracing::error!(%error, %parent, %name, "failed to get directory entries");
@@ -141,7 +141,7 @@ impl vfs::Provider for Provider {
 	}
 
 	async fn lookup_parent(&self, id: u64) -> std::io::Result<u64> {
-		if let Some(node) = self.cache.get(&id).await {
+		if let Some(node) = self.cache.get(&id) {
 			return Ok(node.parent);
 		}
 
@@ -262,7 +262,9 @@ impl vfs::Provider for Provider {
 
 	async fn readlink(&self, id: u64) -> std::io::Result<Bytes> {
 		// Get the node.
-		let Node { artifact, checkout, .. } = self.get(id).await.map_err(|error| {
+		let Node {
+			artifact, checkout, ..
+		} = self.get(id).await.map_err(|error| {
 			tracing::error!(%error, "failed to lookup node");
 			std::io::Error::from_raw_os_error(libc::EIO)
 		})?;
@@ -418,10 +420,10 @@ impl vfs::Provider for Provider {
 impl Provider {
 	pub async fn new(server: &Server, options: crate::options::Vfs) -> tg::Result<Self> {
 		// Create the cache.
-		let cache = moka::future::CacheBuilder::new(options.cache_size)
+		let cache = moka::sync::CacheBuilder::new(options.cache_size)
 			.time_to_idle(std::time::Duration::from_secs_f64(options.cache_ttl))
 			.build_with_hasher(fnv::FnvBuildHasher::default());
-		
+
 		// Create the database.
 		let tmp = Tmp::new(server);
 		tokio::fs::create_dir_all(&tmp)
@@ -501,7 +503,7 @@ impl Provider {
 
 	async fn get(&self, id: u64) -> std::io::Result<Node> {
 		// Attempt to read from the cache.
-		if let Some(node) = self.cache.get(&id).await {
+		if let Some(node) = self.cache.get(&id) {
 			return Ok(node.clone());
 		}
 
@@ -544,10 +546,14 @@ impl Provider {
 		let parent = row.parent;
 		let artifact = row.artifact.map(tg::Artifact::with_id);
 		let checkout = row.checkout;
-		let node = Node { parent, artifact, checkout };
+		let node = Node {
+			parent,
+			artifact,
+			checkout,
+		};
 
 		// Add the node to the cache.
-		self.cache.insert(id, node.clone()).await;
+		self.cache.insert(id, node.clone());
 
 		Ok(node)
 	}
@@ -576,7 +582,7 @@ impl Provider {
 		let id = self.node_count.fetch_add(1, Ordering::Relaxed);
 
 		// Add the node to the cache.
-		self.cache.insert(id, node.clone()).await;
+		self.cache.insert(id, node.clone());
 
 		// Insert into the table of pending writes.
 		self.pending_writes.insert(id, node);
