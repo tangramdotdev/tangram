@@ -26,13 +26,37 @@ impl Server {
 		&self,
 		id: &tg::object::Id,
 	) -> tg::Result<Option<tg::object::get::Output>> {
+		// Try and read from the database.
+		if let Some(output) = self.try_get_object_local_database(id).await? {
+			return Ok(Some(output));
+		};
+
+		// If this is a blob, try and store it from the blobs directory and return the output.
+		let blob = match id {
+			tg::object::Id::Leaf(id) => tg::blob::Id::Leaf(id.clone().into()),
+			tg::object::Id::Branch(id) => tg::blob::Id::Branch(id.clone().into()),
+			_ => return Ok(None),
+		};
+		self.blob_tasks
+			.get_or_spawn(blob.clone(), {
+				let server = self.clone();
+				|_stop| async move { server.try_store_blob(blob).await }
+			})
+			.wait()
+			.await
+			.map_err(|source| tg::error!(!source, "failed to wait for task"))?
+	}
+
+	pub async fn try_get_object_local_database(
+		&self,
+		id: &tg::object::Id,
+	) -> tg::Result<Option<tg::object::get::Output>> {
 		// Get a database connection.
 		let connection = self
 			.database
 			.connection()
 			.await
 			.map_err(|source| tg::error!(!source, "failed to get a database connection"))?;
-
 		// Get the object.
 		#[derive(serde::Deserialize)]
 		struct Row {
@@ -68,7 +92,6 @@ impl Server {
 				weight: row.weight,
 			},
 		};
-
 		Ok(Some(output))
 	}
 

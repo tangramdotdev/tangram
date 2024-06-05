@@ -580,6 +580,14 @@ impl tg::Handle for Client {
 		self.create_blob(reader)
 	}
 
+	fn read_blob(
+		&self,
+		id: &tg::blob::Id,
+		arg: tg::blob::read::Arg,
+	) -> impl Future<Output = tg::Result<Bytes>> + Send {
+		self.read_blob(id, arg)
+	}
+
 	fn try_get_build(
 		&self,
 		id: &tg::build::Id,

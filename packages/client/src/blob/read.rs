@@ -1,4 +1,4 @@
-use crate as tg;
+use crate::{self as tg, Client};
 use bytes::{Buf, Bytes};
 use futures::{future::BoxFuture, FutureExt as _};
 use num::ToPrimitive as _;
@@ -280,5 +280,17 @@ where
 		_cx: &mut std::task::Context<'_>,
 	) -> std::task::Poll<std::io::Result<u64>> {
 		std::task::Poll::Ready(Ok(self.position))
+	}
+}
+
+pub struct Arg {
+	pub id: tg::blob::Id,
+	pub offset: u64,
+	pub length: u64,
+}
+
+impl Client {
+	pub async fn read_blob(&self, _id: &tg::blob::Id, _arg: Arg) -> tg::Result<Bytes> {
+		todo!()
 	}
 }

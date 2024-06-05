@@ -53,6 +53,7 @@ pub mod options;
 pub struct Server(Arc<Inner>);
 
 pub struct Inner {
+	blob_tasks: BlobTaskMap,
 	build_permits: BuildPermits,
 	build_semaphore: Arc<tokio::sync::Semaphore>,
 	builds: BuildTaskMap,
@@ -77,6 +78,9 @@ struct BuildPermit(
 	#[allow(dead_code)]
 	Either<tokio::sync::OwnedSemaphorePermit, tokio::sync::OwnedMutexGuard<Option<Self>>>,
 );
+
+type BlobTaskMap =
+	TaskMap<tg::blob::Id, tg::Result<Option<tg::object::get::Output>>, fnv::FnvBuildHasher>;
 
 type BuildTaskMap = TaskMap<tg::build::Id, (), fnv::FnvBuildHasher>;
 
@@ -145,6 +149,9 @@ impl Server {
 		// Remove an existing socket file.
 		let socket_path = path.join("socket");
 		tokio::fs::remove_file(&socket_path).await.ok();
+
+		// Create the blob stores.
+		let blob_tasks = TaskMap::default();
 
 		// Create the build permits.
 		let build_permits = DashMap::default();
@@ -227,6 +234,7 @@ impl Server {
 
 		// Create the server.
 		let server = Self(Arc::new(Inner {
+			blob_tasks,
 			build_permits,
 			build_semaphore,
 			builds,
@@ -812,6 +820,14 @@ impl tg::Handle for Server {
 		reader: impl AsyncRead + Send + 'static,
 	) -> impl Future<Output = tg::Result<tg::blob::create::Output>> {
 		self.create_blob(reader)
+	}
+
+	fn read_blob(
+		&self,
+		id: &tg::blob::Id,
+		arg: tg::blob::read::Arg,
+	) -> impl Future<Output = tg::Result<Bytes>> {
+		self.read_blob(id, arg)
 	}
 
 	fn try_get_build(

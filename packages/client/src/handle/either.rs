@@ -39,6 +39,17 @@ where
 		}
 	}
 
+	fn read_blob(
+		&self,
+		id: &tg::blob::Id,
+		arg: tg::blob::read::Arg,
+	) -> impl Future<Output = crate::Result<Bytes>> + Send {
+		match self {
+			Either::Left(s) => s.read_blob(id, arg).left_future(),
+			Either::Right(s) => s.read_blob(id, arg).right_future(),
+		}
+	}
+
 	fn try_get_build(
 		&self,
 		id: &tg::build::Id,

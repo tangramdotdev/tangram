@@ -151,6 +151,14 @@ impl tg::Handle for Proxy {
 		self.server.create_blob(reader)
 	}
 
+	fn read_blob(
+		&self,
+		id: &tg::blob::Id,
+		arg: tg::blob::read::Arg,
+	) -> impl Future<Output = tg::Result<Bytes>> {
+		self.server.read_blob(id, arg)
+	}
+
 	fn try_get_build(
 		&self,
 		id: &tg::build::Id,
