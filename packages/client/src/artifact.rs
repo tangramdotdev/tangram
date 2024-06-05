@@ -196,27 +196,23 @@ impl Artifact {
 		queue.push_back(self.clone());
 
 		while let Some(artifact) = queue.pop_front() {
-			// Add a request for the artifact's references to the futures.
-			futures.push(async move { artifact.references(handle).await });
-
-			// If the queue is empty, then get more artifacts from the futures.
+			let inserted = references.insert(artifact.id(handle).await?);
+			if inserted {
+				// Add a request for the artifact's references to the futures.
+				futures.push(async move { artifact.references(handle).await });
+			}
 			if queue.is_empty() {
 				// Get more artifacts from the futures.
-				if let Some(artifacts) = futures.try_next().await? {
-					// Handle each artifact.
+				while let Some(artifacts) = futures.try_next().await? {
 					for artifact in artifacts {
-						// Insert the artifact into the set of references.
-						let inserted = references.insert(artifact.id(handle).await?);
-
-						// If the artifact was new, then add it to the queue.
-						if inserted {
+						// If we haven't seen this artifact, add it to the queue.
+						if !references.contains(&artifact.id(handle).await?) {
 							queue.push_back(artifact);
 						}
 					}
 				}
 			}
 		}
-
 		Ok(references)
 	}
 }
