@@ -1,9 +1,6 @@
 use crate as tg;
 use futures::stream::{FuturesOrdered, FuturesUnordered, TryStreamExt as _};
-use std::{
-	collections::{HashSet, VecDeque},
-	sync::Arc,
-};
+use std::{collections::HashSet, sync::Arc};
 
 pub mod archive;
 pub mod bundle;
@@ -112,15 +109,11 @@ impl Artifact {
 		}
 	}
 
-	pub async fn data<H>(&self, handle: &H) -> tg::Result<Data>
+	pub async fn object<H>(&self, handle: &H) -> tg::Result<Object>
 	where
 		H: tg::Handle,
 	{
-		match self {
-			Self::Directory(directory) => Ok(directory.data(handle).await?.into()),
-			Self::File(file) => Ok(file.data(handle).await?.into()),
-			Self::Symlink(symlink) => Ok(symlink.data(handle).await?.into()),
-		}
+		self.load(handle).await
 	}
 
 	pub async fn load<H>(&self, handle: &H) -> tg::Result<Object>
@@ -150,6 +143,17 @@ impl Artifact {
 			Self::Directory(directory) => directory.store(handle).await.map(Into::into),
 			Self::File(file) => file.store(handle).await.map(Into::into),
 			Self::Symlink(symlink) => symlink.store(handle).await.map(Into::into),
+		}
+	}
+
+	pub async fn data<H>(&self, handle: &H) -> tg::Result<Data>
+	where
+		H: tg::Handle,
+	{
+		match self {
+			Self::Directory(directory) => Ok(directory.data(handle).await?.into()),
+			Self::File(file) => Ok(file.data(handle).await?.into()),
+			Self::Symlink(symlink) => Ok(symlink.data(handle).await?.into()),
 		}
 	}
 }
@@ -190,34 +194,35 @@ impl Artifact {
 	where
 		H: tg::Handle,
 	{
-		let mut references = HashSet::default();
-		let mut queue = VecDeque::new();
-		let mut futures = FuturesUnordered::new();
-		queue.push_back(self.clone());
-
-		while let Some(artifact) = queue.pop_front() {
-			// Add a request for the artifact's references to the futures.
-			futures.push(async move { artifact.references(handle).await });
-
-			// If the queue is empty, then get more artifacts from the futures.
-			if queue.is_empty() {
-				// Get more artifacts from the futures.
-				if let Some(artifacts) = futures.try_next().await? {
-					// Handle each artifact.
-					for artifact in artifacts {
-						// Insert the artifact into the set of references.
-						let inserted = references.insert(artifact.id(handle).await?);
-
-						// If the artifact was new, then add it to the queue.
-						if inserted {
-							queue.push_back(artifact);
-						}
-					}
-				}
-			}
+		async fn recursive_references_inner<H>(
+			handle: &H,
+			artifact: &tg::Artifact,
+			output: Arc<
+				std::sync::Mutex<HashSet<Id, std::hash::BuildHasherDefault<fnv::FnvHasher>>>,
+			>,
+		) -> tg::Result<()>
+		where
+			H: tg::Handle,
+		{
+			let references = artifact.references(handle).await?;
+			references
+				.iter()
+				.map(|artifact| recursive_references_inner(handle, artifact, output.clone()))
+				.collect::<FuturesUnordered<_>>()
+				.try_collect()
+				.await?;
+			let references = references
+				.into_iter()
+				.map(|artifact| async move { artifact.id(handle).await })
+				.collect::<FuturesUnordered<_>>()
+				.try_collect::<Vec<_>>()
+				.await?;
+			output.lock().unwrap().extend(references);
+			Ok(())
 		}
-
-		Ok(references)
+		let output = Arc::new(std::sync::Mutex::new(HashSet::default()));
+		recursive_references_inner(handle, self, output.clone()).await?;
+		Ok(Arc::into_inner(output).unwrap().into_inner().unwrap())
 	}
 }
 

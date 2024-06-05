@@ -77,14 +77,11 @@ impl Blob {
 		}
 	}
 
-	pub async fn data<H>(&self, handle: &H) -> tg::Result<Data>
+	pub async fn object<H>(&self, handle: &H) -> tg::Result<Object>
 	where
 		H: tg::Handle,
 	{
-		match self {
-			Self::Leaf(leaf) => Ok(leaf.data(handle).await?.into()),
-			Self::Branch(branch) => Ok(branch.data(handle).await?.into()),
-		}
+		self.load(handle).await
 	}
 
 	pub async fn load<H>(&self, handle: &H) -> tg::Result<Object>
@@ -111,6 +108,16 @@ impl Blob {
 		match self {
 			Self::Leaf(leaf) => leaf.store(handle).await.map(Into::into),
 			Self::Branch(branch) => branch.store(handle).await.map(Into::into),
+		}
+	}
+
+	pub async fn data<H>(&self, handle: &H) -> tg::Result<Data>
+	where
+		H: tg::Handle,
+	{
+		match self {
+			Self::Leaf(leaf) => Ok(leaf.data(handle).await?.into()),
+			Self::Branch(branch) => Ok(branch.data(handle).await?.into()),
 		}
 	}
 }
