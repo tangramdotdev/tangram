@@ -76,8 +76,12 @@ pub struct Config {
 	pub url: Option<Url>,
 
 	/// Enable or disable the VFS.
-	#[serde(default, skip_serializing_if = "Option::is_none")]
-	pub vfs: Option<bool>,
+	#[serde(
+		default,
+		skip_serializing_if = "Option::is_none",
+		with = "either::serde_untagged_optional"
+	)]
+	pub vfs: Option<Either<bool, Vfs>>,
 }
 
 #[derive(Clone, Debug, Default, serde::Deserialize, serde::Serialize)]
@@ -232,4 +236,11 @@ pub enum TracingFormat {
 	Json,
 	#[default]
 	Pretty,
+}
+
+#[derive(Copy, Clone, Debug, Default, serde::Serialize, serde::Deserialize)]
+pub struct Vfs {
+	pub cache_ttl: Option<f64>,
+	pub cache_size: Option<u64>,
+	pub num_database_connections: Option<usize>,
 }

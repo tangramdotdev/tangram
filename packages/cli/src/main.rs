@@ -654,7 +654,25 @@ impl Cli {
 		let version = Some(VERSION.to_owned());
 
 		// Create the vfs options.
-		let vfs = config.and_then(|config| config.vfs).unwrap_or(true);
+		let vfs = config
+			.and_then(|config| config.vfs)
+			.and_then(|vfs| {
+				if matches!(vfs, Either::Left(false)) {
+					None
+				} else {
+					Some(vfs.right().unwrap_or_default())
+				}
+			})
+			.map(|vfs| {
+				let cache_ttl = vfs.cache_ttl.unwrap_or(10.0);
+				let cache_size = vfs.cache_size.unwrap_or(4096);
+				let num_database_connections = vfs.num_database_connections.unwrap_or(4);
+				tangram_server::options::Vfs {
+					cache_size,
+					cache_ttl,
+					num_database_connections,
+				}
+			});
 
 		// Create the options.
 		let options = tangram_server::Options {

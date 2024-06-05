@@ -75,7 +75,7 @@ itertools = "0.13"
 libc = "0.2"
 lsp-types = "0.96"
 mime = "0.3"
-moka = { version = "0.12", features = ["future"] }
+moka = { version = "0.12", features = ["sync"] }
 notify = "6"
 num = "0.4"
 oauth2 = "4"

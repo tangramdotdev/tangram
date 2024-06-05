@@ -18,7 +18,7 @@ pub struct Options {
 	pub remotes: Vec<Remote>,
 	pub url: Url,
 	pub version: Option<String>,
-	pub vfs: bool,
+	pub vfs: Option<Vfs>,
 }
 
 #[derive(Clone, Debug)]
@@ -108,4 +108,11 @@ pub struct Remote {
 	pub build: bool,
 	pub client: tg::Client,
 	pub name: String,
+}
+
+#[derive(Copy, Clone, Debug)]
+pub struct Vfs {
+	pub cache_ttl: f64,
+	pub cache_size: u64,
+	pub num_database_connections: usize,
 }

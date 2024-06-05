@@ -268,7 +268,7 @@ impl Server {
 
 	pub async fn task(&self, stop: Stop) -> tg::Result<()> {
 		// Start the VFS if necessary.
-		if self.options.vfs {
+		if let Some(options) = self.options.vfs {
 			// If the VFS is enabled, then start the VFS server.
 			let kind = if cfg!(target_os = "macos") {
 				vfs::Kind::Nfs
@@ -278,7 +278,7 @@ impl Server {
 				unreachable!()
 			};
 			let artifacts_path = self.artifacts_path();
-			let vfs = self::vfs::Server::start(self, kind, &artifacts_path)
+			let vfs = self::vfs::Server::start(self, kind, &artifacts_path, options)
 				.await
 				.inspect_err(|source| {
 					tracing::error!(%source, "failed to start the VFS");
