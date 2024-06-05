@@ -2,13 +2,7 @@ use crate as tg;
 use futures::{Stream, StreamExt as _};
 use tangram_http::{incoming::response::Ext as _, outgoing::request::Ext as _};
 
-#[derive(Clone, Debug, Default, serde::Deserialize, serde::Serialize)]
-pub struct Arg {
-	pub logs: bool,
-	pub recursive: bool,
-	pub remote: String,
-	pub targets: bool,
-}
+pub type Arg = super::push::Arg;
 
 pub type Event = super::push::Event;
 
@@ -50,11 +44,12 @@ impl tg::Client {
 		let output = response.sse().map(|result| {
 			let event = result.map_err(|source| tg::error!(!source, "failed to read an event"))?;
 			match event.event.as_deref() {
-				None | Some("data") => {
-					let data = serde_json::from_str(&event.data)
+				None | Some("progress") => {
+					let progress = serde_json::from_str(&event.data)
 						.map_err(|source| tg::error!(!source, "failed to deserialize the data"))?;
-					Ok(data)
+					Ok(tg::build::pull::Event::Progress(progress))
 				},
+				Some("end") => Ok(tg::build::pull::Event::End),
 				Some("error") => {
 					let error = serde_json::from_str(&event.data)
 						.map_err(|source| tg::error!(!source, "failed to deserialize the error"))?;

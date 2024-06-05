@@ -4,6 +4,7 @@ use tangram_client as tg;
 pub mod cat;
 pub mod checksum;
 pub mod compress;
+pub mod create;
 pub mod decompress;
 pub mod download;
 
@@ -20,6 +21,7 @@ pub enum Command {
 	Cat(self::cat::Args),
 	Checksum(self::checksum::Args),
 	Compress(self::compress::Args),
+	Create(self::create::Args),
 	Decompress(self::decompress::Args),
 	Download(self::download::Args),
 }
@@ -35,6 +37,9 @@ impl Cli {
 			},
 			Command::Compress(args) => {
 				self.command_blob_compress(args).await?;
+			},
+			Command::Create(args) => {
+				self.command_blob_create(args).await?;
 			},
 			Command::Decompress(args) => {
 				self.command_blob_decompress(args).await?;

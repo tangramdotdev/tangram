@@ -17,13 +17,13 @@ use tangram_vfs as vfs;
 use tokio::io::{AsyncReadExt, AsyncSeekExt};
 
 pub struct Provider {
-	cache: moka::sync::Cache<u64, Node, fnv::FnvBuildHasher>,
+	node_cache: moka::sync::Cache<u64, Node, fnv::FnvBuildHasher>,
 	node_count: AtomicU64,
 	file_handle_count: AtomicU64,
 	database: db::sqlite::Database,
 	directory_handles: DashMap<u64, DirectoryHandle, fnv::FnvBuildHasher>,
 	file_handles: DashMap<u64, FileHandle, fnv::FnvBuildHasher>,
-	pending_writes: Arc<DashMap<u64, Node, fnv::FnvBuildHasher>>,
+	pending_nodes: Arc<DashMap<u64, Node, fnv::FnvBuildHasher>>,
 	server: Server,
 	#[allow(dead_code)]
 	tmp: Tmp,
@@ -59,7 +59,7 @@ impl vfs::Provider for Provider {
 		if let Some(Node {
 			artifact: Some(tg::Artifact::Directory(object)),
 			..
-		}) = self.cache.get(&parent)
+		}) = self.node_cache.get(&parent)
 		{
 			let entries = object.entries(&self.server).await.map_err(|error| {
 				tracing::error!(%error, %parent, %name, "failed to get directory entries");
@@ -141,7 +141,7 @@ impl vfs::Provider for Provider {
 	}
 
 	async fn lookup_parent(&self, id: u64) -> std::io::Result<u64> {
-		if let Some(node) = self.cache.get(&id) {
+		if let Some(node) = self.node_cache.get(&id) {
 			return Ok(node.parent);
 		}
 
@@ -432,7 +432,7 @@ impl Provider {
 		let path = tmp.path.join("vfs");
 		let database_options = db::sqlite::Options {
 			path,
-			connections: options.num_database_connections,
+			connections: options.database_connections,
 		};
 		let database = db::sqlite::Database::new(database_options)
 			.await
@@ -484,16 +484,16 @@ impl Provider {
 		let file_handle_count = AtomicU64::new(1000);
 		let directory_handles = DashMap::default();
 		let file_handles = DashMap::default();
-		let pending_writes = Arc::new(DashMap::default());
+		let pending_nodes = Arc::new(DashMap::default());
 		let server = server.clone();
 		let provider = Self {
-			cache,
+			node_cache: cache,
 			node_count,
 			file_handle_count,
 			database,
 			directory_handles,
 			file_handles,
-			pending_writes,
+			pending_nodes,
 			server,
 			tmp,
 		};
@@ -502,13 +502,13 @@ impl Provider {
 	}
 
 	async fn get(&self, id: u64) -> std::io::Result<Node> {
-		// Attempt to read from the cache.
-		if let Some(node) = self.cache.get(&id) {
+		// Attempt to get the node from the node cache.
+		if let Some(node) = self.node_cache.get(&id) {
 			return Ok(node.clone());
 		}
 
-		// Attempt to read from any pending writes.
-		if let Some(node) = self.pending_writes.get(&id) {
+		// Attempt to get the node from the pending nodes.
+		if let Some(node) = self.pending_nodes.get(&id) {
 			return Ok(node.clone());
 		}
 
@@ -553,7 +553,7 @@ impl Provider {
 		};
 
 		// Add the node to the cache.
-		self.cache.insert(id, node.clone());
+		self.node_cache.insert(id, node.clone());
 
 		Ok(node)
 	}
@@ -582,10 +582,10 @@ impl Provider {
 		let id = self.node_count.fetch_add(1, Ordering::Relaxed);
 
 		// Add the node to the cache.
-		self.cache.insert(id, node.clone());
+		self.node_cache.insert(id, node.clone());
 
-		// Insert into the table of pending writes.
-		self.pending_writes.insert(id, node);
+		// Insert into the pending nodes.
+		self.pending_nodes.insert(id, node);
 
 		// Insert the node.
 		tokio::spawn({
@@ -593,7 +593,7 @@ impl Provider {
 				tracing::error!(%error, "failed to get database a connection");
 				std::io::Error::from_raw_os_error(libc::EIO)
 			})?;
-			let pending_writes = self.pending_writes.clone();
+			let pending_nodes = self.pending_nodes.clone();
 			let name = name.to_owned();
 			async move {
 				let p = connection.p();
@@ -607,7 +607,7 @@ impl Provider {
 				if let Err(error) = connection.execute(statement, params).await {
 					tracing::error!(%error, %id, "failed to write node to the database");
 				}
-				pending_writes.remove(&id).unwrap();
+				pending_nodes.remove(&id).unwrap();
 			}
 		});
 

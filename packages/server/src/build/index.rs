@@ -1,4 +1,5 @@
 use crate::Server;
+use either::Either;
 use futures::{future, stream::FuturesUnordered, StreamExt as _, TryStreamExt as _};
 use indoc::formatdoc;
 use itertools::Itertools as _;
@@ -40,7 +41,7 @@ impl Server {
 						select id
 						from builds
 						where
-							indexing_status is 'enqueued' or
+							indexing_status = 'enqueued' or
 							(indexing_status = 'started' and indexing_started_at <= {p}2)
 						limit 1
 					)
@@ -69,7 +70,7 @@ impl Server {
 				},
 
 				Err(error) => {
-					tracing::error!(?error, "failed to get a database connection");
+					tracing::error!(?error, "failed to get a build to index");
 					let duration = std::time::Duration::from_secs(1);
 					tokio::time::sleep(duration).await;
 					continue;
@@ -158,8 +159,10 @@ impl Server {
 			.map_err(|source| tg::error!(!source, "failed to get a database connection"))?;
 
 		// Get the complete flags.
+		#[allow(clippy::struct_excessive_bools)]
 		#[derive(serde::Deserialize)]
 		struct Row {
+			complete: bool,
 			logs_complete: bool,
 			outcomes_complete: bool,
 			targets_complete: bool,
@@ -168,6 +171,7 @@ impl Server {
 		let statement = formatdoc!(
 			"
 				select
+					complete,
 					logs_complete,
 					outcomes_complete,
 					targets_complete
@@ -177,6 +181,7 @@ impl Server {
 		);
 		let params = db::params![id];
 		let Row {
+			complete,
 			logs_complete,
 			outcomes_complete,
 			targets_complete,
@@ -187,6 +192,84 @@ impl Server {
 
 		// Drop the connection.
 		drop(connection);
+
+		// Attempt to mark the build complete if necessary.
+		let completed = if complete {
+			false
+		} else {
+			// Get a database connection.
+			let connection = self
+				.database
+				.connection()
+				.await
+				.map_err(|source| tg::error!(!source, "failed to get a database connection"))?;
+
+			// Attempt to set the complete flag.
+			let p = connection.p();
+			let statement = formatdoc!(
+				"
+					update builds
+					set complete = (
+						select case
+							when count(*) = count(complete) then coalesce(min(complete), 1)
+							else 0
+						end
+						from build_children
+						left join builds on builds.id = build_children.child
+						where build_children.build = {p}1
+					)
+					where id = {p}1
+					returning complete;
+				"
+			);
+			let params = db::params![id];
+			let completed = connection
+				.query_one_value_into(statement, params)
+				.await
+				.map_err(|source| tg::error!(!source, "failed to execute the statement"))?;
+
+			// Drop the connection.
+			drop(connection);
+
+			completed
+		};
+
+		// If the build became complete, then add its finished incomplete parents to the queue.
+		if completed {
+			// Get a database connection.
+			let connection = self
+				.database
+				.connection()
+				.await
+				.map_err(|source| tg::error!(!source, "failed to get a database connection"))?;
+
+			// Get the incomplete parents.
+			let p = connection.p();
+			let statement = formatdoc!(
+				"
+					select build
+					from build_children
+					left join builds on builds.id = build_children.build
+					where
+						build_children.child = {p}1 and
+						builds.status = 'finished' and
+						builds.complete = 0;
+				"
+			);
+			let params = db::params![id];
+			let builds = connection
+				.query_all_value_into::<tg::build::Id>(statement, params)
+				.await
+				.map_err(|source| tg::error!(!source, "failed to execute the statement"))?;
+
+			// Drop the connection.
+			drop(connection);
+
+			// Index the incomplete parents.
+			for build in builds {
+				self.enqueue_build_for_indexing(&build).await?;
+			}
+		}
 
 		// Attempt to set the count if necessary.
 		if build.count.is_none() {
@@ -318,10 +401,18 @@ impl Server {
 
 			// Attempt to set the logs complete flag.
 			let p = connection.p();
+			let bool_cast = match &connection {
+				Either::Left(_) => "",
+				Either::Right(_) => "::bool",
+			};
+			let integer_cast = match &connection {
+				Either::Left(_) => "",
+				Either::Right(_) => "::integer",
+			};
 			let statement = formatdoc!(
 				"
 					update builds
-					set logs_complete = (
+					set logs_complete = (select (
 						select coalesce((
 							select complete
 							from objects
@@ -331,7 +422,7 @@ impl Server {
 								where id = {p}1
 							)
 						), 0)
-					) and (
+					){bool_cast} and (
 						select case
 							when count(*) = count(logs_complete) then coalesce(min(logs_complete), 1)
 							else 0
@@ -339,7 +430,7 @@ impl Server {
 						from build_children
 						left join builds on builds.id = build_children.child
 						where build_children.build = {p}1
-					)
+					){bool_cast}){integer_cast}
 					where id = {p}1
 					returning logs_complete;
 				"
@@ -496,14 +587,7 @@ impl Server {
 
 			// Attempt to set the outcomes complete flag.
 			let p = connection.p();
-			connection
-				.execute(
-					"create temp table t (object text);".to_owned(),
-					db::params![],
-				)
-				.await
-				.map_err(|source| tg::error!(!source, "failed to execute the statement"))?;
-			let iter = build
+			let outcome_objects = build
 				.outcome
 				.as_ref()
 				.ok_or_else(|| tg::error!("expected the outcome to be set"))?
@@ -511,46 +595,49 @@ impl Server {
 				.ok()
 				.map(tg::value::Data::children)
 				.into_iter()
-				.flatten();
-			for child in iter {
-				connection
-					.execute(
-						format!("insert into t (object) values ({p}1);"),
-						db::params![child],
-					)
-					.await
-					.map_err(|source| tg::error!(!source, "failed to execute the statement"))?;
-			}
+				.flatten()
+				.collect::<Vec<_>>();
+			let outcome_objects = serde_json::to_string(&outcome_objects).unwrap();
+			let outcome_objects_query = match &connection {
+				Either::Left(_) => format!("select value from json_each({p}1)"),
+				Either::Right(_) => {
+					format!("select value from json_array_elements_text({p}1::string::jsonb)")
+				},
+			};
+			let bool_cast = match &connection {
+				Either::Left(_) => "",
+				Either::Right(_) => "::bool",
+			};
+			let integer_cast = match &connection {
+				Either::Left(_) => "",
+				Either::Right(_) => "::integer",
+			};
 			let statement = formatdoc!(
 				"
 					update builds
-					set outcomes_complete = (
+					set outcomes_complete = (select (
 						select case
 							when count(*) = count(complete) then coalesce(min(complete), 1)
 							else 0
 						end
 						from objects
-						where id in (select object from t)
-					) and (
+						where id in ({outcome_objects_query})
+					){bool_cast} and (
 						select case
 							when count(*) = count(outcomes_complete) then coalesce(min(outcomes_complete), 1)
 							else 0
 						end
 						from build_children
 						left join builds on builds.id = build_children.child
-						where build_children.build = {p}1
-					)
-					where id = {p}1
+						where build_children.build = {p}2
+					){bool_cast}){integer_cast}
+					where id = {p}2
 					returning outcomes_complete;
 				"
 			);
-			let params = db::params![id];
+			let params = db::params![outcome_objects, id];
 			let outcomes_completed = connection
 				.query_one_value_into(statement, params)
-				.await
-				.map_err(|source| tg::error!(!source, "failed to execute the statement"))?;
-			connection
-				.execute("drop table t;".to_owned(), db::params![])
 				.await
 				.map_err(|source| tg::error!(!source, "failed to execute the statement"))?;
 
@@ -692,10 +779,18 @@ impl Server {
 
 			// Attempt to set the targets complete flag.
 			let p = connection.p();
+			let bool_cast = match &connection {
+				Either::Left(_) => "",
+				Either::Right(_) => "::bool",
+			};
+			let integer_cast = match &connection {
+				Either::Left(_) => "",
+				Either::Right(_) => "::integer",
+			};
 			let statement = formatdoc!(
 				"
 					update builds
-					set targets_complete = (
+					set targets_complete = (select (
 						select coalesce((
 							select complete
 							from objects
@@ -705,7 +800,7 @@ impl Server {
 								where id = {p}1
 							)
 						), 0)
-					) and (
+					){bool_cast} and (
 						select case
 							when count(*) = count(targets_complete) then coalesce(min(targets_complete), 1)
 							else 0
@@ -713,7 +808,7 @@ impl Server {
 						from build_children
 						left join builds on builds.id = build_children.child
 						where build_children.build = {p}1
-					)
+					){bool_cast}){integer_cast}
 					where id = {p}1
 					returning targets_complete;
 				"

@@ -69,6 +69,7 @@ async fn migration_0000(path: &Path) -> tg::Result<()> {
 		r#"
 			create table builds (
 				id text primary key,
+				complete integer not null default 0,
 				count integer,
 				heartbeat_at text,
 				host text not null,

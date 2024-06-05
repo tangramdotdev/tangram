@@ -5,18 +5,23 @@ use futures::{
 };
 use num::ToPrimitive as _;
 use std::sync::{atomic::AtomicU64, Arc};
-use tangram_client::{self as tg, Handle as _};
+use tangram_client as tg;
 use tangram_http::{incoming::request::Ext as _, outgoing::response::Ext as _, Incoming, Outgoing};
 use tokio_stream::wrappers::IntervalStream;
 
 struct State {
-	objects: ProgressState,
-	bytes: ProgressState,
+	count: ProgressState,
+	weight: ProgressState,
 }
 
 struct ProgressState {
 	current: AtomicU64,
 	total: Option<AtomicU64>,
+}
+
+struct InnerOutput {
+	count: u64,
+	weight: u64,
 }
 
 impl Server {
@@ -25,37 +30,42 @@ impl Server {
 		object: &tg::object::Id,
 		arg: tg::object::push::Arg,
 	) -> tg::Result<impl Stream<Item = tg::Result<tg::object::push::Event>> + Send + 'static> {
-		// Get the remote.
 		let remote = self
 			.remotes
 			.get(&arg.remote)
 			.ok_or_else(|| tg::error!("failed to find the remote"))?
 			.clone();
+		Self::push_or_pull_object(self, &remote, object).await
+	}
 
+	pub async fn push_or_pull_object(
+		src: &impl tg::Handle,
+		dst: &impl tg::Handle,
+		object: &tg::object::Id,
+	) -> tg::Result<impl Stream<Item = tg::Result<tg::object::push::Event>> + Send + 'static> {
 		// Get the metadata.
-		let metadata = self.get_object_metadata(object).await?;
+		let metadata = src.get_object_metadata(object).await?;
 
 		// Create the state.
-		let state = Arc::new(State {
-			objects: ProgressState {
-				current: AtomicU64::new(0),
-				total: metadata.count.map(AtomicU64::new),
-			},
-			bytes: ProgressState {
-				current: AtomicU64::new(0),
-				total: metadata.weight.map(AtomicU64::new),
-			},
-		});
+		let count = ProgressState {
+			current: AtomicU64::new(0),
+			total: metadata.count.map(AtomicU64::new),
+		};
+		let weight = ProgressState {
+			current: AtomicU64::new(0),
+			total: metadata.weight.map(AtomicU64::new),
+		};
+		let state = Arc::new(State { count, weight });
 
 		// Spawn the task.
 		let (result_sender, result_receiver) = tokio::sync::oneshot::channel();
 		tokio::spawn({
-			let server = self.clone();
+			let src = src.clone();
+			let dst = dst.clone();
 			let object = object.clone();
 			let state = state.clone();
 			async move {
-				let result = server
-					.push_object_inner(&object, &remote, &state)
+				let result = Self::push_or_pull_object_inner(&src, &dst, &object, &state)
 					.await
 					.map(|_| ());
 				result_sender.send(result).unwrap();
@@ -69,45 +79,45 @@ impl Server {
 		let stream = IntervalStream::new(interval)
 			.map(move |_| {
 				let current = state
-					.objects
+					.count
 					.current
 					.load(std::sync::atomic::Ordering::Relaxed);
 				let total = state
-					.objects
+					.count
 					.total
 					.as_ref()
 					.map(|total| total.load(std::sync::atomic::Ordering::Relaxed));
-				let objects = tg::Progress { current, total };
+				let count = tg::Progress { current, total };
 				let current = state
-					.bytes
+					.weight
 					.current
 					.load(std::sync::atomic::Ordering::Relaxed);
 				let total = state
-					.bytes
+					.weight
 					.total
 					.as_ref()
 					.map(|total| total.load(std::sync::atomic::Ordering::Relaxed));
-				let bytes = tg::Progress { current, total };
-				let progress = tg::object::push::Progress { objects, bytes };
+				let weight = tg::Progress { current, total };
+				let progress = tg::object::push::Progress { count, weight };
 				Ok(tg::object::push::Event::Progress(progress))
 			})
 			.take_until(result.clone())
 			.chain(stream::once(result.map(|result| match result {
-				Ok(_) => Ok(tg::object::push::Event::End),
+				Ok(()) => Ok(tg::object::push::Event::End),
 				Err(error) => Err(error),
 			})));
 
 		Ok(stream)
 	}
 
-	async fn push_object_inner(
-		&self,
+	async fn push_or_pull_object_inner(
+		src: &impl tg::Handle,
+		dst: &impl tg::Handle,
 		object: &tg::object::Id,
-		remote: &tg::Client,
 		state: &State,
-	) -> tg::Result<(u64, u64)> {
+	) -> tg::Result<InnerOutput> {
 		// Get the object.
-		let tg::object::get::Output { bytes, metadata } = self
+		let tg::object::get::Output { bytes, metadata } = src
 			.get_object(object)
 			.await
 			.map_err(|source| tg::error!(!source, "failed to get the object"))?;
@@ -115,18 +125,18 @@ impl Server {
 
 		// Put the object.
 		let arg = tg::object::put::Arg { bytes };
-		let output = remote
+		let output = dst
 			.put_object(object, arg)
 			.await
 			.map_err(|source| tg::error!(!source, "failed to put the object"))?;
 
 		// Increment the count and add the object's size to the weight.
 		state
-			.objects
+			.count
 			.current
 			.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
 		state
-			.bytes
+			.weight
 			.current
 			.fetch_add(size, std::sync::atomic::Ordering::Relaxed);
 
@@ -134,16 +144,20 @@ impl Server {
 		let (incomplete_count, incomplete_weight) = output
 			.incomplete
 			.into_iter()
-			.map(|object| async move { self.push_object_inner(&object, remote, state).await })
+			.map(
+				|object| async move { Self::push_or_pull_object_inner(src, dst, &object, state).await },
+			)
 			.collect::<FuturesUnordered<_>>()
 			.try_collect::<Vec<_>>()
 			.await?
 			.into_iter()
-			.fold((0, 0), |(count, weight), (c, w)| (count + c, weight + w));
+			.fold((0, 0), |(count, weight), output| {
+				(count + output.count, weight + output.weight)
+			});
 
 		// If the count is set, then add the count not yet added.
 		if let Some(count) = metadata.count {
-			state.objects.current.fetch_add(
+			state.count.current.fetch_add(
 				count - 1 - incomplete_count,
 				std::sync::atomic::Ordering::Relaxed,
 			);
@@ -151,17 +165,17 @@ impl Server {
 
 		// If the weight is set, then add the weight not yet added.
 		if let Some(weight) = metadata.weight {
-			state.bytes.current.fetch_add(
+			state.weight.current.fetch_add(
 				weight - size - incomplete_weight,
 				std::sync::atomic::Ordering::Relaxed,
 			);
 		}
 
-		// Compute the count and weight that this call added.
+		// Compute the count and weight from this call.
 		let count = metadata.count.unwrap_or_else(|| 1 + incomplete_count);
 		let weight = metadata.weight.unwrap_or_else(|| size + incomplete_weight);
 
-		Ok((count, weight))
+		Ok(InnerOutput { count, weight })
 	}
 }
 

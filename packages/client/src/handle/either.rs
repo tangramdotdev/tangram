@@ -64,7 +64,7 @@ where
 		&self,
 		id: &tg::build::Id,
 		arg: tg::build::put::Arg,
-	) -> impl Future<Output = tg::Result<()>> {
+	) -> impl Future<Output = tg::Result<tg::build::put::Output>> {
 		match self {
 			Either::Left(s) => s.put_build(id, arg).left_future(),
 			Either::Right(s) => s.put_build(id, arg).right_future(),

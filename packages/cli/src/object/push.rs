@@ -31,13 +31,13 @@ impl Cli {
 		while let Some(event) = stream.try_next().await? {
 			match event {
 				tg::object::push::Event::Progress(progress) => {
-					objects_progress_bar.set_position(progress.objects.current);
-					if let Some(total) = progress.objects.total {
+					objects_progress_bar.set_position(progress.count.current);
+					if let Some(total) = progress.count.total {
 						objects_progress_bar.set_style(indicatif::ProgressStyle::default_bar());
 						objects_progress_bar.set_length(total);
 					}
-					bytes_progress_bar.set_position(progress.bytes.current);
-					if let Some(total) = progress.bytes.total {
+					bytes_progress_bar.set_position(progress.weight.current);
+					if let Some(total) = progress.weight.total {
 						bytes_progress_bar.set_style(indicatif::ProgressStyle::default_bar());
 						bytes_progress_bar.set_length(total);
 					}

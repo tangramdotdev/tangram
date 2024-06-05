@@ -114,5 +114,5 @@ pub struct Remote {
 pub struct Vfs {
 	pub cache_ttl: f64,
 	pub cache_size: u64,
-	pub num_database_connections: usize,
+	pub database_connections: usize,
 }

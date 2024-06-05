@@ -7,26 +7,24 @@ use tokio::io::AsyncReadExt as _;
 #[derive(Clone, Debug, clap::Args)]
 #[group(skip)]
 pub struct Args {
-	#[arg(long)]
-	pub json: Option<String>,
+	pub arg: Option<String>,
 }
 
 impl Cli {
 	pub async fn command_build_put(&self, args: Args) -> tg::Result<()> {
-		let json = if let Some(json) = args.json {
-			json
+		let arg = if let Some(arg) = args.arg {
+			arg
 		} else {
-			let mut json = String::new();
+			let mut arg = String::new();
 			tokio::io::stdin()
-				.read_to_string(&mut json)
+				.read_to_string(&mut arg)
 				.await
 				.map_err(|source| tg::error!(!source, "failed to read stdin"))?;
-			json
+			arg
 		};
-		let arg: tg::build::put::Arg = serde_json::from_str(&json)
+		let arg: tg::build::put::Arg = serde_json::from_str(&arg)
 			.map_err(|source| tg::error!(!source, "failed to deseralize"))?;
 		self.handle.put_build(&arg.id.clone(), arg.clone()).await?;
-		println!("{}", arg.id);
 		Ok(())
 	}
 }

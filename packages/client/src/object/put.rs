@@ -1,15 +1,19 @@
 use crate as tg;
 use bytes::Bytes;
+use serde_with::serde_as;
 use std::collections::BTreeSet;
 use tangram_http::{incoming::response::Ext as _, Outgoing};
 
+#[serde_as]
 #[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
 pub struct Arg {
+	#[serde_as(as = "crate::util::serde::BytesBase64")]
 	pub bytes: Bytes,
 }
 
 #[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
 pub struct Output {
+	#[serde(default, skip_serializing_if = "BTreeSet::is_empty")]
 	pub incomplete: BTreeSet<tg::object::Id>,
 }
 

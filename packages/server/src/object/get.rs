@@ -57,6 +57,9 @@ impl Server {
 			return Ok(None);
 		};
 
+		// Drop the database connection.
+		drop(connection);
+
 		// Create the output.
 		let output = tg::object::get::Output {
 			bytes: row.bytes,
@@ -65,9 +68,6 @@ impl Server {
 				weight: row.weight,
 			},
 		};
-
-		// Drop the database connection.
-		drop(connection);
 
 		Ok(Some(output))
 	}
@@ -89,11 +89,19 @@ impl Server {
 			return Ok(None);
 		};
 
-		// Put the object.
-		let arg = tg::object::put::Arg {
-			bytes: output.bytes.clone(),
-		};
-		self.put_object(id, arg).await?;
+		// Spawn a task to put the object.
+		tokio::spawn({
+			let server = self.clone();
+			let id = id.clone();
+			let output = output.clone();
+			async move {
+				let arg = tg::object::put::Arg {
+					bytes: output.bytes.clone(),
+				};
+				server.put_object(&id, arg).await?;
+				Ok::<_, tg::Error>(())
+			}
+		});
 
 		Ok(Some(output))
 	}

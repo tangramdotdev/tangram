@@ -242,5 +242,5 @@ pub enum TracingFormat {
 pub struct Vfs {
 	pub cache_ttl: Option<f64>,
 	pub cache_size: Option<u64>,
-	pub num_database_connections: Option<usize>,
+	pub database_connections: Option<usize>,
 }

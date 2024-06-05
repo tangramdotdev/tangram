@@ -139,7 +139,7 @@ impl Server {
 
 				// Read the data.
 				let data = self
-					.try_get_build_children_local_inner(&id, position, size)
+					.try_get_build_children_local_inner(id, position, size)
 					.await?;
 
 				// If the data is empty, then break.

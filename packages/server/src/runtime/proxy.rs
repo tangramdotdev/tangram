@@ -115,7 +115,11 @@ impl tg::Handle for Proxy {
 		self.server.try_get_build(id)
 	}
 
-	async fn put_build(&self, _id: &tg::build::Id, _arg: tg::build::put::Arg) -> tg::Result<()> {
+	async fn put_build(
+		&self,
+		_id: &tg::build::Id,
+		_arg: tg::build::put::Arg,
+	) -> tg::Result<tg::build::put::Output> {
 		Err(tg::error!("forbidden"))
 	}
 

@@ -531,7 +531,7 @@ impl Cli {
 		});
 
 		// Create the build dequeue timeout.
-		let build_dequeue_timeout = config.and_then(|config| config.build_dequeue_timeout.clone());
+		let build_dequeue_timeout = config.and_then(|config| config.build_dequeue_timeout);
 
 		// Create the build heartbeat monitor options.
 		let build_heartbeat_monitor = config
@@ -666,11 +666,11 @@ impl Cli {
 			.map(|vfs| {
 				let cache_ttl = vfs.cache_ttl.unwrap_or(10.0);
 				let cache_size = vfs.cache_size.unwrap_or(4096);
-				let num_database_connections = vfs.num_database_connections.unwrap_or(4);
+				let database_connections = vfs.database_connections.unwrap_or(4);
 				tangram_server::options::Vfs {
-					cache_size,
 					cache_ttl,
-					num_database_connections,
+					cache_size,
+					database_connections,
 				}
 			});
 

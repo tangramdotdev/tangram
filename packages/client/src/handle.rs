@@ -54,7 +54,7 @@ pub trait Handle: Clone + Unpin + Send + Sync + 'static {
 		&self,
 		id: &tg::build::Id,
 		arg: tg::build::put::Arg,
-	) -> impl Future<Output = tg::Result<()>> + Send;
+	) -> impl Future<Output = tg::Result<tg::build::put::Output>> + Send;
 
 	fn push_build(
 		&self,

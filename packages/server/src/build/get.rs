@@ -91,32 +91,40 @@ impl Server {
 			return Ok(None);
 		};
 
-		// Put the build if it is finished.
+		// Spawn a task to put the build if it is finished.
 		if output.status == tg::build::Status::Finished {
-			let arg = tg::build::children::Arg::default();
-			let children = self
-				.try_get_build_children(id, arg)
-				.await?
-				.ok_or_else(|| tg::error!("expected the build to exist"))?
-				.map_ok(|chunk| stream::iter(chunk.items).map(Ok::<_, tg::Error>))
-				.try_flatten()
-				.try_collect()
-				.await?;
-			let arg = tg::build::put::Arg {
-				id: output.id.clone(),
-				children,
-				host: output.host.clone(),
-				log: output.log.clone(),
-				outcome: output.outcome.clone(),
-				retry: output.retry,
-				status: output.status,
-				target: output.target.clone(),
-				created_at: output.created_at,
-				dequeued_at: output.dequeued_at,
-				started_at: output.started_at,
-				finished_at: output.finished_at,
-			};
-			self.put_build(id, arg).await?;
+			tokio::spawn({
+				let server = self.clone();
+				let id = id.clone();
+				let output = output.clone();
+				async move {
+					let arg = tg::build::children::Arg::default();
+					let children = server
+						.try_get_build_children(&id, arg)
+						.await?
+						.ok_or_else(|| tg::error!("expected the build to exist"))?
+						.map_ok(|chunk| stream::iter(chunk.items).map(Ok::<_, tg::Error>))
+						.try_flatten()
+						.try_collect()
+						.await?;
+					let arg = tg::build::put::Arg {
+						id: output.id.clone(),
+						children,
+						host: output.host.clone(),
+						log: output.log.clone(),
+						outcome: output.outcome.clone(),
+						retry: output.retry,
+						status: output.status,
+						target: output.target.clone(),
+						created_at: output.created_at,
+						dequeued_at: output.dequeued_at,
+						started_at: output.started_at,
+						finished_at: output.finished_at,
+					};
+					server.put_build(&id, arg).await?;
+					Ok::<_, tg::Error>(())
+				}
+			});
 		}
 
 		Ok(Some(output))

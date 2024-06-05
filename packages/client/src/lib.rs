@@ -595,7 +595,7 @@ impl tg::Handle for Client {
 		&self,
 		id: &tg::build::Id,
 		arg: tg::build::put::Arg,
-	) -> impl Future<Output = tg::Result<()>> {
+	) -> impl Future<Output = tg::Result<tg::build::put::Output>> {
 		self.put_build(id, arg)
 	}
 

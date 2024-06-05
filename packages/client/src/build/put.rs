@@ -1,4 +1,5 @@
 use crate as tg;
+use std::collections::{BTreeMap, BTreeSet};
 use tangram_http::{incoming::response::Ext as _, outgoing::request::Ext as _};
 
 #[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
@@ -35,6 +36,36 @@ pub struct Arg {
 	pub finished_at: Option<time::OffsetDateTime>,
 }
 
+#[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
+pub struct Output {
+	pub incomplete: Incomplete,
+}
+
+#[derive(Clone, Debug, Default, serde::Deserialize, serde::Serialize)]
+pub struct Incomplete {
+	#[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+	pub children: BTreeMap<tg::build::Id, IncompleteChild>,
+	#[serde(default, skip_serializing_if = "std::ops::Not::not")]
+	pub log: bool,
+	#[serde(default, skip_serializing_if = "BTreeSet::is_empty")]
+	pub outcome: BTreeSet<tg::object::Id>,
+	#[serde(default, skip_serializing_if = "std::ops::Not::not")]
+	pub target: bool,
+}
+
+#[allow(clippy::struct_excessive_bools)]
+#[derive(Clone, Debug, Default, Eq, PartialEq, serde::Deserialize, serde::Serialize)]
+pub struct IncompleteChild {
+	#[serde(default, skip_serializing_if = "std::ops::Not::not")]
+	pub build: bool,
+	#[serde(default, skip_serializing_if = "std::ops::Not::not")]
+	pub logs: bool,
+	#[serde(default, skip_serializing_if = "std::ops::Not::not")]
+	pub outcomes: bool,
+	#[serde(default, skip_serializing_if = "std::ops::Not::not")]
+	pub targets: bool,
+}
+
 impl Arg {
 	pub fn objects(&self) -> Vec<tg::object::Id> {
 		let log = self.log.iter().map(|id| id.clone().into());
@@ -56,7 +87,11 @@ impl Arg {
 }
 
 impl tg::Client {
-	pub async fn put_build(&self, id: &tg::build::Id, arg: tg::build::put::Arg) -> tg::Result<()> {
+	pub async fn put_build(
+		&self,
+		id: &tg::build::Id,
+		arg: tg::build::put::Arg,
+	) -> tg::Result<tg::build::put::Output> {
 		let method = http::Method::PUT;
 		let uri = format!("/builds/{id}");
 		let request = http::request::Builder::default()
@@ -69,6 +104,8 @@ impl tg::Client {
 			let error = response.json().await?;
 			return Err(error);
 		}
-		Ok(())
+		let output = response.json().await?;
+		eprintln!("{}", serde_json::to_string(&output).unwrap());
+		Ok(output)
 	}
 }

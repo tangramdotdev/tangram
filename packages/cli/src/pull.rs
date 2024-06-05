@@ -7,8 +7,17 @@ use tangram_client as tg;
 pub struct Args {
 	pub arg: Arg,
 
+	#[arg(long)]
+	pub logs: bool,
+
+	#[arg(long)]
+	pub recursive: bool,
+
 	#[arg(short, long)]
 	pub remote: Option<String>,
+
+	#[arg(long)]
+	pub targets: bool,
 }
 
 #[derive(Clone, Debug)]
@@ -23,10 +32,10 @@ impl Cli {
 			Arg::Build(arg) => {
 				let args = super::build::pull::Args {
 					build: arg,
-					logs: false,
-					recursive: false,
+					logs: args.logs,
+					recursive: args.recursive,
 					remote: args.remote,
-					targets: false,
+					targets: args.targets,
 				};
 				self.command_build_pull(args).await?;
 			},

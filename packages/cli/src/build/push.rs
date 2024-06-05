@@ -28,6 +28,7 @@ impl Cli {
 		let remote = args.remote.unwrap_or_else(|| "default".to_owned());
 		let arg = tg::build::push::Arg {
 			logs: args.logs,
+			outcomes: true,
 			recursive: args.recursive,
 			remote,
 			targets: args.targets,
@@ -47,18 +48,18 @@ impl Cli {
 		while let Some(event) = stream.try_next().await? {
 			match event {
 				tg::build::push::Event::Progress(progress) => {
-					builds_progress_bar.set_position(progress.builds.current);
-					if let Some(total) = progress.builds.total {
+					builds_progress_bar.set_position(progress.build_count.current);
+					if let Some(total) = progress.build_count.total {
 						builds_progress_bar.set_style(indicatif::ProgressStyle::default_bar());
 						builds_progress_bar.set_length(total);
 					}
-					objects_progress_bar.set_position(progress.objects.current);
-					if let Some(total) = progress.objects.total {
+					objects_progress_bar.set_position(progress.object_count.current);
+					if let Some(total) = progress.object_count.total {
 						objects_progress_bar.set_style(indicatif::ProgressStyle::default_bar());
 						objects_progress_bar.set_length(total);
 					}
-					bytes_progress_bar.set_position(progress.bytes.current);
-					if let Some(total) = progress.bytes.total {
+					bytes_progress_bar.set_position(progress.object_weight.current);
+					if let Some(total) = progress.object_weight.total {
 						bytes_progress_bar.set_style(indicatif::ProgressStyle::default_bar());
 						bytes_progress_bar.set_length(total);
 					}

@@ -41,7 +41,7 @@ impl Server {
 						select id
 						from objects
 						where
-							indexing_status is 'enqueued' or
+							indexing_status = 'enqueued' or
 							(indexing_status = 'started' and indexing_started_at <= {p}2)
 						limit 1
 					)
@@ -70,7 +70,7 @@ impl Server {
 				},
 
 				Err(error) => {
-					tracing::error!(?error, "failed to get a database connection");
+					tracing::error!(?error, "failed to get an object to index");
 					let duration = std::time::Duration::from_secs(1);
 					tokio::time::sleep(duration).await;
 					continue;

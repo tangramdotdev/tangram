@@ -57,7 +57,7 @@ impl Server {
 		let mut end = false;
 		let stream = stream::select(status, interval)
 			.boxed()
-			.then(move |_| {
+			.then(move |()| {
 				let server = server.clone();
 				let id = id.clone();
 				async move { server.try_get_build_status_local_inner(&id).await }
