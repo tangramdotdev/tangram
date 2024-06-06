@@ -24,17 +24,21 @@ pub struct Config {
 	)]
 	pub build: Option<Either<bool, Build>>,
 
-	/// The duration after which a build that is dequeued but not started may be dequeued again.
-	#[serde(default, skip_serializing_if = "Option::is_none")]
-	pub build_dequeue_timeout: Option<std::time::Duration>,
-
 	/// Configure the build heartbeat monitor.
-	#[serde(default, skip_serializing_if = "Option::is_none")]
-	pub build_heartbeat_monitor: Option<BuildHeartbeatMonitor>,
+	#[serde(
+		default,
+		skip_serializing_if = "Option::is_none",
+		with = "either::serde_untagged_optional"
+	)]
+	pub build_heartbeat_monitor: Option<Either<bool, BuildHeartbeatMonitor>>,
 
 	/// Configure the build indexer.
-	#[serde(default, skip_serializing_if = "Option::is_none")]
-	pub build_indexer: Option<BuildIndexer>,
+	#[serde(
+		default,
+		skip_serializing_if = "Option::is_none",
+		with = "either::serde_untagged_optional"
+	)]
+	pub build_indexer: Option<Either<bool, BuildIndexer>>,
 
 	/// Configure the database.
 	#[serde(default, skip_serializing_if = "Option::is_none")]
@@ -48,8 +52,12 @@ pub struct Config {
 	pub mode: Option<Mode>,
 
 	/// Configure the object indexer.
-	#[serde(default, skip_serializing_if = "Option::is_none")]
-	pub object_indexer: Option<ObjectIndexer>,
+	#[serde(
+		default,
+		skip_serializing_if = "Option::is_none",
+		with = "either::serde_untagged_optional"
+	)]
+	pub object_indexer: Option<Either<bool, ObjectIndexer>>,
 
 	/// The path where a client will look for a socket file and where a server will store its data.
 	#[serde(default, skip_serializing_if = "Option::is_none")]
@@ -86,29 +94,40 @@ pub struct Config {
 
 #[derive(Clone, Debug, Default, serde::Deserialize, serde::Serialize)]
 pub struct Advanced {
+	/// The duration after which a build that is dequeued but not started may be dequeued again.
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub build_dequeue_timeout: Option<std::time::Duration>,
+
+	/// Whether to duplicate build logs to the server's stderr.
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub duplicate_build_logs_to_stderr: Option<bool>,
 
+	/// Options for rendering error traces.
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub error_trace_options: Option<tg::error::TraceOptions>,
 
+	/// Set the file descriptor limit for the server on startup.
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub file_descriptor_limit: Option<u64>,
 
+	/// The maximum number of file descriptors the server will open at a time.
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub file_descriptor_semaphore_size: Option<usize>,
 
+	/// Whether to preserve temporary directories.
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub preserve_temp_directories: Option<bool>,
 
+	/// Whether to enable publishing of data to tokio console.
 	#[serde(default, skip_serializing_if = "std::ops::Not::not")]
 	pub tokio_console: bool,
 
+	/// Whether to write build logs to the database instead of files.
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub write_build_logs_to_database: Option<bool>,
 }
 
-#[derive(Copy, Clone, Debug, Default, serde::Deserialize, serde::Serialize)]
+#[derive(Clone, Debug, Default, serde::Deserialize, serde::Serialize)]
 pub struct BuildHeartbeatMonitor {
 	/// The duration to pause when there are no builds that need to be canceled.
 	#[serde(default, skip_serializing_if = "Option::is_none")]
@@ -123,7 +142,7 @@ pub struct BuildHeartbeatMonitor {
 	pub timeout: Option<u64>,
 }
 
-#[derive(Copy, Clone, Debug, Default, serde::Deserialize, serde::Serialize)]
+#[derive(Clone, Debug, Default, serde::Deserialize, serde::Serialize)]
 pub struct BuildIndexer {}
 
 #[derive(Clone, Debug, Default, serde::Deserialize, serde::Serialize)]
@@ -195,7 +214,7 @@ pub struct NatsMessenger {
 	pub url: Url,
 }
 
-#[derive(Copy, Clone, Debug, Default, serde::Deserialize, serde::Serialize)]
+#[derive(Clone, Debug, Default, serde::Deserialize, serde::Serialize)]
 pub struct ObjectIndexer {}
 
 #[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
@@ -238,7 +257,7 @@ pub enum TracingFormat {
 	Pretty,
 }
 
-#[derive(Copy, Clone, Debug, Default, serde::Serialize, serde::Deserialize)]
+#[derive(Clone, Debug, Default, serde::Serialize, serde::Deserialize)]
 pub struct Vfs {
 	pub cache_ttl: Option<f64>,
 	pub cache_size: Option<u64>,

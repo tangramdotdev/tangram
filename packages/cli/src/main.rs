@@ -460,11 +460,9 @@ impl Cli {
 			});
 
 		// Create the advanced options.
-		let preserve_temp_directories = config
-			.as_ref()
+		let build_dequeue_timeout = config
 			.and_then(|config| config.advanced.as_ref())
-			.and_then(|advanced| advanced.preserve_temp_directories)
-			.unwrap_or(false);
+			.and_then(|advanced| advanced.build_dequeue_timeout);
 		let error_trace_options = config
 			.and_then(|config| config.advanced.as_ref())
 			.and_then(|advanced| advanced.error_trace_options.clone())
@@ -473,6 +471,11 @@ impl Cli {
 			.and_then(|config| config.advanced.as_ref())
 			.and_then(|advanced| advanced.file_descriptor_semaphore_size)
 			.unwrap_or(1024);
+		let preserve_temp_directories = config
+			.as_ref()
+			.and_then(|config| config.advanced.as_ref())
+			.and_then(|advanced| advanced.preserve_temp_directories)
+			.unwrap_or(false);
 		let write_build_logs_to_file = config
 			.and_then(|config| config.advanced.as_ref())
 			.and_then(|advanced| advanced.write_build_logs_to_database)
@@ -482,6 +485,7 @@ impl Cli {
 			.and_then(|advanced| advanced.duplicate_build_logs_to_stderr)
 			.unwrap_or(false);
 		let advanced = tangram_server::options::Advanced {
+			build_dequeue_timeout,
 			error_trace_options,
 			file_descriptor_semaphore_size,
 			preserve_temp_directories,
@@ -511,16 +515,16 @@ impl Cli {
 			.unwrap_or_default();
 
 		// Create the build options.
-		let build = match config.and_then(|config| config.build.as_ref()) {
+		let build = match config.and_then(|config| config.build.clone()) {
 			Some(Either::Left(false)) => None,
-			Some(Either::Left(true)) | None => Some(None),
-			Some(Either::Right(value)) => Some(Some(value)),
+			None | Some(Either::Left(true)) => Some(crate::config::Build::default()),
+			Some(Either::Right(value)) => Some(value),
 		};
 		let build = build.map(|build| {
 			let concurrency = build
-				.and_then(|build| build.concurrency)
+				.concurrency
 				.unwrap_or_else(|| std::thread::available_parallelism().unwrap().get());
-			let heartbeat_interval = build.and_then(|build| build.heartbeat_interval).map_or(
+			let heartbeat_interval = build.heartbeat_interval.map_or(
 				std::time::Duration::from_secs(1),
 				std::time::Duration::from_secs_f64,
 			);
@@ -530,29 +534,37 @@ impl Cli {
 			}
 		});
 
-		// Create the build dequeue timeout.
-		let build_dequeue_timeout = config.and_then(|config| config.build_dequeue_timeout);
-
 		// Create the build heartbeat monitor options.
-		let build_heartbeat_monitor = config
-			.and_then(|config| config.build_heartbeat_monitor.as_ref())
-			.map(|config| {
-				let interval = config.interval.unwrap_or(1);
-				let limit = config.limit.unwrap_or(100);
-				let timeout = config.timeout.unwrap_or(60);
-				let interval = std::time::Duration::from_secs(interval);
-				let timeout = std::time::Duration::from_secs(timeout);
-				tangram_server::options::BuildHeartbeatMonitor {
-					interval,
-					limit,
-					timeout,
-				}
-			});
+		let build_heartbeat_monitor =
+			config.and_then(|config| config.build_heartbeat_monitor.clone());
+		let build_heartbeat_monitor = match build_heartbeat_monitor {
+			Some(Either::Left(false)) => None,
+			None | Some(Either::Left(true)) => {
+				Some(crate::config::BuildHeartbeatMonitor::default())
+			},
+			Some(Either::Right(config)) => Some(config),
+		};
+		let build_heartbeat_monitor = build_heartbeat_monitor.map(|config| {
+			let interval = config.interval.unwrap_or(1);
+			let limit = config.limit.unwrap_or(100);
+			let timeout = config.timeout.unwrap_or(60);
+			let interval = std::time::Duration::from_secs(interval);
+			let timeout = std::time::Duration::from_secs(timeout);
+			tangram_server::options::BuildHeartbeatMonitor {
+				interval,
+				limit,
+				timeout,
+			}
+		});
 
 		// Create the build indexer options.
-		let build_indexer = config
-			.and_then(|config| config.build_indexer.as_ref())
-			.map(|_| tangram_server::options::BuildIndexer {});
+		let build_indexer = config.and_then(|config| config.build_indexer.clone());
+		let build_indexer = match build_indexer {
+			Some(Either::Left(false)) => None,
+			None | Some(Either::Left(true)) => Some(crate::config::BuildIndexer::default()),
+			Some(Either::Right(config)) => Some(config),
+		};
+		let build_indexer = build_indexer.map(|_| tangram_server::options::BuildIndexer {});
 
 		// Create the database options.
 		let database = config
@@ -603,9 +615,13 @@ impl Cli {
 			);
 
 		// Create the object indexer options.
-		let object_indexer = config
-			.and_then(|config| config.object_indexer.as_ref())
-			.map(|_| tangram_server::options::ObjectIndexer {});
+		let object_indexer = config.and_then(|config| config.object_indexer.clone());
+		let object_indexer = match object_indexer {
+			Some(Either::Left(false)) => None,
+			None | Some(Either::Left(true)) => Some(crate::config::ObjectIndexer::default()),
+			Some(Either::Right(config)) => Some(config),
+		};
+		let object_indexer = object_indexer.map(|_| tangram_server::options::ObjectIndexer {});
 
 		// Create the registry option.
 		let registry = match config.as_ref().and_then(|config| config.registry.as_ref()) {
@@ -654,32 +670,28 @@ impl Cli {
 		let version = Some(VERSION.to_owned());
 
 		// Create the vfs options.
-		let vfs = config
-			.and_then(|config| config.vfs)
-			.and_then(|vfs| {
-				if matches!(vfs, Either::Left(false)) {
-					None
-				} else {
-					Some(vfs.right().unwrap_or_default())
-				}
-			})
-			.map(|vfs| {
-				let cache_ttl = vfs.cache_ttl.unwrap_or(10.0);
-				let cache_size = vfs.cache_size.unwrap_or(4096);
-				let database_connections = vfs.database_connections.unwrap_or(4);
-				tangram_server::options::Vfs {
-					cache_ttl,
-					cache_size,
-					database_connections,
-				}
-			});
+		let vfs = config.and_then(|config| config.vfs.clone());
+		let vfs = match vfs {
+			Some(Either::Left(false)) => None,
+			None | Some(Either::Left(true)) => Some(crate::config::Vfs::default()),
+			Some(Either::Right(config)) => Some(config),
+		};
+		let vfs = vfs.map(|config| {
+			let cache_ttl = config.cache_ttl.unwrap_or(10.0);
+			let cache_size = config.cache_size.unwrap_or(4096);
+			let database_connections = config.database_connections.unwrap_or(4);
+			tangram_server::options::Vfs {
+				cache_ttl,
+				cache_size,
+				database_connections,
+			}
+		});
 
 		// Create the options.
 		let options = tangram_server::Options {
 			advanced,
 			authentication,
 			build,
-			build_dequeue_timeout,
 			build_heartbeat_monitor,
 			build_indexer,
 			database,

@@ -354,7 +354,7 @@ impl Server {
 				});
 
 		// Start the build indexer task.
-		let build_indexer_task = if true {
+		let build_indexer_task = if self.options.build_indexer.is_some() {
 			Some(tokio::spawn({
 				let server = self.clone();
 				async move { server.build_indexer_task().await }
@@ -364,7 +364,7 @@ impl Server {
 		};
 
 		// Start the object indexer task.
-		let object_indexer_task = if true {
+		let object_indexer_task = if self.options.object_indexer.is_some() {
 			Some(tokio::spawn({
 				let server = self.clone();
 				async move { server.object_indexer_task().await }

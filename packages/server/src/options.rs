@@ -7,7 +7,6 @@ pub struct Options {
 	pub advanced: Advanced,
 	pub authentication: Authentication,
 	pub build: Option<Build>,
-	pub build_dequeue_timeout: Option<std::time::Duration>,
 	pub build_heartbeat_monitor: Option<BuildHeartbeatMonitor>,
 	pub build_indexer: Option<BuildIndexer>,
 	pub database: Database,
@@ -23,6 +22,7 @@ pub struct Options {
 
 #[derive(Clone, Debug)]
 pub struct Advanced {
+	pub build_dequeue_timeout: Option<std::time::Duration>,
 	pub error_trace_options: tg::error::TraceOptions,
 	pub file_descriptor_semaphore_size: usize,
 	pub preserve_temp_directories: bool,
