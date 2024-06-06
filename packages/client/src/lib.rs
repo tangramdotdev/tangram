@@ -484,9 +484,13 @@ impl Client {
 		// Create the connector.
 		let mut root_store = rustls::RootCertStore::empty();
 		root_store.extend(webpki_roots::TLS_SERVER_ROOTS.iter().cloned());
-		let mut config = rustls::ClientConfig::builder()
-			.with_root_certificates(root_store)
-			.with_no_client_auth();
+		let mut config = rustls::ClientConfig::builder_with_provider(Arc::new(
+			rustls::crypto::aws_lc_rs::default_provider(),
+		))
+		.with_safe_default_protocol_versions()
+		.unwrap()
+		.with_root_certificates(root_store)
+		.with_no_client_auth();
 		config.alpn_protocols = protocols;
 		let connector = tokio_rustls::TlsConnector::from(Arc::new(config));
 
