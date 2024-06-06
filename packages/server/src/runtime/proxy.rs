@@ -1,7 +1,7 @@
 use crate::Server;
 use bytes::Bytes;
 use futures::{stream, Future, Stream};
-use std::sync::Arc;
+use std::{str::FromStr as _, sync::Arc};
 use tangram_client as tg;
 use tokio::io::{AsyncBufRead, AsyncRead, AsyncWrite};
 
@@ -50,6 +50,42 @@ impl Proxy {
 			Ok(path_map.root_host.clone().join(path))
 		}
 	}
+
+	fn guest_path_for_host_path(&self, path: tg::Path) -> tg::Result<tg::Path> {
+		// Get the path map. If there is no path map, then the host path is the guest path.
+		let Some(path_map) = &self.path_map else {
+			return Ok(path);
+		};
+
+		// Map the path.
+		let path = std::path::PathBuf::from(path.to_string());
+		let result = if path.starts_with(&path_map.output_host) {
+			let suffix: tg::Path = path
+				.strip_prefix(&path_map.output_host)
+				.unwrap()
+				.to_owned()
+				.try_into()?;
+			path_map.output_guest.clone().join(suffix)
+		} else if path.starts_with(&self.server.path) {
+			let suffix: tg::Path = path
+				.strip_prefix(&self.server.path)
+				.unwrap()
+				.to_owned()
+				.try_into()?;
+			tg::Path::from_str("/.tangram").unwrap().join(suffix)
+		} else {
+			let suffix: tg::Path = path
+				.strip_prefix(&path_map.root_host)
+				.map_err(|error| {
+					tg::error!(source = error, "cannot map path outside of host root")
+				})?
+				.to_owned()
+				.try_into()?;
+			tg::Path::from_str("/").unwrap().join(suffix)
+		};
+
+		Ok(result)
+	}
 }
 
 impl tg::Handle for Proxy {
@@ -94,7 +130,12 @@ impl tg::Handle for Proxy {
 		}
 
 		// Perform the checkout.
-		self.server.check_out_artifact(id, arg).await
+		let mut output = self.server.check_out_artifact(id, arg).await?;
+
+		// Map the path back to the guest path.
+		output.path = self.guest_path_for_host_path(output.path)?;
+
+		Ok(output)
 	}
 
 	fn create_blob(
