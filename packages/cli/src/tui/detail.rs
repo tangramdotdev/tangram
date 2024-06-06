@@ -159,7 +159,12 @@ where
 			let info_focus = matches!(state.focus, Focus::DetailOne);
 			let info_area = render_block_and_get_area("Info", info_focus, layout[0], buf);
 			let data_focus = matches!(state.focus, Focus::DetailTwo);
-			let data_area = render_block_and_get_area("Data", data_focus, layout[1], buf);
+			let title = if matches!(self.data, Some(Either::Left(_))) {
+				"Log"
+			} else {
+				"Data"
+			};
+			let data_area = render_block_and_get_area(title, data_focus, layout[1], buf);
 			self.info.render(info_area, buf);
 			match data {
 				Either::Left(log) => log.render(data_area, buf),
