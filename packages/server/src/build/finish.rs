@@ -110,10 +110,24 @@ impl Server {
 			if let Ok(tg::value::Data::Object(object)) = outcome.try_unwrap_succeeded_ref().cloned()
 			{
 				if tg::artifact::Id::try_from(object.clone()).is_ok() {
-					return Err(tg::error!("checksums for artifacts are unimplemented"));
+					let algorithm = expected.algorithm();
+					let actual = match algorithm {
+						tg::checksum::Algorithm::Unsafe => tg::Checksum::Unsafe,
+						_ => {
+							return Err(tg::error!("unimplemented"));
+						},
+					};
+					if expected != tg::Checksum::Unsafe && expected != actual {
+						outcome = tg::build::outcome::Data::Failed(tg::error!(
+							%expected,
+							%actual,
+							"the checksum did not match"
+						));
+					}
 				} else if let Ok(blob) = tg::blob::Id::try_from(object.clone()) {
 					let blob = tg::Blob::with_id(blob);
-					let mut writer = tg::checksum::Writer::new(expected.algorithm());
+					let algorithm = expected.algorithm();
+					let mut writer = tg::checksum::Writer::new(algorithm);
 					let mut reader = blob.reader(self).await?;
 					tokio::io::copy(&mut reader, &mut writer)
 						.await
