@@ -62,8 +62,8 @@ impl Server {
 			if exists && !arg.force {
 				return Err(tg::error!(%path, "there is already a file system object at the path"));
 			}
-			if (path.as_ref() as &std::path::Path).starts_with(&self.path) {
-				return Err(tg::error!(%path, "cannot check out into the server's directory"));
+			if (path.as_ref() as &std::path::Path).starts_with(self.checkouts_path()) {
+				return Err(tg::error!(%path, "cannot check out into the checkouts directory"));
 			}
 
 			// Check in an existing artifact at the path.
