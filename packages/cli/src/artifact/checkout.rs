@@ -9,12 +9,20 @@ pub struct Args {
 	/// The artifact to check out.
 	pub artifact: tg::artifact::Id,
 
-	/// The path to check out the artifact to. The default is the artifact's ID in the checkouts directory.
-	pub path: Option<PathBuf>,
+	/// Whether to bundle the artifact before checkout.
+	#[arg(long)]
+	pub bundle: bool,
 
 	/// Whether to overwrite an existing file system object at the path.
 	#[arg(short, long, requires = "path")]
 	pub force: bool,
+
+	/// The path to check out the artifact to. The default is the artifact's ID in the checkouts directory.
+	pub path: Option<PathBuf>,
+
+	/// Whether to check out the artifact's references.
+	#[arg(long, default_value_t = true)]
+	pub references: bool,
 }
 
 impl Cli {
@@ -49,8 +57,9 @@ impl Cli {
 		// Create the arg.
 		let arg = tg::artifact::checkout::Arg {
 			bundle: path.is_some(),
-			path,
 			force: args.force,
+			path,
+			references: true,
 		};
 
 		// Check out the artifact.

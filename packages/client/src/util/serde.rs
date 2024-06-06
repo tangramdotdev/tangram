@@ -104,3 +104,12 @@ impl<'de> serde_with::DeserializeAs<'de, std::io::SeekFrom> for SeekFromString {
 		deserializer.deserialize_str(Visitor)
 	}
 }
+
+pub fn true_() -> bool {
+	true
+}
+
+#[allow(clippy::trivially_copy_pass_by_ref)]
+pub fn is_true(value: &bool) -> bool {
+	*value
+}

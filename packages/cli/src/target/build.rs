@@ -349,8 +349,9 @@ impl Cli {
 			// Check out the artifact.
 			let arg = tg::artifact::checkout::Arg {
 				bundle: path.is_some(),
-				path,
 				force: false,
+				path,
+				references: true,
 			};
 			let output = artifact
 				.check_out(&self.handle, arg)

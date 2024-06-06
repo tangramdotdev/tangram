@@ -12,15 +12,13 @@ impl Server {
 		id: &tg::artifact::Id,
 		arg: tg::artifact::checkout::Arg,
 	) -> tg::Result<tg::artifact::checkout::Output> {
-		// Determine if this is an internal checkout.
 		let internal = arg.path.is_none();
-
 		// Get or spawn the task.
 		let spawn = |_| {
 			let server = self.clone();
 			let id = id.clone();
 			let files = Arc::new(DashMap::default());
-			async move { server.check_out_artifact_with_files(&id, arg, files).await }
+			async move { server.check_out_artifact_with_files(&id, &arg, files).await }
 		};
 		let task = if internal {
 			self.checkouts.get_or_spawn(id.clone(), spawn)
@@ -37,7 +35,7 @@ impl Server {
 	async fn check_out_artifact_with_files(
 		&self,
 		id: &tg::artifact::Id,
-		arg: tg::artifact::checkout::Arg,
+		arg: &tg::artifact::checkout::Arg,
 		files: Arc<DashMap<tg::file::Id, tg::Path, fnv::FnvBuildHasher>>,
 	) -> tg::Result<tg::artifact::checkout::Output> {
 		let artifact = tg::Artifact::with_id(id.clone());
@@ -52,7 +50,7 @@ impl Server {
 			artifact
 		};
 
-		if let Some(path) = arg.path {
+		if let Some(path) = arg.path.clone() {
 			if !path.is_absolute() {
 				return Err(tg::error!(%path, "the path must be absolute"));
 			}
@@ -76,15 +74,8 @@ impl Server {
 			};
 
 			// Perform the checkout.
-			self.check_out_inner(
-				&path,
-				&artifact,
-				existing_artifact.as_ref(),
-				false,
-				0,
-				files,
-			)
-			.await?;
+			self.check_out_inner(&path, &artifact, existing_artifact.as_ref(), arg, 0, files)
+				.await?;
 
 			Ok(tg::artifact::checkout::Output { path })
 		} else {
@@ -112,7 +103,7 @@ impl Server {
 				&tmp.path.clone().try_into()?,
 				&artifact,
 				None,
-				true,
+				arg,
 				0,
 				existing,
 			)
@@ -147,7 +138,7 @@ impl Server {
 		path: &tg::Path,
 		artifact: &tg::Artifact,
 		existing_artifact: Option<&tg::Artifact>,
-		internal: bool,
+		arg: &tg::artifact::checkout::Arg,
 		depth: usize,
 		files: Arc<DashMap<tg::file::Id, tg::Path, fnv::FnvBuildHasher>>,
 	) -> tg::Result<()> {
@@ -169,7 +160,7 @@ impl Server {
 					path,
 					directory,
 					existing_artifact,
-					internal,
+					arg,
 					depth,
 					files,
 				))
@@ -180,7 +171,7 @@ impl Server {
 			},
 
 			tg::Artifact::File(file) => {
-				Box::pin(self.check_out_file(path, file, existing_artifact, internal, files))
+				Box::pin(self.check_out_file(path, file, existing_artifact, arg, files))
 					.await
 					.map_err(
 						|source| tg::error!(!source, %id, %path, "failed to check out the file"),
@@ -192,7 +183,7 @@ impl Server {
 					path,
 					symlink,
 					existing_artifact,
-					internal,
+					arg,
 					depth,
 					files,
 				))
@@ -204,7 +195,7 @@ impl Server {
 		}
 
 		// If this is an internal checkout, then set the file system object's modified time to the epoch.
-		if internal {
+		if arg.path.is_none() {
 			tokio::task::spawn_blocking({
 				let path = path.clone();
 				move || {
@@ -227,7 +218,7 @@ impl Server {
 		path: &tg::Path,
 		directory: &tg::Directory,
 		existing_artifact: Option<&tg::Artifact>,
-		internal: bool,
+		arg: &tg::artifact::checkout::Arg,
 		depth: usize,
 		files: Arc<DashMap<tg::file::Id, tg::Path, fnv::FnvBuildHasher>>,
 	) -> tg::Result<()> {
@@ -293,7 +284,7 @@ impl Server {
 						&entry_path,
 						artifact,
 						existing_artifact.as_ref(),
-						internal,
+						arg,
 						depth + 1,
 						existing,
 					)
@@ -314,7 +305,7 @@ impl Server {
 		path: &tg::Path,
 		file: &tg::File,
 		existing_artifact: Option<&tg::Artifact>,
-		internal: bool,
+		arg: &tg::artifact::checkout::Arg,
 		files: Arc<DashMap<tg::file::Id, tg::Path, fnv::FnvBuildHasher>>,
 	) -> tg::Result<()> {
 		// Handle an existing artifact at the path.
@@ -339,21 +330,17 @@ impl Server {
 			.try_collect::<BTreeSet<_>>()
 			.await
 			.map_err(|source| tg::error!(!source, "failed to get the file's references"))?;
-		if !references.is_empty() {
-			if !internal {
-				return Err(tg::error!(
-					r#"cannot perform an external check out of a file with references"#
-				));
-			}
+		if arg.references && !references.is_empty() {
 			references
 				.iter()
 				.map(|artifact| async {
 					let arg = tg::artifact::checkout::Arg {
 						bundle: false,
-						path: None,
 						force: false,
+						path: None,
+						references: true,
 					};
-					Box::pin(self.check_out_artifact_with_files(artifact, arg, files.clone()))
+					Box::pin(self.check_out_artifact_with_files(artifact, &arg, files.clone()))
 						.await?;
 					Ok::<_, tg::Error>(())
 				})
@@ -379,7 +366,7 @@ impl Server {
 
 		// Attempt to use the file from an internal checkout.
 		let internal_checkout_path = self.checkouts_path().join(id.to_string());
-		if internal {
+		if arg.path.is_none() {
 			// If this checkout is internal, then create a hard link.
 			let result = tokio::fs::hard_link(&internal_checkout_path, path).await;
 			if result.is_ok() {
@@ -435,7 +422,7 @@ impl Server {
 		path: &tg::Path,
 		symlink: &tg::Symlink,
 		existing_artifact: Option<&tg::Artifact>,
-		internal: bool,
+		arg: &tg::artifact::checkout::Arg,
 		depth: usize,
 		files: Arc<DashMap<tg::file::Id, tg::Path, fnv::FnvBuildHasher>>,
 	) -> tg::Result<()> {
@@ -451,15 +438,17 @@ impl Server {
 		};
 
 		// Check out the symlink's artifact if necessary.
-		if let Some(artifact) = symlink.artifact(self).await? {
-			if !internal {
-				return Err(tg::error!(
-					r#"cannot perform an external check out of a symlink with an artifact"#
-				));
+		if arg.references {
+			if let Some(artifact) = symlink.artifact(self).await? {
+				if arg.path.is_some() {
+					return Err(tg::error!(
+						r#"cannot perform an external check out of a symlink with an artifact"#
+					));
+				}
+				let id = artifact.id(self).await?;
+				let arg = tg::artifact::checkout::Arg::default();
+				Box::pin(self.check_out_artifact_with_files(&id, &arg, files)).await?;
 			}
-			let id = artifact.id(self).await?;
-			let arg = tg::artifact::checkout::Arg::default();
-			Box::pin(self.check_out_artifact_with_files(&id, arg, files)).await?;
 		}
 
 		// Render the target.

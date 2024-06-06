@@ -1,7 +1,7 @@
 use crate as tg;
 use tangram_http::{incoming::response::Ext as _, outgoing::request::Ext as _};
 
-#[derive(Clone, Debug, Default, serde::Deserialize, serde::Serialize)]
+#[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
 pub struct Arg {
 	#[serde(default, skip_serializing_if = "std::ops::Not::not")]
 	pub bundle: bool,
@@ -9,6 +9,11 @@ pub struct Arg {
 	pub force: bool,
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub path: Option<tg::Path>,
+	#[serde(
+		default = "crate::util::serde::true_",
+		skip_serializing_if = "crate::util::serde::is_true"
+	)]
+	pub references: bool,
 }
 
 #[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
@@ -47,5 +52,16 @@ impl tg::Client {
 		}
 		let output = response.json().await?;
 		Ok(output)
+	}
+}
+
+impl Default for Arg {
+	fn default() -> Self {
+		Self {
+			bundle: false,
+			force: false,
+			path: None,
+			references: true,
+		}
 	}
 }
