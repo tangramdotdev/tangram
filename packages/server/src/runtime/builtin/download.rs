@@ -100,7 +100,6 @@ impl Runtime {
 
 		// Abort the log task.
 		log_task.abort();
-		log_task.await.ok();
 
 		// Log that the download finished.
 		let message = format!("finished download from \"{url}\"\n");

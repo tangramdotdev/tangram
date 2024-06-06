@@ -130,6 +130,9 @@ impl Server {
 			}
 		}
 
+		// Remove the build's permit.
+		self.build_permits.remove(build.id());
+
 		// Finish the build.
 		let arg = tg::build::finish::Arg {
 			outcome,
