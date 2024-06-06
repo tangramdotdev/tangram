@@ -102,30 +102,25 @@ impl Server {
 			.any(|outcome| outcome.try_unwrap_canceled_ref().is_ok())
 		{
 			outcome = tg::build::outcome::Data::Canceled;
-		};
+		}
 
 		// Verify the checksum if one was provided.
 		let target = tg::Target::with_id(output.target);
 		if let Some(expected) = target.checksum(self).await?.clone() {
 			if let Ok(tg::value::Data::Object(object)) = outcome.try_unwrap_succeeded_ref().cloned()
 			{
-				if let Ok(artifact) = tg::artifact::Id::try_from(object.clone()) {
-					let actual = tg::Artifact::with_id(artifact)
-						.checksum(self, expected.algorithm())
-						.await
-						.map_err(|source| tg::error!(!source, "failed to compute the checksum"))?;
-					if expected != tg::Checksum::Unsafe && expected != actual {
-						outcome = tg::build::outcome::Data::Failed(tg::error!(
-							%expected,
-							%actual,
-							"the checksum did not match"
-						));
-					}
+				if tg::artifact::Id::try_from(object.clone()).is_ok() {
+					return Err(tg::error!("checksums for artifacts are unimplemented"));
 				} else if let Ok(blob) = tg::blob::Id::try_from(object.clone()) {
-					let actual = tg::Blob::with_id(blob)
-						.checksum(self, expected.algorithm())
+					let blob = tg::Blob::with_id(blob);
+					let mut writer = tg::checksum::Writer::new(expected.algorithm());
+					let mut reader = blob.reader(self).await?;
+					tokio::io::copy(&mut reader, &mut writer)
 						.await
-						.map_err(|source| tg::error!(!source, "failed to compute the checksum"))?;
+						.map_err(|source| {
+							tg::error!(!source, "failed to copy from the reader to the writer")
+						})?;
+					let actual = writer.finalize();
 					if expected != tg::Checksum::Unsafe && expected != actual {
 						outcome = tg::build::outcome::Data::Failed(tg::error!(
 							%expected,
@@ -137,7 +132,7 @@ impl Server {
 					outcome = tg::build::outcome::Data::Failed(tg::error!("a target with a checksum must have an output that is either an artifact or a blob"));
 				}
 			}
-		};
+		}
 
 		// Create a blob from the log.
 		let reader = log::Reader::new(self, id).await?;
