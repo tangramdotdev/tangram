@@ -226,6 +226,7 @@ impl Cli {
 			.remote
 			.map(|remote| remote.unwrap_or_else(|| "default".to_owned()));
 		let arg = tg::target::build::Arg {
+			create: true,
 			parent: None,
 			remote: remote.clone(),
 			retry,

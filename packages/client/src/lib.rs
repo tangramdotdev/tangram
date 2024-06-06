@@ -581,13 +581,6 @@ impl tg::Handle for Client {
 		self.create_blob(reader)
 	}
 
-	fn list_builds(
-		&self,
-		arg: tg::build::list::Arg,
-	) -> impl Future<Output = tg::Result<tg::build::list::Output>> {
-		self.list_builds(arg)
-	}
-
 	fn try_get_build(
 		&self,
 		id: &tg::build::Id,

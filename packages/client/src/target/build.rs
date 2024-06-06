@@ -1,10 +1,18 @@
 use crate as tg;
 use tangram_http::{incoming::response::Ext as _, outgoing::request::Ext as _};
 
-#[derive(Clone, Debug, Default, serde::Deserialize, serde::Serialize)]
+#[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
 pub struct Arg {
+	#[serde(
+		default = "crate::util::serde::true_",
+		skip_serializing_if = "crate::util::serde::is_true"
+	)]
+	pub create: bool,
+	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub parent: Option<tg::build::Id>,
+	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub remote: Option<String>,
+	#[serde(default, skip_serializing_if = "retry_is_canceled")]
 	pub retry: tg::build::Retry,
 }
 
@@ -68,4 +76,20 @@ impl tg::Client {
 		let output = response.json().await?;
 		Ok(output)
 	}
+}
+
+impl Default for Arg {
+	fn default() -> Self {
+		Self {
+			create: true,
+			parent: None,
+			remote: None,
+			retry: tg::build::Retry::default(),
+		}
+	}
+}
+
+#[allow(clippy::trivially_copy_pass_by_ref)]
+fn retry_is_canceled(retry: &tg::build::Retry) -> bool {
+	matches!(retry, tg::build::Retry::Canceled)
 }

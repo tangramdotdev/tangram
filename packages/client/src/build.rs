@@ -7,7 +7,6 @@ pub mod dequeue;
 pub mod finish;
 pub mod get;
 pub mod heartbeat;
-pub mod list;
 pub mod log;
 pub mod outcome;
 pub mod pull;

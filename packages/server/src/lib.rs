@@ -610,9 +610,6 @@ impl Server {
 			},
 
 			// Builds.
-			(http::Method::GET, ["builds"]) => {
-				Self::handle_list_builds_request(handle, request).boxed()
-			},
 			(http::Method::GET, ["builds", build]) => {
 				Self::handle_get_build_request(handle, request, build).boxed()
 			},
@@ -816,13 +813,6 @@ impl tg::Handle for Server {
 		reader: impl AsyncRead + Send + 'static,
 	) -> impl Future<Output = tg::Result<tg::blob::create::Output>> {
 		self.create_blob(reader)
-	}
-
-	fn list_builds(
-		&self,
-		args: tg::build::list::Arg,
-	) -> impl Future<Output = tg::Result<tg::build::list::Output>> {
-		self.list_builds(args)
 	}
 
 	fn try_get_build(

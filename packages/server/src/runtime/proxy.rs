@@ -145,10 +145,6 @@ impl tg::Handle for Proxy {
 		self.server.create_blob(reader)
 	}
 
-	async fn list_builds(&self, _arg: tg::build::list::Arg) -> tg::Result<tg::build::list::Output> {
-		Err(tg::error!("forbidden"))
-	}
-
 	fn try_get_build(
 		&self,
 		id: &tg::build::Id,

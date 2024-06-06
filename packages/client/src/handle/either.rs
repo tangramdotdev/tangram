@@ -40,16 +40,6 @@ where
 		}
 	}
 
-	fn list_builds(
-		&self,
-		arg: tg::build::list::Arg,
-	) -> impl Future<Output = tg::Result<tg::build::list::Output>> {
-		match self {
-			Either::Left(s) => s.list_builds(arg).left_future(),
-			Either::Right(s) => s.list_builds(arg).right_future(),
-		}
-	}
-
 	fn try_get_build(
 		&self,
 		id: &tg::build::Id,

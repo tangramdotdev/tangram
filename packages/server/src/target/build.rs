@@ -1,9 +1,11 @@
 use crate::{BuildPermit, Server};
 use bytes::Bytes;
 use either::Either;
-use futures::{future, FutureExt as _, TryStreamExt as _};
+use futures::{future, FutureExt as _};
+use indoc::formatdoc;
 use itertools::Itertools as _;
 use tangram_client as tg;
+use tangram_database::{self as db, prelude::*};
 use tangram_http::{incoming::request::Ext as _, outgoing::response::Ext as _, Incoming, Outgoing};
 use tangram_messenger::Messenger as _;
 
@@ -13,27 +15,55 @@ impl Server {
 		id: &tg::target::Id,
 		arg: tg::target::build::Arg,
 	) -> tg::Result<tg::target::build::Output> {
+		// If the remote arg was set, then build the target remotely.
+		if let Some(remote) = arg.remote.as_ref() {
+			let remote = self
+				.remotes
+				.get(remote)
+				.ok_or_else(|| tg::error!("the remote does not exist"))?
+				.clone();
+			let output = remote.build_target(id, arg).await?;
+			return Ok(output);
+		}
+
 		// Get a local build if one exists that satisfies the retry constraint.
 		let build = 'a: {
-			// Find a build.
-			let list_arg = tg::build::list::Arg {
-				limit: Some(1),
-				order: Some(tg::build::list::Order::CreatedAtDesc),
-				status: None,
-				target: Some(id.clone()),
-			};
-			let Some(output) = self.list_builds(list_arg).await?.items.first().cloned() else {
+			// Get a database connection.
+			let connection = self
+				.database
+				.connection()
+				.await
+				.map_err(|source| tg::error!(!source, "failed to get a database connection"))?;
+
+			// Attempt to get a build for the target.
+			#[derive(serde::Deserialize)]
+			struct Row {
+				id: tg::build::Id,
+				status: tg::build::Status,
+			}
+			let p = connection.p();
+			let statement = formatdoc!(
+				"
+					select id, status
+					from builds
+					where
+						target = {p}1
+					order by created_at desc
+					limit 1;
+				"
+			);
+			let params = db::params![id];
+			let Some(Row { id, status }) = connection
+				.query_optional_into::<Row>(statement, params)
+				.await
+				.map_err(|source| tg::error!(!source, "failed to execute the statement"))?
+			else {
 				break 'a None;
 			};
-			let build = tg::Build::with_id(output.id);
+			let build = tg::Build::with_id(id);
 
-			// Get the build's status.
-			let status = build
-				.status(self)
-				.await?
-				.try_next()
-				.await?
-				.ok_or_else(|| tg::error!("failed to get the build's status"))?;
+			// Drop the connection.
+			drop(connection);
 
 			// If the build is finished, then verify that the build's outcome satisfies the retry constraint.
 			if status == tg::build::Status::Finished {
@@ -65,47 +95,25 @@ impl Server {
 			}
 
 			// Find a build.
-			let futures =
-				self.remotes
-					.iter()
-					.map(|remote| {
-						let remote = remote.clone();
-						async move {
-							// Find a build.
-							let list_arg = tg::build::list::Arg {
-								limit: Some(1),
-								order: Some(tg::build::list::Order::CreatedAtDesc),
-								status: None,
-								target: Some(id.clone()),
-							};
-							let Some(output) =
-								remote.list_builds(list_arg).await?.items.first().cloned()
-							else {
-								return Ok::<_, tg::Error>(None);
-							};
-							let build = tg::Build::with_id(output.id);
-
-							// Get the build's status.
-							let status =
-								build.status(&remote).await?.try_next().await?.ok_or_else(
-									|| tg::error!("failed to get the build's status"),
-								)?;
-
-							// If the build is finished, then verify that the build's outcome satisfies the retry constraint.
-							if status == tg::build::Status::Finished {
-								let outcome = build.get_outcome(&remote).await?;
-								if let Some(outcome) = outcome {
-									if outcome.retry() <= arg.retry {
-										return Ok(None);
-									}
-								}
-							}
-
-							Ok(Some((build, remote.clone())))
-						}
-						.boxed()
-					})
-					.collect_vec();
+			let futures = self
+				.remotes
+				.iter()
+				.map(|remote| {
+					let arg = arg.clone();
+					let remote = remote.clone();
+					async move {
+						let arg = tg::target::build::Arg {
+							create: false,
+							..arg.clone()
+						};
+						let tg::target::build::Output { build } =
+							remote.build_target(id, arg).await?;
+						let build = tg::Build::with_id(build);
+						Ok::<_, tg::Error>(Some((build, remote.clone())))
+					}
+					.boxed()
+				})
+				.collect_vec();
 
 			// Wait for the first build.
 			if futures.is_empty() {
@@ -142,15 +150,9 @@ impl Server {
 			return Ok(output);
 		}
 
-		// Otherwise, if the remote arg was set, then build the target remotely.
-		if let Some(remote) = arg.remote.as_ref() {
-			let remote = self
-				.remotes
-				.get(remote)
-				.ok_or_else(|| tg::error!("the remote does not exist"))?
-				.clone();
-			let output = remote.build_target(id, arg).await?;
-			return Ok(output);
+		// If the create arg is false, then return an error.
+		if !arg.create {
+			return Err(tg::error!("failed to find a build for the target"));
 		}
 
 		// Finally, create a new build.

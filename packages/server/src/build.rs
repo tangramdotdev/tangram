@@ -9,7 +9,6 @@ mod finish;
 mod get;
 mod heartbeat;
 mod index;
-mod list;
 mod log;
 mod outcome;
 mod pull;
