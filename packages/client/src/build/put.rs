@@ -105,7 +105,6 @@ impl tg::Client {
 			return Err(error);
 		}
 		let output = response.json().await?;
-		eprintln!("{}", serde_json::to_string(&output).unwrap());
 		Ok(output)
 	}
 }
