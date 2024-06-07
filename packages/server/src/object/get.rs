@@ -37,14 +37,20 @@ impl Server {
 			tg::object::Id::Branch(id) => tg::blob::Id::Branch(id.clone().into()),
 			_ => return Ok(None),
 		};
-		self.blob_tasks
+		let stored = self
+			.blob_store_tasks
 			.get_or_spawn(blob.clone(), {
 				let server = self.clone();
 				|_stop| async move { server.try_store_blob(blob).await }
 			})
 			.wait()
 			.await
-			.map_err(|source| tg::error!(!source, "failed to wait for task"))?
+			.map_err(|source| tg::error!(!source, "failed to wait for task"))??;
+		if stored {
+			let output = self.try_get_object_local_database(id).await?.unwrap();
+			return Ok(Some(output));
+		}
+		Ok(None)
 	}
 
 	pub async fn try_get_object_local_database(

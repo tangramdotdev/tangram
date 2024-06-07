@@ -1,7 +1,8 @@
 use crate::{self as tg, Client};
 use bytes::{Buf, Bytes};
-use futures::{future::BoxFuture, FutureExt as _};
+use futures::{future::BoxFuture, stream, FutureExt as _, Stream};
 use num::ToPrimitive as _;
+use serde_with::serde_as;
 use std::{io::Cursor, pin::Pin};
 use sync_wrapper::SyncWrapper;
 use tokio::io::{AsyncBufRead, AsyncRead, AsyncReadExt as _, AsyncSeek};
@@ -282,15 +283,39 @@ where
 		std::task::Poll::Ready(Ok(self.position))
 	}
 }
-
+#[serde_as]
+#[derive(Clone, Debug, Default, serde::Deserialize, serde::Serialize)]
 pub struct Arg {
-	pub id: tg::blob::Id,
-	pub offset: u64,
-	pub length: u64,
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub length: Option<i64>,
+
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	#[serde_as(as = "Option<crate::util::serde::SeekFromString>")]
+	pub position: Option<std::io::SeekFrom>,
+
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub size: Option<u64>,
+}
+
+#[serde_as]
+#[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
+pub struct Chunk {
+	pub position: u64,
+	#[serde_as(as = "crate::util::serde::BytesBase64")]
+	pub bytes: Bytes,
+}
+
+pub enum Event {
+	Data(Chunk),
+	End,
 }
 
 impl Client {
-	pub async fn read_blob(&self, _id: &tg::blob::Id, _arg: Arg) -> tg::Result<Bytes> {
-		todo!()
+	pub async fn try_read_blob_stream(
+		&self,
+		_id: &tg::blob::Id,
+		_arg: Arg,
+	) -> tg::Result<Option<impl Stream<Item = tg::Result<Event>>>> {
+		Ok(Some(stream::empty()))
 	}
 }

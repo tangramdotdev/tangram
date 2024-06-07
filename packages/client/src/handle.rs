@@ -30,11 +30,27 @@ pub trait Handle: Clone + Unpin + Send + Sync + 'static {
 		reader: impl AsyncRead + Send + 'static,
 	) -> impl Future<Output = tg::Result<tg::blob::create::Output>> + Send;
 
-	fn read_blob(
+	fn try_read_blob(
+		&self,
+		_id: &tg::blob::Id,
+		_arg: tg::blob::read::Arg,
+	) -> impl Future<
+		Output = tg::Result<
+			Option<impl Stream<Item = tg::Result<tg::build::log::Chunk>> + Send + 'static>,
+		>,
+	> + Send {
+		future::ready(Ok(Some(futures::stream::empty())))
+	}
+
+	fn try_read_blob_stream(
 		&self,
 		id: &tg::blob::Id,
 		arg: tg::blob::read::Arg,
-	) -> impl Future<Output = tg::Result<Bytes>> + Send;
+	) -> impl Future<
+		Output = tg::Result<
+			Option<impl Stream<Item = tg::Result<tg::blob::read::Event>> + Send + 'static>,
+		>,
+	> + Send;
 
 	fn try_get_build(
 		&self,

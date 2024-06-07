@@ -53,7 +53,7 @@ pub mod options;
 pub struct Server(Arc<Inner>);
 
 pub struct Inner {
-	blob_tasks: BlobTaskMap,
+	blob_store_tasks: BlobStoreTaskMap,
 	build_permits: BuildPermits,
 	build_semaphore: Arc<tokio::sync::Semaphore>,
 	builds: BuildTaskMap,
@@ -79,8 +79,7 @@ struct BuildPermit(
 	Either<tokio::sync::OwnedSemaphorePermit, tokio::sync::OwnedMutexGuard<Option<Self>>>,
 );
 
-type BlobTaskMap =
-	TaskMap<tg::blob::Id, tg::Result<Option<tg::object::get::Output>>, fnv::FnvBuildHasher>;
+type BlobStoreTaskMap = TaskMap<tg::blob::Id, tg::Result<bool>, fnv::FnvBuildHasher>;
 
 type BuildTaskMap = TaskMap<tg::build::Id, (), fnv::FnvBuildHasher>;
 
@@ -234,7 +233,7 @@ impl Server {
 
 		// Create the server.
 		let server = Self(Arc::new(Inner {
-			blob_tasks,
+			blob_store_tasks: blob_tasks,
 			build_permits,
 			build_semaphore,
 			builds,
@@ -822,12 +821,16 @@ impl tg::Handle for Server {
 		self.create_blob(reader)
 	}
 
-	fn read_blob(
+	fn try_read_blob_stream(
 		&self,
 		id: &tg::blob::Id,
 		arg: tg::blob::read::Arg,
-	) -> impl Future<Output = tg::Result<Bytes>> {
-		self.read_blob(id, arg)
+	) -> impl Future<
+		Output = tg::Result<
+			Option<impl Stream<Item = tg::Result<tg::blob::read::Event>> + Send + 'static>,
+		>,
+	> {
+		self.try_read_blob_stream(id, arg)
 	}
 
 	fn try_get_build(

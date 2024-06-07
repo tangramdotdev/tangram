@@ -1,24 +1,22 @@
-use crate::{database::Transaction, Server};
+use crate::Server;
 use bytes::Bytes;
 use futures::{stream::FuturesUnordered, TryStreamExt as _};
 use indoc::formatdoc;
 use num::ToPrimitive;
-use std::{
-	os::unix::fs::PermissionsExt as _,
-	path::PathBuf,
-	sync::{
-		atomic::{AtomicU64, Ordering},
-		Arc,
-	},
-};
+use std::{os::unix::fs::PermissionsExt as _, path::PathBuf};
 use tangram_client as tg;
 use tangram_database::{self as db, Connection as _, Database as _, Query as _, Transaction as _};
 use tangram_http::{incoming::request::Ext as _, outgoing::response::Ext as _, Incoming, Outgoing};
+use tg::Handle;
 use time::format_description::well_known::Rfc3339;
 
-struct CheckInOutput {
+#[derive(Clone, Debug)]
+struct InnerOutput {
 	id: tg::artifact::Id,
-	weight: u64,
+	bytes: Bytes,
+	count: Option<u64>,
+	weight: Option<u64>,
+	children: Vec<Self>,
 }
 
 impl Server {
@@ -51,25 +49,47 @@ impl Server {
 			return Ok(tg::artifact::checkin::Output { artifact: id });
 		}
 
-		// Check in the artifact.
+		// Recursively check in the artifact(s).
+		let output = self.check_in_artifact_inner(&arg.path).await?;
+		let artifact = output.id.clone();
+
+		// Create a transaction.
 		let mut connection = self
 			.database
 			.connection()
 			.await
-			.map_err(|source| tg::error!(!source, "failed to get database connection"))?;
+			.map_err(|source| tg::error!(!source, "failed to acquire a database connection"))?;
 		let transaction = connection
 			.transaction()
 			.await
-			.map_err(|source| tg::error!(!source, "failed to get database transaction"))?;
+			.map_err(|source| tg::error!(!source, "failed to create a transaction"))?;
 
-		let artifact = self
-			.check_in_artifact_inner(&arg.path, &transaction)
-			.await?
-			.id;
+		// Recursively put the output tree into the database.
+		let mut stack = vec![output];
+		while let Some(output) = stack.pop() {
+			let p = transaction.p();
+			let statement = formatdoc!(
+				"
+					insert into objects (id, bytes, touched_at, count, weight)
+					values ({p}1, {p}2, {p}3, {p}4, {p}5)
+					on conflict (id) do update set touched_at = {p}3;
+				"
+			);
+			let now = time::OffsetDateTime::now_utc().format(&Rfc3339).unwrap();
+			let params = db::params![output.id, output.bytes, now, output.count, output.weight];
+			transaction
+				.execute(statement, params)
+				.await
+				.map_err(|source| {
+					tg::error!(!source, "failed to put the artifact into the database")
+				})?;
+			stack.extend(output.children);
+		}
+
 		transaction
 			.commit()
 			.await
-			.map_err(|source| tg::error!(!source, "failed to commit transaction"))?;
+			.map_err(|source| tg::error!(!source, "failed to commit the transaction"))?;
 
 		// Create the output.
 		let output = tg::artifact::checkin::Output { artifact };
@@ -77,11 +97,7 @@ impl Server {
 		Ok(output)
 	}
 
-	async fn check_in_artifact_inner(
-		&self,
-		path: &tg::Path,
-		transaction: &Transaction<'_>,
-	) -> tg::Result<CheckInOutput> {
+	async fn check_in_artifact_inner(&self, path: &tg::Path) -> tg::Result<InnerOutput> {
 		// Get the metadata for the file system object at the path.
 		let metadata = tokio::fs::symlink_metadata(&path).await.map_err(
 			|source| tg::error!(!source, %path, "failed to get the metadata for the path"),
@@ -89,15 +105,15 @@ impl Server {
 
 		// Call the appropriate function for the file system object at the path.
 		if metadata.is_dir() {
-			self.check_in_directory(path, &metadata, transaction)
+			self.check_in_directory(path, &metadata)
 				.await
 				.map_err(|source| tg::error!(!source, %path, "failed to check in the directory"))
 		} else if metadata.is_file() {
-			self.check_in_file(path, &metadata, transaction)
+			self.check_in_file(path, &metadata)
 				.await
 				.map_err(|source| tg::error!(!source, %path, "failed to check in the file"))
 		} else if metadata.is_symlink() {
-			self.check_in_symlink(path, &metadata, transaction)
+			self.check_in_symlink(path, &metadata)
 				.await
 				.map_err(|source| tg::error!(!source, %path, "failed to check in the symlink"))
 		} else {
@@ -114,8 +130,7 @@ impl Server {
 		&self,
 		path: &tg::Path,
 		_metadata: &std::fs::Metadata,
-		transaction: &Transaction<'_>,
-	) -> tg::Result<CheckInOutput> {
+	) -> tg::Result<InnerOutput> {
 		let names = {
 			let _permit = self.file_descriptor_semaphore.acquire().await;
 			let mut read_dir = tokio::fs::read_dir(path)
@@ -141,30 +156,44 @@ impl Server {
 		};
 
 		// Recurse into the directory's entries.
-		let weight = Arc::new(AtomicU64::new(0));
-		let entries = names
-			.into_iter()
+		let children = names
+			.iter()
 			.map(|name| async {
-				let path = path.clone().join(&name);
-				let output = self.check_in_artifact_inner(&path, transaction).await?;
-				weight.fetch_add(output.weight, Ordering::Relaxed);
-				Ok::<_, tg::Error>((name, output.id))
+				let path = path.clone().join(name.clone());
+				self.check_in_artifact_inner(&path).await
 			})
 			.collect::<FuturesUnordered<_>>()
-			.try_collect()
+			.try_collect::<Vec<_>>()
 			.await?;
+		let entries = names
+			.into_iter()
+			.zip(children.iter())
+			.map(|(name, output)| (name, output.id.clone()))
+			.collect();
 
 		// Create the directory data.
 		let data = tg::directory::Data { entries };
 		let bytes = data.serialize()?;
 		let id = tg::artifact::Id::from(tg::directory::Id::new(&bytes));
-		let weight = weight.fetch_add(bytes.len().to_u64().unwrap(), Ordering::Relaxed);
 
-		// Put the directory into the database.
-		self.put_artifact(transaction, &id, bytes, weight).await?;
+		// Compute the count/weight.
+		let (count, weight) = children.iter().fold(
+			(Some(1), Some(bytes.len().to_u64().unwrap())),
+			|(count, weight), child| {
+				let count = child.count.and_then(|count_| Some(count_ + count?));
+				let weight = child.weight.and_then(|weight_| Some(weight_ + weight?));
+				(count, weight)
+			},
+		);
 
 		// Create the output.
-		let output = CheckInOutput { id, weight };
+		let output = InnerOutput {
+			id,
+			bytes,
+			count,
+			weight,
+			children: Vec::new(),
+		};
 
 		Ok(output)
 	}
@@ -173,8 +202,7 @@ impl Server {
 		&self,
 		path: &tg::Path,
 		metadata: &std::fs::Metadata,
-		transaction: &Transaction<'_>,
-	) -> tg::Result<CheckInOutput> {
+	) -> tg::Result<InnerOutput> {
 		// Create the blob without writing to disk/database.
 		let _permit = self.file_descriptor_semaphore.acquire().await;
 		let file = tokio::fs::File::open(path)
@@ -183,7 +211,7 @@ impl Server {
 
 		// Create the output.
 		let output = self
-			.create_or_store_blob(file, None)
+			.create_blob_inner(file, None)
 			.await
 			.map_err(|source| tg::error!(!source, "failed to create the contents"))?;
 
@@ -226,16 +254,14 @@ impl Server {
 			)
 		})?;
 
-		// Put the file into the database.
-		self.put_artifact(transaction, &id, bytes, output.weight)
-			.await?;
-
 		// Create the output
-		let output = CheckInOutput {
+		let output = InnerOutput {
 			id,
-			weight: output.weight,
+			bytes,
+			count: Some(output.count),
+			weight: Some(output.weight),
+			children: Vec::new(),
 		};
-
 		Ok(output)
 	}
 
@@ -243,8 +269,7 @@ impl Server {
 		&self,
 		path: &tg::Path,
 		_metadata: &std::fs::Metadata,
-		transaction: &Transaction<'_>,
-	) -> tg::Result<CheckInOutput> {
+	) -> tg::Result<InnerOutput> {
 		// Read the target from the symlink.
 		let target = tokio::fs::read_link(path).await.map_err(
 			|source| tg::error!(!source, %path, r#"failed to read the symlink at path"#,),
@@ -292,49 +317,32 @@ impl Server {
 		};
 
 		// Create the symlink.
-		let artifact = if let Some(artifact) = artifact {
-			Some(artifact.id(self).await?)
+		let (artifact, count, weight) = if let Some(artifact) = artifact {
+			// Get the artifact ID if necessary, as well as its count and weight.
+			let id = artifact.id(self).await?;
+			let metadata = self.get_object(&id.clone().into()).await?.metadata;
+			(Some(id), metadata.count, metadata.weight)
 		} else {
-			None
+			(None, None, None)
 		};
 		let symlink = tg::symlink::Data { artifact, path };
 		let bytes = symlink.serialize()?;
 		let id = tg::artifact::Id::from(tg::symlink::Id::new(&bytes));
-		let weight = bytes.len().to_u64().unwrap();
 
 		// Put the symlink into the database
-		self.put_artifact(transaction, &id, bytes, weight).await?;
+		let count = count.map(|count| count + 1);
+		let weight = weight.map(|weight| weight + bytes.len().to_u64().unwrap());
 
 		// Create the output.
-		let output = CheckInOutput { id, weight };
+		let output = InnerOutput {
+			id,
+			bytes,
+			count,
+			weight,
+			children: Vec::new(),
+		};
 
 		Ok(output)
-	}
-
-	async fn put_artifact(
-		&self,
-		transaction: &Transaction<'_>,
-		id: &tg::artifact::Id,
-		bytes: Bytes,
-		weight: u64,
-	) -> tg::Result<()> {
-		let p = transaction.p();
-		let statement = formatdoc!(
-			"
-				insert into objects (id, bytes, touched_at, count, weight)
-				values ({p}1, {p}2, {p}3, {p}4, {p}5)
-				on conflict (id) do update set touched_at = {p}3;
-			"
-		);
-		let now = time::OffsetDateTime::now_utc().format(&Rfc3339).unwrap();
-		let params = db::params![id, bytes, now, weight, weight];
-		transaction
-			.execute(statement, params)
-			.await
-			.map_err(|source| {
-				tg::error!(!source, "failed to put the artifact into the database")
-			})?;
-		Ok(())
 	}
 }
 

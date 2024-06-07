@@ -39,14 +39,24 @@ where
 		}
 	}
 
-	fn read_blob(
+	fn try_read_blob_stream(
 		&self,
 		id: &tg::blob::Id,
 		arg: tg::blob::read::Arg,
-	) -> impl Future<Output = crate::Result<Bytes>> + Send {
+	) -> impl Future<
+		Output = tg::Result<
+			Option<impl Stream<Item = tg::Result<tg::blob::read::Event>> + Send + 'static>,
+		>,
+	> {
 		match self {
-			Either::Left(s) => s.read_blob(id, arg).left_future(),
-			Either::Right(s) => s.read_blob(id, arg).right_future(),
+			Either::Left(s) => s
+				.try_read_blob_stream(id, arg)
+				.map(|result| result.map(|option| option.map(futures::StreamExt::left_stream)))
+				.left_future(),
+			Either::Right(s) => s
+				.try_read_blob_stream(id, arg)
+				.map(|result| result.map(|option| option.map(futures::StreamExt::right_stream)))
+				.right_future(),
 		}
 	}
 
