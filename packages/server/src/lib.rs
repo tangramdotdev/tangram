@@ -614,6 +614,9 @@ impl Server {
 			(http::Method::POST, ["blobs"]) => {
 				Self::handle_create_blob_request(handle, request).boxed()
 			},
+			(http::Method::GET, ["blobs", blob, "read"]) => {
+				Self::handle_read_blob_request(handle, request, blob).boxed()
+			},
 
 			// Builds.
 			(http::Method::GET, ["builds", build]) => {

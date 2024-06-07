@@ -1,5 +1,8 @@
 use crate::Cli;
-use tangram_client as tg;
+use futures::stream::TryStreamExt as _;
+use std::pin::pin;
+use tangram_client::{self as tg, Handle as _};
+use tokio::io::AsyncWriteExt as _;
 
 /// Cat artifacts.
 #[derive(Clone, Debug, clap::Args)]
@@ -41,18 +44,24 @@ impl Cli {
 			};
 
 			// Create a reader.
-			let mut reader = blob
-				.reader(&self.handle)
-				.await
-				.map_err(|source| tg::error!(!source, "failed to create the blob reader"))?;
+			// Create a stream.
+			let blob = blob.id(&self.handle).await?;
+			let stream = self
+				.handle
+				.try_read_blob(&blob, tg::blob::read::Arg::default())
+				.await?
+				.ok_or_else(|| tg::error!("expected a blob"))?;
 
-			// Copy from the reader to stdout.
-			let mut writer = tokio::io::stdout();
-			tokio::io::copy(&mut reader, &mut writer)
-				.await
-				.map_err(|source| {
-					tg::error!(!source, "failed to write the blob contents to stdout")
-				})?;
+			// Dump the stream to stdout.
+			let mut stream = pin!(stream);
+			while let Some(chunk) = stream.try_next().await? {
+				tokio::io::stdout()
+					.write_all(&chunk.bytes)
+					.await
+					.map_err(|source| {
+						tg::error!(!source, "failed to write the blob contents to stdout")
+					})?;
+			}
 		}
 
 		Ok(())

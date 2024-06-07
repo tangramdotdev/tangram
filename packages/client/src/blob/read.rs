@@ -1,11 +1,15 @@
 use crate::{self as tg, Client};
 use bytes::{Buf, Bytes};
-use futures::{future::BoxFuture, stream, FutureExt as _, Stream};
+use futures::{future::BoxFuture, FutureExt as _, Stream, StreamExt as _};
 use num::ToPrimitive as _;
 use serde_with::serde_as;
-use std::{io::Cursor, pin::Pin};
+use std::{
+	io::Cursor,
+	pin::{pin, Pin},
+};
 use sync_wrapper::SyncWrapper;
-use tokio::io::{AsyncBufRead, AsyncRead, AsyncReadExt as _, AsyncSeek};
+use tangram_http::{incoming::response::Ext as _, outgoing::request::Ext as _};
+use tokio::io::{AsyncBufRead, AsyncRead, AsyncSeek};
 
 /// A blob reader.
 pub struct Reader<H> {
@@ -20,6 +24,23 @@ pub struct Reader<H> {
 type ReadFuture = BoxFuture<'static, tg::Result<Option<Cursor<Bytes>>>>;
 
 impl tg::Blob {
+	pub async fn read<H>(&self, handle: &H, arg: Arg) -> tg::Result<Bytes>
+	where
+		H: tg::Handle,
+	{
+		let id = self.id(handle).await?;
+		let mut buf = Vec::new();
+		let stream = handle
+			.try_read_blob(&id, arg)
+			.await?
+			.ok_or_else(|| tg::error!("expected a blob"))?;
+		let mut stream = pin!(stream);
+		while let Some(chunk) = stream.next().await {
+			buf.extend_from_slice(&chunk?.bytes);
+		}
+		Ok(buf.into())
+	}
+
 	pub async fn reader<H>(&self, handle: &H) -> tg::Result<Reader<H>>
 	where
 		H: tg::Handle,
@@ -31,13 +52,8 @@ impl tg::Blob {
 	where
 		H: tg::Handle,
 	{
-		let mut reader = self.reader(handle).await?;
-		let mut bytes = Vec::new();
-		reader
-			.read_to_end(&mut bytes)
-			.await
-			.map_err(|source| tg::error!(!source, "failed to read the blob"))?;
-		Ok(bytes)
+		let bytes = self.read(handle, Arg::default()).await?;
+		Ok(bytes.into())
 	}
 
 	pub async fn text<H>(&self, handle: &H) -> tg::Result<String>
@@ -287,7 +303,7 @@ where
 #[derive(Clone, Debug, Default, serde::Deserialize, serde::Serialize)]
 pub struct Arg {
 	#[serde(default, skip_serializing_if = "Option::is_none")]
-	pub length: Option<i64>,
+	pub length: Option<u64>,
 
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	#[serde_as(as = "Option<crate::util::serde::SeekFromString>")]
@@ -313,9 +329,43 @@ pub enum Event {
 impl Client {
 	pub async fn try_read_blob_stream(
 		&self,
-		_id: &tg::blob::Id,
-		_arg: Arg,
+		id: &tg::blob::Id,
+		arg: Arg,
 	) -> tg::Result<Option<impl Stream<Item = tg::Result<Event>>>> {
-		Ok(Some(stream::empty()))
+		let method = http::Method::GET;
+		let query = serde_urlencoded::to_string(&arg).unwrap();
+		let uri = format!("/blobs/{id}/read?{query}");
+		let request = http::request::Builder::default()
+			.method(method)
+			.uri(uri)
+			.header(http::header::ACCEPT, mime::TEXT_EVENT_STREAM.to_string())
+			.empty()
+			.unwrap();
+		let response = self.send(request).await?;
+		if response.status() == http::StatusCode::NOT_FOUND {
+			return Ok(None);
+		}
+		if !response.status().is_success() {
+			let error = response.json().await?;
+			return Err(error);
+		}
+		let output = response.sse().map(|result| {
+			let event = result.map_err(|source| tg::error!(!source, "failed to read an event"))?;
+			match event.event.as_deref() {
+				None | Some("data") => {
+					let data = serde_json::from_str(&event.data)
+						.map_err(|source| tg::error!(!source, "failed to deserialize the data"))?;
+					Ok(tg::blob::read::Event::Data(data))
+				},
+				Some("end") => Ok(tg::blob::read::Event::End),
+				Some("error") => {
+					let error = serde_json::from_str(&event.data)
+						.map_err(|source| tg::error!(!source, "failed to deserialize the error"))?;
+					Err(error)
+				},
+				_ => Err(tg::error!("invalid event")),
+			}
+		});
+		Ok(Some(output))
 	}
 }

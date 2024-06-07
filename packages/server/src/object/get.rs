@@ -33,8 +33,8 @@ impl Server {
 
 		// If this is a blob, try and store it from the blobs directory and return the output.
 		let blob = match id {
-			tg::object::Id::Leaf(id) => tg::blob::Id::Leaf(id.clone().into()),
-			tg::object::Id::Branch(id) => tg::blob::Id::Branch(id.clone().into()),
+			tg::object::Id::Leaf(id) => tg::blob::Id::Leaf(id.clone()),
+			tg::object::Id::Branch(id) => tg::blob::Id::Branch(id.clone()),
 			_ => return Ok(None),
 		};
 		let stored = self
