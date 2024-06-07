@@ -217,7 +217,7 @@ impl Server {
 			.map_err(|source| tg::error!(!source, "failed to copy to the checkouts directory"))?;
 
 		// Install a symlink in the blobs directory.
-		let src = PathBuf::from("..").join(id.to_string());
+		let src = PathBuf::from("../checkouts").join(id.to_string());
 		let dst = self.blobs_path().join(output.blob.to_string());
 		tokio::fs::symlink(src, dst).await.map_err(|source| {
 			tg::error!(
