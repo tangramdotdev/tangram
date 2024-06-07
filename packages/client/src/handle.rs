@@ -17,7 +17,11 @@ pub trait Handle: Clone + Unpin + Send + Sync + 'static {
 	fn check_in_artifact(
 		&self,
 		arg: tg::artifact::checkin::Arg,
-	) -> impl Future<Output = tg::Result<tg::artifact::checkin::Output>> + Send;
+	) -> impl Future<
+		Output = tg::Result<
+			impl Stream<Item = tg::Result<tg::artifact::checkin::Event>> + Send + 'static,
+		>,
+	> + Send;
 
 	fn check_out_artifact(
 		&self,

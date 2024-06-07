@@ -561,7 +561,11 @@ impl tg::Handle for Client {
 	fn check_in_artifact(
 		&self,
 		arg: tg::artifact::checkin::Arg,
-	) -> impl Future<Output = tg::Result<tg::artifact::checkin::Output>> {
+	) -> impl Future<
+		Output = tg::Result<
+			impl Stream<Item = tg::Result<tg::artifact::checkin::Event>> + Send + 'static,
+		>,
+	> {
 		self.check_in_artifact(arg)
 	}
 

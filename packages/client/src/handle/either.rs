@@ -11,10 +11,20 @@ where
 	fn check_in_artifact(
 		&self,
 		arg: tg::artifact::checkin::Arg,
-	) -> impl Future<Output = tg::Result<tg::artifact::checkin::Output>> {
+	) -> impl Future<
+		Output = tg::Result<
+			impl Stream<Item = tg::Result<tg::artifact::checkin::Event>> + Send + 'static,
+		>,
+	> {
 		match self {
-			Either::Left(s) => s.check_in_artifact(arg).left_future(),
-			Either::Right(s) => s.check_in_artifact(arg).right_future(),
+			Either::Left(s) => s
+				.check_in_artifact(arg)
+				.map(|result| result.map(futures::StreamExt::left_stream))
+				.left_future(),
+			Either::Right(s) => s
+				.check_in_artifact(arg)
+				.map(|result| result.map(futures::StreamExt::right_stream))
+				.right_future(),
 		}
 	}
 
