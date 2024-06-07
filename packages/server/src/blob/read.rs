@@ -20,8 +20,7 @@ impl Server {
 		arg: tg::blob::read::Arg,
 	) -> tg::Result<Option<impl Stream<Item = tg::Result<tg::blob::read::Event>>>> {
 		// Create the reader.
-		let reader = 
-		if let Some(file) = self.try_get_blob_file(id).await? {
+		let reader = if let Some(file) = self.try_get_blob_file(id).await? {
 			Reader::File(file)
 		} else {
 			let blob = tg::Blob::with_id(id.clone());

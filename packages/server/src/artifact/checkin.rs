@@ -247,12 +247,16 @@ impl Server {
 		// Install a symlink in the blobs directory.
 		let src = PathBuf::from("../checkouts").join(id.to_string());
 		let dst = self.blobs_path().join(output.blob.to_string());
-		tokio::fs::symlink(src, dst).await.map_err(|source| {
-			tg::error!(
-				!source,
-				"failed to install symlink into checkouts directory"
-			)
-		})?;
+		match tokio::fs::symlink(src, dst).await {
+			Ok(()) => (),
+			Err(error) if error.kind() == std::io::ErrorKind::AlreadyExists => (),
+			Err(source) => {
+				return Err(tg::error!(
+					!source,
+					"failed to install symlink into checkouts directory"
+				))
+			},
+		}
 
 		// Create the output
 		let output = InnerOutput {

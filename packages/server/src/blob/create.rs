@@ -4,13 +4,7 @@ use either::Either;
 use futures::{stream, StreamExt as _, TryStreamExt as _};
 use indoc::formatdoc;
 use num::ToPrimitive as _;
-use std::{
-	pin::pin,
-	sync::{
-		atomic::{AtomicU64, Ordering},
-		Arc,
-	},
-};
+use std::{pin::pin, sync::Arc};
 use tangram_client as tg;
 use tangram_database::{self as db, Connection as _, Database as _, Query as _, Transaction as _};
 use tangram_http::{incoming::request::Ext as _, outgoing::response::Ext as _, Incoming, Outgoing};
@@ -22,9 +16,11 @@ const MIN_LEAF_SIZE: u32 = 4096;
 const AVG_LEAF_SIZE: u32 = 16_384;
 const MAX_LEAF_SIZE: u32 = 65_536;
 
-pub struct Output {
+#[derive(Clone, Debug)]
+pub struct InnerOutput {
 	pub blob: tg::blob::Id,
 	pub count: u64,
+	pub size: u64,
 	pub weight: u64,
 }
 
@@ -125,7 +121,7 @@ impl Server {
 		&self,
 		src: impl AsyncRead + Send + 'static,
 		dst: Option<Either<tokio::fs::File, &Transaction<'_>>>,
-	) -> tg::Result<Output> {
+	) -> tg::Result<InnerOutput> {
 		// Wrap the destination.
 		let dst = dst.map(|dst| dst.map_left(|file| Arc::new(tokio::sync::Mutex::new(file))));
 
@@ -138,12 +134,8 @@ impl Server {
 			MAX_LEAF_SIZE,
 		);
 
-		// Keep track of the count and weight
-		let count = Arc::new(AtomicU64::new(0));
-		let weight = Arc::new(AtomicU64::new(0));
-
 		// Create the leaves.
-		let mut children = reader
+		let mut output = reader
 			.as_stream()
 			.map_err(|source| tg::error!(!source, "failed to read from the reader"))
 			.and_then(|chunk| async {
@@ -184,29 +176,50 @@ impl Server {
 
 				// Create the child data.
 				let blob = id.into();
-				let child = tg::branch::child::Data { blob, size };
 
 				// Update the count and weight.
-				count.fetch_add(1, Ordering::Relaxed);
-				weight.fetch_add(size, Ordering::Relaxed);
+				let output = InnerOutput {
+					blob,
+					count: 1,
+					size,
+					weight: size,
+				};
 
-				Ok::<_, tg::Error>(child)
+				Ok::<_, tg::Error>(output)
 			})
 			.try_collect::<Vec<_>>()
 			.await?;
 
 		// Create the tree.
-		while children.len() > MAX_BRANCH_CHILDREN {
-			children = stream::iter(children)
+		while output.len() > MAX_BRANCH_CHILDREN {
+			output = stream::iter(output)
 				.chunks(MAX_BRANCH_CHILDREN)
 				.flat_map(|chunk| {
 					if chunk.len() == MAX_BRANCH_CHILDREN {
 						stream::once(async {
 							// Create the branch data.
-							let size = chunk.iter().map(|blob| blob.size).sum();
-							let data = tg::branch::Data { children: chunk };
+							let (size, count, weight) =
+								chunk
+									.iter()
+									.fold((0, 0, 0), |(size, count, weight), output| {
+										(
+											size + output.size,
+											count + output.count,
+											weight + output.weight,
+										)
+									});
+							let children = chunk
+								.into_iter()
+								.map(|output| tg::branch::child::Data {
+									blob: output.blob,
+									size: output.size,
+								})
+								.collect();
+							let data = tg::branch::Data { children };
 							let bytes = data.serialize()?;
 							let id = tg::branch::Id::new(&bytes);
+							let count = count + 1;
+							let weight = weight + bytes.len().to_u64().unwrap();
 
 							// Write to the destination if necessary.
 							if let Some(Either::Right(transaction)) = &dst {
@@ -219,8 +232,6 @@ impl Server {
 									"
 								);
 								let now = time::OffsetDateTime::now_utc().format(&Rfc3339).unwrap();
-								let count = data.children.len() + 1;
-								let weight = size + bytes.len().to_u64().unwrap();
 								let params = db::params![&id, &bytes, now, count, weight];
 								transaction
 									.execute(statement, params)
@@ -231,13 +242,13 @@ impl Server {
 							}
 							// Create the child data.
 							let blob = id.into();
-							let child = tg::branch::child::Data { blob, size };
-
-							// Update the count and weight.
-							count.fetch_add(1, Ordering::Relaxed);
-							weight.fetch_add(bytes.len().to_u64().unwrap(), Ordering::Relaxed);
-
-							Ok::<_, tg::Error>(child)
+							let output = InnerOutput {
+								blob,
+								count,
+								size,
+								weight,
+							};
+							Ok::<_, tg::Error>(output)
 						})
 						.left_stream()
 					} else {
@@ -248,22 +259,73 @@ impl Server {
 				.await?;
 		}
 
-		// Get the id and data.
-		let blob = match children.len() {
-			0 => tg::leaf::Id::new(&Bytes::default()).into(),
-			1 => children[0].blob.clone(),
+		// Get the output.
+		let output = match output.len() {
+			0 => {
+				let blob = tg::leaf::Id::new(&Bytes::default()).into();
+				InnerOutput {
+					blob,
+					count: 1,
+					size: 0,
+					weight: 0,
+				}
+			},
+			1 => output[0].clone(),
 			_ => {
+				// Get the size, count, weight, and children.
+				let (size, count, weight) =
+					output
+						.iter()
+						.fold((0, 0, 0), |(size, count, weight), output| {
+							(
+								size + output.size,
+								count + output.count,
+								weight + output.weight,
+							)
+						});
+				let children = output
+					.into_iter()
+					.map(|output| tg::branch::child::Data {
+						blob: output.blob,
+						size: output.size,
+					})
+					.collect();
+
+				// Create the blob data.
 				let data = tg::branch::Data { children };
-				tg::branch::Id::new(&data.serialize()?).into()
+				let bytes = data.serialize()?;
+				let id = tg::branch::Id::new(&bytes);
+				let count = count + 1;
+				let weight = weight + bytes.len().to_u64().unwrap();
+
+				// Write to the destination if necessary.
+				if let Some(Either::Right(transaction)) = &dst {
+					let p = transaction.p();
+					let statement = formatdoc!(
+						"
+							insert into objects (id, bytes, touched_at, count, weight)
+							values ({p}1, {p}2, {p}3, {p}4, {p}5)
+							on conflict (id) do update set touched_at = {p}3;
+						"
+					);
+					let now = time::OffsetDateTime::now_utc().format(&Rfc3339).unwrap();
+					let params = db::params![&id, &bytes, now, count, weight];
+					transaction
+						.execute(statement, params)
+						.await
+						.map_err(|source| tg::error!(!source, "failed to execute the statement"))?;
+				}
+
+				let blob = id.into();
+				InnerOutput {
+					blob,
+					count,
+					size,
+					weight,
+				}
 			},
 		};
-		let count = count.load(Ordering::Relaxed).max(1);
-		let weight = weight.load(Ordering::Relaxed);
-		Ok(Output {
-			blob,
-			count,
-			weight,
-		})
+		Ok(output)
 	}
 }
 
