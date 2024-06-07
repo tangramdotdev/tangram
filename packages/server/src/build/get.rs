@@ -98,12 +98,12 @@ impl Server {
 				let id = id.clone();
 				let output = output.clone();
 				async move {
-					let arg = tg::build::children::Arg::default();
+					let arg = tg::build::children::get::Arg::default();
 					let children = server
 						.try_get_build_children(&id, arg)
 						.await?
 						.ok_or_else(|| tg::error!("expected the build to exist"))?
-						.map_ok(|chunk| stream::iter(chunk.items).map(Ok::<_, tg::Error>))
+						.map_ok(|chunk| stream::iter(chunk.data).map(Ok::<_, tg::Error>))
 						.try_flatten()
 						.try_collect()
 						.await?;

@@ -27,7 +27,7 @@ impl Server {
 		}
 
 		// Get a local build if one exists that satisfies the retry constraint.
-		let build = 'a: {
+		'a: {
 			// Get a database connection.
 			let connection = self
 				.database
@@ -58,7 +58,7 @@ impl Server {
 				.await
 				.map_err(|source| tg::error!(!source, "failed to execute the statement"))?
 			else {
-				break 'a None;
+				break 'a;
 			};
 			let build = tg::Build::with_id(id);
 
@@ -70,9 +70,18 @@ impl Server {
 				let outcome = build.get_outcome(self).await?;
 				if let Some(outcome) = outcome {
 					if outcome.retry() <= arg.retry {
-						break 'a None;
+						break 'a;
 					}
 				}
+			}
+
+			// Add the build as a child of the parent.
+			if let Some(parent) = arg.parent.as_ref() {
+				let arg = tg::build::children::post::Arg {
+					child: build.id().clone(),
+					remote: None,
+				};
+				self.add_build_child(parent, arg).await?;
 			}
 
 			// Touch the build.
@@ -85,70 +94,72 @@ impl Server {
 				}
 			});
 
-			Some(build)
-		};
-
-		// Get a remote build if one exists that satisfies the retry constraint.
-		let build = 'a: {
-			if let Some(build) = build {
-				break 'a Some(build);
-			}
-
-			// Find a build.
-			let futures = self
-				.remotes
-				.iter()
-				.map(|remote| {
-					let arg = arg.clone();
-					let remote = remote.clone();
-					async move {
-						let arg = tg::target::build::Arg {
-							create: false,
-							..arg.clone()
-						};
-						let tg::target::build::Output { build } =
-							remote.build_target(id, arg).await?;
-						let build = tg::Build::with_id(build);
-						Ok::<_, tg::Error>(Some((build, remote.clone())))
-					}
-					.boxed()
-				})
-				.collect_vec();
-
-			// Wait for the first build.
-			if futures.is_empty() {
-				break 'a None;
-			}
-			let Ok((Some((build, remote)), _)) = future::select_ok(futures).await else {
-				break 'a None;
-			};
-
-			// Touch the build.
-			tokio::spawn({
-				let remote = remote.clone();
-				let build = build.clone();
-				async move {
-					let arg = tg::build::touch::Arg { remote: None };
-					remote.touch_build(build.id(), arg).await.ok();
-				}
-			});
-
-			Some(build)
-		};
-
-		// If a local or remote build was found that satisfies the retry constraint, then add it as a child of the parent and return it.
-		if let Some(build) = build {
-			// Add the build as a child of the parent.
-			if let Some(parent) = arg.parent.as_ref() {
-				self.add_build_child(parent, build.id()).await?;
-			}
-
+			// Create the output.
 			let output = tg::target::build::Output {
 				build: build.id().clone(),
 			};
 
 			return Ok(output);
 		}
+
+		// Get a remote build if one exists that satisfies the retry constraint.
+		'a: {
+			// Find a build.
+			let futures = self
+				.remotes
+				.iter()
+				.map(|remote| {
+					let server = self.clone();
+					let arg = arg.clone();
+					let remote = remote.key().clone();
+					Box::pin(async move {
+						let arg = tg::target::build::Arg {
+							create: false,
+							remote: Some(remote.clone()),
+							..arg.clone()
+						};
+						let tg::target::build::Output { build } =
+							server.build_target(id, arg).await?;
+						let build = tg::Build::with_id(build);
+						Ok::<_, tg::Error>(Some((build, remote)))
+					})
+				})
+				.collect_vec();
+
+			// Wait for the first build.
+			if futures.is_empty() {
+				break 'a;
+			}
+			let Ok((Some((build, remote)), _)) = future::select_ok(futures).await else {
+				break 'a;
+			};
+
+			// Add the build as a child of the parent.
+			if let Some(parent) = arg.parent.as_ref() {
+				let arg = tg::build::children::post::Arg {
+					child: build.id().clone(),
+					remote: Some(remote),
+				};
+				self.add_build_child(parent, arg).await?;
+			}
+
+			// Touch the build.
+			tokio::spawn({
+				let server = self.clone();
+				let build = build.clone();
+				async move {
+					let arg = tg::build::touch::Arg { remote: None };
+					server.touch_build(build.id(), arg).await.ok();
+				}
+			});
+
+			// Create the output.
+			let output = tg::target::build::Output {
+				build: build.id().clone(),
+			};
+
+			return Ok(output);
+		};
 
 		// If the create arg is false, then return an error.
 		if !arg.create {
@@ -192,7 +203,11 @@ impl Server {
 
 		// Add the build to the parent.
 		if let Some(parent) = arg.parent.as_ref() {
-			self.add_build_child(parent, build.id()).await?;
+			let arg = tg::build::children::post::Arg {
+				child: build.id().clone(),
+				remote: None,
+			};
+			self.add_build_child(parent, arg).await?;
 		}
 
 		// Publish the message.

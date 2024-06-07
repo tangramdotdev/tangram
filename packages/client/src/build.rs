@@ -12,7 +12,6 @@ pub mod outcome;
 pub mod pull;
 pub mod push;
 pub mod put;
-pub mod queue;
 pub mod retry;
 pub mod start;
 pub mod status;

@@ -24,6 +24,7 @@ version = "0.0.0"
 
 [workspace.lints.clippy]
 items_after_statements = "allow"
+assigning_clones = "allow"
 missing_errors_doc = "allow"
 missing_panics_doc = "allow"
 missing_safety_doc = "allow"

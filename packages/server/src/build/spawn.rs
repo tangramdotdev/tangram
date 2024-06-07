@@ -56,14 +56,12 @@ impl Server {
 		build: tg::Build,
 		permit: BuildPermit,
 		remote: Option<String>,
-	) -> tg::Result<bool> {
-		// Attempt to start the build.
+	) -> tg::Result<()> {
+		// Start the build.
 		let arg = tg::build::start::Arg {
 			remote: remote.clone(),
 		};
-		if !self.start_build(build.id(), arg).await? {
-			return Ok(false);
-		};
+		self.start_build(build.id(), arg).await?;
 
 		// Spawn the build task.
 		self.builds.spawn(
@@ -92,7 +90,7 @@ impl Server {
 				.map(|_| ())
 		});
 
-		Ok(true)
+		Ok(())
 	}
 
 	async fn build_task(
@@ -162,14 +160,18 @@ impl Server {
 			.clone();
 
 		// Build.
-		let result = runtime.build(&build, remote).await;
+		let result = runtime.build(&build, remote.clone()).await;
 
 		// Log an error if one occurred.
 		if let Err(error) = &result {
 			let options = &self.options.advanced.error_trace_options;
 			let trace = error.trace(options);
-			let log = trace.to_string();
-			build.add_log(self, log.into()).await?;
+			let bytes = trace.to_string().into();
+			let arg = tg::build::log::post::Arg {
+				bytes,
+				remote: remote.clone(),
+			};
+			build.add_log(self, arg).await?;
 		}
 
 		// Create the outcome.

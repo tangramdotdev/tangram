@@ -33,7 +33,7 @@ impl Server {
 		drop(connection);
 
 		// Create the output.
-		let output = tg::root::list::Output { items };
+		let output = tg::root::list::Output { data: items };
 
 		Ok(output)
 	}

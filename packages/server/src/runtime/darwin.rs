@@ -31,7 +31,7 @@ impl Runtime {
 		}
 	}
 
-	pub async fn build(&self, build: &tg::Build) -> tg::Result<tg::Value> {
+	pub async fn build(&self, build: &tg::Build, remote: Option<String>) -> tg::Result<tg::Value> {
 		let server = &self.server;
 
 		// Get the target.
@@ -114,7 +114,7 @@ impl Runtime {
 			.map_err(|source| tg::error!(!source, "failed to parse the proxy server url"))?;
 
 		// Start the proxy server.
-		let proxy = Proxy::new(server.clone(), build.id().clone(), None);
+		let proxy = Proxy::new(server.clone(), build.id().clone(), remote.clone(), None);
 		let stop = Stop::new();
 		let proxy_task = tokio::spawn(Server::serve(proxy, proxy_server_url.clone(), stop));
 
@@ -420,8 +420,9 @@ impl Runtime {
 		// Spawn the log task.
 		let mut reader = child.stdout.take().unwrap();
 		let log_task = tokio::task::spawn({
-			let build = build.clone();
 			let server = server.clone();
+			let build = build.clone();
+			let remote = remote.clone();
 			async move {
 				let mut buffer = vec![0; 4096];
 				loop {
@@ -437,11 +438,16 @@ impl Runtime {
 						tokio::io::stderr()
 							.write_all(&bytes)
 							.await
-							.map_err(|source| {
-								tg::error!(!source, "failed to write the build log to stderr")
-							})?;
+							.inspect_err(|error| {
+								tracing::error!(?error, "failed to write the build log to stderr");
+							})
+							.ok();
 					}
-					build.add_log(&server, bytes).await?;
+					let arg = tg::build::log::post::Arg {
+						bytes,
+						remote: remote.clone(),
+					};
+					build.add_log(&server, arg).await?;
 				}
 			}
 		});

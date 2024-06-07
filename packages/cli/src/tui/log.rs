@@ -16,7 +16,7 @@ pub struct Log<H> {
 	build: tg::Build,
 
 	// A buffer of log chunks.
-	chunks: tokio::sync::Mutex<Vec<tg::build::log::Chunk>>,
+	chunks: tokio::sync::Mutex<Vec<tg::build::log::get::Chunk>>,
 
 	// Whether the log has reached EOF.
 	eof: AtomicBool,
@@ -129,7 +129,7 @@ where
 		let length = Some(0);
 		let timeout = std::time::Duration::from_millis(16);
 		let timeout = tokio::time::sleep(timeout);
-		let arg = tg::build::log::Arg {
+		let arg = tg::build::log::get::Arg {
 			length,
 			position,
 			..Default::default()
@@ -317,7 +317,7 @@ where
 			.build
 			.log(
 				&self.handle,
-				tg::build::log::Arg {
+				tg::build::log::get::Arg {
 					length,
 					position,
 					..Default::default()

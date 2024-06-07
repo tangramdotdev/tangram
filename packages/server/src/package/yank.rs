@@ -10,29 +10,18 @@ impl Server {
 		id: &tg::artifact::Id,
 		arg: tg::package::yank::Arg,
 	) -> tg::Result<()> {
+		// Handle the remote.
 		let remote = arg.remote.as_ref().or(self.options.registry.as_ref());
-		match remote {
-			None => {
-				self.yank_package_local(id, arg).await?;
-				Ok(())
-			},
-			Some(remote) => {
-				let remote = self
-					.remotes
-					.get(remote)
-					.ok_or_else(|| tg::error!("the remote does not exist"))?
-					.clone();
-				remote.yank_package(id, arg).await?;
-				Ok(())
-			},
+		if let Some(remote) = remote {
+			let remote = self
+				.remotes
+				.get(remote)
+				.ok_or_else(|| tg::error!("the remote does not exist"))?
+				.clone();
+			remote.yank_package(id, arg).await?;
+			return Ok(());
 		}
-	}
 
-	pub async fn yank_package_local(
-		&self,
-		id: &tg::artifact::Id,
-		_arg: tg::package::yank::Arg,
-	) -> tg::Result<()> {
 		// Get a database connection.
 		let connection = self
 			.database

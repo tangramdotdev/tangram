@@ -95,7 +95,7 @@ impl Cli {
 		// Get the build's children.
 		let children = max_depth.map_or(true, |max_depth| current_depth < max_depth);
 		let children = if children {
-			let arg = tg::build::children::Arg::default();
+			let arg = tg::build::children::get::Arg::default();
 			build
 				.children(&self.handle, arg)
 				.await

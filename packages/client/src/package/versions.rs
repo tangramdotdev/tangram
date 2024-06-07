@@ -1,12 +1,17 @@
 use crate as tg;
+use std::collections::BTreeMap;
 use tangram_http::{incoming::response::Ext as _, outgoing::request::Ext as _};
 
-#[derive(Debug, Copy, Clone, Default, serde::Deserialize, serde::Serialize)]
+#[derive(Debug, Clone, Default, serde::Deserialize, serde::Serialize)]
 pub struct Arg {
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub remote: Option<String>,
+
+	#[serde(default, skip_serializing_if = "std::ops::Not::not")]
 	pub yanked: bool,
 }
 
-pub type Output = Vec<String>;
+pub type Output = BTreeMap<String, tg::artifact::Id>;
 
 impl tg::Client {
 	pub async fn try_get_package_versions(

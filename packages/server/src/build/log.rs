@@ -41,9 +41,10 @@ impl Server {
 	pub async fn try_get_build_log_stream(
 		&self,
 		id: &tg::build::Id,
-		arg: tg::build::log::Arg,
-	) -> tg::Result<Option<impl Stream<Item = tg::Result<tg::build::log::Event>> + Send + 'static>>
-	{
+		arg: tg::build::log::get::Arg,
+	) -> tg::Result<
+		Option<impl Stream<Item = tg::Result<tg::build::log::get::Event>> + Send + 'static>,
+	> {
 		if let Some(log) = self.try_get_build_log_local(id, arg.clone()).await? {
 			Ok(Some(log.left_stream()))
 		} else if let Some(log) = self.try_get_build_log_remote(id, arg.clone()).await? {
@@ -57,9 +58,10 @@ impl Server {
 	async fn try_get_build_log_local(
 		&self,
 		id: &tg::build::Id,
-		arg: tg::build::log::Arg,
-	) -> tg::Result<Option<impl Stream<Item = tg::Result<tg::build::log::Event>> + Send + 'static>>
-	{
+		arg: tg::build::log::get::Arg,
+	) -> tg::Result<
+		Option<impl Stream<Item = tg::Result<tg::build::log::get::Event>> + Send + 'static>,
+	> {
 		// Verify the build is local.
 		if !self.get_build_exists_local(id).await? {
 			return Ok(None);
@@ -86,8 +88,8 @@ impl Server {
 	async fn try_get_build_log_local_task(
 		&self,
 		id: &tg::build::Id,
-		arg: tg::build::log::Arg,
-		sender: async_channel::Sender<tg::Result<tg::build::log::Event>>,
+		arg: tg::build::log::get::Arg,
+		sender: async_channel::Sender<tg::Result<tg::build::log::get::Event>>,
 	) -> tg::Result<()> {
 		// Subscribe to log events.
 		let subject = format!("builds.{id}.log");
@@ -197,7 +199,7 @@ impl Server {
 					}
 				}
 				data.truncate(n);
-				let data = tg::build::log::Chunk {
+				let chunk = tg::build::log::get::Chunk {
 					position,
 					bytes: data.into(),
 				};
@@ -214,13 +216,13 @@ impl Server {
 						.map_err(|source| tg::error!(!source, "failed to seek the reader"))?;
 				}
 
-				// If the data is empty, then break.
-				if data.bytes.is_empty() {
+				// If the chunk is empty, then break.
+				if chunk.bytes.is_empty() {
 					break;
 				}
 
 				// Send the data.
-				let result = sender.try_send(Ok(tg::build::log::Event::Data(data)));
+				let result = sender.try_send(Ok(tg::build::log::get::Event::Chunk(chunk)));
 				if result.is_err() {
 					return Ok(());
 				}
@@ -237,7 +239,7 @@ impl Server {
 				false
 			};
 			if end || status == tg::build::Status::Finished {
-				let result = sender.try_send(Ok(tg::build::log::Event::End));
+				let result = sender.try_send(Ok(tg::build::log::get::Event::End));
 				if result.is_err() {
 					return Ok(());
 				}
@@ -254,9 +256,10 @@ impl Server {
 	async fn try_get_build_log_remote(
 		&self,
 		id: &tg::build::Id,
-		arg: tg::build::log::Arg,
-	) -> tg::Result<Option<impl Stream<Item = tg::Result<tg::build::log::Event>> + Send + 'static>>
-	{
+		arg: tg::build::log::get::Arg,
+	) -> tg::Result<
+		Option<impl Stream<Item = tg::Result<tg::build::log::get::Event>> + Send + 'static>,
+	> {
 		let futures = self
 			.remotes
 			.iter()
@@ -282,12 +285,16 @@ impl Server {
 			return Ok(None);
 		};
 		let stream = stream
-			.map_ok(tg::build::log::Event::Data)
-			.chain(stream::once(future::ok(tg::build::log::Event::End)));
+			.map_ok(tg::build::log::get::Event::Chunk)
+			.chain(stream::once(future::ok(tg::build::log::get::Event::End)));
 		Ok(Some(stream))
 	}
 
-	pub async fn add_build_log(&self, id: &tg::build::Id, bytes: Bytes) -> tg::Result<()> {
+	pub async fn add_build_log(
+		&self,
+		id: &tg::build::Id,
+		arg: tg::build::log::post::Arg,
+	) -> tg::Result<()> {
 		// Verify the build is local.
 		if !self.get_build_exists_local(id).await? {
 			return Err(tg::error!("failed to find the build"));
@@ -295,9 +302,9 @@ impl Server {
 
 		// Log.
 		if self.options.advanced.write_build_logs_to_database {
-			self.try_add_build_log_to_database(id, bytes).await?;
+			self.try_add_build_log_to_database(id, arg.bytes).await?;
 		} else {
-			self.try_add_build_log_to_file(id, bytes).await?;
+			self.try_add_build_log_to_file(id, arg.bytes).await?;
 		}
 
 		// Publish the message.
@@ -717,14 +724,14 @@ impl Server {
 			Some((mime::TEXT, mime::EVENT_STREAM)) => {
 				let content_type = mime::TEXT_EVENT_STREAM;
 				let sse = stream.map(|result| match result {
-					Ok(tg::build::log::Event::Data(data)) => {
-						let data = serde_json::to_string(&data).unwrap();
+					Ok(tg::build::log::get::Event::Chunk(chunk)) => {
+						let data = serde_json::to_string(&chunk).unwrap();
 						Ok::<_, tg::Error>(tangram_http::sse::Event {
 							data,
 							..Default::default()
 						})
 					},
-					Ok(tg::build::log::Event::End) => {
+					Ok(tg::build::log::get::Event::End) => {
 						let event = "end".to_owned();
 						Ok::<_, tg::Error>(tangram_http::sse::Event {
 							event: Some(event),
@@ -767,8 +774,8 @@ impl Server {
 		H: tg::Handle,
 	{
 		let id = id.parse()?;
-		let bytes = request.bytes().await?;
-		handle.add_build_log(&id, bytes).await?;
+		let arg = request.json().await?;
+		handle.add_build_log(&id, arg).await?;
 		let response = http::Response::builder().empty().unwrap();
 		Ok(response)
 	}

@@ -10,32 +10,19 @@ impl Server {
 		&self,
 		dependency: &tg::Dependency,
 		arg: tg::package::versions::Arg,
-	) -> tg::Result<Option<Vec<String>>> {
-		match &self.options.registry {
-			None => {
-				let versions = self
-					.try_get_package_versions_local(dependency, arg)
-					.await?
-					.map(|versions| versions.into_iter().map(|(version, _)| version).collect());
-				Ok(versions)
-			},
-			Some(remote) => {
-				let remote = self
-					.remotes
-					.get(remote)
-					.ok_or_else(|| tg::error!("the remote does not exist"))?
-					.clone();
-				let versions = remote.try_get_package_versions(dependency, arg).await?;
-				Ok(versions)
-			},
+	) -> tg::Result<Option<tg::package::versions::Output>> {
+		// Handle the remote.
+		let remote = arg.remote.as_ref().or(self.options.registry.as_ref());
+		if let Some(remote) = remote {
+			let remote = self
+				.remotes
+				.get(remote)
+				.ok_or_else(|| tg::error!("the remote does not exist"))?
+				.clone();
+			let versions = remote.try_get_package_versions(dependency, arg).await?;
+			return Ok(versions);
 		}
-	}
 
-	pub(super) async fn try_get_package_versions_local(
-		&self,
-		dependency: &tg::Dependency,
-		arg: tg::package::versions::Arg,
-	) -> tg::Result<Option<Vec<(String, tg::artifact::Id)>>> {
 		// Get the dependency name and version.
 		let name = dependency
 			.name
@@ -124,7 +111,7 @@ impl Server {
 		let versions = versions
 			.into_iter()
 			.filter_map(|row| (&row.version == version).then_some((row.version, row.artifact)))
-			.collect::<Vec<_>>();
+			.collect();
 
 		Ok(Some(versions))
 	}

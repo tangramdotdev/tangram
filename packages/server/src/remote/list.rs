@@ -16,7 +16,7 @@ impl Server {
 				tg::remote::get::Output { name, url }
 			})
 			.collect();
-		let output = tg::remote::list::Output { items };
+		let output = tg::remote::list::Output { data: items };
 		Ok(output)
 	}
 }

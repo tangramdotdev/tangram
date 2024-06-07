@@ -103,14 +103,14 @@ impl Server {
 		}
 
 		// Get the children.
-		let arg = tg::build::children::Arg::default();
+		let arg = tg::build::children::get::Arg::default();
 		let children = self
 			.get_build_children(id, arg)
 			.await?
 			.try_collect::<Vec<_>>()
 			.await?
 			.into_iter()
-			.flat_map(|chunk| chunk.items)
+			.flat_map(|chunk| chunk.data)
 			.collect_vec();
 		let children = children
 			.into_iter()

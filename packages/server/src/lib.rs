@@ -1,6 +1,5 @@
 use self::{database::Database, messenger::Messenger, runtime::Runtime, util::fs::remove};
 use async_nats as nats;
-use bytes::Bytes;
 use dashmap::DashMap;
 use either::Either;
 use futures::{future, Future, FutureExt as _, Stream};
@@ -861,12 +860,12 @@ impl tg::Handle for Server {
 		self.try_dequeue_build(arg)
 	}
 
-	fn try_start_build(
+	fn start_build(
 		&self,
 		id: &tg::build::Id,
 		arg: tg::build::start::Arg,
-	) -> impl Future<Output = tg::Result<Option<bool>>> {
-		self.try_start_build(id, arg)
+	) -> impl Future<Output = tg::Result<()>> {
+		self.start_build(id, arg)
 	}
 
 	fn try_get_build_status_stream(
@@ -883,10 +882,12 @@ impl tg::Handle for Server {
 	fn try_get_build_children_stream(
 		&self,
 		id: &tg::build::Id,
-		arg: tg::build::children::Arg,
+		arg: tg::build::children::get::Arg,
 	) -> impl Future<
 		Output = tg::Result<
-			Option<impl Stream<Item = tg::Result<tg::build::children::Event>> + Send + 'static>,
+			Option<
+				impl Stream<Item = tg::Result<tg::build::children::get::Event>> + Send + 'static,
+			>,
 		>,
 	> {
 		self.try_get_build_children_stream(id, arg)
@@ -894,19 +895,19 @@ impl tg::Handle for Server {
 
 	fn add_build_child(
 		&self,
-		build_id: &tg::build::Id,
-		child_id: &tg::build::Id,
+		id: &tg::build::Id,
+		arg: tg::build::children::post::Arg,
 	) -> impl Future<Output = tg::Result<()>> {
-		self.add_build_child(build_id, child_id)
+		self.add_build_child(id, arg)
 	}
 
 	fn try_get_build_log_stream(
 		&self,
 		id: &tg::build::Id,
-		arg: tg::build::log::Arg,
+		arg: tg::build::log::get::Arg,
 	) -> impl Future<
 		Output = tg::Result<
-			Option<impl Stream<Item = tg::Result<tg::build::log::Event>> + Send + 'static>,
+			Option<impl Stream<Item = tg::Result<tg::build::log::get::Event>> + Send + 'static>,
 		>,
 	> {
 		self.try_get_build_log_stream(id, arg)
@@ -914,10 +915,10 @@ impl tg::Handle for Server {
 
 	fn add_build_log(
 		&self,
-		build_id: &tg::build::Id,
-		bytes: Bytes,
+		id: &tg::build::Id,
+		arg: tg::build::log::post::Arg,
 	) -> impl Future<Output = tg::Result<()>> {
-		self.add_build_log(build_id, bytes)
+		self.add_build_log(id, arg)
 	}
 
 	fn try_get_build_outcome_future(
@@ -1064,7 +1065,7 @@ impl tg::Handle for Server {
 		&self,
 		dependency: &tg::Dependency,
 		arg: tg::package::versions::Arg,
-	) -> impl Future<Output = tg::Result<Option<Vec<String>>>> {
+	) -> impl Future<Output = tg::Result<Option<tg::package::versions::Output>>> {
 		self.try_get_package_versions(dependency, arg)
 	}
 

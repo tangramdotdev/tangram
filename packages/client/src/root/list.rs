@@ -6,7 +6,7 @@ pub struct Arg {}
 
 #[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
 pub struct Output {
-	pub items: Vec<tg::root::get::Output>,
+	pub data: Vec<tg::root::get::Output>,
 }
 
 impl tg::Client {

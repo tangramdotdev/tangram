@@ -16,9 +16,9 @@ impl Server {
 	pub async fn try_get_build_children_stream(
 		&self,
 		id: &tg::build::Id,
-		arg: tg::build::children::Arg,
+		arg: tg::build::children::get::Arg,
 	) -> tg::Result<
-		Option<impl Stream<Item = tg::Result<tg::build::children::Event>> + Send + 'static>,
+		Option<impl Stream<Item = tg::Result<tg::build::children::get::Event>> + Send + 'static>,
 	> {
 		if let Some(children) = self.try_get_build_children_local(id, arg.clone()).await? {
 			Ok(Some(children.left_stream()))
@@ -33,9 +33,9 @@ impl Server {
 	async fn try_get_build_children_local(
 		&self,
 		id: &tg::build::Id,
-		arg: tg::build::children::Arg,
+		arg: tg::build::children::get::Arg,
 	) -> tg::Result<
-		Option<impl Stream<Item = tg::Result<tg::build::children::Event>> + Send + 'static>,
+		Option<impl Stream<Item = tg::Result<tg::build::children::get::Event>> + Send + 'static>,
 	> {
 		// Verify the build is local.
 		if !self.get_build_exists_local(id).await? {
@@ -63,8 +63,8 @@ impl Server {
 	async fn try_get_build_children_local_task(
 		&self,
 		id: &tg::build::Id,
-		arg: tg::build::children::Arg,
-		sender: async_channel::Sender<tg::Result<tg::build::children::Event>>,
+		arg: tg::build::children::get::Arg,
+		sender: async_channel::Sender<tg::Result<tg::build::children::get::Event>>,
 	) -> tg::Result<()> {
 		// Get the position.
 		let position = match arg.position {
@@ -137,22 +137,22 @@ impl Server {
 					Some(length) => size.min(length - read),
 				};
 
-				// Read the data.
-				let data = self
+				// Read the chunk.
+				let chunk = self
 					.try_get_build_children_local_inner(id, position, size)
 					.await?;
 
-				// If the data is empty, then break.
-				if data.items.is_empty() {
+				// If the chunk is empty, then break.
+				if chunk.data.is_empty() {
 					break;
 				}
 
 				// Update the state.
-				position += data.items.len().to_u64().unwrap();
-				read += data.items.len().to_u64().unwrap();
+				position += chunk.data.len().to_u64().unwrap();
+				read += chunk.data.len().to_u64().unwrap();
 
 				// Send the data.
-				let result = sender.try_send(Ok(tg::build::children::Event::Data(data)));
+				let result = sender.try_send(Ok(tg::build::children::get::Event::Chunk(chunk)));
 				if result.is_err() {
 					return Ok(());
 				}
@@ -161,7 +161,7 @@ impl Server {
 			// If the build was finished or the length was reached, then send the end event and break.
 			let end = arg.length.is_some_and(|length| read >= length);
 			if end || status == tg::build::Status::Finished {
-				let result = sender.try_send(Ok(tg::build::children::Event::End));
+				let result = sender.try_send(Ok(tg::build::children::get::Event::End));
 				if result.is_err() {
 					return Ok(());
 				}
@@ -212,7 +212,7 @@ impl Server {
 		id: &tg::build::Id,
 		position: u64,
 		length: u64,
-	) -> tg::Result<tg::build::children::Data> {
+	) -> tg::Result<tg::build::children::get::Chunk> {
 		// Get a database connection.
 		let connection = self
 			.database
@@ -242,9 +242,9 @@ impl Server {
 		drop(connection);
 
 		// Create the chunk.
-		let chunk = tg::build::children::Data {
+		let chunk = tg::build::children::get::Chunk {
 			position,
-			items: children,
+			data: children,
 		};
 
 		Ok(chunk)
@@ -253,9 +253,9 @@ impl Server {
 	async fn try_get_build_children_remote(
 		&self,
 		id: &tg::build::Id,
-		arg: tg::build::children::Arg,
+		arg: tg::build::children::get::Arg,
 	) -> tg::Result<
-		Option<impl Stream<Item = tg::Result<tg::build::children::Event>> + Send + 'static>,
+		Option<impl Stream<Item = tg::Result<tg::build::children::get::Event>> + Send + 'static>,
 	> {
 		let futures = self
 			.remotes
@@ -282,18 +282,20 @@ impl Server {
 			return Ok(None);
 		};
 		let stream = stream
-			.map_ok(tg::build::children::Event::Data)
-			.chain(stream::once(future::ok(tg::build::children::Event::End)));
+			.map_ok(tg::build::children::get::Event::Chunk)
+			.chain(stream::once(future::ok(
+				tg::build::children::get::Event::End,
+			)));
 		Ok(Some(stream))
 	}
 
 	pub async fn add_build_child(
 		&self,
-		build_id: &tg::build::Id,
-		child_id: &tg::build::Id,
+		id: &tg::build::Id,
+		arg: tg::build::children::post::Arg,
 	) -> tg::Result<()> {
 		// Verify the build is local.
-		if !self.get_build_exists_local(build_id).await? {
+		if !self.get_build_exists_local(id).await? {
 			return Err(tg::error!("failed to find the build"));
 		}
 
@@ -313,7 +315,7 @@ impl Server {
 				on conflict (build, child) do nothing;
 			"
 		);
-		let params = db::params![build_id, child_id];
+		let params = db::params![id, arg.child];
 		connection
 			.execute(statement, params)
 			.await
@@ -325,9 +327,9 @@ impl Server {
 		// Publish the message.
 		tokio::spawn({
 			let server = self.clone();
-			let build_id = build_id.clone();
+			let id = id.clone();
 			async move {
-				let subject = format!("builds.{build_id}.children");
+				let subject = format!("builds.{id}.children");
 				let payload = Bytes::new();
 				server
 					.messenger
@@ -380,13 +382,16 @@ impl Server {
 				let future = async move {
 					let children: Vec<tg::build::Id> = stream
 						.take_while(|event| {
-							future::ready(!matches!(event, Ok(tg::build::children::Event::End)))
+							future::ready(!matches!(
+								event,
+								Ok(tg::build::children::get::Event::End)
+							))
 						})
 						.map_ok(|event| {
-							let tg::build::children::Event::Data(chunk) = event else {
+							let tg::build::children::get::Event::Chunk(chunk) = event else {
 								unreachable!()
 							};
-							stream::iter(chunk.items.into_iter()).map(Ok::<_, tg::Error>)
+							stream::iter(chunk.data.into_iter()).map(Ok::<_, tg::Error>)
 						})
 						.try_flatten()
 						.try_collect()
@@ -401,14 +406,14 @@ impl Server {
 			Some((mime::TEXT, mime::EVENT_STREAM)) => {
 				let content_type = mime::TEXT_EVENT_STREAM;
 				let sse = stream.map(|result| match result {
-					Ok(tg::build::children::Event::Data(data)) => {
-						let data = serde_json::to_string(&data).unwrap();
+					Ok(tg::build::children::get::Event::Chunk(chunk)) => {
+						let data = serde_json::to_string(&chunk).unwrap();
 						Ok::<_, tg::Error>(tangram_http::sse::Event {
 							data,
 							..Default::default()
 						})
 					},
-					Ok(tg::build::children::Event::End) => {
+					Ok(tg::build::children::get::Event::End) => {
 						let event = "end".to_owned();
 						Ok::<_, tg::Error>(tangram_http::sse::Event {
 							event: Some(event),
@@ -450,9 +455,9 @@ impl Server {
 	where
 		H: tg::Handle,
 	{
-		let build_id = id.parse()?;
-		let child_id = request.json().await?;
-		handle.add_build_child(&build_id, &child_id).await?;
+		let id = id.parse()?;
+		let arg = request.json().await?;
+		handle.add_build_child(&id, arg).await?;
 		let response = http::Response::builder().empty().unwrap();
 		Ok(response)
 	}

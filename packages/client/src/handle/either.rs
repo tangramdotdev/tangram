@@ -1,5 +1,4 @@
 use crate as tg;
-use bytes::Bytes;
 use either::Either;
 use futures::{Future, FutureExt as _, Stream};
 use tokio::io::{AsyncBufRead, AsyncRead, AsyncWrite};
@@ -113,14 +112,14 @@ where
 		}
 	}
 
-	fn try_start_build(
+	fn start_build(
 		&self,
 		id: &tg::build::Id,
 		arg: tg::build::start::Arg,
-	) -> impl Future<Output = tg::Result<Option<bool>>> + Send {
+	) -> impl Future<Output = tg::Result<()>> + Send {
 		match self {
-			Either::Left(s) => s.try_start_build(id, arg).left_future(),
-			Either::Right(s) => s.try_start_build(id, arg).right_future(),
+			Either::Left(s) => s.start_build(id, arg).left_future(),
+			Either::Right(s) => s.start_build(id, arg).right_future(),
 		}
 	}
 
@@ -147,10 +146,12 @@ where
 	fn try_get_build_children_stream(
 		&self,
 		id: &tg::build::Id,
-		arg: tg::build::children::Arg,
+		arg: tg::build::children::get::Arg,
 	) -> impl Future<
 		Output = tg::Result<
-			Option<impl Stream<Item = tg::Result<tg::build::children::Event>> + Send + 'static>,
+			Option<
+				impl Stream<Item = tg::Result<tg::build::children::get::Event>> + Send + 'static,
+			>,
 		>,
 	> {
 		match self {
@@ -167,21 +168,22 @@ where
 
 	fn add_build_child(
 		&self,
-		build_id: &tg::build::Id,
-		child_id: &tg::build::Id,
+		id: &tg::build::Id,
+		arg: tg::build::children::post::Arg,
 	) -> impl Future<Output = tg::Result<()>> {
 		match self {
-			Either::Left(s) => s.add_build_child(build_id, child_id).left_future(),
-			Either::Right(s) => s.add_build_child(build_id, child_id).right_future(),
+			Either::Left(s) => s.add_build_child(id, arg).left_future(),
+			Either::Right(s) => s.add_build_child(id, arg).right_future(),
 		}
 	}
 
 	async fn try_get_build_log_stream(
 		&self,
 		id: &tg::build::Id,
-		arg: tg::build::log::Arg,
-	) -> tg::Result<Option<impl Stream<Item = tg::Result<tg::build::log::Event>> + Send + 'static>>
-	{
+		arg: tg::build::log::get::Arg,
+	) -> tg::Result<
+		Option<impl Stream<Item = tg::Result<tg::build::log::get::Event>> + Send + 'static>,
+	> {
 		match self {
 			Either::Left(s) => s
 				.try_get_build_log_stream(id, arg)
@@ -197,11 +199,11 @@ where
 	fn add_build_log(
 		&self,
 		id: &tg::build::Id,
-		bytes: Bytes,
+		arg: tg::build::log::post::Arg,
 	) -> impl Future<Output = tg::Result<()>> {
 		match self {
-			Either::Left(s) => s.add_build_log(id, bytes).left_future(),
-			Either::Right(s) => s.add_build_log(id, bytes).right_future(),
+			Either::Left(s) => s.add_build_log(id, arg).left_future(),
+			Either::Right(s) => s.add_build_log(id, arg).right_future(),
 		}
 	}
 
@@ -418,7 +420,7 @@ where
 		&self,
 		dependency: &tg::Dependency,
 		arg: tg::package::versions::Arg,
-	) -> impl Future<Output = tg::Result<Option<Vec<String>>>> {
+	) -> impl Future<Output = tg::Result<Option<tg::package::versions::Output>>> {
 		match self {
 			Either::Left(s) => s.try_get_package_versions(dependency, arg).left_future(),
 			Either::Right(s) => s.try_get_package_versions(dependency, arg).right_future(),

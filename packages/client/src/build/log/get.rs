@@ -1,64 +1,82 @@
 use crate as tg;
+use bytes::Bytes;
 use futures::{Stream, StreamExt as _};
+use serde_with::serde_as;
 use tangram_http::{incoming::response::Ext as _, outgoing::request::Ext as _};
 
-#[derive(
-	Clone, Copy, Debug, Eq, PartialEq, serde_with::DeserializeFromStr, serde_with::SerializeDisplay,
-)]
-pub enum Status {
-	Created,
-	Dequeued,
-	Started,
-	Finished,
-}
-
+#[serde_as]
 #[derive(Clone, Debug, Default, serde::Deserialize, serde::Serialize)]
 pub struct Arg {
 	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub length: Option<i64>,
+
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	#[serde_as(as = "Option<crate::util::serde::SeekFromString>")]
+	pub position: Option<std::io::SeekFrom>,
+
+	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub remote: Option<String>,
+
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub size: Option<u64>,
 }
 
-#[derive(Copy, Clone, Debug, derive_more::TryUnwrap)]
+#[derive(Clone, Debug)]
 pub enum Event {
-	Data(Status),
+	Chunk(Chunk),
 	End,
 }
 
+#[serde_as]
+#[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
+pub struct Chunk {
+	pub position: u64,
+	#[serde_as(as = "crate::util::serde::BytesBase64")]
+	pub bytes: Bytes,
+}
+
 impl tg::Build {
-	pub async fn status<H>(
+	pub async fn log<H>(
 		&self,
 		handle: &H,
-	) -> tg::Result<impl Stream<Item = tg::Result<tg::build::Status>> + Send + 'static>
+		arg: tg::build::log::get::Arg,
+	) -> tg::Result<impl Stream<Item = tg::Result<tg::build::log::get::Chunk>> + Send + 'static>
 	where
 		H: tg::Handle,
 	{
-		self.try_get_status(handle)
+		self.try_get_log(handle, arg)
 			.await?
 			.ok_or_else(|| tg::error!("failed to get the build"))
 	}
 
-	pub async fn try_get_status<H>(
+	pub async fn try_get_log<H>(
 		&self,
 		handle: &H,
-	) -> tg::Result<Option<impl Stream<Item = tg::Result<tg::build::Status>> + Send + 'static>>
+		arg: tg::build::log::get::Arg,
+	) -> tg::Result<
+		Option<impl Stream<Item = tg::Result<tg::build::log::get::Chunk>> + Send + 'static>,
+	>
 	where
 		H: tg::Handle,
 	{
 		handle
-			.try_get_build_status(self.id())
+			.try_get_build_log(self.id(), arg)
 			.await
 			.map(|option| option.map(futures::StreamExt::boxed))
 	}
 }
 
 impl tg::Client {
-	pub async fn try_get_build_status_stream(
+	pub async fn try_get_build_log_stream(
 		&self,
 		id: &tg::build::Id,
-	) -> tg::Result<Option<impl Stream<Item = tg::Result<tg::build::status::Event>> + Send + 'static>>
-	{
+		arg: tg::build::log::get::Arg,
+	) -> tg::Result<
+		Option<impl Stream<Item = tg::Result<tg::build::log::get::Event>> + Send + 'static>,
+	> {
 		let method = http::Method::GET;
-		let uri = format!("/builds/{id}/status");
+		let query = serde_urlencoded::to_string(&arg).unwrap();
+		let uri = format!("/builds/{id}/log?{query}");
 		let request = http::request::Builder::default()
 			.method(method)
 			.uri(uri)
@@ -76,12 +94,12 @@ impl tg::Client {
 		let output = response.sse().map(|result| {
 			let event = result.map_err(|source| tg::error!(!source, "failed to read an event"))?;
 			match event.event.as_deref() {
-				None | Some("data") => {
+				None | Some("chunk") => {
 					let data = serde_json::from_str(&event.data)
 						.map_err(|source| tg::error!(!source, "failed to deserialize the data"))?;
-					Ok(Event::Data(data))
+					Ok(tg::build::log::get::Event::Chunk(data))
 				},
-				Some("end") => Ok(Event::End),
+				Some("end") => Ok(tg::build::log::get::Event::End),
 				Some("error") => {
 					let error = serde_json::from_str(&event.data)
 						.map_err(|source| tg::error!(!source, "failed to deserialize the error"))?;
@@ -91,30 +109,5 @@ impl tg::Client {
 			}
 		});
 		Ok(Some(output))
-	}
-}
-
-impl std::fmt::Display for Status {
-	fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-		match self {
-			Self::Created => write!(f, "created"),
-			Self::Dequeued => write!(f, "dequeued"),
-			Self::Started => write!(f, "started"),
-			Self::Finished => write!(f, "finished"),
-		}
-	}
-}
-
-impl std::str::FromStr for Status {
-	type Err = tg::Error;
-
-	fn from_str(s: &str) -> tg::Result<Self, Self::Err> {
-		match s {
-			"created" => Ok(Self::Created),
-			"dequeued" => Ok(Self::Dequeued),
-			"started" => Ok(Self::Started),
-			"finished" => Ok(Self::Finished),
-			status => Err(tg::error!(%status, "invalid value")),
-		}
 	}
 }

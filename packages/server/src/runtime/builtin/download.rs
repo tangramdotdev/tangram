@@ -10,7 +10,7 @@ impl Runtime {
 	pub async fn download(
 		&self,
 		build: &tg::Build,
-		_remote: Option<String>,
+		remote: Option<String>,
 	) -> tg::Result<tg::Value> {
 		let server = &self.server;
 
@@ -49,6 +49,7 @@ impl Runtime {
 		let log_task = tokio::spawn({
 			let server = server.clone();
 			let build = build.clone();
+			let remote = remote.clone();
 			let url = url.clone();
 			let downloaded = downloaded.clone();
 			async move {
@@ -64,7 +65,11 @@ impl Runtime {
 						let downloaded = byte_unit::Byte::from_u64(downloaded);
 						format!("downloading from \"{url}\": {downloaded}\n")
 					};
-					let result = build.add_log(&server, message.into()).await;
+					let arg = tg::build::log::post::Arg {
+						bytes: message.into(),
+						remote: remote.clone(),
+					};
+					let result = build.add_log(&server, arg).await;
 					if result.is_err() {
 						break;
 					}
@@ -103,7 +108,11 @@ impl Runtime {
 
 		// Log that the download finished.
 		let message = format!("finished download from \"{url}\"\n");
-		build.add_log(server, message.into()).await.ok();
+		let arg = tg::build::log::post::Arg {
+			bytes: message.into(),
+			remote: remote.clone(),
+		};
+		build.add_log(server, arg).await.ok();
 
 		Ok(blob.into())
 	}

@@ -754,7 +754,7 @@ impl Context {
 			else {
 				return Ok(None);
 			};
-			remaining_versions.replace(versions.into());
+			remaining_versions.replace(versions.into_keys().collect());
 		}
 
 		let remaining_versions = remaining_versions.as_mut().unwrap();

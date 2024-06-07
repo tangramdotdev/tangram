@@ -7,37 +7,26 @@ use tangram_messenger::Messenger as _;
 use time::format_description::well_known::Rfc3339;
 
 impl Server {
-	pub async fn try_start_build(
+	pub async fn start_build(
 		&self,
 		id: &tg::build::Id,
 		arg: tg::build::start::Arg,
-	) -> tg::Result<Option<bool>> {
+	) -> tg::Result<()> {
+		// Handle the remote.
 		let remote = arg.remote.as_ref();
-		match remote {
-			None => {
-				let output = self.try_start_build_local(id, arg).await?;
-				Ok(output)
-			},
-			Some(remote) => {
-				let remote = self
-					.remotes
-					.get(remote)
-					.ok_or_else(|| tg::error!("the remote does not exist"))?
-					.clone();
-				let output = remote.try_start_build(id, arg).await?;
-				Ok(output)
-			},
+		if let Some(remote) = remote {
+			let remote = self
+				.remotes
+				.get(remote)
+				.ok_or_else(|| tg::error!("the remote does not exist"))?
+				.clone();
+			remote.start_build(id, arg).await?;
+			return Ok(());
 		}
-	}
 
-	pub async fn try_start_build_local(
-		&self,
-		id: &tg::build::Id,
-		_arg: tg::build::start::Arg,
-	) -> tg::Result<Option<bool>> {
 		// Verify the build is local.
 		if !self.get_build_exists_local(id).await? {
-			return Ok(None);
+			return Err(tg::error!("failed to find the build"));
 		}
 
 		// Get a database connection.
@@ -54,7 +43,7 @@ impl Server {
 				update builds
 				set status = 'started', started_at = {p}1, heartbeat_at = {p}1
 				where id = {p}2 and (status = 'created' or status = 'dequeued')
-				returning id;
+				returning 1;
 			"
 		);
 		let now = time::OffsetDateTime::now_utc().format(&Rfc3339).unwrap();
@@ -62,29 +51,31 @@ impl Server {
 		let output = connection
 			.query_optional(statement, params)
 			.await
-			.map_err(|source| tg::error!(!source, "failed to execute the statement"))?
-			.is_some();
+			.map_err(|source| tg::error!(!source, "failed to execute the statement"))?;
 
 		// Drop the database connection.
 		drop(connection);
 
-		// Publish the message.
-		if output {
-			tokio::spawn({
-				let server = self.clone();
-				let id = id.clone();
-				async move {
-					server
-						.messenger
-						.publish(format!("builds.{id}.status"), Bytes::new())
-						.await
-						.inspect_err(|error| tracing::error!(%error, "failed to publish"))
-						.ok();
-				}
-			});
+		// If the build was not started, then return an error.
+		if output.is_none() {
+			return Err(tg::error!("failed to start the build"));
 		}
 
-		Ok(Some(output))
+		// Publish the message.
+		tokio::spawn({
+			let server = self.clone();
+			let id = id.clone();
+			async move {
+				server
+					.messenger
+					.publish(format!("builds.{id}.status"), Bytes::new())
+					.await
+					.inspect_err(|error| tracing::error!(%error, "failed to publish"))
+					.ok();
+			}
+		});
+
+		Ok(())
 	}
 }
 
@@ -99,10 +90,8 @@ impl Server {
 	{
 		let id = id.parse()?;
 		let arg = request.json().await?;
-		let Some(output) = handle.try_start_build(&id, arg).await? else {
-			return Ok(http::Response::builder().not_found().empty().unwrap());
-		};
-		let response = http::Response::builder().json(output).unwrap();
+		handle.start_build(&id, arg).await?;
+		let response = http::Response::builder().empty().unwrap();
 		Ok(response)
 	}
 }

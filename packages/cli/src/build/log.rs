@@ -7,25 +7,29 @@ use tokio::io::AsyncWriteExt as _;
 #[derive(Clone, Debug, clap::Args)]
 #[group(skip)]
 pub struct Args {
+	pub build: tg::build::Id,
+
 	#[arg(long)]
 	pub length: Option<i64>,
 
 	#[arg(long)]
 	pub position: Option<u64>,
 
+	#[arg(short, long)]
+	pub remote: Option<String>,
+
 	#[arg(long)]
 	pub size: Option<u64>,
-
-	pub build: tg::build::Id,
 }
 
 impl Cli {
 	pub async fn command_build_log(&self, args: Args) -> tg::Result<()> {
 		// Get the log.
 		let build = tg::Build::with_id(args.build);
-		let arg = tg::build::log::Arg {
+		let arg = tg::build::log::get::Arg {
 			length: args.length,
 			position: args.position.map(std::io::SeekFrom::Start),
+			remote: args.remote,
 			size: args.size,
 		};
 		let mut log = build

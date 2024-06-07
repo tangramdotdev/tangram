@@ -20,6 +20,12 @@ pub enum Data {
 	Succeeded(tg::value::Data),
 }
 
+#[derive(Clone, Debug, Default, serde::Deserialize, serde::Serialize)]
+pub struct Arg {
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub remote: Option<String>,
+}
+
 impl Outcome {
 	#[must_use]
 	pub fn retry(&self) -> tg::build::Retry {

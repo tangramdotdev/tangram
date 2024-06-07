@@ -11,29 +11,18 @@ impl Server {
 		id: &tg::artifact::Id,
 		arg: tg::package::publish::Arg,
 	) -> tg::Result<()> {
+		// Handle the remote.
 		let remote = arg.remote.as_ref().or(self.options.registry.as_ref());
-		match remote {
-			None => {
-				self.publish_package_local(id, arg).await?;
-				Ok(())
-			},
-			Some(remote) => {
-				let remote = self
-					.remotes
-					.get(remote)
-					.ok_or_else(|| tg::error!("the remote does not exist"))?
-					.clone();
-				remote.publish_package(id, arg).await?;
-				Ok(())
-			},
+		if let Some(remote) = remote {
+			let remote = self
+				.remotes
+				.get(remote)
+				.ok_or_else(|| tg::error!("the remote does not exist"))?
+				.clone();
+			remote.publish_package(id, arg).await?;
+			return Ok(());
 		}
-	}
 
-	pub async fn publish_package_local(
-		&self,
-		id: &tg::artifact::Id,
-		_arg: tg::package::publish::Arg,
-	) -> tg::Result<()> {
 		// Get the package.
 		let package = tg::Artifact::with_id(id.clone())
 			.try_unwrap_directory()
@@ -56,9 +45,12 @@ impl Server {
 			.as_str();
 
 		// Check if the package has been published already.
-		let arg = tg::package::versions::Arg { yanked: true };
+		let arg = tg::package::versions::Arg {
+			remote: None,
+			yanked: true,
+		};
 		let mut published_versions = self
-			.try_get_package_versions_local(&tg::Dependency::with_name(name.to_owned()), arg)
+			.try_get_package_versions(&tg::Dependency::with_name(name.to_owned()), arg)
 			.await?
 			.into_iter()
 			.flatten();

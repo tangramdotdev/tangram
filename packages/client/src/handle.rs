@@ -1,5 +1,4 @@
 use crate as tg;
-use bytes::Bytes;
 use futures::{
 	future,
 	stream::{self, BoxStream},
@@ -85,21 +84,11 @@ pub trait Handle: Clone + Unpin + Send + Sync + 'static {
 		})
 	}
 
-	fn try_start_build(
-		&self,
-		id: &tg::build::Id,
-		arg: tg::build::start::Arg,
-	) -> impl Future<Output = tg::Result<Option<bool>>> + Send;
-
 	fn start_build(
 		&self,
 		id: &tg::build::Id,
 		arg: tg::build::start::Arg,
-	) -> impl Future<Output = tg::Result<bool>> + Send {
-		self.try_start_build(id, arg).map(|result| {
-			result.and_then(|option| option.ok_or_else(|| tg::error!("failed to dequeue a build")))
-		})
-	}
+	) -> impl Future<Output = tg::Result<()>> + Send;
 
 	fn try_get_build_status_stream(
 		&self,
@@ -184,20 +173,24 @@ pub trait Handle: Clone + Unpin + Send + Sync + 'static {
 	fn try_get_build_children_stream(
 		&self,
 		id: &tg::build::Id,
-		arg: tg::build::children::Arg,
+		arg: tg::build::children::get::Arg,
 	) -> impl Future<
 		Output = tg::Result<
-			Option<impl Stream<Item = tg::Result<tg::build::children::Event>> + Send + 'static>,
+			Option<
+				impl Stream<Item = tg::Result<tg::build::children::get::Event>> + Send + 'static,
+			>,
 		>,
 	> + Send;
 
 	fn try_get_build_children(
 		&self,
 		id: &tg::build::Id,
-		arg: tg::build::children::Arg,
+		arg: tg::build::children::get::Arg,
 	) -> impl Future<
 		Output = tg::Result<
-			Option<impl Stream<Item = tg::Result<tg::build::children::Data>> + Send + 'static>,
+			Option<
+				impl Stream<Item = tg::Result<tg::build::children::get::Chunk>> + Send + 'static,
+			>,
 		>,
 	> + Send {
 		async move {
@@ -211,8 +204,9 @@ pub trait Handle: Clone + Unpin + Send + Sync + 'static {
 			};
 			let stream = stream.boxed();
 			struct State {
-				stream: Option<stream::BoxStream<'static, tg::Result<tg::build::children::Event>>>,
-				arg: tg::build::children::Arg,
+				stream:
+					Option<stream::BoxStream<'static, tg::Result<tg::build::children::get::Event>>>,
+				arg: tg::build::children::get::Arg,
 				end: bool,
 			}
 			let state = Arc::new(Mutex::new(State {
@@ -243,10 +237,10 @@ pub trait Handle: Clone + Unpin + Send + Sync + 'static {
 			})
 			.try_flatten()
 			.take_while(|event| {
-				future::ready(!matches!(event, Ok(tg::build::children::Event::End)))
+				future::ready(!matches!(event, Ok(tg::build::children::get::Event::End)))
 			})
 			.map(|event| match event {
-				Ok(tg::build::children::Event::Data(chunk)) => Ok(chunk),
+				Ok(tg::build::children::get::Event::Chunk(chunk)) => Ok(chunk),
 				Err(e) => Err(e),
 				_ => unreachable!(),
 			})
@@ -256,18 +250,18 @@ pub trait Handle: Clone + Unpin + Send + Sync + 'static {
 					let mut state = state.lock().unwrap();
 
 					// If the chunk is empty, then end the stream.
-					if chunk.items.is_empty() {
+					if chunk.data.is_empty() {
 						state.end = true;
 						return;
 					}
 
 					// Update the length argument if necessary.
 					if let Some(length) = &mut state.arg.length {
-						*length -= chunk.items.len().to_u64().unwrap();
+						*length -= chunk.data.len().to_u64().unwrap();
 					}
 
 					// Update the position argument.
-					let position = chunk.position + chunk.items.len().to_u64().unwrap();
+					let position = chunk.position + chunk.data.len().to_u64().unwrap();
 					state.arg.position = Some(SeekFrom::Start(position));
 				}
 			});
@@ -278,10 +272,10 @@ pub trait Handle: Clone + Unpin + Send + Sync + 'static {
 	fn get_build_children(
 		&self,
 		id: &tg::build::Id,
-		arg: tg::build::children::Arg,
+		arg: tg::build::children::get::Arg,
 	) -> impl Future<
 		Output = tg::Result<
-			impl Stream<Item = tg::Result<tg::build::children::Data>> + Send + 'static,
+			impl Stream<Item = tg::Result<tg::build::children::get::Chunk>> + Send + 'static,
 		>,
 	> + Send {
 		self.try_get_build_children(id, arg).map(|result| {
@@ -292,26 +286,26 @@ pub trait Handle: Clone + Unpin + Send + Sync + 'static {
 	fn add_build_child(
 		&self,
 		id: &tg::build::Id,
-		child_id: &tg::build::Id,
+		arg: tg::build::children::post::Arg,
 	) -> impl Future<Output = tg::Result<()>> + Send;
 
 	fn try_get_build_log_stream(
 		&self,
 		id: &tg::build::Id,
-		arg: tg::build::log::Arg,
+		arg: tg::build::log::get::Arg,
 	) -> impl Future<
 		Output = tg::Result<
-			Option<impl Stream<Item = tg::Result<tg::build::log::Event>> + Send + 'static>,
+			Option<impl Stream<Item = tg::Result<tg::build::log::get::Event>> + Send + 'static>,
 		>,
 	> + Send;
 
 	fn try_get_build_log(
 		&self,
 		id: &tg::build::Id,
-		arg: tg::build::log::Arg,
+		arg: tg::build::log::get::Arg,
 	) -> impl Future<
 		Output = tg::Result<
-			Option<impl Stream<Item = tg::Result<tg::build::log::Chunk>> + Send + 'static>,
+			Option<impl Stream<Item = tg::Result<tg::build::log::get::Chunk>> + Send + 'static>,
 		>,
 	> + Send {
 		async move {
@@ -322,8 +316,8 @@ pub trait Handle: Clone + Unpin + Send + Sync + 'static {
 			};
 			let stream = stream.boxed();
 			struct State {
-				stream: Option<BoxStream<'static, tg::Result<tg::build::log::Event>>>,
-				arg: tg::build::log::Arg,
+				stream: Option<BoxStream<'static, tg::Result<tg::build::log::get::Event>>>,
+				arg: tg::build::log::get::Arg,
 				end: bool,
 			}
 			let state = State {
@@ -354,9 +348,11 @@ pub trait Handle: Clone + Unpin + Send + Sync + 'static {
 				}
 			})
 			.try_flatten()
-			.take_while(|event| future::ready(!matches!(event, Ok(tg::build::log::Event::End))))
+			.take_while(|event| {
+				future::ready(!matches!(event, Ok(tg::build::log::get::Event::End)))
+			})
 			.map(|event| match event {
-				Ok(tg::build::log::Event::Data(chunk)) => Ok(chunk),
+				Ok(tg::build::log::get::Event::Chunk(chunk)) => Ok(chunk),
 				Err(e) => Err(e),
 				_ => unreachable!(),
 			})
@@ -393,9 +389,11 @@ pub trait Handle: Clone + Unpin + Send + Sync + 'static {
 	fn get_build_log(
 		&self,
 		id: &tg::build::Id,
-		arg: tg::build::log::Arg,
+		arg: tg::build::log::get::Arg,
 	) -> impl Future<
-		Output = tg::Result<impl Stream<Item = tg::Result<tg::build::log::Chunk>> + Send + 'static>,
+		Output = tg::Result<
+			impl Stream<Item = tg::Result<tg::build::log::get::Chunk>> + Send + 'static,
+		>,
 	> + Send {
 		self.try_get_build_log(id, arg).map(|result| {
 			result.and_then(|option| option.ok_or_else(|| tg::error!("failed to get the build")))
@@ -405,7 +403,7 @@ pub trait Handle: Clone + Unpin + Send + Sync + 'static {
 	fn add_build_log(
 		&self,
 		id: &tg::build::Id,
-		bytes: Bytes,
+		arg: tg::build::log::post::Arg,
 	) -> impl Future<Output = tg::Result<()>> + Send;
 
 	fn try_get_build_outcome_future(
@@ -605,7 +603,7 @@ pub trait Handle: Clone + Unpin + Send + Sync + 'static {
 		&self,
 		dependency: &tg::Dependency,
 		arg: tg::package::versions::Arg,
-	) -> impl Future<Output = tg::Result<Option<Vec<String>>>> + Send;
+	) -> impl Future<Output = tg::Result<Option<tg::package::versions::Output>>> + Send;
 
 	fn get_package_versions(
 		&self,

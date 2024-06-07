@@ -9,28 +9,18 @@ impl Server {
 		&self,
 		arg: tg::package::list::Arg,
 	) -> tg::Result<tg::package::list::Output> {
+		// Handle the remote.
 		let remote = arg.remote.as_ref().or(self.options.registry.as_ref());
-		match remote {
-			None => {
-				let packages = self.list_packages_local(arg).await?;
-				Ok(packages)
-			},
-			Some(remote) => {
-				let remote = self
-					.remotes
-					.get(remote)
-					.ok_or_else(|| tg::error!("the remote does not exist"))?
-					.clone();
-				let packages = remote.list_packages(arg).await?;
-				Ok(packages)
-			},
+		if let Some(remote) = remote {
+			let remote = self
+				.remotes
+				.get(remote)
+				.ok_or_else(|| tg::error!("the remote does not exist"))?
+				.clone();
+			let packages = remote.list_packages(arg).await?;
+			return Ok(packages);
 		}
-	}
 
-	pub async fn list_packages_local(
-		&self,
-		arg: tg::package::list::Arg,
-	) -> tg::Result<tg::package::list::Output> {
 		// Get a database connection.
 		let connection = self
 			.database

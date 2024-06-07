@@ -160,14 +160,14 @@ impl Server {
 		let metadata = Self::get_build_metadata(src, &output, &arg).await?;
 
 		// Get the children.
-		let children_arg = tg::build::children::Arg::default();
+		let children_arg = tg::build::children::get::Arg::default();
 		let children = src
 			.get_build_children(build, children_arg)
 			.await?
 			.try_collect::<Vec<_>>()
 			.await?
 			.into_iter()
-			.flat_map(|chunk| chunk.items)
+			.flat_map(|chunk| chunk.data)
 			.collect();
 
 		// Put the object.

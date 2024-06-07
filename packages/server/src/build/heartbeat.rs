@@ -13,29 +13,18 @@ impl Server {
 		id: &tg::build::Id,
 		arg: tg::build::heartbeat::Arg,
 	) -> tg::Result<tg::build::heartbeat::Output> {
+		// Handle the remote.
 		let remote = arg.remote.as_ref();
-		match remote {
-			None => {
-				let output = self.heartbeat_build_local(id, arg).await?;
-				Ok(output)
-			},
-			Some(remote) => {
-				let remote = self
-					.remotes
-					.get(remote)
-					.ok_or_else(|| tg::error!("the remote does not exist"))?
-					.clone();
-				let output = remote.heartbeat_build(id, arg).await?;
-				Ok(output)
-			},
+		if let Some(remote) = remote {
+			let remote = self
+				.remotes
+				.get(remote)
+				.ok_or_else(|| tg::error!("the remote does not exist"))?
+				.clone();
+			let output = remote.heartbeat_build(id, arg).await?;
+			return Ok(output);
 		}
-	}
 
-	pub async fn heartbeat_build_local(
-		&self,
-		id: &tg::build::Id,
-		_arg: tg::build::heartbeat::Arg,
-	) -> tg::Result<tg::build::heartbeat::Output> {
 		// Get a database connection.
 		let connection = self
 			.database

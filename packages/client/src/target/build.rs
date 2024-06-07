@@ -8,10 +8,13 @@ pub struct Arg {
 		skip_serializing_if = "crate::util::serde::is_true"
 	)]
 	pub create: bool,
+
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub parent: Option<tg::build::Id>,
+
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub remote: Option<String>,
+
 	#[serde(default, skip_serializing_if = "retry_is_canceled")]
 	pub retry: tg::build::Retry,
 }

@@ -124,8 +124,9 @@ impl Runtime {
 		// Start the log task.
 		let (log_sender, mut log_receiver) = tokio::sync::mpsc::unbounded_channel::<String>();
 		let log_task = main_runtime_handle.spawn({
-			let build = build.clone();
 			let server = server.clone();
+			let build = build.clone();
+			let remote = remote.clone();
 			async move {
 				while let Some(string) = log_receiver.recv().await {
 					if server.options.advanced.write_build_logs_to_stderr {
@@ -137,7 +138,11 @@ impl Runtime {
 							})
 							.ok();
 					}
-					build.add_log(&server, string.into()).await.ok();
+					let arg = tg::build::log::post::Arg {
+						bytes: string.into(),
+						remote: remote.clone(),
+					};
+					build.add_log(&server, arg).await.ok();
 				}
 			}
 		});

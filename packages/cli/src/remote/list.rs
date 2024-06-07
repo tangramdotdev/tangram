@@ -11,7 +11,7 @@ impl Cli {
 	pub async fn command_remote_list(&self, _args: Args) -> tg::Result<()> {
 		let arg = tg::remote::list::Arg::default();
 		let remotes = self.handle.list_remotes(arg).await?;
-		for remote in remotes.items {
+		for remote in remotes.data {
 			println!("{} {}", remote.name, remote.url);
 		}
 		Ok(())

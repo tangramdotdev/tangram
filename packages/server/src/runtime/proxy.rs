@@ -1,5 +1,4 @@
 use crate::Server;
-use bytes::Bytes;
 use futures::{stream, Future, Stream};
 use std::{str::FromStr as _, sync::Arc};
 use tangram_client as tg;
@@ -11,6 +10,7 @@ pub struct Proxy(Arc<Inner>);
 pub struct Inner {
 	build: tg::build::Id,
 	path_map: Option<PathMap>,
+	remote: Option<String>,
 	server: Server,
 }
 
@@ -22,10 +22,16 @@ pub struct PathMap {
 }
 
 impl Proxy {
-	pub fn new(server: crate::Server, build: tg::build::Id, path_map: Option<PathMap>) -> Self {
+	pub fn new(
+		server: crate::Server,
+		build: tg::build::Id,
+		remote: Option<String>,
+		path_map: Option<PathMap>,
+	) -> Self {
 		let inner = Inner {
 			build,
 			path_map,
+			remote,
 			server,
 		};
 		Self(Arc::new(inner))
@@ -183,11 +189,11 @@ impl tg::Handle for Proxy {
 		Err(tg::error!("forbidden"))
 	}
 
-	async fn try_start_build(
+	async fn start_build(
 		&self,
 		_id: &tg::build::Id,
 		_arg: tg::build::start::Arg,
-	) -> tg::Result<Option<bool>> {
+	) -> tg::Result<()> {
 		Err(tg::error!("forbidden"))
 	}
 
@@ -205,19 +211,22 @@ impl tg::Handle for Proxy {
 	fn try_get_build_children_stream(
 		&self,
 		id: &tg::build::Id,
-		arg: tg::build::children::Arg,
+		mut arg: tg::build::children::get::Arg,
 	) -> impl Future<
 		Output = tg::Result<
-			Option<impl Stream<Item = tg::Result<tg::build::children::Event>> + Send + 'static>,
+			Option<
+				impl Stream<Item = tg::Result<tg::build::children::get::Event>> + Send + 'static,
+			>,
 		>,
 	> {
+		arg.remote = self.remote.clone();
 		self.server.try_get_build_children_stream(id, arg)
 	}
 
 	async fn add_build_child(
 		&self,
-		_build_id: &tg::build::Id,
-		_child_id: &tg::build::Id,
+		_id: &tg::build::Id,
+		_arg: tg::build::children::post::Arg,
 	) -> tg::Result<()> {
 		Err(tg::error!("forbidden"))
 	}
@@ -225,16 +234,21 @@ impl tg::Handle for Proxy {
 	fn try_get_build_log_stream(
 		&self,
 		id: &tg::build::Id,
-		arg: tg::build::log::Arg,
+		mut arg: tg::build::log::get::Arg,
 	) -> impl Future<
 		Output = tg::Result<
-			Option<impl Stream<Item = tg::Result<tg::build::log::Event>> + Send + 'static>,
+			Option<impl Stream<Item = tg::Result<tg::build::log::get::Event>> + Send + 'static>,
 		>,
 	> {
+		arg.remote = self.remote.clone();
 		self.server.try_get_build_log_stream(id, arg)
 	}
 
-	async fn add_build_log(&self, _build_id: &tg::build::Id, _bytes: Bytes) -> tg::Result<()> {
+	async fn add_build_log(
+		&self,
+		_id: &tg::build::Id,
+		_arg: tg::build::log::post::Arg,
+	) -> tg::Result<()> {
 		Err(tg::error!("forbidden"))
 	}
 
@@ -374,7 +388,7 @@ impl tg::Handle for Proxy {
 		&self,
 		_dependency: &tg::Dependency,
 		_arg: tg::package::versions::Arg,
-	) -> tg::Result<Option<Vec<String>>> {
+	) -> tg::Result<Option<tg::package::versions::Output>> {
 		Err(tg::error!("forbidden"))
 	}
 
@@ -439,6 +453,7 @@ impl tg::Handle for Proxy {
 		mut arg: tg::target::build::Arg,
 	) -> tg::Result<tg::target::build::Output> {
 		arg.parent = Some(self.build.clone());
+		arg.remote = self.remote.clone();
 		arg.retry = tg::Build::with_id(self.build.clone()).retry(self).await?;
 		self.server.build_target(id, arg).await
 	}

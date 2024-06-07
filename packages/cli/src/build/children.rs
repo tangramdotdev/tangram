@@ -12,6 +12,9 @@ pub struct Args {
 	#[arg(long)]
 	pub position: Option<u64>,
 
+	#[arg(short, long)]
+	pub remote: Option<String>,
+
 	#[arg(long)]
 	pub size: Option<u64>,
 
@@ -21,9 +24,10 @@ pub struct Args {
 impl Cli {
 	pub async fn command_build_children(&self, args: Args) -> tg::Result<()> {
 		// Get the children.
-		let arg = tg::build::children::Arg {
+		let arg = tg::build::children::get::Arg {
 			position: args.position.map(std::io::SeekFrom::Start),
 			length: args.length,
+			remote: args.remote,
 			size: args.size,
 		};
 		let mut stream = self
@@ -34,7 +38,7 @@ impl Cli {
 
 		// Print the children.
 		while let Some(chunk) = stream.try_next().await? {
-			for child in chunk.items {
+			for child in chunk.data {
 				println!("{child}");
 			}
 		}

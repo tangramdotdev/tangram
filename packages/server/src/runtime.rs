@@ -27,10 +27,10 @@ impl Runtime {
 		match self {
 			Runtime::Builtin(runtime) => runtime.build(build, remote).await,
 			#[cfg(target_os = "macos")]
-			Runtime::Darwin(runtime) => runtime.build(build).await,
+			Runtime::Darwin(runtime) => runtime.build(build, remote).await,
 			Runtime::Js(runtime) => runtime.build(build, remote).await,
 			#[cfg(target_os = "linux")]
-			Runtime::Linux(runtime) => runtime.build(build).await,
+			Runtime::Linux(runtime) => runtime.build(build, remote).await,
 		}
 	}
 }

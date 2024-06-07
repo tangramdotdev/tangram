@@ -50,14 +50,14 @@ impl Server {
 			Ok(Some(output))
 		} else {
 			// Otherwise, attempt to get the package locally.
-			let arg_ = tg::package::versions::Arg { yanked: arg.yanked };
-			let Some(mut versions) = self
-				.try_get_package_versions_local(dependency, arg_)
-				.await?
-			else {
+			let arg_ = tg::package::versions::Arg {
+				remote: None,
+				yanked: arg.yanked,
+			};
+			let Some(mut versions) = self.try_get_package_versions(dependency, arg_).await? else {
 				return Ok(None);
 			};
-			let Some((_, artifact)) = versions.pop() else {
+			let Some((_, artifact)) = versions.pop_last() else {
 				return Ok(None);
 			};
 			let artifact = tg::Artifact::with_id(artifact);

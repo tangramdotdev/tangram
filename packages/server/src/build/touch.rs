@@ -10,29 +10,18 @@ impl Server {
 		id: &tg::build::Id,
 		arg: tg::build::touch::Arg,
 	) -> tg::Result<()> {
+		// Handle the remote.
 		let remote = arg.remote.as_ref();
-		match remote {
-			None => {
-				self.touch_build_local(id, arg).await?;
-				Ok(())
-			},
-			Some(remote) => {
-				let remote = self
-					.remotes
-					.get(remote)
-					.ok_or_else(|| tg::error!("the remote does not exist"))?
-					.clone();
-				remote.touch_build(id, arg).await?;
-				Ok(())
-			},
+		if let Some(remote) = remote {
+			let remote = self
+				.remotes
+				.get(remote)
+				.ok_or_else(|| tg::error!("the remote does not exist"))?
+				.clone();
+			remote.touch_build(id, arg).await?;
+			return Ok(());
 		}
-	}
 
-	async fn touch_build_local(
-		&self,
-		id: &tg::build::Id,
-		_arg: tg::build::touch::Arg,
-	) -> tg::Result<()> {
 		// Get a database connection.
 		let connection = self
 			.database

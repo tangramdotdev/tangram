@@ -851,7 +851,7 @@ where
 				let Item::Build { build, remote } = kind else {
 					return;
 				};
-				let arg = tg::build::children::Arg {
+				let arg = tg::build::children::get::Arg {
 					position: Some(SeekFrom::Start(0)),
 					..Default::default()
 				};

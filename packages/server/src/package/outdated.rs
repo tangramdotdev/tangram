@@ -68,8 +68,12 @@ impl Server {
 			.metadata
 			.as_ref()
 			.and_then(|metadata| metadata.version.clone());
-		let compatible = compatible_versions.and_then(|mut versions| versions.pop());
-		let latest = all_versions.and_then(|mut versions| versions.pop());
+		let compatible = compatible_versions
+			.and_then(|mut versions| versions.pop_last())
+			.map(|(version, _)| version);
+		let latest = all_versions
+			.and_then(|mut versions| versions.pop_last())
+			.map(|(version, _)| version);
 		let yanked = output
 			.yanked
 			.ok_or_else(|| tg::error!("expected yanked to be set"))?;

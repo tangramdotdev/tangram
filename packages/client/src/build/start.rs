@@ -3,15 +3,16 @@ use tangram_http::{incoming::response::Ext as _, outgoing::request::Ext as _};
 
 #[derive(Clone, Debug, Default, serde::Deserialize, serde::Serialize)]
 pub struct Arg {
+	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub remote: Option<String>,
 }
 
 impl tg::Client {
-	pub async fn try_start_build(
+	pub async fn start_build(
 		&self,
 		id: &tg::build::Id,
 		arg: tg::build::start::Arg,
-	) -> tg::Result<Option<bool>> {
+	) -> tg::Result<()> {
 		let method = http::Method::POST;
 		let uri = format!("/builds/{id}/start");
 		let request = http::request::Builder::default()
@@ -20,14 +21,10 @@ impl tg::Client {
 			.json(arg)
 			.unwrap();
 		let response = self.send(request).await?;
-		if response.status() == http::StatusCode::NOT_FOUND {
-			return Ok(None);
-		}
 		if !response.status().is_success() {
 			let error = response.json().await?;
 			return Err(error);
 		}
-		let output = response.json().await?;
-		Ok(Some(output))
+		Ok(())
 	}
 }

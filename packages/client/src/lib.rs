@@ -1,5 +1,4 @@
 use crate as tg;
-use bytes::Bytes;
 use futures::{Future, FutureExt as _, Stream};
 use std::{collections::VecDeque, path::PathBuf, sync::Arc};
 use tangram_http::{Incoming, Outgoing};
@@ -627,12 +626,12 @@ impl tg::Handle for Client {
 		self.try_dequeue_build(arg)
 	}
 
-	fn try_start_build(
+	fn start_build(
 		&self,
 		id: &tg::build::Id,
 		arg: tg::build::start::Arg,
-	) -> impl Future<Output = tg::Result<Option<bool>>> {
-		self.try_start_build(id, arg)
+	) -> impl Future<Output = tg::Result<()>> {
+		self.start_build(id, arg)
 	}
 
 	fn heartbeat_build(
@@ -657,10 +656,10 @@ impl tg::Handle for Client {
 	fn try_get_build_children_stream(
 		&self,
 		id: &tg::build::Id,
-		arg: tg::build::children::Arg,
+		arg: tg::build::children::get::Arg,
 	) -> impl Future<
 		Output = tg::Result<
-			Option<impl Stream<Item = Result<tg::build::children::Event>> + Send + 'static>,
+			Option<impl Stream<Item = Result<tg::build::children::get::Event>> + Send + 'static>,
 		>,
 	> {
 		self.try_get_build_children_stream(id, arg)
@@ -668,19 +667,19 @@ impl tg::Handle for Client {
 
 	fn add_build_child(
 		&self,
-		build_id: &tg::build::Id,
-		child_id: &tg::build::Id,
+		id: &tg::build::Id,
+		arg: tg::build::children::post::Arg,
 	) -> impl Future<Output = tg::Result<()>> {
-		self.add_build_child(build_id, child_id)
+		self.add_build_child(id, arg)
 	}
 
 	fn try_get_build_log_stream(
 		&self,
 		id: &tg::build::Id,
-		arg: tg::build::log::Arg,
+		arg: tg::build::log::get::Arg,
 	) -> impl Future<
 		Output = tg::Result<
-			Option<impl Stream<Item = Result<tg::build::log::Event>> + Send + 'static>,
+			Option<impl Stream<Item = Result<tg::build::log::get::Event>> + Send + 'static>,
 		>,
 	> {
 		self.try_get_build_log_stream(id, arg)
@@ -689,9 +688,9 @@ impl tg::Handle for Client {
 	fn add_build_log(
 		&self,
 		id: &tg::build::Id,
-		bytes: Bytes,
+		arg: tg::build::log::post::Arg,
 	) -> impl Future<Output = tg::Result<()>> {
-		self.add_build_log(id, bytes)
+		self.add_build_log(id, arg)
 	}
 
 	fn try_get_build_outcome_future(
@@ -830,7 +829,7 @@ impl tg::Handle for Client {
 		&self,
 		dependency: &tg::Dependency,
 		arg: tg::package::versions::Arg,
-	) -> impl Future<Output = tg::Result<Option<Vec<String>>>> {
+	) -> impl Future<Output = tg::Result<Option<tg::package::versions::Output>>> {
 		self.try_get_package_versions(dependency, arg)
 	}
 

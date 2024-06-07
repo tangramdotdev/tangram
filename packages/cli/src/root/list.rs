@@ -11,7 +11,7 @@ impl Cli {
 	pub async fn command_root_list(&self, _args: Args) -> tg::Result<()> {
 		let arg = tg::root::list::Arg::default();
 		let roots = self.handle.list_roots(arg).await?;
-		for root in roots.items {
+		for root in roots.data {
 			println!("{} {}", root.name, root.item);
 		}
 		Ok(())
