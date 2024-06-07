@@ -38,7 +38,7 @@ impl Server {
 		Self::push_or_pull_object(self, &remote, object).await
 	}
 
-	pub async fn push_or_pull_object(
+	pub(crate) async fn push_or_pull_object(
 		src: &impl tg::Handle,
 		dst: &impl tg::Handle,
 		object: &tg::object::Id,

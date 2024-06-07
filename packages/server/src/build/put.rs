@@ -255,13 +255,17 @@ impl Server {
 		};
 		let statement = formatdoc!(
 			"
-				select case
-					when objects.id is null then 1
-					else case when objects.complete = 0 then 1 else 0 end
-					end
-				end
+				select value
 				from ({outcome_objects_query})
-				left join objects on objects.id = value;
+				left join objects on objects.id = value
+				where
+					case
+						when objects.id is null then true
+						else case
+							when objects.complete = 0 then true
+							else false
+						end
+					end;
 			"
 		);
 		let params = db::params![outcome_objects];

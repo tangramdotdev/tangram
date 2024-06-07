@@ -35,14 +35,14 @@ impl Server {
 				"
 					update objects
 					set
-						indexing_status = 'started',
-						indexing_started_at = {p}1
+						index_status = 'started',
+						index_started_at = {p}1
 					where id in (
 						select id
 						from objects
 						where
-							indexing_status = 'enqueued' or
-							(indexing_status = 'started' and indexing_started_at <= {p}2)
+							index_status = 'enqueued' or
+							(index_status = 'started' and index_started_at <= {p}2)
 						limit 1
 					)
 					returning id;
@@ -403,11 +403,11 @@ impl Server {
 			"
 				update objects
 				set
-					indexing_status = null,
-					indexing_started_at = null
+					index_status = null,
+					index_started_at = null
 				where
 					id = {p}1 and
-					indexing_status = 'started';
+					index_status = 'started';
 			"
 		);
 		let params = db::params![id];
@@ -436,8 +436,8 @@ impl Server {
 			"
 				update objects
 				set
-					indexing_status = 'enqueued',
-					indexing_started_at = null
+					index_status = 'enqueued',
+					index_started_at = null
 				where id = {p}1;
 			"
 		);

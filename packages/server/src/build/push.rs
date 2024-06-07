@@ -45,7 +45,7 @@ impl Server {
 		Self::push_or_pull_build(self, &remote, build, arg).await
 	}
 
-	pub async fn push_or_pull_build(
+	pub(crate) async fn push_or_pull_build(
 		src: &impl tg::Handle,
 		dst: &impl tg::Handle,
 		build: &tg::build::Id,
@@ -84,7 +84,7 @@ impl Server {
 			let build = build.clone();
 			let state = state.clone();
 			async move {
-				let result = Self::push_build_inner(&src, &dst, &build, arg, &state)
+				let result = Self::push_or_pull_build_inner(&src, &dst, &build, arg, &state)
 					.await
 					.map(|_| ());
 				result_sender.send(result).unwrap();
@@ -143,7 +143,7 @@ impl Server {
 		Ok(stream)
 	}
 
-	async fn push_build_inner(
+	async fn push_or_pull_build_inner(
 		src: &impl tg::Handle,
 		dst: &impl tg::Handle,
 		build: &tg::build::Id,
@@ -212,10 +212,7 @@ impl Server {
 		let incomplete_object_count_and_weight = incomplete_objects
 			.iter()
 			.map(|object| async {
-				let arg = tg::object::push::Arg {
-					remote: arg.remote.clone(),
-				};
-				let mut stream = src.push_object(object, arg).await?.boxed();
+				let mut stream = Self::push_or_pull_object(src, dst, object).await?.boxed();
 				let mut count = 0;
 				let mut weight = 0;
 				while let Some(tg::object::push::Event::Progress(event)) = stream.try_next().await?
@@ -254,7 +251,7 @@ impl Server {
 			let outputs = incomplete
 				.children
 				.keys()
-				.map(|child| Self::push_build_inner(src, dst, child, arg.clone(), state))
+				.map(|child| Self::push_or_pull_build_inner(src, dst, child, arg.clone(), state))
 				.collect::<FuturesUnordered<_>>()
 				.try_collect::<Vec<_>>()
 				.await?;
@@ -368,8 +365,12 @@ impl Server {
 			// If the push is not recursive, then use the count and weight of the log, outcome, and target.
 			let (log_count, log_weight) = if arg.logs {
 				if let Some(log) = output.log.as_ref() {
-					let metadata = src.get_object_metadata(&log.clone().into()).await?;
-					(metadata.count, metadata.weight)
+					if let Some(metadata) = src.try_get_object_metadata(&log.clone().into()).await?
+					{
+						(metadata.count, metadata.weight)
+					} else {
+						(Some(0), Some(0))
+					}
 				} else {
 					(Some(0), Some(0))
 				}
@@ -381,17 +382,17 @@ impl Server {
 					let metadata = output
 						.children()
 						.iter()
-						.map(|child| src.get_object_metadata(child))
+						.map(|child| src.try_get_object_metadata(child))
 						.collect::<FuturesUnordered<_>>()
 						.try_collect::<Vec<_>>()
 						.await?;
 					let count = metadata
 						.iter()
-						.map(|metadata| metadata.count)
+						.map(|metadata| metadata.as_ref().and_then(|metadata| metadata.count))
 						.sum::<Option<u64>>();
 					let weight = metadata
 						.iter()
-						.map(|metadata| metadata.weight)
+						.map(|metadata| metadata.as_ref().and_then(|metadata| metadata.weight))
 						.sum::<Option<u64>>();
 					(count, weight)
 				} else {
@@ -401,10 +402,14 @@ impl Server {
 				(Some(0), Some(0))
 			};
 			let (target_count, target_weight) = {
-				let metadata = src
-					.get_object_metadata(&output.target.clone().into())
-					.await?;
-				(metadata.count, metadata.weight)
+				if let Some(metadata) = src
+					.try_get_object_metadata(&output.target.clone().into())
+					.await?
+				{
+					(metadata.count, metadata.weight)
+				} else {
+					(Some(0), Some(0))
+				}
 			};
 			let count = std::iter::empty()
 				.chain(Some(log_count))
