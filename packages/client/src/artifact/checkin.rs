@@ -6,6 +6,7 @@ use tangram_http::{incoming::response::Ext as _, outgoing::request::Ext as _};
 #[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
 pub struct Arg {
 	pub path: tg::Path,
+	pub destructive: bool,
 }
 
 #[derive(Clone, Debug)]
@@ -26,7 +27,7 @@ impl tg::Artifact {
 	where
 		H: tg::Handle,
 	{
-		let arg = Arg { path };
+		let arg = Arg { path, destructive: false, };
 		let stream = handle.check_in_artifact(arg).await?;
 		let mut stream = pin!(stream);
 		while let Some(event) = stream.try_next().await? {

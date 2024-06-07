@@ -118,11 +118,23 @@ impl Server {
 				})?;
 			stack.extend(output.children);
 		}
-
 		transaction
 			.commit()
 			.await
 			.map_err(|source| tg::error!(!source, "failed to commit the transaction"))?;
+
+		// Destroy the artifact if requested.
+		if arg.destructive {
+			if matches!(artifact, tg::artifact::Id::File(_) | tg::artifact::Id::Symlink(_)) {
+				tokio::fs::remove_file(&arg.path)
+					.await
+					.map_err(|source| tg::error!(!source, %path = arg.path, "failed to remove file"))?;
+			} else {
+				tokio::fs::remove_dir_all(&arg.path)
+					.await
+					.map_err(|source| tg::error!(!source, %path = arg.path, "failed to remove directory"))?;
+			}
+		}
 
 		// Create the output.
 		sender

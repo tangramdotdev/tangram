@@ -10,6 +10,10 @@ use tg::Handle;
 #[derive(Clone, Debug, clap::Args)]
 #[group(skip)]
 pub struct Args {
+	/// Destroy the artifact if requested.
+	#[arg(short, long)]
+	pub destructive: bool,
+
 	/// The path to check in.
 	pub path: Option<PathBuf>,
 }
@@ -33,6 +37,7 @@ impl Cli {
 
 		let arg = tg::artifact::checkin::Arg {
 			path: path.try_into()?,
+			destructive: args.destructive,
 		};
 
 		let stream = self
