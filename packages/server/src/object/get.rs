@@ -26,12 +26,12 @@ impl Server {
 		&self,
 		id: &tg::object::Id,
 	) -> tg::Result<Option<tg::object::get::Output>> {
-		// Try and read from the database.
+		// Try to read from the database.
 		if let Some(output) = self.try_get_object_local_database(id).await? {
 			return Ok(Some(output));
 		};
 
-		// If this is a blob, try and store it from the blobs directory and return the output.
+		// If this is a blob, try to store it from the blobs directory and return the output.
 		let blob = match id {
 			tg::object::Id::Leaf(id) => tg::blob::Id::Leaf(id.clone()),
 			tg::object::Id::Branch(id) => tg::blob::Id::Branch(id.clone()),
@@ -50,6 +50,7 @@ impl Server {
 			let output = self.try_get_object_local_database(id).await?.unwrap();
 			return Ok(Some(output));
 		}
+
 		Ok(None)
 	}
 

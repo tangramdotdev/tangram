@@ -29,7 +29,7 @@ impl Server {
 		&self,
 		reader: impl AsyncRead + Send + 'static,
 	) -> tg::Result<tg::blob::create::Output> {
-		// Create the temp file.
+		// Create a temporary file.
 		let tmp = Tmp::new(self);
 		let _permit = self.file_descriptor_semaphore.acquire().await.unwrap();
 		let file = tokio::fs::File::options()
@@ -40,17 +40,17 @@ impl Server {
 			.map_err(|source| tg::error!(!source, "failed to open file for writing"))?;
 
 		// Create the blob.
-		let output = self
+		let InnerOutput { blob, .. } = self
 			.create_blob_inner(reader, Some(Either::Left(file)))
 			.await?;
 
-		// Rename the file.
-		tokio::fs::rename(&tmp.path, self.blobs_path().join(output.blob.to_string()))
+		// Move the file to the blobs directory.
+		tokio::fs::rename(&tmp.path, self.blobs_path().join(blob.to_string()))
 			.await
 			.map_err(|source| tg::error!(!source, "failed to rename file"))?;
 
 		// Create the output.
-		Ok(tg::blob::create::Output { blob: output.blob })
+		Ok(tg::blob::create::Output { blob })
 	}
 
 	pub(crate) async fn try_store_blob(&self, blob: tg::blob::Id) -> tg::error::Result<bool> {
@@ -65,29 +65,27 @@ impl Server {
 			Err(error) => return Err(tg::error!(!error, "failed to open file")),
 		};
 
-		// Get a database connectino.
+		// Get a database connection.
 		let mut connection = self
 			.database
 			.connection()
 			.await
 			.map_err(|source| tg::error!(!source, "failed to get database connection"))?;
+
+		// Begin a transaction.
 		let transaction = connection
 			.transaction()
 			.await
-			.map_err(|source| tg::error!(!source, "failed to get a database transaction"))?;
+			.map_err(|source| tg::error!(!source, "failed to begin a transaction"))?;
 
 		// Store the blob.
 		let output = self
 			.create_blob_inner(file, Some(Either::Right(&transaction)))
 			.await?;
 
-		// Check the id.
+		// Verify the ID is the same.
 		if output.blob != blob {
-			transaction
-				.rollback()
-				.await
-				.map_err(|source| tg::error!(%source, "failed to rollback transaction"))?;
-			return Err(tg::error!("invalid blob id"));
+			return Err(tg::error!("failed to store the blob"));
 		}
 
 		// Commit the transaction.
@@ -96,23 +94,10 @@ impl Server {
 			.await
 			.map_err(|source| tg::error!(!source, "failed to commit the transaction"))?;
 
-		// Remove or rename the file.
+		// Remove the file.
 		tokio::fs::remove_file(&path)
 			.await
 			.map_err(|source| tg::error!(!source, "failed to remove the file"))?;
-
-		// Spawn the indexing task.
-		tokio::spawn({
-			let server = self.clone();
-			let id = output.blob.clone().into();
-			async move {
-				server
-					.enqueue_object_for_indexing(&id)
-					.await
-					.inspect_err(|error| tracing::error!(?error))
-					.ok();
-			}
-		});
 
 		Ok(true)
 	}
@@ -157,13 +142,13 @@ impl Server {
 						let p = transaction.p();
 						let statement = formatdoc!(
 							"
-								insert into objects (id, bytes, touched_at, count, weight)
-								values ({p}1, {p}2, {p}3, {p}4, {p}5)
-								on conflict (id) do update set touched_at = {p}3;
+								insert into objects (id, bytes, complete, count, weight, touched_at)
+								values ({p}1, {p}2, {p}3, {p}4, {p}5, {p}6)
+								on conflict (id) do update set touched_at = {p}6;
 							"
 						);
 						let now = time::OffsetDateTime::now_utc().format(&Rfc3339).unwrap();
-						let params = db::params![&id, &data.bytes, now, 1, size];
+						let params = db::params![&id, &data.bytes, 1, 1, size, now];
 						transaction
 							.execute(statement, params)
 							.await
@@ -226,13 +211,13 @@ impl Server {
 								let p = transaction.p();
 								let statement = formatdoc!(
 									"
-										insert into objects (id, bytes, touched_at, count, weight)
-										values ({p}1, {p}2, {p}3, {p}4, {p}5)
-										on conflict (id) do update set touched_at = {p}3;
+										insert into objects (id, bytes, complete, count, weight, touched_at)
+										values ({p}1, {p}2, {p}3, {p}4, {p}5, {p}6)
+										on conflict (id) do update set touched_at = {p}6;
 									"
 								);
 								let now = time::OffsetDateTime::now_utc().format(&Rfc3339).unwrap();
-								let params = db::params![&id, &bytes, now, count, weight];
+								let params = db::params![&id, &bytes, 1, count, weight, now];
 								transaction
 									.execute(statement, params)
 									.await
@@ -270,7 +255,9 @@ impl Server {
 					weight: 0,
 				}
 			},
+
 			1 => output[0].clone(),
+
 			_ => {
 				// Get the size, count, weight, and children.
 				let (size, count, weight) =
@@ -303,19 +290,20 @@ impl Server {
 					let p = transaction.p();
 					let statement = formatdoc!(
 						"
-							insert into objects (id, bytes, touched_at, count, weight)
-							values ({p}1, {p}2, {p}3, {p}4, {p}5)
-							on conflict (id) do update set touched_at = {p}3;
+							insert into objects (id, bytes, complete, count, weight, touched_at)
+							values ({p}1, {p}2, {p}3, {p}4, {p}5, {p}6)
+							on conflict (id) do update set touched_at = {p}6;
 						"
 					);
 					let now = time::OffsetDateTime::now_utc().format(&Rfc3339).unwrap();
-					let params = db::params![&id, &bytes, now, count, weight];
+					let params = db::params![&id, &bytes, 1, count, weight, now];
 					transaction
 						.execute(statement, params)
 						.await
 						.map_err(|source| tg::error!(!source, "failed to execute the statement"))?;
 				}
 
+				// Create the output.
 				let blob = id.into();
 				InnerOutput {
 					blob,
@@ -325,6 +313,7 @@ impl Server {
 				}
 			},
 		};
+
 		Ok(output)
 	}
 }

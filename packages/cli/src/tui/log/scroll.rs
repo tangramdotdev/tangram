@@ -294,7 +294,7 @@ impl<'a, 'b> GraphemeParserState<'a, 'b> {
 			// Add the codepoint's bytes to the buffer.
 			self.commit_to_buffer(num_bytes);
 
-			// Try and find the next grapheme boundary.
+			// Try to find the next grapheme boundary.
 			let text = std::str::from_utf8(self.buffer).unwrap();
 			let result = if self.forward {
 				cursor.next_boundary(text, self.start)

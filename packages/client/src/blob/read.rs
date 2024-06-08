@@ -11,7 +11,33 @@ use sync_wrapper::SyncWrapper;
 use tangram_http::{incoming::response::Ext as _, outgoing::request::Ext as _};
 use tokio::io::{AsyncBufRead, AsyncRead, AsyncSeek};
 
-/// A blob reader.
+#[serde_as]
+#[derive(Clone, Debug, Default, serde::Deserialize, serde::Serialize)]
+pub struct Arg {
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub length: Option<u64>,
+
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	#[serde_as(as = "Option<crate::util::serde::SeekFromString>")]
+	pub position: Option<std::io::SeekFrom>,
+
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub size: Option<u64>,
+}
+
+#[serde_as]
+#[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
+pub struct Chunk {
+	pub position: u64,
+	#[serde_as(as = "crate::util::serde::BytesBase64")]
+	pub bytes: Bytes,
+}
+
+pub enum Event {
+	Data(Chunk),
+	End,
+}
+
 pub struct Reader<H> {
 	blob: tg::Blob,
 	cursor: Option<Cursor<Bytes>>,
@@ -298,32 +324,6 @@ where
 	) -> std::task::Poll<std::io::Result<u64>> {
 		std::task::Poll::Ready(Ok(self.position))
 	}
-}
-#[serde_as]
-#[derive(Clone, Debug, Default, serde::Deserialize, serde::Serialize)]
-pub struct Arg {
-	#[serde(default, skip_serializing_if = "Option::is_none")]
-	pub length: Option<u64>,
-
-	#[serde(default, skip_serializing_if = "Option::is_none")]
-	#[serde_as(as = "Option<crate::util::serde::SeekFromString>")]
-	pub position: Option<std::io::SeekFrom>,
-
-	#[serde(default, skip_serializing_if = "Option::is_none")]
-	pub size: Option<u64>,
-}
-
-#[serde_as]
-#[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
-pub struct Chunk {
-	pub position: u64,
-	#[serde_as(as = "crate::util::serde::BytesBase64")]
-	pub bytes: Bytes,
-}
-
-pub enum Event {
-	Data(Chunk),
-	End,
 }
 
 impl Client {

@@ -10,10 +10,9 @@ use std::{
 	path::PathBuf,
 	sync::atomic::{AtomicU64, Ordering},
 };
-use tangram_client as tg;
+use tangram_client::{self as tg, Handle as _};
 use tangram_database::{self as db, Connection as _, Database as _, Query as _, Transaction as _};
 use tangram_http::{incoming::request::Ext as _, outgoing::response::Ext as _, Incoming, Outgoing};
-use tg::Handle;
 use time::format_description::well_known::Rfc3339;
 
 #[derive(Clone, Debug)]
@@ -86,30 +85,32 @@ impl Server {
 			.await?;
 		let artifact = output.id.clone();
 
-		// Create a transaction.
+		// Get a database connection.
 		let mut connection = self
 			.database
 			.connection()
 			.await
 			.map_err(|source| tg::error!(!source, "failed to acquire a database connection"))?;
+
+		// Begin a transaction.
 		let transaction = connection
 			.transaction()
 			.await
 			.map_err(|source| tg::error!(!source, "failed to create a transaction"))?;
 
-		// Recursively put the output tree into the database.
+		// Insert the objects.
 		let mut stack = vec![output];
 		while let Some(output) = stack.pop() {
 			let p = transaction.p();
 			let statement = formatdoc!(
 				"
-					insert into objects (id, bytes, touched_at, count, weight)
-					values ({p}1, {p}2, {p}3, {p}4, {p}5)
-					on conflict (id) do update set touched_at = {p}3;
+					insert into objects (id, bytes, complete, count, weight, touched_at)
+					values ({p}1, {p}2, {p}3, {p}4, {p}5, {p}6)
+					on conflict (id) do update set touched_at = {p}6;
 				"
 			);
 			let now = time::OffsetDateTime::now_utc().format(&Rfc3339).unwrap();
-			let params = db::params![output.id, output.bytes, now, output.count, output.weight];
+			let params = db::params![output.id, output.bytes, 1, output.count, output.weight, now];
 			transaction
 				.execute(statement, params)
 				.await
@@ -118,23 +119,15 @@ impl Server {
 				})?;
 			stack.extend(output.children);
 		}
+
+		// Commit the transaction.
 		transaction
 			.commit()
 			.await
 			.map_err(|source| tg::error!(!source, "failed to commit the transaction"))?;
 
-		// Destroy the artifact if requested.
-		if arg.destructive {
-			if matches!(artifact, tg::artifact::Id::File(_) | tg::artifact::Id::Symlink(_)) {
-				tokio::fs::remove_file(&arg.path)
-					.await
-					.map_err(|source| tg::error!(!source, %path = arg.path, "failed to remove file"))?;
-			} else {
-				tokio::fs::remove_dir_all(&arg.path)
-					.await
-					.map_err(|source| tg::error!(!source, %path = arg.path, "failed to remove directory"))?;
-			}
-		}
+		// Drop the connection.
+		drop(connection);
 
 		// Create the output.
 		sender
@@ -195,6 +188,7 @@ impl Server {
 				.try_send(Ok(tg::artifact::checkin::Event::Progress(progress)))
 				.ok();
 		}
+
 		Ok(output)
 	}
 
@@ -342,6 +336,7 @@ impl Server {
 			weight: Some(output.weight),
 			children: Vec::new(),
 		};
+
 		Ok(output)
 	}
 
@@ -408,8 +403,6 @@ impl Server {
 		let symlink = tg::symlink::Data { artifact, path };
 		let bytes = symlink.serialize()?;
 		let id = tg::artifact::Id::from(tg::symlink::Id::new(&bytes));
-
-		// Put the symlink into the database
 		let count = count.map(|count| count + 1);
 		let weight = weight.map(|weight| weight + bytes.len().to_u64().unwrap());
 
