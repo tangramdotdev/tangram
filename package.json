@@ -1,11 +1,18 @@
 {
-  "dependencies": {
-    "@biomejs/biome": "^1.7.3",
-    "typescript": "^5.4.5"
-  },
-  "scripts": {
-    "check": "bun --filter \"@tangramdotdev/*\" check",
-    "format": "bun --filter \"@tangramdotdev/*\" format"
-  },
-  "workspaces": ["packages/compiler", "packages/runtime", "packages/vscode"]
+	"dependencies": {
+		"@biomejs/biome": "^1.7.3",
+		"@types/bun": "^1.1.3",
+		"typescript": "^5.4.5"
+	},
+	"scripts": {
+		"check": "cargo clippy --all && bun run --filter \"*\" check",
+		"clean": "rm -rf node_modules target",
+		"format": "cargo fmt --all && bun run --filter \"*\" format",
+		"release": "sh scripts/release.sh",
+		"tg": "cargo run --",
+		"tgo": "cargo build --target aarch64-unknown-linux-gnu && orb sh -c \"./target/aarch64-unknown-linux-gnu/debug/tg\" --",
+		"tgor": "cargo build --release --target aarch64-unknown-linux-gnu && orb sh -c \"./target/aarch64-unknown-linux-gnu/debug/tg\" --",
+		"tgr": "cargo run --release --"
+	},
+	"workspaces": ["packages/compiler", "packages/runtime", "packages/vscode"]
 }

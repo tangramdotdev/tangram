@@ -32,6 +32,17 @@ mod tui;
 mod upgrade;
 mod view;
 
+const ABOUT: &str = env!("CARGO_PKG_DESCRIPTION");
+
+const BEFORE_HELP: &str = concat!(
+	"Tangram v",
+	env!("CARGO_PKG_VERSION"),
+	"\n\n",
+	include_str!("tangram.ascii"),
+);
+
+const NAME: &str = env!("CARGO_CRATE_NAME");
+
 const VERSION: &str = env!("CARGO_PKG_VERSION");
 
 struct Cli {
@@ -42,11 +53,12 @@ struct Cli {
 
 #[derive(Clone, Debug, clap::Parser)]
 #[command(
-	about = env!("CARGO_PKG_DESCRIPTION"),
+	about = ABOUT,
+	arg_required_else_help = true,
+	before_help = &BEFORE_HELP[..BEFORE_HELP.len() - 1],
 	disable_help_subcommand = true,
-	long_version = env!("CARGO_PKG_VERSION"),
-	name = env!("CARGO_CRATE_NAME"),
-	version = env!("CARGO_PKG_VERSION"),
+	name = NAME,
+	version = VERSION,
 )]
 struct Args {
 	#[command(subcommand)]
