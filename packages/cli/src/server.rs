@@ -5,6 +5,7 @@ pub mod clean;
 pub mod health;
 pub mod run;
 pub mod start;
+pub mod status;
 pub mod stop;
 
 /// Manage the server.
@@ -21,6 +22,7 @@ pub enum Command {
 	Health(self::health::Args),
 	Run(self::run::Args),
 	Start(self::start::Args),
+	Status(self::status::Args),
 	Stop(self::stop::Args),
 }
 
@@ -38,6 +40,9 @@ impl Cli {
 			},
 			Command::Start(args) => {
 				self.command_server_start(args).await?;
+			},
+			Command::Status(args) => {
+				self.command_server_status(args).await?;
 			},
 			Command::Stop(args) => {
 				self.command_server_stop(args).await?;

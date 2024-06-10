@@ -105,11 +105,9 @@
 		"url": "https://github.com/tangramdotdev/tangram"
 	},
 	"scripts": {
-		"build": "esbuild --bundle --outfile=extension.js --format=cjs --sourcemap --platform=node --external:vscode src/extension.ts",
+		"build": "esbuild --bundle --outfile=extension.js --format=cjs --sourcemap --platform=node --external:vscode src/extension.ts && vsce package --no-dependencies --no-update-package-json --no-git-tag-version",
 		"check": "tsc && biome check src",
-		"format": "biome check --apply src",
-		"package": "vsce package --no-dependencies --no-update-package-json --no-git-tag-version",
-		"vscode:prepublish": "npm run build"
+		"format": "biome check --apply src"
 	},
 	"version": "0.0.0"
 }

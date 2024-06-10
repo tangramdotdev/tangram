@@ -19,7 +19,7 @@ pub struct Args {
 }
 
 impl Cli {
-	pub async fn command_run(&self, args: Args) -> tg::Result<()> {
+	pub async fn command_target_run(&self, args: Args) -> tg::Result<()> {
 		let output = self.command_target_build_inner(args.inner, false).await?;
 
 		// Get the path to the artifact.
