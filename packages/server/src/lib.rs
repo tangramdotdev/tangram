@@ -53,7 +53,6 @@ pub mod options;
 pub struct Server(Arc<Inner>);
 
 pub struct Inner {
-	blob_store_tasks: BlobStoreTaskMap,
 	build_permits: BuildPermits,
 	build_semaphore: Arc<tokio::sync::Semaphore>,
 	builds: BuildTaskMap,
@@ -63,6 +62,7 @@ pub struct Inner {
 	local_pool_handle: tokio_util::task::LocalPoolHandle,
 	lock_file: std::sync::Mutex<Option<tokio::fs::File>>,
 	messenger: Messenger,
+	object_store_tasks: ObjectStoreTaskMap,
 	options: Options,
 	path: PathBuf,
 	remotes: DashMap<String, tg::Client>,
@@ -79,7 +79,7 @@ struct BuildPermit(
 	Either<tokio::sync::OwnedSemaphorePermit, tokio::sync::OwnedMutexGuard<Option<Self>>>,
 );
 
-type BlobStoreTaskMap = TaskMap<tg::blob::Id, tg::Result<bool>, fnv::FnvBuildHasher>;
+type ObjectStoreTaskMap = TaskMap<tg::object::Id, tg::Result<bool>, fnv::FnvBuildHasher>;
 
 type BuildTaskMap = TaskMap<tg::build::Id, (), fnv::FnvBuildHasher>;
 
@@ -150,7 +150,7 @@ impl Server {
 		tokio::fs::remove_file(&socket_path).await.ok();
 
 		// Create the blob stores.
-		let blob_tasks = TaskMap::default();
+		let object_store_tasks = TaskMap::default();
 
 		// Create the build permits.
 		let build_permits = DashMap::default();
@@ -233,7 +233,6 @@ impl Server {
 
 		// Create the server.
 		let server = Self(Arc::new(Inner {
-			blob_store_tasks: blob_tasks,
 			build_permits,
 			build_semaphore,
 			builds,
@@ -243,6 +242,7 @@ impl Server {
 			local_pool_handle,
 			lock_file,
 			messenger,
+			object_store_tasks,
 			options,
 			path,
 			remotes,

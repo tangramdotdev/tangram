@@ -84,39 +84,12 @@ impl Template {
 	}
 
 	pub fn unrender(prefix: &str, string: &str) -> tg::Result<Self> {
-		// Create the regex.
-		let prefix = regex::escape(prefix);
-		let regex =
-			format!(r"{prefix}/((?:dir_|fil_|sym_)01[0123456789abcdefghjkmnpqrstvwxyz]{{52}})");
-		let regex = regex::Regex::new(&regex).unwrap();
-
-		let mut i = 0;
-		let mut components = Vec::new();
-		for captures in regex.captures_iter(string) {
-			// Add the text leading up to the capture as a string component.
-			let match_ = captures.get(0).unwrap();
-			if match_.start() > i {
-				components.push(Component::String(string[i..match_.start()].to_owned()));
-			}
-
-			// Get and parse the ID.
-			let id = captures.get(1).unwrap();
-			let id = id.as_str().parse().unwrap();
-
-			// Add an artifact component.
-			components.push(Component::Artifact(tg::Artifact::with_id(id)));
-
-			// Advance the cursor to the end of the match.
-			i = match_.end();
-		}
-
-		// Add the remaining text as a string component.
-		if i < string.len() {
-			components.push(Component::String(string[i..].to_owned()));
-		}
-
-		// Create the template.
-		Ok(Self { components })
+		let data = Data::unrender(prefix, string)?;
+		let components = data.components.into_iter().map(|data| match data {
+			component::Data::Artifact(id) => Component::Artifact(tg::Artifact::with_id(id)),
+			component::Data::String(string) => Component::String(string),
+		});
+		Ok(Self::with_components(components))
 	}
 }
 
@@ -160,6 +133,44 @@ impl Data {
 				component::Data::Artifact(id) => Some(id.clone().into()),
 			})
 			.collect()
+	}
+
+	pub fn unrender(prefix: &str, string: &str) -> tg::Result<Self> {
+		// Create the regex.
+		let prefix = regex::escape(prefix);
+		let regex =
+			format!(r"{prefix}/((?:dir_|fil_|sym_)01[0123456789abcdefghjkmnpqrstvwxyz]{{52}})");
+		let regex = regex::Regex::new(&regex).unwrap();
+
+		let mut i = 0;
+		let mut components = Vec::new();
+		for captures in regex.captures_iter(string) {
+			// Add the text leading up to the capture as a string component.
+			let match_ = captures.get(0).unwrap();
+			if match_.start() > i {
+				components.push(component::Data::String(
+					string[i..match_.start()].to_owned(),
+				));
+			}
+
+			// Get and parse the ID.
+			let id = captures.get(1).unwrap();
+			let id = id.as_str().parse().unwrap();
+
+			// Add an artifact component.
+			components.push(component::Data::Artifact(id));
+
+			// Advance the cursor to the end of the match.
+			i = match_.end();
+		}
+
+		// Add the remaining text as a string component.
+		if i < string.len() {
+			components.push(component::Data::String(string[i..].to_owned()));
+		}
+
+		// Create the template.
+		Ok(Self { components })
 	}
 }
 
@@ -206,7 +217,16 @@ pub mod component {
 		Artifact(tg::Artifact),
 	}
 
-	#[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
+	#[derive(
+		Clone,
+		Debug,
+		serde::Deserialize,
+		serde::Serialize,
+		derive_more::TryUnwrap,
+		derive_more::Unwrap,
+	)]
+	#[try_unwrap(ref)]
+	#[unwrap(ref)]
 	#[serde(rename_all = "snake_case", tag = "kind", content = "value")]
 	pub enum Data {
 		String(String),
