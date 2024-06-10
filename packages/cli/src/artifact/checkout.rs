@@ -1,6 +1,9 @@
 use crate::Cli;
 use std::path::PathBuf;
+use futures::TryStreamExt;
 use tangram_client as tg;
+use tg::Handle;
+use std::pin::pin;
 
 /// Check out an artifact.
 #[derive(Clone, Debug, clap::Args)]
@@ -27,9 +30,6 @@ pub struct Args {
 
 impl Cli {
 	pub async fn command_artifact_checkout(&self, args: Args) -> tg::Result<()> {
-		// Get the artifact.
-		let artifact = tg::Artifact::with_id(args.artifact.clone());
-
 		// Get the path.
 		let path = if let Some(path) = args.path {
 			let current = std::env::current_dir()
@@ -54,6 +54,14 @@ impl Cli {
 			None
 		};
 
+		// Create the progress bars.
+		let objects_progress_bar = indicatif::ProgressBar::new_spinner();
+		let bytes_progress_bar = indicatif::ProgressBar::new_spinner();
+
+		let progress_bar = indicatif::MultiProgress::new();
+		progress_bar.add(objects_progress_bar.clone());
+		progress_bar.add(bytes_progress_bar.clone());
+
 		// Create the arg.
 		let arg = tg::artifact::checkout::Arg {
 			bundle: path.is_some(),
@@ -63,13 +71,33 @@ impl Cli {
 		};
 
 		// Check out the artifact.
-		let output = artifact
-			.check_out(&self.handle, arg)
+		let stream = self
+			.handle
+			.check_out_artifact(&args.artifact, arg)
 			.await
-			.map_err(|source| tg::error!(!source, "failed to check out the artifact"))?;
-
-		// Print the path.
-		println!("{}", output.path);
+			.map_err(|source| tg::error!(!source, "failed to create check out stream"))?;
+		let mut stream = pin!(stream);
+		while let Some(event) = stream.try_next().await? {
+			match event {
+				tg::artifact::checkout::Event::Progress(progress) => {
+					objects_progress_bar.set_position(progress.count.current);
+					if let Some(total) = progress.count.total {
+						objects_progress_bar.set_style(indicatif::ProgressStyle::default_bar());
+						objects_progress_bar.set_length(total);
+					}
+					bytes_progress_bar.set_position(progress.weight.current);
+					if let Some(total) = progress.weight.total {
+						bytes_progress_bar.set_style(indicatif::ProgressStyle::default_bar());
+						bytes_progress_bar.set_length(total);
+					}
+				},
+				tg::artifact::checkout::Event::End(path) => {
+					progress_bar.clear().unwrap();
+					println!("{path}");
+					break;
+				}
+			}
+		}
 
 		Ok(())
 	}

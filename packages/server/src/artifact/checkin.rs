@@ -100,6 +100,10 @@ impl Server {
 			.check_in_artifact_inner(&arg, sender, &count, &weight)
 			.await?;
 
+		if &output.id != id {
+			return Err(tg::error!("corrupted internal checkout"));
+		}
+
 		// Get a database connection.
 		let mut connection = self
 			.database
@@ -170,25 +174,34 @@ impl Server {
 			.await?;
 		let artifact = output.id.clone();
 
-		// Rename the temp.
-		let root_path = self.checkouts_path().join(output.id.to_string());
-		tokio::fs::rename(&tmp.path, &root_path)
-			.await
-			.map_err(|source| tg::error!(!source, "failed to rename the temp"))?;
-
 		// Create hard links for files.
 		let mut stack = output.children;
 		while let Some(output) = stack.pop() {
 			if matches!(output.id, tg::artifact::Id::File(_)) {
-				let diff = arg.path.diff(&output.path).unwrap();
-				tokio::fs::hard_link(
-					root_path.clone().join(diff),
-					self.checkouts_path().join(output.id.to_string()),
-				)
-				.await
-				.map_err(|source| tg::error!(!source, "failed to create hard link"))?;
+				let dst = self.checkouts_path().join(output.id.to_string());
+				match tokio::fs::hard_link(output.path, &dst).await {
+					Ok(()) => (),
+					Err(error) if error.raw_os_error() == Some(libc::EEXIST) => (),
+					Err(source) => return Err(tg::error!(!source, %path = dst.display(), "failed to create hard link")),
+				}
 			}
 			stack.extend(output.children);
+		}
+
+		// Rename the temp.
+		let root_path = self.checkouts_path().join(output.id.to_string());
+		match tokio::fs::rename(&tmp.path, &root_path)
+			.await {
+			Ok(()) => (),
+			Err(error) if matches!(error.raw_os_error(), Some(libc::EEXIST) | Some(libc::ENOTEMPTY)) => {
+				// Send the end event.
+				sender
+					.try_send(Ok(tg::artifact::checkin::Event::End(artifact)))
+					.map_err(|source| tg::error!(!source, "failed to send event"))?;
+				return Ok(());
+			}
+			result => result.map_err(|source| tg::error!(!source, "failed to rename the temp"))?,
+
 		}
 
 		// Send the end event.
@@ -313,10 +326,13 @@ impl Server {
 			.collect::<FuturesUnordered<_>>()
 			.try_collect::<Vec<_>>()
 			.await?;
-		let entries = names
-			.into_iter()
-			.zip(children.iter())
-			.map(|(name, output)| (name, output.id.clone()))
+
+		let entries = children
+			.iter()
+			.map(|output| {
+				let name = output.path.components().last().unwrap().to_string();
+				(name.to_owned(), output.id.clone())
+			})
 			.collect();
 
 		// Create the directory data.
@@ -341,7 +357,7 @@ impl Server {
 			bytes,
 			count,
 			weight,
-			children: Vec::new(),
+			children,
 		};
 
 		Ok(output)

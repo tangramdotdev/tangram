@@ -1,5 +1,5 @@
 use crate::Server;
-use futures::{stream, Future, Stream, TryStreamExt as _};
+use futures::{future, stream, Future, Stream, StreamExt, TryStreamExt as _};
 use std::{str::FromStr as _, sync::Arc};
 use tangram_client as tg;
 use tokio::io::{AsyncBufRead, AsyncRead, AsyncWrite};
@@ -129,30 +129,44 @@ impl tg::Handle for Proxy {
 		&self,
 		id: &tg::artifact::Id,
 		mut arg: tg::artifact::checkout::Arg,
-	) -> tg::Result<tg::artifact::checkout::Output> {
+	) -> tg::Result<impl Stream<Item = tg::Result<tg::artifact::checkout::Event>> + Send + 'static>
+	{
 		// Replace the path with the host path.
 		if let Some(path) = &mut arg.path {
 			*path = self.host_path_for_guest_path(path.clone())?;
 		} else {
 			// If there's no path set (internal checkout) and the VFS is enabled, ignore the request.
 			if self.server.options.vfs.is_some() {
-				return Ok(tg::artifact::checkout::Output {
-					path: self
-						.server
-						.artifacts_path()
-						.join(id.to_string())
-						.try_into()?,
-				});
+				let path = self
+					.server
+					.artifacts_path()
+					.join(id.to_string())
+					.try_into()?;
+				let stream =
+					stream::once(future::ready(Ok(tg::artifact::checkout::Event::End(path))))
+						.left_stream();
+				return Ok(stream);
 			}
 		}
 
-		// Perform the checkout.
-		let mut output = self.server.check_out_artifact(id, arg).await?;
-
-		// Map the path back to the guest path.
-		output.path = self.guest_path_for_host_path(output.path)?;
-
-		Ok(output)
+		// Otherwise, remap the path.
+		let proxy = self.clone();
+		let stream = self
+			.server
+			.check_out_artifact(id, arg)
+			.await?
+			.and_then(move |event| {
+				let proxy = proxy.clone();
+				async move {
+					let tg::artifact::checkout::Event::End(path) = event else {
+						return Ok(event);
+					};
+					let path = proxy.guest_path_for_host_path(path)?;
+					Ok(tg::artifact::checkout::Event::End(path))
+				}
+			})
+			.right_stream();
+		Ok(stream)
 	}
 
 	fn create_blob(

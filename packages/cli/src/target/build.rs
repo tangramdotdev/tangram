@@ -359,7 +359,7 @@ impl Cli {
 				.await
 				.map_err(|source| tg::error!(!source, "failed to check out the artifact"))?;
 
-			return Ok(Some(InnerOutput::Path(output.path)));
+			return Ok(Some(InnerOutput::Path(output)));
 		}
 
 		Ok(Some(InnerOutput::Value(output)))

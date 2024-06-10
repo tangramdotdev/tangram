@@ -83,8 +83,7 @@ type ObjectStoreTaskMap = TaskMap<tg::object::Id, tg::Result<bool>, fnv::FnvBuil
 
 type BuildTaskMap = TaskMap<tg::build::Id, (), fnv::FnvBuildHasher>;
 
-type CheckoutTaskMap =
-	TaskMap<tg::artifact::Id, tg::Result<tg::artifact::checkout::Output>, fnv::FnvBuildHasher>;
+type CheckoutTaskMap = TaskMap<tg::artifact::Id, tg::Result<tg::Path>, fnv::FnvBuildHasher>;
 
 impl Server {
 	pub async fn start(options: Options) -> tg::Result<Server> {
@@ -817,7 +816,11 @@ impl tg::Handle for Server {
 		&self,
 		id: &tg::artifact::Id,
 		arg: tg::artifact::checkout::Arg,
-	) -> impl Future<Output = tg::Result<tg::artifact::checkout::Output>> {
+	) -> impl Future<
+		Output = tg::Result<
+			impl Stream<Item = tg::Result<tg::artifact::checkout::Event>> + Send + 'static,
+		>,
+	> {
 		self.check_out_artifact(id, arg)
 	}
 
