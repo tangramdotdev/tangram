@@ -1,6 +1,9 @@
 use crate::{tmp::Tmp, util::fs::remove, Server};
 use dashmap::DashMap;
-use futures::{stream::FuturesUnordered, Stream, StreamExt as _, TryStreamExt as _};
+use futures::{
+	stream::{self, FuturesUnordered},
+	FutureExt as _, Stream, StreamExt as _, TryStreamExt as _,
+};
 use std::{
 	collections::BTreeSet,
 	os::unix::fs::PermissionsExt as _,
@@ -12,7 +15,28 @@ use std::{
 use tangram_client as tg;
 use tangram_futures::task::Task;
 use tangram_http::{incoming::request::Ext as _, outgoing::response::Ext as _, Incoming, Outgoing};
-use tg::Handle;
+use tg::Handle as _;
+use tokio_stream::wrappers::IntervalStream;
+
+struct State {
+	count: ProgressState,
+	weight: ProgressState,
+}
+
+struct ProgressState {
+	current: AtomicU64,
+	total: Option<AtomicU64>,
+}
+
+struct InnerArg<'a> {
+	path: &'a tg::Path,
+	artifact: &'a tg::Artifact,
+	existing_artifact: Option<&'a tg::Artifact>,
+	arg: &'a tg::artifact::checkout::Arg,
+	depth: usize,
+	files: Arc<DashMap<tg::file::Id, tg::Path, fnv::FnvBuildHasher>>,
+	state: &'a State,
+}
 
 impl Server {
 	pub async fn check_out_artifact(
@@ -20,78 +44,103 @@ impl Server {
 		id: &tg::artifact::Id,
 		arg: tg::artifact::checkout::Arg,
 	) -> tg::Result<impl Stream<Item = tg::Result<tg::artifact::checkout::Event>>> {
-		// Create the channel.
-		let (sender, receiver) = async_channel::unbounded();
+		// Get the metadata.
+		let metadata = self.get_object_metadata(&id.clone().into()).await?;
 
-		// Spawn a task.
+		// Create the state.
+		let count = ProgressState {
+			current: AtomicU64::new(0),
+			total: metadata.count.map(AtomicU64::new),
+		};
+		let weight = ProgressState {
+			current: AtomicU64::new(0),
+			total: metadata.weight.map(AtomicU64::new),
+		};
+		let state = Arc::new(State { count, weight });
+
+		// Spawn the task.
+		let (result_sender, result_receiver) = tokio::sync::oneshot::channel();
 		tokio::spawn({
 			let server = self.clone();
 			let id = id.clone();
+			let state = state.clone();
 			async move {
-				if let Err(error) = server.check_out_task(&id, arg, sender.clone()).await {
-					sender.try_send(Err(error)).ok();
-				}
+				let result = server.check_out_artifact_task(&id, arg, state).await;
+				result_sender.send(result).ok();
 			}
 		});
 
-		Ok(receiver)
+		// Create the stream.
+		let interval = std::time::Duration::from_millis(100);
+		let interval = tokio::time::interval(interval);
+		let result = result_receiver.map(Result::unwrap).shared();
+		let stream = IntervalStream::new(interval)
+			.map(move |_| {
+				let current = state
+					.count
+					.current
+					.load(std::sync::atomic::Ordering::Relaxed);
+				let total = state
+					.count
+					.total
+					.as_ref()
+					.map(|total| total.load(std::sync::atomic::Ordering::Relaxed));
+				let count = tg::Progress { current, total };
+				let current = state
+					.weight
+					.current
+					.load(std::sync::atomic::Ordering::Relaxed);
+				let total = state
+					.weight
+					.total
+					.as_ref()
+					.map(|total| total.load(std::sync::atomic::Ordering::Relaxed));
+				let weight = tg::Progress { current, total };
+				let progress = tg::artifact::checkout::Progress { count, weight };
+				Ok(tg::artifact::checkout::Event::Progress(progress))
+			})
+			.take_until(result.clone())
+			.chain(stream::once(result.map(|result| match result {
+				Ok(path) => Ok(tg::artifact::checkout::Event::End(path)),
+				Err(error) => Err(error),
+			})));
+
+		Ok(stream)
 	}
 
-	async fn check_out_task(
+	async fn check_out_artifact_task(
 		&self,
 		id: &tg::artifact::Id,
 		arg: tg::artifact::checkout::Arg,
-		sender: async_channel::Sender<tg::Result<tg::artifact::checkout::Event>>,
-	) -> tg::Result<()> {
-		// Get the total size.
-		let metadata = self.get_object_metadata(&id.clone().into()).await?;
-		let event = tg::artifact::checkout::Event::Progress(tg::artifact::checkout::Progress {
-			count: tg::Progress {
-				current: 0,
-				total: metadata.count,
-			},
-			weight: tg::Progress {
-				current: 0,
-				total: metadata.weight,
-			},
-		});
-		sender.try_send(Ok(event)).ok();
-
+		state: Arc<State>,
+	) -> tg::Result<tg::Path> {
 		// Get or spawn the task.
 		let spawn = |_| {
 			let server = self.clone();
 			let id = id.clone();
-			let files = Arc::new(DashMap::default());
 			let arg = arg.clone();
-			let sender = sender.clone();
-			let count = AtomicU64::new(0);
-			let weight = AtomicU64::new(0);
+			let files = Arc::new(DashMap::default());
+			let state = state.clone();
 			async move {
 				server
-					.check_out_artifact_with_files(&id, &arg, files, &sender, &count, &weight)
+					.check_out_artifact_with_files(&id, &arg, files, &state)
 					.await
 			}
 		};
-
 		let internal = arg.path.is_none();
 		let task = if internal {
-			self.checkouts.get_or_spawn(id.clone(), spawn)
+			self.checkout_task_map.get_or_spawn(id.clone(), spawn)
 		} else {
 			Task::spawn(spawn)
 		};
 
-		// Await the task.
+		// Wait for the task.
 		let path = task
 			.wait()
 			.await
 			.map_err(|source| tg::error!(!source, "the task failed"))??;
 
-		// Send the end event.
-		sender
-			.try_send(Ok(tg::artifact::checkout::Event::End(path)))
-			.ok();
-
-		Ok(())
+		Ok(path)
 	}
 
 	async fn check_out_artifact_with_files(
@@ -99,9 +148,7 @@ impl Server {
 		id: &tg::artifact::Id,
 		arg: &tg::artifact::checkout::Arg,
 		files: Arc<DashMap<tg::file::Id, tg::Path, fnv::FnvBuildHasher>>,
-		sender: &async_channel::Sender<tg::Result<tg::artifact::checkout::Event>>,
-		count: &AtomicU64,
-		weight: &AtomicU64,
+		state: &State,
 	) -> tg::Result<tg::Path> {
 		let artifact = tg::Artifact::with_id(id.clone());
 
@@ -138,18 +185,16 @@ impl Server {
 			};
 
 			// Perform the checkout.
-			self.check_out_inner(
-				&path,
-				&artifact,
-				existing_artifact.as_ref(),
+			let arg = InnerArg {
+				path: &path,
+				artifact: &artifact,
+				existing_artifact: existing_artifact.as_ref(),
+				depth: 0,
 				arg,
-				0,
 				files,
-				sender,
-				count,
-				weight,
-			)
-			.await?;
+				state,
+			};
+			self.check_out_inner(arg).await?;
 
 			Ok(path)
 		} else {
@@ -170,19 +215,17 @@ impl Server {
 			let tmp = Tmp::new(self);
 
 			// Perform the checkout to the tmp.
-			let existing = Arc::new(DashMap::default());
-			self.check_out_inner(
-				&tmp.path.clone().try_into()?,
-				&artifact,
-				None,
+			let files = Arc::new(DashMap::default());
+			let arg = InnerArg {
+				path: &tmp.path.clone().try_into()?,
+				artifact: &artifact,
+				existing_artifact: None,
+				depth: 0,
 				arg,
-				0,
-				existing,
-				sender,
-				count,
-				weight,
-			)
-			.await?;
+				files,
+				state,
+			};
+			self.check_out_inner(arg).await?;
 
 			// Move the checkout to the checkouts directory.
 			match tokio::fs::rename(&tmp, &path).await {
@@ -206,18 +249,17 @@ impl Server {
 		}
 	}
 
-	async fn check_out_inner(
-		&self,
-		path: &tg::Path,
-		artifact: &tg::Artifact,
-		existing_artifact: Option<&tg::Artifact>,
-		arg: &tg::artifact::checkout::Arg,
-		depth: usize,
-		files: Arc<DashMap<tg::file::Id, tg::Path, fnv::FnvBuildHasher>>,
-		sender: &async_channel::Sender<tg::Result<tg::artifact::checkout::Event>>,
-		count: &AtomicU64,
-		weight: &AtomicU64,
-	) -> tg::Result<()> {
+	async fn check_out_inner(&self, arg: InnerArg<'_>) -> tg::Result<()> {
+		let InnerArg {
+			path,
+			artifact,
+			existing_artifact,
+			arg,
+			depth,
+			files,
+			state,
+		} = arg;
+
 		// If the artifact is the same as the existing artifact, then return.
 		let id = artifact.id(self).await?;
 		match existing_artifact {
@@ -225,26 +267,11 @@ impl Server {
 			Some(existing_artifact) => {
 				if id == existing_artifact.id(self).await? {
 					let metadata = self.get_object_metadata(&id.clone().into()).await?;
-					let count = metadata
-						.count
-						.map(|count_| count.fetch_add(count_, Ordering::Relaxed));
-					let weight = metadata
-						.weight
-						.map(|weight_| weight.fetch_add(weight_, Ordering::Relaxed));
-					if let (Some(count), Some(weight)) = (count, weight) {
-						let event = tg::artifact::checkout::Event::Progress(
-							tg::artifact::checkout::Progress {
-								count: tg::Progress {
-									current: count,
-									total: None,
-								},
-								weight: tg::Progress {
-									current: weight,
-									total: None,
-								},
-							},
-						);
-						sender.try_send(Ok(event)).ok();
+					if let Some(count) = metadata.count {
+						state.count.current.fetch_add(count, Ordering::Relaxed);
+					}
+					if let Some(weight) = metadata.weight {
+						state.weight.current.fetch_add(weight, Ordering::Relaxed);
 					}
 					return Ok(());
 				}
@@ -252,56 +279,30 @@ impl Server {
 		}
 
 		// Call the appropriate function for the artifact's type.
+		let arg_ = InnerArg {
+			path,
+			artifact,
+			existing_artifact,
+			arg,
+			depth,
+			files,
+			state,
+		};
 		match artifact {
-			tg::Artifact::Directory(directory) => {
-				Box::pin(self.check_out_directory(
-					path,
-					directory,
-					existing_artifact,
-					arg,
-					depth,
-					files,
-					sender,
-					count,
-					weight,
-				))
-				.await
-				.map_err(
+			tg::Artifact::Directory(_) => {
+				Box::pin(self.check_out_directory(arg_)).await.map_err(
 					|source| tg::error!(!source, %id, %path, "failed to check out the directory"),
 				)?;
 			},
 
-			tg::Artifact::File(file) => {
-				Box::pin(self.check_out_file(
-					path,
-					file,
-					existing_artifact,
-					arg,
-					files,
-					sender,
-					count,
-					weight,
-				))
-				.await
-				.map_err(
+			tg::Artifact::File(_) => {
+				Box::pin(self.check_out_file(arg_)).await.map_err(
 					|source| tg::error!(!source, %id, %path, "failed to check out the file"),
 				)?;
 			},
 
-			tg::Artifact::Symlink(symlink) => {
-				Box::pin(self.check_out_symlink(
-					path,
-					symlink,
-					existing_artifact,
-					arg,
-					depth,
-					files,
-					sender,
-					count,
-					weight,
-				))
-				.await
-				.map_err(
+			tg::Artifact::Symlink(_) => {
+				Box::pin(self.check_out_symlink(arg_)).await.map_err(
 					|source| tg::error!(!source, %id, %path, "failed to check out the symlink"),
 				)?;
 			},
@@ -323,21 +324,27 @@ impl Server {
 			.unwrap()?;
 		}
 
+		// Update the state.
+		state.count.current.fetch_add(1, Ordering::Relaxed);
+
 		Ok(())
 	}
 
-	async fn check_out_directory(
-		&self,
-		path: &tg::Path,
-		directory: &tg::Directory,
-		existing_artifact: Option<&tg::Artifact>,
-		arg: &tg::artifact::checkout::Arg,
-		depth: usize,
-		files: Arc<DashMap<tg::file::Id, tg::Path, fnv::FnvBuildHasher>>,
-		sender: &async_channel::Sender<tg::Result<tg::artifact::checkout::Event>>,
-		count: &AtomicU64,
-		weight: &AtomicU64,
-	) -> tg::Result<()> {
+	async fn check_out_directory(&self, arg: InnerArg<'_>) -> tg::Result<()> {
+		let InnerArg {
+			arg,
+			artifact,
+			depth,
+			existing_artifact,
+			files,
+			path,
+			state,
+		} = arg;
+		let directory = artifact
+			.try_unwrap_directory_ref()
+			.ok()
+			.ok_or_else(|| tg::error!("expected a directory"))?;
+
 		// Handle an existing artifact at the path.
 		match existing_artifact {
 			// If there is an existing directory, then remove any extraneous entries.
@@ -381,7 +388,7 @@ impl Server {
 			.iter()
 			.map(|(name, artifact)| {
 				let existing_artifact = &existing_artifact;
-				let existing = files.clone();
+				let files = files.clone();
 				async move {
 					// Retrieve an existing artifact.
 					let existing_artifact = match existing_artifact {
@@ -396,18 +403,16 @@ impl Server {
 
 					// Recurse.
 					let entry_path = path.clone().join(name);
-					self.check_out_inner(
-						&entry_path,
+					let arg = InnerArg {
+						path: &entry_path,
 						artifact,
-						existing_artifact.as_ref(),
+						existing_artifact: existing_artifact.as_ref(),
+						depth: depth + 1,
 						arg,
-						depth + 1,
-						existing,
-						sender,
-						count,
-						weight,
-					)
-					.await?;
+						files,
+						state,
+					};
+					self.check_out_inner(arg).await?;
 
 					Ok::<_, tg::Error>(())
 				}
@@ -419,17 +424,21 @@ impl Server {
 		Ok(())
 	}
 
-	async fn check_out_file(
-		&self,
-		path: &tg::Path,
-		file: &tg::File,
-		existing_artifact: Option<&tg::Artifact>,
-		arg: &tg::artifact::checkout::Arg,
-		files: Arc<DashMap<tg::file::Id, tg::Path, fnv::FnvBuildHasher>>,
-		sender: &async_channel::Sender<tg::Result<tg::artifact::checkout::Event>>,
-		count: &AtomicU64,
-		weight: &AtomicU64,
-	) -> tg::Result<()> {
+	async fn check_out_file(&self, arg: InnerArg<'_>) -> tg::Result<()> {
+		let InnerArg {
+			arg,
+			artifact,
+			existing_artifact,
+			files,
+			path,
+			state,
+			..
+		} = arg;
+		let file = artifact
+			.try_unwrap_file_ref()
+			.ok()
+			.ok_or_else(|| tg::error!("expected a file"))?;
+
 		// Handle an existing artifact at the path.
 		match &existing_artifact {
 			// If there is an existing file system object at the path, then remove it and continue.
@@ -466,9 +475,7 @@ impl Server {
 						artifact,
 						&arg,
 						files.clone(),
-						sender,
-						count,
-						weight,
+						state,
 					))
 					.await?;
 					Ok::<_, tg::Error>(())
@@ -546,18 +553,21 @@ impl Server {
 		Ok(())
 	}
 
-	async fn check_out_symlink(
-		&self,
-		path: &tg::Path,
-		symlink: &tg::Symlink,
-		existing_artifact: Option<&tg::Artifact>,
-		arg: &tg::artifact::checkout::Arg,
-		depth: usize,
-		files: Arc<DashMap<tg::file::Id, tg::Path, fnv::FnvBuildHasher>>,
-		sender: &async_channel::Sender<tg::Result<tg::artifact::checkout::Event>>,
-		count: &AtomicU64,
-		weight: &AtomicU64,
-	) -> tg::Result<()> {
+	async fn check_out_symlink(&self, arg: InnerArg<'_>) -> tg::Result<()> {
+		let InnerArg {
+			arg,
+			artifact,
+			depth,
+			existing_artifact,
+			files,
+			path,
+			state,
+		} = arg;
+		let symlink = artifact
+			.try_unwrap_symlink_ref()
+			.ok()
+			.ok_or_else(|| tg::error!("expected a symlink"))?;
+
 		// Handle an existing artifact at the path.
 		match &existing_artifact {
 			// If there is an existing file system object at the path, then remove it and continue.
@@ -579,10 +589,7 @@ impl Server {
 				}
 				let id = artifact.id(self).await?;
 				let arg = tg::artifact::checkout::Arg::default();
-				Box::pin(
-					self.check_out_artifact_with_files(&id, &arg, files, sender, count, weight),
-				)
-				.await?;
+				Box::pin(self.check_out_artifact_with_files(&id, &arg, files, state)).await?;
 			}
 		}
 

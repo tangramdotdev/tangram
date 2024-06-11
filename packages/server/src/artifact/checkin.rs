@@ -1,19 +1,34 @@
 use crate::{tmp::Tmp, Server};
 use bytes::Bytes;
 use futures::{
-	future, stream, stream::FuturesUnordered, Stream, StreamExt as _, TryStreamExt as _,
+	stream::{self, FuturesUnordered},
+	FutureExt as _, Stream, StreamExt as _, TryStreamExt as _,
 };
 use indoc::formatdoc;
 use num::ToPrimitive;
 use std::{
 	os::unix::fs::PermissionsExt as _,
 	path::PathBuf,
-	sync::atomic::{AtomicU64, Ordering},
+	sync::{
+		atomic::{AtomicU64, Ordering},
+		Arc,
+	},
 };
 use tangram_client as tg;
-use tangram_database::{self as db, Connection as _, Database as _, Query as _, Transaction as _};
+use tangram_database::{self as db, prelude::*};
 use tangram_http::{incoming::request::Ext as _, outgoing::response::Ext as _, Incoming, Outgoing};
 use time::format_description::well_known::Rfc3339;
+use tokio_stream::wrappers::IntervalStream;
+
+struct State {
+	count: ProgressState,
+	weight: ProgressState,
+}
+
+struct ProgressState {
+	current: AtomicU64,
+	total: Option<AtomicU64>,
+}
 
 #[derive(Clone, Debug)]
 struct InnerOutput {
@@ -30,6 +45,73 @@ impl Server {
 		&self,
 		arg: tg::artifact::checkin::Arg,
 	) -> tg::Result<impl Stream<Item = tg::Result<tg::artifact::checkin::Event>>> {
+		// Create the state.
+		let count = ProgressState {
+			current: AtomicU64::new(0),
+			total: None,
+		};
+		let weight = ProgressState {
+			current: AtomicU64::new(0),
+			total: None,
+		};
+		let state = Arc::new(State { count, weight });
+
+		// Spawn the task.
+		let (result_sender, result_receiver) = tokio::sync::oneshot::channel();
+		tokio::spawn({
+			let server = self.clone();
+			let arg = arg.clone();
+			let state = state.clone();
+			async move {
+				let result = server.check_in_artifact_task(arg, &state).await;
+				result_sender.send(result).ok();
+			}
+		});
+
+		// Create the stream.
+		let interval = std::time::Duration::from_millis(100);
+		let interval = tokio::time::interval(interval);
+		let result = result_receiver.map(Result::unwrap).shared();
+		let stream = IntervalStream::new(interval)
+			.map(move |_| {
+				let current = state
+					.count
+					.current
+					.load(std::sync::atomic::Ordering::Relaxed);
+				let total = state
+					.count
+					.total
+					.as_ref()
+					.map(|total| total.load(std::sync::atomic::Ordering::Relaxed));
+				let count = tg::Progress { current, total };
+				let current = state
+					.weight
+					.current
+					.load(std::sync::atomic::Ordering::Relaxed);
+				let total = state
+					.weight
+					.total
+					.as_ref()
+					.map(|total| total.load(std::sync::atomic::Ordering::Relaxed));
+				let weight = tg::Progress { current, total };
+				let progress = tg::artifact::checkin::Progress { count, weight };
+				Ok(tg::artifact::checkin::Event::Progress(progress))
+			})
+			.take_until(result.clone())
+			.chain(stream::once(result.map(|result| match result {
+				Ok(id) => Ok(tg::artifact::checkin::Event::End(id)),
+				Err(error) => Err(error),
+			})));
+
+		Ok(stream)
+	}
+
+	/// Attempt to store an artifact in the database.
+	async fn check_in_artifact_task(
+		&self,
+		mut arg: tg::artifact::checkin::Arg,
+		state: &State,
+	) -> tg::Result<tg::artifact::Id> {
 		// If this is a checkin of a path in the checkouts directory, then retrieve the corresponding artifact.
 		let checkouts_path = self.checkouts_path().try_into()?;
 		if let Some(path) = arg.path.diff(&checkouts_path).filter(tg::Path::is_internal) {
@@ -43,9 +125,7 @@ impl Server {
 				.parse::<tg::artifact::Id>()?;
 			let path = tg::Path::with_components(path.components().iter().skip(2).cloned());
 			if path.components().len() == 1 {
-				let stream = stream::once(future::ready(Ok(tg::artifact::checkin::Event::End(id))))
-					.left_stream();
-				return Ok(stream);
+				return Ok(id);
 			}
 			let artifact = tg::Artifact::with_id(id);
 			let directory = artifact
@@ -54,124 +134,32 @@ impl Server {
 				.ok_or_else(|| tg::error!("invalid path"))?;
 			let artifact = directory.get(self, &path).await?;
 			let id = artifact.id(self).await?;
-			let stream = stream::once(future::ready(Ok(tg::artifact::checkin::Event::End(id))))
-				.left_stream();
-			return Ok(stream);
+			return Ok(id);
 		}
 
-		let (sender, receiver) = async_channel::unbounded();
-		tokio::spawn({
-			let server = self.clone();
-			async move {
-				let result = server.check_in_artifact_task(arg, sender.clone()).await;
-				if let Err(error) = result {
-					sender.try_send(Err(error)).ok();
-				}
-			}
-		});
-
-		Ok(receiver.right_stream())
-	}
-
-	/// Attempt to store an artifact in the database.
-	pub(crate) async fn try_store_artifact(&self, id: &tg::artifact::Id) -> tg::Result<bool> {
-		// Check if the artifact exists in the checkouts directory.
-		let permit = self.file_descriptor_semaphore.acquire().await.unwrap();
-		let path = self.checkouts_path().join(id.to_string());
-		let exists = tokio::fs::try_exists(&path)
-			.await
-			.map_err(|source| tg::error!(!source, "failed to check if the file exists"))?;
-		if !exists {
-			return Ok(false);
-		}
-		drop(permit);
-
-		// Create the args.
-		let arg = tg::artifact::checkin::Arg {
-			path: path.try_into()?,
-			destructive: false,
-		};
-		let count = AtomicU64::new(0);
-		let weight = AtomicU64::new(0);
-		let (sender, _receiver) = async_channel::unbounded();
-
-		// Check in the artifact.
-		let output = self
-			.check_in_artifact_inner(&arg, sender, &count, &weight)
-			.await?;
-
-		if &output.id != id {
-			return Err(tg::error!("corrupted internal checkout"));
-		}
-
-		// Get a database connection.
-		let mut connection = self
-			.database
-			.connection()
-			.await
-			.map_err(|source| tg::error!(!source, "failed to acquire a database connection"))?;
-
-		// Begin a transaction.
-		let transaction = connection
-			.transaction()
-			.await
-			.map_err(|source| tg::error!(!source, "failed to create a transaction"))?;
-
-		// Insert the objects.
-		let mut stack = vec![output];
-		while let Some(output) = stack.pop() {
-			let p = transaction.p();
-			let statement = formatdoc!(
-				"
-					insert into objects (id, bytes, complete, count, weight, touched_at)
-					values ({p}1, {p}2, {p}3, {p}4, {p}5, {p}6)
-					on conflict (id) do update set touched_at = {p}6;
-				"
-			);
-			let now = time::OffsetDateTime::now_utc().format(&Rfc3339).unwrap();
-			let params = db::params![output.id, output.bytes, 1, output.count, output.weight, now];
-			transaction
-				.execute(statement, params)
-				.await
-				.map_err(|source| {
-					tg::error!(!source, "failed to put the artifact into the database")
-				})?;
-			stack.extend(output.children);
-		}
-
-		// Commit the transaction.
-		transaction
-			.commit()
-			.await
-			.map_err(|source| tg::error!(!source, "failed to commit the transaction"))?;
-
-		Ok(true)
-	}
-
-	async fn check_in_artifact_task(
-		&self,
-		mut arg: tg::artifact::checkin::Arg,
-		sender: async_channel::Sender<tg::Result<tg::artifact::checkin::Event>>,
-	) -> tg::Result<()> {
-		// Copy to the temp.
+		// Copy or rename the file system object to the temp.
 		let tmp = Tmp::new(self);
 		if arg.destructive {
-			rename_or_copy(arg.path.as_ref(), &tmp.path)
-				.await
-				.map_err(|source| tg::error!(!source, %path = arg.path, "failed to rename file"))?;
+			// If this is a destructive checkin, then attempt to rename the file system object to the temp. Otherwise, copy it.
+			match tokio::fs::rename(&arg.path, &tmp.path).await {
+				Ok(()) => (),
+				Err(error) if error.raw_os_error() == Some(libc::EXDEV) => {
+					copy_all(arg.path.as_ref(), &tmp.path).await?;
+				},
+				Err(source) => {
+					return Err(tg::error!(!source, "failed to rename file"));
+				},
+			}
 		} else {
-			copy_and_set_metadata(arg.path.as_ref(), &tmp.path)
+			// Otherwise, copy .
+			copy_all(arg.path.as_ref(), &tmp.path)
 				.await
 				.map_err(|source| tg::error!(!source, %path = arg.path, "failed to copy file"))?;
 		}
 		arg.path = tmp.path.clone().try_into()?;
 
-		// Check in the artifact(s).
-		let count = AtomicU64::new(0);
-		let weight = AtomicU64::new(0);
-		let output = self
-			.check_in_artifact_inner(&arg, sender.clone(), &count, &weight)
-			.await?;
+		// Check in the artifact.
+		let output = self.check_in_artifact_inner(&arg, state).await?;
 		let artifact = output.id.clone();
 
 		// Create hard links for files.
@@ -182,42 +170,35 @@ impl Server {
 				match tokio::fs::hard_link(output.path, &dst).await {
 					Ok(()) => (),
 					Err(error) if error.raw_os_error() == Some(libc::EEXIST) => (),
-					Err(source) => return Err(tg::error!(!source, %path = dst.display(), "failed to create hard link")),
+					Err(source) => {
+						return Err(
+							tg::error!(!source, %path = dst.display(), "failed to create hard link"),
+						);
+					},
 				}
 			}
 			stack.extend(output.children);
 		}
 
-		// Rename the temp.
+		// Rename from the temp path to the checkout path.
 		let root_path = self.checkouts_path().join(output.id.to_string());
-		match tokio::fs::rename(&tmp.path, &root_path)
-			.await {
+		match tokio::fs::rename(&tmp.path, &root_path).await {
 			Ok(()) => (),
-			Err(error) if matches!(error.raw_os_error(), Some(libc::EEXIST) | Some(libc::ENOTEMPTY)) => {
-				// Send the end event.
-				sender
-					.try_send(Ok(tg::artifact::checkin::Event::End(artifact)))
-					.map_err(|source| tg::error!(!source, "failed to send event"))?;
-				return Ok(());
-			}
-			result => result.map_err(|source| tg::error!(!source, "failed to rename the temp"))?,
-
+			Err(error) if matches!(error.raw_os_error(), Some(libc::EEXIST | libc::ENOTEMPTY)) => {
+				return Ok(artifact);
+			},
+			Err(source) => {
+				return Err(tg::error!(!source, "failed to rename the temp"));
+			},
 		}
 
-		// Send the end event.
-		sender
-			.try_send(Ok(tg::artifact::checkin::Event::End(artifact)))
-			.map_err(|source| tg::error!(!source, "failed to send event"))?;
-
-		Ok(())
+		Ok(artifact)
 	}
 
 	async fn check_in_artifact_inner(
 		&self,
 		arg: &tg::artifact::checkin::Arg,
-		sender: async_channel::Sender<tg::Result<tg::artifact::checkin::Event>>,
-		count: &AtomicU64,
-		weight: &AtomicU64,
+		state: &State,
 	) -> tg::Result<InnerOutput> {
 		// Get the metadata for the file system object at the path.
 		let metadata = tokio::fs::symlink_metadata(&arg.path).await.map_err(
@@ -226,17 +207,17 @@ impl Server {
 
 		// Call the appropriate function for the file system object at the path.
 		let output = if metadata.is_dir() {
-			self.check_in_directory(arg, &metadata, sender.clone(), count, weight)
+			self.check_in_directory(arg, &metadata, state)
 				.await
 				.map_err(
 					|source| tg::error!(!source, %path = arg.path, "failed to check in the directory"),
 				)?
 		} else if metadata.is_file() {
-			self.check_in_file(arg, &metadata).await.map_err(
+			self.check_in_file(arg, &metadata, state).await.map_err(
 				|source| tg::error!(!source, %path = arg.path, "failed to check in the file"),
 			)?
 		} else if metadata.is_symlink() {
-			self.check_in_symlink(arg, &metadata).await.map_err(
+			self.check_in_symlink(arg, &metadata, state).await.map_err(
 				|source| tg::error!(!source, %path = arg.path, "failed to check in the symlink"),
 			)?
 		} else {
@@ -261,22 +242,12 @@ impl Server {
 		.await
 		.unwrap()?;
 
-		// Update the stream.
-		if let (Some(count_), Some(weight_)) = (output.count, output.weight) {
-			let progress = tg::artifact::checkin::Progress {
-				path: arg.path.clone(),
-				count: tg::Progress {
-					total: None,
-					current: count.fetch_add(count_, Ordering::Relaxed),
-				},
-				weight: tg::Progress {
-					total: None,
-					current: weight.fetch_add(weight_, Ordering::Relaxed),
-				},
-			};
-			sender
-				.try_send(Ok(tg::artifact::checkin::Event::Progress(progress)))
-				.ok();
+		// Update the state.
+		if let Some(count) = output.count {
+			state.count.current.fetch_add(count, Ordering::Relaxed);
+		}
+		if let Some(weight) = output.weight {
+			state.weight.current.fetch_add(weight, Ordering::Relaxed);
 		}
 
 		Ok(output)
@@ -286,10 +257,9 @@ impl Server {
 		&self,
 		arg: &tg::artifact::checkin::Arg,
 		_metadata: &std::fs::Metadata,
-		sender: async_channel::Sender<tg::Result<tg::artifact::checkin::Event>>,
-		count: &AtomicU64,
-		weight: &AtomicU64,
+		state: &State,
 	) -> tg::Result<InnerOutput> {
+		// Read the directory.
 		let names = {
 			let _permit = self.file_descriptor_semaphore.acquire().await;
 			let mut read_dir = tokio::fs::read_dir(&arg.path)
@@ -320,27 +290,27 @@ impl Server {
 			.map(|name| async {
 				let mut arg = arg.clone();
 				arg.path = arg.path.clone().join(name.clone());
-				self.check_in_artifact_inner(&arg, sender.clone(), count, weight)
-					.await
+				self.check_in_artifact_inner(&arg, state).await
 			})
 			.collect::<FuturesUnordered<_>>()
 			.try_collect::<Vec<_>>()
 			.await?;
 
+		// Create the entries.
 		let entries = children
 			.iter()
 			.map(|output| {
 				let name = output.path.components().last().unwrap().to_string();
-				(name.to_owned(), output.id.clone())
+				(name.clone(), output.id.clone())
 			})
 			.collect();
 
-		// Create the directory data.
+		// Create the directory.
 		let data = tg::directory::Data { entries };
 		let bytes = data.serialize()?;
 		let id = tg::artifact::Id::from(tg::directory::Id::new(&bytes));
 
-		// Compute the count/weight.
+		// Compute the count and weight.
 		let (count, weight) = children.iter().fold(
 			(Some(1), Some(bytes.len().to_u64().unwrap())),
 			|(count, weight), child| {
@@ -367,6 +337,7 @@ impl Server {
 		&self,
 		arg: &tg::artifact::checkin::Arg,
 		metadata: &std::fs::Metadata,
+		_state: &State,
 	) -> tg::Result<InnerOutput> {
 		// Create the blob without writing to disk/database.
 		let _permit = self.file_descriptor_semaphore.acquire().await;
@@ -435,6 +406,7 @@ impl Server {
 		&self,
 		arg: &tg::artifact::checkin::Arg,
 		_metadata: &std::fs::Metadata,
+		_state: &State,
 	) -> tg::Result<InnerOutput> {
 		// Read the target from the symlink.
 		let target = tokio::fs::read_link(&arg.path).await.map_err(
@@ -507,6 +479,83 @@ impl Server {
 
 		Ok(output)
 	}
+
+	pub(crate) async fn try_store_artifact(&self, id: &tg::artifact::Id) -> tg::Result<bool> {
+		// Check if the artifact exists in the checkouts directory.
+		let permit = self.file_descriptor_semaphore.acquire().await.unwrap();
+		let path = self.checkouts_path().join(id.to_string());
+		let exists = tokio::fs::try_exists(&path)
+			.await
+			.map_err(|source| tg::error!(!source, "failed to check if the file exists"))?;
+		if !exists {
+			return Ok(false);
+		}
+		drop(permit);
+
+		// Create the state.
+		let count = ProgressState {
+			current: AtomicU64::new(0),
+			total: None,
+		};
+		let weight = ProgressState {
+			current: AtomicU64::new(0),
+			total: None,
+		};
+		let state = Arc::new(State { count, weight });
+
+		// Check in the artifact.
+		let arg = tg::artifact::checkin::Arg {
+			path: path.try_into()?,
+			destructive: false,
+		};
+		let output = self.check_in_artifact_inner(&arg, &state).await?;
+		if &output.id != id {
+			return Err(tg::error!("corrupted internal checkout"));
+		}
+
+		// Get a database connection.
+		let mut connection = self
+			.database
+			.connection()
+			.await
+			.map_err(|source| tg::error!(!source, "failed to get a database connection"))?;
+
+		// Begin a transaction.
+		let transaction = connection
+			.transaction()
+			.await
+			.map_err(|source| tg::error!(!source, "failed to begin a transaction"))?;
+
+		// Insert the objects.
+		let mut stack = vec![output];
+		while let Some(output) = stack.pop() {
+			let p = transaction.p();
+			let statement = formatdoc!(
+				"
+					insert into objects (id, bytes, complete, count, weight, touched_at)
+					values ({p}1, {p}2, {p}3, {p}4, {p}5, {p}6)
+					on conflict (id) do update set touched_at = {p}6;
+				"
+			);
+			let now = time::OffsetDateTime::now_utc().format(&Rfc3339).unwrap();
+			let params = db::params![output.id, output.bytes, 1, output.count, output.weight, now];
+			transaction
+				.execute(statement, params)
+				.await
+				.map_err(|source| {
+					tg::error!(!source, "failed to put the artifact into the database")
+				})?;
+			stack.extend(output.children);
+		}
+
+		// Commit the transaction.
+		transaction
+			.commit()
+			.await
+			.map_err(|source| tg::error!(!source, "failed to commit the transaction"))?;
+
+		Ok(true)
+	}
 }
 
 impl Server {
@@ -555,24 +604,13 @@ impl Server {
 	}
 }
 
-async fn rename_or_copy(from: &std::path::Path, to: &std::path::Path) -> tg::Result<()> {
-	match tokio::fs::rename(from, to).await {
-		Err(error) if error.raw_os_error() == Some(libc::EXDEV) => {
-			copy_and_set_metadata(from, to).await
-		},
-		result => result.map_err(|source| tg::error!(!source, "failed to rename file")),
-	}
-}
-
-async fn copy_and_set_metadata(from: &std::path::Path, to: &std::path::Path) -> tg::Result<()> {
+async fn copy_all(from: &std::path::Path, to: &std::path::Path) -> tg::Result<()> {
 	let mut stack = vec![(from.to_owned(), to.to_owned())];
 	while let Some((from, to)) = stack.pop() {
 		let metadata = tokio::fs::symlink_metadata(&from).await.map_err(
 			|source| tg::error!(!source, %path = from.display(), "failed to get file metadata"),
 		)?;
 		let file_type = metadata.file_type();
-
-		// Copy the file.
 		if file_type.is_dir() {
 			tokio::fs::create_dir_all(&to).await.map_err(
 				|source| tg::error!(!source, %path = to.display(), "failed to create directory"),

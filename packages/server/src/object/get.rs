@@ -5,7 +5,6 @@ use indoc::formatdoc;
 use itertools::Itertools as _;
 use tangram_client as tg;
 use tangram_database::{self as db, prelude::*};
-use tangram_futures::task::Stop;
 use tangram_http::{outgoing::response::Ext as _, Incoming, Outgoing};
 use tg::Handle as _;
 
@@ -27,64 +26,49 @@ impl Server {
 		&self,
 		id: &tg::object::Id,
 	) -> tg::Result<Option<tg::object::get::Output>> {
-		// Try to read from the database.
+		// Try to get the object from the database.
 		if let Some(output) = self.try_get_object_local_database(id).await? {
 			return Ok(Some(output));
 		};
 
-		// Avoid creating an object store task for objets that aren't blobs or artifacts.
-		if !matches!(
-			id,
-			tg::object::Id::Leaf(_)
-				| tg::object::Id::Branch(_)
-				| tg::object::Id::Directory(_)
-				| tg::object::Id::File(_)
-				| tg::object::Id::Symlink(_)
-		) {
-			return Ok(None);
+		// If the object is an artifact, then try to store it.
+		if let Ok(artifact) = tg::artifact::Id::try_from(id.clone()) {
+			let server = self.clone();
+			let stored = self
+				.artifact_store_task_map
+				.get_or_spawn(artifact.clone(), |_| async move {
+					server.try_store_artifact(&artifact).await
+				})
+				.wait()
+				.await
+				.map_err(|source| tg::error!(!source, "failed to wait for task"))??;
+			if stored {
+				let output = self
+					.try_get_object_local_database(id)
+					.await?
+					.ok_or_else(|| tg::error!("expected the object to exist"))?;
+				return Ok(Some(output));
+			}
 		}
 
-		// Get the object creation task.
-		let create_task = {
-			let id = id.clone();
+		// If the object is a blob, then try to store it.
+		if let Ok(blob) = tg::blob::Id::try_from(id.clone()) {
 			let server = self.clone();
-			|_stop: Stop| async move {
-				match id {
-					tg::object::Id::Leaf(leaf) => {
-						let blob = tg::blob::Id::Leaf(leaf);
-						server.try_store_blob(blob).await
-					},
-					tg::object::Id::Branch(branch) => {
-						let blob = tg::blob::Id::Branch(branch);
-						server.try_store_blob(blob).await
-					},
-					tg::object::Id::Directory(directory) => {
-						let artifact = tg::artifact::Id::Directory(directory);
-						server.try_store_artifact(&artifact).await
-					},
-					tg::object::Id::File(file) => {
-						let artifact = tg::artifact::Id::File(file);
-						server.try_store_artifact(&artifact).await
-					},
-					tg::object::Id::Symlink(symlink) => {
-						let artifact = tg::artifact::Id::Symlink(symlink);
-						server.try_store_artifact(&artifact).await
-					},
-					_ => unreachable!(),
-				}
+			let stored = self
+				.blob_store_task_map
+				.get_or_spawn(blob.clone(), |_| async move {
+					server.try_store_blob(&blob).await
+				})
+				.wait()
+				.await
+				.map_err(|source| tg::error!(!source, "failed to wait for task"))??;
+			if stored {
+				let output = self
+					.try_get_object_local_database(id)
+					.await?
+					.ok_or_else(|| tg::error!("expected the object to exist"))?;
+				return Ok(Some(output));
 			}
-		};
-
-		// Check if the object is stored yet.
-		let stored = self
-			.object_store_tasks
-			.get_or_spawn(id.clone(), create_task)
-			.wait()
-			.await
-			.map_err(|source| tg::error!(!source, "failed to wait for task"))??;
-		if stored {
-			let output = self.try_get_object_local_database(id).await?.unwrap();
-			return Ok(Some(output));
 		}
 
 		Ok(None)

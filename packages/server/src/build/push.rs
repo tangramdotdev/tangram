@@ -87,7 +87,7 @@ impl Server {
 				let result = Self::push_or_pull_build_inner(&src, &dst, &build, arg, &state)
 					.await
 					.map(|_| ());
-				result_sender.send(result).unwrap();
+				result_sender.send(result).ok();
 			}
 		});
 

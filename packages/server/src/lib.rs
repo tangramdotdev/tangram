@@ -53,16 +53,17 @@ pub mod options;
 pub struct Server(Arc<Inner>);
 
 pub struct Inner {
+	artifact_store_task_map: ArtifactStoreTaskMap,
+	blob_store_task_map: BlobStoreTaskMap,
 	build_permits: BuildPermits,
 	build_semaphore: Arc<tokio::sync::Semaphore>,
 	builds: BuildTaskMap,
-	checkouts: CheckoutTaskMap,
+	checkout_task_map: CheckoutTaskMap,
 	database: Database,
 	file_descriptor_semaphore: tokio::sync::Semaphore,
 	local_pool_handle: tokio_util::task::LocalPoolHandle,
 	lock_file: std::sync::Mutex<Option<tokio::fs::File>>,
 	messenger: Messenger,
-	object_store_tasks: ObjectStoreTaskMap,
 	options: Options,
 	path: PathBuf,
 	remotes: DashMap<String, tg::Client>,
@@ -71,6 +72,10 @@ pub struct Inner {
 	vfs: std::sync::Mutex<Option<self::vfs::Server>>,
 }
 
+type ArtifactStoreTaskMap = TaskMap<tg::artifact::Id, tg::Result<bool>, fnv::FnvBuildHasher>;
+
+type BlobStoreTaskMap = TaskMap<tg::blob::Id, tg::Result<bool>, fnv::FnvBuildHasher>;
+
 type BuildPermits =
 	DashMap<tg::build::Id, Arc<tokio::sync::Mutex<Option<BuildPermit>>>, fnv::FnvBuildHasher>;
 
@@ -78,8 +83,6 @@ struct BuildPermit(
 	#[allow(dead_code)]
 	Either<tokio::sync::OwnedSemaphorePermit, tokio::sync::OwnedMutexGuard<Option<Self>>>,
 );
-
-type ObjectStoreTaskMap = TaskMap<tg::object::Id, tg::Result<bool>, fnv::FnvBuildHasher>;
 
 type BuildTaskMap = TaskMap<tg::build::Id, (), fnv::FnvBuildHasher>;
 
@@ -148,8 +151,11 @@ impl Server {
 		let socket_path = path.join("socket");
 		tokio::fs::remove_file(&socket_path).await.ok();
 
-		// Create the blob stores.
-		let object_store_tasks = TaskMap::default();
+		// Create the artifact store task map.
+		let artifact_store_task_map = TaskMap::default();
+
+		// Create the blob store task map.
+		let blob_store_task_map = TaskMap::default();
 
 		// Create the build permits.
 		let build_permits = DashMap::default();
@@ -232,16 +238,17 @@ impl Server {
 
 		// Create the server.
 		let server = Self(Arc::new(Inner {
+			artifact_store_task_map,
+			blob_store_task_map,
 			build_permits,
 			build_semaphore,
 			builds,
-			checkouts,
+			checkout_task_map: checkouts,
 			database,
 			file_descriptor_semaphore,
 			local_pool_handle,
 			lock_file,
 			messenger,
-			object_store_tasks,
 			options,
 			path,
 			remotes,
@@ -423,8 +430,8 @@ impl Server {
 		self.runtimes.write().unwrap().clear();
 
 		// Abort the checkouts.
-		self.checkouts.abort_all();
-		self.checkouts.wait().await;
+		self.checkout_task_map.abort_all();
+		self.checkout_task_map.wait().await;
 
 		// Stop the VFS.
 		let vfs = self.vfs.lock().unwrap().take();
