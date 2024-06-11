@@ -7,6 +7,7 @@
 		"rootDir": "src",
 		"sourceMap": true,
 		"strict": true,
-		"target": "esnext"
+		"target": "esnext",
+		"types": ["node", "vscode"]
 	}
 }

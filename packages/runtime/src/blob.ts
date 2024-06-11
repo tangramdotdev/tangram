@@ -4,7 +4,7 @@ import { Branch } from "./branch.ts";
 import { Checksum } from "./checksum.ts";
 import { Leaf, leaf } from "./leaf.ts";
 import { resolve } from "./resolve.ts";
-import { build } from "./target.ts";
+import { target } from "./target.ts";
 import { flatten } from "./util.ts";
 
 export type Blob = Leaf | Branch;
@@ -81,10 +81,12 @@ export namespace Blob {
 		blob: Blob,
 		format: CompressionFormat,
 	): Promise<Blob> => {
-		let value = await build({
-			host: "builtin",
-			args: ["compress", blob, format],
-		});
+		let value = await (
+			await target({
+				host: "builtin",
+				args: ["compress", blob, format],
+			})
+		).output();
 		assert_(Blob.is(value));
 		return value;
 	};
@@ -93,10 +95,12 @@ export namespace Blob {
 		blob: Blob,
 		format: CompressionFormat,
 	): Promise<Blob> => {
-		let value = await build({
-			host: "builtin",
-			args: ["decompress", blob, format],
-		});
+		let value = await (
+			await target({
+				host: "builtin",
+				args: ["decompress", blob, format],
+			})
+		).output();
 		assert_(Blob.is(value));
 		return value;
 	};
@@ -105,17 +109,21 @@ export namespace Blob {
 		url: string,
 		checksum: Checksum,
 	): Promise<Blob> => {
-		let value = await build({
-			host: "builtin",
-			args: ["download", url],
-			checksum: "unsafe",
-		});
+		let value = await (
+			await target({
+				host: "builtin",
+				args: ["download", url],
+				checksum: "unsafe",
+			})
+		).output();
 		assert_(Blob.is(value));
 		let algorithm = Checksum.algorithm(checksum);
-		let actual = await build({
-			host: "builtin",
-			args: ["checksum", value, algorithm],
-		});
+		let actual = await (
+			await target({
+				host: "builtin",
+				args: ["checksum", value, algorithm],
+			})
+		).output();
 		if (actual !== checksum) {
 			throw new Error(
 				`invalid checksum, expected ${checksum} but got ${actual}`,
@@ -128,10 +136,12 @@ export namespace Blob {
 		blob: Blob,
 		algorithm: Checksum.Algorithm,
 	): Promise<Checksum> => {
-		let value = await build({
-			host: "builtin",
-			args: ["checksum", blob, algorithm],
-		});
+		let value = await (
+			await target({
+				host: "builtin",
+				args: ["checksum", blob, algorithm],
+			})
+		).output();
 		return value as Checksum;
 	};
 }

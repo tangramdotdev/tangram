@@ -4,7 +4,7 @@ import type { Checksum } from "./checksum.ts";
 import { Directory } from "./directory.ts";
 import { File } from "./file.ts";
 import { Symlink } from "./symlink.ts";
-import { build } from "./target.ts";
+import { target } from "./target.ts";
 
 export type Artifact = Directory | File | Symlink;
 
@@ -47,10 +47,12 @@ export namespace Artifact {
 		artifact: Artifact,
 		format: ArchiveFormat,
 	): Promise<Blob> => {
-		let value = await build({
-			host: "builtin",
-			args: ["archive", artifact, format],
-		});
+		let value = await (
+			await target({
+				host: "builtin",
+				args: ["archive", artifact, format],
+			})
+		).output();
 		assert_(Blob.is(value));
 		return value;
 	};
@@ -59,19 +61,23 @@ export namespace Artifact {
 		blob: Blob,
 		format: ArchiveFormat,
 	): Promise<Artifact> => {
-		let value = await build({
-			host: "builtin",
-			args: ["extract", blob, format],
-		});
+		let value = await (
+			await target({
+				host: "builtin",
+				args: ["extract", blob, format],
+			})
+		).output();
 		assert_(Artifact.is(value));
 		return value;
 	};
 
 	export let bundle = async (artifact: Artifact): Promise<Artifact> => {
-		let value = await build({
-			host: "builtin",
-			args: ["bundle", artifact],
-		});
+		let value = await (
+			await target({
+				host: "builtin",
+				args: ["bundle", artifact],
+			})
+		).output();
 		assert_(Artifact.is(value));
 		return value;
 	};
@@ -80,10 +86,12 @@ export namespace Artifact {
 		artifact: Artifact,
 		algorithm: Checksum.Algorithm,
 	): Promise<Checksum> => {
-		let value = await build({
-			host: "builtin",
-			args: ["checksum", artifact, algorithm],
-		});
+		let value = await (
+			await target({
+				host: "builtin",
+				args: ["checksum", artifact, algorithm],
+			})
+		).output();
 		return value as Checksum;
 	};
 }
