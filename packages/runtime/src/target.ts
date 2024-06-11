@@ -290,7 +290,7 @@ export namespace Target {
 
 	export type ArgObject = {
 		host?: string;
-		executable?: Artifact;
+		executable?: Artifact | undefined;
 		args?: Array<Value>;
 		env?: MaybeNestedArray<MaybeMutationMap>;
 		lock?: Lock | undefined;
