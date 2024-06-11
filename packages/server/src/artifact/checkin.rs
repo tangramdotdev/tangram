@@ -7,6 +7,7 @@ use futures::{
 use indoc::formatdoc;
 use num::ToPrimitive;
 use std::{
+	collections::BTreeSet,
 	os::unix::fs::PermissionsExt as _,
 	path::PathBuf,
 	sync::{
@@ -14,7 +15,7 @@ use std::{
 		Arc,
 	},
 };
-use tangram_client as tg;
+use tangram_client::{self as tg, Handle};
 use tangram_database::{self as db, prelude::*};
 use tangram_http::{incoming::request::Ext as _, outgoing::response::Ext as _, Incoming, Outgoing};
 use time::format_description::well_known::Rfc3339;
@@ -311,14 +312,14 @@ impl Server {
 		let id = tg::artifact::Id::from(tg::directory::Id::new(&bytes));
 
 		// Compute the count and weight.
-		let (count, weight) = children.iter().fold(
-			(Some(1), Some(bytes.len().to_u64().unwrap())),
-			|(count, weight), child| {
-				let count = child.count.and_then(|count_| Some(count_ + count?));
-				let weight = child.weight.and_then(|weight_| Some(weight_ + weight?));
-				(count, weight)
-			},
-		);
+		let count = std::iter::empty()
+			.chain(std::iter::once(Some(1)))
+			.chain(children.iter().map(|child| child.count))
+			.sum::<Option<u64>>();
+		let weight = std::iter::empty()
+			.chain(std::iter::once(Some(bytes.len().to_u64().unwrap())))
+			.chain(children.iter().map(|child| child.weight))
+			.sum::<Option<u64>>();
 
 		// Create the output.
 		let output = InnerOutput {
@@ -364,7 +365,13 @@ impl Server {
 			.map(|attributes| attributes.references)
 			.unwrap_or_default()
 			.into_iter()
-			.collect();
+			.collect::<BTreeSet<tg::artifact::Id>>();
+		let references_metadata = references
+			.iter()
+			.map(|id| async { self.get_object_metadata(&id.clone().into()).await })
+			.collect::<FuturesUnordered<_>>()
+			.try_collect::<Vec<_>>()
+			.await?;
 
 		// Create the file data.
 		let data = tg::file::Data {
@@ -389,13 +396,25 @@ impl Server {
 			},
 		}
 
+		// Compute the count and weight.
+		let count = std::iter::empty()
+			.chain(std::iter::once(Some(1)))
+			.chain(std::iter::once(Some(output.count)))
+			.chain(references_metadata.iter().map(|metadata| metadata.count))
+			.sum::<Option<u64>>();
+		let weight = std::iter::empty()
+			.chain(std::iter::once(Some(bytes.len().to_u64().unwrap())))
+			.chain(std::iter::once(Some(output.weight)))
+			.chain(references_metadata.iter().map(|metadata| metadata.weight))
+			.sum::<Option<u64>>();
+
 		// Create the output
 		let output = InnerOutput {
 			id,
 			path: arg.path.clone(),
 			bytes,
-			count: Some(output.count),
-			weight: Some(output.weight),
+			count,
+			weight,
 			children: Vec::new(),
 		};
 
@@ -455,17 +474,26 @@ impl Server {
 		};
 
 		// Create the symlink.
-		let (artifact, count, weight) = if let Some(artifact) = artifact {
-			// TODO: get count/weight for artifacts.
-			(Some(artifact), None, None)
-		} else {
-			(None, Some(0), Some(0))
+		let symlink = tg::symlink::Data {
+			artifact: artifact.clone(),
+			path,
 		};
-		let symlink = tg::symlink::Data { artifact, path };
 		let bytes = symlink.serialize()?;
 		let id = tg::artifact::Id::from(tg::symlink::Id::new(&bytes));
-		let count = count.map(|count| count + 1);
-		let weight = weight.map(|weight| weight + bytes.len().to_u64().unwrap());
+		let count = if let Some(artifact) = &artifact {
+			let metadata = self.get_object_metadata(&artifact.clone().into()).await?;
+			metadata.count.map(|count| 1 + count)
+		} else {
+			Some(1)
+		};
+		let weight = if let Some(artifact) = &artifact {
+			let metadata = self.get_object_metadata(&artifact.clone().into()).await?;
+			metadata
+				.weight
+				.map(|weight| bytes.len().to_u64().unwrap() + weight)
+		} else {
+			Some(bytes.len().to_u64().unwrap())
+		};
 
 		// Create the output.
 		let output = InnerOutput {

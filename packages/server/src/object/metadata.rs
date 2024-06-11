@@ -88,7 +88,7 @@ impl Server {
 		let p = connection.p();
 		let statement = formatdoc!(
 			"
-				select count, length(bytes) as size, weight
+				select count, weight
 				from objects
 				where id = {p}1;
 			",
