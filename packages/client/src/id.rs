@@ -169,17 +169,17 @@ impl std::str::FromStr for Kind {
 
 	fn from_str(s: &str) -> tg::Result<Self, Self::Err> {
 		Ok(match s {
-			"lef" => Kind::Leaf,
-			"bch" => Kind::Branch,
-			"dir" => Kind::Directory,
-			"fil" => Kind::File,
-			"sym" => Kind::Symlink,
-			"lok" => Kind::Lock,
-			"tgt" => Kind::Target,
-			"bld" => Kind::Build,
-			"usr" => Kind::User,
-			"tok" => Kind::Token,
-			"req" => Kind::Request,
+			"lef" | "leaf" => Kind::Leaf,
+			"bch" | "branch" => Kind::Branch,
+			"dir" | "directory" => Kind::Directory,
+			"fil" | "file" => Kind::File,
+			"sym" | "symlink" => Kind::Symlink,
+			"lok" | "lock" => Kind::Lock,
+			"tgt" | "target" => Kind::Target,
+			"bld" | "build" => Kind::Build,
+			"usr" | "user" => Kind::User,
+			"tok" | "token" => Kind::Token,
+			"req" | "request" => Kind::Request,
 			kind => {
 				return Err(tg::error!(%kind, "invalid kind"));
 			},
