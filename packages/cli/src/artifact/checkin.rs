@@ -27,8 +27,8 @@ impl Cli {
 
 		// Perform the checkin.
 		let arg = tg::artifact::checkin::Arg {
-			path: path.try_into()?,
 			destructive: args.destructive,
+			path: path.try_into()?,
 		};
 		let mut stream = self
 			.handle
