@@ -11,10 +11,10 @@ use tangram_http::{incoming::request::Ext as _, outgoing::response::Ext as _, In
 use time::format_description::well_known::Rfc3339;
 use tokio::io::{AsyncRead, AsyncWriteExt as _};
 
-const MAX_BRANCH_CHILDREN: usize = 1024;
-const MIN_LEAF_SIZE: u32 = 4096;
-const AVG_LEAF_SIZE: u32 = 16_384;
-const MAX_LEAF_SIZE: u32 = 65_536;
+const MAX_BRANCH_CHILDREN: usize = 1_024;
+const MIN_LEAF_SIZE: u32 = 4_096;
+const AVG_LEAF_SIZE: u32 = 65_536;
+const MAX_LEAF_SIZE: u32 = 131_072;
 
 #[derive(Clone, Debug)]
 pub struct InnerOutput {
@@ -195,12 +195,12 @@ impl Server {
 				.await?;
 		}
 
-		// Get the output.
+		// Create the output.
 		let output = match output.len() {
 			0 => {
 				// Create the blob data.
 				let bytes = Bytes::default();
-				let id = tg::branch::Id::new(&bytes).into();
+				let blob = tg::branch::Id::new(&bytes).into();
 				let count = 1;
 				let weight = 0;
 
@@ -215,14 +215,15 @@ impl Server {
 						"
 					);
 					let now = time::OffsetDateTime::now_utc().format(&Rfc3339).unwrap();
-					let params = db::params![&id, &bytes, 1, count, weight, now];
+					let params = db::params![&blob, &bytes, 1, count, weight, now];
 					transaction
 						.execute(statement, params)
 						.await
 						.map_err(|source| tg::error!(!source, "failed to execute the statement"))?;
 				}
+
 				InnerOutput {
-					blob: id,
+					blob,
 					count: 1,
 					size: 0,
 					weight: 0,
@@ -254,7 +255,7 @@ impl Server {
 				// Create the blob data.
 				let data = tg::branch::Data { children };
 				let bytes = data.serialize()?;
-				let id = tg::branch::Id::new(&bytes);
+				let blob = tg::branch::Id::new(&bytes).into();
 				let count = count + 1;
 				let weight = weight + bytes.len().to_u64().unwrap();
 
@@ -269,15 +270,13 @@ impl Server {
 						"
 					);
 					let now = time::OffsetDateTime::now_utc().format(&Rfc3339).unwrap();
-					let params = db::params![&id, &bytes, 1, count, weight, now];
+					let params = db::params![&blob, &bytes, 1, count, weight, now];
 					transaction
 						.execute(statement, params)
 						.await
 						.map_err(|source| tg::error!(!source, "failed to execute the statement"))?;
 				}
 
-				// Create the output.
-				let blob = id.into();
 				InnerOutput {
 					blob,
 					count,
