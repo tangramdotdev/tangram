@@ -242,12 +242,8 @@ impl Server {
 				.map(|guard| BuildPermit(Either::Right(guard)))
 				.await;
 
-			// Start the build.
-			server
-				.spawn_build(build, permit, None)
-				.await
-				.inspect_err(|error| tracing::error!(?error, "failed to spawn the build"))
-				.ok();
+			// Attempt to spawn the build.
+			server.spawn_build(build, permit, None).await.ok();
 		});
 
 		let output = tg::target::build::Output { build: build_id };
