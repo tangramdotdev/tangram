@@ -14,6 +14,7 @@ export let compilerOptions: ts.CompilerOptions = {
 	noUncheckedIndexedAccess: true,
 	skipLibCheck: true,
 	strict: true,
+	target: ts.ScriptTarget.ESNext,
 };
 
 // Create the host implementation for the TypeScript language service and compiler.
