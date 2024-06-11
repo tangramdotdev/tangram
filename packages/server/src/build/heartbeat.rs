@@ -21,6 +21,7 @@ impl Server {
 				.get(remote)
 				.ok_or_else(|| tg::error!("the remote does not exist"))?
 				.clone();
+			let arg = tg::build::heartbeat::Arg { remote: None };
 			let output = remote.heartbeat_build(id, arg).await?;
 			return Ok(output);
 		}

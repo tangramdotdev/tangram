@@ -18,6 +18,7 @@ impl Server {
 				.get(remote)
 				.ok_or_else(|| tg::error!("the remote does not exist"))?
 				.clone();
+			let arg = tg::build::touch::Arg { remote: None };
 			remote.touch_build(id, arg).await?;
 			return Ok(());
 		}

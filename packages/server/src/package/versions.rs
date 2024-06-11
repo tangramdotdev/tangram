@@ -19,6 +19,10 @@ impl Server {
 				.get(remote)
 				.ok_or_else(|| tg::error!("the remote does not exist"))?
 				.clone();
+			let arg = tg::package::versions::Arg {
+				remote: None,
+				..arg
+			};
 			let versions = remote.try_get_package_versions(dependency, arg).await?;
 			return Ok(versions);
 		}
