@@ -157,7 +157,8 @@ impl Server {
 			let statement = formatdoc!(
 				"
 					insert into build_objects (build, object)
-					values ({p}1, {p}2);
+					values ({p}1, {p}2)
+					on conflict do nothing;
 				"
 			);
 			let objects = arg
