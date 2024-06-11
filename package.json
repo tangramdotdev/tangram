@@ -10,8 +10,8 @@
 		"format": "cargo fmt --all && bun run --filter \"*\" format",
 		"release": "sh scripts/release.sh",
 		"tg": "cargo run --",
-		"tgo": "cargo build --target aarch64-unknown-linux-gnu && orb sh -c \"./target/aarch64-unknown-linux-gnu/debug/tg\" --",
-		"tgor": "cargo build --release --target aarch64-unknown-linux-gnu && orb sh -c \"./target/aarch64-unknown-linux-gnu/debug/tg\" --",
+		"tgo": "cargo build --target aarch64-unknown-linux-gnu && orb sh -c './target/aarch64-unknown-linux-gnu/debug/tg $@' --",
+		"tgor": "cargo build --release --target aarch64-unknown-linux-gnu && orb sh -c './target/aarch64-unknown-linux-gnu/release/tg $@' --",
 		"tgr": "cargo run --release --"
 	},
 	"workspaces": ["packages/compiler", "packages/runtime", "packages/vscode"]
