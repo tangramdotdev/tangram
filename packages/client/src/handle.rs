@@ -27,7 +27,11 @@ pub trait Handle: Clone + Unpin + Send + Sync + 'static {
 		&self,
 		id: &tg::artifact::Id,
 		arg: tg::artifact::checkout::Arg,
-	) -> impl Future<Output = tg::Result<tg::artifact::checkout::Output>> + Send;
+	) -> impl Future<
+		Output = tg::Result<
+			impl Stream<Item = tg::Result<tg::artifact::checkout::Event>> + Send + 'static,
+		>,
+	> + Send;
 
 	fn create_blob(
 		&self,

@@ -573,7 +573,11 @@ impl tg::Handle for Client {
 		&self,
 		id: &tg::artifact::Id,
 		arg: tg::artifact::checkout::Arg,
-	) -> impl Future<Output = tg::Result<tg::artifact::checkout::Output>> {
+	) -> impl Future<
+		Output = tg::Result<
+			impl Stream<Item = tg::Result<tg::artifact::checkout::Event>> + 'static,
+		>,
+	> {
 		self.check_out_artifact(id, arg)
 	}
 
