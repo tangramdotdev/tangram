@@ -1,5 +1,5 @@
 use crate::Cli;
-use futures::{StreamExt as _, TryStreamExt as _};
+use futures::StreamExt as _;
 use tangram_client as tg;
 use tg::Handle as _;
 
@@ -45,9 +45,9 @@ impl Cli {
 		progress_bar.add(bytes_progress_bar.clone());
 
 		// Update the progress bars.
-		while let Some(event) = stream.try_next().await? {
+		while let Some(event) = stream.next().await {
 			match event {
-				tg::build::push::Event::Progress(progress) => {
+				Ok(tg::build::pull::Event::Progress(progress)) => {
 					builds_progress_bar.set_position(progress.build_count.current);
 					if let Some(total) = progress.build_count.total {
 						builds_progress_bar.set_style(indicatif::ProgressStyle::default_bar());
@@ -64,8 +64,13 @@ impl Cli {
 						bytes_progress_bar.set_length(total);
 					}
 				},
-				tg::build::push::Event::End => {
+				Ok(tg::build::pull::Event::End) => {
+					progress_bar.clear().unwrap();
 					break;
+				},
+				Err(error) => {
+					progress_bar.clear().unwrap();
+					return Err(error);
 				},
 			}
 		}

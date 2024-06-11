@@ -53,10 +53,12 @@ pub mod options;
 pub struct Server(Arc<Inner>);
 
 pub struct Inner {
+	artifact_store_task_map: ArtifactStoreTaskMap,
+	blob_store_task_map: BlobStoreTaskMap,
 	build_permits: BuildPermits,
 	build_semaphore: Arc<tokio::sync::Semaphore>,
 	builds: BuildTaskMap,
-	checkouts: CheckoutTaskMap,
+	checkout_task_map: CheckoutTaskMap,
 	database: Database,
 	file_descriptor_semaphore: tokio::sync::Semaphore,
 	local_pool_handle: tokio_util::task::LocalPoolHandle,
@@ -70,6 +72,10 @@ pub struct Inner {
 	vfs: std::sync::Mutex<Option<self::vfs::Server>>,
 }
 
+type ArtifactStoreTaskMap = TaskMap<tg::artifact::Id, tg::Result<bool>, fnv::FnvBuildHasher>;
+
+type BlobStoreTaskMap = TaskMap<tg::blob::Id, tg::Result<bool>, fnv::FnvBuildHasher>;
+
 type BuildPermits =
 	DashMap<tg::build::Id, Arc<tokio::sync::Mutex<Option<BuildPermit>>>, fnv::FnvBuildHasher>;
 
@@ -80,8 +86,7 @@ struct BuildPermit(
 
 type BuildTaskMap = TaskMap<tg::build::Id, (), fnv::FnvBuildHasher>;
 
-type CheckoutTaskMap =
-	TaskMap<tg::artifact::Id, tg::Result<tg::artifact::checkout::Output>, fnv::FnvBuildHasher>;
+type CheckoutTaskMap = TaskMap<tg::artifact::Id, tg::Result<tg::Path>, fnv::FnvBuildHasher>;
 
 impl Server {
 	pub async fn start(options: Options) -> tg::Result<Server> {
@@ -145,6 +150,12 @@ impl Server {
 		// Remove an existing socket file.
 		let socket_path = path.join("socket");
 		tokio::fs::remove_file(&socket_path).await.ok();
+
+		// Create the artifact store task map.
+		let artifact_store_task_map = TaskMap::default();
+
+		// Create the blob store task map.
+		let blob_store_task_map = TaskMap::default();
 
 		// Create the build permits.
 		let build_permits = DashMap::default();
@@ -227,10 +238,12 @@ impl Server {
 
 		// Create the server.
 		let server = Self(Arc::new(Inner {
+			artifact_store_task_map,
+			blob_store_task_map,
 			build_permits,
 			build_semaphore,
 			builds,
-			checkouts,
+			checkout_task_map: checkouts,
 			database,
 			file_descriptor_semaphore,
 			local_pool_handle,
@@ -417,8 +430,8 @@ impl Server {
 		self.runtimes.write().unwrap().clear();
 
 		// Abort the checkouts.
-		self.checkouts.abort_all();
-		self.checkouts.wait().await;
+		self.checkout_task_map.abort_all();
+		self.checkout_task_map.wait().await;
 
 		// Stop the VFS.
 		let vfs = self.vfs.lock().unwrap().take();
@@ -606,6 +619,9 @@ impl Server {
 			// Blobs.
 			(http::Method::POST, ["blobs"]) => {
 				Self::handle_create_blob_request(handle, request).boxed()
+			},
+			(http::Method::GET, ["blobs", blob, "read"]) => {
+				Self::handle_read_blob_request(handle, request, blob).boxed()
 			},
 
 			// Builds.
@@ -795,7 +811,11 @@ impl tg::Handle for Server {
 	fn check_in_artifact(
 		&self,
 		arg: tg::artifact::checkin::Arg,
-	) -> impl Future<Output = tg::Result<tg::artifact::checkin::Output>> {
+	) -> impl Future<
+		Output = tg::Result<
+			impl Stream<Item = tg::Result<tg::artifact::checkin::Event>> + Send + 'static,
+		>,
+	> {
 		self.check_in_artifact(arg)
 	}
 
@@ -803,7 +823,11 @@ impl tg::Handle for Server {
 		&self,
 		id: &tg::artifact::Id,
 		arg: tg::artifact::checkout::Arg,
-	) -> impl Future<Output = tg::Result<tg::artifact::checkout::Output>> {
+	) -> impl Future<
+		Output = tg::Result<
+			impl Stream<Item = tg::Result<tg::artifact::checkout::Event>> + Send + 'static,
+		>,
+	> {
 		self.check_out_artifact(id, arg)
 	}
 
@@ -812,6 +836,18 @@ impl tg::Handle for Server {
 		reader: impl AsyncRead + Send + 'static,
 	) -> impl Future<Output = tg::Result<tg::blob::create::Output>> {
 		self.create_blob(reader)
+	}
+
+	fn try_read_blob_stream(
+		&self,
+		id: &tg::blob::Id,
+		arg: tg::blob::read::Arg,
+	) -> impl Future<
+		Output = tg::Result<
+			Option<impl Stream<Item = tg::Result<tg::blob::read::Event>> + Send + 'static>,
+		>,
+	> {
+		self.try_read_blob_stream(id, arg)
 	}
 
 	fn try_get_build(

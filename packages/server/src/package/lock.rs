@@ -507,7 +507,7 @@ impl Server {
 			match (global, mark) {
 				// Case 0: There is no solution for this package yet.
 				(None, None) => {
-					// Try and resolve the dependency.
+					// Try to resolve the dependency.
 					match context
 						.resolve_dependency(self, &edge, &mut current_frame.remaining_versions)
 						.await
@@ -619,7 +619,7 @@ impl Server {
 
 							// The child dependency has not been solved.
 							Mark::Temporary(_version) => {
-								// Uh oh. We've detected a cycle. First try and backtrack. If backtracking fails, bail out.
+								// Uh oh. We've detected a cycle. First try to backtrack. If backtracking fails, bail out.
 								let error = Error::PackageCycleExists { edge: edge.clone() };
 								erroneous_children.push((child_edge.dependency, error));
 							},
@@ -732,7 +732,7 @@ impl Context {
 		let key = tg::Dependency::with_artifact(edge.artifact.clone());
 		let output = self.output.get(&key).unwrap().clone();
 
-		// Try and resolve the dependency using the existing output.
+		// Try to resolve the dependency using the existing output.
 		if let Some(Some(resolved)) = output.dependencies.as_ref().unwrap().get(&edge.dependency) {
 			// Update the cache with this dependency's information.
 			let key = tg::Dependency::with_artifact(resolved.artifact.clone());

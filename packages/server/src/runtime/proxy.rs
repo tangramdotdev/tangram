@@ -1,5 +1,5 @@
 use crate::Server;
-use futures::{stream, Future, Stream};
+use futures::{future, stream, Future, Stream, StreamExt, TryStreamExt as _};
 use std::{str::FromStr as _, sync::Arc};
 use tangram_client as tg;
 use tokio::io::{AsyncBufRead, AsyncRead, AsyncWrite};
@@ -98,50 +98,75 @@ impl tg::Handle for Proxy {
 	async fn check_in_artifact(
 		&self,
 		mut arg: tg::artifact::checkin::Arg,
-	) -> tg::Result<tg::artifact::checkin::Output> {
+	) -> tg::Result<impl Stream<Item = tg::Result<tg::artifact::checkin::Event>> + Send + 'static> {
 		// Replace the path with the host path.
 		arg.path = self.host_path_for_guest_path(arg.path)?;
 
 		// Perform the checkin.
-		let output = self.server.check_in_artifact(arg).await?;
+		let stream = self.server.check_in_artifact(arg).await?.and_then({
+			let server = self.server.clone();
+			move |event| {
+				let server = server.clone();
+				async move {
+					if server.options.vfs.is_some() {
+						return Ok(event);
+					};
+					let tg::artifact::checkin::Event::End(id) = &event else {
+						return Ok(event);
+					};
+					tg::Artifact::with_id(id.clone())
+						.check_out(&server, tg::artifact::checkout::Arg::default())
+						.await?;
+					Ok(event)
+				}
+			}
+		});
 
-		// If the VFS is disabled, then check out the artifact.
-		if self.server.options.vfs.is_none() {
-			let arg = tg::artifact::checkout::Arg::default();
-			self.check_out_artifact(&output.artifact, arg).await?;
-		}
-
-		Ok(output)
+		Ok(stream)
 	}
 
 	async fn check_out_artifact(
 		&self,
 		id: &tg::artifact::Id,
 		mut arg: tg::artifact::checkout::Arg,
-	) -> tg::Result<tg::artifact::checkout::Output> {
+	) -> tg::Result<impl Stream<Item = tg::Result<tg::artifact::checkout::Event>> + Send + 'static>
+	{
 		// Replace the path with the host path.
 		if let Some(path) = &mut arg.path {
 			*path = self.host_path_for_guest_path(path.clone())?;
 		} else {
 			// If there's no path set (internal checkout) and the VFS is enabled, ignore the request.
 			if self.server.options.vfs.is_some() {
-				return Ok(tg::artifact::checkout::Output {
-					path: self
-						.server
-						.artifacts_path()
-						.join(id.to_string())
-						.try_into()?,
-				});
+				let path = self
+					.server
+					.artifacts_path()
+					.join(id.to_string())
+					.try_into()?;
+				let stream =
+					stream::once(future::ready(Ok(tg::artifact::checkout::Event::End(path))))
+						.left_stream();
+				return Ok(stream);
 			}
 		}
 
-		// Perform the checkout.
-		let mut output = self.server.check_out_artifact(id, arg).await?;
-
-		// Map the path back to the guest path.
-		output.path = self.guest_path_for_host_path(output.path)?;
-
-		Ok(output)
+		// Otherwise, remap the path.
+		let proxy = self.clone();
+		let stream = self
+			.server
+			.check_out_artifact(id, arg)
+			.await?
+			.and_then(move |event| {
+				let proxy = proxy.clone();
+				async move {
+					let tg::artifact::checkout::Event::End(path) = event else {
+						return Ok(event);
+					};
+					let path = proxy.guest_path_for_host_path(path)?;
+					Ok(tg::artifact::checkout::Event::End(path))
+				}
+			})
+			.right_stream();
+		Ok(stream)
 	}
 
 	fn create_blob(
@@ -149,6 +174,18 @@ impl tg::Handle for Proxy {
 		reader: impl AsyncRead + Send + 'static,
 	) -> impl Future<Output = tg::Result<tg::blob::create::Output>> {
 		self.server.create_blob(reader)
+	}
+
+	fn try_read_blob_stream(
+		&self,
+		id: &tg::blob::Id,
+		arg: tg::blob::read::Arg,
+	) -> impl Future<
+		Output = tg::Result<
+			Option<impl Stream<Item = tg::Result<tg::blob::read::Event>> + Send + 'static>,
+		>,
+	> {
+		self.server.try_read_blob_stream(id, arg)
 	}
 
 	fn try_get_build(

@@ -11,10 +11,20 @@ where
 	fn check_in_artifact(
 		&self,
 		arg: tg::artifact::checkin::Arg,
-	) -> impl Future<Output = tg::Result<tg::artifact::checkin::Output>> {
+	) -> impl Future<
+		Output = tg::Result<
+			impl Stream<Item = tg::Result<tg::artifact::checkin::Event>> + Send + 'static,
+		>,
+	> {
 		match self {
-			Either::Left(s) => s.check_in_artifact(arg).left_future(),
-			Either::Right(s) => s.check_in_artifact(arg).right_future(),
+			Either::Left(s) => s
+				.check_in_artifact(arg)
+				.map(|result| result.map(futures::StreamExt::left_stream))
+				.left_future(),
+			Either::Right(s) => s
+				.check_in_artifact(arg)
+				.map(|result| result.map(futures::StreamExt::right_stream))
+				.right_future(),
 		}
 	}
 
@@ -22,10 +32,20 @@ where
 		&self,
 		id: &tg::artifact::Id,
 		arg: tg::artifact::checkout::Arg,
-	) -> impl Future<Output = tg::Result<tg::artifact::checkout::Output>> {
+	) -> impl Future<
+		Output = tg::Result<
+			impl Stream<Item = tg::Result<tg::artifact::checkout::Event>> + Send + 'static,
+		>,
+	> {
 		match self {
-			Either::Left(s) => s.check_out_artifact(id, arg).left_future(),
-			Either::Right(s) => s.check_out_artifact(id, arg).right_future(),
+			Either::Left(s) => s
+				.check_out_artifact(id, arg)
+				.map(|result| result.map(futures::StreamExt::left_stream))
+				.left_future(),
+			Either::Right(s) => s
+				.check_out_artifact(id, arg)
+				.map(|result| result.map(futures::StreamExt::right_stream))
+				.right_future(),
 		}
 	}
 
@@ -36,6 +56,27 @@ where
 		match self {
 			Either::Left(s) => s.create_blob(reader).left_future(),
 			Either::Right(s) => s.create_blob(reader).right_future(),
+		}
+	}
+
+	fn try_read_blob_stream(
+		&self,
+		id: &tg::blob::Id,
+		arg: tg::blob::read::Arg,
+	) -> impl Future<
+		Output = tg::Result<
+			Option<impl Stream<Item = tg::Result<tg::blob::read::Event>> + Send + 'static>,
+		>,
+	> {
+		match self {
+			Either::Left(s) => s
+				.try_read_blob_stream(id, arg)
+				.map(|result| result.map(|option| option.map(futures::StreamExt::left_stream)))
+				.left_future(),
+			Either::Right(s) => s
+				.try_read_blob_stream(id, arg)
+				.map(|result| result.map(|option| option.map(futures::StreamExt::right_stream)))
+				.right_future(),
 		}
 	}
 

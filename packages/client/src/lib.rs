@@ -561,7 +561,11 @@ impl tg::Handle for Client {
 	fn check_in_artifact(
 		&self,
 		arg: tg::artifact::checkin::Arg,
-	) -> impl Future<Output = tg::Result<tg::artifact::checkin::Output>> {
+	) -> impl Future<
+		Output = tg::Result<
+			impl Stream<Item = tg::Result<tg::artifact::checkin::Event>> + Send + 'static,
+		>,
+	> {
 		self.check_in_artifact(arg)
 	}
 
@@ -569,7 +573,11 @@ impl tg::Handle for Client {
 		&self,
 		id: &tg::artifact::Id,
 		arg: tg::artifact::checkout::Arg,
-	) -> impl Future<Output = tg::Result<tg::artifact::checkout::Output>> {
+	) -> impl Future<
+		Output = tg::Result<
+			impl Stream<Item = tg::Result<tg::artifact::checkout::Event>> + 'static,
+		>,
+	> {
 		self.check_out_artifact(id, arg)
 	}
 
@@ -578,6 +586,18 @@ impl tg::Handle for Client {
 		reader: impl AsyncRead + Send + 'static,
 	) -> impl Future<Output = tg::Result<tg::blob::create::Output>> {
 		self.create_blob(reader)
+	}
+
+	fn try_read_blob_stream(
+		&self,
+		id: &tg::blob::Id,
+		arg: tg::blob::read::Arg,
+	) -> impl Future<
+		Output = tg::Result<
+			Option<impl Stream<Item = tg::Result<tg::blob::read::Event>> + Send + 'static>,
+		>,
+	> + Send {
+		self.try_read_blob_stream(id, arg)
 	}
 
 	fn try_get_build(
