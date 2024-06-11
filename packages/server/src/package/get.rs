@@ -172,6 +172,11 @@ impl Server {
 					_ => None,
 				});
 			for (dependency, dependency_path) in iter {
+				// It is allowed for packages resolved by artifact ID to have dependencies that point outside their directories, in this case we must skip them.
+				if dependency_path.is_external() || dependency_path.is_absolute() {
+					continue;
+				}
+
 				// Get the dependency path relative to the root
 				let path = path.clone().join(dependency_path.clone()).normalize();
 
