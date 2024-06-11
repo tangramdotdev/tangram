@@ -198,9 +198,31 @@ impl Server {
 		// Get the output.
 		let output = match output.len() {
 			0 => {
-				let blob = tg::leaf::Id::new(&Bytes::default()).into();
+				// Create the blob data.
+				let bytes = Bytes::default();
+				let id = tg::branch::Id::new(&bytes).into();
+				let count = 1;
+				let weight = 0;
+
+				// Write to the destination if necessary.
+				if let Some(Either::Right(transaction)) = &dst {
+					let p = transaction.p();
+					let statement = formatdoc!(
+						"
+							insert into objects (id, bytes, complete, count, weight, touched_at)
+							values ({p}1, {p}2, {p}3, {p}4, {p}5, {p}6)
+							on conflict (id) do update set touched_at = {p}6;
+						"
+					);
+					let now = time::OffsetDateTime::now_utc().format(&Rfc3339).unwrap();
+					let params = db::params![&id, &bytes, 1, count, weight, now];
+					transaction
+						.execute(statement, params)
+						.await
+						.map_err(|source| tg::error!(!source, "failed to execute the statement"))?;
+				}
 				InnerOutput {
-					blob,
+					blob: id,
 					count: 1,
 					size: 0,
 					weight: 0,
