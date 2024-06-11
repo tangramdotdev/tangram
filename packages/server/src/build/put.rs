@@ -158,7 +158,7 @@ impl Server {
 				"
 					insert into build_objects (build, object)
 					values ({p}1, {p}2)
-					on conflict do nothing;
+					on conflict (build, object) do nothing;
 				"
 			);
 			let objects = arg
