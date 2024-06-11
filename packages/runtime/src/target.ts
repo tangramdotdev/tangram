@@ -103,10 +103,6 @@ export function target<
 	}
 }
 
-export let build = async (...args: Args<Target.Arg>): Promise<Value> => {
-	return await (await target(...args)).output();
-};
-
 export interface Target<
 	A extends Array<Value> = Array<Value>,
 	R extends Value = Value,

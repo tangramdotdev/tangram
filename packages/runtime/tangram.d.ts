@@ -660,9 +660,6 @@ declare namespace tg {
 		R extends Value = Value,
 	>(...args: Args<Target.Arg>): Promise<Target<A, R>>;
 
-	/** Create a target, build it, and return the build's output. */
-	export let build: (...args: Args<Target.Arg>) => Promise<Value>;
-
 	/** A target. */
 	export interface Target<
 		A extends Array<Value> = Array<Value>,
