@@ -80,7 +80,11 @@ impl Runtime {
 
 		// Check in the extracted artifact.
 		let path = path.try_into()?;
-		let artifact = tg::Artifact::check_in(server, path)
+		let arg = tg::artifact::checkin::Arg {
+			destructive: true,
+			path,
+		};
+		let artifact = tg::Artifact::check_in(server, arg)
 			.await
 			.map_err(|source| tg::error!(!source, "failed to check in the extracted archive"))?;
 

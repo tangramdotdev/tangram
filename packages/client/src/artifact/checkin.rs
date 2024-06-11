@@ -22,14 +22,10 @@ pub struct Progress {
 }
 
 impl tg::Artifact {
-	pub async fn check_in<H>(handle: &H, path: tg::Path) -> tg::Result<Self>
+	pub async fn check_in<H>(handle: &H, arg: tg::artifact::checkin::Arg) -> tg::Result<Self>
 	where
 		H: tg::Handle,
 	{
-		let arg = Arg {
-			path,
-			destructive: false,
-		};
 		let stream = handle.check_in_artifact(arg).await?;
 		let mut stream = pin!(stream);
 		while let Some(event) = stream.try_next().await? {

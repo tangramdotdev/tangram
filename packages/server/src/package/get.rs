@@ -322,8 +322,12 @@ impl Server {
 			let module_absolute_path = path.clone().join(module_path.clone());
 
 			// Add the module to the package directory.
+			let arg = tg::artifact::checkin::Arg {
+				destructive: false,
+				path: module_absolute_path.clone(),
+			};
 			let artifact =
-				tg::Artifact::check_in(self, module_absolute_path.clone())
+				tg::Artifact::check_in(self, arg)
 				.await
 				.map_err(|source| tg::error!(!source, %referrer = path, %module = module_absolute_path, "failed to check in the module"))?;
 			builder = builder.add(self, &module_path, artifact).await?;

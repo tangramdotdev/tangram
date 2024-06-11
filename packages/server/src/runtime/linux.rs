@@ -775,7 +775,11 @@ impl Runtime {
 			.await
 			.map_err(|source| tg::error!(!source, "failed to determine in the path exists"))?
 		{
-			tg::Artifact::check_in(server, output_host_path.clone().try_into()?)
+			let arg = tg::artifact::checkin::Arg {
+				destructive: true,
+				path: output_host_path.clone().try_into()?,
+			};
+			tg::Artifact::check_in(server, arg)
 				.await
 				.map_err(|source| tg::error!(!source, "failed to check in the output"))?
 				.into()
