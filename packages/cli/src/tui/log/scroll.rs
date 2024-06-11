@@ -126,7 +126,12 @@ fn scroll_up_inner(
 			}
 			let (grapheme, next_position) = next_grapheme(buffer, position, false, chunks)?;
 			let is_newline = grapheme.starts_with('\n');
-			width += grapheme.width();
+			let grapheme_width = if grapheme == "\n" || grapheme == "\r\n" {
+				0
+			} else {
+				grapheme.width()
+			};
+			width += grapheme_width;
 			if width > max_width {
 				break;
 			}
@@ -157,7 +162,12 @@ fn scroll_down_inner(
 			}
 			let (grapheme, next_position) = next_grapheme(buffer, position, true, chunks)?;
 			let is_newline = grapheme.ends_with('\n');
-			width += grapheme.width();
+			let grapheme_width = if grapheme == "\n" || grapheme == "\r\n" {
+				0
+			} else {
+				grapheme.width()
+			};
+			width += grapheme_width;
 			if width > max_width {
 				break;
 			}
@@ -190,7 +200,12 @@ fn read_lines_inner(
 			}
 			let (grapheme, next_position) = next_grapheme(buffer, position, true, chunks)?;
 			let is_newline = grapheme.ends_with('\n');
-			width += grapheme.width();
+			let grapheme_width = if grapheme == "\n" || grapheme == "\r\n" {
+				0
+			} else {
+				grapheme.width()
+			};
+			width += grapheme_width;
 			if width > max_width {
 				break;
 			}
