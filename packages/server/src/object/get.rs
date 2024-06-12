@@ -87,7 +87,7 @@ impl Server {
 		// Get the object.
 		#[derive(serde::Deserialize)]
 		struct Row {
-			bytes: Bytes,
+			bytes: Option<Bytes>,
 			count: Option<u64>,
 			weight: Option<u64>,
 		}
@@ -107,13 +107,16 @@ impl Server {
 		else {
 			return Ok(None);
 		};
+		let Some(bytes) = row.bytes else {
+			return Ok(None);
+		};
 
 		// Drop the database connection.
 		drop(connection);
 
 		// Create the output.
 		let output = tg::object::get::Output {
-			bytes: row.bytes,
+			bytes,
 			metadata: tg::object::Metadata {
 				count: row.count,
 				weight: row.weight,
