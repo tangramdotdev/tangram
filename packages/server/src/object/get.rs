@@ -46,7 +46,7 @@ impl Server {
 				let output = self
 					.try_get_object_local_database(id)
 					.await?
-					.ok_or_else(|| tg::error!("expected the object to exist"))?;
+					.ok_or_else(|| tg::error!(%id, "expected the object to exist"))?;
 				return Ok(Some(output));
 			}
 		}

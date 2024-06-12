@@ -122,31 +122,6 @@ impl Server {
 			return Ok(None);
 		};
 
-		// Get a database connection.
-		let connection = self
-			.database
-			.connection()
-			.await
-			.map_err(|source| tg::error!(!source, "failed to get a database connection"))?;
-
-		// Insert the object metadata.
-		let p = connection.p();
-		let statement = formatdoc!(
-			"
-				insert into objects (id, count, weight)
-				values ({p}1, {p}2, {p}3)
-				on conflict (id) do nothing;
-			",
-		);
-		let params = db::params![id, metadata.count, metadata.weight];
-		connection
-			.execute(statement, params)
-			.await
-			.map_err(|source| tg::error!(!source, "failed to execute the statement"))?;
-
-		// Drop the database connection.
-		drop(connection);
-
 		Ok(Some(metadata))
 	}
 }
