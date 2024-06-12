@@ -1,5 +1,5 @@
 use crate::Server;
-use futures::{future, stream, Future, Stream, StreamExt, TryStreamExt as _};
+use futures::{stream, Future, Stream, TryStreamExt as _};
 use std::{str::FromStr as _, sync::Arc};
 use tangram_client as tg;
 use tokio::io::{AsyncBufRead, AsyncRead, AsyncWrite};
@@ -103,24 +103,7 @@ impl tg::Handle for Proxy {
 		arg.path = self.host_path_for_guest_path(arg.path)?;
 
 		// Perform the checkin.
-		let stream = self.server.check_in_artifact(arg).await?.and_then({
-			let server = self.server.clone();
-			move |event| {
-				let server = server.clone();
-				async move {
-					if server.options.vfs.is_some() {
-						return Ok(event);
-					};
-					let tg::artifact::checkin::Event::End(id) = &event else {
-						return Ok(event);
-					};
-					tg::Artifact::with_id(id.clone())
-						.check_out(&server, tg::artifact::checkout::Arg::default())
-						.await?;
-					Ok(event)
-				}
-			}
-		});
+		let stream = self.server.check_in_artifact(arg).await?;
 
 		Ok(stream)
 	}
@@ -134,38 +117,24 @@ impl tg::Handle for Proxy {
 		// Replace the path with the host path.
 		if let Some(path) = &mut arg.path {
 			*path = self.host_path_for_guest_path(path.clone())?;
-		} else {
-			// If there's no path set (internal checkout) and the VFS is enabled, ignore the request.
-			if self.server.options.vfs.is_some() {
-				let path = self
-					.server
-					.artifacts_path()
-					.join(id.to_string())
-					.try_into()?;
-				let stream =
-					stream::once(future::ready(Ok(tg::artifact::checkout::Event::End(path))))
-						.left_stream();
-				return Ok(stream);
-			}
 		}
 
-		// Otherwise, remap the path.
+		// Check out the artifact.
+		let stream = self.server.check_out_artifact(id, arg).await?;
+
+		// Replace the path with the guest path.
 		let proxy = self.clone();
-		let stream = self
-			.server
-			.check_out_artifact(id, arg)
-			.await?
-			.and_then(move |event| {
-				let proxy = proxy.clone();
-				async move {
-					let tg::artifact::checkout::Event::End(path) = event else {
-						return Ok(event);
-					};
-					let path = proxy.guest_path_for_host_path(path)?;
-					Ok(tg::artifact::checkout::Event::End(path))
+		let stream = stream.and_then(move |mut event| {
+			let proxy = proxy.clone();
+			async move {
+				if let tg::artifact::checkout::Event::End(path) = &mut event {
+					*path = proxy.guest_path_for_host_path(path.clone())?;
+					return Ok(event);
 				}
-			})
-			.right_stream();
+				Ok(event)
+			}
+		});
+
 		Ok(stream)
 	}
 

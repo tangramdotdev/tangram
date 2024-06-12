@@ -215,6 +215,11 @@ impl Server {
 				return Ok(artifact_path);
 			}
 
+			// If the VFS is enabled and `force` is `false`, then return.
+			if self.options.vfs.is_some() && !arg.force {
+				return Ok(artifact_path);
+			}
+
 			// Create a tmp.
 			let tmp = Tmp::new(self);
 

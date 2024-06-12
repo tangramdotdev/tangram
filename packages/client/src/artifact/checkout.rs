@@ -7,16 +7,20 @@ use tangram_http::{incoming::response::Ext as _, outgoing::request::Ext as _};
 pub struct Arg {
 	#[serde(default, skip_serializing_if = "std::ops::Not::not")]
 	pub bundle: bool,
+
 	#[serde(default, skip_serializing_if = "std::ops::Not::not")]
 	pub force: bool,
+
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub path: Option<tg::Path>,
+
 	#[serde(
 		default = "crate::util::serde::true_",
 		skip_serializing_if = "crate::util::serde::is_true"
 	)]
 	pub references: bool,
 }
+
 #[derive(Clone, Debug)]
 pub enum Event {
 	Progress(Progress),
@@ -42,7 +46,7 @@ impl tg::Artifact {
 				return Ok(path);
 			}
 		}
-		Err(tg::error!("checkout failed."))
+		Err(tg::error!("checkout failed"))
 	}
 }
 
