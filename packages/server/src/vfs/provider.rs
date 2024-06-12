@@ -1,11 +1,12 @@
 use crate::{tmp::Tmp, Server};
 use bytes::Bytes;
 use dashmap::DashMap;
+use futures::TryStreamExt as _;
 use indoc::formatdoc;
 use num::ToPrimitive;
 use std::{
 	collections::BTreeSet,
-	os::unix::fs::MetadataExt,
+	os::unix::fs::MetadataExt as _,
 	sync::{
 		atomic::{AtomicU64, Ordering},
 		Arc,
@@ -14,7 +15,7 @@ use std::{
 use tangram_client as tg;
 use tangram_database::{self as db, prelude::*};
 use tangram_vfs as vfs;
-use tokio::io::{AsyncReadExt, AsyncSeekExt};
+use tg::Handle as _;
 
 pub struct Provider {
 	node_cache: moka::sync::Cache<u64, Node, fnv::FnvBuildHasher>,
@@ -35,7 +36,7 @@ pub struct DirectoryHandle {
 }
 
 pub struct FileHandle {
-	reader: tg::blob::Reader<Server>,
+	blob: tg::blob::Id,
 }
 
 #[derive(Clone)]
@@ -227,14 +228,23 @@ impl vfs::Provider for Provider {
 			return Err(std::io::Error::other("expected a file"));
 		};
 
-		// Create the reader.
-		let reader = file.reader(&self.server).await.map_err(|error| {
-			tracing::error!(%error, %file, "failed to create reader");
-			std::io::Error::from_raw_os_error(libc::EIO)
-		})?;
+		// Get the blob id.
+		let blob = file
+			.contents(&self.server)
+			.await
+			.map_err(|error| {
+				tracing::error!(%error, %file, "failed to get blob for file");
+				std::io::Error::from_raw_os_error(libc::EIO)
+			})?
+			.id(&self.server)
+			.await
+			.map_err(|error| {
+				tracing::error!(%error, %file, "failed to get blob ID");
+				std::io::Error::from_raw_os_error(libc::EIO)
+			})?;
 
 		// Create the file handle.
-		let file_handle = FileHandle { reader };
+		let file_handle = FileHandle { blob };
 
 		// Insert the file handle.
 		let id = self.file_handle_count.fetch_add(1, Ordering::Relaxed);
@@ -245,30 +255,37 @@ impl vfs::Provider for Provider {
 
 	async fn read(&self, id: u64, position: u64, length: u64) -> std::io::Result<Bytes> {
 		// Get the file handle.
-		let Some(mut file_handle) = self.file_handles.get_mut(&id) else {
+		let Some(file_handle) = self.file_handles.get(&id) else {
 			tracing::error!(%id, "tried to read from an invalid file handle");
 			return Err(std::io::Error::from_raw_os_error(libc::ENOENT));
 		};
 
-		// Seek to the given position.
-		file_handle
-			.reader
-			.seek(std::io::SeekFrom::Start(position))
-			.await?;
-
-		// Read the requested number of bytes.
-		let mut bytes = vec![0u8; length.to_usize().unwrap()];
-		let mut size = 0;
-		while size < length.to_usize().unwrap() {
-			let n = file_handle.reader.read(&mut bytes[size..]).await?;
-			size += n;
-			if n == 0 {
-				break;
-			}
+		// Create the blob stream.
+		let stream = self
+			.server
+			.try_read_blob(
+				&file_handle.blob,
+				tg::blob::read::Arg {
+					position: Some(std::io::SeekFrom::Start(position)),
+					length: Some(length),
+					size: None,
+				},
+			)
+			.await
+			.map_err(|error| {
+				tracing::error!(%error, "failed to read blob");
+				std::io::Error::from_raw_os_error(libc::EIO)
+			})?
+			.ok_or_else(|| std::io::Error::from_raw_os_error(libc::EIO))?
+			.map_err(|error| {
+				tracing::error!(%error, "failed to read chunk");
+				std::io::Error::from_raw_os_error(libc::EIO)
+			});
+		let mut stream = std::pin::pin!(stream);
+		let mut bytes = Vec::with_capacity(length.to_usize().unwrap());
+		while let Some(chunk) = stream.try_next().await? {
+			bytes.extend_from_slice(&chunk.bytes);
 		}
-
-		// Truncate the bytes.
-		bytes.truncate(size);
 
 		Ok(bytes.into())
 	}
