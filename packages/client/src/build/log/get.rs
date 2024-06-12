@@ -94,10 +94,10 @@ impl tg::Client {
 		let output = response.sse().map(|result| {
 			let event = result.map_err(|source| tg::error!(!source, "failed to read an event"))?;
 			match event.event.as_deref() {
-				None | Some("chunk") => {
-					let data = serde_json::from_str(&event.data)
+				None => {
+					let chunk = serde_json::from_str(&event.data)
 						.map_err(|source| tg::error!(!source, "failed to deserialize the data"))?;
-					Ok(tg::build::log::get::Event::Chunk(data))
+					Ok(tg::build::log::get::Event::Chunk(chunk))
 				},
 				Some("end") => Ok(tg::build::log::get::Event::End),
 				Some("error") => {

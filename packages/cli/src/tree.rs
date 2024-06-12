@@ -5,28 +5,28 @@ use tangram_client as tg;
 #[derive(Clone, Debug, clap::Args)]
 #[group(skip)]
 pub struct Args {
-	/// The tree depth.
-	pub depth: Option<u32>,
+	/// The build, package, or object to view.
+	#[arg(conflicts_with_all = ["build", "package", "object"])]
+	pub arg: Option<Arg>,
 
 	/// The build to view.
 	#[arg(long, conflicts_with_all = ["package", "object", "arg"])]
 	pub build: Option<tg::build::Id>,
 
+	/// The tree depth.
+	pub depth: Option<u32>,
+
 	/// Force the use of an existing lockfile.
 	#[arg(long, default_value = "false")]
 	pub locked: bool,
-
-	/// The package to view.
-	#[arg(long, conflicts_with_all = ["build", "object", "arg"])]
-	pub package: Option<tg::Dependency>,
 
 	/// The object to view.
 	#[arg(long, conflicts_with_all = ["build", "package", "arg"])]
 	pub object: Option<tg::object::Id>,
 
-	/// The build, package, or object to view.
-	#[arg(conflicts_with_all = ["build", "package", "object"])]
-	pub arg: Option<Arg>,
+	/// The package to view.
+	#[arg(long, conflicts_with_all = ["build", "object", "arg"])]
+	pub package: Option<tg::Dependency>,
 }
 
 #[derive(Clone, Debug)]

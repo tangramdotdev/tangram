@@ -17,7 +17,7 @@ use std::{
 use tangram_client as tg;
 use tangram_database as db;
 use tangram_futures::task::{Stop, Task, TaskMap};
-use tangram_http::{Incoming, Outgoing};
+use tangram_http::{outgoing::response::Ext as _, Incoming, Outgoing};
 use tokio::{
 	io::{AsyncBufRead, AsyncRead, AsyncWrite, AsyncWriteExt as _},
 	net::{TcpListener, UnixListener},
@@ -772,7 +772,7 @@ impl Server {
 			(_, _) => future::ok(
 				http::Response::builder()
 					.status(http::StatusCode::NOT_FOUND)
-					.body(Outgoing::bytes("not found"))
+					.bytes("not found")
 					.unwrap(),
 			)
 			.boxed(),
@@ -784,7 +784,7 @@ impl Server {
 			tracing::error!(?error);
 			http::Response::builder()
 				.status(http::StatusCode::INTERNAL_SERVER_ERROR)
-				.body(Outgoing::json(error))
+				.json(error)
 				.unwrap()
 		});
 
@@ -1065,7 +1065,7 @@ impl tg::Handle for Server {
 		&self,
 		dependency: &tg::Dependency,
 		arg: tg::package::check::Arg,
-	) -> impl Future<Output = tg::Result<Vec<tg::Diagnostic>>> {
+	) -> impl Future<Output = tg::Result<tg::package::check::Output>> {
 		self.check_package(dependency, arg)
 	}
 

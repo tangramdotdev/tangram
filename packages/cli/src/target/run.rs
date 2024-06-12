@@ -6,12 +6,12 @@ use tangram_client as tg;
 #[derive(Clone, Debug, clap::Args)]
 #[group(skip)]
 pub struct Args {
-	#[command(flatten)]
-	pub inner: crate::target::build::InnerArgs,
-
 	/// The path to the executable in the artifact to run.
 	#[arg(short = 'x', long)]
 	pub executable: Option<tg::Path>,
+
+	#[command(flatten)]
+	pub inner: crate::target::build::InnerArgs,
 
 	/// Arguments to pass to the executable.
 	#[arg(trailing_var_arg = true)]

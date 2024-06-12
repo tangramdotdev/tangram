@@ -410,7 +410,7 @@ where
 		&self,
 		dependency: &tg::Dependency,
 		arg: tg::package::check::Arg,
-	) -> impl Future<Output = tg::Result<Vec<tg::Diagnostic>>> {
+	) -> impl Future<Output = tg::Result<tg::package::check::Output>> {
 		match self {
 			Either::Left(s) => s.check_package(dependency, arg).left_future(),
 			Either::Right(s) => s.check_package(dependency, arg).right_future(),

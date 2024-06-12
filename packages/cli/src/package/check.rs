@@ -28,14 +28,14 @@ impl Cli {
 		let arg = tg::package::check::Arg {
 			locked: args.locked,
 		};
-		let diagnostics = self.handle.check_package(&args.package, arg).await?;
+		let output = self.handle.check_package(&args.package, arg).await?;
 
 		// Print the diagnostics.
-		for diagnostic in &diagnostics {
+		for diagnostic in &output.diagnostics {
 			self.print_diagnostic(diagnostic).await;
 		}
 
-		if !diagnostics.is_empty() {
+		if !output.diagnostics.is_empty() {
 			return Err(tg::error!("type checking failed"));
 		}
 

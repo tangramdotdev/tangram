@@ -3,7 +3,7 @@ use indoc::formatdoc;
 use std::collections::BTreeSet;
 use tangram_client as tg;
 use tangram_database::{self as db, prelude::*};
-use tangram_http::{incoming::request::Ext as _, Incoming, Outgoing};
+use tangram_http::{incoming::request::Ext as _, outgoing::response::Ext as _, Incoming, Outgoing};
 use time::format_description::well_known::Rfc3339;
 
 impl Server {
@@ -105,8 +105,7 @@ impl Server {
 		let bytes = request.bytes().await?;
 		let arg = tg::object::put::Arg { bytes };
 		let output = handle.put_object(&id, arg).await?;
-		let body = Outgoing::json(output);
-		let response = http::Response::builder().body(body).unwrap();
+		let response = http::Response::builder().json(output).unwrap();
 		Ok(response)
 	}
 }

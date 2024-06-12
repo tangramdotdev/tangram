@@ -34,7 +34,7 @@ pub struct Chunk {
 }
 
 pub enum Event {
-	Data(Chunk),
+	Chunk(Chunk),
 	End,
 }
 
@@ -352,10 +352,10 @@ impl Client {
 		let output = response.sse().map(|result| {
 			let event = result.map_err(|source| tg::error!(!source, "failed to read an event"))?;
 			match event.event.as_deref() {
-				None | Some("data") => {
+				None => {
 					let data = serde_json::from_str(&event.data)
 						.map_err(|source| tg::error!(!source, "failed to deserialize the data"))?;
-					Ok(tg::blob::read::Event::Data(data))
+					Ok(tg::blob::read::Event::Chunk(data))
 				},
 				Some("end") => Ok(tg::blob::read::Event::End),
 				Some("error") => {

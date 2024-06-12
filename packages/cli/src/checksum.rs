@@ -11,6 +11,10 @@ pub struct Args {
 	#[arg(long, default_value_t = tg::checksum::Algorithm::Sha256)]
 	pub algorithm: tg::checksum::Algorithm,
 
+	/// The artifact, blob, or URL to checksum.
+	#[arg(conflicts_with_all = ["artifact", "blob", "url"])]
+	pub arg: Option<Arg>,
+
 	/// The artifact to checksum.
 	#[arg(long, conflicts_with_all = ["blob", "url", "arg"])]
 	pub artifact: Option<tg::artifact::Id>,
@@ -22,10 +26,6 @@ pub struct Args {
 	/// The url to checksum.
 	#[arg(long, conflicts_with_all = ["artifact", "blob", "arg"])]
 	pub url: Option<Url>,
-
-	/// The artifact, blob, or URL to checksum.
-	#[arg(conflicts_with_all = ["artifact", "blob", "url"])]
-	pub arg: Option<Arg>,
 }
 
 #[derive(Clone, Debug)]

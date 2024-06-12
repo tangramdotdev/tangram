@@ -5,11 +5,11 @@ use tangram_client as tg;
 #[derive(Clone, Debug, clap::Args)]
 #[group(skip)]
 pub struct Args {
+	pub blob: tg::blob::Id,
+
 	/// The algorithm to use.
 	#[arg(short, long)]
 	pub algorithm: tg::checksum::Algorithm,
-
-	pub blob: tg::blob::Id,
 }
 
 impl Cli {

@@ -31,9 +31,7 @@ impl Server {
 	{
 		let health = handle.health().await?;
 		let body = serde_json::to_vec(&health).unwrap();
-		let response = http::Response::builder()
-			.body(Outgoing::bytes(body))
-			.unwrap();
+		let response = http::Response::builder().bytes(body).unwrap();
 		Ok(response)
 	}
 }

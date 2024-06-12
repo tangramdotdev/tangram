@@ -148,7 +148,7 @@ impl Server {
 				.try_next()
 				.await?
 				.unwrap()
-				.try_unwrap_data()
+				.try_unwrap_status()
 				.unwrap();
 
 			// Send as many data events as possible.
@@ -495,7 +495,7 @@ impl AsyncRead for DatabaseReader {
 			let position = this.position;
 			let length = (buf.capacity() - buf.filled().len()).to_u64().unwrap();
 			let read = SyncWrapper::new(
-				async move { poll_read_inner(server, id, position, length).await }.boxed(),
+				async move { poll_read_inner(server, &id, position, length).await }.boxed(),
 			);
 			this.read = Some(read);
 		}
@@ -537,7 +537,7 @@ impl AsyncRead for DatabaseReader {
 
 async fn poll_read_inner(
 	server: Server,
-	id: tg::build::Id,
+	id: &tg::build::Id,
 	position: u64,
 	length: u64,
 ) -> tg::Result<Option<Cursor<Bytes>>> {
@@ -600,7 +600,7 @@ impl AsyncSeek for DatabaseReader {
 		let position = self.position;
 		let id = self.id.clone();
 		let seek = SyncWrapper::new(
-			async move { poll_seek_inner(server, id, position, seek).await }.boxed(),
+			async move { poll_seek_inner(server, &id, position, seek).await }.boxed(),
 		);
 		self.seek = Some(seek);
 		Ok(())
@@ -634,7 +634,7 @@ impl AsyncSeek for DatabaseReader {
 
 async fn poll_seek_inner(
 	server: Server,
-	id: tg::build::Id,
+	id: &tg::build::Id,
 	position: u64,
 	seek: std::io::SeekFrom,
 ) -> tg::Result<u64> {

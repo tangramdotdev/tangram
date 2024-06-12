@@ -10,10 +10,10 @@ use tangram_client as tg;
 #[derive(Clone, Debug, clap::Args)]
 #[group(skip)]
 pub struct Args {
-	pub object: tg::object::Id,
-
 	#[arg(long)]
 	pub depth: Option<u32>,
+
+	pub object: tg::object::Id,
 }
 
 impl Cli {

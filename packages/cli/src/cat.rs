@@ -5,7 +5,7 @@ use tangram_client as tg;
 #[derive(Clone, Debug, clap::Args)]
 #[group(skip)]
 pub struct Args {
-	pub ids: Vec<Arg>,
+	pub args: Vec<Arg>,
 }
 
 #[derive(Clone, Debug)]
@@ -16,8 +16,8 @@ pub enum Arg {
 
 impl Cli {
 	pub async fn command_cat(&self, args: Args) -> tg::Result<()> {
-		for id in args.ids {
-			match id {
+		for arg in args.args {
+			match arg {
 				Arg::Blob(blob) => {
 					self.command_blob_cat(crate::blob::cat::Args { blobs: vec![blob] })
 						.await?;

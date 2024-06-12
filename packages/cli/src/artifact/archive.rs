@@ -5,10 +5,10 @@ use tangram_client as tg;
 #[derive(Clone, Debug, clap::Args)]
 #[group(skip)]
 pub struct Args {
+	pub artifact: tg::artifact::Id,
+
 	#[arg(long)]
 	pub format: tg::artifact::archive::Format,
-
-	pub artifact: tg::artifact::Id,
 }
 
 impl Cli {

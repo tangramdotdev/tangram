@@ -32,7 +32,7 @@ impl Server {
 			.ok_or_else(|| tg::error!("failed to get the status"))?;
 		if matches!(
 			status,
-			tg::build::status::Event::Data(tg::build::Status::Finished)
+			tg::build::status::Event::Status(tg::build::Status::Finished)
 		) {
 			return Ok(());
 		}

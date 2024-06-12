@@ -14,12 +14,13 @@ use tg::Handle as _;
 #[derive(Clone, Debug, clap::Args)]
 #[group(skip)]
 pub struct Args {
-	#[command(flatten)]
-	pub inner: InnerArgs,
-
 	/// If this flag is set, then the command will exit immediately instead of waiting for the build to finish.
 	#[arg(short, long, conflicts_with = "checkout")]
 	pub detach: bool,
+
+	#[command(flatten)]
+	pub inner: InnerArgs,
+
 }
 
 #[allow(clippy::struct_excessive_bools)]

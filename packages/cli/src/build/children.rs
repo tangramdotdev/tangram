@@ -6,6 +6,8 @@ use tangram_client::{self as tg, Handle as _};
 #[derive(Clone, Debug, clap::Args)]
 #[group(skip)]
 pub struct Args {
+	pub build: tg::build::Id,
+
 	#[arg(long)]
 	pub length: Option<u64>,
 
@@ -17,8 +19,6 @@ pub struct Args {
 
 	#[arg(long)]
 	pub size: Option<u64>,
-
-	pub build: tg::build::Id,
 }
 
 impl Cli {

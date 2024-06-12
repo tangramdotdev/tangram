@@ -5,6 +5,7 @@ use tangram_http::{incoming::response::Ext as _, outgoing::request::Ext as _};
 pub struct Arg {}
 
 #[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
+#[serde(transparent)]
 pub struct Output {
 	pub data: Vec<tg::remote::get::Output>,
 }

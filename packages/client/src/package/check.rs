@@ -6,12 +6,17 @@ pub struct Arg {
 	pub locked: bool,
 }
 
+#[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
+pub struct Output {
+	pub diagnostics: Vec<tg::Diagnostic>,
+}
+
 impl tg::Client {
 	pub async fn check_package(
 		&self,
 		dependency: &tg::Dependency,
 		arg: Arg,
-	) -> tg::Result<Vec<tg::Diagnostic>> {
+	) -> tg::Result<tg::package::check::Output> {
 		let method = http::Method::GET;
 		let dependency = dependency.to_string();
 		let dependency = urlencoding::encode(&dependency);

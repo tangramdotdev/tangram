@@ -84,7 +84,7 @@ impl Server {
 				}
 				future::ready(true)
 			})
-			.map_ok(tg::build::status::Event::Data)
+			.map_ok(tg::build::status::Event::Status)
 			.chain(stream::once(future::ok(tg::build::status::Event::End)));
 
 		Ok(Some(stream))
@@ -151,7 +151,7 @@ impl Server {
 			return Ok(None);
 		};
 		let stream = stream
-			.map_ok(tg::build::status::Event::Data)
+			.map_ok(tg::build::status::Event::Status)
 			.chain(stream::once(future::ok(tg::build::status::Event::End)));
 		Ok(Some(stream))
 	}
@@ -190,7 +190,7 @@ impl Server {
 			Some((mime::TEXT, mime::EVENT_STREAM)) => {
 				let content_type = mime::TEXT_EVENT_STREAM;
 				let sse = stream.map(|result| match result {
-					Ok(tg::build::status::Event::Data(data)) => {
+					Ok(tg::build::status::Event::Status(data)) => {
 						let data = serde_json::to_string(&data).unwrap();
 						Ok::<_, tg::Error>(tangram_http::sse::Event {
 							data,

@@ -389,7 +389,7 @@ impl tg::Handle for Proxy {
 		&self,
 		_dependency: &tg::Dependency,
 		_arg: tg::package::check::Arg,
-	) -> tg::Result<Vec<tg::Diagnostic>> {
+	) -> tg::Result<tg::package::check::Output> {
 		Err(tg::error!("forbidden"))
 	}
 

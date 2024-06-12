@@ -20,7 +20,7 @@ pub struct Arg {
 
 #[derive(Copy, Clone, Debug, derive_more::TryUnwrap)]
 pub enum Event {
-	Data(Status),
+	Status(Status),
 	End,
 }
 
@@ -76,10 +76,10 @@ impl tg::Client {
 		let output = response.sse().map(|result| {
 			let event = result.map_err(|source| tg::error!(!source, "failed to read an event"))?;
 			match event.event.as_deref() {
-				None | Some("data") => {
-					let data = serde_json::from_str(&event.data)
+				None => {
+					let status = serde_json::from_str(&event.data)
 						.map_err(|source| tg::error!(!source, "failed to deserialize the data"))?;
-					Ok(Event::Data(data))
+					Ok(Event::Status(status))
 				},
 				Some("end") => Ok(Event::End),
 				Some("error") => {

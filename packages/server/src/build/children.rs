@@ -126,7 +126,7 @@ impl Server {
 				.try_next()
 				.await?
 				.unwrap()
-				.try_unwrap_data()
+				.try_unwrap_status()
 				.unwrap();
 
 			// Send as many data events as possible.

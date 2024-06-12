@@ -99,7 +99,7 @@ pub trait Handle: Clone + Unpin + Send + Sync + 'static {
 			.try_flatten()
 			.take_while(|event| future::ready(!matches!(event, Ok(tg::blob::read::Event::End))))
 			.map(|event| match event {
-				Ok(tg::blob::read::Event::Data(chunk)) => Ok(chunk),
+				Ok(tg::blob::read::Event::Chunk(chunk)) => Ok(chunk),
 				Err(e) => Err(e),
 				_ => unreachable!(),
 			})
@@ -237,7 +237,7 @@ pub trait Handle: Clone + Unpin + Send + Sync + 'static {
 			.try_flatten()
 			.take_while(|event| future::ready(!matches!(event, Ok(tg::build::status::Event::End))))
 			.map(|event| match event {
-				Ok(tg::build::status::Event::Data(status)) => Ok(status),
+				Ok(tg::build::status::Event::Status(status)) => Ok(status),
 				Err(e) => Err(e),
 				_ => unreachable!(),
 			})
@@ -656,7 +656,7 @@ pub trait Handle: Clone + Unpin + Send + Sync + 'static {
 		&self,
 		dependency: &tg::Dependency,
 		arg: tg::package::check::Arg,
-	) -> impl Future<Output = tg::Result<Vec<tg::Diagnostic>>> + Send;
+	) -> impl Future<Output = tg::Result<tg::package::check::Output>> + Send;
 
 	fn try_get_package_doc(
 		&self,

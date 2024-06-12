@@ -8,7 +8,7 @@ impl Server {
 		&self,
 		dependency: &tg::Dependency,
 		arg: tg::package::check::Arg,
-	) -> tg::Result<Vec<tg::Diagnostic>> {
+	) -> tg::Result<tg::package::check::Output> {
 		// Get the package.
 		let arg = tg::package::get::Arg {
 			lock: true,
@@ -31,7 +31,10 @@ impl Server {
 		// Get the diagnostics.
 		let diagnostics = compiler.check(vec![module]).await?;
 
-		Ok(diagnostics)
+		// Create the output.
+		let output = tg::package::check::Output { diagnostics };
+
+		Ok(output)
 	}
 }
 

@@ -5,6 +5,10 @@ use tangram_client as tg;
 #[derive(Clone, Debug, clap::Args)]
 #[group(skip)]
 pub struct Args {
+	/// The build, package, or object to view.
+	#[arg(conflicts_with_all = ["build", "object", "package"])]
+	pub arg: Option<Arg>,
+
 	/// The build to view.
 	#[arg(long, conflicts_with_all = ["object", "package", "arg"])]
 	pub build: Option<tg::build::Id>,
@@ -20,10 +24,6 @@ pub struct Args {
 	/// The package to view.
 	#[arg(long, conflicts_with_all = ["build", "object", "arg"])]
 	pub package: Option<tg::Dependency>,
-
-	/// The build, package, or object to view.
-	#[arg(conflicts_with_all = ["build", "object", "package"])]
-	pub arg: Option<Arg>,
 }
 
 #[derive(Clone, Debug)]

@@ -100,7 +100,7 @@ impl Server {
 			}
 
 			length += data.bytes.len().to_u64().unwrap();
-			let result = sender.try_send(Ok(tg::blob::read::Event::Data(data)));
+			let result = sender.try_send(Ok(tg::blob::read::Event::Chunk(data)));
 			if result.is_err() {
 				return Ok(());
 			}
@@ -181,7 +181,7 @@ impl Server {
 			Some((mime::TEXT, mime::EVENT_STREAM)) => {
 				let content_type = mime::TEXT_EVENT_STREAM;
 				let sse = stream.map(|result| match result {
-					Ok(tg::blob::read::Event::Data(data)) => {
+					Ok(tg::blob::read::Event::Chunk(data)) => {
 						let data = serde_json::to_string(&data).unwrap();
 						Ok::<_, tg::Error>(tangram_http::sse::Event {
 							data,

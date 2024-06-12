@@ -813,7 +813,7 @@ impl tg::Handle for Client {
 		&self,
 		dependency: &tg::Dependency,
 		arg: tg::package::check::Arg,
-	) -> impl Future<Output = tg::Result<Vec<tg::Diagnostic>>> {
+	) -> impl Future<Output = tg::Result<tg::package::check::Output>> {
 		self.check_package(dependency, arg)
 	}
 
