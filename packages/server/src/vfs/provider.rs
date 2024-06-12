@@ -5,7 +5,6 @@ use indoc::formatdoc;
 use num::ToPrimitive;
 use std::{
 	collections::BTreeSet,
-	os::unix::ffi::OsStrExt,
 	sync::{
 		atomic::{AtomicU64, Ordering},
 		Arc,
@@ -271,19 +270,22 @@ impl vfs::Provider for Provider {
 
 		// Handle the case that it is checked out.
 		if checkout {
+			let mut target = tg::Path::new();
+			let depth = self.depth(id).await?;
+			for _ in 0..depth - 1 {
+				target.push(tg::path::Component::Parent);
+			}
 			let id = artifact.unwrap().id(&self.server).await.map_err(|error| {
 				tracing::error!(%error, "failed to get artifact id");
 				std::io::Error::from_raw_os_error(libc::EIO)
 			})?;
-			let path = self
-				.server
-				.checkouts_path()
+			let target = target
+				.join("checkouts")
 				.join(id.to_string())
-				.as_os_str()
-				.as_bytes()
-				.to_vec()
+				.to_string()
+				.into_bytes()
 				.into();
-			return Ok(path);
+			return Ok(target);
 		}
 
 		// Ensure it is a symlink.
