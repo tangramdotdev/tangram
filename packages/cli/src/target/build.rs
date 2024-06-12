@@ -20,7 +20,6 @@ pub struct Args {
 
 	#[command(flatten)]
 	pub inner: InnerArgs,
-
 }
 
 #[allow(clippy::struct_excessive_bools)]
