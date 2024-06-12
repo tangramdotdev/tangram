@@ -102,7 +102,7 @@ impl Server {
 		// Get the object.
 		#[derive(serde::Deserialize)]
 		struct Row {
-			bytes: Bytes,
+			bytes: Option<Bytes>,
 			children: bool,
 			complete: bool,
 			count: Option<u64>,
@@ -127,6 +127,9 @@ impl Server {
 			.query_one_into::<Row>(statement, params)
 			.await
 			.map_err(|source| tg::error!(!source, "failed to execute the statement"))?;
+		let Some(bytes) = bytes else {
+			return Ok(());
+		};
 
 		// Drop the connection.
 		drop(connection);
