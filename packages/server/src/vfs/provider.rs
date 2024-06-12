@@ -5,6 +5,7 @@ use indoc::formatdoc;
 use num::ToPrimitive;
 use std::{
 	collections::BTreeSet,
+	os::unix::fs::MetadataExt,
 	sync::{
 		atomic::{AtomicU64, Ordering},
 		Arc,
@@ -178,6 +179,19 @@ impl vfs::Provider for Provider {
 				checkout: false,
 				..
 			} => {
+				// First try and stat from the checkouts directory.
+				let artifact_id = file.id(&self.server).await.map_err(|error| {
+					tracing::error!(%error, "failed to get file's id");
+					std::io::Error::from_raw_os_error(libc::EIO)
+				})?;
+				let checkout_path = self.server.checkouts_path().join(artifact_id.to_string());
+				if let Ok(metadata) = tokio::fs::metadata(checkout_path).await {
+					let size = metadata.size();
+					let executable = metadata.mode() & libc::S_IEXEC != 0;
+					return Ok(vfs::Attrs::new(vfs::FileType::File { executable, size }));
+				}
+
+				// Otherwise use the object's data.
 				let executable = file.executable(&self.server).await.map_err(|error| {
 					tracing::error!(%error, "failed to get file's executable bit");
 					std::io::Error::from_raw_os_error(libc::EIO)
