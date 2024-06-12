@@ -200,7 +200,7 @@ impl Server {
 			0 => {
 				// Create the blob data.
 				let bytes = Bytes::default();
-				let blob = tg::branch::Id::new(&bytes).into();
+				let blob = tg::leaf::Id::new(&bytes).into();
 				let count = 1;
 				let weight = 0;
 
