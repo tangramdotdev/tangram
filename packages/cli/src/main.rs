@@ -1,5 +1,5 @@
 use self::config::Config;
-use clap::Parser as _;
+use clap::{CommandFactory, Parser as _};
 use crossterm::style::Stylize as _;
 use either::Either;
 use futures::FutureExt as _;
@@ -32,19 +32,6 @@ mod tui;
 mod upgrade;
 mod view;
 
-const ABOUT: &str = env!("CARGO_PKG_DESCRIPTION");
-
-const BEFORE_HELP: &str = concat!(
-	"Tangram v",
-	env!("CARGO_PKG_VERSION"),
-	"\n\n",
-	include_str!("tangram.ascii"),
-);
-
-const NAME: &str = env!("CARGO_CRATE_NAME");
-
-const VERSION: &str = env!("CARGO_PKG_VERSION");
-
 struct Cli {
 	args: Args,
 	config: Option<Config>,
@@ -53,12 +40,12 @@ struct Cli {
 
 #[derive(Clone, Debug, clap::Parser)]
 #[command(
-	about = ABOUT,
+	about = env!("CARGO_PKG_DESCRIPTION"),
 	arg_required_else_help = true,
-	before_help = &BEFORE_HELP[..BEFORE_HELP.len() - 1],
+	before_help = format!("Tangram {}\n\n{}", version(), include_str!("tangram.ascii").trim_end()),
 	disable_help_subcommand = true,
-	name = NAME,
-	version = VERSION,
+	name = env!("CARGO_CRATE_NAME"),
+	version = version(),
 )]
 struct Args {
 	#[command(subcommand)]
@@ -79,6 +66,15 @@ struct Args {
 	/// Override the `url` key in the config.
 	#[arg(short, long)]
 	url: Option<Url>,
+}
+
+fn version() -> String {
+	let mut version = env!("CARGO_PKG_VERSION").to_owned();
+	if let Some(commit) = option_env!("TANGRAM_CLI_COMMIT_HASH") {
+		version.push('-');
+		version.push_str(commit);
+	}
+	version
 }
 
 #[derive(Clone, Copy, Debug, Default, clap::ValueEnum, serde::Deserialize, serde::Serialize)]
@@ -287,7 +283,7 @@ impl Cli {
 				break 'a;
 			};
 
-			if VERSION == server_version {
+			if Args::command().get_version().unwrap() == server_version {
 				break 'a;
 			};
 
@@ -681,7 +677,7 @@ impl Cli {
 		};
 
 		// Get the version.
-		let version = Some(VERSION.to_owned());
+		let version = Some(Args::command().get_version().unwrap().to_owned());
 
 		// Create the vfs options.
 		let vfs = config.and_then(|config| config.vfs.clone());
