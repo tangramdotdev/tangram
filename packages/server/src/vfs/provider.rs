@@ -272,7 +272,7 @@ impl vfs::Provider for Provider {
 		if checkout {
 			let mut target = tg::Path::new();
 			let depth = self.depth(id).await?;
-			for _ in 0..depth - 1 {
+			for _ in 0..depth {
 				target.push(tg::path::Component::Parent);
 			}
 			let id = artifact.unwrap().id(&self.server).await.map_err(|error| {
