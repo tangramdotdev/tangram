@@ -16,7 +16,6 @@ impl Server {
 			let Some(remote) = self.remotes.get(remote) else {
 				return Ok(None);
 			};
-			let arg = tg::package::get::Arg::default();
 			let dependency = tg::Dependency {
 				remote: None,
 				..dependency.clone()
@@ -43,8 +42,11 @@ impl Server {
 			let Some(remote) = self.remotes.get(remote) else {
 				return Ok(None);
 			};
-			let arg = tg::package::get::Arg::default();
-			let Some(output) = remote.try_get_package(dependency, arg).await? else {
+			let dependency = tg::Dependency {
+				remote: None,
+				..dependency.clone()
+			};
+			let Some(output) = remote.try_get_package(&dependency, arg).await? else {
 				return Ok(None);
 			};
 			Ok(Some(output))
