@@ -177,6 +177,9 @@ where
 		if self.scroll.lock().await.is_none() {
 			loop {
 				let chunks = self.chunks.lock().await;
+				if chunks.is_empty() {
+					return Ok(());
+				}
 				match scroll::Scroll::new(self.rect(), &chunks) {
 					Ok(inner) => {
 						self.scroll.lock().await.replace(inner);
