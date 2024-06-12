@@ -35,6 +35,15 @@ impl Cli {
 		// Get the package ID.
 		let id = package.id(&self.handle).await?;
 
+		// Push the package.
+		if let Some(remote) = args.remote.clone() {
+			let push_args = crate::object::push::Args {
+				object: id.clone().into(),
+				remote,
+			};
+			self.command_object_push(push_args).await?;
+		}
+
 		// Publish the package.
 		let remote = args
 			.remote
@@ -45,14 +54,15 @@ impl Cli {
 			.await
 			.map_err(|source| tg::error!(!source, "failed to publish the package"))?;
 
-		// Display
+		// Print a message.
 		let metadata = tg::package::get_metadata(&self.handle, &package).await?;
 		println!(
 			"{} published {}@{}",
-			"info".blue().bold(),
+			"success".green().bold(),
 			metadata.name.unwrap().red(),
 			metadata.version.unwrap().green()
 		);
+
 		Ok(())
 	}
 }
