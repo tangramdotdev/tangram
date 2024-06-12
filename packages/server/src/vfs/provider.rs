@@ -187,7 +187,7 @@ impl vfs::Provider for Provider {
 				let checkout_path = self.server.checkouts_path().join(artifact_id.to_string());
 				if let Ok(metadata) = tokio::fs::metadata(checkout_path).await {
 					let size = metadata.size();
-					let executable = metadata.mode() & libc::S_IEXEC != 0;
+					let executable = (metadata.mode() & libc::S_IEXEC.to_u32().unwrap()) != 0;
 					return Ok(vfs::Attrs::new(vfs::FileType::File { executable, size }));
 				}
 
