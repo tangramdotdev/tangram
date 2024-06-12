@@ -46,7 +46,7 @@ blake3 = "1"
 byte-unit = { version = "5", features = ["byte"] }
 bytes = { version = "1", features = ["serde"] }
 clap = { version = "4", features = ["derive", "env", "unstable-v5"] }
-console-subscriber = "0.2"
+console-subscriber = "0.3"
 copypasta = "0.10"
 crossterm = "0.27"
 dashmap = "5"
@@ -98,7 +98,7 @@ semver = "1"
 serde = { version = "1", features = ["rc", "derive"] }
 serde_json = "1"
 serde_urlencoded = "0.7"
-serde_v8 = { version = "0.196" }
+serde_v8 = { version = "0.197" }
 serde_with = "3"
 serde_yaml = { version = "0.9" }
 sha2 = "0.10"
