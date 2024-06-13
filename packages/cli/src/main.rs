@@ -1,13 +1,11 @@
 use self::config::Config;
-use clap::{CommandFactory, Parser as _};
+use clap::{CommandFactory as _, Parser as _};
 use crossterm::style::Stylize as _;
-use either::Either;
 use futures::FutureExt as _;
 use itertools::Itertools as _;
 use num::ToPrimitive as _;
-use std::{fmt::Write as _, path::PathBuf};
+use std::{fmt::Write as _, path::PathBuf, sync::Mutex};
 use tangram_client::{self as tg, Client};
-use tangram_server::Server;
 use tracing_subscriber::prelude::*;
 use url::Url;
 
@@ -35,16 +33,16 @@ mod view;
 struct Cli {
 	args: Args,
 	config: Option<Config>,
-	handle: Either<Client, Server>,
+	client: Mutex<Option<tg::Client>>,
 }
 
 #[derive(Clone, Debug, clap::Parser)]
 #[command(
-	about = env!("CARGO_PKG_DESCRIPTION"),
+	about = "Tangram is a programmable build system and package manager.",
 	arg_required_else_help = true,
-	before_help = format!("Tangram {}\n\n{}", version(), include_str!("tangram.ascii").trim_end()),
+	before_help = before_help(),
 	disable_help_subcommand = true,
-	name = env!("CARGO_CRATE_NAME"),
+	name = "Tangram",
 	version = version(),
 )]
 struct Args {
@@ -55,9 +53,9 @@ struct Args {
 	#[arg(long)]
 	config: Option<PathBuf>,
 
-	/// Override the `mode` key in the config.
-	#[arg(short, long)]
-	mode: Option<Mode>,
+	/// Disable automatic starting of a server.
+	#[arg(long)]
+	no_start: bool,
 
 	/// Override the `path` key in the config.
 	#[arg(short, long)]
@@ -66,6 +64,12 @@ struct Args {
 	/// Override the `url` key in the config.
 	#[arg(short, long)]
 	url: Option<Url>,
+}
+
+fn before_help() -> String {
+	let version = version();
+	let logo = include_str!("tangram.ascii").trim_end();
+	format!("Tangram {version}\n\n{logo}")
 }
 
 fn version() -> String {
@@ -156,43 +160,24 @@ fn main() -> std::process::ExitCode {
 		})
 		.ok();
 
+	// Create the CLI.
+	let cli = Cli {
+		args,
+		config,
+		client: Mutex::new(None),
+	};
+
 	// Create the future.
 	let future = async move {
-		// Create the CLI.
-		let cli = match Cli::new(args.clone(), config.clone()).await {
-			Ok(cli) => cli,
-			Err(error) => {
-				eprintln!("{} an error occurred", "error".red().bold());
-				Cli::print_error(None::<Client>, &error, config.as_ref()).await;
-				return Err(1);
-			},
-		};
-
-		// Run the command.
-		let result = match cli.command(args.command).await {
+		match cli.command(cli.args.command.clone()).await {
 			Ok(()) => Ok(()),
 			Err(error) => {
 				eprintln!("{} failed to run the command", "error".red().bold());
-				Cli::print_error(Some(cli.handle.clone()), &error, config.as_ref()).await;
+				let client = cli.client.lock().unwrap().clone();
+				Cli::print_error(client, &error, cli.config.as_ref()).await;
 				Err(1)
 			},
-		};
-
-		// Stop the server if necessary.
-		if let Some(server) = cli.handle.right() {
-			server.stop();
-			let result = server.wait().await;
-			match result {
-				Ok(()) => (),
-				Err(error) => {
-					eprintln!("{} an error occurred", "error".red().bold());
-					Cli::print_error(None::<Client>, &error, config.as_ref()).await;
-					return Err(1);
-				},
-			}
 		}
-
-		result
 	};
 
 	// Create the tokio runtime and block on the future.
@@ -210,44 +195,34 @@ fn main() -> std::process::ExitCode {
 }
 
 impl Cli {
-	async fn new(args: Args, config: Option<Config>) -> tg::Result<Self> {
-		// Get the mode. If the command is `tg serve` or `tg server run`, then set the mode to `server`.
-		let mode = matches!(
-			args,
-			Args {
-				command: Command::Serve(_)
-					| Command::Server(self::server::Args {
-						command: self::server::Command::Run(_),
-						..
-					}),
-				..
-			}
-		)
-		.then_some(Mode::Server);
-		let mode = mode
-			.or(args.mode)
-			.or(config.as_ref().and_then(|config| config.mode))
-			.unwrap_or_default();
+	async fn client(&self) -> tg::Result<Client> {
+		if let Some(client) = self.client.lock().unwrap().clone() {
+			return Ok(client);
+		}
 
-		// Create the handle.
-		let handle = match mode {
-			Mode::Auto => Either::Left(Self::auto(&args, config.as_ref()).await?),
-			Mode::Client => Either::Left(Self::client(&args, config.as_ref()).await?),
-			Mode::Server => Either::Right(Self::server(&args, config.as_ref()).await?),
-		};
+		// Get the path.
+		let path = self
+			.args
+			.path
+			.clone()
+			.or(self.config.as_ref().and_then(|config| config.path.clone()))
+			.unwrap_or_else(|| PathBuf::from(std::env::var("HOME").unwrap()).join(".tangram"));
 
-		// Create the CLI.
-		let cli = Cli {
-			args,
-			config: config.clone(),
-			handle,
-		};
+		// Get the url.
+		let url = self
+			.args
+			.url
+			.clone()
+			.or(self.config.as_ref().and_then(|config| config.url.clone()))
+			.unwrap_or_else(|| {
+				let path = path.join("socket");
+				let path = path.to_str().unwrap();
+				let path = urlencoding::encode(path);
+				format!("http+unix://{path}").parse().unwrap()
+			});
 
-		Ok(cli)
-	}
-
-	async fn auto(args: &Args, config: Option<&Config>) -> tg::Result<tg::Client> {
-		let client = Self::client(args, config).await?;
+		// Create the client.
+		let client = tg::Client::new(url);
 
 		// Attempt to connect to the server.
 		client.connect().await.ok();
@@ -257,7 +232,7 @@ impl Cli {
 			|| matches!(client.url().host_str(), Some("localhost" | "0.0.0.0"));
 		if !client.connected().await && local {
 			// Start the server.
-			Self::start_server(args, config).await?;
+			self.start_server().await?;
 
 			// Try to connect for up to one second.
 			for _ in 0..10 {
@@ -291,10 +266,10 @@ impl Cli {
 			client.disconnect().await?;
 
 			// Stop the server.
-			Self::stop_server(args, config).await?;
+			self.stop_server().await?;
 
 			// Start the server.
-			Self::start_server(args, config).await?;
+			self.start_server().await?;
 
 			// Try to connect for up to one second.
 			for _ in 0..10 {
@@ -310,17 +285,21 @@ impl Cli {
 			}
 		}
 
+		// Set the client.
+		self.client.lock().unwrap().replace(client.clone());
+
 		Ok(client)
 	}
 
 	/// Start the server.
-	async fn start_server(args: &Args, config: Option<&Config>) -> tg::Result<()> {
+	async fn start_server(&self) -> tg::Result<()> {
 		// Ensure the path exists.
 		let home = PathBuf::from(std::env::var("HOME").unwrap());
-		let path = args
+		let path = self
+			.args
 			.path
 			.clone()
-			.or(config.as_ref().and_then(|config| config.path.clone()))
+			.or(self.config.as_ref().and_then(|config| config.path.clone()))
 			.unwrap_or_else(|| home.join(".tangram"));
 		tokio::fs::create_dir_all(&path)
 			.await
@@ -365,12 +344,13 @@ impl Cli {
 	}
 
 	/// Stop the server.
-	async fn stop_server(args: &Args, config: Option<&Config>) -> tg::Result<()> {
+	async fn stop_server(&self) -> tg::Result<()> {
 		// Get the lock file path.
-		let path = args
+		let path = self
+			.args
 			.path
 			.clone()
-			.or(config.as_ref().and_then(|config| config.path.clone()))
+			.or(self.config.as_ref().and_then(|config| config.path.clone()))
 			.unwrap_or_else(|| PathBuf::from(std::env::var("HOME").unwrap()).join(".tangram"));
 		let lock_path = path.join("lock");
 
@@ -421,306 +401,6 @@ impl Cli {
 
 		// If the server has still not exited, then return an error.
 		Err(tg::error!("failed to terminate the server"))
-	}
-
-	async fn client(args: &Args, config: Option<&Config>) -> tg::Result<Client> {
-		// Get the path.
-		let path = args
-			.path
-			.clone()
-			.or(config.and_then(|config| config.path.clone()))
-			.unwrap_or_else(|| PathBuf::from(std::env::var("HOME").unwrap()).join(".tangram"));
-
-		// Get the url.
-		let url = args
-			.url
-			.clone()
-			.or(config.and_then(|config| config.url.clone()))
-			.unwrap_or_else(|| {
-				let path = path.join("socket");
-				let path = path.to_str().unwrap();
-				let path = urlencoding::encode(path);
-				format!("http+unix://{path}").parse().unwrap()
-			});
-
-		// Create the client.
-		let client = tg::Client::new(url);
-
-		Ok(client)
-	}
-
-	async fn server(args: &Args, config: Option<&Config>) -> tg::Result<Server> {
-		// Get the path.
-		let path = args
-			.path
-			.clone()
-			.or(config.and_then(|config| config.path.clone()))
-			.unwrap_or_else(|| PathBuf::from(std::env::var("HOME").unwrap()).join(".tangram"));
-
-		// Get the url.
-		let url = args
-			.url
-			.clone()
-			.or(config.and_then(|config| config.url.clone()))
-			.unwrap_or_else(|| {
-				let path = path.join("socket");
-				let path = path.to_str().unwrap();
-				let path = urlencoding::encode(path);
-				format!("http+unix://{path}").parse().unwrap()
-			});
-
-		// Create the advanced options.
-		let build_dequeue_timeout = config
-			.and_then(|config| config.advanced.as_ref())
-			.and_then(|advanced| advanced.build_dequeue_timeout);
-		let error_trace_options = config
-			.and_then(|config| config.advanced.as_ref())
-			.and_then(|advanced| advanced.error_trace_options.clone())
-			.unwrap_or_default();
-		let file_descriptor_semaphore_size = config
-			.and_then(|config| config.advanced.as_ref())
-			.and_then(|advanced| advanced.file_descriptor_semaphore_size)
-			.unwrap_or(1024);
-		let preserve_temp_directories = config
-			.as_ref()
-			.and_then(|config| config.advanced.as_ref())
-			.and_then(|advanced| advanced.preserve_temp_directories)
-			.unwrap_or(false);
-		let write_build_logs_to_file = config
-			.and_then(|config| config.advanced.as_ref())
-			.and_then(|advanced| advanced.write_build_logs_to_database)
-			.unwrap_or(false);
-		let write_build_logs_to_stderr = config
-			.and_then(|config| config.advanced.as_ref())
-			.and_then(|advanced| advanced.duplicate_build_logs_to_stderr)
-			.unwrap_or(false);
-		let advanced = tangram_server::options::Advanced {
-			build_dequeue_timeout,
-			error_trace_options,
-			file_descriptor_semaphore_size,
-			preserve_temp_directories,
-			write_build_logs_to_database: write_build_logs_to_file,
-			write_build_logs_to_stderr,
-		};
-
-		// Create the authentication options.
-		let authentication = config
-			.and_then(|config| config.authentication.as_ref())
-			.map(|authentication| {
-				let providers =
-					authentication.providers.as_ref().map(|providers| {
-						let github = providers.github.as_ref().map(|client| {
-							tangram_server::options::Oauth {
-								auth_url: client.auth_url.clone(),
-								client_id: client.client_id.clone(),
-								client_secret: client.client_secret.clone(),
-								redirect_url: client.redirect_url.clone(),
-								token_url: client.token_url.clone(),
-							}
-						});
-						tangram_server::options::AuthenticationProviders { github }
-					});
-				tangram_server::options::Authentication { providers }
-			})
-			.unwrap_or_default();
-
-		// Create the build options.
-		let build = match config.and_then(|config| config.build.clone()) {
-			Some(Either::Left(false)) => None,
-			None | Some(Either::Left(true)) => Some(crate::config::Build::default()),
-			Some(Either::Right(value)) => Some(value),
-		};
-		let build = build.map(|build| {
-			let concurrency = build
-				.concurrency
-				.unwrap_or_else(|| std::thread::available_parallelism().unwrap().get());
-			let heartbeat_interval = build.heartbeat_interval.map_or(
-				std::time::Duration::from_secs(1),
-				std::time::Duration::from_secs_f64,
-			);
-			tangram_server::options::Build {
-				concurrency,
-				heartbeat_interval,
-			}
-		});
-
-		// Create the build heartbeat monitor options.
-		let build_heartbeat_monitor =
-			config.and_then(|config| config.build_heartbeat_monitor.clone());
-		let build_heartbeat_monitor = match build_heartbeat_monitor {
-			Some(Either::Left(false)) => None,
-			None | Some(Either::Left(true)) => {
-				Some(crate::config::BuildHeartbeatMonitor::default())
-			},
-			Some(Either::Right(config)) => Some(config),
-		};
-		let build_heartbeat_monitor = build_heartbeat_monitor.map(|config| {
-			let interval = config.interval.unwrap_or(1);
-			let limit = config.limit.unwrap_or(100);
-			let timeout = config.timeout.unwrap_or(60);
-			let interval = std::time::Duration::from_secs(interval);
-			let timeout = std::time::Duration::from_secs(timeout);
-			tangram_server::options::BuildHeartbeatMonitor {
-				interval,
-				limit,
-				timeout,
-			}
-		});
-
-		// Create the build indexer options.
-		let build_indexer = config.and_then(|config| config.build_indexer.clone());
-		let build_indexer = match build_indexer {
-			Some(Either::Left(false)) => None,
-			None | Some(Either::Left(true)) => Some(crate::config::BuildIndexer::default()),
-			Some(Either::Right(config)) => Some(config),
-		};
-		let build_indexer = build_indexer.map(|_| tangram_server::options::BuildIndexer {});
-
-		// Create the database options.
-		let database = config
-			.and_then(|config| config.database.as_ref())
-			.map_or_else(
-				|| {
-					tangram_server::options::Database::Sqlite(
-						tangram_server::options::SqliteDatabase {
-							connections: std::thread::available_parallelism().unwrap().get(),
-						},
-					)
-				},
-				|database| match database {
-					crate::config::Database::Sqlite(sqlite) => {
-						let connections = sqlite
-							.connections
-							.unwrap_or_else(|| std::thread::available_parallelism().unwrap().get());
-						tangram_server::options::Database::Sqlite(
-							tangram_server::options::SqliteDatabase { connections },
-						)
-					},
-					crate::config::Database::Postgres(postgres) => {
-						let url = postgres.url.clone();
-						let connections = postgres
-							.connections
-							.unwrap_or_else(|| std::thread::available_parallelism().unwrap().get());
-						tangram_server::options::Database::Postgres(
-							tangram_server::options::PostgresDatabase { url, connections },
-						)
-					},
-				},
-			);
-
-		// Create the messenger options.
-		let messenger = config
-			.and_then(|config| config.messenger.as_ref())
-			.map_or_else(
-				|| tangram_server::options::Messenger::Memory,
-				|messenger| match messenger {
-					crate::config::Messenger::Memory => tangram_server::options::Messenger::Memory,
-					crate::config::Messenger::Nats(nats) => {
-						let url = nats.url.clone();
-						tangram_server::options::Messenger::Nats(
-							tangram_server::options::NatsMessenger { url },
-						)
-					},
-				},
-			);
-
-		// Create the object indexer options.
-		let object_indexer = config.and_then(|config| config.object_indexer.clone());
-		let object_indexer = match object_indexer {
-			Some(Either::Left(false)) => None,
-			None | Some(Either::Left(true)) => Some(crate::config::ObjectIndexer::default()),
-			Some(Either::Right(config)) => Some(config),
-		};
-		let object_indexer = object_indexer.map(|_| tangram_server::options::ObjectIndexer {});
-
-		// Create the registry option.
-		let registry = match config.as_ref().and_then(|config| config.registry.as_ref()) {
-			Some(Either::Left(_)) => None,
-			Some(Either::Right(registry)) => Some(registry.clone()),
-			None => Some("default".to_owned()),
-		};
-
-		// Create the remote options.
-		let remotes = config
-			.and_then(|config| config.remotes.as_ref())
-			.map(|remotes| {
-				remotes
-					.iter()
-					.map(|remote| {
-						let build = remote.build.unwrap_or_default();
-						let url = remote.url.clone();
-						let client = tg::Client::new(url);
-						let name = remote.name.clone();
-						let remote = tangram_server::options::Remote {
-							build,
-							client,
-							name,
-						};
-						Ok::<_, tg::Error>(remote)
-					})
-					.collect()
-			})
-			.transpose()?;
-		let remotes = if let Some(remotes) = remotes {
-			remotes
-		} else {
-			let build = false;
-			let url = Url::parse("https://api.tangram.dev").unwrap();
-			let client = tg::Client::new(url);
-			let name = "default".to_owned();
-			let remote = tangram_server::options::Remote {
-				build,
-				client,
-				name,
-			};
-			vec![remote]
-		};
-
-		// Get the version.
-		let version = Some(Args::command().get_version().unwrap().to_owned());
-
-		// Create the vfs options.
-		let vfs = config.and_then(|config| config.vfs.clone());
-		let vfs = match vfs {
-			Some(Either::Left(false)) => None,
-			None | Some(Either::Left(true)) => Some(crate::config::Vfs::default()),
-			Some(Either::Right(config)) => Some(config),
-		};
-		let vfs = vfs.map(|config| {
-			let cache_ttl = config.cache_ttl.unwrap_or(10.0);
-			let cache_size = config.cache_size.unwrap_or(4096);
-			let database_connections = config.database_connections.unwrap_or(4);
-			tangram_server::options::Vfs {
-				cache_ttl,
-				cache_size,
-				database_connections,
-			}
-		});
-
-		// Create the options.
-		let options = tangram_server::Options {
-			advanced,
-			authentication,
-			build,
-			build_heartbeat_monitor,
-			build_indexer,
-			database,
-			messenger,
-			object_indexer,
-			path,
-			registry,
-			remotes,
-			url,
-			version,
-			vfs,
-		};
-
-		// Start the server.
-		let server = tangram_server::Server::start(options)
-			.await
-			.map_err(|source| tg::error!(!source, "failed to start the server"))?;
-
-		Ok(server)
 	}
 
 	// Run the command
@@ -878,11 +558,14 @@ impl Cli {
 			match &location.module {
 				tg::Module::Js(tg::module::Js::PackageArtifact(package_artifact))
 				| tg::Module::Ts(tg::module::Js::PackageArtifact(package_artifact)) => {
+					let client = self.client.lock().unwrap().clone();
 					let id = package_artifact.artifact.clone();
 					let artifact = tg::Artifact::with_id(id.clone());
-					let metadata = tg::package::try_get_metadata(&self.handle, &artifact)
-						.await
-						.ok();
+					let metadata = if let Some(client) = client {
+						tg::package::try_get_metadata(&client, &artifact).await.ok()
+					} else {
+						None
+					};
 					if let Some(metadata) = metadata {
 						let (name, version) = metadata
 							.map(|metadata| (metadata.name, metadata.version))

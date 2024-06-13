@@ -28,10 +28,12 @@ impl Cli {
 		current_depth: u32,
 		max_depth: Option<u32>,
 	) -> tg::Result<Tree> {
+		let client = self.client().await?;
+
 		// Get the build's metadata.
 		let id = build.id().clone();
 		let status = build
-			.status(&self.handle)
+			.status(&client)
 			.await
 			.map_err(|source| tg::error!(!source, %id, "failed to get the build's status"))?
 			.next()
@@ -39,11 +41,11 @@ impl Cli {
 			.unwrap()
 			.map_err(|source| tg::error!(!source, %id, "failed to get the build's status"))?;
 		let target = build
-			.target(&self.handle)
+			.target(&client)
 			.await
 			.map_err(|source| tg::error!(!source, %id, "failed to get the build's target"))?;
 		let package = target
-			.package(&self.handle)
+			.package(&client)
 			.await
 			.map_err(|source| tg::error!(!source, %target, "failed to get the target's package"))?;
 
@@ -57,7 +59,7 @@ impl Cli {
 				write!(title, "{}", "⠿ ".blue()).unwrap();
 			},
 			tg::build::Status::Finished => {
-				let outcome = build.outcome(&self.handle).await.map_err(
+				let outcome = build.outcome(&client).await.map_err(
 					|source| tg::error!(!source, %id, "failed to get the build outcome"),
 				)?;
 				match outcome {
@@ -75,8 +77,7 @@ impl Cli {
 		}
 		write!(title, "{} ", id.to_string().blue()).unwrap();
 		if let Some(package) = package {
-			if let Ok(metadata) =
-				tg::package::get_metadata(&self.handle, &package.clone().into()).await
+			if let Ok(metadata) = tg::package::get_metadata(&client, &package.clone().into()).await
 			{
 				if let Some(name) = metadata.name {
 					write!(title, "{}", name.magenta()).unwrap();
@@ -97,7 +98,7 @@ impl Cli {
 		let children = if children {
 			let arg = tg::build::children::get::Arg::default();
 			build
-				.children(&self.handle, arg)
+				.children(&client, arg)
 				.await
 				.map_err(|source| tg::error!(!source, %id, "failed to get the build's children"))?
 				.map(|child| async move {

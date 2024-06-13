@@ -2,7 +2,6 @@ use crate::Cli;
 use futures::StreamExt as _;
 use std::path::PathBuf;
 use tangram_client as tg;
-use tg::Handle;
 
 /// Check out an artifact.
 #[derive(Clone, Debug, clap::Args)]
@@ -29,6 +28,8 @@ pub struct Args {
 
 impl Cli {
 	pub async fn command_artifact_checkout(&self, args: Args) -> tg::Result<()> {
+		let client = self.client().await?;
+
 		// Get the path.
 		let path = if let Some(path) = args.path {
 			let current = std::env::current_dir()
@@ -60,8 +61,7 @@ impl Cli {
 			path,
 			references: true,
 		};
-		let mut stream = self
-			.handle
+		let mut stream = client
 			.check_out_artifact(&args.artifact, arg)
 			.await
 			.map_err(|source| tg::error!(!source, "failed to create check out stream"))?

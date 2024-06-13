@@ -13,10 +13,11 @@ pub struct Args {
 
 impl Cli {
 	pub async fn command_blob_decompress(&self, args: Args) -> tg::Result<()> {
+		let client = self.client().await?;
 		let blob = tg::Blob::with_id(args.blob);
 		let format = args.format;
 		let target = blob.decompress_target(format);
-		let target = target.id(&self.handle).await?;
+		let target = target.id(&client).await?;
 		let args = crate::target::build::Args {
 			inner: crate::target::build::InnerArgs {
 				target: Some(target),

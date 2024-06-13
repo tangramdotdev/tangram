@@ -1,7 +1,6 @@
 use crate::Cli;
 use either::Either;
 use tangram_client as tg;
-use tg::Handle as _;
 
 /// Put a root.
 #[derive(Clone, Debug, clap::Args)]
@@ -19,13 +18,14 @@ pub enum Arg {
 
 impl Cli {
 	pub async fn command_root_put(&self, args: Args) -> tg::Result<()> {
+		let client = self.client().await?;
 		let name = args.name;
 		let item = match args.arg {
 			Arg::Build(build) => Either::Left(build),
 			Arg::Object(object) => Either::Right(object),
 		};
 		let arg = tg::root::put::Arg { item };
-		self.handle.put_root(&name, arg).await?;
+		client.put_root(&name, arg).await?;
 		Ok(())
 	}
 }

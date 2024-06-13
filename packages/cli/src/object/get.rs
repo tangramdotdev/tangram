@@ -1,7 +1,6 @@
 use crate::Cli;
 use crossterm::tty::IsTty;
-use tangram_client as tg;
-use tg::Handle as _;
+use tangram_client::{self as tg, Handle as _};
 use tokio::io::AsyncWriteExt as _;
 
 /// Get an object.
@@ -13,7 +12,8 @@ pub struct Args {
 
 impl Cli {
 	pub async fn command_object_get(&self, args: Args) -> tg::Result<()> {
-		let tg::object::get::Output { bytes, .. } = self.handle.get_object(&args.object).await?;
+		let client = self.client().await?;
+		let tg::object::get::Output { bytes, .. } = client.get_object(&args.object).await?;
 		let mut stdout = tokio::io::stdout();
 		if stdout.is_tty() && !matches!(args.object, tg::object::Id::Leaf(_)) {
 			let json = serde_json::from_slice::<serde_json::Value>(&bytes)

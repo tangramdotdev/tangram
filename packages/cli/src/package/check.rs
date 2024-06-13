@@ -1,6 +1,5 @@
 use crate::Cli;
 use tangram_client as tg;
-use tg::Handle as _;
 
 /// Check a package.
 #[derive(Clone, Debug, clap::Args)]
@@ -16,6 +15,8 @@ pub struct Args {
 
 impl Cli {
 	pub async fn command_package_check(&self, mut args: Args) -> tg::Result<()> {
+		let client = self.client().await?;
+
 		// Canonicalize the package path.
 		if let Some(path) = args.package.path.as_mut() {
 			*path = tokio::fs::canonicalize(&path)
@@ -28,7 +29,7 @@ impl Cli {
 		let arg = tg::package::check::Arg {
 			locked: args.locked,
 		};
-		let output = self.handle.check_package(&args.package, arg).await?;
+		let output = client.check_package(&args.package, arg).await?;
 
 		// Print the diagnostics.
 		for diagnostic in &output.diagnostics {

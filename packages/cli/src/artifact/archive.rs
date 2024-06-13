@@ -13,10 +13,11 @@ pub struct Args {
 
 impl Cli {
 	pub async fn command_artifact_archive(&self, args: Args) -> tg::Result<()> {
+		let client = self.client().await?;
 		let artifact = tg::Artifact::with_id(args.artifact);
 		let format = args.format;
 		let target = artifact.archive_target(format);
-		let target = target.id(&self.handle).await?;
+		let target = target.id(&client).await?;
 		let args = crate::target::build::Args {
 			inner: crate::target::build::InnerArgs {
 				target: Some(target),

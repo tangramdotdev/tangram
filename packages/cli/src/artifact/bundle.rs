@@ -10,9 +10,10 @@ pub struct Args {
 
 impl Cli {
 	pub async fn command_artifact_bundle(&self, args: Args) -> tg::Result<()> {
+		let client = self.client().await?;
 		let artifact = tg::Artifact::with_id(args.artifact);
 		let target = artifact.bundle_target();
-		let target = target.id(&self.handle).await?;
+		let target = target.id(&client).await?;
 		let args = crate::target::build::Args {
 			inner: crate::target::build::InnerArgs {
 				target: Some(target),

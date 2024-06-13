@@ -37,6 +37,7 @@ pub enum Arg {
 
 impl Cli {
 	pub async fn command_checksum(&self, args: Args) -> tg::Result<()> {
+		let client = self.client().await?;
 		let arg = if let Some(artifact) = args.artifact {
 			Arg::Artifact(artifact)
 		} else if let Some(blob) = args.blob {
@@ -85,7 +86,7 @@ impl Cli {
 					.executable(tg::Artifact::from(executable))
 					.args(args)
 					.build();
-				let target = target.id(&self.handle).await?;
+				let target = target.id(&client).await?;
 				let args = crate::target::build::Args {
 					inner: crate::target::build::InnerArgs {
 						target: Some(target),

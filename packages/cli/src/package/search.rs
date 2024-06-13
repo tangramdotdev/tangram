@@ -1,6 +1,5 @@
 use crate::Cli;
 use tangram_client as tg;
-use tg::Handle as _;
 
 /// Search for packages.
 #[derive(Clone, Debug, clap::Args)]
@@ -15,6 +14,8 @@ pub struct Args {
 
 impl Cli {
 	pub async fn command_package_search(&self, args: Args) -> tg::Result<()> {
+		let client = self.client().await?;
+
 		// List the packages.
 		let remote = args
 			.remote
@@ -23,7 +24,7 @@ impl Cli {
 			query: Some(args.query),
 			remote,
 		};
-		let packages = self.handle.list_packages(arg).await?;
+		let packages = client.list_packages(arg).await?;
 
 		// Print the package names.
 		if packages.is_empty() {

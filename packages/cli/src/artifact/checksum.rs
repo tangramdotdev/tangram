@@ -13,10 +13,11 @@ pub struct Args {
 
 impl Cli {
 	pub async fn command_artifact_checksum(&self, args: Args) -> tg::Result<()> {
+		let client = self.client().await?;
 		let artifact = tg::Artifact::with_id(args.artifact);
 		let algorithm = args.algorithm;
 		let target = artifact.checksum_target(algorithm);
-		let target = target.id(&self.handle).await?;
+		let target = target.id(&client).await?;
 		let args = crate::target::build::Args {
 			inner: crate::target::build::InnerArgs {
 				target: Some(target),

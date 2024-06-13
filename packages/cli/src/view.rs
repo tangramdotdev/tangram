@@ -35,6 +35,8 @@ pub enum Arg {
 
 impl Cli {
 	pub async fn command_view(&self, args: Args) -> tg::Result<()> {
+		let client = self.client().await?;
+
 		let arg = if let Some(arg) = args.build {
 			Arg::Build(arg)
 		} else if let Some(arg) = args.object {
@@ -67,12 +69,9 @@ impl Cli {
 				}
 
 				// Create the package and lock.
-				let (package, lock) =
-					tg::package::get_with_lock(&self.handle, &dependency, args.locked)
-						.await
-						.map_err(|source| {
-							tg::error!(!source, "failed to get the package and lock")
-						})?;
+				let (package, lock) = tg::package::get_with_lock(&client, &dependency, args.locked)
+					.await
+					.map_err(|source| tg::error!(!source, "failed to get the package and lock"))?;
 
 				let path = dependency.path.clone();
 				tui::Item::Package {
@@ -85,7 +84,7 @@ impl Cli {
 		};
 
 		// Start the TUI.
-		let tui = tui::Tui::start(&self.handle, item).await?;
+		let tui = tui::Tui::start(&client, item).await?;
 
 		// Wait for the TUI to finish.
 		tui.wait().await?;

@@ -12,13 +12,16 @@ pub struct Args {
 
 impl Cli {
 	pub async fn command_package_get(&self, args: Args) -> tg::Result<()> {
+		let client = self.client().await?;
+
+		// Get the package.
 		let arg = tg::package::get::Arg {
 			metadata: true,
 			yanked: true,
 			path: true,
 			..Default::default()
 		};
-		let output = self.handle.get_package(&args.package, arg).await.map_err(
+		let output = client.get_package(&args.package, arg).await.map_err(
 			|error| tg::error!(source = error, %dependency = args.package, "failed to get the package"),
 		)?;
 

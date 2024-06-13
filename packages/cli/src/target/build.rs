@@ -8,7 +8,6 @@ use futures::TryStreamExt as _;
 use itertools::Itertools as _;
 use std::path::PathBuf;
 use tangram_client as tg;
-use tg::Handle as _;
 
 /// Build a target.
 #[derive(Clone, Debug, clap::Args)]
@@ -129,6 +128,8 @@ impl Cli {
 		args: InnerArgs,
 		detach: bool,
 	) -> tg::Result<Option<InnerOutput>> {
+		let client = self.client().await?;
+
 		// Get the arg.
 		let arg = if let Some(specifier) = args.specifier {
 			Arg::Specifier(specifier)
@@ -153,12 +154,11 @@ impl Cli {
 
 				// Create the package.
 				let (package, lock) =
-					tg::package::get_with_lock(&self.handle, &specifier.dependency, args.locked)
-						.await?;
+					tg::package::get_with_lock(&client, &specifier.dependency, args.locked).await?;
 
 				// Create the target.
 				let host = "js";
-				let path = tg::package::get_root_module_path(&self.handle, &package).await?;
+				let path = tg::package::get_root_module_path(&client, &package).await?;
 				let executable = tg::Symlink::new(Some(package), Some(path));
 				let mut args_: Vec<tg::Value> = args
 					.arg
@@ -217,11 +217,11 @@ impl Cli {
 		eprintln!(
 			"{} target {}",
 			"info".blue().bold(),
-			target.id(&self.handle).await?
+			target.id(&client).await?
 		);
 
 		// Build the target.
-		let id = target.id(&self.handle).await?;
+		let id = target.id(&client).await?;
 		let remote = args
 			.remote
 			.map(|remote| remote.unwrap_or_else(|| "default".to_owned()));
@@ -231,14 +231,14 @@ impl Cli {
 			remote: remote.clone(),
 			retry,
 		};
-		let output = self.handle.build_target(&id, arg).await?;
+		let output = client.build_target(&id, arg).await?;
 		let build = tg::Build::with_id(output.build);
 
 		// Add the root if requested.
 		if let Some(name) = args.root {
 			let item = Either::Left(build.id().clone());
 			let arg = tg::root::put::Arg { item };
-			self.handle.put_root(&name, arg).await?;
+			client.put_root(&name, arg).await?;
 		}
 
 		// If the detach flag is set, then print the build and exit.
@@ -252,7 +252,7 @@ impl Cli {
 
 		// Get the build's status.
 		let status = build
-			.status(&self.handle)
+			.status(&client)
 			.await?
 			.try_next()
 			.await?
@@ -261,7 +261,7 @@ impl Cli {
 		// If the build is finished, then get the build's outcome.
 		let outcome = if status == tg::build::Status::Finished {
 			let outcome = build
-				.outcome(&self.handle)
+				.outcome(&client)
 				.await
 				.map_err(|source| tg::error!(!source, "failed to get the outcome"))?;
 			Some(outcome)
@@ -280,14 +280,14 @@ impl Cli {
 						build: build.clone(),
 						remote: remote.clone(),
 					};
-					Tui::start(&self.handle, item).await.ok()
+					Tui::start(&client, item).await.ok()
 				},
 				View::None => None,
 			};
 
 			// Spawn a task to attempt to cancel the build on the first interrupt signal and exit the process on the second.
 			tokio::spawn({
-				let handle = self.handle.clone();
+				let handle = client.clone();
 				let build = build.clone();
 				async move {
 					tokio::signal::ctrl_c().await.unwrap();
@@ -302,7 +302,7 @@ impl Cli {
 			});
 
 			// Wait for the build's outcome.
-			let outcome = build.outcome(&self.handle).await;
+			let outcome = build.outcome(&client).await;
 
 			// Stop the TUI.
 			if let Some(tui) = tui {
@@ -355,7 +355,7 @@ impl Cli {
 				references: true,
 			};
 			let output = artifact
-				.check_out(&self.handle, arg)
+				.check_out(&client, arg)
 				.await
 				.map_err(|source| tg::error!(!source, "failed to check out the artifact"))?;
 

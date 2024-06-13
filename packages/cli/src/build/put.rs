@@ -1,6 +1,6 @@
 use crate::Cli;
 use tangram_client as tg;
-use tg::Handle as _;
+
 use tokio::io::AsyncReadExt as _;
 
 // Put a build.
@@ -12,6 +12,7 @@ pub struct Args {
 
 impl Cli {
 	pub async fn command_build_put(&self, args: Args) -> tg::Result<()> {
+		let client = self.client().await?;
 		let arg = if let Some(arg) = args.arg {
 			arg
 		} else {
@@ -24,7 +25,7 @@ impl Cli {
 		};
 		let arg: tg::build::put::Arg = serde_json::from_str(&arg)
 			.map_err(|source| tg::error!(!source, "failed to deseralize"))?;
-		self.handle.put_build(&arg.id.clone(), arg.clone()).await?;
+		client.put_build(&arg.id.clone(), arg.clone()).await?;
 		Ok(())
 	}
 }

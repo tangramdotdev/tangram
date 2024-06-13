@@ -1,6 +1,5 @@
 use crate::Cli;
 use tangram_client as tg;
-use tg::Handle as _;
 
 /// Cancel a build.
 #[derive(Clone, Debug, clap::Args)]
@@ -15,6 +14,7 @@ pub struct Args {
 
 impl Cli {
 	pub async fn command_build_cancel(&self, args: Args) -> tg::Result<()> {
+		let client = self.client().await?;
 		let remote = args
 			.remote
 			.map(|remote| remote.unwrap_or_else(|| "default".to_owned()));
@@ -22,7 +22,7 @@ impl Cli {
 			outcome: tg::build::outcome::Data::Canceled,
 			remote,
 		};
-		self.handle.finish_build(&args.build, arg).await?;
+		client.finish_build(&args.build, arg).await?;
 		Ok(())
 	}
 }

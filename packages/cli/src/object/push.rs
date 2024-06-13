@@ -1,7 +1,6 @@
 use crate::Cli;
 use futures::StreamExt as _;
 use tangram_client as tg;
-use tg::Handle as _;
 
 /// Push an object.
 #[derive(Clone, Debug, clap::Args)]
@@ -15,10 +14,12 @@ pub struct Args {
 
 impl Cli {
 	pub async fn command_object_push(&self, args: Args) -> tg::Result<()> {
+		let client = self.client().await?;
+
 		// Push the object.
 		let remote = args.remote.unwrap_or_else(|| "default".to_owned());
 		let arg = tg::object::push::Arg { remote };
-		let mut stream = self.handle.push_object(&args.object, arg).await?.boxed();
+		let mut stream = client.push_object(&args.object, arg).await?.boxed();
 
 		// Create the progress bar.
 		let objects_progress_bar = indicatif::ProgressBar::new_spinner();

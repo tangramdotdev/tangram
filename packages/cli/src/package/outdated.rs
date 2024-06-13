@@ -2,7 +2,7 @@ use crate::Cli;
 use crossterm::style::Stylize as _;
 use itertools::Itertools as _;
 use std::collections::VecDeque;
-use tangram_client::{self as tg, Handle as _};
+use tangram_client as tg;
 
 /// Get a package's outdated dependencies.
 #[derive(Clone, Debug, clap::Args)]
@@ -23,6 +23,8 @@ pub struct Args {
 
 impl Cli {
 	pub async fn command_package_outdated(&self, mut args: Args) -> tg::Result<()> {
+		let client = self.client().await?;
+
 		// Canonicalize the path.
 		if let Some(path) = args.package.path.as_mut() {
 			*path = tokio::fs::canonicalize(&path)
@@ -35,8 +37,7 @@ impl Cli {
 		let arg = tg::package::outdated::Arg {
 			locked: args.locked,
 		};
-		let outdated = self
-			.handle
+		let outdated = client
 			.get_package_outdated(&args.package, arg)
 			.await
 			.map_err(

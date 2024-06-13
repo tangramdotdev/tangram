@@ -29,6 +29,7 @@ impl Cli {
 		current_depth: u32,
 		max_depth: Option<u32>,
 	) -> tg::Result<Tree> {
+		let client = self.client().await?;
 		let title = match &object {
 			tg::object::Id::Leaf(id) => id.to_string().green(),
 			tg::object::Id::Branch(id) => id.to_string().blue(),
@@ -40,7 +41,7 @@ impl Cli {
 		};
 		let title = title.to_string();
 		let children = tg::Object::with_id(object.clone())
-			.data(&self.handle)
+			.data(&client)
 			.await
 			.map_err(|source| tg::error!(!source, %object, "failed to get the object data"))?
 			.children();

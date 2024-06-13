@@ -1,6 +1,6 @@
 use crate::Cli;
 use crossterm::style::Stylize as _;
-use tangram_client::{self as tg, Handle as _};
+use tangram_client as tg;
 
 /// Yank a package.
 #[derive(Clone, Debug, clap::Args)]
@@ -16,6 +16,8 @@ pub struct Args {
 
 impl Cli {
 	pub async fn command_package_yank(&self, args: Args) -> tg::Result<()> {
+		let client = self.client().await?;
+
 		let mut dependency = args.package;
 
 		// Canonicalize the path.
@@ -34,25 +36,25 @@ impl Cli {
 		}
 
 		// Create the package.
-		let package = tg::package::get(&self.handle, &dependency)
+		let package = tg::package::get(&client, &dependency)
 			.await
 			.map_err(|source| tg::error!(!source, %dependency, "failed to get the package"))?;
 
 		// Get the package ID.
-		let id = package.id(&self.handle).await?;
+		let id = package.id(&client).await?;
 
 		// Yank the package.
 		let remote = args
 			.remote
 			.map(|remote| remote.unwrap_or_else(|| "default".to_owned()));
 		let arg = tg::package::yank::Arg { remote };
-		self.handle
+		client
 			.yank_package(&id, arg)
 			.await
 			.map_err(|source| tg::error!(!source, "failed to yank the package"))?;
 
 		// Get the package metadata
-		let metadata = tg::package::get_metadata(&self.handle, &package).await?;
+		let metadata = tg::package::get_metadata(&client, &package).await?;
 		println!(
 			"{} {} {}@{}",
 			"info".blue().bold(),

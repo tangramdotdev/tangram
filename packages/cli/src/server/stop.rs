@@ -8,7 +8,7 @@ pub struct Args {}
 
 impl Cli {
 	pub async fn command_server_stop(&self, _args: Args) -> tg::Result<()> {
-		Self::stop_server(&self.args, self.config.as_ref()).await?;
+		self.stop_server().await?;
 		Ok(())
 	}
 }

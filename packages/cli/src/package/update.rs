@@ -11,6 +11,8 @@ pub struct Args {
 
 impl Cli {
 	pub async fn command_package_update(&self, args: Args) -> tg::Result<()> {
+		let client = self.client().await?;
+
 		let mut dependency = tg::Dependency::with_path(args.path);
 
 		// Canonicalize the path.
@@ -24,7 +26,7 @@ impl Cli {
 				.ok();
 		}
 
-		let _ = tg::package::get_with_lock(&self.handle, &dependency, false)
+		let _ = tg::package::get_with_lock(&client, &dependency, false)
 			.await
 			.map_err(|source| tg::error!(!source, %dependency, "failed to create a new lock"))?;
 

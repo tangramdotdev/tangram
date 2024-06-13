@@ -1,7 +1,6 @@
-use crate::Mode;
 use either::Either;
 use serde_with::serde_as;
-use std::path::PathBuf;
+use std::{collections::BTreeMap, path::PathBuf};
 use tangram_client as tg;
 use url::Url;
 
@@ -48,9 +47,6 @@ pub struct Config {
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub messenger: Option<Messenger>,
 
-	/// This setting controls whether the CLI runs as a client or a server. When set to `auto`, the CLI will run as a client and start a separate server process if the connection fails or the server's version does not match. If the command is `tg server run`, the mode is set to `server`.
-	pub mode: Option<Mode>,
-
 	/// Configure the object indexer.
 	#[serde(
 		default,
@@ -73,7 +69,7 @@ pub struct Config {
 
 	/// Configure remotes.
 	#[serde(default, skip_serializing_if = "Option::is_none")]
-	pub remotes: Option<Vec<Remote>>,
+	pub remotes: Option<BTreeMap<String, Remote>>,
 
 	/// Configure tracing.
 	#[serde(default, skip_serializing_if = "Option::is_none")]
@@ -219,9 +215,6 @@ pub struct ObjectIndexer {}
 
 #[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
 pub struct Remote {
-	/// The remote's name.
-	pub name: String,
-
 	/// The server's url.
 	pub url: Url,
 
