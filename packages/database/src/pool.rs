@@ -99,7 +99,10 @@ impl<T> Drop for Guard<T> {
 		let value = self.value.take().unwrap();
 		if let Some(pending) = self.pending.lock().unwrap().pop() {
 			// First, try and wake the highest priority item.
-			pending.send.send(value).ok();
+			if let Err(value) = pending.send.send(value) {
+				// If the receiver dropped, make sure to emplace to the back of the queue so panics don't starve connections.
+				self.sender.try_send(value).ok();
+			}
 		} else {
 			// Otherwise send along the channel.
 			self.sender.try_send(value).ok();
