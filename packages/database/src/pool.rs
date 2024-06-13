@@ -1,14 +1,20 @@
-use std::{collections::BinaryHeap, sync::Arc};
+use std::{
+	collections::BinaryHeap,
+	sync::{Arc, Mutex},
+};
 
 pub struct Pool<T> {
-	pending: Arc<std::sync::Mutex<BinaryHeap<Pending<T>>>>,
-	sender: async_channel::Sender<T>,
-	receiver: async_channel::Receiver<T>,
+	state: Arc<std::sync::Mutex<State<T>>>,
 }
 
-struct Pending<T> {
+struct State<T> {
+	requests: BinaryHeap<Request<T>>,
+	values: Vec<T>,
+}
+
+struct Request<T> {
 	priority: Priority,
-	send: tokio::sync::oneshot::Sender<T>,
+	sender: tokio::sync::oneshot::Sender<T>,
 }
 
 #[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord)]
@@ -19,45 +25,50 @@ pub enum Priority {
 
 pub struct Guard<T> {
 	value: Option<T>,
-	sender: async_channel::Sender<T>,
-	pending: Arc<std::sync::Mutex<BinaryHeap<Pending<T>>>>,
+	pool: Pool<T>,
 }
 
 impl<T> Pool<T> {
 	#[must_use]
 	pub fn new() -> Self {
-		let pending = Arc::new(std::sync::Mutex::new(BinaryHeap::new()));
-		let (sender, receiver) = async_channel::unbounded();
-		Self {
-			pending,
-			sender,
-			receiver,
-		}
+		let state = State {
+			requests: BinaryHeap::new(),
+			values: Vec::new(),
+		};
+		let state = Arc::new(Mutex::new(state));
+		Self { state }
 	}
 
 	pub fn add(&self, value: T) {
-		self.sender.try_send(value).unwrap();
+		let mut state = self.state.lock().unwrap();
+		if let Some(request) = state.requests.pop() {
+			let result = request.sender.send(value);
+			if let Err(value) = result {
+				state.values.push(value);
+			}
+		} else {
+			state.values.push(value);
+		}
 	}
 
 	pub async fn get(&self, priority: Priority) -> Guard<T> {
-		// First, try and receive from the channel.
-		if let Ok(value) = self.receiver.try_recv() {
-			return Guard {
-				value: Some(value),
-				sender: self.sender.clone(),
-				pending: self.pending.clone(),
-			};
-		}
-
-		// Otherwise create a pending object with priority.
-		let (send, recv) = tokio::sync::oneshot::channel();
-		let pending = Pending { priority, send };
-		self.pending.lock().unwrap().push(pending);
-		let value = recv.await.unwrap();
+		let receiver = {
+			let mut state = self.state.lock().unwrap();
+			if let Some(value) = state.values.pop() {
+				return Guard {
+					value: Some(value),
+					pool: self.clone(),
+				};
+			}
+			let (sender, receiver) = tokio::sync::oneshot::channel();
+			let request = Request { priority, sender };
+			state.requests.push(request);
+			receiver
+		};
+		let value = receiver.await.unwrap();
 		Guard {
 			value: Some(value),
-			sender: self.sender.clone(),
-			pending: self.pending.clone(),
+			pool: self.clone(),
 		}
 	}
 }
@@ -65,6 +76,14 @@ impl<T> Pool<T> {
 impl<T> Default for Pool<T> {
 	fn default() -> Self {
 		Self::new()
+	}
+}
+
+impl<T> Clone for Pool<T> {
+	fn clone(&self) -> Self {
+		Self {
+			state: self.state.clone(),
+		}
 	}
 }
 
@@ -97,34 +116,33 @@ impl<T> AsMut<T> for Guard<T> {
 impl<T> Drop for Guard<T> {
 	fn drop(&mut self) {
 		let value = self.value.take().unwrap();
-		if let Some(pending) = self.pending.lock().unwrap().pop() {
-			// First, try and wake the highest priority item.
-			if let Err(value) = pending.send.send(value) {
-				// If the receiver dropped, make sure to emplace to the back of the queue so panics don't starve connections.
-				self.sender.try_send(value).ok();
+		let mut state = self.pool.state.lock().unwrap();
+		if let Some(request) = state.requests.pop() {
+			let result = request.sender.send(value);
+			if let Err(value) = result {
+				state.values.push(value);
 			}
 		} else {
-			// Otherwise send along the channel.
-			self.sender.try_send(value).ok();
+			state.values.push(value);
 		}
 	}
 }
 
-impl<T> PartialEq for Pending<T> {
+impl<T> PartialEq for Request<T> {
 	fn eq(&self, other: &Self) -> bool {
 		self.priority == other.priority
 	}
 }
 
-impl<T> Eq for Pending<T> {}
+impl<T> Eq for Request<T> {}
 
-impl<T> PartialOrd for Pending<T> {
+impl<T> PartialOrd for Request<T> {
 	fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
 		Some(self.priority.cmp(&other.priority))
 	}
 }
 
-impl<T> Ord for Pending<T> {
+impl<T> Ord for Request<T> {
 	fn cmp(&self, other: &Self) -> std::cmp::Ordering {
 		self.partial_cmp(other).unwrap()
 	}
