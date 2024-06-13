@@ -1,6 +1,6 @@
 #!/bin/sh
 rm -rf release && mkdir release
-TANGRAM_CLI_COMMIT_HASH=$(git rev-parse HEAD)
+TANGRAM_CLI_COMMIT_HASH=$(git rev-parse HEAD) \
 cargo build --release \
 	--target aarch64-apple-darwin \
 	--target aarch64-unknown-linux-gnu \
