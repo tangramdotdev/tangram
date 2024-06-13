@@ -1,5 +1,5 @@
 use crate::{
-	pool::{self, Pool},
+	pool::{self, Pool, Priority},
 	Error as _, Row, Value,
 };
 use futures::{stream, Future, Stream};
@@ -225,8 +225,8 @@ impl super::Database for Database {
 
 	type T = pool::Guard<Connection>;
 
-	async fn connection(&self) -> Result<Self::T, Self::Error> {
-		Ok(self.pool.get().await)
+	async fn connection(&self, priority: Priority) -> Result<Self::T, Self::Error> {
+		Ok(self.pool.get(priority).await)
 	}
 }
 

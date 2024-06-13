@@ -1,30 +1,74 @@
+use std::{
+	collections::BinaryHeap,
+	sync::{Arc, Mutex},
+};
+
 pub struct Pool<T> {
-	sender: async_channel::Sender<T>,
-	receiver: async_channel::Receiver<T>,
+	state: Arc<std::sync::Mutex<State<T>>>,
+}
+
+struct State<T> {
+	requests: BinaryHeap<Request<T>>,
+	values: Vec<T>,
+}
+
+struct Request<T> {
+	priority: Priority,
+	sender: tokio::sync::oneshot::Sender<T>,
+}
+
+#[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord)]
+pub enum Priority {
+	Low,
+	High,
 }
 
 pub struct Guard<T> {
 	value: Option<T>,
-	sender: async_channel::Sender<T>,
+	pool: Pool<T>,
 }
 
 impl<T> Pool<T> {
 	#[must_use]
 	pub fn new() -> Self {
-		let (sender, receiver) = async_channel::unbounded();
-		Self { sender, receiver }
+		let state = State {
+			requests: BinaryHeap::new(),
+			values: Vec::new(),
+		};
+		let state = Arc::new(Mutex::new(state));
+		Self { state }
 	}
 
 	pub fn add(&self, value: T) {
-		self.sender.try_send(value).unwrap();
+		let mut state = self.state.lock().unwrap();
+		if let Some(request) = state.requests.pop() {
+			let result = request.sender.send(value);
+			if let Err(value) = result {
+				state.values.push(value);
+			}
+		} else {
+			state.values.push(value);
+		}
 	}
 
-	pub async fn get(&self) -> Guard<T> {
-		let value = self.receiver.recv().await.unwrap();
-		let sender = self.sender.clone();
+	pub async fn get(&self, priority: Priority) -> Guard<T> {
+		let receiver = {
+			let mut state = self.state.lock().unwrap();
+			if let Some(value) = state.values.pop() {
+				return Guard {
+					value: Some(value),
+					pool: self.clone(),
+				};
+			}
+			let (sender, receiver) = tokio::sync::oneshot::channel();
+			let request = Request { priority, sender };
+			state.requests.push(request);
+			receiver
+		};
+		let value = receiver.await.unwrap();
 		Guard {
 			value: Some(value),
-			sender,
+			pool: self.clone(),
 		}
 	}
 }
@@ -32,6 +76,14 @@ impl<T> Pool<T> {
 impl<T> Default for Pool<T> {
 	fn default() -> Self {
 		Self::new()
+	}
+}
+
+impl<T> Clone for Pool<T> {
+	fn clone(&self) -> Self {
+		Self {
+			state: self.state.clone(),
+		}
 	}
 }
 
@@ -64,6 +116,34 @@ impl<T> AsMut<T> for Guard<T> {
 impl<T> Drop for Guard<T> {
 	fn drop(&mut self) {
 		let value = self.value.take().unwrap();
-		self.sender.try_send(value).ok();
+		let mut state = self.pool.state.lock().unwrap();
+		if let Some(request) = state.requests.pop() {
+			let result = request.sender.send(value);
+			if let Err(value) = result {
+				state.values.push(value);
+			}
+		} else {
+			state.values.push(value);
+		}
+	}
+}
+
+impl<T> PartialEq for Request<T> {
+	fn eq(&self, other: &Self) -> bool {
+		self.priority == other.priority
+	}
+}
+
+impl<T> Eq for Request<T> {}
+
+impl<T> PartialOrd for Request<T> {
+	fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
+		Some(self.priority.cmp(&other.priority))
+	}
+}
+
+impl<T> Ord for Request<T> {
+	fn cmp(&self, other: &Self) -> std::cmp::Ordering {
+		self.partial_cmp(other).unwrap()
 	}
 }

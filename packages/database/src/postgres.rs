@@ -1,5 +1,5 @@
 use crate::{
-	pool::{self, Pool},
+	pool::{self, Pool, Priority},
 	Row, Value,
 };
 use futures::{future, Future, Stream, TryStreamExt as _};
@@ -110,8 +110,8 @@ impl super::Database for Database {
 
 	type T = pool::Guard<Connection>;
 
-	async fn connection(&self) -> Result<Self::T, Self::Error> {
-		let mut connection = self.pool.get().await;
+	async fn connection(&self, priority: Priority) -> Result<Self::T, Self::Error> {
+		let mut connection = self.pool.get(priority).await;
 		if connection.client.is_closed() {
 			connection.reconnect().await?;
 		}

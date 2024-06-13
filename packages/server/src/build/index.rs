@@ -21,7 +21,7 @@ impl Server {
 
 		loop {
 			// Attempt to get a build to index.
-			let connection = match self.database.connection().await {
+			let connection = match self.database.connection(db::Priority::Low).await {
 				Ok(connection) => connection,
 				Err(error) => {
 					tracing::error!(?error, "failed to get a database connection");
@@ -154,7 +154,7 @@ impl Server {
 		// Get a database connection.
 		let connection = self
 			.database
-			.connection()
+			.connection(db::Priority::Low)
 			.await
 			.map_err(|source| tg::error!(!source, "failed to get a database connection"))?;
 
@@ -200,7 +200,7 @@ impl Server {
 			// Get a database connection.
 			let connection = self
 				.database
-				.connection()
+				.connection(db::Priority::Low)
 				.await
 				.map_err(|source| tg::error!(!source, "failed to get a database connection"))?;
 
@@ -239,7 +239,7 @@ impl Server {
 			// Get a database connection.
 			let connection = self
 				.database
-				.connection()
+				.connection(db::Priority::Low)
 				.await
 				.map_err(|source| tg::error!(!source, "failed to get a database connection"))?;
 
@@ -283,10 +283,11 @@ impl Server {
 			// Set the count if possible.
 			if let Some(count) = count {
 				// Get a database connection.
-				let connection =
-					self.database.connection().await.map_err(|source| {
-						tg::error!(!source, "failed to get a database connection")
-					})?;
+				let connection = self
+					.database
+					.connection(db::Priority::Low)
+					.await
+					.map_err(|source| tg::error!(!source, "failed to get a database connection"))?;
 
 				// Set the count and weight.
 				let p = connection.p();
@@ -323,10 +324,11 @@ impl Server {
 			// Set the logs count if possible.
 			if count.is_some() {
 				// Get a database connection.
-				let connection =
-					self.database.connection().await.map_err(|source| {
-						tg::error!(!source, "failed to get a database connection")
-					})?;
+				let connection = self
+					.database
+					.connection(db::Priority::Low)
+					.await
+					.map_err(|source| tg::error!(!source, "failed to get a database connection"))?;
 
 				// Set the logs count.
 				let p = connection.p();
@@ -363,10 +365,11 @@ impl Server {
 			// Set the logs weight if possible.
 			if weight.is_some() {
 				// Get a database connection.
-				let connection =
-					self.database.connection().await.map_err(|source| {
-						tg::error!(!source, "failed to get a database connection")
-					})?;
+				let connection = self
+					.database
+					.connection(db::Priority::Low)
+					.await
+					.map_err(|source| tg::error!(!source, "failed to get a database connection"))?;
 
 				// Set the logs weight.
 				let p = connection.p();
@@ -395,7 +398,7 @@ impl Server {
 			// Get a database connection.
 			let connection = self
 				.database
-				.connection()
+				.connection(db::Priority::Low)
 				.await
 				.map_err(|source| tg::error!(!source, "failed to get a database connection"))?;
 
@@ -452,7 +455,7 @@ impl Server {
 			// Get a database connection.
 			let connection = self
 				.database
-				.connection()
+				.connection(db::Priority::Low)
 				.await
 				.map_err(|source| tg::error!(!source, "failed to get a database connection"))?;
 
@@ -504,10 +507,11 @@ impl Server {
 			// Set the outcomes count if possible.
 			if count.is_some() {
 				// Get a database connection.
-				let connection =
-					self.database.connection().await.map_err(|source| {
-						tg::error!(!source, "failed to get a database connection")
-					})?;
+				let connection = self
+					.database
+					.connection(db::Priority::Low)
+					.await
+					.map_err(|source| tg::error!(!source, "failed to get a database connection"))?;
 
 				// Set the outcomes count.
 				let p = connection.p();
@@ -549,10 +553,11 @@ impl Server {
 			// Set the outcomes weight if possible.
 			if weight.is_some() {
 				// Get a database connection.
-				let connection =
-					self.database.connection().await.map_err(|source| {
-						tg::error!(!source, "failed to get a database connection")
-					})?;
+				let connection = self
+					.database
+					.connection(db::Priority::Low)
+					.await
+					.map_err(|source| tg::error!(!source, "failed to get a database connection"))?;
 
 				// Set the outcomes weight.
 				let p = connection.p();
@@ -581,7 +586,7 @@ impl Server {
 			// Get a database connection.
 			let connection = self
 				.database
-				.connection()
+				.connection(db::Priority::Low)
 				.await
 				.map_err(|source| tg::error!(!source, "failed to get a database connection"))?;
 
@@ -652,7 +657,7 @@ impl Server {
 			// Get a database connection.
 			let connection = self
 				.database
-				.connection()
+				.connection(db::Priority::Low)
 				.await
 				.map_err(|source| tg::error!(!source, "failed to get a database connection"))?;
 
@@ -663,7 +668,7 @@ impl Server {
 					select build
 					from build_children
 					left join builds on builds.id = build_children.build
-					where 
+					where
 						build_children.child = {p}1 and
 						builds.status = 'finished' and
 						builds.outcomes_complete = 0;
@@ -699,10 +704,11 @@ impl Server {
 			// Set the targets count if possible.
 			if count.is_some() {
 				// Get a database connection.
-				let connection =
-					self.database.connection().await.map_err(|source| {
-						tg::error!(!source, "failed to get a database connection")
-					})?;
+				let connection = self
+					.database
+					.connection(db::Priority::Low)
+					.await
+					.map_err(|source| tg::error!(!source, "failed to get a database connection"))?;
 
 				// Set the targets count.
 				let p = connection.p();
@@ -741,10 +747,11 @@ impl Server {
 			// Set the targets weight if possible.
 			if weight.is_some() {
 				// Get a database connection.
-				let connection =
-					self.database.connection().await.map_err(|source| {
-						tg::error!(!source, "failed to get a database connection")
-					})?;
+				let connection = self
+					.database
+					.connection(db::Priority::Low)
+					.await
+					.map_err(|source| tg::error!(!source, "failed to get a database connection"))?;
 
 				// Set the targets weight.
 				let p = connection.p();
@@ -773,7 +780,7 @@ impl Server {
 			// Get a database connection.
 			let connection = self
 				.database
-				.connection()
+				.connection(db::Priority::Low)
 				.await
 				.map_err(|source| tg::error!(!source, "failed to get a database connection"))?;
 
@@ -830,7 +837,7 @@ impl Server {
 			// Get a database connection.
 			let connection = self
 				.database
-				.connection()
+				.connection(db::Priority::Low)
 				.await
 				.map_err(|source| tg::error!(!source, "failed to get a database connection"))?;
 
@@ -865,7 +872,7 @@ impl Server {
 		// Get a database connection.
 		let connection = self
 			.database
-			.connection()
+			.connection(db::Priority::Low)
 			.await
 			.map_err(|source| tg::error!(!source, "failed to get a database connection"))?;
 
@@ -898,7 +905,7 @@ impl Server {
 		// Get a database connection.
 		let connection = self
 			.database
-			.connection()
+			.connection(db::Priority::Low)
 			.await
 			.map_err(|source| tg::error!(!source, "failed to get a database connection"))?;
 

@@ -19,7 +19,7 @@ impl Server {
 			// Get a database connection.
 			let mut connection = self
 				.database
-				.connection()
+				.connection(db::Priority::Low)
 				.await
 				.map_err(|source| tg::error!(!source, "failed to get a database connection"))?;
 
@@ -208,7 +208,7 @@ impl Server {
 		// Get a database connection.
 		let connection = self
 			.database
-			.connection()
+			.connection(db::Priority::Low)
 			.await
 			.map_err(|source| tg::error!(!source, "failed to get a database connection"))?;
 
