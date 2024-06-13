@@ -72,10 +72,14 @@ impl vfs::Provider for Provider {
 		}
 
 		// First, try to look up in the database.
-		let connection = self.database.connection().await.map_err(|error| {
-			tracing::error!(%error, "failed to get database a connection");
-			std::io::Error::from_raw_os_error(libc::EIO)
-		})?;
+		let connection = self
+			.database
+			.connection(db::Priority::Low)
+			.await
+			.map_err(|error| {
+				tracing::error!(%error, "failed to get database a connection");
+				std::io::Error::from_raw_os_error(libc::EIO)
+			})?;
 		#[derive(serde::Deserialize)]
 		struct Row {
 			id: u64,
@@ -146,10 +150,14 @@ impl vfs::Provider for Provider {
 			return Ok(node.parent);
 		}
 
-		let connection = self.database.connection().await.map_err(|error| {
-			tracing::error!(%error, "failed to get database a connection");
-			std::io::Error::from_raw_os_error(libc::EIO)
-		})?;
+		let connection = self
+			.database
+			.connection(db::Priority::Low)
+			.await
+			.map_err(|error| {
+				tracing::error!(%error, "failed to get database a connection");
+				std::io::Error::from_raw_os_error(libc::EIO)
+			})?;
 		#[derive(serde::Deserialize)]
 		struct Row {
 			parent: u64,
@@ -471,7 +479,7 @@ impl Provider {
 			.await
 			.map_err(|source| tg::error!(!source, "failed to create database"))?;
 		let connection = database
-			.connection()
+			.connection(db::Priority::Low)
 			.await
 			.map_err(|source| tg::error!(!source, "failed to get database connection"))?;
 		connection
@@ -546,10 +554,14 @@ impl Provider {
 		}
 
 		// Get a database connection.
-		let connection = self.database.connection().await.map_err(|error| {
-			tracing::error!(%error, "failed to get a database connection");
-			std::io::Error::from_raw_os_error(libc::EIO)
-		})?;
+		let connection = self
+			.database
+			.connection(db::Priority::Low)
+			.await
+			.map_err(|error| {
+				tracing::error!(%error, "failed to get a database connection");
+				std::io::Error::from_raw_os_error(libc::EIO)
+			})?;
 
 		// Get the node from the database.
 		#[derive(serde::Deserialize)]
@@ -622,10 +634,14 @@ impl Provider {
 
 		// Insert the node.
 		tokio::spawn({
-			let connection = self.database.connection().await.map_err(|error| {
-				tracing::error!(%error, "failed to get database a connection");
-				std::io::Error::from_raw_os_error(libc::EIO)
-			})?;
+			let connection =
+				self.database
+					.connection(db::Priority::Low)
+					.await
+					.map_err(|error| {
+						tracing::error!(%error, "failed to get database a connection");
+						std::io::Error::from_raw_os_error(libc::EIO)
+					})?;
 			let pending_nodes = self.pending_nodes.clone();
 			let name = name.to_owned();
 			async move {
@@ -649,10 +665,14 @@ impl Provider {
 
 	async fn depth(&self, mut node: u64) -> std::io::Result<usize> {
 		// Get a database connection.
-		let mut connection = self.database.connection().await.map_err(|error| {
-			tracing::error!(%error, "failed to create database connection");
-			std::io::Error::from_raw_os_error(libc::EIO)
-		})?;
+		let mut connection =
+			self.database
+				.connection(db::Priority::Low)
+				.await
+				.map_err(|error| {
+					tracing::error!(%error, "failed to create database connection");
+					std::io::Error::from_raw_os_error(libc::EIO)
+				})?;
 
 		// Create a transaction.
 		let transaction = connection.transaction().await.map_err(|error| {
