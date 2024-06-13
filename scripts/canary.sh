@@ -10,6 +10,6 @@ tar -czf release/tangram_aarch64-darwin.tar.gz -C target/aarch64-apple-darwin/re
 tar -czf release/tangram_aarch64-linux.tar.gz -C target/aarch64-unknown-linux-gnu/release tg
 tar -czf release/tangram_x86_64-darwin.tar.gz -C target/x86_64-apple-darwin/release tg
 tar -czf release/tangram_x86_64-linux.tar.gz -C target/x86_64-unknown-linux-gnu/release tg
-gh release upload nightly release/* --clobber
-git tag nightly -f
-git push origin tag nightly
+gh release upload canary release/* --clobber
+git tag canary -f
+git push origin tag canary -f
