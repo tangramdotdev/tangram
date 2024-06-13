@@ -5,6 +5,7 @@ use itertools::Itertools as _;
 use std::pin::pin;
 
 pub use self::{row::Row, value::Value};
+pub use pool::Priority;
 
 pub mod either;
 pub mod pool;
@@ -26,7 +27,10 @@ pub trait Database {
 
 	type T;
 
-	fn connection(&self) -> impl Future<Output = Result<Self::T, Self::Error>> + Send;
+	fn connection(
+		&self,
+		priority: Priority,
+	) -> impl Future<Output = Result<Self::T, Self::Error>> + Send;
 }
 
 pub trait Connection {

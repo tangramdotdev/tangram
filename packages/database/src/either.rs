@@ -1,4 +1,4 @@
-use crate::{Connection, Database, Query, Row, Transaction, Value};
+use crate::{Connection, Database, Priority, Query, Row, Transaction, Value};
 use either::Either;
 use futures::{
 	Future, FutureExt as _, Stream, StreamExt as _, TryFutureExt as _, TryStreamExt as _,
@@ -29,15 +29,15 @@ where
 
 	type T = Either<L::T, R::T>;
 
-	fn connection(&self) -> impl Future<Output = Result<Self::T, Self::Error>> {
+	fn connection(&self, priority: Priority) -> impl Future<Output = Result<Self::T, Self::Error>> {
 		match self {
 			Either::Left(left) => left
-				.connection()
+				.connection(priority)
 				.map_ok(Either::Left)
 				.map_err(|error| Error::Either(Either::Left(error)))
 				.left_future(),
 			Either::Right(right) => right
-				.connection()
+				.connection(priority)
 				.map_ok(Either::Right)
 				.map_err(|error| Error::Either(Either::Right(error)))
 				.right_future(),
