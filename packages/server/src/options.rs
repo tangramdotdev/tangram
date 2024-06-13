@@ -1,4 +1,4 @@
-use std::path::PathBuf;
+use std::{collections::BTreeMap, path::PathBuf};
 use tangram_client as tg;
 use url::Url;
 
@@ -14,7 +14,7 @@ pub struct Options {
 	pub object_indexer: Option<ObjectIndexer>,
 	pub path: PathBuf,
 	pub registry: Option<String>,
-	pub remotes: Vec<Remote>,
+	pub remotes: BTreeMap<String, Remote>,
 	pub url: Url,
 	pub version: Option<String>,
 	pub vfs: Option<Vfs>,
@@ -107,7 +107,6 @@ pub struct ObjectIndexer {}
 pub struct Remote {
 	pub build: bool,
 	pub client: tg::Client,
-	pub name: String,
 }
 
 #[derive(Copy, Clone, Debug)]

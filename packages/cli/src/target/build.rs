@@ -401,7 +401,7 @@ impl std::str::FromStr for Arg {
 		if let Ok(specifier) = s.parse() {
 			return Ok(Arg::Specifier(specifier));
 		}
-		Err(tg::error!(%s, "expected a build or an object"))
+		Err(tg::error!(%s, "expected a target specifier or target ID"))
 	}
 }
 
@@ -419,9 +419,7 @@ impl std::str::FromStr for Specifier {
 
 	fn from_str(s: &str) -> tg::Result<Self, Self::Err> {
 		// Split the string by the colon character.
-		let (package, target) = s
-			.split_once(':')
-			.ok_or_else(|| tg::error!("a target specifier must have a colon"))?;
+		let (package, target) = s.split_once(':').unwrap_or((s, ""));
 
 		// Get the dependency.
 		let dependency = if package.is_empty() {

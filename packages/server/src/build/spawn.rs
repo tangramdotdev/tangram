@@ -26,13 +26,13 @@ impl Server {
 				self.options
 					.remotes
 					.iter()
-					.filter(|remote| remote.build)
-					.map(|remote| {
+					.filter(|(_, remote)| remote.build)
+					.map(|(name, remote)| {
 						let arg = tg::build::dequeue::Arg::default();
 						remote
 							.client
 							.dequeue_build(arg)
-							.map_ok(|output| (output, Some(remote.name.clone())))
+							.map_ok(|output| (output, Some(name.clone())))
 							.boxed()
 					}),
 			);

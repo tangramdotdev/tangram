@@ -224,7 +224,7 @@ impl Server {
 		let remotes = options
 			.remotes
 			.iter()
-			.map(|remote| (remote.name.clone(), remote.client.clone()))
+			.map(|(name, remote)| (name.clone(), remote.client.clone()))
 			.collect();
 
 		// Create the runtimes.

@@ -75,19 +75,10 @@ fn before_help() -> String {
 fn version() -> String {
 	let mut version = env!("CARGO_PKG_VERSION").to_owned();
 	if let Some(commit) = option_env!("TANGRAM_CLI_COMMIT_HASH") {
-		version.push('-');
+		version.push('+');
 		version.push_str(commit);
 	}
 	version
-}
-
-#[derive(Clone, Copy, Debug, Default, clap::ValueEnum, serde::Deserialize, serde::Serialize)]
-#[serde(rename_all = "snake_case")]
-enum Mode {
-	#[default]
-	Auto,
-	Client,
-	Server,
 }
 
 #[allow(clippy::large_enum_variant)]

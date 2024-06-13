@@ -68,8 +68,9 @@ pub struct Config {
 	pub registry: Option<Either<bool, String>>,
 
 	/// Configure remotes.
+	#[allow(clippy::type_complexity)]
 	#[serde(default, skip_serializing_if = "Option::is_none")]
-	pub remotes: Option<BTreeMap<String, Remote>>,
+	pub remotes: Option<Either<bool, BTreeMap<String, Either<bool, Remote>>>>,
 
 	/// Configure tracing.
 	#[serde(default, skip_serializing_if = "Option::is_none")]

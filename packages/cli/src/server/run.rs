@@ -1,7 +1,7 @@
 use crate::Cli;
 use clap::CommandFactory as _;
 use either::Either;
-use std::path::PathBuf;
+use std::{collections::BTreeMap, path::PathBuf};
 use tangram_client as tg;
 use url::Url;
 
@@ -233,42 +233,43 @@ impl Cli {
 		};
 
 		// Create the remote options.
-		let remotes = self
+		let mut remotes = BTreeMap::default();
+		let name = "default".to_owned();
+		let remote = tangram_server::options::Remote {
+			build: false,
+			client: tg::Client::new(Url::parse("https://api.tangram.dev").unwrap()),
+		};
+		remotes.insert(name, remote);
+		if let Some(either) = self
 			.config
 			.as_ref()
 			.and_then(|config| config.remotes.as_ref())
-			.map(|remotes| {
-				remotes
-					.iter()
-					.map(|(name, remote)| {
-						let name = name.clone();
-						let build = remote.build.unwrap_or_default();
-						let url = remote.url.clone();
-						let client = tg::Client::new(url);
-						let remote = tangram_server::options::Remote {
-							build,
-							client,
-							name,
-						};
-						Ok::<_, tg::Error>(remote)
-					})
-					.collect()
-			})
-			.transpose()?;
-		let remotes = if let Some(remotes) = remotes {
-			remotes
-		} else {
-			let build = false;
-			let url = Url::parse("https://api.tangram.dev").unwrap();
-			let client = tg::Client::new(url);
-			let name = "default".to_owned();
-			let remote = tangram_server::options::Remote {
-				build,
-				client,
-				name,
-			};
-			vec![remote]
-		};
+		{
+			match either {
+				Either::Left(false) => remotes.clear(),
+				Either::Left(true) => (),
+				Either::Right(remotes_) => {
+					for (name, remote) in remotes_ {
+						match remote {
+							Either::Left(false) => {
+								remotes.remove(name);
+							},
+							Either::Left(true) => {
+								return Err(tg::error!("invalid remote value"));
+							},
+							Either::Right(remote) => {
+								let name = name.clone();
+								let build = remote.build.unwrap_or_default();
+								let url = remote.url.clone();
+								let client = tg::Client::new(url);
+								let remote = tangram_server::options::Remote { build, client };
+								remotes.insert(name, remote);
+							},
+						}
+					}
+				},
+			}
+		}
 
 		// Get the version.
 		let version = Some(crate::Args::command().get_version().unwrap().to_owned());
