@@ -3,7 +3,7 @@ import { File } from "./file.ts";
 import { Module } from "./module.ts";
 import { resolve } from "./resolve.ts";
 import { Symlink } from "./symlink.ts";
-import { type Target, functions, setCurrentTarget } from "./target.ts";
+import { Target, setCurrentTarget } from "./target.ts";
 import type { Value } from "./value.ts";
 
 export let start = async (target: Target): Promise<Value> => {
@@ -59,7 +59,7 @@ export let start = async (target: Target): Promise<Value> => {
 	let url = Module.toUrl(module);
 
 	// Import the module.
-	await import(url);
+	let namespace = await import(url);
 
 	// Get the args.
 	let args = await target.args();
@@ -73,14 +73,14 @@ export let start = async (target: Target): Promise<Value> => {
 		throw new Error("the target's first arg must be a string");
 	}
 
-	// Get the function.
-	let function_ = functions[url]?.[name];
-	if (!function_) {
-		throw new Error("failed to find the function");
+	// Get the target.
+	let target_ = namespace[name];
+	if (!(target_ instanceof Target)) {
+		throw new Error(`failed to find the export named "${name}"`);
 	}
 
 	// Call the function.
-	let output = await resolve(function_(...args.slice(1)));
+	let output = await resolve(target_.function()!(...args.slice(1)));
 
 	return output;
 };

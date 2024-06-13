@@ -29,8 +29,6 @@ export let setCurrentTarget = (target: Target) => {
 	currentTarget = target;
 };
 
-export let functions: { [key: string]: { [key: string]: Function } } = {};
-
 type FunctionArg<
 	A extends Array<Value> = Array<Value>,
 	R extends Value = Value,
@@ -57,12 +55,7 @@ export function target<
 		typeof args[0] === "object" &&
 		"function" in args[0]
 	) {
-		// Register the function.
 		let arg = args[0];
-		functions[arg.url] = {
-			...functions[arg.url],
-			[arg.name]: arg.function,
-		};
 
 		// Get the module.
 		let module_ = Module.fromUrl(arg.url);
@@ -88,16 +81,18 @@ export function target<
 		assert_(executable, "failed to create the executable");
 
 		// Create the target.
-		return new Target({
-			object: {
-				host: "js",
-				executable,
-				env: getCurrentTarget().expectObject().env,
-				args: [arg.name],
-				lock,
-				checksum: undefined,
-			},
-		});
+		let object = {
+			host: "js",
+			executable,
+			env: getCurrentTarget().expectObject().env,
+			args: [arg.name],
+			lock,
+			checksum: undefined,
+		};
+		let state = {
+			object: object,
+		};
+		return new Target(state, arg.function);
 	} else {
 		return Target.new(...(args as Args<Target.Arg>));
 	}
@@ -116,10 +111,12 @@ export class Target<
 	R extends Value = Value,
 > extends globalThis.Function {
 	#state: Target.State;
+	#f: Function | undefined;
 
-	constructor(state: Target.State) {
+	constructor(state: Target.State, f?: Function) {
 		super();
 		this.#state = state;
+		this.#f = f;
 		let this_ = this as any;
 		// biome-ignore lint/correctness/noConstructorReturn: This is necessary to make targets callable.
 		return new Proxy(this_, {
@@ -276,6 +273,10 @@ export class Target<
 
 	async output(): Promise<R> {
 		return (await syscall("output", this as Target<[], R>)) as R;
+	}
+
+	function(): Function | undefined {
+		return this.#f;
 	}
 }
 
