@@ -529,7 +529,7 @@ where
 
 			let entry = fuse_dirent {
 				ino: node,
-				off: offset.to_u64().unwrap() + 1 + request.offset,
+				off: offset.to_u64().unwrap() + 1,
 				namelen: name.len().to_u32().unwrap(),
 				type_,
 			};
