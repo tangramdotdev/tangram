@@ -97,6 +97,9 @@ export namespace Args {
 	): Promise<T> => {
 		return await mutations.reduce(
 			async (object, mutations) => {
+				if (mutations === undefined) {
+					return Promise.resolve({}) as Promise<T>;
+				}
 				for (let [key, mutation] of Object.entries(mutations)) {
 					await mutate(await object, key, mutation);
 				}
