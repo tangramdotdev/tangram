@@ -115,7 +115,7 @@ export namespace Branch {
 	export type Arg = undefined | Branch | ArgObject;
 
 	export type ArgObject = {
-		children?: Array<Child>;
+		children?: Array<Child> | undefined;
 	};
 
 	export type Child = { blob: Blob; size: number };

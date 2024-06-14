@@ -291,9 +291,9 @@ declare namespace tg {
 		export type Arg = undefined | string | Uint8Array | Blob | File | ArgObject;
 
 		type ArgObject = {
-			contents: Blob.Arg;
-			executable?: boolean;
-			references?: Array<Artifact>;
+			contents?: Blob.Arg | undefined;
+			executable?: boolean | undefined;
+			references?: Array<Artifact> | undefined;
 		};
 
 		export type Id = string;
@@ -335,7 +335,7 @@ declare namespace tg {
 		export type Arg = undefined | Branch | ArgObject;
 
 		type ArgObject = {
-			children?: Array<Child>;
+			children?: Array<Child> | undefined;
 		};
 
 		export type Child = { blob: Blob; size: number };
@@ -524,8 +524,8 @@ declare namespace tg {
 		export type Arg = Lock | ArgObject;
 
 		export type ArgObject = {
-			root?: number;
-			nodes?: Array<NodeArg>;
+			root?: number | undefined;
+			nodes?: Array<NodeArg> | undefined;
 		};
 
 		export type NodeArg = {
@@ -725,7 +725,7 @@ declare namespace tg {
 
 		type ArgObject = {
 			/** The system to build the target on. */
-			host?: string;
+			host?: string | undefined;
 
 			/** The target's executable. */
 			executable?: Artifact | undefined;
@@ -734,10 +734,10 @@ declare namespace tg {
 			lock?: Lock | undefined;
 
 			/** The target's environment variables. */
-			env?: MaybeNestedArray<MaybeMutationMap>;
+			env?: MaybeNestedArray<MaybeMutationMap> | undefined;
 
 			/** The target's command line arguments. */
-			args?: Array<Value>;
+			args?: Array<Value> | undefined;
 
 			/** If a checksum of the target's output is provided, then the target will have access to the network. */
 			checksum?: Checksum | undefined;

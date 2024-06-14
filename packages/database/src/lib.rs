@@ -125,13 +125,8 @@ pub trait Query {
 		statement: String,
 		params: Vec<Value>,
 	) -> impl Future<Output = Result<Option<Row>, Self::Error>> + Send {
-		async fn into_first<T, E>(rows: T) -> Result<Option<Row>, E>
-		where
-			T: Stream<Item = Result<Row, E>>,
-		{
-			pin!(rows).try_next().await
-		}
-		self.query(statement, params).and_then(into_first)
+		self.query(statement, params)
+			.and_then(|rows| async { pin!(rows).try_next().await })
 	}
 
 	fn query_optional_value(

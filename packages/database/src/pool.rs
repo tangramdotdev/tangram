@@ -4,7 +4,7 @@ use std::{
 };
 
 pub struct Pool<T> {
-	state: Arc<std::sync::Mutex<State<T>>>,
+	state: Arc<Mutex<State<T>>>,
 }
 
 struct State<T> {

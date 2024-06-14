@@ -8,7 +8,7 @@ use std::{
 	collections::{BTreeMap, BTreeSet, HashMap},
 	path::{Path, PathBuf},
 	pin::pin,
-	sync::Arc,
+	sync::{Arc, Mutex},
 };
 use tangram_client as tg;
 use tangram_futures::task::Stop;
@@ -59,10 +59,10 @@ pub struct Inner {
 	main_runtime_handle: tokio::runtime::Handle,
 
 	/// The request sender.
-	request_sender: std::sync::Mutex<Option<RequestSender>>,
+	request_sender: Mutex<Option<RequestSender>>,
 
 	/// The request thread.
-	request_thread: std::sync::Mutex<Option<std::thread::JoinHandle<()>>>,
+	request_thread: Mutex<Option<std::thread::JoinHandle<()>>>,
 
 	/// The sender.
 	sender: std::sync::RwLock<Option<tokio::sync::mpsc::UnboundedSender<jsonrpc::Message>>>,
@@ -119,10 +119,10 @@ impl Compiler {
 		let documents = DashMap::default();
 
 		// Create the request sender.
-		let request_sender = std::sync::Mutex::new(None);
+		let request_sender = Mutex::new(None);
 
 		// Create the request thread.
-		let request_thread = std::sync::Mutex::new(None);
+		let request_thread = Mutex::new(None);
 
 		// Create the sender.
 		let sender = std::sync::RwLock::new(None);

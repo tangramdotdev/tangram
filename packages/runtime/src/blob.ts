@@ -85,6 +85,7 @@ export namespace Blob {
 			await target({
 				host: "builtin",
 				args: ["compress", blob, format],
+				env: undefined,
 			})
 		).output();
 		assert_(Blob.is(value));
@@ -99,6 +100,7 @@ export namespace Blob {
 			await target({
 				host: "builtin",
 				args: ["decompress", blob, format],
+				env: undefined,
 			})
 		).output();
 		assert_(Blob.is(value));
@@ -114,6 +116,7 @@ export namespace Blob {
 				host: "builtin",
 				args: ["download", url],
 				checksum: "unsafe",
+				env: undefined,
 			})
 		).output();
 		assert_(Blob.is(value));
@@ -122,6 +125,7 @@ export namespace Blob {
 			await target({
 				host: "builtin",
 				args: ["checksum", value, algorithm],
+				env: undefined,
 			})
 		).output();
 		if (actual !== checksum) {
@@ -140,6 +144,7 @@ export namespace Blob {
 			await target({
 				host: "builtin",
 				args: ["checksum", blob, algorithm],
+				env: undefined,
 			})
 		).output();
 		return value as Checksum;

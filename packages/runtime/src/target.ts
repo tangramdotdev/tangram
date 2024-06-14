@@ -290,10 +290,10 @@ export namespace Target {
 		| ArgObject;
 
 	export type ArgObject = {
-		host?: string;
+		host?: string | undefined;
 		executable?: Artifact | undefined;
-		args?: Array<Value>;
-		env?: MaybeNestedArray<MaybeMutationMap>;
+		args?: Array<Value> | undefined;
+		env?: MaybeNestedArray<MaybeMutationMap> | undefined;
 		lock?: Lock | undefined;
 		checksum?: Checksum | undefined;
 	};

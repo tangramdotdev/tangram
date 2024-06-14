@@ -14,8 +14,7 @@ pub trait Ext: Sized {
 
 	fn header_json<K, V>(self, key: K, value: V) -> Result<Self, Error>
 	where
-		http::HeaderName: TryFrom<K>,
-		<http::HeaderName as TryFrom<K>>::Error: Into<http::Error>,
+		http::HeaderName: TryFrom<K, Error: Into<http::Error>>,
 		V: serde::Serialize;
 
 	fn empty(self) -> http::Result<http::Response<Outgoing>>;
@@ -68,8 +67,7 @@ impl Ext for http::response::Builder {
 
 	fn header_json<K, V>(self, key: K, value: V) -> Result<Self, Error>
 	where
-		http::HeaderName: TryFrom<K>,
-		<http::HeaderName as TryFrom<K>>::Error: Into<http::Error>,
+		http::HeaderName: TryFrom<K, Error: Into<http::Error>>,
 		V: serde::Serialize,
 	{
 		let value = serde_json::to_string(&value)?;

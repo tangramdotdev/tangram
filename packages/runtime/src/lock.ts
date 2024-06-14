@@ -116,8 +116,8 @@ export namespace Lock {
 	export type Arg = Lock | ArgObject;
 
 	export type ArgObject = {
-		root?: number;
-		nodes?: Array<NodeArg>;
+		root?: number | undefined;
+		nodes?: Array<NodeArg> | undefined;
 	};
 
 	export type NodeArg = {

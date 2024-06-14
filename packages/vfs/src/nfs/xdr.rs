@@ -13,6 +13,10 @@ where
 	fn decode(decoder: &mut Decoder<'_>) -> Result<Self, Error>;
 }
 
+pub trait SizeHint {
+	fn xdr_len(&self) -> usize;
+}
+
 pub struct Encoder<W> {
 	output: W,
 }
@@ -368,10 +372,6 @@ where
 {
 	let mut decoder = Decoder::from_bytes(bytes);
 	decoder.decode()
-}
-
-pub trait SizeHint {
-	fn xdr_len(&self) -> usize;
 }
 
 impl SizeHint for u32 {

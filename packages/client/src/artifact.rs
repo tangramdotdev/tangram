@@ -1,6 +1,9 @@
 use crate as tg;
 use futures::stream::{FuturesOrdered, FuturesUnordered, TryStreamExt as _};
-use std::{collections::HashSet, sync::Arc};
+use std::{
+	collections::HashSet,
+	sync::{Arc, Mutex},
+};
 
 pub mod archive;
 pub mod bundle;
@@ -197,9 +200,7 @@ impl Artifact {
 		async fn recursive_references_inner<H>(
 			handle: &H,
 			artifact: &tg::Artifact,
-			output: Arc<
-				std::sync::Mutex<HashSet<Id, std::hash::BuildHasherDefault<fnv::FnvHasher>>>,
-			>,
+			output: Arc<Mutex<HashSet<Id, std::hash::BuildHasherDefault<fnv::FnvHasher>>>>,
 		) -> tg::Result<()>
 		where
 			H: tg::Handle,
@@ -220,7 +221,7 @@ impl Artifact {
 			output.lock().unwrap().extend(references);
 			Ok(())
 		}
-		let output = Arc::new(std::sync::Mutex::new(HashSet::default()));
+		let output = Arc::new(Mutex::new(HashSet::default()));
 		recursive_references_inner(handle, self, output.clone()).await?;
 		Ok(Arc::into_inner(output).unwrap().into_inner().unwrap())
 	}

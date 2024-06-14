@@ -5,7 +5,7 @@ use std::{
 	io::SeekFrom,
 	sync::{
 		atomic::{AtomicBool, AtomicU64, Ordering},
-		Arc,
+		Arc, Mutex,
 	},
 };
 use tangram_client as tg;
@@ -25,13 +25,13 @@ pub struct Log<H> {
 	event_sender: tokio::sync::mpsc::UnboundedSender<LogEvent>,
 
 	// The event handler task.
-	event_task: std::sync::Mutex<Option<tokio::task::JoinHandle<tg::Result<()>>>>,
+	event_task: Mutex<Option<tokio::task::JoinHandle<tg::Result<()>>>>,
 
 	// The handle.
 	handle: H,
 
 	// The lines of text that will be displayed.
-	lines: std::sync::Mutex<Vec<String>>,
+	lines: Mutex<Vec<String>>,
 
 	// The maximum position of the log seen so far.
 	max_position: AtomicU64,
@@ -43,7 +43,7 @@ pub struct Log<H> {
 	scroll: tokio::sync::Mutex<Option<scroll::Scroll>>,
 
 	// The log streaming task.
-	task: std::sync::Mutex<Option<tokio::task::JoinHandle<tg::Result<()>>>>,
+	task: Mutex<Option<tokio::task::JoinHandle<tg::Result<()>>>>,
 
 	// A watch to be notified when new logs are received from the log task.
 	watch: tokio::sync::Mutex<Option<tokio::sync::watch::Receiver<()>>>,
@@ -63,7 +63,7 @@ where
 		let build = build.clone();
 		let chunks = tokio::sync::Mutex::new(Vec::new());
 		let (event_sender, mut event_receiver) = tokio::sync::mpsc::unbounded_channel();
-		let lines = std::sync::Mutex::new(Vec::new());
+		let lines = Mutex::new(Vec::new());
 		let (rect, mut rect_receiver) = tokio::sync::watch::channel(rect);
 
 		let log = Arc::new(Log {
@@ -72,9 +72,9 @@ where
 			handle,
 			eof: AtomicBool::new(false),
 			event_sender,
-			event_task: std::sync::Mutex::new(None),
+			event_task: Mutex::new(None),
 			lines,
-			task: std::sync::Mutex::new(None),
+			task: Mutex::new(None),
 			watch: tokio::sync::Mutex::new(None),
 			max_position: AtomicU64::new(0),
 			rect,

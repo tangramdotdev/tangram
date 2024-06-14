@@ -12,7 +12,7 @@ use std::{
 	os::fd::AsRawFd,
 	path::{Path, PathBuf},
 	pin::pin,
-	sync::Arc,
+	sync::{Arc, Mutex, RwLock},
 };
 use tangram_client as tg;
 use tangram_database as db;
@@ -62,14 +62,14 @@ pub struct Inner {
 	database: Database,
 	file_descriptor_semaphore: tokio::sync::Semaphore,
 	local_pool_handle: tokio_util::task::LocalPoolHandle,
-	lock_file: std::sync::Mutex<Option<tokio::fs::File>>,
+	lock_file: Mutex<Option<tokio::fs::File>>,
 	messenger: Messenger,
 	options: Options,
 	path: PathBuf,
 	remotes: DashMap<String, tg::Client>,
-	runtimes: std::sync::RwLock<HashMap<String, Runtime>>,
-	task: std::sync::Mutex<Option<Task<tg::Result<()>>>>,
-	vfs: std::sync::Mutex<Option<self::vfs::Server>>,
+	runtimes: RwLock<HashMap<String, Runtime>>,
+	task: Mutex<Option<Task<tg::Result<()>>>>,
+	vfs: Mutex<Option<self::vfs::Server>>,
 }
 
 type ArtifactStoreTaskMap = TaskMap<tg::artifact::Id, tg::Result<bool>, fnv::FnvBuildHasher>;
@@ -118,7 +118,7 @@ impl Server {
 			.write_all(pid.to_string().as_bytes())
 			.await
 			.map_err(|source| tg::error!(!source, "failed to write the pid to the lock file"))?;
-		let lock_file = std::sync::Mutex::new(Some(lock_file));
+		let lock_file = Mutex::new(Some(lock_file));
 
 		// Migrate the directory.
 		Self::migrate(&path).await?;
@@ -228,13 +228,13 @@ impl Server {
 			.collect();
 
 		// Create the runtimes.
-		let runtimes = std::sync::RwLock::new(HashMap::default());
+		let runtimes = RwLock::new(HashMap::default());
 
 		// Create the task.
-		let task = std::sync::Mutex::new(None);
+		let task = Mutex::new(None);
 
 		// Create the vfs.
-		let vfs = std::sync::Mutex::new(None);
+		let vfs = Mutex::new(None);
 
 		// Create the server.
 		let server = Self(Arc::new(Inner {

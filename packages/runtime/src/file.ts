@@ -132,9 +132,9 @@ export namespace File {
 	export type Arg = undefined | string | Uint8Array | Blob | File | ArgObject;
 
 	export type ArgObject = {
-		contents?: Blob.Arg;
-		executable?: boolean;
-		references?: Array<Artifact>;
+		contents?: Blob.Arg | undefined;
+		executable?: boolean | undefined;
+		references?: Array<Artifact> | undefined;
 	};
 
 	export type Id = string;

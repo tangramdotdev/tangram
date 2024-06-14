@@ -1,5 +1,5 @@
 use crate::Cli;
-use crossterm::tty::IsTty;
+use crossterm::{style::Stylize as _, tty::IsTty};
 use tangram_client::{self as tg, Handle as _};
 use tokio::io::AsyncWriteExt as _;
 
@@ -13,7 +13,13 @@ pub struct Args {
 impl Cli {
 	pub async fn command_object_get(&self, args: Args) -> tg::Result<()> {
 		let client = self.client().await?;
-		let tg::object::get::Output { bytes, .. } = client.get_object(&args.object).await?;
+		let tg::object::get::Output { bytes, metadata } = client.get_object(&args.object).await?;
+		if let Some(count) = metadata.count {
+			eprintln!("{} count {count}", "info".blue().bold());
+		}
+		if let Some(weight) = metadata.weight {
+			eprintln!("{} weight {weight}", "info".blue().bold());
+		}
 		let mut stdout = tokio::io::stdout();
 		if stdout.is_tty() && !matches!(args.object, tg::object::Id::Leaf(_)) {
 			let json = serde_json::from_slice::<serde_json::Value>(&bytes)

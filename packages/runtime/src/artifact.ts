@@ -51,6 +51,7 @@ export namespace Artifact {
 			await target({
 				host: "builtin",
 				args: ["archive", artifact, format],
+				env: undefined,
 			})
 		).output();
 		assert_(Blob.is(value));
@@ -65,6 +66,7 @@ export namespace Artifact {
 			await target({
 				host: "builtin",
 				args: ["extract", blob, format],
+				env: undefined,
 			})
 		).output();
 		assert_(Artifact.is(value));
@@ -76,6 +78,7 @@ export namespace Artifact {
 			await target({
 				host: "builtin",
 				args: ["bundle", artifact],
+				env: undefined,
 			})
 		).output();
 		assert_(Artifact.is(value));
@@ -90,6 +93,7 @@ export namespace Artifact {
 			await target({
 				host: "builtin",
 				args: ["checksum", artifact, algorithm],
+				env: undefined,
 			})
 		).output();
 		return value as Checksum;
