@@ -9,6 +9,7 @@
           "path": "../std"
         },
         {
+          "artifact": "dir_014fncnxyyac4pvpxj9scc89zjqvs1sekm3sc0hezx23g5r6w2ketg",
           "lock": 0
         }
       ]
@@ -20,6 +21,7 @@
           "path": "../m4"
         },
         {
+          "artifact": "dir_01jj06sqdw7am9e65pg7k3gwfgpydvcpfqdwjacj4nyya31va32w30",
           "lock": 1
         }
       ],
@@ -29,6 +31,7 @@
           "path": "../std"
         },
         {
+          "artifact": "dir_014fncnxyyac4pvpxj9scc89zjqvs1sekm3sc0hezx23g5r6w2ketg",
           "lock": 0
         }
       ]
@@ -40,6 +43,7 @@
           "path": "../bison"
         },
         {
+          "artifact": "dir_01emecd6zcsz65yty69yg1541tdffqs73q03rv4p84xe1nhhk36jmg",
           "lock": 2
         }
       ],
@@ -49,6 +53,7 @@
           "path": "../libffi"
         },
         {
+          "artifact": "dir_0102cgckbhccawtk0xgn1qj2wgfk8apek51k6x5wpev92t8wt8wxxg",
           "lock": 1
         }
       ],
@@ -58,6 +63,7 @@
           "path": "../m4"
         },
         {
+          "artifact": "dir_01jj06sqdw7am9e65pg7k3gwfgpydvcpfqdwjacj4nyya31va32w30",
           "lock": 1
         }
       ],
@@ -67,6 +73,7 @@
           "path": "../std"
         },
         {
+          "artifact": "dir_014fncnxyyac4pvpxj9scc89zjqvs1sekm3sc0hezx23g5r6w2ketg",
           "lock": 0
         }
       ],
@@ -76,6 +83,7 @@
           "path": "../zlib"
         },
         {
+          "artifact": "dir_01shsba998f2z1sek88b7q7ak52xp4h12ft9k3n9mt56p05n28epk0",
           "lock": 1
         }
       ]
@@ -87,6 +95,7 @@
           "path": "../perl"
         },
         {
+          "artifact": "dir_019j4a5s9y8686j2ejgpj80avw55414ww98rt51ey22mq04gdcmms0",
           "lock": 3
         }
       ],
@@ -96,6 +105,7 @@
           "path": "../std"
         },
         {
+          "artifact": "dir_014fncnxyyac4pvpxj9scc89zjqvs1sekm3sc0hezx23g5r6w2ketg",
           "lock": 0
         }
       ]
@@ -107,6 +117,7 @@
           "path": "../openssl"
         },
         {
+          "artifact": "dir_013fqbn16d4rp7rbn2jvk500htvayp93k72axkzrvtr9gbxw8m29hg",
           "lock": 4
         }
       ],
@@ -116,6 +127,7 @@
           "path": "../std"
         },
         {
+          "artifact": "dir_014fncnxyyac4pvpxj9scc89zjqvs1sekm3sc0hezx23g5r6w2ketg",
           "lock": 0
         }
       ],
@@ -125,6 +137,7 @@
           "path": "../zlib"
         },
         {
+          "artifact": "dir_01shsba998f2z1sek88b7q7ak52xp4h12ft9k3n9mt56p05n28epk0",
           "lock": 1
         }
       ]
@@ -132,19 +145,19 @@
     [
       [
         {
-          "name": "rust",
-          "path": "../packages/packages/rust"
+          "name": "rust"
         },
         {
+          "artifact": "dir_01cfrwg68jea8n4vfmv5twpfhqpzbtx3xn5910839jngn7eh7t5vh0",
           "lock": 5
         }
       ],
       [
         {
-          "name": "std",
-          "path": "../packages/packages/std"
+          "name": "std"
         },
         {
+          "artifact": "dir_014fncnxyyac4pvpxj9scc89zjqvs1sekm3sc0hezx23g5r6w2ketg",
           "lock": 0
         }
       ]

@@ -1,5 +1,6 @@
-import * as rust from "tg:rust" with { path: "../packages/packages/rust" };
-import * as std from "tg:std" with { path: "../packages/packages/std" };
+import * as rust from "tg:rust";
+import * as std from "tg:std";
+import { $ } from "tg:std";
 
 import cargoToml from "./Cargo.toml" with { type: "file" };
 import cargoLock from "./Cargo.lock" with { type: "file" };
@@ -37,21 +38,17 @@ export let source = tg.target(() =>
 	}),
 );
 
-export default tg.target(() => {
+export default tg.target(async () => {
 	let host = std.triple.host();
 	let env = std.env.arg(bun(host), {
 		RUSTY_V8_ARCHIVE: librustyv8(host),
 	});
 
-	let nodeModules = std
-		.build(
-			tg`bun install ${source()} --frozen-lockfile && cp -R node_modules $OUTPUT`,
-			{
-				env,
-				checksum: "unsafe",
-			},
-		)
-		.then(tg.Directory.expect);
+	let nodeModules =
+		await $`bun install ${source()} --frozen-lockfile && cp -R node_modules $OUTPUT`
+			.env(env)
+			.checksum("unsafe")
+			.then(tg.Directory.expect);
 	let sourceDir = tg.directory(source(), { node_modules: nodeModules });
 
 	return rust.build({
@@ -77,7 +74,7 @@ export let bun = tg.target(async (hostArg?: string) => {
 		await std.download({
 			checksum,
 			extract: true,
-			url: `https://github.com/oven-sh/bun/releases/download/bun-v1.1.12/${file}.zip`,
+			url: `https://github.com/oven-sh/bun/releases/download/bun-v1.1.13/${file}.zip`,
 		}),
 	);
 	let bun = tg.File.expect(await dl.get(`${file}/bun`));
