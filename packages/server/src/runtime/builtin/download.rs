@@ -27,8 +27,7 @@ impl Runtime {
 
 		// Get the URL.
 		let url = args
-			.iter()
-			.nth(1)
+			.get(1)
 			.ok_or_else(|| tg::error!("invalid number of arguments"))?
 			.try_unwrap_string_ref()
 			.ok()

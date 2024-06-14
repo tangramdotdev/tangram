@@ -37,16 +37,15 @@ impl Cli {
 	pub async fn command_view(&self, args: Args) -> tg::Result<()> {
 		let client = self.client().await?;
 
+		// Get the arg.
 		let arg = if let Some(arg) = args.build {
 			Arg::Build(arg)
 		} else if let Some(arg) = args.object {
 			Arg::Object(arg)
 		} else if let Some(arg) = args.package {
 			Arg::Package(arg)
-		} else if let Some(arg) = args.arg {
-			arg
 		} else {
-			Arg::default()
+			args.arg.unwrap_or_default()
 		};
 
 		// Get the item.

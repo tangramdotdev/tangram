@@ -135,10 +135,8 @@ impl Cli {
 			Arg::Specifier(specifier)
 		} else if let Some(target) = args.target {
 			Arg::Target(target)
-		} else if let Some(arg) = args.arg_ {
-			arg
 		} else {
-			Arg::default()
+			args.arg_.unwrap_or_default()
 		};
 
 		// Create the target.

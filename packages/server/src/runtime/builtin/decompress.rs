@@ -19,8 +19,7 @@ impl Runtime {
 
 		// Get the blob.
 		let blob: tg::Blob = args
-			.iter()
-			.nth(1)
+			.get(1)
 			.ok_or_else(|| tg::error!("invalid number of arguments"))?
 			.clone()
 			.try_into()
@@ -29,8 +28,7 @@ impl Runtime {
 
 		// Get the format.
 		let format = args
-			.iter()
-			.nth(2)
+			.get(2)
 			.ok_or_else(|| tg::error!("invalid number of arguments"))?
 			.try_unwrap_string_ref()
 			.ok()

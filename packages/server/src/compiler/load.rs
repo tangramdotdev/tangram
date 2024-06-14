@@ -67,8 +67,7 @@ impl Compiler {
 				let path = module
 					.path
 					.components()
-					.iter()
-					.nth(1)
+					.get(1)
 					.ok_or_else(|| tg::error!("invalid path"))?
 					.to_string();
 				let file = LIB
