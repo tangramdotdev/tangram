@@ -215,6 +215,10 @@ impl<'a> Transaction<'a> {
 }
 
 impl super::Error for Error {
+	fn is_retry(&self) -> bool {
+		false
+	}
+
 	fn other(error: impl Into<Box<dyn std::error::Error + Send + Sync>>) -> Self {
 		Self::Other(error.into())
 	}
