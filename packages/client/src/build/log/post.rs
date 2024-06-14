@@ -1,4 +1,4 @@
-use crate as tg;
+use crate::{self as tg, util::serde::BytesBase64};
 use bytes::Bytes;
 use serde_with::serde_as;
 use tangram_http::{incoming::response::Ext as _, outgoing::request::Ext as _};
@@ -6,7 +6,7 @@ use tangram_http::{incoming::response::Ext as _, outgoing::request::Ext as _};
 #[serde_as]
 #[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
 pub struct Arg {
-	#[serde_as(as = "crate::util::serde::BytesBase64")]
+	#[serde_as(as = "BytesBase64")]
 	pub bytes: Bytes,
 
 	#[serde(default, skip_serializing_if = "Option::is_none")]

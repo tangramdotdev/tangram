@@ -1,7 +1,7 @@
 use either::Either;
 use serde_with::serde_as;
 use std::{collections::BTreeMap, path::PathBuf};
-use tangram_client as tg;
+use tangram_client::{self as tg, util::serde::EitherUntagged};
 use url::Url;
 
 #[serde_as]
@@ -16,27 +16,18 @@ pub struct Config {
 	pub authentication: Option<Authentication>,
 
 	/// Configure builds.
-	#[serde(
-		default,
-		skip_serializing_if = "Option::is_none",
-		with = "either::serde_untagged_optional"
-	)]
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	#[serde_as(as = "Option<EitherUntagged<_, _>>")]
 	pub build: Option<Either<bool, Build>>,
 
 	/// Configure the build heartbeat monitor.
-	#[serde(
-		default,
-		skip_serializing_if = "Option::is_none",
-		with = "either::serde_untagged_optional"
-	)]
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	#[serde_as(as = "Option<EitherUntagged<_, _>>")]
 	pub build_heartbeat_monitor: Option<Either<bool, BuildHeartbeatMonitor>>,
 
 	/// Configure the build indexer.
-	#[serde(
-		default,
-		skip_serializing_if = "Option::is_none",
-		with = "either::serde_untagged_optional"
-	)]
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	#[serde_as(as = "Option<EitherUntagged<_, _>>")]
 	pub build_indexer: Option<Either<bool, BuildIndexer>>,
 
 	/// Configure the database.
@@ -48,11 +39,8 @@ pub struct Config {
 	pub messenger: Option<Messenger>,
 
 	/// Configure the object indexer.
-	#[serde(
-		default,
-		skip_serializing_if = "Option::is_none",
-		with = "either::serde_untagged_optional"
-	)]
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	#[serde_as(as = "Option<EitherUntagged<_, _>>")]
 	pub object_indexer: Option<Either<bool, ObjectIndexer>>,
 
 	/// The path where a client will look for a socket file and where a server will store its data.
@@ -60,16 +48,14 @@ pub struct Config {
 	pub path: Option<PathBuf>,
 
 	/// Configure the default registry for this server. If this option is set to `true`, then the server will act as the default registry. Otherwise, provide the name of the remote. The default value is "default".
-	#[serde(
-		default,
-		skip_serializing_if = "Option::is_none",
-		with = "either::serde_untagged_optional"
-	)]
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	#[serde_as(as = "Option<EitherUntagged<_, _>>")]
 	pub registry: Option<Either<bool, String>>,
 
 	/// Configure remotes.
 	#[allow(clippy::type_complexity)]
 	#[serde(default, skip_serializing_if = "Option::is_none")]
+	#[serde_as(as = "Option<EitherUntagged<_, BTreeMap<_, EitherUntagged<_, _>>>>")]
 	pub remotes: Option<Either<bool, BTreeMap<String, Either<bool, Remote>>>>,
 
 	/// Configure tracing.
@@ -81,11 +67,8 @@ pub struct Config {
 	pub url: Option<Url>,
 
 	/// Enable or disable the VFS.
-	#[serde(
-		default,
-		skip_serializing_if = "Option::is_none",
-		with = "either::serde_untagged_optional"
-	)]
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	#[serde_as(as = "Option<EitherUntagged<_, _>>")]
 	pub vfs: Option<Either<bool, Vfs>>,
 }
 

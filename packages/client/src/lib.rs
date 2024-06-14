@@ -8,8 +8,6 @@ use tokio::{
 };
 use url::Url;
 
-mod util;
-
 pub use self::{
 	artifact::Artifact,
 	blob::Blob,
@@ -73,6 +71,7 @@ pub mod symlink;
 pub mod target;
 pub mod template;
 pub mod user;
+pub mod util;
 pub mod value;
 
 #[derive(Clone, Debug)]

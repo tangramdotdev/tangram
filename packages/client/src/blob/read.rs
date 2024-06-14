@@ -1,4 +1,8 @@
-use crate::{self as tg, Client};
+use crate::{
+	self as tg,
+	util::serde::{BytesBase64, SeekFromString},
+	Client,
+};
 use bytes::{Buf, Bytes};
 use futures::{future::BoxFuture, FutureExt as _, Stream, StreamExt as _};
 use num::ToPrimitive as _;
@@ -18,7 +22,7 @@ pub struct Arg {
 	pub length: Option<u64>,
 
 	#[serde(default, skip_serializing_if = "Option::is_none")]
-	#[serde_as(as = "Option<crate::util::serde::SeekFromString>")]
+	#[serde_as(as = "Option<SeekFromString>")]
 	pub position: Option<std::io::SeekFrom>,
 
 	#[serde(default, skip_serializing_if = "Option::is_none")]
@@ -29,7 +33,7 @@ pub struct Arg {
 #[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
 pub struct Chunk {
 	pub position: u64,
-	#[serde_as(as = "crate::util::serde::BytesBase64")]
+	#[serde_as(as = "BytesBase64")]
 	pub bytes: Bytes,
 }
 

@@ -1,5 +1,8 @@
 use crate as tg;
 use bytes::Bytes;
+use either::Either;
+use serde::Deserialize;
+use std::marker::PhantomData;
 
 pub struct BytesBase64;
 
@@ -40,6 +43,53 @@ impl<'de> serde_with::DeserializeAs<'de, Bytes> for BytesBase64 {
 		}
 
 		deserializer.deserialize_any(Visitor)
+	}
+}
+
+pub struct EitherUntagged<L, R>(PhantomData<(L, R)>);
+
+#[derive(serde::Deserialize, serde::Serialize)]
+#[serde(untagged)]
+enum Either_<L, R> {
+	Left(L),
+	Right(R),
+}
+
+impl<L, R, LAs, RAs> serde_with::SerializeAs<Either<L, R>> for EitherUntagged<LAs, RAs>
+where
+	L: serde::Serialize,
+	R: serde::Serialize,
+	LAs: serde_with::SerializeAs<L>,
+	RAs: serde_with::SerializeAs<R>,
+{
+	fn serialize_as<S>(value: &Either<L, R>, serializer: S) -> tg::Result<S::Ok, S::Error>
+	where
+		S: serde::Serializer,
+	{
+		match value {
+			Either::Left(value) => value.serialize(serializer),
+			Either::Right(value) => value.serialize(serializer),
+		}
+	}
+}
+
+impl<'de, L, R, LAs, RAs> serde_with::DeserializeAs<'de, Either<L, R>> for EitherUntagged<LAs, RAs>
+where
+	L: serde::Deserialize<'de>,
+	R: serde::Deserialize<'de>,
+	LAs: serde_with::DeserializeAs<'de, L>,
+	RAs: serde_with::DeserializeAs<'de, R>,
+{
+	fn deserialize_as<D>(deserializer: D) -> tg::Result<Either<L, R>, D::Error>
+	where
+		D: serde::Deserializer<'de>,
+	{
+		let either = Either_::deserialize(deserializer)?;
+		let either = match either {
+			Either_::Left(left) => Either::Left(left),
+			Either_::Right(right) => Either::Right(right),
+		};
+		Ok(either)
 	}
 }
 
@@ -105,11 +155,13 @@ impl<'de> serde_with::DeserializeAs<'de, std::io::SeekFrom> for SeekFromString {
 	}
 }
 
-pub fn true_() -> bool {
+#[must_use]
+pub fn return_true() -> bool {
 	true
 }
 
 #[allow(clippy::trivially_copy_pass_by_ref)]
+#[must_use]
 pub fn is_true(value: &bool) -> bool {
 	*value
 }

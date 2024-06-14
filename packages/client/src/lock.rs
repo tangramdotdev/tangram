@@ -54,7 +54,7 @@ pub struct Entry {
 
 pub mod data {
 	use super::Id;
-	use crate as tg;
+	use crate::{self as tg, util::serde::EitherUntagged};
 	use either::Either;
 	use serde_with::serde_as;
 	use std::collections::BTreeMap;
@@ -76,13 +76,15 @@ pub mod data {
 		pub dependencies: BTreeMap<tg::Dependency, Entry>,
 	}
 
+	#[serde_as]
 	#[derive(
 		Clone, Debug, Eq, Ord, PartialEq, PartialOrd, serde::Deserialize, serde::Serialize,
 	)]
 	pub struct Entry {
 		#[serde(default, skip_serializing_if = "Option::is_none")]
 		pub artifact: Option<tg::artifact::Id>,
-		#[serde(with = "either::serde_untagged")]
+
+		#[serde_as(as = "EitherUntagged<_, _>")]
 		pub lock: Either<usize, Id>,
 	}
 }

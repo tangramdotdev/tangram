@@ -1,4 +1,7 @@
-use crate as tg;
+use crate::{
+	self as tg,
+	util::serde::{is_true, return_true},
+};
 use futures::{Stream, StreamExt as _, TryStreamExt as _};
 use std::pin::pin;
 use tangram_http::{incoming::response::Ext as _, outgoing::request::Ext as _};
@@ -14,10 +17,7 @@ pub struct Arg {
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub path: Option<tg::Path>,
 
-	#[serde(
-		default = "crate::util::serde::true_",
-		skip_serializing_if = "crate::util::serde::is_true"
-	)]
+	#[serde(default = "return_true", skip_serializing_if = "is_true")]
 	pub references: bool,
 }
 

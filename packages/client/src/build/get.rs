@@ -1,6 +1,9 @@
 use crate as tg;
+use serde_with::serde_as;
 use tangram_http::{incoming::response::Ext as _, outgoing::request::Ext as _};
+use time::format_description::well_known::Rfc3339;
 
+#[serde_as]
 #[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
 pub struct Output {
 	pub id: tg::build::Id,
@@ -40,28 +43,19 @@ pub struct Output {
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub targets_weight: Option<u64>,
 
-	#[serde(with = "time::serde::rfc3339")]
+	#[serde_as(as = "Rfc3339")]
 	pub created_at: time::OffsetDateTime,
 
-	#[serde(
-		default,
-		skip_serializing_if = "Option::is_none",
-		with = "time::serde::rfc3339::option"
-	)]
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	#[serde_as(as = "Option<Rfc3339>")]
 	pub dequeued_at: Option<time::OffsetDateTime>,
 
-	#[serde(
-		default,
-		skip_serializing_if = "Option::is_none",
-		with = "time::serde::rfc3339::option"
-	)]
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	#[serde_as(as = "Option<Rfc3339>")]
 	pub started_at: Option<time::OffsetDateTime>,
 
-	#[serde(
-		default,
-		skip_serializing_if = "Option::is_none",
-		with = "time::serde::rfc3339::option"
-	)]
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	#[serde_as(as = "Option<Rfc3339>")]
 	pub finished_at: Option<time::OffsetDateTime>,
 }
 

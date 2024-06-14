@@ -1,4 +1,7 @@
-use crate as tg;
+use crate::{
+	self as tg,
+	util::serde::{BytesBase64, SeekFromString},
+};
 use bytes::Bytes;
 use futures::{Stream, StreamExt as _};
 use serde_with::serde_as;
@@ -11,7 +14,7 @@ pub struct Arg {
 	pub length: Option<i64>,
 
 	#[serde(default, skip_serializing_if = "Option::is_none")]
-	#[serde_as(as = "Option<crate::util::serde::SeekFromString>")]
+	#[serde_as(as = "Option<SeekFromString>")]
 	pub position: Option<std::io::SeekFrom>,
 
 	#[serde(default, skip_serializing_if = "Option::is_none")]
@@ -31,7 +34,7 @@ pub enum Event {
 #[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
 pub struct Chunk {
 	pub position: u64,
-	#[serde_as(as = "crate::util::serde::BytesBase64")]
+	#[serde_as(as = "BytesBase64")]
 	pub bytes: Bytes,
 }
 
