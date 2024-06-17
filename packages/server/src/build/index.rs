@@ -5,7 +5,7 @@ use indoc::formatdoc;
 use itertools::Itertools as _;
 use std::pin::pin;
 use tangram_client::{self as tg, Handle as _};
-use tangram_database::{self as db, prelude::*};
+use tangram_database::{self as db, prelude::*, Error};
 use tangram_messenger::Messenger as _;
 use time::format_description::well_known::Rfc3339;
 
@@ -266,9 +266,12 @@ impl Server {
 			drop(connection);
 
 			// Index the incomplete parents.
-			for build in builds {
-				self.enqueue_build_for_indexing(&build).await?;
-			}
+			tokio::spawn({
+				let server = self.clone();
+				async move {
+					server.enqueue_builds_for_indexing(&builds).await.ok();
+				}
+			});
 		}
 
 		// Attempt to set the count if necessary.
@@ -482,9 +485,12 @@ impl Server {
 			drop(connection);
 
 			// Index the parents with incomplete logs.
-			for build in builds {
-				self.enqueue_build_for_indexing(&build).await?;
-			}
+			tokio::spawn({
+				let server = self.clone();
+				async move {
+					server.enqueue_builds_for_indexing(&builds).await.ok();
+				}
+			});
 		}
 
 		// Attempt to set the outcomes count if necessary.
@@ -684,9 +690,12 @@ impl Server {
 			drop(connection);
 
 			// Index the parents with incomplete outcomes.
-			for build in builds {
-				self.enqueue_build_for_indexing(&build).await?;
-			}
+			tokio::spawn({
+				let server = self.clone();
+				async move {
+					server.enqueue_builds_for_indexing(&builds).await.ok();
+				}
+			});
 		}
 
 		// Attempt to set the targets count if necessary.
@@ -864,9 +873,12 @@ impl Server {
 			drop(connection);
 
 			// Index the parents with incomplete targets.
-			for build in builds {
-				self.enqueue_build_for_indexing(&build).await?;
-			}
+			tokio::spawn({
+				let server = self.clone();
+				async move {
+					server.enqueue_builds_for_indexing(&builds).await.ok();
+				}
+			});
 		}
 
 		// Get a database connection.
@@ -901,41 +913,59 @@ impl Server {
 		Ok(())
 	}
 
-	pub(crate) async fn enqueue_build_for_indexing(&self, id: &tg::build::Id) -> tg::Result<()> {
-		// Get a database connection.
-		let connection = self
-			.database
-			.connection(db::Priority::Low)
-			.await
-			.map_err(|source| tg::error!(!source, "failed to get a database connection"))?;
+	pub(crate) async fn enqueue_builds_for_indexing(
+		&self,
+		builds: &[tg::build::Id],
+	) -> tg::Result<()> {
+		loop {
+			// Get a database connection.
+			let mut connection = self
+				.database
+				.connection(db::Priority::Low)
+				.await
+				.map_err(|source| tg::error!(!source, "failed to get a database connection"))?;
 
-		// Set the build's indexing status.
-		let p = connection.p();
-		let statement = formatdoc!(
-			"
-				update builds
-				set
-					index_status = 'enqueued',
-					index_started_at = null
-				where id = {p}1;
-			"
-		);
-		let params = db::params![id];
-		connection
-			.execute(statement, params)
-			.await
-			.map_err(|source| tg::error!(!source, "failed to execute the statement"))?;
+			// Get a transaction.
+			let transaction = connection
+				.transaction()
+				.await
+				.map_err(|source| tg::error!(!source, "failed to get a transaction"))?;
 
-		// Drop the connection.
-		drop(connection);
+			for id in builds {
+				// Set the build's indexing status.
+				let p = transaction.p();
+				let statement = formatdoc!(
+					"
+						update builds
+						set
+							index_status = 'enqueued',
+							index_started_at = null
+						where id = {p}1;
+					"
+				);
+				let params = db::params![id];
+				transaction
+					.execute(statement, params)
+					.await
+					.map_err(|source| tg::error!(!source, "failed to execute the statement"))?;
+			}
 
+			// Commit the transaction.
+			match transaction.commit().await {
+				Ok(()) => break,
+				Err(error) if error.is_retry() => continue,
+				Err(source) => return Err(tg::error!(!source, "failed to commit the transaction")),
+			}
+		}
 		// Publish the build indexing message.
-		let subject = "builds.index".to_owned();
-		let payload = id.to_string().into();
-		self.messenger
-			.publish(subject, payload)
-			.await
-			.map_err(|source| tg::error!(!source, "failed to publish the message"))?;
+		for id in builds {
+			let subject = "builds.index".to_owned();
+			let payload = id.to_string().into();
+			self.messenger
+				.publish(subject, payload)
+				.await
+				.map_err(|source| tg::error!(!source, "failed to publish the message"))?;
+		}
 
 		Ok(())
 	}

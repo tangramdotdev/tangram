@@ -77,7 +77,7 @@ impl Server {
 				let id = id.clone();
 				async move {
 					server
-						.enqueue_object_for_indexing(&id)
+						.enqueue_objects_for_indexing(&[id])
 						.await
 						.inspect_err(|error| tracing::error!(?error))
 						.ok();
