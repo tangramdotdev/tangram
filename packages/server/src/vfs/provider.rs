@@ -44,6 +44,7 @@ struct Node {
 	parent: u64,
 	artifact: Option<tg::Artifact>,
 	checkout: bool,
+	depth: u64,
 }
 
 impl vfs::Provider for Provider {
@@ -107,7 +108,7 @@ impl vfs::Provider for Provider {
 
 		// If the parent is the root, then create a new node or lookup as a checkout.
 		let mut checkout = false;
-		let artifact = 'a: {
+		let entry = 'a: {
 			if parent != vfs::ROOT_NODE_ID {
 				break 'a None;
 			};
@@ -117,15 +118,17 @@ impl vfs::Provider for Provider {
 			let artifact = tg::Artifact::with_id(artifact);
 			let exists = tokio::fs::try_exists(self.server.checkouts_path().join(name)).await;
 			checkout = matches!(exists, Ok(true));
-			Some(artifact)
+			Some((artifact, 1))
 		};
 
 		// Otherwise, get the parent artifact and attempt to lookup.
-		let artifact = 'a: {
-			if let Some(artifact) = artifact {
-				break 'a Some(artifact);
+		let entry = 'a: {
+			if let Some(entry) = entry {
+				break 'a Some(entry);
 			}
-			let Node { artifact, .. } = self.get(parent).await?;
+			let Node {
+				artifact, depth, ..
+			} = self.get(parent).await?;
 			let Some(tg::Artifact::Directory(parent)) = artifact else {
 				return Ok(None);
 			};
@@ -136,11 +139,12 @@ impl vfs::Provider for Provider {
 			let Some(artifact) = entries.get(name) else {
 				return Ok(None);
 			};
-			Some(artifact.clone())
+			Some((artifact.clone(), depth + 1))
 		};
 
 		// Insert the node.
-		let id = self.put(parent, name, artifact.unwrap(), checkout).await?;
+		let (artifact, depth) = entry.unwrap();
+		let id = self.put(parent, name, artifact, checkout, depth).await?;
 
 		Ok(Some(id))
 	}
@@ -301,7 +305,10 @@ impl vfs::Provider for Provider {
 	async fn readlink(&self, id: u64) -> std::io::Result<Bytes> {
 		// Get the node.
 		let Node {
-			artifact, checkout, ..
+			artifact,
+			checkout,
+			depth,
+			..
 		} = self.get(id).await.map_err(|error| {
 			tracing::error!(%error, "failed to lookup node");
 			std::io::Error::from_raw_os_error(libc::EIO)
@@ -317,7 +324,6 @@ impl vfs::Provider for Provider {
 				.join("checkouts")
 				.join(id.to_string())
 				.to_string()
-				.into_bytes()
 				.into();
 			return Ok(target);
 		}
@@ -339,7 +345,6 @@ impl vfs::Provider for Provider {
 			return Err(std::io::Error::from_raw_os_error(libc::EIO));
 		};
 		if let Some(artifact) = artifact.as_ref() {
-			let depth = self.depth(id).await?;
 			for _ in 0..depth - 1 {
 				target.push(tg::path::Component::Parent);
 			}
@@ -492,7 +497,8 @@ impl Provider {
 					parent integer not null,
 					name text,
 					artifact text,
-					checkout integer not null
+					checkout integer not null,
+					depth integer not null
 				);
 
 				create index node_parent_name_index on nodes (id, parent);
@@ -505,11 +511,11 @@ impl Provider {
 		let p = connection.p();
 		let statement = formatdoc!(
 			"
-				insert into nodes (id, parent, checkout)
-				values ({p}1, {p}1, {p}2);
+				insert into nodes (id, parent, checkout, depth)
+				values ({p}1, {p}1, {p}2, {p}3);
 			"
 		);
-		let params = db::params![vfs::ROOT_NODE_ID, false];
+		let params = db::params![vfs::ROOT_NODE_ID, false, 0];
 		connection
 			.execute(statement, params)
 			.await
@@ -564,11 +570,12 @@ impl Provider {
 			parent: u64,
 			artifact: Option<tg::artifact::Id>,
 			checkout: bool,
+			depth: u64,
 		}
 		let p = connection.p();
 		let statement = formatdoc!(
 			"
-				select parent, artifact, checkout
+				select parent, artifact, checkout, depth
 				from nodes
 				where id = {p}1;
 			"
@@ -586,10 +593,12 @@ impl Provider {
 		let parent = row.parent;
 		let artifact = row.artifact.map(tg::Artifact::with_id);
 		let checkout = row.checkout;
+		let depth = row.depth;
 		let node = Node {
 			parent,
 			artifact,
 			checkout,
+			depth,
 		};
 
 		// Add the node to the cache.
@@ -604,12 +613,14 @@ impl Provider {
 		name: &str,
 		artifact: tg::Artifact,
 		checkout: bool,
+		depth: u64,
 	) -> std::io::Result<u64> {
 		// Create the node.
 		let node = Node {
 			parent,
 			artifact: Some(artifact.clone()),
 			checkout,
+			depth,
 		};
 
 		// Get the artifact id.
@@ -643,11 +654,11 @@ impl Provider {
 				let p = connection.p();
 				let statement = formatdoc!(
 					"
-					insert into nodes (id, parent, name, artifact, checkout)
-					values ({p}1, {p}2, {p}3, {p}4, {p}5)
+					insert into nodes (id, parent, name, artifact, checkout, depth)
+					values ({p}1, {p}2, {p}3, {p}4, {p}5, {p}6)
 				"
 				);
-				let params = db::params![id, parent, name, artifact, checkout];
+				let params = db::params![id, parent, name, artifact, checkout, depth];
 				if let Err(error) = connection.execute(statement, params).await {
 					tracing::error!(%error, %id, "failed to write node to the database");
 				}
@@ -656,52 +667,5 @@ impl Provider {
 		});
 
 		Ok(id)
-	}
-
-	async fn depth(&self, mut node: u64) -> std::io::Result<usize> {
-		// Get a database connection.
-		let mut connection =
-			self.database
-				.connection(db::Priority::Low)
-				.await
-				.map_err(|error| {
-					tracing::error!(%error, "failed to create database connection");
-					std::io::Error::from_raw_os_error(libc::EIO)
-				})?;
-
-		// Create a transaction.
-		let transaction = connection.transaction().await.map_err(|error| {
-			tracing::error!(%error, "failed to create transaction");
-			std::io::Error::from_raw_os_error(libc::EIO)
-		})?;
-
-		// Compute the depth.
-		let mut depth = 0;
-		while node != vfs::ROOT_NODE_ID {
-			depth += 1;
-			#[derive(serde::Deserialize)]
-			struct Row {
-				parent: u64,
-			}
-			let p = transaction.p();
-			let statement: String = formatdoc!(
-				"
-					select parent
-					from nodes
-					where id = {p}1;
-				"
-			);
-			let params = db::params![node];
-			let row = transaction
-				.query_one_into::<Row>(statement, params)
-				.await
-				.map_err(|error| {
-					tracing::error!(%error, %node, "failed to get the node parent from the database");
-					std::io::Error::from_raw_os_error(libc::EIO)
-				})?;
-			node = row.parent;
-		}
-
-		Ok(depth)
 	}
 }
