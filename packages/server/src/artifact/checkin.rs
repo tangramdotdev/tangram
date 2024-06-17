@@ -167,16 +167,9 @@ impl Server {
 		let mut stack = output.children;
 		while let Some(output) = stack.pop() {
 			if matches!(output.id, tg::artifact::Id::File(_)) {
+				let src = &output.path;
 				let dst = self.checkouts_path().join(output.id.to_string());
-				match tokio::fs::hard_link(output.path, &dst).await {
-					Ok(()) => (),
-					Err(error) if error.raw_os_error() == Some(libc::EEXIST) => (),
-					Err(source) => {
-						return Err(
-							tg::error!(!source, %path = dst.display(), "failed to create hard link"),
-						);
-					},
-				}
+				tokio::fs::hard_link(src, &dst).await.ok();
 			}
 			stack.extend(output.children);
 		}
