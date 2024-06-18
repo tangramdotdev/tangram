@@ -195,7 +195,13 @@ pub struct NatsMessenger {
 }
 
 #[derive(Clone, Debug, Default, serde::Deserialize, serde::Serialize)]
-pub struct ObjectIndexer {}
+pub struct ObjectIndexer {
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub batch_size: Option<u64>,
+
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub timeout: Option<f64>,
+}
 
 #[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
 pub struct Remote {
@@ -239,4 +245,26 @@ pub struct Vfs {
 	pub cache_ttl: Option<f64>,
 	pub cache_size: Option<u64>,
 	pub database_connections: Option<usize>,
+}
+
+#[cfg(test)]
+mod test {
+    use std::collections::BTreeMap;
+
+    use super::{Config, Remote};
+
+	#[test]
+	fn serde() {
+		let config = Config {
+			remotes: Some(either::Either::Right([
+				("default".into(), either::Either::Right(Remote {
+					url: "http://foo.bar.baz".parse().unwrap(),
+					build: Some(false)
+				}))
+			].into_iter().collect())),
+			..Default::default()
+		};
+		let json = serde_json::to_string_pretty(&config).unwrap();
+		println!("{json}");
+	}
 }

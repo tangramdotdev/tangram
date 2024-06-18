@@ -30,7 +30,13 @@ impl Server {
 					continue;
 				},
 			};
+
+			#[derive(serde::Deserialize)]
+			struct Row {
+				id: tg::object::Id,
+			}
 			let p = connection.p();
+
 			let statement = formatdoc!(
 				"
 					update objects
@@ -43,27 +49,30 @@ impl Server {
 						where
 							index_status = 'enqueued' or
 							(index_status = 'started' and index_started_at <= {p}2)
-						limit 1
+						limit {p}3
 					)
 					returning id;
 				"
 			);
+			let limit = self.options.object_indexer.as_ref().unwrap().batch_size;
+			let timeout = self.options.object_indexer.as_ref().unwrap().timeout;
 			let now = (time::OffsetDateTime::now_utc()).format(&Rfc3339).unwrap();
-			let time = (time::OffsetDateTime::now_utc() - std::time::Duration::from_secs(60))
-				.format(&Rfc3339)
-				.unwrap();
-			let params = db::params![now, time];
+			let time = (time::OffsetDateTime::now_utc()
+				- std::time::Duration::from_secs_f64(timeout))
+			.format(&Rfc3339)
+			.unwrap();
+			let params = db::params![now, time, limit];
 			let result = connection
-				.query_optional_value_into::<tg::object::Id>(statement, params)
+				.query_all_into::<Row>(statement, params)
 				.await
 				.map_err(|source| tg::error!(!source, "failed to execute the statement"));
 			drop(connection);
-			let id = match result {
-				Ok(Some(id)) => id,
+			let rows = match result {
+				Ok(rows) if !rows.is_empty() => rows,
 
 				// If there are no objects enqueued for indexing, then wait to receive an object indexing event or for a timeout to pass.
-				Ok(None) => {
-					let timeout = std::time::Duration::from_secs(60);
+				Ok(_) => {
+					let timeout = std::time::Duration::from_secs_f64(timeout);
 					let timeout = tokio::time::sleep(timeout);
 					future::select(events.next(), pin!(timeout)).await;
 					continue;
@@ -77,33 +86,35 @@ impl Server {
 				},
 			};
 
-			// Spawn a task to index the object.
-			tokio::spawn({
-				let server = self.clone();
-				eprintln!("indexing {id}");
-				async move {
-					let start = std::time::Instant::now();
-					server
-						.index_object(&id)
-						.await
-						.inspect_err(|error| tracing::error!(?error))
-						.ok();
-					let duration = std::time::Instant::now() - start;
-					eprintln!("indexed {id} in {} secs", duration.as_secs_f32());
-				}
-			});
+			// Spawn tasks to index objects in a batch.
+			rows.into_iter()
+				.map(|row| {
+					tokio::spawn({
+						let server = self.clone();
+						async move {
+							server
+								.index_object(&row.id)
+								.await
+								.inspect_err(|error| tracing::error!(?error))
+								.ok();
+						}
+					})
+				})
+				.collect::<FuturesUnordered<_>>()
+				.try_collect::<Vec<_>>()
+				.await
+				.ok();
 		}
 	}
 
 	async fn index_object(&self, id: &tg::object::Id) -> tg::Result<()> {
-		// The inner transaction may fail due to database serialization errors, so we need to retry it in a loop.
-		// loop {
 		// Get a short lived connection
 		let connection = self
 			.database
 			.connection(db::Priority::Low)
 			.await
 			.map_err(|source| tg::error!(!source, "failed to get a database connection"))?;
+
 		// Get the object.
 		#[derive(serde::Deserialize)]
 		struct Row {
@@ -160,7 +171,10 @@ impl Server {
 		// If the children were not set, then add them.
 		if !children {
 			loop {
-				let transaction = connection.transaction().await.map_err(|source| tg::error!(!source, "failed to get a database connection"))?;
+				let transaction = connection
+					.transaction()
+					.await
+					.map_err(|source| tg::error!(!source, "failed to get a database connection"))?;
 				let p = transaction.p();
 
 				// Add the children.
@@ -202,7 +216,6 @@ impl Server {
 			}
 		}
 
-		//
 		if count.is_none() {
 			// Attempt to compute the count.
 			let count = children_metadata
@@ -213,12 +226,6 @@ impl Server {
 
 			// Set the count if possible.
 			if count.is_some() {
-				let connection = self
-					.database
-					.connection(db::Priority::Low)
-					.await
-					.map_err(|source| tg::error!(!source, "failed to get a database connection"))?;
-
 				// Set the count.
 				let p = connection.p();
 				let statement = formatdoc!(
@@ -286,12 +293,10 @@ impl Server {
 				"
 			);
 			let params = db::params![id];
-			let completed = connection
+			connection
 				.query_one_value_into(statement, params)
 				.await
-				.map_err(|source| tg::error!(!source, "failed to execute the statement"))?;
-
-			completed
+				.map_err(|source| tg::error!(!source, "failed to execute the statement"))?
 		};
 
 		// If the object became complete, then index its incomplete parents.

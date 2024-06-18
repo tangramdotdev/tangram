@@ -101,7 +101,10 @@ pub struct NatsMessenger {
 }
 
 #[derive(Clone, Debug)]
-pub struct ObjectIndexer {}
+pub struct ObjectIndexer {
+	pub batch_size: u64,
+	pub timeout: f64,
+}
 
 #[derive(Clone, Debug)]
 pub struct Remote {

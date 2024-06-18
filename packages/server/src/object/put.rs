@@ -71,7 +71,7 @@ impl Server {
 		drop(connection);
 
 		// If the object is not complete, then enqueue the object for indexing.
-		if !complete && incomplete.is_empty() {
+		if !complete {
 			tokio::spawn({
 				let server = self.clone();
 				let id = id.clone();
