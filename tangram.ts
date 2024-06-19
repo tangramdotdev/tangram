@@ -1,6 +1,7 @@
-import * as rust from "tg:rust";
-import * as std from "tg:std";
-import { $ } from "tg:std";
+import bun from "tg:bun" with { path: "../packages/packages/bun" };
+import * as rust from "tg:rust" with { path: "../packages/packages/rust" };
+import * as std from "tg:std" with { path: "../packages/packages/std" };
+import { $ } from "tg:std" with { path: "../packages/packages/std" };
 
 import cargoToml from "./Cargo.toml" with { type: "file" };
 import cargoLock from "./Cargo.lock" with { type: "file" };
@@ -40,47 +41,25 @@ export let source = tg.target(() =>
 
 export default tg.target(async () => {
 	let host = std.triple.host();
-	let env = std.env.arg(bun(host), {
-		RUSTY_V8_ARCHIVE: librustyv8(host),
-	});
+	let bunArtifact = bun({ host });
 
 	let nodeModules =
 		await $`bun install ${source()} --frozen-lockfile && cp -R node_modules $OUTPUT`
-			.env(env)
+			.env(bunArtifact)
 			.checksum("unsafe")
 			.then(tg.Directory.expect);
 	let sourceDir = tg.directory(source(), { node_modules: nodeModules });
 
+	let env = std.env.arg(
+		bunArtifact,
+		{
+			RUSTY_V8_ARCHIVE: librustyv8(host),
+		},
+		linuxRuntimeComponents(),
+	);
 	return rust.build({
-		checksum: "unsafe",
 		source: sourceDir,
 		env,
-	});
-});
-
-export let bun = tg.target(async (hostArg?: string) => {
-	let host = hostArg ?? (await std.triple.host());
-	let arch;
-	if (std.triple.arch(host) === "aarch64") {
-		arch = "aarch64";
-	} else if (std.triple.arch(host) === "x86_64") {
-		arch = "x64";
-	} else {
-		throw new Error(`unsupported host ${host}`);
-	}
-	let file = `bun-${std.triple.os(host)}-${arch}`;
-	let checksum = "unsafe";
-	let dl = tg.Directory.expect(
-		await std.download({
-			checksum,
-			extract: true,
-			url: `https://github.com/oven-sh/bun/releases/download/bun-v1.1.13/${file}.zip`,
-		}),
-	);
-	let bun = tg.File.expect(await dl.get(`${file}/bun`));
-	return tg.directory({
-		"bin/bun": std.wrap(bun),
-		"bin/bunx": tg.symlink("bun"),
 	});
 });
 
@@ -99,7 +78,34 @@ export let librustyv8 = tg.target(async (hostArg?: string) => {
 	let lib = await std.download({
 		checksum,
 		decompress: true,
-		url: `https://github.com/denoland/rusty_v8/releases/download/v0.92.0/${file}`,
+		url: `https://github.com/denoland/rusty_v8/releases/download/v0.93.0/${file}`,
 	});
 	return tg.File.expect(lib);
+});
+
+export let linuxRuntimeComponents = tg.target(async () => {
+	let version = "v2024.04.02";
+	let urlBase = `https://github.com/tangramdotdev/bootstrap/releases/download/${version}/`;
+	let fileUrl = (name: string) => urlBase + name + ".tar.zst";
+
+	let checksums: { [key: string]: tg.Checksum } = {
+		["DASH_AARCH64_LINUX"]:
+			"sha256:89a1cab57834f81cdb188d5f40b2e98aaff2a5bdae4e8a5d74ad0b2a7672d36b",
+		["DASH_X86_64_LINUX"]:
+			"sha256:899adb46ccf4cddc7bfeb7e83a6b2953124035c350d6f00f339365e3b01b920e",
+		["ENV_AARCH64_LINUX"]:
+			"sha256:da4fed85cc4536de95b32f5a445e169381ca438e76decdbb4f117a1d115b0184",
+		["ENV_X86_64_LINUX"]:
+			"sha256:ea7b6f8ffa359519660847780a61665bb66748aee432dec8a35efb0855217b95",
+	};
+	return Object.fromEntries(
+		await Promise.all(
+			Object.entries(checksums).map(async ([name, checksum]) => {
+				let file = await tg
+					.download(fileUrl(name.toLowerCase()), checksum)
+					.then((blob) => tg.file(blob));
+				return [name, file];
+			}),
+		),
+	);
 });
