@@ -3,7 +3,7 @@ use bytes::Bytes;
 use futures::{future, stream::FuturesUnordered, StreamExt as _, TryStreamExt as _};
 use indoc::formatdoc;
 use num::ToPrimitive as _;
-use std::pin::pin;
+use std::{pin::pin, sync::Arc};
 use tangram_client as tg;
 use tangram_database::{self as db, prelude::*, Error};
 use tangram_messenger::Messenger as _;
@@ -19,7 +19,17 @@ impl Server {
 			.map_err(|source| tg::error!(!source, "failed to subscribe"))?
 			.boxed();
 
+		let semaphore = Arc::new(tokio::sync::Semaphore::new(
+			self.options.object_indexer.as_ref().unwrap().batch_size.to_usize().unwrap()
+		));
+
 		loop {
+			// Sleep until we can do some work.
+			if semaphore.available_permits() == 0 {
+				tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+				continue;
+			}
+
 			// Attempt to get an object to index.
 			let connection = match self.database.connection(db::Priority::Low).await {
 				Ok(connection) => connection,
@@ -54,7 +64,7 @@ impl Server {
 					returning id;
 				"
 			);
-			let limit = self.options.object_indexer.as_ref().unwrap().batch_size;
+			let limit = semaphore.available_permits();
 			let timeout = self.options.object_indexer.as_ref().unwrap().timeout;
 			let now = (time::OffsetDateTime::now_utc()).format(&Rfc3339).unwrap();
 			let time = (time::OffsetDateTime::now_utc()
@@ -87,23 +97,20 @@ impl Server {
 			};
 
 			// Spawn tasks to index objects in a batch.
-			rows.into_iter()
-				.map(|row| {
-					tokio::spawn({
-						let server = self.clone();
-						async move {
-							server
-								.index_object(&row.id)
-								.await
-								.inspect_err(|error| tracing::error!(?error))
-								.ok();
-						}
-					})
-				})
-				.collect::<FuturesUnordered<_>>()
-				.try_collect::<Vec<_>>()
-				.await
-				.ok();
+			for row in rows {
+				tokio::spawn({
+					let semaphore = semaphore.clone();
+					let server = self.clone();
+					async move {
+						let _permit = semaphore.acquire().await.unwrap();
+						server
+							.index_object(&row.id)
+							.await
+							.inspect_err(|error| tracing::error!(?error))
+							.ok();
+					}
+				});
+			}
 		}
 	}
 
