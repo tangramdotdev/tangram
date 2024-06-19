@@ -50,11 +50,14 @@ export default tg.target(async () => {
 			.then(tg.Directory.expect);
 	let sourceDir = tg.directory(source(), { node_modules: nodeModules });
 
-	let env = std.env.arg(bunArtifact, {
-		RUSTY_V8_ARCHIVE: librustyv8(host),
-	});
+	let env = std.env.arg(
+		bunArtifact,
+		{
+			RUSTY_V8_ARCHIVE: librustyv8(host),
+		},
+		linuxRuntimeComponents(),
+	);
 	return rust.build({
-		checksum: "unsafe",
 		source: sourceDir,
 		env,
 	});
@@ -78,4 +81,31 @@ export let librustyv8 = tg.target(async (hostArg?: string) => {
 		url: `https://github.com/denoland/rusty_v8/releases/download/v0.93.0/${file}`,
 	});
 	return tg.File.expect(lib);
+});
+
+export let linuxRuntimeComponents = tg.target(async () => {
+	let version = "v2024.04.02";
+	let urlBase = `https://github.com/tangramdotdev/bootstrap/releases/download/${version}/`;
+	let fileUrl = (name: string) => urlBase + name + ".tar.zst";
+
+	let checksums: { [key: string]: tg.Checksum } = {
+		["DASH_AARCH64_LINUX"]:
+			"sha256:89a1cab57834f81cdb188d5f40b2e98aaff2a5bdae4e8a5d74ad0b2a7672d36b",
+		["DASH_X86_64_LINUX"]:
+			"sha256:899adb46ccf4cddc7bfeb7e83a6b2953124035c350d6f00f339365e3b01b920e",
+		["ENV_AARCH64_LINUX"]:
+			"sha256:da4fed85cc4536de95b32f5a445e169381ca438e76decdbb4f117a1d115b0184",
+		["ENV_X86_64_LINUX"]:
+			"sha256:ea7b6f8ffa359519660847780a61665bb66748aee432dec8a35efb0855217b95",
+	};
+	return Object.fromEntries(
+		await Promise.all(
+			Object.entries(checksums).map(async ([name, checksum]) => {
+				let file = await tg
+					.download(fileUrl(name.toLowerCase()), checksum)
+					.then((blob) => tg.file(blob));
+				return [name, file];
+			}),
+		),
+	);
 });

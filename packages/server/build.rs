@@ -40,16 +40,24 @@ fn main() {
 		),
 	];
 	for (name, path, expected) in binaries {
+		let env_var = name.to_ascii_uppercase();
+		println!("cargo:rerun-if-env-changed={env_var}");
+
 		// Determine the cache path.
 		let cache_path = out_dir_path.join(expected);
 
 		// Download if necessary.
 		if !cache_path.exists() {
-			// Compute the URL.
-			let url = format!("https://github.com/tangramdotdev/bootstrap/releases/download/{version}/{name}.tar.zst");
+			// If the environment variable is set, use it.
+			let bytes = if let Ok(path) = std::env::var(env_var) {
+				std::fs::read(&path).unwrap()
+			} else {
+				// Compute the URL.
+				let url = format!("https://github.com/tangramdotdev/bootstrap/releases/download/{version}/{name}.tar.zst");
 
-			// Download.
-			let bytes = reqwest::blocking::get(url).unwrap().bytes().unwrap();
+				// Download.
+				reqwest::blocking::get(url).unwrap().bytes().unwrap().into()
+			};
 
 			// Verify.
 			let mut hasher = sha2::Sha256::new();
