@@ -270,7 +270,7 @@ impl Target {
 		Ok(self.object(handle).await?.map(|object| &object.checksum))
 	}
 
-	pub async fn package<H>(&self, handle: &H) -> tg::Result<Option<tg::Directory>>
+	pub async fn package<H>(&self, handle: &H) -> tg::Result<Option<tg::Artifact>>
 	where
 		H: tg::Handle,
 	{
@@ -281,10 +281,7 @@ impl Target {
 		let Some(artifact) = symlink.artifact(handle).await? else {
 			return Ok(None);
 		};
-		let Some(directory) = artifact.try_unwrap_directory_ref().ok() else {
-			return Ok(None);
-		};
-		Ok(Some(directory.clone()))
+		Ok(Some(artifact))
 	}
 }
 
