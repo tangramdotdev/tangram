@@ -1,6 +1,7 @@
-import * as rust from "tg:rust";
-import * as std from "tg:std";
-import { $ } from "tg:std";
+import bun from "tg:bun" with { path: "../packages/packages/bun" };
+import * as rust from "tg:rust" with { path: "../packages/packages/rust" };
+import * as std from "tg:std" with { path: "../packages/packages/std" };
+import { $ } from "tg:std" with { path: "../packages/packages/std" };
 
 import cargoToml from "./Cargo.toml" with { type: "file" };
 import cargoLock from "./Cargo.lock" with { type: "file" };
@@ -40,47 +41,22 @@ export let source = tg.target(() =>
 
 export default tg.target(async () => {
 	let host = std.triple.host();
-	let env = std.env.arg(bun(host), {
-		RUSTY_V8_ARCHIVE: librustyv8(host),
-	});
+	let bunArtifact = bun({ host });
 
 	let nodeModules =
 		await $`bun install ${source()} --frozen-lockfile && cp -R node_modules $OUTPUT`
-			.env(env)
+			.env(bunArtifact)
 			.checksum("unsafe")
 			.then(tg.Directory.expect);
 	let sourceDir = tg.directory(source(), { node_modules: nodeModules });
 
+	let env = std.env.arg(bunArtifact, {
+		RUSTY_V8_ARCHIVE: librustyv8(host),
+	});
 	return rust.build({
 		checksum: "unsafe",
 		source: sourceDir,
 		env,
-	});
-});
-
-export let bun = tg.target(async (hostArg?: string) => {
-	let host = hostArg ?? (await std.triple.host());
-	let arch;
-	if (std.triple.arch(host) === "aarch64") {
-		arch = "aarch64";
-	} else if (std.triple.arch(host) === "x86_64") {
-		arch = "x64";
-	} else {
-		throw new Error(`unsupported host ${host}`);
-	}
-	let file = `bun-${std.triple.os(host)}-${arch}`;
-	let checksum = "unsafe";
-	let dl = tg.Directory.expect(
-		await std.download({
-			checksum,
-			extract: true,
-			url: `https://github.com/oven-sh/bun/releases/download/bun-v1.1.13/${file}.zip`,
-		}),
-	);
-	let bun = tg.File.expect(await dl.get(`${file}/bun`));
-	return tg.directory({
-		"bin/bun": std.wrap(bun),
-		"bin/bunx": tg.symlink("bun"),
 	});
 });
 
@@ -99,7 +75,7 @@ export let librustyv8 = tg.target(async (hostArg?: string) => {
 	let lib = await std.download({
 		checksum,
 		decompress: true,
-		url: `https://github.com/denoland/rusty_v8/releases/download/v0.92.0/${file}`,
+		url: `https://github.com/denoland/rusty_v8/releases/download/v0.93.0/${file}`,
 	});
 	return tg.File.expect(lib);
 });
