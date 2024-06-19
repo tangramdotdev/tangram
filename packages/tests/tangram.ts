@@ -1,19 +1,22 @@
 import * as std from "tg:std" with { path: "../../../packages/packages/std" };
-import { tangram } from "tg:tangram" with { path: "../../" };
+import { $ } from "tg:std" with { path: "../../../packages/packages/std" };
+import tangram from "tg:tangram" with { path: "../.." };
 
 export default tg.target(async () => {
-	let previous = await import("snapshots");
-	let current = snapshots();
-	let diff = await tg.File.expect(
-		await std.build(tg`
+	const previous = (await import("./snapshots")).default;
+	const current = snapshots();
+	const diff = await $`
 		diff -Nqr -x '\.tangram' ${previous} ${current} | tee $OUTPUT
-	`),
-	);
+	`.then(tg.File.expect);
 	return (await diff.text()) === "";
 });
 
+export const hello = tg.target(async () => {
+	return 4;
+});
+
 /// Create the snapshot directory.
-export let snapshots = tg.target(() =>
+export const snapshots = tg.target(() =>
 	tg.directory({
 		artifacts: testArtifacts(),
 		builds: testBuilds(),
@@ -25,80 +28,85 @@ export let snapshots = tg.target(() =>
 );
 
 /// Given a source directory, build the default target.
-export let test = tg.target(async (source: tg.Directory) => {
-	// Create the test script.
-	let script = tg`
+export const test = tg.target(async (source: tg.Directory) => {
+	return await $`
 		# Copy the source into the current working directory and set permissions.
-		cp -r ${source}/. .
+		cp -R ${source}/. .
 		chmod -R +w .
 
 		# Run the default build, and check out the result to OUTPUT.
 		tg build --no-tui -p $PWD -c $OUTPUT
-	`;
-
-	// Run the build.
-	let result = await std.build(script, { env: env() });
-	return tg.Directory.expect(result);
+	`
+		.env(env())
+		.then(tg.Directory.expect);
 });
 
-/// The test environment.
-export let env = tg.target(async (): Promise<tg.Directory> => {
-	let config = tg.file(`
+/// Construct a test environment.
+export const env = tg.target(
+	async (): Promise<tg.Directory> => {
+		const config = tg.file(`
 	{
 		"advanced": {
 			"error_trace_options": {
 				"internal": true
 			},
-			"write_build_logs_to_file": true,
-			"write_build_logs_to_stderr": true
+			"duplicate_build_logs_to_stderr": true
 		},
 		"path": "/tmp/.tangram",
-		"remotes": [],
+		"remotes": null,
 		"tracing": {
 			"filter": "tangram_server=debug"
 		},
-		"vfs": false
+		"vfs": null
 	}
 	`);
-	let unwrapped = tg.File.expect(await (await tangram()).get("bin/tg"));
-	return tg.directory({
-		"bin/tg": std.wrap(unwrapped, {
-			args: [tg`--config=${config}`, "--mode=server"],
-		}),
-	});
-});
+		const unwrappedTg = await tangram()
+				.then((dir) => dir.get("bin/tg"))
+				.then(tg.File.expect);
+		return tg.directory({
+			"bin/tg": std.wrap(unwrappedTg, {
+				args: [tg`--config=${config}`, "--mode=server"],
+			}),
+		});
+	},
+);
 
 // Artifact creation.
-export let testArtifacts = tg.target(() => test(artifactsSource()));
-export let artifactsSource = tg.target(async () =>
+export const testArtifacts = tg.target(() => test(artifactsSource()));
+export const artifactsSource = tg.target(async () =>
 	tg.directory({
-		"tangram.ts": (await import("./src/artifacts.ts", { with: { type: "file" }})).default,
+		"tangram.ts": (
+			await import("./src/artifacts.ts", { with: { type: "file" } })
+		).default,
 	}),
 );
 
 // Builds.
-export let testBuilds = tg.target(() => test(sandboxSource()));
-export let sandboxSource = tg.target(async () =>
+export const testBuilds = tg.target(() => test(sandboxSource()));
+export const sandboxSource = tg.target(async () =>
 	tg.directory({
-		"tangram.ts": (await import("./src/builds.ts", { with: { type: "file" }}).default),
+		"tangram.ts": (await import("./src/builds.ts", { with: { type: "file" } }))
+			.default,
 	}),
 );
 
 // CLI tests.
 import testCli_ from "./cli.ts";
-export let testCli = tg.target(() => testCli_());
+export const testCli = tg.target(() => testCli_());
 
 import testLogs_ from "./logs.ts";
-export let testLogs = tg.target(() => testLogs_());
+export const testLogs = tg.target(() => testLogs_());
 
 // Mutation evaluation.
-export let testMutations = tg.target(() => test(mutationsSource()));
-export let mutationsSource = tg.target(() =>
+export const testMutations = tg.target(() => test(mutationsSource()));
+export const mutationsSource = tg.target(async () =>
 	tg.directory({
-		"tangram.ts": (await import("./src/mutations.ts"), { with: { type: "file" }}).default,
+		"tangram.ts": (
+			await import("./src/mutations.ts", { with: { type: "file" } })
+		).default,
 	}),
 );
 
 /// Package publishing and version solving tests.
 import testPackages_ from "./packages.ts";
-export let testPackages = tg.target(() => testPackages_());
+export const testPackages = tg.target(() => testPackages_());

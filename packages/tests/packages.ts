@@ -1,4 +1,4 @@
-import * as std from "tg:std" with { path: "../../../packages/packages/std" };
+import { $ } from "tg:std" with { path: "../../../packages/packages/std" };
 import { env } from "./tangram.ts";
 
 export default tg.target(() =>
@@ -50,8 +50,7 @@ export let runTest = tg.target(
 		echo "ok"
 		mv ./dependant/tangram.lock $OUTPUT
 	`;
-		let tangramLock = await std.build(script, { env: env() });
-		return tg.File.expect(tangramLock);
+		return await $`${script}`.env(env()).then(tg.File.expect);
 	},
 );
 

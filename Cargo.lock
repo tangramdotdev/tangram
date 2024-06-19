@@ -5507,6 +5507,17 @@ dependencies = [
 ]
 
 [[package]]
+name = "tangram_tests"
+version = "0.0.0"
+dependencies = [
+ "indoc",
+ "scopeguard",
+ "tangram_cli",
+ "tempfile",
+ "urlencoding",
+]
+
+[[package]]
 name = "tangram_uri"
 version = "0.0.0"
 dependencies = [
