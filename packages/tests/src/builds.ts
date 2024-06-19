@@ -2,11 +2,15 @@ export default tg.target(() =>
 	tg.directory({
 		helloWorld: helloWorld(),
 		// "fanout": fanout(),
-	}),
+	})
 );
 
 export let helloWorld = tg.target(
-	() => tg.build("echo 'hello, world!' > $OUTPUT") as Promise<tg.File>,
+	async () =>
+		await tg
+			.target("echo 'hello, world!' > $OUTPUT")
+			.output()
+			.then(tg.File.expect)
 );
 
 export let fanout = tg.target(() => {
