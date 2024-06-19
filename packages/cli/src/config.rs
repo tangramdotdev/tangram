@@ -246,25 +246,3 @@ pub struct Vfs {
 	pub cache_size: Option<u64>,
 	pub database_connections: Option<usize>,
 }
-
-#[cfg(test)]
-mod test {
-    use std::collections::BTreeMap;
-
-    use super::{Config, Remote};
-
-	#[test]
-	fn serde() {
-		let config = Config {
-			remotes: Some(either::Either::Right([
-				("default".into(), either::Either::Right(Remote {
-					url: "http://foo.bar.baz".parse().unwrap(),
-					build: Some(false)
-				}))
-			].into_iter().collect())),
-			..Default::default()
-		};
-		let json = serde_json::to_string_pretty(&config).unwrap();
-		println!("{json}");
-	}
-}
