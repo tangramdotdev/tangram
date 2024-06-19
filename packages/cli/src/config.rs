@@ -1,10 +1,7 @@
-use either::Either;
-use serde_with::serde_as;
 use std::{collections::BTreeMap, path::PathBuf};
-use tangram_client::{self as tg, util::serde::EitherUntagged};
+use tangram_client as tg;
 use url::Url;
 
-#[serde_as]
 #[derive(Clone, Debug, Default, serde::Deserialize, serde::Serialize)]
 pub struct Config {
 	/// Advanced configuration.
@@ -16,19 +13,31 @@ pub struct Config {
 	pub authentication: Option<Authentication>,
 
 	/// Configure builds.
-	#[serde(default, skip_serializing_if = "Option::is_none")]
-	#[serde_as(as = "Option<EitherUntagged<_, _>>")]
-	pub build: Option<Either<bool, Build>>,
+	#[allow(clippy::option_option)]
+	#[serde(
+		default,
+		skip_serializing_if = "Option::is_none",
+		with = "serde_with::rust::double_option"
+	)]
+	pub build: Option<Option<Build>>,
 
 	/// Configure the build heartbeat monitor.
-	#[serde(default, skip_serializing_if = "Option::is_none")]
-	#[serde_as(as = "Option<EitherUntagged<_, _>>")]
-	pub build_heartbeat_monitor: Option<Either<bool, BuildHeartbeatMonitor>>,
+	#[allow(clippy::option_option)]
+	#[serde(
+		default,
+		skip_serializing_if = "Option::is_none",
+		with = "serde_with::rust::double_option"
+	)]
+	pub build_heartbeat_monitor: Option<Option<BuildHeartbeatMonitor>>,
 
 	/// Configure the build indexer.
-	#[serde(default, skip_serializing_if = "Option::is_none")]
-	#[serde_as(as = "Option<EitherUntagged<_, _>>")]
-	pub build_indexer: Option<Either<bool, BuildIndexer>>,
+	#[allow(clippy::option_option)]
+	#[serde(
+		default,
+		skip_serializing_if = "Option::is_none",
+		with = "serde_with::rust::double_option"
+	)]
+	pub build_indexer: Option<Option<BuildIndexer>>,
 
 	/// Configure the database.
 	#[serde(default, skip_serializing_if = "Option::is_none")]
@@ -39,24 +48,35 @@ pub struct Config {
 	pub messenger: Option<Messenger>,
 
 	/// Configure the object indexer.
-	#[serde(default, skip_serializing_if = "Option::is_none")]
-	#[serde_as(as = "Option<EitherUntagged<_, _>>")]
-	pub object_indexer: Option<Either<bool, ObjectIndexer>>,
+	#[allow(clippy::option_option)]
+	#[serde(
+		default,
+		skip_serializing_if = "Option::is_none",
+		with = "serde_with::rust::double_option"
+	)]
+	pub object_indexer: Option<Option<ObjectIndexer>>,
 
 	/// The path where a client will look for a socket file and where a server will store its data.
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub path: Option<PathBuf>,
 
 	/// Configure the default registry for this server. If this option is set to `true`, then the server will act as the default registry. Otherwise, provide the name of the remote. The default value is "default".
-	#[serde(default, skip_serializing_if = "Option::is_none")]
-	#[serde_as(as = "Option<EitherUntagged<_, _>>")]
-	pub registry: Option<Either<bool, String>>,
+	#[allow(clippy::option_option)]
+	#[serde(
+		default,
+		skip_serializing_if = "Option::is_none",
+		with = "serde_with::rust::double_option"
+	)]
+	pub registry: Option<Option<String>>,
 
 	/// Configure remotes.
-	#[allow(clippy::type_complexity)]
-	#[serde(default, skip_serializing_if = "Option::is_none")]
-	#[serde_as(as = "Option<EitherUntagged<_, BTreeMap<_, EitherUntagged<_, _>>>>")]
-	pub remotes: Option<Either<bool, BTreeMap<String, Either<bool, Remote>>>>,
+	#[allow(clippy::option_option)]
+	#[serde(
+		default,
+		skip_serializing_if = "Option::is_none",
+		with = "serde_with::rust::double_option"
+	)]
+	pub remotes: Option<Option<BTreeMap<String, Option<Remote>>>>,
 
 	/// Configure tracing.
 	#[serde(default, skip_serializing_if = "Option::is_none")]
@@ -67,9 +87,13 @@ pub struct Config {
 	pub url: Option<Url>,
 
 	/// Enable or disable the VFS.
-	#[serde(default, skip_serializing_if = "Option::is_none")]
-	#[serde_as(as = "Option<EitherUntagged<_, _>>")]
-	pub vfs: Option<Either<bool, Vfs>>,
+	#[allow(clippy::option_option)]
+	#[serde(
+		default,
+		skip_serializing_if = "Option::is_none",
+		with = "serde_with::rust::double_option"
+	)]
+	pub vfs: Option<Option<Vfs>>,
 }
 
 #[derive(Clone, Debug, Default, serde::Deserialize, serde::Serialize)]

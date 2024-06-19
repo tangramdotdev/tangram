@@ -1,6 +1,5 @@
 use crate::Cli;
 use clap::CommandFactory as _;
-use either::Either;
 use std::{collections::BTreeMap, path::PathBuf};
 use tangram_client as tg;
 use url::Url;
@@ -102,9 +101,9 @@ impl Cli {
 
 		// Create the build options.
 		let build = match self.config.as_ref().and_then(|config| config.build.clone()) {
-			Some(Either::Left(false)) => None,
-			None | Some(Either::Left(true)) => Some(crate::config::Build::default()),
-			Some(Either::Right(value)) => Some(value),
+			None => Some(crate::config::Build::default()),
+			Some(None) => None,
+			Some(Some(config)) => Some(config),
 		};
 		let build = build.map(|build| {
 			let concurrency = build
@@ -126,11 +125,9 @@ impl Cli {
 			.as_ref()
 			.and_then(|config| config.build_heartbeat_monitor.clone());
 		let build_heartbeat_monitor = match build_heartbeat_monitor {
-			Some(Either::Left(false)) => None,
-			None | Some(Either::Left(true)) => {
-				Some(crate::config::BuildHeartbeatMonitor::default())
-			},
-			Some(Either::Right(config)) => Some(config),
+			None => Some(crate::config::BuildHeartbeatMonitor::default()),
+			Some(None) => None,
+			Some(Some(config)) => Some(config),
 		};
 		let build_heartbeat_monitor = build_heartbeat_monitor.map(|config| {
 			let interval = config.interval.unwrap_or(1);
@@ -151,9 +148,9 @@ impl Cli {
 			.as_ref()
 			.and_then(|config| config.build_indexer.clone());
 		let build_indexer = match build_indexer {
-			Some(Either::Left(false)) => None,
-			None | Some(Either::Left(true)) => Some(crate::config::BuildIndexer::default()),
-			Some(Either::Right(config)) => Some(config),
+			None => Some(crate::config::BuildIndexer::default()),
+			Some(None) => None,
+			Some(Some(config)) => Some(config),
 		};
 		let build_indexer = build_indexer.map(|_| tangram_server::options::BuildIndexer {});
 
@@ -215,9 +212,9 @@ impl Cli {
 			.as_ref()
 			.and_then(|config| config.object_indexer.clone());
 		let object_indexer = match object_indexer {
-			Some(Either::Left(false)) => None,
-			None | Some(Either::Left(true)) => Some(crate::config::ObjectIndexer::default()),
-			Some(Either::Right(config)) => Some(config),
+			None => Some(crate::config::ObjectIndexer::default()),
+			Some(None) => None,
+			Some(Some(config)) => Some(config),
 		};
 		let object_indexer = object_indexer.map(|_| tangram_server::options::ObjectIndexer {});
 
@@ -227,9 +224,9 @@ impl Cli {
 			.as_ref()
 			.and_then(|config| config.registry.as_ref())
 		{
-			Some(Either::Left(_)) => None,
-			Some(Either::Right(registry)) => Some(registry.clone()),
 			None => Some("default".to_owned()),
+			Some(None) => None,
+			Some(Some(config)) => Some(config.clone()),
 		};
 
 		// Create the remote options.
@@ -240,35 +237,30 @@ impl Cli {
 			client: tg::Client::new(Url::parse("https://api.tangram.dev").unwrap()),
 		};
 		remotes.insert(name, remote);
-		if let Some(either) = self
+		match self
 			.config
 			.as_ref()
 			.and_then(|config| config.remotes.as_ref())
 		{
-			match either {
-				Either::Left(false) => remotes.clear(),
-				Either::Left(true) => (),
-				Either::Right(remotes_) => {
-					for (name, remote) in remotes_ {
-						match remote {
-							Either::Left(false) => {
-								remotes.remove(name);
-							},
-							Either::Left(true) => {
-								return Err(tg::error!("invalid remote value"));
-							},
-							Either::Right(remote) => {
-								let name = name.clone();
-								let build = remote.build.unwrap_or_default();
-								let url = remote.url.clone();
-								let client = tg::Client::new(url);
-								let remote = tangram_server::options::Remote { build, client };
-								remotes.insert(name, remote);
-							},
-						}
+			None => (),
+			Some(None) => remotes.clear(),
+			Some(Some(remotes_)) => {
+				for (name, remote) in remotes_ {
+					match remote {
+						None => {
+							remotes.remove(name);
+						},
+						Some(remote) => {
+							let name = name.clone();
+							let build = remote.build.unwrap_or_default();
+							let url = remote.url.clone();
+							let client = tg::Client::new(url);
+							let remote = tangram_server::options::Remote { build, client };
+							remotes.insert(name, remote);
+						},
 					}
-				},
-			}
+				}
+			},
 		}
 
 		// Get the version.
@@ -284,9 +276,8 @@ impl Cli {
 					Some(crate::config::Vfs::default())
 				}
 			},
-			Some(Either::Left(false)) => None,
-			Some(Either::Left(true)) => Some(crate::config::Vfs::default()),
-			Some(Either::Right(config)) => Some(config),
+			Some(None) => None,
+			Some(Some(config)) => Some(config),
 		};
 		let vfs = vfs.map(|config| {
 			let cache_ttl = config.cache_ttl.unwrap_or(10.0);

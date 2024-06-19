@@ -1,8 +1,6 @@
 use crate as tg;
 use bytes::Bytes;
 use either::Either;
-use serde::Deserialize;
-use std::marker::PhantomData;
 
 pub struct BytesBase64;
 
@@ -46,50 +44,28 @@ impl<'de> serde_with::DeserializeAs<'de, Bytes> for BytesBase64 {
 	}
 }
 
-pub struct EitherUntagged<L, R>(PhantomData<(L, R)>);
-
-#[derive(serde::Deserialize, serde::Serialize)]
+#[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
 #[serde(untagged)]
-enum Either_<L, R> {
+pub enum EitherUntagged<L, R> {
 	Left(L),
 	Right(R),
 }
 
-impl<L, R, LAs, RAs> serde_with::SerializeAs<Either<L, R>> for EitherUntagged<LAs, RAs>
-where
-	L: serde::Serialize,
-	R: serde::Serialize,
-	LAs: serde_with::SerializeAs<L>,
-	RAs: serde_with::SerializeAs<R>,
-{
-	fn serialize_as<S>(value: &Either<L, R>, serializer: S) -> tg::Result<S::Ok, S::Error>
-	where
-		S: serde::Serializer,
-	{
+impl<L, R> From<Either<L, R>> for EitherUntagged<L, R> {
+	fn from(value: Either<L, R>) -> Self {
 		match value {
-			Either::Left(value) => value.serialize(serializer),
-			Either::Right(value) => value.serialize(serializer),
+			Either::Left(value) => Self::Left(value),
+			Either::Right(value) => Self::Right(value),
 		}
 	}
 }
 
-impl<'de, L, R, LAs, RAs> serde_with::DeserializeAs<'de, Either<L, R>> for EitherUntagged<LAs, RAs>
-where
-	L: serde::Deserialize<'de>,
-	R: serde::Deserialize<'de>,
-	LAs: serde_with::DeserializeAs<'de, L>,
-	RAs: serde_with::DeserializeAs<'de, R>,
-{
-	fn deserialize_as<D>(deserializer: D) -> tg::Result<Either<L, R>, D::Error>
-	where
-		D: serde::Deserializer<'de>,
-	{
-		let either = Either_::deserialize(deserializer)?;
-		let either = match either {
-			Either_::Left(left) => Either::Left(left),
-			Either_::Right(right) => Either::Right(right),
-		};
-		Ok(either)
+impl<L, R> From<EitherUntagged<L, R>> for Either<L, R> {
+	fn from(value: EitherUntagged<L, R>) -> Self {
+		match value {
+			EitherUntagged::Left(value) => Self::Left(value),
+			EitherUntagged::Right(value) => Self::Right(value),
+		}
 	}
 }
 

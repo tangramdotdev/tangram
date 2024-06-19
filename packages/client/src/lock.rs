@@ -56,7 +56,7 @@ pub mod data {
 	use super::Id;
 	use crate::{self as tg, util::serde::EitherUntagged};
 	use either::Either;
-	use serde_with::serde_as;
+	use serde_with::{serde_as, FromInto};
 	use std::collections::BTreeMap;
 
 	#[serde_as]
@@ -84,7 +84,7 @@ pub mod data {
 		#[serde(default, skip_serializing_if = "Option::is_none")]
 		pub artifact: Option<tg::artifact::Id>,
 
-		#[serde_as(as = "EitherUntagged<_, _>")]
+		#[serde_as(as = "FromInto<EitherUntagged<usize, Id>>")]
 		pub lock: Either<usize, Id>,
 	}
 }
