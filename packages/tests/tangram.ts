@@ -1,14 +1,18 @@
 import * as std from "tg:std" with { path: "../../../packages/packages/std" };
 import { $ } from "tg:std" with { path: "../../../packages/packages/std" };
-import tangram from "tg:tangram" with { path: "../../" };
+import tangram from "tg:tangram" with { path: "../.." };
 
 export default tg.target(async () => {
-	let previous = await import("snapshots");
+	let previous = (await import("./snapshots")).default;
 	let current = snapshots();
 	let diff = await $`
 		diff -Nqr -x '\.tangram' ${previous} ${current} | tee $OUTPUT
 	`.then(tg.File.expect);
 	return (await diff.text()) === "";
+});
+
+export let hello = tg.target(async () => {
+	return 4;
 });
 
 /// Create the snapshot directory.
@@ -45,15 +49,14 @@ export let env = tg.target(async (): Promise<tg.Directory> => {
 			"error_trace_options": {
 				"internal": true
 			},
-			"write_build_logs_to_file": true,
-			"write_build_logs_to_stderr": true
+			"duplicate_build_logs_to_stderr": true
 		},
 		"path": "/tmp/.tangram",
 		"remotes": null,
 		"tracing": {
 			"filter": "tangram_server=debug"
 		},
-		"vfs": false
+		"vfs": null
 	}
 	`);
 	let unwrapped = tg.File.expect(await (await tangram()).get("bin/tg"));
@@ -78,7 +81,7 @@ export let artifactsSource = tg.target(async () =>
 export let testBuilds = tg.target(() => test(sandboxSource()));
 export let sandboxSource = tg.target(async () =>
 	tg.directory({
-		"tangram.ts": await import("./src/builds.ts", { with: { type: "file" } })
+		"tangram.ts": (await import("./src/builds.ts", { with: { type: "file" } }))
 			.default,
 	}),
 );
@@ -92,10 +95,11 @@ export let testLogs = tg.target(() => testLogs_());
 
 // Mutation evaluation.
 export let testMutations = tg.target(() => test(mutationsSource()));
-export let mutationsSource = tg.target(() =>
+export let mutationsSource = tg.target(async () =>
 	tg.directory({
-		"tangram.ts": (await import("./src/mutations.ts"),
-		{ with: { type: "file" } }).default,
+		"tangram.ts": (
+			await import("./src/mutations.ts", { with: { type: "file" } })
+		).default,
 	}),
 );
 
