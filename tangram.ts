@@ -39,7 +39,7 @@ export let source = tg.target(() =>
 	}),
 );
 
-export default tg.target(async () => {
+export let build = tg.target(async () => {
 	let host = std.triple.host();
 	let bunArtifact = bun({ host });
 
@@ -63,6 +63,8 @@ export default tg.target(async () => {
 	});
 });
 
+export default build;
+
 export let librustyv8 = tg.target(async (hostArg?: string) => {
 	let host = hostArg ?? (await std.triple.host());
 	let os;
@@ -84,19 +86,19 @@ export let librustyv8 = tg.target(async (hostArg?: string) => {
 });
 
 export let linuxRuntimeComponents = tg.target(async () => {
-	let version = "v2024.04.02";
+	let version = "v2024.06.20";
 	let urlBase = `https://github.com/tangramdotdev/bootstrap/releases/download/${version}/`;
 	let fileUrl = (name: string) => urlBase + name + ".tar.zst";
 
 	let checksums: { [key: string]: tg.Checksum } = {
 		["DASH_AARCH64_LINUX"]:
-			"sha256:89a1cab57834f81cdb188d5f40b2e98aaff2a5bdae4e8a5d74ad0b2a7672d36b",
+			"sha256:7fd88a5e0e6800424b4ed36927861564eea99699ede9f81bc12729ec405ac193",
 		["DASH_X86_64_LINUX"]:
-			"sha256:899adb46ccf4cddc7bfeb7e83a6b2953124035c350d6f00f339365e3b01b920e",
+			"sha256:42afecad2eadf0d07745d9a047743931b270f555cc5ab8937f957e85e040dc02",
 		["ENV_AARCH64_LINUX"]:
-			"sha256:da4fed85cc4536de95b32f5a445e169381ca438e76decdbb4f117a1d115b0184",
+			"sha256:a3497e17fac0fb9fa8058157b5cd25d55c5c8379e317ce25c56dfd509d8dc4b4",
 		["ENV_X86_64_LINUX"]:
-			"sha256:ea7b6f8ffa359519660847780a61665bb66748aee432dec8a35efb0855217b95",
+			"sha256:78a971736d9e66c7bdffa81a24a7f9842b566fdd1609fe7c628ac00dccc16dda",
 	};
 	return Object.fromEntries(
 		await Promise.all(
