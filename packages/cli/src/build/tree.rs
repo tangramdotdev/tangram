@@ -77,8 +77,7 @@ impl Cli {
 		}
 		write!(title, "{} ", id.to_string().blue()).unwrap();
 		if let Some(package) = package {
-			if let Ok(metadata) = tg::package::get_metadata(&client, &package.clone().into()).await
-			{
+			if let Ok(metadata) = tg::package::get_metadata(&client, &package.clone()).await {
 				if let Some(name) = metadata.name {
 					write!(title, "{}", name.magenta()).unwrap();
 				} else {

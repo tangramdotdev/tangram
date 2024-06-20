@@ -971,8 +971,8 @@ where
 
 		// Get the package metadata
 		let package = target.package(&self.handle).await?;
-		let metadata = if let Some(package) = package {
-			tg::package::try_get_metadata(&self.handle, &package.into())
+		let metadata = if let Some(artifact) = package {
+			tg::package::try_get_metadata(&self.handle, &artifact)
 				.await
 				.ok()
 				.flatten()

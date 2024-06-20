@@ -23,7 +23,7 @@ pub struct Args {
 }
 
 #[allow(clippy::struct_excessive_bools)]
-#[derive(Clone, Debug, clap::Args)]
+#[derive(Clone, Debug, Default, clap::Args)]
 #[group(skip)]
 pub struct InnerArgs {
 	/// Set the arguments.
@@ -47,7 +47,7 @@ pub struct InnerArgs {
 	#[arg(long)]
 	pub locked: bool,
 
-	/// Quiet output.
+	/// Whether to suppress printing info and progress.
 	#[arg(short, long)]
 	pub quiet: bool,
 
@@ -374,25 +374,6 @@ impl Cli {
 	}
 }
 
-impl Default for InnerArgs {
-	fn default() -> Self {
-		Self {
-			arg: vec![],
-			checkout: None,
-			env: vec![],
-			host: None,
-			locked: false,
-			quiet: false,
-			remote: None,
-			retry: None,
-			root: None,
-			specifier: None,
-			target: None,
-			arg_: None,
-		}
-	}
-}
-
 impl Default for Arg {
 	fn default() -> Self {
 		Self::Specifier(Specifier::default())
@@ -457,16 +438,17 @@ where
 	}
 
 	pub async fn display(&self) {
-		const SPINNER: [char; 10] = ['⠋', '⠙', '⠹', '⠸', '⠼', '⠴', '⠦', '⠧', '⠇', '⠏'];
 		loop {
-			let status = self.root.state.lock().unwrap().status.clone();
+			let status = self.root.state.lock().unwrap().status;
 			if matches!(status, Some(tg::build::Status::Finished)) {
 				break;
 			}
+
 			// Save the current position.
 			crossterm::execute!(std::io::stdout(), crossterm::cursor::SavePosition,).unwrap();
 
 			// Get the spinner
+			const SPINNER: [char; 10] = ['⠋', '⠙', '⠹', '⠸', '⠼', '⠴', '⠦', '⠧', '⠇', '⠏'];
 			let now = std::time::SystemTime::now()
 				.duration_since(std::time::UNIX_EPOCH)
 				.unwrap()
@@ -475,22 +457,27 @@ where
 			let position = position.to_usize().unwrap();
 			let spinner = SPINNER[position].to_string();
 
-			// Construct the tree.
-			let tree = self.root.into_tree(&spinner);
+			// Create the tree.
+			let tree = self.root.to_tree(&spinner);
 
-			// Clear the terminal here to avoid flicker.
+			// Clear.
 			crossterm::execute!(
 				std::io::stdout(),
 				crossterm::terminal::Clear(crossterm::terminal::ClearType::FromCursorDown),
 			)
 			.unwrap();
+
+			// Print the tree.
 			tree.print();
 
-			// Wait for the next frame and restore.
-			tokio::time::sleep(std::time::Duration::from_millis(10)).await;
-			crossterm::execute!(std::io::stdout(), crossterm::cursor::RestorePosition,).unwrap();
+			// Restore the cursor position.
+			crossterm::execute!(std::io::stdout(), crossterm::cursor::RestorePosition).unwrap();
+
+			// Sleep.
+			tokio::time::sleep(std::time::Duration::from_millis(100)).await;
 		}
 
+		// Clear.
 		crossterm::execute!(
 			std::io::stdout(),
 			crossterm::cursor::RestorePosition,
@@ -508,7 +495,7 @@ where
 		let handle = handle.clone();
 		let children = Vec::new();
 		let log = None;
-		let parent = parent.map(|parent| Arc::downgrade(parent));
+		let parent = parent.map(Arc::downgrade);
 		let status = None;
 		let title = build.id().to_string();
 
@@ -525,7 +512,7 @@ where
 			state,
 		});
 
-		// Spawn tasks to asynchronously update state.
+		// Spawn tasks to update the node.
 		tokio::spawn({
 			let node = node.clone();
 			async move {
@@ -554,14 +541,13 @@ where
 		node
 	}
 
-	fn into_tree(&self, spinner: &str) -> crate::tree::Tree {
+	fn to_tree(&self, spinner: &str) -> crate::tree::Tree {
 		let state = self.state.lock().unwrap();
 		let children = state.children.clone();
 		let status = state.status;
 		let log = state.log.clone();
 		let title = state.title.clone();
 		drop(state);
-
 		let indicator = match status {
 			Some(tg::build::Status::Created) => "⟳".yellow(),
 			Some(tg::build::Status::Dequeued) => "•".yellow(),
@@ -569,14 +555,13 @@ where
 			Some(tg::build::Status::Finished) => "✓".green(),
 			None => "?".red(),
 		};
-
 		let children = log
 			.map(|log| crate::tree::Tree {
 				title: log,
 				children: Vec::new(),
 			})
 			.into_iter()
-			.chain(children.into_iter().map(|child| child.into_tree(spinner)))
+			.chain(children.into_iter().map(|child| child.to_tree(spinner)))
 			.collect();
 		let title = format!("{indicator} {title}");
 		crate::tree::Tree { title, children }
@@ -613,37 +598,36 @@ where
 	}
 
 	async fn status(self: &Arc<Self>) {
-		// Create the status stream.
+		// Get the status stream.
 		let Ok(mut status) = self.build.status(&self.handle).await else {
 			return;
 		};
 
-		// Drain the stream.
+		// Wait for the build to be finished.
 		while let Ok(Some(status)) = status.try_next().await {
-			self.state.lock().unwrap().status.replace(status.clone());
+			self.state.lock().unwrap().status.replace(status);
 			if matches!(status, tg::build::Status::Finished) {
 				break;
 			}
 		}
 
-		// If we reach the end of the stream it means the build has finished, and we can remove it from its parent.
-		let Some(parent) = self
+		// Remove the node from its parent.
+		if let Some(parent) = self
 			.state
 			.lock()
 			.unwrap()
 			.parent
 			.as_ref()
 			.and_then(Weak::upgrade)
-		else {
-			return;
-		};
-		let mut parent = parent.state.lock().unwrap();
-		let index = parent
-			.children
-			.iter()
-			.position(|child| Arc::ptr_eq(self, child))
-			.unwrap();
-		parent.children.remove(index);
+		{
+			let mut parent = parent.state.lock().unwrap();
+			let index = parent
+				.children
+				.iter()
+				.position(|child| Arc::ptr_eq(self, child))
+				.unwrap();
+			parent.children.remove(index);
+		}
 	}
 
 	async fn title(&self) {
@@ -663,7 +647,7 @@ where
 		let package_version = metadata.version.as_deref().unwrap_or("<unknown>");
 		let target_name = if host.as_str() == "js" {
 			let Some(name) = target.args(&self.handle).await.ok().and_then(|args| {
-				args.get(0)
+				args.first()
 					.and_then(|arg| arg.clone().try_unwrap_string().ok())
 			}) else {
 				return;
