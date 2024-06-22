@@ -167,7 +167,7 @@ impl Cli {
 								let (key, value) = arg
 									.split_once('=')
 									.ok_or_else(|| tg::error!("expected `key=value`"))?;
-								Ok::<_, tg::Error>((key.to_owned(), value.to_owned().into()))
+								Ok::<_, tg::Error>((key.to_owned(), value.parse()?))
 							})
 							.collect::<Result<tg::value::Map, tg::Error>>()
 							.map(Into::into)
@@ -182,7 +182,7 @@ impl Cli {
 						let (key, value) = env
 							.split_once('=')
 							.ok_or_else(|| tg::error!("expected `key=value`"))?;
-						Ok::<_, tg::Error>((key.to_owned(), value.to_owned().into()))
+						Ok::<_, tg::Error>((key.to_owned(), value.parse()?))
 					})
 					.try_collect()?;
 				if !env.contains_key("TANGRAM_HOST") {
