@@ -6,7 +6,11 @@ use std::{collections::BTreeMap, sync::Arc};
 use winnow::{
 	combinator::{
 		alt, cut_err, delimited, opt, preceded, repeat, separated, separated_pair, terminated,
-	}, error::{AddContext, ErrorKind, ParserError}, stream::Location as _, token::{any, none_of, one_of, take, take_while}, PResult, Parser
+	},
+	error::{AddContext, ErrorKind, ParserError},
+	stream::Location as _,
+	token::{any, none_of, one_of, take, take_while},
+	PResult, Parser,
 };
 
 #[derive(Debug, Clone)]
@@ -25,7 +29,11 @@ type Stream<'a> = winnow::stream::Located<&'a str>;
 
 impl std::fmt::Display for Error {
 	fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-		write!(f, "parse error at character {}: {}", self.location, self.message)
+		write!(
+			f,
+			"parse error at character {}: {}",
+			self.location, self.message
+		)
 	}
 }
 
