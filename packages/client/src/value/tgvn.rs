@@ -6,76 +6,60 @@ use std::{collections::BTreeMap, sync::Arc};
 use winnow::{
 	combinator::{
 		alt, cut_err, delimited, opt, preceded, repeat, separated, separated_pair, terminated,
-	},
-	error::{AddContext, ErrorKind, ParserError},
-	stream::Stream,
-	token::{any, none_of, one_of, take, take_while},
-	PResult, Parser,
+	}, error::{AddContext, ErrorKind, ParserError}, stream::Location as _, token::{any, none_of, one_of, take, take_while}, PResult, Parser
 };
 
 #[derive(Debug, Clone)]
-pub struct Error(tg::Error);
+pub struct Error {
+	location: usize,
+	message: String,
+}
 
-pub struct Serializer {
+struct Serializer {
 	pretty: bool,
 	indent: u32,
 	buf: String,
 }
 
+type Stream<'a> = winnow::stream::Located<&'a str>;
+
 impl std::fmt::Display for Error {
 	fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-		self.0.fmt(f)
+		write!(f, "parse error at character {}: {}", self.location, self.message)
 	}
 }
 
-impl std::ops::Deref for Error {
-	type Target = tg::Error;
-	fn deref(&self) -> &Self::Target {
-		&self.0
-	}
-}
-impl std::ops::DerefMut for Error {
-	fn deref_mut(&mut self) -> &mut Self::Target {
-		&mut self.0
-	}
-}
-
-impl From<tg::Error> for Error {
-	fn from(value: tg::Error) -> Self {
-		Self(value)
-	}
-}
-
-impl<'i, C> AddContext<&'i str, C> for Error
+impl<'a, C> AddContext<Stream<'a>, C> for Error
 where
 	C: std::fmt::Display,
 {
 	fn add_context(
-		self,
-		_input: &&'i str,
-		_token_start: &<&'i str as Stream>::Checkpoint,
+		mut self,
+		input: &Stream<'a>,
+		_token_start: &<Stream<'a> as winnow::stream::Stream>::Checkpoint,
 		context: C,
 	) -> Self {
-		let source = self.0;
-		let mut error = tg::error!(!source, "{context}");
-		error.location.take(); // TODO convert token_start to error.
-		Self(error)
+		self.location = input.location();
+		self.message = context.to_string();
+		self
 	}
 }
 
-impl<'i> ParserError<&'i str> for Error {
-	fn from_error_kind(input: &&'i str, kind: winnow::error::ErrorKind) -> Self {
-		Self(tg::error!(%input, "{}", kind.description()))
+impl<'a> ParserError<Stream<'a>> for Error {
+	fn from_error_kind(input: &Stream<'a>, _kind: winnow::error::ErrorKind) -> Self {
+		Error {
+			location: input.location(),
+			message: String::new(),
+		}
 	}
 
 	fn append(
 		self,
-		input: &&'i str,
-		_token_start: &<&'i str as Stream>::Checkpoint,
-		kind: ErrorKind,
+		_input: &Stream<'a>,
+		_token_start: &<Stream<'a> as winnow::stream::Stream>::Checkpoint,
+		_kind: ErrorKind,
 	) -> Self {
-		let source = self.0;
-		Self(tg::error!(!source, %input, "{}", kind.description()))
+		self
 	}
 }
 
@@ -103,8 +87,9 @@ impl tg::Value {
 
 impl std::str::FromStr for tg::Value {
 	type Err = tg::Error;
-	fn from_str(mut input: &str) -> Result<Self, Self::Err> {
-		value(&mut input).map_err(|error| error.into_inner().unwrap().0)
+	fn from_str(input: &str) -> Result<Self, Self::Err> {
+		let mut input = Stream::new(input);
+		value(&mut input).map_err(|error| tg::error!("{}", error.into_inner().unwrap()))
 	}
 }
 
@@ -472,11 +457,11 @@ impl Serializer {
 	}
 }
 
-fn value(input: &mut &str) -> PResult<tg::Value, Error> {
+fn value<'a>(input: &mut Stream<'a>) -> PResult<tg::Value, Error> {
 	delimited(whitespace, value_inner, whitespace).parse_next(input)
 }
 
-fn value_inner(input: &mut &str) -> PResult<tg::Value, Error> {
+fn value_inner<'a>(input: &mut Stream<'a>) -> PResult<tg::Value, Error> {
 	alt((
 		null.value(tg::Value::Null),
 		bool_.map(tg::Value::Bool),
@@ -490,24 +475,25 @@ fn value_inner(input: &mut &str) -> PResult<tg::Value, Error> {
 		array.map(tg::Value::Array),
 		map.map(tg::Value::Map),
 	))
+	.context("failed to parse tgvn")
 	.parse_next(input)
 }
 
-fn null(input: &mut &str) -> PResult<(), Error> {
+fn null<'a>(input: &mut Stream<'a>) -> PResult<(), Error> {
 	"null".value(()).parse_next(input)
 }
 
-fn bool_(input: &mut &str) -> PResult<bool, Error> {
+fn bool_<'a>(input: &mut Stream<'a>) -> PResult<bool, Error> {
 	let true_ = "true".value(true);
 	let false_ = "false".value(false);
 	alt((true_, false_)).parse_next(input)
 }
 
-fn number(input: &mut &str) -> PResult<f64, Error> {
+fn number<'a>(input: &mut Stream<'a>) -> PResult<f64, Error> {
 	winnow::ascii::float.parse_next(input)
 }
 
-fn string(input: &mut &str) -> PResult<String, Error> {
+fn string<'a>(input: &mut Stream<'a>) -> PResult<String, Error> {
 	preceded(
 		'\"',
 		cut_err(terminated(
@@ -522,7 +508,7 @@ fn string(input: &mut &str) -> PResult<String, Error> {
 	.parse_next(input)
 }
 
-fn char_(input: &mut &str) -> PResult<char, Error> {
+fn char_<'a>(input: &mut Stream<'a>) -> PResult<char, Error> {
 	let c = none_of('\"').parse_next(input)?;
 	if c == '\\' {
 		alt((
@@ -545,7 +531,7 @@ fn char_(input: &mut &str) -> PResult<char, Error> {
 	}
 }
 
-fn unicode_escape(input: &mut &str) -> PResult<char, Error> {
+fn unicode_escape<'a>(input: &mut Stream<'a>) -> PResult<char, Error> {
 	alt((
 		u16_hex
 			.verify(|cp| !(0xD800..0xE000).contains(cp))
@@ -562,19 +548,19 @@ fn unicode_escape(input: &mut &str) -> PResult<char, Error> {
 	.parse_next(input)
 }
 
-fn u16_hex(input: &mut &str) -> PResult<u16, Error> {
+fn u16_hex<'a>(input: &mut Stream<'a>) -> PResult<u16, Error> {
 	take(4usize)
 		.verify_map(|s| u16::from_str_radix(s, 16).ok())
 		.parse_next(input)
 }
 
-fn id(input: &mut &str) -> PResult<tg::Object, Error> {
+fn id<'a>(input: &mut Stream<'a>) -> PResult<tg::Object, Error> {
 	id_v0
 		.verify_map(|id| id.try_into().map(tg::Object::with_id).ok())
 		.parse_next(input)
 }
 
-fn id_v0(input: &mut &str) -> PResult<tg::id::Id, Error> {
+fn id_v0<'a>(input: &mut Stream<'a>) -> PResult<tg::id::Id, Error> {
 	(id_kind, "_", "0", id_body)
 		.verify_map(|(kind, _, version, body)| match version {
 			"0" => Some(tg::Id::V0(tg::id::V0 { kind, body })),
@@ -583,7 +569,7 @@ fn id_v0(input: &mut &str) -> PResult<tg::id::Id, Error> {
 		.parse_next(input)
 }
 
-fn id_kind(input: &mut &str) -> PResult<tg::id::Kind, Error> {
+fn id_kind<'a>(input: &mut Stream<'a>) -> PResult<tg::id::Kind, Error> {
 	alt((
 		alt(("lef", "leaf")).value(tg::id::Kind::Leaf),
 		alt(("bch", "branch")).value(tg::id::Kind::Branch),
@@ -600,7 +586,7 @@ fn id_kind(input: &mut &str) -> PResult<tg::id::Kind, Error> {
 	.parse_next(input)
 }
 
-fn id_body(input: &mut &str) -> PResult<tg::id::Body, Error> {
+fn id_body<'a>(input: &mut Stream<'a>) -> PResult<tg::id::Body, Error> {
 	alt((
 		preceded("0", decode_body)
 			.verify_map(|bytes| bytes.try_into().map(tg::id::Body::UuidV7).ok()),
@@ -610,7 +596,7 @@ fn id_body(input: &mut &str) -> PResult<tg::id::Body, Error> {
 	.parse_next(input)
 }
 
-fn decode_body(input: &mut &str) -> PResult<Vec<u8>, Error> {
+fn decode_body<'a>(input: &mut Stream<'a>) -> PResult<Vec<u8>, Error> {
 	const ENCODING: data_encoding::Encoding = data_encoding_macro::new_encoding! {
 		symbols: "0123456789abcdefghjkmnpqrstvwxyz",
 	};
@@ -630,7 +616,7 @@ fn decode_body(input: &mut &str) -> PResult<Vec<u8>, Error> {
 	.parse_next(input)
 }
 
-fn array(input: &mut &str) -> PResult<tg::value::Array, Error> {
+fn array<'a>(input: &mut Stream<'a>) -> PResult<tg::value::Array, Error> {
 	preceded(
 		('[', whitespace),
 		cut_err(terminated(
@@ -642,7 +628,7 @@ fn array(input: &mut &str) -> PResult<tg::value::Array, Error> {
 	.parse_next(input)
 }
 
-fn map(input: &mut &str) -> PResult<tg::value::Map, Error> {
+fn map<'a>(input: &mut Stream<'a>) -> PResult<tg::value::Map, Error> {
 	preceded(
 		('{', whitespace),
 		cut_err(terminated(
@@ -654,15 +640,15 @@ fn map(input: &mut &str) -> PResult<tg::value::Map, Error> {
 	.parse_next(input)
 }
 
-fn key_value(input: &mut &str) -> PResult<(String, tg::Value), Error> {
+fn key_value<'a>(input: &mut Stream<'a>) -> PResult<(String, tg::Value), Error> {
 	separated_pair(string, cut_err((whitespace, ':', whitespace)), value).parse_next(input)
 }
 
-fn object(input: &mut &str) -> PResult<tg::Object, Error> {
+fn object<'a>(input: &mut Stream<'a>) -> PResult<tg::Object, Error> {
 	alt((id, object_data)).parse_next(input)
 }
 
-fn object_data(input: &mut &str) -> PResult<tg::Object, Error> {
+fn object_data<'a>(input: &mut Stream<'a>) -> PResult<tg::Object, Error> {
 	alt((
 		leaf.map(|object| tg::object::Object::Leaf(Arc::new(object))),
 		branch.map(|object| tg::object::Object::Branch(Arc::new(object))),
@@ -676,7 +662,7 @@ fn object_data(input: &mut &str) -> PResult<tg::Object, Error> {
 	.parse_next(input)
 }
 
-fn leaf(input: &mut &str) -> PResult<tg::leaf::Object, Error> {
+fn leaf<'a>(input: &mut Stream<'a>) -> PResult<tg::leaf::Object, Error> {
 	preceded(
 		("tg.leaf", whitespace, "("),
 		terminated(bytes_data, (whitespace, ")")),
@@ -685,7 +671,7 @@ fn leaf(input: &mut &str) -> PResult<tg::leaf::Object, Error> {
 	.parse_next(input)
 }
 
-fn branch(input: &mut &str) -> PResult<tg::branch::Object, Error> {
+fn branch<'a>(input: &mut Stream<'a>) -> PResult<tg::branch::Object, Error> {
 	preceded(
 		("tg.branch", whitespace, "("),
 		terminated(branch_data, (whitespace, ")")),
@@ -693,7 +679,7 @@ fn branch(input: &mut &str) -> PResult<tg::branch::Object, Error> {
 	.parse_next(input)
 }
 
-fn branch_data(input: &mut &str) -> PResult<tg::branch::Object, Error> {
+fn branch_data<'a>(input: &mut Stream<'a>) -> PResult<tg::branch::Object, Error> {
 	map.verify_map(|map| {
 		let children = map.get("children")?.try_unwrap_array_ref().ok()?;
 		let mut children_ = Vec::with_capacity(children.len());
@@ -714,7 +700,7 @@ fn branch_data(input: &mut &str) -> PResult<tg::branch::Object, Error> {
 	.parse_next(input)
 }
 
-fn directory(input: &mut &str) -> PResult<tg::directory::Object, Error> {
+fn directory<'a>(input: &mut Stream<'a>) -> PResult<tg::directory::Object, Error> {
 	preceded(
 		("tg.directory", whitespace, "("),
 		terminated(directory_data, (whitespace, ")")),
@@ -722,7 +708,7 @@ fn directory(input: &mut &str) -> PResult<tg::directory::Object, Error> {
 	.parse_next(input)
 }
 
-fn directory_data(input: &mut &str) -> PResult<tg::directory::Object, Error> {
+fn directory_data<'a>(input: &mut Stream<'a>) -> PResult<tg::directory::Object, Error> {
 	map.verify_map(|map| {
 		let mut entries = BTreeMap::new();
 		for (name, artifact) in map {
@@ -733,7 +719,7 @@ fn directory_data(input: &mut &str) -> PResult<tg::directory::Object, Error> {
 	.parse_next(input)
 }
 
-fn file(input: &mut &str) -> PResult<tg::file::Object, Error> {
+fn file<'a>(input: &mut Stream<'a>) -> PResult<tg::file::Object, Error> {
 	preceded(
 		("tg.file", whitespace, "("),
 		terminated(file_data, (whitespace, ")")),
@@ -741,7 +727,7 @@ fn file(input: &mut &str) -> PResult<tg::file::Object, Error> {
 	.parse_next(input)
 }
 
-fn file_data(input: &mut &str) -> PResult<tg::file::Object, Error> {
+fn file_data<'a>(input: &mut Stream<'a>) -> PResult<tg::file::Object, Error> {
 	map.verify_map(|map| {
 		let contents = map.get("contents")?.clone().try_into().ok()?;
 		let executable = if let Some(executable) = map.get("executable") {
@@ -768,7 +754,7 @@ fn file_data(input: &mut &str) -> PResult<tg::file::Object, Error> {
 	.parse_next(input)
 }
 
-fn symlink(input: &mut &str) -> PResult<tg::symlink::Object, Error> {
+fn symlink<'a>(input: &mut Stream<'a>) -> PResult<tg::symlink::Object, Error> {
 	preceded(
 		("tg.symlink", whitespace, "("),
 		terminated(symlink_data, (whitespace, ")")),
@@ -776,7 +762,7 @@ fn symlink(input: &mut &str) -> PResult<tg::symlink::Object, Error> {
 	.parse_next(input)
 }
 
-fn symlink_data(input: &mut &str) -> PResult<tg::symlink::Object, Error> {
+fn symlink_data<'a>(input: &mut Stream<'a>) -> PResult<tg::symlink::Object, Error> {
 	map.verify_map(|map| {
 		let artifact = if let Some(artifact) = map.get("artifact") {
 			Some(artifact.clone().try_into().ok()?)
@@ -796,7 +782,7 @@ fn symlink_data(input: &mut &str) -> PResult<tg::symlink::Object, Error> {
 	.parse_next(input)
 }
 
-fn lock(input: &mut &str) -> PResult<tg::lock::Object, Error> {
+fn lock<'a>(input: &mut Stream<'a>) -> PResult<tg::lock::Object, Error> {
 	preceded(
 		("tg.lock", whitespace, "("),
 		terminated(lock_data, (whitespace, ")")),
@@ -804,7 +790,7 @@ fn lock(input: &mut &str) -> PResult<tg::lock::Object, Error> {
 	.parse_next(input)
 }
 
-fn lock_data(input: &mut &str) -> PResult<tg::lock::Object, Error> {
+fn lock_data<'a>(input: &mut Stream<'a>) -> PResult<tg::lock::Object, Error> {
 	map.verify_map(|map| {
 		let root = map.get("root")?.try_unwrap_number_ref().ok()?.to_usize()?;
 		let nodes = map.get("nodes")?.try_unwrap_array_ref().ok()?;
@@ -841,7 +827,7 @@ fn lock_data(input: &mut &str) -> PResult<tg::lock::Object, Error> {
 	.parse_next(input)
 }
 
-fn target(input: &mut &str) -> PResult<tg::target::Object, Error> {
+fn target<'a>(input: &mut Stream<'a>) -> PResult<tg::target::Object, Error> {
 	preceded(
 		("tg.target", whitespace, "("),
 		terminated(target_data, (whitespace, ")")),
@@ -849,7 +835,7 @@ fn target(input: &mut &str) -> PResult<tg::target::Object, Error> {
 	.parse_next(input)
 }
 
-fn target_data(input: &mut &str) -> PResult<tg::target::Object, Error> {
+fn target_data<'a>(input: &mut Stream<'a>) -> PResult<tg::target::Object, Error> {
 	map.verify_map(|map| {
 		let host = map.get("host")?.try_unwrap_string_ref().ok()?.clone();
 		let executable = if let Some(executable) = map.get("executable") {
@@ -894,7 +880,7 @@ fn target_data(input: &mut &str) -> PResult<tg::target::Object, Error> {
 	.parse_next(input)
 }
 
-fn bytes(input: &mut &str) -> PResult<Bytes, Error> {
+fn bytes<'a>(input: &mut Stream<'a>) -> PResult<Bytes, Error> {
 	preceded(
 		("tg.bytes", whitespace, "("),
 		terminated(bytes_data, (whitespace, ")")),
@@ -902,7 +888,7 @@ fn bytes(input: &mut &str) -> PResult<Bytes, Error> {
 	.parse_next(input)
 }
 
-fn bytes_data(input: &mut &str) -> PResult<Bytes, Error> {
+fn bytes_data<'a>(input: &mut Stream<'a>) -> PResult<Bytes, Error> {
 	string
 		.verify_map(|string| {
 			let bytes = data_encoding::BASE64.decode(string.as_bytes()).ok()?;
@@ -911,7 +897,7 @@ fn bytes_data(input: &mut &str) -> PResult<Bytes, Error> {
 		.parse_next(input)
 }
 
-fn path(input: &mut &str) -> PResult<tg::Path, Error> {
+fn path<'a>(input: &mut Stream<'a>) -> PResult<tg::Path, Error> {
 	preceded(
 		("tg.path", whitespace, "("),
 		terminated(
@@ -922,7 +908,7 @@ fn path(input: &mut &str) -> PResult<tg::Path, Error> {
 	.parse_next(input)
 }
 
-fn mutation(input: &mut &str) -> PResult<tg::Mutation, Error> {
+fn mutation<'a>(input: &mut Stream<'a>) -> PResult<tg::Mutation, Error> {
 	preceded(
 		("tg.mutation", whitespace, "("),
 		terminated(
@@ -933,7 +919,7 @@ fn mutation(input: &mut &str) -> PResult<tg::Mutation, Error> {
 	.parse_next(input)
 }
 
-fn unset(input: &mut &str) -> PResult<tg::Mutation, Error> {
+fn unset<'a>(input: &mut Stream<'a>) -> PResult<tg::Mutation, Error> {
 	map.verify_map(|map| {
 		let kind = map.get("kind")?.try_unwrap_string_ref().ok()?;
 		(kind == "unset").then_some(tg::Mutation::Unset)
@@ -941,7 +927,7 @@ fn unset(input: &mut &str) -> PResult<tg::Mutation, Error> {
 	.parse_next(input)
 }
 
-fn set(input: &mut &str) -> PResult<tg::Mutation, Error> {
+fn set<'a>(input: &mut Stream<'a>) -> PResult<tg::Mutation, Error> {
 	map.verify_map(|map| {
 		let kind = map.get("kind")?.try_unwrap_string_ref().ok()?;
 		let value = map.get("value")?;
@@ -952,7 +938,7 @@ fn set(input: &mut &str) -> PResult<tg::Mutation, Error> {
 	.parse_next(input)
 }
 
-fn set_if_unset(input: &mut &str) -> PResult<tg::Mutation, Error> {
+fn set_if_unset<'a>(input: &mut Stream<'a>) -> PResult<tg::Mutation, Error> {
 	map.verify_map(|map| {
 		let kind = map.get("kind")?.try_unwrap_string_ref().ok()?;
 		let value = map.get("value")?;
@@ -963,7 +949,7 @@ fn set_if_unset(input: &mut &str) -> PResult<tg::Mutation, Error> {
 	.parse_next(input)
 }
 
-fn prepend(input: &mut &str) -> PResult<tg::Mutation, Error> {
+fn prepend<'a>(input: &mut Stream<'a>) -> PResult<tg::Mutation, Error> {
 	map.verify_map(|map| {
 		let kind = map.get("kind")?.try_unwrap_string_ref().ok()?;
 		let values = map.get("values")?.try_unwrap_array_ref().ok()?.clone();
@@ -972,7 +958,7 @@ fn prepend(input: &mut &str) -> PResult<tg::Mutation, Error> {
 	.parse_next(input)
 }
 
-fn append(input: &mut &str) -> PResult<tg::Mutation, Error> {
+fn append<'a>(input: &mut Stream<'a>) -> PResult<tg::Mutation, Error> {
 	map.verify_map(|map| {
 		let kind = map.get("kind")?.try_unwrap_string_ref().ok()?.clone();
 		let values = map.get("values")?.try_unwrap_array_ref().ok()?.clone();
@@ -981,7 +967,7 @@ fn append(input: &mut &str) -> PResult<tg::Mutation, Error> {
 	.parse_next(input)
 }
 
-fn prefix(input: &mut &str) -> PResult<tg::Mutation, Error> {
+fn prefix<'a>(input: &mut Stream<'a>) -> PResult<tg::Mutation, Error> {
 	map.verify_map(|map| {
 		let kind = map.get("kind")?.try_unwrap_string_ref().ok()?;
 		let template = map.get("template")?.try_unwrap_template_ref().ok()?.clone();
@@ -998,7 +984,7 @@ fn prefix(input: &mut &str) -> PResult<tg::Mutation, Error> {
 	.parse_next(input)
 }
 
-fn suffix(input: &mut &str) -> PResult<tg::Mutation, Error> {
+fn suffix<'a>(input: &mut Stream<'a>) -> PResult<tg::Mutation, Error> {
 	map.verify_map(|map| {
 		let kind = map.get("kind")?.try_unwrap_string_ref().ok()?;
 		let template = map.get("template")?.try_unwrap_template_ref().ok()?.clone();
@@ -1015,7 +1001,7 @@ fn suffix(input: &mut &str) -> PResult<tg::Mutation, Error> {
 	.parse_next(input)
 }
 
-fn template(input: &mut &str) -> PResult<tg::Template, Error> {
+fn template<'a>(input: &mut Stream<'a>) -> PResult<tg::Template, Error> {
 	preceded(
 		("tg.template", whitespace, "("),
 		terminated(array, (whitespace, ")")),
@@ -1043,9 +1029,9 @@ fn template(input: &mut &str) -> PResult<tg::Template, Error> {
 	.parse_next(input)
 }
 
-fn whitespace<'i>(input: &mut &'i str) -> PResult<&'i str, Error> {
+fn whitespace<'a>(input: &mut Stream<'a>) -> PResult<(), Error> {
 	const WHITE_SPACE: &[char] = &[' ', '\t', '\r', '\n'];
-	take_while(0.., WHITE_SPACE).parse_next(input)
+	take_while(0.., WHITE_SPACE).map(|_| ()).parse_next(input)
 }
 
 #[cfg(test)]
