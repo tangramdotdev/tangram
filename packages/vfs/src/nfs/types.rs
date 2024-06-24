@@ -38,7 +38,7 @@ pub enum nfs_ftype4 {
 	NF4NAMEDATTR = 9, /* Named Attribute */
 }
 
-#[derive(Copy, Clone, Debug, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 #[repr(i32)]
 pub enum nfsstat4 {
 	NFS4_OK = 0,         /* everything is okay       */
@@ -562,7 +562,7 @@ pub struct open_to_lock_owner4 {
 /*
  * For LOCK, existing lock_owner continues to request file locks
  */
-#[derive(Copy, Clone, Debug)]
+#[derive(Clone, Copy, Debug)]
 pub struct exist_lock_owner4 {
 	pub lock_stateid: stateid4,
 	pub lock_seqid: seqid4,
@@ -657,7 +657,7 @@ pub struct LOCK4denied {
 	pub owner: lock_owner4,
 }
 
-#[derive(Copy, Clone, Debug)]
+#[derive(Clone, Copy, Debug)]
 pub struct LOCK4resok {
 	pub lock_stateid: stateid4,
 }
@@ -919,28 +919,28 @@ pub enum OPEN4res {
 	Error(nfsstat4),
 }
 
-#[derive(Copy, Clone, Debug)]
+#[derive(Clone, Copy, Debug)]
 pub struct OPENATTR4args {
 	pub createdir: bool,
 }
 
-#[derive(Copy, Clone, Debug)]
+#[derive(Clone, Copy, Debug)]
 pub struct OPENATTR4res {
 	pub status: nfsstat4,
 }
 
-#[derive(Copy, Clone, Debug)]
+#[derive(Clone, Copy, Debug)]
 pub struct OPEN_CONFIRM4args {
 	pub open_stateid: stateid4,
 	pub seqid: seqid4,
 }
 
-#[derive(Copy, Clone, Debug)]
+#[derive(Clone, Copy, Debug)]
 pub struct OPEN_CONFIRM4resok {
 	pub open_stateid: stateid4,
 }
 
-#[derive(Copy, Clone, Debug)]
+#[derive(Clone, Copy, Debug)]
 pub enum OPEN_CONFIRM4res {
 	NFS4_OK(OPEN_CONFIRM4resok),
 	Error(nfsstat4),
@@ -1162,7 +1162,7 @@ pub struct COMPOUND4res {
 	pub resarray: Vec<nfs_resop4>,
 }
 
-#[derive(Copy, Clone, Debug)]
+#[derive(Clone, Copy, Debug)]
 #[repr(i32)]
 pub enum nfs_opnum4 {
 	OP_ACCESS = 3,

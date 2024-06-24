@@ -1,5 +1,6 @@
 use crate::{
 	self as tg,
+	handle::Ext as _,
 	util::serde::{is_true, return_true},
 };
 use tangram_http::{incoming::response::Ext as _, outgoing::request::Ext as _};
@@ -60,11 +61,11 @@ impl tg::Target {
 }
 
 impl tg::Client {
-	pub async fn build_target(
+	pub async fn try_build_target(
 		&self,
 		id: &tg::target::Id,
 		arg: tg::target::build::Arg,
-	) -> tg::Result<tg::target::build::Output> {
+	) -> tg::Result<Option<tg::target::build::Output>> {
 		let method = http::Method::POST;
 		let uri = format!("/targets/{id}/build");
 		let request = http::request::Builder::default()
@@ -73,6 +74,9 @@ impl tg::Client {
 			.json(arg)
 			.unwrap();
 		let response = self.send(request).await?;
+		if response.status() == http::StatusCode::NOT_FOUND {
+			return Ok(None);
+		}
 		if !response.status().is_success() {
 			let error = response.json().await?;
 			return Err(error);

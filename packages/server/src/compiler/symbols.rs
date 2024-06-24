@@ -170,7 +170,7 @@ impl Compiler {
 		params: lsp::DocumentSymbolParams,
 	) -> tg::Result<Option<lsp::DocumentSymbolResponse>> {
 		// Get the module.
-		let module = self.module_for_uri(&params.text_document.uri).await?;
+		let module = self.module_for_lsp_uri(&params.text_document.uri).await?;
 
 		// Get the document symbols.
 		let symbols = self.symbols(&module).await?;

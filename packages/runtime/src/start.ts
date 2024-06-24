@@ -1,86 +1,63 @@
-import { assert } from "./assert.ts";
-import { File } from "./file.ts";
+import * as tg from "./index.ts";
 import { Module } from "./module.ts";
-import { resolve } from "./resolve.ts";
-import { Symlink } from "./symlink.ts";
-import { Target, setCurrentTarget } from "./target.ts";
-import type { Value } from "./value.ts";
+import { setCurrentTarget } from "./target.ts";
 
-export let start = async (target: Target): Promise<Value> => {
+export let start = async (target: tg.Target): Promise<tg.Value> => {
 	// Load the target.
 	await target.load();
 
 	// Set the current target.
 	setCurrentTarget(target);
 
-	// Create the module.
+	// Create the module for the executable.
 	let executable = await target.executable();
-	let module: Module;
-	if (executable instanceof Symlink) {
-		let package_ = await executable.artifact();
-		assert(package_ !== undefined);
-		let packageId = await package_.id();
-		let lock = await target.lock();
-		assert(lock !== undefined);
-		let lockId = await lock.id();
-		let path = await executable.path();
-		assert(path !== undefined);
-		let kind: "js" | "ts";
-		if (path.toString().endsWith(".js")) {
-			kind = "js";
-		} else {
-			kind = "ts";
-		}
-		module = {
-			kind,
-			value: {
-				kind: "package_artifact",
-				value: {
-					artifact: packageId,
-					lock: lockId,
-					path: path.toString(),
-				},
-			},
-		};
-	} else if (executable instanceof File) {
-		let id = await executable.id();
-		module = {
-			kind: "js",
-			value: {
-				kind: "file",
-				value: id,
-			},
-		};
-	} else {
+	if (executable === undefined) {
 		throw new Error("invalid target");
 	}
-
-	// Create the URL.
-	let url = Module.toUrl(module);
+	let kind = "js" as const;
+	let object: string;
+	let path: string | undefined;
+	if (executable instanceof tg.File) {
+		object = await executable.id();
+	} else if (executable instanceof tg.Symlink) {
+		let artifact = await executable.artifact();
+		tg.assert(artifact);
+		object = await artifact.id();
+		path = (await executable.path())?.toString();
+	} else {
+		throw new Error("invalid executable");
+	}
+	let module = Module.print({
+		path: {
+			kind,
+			object,
+			path,
+		},
+	});
 
 	// Import the module.
-	let namespace = await import(url);
+	let namespace = await import(module);
 
 	// Get the args.
 	let args = await target.args();
 
 	// Get the target name.
 	if (args.length < 1) {
-		throw new Error("the target must have at least one arg");
+		throw new Error("the target must have at least one argument");
 	}
 	let name = args.at(0);
 	if (typeof name !== "string") {
-		throw new Error("the target's first arg must be a string");
+		throw new Error("the target's first argument must be a string");
 	}
 
 	// Get the target.
 	let target_ = namespace[name];
-	if (!(target_ instanceof Target)) {
+	if (!(target_ instanceof tg.Target)) {
 		throw new Error(`failed to find the export named "${name}"`);
 	}
 
-	// Call the function.
-	let output = await resolve(target_.function()!(...args.slice(1)));
+	// Call the function and resolve its output.
+	let output = await tg.resolve(target_.function()!(...args.slice(1)));
 
 	return output;
 };

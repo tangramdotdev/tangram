@@ -2,12 +2,11 @@ use crate::Server;
 use futures::{future, stream, FutureExt as _, Stream, StreamExt as _, TryStreamExt as _};
 use indoc::formatdoc;
 use itertools::Itertools as _;
-use tangram_client as tg;
+use tangram_client::{self as tg, handle::Ext as _};
 use tangram_database::{self as db, prelude::*};
 use tangram_futures::task::Stop;
 use tangram_http::{incoming::request::Ext as _, outgoing::response::Ext as _, Incoming, Outgoing};
 use tangram_messenger::Messenger as _;
-use tg::Handle as _;
 use tokio_stream::wrappers::IntervalStream;
 
 impl Server {

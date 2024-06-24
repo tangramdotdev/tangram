@@ -1,62 +1,46 @@
 import { assert } from "./assert.ts";
 
-export type Module =
-	| { kind: "js"; value: Js }
-	| { kind: "ts"; value: Js }
-	| { kind: "dts"; value: { path: string } }
-	| { kind: "artifact"; value: Artifact }
-	| { kind: "directory"; value: Directory }
-	| { kind: "file"; value: File }
-	| { kind: "symlink"; value: Symlink };
+let scheme = "tg";
 
-export type Js =
-	| { kind: "file"; value: string }
-	| { kind: "package_artifact"; value: PackageArtifact }
-	| { kind: "package_path"; value: PackagePath };
+export type Module = string;
 
-export type PackageArtifact = {
-	artifact: string;
-	lock: string;
-	path: string;
+export type Path = {
+	kind: Kind;
+	object: string | undefined;
+	path: string | undefined;
 };
 
-export type PackagePath = {
-	package_path: string;
-	path: string;
-};
+export type Kind =
+	| "js"
+	| "ts"
+	| "dts"
+	| "object"
+	| "artifact"
+	| "blob"
+	| "leaf"
+	| "branch"
+	| "directory"
+	| "file"
+	| "symlink"
+	| "graph"
+	| "target";
 
-export type Artifact =
-	| { kind: "id"; value: string }
-	| { kind: "path"; value: string };
-
-export type Directory =
-	| { kind: "id"; value: string }
-	| { kind: "path"; value: string };
-
-export type File =
-	| { kind: "id"; value: string }
-	| { kind: "path"; value: string };
-
-export type Symlink =
-	| { kind: "id"; value: string }
-	| { kind: "path"; value: string };
+export type Parsed = { path: Path };
 
 export namespace Module {
-	export let toUrl = (module: Module): string => {
-		let prefix = "tg://";
-		let json = syscall("encoding_json_encode", module);
+	export let print = (parsed: Parsed): Module => {
+		let json = syscall("encoding_json_encode", parsed.path);
 		let utf8 = syscall("encoding_utf8_encode", json);
-		let hex = syscall("encoding_hex_encode", utf8);
-		return `${prefix}${hex}`;
+		let path = syscall("encoding_hex_encode", utf8);
+		return `${scheme}:${path}`;
 	};
 
-	export let fromUrl = (url: string): Module => {
-		let prefix = "tg://";
-		assert(url.startsWith(prefix));
-		let hex = url.slice(prefix.length);
-		let utf8 = syscall("encoding_hex_decode", hex);
+	export let parse = (module: Module): Parsed => {
+		assert(module.startsWith(`${scheme}:`));
+		let path_ = module.slice(scheme.length + 1);
+		let utf8 = syscall("encoding_hex_decode", path_);
 		let json = syscall("encoding_utf8_decode", utf8);
-		let module = syscall("encoding_json_decode", json) as Module;
-		return module;
+		let path = syscall("encoding_json_decode", json) as Path;
+		return { path };
 	};
 }

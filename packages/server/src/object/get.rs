@@ -1,12 +1,11 @@
 use crate::Server;
 use bytes::Bytes;
-use futures::{future, FutureExt as _, TryFutureExt as _};
+use futures::{future, FutureExt as _};
 use indoc::formatdoc;
 use itertools::Itertools as _;
-use tangram_client as tg;
+use tangram_client::{self as tg, handle::Ext as _};
 use tangram_database::{self as db, prelude::*};
 use tangram_http::{outgoing::response::Ext as _, Incoming, Outgoing};
-use tg::Handle as _;
 
 impl Server {
 	pub async fn try_get_object(
@@ -33,15 +32,14 @@ impl Server {
 
 		// If the object is an artifact, then try to store it.
 		if let Ok(artifact) = tg::artifact::Id::try_from(id.clone()) {
-			let server = self.clone();
 			let stored = self
 				.artifact_store_task_map
-				.get_or_spawn(artifact.clone(), |_| async move {
-					server.try_store_artifact(&artifact).await
+				.get_or_spawn(artifact.clone(), |_| {
+					self.try_store_artifact_future(&artifact)
 				})
 				.wait()
 				.await
-				.map_err(|source| tg::error!(!source, "failed to wait for task"))??;
+				.map_err(|source| tg::error!(!source, "failed to wait for the task"))??;
 			if stored {
 				let output = self
 					.try_get_object_local_database(id)
@@ -61,7 +59,7 @@ impl Server {
 				})
 				.wait()
 				.await
-				.map_err(|source| tg::error!(!source, "failed to wait for task"))??;
+				.map_err(|source| tg::error!(!source, "failed to wait for the task"))??;
 			if stored {
 				let output = self
 					.try_get_object_local_database(id)
@@ -84,6 +82,7 @@ impl Server {
 			.connection(db::Priority::Low)
 			.await
 			.map_err(|source| tg::error!(!source, "failed to get a database connection"))?;
+
 		// Get the object.
 		#[derive(serde::Deserialize)]
 		struct Row {
@@ -102,8 +101,8 @@ impl Server {
 		let params = db::params![id];
 		let Some(row) = connection
 			.query_optional_into::<Row>(statement, params)
-			.map_err(|source| tg::error!(!source, "failed to execute the statement"))
-			.await?
+			.await
+			.map_err(|source| tg::error!(!source, "failed to execute the statement"))?
 		else {
 			return Ok(None);
 		};
@@ -122,6 +121,7 @@ impl Server {
 				weight: row.weight,
 			},
 		};
+
 		Ok(Some(output))
 	}
 
@@ -173,11 +173,11 @@ impl Server {
 		let Some(output) = handle.try_get_object(&id).await? else {
 			return Ok(http::Response::builder().not_found().empty().unwrap());
 		};
-		let mut response = http::Response::builder();
-		response = response
+		let response = http::Response::builder()
 			.header_json(tg::object::metadata::HEADER, output.metadata)
+			.unwrap()
+			.bytes(output.bytes)
 			.unwrap();
-		let response = response.bytes(output.bytes).unwrap();
 		Ok(response)
 	}
 }

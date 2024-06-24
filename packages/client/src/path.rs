@@ -56,13 +56,23 @@ impl Path {
 	}
 
 	#[must_use]
+	pub fn as_std(&self) -> &std::path::Path {
+		std::path::Path::new(self.string.as_str())
+	}
+
+	#[must_use]
 	pub fn as_str(&self) -> &str {
 		self.string.as_str()
 	}
 
 	#[must_use]
-	pub fn as_path(&self) -> &std::path::Path {
-		std::path::Path::new(self.string.as_str())
+	pub fn into_std(self) -> PathBuf {
+		self.string.into()
+	}
+
+	#[must_use]
+	pub fn into_string(self) -> String {
+		self.string
 	}
 
 	pub fn push(&mut self, component: Component) {
@@ -344,7 +354,7 @@ impl AsRef<str> for Path {
 
 impl AsRef<std::path::Path> for Path {
 	fn as_ref(&self) -> &std::path::Path {
-		self.as_path()
+		self.as_std()
 	}
 }
 

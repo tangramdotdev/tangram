@@ -1,34 +1,37 @@
-use crate::Server;
+use crate::{compiler::Compiler, Server};
 use tangram_client as tg;
+use tangram_either::Either;
 use tangram_http::{incoming::request::Ext as _, outgoing::response::Ext as _, Incoming, Outgoing};
-use tg::Handle as _;
 
 impl Server {
 	pub async fn check_package(
 		&self,
-		dependency: &tg::Dependency,
 		arg: tg::package::check::Arg,
 	) -> tg::Result<tg::package::check::Output> {
-		// Get the package.
-		let arg = tg::package::get::Arg {
-			lock: true,
-			locked: arg.locked,
-			..Default::default()
-		};
-		let output = self.get_package(dependency, arg).await?;
-		let package = tg::Artifact::with_id(output.artifact);
-		let lock = output
-			.lock
-			.ok_or_else(|| tg::error!("expected the lock to be set"))?;
-		let lock = tg::Lock::with_id(lock);
+		// Handle the remote.
+		let remote = arg.remote.as_ref();
+		if let Some(remote) = remote {
+			let remote = self
+				.remotes
+				.get(remote)
+				.ok_or_else(|| tg::error!("the remote does not exist"))?
+				.clone();
+			let arg = tg::package::check::Arg {
+				remote: None,
+				..arg
+			};
+			let output = remote.check_package(arg).await?;
+			return Ok(output);
+		}
 
 		// Create the root module.
-		let module = tg::Module::with_package_and_lock(self, &package, &lock).await?;
+		let package = tg::Directory::with_id(arg.package.clone());
+		let module = tg::Module::with_package(self, Either::Left(package.into())).await?;
 
 		// Create the compiler.
-		let compiler = crate::compiler::Compiler::new(self, tokio::runtime::Handle::current());
+		let compiler = Compiler::new(self, tokio::runtime::Handle::current());
 
-		// Get the diagnostics.
+		// Check the package.
 		let diagnostics = compiler.check(vec![module]).await?;
 
 		// Create the output.
@@ -42,19 +45,12 @@ impl Server {
 	pub(crate) async fn handle_check_package_request<H>(
 		handle: &H,
 		request: http::Request<Incoming>,
-		dependency: &str,
 	) -> tg::Result<http::Response<Outgoing>>
 	where
 		H: tg::Handle,
 	{
-		let Ok(dependency) = urlencoding::decode(dependency) else {
-			return Ok(http::Response::builder().bad_request().empty().unwrap());
-		};
-		let Ok(dependency) = dependency.parse() else {
-			return Ok(http::Response::builder().bad_request().empty().unwrap());
-		};
-		let arg = request.query_params().transpose()?.unwrap_or_default();
-		let output = handle.check_package(&dependency, arg).await?;
+		let arg = request.json().await?;
+		let output = handle.check_package(arg).await?;
 		let response = http::Response::builder().json(output).unwrap();
 		Ok(response)
 	}

@@ -84,7 +84,7 @@ where
 	let context = scope.get_current_context();
 
 	// Get the state.
-	let state = context.get_slot::<Rc<State>>(scope).unwrap().clone();
+	let state = context.get_slot::<Rc<State>>().unwrap().clone();
 
 	// Collect the args.
 	let args = (1..args.length()).map(|i| args.get(i)).collect_vec();
@@ -120,7 +120,7 @@ where
 	let context = scope.get_current_context();
 
 	// Get the state.
-	let state = context.get_slot::<Rc<State>>(scope).unwrap().clone();
+	let state = context.get_slot::<Rc<State>>().unwrap().clone();
 
 	// Create the promise.
 	let promise_resolver = v8::PromiseResolver::new(scope).unwrap();

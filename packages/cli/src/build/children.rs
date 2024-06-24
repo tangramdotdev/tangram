@@ -1,11 +1,12 @@
 use crate::Cli;
 use futures::{StreamExt as _, TryStreamExt as _};
-use tangram_client::{self as tg, Handle as _};
+use tangram_client::{self as tg, handle::Ext as _};
 
 /// Get a build's children.
 #[derive(Clone, Debug, clap::Args)]
 #[group(skip)]
 pub struct Args {
+	#[arg(index = 1)]
 	pub build: tg::build::Id,
 
 	#[arg(long)]
@@ -23,7 +24,7 @@ pub struct Args {
 
 impl Cli {
 	pub async fn command_build_children(&self, args: Args) -> tg::Result<()> {
-		let client = self.client().await?;
+		let handle = self.handle().await?;
 
 		// Get the children.
 		let arg = tg::build::children::get::Arg {
@@ -32,7 +33,7 @@ impl Cli {
 			remote: args.remote,
 			size: args.size,
 		};
-		let mut stream = client.get_build_children(&args.build, arg).await?.boxed();
+		let mut stream = handle.get_build_children(&args.build, arg).await?.boxed();
 
 		// Print the children.
 		while let Some(chunk) = stream.try_next().await? {

@@ -12,6 +12,7 @@ pub struct Args {
 	pub name: Option<String>,
 
 	/// The directory to initialize the package in.
+	#[arg(index = 1)]
 	pub path: Option<PathBuf>,
 
 	/// The version of the package. Defaults to "0.0.0".

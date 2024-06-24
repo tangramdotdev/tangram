@@ -1,34 +1,39 @@
 use crate::Cli;
-use tangram_client as tg;
+use futures::TryStreamExt as _;
+use std::path::PathBuf;
+use tangram_client::{self as tg, Handle as _};
 
 /// Update a package's lockfile.
 #[derive(Clone, Debug, clap::Args)]
 #[group(skip)]
 pub struct Args {
-	#[arg(default_value = ".")]
-	pub path: tg::Path,
+	#[arg(index = 1, default_value = ".")]
+	pub path: PathBuf,
 }
 
 impl Cli {
 	pub async fn command_package_update(&self, args: Args) -> tg::Result<()> {
-		let client = self.client().await?;
-
-		let mut dependency = tg::Dependency::with_path(args.path);
+		let handle = self.handle().await?;
 
 		// Canonicalize the path.
-		if let Some(path) = dependency.path.as_mut() {
-			*path = tokio::fs::canonicalize(&path)
-				.await
-				.map_err(|source| tg::error!(!source, %path, "failed to canonicalize the path"))?
-				.try_into()?;
-			tokio::fs::remove_file(path.clone().join("tangram.lock"))
-				.await
-				.ok();
-		}
-
-		let _ = tg::package::get_with_lock(&client, &dependency, false)
+		let path = tokio::fs::canonicalize(&args.path)
 			.await
-			.map_err(|source| tg::error!(!source, %dependency, "failed to create a new lock"))?;
+			.map_err(|source| tg::error!(!source, "failed to canonicalize the path"))?;
+
+		// Remove an existing lockfile.
+		tokio::fs::remove_file(path.clone().join("tangram.lock"))
+			.await
+			.ok();
+
+		// Check in the package.
+		let arg = tg::artifact::checkin::Arg {
+			destructive: false,
+			deterministic: false,
+			locked: false,
+			path,
+		};
+		let stream = handle.check_in_artifact(arg).await?;
+		stream.map_ok(|_| ()).try_collect::<()>().await?;
 
 		Ok(())
 	}

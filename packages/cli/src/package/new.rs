@@ -11,6 +11,7 @@ pub struct Args {
 	pub name: Option<String>,
 
 	/// The directory to initialize the package in.
+	#[arg(index = 1)]
 	pub path: Option<PathBuf>,
 
 	/// The version of the package. Defaults to "0.0.0".
@@ -34,7 +35,7 @@ impl Cli {
 		})?;
 
 		// Init.
-		self.command_package_init(super::init::Args {
+		self.command_package_init(crate::package::init::Args {
 			path: args.path,
 			name: args.name,
 			version: args.version,

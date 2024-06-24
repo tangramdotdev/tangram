@@ -1,7 +1,6 @@
 use crate as tg;
 
 #[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
-#[serde(rename_all = "camelCase")]
 pub struct Location {
 	pub module: tg::Module,
 	pub range: tg::Range,

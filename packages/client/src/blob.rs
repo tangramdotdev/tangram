@@ -39,7 +39,7 @@ pub enum Id {
 	Branch(tg::branch::Id),
 }
 
-#[derive(Clone, Debug, derive_more::From)]
+#[derive(Clone, Debug, derive_more::From, derive_more::TryInto)]
 pub enum Blob {
 	Leaf(tg::Leaf),
 	Branch(tg::Branch),

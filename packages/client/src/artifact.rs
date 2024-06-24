@@ -1,5 +1,9 @@
 use crate as tg;
-use futures::stream::{FuturesOrdered, FuturesUnordered, TryStreamExt as _};
+use bytes::Bytes;
+use futures::{
+	stream::{FuturesOrdered, FuturesUnordered},
+	TryStreamExt as _,
+};
 use std::{
 	collections::HashSet,
 	sync::{Arc, Mutex},
@@ -51,7 +55,14 @@ pub enum Id {
 }
 
 /// An artifact.
-#[derive(Clone, Debug, derive_more::From, derive_more::TryUnwrap, derive_more::Unwrap)]
+#[derive(
+	Clone,
+	Debug,
+	derive_more::From,
+	derive_more::TryInto,
+	derive_more::TryUnwrap,
+	derive_more::Unwrap,
+)]
 #[try_unwrap(ref)]
 #[unwrap(ref)]
 pub enum Artifact {
@@ -162,8 +173,8 @@ impl Artifact {
 }
 
 impl Artifact {
-	/// Collect an artifact's references.
-	pub async fn references<H>(&self, handle: &H) -> tg::Result<Vec<Self>>
+	/// Collect an artifact's dependencies.
+	pub async fn dependencies<H>(&self, handle: &H) -> tg::Result<Vec<Self>>
 	where
 		H: tg::Handle,
 	{
@@ -172,32 +183,39 @@ impl Artifact {
 				.entries(handle)
 				.await?
 				.values()
-				.map(|artifact| artifact.references(handle))
+				.map(|artifact| artifact.dependencies(handle))
 				.collect::<FuturesOrdered<_>>()
 				.try_collect::<Vec<_>>()
 				.await?
 				.into_iter()
 				.flatten()
 				.collect()),
-			Self::File(file) => Ok(file.references(handle).await?.to_owned()),
+
+			Self::File(file) => Ok(file
+				.dependencies(handle)
+				.await?
+				.into_values()
+				.filter_map(|dependency| dependency.object.try_into().ok())
+				.collect()),
 			Self::Symlink(symlink) => Ok(symlink
 				.artifact(handle)
 				.await?
 				.clone()
+				.map(Into::into)
 				.into_iter()
 				.collect()),
 		}
 	}
 
-	/// Collect an artifact's recursive references.
-	pub async fn recursive_references<H>(
+	/// Collect an artifact's recursive dependencies.
+	pub async fn recursive_dependencies<H>(
 		&self,
 		handle: &H,
 	) -> tg::Result<HashSet<Id, fnv::FnvBuildHasher>>
 	where
 		H: tg::Handle,
 	{
-		async fn recursive_references_inner<H>(
+		async fn recursive_dependencies_inner<H>(
 			handle: &H,
 			artifact: &tg::Artifact,
 			output: Arc<Mutex<HashSet<Id, std::hash::BuildHasherDefault<fnv::FnvHasher>>>>,
@@ -205,25 +223,44 @@ impl Artifact {
 		where
 			H: tg::Handle,
 		{
-			let references = artifact.references(handle).await?;
-			references
+			let dependencies = artifact.dependencies(handle).await?;
+			dependencies
 				.iter()
-				.map(|artifact| recursive_references_inner(handle, artifact, output.clone()))
+				.map(|artifact| recursive_dependencies_inner(handle, artifact, output.clone()))
 				.collect::<FuturesUnordered<_>>()
-				.try_collect()
+				.try_collect::<()>()
 				.await?;
-			let references = references
+			let dependencies = dependencies
 				.into_iter()
 				.map(|artifact| async move { artifact.id(handle).await })
 				.collect::<FuturesUnordered<_>>()
 				.try_collect::<Vec<_>>()
 				.await?;
-			output.lock().unwrap().extend(references);
+			output.lock().unwrap().extend(dependencies);
 			Ok(())
 		}
 		let output = Arc::new(Mutex::new(HashSet::default()));
-		recursive_references_inner(handle, self, output.clone()).await?;
-		Ok(Arc::into_inner(output).unwrap().into_inner().unwrap())
+		recursive_dependencies_inner(handle, self, output.clone()).await?;
+		let output = Arc::into_inner(output).unwrap().into_inner().unwrap();
+		Ok(output)
+	}
+}
+
+impl Data {
+	pub fn id(&self) -> tg::Result<Id> {
+		match self {
+			Self::Directory(artifact) => Ok(artifact.id()?.into()),
+			Self::File(artifact) => Ok(artifact.id()?.into()),
+			Self::Symlink(artifact) => Ok(artifact.id()?.into()),
+		}
+	}
+
+	pub fn serialize(&self) -> tg::Result<Bytes> {
+		match self {
+			Self::Directory(artifact) => artifact.serialize(),
+			Self::File(artifact) => artifact.serialize(),
+			Self::Symlink(artifact) => artifact.serialize(),
+		}
 	}
 }
 
@@ -287,6 +324,29 @@ impl TryFrom<tg::object::Id> for Id {
 			tg::object::Id::File(value) => Ok(value.into()),
 			tg::object::Id::Symlink(value) => Ok(value.into()),
 			value => Err(tg::error!(%value, "expected an artifact ID")),
+		}
+	}
+}
+
+impl std::fmt::Display for Kind {
+	fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+		match self {
+			Self::Directory => write!(f, "directory"),
+			Self::File => write!(f, "file"),
+			Self::Symlink => write!(f, "symlink"),
+		}
+	}
+}
+
+impl std::str::FromStr for Kind {
+	type Err = tg::Error;
+
+	fn from_str(s: &str) -> Result<Self, Self::Err> {
+		match s {
+			"directory" => Ok(Self::Directory),
+			"file" => Ok(Self::File),
+			"symlink" => Ok(Self::Symlink),
+			_ => Err(tg::error!(%kind = s, "invalid kind")),
 		}
 	}
 }

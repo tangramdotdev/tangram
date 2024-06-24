@@ -4,16 +4,12 @@ use tangram_http::{incoming::response::Ext as _, outgoing::request::Ext as _};
 
 pub type Arg = super::push::Arg;
 
-pub type Event = super::push::Event;
-
-pub type Progress = super::push::Progress;
-
 impl tg::Object {
 	pub async fn pull<H>(
 		&self,
 		handle: &H,
 		arg: tg::object::pull::Arg,
-	) -> tg::Result<impl Stream<Item = tg::Result<tg::object::pull::Event>> + Send + 'static>
+	) -> tg::Result<impl Stream<Item = tg::Result<tg::Progress<()>>> + Send + 'static>
 	where
 		H: tg::Handle,
 	{
@@ -28,7 +24,7 @@ impl tg::Client {
 		&self,
 		id: &tg::object::Id,
 		arg: tg::object::pull::Arg,
-	) -> tg::Result<impl Stream<Item = tg::Result<tg::object::pull::Event>> + Send + 'static> {
+	) -> tg::Result<impl Stream<Item = tg::Result<tg::Progress<()>>> + Send + 'static> {
 		let method = http::Method::POST;
 		let uri = format!("/objects/{id}/pull");
 		let request = http::request::Builder::default()
@@ -43,20 +39,7 @@ impl tg::Client {
 		}
 		let output = response.sse().map(|result| {
 			let event = result.map_err(|source| tg::error!(!source, "failed to read an event"))?;
-			match event.event.as_deref() {
-				None => {
-					let progress = serde_json::from_str(&event.data)
-						.map_err(|source| tg::error!(!source, "failed to deserialize the data"))?;
-					Ok(tg::object::pull::Event::Progress(progress))
-				},
-				Some("end") => Ok(tg::object::pull::Event::End),
-				Some("error") => {
-					let error = serde_json::from_str(&event.data)
-						.map_err(|source| tg::error!(!source, "failed to deserialize the error"))?;
-					Err(error)
-				},
-				_ => Err(tg::error!("invalid event")),
-			}
+			event.try_into()
 		});
 		Ok(output)
 	}

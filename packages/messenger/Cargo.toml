@@ -19,6 +19,6 @@ async-channel = { workspace = true }
 async-nats = { workspace = true }
 bytes = { workspace = true }
 dashmap = { workspace = true }
-either = { workspace = true }
 fnv = { workspace = true }
 futures = { workspace = true }
+tangram_either = { workspace = true }

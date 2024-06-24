@@ -1,6 +1,6 @@
 use crate::{
 	self as tg,
-	util::serde::{is_true, return_true},
+	util::serde::{is_false, is_true, return_true},
 };
 use futures::{Stream, StreamExt as _, TryStreamExt as _};
 use std::pin::pin;
@@ -8,33 +8,21 @@ use tangram_http::{incoming::response::Ext as _, outgoing::request::Ext as _};
 
 #[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
 pub struct Arg {
-	#[serde(default, skip_serializing_if = "std::ops::Not::not")]
+	#[serde(default, skip_serializing_if = "is_false")]
 	pub bundle: bool,
 
-	#[serde(default, skip_serializing_if = "std::ops::Not::not")]
+	#[serde(default = "return_true", skip_serializing_if = "is_true")]
+	pub dependencies: bool,
+
+	#[serde(default, skip_serializing_if = "is_false")]
 	pub force: bool,
 
 	#[serde(default, skip_serializing_if = "Option::is_none")]
-	pub path: Option<tg::Path>,
-
-	#[serde(default = "return_true", skip_serializing_if = "is_true")]
-	pub references: bool,
-}
-
-#[derive(Clone, Debug)]
-pub enum Event {
-	Progress(Progress),
-	End(tg::Path),
-}
-
-#[derive(Clone, Debug, serde::Serialize, serde::Deserialize)]
-pub struct Progress {
-	pub count: tg::Progress,
-	pub weight: tg::Progress,
+	pub path: Option<std::path::PathBuf>,
 }
 
 impl tg::Artifact {
-	pub async fn check_out<H>(&self, handle: &H, arg: Arg) -> tg::Result<tg::Path>
+	pub async fn check_out<H>(&self, handle: &H, arg: Arg) -> tg::Result<std::path::PathBuf>
 	where
 		H: tg::Handle,
 	{
@@ -42,7 +30,7 @@ impl tg::Artifact {
 		let stream = handle.check_out_artifact(&id, arg).await?;
 		let mut stream = pin!(stream);
 		while let Some(event) = stream.try_next().await? {
-			if let Event::End(path) = event {
+			if let tg::Progress::End(path) = event {
 				return Ok(path);
 			}
 		}
@@ -55,7 +43,7 @@ impl tg::Client {
 		&self,
 		id: &tg::artifact::Id,
 		arg: tg::artifact::checkout::Arg,
-	) -> tg::Result<impl Stream<Item = tg::Result<tg::artifact::checkout::Event>>> {
+	) -> tg::Result<impl Stream<Item = tg::Result<tg::Progress<std::path::PathBuf>>>> {
 		let method = http::Method::POST;
 		let uri = format!("/artifacts/{id}/checkout");
 		let request = http::request::Builder::default()
@@ -69,25 +57,9 @@ impl tg::Client {
 			return Err(error);
 		}
 		let output = response.sse().map(|result| {
-			let event = result.map_err(|source| tg::error!(!source, "failed to read an event"))?;
-			match event.event.as_deref() {
-				None => {
-					let progress = serde_json::from_str(&event.data)
-						.map_err(|source| tg::error!(!source, "failed to deserialize the data"))?;
-					Ok(tg::artifact::checkout::Event::Progress(progress))
-				},
-				Some("end") => {
-					let artifact = serde_json::from_str(&event.data)
-						.map_err(|source| tg::error!(!source, "failed to deserialize the data"))?;
-					Ok(tg::artifact::checkout::Event::End(artifact))
-				},
-				Some("error") => {
-					let error = serde_json::from_str(&event.data)
-						.map_err(|source| tg::error!(!source, "failed to deserialize the error"))?;
-					Err(error)
-				},
-				_ => Err(tg::error!("invalid event")),
-			}
+			result
+				.map_err(|source| tg::error!(!source, "failed to read an event"))?
+				.try_into()
 		});
 		Ok(output)
 	}
@@ -99,7 +71,7 @@ impl Default for Arg {
 			bundle: false,
 			force: false,
 			path: None,
-			references: true,
+			dependencies: true,
 		}
 	}
 }

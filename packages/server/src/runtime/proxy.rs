@@ -1,6 +1,6 @@
-use crate::Server;
+use crate::{util::path, Server};
 use futures::{stream, Future, Stream, TryStreamExt as _};
-use std::{str::FromStr as _, sync::Arc};
+use std::{path::PathBuf, sync::Arc};
 use tangram_client as tg;
 use tokio::io::{AsyncBufRead, AsyncRead, AsyncWrite};
 
@@ -16,9 +16,9 @@ pub struct Inner {
 
 #[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
 pub struct PathMap {
-	pub output_guest: tg::Path,
-	pub output_host: tg::Path,
-	pub root_host: tg::Path,
+	pub output_guest: PathBuf,
+	pub output_host: PathBuf,
+	pub root_host: PathBuf,
 }
 
 impl Proxy {
@@ -37,48 +37,45 @@ impl Proxy {
 		Self(Arc::new(inner))
 	}
 
-	fn host_path_for_guest_path(&self, path: tg::Path) -> tg::Result<tg::Path> {
+	fn host_path_for_guest_path(&self, path: PathBuf) -> tg::Result<PathBuf> {
 		// Get the path map. If there is no path map, then the guest path is the host path.
 		let Some(path_map) = &self.path_map else {
 			return Ok(path);
 		};
 
 		// Map the path.
-		if let Some(path) = path
-			.diff(&path_map.output_guest)
-			.filter(tg::Path::is_internal)
+		if let Some(path) = path::diff(&path, &path_map.output_guest)
+			.filter(|path| matches!(path.components().next(), Some(std::path::Component::CurDir)))
 		{
-			Ok(path_map.output_host.clone().join(path))
+			Ok(path_map.output_host.join(path))
 		} else {
-			let path = path
-				.diff(&"/".parse().unwrap())
-				.ok_or_else(|| tg::error!("the path must be absolute"))?;
-			Ok(path_map.root_host.clone().join(path))
+			let path =
+				path::diff(&path, "/").ok_or_else(|| tg::error!("the path must be absolute"))?;
+			Ok(path_map.root_host.join(path))
 		}
 	}
 
-	fn guest_path_for_host_path(&self, path: tg::Path) -> tg::Result<tg::Path> {
+	fn guest_path_for_host_path(&self, path: PathBuf) -> tg::Result<PathBuf> {
 		// Get the path map. If there is no path map, then the host path is the guest path.
 		let Some(path_map) = &self.path_map else {
 			return Ok(path);
 		};
 
 		// Map the path.
-		let path = std::path::PathBuf::from(path.to_string());
 		let result = if path.starts_with(&path_map.output_host) {
 			let suffix: tg::Path = path
 				.strip_prefix(&path_map.output_host)
 				.unwrap()
 				.to_owned()
 				.try_into()?;
-			path_map.output_guest.clone().join(suffix)
+			path_map.output_guest.join(suffix)
 		} else if path.starts_with(&self.server.path) {
 			let suffix: tg::Path = path
 				.strip_prefix(&self.server.path)
 				.unwrap()
 				.to_owned()
 				.try_into()?;
-			tg::Path::from_str("/.tangram").unwrap().join(suffix)
+			PathBuf::from("/.tangram").join(suffix)
 		} else {
 			let suffix: tg::Path = path
 				.strip_prefix(&path_map.root_host)
@@ -87,7 +84,7 @@ impl Proxy {
 				})?
 				.to_owned()
 				.try_into()?;
-			tg::Path::from_str("/").unwrap().join(suffix)
+			PathBuf::from("/").join(suffix)
 		};
 
 		Ok(result)
@@ -98,9 +95,10 @@ impl tg::Handle for Proxy {
 	async fn check_in_artifact(
 		&self,
 		mut arg: tg::artifact::checkin::Arg,
-	) -> tg::Result<impl Stream<Item = tg::Result<tg::artifact::checkin::Event>> + Send + 'static> {
+	) -> tg::Result<impl Stream<Item = tg::Result<tg::Progress<tg::artifact::Id>>> + Send + 'static>
+	{
 		// Replace the path with the host path.
-		arg.path = self.host_path_for_guest_path(arg.path)?;
+		arg.path = self.host_path_for_guest_path(arg.path.clone())?;
 
 		// Perform the checkin.
 		let stream = self.server.check_in_artifact(arg).await?;
@@ -112,8 +110,7 @@ impl tg::Handle for Proxy {
 		&self,
 		id: &tg::artifact::Id,
 		mut arg: tg::artifact::checkout::Arg,
-	) -> tg::Result<impl Stream<Item = tg::Result<tg::artifact::checkout::Event>> + Send + 'static>
-	{
+	) -> tg::Result<impl Stream<Item = tg::Result<tg::Progress<PathBuf>>> + Send + 'static> {
 		// Replace the path with the host path.
 		if let Some(path) = &mut arg.path {
 			*path = self.host_path_for_guest_path(path.clone())?;
@@ -127,7 +124,7 @@ impl tg::Handle for Proxy {
 		let stream = stream.and_then(move |mut event| {
 			let proxy = proxy.clone();
 			async move {
-				if let tg::artifact::checkout::Event::End(path) = &mut event {
+				if let tg::Progress::End(path) = &mut event {
 					*path = proxy.guest_path_for_host_path(path.clone())?;
 					return Ok(event);
 				}
@@ -176,7 +173,7 @@ impl tg::Handle for Proxy {
 		&self,
 		_id: &tg::build::Id,
 		_arg: tg::build::push::Arg,
-	) -> tg::Result<impl Stream<Item = tg::Result<tg::build::push::Event>> + Send + 'static> {
+	) -> tg::Result<impl Stream<Item = tg::Result<tg::Progress<()>>> + Send + 'static> {
 		Err::<stream::Empty<_>, _>(tg::error!("forbidden"))
 	}
 
@@ -184,7 +181,7 @@ impl tg::Handle for Proxy {
 		&self,
 		_id: &tg::build::Id,
 		_arg: tg::build::pull::Arg,
-	) -> tg::Result<impl Stream<Item = tg::Result<tg::build::pull::Event>> + Send + 'static> {
+	) -> tg::Result<impl Stream<Item = tg::Result<tg::Progress<()>>> + Send + 'static> {
 		Err::<stream::Empty<_>, _>(tg::error!("forbidden"))
 	}
 
@@ -195,11 +192,11 @@ impl tg::Handle for Proxy {
 		Err(tg::error!("forbidden"))
 	}
 
-	async fn start_build(
+	async fn try_start_build(
 		&self,
 		_id: &tg::build::Id,
 		_arg: tg::build::start::Arg,
-	) -> tg::Result<()> {
+	) -> tg::Result<Option<bool>> {
 		Err(tg::error!("forbidden"))
 	}
 
@@ -273,7 +270,7 @@ impl tg::Handle for Proxy {
 		&self,
 		_id: &tg::build::Id,
 		_arg: tg::build::finish::Arg,
-	) -> tg::Result<()> {
+	) -> tg::Result<Option<bool>> {
 		Err(tg::error!("forbidden"))
 	}
 
@@ -327,7 +324,7 @@ impl tg::Handle for Proxy {
 		&self,
 		_id: &tg::object::Id,
 		_arg: tg::object::push::Arg,
-	) -> tg::Result<impl Stream<Item = tg::Result<tg::object::push::Event>> + Send + 'static> {
+	) -> tg::Result<impl Stream<Item = tg::Result<tg::Progress<()>>> + Send + 'static> {
 		Err::<stream::Empty<_>, _>(tg::error!("forbidden"))
 	}
 
@@ -335,74 +332,32 @@ impl tg::Handle for Proxy {
 		&self,
 		_id: &tg::object::Id,
 		_arg: tg::object::pull::Arg,
-	) -> tg::Result<impl Stream<Item = tg::Result<tg::object::pull::Event>> + Send + 'static> {
+	) -> tg::Result<impl Stream<Item = tg::Result<tg::Progress<()>>> + Send + 'static> {
 		Err::<stream::Empty<_>, _>(tg::error!("forbidden"))
-	}
-
-	async fn list_packages(
-		&self,
-		_arg: tg::package::list::Arg,
-	) -> tg::Result<tg::package::list::Output> {
-		Err(tg::error!("forbidden"))
-	}
-
-	async fn try_get_package(
-		&self,
-		_dependency: &tg::Dependency,
-		_arg: tg::package::get::Arg,
-	) -> tg::Result<Option<tg::package::get::Output>> {
-		Err(tg::error!("forbidden"))
 	}
 
 	async fn check_package(
 		&self,
-		_dependency: &tg::Dependency,
 		_arg: tg::package::check::Arg,
 	) -> tg::Result<tg::package::check::Output> {
 		Err(tg::error!("forbidden"))
 	}
 
-	async fn try_get_package_doc(
+	async fn document_package(
 		&self,
-		_dependency: &tg::Dependency,
-		_arg: tg::package::doc::Arg,
-	) -> tg::Result<Option<serde_json::Value>> {
+		_arg: tg::package::document::Arg,
+	) -> tg::Result<serde_json::Value> {
 		Err(tg::error!("forbidden"))
 	}
 
-	async fn format_package(&self, _dependency: &tg::Dependency) -> tg::Result<()> {
+	async fn format_package(&self, _arg: tg::package::format::Arg) -> tg::Result<()> {
 		Err(tg::error!("forbidden"))
 	}
 
-	async fn get_package_outdated(
+	async fn try_get_reference(
 		&self,
-		_dependency: &tg::Dependency,
-		_arg: tg::package::outdated::Arg,
-	) -> tg::Result<tg::package::outdated::Output> {
-		Err(tg::error!("forbidden"))
-	}
-
-	async fn publish_package(
-		&self,
-		_id: &tg::artifact::Id,
-		_arg: tg::package::publish::Arg,
-	) -> tg::Result<()> {
-		Err(tg::error!("forbidden"))
-	}
-
-	async fn try_get_package_versions(
-		&self,
-		_dependency: &tg::Dependency,
-		_arg: tg::package::versions::Arg,
-	) -> tg::Result<Option<tg::package::versions::Output>> {
-		Err(tg::error!("forbidden"))
-	}
-
-	async fn yank_package(
-		&self,
-		_id: &tg::artifact::Id,
-		_arg: tg::package::yank::Arg,
-	) -> tg::Result<()> {
+		_reference: &tg::Reference,
+	) -> tg::Result<Option<tg::reference::get::Output>> {
 		Err(tg::error!("forbidden"))
 	}
 
@@ -425,22 +380,6 @@ impl tg::Handle for Proxy {
 		Err(tg::error!("forbidden"))
 	}
 
-	async fn list_roots(&self, _arg: tg::root::list::Arg) -> tg::Result<tg::root::list::Output> {
-		Err(tg::error!("forbidden"))
-	}
-
-	async fn try_get_root(&self, _name: &str) -> tg::Result<Option<tg::root::get::Output>> {
-		Err(tg::error!("forbidden"))
-	}
-
-	async fn put_root(&self, _name: &str, _arg: tg::root::put::Arg) -> tg::Result<()> {
-		Err(tg::error!("forbidden"))
-	}
-
-	async fn delete_root(&self, _name: &str) -> tg::Result<()> {
-		Err(tg::error!("forbidden"))
-	}
-
 	async fn get_js_runtime_doc(&self) -> tg::Result<serde_json::Value> {
 		Err(tg::error!("forbidden"))
 	}
@@ -453,15 +392,34 @@ impl tg::Handle for Proxy {
 		Err(tg::error!("forbidden"))
 	}
 
-	async fn build_target(
+	async fn list_tags(&self, _arg: tg::tag::list::Arg) -> tg::Result<tg::tag::list::Output> {
+		Err(tg::error!("forbidden"))
+	}
+
+	async fn try_get_tag(
+		&self,
+		_pattern: &tg::tag::Pattern,
+	) -> tg::Result<Option<tg::tag::get::Output>> {
+		Err(tg::error!("forbidden"))
+	}
+
+	async fn put_tag(&self, _tag: &tg::Tag, _arg: tg::tag::put::Arg) -> tg::Result<()> {
+		Err(tg::error!("forbidden"))
+	}
+
+	async fn delete_tag(&self, _tag: &tg::Tag) -> tg::Result<()> {
+		Err(tg::error!("forbidden"))
+	}
+
+	async fn try_build_target(
 		&self,
 		id: &tg::target::Id,
 		mut arg: tg::target::build::Arg,
-	) -> tg::Result<tg::target::build::Output> {
+	) -> tg::Result<Option<tg::target::build::Output>> {
 		arg.parent = Some(self.build.clone());
 		arg.remote = self.remote.clone();
 		arg.retry = tg::Build::with_id(self.build.clone()).retry(self).await?;
-		self.server.build_target(id, arg).await
+		self.server.try_build_target(id, arg).await
 	}
 
 	async fn get_user(&self, _token: &str) -> tg::Result<Option<tg::User>> {

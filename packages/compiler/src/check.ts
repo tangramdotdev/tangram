@@ -1,10 +1,9 @@
 import ts from "typescript";
 import type { Diagnostic } from "./diagnostics.ts";
-import type { Module } from "./module.ts";
 import * as typescript from "./typescript.ts";
 
 export type Request = {
-	modules: Array<Module>;
+	modules: Array<string>;
 };
 
 export type Response = {

@@ -2,7 +2,7 @@ use self::{
 	convert::{from_v8, ToV8},
 	syscall::syscall,
 };
-use crate::Server;
+use crate::{compiler::Compiler, Server};
 use futures::{
 	future::{self, LocalBoxFuture},
 	stream::FuturesUnordered,
@@ -16,7 +16,6 @@ use std::{
 };
 use tangram_client as tg;
 use tokio::io::AsyncWriteExt as _;
-use url::Url;
 
 mod convert;
 mod error;
@@ -35,7 +34,7 @@ struct State {
 	build: tg::Build,
 	futures: RefCell<Futures>,
 	global_source_map: Option<SourceMap>,
-	compiler: crate::compiler::Compiler,
+	compiler: Compiler,
 	log_sender: RefCell<Option<tokio::sync::mpsc::UnboundedSender<String>>>,
 	main_runtime_handle: tokio::runtime::Handle,
 	modules: RefCell<Vec<Module>>,
@@ -59,7 +58,7 @@ struct Module {
 	v8_module: v8::Global<v8::Module>,
 }
 
-#[derive(Clone, Copy, PartialEq, Eq)]
+#[derive(Clone, Copy, Eq, PartialEq)]
 enum ImportKind {
 	Static,
 	Dynamic,
@@ -152,7 +151,7 @@ impl Runtime {
 			build: build.clone(),
 			futures: RefCell::new(FuturesUnordered::new()),
 			global_source_map: Some(SourceMap::from_slice(SOURCE_MAP).unwrap()),
-			compiler: crate::compiler::Compiler::new(server, main_runtime_handle.clone()),
+			compiler: Compiler::new(server, main_runtime_handle.clone()),
 			log_sender: RefCell::new(Some(log_sender)),
 			main_runtime_handle,
 			modules: RefCell::new(Vec::new()),
@@ -196,11 +195,11 @@ impl Runtime {
 		let context = {
 			// Create the context.
 			let scope = &mut v8::HandleScope::new(isolate.as_mut());
-			let context = v8::Context::new(scope);
+			let context = v8::Context::new(scope, v8::ContextOptions::default());
 			let scope = &mut v8::ContextScope::new(scope, context);
 
 			// Set the state on the context.
-			context.set_slot(scope, state.clone());
+			context.set_slot(state.clone());
 
 			// Create the syscall function.
 			let syscall_string =
@@ -448,7 +447,7 @@ fn resolve_module_callback<'s>(
 	let scope = unsafe { &mut v8::CallbackScope::new(context) };
 
 	// Get the state.
-	let state = context.get_slot::<Rc<State>>(scope).unwrap().clone();
+	let state = context.get_slot::<Rc<State>>().unwrap().clone();
 
 	// Get the module.
 	let identity_hash = referrer.get_identity_hash();
@@ -487,7 +486,7 @@ fn resolve_module(
 	import: &tg::Import,
 ) -> Option<tg::Module> {
 	let context = scope.get_current_context();
-	let state = context.get_slot::<Rc<State>>(scope).unwrap().clone();
+	let state = context.get_slot::<Rc<State>>().unwrap().clone();
 
 	let (sender, receiver) = std::sync::mpsc::channel();
 	state.main_runtime_handle.spawn({
@@ -499,9 +498,14 @@ fn resolve_module(
 			sender.send(module).unwrap();
 		}
 	});
-	let module = match receiver.recv().unwrap().map_err(
-		|source| tg::error!(!source, %import = import.specifier, %module, "failed to resolve import relative to module"),
-	) {
+	let module = match receiver.recv().unwrap().map_err(|source| {
+		tg::error!(
+			!source,
+			?import,
+			?module,
+			"failed to resolve import relative to module"
+		)
+	}) {
 		Ok(module) => module,
 		Err(error) => {
 			let exception = error::to_exception(scope, &error);
@@ -520,7 +524,7 @@ fn load_module<'s>(
 ) -> Option<v8::Local<'s, v8::Module>> {
 	// Get the context and state.
 	let context = scope.get_current_context();
-	let state = context.get_slot::<Rc<State>>(scope).unwrap().clone();
+	let state = context.get_slot::<Rc<State>>().unwrap().clone();
 
 	// Return a cached module if this module has already been loaded.
 	if let Some(module) = state
@@ -539,10 +543,11 @@ fn load_module<'s>(
 	let resource_column_offset = 0;
 	let resource_is_shared_cross_origin = false;
 	let script_id = state.modules.borrow().len().to_i32().unwrap() + 1;
-	let source_map_url = v8::undefined(scope).into();
+	let source_map_url = None;
 	let resource_is_opaque = true;
 	let is_wasm = false;
 	let is_module = true;
+	let host_defined_options = None;
 	let origin = v8::ScriptOrigin::new(
 		scope,
 		resource_name.into(),
@@ -554,6 +559,7 @@ fn load_module<'s>(
 		resource_is_opaque,
 		is_wasm,
 		is_module,
+		host_defined_options,
 	);
 
 	// Load the module.
@@ -608,8 +614,8 @@ fn load_module<'s>(
 
 	// Compile the module.
 	let source = v8::String::new(scope, &transpiled_text).unwrap();
-	let source = v8::script_compiler::Source::new(source, Some(&origin));
-	let v8_module = v8::script_compiler::compile_module(scope, source)?;
+	let mut source = v8::script_compiler::Source::new(source, Some(&origin));
+	let v8_module = v8::script_compiler::compile_module(scope, &mut source)?;
 
 	// Cache the module.
 	state.modules.borrow_mut().push(Module {
@@ -632,7 +638,7 @@ extern "C" fn host_initialize_import_meta_object_callback(
 	let scope = unsafe { &mut v8::CallbackScope::new(context) };
 
 	// Get the state.
-	let state = context.get_slot::<Rc<State>>(scope).unwrap().clone();
+	let state = context.get_slot::<Rc<State>>().unwrap().clone();
 
 	// Get the module.
 	let identity_hash = module.get_identity_hash();
@@ -647,8 +653,7 @@ extern "C" fn host_initialize_import_meta_object_callback(
 
 	// Set import.meta.url.
 	let key = v8::String::new_external_onebyte_static(scope, "url".as_bytes()).unwrap();
-	let module = Url::from(module);
-	let value = v8::String::new(scope, module.as_str()).unwrap();
+	let value = v8::String::new(scope, module.uri().as_str()).unwrap();
 	meta.set(scope, key.into(), value.into()).unwrap();
 }
 
@@ -661,7 +666,7 @@ extern "C" fn promise_reject_callback(message: v8::PromiseRejectMessage) {
 	let context = scope.get_current_context();
 
 	// Get the state.
-	let state = context.get_slot::<Rc<State>>(scope).unwrap().clone();
+	let state = context.get_slot::<Rc<State>>().unwrap().clone();
 
 	match message.get_event() {
 		v8::PromiseRejectEvent::PromiseRejectWithNoHandler => {
@@ -702,7 +707,7 @@ fn parse_import_inner<'s>(
 
 	// Get the attributes.
 	let attributes = if attributes.length() > 0 {
-		let mut map = BTreeMap::default();
+		let mut map = BTreeMap::new();
 		let mut i = 0;
 		while i < attributes.length() {
 			// Get the key.
@@ -736,7 +741,7 @@ fn parse_import_inner<'s>(
 	};
 
 	// Parse the import.
-	let import = tg::Import::with_specifier_and_attributes(&specifier, attributes.as_ref())?;
+	let import = tg::Import::with_specifier_and_attributes(&specifier, attributes)?;
 
 	Ok(import)
 }

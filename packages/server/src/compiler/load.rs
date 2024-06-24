@@ -1,71 +1,17 @@
 use super::Compiler;
 use include_dir::include_dir;
 use tangram_client as tg;
+use tangram_either::Either;
 
 const LIB: include_dir::Dir = include_dir!("$OUT_DIR/lib");
 
 impl Compiler {
 	/// Load a module.
 	pub async fn load_module(&self, module: &tg::Module) -> tg::Result<String> {
-		match module {
-			tg::Module::Js(tg::module::Js::File(module))
-			| tg::Module::Ts(tg::module::Js::File(module)) => {
-				let artifact = tg::Artifact::with_id(module.clone());
-				let file = match artifact {
-					tg::Artifact::File(file) => file,
-					tg::Artifact::Symlink(symlink) => symlink
-						.resolve(&self.server)
-						.await?
-						.ok_or_else(|| tg::error!("failed to resolve symlink"))?
-						.try_unwrap_file()
-						.ok()
-						.ok_or_else(|| tg::error!("expected a file"))?,
-					tg::Artifact::Directory(_) => return Err(tg::error!("expected a directory")),
-				};
-				let text = file.text(&self.server).await?;
-				Ok(text)
-			},
-
-			tg::Module::Js(tg::module::Js::PackageArtifact(module))
-			| tg::Module::Ts(tg::module::Js::PackageArtifact(module)) => {
-				let id = module
-					.artifact
-					.clone()
-					.try_into()
-					.ok()
-					.ok_or_else(|| tg::error!("expected a directory"))?;
-				let directory = tg::Directory::with_id(id);
-				let file = directory
-					.get(&self.server, &module.path)
-					.await?
-					.try_unwrap_file()
-					.ok()
-					.ok_or_else(|| tg::error!("expected a file"))?;
-				let text = file.text(&self.server).await?;
-				Ok(text)
-			},
-
-			tg::Module::Js(tg::module::Js::PackagePath(package_path))
-			| tg::Module::Ts(tg::module::Js::PackagePath(package_path)) => {
-				// If there is an opened document, then return its contents.
-				if let Some(document) = self.documents.get(module) {
-					if document.open {
-						return Ok(document.text.clone().unwrap());
-					}
-				}
-
-				// Otherwise, load from the path.
-				let path = package_path.package_path.join(&package_path.path);
-				let text = tokio::fs::read_to_string(&path)
-					.await
-					.map_err(|source| tg::error!(!source, "failed to read the file"))?;
-
-				Ok(text)
-			},
-
-			tg::Module::Dts(module) => {
-				let path = module
-					.path
+		match (module.kind(), module.object(), module.path()) {
+			// Handle a declaration.
+			(tg::module::Kind::Dts, None, Some(path)) => {
+				let path = path
 					.components()
 					.get(1)
 					.ok_or_else(|| tg::error!("invalid path"))?
@@ -77,37 +23,105 @@ impl Compiler {
 				Ok(text)
 			},
 
-			tg::Module::Artifact(tg::module::Artifact::Id(id)) => {
-				Ok(format!(r#"export default tg.Artifact.withId("{id}");"#))
+			// Handle a JS or TS module from a path.
+			(tg::module::Kind::Js | tg::module::Kind::Ts, Some(Either::Right(object)), path) => {
+				// If there is an opened document, then return its contents.
+				if let Some(document) = self.documents.get(module) {
+					if document.open {
+						return Ok(document.text.clone().unwrap());
+					}
+				}
+
+				// Otherwise, load from the path.
+				let path = if let Some(path) = path {
+					object.clone().join(path.clone())
+				} else {
+					object.clone()
+				};
+				let text = tokio::fs::read_to_string(&path).await.map_err(
+					|source| tg::error!(!source, %path = path.display(), "failed to read the file"),
+				)?;
+
+				Ok(text)
 			},
 
-			tg::Module::Directory(tg::module::Directory::Id(id)) => {
-				Ok(format!(r#"export default tg.Directory.withId("{id}");"#))
+			// Handle a JS or TS module from an object.
+			(tg::module::Kind::Js | tg::module::Kind::Ts, Some(Either::Left(object)), path) => {
+				let object = tg::Object::with_id(object.clone());
+				let object = if let Some(path) = path {
+					let tg::Object::Directory(directory) = object else {
+						return Err(tg::error!("expected a directory"));
+					};
+					directory.get(&self.server, path).await?.into()
+				} else {
+					object
+				};
+				let file = match object {
+					tg::Object::File(file) => file,
+					tg::Object::Symlink(symlink) => symlink
+						.resolve(&self.server)
+						.await?
+						.ok_or_else(|| tg::error!("the symlink is dangling"))?
+						.try_into()
+						.ok()
+						.ok_or_else(|| tg::error!("the symlink must point to a file"))?,
+					_ => {
+						return Err(tg::error!("module object must be a file or symlink"));
+					},
+				};
+				let text = file.text(&self.server).await?;
+				Ok(text)
 			},
 
-			tg::Module::File(tg::module::File::Id(id)) => {
-				Ok(format!(r#"export default tg.File.withId("{id}");"#))
+			// Handle object modules.
+			(
+				tg::module::Kind::Object
+				| tg::module::Kind::Blob
+				| tg::module::Kind::Leaf
+				| tg::module::Kind::Branch
+				| tg::module::Kind::Artifact
+				| tg::module::Kind::Directory
+				| tg::module::Kind::File
+				| tg::module::Kind::Symlink
+				| tg::module::Kind::Graph
+				| tg::module::Kind::Target,
+				Some(object),
+				path,
+			) => {
+				let class = match module.kind() {
+					tg::module::Kind::Object => "Object",
+					tg::module::Kind::Blob => "Blob",
+					tg::module::Kind::Leaf => "Leaf",
+					tg::module::Kind::Branch => "Branch",
+					tg::module::Kind::Artifact => "Artifact",
+					tg::module::Kind::Directory => "Directory",
+					tg::module::Kind::File => "File",
+					tg::module::Kind::Symlink => "Symlink",
+					tg::module::Kind::Graph => "Graph",
+					tg::module::Kind::Target => "Target",
+					_ => unreachable!(),
+				};
+				match object {
+					Either::Left(object) => {
+						let object = tg::Object::with_id(object.clone());
+						let object = if let Some(path) = path {
+							let tg::Object::Directory(directory) = object else {
+								return Err(tg::error!("expected a directory"));
+							};
+							directory.get(&self.server, path).await?.into()
+						} else {
+							object
+						};
+						let object = object.id(&self.server).await?;
+						Ok(format!(r#"export default tg.{class}.withId("{object}");"#))
+					},
+					Either::Right(_) => Ok(format!(
+						r#"export default undefined as unknown as tg.{class};"#
+					)),
+				}
 			},
 
-			tg::Module::Symlink(tg::module::Symlink::Id(id)) => {
-				Ok(format!(r#"export default tg.Symlink.withId("{id}");"#))
-			},
-
-			tg::Module::Artifact(tg::module::Artifact::Path(_)) => {
-				Ok("export default undefined as tg.Artifact;".into())
-			},
-
-			tg::Module::Directory(tg::module::Directory::Path(_)) => {
-				Ok("export default undefined as tg.Directory;".into())
-			},
-
-			tg::Module::File(tg::module::File::Path(_)) => {
-				Ok("export default undefined as tg.File;".into())
-			},
-
-			tg::Module::Symlink(tg::module::Symlink::Path(_)) => {
-				Ok("export default undefined as tg.Symlink;".into())
-			},
+			_ => Err(tg::error!("invalid module")),
 		}
 	}
 }

@@ -1,7 +1,7 @@
 #![allow(dead_code)]
 
-use either::Either;
 use tangram_database as db;
+use tangram_either::Either;
 
 pub type Error = db::either::Error<db::sqlite::Error, db::postgres::Error>;
 

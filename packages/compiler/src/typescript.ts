@@ -2,7 +2,7 @@ import ts from "typescript";
 import { assert, unreachable } from "./assert.ts";
 import type { Diagnostic, Severity } from "./diagnostics.ts";
 import { log } from "./log.ts";
-import type { Module } from "./module.ts";
+import { Module } from "./module.ts";
 
 // Create the TypeScript compiler options.
 export let compilerOptions: ts.CompilerOptions = {
@@ -51,8 +51,8 @@ export let host: ts.LanguageServiceHost & ts.CompilerHost = {
 		let text: string | undefined;
 		try {
 			text = syscall("module_load", moduleFromFileName(fileName));
-		} catch (e) {
-			log(e);
+		} catch (error) {
+			log(error);
 			return undefined;
 		}
 		return ts.ScriptSnapshot.fromString(text);
@@ -66,8 +66,8 @@ export let host: ts.LanguageServiceHost & ts.CompilerHost = {
 		let text: string | undefined;
 		try {
 			text = syscall("module_load", moduleFromFileName(fileName));
-		} catch (e) {
-			log(e);
+		} catch (error) {
+			log(error);
 			return undefined;
 		}
 		let sourceFile = ts.createSourceFile(fileName, text, languageVersion);
@@ -107,8 +107,8 @@ export let host: ts.LanguageServiceHost & ts.CompilerHost = {
 						attributes,
 					),
 				);
-			} catch (e) {
-				log(e);
+			} catch (error) {
+				log(error);
 				return { resolvedModule: undefined };
 			}
 			let extension = resolvedFileName.slice(-3);
@@ -185,38 +185,35 @@ let getImportAttributesFromImportExpression = (
 };
 
 /** Convert a module to a TypeScript file name. */
-export let fileNameFromModule = (module: Module): string => {
-	if (module.kind === "dts") {
-		return `/library/${module.value.path.slice(2)}`;
-	} else {
-		let json = syscall("encoding_json_encode", module);
-		let utf8 = syscall("encoding_utf8_encode", json);
-		let hex = syscall("encoding_hex_encode", utf8);
-		let extension: string;
-		if (module.kind === "js") {
-			extension = ".js";
-		} else if (module.kind === "ts") {
-			extension = ".ts";
-		} else {
-			extension = ".ts";
-		}
-		return `/${hex}${extension}`;
+export let fileNameFromModule = (module: string): string => {
+	let {
+		path: { kind, path },
+	} = Module.parse(module);
+	if (kind === "dts") {
+		return `/library/${path!.slice(2)}`;
 	}
+	let hex = module.slice(3);
+	let extension: string;
+	if (kind === "js") {
+		extension = ".js";
+	} else if (kind === "ts") {
+		extension = ".ts";
+	} else {
+		extension = ".ts";
+	}
+	return `/${hex}${extension}`;
 };
 
 /** Convert a TypeScript file name to a module. */
-export let moduleFromFileName = (fileName: string): Module => {
-	let module: Module;
+export let moduleFromFileName = (fileName: string): string => {
 	if (fileName.startsWith("/library/")) {
-		let path = fileName.slice(9);
-		module = { kind: "dts", value: { path } };
-	} else {
-		let hex = fileName.slice(1, -3);
-		let utf8 = syscall("encoding_hex_decode", hex);
-		let json = syscall("encoding_utf8_decode", utf8);
-		module = syscall("encoding_json_decode", json) as Module;
+		let path = `./${fileName.slice(9)}`;
+		return Module.print({
+			path: { kind: "dts", object: undefined, path },
+		});
 	}
-	return module;
+	let hex = fileName.slice(1, -3);
+	return `tg:${hex}`;
 };
 
 /** Convert a diagnostic. */

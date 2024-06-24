@@ -11,6 +11,7 @@ use std::{
 	sync::{Arc, Mutex},
 };
 use tangram_client as tg;
+use tangram_either::Either;
 use tangram_futures::task::Stop;
 use tangram_http::{outgoing::response::Ext as _, Incoming, Outgoing};
 use tokio::io::{
@@ -22,7 +23,6 @@ pub mod check;
 pub mod completion;
 pub mod definition;
 pub mod diagnostics;
-pub mod doc;
 pub mod document;
 pub mod error;
 pub mod format;
@@ -82,7 +82,7 @@ enum Request {
 	Definition(definition::Request),
 	TypeDefinition(definition::Request),
 	Diagnostics(diagnostics::Request),
-	Doc(doc::Request),
+	Document(document::Request),
 	Hover(hover::Request),
 	References(references::Request),
 	Rename(rename::Request),
@@ -97,7 +97,7 @@ enum Response {
 	Definition(definition::Response),
 	TypeDefinition(definition::Response),
 	Diagnostics(diagnostics::Response),
-	Doc(doc::Response),
+	Document(document::Response),
 	Hover(hover::Response),
 	References(references::Response),
 	Rename(rename::Response),
@@ -113,7 +113,7 @@ impl Compiler {
 	#[must_use]
 	pub fn new(server: &crate::Server, main_runtime_handle: tokio::runtime::Handle) -> Self {
 		// Create the published diagnostics.
-		let diagnostics = tokio::sync::RwLock::new(BTreeMap::default());
+		let diagnostics = tokio::sync::RwLock::new(BTreeMap::new());
 
 		// Create the documents.
 		let documents = DashMap::default();
@@ -564,11 +564,11 @@ impl Compiler {
 
 		// Create the context.
 		let scope = &mut v8::HandleScope::new(&mut isolate);
-		let context = v8::Context::new(scope);
+		let context = v8::Context::new(scope, v8::ContextOptions::default());
 		let scope = &mut v8::ContextScope::new(scope, context);
 
 		// Set the server on the context.
-		context.set_slot(scope, self);
+		context.set_slot(self);
 
 		// Add the syscall function to the global.
 		let syscall_string =
@@ -631,101 +631,39 @@ impl Compiler {
 		}
 	}
 
-	async fn module_for_uri(&self, uri: &lsp::Uri) -> tg::Result<tg::Module> {
+	async fn module_for_lsp_uri(&self, uri: &lsp::Uri) -> tg::Result<tg::Module> {
 		match uri.scheme().unwrap().as_str() {
-			"file" => {
-				// Get the path and file name.
-				let path = Path::new(uri.path().as_str());
-				let file_name = path
-					.file_name()
-					.ok_or_else(|| tg::error!("the path must have a file name"))?
-					.to_str()
-					.ok_or_else(|| tg::error!("invalid file name"))?;
-
-				// Determine the package path.
-				let package_path = if tg::package::ROOT_MODULE_FILE_NAMES.contains(&file_name) {
-					// If the path refers to a root module, then use its path as the package path.
-					path.parent()
-						.ok_or_else(|| tg::error!("expected the path to have a parent"))?
-						.to_owned()
-				} else {
-					// Otherwise, find the package path by searching the path's ancestors for a root module.
-					let mut package_path = None;
-					for ancestor_path in path.to_owned().ancestors().skip(1) {
-						for root_module_file_name in tg::package::ROOT_MODULE_FILE_NAMES {
-							let exists =
-								tokio::fs::try_exists(&ancestor_path.join(root_module_file_name))
-									.await
-									.map_err(|source| {
-										tg::error!(!source, "failed to stat the path")
-									})?;
-							if exists {
-								package_path = Some(ancestor_path.to_owned());
-								break;
-							}
-						}
-					}
-					let Some(package_path) = package_path else {
-						let path = path.display();
-						return Err(tg::error!(%path, "could not find the package"));
-					};
-					package_path
-				};
-
-				// Get the module path by stripping the package path.
-				let module_path: tg::Path = path
-					.strip_prefix(&package_path)
-					.unwrap()
-					.to_owned()
-					.into_os_string()
-					.into_string()
-					.ok()
-					.ok_or_else(|| {
-						let path = path.display();
-						tg::error!(%path, "the module path was not valid UTF-8")
-					})?
-					.parse()
-					.map_err(|error| {
-						let path = path.display();
-						tg::error!(source = error, %path, "failed to parse the module path")
-					})?;
-
-				// Create the module.
-				let module = tg::Module::with_package_path(package_path, module_path).await?;
-
-				Ok(module)
-			},
-
+			"file" => tg::Module::with_path(Path::new(uri.path().as_str())).await,
 			_ => uri.as_str().parse(),
 		}
 	}
 
 	#[allow(clippy::unused_self)]
 	#[must_use]
-	fn uri_for_module(&self, module: &tg::Module) -> lsp::Uri {
-		match module {
-			tg::Module::Js(tg::module::Js::PackagePath(package_path))
-			| tg::Module::Ts(tg::module::Js::PackagePath(package_path)) => {
-				let path = package_path
-					.package_path
-					.clone()
-					.join(package_path.path.clone());
+	fn lsp_uri_for_module(&self, module: &tg::Module) -> lsp::Uri {
+		match (module.kind(), module.object(), module.path()) {
+			(
+				tg::module::Kind::Js
+				| tg::module::Kind::Ts
+				| tg::module::Kind::Artifact
+				| tg::module::Kind::Directory
+				| tg::module::Kind::File
+				| tg::module::Kind::Symlink,
+				Some(Either::Right(package)),
+				Some(path),
+			) => {
+				let path = package.clone().join(path.clone());
 				format!("file://{}", path.display()).parse().unwrap()
 			},
-			tg::Module::Artifact(tg::module::Artifact::Path(path))
-			| tg::Module::Directory(tg::module::Directory::Path(path))
-			| tg::Module::File(tg::module::File::Path(path))
-			| tg::Module::Symlink(tg::module::Symlink::Path(path)) => {
-				format!("file://{path}").parse().unwrap()
-			},
-			module => module.to_string().parse().unwrap(),
+
+			_ => module.to_string().parse().unwrap(),
 		}
 	}
 }
 
 impl crate::Server {
 	pub async fn format(&self, text: String) -> tg::Result<String> {
-		let compiler = crate::compiler::Compiler::new(self, tokio::runtime::Handle::current());
+		let compiler = Compiler::new(self, tokio::runtime::Handle::current());
 		let text = compiler.format(text).await?;
 		Ok(text)
 	}
@@ -735,7 +673,7 @@ impl crate::Server {
 		input: impl AsyncBufRead + Send + Unpin + 'static,
 		output: impl AsyncWrite + Send + Unpin + 'static,
 	) -> tg::Result<()> {
-		let compiler = crate::compiler::Compiler::new(self, tokio::runtime::Handle::current());
+		let compiler = Compiler::new(self, tokio::runtime::Handle::current());
 		compiler.serve(input, output).await?;
 		Ok(())
 	}

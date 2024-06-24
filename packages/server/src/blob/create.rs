@@ -1,12 +1,12 @@
 use crate::{database::Transaction, tmp::Tmp, Server};
 use bytes::Bytes;
-use either::Either;
 use futures::{stream, StreamExt as _, TryStreamExt as _};
 use indoc::formatdoc;
 use num::ToPrimitive as _;
 use std::{pin::pin, sync::Arc};
 use tangram_client as tg;
 use tangram_database::{self as db, Connection as _, Database as _, Query as _, Transaction as _};
+use tangram_either::Either;
 use tangram_http::{incoming::request::Ext as _, outgoing::response::Ext as _, Incoming, Outgoing};
 use time::format_description::well_known::Rfc3339;
 use tokio::io::{AsyncRead, AsyncWriteExt as _};
@@ -154,6 +154,7 @@ impl Server {
 							let data = tg::branch::Data { children };
 							let bytes = data.serialize()?;
 							let id = tg::branch::Id::new(&bytes);
+
 							let count = count + 1;
 							let weight = weight + bytes.len().to_u64().unwrap();
 

@@ -1,5 +1,5 @@
 use std::{collections::BTreeMap, path::PathBuf};
-use tangram_client as tg;
+use tangram_client::{self as tg, util::serde::is_false};
 use url::Url;
 
 #[derive(Clone, Debug, Default, serde::Deserialize, serde::Serialize)]
@@ -60,15 +60,6 @@ pub struct Config {
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub path: Option<PathBuf>,
 
-	/// Configure the default registry for this server. If this option is set to `true`, then the server will act as the default registry. Otherwise, provide the name of the remote. The default value is "default".
-	#[allow(clippy::option_option)]
-	#[serde(
-		default,
-		skip_serializing_if = "Option::is_none",
-		with = "serde_with::rust::double_option"
-	)]
-	pub registry: Option<Option<String>>,
-
 	/// Configure remotes.
 	#[allow(clippy::option_option)]
 	#[serde(
@@ -123,7 +114,7 @@ pub struct Advanced {
 	pub preserve_temp_directories: Option<bool>,
 
 	/// Whether to enable publishing of data to tokio console.
-	#[serde(default, skip_serializing_if = "std::ops::Not::not")]
+	#[serde(default, skip_serializing_if = "is_false")]
 	pub tokio_console: bool,
 
 	/// Whether to write build logs to the database instead of files.
@@ -270,3 +261,6 @@ pub struct Vfs {
 	pub cache_size: Option<u64>,
 	pub database_connections: Option<usize>,
 }
+
+/// The value to use for the file descriptor semaphore if none is provided.
+pub(crate) const DEFAULT_FILE_DESCRIPTOR_SEMAPHORE_SIZE: usize = 1024;

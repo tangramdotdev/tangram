@@ -1,23 +1,24 @@
 use crate::Cli;
 use futures::TryStreamExt as _;
 use std::pin::pin;
-use tangram_client::{self as tg, Handle as _};
+use tangram_client::{self as tg, handle::Ext as _};
 use tokio_util::io::StreamReader;
 
 /// Cat blobs.
 #[derive(Clone, Debug, clap::Args)]
 #[group(skip)]
 pub struct Args {
+	#[arg(index = 1)]
 	pub blobs: Vec<tg::blob::Id>,
 }
 
 impl Cli {
 	pub async fn command_blob_cat(&self, args: Args) -> tg::Result<()> {
-		let client = self.client().await?;
+		let handle = self.handle().await?;
 
 		for blob in args.blobs {
 			// Create a reader.
-			let stream = client
+			let stream = handle
 				.try_read_blob(&blob, tg::blob::read::Arg::default())
 				.await?
 				.ok_or_else(|| tg::error!("expected a blob"))?;

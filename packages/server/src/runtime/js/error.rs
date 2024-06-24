@@ -61,7 +61,7 @@ pub(super) fn from_exception<'s>(
 
 	// Get the message.
 	let message_ = v8::Exception::create_message(scope, exception);
-	let message = message_.get(scope).to_rust_string_lossy(scope);
+	let message = Some(message_.get(scope).to_rust_string_lossy(scope));
 
 	// Get the location.
 	let resource_name = message_
@@ -139,7 +139,7 @@ pub fn capture_stack_trace(scope: &mut v8::HandleScope<'_>) -> Option<Vec<tg::er
 	let context = scope.get_current_context();
 
 	// Get the state.
-	let state = context.get_slot::<Rc<State>>(scope).unwrap().clone();
+	let state = context.get_slot::<Rc<State>>().unwrap().clone();
 
 	// Get the current stack trace.
 	let stack = v8::StackTrace::current_stack_trace(scope, 1024 * 1024)?;
@@ -185,35 +185,23 @@ fn get_location(
 		let line = token.get_src_line();
 		let column = token.get_src_col();
 		let symbol = token.get_name().map(String::from);
-		let source = tg::error::Source::Internal {
-			path: token.get_source().unwrap().parse().unwrap(),
-		};
+		let source = tg::error::Source::Internal(token.get_source().unwrap().parse().unwrap());
 		let location = tg::error::Location {
 			symbol,
 			source,
 			line,
 			column,
 		};
-
 		return Some(location);
 	}
 
 	if let Some(module) = file.and_then(|resource_name| resource_name.parse().ok()) {
-		// Get the module and get the package and path.
+		// Get the module.
 		let modules = state.modules.borrow();
 		let module = modules.iter().find(|m| m.module == module)?;
-		let (package, path) = match &module.module {
-			tg::Module::Js(tg::module::Js::PackageArtifact(package_artifact))
-			| tg::Module::Ts(tg::module::Js::PackageArtifact(package_artifact)) => (
-				package_artifact.artifact.clone(),
-				Some(package_artifact.path.clone()),
-			),
-			tg::Module::Js(tg::module::Js::File(artifact))
-			| tg::Module::Ts(tg::module::Js::File(artifact)) => (artifact.clone(), None),
-			_ => return None,
-		};
 
-		let source = tg::error::Source::External { package, path };
+		// Get the source.
+		let source = tg::error::Source::Module(module.module.clone());
 
 		// Get the line and column and apply a source map if one is available.
 		let mut line = line?;

@@ -1,5 +1,6 @@
 use crate::Cli;
-use tangram_client as tg;
+use tangram_client::{self as tg, Handle as _};
+use tangram_either::Either;
 
 /// Check a package.
 #[derive(Clone, Debug, clap::Args)]
@@ -9,27 +10,35 @@ pub struct Args {
 	#[arg(long)]
 	pub locked: bool,
 
-	#[arg(default_value = ".")]
-	pub package: tg::Dependency,
+	#[arg(index = 1, default_value = ".")]
+	pub reference: tg::Reference,
+
+	#[allow(clippy::option_option)]
+	#[arg(short, long)]
+	pub remote: Option<Option<String>>,
 }
 
 impl Cli {
-	pub async fn command_package_check(&self, mut args: Args) -> tg::Result<()> {
-		let client = self.client().await?;
+	pub async fn command_package_check(&self, args: Args) -> tg::Result<()> {
+		let handle = self.handle().await?;
 
-		// Canonicalize the package path.
-		if let Some(path) = args.package.path.as_mut() {
-			*path = tokio::fs::canonicalize(&path)
-				.await
-				.map_err(|source| tg::error!(!source, "failed to canonicalize the path"))?
-				.try_into()?;
-		}
+		// Get the remote.
+		let remote = args
+			.remote
+			.map(|option| option.unwrap_or_else(|| "default".to_owned()));
+
+		// Get the reference.
+		let item = self.get_reference(&args.reference).await?;
+
+		// Get the package.
+		let Either::Right(tg::Object::Directory(package)) = item else {
+			return Err(tg::error!("expected a package"));
+		};
 
 		// Check the package.
-		let arg = tg::package::check::Arg {
-			locked: args.locked,
-		};
-		let output = client.check_package(&args.package, arg).await?;
+		let package = package.id(&handle).await?;
+		let arg = tg::package::check::Arg { package, remote };
+		let output = handle.check_package(arg).await?;
 
 		// Print the diagnostics.
 		for diagnostic in &output.diagnostics {

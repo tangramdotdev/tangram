@@ -68,7 +68,7 @@ pub(super) fn from_exception<'s>(
 
 	// Get the message.
 	let message_ = v8::Exception::create_message(scope, exception);
-	let message = message_.get(scope).to_rust_string_lossy(scope);
+	let message = Some(message_.get(scope).to_rust_string_lossy(scope));
 
 	// Get the location.
 	let line = message_.get_line_number(scope).unwrap().to_u32().unwrap() - 1;
@@ -108,6 +108,7 @@ pub(super) fn from_exception<'s>(
 		.map(|cause| from_exception(scope, cause.into()))
 		.map(|error| Arc::new(error) as _);
 	let values = BTreeMap::new();
+
 	// Create the error.
 	tg::Error {
 		message,
@@ -122,9 +123,8 @@ fn get_location(line: u32, column: u32) -> Option<tg::error::Location> {
 	let source_map = SourceMap::from_slice(SOURCE_MAP).unwrap();
 	let token = source_map.lookup_token(line, column)?;
 	let symbol = token.get_name().map(String::from);
-	let source = tg::error::Source::Internal {
-		path: token.get_source().unwrap().parse().unwrap(),
-	};
+	let path = token.get_source().unwrap().parse().unwrap();
+	let source = tg::error::Source::Internal(path);
 	let line = token.get_src_line();
 	let column = token.get_src_col();
 	let location = tg::error::Location {

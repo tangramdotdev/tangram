@@ -1,6 +1,8 @@
-use crate::{self as tg, util::arc::Ext as _};
+use crate as tg;
 use bytes::Bytes;
+use itertools::Itertools as _;
 use std::{collections::BTreeSet, sync::Arc};
+use tangram_either::Either;
 
 #[derive(
 	Clone,
@@ -11,6 +13,7 @@ use std::{collections::BTreeSet, sync::Arc};
 	PartialEq,
 	PartialOrd,
 	derive_more::Display,
+	derive_more::Into,
 	serde::Deserialize,
 	serde::Serialize,
 )]
@@ -25,17 +28,32 @@ pub struct Symlink {
 pub type State = tg::object::State<Id, Object>;
 
 #[derive(Clone, Debug)]
-pub struct Object {
-	pub artifact: Option<tg::Artifact>,
-	pub path: Option<tg::Path>,
+pub enum Object {
+	Normal {
+		artifact: Option<tg::Artifact>,
+		path: Option<tg::Path>,
+	},
+	Graph {
+		graph: tg::Graph,
+		node: usize,
+	},
 }
 
 #[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
-pub struct Data {
-	#[serde(default, skip_serializing_if = "Option::is_none")]
-	pub artifact: Option<tg::artifact::Id>,
-	#[serde(default, skip_serializing_if = "Option::is_none")]
-	pub path: Option<tg::Path>,
+#[serde(untagged)]
+pub enum Data {
+	Normal {
+		#[serde(default, skip_serializing_if = "Option::is_none")]
+		artifact: Option<tg::artifact::Id>,
+
+		#[serde(default, skip_serializing_if = "Option::is_none")]
+		path: Option<tg::Path>,
+	},
+
+	Graph {
+		graph: tg::graph::Id,
+		node: usize,
+	},
 }
 
 impl Id {
@@ -140,37 +158,104 @@ impl Symlink {
 		H: tg::Handle,
 	{
 		let object = self.object(handle).await?;
-		let artifact = if let Some(artifact) = &object.artifact {
-			Some(artifact.id(handle).await?)
-		} else {
-			None
-		};
-		let path = object.path.clone();
-		Ok(Data { artifact, path })
+		match object.as_ref() {
+			Object::Normal { artifact, path } => {
+				let artifact = if let Some(artifact) = &artifact {
+					Some(artifact.id(handle).await?)
+				} else {
+					None
+				};
+				let path = path.clone();
+				Ok(Data::Normal { artifact, path })
+			},
+			Object::Graph { graph, node } => {
+				let graph = graph.id(handle).await?;
+				let node = *node;
+				Ok(Data::Graph { graph, node })
+			},
+		}
 	}
 }
 
 impl Symlink {
 	#[must_use]
-	pub fn new(artifact: Option<tg::Artifact>, path: Option<tg::Path>) -> Self {
-		Self::with_object(Object { artifact, path })
+	pub fn with_artifact_and_path(artifact: Option<tg::Artifact>, path: Option<tg::Path>) -> Self {
+		Self::with_object(Object::Normal { artifact, path })
+	}
+
+	#[must_use]
+	pub fn with_graph_and_node(graph: tg::Graph, node: usize) -> Self {
+		Self::with_object(Object::Graph { graph, node })
 	}
 
 	pub async fn artifact<H>(&self, handle: &H) -> tg::Result<Option<tg::Artifact>>
 	where
 		H: tg::Handle,
 	{
-		Ok(self.object(handle).await?.artifact.clone())
+		let object = self.object(handle).await?;
+		match object.as_ref() {
+			Object::Normal { artifact, .. } => Ok(artifact.clone()),
+			Object::Graph { graph, node } => {
+				let object = graph.object(handle).await?;
+				let node = object
+					.nodes
+					.get(*node)
+					.ok_or_else(|| tg::error!("invalid index"))?;
+				let symlink = node
+					.try_unwrap_symlink_ref()
+					.ok()
+					.ok_or_else(|| tg::error!("expected a symlink"))?;
+				let artifact = if let Some(either) = &symlink.artifact {
+					let artifact = match either {
+						Either::Left(node) => {
+							let kind = object
+								.nodes
+								.get(*node)
+								.ok_or_else(|| tg::error!("invalid index"))?
+								.kind();
+							match kind {
+								tg::artifact::Kind::Directory => {
+									tg::Directory::with_graph_and_node(graph.clone(), *node).into()
+								},
+								tg::artifact::Kind::File => {
+									tg::File::with_graph_and_node(graph.clone(), *node).into()
+								},
+								tg::artifact::Kind::Symlink => {
+									tg::Symlink::with_graph_and_node(graph.clone(), *node).into()
+								},
+							}
+						},
+						Either::Right(artifact) => artifact.clone(),
+					};
+					Some(artifact)
+				} else {
+					None
+				};
+				Ok(artifact)
+			},
+		}
 	}
 
-	pub async fn path<H>(
-		&self,
-		handle: &H,
-	) -> tg::Result<impl std::ops::Deref<Target = Option<tg::Path>>>
+	pub async fn path<H>(&self, handle: &H) -> tg::Result<Option<tg::Path>>
 	where
 		H: tg::Handle,
 	{
-		Ok(self.object(handle).await?.map(|object| &object.path))
+		let object = self.object(handle).await?;
+		match object.as_ref() {
+			Object::Normal { path, .. } => Ok(path.clone()),
+			Object::Graph { graph, node } => {
+				let object = graph.object(handle).await?;
+				let node = object
+					.nodes
+					.get(*node)
+					.ok_or_else(|| tg::error!("invalid index"))?;
+				let symlink = node
+					.try_unwrap_symlink_ref()
+					.ok()
+					.ok_or_else(|| tg::error!("expected a symlink"))?;
+				Ok(symlink.path.clone())
+			},
+		}
 	}
 
 	pub async fn resolve<H>(&self, handle: &H) -> tg::Result<Option<tg::Artifact>>
@@ -234,6 +319,10 @@ impl Symlink {
 }
 
 impl Data {
+	pub fn id(&self) -> tg::Result<Id> {
+		Ok(Id::new(&self.serialize()?))
+	}
+
 	pub fn serialize(&self) -> tg::Result<Bytes> {
 		serde_json::to_vec(self)
 			.map(Into::into)
@@ -247,7 +336,10 @@ impl Data {
 
 	#[must_use]
 	pub fn children(&self) -> BTreeSet<tg::object::Id> {
-		self.artifact.iter().map(|id| id.clone().into()).collect()
+		match self {
+			Self::Normal { artifact, .. } => artifact.clone().into_iter().map_into().collect(),
+			Self::Graph { graph, .. } => [graph.clone()].into_iter().map_into().collect(),
+		}
 	}
 }
 
@@ -255,15 +347,16 @@ impl TryFrom<Data> for Object {
 	type Error = tg::Error;
 
 	fn try_from(data: Data) -> std::result::Result<Self, Self::Error> {
-		let artifact = data.artifact.map(tg::Artifact::with_id);
-		let path = data.path;
-		Ok(Self { artifact, path })
-	}
-}
-
-impl From<Id> for crate::Id {
-	fn from(value: Id) -> Self {
-		value.0
+		match data {
+			Data::Normal { artifact, path } => {
+				let artifact = artifact.map(tg::Artifact::with_id);
+				Ok(Self::Normal { artifact, path })
+			},
+			Data::Graph { graph, node } => {
+				let graph = tg::Graph::with_id(graph);
+				Ok(Self::Graph { graph, node })
+			},
+		}
 	}
 }
 

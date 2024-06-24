@@ -3,11 +3,10 @@ use futures::{future, Future, FutureExt as _, TryFutureExt as _, TryStreamExt as
 use indoc::formatdoc;
 use itertools::Itertools as _;
 use std::pin::pin;
-use tangram_client as tg;
+use tangram_client::{self as tg, handle::Ext as _};
 use tangram_database::{self as db, prelude::*};
 use tangram_futures::task::Stop;
 use tangram_http::{outgoing::response::Ext as _, Incoming, Outgoing};
-use tg::Handle as _;
 
 impl Server {
 	pub async fn try_get_build_outcome_future(

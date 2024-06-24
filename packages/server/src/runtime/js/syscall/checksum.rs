@@ -1,8 +1,8 @@
 use super::State;
 use bytes::Bytes;
-use either::Either;
 use std::rc::Rc;
 use tangram_client as tg;
+use tangram_either::Either;
 
 pub async fn checksum(
 	_state: Rc<State>,

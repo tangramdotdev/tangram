@@ -62,17 +62,3 @@ impl std::str::FromStr for Format {
 		}
 	}
 }
-
-impl From<Format> for String {
-	fn from(value: Format) -> Self {
-		value.to_string()
-	}
-}
-
-impl TryFrom<String> for Format {
-	type Error = tg::Error;
-
-	fn try_from(value: String) -> tg::Result<Self, Self::Error> {
-		value.parse()
-	}
-}

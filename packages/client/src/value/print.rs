@@ -1,7 +1,8 @@
 use crate as tg;
 use bytes::Bytes;
-use num::ToPrimitive as _;
+use num::ToPrimitive;
 use std::collections::BTreeMap;
+use tangram_either::Either;
 
 pub fn print(value: &tg::Value, pretty: bool) -> String {
 	Printer::print(value, pretty)
@@ -24,6 +25,13 @@ impl Printer {
 		printer.string
 	}
 
+	fn indent(&mut self) {
+		if self.pretty {
+			let indent = (0..self.indent).map(|_| '\t');
+			self.string.extend(indent);
+		}
+	}
+
 	fn value(&mut self, value: &tg::Value) {
 		match value {
 			tg::Value::Null => self.null(),
@@ -44,25 +52,25 @@ impl Printer {
 		self.string += "null";
 	}
 
-	fn bool(&mut self, v: bool) {
-		self.string += if v { "true" } else { "false" };
+	fn bool(&mut self, value: bool) {
+		self.string += if value { "true" } else { "false" };
 	}
 
-	fn number(&mut self, v: f64) {
-		self.string += &v.to_string();
+	fn number(&mut self, value: f64) {
+		self.string += &value.to_string();
 	}
 
-	fn string(&mut self, v: &str) {
-		self.string += &format!("{v:#?}");
+	fn string(&mut self, value: &str) {
+		self.string += &format!("{value:#?}");
 	}
 
-	fn array(&mut self, v: &tg::value::Array) {
+	fn array(&mut self, value: &tg::value::Array) {
 		self.string.push('[');
-		if self.pretty && !v.is_empty() {
+		if self.pretty && !value.is_empty() {
 			self.string.push('\n');
 		}
 		self.indent += 1;
-		for value in v {
+		for value in value {
 			self.indent();
 			self.value(value);
 			self.string.push(',');
@@ -75,13 +83,13 @@ impl Printer {
 		self.string.push(']');
 	}
 
-	fn map(&mut self, v: &tg::value::Map) {
+	fn map(&mut self, value: &tg::value::Map) {
 		self.string.push('{');
-		if self.pretty && !v.is_empty() {
+		if self.pretty && !value.is_empty() {
 			self.string.push('\n');
 		}
 		self.indent += 1;
-		for (key, value) in v {
+		for (key, value) in value {
 			self.indent();
 			self.string += &format!("{key:#?}");
 			self.string.push(':');
@@ -99,32 +107,33 @@ impl Printer {
 		self.string.push('}');
 	}
 
-	fn object(&mut self, v: &tg::Object) {
-		match v {
+	fn object(&mut self, value: &tg::Object) {
+		match value {
 			tg::Object::Leaf(v) => self.leaf(v),
 			tg::Object::Branch(v) => self.branch(v),
 			tg::Object::Directory(v) => self.directory(v),
 			tg::Object::File(v) => self.file(v),
 			tg::Object::Symlink(v) => self.symlink(v),
-			tg::Object::Lock(v) => self.lock(v),
+			tg::Object::Graph(v) => self.graph(v),
 			tg::Object::Target(v) => self.target(v),
 		}
 	}
 
-	fn leaf(&mut self, v: &tg::Leaf) {
-		let state = v.state().read().unwrap();
+	fn leaf(&mut self, value: &tg::Leaf) {
+		let state = value.state().read().unwrap();
 		if let Some(id) = state.id() {
 			self.string += &id.to_string();
 			return;
 		}
 		let object = state.object().unwrap();
+		let bytes = data_encoding::BASE64.encode(&object.bytes);
 		self.string += "tg.leaf(";
-		self.string(&data_encoding::BASE64.encode(&object.bytes));
+		self.string(&bytes);
 		self.string.push(')');
 	}
 
-	fn branch(&mut self, v: &tg::Branch) {
-		let state = v.state().read().unwrap();
+	fn branch(&mut self, value: &tg::Branch) {
+		let state = value.state().read().unwrap();
 		if let Some(id) = state.id() {
 			self.string += &id.to_string();
 			return;
@@ -134,173 +143,286 @@ impl Printer {
 			.children
 			.iter()
 			.map(|child| {
-				let size = tg::Value::Number(child.size.to_f64().unwrap());
-				let blob = tg::Value::Object(child.blob.clone().into());
-				let object = [("size".to_owned(), size), ("blob".to_owned(), blob)]
+				let size = child.size.to_f64().unwrap().into();
+				let blob = child.blob.clone().into();
+				[("size".to_owned(), size), ("blob".to_owned(), blob)]
 					.into_iter()
-					.collect();
-				tg::Value::Map(object)
+					.collect::<tg::value::Map>()
+					.into()
 			})
-			.collect();
-		let object = [("children".to_owned(), tg::Value::Array(children))];
+			.collect::<tg::value::Array>()
+			.into();
+		let map = [("children".to_owned(), children)].into_iter().collect();
 		self.string += "tg.branch(";
-		self.map(&object.into_iter().collect());
+		self.map(&map);
 		self.string.push(')');
 	}
 
-	fn directory(&mut self, v: &tg::Directory) {
-		let state = v.state().read().unwrap();
-		if let Some(id) = state.id() {
-			self.string += &id.to_string();
-			return;
-		}
-		let object = state.object().unwrap();
-		let entries = object
-			.entries
-			.iter()
-			.map(|(name, artifact)| (name.clone(), tg::Value::Object(artifact.clone().into())))
-			.collect();
-		self.string += "tg.directory(";
-		self.map(&entries);
-		self.string.push(')');
-	}
-
-	fn file(&mut self, v: &tg::File) {
-		let state = v.state().read().unwrap();
+	fn directory(&mut self, value: &tg::Directory) {
+		let state = value.state().read().unwrap();
 		if let Some(id) = state.id() {
 			self.string += &id.to_string();
 			return;
 		}
 		let object = state.object().unwrap();
 		let mut map = BTreeMap::new();
-		map.insert(
-			"contents".to_owned(),
-			tg::Value::Object(object.contents.clone().into()),
-		);
-		map.insert("executable".to_owned(), tg::Value::Bool(object.executable));
-		let references = tg::Value::Array(
-			object
-				.references
-				.iter()
-				.map(|artifact| tg::Value::Object(artifact.clone().into()))
-				.collect(),
-		);
-		map.insert("references".to_owned(), references);
+		match object.as_ref() {
+			tg::directory::Object::Normal { entries } => {
+				for (name, artifact) in entries {
+					map.insert(name.clone(), artifact.clone().into());
+				}
+			},
+			tg::directory::Object::Graph { graph, node } => {
+				map.insert("graph".to_owned(), graph.clone().into());
+				map.insert("node".to_owned(), node.to_f64().unwrap().into());
+			},
+		}
+		self.string += "tg.directory(";
+		self.map(&map);
+		self.string.push(')');
+	}
+
+	fn file(&mut self, value: &tg::File) {
+		let state = value.state().read().unwrap();
+		if let Some(id) = state.id() {
+			self.string += &id.to_string();
+			return;
+		}
+		let object = state.object().unwrap();
+		let mut map = BTreeMap::new();
+		match object.as_ref() {
+			tg::file::Object::Normal {
+				contents,
+				dependencies,
+				executable,
+			} => {
+				let contents = contents.clone().into();
+				map.insert("contents".to_owned(), contents);
+				if !dependencies.is_empty() {
+					let dependencies = dependencies
+						.iter()
+						.map(|(reference, dependency)| {
+							let key = reference.to_string();
+							let mut map = BTreeMap::new();
+							map.insert(
+								"object".to_owned(),
+								tg::Value::Object(dependency.object.clone()),
+							);
+							if let Some(tag) = &dependency.tag {
+								let tag = tg::Value::String(tag.to_string());
+								map.insert("tag".to_owned(), tag);
+							}
+							(key, tg::Value::Map(map))
+						})
+						.collect();
+					map.insert("dependencies".to_owned(), tg::Value::Map(dependencies));
+				}
+				if *executable {
+					map.insert("executable".to_owned(), true.into());
+				}
+			},
+			tg::file::Object::Graph { graph, node } => {
+				map.insert("graph".to_owned(), graph.clone().into());
+				map.insert("node".to_owned(), node.to_f64().unwrap().into());
+			},
+		}
 		self.string += "tg.file(";
 		self.map(&map);
 		self.string.push(')');
 	}
 
-	fn symlink(&mut self, v: &tg::Symlink) {
-		let state = v.state().read().unwrap();
+	fn symlink(&mut self, value: &tg::Symlink) {
+		let state = value.state().read().unwrap();
 		if let Some(id) = state.id() {
 			self.string += &id.to_string();
 			return;
 		}
 		let object = state.object().unwrap();
 		let mut map = BTreeMap::new();
-		if let Some(artifact) = &object.artifact {
-			map.insert(
-				"artifact".to_owned(),
-				tg::Value::Object(artifact.clone().into()),
-			);
-		}
-		if let Some(path) = &object.path {
-			map.insert("path".to_owned(), tg::Value::Path(path.clone()));
+		match object.as_ref() {
+			tg::symlink::Object::Normal { artifact, path } => {
+				if let Some(artifact) = &artifact {
+					map.insert("artifact".to_owned(), artifact.clone().into());
+				}
+				if let Some(path) = &path {
+					map.insert("path".to_owned(), path.clone().into());
+				}
+			},
+			tg::symlink::Object::Graph { graph, node } => {
+				map.insert("graph".to_owned(), graph.clone().into());
+				map.insert("node".to_owned(), node.to_f64().unwrap().into());
+			},
 		}
 		self.string += "tg.symlink(";
 		self.map(&map);
 		self.string.push(')');
 	}
 
-	fn lock(&mut self, v: &tg::Lock) {
-		todo!()
-	}
-
-	fn target(&mut self, v: &tg::Target) {
-		let state = v.state().read().unwrap();
+	fn graph(&mut self, value: &tg::Graph) {
+		let state = value.state().read().unwrap();
 		if let Some(id) = state.id() {
 			self.string += &id.to_string();
 			return;
 		}
 		let object = state.object().unwrap();
 		let mut map = BTreeMap::new();
-		map.insert("host".to_owned(), object.host.clone().into());
-		if let Some(executable) = &object.executable {
-			map.insert(
-				"executable".to_owned(),
-				tg::Value::Object(executable.clone().into()),
-			);
+		let nodes = object
+			.nodes
+			.iter()
+			.map(|node| {
+				let mut map = BTreeMap::new();
+				match node {
+					tg::graph::Node::Directory(directory) => {
+						let tg::graph::node::Directory { entries } = directory;
+						let entries = entries
+							.iter()
+							.map(|(name, either)| {
+								let either = match either {
+									Either::Left(index) => index.to_f64().unwrap().into(),
+									Either::Right(artifact) => artifact.clone().into(),
+								};
+								(name.to_string(), either)
+							})
+							.collect::<BTreeMap<String, tg::Value>>();
+						map.insert("entries".to_owned(), entries.into());
+					},
+					tg::graph::Node::File(file) => {
+						let tg::graph::node::File {
+							contents,
+							dependencies,
+							executable,
+						} = file;
+						map.insert("contents".to_owned(), contents.clone().into());
+						if !dependencies.is_empty() {
+							let dependencies = dependencies
+								.iter()
+								.map(|(reference, dependency)| {
+									let key = reference.to_string();
+									let mut map = BTreeMap::new();
+									let object = match &dependency.object {
+										Either::Left(index) => {
+											tg::Value::Number(index.to_f64().unwrap())
+										},
+										Either::Right(object) => tg::Value::Object(object.clone()),
+									};
+									map.insert("object".to_owned(), object);
+									if let Some(tag) = &dependency.tag {
+										let tag = tg::Value::String(tag.to_string());
+										map.insert("tag".to_owned(), tag);
+									}
+									(key, tg::Value::Map(map))
+								})
+								.collect();
+							map.insert("dependencies".to_owned(), tg::Value::Map(dependencies));
+						}
+						if *executable {
+							map.insert("executable".to_owned(), true.into());
+						}
+					},
+					tg::graph::Node::Symlink(symlink) => {
+						let tg::graph::node::Symlink { artifact, path } = symlink;
+						if let Some(either) = &artifact {
+							let either = match either {
+								Either::Left(index) => index.to_f64().unwrap().into(),
+								Either::Right(artifact) => artifact.clone().into(),
+							};
+							map.insert("artifact".to_owned(), either);
+						}
+						if let Some(path) = &path {
+							map.insert("path".to_owned(), path.clone().into());
+						}
+					},
+				}
+				map.into()
+			})
+			.collect::<Vec<_>>();
+		map.insert("nodes".to_owned(), nodes.into());
+		self.string += "tg.graph(";
+		self.map(&map);
+		self.string.push(')');
+	}
+
+	fn target(&mut self, value: &tg::Target) {
+		let state = value.state().read().unwrap();
+		if let Some(id) = state.id() {
+			self.string += &id.to_string();
+			return;
 		}
-		map.insert("args".to_owned(), object.args.clone().into());
-		map.insert("env".to_owned(), object.env.clone().into());
-		if let Some(lock) = &object.lock {
-			map.insert("lock".to_owned(), lock.clone().into());
+		let object = state.object().unwrap();
+		let mut map = BTreeMap::new();
+		if !object.args.is_empty() {
+			map.insert("args".to_owned(), object.args.clone().into());
 		}
 		if let Some(checksum) = &object.checksum {
 			map.insert("checksum".to_owned(), checksum.to_string().into());
 		}
+		if !object.env.is_empty() {
+			map.insert("env".to_owned(), object.env.clone().into());
+		}
+		if let Some(executable) = &object.executable {
+			let key = "executable".to_owned();
+			let value = executable.clone().into();
+			map.insert(key, value);
+		}
+		map.insert("host".to_owned(), object.host.clone().into());
 		self.string += "tg.target(";
 		self.map(&map);
 		self.string.push(')');
 	}
 
-	fn bytes(&mut self, v: &Bytes) {
+	fn bytes(&mut self, value: &Bytes) {
 		self.string += "tg.bytes(\"";
-		self.string += &data_encoding::BASE64.encode(v);
+		self.string += &data_encoding::BASE64.encode(value);
 		self.string += "\")";
 	}
 
-	fn path(&mut self, v: &tg::Path) {
+	fn path(&mut self, value: &tg::Path) {
 		self.string += "tg.path(";
-		self.string(v.as_ref());
+		self.string(value.as_ref());
 		self.string.push(')');
 	}
 
-	fn mutation(&mut self, v: &tg::Mutation) {
+	fn mutation(&mut self, value: &tg::Mutation) {
 		let mut map = BTreeMap::new();
-		match v {
+		match value {
 			tg::Mutation::Unset => {
-				map.insert("kind".to_owned(), tg::Value::String("unset".to_owned()));
+				map.insert("kind".to_owned(), "unset".to_owned().into());
 			},
 			tg::Mutation::Set { value } => {
-				map.insert("kind".to_owned(), tg::Value::String("set".to_owned()));
+				map.insert("kind".to_owned(), "set".to_owned().into());
 				map.insert("value".to_owned(), value.as_ref().clone());
 			},
 			tg::Mutation::SetIfUnset { value } => {
-				map.insert(
-					"kind".to_owned(),
-					tg::Value::String("set_if_unset".to_owned()),
-				);
+				map.insert("kind".to_owned(), "set_if_unset".to_owned().into());
 				map.insert("value".to_owned(), value.as_ref().clone());
 			},
 			tg::Mutation::Prepend { values } => {
-				map.insert("kind".to_owned(), tg::Value::String("prepend".to_owned()));
-				map.insert("values".to_owned(), tg::Value::Array(values.clone()));
+				map.insert("kind".to_owned(), "prepend".to_owned().into());
+				map.insert("values".to_owned(), values.clone().into());
 			},
 			tg::Mutation::Append { values } => {
-				map.insert("kind".to_owned(), tg::Value::String("append".to_owned()));
-				map.insert("values".to_owned(), tg::Value::Array(values.clone()));
+				map.insert("kind".to_owned(), "append".to_owned().into());
+				map.insert("values".to_owned(), values.clone().into());
 			},
 			tg::Mutation::Prefix {
 				template,
 				separator,
 			} => {
-				map.insert("kind".to_owned(), tg::Value::String("prefix".to_owned()));
-				map.insert("template".to_owned(), tg::Value::Template(template.clone()));
+				map.insert("kind".to_owned(), "prefix".to_owned().into());
 				if let Some(separator) = separator {
-					map.insert("separator".to_owned(), tg::Value::String(separator.clone()));
+					map.insert("separator".to_owned(), separator.clone().into());
 				}
+				map.insert("template".to_owned(), template.clone().into());
 			},
 			tg::Mutation::Suffix {
 				template,
 				separator,
 			} => {
-				map.insert("kind".to_owned(), tg::Value::String("suffix".to_owned()));
-				map.insert("template".to_owned(), tg::Value::Template(template.clone()));
+				map.insert("kind".to_owned(), "suffix".to_owned().into());
 				if let Some(separator) = separator {
-					map.insert("separator".to_owned(), tg::Value::String(separator.clone()));
+					map.insert("separator".to_owned(), separator.clone().into());
 				}
+				map.insert("template".to_owned(), template.clone().into());
 			},
 		}
 		self.string += "tg.mutation(";
@@ -308,26 +430,17 @@ impl Printer {
 		self.string.push(')');
 	}
 
-	fn template(&mut self, v: &tg::Template) {
-		let components = v
+	fn template(&mut self, value: &tg::Template) {
+		let components = value
 			.components
 			.iter()
 			.map(|component| match component {
-				tg::template::Component::Artifact(artifact) => {
-					tg::Value::Object(artifact.clone().into())
-				},
-				tg::template::Component::String(string) => tg::Value::String(string.clone()),
+				tg::template::Component::Artifact(artifact) => artifact.clone().into(),
+				tg::template::Component::String(string) => string.clone().into(),
 			})
 			.collect();
 		self.string += "tg.template(";
 		self.array(&components);
 		self.string.push(')');
-	}
-
-	fn indent(&mut self) {
-		if self.pretty {
-			let indent = (0..self.indent).map(|_| '\t');
-			self.string.extend(indent);
-		}
 	}
 }

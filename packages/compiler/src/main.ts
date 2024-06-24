@@ -2,7 +2,7 @@ import * as check from "./check.ts";
 import * as completion from "./completion.ts";
 import * as definition from "./definition.ts";
 import * as diagnostics from "./diagnostics.ts";
-import * as doc from "./doc.ts";
+import * as document from "./document.ts";
 import { Error_ } from "./error.ts";
 import * as hover from "./hover.ts";
 import * as references from "./references.ts";
@@ -15,7 +15,7 @@ type Request =
 	| { kind: "definition"; request: definition.Request }
 	| { kind: "type_definition"; request: definition.Request }
 	| { kind: "diagnostics"; request: diagnostics.Request }
-	| { kind: "doc"; request: doc.Request }
+	| { kind: "document"; request: document.Request }
 	| { kind: "hover"; request: hover.Request }
 	| { kind: "references"; request: references.Request }
 	| { kind: "rename"; request: rename.Request }
@@ -27,7 +27,7 @@ type Response =
 	| { kind: "definition"; response: definition.Response }
 	| { kind: "type_definition"; response: definition.Response }
 	| { kind: "diagnostics"; response: diagnostics.Response }
-	| { kind: "doc"; response: doc.Response }
+	| { kind: "document"; response: document.Response }
 	| { kind: "hover"; response: hover.Response }
 	| { kind: "references"; response: references.Response }
 	| { kind: "rename"; response: rename.Response }
@@ -55,9 +55,9 @@ let handle = ({ kind, request }: Request): Response => {
 			let response = diagnostics.handle(request);
 			return { kind: "diagnostics", response };
 		}
-		case "doc": {
-			let response = doc.handle(request);
-			return { kind: "doc", response };
+		case "document": {
+			let response = document.handle(request);
+			return { kind: "document", response };
 		}
 		case "hover": {
 			let response = hover.handle(request);

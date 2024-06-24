@@ -1,180 +1,85 @@
 use crate as tg;
-use std::{collections::BTreeMap, fmt};
+use std::collections::BTreeMap;
 
 /// An import in a module.
-#[derive(Clone, Debug, PartialEq, Eq, Hash)]
+#[derive(Clone, Debug, Eq, Hash, PartialEq)]
 pub struct Import {
-	/// The import specifier.
-	pub specifier: Specifier,
+	/// The kind.
+	pub kind: Option<tg::module::Kind>,
 
-	/// The kind of the import.
-	pub kind: Option<Kind>,
-}
-
-/// An import specifier.
-#[derive(Clone, Debug, PartialEq, Eq, Hash)]
-pub enum Specifier {
-	/// A path to a module, like "./module.ts"
-	Path(tg::Path),
-
-	/// A dependency, like "tg:package@version"
-	Dependency(tg::Dependency),
-}
-
-#[derive(Debug, Copy, Clone, PartialEq, Eq, Hash)]
-pub enum Kind {
-	Js,
-	Ts,
-	Dts,
-	Artifact,
-	Directory,
-	File,
-	Symlink,
+	/// The reference.
+	pub reference: tg::Reference,
 }
 
 impl Import {
 	pub fn with_specifier_and_attributes(
 		specifier: &str,
-		attributes: Option<&BTreeMap<String, String>>,
+		mut attributes: Option<BTreeMap<String, String>>,
 	) -> tg::Result<Self> {
-		// Parse the specifier.
-		let mut specifier = specifier.parse()?;
+		// Parse the specifier as a reference.
+		let reference = specifier.parse::<tg::Reference>()?;
 
-		// Merge attributes.
-		if let (Some(attributes), Specifier::Dependency(dependency)) =
-			(attributes.cloned(), &mut specifier)
-		{
-			let attributes = attributes.into_iter().collect();
-			let attributes = serde_json::from_value(attributes)
-				.map_err(|source| tg::error!(!source, "failed to parse the attributes"))?;
-			dependency.merge(attributes);
-		}
+		// Parse the kind.
+		let kind = attributes
+			.as_mut()
+			.and_then(|attributes| attributes.remove("type").or(attributes.remove("kind")))
+			.map(|kind| kind.parse())
+			.transpose()?;
 
-		// Parse the type.
-		let attributes = attributes.cloned().unwrap_or_default();
-		let kind = attributes.get("type").map(String::as_str);
-		let kind = match kind {
-			Some("js") => Some(Kind::Js),
-			Some("ts") => Some(Kind::Ts),
-			Some("dts") => Some(Kind::Dts),
-			Some("artifact") => Some(Kind::Artifact),
-			Some("directory") => Some(Kind::Directory),
-			Some("file") => Some(Kind::File),
-			Some("symlink") => Some(Kind::Symlink),
-			Some(kind) => return Err(tg::error!(%kind, "unknown import type")),
-			None => match &specifier {
-				Specifier::Path(path) => Kind::try_from_path(path),
-				Specifier::Dependency(_) => None,
-			},
+		// Parse the remaining attributes as the query component of a reference and update the reference.
+		let reference = if let Some(attributes) = attributes {
+			if attributes.is_empty() {
+				reference
+			} else {
+				let attributes = serde_json::Value::Object(
+					attributes
+						.into_iter()
+						.map(|(key, value)| (key, serde_json::Value::String(value)))
+						.collect(),
+				);
+				let attributes = serde_json::from_value::<tg::reference::Query>(attributes)
+					.map_err(|source| tg::error!(!source, "invalid attributes"))?;
+				let follow = reference
+					.query()
+					.and_then(|query| query.follow)
+					.or(attributes.unify);
+				let name = reference
+					.query()
+					.and_then(|query| query.name.clone())
+					.or(attributes.name);
+				let overrides = reference
+					.query()
+					.and_then(|query| query.overrides.clone())
+					.or(attributes.overrides);
+				let path = reference
+					.query()
+					.and_then(|query| query.path.clone())
+					.or(attributes.path);
+				let remote = reference
+					.query()
+					.and_then(|query| query.remote.clone())
+					.or(attributes.remote);
+				let unify = reference
+					.query()
+					.and_then(|query| query.unify)
+					.or(attributes.unify);
+				let query = tg::reference::Query {
+					follow,
+					name,
+					overrides,
+					path,
+					remote,
+					unify,
+				};
+				let query = serde_urlencoded::to_string(query)
+					.map_err(|source| tg::error!(!source, "failed to serialize the query"))?;
+				let uri = reference.uri().to_builder().query(query).build().unwrap();
+				tg::Reference::with_uri(uri)?
+			}
+		} else {
+			reference
 		};
 
-		Ok(Import { specifier, kind })
-	}
-}
-
-impl Kind {
-	#[must_use]
-	pub fn try_from_path(path: &tg::Path) -> Option<Self> {
-		if path.as_str().to_lowercase().ends_with(".d.ts") {
-			Some(Self::Dts)
-		} else if path.as_str().to_lowercase().ends_with(".js") {
-			Some(Self::Js)
-		} else if path.as_str().to_lowercase().ends_with(".ts") {
-			Some(Self::Ts)
-		} else {
-			None
-		}
-	}
-}
-
-impl std::str::FromStr for Specifier {
-	type Err = tg::Error;
-	fn from_str(value: &str) -> tg::Result<Self, Self::Err> {
-		if value.starts_with('.') {
-			let path = value.parse::<tg::Path>()?;
-			Ok(Specifier::Path(path))
-		} else if let Some(value) = value.strip_prefix("tg:") {
-			let dependency = value
-				.parse()
-				.map_err(|source| tg::error!(!source, %value, "invalid dependency"))?;
-			Ok(Specifier::Dependency(dependency))
-		} else {
-			Err(tg::error!(?value, "invalid import"))
-		}
-	}
-}
-
-impl fmt::Display for Specifier {
-	fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-		match self {
-			Self::Path(path) => write!(f, "{path}"),
-			Self::Dependency(dependency) => write!(f, "tg:{dependency}"),
-		}
-	}
-}
-
-#[cfg(test)]
-mod tests {
-	use super::{Kind, Specifier};
-	use crate as tg;
-
-	#[test]
-	fn specifier() {
-		let path_specifier = "./path/to/module.txt";
-		let specifier = path_specifier.parse::<Specifier>().unwrap();
-		assert_eq!(
-			specifier,
-			Specifier::Path("./path/to/module.txt".parse().unwrap())
-		);
-		assert_eq!(specifier.to_string().as_str(), path_specifier);
-
-		let dependency_specifier = "tg:foo@1.2.3";
-		let specifier = dependency_specifier.parse::<Specifier>().unwrap();
-		assert_eq!(
-			specifier,
-			Specifier::Dependency(tg::Dependency::with_name_and_version(
-				"foo".to_owned(),
-				"1.2.3".to_owned()
-			))
-		);
-		assert_eq!(specifier.to_string().as_str(), dependency_specifier);
-
-		let invalid_specifier = "path/to/thing";
-		invalid_specifier
-			.parse::<Specifier>()
-			.expect_err("Expected an invalid specifier");
-	}
-
-	#[test]
-	fn import_with_attributes() {
-		let path_specifier = "./module.ts";
-		let attributes = [("type".to_owned(), "ts".to_owned())].into_iter().collect();
-		let import =
-			tg::Import::with_specifier_and_attributes(path_specifier, Some(&attributes)).unwrap();
-		assert_eq!(
-			import.specifier,
-			Specifier::Path("./module.ts".parse().unwrap())
-		);
-		assert_eq!(import.kind, Some(Kind::Ts));
-
-		let dependency_specifier = "tg:foo";
-		let attributes = [
-			("type".to_owned(), "directory".to_owned()),
-			("version".to_owned(), "1.2.3".to_owned()),
-		]
-		.into_iter()
-		.collect();
-		let import =
-			tg::Import::with_specifier_and_attributes(dependency_specifier, Some(&attributes))
-				.unwrap();
-
-		assert_eq!(
-			import.specifier,
-			Specifier::Dependency(tg::Dependency::with_name_and_version(
-				"foo".to_owned(),
-				"1.2.3".to_owned()
-			))
-		);
-		assert_eq!(import.kind, Some(Kind::Directory));
+		Ok(Import { kind, reference })
 	}
 }

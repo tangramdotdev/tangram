@@ -15,10 +15,26 @@ impl Server {
 		&self,
 		id: &tg::build::Id,
 		arg: tg::build::finish::Arg,
-	) -> tg::Result<()> {
+	) -> tg::Result<Option<bool>> {
+		// Handle the remote.
+		let remote = arg.remote.as_ref();
+		if let Some(remote) = remote {
+			let remote = self
+				.remotes
+				.get(remote)
+				.ok_or_else(|| tg::error!("the remote does not exist"))?
+				.clone();
+			let arg = tg::build::finish::Arg {
+				remote: None,
+				..arg
+			};
+			let output = remote.finish_build(id, arg).await?;
+			return Ok(output);
+		}
+
 		// Get the build.
 		let Some(output) = self.try_get_build_local(id).await? else {
-			return Err(tg::error!("failed to find the build"));
+			return Ok(None);
 		};
 
 		// If the build is finished, then return.
@@ -34,7 +50,7 @@ impl Server {
 			status,
 			tg::build::status::Event::Status(tg::build::Status::Finished)
 		) {
-			return Ok(());
+			return Ok(Some(false));
 		}
 
 		// Get a database connection.
@@ -267,7 +283,7 @@ impl Server {
 			}
 		});
 
-		Ok(())
+		Ok(Some(true))
 	}
 }
 
@@ -282,8 +298,8 @@ impl Server {
 	{
 		let id = id.parse()?;
 		let arg = request.json().await?;
-		handle.finish_build(&id, arg).await?;
-		let response = http::Response::builder().empty().unwrap();
+		let output = handle.finish_build(&id, arg).await?;
+		let response = http::Response::builder().json(output).unwrap();
 		Ok(response)
 	}
 }

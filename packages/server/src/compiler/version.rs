@@ -1,14 +1,14 @@
 use super::{document::Document, Compiler};
-use dashmap::mapref::entry::Entry;
 use tangram_client as tg;
+use tangram_either::Either;
 
 impl Compiler {
 	pub async fn get_module_version(&self, module: &tg::Module) -> tg::Result<i32> {
 		// Get the entry for the document.
 		let entry = self.documents.entry(module.clone());
 
-		// If there is an open document, return its version.
-		if let Entry::Occupied(entry) = &entry {
+		// If there is an open document, then return its version.
+		if let dashmap::Entry::Occupied(entry) = &entry {
 			let document = entry.get();
 			if document.open {
 				return Ok(document.version);
@@ -16,20 +16,20 @@ impl Compiler {
 		}
 
 		// Get the path.
-		let path = match module {
-			tg::Module::Js(tg::module::Js::PackagePath(package_path))
-			| tg::Module::Ts(tg::module::Js::PackagePath(package_path)) => {
-				package_path.package_path.join(&package_path.path)
-			},
-
-			tg::Module::Artifact(tg::module::Artifact::Path(path))
-			| tg::Module::Directory(tg::module::Directory::Path(path))
-			| tg::Module::File(tg::module::File::Path(path))
-			| tg::Module::Symlink(tg::module::Symlink::Path(path)) => path.clone().into(),
-
-			// If the module has no path, then it is immutable.
-			_ => return Ok(0),
+		let (
+			tg::module::Kind::Js
+			| tg::module::Kind::Ts
+			| tg::module::Kind::Artifact
+			| tg::module::Kind::Directory
+			| tg::module::Kind::File
+			| tg::module::Kind::Symlink,
+			Some(Either::Right(package)),
+			Some(path),
+		) = (module.kind(), module.object(), module.path())
+		else {
+			return Ok(0);
 		};
+		let path = package.clone().join(path.clone());
 
 		// Get the modified time.
 		let metadata = tokio::fs::metadata(&path)

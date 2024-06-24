@@ -9,12 +9,11 @@ use itertools::Itertools as _;
 use num::ToPrimitive;
 use std::io::Cursor;
 use sync_wrapper::SyncWrapper;
-use tangram_client as tg;
+use tangram_client::{self as tg, handle::Ext as _};
 use tangram_database::{self as db, prelude::*};
 use tangram_futures::task::Stop;
 use tangram_http::{incoming::request::Ext as _, outgoing::response::Ext as _, Incoming, Outgoing};
 use tangram_messenger::Messenger as _;
-use tg::Handle as _;
 use tokio::io::{AsyncRead, AsyncReadExt as _, AsyncSeek, AsyncSeekExt as _, AsyncWriteExt as _};
 use tokio_stream::wrappers::IntervalStream;
 
@@ -45,11 +44,10 @@ impl Server {
 	) -> tg::Result<
 		Option<impl Stream<Item = tg::Result<tg::build::log::get::Event>> + Send + 'static>,
 	> {
-		if let Some(log) = self.try_get_build_log_local(id, arg.clone()).await? {
-			Ok(Some(log.left_stream()))
-		} else if let Some(log) = self.try_get_build_log_remote(id, arg.clone()).await? {
-			let log = log.right_stream();
-			Ok(Some(log))
+		if let Some(stream) = self.try_get_build_log_local(id, arg.clone()).await? {
+			Ok(Some(stream.left_stream()))
+		} else if let Some(stream) = self.try_get_build_log_remote(id, arg.clone()).await? {
+			Ok(Some(stream.right_stream()))
 		} else {
 			Ok(None)
 		}

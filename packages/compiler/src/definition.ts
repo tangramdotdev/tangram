@@ -1,11 +1,10 @@
 import ts from "typescript";
 import type { Location } from "./location.ts";
-import type { Module } from "./module.ts";
 import type { Position } from "./position.ts";
 import * as typescript from "./typescript.ts";
 
 export type Request = {
-	module: Module;
+	module: string;
 	position: Position;
 };
 

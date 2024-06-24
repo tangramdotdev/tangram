@@ -13,7 +13,6 @@ pub struct Options {
 	pub messenger: Messenger,
 	pub object_indexer: Option<ObjectIndexer>,
 	pub path: PathBuf,
-	pub registry: Option<String>,
 	pub remotes: BTreeMap<String, Remote>,
 	pub url: Url,
 	pub version: Option<String>,
@@ -112,7 +111,7 @@ pub struct Remote {
 	pub client: tg::Client,
 }
 
-#[derive(Copy, Clone, Debug)]
+#[derive(Clone, Copy, Debug)]
 pub struct Vfs {
 	pub cache_ttl: f64,
 	pub cache_size: u64,

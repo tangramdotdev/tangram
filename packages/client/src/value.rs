@@ -8,6 +8,9 @@ use futures::{
 use itertools::Itertools as _;
 use num::ToPrimitive as _;
 use std::collections::BTreeMap;
+use tangram_either::Either;
+
+pub use self::data::*;
 
 pub mod parse;
 pub mod print;
@@ -64,22 +67,34 @@ pub type Array = Vec<Value>;
 
 pub type Map = BTreeMap<String, Value>;
 
-/// Value data.
-#[derive(Clone, Debug, derive_more::TryUnwrap, derive_more::Unwrap)]
-#[try_unwrap(ref)]
-#[unwrap(ref)]
-pub enum Data {
-	Null,
-	Bool(bool),
-	Number(f64),
-	String(String),
-	Array(Vec<Data>),
-	Map(BTreeMap<String, Data>),
-	Object(tg::object::Id),
-	Bytes(Bytes),
-	Path(tg::Path),
-	Mutation(tg::mutation::Data),
-	Template(tg::template::Data),
+pub mod data {
+	use std::collections::BTreeMap;
+
+	use bytes::Bytes;
+
+	use crate as tg;
+
+	/// Value data.
+	#[derive(Clone, Debug, PartialEq, derive_more::TryUnwrap, derive_more::Unwrap)]
+	#[try_unwrap(ref)]
+	#[unwrap(ref)]
+	pub enum Data {
+		Null,
+		Bool(bool),
+		Number(f64),
+		String(String),
+		Array(Vec<Data>),
+		Map(BTreeMap<String, Data>),
+		Object(tg::object::Id),
+		Bytes(Bytes),
+		Path(tg::Path),
+		Mutation(tg::mutation::Data),
+		Template(tg::template::Data),
+	}
+
+	pub type Array = Vec<Data>;
+
+	pub type Map = BTreeMap<String, Data>;
 }
 
 impl Value {
@@ -436,14 +451,73 @@ impl From<tg::Symlink> for Value {
 	}
 }
 
+impl From<tg::Graph> for Value {
+	fn from(value: tg::Graph) -> Self {
+		tg::Object::from(value).into()
+	}
+}
+
 impl From<tg::Target> for Value {
 	fn from(value: tg::Target) -> Self {
 		tg::Object::from(value).into()
 	}
 }
 
-impl From<tg::Lock> for Value {
-	fn from(value: tg::Lock) -> Self {
-		tg::Object::from(value).into()
+impl From<serde_json::Value> for Value {
+	fn from(value: serde_json::Value) -> Self {
+		match value {
+			serde_json::Value::Null => Self::Null,
+			serde_json::Value::Bool(value) => Self::Bool(value),
+			serde_json::Value::Number(value) => Self::Number(value.as_f64().unwrap()),
+			serde_json::Value::String(value) => Self::String(value),
+			serde_json::Value::Array(value) => {
+				Self::Array(value.into_iter().map(Into::into).collect())
+			},
+			serde_json::Value::Object(value) => Self::Map(
+				value
+					.into_iter()
+					.map(|(key, value)| (key, value.into()))
+					.collect(),
+			),
+		}
+	}
+}
+
+impl TryFrom<Value> for serde_json::Value {
+	type Error = tg::Error;
+
+	fn try_from(value: Value) -> Result<Self, Self::Error> {
+		match value {
+			Value::Null => Ok(Self::Null),
+			Value::Bool(value) => Ok(Self::Bool(value)),
+			Value::Number(value) => Ok(Self::Number(serde_json::Number::from_f64(value).unwrap())),
+			Value::String(value) => Ok(Self::String(value)),
+			Value::Array(value) => Ok(Self::Array(
+				value
+					.into_iter()
+					.map(TryInto::try_into)
+					.collect::<tg::Result<_>>()?,
+			)),
+			Value::Map(value) => Ok(Self::Object(
+				value
+					.into_iter()
+					.map(|(key, value)| Ok((key, value.try_into()?)))
+					.collect::<tg::Result<_>>()?,
+			)),
+			_ => Err(tg::error!("invalid value")),
+		}
+	}
+}
+
+impl<L, R> From<Either<L, R>> for Value
+where
+	L: Into<Value>,
+	R: Into<Value>,
+{
+	fn from(value: Either<L, R>) -> Self {
+		match value {
+			Either::Left(value) => value.into(),
+			Either::Right(value) => value.into(),
+		}
 	}
 }

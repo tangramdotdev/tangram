@@ -10,34 +10,32 @@ pub struct Args {
 	#[arg(long)]
 	pub checksum: Option<tg::Checksum>,
 
+	#[arg(index = 1)]
 	pub url: Url,
 }
 
 impl Cli {
 	pub async fn command_blob_download(&self, args: Args) -> tg::Result<()> {
-		let client = self.client().await?;
+		let handle = self.handle().await?;
 		let host = "js";
-		let executable = formatdoc!(
+		let executable = tg::File::with_contents(formatdoc!(
 			r#"
 				export default tg.target((url, checksum) => tg.download(url, checksum));
 			"#
-		);
+		));
 		let args = vec![
 			"default".into(),
 			args.url.to_string().into(),
 			args.checksum.map(|checksum| checksum.to_string()).into(),
 		];
 		let target = tg::Target::builder(host)
-			.executable(tg::Artifact::from(executable))
+			.executable(Some(executable.into()))
 			.args(args)
 			.build();
-		let target = target.id(&client).await?;
+		let target = target.id(&handle).await?;
 		let args = crate::target::build::Args {
-			inner: crate::target::build::InnerArgs {
-				target: Some(target),
-				..Default::default()
-			},
-			detach: false,
+			reference: Some(tg::Reference::with_object(&target.into())),
+			..Default::default()
 		};
 		self.command_target_build(args).await?;
 		Ok(())

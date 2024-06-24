@@ -20,7 +20,13 @@ impl Server {
 			.boxed();
 
 		let semaphore = Arc::new(tokio::sync::Semaphore::new(
-			self.options.object_indexer.as_ref().unwrap().batch_size.to_usize().unwrap()
+			self.options
+				.object_indexer
+				.as_ref()
+				.unwrap()
+				.batch_size
+				.to_usize()
+				.unwrap(),
 		));
 
 		loop {
@@ -43,7 +49,7 @@ impl Server {
 
 			#[derive(serde::Deserialize)]
 			struct Row {
-				id: tg::object::Id,
+				id: tg::Id,
 			}
 			let p = connection.p();
 
@@ -98,13 +104,17 @@ impl Server {
 
 			// Spawn tasks to index objects in a batch.
 			for row in rows {
+				let id = row
+					.id
+					.try_into()
+					.map_err(|source| tg::error!(!source, "expected an object id"))?;
 				tokio::spawn({
 					let semaphore = semaphore.clone();
 					let server = self.clone();
 					async move {
 						let _permit = semaphore.acquire().await.unwrap();
 						server
-							.index_object(&row.id)
+							.index_object(&id)
 							.await
 							.inspect_err(|error| tracing::error!(?error))
 							.ok();

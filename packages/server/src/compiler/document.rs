@@ -1,6 +1,15 @@
 use super::Compiler;
 use lsp_types as lsp;
 use tangram_client as tg;
+use tangram_either::Either;
+
+#[derive(Debug, serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct Request {
+	pub module: tg::Module,
+}
+
+pub type Response = serde_json::Value;
 
 /// A document.
 #[derive(Clone, Debug)]
@@ -9,6 +18,26 @@ pub struct Document {
 	pub version: i32,
 	pub modified: Option<std::time::SystemTime>,
 	pub text: Option<String>,
+}
+
+impl Compiler {
+	/// Document a module.
+	pub async fn document(&self, module: &tg::Module) -> tg::Result<Response> {
+		// Create the request.
+		let request = super::Request::Document(Request {
+			module: module.clone(),
+		});
+
+		// Perform the request.
+		let response = self.request(request).await?;
+
+		// Get the response.
+		let super::Response::Document(response) = response else {
+			return Err(tg::error!("unexpected response type"));
+		};
+
+		Ok(response)
+	}
 }
 
 impl Compiler {
@@ -91,16 +120,13 @@ impl Compiler {
 		document.text = None;
 
 		// Set the document's modified time.
-		let path = match module {
-			tg::Module::Js(tg::module::Js::PackagePath(package_path))
-			| tg::Module::Ts(tg::module::Js::PackagePath(package_path)) => {
-				package_path.package_path.join(&package_path.path)
-			},
-			tg::Module::Artifact(tg::module::Artifact::Path(path))
-			| tg::Module::Directory(tg::module::Directory::Path(path))
-			| tg::Module::File(tg::module::File::Path(path))
-			| tg::Module::Symlink(tg::module::Symlink::Path(path)) => path.clone().into(),
-			_ => return Err(tg::error!("invalid module")),
+		let Some(Either::Right(object)) = module.object() else {
+			return Err(tg::error!("invalid module"));
+		};
+		let path = if let Some(path) = module.path() {
+			object.clone().join(path.clone())
+		} else {
+			object.clone()
 		};
 		let metadata = tokio::fs::metadata(&path)
 			.await
@@ -120,7 +146,7 @@ impl Compiler {
 		params: lsp::DidOpenTextDocumentParams,
 	) -> tg::Result<()> {
 		// Get the module.
-		let module = self.module_for_uri(&params.text_document.uri).await?;
+		let module = self.module_for_lsp_uri(&params.text_document.uri).await?;
 
 		// Open the document.
 		let version = params.text_document.version;
@@ -138,7 +164,7 @@ impl Compiler {
 		params: lsp::DidChangeTextDocumentParams,
 	) -> tg::Result<()> {
 		// Get the module.
-		let module = self.module_for_uri(&params.text_document.uri).await?;
+		let module = self.module_for_lsp_uri(&params.text_document.uri).await?;
 
 		// Apply the changes.
 		for change in params.content_changes {
@@ -162,7 +188,7 @@ impl Compiler {
 		params: lsp::DidCloseTextDocumentParams,
 	) -> tg::Result<()> {
 		// Get the module.
-		let module = self.module_for_uri(&params.text_document.uri).await?;
+		let module = self.module_for_lsp_uri(&params.text_document.uri).await?;
 
 		// Close the document.
 		self.close_document(&module).await?;

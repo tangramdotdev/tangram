@@ -111,6 +111,7 @@ impl Server {
 			.query_all_value_into::<tg::build::Id>(statement, params)
 			.await
 			.map_err(|source| tg::error!(!source, "failed to execute the statement"))?;
+		drop(connection);
 
 		// Cancel the builds.
 		builds

@@ -1,10 +1,10 @@
 use crate::Server;
-use either::Either;
 use futures::{stream::FuturesUnordered, TryStreamExt as _};
 use indoc::formatdoc;
 use std::sync::Arc;
 use tangram_client as tg;
 use tangram_database::{self as db, prelude::*};
+use tangram_either::Either;
 use tangram_http::{incoming::request::Ext as _, outgoing::response::Ext as _, Incoming, Outgoing};
 use time::format_description::well_known::Rfc3339;
 
@@ -135,7 +135,7 @@ impl Server {
 					}
 				})
 				.collect::<FuturesUnordered<_>>()
-				.try_collect()
+				.try_collect::<()>()
 				.await?;
 
 			// Delete any existing objects.
@@ -191,7 +191,7 @@ impl Server {
 					}
 				})
 				.collect::<FuturesUnordered<_>>()
-				.try_collect()
+				.try_collect::<()>()
 				.await?;
 
 			// Commit the transaction.

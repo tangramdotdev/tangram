@@ -3,7 +3,7 @@
 	"private": true,
 	"scripts": {
 		"check": "tsc && biome check src",
-		"format": "biome check --apply src"
+		"format": "biome check --write src"
 	},
 	"type": "module"
 }

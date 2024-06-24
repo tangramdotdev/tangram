@@ -1,71 +1,63 @@
-use crate::Server;
+use crate::{compiler::Compiler, Server};
+use std::collections::HashSet;
 use tangram_client as tg;
-use tangram_http::{outgoing::response::Ext as _, Incoming, Outgoing};
+use tangram_http::{incoming::request::Ext as _, outgoing::response::Ext as _, Incoming, Outgoing};
 
 impl Server {
-	pub async fn format_package(&self, dependency: &tg::Dependency) -> tg::Result<()> {
-		// Get the path from the dependency.
-		let path = dependency
-			.path
-			.as_ref()
-			.ok_or_else(|| tg::error!(%dependency, "expected the dependency to have a path"))?;
-
+	pub async fn format_package(&self, arg: tg::package::format::Arg) -> tg::Result<()> {
 		// Get the root module path.
-		let root_module_path = tg::package::get_root_module_path_for_path(path.as_ref()).await?;
+		let root_module_file_name =
+			tg::package::try_get_root_module_file_name_for_package_path(arg.path.as_ref())
+				.await?
+				.ok_or_else(|| tg::error!("failed to find the root module"))?;
+		let path = arg.path.join(root_module_file_name);
 
 		// Format the modules recursively.
-		let mut visited_module_paths = im::HashSet::default();
-		self.format_module(root_module_path, &mut visited_module_paths)
-			.await?;
+		let mut visited = HashSet::default();
+		self.format_module(path, &mut visited).await?;
 
 		Ok(())
 	}
 
 	async fn format_module(
 		&self,
-		module_path: tg::Path,
-		visited_module_paths: &mut im::HashSet<tg::Path, fnv::FnvBuildHasher>,
+		path: tg::Path,
+		visited: &mut HashSet<tg::Path, fnv::FnvBuildHasher>,
 	) -> tg::Result<()> {
-		if visited_module_paths.contains(&module_path) {
+		if visited.contains(&path) {
 			return Ok(());
 		}
-		visited_module_paths.insert(module_path.clone());
+		visited.insert(path.clone());
 
-		// Get the module's text.
-		let text = tokio::fs::read_to_string(&module_path)
+		// Get the text.
+		let text = tokio::fs::read_to_string(&path)
 			.await
 			.map_err(|source| tg::error!(!source, "failed to read the module"))?;
 
-		// Format the module's text.
+		// Format the text.
 		let text = self
 			.format(text)
 			.await
-			.map_err(|source| tg::error!(!source, %module_path, "failed to format module"))?;
+			.map_err(|source| tg::error!(!source, %path, "failed to format module"))?;
 
-		// Write the new text back.
-		tokio::fs::write(&module_path, text.as_bytes())
+		// Write the text.
+		tokio::fs::write(&path, text.as_bytes())
 			.await
-			.map_err(
-				|source| tg::error!(!source, %module_path, "failed to write formatted module"),
-			)?;
+			.map_err(|source| tg::error!(!source, %path, "failed to write formatted module"))?;
 
 		// Attempt to analyze the module.
-		let Ok(analysis) = crate::compiler::Compiler::analyze_module(text) else {
+		let Ok(analysis) = Compiler::analyze_module(text) else {
 			return Ok(());
 		};
 
 		for import in analysis.imports {
-			if let tg::import::Specifier::Path(module_path) = &import.specifier {
-				let module_path = module_path
-					.clone()
-					.parent()
-					.normalize()
-					.join(module_path.clone());
-				let exists = tokio::fs::try_exists(&module_path).await.map_err(
-					|source| tg::error!(!source, %module_path, "failed to check if module exists"),
+			if let tg::reference::Path::Path(path_) = &import.reference.path() {
+				let path = path.clone().parent().normalize().join(path_.clone());
+				let exists = tokio::fs::try_exists(&path).await.map_err(
+					|source| tg::error!(!source, %path, "failed to check if module exists"),
 				)?;
 				if exists {
-					Box::pin(self.format_module(module_path, visited_module_paths)).await?;
+					Box::pin(self.format_module(path, visited)).await?;
 				}
 			}
 		}
@@ -77,19 +69,13 @@ impl Server {
 impl Server {
 	pub(crate) async fn handle_format_package_request<H>(
 		handle: &H,
-		_request: http::Request<Incoming>,
-		dependency: &str,
+		request: http::Request<Incoming>,
 	) -> tg::Result<http::Response<Outgoing>>
 	where
 		H: tg::Handle,
 	{
-		let Ok(dependency) = urlencoding::decode(dependency) else {
-			return Ok(http::Response::builder().bad_request().empty().unwrap());
-		};
-		let Ok(dependency) = dependency.parse() else {
-			return Ok(http::Response::builder().bad_request().empty().unwrap());
-		};
-		handle.format_package(&dependency).await?;
+		let arg = request.json().await?;
+		handle.format_package(arg).await?;
 		let response = http::Response::builder().empty().unwrap();
 		Ok(response)
 	}

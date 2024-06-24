@@ -1,13 +1,13 @@
 use crate::Cli;
-use futures::StreamExt as _;
 use std::path::PathBuf;
-use tangram_client as tg;
+use tangram_client::{self as tg, Handle as _};
 
 /// Check out an artifact.
 #[derive(Clone, Debug, clap::Args)]
 #[group(skip)]
 pub struct Args {
 	/// The artifact to check out.
+	#[arg(index = 1)]
 	pub artifact: tg::artifact::Id,
 
 	/// Whether to bundle the artifact before checkout.
@@ -19,6 +19,7 @@ pub struct Args {
 	pub force: bool,
 
 	/// The path to check out the artifact to. The default is the artifact's ID in the checkouts directory.
+	#[arg(index = 2)]
 	pub path: Option<PathBuf>,
 
 	/// Whether to check out the artifact's references.
@@ -28,7 +29,7 @@ pub struct Args {
 
 impl Cli {
 	pub async fn command_artifact_checkout(&self, args: Args) -> tg::Result<()> {
-		let client = self.client().await?;
+		let handle = self.handle().await?;
 
 		// Get the path.
 		let path = if let Some(path) = args.path {
@@ -38,17 +39,16 @@ impl Cli {
 			let parent = path
 				.parent()
 				.ok_or_else(|| tg::error!("the path must have a parent directory"))?;
+			let parent = tokio::fs::canonicalize(parent)
+				.await
+				.map_err(|source| tg::error!(!source, "failed to canonicalize the path"))?;
+			tokio::fs::create_dir_all(&parent)
+				.await
+				.map_err(|source| tg::error!(!source, "failed to create the parent directory"))?;
 			let file_name = path
 				.file_name()
 				.ok_or_else(|| tg::error!("the path must have a file name"))?;
-			tokio::fs::create_dir_all(parent)
-				.await
-				.map_err(|source| tg::error!(!source, "failed to create the parent directory"))?;
-			let path = parent
-				.canonicalize()
-				.map_err(|source| tg::error!(!source, "failed to canonicalize the path"))?
-				.join(file_name);
-			let path = path.try_into()?;
+			let path = parent.join(file_name);
 			Some(path)
 		} else {
 			None
@@ -59,45 +59,15 @@ impl Cli {
 			bundle: path.is_some(),
 			force: args.force,
 			path,
-			references: true,
+			dependencies: true,
 		};
-		let mut stream = client
+		let stream = handle
 			.check_out_artifact(&args.artifact, arg)
 			.await
-			.map_err(|source| tg::error!(!source, "failed to create check out stream"))?
-			.boxed();
+			.map_err(|source| tg::error!(!source, "failed to create check out stream"))?;
 
-		// Create the progress bar.
-		let objects_progress_bar = indicatif::ProgressBar::new_spinner();
-		let bytes_progress_bar = indicatif::ProgressBar::new_spinner();
-		let progress_bar = indicatif::MultiProgress::new();
-		progress_bar.add(objects_progress_bar.clone());
-		progress_bar.add(bytes_progress_bar.clone());
-
-		while let Some(event) = stream.next().await {
-			match event {
-				Ok(tg::artifact::checkout::Event::Progress(progress)) => {
-					objects_progress_bar.set_position(progress.count.current);
-					if let Some(total) = progress.count.total {
-						objects_progress_bar.set_style(indicatif::ProgressStyle::default_bar());
-						objects_progress_bar.set_length(total);
-					}
-					bytes_progress_bar.set_position(progress.weight.current);
-					if let Some(total) = progress.weight.total {
-						bytes_progress_bar.set_style(indicatif::ProgressStyle::default_bar());
-						bytes_progress_bar.set_length(total);
-					}
-				},
-				Ok(tg::artifact::checkout::Event::End(id)) => {
-					progress_bar.clear().unwrap();
-					println!("{id}");
-				},
-				Err(error) => {
-					progress_bar.clear().unwrap();
-					return Err(error);
-				},
-			}
-		}
+		let path = self.consume_progress_stream(stream).await?;
+		println!("{}", path.display());
 
 		Ok(())
 	}

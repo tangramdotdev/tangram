@@ -1,20 +1,21 @@
 use crate::Cli;
 use futures::StreamExt;
-use tangram_client::{self as tg, Handle as _};
+use tangram_client::{self as tg, handle::Ext as _};
 
 /// Get a build's status.
 #[derive(Clone, Debug, clap::Args)]
 #[group(skip)]
 pub struct Args {
+	#[arg(index = 1)]
 	pub build: tg::build::Id,
 }
 
 impl Cli {
 	pub async fn command_build_status(&self, args: Args) -> tg::Result<()> {
-		let client = self.client().await?;
+		let handle = self.handle().await?;
 
 		// Get the status.
-		let mut stream = client.get_build_status(&args.build).await?.boxed();
+		let mut stream = handle.get_build_status(&args.build).await?.boxed();
 
 		// Print the status.
 		while let Some(status) = stream.next().await {

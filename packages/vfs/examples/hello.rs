@@ -143,7 +143,7 @@ impl tangram_vfs::Provider for Provider {
 		}
 	}
 
-	async fn getxattr(&self, handle: u64, name: &str) -> Result<Option<String>> {
+	async fn getxattr(&self, handle: u64, name: &str) -> Result<Option<Bytes>> {
 		tracing::debug!(?handle, "getxattr");
 		if handle == HELLO_NODE_ID && name == "com.some.attribute" {
 			Ok(Some("Hello, xattr!".into()))

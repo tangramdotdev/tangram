@@ -12,11 +12,11 @@ impl Compiler {
 	/// Parse a module.
 	pub fn parse_module(text: String) -> tg::Result<Output> {
 		// Create the parser.
+		let syntax = swc::ecma::parser::TsSyntax::default();
+		let syntax = swc::ecma::parser::Syntax::Typescript(syntax);
 		let source_map = Rc::new(swc::common::SourceMap::default());
-		let source_file = source_map.new_source_file(swc::common::FileName::Anon, text);
+		let source_file = source_map.new_source_file(swc::common::FileName::Anon.into(), text);
 		let input = swc::ecma::parser::StringInput::from(&*source_file);
-		let config = swc::ecma::parser::TsConfig::default();
-		let syntax = swc::ecma::parser::Syntax::Typescript(config);
 		let mut parser = swc::ecma::parser::Parser::new(syntax, input, None);
 
 		// Parse the text.

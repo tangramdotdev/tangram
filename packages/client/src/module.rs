@@ -1,235 +1,180 @@
 use crate as tg;
 use std::path::PathBuf;
-use url::Url;
+use tangram_either::Either;
+use tangram_uri as uri;
 
-/// A module.
 #[derive(
-	Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd, serde::Deserialize, serde::Serialize,
+	Clone,
+	Debug,
+	Eq,
+	Hash,
+	Ord,
+	PartialEq,
+	PartialOrd,
+	serde_with::DeserializeFromStr,
+	serde_with::SerializeDisplay,
 )]
-#[serde(tag = "kind", content = "value", rename_all = "snake_case")]
-pub enum Module {
-	Js(Js),
-	Ts(Js),
-	Dts(Dts),
-	Artifact(Artifact),
-	Directory(Directory),
-	File(File),
-	Symlink(Symlink),
-}
-
-/// A JavaScript module.
-#[derive(
-	Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd, serde::Deserialize, serde::Serialize,
-)]
-#[serde(tag = "kind", content = "value", rename_all = "snake_case")]
-pub enum Js {
-	File(tg::artifact::Id),
-	PackageArtifact(PackageArtifact),
-	PackagePath(PackagePath),
+pub struct Module {
+	uri: uri::Reference,
+	path: Path,
 }
 
 #[derive(
 	Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd, serde::Deserialize, serde::Serialize,
 )]
-pub struct PackageArtifact {
-	pub artifact: tg::artifact::Id,
-	pub lock: tg::lock::Id,
-	pub path: tg::Path,
+pub struct Path {
+	pub kind: Kind,
+	pub object: Option<Either<tg::object::Id, PathBuf>>,
+	pub path: Option<tg::Path>,
 }
 
 #[derive(
-	Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd, serde::Deserialize, serde::Serialize,
+	Clone,
+	Copy,
+	Debug,
+	Eq,
+	Hash,
+	Ord,
+	PartialEq,
+	PartialOrd,
+	serde_with::DeserializeFromStr,
+	serde_with::SerializeDisplay,
 )]
-pub struct PackagePath {
-	pub package_path: PathBuf,
-	pub path: tg::Path,
-}
-
-#[derive(
-	Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd, serde::Deserialize, serde::Serialize,
-)]
-pub struct Dts {
-	pub path: tg::Path,
-}
-
-#[derive(
-	Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd, serde::Deserialize, serde::Serialize,
-)]
-#[serde(tag = "kind", content = "value", rename_all = "snake_case")]
-pub enum Artifact {
-	Id(tg::artifact::Id),
-	Path(tg::Path),
-}
-
-#[derive(
-	Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd, serde::Deserialize, serde::Serialize,
-)]
-#[serde(tag = "kind", content = "value", rename_all = "snake_case")]
-pub enum Directory {
-	Id(tg::directory::Id),
-	Path(tg::Path),
-}
-
-#[derive(
-	Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd, serde::Deserialize, serde::Serialize,
-)]
-#[serde(tag = "kind", content = "value", rename_all = "snake_case")]
-pub enum File {
-	Id(tg::file::Id),
-	Path(tg::Path),
-}
-
-#[derive(
-	Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd, serde::Deserialize, serde::Serialize,
-)]
-#[serde(tag = "kind", content = "value", rename_all = "snake_case")]
-pub enum Symlink {
-	Id(tg::symlink::Id),
-	Path(tg::Path),
+pub enum Kind {
+	Js,
+	Ts,
+	Dts,
+	Object,
+	Blob,
+	Artifact,
+	Leaf,
+	Branch,
+	Directory,
+	File,
+	Symlink,
+	Graph,
+	Target,
 }
 
 impl Module {
-	pub async fn with_package_path(package: PathBuf, path: tg::Path) -> tg::Result<Self> {
-		let kind = tg::import::Kind::try_from_path(&path);
-		let module = match kind {
-			Some(tg::import::Kind::Js) => {
-				let package_path = PackagePath {
-					package_path: package,
-					path,
-				};
-				Module::Js(Js::PackagePath(package_path))
-			},
-			Some(tg::import::Kind::Ts) => {
-				let package_path = PackagePath {
-					package_path: package,
-					path,
-				};
-				Module::Ts(Js::PackagePath(package_path))
-			},
-			Some(tg::import::Kind::Dts) => {
-				let dts = Dts { path };
-				Module::Dts(dts)
-			},
-			Some(_) => return Err(tg::error!("unexpected import kind")),
-			None => {
-				let absolute_path = package.join(&path);
-				let metadata = tokio::fs::symlink_metadata(&absolute_path)
-					.await
-					.map_err(|source| tg::error!(!source, "failed to read file metadata"))?;
-				if metadata.is_dir() {
-					Module::Directory(Directory::Path(absolute_path.try_into().unwrap()))
-				} else if metadata.is_file() {
-					Module::File(File::Path(absolute_path.try_into().unwrap()))
-				} else if metadata.is_symlink() {
-					Module::Symlink(Symlink::Path(absolute_path.try_into().unwrap()))
-				} else {
-					return Err(
-						tg::error!(%path = absolute_path.display(), "expected a directory, file, or symlink"),
-					);
-				}
-			},
-		};
-		Ok(module)
-	}
-
-	pub async fn with_package_and_lock(
-		handle: &impl tg::Handle,
-		package: &tg::Artifact,
-		lock: &tg::Lock,
-	) -> tg::Result<Self> {
-		let module_path = tg::package::try_get_root_module_path(handle, package).await?;
-		let (root_module, kind) = if let Some(path) = &module_path {
-			let kind = tg::import::Kind::try_from_path(path);
-			let package = &package
-				.try_unwrap_directory_ref()
-				.ok()
-				.ok_or_else(|| tg::error!("expected a directory"))?;
-			let root_module = package.try_get(handle, path).await?;
-			(root_module, kind)
-		} else {
-			(None, None)
-		};
-		match (kind, root_module) {
-			(Some(tg::import::Kind::Js), Some(_)) => {
-				let artifact = package.id(handle).await?;
-				let lock = lock.id(handle).await?;
-				let package_artifact = PackageArtifact {
-					artifact,
-					lock,
-					path: module_path.unwrap(),
-				};
-				Ok(Module::Js(Js::PackageArtifact(package_artifact)))
-			},
-			(Some(tg::import::Kind::Ts), Some(_)) => {
-				let package_id = package.id(handle).await?;
-				let lock_id = lock.id(handle).await?;
-				let package_artifact = PackageArtifact {
-					artifact: package_id.clone(),
-					lock: lock_id,
-					path: module_path.unwrap(),
-				};
-				Ok(Module::Ts(Js::PackageArtifact(package_artifact)))
-			},
-			(Some(_), _) => Err(tg::error!("unexpected import kind")),
-			(None, _) => match package {
-				tg::Artifact::Directory(directory) => {
-					let id = directory.id(handle).await?;
-					Ok(Module::Directory(Directory::Id(id)))
-				},
-				tg::Artifact::File(file) => {
-					let id = file.id(handle).await?;
-					Ok(Module::File(File::Id(id)))
-				},
-				tg::Artifact::Symlink(symlink) => {
-					let id = symlink.id(handle).await?;
-					Ok(Module::Symlink(Symlink::Id(id)))
-				},
-			},
-		}
-	}
-}
-
-impl From<Module> for Url {
-	fn from(value: Module) -> Self {
-		// Serialize and encode the module.
-		let json = serde_json::to_string(&value).unwrap();
+	#[must_use]
+	pub fn new(
+		kind: Kind,
+		object: Option<Either<tg::object::Id, PathBuf>>,
+		path: Option<tg::Path>,
+	) -> Self {
+		let path = Path { kind, object, path };
+		let json = serde_json::to_string(&path).unwrap();
 		let hex = data_encoding::HEXLOWER.encode(json.as_bytes());
-
-		// Create the URL.
-		format!("tg://{hex}").parse().unwrap()
+		let string = format!("tg:{hex}");
+		let uri = string.parse().unwrap();
+		Self { uri, path }
 	}
-}
 
-impl TryFrom<Url> for Module {
-	type Error = tg::Error;
+	pub async fn with_package<H>(
+		handle: &H,
+		package: Either<tg::Object, PathBuf>,
+	) -> tg::Result<Self>
+	where
+		H: tg::Handle,
+	{
+		Self::try_with_package(handle, package)
+			.await?
+			.ok_or_else(|| tg::error!("the package does not contain a root module"))
+	}
 
-	fn try_from(url: Url) -> tg::Result<Self, Self::Error> {
-		// Ensure the scheme is "tg".
-		if url.scheme() != "tg" {
-			return Err(tg::error!(%url, "the URL has an invalid scheme"));
-		}
+	pub async fn try_with_package<H>(
+		handle: &H,
+		package: Either<tg::Object, PathBuf>,
+	) -> tg::Result<Option<Self>>
+	where
+		H: tg::Handle,
+	{
+		let Some(name) = tg::package::try_get_root_module_file_name(
+			handle,
+			package.as_ref().map_right(AsRef::as_ref),
+		)
+		.await?
+		else {
+			return Ok(None);
+		};
+		let kind = if name.ends_with("js") {
+			tg::module::Kind::Js
+		} else if name.ends_with("ts") {
+			tg::module::Kind::Ts
+		} else {
+			unreachable!()
+		};
+		let object = match package {
+			Either::Left(object) => Either::Left(object.id(handle).await?),
+			Either::Right(path) => Either::Right(path),
+		};
+		let path = name.into();
+		let module = Self::new(kind, Some(object), Some(path));
+		Ok(Some(module))
+	}
 
-		// Get the domain.
-		let hex = url
-			.domain()
-			.ok_or_else(|| tg::error!(%url, "the URL must have a domain"))?;
-
-		// Decode.
-		let json = data_encoding::HEXLOWER
-			.decode(hex.as_bytes())
-			.map_err(|source| tg::error!(!source, "failed to deserialize the path"))?;
-
-		// Deserialize.
-		let module = serde_json::from_slice(&json)
-			.map_err(|source| tg::error!(!source, "failed to deserialize the module"))?;
-
+	pub async fn with_path(path: &std::path::Path) -> tg::Result<Self> {
+		#[allow(clippy::case_sensitive_file_extension_comparisons)]
+		let kind = if path.extension().is_some_and(|extension| extension == "js") {
+			tg::module::Kind::Js
+		} else if path.extension().is_some_and(|extension| extension == "ts") {
+			tg::module::Kind::Ts
+		} else {
+			let metadata = tokio::fs::symlink_metadata(path)
+				.await
+				.map_err(|source| tg::error!(!source, "failed to get the metadata"))?;
+			if metadata.is_dir() {
+				tg::module::Kind::Directory
+			} else if metadata.is_file() {
+				tg::module::Kind::File
+			} else if metadata.is_symlink() {
+				tg::module::Kind::Symlink
+			} else {
+				return Err(tg::error!("expected a directory, file, or symlink"));
+			}
+		};
+		let package = tg::package::try_get_nearest_package_path_for_path(path).await?;
+		let path = if let Some(package) = &package {
+			path.strip_prefix(package).unwrap()
+		} else {
+			path
+		};
+		let path = path.try_into()?;
+		let package = package.map(|package| Either::Right(package.to_owned()));
+		let module = Self::new(kind, package, Some(path));
 		Ok(module)
+	}
+
+	#[must_use]
+	pub fn uri(&self) -> &uri::Reference {
+		&self.uri
+	}
+
+	#[must_use]
+	pub fn as_str(&self) -> &str {
+		self.uri.as_str()
+	}
+
+	#[must_use]
+	pub fn kind(&self) -> Kind {
+		self.path.kind
+	}
+
+	#[must_use]
+	pub fn object(&self) -> Option<&Either<tg::object::Id, PathBuf>> {
+		self.path.object.as_ref()
+	}
+
+	#[must_use]
+	pub fn path(&self) -> Option<&tg::Path> {
+		self.path.path.as_ref()
 	}
 }
 
 impl std::fmt::Display for Module {
 	fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-		write!(f, "{}", Url::from(self.clone()))
+		write!(f, "{}", self.uri)
 	}
 }
 
@@ -237,24 +182,73 @@ impl std::str::FromStr for Module {
 	type Err = tg::Error;
 
 	fn from_str(s: &str) -> tg::Result<Self, Self::Err> {
-		let url: Url = s
+		let reference: uri::Reference = s
 			.parse()
-			.map_err(|source| tg::error!(!source, "failed to parse the URL"))?;
-		let module = url.try_into()?;
-		Ok(module)
+			.map_err(|source| tg::error!(!source, "failed to parse the reference"))?;
+
+		// Ensure the scheme is "tg".
+		if !matches!(reference.scheme(), Some("tg")) {
+			return Err(tg::error!("the URI has an invalid scheme"));
+		}
+
+		// Get the path.
+		let hex = reference.path();
+
+		// Decode.
+		let json = data_encoding::HEXLOWER
+			.decode(hex.as_bytes())
+			.map_err(|source| tg::error!(!source, "failed to deserialize the path"))?;
+
+		// Deserialize.
+		let path = serde_json::from_slice(&json)
+			.map_err(|source| tg::error!(!source, "failed to deserialize the path"))?;
+
+		Ok(Self {
+			uri: reference,
+			path,
+		})
 	}
 }
 
-impl From<Module> for String {
-	fn from(value: Module) -> Self {
-		value.to_string()
+impl std::fmt::Display for Kind {
+	fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+		match self {
+			Self::Js => write!(f, "js"),
+			Self::Ts => write!(f, "ts"),
+			Self::Dts => write!(f, "dts"),
+			Self::Object => write!(f, "object"),
+			Self::Artifact => write!(f, "artifact"),
+			Self::Blob => write!(f, "blob"),
+			Self::Leaf => write!(f, "leaf"),
+			Self::Branch => write!(f, "branch"),
+			Self::Directory => write!(f, "directory"),
+			Self::File => write!(f, "file"),
+			Self::Symlink => write!(f, "symlink"),
+			Self::Graph => write!(f, "graph"),
+			Self::Target => write!(f, "target"),
+		}
 	}
 }
 
-impl TryFrom<String> for Module {
-	type Error = tg::Error;
+impl std::str::FromStr for Kind {
+	type Err = tg::Error;
 
-	fn try_from(value: String) -> tg::Result<Self, Self::Error> {
-		value.parse()
+	fn from_str(s: &str) -> Result<Self, Self::Err> {
+		match s {
+			"js" => Ok(Self::Js),
+			"ts" => Ok(Self::Ts),
+			"dts" => Ok(Self::Dts),
+			"object" => Ok(Self::Object),
+			"artifact" => Ok(Self::Artifact),
+			"blob" => Ok(Self::Blob),
+			"leaf" => Ok(Self::Leaf),
+			"branch" => Ok(Self::Branch),
+			"directory" => Ok(Self::Directory),
+			"file" => Ok(Self::File),
+			"symlink" => Ok(Self::Symlink),
+			"graph" => Ok(Self::Graph),
+			"target" => Ok(Self::Target),
+			_ => Err(tg::error!(%kind = s, "invalid kind")),
+		}
 	}
 }

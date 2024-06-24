@@ -21,7 +21,7 @@ pub trait Provider {
 	fn listxattrs(&self, id: u64) -> impl Future<Output = Result<Vec<String>>> + Send;
 
 	/// Get the value for an extended attribute for a node.
-	fn getxattr(&self, id: u64, name: &str) -> impl Future<Output = Result<Option<String>>> + Send;
+	fn getxattr(&self, id: u64, name: &str) -> impl Future<Output = Result<Option<Bytes>>> + Send;
 
 	/// Open a directory.
 	fn opendir(&self, id: u64) -> impl Future<Output = Result<u64>> + Send;
@@ -47,7 +47,7 @@ pub trait Provider {
 	fn close(&self, id: u64) -> impl Future<Output = ()> + Send;
 }
 
-#[derive(Copy, Clone, Debug)]
+#[derive(Clone, Copy, Debug)]
 pub enum FileType {
 	File { executable: bool, size: u64 },
 	Directory,
@@ -55,7 +55,7 @@ pub enum FileType {
 }
 
 /// Represents a set of  file attributes.
-#[derive(Copy, Clone, Debug)]
+#[derive(Clone, Copy, Debug)]
 pub struct Attrs {
 	pub typ: FileType,
 	pub atime: TimeSpec,
@@ -65,7 +65,7 @@ pub struct Attrs {
 	pub gid: u32,
 }
 
-#[derive(Copy, Clone, Debug, Default)]
+#[derive(Clone, Copy, Debug, Default)]
 pub struct TimeSpec {
 	pub secs: u64,
 	pub nanos: u32,

@@ -1,6 +1,5 @@
 use crate as tg;
 use bytes::Bytes;
-use either::Either;
 
 pub struct BytesBase64;
 
@@ -41,31 +40,6 @@ impl<'de> serde_with::DeserializeAs<'de, Bytes> for BytesBase64 {
 		}
 
 		deserializer.deserialize_any(Visitor)
-	}
-}
-
-#[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
-#[serde(untagged)]
-pub enum EitherUntagged<L, R> {
-	Left(L),
-	Right(R),
-}
-
-impl<L, R> From<Either<L, R>> for EitherUntagged<L, R> {
-	fn from(value: Either<L, R>) -> Self {
-		match value {
-			Either::Left(value) => Self::Left(value),
-			Either::Right(value) => Self::Right(value),
-		}
-	}
-}
-
-impl<L, R> From<EitherUntagged<L, R>> for Either<L, R> {
-	fn from(value: EitherUntagged<L, R>) -> Self {
-		match value {
-			EitherUntagged::Left(value) => Self::Left(value),
-			EitherUntagged::Right(value) => Self::Right(value),
-		}
 	}
 }
 
@@ -132,12 +106,29 @@ impl<'de> serde_with::DeserializeAs<'de, std::io::SeekFrom> for SeekFromString {
 }
 
 #[must_use]
+pub fn return_false() -> bool {
+	false
+}
+
+#[must_use]
 pub fn return_true() -> bool {
 	true
 }
 
 #[allow(clippy::trivially_copy_pass_by_ref)]
 #[must_use]
+pub fn is_false(value: &bool) -> bool {
+	!*value
+}
+
+#[allow(clippy::trivially_copy_pass_by_ref)]
+#[must_use]
 pub fn is_true(value: &bool) -> bool {
 	*value
+}
+
+#[allow(clippy::trivially_copy_pass_by_ref)]
+#[must_use]
+pub fn is_zero(value: &usize) -> bool {
+	*value == 0
 }

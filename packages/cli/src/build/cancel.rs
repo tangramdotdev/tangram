@@ -1,10 +1,11 @@
 use crate::Cli;
-use tangram_client as tg;
+use tangram_client::{self as tg, Handle as _};
 
 /// Cancel a build.
 #[derive(Clone, Debug, clap::Args)]
 #[group(skip)]
 pub struct Args {
+	#[arg(index = 1)]
 	pub build: tg::build::Id,
 
 	#[allow(clippy::option_option)]
@@ -14,15 +15,20 @@ pub struct Args {
 
 impl Cli {
 	pub async fn command_build_cancel(&self, args: Args) -> tg::Result<()> {
-		let client = self.client().await?;
+		let handle = self.handle().await?;
+
+		// Get the remote.
 		let remote = args
 			.remote
-			.map(|remote| remote.unwrap_or_else(|| "default".to_owned()));
+			.map(|option| option.unwrap_or_else(|| "default".to_owned()));
+
+		// Cancel the build.
 		let arg = tg::build::finish::Arg {
 			outcome: tg::build::outcome::Data::Canceled,
 			remote,
 		};
-		client.finish_build(&args.build, arg).await?;
+		handle.finish_build(&args.build, arg).await?;
+
 		Ok(())
 	}
 }

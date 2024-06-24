@@ -10,7 +10,7 @@ pub struct Template {
 	pub components: Vec<Component>,
 }
 
-#[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
+#[derive(Clone, Debug, PartialEq, serde::Deserialize, serde::Serialize)]
 pub struct Data {
 	pub components: Vec<component::Data>,
 }
@@ -203,14 +203,15 @@ pub mod component {
 	#[derive(
 		Clone,
 		Debug,
-		serde::Deserialize,
-		serde::Serialize,
+		PartialEq,
 		derive_more::TryUnwrap,
 		derive_more::Unwrap,
+		serde::Deserialize,
+		serde::Serialize,
 	)]
 	#[try_unwrap(ref)]
 	#[unwrap(ref)]
-	#[serde(rename_all = "snake_case", tag = "kind", content = "value")]
+	#[serde(tag = "kind", content = "value", rename_all = "snake_case")]
 	pub enum Data {
 		String(String),
 		Artifact(tg::artifact::Id),

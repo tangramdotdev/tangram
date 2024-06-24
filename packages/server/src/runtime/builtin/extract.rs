@@ -78,9 +78,10 @@ impl Runtime {
 		.unwrap()?;
 
 		// Check in the extracted artifact.
-		let path = path.try_into()?;
 		let arg = tg::artifact::checkin::Arg {
 			destructive: true,
+			deterministic: true,
+			locked: true,
 			path,
 		};
 		let artifact = tg::Artifact::check_in(server, arg)

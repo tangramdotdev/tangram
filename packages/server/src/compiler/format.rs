@@ -24,7 +24,7 @@ impl Compiler {
 		params: lsp::DocumentFormattingParams,
 	) -> tg::Result<Option<Vec<lsp::TextEdit>>> {
 		// Get the module.
-		let module = self.module_for_uri(&params.text_document.uri).await?;
+		let module = self.module_for_lsp_uri(&params.text_document.uri).await?;
 
 		// Load the module.
 		let text = self.load_module(&module).await?;

@@ -12,7 +12,7 @@ pub enum Checksum {
 }
 
 #[derive(
-	Clone, Copy, Debug, PartialEq, Eq, serde_with::DeserializeFromStr, serde_with::SerializeDisplay,
+	Clone, Copy, Debug, Eq, PartialEq, serde_with::DeserializeFromStr, serde_with::SerializeDisplay,
 )]
 pub enum Algorithm {
 	Blake3,

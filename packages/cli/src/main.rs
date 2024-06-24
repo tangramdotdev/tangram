@@ -1,11 +1,13 @@
-use self::config::Config;
+use self::config::{Config, DEFAULT_FILE_DESCRIPTOR_SEMAPHORE_SIZE};
 use clap::{CommandFactory as _, Parser as _};
-use crossterm::style::Stylize as _;
+use crossterm::{style::Stylize as _, tty::IsTty as _};
 use futures::FutureExt as _;
-use itertools::Itertools as _;
 use num::ToPrimitive as _;
-use std::{fmt::Write as _, path::PathBuf, sync::Mutex};
+use std::{collections::BTreeMap, fmt::Write as _, path::PathBuf, sync::Mutex};
 use tangram_client::{self as tg, Client};
+use tangram_either::Either;
+use tangram_server::Server;
+use tokio::io::AsyncWriteExt as _;
 use tracing_subscriber::prelude::*;
 use url::Url;
 
@@ -19,26 +21,27 @@ mod get;
 mod lsp;
 mod object;
 mod package;
+mod progress;
 mod pull;
 mod push;
 mod remote;
-mod root;
 mod server;
+mod tag;
 mod target;
 mod tree;
-mod tui;
 mod upgrade;
 mod view;
 
 struct Cli {
 	args: Args,
 	config: Option<Config>,
-	client: Mutex<Option<tg::Client>>,
+	handle: Mutex<Option<Either<Client, Server>>>,
+	mode: Mode,
 }
 
 #[derive(Clone, Debug, clap::Parser)]
 #[command(
-	about = "Tangram is a programmable build system and package manager.",
+	about = "Tangram is a build system and package manager.",
 	arg_required_else_help = true,
 	before_help = before_help(),
 	disable_help_subcommand = true,
@@ -53,9 +56,9 @@ struct Args {
 	#[arg(long)]
 	config: Option<PathBuf>,
 
-	/// Disable automatic starting of a server.
-	#[arg(long)]
-	no_start: bool,
+	/// The mode.
+	#[arg(short, long)]
+	mode: Option<Mode>,
 
 	/// Override the `path` key in the config.
 	#[arg(short, long)]
@@ -81,6 +84,15 @@ fn version() -> String {
 	version
 }
 
+#[derive(Clone, Copy, Debug, Default, clap::ValueEnum, serde::Deserialize, serde::Serialize)]
+#[serde(rename_all = "snake_case")]
+enum Mode {
+	#[default]
+	Auto,
+	Client,
+	Server,
+}
+
 #[allow(clippy::large_enum_variant)]
 #[derive(Clone, Debug, clap::Subcommand)]
 enum Command {
@@ -93,27 +105,26 @@ enum Command {
 	Checkout(self::artifact::checkout::Args),
 	Checksum(self::checksum::Args),
 	Clean(self::server::clean::Args),
-	Doc(self::package::doc::Args),
+	Doc(self::package::document::Args),
 	Download(self::blob::download::Args),
 	Format(self::package::format::Args),
 	Get(self::get::Args),
 	Init(self::package::init::Args),
+	List(self::tag::list::Args),
 	Log(self::build::log::Args),
 	Lsp(self::lsp::Args),
 	New(self::package::new::Args),
 	Object(self::object::Args),
 	Outdated(self::package::outdated::Args),
 	Package(self::package::Args),
-	Publish(self::package::publish::Args),
 	Pull(self::pull::Args),
 	Push(self::push::Args),
 	Put(self::object::put::Args),
 	Remote(self::remote::Args),
-	Root(self::root::Args),
 	Run(self::target::run::Args),
-	Search(self::package::search::Args),
 	Serve(self::server::run::Args),
 	Server(self::server::Args),
+	Tag(self::tag::Args),
 	Target(self::target::Args),
 	Tree(self::tree::Args),
 	Update(self::package::update::Args),
@@ -133,7 +144,7 @@ fn main() -> std::process::ExitCode {
 		Ok(config) => config,
 		Err(error) => {
 			eprintln!("{} failed to read the config", "error".red().bold());
-			futures::executor::block_on(Cli::print_error(None::<Client>, &error, None));
+			futures::executor::block_on(Cli::print_error(&error, None));
 			return 1.into();
 		},
 	};
@@ -151,11 +162,37 @@ fn main() -> std::process::ExitCode {
 		})
 		.ok();
 
+	// Create the handle.
+	let handle = Mutex::new(None);
+
+	// Get the mode.
+	let mode = match &args {
+		// If the command is `tg serve` or `tg server run`, then set the mode to `server`.
+		Args {
+			command:
+				Command::Serve(_)
+				| Command::Server(self::server::Args {
+					command: self::server::Command::Run(_),
+					..
+				}),
+			..
+		} => Mode::Server,
+
+		// If the command is anything else under `tg server`, then set the mode to `client.`
+		Args {
+			command: Command::Server(_),
+			..
+		} => Mode::Client,
+
+		_ => args.mode.unwrap_or_default(),
+	};
+
 	// Create the CLI.
 	let cli = Cli {
 		args,
 		config,
-		client: Mutex::new(None),
+		handle,
+		mode,
 	};
 
 	// Create the future.
@@ -164,8 +201,7 @@ fn main() -> std::process::ExitCode {
 			Ok(()) => Ok(()),
 			Err(error) => {
 				eprintln!("{} failed to run the command", "error".red().bold());
-				let client = cli.client.lock().unwrap().clone();
-				Cli::print_error(client, &error, cli.config.as_ref()).await;
+				Cli::print_error(&error, cli.config.as_ref()).await;
 				Err(1)
 			},
 		}
@@ -186,11 +222,26 @@ fn main() -> std::process::ExitCode {
 }
 
 impl Cli {
-	async fn client(&self) -> tg::Result<Client> {
-		if let Some(client) = self.client.lock().unwrap().clone() {
+	async fn handle(&self) -> tg::Result<Either<Client, Server>> {
+		// If the handle has already been created, then return it.
+		if let Some(client) = self.handle.lock().unwrap().clone() {
 			return Ok(client);
 		}
 
+		// Create the handle.
+		let handle = match self.mode {
+			Mode::Auto => Either::Left(self.auto().await?),
+			Mode::Client => Either::Left(self.client().await?),
+			Mode::Server => Either::Right(self.server().await?),
+		};
+
+		// Set the handle.
+		self.handle.lock().unwrap().replace(handle.clone());
+
+		Ok(handle)
+	}
+
+	async fn auto(&self) -> tg::Result<Client> {
 		// Get the path.
 		let path = self
 			.args
@@ -276,10 +327,337 @@ impl Cli {
 			}
 		}
 
-		// Set the client.
-		self.client.lock().unwrap().replace(client.clone());
+		Ok(client)
+	}
+
+	async fn client(&self) -> tg::Result<Client> {
+		// Get the path.
+		let path = self
+			.args
+			.path
+			.clone()
+			.or(self.config.as_ref().and_then(|config| config.path.clone()))
+			.unwrap_or_else(|| PathBuf::from(std::env::var("HOME").unwrap()).join(".tangram"));
+
+		// Get the url.
+		let url = self
+			.args
+			.url
+			.clone()
+			.or(self.config.as_ref().and_then(|config| config.url.clone()))
+			.unwrap_or_else(|| {
+				let path = path.join("socket");
+				let path = path.to_str().unwrap();
+				let path = urlencoding::encode(path);
+				format!("http+unix://{path}").parse().unwrap()
+			});
+
+		// Create the client.
+		let client = tg::Client::new(url);
+
+		// Attempt to connect to the server.
+		client.connect().await.ok();
 
 		Ok(client)
+	}
+
+	async fn server(&self) -> tg::Result<Server> {
+		// Get the path.
+		let path = self
+			.args
+			.path
+			.clone()
+			.or(self.config.as_ref().and_then(|config| config.path.clone()))
+			.unwrap_or_else(|| PathBuf::from(std::env::var("HOME").unwrap()).join(".tangram"));
+
+		// Get the url.
+		let url = self
+			.args
+			.url
+			.clone()
+			.or(self.config.as_ref().and_then(|config| config.url.clone()))
+			.unwrap_or_else(|| {
+				let path = path.join("socket");
+				let path = path.to_str().unwrap();
+				let path = urlencoding::encode(path);
+				format!("http+unix://{path}").parse().unwrap()
+			});
+
+		// Create the advanced options.
+		let build_dequeue_timeout = self
+			.config
+			.as_ref()
+			.and_then(|config| config.advanced.as_ref())
+			.and_then(|advanced| advanced.build_dequeue_timeout);
+		let error_trace_options = self
+			.config
+			.as_ref()
+			.and_then(|config| config.advanced.as_ref())
+			.and_then(|advanced| advanced.error_trace_options.clone())
+			.unwrap_or_default();
+		let file_descriptor_semaphore_size = self
+			.config
+			.as_ref()
+			.and_then(|config| config.advanced.as_ref())
+			.and_then(|advanced| advanced.file_descriptor_semaphore_size)
+			.unwrap_or(DEFAULT_FILE_DESCRIPTOR_SEMAPHORE_SIZE);
+		let preserve_temp_directories = self
+			.config
+			.as_ref()
+			.and_then(|config| config.advanced.as_ref())
+			.and_then(|advanced| advanced.preserve_temp_directories)
+			.unwrap_or(false);
+		let write_build_logs_to_file = self
+			.config
+			.as_ref()
+			.and_then(|config| config.advanced.as_ref())
+			.and_then(|advanced| advanced.write_build_logs_to_database)
+			.unwrap_or(false);
+		let write_build_logs_to_stderr = self
+			.config
+			.as_ref()
+			.and_then(|config| config.advanced.as_ref())
+			.and_then(|advanced| advanced.duplicate_build_logs_to_stderr)
+			.unwrap_or(false);
+
+		let advanced = tangram_server::options::Advanced {
+			build_dequeue_timeout,
+			error_trace_options,
+			file_descriptor_semaphore_size,
+			preserve_temp_directories,
+			write_build_logs_to_database: write_build_logs_to_file,
+			write_build_logs_to_stderr,
+		};
+
+		// Create the authentication options.
+		let authentication =
+			self.config
+				.as_ref()
+				.and_then(|config| config.authentication.as_ref())
+				.map(|authentication| {
+					let providers = authentication.providers.as_ref().map(|providers| {
+						let github = providers.github.as_ref().map(|client| {
+							tangram_server::options::Oauth {
+								auth_url: client.auth_url.clone(),
+								client_id: client.client_id.clone(),
+								client_secret: client.client_secret.clone(),
+								redirect_url: client.redirect_url.clone(),
+								token_url: client.token_url.clone(),
+							}
+						});
+						tangram_server::options::AuthenticationProviders { github }
+					});
+					tangram_server::options::Authentication { providers }
+				})
+				.unwrap_or_default();
+
+		// Create the build options.
+		let build = match self.config.as_ref().and_then(|config| config.build.clone()) {
+			None => Some(crate::config::Build::default()),
+			Some(None) => None,
+			Some(Some(config)) => Some(config),
+		};
+		let build = build.map(|build| {
+			let concurrency = build
+				.concurrency
+				.unwrap_or_else(|| std::thread::available_parallelism().unwrap().get());
+			let heartbeat_interval = build.heartbeat_interval.map_or(
+				std::time::Duration::from_secs(1),
+				std::time::Duration::from_secs_f64,
+			);
+			tangram_server::options::Build {
+				concurrency,
+				heartbeat_interval,
+			}
+		});
+
+		// Create the build heartbeat monitor options.
+		let build_heartbeat_monitor = self
+			.config
+			.as_ref()
+			.and_then(|config| config.build_heartbeat_monitor.clone());
+		let build_heartbeat_monitor = match build_heartbeat_monitor {
+			None => Some(crate::config::BuildHeartbeatMonitor::default()),
+			Some(None) => None,
+			Some(Some(config)) => Some(config),
+		};
+		let build_heartbeat_monitor = build_heartbeat_monitor.map(|config| {
+			let interval = config.interval.unwrap_or(1);
+			let limit = config.limit.unwrap_or(100);
+			let timeout = config.timeout.unwrap_or(60);
+			let interval = std::time::Duration::from_secs(interval);
+			let timeout = std::time::Duration::from_secs(timeout);
+			tangram_server::options::BuildHeartbeatMonitor {
+				interval,
+				limit,
+				timeout,
+			}
+		});
+
+		// Create the build indexer options.
+		let build_indexer = self
+			.config
+			.as_ref()
+			.and_then(|config| config.build_indexer.clone());
+		let build_indexer = match build_indexer {
+			None => Some(crate::config::BuildIndexer::default()),
+			Some(None) => None,
+			Some(Some(config)) => Some(config),
+		};
+		let build_indexer = build_indexer.map(|_| tangram_server::options::BuildIndexer {});
+
+		// Create the database options.
+		let database = self
+			.config
+			.as_ref()
+			.and_then(|config| config.database.as_ref())
+			.map_or_else(
+				|| {
+					tangram_server::options::Database::Sqlite(
+						tangram_server::options::SqliteDatabase {
+							connections: std::thread::available_parallelism().unwrap().get(),
+						},
+					)
+				},
+				|database| match database {
+					crate::config::Database::Sqlite(sqlite) => {
+						let connections = sqlite
+							.connections
+							.unwrap_or_else(|| std::thread::available_parallelism().unwrap().get());
+						tangram_server::options::Database::Sqlite(
+							tangram_server::options::SqliteDatabase { connections },
+						)
+					},
+					crate::config::Database::Postgres(postgres) => {
+						let url = postgres.url.clone();
+						let connections = postgres
+							.connections
+							.unwrap_or_else(|| std::thread::available_parallelism().unwrap().get());
+						tangram_server::options::Database::Postgres(
+							tangram_server::options::PostgresDatabase { url, connections },
+						)
+					},
+				},
+			);
+
+		// Create the messenger options.
+		let messenger = self
+			.config
+			.as_ref()
+			.and_then(|config| config.messenger.as_ref())
+			.map_or_else(
+				|| tangram_server::options::Messenger::Memory,
+				|messenger| match messenger {
+					crate::config::Messenger::Memory => tangram_server::options::Messenger::Memory,
+					crate::config::Messenger::Nats(nats) => {
+						let url = nats.url.clone();
+						tangram_server::options::Messenger::Nats(
+							tangram_server::options::NatsMessenger { url },
+						)
+					},
+				},
+			);
+
+		// Create the object indexer options.
+		let object_indexer = self
+			.config
+			.as_ref()
+			.and_then(|config| config.object_indexer.clone());
+		let object_indexer = match object_indexer {
+			None => Some(crate::config::ObjectIndexer::default()),
+			Some(None) => None,
+			Some(Some(config)) => Some(config),
+		};
+		let object_indexer =
+			object_indexer.map(|object_indexer| tangram_server::options::ObjectIndexer {
+				batch_size: object_indexer.batch_size.unwrap_or(128),
+				timeout: object_indexer.timeout.unwrap_or(60.0),
+			});
+
+		// Create the remote options.
+		let mut remotes = BTreeMap::new();
+		let name = "default".to_owned();
+		let remote = tangram_server::options::Remote {
+			build: false,
+			client: tg::Client::new(Url::parse("https://api.tangram.dev").unwrap()),
+		};
+		remotes.insert(name, remote);
+		match self
+			.config
+			.as_ref()
+			.and_then(|config| config.remotes.as_ref())
+		{
+			None => (),
+			Some(None) => remotes.clear(),
+			Some(Some(remotes_)) => {
+				for (name, remote) in remotes_ {
+					match remote {
+						None => {
+							remotes.remove(name);
+						},
+						Some(remote) => {
+							let name = name.clone();
+							let build = remote.build.unwrap_or_default();
+							let url = remote.url.clone();
+							let client = tg::Client::new(url);
+							let remote = tangram_server::options::Remote { build, client };
+							remotes.insert(name, remote);
+						},
+					}
+				}
+			},
+		}
+
+		// Get the version.
+		let version = Some(crate::Args::command().get_version().unwrap().to_owned());
+
+		// Create the vfs options.
+		let vfs = self.config.as_ref().and_then(|config| config.vfs.clone());
+		let vfs = match vfs {
+			None => {
+				if cfg!(target_os = "macos") {
+					None
+				} else {
+					Some(crate::config::Vfs::default())
+				}
+			},
+			Some(None) => None,
+			Some(Some(config)) => Some(config),
+		};
+		let vfs = vfs.map(|config| {
+			let cache_ttl = config.cache_ttl.unwrap_or(10.0);
+			let cache_size = config.cache_size.unwrap_or(4096);
+			let database_connections = config.database_connections.unwrap_or(4);
+			tangram_server::options::Vfs {
+				cache_ttl,
+				cache_size,
+				database_connections,
+			}
+		});
+
+		// Create the options.
+		let options = tangram_server::Options {
+			advanced,
+			authentication,
+			build,
+			build_heartbeat_monitor,
+			build_indexer,
+			database,
+			messenger,
+			object_indexer,
+			path,
+			remotes,
+			url,
+			version,
+			vfs,
+		};
+
+		// Start the server.
+		let server = tangram_server::Server::start(options)
+			.await
+			.map_err(|source| tg::error!(!source, "failed to start the server"))?;
+
+		Ok(server)
 	}
 
 	/// Start the server.
@@ -411,22 +789,21 @@ impl Cli {
 			Command::Format(args) => self.command_package_format(args).boxed(),
 			Command::Get(args) => self.command_get(args).boxed(),
 			Command::Init(args) => self.command_package_init(args).boxed(),
+			Command::List(args) => self.command_tag_list(args).boxed(),
 			Command::Log(args) => self.command_build_log(args).boxed(),
 			Command::Lsp(args) => self.command_lsp(args).boxed(),
 			Command::New(args) => self.command_package_new(args).boxed(),
 			Command::Object(args) => self.command_object(args).boxed(),
 			Command::Outdated(args) => self.command_package_outdated(args).boxed(),
 			Command::Package(args) => self.command_package(args).boxed(),
-			Command::Publish(args) => self.command_package_publish(args).boxed(),
 			Command::Pull(args) => self.command_pull(args).boxed(),
 			Command::Push(args) => self.command_push(args).boxed(),
 			Command::Put(args) => self.command_object_put(args).boxed(),
 			Command::Remote(args) => self.command_remote(args).boxed(),
-			Command::Root(args) => self.command_root(args).boxed(),
 			Command::Run(args) => self.command_target_run(args).boxed(),
-			Command::Search(args) => self.command_package_search(args).boxed(),
 			Command::Serve(args) => self.command_server_run(args).boxed(),
 			Command::Server(args) => self.command_server(args).boxed(),
+			Command::Tag(args) => self.command_tag(args).boxed(),
 			Command::Target(args) => self.command_target(args).boxed(),
 			Command::Tree(args) => self.command_tree(args).boxed(),
 			Command::Update(args) => self.command_package_update(args).boxed(),
@@ -466,10 +843,7 @@ impl Cli {
 		Ok(())
 	}
 
-	async fn print_error<H>(handle: Option<H>, error: &tg::Error, config: Option<&Config>)
-	where
-		H: tg::Handle,
-	{
+	async fn print_error(error: &tg::Error, config: Option<&Config>) {
 		let options = config
 			.as_ref()
 			.and_then(|config| config.advanced.as_ref())
@@ -484,37 +858,12 @@ impl Cli {
 			errors.reverse();
 		}
 		for error in errors {
-			eprintln!("{} {}", "->".red(), error.message);
+			let message = error.message.as_deref().unwrap_or("an error occurred");
+			eprintln!("{} {message}", "->".red());
 			if let Some(location) = &error.location {
 				if !location.source.is_internal() || trace.options.internal {
-					let source = match &location.source {
-						tg::error::Source::Internal { path } => {
-							path.components().iter().skip(1).join("/")
-						},
-						tg::error::Source::External { package, path } => {
-							let source = if let Some(handle) = handle.as_ref() {
-								Self::get_description_for_package(handle, package)
-									.await
-									.ok()
-									.unwrap_or_else(|| package.to_string())
-							} else {
-								package.to_string()
-							};
-							if let Some(path) = path {
-								let path = path.components().iter().skip(1).join("/");
-								format!("{source}:{path}")
-							} else {
-								source.to_string()
-							}
-						},
-					};
 					let mut string = String::new();
-					let line = location.line + 1;
-					let column = location.column + 1;
-					write!(string, "{source}:{line}:{column}").unwrap();
-					if let Some(symbol) = &location.symbol {
-						write!(string, " {symbol}").unwrap();
-					}
+					write!(string, "{location}").unwrap();
 					eprintln!("   {}", string.yellow());
 				}
 			}
@@ -546,45 +895,17 @@ impl Cli {
 		eprintln!("{title}: {}", diagnostic.message);
 		let mut string = String::new();
 		if let Some(location) = &diagnostic.location {
-			match &location.module {
-				tg::Module::Js(tg::module::Js::PackageArtifact(package_artifact))
-				| tg::Module::Ts(tg::module::Js::PackageArtifact(package_artifact)) => {
-					let client = self.client.lock().unwrap().clone();
-					let id = package_artifact.artifact.clone();
-					let artifact = tg::Artifact::with_id(id.clone());
-					let metadata = if let Some(client) = client {
-						tg::package::try_get_metadata(&client, &artifact).await.ok()
-					} else {
-						None
-					};
-					if let Some(metadata) = metadata {
-						let (name, version) = metadata
-							.map(|metadata| (metadata.name, metadata.version))
-							.unwrap_or_default();
-						let name = name.as_deref().unwrap_or("<unknown>");
-						let version = version.as_deref().unwrap_or("<unknown>");
-						write!(string, "{name}@{version}").unwrap();
-					} else {
-						write!(string, "{id}").unwrap();
-					}
+			match location.module.object() {
+				Some(Either::Left(object)) => {
+					write!(string, "{object}").unwrap();
 				},
-
-				tg::Module::Js(tg::module::Js::PackagePath(package_path))
-				| tg::Module::Ts(tg::module::Js::PackagePath(package_path)) => {
-					let path = package_path.package_path.join(&package_path.path);
-					let path = path.display();
-					write!(string, "{path}").unwrap();
+				Some(Either::Right(path)) => {
+					write!(string, "{}", path.display()).unwrap();
 				},
-
-				tg::Module::Artifact(tg::module::Artifact::Path(path))
-				| tg::Module::Directory(tg::module::Directory::Path(path))
-				| tg::Module::File(tg::module::File::Path(path))
-				| tg::Module::Symlink(tg::module::Symlink::Path(path)) => {
-					let path = path.clone();
-					write!(string, "{path}").unwrap();
-				},
-
-				_ => (),
+				None => {},
+			}
+			if let Some(path) = location.module.path() {
+				write!(string, ":{path}").unwrap();
 			}
 			let mut string = if string.is_empty() {
 				"<unknown>".to_owned()
@@ -599,34 +920,52 @@ impl Cli {
 		eprintln!();
 	}
 
-	async fn get_description_for_package<H>(
-		handle: &H,
-		package: &tg::artifact::Id,
-	) -> tg::Result<String>
+	async fn output_json<T>(output: &T) -> tg::Result<()>
 	where
-		H: tg::Handle,
+		T: serde::Serialize,
 	{
-		let dependency = tg::Dependency::with_artifact(package.clone());
-		let arg = tg::package::get::Arg {
-			metadata: true,
-			path: true,
-			..Default::default()
-		};
-		let output = handle
-			.get_package(&dependency, arg)
-			.await
-			.map_err(|source| tg::error!(!source, "failed to get the package"))?;
-		if let Some(path) = output.path {
-			return Ok(path.components().iter().skip(1).join("/"));
+		let mut stdout = tokio::io::stdout();
+		if stdout.is_tty() {
+			let output = serde_json::to_string_pretty(output)
+				.map_err(|source| tg::error!(!source, "failed to serialize the output"))?;
+			stdout
+				.write_all(output.as_bytes())
+				.await
+				.map_err(|source| tg::error!(!source, "failed to write the data"))?;
+			stdout
+				.write_all(b"\n")
+				.await
+				.map_err(|source| tg::error!(!source, "failed to write"))?;
+		} else {
+			let output = serde_json::to_string(&output)
+				.map_err(|source| tg::error!(!source, "failed to serialize the output"))?;
+			stdout
+				.write_all(output.as_bytes())
+				.await
+				.map_err(|source| tg::error!(!source, "failed to write the data"))?;
 		}
-		let (name, version) = output
-			.metadata
-			.as_ref()
-			.map(|metadata| (metadata.name.as_deref(), metadata.version.as_deref()))
-			.unwrap_or_default();
-		let name = name.unwrap_or("<unknown>");
-		let version = version.unwrap_or("<unknown>");
-		Ok(format!("{name}@{version}"))
+		Ok(())
+	}
+
+	async fn get_reference(
+		&self,
+		reference: &tg::Reference,
+	) -> tg::Result<Either<tg::Build, tg::Object>> {
+		let handle = self.handle().await?;
+
+		// If the reference has a path, then canonicalize it.
+		let reference = if let tg::reference::Path::Path(path) = reference.path() {
+			let path = tokio::fs::canonicalize(&path)
+				.await
+				.map_err(|source| tg::error!(!source, "failed to canonicalize the path"))?;
+			let path = tg::Path::try_from(path)?;
+			let uri = reference.uri().to_builder().path(path).build().unwrap();
+			tg::Reference::with_uri(uri)?
+		} else {
+			reference.clone()
+		};
+
+		reference.get(&handle).await
 	}
 
 	/// Initialize V8.
@@ -697,24 +1036,55 @@ impl Cli {
 	}
 
 	fn set_file_descriptor_limit(config: Option<&Config>) -> tg::Result<()> {
-		if let Some(file_descriptor_limit) = config
+		let file_descriptor_limit = config
 			.as_ref()
 			.and_then(|config| config.advanced.as_ref())
-			.and_then(|advanced| advanced.file_descriptor_limit)
-		{
-			let new_fd_rlimit = libc::rlimit {
-				rlim_cur: file_descriptor_limit,
-				rlim_max: file_descriptor_limit,
-			};
-			let ret = unsafe { libc::setrlimit(libc::RLIMIT_NOFILE, &new_fd_rlimit) };
-			if ret != 0 {
-				return Err(tg::error!(
-					source = std::io::Error::last_os_error(),
-					"failed to set the file descriptor limit"
-				));
-			}
+			.and_then(|advanced| advanced.file_descriptor_limit);
+		let semaphore_size = config
+			.as_ref()
+			.and_then(|config| config.advanced.as_ref())
+			.and_then(|advanced| advanced.file_descriptor_semaphore_size);
+
+		let file_descriptor_limit = match (semaphore_size, file_descriptor_limit) {
+			// If neither is provided, set to twice the default semaphore size.
+			(None, None) => u64::try_from(DEFAULT_FILE_DESCRIPTOR_SEMAPHORE_SIZE).unwrap() * 2,
+			// If just the semaphore size is set, use twice the limit.
+			(Some(semaphore_size), None) => u64::try_from(semaphore_size).unwrap() * 2,
+			(None, Some(file_descriptor_limit)) => {
+				let default_semaphore_size =
+					u64::try_from(DEFAULT_FILE_DESCRIPTOR_SEMAPHORE_SIZE).unwrap();
+				if !Cli::is_at_most_half(default_semaphore_size, file_descriptor_limit) {
+					tracing::warn!(?default_semaphore_size, file_descriptor_limit, "file descriptor size is less than twice the default file descriptor semaphore size");
+				}
+				file_descriptor_limit
+			},
+			(Some(semaphore_size), Some(file_descriptor_limit)) => {
+				if !Cli::is_at_most_half(semaphore_size.try_into().unwrap(), file_descriptor_limit)
+				{
+					tracing::warn!(?semaphore_size, file_descriptor_limit, "file descriptor semaphore size is greater than 50% of the configured limit.");
+				}
+				file_descriptor_limit
+			},
+		};
+
+		let new_fd_rlimit = libc::rlimit {
+			rlim_cur: file_descriptor_limit,
+			rlim_max: file_descriptor_limit,
+		};
+		let ret = unsafe { libc::setrlimit(libc::RLIMIT_NOFILE, &new_fd_rlimit) };
+		if ret != 0 {
+			return Err(tg::error!(
+				source = std::io::Error::last_os_error(),
+				"failed to set the file descriptor limit"
+			));
 		}
 		Ok(())
+	}
+
+	/// Determine whether value a is at most half of value b.
+	fn is_at_most_half(a: u64, b: u64) -> bool {
+		// A bitwise right shift will divide the number by 2.
+		a <= (b >> 1)
 	}
 
 	// Get the host.

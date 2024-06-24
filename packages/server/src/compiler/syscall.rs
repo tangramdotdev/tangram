@@ -68,7 +68,7 @@ where
 	let context = scope.get_current_context();
 
 	// Get the compiler.
-	let compiler = context.get_slot::<Compiler>(scope).unwrap().clone();
+	let compiler = context.get_slot::<Compiler>().unwrap().clone();
 
 	// Collect the args.
 	let args = (1..args.length()).map(|i| args.get(i)).collect_vec();

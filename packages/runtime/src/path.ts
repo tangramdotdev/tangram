@@ -1,4 +1,4 @@
-import { assert as assert_, unreachable } from "./assert.ts";
+import * as tg from "./index.ts";
 import type { MaybeNestedArray } from "./util.ts";
 
 export let path = (...args: Array<MaybeNestedArray<Path.Arg>>): Path => {
@@ -43,7 +43,7 @@ export class Path {
 				}
 				return path;
 			} else {
-				return unreachable();
+				return tg.unreachable();
 			}
 		}, new Path());
 	}
@@ -132,12 +132,12 @@ export class Path {
 	}
 
 	static expect(value: unknown): Path {
-		assert_(value instanceof Path);
+		tg.assert(value instanceof Path);
 		return value;
 	}
 
 	static assert(value: unknown): asserts value is Path {
-		assert_(value instanceof Path);
+		tg.assert(value instanceof Path);
 	}
 
 	toString(): string {

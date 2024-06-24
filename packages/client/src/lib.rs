@@ -8,31 +8,35 @@ use tokio::{
 };
 use url::Url;
 
+pub use tangram_either::{for_both, Either};
+
 pub use self::{
 	artifact::Artifact,
 	blob::Blob,
 	branch::Branch,
 	build::Build,
 	checksum::Checksum,
-	dependency::Dependency,
 	diagnostic::Diagnostic,
 	directory::Directory,
 	error::{ok, Error, Result},
 	file::File,
+	graph::Graph,
 	handle::Handle,
 	id::Id,
 	import::Import,
 	leaf::Leaf,
 	location::Location,
-	lock::Lock,
+	lockfile::Lockfile,
 	module::Module,
 	mutation::Mutation,
 	object::Handle as Object,
 	path::Path,
 	position::Position,
+	progress::Progress,
 	range::Range,
-	server::Health,
+	reference::Reference,
 	symlink::Symlink,
+	tag::Tag,
 	target::Target,
 	template::Template,
 	user::User,
@@ -45,29 +49,31 @@ pub mod branch;
 pub mod build;
 pub mod checksum;
 pub mod compiler;
-pub mod dependency;
 pub mod diagnostic;
 pub mod directory;
 pub mod error;
 pub mod file;
+pub mod graph;
 pub mod handle;
 pub mod id;
 pub mod import;
 pub mod leaf;
 pub mod location;
-pub mod lock;
+pub mod lockfile;
 pub mod module;
 pub mod mutation;
 pub mod object;
 pub mod package;
 pub mod path;
 pub mod position;
+pub mod progress;
 pub mod range;
+pub mod reference;
 pub mod remote;
-pub mod root;
 pub mod runtime;
 pub mod server;
 pub mod symlink;
+pub mod tag;
 pub mod target;
 pub mod template;
 pub mod user;
@@ -81,12 +87,6 @@ pub struct Client(Arc<Inner>);
 pub struct Inner {
 	url: Url,
 	sender: tokio::sync::Mutex<Option<hyper::client::conn::http2::SendRequest<Outgoing>>>,
-}
-
-#[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
-pub struct Progress {
-	pub current: u64,
-	pub total: Option<u64>,
 }
 
 impl Client {
@@ -532,7 +532,7 @@ impl Client {
 			let is_error = result.is_err();
 			let is_server_error =
 				matches!(&result, Ok(response) if response.status().is_server_error());
-			if is_server_error || is_error {
+			if is_error || is_server_error {
 				if let Some(duration) = retries.pop_front() {
 					let duration = std::time::Duration::from_millis(duration);
 					tokio::time::sleep(duration).await;
@@ -562,7 +562,7 @@ impl tg::Handle for Client {
 		arg: tg::artifact::checkin::Arg,
 	) -> impl Future<
 		Output = tg::Result<
-			impl Stream<Item = tg::Result<tg::artifact::checkin::Event>> + Send + 'static,
+			impl Stream<Item = tg::Result<tg::Progress<tg::artifact::Id>>> + Send + 'static,
 		>,
 	> {
 		self.check_in_artifact(arg)
@@ -573,9 +573,7 @@ impl tg::Handle for Client {
 		id: &tg::artifact::Id,
 		arg: tg::artifact::checkout::Arg,
 	) -> impl Future<
-		Output = tg::Result<
-			impl Stream<Item = tg::Result<tg::artifact::checkout::Event>> + 'static,
-		>,
+		Output = tg::Result<impl Stream<Item = tg::Result<tg::Progress<PathBuf>>> + Send + 'static>,
 	> {
 		self.check_out_artifact(id, arg)
 	}
@@ -595,7 +593,7 @@ impl tg::Handle for Client {
 		Output = tg::Result<
 			Option<impl Stream<Item = tg::Result<tg::blob::read::Event>> + Send + 'static>,
 		>,
-	> + Send {
+	> {
 		self.try_read_blob_stream(id, arg)
 	}
 
@@ -619,9 +617,7 @@ impl tg::Handle for Client {
 		id: &tg::build::Id,
 		arg: tg::build::push::Arg,
 	) -> impl Future<
-		Output = tg::Result<
-			impl Stream<Item = tg::Result<tg::build::push::Event>> + Send + 'static,
-		>,
+		Output = tg::Result<impl Stream<Item = tg::Result<tg::Progress<()>>> + Send + 'static>,
 	> {
 		self.push_build(id, arg)
 	}
@@ -631,9 +627,7 @@ impl tg::Handle for Client {
 		id: &tg::build::Id,
 		arg: tg::build::pull::Arg,
 	) -> impl Future<
-		Output = tg::Result<
-			impl Stream<Item = tg::Result<tg::build::pull::Event>> + Send + 'static,
-		>,
+		Output = tg::Result<impl Stream<Item = tg::Result<tg::Progress<()>>> + Send + 'static>,
 	> {
 		self.pull_build(id, arg)
 	}
@@ -645,12 +639,12 @@ impl tg::Handle for Client {
 		self.try_dequeue_build(arg)
 	}
 
-	fn start_build(
+	fn try_start_build(
 		&self,
 		id: &tg::build::Id,
 		arg: tg::build::start::Arg,
-	) -> impl Future<Output = tg::Result<()>> {
-		self.start_build(id, arg)
+	) -> impl Future<Output = tg::Result<Option<bool>>> {
+		self.try_start_build(id, arg)
 	}
 
 	fn heartbeat_build(
@@ -727,7 +721,7 @@ impl tg::Handle for Client {
 		&self,
 		id: &tg::build::Id,
 		arg: tg::build::finish::Arg,
-	) -> impl Future<Output = tg::Result<()>> {
+	) -> impl Future<Output = tg::Result<Option<bool>>> {
 		self.finish_build(id, arg)
 	}
 
@@ -774,10 +768,8 @@ impl tg::Handle for Client {
 		id: &tg::object::Id,
 		arg: tg::object::push::Arg,
 	) -> impl Future<
-		Output = tg::Result<
-			impl Stream<Item = tg::Result<tg::object::push::Event>> + Send + 'static,
-		>,
-	> + Send {
+		Output = tg::Result<impl Stream<Item = tg::Result<tg::Progress<()>>> + Send + 'static>,
+	> {
 		self.push_object(id, arg)
 	}
 
@@ -786,78 +778,37 @@ impl tg::Handle for Client {
 		id: &tg::object::Id,
 		arg: tg::object::pull::Arg,
 	) -> impl Future<
-		Output = tg::Result<
-			impl Stream<Item = tg::Result<tg::object::pull::Event>> + Send + 'static,
-		>,
-	> + Send {
+		Output = tg::Result<impl Stream<Item = tg::Result<tg::Progress<()>>> + Send + 'static>,
+	> {
 		self.pull_object(id, arg)
-	}
-
-	fn list_packages(
-		&self,
-		arg: tg::package::list::Arg,
-	) -> impl Future<Output = tg::Result<tg::package::list::Output>> {
-		self.list_packages(arg)
-	}
-
-	fn try_get_package(
-		&self,
-		dependency: &tg::Dependency,
-		arg: tg::package::get::Arg,
-	) -> impl Future<Output = tg::Result<Option<tg::package::get::Output>>> {
-		self.try_get_package(dependency, arg)
 	}
 
 	fn check_package(
 		&self,
-		dependency: &tg::Dependency,
 		arg: tg::package::check::Arg,
 	) -> impl Future<Output = tg::Result<tg::package::check::Output>> {
-		self.check_package(dependency, arg)
+		self.check_package(arg)
 	}
 
-	fn format_package(&self, dependency: &tg::Dependency) -> impl Future<Output = tg::Result<()>> {
-		self.format_package(dependency)
-	}
-
-	fn try_get_package_doc(
+	fn document_package(
 		&self,
-		dependency: &tg::Dependency,
-		arg: tg::package::doc::Arg,
-	) -> impl Future<Output = tg::Result<Option<serde_json::Value>>> {
-		self.try_get_package_doc(dependency, arg)
+		arg: tg::package::document::Arg,
+	) -> impl Future<Output = tg::Result<serde_json::Value>> {
+		self.document_package(arg)
 	}
 
-	fn get_package_outdated(
+	fn format_package(
 		&self,
-		package: &tg::Dependency,
-		arg: tg::package::outdated::Arg,
-	) -> impl Future<Output = tg::Result<tg::package::outdated::Output>> {
-		self.get_package_outdated(package, arg)
-	}
-
-	fn publish_package(
-		&self,
-		id: &tg::artifact::Id,
-		arg: tg::package::publish::Arg,
+		arg: tg::package::format::Arg,
 	) -> impl Future<Output = tg::Result<()>> {
-		self.publish_package(id, arg)
+		self.format_package(arg)
 	}
 
-	fn try_get_package_versions(
+	fn try_get_reference(
 		&self,
-		dependency: &tg::Dependency,
-		arg: tg::package::versions::Arg,
-	) -> impl Future<Output = tg::Result<Option<tg::package::versions::Output>>> {
-		self.try_get_package_versions(dependency, arg)
-	}
-
-	fn yank_package(
-		&self,
-		id: &tg::artifact::Id,
-		arg: tg::package::yank::Arg,
-	) -> impl Future<Output = tg::Result<()>> {
-		self.yank_package(id, arg)
+		reference: &tg::Reference,
+	) -> impl Future<Output = tg::Result<Option<tg::reference::get::Output>>> + Send {
+		self.try_get_reference(reference)
 	}
 
 	fn list_remotes(
@@ -886,37 +837,11 @@ impl tg::Handle for Client {
 		self.delete_remote(name)
 	}
 
-	fn list_roots(
-		&self,
-		arg: tg::root::list::Arg,
-	) -> impl Future<Output = tg::Result<tg::root::list::Output>> {
-		self.list_roots(arg)
-	}
-
-	fn try_get_root(
-		&self,
-		name: &str,
-	) -> impl Future<Output = tg::Result<Option<tg::root::get::Output>>> {
-		self.try_get_root(name)
-	}
-
-	fn put_root(
-		&self,
-		name: &str,
-		arg: tg::root::put::Arg,
-	) -> impl Future<Output = tg::Result<()>> {
-		self.put_root(name, arg)
-	}
-
-	fn delete_root(&self, name: &str) -> impl Future<Output = tg::Result<()>> {
-		self.delete_root(name)
-	}
-
 	fn get_js_runtime_doc(&self) -> impl Future<Output = tg::Result<serde_json::Value>> {
 		self.get_js_runtime_doc()
 	}
 
-	fn health(&self) -> impl Future<Output = tg::Result<tg::Health>> {
+	fn health(&self) -> impl Future<Output = tg::Result<tg::server::Health>> {
 		self.health()
 	}
 
@@ -924,12 +849,38 @@ impl tg::Handle for Client {
 		self.clean()
 	}
 
-	fn build_target(
+	fn list_tags(
+		&self,
+		arg: tg::tag::list::Arg,
+	) -> impl Future<Output = tg::Result<tg::tag::list::Output>> {
+		self.list_tags(arg)
+	}
+
+	fn try_get_tag(
+		&self,
+		pattern: &tg::tag::Pattern,
+	) -> impl Future<Output = tg::Result<Option<tg::tag::get::Output>>> {
+		self.try_get_tag(pattern)
+	}
+
+	fn put_tag(
+		&self,
+		tag: &tg::Tag,
+		arg: tg::tag::put::Arg,
+	) -> impl Future<Output = tg::Result<()>> {
+		self.put_tag(tag, arg)
+	}
+
+	fn delete_tag(&self, tag: &tg::Tag) -> impl Future<Output = tg::Result<()>> {
+		self.delete_tag(tag)
+	}
+
+	fn try_build_target(
 		&self,
 		id: &tg::target::Id,
 		arg: tg::target::build::Arg,
-	) -> impl Future<Output = tg::Result<tg::target::build::Output>> {
-		self.build_target(id, arg)
+	) -> impl Future<Output = tg::Result<Option<tg::target::build::Output>>> {
+		self.try_build_target(id, arg)
 	}
 
 	fn get_user(&self, token: &str) -> impl Future<Output = tg::Result<Option<tg::User>>> {

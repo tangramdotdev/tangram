@@ -1,4 +1,4 @@
-use crate as tg;
+use crate::{self as tg, handle::Ext as _};
 use futures::{Stream, StreamExt as _};
 use tangram_http::{incoming::response::Ext as _, outgoing::request::Ext as _};
 
@@ -18,7 +18,7 @@ pub struct Arg {
 	pub remote: Option<String>,
 }
 
-#[derive(Copy, Clone, Debug, derive_more::TryUnwrap)]
+#[derive(Clone, Copy, Debug, derive_more::TryUnwrap)]
 pub enum Event {
 	Status(Status),
 	End,

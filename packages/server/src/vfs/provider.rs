@@ -5,17 +5,15 @@ use futures::TryStreamExt as _;
 use indoc::formatdoc;
 use num::ToPrimitive;
 use std::{
-	collections::BTreeSet,
 	os::unix::fs::MetadataExt as _,
 	sync::{
 		atomic::{AtomicU64, Ordering},
 		Arc,
 	},
 };
-use tangram_client as tg;
+use tangram_client::{self as tg, handle::Ext as _};
 use tangram_database::{self as db, prelude::*};
 use tangram_vfs as vfs;
-use tg::Handle as _;
 
 pub struct Provider {
 	node_cache: moka::sync::Cache<u64, Node, fnv::FnvBuildHasher>,
@@ -367,11 +365,11 @@ impl vfs::Provider for Provider {
 		let Some(tg::Artifact::File(_)) = artifact else {
 			return Ok(Vec::new());
 		};
-		let var_name = vec![tg::file::TANGRAM_FILE_XATTR_NAME.to_owned()];
+		let var_name = vec![tg::file::XATTR_NAME.to_owned()];
 		Ok(var_name)
 	}
 
-	async fn getxattr(&self, id: u64, name: &str) -> std::io::Result<Option<String>> {
+	async fn getxattr(&self, id: u64, name: &str) -> std::io::Result<Option<Bytes>> {
 		// Get the node.
 		let Node { artifact, .. } = self.get(id).await?;
 
@@ -381,29 +379,23 @@ impl vfs::Provider for Provider {
 		};
 
 		// Ensure the xattr name is supported.
-		if name != tg::file::TANGRAM_FILE_XATTR_NAME {
+		if name != tg::file::XATTR_NAME {
 			return Ok(None);
 		}
 
-		// Get the references.
-		let artifacts = file.references(&self.server).await.map_err(|e| {
-			tracing::error!(?e, ?file, "failed to get file references");
+		// Get the data.
+		let data = file.data(&self.server).await.map_err(|e| {
+			tracing::error!(?e, ?file, "failed to get the file data");
 			std::io::Error::from_raw_os_error(libc::EIO)
 		})?;
 
-		// Create the output.
-		let mut references = BTreeSet::new();
-		for artifact in artifacts.iter() {
-			let id = artifact.id(&self.server).await.map_err(|e| {
-				tracing::error!(?e, ?artifact, "failed to get ID of artifact");
-				std::io::Error::from_raw_os_error(libc::EIO)
-			})?;
-			references.insert(id);
-		}
-		let attributes = tg::file::Attributes { references };
-		let output = serde_json::to_string(&attributes).unwrap();
+		// Serialize the data.
+		let data = data.serialize().map_err(|e| {
+			tracing::error!(?e, ?file, "failed to serialize the file data");
+			std::io::Error::from_raw_os_error(libc::EIO)
+		})?;
 
-		Ok(Some(output))
+		Ok(Some(data))
 	}
 
 	async fn opendir(&self, id: u64) -> std::io::Result<u64> {

@@ -14,6 +14,7 @@ pub use self::child::Child;
 	PartialEq,
 	PartialOrd,
 	derive_more::Display,
+	derive_more::Into,
 	serde::Deserialize,
 	serde::Serialize,
 )]
@@ -206,12 +207,6 @@ impl TryFrom<Data> for Object {
 			})
 			.collect();
 		Ok(Self { children })
-	}
-}
-
-impl From<Id> for crate::Id {
-	fn from(value: Id) -> Self {
-		value.0
 	}
 }
 

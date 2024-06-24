@@ -11,11 +11,14 @@ pub mod pull;
 pub mod push;
 pub mod put;
 pub mod status;
-pub mod tree;
 
 /// Build a target or manage builds.
 #[derive(Clone, Debug, clap::Args)]
-#[command(args_conflicts_with_subcommands = true)]
+#[command(
+	args_conflicts_with_subcommands = true,
+	subcommand_negates_reqs = true,
+	subcommand_precedence_over_arg = true
+)]
 #[group(skip)]
 pub struct Args {
 	#[command(flatten)]
@@ -38,7 +41,6 @@ pub enum Command {
 	Push(self::push::Args),
 	Put(self::put::Args),
 	Status(self::status::Args),
-	Tree(self::tree::Args),
 }
 
 impl Cli {
@@ -76,9 +78,6 @@ impl Cli {
 			},
 			Some(Command::Status(args)) => {
 				self.command_build_status(args).await?;
-			},
-			Some(Command::Tree(args)) => {
-				self.command_build_tree(args).await?;
 			},
 		}
 		Ok(())

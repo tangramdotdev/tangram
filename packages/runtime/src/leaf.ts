@@ -1,11 +1,7 @@
-import type { Args } from "./args.ts";
-import { assert as assert_ } from "./assert.ts";
-import * as encoding from "./encoding.ts";
-import type { Object_ } from "./object.ts";
-import { resolve } from "./resolve.ts";
+import * as tg from "./index.ts";
 import { flatten } from "./util.ts";
 
-export let leaf = async (...args: Args<Leaf.Arg>): Promise<Leaf> => {
+export let leaf = async (...args: tg.Args<Leaf.Arg>): Promise<Leaf> => {
 	return await Leaf.new(...args);
 };
 
@@ -24,15 +20,15 @@ export class Leaf {
 		return new Leaf({ id });
 	}
 
-	static async new(...args: Args<Leaf.Arg>): Promise<Leaf> {
-		let resolved = await Promise.all(args.map(resolve));
+	static async new(...args: tg.Args<Leaf.Arg>): Promise<Leaf> {
+		let resolved = await Promise.all(args.map(tg.resolve));
 		let flattened = flatten(resolved);
 		let objects = await Promise.all(
 			flattened.map(async (arg) => {
 				if (arg === undefined) {
 					return new Uint8Array();
 				} else if (typeof arg === "string") {
-					return encoding.utf8.encode(arg);
+					return tg.encoding.utf8.encode(arg);
 				} else if (arg instanceof Uint8Array) {
 					return arg;
 				} else {
@@ -52,12 +48,12 @@ export class Leaf {
 	}
 
 	static expect(value: unknown): Leaf {
-		assert_(value instanceof Leaf);
+		tg.assert(value instanceof Leaf);
 		return value;
 	}
 
 	static assert(value: unknown): asserts value is Leaf {
-		assert_(value instanceof Leaf);
+		tg.assert(value instanceof Leaf);
 	}
 
 	async id(): Promise<Leaf.Id> {
@@ -65,7 +61,7 @@ export class Leaf {
 		return this.#state.id!;
 	}
 
-	async object(): Promise<Leaf.Object_> {
+	async object(): Promise<Leaf.Object> {
 		await this.load();
 		return this.#state.object!;
 	}
@@ -73,7 +69,7 @@ export class Leaf {
 	async load() {
 		if (this.#state.object === undefined) {
 			let object = await syscall("load", this.#state.id!);
-			assert_(object.kind === "leaf");
+			tg.assert(object.kind === "leaf");
 			this.#state.object = object.value;
 		}
 	}
@@ -96,16 +92,16 @@ export class Leaf {
 	}
 
 	async text(): Promise<string> {
-		return encoding.utf8.decode(await syscall("read", this));
+		return tg.encoding.utf8.decode(await syscall("read", this));
 	}
 }
 
 export namespace Leaf {
-	export type Arg = undefined | string | Uint8Array | Leaf;
+	export type Arg = undefined | string | Uint8Array | tg.Leaf;
 
 	export type Id = string;
 
-	export type Object_ = { bytes: Uint8Array };
+	export type Object = { bytes: Uint8Array };
 
-	export type State = Object_.State<Leaf.Id, Leaf.Object_>;
+	export type State = tg.Object.State<tg.Leaf.Id, tg.Leaf.Object>;
 }

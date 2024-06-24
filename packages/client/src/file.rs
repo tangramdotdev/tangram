@@ -1,7 +1,19 @@
-use crate::{self as tg, util::arc::Ext as _};
+use crate::{self as tg, util::serde::is_false};
 use bytes::Bytes;
-use futures::{stream::FuturesOrdered, TryStreamExt as _};
-use std::{collections::BTreeSet, sync::Arc};
+use futures::{stream::FuturesUnordered, TryStreamExt as _};
+use itertools::Itertools as _;
+use std::{
+	collections::{BTreeMap, BTreeSet},
+	sync::Arc,
+};
+use tangram_either::Either;
+
+pub use self::builder::Builder;
+
+pub mod builder;
+
+/// The extended attribute name used to store file data.
+pub const XATTR_NAME: &str = "user.tangram";
 
 #[derive(
 	Clone,
@@ -12,6 +24,7 @@ use std::{collections::BTreeSet, sync::Arc};
 	PartialEq,
 	PartialOrd,
 	derive_more::Display,
+	derive_more::Into,
 	serde::Deserialize,
 	serde::Serialize,
 )]
@@ -25,32 +38,53 @@ pub struct File {
 
 pub type State = tg::object::State<Id, Object>;
 
-/// A file value.
 #[derive(Clone, Debug)]
-pub struct Object {
-	pub contents: tg::Blob,
-	pub executable: bool,
-	pub references: Vec<tg::Artifact>,
+pub enum Object {
+	Normal {
+		contents: tg::Blob,
+		dependencies: BTreeMap<tg::Reference, Dependency>,
+		executable: bool,
+	},
+	Graph {
+		graph: tg::Graph,
+		node: usize,
+	},
 }
 
-/// File data.
 #[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
-pub struct Data {
-	pub contents: tg::blob::Id,
-	#[serde(default, skip_serializing_if = "std::ops::Not::not")]
-	pub executable: bool,
-	#[serde(default, skip_serializing_if = "BTreeSet::is_empty")]
-	pub references: BTreeSet<tg::artifact::Id>,
+#[serde(untagged)]
+pub enum Data {
+	Normal {
+		contents: tg::blob::Id,
+
+		#[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+		dependencies: BTreeMap<tg::Reference, data::Dependency>,
+
+		#[serde(default, skip_serializing_if = "is_false")]
+		executable: bool,
+	},
+
+	Graph {
+		graph: tg::graph::Id,
+		node: usize,
+	},
 }
 
-/// The extended attributes of files.
-#[derive(serde::Deserialize, serde::Serialize, Clone, Debug)]
-pub struct Attributes {
-	pub references: BTreeSet<tg::artifact::Id>,
+#[derive(Clone, Debug)]
+pub struct Dependency {
+	pub object: tg::Object,
+	pub tag: Option<tg::Tag>,
 }
 
-/// The extended attributes key used to store the [`Attributes`].
-pub const TANGRAM_FILE_XATTR_NAME: &str = "user.tangram";
+pub mod data {
+	use crate as tg;
+
+	#[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
+	pub struct Dependency {
+		pub object: tg::object::Id,
+		pub tag: Option<tg::Tag>,
+	}
+}
 
 impl Id {
 	pub fn new(bytes: &Bytes) -> Self {
@@ -154,33 +188,43 @@ impl File {
 		H: tg::Handle,
 	{
 		let object = self.object(handle).await?;
-		let contents = object.contents.id(handle).await?.clone();
-		let executable = object.executable;
-		let references = object
-			.references
-			.iter()
-			.map(|artifact| artifact.id(handle))
-			.collect::<FuturesOrdered<_>>()
-			.try_collect()
-			.await?;
-		Ok(Data {
-			contents,
-			executable,
-			references,
-		})
+		match object.as_ref() {
+			Object::Normal {
+				contents,
+				dependencies,
+				executable,
+			} => {
+				let contents = contents.id(handle).await?.clone();
+				let dependencies = dependencies
+					.iter()
+					.map(|(reference, dependency)| async move {
+						let object = dependency.object.id(handle).await?;
+						let dependency = data::Dependency {
+							object,
+							tag: dependency.tag.clone(),
+						};
+						Ok::<_, tg::Error>((reference.clone(), dependency))
+					})
+					.collect::<FuturesUnordered<_>>()
+					.try_collect()
+					.await?;
+				let executable = *executable;
+				Ok(Data::Normal {
+					contents,
+					dependencies,
+					executable,
+				})
+			},
+			Object::Graph { graph, node } => {
+				let graph = graph.id(handle).await?;
+				let node = *node;
+				Ok(Data::Graph { graph, node })
+			},
+		}
 	}
 }
 
 impl File {
-	#[must_use]
-	pub fn new(contents: tg::Blob, executable: bool, references: Vec<tg::Artifact>) -> Self {
-		Self::with_object(Object {
-			contents,
-			executable,
-			references,
-		})
-	}
-
 	#[must_use]
 	pub fn builder(contents: impl Into<tg::Blob>) -> Builder {
 		Builder::new(contents)
@@ -191,28 +235,170 @@ impl File {
 		Self::builder(contents).build()
 	}
 
+	#[must_use]
+	pub fn with_graph_and_node(graph: tg::Graph, node: usize) -> Self {
+		Self::with_object(Object::Graph { graph, node })
+	}
+
 	pub async fn contents<H>(&self, handle: &H) -> tg::Result<tg::Blob>
 	where
 		H: tg::Handle,
 	{
-		Ok(self.object(handle).await?.contents.clone())
+		let object = self.object(handle).await?;
+		match object.as_ref() {
+			Object::Normal { contents, .. } => Ok(contents.clone()),
+			Object::Graph { graph, node } => {
+				let object = graph.object(handle).await?;
+				let node = object
+					.nodes
+					.get(*node)
+					.ok_or_else(|| tg::error!("invalid index"))?;
+				let file = node
+					.try_unwrap_file_ref()
+					.ok()
+					.ok_or_else(|| tg::error!("expected a file"))?;
+				let contents = file.contents.clone();
+				Ok(contents)
+			},
+		}
+	}
+
+	pub async fn dependencies<H>(
+		&self,
+		handle: &H,
+	) -> tg::Result<BTreeMap<tg::Reference, Dependency>>
+	where
+		H: tg::Handle,
+	{
+		let object = self.object(handle).await?;
+		let entries = match object.as_ref() {
+			Object::Normal { dependencies, .. } => dependencies.clone(),
+			Object::Graph { graph, node } => {
+				let object = graph.object(handle).await?;
+				let node = object
+					.nodes
+					.get(*node)
+					.ok_or_else(|| tg::error!("invalid index"))?;
+				let file = node
+					.try_unwrap_file_ref()
+					.ok()
+					.ok_or_else(|| tg::error!("expected a file"))?;
+				file.dependencies
+					.iter()
+					.map(|(reference, dependency)| {
+						let object = match &dependency.object {
+							Either::Left(index) => {
+								let node = object
+									.nodes
+									.get(*index)
+									.ok_or_else(|| tg::error!("invalid index"))?;
+								match node {
+									tg::graph::Node::Directory(_) => {
+										tg::Directory::with_graph_and_node(graph.clone(), *index)
+											.into()
+									},
+									tg::graph::Node::File(_) => {
+										tg::File::with_graph_and_node(graph.clone(), *index).into()
+									},
+									tg::graph::Node::Symlink(_) => {
+										tg::Symlink::with_graph_and_node(graph.clone(), *index)
+											.into()
+									},
+								}
+							},
+							Either::Right(object) => object.clone(),
+						};
+						let dependency = Dependency {
+							object,
+							tag: dependency.tag.clone(),
+						};
+						Ok::<_, tg::Error>((reference.clone(), dependency))
+					})
+					.try_collect()?
+			},
+		};
+		Ok(entries)
+	}
+
+	pub async fn get_dependency<H>(
+		&self,
+		handle: &H,
+		reference: &tg::Reference,
+	) -> tg::Result<tg::Object>
+	where
+		H: tg::Handle,
+	{
+		self.try_get_dependency(handle, reference)
+			.await?
+			.ok_or_else(|| tg::error!("expected the dependency to exist"))
+	}
+
+	pub async fn try_get_dependency<H>(
+		&self,
+		handle: &H,
+		reference: &tg::Reference,
+	) -> tg::Result<Option<tg::Object>>
+	where
+		H: tg::Handle,
+	{
+		let object = self.object(handle).await?;
+		let object = match object.as_ref() {
+			Object::Normal { dependencies, .. } => dependencies
+				.get(reference)
+				.map(|dependency| dependency.object.clone()),
+			Object::Graph { graph, node } => {
+				let object = graph.object(handle).await?;
+				let node = object
+					.nodes
+					.get(*node)
+					.ok_or_else(|| tg::error!("invalid index"))?;
+				let file = node
+					.try_unwrap_file_ref()
+					.ok()
+					.ok_or_else(|| tg::error!("expected a file"))?;
+				let Some(dependency) = file.dependencies.get(reference) else {
+					return Ok(None);
+				};
+				match &dependency.object {
+					Either::Left(index) => match object.nodes.get(*index) {
+						Some(tg::graph::Node::Directory(_)) => {
+							Some(tg::Directory::with_graph_and_node(graph.clone(), *index).into())
+						},
+						Some(tg::graph::Node::File(_)) => {
+							Some(tg::File::with_graph_and_node(graph.clone(), *index).into())
+						},
+						Some(tg::graph::Node::Symlink(_)) => {
+							Some(tg::Symlink::with_graph_and_node(graph.clone(), *index).into())
+						},
+						None => return Err(tg::error!("invalid index")),
+					},
+					Either::Right(object) => Some(object.clone()),
+				}
+			},
+		};
+		Ok(object)
 	}
 
 	pub async fn executable<H>(&self, handle: &H) -> tg::Result<bool>
 	where
 		H: tg::Handle,
 	{
-		Ok(self.object(handle).await?.executable)
-	}
-
-	pub async fn references<H>(
-		&self,
-		handle: &H,
-	) -> tg::Result<impl std::ops::Deref<Target = Vec<tg::Artifact>>>
-	where
-		H: tg::Handle,
-	{
-		Ok(self.object(handle).await?.map(|object| &object.references))
+		let object = self.object(handle).await?;
+		match object.as_ref() {
+			Object::Normal { executable, .. } => Ok(*executable),
+			Object::Graph { graph, node } => {
+				let object = graph.object(handle).await?;
+				let node = object
+					.nodes
+					.get(*node)
+					.ok_or_else(|| tg::error!("invalid index"))?;
+				let file = node
+					.try_unwrap_file_ref()
+					.ok()
+					.ok_or_else(|| tg::error!("expected a file"))?;
+				Ok(file.executable)
+			},
+		}
 	}
 
 	pub async fn reader<H>(&self, handle: &H) -> tg::Result<tg::blob::Reader<H>>
@@ -245,6 +431,10 @@ impl File {
 }
 
 impl Data {
+	pub fn id(&self) -> tg::Result<Id> {
+		Ok(Id::new(&self.serialize()?))
+	}
+
 	pub fn serialize(&self) -> tg::Result<Bytes> {
 		serde_json::to_vec(self)
 			.map(Into::into)
@@ -258,9 +448,20 @@ impl Data {
 
 	#[must_use]
 	pub fn children(&self) -> BTreeSet<tg::object::Id> {
-		std::iter::once(self.contents.clone().into())
-			.chain(self.references.iter().cloned().map(Into::into))
-			.collect()
+		match self {
+			Self::Normal {
+				contents,
+				dependencies,
+				..
+			} => {
+				let contents = contents.clone().into();
+				let dependencies = dependencies
+					.values()
+					.map(|dependency| dependency.object.clone());
+				std::iter::once(contents).chain(dependencies).collect()
+			},
+			Self::Graph { graph, .. } => [graph.clone()].into_iter().map_into().collect(),
+		}
 	}
 }
 
@@ -268,24 +469,34 @@ impl TryFrom<Data> for Object {
 	type Error = tg::Error;
 
 	fn try_from(data: Data) -> std::result::Result<Self, Self::Error> {
-		let contents = tg::Blob::with_id(data.contents);
-		let executable = data.executable;
-		let references = data
-			.references
-			.into_iter()
-			.map(tg::Artifact::with_id)
-			.collect();
-		Ok(Self {
-			contents,
-			executable,
-			references,
-		})
-	}
-}
-
-impl From<Id> for crate::Id {
-	fn from(value: Id) -> Self {
-		value.0
+		match data {
+			Data::Normal {
+				contents,
+				dependencies,
+				executable,
+			} => {
+				let contents = tg::Blob::with_id(contents);
+				let dependencies = dependencies
+					.into_iter()
+					.map(|(reference, dependency)| {
+						let dependency = Dependency {
+							object: tg::Object::with_id(dependency.object),
+							tag: dependency.tag.clone(),
+						};
+						(reference, dependency)
+					})
+					.collect();
+				Ok(Self::Normal {
+					contents,
+					dependencies,
+					executable,
+				})
+			},
+			Data::Graph { graph, node } => {
+				let graph = tg::Graph::with_id(graph);
+				Ok(Self::Graph { graph, node })
+			},
+		}
 	}
 }
 
@@ -305,46 +516,6 @@ impl std::str::FromStr for Id {
 
 	fn from_str(s: &str) -> tg::Result<Self, Self::Err> {
 		crate::Id::from_str(s)?.try_into()
-	}
-}
-
-pub struct Builder {
-	contents: tg::Blob,
-	executable: bool,
-	references: Vec<tg::tg::Artifact>,
-}
-
-impl Builder {
-	#[must_use]
-	pub fn new(contents: impl Into<tg::Blob>) -> Self {
-		Self {
-			contents: contents.into(),
-			executable: false,
-			references: Vec::new(),
-		}
-	}
-
-	#[must_use]
-	pub fn contents(mut self, contents: tg::Blob) -> Self {
-		self.contents = contents;
-		self
-	}
-
-	#[must_use]
-	pub fn executable(mut self, executable: bool) -> Self {
-		self.executable = executable;
-		self
-	}
-
-	#[must_use]
-	pub fn references(mut self, references: Vec<tg::Artifact>) -> Self {
-		self.references = references;
-		self
-	}
-
-	#[must_use]
-	pub fn build(self) -> File {
-		File::new(self.contents, self.executable, self.references)
 	}
 }
 

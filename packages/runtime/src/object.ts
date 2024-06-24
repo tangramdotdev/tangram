@@ -1,23 +1,23 @@
-import { assert as assert_ } from "./assert.ts";
-import { Branch } from "./branch.ts";
-import { Directory } from "./directory.ts";
-import { File } from "./file.ts";
-import { Leaf } from "./leaf.ts";
-import { Lock } from "./lock.ts";
-import { Symlink } from "./symlink.ts";
-import { Target } from "./target.ts";
+import * as tg from "./index.ts";
 
-export type Object_ =
-	| Leaf
-	| Branch
-	| Directory
-	| File
-	| Symlink
-	| Lock
-	| Target;
+export type Object =
+	| tg.Leaf
+	| tg.Branch
+	| tg.Directory
+	| tg.File
+	| tg.Symlink
+	| tg.Graph
+	| tg.Target;
 
-export namespace Object_ {
-	export type Id = string;
+export namespace Object {
+	export type Id =
+		| tg.Leaf.Id
+		| tg.Branch.Id
+		| tg.Directory.Id
+		| tg.File.Id
+		| tg.Symlink.Id
+		| tg.Graph.Id
+		| tg.Target.Id;
 
 	export type Kind =
 		| "leaf"
@@ -25,41 +25,62 @@ export namespace Object_ {
 		| "directory"
 		| "file"
 		| "symlink"
-		| "lock"
+		| "graph"
 		| "target";
 
-	export type Object_ =
-		| { kind: "leaf"; value: Leaf.Object_ }
-		| { kind: "branch"; value: Branch.Object_ }
-		| { kind: "directory"; value: Directory.Object_ }
-		| { kind: "file"; value: File.Object_ }
-		| { kind: "symlink"; value: Symlink.Object_ }
-		| { kind: "lock"; value: Lock.Object_ }
-		| { kind: "target"; value: Target.Object_ };
+	export type Object =
+		| { kind: "leaf"; value: tg.Leaf.Object }
+		| { kind: "branch"; value: tg.Branch.Object }
+		| { kind: "directory"; value: tg.Directory.Object }
+		| { kind: "file"; value: tg.File.Object }
+		| { kind: "symlink"; value: tg.Symlink.Object }
+		| { kind: "graph"; value: tg.Graph.Object }
+		| { kind: "target"; value: tg.Target.Object };
 
 	export type State<I, O> = {
 		id?: I | undefined;
 		object?: O | undefined;
 	};
 
-	export let is = (value: unknown): value is Object_ => {
+	export let withId = (id: tg.Object.Id): tg.Object => {
+		let prefix = id.substring(0, 3);
+		if (prefix === "lef") {
+			return tg.Leaf.withId(id);
+		} else if (prefix === "bch") {
+			return tg.Branch.withId(id);
+		} else if (prefix === "dir") {
+			return tg.Directory.withId(id);
+		} else if (prefix === "fil") {
+			return tg.File.withId(id);
+		} else if (prefix === "sym") {
+			return tg.Symlink.withId(id);
+		} else if (prefix === "gph") {
+			return tg.Graph.withId(id);
+		} else if (prefix === "tgt") {
+			return tg.Target.withId(id);
+		} else {
+			throw new Error(`invalid object id: ${id}`);
+		}
+	};
+
+	export let is = (value: unknown): value is Object => {
 		return (
-			value instanceof Leaf ||
-			value instanceof Branch ||
-			value instanceof Directory ||
-			value instanceof File ||
-			value instanceof Symlink ||
-			value instanceof Target ||
-			value instanceof Lock
+			value instanceof tg.Leaf ||
+			value instanceof tg.Branch ||
+			value instanceof tg.Directory ||
+			value instanceof tg.File ||
+			value instanceof tg.Symlink ||
+			value instanceof tg.Graph ||
+			value instanceof tg.Target
 		);
 	};
 
-	export let expect = (value: unknown): Object_ => {
-		assert_(is(value));
+	export let expect = (value: unknown): Object => {
+		tg.assert(is(value));
 		return value;
 	};
 
-	export let assert = (value: unknown): asserts value is Object_ => {
-		assert_(is(value));
+	export let assert = (value: unknown): asserts value is Object => {
+		tg.assert(is(value));
 	};
 }

@@ -22,7 +22,7 @@ export let activate = async (context: vscode.ExtensionContext) => {
 	// Register the content provider for virtual files.
 	context.subscriptions.push(
 		vscode.workspace.registerTextDocumentContentProvider(
-			"tangram",
+			"tg",
 			new TangramTextDocumentContentProvider(languageClient),
 		),
 	);

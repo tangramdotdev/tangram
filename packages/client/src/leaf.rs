@@ -11,6 +11,7 @@ use std::{collections::BTreeSet, sync::Arc};
 	PartialEq,
 	PartialOrd,
 	derive_more::Display,
+	derive_more::Into,
 	serde::Deserialize,
 	serde::Serialize,
 )]
@@ -144,7 +145,8 @@ impl Leaf {
 
 impl Leaf {
 	#[must_use]
-	pub fn new(bytes: Bytes) -> Self {
+	pub fn new(bytes: impl Into<Bytes>) -> Self {
+		let bytes = bytes.into();
 		Self::with_object(Object { bytes })
 	}
 
@@ -184,12 +186,6 @@ impl TryFrom<Data> for Object {
 impl Default for Leaf {
 	fn default() -> Self {
 		Self::with_object(Object::default())
-	}
-}
-
-impl From<Id> for crate::Id {
-	fn from(value: Id) -> Self {
-		value.0
 	}
 }
 

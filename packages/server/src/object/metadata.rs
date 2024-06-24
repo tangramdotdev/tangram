@@ -2,10 +2,9 @@ use crate::Server;
 use futures::{future, FutureExt as _};
 use indoc::formatdoc;
 use itertools::Itertools as _;
-use tangram_client as tg;
+use tangram_client::{self as tg, handle::Ext as _};
 use tangram_database::{self as db, prelude::*};
 use tangram_http::{outgoing::response::Ext as _, Incoming, Outgoing};
-use tg::Handle as _;
 
 impl Server {
 	pub async fn try_get_object_metadata(
@@ -32,15 +31,14 @@ impl Server {
 
 		// If the object is an artifact, then try to store it.
 		if let Ok(artifact) = tg::artifact::Id::try_from(id.clone()) {
-			let server = self.clone();
 			let stored = self
 				.artifact_store_task_map
-				.get_or_spawn(artifact.clone(), |_| async move {
-					server.try_store_artifact(&artifact).await
+				.get_or_spawn(artifact.clone(), |_| {
+					self.try_store_artifact_future(&artifact)
 				})
 				.wait()
 				.await
-				.map_err(|source| tg::error!(!source, "failed to wait for task"))??;
+				.map_err(|source| tg::error!(!source, "failed to wait for the task"))??;
 			if stored {
 				let output = self
 					.try_get_object_metadata_local_database(id)
@@ -60,7 +58,7 @@ impl Server {
 				})
 				.wait()
 				.await
-				.map_err(|source| tg::error!(!source, "failed to wait for task"))??;
+				.map_err(|source| tg::error!(!source, "failed to wait for the task"))??;
 			if stored {
 				let output = self
 					.try_get_object_metadata_local_database(id)

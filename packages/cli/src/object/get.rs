@@ -1,19 +1,20 @@
 use crate::Cli;
-use crossterm::{style::Stylize as _, tty::IsTty};
-use tangram_client::{self as tg, Handle as _};
+use crossterm::{style::Stylize as _, tty::IsTty as _};
+use tangram_client::{self as tg, handle::Ext as _};
 use tokio::io::AsyncWriteExt as _;
 
 /// Get an object.
 #[derive(Clone, Debug, clap::Args)]
 #[group(skip)]
 pub struct Args {
+	#[arg(index = 1)]
 	pub object: tg::object::Id,
 }
 
 impl Cli {
 	pub async fn command_object_get(&self, args: Args) -> tg::Result<()> {
-		let client = self.client().await?;
-		let tg::object::get::Output { bytes, metadata } = client.get_object(&args.object).await?;
+		let handle = self.handle().await?;
+		let tg::object::get::Output { bytes, metadata } = handle.get_object(&args.object).await?;
 		if let Some(count) = metadata.count {
 			eprintln!("{} count {count}", "info".blue().bold());
 		}

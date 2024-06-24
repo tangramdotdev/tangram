@@ -379,7 +379,7 @@ where
 		} else if request.size.to_usize().unwrap() < attr.len() {
 			Err(Error::from_raw_os_error(libc::ERANGE))
 		} else {
-			Ok(Some(Response::GetXattr(attr.into_bytes())))
+			Ok(Some(Response::GetXattr(attr.into())))
 		}
 	}
 

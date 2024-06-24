@@ -2,6 +2,7 @@
 	"compilerOptions": {
 		"allowImportingTsExtensions": true,
 		"exactOptionalPropertyTypes": true,
+		"isolatedModules": true,
 		"lib": ["esnext"],
 		"module": "esnext",
 		"moduleResolution": "bundler",

@@ -1,5 +1,5 @@
 use crate::Cli;
-use tangram_client as tg;
+use tangram_client::{self as tg, Handle as _};
 
 use url::Url;
 
@@ -7,17 +7,20 @@ use url::Url;
 #[derive(Clone, Debug, clap::Args)]
 #[group(skip)]
 pub struct Args {
+	#[arg(index = 1)]
 	pub name: String,
+
+	#[arg(index = 2)]
 	pub url: Url,
 }
 
 impl Cli {
 	pub async fn command_remote_put(&self, args: Args) -> tg::Result<()> {
-		let client = self.client().await?;
+		let handle = self.handle().await?;
 		let name = args.name;
 		let url = args.url;
 		let arg = tg::remote::put::Arg { url };
-		client.put_remote(&name, arg).await?;
+		handle.put_remote(&name, arg).await?;
 		Ok(())
 	}
 }

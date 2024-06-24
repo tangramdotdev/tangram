@@ -1,12 +1,12 @@
 use crate::Attrs;
 use bytes::Bytes;
 use dashmap::DashMap;
-use either::Either;
 use num::ToPrimitive;
 use std::{
 	io::{Error, Result},
 	sync::atomic::{AtomicU64, Ordering},
 };
+use tangram_either::Either;
 
 pub(super) struct Provider<P> {
 	inner: P,
@@ -163,7 +163,7 @@ where
 				.getxattr(attr_file.node, &attr_file.name)
 				.await?
 				.ok_or_else(|| Error::from_raw_os_error(libc::ENOENT))?
-				.into_bytes();
+				.into();
 			let handle = AttrFileHandle { content };
 			self.handles.insert(id, Either::Right(handle));
 			Ok(id)
@@ -203,7 +203,7 @@ where
 		Err(Error::from_raw_os_error(libc::ENOSYS))
 	}
 
-	async fn getxattr(&self, _handle: u64, _name: &str) -> Result<Option<String>> {
+	async fn getxattr(&self, _handle: u64, _name: &str) -> Result<Option<Bytes>> {
 		Err(Error::from_raw_os_error(libc::ENOSYS))
 	}
 

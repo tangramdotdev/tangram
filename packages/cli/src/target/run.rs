@@ -6,30 +6,31 @@ use tangram_client as tg;
 #[derive(Clone, Debug, clap::Args)]
 #[group(skip)]
 pub struct Args {
+	#[command(flatten)]
+	pub build: crate::target::build::Args,
+
 	/// The path to the executable in the artifact to run.
 	#[arg(short = 'x', long)]
 	pub executable: Option<tg::Path>,
 
-	#[command(flatten)]
-	pub inner: crate::target::build::InnerArgs,
-
 	/// Arguments to pass to the executable.
-	#[arg(trailing_var_arg = true)]
+	#[arg(index = 1, trailing_var_arg = true)]
 	pub trailing: Vec<String>,
 }
 
 impl Cli {
 	pub async fn command_target_run(&self, mut args: Args) -> tg::Result<()> {
-		let client = self.client().await?;
+		let handle = self.handle().await?;
 
 		// Check out the output.
-		args.inner.checkout = Some(None);
+		args.build.checkout = Some(None);
 
 		// Build the target.
-		let output = self.command_target_build_inner(args.inner, false).await?;
+		let output = self.command_target_build_inner(args.build).await?;
 
 		// Get the path to the artifact.
-		let mut artifact_path = match output.unwrap() {
+		let mut artifact_path = match output {
+			crate::target::build::InnerOutput::Detached(_) => unreachable!(),
 			crate::target::build::InnerOutput::Path(path) => path,
 			crate::target::build::InnerOutput::Value(value) => {
 				let artifact: tg::Artifact = value.try_into().map_err(|source| {
@@ -43,8 +44,7 @@ impl Cli {
 						PathBuf::from(std::env::var("HOME").unwrap()).join(".tangram")
 					});
 				path.join("artifacts")
-					.join(artifact.id(&client).await?.to_string())
-					.try_into()?
+					.join(artifact.id(&handle).await?.to_string())
 			},
 		};
 
@@ -64,9 +64,11 @@ impl Cli {
 		};
 
 		// Exec.
-		let error = std::process::Command::new(executable_path.as_path())
+		let error = std::process::Command::new(&executable_path)
 			.args(args.trailing)
 			.exec();
-		Err(tg::error!(source = error, %executable_path, "failed to execute the command"))
+		Err(
+			tg::error!(source = error, %executable_path = executable_path.display(), "failed to execute the command"),
+		)
 	}
 }

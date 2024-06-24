@@ -40,7 +40,8 @@ impl Compiler {
 			};
 
 			// Create the stripper.
-			let mut stripper = swc::ecma::transforms::typescript::strip(top_level_mark);
+			let mut stripper =
+				swc::ecma::transforms::typescript::strip(unresolved_mark, top_level_mark);
 
 			// Create the fixer.
 			let mut fixer = swc::ecma::transforms::base::fixer::fixer(None);
@@ -259,6 +260,13 @@ impl TargetVisitor {
 			},
 		};
 
+		// Create the function property.
+		let function_prop =
+			ast::PropOrSpread::Prop(Box::new(ast::Prop::KeyValue(ast::KeyValueProp {
+				key: ast::IdentName::new("function".into(), n.span).into(),
+				value: Box::new(f.clone().into()),
+			})));
+
 		// Create the module property.
 		let import_meta = ast::Expr::MetaProp(ast::MetaPropExpr {
 			span: swc::common::DUMMY_SP,
@@ -267,15 +275,16 @@ impl TargetVisitor {
 		let import_meta_url = ast::MemberExpr {
 			span: swc::common::DUMMY_SP,
 			obj: Box::new(import_meta),
-			prop: ast::Ident::new("url".into(), n.span).into(),
+			prop: ast::IdentName::new("url".into(), n.span).into(),
 		};
-		let url_prop = ast::PropOrSpread::Prop(Box::new(ast::Prop::KeyValue(ast::KeyValueProp {
-			key: ast::Ident::new("url".into(), n.span).into(),
-			value: Box::new(import_meta_url.into()),
-		})));
+		let module_prop =
+			ast::PropOrSpread::Prop(Box::new(ast::Prop::KeyValue(ast::KeyValueProp {
+				key: ast::IdentName::new("module".into(), n.span).into(),
+				value: Box::new(import_meta_url.into()),
+			})));
 
 		// Create the name property.
-		let key = ast::Ident::new("name".into(), n.span);
+		let key = ast::IdentName::new("name".into(), n.span);
 		let value: ast::Expr = ast::Lit::Str(ast::Str {
 			value: name.into(),
 			span: n.span,
@@ -287,16 +296,9 @@ impl TargetVisitor {
 			value: Box::new(value),
 		})));
 
-		// Create the function property.
-		let function_prop =
-			ast::PropOrSpread::Prop(Box::new(ast::Prop::KeyValue(ast::KeyValueProp {
-				key: ast::Ident::new("function".into(), n.span).into(),
-				value: Box::new(f.clone().into()),
-			})));
-
 		// Create the object.
 		let object = ast::ObjectLit {
-			props: vec![url_prop, name_prop, function_prop],
+			props: vec![module_prop, name_prop, function_prop],
 			span: swc::common::DUMMY_SP,
 		};
 
@@ -325,9 +327,9 @@ mod tests {
 		let right = indoc!(
 			r#"
 				export default tg.target({
-					url: import.meta.url,
-					name: "default",
 					function: ()=>{}
+					module: import.meta.url,
+					name: "default",
 				});
 			"#
 		);
@@ -347,9 +349,9 @@ mod tests {
 		let right = indoc!(
 			r#"
 				export let named = tg.target({
-					url: import.meta.url,
-					name: "named",
 					function: ()=>{}
+					module: import.meta.url,
+					name: "named",
 				});
 			"#
 		);
@@ -369,9 +371,9 @@ mod tests {
 		let right = indoc!(
 			r#"
 				tg.target({
-					url: import.meta.url,
-					name: "named",
 					function: ()=>{}
+					module: import.meta.url,
+					name: "named",
 				});
 			"#
 		);
