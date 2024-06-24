@@ -12,10 +12,9 @@ use std::{
 		Arc,
 	},
 };
-use tangram_client as tg;
+use tangram_client::{self as tg, handle::Ext as _};
 use tangram_database::{self as db, prelude::*};
 use tangram_vfs as vfs;
-use tg::Handle as _;
 
 pub struct Provider {
 	node_cache: moka::sync::Cache<u64, Node, fnv::FnvBuildHasher>,
@@ -385,22 +384,22 @@ impl vfs::Provider for Provider {
 			return Ok(None);
 		}
 
-		// Get the references.
-		let artifacts = file.references(&self.server).await.map_err(|e| {
-			tracing::error!(?e, ?file, "failed to get file references");
+		// Get the dependencies.
+		let artifacts = file.dependencies(&self.server).await.map_err(|e| {
+			tracing::error!(?e, ?file, "failed to get file dependencies");
 			std::io::Error::from_raw_os_error(libc::EIO)
 		})?;
 
 		// Create the output.
-		let mut references = BTreeSet::new();
+		let mut dependencies = BTreeSet::new();
 		for artifact in artifacts.iter() {
 			let id = artifact.id(&self.server).await.map_err(|e| {
 				tracing::error!(?e, ?artifact, "failed to get ID of artifact");
 				std::io::Error::from_raw_os_error(libc::EIO)
 			})?;
-			references.insert(id);
+			dependencies.insert(id);
 		}
-		let attributes = tg::file::Attributes { references };
+		let attributes = tg::file::Attributes { dependencies };
 		let output = serde_json::to_string(&attributes).unwrap();
 
 		Ok(Some(output))

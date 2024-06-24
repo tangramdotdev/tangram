@@ -59,7 +59,7 @@ struct Module {
 	v8_module: v8::Global<v8::Module>,
 }
 
-#[derive(Clone, Copy, PartialEq, Eq)]
+#[derive(Clone, Copy, Eq, PartialEq)]
 enum ImportKind {
 	Static,
 	Dynamic,
@@ -499,9 +499,14 @@ fn resolve_module(
 			sender.send(module).unwrap();
 		}
 	});
-	let module = match receiver.recv().unwrap().map_err(
-		|source| tg::error!(!source, %import = import.specifier, %module, "failed to resolve import relative to module"),
-	) {
+	let module = match receiver.recv().unwrap().map_err(|source| {
+		tg::error!(
+			!source,
+			?import,
+			?module,
+			"failed to resolve import relative to module"
+		)
+	}) {
 		Ok(module) => module,
 		Err(error) => {
 			let exception = error::to_exception(scope, &error);
@@ -702,7 +707,7 @@ fn parse_import_inner<'s>(
 
 	// Get the attributes.
 	let attributes = if attributes.length() > 0 {
-		let mut map = BTreeMap::default();
+		let mut map = BTreeMap::new();
 		let mut i = 0;
 		while i < attributes.length() {
 			// Get the key.

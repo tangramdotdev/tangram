@@ -8,7 +8,7 @@ pub struct Auth {
 	pub opaque: Vec<u8>,
 }
 
-#[derive(Copy, Clone, Debug)]
+#[derive(Clone, Copy, Debug)]
 #[repr(i32)]
 pub enum AuthFlavor {
 	None = 0,
@@ -61,13 +61,13 @@ pub enum ReplyAcceptedStat {
 	SystemError,
 }
 
-#[derive(Copy, Clone, Debug)]
+#[derive(Clone, Copy, Debug)]
 pub enum ReplyRejected {
 	RpcMismatch { low: u32, high: u32 },
 	AuthError(AuthStat),
 }
 
-#[derive(Copy, Clone, Debug)]
+#[derive(Clone, Copy, Debug)]
 #[repr(i32)]
 pub enum AuthStat {
 	Ok = 0,

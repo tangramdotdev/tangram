@@ -2,14 +2,11 @@ import { Args } from "./args.ts";
 import { Artifact } from "./artifact.ts";
 import { assert as assert_ } from "./assert.ts";
 import type { Checksum } from "./checksum.ts";
-import { Directory } from "./directory.ts";
-import { File } from "./file.ts";
-import { Lock } from "./lock.ts";
 import { Module } from "./module.ts";
 import type { Object_ } from "./object.ts";
-import { Path } from "./path.ts";
+import { Package, package_ } from "./package.ts";
 import { type Unresolved, resolve } from "./resolve.ts";
-import { Symlink, symlink } from "./symlink.ts";
+import { symlink } from "./symlink.ts";
 import { Template } from "./template.ts";
 import {
 	type MaybeMutationMap,
@@ -60,34 +57,13 @@ export function target<
 		// Get the module.
 		let module_ = Module.fromUrl(arg.url);
 
-		// Get the executable and lock.
-		let executable: File | Symlink | undefined = undefined;
-		let lock = undefined;
-		if (module_.kind === "js" || module_.kind === "ts") {
-			if (module_.value.kind === "package_artifact") {
-				let package_artifact = module_.value.value;
-				lock = Lock.withId(package_artifact.lock);
-				executable = new Symlink({
-					object: {
-						artifact: Directory.withId(package_artifact.artifact),
-						path: Path.new(package_artifact.path),
-					},
-				});
-			} else if (module_.value.kind === "file") {
-				let file = module_.value.value;
-				executable = File.withId(file);
-			}
-		}
-		assert_(executable, "failed to create the executable");
-
 		// Create the target.
 		let object = {
-			host: "js",
-			executable,
-			env: getCurrentTarget().expectObject().env,
 			args: [arg.name],
-			lock,
 			checksum: undefined,
+			env: getCurrentTarget().expectObject().env,
+			executable: Package.withId(module_.package),
+			host: "js",
 		};
 		let state = {
 			object: object,
@@ -149,18 +125,28 @@ export class Target<
 		R extends Value = Value,
 	>(...args: Args<Target.Arg>): Promise<Target<A, R>> {
 		let arg = await Target.arg(...args);
-		if (!arg.host) {
+		let args_ = arg.args ?? [];
+		let checksum = arg.checksum;
+		let env = await Args.applyMutations(flatten(arg.env ?? []));
+		let executable: Package | undefined;
+		if (Artifact.is(arg.executable)) {
+			executable = await package_({
+				root: 0,
+				nodes: [{ object: arg.executable }],
+			});
+		} else if (arg.executable instanceof Package) {
+			executable = arg.executable;
+		}
+		let host = arg.host;
+		if (!host) {
 			throw new Error("cannot create a target without a host");
 		}
-		let env = await Args.applyMutations(flatten(arg.env ?? []));
-		let args_ = arg.args ?? [];
 		let object = {
-			host: arg.host,
-			executable: arg.executable,
 			args: args_,
+			checksum,
 			env,
-			lock: arg.lock,
-			checksum: arg.checksum,
+			executable,
+			host,
 		};
 		return new Target({ object });
 	}
@@ -178,9 +164,9 @@ export class Target<
 					arg instanceof Template
 				) {
 					return {
-						host: (await getCurrentTarget().env()).TANGRAM_HOST as string,
-						executable: await symlink("/bin/sh"),
 						args: ["-c", arg],
+						executable: await symlink("/bin/sh"),
+						host: (await getCurrentTarget().env()).TANGRAM_HOST as string,
 					};
 				} else if (arg instanceof Target) {
 					return await arg.object();
@@ -247,28 +233,24 @@ export class Target<
 		}
 	}
 
-	async host(): Promise<string> {
-		return (await this.object()).host;
-	}
-
-	async executable(): Promise<Artifact | undefined> {
-		return (await this.object()).executable;
-	}
-
-	async lock(): Promise<Lock | undefined> {
-		return (await this.object()).lock;
-	}
-
-	async env(): Promise<{ [key: string]: Value }> {
-		return (await this.object()).env;
-	}
-
 	async args(): Promise<Array<Value>> {
 		return (await this.object()).args;
 	}
 
 	async checksum(): Promise<Checksum | undefined> {
 		return (await this.object()).checksum;
+	}
+
+	async env(): Promise<{ [key: string]: Value }> {
+		return (await this.object()).env;
+	}
+
+	async executable(): Promise<Package | undefined> {
+		return (await this.object()).executable;
+	}
+
+	async host(): Promise<string> {
+		return (await this.object()).host;
 	}
 
 	async output(): Promise<R> {
@@ -290,23 +272,21 @@ export namespace Target {
 		| ArgObject;
 
 	export type ArgObject = {
-		host?: string | undefined;
-		executable?: Artifact | undefined;
 		args?: Array<Value> | undefined;
-		env?: MaybeNestedArray<MaybeMutationMap> | undefined;
-		lock?: Lock | undefined;
 		checksum?: Checksum | undefined;
+		env?: MaybeNestedArray<MaybeMutationMap> | undefined;
+		executable?: Artifact | Package | undefined;
+		host?: string | undefined;
 	};
 
 	export type Id = string;
 
 	export type Object_ = {
-		host: string;
-		executable: Artifact | undefined;
 		args: Array<Value>;
-		env: { [key: string]: Value };
-		lock: Lock | undefined;
 		checksum: Checksum | undefined;
+		env: { [key: string]: Value };
+		executable: Package | undefined;
+		host: string;
 	};
 
 	export type State = Object_.State<Target.Id, Target.Object_>;

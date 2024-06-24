@@ -5,6 +5,7 @@ use tangram_client as tg;
 #[derive(Clone, Debug, clap::Args)]
 #[group(skip)]
 pub struct Args {
+	#[arg(index = 1)]
 	pub build: tg::build::Id,
 
 	#[allow(clippy::option_option)]

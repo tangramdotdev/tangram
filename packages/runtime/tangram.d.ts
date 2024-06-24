@@ -280,11 +280,11 @@ declare namespace tg {
 		/** Get this file's contents as a string. This method throws an error if the contents are not valid UTF-8. */
 		text(): Promise<string>;
 
+		/** Get this file's dependencies. */
+		dependencies(): Promise<Array<Artifact>>;
+
 		/** Get this file's executable bit. */
 		executable(): Promise<boolean>;
-
-		/** Get this file's references. */
-		references(): Promise<Array<Artifact>>;
 	}
 
 	export namespace File {
@@ -292,8 +292,8 @@ declare namespace tg {
 
 		type ArgObject = {
 			contents?: Blob.Arg | undefined;
+			dependencies?: Array<Artifact> | undefined;
 			executable?: boolean | undefined;
-			references?: Array<Artifact> | undefined;
 		};
 
 		export type Id = string;
@@ -499,37 +499,45 @@ declare namespace tg {
 			| "suffix";
 	}
 
-	/** Create a lock. */
-	export let lock: (...args: Args<Lock.Arg>) => Promise<Lock>;
+	/** Create a package. */
+	export let package: (...args: Args<Package.Arg>) => Promise<Package>;
 
-	/** A lock. */
-	export class Lock {
-		/** Get a lock with an ID. */
-		static withId(id: Lock.Id): Lock;
+	/** A package. */
+	export class Package {
+		/** Get a package with an ID. */
+		static withId(id: Package.Id): Package;
 
-		/** Create a lock. */
-		static new(...args: Args<Lock.Arg>): Promise<Lock>;
+		/** Create a package. */
+		static new(...args: Args<Package.Arg>): Promise<Package>;
 
-		/** Expect that a value is a `tg.Lock`. */
-		static expect(value: unknown): Lock;
+		/** Expect that a value is a `tg.Package`. */
+		static expect(value: unknown): Package;
 
-		/** Assert that a value is a `tg.Lock`. */
-		static assert(value: unknown): asserts value is Lock;
+		/** Assert that a value is a `tg.Package`. */
+		static assert(value: unknown): asserts value is Package;
 
-		/** Get this lock's dependencies. */
-		dependencies(): Promise<{ [key: string]: Lock }>;
+		/** Get this package's dependencies. */
+		dependencies(): Promise<{ [key: string]: Package }>;
+
+		/** Get this package's metadata. */
+		metadata(): Promise<{ [key: string]: Value }>;
+
+		/** Get this package's object. */
+		object(): Promise<Object>;
 	}
 
-	export namespace Lock {
-		export type Arg = Lock | ArgObject;
+	export namespace Package {
+		export type Arg = Package | ArgObject;
 
 		export type ArgObject = {
-			root?: number | undefined;
 			nodes?: Array<NodeArg> | undefined;
+			root?: number | undefined;
 		};
 
 		export type NodeArg = {
-			dependencies?: { [dependency: string]: Lock.Arg | number };
+			dependencies?: { [dependency: string]: Package.Arg | number } | undefined;
+			metadata?: { [key: string]: Value } | undefined;
+			object?: Object | undefined;
 		};
 
 		export type Id = string;
@@ -692,23 +700,20 @@ declare namespace tg {
 		/** Get this target's ID. */
 		id(): Promise<Target.Id>;
 
-		/** Get this target's host. */
-		host(): Promise<string>;
-
-		/** Get this target's executable. */
-		executable(): Promise<Artifact | undefined>;
-
 		/** Get this target's arguments. */
 		args(): Promise<Array<Value>>;
+
+		/** Get this target's checksum. */
+		checksum(): Promise<Checksum | undefined>;
 
 		/** Get this target's environment. */
 		env(): Promise<{ [key: string]: Value }>;
 
-		/** Get this target's lock. */
-		lock(): Promise<string | undefined>;
+		/** Get this target's executable. */
+		executable(): Promise<Package | undefined>;
 
-		/** Get this target's checksum. */
-		checksum(): Promise<Checksum | undefined>;
+		/** Get this target's host. */
+		host(): Promise<string>;
 
 		/** Build this target and return the build's output. */
 		output(): Promise<R>;
@@ -724,23 +729,20 @@ declare namespace tg {
 			| ArgObject;
 
 		type ArgObject = {
-			/** The system to build the target on. */
-			host?: string | undefined;
-
-			/** The target's executable. */
-			executable?: Artifact | undefined;
-
-			/** The target's lock. */
-			lock?: Lock | undefined;
-
-			/** The target's environment variables. */
-			env?: MaybeNestedArray<MaybeMutationMap> | undefined;
-
 			/** The target's command line arguments. */
 			args?: Array<Value> | undefined;
 
 			/** If a checksum of the target's output is provided, then the target will have access to the network. */
 			checksum?: Checksum | undefined;
+
+			/** The target's environment variables. */
+			env?: MaybeNestedArray<MaybeMutationMap> | undefined;
+
+			/** The target's executable. */
+			executable?: Artifact | Package | undefined;
+
+			/** The system to build the target on. */
+			host?: string | undefined;
 		};
 
 		export type Id = string;
@@ -802,7 +804,7 @@ declare namespace tg {
 		| Directory
 		| File
 		| Symlink
-		| Lock
+		| Package
 		| Target
 		| Mutation
 		| Template
@@ -822,7 +824,7 @@ declare namespace tg {
 		| Directory
 		| File
 		| Symlink
-		| Lock
+		| Package
 		| Target;
 
 	/** Create a path. **/

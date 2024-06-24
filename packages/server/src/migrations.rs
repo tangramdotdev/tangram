@@ -154,19 +154,14 @@ async fn migration_0000(path: &Path) -> tg::Result<()> {
 
 			create index object_children_child_index on object_children (child);
 
-			create table package_versions (
+			create table tags (
+				id integer primary key autoincrement,
 				name text not null,
-				version text not null,
-				artifact text not null,
-				created_at text not null,
-				yanked integer not null,
-				primary key (name, version)
+				parent integer,
+				item text
 			);
 
-			create table roots (
-				name text primary key,
-				item text not null
-			);
+			create index tags_parent_name_index on tags (parent, name);
 
 			create table users (
 				id text primary key,

@@ -191,7 +191,7 @@ fn main() {
 
 fn create_snapshot(path: impl AsRef<Path>) -> v8::StartupData {
 	// Create the isolate.
-	let mut isolate = v8::Isolate::snapshot_creator(None);
+	let mut isolate = v8::Isolate::snapshot_creator(None, None);
 
 	{
 		// Create a context.

@@ -8,6 +8,7 @@ pub struct Args {
 	#[arg(short, long)]
 	pub algorithm: tg::checksum::Algorithm,
 
+	#[arg(index = 1)]
 	pub artifact: tg::artifact::Id,
 }
 
@@ -19,11 +20,8 @@ impl Cli {
 		let target = artifact.checksum_target(algorithm);
 		let target = target.id(&client).await?;
 		let args = crate::target::build::Args {
-			inner: crate::target::build::InnerArgs {
-				target: Some(target),
-				..Default::default()
-			},
-			detach: false,
+			reference: Some(tg::Reference::with_object(target.into())),
+			..Default::default()
 		};
 		self.command_target_build(args).await?;
 		Ok(())

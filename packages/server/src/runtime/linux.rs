@@ -1094,7 +1094,7 @@ impl CStringVec {
 
 unsafe impl Send for CStringVec {}
 
-#[derive(Debug, Copy, Clone, Eq, PartialEq)]
+#[derive(Debug, Clone, Copy, Eq, PartialEq)]
 enum ExitStatus {
 	Code(i32),
 	Signal(i32),

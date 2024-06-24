@@ -15,7 +15,7 @@ use std::{
 		Arc,
 	},
 };
-use tangram_client::{self as tg, Handle};
+use tangram_client::{self as tg, handle::Ext as _};
 use tangram_database::{self as db, prelude::*};
 use tangram_http::{incoming::request::Ext as _, outgoing::response::Ext as _, Incoming, Outgoing};
 use time::format_description::well_known::Rfc3339;
@@ -348,18 +348,18 @@ impl Server {
 		// Determine if the file is executable.
 		let executable = (metadata.permissions().mode() & 0o111) != 0;
 
-		// Read the file's references from its xattrs.
+		// Read the file's dependencies from its xattrs.
 		let attributes: Option<tg::file::Attributes> =
 			xattr::get(&arg.path, tg::file::TANGRAM_FILE_XATTR_NAME)
 				.ok()
 				.flatten()
 				.and_then(|attributes| serde_json::from_slice(&attributes).ok());
-		let references = attributes
-			.map(|attributes| attributes.references)
+		let dependencies = attributes
+			.map(|attributes| attributes.dependencies)
 			.unwrap_or_default()
 			.into_iter()
 			.collect::<BTreeSet<tg::artifact::Id>>();
-		let references_metadata = references
+		let dependencies_metadata = dependencies
 			.iter()
 			.map(|id| async { self.get_object_metadata(&id.clone().into()).await })
 			.collect::<FuturesUnordered<_>>()
@@ -370,7 +370,7 @@ impl Server {
 		let data = tg::file::Data {
 			contents: output.blob.clone(),
 			executable,
-			references,
+			dependencies,
 		};
 		let bytes = data.serialize()?;
 		let id = tg::artifact::Id::from(tg::file::Id::new(&bytes));
@@ -393,12 +393,12 @@ impl Server {
 		let count = std::iter::empty()
 			.chain(std::iter::once(Some(1)))
 			.chain(std::iter::once(Some(output.count)))
-			.chain(references_metadata.iter().map(|metadata| metadata.count))
+			.chain(dependencies_metadata.iter().map(|metadata| metadata.count))
 			.sum::<Option<u64>>();
 		let weight = std::iter::empty()
 			.chain(std::iter::once(Some(bytes.len().to_u64().unwrap())))
 			.chain(std::iter::once(Some(output.weight)))
-			.chain(references_metadata.iter().map(|metadata| metadata.weight))
+			.chain(dependencies_metadata.iter().map(|metadata| metadata.weight))
 			.sum::<Option<u64>>();
 
 		// Create the output

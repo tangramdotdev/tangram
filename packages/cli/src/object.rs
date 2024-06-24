@@ -5,7 +5,6 @@ pub mod get;
 pub mod pull;
 pub mod push;
 pub mod put;
-pub mod tree;
 
 /// Manage objects.
 #[derive(Clone, Debug, clap::Args)]
@@ -21,7 +20,6 @@ pub enum Command {
 	Pull(self::pull::Args),
 	Push(self::push::Args),
 	Put(self::put::Args),
-	Tree(self::tree::Args),
 }
 
 impl Cli {
@@ -38,9 +36,6 @@ impl Cli {
 			},
 			Command::Put(args) => {
 				self.command_object_put(args).await?;
-			},
-			Command::Tree(args) => {
-				self.command_object_tree(args).await?;
 			},
 		}
 		Ok(())

@@ -6,15 +6,15 @@ use tangram_client as tg;
 #[derive(Clone, Debug, clap::Args)]
 #[group(skip)]
 pub struct Args {
+	#[command(flatten)]
+	pub build: crate::target::build::Args,
+
 	/// The path to the executable in the artifact to run.
 	#[arg(short = 'x', long)]
 	pub executable: Option<tg::Path>,
 
-	#[command(flatten)]
-	pub inner: crate::target::build::InnerArgs,
-
 	/// Arguments to pass to the executable.
-	#[arg(trailing_var_arg = true)]
+	#[arg(index = 1, trailing_var_arg = true)]
 	pub trailing: Vec<String>,
 }
 
@@ -23,13 +23,14 @@ impl Cli {
 		let client = self.client().await?;
 
 		// Check out the output.
-		args.inner.checkout = Some(None);
+		args.build.checkout = Some(None);
 
 		// Build the target.
-		let output = self.command_target_build_inner(args.inner, false).await?;
+		let output = self.command_target_build_inner(args.build).await?;
 
 		// Get the path to the artifact.
-		let mut artifact_path = match output.unwrap() {
+		let mut artifact_path = match output {
+			crate::target::build::InnerOutput::Detached(_) => unreachable!(),
 			crate::target::build::InnerOutput::Path(path) => path,
 			crate::target::build::InnerOutput::Value(value) => {
 				let artifact: tg::Artifact = value.try_into().map_err(|source| {

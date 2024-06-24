@@ -12,10 +12,9 @@ use std::{
 		Arc,
 	},
 };
-use tangram_client as tg;
+use tangram_client::{self as tg, handle::Ext as _};
 use tangram_futures::task::Task;
 use tangram_http::{incoming::request::Ext as _, outgoing::response::Ext as _, Incoming, Outgoing};
-use tg::Handle as _;
 use tokio_stream::wrappers::IntervalStream;
 
 struct State {
@@ -459,26 +458,26 @@ impl Server {
 			None => (),
 		};
 
-		// Check out the file's references.
-		let references = file
-			.references(self)
+		// Check out the file's dependencies.
+		let dependencies = file
+			.dependencies(self)
 			.await
-			.map_err(|source| tg::error!(!source, "failed to get the file's references"))?
+			.map_err(|source| tg::error!(!source, "failed to get the file's dependencies"))?
 			.iter()
 			.map(|artifact| artifact.id(self))
 			.collect::<FuturesUnordered<_>>()
 			.try_collect::<BTreeSet<_>>()
 			.await
-			.map_err(|source| tg::error!(!source, "failed to get the file's references"))?;
-		if arg.references && !references.is_empty() {
-			references
+			.map_err(|source| tg::error!(!source, "failed to get the file's dependencies"))?;
+		if arg.dependencies && !dependencies.is_empty() {
+			dependencies
 				.iter()
 				.map(|artifact| async {
 					let arg = tg::artifact::checkout::Arg {
 						bundle: false,
 						force: false,
 						path: None,
-						references: true,
+						dependencies: true,
 					};
 					Box::pin(self.check_out_artifact_with_files(
 						artifact,
@@ -493,7 +492,10 @@ impl Server {
 				.try_collect::<Vec<_>>()
 				.await
 				.map_err(|error| {
-					tg::error!(source = error, "failed to check out the file's references")
+					tg::error!(
+						source = error,
+						"failed to check out the file's dependencies"
+					)
 				})?;
 		}
 
@@ -548,8 +550,8 @@ impl Server {
 		}
 
 		// Set the extended attributes if necessary.
-		if !references.is_empty() {
-			let attributes = tg::file::Attributes { references };
+		if !dependencies.is_empty() {
+			let attributes = tg::file::Attributes { dependencies };
 			let attributes = serde_json::to_vec(&attributes)
 				.map_err(|source| tg::error!(!source, "failed to serialize attributes"))?;
 			xattr::set(path, tg::file::TANGRAM_FILE_XATTR_NAME, &attributes)
@@ -589,7 +591,7 @@ impl Server {
 		};
 
 		// Check out the symlink's artifact if necessary.
-		if arg.references {
+		if arg.dependencies {
 			if let Some(artifact) = symlink.artifact(self).await? {
 				if arg.path.is_some() {
 					return Err(tg::error!(

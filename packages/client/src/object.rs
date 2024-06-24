@@ -10,7 +10,6 @@ pub mod pull;
 pub mod push;
 pub mod put;
 
-/// An object kind.
 #[derive(Clone, Copy, Debug)]
 pub enum Kind {
 	Leaf,
@@ -18,11 +17,10 @@ pub enum Kind {
 	Directory,
 	File,
 	Symlink,
-	Lock,
+	Package,
 	Target,
 }
 
-/// An object ID.
 #[derive(
 	Clone,
 	Debug,
@@ -45,11 +43,10 @@ pub enum Id {
 	Directory(tg::directory::Id),
 	File(tg::file::Id),
 	Symlink(tg::symlink::Id),
-	Lock(tg::lock::Id),
+	Package(tg::package::Id),
 	Target(tg::target::Id),
 }
 
-/// An object.
 #[derive(Clone, Debug, derive_more::From, derive_more::TryInto, derive_more::TryUnwrap)]
 #[try_unwrap(ref)]
 pub enum Handle {
@@ -58,7 +55,7 @@ pub enum Handle {
 	Directory(tg::Directory),
 	File(tg::File),
 	Symlink(tg::Symlink),
-	Lock(tg::Lock),
+	Package(tg::Package),
 	Target(tg::Target),
 }
 
@@ -68,7 +65,6 @@ pub struct State<I, O> {
 	pub object: Option<Arc<O>>,
 }
 
-/// An object.
 #[derive(Clone, Debug, derive_more::From, derive_more::TryInto, derive_more::TryUnwrap)]
 #[try_unwrap(ref)]
 pub enum Object {
@@ -77,11 +73,10 @@ pub enum Object {
 	Directory(Arc<tg::directory::Object>),
 	File(Arc<tg::file::Object>),
 	Symlink(Arc<tg::symlink::Object>),
-	Lock(Arc<tg::lock::Object>),
+	Package(Arc<tg::package::Object>),
 	Target(Arc<tg::target::Object>),
 }
 
-/// Object data.
 #[derive(Clone, Debug, derive_more::From, derive_more::TryInto, derive_more::TryUnwrap)]
 pub enum Data {
 	Leaf(tg::leaf::Data),
@@ -89,7 +84,7 @@ pub enum Data {
 	Directory(tg::directory::Data),
 	File(tg::file::Data),
 	Symlink(tg::symlink::Data),
-	Lock(tg::lock::Data),
+	Package(tg::package::Data),
 	Target(tg::target::Data),
 }
 
@@ -102,7 +97,7 @@ impl Id {
 			Self::Directory(_) => Kind::Directory,
 			Self::File(_) => Kind::File,
 			Self::Symlink(_) => Kind::Symlink,
-			Self::Lock(_) => Kind::Lock,
+			Self::Package(_) => Kind::Package,
 			Self::Target(_) => Kind::Target,
 		}
 	}
@@ -117,7 +112,7 @@ impl Handle {
 			Id::Directory(id) => Self::Directory(tg::Directory::with_id(id)),
 			Id::File(id) => Self::File(tg::File::with_id(id)),
 			Id::Symlink(id) => Self::Symlink(tg::Symlink::with_id(id)),
-			Id::Lock(id) => Self::Lock(tg::Lock::with_id(id)),
+			Id::Package(id) => Self::Package(tg::Package::with_id(id)),
 			Id::Target(id) => Self::Target(tg::Target::with_id(id)),
 		}
 	}
@@ -130,7 +125,7 @@ impl Handle {
 			Object::Directory(object) => Self::Directory(tg::Directory::with_object(object)),
 			Object::File(object) => Self::File(tg::File::with_object(object)),
 			Object::Symlink(object) => Self::Symlink(tg::Symlink::with_object(object)),
-			Object::Lock(object) => Self::Lock(tg::Lock::with_object(object)),
+			Object::Package(object) => Self::Package(tg::Package::with_object(object)),
 			Object::Target(object) => Self::Target(tg::Target::with_object(object)),
 		}
 	}
@@ -144,7 +139,7 @@ impl Handle {
 			Self::Directory(object) => object.id(handle).await.map(Id::Directory),
 			Self::File(object) => object.id(handle).await.map(Id::File),
 			Self::Symlink(object) => object.id(handle).await.map(Id::Symlink),
-			Self::Lock(object) => object.id(handle).await.map(Id::Lock),
+			Self::Package(object) => object.id(handle).await.map(Id::Package),
 			Self::Target(object) => object.id(handle).await.map(Id::Target),
 		}
 	}
@@ -159,7 +154,7 @@ impl Handle {
 			Self::Directory(object) => object.object(handle).await.map(Object::Directory),
 			Self::File(object) => object.object(handle).await.map(Object::File),
 			Self::Symlink(object) => object.object(handle).await.map(Object::Symlink),
-			Self::Lock(object) => object.object(handle).await.map(Object::Lock),
+			Self::Package(object) => object.object(handle).await.map(Object::Package),
 			Self::Target(object) => object.object(handle).await.map(Object::Target),
 		}
 	}
@@ -174,7 +169,7 @@ impl Handle {
 			Self::Directory(object) => object.data(handle).await.map(Data::Directory),
 			Self::File(object) => object.data(handle).await.map(Data::File),
 			Self::Symlink(object) => object.data(handle).await.map(Data::Symlink),
-			Self::Lock(object) => object.data(handle).await.map(Data::Lock),
+			Self::Package(object) => object.data(handle).await.map(Data::Package),
 			Self::Target(object) => object.data(handle).await.map(Data::Target),
 		}
 	}
@@ -189,7 +184,7 @@ impl Data {
 			Self::Directory(_) => Kind::Directory,
 			Self::File(_) => Kind::File,
 			Self::Symlink(_) => Kind::Symlink,
-			Self::Lock(_) => Kind::Lock,
+			Self::Package(_) => Kind::Package,
 			Self::Target(_) => Kind::Target,
 		}
 	}
@@ -202,7 +197,7 @@ impl Data {
 			Self::Directory(data) => data.children(),
 			Self::File(data) => data.children(),
 			Self::Symlink(data) => data.children(),
-			Self::Lock(data) => data.children(),
+			Self::Package(data) => data.children(),
 			Self::Target(data) => data.children(),
 		}
 	}
@@ -215,7 +210,7 @@ impl Data {
 			Self::Directory(data) => Ok(data.serialize()?),
 			Self::File(data) => Ok(data.serialize()?),
 			Self::Symlink(data) => Ok(data.serialize()?),
-			Self::Lock(data) => Ok(data.serialize()?),
+			Self::Package(data) => Ok(data.serialize()?),
 			Self::Target(data) => Ok(data.serialize()?),
 		}
 	}
@@ -227,7 +222,7 @@ impl Data {
 			Kind::Directory => Ok(Self::Directory(tg::directory::Data::deserialize(bytes)?)),
 			Kind::File => Ok(Self::File(tg::file::Data::deserialize(bytes)?)),
 			Kind::Symlink => Ok(Self::Symlink(tg::symlink::Data::deserialize(bytes)?)),
-			Kind::Lock => Ok(Self::Lock(tg::lock::Data::deserialize(bytes)?)),
+			Kind::Package => Ok(Self::Package(tg::package::Data::deserialize(bytes)?)),
 			Kind::Target => Ok(Self::Target(tg::target::Data::deserialize(bytes)?)),
 		}
 	}
@@ -276,7 +271,7 @@ impl From<self::Id> for crate::Id {
 			self::Id::Directory(id) => id.into(),
 			self::Id::File(id) => id.into(),
 			self::Id::Symlink(id) => id.into(),
-			self::Id::Lock(id) => id.into(),
+			self::Id::Package(id) => id.into(),
 			self::Id::Target(id) => id.into(),
 		}
 	}
@@ -292,7 +287,7 @@ impl TryFrom<crate::Id> for self::Id {
 			crate::id::Kind::Directory => Ok(Self::Directory(value.try_into()?)),
 			crate::id::Kind::File => Ok(Self::File(value.try_into()?)),
 			crate::id::Kind::Symlink => Ok(Self::Symlink(value.try_into()?)),
-			crate::id::Kind::Lock => Ok(Self::Lock(value.try_into()?)),
+			crate::id::Kind::Package => Ok(Self::Package(value.try_into()?)),
 			crate::id::Kind::Target => Ok(Self::Target(value.try_into()?)),
 			kind => Err(tg::error!(%kind, "expected an object ID")),
 		}
@@ -329,7 +324,7 @@ impl From<Kind> for tg::id::Kind {
 			Kind::Directory => Self::Directory,
 			Kind::File => Self::File,
 			Kind::Symlink => Self::Symlink,
-			Kind::Lock => Self::Lock,
+			Kind::Package => Self::Package,
 			Kind::Target => Self::Target,
 		}
 	}
@@ -345,7 +340,7 @@ impl TryFrom<tg::id::Kind> for Kind {
 			tg::id::Kind::Directory => Ok(Self::Directory),
 			tg::id::Kind::File => Ok(Self::File),
 			tg::id::Kind::Symlink => Ok(Self::Symlink),
-			tg::id::Kind::Lock => Ok(Self::Lock),
+			tg::id::Kind::Package => Ok(Self::Package),
 			tg::id::Kind::Target => Ok(Self::Target),
 			kind => Err(tg::error!(%kind, "invalid kind")),
 		}
@@ -364,7 +359,7 @@ impl TryFrom<Data> for Object {
 			},
 			Data::File(data) => Self::File(Arc::new(tg::file::Object::try_from(data)?)),
 			Data::Symlink(data) => Self::Symlink(Arc::new(tg::symlink::Object::try_from(data)?)),
-			Data::Lock(data) => Self::Lock(Arc::new(tg::lock::Object::try_from(data)?)),
+			Data::Package(data) => Self::Package(Arc::new(tg::package::Object::try_from(data)?)),
 			Data::Target(data) => Self::Target(Arc::new(tg::target::Object::try_from(data)?)),
 		})
 	}

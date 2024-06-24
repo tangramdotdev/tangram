@@ -1,28 +1,29 @@
 use crate::Cli;
 use tangram_client as tg;
 
-/// Cat blobs and artifacts.
+/// Concatenate blobs and artifacts.
 #[derive(Clone, Debug, clap::Args)]
 #[group(skip)]
 pub struct Args {
-	pub args: Vec<Arg>,
+	#[arg(index = 1)]
+	pub items: Vec<Item>,
 }
 
 #[derive(Clone, Debug)]
-pub enum Arg {
+pub enum Item {
 	Blob(tg::blob::Id),
 	Artifact(tg::artifact::Id),
 }
 
 impl Cli {
 	pub async fn command_cat(&self, args: Args) -> tg::Result<()> {
-		for arg in args.args {
-			match arg {
-				Arg::Blob(blob) => {
+		for item in args.items {
+			match item {
+				Item::Blob(blob) => {
 					self.command_blob_cat(crate::blob::cat::Args { blobs: vec![blob] })
 						.await?;
 				},
-				Arg::Artifact(artifact) => {
+				Item::Artifact(artifact) => {
 					self.command_artifact_cat(crate::artifact::cat::Args {
 						artifacts: vec![artifact],
 					})
@@ -34,15 +35,15 @@ impl Cli {
 	}
 }
 
-impl std::str::FromStr for Arg {
+impl std::str::FromStr for Item {
 	type Err = tg::Error;
 
 	fn from_str(s: &str) -> tg::Result<Self, Self::Err> {
 		if let Ok(blob) = s.parse() {
-			return Ok(Arg::Blob(blob));
+			return Ok(Item::Blob(blob));
 		}
 		if let Ok(artifat) = s.parse() {
-			return Ok(Arg::Artifact(artifat));
+			return Ok(Item::Artifact(artifat));
 		}
 		Err(tg::error!(%s, "expected a blob or artifact"))
 	}

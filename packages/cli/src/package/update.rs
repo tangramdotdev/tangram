@@ -5,7 +5,7 @@ use tangram_client as tg;
 #[derive(Clone, Debug, clap::Args)]
 #[group(skip)]
 pub struct Args {
-	#[arg(default_value = ".")]
+	#[arg(index = 1, default_value = ".")]
 	pub path: tg::Path,
 }
 
@@ -13,22 +13,25 @@ impl Cli {
 	pub async fn command_package_update(&self, args: Args) -> tg::Result<()> {
 		let client = self.client().await?;
 
-		let mut dependency = tg::Dependency::with_path(args.path);
-
 		// Canonicalize the path.
-		if let Some(path) = dependency.path.as_mut() {
-			*path = tokio::fs::canonicalize(&path)
-				.await
-				.map_err(|source| tg::error!(!source, %path, "failed to canonicalize the path"))?
-				.try_into()?;
-			tokio::fs::remove_file(path.clone().join("tangram.lock"))
-				.await
-				.ok();
-		}
-
-		let _ = tg::package::get_with_lock(&client, &dependency, false)
+		let path = args.path;
+		let path: tg::Path = tokio::fs::canonicalize(&path)
 			.await
-			.map_err(|source| tg::error!(!source, %dependency, "failed to create a new lock"))?;
+			.map_err(|source| tg::error!(!source, %path, "failed to canonicalize the path"))?
+			.try_into()?;
+
+		// Remove an existing lockfile.
+		tokio::fs::remove_file(path.clone().join("tangram.lock"))
+			.await
+			.ok();
+
+		// Create the package.
+		let arg = tg::package::create::Arg {
+			reference: tg::Reference::with_path(path),
+			locked: false,
+			remote: None,
+		};
+		client.create_package(arg).await?;
 
 		Ok(())
 	}

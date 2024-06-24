@@ -6,11 +6,11 @@ use std::{collections::BTreeMap, fmt::Debug, sync::Arc};
 pub type Result<T, E = Error> = std::result::Result<T, E>;
 
 /// An error.
-#[derive(Clone, Debug, derive_more::Display, serde::Deserialize, serde::Serialize)]
-#[display("{message}")]
+#[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
 pub struct Error {
 	/// The error's message.
-	pub message: String,
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub message: Option<String>,
 
 	/// The location where the error occurred.
 	#[serde(default, skip_serializing_if = "Option::is_none")]
@@ -43,13 +43,8 @@ pub struct Location {
 #[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
 #[serde(tag = "kind", rename_all = "snake_case")]
 pub enum Source {
-	Internal {
-		path: tg::Path,
-	},
-	External {
-		package: tg::artifact::Id,
-		path: Option<tg::Path>,
-	},
+	Internal(tg::Path),
+	Package(tg::package::Id),
 }
 
 pub struct Trace<'a> {
@@ -84,12 +79,19 @@ impl Source {
 
 	#[must_use]
 	pub fn is_external(&self) -> bool {
-		matches!(self, Self::External { .. })
+		matches!(self, Self::Package { .. })
 	}
 }
 
 pub fn ok<T>(value: T) -> Result<T> {
 	Ok(value)
+}
+
+impl std::fmt::Display for Error {
+	fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+		let message = self.message.as_deref().unwrap_or("an error occurred");
+		write!(f, "{message}")
+	}
 }
 
 impl std::error::Error for Error {
@@ -105,7 +107,7 @@ impl From<Box<dyn std::error::Error + Send + Sync + 'static>> for Error {
 		match value.downcast::<Error>() {
 			Ok(error) => *error,
 			Err(error) => Self {
-				message: error.to_string(),
+				message: Some(error.to_string()),
 				location: None,
 				stack: None,
 				source: error.source().map(Into::into).map(Arc::new),
@@ -118,11 +120,11 @@ impl From<Box<dyn std::error::Error + Send + Sync + 'static>> for Error {
 impl From<&(dyn std::error::Error + 'static)> for Error {
 	fn from(value: &(dyn std::error::Error + 'static)) -> Self {
 		Self {
-			message: value.to_string(),
+			message: Some(value.to_string()),
 			location: None,
 			stack: None,
 			source: value.source().map(Into::into).map(Arc::new),
-			values: BTreeMap::default(),
+			values: BTreeMap::new(),
 		}
 	}
 }
@@ -131,9 +133,7 @@ impl<'a> From<&'a std::panic::Location<'a>> for Location {
 	fn from(location: &'a std::panic::Location<'a>) -> Self {
 		Self {
 			symbol: None,
-			source: Source::Internal {
-				path: location.file().parse().unwrap(),
-			},
+			source: Source::Internal(location.file().parse().unwrap()),
 			line: location.line() - 1,
 			column: location.column() - 1,
 		}
@@ -151,7 +151,8 @@ impl<'a> std::fmt::Display for Trace<'a> {
 		}
 
 		for error in errors {
-			writeln!(f, "-> {}", error.message)?;
+			let message = error.message.as_deref().unwrap_or("an error occurred");
+			writeln!(f, "-> {message}")?;
 			if let Some(location) = &error.location {
 				if !location.source.is_internal() || self.options.internal {
 					writeln!(f, "   {location}")?;
@@ -192,13 +193,14 @@ impl std::fmt::Display for Location {
 impl std::fmt::Display for Source {
 	fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
 		match self {
-			Source::Internal { path } => write!(f, "{path}"),
-			Source::External {
-				package,
-				path: Some(path),
-			} => write!(f, "{package}:{path}"),
-			Source::External { package, .. } => write!(f, "{package}"),
+			Source::Internal(path) => {
+				write!(f, "{path}")?;
+			},
+			Source::Package(package) => {
+				write!(f, "{package}")?;
+			},
 		}
+		Ok(())
 	}
 }
 
@@ -208,11 +210,11 @@ impl serde::ser::Error for Error {
 		T: std::fmt::Display,
 	{
 		Self {
-			message: msg.to_string(),
+			message: Some(msg.to_string()),
 			location: None,
 			stack: None,
 			source: None,
-			values: BTreeMap::default(),
+			values: BTreeMap::new(),
 		}
 	}
 }
@@ -223,16 +225,16 @@ impl serde::de::Error for Error {
 		T: std::fmt::Display,
 	{
 		Self {
-			message: msg.to_string(),
+			message: Some(msg.to_string()),
 			location: None,
 			stack: None,
 			source: None,
-			values: BTreeMap::default(),
+			values: BTreeMap::new(),
 		}
 	}
 }
 
-/// Generate an [Error].
+/// Create an [Error].
 ///
 /// Usage:
 /// ```rust
@@ -294,14 +296,14 @@ macro_rules! error {
 		$crate::error!({ $error }, $($arg)*)
 	};
 	({ $error:ident }, $($arg:tt)*) => {
-		$error.message = format!($($arg)*);
+		$error.message = Some(format!($($arg)*));
 	};
 	($($arg:tt)*) => {{
 		let mut __error = $crate::Error {
-			message: String::new(),
+			message: Some(String::new()),
 			location: Some($crate::error::Location {
 				symbol: Some($crate::function!().to_owned()),
-				source: $crate::error::Source::Internal{ path: file!().parse().unwrap() },
+				source: $crate::error::Source::Internal(file!().parse().unwrap()),
 				line: line!() - 1,
 				column: column!() - 1,
 			}),
@@ -350,9 +352,7 @@ mod tests {
 
 		let stack = vec![tg::error::Location {
 			symbol: None,
-			source: tg::error::Source::Internal {
-				path: "foobar.rs".parse().unwrap(),
-			},
+			source: tg::error::Source::Internal("foobar.rs".parse().unwrap()),
 			line: 123,
 			column: 456,
 		}];

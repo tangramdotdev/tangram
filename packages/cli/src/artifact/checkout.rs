@@ -8,6 +8,7 @@ use tangram_client as tg;
 #[group(skip)]
 pub struct Args {
 	/// The artifact to check out.
+	#[arg(index = 1)]
 	pub artifact: tg::artifact::Id,
 
 	/// Whether to bundle the artifact before checkout.
@@ -19,6 +20,7 @@ pub struct Args {
 	pub force: bool,
 
 	/// The path to check out the artifact to. The default is the artifact's ID in the checkouts directory.
+	#[arg(index = 2)]
 	pub path: Option<PathBuf>,
 
 	/// Whether to check out the artifact's references.
@@ -59,7 +61,7 @@ impl Cli {
 			bundle: path.is_some(),
 			force: args.force,
 			path,
-			references: true,
+			dependencies: true,
 		};
 		let mut stream = client
 			.check_out_artifact(&args.artifact, arg)

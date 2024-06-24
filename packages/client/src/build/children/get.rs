@@ -1,4 +1,4 @@
-use crate::{self as tg, util::serde::SeekFromString};
+use crate::{self as tg, handle::Ext as _, util::serde::SeekFromString};
 use futures::{stream, Stream, StreamExt as _, TryStreamExt as _};
 use serde_with::serde_as;
 use tangram_http::{incoming::response::Ext as _, outgoing::request::Ext as _};

@@ -1,4 +1,5 @@
 use super::Compiler;
+use either::Either;
 use lsp_types as lsp;
 use tangram_client as tg;
 
@@ -92,14 +93,11 @@ impl Compiler {
 
 		// Set the document's modified time.
 		let path = match module {
-			tg::Module::Js(tg::module::Js::PackagePath(package_path))
-			| tg::Module::Ts(tg::module::Js::PackagePath(package_path)) => {
-				package_path.package_path.join(&package_path.path)
-			},
-			tg::Module::Artifact(tg::module::Artifact::Path(path))
-			| tg::Module::Directory(tg::module::Directory::Path(path))
-			| tg::Module::File(tg::module::File::Path(path))
-			| tg::Module::Symlink(tg::module::Symlink::Path(path)) => path.clone().into(),
+			tg::Module {
+				package: Either::Left(path),
+				..
+			} => path.clone(),
+
 			_ => return Err(tg::error!("invalid module")),
 		};
 		let metadata = tokio::fs::metadata(&path)

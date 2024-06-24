@@ -12,6 +12,7 @@ pub struct Args {
 	pub destructive: bool,
 
 	/// The path to check in.
+	#[arg(index = 1)]
 	pub path: Option<PathBuf>,
 }
 

@@ -4,17 +4,17 @@ use either::Either;
 use futures::{future, FutureExt as _};
 use indoc::formatdoc;
 use itertools::Itertools as _;
-use tangram_client as tg;
+use tangram_client::{self as tg, handle::Ext as _};
 use tangram_database::{self as db, prelude::*};
 use tangram_http::{incoming::request::Ext as _, outgoing::response::Ext as _, Incoming, Outgoing};
 use tangram_messenger::Messenger as _;
 
 impl Server {
-	pub async fn build_target(
+	pub async fn try_build_target(
 		&self,
 		id: &tg::target::Id,
 		arg: tg::target::build::Arg,
-	) -> tg::Result<tg::target::build::Output> {
+	) -> tg::Result<Option<tg::target::build::Output>> {
 		// If the remote arg was set, then build the target remotely.
 		if let Some(remote) = arg.remote.as_ref() {
 			let remote = self
@@ -26,7 +26,7 @@ impl Server {
 				remote: None,
 				..arg
 			};
-			let output = remote.build_target(id, arg).await?;
+			let output = remote.try_build_target(id, arg).await?;
 			return Ok(output);
 		}
 
@@ -103,7 +103,7 @@ impl Server {
 				build: build.id().clone(),
 			};
 
-			return Ok(output);
+			return Ok(Some(output));
 		}
 
 		// Get a remote build if one exists that satisfies the retry constraint.
@@ -162,15 +162,15 @@ impl Server {
 				build: build.id().clone(),
 			};
 
-			return Ok(output);
+			return Ok(Some(output));
 		};
 
-		// If the create arg is false, then return an error.
+		// If the create arg is false, then return `None`.
 		if !arg.create {
-			return Err(tg::error!("failed to find a build for the target"));
+			return Ok(None);
 		}
 
-		// Finally, create a new build.
+		// Otherwise, create a new build.
 		let build_id = tg::build::Id::new();
 
 		// Get the host.
@@ -252,7 +252,7 @@ impl Server {
 
 		let output = tg::target::build::Output { build: build_id };
 
-		Ok(output)
+		Ok(Some(output))
 	}
 }
 
@@ -267,7 +267,7 @@ impl Server {
 	{
 		let id = id.parse()?;
 		let arg = request.json().await?;
-		let output = handle.build_target(&id, arg).await?;
+		let output = handle.try_build_target(&id, arg).await?;
 		let response = http::Response::builder().json(output).unwrap();
 		Ok(response)
 	}

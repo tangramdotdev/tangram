@@ -222,19 +222,8 @@ impl Cli {
 				timeout: object_indexer.timeout.unwrap_or(60.0),
 			});
 
-		// Create the registry option.
-		let registry = match self
-			.config
-			.as_ref()
-			.and_then(|config| config.registry.as_ref())
-		{
-			None => Some("default".to_owned()),
-			Some(None) => None,
-			Some(Some(config)) => Some(config.clone()),
-		};
-
 		// Create the remote options.
-		let mut remotes = BTreeMap::default();
+		let mut remotes = BTreeMap::new();
 		let name = "default".to_owned();
 		let remote = tangram_server::options::Remote {
 			build: false,
@@ -305,7 +294,6 @@ impl Cli {
 			messenger,
 			object_indexer,
 			path,
-			registry,
 			remotes,
 			url,
 			version,

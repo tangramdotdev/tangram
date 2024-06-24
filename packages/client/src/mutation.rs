@@ -18,16 +18,16 @@ pub enum Mutation {
 		values: Vec<tg::Value>,
 	},
 	Prefix {
-		template: tg::Template,
 		separator: Option<String>,
+		template: tg::Template,
 	},
 	Suffix {
-		template: tg::Template,
 		separator: Option<String>,
+		template: tg::Template,
 	},
 }
 
-#[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
+#[derive(Clone, Debug, PartialEq, serde::Deserialize, serde::Serialize)]
 #[serde(tag = "kind", rename_all = "snake_case")]
 pub enum Data {
 	Unset,
@@ -44,14 +44,14 @@ pub enum Data {
 		values: Vec<tg::value::Data>,
 	},
 	Prefix {
-		template: tg::template::Data,
 		#[serde(default, skip_serializing_if = "Option::is_none")]
 		separator: Option<String>,
+		template: tg::template::Data,
 	},
 	Suffix {
-		template: tg::template::Data,
 		#[serde(default, skip_serializing_if = "Option::is_none")]
 		separator: Option<String>,
+		template: tg::template::Data,
 	},
 }
 

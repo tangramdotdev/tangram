@@ -1,17 +1,19 @@
 use crate::Cli;
+use either::Either;
 use tangram_client as tg;
 
 /// Push a build or an object.
 #[derive(Clone, Debug, clap::Args)]
 #[group(skip)]
 pub struct Args {
-	pub arg: Arg,
-
 	#[arg(long)]
 	pub logs: bool,
 
 	#[arg(long)]
 	pub recursive: bool,
+
+	#[arg(index = 1)]
+	pub reference: tg::Reference,
 
 	#[arg(short, long)]
 	pub remote: Option<String>,
@@ -20,18 +22,14 @@ pub struct Args {
 	pub targets: bool,
 }
 
-#[derive(Clone, Debug)]
-pub enum Arg {
-	Build(tg::build::Id),
-	Object(tg::object::Id),
-}
-
 impl Cli {
 	pub async fn command_push(&self, args: Args) -> tg::Result<()> {
-		match args.arg {
-			Arg::Build(arg) => {
-				self.command_build_push(super::build::push::Args {
-					build: arg,
+		let client = self.client().await?;
+		let item = args.reference.get(&client).await?;
+		match item.clone() {
+			Either::Left(build) => {
+				self.command_build_push(crate::build::push::Args {
+					build,
 					logs: args.logs,
 					recursive: args.recursive,
 					remote: args.remote,
@@ -39,28 +37,24 @@ impl Cli {
 				})
 				.await?;
 			},
-			Arg::Object(arg) => {
-				self.command_object_push(super::object::push::Args {
-					object: arg,
+			Either::Right(object) => {
+				self.command_object_push(crate::object::push::Args {
+					object,
 					remote: args.remote,
 				})
 				.await?;
 			},
 		}
+		if let tg::Reference {
+			path: tg::reference::Path::Tag(pattern),
+			..
+		} = args.reference
+		{
+			if let Ok(tag) = pattern.try_into() {
+				let arg = tg::tag::put::Arg { force: false, item };
+				client.put_tag(&tag, arg).await?;
+			}
+		}
 		Ok(())
-	}
-}
-
-impl std::str::FromStr for Arg {
-	type Err = tg::Error;
-
-	fn from_str(s: &str) -> tg::Result<Self, Self::Err> {
-		if let Ok(build) = s.parse() {
-			return Ok(Arg::Build(build));
-		}
-		if let Ok(object) = s.parse() {
-			return Ok(Arg::Object(object));
-		}
-		Err(tg::error!(%s, "expected a build or an object"))
 	}
 }

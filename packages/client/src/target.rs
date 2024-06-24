@@ -36,33 +36,28 @@ pub type State = tg::object::State<Id, Object>;
 
 #[derive(Clone, Debug)]
 pub struct Object {
-	pub host: String,
-	pub executable: Option<tg::Artifact>,
 	pub args: Vec<tg::Value>,
-	pub env: BTreeMap<String, tg::Value>,
-	pub lock: Option<tg::Lock>,
 	pub checksum: Option<tg::Checksum>,
+	pub env: BTreeMap<String, tg::Value>,
+	pub executable: Option<tg::Package>,
+	pub host: String,
 }
 
-/// Target data.
 #[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
 pub struct Data {
-	pub host: String,
-
-	#[serde(default, skip_serializing_if = "Option::is_none")]
-	pub executable: Option<tg::artifact::Id>,
-
 	#[serde(default, skip_serializing_if = "Vec::is_empty")]
 	pub args: Vec<tg::value::Data>,
+
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub checksum: Option<tg::Checksum>,
 
 	#[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
 	pub env: BTreeMap<String, tg::value::Data>,
 
 	#[serde(default, skip_serializing_if = "Option::is_none")]
-	pub lock: Option<tg::lock::Id>,
+	pub executable: Option<tg::package::Id>,
 
-	#[serde(default, skip_serializing_if = "Option::is_none")]
-	pub checksum: Option<tg::Checksum>,
+	pub host: String,
 }
 
 impl Id {
@@ -171,12 +166,6 @@ impl Target {
 		H: tg::Handle,
 	{
 		let object = self.object(handle).await?;
-		let host = object.host.clone();
-		let executable = if let Some(executable) = object.executable.as_ref() {
-			Some(executable.id(handle).await?)
-		} else {
-			None
-		};
 		let args = object
 			.args
 			.iter()
@@ -184,6 +173,7 @@ impl Target {
 			.collect::<FuturesOrdered<_>>()
 			.try_collect()
 			.await?;
+		let checksum = object.checksum.clone();
 		let env = object
 			.env
 			.iter()
@@ -195,41 +185,23 @@ impl Target {
 			.collect::<FuturesUnordered<_>>()
 			.try_collect()
 			.await?;
-		let lock = if let Some(lock) = &object.lock {
-			Some(lock.id(handle).await?)
+		let executable = if let Some(executable) = object.executable.as_ref() {
+			Some(executable.id(handle).await?)
 		} else {
 			None
 		};
-		let checksum = object.checksum.clone();
+		let host = object.host.clone();
 		Ok(Data {
-			host,
-			executable,
 			args,
-			env,
-			lock,
 			checksum,
+			env,
+			executable,
+			host,
 		})
 	}
 }
 
 impl Target {
-	pub async fn host<H>(&self, handle: &H) -> tg::Result<impl std::ops::Deref<Target = String>>
-	where
-		H: tg::Handle,
-	{
-		Ok(self.object(handle).await?.map(|object| &object.host))
-	}
-
-	pub async fn executable<H>(
-		&self,
-		handle: &H,
-	) -> tg::Result<impl std::ops::Deref<Target = Option<tg::Artifact>>>
-	where
-		H: tg::Handle,
-	{
-		Ok(self.object(handle).await?.map(|object| &object.executable))
-	}
-
 	pub async fn args<H>(
 		&self,
 		handle: &H,
@@ -238,26 +210,6 @@ impl Target {
 		H: tg::Handle,
 	{
 		Ok(self.object(handle).await?.map(|object| &object.args))
-	}
-
-	pub async fn env<H>(
-		&self,
-		handle: &H,
-	) -> tg::Result<impl std::ops::Deref<Target = BTreeMap<String, tg::Value>>>
-	where
-		H: tg::Handle,
-	{
-		Ok(self.object(handle).await?.map(|object| &object.env))
-	}
-
-	pub async fn lock<H>(
-		&self,
-		handle: &H,
-	) -> tg::Result<impl std::ops::Deref<Target = Option<tg::Lock>>>
-	where
-		H: tg::Handle,
-	{
-		Ok(self.object(handle).await?.map(|object| &object.lock))
 	}
 
 	pub async fn checksum<H>(
@@ -270,18 +222,31 @@ impl Target {
 		Ok(self.object(handle).await?.map(|object| &object.checksum))
 	}
 
-	pub async fn package<H>(&self, handle: &H) -> tg::Result<Option<tg::Artifact>>
+	pub async fn env<H>(
+		&self,
+		handle: &H,
+	) -> tg::Result<impl std::ops::Deref<Target = BTreeMap<String, tg::Value>>>
 	where
 		H: tg::Handle,
 	{
-		let object = &self.object(handle).await?;
-		let Some(tg::Artifact::Symlink(symlink)) = &object.executable else {
-			return Ok(None);
-		};
-		let Some(artifact) = symlink.artifact(handle).await? else {
-			return Ok(None);
-		};
-		Ok(Some(artifact))
+		Ok(self.object(handle).await?.map(|object| &object.env))
+	}
+
+	pub async fn executable<H>(
+		&self,
+		handle: &H,
+	) -> tg::Result<impl std::ops::Deref<Target = Option<tg::Package>>>
+	where
+		H: tg::Handle,
+	{
+		Ok(self.object(handle).await?.map(|object| &object.executable))
+	}
+
+	pub async fn host<H>(&self, handle: &H) -> tg::Result<impl std::ops::Deref<Target = String>>
+	where
+		H: tg::Handle,
+	{
+		Ok(self.object(handle).await?.map(|object| &object.host))
 	}
 }
 
@@ -303,7 +268,6 @@ impl Data {
 			.chain(self.executable.clone().map(Into::into))
 			.chain(self.args.iter().flat_map(tg::value::Data::children))
 			.chain(self.env.values().flat_map(tg::value::Data::children))
-			.chain(self.lock.clone().map(Into::into))
 			.collect()
 	}
 }
@@ -312,23 +276,21 @@ impl TryFrom<Data> for Object {
 	type Error = tg::Error;
 
 	fn try_from(data: Data) -> std::result::Result<Self, Self::Error> {
-		let host = data.host;
-		let executable = data.executable.map(tg::Artifact::with_id);
 		let args = data.args.into_iter().map(TryInto::try_into).try_collect()?;
+		let checksum = data.checksum;
 		let env = data
 			.env
 			.into_iter()
 			.map(|(key, data)| Ok::<_, tg::Error>((key, data.try_into()?)))
 			.try_collect()?;
-		let lock = data.lock.map(tg::Lock::with_id);
-		let checksum = data.checksum;
+		let executable = data.executable.map(tg::Package::with_id);
+		let host = data.host;
 		Ok(Self {
-			host,
-			executable,
 			args,
-			env,
-			lock,
 			checksum,
+			env,
+			executable,
+			host,
 		})
 	}
 }
@@ -360,54 +322,28 @@ impl std::str::FromStr for Id {
 
 #[derive(Clone, Debug)]
 pub struct Builder {
-	host: String,
-	executable: Option<tg::Artifact>,
 	args: Vec<tg::Value>,
-	env: BTreeMap<String, tg::Value>,
-	lock: Option<tg::Lock>,
 	checksum: Option<tg::Checksum>,
+	env: BTreeMap<String, tg::Value>,
+	executable: Option<tg::Package>,
+	host: String,
 }
 
 impl Builder {
 	#[must_use]
 	pub fn new(host: impl Into<String>) -> Self {
 		Self {
-			host: host.into(),
-			executable: None,
 			args: Vec::new(),
-			env: BTreeMap::new(),
-			lock: None,
 			checksum: None,
+			env: BTreeMap::new(),
+			executable: None,
+			host: host.into(),
 		}
-	}
-
-	#[must_use]
-	pub fn host(mut self, host: String) -> Self {
-		self.host = host;
-		self
-	}
-
-	#[must_use]
-	pub fn executable(mut self, executable: impl Into<Option<tg::Artifact>>) -> Self {
-		self.executable = executable.into();
-		self
 	}
 
 	#[must_use]
 	pub fn args(mut self, args: Vec<tg::Value>) -> Self {
 		self.args = args;
-		self
-	}
-
-	#[must_use]
-	pub fn env(mut self, env: BTreeMap<String, tg::Value>) -> Self {
-		self.env = env;
-		self
-	}
-
-	#[must_use]
-	pub fn lock(mut self, lock: impl Into<Option<tg::Lock>>) -> Self {
-		self.lock = lock.into();
 		self
 	}
 
@@ -418,14 +354,31 @@ impl Builder {
 	}
 
 	#[must_use]
+	pub fn env(mut self, env: BTreeMap<String, tg::Value>) -> Self {
+		self.env = env;
+		self
+	}
+
+	#[must_use]
+	pub fn executable(mut self, executable: impl Into<Option<tg::Package>>) -> Self {
+		self.executable = executable.into();
+		self
+	}
+
+	#[must_use]
+	pub fn host(mut self, host: String) -> Self {
+		self.host = host;
+		self
+	}
+
+	#[must_use]
 	pub fn build(self) -> Target {
 		Target::with_object(Object {
-			host: self.host,
-			executable: self.executable,
 			args: self.args,
-			env: self.env,
-			lock: self.lock,
 			checksum: self.checksum,
+			env: self.env,
+			executable: self.executable,
+			host: self.host,
 		})
 	}
 }

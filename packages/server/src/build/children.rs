@@ -4,12 +4,11 @@ use futures::{future, stream, FutureExt as _, Stream, StreamExt as _, TryStreamE
 use indoc::formatdoc;
 use itertools::Itertools as _;
 use num::ToPrimitive as _;
-use tangram_client as tg;
+use tangram_client::{self as tg, handle::Ext as _};
 use tangram_database::{self as db, prelude::*};
 use tangram_futures::task::Stop;
 use tangram_http::{incoming::request::Ext as _, outgoing::response::Ext as _, Incoming, Outgoing};
 use tangram_messenger::Messenger as _;
-use tg::Handle as _;
 use tokio_stream::wrappers::IntervalStream;
 
 impl Server {
@@ -20,11 +19,10 @@ impl Server {
 	) -> tg::Result<
 		Option<impl Stream<Item = tg::Result<tg::build::children::get::Event>> + Send + 'static>,
 	> {
-		if let Some(children) = self.try_get_build_children_local(id, arg.clone()).await? {
-			Ok(Some(children.left_stream()))
-		} else if let Some(children) = self.try_get_build_children_remote(id, arg.clone()).await? {
-			let children = children.right_stream();
-			Ok(Some(children))
+		if let Some(stream) = self.try_get_build_children_local(id, arg.clone()).await? {
+			Ok(Some(stream.left_stream()))
+		} else if let Some(stream) = self.try_get_build_children_remote(id, arg.clone()).await? {
+			Ok(Some(stream.right_stream()))
 		} else {
 			Ok(None)
 		}

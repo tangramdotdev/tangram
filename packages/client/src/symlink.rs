@@ -34,6 +34,7 @@ pub struct Object {
 pub struct Data {
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub artifact: Option<tg::artifact::Id>,
+
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub path: Option<tg::Path>,
 }

@@ -9,31 +9,44 @@ pub struct Args {
 	#[arg(long)]
 	pub locked: bool,
 
-	#[arg(default_value = ".")]
-	pub package: tg::Dependency,
+	#[arg(index = 1, default_value = ".")]
+	pub reference: tg::Reference,
+
+	#[allow(clippy::option_option)]
+	#[arg(short, long)]
+	pub remote: Option<Option<String>>,
 }
 
 impl Cli {
 	pub async fn command_package_check(&self, mut args: Args) -> tg::Result<()> {
 		let client = self.client().await?;
 
-		// Canonicalize the package path.
-		if let Some(path) = args.package.path.as_mut() {
+		// If the reference has a path, then canonicalize it.
+		if let tg::reference::Path::Path(path) = &mut args.reference.path {
 			*path = tokio::fs::canonicalize(&path)
 				.await
 				.map_err(|source| tg::error!(!source, "failed to canonicalize the path"))?
 				.try_into()?;
 		}
 
-		// Check the package.
-		let arg = tg::package::check::Arg {
+		// Create the lock.
+		let remote = args
+			.remote
+			.map(|option| option.unwrap_or_else(|| "default".to_owned()));
+		let arg = tg::package::create::Arg {
+			reference: args.reference,
 			locked: args.locked,
+			remote: remote.clone(),
 		};
-		let output = client.check_package(&args.package, arg).await?;
+		let tg::package::create::Output { package } = client.create_package(arg).await?;
+
+		// Check the package.
+		let arg = tg::package::check::Arg { remote };
+		let output = client.check_package(&package, arg).await?;
 
 		// Print the diagnostics.
 		for diagnostic in &output.diagnostics {
-			self.print_diagnostic(diagnostic).await;
+			self.print_diagnostic(&client, diagnostic).await;
 		}
 
 		if !output.diagnostics.is_empty() {

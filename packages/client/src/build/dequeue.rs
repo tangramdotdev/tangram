@@ -2,9 +2,7 @@ use crate as tg;
 use tangram_http::{incoming::response::Ext as _, outgoing::request::Ext as _};
 
 #[derive(Clone, Debug, Default, serde::Deserialize, serde::Serialize)]
-pub struct Arg {
-	pub timeout: Option<std::time::Duration>,
-}
+pub struct Arg {}
 
 #[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
 #[serde(transparent)]

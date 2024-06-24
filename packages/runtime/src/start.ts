@@ -1,8 +1,6 @@
 import { assert } from "./assert.ts";
-import { File } from "./file.ts";
 import { Module } from "./module.ts";
 import { resolve } from "./resolve.ts";
-import { Symlink } from "./symlink.ts";
 import { Target, setCurrentTarget } from "./target.ts";
 import type { Value } from "./value.ts";
 
@@ -15,45 +13,23 @@ export let start = async (target: Target): Promise<Value> => {
 
 	// Create the module.
 	let executable = await target.executable();
-	let module: Module;
-	if (executable instanceof Symlink) {
-		let package_ = await executable.artifact();
-		assert(package_ !== undefined);
-		let packageId = await package_.id();
-		let lock = await target.lock();
-		assert(lock !== undefined);
-		let lockId = await lock.id();
-		let path = await executable.path();
-		assert(path !== undefined);
-		let kind: "js" | "ts";
-		if (path.toString().endsWith(".js")) {
-			kind = "js";
-		} else {
-			kind = "ts";
-		}
-		module = {
-			kind,
-			value: {
-				kind: "package_artifact",
-				value: {
-					artifact: packageId,
-					lock: lockId,
-					path: path.toString(),
-				},
-			},
-		};
-	} else if (executable instanceof File) {
-		let id = await executable.id();
-		module = {
-			kind: "js",
-			value: {
-				kind: "file",
-				value: id,
-			},
-		};
-	} else {
+	if (executable === undefined) {
 		throw new Error("invalid target");
 	}
+	let object = await executable.object();
+	let metadata = object.nodes[object.root]!.metadata;
+	if (!("kind" in metadata)) {
+		throw new Error("the kind must be set");
+	}
+	assert(
+		metadata.kind === ("js" as const) || metadata.kind === ("ts" as const),
+		"invalid kind",
+	);
+	let kind = metadata.kind;
+	let module = {
+		kind,
+		package: await executable.id(),
+	};
 
 	// Create the URL.
 	let url = Module.toUrl(module);

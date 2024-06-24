@@ -5,6 +5,7 @@ use tangram_client as tg;
 #[derive(Clone, Debug, clap::Args)]
 #[group(skip)]
 pub struct Args {
+	#[arg(index = 1)]
 	pub blob: tg::blob::Id,
 
 	/// The algorithm to use.
@@ -20,11 +21,8 @@ impl Cli {
 		let target = blob.checksum_target(algorithm);
 		let target = target.id(&client).await?;
 		let args = crate::target::build::Args {
-			inner: crate::target::build::InnerArgs {
-				target: Some(target),
-				..Default::default()
-			},
-			detach: false,
+			reference: Some(tg::Reference::with_object(target.into())),
+			..Default::default()
 		};
 		self.command_target_build(args).await?;
 		Ok(())

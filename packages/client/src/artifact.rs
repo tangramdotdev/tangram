@@ -162,8 +162,8 @@ impl Artifact {
 }
 
 impl Artifact {
-	/// Collect an artifact's references.
-	pub async fn references<H>(&self, handle: &H) -> tg::Result<Vec<Self>>
+	/// Collect an artifact's dependencies.
+	pub async fn dependencies<H>(&self, handle: &H) -> tg::Result<Vec<Self>>
 	where
 		H: tg::Handle,
 	{
@@ -172,14 +172,14 @@ impl Artifact {
 				.entries(handle)
 				.await?
 				.values()
-				.map(|artifact| artifact.references(handle))
+				.map(|artifact| artifact.dependencies(handle))
 				.collect::<FuturesOrdered<_>>()
 				.try_collect::<Vec<_>>()
 				.await?
 				.into_iter()
 				.flatten()
 				.collect()),
-			Self::File(file) => Ok(file.references(handle).await?.to_owned()),
+			Self::File(file) => Ok(file.dependencies(handle).await?.to_owned()),
 			Self::Symlink(symlink) => Ok(symlink
 				.artifact(handle)
 				.await?
@@ -189,15 +189,15 @@ impl Artifact {
 		}
 	}
 
-	/// Collect an artifact's recursive references.
-	pub async fn recursive_references<H>(
+	/// Collect an artifact's recursive dependencies.
+	pub async fn recursive_dependencies<H>(
 		&self,
 		handle: &H,
 	) -> tg::Result<HashSet<Id, fnv::FnvBuildHasher>>
 	where
 		H: tg::Handle,
 	{
-		async fn recursive_references_inner<H>(
+		async fn recursive_dependencies_inner<H>(
 			handle: &H,
 			artifact: &tg::Artifact,
 			output: Arc<Mutex<HashSet<Id, std::hash::BuildHasherDefault<fnv::FnvHasher>>>>,
@@ -205,24 +205,24 @@ impl Artifact {
 		where
 			H: tg::Handle,
 		{
-			let references = artifact.references(handle).await?;
-			references
+			let dependencies = artifact.dependencies(handle).await?;
+			dependencies
 				.iter()
-				.map(|artifact| recursive_references_inner(handle, artifact, output.clone()))
+				.map(|artifact| recursive_dependencies_inner(handle, artifact, output.clone()))
 				.collect::<FuturesUnordered<_>>()
 				.try_collect()
 				.await?;
-			let references = references
+			let dependencies = dependencies
 				.into_iter()
 				.map(|artifact| async move { artifact.id(handle).await })
 				.collect::<FuturesUnordered<_>>()
 				.try_collect::<Vec<_>>()
 				.await?;
-			output.lock().unwrap().extend(references);
+			output.lock().unwrap().extend(dependencies);
 			Ok(())
 		}
 		let output = Arc::new(Mutex::new(HashSet::default()));
-		recursive_references_inner(handle, self, output.clone()).await?;
+		recursive_dependencies_inner(handle, self, output.clone()).await?;
 		Ok(Arc::into_inner(output).unwrap().into_inner().unwrap())
 	}
 }

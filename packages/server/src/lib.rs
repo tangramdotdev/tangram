@@ -35,9 +35,9 @@ mod migrations;
 mod object;
 mod package;
 mod remote;
-mod root;
 mod runtime;
 mod server;
+mod tag;
 mod target;
 mod tmp;
 mod user;
@@ -279,6 +279,11 @@ impl Server {
 	}
 
 	pub async fn task(&self, stop: Stop) -> tg::Result<()> {
+		// Spawn tasks to connect the remotes.
+		for remote in self.remotes.iter().map(|entry| entry.value().clone()) {
+			tokio::spawn(async move { remote.connect().await.ok() });
+		}
+
 		// Start the VFS if necessary.
 		if let Some(options) = self.options.vfs {
 			// If the VFS is enabled, then start the VFS server.
@@ -692,32 +697,17 @@ impl Server {
 			},
 
 			// Packages.
-			(http::Method::GET, ["packages"]) => {
-				Self::handle_list_packages_request(handle, request).boxed()
+			(http::Method::POST, ["packages"]) => {
+				Self::handle_create_package_request(handle, request).boxed()
 			},
-			(http::Method::GET, ["packages", dependency]) => {
-				Self::handle_get_package_request(handle, request, dependency).boxed()
+			(http::Method::POST, ["packages", package, "check"]) => {
+				Self::handle_check_package_request(handle, request, package).boxed()
 			},
-			(http::Method::GET, ["packages", dependency, "check"]) => {
-				Self::handle_check_package_request(handle, request, dependency).boxed()
+			(http::Method::POST, ["packages", package, "doc"]) => {
+				Self::handle_document_package_request(handle, request, package).boxed()
 			},
-			(http::Method::GET, ["packages", dependency, "doc"]) => {
-				Self::handle_get_package_doc_request(handle, request, dependency).boxed()
-			},
-			(http::Method::GET, ["packages", dependency, "versions"]) => {
-				Self::handle_get_package_versions_request(handle, request, dependency).boxed()
-			},
-			(http::Method::POST, ["packages", dependency, "format"]) => {
-				Self::handle_format_package_request(handle, request, dependency).boxed()
-			},
-			(http::Method::GET, ["packages", dependency, "outdated"]) => {
-				Self::handle_outdated_package_request(handle, request, dependency).boxed()
-			},
-			(http::Method::POST, ["packages", artifact, "publish"]) => {
-				Self::handle_publish_package_request(handle, request, artifact).boxed()
-			},
-			(http::Method::POST, ["packages", dependency, "yank"]) => {
-				Self::handle_yank_package_request(handle, request, dependency).boxed()
+			(http::Method::POST, ["packages", "format"]) => {
+				Self::handle_format_package_request(handle, request).boxed()
 			},
 
 			// Remotes.
@@ -734,20 +724,6 @@ impl Server {
 				Self::handle_delete_remote_request(handle, request, name).boxed()
 			},
 
-			// Roots.
-			(http::Method::GET, ["roots"]) => {
-				Self::handle_list_roots_request(handle, request).boxed()
-			},
-			(http::Method::GET, ["roots", name]) => {
-				Self::handle_get_root_request(handle, request, name).boxed()
-			},
-			(http::Method::PUT, ["roots", name]) => {
-				Self::handle_put_root_request(handle, request, name).boxed()
-			},
-			(http::Method::DELETE, ["roots", name]) => {
-				Self::handle_delete_root_request(handle, request, name).boxed()
-			},
-
 			// Runtimes.
 			(http::Method::GET, ["runtimes", "js", "doc"]) => {
 				Self::handle_get_js_runtime_doc_request(handle, request).boxed()
@@ -759,6 +735,20 @@ impl Server {
 			},
 			(http::Method::GET, ["health"]) => {
 				Self::handle_server_health_request(handle, request).boxed()
+			},
+
+			// Tags.
+			(http::Method::GET, ["tags"]) => {
+				Self::handle_list_tags_request(handle, request).boxed()
+			},
+			(http::Method::GET, ["tags", name]) => {
+				Self::handle_get_tag_request(handle, request, name).boxed()
+			},
+			(http::Method::PUT, ["tags", name]) => {
+				Self::handle_put_tag_request(handle, request, name).boxed()
+			},
+			(http::Method::DELETE, ["tags", name]) => {
+				Self::handle_delete_tag_request(handle, request, name).boxed()
 			},
 
 			// Targets.
@@ -896,12 +886,12 @@ impl tg::Handle for Server {
 		self.try_dequeue_build(arg)
 	}
 
-	fn start_build(
+	fn try_start_build(
 		&self,
 		id: &tg::build::Id,
 		arg: tg::build::start::Arg,
-	) -> impl Future<Output = tg::Result<()>> {
-		self.start_build(id, arg)
+	) -> impl Future<Output = tg::Result<Option<bool>>> {
+		self.try_start_build(id, arg)
 	}
 
 	fn try_get_build_status_stream(
@@ -972,7 +962,7 @@ impl tg::Handle for Server {
 		&self,
 		id: &tg::build::Id,
 		arg: tg::build::finish::Arg,
-	) -> impl Future<Output = tg::Result<()>> {
+	) -> impl Future<Output = tg::Result<Option<bool>>> {
 		self.finish_build(id, arg)
 	}
 
@@ -988,7 +978,7 @@ impl tg::Handle for Server {
 		&self,
 		id: &tg::build::Id,
 		arg: tg::build::heartbeat::Arg,
-	) -> impl Future<Output = tg::Result<tg::build::heartbeat::Output>> + Send {
+	) -> impl Future<Output = tg::Result<tg::build::heartbeat::Output>> {
 		self.heartbeat_build(id, arg)
 	}
 
@@ -1030,7 +1020,7 @@ impl tg::Handle for Server {
 		Output = tg::Result<
 			impl Stream<Item = tg::Result<tg::object::push::Event>> + Send + 'static,
 		>,
-	> + Send {
+	> {
 		self.push_object(id, arg)
 	}
 
@@ -1042,75 +1032,38 @@ impl tg::Handle for Server {
 		Output = tg::Result<
 			impl Stream<Item = tg::Result<tg::object::pull::Event>> + Send + 'static,
 		>,
-	> + Send {
+	> {
 		self.pull_object(id, arg)
 	}
 
-	fn list_packages(
+	fn create_package(
 		&self,
-		arg: tg::package::list::Arg,
-	) -> impl Future<Output = tg::Result<tg::package::list::Output>> {
-		self.list_packages(arg)
-	}
-
-	fn try_get_package(
-		&self,
-		dependency: &tg::Dependency,
-		arg: tg::package::get::Arg,
-	) -> impl Future<Output = tg::Result<Option<tg::package::get::Output>>> {
-		self.try_get_package(dependency, arg)
+		arg: tg::package::create::Arg,
+	) -> impl Future<Output = tg::Result<tg::package::create::Output>> {
+		self.create_package(arg)
 	}
 
 	fn check_package(
 		&self,
-		dependency: &tg::Dependency,
+		id: &tg::package::Id,
 		arg: tg::package::check::Arg,
 	) -> impl Future<Output = tg::Result<tg::package::check::Output>> {
-		self.check_package(dependency, arg)
+		self.check_package(id, arg)
 	}
 
-	fn try_get_package_doc(
+	fn document_package(
 		&self,
-		dependency: &tg::Dependency,
+		id: &tg::package::Id,
 		arg: tg::package::doc::Arg,
-	) -> impl Future<Output = tg::Result<Option<serde_json::Value>>> {
-		self.try_get_package_doc(dependency, arg)
+	) -> impl Future<Output = tg::Result<serde_json::Value>> {
+		self.document_package(id, arg)
 	}
 
-	fn format_package(&self, dependency: &tg::Dependency) -> impl Future<Output = tg::Result<()>> {
-		self.format_package(dependency)
-	}
-
-	fn get_package_outdated(
+	fn format_package(
 		&self,
-		dependency: &tg::Dependency,
-		arg: tg::package::outdated::Arg,
-	) -> impl Future<Output = tg::Result<tg::package::outdated::Output>> {
-		self.get_package_outdated(dependency, arg)
-	}
-
-	fn publish_package(
-		&self,
-		id: &tg::artifact::Id,
-		arg: tg::package::publish::Arg,
+		arg: tg::package::format::Arg,
 	) -> impl Future<Output = tg::Result<()>> {
-		self.publish_package(id, arg)
-	}
-
-	fn try_get_package_versions(
-		&self,
-		dependency: &tg::Dependency,
-		arg: tg::package::versions::Arg,
-	) -> impl Future<Output = tg::Result<Option<tg::package::versions::Output>>> {
-		self.try_get_package_versions(dependency, arg)
-	}
-
-	fn yank_package(
-		&self,
-		id: &tg::artifact::Id,
-		arg: tg::package::yank::Arg,
-	) -> impl Future<Output = tg::Result<()>> {
-		self.yank_package(id, arg)
+		self.format_package(arg)
 	}
 
 	fn list_remotes(
@@ -1139,32 +1092,6 @@ impl tg::Handle for Server {
 		self.remove_remote(name)
 	}
 
-	fn list_roots(
-		&self,
-		arg: tg::root::list::Arg,
-	) -> impl Future<Output = tg::Result<tg::root::list::Output>> {
-		self.list_roots(arg)
-	}
-
-	fn try_get_root(
-		&self,
-		name: &str,
-	) -> impl Future<Output = tg::Result<Option<tg::root::get::Output>>> {
-		self.try_get_root(name)
-	}
-
-	fn put_root(
-		&self,
-		name: &str,
-		arg: tg::root::put::Arg,
-	) -> impl Future<Output = tg::Result<()>> {
-		self.put_root(name, arg)
-	}
-
-	fn delete_root(&self, name: &str) -> impl Future<Output = tg::Result<()>> {
-		self.remove_root(name)
-	}
-
 	fn get_js_runtime_doc(&self) -> impl Future<Output = tg::Result<serde_json::Value>> {
 		self.get_js_runtime_doc()
 	}
@@ -1177,12 +1104,38 @@ impl tg::Handle for Server {
 		self.clean()
 	}
 
-	fn build_target(
+	fn list_tags(
+		&self,
+		arg: tg::tag::list::Arg,
+	) -> impl Future<Output = tg::Result<tg::tag::list::Output>> {
+		self.list_tags(arg)
+	}
+
+	fn try_get_tag(
+		&self,
+		pattern: &tg::tag::Pattern,
+	) -> impl Future<Output = tg::Result<Option<tg::tag::get::Output>>> {
+		self.try_get_tag(pattern)
+	}
+
+	fn put_tag(
+		&self,
+		tag: &tg::Tag,
+		arg: tg::tag::put::Arg,
+	) -> impl Future<Output = tg::Result<()>> {
+		self.put_tag(tag, arg)
+	}
+
+	fn delete_tag(&self, tag: &tg::Tag) -> impl Future<Output = tg::Result<()>> {
+		self.delete_tag(tag)
+	}
+
+	fn try_build_target(
 		&self,
 		id: &tg::target::Id,
 		arg: tg::target::build::Arg,
-	) -> impl Future<Output = tg::Result<tg::target::build::Output>> {
-		self.build_target(id, arg)
+	) -> impl Future<Output = tg::Result<Option<tg::target::build::Output>>> {
+		self.try_build_target(id, arg)
 	}
 
 	fn get_user(&self, token: &str) -> impl Future<Output = tg::Result<Option<tg::user::User>>> {

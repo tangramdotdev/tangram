@@ -1,5 +1,5 @@
 use crate::Server;
-use futures::{future, stream, FutureExt as _, StreamExt as _};
+use futures::{stream, StreamExt as _};
 use indoc::formatdoc;
 use tangram_client as tg;
 use tangram_database::{self as db, prelude::*};
@@ -11,7 +11,7 @@ use tokio_stream::wrappers::IntervalStream;
 impl Server {
 	pub async fn try_dequeue_build(
 		&self,
-		arg: tg::build::dequeue::Arg,
+		_arg: tg::build::dequeue::Arg,
 	) -> tg::Result<Option<tg::build::dequeue::Output>> {
 		// Create the event stream.
 		let created = self
@@ -22,15 +22,8 @@ impl Server {
 			.map(|_| ());
 		let interval =
 			IntervalStream::new(tokio::time::interval(std::time::Duration::from_secs(60)))
-				.map(|_| ())
-				.skip(1);
-		let timeout = arg.timeout.map_or_else(
-			|| future::pending().left_future(),
-			|timeout| tokio::time::sleep(timeout).right_future(),
-		);
-		let mut events = stream::once(future::ready(()))
-			.chain(stream::select(created, interval).take_until(timeout))
-			.boxed();
+				.map(|_| ());
+		let mut events = stream::select(created, interval);
 
 		// Attempt to dequeue a build after each event.
 		while let Some(()) = events.next().await {

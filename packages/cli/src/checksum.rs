@@ -12,8 +12,8 @@ pub struct Args {
 	pub algorithm: tg::checksum::Algorithm,
 
 	/// The artifact, blob, or URL to checksum.
-	#[arg(conflicts_with_all = ["artifact", "blob", "url"])]
-	pub arg: Option<Arg>,
+	#[arg(index = 1, conflicts_with_all = ["artifact", "blob", "url"])]
+	pub item: Option<Item>,
 
 	/// The artifact to checksum.
 	#[arg(long, conflicts_with_all = ["blob", "url", "arg"])]
@@ -29,7 +29,7 @@ pub struct Args {
 }
 
 #[derive(Clone, Debug)]
-pub enum Arg {
+pub enum Item {
 	Artifact(tg::artifact::Id),
 	Blob(tg::blob::Id),
 	Url(Url),
@@ -38,19 +38,19 @@ pub enum Arg {
 impl Cli {
 	pub async fn command_checksum(&self, args: Args) -> tg::Result<()> {
 		let client = self.client().await?;
-		let arg = if let Some(artifact) = args.artifact {
-			Arg::Artifact(artifact)
+		let item = if let Some(artifact) = args.artifact {
+			Item::Artifact(artifact)
 		} else if let Some(blob) = args.blob {
-			Arg::Blob(blob)
+			Item::Blob(blob)
 		} else if let Some(url) = args.url {
-			Arg::Url(url)
-		} else if let Some(arg) = args.arg {
-			arg
+			Item::Url(url)
+		} else if let Some(item) = args.item {
+			item
 		} else {
 			return Err(tg::error!("no arg provided"));
 		};
-		match arg {
-			Arg::Artifact(artifact) => {
+		match item {
+			Item::Artifact(artifact) => {
 				let args = crate::artifact::checksum::Args {
 					algorithm: args.algorithm,
 					artifact,
@@ -58,7 +58,7 @@ impl Cli {
 				self.command_artifact_checksum(args).await?;
 			},
 
-			Arg::Blob(blob) => {
+			Item::Blob(blob) => {
 				let args = crate::blob::checksum::Args {
 					algorithm: args.algorithm,
 					blob,
@@ -66,9 +66,9 @@ impl Cli {
 				self.command_blob_checksum(args).await?;
 			},
 
-			Arg::Url(url) => {
+			Item::Url(url) => {
 				let host = "js";
-				let executable = formatdoc!(
+				let executable = tg::Package::from(tg::Artifact::from(formatdoc!(
 					r#"
 						export default tg.target(async (url, algorithm) => {{
 							let blob = await tg.download(url, "unsafe");
@@ -76,23 +76,20 @@ impl Cli {
 							return checksum;
 						}});
 					"#
-				);
+				)));
 				let args = vec![
 					"default".into(),
 					url.to_string().into(),
 					args.algorithm.to_string().into(),
 				];
 				let target = tg::Target::builder(host)
-					.executable(tg::Artifact::from(executable))
+					.executable(executable)
 					.args(args)
 					.build();
 				let target = target.id(&client).await?;
 				let args = crate::target::build::Args {
-					inner: crate::target::build::InnerArgs {
-						target: Some(target),
-						..Default::default()
-					},
-					detach: false,
+					reference: Some(tg::Reference::with_object(target.into())),
+					..Default::default()
 				};
 				self.command_target_build(args).await?;
 			},
@@ -101,18 +98,18 @@ impl Cli {
 	}
 }
 
-impl std::str::FromStr for Arg {
+impl std::str::FromStr for Item {
 	type Err = tg::Error;
 
 	fn from_str(s: &str) -> tg::Result<Self, Self::Err> {
 		if let Ok(artifact) = s.parse() {
-			return Ok(Arg::Artifact(artifact));
+			return Ok(Item::Artifact(artifact));
 		}
 		if let Ok(blob) = s.parse() {
-			return Ok(Arg::Blob(blob));
+			return Ok(Item::Blob(blob));
 		}
 		if let Ok(url) = s.parse() {
-			return Ok(Arg::Url(url));
+			return Ok(Item::Url(url));
 		}
 		Err(tg::error!(%s, "expected an artifact, blob, or url"))
 	}

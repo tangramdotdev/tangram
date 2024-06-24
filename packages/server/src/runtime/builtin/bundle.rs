@@ -31,20 +31,20 @@ impl Runtime {
 			.ok()
 			.ok_or_else(|| tg::error!("expected an artifact"))?;
 
-		// Collect the artifact's recursive references.
-		let references = Box::pin(artifact.recursive_references(server)).await?;
+		// Collect the artifact's recursive dependencies.
+		let dependencies = Box::pin(artifact.recursive_dependencies(server)).await?;
 
-		// If there are no references, then return the artifact.
-		if references.is_empty() {
+		// If there are no dependencies, then return the artifact.
+		if dependencies.is_empty() {
 			return Ok(artifact.into());
 		}
 
-		// Create the artifacts directory by removing all references from the referenced artifacts.
-		let entries = references
+		// Create the artifacts directory by removing all dependencies.
+		let entries = dependencies
 			.into_iter()
 			.map(|id| async move {
 				let artifact = tg::Artifact::with_id(id.clone());
-				let artifact = self.remove_references(&artifact, 3, None).await?;
+				let artifact = self.remove_dependencies(&artifact, 3, None).await?;
 				Ok::<_, tg::Error>((id.to_string(), artifact))
 			})
 			.collect::<FuturesOrdered<_>>()
@@ -75,9 +75,9 @@ impl Runtime {
 			},
 		};
 
-		// Remove references from the bundle directory.
+		// Remove dependencies from the bundle directory.
 		let output = self
-			.remove_references(&output, 0, None)
+			.remove_dependencies(&output, 0, None)
 			.await?
 			.try_unwrap_directory()
 			.ok()
@@ -94,8 +94,8 @@ impl Runtime {
 		Ok(output.into())
 	}
 
-	/// Remove all references from an artifact and its children recursively.
-	async fn remove_references(
+	/// Remove all dependencies from an artifact and its children recursively.
+	async fn remove_dependencies(
 		&self,
 		artifact: &tg::Artifact,
 		depth: usize,
@@ -103,7 +103,7 @@ impl Runtime {
 	) -> tg::Result<tg::Artifact> {
 		let server = &self.server;
 		match artifact {
-			// If the artifact is a directory, then recurse to remove references from its entries.
+			// If the artifact is a directory, then recurse to remove dependencies from its entries.
 			tg::Artifact::Directory(directory) => {
 				let entries = Box::pin(async move {
 					directory
@@ -112,7 +112,7 @@ impl Runtime {
 						.iter()
 						.map(|(name, artifact)| async move {
 							let artifact = self
-								.remove_references(artifact, depth + 1, transaction)
+								.remove_dependencies(artifact, depth + 1, transaction)
 								.await?;
 							Ok::<_, tg::Error>((name.clone(), artifact))
 						})
@@ -126,12 +126,12 @@ impl Runtime {
 				Ok(directory.into())
 			},
 
-			// If the artifact is a file, then return the file without any references.
+			// If the artifact is a file, then return the file without any dependencies.
 			tg::Artifact::File(file) => {
 				let contents = file.contents(server).await?.clone();
 				let executable = file.executable(server).await?;
-				let references = vec![];
-				let file = tg::File::new(contents, executable, references);
+				let dependencies = vec![];
+				let file = tg::File::new(contents, dependencies, executable);
 				Ok(file.into())
 			},
 

@@ -8,11 +8,11 @@ pub struct Arg {
 }
 
 impl tg::Client {
-	pub async fn start_build(
+	pub async fn try_start_build(
 		&self,
 		id: &tg::build::Id,
 		arg: tg::build::start::Arg,
-	) -> tg::Result<()> {
+	) -> tg::Result<Option<bool>> {
 		let method = http::Method::POST;
 		let uri = format!("/builds/{id}/start");
 		let request = http::request::Builder::default()
@@ -25,6 +25,7 @@ impl tg::Client {
 			let error = response.json().await?;
 			return Err(error);
 		}
-		Ok(())
+		let output = response.json().await?;
+		Ok(output)
 	}
 }

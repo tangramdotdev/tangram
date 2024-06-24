@@ -7,11 +7,11 @@ use tangram_messenger::Messenger as _;
 use time::format_description::well_known::Rfc3339;
 
 impl Server {
-	pub async fn start_build(
+	pub async fn try_start_build(
 		&self,
 		id: &tg::build::Id,
 		arg: tg::build::start::Arg,
-	) -> tg::Result<()> {
+	) -> tg::Result<Option<bool>> {
 		// Handle the remote.
 		let remote = arg.remote.as_ref();
 		if let Some(remote) = remote {
@@ -21,13 +21,13 @@ impl Server {
 				.ok_or_else(|| tg::error!("the remote does not exist"))?
 				.clone();
 			let arg = tg::build::start::Arg { remote: None };
-			remote.start_build(id, arg).await?;
-			return Ok(());
+			let output = remote.try_start_build(id, arg).await?;
+			return Ok(output);
 		}
 
 		// Verify the build is local.
 		if !self.get_build_exists_local(id).await? {
-			return Err(tg::error!("failed to find the build"));
+			return Ok(None);
 		}
 
 		// Get a database connection.
@@ -49,20 +49,16 @@ impl Server {
 		);
 		let now = time::OffsetDateTime::now_utc().format(&Rfc3339).unwrap();
 		let params = db::params![now, id];
-		let output = connection
+		let started = connection
 			.query_optional(statement, params)
 			.await
-			.map_err(|source| tg::error!(!source, "failed to execute the statement"))?;
+			.map_err(|source| tg::error!(!source, "failed to execute the statement"))?
+			.is_some();
 
 		// Drop the database connection.
 		drop(connection);
 
-		// If the build was not started, then return an error.
-		if output.is_none() {
-			return Err(tg::error!("failed to start the build"));
-		}
-
-		// Publish the message.
+		// If the build was started, then publish the message.
 		tokio::spawn({
 			let server = self.clone();
 			let id = id.clone();
@@ -76,7 +72,7 @@ impl Server {
 			}
 		});
 
-		Ok(())
+		Ok(Some(started))
 	}
 }
 
@@ -91,7 +87,7 @@ impl Server {
 	{
 		let id = id.parse()?;
 		let arg = request.json().await?;
-		handle.start_build(&id, arg).await?;
+		handle.try_start_build(&id, arg).await?;
 		let response = http::Response::builder().empty().unwrap();
 		Ok(response)
 	}

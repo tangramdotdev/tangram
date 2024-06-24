@@ -1,4 +1,5 @@
 use crate::Server;
+use either::Either;
 use tangram_client as tg;
 use tangram_http::{outgoing::response::Ext as _, Incoming, Outgoing};
 
@@ -38,9 +39,10 @@ impl Runtime {
 impl Server {
 	pub async fn get_js_runtime_doc(&self) -> tg::Result<serde_json::Value> {
 		// Create the module.
-		let module = tg::Module::Dts(tg::module::Dts {
-			path: "tangram.d.ts".parse().unwrap(),
-		});
+		let module = tg::Module {
+			kind: tg::module::Kind::Dts,
+			package: Either::Left("tangram.d.ts".parse().unwrap()),
+		};
 
 		// Create the compiler.
 		let compiler = crate::compiler::Compiler::new(self, tokio::runtime::Handle::current());

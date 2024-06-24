@@ -194,7 +194,7 @@ impl serde::Serializer for Serializer {
 		_len: usize,
 	) -> Result<Self::SerializeStruct, Self::Error> {
 		Ok(SerializeStruct {
-			fields: BTreeMap::default(),
+			fields: BTreeMap::new(),
 		})
 	}
 
@@ -206,7 +206,7 @@ impl serde::Serializer for Serializer {
 		_len: usize,
 	) -> Result<Self::SerializeStructVariant, Self::Error> {
 		Ok(SerializeStructVariant {
-			fields: BTreeMap::default(),
+			fields: BTreeMap::new(),
 		})
 	}
 }

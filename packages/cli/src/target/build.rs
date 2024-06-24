@@ -5,27 +5,17 @@ use futures::TryStreamExt as _;
 use itertools::Itertools as _;
 use num::ToPrimitive;
 use std::{
+	fmt::Write as _,
 	path::PathBuf,
 	sync::{Arc, Mutex, Weak},
 };
-use tangram_client as tg;
+use tangram_client::{self as tg, handle::Ext as _};
 
 /// Build a target.
-#[derive(Clone, Debug, clap::Args)]
-#[group(skip)]
-pub struct Args {
-	/// If this flag is set, then the command will exit immediately instead of waiting for the build to finish.
-	#[arg(short, long, conflicts_with = "checkout")]
-	pub detach: bool,
-
-	#[command(flatten)]
-	pub inner: InnerArgs,
-}
-
 #[allow(clippy::struct_excessive_bools)]
 #[derive(Clone, Debug, Default, clap::Args)]
 #[group(skip)]
-pub struct InnerArgs {
+pub struct Args {
 	/// Set the arguments.
 	#[arg(short, long, num_args = 1.., action = clap::ArgAction::Append)]
 	pub arg: Vec<Vec<String>>,
@@ -34,6 +24,10 @@ pub struct InnerArgs {
 	#[allow(clippy::option_option)]
 	#[arg(short, long)]
 	pub checkout: Option<Option<PathBuf>>,
+
+	/// If this flag is set, then the command will exit immediately instead of waiting for the build to finish.
+	#[arg(short, long, conflicts_with = "checkout")]
+	pub detach: bool,
 
 	/// Set the environment variables.
 	#[arg(short, long, num_args = 1.., action = clap::ArgAction::Append)]
@@ -51,6 +45,10 @@ pub struct InnerArgs {
 	#[arg(short, long)]
 	pub quiet: bool,
 
+	/// The reference to the target to build.
+	#[arg(index = 1)]
+	pub reference: Option<tg::Reference>,
+
 	/// Whether to build on a remote.
 	#[allow(clippy::option_option)]
 	#[arg(short, long)]
@@ -61,42 +59,19 @@ pub struct InnerArgs {
 	#[arg(long)]
 	pub retry: Option<Option<tg::build::Retry>>,
 
-	/// Create a root for this build. If a name is not provided, the package's name will be used.
+	/// Create a tag for this build.
 	#[arg(long)]
-	pub root: Option<String>,
-
-	/// The specifier of the target to build.
-	#[arg(long, conflicts_with_all = ["target", "arg_"])]
-	pub specifier: Option<Specifier>,
-
-	/// The target to build.
-	#[arg(long, conflicts_with_all = ["specifier", "arg_"])]
-	pub target: Option<tg::target::Id>,
-
-	/// The target to build.
-	#[arg(conflicts_with_all = ["specifier", "target"])]
-	pub arg_: Option<Arg>,
-}
-
-#[derive(Clone, Debug)]
-pub enum Arg {
-	Specifier(Specifier),
-	Target(tg::target::Id),
-}
-
-#[derive(Clone, Debug)]
-pub struct Specifier {
-	dependency: tg::Dependency,
-	target: String,
+	pub tag: Option<tg::Tag>,
 }
 
 #[derive(Clone, Debug, derive_more::Unwrap)]
 pub enum InnerOutput {
+	Detached(tg::build::Id),
 	Path(tg::Path),
 	Value(tg::Value),
 }
 
-struct ProgressTree<H> {
+struct Progress<H> {
 	root: Arc<Node<H>>,
 }
 
@@ -117,104 +92,130 @@ struct State<H> {
 impl Cli {
 	pub async fn command_target_build(&self, args: Args) -> tg::Result<()> {
 		// Build.
-		let output = self
-			.command_target_build_inner(args.inner, args.detach)
-			.await?;
+		let output = self.command_target_build_inner(args).await?;
 
-		// Handle the output.
-		if let Some(output) = output {
-			match output {
-				InnerOutput::Path(path) => {
-					println!("{path}");
-				},
-				InnerOutput::Value(value) => {
-					println!("{value}");
-				},
-			}
+		// Print the output.
+		match output {
+			InnerOutput::Detached(build) => {
+				println!("{build}");
+			},
+			InnerOutput::Path(path) => {
+				println!("{path}");
+			},
+			InnerOutput::Value(value) => {
+				println!("{value}");
+			},
 		}
 
 		Ok(())
 	}
 
-	pub(crate) async fn command_target_build_inner(
-		&self,
-		args: InnerArgs,
-		detach: bool,
-	) -> tg::Result<Option<InnerOutput>> {
+	pub(crate) async fn command_target_build_inner(&self, args: Args) -> tg::Result<InnerOutput> {
 		let client = self.client().await?;
 
-		// Get the arg.
-		let arg = if let Some(specifier) = args.specifier {
-			Arg::Specifier(specifier)
-		} else if let Some(target) = args.target {
-			Arg::Target(target)
-		} else {
-			args.arg_.unwrap_or_default()
-		};
+		// Get the reference.
+		let reference = args.reference.unwrap_or_else(|| ".".parse().unwrap());
+
+		// Get the remote.
+		let remote = args
+			.remote
+			.map(|remote| remote.unwrap_or_else(|| "default".to_owned()));
 
 		// Create the target.
-		let target = match arg {
-			Arg::Specifier(mut specifier) => {
-				// Canonicalize the path.
-				if let Some(path) = specifier.dependency.path.as_mut() {
-					*path = tokio::fs::canonicalize(&path)
+		let target = 'a: {
+			// Get the package.
+			let package = match reference.path {
+				tg::reference::Path::Object(tg::object::Id::Target(target)) => {
+					break 'a tg::Target::with_id(target);
+				},
+
+				tg::reference::Path::Path(path) => {
+					// Canonicalize the path.
+					let path = tokio::fs::canonicalize(&path)
 						.await
 						.map_err(|source| tg::error!(!source, "failed to canonicalize the path"))?
 						.try_into()?;
-				}
 
-				// Create the package.
-				let (package, lock) =
-					tg::package::get_with_lock(&client, &specifier.dependency, args.locked).await?;
-
-				// Create the target.
-				let host = "js";
-				let path = tg::package::get_root_module_path(&client, &package).await?;
-				let executable = tg::Symlink::new(Some(package), Some(path));
-				let mut args_: tg::value::Array = args
-					.arg
-					.into_iter()
-					.map(|arg| {
-						arg.into_iter()
-							.map(|arg| arg.parse())
-							.collect::<Result<tg::value::Array, tg::Error>>()
-							.map(Into::into)
-					})
-					.try_collect()?;
-				args_.insert(0, specifier.target.into());
-				let mut env: tg::value::Map = args
-					.env
-					.into_iter()
-					.flatten()
-					.map(|env| {
-						let map = env
-							.parse::<tg::Value>()?
-							.try_unwrap_map()
-							.map_err(|_| tg::error!("expected a map"))?
-							.into_iter();
-						Ok::<_, tg::Error>(map)
-					})
-					.try_fold(tg::value::Map::new(), |mut map, item| {
-						map.extend(item?);
-						Ok::<_, tg::Error>(map)
-					})?;
-				if !env.contains_key("TANGRAM_HOST") {
-					let host = if let Some(host) = args.host {
-						host
-					} else {
-						Cli::host().to_owned()
+					// Create the package.
+					let arg = tg::package::create::Arg {
+						reference: tg::Reference::with_path(path),
+						locked: args.locked,
+						remote: remote.clone(),
 					};
-					env.insert("TANGRAM_HOST".to_owned(), host.to_string().into());
-				}
-				tg::target::Builder::new(host)
-					.executable(tg::Artifact::from(executable))
-					.args(args_)
-					.env(env)
-					.lock(lock)
-					.build()
-			},
+					let tg::package::create::Output { package } =
+						client.create_package(arg).await?;
+					tg::Package::with_id(package)
+				},
 
-			Arg::Target(target) => tg::Target::with_id(target),
+				tg::reference::Path::Tag(tag) => {
+					let tg::tag::get::Output { item, .. } = client.get_tag(&tag).await?;
+					let Either::Right(tg::object::Id::Package(package)) = item else {
+						return Err(tg::error!("expected a package"));
+					};
+					tg::Package::with_id(package)
+				},
+
+				_ => {
+					return Err(tg::error!("invalid reference"));
+				},
+			};
+
+			// Get the target.
+			let target = reference
+				.uri
+				.fragment()
+				.map_or("default", |fragment| fragment.as_str());
+
+			// Get the args.
+			let mut args_: Vec<tg::Value> = args
+				.arg
+				.into_iter()
+				.map(|arg| {
+					arg.into_iter()
+						.map(|arg| arg.parse())
+						.collect::<Result<tg::value::Array, tg::Error>>()
+						.map(Into::into)
+				})
+				.try_collect()?;
+			args_.insert(0, target.into());
+
+			// Get the env.
+			let mut env: tg::value::Map = args
+				.env
+				.into_iter()
+				.flatten()
+				.map(|env| {
+					let map = env
+						.parse::<tg::Value>()?
+						.try_unwrap_map()
+						.map_err(|_| tg::error!("expected a map"))?
+						.into_iter();
+					Ok::<_, tg::Error>(map)
+				})
+				.try_fold(tg::value::Map::new(), |mut map, item| {
+					map.extend(item?);
+					Ok::<_, tg::Error>(map)
+				})?;
+
+			// Set the TANGRAM_HOST environment variable if it is not set.
+			if !env.contains_key("TANGRAM_HOST") {
+				let host = if let Some(host) = args.host {
+					host
+				} else {
+					Cli::host().to_owned()
+				};
+				env.insert("TANGRAM_HOST".to_owned(), host.to_string().into());
+			}
+
+			// Choose the host.
+			let host = "js";
+
+			// Create the target.
+			tg::target::Builder::new(host)
+				.executable(package)
+				.args(args_)
+				.env(env)
+				.build()
 		};
 
 		// Determine the retry.
@@ -233,9 +234,6 @@ impl Cli {
 
 		// Build the target.
 		let id = target.id(&client).await?;
-		let remote = args
-			.remote
-			.map(|remote| remote.unwrap_or_else(|| "default".to_owned()));
 		let arg = tg::target::build::Arg {
 			create: true,
 			parent: None,
@@ -245,17 +243,16 @@ impl Cli {
 		let output = client.build_target(&id, arg).await?;
 		let build = tg::Build::with_id(output.build);
 
-		// Add the root if requested.
-		if let Some(name) = args.root {
+		// Tag the build if requested.
+		if let Some(tag) = args.tag {
 			let item = Either::Left(build.id().clone());
-			let arg = tg::root::put::Arg { item };
-			client.put_root(&name, arg).await?;
+			let arg = tg::tag::put::Arg { force: false, item };
+			client.put_tag(&tag, arg).await?;
 		}
 
-		// If the detach flag is set, then print the build and exit.
-		if detach {
-			println!("{}", build.id());
-			return Ok(None);
+		// If the detach flag is set, then return the build.
+		if args.detach {
+			return Ok(InnerOutput::Detached(build.id().clone()));
 		}
 
 		// Print the build.
@@ -280,22 +277,22 @@ impl Cli {
 			None
 		};
 
-		// If the outcome is not immediatey available, then wait for it while showing the TUI if enabled.
+		// If the build is not finished, then wait for it to finish while showing the TUI if enabled.
 		let outcome = if let Some(outcome) = outcome {
 			outcome
 		} else {
-			// Start the TUI.
-			let progress = (!args.quiet).then(|| {
+			// Start the progress.
+			let progress_task = (!args.quiet).then(|| {
 				tokio::spawn({
-					let progress = ProgressTree::new(build.clone(), &client);
+					let progress = Progress::new(build.clone(), &client);
 					async move {
-						progress.display().await;
+						progress.run().await;
 					}
 				})
 			});
 
 			// Spawn a task to attempt to cancel the build on the first interrupt signal and exit the process on the second.
-			tokio::spawn({
+			let cancel_task = tokio::spawn({
 				let handle = client.clone();
 				let build = build.clone();
 				async move {
@@ -313,8 +310,11 @@ impl Cli {
 			// Wait for the build's outcome.
 			let outcome = build.outcome(&client).await;
 
-			// Stop the TUI.
-			if let Some(progress) = progress {
+			// Abort the cancel task.
+			cancel_task.abort();
+
+			// Wait for the progress to finish.
+			if let Some(progress) = progress_task {
 				progress.await.ok();
 			}
 
@@ -360,75 +360,21 @@ impl Cli {
 				bundle: path.is_some(),
 				force: false,
 				path,
-				references: true,
+				dependencies: true,
 			};
 			let output = artifact
 				.check_out(&client, arg)
 				.await
 				.map_err(|source| tg::error!(!source, "failed to check out the artifact"))?;
 
-			return Ok(Some(InnerOutput::Path(output)));
+			return Ok(InnerOutput::Path(output));
 		}
 
-		Ok(Some(InnerOutput::Value(output)))
+		Ok(InnerOutput::Value(output))
 	}
 }
 
-impl Default for Arg {
-	fn default() -> Self {
-		Self::Specifier(Specifier::default())
-	}
-}
-
-impl std::str::FromStr for Arg {
-	type Err = tg::Error;
-
-	fn from_str(s: &str) -> tg::Result<Self, Self::Err> {
-		if let Ok(target) = s.parse() {
-			return Ok(Arg::Target(target));
-		}
-		if let Ok(specifier) = s.parse() {
-			return Ok(Arg::Specifier(specifier));
-		}
-		Err(tg::error!(%s, "expected a target specifier or target ID"))
-	}
-}
-
-impl Default for Specifier {
-	fn default() -> Self {
-		Self {
-			dependency: ".".parse().unwrap(),
-			target: "default".to_owned(),
-		}
-	}
-}
-
-impl std::str::FromStr for Specifier {
-	type Err = tg::Error;
-
-	fn from_str(s: &str) -> tg::Result<Self, Self::Err> {
-		// Split the string by the colon character.
-		let (package, target) = s.split_once(':').unwrap_or((s, ""));
-
-		// Get the dependency.
-		let dependency = if package.is_empty() {
-			".".parse().unwrap()
-		} else {
-			package.parse()?
-		};
-
-		// Get the target.
-		let target = if target.is_empty() {
-			"default".to_owned()
-		} else {
-			target.to_owned()
-		};
-
-		Ok(Self { dependency, target })
-	}
-}
-
-impl<H> ProgressTree<H>
+impl<H> Progress<H>
 where
 	H: tg::Handle,
 {
@@ -437,15 +383,13 @@ where
 		Self { root }
 	}
 
-	pub async fn display(&self) {
+	pub async fn run(&self) {
 		loop {
+			// If the build is finished, then break.
 			let status = self.root.state.lock().unwrap().status;
 			if matches!(status, Some(tg::build::Status::Finished)) {
 				break;
 			}
-
-			// Save the current position.
-			crossterm::execute!(std::io::stdout(), crossterm::cursor::SavePosition,).unwrap();
 
 			// Get the spinner
 			const SPINNER: [char; 10] = ['⠋', '⠙', '⠹', '⠸', '⠼', '⠴', '⠦', '⠧', '⠇', '⠏'];
@@ -459,6 +403,9 @@ where
 
 			// Create the tree.
 			let tree = self.root.to_tree(&spinner);
+
+			// Save the current position.
+			crossterm::execute!(std::io::stdout(), crossterm::cursor::SavePosition,).unwrap();
 
 			// Clear.
 			crossterm::execute!(
@@ -480,7 +427,6 @@ where
 		// Clear.
 		crossterm::execute!(
 			std::io::stdout(),
-			crossterm::cursor::RestorePosition,
 			crossterm::terminal::Clear(crossterm::terminal::ClearType::FromCursorDown),
 		)
 		.unwrap();
@@ -534,7 +480,7 @@ where
 		tokio::spawn({
 			let node = node.clone();
 			async move {
-				node.title().await;
+				node.title().await.ok();
 			}
 		});
 
@@ -630,36 +576,46 @@ where
 		}
 	}
 
-	async fn title(&self) {
-		let Ok(target) = self.build.target(&self.handle).await else {
-			return;
-		};
-		let Ok(Some(package)) = target.package(&self.handle).await else {
-			return;
-		};
-		let Ok(metadata) = tg::package::get_metadata(&self.handle, &package).await else {
-			return;
-		};
-		let Ok(host) = target.host(&self.handle).await else {
-			return;
-		};
-		let package_name = metadata.name.as_deref().unwrap_or("<unknown>");
-		let package_version = metadata.version.as_deref().unwrap_or("<unknown>");
-		let target_name = if host.as_str() == "js" {
-			let Some(name) = target.args(&self.handle).await.ok().and_then(|args| {
-				args.first()
-					.and_then(|arg| arg.clone().try_unwrap_string().ok())
-			}) else {
-				return;
+	async fn title(&self) -> tg::Result<()> {
+		let target = self.build.target(&self.handle).await?;
+		let host = target.host(&self.handle).await?;
+		let (package, repository, version) =
+			if let Some(executable) = target.executable(&self.handle).await?.as_ref() {
+				let object = executable.object(&self.handle).await?;
+				let metadata = &object.nodes[object.root].metadata;
+				let package = executable.id(&self.handle).await?;
+				let repository = metadata
+					.get("repository")
+					.and_then(|value| value.try_unwrap_string_ref().ok())
+					.cloned();
+				let version = metadata
+					.get("version")
+					.and_then(|value| value.try_unwrap_string_ref().ok())
+					.cloned();
+				(Some(package), repository, version)
+			} else {
+				(None, None, None)
 			};
-			name
+		let mut title = String::new();
+		if let (Some(repository), Some(version)) = (repository, version) {
+			write!(title, "{repository}@{version}").unwrap();
+		} else if let Some(package) = package {
+			write!(title, "{package}").unwrap();
 		} else {
-			let Ok(target) = target.id(&self.handle).await else {
-				return;
-			};
-			target.to_string()
-		};
-		let title = format!("{package_name}@{package_version} {target_name}");
+			write!(title, "<unknown>").unwrap();
+		}
+		if host.as_str() == "js" {
+			let name = target
+				.args(&self.handle)
+				.await?
+				.first()
+				.and_then(|arg| arg.try_unwrap_string_ref().ok())
+				.cloned();
+			if let Some(name) = name {
+				write!(title, ":{name}").unwrap();
+			}
+		}
 		self.state.lock().unwrap().title = title;
+		Ok(())
 	}
 }

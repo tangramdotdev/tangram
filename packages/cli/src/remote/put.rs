@@ -7,7 +7,10 @@ use url::Url;
 #[derive(Clone, Debug, clap::Args)]
 #[group(skip)]
 pub struct Args {
+	#[arg(index = 1)]
 	pub name: String,
+
+	#[arg(index = 2)]
 	pub url: Url,
 }
 

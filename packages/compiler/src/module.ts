@@ -1,45 +1,18 @@
 import { assert } from "./assert.ts";
 
-export type Module =
-	| { kind: "js"; value: Js }
-	| { kind: "ts"; value: Js }
-	| { kind: "dts"; value: { path: string } }
-	| { kind: "artifact"; value: Artifact }
-	| { kind: "directory"; value: Directory }
-	| { kind: "file"; value: File }
-	| { kind: "symlink"; value: Symlink };
-
-export type Js =
-	| { kind: "file"; value: string }
-	| { kind: "package_artifact"; value: PackageArtifact }
-	| { kind: "package_path"; value: PackagePath };
-
-export type PackageArtifact = {
-	artifact: string;
-	lock: string;
-	path: string;
+export type Module = {
+	kind: Kind;
+	package: string;
 };
 
-export type PackagePath = {
-	package_path: string;
-	path: string;
-};
-
-export type Artifact =
-	| { kind: "id"; value: string }
-	| { kind: "path"; value: string };
-
-export type Directory =
-	| { kind: "id"; value: string }
-	| { kind: "path"; value: string };
-
-export type File =
-	| { kind: "id"; value: string }
-	| { kind: "path"; value: string };
-
-export type Symlink =
-	| { kind: "id"; value: string }
-	| { kind: "path"; value: string };
+export type Kind =
+	| "js"
+	| "ts"
+	| "dts"
+	| "artifact"
+	| "directory"
+	| "file"
+	| "symlink";
 
 export namespace Module {
 	export let toUrl = (module: Module): string => {

@@ -195,11 +195,11 @@ impl tg::Handle for Proxy {
 		Err(tg::error!("forbidden"))
 	}
 
-	async fn start_build(
+	async fn try_start_build(
 		&self,
 		_id: &tg::build::Id,
 		_arg: tg::build::start::Arg,
-	) -> tg::Result<()> {
+	) -> tg::Result<Option<bool>> {
 		Err(tg::error!("forbidden"))
 	}
 
@@ -273,7 +273,7 @@ impl tg::Handle for Proxy {
 		&self,
 		_id: &tg::build::Id,
 		_arg: tg::build::finish::Arg,
-	) -> tg::Result<()> {
+	) -> tg::Result<Option<bool>> {
 		Err(tg::error!("forbidden"))
 	}
 
@@ -339,70 +339,30 @@ impl tg::Handle for Proxy {
 		Err::<stream::Empty<_>, _>(tg::error!("forbidden"))
 	}
 
-	async fn list_packages(
+	fn create_package(
 		&self,
-		_arg: tg::package::list::Arg,
-	) -> tg::Result<tg::package::list::Output> {
-		Err(tg::error!("forbidden"))
-	}
-
-	async fn try_get_package(
-		&self,
-		_dependency: &tg::Dependency,
-		_arg: tg::package::get::Arg,
-	) -> tg::Result<Option<tg::package::get::Output>> {
-		Err(tg::error!("forbidden"))
+		arg: tg::package::create::Arg,
+	) -> impl Future<Output = tg::Result<tg::package::create::Output>> + Send {
+		self.server.create_package(arg)
 	}
 
 	async fn check_package(
 		&self,
-		_dependency: &tg::Dependency,
+		_id: &tg::package::Id,
 		_arg: tg::package::check::Arg,
 	) -> tg::Result<tg::package::check::Output> {
 		Err(tg::error!("forbidden"))
 	}
 
-	async fn try_get_package_doc(
+	async fn document_package(
 		&self,
-		_dependency: &tg::Dependency,
+		_id: &tg::package::Id,
 		_arg: tg::package::doc::Arg,
-	) -> tg::Result<Option<serde_json::Value>> {
+	) -> tg::Result<serde_json::Value> {
 		Err(tg::error!("forbidden"))
 	}
 
-	async fn format_package(&self, _dependency: &tg::Dependency) -> tg::Result<()> {
-		Err(tg::error!("forbidden"))
-	}
-
-	async fn get_package_outdated(
-		&self,
-		_dependency: &tg::Dependency,
-		_arg: tg::package::outdated::Arg,
-	) -> tg::Result<tg::package::outdated::Output> {
-		Err(tg::error!("forbidden"))
-	}
-
-	async fn publish_package(
-		&self,
-		_id: &tg::artifact::Id,
-		_arg: tg::package::publish::Arg,
-	) -> tg::Result<()> {
-		Err(tg::error!("forbidden"))
-	}
-
-	async fn try_get_package_versions(
-		&self,
-		_dependency: &tg::Dependency,
-		_arg: tg::package::versions::Arg,
-	) -> tg::Result<Option<tg::package::versions::Output>> {
-		Err(tg::error!("forbidden"))
-	}
-
-	async fn yank_package(
-		&self,
-		_id: &tg::artifact::Id,
-		_arg: tg::package::yank::Arg,
-	) -> tg::Result<()> {
+	async fn format_package(&self, _arg: tg::package::format::Arg) -> tg::Result<()> {
 		Err(tg::error!("forbidden"))
 	}
 
@@ -425,22 +385,6 @@ impl tg::Handle for Proxy {
 		Err(tg::error!("forbidden"))
 	}
 
-	async fn list_roots(&self, _arg: tg::root::list::Arg) -> tg::Result<tg::root::list::Output> {
-		Err(tg::error!("forbidden"))
-	}
-
-	async fn try_get_root(&self, _name: &str) -> tg::Result<Option<tg::root::get::Output>> {
-		Err(tg::error!("forbidden"))
-	}
-
-	async fn put_root(&self, _name: &str, _arg: tg::root::put::Arg) -> tg::Result<()> {
-		Err(tg::error!("forbidden"))
-	}
-
-	async fn delete_root(&self, _name: &str) -> tg::Result<()> {
-		Err(tg::error!("forbidden"))
-	}
-
 	async fn get_js_runtime_doc(&self) -> tg::Result<serde_json::Value> {
 		Err(tg::error!("forbidden"))
 	}
@@ -453,15 +397,34 @@ impl tg::Handle for Proxy {
 		Err(tg::error!("forbidden"))
 	}
 
-	async fn build_target(
+	async fn list_tags(&self, _arg: tg::tag::list::Arg) -> tg::Result<tg::tag::list::Output> {
+		Err(tg::error!("forbidden"))
+	}
+
+	async fn try_get_tag(
+		&self,
+		_pattern: &tg::tag::Pattern,
+	) -> tg::Result<Option<tg::tag::get::Output>> {
+		Err(tg::error!("forbidden"))
+	}
+
+	async fn put_tag(&self, _tag: &tg::Tag, _arg: tg::tag::put::Arg) -> tg::Result<()> {
+		Err(tg::error!("forbidden"))
+	}
+
+	async fn delete_tag(&self, _tag: &tg::Tag) -> tg::Result<()> {
+		Err(tg::error!("forbidden"))
+	}
+
+	async fn try_build_target(
 		&self,
 		id: &tg::target::Id,
 		mut arg: tg::target::build::Arg,
-	) -> tg::Result<tg::target::build::Output> {
+	) -> tg::Result<Option<tg::target::build::Output>> {
 		arg.parent = Some(self.build.clone());
 		arg.remote = self.remote.clone();
 		arg.retry = tg::Build::with_id(self.build.clone()).retry(self).await?;
-		self.server.build_target(id, arg).await
+		self.server.try_build_target(id, arg).await
 	}
 
 	async fn get_user(&self, _token: &str) -> tg::Result<Option<tg::User>> {

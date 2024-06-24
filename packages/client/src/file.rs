@@ -25,28 +25,28 @@ pub struct File {
 
 pub type State = tg::object::State<Id, Object>;
 
-/// A file value.
 #[derive(Clone, Debug)]
 pub struct Object {
 	pub contents: tg::Blob,
+	pub dependencies: Vec<tg::Artifact>,
 	pub executable: bool,
-	pub references: Vec<tg::Artifact>,
 }
 
-/// File data.
 #[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
 pub struct Data {
 	pub contents: tg::blob::Id,
+
+	#[serde(default, skip_serializing_if = "BTreeSet::is_empty")]
+	pub dependencies: BTreeSet<tg::artifact::Id>,
+
 	#[serde(default, skip_serializing_if = "std::ops::Not::not")]
 	pub executable: bool,
-	#[serde(default, skip_serializing_if = "BTreeSet::is_empty")]
-	pub references: BTreeSet<tg::artifact::Id>,
 }
 
 /// The extended attributes of files.
 #[derive(serde::Deserialize, serde::Serialize, Clone, Debug)]
 pub struct Attributes {
-	pub references: BTreeSet<tg::artifact::Id>,
+	pub dependencies: BTreeSet<tg::artifact::Id>,
 }
 
 /// The extended attributes key used to store the [`Attributes`].
@@ -155,29 +155,29 @@ impl File {
 	{
 		let object = self.object(handle).await?;
 		let contents = object.contents.id(handle).await?.clone();
-		let executable = object.executable;
-		let references = object
-			.references
+		let dependencies = object
+			.dependencies
 			.iter()
 			.map(|artifact| artifact.id(handle))
 			.collect::<FuturesOrdered<_>>()
 			.try_collect()
 			.await?;
+		let executable = object.executable;
 		Ok(Data {
 			contents,
+			dependencies,
 			executable,
-			references,
 		})
 	}
 }
 
 impl File {
 	#[must_use]
-	pub fn new(contents: tg::Blob, executable: bool, references: Vec<tg::Artifact>) -> Self {
+	pub fn new(contents: tg::Blob, dependencies: Vec<tg::Artifact>, executable: bool) -> Self {
 		Self::with_object(Object {
 			contents,
+			dependencies,
 			executable,
-			references,
 		})
 	}
 
@@ -205,14 +205,17 @@ impl File {
 		Ok(self.object(handle).await?.executable)
 	}
 
-	pub async fn references<H>(
+	pub async fn dependencies<H>(
 		&self,
 		handle: &H,
 	) -> tg::Result<impl std::ops::Deref<Target = Vec<tg::Artifact>>>
 	where
 		H: tg::Handle,
 	{
-		Ok(self.object(handle).await?.map(|object| &object.references))
+		Ok(self
+			.object(handle)
+			.await?
+			.map(|object| &object.dependencies))
 	}
 
 	pub async fn reader<H>(&self, handle: &H) -> tg::Result<tg::blob::Reader<H>>
@@ -259,7 +262,7 @@ impl Data {
 	#[must_use]
 	pub fn children(&self) -> BTreeSet<tg::object::Id> {
 		std::iter::once(self.contents.clone().into())
-			.chain(self.references.iter().cloned().map(Into::into))
+			.chain(self.dependencies.iter().cloned().map(Into::into))
 			.collect()
 	}
 }
@@ -269,16 +272,16 @@ impl TryFrom<Data> for Object {
 
 	fn try_from(data: Data) -> std::result::Result<Self, Self::Error> {
 		let contents = tg::Blob::with_id(data.contents);
-		let executable = data.executable;
-		let references = data
-			.references
+		let dependencies = data
+			.dependencies
 			.into_iter()
 			.map(tg::Artifact::with_id)
 			.collect();
+		let executable = data.executable;
 		Ok(Self {
 			contents,
+			dependencies,
 			executable,
-			references,
 		})
 	}
 }
@@ -310,8 +313,8 @@ impl std::str::FromStr for Id {
 
 pub struct Builder {
 	contents: tg::Blob,
+	dependencies: Vec<tg::tg::Artifact>,
 	executable: bool,
-	references: Vec<tg::tg::Artifact>,
 }
 
 impl Builder {
@@ -320,7 +323,7 @@ impl Builder {
 		Self {
 			contents: contents.into(),
 			executable: false,
-			references: Vec::new(),
+			dependencies: Vec::new(),
 		}
 	}
 
@@ -331,20 +334,20 @@ impl Builder {
 	}
 
 	#[must_use]
+	pub fn dependencies(mut self, dependencies: Vec<tg::Artifact>) -> Self {
+		self.dependencies = dependencies;
+		self
+	}
+
+	#[must_use]
 	pub fn executable(mut self, executable: bool) -> Self {
 		self.executable = executable;
 		self
 	}
 
 	#[must_use]
-	pub fn references(mut self, references: Vec<tg::Artifact>) -> Self {
-		self.references = references;
-		self
-	}
-
-	#[must_use]
 	pub fn build(self) -> File {
-		File::new(self.contents, self.executable, self.references)
+		File::new(self.contents, self.dependencies, self.executable)
 	}
 }
 

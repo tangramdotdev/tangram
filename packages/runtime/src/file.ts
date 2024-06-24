@@ -28,10 +28,10 @@ export class File {
 	static async new(...args: Args<File.Arg>): Promise<File> {
 		let arg = await File.arg(...args);
 		let contents = await blob(arg.contents);
+		let dependencies = arg.dependencies ?? [];
 		let executable = arg.executable ?? false;
-		let references = arg.references ?? [];
 		return new File({
-			object: { contents, executable, references },
+			object: { contents, dependencies, executable },
 		});
 	}
 
@@ -52,7 +52,7 @@ export class File {
 					let object = await arg.object();
 					return {
 						contents: object.contents,
-						references: object.references,
+						dependencies: object.dependencies,
 					};
 				} else {
 					return arg;
@@ -61,7 +61,7 @@ export class File {
 		);
 		let mutations = await Args.createMutations(objects, {
 			contents: "append",
-			references: "append",
+			dependencies: "append",
 		});
 		let arg = await Args.applyMutations(mutations);
 		return arg;
@@ -107,12 +107,12 @@ export class File {
 		return (await this.object()).contents;
 	}
 
-	async executable(): Promise<boolean> {
-		return (await this.object()).executable;
+	async dependencies(): Promise<Array<Artifact>> {
+		return (await this.object()).dependencies;
 	}
 
-	async references(): Promise<Array<Artifact>> {
-		return (await this.object()).references;
+	async executable(): Promise<boolean> {
+		return (await this.object()).executable;
 	}
 
 	async size(): Promise<number> {
@@ -133,16 +133,16 @@ export namespace File {
 
 	export type ArgObject = {
 		contents?: Blob.Arg | undefined;
+		dependencies?: Array<Artifact> | undefined;
 		executable?: boolean | undefined;
-		references?: Array<Artifact> | undefined;
 	};
 
 	export type Id = string;
 
 	export type Object_ = {
 		contents: Blob;
+		dependencies: Array<Artifact>;
 		executable: boolean;
-		references: Array<Artifact>;
 	};
 
 	export type State = Object_.State<File.Id, File.Object_>;

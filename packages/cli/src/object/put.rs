@@ -7,6 +7,7 @@ use tokio::io::AsyncReadExt as _;
 #[derive(Clone, Debug, clap::Args)]
 #[group(skip)]
 pub struct Args {
+	#[arg(index = 1)]
 	bytes: Option<String>,
 
 	#[arg(short, long)]

@@ -1,12 +1,13 @@
 use crate::Cli;
-use crossterm::{style::Stylize as _, tty::IsTty};
-use tangram_client::{self as tg, Handle as _};
+use crossterm::{style::Stylize as _, tty::IsTty as _};
+use tangram_client::{self as tg, handle::Ext as _};
 use tokio::io::AsyncWriteExt as _;
 
 /// Get an object.
 #[derive(Clone, Debug, clap::Args)]
 #[group(skip)]
 pub struct Args {
+	#[arg(index = 1)]
 	pub object: tg::object::Id,
 }
 

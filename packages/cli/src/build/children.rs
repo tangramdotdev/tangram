@@ -1,11 +1,12 @@
 use crate::Cli;
 use futures::{StreamExt as _, TryStreamExt as _};
-use tangram_client::{self as tg, Handle as _};
+use tangram_client::{self as tg, handle::Ext as _};
 
 /// Get a build's children.
 #[derive(Clone, Debug, clap::Args)]
 #[group(skip)]
 pub struct Args {
+	#[arg(index = 1)]
 	pub build: tg::build::Id,
 
 	#[arg(long)]

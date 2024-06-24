@@ -1,13 +1,14 @@
 use crate::Cli;
 use futures::TryStreamExt as _;
 use std::pin::pin;
-use tangram_client::{self as tg, Handle as _};
+use tangram_client::{self as tg, handle::Ext as _};
 use tokio_util::io::StreamReader;
 
 /// Cat blobs.
 #[derive(Clone, Debug, clap::Args)]
 #[group(skip)]
 pub struct Args {
+	#[arg(index = 1)]
 	pub blobs: Vec<tg::blob::Id>,
 }
 

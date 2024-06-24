@@ -3,7 +3,7 @@ import { Branch } from "./branch.ts";
 import { Directory } from "./directory.ts";
 import { File } from "./file.ts";
 import { Leaf } from "./leaf.ts";
-import { Lock } from "./lock.ts";
+import { Package } from "./package.ts";
 import { Symlink } from "./symlink.ts";
 import { Target } from "./target.ts";
 
@@ -13,7 +13,7 @@ export type Object_ =
 	| Directory
 	| File
 	| Symlink
-	| Lock
+	| Package
 	| Target;
 
 export namespace Object_ {
@@ -25,7 +25,7 @@ export namespace Object_ {
 		| "directory"
 		| "file"
 		| "symlink"
-		| "lock"
+		| "package"
 		| "target";
 
 	export type Object_ =
@@ -34,7 +34,7 @@ export namespace Object_ {
 		| { kind: "directory"; value: Directory.Object_ }
 		| { kind: "file"; value: File.Object_ }
 		| { kind: "symlink"; value: Symlink.Object_ }
-		| { kind: "lock"; value: Lock.Object_ }
+		| { kind: "package"; value: Package.Object_ }
 		| { kind: "target"; value: Target.Object_ };
 
 	export type State<I, O> = {
@@ -49,8 +49,8 @@ export namespace Object_ {
 			value instanceof Directory ||
 			value instanceof File ||
 			value instanceof Symlink ||
-			value instanceof Target ||
-			value instanceof Lock
+			value instanceof Package ||
+			value instanceof Target
 		);
 	};
 

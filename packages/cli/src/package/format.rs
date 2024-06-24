@@ -5,24 +5,23 @@ use tangram_client as tg;
 #[derive(Clone, Debug, clap::Args)]
 #[group(skip)]
 pub struct Args {
-	/// The package to format.
-	pub package: tg::Dependency,
+	#[arg(index = 1, default_value = ".")]
+	pub path: tg::Path,
 }
 
 impl Cli {
-	pub async fn command_package_format(&self, mut args: Args) -> tg::Result<()> {
+	pub async fn command_package_format(&self, args: Args) -> tg::Result<()> {
 		let client = self.client().await?;
 
-		// Canonicalize the package path.
-		if let Some(path) = args.package.path.as_mut() {
-			*path = tokio::fs::canonicalize(&path)
-				.await
-				.map_err(|source| tg::error!(!source, "failed to canonicalize the path"))?
-				.try_into()?;
-		}
+		// Canonicalize the path.
+		let path = tokio::fs::canonicalize(&args.path)
+			.await
+			.map_err(|source| tg::error!(!source, "failed to canonicalize the path"))?
+			.try_into()?;
 
 		// Format the package.
-		client.format_package(&args.package).await?;
+		let arg = tg::package::format::Arg { path };
+		client.format_package(arg).await?;
 
 		Ok(())
 	}

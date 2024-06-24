@@ -9,9 +9,9 @@ import * as encoding from "./encoding.ts";
 import { Error_ } from "./error.ts";
 import { File, file } from "./file.ts";
 import { Leaf, leaf } from "./leaf.ts";
-import { Lock, lock } from "./lock.ts";
 import { log } from "./log.ts";
 import { Mutation, mutation } from "./mutation.ts";
+import { Package, package_ } from "./package.ts";
 import { path, Path } from "./path.ts";
 import { resolve } from "./resolve.ts";
 import { sleep } from "./sleep.ts";
@@ -63,8 +63,8 @@ Object.assign(tg, {
 	Error: Error_,
 	File,
 	Leaf,
-	Lock,
 	Mutation,
+	Package,
 	Path,
 	Symlink,
 	Target,
@@ -84,9 +84,9 @@ Object.assign(tg, {
 	extract,
 	file,
 	leaf,
-	lock,
 	log,
 	mutation,
+	package: package_,
 	path,
 	resolve,
 	sleep,

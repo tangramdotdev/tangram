@@ -1,12 +1,13 @@
 use self::{document::Document, syscall::syscall};
 use crate::Server;
 use dashmap::DashMap;
+use either::Either;
 use futures::{future, Future, FutureExt as _, TryFutureExt as _};
 use lsp::{notification::Notification as _, request::Request as _};
 use lsp_types as lsp;
 use std::{
 	collections::{BTreeMap, BTreeSet, HashMap},
-	path::{Path, PathBuf},
+	path::PathBuf,
 	pin::pin,
 	sync::{Arc, Mutex},
 };
@@ -113,7 +114,7 @@ impl Compiler {
 	#[must_use]
 	pub fn new(server: &crate::Server, main_runtime_handle: tokio::runtime::Handle) -> Self {
 		// Create the published diagnostics.
-		let diagnostics = tokio::sync::RwLock::new(BTreeMap::default());
+		let diagnostics = tokio::sync::RwLock::new(BTreeMap::new());
 
 		// Create the documents.
 		let documents = DashMap::default();
@@ -634,66 +635,19 @@ impl Compiler {
 	async fn module_for_uri(&self, uri: &lsp::Uri) -> tg::Result<tg::Module> {
 		match uri.scheme().unwrap().as_str() {
 			"file" => {
-				// Get the path and file name.
-				let path = Path::new(uri.path().as_str());
-				let file_name = path
-					.file_name()
-					.ok_or_else(|| tg::error!("the path must have a file name"))?
-					.to_str()
-					.ok_or_else(|| tg::error!("invalid file name"))?;
-
-				// Determine the package path.
-				let package_path = if tg::package::ROOT_MODULE_FILE_NAMES.contains(&file_name) {
-					// If the path refers to a root module, then use its path as the package path.
-					path.parent()
-						.ok_or_else(|| tg::error!("expected the path to have a parent"))?
-						.to_owned()
+				let path = uri.path().as_str().parse::<tg::Path>()?;
+				#[allow(clippy::case_sensitive_file_extension_comparisons)]
+				let kind = if path.as_str().ends_with(".d.ts") {
+					tg::module::Kind::Dts
+				} else if path.as_str().ends_with(".js") {
+					tg::module::Kind::Js
+				} else if path.as_str().ends_with(".ts") {
+					tg::module::Kind::Ts
 				} else {
-					// Otherwise, find the package path by searching the path's ancestors for a root module.
-					let mut package_path = None;
-					for ancestor_path in path.to_owned().ancestors().skip(1) {
-						for root_module_file_name in tg::package::ROOT_MODULE_FILE_NAMES {
-							let exists =
-								tokio::fs::try_exists(&ancestor_path.join(root_module_file_name))
-									.await
-									.map_err(|source| {
-										tg::error!(!source, "failed to stat the path")
-									})?;
-							if exists {
-								package_path = Some(ancestor_path.to_owned());
-								break;
-							}
-						}
-					}
-					let Some(package_path) = package_path else {
-						let path = path.display();
-						return Err(tg::error!(%path, "could not find the package"));
-					};
-					package_path
+					tg::module::Kind::Artifact
 				};
-
-				// Get the module path by stripping the package path.
-				let module_path: tg::Path = path
-					.strip_prefix(&package_path)
-					.unwrap()
-					.to_owned()
-					.into_os_string()
-					.into_string()
-					.ok()
-					.ok_or_else(|| {
-						let path = path.display();
-						tg::error!(%path, "the module path was not valid UTF-8")
-					})?
-					.parse()
-					.map_err(|error| {
-						let path = path.display();
-						tg::error!(source = error, %path, "failed to parse the module path")
-					})?;
-
-				// Create the module.
-				let module = tg::Module::with_package_path(package_path, module_path).await?;
-
-				Ok(module)
+				let package = Either::Left(path);
+				Ok(tg::Module { kind, package })
 			},
 
 			_ => uri.as_str().parse(),
@@ -704,20 +658,17 @@ impl Compiler {
 	#[must_use]
 	fn uri_for_module(&self, module: &tg::Module) -> lsp::Uri {
 		match module {
-			tg::Module::Js(tg::module::Js::PackagePath(package_path))
-			| tg::Module::Ts(tg::module::Js::PackagePath(package_path)) => {
-				let path = package_path
-					.package_path
-					.clone()
-					.join(package_path.path.clone());
-				format!("file://{}", path.display()).parse().unwrap()
-			},
-			tg::Module::Artifact(tg::module::Artifact::Path(path))
-			| tg::Module::Directory(tg::module::Directory::Path(path))
-			| tg::Module::File(tg::module::File::Path(path))
-			| tg::Module::Symlink(tg::module::Symlink::Path(path)) => {
-				format!("file://{path}").parse().unwrap()
-			},
+			tg::Module {
+				kind:
+					tg::module::Kind::Js
+					| tg::module::Kind::Ts
+					| tg::module::Kind::Artifact
+					| tg::module::Kind::Directory
+					| tg::module::Kind::File
+					| tg::module::Kind::Symlink,
+				package: Either::Left(path),
+				..
+			} => format!("file://{path}").parse().unwrap(),
 			module => module.to_string().parse().unwrap(),
 		}
 	}

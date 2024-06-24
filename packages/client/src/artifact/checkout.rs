@@ -11,14 +11,14 @@ pub struct Arg {
 	#[serde(default, skip_serializing_if = "std::ops::Not::not")]
 	pub bundle: bool,
 
+	#[serde(default = "return_true", skip_serializing_if = "is_true")]
+	pub dependencies: bool,
+
 	#[serde(default, skip_serializing_if = "std::ops::Not::not")]
 	pub force: bool,
 
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub path: Option<tg::Path>,
-
-	#[serde(default = "return_true", skip_serializing_if = "is_true")]
-	pub references: bool,
 }
 
 #[derive(Clone, Debug)]
@@ -99,7 +99,7 @@ impl Default for Arg {
 			bundle: false,
 			force: false,
 			path: None,
-			references: true,
+			dependencies: true,
 		}
 	}
 }

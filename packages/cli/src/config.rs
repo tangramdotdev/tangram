@@ -60,15 +60,6 @@ pub struct Config {
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub path: Option<PathBuf>,
 
-	/// Configure the default registry for this server. If this option is set to `true`, then the server will act as the default registry. Otherwise, provide the name of the remote. The default value is "default".
-	#[allow(clippy::option_option)]
-	#[serde(
-		default,
-		skip_serializing_if = "Option::is_none",
-		with = "serde_with::rust::double_option"
-	)]
-	pub registry: Option<Option<String>>,
-
 	/// Configure remotes.
 	#[allow(clippy::option_option)]
 	#[serde(

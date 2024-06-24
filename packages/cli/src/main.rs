@@ -1,11 +1,13 @@
 use self::config::Config;
 use clap::{CommandFactory as _, Parser as _};
-use crossterm::style::Stylize as _;
+use crossterm::{style::Stylize as _, tty::IsTty as _};
+use either::Either;
 use futures::FutureExt as _;
 use itertools::Itertools as _;
 use num::ToPrimitive as _;
 use std::{fmt::Write as _, path::PathBuf, sync::Mutex};
 use tangram_client::{self as tg, Client};
+use tokio::io::AsyncWriteExt as _;
 use tracing_subscriber::prelude::*;
 use url::Url;
 
@@ -22,11 +24,10 @@ mod package;
 mod pull;
 mod push;
 mod remote;
-mod root;
 mod server;
+mod tag;
 mod target;
 mod tree;
-mod tui;
 mod upgrade;
 mod view;
 
@@ -55,7 +56,7 @@ struct Args {
 
 	/// Disable automatic starting of a server.
 	#[arg(long)]
-	no_start: bool,
+	no_auto_start_server: bool,
 
 	/// Override the `path` key in the config.
 	#[arg(short, long)]
@@ -98,22 +99,21 @@ enum Command {
 	Format(self::package::format::Args),
 	Get(self::get::Args),
 	Init(self::package::init::Args),
+	List(self::tag::list::Args),
 	Log(self::build::log::Args),
 	Lsp(self::lsp::Args),
 	New(self::package::new::Args),
 	Object(self::object::Args),
 	Outdated(self::package::outdated::Args),
 	Package(self::package::Args),
-	Publish(self::package::publish::Args),
 	Pull(self::pull::Args),
 	Push(self::push::Args),
 	Put(self::object::put::Args),
 	Remote(self::remote::Args),
-	Root(self::root::Args),
 	Run(self::target::run::Args),
-	Search(self::package::search::Args),
 	Serve(self::server::run::Args),
 	Server(self::server::Args),
+	Tag(self::tag::Args),
 	Target(self::target::Args),
 	Tree(self::tree::Args),
 	Update(self::package::update::Args),
@@ -411,22 +411,21 @@ impl Cli {
 			Command::Format(args) => self.command_package_format(args).boxed(),
 			Command::Get(args) => self.command_get(args).boxed(),
 			Command::Init(args) => self.command_package_init(args).boxed(),
+			Command::List(args) => self.command_tag_list(args).boxed(),
 			Command::Log(args) => self.command_build_log(args).boxed(),
 			Command::Lsp(args) => self.command_lsp(args).boxed(),
 			Command::New(args) => self.command_package_new(args).boxed(),
 			Command::Object(args) => self.command_object(args).boxed(),
 			Command::Outdated(args) => self.command_package_outdated(args).boxed(),
 			Command::Package(args) => self.command_package(args).boxed(),
-			Command::Publish(args) => self.command_package_publish(args).boxed(),
 			Command::Pull(args) => self.command_pull(args).boxed(),
 			Command::Push(args) => self.command_push(args).boxed(),
 			Command::Put(args) => self.command_object_put(args).boxed(),
 			Command::Remote(args) => self.command_remote(args).boxed(),
-			Command::Root(args) => self.command_root(args).boxed(),
 			Command::Run(args) => self.command_target_run(args).boxed(),
-			Command::Search(args) => self.command_package_search(args).boxed(),
 			Command::Serve(args) => self.command_server_run(args).boxed(),
 			Command::Server(args) => self.command_server(args).boxed(),
+			Command::Tag(args) => self.command_tag(args).boxed(),
 			Command::Target(args) => self.command_target(args).boxed(),
 			Command::Tree(args) => self.command_tree(args).boxed(),
 			Command::Update(args) => self.command_package_update(args).boxed(),
@@ -484,27 +483,38 @@ impl Cli {
 			errors.reverse();
 		}
 		for error in errors {
-			eprintln!("{} {}", "->".red(), error.message);
+			let message = error.message.as_deref().unwrap_or("an error occurred");
+			eprintln!("{} {message}", "->".red());
 			if let Some(location) = &error.location {
 				if !location.source.is_internal() || trace.options.internal {
 					let source = match &location.source {
-						tg::error::Source::Internal { path } => {
+						tg::error::Source::Internal(path) => {
 							path.components().iter().skip(1).join("/")
 						},
-						tg::error::Source::External { package, path } => {
-							let source = if let Some(handle) = handle.as_ref() {
-								Self::get_description_for_package(handle, package)
-									.await
-									.ok()
-									.unwrap_or_else(|| package.to_string())
+						tg::error::Source::Package(package) => {
+							if let Some(handle) = handle.as_ref() {
+								let package = tg::Package::with_id(package.clone());
+								if let Ok(object) = package.object(handle).await {
+									let node = &object.nodes[object.root];
+									let repository = node
+										.metadata
+										.get("repository")
+										.and_then(|value| value.try_unwrap_string_ref().ok());
+									let version = node
+										.metadata
+										.get("version")
+										.and_then(|value| value.try_unwrap_string_ref().ok());
+									if let (Some(repository), Some(version)) = (repository, version)
+									{
+										format!("{repository}@{version}")
+									} else {
+										package.to_string()
+									}
+								} else {
+									package.to_string()
+								}
 							} else {
 								package.to_string()
-							};
-							if let Some(path) = path {
-								let path = path.components().iter().skip(1).join("/");
-								format!("{source}:{path}")
-							} else {
-								source.to_string()
 							}
 						},
 					};
@@ -536,7 +546,10 @@ impl Cli {
 		}
 	}
 
-	async fn print_diagnostic(&self, diagnostic: &tg::Diagnostic) {
+	async fn print_diagnostic<H>(&self, handle: &H, diagnostic: &tg::Diagnostic)
+	where
+		H: tg::Handle,
+	{
 		let title = match diagnostic.severity {
 			tg::diagnostic::Severity::Error => "error".red().bold(),
 			tg::diagnostic::Severity::Warning => "warning".yellow().bold(),
@@ -547,44 +560,38 @@ impl Cli {
 		let mut string = String::new();
 		if let Some(location) = &diagnostic.location {
 			match &location.module {
-				tg::Module::Js(tg::module::Js::PackageArtifact(package_artifact))
-				| tg::Module::Ts(tg::module::Js::PackageArtifact(package_artifact)) => {
-					let client = self.client.lock().unwrap().clone();
-					let id = package_artifact.artifact.clone();
-					let artifact = tg::Artifact::with_id(id.clone());
-					let metadata = if let Some(client) = client {
-						tg::package::try_get_metadata(&client, &artifact).await.ok()
-					} else {
-						None
-					};
-					if let Some(metadata) = metadata {
-						let (name, version) = metadata
-							.map(|metadata| (metadata.name, metadata.version))
-							.unwrap_or_default();
-						let name = name.as_deref().unwrap_or("<unknown>");
-						let version = version.as_deref().unwrap_or("<unknown>");
-						write!(string, "{name}@{version}").unwrap();
-					} else {
+				tg::Module {
+					package: Either::Left(path),
+					..
+				} => {
+					write!(string, "{path}").unwrap();
+				},
+
+				tg::Module {
+					package: Either::Right(id),
+					..
+				} => {
+					let mut printed = false;
+					let package = tg::Package::with_id(id.clone());
+					if let Ok(object) = package.object(handle).await {
+						let node = &object.nodes[object.root];
+						let repository = node
+							.metadata
+							.get("repository")
+							.and_then(|value| value.try_unwrap_string_ref().ok());
+						let version = node
+							.metadata
+							.get("version")
+							.and_then(|value| value.try_unwrap_string_ref().ok());
+						if let (Some(repository), Some(version)) = (repository, version) {
+							write!(string, "{repository}@{version}").unwrap();
+							printed = true;
+						}
+					}
+					if !printed {
 						write!(string, "{id}").unwrap();
 					}
 				},
-
-				tg::Module::Js(tg::module::Js::PackagePath(package_path))
-				| tg::Module::Ts(tg::module::Js::PackagePath(package_path)) => {
-					let path = package_path.package_path.join(&package_path.path);
-					let path = path.display();
-					write!(string, "{path}").unwrap();
-				},
-
-				tg::Module::Artifact(tg::module::Artifact::Path(path))
-				| tg::Module::Directory(tg::module::Directory::Path(path))
-				| tg::Module::File(tg::module::File::Path(path))
-				| tg::Module::Symlink(tg::module::Symlink::Path(path)) => {
-					let path = path.clone();
-					write!(string, "{path}").unwrap();
-				},
-
-				_ => (),
 			}
 			let mut string = if string.is_empty() {
 				"<unknown>".to_owned()
@@ -599,34 +606,31 @@ impl Cli {
 		eprintln!();
 	}
 
-	async fn get_description_for_package<H>(
-		handle: &H,
-		package: &tg::artifact::Id,
-	) -> tg::Result<String>
+	async fn output_json<T>(output: &T) -> tg::Result<()>
 	where
-		H: tg::Handle,
+		T: serde::Serialize,
 	{
-		let dependency = tg::Dependency::with_artifact(package.clone());
-		let arg = tg::package::get::Arg {
-			metadata: true,
-			path: true,
-			..Default::default()
-		};
-		let output = handle
-			.get_package(&dependency, arg)
-			.await
-			.map_err(|source| tg::error!(!source, "failed to get the package"))?;
-		if let Some(path) = output.path {
-			return Ok(path.components().iter().skip(1).join("/"));
+		let mut stdout = tokio::io::stdout();
+		if stdout.is_tty() {
+			let output = serde_json::to_string_pretty(output)
+				.map_err(|source| tg::error!(!source, "failed to serialize the output"))?;
+			stdout
+				.write_all(output.as_bytes())
+				.await
+				.map_err(|source| tg::error!(!source, "failed to write the data"))?;
+			stdout
+				.write_all(b"\n")
+				.await
+				.map_err(|source| tg::error!(!source, "failed to write"))?;
+		} else {
+			let output = serde_json::to_string(&output)
+				.map_err(|source| tg::error!(!source, "failed to serialize the output"))?;
+			stdout
+				.write_all(output.as_bytes())
+				.await
+				.map_err(|source| tg::error!(!source, "failed to write the data"))?;
 		}
-		let (name, version) = output
-			.metadata
-			.as_ref()
-			.map(|metadata| (metadata.name.as_deref(), metadata.version.as_deref()))
-			.unwrap_or_default();
-		let name = name.unwrap_or("<unknown>");
-		let version = version.unwrap_or("<unknown>");
-		Ok(format!("{name}@{version}"))
+		Ok(())
 	}
 
 	/// Initialize V8.

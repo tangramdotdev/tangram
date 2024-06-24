@@ -4,9 +4,8 @@ use futures::{
 	future, stream::FuturesUnordered, FutureExt as _, TryFutureExt as _, TryStreamExt as _,
 };
 use std::sync::Arc;
-use tangram_client as tg;
+use tangram_client::{self as tg, handle::Ext as _};
 use tangram_futures::task::Task;
-use tg::Handle as _;
 
 impl Server {
 	pub(crate) async fn build_spawn_task(&self) {
@@ -57,11 +56,17 @@ impl Server {
 		permit: BuildPermit,
 		remote: Option<String>,
 	) -> tg::Result<()> {
-		// Start the build.
+		// Attempt to start the build.
 		let arg = tg::build::start::Arg {
 			remote: remote.clone(),
 		};
-		self.start_build(build.id(), arg).await?;
+		let started = self
+			.try_start_build(build.id(), arg)
+			.await?
+			.ok_or_else(|| tg::error!("failed to find the build"))?;
+		if !started {
+			return Ok(());
+		}
 
 		// Spawn the build task.
 		self.builds.spawn(

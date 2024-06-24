@@ -7,6 +7,7 @@ use tokio::io::AsyncWriteExt as _;
 #[derive(Clone, Debug, clap::Args)]
 #[group(skip)]
 pub struct Args {
+	#[arg(index = 1)]
 	pub build: tg::build::Id,
 
 	#[arg(long)]

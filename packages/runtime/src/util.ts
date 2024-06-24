@@ -1,8 +1,8 @@
 import type { Blob } from "./blob.ts";
 import type { Directory } from "./directory.ts";
 import type { File } from "./file.ts";
-import type { Lock } from "./lock.ts";
 import type { Mutation } from "./mutation.ts";
+import type { Package } from "./package.ts";
 import type { Symlink } from "./symlink.ts";
 import type { Target } from "./target.ts";
 import type { Template } from "./template.ts";
@@ -29,7 +29,7 @@ export type ValueOrMaybeMutationMap<T extends Value = Value> = T extends
 	| Directory
 	| File
 	| Symlink
-	| Lock
+	| Package
 	| Target
 	| Mutation
 	| Template

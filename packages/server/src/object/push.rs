@@ -5,7 +5,7 @@ use futures::{
 };
 use num::ToPrimitive as _;
 use std::sync::{atomic::AtomicU64, Arc};
-use tangram_client as tg;
+use tangram_client::{self as tg, handle::Ext as _};
 use tangram_http::{incoming::request::Ext as _, outgoing::response::Ext as _, Incoming, Outgoing};
 use tokio_stream::wrappers::IntervalStream;
 

@@ -8,10 +8,10 @@ use swc::ecma::{ast, visit::VisitWith};
 use swc_core as swc;
 use tangram_client as tg;
 
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq)]
 pub struct Analysis {
-	pub metadata: Option<tg::package::Metadata>,
 	pub imports: HashSet<tg::Import, fnv::FnvBuildHasher>,
+	pub metadata: Option<BTreeMap<String, tg::value::Data>>,
 }
 
 pub struct Error {
@@ -47,8 +47,8 @@ impl Compiler {
 
 		// Create the output.
 		let output = Analysis {
-			metadata: visitor.metadata,
 			imports: visitor.imports,
+			metadata: visitor.metadata,
 		};
 
 		Ok(output)
@@ -79,10 +79,10 @@ impl std::fmt::Display for Error {
 
 #[derive(Default)]
 struct Visitor {
-	source_map: Rc<swc::common::SourceMap>,
 	errors: Vec<Error>,
-	metadata: Option<tg::package::Metadata>,
 	imports: HashSet<tg::Import, fnv::FnvBuildHasher>,
+	metadata: Option<BTreeMap<String, tg::value::Data>>,
+	source_map: Rc<swc::common::SourceMap>,
 }
 
 impl Visitor {
@@ -199,7 +199,7 @@ impl Visitor {
 	) {
 		// Get the attributes.
 		let attributes = if let Some(attributes) = attributes {
-			let mut map = BTreeMap::default();
+			let mut map = BTreeMap::new();
 			let loc = self.source_map.lookup_char_pos(attributes.span.lo);
 			for prop in &attributes.props {
 				let Some(prop) = prop.as_prop() else {
@@ -305,7 +305,7 @@ mod tests {
 	#[test]
 	fn test_analyze() {
 		let text = r#"
-			export let metadata = { name: "name", version: "version" };
+			export let metadata = { repository: "repository", version: "version" };
 			import defaultImport from "tg:default_import";
 			import { namedImport } from "./named_import.tg.js";
 			import * as namespaceImport from "tg:namespace_import";
@@ -319,11 +319,19 @@ mod tests {
 			export * as namespaceExport from "./namespace_export.ts";
 		"#;
 		let left = Compiler::analyze_module(text.to_owned()).unwrap();
-		let metadata = tg::package::Metadata {
-			name: Some("name".to_owned()),
-			version: Some("version".to_owned()),
-			..Default::default()
-		};
+		let metadata = Some(
+			[
+				(
+					"repository".to_owned(),
+					tg::value::Data::String("repository".to_owned()),
+				),
+				(
+					"version".to_owned(),
+					tg::value::Data::String("version".to_owned()),
+				),
+			]
+			.into(),
+		);
 		let imports = [
 			"tg:default_import",
 			"./named_import.tg.js",
@@ -338,10 +346,7 @@ mod tests {
 		.into_iter()
 		.map(|specifier| tg::Import::with_specifier_and_attributes(specifier, None).unwrap())
 		.collect();
-		let right = Analysis {
-			metadata: Some(metadata),
-			imports,
-		};
+		let right = Analysis { imports, metadata };
 		assert_eq!(left, right);
 	}
 }

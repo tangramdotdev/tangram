@@ -1,10 +1,4 @@
 mod check;
+mod create;
 mod doc;
 mod format;
-mod get;
-mod list;
-mod lock;
-mod outdated;
-mod publish;
-mod versions;
-mod yank;

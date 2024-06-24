@@ -177,6 +177,30 @@ impl FromV8 for u64 {
 	}
 }
 
+impl ToV8 for usize {
+	fn to_v8<'a>(&self, scope: &mut v8::HandleScope<'a>) -> tg::Result<v8::Local<'a, v8::Value>> {
+		Ok(v8::Number::new(
+			scope,
+			self.to_f64().ok_or_else(|| tg::error!("invalid number"))?,
+		)
+		.into())
+	}
+}
+
+impl FromV8 for usize {
+	fn from_v8<'a>(
+		scope: &mut v8::HandleScope<'a>,
+		value: v8::Local<'a, v8::Value>,
+	) -> tg::Result<Self> {
+		v8::Local::<v8::Number>::try_from(value)
+			.map_err(|source| tg::error!(!source, "expected a number"))?
+			.number_value(scope)
+			.ok_or_else(|| tg::error!("expected a number"))?
+			.to_usize()
+			.ok_or_else(|| tg::error!("invalid number"))
+	}
+}
+
 impl ToV8 for i8 {
 	fn to_v8<'a>(&self, scope: &mut v8::HandleScope<'a>) -> tg::Result<v8::Local<'a, v8::Value>> {
 		Ok(v8::Number::new(
@@ -273,6 +297,30 @@ impl FromV8 for i64 {
 	}
 }
 
+impl ToV8 for isize {
+	fn to_v8<'a>(&self, scope: &mut v8::HandleScope<'a>) -> tg::Result<v8::Local<'a, v8::Value>> {
+		Ok(v8::Number::new(
+			scope,
+			self.to_f64().ok_or_else(|| tg::error!("invalid number"))?,
+		)
+		.into())
+	}
+}
+
+impl FromV8 for isize {
+	fn from_v8<'a>(
+		scope: &mut v8::HandleScope<'a>,
+		value: v8::Local<'a, v8::Value>,
+	) -> tg::Result<Self> {
+		v8::Local::<v8::Number>::try_from(value)
+			.map_err(|source| tg::error!(!source, "expected a number"))?
+			.number_value(scope)
+			.ok_or_else(|| tg::error!("expected a number"))?
+			.to_isize()
+			.ok_or_else(|| tg::error!("invalid number"))
+	}
+}
+
 impl ToV8 for f32 {
 	fn to_v8<'a>(&self, scope: &mut v8::HandleScope<'a>) -> tg::Result<v8::Local<'a, v8::Value>> {
 		Ok(v8::Number::new(
@@ -335,6 +383,27 @@ impl FromV8 for String {
 	}
 }
 
+impl<T> ToV8 for Arc<T>
+where
+	T: ToV8,
+{
+	fn to_v8<'a>(&self, scope: &mut v8::HandleScope<'a>) -> tg::Result<v8::Local<'a, v8::Value>> {
+		self.as_ref().to_v8(scope)
+	}
+}
+
+impl<T> FromV8 for Arc<T>
+where
+	T: FromV8,
+{
+	fn from_v8<'a>(
+		scope: &mut v8::HandleScope<'a>,
+		value: v8::Local<'a, v8::Value>,
+	) -> tg::Result<Self> {
+		Ok(Self::new(from_v8(scope, value)?))
+	}
+}
+
 impl<T> ToV8 for Option<T>
 where
 	T: ToV8,
@@ -360,27 +429,6 @@ where
 		} else {
 			Ok(Some(from_v8(scope, value)?))
 		}
-	}
-}
-
-impl<T> ToV8 for Arc<T>
-where
-	T: ToV8,
-{
-	fn to_v8<'a>(&self, scope: &mut v8::HandleScope<'a>) -> tg::Result<v8::Local<'a, v8::Value>> {
-		self.as_ref().to_v8(scope)
-	}
-}
-
-impl<T> FromV8 for Arc<T>
-where
-	T: FromV8,
-{
-	fn from_v8<'a>(
-		scope: &mut v8::HandleScope<'a>,
-		value: v8::Local<'a, v8::Value>,
-	) -> tg::Result<Self> {
-		Ok(Self::new(from_v8(scope, value)?))
 	}
 }
 
@@ -556,7 +604,7 @@ where
 			.key_conversion(v8::KeyConversionMode::ConvertToString)
 			.build();
 		let property_names = value.get_own_property_names(scope, args).unwrap();
-		let mut output = BTreeMap::default();
+		let mut output = BTreeMap::new();
 		for i in 0..property_names.length() {
 			let key = property_names.get_index(scope, i).unwrap();
 			let value = value.get(scope, key).unwrap();
@@ -620,6 +668,21 @@ impl FromV8 for serde_yaml::Value {
 	}
 }
 
+impl ToV8 for tg::build::Id {
+	fn to_v8<'a>(&self, scope: &mut v8::HandleScope<'a>) -> tg::Result<v8::Local<'a, v8::Value>> {
+		self.to_string().to_v8(scope)
+	}
+}
+
+impl FromV8 for tg::build::Id {
+	fn from_v8<'a>(
+		scope: &mut v8::HandleScope<'a>,
+		value: v8::Local<'a, v8::Value>,
+	) -> tg::Result<Self> {
+		String::from_v8(scope, value)?.parse()
+	}
+}
+
 impl ToV8 for tg::Value {
 	fn to_v8<'a>(&self, scope: &mut v8::HandleScope<'a>) -> tg::Result<v8::Local<'a, v8::Value>> {
 		match self {
@@ -670,9 +733,9 @@ impl FromV8 for tg::Value {
 		let symlink = tg.get(scope, symlink.into()).unwrap();
 		let symlink = v8::Local::<v8::Function>::try_from(symlink).unwrap();
 
-		let lock = v8::String::new_external_onebyte_static(scope, "Lock".as_bytes()).unwrap();
-		let lock = tg.get(scope, lock.into()).unwrap();
-		let lock = v8::Local::<v8::Function>::try_from(lock).unwrap();
+		let package = v8::String::new_external_onebyte_static(scope, "Package".as_bytes()).unwrap();
+		let package = tg.get(scope, package.into()).unwrap();
+		let package = v8::Local::<v8::Function>::try_from(package).unwrap();
 
 		let target = v8::String::new_external_onebyte_static(scope, "Target".as_bytes()).unwrap();
 		let target = tg.get(scope, target.into()).unwrap();
@@ -707,7 +770,7 @@ impl FromV8 for tg::Value {
 			|| value.instance_of(scope, directory.into()).unwrap()
 			|| value.instance_of(scope, file.into()).unwrap()
 			|| value.instance_of(scope, symlink.into()).unwrap()
-			|| value.instance_of(scope, lock.into()).unwrap()
+			|| value.instance_of(scope, package.into()).unwrap()
 			|| value.instance_of(scope, target.into()).unwrap()
 		{
 			Ok(Self::Object(from_v8(scope, value)?))
@@ -735,7 +798,7 @@ impl ToV8 for tg::Object {
 			tg::Object::Directory(directory) => directory.to_v8(scope),
 			tg::Object::File(file) => file.to_v8(scope),
 			tg::Object::Symlink(symlink) => symlink.to_v8(scope),
-			tg::Object::Lock(lock) => lock.to_v8(scope),
+			tg::Object::Package(package) => package.to_v8(scope),
 			tg::Object::Target(target) => target.to_v8(scope),
 		}
 	}
@@ -773,9 +836,9 @@ impl FromV8 for tg::Object {
 		let symlink = tg.get(scope, symlink.into()).unwrap();
 		let symlink = v8::Local::<v8::Function>::try_from(symlink).unwrap();
 
-		let lock = v8::String::new_external_onebyte_static(scope, "Lock".as_bytes()).unwrap();
-		let lock = tg.get(scope, lock.into()).unwrap();
-		let lock = v8::Local::<v8::Function>::try_from(lock).unwrap();
+		let package = v8::String::new_external_onebyte_static(scope, "Package".as_bytes()).unwrap();
+		let package = tg.get(scope, package.into()).unwrap();
+		let package = v8::Local::<v8::Function>::try_from(package).unwrap();
 
 		let target = v8::String::new_external_onebyte_static(scope, "Target".as_bytes()).unwrap();
 		let target = tg.get(scope, target.into()).unwrap();
@@ -791,8 +854,8 @@ impl FromV8 for tg::Object {
 			Ok(Self::File(from_v8(scope, value)?))
 		} else if value.instance_of(scope, symlink.into()).unwrap() {
 			Ok(Self::Symlink(from_v8(scope, value)?))
-		} else if value.instance_of(scope, lock.into()).unwrap() {
-			Ok(Self::Lock(from_v8(scope, value)?))
+		} else if value.instance_of(scope, package.into()).unwrap() {
+			Ok(Self::Package(from_v8(scope, value)?))
 		} else if value.instance_of(scope, target.into()).unwrap() {
 			Ok(Self::Target(from_v8(scope, value)?))
 		} else {
@@ -824,7 +887,7 @@ impl ToV8 for tg::object::Object {
 			Self::Directory(directory) => ("directory", directory.to_v8(scope)?),
 			Self::File(file) => ("file", file.to_v8(scope)?),
 			Self::Symlink(symlink) => ("symlink", symlink.to_v8(scope)?),
-			Self::Lock(lock) => ("lock", lock.to_v8(scope)?),
+			Self::Package(package) => ("package", package.to_v8(scope)?),
 			Self::Target(target) => ("target", target.to_v8(scope)?),
 		};
 		let object = v8::Object::new(scope);
@@ -854,7 +917,7 @@ impl FromV8 for tg::object::Object {
 			"directory" => Self::Directory(from_v8(scope, value)?),
 			"file" => Self::File(from_v8(scope, value)?),
 			"symlink" => Self::Symlink(from_v8(scope, value)?),
-			"lock" => Self::Lock(from_v8(scope, value)?),
+			"package" => Self::Package(from_v8(scope, value)?),
 			"target" => Self::Target(from_v8(scope, value)?),
 			_ => unreachable!(),
 		};
@@ -1399,12 +1462,13 @@ impl ToV8 for tg::file::Object {
 		let value = self.contents.to_v8(scope)?;
 		object.set(scope, key.into(), value);
 
-		let key = v8::String::new_external_onebyte_static(scope, "executable".as_bytes()).unwrap();
-		let value = self.executable.to_v8(scope)?;
+		let key =
+			v8::String::new_external_onebyte_static(scope, "dependencies".as_bytes()).unwrap();
+		let value = self.dependencies.to_v8(scope)?;
 		object.set(scope, key.into(), value);
 
-		let key = v8::String::new_external_onebyte_static(scope, "references".as_bytes()).unwrap();
-		let value = self.references.to_v8(scope)?;
+		let key = v8::String::new_external_onebyte_static(scope, "executable".as_bytes()).unwrap();
+		let value = self.executable.to_v8(scope)?;
 		object.set(scope, key.into(), value);
 
 		Ok(object.into())
@@ -1424,22 +1488,22 @@ impl FromV8 for tg::file::Object {
 		let contents = from_v8(scope, contents)
 			.map_err(|source| tg::error!(!source, "failed to deserialize the contents"))?;
 
+		let dependencies =
+			v8::String::new_external_onebyte_static(scope, "dependencies".as_bytes()).unwrap();
+		let dependencies = value.get(scope, dependencies.into()).unwrap();
+		let dependencies = from_v8(scope, dependencies)
+			.map_err(|source| tg::error!(!source, "failed to deserialize the dependencies"))?;
+
 		let executable =
 			v8::String::new_external_onebyte_static(scope, "executable".as_bytes()).unwrap();
 		let executable = value.get(scope, executable.into()).unwrap();
 		let executable = from_v8(scope, executable)
 			.map_err(|source| tg::error!(!source, "failed to deserialize the executable"))?;
 
-		let references =
-			v8::String::new_external_onebyte_static(scope, "references".as_bytes()).unwrap();
-		let references = value.get(scope, references.into()).unwrap();
-		let references = from_v8(scope, references)
-			.map_err(|source| tg::error!(!source, "failed to deserialize the references"))?;
-
 		Ok(Self {
 			contents,
+			dependencies,
 			executable,
-			references,
 		})
 	}
 }
@@ -1548,7 +1612,7 @@ impl FromV8 for tg::symlink::Object {
 	}
 }
 
-impl ToV8 for tg::Lock {
+impl ToV8 for tg::Package {
 	fn to_v8<'a>(&self, scope: &mut v8::HandleScope<'a>) -> tg::Result<v8::Local<'a, v8::Value>> {
 		let context = scope.get_current_context();
 		let global = context.global(scope);
@@ -1556,13 +1620,13 @@ impl ToV8 for tg::Lock {
 		let tg = global.get(scope, tg.into()).unwrap();
 		let tg = v8::Local::<v8::Object>::try_from(tg).unwrap();
 
-		let lock = v8::String::new_external_onebyte_static(scope, "Lock".as_bytes()).unwrap();
-		let lock = tg.get(scope, lock.into()).unwrap();
-		let lock = v8::Local::<v8::Function>::try_from(lock).unwrap();
+		let package = v8::String::new_external_onebyte_static(scope, "Package".as_bytes()).unwrap();
+		let package = tg.get(scope, package.into()).unwrap();
+		let package = v8::Local::<v8::Function>::try_from(package).unwrap();
 
 		let state = self.state().read().unwrap().to_v8(scope)?;
 
-		let instance = lock
+		let instance = package
 			.new_instance(scope, &[state])
 			.ok_or_else(|| tg::error!("the constructor failed"))?;
 
@@ -1570,7 +1634,7 @@ impl ToV8 for tg::Lock {
 	}
 }
 
-impl FromV8 for tg::Lock {
+impl FromV8 for tg::Package {
 	fn from_v8<'a>(
 		scope: &mut v8::HandleScope<'a>,
 		value: v8::Local<'a, v8::Value>,
@@ -1581,12 +1645,12 @@ impl FromV8 for tg::Lock {
 		let tg = global.get(scope, tg.into()).unwrap();
 		let tg = v8::Local::<v8::Object>::try_from(tg).unwrap();
 
-		let lock = v8::String::new_external_onebyte_static(scope, "Lock".as_bytes()).unwrap();
-		let lock = tg.get(scope, lock.into()).unwrap();
-		let lock = v8::Local::<v8::Function>::try_from(lock).unwrap();
+		let package = v8::String::new_external_onebyte_static(scope, "Package".as_bytes()).unwrap();
+		let package = tg.get(scope, package.into()).unwrap();
+		let package = v8::Local::<v8::Function>::try_from(package).unwrap();
 
-		if !value.instance_of(scope, lock.into()).unwrap() {
-			return Err(tg::error!("expected a lock"));
+		if !value.instance_of(scope, package.into()).unwrap() {
+			return Err(tg::error!("expected a package"));
 		}
 		let value = value.to_object(scope).unwrap();
 
@@ -1599,13 +1663,13 @@ impl FromV8 for tg::Lock {
 	}
 }
 
-impl ToV8 for tg::lock::Id {
+impl ToV8 for tg::package::Id {
 	fn to_v8<'a>(&self, scope: &mut v8::HandleScope<'a>) -> tg::Result<v8::Local<'a, v8::Value>> {
 		self.to_string().to_v8(scope)
 	}
 }
 
-impl FromV8 for tg::lock::Id {
+impl FromV8 for tg::package::Id {
 	fn from_v8<'a>(
 		scope: &mut v8::HandleScope<'a>,
 		value: v8::Local<'a, v8::Value>,
@@ -1614,43 +1678,46 @@ impl FromV8 for tg::lock::Id {
 	}
 }
 
-impl ToV8 for tg::lock::Object {
+impl ToV8 for tg::package::Object {
 	fn to_v8<'a>(&self, scope: &mut v8::HandleScope<'a>) -> tg::Result<v8::Local<'a, v8::Value>> {
 		let object = v8::Object::new(scope);
-		let key = v8::String::new_external_onebyte_static(scope, "root".as_bytes()).unwrap();
-		let value = self.root.to_f64().unwrap().to_v8(scope)?;
-		object.set(scope, key.into(), value);
 
 		let key = v8::String::new_external_onebyte_static(scope, "nodes".as_bytes()).unwrap();
 		let value = self.nodes.to_v8(scope)?;
+		object.set(scope, key.into(), value);
+
+		let key = v8::String::new_external_onebyte_static(scope, "root".as_bytes()).unwrap();
+		let value = self.root.to_f64().unwrap().to_v8(scope)?;
 		object.set(scope, key.into(), value);
 
 		Ok(object.into())
 	}
 }
 
-impl FromV8 for tg::lock::Object {
+impl FromV8 for tg::package::Object {
 	fn from_v8<'a>(
 		scope: &mut v8::HandleScope<'a>,
 		value: v8::Local<'a, v8::Value>,
 	) -> tg::Result<Self> {
 		let value = value.to_object(scope).unwrap();
-		let root = v8::String::new_external_onebyte_static(scope, "root".as_bytes()).unwrap();
-		let root = value.get(scope, root.into()).unwrap();
-		let root = from_v8::<f64>(scope, root)?.to_usize().unwrap();
 
 		let nodes = v8::String::new_external_onebyte_static(scope, "nodes".as_bytes()).unwrap();
 		let nodes = value.get(scope, nodes.into()).unwrap();
 		let nodes = from_v8(scope, nodes)
 			.map_err(|source| tg::error!(!source, "failed to deserialize the nodes"))?;
 
-		Ok(Self { root, nodes })
+		let root = v8::String::new_external_onebyte_static(scope, "root".as_bytes()).unwrap();
+		let root = value.get(scope, root.into()).unwrap();
+		let root = from_v8::<f64>(scope, root)?.to_usize().unwrap();
+
+		Ok(Self { nodes, root })
 	}
 }
 
-impl ToV8 for tg::lock::Node {
+impl ToV8 for tg::package::Node {
 	fn to_v8<'a>(&self, scope: &mut v8::HandleScope<'a>) -> tg::Result<v8::Local<'a, v8::Value>> {
 		let object = v8::Object::new(scope);
+
 		let key =
 			v8::String::new_external_onebyte_static(scope, "dependencies".as_bytes()).unwrap();
 		let value = self
@@ -1660,11 +1727,20 @@ impl ToV8 for tg::lock::Node {
 			.collect::<BTreeMap<_, _>>()
 			.to_v8(scope)?;
 		object.set(scope, key.into(), value);
+
+		let key = v8::String::new_external_onebyte_static(scope, "metadata".as_bytes()).unwrap();
+		let value = self.metadata.to_v8(scope)?;
+		object.set(scope, key.into(), value);
+
+		let key = v8::String::new_external_onebyte_static(scope, "object".as_bytes()).unwrap();
+		let value = self.object.to_v8(scope)?;
+		object.set(scope, key.into(), value);
+
 		Ok(object.into())
 	}
 }
 
-impl FromV8 for tg::lock::Node {
+impl FromV8 for tg::package::Node {
 	fn from_v8<'a>(
 		scope: &mut v8::HandleScope<'a>,
 		value: v8::Local<'a, v8::Value>,
@@ -1681,54 +1757,21 @@ impl FromV8 for tg::lock::Node {
 			.map(|(key, value)| (key.parse().unwrap(), value))
 			.collect();
 
-		Ok(Self { dependencies })
-	}
-}
+		let metadata =
+			v8::String::new_external_onebyte_static(scope, "metadata".as_bytes()).unwrap();
+		let metadata = value.get(scope, metadata.into()).unwrap();
+		let metadata = from_v8(scope, metadata)
+			.map_err(|source| tg::error!(!source, "failed to deserialize the metadata"))?;
 
-impl ToV8 for tg::lock::Entry {
-	fn to_v8<'a>(&self, scope: &mut v8::HandleScope<'a>) -> tg::Result<v8::Local<'a, v8::Value>> {
-		let object = v8::Object::new(scope);
-
-		let key = v8::String::new_external_onebyte_static(scope, "package".as_bytes()).unwrap();
-		let value = self.artifact.to_v8(scope)?;
-		object.set(scope, key.into(), value);
-
-		let key = v8::String::new_external_onebyte_static(scope, "lock".as_bytes()).unwrap();
-		let value = match self.lock.as_ref() {
-			Either::Left(index) => index.to_f64().unwrap().to_v8(scope)?,
-			Either::Right(lock) => lock.to_v8(scope)?,
-		};
-		object.set(scope, key.into(), value);
-
-		Ok(object.into())
-	}
-}
-
-impl FromV8 for tg::lock::Entry {
-	fn from_v8<'a>(
-		scope: &mut v8::HandleScope<'a>,
-		value: v8::Local<'a, v8::Value>,
-	) -> tg::Result<Self> {
-		let value = value.to_object(scope).unwrap();
-
-		let package = v8::String::new_external_onebyte_static(scope, "package".as_bytes()).unwrap();
-		let package = value.get(scope, package.into()).unwrap();
-		let package = from_v8(scope, package)
-			.map_err(|source| tg::error!(!source, "failed to deserialize the package"))?;
-
-		let lock = v8::String::new_external_onebyte_static(scope, "lock".as_bytes()).unwrap();
-		let lock = value.get(scope, lock.into()).unwrap();
-		let lock = if let Ok(index) = from_v8::<f64>(scope, lock) {
-			Either::Left(index.to_usize().unwrap())
-		} else if let Ok(id) = from_v8::<tg::lock::Id>(scope, lock) {
-			Either::Right(tg::Lock::with_id(id))
-		} else {
-			return Err(tg::error!("invalid value"));
-		};
+		let object = v8::String::new_external_onebyte_static(scope, "object".as_bytes()).unwrap();
+		let object = value.get(scope, object.into()).unwrap();
+		let object = from_v8(scope, object)
+			.map_err(|source| tg::error!(!source, "failed to deserialize the object"))?;
 
 		Ok(Self {
-			artifact: package,
-			lock,
+			dependencies,
+			metadata,
+			object,
 		})
 	}
 }
@@ -1803,28 +1846,24 @@ impl ToV8 for tg::target::Object {
 	fn to_v8<'a>(&self, scope: &mut v8::HandleScope<'a>) -> tg::Result<v8::Local<'a, v8::Value>> {
 		let object = v8::Object::new(scope);
 
-		let key = v8::String::new_external_onebyte_static(scope, "host".as_bytes()).unwrap();
-		let value = self.host.to_v8(scope)?;
-		object.set(scope, key.into(), value);
-
-		let key = v8::String::new_external_onebyte_static(scope, "executable".as_bytes()).unwrap();
-		let value = self.executable.to_v8(scope)?;
-		object.set(scope, key.into(), value);
-
-		let key = v8::String::new_external_onebyte_static(scope, "lock".as_bytes()).unwrap();
-		let value = self.lock.to_v8(scope)?;
-		object.set(scope, key.into(), value);
-
-		let key = v8::String::new_external_onebyte_static(scope, "env".as_bytes()).unwrap();
-		let value = self.env.to_v8(scope)?;
-		object.set(scope, key.into(), value);
-
 		let key = v8::String::new_external_onebyte_static(scope, "args".as_bytes()).unwrap();
 		let value = self.args.to_v8(scope)?;
 		object.set(scope, key.into(), value);
 
 		let key = v8::String::new_external_onebyte_static(scope, "checksum".as_bytes()).unwrap();
 		let value = self.checksum.to_v8(scope)?;
+		object.set(scope, key.into(), value);
+
+		let key = v8::String::new_external_onebyte_static(scope, "env".as_bytes()).unwrap();
+		let value = self.env.to_v8(scope)?;
+		object.set(scope, key.into(), value);
+
+		let key = v8::String::new_external_onebyte_static(scope, "executable".as_bytes()).unwrap();
+		let value = self.executable.to_v8(scope)?;
+		object.set(scope, key.into(), value);
+
+		let key = v8::String::new_external_onebyte_static(scope, "host".as_bytes()).unwrap();
+		let value = self.host.to_v8(scope)?;
 		object.set(scope, key.into(), value);
 
 		Ok(object.into())
@@ -1838,27 +1877,6 @@ impl FromV8 for tg::target::Object {
 	) -> tg::Result<Self> {
 		let value = value.to_object(scope).unwrap();
 
-		let host = v8::String::new_external_onebyte_static(scope, "host".as_bytes()).unwrap();
-		let host = value.get(scope, host.into()).unwrap();
-		let host = from_v8(scope, host)
-			.map_err(|source| tg::error!(!source, "failed to deserialize the host"))?;
-
-		let executable =
-			v8::String::new_external_onebyte_static(scope, "executable".as_bytes()).unwrap();
-		let executable = value.get(scope, executable.into()).unwrap();
-		let executable = from_v8(scope, executable)
-			.map_err(|source| tg::error!(!source, "failed to deserialize the executable"))?;
-
-		let lock = v8::String::new_external_onebyte_static(scope, "lock".as_bytes()).unwrap();
-		let lock = value.get(scope, lock.into()).unwrap();
-		let lock = from_v8(scope, lock)
-			.map_err(|source| tg::error!(!source, "failed to deserialize the lock"))?;
-
-		let env = v8::String::new_external_onebyte_static(scope, "env".as_bytes()).unwrap();
-		let env = value.get(scope, env.into()).unwrap();
-		let env = from_v8(scope, env)
-			.map_err(|source| tg::error!(!source, "failed to deserialize the env"))?;
-
 		let args = v8::String::new_external_onebyte_static(scope, "args".as_bytes()).unwrap();
 		let args = value.get(scope, args.into()).unwrap();
 		let args = from_v8(scope, args)
@@ -1870,13 +1888,28 @@ impl FromV8 for tg::target::Object {
 		let checksum = from_v8(scope, checksum)
 			.map_err(|source| tg::error!(!source, "failed to deserialize the checksum"))?;
 
+		let env = v8::String::new_external_onebyte_static(scope, "env".as_bytes()).unwrap();
+		let env = value.get(scope, env.into()).unwrap();
+		let env = from_v8(scope, env)
+			.map_err(|source| tg::error!(!source, "failed to deserialize the env"))?;
+
+		let executable =
+			v8::String::new_external_onebyte_static(scope, "executable".as_bytes()).unwrap();
+		let executable = value.get(scope, executable.into()).unwrap();
+		let executable = from_v8(scope, executable)
+			.map_err(|source| tg::error!(!source, "failed to deserialize the executable"))?;
+
+		let host = v8::String::new_external_onebyte_static(scope, "host".as_bytes()).unwrap();
+		let host = value.get(scope, host.into()).unwrap();
+		let host = from_v8(scope, host)
+			.map_err(|source| tg::error!(!source, "failed to deserialize the host"))?;
+
 		Ok(Self {
-			host,
-			executable,
 			args,
-			env,
-			lock,
 			checksum,
+			env,
+			executable,
+			host,
 		})
 	}
 }
