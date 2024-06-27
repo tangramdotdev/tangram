@@ -3,9 +3,9 @@ use bytes::Bytes;
 use futures::{future, stream::FuturesUnordered, StreamExt as _, TryStreamExt as _};
 use indoc::formatdoc;
 use num::ToPrimitive as _;
-use std::pin::pin;
+use std::{pin::pin, sync::Arc};
 use tangram_client as tg;
-use tangram_database::{self as db, prelude::*};
+use tangram_database::{self as db, prelude::*, Error};
 use tangram_messenger::Messenger as _;
 use time::format_description::well_known::Rfc3339;
 
@@ -19,7 +19,17 @@ impl Server {
 			.map_err(|source| tg::error!(!source, "failed to subscribe"))?
 			.boxed();
 
+		let semaphore = Arc::new(tokio::sync::Semaphore::new(
+			self.options.object_indexer.as_ref().unwrap().batch_size.to_usize().unwrap()
+		));
+
 		loop {
+			// Sleep until we can do some work.
+			if semaphore.available_permits() == 0 {
+				tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+				continue;
+			}
+
 			// Attempt to get an object to index.
 			let connection = match self.database.connection(db::Priority::Low).await {
 				Ok(connection) => connection,
@@ -30,7 +40,13 @@ impl Server {
 					continue;
 				},
 			};
+
+			#[derive(serde::Deserialize)]
+			struct Row {
+				id: tg::object::Id,
+			}
 			let p = connection.p();
+
 			let statement = formatdoc!(
 				"
 					update objects
@@ -43,27 +59,30 @@ impl Server {
 						where
 							index_status = 'enqueued' or
 							(index_status = 'started' and index_started_at <= {p}2)
-						limit 1
+						limit {p}3
 					)
 					returning id;
 				"
 			);
+			let limit = semaphore.available_permits();
+			let timeout = self.options.object_indexer.as_ref().unwrap().timeout;
 			let now = (time::OffsetDateTime::now_utc()).format(&Rfc3339).unwrap();
-			let time = (time::OffsetDateTime::now_utc() - std::time::Duration::from_secs(60))
-				.format(&Rfc3339)
-				.unwrap();
-			let params = db::params![now, time];
+			let time = (time::OffsetDateTime::now_utc()
+				- std::time::Duration::from_secs_f64(timeout))
+			.format(&Rfc3339)
+			.unwrap();
+			let params = db::params![now, time, limit];
 			let result = connection
-				.query_optional_value_into::<tg::object::Id>(statement, params)
+				.query_all_into::<Row>(statement, params)
 				.await
 				.map_err(|source| tg::error!(!source, "failed to execute the statement"));
 			drop(connection);
-			let id = match result {
-				Ok(Some(id)) => id,
+			let rows = match result {
+				Ok(rows) if !rows.is_empty() => rows,
 
 				// If there are no objects enqueued for indexing, then wait to receive an object indexing event or for a timeout to pass.
-				Ok(None) => {
-					let timeout = std::time::Duration::from_secs(60);
+				Ok(_) => {
+					let timeout = std::time::Duration::from_secs_f64(timeout);
 					let timeout = tokio::time::sleep(timeout);
 					future::select(events.next(), pin!(timeout)).await;
 					continue;
@@ -77,22 +96,26 @@ impl Server {
 				},
 			};
 
-			// Spawn a task to index the object.
-			tokio::spawn({
-				let server = self.clone();
-				async move {
-					server
-						.index_object(&id)
-						.await
-						.inspect_err(|error| tracing::error!(?error))
-						.ok();
-				}
-			});
+			// Spawn tasks to index objects in a batch.
+			for row in rows {
+				tokio::spawn({
+					let semaphore = semaphore.clone();
+					let server = self.clone();
+					async move {
+						let _permit = semaphore.acquire().await.unwrap();
+						server
+							.index_object(&row.id)
+							.await
+							.inspect_err(|error| tracing::error!(?error))
+							.ok();
+					}
+				});
+			}
 		}
 	}
 
 	async fn index_object(&self, id: &tg::object::Id) -> tg::Result<()> {
-		// Get a database connection.
+		// Get a short lived connection
 		let connection = self
 			.database
 			.connection(db::Priority::Low)
@@ -130,70 +153,11 @@ impl Server {
 		let Some(bytes) = bytes else {
 			return Ok(());
 		};
-
-		// Drop the connection.
 		drop(connection);
 
 		// Deserialize the object.
 		let data = tg::object::Data::deserialize(id.kind(), &bytes)
 			.map_err(|source| tg::error!(!source, "failed to deserialize the data"))?;
-
-		// If the children were not set, then add them.
-		if !children {
-			// Get a database connection.
-			let mut connection = self
-				.database
-				.connection(db::Priority::Low)
-				.await
-				.map_err(|source| tg::error!(!source, "failed to get a database connection"))?;
-
-			// Begin a transaction.
-			let transaction = connection
-				.transaction()
-				.await
-				.map_err(|source| tg::error!(!source, "failed to begin a transaction"))?;
-
-			// Add the children.
-			for child in data.children() {
-				let p = transaction.p();
-				let statement = formatdoc!(
-					"
-						insert into object_children (object, child)
-						values ({p}1, {p}2)
-						on conflict (object, child) do nothing;
-					"
-				);
-				let params = db::params![id, child];
-				transaction
-					.execute(statement, params)
-					.await
-					.map_err(|source| tg::error!(!source, "failed to execute the statement"))?;
-			}
-
-			// Set the children flag.
-			let p = transaction.p();
-			let statement = formatdoc!(
-				"
-					update objects
-					set children = 1
-					where id = {p}1;
-				"
-			);
-			let params = db::params![id];
-			transaction
-				.execute(statement, params)
-				.await
-				.map_err(|source| tg::error!(!source, "failed to execute the statement"))?;
-
-			// Commit the transaction.
-			transaction
-				.commit()
-				.await
-				.map_err(|source| tg::error!(!source, "failed to commit the transaction"))?;
-
-			// Drop the connection.
-			drop(connection);
-		}
 
 		// Get the children's metadata.
 		let children_metadata: Vec<Option<tg::object::Metadata>> = data
@@ -204,7 +168,61 @@ impl Server {
 			.try_collect()
 			.await?;
 
-		// Attempt to set the count if necessary.
+		// Get a connection
+		let mut connection = self
+			.database
+			.connection(db::Priority::Low)
+			.await
+			.map_err(|source| tg::error!(!source, "failed to get a database connection"))?;
+
+		// If the children were not set, then add them.
+		if !children {
+			loop {
+				let transaction = connection
+					.transaction()
+					.await
+					.map_err(|source| tg::error!(!source, "failed to get a database connection"))?;
+				let p = transaction.p();
+
+				// Add the children.
+				for child in data.children() {
+					let statement = formatdoc!(
+						"
+							insert into object_children (object, child)
+							values ({p}1, {p}2)
+							on conflict (object, child) do nothing;
+						"
+					);
+					let params = db::params![id, child];
+					transaction
+						.execute(statement, params)
+						.await
+						.map_err(|source| tg::error!(!source, "failed to execute the statement"))?;
+				}
+
+				// Set the children flag.
+				let statement = formatdoc!(
+					"
+						update objects
+						set children = 1
+						where id = {p}1;
+					"
+				);
+				let params = db::params![id];
+				transaction
+					.execute(statement, params)
+					.await
+					.map_err(|source| tg::error!(!source, "failed to execute the statement"))?;
+
+				// Commit the transaction.
+				match transaction.commit().await {
+					Ok(()) => break,
+					Err(error) if error.is_retry() => continue,
+					Err(source) => return Err(tg::error!(!source, "failed to commit transaction")),
+				}
+			}
+		}
+
 		if count.is_none() {
 			// Attempt to compute the count.
 			let count = children_metadata
@@ -215,13 +233,6 @@ impl Server {
 
 			// Set the count if possible.
 			if count.is_some() {
-				// Get a database connection.
-				let connection = self
-					.database
-					.connection(db::Priority::Low)
-					.await
-					.map_err(|source| tg::error!(!source, "failed to get a database connection"))?;
-
 				// Set the count.
 				let p = connection.p();
 				let statement = formatdoc!(
@@ -236,9 +247,6 @@ impl Server {
 					.execute(statement, params)
 					.await
 					.map_err(|source| tg::error!(!source, "failed to execute the statement"))?;
-
-				// Drop the connection.
-				drop(connection);
 			}
 		}
 
@@ -253,14 +261,6 @@ impl Server {
 
 			// Set the weight if possible.
 			if weight.is_some() {
-				// Get a database connection.
-				let connection = self
-					.database
-					.connection(db::Priority::Low)
-					.await
-					.map_err(|source| tg::error!(!source, "failed to get a database connection"))?;
-
-				// Set the weight.
 				let p = connection.p();
 				let statement = formatdoc!(
 					"
@@ -274,9 +274,6 @@ impl Server {
 					.execute(statement, params)
 					.await
 					.map_err(|source| tg::error!(!source, "failed to execute the statement"))?;
-
-				// Drop the connection.
-				drop(connection);
 			}
 		}
 
@@ -284,13 +281,6 @@ impl Server {
 		let completed = if complete {
 			false
 		} else {
-			// Get a database connection.
-			let connection = self
-				.database
-				.connection(db::Priority::Low)
-				.await
-				.map_err(|source| tg::error!(!source, "failed to get a database connection"))?;
-
 			// Attempt to set the complete flag.
 			let p = connection.p();
 			let statement = formatdoc!(
@@ -310,28 +300,15 @@ impl Server {
 				"
 			);
 			let params = db::params![id];
-			let completed = connection
+			connection
 				.query_one_value_into(statement, params)
 				.await
-				.map_err(|source| tg::error!(!source, "failed to execute the statement"))?;
-
-			// Drop the connection.
-			drop(connection);
-
-			completed
+				.map_err(|source| tg::error!(!source, "failed to execute the statement"))?
 		};
 
 		// If the object became complete, then index its incomplete parents.
 		if completed {
-			// Get a database connection.
-			let connection = self
-				.database
-				.connection(db::Priority::Low)
-				.await
-				.map_err(|source| tg::error!(!source, "failed to get a database connection"))?;
-
 			// Get the incomplete parents.
-			let p = connection.p();
 			let statement = formatdoc!(
 				"
 					select object
@@ -345,25 +322,17 @@ impl Server {
 				.query_all_value_into::<tg::object::Id>(statement, params)
 				.await
 				.map_err(|source| tg::error!(!source, "failed to execute the statement"))?;
-
-			// Drop the connection.
-			drop(connection);
-
 			// Index the incomplete parents.
-			for object in objects {
-				self.enqueue_object_for_indexing(&object).await?;
-			}
+			tokio::spawn({
+				let server = self.clone();
+				async move {
+					server.enqueue_objects_for_indexing(&objects).await.ok();
+				}
+			});
 		}
 
 		// If the object became complete, then index its builds with incomplete logs, outcomes, or targets.
 		if completed {
-			// Get a database connection.
-			let connection = self
-				.database
-				.connection(db::Priority::Low)
-				.await
-				.map_err(|source| tg::error!(!source, "failed to get a database connection"))?;
-
 			// Get the incomplete builds.
 			let p = connection.p();
 			let statement = formatdoc!(
@@ -386,21 +355,14 @@ impl Server {
 				.await
 				.map_err(|source| tg::error!(!source, "failed to execute the statement"))?;
 
-			// Drop the connection.
-			drop(connection);
-
-			// Index the incomplete builds.
-			for build in builds {
-				self.enqueue_build_for_indexing(&build).await?;
-			}
+			// Index the incomplete builds that are not queued for indexing.
+			tokio::spawn({
+				let server = self.clone();
+				async move {
+					server.enqueue_builds_for_indexing(&builds).await.ok();
+				}
+			});
 		}
-
-		// Get a database connection.
-		let connection = self
-			.database
-			.connection(db::Priority::Low)
-			.await
-			.map_err(|source| tg::error!(!source, "failed to get a database connection"))?;
 
 		// Set the indexing status to null if it is started.
 		let p = connection.p();
@@ -421,47 +383,64 @@ impl Server {
 			.await
 			.map_err(|source| tg::error!(!source, "failed to execute the statement"))?;
 
-		// Drop the connection.
-		drop(connection);
-
 		Ok(())
 	}
 
-	pub(crate) async fn enqueue_object_for_indexing(&self, id: &tg::object::Id) -> tg::Result<()> {
-		// Get a database connection.
-		let connection = self
-			.database
-			.connection(db::Priority::Low)
-			.await
-			.map_err(|source| tg::error!(!source, "failed to get a database connection"))?;
+	pub(crate) async fn enqueue_objects_for_indexing(
+		&self,
+		objects: &[tg::object::Id],
+	) -> tg::Result<()> {
+		loop {
+			// Get a database connection.
+			let mut connection = self
+				.database
+				.connection(db::Priority::Low)
+				.await
+				.map_err(|source| tg::error!(!source, "failed to get a database connection"))?;
 
-		// Set the object's indexing status to enqueued.
-		let p = connection.p();
-		let statement = formatdoc!(
-			"
-				update objects
-				set
-					index_status = 'enqueued',
-					index_started_at = null
-				where id = {p}1;
-			"
-		);
-		let params = db::params![id];
-		connection
-			.execute(statement, params)
-			.await
-			.map_err(|source| tg::error!(!source, "failed to execute the statement"))?;
+			let transaction = connection
+				.transaction()
+				.await
+				.map_err(|source| tg::error!(!source, "failed to create a transaction"))?;
 
-		// Drop the connection.
-		drop(connection);
+			for id in objects {
+				// Set the object's indexing status to enqueued.
+				let p = transaction.p();
+				let statement = formatdoc!(
+					"
+						update objects
+						set
+							index_status = 'enqueued',
+							index_started_at = null
+						where
+							id = {p}1 and
+							index_status is null;
+					"
+				);
+				let params = db::params![id];
+				transaction
+					.execute(statement, params)
+					.await
+					.map_err(|source| tg::error!(!source, "failed to execute the statement"))?;
+			}
 
-		// Publish the object indexing message.
-		let subject = "objects.index".to_owned();
-		let payload = id.to_string().into();
-		self.messenger
-			.publish(subject, payload)
-			.await
-			.map_err(|source| tg::error!(!source, "failed to publish the message"))?;
+			// Commit the transaction.
+			match transaction.commit().await {
+				Ok(()) => break,
+				Err(error) if error.is_retry() => continue,
+				Err(source) => return Err(tg::error!(!source, "failed to commit the transaction")),
+			}
+		}
+
+		for id in objects {
+			// Publish the object indexing message.
+			let subject = "objects.index".to_owned();
+			let payload = id.to_string().into();
+			self.messenger
+				.publish(subject, payload)
+				.await
+				.map_err(|source| tg::error!(!source, "failed to publish the message"))?;
+		}
 
 		Ok(())
 	}

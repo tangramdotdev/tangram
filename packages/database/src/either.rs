@@ -15,6 +15,14 @@ where
 	L: crate::Error,
 	R: crate::Error,
 {
+	fn is_retry(&self) -> bool {
+		match self {
+			Self::Either(Either::Left(e)) => e.is_retry(),
+			Self::Either(Either::Right(e)) => e.is_retry(),
+			Self::Other(_) => false,
+		}
+	}
+
 	fn other(error: impl Into<Box<dyn std::error::Error + Send + Sync>>) -> Self {
 		Self::Other(error.into())
 	}

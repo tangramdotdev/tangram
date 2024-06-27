@@ -70,9 +70,6 @@ impl Server {
 		// Drop the connection.
 		drop(connection);
 
-		// Create the output.
-		let output = tg::object::put::Output { incomplete };
-
 		// If the object is not complete, then enqueue the object for indexing.
 		if !complete {
 			tokio::spawn({
@@ -80,13 +77,16 @@ impl Server {
 				let id = id.clone();
 				async move {
 					server
-						.enqueue_object_for_indexing(&id)
+						.enqueue_objects_for_indexing(&[id])
 						.await
 						.inspect_err(|error| tracing::error!(?error))
 						.ok();
 				}
 			});
 		}
+
+		// Create the output.
+		let output = tg::object::put::Output { incomplete };
 
 		Ok(output)
 	}

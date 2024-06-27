@@ -221,6 +221,13 @@ impl<'a> super::Query for Transaction<'a> {
 }
 
 impl super::Error for Error {
+	fn is_retry(&self) -> bool {
+		let Error::Postgres(error) = self else {
+			return false;
+		};
+		error.code().map(tokio_postgres::error::SqlState::code) == Some("40001")
+	}
+
 	fn other(error: impl Into<Box<dyn std::error::Error + Send + Sync>>) -> Self {
 		Self::Other(error.into())
 	}

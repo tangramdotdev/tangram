@@ -219,7 +219,13 @@ pub struct NatsMessenger {
 }
 
 #[derive(Clone, Debug, Default, serde::Deserialize, serde::Serialize)]
-pub struct ObjectIndexer {}
+pub struct ObjectIndexer {
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub batch_size: Option<u64>,
+
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub timeout: Option<f64>,
+}
 
 #[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
 pub struct Remote {

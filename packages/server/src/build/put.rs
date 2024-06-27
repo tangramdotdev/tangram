@@ -362,7 +362,7 @@ impl Server {
 				let server = self.clone();
 				let id = id.clone();
 				async move {
-					server.enqueue_build_for_indexing(&id).await.ok();
+					server.enqueue_builds_for_indexing(&[id]).await.ok();
 				}
 			});
 		}

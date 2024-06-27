@@ -19,6 +19,7 @@ pub mod prelude {
 }
 
 pub trait Error: std::error::Error + Send + Sync + 'static {
+	fn is_retry(&self) -> bool;
 	fn other(error: impl Into<Box<dyn std::error::Error + Send + Sync>>) -> Self;
 }
 

@@ -216,7 +216,11 @@ impl Cli {
 			Some(None) => None,
 			Some(Some(config)) => Some(config),
 		};
-		let object_indexer = object_indexer.map(|_| tangram_server::options::ObjectIndexer {});
+		let object_indexer =
+			object_indexer.map(|object_indexer| tangram_server::options::ObjectIndexer {
+				batch_size: object_indexer.batch_size.unwrap_or(128),
+				timeout: object_indexer.timeout.unwrap_or(60.0),
+			});
 
 		// Create the registry option.
 		let registry = match self
