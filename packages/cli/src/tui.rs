@@ -74,6 +74,7 @@ where
 		})
 	}
 
+	#[allow(dead_code)]
 	pub fn stop(&self) {
 		self.app.stop();
 	}
