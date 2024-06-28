@@ -69,7 +69,7 @@ impl Runtime {
 			// Otherwise, return an error.
 			artifact => {
 				return Err(tg::error!(
-					%artifact,
+					?artifact,
 					"the artifact must be a directory or an executable file"
 				))
 			},

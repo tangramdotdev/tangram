@@ -47,7 +47,7 @@ impl Cli {
 		let package = target
 			.package(&client)
 			.await
-			.map_err(|source| tg::error!(!source, %target, "failed to get the target's package"))?;
+			.map_err(|source| tg::error!(!source, ?target, "failed to get the target's package"))?;
 
 		// Create the title.
 		let mut title = String::new();

@@ -261,17 +261,6 @@ impl TryFrom<Data> for Object {
 	}
 }
 
-impl std::fmt::Display for Symlink {
-	fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-		if let Some(id) = self.state.read().unwrap().id().as_ref() {
-			write!(f, "{id}")?;
-		} else {
-			write!(f, "<unstored>")?;
-		}
-		Ok(())
-	}
-}
-
 impl From<Id> for crate::Id {
 	fn from(value: Id) -> Self {
 		value.0

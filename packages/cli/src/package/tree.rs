@@ -61,13 +61,13 @@ impl Cli {
 			if let Some(name) = metadata.name {
 				write!(title, "{name}").unwrap();
 			} else {
-				write!(title, "{package}").unwrap();
+				todo!()
 			}
 			if let Some(version) = metadata.version {
 				write!(title, "@{version}").unwrap();
 			}
 		} else {
-			write!(title, "{package}").unwrap();
+			todo!()
 		}
 
 		let package_id = package.id(&client).await?;

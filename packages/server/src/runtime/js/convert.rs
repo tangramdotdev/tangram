@@ -1696,7 +1696,7 @@ impl ToV8 for tg::lock::Entry {
 		let key = v8::String::new_external_onebyte_static(scope, "lock".as_bytes()).unwrap();
 		let value = match self.lock.as_ref() {
 			Either::Left(index) => index.to_f64().unwrap().to_v8(scope)?,
-			Either::Right(lock) => lock.to_string().to_v8(scope)?,
+			Either::Right(lock) => lock.to_v8(scope)?,
 		};
 		object.set(scope, key.into(), value);
 

@@ -1,3 +1,4 @@
+use self::{parse::parse, print::print};
 use crate as tg;
 use bytes::Bytes;
 use futures::{
@@ -7,6 +8,9 @@ use futures::{
 use itertools::Itertools as _;
 use num::ToPrimitive as _;
 use std::collections::BTreeMap;
+
+pub mod parse;
+pub mod print;
 
 /// A value.
 #[derive(
@@ -124,6 +128,10 @@ impl Value {
 		};
 		Ok(data)
 	}
+
+	pub fn to_string_pretty(&self) -> String {
+		print(self, true)
+	}
 }
 
 impl Data {
@@ -160,62 +168,15 @@ impl Data {
 
 impl std::fmt::Display for Value {
 	fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-		match self {
-			Self::Null => {
-				write!(f, "null")?;
-			},
-			Self::Bool(bool) => {
-				write!(f, "{bool}")?;
-			},
-			Self::Number(number) => {
-				write!(f, "{number}")?;
-			},
-			Self::String(string) => {
-				write!(f, "\"{string}\"")?;
-			},
-			Self::Array(array) => {
-				write!(f, "[")?;
-				for (i, value) in array.iter().enumerate() {
-					write!(f, "{value}")?;
-					if i < array.len() - 1 {
-						write!(f, ", ")?;
-					}
-				}
-				write!(f, "]")?;
-			},
-			Self::Map(map) => {
-				write!(f, "{{")?;
-				if !map.is_empty() {
-					write!(f, " ")?;
-				}
-				for (i, (key, value)) in map.iter().enumerate() {
-					write!(f, "{key}: {value}")?;
-					if i < map.len() - 1 {
-						write!(f, ", ")?;
-					}
-				}
-				if !map.is_empty() {
-					write!(f, " ")?;
-				}
-				write!(f, "}}")?;
-			},
-			Self::Object(object) => {
-				write!(f, "{object}")?;
-			},
-			Self::Bytes(_) => {
-				write!(f, "(bytes)")?;
-			},
-			Self::Path(path) => {
-				write!(f, "(path \"{path}\")")?;
-			},
-			Self::Mutation(mutation) => {
-				write!(f, "{mutation}")?;
-			},
-			Self::Template(template) => {
-				write!(f, "{template}")?;
-			},
-		}
-		Ok(())
+		write!(f, "{}", print(self, false))
+	}
+}
+
+impl std::str::FromStr for tg::Value {
+	type Err = tg::Error;
+
+	fn from_str(input: &str) -> Result<Self, Self::Err> {
+		parse(input)
 	}
 }
 

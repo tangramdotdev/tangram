@@ -254,7 +254,7 @@ impl Compiler {
 		let artifact = package
 			.get(&self.server, module_path)
 			.await
-			.map_err(|source| tg::error!(!source, %path = module_path, %package, "failed to find the artifact within the package"))?
+			.map_err(|source| tg::error!(!source, %path = module_path, ?package, "failed to find the artifact within the package"))?
 			.id(&self.server)
 			.await?;
 		let target = match kind {

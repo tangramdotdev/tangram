@@ -56,3 +56,4 @@ url = { workspace = true }
 urlencoding = { workspace = true }
 uuid = { workspace = true }
 webpki-roots = { workspace = true, optional = true }
+winnow = { workspace = true }

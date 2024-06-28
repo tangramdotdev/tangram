@@ -158,18 +158,13 @@ impl Cli {
 				let host = "js";
 				let path = tg::package::get_root_module_path(&client, &package).await?;
 				let executable = tg::Symlink::new(Some(package), Some(path));
-				let mut args_: Vec<tg::Value> = args
+				let mut args_: tg::value::Array = args
 					.arg
 					.into_iter()
 					.map(|arg| {
 						arg.into_iter()
-							.map(|arg| {
-								let (key, value) = arg
-									.split_once('=')
-									.ok_or_else(|| tg::error!("expected `key=value`"))?;
-								Ok::<_, tg::Error>((key.to_owned(), value.to_owned().into()))
-							})
-							.collect::<Result<tg::value::Map, tg::Error>>()
+							.map(|arg| arg.parse())
+							.collect::<Result<tg::value::Array, tg::Error>>()
 							.map(Into::into)
 					})
 					.try_collect()?;
@@ -179,12 +174,17 @@ impl Cli {
 					.into_iter()
 					.flatten()
 					.map(|env| {
-						let (key, value) = env
-							.split_once('=')
-							.ok_or_else(|| tg::error!("expected `key=value`"))?;
-						Ok::<_, tg::Error>((key.to_owned(), value.to_owned().into()))
+						let map = env
+							.parse::<tg::Value>()?
+							.try_unwrap_map()
+							.map_err(|_| tg::error!("expected a map"))?
+							.into_iter();
+						Ok::<_, tg::Error>(map)
 					})
-					.try_collect()?;
+					.try_fold(tg::value::Map::new(), |mut map, item| {
+						map.extend(item?);
+						Ok::<_, tg::Error>(map)
+					})?;
 				if !env.contains_key("TANGRAM_HOST") {
 					let host = if let Some(host) = args.host {
 						host

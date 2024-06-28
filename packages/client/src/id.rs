@@ -17,8 +17,8 @@ pub enum Id {
 
 #[derive(Clone, Eq, Hash, Ord, PartialEq, PartialOrd)]
 pub struct V0 {
-	kind: Kind,
-	body: Body,
+	pub kind: Kind,
+	pub body: Body,
 }
 
 #[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]

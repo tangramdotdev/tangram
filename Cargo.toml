@@ -146,6 +146,7 @@ uuid = { version = "1", features = ["v7"] }
 v8 = { version = "0.93" }
 webbrowser = "1"
 webpki-roots = "0.26"
+winnow = "0.6"
 xattr = { version = "1" }
 zerocopy = { version = "0.7", features = ["derive"] }
 zip = { version = "2", default-features = false, features = [
