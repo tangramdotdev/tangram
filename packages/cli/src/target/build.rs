@@ -174,12 +174,12 @@ impl Cli {
 					.into_iter()
 					.flatten()
 					.map(|env| {
-						let kvs = env
+						let map = env
 							.parse::<tg::Value>()?
 							.try_unwrap_map()
 							.map_err(|_| tg::error!("expected a map"))?
 							.into_iter();
-						Ok::<_, tg::Error>(kvs)
+						Ok::<_, tg::Error>(map)
 					})
 					.try_fold(tg::value::Map::new(), |mut map, item| {
 						map.extend(item?);

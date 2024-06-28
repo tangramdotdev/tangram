@@ -99,7 +99,7 @@ where
 {
 	try_get_dependencies(handle, package)
 		.await?
-		.ok_or_else(|| tg::error!(%package, "failed to find the package"))
+		.ok_or_else(|| tg::error!(?package, "failed to find the package"))
 }
 
 pub async fn try_get_dependencies<H>(
@@ -136,7 +136,7 @@ where
 {
 	try_get_metadata(handle, package)
 		.await?
-		.ok_or_else(|| tg::error!(%package, "failed to find the package"))
+		.ok_or_else(|| tg::error!(?package, "failed to find the package"))
 }
 
 pub async fn try_get_metadata<H>(

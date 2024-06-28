@@ -369,32 +369,3 @@ impl TryFrom<Data> for Object {
 		})
 	}
 }
-
-impl std::fmt::Display for Handle {
-	fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-		match self {
-			Self::Leaf(leaf) => {
-				write!(f, "{leaf}")?;
-			},
-			Self::Branch(branch) => {
-				write!(f, "{branch}")?;
-			},
-			Self::Directory(directory) => {
-				write!(f, "{directory}")?;
-			},
-			Self::File(file) => {
-				write!(f, "{file}")?;
-			},
-			Self::Symlink(symlink) => {
-				write!(f, "{symlink}")?;
-			},
-			Self::Lock(lock) => {
-				write!(f, "{lock}")?;
-			},
-			Self::Target(target) => {
-				write!(f, "{target}")?;
-			},
-		}
-		Ok(())
-	}
-}

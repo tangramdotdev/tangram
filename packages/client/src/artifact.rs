@@ -291,16 +291,6 @@ impl TryFrom<tg::object::Id> for Id {
 	}
 }
 
-impl std::fmt::Display for Artifact {
-	fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-		match self {
-			Self::Directory(directory) => write!(f, "{directory}"),
-			Self::File(file) => write!(f, "{file}"),
-			Self::Symlink(symlink) => write!(f, "{symlink}"),
-		}
-	}
-}
-
 impl From<Artifact> for tg::object::Handle {
 	fn from(value: Artifact) -> Self {
 		match value {

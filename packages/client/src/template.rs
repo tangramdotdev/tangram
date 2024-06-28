@@ -106,23 +106,6 @@ impl TryFrom<Data> for Template {
 	}
 }
 
-impl std::fmt::Display for Template {
-	fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-		write!(f, "`")?;
-		for component in &self.components {
-			match component {
-				Component::String(string) => {
-					write!(f, "{string}")?;
-				},
-				Component::Artifact(artifact) => {
-					write!(f, "${{{artifact}}}")?;
-				},
-			}
-		}
-		write!(f, "`")
-	}
-}
-
 impl Data {
 	#[must_use]
 	pub fn children(&self) -> Vec<tg::object::Id> {

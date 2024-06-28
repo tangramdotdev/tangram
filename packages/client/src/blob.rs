@@ -229,15 +229,6 @@ impl Default for Blob {
 	}
 }
 
-impl std::fmt::Display for Blob {
-	fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-		match self {
-			Self::Leaf(leaf) => write!(f, "{leaf}"),
-			Self::Branch(branch) => write!(f, "{branch}"),
-		}
-	}
-}
-
 impl From<Blob> for tg::object::Handle {
 	fn from(value: Blob) -> Self {
 		match value {

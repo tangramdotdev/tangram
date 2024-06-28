@@ -162,10 +162,3 @@ impl TryFrom<Data> for Mutation {
 		})
 	}
 }
-
-impl std::fmt::Display for Mutation {
-	fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-		write!(f, "(mutation)")?;
-		Ok(())
-	}
-}

@@ -245,13 +245,13 @@ impl vfs::Provider for Provider {
 			.contents(&self.server)
 			.await
 			.map_err(|error| {
-				tracing::error!(%error, %file, "failed to get blob for file");
+				tracing::error!(%error, ?file, "failed to get blob for file");
 				std::io::Error::from_raw_os_error(libc::EIO)
 			})?
 			.id(&self.server)
 			.await
 			.map_err(|error| {
-				tracing::error!(%error, %file, "failed to get blob ID");
+				tracing::error!(%error, ?file, "failed to get blob ID");
 				std::io::Error::from_raw_os_error(libc::EIO)
 			})?;
 
