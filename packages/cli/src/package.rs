@@ -2,6 +2,7 @@ use crate::Cli;
 use tangram_client as tg;
 
 pub mod check;
+pub mod create;
 pub mod doc;
 pub mod format;
 pub mod init;
@@ -20,6 +21,7 @@ pub struct Args {
 #[derive(Clone, Debug, clap::Subcommand)]
 pub enum Command {
 	Check(self::check::Args),
+	Create(self::create::Args),
 	Doc(self::doc::Args),
 	Format(self::format::Args),
 	Init(self::init::Args),
@@ -32,6 +34,7 @@ impl Cli {
 	pub async fn command_package(&self, args: Args) -> tg::Result<()> {
 		match args.command {
 			Command::Check(args) => self.command_package_check(args).await,
+			Command::Create(args) => self.command_package_create(args).await,
 			Command::Doc(args) => self.command_package_doc(args).await,
 			Command::Format(args) => self.command_package_format(args).await,
 			Command::Init(args) => self.command_package_init(args).await,
