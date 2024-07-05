@@ -101,14 +101,6 @@ impl Id {
 }
 
 impl Package {
-	pub async fn version(&self, handle: &impl tg::Handle) -> tg::Result<String> {
-		let object = self.object(handle).await?;
-		object.nodes[object.root]
-			.version()
-			.map(str::to_owned)
-			.ok_or_else(|| tg::error!("expected a package version"))
-	}
-
 	#[must_use]
 	pub fn with_state(state: State) -> Self {
 		let state = Arc::new(std::sync::RwLock::new(state));
