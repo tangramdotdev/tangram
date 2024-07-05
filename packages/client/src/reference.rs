@@ -20,7 +20,21 @@ pub struct Reference {
 	pub query: Option<Query>,
 }
 
-#[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+#[derive(
+	Clone,
+	Debug,
+	Eq,
+	Hash,
+	Ord,
+	PartialEq,
+	PartialOrd,
+	derive_more::From,
+	derive_more::TryInto,
+	derive_more::TryUnwrap,
+	derive_more::Unwrap,
+)]
+#[try_unwrap(ref)]
+#[unwrap(ref)]
 pub enum Path {
 	Build(tg::build::Id),
 	Object(tg::object::Id),

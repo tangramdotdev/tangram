@@ -18,7 +18,21 @@ pub struct Pattern {
 	pub(super) components: Vec<Component>,
 }
 
-#[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+#[derive(
+	Clone,
+	Debug,
+	Eq,
+	Hash,
+	Ord,
+	PartialEq,
+	PartialOrd,
+	derive_more::From,
+	derive_more::TryInto,
+	derive_more::TryUnwrap,
+	derive_more::Unwrap,
+)]
+#[try_unwrap(ref)]
+#[unwrap(ref)]
 pub enum Component {
 	Normal(String),
 	Semver(semver::Pattern),
@@ -43,6 +57,10 @@ impl Pattern {
 	#[must_use]
 	pub fn into_components(self) -> Vec<Component> {
 		self.components
+	}
+
+	pub fn matches(&self, _tag: &tg::Tag) -> bool {
+		todo!()
 	}
 }
 
