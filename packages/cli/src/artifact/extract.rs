@@ -14,13 +14,13 @@ pub struct Args {
 
 impl Cli {
 	pub async fn command_artifact_extract(&self, args: Args) -> tg::Result<()> {
-		let client = self.client().await?;
+		let handle = self.handle().await?;
 		let blob = tg::Blob::with_id(args.blob);
 		let format = args.format;
 		let target = tg::Artifact::extract_target(&blob, format);
-		let target = target.id(&client).await?;
+		let target = target.id(&handle).await?;
 		let args = crate::target::build::Args {
-			reference: Some(tg::Reference::with_object(target.into())),
+			reference: Some(tg::Reference::with_object(&target.into())),
 			..Default::default()
 		};
 		self.command_target_build(args).await?;

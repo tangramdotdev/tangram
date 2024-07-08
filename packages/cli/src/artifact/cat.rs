@@ -14,21 +14,21 @@ pub struct Args {
 
 impl Cli {
 	pub async fn command_artifact_cat(&self, args: Args) -> tg::Result<()> {
-		let client = self.client().await?;
+		let handle = self.handle().await?;
 		for artifact in args.artifacts {
 			// Get the blob.
 			let blob = match artifact {
 				tg::artifact::Id::Directory(_) => return Err(tg::error!("cannot cat a directory")),
 				tg::artifact::Id::File(file) => {
 					let file = tg::File::with_id(file);
-					file.contents(&client)
+					file.contents(&handle)
 						.await
 						.map_err(|source| tg::error!(!source, "failed to get file contents"))?
 						.clone()
 				},
 				tg::artifact::Id::Symlink(symlink) => {
 					let symlink = tg::Symlink::with_id(symlink);
-					let artifact = symlink.resolve(&client).await?;
+					let artifact = symlink.resolve(&handle).await?;
 					match artifact {
 						None | Some(tg::Artifact::Symlink(_)) => {
 							return Err(tg::error!("failed to resolve the symlink"))
@@ -37,7 +37,7 @@ impl Cli {
 							return Err(tg::error!("cannot cat a directory"))
 						},
 						Some(tg::Artifact::File(file)) => file
-							.contents(&client)
+							.contents(&handle)
 							.await
 							.map_err(|source| tg::error!(!source, "failed to get file contents"))?
 							.clone(),
@@ -46,8 +46,8 @@ impl Cli {
 			};
 
 			// Create a reader.
-			let blob = blob.id(&client).await?;
-			let stream = client
+			let blob = blob.id(&handle).await?;
+			let stream = handle
 				.try_read_blob(&blob, tg::blob::read::Arg::default())
 				.await?
 				.ok_or_else(|| tg::error!("expected a blob"))?;

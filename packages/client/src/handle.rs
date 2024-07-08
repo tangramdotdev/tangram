@@ -196,10 +196,10 @@ pub trait Handle: Clone + Unpin + Send + Sync + 'static {
 		>,
 	> + Send;
 
-	fn create_package(
+	fn check_in_package(
 		&self,
-		arg: tg::package::create::Arg,
-	) -> impl Future<Output = tg::Result<tg::package::create::Output>> + Send;
+		arg: tg::package::checkin::Arg,
+	) -> impl Future<Output = tg::Result<tg::package::checkin::Output>> + Send;
 
 	fn check_package(
 		&self,

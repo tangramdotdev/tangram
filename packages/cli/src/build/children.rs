@@ -24,7 +24,7 @@ pub struct Args {
 
 impl Cli {
 	pub async fn command_build_children(&self, args: Args) -> tg::Result<()> {
-		let client = self.client().await?;
+		let handle = self.handle().await?;
 
 		// Get the children.
 		let arg = tg::build::children::get::Arg {
@@ -33,7 +33,7 @@ impl Cli {
 			remote: args.remote,
 			size: args.size,
 		};
-		let mut stream = client.get_build_children(&args.build, arg).await?.boxed();
+		let mut stream = handle.get_build_children(&args.build, arg).await?.boxed();
 
 		// Print the children.
 		while let Some(chunk) = stream.try_next().await? {

@@ -20,7 +20,7 @@ pub struct Args {
 
 impl Cli {
 	pub async fn command_target_run(&self, mut args: Args) -> tg::Result<()> {
-		let client = self.client().await?;
+		let handle = self.handle().await?;
 
 		// Check out the output.
 		args.build.checkout = Some(None);
@@ -44,7 +44,7 @@ impl Cli {
 						PathBuf::from(std::env::var("HOME").unwrap()).join(".tangram")
 					});
 				path.join("artifacts")
-					.join(artifact.id(&client).await?.to_string())
+					.join(artifact.id(&handle).await?.to_string())
 					.try_into()?
 			},
 		};

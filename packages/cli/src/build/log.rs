@@ -25,7 +25,7 @@ pub struct Args {
 
 impl Cli {
 	pub async fn command_build_log(&self, args: Args) -> tg::Result<()> {
-		let client = self.client().await?;
+		let handle = self.handle().await?;
 
 		// Get the log.
 		let build = tg::Build::with_id(args.build);
@@ -36,7 +36,7 @@ impl Cli {
 			size: args.size,
 		};
 		let mut log = build
-			.log(&client, arg)
+			.log(&handle, arg)
 			.await
 			.map_err(|source| tg::error!(!source, "failed to get the build log"))?;
 

@@ -339,11 +339,11 @@ impl tg::Handle for Proxy {
 		Err::<stream::Empty<_>, _>(tg::error!("forbidden"))
 	}
 
-	fn create_package(
+	fn check_in_package(
 		&self,
-		arg: tg::package::create::Arg,
-	) -> impl Future<Output = tg::Result<tg::package::create::Output>> + Send {
-		self.server.create_package(arg)
+		arg: tg::package::checkin::Arg,
+	) -> impl Future<Output = tg::Result<tg::package::checkin::Output>> + Send {
+		self.server.check_in_package(arg)
 	}
 
 	async fn check_package(

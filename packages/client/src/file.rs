@@ -1,4 +1,4 @@
-use crate::{self as tg, util::arc::Ext as _};
+use crate::{self as tg, util::arc::Ext as _, util::serde::is_false};
 use bytes::Bytes;
 use futures::{stream::FuturesOrdered, TryStreamExt as _};
 use std::{collections::BTreeSet, sync::Arc};
@@ -39,7 +39,7 @@ pub struct Data {
 	#[serde(default, skip_serializing_if = "BTreeSet::is_empty")]
 	pub dependencies: BTreeSet<tg::artifact::Id>,
 
-	#[serde(default, skip_serializing_if = "std::ops::Not::not")]
+	#[serde(default, skip_serializing_if = "is_false")]
 	pub executable: bool,
 }
 

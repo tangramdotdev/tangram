@@ -1,5 +1,6 @@
 use crate::Cli;
-use tangram_client as tg;
+use either::Either;
+use tangram_client::{self as tg, Handle as _};
 
 /// Check a package.
 #[derive(Clone, Debug, clap::Args)]
@@ -9,7 +10,7 @@ pub struct Args {
 	#[arg(long)]
 	pub locked: bool,
 
-	#[arg(index = 1, default_value = ".")]
+	#[arg(index = 1, default_value = ".?kind=package")]
 	pub reference: tg::Reference,
 
 	#[allow(clippy::option_option)]
@@ -18,35 +19,30 @@ pub struct Args {
 }
 
 impl Cli {
-	pub async fn command_package_check(&self, mut args: Args) -> tg::Result<()> {
-		let client = self.client().await?;
+	pub async fn command_package_check(&self, args: Args) -> tg::Result<()> {
+		let handle = self.handle().await?;
 
-		// If the reference has a path, then canonicalize it.
-		if let tg::reference::Path::Path(path) = &mut args.reference.path {
-			*path = tokio::fs::canonicalize(&path)
-				.await
-				.map_err(|source| tg::error!(!source, %path,"failed to canonicalize the path"))?
-				.try_into()?;
-		}
-
-		// Create the lock.
+		// Get the remote.
 		let remote = args
 			.remote
 			.map(|option| option.unwrap_or_else(|| "default".to_owned()));
-		let arg = tg::package::create::Arg {
-			reference: args.reference,
-			locked: args.locked,
-			remote: remote.clone(),
+
+		// Get the reference.
+		let item = self.get_reference(&args.reference).await?;
+
+		// Get the package.
+		let Either::Right(tg::Object::Package(package)) = item else {
+			return Err(tg::error!("expected a package"));
 		};
-		let tg::package::create::Output { package } = client.create_package(arg).await?;
 
 		// Check the package.
+		let package = package.id(&handle).await?;
 		let arg = tg::package::check::Arg { remote };
-		let output = client.check_package(&package, arg).await?;
+		let output = handle.check_package(&package, arg).await?;
 
 		// Print the diagnostics.
 		for diagnostic in &output.diagnostics {
-			self.print_diagnostic(&client, diagnostic).await;
+			self.print_diagnostic(&handle, diagnostic).await;
 		}
 
 		if !output.diagnostics.is_empty() {

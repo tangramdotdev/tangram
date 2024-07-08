@@ -14,11 +14,11 @@ pub struct Args {
 
 impl Cli {
 	pub async fn command_blob_cat(&self, args: Args) -> tg::Result<()> {
-		let client = self.client().await?;
+		let handle = self.handle().await?;
 
 		for blob in args.blobs {
 			// Create a reader.
-			let stream = client
+			let stream = handle
 				.try_read_blob(&blob, tg::blob::read::Arg::default())
 				.await?
 				.ok_or_else(|| tg::error!("expected a blob"))?;

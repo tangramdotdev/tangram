@@ -1,5 +1,5 @@
 use crate::Cli;
-use tangram_client as tg;
+use tangram_client::{self as tg, Handle as _};
 
 use tokio::io::AsyncReadExt as _;
 
@@ -16,7 +16,7 @@ pub struct Args {
 
 impl Cli {
 	pub async fn command_object_put(&self, args: Args) -> tg::Result<()> {
-		let client = self.client().await?;
+		let handle = self.handle().await?;
 		let kind = args.kind.into();
 		let bytes = if let Some(bytes) = args.bytes {
 			bytes.into_bytes()
@@ -32,7 +32,7 @@ impl Cli {
 		let arg = tg::object::put::Arg {
 			bytes: bytes.into(),
 		};
-		client.put_object(&id, arg).await?;
+		handle.put_object(&id, arg).await?;
 		println!("{id}");
 		Ok(())
 	}

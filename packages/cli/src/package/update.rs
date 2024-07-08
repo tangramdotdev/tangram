@@ -1,5 +1,5 @@
 use crate::Cli;
-use tangram_client as tg;
+use tangram_client::{self as tg, Handle as _};
 
 /// Update a package's lockfile.
 #[derive(Clone, Debug, clap::Args)]
@@ -11,7 +11,7 @@ pub struct Args {
 
 impl Cli {
 	pub async fn command_package_update(&self, args: Args) -> tg::Result<()> {
-		let client = self.client().await?;
+		let handle = self.handle().await?;
 
 		// Canonicalize the path.
 		let path = args.path;
@@ -25,13 +25,13 @@ impl Cli {
 			.await
 			.ok();
 
-		// Create the package.
-		let arg = tg::package::create::Arg {
-			reference: tg::Reference::with_path(path),
+		// Check in the package.
+		let arg = tg::package::checkin::Arg {
+			path,
 			locked: false,
 			remote: None,
 		};
-		client.create_package(arg).await?;
+		handle.check_in_package(arg).await?;
 
 		Ok(())
 	}

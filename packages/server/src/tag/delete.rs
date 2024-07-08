@@ -14,12 +14,12 @@ impl Server {
 	pub(crate) async fn handle_delete_tag_request<H>(
 		handle: &H,
 		_request: http::Request<Incoming>,
-		tag: &str,
+		tag: &[&str],
 	) -> tg::Result<http::Response<Outgoing>>
 	where
 		H: tg::Handle,
 	{
-		let tag = tag.parse()?;
+		let tag = tag.join("/").parse()?;
 		handle.delete_tag(&tag).await?;
 		let response = http::Response::builder().empty().unwrap();
 		Ok(response)

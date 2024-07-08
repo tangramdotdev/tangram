@@ -11,9 +11,9 @@ pub struct Args {
 
 impl Cli {
 	pub async fn command_build_output(&self, args: Args) -> tg::Result<()> {
-		let client = self.client().await?;
+		let handle = self.handle().await?;
 		let build = tg::Build::with_id(args.build);
-		let output = build.output(&client).await?;
+		let output = build.output(&handle).await?;
 		println!("{output}");
 		Ok(())
 	}

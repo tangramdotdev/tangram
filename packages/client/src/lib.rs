@@ -793,11 +793,11 @@ impl tg::Handle for Client {
 		self.pull_object(id, arg)
 	}
 
-	fn create_package(
+	fn check_in_package(
 		&self,
-		arg: tg::package::create::Arg,
-	) -> impl Future<Output = tg::Result<tg::package::create::Output>> {
-		self.create_package(arg)
+		arg: tg::package::checkin::Arg,
+	) -> impl Future<Output = tg::Result<tg::package::checkin::Output>> {
+		self.check_in_package(arg)
 	}
 
 	fn check_package(

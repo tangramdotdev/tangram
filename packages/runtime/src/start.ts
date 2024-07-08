@@ -25,9 +25,8 @@ export let start = async (target: Target): Promise<Value> => {
 		metadata.kind === ("js" as const) || metadata.kind === ("ts" as const),
 		"invalid kind",
 	);
-	let kind = metadata.kind;
 	let module = {
-		kind,
+		kind: metadata.kind,
 		package: await executable.id(),
 	};
 

@@ -1,5 +1,6 @@
 use crate::Cli;
-use tangram_client as tg;
+use either::Either;
+use tangram_client::{self as tg, Handle as _};
 
 /// Pull a build or an object.
 #[derive(Clone, Debug, clap::Args)]
@@ -23,6 +24,48 @@ pub struct Args {
 
 impl Cli {
 	pub async fn command_pull(&self, args: Args) -> tg::Result<()> {
-		todo!()
+		let handle = self.handle().await?;
+
+		// Get the item.
+		let item = args.reference.get(&handle).await?;
+		let item = match item {
+			Either::Left(build) => Either::Left(build.id().clone()),
+			Either::Right(object) => Either::Right(object.id(&handle).await?.clone()),
+		};
+
+		// Pull the item.
+		match item.clone() {
+			Either::Left(build) => {
+				self.command_build_pull(crate::build::pull::Args {
+					build,
+					logs: args.logs,
+					recursive: args.recursive,
+					remote: args.remote,
+					targets: args.targets,
+				})
+				.await?;
+			},
+			Either::Right(object) => {
+				self.command_object_pull(crate::object::pull::Args {
+					object,
+					remote: args.remote,
+				})
+				.await?;
+			},
+		}
+
+		// If the reference has a tag, then put it.
+		if let tg::reference::Path::Tag(pattern) = args.reference.path() {
+			if let Ok(tag) = pattern.clone().try_into() {
+				let arg = tg::tag::put::Arg {
+					force: false,
+					item,
+					remote: None,
+				};
+				handle.put_tag(&tag, arg).await?;
+			}
+		}
+
+		Ok(())
 	}
 }

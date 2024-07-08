@@ -24,7 +24,7 @@ pub struct Args {
 	pub locked: bool,
 
 	/// The reference to the build or value to view.
-	#[arg(index = 1, default_value = ".")]
+	#[arg(index = 1, default_value = ".?kind=package")]
 	pub reference: tg::Reference,
 }
 
@@ -38,10 +38,14 @@ where
 
 impl Cli {
 	pub async fn command_view(&self, args: Args) -> tg::Result<()> {
-		let client = self.client().await?;
+		let handle = self.handle().await?;
 
-		// Get the reference.
-		let item = args.reference.get(&client).await?;
+		// Get the item.
+		let item = args.reference.get(&handle).await?;
+		let item = match item {
+			Either::Left(build) => Either::Left(build.id().clone()),
+			Either::Right(object) => Either::Right(object.id(&handle).await?.clone()),
+		};
 
 		// Get the node kind.
 		let node_kind = match item {
@@ -60,7 +64,7 @@ impl Cli {
 		};
 
 		// Start the viewer.
-		let viewer = Viewer::start(&client, node_kind).await?;
+		let viewer = Viewer::start(&handle, node_kind).await?;
 
 		// Wait for the viewer to finish.
 		viewer.wait().await?;

@@ -1,5 +1,5 @@
 use crate::Cli;
-use tangram_client as tg;
+use tangram_client::{self as tg, Handle as _};
 
 /// Format a package.
 #[derive(Clone, Debug, clap::Args)]
@@ -11,7 +11,7 @@ pub struct Args {
 
 impl Cli {
 	pub async fn command_package_format(&self, args: Args) -> tg::Result<()> {
-		let client = self.client().await?;
+		let handle = self.handle().await?;
 
 		// Canonicalize the path.
 		let path = tokio::fs::canonicalize(&args.path)
@@ -21,7 +21,7 @@ impl Cli {
 
 		// Format the package.
 		let arg = tg::package::format::Arg { path };
-		client.format_package(arg).await?;
+		handle.format_package(arg).await?;
 
 		Ok(())
 	}

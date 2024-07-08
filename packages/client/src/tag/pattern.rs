@@ -14,8 +14,8 @@ use tangram_semver as semver;
 	serde_with::SerializeDisplay,
 )]
 pub struct Pattern {
-	pub(super) string: String,
-	pub(super) components: Vec<Component>,
+	string: String,
+	components: Vec<Component>,
 }
 
 #[derive(
@@ -59,7 +59,12 @@ impl Pattern {
 		self.components
 	}
 
-	pub fn matches(&self, _tag: &tg::Tag) -> bool {
+	#[must_use]
+	pub fn into_string_and_components(self) -> (String, Vec<Component>) {
+		(self.string, self.components)
+	}
+
+	pub fn matches(&self, tag: &tg::Tag) -> bool {
 		todo!()
 	}
 }

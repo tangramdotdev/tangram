@@ -8,10 +8,18 @@ pub mod put;
 
 /// Manage tags.
 #[derive(Clone, Debug, clap::Args)]
+#[command(
+	args_conflicts_with_subcommands = true,
+	subcommand_negates_reqs = true,
+	subcommand_precedence_over_arg = true
+)]
 #[group(skip)]
 pub struct Args {
+	#[command(flatten)]
+	pub args: crate::tag::put::Args,
+
 	#[command(subcommand)]
-	pub command: Command,
+	pub command: Option<Command>,
 }
 
 #[derive(Clone, Debug, clap::Subcommand)]
@@ -24,7 +32,7 @@ pub enum Command {
 
 impl Cli {
 	pub async fn command_tag(&self, args: Args) -> tg::Result<()> {
-		match args.command {
+		match args.command.unwrap_or(Command::Put(args.args)) {
 			Command::Delete(args) => {
 				self.command_tag_delete(args).await?;
 			},

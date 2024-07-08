@@ -3,7 +3,7 @@ use tangram_http::{incoming::response::Ext as _, outgoing::request::Ext as _};
 
 #[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
 pub struct Arg {
-	pub reference: tg::Reference,
+	pub path: tg::Path,
 
 	#[serde(default, skip_serializing_if = "std::ops::Not::not")]
 	pub locked: bool,
@@ -19,12 +19,12 @@ pub struct Output {
 }
 
 impl tg::Client {
-	pub async fn create_package(
+	pub async fn check_in_package(
 		&self,
-		arg: tg::package::create::Arg,
-	) -> tg::Result<tg::package::create::Output> {
+		arg: tg::package::checkin::Arg,
+	) -> tg::Result<tg::package::checkin::Output> {
 		let method = http::Method::POST;
-		let uri = "/packages";
+		let uri = "/packages/checkin";
 		let request = http::request::Builder::default()
 			.method(method)
 			.uri(uri)

@@ -741,7 +741,7 @@ fn parse_import_inner<'s>(
 	};
 
 	// Parse the import.
-	let import = tg::Import::with_specifier_and_attributes(&specifier, attributes.as_ref())?;
+	let import = tg::Import::with_specifier_and_attributes(&specifier, attributes)?;
 
 	Ok(import)
 }

@@ -1,16 +1,14 @@
-use crate::{self as tg, util::serde::EitherUntagged};
+use crate as tg;
 use either::Either;
-use serde_with::{serde_as, FromInto};
 use url::Url;
 
-#[serde_as]
 #[derive(
 	Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd, serde::Deserialize, serde::Serialize,
 )]
 pub struct Module {
 	pub kind: Kind,
 
-	#[serde_as(as = "FromInto<EitherUntagged<tg::Path, tg::package::Id>>")]
+	#[serde(with = "either::serde_untagged")]
 	pub package: Either<tg::Path, tg::package::Id>,
 }
 

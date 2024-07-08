@@ -1,6 +1,6 @@
 use crate::Cli;
 use futures::StreamExt as _;
-use tangram_client as tg;
+use tangram_client::{self as tg, Handle as _};
 
 /// Pull a build.
 #[derive(Clone, Debug, clap::Args)]
@@ -24,10 +24,12 @@ pub struct Args {
 
 impl Cli {
 	pub async fn command_build_pull(&self, args: Args) -> tg::Result<()> {
-		let client = self.client().await?;
+		let handle = self.handle().await?;
+
+		// Get the remote.
+		let remote = args.remote.unwrap_or_else(|| "default".to_owned());
 
 		// Pull the build.
-		let remote = args.remote.unwrap_or_else(|| "default".to_owned());
 		let arg = tg::build::pull::Arg {
 			logs: args.logs,
 			outcomes: true,
@@ -35,7 +37,7 @@ impl Cli {
 			remote,
 			targets: args.targets,
 		};
-		let mut stream = client.pull_build(&args.build, arg).await?.boxed();
+		let mut stream = handle.pull_build(&args.build, arg).await?.boxed();
 
 		// Create the progress bar.
 		let builds_progress_bar = indicatif::ProgressBar::new_spinner();

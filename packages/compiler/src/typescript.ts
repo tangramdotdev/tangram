@@ -51,8 +51,8 @@ export let host: ts.LanguageServiceHost & ts.CompilerHost = {
 		let text: string | undefined;
 		try {
 			text = syscall("module_load", moduleFromFileName(fileName));
-		} catch (e) {
-			log(e);
+		} catch (error) {
+			log(error);
 			return undefined;
 		}
 		return ts.ScriptSnapshot.fromString(text);
@@ -66,8 +66,8 @@ export let host: ts.LanguageServiceHost & ts.CompilerHost = {
 		let text: string | undefined;
 		try {
 			text = syscall("module_load", moduleFromFileName(fileName));
-		} catch (e) {
-			log(e);
+		} catch (error) {
+			log(error);
 			return undefined;
 		}
 		let sourceFile = ts.createSourceFile(fileName, text, languageVersion);
@@ -107,8 +107,8 @@ export let host: ts.LanguageServiceHost & ts.CompilerHost = {
 						attributes,
 					),
 				);
-			} catch (e) {
-				log(e);
+			} catch (error) {
+				log(error);
 				return { resolvedModule: undefined };
 			}
 			let extension = resolvedFileName.slice(-3);

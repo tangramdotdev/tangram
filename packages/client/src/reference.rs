@@ -1,33 +1,18 @@
 use crate::{self as tg, handle::Ext as _};
 use either::Either;
-use fluent_uri::Uri;
 use std::collections::BTreeMap;
+use tangram_uri as uri;
 
-#[derive(
-	Clone,
-	Debug,
-	Eq,
-	Hash,
-	Ord,
-	PartialEq,
-	PartialOrd,
-	serde_with::DeserializeFromStr,
-	serde_with::SerializeDisplay,
-)]
+#[derive(Clone, Debug, serde_with::DeserializeFromStr, serde_with::SerializeDisplay)]
 pub struct Reference {
-	pub uri: Uri<String>,
-	pub path: Path,
-	pub query: Option<Query>,
+	uri: uri::Reference,
+	path: Path,
+	query: Option<Query>,
 }
 
 #[derive(
 	Clone,
 	Debug,
-	Eq,
-	Hash,
-	Ord,
-	PartialEq,
-	PartialOrd,
 	derive_more::From,
 	derive_more::TryInto,
 	derive_more::TryUnwrap,
@@ -42,18 +27,7 @@ pub enum Path {
 	Tag(tg::tag::Pattern),
 }
 
-#[derive(
-	Clone,
-	Debug,
-	Default,
-	Eq,
-	Hash,
-	Ord,
-	PartialEq,
-	PartialOrd,
-	serde::Deserialize,
-	serde::Serialize,
-)]
+#[derive(Clone, Debug, Default, serde::Deserialize, serde::Serialize)]
 pub struct Query {
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub kind: Option<Kind>,
@@ -73,6 +47,7 @@ pub struct Query {
 
 #[derive(
 	Clone,
+	Copy,
 	Debug,
 	Eq,
 	Hash,
@@ -97,80 +72,8 @@ pub enum Kind {
 }
 
 impl Reference {
-	#[must_use]
-	pub fn with_build(build: tg::build::Id) -> Self {
-		Self {
-			uri: Uri::parse(build.to_string()).unwrap(),
-			path: Path::Build(build),
-			query: None,
-		}
-	}
-
-	#[must_use]
-	pub fn with_object(object: tg::object::Id) -> Self {
-		Self {
-			uri: Uri::parse(object.to_string()).unwrap(),
-			path: Path::Object(object),
-			query: None,
-		}
-	}
-
-	#[must_use]
-	pub fn with_path(path: tg::Path) -> Self {
-		Self {
-			uri: Uri::parse(path.to_string()).unwrap(),
-			path: Path::Path(path),
-			query: None,
-		}
-	}
-
-	pub fn with_tag(tag: tg::tag::Pattern) -> tg::Result<Self> {
-		let uri = Uri::parse(tag.as_ref().to_owned())
-			.map_err(|source| tg::error!(!source, "invalid tag"))?;
-		Ok(Self {
-			uri,
-			path: Path::Tag(tag),
-			query: None,
-		})
-	}
-
-	pub async fn get<H>(&self, handle: &H) -> tg::Result<Either<tg::build::Id, tg::object::Id>>
-	where
-		H: tg::Handle,
-	{
-		match &self.path {
-			Path::Build(build) => Ok(Either::Left(build.clone())),
-			Path::Object(object) => Ok(Either::Right(object.clone())),
-			Path::Path(_) => {
-				let arg = tg::package::create::Arg {
-					reference: self.clone(),
-					locked: false,
-					remote: None,
-				};
-				let tg::package::create::Output { package } = handle.create_package(arg).await?;
-				Ok(Either::Right(package.into()))
-			},
-			Path::Tag(tag) => {
-				let tg::tag::get::Output { item, .. } = handle.get_tag(tag).await?;
-				Ok(item)
-			},
-		}
-	}
-}
-
-impl std::fmt::Display for Reference {
-	fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-		write!(f, "{}", self.uri)
-	}
-}
-
-impl std::str::FromStr for Reference {
-	type Err = tg::Error;
-
-	fn from_str(value: &str) -> tg::Result<Self, Self::Err> {
-		let string = value.to_owned();
-		let uri = Uri::parse(string).map_err(|source| tg::error!(!source, "invalid uri"))?;
-		let path = uri.path().as_str();
+	pub fn with_uri(uri: uri::Reference) -> tg::Result<Self> {
+		let path = uri.path();
 		let path = if let Ok(build) = path.parse::<tg::build::Id>() {
 			Path::Build(build)
 		} else if let Ok(build) = path.parse::<tg::object::Id>() {
@@ -187,11 +90,103 @@ impl std::str::FromStr for Reference {
 		let query = uri
 			.query()
 			.map(|query| {
-				serde_urlencoded::from_str(query.as_str())
+				serde_urlencoded::from_str(query)
 					.map_err(|source| tg::error!(!source, "invalid query"))
 			})
 			.transpose()?;
 		Ok(Self { uri, path, query })
+	}
+
+	#[must_use]
+	pub fn with_build(build: &tg::build::Id) -> Self {
+		Self::with_uri(build.to_string().parse().unwrap()).unwrap()
+	}
+
+	#[must_use]
+	pub fn with_object(object: &tg::object::Id) -> Self {
+		Self::with_uri(object.to_string().parse().unwrap()).unwrap()
+	}
+
+	#[must_use]
+	pub fn with_path(path: &tg::Path) -> Self {
+		Self::with_uri(path.to_string().parse().unwrap()).unwrap()
+	}
+
+	pub fn with_tag(tag: &tg::tag::Pattern) -> tg::Result<Self> {
+		let uri = tag
+			.to_string()
+			.parse()
+			.map_err(|source| tg::error!(!source, "invalid tag"))?;
+		let reference = Self::with_uri(uri).unwrap();
+		Ok(reference)
+	}
+
+	#[must_use]
+	pub fn uri(&self) -> &uri::Reference {
+		&self.uri
+	}
+
+	#[must_use]
+	pub fn path(&self) -> &Path {
+		&self.path
+	}
+
+	#[must_use]
+	pub fn query(&self) -> Option<&Query> {
+		self.query.as_ref()
+	}
+
+	pub async fn get<H>(&self, handle: &H) -> tg::Result<Either<tg::Build, tg::Object>>
+	where
+		H: tg::Handle,
+	{
+		match &self.path {
+			Path::Build(build) => {
+				let build = tg::Build::with_id(build.clone());
+				let item = Either::Left(build);
+				Ok(item)
+			},
+			Path::Object(object) => {
+				let object = tg::Object::with_id(object.clone());
+				let item = Either::Right(object);
+				Ok(item)
+			},
+			Path::Path(path) => {
+				let arg = tg::package::checkin::Arg {
+					path: path.clone(),
+					locked: false,
+					remote: None,
+				};
+				let tg::package::checkin::Output { package } = handle.check_in_package(arg).await?;
+				let object = tg::Object::with_id(package.into());
+				let item = Either::Right(object);
+				Ok(item)
+			},
+			Path::Tag(tag) => {
+				let tg::tag::get::Output { item, .. } = handle.get_tag(tag).await?;
+				let item = item
+					.map_left(tg::Build::with_id)
+					.map_right(tg::Object::with_id);
+				Ok(item)
+			},
+		}
+	}
+}
+
+impl std::fmt::Display for Reference {
+	fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+		write!(f, "{}", self.uri)
+	}
+}
+
+impl std::str::FromStr for Reference {
+	type Err = tg::Error;
+
+	fn from_str(value: &str) -> tg::Result<Self, Self::Err> {
+		let uri =
+			uri::Reference::parse(value).map_err(|source| tg::error!(!source, "invalid uri"))?;
+		let reference = Self::with_uri(uri)?;
+		Ok(reference)
 	}
 }
 
@@ -231,5 +226,31 @@ impl std::str::FromStr for Kind {
 			"target" => Ok(Kind::Target),
 			_ => Err(tg::error!("invalid kind")),
 		}
+	}
+}
+
+impl std::cmp::Eq for Reference {}
+
+impl std::hash::Hash for Reference {
+	fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
+		self.uri.hash(state);
+	}
+}
+
+impl std::cmp::Ord for Reference {
+	fn cmp(&self, other: &Self) -> std::cmp::Ordering {
+		self.uri.cmp(&other.uri)
+	}
+}
+
+impl std::cmp::PartialEq for Reference {
+	fn eq(&self, other: &Self) -> bool {
+		self.uri.eq(&other.uri)
+	}
+}
+
+impl std::cmp::PartialOrd for Reference {
+	fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
+		Some(self.cmp(other))
 	}
 }

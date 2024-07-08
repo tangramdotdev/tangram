@@ -161,7 +161,7 @@ async fn migration_0000(path: &Path) -> tg::Result<()> {
 				item text
 			);
 
-			create index tags_parent_name_index on tags (parent, name);
+			create unique index tags_parent_name_index on tags (parent, name);
 
 			create table users (
 				id text primary key,

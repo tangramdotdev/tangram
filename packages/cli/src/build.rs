@@ -14,7 +14,11 @@ pub mod status;
 
 /// Build a target or manage builds.
 #[derive(Clone, Debug, clap::Args)]
-#[command(args_conflicts_with_subcommands = true)]
+#[command(
+	args_conflicts_with_subcommands = true,
+	subcommand_negates_reqs = true,
+	subcommand_precedence_over_arg = true
+)]
 #[group(skip)]
 pub struct Args {
 	#[command(flatten)]

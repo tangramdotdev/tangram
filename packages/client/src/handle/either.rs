@@ -385,13 +385,13 @@ where
 		}
 	}
 
-	fn create_package(
+	fn check_in_package(
 		&self,
-		arg: tg::package::create::Arg,
-	) -> impl Future<Output = tg::Result<tg::package::create::Output>> + Send {
+		arg: tg::package::checkin::Arg,
+	) -> impl Future<Output = tg::Result<tg::package::checkin::Output>> + Send {
 		match self {
-			Either::Left(s) => s.create_package(arg).left_future(),
-			Either::Right(s) => s.create_package(arg).right_future(),
+			Either::Left(s) => s.check_in_package(arg).left_future(),
+			Either::Right(s) => s.check_in_package(arg).right_future(),
 		}
 	}
 

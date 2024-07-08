@@ -1,5 +1,5 @@
 use crate::Cli;
-use tangram_client as tg;
+use tangram_client::{self as tg, Handle as _};
 
 /// Get the server's health.
 #[derive(Clone, Debug, clap::Args)]
@@ -8,8 +8,8 @@ pub struct Args {}
 
 impl Cli {
 	pub async fn command_server_status(&self, _args: Args) -> tg::Result<()> {
-		let client = self.client().await?;
-		if client.health().await.is_ok() {
+		let handle = self.handle().await?;
+		if handle.health().await.is_ok() {
 			println!("started");
 		} else {
 			println!("stopped");

@@ -29,6 +29,10 @@ impl Tag {
 	pub fn is_empty(&self) -> bool {
 		self.string.is_empty()
 	}
+
+	pub fn components(&self) -> &Vec<String> {
+		&self.components
+	}
 }
 
 impl AsRef<str> for Tag {
@@ -57,9 +61,8 @@ impl TryFrom<Pattern> for Tag {
 	type Error = tg::Error;
 
 	fn try_from(value: Pattern) -> Result<Self, Self::Error> {
-		let string = value.string;
-		let components = value
-			.components
+		let (string, components) = value.into_string_and_components();
+		let components = components
 			.into_iter()
 			.map(|component| match component {
 				self::pattern::Component::Normal(name) => Ok(name),

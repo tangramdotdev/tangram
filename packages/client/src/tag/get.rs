@@ -1,14 +1,12 @@
-use crate::{self as tg, util::serde::EitherUntagged};
+use crate as tg;
 use either::Either;
-use serde_with::{serde_as, FromInto};
 use tangram_http::{incoming::response::Ext as _, outgoing::request::Ext as _};
 
-#[serde_as]
 #[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
 pub struct Output {
 	pub tag: tg::Tag,
 
-	#[serde_as(as = "FromInto<EitherUntagged<tg::build::Id, tg::object::Id>>")]
+	#[serde(with = "either::serde_untagged")]
 	pub item: Either<tg::build::Id, tg::object::Id>,
 }
 

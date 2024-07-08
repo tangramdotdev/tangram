@@ -12,14 +12,16 @@ pub struct Args {
 
 impl Cli {
 	pub async fn command_get(&self, args: Args) -> tg::Result<()> {
-		let client = self.client().await?;
-		let item = args.reference.get(&client).await?;
+		let handle = self.handle().await?;
+		let item = args.reference.get(&handle).await?;
 		match item {
 			Either::Left(build) => {
+				let build = build.id().clone();
 				self.command_build_get(crate::build::get::Args { build })
 					.await?;
 			},
 			Either::Right(object) => {
+				let object = object.id(&handle).await?.clone();
 				self.command_object_get(crate::object::get::Args { object })
 					.await?;
 			},

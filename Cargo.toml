@@ -9,6 +9,7 @@ members = [
   "packages/messenger",
   "packages/semver",
   "packages/server",
+  "packages/uri",
   "packages/vfs",
 ]
 resolver = "2"
@@ -60,7 +61,6 @@ either = { version = "1", features = ["serde"] }
 erased-serde = "0.4"
 fastcdc = { version = "3", features = ["tokio"] }
 filetime = "0.2"
-fluent-uri = "0.2.0-alpha.7"
 fnv = "1"
 futures = "0.3"
 glob = "0.3"
@@ -126,6 +126,7 @@ tangram_http = { path = "packages/http" }
 tangram_messenger = { path = "packages/messenger" }
 tangram_semver = { path = "packages/semver" }
 tangram_server = { path = "packages/server" }
+tangram_uri = { path = "packages/uri" }
 tangram_vfs = { path = "packages/vfs" }
 tar = { version = "0.4" }
 time = { version = "0.3", features = ["formatting", "parsing", "serde"] }

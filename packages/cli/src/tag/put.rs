@@ -1,5 +1,6 @@
 use crate::Cli;
-use tangram_client as tg;
+use either::Either;
+use tangram_client::{self as tg, Handle as _};
 
 /// Put a tag.
 #[derive(Clone, Debug, clap::Args)]
@@ -9,20 +10,46 @@ pub struct Args {
 	pub force: bool,
 
 	#[arg(index = 2)]
-	pub reference: tg::Reference,
+	pub reference: Option<tg::Reference>,
+
+	#[allow(clippy::option_option)]
+	#[arg(short, long)]
+	pub remote: Option<Option<String>>,
 
 	#[arg(index = 1)]
-	pub tag: tg::Tag,
+	pub tag: Option<tg::Tag>,
 }
 
 impl Cli {
 	pub async fn command_tag_put(&self, args: Args) -> tg::Result<()> {
-		let client = self.client().await?;
-		let tag = args.tag;
-		let force = args.force;
-		let item = args.reference.get(&client).await?;
-		let arg = tg::tag::put::Arg { force, item };
-		client.put_tag(&tag, arg).await?;
+		let handle = self.handle().await?;
+
+		// Get the tag and reference.
+		let tag = args.tag.unwrap();
+		let reference = args.reference.unwrap();
+
+		// Get the remote.
+		let remote = args
+			.remote
+			.map(|option| option.unwrap_or_else(|| "default".to_owned()));
+
+		// Get the reference
+		let item = self.get_reference(&reference).await?;
+
+		// Get the item.
+		let item = match item {
+			Either::Left(build) => Either::Left(build.id().clone()),
+			Either::Right(object) => Either::Right(object.id(&handle).await?.clone()),
+		};
+
+		// Put the tag.
+		let arg = tg::tag::put::Arg {
+			force: args.force,
+			item,
+			remote,
+		};
+		handle.put_tag(&tag, arg).await?;
+
 		Ok(())
 	}
 }

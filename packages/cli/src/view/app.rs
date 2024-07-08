@@ -270,11 +270,11 @@ where
 		let NodeKind::Build { build, remote } = self.tree.get_selected() else {
 			return;
 		};
-		let client = self.handle.clone();
+		let handle = self.handle.clone();
 		tokio::spawn(async move {
 			let outcome = tg::build::outcome::Data::Canceled;
 			let arg = tg::build::finish::Arg { outcome, remote };
-			build.finish(&client, arg).await.ok();
+			build.finish(&handle, arg).await.ok();
 		});
 	}
 

@@ -13,8 +13,8 @@ pub struct Args {
 
 impl Cli {
 	pub async fn command_object_get(&self, args: Args) -> tg::Result<()> {
-		let client = self.client().await?;
-		let tg::object::get::Output { bytes, metadata } = client.get_object(&args.object).await?;
+		let handle = self.handle().await?;
+		let tg::object::get::Output { bytes, metadata } = handle.get_object(&args.object).await?;
 		if let Some(count) = metadata.count {
 			eprintln!("{} count {count}", "info".blue().bold());
 		}

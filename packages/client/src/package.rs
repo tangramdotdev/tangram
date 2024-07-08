@@ -15,7 +15,7 @@ use std::{
 pub use self::data::Data;
 
 pub mod check;
-pub mod create;
+pub mod checkin;
 pub mod doc;
 pub mod format;
 pub mod module;
@@ -69,7 +69,7 @@ pub mod data {
 		util::serde::{is_zero, EitherUntagged},
 	};
 	use either::Either;
-	use serde_with::{serde_as, FromInto, Seq};
+	use serde_with::{serde_as, FromInto};
 	use std::collections::BTreeMap;
 
 	#[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
@@ -83,7 +83,7 @@ pub mod data {
 	#[serde_as]
 	#[derive(Clone, Debug, Default, serde::Deserialize, serde::Serialize)]
 	pub struct Node {
-		#[serde_as(as = "Seq<(_, Option<FromInto<EitherUntagged<usize, Id>>>)>")]
+		#[serde_as(as = "BTreeMap<_, Option<FromInto<EitherUntagged<usize, Id>>>>")]
 		pub dependencies: BTreeMap<tg::Reference, Option<Either<usize, Id>>>,
 
 		#[serde(default, skip_serializing_if = "BTreeMap::is_empty")]

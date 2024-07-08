@@ -697,8 +697,8 @@ impl Server {
 			},
 
 			// Packages.
-			(http::Method::POST, ["packages"]) => {
-				Self::handle_create_package_request(handle, request).boxed()
+			(http::Method::POST, ["packages", "checkin"]) => {
+				Self::handle_check_in_package_request(handle, request).boxed()
 			},
 			(http::Method::POST, ["packages", package, "check"]) => {
 				Self::handle_check_package_request(handle, request, package).boxed()
@@ -741,13 +741,13 @@ impl Server {
 			(http::Method::GET, ["tags"]) => {
 				Self::handle_list_tags_request(handle, request).boxed()
 			},
-			(http::Method::GET, ["tags", name]) => {
+			(http::Method::GET, ["tags", name @ ..]) => {
 				Self::handle_get_tag_request(handle, request, name).boxed()
 			},
-			(http::Method::PUT, ["tags", name]) => {
+			(http::Method::PUT, ["tags", name @ ..]) => {
 				Self::handle_put_tag_request(handle, request, name).boxed()
 			},
-			(http::Method::DELETE, ["tags", name]) => {
+			(http::Method::DELETE, ["tags", name @ ..]) => {
 				Self::handle_delete_tag_request(handle, request, name).boxed()
 			},
 
@@ -1036,11 +1036,11 @@ impl tg::Handle for Server {
 		self.pull_object(id, arg)
 	}
 
-	fn create_package(
+	fn check_in_package(
 		&self,
-		arg: tg::package::create::Arg,
-	) -> impl Future<Output = tg::Result<tg::package::create::Output>> {
-		self.create_package(arg)
+		arg: tg::package::checkin::Arg,
+	) -> impl Future<Output = tg::Result<tg::package::checkin::Output>> {
+		self.check_in_package(arg)
 	}
 
 	fn check_package(

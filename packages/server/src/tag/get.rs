@@ -17,12 +17,12 @@ impl Server {
 	pub(crate) async fn handle_get_tag_request<H>(
 		handle: &H,
 		_request: http::Request<Incoming>,
-		tag: &str,
+		tag: &[&str],
 	) -> tg::Result<http::Response<Outgoing>>
 	where
 		H: tg::Handle,
 	{
-		let tag = tag.parse()?;
+		let tag = tag.join("/").parse()?;
 		let Some(output) = handle.try_get_tag(&tag).await? else {
 			return Ok(http::Response::builder().not_found().empty().unwrap());
 		};

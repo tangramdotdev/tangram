@@ -1,5 +1,5 @@
 use crate::Cli;
-use tangram_client as tg;
+use tangram_client::{self as tg, Handle as _};
 
 /// Get a remote.
 #[derive(Clone, Debug, clap::Args)]
@@ -11,8 +11,8 @@ pub struct Args {
 
 impl Cli {
 	pub async fn command_remote_get(&self, args: Args) -> tg::Result<()> {
-		let client = self.client().await?;
-		let remote = client
+		let handle = self.handle().await?;
+		let remote = handle
 			.try_get_remote(&args.name)
 			.await?
 			.ok_or_else(|| tg::error!("failed to find the remote"))?;

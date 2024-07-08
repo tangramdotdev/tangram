@@ -12,10 +12,10 @@ pub struct Args {
 
 impl Cli {
 	pub async fn command_build_status(&self, args: Args) -> tg::Result<()> {
-		let client = self.client().await?;
+		let handle = self.handle().await?;
 
 		// Get the status.
-		let mut stream = client.get_build_status(&args.build).await?.boxed();
+		let mut stream = handle.get_build_status(&args.build).await?.boxed();
 
 		// Print the status.
 		while let Some(status) = stream.next().await {

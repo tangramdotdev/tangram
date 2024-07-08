@@ -9,7 +9,7 @@ use std::{
 	path::PathBuf,
 	sync::{Arc, Mutex, Weak},
 };
-use tangram_client::{self as tg, handle::Ext as _};
+use tangram_client::{self as tg, handle::Ext as _, Handle as _};
 
 /// Build a target.
 #[allow(clippy::struct_excessive_bools)]
@@ -111,7 +111,7 @@ impl Cli {
 	}
 
 	pub(crate) async fn command_target_build_inner(&self, args: Args) -> tg::Result<InnerOutput> {
-		let client = self.client().await?;
+		let handle = self.handle().await?;
 
 		// Get the reference.
 		let reference = args.reference.unwrap_or_else(|| ".".parse().unwrap());
@@ -124,9 +124,9 @@ impl Cli {
 		// Create the target.
 		let target = 'a: {
 			// Get the package.
-			let package = match reference.path {
+			let package = match reference.path() {
 				tg::reference::Path::Object(tg::object::Id::Target(target)) => {
-					break 'a tg::Target::with_id(target);
+					break 'a tg::Target::with_id(target.clone());
 				},
 
 				tg::reference::Path::Path(path) => {
@@ -136,19 +136,19 @@ impl Cli {
 						.map_err(|source| tg::error!(!source, "failed to canonicalize the path"))?
 						.try_into()?;
 
-					// Create the package.
-					let arg = tg::package::create::Arg {
-						reference: tg::Reference::with_path(path),
+					// Check in the package.
+					let arg = tg::package::checkin::Arg {
+						path,
 						locked: args.locked,
 						remote: remote.clone(),
 					};
-					let tg::package::create::Output { package } =
-						client.create_package(arg).await?;
+					let tg::package::checkin::Output { package } =
+						handle.check_in_package(arg).await?;
 					tg::Package::with_id(package)
 				},
 
 				tg::reference::Path::Tag(tag) => {
-					let tg::tag::get::Output { item, .. } = client.get_tag(&tag).await?;
+					let tg::tag::get::Output { item, .. } = handle.get_tag(tag).await?;
 					let Either::Right(tg::object::Id::Package(package)) = item else {
 						return Err(tg::error!("expected a package"));
 					};
@@ -162,9 +162,9 @@ impl Cli {
 
 			// Get the target.
 			let target = reference
-				.uri
+				.uri()
 				.fragment()
-				.map_or("default", |fragment| fragment.as_str());
+				.map_or("default", |fragment| fragment);
 
 			// Get the args.
 			let mut args_: Vec<tg::Value> = args
@@ -229,25 +229,29 @@ impl Cli {
 		eprintln!(
 			"{} target {}",
 			"info".blue().bold(),
-			target.id(&client).await?
+			target.id(&handle).await?
 		);
 
 		// Build the target.
-		let id = target.id(&client).await?;
+		let id = target.id(&handle).await?;
 		let arg = tg::target::build::Arg {
 			create: true,
 			parent: None,
 			remote: remote.clone(),
 			retry,
 		};
-		let output = client.build_target(&id, arg).await?;
+		let output = handle.build_target(&id, arg).await?;
 		let build = tg::Build::with_id(output.build);
 
 		// Tag the build if requested.
 		if let Some(tag) = args.tag {
 			let item = Either::Left(build.id().clone());
-			let arg = tg::tag::put::Arg { force: false, item };
-			client.put_tag(&tag, arg).await?;
+			let arg = tg::tag::put::Arg {
+				force: false,
+				item,
+				remote: remote.clone(),
+			};
+			handle.put_tag(&tag, arg).await?;
 		}
 
 		// If the detach flag is set, then return the build.
@@ -260,7 +264,7 @@ impl Cli {
 
 		// Get the build's status.
 		let status = build
-			.status(&client)
+			.status(&handle)
 			.await?
 			.try_next()
 			.await?
@@ -269,7 +273,7 @@ impl Cli {
 		// If the build is finished, then get the build's outcome.
 		let outcome = if status == tg::build::Status::Finished {
 			let outcome = build
-				.outcome(&client)
+				.outcome(&handle)
 				.await
 				.map_err(|source| tg::error!(!source, "failed to get the outcome"))?;
 			Some(outcome)
@@ -284,7 +288,7 @@ impl Cli {
 			// Start the progress.
 			let progress_task = (!args.quiet).then(|| {
 				tokio::spawn({
-					let progress = Progress::new(build.clone(), &client);
+					let progress = Progress::new(build.clone(), &handle);
 					async move {
 						progress.run().await;
 					}
@@ -293,7 +297,7 @@ impl Cli {
 
 			// Spawn a task to attempt to cancel the build on the first interrupt signal and exit the process on the second.
 			let cancel_task = tokio::spawn({
-				let handle = client.clone();
+				let handle = handle.clone();
 				let build = build.clone();
 				async move {
 					tokio::signal::ctrl_c().await.unwrap();
@@ -308,7 +312,7 @@ impl Cli {
 			});
 
 			// Wait for the build's outcome.
-			let outcome = build.outcome(&client).await;
+			let outcome = build.outcome(&handle).await;
 
 			// Abort the cancel task.
 			cancel_task.abort();
@@ -363,7 +367,7 @@ impl Cli {
 				dependencies: true,
 			};
 			let output = artifact
-				.check_out(&client, arg)
+				.check_out(&handle, arg)
 				.await
 				.map_err(|source| tg::error!(!source, "failed to check out the artifact"))?;
 

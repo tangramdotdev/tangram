@@ -1,5 +1,5 @@
 use crate::Cli;
-use tangram_client as tg;
+use tangram_client::{self as tg, Handle as _};
 
 /// List tags.
 #[derive(Clone, Debug, clap::Args)]
@@ -15,18 +15,25 @@ pub struct Args {
 
 impl Cli {
 	pub async fn command_tag_list(&self, args: Args) -> tg::Result<()> {
-		let client = self.client().await?;
+		let handle = self.handle().await?;
+
+		// Get the remote.
 		let remote = args
 			.remote
-			.map(|remote| remote.unwrap_or_else(|| "default".to_owned()));
+			.map(|option| option.unwrap_or_else(|| "default".to_owned()));
+
+		// List the tags.
 		let arg = tg::tag::list::Arg {
 			pattern: args.pattern,
 			remote,
 		};
-		let output = client.list_tags(arg).await?;
+		let output = handle.list_tags(arg).await?;
+
+		// Print the tags.
 		for output in output.data {
 			println!("{}", output.tag);
 		}
+
 		Ok(())
 	}
 }

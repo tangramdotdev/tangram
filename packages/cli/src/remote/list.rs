@@ -1,5 +1,5 @@
 use crate::Cli;
-use tangram_client as tg;
+use tangram_client::{self as tg, Handle as _};
 
 /// List remotes.
 #[derive(Clone, Debug, clap::Args)]
@@ -8,9 +8,9 @@ pub struct Args {}
 
 impl Cli {
 	pub async fn command_remote_list(&self, _args: Args) -> tg::Result<()> {
-		let client = self.client().await?;
+		let handle = self.handle().await?;
 		let arg = tg::remote::list::Arg::default();
-		let remotes = client.list_remotes(arg).await?;
+		let remotes = handle.list_remotes(arg).await?;
 		for remote in remotes.data {
 			println!("{} {}", remote.name, remote.url);
 		}

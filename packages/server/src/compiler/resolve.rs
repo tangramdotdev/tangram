@@ -21,6 +21,14 @@ impl Compiler {
 				package: Either::Right(package),
 				..
 			} => {
+				// let package = tg::Package::with_id(package.clone());
+				// let package = package
+				// 	.get_dependency(&self.server, &import.reference)
+				// 	.await?;
+				// let kind = todo!();
+				// let package = package.id(&self.server).await?;
+				// let module = tg::Module { kind, package };
+				// Ok(module)
 				todo!()
 			},
 		}

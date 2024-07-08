@@ -236,8 +236,7 @@ impl Visitor {
 		};
 
 		// Parse the import.
-		let import = match tg::Import::with_specifier_and_attributes(specifier, attributes.as_ref())
-		{
+		let import = match tg::Import::with_specifier_and_attributes(specifier, attributes) {
 			Ok(import) => import,
 			Err(error) => {
 				let loc = self.source_map.lookup_char_pos(span.lo());

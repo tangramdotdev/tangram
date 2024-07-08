@@ -23,7 +23,7 @@ pub fn resolve(
 	args: (tg::Module, String, Option<BTreeMap<String, String>>),
 ) -> tg::Result<tg::Module> {
 	let (module, specifier, attributes) = args;
-	let import = tg::Import::with_specifier_and_attributes(&specifier, attributes.as_ref())
+	let import = tg::Import::with_specifier_and_attributes(&specifier, attributes)
 		.map_err(|source| tg::error!(!source, "failed to create the import"))?;
 	compiler.main_runtime_handle.clone().block_on(async move {
 		let module = compiler
