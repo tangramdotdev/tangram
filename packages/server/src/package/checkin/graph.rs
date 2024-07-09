@@ -35,29 +35,32 @@ pub(super) struct Graph {
 	counter: usize,
 
 	// The set of nodes in the graph.
-	nodes: im::HashMap<Id, Node>,
+	pub nodes: im::HashMap<Id, Node>,
 }
 
 // A node within the package graph.
 #[derive(Clone, Debug)]
-struct Node {
+pub struct Node {
 	// A unique identifier of the node within the package graph.
-	id: Id,
+	pub id: Id,
 
 	// The result of this node (None if we do not know if it is successful or not).
-	errors: Vec<tg::Error>,
+	pub errors: Vec<tg::Error>,
 
 	// Direct dependencies.
-	outgoing: BTreeMap<tg::Reference, Id>,
+	pub outgoing: BTreeMap<tg::Reference, Id>,
 
 	// Whether this object appears as a distinct node in the output tg::Package.
-	is_package_node: bool,
+	pub is_package_node: bool,
 
 	// The underlying object.
-	object: tg::Object,
+	pub object: tg::Object,
 
 	// Object metadata.
-	metadata: BTreeMap<String, tg::value::Data>,
+	pub metadata: BTreeMap<String, tg::Value>,
+
+	// The tag of this node, if it exists.
+	pub tag: Option<tg::Tag>,
 }
 
 pub(super) type Id = Either<tg::Reference, usize>;
@@ -82,7 +85,19 @@ pub(super) struct Edge {
 
 impl Server {
 	/// Create an initial package graph from a root module path and return the graph and id of the root node.
-	pub(super) async fn get_package_graph(
+	pub(super) async fn create_graph_for_lockfile(
+		&self,
+		package: &tg::Package,
+		lockfile_path: &tg::Path,
+	) -> tg::Result<(Graph, Id)> {
+		let reference = tg::Reference::with_path(&lockfile_path.clone().parent().normalize());
+		let mut graph = Graph::default();
+		let root = graph.add_package(self, package, &reference).await?;
+		Ok((graph, root))
+	}
+
+	/// Create an initial package graph from a root module path and return the graph and id of the root node.
+	pub(super) async fn create_graph_for_path(
 		&self,
 		root_module_path: &tg::Path,
 	) -> tg::Result<(Graph, Id)> {
@@ -104,8 +119,9 @@ impl Server {
 				|source| tg::error!(!source, %path = root_module_path, "failed to create package graph"),
 			)?;
 		let counter = nodes.len();
+		let nodes = nodes.into();
 		let graph = Graph { counter, nodes };
-		(graph, root)
+		Ok((graph, root))
 	}
 
 	// Create a single package graph node from a reference and import kind.
@@ -120,7 +136,7 @@ impl Server {
 			.path()
 			.try_unwrap_path_ref()
 			.ok()
-			.or_else(|| import.reference.query()?.path.as_ref())
+			.or_else(|| reference.query()?.path.as_ref())
 		{
 			return self
 				.create_graph_node_at_path(path, import_kind, nodes, visited)
@@ -139,12 +155,13 @@ impl Server {
 					is_package_node: false,
 					object: tg::Object::with_id(object.clone()),
 					metadata: BTreeMap::new(),
+					tag: None,
 				};
 				nodes.insert(id.clone(), node);
 				Ok(id)
 			},
 			tg::reference::Path::Path(_) => unreachable!(),
-			tg::reference::Path::Tag(pattern) => todo!(),
+			tg::reference::Path::Tag(_pattern) => todo!(),
 		}
 	}
 
@@ -192,22 +209,34 @@ impl Server {
 					errors.push(tg::error!(%path, "failed to read file"));
 					break 'a (BTreeMap::new(), true);
 				};
-				let Ok(analysis) = crate::compiler::Compiler::analyze_module(&text) else {
+				let Ok(analysis) = crate::compiler::Compiler::analyze_module(text) else {
 					errors.push(tg::error!(%path, "failed to analyze module"));
 					break 'a (BTreeMap::new(), true);
 				};
-				metadata.extend(analysis.metadata.into_iter().flatten());
+
+				// Add the metadata.
+				metadata.extend(
+					analysis
+						.metadata
+						.into_iter()
+						.flatten()
+						.map(|(k, v)| (k, v.try_into().unwrap())),
+				);
+
+				// Recurse.
 				let mut outgoing = BTreeMap::new();
 				for import in analysis.imports {
 					let result = Box::pin(self.create_graph_node(
 						&import.reference,
-						import.kind,
+						import.kind.unwrap_or(tg::import::Kind::Js),
 						nodes,
 						visited,
 					))
 					.await;
 					match result {
-						Ok(id) => outgoing.insert(import.reference, id),
+						Ok(id) => {
+							outgoing.insert(import.reference, id);
+						},
 						Err(source) => errors.push(
 							tg::error!(!source, %reference = import.reference, "failed to resolve dependency"),
 						),
@@ -234,8 +263,9 @@ impl Server {
 			errors,
 			outgoing,
 			is_package_node,
-			object,
+			object: object.into(),
 			metadata,
+			tag: None,
 		};
 
 		nodes.insert(id.clone(), node);
@@ -257,7 +287,7 @@ impl Graph {
 			.collect::<BTreeMap<_, _>>();
 
 		// Get the root index.
-		let root = nodes.get(root).unwrap();
+		let root = *indices.get(root).unwrap();
 
 		// Map from graph nodes to package nodes.
 		let nodes = self
@@ -323,13 +353,33 @@ impl Graph {
 			.await
 			.map_err(|source| tg::error!(!source, "failed to get the package object"))?;
 
-		// Add the root and its direct dependencies contained within the package to the graph.
-		let index = object.root;
-		let mut visited = BTreeMap::new();
-
-		let mut stack = vec![object.root];
-
-		Ok(id)
+		// Treat the root special.
+		match reference.path() {
+			tg::reference::Path::Build(_) => {
+				return Err(tg::error!("cannot create a package from a build"))
+			},
+			tg::reference::Path::Path(_) => {
+				let mut visited = BTreeMap::new();
+				let id = self.add_package_inner(&object, &Either::Left(object.root), &mut visited);
+				Ok(id)
+			},
+			tg::reference::Path::Object(object) => {
+				let id = Either::Right(self.counter);
+				self.counter += 1;
+				let node = Node {
+					id: id.clone(),
+					errors: Vec::new(),
+					outgoing: BTreeMap::new(),
+					is_package_node: true,
+					object: tg::Object::with_id(object.clone()),
+					metadata: BTreeMap::new(),
+					tag: None,
+				};
+				self.nodes.insert(id.clone(), node);
+				Ok(id)
+			},
+			tg::reference::Path::Tag(_) => todo!(),
+		}
 	}
 
 	fn add_package_inner(
@@ -350,18 +400,19 @@ impl Graph {
 					is_package_node: false,
 					object: object.clone(),
 					metadata: BTreeMap::new(),
+					tag: None,
 				};
 				self.nodes.insert(id.clone(), node);
 				return id;
-			}
+			},
 		};
 		if let Some(id) = visited.get(&index) {
 			return id.clone();
 		};
 		let mut outgoing = BTreeMap::new();
 		let mut errors = Vec::new();
-		for (reference, package) in &package.nodes[index].dependencies {
-			let Some(dependency) = package else {
+		for (reference, dependency) in &package.nodes[index].dependencies {
+			let Some(dependency) = dependency else {
 				errors.push(tg::error!(%reference, "missing dependency in package"));
 				continue;
 			};
@@ -369,15 +420,21 @@ impl Graph {
 			outgoing.insert(reference.clone(), id);
 		}
 
-		let id = self.counter;
+		let id = Either::Right(self.counter);
 		self.counter += 1;
+		let metadata = package.nodes[index]
+			.metadata
+			.iter()
+			.map(|(key, data)| (key.clone(), data.clone().into()))
+			.collect();
 		let node = Node {
 			id: id.clone(),
 			errors,
 			outgoing,
 			is_package_node: true,
 			object: package.nodes[index].object.clone().unwrap(),
-			metadata: package.nodes[index].metadata.clone(),
+			metadata,
+			tag: None,
 		};
 
 		self.nodes.insert(id.clone(), node);
@@ -515,13 +572,22 @@ impl Server {
 			current.graph.add_error(&current.edge.src, error);
 		}
 
-		// Get the tag of the current node.
-		let tag = todo!();
-
 		// If there is no tag it is not a tag dependency, so return.
 		if current.edge.dst.is_right() {
 			return;
 		}
+
+		// Get the tag of the current node.
+		let Some(tag) = current
+			.graph
+			.nodes
+			.get(&current.edge.dst)
+			.unwrap()
+			.tag
+			.as_ref()
+		else {
+			return;
+		};
 
 		// Validate the constraint.
 		match reference
@@ -550,7 +616,7 @@ impl Server {
 		&self,
 		graph: &mut Graph,
 		reference: &tg::Reference,
-		packages: &mut Option<im::Vector<(tg::Tag, tg::Package)>>,
+		packages: &mut Option<im::Vector<(tg::Tag, tg::Object)>>,
 	) -> tg::Result<Id> {
 		// Seed the remaining packages if necessary.
 		// if packages.is_none() {
