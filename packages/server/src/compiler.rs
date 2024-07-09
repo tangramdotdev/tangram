@@ -647,7 +647,10 @@ impl Compiler {
 					tg::module::Kind::Artifact
 				};
 				let package = Either::Left(path);
-				Ok(tg::Module { kind, object: package })
+				Ok(tg::Module {
+					kind,
+					object: package,
+				})
 			},
 
 			_ => uri.as_str().parse(),

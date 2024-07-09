@@ -1,8 +1,6 @@
 use crate::Server;
 use either::Either;
-use futures::{future, stream::FuturesUnordered, TryStreamExt};
-use itertools::Itertools;
-use std::collections::{BTreeMap, BTreeSet};
+use std::collections::BTreeSet;
 use tangram_client as tg;
 use tangram_http::{incoming::request::Ext as _, outgoing::response::Ext as _, Incoming, Outgoing};
 mod graph;
@@ -41,7 +39,7 @@ impl Server {
 		let (graph, root) = self
 			.create_graph_for_path(&root_module_path)
 			.await
-			.map_err(|source| tg::error!(%path, "failed to create package graph"))?;
+			.map_err(|source| tg::error!(!source, %path, "failed to create package graph"))?;
 
 		// Read and validate against an existing lockfile if it exists.
 		let lockfile_path = path.clone().join(tg::package::LOCKFILE_FILE_NAME);
@@ -138,19 +136,6 @@ impl Server {
 		Ok(Some(package))
 	}
 
-	async fn create_package_with_repository_dependencies(
-		&self,
-		package: &tg::Package,
-		reference: &tg::Reference,
-	) -> tg::Result<tg::Package> {
-		let (root, graph) = self
-			.create_package_graph(package, reference)
-			.await
-			.map_err(|source| tg::error!(!source, "failed to create package graph"))?;
-		let package = graph.into_package_object(&root);
-		Ok(tg::Package::with_object(package))
-	}
-
 	async fn add_path_references_to_package(
 		&self,
 		package: &tg::Package,
@@ -228,7 +213,7 @@ impl Server {
 			visited.insert(index);
 			object.nodes[index].object.take();
 			for (reference, package) in &mut object.nodes[index].dependencies {
-				let Some(path) = reference
+				let Some(_) = reference
 					.path()
 					.try_unwrap_path_ref()
 					.ok()
@@ -269,6 +254,7 @@ impl Server {
 		// List tags that match the pattern.
 		let output = self
 			.list_tags(tg::tag::list::Arg {
+				length: None,
 				pattern: pattern.clone(),
 				remote,
 			})
@@ -280,7 +266,7 @@ impl Server {
 			.data
 			.into_iter()
 			.filter_map(|output| {
-				let object = output.item.right()?;
+				let object = output.item?.right()?;
 				Some((output.tag, tg::Object::with_id(object)))
 			})
 			.collect())
