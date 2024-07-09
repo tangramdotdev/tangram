@@ -5,10 +5,6 @@ use tangram_client as tg;
 #[derive(Clone, Debug, clap::Args)]
 #[group(skip)]
 pub struct Args {
-	/// Print as JSON.
-	#[arg(long)]
-	pub json: bool,
-
 	/// If this flag is set, the package's lockfile will not be updated.
 	#[arg(long)]
 	pub locked: bool,

@@ -1,4 +1,5 @@
 use super::commands::Commands;
+use either::Either;
 use futures::{future, StreamExt};
 use num::ToPrimitive;
 use ratatui::{self as tui, prelude::*};
@@ -710,10 +711,36 @@ where
 			},
 
 			NodeKind::Value {
-				value: tg::Value::Object(tg::Object::Package(_package)),
+				value: tg::Value::Object(tg::Object::Package(package)),
 				..
 			} => {
-				todo!()
+				let object = package.object(&self.handle).await?;
+				let mut children = Vec::new();
+				for node in &object.nodes {
+					if let Some(object) = &node.object {
+						let parent = Some(self);
+						let index = children.len();
+						let kind = NodeKind::Value {
+							name: Some("object".into()),
+							value: tg::Value::Object(object.clone()),
+						};
+						let child = Self::new(&self.handle, parent, index, kind);
+						children.push(child);
+					}
+					for (reference, object) in &node.dependencies {
+						if let Some(Either::Right(object)) = object {
+							let parent = Some(self);
+							let index = children.len();
+							let kind = NodeKind::Value {
+								name: Some(reference.to_string()),
+								value: tg::Value::Object(object.clone()),
+							};
+							let child = Self::new(&self.handle, parent, index, kind);
+							children.push(child);
+						}
+					}
+				}
+				Ok(children)
 			},
 
 			NodeKind::Value {
