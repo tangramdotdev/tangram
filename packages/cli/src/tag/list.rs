@@ -24,6 +24,7 @@ impl Cli {
 
 		// List the tags.
 		let arg = tg::tag::list::Arg {
+			length: None,
 			pattern: args.pattern,
 			remote,
 		};

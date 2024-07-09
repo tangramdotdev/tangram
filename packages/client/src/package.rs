@@ -1,4 +1,4 @@
-use crate as tg;
+use crate::{self as tg, util::arc::Ext as _};
 use bytes::Bytes;
 use either::Either;
 use futures::{
@@ -57,13 +57,12 @@ pub struct Object {
 
 #[derive(Clone, Debug, Default)]
 pub struct Node {
-	pub dependencies: BTreeMap<tg::Reference, Option<Either<usize, Package>>>,
+	pub dependencies: BTreeMap<tg::Reference, Option<Either<usize, tg::Object>>>,
 	pub metadata: BTreeMap<String, tg::Value>,
 	pub object: Option<tg::Object>,
 }
 
 pub mod data {
-	use super::Id;
 	use crate::{
 		self as tg,
 		util::serde::{is_zero, EitherUntagged},
@@ -83,8 +82,8 @@ pub mod data {
 	#[serde_as]
 	#[derive(Clone, Debug, Default, serde::Deserialize, serde::Serialize)]
 	pub struct Node {
-		#[serde_as(as = "BTreeMap<_, Option<FromInto<EitherUntagged<usize, Id>>>>")]
-		pub dependencies: BTreeMap<tg::Reference, Option<Either<usize, Id>>>,
+		#[serde_as(as = "BTreeMap<_, Option<FromInto<EitherUntagged<usize, tg::object::Id>>>>")]
+		pub dependencies: BTreeMap<tg::Reference, Option<Either<usize, tg::object::Id>>>,
 
 		#[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
 		pub metadata: BTreeMap<String, tg::value::Data>,
@@ -226,16 +225,14 @@ impl Package {
 		&self,
 		handle: &H,
 		dependency: &tg::Reference,
-	) -> tg::Result<Package>
+	) -> tg::Result<tg::Object>
 	where
 		H: tg::Handle,
 	{
 		self.try_get_dependency(handle, dependency)
 			.map(|result| {
 				result.and_then(|option| {
-					option.ok_or_else(
-						|| tg::error!(%dependency, "failed to look up the dependency in the lock"),
-					)
+					option.ok_or_else(|| tg::error!(%dependency, "failed to find the dependency"))
 				})
 			})
 			.await
@@ -245,26 +242,24 @@ impl Package {
 		&self,
 		handle: &H,
 		dependency: &tg::Reference,
-	) -> tg::Result<Option<Package>>
+	) -> tg::Result<Option<tg::Object>>
 	where
 		H: tg::Handle,
 	{
 		let object = self.object(handle).await?;
-		let root = object
-			.nodes
-			.get(object.root)
-			.ok_or_else(|| tg::error!("the root does not exist in the lock"))?;
+		let root = object.nodes.get(object.root).unwrap();
 		let Some(Some(either)) = root.dependencies.get(dependency) else {
 			return Ok(None);
 		};
 		let index = match either {
 			Either::Left(index) => *index,
-			Either::Right(package) => return Ok(Some(package.clone())),
+			Either::Right(object) => return Ok(Some(object.clone())),
 		};
 		let mut nodes = vec![];
 		let root = Self::try_get_dependency_inner(&mut nodes, &object, index);
 		let package = Package::with_object(Object { nodes, root });
-		Ok(Some(package))
+		let object = package.into();
+		Ok(Some(object))
 	}
 
 	fn try_get_dependency_inner(nodes: &mut Vec<Node>, package: &Object, index: usize) -> usize {
@@ -277,7 +272,7 @@ impl Package {
 					either
 						.as_ref()
 						.map_left(|index| Self::try_get_dependency_inner(nodes, package, *index))
-						.map_right(Self::clone)
+						.map_right(tg::Object::clone)
 				});
 				(dependency.clone(), option)
 			})
@@ -292,6 +287,19 @@ impl Package {
 		let index = nodes.len();
 		nodes.push(node);
 		index
+	}
+
+	pub async fn metadata<H>(
+		&self,
+		handle: &H,
+	) -> tg::Result<impl std::ops::Deref<Target = BTreeMap<String, tg::Value>>>
+	where
+		H: tg::Handle,
+	{
+		Ok(self
+			.object(handle)
+			.await?
+			.map(|object| &object.nodes.get(object.root).unwrap().metadata))
 	}
 
 	pub async fn normalize<H>(&self, handle: &H) -> tg::Result<Self>
@@ -309,7 +317,7 @@ impl Package {
 		visited: &mut BTreeMap<usize, Option<Package>>,
 	) -> tg::Result<Package> {
 		match visited.get(&index) {
-			Some(None) => return Err(tg::error!("the lock contains a cycle")),
+			Some(None) => return Err(tg::error!("the package contains a cycle")),
 			Some(Some(package)) => return Ok(package.clone()),
 			None => (),
 		};
@@ -324,9 +332,10 @@ impl Package {
 					match either {
 						Either::Left(index) => {
 							let package = Self::normalize_inner(nodes, *index, visited)?;
-							Some(Either::Right(package))
+							let object = package.into();
+							Some(Either::Right(object))
 						},
-						Either::Right(package) => Some(Either::Right(package.clone())),
+						Either::Right(object) => Some(Either::Right(object.clone())),
 					}
 				} else {
 					None
@@ -364,7 +373,7 @@ impl Node {
 				let option = match option {
 					None => None,
 					Some(Either::Left(index)) => Some(Either::Left(*index)),
-					Some(Either::Right(package)) => Some(Either::Right(package.id(handle).await?)),
+					Some(Either::Right(object)) => Some(Either::Right(object.id(handle).await?)),
 				};
 				Ok::<_, tg::Error>((dependency, option))
 			})
@@ -412,8 +421,8 @@ impl Data {
 				children.insert(object.clone());
 			}
 			for option in node.dependencies.values().flatten() {
-				if let Either::Right(package) = option {
-					children.insert(package.clone().into());
+				if let Either::Right(object) = option {
+					children.insert(object.clone());
 				}
 			}
 		}
@@ -465,7 +474,7 @@ impl TryFrom<data::Node> for Node {
 			.dependencies
 			.into_iter()
 			.map(|(dependency, option)| {
-				let either = option.map(|either| either.map_right(Package::with_id));
+				let either = option.map(|either| either.map_right(tg::Object::with_id));
 				Ok::<_, tg::Error>((dependency, either))
 			})
 			.try_collect()?;

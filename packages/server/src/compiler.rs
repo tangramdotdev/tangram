@@ -647,7 +647,7 @@ impl Compiler {
 					tg::module::Kind::Artifact
 				};
 				let package = Either::Left(path);
-				Ok(tg::Module { kind, package })
+				Ok(tg::Module { kind, object: package })
 			},
 
 			_ => uri.as_str().parse(),
@@ -666,7 +666,7 @@ impl Compiler {
 					| tg::module::Kind::Directory
 					| tg::module::Kind::File
 					| tg::module::Kind::Symlink,
-				package: Either::Left(path),
+				object: Either::Left(path),
 				..
 			} => format!("file://{path}").parse().unwrap(),
 			module => module.to_string().parse().unwrap(),

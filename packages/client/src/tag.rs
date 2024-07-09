@@ -1,4 +1,6 @@
 use crate as tg;
+use itertools::Itertools as _;
+use winnow::{ascii::alphanumeric1, combinator::separated, prelude::*};
 
 pub mod delete;
 pub mod get;
@@ -21,17 +23,49 @@ pub use self::pattern::Pattern;
 )]
 pub struct Tag {
 	string: String,
-	components: Vec<String>,
+	components: Vec<Component>,
 }
 
+#[derive(
+	Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd, serde::Deserialize, serde::Serialize,
+)]
+pub struct Component(String);
+
+#[derive(Clone, Debug, derive_more::Display, derive_more::Error)]
+pub struct ParseError;
+
 impl Tag {
+	#[must_use]
+	pub fn with_components(components: Vec<Component>) -> Self {
+		let string = components.iter().map(Component::as_str).join("/");
+		Self { string, components }
+	}
+
 	#[must_use]
 	pub fn is_empty(&self) -> bool {
 		self.string.is_empty()
 	}
 
-	pub fn components(&self) -> &Vec<String> {
+	#[must_use]
+	pub fn components(&self) -> &Vec<Component> {
 		&self.components
+	}
+}
+
+impl Component {
+	#[must_use]
+	pub fn new(name: String) -> Self {
+		Self(name)
+	}
+
+	#[must_use]
+	pub fn as_str(&self) -> &str {
+		self.0.as_str()
+	}
+
+	#[must_use]
+	pub fn into_string(self) -> String {
+		self.0
 	}
 }
 
@@ -48,12 +82,10 @@ impl std::fmt::Display for Tag {
 }
 
 impl std::str::FromStr for Tag {
-	type Err = tg::Error;
+	type Err = ParseError;
 
 	fn from_str(s: &str) -> Result<Self, Self::Err> {
-		let string = s.to_owned();
-		let components = s.split('/').map(ToOwned::to_owned).collect();
-		Ok(Self { string, components })
+		tag.parse(s).ok().ok_or(ParseError)
 	}
 }
 
@@ -65,7 +97,7 @@ impl TryFrom<Pattern> for Tag {
 		let components = components
 			.into_iter()
 			.map(|component| match component {
-				self::pattern::Component::Normal(name) => Ok(name),
+				self::pattern::Component::Normal(component) => Ok(Component(component.0)),
 				self::pattern::Component::Semver(_) => Err(tg::error!(
 					"pattern is not a tag if it has a semver component"
 				)),
@@ -73,4 +105,29 @@ impl TryFrom<Pattern> for Tag {
 			.collect::<tg::Result<_>>()?;
 		Ok(Self { string, components })
 	}
+}
+
+impl std::fmt::Display for Component {
+	fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+		write!(f, "{}", self.0)
+	}
+}
+
+impl std::str::FromStr for Component {
+	type Err = ParseError;
+
+	fn from_str(s: &str) -> Result<Self, Self::Err> {
+		component.parse(s).ok().ok_or(ParseError)
+	}
+}
+
+fn tag(input: &mut &str) -> PResult<Tag> {
+	let string = input.to_owned();
+	let components: Vec<_> = separated(1.., component, "/").parse_next(input)?;
+	Ok(Tag { string, components })
+}
+
+fn component(input: &mut &str) -> PResult<Component> {
+	let component = alphanumeric1.parse_next(input)?;
+	Ok(Component(component.to_owned()))
 }

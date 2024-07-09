@@ -3,6 +3,8 @@ use either::Either;
 use std::collections::BTreeMap;
 use tangram_uri as uri;
 
+pub mod get;
+
 #[derive(Clone, Debug, serde_with::DeserializeFromStr, serde_with::SerializeDisplay)]
 pub struct Reference {
 	uri: uri::Reference,
@@ -13,6 +15,7 @@ pub struct Reference {
 #[derive(
 	Clone,
 	Debug,
+	derive_more::Display,
 	derive_more::From,
 	derive_more::TryInto,
 	derive_more::TryUnwrap,
@@ -97,6 +100,21 @@ impl Reference {
 		Ok(Self { uri, path, query })
 	}
 
+	pub fn with_path_and_query(path: &Path, query: Option<&Query>) -> Self {
+		let path = path.to_string();
+		let query = query
+			.as_ref()
+			.map(serde_urlencoded::to_string)
+			.transpose()
+			.unwrap();
+		let uri = uri::Reference::builder()
+			.path(path)
+			.query(query)
+			.build()
+			.unwrap();
+		Self::with_uri(uri).unwrap()
+	}
+
 	#[must_use]
 	pub fn with_build(build: &tg::build::Id) -> Self {
 		Self::with_uri(build.to_string().parse().unwrap()).unwrap()
@@ -140,36 +158,12 @@ impl Reference {
 	where
 		H: tg::Handle,
 	{
-		match &self.path {
-			Path::Build(build) => {
-				let build = tg::Build::with_id(build.clone());
-				let item = Either::Left(build);
-				Ok(item)
-			},
-			Path::Object(object) => {
-				let object = tg::Object::with_id(object.clone());
-				let item = Either::Right(object);
-				Ok(item)
-			},
-			Path::Path(path) => {
-				let arg = tg::package::checkin::Arg {
-					path: path.clone(),
-					locked: false,
-					remote: None,
-				};
-				let tg::package::checkin::Output { package } = handle.check_in_package(arg).await?;
-				let object = tg::Object::with_id(package.into());
-				let item = Either::Right(object);
-				Ok(item)
-			},
-			Path::Tag(tag) => {
-				let tg::tag::get::Output { item, .. } = handle.get_tag(tag).await?;
-				let item = item
-					.map_left(tg::Build::with_id)
-					.map_right(tg::Object::with_id);
-				Ok(item)
-			},
-		}
+		handle.get_reference(self).await.map(|output| {
+			output
+				.item
+				.map_left(tg::Build::with_id)
+				.map_right(tg::Object::with_id)
+		})
 	}
 }
 
@@ -187,6 +181,26 @@ impl std::str::FromStr for Reference {
 			uri::Reference::parse(value).map_err(|source| tg::error!(!source, "invalid uri"))?;
 		let reference = Self::with_uri(uri)?;
 		Ok(reference)
+	}
+}
+
+impl std::str::FromStr for Path {
+	type Err = tg::Error;
+
+	fn from_str(s: &str) -> Result<Self, Self::Err> {
+		if let Ok(build) = s.parse() {
+			return Ok(Self::Build(build));
+		}
+		if let Ok(object) = s.parse() {
+			return Ok(Self::Object(object));
+		}
+		if let Ok(path) = s.parse() {
+			return Ok(Self::Path(path));
+		}
+		if let Ok(tag) = s.parse() {
+			return Ok(Self::Tag(tag));
+		}
+		Err(tg::error!("invalid path"))
 	}
 }
 

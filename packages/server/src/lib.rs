@@ -34,6 +34,7 @@ mod messenger;
 mod migrations;
 mod object;
 mod package;
+mod reference;
 mod remote;
 mod runtime;
 mod server;
@@ -710,6 +711,11 @@ impl Server {
 				Self::handle_format_package_request(handle, request).boxed()
 			},
 
+			// References.
+			(http::Method::GET, ["references", path @ ..]) => {
+				Self::handle_get_reference_request(handle, request, path).boxed()
+			},
+
 			// Remotes.
 			(http::Method::GET, ["remotes"]) => {
 				Self::handle_list_remotes_request(handle, request).boxed()
@@ -741,14 +747,14 @@ impl Server {
 			(http::Method::GET, ["tags"]) => {
 				Self::handle_list_tags_request(handle, request).boxed()
 			},
-			(http::Method::GET, ["tags", name @ ..]) => {
-				Self::handle_get_tag_request(handle, request, name).boxed()
+			(http::Method::GET, ["tags", pattern @ ..]) => {
+				Self::handle_get_tag_request(handle, request, pattern).boxed()
 			},
-			(http::Method::PUT, ["tags", name @ ..]) => {
-				Self::handle_put_tag_request(handle, request, name).boxed()
+			(http::Method::PUT, ["tags", tag @ ..]) => {
+				Self::handle_put_tag_request(handle, request, tag).boxed()
 			},
-			(http::Method::DELETE, ["tags", name @ ..]) => {
-				Self::handle_delete_tag_request(handle, request, name).boxed()
+			(http::Method::DELETE, ["tags", tag @ ..]) => {
+				Self::handle_delete_tag_request(handle, request, tag).boxed()
 			},
 
 			// Targets.
@@ -1064,6 +1070,13 @@ impl tg::Handle for Server {
 		arg: tg::package::format::Arg,
 	) -> impl Future<Output = tg::Result<()>> {
 		self.format_package(arg)
+	}
+
+	fn try_get_reference(
+		&self,
+		reference: &tg::Reference,
+	) -> impl Future<Output = tg::Result<Option<tg::reference::get::Output>>> {
+		self.try_get_reference(reference)
 	}
 
 	fn list_remotes(

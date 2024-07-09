@@ -427,6 +427,16 @@ where
 		}
 	}
 
+	fn try_get_reference(
+		&self,
+		reference: &tg::Reference,
+	) -> impl Future<Output = tg::Result<Option<tg::reference::get::Output>>> + Send {
+		match self {
+			Either::Left(s) => s.try_get_reference(reference).left_future(),
+			Either::Right(s) => s.try_get_reference(reference).right_future(),
+		}
+	}
+
 	fn list_remotes(
 		&self,
 		arg: tg::remote::list::Arg,

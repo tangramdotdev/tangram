@@ -1,4 +1,4 @@
-use crate as tg;
+use crate::{self as tg, util::serde::is_false};
 use serde_with::serde_as;
 use std::collections::{BTreeMap, BTreeSet};
 use tangram_http::{incoming::response::Ext as _, outgoing::request::Ext as _};
@@ -39,24 +39,24 @@ pub struct Output {
 pub struct Incomplete {
 	#[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
 	pub children: BTreeMap<tg::build::Id, IncompleteChild>,
-	#[serde(default, skip_serializing_if = "std::ops::Not::not")]
+	#[serde(default, skip_serializing_if = "is_false")]
 	pub log: bool,
 	#[serde(default, skip_serializing_if = "BTreeSet::is_empty")]
 	pub outcome: BTreeSet<tg::object::Id>,
-	#[serde(default, skip_serializing_if = "std::ops::Not::not")]
+	#[serde(default, skip_serializing_if = "is_false")]
 	pub target: bool,
 }
 
 #[allow(clippy::struct_excessive_bools)]
 #[derive(Clone, Debug, Default, Eq, PartialEq, serde::Deserialize, serde::Serialize)]
 pub struct IncompleteChild {
-	#[serde(default, skip_serializing_if = "std::ops::Not::not")]
+	#[serde(default, skip_serializing_if = "is_false")]
 	pub build: bool,
-	#[serde(default, skip_serializing_if = "std::ops::Not::not")]
+	#[serde(default, skip_serializing_if = "is_false")]
 	pub logs: bool,
-	#[serde(default, skip_serializing_if = "std::ops::Not::not")]
+	#[serde(default, skip_serializing_if = "is_false")]
 	pub outcomes: bool,
-	#[serde(default, skip_serializing_if = "std::ops::Not::not")]
+	#[serde(default, skip_serializing_if = "is_false")]
 	pub targets: bool,
 }
 

@@ -40,16 +40,16 @@ impl Cli {
 			let parent = path
 				.parent()
 				.ok_or_else(|| tg::error!("the path must have a parent directory"))?;
+			let parent = tokio::fs::canonicalize(parent)
+				.await
+				.map_err(|source| tg::error!(!source, "failed to canonicalize the path"))?;
+			tokio::fs::create_dir_all(&parent)
+				.await
+				.map_err(|source| tg::error!(!source, "failed to create the parent directory"))?;
 			let file_name = path
 				.file_name()
 				.ok_or_else(|| tg::error!("the path must have a file name"))?;
-			tokio::fs::create_dir_all(parent)
-				.await
-				.map_err(|source| tg::error!(!source, "failed to create the parent directory"))?;
-			let path = parent
-				.canonicalize()
-				.map_err(|source| tg::error!(!source, "failed to canonicalize the path"))?
-				.join(file_name);
+			let path = parent.join(file_name);
 			let path = path.try_into()?;
 			Some(path)
 		} else {

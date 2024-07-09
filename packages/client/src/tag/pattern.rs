@@ -1,4 +1,5 @@
 use crate as tg;
+use itertools::Itertools as _;
 use tangram_semver as semver;
 
 #[derive(
@@ -34,11 +35,17 @@ pub struct Pattern {
 #[try_unwrap(ref)]
 #[unwrap(ref)]
 pub enum Component {
-	Normal(String),
+	Normal(tg::tag::Component),
 	Semver(semver::Pattern),
 }
 
 impl Pattern {
+	#[must_use]
+	pub fn with_components(components: Vec<Component>) -> Self {
+		let string = components.iter().map(ToString::to_string).join("/");
+		Self { string, components }
+	}
+
 	#[must_use]
 	pub fn is_empty(&self) -> bool {
 		self.string.is_empty()
@@ -64,8 +71,29 @@ impl Pattern {
 		(self.string, self.components)
 	}
 
+	#[must_use]
 	pub fn matches(&self, tag: &tg::Tag) -> bool {
-		todo!()
+		if tag.components().len() != self.components().len() {
+			return false;
+		}
+		for (tag, pattern) in std::iter::zip(tag.components(), self.components()) {
+			match pattern {
+				Component::Normal(pattern) => {
+					if tag.as_str() != pattern.as_str() {
+						return false;
+					}
+				},
+				Component::Semver(pattern) => {
+					let Ok(tag) = tag.as_str().parse::<semver::Version>() else {
+						return false;
+					};
+					if !pattern.matches(&tag) {
+						return false;
+					}
+				},
+			}
+		}
+		true
 	}
 }
 
@@ -104,10 +132,13 @@ impl std::str::FromStr for Component {
 	type Err = tg::Error;
 
 	fn from_str(s: &str) -> Result<Self, Self::Err> {
+		if let Ok(component) = s.parse() {
+			return Ok(Self::Normal(component));
+		}
 		if let Ok(pattern) = s.parse() {
 			return Ok(Self::Semver(pattern));
 		}
-		Ok(Self::Normal(s.to_owned()))
+		Err(tg::error!("invalid component"))
 	}
 }
 

@@ -2,7 +2,6 @@ use super::{
 	convert::{from_v8, ToV8},
 	State,
 };
-use either::Either;
 use num::ToPrimitive as _;
 use std::{collections::BTreeMap, rc::Rc, sync::Arc};
 use tangram_client::{self as tg, error::Error};
@@ -202,15 +201,7 @@ fn get_location(
 		let module = modules.iter().find(|m| m.module == module)?;
 
 		// Get the source.
-		let source = match &module.module {
-			tg::Module {
-				kind: tg::module::Kind::Js | tg::module::Kind::Ts,
-				package: Either::Right(package),
-				..
-			} => tg::error::Source::Package(package.clone()),
-
-			_ => return None,
-		};
+		let source = tg::error::Source::Module(module.module.clone());
 
 		// Get the line and column and apply a source map if one is available.
 		let mut line = line?;

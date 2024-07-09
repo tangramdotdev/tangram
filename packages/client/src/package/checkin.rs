@@ -1,11 +1,11 @@
-use crate as tg;
+use crate::{self as tg, util::serde::is_false};
 use tangram_http::{incoming::response::Ext as _, outgoing::request::Ext as _};
 
 #[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
 pub struct Arg {
 	pub path: tg::Path,
 
-	#[serde(default, skip_serializing_if = "std::ops::Not::not")]
+	#[serde(default, skip_serializing_if = "is_false")]
 	pub locked: bool,
 
 	#[serde(default, skip_serializing_if = "Option::is_none")]

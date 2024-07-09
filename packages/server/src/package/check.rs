@@ -25,7 +25,7 @@ impl Server {
 		// Create the module.
 		let module = tg::Module {
 			kind: tg::module::Kind::Ts,
-			package: Either::Right(id.clone()),
+			object: Either::Right(id.clone().into()),
 		};
 
 		// Create the compiler.

@@ -41,7 +41,7 @@ impl Server {
 		// Create the module.
 		let module = tg::Module {
 			kind: tg::module::Kind::Dts,
-			package: Either::Left("tangram.d.ts".parse().unwrap()),
+			object: Either::Left("tangram.d.ts".parse().unwrap()),
 		};
 
 		// Create the compiler.

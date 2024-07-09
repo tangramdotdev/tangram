@@ -15,10 +15,16 @@ pub struct Import {
 pub enum Kind {
 	Js,
 	Ts,
+	Object,
 	Artifact,
+	Blob,
+	Leaf,
+	Branch,
 	Directory,
 	File,
 	Symlink,
+	Package,
+	Target,
 }
 
 impl Import {
@@ -32,17 +38,9 @@ impl Import {
 		// Parse the type.
 		let kind = attributes
 			.as_mut()
-			.and_then(|attributes| attributes.remove("type"));
-		let kind = match kind.as_deref() {
-			Some("js") => Some(Kind::Js),
-			Some("ts") => Some(Kind::Ts),
-			Some("artifact") => Some(Kind::Artifact),
-			Some("directory") => Some(Kind::Directory),
-			Some("file") => Some(Kind::File),
-			Some("symlink") => Some(Kind::Symlink),
-			Some(kind) => return Err(tg::error!(%kind, "unknown type")),
-			None => None,
-		};
+			.and_then(|attributes| attributes.remove("type"))
+			.map(|kind| kind.parse())
+			.transpose()?;
 
 		// Parse the remaining attributes as the query component of a reference and update the reference.
 		let reference = if let Some(attributes) = attributes {
@@ -57,27 +55,32 @@ impl Import {
 				);
 				let attributes = serde_json::from_value::<tg::reference::Query>(attributes)
 					.map_err(|source| tg::error!(!source, "invalid attributes"))?;
+				let kind = reference
+					.query()
+					.and_then(|query| query.kind)
+					.or(attributes.kind);
+				let name = reference
+					.query()
+					.and_then(|query| query.name.clone())
+					.or(attributes.name);
+				let overrides = reference
+					.query()
+					.and_then(|query| query.overrides.clone())
+					.or(attributes.overrides);
+				let path = reference
+					.query()
+					.and_then(|query| query.path.clone())
+					.or(attributes.path);
+				let remote = reference
+					.query()
+					.and_then(|query| query.remote.clone())
+					.or(attributes.remote);
 				let query = tg::reference::Query {
-					kind: reference
-						.query()
-						.and_then(|query| query.kind)
-						.or(attributes.kind),
-					name: reference
-						.query()
-						.and_then(|query| query.name.clone())
-						.or(attributes.name),
-					overrides: reference
-						.query()
-						.and_then(|query| query.overrides.clone())
-						.or(attributes.overrides),
-					path: reference
-						.query()
-						.and_then(|query| query.path.clone())
-						.or(attributes.path),
-					remote: reference
-						.query()
-						.and_then(|query| query.remote.clone())
-						.or(attributes.remote),
+					kind,
+					name,
+					overrides,
+					path,
+					remote,
 				};
 				let query = serde_urlencoded::to_string(query)
 					.map_err(|source| tg::error!(!source, "failed to serialize the query"))?;
@@ -89,5 +92,46 @@ impl Import {
 		};
 
 		Ok(Import { kind, reference })
+	}
+}
+
+impl std::fmt::Display for Kind {
+	fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+		match self {
+			Kind::Js => write!(f, "js"),
+			Kind::Ts => write!(f, "ts"),
+			Kind::Object => write!(f, "object"),
+			Kind::Artifact => write!(f, "artifact"),
+			Kind::Blob => write!(f, "blob"),
+			Kind::Leaf => write!(f, "leaf"),
+			Kind::Branch => write!(f, "branch"),
+			Kind::Directory => write!(f, "directory"),
+			Kind::File => write!(f, "file"),
+			Kind::Symlink => write!(f, "symlink"),
+			Kind::Package => write!(f, "package"),
+			Kind::Target => write!(f, "target"),
+		}
+	}
+}
+
+impl std::str::FromStr for Kind {
+	type Err = tg::Error;
+
+	fn from_str(s: &str) -> Result<Self, Self::Err> {
+		match s {
+			"js" => Ok(Kind::Js),
+			"ts" => Ok(Kind::Ts),
+			"object" => Ok(Kind::Object),
+			"artifact" => Ok(Kind::Artifact),
+			"blob" => Ok(Kind::Blob),
+			"leaf" => Ok(Kind::Leaf),
+			"branch" => Ok(Kind::Branch),
+			"directory" => Ok(Kind::Directory),
+			"file" => Ok(Kind::File),
+			"symlink" => Ok(Kind::Symlink),
+			"package" => Ok(Kind::Package),
+			"target" => Ok(Kind::Target),
+			_ => Err(tg::error!("invalid kind")),
+		}
 	}
 }

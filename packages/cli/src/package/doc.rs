@@ -23,7 +23,7 @@ pub struct Args {
 }
 
 impl Cli {
-	pub async fn command_package_doc(&self, mut args: Args) -> tg::Result<()> {
+	pub async fn command_package_doc(&self, args: Args) -> tg::Result<()> {
 		let handle = self.handle().await?;
 
 		// Get the remote.

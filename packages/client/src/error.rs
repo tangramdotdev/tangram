@@ -1,4 +1,4 @@
-use crate as tg;
+use crate::{self as tg, util::serde::is_false};
 use serde_with::serde_as;
 use std::{collections::BTreeMap, fmt::Debug, sync::Arc};
 
@@ -44,7 +44,7 @@ pub struct Location {
 #[serde(tag = "kind", rename_all = "snake_case")]
 pub enum Source {
 	Internal(tg::Path),
-	Package(tg::package::Id),
+	Module(tg::Module),
 }
 
 pub struct Trace<'a> {
@@ -55,9 +55,9 @@ pub struct Trace<'a> {
 #[serde_as]
 #[derive(Clone, Debug, Default, serde::Deserialize, serde::Serialize)]
 pub struct TraceOptions {
-	#[serde(default, skip_serializing_if = "std::ops::Not::not")]
+	#[serde(default, skip_serializing_if = "is_false")]
 	pub internal: bool,
-	#[serde(default, skip_serializing_if = "std::ops::Not::not")]
+	#[serde(default, skip_serializing_if = "is_false")]
 	pub reverse: bool,
 }
 
@@ -78,8 +78,8 @@ impl Source {
 	}
 
 	#[must_use]
-	pub fn is_external(&self) -> bool {
-		matches!(self, Self::Package { .. })
+	pub fn is_module(&self) -> bool {
+		matches!(self, Self::Module { .. })
 	}
 }
 
@@ -196,8 +196,8 @@ impl std::fmt::Display for Source {
 			Source::Internal(path) => {
 				write!(f, "{path}")?;
 			},
-			Source::Package(package) => {
-				write!(f, "{package}")?;
+			Source::Module(module) => {
+				write!(f, "{module}")?;
 			},
 		}
 		Ok(())

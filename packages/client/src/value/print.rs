@@ -230,7 +230,7 @@ impl Printer {
 					.map(|(dependency, option)| {
 						let option = option.as_ref().map(|either| match either {
 							Either::Left(index) => tg::Value::Number(index.to_f64().unwrap()),
-							Either::Right(package) => package.clone().into(),
+							Either::Right(object) => object.clone().into(),
 						});
 						(dependency.to_string(), option.into())
 					})

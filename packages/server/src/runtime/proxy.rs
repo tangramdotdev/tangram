@@ -366,6 +366,13 @@ impl tg::Handle for Proxy {
 		Err(tg::error!("forbidden"))
 	}
 
+	async fn try_get_reference(
+		&self,
+		_reference: &tg::Reference,
+	) -> tg::Result<Option<tg::reference::get::Output>> {
+		Err(tg::error!("forbidden"))
+	}
+
 	async fn list_remotes(
 		&self,
 		_arg: tg::remote::list::Arg,

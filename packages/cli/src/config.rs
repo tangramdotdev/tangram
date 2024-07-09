@@ -1,5 +1,5 @@
 use std::{collections::BTreeMap, path::PathBuf};
-use tangram_client as tg;
+use tangram_client::{self as tg, util::serde::is_false};
 use url::Url;
 
 #[derive(Clone, Debug, Default, serde::Deserialize, serde::Serialize)]
@@ -114,7 +114,7 @@ pub struct Advanced {
 	pub preserve_temp_directories: Option<bool>,
 
 	/// Whether to enable publishing of data to tokio console.
-	#[serde(default, skip_serializing_if = "std::ops::Not::not")]
+	#[serde(default, skip_serializing_if = "is_false")]
 	pub tokio_console: bool,
 
 	/// Whether to write build logs to the database instead of files.

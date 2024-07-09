@@ -4,9 +4,7 @@ use either::Either;
 use num::ToPrimitive;
 use std::{collections::BTreeMap, sync::Arc};
 use winnow::{
-	combinator::{
-		alt, cut_err, delimited, opt, preceded, repeat, separated, separated_pair, terminated,
-	},
+	combinator::{alt, cut_err, delimited, opt, preceded, repeat, separated, separated_pair},
 	error::{AddContext, ErrorKind, ParserError},
 	stream::Location as _,
 	token::{any, none_of, one_of, take, take_while},
@@ -66,15 +64,13 @@ fn number(input: &mut Input) -> PResult<f64, Error> {
 }
 
 fn string(input: &mut Input) -> PResult<String, Error> {
-	preceded(
+	delimited(
 		'\"',
-		cut_err(terminated(
-			repeat(0.., char_).fold(String::new, |mut string, c| {
-				string.push(c);
-				string
-			}),
-			'\"',
-		)),
+		cut_err(repeat(0.., char_).fold(String::new, |mut string, c| {
+			string.push(c);
+			string
+		})),
+		'\"',
 	)
 	.parse_next(input)
 }
@@ -125,7 +121,7 @@ fn u16_hex(input: &mut Input) -> PResult<u16, Error> {
 		.parse_next(input)
 }
 
-fn id(input: &mut Input) -> PResult<tg::Object, Error> {
+fn object_id(input: &mut Input) -> PResult<tg::Object, Error> {
 	id_v0
 		.verify_map(|id| id.try_into().map(tg::Object::with_id).ok())
 		.parse_next(input)
@@ -171,39 +167,32 @@ fn decode_body(input: &mut Input) -> PResult<Vec<u8>, Error> {
 	const ENCODING: data_encoding::Encoding = data_encoding_macro::new_encoding! {
 		symbols: "0123456789abcdefghjkmnpqrstvwxyz",
 	};
-	terminated(
-		repeat(
-			0..,
-			one_of(|ch| "0123456789abcdefghjkmnpqrstvwxyz".contains(ch)),
-		)
-		.fold(String::new, |mut string, c| {
-			string.push(c);
-			string
-		}),
-		whitespace,
+	repeat(
+		0..,
+		one_of(|c| "0123456789abcdefghjkmnpqrstvwxyz".contains(c)),
 	)
+	.fold(String::new, |mut string, c| {
+		string.push(c);
+		string
+	})
 	.verify_map(|string| ENCODING.decode(string.as_bytes()).ok())
 	.parse_next(input)
 }
 
 fn array(input: &mut Input) -> PResult<tg::value::Array, Error> {
-	preceded(
-		('[', whitespace),
-		cut_err(terminated(
-			separated(0.., value, (whitespace, ',', whitespace)),
-			(whitespace, opt(","), whitespace, ']'),
-		)),
+	delimited(
+		(whitespace, '[', whitespace),
+		cut_err(separated(0.., value, (whitespace, ',', whitespace))),
+		(whitespace, opt(","), whitespace, ']', whitespace),
 	)
 	.parse_next(input)
 }
 
 fn map(input: &mut Input) -> PResult<tg::value::Map, Error> {
-	preceded(
-		('{', whitespace),
-		cut_err(terminated(
-			separated(0.., key_value, (whitespace, ',', whitespace)),
-			(whitespace, opt(","), whitespace, '}'),
-		)),
+	delimited(
+		(whitespace, '[', whitespace),
+		cut_err(separated(0.., key_value, (whitespace, ',', whitespace))),
+		(whitespace, opt(","), whitespace, ']', whitespace),
 	)
 	.parse_next(input)
 }
@@ -213,7 +202,7 @@ fn key_value(input: &mut Input) -> PResult<(String, tg::Value), Error> {
 }
 
 fn object(input: &mut Input) -> PResult<tg::Object, Error> {
-	alt((id, object_data)).parse_next(input)
+	alt((object_id, object_data)).parse_next(input)
 }
 
 fn object_data(input: &mut Input) -> PResult<tg::Object, Error> {
@@ -231,18 +220,20 @@ fn object_data(input: &mut Input) -> PResult<tg::Object, Error> {
 }
 
 fn leaf(input: &mut Input) -> PResult<tg::leaf::Object, Error> {
-	preceded(
-		("tg.leaf", whitespace, "("),
-		terminated(bytes_data, (whitespace, ")")),
+	delimited(
+		("tg.leaf", whitespace, "(", whitespace),
+		bytes_data,
+		(whitespace, ")", whitespace),
 	)
 	.map(|bytes| tg::leaf::Object { bytes })
 	.parse_next(input)
 }
 
 fn branch(input: &mut Input) -> PResult<tg::branch::Object, Error> {
-	preceded(
-		("tg.branch", whitespace, "("),
-		terminated(branch_data, (whitespace, ")")),
+	delimited(
+		("tg.branch", whitespace, "(", whitespace),
+		branch_data,
+		(whitespace, ")", whitespace),
 	)
 	.parse_next(input)
 }
@@ -269,9 +260,10 @@ fn branch_data(input: &mut Input) -> PResult<tg::branch::Object, Error> {
 }
 
 fn directory(input: &mut Input) -> PResult<tg::directory::Object, Error> {
-	preceded(
-		("tg.directory", whitespace, "("),
-		terminated(directory_data, (whitespace, ")")),
+	delimited(
+		("tg.directory", whitespace, "(", whitespace),
+		directory_data,
+		(whitespace, ")", whitespace),
 	)
 	.parse_next(input)
 }
@@ -288,9 +280,10 @@ fn directory_data(input: &mut Input) -> PResult<tg::directory::Object, Error> {
 }
 
 fn file(input: &mut Input) -> PResult<tg::file::Object, Error> {
-	preceded(
-		("tg.file", whitespace, "("),
-		terminated(file_data, (whitespace, ")")),
+	delimited(
+		("tg.file", whitespace, "(", whitespace),
+		file_data,
+		(whitespace, ")", whitespace),
 	)
 	.parse_next(input)
 }
@@ -323,9 +316,10 @@ fn file_data(input: &mut Input) -> PResult<tg::file::Object, Error> {
 }
 
 fn symlink(input: &mut Input) -> PResult<tg::symlink::Object, Error> {
-	preceded(
-		("tg.symlink", whitespace, "("),
-		terminated(symlink_data, (whitespace, ")")),
+	delimited(
+		("tg.symlink", whitespace, "(", whitespace),
+		symlink_data,
+		(whitespace, ")", whitespace),
 	)
 	.parse_next(input)
 }
@@ -351,9 +345,10 @@ fn symlink_data(input: &mut Input) -> PResult<tg::symlink::Object, Error> {
 }
 
 fn package(input: &mut Input) -> PResult<tg::package::Object, Error> {
-	preceded(
-		("tg.package", whitespace, "("),
-		terminated(package_data, (whitespace, ")")),
+	delimited(
+		("tg.package", whitespace, "(", whitespace),
+		package_data,
+		(whitespace, ")", whitespace),
 	)
 	.parse_next(input)
 }
@@ -366,17 +361,15 @@ fn package_data(input: &mut Input) -> PResult<tg::package::Object, Error> {
 			let node = node.try_unwrap_map_ref().ok()?;
 			let mut dependencies = BTreeMap::new();
 			let dependencies_ = node.get("dependencies")?.try_unwrap_map_ref().ok()?;
-			for (dependency, package) in dependencies_ {
+			for (dependency, object) in dependencies_ {
 				let dependency = dependency.parse().ok()?;
-				let package = match package {
+				let object = match object {
 					tg::Value::Null => None,
 					tg::Value::Number(number) => Some(Either::Left(number.to_usize()?)),
-					tg::Value::Object(tg::Object::Package(package)) => {
-						Some(Either::Right(package.clone()))
-					},
+					tg::Value::Object(object) => Some(Either::Right(object.clone())),
 					_ => return None,
 				};
-				dependencies.insert(dependency, package);
+				dependencies.insert(dependency, object);
 			}
 			let object = if let Some(object) = node.get("object") {
 				Some(object.clone().try_into().ok()?)
@@ -401,9 +394,10 @@ fn package_data(input: &mut Input) -> PResult<tg::package::Object, Error> {
 }
 
 fn target(input: &mut Input) -> PResult<tg::target::Object, Error> {
-	preceded(
-		("tg.target", whitespace, "("),
-		terminated(target_data, (whitespace, ")")),
+	delimited(
+		("tg.target", whitespace, "(", whitespace),
+		target_data,
+		(whitespace, ")", whitespace),
 	)
 	.parse_next(input)
 }
@@ -450,9 +444,10 @@ fn target_data(input: &mut Input) -> PResult<tg::target::Object, Error> {
 }
 
 fn bytes(input: &mut Input) -> PResult<Bytes, Error> {
-	preceded(
-		("tg.bytes", whitespace, "("),
-		terminated(bytes_data, (whitespace, ")")),
+	delimited(
+		("tg.bytes", whitespace, "(", whitespace),
+		bytes_data,
+		(whitespace, ")", whitespace),
 	)
 	.parse_next(input)
 }
@@ -467,23 +462,19 @@ fn bytes_data(input: &mut Input) -> PResult<Bytes, Error> {
 }
 
 fn path(input: &mut Input) -> PResult<tg::Path, Error> {
-	preceded(
-		("tg.path", whitespace, "("),
-		terminated(
-			string.verify_map(|string| string.parse().ok()),
-			(whitespace, ")"),
-		),
+	delimited(
+		("tg.path", whitespace, "(", whitespace),
+		string.verify_map(|string| string.parse().ok()),
+		(whitespace, ")", whitespace),
 	)
 	.parse_next(input)
 }
 
 fn mutation(input: &mut Input) -> PResult<tg::Mutation, Error> {
-	preceded(
-		("tg.mutation", whitespace, "("),
-		terminated(
-			alt((unset, set, set_if_unset, prepend, append, prefix, suffix)),
-			(whitespace, ")"),
-		),
+	delimited(
+		("tg.mutation", whitespace, "(", whitespace),
+		alt((unset, set, set_if_unset, prepend, append, prefix, suffix)),
+		(whitespace, ")", whitespace),
 	)
 	.parse_next(input)
 }
@@ -571,9 +562,10 @@ fn suffix(input: &mut Input) -> PResult<tg::Mutation, Error> {
 }
 
 fn template(input: &mut Input) -> PResult<tg::Template, Error> {
-	preceded(
-		("tg.template", whitespace, "("),
-		terminated(array, (whitespace, ")")),
+	delimited(
+		("tg.template", whitespace, "(", whitespace),
+		array,
+		(whitespace, ")"),
 	)
 	.verify_map(|components_| {
 		let mut components = Vec::with_capacity(components_.len());

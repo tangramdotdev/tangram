@@ -857,30 +857,37 @@ impl Cli {
 						tg::error::Source::Internal(path) => {
 							path.components().iter().skip(1).join("/")
 						},
-						tg::error::Source::Package(package) => {
+						tg::error::Source::Module(module) => {
 							if let Some(handle) = handle.as_ref() {
-								let package = tg::Package::with_id(package.clone());
-								if let Ok(object) = package.object(handle).await {
-									let node = &object.nodes[object.root];
-									let repository = node
-										.metadata
-										.get("repository")
-										.and_then(|value| value.try_unwrap_string_ref().ok());
-									let version = node
-										.metadata
-										.get("version")
-										.and_then(|value| value.try_unwrap_string_ref().ok());
-									if let (Some(repository), Some(version)) = (repository, version)
-									{
-										format!("{repository}@{version}")
+								if let Either::Right(tg::object::Id::Package(package)) =
+									&module.object
+								{
+									let package = tg::Package::with_id(package.clone());
+									if let Ok(object) = package.object(handle).await {
+										let node = &object.nodes[object.root];
+										let repository = node
+											.metadata
+											.get("repository")
+											.and_then(|value| value.try_unwrap_string_ref().ok());
+										let version = node
+											.metadata
+											.get("version")
+											.and_then(|value| value.try_unwrap_string_ref().ok());
+										if let (Some(repository), Some(version)) =
+											(repository, version)
+										{
+											format!("{repository}@{version}")
+										} else {
+											package.to_string()
+										}
 									} else {
 										package.to_string()
 									}
 								} else {
-									package.to_string()
+									module.to_string()
 								}
 							} else {
-								package.to_string()
+								module.to_string()
 							}
 						},
 					};
@@ -927,35 +934,37 @@ impl Cli {
 		if let Some(location) = &diagnostic.location {
 			match &location.module {
 				tg::Module {
-					package: Either::Left(path),
+					object: Either::Left(path),
 					..
 				} => {
 					write!(string, "{path}").unwrap();
 				},
 
 				tg::Module {
-					package: Either::Right(id),
+					object: Either::Right(object),
 					..
 				} => {
 					let mut printed = false;
-					let package = tg::Package::with_id(id.clone());
-					if let Ok(object) = package.object(handle).await {
-						let node = &object.nodes[object.root];
-						let repository = node
-							.metadata
-							.get("repository")
-							.and_then(|value| value.try_unwrap_string_ref().ok());
-						let version = node
-							.metadata
-							.get("version")
-							.and_then(|value| value.try_unwrap_string_ref().ok());
-						if let (Some(repository), Some(version)) = (repository, version) {
-							write!(string, "{repository}@{version}").unwrap();
-							printed = true;
+					if let tg::object::Id::Package(package) = object {
+						let package = tg::Package::with_id(package.clone());
+						if let Ok(object) = package.object(handle).await {
+							let node = &object.nodes[object.root];
+							let repository = node
+								.metadata
+								.get("repository")
+								.and_then(|value| value.try_unwrap_string_ref().ok());
+							let version = node
+								.metadata
+								.get("version")
+								.and_then(|value| value.try_unwrap_string_ref().ok());
+							if let (Some(repository), Some(version)) = (repository, version) {
+								write!(string, "{repository}@{version}").unwrap();
+								printed = true;
+							}
 						}
 					}
 					if !printed {
-						write!(string, "{id}").unwrap();
+						write!(string, "{object}").unwrap();
 					}
 				},
 			}

@@ -24,7 +24,7 @@ impl Compiler {
 				| tg::module::Kind::Directory
 				| tg::module::Kind::File
 				| tg::module::Kind::Symlink,
-			package: Either::Left(path),
+			object: Either::Left(path),
 			..
 		} = module
 		else {

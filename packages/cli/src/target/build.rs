@@ -123,41 +123,17 @@ impl Cli {
 
 		// Create the target.
 		let target = 'a: {
-			// Get the package.
-			let package = match reference.path() {
-				tg::reference::Path::Object(tg::object::Id::Target(target)) => {
-					break 'a tg::Target::with_id(target.clone());
-				},
+			// Get the object.
+			let object = reference.get(&handle).await?;
 
-				tg::reference::Path::Path(path) => {
-					// Canonicalize the path.
-					let path = tokio::fs::canonicalize(&path)
-						.await
-						.map_err(|source| tg::error!(!source, "failed to canonicalize the path"))?
-						.try_into()?;
+			// If the object is a target, then use it.
+			if let Either::Right(tg::Object::Target(target)) = object {
+				break 'a target;
+			};
 
-					// Check in the package.
-					let arg = tg::package::checkin::Arg {
-						path,
-						locked: args.locked,
-						remote: remote.clone(),
-					};
-					let tg::package::checkin::Output { package } =
-						handle.check_in_package(arg).await?;
-					tg::Package::with_id(package)
-				},
-
-				tg::reference::Path::Tag(tag) => {
-					let tg::tag::get::Output { item, .. } = handle.get_tag(tag).await?;
-					let Either::Right(tg::object::Id::Package(package)) = item else {
-						return Err(tg::error!("expected a package"));
-					};
-					tg::Package::with_id(package)
-				},
-
-				_ => {
-					return Err(tg::error!("invalid reference"));
-				},
+			// Otherwise, the object must be a package.
+			let Either::Right(tg::Object::Package(package)) = object else {
+				return Err(tg::error!("expected a package"));
 			};
 
 			// Get the target.

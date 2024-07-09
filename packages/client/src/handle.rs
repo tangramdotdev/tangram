@@ -213,6 +213,11 @@ pub trait Handle: Clone + Unpin + Send + Sync + 'static {
 		arg: tg::package::doc::Arg,
 	) -> impl Future<Output = tg::Result<serde_json::Value>> + Send;
 
+	fn try_get_reference(
+		&self,
+		reference: &tg::Reference,
+	) -> impl Future<Output = tg::Result<Option<tg::reference::get::Output>>> + Send;
+
 	fn format_package(
 		&self,
 		arg: tg::package::format::Arg,

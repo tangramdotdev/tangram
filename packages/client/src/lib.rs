@@ -823,6 +823,13 @@ impl tg::Handle for Client {
 		self.format_package(arg)
 	}
 
+	fn try_get_reference(
+		&self,
+		reference: &tg::Reference,
+	) -> impl Future<Output = tg::Result<Option<tg::reference::get::Output>>> + Send {
+		self.try_get_reference(reference)
+	}
+
 	fn list_remotes(
 		&self,
 		arg: tg::remote::list::Arg,

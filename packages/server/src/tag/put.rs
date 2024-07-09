@@ -20,7 +20,7 @@ impl Server {
 			.map_err(|source| tg::error!(!source, "failed to begin a transaction"))?;
 
 		let mut parent: Option<u64> = None;
-		for (i, name) in tag.components().iter().enumerate() {
+		for (i, component) in tag.components().iter().enumerate() {
 			// Insert the component.
 			let p = transaction.p();
 			let statement = formatdoc!(
@@ -31,7 +31,7 @@ impl Server {
 					returning id;
 				"
 			);
-			let params = db::params![name, parent];
+			let params = db::params![component, parent];
 			let id = transaction
 				.query_one_value_into(statement, params)
 				.await
@@ -78,7 +78,10 @@ impl Server {
 	where
 		H: tg::Handle,
 	{
-		let tag = tag.join("/").parse()?;
+		let tag = tag
+			.join("/")
+			.parse()
+			.map_err(|source| tg::error!(!source, "failed to parse the tag"))?;
 		let arg = request.json().await?;
 		handle.put_tag(&tag, arg).await?;
 		let response = http::Response::builder().empty().unwrap();

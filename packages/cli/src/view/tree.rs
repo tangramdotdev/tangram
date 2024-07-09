@@ -710,7 +710,7 @@ where
 			},
 
 			NodeKind::Value {
-				value: tg::Value::Object(tg::Object::Package(package)),
+				value: tg::Value::Object(tg::Object::Package(_package)),
 				..
 			} => {
 				todo!()

@@ -11,8 +11,7 @@ impl Compiler {
 		match module {
 			tg::Module {
 				kind: tg::module::Kind::Js | tg::module::Kind::Ts,
-				package: Either::Left(path),
-				..
+				object: Either::Left(path),
 			} => {
 				// If there is an opened document, then return its contents.
 				if let Some(document) = self.documents.get(module) {
@@ -31,10 +30,13 @@ impl Compiler {
 
 			tg::Module {
 				kind: tg::module::Kind::Js | tg::module::Kind::Ts,
-				package: Either::Right(package),
-				..
+				object: Either::Right(object),
 			} => {
-				let package = tg::Package::with_id(package.clone());
+				let package = object
+					.clone()
+					.try_into()
+					.map_err(|source| tg::error!(!source, "module object must be a package"))?;
+				let package = tg::Package::with_id(package);
 				let package = package.object(&self.server).await?;
 				let object = package.nodes[package.root]
 					.object
@@ -47,9 +49,11 @@ impl Compiler {
 
 			tg::Module {
 				kind: tg::module::Kind::Dts,
-				package: Either::Left(path),
-				..
+				object,
 			} => {
+				let Either::Left(path) = object else {
+					return Err(tg::error!("dts module must have a path"));
+				};
 				let path = path
 					.components()
 					.get(1)
@@ -64,36 +68,37 @@ impl Compiler {
 
 			tg::Module {
 				kind:
-					tg::module::Kind::Artifact
+					tg::module::Kind::Object
+					| tg::module::Kind::Artifact
+					| tg::module::Kind::Blob
+					| tg::module::Kind::Leaf
+					| tg::module::Kind::Branch
 					| tg::module::Kind::Directory
 					| tg::module::Kind::File
-					| tg::module::Kind::Symlink,
-				package,
-				..
+					| tg::module::Kind::Symlink
+					| tg::module::Kind::Package
+					| tg::module::Kind::Target,
+				object,
 			} => {
 				let class = match module.kind {
+					tg::module::Kind::Object => "Object",
 					tg::module::Kind::Artifact => "Artifact",
+					tg::module::Kind::Blob => "Blob",
+					tg::module::Kind::Leaf => "Leaf",
+					tg::module::Kind::Branch => "Branch",
 					tg::module::Kind::Directory => "Directory",
 					tg::module::Kind::File => "File",
 					tg::module::Kind::Symlink => "Symlink",
+					tg::module::Kind::Package => "Package",
+					tg::module::Kind::Target => "Target",
 					_ => unreachable!(),
 				};
-				let object = match package {
+				let object = match object {
 					Either::Left(_) => String::new(),
-					Either::Right(package) => {
-						let package = tg::Package::with_id(package.clone());
-						let object = package.object(&self.server).await?;
-						let object = object.nodes[object.root]
-							.object
-							.clone()
-							.ok_or_else(|| tg::error!("expected the package to have an object"))?;
-						object.id(&self.server).await?.to_string()
-					},
+					Either::Right(object) => object.to_string(),
 				};
 				Ok(format!(r#"export default tg.{class}.withId("{object}");"#))
 			},
-
-			_ => Err(tg::error!(%module, "invalid module")),
 		}
 	}
 }

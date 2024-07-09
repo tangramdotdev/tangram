@@ -440,6 +440,16 @@ pub trait Ext: tg::Handle {
 		})
 	}
 
+	fn get_reference(
+		&self,
+		reference: &tg::Reference,
+	) -> impl Future<Output = tg::Result<tg::reference::get::Output>> + Send {
+		self.try_get_reference(reference).map(|result| {
+			result
+				.and_then(|option| option.ok_or_else(|| tg::error!("failed to get the reference")))
+		})
+	}
+
 	fn get_tag(
 		&self,
 		tag: &tg::tag::Pattern,

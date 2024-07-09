@@ -9,8 +9,8 @@ pub struct Args {
 	#[arg(short, long)]
 	pub force: bool,
 
-	#[arg(index = 2)]
-	pub reference: Option<tg::Reference>,
+	#[arg(index = 2, default_value = ".?kind=package")]
+	pub reference: tg::Reference,
 
 	#[allow(clippy::option_option)]
 	#[arg(short, long)]
@@ -24,17 +24,13 @@ impl Cli {
 	pub async fn command_tag_put(&self, args: Args) -> tg::Result<()> {
 		let handle = self.handle().await?;
 
-		// Get the tag and reference.
-		let tag = args.tag.unwrap();
-		let reference = args.reference.unwrap();
-
 		// Get the remote.
 		let remote = args
 			.remote
 			.map(|option| option.unwrap_or_else(|| "default".to_owned()));
 
 		// Get the reference
-		let item = self.get_reference(&reference).await?;
+		let item = self.get_reference(&args.reference).await?;
 
 		// Get the item.
 		let item = match item {
@@ -48,7 +44,7 @@ impl Cli {
 			item,
 			remote,
 		};
-		handle.put_tag(&tag, arg).await?;
+		handle.put_tag(&args.tag.unwrap(), arg).await?;
 
 		Ok(())
 	}

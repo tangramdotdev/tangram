@@ -31,6 +31,7 @@ pub enum Kind {
 	PartialOrd,
 	derive_more::Display,
 	derive_more::From,
+	derive_more::TryInto,
 	derive_more::TryUnwrap,
 	serde::Deserialize,
 	serde::Serialize,

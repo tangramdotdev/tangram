@@ -9,7 +9,7 @@ pub struct Module {
 	pub kind: Kind,
 
 	#[serde(with = "either::serde_untagged")]
-	pub package: Either<tg::Path, tg::package::Id>,
+	pub object: Either<tg::Path, tg::object::Id>,
 }
 
 #[derive(
@@ -28,10 +28,16 @@ pub enum Kind {
 	Js,
 	Ts,
 	Dts,
+	Object,
 	Artifact,
+	Blob,
+	Leaf,
+	Branch,
 	Directory,
 	File,
 	Symlink,
+	Package,
+	Target,
 }
 
 impl From<Module> for Url {
@@ -96,10 +102,16 @@ impl std::fmt::Display for Kind {
 			Kind::Js => write!(f, "js"),
 			Kind::Ts => write!(f, "ts"),
 			Kind::Dts => write!(f, "dts"),
+			Kind::Object => write!(f, "object"),
 			Kind::Artifact => write!(f, "artifact"),
+			Kind::Blob => write!(f, "blob"),
+			Kind::Leaf => write!(f, "leaf"),
+			Kind::Branch => write!(f, "branch"),
 			Kind::Directory => write!(f, "directory"),
 			Kind::File => write!(f, "file"),
 			Kind::Symlink => write!(f, "symlink"),
+			Kind::Package => write!(f, "package"),
+			Kind::Target => write!(f, "target"),
 		}
 	}
 }
@@ -112,10 +124,16 @@ impl std::str::FromStr for Kind {
 			"js" => Ok(Kind::Js),
 			"ts" => Ok(Kind::Ts),
 			"dts" => Ok(Kind::Dts),
+			"object" => Ok(Kind::Object),
 			"artifact" => Ok(Kind::Artifact),
+			"blob" => Ok(Kind::Blob),
+			"leaf" => Ok(Kind::Leaf),
+			"branch" => Ok(Kind::Branch),
 			"directory" => Ok(Kind::Directory),
 			"file" => Ok(Kind::File),
 			"symlink" => Ok(Kind::Symlink),
+			"package" => Ok(Kind::Package),
+			"target" => Ok(Kind::Target),
 			_ => Err(tg::error!("invalid kind")),
 		}
 	}

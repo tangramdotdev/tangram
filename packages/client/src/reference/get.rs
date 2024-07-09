@@ -1,24 +1,23 @@
-use crate::{self as tg, util::serde::EitherUntagged};
+use crate as tg;
 use either::Either;
-use serde_with::{serde_as, FromInto};
 use tangram_http::{incoming::response::Ext as _, outgoing::request::Ext as _};
 
-#[serde_as]
 #[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
+#[serde(transparent)]
 pub struct Output {
-	pub tag: tg::Tag,
-
-	#[serde_as(as = "Option<FromInto<EitherUntagged<tg::build::Id, tg::object::Id>>>")]
-	pub item: Option<Either<tg::build::Id, tg::object::Id>>,
+	#[serde(with = "either::serde_untagged")]
+	pub item: Either<tg::build::Id, tg::object::Id>,
 }
 
 impl tg::Client {
-	pub async fn try_get_tag(
+	pub async fn try_get_reference(
 		&self,
-		pattern: &tg::tag::Pattern,
-	) -> tg::Result<Option<tg::tag::get::Output>> {
+		reference: &tg::Reference,
+	) -> tg::Result<Option<tg::reference::get::Output>> {
 		let method = http::Method::GET;
-		let uri = format!("/tags/{pattern}");
+		let path = reference.uri().path();
+		let query = reference.uri().query().unwrap_or_default();
+		let uri = format!("/references/{path}?{query}");
 		let request = http::request::Builder::default()
 			.method(method)
 			.uri(uri)
