@@ -33,7 +33,7 @@ impl Server {
 			.map_err(|source| tg::error!(!source, "failed to get database connection"))?;
 
 		#[serde_as]
-		#[derive(serde::Deserialize)]
+		#[derive(Debug, serde::Deserialize)]
 		struct Row {
 			id: u64,
 			name: String,
@@ -49,7 +49,7 @@ impl Server {
 						"
 							select id, name, item
 							from tags
-							where name = {p}1 and parent = {p}2;
+							where name = {p}1 and (parent = {p}2 or (parent is null and {p}2 is null));
 						"
 					);
 					let parent = rows.first().map(|row| row.id);
@@ -66,7 +66,7 @@ impl Server {
 						"
 							select id, name, item
 							from tags
-							where parent = {p}2;
+							where parent = {p}1 or (parent is null and {p}1 is null);
 						"
 					);
 					let parent = rows.first().map(|row| row.id);

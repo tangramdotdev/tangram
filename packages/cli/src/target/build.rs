@@ -123,16 +123,16 @@ impl Cli {
 
 		// Create the target.
 		let target = 'a: {
-			// Get the object.
-			let object = reference.get(&handle).await?;
+			// Get the reference.
+			let item = self.get_reference(&reference).await?;
 
 			// If the object is a target, then use it.
-			if let Either::Right(tg::Object::Target(target)) = object {
+			if let Either::Right(tg::Object::Target(target)) = item {
 				break 'a target;
 			};
 
 			// Otherwise, the object must be a package.
-			let Either::Right(tg::Object::Package(package)) = object else {
+			let Either::Right(tg::Object::Package(package)) = item else {
 				return Err(tg::error!("expected a package"));
 			};
 

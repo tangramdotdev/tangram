@@ -194,7 +194,8 @@ impl std::str::FromStr for Path {
 		if let Ok(object) = s.parse() {
 			return Ok(Self::Object(object));
 		}
-		if let Ok(path) = s.parse() {
+		if s.starts_with('.') || s.starts_with('/') {
+			let path = s.parse()?;
 			return Ok(Self::Path(path));
 		}
 		if let Ok(tag) = s.parse() {

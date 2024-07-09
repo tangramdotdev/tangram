@@ -26,8 +26,10 @@ impl Cli {
 	pub async fn command_push(&self, args: Args) -> tg::Result<()> {
 		let handle = self.handle().await?;
 
-		// Get the item.
-		let item = args.reference.get(&handle).await?;
+		// Get the reference.
+		let item = self.get_reference(&args.reference).await?;
+
+		// Get the item as an ID.
 		let item = match item {
 			Either::Left(build) => Either::Left(build.id().clone()),
 			Either::Right(object) => Either::Right(object.id(&handle).await?.clone()),

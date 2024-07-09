@@ -40,26 +40,18 @@ impl Cli {
 	pub async fn command_view(&self, args: Args) -> tg::Result<()> {
 		let handle = self.handle().await?;
 
-		// Get the item.
-		let item = args.reference.get(&handle).await?;
-		let item = match item {
-			Either::Left(build) => Either::Left(build.id().clone()),
-			Either::Right(object) => Either::Right(object.id(&handle).await?.clone()),
-		};
+		// Get the reference.
+		let item = self.get_reference(&args.reference).await?;
 
 		// Get the node kind.
 		let node_kind = match item {
-			Either::Left(build) => {
-				let build = tg::Build::with_id(build);
-				self::tree::NodeKind::Build {
-					build,
-					remote: None,
-				}
+			Either::Left(build) => self::tree::NodeKind::Build {
+				build,
+				remote: None,
 			},
-			Either::Right(object) => {
-				let object = tg::Object::with_id(object);
-				let value = object.into();
-				self::tree::NodeKind::Value { name: None, value }
+			Either::Right(object) => self::tree::NodeKind::Value {
+				name: None,
+				value: object.into(),
 			},
 		};
 
