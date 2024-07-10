@@ -114,7 +114,9 @@ impl Cli {
 		let handle = self.handle().await?;
 
 		// Get the reference.
-		let reference = args.reference.unwrap_or_else(|| ".".parse().unwrap());
+		let reference = args
+			.reference
+			.unwrap_or_else(|| ".?kind=package".parse().unwrap());
 
 		// Get the remote.
 		let remote = args
