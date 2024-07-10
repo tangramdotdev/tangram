@@ -134,7 +134,7 @@ impl std::str::FromStr for Kind {
 			"symlink" => Ok(Kind::Symlink),
 			"package" => Ok(Kind::Package),
 			"target" => Ok(Kind::Target),
-			_ => Err(tg::error!("invalid kind")),
+			_ => Err(tg::error!(%kind = s, "invalid kind")),
 		}
 	}
 }

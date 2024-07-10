@@ -27,7 +27,7 @@ export let start = async (target: Target): Promise<Value> => {
 	);
 	let module = {
 		kind: metadata.kind,
-		package: await executable.id(),
+		object: await executable.id(),
 	};
 
 	// Create the URL.

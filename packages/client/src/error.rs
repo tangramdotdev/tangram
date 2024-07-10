@@ -41,7 +41,7 @@ pub struct Location {
 
 /// An error location's source.
 #[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
-#[serde(tag = "kind", rename_all = "snake_case")]
+#[serde(tag = "kind", content = "value", rename_all = "snake_case")]
 pub enum Source {
 	Internal(tg::Path),
 	Module(tg::Module),
@@ -303,7 +303,7 @@ macro_rules! error {
 			message: Some(String::new()),
 			location: Some($crate::error::Location {
 				symbol: Some($crate::function!().to_owned()),
-				source: $crate::error::Source::Internal(file!().parse().unwrap()),
+				source: $crate::error::Source::Internal(format!("./{}", file!()).parse().unwrap()),
 				line: line!() - 1,
 				column: column!() - 1,
 			}),
@@ -365,5 +365,12 @@ mod tests {
 	fn function_macro() {
 		let f = function!();
 		assert_eq!(f, "tangram_client::error::tests::function_macro");
+	}
+
+	#[test]
+	fn serde() {
+		let error = tg::error!("foo");
+		let serialized = serde_json::to_string_pretty(&error).unwrap();
+		let _e: tg::Error = serde_json::from_str(&serialized).expect("failed to deserialize error");
 	}
 }

@@ -2,7 +2,7 @@ import { assert } from "./assert.ts";
 
 export type Module = {
 	kind: Kind;
-	package: string;
+	object: string;
 };
 
 export type Kind =
