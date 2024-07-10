@@ -94,7 +94,7 @@ impl Compiler {
 		// Set the document's modified time.
 		let path = match module {
 			tg::Module {
-				object: Either::Left(path),
+				object: Either::Right(path),
 				..
 			} => path.clone(),
 

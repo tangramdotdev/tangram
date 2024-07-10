@@ -11,7 +11,7 @@ impl Compiler {
 		match module {
 			tg::Module {
 				kind: tg::module::Kind::Js | tg::module::Kind::Ts,
-				object: Either::Left(path),
+				object: Either::Right(path),
 			} => {
 				// If there is an opened document, then return its contents.
 				if let Some(document) = self.documents.get(module) {
@@ -30,7 +30,7 @@ impl Compiler {
 
 			tg::Module {
 				kind: tg::module::Kind::Js | tg::module::Kind::Ts,
-				object: Either::Right(object),
+				object: Either::Left(object),
 			} => {
 				let package = object
 					.clone()
@@ -51,7 +51,7 @@ impl Compiler {
 				kind: tg::module::Kind::Dts,
 				object,
 			} => {
-				let Either::Left(path) = object else {
+				let Either::Right(path) = object else {
 					return Err(tg::error!("dts module must have a path"));
 				};
 				let path = path

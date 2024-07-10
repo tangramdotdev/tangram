@@ -9,7 +9,7 @@ pub struct Module {
 	pub kind: Kind,
 
 	#[serde(with = "either::serde_untagged")]
-	pub object: Either<tg::Path, tg::object::Id>,
+	pub object: Either<tg::object::Id, tg::Path>,
 }
 
 #[derive(

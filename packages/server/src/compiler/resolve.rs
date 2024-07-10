@@ -11,14 +11,14 @@ impl Compiler {
 	) -> tg::Result<tg::Module> {
 		match referrer {
 			tg::Module {
-				object: Either::Left(_path),
+				object: Either::Right(_path),
 				..
 			} => {
 				todo!()
 			},
 
 			tg::Module {
-				object: Either::Right(object),
+				object: Either::Left(object),
 				..
 			} => {
 				// Get the package.
@@ -81,7 +81,7 @@ impl Compiler {
 				let object = object.id(&self.server).await?;
 				let module = tg::Module {
 					kind,
-					object: Either::Right(object),
+					object: Either::Left(object),
 				};
 
 				Ok(module)
