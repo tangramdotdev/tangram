@@ -1,5 +1,4 @@
 use super::Compiler;
-use either::Either;
 use tangram_client as tg;
 
 impl Compiler {
@@ -11,14 +10,14 @@ impl Compiler {
 	) -> tg::Result<tg::Module> {
 		match referrer {
 			tg::Module {
-				object: Either::Right(_path),
+				object: tg::module::Object::Path(_path),
 				..
 			} => {
 				todo!()
 			},
 
 			tg::Module {
-				object: Either::Left(object),
+				object: tg::module::Object::Object(object),
 				..
 			} => {
 				// Get the package.
@@ -81,7 +80,7 @@ impl Compiler {
 				let object = object.id(&self.server).await?;
 				let module = tg::Module {
 					kind,
-					object: Either::Left(object),
+					object: tg::module::Object::Object(object),
 				};
 
 				Ok(module)

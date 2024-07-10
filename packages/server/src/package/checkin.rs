@@ -59,7 +59,7 @@ impl Server {
 					tg::error!(!source, "failed to add path dependencies to lockfile")
 				})?;
 
-			let (graph_, root_) = self.create_graph_for_lockfile(&package, &path).await?;
+			let (graph_, root_) = self.create_graph_for_lockfile(&package).await?;
 
 			let mut visited = BTreeSet::new();
 			if self.check_graph(&graph, &root, &graph_, &root_, &mut visited) {
@@ -71,7 +71,12 @@ impl Server {
 				return Err(tg::error!("lockfile is out of date"));
 			}
 		}
-		// TODO: unification.
+
+		// Walk the package graph to fill in tag dependencies.
+		let graph = self
+			.walk_package_graph(graph, &root)
+			.await
+			.map_err(|source| tg::error!(!source, "failed to walk package graph"))?;
 
 		// Create the package.
 		let object = graph.into_package_object(&root);
@@ -254,42 +259,6 @@ impl Server {
 			}
 		}
 		Ok(tg::Package::with_object(object))
-	}
-
-	async fn get_object_tags(
-		&self,
-		reference: &tg::Reference,
-	) -> tg::Result<Vec<(tg::Tag, tg::Object)>> {
-		// Get the tag pattern and remote if necessary.
-		let pattern = reference
-			.path()
-			.try_unwrap_tag_ref()
-			.map_err(|_| tg::error!(%reference, "expected a tag pattern"))?
-			.clone();
-		let remote = reference
-			.query()
-			.as_ref()
-			.and_then(|query| query.remote.clone());
-
-		// List tags that match the pattern.
-		let output = self
-			.list_tags(tg::tag::list::Arg {
-				length: None,
-				pattern: pattern.clone(),
-				remote,
-			})
-			.await
-			.map_err(|source| tg::error!(!source, %pattern, "failed to get tags"))?;
-
-		// Convert the tag objects into packages.
-		Ok(output
-			.data
-			.into_iter()
-			.filter_map(|output| {
-				let object = output.item?.right()?;
-				Some((output.tag, tg::Object::with_id(object)))
-			})
-			.collect())
 	}
 }
 

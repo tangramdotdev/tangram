@@ -1,5 +1,4 @@
 use crate::Server;
-use either::Either;
 use tangram_client as tg;
 use tangram_http::{outgoing::response::Ext as _, Incoming, Outgoing};
 
@@ -41,7 +40,7 @@ impl Server {
 		// Create the module.
 		let module = tg::Module {
 			kind: tg::module::Kind::Dts,
-			object: Either::Left("tangram.d.ts".parse().unwrap()),
+			object: tg::module::Object::Path("tangram.d.ts".parse().unwrap()),
 		};
 
 		// Create the compiler.

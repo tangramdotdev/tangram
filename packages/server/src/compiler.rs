@@ -1,7 +1,6 @@
 use self::{document::Document, syscall::syscall};
 use crate::Server;
 use dashmap::DashMap;
-use either::Either;
 use futures::{future, Future, FutureExt as _, TryFutureExt as _};
 use lsp::{notification::Notification as _, request::Request as _};
 use lsp_types as lsp;
@@ -646,11 +645,8 @@ impl Compiler {
 				} else {
 					tg::module::Kind::Artifact
 				};
-				let package = Either::Right(path);
-				Ok(tg::Module {
-					kind,
-					object: package,
-				})
+				let object = tg::module::Object::Path(path);
+				Ok(tg::Module { kind, object })
 			},
 
 			_ => uri.as_str().parse(),
@@ -669,7 +665,7 @@ impl Compiler {
 					| tg::module::Kind::Directory
 					| tg::module::Kind::File
 					| tg::module::Kind::Symlink,
-				object: Either::Right(path),
+				object: tg::module::Object::Path(path),
 				..
 			} => format!("file://{path}").parse().unwrap(),
 			module => module.to_string().parse().unwrap(),

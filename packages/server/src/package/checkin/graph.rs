@@ -1,16 +1,6 @@
 use crate::Server;
-use derive_more::FromStr;
 use either::Either;
-use futures::{
-	future,
-	stream::{FuturesOrdered, FuturesUnordered},
-	FutureExt, StreamExt, TryStreamExt,
-};
-use itertools::Itertools;
-use std::{
-	collections::{BTreeMap, HashSet},
-	path::Path,
-};
+use std::collections::BTreeMap;
 use tangram_client as tg;
 
 #[derive(Clone, Debug)]
@@ -65,12 +55,6 @@ pub struct Node {
 
 pub(super) type Id = Either<tg::Reference, usize>;
 
-enum Parent {
-	Path(tg::Path),
-	Package(tg::package::Id),
-	Tag(tg::Tag),
-}
-
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
 pub(super) struct Edge {
 	// The source node of the edge (referrer)
@@ -88,11 +72,12 @@ impl Server {
 	pub(super) async fn create_graph_for_lockfile(
 		&self,
 		package: &tg::Package,
-		lockfile_path: &tg::Path,
 	) -> tg::Result<(Graph, Id)> {
-		let reference = tg::Reference::with_path(&lockfile_path.clone().parent().normalize());
 		let mut graph = Graph::default();
-		let root = graph.add_package(self, package, &reference).await?;
+		let object = package.clone().into();
+		let root = graph
+			.create_node_from_object(self, false, object, None, None)
+			.await?;
 		Ok((graph, root))
 	}
 
@@ -169,7 +154,9 @@ impl Server {
 				Ok(id)
 			},
 			tg::reference::Path::Path(_) => unreachable!(),
-			tg::reference::Path::Tag(_pattern) => todo!(),
+			tg::reference::Path::Tag(pattern) => {
+				Ok(Either::Left(get_reference_from_pattern(pattern)))
+			},
 		}
 	}
 
@@ -350,105 +337,148 @@ impl Graph {
 			})
 	}
 
-	async fn add_package(
+	async fn create_node_from_object(
 		&mut self,
 		server: &Server,
-		package: &tg::Package,
-		reference: &tg::Reference,
+		unify: bool,
+		object: tg::Object,
+		reference: Option<&tg::Reference>,
+		tag: Option<tg::Tag>,
 	) -> tg::Result<Id> {
-		// Get the object.
-		let object = package
-			.object(server)
-			.await
-			.map_err(|source| tg::error!(!source, "failed to get the package object"))?;
-
-		// Treat the root special.
-		match reference.path() {
-			tg::reference::Path::Build(_) => {
-				return Err(tg::error!("cannot create a package from a build"))
-			},
-			tg::reference::Path::Path(_) => {
-				let mut visited = BTreeMap::new();
-				let id = self.add_package_inner(&object, &Either::Left(object.root), &mut visited);
-				Ok(id)
-			},
-			tg::reference::Path::Object(object) => {
-				let id = Either::Right(self.counter);
-				self.counter += 1;
-				let node = Node {
-					id: id.clone(),
-					errors: Vec::new(),
-					outgoing: BTreeMap::new(),
-					is_package_node: true,
-					object: tg::Object::with_id(object.clone()),
-					metadata: BTreeMap::new(),
-					tag: None,
-				};
-				self.nodes.insert(id.clone(), node);
-				Ok(id)
-			},
-			tg::reference::Path::Tag(_) => todo!(),
+		if let tg::Object::Package(package) = object {
+			return self
+				.create_node_from_package(server, unify, package, reference, tag)
+				.await;
 		}
+		let id = reference.and_then(try_get_id).unwrap_or_else(|| {
+			let id = self.counter;
+			self.counter += 1;
+			Either::Right(id)
+		});
+		let node = Node {
+			id: id.clone(),
+			errors: Vec::new(),
+			outgoing: BTreeMap::new(),
+			is_package_node: false,
+			object,
+			metadata: BTreeMap::new(),
+			tag,
+		};
+		self.nodes.insert(id.clone(), node);
+		return Ok(id);
 	}
 
-	fn add_package_inner(
+	async fn create_node_from_package(
 		&mut self,
+		server: &Server,
+		unify: bool,
+		package: tg::Package,
+		reference: Option<&tg::Reference>,
+		tag: Option<tg::Tag>,
+	) -> tg::Result<Id> {
+		let mut visited = BTreeMap::new();
+		let package = package.object(server).await?;
+		let index = package.root;
+		let id = self
+			.create_node_from_package_inner(server, unify, &package, index, reference, &mut visited)
+			.await?;
+		self.nodes.get_mut(&id).unwrap().tag = tag;
+		Ok(id)
+	}
+
+	async fn create_node_from_package_inner(
+		&mut self,
+		server: &Server,
+		unify: bool,
 		package: &tg::package::Object,
-		dependency: &Either<usize, tg::Object>,
+		index: usize,
+		reference: Option<&tg::Reference>,
 		visited: &mut BTreeMap<usize, Id>,
-	) -> Id {
-		let index = match dependency {
-			Either::Left(index) => *index,
-			Either::Right(object) => {
-				let id = Either::Right(self.counter);
-				self.counter += 1;
-				let node = Node {
-					id: id.clone(),
-					errors: Vec::new(),
-					outgoing: BTreeMap::new(),
-					is_package_node: false,
-					object: object.clone(),
-					metadata: BTreeMap::new(),
-					tag: None,
-				};
-				self.nodes.insert(id.clone(), node);
-				return id;
-			},
-		};
+	) -> tg::Result<Id> {
 		if let Some(id) = visited.get(&index) {
-			return id.clone();
-		};
-		let mut outgoing = BTreeMap::new();
+			return Ok(id.clone());
+		}
+		let node = &package.nodes[index];
 		let mut errors = Vec::new();
-		for (reference, dependency) in &package.nodes[index].dependencies {
+		let mut outgoing = BTreeMap::new();
+		for (reference, dependency) in &node.dependencies {
+			// If the package is incomplete, log an error.
 			let Some(dependency) = dependency else {
-				errors.push(tg::error!(%reference, "missing dependency in package"));
+				errors.push(tg::error!(%reference, "missing dependency"));
 				continue;
 			};
-			let id = self.add_package_inner(package, dependency, visited);
+
+			let id = match (try_get_id(reference), dependency) {
+				// If we can get an ID for the reference and unify is true, use it.
+				(Some(id), _) if unify => id,
+
+				// If the dependency is in the package object, recurse.
+				(_, Either::Left(index)) => {
+					let Ok(id) = Box::pin(self.create_node_from_package_inner(
+						server,
+						unify,
+						package,
+						*index,
+						Some(reference),
+						visited,
+					))
+					.await
+					.inspect_err(|source| {
+						let source = source.clone();
+						errors.push(tg::error!(!source, "failed to create package node"));
+					}) else {
+						continue;
+					};
+					id
+				},
+
+				// If the dependency is an object, create a new node for it.
+				(_, Either::Right(object)) => {
+					let Ok(id) = Box::pin(self.create_node_from_object(
+						server,
+						unify,
+						object.clone(),
+						None,
+						None,
+					))
+					.await
+					.inspect_err(|source| {
+						let source = source.clone();
+						errors.push(tg::error!(!source, "failed to create package node"));
+					}) else {
+						continue;
+					};
+					id
+				},
+			};
 			outgoing.insert(reference.clone(), id);
 		}
 
-		let id = Either::Right(self.counter);
-		self.counter += 1;
-		let metadata = package.nodes[index]
-			.metadata
-			.iter()
-			.map(|(key, data)| (key.clone(), data.clone().into()))
-			.collect();
+		// Get the object and its metadata.
+		let object = node
+			.object
+			.clone()
+			.ok_or_else(|| tg::error!("missing object"))?;
+		let metadata = node.metadata.clone();
+
+		// Create the node.
+		let id = reference.and_then(try_get_id).unwrap_or_else(|| {
+			let id = self.counter;
+			self.counter += 1;
+			Either::Right(id)
+		});
 		let node = Node {
 			id: id.clone(),
 			errors,
 			outgoing,
 			is_package_node: true,
-			object: package.nodes[index].object.clone().unwrap(),
+			object,
 			metadata,
 			tag: None,
 		};
-
 		self.nodes.insert(id.clone(), node);
 		visited.insert(index, id.clone());
-		id
+		Ok(id)
 	}
 
 	fn add_error(&mut self, node: &Id, error: tg::Error) {
@@ -457,20 +487,14 @@ impl Graph {
 }
 
 impl Server {
-	pub(super) async fn create_package_graph(
+	pub(super) async fn walk_package_graph(
 		&self,
-		package: &tg::Package,
-		reference: &tg::Reference,
-	) -> tg::Result<(Id, Graph)> {
-		// Create an empty graph.
-		let mut graph = Graph::default();
-
-		// Add the root package to the solution and get its outgoing edges.
-		let root = graph.add_package(self, package, reference).await?;
-
+		mut graph: Graph,
+		root: &Id,
+	) -> tg::Result<Graph> {
 		// Get the overrides.
 		let mut overrides: BTreeMap<Id, BTreeMap<String, tg::Reference>> = BTreeMap::new();
-		let root_node = graph.nodes.get_mut(&root).unwrap();
+		let root_node = graph.nodes.get_mut(root).unwrap();
 		for (reference, node) in &root_node.outgoing {
 			let Some(overrides_) = reference
 				.query()
@@ -492,7 +516,7 @@ impl Server {
 
 		// Get the first edge to solve.
 		let Some(edge) = queue.pop_back() else {
-			return Ok((root, graph));
+			return Ok(graph);
 		};
 
 		// Construct the initial state.
@@ -509,7 +533,7 @@ impl Server {
 
 		// Walk the graph until we have no more edges to solve.
 		loop {
-			self.follow_edge(&mut checkpoints, &mut current, &overrides)
+			self.walk_edge(&mut checkpoints, &mut current, &overrides)
 				.await;
 
 			// Changing this to pop_back() would convert the algorithm from breadth-first to depth-first. The algorithm should be correct regardless of traversel order. However, using BFS to walk the graph allows us to propogate constraints when backtracking to shrink the search sapce.
@@ -520,10 +544,10 @@ impl Server {
 			current.edge = next;
 		}
 
-		Ok((root, current.graph))
+		Ok(current.graph)
 	}
 
-	async fn follow_edge(
+	async fn walk_edge(
 		&self,
 		state: &mut Vec<State>,
 		current: &mut State,
@@ -625,61 +649,53 @@ impl Server {
 		&self,
 		graph: &mut Graph,
 		reference: &tg::Reference,
-		packages: &mut Option<im::Vector<(tg::Tag, tg::Object)>>,
+		objects: &mut Option<im::Vector<(tg::Tag, tg::Object)>>,
 	) -> tg::Result<Id> {
 		// Seed the remaining packages if necessary.
-		// if packages.is_none() {
-		// 	// Get the tag pattern and remote if necessary.
-		// 	let pattern = reference
-		// 		.path()
-		// 		.try_unwrap_tag_ref()
-		// 		.map_err(|_| tg::error!(%reference, "expected a tag pattern"))?
-		// 		.clone();
-		// 	let remote = reference
-		// 		.query()
-		// 		.as_ref()
-		// 		.and_then(|query| query.remote.clone());
+		if objects.is_none() {
+			// Get the tag pattern and remote if necessary.
+			let pattern = reference
+				.path()
+				.try_unwrap_tag_ref()
+				.map_err(|_| tg::error!(%reference, "expected a tag pattern"))?
+				.clone();
+			let remote = reference
+				.query()
+				.as_ref()
+				.and_then(|query| query.remote.clone());
 
-		// 	// List tags that match the pattern.
-		// 	let output = self
-		// 		.list_tags(tg::tag::list::Arg {
-		// 			pattern: pattern.clone(),
-		// 			remote,
-		// 		})
-		// 		.await
-		// 		.map_err(|source| tg::error!(!source, %pattern, "failed to get tags"))?;
+			// List tags that match the pattern.
+			let objects_ = self
+				.list_tags(tg::tag::list::Arg {
+					length: None,
+					pattern: pattern.clone(),
+					remote,
+				})
+				.await
+				.map_err(|source| tg::error!(!source, %pattern, "failed to get tags"))?
+				.data
+				.into_iter()
+				.filter_map(|output| {
+					let object = output.item?.right()?;
+					Some((output.tag, tg::Object::with_id(object)))
+				})
+				.collect();
 
-		// 	// Convert the tag objects into packages.
-		// 	// let packages_ = output
-		// 	// 	.data
-		// 	// 	.into_iter()
-		// 	// 	.filter_map(|output| {
-		// 	// 		let object = output.item.right()?;
-		// 	// 		let root = Either::Right(tg::Object::with_id(object));
-		// 	// 		Some(
-		// 	// 			self.create_package_with_path_dependencies(root)
-		// 	// 				.then(|result| future::ready(result.map(|p| (output.tag, p)))),
-		// 	// 		)
-		// 	// 	})
-		// 	// 	.collect::<FuturesOrdered<_>>()
-		// 	// 	.try_collect()
-		// 	// 	.await?;
-
-		// 	// Update the remaining packages.
-		// 	packages.replace(packages_);
-		// }
+			// Update the remaining packages.
+			objects.replace(objects_);
+		}
 
 		// Pop the next version off the list.
-		// let package = packages
-		// 	.as_mut()
-		// 	.unwrap()
-		// 	.pop_back()
-		// 	.ok_or_else(|| tg::error!(%reference, "no solution exists"))?
-		// 	.1;
+		let (tag, object) = objects
+			.as_mut()
+			.unwrap()
+			.pop_back()
+			.ok_or_else(|| tg::error!(%reference, "no solution exists"))?;
 
-		// // insert.
-		// graph.insert(self, &package, reference).await
-		todo!()
+		// Add to the graph.
+		graph
+			.create_node_from_object(self, true, object, Some(reference), Some(tag))
+			.await
 	}
 }
 
@@ -716,19 +732,25 @@ fn try_backtrack(state: &mut Vec<State>, edge: &Edge) -> Option<State> {
 	Some(state)
 }
 
-fn get_tag_from_reference(reference: &tg::Reference) -> Option<tg::Reference> {
-	let pattern = reference.path().try_unwrap_tag_ref().ok()?;
+fn get_reference_from_pattern(pattern: &tg::tag::Pattern) -> tg::Reference {
 	let components = pattern.components();
-	if components.len() < 2
-		|| components
-			.last()
-			.map_or(false, |c| c.try_unwrap_normal_ref().is_ok())
-	{
-		return None;
-	}
-	let mut components = components.clone();
-	components.pop();
-	let mut string = components.iter().map(|c| c.to_string()).join("/");
-	string.push('*');
-	Some(string.parse().unwrap())
+	let string = match components.last() {
+		Some(tg::tag::pattern::Component::Semver(_)) if components.len() >= 2 => {
+			let mut components = components.clone();
+			components.pop();
+			let pattern = tg::tag::Pattern::with_components(components);
+			format!("{pattern}/*")
+		},
+		_ => pattern.to_string(),
+	};
+	string.parse().unwrap()
+}
+
+fn try_get_id(reference: &tg::Reference) -> Option<Id> {
+	reference
+		.path()
+		.try_unwrap_tag_ref()
+		.ok()
+		.map(get_reference_from_pattern)
+		.map(Either::Left)
 }

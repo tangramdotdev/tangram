@@ -1,5 +1,4 @@
 use crate as tg;
-use either::Either;
 use url::Url;
 
 #[derive(
@@ -7,9 +6,23 @@ use url::Url;
 )]
 pub struct Module {
 	pub kind: Kind,
+	pub object: Object,
+}
 
-	#[serde(with = "either::serde_untagged")]
-	pub object: Either<tg::object::Id, tg::Path>,
+#[derive(
+	Clone,
+	Debug,
+	Eq,
+	Hash,
+	Ord,
+	PartialEq,
+	PartialOrd,
+	serde_with::DeserializeFromStr,
+	serde_with::SerializeDisplay,
+)]
+pub enum Object {
+	Object(tg::object::Id),
+	Path(tg::Path),
 }
 
 #[derive(
@@ -135,6 +148,28 @@ impl std::str::FromStr for Kind {
 			"package" => Ok(Kind::Package),
 			"target" => Ok(Kind::Target),
 			_ => Err(tg::error!(%kind = s, "invalid kind")),
+		}
+	}
+}
+
+impl std::str::FromStr for Object {
+	type Err = tg::Error;
+
+	fn from_str(s: &str) -> tg::Result<Self, Self::Err> {
+		if s.starts_with("./") || s.starts_with("../") || s.starts_with("/") {
+			let path = s.parse()?;
+			Ok(Self::Path(path))
+		} else {
+			Ok(Self::Object(s.parse()?))
+		}
+	}
+}
+
+impl std::fmt::Display for Object {
+	fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+		match self {
+			Self::Object(object) => write!(f, "{object}"),
+			Self::Path(path) => write!(f, "{path}"),
 		}
 	}
 }

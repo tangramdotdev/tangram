@@ -1,5 +1,4 @@
 use super::Compiler;
-use either::Either;
 use include_dir::include_dir;
 use tangram_client as tg;
 
@@ -11,7 +10,7 @@ impl Compiler {
 		match module {
 			tg::Module {
 				kind: tg::module::Kind::Js | tg::module::Kind::Ts,
-				object: Either::Right(path),
+				object: tg::module::Object::Path(path),
 			} => {
 				// If there is an opened document, then return its contents.
 				if let Some(document) = self.documents.get(module) {
@@ -30,7 +29,7 @@ impl Compiler {
 
 			tg::Module {
 				kind: tg::module::Kind::Js | tg::module::Kind::Ts,
-				object: Either::Left(object),
+				object: tg::module::Object::Object(object),
 			} => {
 				let package = object
 					.clone()
@@ -51,7 +50,7 @@ impl Compiler {
 				kind: tg::module::Kind::Dts,
 				object,
 			} => {
-				let Either::Right(path) = object else {
+				let tg::module::Object::Path(path) = object else {
 					return Err(tg::error!("dts module must have a path"));
 				};
 				let path = path
@@ -94,8 +93,8 @@ impl Compiler {
 					_ => unreachable!(),
 				};
 				let object = match object {
-					Either::Left(_) => String::new(),
-					Either::Right(object) => object.to_string(),
+					tg::module::Object::Path(_) => String::new(),
+					tg::module::Object::Object(object) => object.to_string(),
 				};
 				Ok(format!(r#"export default tg.{class}.withId("{object}");"#))
 			},

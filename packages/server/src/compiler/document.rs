@@ -1,5 +1,4 @@
 use super::Compiler;
-use either::Either;
 use lsp_types as lsp;
 use tangram_client as tg;
 
@@ -94,7 +93,7 @@ impl Compiler {
 		// Set the document's modified time.
 		let path = match module {
 			tg::Module {
-				object: Either::Right(path),
+				object: tg::module::Object::Path(path),
 				..
 			} => path.clone(),
 

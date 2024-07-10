@@ -1,5 +1,4 @@
 use super::{document::Document, Compiler};
-use either::Either;
 use tangram_client as tg;
 
 impl Compiler {
@@ -24,7 +23,7 @@ impl Compiler {
 				| tg::module::Kind::Directory
 				| tg::module::Kind::File
 				| tg::module::Kind::Symlink,
-			object: Either::Right(path),
+			object: tg::module::Object::Path(path),
 			..
 		} = module
 		else {
