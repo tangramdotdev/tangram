@@ -858,7 +858,7 @@ mod tests {
 
 	#[test]
 	fn path() {
-		let value = tg::Value::Path("path/to/thing".into());
+		let value = tg::Value::Path("./path/to/thing".into());
 		let string = value.to_string();
 		let value = string.parse::<tg::Value>().unwrap();
 		assert!(matches!(value, tg::Value::Path(_)));
