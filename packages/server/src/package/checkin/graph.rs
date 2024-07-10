@@ -99,8 +99,10 @@ impl Server {
 	/// Create an initial package graph from a root module path and return the graph and id of the root node.
 	pub(super) async fn create_graph_for_path(
 		&self,
+		path: &tg::Path,
 		root_module_path: &tg::Path,
 	) -> tg::Result<(Graph, Id)> {
+		let referrer = path.clone().join(root_module_path.clone());
 		let reference = tg::Reference::with_path(root_module_path);
 		let import_kind = if root_module_path.as_str().ends_with(".js") {
 			tg::import::Kind::Js
@@ -113,7 +115,7 @@ impl Server {
 		let mut visited = BTreeMap::new();
 
 		let root = self
-			.create_graph_node(&reference, import_kind, &mut nodes, &mut visited)
+			.create_graph_node(&referrer, &reference, import_kind, &mut nodes, &mut visited)
 			.await
 			.map_err(
 				|source| tg::error!(!source, %path = root_module_path, "failed to create package graph"),
@@ -127,19 +129,25 @@ impl Server {
 	// Create a single package graph node from a reference and import kind.
 	async fn create_graph_node(
 		&self,
+		referrer: &tg::Path,
 		reference: &tg::Reference,
 		import_kind: tg::import::Kind,
 		nodes: &mut BTreeMap<Id, Node>,
 		visited: &mut BTreeMap<tg::Path, Id>,
 	) -> tg::Result<Id> {
-		if let Some(path) = reference
+		if let Some(reference) = reference
 			.path()
 			.try_unwrap_path_ref()
 			.ok()
 			.or_else(|| reference.query()?.path.as_ref())
 		{
+			let path = referrer
+				.clone()
+				.parent()
+				.join(reference.clone())
+				.normalize();
 			return self
-				.create_graph_node_at_path(path, import_kind, nodes, visited)
+				.create_graph_node_at_path(&path, import_kind, nodes, visited)
 				.await;
 		}
 		match reference.path() {
@@ -227,6 +235,7 @@ impl Server {
 				let mut outgoing = BTreeMap::new();
 				for import in analysis.imports {
 					let result = Box::pin(self.create_graph_node(
+						&path,
 						&import.reference,
 						import.kind.unwrap_or(tg::import::Kind::Js),
 						nodes,

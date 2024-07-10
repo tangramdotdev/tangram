@@ -3,6 +3,7 @@ use either::Either;
 use std::collections::BTreeSet;
 use tangram_client as tg;
 use tangram_http::{incoming::request::Ext as _, outgoing::response::Ext as _, Incoming, Outgoing};
+use tokio::io::AsyncWriteExt;
 mod graph;
 
 impl Server {
@@ -37,39 +38,39 @@ impl Server {
 
 		// Resolve path dependencies to create the initial package object.
 		let (graph, root) = self
-			.create_graph_for_path(&root_module_path)
+			.create_graph_for_path(&path, &root_module_path)
 			.await
 			.map_err(|source| tg::error!(!source, %path, "failed to create package graph"))?;
 
 		// Read and validate against an existing lockfile if it exists.
-		let lockfile_path = path.clone().join(tg::package::LOCKFILE_FILE_NAME);
 		let lockfile = self
-			.try_read_lockfile(&lockfile_path)
+			.try_read_lockfile(&path)
 			.await
 			.map_err(|source| tg::error!(!source, "failed to read lockfile"))?;
 		if let Some(lockfile) = lockfile {
 			// Add the path dependencies back to the package.
 			let package = self
-				.add_path_references_to_package(&lockfile, &path)
+				.add_path_references_to_package(
+					&lockfile,
+					&path.clone().join(root_module_path.clone()),
+				)
 				.await
 				.map_err(|source| {
 					tg::error!(!source, "failed to add path dependencies to lockfile")
 				})?;
 
-			let (graph_, root_) = self
-				.create_graph_for_lockfile(&package, &lockfile_path)
-				.await?;
+			let (graph_, root_) = self.create_graph_for_lockfile(&package, &path).await?;
 
 			let mut visited = BTreeSet::new();
 			if self.check_graph(&graph, &root, &graph_, &root_, &mut visited) {
-				let package = lockfile.id(self).await?;
+				let object = graph_.into_package_object(&root_);
+				let package = tg::Package::with_object(object).id(self).await?;
 				let output = tg::package::checkin::Output { package };
 				return Ok(output);
 			} else if locked {
 				return Err(tg::error!("lockfile is out of date"));
 			}
 		}
-
 		// TODO: unification.
 
 		// Create the package.
@@ -77,7 +78,8 @@ impl Server {
 		let package = tg::Package::with_object(object);
 
 		// Remove path references from the package.
-		let package = self.remove_path_references_from_package(&package).await?;
+		let lockfile = self.remove_path_references_from_package(&package).await?;
+		self.write_lockfile(&path, &lockfile).await?;
 
 		// Create the output.
 		let output = tg::package::checkin::Output {
@@ -136,6 +138,24 @@ impl Server {
 		Ok(Some(package))
 	}
 
+	async fn write_lockfile(&self, path: &tg::Path, package: &tg::Package) -> tg::Result<()> {
+		let path = path.clone().join(tg::package::LOCKFILE_FILE_NAME);
+		let data = package.data(self).await?;
+		let bytes = serde_json::to_vec_pretty(&data)
+			.map_err(|source| tg::error!(!source, "failed to serialize data"))?;
+		tokio::fs::File::options()
+			.create(true)
+			.append(false)
+			.write(true)
+			.open(&path)
+			.await
+			.map_err(|source| tg::error!(!source, %path, "failed to open lockfile for writing"))?
+			.write_all(&bytes)
+			.await
+			.map_err(|source| tg::error!(!source, %path, "failed to write lockfile"))?;
+		Ok(())
+	}
+
 	async fn add_path_references_to_package(
 		&self,
 		package: &tg::Package,
@@ -169,7 +189,7 @@ impl Server {
 				else {
 					continue;
 				};
-				let path = path_.clone().join("..").join(path_.clone()).normalize();
+				let path = path.clone().parent().join(path_.clone()).normalize();
 				match value {
 					Some(Either::Left(index)) => {
 						stack.push((*index, path));

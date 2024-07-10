@@ -41,7 +41,7 @@ impl Compiler {
 				let object = package.nodes[package.root]
 					.object
 					.clone()
-					.ok_or_else(|| tg::error!("expected the package to have an object"))?;
+					.ok_or_else(|| tg::error!(%object, "expected the package to have an object"))?;
 				let file = tg::File::try_from(object).map_err(|_| tg::error!("expected a file"))?;
 				let text = file.text(&self.server).await?;
 				Ok(text)

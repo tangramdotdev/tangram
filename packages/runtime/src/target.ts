@@ -62,7 +62,7 @@ export function target<
 			args: [arg.name],
 			checksum: undefined,
 			env: getCurrentTarget().expectObject().env,
-			executable: Package.withId(module_.package),
+			executable: Package.withId(module_.object),
 			host: "js",
 		};
 		let state = {
