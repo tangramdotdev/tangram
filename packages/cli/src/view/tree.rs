@@ -728,7 +728,7 @@ where
 						children.push(child);
 					}
 					for (reference, object) in &node.dependencies {
-						if let Some(Either::Right(object)) = object {
+						if let Either::Right(object) = object {
 							let parent = Some(self);
 							let index = children.len();
 							let kind = NodeKind::Value {

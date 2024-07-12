@@ -227,12 +227,12 @@ impl Printer {
 				let dependencies = node
 					.dependencies
 					.iter()
-					.map(|(dependency, option)| {
-						let option = option.as_ref().map(|either| match either {
+					.map(|(dependency, either)| {
+						let either = match either {
 							Either::Left(index) => tg::Value::Number(index.to_f64().unwrap()),
 							Either::Right(object) => object.clone().into(),
-						});
-						(dependency.to_string(), option.into())
+						};
+						(dependency.to_string(), either)
 					})
 					.collect::<BTreeMap<String, tg::Value>>();
 				map.insert("dependencies".to_owned(), dependencies.into());

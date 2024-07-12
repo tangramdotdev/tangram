@@ -364,9 +364,8 @@ fn package_data(input: &mut Input) -> PResult<tg::package::Object, Error> {
 			for (dependency, object) in dependencies_ {
 				let dependency = dependency.parse().ok()?;
 				let object = match object {
-					tg::Value::Null => None,
-					tg::Value::Number(number) => Some(Either::Left(number.to_usize()?)),
-					tg::Value::Object(object) => Some(Either::Right(object.clone())),
+					tg::Value::Number(number) => Either::Left(number.to_usize()?),
+					tg::Value::Object(object) => Either::Right(object.clone()),
 					_ => return None,
 				};
 				dependencies.insert(dependency, object);

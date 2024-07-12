@@ -859,8 +859,9 @@ impl Cli {
 						},
 						tg::error::Source::Module(module) => {
 							if let Some(handle) = handle.as_ref() {
-								if let Either::Left(tg::object::Id::Package(package)) =
-									&module.object
+								if let tg::module::Object::Object(tg::object::Id::Package(
+									package,
+								)) = &module.object
 								{
 									let package = tg::Package::with_id(package.clone());
 									if let Ok(object) = package.object(handle).await {
@@ -934,14 +935,14 @@ impl Cli {
 		if let Some(location) = &diagnostic.location {
 			match &location.module {
 				tg::Module {
-					object: Either::Right(path),
+					object: tg::module::Object::Path(path),
 					..
 				} => {
 					write!(string, "{path}").unwrap();
 				},
 
 				tg::Module {
-					object: Either::Left(object),
+					object: tg::module::Object::Object(object),
 					..
 				} => {
 					let mut printed = false;

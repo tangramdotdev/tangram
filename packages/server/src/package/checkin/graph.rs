@@ -404,7 +404,6 @@ impl Graph {
 				continue;
 			};
 			let index = counter;
-			eprintln!("assigned index {index} to id {node:?}");
 			counter += 1;
 			indices.insert(node.clone(), index);
 			let node = self.nodes.get(node).unwrap();

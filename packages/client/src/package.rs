@@ -57,7 +57,7 @@ pub struct Object {
 
 #[derive(Clone, Debug, Default)]
 pub struct Node {
-	pub dependencies: BTreeMap<tg::Reference, Option<Either<usize, tg::Object>>>,
+	pub dependencies: BTreeMap<tg::Reference, Either<usize, tg::Object>>,
 	pub metadata: BTreeMap<String, tg::Value>,
 	pub object: Option<tg::Object>,
 }
@@ -82,8 +82,8 @@ pub mod data {
 	#[serde_as]
 	#[derive(Clone, Debug, Default, serde::Deserialize, serde::Serialize)]
 	pub struct Node {
-		#[serde_as(as = "BTreeMap<_, Option<FromInto<EitherUntagged<usize, tg::object::Id>>>>")]
-		pub dependencies: BTreeMap<tg::Reference, Option<Either<usize, tg::object::Id>>>,
+		#[serde_as(as = "BTreeMap<_, FromInto<EitherUntagged<usize, tg::object::Id>>>")]
+		pub dependencies: BTreeMap<tg::Reference, Either<usize, tg::object::Id>>,
 
 		#[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
 		pub metadata: BTreeMap<String, tg::value::Data>,
@@ -248,7 +248,7 @@ impl Package {
 	{
 		let object = self.object(handle).await?;
 		let root = object.nodes.get(object.root).unwrap();
-		let Some(Some(either)) = root.dependencies.get(dependency) else {
+		let Some(either) = root.dependencies.get(dependency) else {
 			return Ok(None);
 		};
 		let index = match either {
@@ -267,14 +267,12 @@ impl Package {
 		let dependencies = node
 			.dependencies
 			.iter()
-			.map(|(dependency, option)| {
-				let option = option.as_ref().map(|either| {
-					either
-						.as_ref()
-						.map_left(|index| Self::try_get_dependency_inner(nodes, package, *index))
-						.map_right(tg::Object::clone)
-				});
-				(dependency.clone(), option)
+			.map(|(dependency, either)| {
+				let either = either
+					.as_ref()
+					.map_left(|index| Self::try_get_dependency_inner(nodes, package, *index))
+					.map_right(tg::Object::clone);
+				(dependency.clone(), either)
 			})
 			.collect();
 		let metadata = node.metadata.clone();
@@ -326,21 +324,17 @@ impl Package {
 		let dependencies = node
 			.dependencies
 			.iter()
-			.map(|(dependency, option)| {
+			.map(|(dependency, either)| {
 				let dependency = dependency.clone();
-				let option = if let Some(either) = option.as_ref() {
-					match either {
-						Either::Left(index) => {
-							let package = Self::normalize_inner(nodes, *index, visited)?;
-							let object = package.into();
-							Some(Either::Right(object))
-						},
-						Either::Right(object) => Some(Either::Right(object.clone())),
-					}
-				} else {
-					None
+				let either = match either {
+					Either::Left(index) => {
+						let package = Self::normalize_inner(nodes, *index, visited)?;
+						let object = package.into();
+						Either::Right(object)
+					},
+					Either::Right(object) => Either::Right(object.clone()),
 				};
-				Ok::<_, tg::Error>((dependency, option))
+				Ok::<_, tg::Error>((dependency, either))
 			})
 			.try_collect()?;
 		let metadata = node.metadata.clone();
@@ -368,12 +362,11 @@ impl Node {
 		let dependencies = self
 			.dependencies
 			.iter()
-			.map(|(dependency, option)| async move {
+			.map(|(dependency, either)| async move {
 				let dependency = dependency.clone();
-				let option = match option {
-					None => None,
-					Some(Either::Left(index)) => Some(Either::Left(*index)),
-					Some(Either::Right(object)) => Some(Either::Right(object.id(handle).await?)),
+				let option = match either {
+					Either::Left(index) => Either::Left(*index),
+					Either::Right(object) => Either::Right(object.id(handle).await?),
 				};
 				Ok::<_, tg::Error>((dependency, option))
 			})
@@ -420,8 +413,8 @@ impl Data {
 			if let Some(object) = &node.object {
 				children.insert(object.clone());
 			}
-			for option in node.dependencies.values().flatten() {
-				if let Either::Right(object) = option {
+			for either in node.dependencies.values() {
+				if let Either::Right(object) = either {
 					children.insert(object.clone());
 				}
 			}
@@ -441,8 +434,9 @@ pub async fn try_get_root_module_path_for_path(path: &Path) -> tg::Result<Option
 	for module_file_name in tg::package::ROOT_MODULE_FILE_NAMES {
 		if tokio::fs::try_exists(path.join(module_file_name))
 			.await
-			.map_err(|source| tg::error!(!source, "failed to get the metadata"))?
-		{
+			.map_err(
+				|source| tg::error!(!source, %path = path.display(), "failed to get the metadata"),
+			)? {
 			if root_module_path.is_some() {
 				return Err(tg::error!("found multiple root modules"));
 			}
@@ -473,8 +467,8 @@ impl TryFrom<data::Node> for Node {
 		let dependencies = value
 			.dependencies
 			.into_iter()
-			.map(|(dependency, option)| {
-				let either = option.map(|either| either.map_right(tg::Object::with_id));
+			.map(|(dependency, either)| {
+				let either = either.map_right(tg::Object::with_id);
 				Ok::<_, tg::Error>((dependency, either))
 			})
 			.try_collect()?;
