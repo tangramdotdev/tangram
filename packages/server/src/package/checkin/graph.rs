@@ -2,7 +2,6 @@ use crate::Server;
 use either::Either;
 use std::collections::BTreeMap;
 use tangram_client as tg;
-
 #[derive(Clone, Debug)]
 struct State {
 	// The current graph.
@@ -74,198 +73,321 @@ impl Server {
 		package: &tg::Package,
 	) -> tg::Result<(Graph, Id)> {
 		let mut graph = Graph::default();
-		let object = package.clone().into();
-		let root = graph
-			.create_node_from_object(self, false, object, None, None)
-			.await?;
-		Ok((graph, root))
-	}
-
-	/// Create an initial package graph from a root module path and return the graph and id of the root node.
-	pub(super) async fn create_graph_for_path(
-		&self,
-		path: &tg::Path,
-		root_module_path: &tg::Path,
-	) -> tg::Result<(Graph, Id)> {
-		let referrer = path.clone().join(root_module_path.clone());
-		let reference = tg::Reference::with_path(root_module_path);
-		let import_kind = if root_module_path.as_str().ends_with(".js") {
-			tg::import::Kind::Js
-		} else if root_module_path.as_str().ends_with(".ts") {
-			tg::import::Kind::Ts
-		} else {
-			tg::import::Kind::Artifact
-		};
-		let mut nodes = BTreeMap::new();
-		let mut visited = BTreeMap::new();
-
 		let root = self
-			.create_graph_node(&referrer, &reference, import_kind, &mut nodes, &mut visited)
+			.add_object_to_graph(&mut graph, false, package.clone().into(), None, None)
 			.await
-			.map_err(
-				|source| tg::error!(!source, %path = root_module_path, "failed to create package graph"),
-			)?;
-		let counter = nodes.len();
-		let nodes = nodes.into();
-		let graph = Graph { counter, nodes };
+			.map_err(|source| tg::error!(!source, "failed to create graph for lockfile"))?;
 		Ok((graph, root))
 	}
 
-	// Create a single package graph node from a reference and import kind.
-	async fn create_graph_node(
-		&self,
-		referrer: &tg::Path,
-		reference: &tg::Reference,
-		import_kind: tg::import::Kind,
-		nodes: &mut BTreeMap<Id, Node>,
-		visited: &mut BTreeMap<tg::Path, Id>,
-	) -> tg::Result<Id> {
-		if let Some(reference) = reference
-			.path()
-			.try_unwrap_path_ref()
-			.ok()
-			.or_else(|| reference.query()?.path.as_ref())
-		{
-			let path = referrer
-				.clone()
-				.parent()
-				.join(reference.clone())
-				.normalize();
-			return self
-				.create_graph_node_at_path(&path, import_kind, nodes, visited)
-				.await;
-		}
-		match reference.path() {
-			tg::reference::Path::Build(_) => {
-				Err(tg::error!("cannot create a graph node for a build"))
-			},
-			tg::reference::Path::Object(object) => {
-				let id = Either::Right(nodes.len());
-				let node = Node {
-					id: id.clone(),
-					errors: Vec::new(),
-					outgoing: BTreeMap::new(),
-					is_package_node: false,
-					object: tg::Object::with_id(object.clone()),
-					metadata: BTreeMap::new(),
-					tag: None,
-				};
-				nodes.insert(id.clone(), node);
-				Ok(id)
-			},
-			tg::reference::Path::Path(_) => unreachable!(),
-			tg::reference::Path::Tag(pattern) => {
-				Ok(Either::Left(get_reference_from_pattern(pattern)))
-			},
-		}
+	pub(super) async fn create_graph_for_path(&self, path: &tg::Path) -> tg::Result<(Graph, Id)> {
+		let mut graph = Graph::default();
+		let root = self
+			.add_path_to_graph(&mut graph, path.clone())
+			.await
+			.map_err(|source| tg::error!(!source, %path, "failed to create graph for package"))?;
+		Ok((graph, root))
 	}
 
-	async fn create_graph_node_at_path(
+	async fn add_path_to_graph(&self, graph: &mut Graph, path: tg::Path) -> tg::Result<Id> {
+		// Get the root module path, if it exists.
+		let root_module_path = tg::package::try_get_root_module_path_for_path(path.as_ref())
+			.await
+			.map_err(|source| tg::error!(!source, %path, "failed to get root module path"))?;
+
+		// Compute the path and infer the import kind.
+		let (path, kind) = if let Some(root_module_path) = root_module_path {
+			let path = path.join(root_module_path);
+			let kind = if path.as_str().ends_with(".js") {
+				tg::import::Kind::Js
+			} else if path.as_str().ends_with(".ts") {
+				tg::import::Kind::Ts
+			} else {
+				return Err(tg::error!(%path, "unknown root module file extension"));
+			};
+			(path, kind)
+		} else {
+			let kind = tg::import::Kind::Artifact;
+			(path, kind)
+		};
+
+		// Recursively walk the imports starting from the root.
+		let mut visited = BTreeMap::new();
+		self.add_path_to_graph_inner(graph, path, kind, &mut visited)
+			.await
+	}
+
+	async fn add_path_to_graph_inner(
 		&self,
-		path: &tg::Path,
-		import_kind: tg::import::Kind,
-		nodes: &mut BTreeMap<Id, Node>,
+		graph: &mut Graph,
+		path: tg::Path,
+		kind: tg::import::Kind,
 		visited: &mut BTreeMap<tg::Path, Id>,
 	) -> tg::Result<Id> {
 		// Canonicalize the path.
-		let path = tokio::fs::canonicalize(path)
+		let path = tokio::fs::canonicalize(&path)
 			.await
-			.map_err(|source| tg::error!(!source, %path, "failed to canonicalize path"))?
+			.map_err(|source| tg::error!(!source, %path, "failed to canonicalize the path"))?
 			.try_into()
-			.map_err(|source| tg::error!(!source, "failed to convert path"))?;
+			.map_err(|source| tg::error!(!source, "invalid path"))?;
+
+		// Check if we've already visited this path.
 		if let Some(id) = visited.get(&path) {
 			return Ok(id.clone());
 		};
 
-		// Get the object for this node.
+		// Check in the path to get the object.
 		let arg = tg::artifact::checkin::Arg {
 			path: path.clone(),
 			destructive: false,
 		};
-		let object = tg::Artifact::check_in(self, arg)
+		let artifact = tg::Artifact::check_in(self, arg)
 			.await
 			.map_err(|source| tg::error!(!source, %path, "failed to check in the artifact"))?;
 
-		// Create the metadata and get the outgoing edges.
+		if matches!(
+			(&artifact, kind),
+			(
+				tg::Artifact::File(_),
+				tg::import::Kind::Artifact | tg::import::Kind::File
+			) | (
+				tg::Artifact::Directory(_),
+				tg::import::Kind::Artifact | tg::import::Kind::Directory
+			)
+		) {
+			// If the import kind is an artifact, file, or directory, add it like any other object to the graph.
+			let id = self
+				.add_object_to_graph(graph, false, artifact.into(), None, None)
+				.await?;
+
+			// Objects imported by path must appear as package nodes in the final output, so that they may be stripped from the package before writing a lockfile.
+			graph.nodes.get_mut(&id).unwrap().is_package_node = true;
+			visited.insert(path.clone(), id.clone());
+			return Ok(id);
+		}
+
+		// Otherwise attempt to analyze as a typescript/javascript import.
+		let file = artifact
+			.try_unwrap_file()
+			.map_err(|_| tg::error!(%path, "expected a file"))?;
+		let text = file
+			.text(self)
+			.await
+			.map_err(|source| tg::error!(!source, "failed to get the file contents"))?;
+		let analysis = crate::compiler::Compiler::analyze_module(text)
+			.map_err(|source| tg::error!(!source, %path, "failed to analyze module"))?;
+
+		// Assign an ID.
+		let id = Either::Right(graph.counter);
+		graph.counter += 1;
+		visited.insert(path.clone(), id.clone());
+
 		let mut errors = Vec::new();
-		let mut metadata = BTreeMap::new();
-		let (outgoing, is_package_node) = match import_kind {
-			tg::import::Kind::Ts | tg::import::Kind::Js => 'a: {
-				if path.as_str().ends_with(".js") {
-					metadata.insert("kind".to_owned(), "js".to_owned().into());
-				} else if path.as_str().ends_with(".ts") {
-					metadata.insert("kind".to_owned(), "js".to_owned().into());
+		let mut outgoing = BTreeMap::new();
+		for import in analysis.imports {
+			// If there is a path, attempt to resolve it.
+			if let Some(path_) = import
+				.reference
+				.path()
+				.try_unwrap_path_ref()
+				.ok()
+				.or_else(|| import.reference.query()?.path.as_ref())
+			{
+				// Infer the kind if it is not available.
+				let kind = import.kind.or_else(|| {
+					if path_.as_str().ends_with(".js") {
+						Some(tg::import::Kind::Js)
+					} else if path_.as_str().ends_with(".ts") {
+						Some(tg::import::Kind::Ts)
+					} else {
+						None
+					}
+				});
+				let path_ = path.clone().parent().join(path_.clone()).normalize();
+				let result = match kind {
+					None | Some(tg::import::Kind::Package) => {
+						Box::pin(self.add_path_to_graph(graph, path_)).await
+					},
+					Some(kind) => {
+						Box::pin(self.add_path_to_graph_inner(graph, path_, kind, visited)).await
+					},
+				};
+				match result {
+					Ok(id) => {
+						outgoing.insert(import.reference, id);
+					},
+					Err(source) => {
+						let error = tg::error!(!source, %referrer = path, %reference = import.reference, "failed to resolve dependency");
+						errors.push(error);
+					},
 				}
-				let Ok(file) = object.try_unwrap_file_ref() else {
-					errors.push(tg::error!(%path, "expected a file"));
-					break 'a (BTreeMap::new(), true);
-				};
-				let Ok(text) = file.text(self).await else {
-					errors.push(tg::error!(%path, "failed to read file"));
-					break 'a (BTreeMap::new(), true);
-				};
-				let Ok(analysis) = crate::compiler::Compiler::analyze_module(text) else {
-					errors.push(tg::error!(%path, "failed to analyze module"));
-					break 'a (BTreeMap::new(), true);
-				};
+				continue;
+			}
 
-				// Add the metadata.
-				metadata.extend(
-					analysis
-						.metadata
-						.into_iter()
-						.flatten()
-						.map(|(k, v)| (k, v.try_into().unwrap())),
-				);
-
-				// Recurse.
-				let mut outgoing = BTreeMap::new();
-				for import in analysis.imports {
-					let result = Box::pin(self.create_graph_node(
-						&path,
-						&import.reference,
-						import.kind.unwrap_or(tg::import::Kind::Js),
-						nodes,
-						visited,
-					))
-					.await;
-					match result {
+			match import.reference.path() {
+				tg::reference::Path::Build(_) => {
+					let error = tg::error!(%reference = import.reference, "invalid reference");
+					errors.push(error);
+				},
+				tg::reference::Path::Object(object) => {
+					let object = tg::Object::with_id(object.clone());
+					match self
+						.add_object_to_graph(graph, true, object, None, None)
+						.await
+					{
 						Ok(id) => {
 							outgoing.insert(import.reference, id);
 						},
-						Err(source) => errors.push(
-							tg::error!(!source, %reference = import.reference, "failed to resolve dependency"),
-						),
+						Err(source) => {
+							let error = tg::error!(!source, %reference = import.reference, "failed to resolve dependency");
+							errors.push(error);
+						},
 					}
-				}
-				(outgoing, true)
-			},
-			_ => {
-				if object.try_unwrap_directory_ref().is_ok() {
-					metadata.insert("kind".to_owned(), "directory".to_owned().into());
-				} else {
-					metadata.insert("kind".to_owned(), "file".to_owned().into());
-				}
-				(BTreeMap::new(), false)
-			},
+				},
+				tg::reference::Path::Path(_) => unreachable!(),
+				tg::reference::Path::Tag(pattern) => {
+					let id = Either::Left(get_reference_from_pattern(pattern));
+					outgoing.insert(import.reference, id);
+				},
+			}
+		}
+
+		let node = Node {
+			id: id.clone(),
+			errors,
+			outgoing,
+			is_package_node: true,
+			object: file.into(),
+			metadata: BTreeMap::new(), // todo,
+			tag: None,
+		};
+		graph.nodes.insert(id.clone(), node);
+
+		Ok(id)
+	}
+
+	async fn add_object_to_graph(
+		&self,
+		graph: &mut Graph,
+		unify: bool,
+		object: tg::Object,
+		reference: Option<&tg::Reference>,
+		tag: Option<tg::Tag>,
+	) -> tg::Result<Id> {
+		if let tg::Object::Package(package) = object {
+			let package = package.object(self).await?;
+			let mut visited = BTreeMap::new();
+			let root = self
+				.add_package_to_graph_inner(
+					graph,
+					unify,
+					&package,
+					reference,
+					package.root,
+					&mut visited,
+				)
+				.await?;
+			graph.nodes.get_mut(&root).unwrap().tag = tag;
+			return Ok(root);
+		}
+
+		// Assign an ID.
+		let id = reference.and_then(try_get_id).unwrap_or_else(|| {
+			let id = Either::Right(graph.counter);
+			graph.counter += 1;
+			id
+		});
+
+		// Create the node.
+		let node = Node {
+			id: id.clone(),
+			errors: Vec::new(),
+			outgoing: BTreeMap::new(),
+			is_package_node: false,
+			object,
+			metadata: BTreeMap::new(),
+			tag,
 		};
 
-		// Create the ID for this node.
-		let id = Either::Right(nodes.len());
+		graph.nodes.insert(id.clone(), node);
+		Ok(id)
+	}
+
+	async fn add_package_to_graph_inner(
+		&self,
+		graph: &mut Graph,
+		unify: bool,
+		package: &tg::package::Object,
+		reference: Option<&tg::Reference>,
+		node: usize,
+		visited: &mut BTreeMap<usize, Id>,
+	) -> tg::Result<Id> {
+		if let Some(id) = visited.get(&node) {
+			return Ok(id.clone());
+		};
+
+		// Assign an ID.
+		let id = reference.and_then(try_get_id).unwrap_or_else(|| {
+			let id = Either::Right(graph.counter);
+			graph.counter += 1;
+			id
+		});
+		visited.insert(node, id.clone());
+
+		let mut errors = Vec::new();
+		let mut outgoing = BTreeMap::new();
+		for (reference, either) in &package.nodes[node].dependencies {
+			if let Some(reference) = reference
+				.path()
+				.try_unwrap_tag_ref()
+				.ok()
+				.and_then(|pattern| unify.then(|| get_reference_from_pattern(pattern)))
+			{
+				outgoing.insert(reference.clone(), Either::Left(reference));
+				continue;
+			}
+			let result =
+				match either {
+					Either::Left(node) => {
+						Box::pin(self.add_package_to_graph_inner(
+							graph, unify, package, None, *node, visited,
+						))
+						.await
+					},
+					Either::Right(object) => {
+						Box::pin(self.add_object_to_graph(graph, unify, object.clone(), None, None))
+							.await
+					},
+				};
+			match result {
+				Ok(id) => {
+					outgoing.insert(reference.clone(), id);
+				},
+				Err(source) => {
+					let error = tg::error!(!source, %reference, "failed to resolve dependency");
+					errors.push(error);
+				},
+			}
+		}
+
+		// Get the object and metadata.
+		let object = package.nodes[node]
+			.object
+			.clone()
+			.ok_or_else(|| tg::error!("incomplete package"))?;
+		let metadata = package.nodes[node].metadata.clone();
 
 		// Create the node.
 		let node = Node {
 			id: id.clone(),
 			errors,
 			outgoing,
-			is_package_node,
-			object: object.into(),
+			is_package_node: true,
+			object,
 			metadata,
 			tag: None,
 		};
-
-		nodes.insert(id.clone(), node);
-		visited.insert(path, id.clone());
+		graph.nodes.insert(id.clone(), node);
 		Ok(id)
 	}
 }
@@ -273,14 +395,26 @@ impl Server {
 impl Graph {
 	/// Convert the graph into a tg::package::Object
 	pub fn into_package_object(&self, root: &Id) -> tg::package::Object {
-		// Assign an index to every node that isn't a bare package.
-		let indices = self
-			.nodes
-			.values()
-			.filter(|node| node.is_package_node)
-			.enumerate()
-			.map(|(index, node)| (node.id.clone(), index))
-			.collect::<BTreeMap<_, _>>();
+		// Walk the graph to assign indices. This ensures the ordering of indices is stable.
+		let mut stack = vec![root];
+		let mut counter = 0usize;
+		let mut indices = BTreeMap::new();
+		while let Some(node) = stack.pop() {
+			if indices.contains_key(node) {
+				continue;
+			};
+			let index = counter;
+			eprintln!("assigned index {index} to id {node:?}");
+			counter += 1;
+			indices.insert(node.clone(), index);
+			let node = self.nodes.get(node).unwrap();
+			for neighbor in node.outgoing.values() {
+				let node = self.nodes.get(neighbor).unwrap();
+				if node.is_package_node {
+					stack.push(neighbor);
+				}
+			}
+		}
 
 		// Get the root index.
 		let root = *indices.get(root).unwrap();
@@ -290,9 +424,7 @@ impl Graph {
 			.nodes
 			.values()
 			.filter_map(|node| {
-				if !node.is_package_node {
-					return None;
-				}
+				let index = indices.get(&node.id)?;
 				let object = Some(node.object.clone());
 				let metadata = node
 					.metadata
@@ -304,20 +436,25 @@ impl Graph {
 					.iter()
 					.map(|(reference, id)| {
 						let node = self.nodes.get(id).unwrap();
-						let package = indices
+						let either = indices
 							.get(&node.id)
 							.copied()
 							.map(Either::Left)
 							.unwrap_or_else(|| Either::Right(node.object.clone()));
-						(reference.clone(), Some(package))
+						(reference.clone(), either)
 					})
 					.collect();
-				Some(tg::package::Node {
+
+				let node = tg::package::Node {
 					dependencies,
 					object,
 					metadata,
-				})
+				};
+				Some((*index, node))
 			})
+			.collect::<BTreeMap<_, _>>()
+			.into_iter()
+			.map(|(_, node)| node)
 			.collect();
 
 		// Create the object.
@@ -335,150 +472,6 @@ impl Graph {
 				dst: dst.clone(),
 				reference: dependency.clone(),
 			})
-	}
-
-	async fn create_node_from_object(
-		&mut self,
-		server: &Server,
-		unify: bool,
-		object: tg::Object,
-		reference: Option<&tg::Reference>,
-		tag: Option<tg::Tag>,
-	) -> tg::Result<Id> {
-		if let tg::Object::Package(package) = object {
-			return self
-				.create_node_from_package(server, unify, package, reference, tag)
-				.await;
-		}
-		let id = reference.and_then(try_get_id).unwrap_or_else(|| {
-			let id = self.counter;
-			self.counter += 1;
-			Either::Right(id)
-		});
-		let node = Node {
-			id: id.clone(),
-			errors: Vec::new(),
-			outgoing: BTreeMap::new(),
-			is_package_node: false,
-			object,
-			metadata: BTreeMap::new(),
-			tag,
-		};
-		self.nodes.insert(id.clone(), node);
-		return Ok(id);
-	}
-
-	async fn create_node_from_package(
-		&mut self,
-		server: &Server,
-		unify: bool,
-		package: tg::Package,
-		reference: Option<&tg::Reference>,
-		tag: Option<tg::Tag>,
-	) -> tg::Result<Id> {
-		let mut visited = BTreeMap::new();
-		let package = package.object(server).await?;
-		let index = package.root;
-		let id = self
-			.create_node_from_package_inner(server, unify, &package, index, reference, &mut visited)
-			.await?;
-		self.nodes.get_mut(&id).unwrap().tag = tag;
-		Ok(id)
-	}
-
-	async fn create_node_from_package_inner(
-		&mut self,
-		server: &Server,
-		unify: bool,
-		package: &tg::package::Object,
-		index: usize,
-		reference: Option<&tg::Reference>,
-		visited: &mut BTreeMap<usize, Id>,
-	) -> tg::Result<Id> {
-		if let Some(id) = visited.get(&index) {
-			return Ok(id.clone());
-		}
-		let node = &package.nodes[index];
-		let mut errors = Vec::new();
-		let mut outgoing = BTreeMap::new();
-		for (reference, dependency) in &node.dependencies {
-			// If the package is incomplete, log an error.
-			let Some(dependency) = dependency else {
-				errors.push(tg::error!(%reference, "missing dependency"));
-				continue;
-			};
-
-			let id = match (try_get_id(reference), dependency) {
-				// If we can get an ID for the reference and unify is true, use it.
-				(Some(id), _) if unify => id,
-
-				// If the dependency is in the package object, recurse.
-				(_, Either::Left(index)) => {
-					let Ok(id) = Box::pin(self.create_node_from_package_inner(
-						server,
-						unify,
-						package,
-						*index,
-						Some(reference),
-						visited,
-					))
-					.await
-					.inspect_err(|source| {
-						let source = source.clone();
-						errors.push(tg::error!(!source, "failed to create package node"));
-					}) else {
-						continue;
-					};
-					id
-				},
-
-				// If the dependency is an object, create a new node for it.
-				(_, Either::Right(object)) => {
-					let Ok(id) = Box::pin(self.create_node_from_object(
-						server,
-						unify,
-						object.clone(),
-						None,
-						None,
-					))
-					.await
-					.inspect_err(|source| {
-						let source = source.clone();
-						errors.push(tg::error!(!source, "failed to create package node"));
-					}) else {
-						continue;
-					};
-					id
-				},
-			};
-			outgoing.insert(reference.clone(), id);
-		}
-
-		// Get the object and its metadata.
-		let object = node
-			.object
-			.clone()
-			.ok_or_else(|| tg::error!("missing object"))?;
-		let metadata = node.metadata.clone();
-
-		// Create the node.
-		let id = reference.and_then(try_get_id).unwrap_or_else(|| {
-			let id = self.counter;
-			self.counter += 1;
-			Either::Right(id)
-		});
-		let node = Node {
-			id: id.clone(),
-			errors,
-			outgoing,
-			is_package_node: true,
-			object,
-			metadata,
-			tag: None,
-		};
-		self.nodes.insert(id.clone(), node);
-		visited.insert(index, id.clone());
-		Ok(id)
 	}
 
 	fn add_error(&mut self, node: &Id, error: tg::Error) {
@@ -693,8 +686,7 @@ impl Server {
 			.ok_or_else(|| tg::error!(%reference, "no solution exists"))?;
 
 		// Add to the graph.
-		graph
-			.create_node_from_object(self, true, object, Some(reference), Some(tag))
+		self.add_object_to_graph(graph, true, object, Some(reference), Some(tag))
 			.await
 	}
 }

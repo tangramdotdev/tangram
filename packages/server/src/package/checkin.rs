@@ -38,7 +38,7 @@ impl Server {
 
 		// Resolve path dependencies to create the initial package object.
 		let (graph, root) = self
-			.create_graph_for_path(&path, &root_module_path)
+			.create_graph_for_path(&path)
 			.await
 			.map_err(|source| tg::error!(!source, %path, "failed to create package graph"))?;
 
@@ -137,7 +137,8 @@ impl Server {
 				return Err(tg::error!(!source, %path, "failed to read the lockfile"));
 			},
 		};
-		let data = tg::package::Data::deserialize(&bytes.into())?;
+		let data: tg::package::Data = serde_json::from_slice(&bytes)
+			.map_err(|source| tg::error!(!source, "failed to deserialize the lockfile"))?;
 		let object: tg::package::Object = data.try_into()?;
 		let package = tg::Package::with_object(object);
 		Ok(Some(package))
@@ -170,11 +171,11 @@ impl Server {
 		let mut stack = vec![(object.root, path.clone())];
 		let mut visited = BTreeSet::new();
 		while let Some((index, path)) = stack.pop() {
-			let node = &mut object.nodes[index];
 			if visited.contains(&index) {
 				continue;
 			}
 			visited.insert(index);
+			let node = &mut object.nodes[index];
 			let arg = tg::artifact::checkin::Arg {
 				path: path.clone(),
 				destructive: false,
@@ -194,29 +195,36 @@ impl Server {
 				else {
 					continue;
 				};
+
 				let path = path.clone().parent().join(path_.clone()).normalize();
+				let root_module_path =
+					tg::package::try_get_root_module_path_for_path(path.as_ref())
+						.await
+						.ok()
+						.flatten();
+				let path = root_module_path
+					.map(|p| path.clone().join(p))
+					.unwrap_or(path);
+
 				match value {
-					Some(Either::Left(index)) => {
+					Either::Left(index) => {
 						stack.push((*index, path));
 					},
-					Some(Either::Right(tg::Object::Package(package))) => {
-						let object_ = Box::pin(self.add_path_references_to_package(package, &path))
-							.await?
-							.into();
-						value.replace(Either::Right(object_));
+					Either::Right(tg::Object::Package(package)) => {
+						*package =
+							Box::pin(self.add_path_references_to_package(package, &path)).await?;
 					},
-					_ => {
+					Either::Right(object_) => {
 						let arg = tg::artifact::checkin::Arg {
 							path: path.clone(),
 							destructive: false,
 						};
-						let object_ = tg::Artifact::check_in(self, arg)
+						*object_ = tg::Artifact::check_in(self, arg)
 							.await
 							.map_err(
 								|source| tg::error!(!source, %path, "failed to check in artifact"),
 							)?
 							.into();
-						value.replace(Either::Right(object_));
 					},
 				}
 			}
@@ -247,14 +255,12 @@ impl Server {
 					continue;
 				};
 				match package {
-					Some(Either::Left(index)) => stack.push(*index),
-					Some(Either::Right(tg::Object::Package(package))) => {
+					Either::Left(index) => stack.push(*index),
+					Either::Right(tg::Object::Package(package)) => {
 						*package =
 							Box::pin(self.remove_path_references_from_package(&package)).await?;
 					},
-					_ => {
-						package.take();
-					},
+					Either::Right(_object) => continue,
 				}
 			}
 		}
