@@ -37,6 +37,7 @@ pub struct Pattern {
 pub enum Component {
 	Normal(tg::tag::Component),
 	Semver(semver::Pattern),
+	Glob,
 }
 
 impl Pattern {
@@ -91,6 +92,7 @@ impl Pattern {
 						return false;
 					}
 				},
+				Component::Glob => (),
 			}
 		}
 		true
@@ -124,6 +126,7 @@ impl std::fmt::Display for Component {
 		match self {
 			Component::Normal(string) => write!(f, "{string}"),
 			Component::Semver(version) => write!(f, "{version}"),
+			Component::Glob => write!(f, "*"),
 		}
 	}
 }
@@ -132,13 +135,16 @@ impl std::str::FromStr for Component {
 	type Err = tg::Error;
 
 	fn from_str(s: &str) -> Result<Self, Self::Err> {
+		if s == "*" {
+			return Ok(Self::Glob);
+		}
 		if let Ok(component) = s.parse() {
 			return Ok(Self::Normal(component));
 		}
 		if let Ok(pattern) = s.parse() {
 			return Ok(Self::Semver(pattern));
 		}
-		Err(tg::error!("invalid component"))
+		Err(tg::error!(%component = s, "invalid component"))
 	}
 }
 

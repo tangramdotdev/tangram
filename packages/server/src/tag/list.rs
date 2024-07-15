@@ -82,6 +82,23 @@ impl Server {
 						pattern.matches(&version)
 					});
 				},
+
+				tg::tag::pattern::Component::Glob => {
+					let p = connection.p();
+					let statement = formatdoc!(
+						"
+							select id, name, item
+							from tags
+							where parent = {p}1 or (parent is null and {p}1 is null);
+						"
+					);
+					let parent = rows.first().map(|row| row.id);
+					let params = db::params![parent];
+					rows = connection
+						.query_all_into::<Row>(statement, params)
+						.await
+						.map_err(|source| tg::error!(!source, "failed to execute the statement"))?;
+				},
 			}
 		}
 

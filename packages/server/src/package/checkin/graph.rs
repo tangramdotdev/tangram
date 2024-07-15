@@ -252,13 +252,26 @@ impl Server {
 			}
 		}
 
+		let mut metadata = BTreeMap::new();
+		for (key, data) in analysis.metadata.into_iter().flatten() {
+			match data.try_into() {
+				Ok(value) => {
+					metadata.insert(key, value);
+				},
+				Err(source) => {
+					let error = tg::error!(!source, %key, "failed to convert metadata");
+					errors.push(error);
+				},
+			}
+		}
+		metadata.insert("kind".to_owned(), kind.to_string().into());
 		let node = Node {
 			id: id.clone(),
 			errors,
 			outgoing,
 			is_package_node: true,
 			object: file.into(),
-			metadata: BTreeMap::new(), // todo,
+			metadata,
 			tag: None,
 		};
 		graph.nodes.insert(id.clone(), node);

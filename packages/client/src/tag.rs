@@ -1,6 +1,12 @@
 use crate as tg;
 use itertools::Itertools as _;
-use winnow::{ascii::alphanumeric1, combinator::separated, prelude::*};
+use tangram_semver::Version;
+use winnow::{
+	ascii::{alphanumeric1, dec_uint},
+	combinator::{alt, opt, preceded, separated},
+	prelude::*,
+	token::take_while,
+};
 
 pub mod delete;
 pub mod get;
@@ -101,6 +107,9 @@ impl TryFrom<Pattern> for Tag {
 				self::pattern::Component::Semver(_) => Err(tg::error!(
 					"pattern is not a tag if it has a semver component"
 				)),
+				self::pattern::Component::Glob => Err(tg::error!(
+					"pattern is not a tag if it has a glob component"
+				)),
 			})
 			.collect::<tg::Result<_>>()?;
 		Ok(Self { string, components })
@@ -128,6 +137,52 @@ fn tag(input: &mut &str) -> PResult<Tag> {
 }
 
 fn component(input: &mut &str) -> PResult<Component> {
-	let component = alphanumeric1.parse_next(input)?;
+	alt((version, string)).parse_next(input)
+}
+
+fn string(input: &mut &str) -> PResult<Component> {
+	let component = take_while(1.., |ch: char| {
+		ch.is_alphanumeric() || ch == '_' || ch == '-'
+	})
+	.parse_next(input)?;
 	Ok(Component(component.to_owned()))
+}
+
+fn version(input: &mut &str) -> PResult<Component> {
+	let prerelease = opt(preceded("-", dot_separated_identifier));
+	let build = opt(preceded("+", dot_separated_identifier));
+	let (major, _, minor, _, patch, prerelease, build) =
+		(dec_uint, ".", dec_uint, ".", dec_uint, prerelease, build).parse_next(input)?;
+	let prerelease = prerelease.map(ToOwned::to_owned);
+	let build = build.map(ToOwned::to_owned);
+	let version = Version {
+		major,
+		minor,
+		patch,
+		prerelease,
+		build,
+	};
+	Ok(Component(version.to_string()))
+}
+
+fn dot_separated_identifier<'a>(input: &mut &'a str) -> PResult<&'a str> {
+	separated::<_, _, Vec<_>, _, _, _, _>(1.., alphanumeric1, ".")
+		.recognize()
+		.parse_next(input)
+}
+
+#[cfg(test)]
+mod tests {
+	use crate::tg;
+	#[test]
+	fn tag() {
+		let tag: tg::Tag = "tag/1.0.0".parse().unwrap();
+		assert_eq!(
+			tag.components(),
+			&vec![
+				tg::tag::Component::new("tag".to_owned()),
+				tg::tag::Component::new("1.0.0".to_owned()),
+			]
+		);
+	}
 }
