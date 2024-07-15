@@ -643,16 +643,14 @@ impl Server {
 		}
 
 		// Get the tag of the current node.
-		let Some(tag) = current
+		let tag = current
 			.graph
 			.nodes
 			.get(&current.edge.dst)
 			.unwrap()
 			.tag
 			.as_ref()
-		else {
-			return;
-		};
+			.unwrap();
 
 		// Validate the constraint.
 		match reference

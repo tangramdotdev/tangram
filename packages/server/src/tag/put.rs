@@ -19,7 +19,8 @@ impl Server {
 			.await
 			.map_err(|source| tg::error!(!source, "failed to begin a transaction"))?;
 
-		let mut parent: Option<u64> = None;
+		let mut parent = 0;
+
 		for (i, component) in tag.components().iter().enumerate() {
 			// Insert the component.
 			let p = transaction.p();
@@ -27,7 +28,9 @@ impl Server {
 				"
 					insert into tags (name, parent)
 					values ({p}1, {p}2)
-					on conflict (name, parent) do nothing
+					on conflict (name, parent)
+					do update set
+						parent = {p}2
 					returning id;
 				"
 			);
@@ -55,7 +58,7 @@ impl Server {
 					.map_err(|source| tg::error!(!source, "failed to execute the statement"))?;
 			} else {
 				// Otherwise, set the parent and continue.
-				parent = Some(id);
+				parent = id;
 			}
 		}
 

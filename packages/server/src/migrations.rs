@@ -157,7 +157,7 @@ async fn migration_0000(path: &Path) -> tg::Result<()> {
 			create table tags (
 				id integer primary key autoincrement,
 				name text not null,
-				parent integer,
+				parent integer not null,
 				item text
 			);
 
