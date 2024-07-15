@@ -406,6 +406,32 @@ impl Server {
 }
 
 impl Graph {
+	pub fn validate(&self, server: &Server) -> tg::Result<()> {
+		let mut errors = Vec::new();
+		for node in self.nodes.values() {
+			let errors_ = node
+				.errors
+				.iter()
+				.map(|error| tg::error!(%error, %node = node.id, "node contains error"));
+			errors.extend(errors_);
+			for (reference, id) in &node.outgoing {
+				if !self.nodes.contains_key(&id) {
+					let error =
+						tg::error!(%reference, %node = node.id, "failed to resolve dependency");
+					errors.push(error);
+				}
+			}
+		}
+		if errors.is_empty() {
+			return Ok(());
+		}
+		for error in errors {
+			let trace = error.trace(&server.options.advanced.error_trace_options);
+			eprintln!("{trace}");
+		}
+		return Err(tg::error!("invalid graph"));
+	}
+
 	/// Convert the graph into a tg::package::Object
 	pub fn into_package_object(&self, root: &Id) -> tg::package::Object {
 		// Walk the graph to assign indices. This ensures the ordering of indices is stable.
@@ -547,6 +573,7 @@ impl Server {
 			};
 
 			current.edge = next;
+			current.objects.take();
 		}
 
 		Ok(current.graph)

@@ -77,6 +77,7 @@ impl Server {
 			.walk_package_graph(graph, &root)
 			.await
 			.map_err(|source| tg::error!(!source, "failed to walk package graph"))?;
+		graph.validate(self)?;
 
 		// Create the package.
 		let object = graph.into_package_object(&root);
