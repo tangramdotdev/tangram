@@ -585,6 +585,10 @@ impl Server {
 		current: &mut State,
 		overrides: &BTreeMap<Id, BTreeMap<String, tg::Reference>>,
 	) {
+		eprintln!(
+			"walking edge {} <: {} @ {}",
+			current.edge.src, current.edge.dst, current.edge.reference
+		);
 		// Check if an override exists.
 		let reference = overrides
 			.get(&current.edge.src)

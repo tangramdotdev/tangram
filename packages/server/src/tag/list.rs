@@ -49,10 +49,10 @@ impl Server {
 						"
 							select id, name, item
 							from tags
-							where name = {p}1 and (parent = {p}2 or (parent is null and {p}2 is null));
+							where name = {p}1 and parent = {p}2
 						"
 					);
-					let parent = rows.first().map(|row| row.id);
+					let parent = rows.first().map(|row| row.id).unwrap_or(0);
 					let params = db::params![component, parent];
 					rows = connection
 						.query_all_into(statement, params)
@@ -66,10 +66,10 @@ impl Server {
 						"
 							select id, name, item
 							from tags
-							where parent = {p}1 or (parent is null and {p}1 is null);
+							where parent = {p}1
 						"
 					);
-					let parent = rows.first().map(|row| row.id);
+					let parent = rows.first().map(|row| row.id).unwrap_or(0);
 					let params = db::params![parent];
 					rows = connection
 						.query_all_into::<Row>(statement, params)
@@ -89,10 +89,10 @@ impl Server {
 						"
 							select id, name, item
 							from tags
-							where parent = {p}1 or (parent is null and {p}1 is null);
+							where parent = {p}1
 						"
 					);
-					let parent = rows.first().map(|row| row.id);
+					let parent = rows.first().map(|row| row.id).unwrap_or(0);
 					let params = db::params![parent];
 					rows = connection
 						.query_all_into::<Row>(statement, params)
