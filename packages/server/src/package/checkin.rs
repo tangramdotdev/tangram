@@ -151,19 +151,19 @@ impl Server {
 		let data = package.data(self).await?;
 		let bytes = serde_json::to_vec_pretty(&data)
 			.map_err(|source| tg::error!(!source, "failed to serialize data"))?;
-		let mut file =
-		tokio::fs::File::options()
+		let mut file = tokio::fs::File::options()
 			.create(true)
 			.append(false)
 			.write(true)
 			.open(&path)
 			.await
 			.map_err(|source| tg::error!(!source, %path, "failed to open lockfile for writing"))?;
-		file
-			.write_all(&bytes)
+		file.write_all(&bytes)
 			.await
 			.map_err(|source| tg::error!(!source, %path, "failed to write lockfile"))?;
-		file.set_len(bytes.len().to_u64().unwrap()).await.map_err(|source| tg::error!(!source, "failed to truncate lockfile"))?;
+		file.set_len(bytes.len().to_u64().unwrap())
+			.await
+			.map_err(|source| tg::error!(!source, "failed to truncate lockfile"))?;
 		Ok(())
 	}
 

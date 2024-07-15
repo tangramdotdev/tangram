@@ -350,13 +350,13 @@ impl Server {
 		let mut errors = Vec::new();
 		let mut outgoing = BTreeMap::new();
 		for (reference, either) in &package.nodes[node].dependencies {
-			if let Some(reference) = reference
+			if let Some(reference_) = reference
 				.path()
 				.try_unwrap_tag_ref()
 				.ok()
 				.and_then(|pattern| unify.then(|| get_reference_from_pattern(pattern)))
 			{
-				outgoing.insert(reference.clone(), Either::Left(reference));
+				outgoing.insert(reference.clone(), Either::Left(reference_));
 				continue;
 			}
 			let result =
@@ -427,7 +427,7 @@ impl Graph {
 		}
 		for error in errors {
 			let trace = error.trace(&server.options.advanced.error_trace_options);
-			eprintln!("{trace}");
+			tracing::error!("{trace}");
 		}
 		return Err(tg::error!("invalid graph"));
 	}
@@ -585,10 +585,6 @@ impl Server {
 		current: &mut State,
 		overrides: &BTreeMap<Id, BTreeMap<String, tg::Reference>>,
 	) {
-		eprintln!(
-			"walking edge {} <: {} @ {}",
-			current.edge.src, current.edge.dst, current.edge.reference
-		);
 		// Check if an override exists.
 		let reference = overrides
 			.get(&current.edge.src)

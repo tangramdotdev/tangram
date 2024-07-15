@@ -255,14 +255,28 @@ impl Package {
 			Either::Left(index) => *index,
 			Either::Right(object) => return Ok(Some(object.clone())),
 		};
-		let mut nodes = vec![];
+
+		let mut nodes = BTreeMap::new();
 		let root = Self::try_get_dependency_inner(&mut nodes, &object, index);
+		let nodes = nodes
+			.into_iter()
+			.sorted_by_key(|(_, (idx, _))| *idx)
+			.map(|(_, (_, node))| node.unwrap())
+			.collect();
 		let package = Package::with_object(Object { nodes, root });
 		let object = package.into();
 		Ok(Some(object))
 	}
 
-	fn try_get_dependency_inner(nodes: &mut Vec<Node>, package: &Object, index: usize) -> usize {
+	fn try_get_dependency_inner(
+		nodes: &mut BTreeMap<usize, (usize, Option<Node>)>,
+		package: &Object,
+		index: usize,
+	) -> usize {
+		if let Some((index, _)) = nodes.get(&index) {
+			return *index;
+		}
+		nodes.insert(index, (nodes.len(), None));
 		let node = &package.nodes[index];
 		let dependencies = node
 			.dependencies
@@ -282,9 +296,9 @@ impl Package {
 			metadata,
 			object,
 		};
-		let index = nodes.len();
-		nodes.push(node);
-		index
+		let entry = nodes.get_mut(&index).unwrap();
+		entry.1.replace(node);
+		entry.0
 	}
 
 	pub async fn metadata<H>(
