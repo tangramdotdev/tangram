@@ -1,7 +1,9 @@
 use crate::Server;
 use either::Either;
+use petgraph::visit::{GraphBase, GraphRef, IntoNeighbors, IntoNodeIdentifiers, NodeIndexable};
 use std::collections::BTreeMap;
 use tangram_client as tg;
+
 #[derive(Clone, Debug)]
 struct State {
 	// The current graph.
@@ -29,6 +31,7 @@ pub(super) struct Graph {
 
 // A node within the package graph.
 #[derive(Clone, Debug)]
+#[allow(clippy::struct_field_names)]
 pub struct Node {
 	// A unique identifier of the node within the package graph.
 	pub id: Id,
@@ -66,6 +69,9 @@ pub(super) struct Edge {
 	pub reference: tg::Reference,
 }
 
+#[derive(Copy, Clone, Debug)]
+struct GraphImpl<'a>(&'a [tg::package::Node]);
+
 impl Server {
 	/// Create an initial package graph from a root module path and return the graph and id of the root node.
 	pub(super) async fn create_graph_for_lockfile(
@@ -98,9 +104,9 @@ impl Server {
 		// Compute the path and infer the import kind.
 		let (path, kind) = if let Some(root_module_path) = root_module_path {
 			let path = path.join(root_module_path);
-			let kind = if path.as_str().ends_with(".js") {
+			let kind = if path.as_str().to_lowercase().ends_with(".js") {
 				tg::import::Kind::Js
-			} else if path.as_str().ends_with(".ts") {
+			} else if path.as_str().to_lowercase().ends_with(".ts") {
 				tg::import::Kind::Ts
 			} else {
 				return Err(tg::error!(%path, "unknown root module file extension"));
@@ -195,9 +201,9 @@ impl Server {
 			{
 				// Infer the kind if it is not available.
 				let kind = import.kind.or_else(|| {
-					if path_.as_str().ends_with(".js") {
+					if path_.as_str().to_lowercase().ends_with(".js") {
 						Some(tg::import::Kind::Js)
-					} else if path_.as_str().ends_with(".ts") {
+					} else if path_.as_str().to_lowercase().ends_with(".ts") {
 						Some(tg::import::Kind::Ts)
 					} else {
 						None
@@ -415,7 +421,7 @@ impl Graph {
 				.map(|error| tg::error!(%error, %node = node.id, "node contains error"));
 			errors.extend(errors_);
 			for (reference, id) in &node.outgoing {
-				if !self.nodes.contains_key(&id) {
+				if !self.nodes.contains_key(id) {
 					let error =
 						tg::error!(%reference, %node = node.id, "failed to resolve dependency");
 					errors.push(error);
@@ -429,11 +435,11 @@ impl Graph {
 			let trace = error.trace(&server.options.advanced.error_trace_options);
 			tracing::error!("{trace}");
 		}
-		return Err(tg::error!("invalid graph"));
+		Err(tg::error!("invalid graph"))
 	}
 
-	/// Convert the graph into a tg::package::Object
-	pub fn into_package_object(&self, root: &Id) -> tg::package::Object {
+	/// Convert the graph into a `tg::package::Object`
+	pub fn create_package_object(&self, root: &Id) -> tg::package::Object {
 		// Walk the graph to assign indices. This ensures the ordering of indices is stable.
 		let mut stack = vec![root];
 		let mut counter = 0usize;
@@ -467,7 +473,7 @@ impl Graph {
 				let metadata = node
 					.metadata
 					.iter()
-					.map(|(key, data)| (key.clone(), data.clone().try_into().unwrap()))
+					.map(|(key, data)| (key.clone(), data.clone()))
 					.collect();
 				let dependencies = node
 					.outgoing
@@ -477,26 +483,84 @@ impl Graph {
 						let either = indices
 							.get(&node.id)
 							.copied()
-							.map(Either::Left)
-							.unwrap_or_else(|| Either::Right(node.object.clone()));
+							.map_or_else(|| Either::Right(node.object.clone()), Either::Left);
 						(reference.clone(), either)
 					})
 					.collect();
 
 				let node = tg::package::Node {
 					dependencies,
-					object,
 					metadata,
+					object,
 				};
 				Some((*index, node))
 			})
 			.collect::<BTreeMap<_, _>>()
-			.into_iter()
-			.map(|(_, node)| node)
-			.collect();
+			.into_values()
+			.collect::<Vec<_>>();
+		// Split the nodes into strongly connected components.
+		let mut sccs: Vec<Vec<tg::package::Node>> = vec![];
+		let mut scc_map = BTreeMap::new();
 
-		// Create the object.
-		tg::package::Object { root, nodes }
+		for (scc_index, scc) in petgraph::algo::tarjan_scc(GraphImpl(&nodes))
+			.into_iter()
+			.enumerate()
+		{
+			// First, assign new indices.
+			for (new, old) in scc.iter().copied().enumerate() {
+				scc_map.insert(old, (scc_index, new));
+			}
+
+			// Create nodes.
+			let scc =
+				scc.into_iter()
+					.map(|old| {
+						// Get the original node.
+						let node = &nodes[old];
+
+						// Remap dependencies.
+						let dependencies =
+							node.dependencies
+								.iter()
+								.map(|(reference, either)| {
+									let either =
+										match either {
+											Either::Left(old) => {
+												let (scc, new) = scc_map.get(old).unwrap();
+												if *scc == scc_index {
+													Either::Left(*new)
+												} else {
+													let root = *new;
+													let nodes = sccs[*scc].clone();
+													let package = tg::Package::with_object(
+														tg::package::Object { nodes, root },
+													);
+													Either::Right(package.into())
+												}
+											},
+											Either::Right(object) => Either::Right(object.clone()),
+										};
+									(reference.clone(), either)
+								})
+								.collect();
+
+						// Create the new node.
+						tg::package::Node {
+							dependencies,
+							..node.clone()
+						}
+					})
+					.collect();
+
+			// Add the strongly connected component to the list of sccs.
+			sccs.push(scc);
+		}
+
+		let (scc, root) = scc_map.get(&root).copied().unwrap();
+		let nodes = sccs[scc].clone();
+
+		// Create the package.
+		tg::package::Object { nodes, root }
 	}
 
 	pub fn outgoing(&self, src: Id) -> impl Iterator<Item = Edge> + '_ {
@@ -665,7 +729,6 @@ impl Server {
 			Ok(false) => match try_backtrack(state, &current.edge) {
 				Some(old) if !contains_errors => {
 					*current = old;
-					return;
 				},
 				_ => {
 					let error = tg::error!(%reference, "package version conflict");
@@ -782,4 +845,44 @@ fn try_get_id(reference: &tg::Reference) -> Option<Id> {
 		.ok()
 		.map(get_reference_from_pattern)
 		.map(Either::Left)
+}
+
+impl<'a> GraphBase for GraphImpl<'a> {
+	type EdgeId = (usize, usize);
+	type NodeId = usize;
+}
+
+impl<'a> GraphRef for GraphImpl<'a> {}
+
+#[allow(clippy::needless_arbitrary_self_type)]
+impl<'a> NodeIndexable for GraphImpl<'a> {
+	fn from_index(self: &Self, i: usize) -> Self::NodeId {
+		i
+	}
+
+	fn node_bound(self: &Self) -> usize {
+		self.0.len()
+	}
+
+	fn to_index(self: &Self, a: Self::NodeId) -> usize {
+		a
+	}
+}
+
+impl<'a> IntoNeighbors for GraphImpl<'a> {
+	type Neighbors = Box<dyn Iterator<Item = usize> + 'a>;
+	fn neighbors(self, a: Self::NodeId) -> Self::Neighbors {
+		let iter = self.0[a]
+			.dependencies
+			.values()
+			.filter_map(|v| v.as_ref().left().copied());
+		Box::new(iter)
+	}
+}
+
+impl<'a> IntoNodeIdentifiers for GraphImpl<'a> {
+	type NodeIdentifiers = std::ops::Range<usize>;
+	fn node_identifiers(self) -> Self::NodeIdentifiers {
+		0..self.node_bound()
+	}
 }

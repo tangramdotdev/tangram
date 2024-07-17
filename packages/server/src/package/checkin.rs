@@ -1,6 +1,5 @@
 use crate::Server;
 use either::Either;
-use num::ToPrimitive;
 use std::collections::BTreeSet;
 use tangram_client as tg;
 use tangram_http::{incoming::request::Ext as _, outgoing::response::Ext as _, Incoming, Outgoing};
@@ -63,8 +62,12 @@ impl Server {
 			let (graph_, root_) = self.create_graph_for_lockfile(&package).await?;
 
 			let mut visited = BTreeSet::new();
-			if self.check_graph(&graph, &root, &graph_, &root_, &mut visited) {
-				let object = graph_.into_package_object(&root_);
+			if self
+				.check_graph(&graph, &root, &graph_, &root_, &mut visited)
+				.await
+				.map_err(|source| tg::error!(!source, "failed to check if lock is out of date"))?
+			{
+				let object = graph_.create_package_object(&root_);
 				let package = tg::Package::with_object(object).id(self).await?;
 				let output = tg::package::checkin::Output { package };
 				return Ok(output);
@@ -81,7 +84,7 @@ impl Server {
 		graph.validate(self)?;
 
 		// Create the package.
-		let object = graph.into_package_object(&root);
+		let object = graph.create_package_object(&root);
 		let package = tg::Package::with_object(object);
 
 		// Remove path references from the package.
@@ -96,36 +99,51 @@ impl Server {
 		Ok(output)
 	}
 
-	fn check_graph(
+	async fn check_graph(
 		&self,
 		package_graph: &graph::Graph,
 		package_node: &graph::Id,
 		lock_graph: &graph::Graph,
 		lock_node: &graph::Id,
 		visited: &mut BTreeSet<graph::Id>,
-	) -> bool {
+	) -> tg::Result<bool> {
 		if visited.contains(package_node) {
-			return true;
+			return Ok(true);
 		};
 		visited.insert(package_node.clone());
 		let package_node = package_graph.nodes.get(package_node).unwrap();
 		let lock_node = lock_graph.nodes.get(lock_node).unwrap();
 		if package_node.outgoing.len() != lock_node.outgoing.len() {
-			return false;
+			return Ok(false);
 		}
-		for (reference, package_node) in package_node.outgoing.iter() {
+
+		let a = package_node.metadata.clone().into();
+		let b = lock_node.metadata.clone().into();
+		if !self.compare_value(&a, &b).await? {
+			return Ok(false);
+		}
+
+		for (reference, package_node) in &package_node.outgoing {
 			// If the package graph doesn't contain a node it means it hasn't been solved, so skip.
 			if !package_graph.nodes.contains_key(package_node) {
 				continue;
 			}
 			let Some(lock_node) = lock_node.outgoing.get(reference) else {
-				return false;
+				return Ok(false);
 			};
-			if !self.check_graph(package_graph, package_node, lock_graph, lock_node, visited) {
-				return false;
+			if !Box::pin(self.check_graph(
+				package_graph,
+				package_node,
+				lock_graph,
+				lock_node,
+				visited,
+			))
+			.await?
+			{
+				return Ok(false);
 			}
 		}
-		true
+		Ok(true)
 	}
 
 	async fn try_read_lockfile(&self, path: &tg::Path) -> tg::Result<Option<tg::Package>> {
@@ -153,6 +171,7 @@ impl Server {
 			.map_err(|source| tg::error!(!source, "failed to serialize data"))?;
 		let mut file = tokio::fs::File::options()
 			.create(true)
+			.truncate(true)
 			.append(false)
 			.write(true)
 			.open(&path)
@@ -161,9 +180,6 @@ impl Server {
 		file.write_all(&bytes)
 			.await
 			.map_err(|source| tg::error!(!source, %path, "failed to write lockfile"))?;
-		file.set_len(bytes.len().to_u64().unwrap())
-			.await
-			.map_err(|source| tg::error!(!source, "failed to truncate lockfile"))?;
 		Ok(())
 	}
 
@@ -263,13 +279,113 @@ impl Server {
 					Either::Left(index) => stack.push(*index),
 					Either::Right(tg::Object::Package(package)) => {
 						*package =
-							Box::pin(self.remove_path_references_from_package(&package)).await?;
+							Box::pin(self.remove_path_references_from_package(package)).await?;
 					},
 					Either::Right(_object) => continue,
 				}
 			}
 		}
 		Ok(tg::Package::with_object(object))
+	}
+
+	async fn compare_value(&self, a: &tg::Value, b: &tg::Value) -> tg::Result<bool> {
+		match (a, b) {
+			(tg::Value::Null, tg::Value::Null) => Ok(true),
+			(tg::Value::Bool(a), tg::Value::Bool(b)) => Ok(a == b),
+			(tg::Value::Number(a), tg::Value::Number(b)) => Ok(a.to_bits() == b.to_bits()),
+			(tg::Value::String(a), tg::Value::String(b)) => Ok(a == b),
+			(tg::Value::Array(a), tg::Value::Array(b)) => {
+				if a.len() != b.len() {
+					return Ok(false);
+				}
+				for (a, b) in a.iter().zip(b.iter()) {
+					if !Box::pin(self.compare_value(a, b)).await? {
+						return Ok(false);
+					}
+				}
+				Ok(true)
+			},
+			(tg::Value::Map(a), tg::Value::Map(b)) => {
+				if a.len() != b.len() {
+					return Ok(false);
+				}
+				for (k, a) in a {
+					let Some(b) = b.get(k) else {
+						return Ok(false);
+					};
+					if !Box::pin(self.compare_value(a, b)).await? {
+						return Ok(false);
+					}
+				}
+				Ok(true)
+			},
+			(tg::Value::Object(a), tg::Value::Object(b)) => {
+				Ok(a.id(self).await? == b.id(self).await?)
+			},
+			(tg::Value::Bytes(a), tg::Value::Bytes(b)) => Ok(a == b),
+			(tg::Value::Path(a), tg::Value::Path(b)) => Ok(a == b),
+			(tg::Value::Mutation(a), tg::Value::Mutation(b)) => match (a, b) {
+				(tg::Mutation::Unset, tg::Mutation::Unset) => Ok(true),
+				(tg::Mutation::SetIfUnset { value: a }, tg::Mutation::SetIfUnset { value: b })
+				| (tg::Mutation::Set { value: a }, tg::Mutation::Set { value: b }) => {
+					Box::pin(self.compare_value(a.as_ref(), b.as_ref())).await
+				},
+				(tg::Mutation::Append { values: a }, tg::Mutation::Append { values: b })
+				| (tg::Mutation::Prepend { values: a }, tg::Mutation::Prepend { values: b }) => {
+					let a = tg::Value::Array(a.clone());
+					let b = tg::Value::Array(b.clone());
+					Box::pin(self.compare_value(&a, &b)).await
+				},
+				(
+					tg::Mutation::Prefix {
+						separator: separator_a,
+						template: a,
+					},
+					tg::Mutation::Prefix {
+						separator: separator_b,
+						template: b,
+					},
+				) => {
+					if separator_a != separator_b {
+						return Ok(false);
+					}
+					let a = tg::Value::Template(a.clone());
+					let b = tg::Value::Template(b.clone());
+					Box::pin(self.compare_value(&a, &b)).await
+				},
+				_ => Ok(false),
+			},
+			(tg::Value::Template(a), tg::Value::Template(b)) => {
+				let a = a.components();
+				let b = b.components();
+				if a.len() != b.len() {
+					return Ok(false);
+				}
+				for (a, b) in a.iter().zip(b.iter()) {
+					match (a, b) {
+						(
+							tg::template::Component::Artifact(a),
+							tg::template::Component::Artifact(b),
+						) => {
+							if a.id(self).await? != b.id(self).await? {
+								return Ok(false);
+							}
+						},
+						(
+							tg::template::Component::String(a),
+							tg::template::Component::String(b),
+						) => {
+							if a != b {
+								return Ok(false);
+							}
+						},
+						_ => return Ok(false),
+					}
+				}
+				Ok(true)
+			},
+			_ => Ok(false),
+		}
 	}
 }
 

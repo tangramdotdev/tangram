@@ -52,7 +52,7 @@ impl Server {
 							where name = {p}1 and parent = {p}2
 						"
 					);
-					let parent = rows.first().map(|row| row.id).unwrap_or(0);
+					let parent = rows.first().map_or(0, |row| row.id);
 					let params = db::params![component, parent];
 					rows = connection
 						.query_all_into(statement, params)
@@ -69,7 +69,7 @@ impl Server {
 							where parent = {p}1
 						"
 					);
-					let parent = rows.first().map(|row| row.id).unwrap_or(0);
+					let parent = rows.first().map_or(0, |row| row.id);
 					let params = db::params![parent];
 					rows = connection
 						.query_all_into::<Row>(statement, params)
@@ -92,7 +92,7 @@ impl Server {
 							where parent = {p}1
 						"
 					);
-					let parent = rows.first().map(|row| row.id).unwrap_or(0);
+					let parent = rows.first().map_or(0, |row| row.id);
 					let params = db::params![parent];
 					rows = connection
 						.query_all_into::<Row>(statement, params)

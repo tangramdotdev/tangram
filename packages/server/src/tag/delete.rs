@@ -21,7 +21,7 @@ impl Server {
 
 		// Get the IDs of the components.
 		let mut components = Vec::new();
-		let mut parent: Option<u64> = None;
+		let mut parent = 0;
 		for component in tag.components() {
 			// Get the component.
 			let p = transaction.p();
@@ -38,7 +38,7 @@ impl Server {
 				.await
 				.map_err(|source| tg::error!(!source, "failed to execute the statement"))?;
 			components.push(id);
-			parent = Some(id);
+			parent = id;
 		}
 
 		// Delete the components.
