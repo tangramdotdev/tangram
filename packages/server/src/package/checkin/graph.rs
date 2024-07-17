@@ -758,7 +758,7 @@ impl Server {
 				.and_then(|query| query.remote.clone());
 
 			// List tags that match the pattern.
-			let objects_ = self
+			let objects_: im::Vector<_> = self
 				.list_tags(tg::tag::list::Arg {
 					length: None,
 					pattern: pattern.clone(),
@@ -793,15 +793,16 @@ impl Server {
 
 fn try_backtrack(state: &mut Vec<State>, edge: &Edge) -> Option<State> {
 	// Find the index of the state where the node was first added.
-	let position = state.len()
-		- state
-			.iter()
-			.rev()
-			.position(|state| !state.graph.nodes.contains_key(&edge.dst))?;
+	let position = state
+		.iter()
+		.position(|state| state.graph.nodes.contains_key(&edge.dst))?;
 
 	// Backtrack.
 	state.truncate(position);
 	let mut state = state.pop()?;
+
+	// This bit is a little weird. TODO don't make this so jank.
+	state.queue.push_front(edge.clone());
 
 	// If the edge we failed at is still in the graph, it means that we can use the dependency as an additional heuristic to inform the next selection.
 	let edge_in_graph = state

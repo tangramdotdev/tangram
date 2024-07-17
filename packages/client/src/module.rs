@@ -156,7 +156,7 @@ impl std::str::FromStr for Object {
 	type Err = tg::Error;
 
 	fn from_str(s: &str) -> tg::Result<Self, Self::Err> {
-		if s.starts_with("./") || s.starts_with("../") || s.starts_with("/") {
+		if s.starts_with("./") || s.starts_with("../") || s.starts_with('/') {
 			let path = s.parse()?;
 			Ok(Self::Path(path))
 		} else {
