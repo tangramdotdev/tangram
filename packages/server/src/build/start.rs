@@ -42,7 +42,11 @@ impl Server {
 		let statement = format!(
 			"
 				update builds
-				set status = 'started', started_at = {p}1, heartbeat_at = {p}1
+				set
+					started_parent_count = 1,
+					status = 'started',
+					started_at = {p}1,
+					heartbeat_at = {p}1
 				where id = {p}2 and (status = 'created' or status = 'dequeued')
 				returning 1;
 			"

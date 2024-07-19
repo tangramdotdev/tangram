@@ -46,7 +46,7 @@ impl Server {
 	) -> tg::Result<Option<tg::build::Outcome>> {
 		// Wait for the build to finish.
 		let status = self
-			.try_get_build_status_local(id)
+			.try_get_build_status_local_stream(id)
 			.await?
 			.ok_or_else(|| tg::error!("expected the build to exist"))?;
 		let finished = status.try_filter_map(|status| {

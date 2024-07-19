@@ -139,7 +139,7 @@ impl Server {
 		loop {
 			// Get the build's status.
 			let status = self
-				.try_get_build_status_local(id)
+				.try_get_build_status_local_stream(id)
 				.await?
 				.unwrap()
 				.boxed()
