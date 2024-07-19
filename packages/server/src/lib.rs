@@ -655,9 +655,6 @@ impl Server {
 			(http::Method::GET, ["builds", build, "children"]) => {
 				Self::handle_get_build_children_request(handle, request, build).boxed()
 			},
-			(http::Method::POST, ["builds", build, "children"]) => {
-				Self::handle_add_build_child_request(handle, request, build).boxed()
-			},
 			(http::Method::GET, ["builds", build, "log"]) => {
 				Self::handle_get_build_log_request(handle, request, build).boxed()
 			},
@@ -914,14 +911,6 @@ impl tg::Handle for Server {
 		>,
 	> {
 		self.try_get_build_children_stream(id, arg)
-	}
-
-	fn add_build_child(
-		&self,
-		id: &tg::build::Id,
-		arg: tg::build::children::post::Arg,
-	) -> impl Future<Output = tg::Result<()>> {
-		self.add_build_child(id, arg)
 	}
 
 	fn try_get_build_log_stream(

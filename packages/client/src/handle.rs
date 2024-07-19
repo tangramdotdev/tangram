@@ -100,12 +100,6 @@ pub trait Handle: Clone + Unpin + Send + Sync + 'static {
 		>,
 	> + Send;
 
-	fn add_build_child(
-		&self,
-		id: &tg::build::Id,
-		arg: tg::build::children::post::Arg,
-	) -> impl Future<Output = tg::Result<()>> + Send;
-
 	fn try_get_build_log_stream(
 		&self,
 		id: &tg::build::Id,

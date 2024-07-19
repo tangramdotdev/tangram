@@ -202,17 +202,6 @@ where
 		}
 	}
 
-	fn add_build_child(
-		&self,
-		id: &tg::build::Id,
-		arg: tg::build::children::post::Arg,
-	) -> impl Future<Output = tg::Result<()>> {
-		match self {
-			Either::Left(s) => s.add_build_child(id, arg).left_future(),
-			Either::Right(s) => s.add_build_child(id, arg).right_future(),
-		}
-	}
-
 	async fn try_get_build_log_stream(
 		&self,
 		id: &tg::build::Id,

@@ -681,14 +681,6 @@ impl tg::Handle for Client {
 		self.try_get_build_children_stream(id, arg)
 	}
 
-	fn add_build_child(
-		&self,
-		id: &tg::build::Id,
-		arg: tg::build::children::post::Arg,
-	) -> impl Future<Output = tg::Result<()>> {
-		self.add_build_child(id, arg)
-	}
-
 	fn try_get_build_log_stream(
 		&self,
 		id: &tg::build::Id,
