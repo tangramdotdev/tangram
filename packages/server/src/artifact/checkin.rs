@@ -20,6 +20,8 @@ use tangram_http::{incoming::request::Ext as _, outgoing::response::Ext as _, In
 use time::format_description::well_known::Rfc3339;
 use tokio_stream::wrappers::IntervalStream;
 
+mod graph;
+mod lock;
 struct State {
 	count: ProgressState,
 	weight: ProgressState,
@@ -252,6 +254,25 @@ impl Server {
 		_metadata: &std::fs::Metadata,
 		state: &State,
 	) -> tg::Result<InnerOutput> {
+		// If a root module path exists, check in as a file.
+		'a: {
+			let permit = self.file_descriptor_semaphore.acquire().await;
+			let Ok(Some(path)) = tg::artifact::module::try_get_root_module_path_for_path(arg.path.as_ref()).await else {
+				break 'a;
+			};
+			let path = arg.path.clone().join(path);
+			let metadata = tokio::fs::metadata(&path).await.map_err(|source| tg::error!(!source, %path, "failed to get the file metadata"))?;
+			drop(permit);
+			if !metadata.is_file() {
+				break 'a;
+			}
+			let arg = tg::artifact::checkin::Arg {
+				path,
+				..arg.clone()
+			};
+			return self.check_in_file(&arg, &metadata, state).await;
+		}
+
 		// Read the directory.
 		let names = {
 			let _permit = self.file_descriptor_semaphore.acquire().await;
@@ -348,11 +369,27 @@ impl Server {
 		let executable = (metadata.permissions().mode() & 0o111) != 0;
 
 		// Attempt to read the file's lock from its xattrs.
-		let dependencies: Option<tg::file::data::Dependencies> =
+		let mut dependencies: Option<tg::file::data::Dependencies> =
 			xattr::get(&arg.path, tg::file::TANGRAM_FILE_DEPENDENCIES_XATTR_NAME)
 				.ok()
 				.flatten()
 				.and_then(|bytes| serde_json::from_slice(&bytes).ok());
+
+		// Check if we need to read a lock file.
+		let dependencies = 'a: {
+			if dependencies.is_some() {
+				break 'a dependencies;
+			};
+
+			// Check if this is a root module.
+			let is_root_module = tg::artifact::module::ROOT_MODULE_FILE_NAMES.into_iter().any(|name| arg.path.components().last().and_then(|component| component.try_unwrap_normal_ref().ok()).map_or(false, |component| component == name));
+			if !is_root_module {
+				break 'a None;
+			}
+
+			todo!();
+		};
+
 		let dependencies_metadata = if let Some(dependencies) = &dependencies {
 			Some(
 				dependencies
