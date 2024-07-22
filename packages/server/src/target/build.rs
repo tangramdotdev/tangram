@@ -1,7 +1,6 @@
 use crate::{BuildPermit, Server};
 use bytes::Bytes;
 use futures::{future, FutureExt as _};
-use im::HashSet;
 use indoc::formatdoc;
 use itertools::Itertools as _;
 use tangram_client::{self as tg, handle::Ext as _};
@@ -33,7 +32,10 @@ impl Server {
 
 		// Walk the local build graph to check for cycles.
 		if let Some(parent) = arg.parent.as_ref() {
-			self.check_for_build_cycles(parent, id).await?;
+			let cycle_exists = self.cycle_exists(parent, id).await?;
+			if cycle_exists {
+				return Err(tg::error!("detected a build cycle."));
+			}
 		}
 
 		// Get a local build if one exists that satisfies the retry constraint.
@@ -87,7 +89,7 @@ impl Server {
 
 			// Add the build as a child of the parent.
 			if let Some(parent) = arg.parent.as_ref() {
-				self.add_build_child(&parent, build.id()).await.map_err(
+				self.add_build_child(parent, build.id()).await.map_err(
 					|source| tg::error!(!source, %parent, %child = build.id(), "failed to add build as a child"),
 				)?;
 			}
@@ -145,7 +147,7 @@ impl Server {
 			// Add the build as a child of the parent.
 			// TODO: this is a change in semantics from the earlier code, since we're adding the build child locally.
 			if let Some(parent) = arg.parent.as_ref() {
-				self.add_build_child(&parent, build.id()).await.map_err(
+				self.add_build_child(parent, build.id()).await.map_err(
 					|source| tg::error!(!source, %parent, %child = build.id(), "failed to add build as a child"),
 				)?;
 			}
@@ -210,7 +212,7 @@ impl Server {
 
 		// Add the build to the parent.
 		if let Some(parent) = arg.parent.as_ref() {
-			self.add_build_child(&parent, build.id()).await.map_err(
+			self.add_build_child(parent, build.id()).await.map_err(
 				|source| tg::error!(!source, %parent, %child = build.id(), "failed to add build as a child"),
 			)?;
 		}
@@ -256,80 +258,70 @@ impl Server {
 		Ok(Some(output))
 	}
 
-	async fn check_for_build_cycles(
+	async fn cycle_exists(
 		&self,
 		parent: &tg::build::Id,
 		target: &tg::target::Id,
-	) -> tg::Result<()> {
-		let mut visited = HashSet::new();
-
+	) -> tg::Result<bool> {
 		let connection = self
 			.database
 			.connection(db::Priority::Low)
 			.await
 			.map_err(|source| tg::error!(!source, "failed to get a connection"))?;
 
-		// First check the root
+		// First check for a self-cycle.
 		#[derive(serde::Deserialize)]
 		struct Row {
-			target: tg::target::Id,
+			cycle_exists: bool,
 		}
 		let p = connection.p();
 		let statement = formatdoc!(
 			"
-				select target
-				from builds
-				where id = {p}1;
+				select exists (
+					select 1 from builds
+					where id = {p}1 and target = {p}2
+				) as cycle_exists;
 			"
 		);
-		let params = db::params![parent];
+
+		let params = db::params![parent, target];
 		let row = connection
 			.query_one_into::<Row>(statement, params)
 			.await
 			.map_err(|source| tg::error!(!source, "failed to execute the statement"))?;
-		if &row.target == target {
-			return Err(tg::error!(%parent, "detected a build cycle"));
+		if row.cycle_exists {
+			return Ok(row.cycle_exists);
 		}
 
-		// Recursively scan parents.
-		let mut stack = vec![parent.clone()];
-		while let Some(build) = stack.pop() {
-			if visited.contains(&build) {
-				continue;
-			}
-			visited.insert(build.clone());
+		// Otherwise, recurse.
+		let statement = formatdoc!(
+			"
+			with recursive ancestors as (
+				select b.id, b.target
+				from builds b
+				join build_children c on b.id = c.child
+				where c.child = {p}1
 
-			#[derive(serde::Deserialize)]
-			struct Row {
-				build: tg::build::Id,
-				target: tg::target::Id,
-				status: tg::build::Status,
-			}
-			let p = connection.p();
-			let statement = formatdoc!(
-				"
-					select build_children.build, builds.target, builds.status
-					from build_children
-					join builds on builds.id = build_children.build
-					where child = {p}1
-				"
-			);
-			let params = db::params![build];
-			let rows = connection
-				.query_all_into::<Row>(statement, params)
-				.await
-				.map_err(|source| tg::error!(!source, "failed to perform query"))?;
-			for row in rows {
-				if &row.target == target {
-					return Err(tg::error!("build cycle detected"));
-				}
-				if matches!(row.status, tg::build::Status::Started) {
-					stack.push(row.build);
-				}
-			}
-		}
+				union all
 
-		Ok(())
+				select b.id, b.target
+				from ancestors a
+				join build_children c on a.id = c.child
+				join builds b on c.build = b.id
+			)
+			select exists (
+				select 1
+				from ancestors
+				where target = {p}2
+			) as cycle_exists;
+			"
+		);
+		let params = db::params![parent, target];
+		let row = connection
+			.query_one_into::<Row>(statement, params)
+			.await
+			.map_err(|source| tg::error!(!source, "failed to execute statement"))?;
+		Ok(row.cycle_exists)
 	}
 }
 
