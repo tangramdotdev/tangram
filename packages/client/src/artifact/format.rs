@@ -7,9 +7,9 @@ pub struct Arg {
 }
 
 impl tg::Client {
-	pub async fn format_package(&self, arg: tg::package::format::Arg) -> tg::Result<()> {
+	pub async fn format_artifact(&self, arg: tg::artifact::format::Arg) -> tg::Result<()> {
 		let method = http::Method::POST;
-		let uri = "/packages/format";
+		let uri = "/artifacts/format";
 		let request = http::request::Builder::default()
 			.method(method)
 			.uri(uri)

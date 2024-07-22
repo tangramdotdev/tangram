@@ -4,9 +4,9 @@ import { Directory } from "./directory.ts";
 import * as encoding from "./encoding.ts";
 import { File } from "./file.ts";
 import { Leaf } from "./leaf.ts";
+import { Lock } from "./lock.ts";
 import { Mutation } from "./mutation.ts";
 import type { Object_ } from "./object.ts";
-import { Package } from "./package.ts";
 import { Path } from "./path.ts";
 import { Symlink } from "./symlink.ts";
 import { Target } from "./target.ts";
@@ -77,8 +77,8 @@ let stringifyObject = (value: object, visited: WeakSet<object>): string => {
 		return stringifyState("file", value.state, visited);
 	} else if (value instanceof Symlink) {
 		return stringifyState("symlink", value.state, visited);
-	} else if (value instanceof Package) {
-		return stringifyState("package", value.state, visited);
+	} else if (value instanceof Lock) {
+		return stringifyState("lock", value.state, visited);
 	} else if (value instanceof Target) {
 		return stringifyState("target", value.state, visited);
 	} else if (value instanceof Uint8Array) {

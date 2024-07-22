@@ -7,7 +7,6 @@ use futures::{
 use indoc::formatdoc;
 use num::ToPrimitive;
 use std::{
-	collections::BTreeSet,
 	os::unix::fs::PermissionsExt as _,
 	path::PathBuf,
 	sync::{
@@ -348,29 +347,32 @@ impl Server {
 		// Determine if the file is executable.
 		let executable = (metadata.permissions().mode() & 0o111) != 0;
 
-		// Read the file's dependencies from its xattrs.
-		let attributes: Option<tg::file::Attributes> =
-			xattr::get(&arg.path, tg::file::TANGRAM_FILE_XATTR_NAME)
+		// Attempt to read the file's lock from its xattrs.
+		let dependencies: Option<tg::file::data::Dependencies> =
+			xattr::get(&arg.path, tg::file::TANGRAM_FILE_DEPENDENCIES_XATTR_NAME)
 				.ok()
 				.flatten()
-				.and_then(|attributes| serde_json::from_slice(&attributes).ok());
-		let dependencies = attributes
-			.map(|attributes| attributes.dependencies)
-			.unwrap_or_default()
-			.into_iter()
-			.collect::<BTreeSet<tg::artifact::Id>>();
-		let dependencies_metadata = dependencies
-			.iter()
-			.map(|id| async { self.get_object_metadata(&id.clone().into()).await })
-			.collect::<FuturesUnordered<_>>()
-			.try_collect::<Vec<_>>()
-			.await?;
+				.and_then(|bytes| serde_json::from_slice(&bytes).ok());
+		let dependencies_metadata = if let Some(dependencies) = &dependencies {
+			Some(
+				dependencies
+					.children()
+					.iter()
+					.map(|id| async { self.get_object_metadata(id).await })
+					.collect::<FuturesUnordered<_>>()
+					.try_collect::<Vec<_>>()
+					.await?,
+			)
+		} else {
+			None
+		};
 
 		// Create the file data.
 		let data = tg::file::Data {
 			contents: output.blob.clone(),
 			executable,
 			dependencies,
+			metadata: None,
 		};
 		let bytes = data.serialize()?;
 		let id = tg::artifact::Id::from(tg::file::Id::new(&bytes));
@@ -390,15 +392,23 @@ impl Server {
 		}
 
 		// Compute the count and weight.
+		let dependencies_count = dependencies_metadata
+			.iter()
+			.flatten()
+			.map(|metadata| metadata.count);
+		let dependencies_weight = dependencies_metadata
+			.iter()
+			.flatten()
+			.map(|metadata| metadata.weight);
 		let count = std::iter::empty()
 			.chain(std::iter::once(Some(1)))
 			.chain(std::iter::once(Some(output.count)))
-			.chain(dependencies_metadata.iter().map(|metadata| metadata.count))
+			.chain(dependencies_count)
 			.sum::<Option<u64>>();
 		let weight = std::iter::empty()
 			.chain(std::iter::once(Some(bytes.len().to_u64().unwrap())))
 			.chain(std::iter::once(Some(output.weight)))
-			.chain(dependencies_metadata.iter().map(|metadata| metadata.weight))
+			.chain(dependencies_weight)
 			.sum::<Option<u64>>();
 
 		// Create the output
@@ -526,8 +536,9 @@ impl Server {
 
 		// Check in the artifact.
 		let arg = tg::artifact::checkin::Arg {
-			path: path.try_into()?,
 			destructive: false,
+			locked: true,
+			path: path.try_into()?,
 		};
 		let output = self.check_in_artifact_inner(&arg, &state).await?;
 		if &output.id != id {

@@ -179,6 +179,7 @@ impl Server {
 			let existing_artifact = if exists {
 				let arg = tg::artifact::checkin::Arg {
 					destructive: false,
+					locked: true,
 					path: path.clone(),
 				};
 				let artifact = tg::Artifact::check_in(self, arg).await?;
@@ -459,7 +460,7 @@ impl Server {
 		};
 
 		// Check out the file's dependencies.
-		let dependencies = file
+		let dependencies = artifact
 			.dependencies(self)
 			.await
 			.map_err(|source| tg::error!(!source, "failed to get the file's dependencies"))?
@@ -491,11 +492,8 @@ impl Server {
 				.collect::<FuturesUnordered<_>>()
 				.try_collect::<Vec<_>>()
 				.await
-				.map_err(|error| {
-					tg::error!(
-						source = error,
-						"failed to check out the file's dependencies"
-					)
+				.map_err(|source| {
+					tg::error!(!source, "failed to check out the file's dependencies")
 				})?;
 		}
 
@@ -549,13 +547,21 @@ impl Server {
 				.map_err(|source| tg::error!(!source, "failed to set the permissions"))?;
 		}
 
-		// Set the extended attributes if necessary.
+		// Set the dependencies with extended attributes if necessary.
 		if !dependencies.is_empty() {
-			let attributes = tg::file::Attributes { dependencies };
-			let attributes = serde_json::to_vec(&attributes)
-				.map_err(|source| tg::error!(!source, "failed to serialize attributes"))?;
-			xattr::set(path, tg::file::TANGRAM_FILE_XATTR_NAME, &attributes)
-				.map_err(|source| tg::error!(!source, "failed to set attributes as an xattr"))?;
+			let dependencies = serde_json::to_vec(&dependencies)
+				.map_err(|source| tg::error!(!source, "failed to serialize the dependencies"))?;
+			xattr::set(
+				path,
+				tg::file::TANGRAM_FILE_DEPENDENCIES_XATTR_NAME,
+				&dependencies,
+			)
+			.map_err(|source| {
+				tg::error!(
+					!source,
+					"failed to set the extended attribute for the dependencies"
+				)
+			})?;
 		}
 
 		// Add the path the files map.

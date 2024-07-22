@@ -3,32 +3,31 @@ import { assert as assert_ } from "./assert.ts";
 import type { Object_ as Object__ } from "./object.ts";
 import { resolve } from "./resolve.ts";
 import { flatten } from "./util.ts";
-import type { Value } from "./value.ts";
 
-export let package_ = async (...args: Args<Package.Arg>): Promise<Package> => {
-	return await Package.new(...args);
+export let lock = async (...args: Args<Lock.Arg>): Promise<Lock> => {
+	return await Lock.new(...args);
 };
 
-export class Package {
-	#state: Package.State;
+export class Lock {
+	#state: Lock.State;
 
-	constructor(state: Package.State) {
+	constructor(state: Lock.State) {
 		this.#state = state;
 	}
 
-	get state(): Package.State {
+	get state(): Lock.State {
 		return this.#state;
 	}
 
-	static withId(id: Package.Id): Package {
-		return new Package({ id });
+	static withId(id: Lock.Id): Lock {
+		return new Lock({ id });
 	}
 
-	static async new(...args: Args<Package.Arg>): Promise<Package> {
-		let arg = await Package.arg(...args);
+	static async new(...args: Args<Lock.Arg>): Promise<Lock> {
+		let arg = await Lock.arg(...args);
 		let nodes = await Promise.all(
 			(arg.nodes ?? []).map(async (node) => {
-				let dependencies: { [dependency: string]: Package | number } = {};
+				let dependencies: { [reference: string]: Lock | number } = {};
 				let keys = Object.keys(node.dependencies ?? {});
 				for (let key of keys) {
 					let dependency = node.dependencies![key];
@@ -36,27 +35,26 @@ export class Package {
 						if (typeof dependency === "number") {
 							dependencies[key] = dependency;
 						} else {
-							dependencies[key] = await Package.new(dependency);
+							dependencies[key] = await Lock.new(dependency);
 						}
 					}
 				}
-				let metadata = node.metadata ?? {};
 				let object = node.object;
-				return { dependencies, metadata, object };
+				return { dependencies, object };
 			}),
 		);
 		let root = arg.root ?? 0;
-		return new Package({ object: { nodes, root } });
+		return new Lock({ object: { nodes, root } });
 	}
 
-	static async arg(...args: Args<Package.Arg>): Promise<Package.ArgObject> {
+	static async arg(...args: Args<Lock.Arg>): Promise<Lock.ArgObject> {
 		let resolved = await Promise.all(args.map(resolve));
 		let flattened = flatten(resolved);
 		let objects = await Promise.all(
 			flattened.map(async (arg) => {
 				if (arg === undefined) {
 					return {};
-				} else if (arg instanceof Package) {
+				} else if (arg instanceof Lock) {
 					return arg.object();
 				} else {
 					return arg;
@@ -70,21 +68,21 @@ export class Package {
 		return arg;
 	}
 
-	static expect(value: unknown): Package {
-		assert_(value instanceof Package);
+	static expect(value: unknown): Lock {
+		assert_(value instanceof Lock);
 		return value;
 	}
 
-	static assert(value: unknown): asserts value is Package {
-		assert_(value instanceof Package);
+	static assert(value: unknown): asserts value is Lock {
+		assert_(value instanceof Lock);
 	}
 
-	async id(): Promise<Package.Id> {
+	async id(): Promise<Lock.Id> {
 		await this.store();
 		return this.#state.id!;
 	}
 
-	async object(): Promise<Package.Object_> {
+	async object(): Promise<Lock.Object_> {
 		await this.load();
 		return this.#state.object!;
 	}
@@ -92,7 +90,7 @@ export class Package {
 	async load() {
 		if (this.#state.object === undefined) {
 			let object = await syscall("load", this.#state.id!);
-			assert_(object.kind === "package");
+			assert_(object.kind === "lock");
 			this.#state.object = object.value;
 		}
 	}
@@ -100,23 +98,19 @@ export class Package {
 	async store() {
 		if (this.#state.id === undefined) {
 			this.#state.id = await syscall("store", {
-				kind: "package",
+				kind: "lock",
 				value: this.#state.object!,
 			});
 		}
 	}
 
-	async root(): Promise<number> {
-		return (await this.object()).root;
-	}
-
-	async nodes(): Promise<Array<Package.Node>> {
+	async nodes(): Promise<Array<Lock.Node>> {
 		return (await this.object()).nodes;
 	}
 }
 
-export namespace Package {
-	export type Arg = Package | ArgObject;
+export namespace Lock {
+	export type Arg = Lock | ArgObject;
 
 	export type ArgObject = {
 		nodes?: Array<NodeArg> | undefined;
@@ -124,8 +118,7 @@ export namespace Package {
 	};
 
 	export type NodeArg = {
-		dependencies?: { [dependency: string]: Package.Arg | number };
-		metadata?: { [key: string]: Value };
+		dependencies?: { [reference: string]: number | Lock.Arg };
 		object?: Object__ | undefined;
 	};
 
@@ -137,10 +130,9 @@ export namespace Package {
 	};
 
 	export type Node = {
-		dependencies: { [dependency: string]: Package | number };
-		metadata: { [key: string]: Value };
+		dependencies: { [reference: string]: number | Lock };
 		object: Object__ | undefined;
 	};
 
-	export type State = Object__.State<Package.Id, Package.Object_>;
+	export type State = Object__.State<Lock.Id, Lock.Object_>;
 }

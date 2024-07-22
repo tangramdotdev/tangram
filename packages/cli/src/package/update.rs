@@ -26,12 +26,12 @@ impl Cli {
 			.ok();
 
 		// Check in the package.
-		let arg = tg::package::checkin::Arg {
+		let arg = tg::artifact::checkin::Arg {
 			path,
+			destructive: false,
 			locked: false,
-			remote: None,
 		};
-		handle.check_in_package(arg).await?;
+		handle.check_in_artifact(arg).await?;
 
 		Ok(())
 	}

@@ -49,6 +49,36 @@ where
 		}
 	}
 
+	fn check_artifact(
+		&self,
+		arg: tg::artifact::check::Arg,
+	) -> impl Future<Output = tg::Result<tg::artifact::check::Output>> + Send {
+		match self {
+			Either::Left(s) => s.check_artifact(arg).left_future(),
+			Either::Right(s) => s.check_artifact(arg).right_future(),
+		}
+	}
+
+	fn document_artifact(
+		&self,
+		arg: tg::artifact::document::Arg,
+	) -> impl Future<Output = tg::Result<serde_json::Value>> + Send {
+		match self {
+			Either::Left(s) => s.document_artifact(arg).left_future(),
+			Either::Right(s) => s.document_artifact(arg).right_future(),
+		}
+	}
+
+	fn format_artifact(
+		&self,
+		arg: tg::artifact::format::Arg,
+	) -> impl Future<Output = tg::Result<()>> + Send {
+		match self {
+			Either::Left(s) => s.format_artifact(arg).left_future(),
+			Either::Right(s) => s.format_artifact(arg).right_future(),
+		}
+	}
+
 	fn create_blob(
 		&self,
 		reader: impl AsyncRead + Send + 'static,
@@ -382,48 +412,6 @@ where
 				.pull_object(id, arg)
 				.map(|result| result.map(futures::StreamExt::right_stream))
 				.right_future(),
-		}
-	}
-
-	fn check_in_package(
-		&self,
-		arg: tg::package::checkin::Arg,
-	) -> impl Future<Output = tg::Result<tg::package::checkin::Output>> + Send {
-		match self {
-			Either::Left(s) => s.check_in_package(arg).left_future(),
-			Either::Right(s) => s.check_in_package(arg).right_future(),
-		}
-	}
-
-	fn check_package(
-		&self,
-		id: &tg::package::Id,
-		arg: tg::package::check::Arg,
-	) -> impl Future<Output = tg::Result<tg::package::check::Output>> + Send {
-		match self {
-			Either::Left(s) => s.check_package(id, arg).left_future(),
-			Either::Right(s) => s.check_package(id, arg).right_future(),
-		}
-	}
-
-	fn document_package(
-		&self,
-		id: &tg::package::Id,
-		arg: tg::package::doc::Arg,
-	) -> impl Future<Output = tg::Result<serde_json::Value>> + Send {
-		match self {
-			Either::Left(s) => s.document_package(id, arg).left_future(),
-			Either::Right(s) => s.document_package(id, arg).right_future(),
-		}
-	}
-
-	fn format_package(
-		&self,
-		arg: tg::package::format::Arg,
-	) -> impl Future<Output = tg::Result<()>> + Send {
-		match self {
-			Either::Left(s) => s.format_package(arg).left_future(),
-			Either::Right(s) => s.format_package(arg).right_future(),
 		}
 	}
 

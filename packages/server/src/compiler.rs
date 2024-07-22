@@ -22,7 +22,6 @@ pub mod check;
 pub mod completion;
 pub mod definition;
 pub mod diagnostics;
-pub mod doc;
 pub mod document;
 pub mod error;
 pub mod format;
@@ -82,7 +81,7 @@ enum Request {
 	Definition(definition::Request),
 	TypeDefinition(definition::Request),
 	Diagnostics(diagnostics::Request),
-	Doc(doc::Request),
+	Document(document::Request),
 	Hover(hover::Request),
 	References(references::Request),
 	Rename(rename::Request),
@@ -97,7 +96,7 @@ enum Response {
 	Definition(definition::Response),
 	TypeDefinition(definition::Response),
 	Diagnostics(diagnostics::Response),
-	Doc(doc::Response),
+	Document(document::Response),
 	Hover(hover::Response),
 	References(references::Response),
 	Rename(rename::Response),

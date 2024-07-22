@@ -81,6 +81,7 @@ impl Runtime {
 		let path = path.try_into()?;
 		let arg = tg::artifact::checkin::Arg {
 			destructive: true,
+			locked: true,
 			path,
 		};
 		let artifact = tg::Artifact::check_in(server, arg)

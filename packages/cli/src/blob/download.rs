@@ -18,11 +18,11 @@ impl Cli {
 	pub async fn command_blob_download(&self, args: Args) -> tg::Result<()> {
 		let handle = self.handle().await?;
 		let host = "js";
-		let executable = tg::Package::from(tg::Artifact::from(formatdoc!(
+		let executable = tg::File::with_contents(formatdoc!(
 			r#"
 				export default tg.target((url, checksum) => tg.download(url, checksum));
 			"#
-		)));
+		));
 		let args = vec![
 			"default".into(),
 			args.url.to_string().into(),

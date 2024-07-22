@@ -23,7 +23,7 @@ pub enum Kind {
 	Directory,
 	File,
 	Symlink,
-	Package,
+	Lock,
 	Target,
 }
 
@@ -35,10 +35,10 @@ impl Import {
 		// Parse the specifier as a reference.
 		let reference = specifier.parse::<tg::Reference>()?;
 
-		// Parse the type.
+		// Parse the kind.
 		let kind = attributes
 			.as_mut()
-			.and_then(|attributes| attributes.remove("type"))
+			.and_then(|attributes| attributes.remove("type").or(attributes.remove("kind")))
 			.map(|kind| kind.parse())
 			.transpose()?;
 
@@ -55,10 +55,6 @@ impl Import {
 				);
 				let attributes = serde_json::from_value::<tg::reference::Query>(attributes)
 					.map_err(|source| tg::error!(!source, "invalid attributes"))?;
-				let kind = reference
-					.query()
-					.and_then(|query| query.kind)
-					.or(attributes.kind);
 				let name = reference
 					.query()
 					.and_then(|query| query.name.clone())
@@ -76,7 +72,6 @@ impl Import {
 					.and_then(|query| query.remote.clone())
 					.or(attributes.remote);
 				let query = tg::reference::Query {
-					kind,
 					name,
 					overrides,
 					path,
@@ -108,7 +103,7 @@ impl std::fmt::Display for Kind {
 			Kind::Directory => write!(f, "directory"),
 			Kind::File => write!(f, "file"),
 			Kind::Symlink => write!(f, "symlink"),
-			Kind::Package => write!(f, "package"),
+			Kind::Lock => write!(f, "lock"),
 			Kind::Target => write!(f, "target"),
 		}
 	}
@@ -129,7 +124,7 @@ impl std::str::FromStr for Kind {
 			"directory" => Ok(Kind::Directory),
 			"file" => Ok(Kind::File),
 			"symlink" => Ok(Kind::Symlink),
-			"package" => Ok(Kind::Package),
+			"lock" => Ok(Kind::Lock),
 			"target" => Ok(Kind::Target),
 			_ => Err(tg::error!("invalid kind")),
 		}

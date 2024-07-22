@@ -21,39 +21,23 @@ impl Server {
 				Ok(Some(output))
 			},
 			tg::reference::Path::Path(path) => {
-				match reference.query().and_then(|query| query.kind) {
-					None | Some(tg::reference::Kind::Artifact) => {
-						let arg = tg::artifact::checkin::Arg {
-							destructive: false,
-							path: path.clone(),
-						};
-						let mut stream = self.check_in_artifact(arg).await?;
-						let mut artifact = None;
-						while let Some(event) = stream.try_next().await? {
-							if let tg::artifact::checkin::Event::End(output) = event {
-								artifact = Some(output);
-							}
-						}
-						let artifact = artifact
-							.ok_or_else(|| tg::error!("expected the artifact to be set"))?;
-						let item = Either::Right(artifact.into());
-						let output = tg::reference::get::Output { item };
-						Ok(Some(output))
-					},
-					Some(tg::reference::Kind::Package) => {
-						let arg = tg::package::checkin::Arg {
-							path: path.clone(),
-							locked: false,
-							remote: None,
-						};
-						let tg::package::checkin::Output { package } =
-							self.check_in_package(arg).await?;
-						let item = Either::Right(package.clone().into());
-						let output = tg::reference::get::Output { item };
-						Ok(Some(output))
-					},
-					_ => Err(tg::error!("invalid kind")),
+				let arg = tg::artifact::checkin::Arg {
+					destructive: false,
+					locked: false,
+					path: path.clone(),
+				};
+				let mut stream = self.check_in_artifact(arg).await?;
+				let mut artifact = None;
+				while let Some(event) = stream.try_next().await? {
+					if let tg::artifact::checkin::Event::End(output) = event {
+						artifact = Some(output);
+					}
 				}
+				let artifact =
+					artifact.ok_or_else(|| tg::error!("expected the artifact to be set"))?;
+				let item = Either::Right(artifact.into());
+				let output = tg::reference::get::Output { item };
+				Ok(Some(output))
 			},
 			tg::reference::Path::Tag(tag) => {
 				let Some(tg::tag::get::Output {

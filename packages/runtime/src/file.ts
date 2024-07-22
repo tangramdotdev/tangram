@@ -5,6 +5,7 @@ import { Blob, blob } from "./blob.ts";
 import type { Object_ } from "./object.ts";
 import { resolve } from "./resolve.ts";
 import { flatten } from "./util.ts";
+import type { Value } from "./value.ts";
 
 export let file = async (...args: Args<File.Arg>) => {
 	return await File.new(...args);
@@ -31,7 +32,7 @@ export class File {
 		let dependencies = arg.dependencies ?? [];
 		let executable = arg.executable ?? false;
 		return new File({
-			object: { contents, dependencies, executable },
+			object: { contents, dependencies, executable, metadata },
 		});
 	}
 
@@ -135,6 +136,7 @@ export namespace File {
 		contents?: Blob.Arg | undefined;
 		dependencies?: Array<Artifact> | undefined;
 		executable?: boolean | undefined;
+		metadata: { [key: string]: Value };
 	};
 
 	export type Id = string;
@@ -143,6 +145,7 @@ export namespace File {
 		contents: Blob;
 		dependencies: Array<Artifact>;
 		executable: boolean;
+		metadata: { [key: string]: Value };
 	};
 
 	export type State = Object_.State<File.Id, File.Object_>;

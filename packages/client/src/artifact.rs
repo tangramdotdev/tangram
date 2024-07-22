@@ -1,5 +1,9 @@
+use futures::{
+	stream::{FuturesOrdered, FuturesUnordered},
+	TryStreamExt as _,
+};
+
 use crate as tg;
-use futures::stream::{FuturesOrdered, FuturesUnordered, TryStreamExt as _};
 use std::{
 	collections::HashSet,
 	sync::{Arc, Mutex},
@@ -7,10 +11,14 @@ use std::{
 
 pub mod archive;
 pub mod bundle;
+pub mod check;
 pub mod checkin;
 pub mod checkout;
 pub mod checksum;
+pub mod document;
 pub mod extract;
+pub mod format;
+pub mod module;
 
 /// An artifact kind.
 #[derive(Clone, Copy, Debug)]
@@ -179,11 +187,25 @@ impl Artifact {
 				.into_iter()
 				.flatten()
 				.collect()),
-			Self::File(file) => Ok(file.dependencies(handle).await?.to_owned()),
+
+			Self::File(file) => Ok(file
+				.dependencies(handle)
+				.await?
+				.as_ref()
+				.map(|dependencies| match dependencies {
+					tg::file::Dependencies::Set(dependencies) => dependencies
+						.iter()
+						.filter_map(|object| tg::Artifact::try_from(object.clone()).ok())
+						.collect(),
+					_ => todo!(),
+				})
+				.unwrap_or_default()),
+
 			Self::Symlink(symlink) => Ok(symlink
 				.artifact(handle)
 				.await?
 				.clone()
+				.map(Into::into)
 				.into_iter()
 				.collect()),
 		}

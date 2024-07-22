@@ -36,6 +36,7 @@ struct Cli {
 	args: Args,
 	config: Option<Config>,
 	handle: Mutex<Option<Either<Client, Server>>>,
+	mode: Mode,
 }
 
 #[derive(Clone, Debug, clap::Parser)]
@@ -55,7 +56,7 @@ struct Args {
 	#[arg(long)]
 	config: Option<PathBuf>,
 
-	/// The mode to run the CLI with, either `auto`, `client`, or `server`.
+	/// The mode.
 	#[arg(short, long)]
 	mode: Option<Mode>,
 
@@ -104,7 +105,7 @@ enum Command {
 	Checkout(self::artifact::checkout::Args),
 	Checksum(self::checksum::Args),
 	Clean(self::server::clean::Args),
-	Doc(self::package::doc::Args),
+	Doc(self::package::document::Args),
 	Download(self::blob::download::Args),
 	Format(self::package::format::Args),
 	Get(self::get::Args),
@@ -161,11 +162,37 @@ fn main() -> std::process::ExitCode {
 		})
 		.ok();
 
+	// Create the handle.
+	let handle = Mutex::new(None);
+
+	// Get the mode.
+	let mode = match &args {
+		// If the command is `tg serve` or `tg server run`, then set the mode to `server`.
+		Args {
+			command:
+				Command::Serve(_)
+				| Command::Server(self::server::Args {
+					command: self::server::Command::Run(_),
+					..
+				}),
+			..
+		} => Mode::Server,
+
+		// If the command is anything else under `tg server`, then set the mode to `client.`
+		Args {
+			command: Command::Server(_),
+			..
+		} => Mode::Client,
+
+		_ => args.mode.unwrap_or_default(),
+	};
+
 	// Create the CLI.
 	let cli = Cli {
 		args,
 		config,
-		handle: Mutex::new(None),
+		handle,
+		mode,
 	};
 
 	// Create the future.
@@ -202,23 +229,8 @@ impl Cli {
 			return Ok(client);
 		}
 
-		// Get the mode. If the command is `tg serve` or `tg server run`, then set the mode to `server`.
-		let mode = matches!(
-			&self.args,
-			Args {
-				command: Command::Serve(_)
-					| Command::Server(self::server::Args {
-						command: self::server::Command::Run(_),
-						..
-					}),
-				..
-			}
-		)
-		.then_some(Mode::Server);
-		let mode = mode.or(self.args.mode).unwrap_or_default();
-
 		// Create the handle.
-		let handle = match mode {
+		let handle = match self.mode {
 			Mode::Auto => Either::Left(self.auto().await?),
 			Mode::Client => Either::Left(self.client().await?),
 			Mode::Server => Either::Right(self.server().await?),
@@ -835,151 +847,152 @@ impl Cli {
 	where
 		H: tg::Handle,
 	{
-		let options = config
-			.as_ref()
-			.and_then(|config| config.advanced.as_ref())
-			.and_then(|advanced| advanced.error_trace_options.clone())
-			.unwrap_or_default();
-		let trace = error.trace(&options);
-		let mut errors = vec![trace.error];
-		while let Some(next) = errors.last().unwrap().source.as_ref() {
-			errors.push(next);
-		}
-		if !trace.options.reverse {
-			errors.reverse();
-		}
-		for error in errors {
-			let message = error.message.as_deref().unwrap_or("an error occurred");
-			eprintln!("{} {message}", "->".red());
-			if let Some(location) = &error.location {
-				if !location.source.is_internal() || trace.options.internal {
-					let source = match &location.source {
-						tg::error::Source::Internal(path) => {
-							path.components().iter().skip(1).join("/")
-						},
-						tg::error::Source::Module(module) => {
-							if let Some(handle) = handle.as_ref() {
-								if let tg::module::Object::Object(tg::object::Id::Package(
-									package,
-								)) = &module.object
-								{
-									let package = tg::Package::with_id(package.clone());
-									if let Ok(object) = package.object(handle).await {
-										let node = &object.nodes[object.root];
-										let repository = node
-											.metadata
-											.get("repository")
-											.and_then(|value| value.try_unwrap_string_ref().ok());
-										let version = node
-											.metadata
-											.get("version")
-											.and_then(|value| value.try_unwrap_string_ref().ok());
-										if let (Some(repository), Some(version)) =
-											(repository, version)
-										{
-											format!("{repository}@{version}")
-										} else {
-											package.to_string()
-										}
-									} else {
-										package.to_string()
-									}
-								} else {
-									module.to_string()
-								}
-							} else {
-								module.to_string()
-							}
-						},
-					};
-					let mut string = String::new();
-					let line = location.line + 1;
-					let column = location.column + 1;
-					write!(string, "{source}:{line}:{column}").unwrap();
-					if let Some(symbol) = &location.symbol {
-						write!(string, " {symbol}").unwrap();
-					}
-					eprintln!("   {}", string.yellow());
-				}
-			}
-			for (name, value) in &error.values {
-				let name = name.as_str().blue();
-				let value = value.as_str().green();
-				eprintln!("   {name} = {value}");
-			}
-			let mut stack = error.stack.iter().flatten().collect::<Vec<_>>();
-			if !trace.options.reverse {
-				stack.reverse();
-			}
-			for location in stack {
-				if !location.source.is_internal() || trace.options.internal {
-					let location = location.to_string().yellow();
-					eprintln!("   {location}");
-				}
-			}
-		}
+		// let options = config
+		// 	.as_ref()
+		// 	.and_then(|config| config.advanced.as_ref())
+		// 	.and_then(|advanced| advanced.error_trace_options.clone())
+		// 	.unwrap_or_default();
+		// let trace = error.trace(&options);
+		// let mut errors = vec![trace.error];
+		// while let Some(next) = errors.last().unwrap().source.as_ref() {
+		// 	errors.push(next);
+		// }
+		// if !trace.options.reverse {
+		// 	errors.reverse();
+		// }
+		// for error in errors {
+		// 	let message = error.message.as_deref().unwrap_or("an error occurred");
+		// 	eprintln!("{} {message}", "->".red());
+		// 	if let Some(location) = &error.location {
+		// 		if !location.source.is_internal() || trace.options.internal {
+		// 			let source = match &location.source {
+		// 				tg::error::Source::Internal(path) => {
+		// 					path.components().iter().skip(1).join("/")
+		// 				},
+		// 				tg::error::Source::Module(module) => {
+		// 					if let Some(handle) = handle.as_ref() {
+		// 						if let tg::module::Object::Object(tg::object::Id::Lock(package)) =
+		// 							&module.object
+		// 						{
+		// 							let package = tg::Lock::with_id(package.clone());
+		// 							if let Ok(object) = package.object(handle).await {
+		// 								let node = &object.nodes[object.root];
+		// 								let repository = node
+		// 									.metadata
+		// 									.get("repository")
+		// 									.and_then(|value| value.try_unwrap_string_ref().ok());
+		// 								let version = node
+		// 									.metadata
+		// 									.get("version")
+		// 									.and_then(|value| value.try_unwrap_string_ref().ok());
+		// 								if let (Some(repository), Some(version)) =
+		// 									(repository, version)
+		// 								{
+		// 									format!("{repository}@{version}")
+		// 								} else {
+		// 									package.to_string()
+		// 								}
+		// 							} else {
+		// 								package.to_string()
+		// 							}
+		// 						} else {
+		// 							module.to_string()
+		// 						}
+		// 					} else {
+		// 						module.to_string()
+		// 					}
+		// 				},
+		// 			};
+		// 			let mut string = String::new();
+		// 			let line = location.line + 1;
+		// 			let column = location.column + 1;
+		// 			write!(string, "{source}:{line}:{column}").unwrap();
+		// 			if let Some(symbol) = &location.symbol {
+		// 				write!(string, " {symbol}").unwrap();
+		// 			}
+		// 			eprintln!("   {}", string.yellow());
+		// 		}
+		// 	}
+		// 	for (name, value) in &error.values {
+		// 		let name = name.as_str().blue();
+		// 		let value = value.as_str().green();
+		// 		eprintln!("   {name} = {value}");
+		// 	}
+		// 	let mut stack = error.stack.iter().flatten().collect::<Vec<_>>();
+		// 	if !trace.options.reverse {
+		// 		stack.reverse();
+		// 	}
+		// 	for location in stack {
+		// 		if !location.source.is_internal() || trace.options.internal {
+		// 			let location = location.to_string().yellow();
+		// 			eprintln!("   {location}");
+		// 		}
+		// 	}
+		// }
+		todo!()
 	}
 
 	async fn print_diagnostic<H>(&self, handle: &H, diagnostic: &tg::Diagnostic)
 	where
 		H: tg::Handle,
 	{
-		let title = match diagnostic.severity {
-			tg::diagnostic::Severity::Error => "error".red().bold(),
-			tg::diagnostic::Severity::Warning => "warning".yellow().bold(),
-			tg::diagnostic::Severity::Info => "info".blue().bold(),
-			tg::diagnostic::Severity::Hint => "hint".cyan().bold(),
-		};
-		eprintln!("{title}: {}", diagnostic.message);
-		let mut string = String::new();
-		if let Some(location) = &diagnostic.location {
-			match &location.module {
-				tg::Module {
-					object: tg::module::Object::Path(path),
-					..
-				} => {
-					write!(string, "{path}").unwrap();
-				},
+		// let title = match diagnostic.severity {
+		// 	tg::diagnostic::Severity::Error => "error".red().bold(),
+		// 	tg::diagnostic::Severity::Warning => "warning".yellow().bold(),
+		// 	tg::diagnostic::Severity::Info => "info".blue().bold(),
+		// 	tg::diagnostic::Severity::Hint => "hint".cyan().bold(),
+		// };
+		// eprintln!("{title}: {}", diagnostic.message);
+		// let mut string = String::new();
+		// if let Some(location) = &diagnostic.location {
+		// 	match &location.module {
+		// 		tg::Module {
+		// 			object: tg::module::Object::Path(path),
+		// 			..
+		// 		} => {
+		// 			write!(string, "{path}").unwrap();
+		// 		},
 
-				tg::Module {
-					object: tg::module::Object::Object(object),
-					..
-				} => {
-					let mut printed = false;
-					if let tg::object::Id::Package(package) = object {
-						let package = tg::Package::with_id(package.clone());
-						if let Ok(object) = package.object(handle).await {
-							let node = &object.nodes[object.root];
-							let repository = node
-								.metadata
-								.get("repository")
-								.and_then(|value| value.try_unwrap_string_ref().ok());
-							let version = node
-								.metadata
-								.get("version")
-								.and_then(|value| value.try_unwrap_string_ref().ok());
-							if let (Some(repository), Some(version)) = (repository, version) {
-								write!(string, "{repository}@{version}").unwrap();
-								printed = true;
-							}
-						}
-					}
-					if !printed {
-						write!(string, "{object}").unwrap();
-					}
-				},
-			}
-			let mut string = if string.is_empty() {
-				"<unknown>".to_owned()
-			} else {
-				string
-			};
-			let line = location.range.start.line + 1;
-			let character = location.range.start.character + 1;
-			write!(string, ":{line}:{character}").unwrap();
-			eprint!("   {}", string.yellow());
-		}
-		eprintln!();
+		// 		tg::Module {
+		// 			object: tg::module::Object::Object(object),
+		// 			..
+		// 		} => {
+		// 			let mut printed = false;
+		// 			if let tg::object::Id::Lock(package) = object {
+		// 				let package = tg::Lock::with_id(package.clone());
+		// 				if let Ok(object) = package.object(handle).await {
+		// 					let node = &object.nodes[object.root];
+		// 					let repository = node
+		// 						.metadata
+		// 						.get("repository")
+		// 						.and_then(|value| value.try_unwrap_string_ref().ok());
+		// 					let version = node
+		// 						.metadata
+		// 						.get("version")
+		// 						.and_then(|value| value.try_unwrap_string_ref().ok());
+		// 					if let (Some(repository), Some(version)) = (repository, version) {
+		// 						write!(string, "{repository}@{version}").unwrap();
+		// 						printed = true;
+		// 					}
+		// 				}
+		// 			}
+		// 			if !printed {
+		// 				write!(string, "{object}").unwrap();
+		// 			}
+		// 		},
+		// 	}
+		// 	let mut string = if string.is_empty() {
+		// 		"<unknown>".to_owned()
+		// 	} else {
+		// 		string
+		// 	};
+		// 	let line = location.range.start.line + 1;
+		// 	let character = location.range.start.character + 1;
+		// 	write!(string, ":{line}:{character}").unwrap();
+		// 	eprint!("   {}", string.yellow());
+		// }
+		// eprintln!();
+		todo!()
 	}
 
 	async fn output_json<T>(output: &T) -> tg::Result<()>

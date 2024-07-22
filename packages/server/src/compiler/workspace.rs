@@ -14,20 +14,20 @@ impl Compiler {
 
 		// Add the specified workspaces.
 		for uri in added {
-			let package_path = match uri.scheme().unwrap().as_str() {
+			let path = match uri.scheme().unwrap().as_str() {
 				"file" => PathBuf::from(uri.path().as_str()),
 				scheme => return Err(tg::error!(%scheme, "invalid URI for workspace folder")),
 			};
-			workspaces.insert(package_path);
+			workspaces.insert(path);
 		}
 
 		// Remove the specified workspaces.
 		for uri in removed {
-			let package_path = match uri.scheme().unwrap().as_str() {
+			let path = match uri.scheme().unwrap().as_str() {
 				"file" => PathBuf::from(uri.path().as_str()),
 				scheme => return Err(tg::error!(%scheme, "invalid URI for workspace folder")),
 			};
-			workspaces.remove(&package_path);
+			workspaces.remove(&path);
 		}
 
 		Ok(())

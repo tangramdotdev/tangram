@@ -3,10 +3,9 @@ use tangram_client as tg;
 use tangram_http::{incoming::request::Ext as _, outgoing::response::Ext as _, Incoming, Outgoing};
 
 impl Server {
-	pub async fn document_package(
+	pub async fn document_artifact(
 		&self,
-		id: &tg::package::Id,
-		arg: tg::package::doc::Arg,
+		arg: tg::artifact::document::Arg,
 	) -> tg::Result<serde_json::Value> {
 		// Handle the remote.
 		let remote = arg.remote.as_ref();
@@ -16,39 +15,40 @@ impl Server {
 				.get(remote)
 				.ok_or_else(|| tg::error!("the remote does not exist"))?
 				.clone();
-			let arg = tg::package::doc::Arg { remote: None };
-			let output = remote.document_package(id, arg).await?;
+			let arg = tg::artifact::document::Arg {
+				remote: None,
+				..arg
+			};
+			let output = remote.document_artifact(arg).await?;
 			return Ok(output);
 		}
 
 		// Create the module.
 		let module = tg::Module {
 			kind: tg::module::Kind::Ts,
-			object: tg::module::Object::Object(id.clone().into()),
+			object: tg::module::Object::Object(arg.artifact.clone().into()),
 		};
 
 		// Create the compiler.
 		let compiler = crate::compiler::Compiler::new(self, tokio::runtime::Handle::current());
 
 		// Document the package.
-		let output = compiler.doc(&module).await?;
+		let output = compiler.document(&module).await?;
 
 		Ok(output)
 	}
 }
 
 impl Server {
-	pub(crate) async fn handle_document_package_request<H>(
+	pub(crate) async fn handle_document_artifact_request<H>(
 		handle: &H,
 		request: http::Request<Incoming>,
-		id: &str,
 	) -> tg::Result<http::Response<Outgoing>>
 	where
 		H: tg::Handle,
 	{
-		let id = id.parse()?;
 		let arg = request.json().await?;
-		let output = handle.document_package(&id, arg).await?;
+		let output = handle.document_artifact(arg).await?;
 		let response = http::Response::builder().json(output).unwrap();
 		Ok(response)
 	}

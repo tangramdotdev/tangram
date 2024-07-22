@@ -49,7 +49,7 @@ pub enum Kind {
 	Directory,
 	File,
 	Symlink,
-	Package,
+	Lock,
 	Target,
 }
 
@@ -109,6 +109,28 @@ impl std::str::FromStr for Module {
 	}
 }
 
+impl std::fmt::Display for Object {
+	fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+		match self {
+			Self::Object(object) => write!(f, "{object}"),
+			Self::Path(path) => write!(f, "{path}"),
+		}
+	}
+}
+
+impl std::str::FromStr for Object {
+	type Err = tg::Error;
+
+	fn from_str(s: &str) -> tg::Result<Self, Self::Err> {
+		if s.starts_with("./") || s.starts_with("../") || s.starts_with('/') {
+			let path = s.parse()?;
+			Ok(Self::Path(path))
+		} else {
+			Ok(Self::Object(s.parse()?))
+		}
+	}
+}
+
 impl std::fmt::Display for Kind {
 	fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
 		match self {
@@ -123,7 +145,7 @@ impl std::fmt::Display for Kind {
 			Kind::Directory => write!(f, "directory"),
 			Kind::File => write!(f, "file"),
 			Kind::Symlink => write!(f, "symlink"),
-			Kind::Package => write!(f, "package"),
+			Kind::Lock => write!(f, "lock"),
 			Kind::Target => write!(f, "target"),
 		}
 	}
@@ -145,31 +167,9 @@ impl std::str::FromStr for Kind {
 			"directory" => Ok(Kind::Directory),
 			"file" => Ok(Kind::File),
 			"symlink" => Ok(Kind::Symlink),
-			"package" => Ok(Kind::Package),
+			"lock" => Ok(Kind::Lock),
 			"target" => Ok(Kind::Target),
 			_ => Err(tg::error!(%kind = s, "invalid kind")),
-		}
-	}
-}
-
-impl std::str::FromStr for Object {
-	type Err = tg::Error;
-
-	fn from_str(s: &str) -> tg::Result<Self, Self::Err> {
-		if s.starts_with("./") || s.starts_with("../") || s.starts_with('/') {
-			let path = s.parse()?;
-			Ok(Self::Path(path))
-		} else {
-			Ok(Self::Object(s.parse()?))
-		}
-	}
-}
-
-impl std::fmt::Display for Object {
-	fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-		match self {
-			Self::Object(object) => write!(f, "{object}"),
-			Self::Path(path) => write!(f, "{path}"),
 		}
 	}
 }

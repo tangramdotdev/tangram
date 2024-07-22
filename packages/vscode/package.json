@@ -107,7 +107,7 @@
 	"scripts": {
 		"build": "esbuild --bundle --outfile=extension.js --format=cjs --sourcemap --platform=node --external:vscode src/extension.ts && vsce package --no-dependencies --no-update-package-json --no-git-tag-version",
 		"check": "tsc && biome check src",
-		"format": "biome check --apply src"
+		"format": "biome check --write src"
 	},
 	"version": "0.0.0"
 }

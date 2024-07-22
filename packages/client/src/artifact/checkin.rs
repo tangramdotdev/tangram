@@ -8,6 +8,9 @@ pub struct Arg {
 	#[serde(default, skip_serializing_if = "is_false")]
 	pub destructive: bool,
 
+	#[serde(default, skip_serializing_if = "is_false")]
+	pub locked: bool,
+
 	pub path: tg::Path,
 }
 

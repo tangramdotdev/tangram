@@ -17,7 +17,7 @@ export let start = async (target: Target): Promise<Value> => {
 		throw new Error("invalid target");
 	}
 	let object = await executable.object();
-	let metadata = object.nodes[object.root]!.metadata;
+	let metadata = object.metadata;
 	if (!("kind" in metadata)) {
 		throw new Error("the kind must be set");
 	}

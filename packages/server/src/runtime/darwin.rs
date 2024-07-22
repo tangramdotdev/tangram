@@ -37,7 +37,7 @@ impl Runtime {
 		// Get the target.
 		let target = build.target(server).await?;
 
-		// If the VFS is disabled, then check out the target's references.
+		// If the VFS is disabled, then check out the target's children.
 		if server.vfs.lock().unwrap().is_none() {
 			target
 				.data(server)
@@ -480,6 +480,7 @@ impl Runtime {
 			let arg = tg::artifact::checkin::Arg {
 				destructive: true,
 				path: output_path.clone().try_into()?,
+				locked: true,
 			};
 			tg::Artifact::check_in(server, arg)
 				.await

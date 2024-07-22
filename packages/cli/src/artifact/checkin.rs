@@ -11,6 +11,10 @@ pub struct Args {
 	#[arg(long)]
 	pub destructive: bool,
 
+	/// If this flag is set, lockfiles will not be updated.
+	#[arg(long)]
+	pub locked: bool,
+
 	/// The path to check in.
 	#[arg(index = 1)]
 	pub path: Option<PathBuf>,
@@ -27,9 +31,10 @@ impl Cli {
 			path.push(path_arg);
 		}
 
-		// Perform the checkin.
+		// Check in the artifact.
 		let arg = tg::artifact::checkin::Arg {
 			destructive: args.destructive,
+			locked: args.locked,
 			path: path.try_into()?,
 		};
 		let mut stream = handle

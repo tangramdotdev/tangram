@@ -2,6 +2,14 @@ use super::Compiler;
 use lsp_types as lsp;
 use tangram_client as tg;
 
+#[derive(Debug, serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct Request {
+	pub module: tg::Module,
+}
+
+pub type Response = serde_json::Value;
+
 /// A document.
 #[derive(Clone, Debug)]
 pub struct Document {
@@ -9,6 +17,26 @@ pub struct Document {
 	pub version: i32,
 	pub modified: Option<std::time::SystemTime>,
 	pub text: Option<String>,
+}
+
+impl Compiler {
+	/// Document a module.
+	pub async fn document(&self, module: &tg::Module) -> tg::Result<Response> {
+		// Create the request.
+		let request = super::Request::Document(Request {
+			module: module.clone(),
+		});
+
+		// Perform the request.
+		let response = self.request(request).await?;
+
+		// Get the response.
+		let super::Response::Document(response) = response else {
+			return Err(tg::error!("unexpected response type"));
+		};
+
+		Ok(response)
+	}
 }
 
 impl Compiler {

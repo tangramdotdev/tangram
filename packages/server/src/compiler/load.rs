@@ -31,17 +31,11 @@ impl Compiler {
 				kind: tg::module::Kind::Js | tg::module::Kind::Ts,
 				object: tg::module::Object::Object(object),
 			} => {
-				let package = object
+				let file = object
 					.clone()
 					.try_into()
-					.map_err(|source| tg::error!(!source, "module object must be a package"))?;
-				let package = tg::Package::with_id(package);
-				let package = package.object(&self.server).await?;
-				let object = package.nodes[package.root]
-					.object
-					.clone()
-					.ok_or_else(|| tg::error!(%object, "expected the package to have an object"))?;
-				let file = tg::File::try_from(object).map_err(|_| tg::error!("expected a file"))?;
+					.map_err(|source| tg::error!(!source, "module object must be a file"))?;
+				let file = tg::File::with_id(file);
 				let text = file.text(&self.server).await?;
 				Ok(text)
 			},
@@ -75,7 +69,7 @@ impl Compiler {
 					| tg::module::Kind::Directory
 					| tg::module::Kind::File
 					| tg::module::Kind::Symlink
-					| tg::module::Kind::Package
+					| tg::module::Kind::Lock
 					| tg::module::Kind::Target,
 				object,
 			} => {
@@ -88,7 +82,7 @@ impl Compiler {
 					tg::module::Kind::Directory => "Directory",
 					tg::module::Kind::File => "File",
 					tg::module::Kind::Symlink => "Symlink",
-					tg::module::Kind::Package => "Package",
+					tg::module::Kind::Lock => "Lock",
 					tg::module::Kind::Target => "Target",
 					_ => unreachable!(),
 				};

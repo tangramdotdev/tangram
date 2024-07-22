@@ -142,6 +142,7 @@ declare namespace tg {
 		) => Promise<Checksum>;
 	}
 
+	/* Compute a checksum. */
 	export let checksum: (
 		input: string | Uint8Array | Blob | Artifact,
 		algorithm: Algorithm,
@@ -281,7 +282,7 @@ declare namespace tg {
 		text(): Promise<string>;
 
 		/** Get this file's dependencies. */
-		dependencies(): Promise<Array<Artifact>>;
+		dependencies(): Promise<File.Dependencies>;
 
 		/** Get this file's executable bit. */
 		executable(): Promise<boolean>;
@@ -292,9 +293,14 @@ declare namespace tg {
 
 		type ArgObject = {
 			contents?: Blob.Arg | undefined;
-			dependencies?: Array<Artifact> | undefined;
+			dependencies?: Dependencies | undefined;
 			executable?: boolean | undefined;
 		};
+
+		type Dependencies =
+			| Array<Object>
+			| { [key: string]: Object }
+			| (Lock | [Lock, number]);
 
 		export type Id = string;
 	}
@@ -381,14 +387,6 @@ declare namespace tg {
 	/** Write to the log. */
 	export let log: (...args: Array<unknown>) => void;
 
-	export type Metadata = {
-		homepage?: string;
-		license?: string;
-		name?: string;
-		repository?: string;
-		version?: string;
-	};
-
 	/** Create a mutation. */
 	export function mutation<T extends Value = Value>(
 		arg: Unresolved<Mutation.Arg<T>>,
@@ -440,6 +438,47 @@ declare namespace tg {
 		static assert(value: unknown): asserts value is Mutation;
 
 		get inner(): Mutation.Inner;
+	}
+
+	/** Create a lock. */
+	export let lock: (...args: Args<Lock.Arg>) => Promise<Lock>;
+
+	/** A lock. */
+	export class Lock {
+		/** Get a lock with an ID. */
+		static withId(id: Lock.Id): Lock;
+
+		/** Create a lock. */
+		static new(...args: Args<Lock.Arg>): Promise<Lock>;
+
+		/** Expect that a value is a `tg.Lock`. */
+		static expect(value: unknown): Lock;
+
+		/** Assert that a value is a `tg.Lock`. */
+		static assert(value: unknown): asserts value is Lock;
+
+		/** Get this lock's nodes. */
+		nodes(): Promise<Array<Lock.Node>>;
+	}
+
+	export namespace Lock {
+		export type Arg = Lock | ArgObject;
+
+		type ArgObject = {
+			nodes?: Array<NodeArg> | undefined;
+		};
+
+		type NodeArg = {
+			dependencies?: { [reference: string]: number | Lock.Arg } | undefined;
+			object?: Object | undefined;
+		};
+
+		export type Node = {
+			dependencies?: { [reference: string]: number | Lock } | undefined;
+			object?: Object | undefined;
+		};
+
+		export type Id = string;
 	}
 
 	export namespace Mutation {
@@ -497,50 +536,6 @@ declare namespace tg {
 			| "append"
 			| "prefix"
 			| "suffix";
-	}
-
-	/** Create a package. */
-	export let package: (...args: Args<Package.Arg>) => Promise<Package>;
-
-	/** A package. */
-	export class Package {
-		/** Get a package with an ID. */
-		static withId(id: Package.Id): Package;
-
-		/** Create a package. */
-		static new(...args: Args<Package.Arg>): Promise<Package>;
-
-		/** Expect that a value is a `tg.Package`. */
-		static expect(value: unknown): Package;
-
-		/** Assert that a value is a `tg.Package`. */
-		static assert(value: unknown): asserts value is Package;
-
-		/** Get this package's dependencies. */
-		dependencies(): Promise<{ [key: string]: Package }>;
-
-		/** Get this package's metadata. */
-		metadata(): Promise<{ [key: string]: Value }>;
-
-		/** Get this package's object. */
-		object(): Promise<Object>;
-	}
-
-	export namespace Package {
-		export type Arg = Package | ArgObject;
-
-		export type ArgObject = {
-			nodes?: Array<NodeArg> | undefined;
-			root?: number | undefined;
-		};
-
-		export type NodeArg = {
-			dependencies?: { [dependency: string]: Package.Arg | number } | undefined;
-			metadata?: { [key: string]: Value } | undefined;
-			object?: Object | undefined;
-		};
-
-		export type Id = string;
 	}
 
 	/** Resolve all deeply nested promises in an unresolved value. */
@@ -710,7 +705,7 @@ declare namespace tg {
 		env(): Promise<{ [key: string]: Value }>;
 
 		/** Get this target's executable. */
-		executable(): Promise<Package | undefined>;
+		executable(): Promise<Lock | undefined>;
 
 		/** Get this target's host. */
 		host(): Promise<string>;
@@ -739,7 +734,7 @@ declare namespace tg {
 			env?: MaybeNestedArray<MaybeMutationMap> | undefined;
 
 			/** The target's executable. */
-			executable?: Artifact | Package | undefined;
+			executable?: File | undefined;
 
 			/** The system to build the target on. */
 			host?: string | undefined;
@@ -804,7 +799,7 @@ declare namespace tg {
 		| Directory
 		| File
 		| Symlink
-		| Package
+		| Lock
 		| Target
 		| Mutation
 		| Template
@@ -824,7 +819,7 @@ declare namespace tg {
 		| Directory
 		| File
 		| Symlink
-		| Package
+		| Lock
 		| Target;
 
 	/** Create a path. **/

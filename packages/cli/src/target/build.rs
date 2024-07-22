@@ -123,19 +123,17 @@ impl Cli {
 			.remote
 			.map(|remote| remote.unwrap_or_else(|| "default".to_owned()));
 
+		// Get the reference.
+		let item = self.get_reference(&reference).await?;
+
 		// Create the target.
-		let target = 'a: {
-			// Get the reference.
-			let item = self.get_reference(&reference).await?;
-
+		let target = if let Either::Right(tg::Object::Target(target)) = item {
 			// If the object is a target, then use it.
-			if let Either::Right(tg::Object::Target(target)) = item {
-				break 'a target;
-			};
-
-			// Otherwise, the object must be a package.
-			let Either::Right(tg::Object::Package(package)) = item else {
-				return Err(tg::error!("expected a package"));
+			target
+		} else {
+			// Otherwise, the object must be a file.
+			let Either::Right(tg::Object::File(executable)) = item else {
+				return Err(tg::error!("expected a file"));
 			};
 
 			// Get the target.
@@ -190,7 +188,7 @@ impl Cli {
 
 			// Create the target.
 			tg::target::Builder::new(host)
-				.executable(package)
+				.executable(executable)
 				.args(args_)
 				.env(env)
 				.build()
@@ -559,45 +557,46 @@ where
 	}
 
 	async fn title(&self) -> tg::Result<()> {
-		let target = self.build.target(&self.handle).await?;
-		let host = target.host(&self.handle).await?;
-		let (package, repository, version) =
-			if let Some(executable) = target.executable(&self.handle).await?.as_ref() {
-				let object = executable.object(&self.handle).await?;
-				let metadata = &object.nodes[object.root].metadata;
-				let package = executable.id(&self.handle).await?;
-				let repository = metadata
-					.get("repository")
-					.and_then(|value| value.try_unwrap_string_ref().ok())
-					.cloned();
-				let version = metadata
-					.get("version")
-					.and_then(|value| value.try_unwrap_string_ref().ok())
-					.cloned();
-				(Some(package), repository, version)
-			} else {
-				(None, None, None)
-			};
-		let mut title = String::new();
-		if let (Some(repository), Some(version)) = (repository, version) {
-			write!(title, "{repository}@{version}").unwrap();
-		} else if let Some(package) = package {
-			write!(title, "{package}").unwrap();
-		} else {
-			write!(title, "<unknown>").unwrap();
-		}
-		if host.as_str() == "js" {
-			let name = target
-				.args(&self.handle)
-				.await?
-				.first()
-				.and_then(|arg| arg.try_unwrap_string_ref().ok())
-				.cloned();
-			if let Some(name) = name {
-				write!(title, ":{name}").unwrap();
-			}
-		}
-		self.state.lock().unwrap().title = title;
-		Ok(())
+		// let target = self.build.target(&self.handle).await?;
+		// let host = target.host(&self.handle).await?;
+		// let (package, repository, version) =
+		// 	if let Some(executable) = target.executable(&self.handle).await?.as_ref() {
+		// 		let object = executable.object(&self.handle).await?;
+		// 		let metadata = &object.nodes[object.root].metadata;
+		// 		let package = executable.id(&self.handle).await?;
+		// 		let repository = metadata
+		// 			.get("repository")
+		// 			.and_then(|value| value.try_unwrap_string_ref().ok())
+		// 			.cloned();
+		// 		let version = metadata
+		// 			.get("version")
+		// 			.and_then(|value| value.try_unwrap_string_ref().ok())
+		// 			.cloned();
+		// 		(Some(package), repository, version)
+		// 	} else {
+		// 		(None, None, None)
+		// 	};
+		// let mut title = String::new();
+		// if let (Some(repository), Some(version)) = (repository, version) {
+		// 	write!(title, "{repository}@{version}").unwrap();
+		// } else if let Some(package) = package {
+		// 	write!(title, "{package}").unwrap();
+		// } else {
+		// 	write!(title, "<unknown>").unwrap();
+		// }
+		// if host.as_str() == "js" {
+		// 	let name = target
+		// 		.args(&self.handle)
+		// 		.await?
+		// 		.first()
+		// 		.and_then(|arg| arg.try_unwrap_string_ref().ok())
+		// 		.cloned();
+		// 	if let Some(name) = name {
+		// 		write!(title, ":{name}").unwrap();
+		// 	}
+		// }
+		// self.state.lock().unwrap().title = title;
+		// Ok(())
+		todo!()
 	}
 }

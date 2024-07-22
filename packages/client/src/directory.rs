@@ -15,6 +15,7 @@ use std::{
 	PartialEq,
 	PartialOrd,
 	derive_more::Display,
+	derive_more::Into,
 	serde::Deserialize,
 	serde::Serialize,
 )]
@@ -263,12 +264,6 @@ impl TryFrom<Data> for Object {
 			.map(|(name, id)| (name, tg::Artifact::with_id(id)))
 			.collect();
 		Ok(Self { entries })
-	}
-}
-
-impl From<Id> for crate::Id {
-	fn from(value: Id) -> Self {
-		value.0
 	}
 }
 

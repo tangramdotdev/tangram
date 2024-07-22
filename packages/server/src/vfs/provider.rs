@@ -5,7 +5,6 @@ use futures::TryStreamExt as _;
 use indoc::formatdoc;
 use num::ToPrimitive;
 use std::{
-	collections::BTreeSet,
 	os::unix::fs::MetadataExt as _,
 	sync::{
 		atomic::{AtomicU64, Ordering},
@@ -366,7 +365,7 @@ impl vfs::Provider for Provider {
 		let Some(tg::Artifact::File(_)) = artifact else {
 			return Ok(Vec::new());
 		};
-		let var_name = vec![tg::file::TANGRAM_FILE_XATTR_NAME.to_owned()];
+		let var_name = vec![tg::file::TANGRAM_FILE_DEPENDENCIES_XATTR_NAME.to_owned()];
 		Ok(var_name)
 	}
 
@@ -380,27 +379,18 @@ impl vfs::Provider for Provider {
 		};
 
 		// Ensure the xattr name is supported.
-		if name != tg::file::TANGRAM_FILE_XATTR_NAME {
+		if name != tg::file::TANGRAM_FILE_DEPENDENCIES_XATTR_NAME {
 			return Ok(None);
 		}
 
-		// Get the dependencies.
-		let artifacts = file.dependencies(&self.server).await.map_err(|e| {
-			tracing::error!(?e, ?file, "failed to get file dependencies");
+		// Get the data.
+		let data = file.data(&self.server).await.map_err(|e| {
+			tracing::error!(?e, ?file, "failed to get the file data");
 			std::io::Error::from_raw_os_error(libc::EIO)
 		})?;
 
 		// Create the output.
-		let mut dependencies = BTreeSet::new();
-		for artifact in artifacts.iter() {
-			let id = artifact.id(&self.server).await.map_err(|e| {
-				tracing::error!(?e, ?artifact, "failed to get ID of artifact");
-				std::io::Error::from_raw_os_error(libc::EIO)
-			})?;
-			dependencies.insert(id);
-		}
-		let attributes = tg::file::Attributes { dependencies };
-		let output = serde_json::to_string(&attributes).unwrap();
+		let output = serde_json::to_string(&data.dependencies).unwrap();
 
 		Ok(Some(output))
 	}

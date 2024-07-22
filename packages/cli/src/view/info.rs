@@ -64,9 +64,7 @@ where
 							Box::new(data) as Box<dyn InfoViewExt>
 						},
 						Ok(tg::object::Data::Leaf(data)) => Box::new(data) as Box<dyn InfoViewExt>,
-						Ok(tg::object::Data::Package(data)) => {
-							Box::new(data) as Box<dyn InfoViewExt>
-						},
+						Ok(tg::object::Data::Lock(data)) => Box::new(data) as Box<dyn InfoViewExt>,
 						Err(error) => Box::new(error) as Box<dyn InfoViewExt>,
 					},
 
@@ -248,9 +246,7 @@ impl InfoViewExt for tg::file::Data {
 			("dependencies", String::new()),
 			("executable", self.executable.to_string()),
 		];
-		for dependency in &self.dependencies {
-			rows.push(("", dependency.to_string()));
-		}
+		todo!();
 		let len = rows.len();
 		let rows = rows
 			.into_iter()
@@ -382,7 +378,7 @@ impl InfoViewExt for tg::leaf::Data {
 	}
 }
 
-impl InfoViewExt for tg::package::Data {
+impl InfoViewExt for tg::lock::Data {
 	fn render(&self, scroll: usize, area: Rect, buf: &mut Buffer) -> usize {
 		let text = serde_json::to_string_pretty(self).unwrap();
 		let len = text.lines().count();

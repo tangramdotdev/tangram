@@ -30,15 +30,18 @@ impl Cli {
 		// Get the reference.
 		let item = self.get_reference(&args.reference).await?;
 
-		// Get the package.
-		let Either::Right(tg::Object::Package(package)) = item else {
+		// Get the module.
+		let Either::Right(tg::Object::File(file)) = item else {
 			return Err(tg::error!("expected a package"));
 		};
 
 		// Check the package.
-		let package = package.id(&handle).await?;
-		let arg = tg::package::check::Arg { remote };
-		let output = handle.check_package(&package, arg).await?;
+		let file = file.id(&handle).await?;
+		let arg = tg::artifact::check::Arg {
+			artifact: file.into(),
+			remote,
+		};
+		let output = handle.check_artifact(arg).await?;
 
 		// Print the diagnostics.
 		for diagnostic in &output.diagnostics {

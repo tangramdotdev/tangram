@@ -33,9 +33,6 @@ pub enum Path {
 #[derive(Clone, Debug, Default, serde::Deserialize, serde::Serialize)]
 pub struct Query {
 	#[serde(default, skip_serializing_if = "Option::is_none")]
-	pub kind: Option<Kind>,
-
-	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub name: Option<String>,
 
 	#[serde(default, skip_serializing_if = "Option::is_none")]
@@ -48,48 +45,9 @@ pub struct Query {
 	pub remote: Option<String>,
 }
 
-#[derive(
-	Clone,
-	Copy,
-	Debug,
-	Eq,
-	Hash,
-	Ord,
-	PartialEq,
-	PartialOrd,
-	serde_with::DeserializeFromStr,
-	serde_with::SerializeDisplay,
-)]
-pub enum Kind {
-	Build,
-	Object,
-	Artifact,
-	Blob,
-	Leaf,
-	Branch,
-	Directory,
-	File,
-	Symlink,
-	Package,
-	Target,
-}
-
 impl Reference {
 	pub fn with_uri(uri: uri::Reference) -> tg::Result<Self> {
-		let path = uri.path();
-		let path = if let Ok(build) = path.parse::<tg::build::Id>() {
-			Path::Build(build)
-		} else if let Ok(build) = path.parse::<tg::object::Id>() {
-			Path::Object(build)
-		} else if path.starts_with('.') || path.starts_with('/') {
-			let path = path
-				.parse()
-				.map_err(|source| tg::error!(!source, "invalid path"))?;
-			Path::Path(path)
-		} else {
-			let tag = path.parse()?;
-			Path::Tag(tag)
-		};
+		let path = uri.path().parse()?;
 		let query = uri
 			.query()
 			.map(|query| {
@@ -202,45 +160,6 @@ impl std::str::FromStr for Path {
 			return Ok(Self::Tag(tag));
 		}
 		Err(tg::error!("invalid path"))
-	}
-}
-
-impl std::fmt::Display for Kind {
-	fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-		match self {
-			Kind::Build => write!(f, "build"),
-			Kind::Object => write!(f, "object"),
-			Kind::Artifact => write!(f, "artifact"),
-			Kind::Blob => write!(f, "blob"),
-			Kind::Leaf => write!(f, "leaf"),
-			Kind::Branch => write!(f, "branch"),
-			Kind::Directory => write!(f, "directory"),
-			Kind::File => write!(f, "file"),
-			Kind::Symlink => write!(f, "symlink"),
-			Kind::Package => write!(f, "package"),
-			Kind::Target => write!(f, "target"),
-		}
-	}
-}
-
-impl std::str::FromStr for Kind {
-	type Err = tg::Error;
-
-	fn from_str(s: &str) -> Result<Self, Self::Err> {
-		match s {
-			"build" => Ok(Kind::Build),
-			"object" => Ok(Kind::Object),
-			"artifact" => Ok(Kind::Artifact),
-			"blob" => Ok(Kind::Blob),
-			"leaf" => Ok(Kind::Leaf),
-			"branch" => Ok(Kind::Branch),
-			"directory" => Ok(Kind::Directory),
-			"file" => Ok(Kind::File),
-			"symlink" => Ok(Kind::Symlink),
-			"package" => Ok(Kind::Package),
-			"target" => Ok(Kind::Target),
-			_ => Err(tg::error!("invalid kind")),
-		}
 	}
 }
 

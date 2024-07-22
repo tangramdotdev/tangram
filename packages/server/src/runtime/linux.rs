@@ -74,7 +74,7 @@ impl Runtime {
 		// Get the target.
 		let target = build.target(server).await?;
 
-		// If the VFS is disabled, then check out the target's references.
+		// If the VFS is disabled, then check out the target's children.
 		if server.vfs.lock().unwrap().is_none() {
 			target
 				.data(server)

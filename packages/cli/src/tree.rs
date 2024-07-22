@@ -1,7 +1,7 @@
 use crate::Cli;
 use either::Either;
-use futures::{stream::FuturesOrdered, TryStreamExt};
-use tangram_client::{self as tg, handle::Ext, Handle};
+use futures::{stream::FuturesOrdered, TryStreamExt as _};
+use tangram_client::{self as tg, handle::Ext as _};
 
 /// Display a tree for a build or value.
 #[derive(Clone, Debug, clap::Args)]
@@ -33,51 +33,11 @@ pub struct Tree {
 impl Cli {
 	pub async fn command_tree(&self, args: Args) -> tg::Result<()> {
 		let handle = self.handle().await?;
-		let path = args
-			.reference
-			.path()
-			.try_unwrap_path_ref()
-			.ok()
-			.or_else(|| args.reference.query()?.path.as_ref());
-		let item = if let Some(path) = path {
-			let path = tokio::fs::canonicalize(path)
-				.await
-				.map_err(|source| tg::error!(!source, "failed to canonicalize the path"))?
-				.try_into()
-				.map_err(|source| tg::error!(!source, "failed to parse path"))?;
-			let id = match args.reference.query().and_then(|q| q.kind.as_ref()) {
-				None | Some(tg::reference::Kind::Package) => handle
-					.check_in_package(tg::package::checkin::Arg {
-						path,
-						locked: args.locked,
-						remote: args.remote,
-					})
-					.await
-					.map_err(|source| tg::error!(!source, "failed to check in package"))?
-					.package
-					.into(),
-				_ => tg::Artifact::check_in(
-					&handle,
-					tg::artifact::checkin::Arg {
-						destructive: false,
-						path,
-					},
-				)
-				.await
-				.map_err(|source| tg::error!(!source, "failed to check in the artifact"))?
-				.id(&handle)
-				.await?
-				.into(),
-			};
-			Either::Right(id)
-		} else {
-			handle
-				.get_reference(&args.reference)
-				.await
-				.map_err(|source| tg::error!(!source, "failed to get reference"))?
-				.item
-		};
-
+		let item = handle
+			.get_reference(&args.reference)
+			.await
+			.map_err(|source| tg::error!(!source, "failed to get reference"))?
+			.item;
 		match item {
 			Either::Left(_build) => {
 				todo!()
@@ -171,26 +131,27 @@ impl Cli {
 					.await?;
 				(title, children)
 			},
-			tg::Value::Object(tg::Object::Package(package)) => {
-				let title = package.id(&handle).await?.to_string();
-				let metadata = package.metadata(&handle).await?;
-				let value = tg::Value::Map(metadata.clone());
-				let mut children = vec![
-					Box::pin(self.value_tree(Some("metadata"), value, current_depth, max_depth))
-						.await?,
-				];
-				for dependency in package.dependencies(&handle).await? {
-					let package = package.get_dependency(&handle, &dependency).await?;
-					let child = Box::pin(self.value_tree(
-						Some(&dependency.to_string()),
-						tg::Value::Object(package),
-						current_depth,
-						max_depth,
-					))
-					.await?;
-					children.push(child);
-				}
-				(title, children)
+			tg::Value::Object(tg::Object::Lock(lock)) => {
+				// let title = lock.id(&handle).await?.to_string();
+				// let metadata = lock.metadata(&handle).await?;
+				// let value = tg::Value::Map(metadata.clone());
+				// let mut children = vec![
+				// 	Box::pin(self.value_tree(Some("metadata"), value, current_depth, max_depth))
+				// 		.await?,
+				// ];
+				// for dependency in lock.dependencies(&handle).await? {
+				// 	let package = lock.get_dependency(&handle, &dependency).await?;
+				// 	let child = Box::pin(self.value_tree(
+				// 		Some(&dependency.to_string()),
+				// 		tg::Value::Object(package),
+				// 		current_depth,
+				// 		max_depth,
+				// 	))
+				// 	.await?;
+				// 	children.push(child);
+				// }
+				// (title, children)
+				todo!()
 			},
 			tg::Value::Object(object) => {
 				let title = object.id(&handle).await?.to_string();

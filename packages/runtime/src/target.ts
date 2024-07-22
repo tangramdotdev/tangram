@@ -2,9 +2,9 @@ import { Args } from "./args.ts";
 import { Artifact } from "./artifact.ts";
 import { assert as assert_ } from "./assert.ts";
 import type { Checksum } from "./checksum.ts";
+import { File } from "./file.ts";
 import { Module } from "./module.ts";
 import type { Object_ } from "./object.ts";
-import { Package, package_ } from "./package.ts";
 import { type Unresolved, resolve } from "./resolve.ts";
 import { symlink } from "./symlink.ts";
 import { Template } from "./template.ts";
@@ -62,7 +62,7 @@ export function target<
 			args: [arg.name],
 			checksum: undefined,
 			env: getCurrentTarget().expectObject().env,
-			executable: Package.withId(module_.object),
+			executable: File.withId(module_.object),
 			host: "js",
 		};
 		let state = {
@@ -128,15 +128,7 @@ export class Target<
 		let args_ = arg.args ?? [];
 		let checksum = arg.checksum;
 		let env = await Args.applyMutations(flatten(arg.env ?? []));
-		let executable: Package | undefined;
-		if (Artifact.is(arg.executable)) {
-			executable = await package_({
-				root: 0,
-				nodes: [{ object: arg.executable }],
-			});
-		} else if (arg.executable instanceof Package) {
-			executable = arg.executable;
-		}
+		let executable = arg.executable;
 		let host = arg.host;
 		if (!host) {
 			throw new Error("cannot create a target without a host");
@@ -245,7 +237,7 @@ export class Target<
 		return (await this.object()).env;
 	}
 
-	async executable(): Promise<Package | undefined> {
+	async executable(): Promise<File | undefined> {
 		return (await this.object()).executable;
 	}
 
@@ -275,7 +267,7 @@ export namespace Target {
 		args?: Array<Value> | undefined;
 		checksum?: Checksum | undefined;
 		env?: MaybeNestedArray<MaybeMutationMap> | undefined;
-		executable?: Artifact | Package | undefined;
+		executable?: File | undefined;
 		host?: string | undefined;
 	};
 
@@ -285,7 +277,7 @@ export namespace Target {
 		args: Array<Value>;
 		checksum: Checksum | undefined;
 		env: { [key: string]: Value };
-		executable: Package | undefined;
+		executable: File | undefined;
 		host: string;
 	};
 

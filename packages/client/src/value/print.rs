@@ -1,7 +1,7 @@
 use crate as tg;
 use bytes::Bytes;
 use either::Either;
-use num::ToPrimitive;
+use num::ToPrimitive as _;
 use std::collections::BTreeMap;
 
 pub fn print(value: &tg::Value, pretty: bool) -> String {
@@ -23,6 +23,13 @@ impl Printer {
 		};
 		printer.value(value);
 		printer.string
+	}
+
+	fn indent(&mut self) {
+		if self.pretty {
+			let indent = (0..self.indent).map(|_| '\t');
+			self.string.extend(indent);
+		}
 	}
 
 	fn value(&mut self, value: &tg::Value) {
@@ -107,7 +114,7 @@ impl Printer {
 			tg::Object::Directory(v) => self.directory(v),
 			tg::Object::File(v) => self.file(v),
 			tg::Object::Symlink(v) => self.symlink(v),
-			tg::Object::Package(v) => self.package(v),
+			tg::Object::Lock(v) => self.lock(v),
 			tg::Object::Target(v) => self.target(v),
 		}
 	}
@@ -119,8 +126,9 @@ impl Printer {
 			return;
 		}
 		let object = state.object().unwrap();
+		let bytes = data_encoding::BASE64.encode(&object.bytes);
 		self.string += "tg.leaf(";
-		self.string(&data_encoding::BASE64.encode(&object.bytes));
+		self.string(&bytes);
 		self.string.push(')');
 	}
 
@@ -135,17 +143,18 @@ impl Printer {
 			.children
 			.iter()
 			.map(|child| {
-				let size = tg::Value::Number(child.size.to_f64().unwrap());
-				let blob = tg::Value::Object(child.blob.clone().into());
-				let object = [("size".to_owned(), size), ("blob".to_owned(), blob)]
+				let size = child.size.to_f64().unwrap().into();
+				let blob = child.blob.clone().into();
+				[("size".to_owned(), size), ("blob".to_owned(), blob)]
 					.into_iter()
-					.collect();
-				tg::Value::Map(object)
+					.collect::<tg::value::Map>()
+					.into()
 			})
-			.collect();
-		let object = [("children".to_owned(), tg::Value::Array(children))];
+			.collect::<tg::value::Array>()
+			.into();
+		let map = [("children".to_owned(), children)].into_iter().collect();
 		self.string += "tg.branch(";
-		self.map(&object.into_iter().collect());
+		self.map(&map);
 		self.string.push(')');
 	}
 
@@ -159,7 +168,7 @@ impl Printer {
 		let entries = object
 			.entries
 			.iter()
-			.map(|(name, artifact)| (name.clone(), tg::Value::Object(artifact.clone().into())))
+			.map(|(name, artifact)| (name.clone(), artifact.clone().into()))
 			.collect();
 		self.string += "tg.directory(";
 		self.map(&entries);
@@ -174,19 +183,33 @@ impl Printer {
 		}
 		let object = state.object().unwrap();
 		let mut map = BTreeMap::new();
-		map.insert(
-			"contents".to_owned(),
-			tg::Value::Object(object.contents.clone().into()),
-		);
-		map.insert("executable".to_owned(), tg::Value::Bool(object.executable));
-		let references = tg::Value::Array(
-			object
-				.dependencies
-				.iter()
-				.map(|artifact| tg::Value::Object(artifact.clone().into()))
-				.collect(),
-		);
-		map.insert("references".to_owned(), references);
+		let contents = object.contents.clone().into();
+		map.insert("contents".to_owned(), contents);
+		if let Some(dependencies) = &object.dependencies {
+			let dependencies = match dependencies {
+				tg::file::Dependencies::Set(set) => set
+					.iter()
+					.cloned()
+					.map(tg::Value::from)
+					.collect::<Vec<_>>()
+					.into(),
+				tg::file::Dependencies::Map(map) => map
+					.iter()
+					.map(|(reference, object)| (reference.to_string(), object.clone().into()))
+					.collect::<tg::value::Map>()
+					.into(),
+				tg::file::Dependencies::Lock(lock, index) => {
+					if *index == 0 {
+						lock.clone().into()
+					} else {
+						vec![lock.clone().into(), index.to_f64().into()].into()
+					}
+				},
+			};
+			map.insert("dependencies".to_owned(), dependencies);
+		}
+		let executable = object.executable.into();
+		map.insert("executable".to_owned(), executable);
 		self.string += "tg.file(";
 		self.map(&map);
 		self.string.push(')');
@@ -211,7 +234,7 @@ impl Printer {
 		self.string.push(')');
 	}
 
-	fn package(&mut self, value: &tg::Package) {
+	fn lock(&mut self, value: &tg::Lock) {
 		let state = value.state().read().unwrap();
 		if let Some(id) = state.id() {
 			self.string += &id.to_string();
@@ -224,19 +247,19 @@ impl Printer {
 			.iter()
 			.map(|node| {
 				let mut map = BTreeMap::new();
-				let dependencies = node
-					.dependencies
-					.iter()
-					.map(|(dependency, either)| {
-						let either = match either {
-							Either::Left(index) => tg::Value::Number(index.to_f64().unwrap()),
-							Either::Right(object) => object.clone().into(),
-						};
-						(dependency.to_string(), either)
-					})
-					.collect::<BTreeMap<String, tg::Value>>();
-				map.insert("dependencies".to_owned(), dependencies.into());
-				map.insert("metadata".to_owned(), node.metadata.clone().into());
+				if let Some(dependencies) = &node.dependencies {
+					let dependencies = dependencies
+						.iter()
+						.map(|(dependency, either)| {
+							let either = match either {
+								Either::Left(index) => index.to_f64().unwrap().into(),
+								Either::Right(object) => object.clone().into(),
+							};
+							(dependency.to_string(), either)
+						})
+						.collect::<BTreeMap<String, tg::Value>>();
+					map.insert("dependencies".to_owned(), dependencies.into());
+				}
 				if let Some(object) = &node.object {
 					map.insert("object".to_owned(), object.clone().into());
 				}
@@ -244,8 +267,7 @@ impl Printer {
 			})
 			.collect::<Vec<_>>();
 		map.insert("nodes".to_owned(), nodes.into());
-		map.insert("root".to_owned(), object.root.to_f64().unwrap().into());
-		self.string += "tg.package(";
+		self.string += "tg.lock(";
 		self.map(&map);
 		self.string.push(')');
 	}
@@ -269,7 +291,7 @@ impl Printer {
 		}
 		if let Some(executable) = &object.executable {
 			let key = "executable".to_owned();
-			let value = tg::Value::Object(executable.clone().into());
+			let value = executable.clone().into();
 			map.insert(key, value);
 		}
 		map.insert("host".to_owned(), object.host.clone().into());
@@ -294,46 +316,43 @@ impl Printer {
 		let mut map = BTreeMap::new();
 		match value {
 			tg::Mutation::Unset => {
-				map.insert("kind".to_owned(), tg::Value::String("unset".to_owned()));
+				map.insert("kind".to_owned(), "unset".to_owned().into());
 			},
 			tg::Mutation::Set { value } => {
-				map.insert("kind".to_owned(), tg::Value::String("set".to_owned()));
+				map.insert("kind".to_owned(), "set".to_owned().into());
 				map.insert("value".to_owned(), value.as_ref().clone());
 			},
 			tg::Mutation::SetIfUnset { value } => {
-				map.insert(
-					"kind".to_owned(),
-					tg::Value::String("set_if_unset".to_owned()),
-				);
+				map.insert("kind".to_owned(), "set_if_unset".to_owned().into());
 				map.insert("value".to_owned(), value.as_ref().clone());
 			},
 			tg::Mutation::Prepend { values } => {
-				map.insert("kind".to_owned(), tg::Value::String("prepend".to_owned()));
-				map.insert("values".to_owned(), tg::Value::Array(values.clone()));
+				map.insert("kind".to_owned(), "prepend".to_owned().into());
+				map.insert("values".to_owned(), values.clone().into());
 			},
 			tg::Mutation::Append { values } => {
-				map.insert("kind".to_owned(), tg::Value::String("append".to_owned()));
-				map.insert("values".to_owned(), tg::Value::Array(values.clone()));
+				map.insert("kind".to_owned(), "append".to_owned().into());
+				map.insert("values".to_owned(), values.clone().into());
 			},
 			tg::Mutation::Prefix {
 				template,
 				separator,
 			} => {
-				map.insert("kind".to_owned(), tg::Value::String("prefix".to_owned()));
+				map.insert("kind".to_owned(), "prefix".to_owned().into());
 				if let Some(separator) = separator {
-					map.insert("separator".to_owned(), tg::Value::String(separator.clone()));
+					map.insert("separator".to_owned(), separator.clone().into());
 				}
-				map.insert("template".to_owned(), tg::Value::Template(template.clone()));
+				map.insert("template".to_owned(), template.clone().into());
 			},
 			tg::Mutation::Suffix {
 				template,
 				separator,
 			} => {
-				map.insert("kind".to_owned(), tg::Value::String("suffix".to_owned()));
+				map.insert("kind".to_owned(), "suffix".to_owned().into());
 				if let Some(separator) = separator {
-					map.insert("separator".to_owned(), tg::Value::String(separator.clone()));
+					map.insert("separator".to_owned(), separator.clone().into());
 				}
-				map.insert("template".to_owned(), tg::Value::Template(template.clone()));
+				map.insert("template".to_owned(), template.clone().into());
 			},
 		}
 		self.string += "tg.mutation(";
@@ -353,12 +372,5 @@ impl Printer {
 		self.string += "tg.template(";
 		self.array(&components);
 		self.string.push(')');
-	}
-
-	fn indent(&mut self) {
-		if self.pretty {
-			let indent = (0..self.indent).map(|_| '\t');
-			self.string.extend(indent);
-		}
 	}
 }

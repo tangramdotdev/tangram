@@ -1,6 +1,17 @@
-use crate::{self as tg, util::arc::Ext as _};
+use crate::{self as tg};
 use bytes::Bytes;
-use std::{collections::BTreeSet, sync::Arc};
+use either::Either;
+use futures::{
+	stream::{FuturesOrdered, FuturesUnordered},
+	TryStreamExt as _,
+};
+use itertools::Itertools as _;
+use std::{
+	collections::{BTreeMap, BTreeSet},
+	sync::Arc,
+};
+
+pub use self::data::Data;
 
 #[derive(
 	Clone,
@@ -19,7 +30,7 @@ use std::{collections::BTreeSet, sync::Arc};
 pub struct Id(crate::Id);
 
 #[derive(Clone, Debug)]
-pub struct Symlink {
+pub struct Lock {
 	state: Arc<std::sync::RwLock<State>>,
 }
 
@@ -27,26 +38,45 @@ pub type State = tg::object::State<Id, Object>;
 
 #[derive(Clone, Debug)]
 pub struct Object {
-	pub artifact: Option<tg::Artifact>,
-	pub path: Option<tg::Path>,
+	pub nodes: Vec<Node>,
 }
 
-#[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
-pub struct Data {
-	#[serde(default, skip_serializing_if = "Option::is_none")]
-	pub artifact: Option<tg::artifact::Id>,
+#[derive(Clone, Debug, Default)]
+pub struct Node {
+	pub dependencies: Option<BTreeMap<tg::Reference, Either<usize, tg::Object>>>,
+	pub object: Option<tg::Object>,
+}
 
-	#[serde(default, skip_serializing_if = "Option::is_none")]
-	pub path: Option<tg::Path>,
+pub mod data {
+	use crate::{self as tg, util::serde::EitherUntagged};
+	use either::Either;
+	use serde_with::{serde_as, FromInto};
+	use std::collections::BTreeMap;
+
+	#[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
+	pub struct Data {
+		pub nodes: Vec<Node>,
+	}
+
+	#[serde_as]
+	#[derive(Clone, Debug, Default, serde::Deserialize, serde::Serialize)]
+	pub struct Node {
+		#[serde_as(as = "Option<BTreeMap<_, FromInto<EitherUntagged<usize, tg::object::Id>>>>")]
+		#[serde(default, skip_serializing_if = "Option::is_none")]
+		pub dependencies: Option<BTreeMap<tg::Reference, Either<usize, tg::object::Id>>>,
+
+		#[serde(default, skip_serializing_if = "Option::is_none")]
+		pub object: Option<tg::object::Id>,
+	}
 }
 
 impl Id {
 	pub fn new(bytes: &Bytes) -> Self {
-		Self(crate::Id::new_blake3(tg::id::Kind::Symlink, bytes))
+		Self(crate::Id::new_blake3(tg::id::Kind::Lock, bytes))
 	}
 }
 
-impl Symlink {
+impl Lock {
 	#[must_use]
 	pub fn with_state(state: State) -> Self {
 		let state = Arc::new(std::sync::RwLock::new(state));
@@ -142,96 +172,50 @@ impl Symlink {
 		H: tg::Handle,
 	{
 		let object = self.object(handle).await?;
-		let artifact = if let Some(artifact) = &object.artifact {
-			Some(artifact.id(handle).await?)
-		} else {
-			None
-		};
-		let path = object.path.clone();
-		Ok(Data { artifact, path })
+		let nodes = object
+			.nodes
+			.iter()
+			.map(|node| node.data(handle))
+			.collect::<FuturesOrdered<_>>()
+			.try_collect()
+			.await?;
+		Ok(Data { nodes })
 	}
 }
 
-impl Symlink {
-	#[must_use]
-	pub fn new(artifact: Option<tg::Artifact>, path: Option<tg::Path>) -> Self {
-		Self::with_object(Object { artifact, path })
-	}
-
-	pub async fn artifact<H>(&self, handle: &H) -> tg::Result<Option<tg::Artifact>>
+impl Node {
+	pub async fn data<H>(&self, handle: &H) -> tg::Result<data::Node>
 	where
 		H: tg::Handle,
 	{
-		Ok(self.object(handle).await?.artifact.clone())
-	}
-
-	pub async fn path<H>(
-		&self,
-		handle: &H,
-	) -> tg::Result<impl std::ops::Deref<Target = Option<tg::Path>>>
-	where
-		H: tg::Handle,
-	{
-		Ok(self.object(handle).await?.map(|object| &object.path))
-	}
-
-	pub async fn resolve<H>(&self, handle: &H) -> tg::Result<Option<tg::Artifact>>
-	where
-		H: tg::Handle,
-	{
-		self.resolve_from(handle, None).await
-	}
-
-	pub async fn resolve_from<H>(
-		&self,
-		handle: &H,
-		from: Option<Self>,
-	) -> tg::Result<Option<tg::Artifact>>
-	where
-		H: tg::Handle,
-	{
-		let mut from_artifact = if let Some(from) = &from {
-			from.artifact(handle).await?.clone()
+		let dependencies = if let Some(dependencies) = &self.dependencies {
+			Some(
+				dependencies
+					.iter()
+					.map(|(dependency, either)| async move {
+						let dependency = dependency.clone();
+						let option = match either {
+							Either::Left(index) => Either::Left(*index),
+							Either::Right(object) => Either::Right(object.id(handle).await?),
+						};
+						Ok::<_, tg::Error>((dependency, option))
+					})
+					.collect::<FuturesUnordered<_>>()
+					.try_collect()
+					.await?,
+			)
 		} else {
 			None
 		};
-		if let Some(tg::artifact::Artifact::Symlink(symlink)) = from_artifact {
-			from_artifact = Box::pin(symlink.resolve_from(handle, None)).await?;
-		}
-		let from_path = if let Some(from) = from {
-			from.path(handle).await?.clone()
+		let object = if let Some(object) = &self.object {
+			Some(object.id(handle).await?)
 		} else {
 			None
 		};
-		let mut artifact = self.artifact(handle).await?.clone();
-		if let Some(tg::artifact::Artifact::Symlink(symlink)) = artifact {
-			artifact = Box::pin(symlink.resolve_from(handle, None)).await?;
-		}
-		let path = self.path(handle).await?.clone();
-		if artifact.is_some() && from_artifact.is_some() {
-			return Err(tg::error!(
-				"expected no `from` value when `artifact` is set"
-			));
-		}
-		if artifact.is_some() && path.is_none() {
-			return Ok(artifact);
-		} else if artifact.is_none() && path.is_some() {
-			if let Some(tg::artifact::Artifact::Directory(directory)) = from_artifact {
-				let path = from_path
-					.unwrap_or_default()
-					.join(tg::Path::with_components([tg::path::Component::Parent]))
-					.join(path.unwrap_or_default())
-					.normalize();
-				return directory.try_get(handle, &path).await;
-			}
-			return Err(tg::error!("expected a directory"));
-		} else if artifact.is_some() && path.is_some() {
-			if let Some(tg::artifact::Artifact::Directory(directory)) = artifact {
-				return directory.try_get(handle, &path.unwrap_or_default()).await;
-			}
-			return Err(tg::error!("expected a directory"));
-		}
-		Err(tg::error!("invalid symlink"))
+		Ok(data::Node {
+			dependencies,
+			object,
+		})
 	}
 }
 
@@ -249,27 +233,80 @@ impl Data {
 
 	#[must_use]
 	pub fn children(&self) -> BTreeSet<tg::object::Id> {
-		self.artifact.iter().map(|id| id.clone().into()).collect()
+		let mut children = BTreeSet::new();
+		for node in &self.nodes {
+			if let Some(object) = &node.object {
+				children.insert(object.clone());
+			}
+			if let Some(dependencies) = &node.dependencies {
+				for either in dependencies.values() {
+					if let Either::Right(object) = either {
+						children.insert(object.clone());
+					}
+				}
+			}
+		}
+		children
 	}
 }
 
 impl TryFrom<Data> for Object {
 	type Error = tg::Error;
 
-	fn try_from(data: Data) -> std::result::Result<Self, Self::Error> {
-		let artifact = data.artifact.map(tg::Artifact::with_id);
-		let path = data.path;
-		Ok(Self { artifact, path })
+	fn try_from(value: Data) -> std::result::Result<Self, Self::Error> {
+		let nodes = value
+			.nodes
+			.into_iter()
+			.map(TryInto::try_into)
+			.try_collect()?;
+		Ok(Self { nodes })
 	}
 }
 
+impl TryFrom<data::Node> for Node {
+	type Error = tg::Error;
 
+	fn try_from(value: data::Node) -> std::result::Result<Self, Self::Error> {
+		let dependencies = if let Some(dependencies) = value.dependencies {
+			Some(
+				dependencies
+					.into_iter()
+					.map(|(dependency, either)| {
+						let either = either.map_right(tg::Object::with_id);
+						Ok::<_, tg::Error>((dependency, either))
+					})
+					.try_collect()?,
+			)
+		} else {
+			None
+		};
+		let object = value.object.map(tg::Object::with_id);
+		Ok(Self {
+			dependencies,
+			object,
+		})
+	}
+}
+
+impl Default for Lock {
+	fn default() -> Self {
+		Self::with_object(Object::default())
+	}
+}
+
+impl Default for Object {
+	fn default() -> Self {
+		Self {
+			nodes: vec![Node::default()],
+		}
+	}
+}
 
 impl TryFrom<crate::Id> for Id {
 	type Error = tg::Error;
 
 	fn try_from(value: crate::Id) -> tg::Result<Self, Self::Error> {
-		if value.kind() != tg::id::Kind::Symlink {
+		if value.kind() != tg::id::Kind::Lock {
 			return Err(tg::error!(%value, "invalid kind"));
 		}
 		Ok(Self(value))

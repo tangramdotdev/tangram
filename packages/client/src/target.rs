@@ -21,6 +21,7 @@ pub mod build;
 	PartialEq,
 	PartialOrd,
 	derive_more::Display,
+	derive_more::Into,
 	serde::Deserialize,
 	serde::Serialize,
 )]
@@ -36,26 +37,26 @@ pub type State = tg::object::State<Id, Object>;
 
 #[derive(Clone, Debug)]
 pub struct Object {
-	pub args: Vec<tg::Value>,
+	pub args: tg::value::Array,
 	pub checksum: Option<tg::Checksum>,
-	pub env: BTreeMap<String, tg::Value>,
-	pub executable: Option<tg::Package>,
+	pub env: tg::value::Map,
+	pub executable: Option<tg::File>,
 	pub host: String,
 }
 
 #[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
 pub struct Data {
 	#[serde(default, skip_serializing_if = "Vec::is_empty")]
-	pub args: Vec<tg::value::Data>,
+	pub args: tg::value::data::Array,
 
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub checksum: Option<tg::Checksum>,
 
 	#[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
-	pub env: BTreeMap<String, tg::value::Data>,
+	pub env: tg::value::data::Map,
 
 	#[serde(default, skip_serializing_if = "Option::is_none")]
-	pub executable: Option<tg::package::Id>,
+	pub executable: Option<tg::file::Id>,
 
 	pub host: String,
 }
@@ -235,7 +236,7 @@ impl Target {
 	pub async fn executable<H>(
 		&self,
 		handle: &H,
-	) -> tg::Result<impl std::ops::Deref<Target = Option<tg::Package>>>
+	) -> tg::Result<impl std::ops::Deref<Target = Option<tg::File>>>
 	where
 		H: tg::Handle,
 	{
@@ -283,7 +284,7 @@ impl TryFrom<Data> for Object {
 			.into_iter()
 			.map(|(key, data)| Ok::<_, tg::Error>((key, data.try_into()?)))
 			.try_collect()?;
-		let executable = data.executable.map(tg::Package::with_id);
+		let executable = data.executable.map(tg::File::with_id);
 		let host = data.host;
 		Ok(Self {
 			args,
@@ -292,12 +293,6 @@ impl TryFrom<Data> for Object {
 			executable,
 			host,
 		})
-	}
-}
-
-impl From<Id> for crate::Id {
-	fn from(value: Id) -> Self {
-		value.0
 	}
 }
 
@@ -325,7 +320,7 @@ pub struct Builder {
 	args: Vec<tg::Value>,
 	checksum: Option<tg::Checksum>,
 	env: BTreeMap<String, tg::Value>,
-	executable: Option<tg::Package>,
+	executable: Option<tg::File>,
 	host: String,
 }
 
@@ -360,7 +355,7 @@ impl Builder {
 	}
 
 	#[must_use]
-	pub fn executable(mut self, executable: impl Into<Option<tg::Package>>) -> Self {
+	pub fn executable(mut self, executable: impl Into<Option<tg::File>>) -> Self {
 		self.executable = executable.into();
 		self
 	}

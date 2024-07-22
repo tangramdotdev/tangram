@@ -304,7 +304,7 @@ mod tests {
 	#[test]
 	fn test_analyze() {
 		let text = r#"
-			export let metadata = { repository: "repository", version: "version" };
+			export let metadata = { description: "Hello, World!" };
 			import defaultImport from "tg:default_import";
 			import { namedImport } from "./named_import.tg.js";
 			import * as namespaceImport from "tg:namespace_import";
@@ -319,16 +319,10 @@ mod tests {
 		"#;
 		let left = Compiler::analyze_module(text.to_owned()).unwrap();
 		let metadata = Some(
-			[
-				(
-					"repository".to_owned(),
-					tg::value::Data::String("repository".to_owned()),
-				),
-				(
-					"version".to_owned(),
-					tg::value::Data::String("version".to_owned()),
-				),
-			]
+			[(
+				"description".to_owned(),
+				tg::value::Data::String("Hello, World!".to_owned()),
+			)]
 			.into(),
 		);
 		let imports = [

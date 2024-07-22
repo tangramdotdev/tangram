@@ -20,16 +20,14 @@ impl Compiler {
 				object: tg::module::Object::Object(object),
 				..
 			} => {
-				// Get the package.
+				// Get the file.
 				let object = tg::Object::with_id(object.clone());
-				let tg::Object::Package(package) = object else {
+				let tg::Object::File(file) = object else {
 					return Err(tg::error!("the referrer's object must be a package"));
 				};
 
 				// Get the dependency.
-				let object = package
-					.get_dependency(&self.server, &import.reference)
-					.await?;
+				let object = file.get_dependency(&self.server, &import.reference).await?;
 
 				// Determine the kind.
 				let kind = if let Some(kind) = import.kind {
@@ -44,7 +42,7 @@ impl Compiler {
 						tg::import::Kind::Directory => tg::module::Kind::Directory,
 						tg::import::Kind::File => tg::module::Kind::File,
 						tg::import::Kind::Symlink => tg::module::Kind::Symlink,
-						tg::import::Kind::Package => tg::module::Kind::Package,
+						tg::import::Kind::Lock => tg::module::Kind::Lock,
 						tg::import::Kind::Target => tg::module::Kind::Target,
 					}
 				} else {
@@ -53,25 +51,21 @@ impl Compiler {
 						tg::Object::Leaf(_) => tg::module::Kind::Leaf,
 						tg::Object::Branch(_) => tg::module::Kind::Branch,
 						tg::Object::Directory(_) => tg::module::Kind::Directory,
-						tg::Object::File(_) => tg::module::Kind::File,
-						tg::Object::Symlink(_) => tg::module::Kind::Symlink,
-						tg::Object::Package(package) => {
-							let metadata = package.metadata(&self.server).await?;
-							let kind = metadata.get("kind").ok_or_else(|| {
-								tg::error!("kind must be set in package metadata")
-							})?;
-							let kind = kind
-								.try_unwrap_string_ref()
-								.ok()
-								.ok_or_else(|| tg::error!("invalid kind"))?;
-							match kind.as_str() {
-								"js" => tg::module::Kind::Js,
-								"ts" => tg::module::Kind::Ts,
-								_ => {
-									return Err(tg::error!("invalid kind"));
-								},
+						tg::Object::File(file) => {
+							let metadata = file.metadata(&self.server).await?;
+							let kind = metadata.as_ref().and_then(|metadata| {
+								metadata.get("kind").and_then(|value| {
+									value.try_unwrap_string_ref().map(String::as_str).ok()
+								})
+							});
+							match kind {
+								Some("js") => tg::module::Kind::Js,
+								Some("ts") => tg::module::Kind::Ts,
+								_ => tg::module::Kind::File,
 							}
 						},
+						tg::Object::Symlink(_) => tg::module::Kind::Symlink,
+						tg::Object::Lock(_) => tg::module::Kind::Lock,
 						tg::Object::Target(_) => tg::module::Kind::Target,
 					}
 				};

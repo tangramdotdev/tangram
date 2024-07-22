@@ -9,10 +9,16 @@ export type Kind =
 	| "js"
 	| "ts"
 	| "dts"
+	| "object"
 	| "artifact"
+	| "blob"
+	| "leaf"
+	| "branch"
 	| "directory"
 	| "file"
-	| "symlink";
+	| "symlink"
+	| "lock"
+	| "target";
 
 export namespace Module {
 	export let toUrl = (module: Module): string => {

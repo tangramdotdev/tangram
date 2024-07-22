@@ -9,6 +9,8 @@ use itertools::Itertools as _;
 use num::ToPrimitive as _;
 use std::collections::BTreeMap;
 
+pub use self::data::*;
+
 pub mod parse;
 pub mod print;
 
@@ -64,22 +66,34 @@ pub type Array = Vec<Value>;
 
 pub type Map = BTreeMap<String, Value>;
 
-/// Value data.
-#[derive(Clone, Debug, PartialEq, derive_more::TryUnwrap, derive_more::Unwrap)]
-#[try_unwrap(ref)]
-#[unwrap(ref)]
-pub enum Data {
-	Null,
-	Bool(bool),
-	Number(f64),
-	String(String),
-	Array(Vec<Data>),
-	Map(BTreeMap<String, Data>),
-	Object(tg::object::Id),
-	Bytes(Bytes),
-	Path(tg::Path),
-	Mutation(tg::mutation::Data),
-	Template(tg::template::Data),
+pub mod data {
+	use std::collections::BTreeMap;
+
+	use bytes::Bytes;
+
+	use crate as tg;
+
+	/// Value data.
+	#[derive(Clone, Debug, PartialEq, derive_more::TryUnwrap, derive_more::Unwrap)]
+	#[try_unwrap(ref)]
+	#[unwrap(ref)]
+	pub enum Data {
+		Null,
+		Bool(bool),
+		Number(f64),
+		String(String),
+		Array(Vec<Data>),
+		Map(BTreeMap<String, Data>),
+		Object(tg::object::Id),
+		Bytes(Bytes),
+		Path(tg::Path),
+		Mutation(tg::mutation::Data),
+		Template(tg::template::Data),
+	}
+
+	pub type Array = Vec<Data>;
+
+	pub type Map = BTreeMap<String, Data>;
 }
 
 impl Value {
@@ -436,8 +450,8 @@ impl From<tg::Symlink> for Value {
 	}
 }
 
-impl From<tg::Package> for Value {
-	fn from(value: tg::Package) -> Self {
+impl From<tg::Lock> for Value {
+	fn from(value: tg::Lock) -> Self {
 		tg::Object::from(value).into()
 	}
 }

@@ -47,7 +47,7 @@ impl Server {
 		let compiler = crate::compiler::Compiler::new(self, tokio::runtime::Handle::current());
 
 		// Get the doc.
-		let doc = compiler.doc(&module).await?;
+		let doc = compiler.document(&module).await?;
 
 		Ok(doc)
 	}

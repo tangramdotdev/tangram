@@ -31,7 +31,7 @@ impl Runtime {
 			.ok()
 			.ok_or_else(|| tg::error!("expected an artifact"))?;
 
-		// Collect the artifact's recursive dependencies.
+		// Collect the artifact's recursive artifact dependencies.
 		let dependencies = Box::pin(artifact.recursive_dependencies(server)).await?;
 
 		// If there are no dependencies, then return the artifact.
@@ -130,8 +130,7 @@ impl Runtime {
 			tg::Artifact::File(file) => {
 				let contents = file.contents(server).await?.clone();
 				let executable = file.executable(server).await?;
-				let dependencies = vec![];
-				let file = tg::File::new(contents, dependencies, executable);
+				let file = tg::File::builder(contents).executable(executable).build();
 				Ok(file.into())
 			},
 
