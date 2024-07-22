@@ -139,15 +139,9 @@ impl Server {
 		loop {
 			// Get the build's status.
 			let status = self
-				.try_get_build_status_local_stream(id)
+				.try_get_build_status_local(id)
 				.await?
-				.unwrap()
-				.boxed()
-				.try_next()
-				.await?
-				.unwrap()
-				.try_unwrap_status()
-				.unwrap();
+				.ok_or_else(|| tg::error!(%build = id, "build does not exist"))?;
 
 			// Send as many data events as possible.
 			loop {

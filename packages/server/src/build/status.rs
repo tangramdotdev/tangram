@@ -89,7 +89,10 @@ impl Server {
 		Ok(Some(stream))
 	}
 
-	pub (crate) async fn try_get_build_status_local(&self, id: &tg::build::Id) -> tg::Result<Option<tg::build::Status>> {
+	pub(crate) async fn try_get_build_status_local(
+		&self,
+		id: &tg::build::Id,
+	) -> tg::Result<Option<tg::build::Status>> {
 		// Verify the build is local.
 		if !self.get_build_exists_local(id).await? {
 			return Ok(None);

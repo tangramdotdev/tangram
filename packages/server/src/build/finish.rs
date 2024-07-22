@@ -3,7 +3,6 @@ use crate::Server;
 use bytes::Bytes;
 use futures::{stream::FuturesUnordered, TryStreamExt as _};
 use indoc::formatdoc;
-use std::pin::pin;
 use tangram_client as tg;
 use tangram_database::{self as db, prelude::*};
 use tangram_http::{incoming::request::Ext as _, outgoing::response::Ext as _, Incoming, Outgoing};
@@ -39,17 +38,11 @@ impl Server {
 
 		// If the build is finished, then return.
 		let status = self
-			.try_get_build_status_local_stream(id)
+			.try_get_build_status_local(id)
 			.await?
-			.ok_or_else(|| tg::error!("expected the build to exist"))?;
-		let status = pin!(status)
-			.try_next()
-			.await?
-			.ok_or_else(|| tg::error!("failed to get the status"))?;
-		if matches!(
-			status,
-			tg::build::status::Event::Status(tg::build::Status::Finished)
-		) {
+			.ok_or_else(|| tg::error!(%build = id, "build does not exist"))?;
+
+		if matches!(status, tg::build::Status::Finished) {
 			return Ok(false);
 		}
 
@@ -60,11 +53,8 @@ impl Server {
 			.await
 			.map_err(|source| tg::error!(!source, "failed to get a database connection"))?;
 
-		// Decrement the reference count if the build is started.
-		if matches!(
-			status,
-			tg::build::status::Event::Status(tg::build::Status::Started)
-		) {
+		// Decrement the started parent count if the build is started.
+		if matches!(status, tg::build::Status::Started) {
 			#[derive(serde::Deserialize)]
 			struct Row {
 				started_parent_count: u64,
@@ -84,9 +74,9 @@ impl Server {
 				.await
 				.map_err(|source| tg::error!(!source, "failed to execute the statement"))?;
 
-			// Do nothing if the reference count is nonzero.
+			// Do nothing if the started parent count is nonzero.
 			if row.started_parent_count > 0 {
-				return Ok(());
+				return Ok(false);
 			}
 		}
 
@@ -133,8 +123,10 @@ impl Server {
 			.iter()
 			.map(|child_id| async move {
 				// Check if the child is finished before awaiting its outcome.
-				let Some(tg::build::Status::Finished) = self.try_get_build_status_local(child_id).await? else {
-					return Ok(None)
+				let Some(tg::build::Status::Finished) =
+					self.try_get_build_status_local(child_id).await?
+				else {
+					return Ok(None);
 				};
 
 				// Get the outcome.
