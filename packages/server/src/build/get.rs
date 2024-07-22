@@ -49,6 +49,7 @@ impl Server {
 					outcomes_count,
 					outcomes_weight,
 					retry,
+					started_parent_count,
 					status,
 					target,
 					targets_complete,
