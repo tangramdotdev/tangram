@@ -11,16 +11,21 @@ impl Server {
 		arg: tg::build::touch::Arg,
 	) -> tg::Result<()> {
 		// Handle the remote.
-		let remote = arg.remote.as_ref();
+		// Attempt to get the remote for the build.
+		let remote = if arg.remote.is_none() {
+			self.try_get_remote_for_build(id).await?
+		} else {
+			arg.remote.clone()
+		};
+		// If a remote was set, try and touch it.
 		if let Some(remote) = remote {
-			let remote = self
+			let client = self
 				.remotes
-				.get(remote)
-				.ok_or_else(|| tg::error!("the remote does not exist"))?
+				.get(&remote)
+				.ok_or_else(|| tg::error!(%remote, "the remote does not exist"))?
 				.clone();
 			let arg = tg::build::touch::Arg { remote: None };
-			remote.touch_build(id, arg).await?;
-			return Ok(());
+			return client.touch_build(id, arg).await;
 		}
 
 		// Get a database connection.

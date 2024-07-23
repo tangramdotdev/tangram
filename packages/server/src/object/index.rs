@@ -20,7 +20,13 @@ impl Server {
 			.boxed();
 
 		let semaphore = Arc::new(tokio::sync::Semaphore::new(
-			self.options.object_indexer.as_ref().unwrap().batch_size.to_usize().unwrap()
+			self.options
+				.object_indexer
+				.as_ref()
+				.unwrap()
+				.batch_size
+				.to_usize()
+				.unwrap(),
 		));
 
 		loop {

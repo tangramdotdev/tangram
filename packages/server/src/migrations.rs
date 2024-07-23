@@ -112,6 +112,8 @@ async fn migration_0000(path: &Path) -> tg::Result<()> {
 
 			create unique index build_children_build_child_index on build_children (build, child);
 
+			create unique index build_children_build_parent_index on build_children (child, build);
+
 			create index build_children_child_index on build_children (child);
 
 			create table build_logs (

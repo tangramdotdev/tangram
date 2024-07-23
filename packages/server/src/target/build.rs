@@ -16,10 +16,15 @@ impl Server {
 		arg: tg::target::build::Arg,
 	) -> tg::Result<tg::target::build::Output> {
 		// If the remote arg was set, then build the target remotely.
-		if let Some(remote) = arg.remote.as_ref() {
+		let remote = match (arg.remote.as_ref(), arg.parent.as_ref()) {
+			(Some(remote), _) => Some(remote.clone()),
+			(_, Some(parent)) => self.try_get_remote_for_build(parent).await?,
+			_ => None,
+		};
+		if let Some(remote) = remote {
 			let remote = self
 				.remotes
-				.get(remote)
+				.get(&remote)
 				.ok_or_else(|| tg::error!("the remote does not exist"))?
 				.clone();
 			let arg = tg::target::build::Arg {
@@ -28,6 +33,14 @@ impl Server {
 			};
 			let output = remote.build_target(id, arg).await?;
 			return Ok(output);
+		}
+
+		// Walk the local build graph to check for cycles.
+		if let Some(parent) = arg.parent.as_ref() {
+			let cycle_exists = self.cycle_exists(parent, id).await?;
+			if cycle_exists {
+				return Err(tg::error!("detected a build cycle."));
+			}
 		}
 
 		// Get a local build if one exists that satisfies the retry constraint.
@@ -81,11 +94,9 @@ impl Server {
 
 			// Add the build as a child of the parent.
 			if let Some(parent) = arg.parent.as_ref() {
-				let arg = tg::build::children::post::Arg {
-					child: build.id().clone(),
-					remote: None,
-				};
-				self.add_build_child(parent, arg).await?;
+				self.add_build_child(parent, build.id()).await.map_err(
+					|source| tg::error!(!source, %parent, %child = build.id(), "failed to add build as a child"),
+				)?;
 			}
 
 			// Touch the build.
@@ -134,17 +145,16 @@ impl Server {
 			if futures.is_empty() {
 				break 'a;
 			}
-			let Ok((Some((build, remote)), _)) = future::select_ok(futures).await else {
+			let Ok((Some((build, _remote)), _)) = future::select_ok(futures).await else {
 				break 'a;
 			};
 
 			// Add the build as a child of the parent.
+			// TODO: this is a change in semantics from the earlier code, since we're adding the build child locally.
 			if let Some(parent) = arg.parent.as_ref() {
-				let arg = tg::build::children::post::Arg {
-					child: build.id().clone(),
-					remote: Some(remote),
-				};
-				self.add_build_child(parent, arg).await?;
+				self.add_build_child(parent, build.id()).await.map_err(
+					|source| tg::error!(!source, %parent, %child = build.id(), "failed to add build as a child"),
+				)?;
 			}
 
 			// Touch the build.
@@ -207,11 +217,9 @@ impl Server {
 
 		// Add the build to the parent.
 		if let Some(parent) = arg.parent.as_ref() {
-			let arg = tg::build::children::post::Arg {
-				child: build.id().clone(),
-				remote: None,
-			};
-			self.add_build_child(parent, arg).await?;
+			self.add_build_child(parent, build.id()).await.map_err(
+				|source| tg::error!(!source, %parent, %child = build.id(), "failed to add build as a child"),
+			)?;
 		}
 
 		// Publish the message.
@@ -254,6 +262,72 @@ impl Server {
 
 		Ok(output)
 	}
+
+	async fn cycle_exists(
+		&self,
+		parent: &tg::build::Id,
+		target: &tg::target::Id,
+	) -> tg::Result<bool> {
+		let connection = self
+			.database
+			.connection(db::Priority::Low)
+			.await
+			.map_err(|source| tg::error!(!source, "failed to get a connection"))?;
+
+		// First check for a self-cycle.
+		#[derive(serde::Deserialize)]
+		struct Row {
+			cycle_exists: bool,
+		}
+		let p = connection.p();
+		let statement = formatdoc!(
+			"
+				select exists (
+					select 1 from builds
+					where id = {p}1 and target = {p}2
+				) as cycle_exists;
+			"
+		);
+
+		let params = db::params![parent, target];
+		let row = connection
+			.query_one_into::<Row>(statement, params)
+			.await
+			.map_err(|source| tg::error!(!source, "failed to execute the statement"))?;
+		if row.cycle_exists {
+			return Ok(row.cycle_exists);
+		}
+
+		// Otherwise, recurse.
+		let statement = formatdoc!(
+			"
+			with recursive ancestors as (
+				select b.id, b.target
+				from builds b
+				join build_children c on b.id = c.child
+				where c.child = {p}1
+
+				union all
+
+				select b.id, b.target
+				from ancestors a
+				join build_children c on a.id = c.child
+				join builds b on c.build = b.id
+			)
+			select exists (
+				select 1
+				from ancestors
+				where target = {p}2
+			) as cycle_exists;
+			"
+		);
+		let params = db::params![parent, target];
+		let row = connection
+			.query_one_into::<Row>(statement, params)
+			.await
+			.map_err(|source| tg::error!(!source, "failed to execute statement"))?;
+		Ok(row.cycle_exists)
+	}
 }
 
 impl Server {
@@ -269,6 +343,7 @@ impl Server {
 		let arg = request.json().await?;
 		let output = handle.build_target(&id, arg).await?;
 		let response = http::Response::builder().json(output).unwrap();
+
 		Ok(response)
 	}
 }

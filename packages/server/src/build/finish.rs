@@ -16,6 +16,37 @@ impl Server {
 		id: &tg::build::Id,
 		arg: tg::build::finish::Arg,
 	) -> tg::Result<()> {
+		// Attempt to get the remote for the build.
+		let remote = if arg.remote.is_none() {
+			self.try_get_remote_for_build(id).await?
+		} else {
+			arg.remote.clone()
+		};
+		// If a remote was set, try and finish it.
+		if let Some(remote) = remote {
+			let client = self
+				.remotes
+				.get(&remote)
+				.ok_or_else(|| tg::error!(%remote, "the remote does not exist"))?
+				.clone();
+			let arg = tg::build::finish::Arg {
+				remote: None,
+				..arg
+			};
+			return client.finish_build(id, arg).await;
+		}
+
+		// Finish the build if it is remote.
+		if let Some(remote) = self.try_get_remote_for_build(id).await? {
+			return self
+				.remotes
+				.get(&remote)
+				.ok_or_else(|| tg::error!(%remote, "failed to get remote"))?
+				.finish_build(id, arg)
+				.await
+				.map_err(|source| tg::error!(!source, %remote, %id, "failed to finish build"));
+		}
+
 		// Get the build.
 		let Some(output) = self.try_get_build_local(id).await? else {
 			return Err(tg::error!("failed to find the build"));
