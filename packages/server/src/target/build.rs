@@ -16,10 +16,15 @@ impl Server {
 		arg: tg::target::build::Arg,
 	) -> tg::Result<tg::target::build::Output> {
 		// If the remote arg was set, then build the target remotely.
-		if let Some(remote) = arg.remote.as_ref() {
+		let remote = match (arg.remote.as_ref(), arg.parent.as_ref()) {
+			(Some(remote), _) => Some(remote.clone()),
+			(_, Some(parent)) => self.try_get_remote_for_build(parent).await?,
+			_ => None,
+		};
+		if let Some(remote) = remote {
 			let remote = self
 				.remotes
-				.get(remote)
+				.get(&remote)
 				.ok_or_else(|| tg::error!("the remote does not exist"))?
 				.clone();
 			let arg = tg::target::build::Arg {

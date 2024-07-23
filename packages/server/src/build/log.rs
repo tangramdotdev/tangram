@@ -295,6 +295,26 @@ impl Server {
 		id: &tg::build::Id,
 		arg: tg::build::log::post::Arg,
 	) -> tg::Result<()> {
+		// Attempt to get the remote for the build.
+		let remote = if arg.remote.is_none() {
+			self.try_get_remote_for_build(id).await?
+		} else {
+			arg.remote.clone()
+		};
+		// If a remote was set, add the build log..
+		if let Some(remote) = remote {
+			let client = self
+				.remotes
+				.get(&remote)
+				.ok_or_else(|| tg::error!(%remote, "the remote does not exist"))?
+				.clone();
+			let arg = tg::build::log::post::Arg {
+				remote: None,
+				..arg
+			};
+			return client.add_build_log(id, arg).await;
+		}
+
 		// Verify the build is local.
 		if !self.get_build_exists_local(id).await? {
 			return Err(tg::error!("failed to find the build"));
