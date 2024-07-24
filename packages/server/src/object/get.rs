@@ -21,6 +21,7 @@ impl Server {
 		}
 	}
 
+
 	async fn try_get_object_local(
 		&self,
 		id: &tg::object::Id,
@@ -32,12 +33,9 @@ impl Server {
 
 		// If the object is an artifact, then try to store it.
 		if let Ok(artifact) = tg::artifact::Id::try_from(id.clone()) {
-			let server = self.clone();
 			let stored = self
 				.artifact_store_task_map
-				.get_or_spawn(artifact.clone(), |_| async move {
-					server.try_store_artifact(&artifact).await
-				})
+				.get_or_spawn(artifact.clone(), |_| self.try_store_artifact_future(&artifact))
 				.wait()
 				.await
 				.map_err(|source| tg::error!(!source, "failed to wait for task"))??;

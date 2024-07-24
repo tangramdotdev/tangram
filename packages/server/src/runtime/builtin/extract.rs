@@ -82,6 +82,7 @@ impl Runtime {
 		let arg = tg::artifact::checkin::Arg {
 			destructive: true,
 			locked: true,
+			dependencies: true,
 			path,
 		};
 		let artifact = tg::Artifact::check_in(server, arg)

@@ -1,6 +1,6 @@
 use crate::Server;
 use either::Either;
-use futures::{stream::FuturesOrdered, StreamExt as _};
+use itertools::Itertools;
 use petgraph::visit::{GraphBase, GraphRef, IntoNeighbors, IntoNodeIdentifiers, NodeIndexable};
 use std::collections::BTreeMap;
 use tangram_client as tg;
@@ -47,7 +47,7 @@ pub struct Node {
 	pub is_package_node: bool,
 
 	// The underlying object.
-	pub object: tg::Object,
+	pub object: tg::object::Id,
 
 	// The tag of this node, if it exists.
 	pub tag: Option<tg::Tag>,
@@ -84,16 +84,25 @@ impl Server {
 		Ok((graph, root))
 	}
 
-	pub(super) async fn create_graph_for_path(&self, path: &tg::Path) -> tg::Result<(Graph, Id)> {
+	pub(super) async fn create_graph_for_path(
+		&self,
+		path: &tg::Path,
+		locked: bool,
+	) -> tg::Result<(Graph, Id)> {
 		let mut graph = Graph::default();
 		let root = self
-			.add_path_to_graph(&mut graph, path.clone())
+			.add_path_to_graph(&mut graph, path.clone(), locked)
 			.await
 			.map_err(|source| tg::error!(!source, %path, "failed to create graph for package"))?;
 		Ok((graph, root))
 	}
 
-	async fn add_path_to_graph(&self, graph: &mut Graph, path: tg::Path) -> tg::Result<Id> {
+	async fn add_path_to_graph(
+		&self,
+		graph: &mut Graph,
+		path: tg::Path,
+		locked: bool,
+	) -> tg::Result<Id> {
 		// Get the root module path, if it exists.
 		let root_module_path =
 			tg::artifact::module::try_get_root_module_path_for_path(path.as_ref())
@@ -118,8 +127,7 @@ impl Server {
 
 		// Recursively walk the imports starting from the root.
 		let mut visited = BTreeMap::new();
-		self.add_path_to_graph_inner(graph, path, kind, &mut visited)
-			.await
+		Box::pin(self.add_path_to_graph_inner(graph, path, kind, locked, &mut visited)).await
 	}
 
 	async fn add_path_to_graph_inner(
@@ -127,6 +135,7 @@ impl Server {
 		graph: &mut Graph,
 		path: tg::Path,
 		kind: tg::import::Kind,
+		locked: bool,
 		visited: &mut BTreeMap<tg::Path, Id>,
 	) -> tg::Result<Id> {
 		// Canonicalize the path.
@@ -145,11 +154,10 @@ impl Server {
 		let arg = tg::artifact::checkin::Arg {
 			path: path.clone(),
 			destructive: false,
-			locked: true,
+			dependencies: false,
+			locked,
 		};
-		let artifact = tg::Artifact::check_in(self, arg)
-			.await
-			.map_err(|source| tg::error!(!source, %path, "failed to check in the artifact"))?;
+		let artifact = self.check_in_artifact_without_progress(arg).await?;
 
 		if matches!(
 			(&artifact, kind),
@@ -199,45 +207,22 @@ impl Server {
 				.ok()
 				.or_else(|| import.reference.query()?.path.as_ref())
 			{
-				// Infer the kind if it is not available.
+				// Get the import kind
 				let kind = if let Some(kind) = import.kind {
 					kind
 				} else {
-					if path_.as_str().to_lowercase().ends_with(".js") {
-						tg::import::Kind::Js
-					} else if path_.as_str().to_lowercase().ends_with(".ts") {
-						tg::import::Kind::Ts
-					} else {
-						tg::artifact::module::ROOT_MODULE_FILE_NAMES
-							.iter()
-							.map(|name| {
-								let kind = if name.ends_with(".js") {
-									tg::import::Kind::Js
-								} else {
-									tg::import::Kind::Ts
-								};
-								let path = path.clone().join(*name).normalize();
-								async move {
-									let metadata = tokio::fs::symlink_metadata(&path).await.ok()?;
+					self.infer_import_kind_from_path(&path_).await?
+				};
 
-									metadata.is_file().then_some(kind)
-								}
-							})
-							.collect::<FuturesOrdered<_>>()
-							.next()
-							.await
-							.flatten()
-					}
-				};
+				// Get the path
 				let path_ = path.clone().parent().join(path_.clone()).normalize();
-				let result = match kind {
-					None  => {
-						Box::pin(self.add_path_to_graph_inner(graph, path_, tg::import::Kind::Artifact, visited)).await
-					},
-					Some(kind) => {
-						Box::pin(self.add_path_to_graph_inner(graph, path_, kind, visited)).await
-					},
-				};
+
+				// Recurse.
+				let result =
+					Box::pin(self.add_path_to_graph_inner(graph, path_, kind, locked, visited))
+						.await;
+
+				// Add the result to the outgoing edges or errors.
 				match result {
 					Ok(id) => {
 						outgoing.insert(import.reference, id);
@@ -278,27 +263,12 @@ impl Server {
 			}
 		}
 
-		// TODO: object metadata
-		// let mut metadata = BTreeMap::new();
-		// for (key, data) in analysis.metadata.into_iter().flatten() {
-		// 	match data.try_into() {
-		// 		Ok(value) => {
-		// 			metadata.insert(key, value);
-		// 		},
-		// 		Err(source) => {
-		// 			let error = tg::error!(!source, %key, "failed to convert metadata");
-		// 			errors.push(error);
-		// 		},
-		// 	}
-		// }
-		// metadata.insert("kind".to_owned(), kind.to_string().into());
-
 		let node = Node {
 			id: id.clone(),
 			errors,
 			outgoing,
 			is_package_node: true,
-			object: file.into(),
+			object: file.id(self).await?.into(),
 			tag: None,
 		};
 		graph.nodes.insert(id.clone(), node);
@@ -306,8 +276,10 @@ impl Server {
 		Ok(id)
 	}
 
-	async fn infer_import_kind(&self, path: &tg::Path) -> tg::Result<tg::import::Kind> {
-		let metadata = tokio::fs::metadata(path).await.map_err(|source| tg::error!(!source, %path, "failed to get file metadata"))?;
+	async fn infer_import_kind_from_path(&self, path: &tg::Path) -> tg::Result<tg::import::Kind> {
+		let metadata = tokio::fs::metadata(path)
+			.await
+			.map_err(|source| tg::error!(!source, %path, "failed to get file metadata"))?;
 		if metadata.is_file() {
 			if path.as_str().to_lowercase().ends_with(".js") {
 				Ok(tg::import::Kind::Js)
@@ -317,7 +289,22 @@ impl Server {
 				Ok(tg::import::Kind::File)
 			}
 		} else if metadata.is_dir() {
-
+			let Some(root_module_path) =
+				tg::artifact::module::try_get_root_module_path_for_path(path.as_ref())
+					.await
+					.map_err(|source| tg::error!(!source, "failed to get root module path"))?
+			else {
+				return Ok(tg::import::Kind::Directory);
+			};
+			if root_module_path.as_str().to_lowercase().ends_with(".js") {
+				Ok(tg::import::Kind::Js)
+			} else if root_module_path.as_str().to_lowercase().ends_with(".ts") {
+				Ok(tg::import::Kind::Ts)
+			} else {
+				Err(tg::error!(%path = root_module_path, "unknown root module file"))
+			}
+		} else {
+			return Err(tg::error!(%path, "invalid file type"));
 		}
 	}
 
@@ -389,7 +376,7 @@ impl Server {
 			errors: Vec::new(),
 			outgoing: BTreeMap::new(),
 			is_package_node: false,
-			object,
+			object: object.id(self).await?,
 			tag,
 		};
 
@@ -463,7 +450,7 @@ impl Server {
 			errors,
 			outgoing,
 			is_package_node: true,
-			object,
+			object: object.id(self).await?,
 			tag: None,
 		};
 		graph.nodes.insert(id.clone(), node);
@@ -496,135 +483,6 @@ impl Graph {
 			tracing::error!("{trace}");
 		}
 		Err(tg::error!("invalid graph"))
-	}
-
-	/// Convert the graph into a `tg::Lock`
-	pub fn create_lock(&self, root: &Id) -> tg::Lock {
-		// Walk the graph to assign indices. This ensures the ordering of indices is stable.
-		let mut stack = vec![root];
-		let mut counter = 0usize;
-		let mut indices = BTreeMap::new();
-		while let Some(node) = stack.pop() {
-			if indices.contains_key(node) {
-				continue;
-			};
-			let index = counter;
-			counter += 1;
-			indices.insert(node.clone(), index);
-			let node = self.nodes.get(node).unwrap();
-			for neighbor in node.outgoing.values() {
-				let node = self.nodes.get(neighbor).unwrap();
-				if node.is_package_node {
-					stack.push(neighbor);
-				}
-			}
-		}
-
-		// Get the root index.
-		let root = *indices.get(root).unwrap();
-
-		// Map from graph nodes to lock nodes.
-		let nodes = self
-			.nodes
-			.values()
-			.filter_map(|node| {
-				let index = indices.get(&node.id)?;
-				let object = Some(node.object.clone());
-				let dependencies = node
-					.outgoing
-					.iter()
-					.map(|(reference, id)| {
-						let node = self.nodes.get(id).unwrap();
-						let either = indices
-							.get(&node.id)
-							.copied()
-							.map_or_else(|| Either::Right(node.object.clone()), Either::Left);
-						(reference.clone(), either)
-					})
-					.collect::<BTreeMap<_, _>>();
-				let dependencies = (!dependencies.is_empty()).then_some(dependencies);
-				let node = tg::lock::Node {
-					dependencies,
-					object,
-				};
-				Some((*index, node))
-			})
-			.collect::<BTreeMap<_, _>>()
-			.into_values()
-			.collect::<Vec<_>>();
-
-		// Split the nodes into strongly connected components.
-		let mut sccs: Vec<Vec<tg::lock::Node>> = vec![];
-		let mut scc_map = BTreeMap::new();
-
-		for (scc_index, scc) in petgraph::algo::tarjan_scc(GraphImpl(&nodes))
-			.into_iter()
-			.enumerate()
-		{
-			// First, assign new indices.
-			for (new, old) in scc.iter().copied().enumerate() {
-				scc_map.insert(old, (scc_index, new));
-			}
-
-			// Create nodes.
-			let scc = scc
-				.into_iter()
-				.map(|old| {
-					// Get the original node.
-					let node = &nodes[old];
-
-					// Remap dependencies.
-					let dependencies = node
-						.dependencies
-						.iter()
-						.flatten()
-						.map(|(reference, either)| {
-							let either = match either {
-								Either::Left(old) => {
-									let (scc, new) = scc_map.get(old).unwrap();
-									if *scc == scc_index {
-										Either::Left(*new)
-									} else {
-										let root = *new;
-										let nodes = sccs[*scc].clone();
-										let object = nodes[root]
-											.object
-											.clone()
-											.unwrap()
-											.try_unwrap_file()
-											.unwrap();
-
-										let lock =
-											tg::Lock::with_object(tg::lock::Object { nodes });
-										todo!("create file instead of lock");
-										Either::Right(lock.into())
-									}
-								},
-
-								Either::Right(object) => Either::Right(object.clone()),
-							};
-							(reference.clone(), either)
-						})
-						.collect::<BTreeMap<_, _>>();
-					let dependencies = (!dependencies.is_empty()).then_some(dependencies);
-
-					// Create the new node.
-					tg::lock::Node {
-						dependencies,
-						..node.clone()
-					}
-				})
-				.collect();
-
-			// Add the strongly connected component to the list of sccs.
-			sccs.push(scc);
-		}
-
-		let (scc, root) = scc_map.get(&root).copied().unwrap();
-		let nodes = sccs[scc].clone();
-
-		// Create the package.
-		tg::Lock::with_object(tg::lock::Object { nodes })
 	}
 
 	pub fn outgoing(&self, src: Id) -> impl Iterator<Item = Edge> + '_ {
@@ -852,6 +710,140 @@ impl Server {
 		// Add to the graph.
 		self.add_object_to_graph(graph, true, object, Some(reference), Some(tag))
 			.await
+	}
+
+	pub(super) async fn create_lock(
+		&self,
+		graph: &Graph,
+		root: &Id,
+	) -> tg::Result<(tg::Lock, usize)> {
+		// Walk the graph to assign indices. This ensures the ordering of indices is stable.
+		let mut stack = vec![root];
+		let mut counter = 0usize;
+		let mut indices = BTreeMap::new();
+		while let Some(node) = stack.pop() {
+			if indices.contains_key(node) {
+				continue;
+			};
+			let index = counter;
+			counter += 1;
+			indices.insert(node.clone(), index);
+			let node = graph.nodes.get(node).unwrap();
+			for neighbor in node.outgoing.values() {
+				let node = graph.nodes.get(neighbor).unwrap();
+				if node.is_package_node {
+					stack.push(neighbor);
+				}
+			}
+		}
+
+		// Get the root index.
+		let root = *indices.get(root).unwrap();
+
+		// Map from graph nodes to lock nodes.
+		let nodes = indices
+			.iter()
+			.sorted_by_cached_key(|(_, v)| **v)
+			.filter_map(|(id, _)| {
+				let node = graph.nodes.get(id)?;
+				self.try_create_lock_node(graph, node, &indices)
+			})
+			.collect::<Vec<_>>();
+
+		// Split into sub-locks.
+		let mut locks: Vec<tg::Lock> = vec![];
+		let mut lock_indices = BTreeMap::new();
+
+		// Create locks from the strongly connected components.
+		for (lock_index, node_indices) in petgraph::algo::tarjan_scc(GraphImpl(&nodes))
+			.into_iter()
+			.enumerate()
+		{
+			// Create an empty lock object.
+			let mut lock = tg::lock::Object {
+				nodes: Vec::with_capacity(node_indices.len()),
+			};
+
+			// Mark all the nodes as belonging to this lock.
+			for (new_index, old_index) in node_indices.iter().copied().enumerate() {
+				lock_indices.insert(old_index, (lock_index, new_index));
+			}
+
+			// Create new lock nodes.
+			for (_, old_index) in node_indices.iter().copied().enumerate() {
+				// Get the node data.
+				let mut node = nodes[old_index].clone();
+
+				// Remap dependencies.
+				for (_, either) in node.dependencies.iter_mut().flatten() {
+					let Either::Left(old_index) = either else {
+						continue;
+					};
+					let (lock_index_, new_index) = lock_indices.get(old_index).unwrap();
+
+					// If the old index refers to a node in this lock, use it.
+					if *lock_index_ == lock_index {
+						*old_index = *new_index;
+						continue;
+					}
+
+					// Otherwise create a new file object.
+					let mut file = node
+						.object
+						.as_ref()
+						.ok_or_else(|| tg::error!("missing object in graph"))?
+						.clone()
+						.try_unwrap_file()
+						.map_err(|_| tg::error!("expected a file"))?
+						.object(self)
+						.await?
+						.as_ref()
+						.clone();
+					let lock = locks[*lock_index_].clone();
+					let dependencies = tg::file::Dependencies::Lock(lock, *new_index);
+					file.dependencies.replace(dependencies);
+
+					// Update the entry.
+					*either = Either::Right(tg::File::with_object(file).into());
+				}
+
+				// Add the node to the lock.
+				lock.nodes.push(node);
+			}
+
+			// Add the lock to the list of locks.
+			locks.push(tg::Lock::with_object(lock));
+		}
+
+		// Get the root lock.
+		let lock = locks[root].clone();
+		Ok((lock, root))
+	}
+
+	fn try_create_lock_node(
+		&self,
+		graph: &Graph,
+		node: &Node,
+		indices: &BTreeMap<Id, usize>,
+	) -> Option<tg::lock::Node> {
+		let object = tg::Object::with_id(node.object.clone());
+		let dependencies = node
+			.outgoing
+			.iter()
+			.map(|(reference, id)| {
+				let object = tg::Object::with_id(graph.nodes.get(id).unwrap().object.clone());
+				let either = indices
+					.get(&node.id)
+					.copied()
+					.map_or_else(|| Either::Right(object), Either::Left);
+				(reference.clone(), either)
+			})
+			.collect();
+		let node = tg::lock::Node {
+			object: Some(object),
+			dependencies: Some(dependencies),
+		};
+		Some(node)
 	}
 }
 

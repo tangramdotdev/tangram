@@ -1,6 +1,7 @@
 use crate::{tmp::Tmp, Server};
 use bytes::Bytes;
 use futures::{
+	future::BoxFuture,
 	stream::{self, FuturesUnordered},
 	FutureExt as _, Stream, StreamExt as _, TryStreamExt as _,
 };
@@ -108,6 +109,28 @@ impl Server {
 		Ok(stream)
 	}
 
+	pub(crate) fn check_in_artifact_without_progress(
+		&self,
+		arg: tg::artifact::checkin::Arg,
+	) -> BoxFuture<'_, tg::Result<tg::Artifact>> {
+		// Create the state.
+		let count = ProgressState {
+			current: AtomicU64::new(0),
+			total: None,
+		};
+		let weight = ProgressState {
+			current: AtomicU64::new(0),
+			total: None,
+		};
+		let state = State { count, weight };
+		let fut = async move {
+			self.check_in_artifact_task(arg, &state)
+				.await
+				.map(tg::Artifact::with_id)
+		};
+		Box::pin(fut)
+	}
+
 	/// Attempt to store an artifact in the database.
 	async fn check_in_artifact_task(
 		&self,
@@ -161,7 +184,7 @@ impl Server {
 		arg.path = tmp.path.clone().try_into()?;
 
 		// Check in the artifact.
-		let output = self.check_in_artifact_inner(&arg, state).await?;
+		let output: InnerOutput = self.check_in_artifact_inner(&arg, state).await?;
 		let artifact = output.id.clone();
 
 		// Create hard links for files.
@@ -202,7 +225,7 @@ impl Server {
 
 		// Call the appropriate function for the file system object at the path.
 		let output = if metadata.is_dir() {
-			self.check_in_directory(arg, &metadata, state)
+			self.check_in_directory(&arg, &metadata, state)
 				.await
 				.map_err(
 					|source| tg::error!(!source, %path = arg.path, "failed to check in the directory"),
@@ -248,7 +271,16 @@ impl Server {
 		Ok(output)
 	}
 
-	async fn check_in_directory(
+	fn check_in_directory<'a>(
+		&'a self,
+		arg: &'a tg::artifact::checkin::Arg,
+		metadata: &'a std::fs::Metadata,
+		state: &'a State,
+	) -> BoxFuture<'a, tg::Result<InnerOutput>> {
+		Box::pin(self.check_in_directory_inner(arg, metadata, state))
+	}
+
+	async fn check_in_directory_inner(
 		&self,
 		arg: &tg::artifact::checkin::Arg,
 		_metadata: &std::fs::Metadata,
@@ -256,12 +288,19 @@ impl Server {
 	) -> tg::Result<InnerOutput> {
 		// If a root module path exists, check in as a file.
 		'a: {
+			if !arg.dependencies {
+				break 'a;
+			}
 			let permit = self.file_descriptor_semaphore.acquire().await;
-			let Ok(Some(path)) = tg::artifact::module::try_get_root_module_path_for_path(arg.path.as_ref()).await else {
+			let Ok(Some(path)) =
+				tg::artifact::module::try_get_root_module_path_for_path(arg.path.as_ref()).await
+			else {
 				break 'a;
 			};
 			let path = arg.path.clone().join(path);
-			let metadata = tokio::fs::metadata(&path).await.map_err(|source| tg::error!(!source, %path, "failed to get the file metadata"))?;
+			let metadata = tokio::fs::metadata(&path)
+				.await
+				.map_err(|source| tg::error!(!source, %path, "failed to get the file metadata"))?;
 			drop(permit);
 			if !metadata.is_file() {
 				break 'a;
@@ -313,7 +352,7 @@ impl Server {
 		// Create the entries.
 		let entries = children
 			.iter()
-			.map(|output| {
+			.map(|output: &InnerOutput| {
 				let name = output.path.components().last().unwrap().to_string();
 				(name.clone(), output.id.clone())
 			})
@@ -368,27 +407,11 @@ impl Server {
 		// Determine if the file is executable.
 		let executable = (metadata.permissions().mode() & 0o111) != 0;
 
-		// Attempt to read the file's lock from its xattrs.
-		let mut dependencies: Option<tg::file::data::Dependencies> =
-			xattr::get(&arg.path, tg::file::TANGRAM_FILE_DEPENDENCIES_XATTR_NAME)
-				.ok()
-				.flatten()
-				.and_then(|bytes| serde_json::from_slice(&bytes).ok());
-
-		// Check if we need to read a lock file.
-		let dependencies = 'a: {
-			if dependencies.is_some() {
-				break 'a dependencies;
-			};
-
-			// Check if this is a root module.
-			let is_root_module = tg::artifact::module::ROOT_MODULE_FILE_NAMES.into_iter().any(|name| arg.path.components().last().and_then(|component| component.try_unwrap_normal_ref().ok()).map_or(false, |component| component == name));
-			if !is_root_module {
-				break 'a None;
-			}
-
-			todo!();
-		};
+		// Get the dependencies.
+		let dependencies = self
+			.try_get_file_dependencies(&arg)
+			.await
+			.map_err(|source| tg::error!(!source, "failed to get the file's dependencies"))?;
 
 		let dependencies_metadata = if let Some(dependencies) = &dependencies {
 			Some(
@@ -548,7 +571,62 @@ impl Server {
 		Ok(output)
 	}
 
-	pub(crate) async fn try_store_artifact(&self, id: &tg::artifact::Id) -> tg::Result<bool> {
+	async fn try_get_file_dependencies(
+		&self,
+		arg: &tg::artifact::checkin::Arg,
+	) -> tg::Result<Option<tg::file::data::Dependencies>> {
+		// Attempt to read dependencies from the xattrs, if they exist.
+		if let Some(dependencies) =
+			xattr::get(&arg.path, tg::file::TANGRAM_FILE_DEPENDENCIES_XATTR_NAME)
+				.ok()
+				.flatten()
+				.and_then(|bytes| serde_json::from_slice(&bytes).ok())
+		{
+			return Ok(Some(dependencies));
+		}
+
+		// If this is not a module path, then there are no dependencies.
+		if !tg::artifact::module::is_module_path(arg.path.as_ref()) {
+			return Ok(None);
+		}
+
+		// Get or create the lock.
+		let (lock, node) = self.get_or_create_lock(arg).await.map_err(
+			|source| tg::error!(!source, %path = arg.path, "failed to get or create lock"),
+		)?;
+
+		// Try to inline.
+		if let Some(map) = lock
+			.try_inline(self, node)
+			.await
+			.map_err(|source| tg::error!(!source, "failed to inline lock"))?
+		{
+			let map = map
+				.into_iter()
+				.map(|(reference, object)| async move {
+					let id = object.id(self).await?;
+					Ok::<_, tg::Error>((reference, id))
+				})
+				.collect::<FuturesUnordered<_>>()
+				.try_collect()
+				.await?;
+			return Ok(Some(tg::file::data::Dependencies::Map(map)));
+		}
+
+		// Otherwise creat the data.
+		let id = lock.id(self).await?;
+		Ok(Some(tg::file::data::Dependencies::Lock(id, node)))
+	}
+
+	pub(crate) fn try_store_artifact_future(&self, id: &tg::artifact::Id) -> BoxFuture<'static, tg::Result<bool>> {
+		let server = self.clone();
+		let id = id.clone();
+		Box::pin(async move {
+			server.try_store_artifact_inner(&id).await
+		})
+	}
+
+	pub(crate) async fn try_store_artifact_inner(&self, id: &tg::artifact::Id) -> tg::Result<bool> {
 		// Check if the artifact exists in the checkouts directory.
 		let permit = self.file_descriptor_semaphore.acquire().await.unwrap();
 		let path = self.checkouts_path().join(id.to_string());
@@ -575,6 +653,7 @@ impl Server {
 		let arg = tg::artifact::checkin::Arg {
 			destructive: false,
 			locked: true,
+			dependencies: true,
 			path: path.try_into()?,
 		};
 		let output = self.check_in_artifact_inner(&arg, &state).await?;
