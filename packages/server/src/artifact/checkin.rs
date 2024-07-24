@@ -618,12 +618,13 @@ impl Server {
 		Ok(Some(tg::file::data::Dependencies::Lock(id, node)))
 	}
 
-	pub(crate) fn try_store_artifact_future(&self, id: &tg::artifact::Id) -> BoxFuture<'static, tg::Result<bool>> {
+	pub(crate) fn try_store_artifact_future(
+		&self,
+		id: &tg::artifact::Id,
+	) -> BoxFuture<'static, tg::Result<bool>> {
 		let server = self.clone();
 		let id = id.clone();
-		Box::pin(async move {
-			server.try_store_artifact_inner(&id).await
-		})
+		Box::pin(async move { server.try_store_artifact_inner(&id).await })
 	}
 
 	pub(crate) async fn try_store_artifact_inner(&self, id: &tg::artifact::Id) -> tg::Result<bool> {

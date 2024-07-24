@@ -241,7 +241,7 @@ impl InfoViewExt for tg::Error {
 
 impl InfoViewExt for tg::file::Data {
 	fn render(&self, scroll: usize, area: Rect, buf: &mut Buffer) -> usize {
-		let mut rows = vec![
+		let rows = vec![
 			("contents", self.contents.to_string()),
 			("dependencies", String::new()),
 			("executable", self.executable.to_string()),
