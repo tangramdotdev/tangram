@@ -1,4 +1,4 @@
-use crate::{self as tg};
+use crate as tg;
 use bytes::Bytes;
 use either::Either;
 use futures::{
@@ -73,6 +73,43 @@ pub mod data {
 impl Id {
 	pub fn new(bytes: &Bytes) -> Self {
 		Self(crate::Id::new_blake3(tg::id::Kind::Lock, bytes))
+	}
+}
+
+impl Lock {
+	pub fn from_dependencies(dependencies: &BTreeMap<tg::Reference, tg::Object>) -> Self {
+		let dependencies = dependencies
+			.iter()
+			.map(|(reference, object)| (reference.clone(), Either::Right(object.clone())))
+			.collect();
+		let node = Node {
+			object: None,
+			dependencies: Some(dependencies),
+		};
+		Lock::with_object(Object { nodes: vec![node] })
+	}
+
+	pub async fn try_inline(
+		&self,
+		handle: &impl tg::Handle,
+		node: usize,
+	) -> tg::Result<Option<BTreeMap<tg::Reference, tg::Object>>> {
+		let object = self.object(handle).await?;
+		let node = &object.nodes[node];
+		let dependencies = node
+			.dependencies
+			.iter()
+			.flatten()
+			.map(|(reference, either)| {
+				either
+					.as_ref()
+					.right()
+					.map(|object| (reference.clone(), object.clone()))
+					.ok_or_else(|| tg::error!("lock cannot be inlined"))
+			})
+			.try_collect()
+			.ok();
+		Ok(dependencies)
 	}
 }
 

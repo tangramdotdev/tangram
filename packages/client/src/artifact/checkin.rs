@@ -11,7 +11,17 @@ pub struct Arg {
 	#[serde(default, skip_serializing_if = "is_false")]
 	pub locked: bool,
 
+	#[serde(default = "true_", skip_serializing_if = "is_true")]
+	pub dependencies: bool,
+
 	pub path: tg::Path,
+}
+
+fn true_() -> bool {
+	true
+}
+fn is_true(b: &bool) -> bool {
+	!b
 }
 
 #[derive(Clone, Debug)]

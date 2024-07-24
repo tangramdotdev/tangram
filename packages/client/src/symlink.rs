@@ -263,8 +263,6 @@ impl TryFrom<Data> for Object {
 	}
 }
 
-
-
 impl TryFrom<crate::Id> for Id {
 	type Error = tg::Error;
 
