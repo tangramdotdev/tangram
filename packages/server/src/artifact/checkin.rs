@@ -1,5 +1,4 @@
 use crate::{tmp::Tmp, Server};
-use bytes::Bytes;
 use futures::{
 	future::BoxFuture,
 	stream::{self, FuturesUnordered},
@@ -7,7 +6,9 @@ use futures::{
 };
 use indoc::formatdoc;
 use num::ToPrimitive;
+use std::sync::Mutex;
 use std::{
+	collections::BTreeMap,
 	os::unix::fs::PermissionsExt as _,
 	path::PathBuf,
 	sync::{
@@ -26,6 +27,8 @@ mod lock;
 struct State {
 	count: ProgressState,
 	weight: ProgressState,
+	visited: Mutex<BTreeMap<tg::Path, InnerOutput>>,
+	graph: Mutex<graph::Graph>,
 }
 
 struct ProgressState {
@@ -35,12 +38,19 @@ struct ProgressState {
 
 #[derive(Clone, Debug)]
 struct InnerOutput {
-	id: tg::artifact::Id,
+	artifact_id: Option<tg::artifact::Id>,
+	graph_id: graph::Id,
 	path: tg::path::Path,
-	bytes: Bytes,
+	data: Option<Arc<tg::artifact::Data>>,
 	count: Option<u64>,
 	weight: Option<u64>,
-	children: Vec<Self>,
+	lock: Option<Lock>,
+}
+
+#[derive(Clone, Debug)]
+enum Lock {
+	File,
+	Xattr,
 }
 
 impl Server {
@@ -57,7 +67,14 @@ impl Server {
 			current: AtomicU64::new(0),
 			total: None,
 		};
-		let state = Arc::new(State { count, weight });
+		let graph = Mutex::new(graph::Graph::default());
+		let visited = Mutex::new(BTreeMap::new());
+		let state = Arc::new(State {
+			count,
+			weight,
+			graph,
+			visited,
+		});
 
 		// Spawn the task.
 		let (result_sender, result_receiver) = tokio::sync::oneshot::channel();
@@ -109,28 +126,6 @@ impl Server {
 		Ok(stream)
 	}
 
-	pub(crate) fn check_in_artifact_without_progress(
-		&self,
-		arg: tg::artifact::checkin::Arg,
-	) -> BoxFuture<'_, tg::Result<tg::Artifact>> {
-		// Create the state.
-		let count = ProgressState {
-			current: AtomicU64::new(0),
-			total: None,
-		};
-		let weight = ProgressState {
-			current: AtomicU64::new(0),
-			total: None,
-		};
-		let state = State { count, weight };
-		let fut = async move {
-			self.check_in_artifact_task(arg, &state)
-				.await
-				.map(tg::Artifact::with_id)
-		};
-		Box::pin(fut)
-	}
-
 	/// Attempt to store an artifact in the database.
 	async fn check_in_artifact_task(
 		&self,
@@ -162,53 +157,77 @@ impl Server {
 			return Ok(id);
 		}
 
+		// TODO: handle destructive checkins.
 		// Copy or rename the file system object to the temp.
-		let tmp = Tmp::new(self);
-		if arg.destructive {
-			// If this is a destructive checkin, then attempt to rename the file system object to the temp. Otherwise, copy it.
-			match tokio::fs::rename(&arg.path, &tmp.path).await {
-				Ok(()) => (),
-				Err(error) if error.raw_os_error() == Some(libc::EXDEV) => {
-					copy_all(arg.path.as_ref(), &tmp.path).await?;
-				},
-				Err(source) => {
-					return Err(tg::error!(!source, "failed to rename file"));
-				},
-			}
-		} else {
-			// Otherwise, copy .
-			copy_all(arg.path.as_ref(), &tmp.path)
-				.await
-				.map_err(|source| tg::error!(!source, %path = arg.path, "failed to copy file"))?;
-		}
-		arg.path = tmp.path.clone().try_into()?;
+		// let tmp = Tmp::new(self);
+		// if arg.destructive {
+		// 	// If this is a destructive checkin, then attempt to rename the file system object to the temp. Otherwise, copy it.
+		// 	match tokio::fs::rename(&arg.path, &tmp.path).await {
+		// 		Ok(()) => (),
+		// 		Err(error) if error.raw_os_error() == Some(libc::EXDEV) => {
+		// 			copy_all(arg.path.as_ref(), &tmp.path).await?;
+		// 		},
+		// 		Err(source) => {
+		// 			return Err(tg::error!(!source, "failed to rename file"));
+		// 		},
+		// 	}
+		// } else {
+		// 	// Otherwise, copy .
+		// 	copy_all(arg.path.as_ref(), &tmp.path)
+		// 		.await
+		// 		.map_err(|source| tg::error!(!source, %path = arg.path, "failed to copy file"))?;
+		// }
+		// arg.path = tmp.path.clone().try_into()?;
 
 		// Check in the artifact.
-		let output: InnerOutput = self.check_in_artifact_inner(&arg, state).await?;
-		let artifact = output.id.clone();
+		self.check_in_artifact_inner(&arg, state).await?;
 
-		// Create hard links for files.
-		let mut stack = output.children;
-		while let Some(output) = stack.pop() {
-			if matches!(output.id, tg::artifact::Id::File(_)) {
+		// Get the output.
+		let output = state
+			.visited
+			.lock()
+			.unwrap()
+			.get(&arg.path)
+			.ok_or_else(|| tg::error!("invalid object graph"))?
+			.clone();
+
+		// Get the artifact ID.
+		let artifact = output
+			.artifact_id
+			.ok_or_else(|| tg::error!("invalid object graph"))?;
+
+		// Create hard links to files.
+		let output = state
+			.visited
+			.lock()
+			.unwrap()
+			.values()
+			.cloned()
+			.collect::<Vec<_>>();
+		for output in output {
+			let artifact_id = output
+				.artifact_id
+				.as_ref()
+				.ok_or_else(|| tg::error!("incomplete object graph"))?;
+
+			if matches!(artifact_id, tg::artifact::Id::File(_)) {
 				let src = &output.path;
-				let dst = self.checkouts_path().join(output.id.to_string());
+				let dst = self.checkouts_path().join(artifact_id.to_string());
 				tokio::fs::hard_link(src, &dst).await.ok();
 			}
-			stack.extend(output.children);
 		}
 
 		// Rename from the temp path to the checkout path.
-		let root_path = self.checkouts_path().join(output.id.to_string());
-		match tokio::fs::rename(&tmp.path, &root_path).await {
-			Ok(()) => (),
-			Err(error) if matches!(error.raw_os_error(), Some(libc::EEXIST | libc::ENOTEMPTY)) => {
-				return Ok(artifact);
-			},
-			Err(source) => {
-				return Err(tg::error!(!source, "failed to rename the temp"));
-			},
-		}
+		// let root_path = self.checkouts_path().join(artifact.to_string());
+		// match tokio::fs::rename(&tmp.path, &root_path).await {
+		// 	Ok(()) => (),
+		// 	Err(error) if matches!(error.raw_os_error(), Some(libc::EEXIST | libc::ENOTEMPTY)) => {
+		// 		return Ok(artifact);
+		// 	},
+		// 	Err(source) => {
+		// 		return Err(tg::error!(!source, "failed to rename the temp"));
+		// 	},
+		// }
 
 		Ok(artifact)
 	}
@@ -217,14 +236,36 @@ impl Server {
 		&self,
 		arg: &tg::artifact::checkin::Arg,
 		state: &State,
-	) -> tg::Result<InnerOutput> {
+	) -> tg::Result<()> {
+		// Check if we've visited this path already.
+		if state.visited.lock().unwrap().contains_key(&arg.path) {
+			return Ok(());
+		}
+
 		// Get the metadata for the file system object at the path.
 		let metadata = tokio::fs::symlink_metadata(&arg.path).await.map_err(
 			|source| tg::error!(!source, %path = arg.path, "failed to get the metadata for the path"),
 		)?;
 
+		// Create the output.
+		let graph_id = state.graph.lock().unwrap().next_id();
+		let output = InnerOutput {
+			graph_id,
+			artifact_id: None,
+			path: arg.path.clone(),
+			data: None,
+			count: None,
+			weight: None,
+			lock: None,
+		};
+		state
+			.visited
+			.lock()
+			.unwrap()
+			.insert(arg.path.clone(), output);
+
 		// Call the appropriate function for the file system object at the path.
-		let output = if metadata.is_dir() {
+		if metadata.is_dir() {
 			self.check_in_directory(&arg, &metadata, state)
 				.await
 				.map_err(
@@ -247,20 +288,22 @@ impl Server {
 			));
 		};
 
-		// Update file times.
-		tokio::task::spawn_blocking({
-			let path = arg.path.clone();
-			move || {
-				let epoch = filetime::FileTime::from_system_time(std::time::SystemTime::UNIX_EPOCH);
-				filetime::set_symlink_file_times(path, epoch, epoch)
-					.map_err(|source| tg::error!(!source, "failed to set the modified time"))?;
-				Ok::<_, tg::Error>(())
-			}
-		})
-		.await
-		.unwrap()?;
+		// TODO: Update file times.
+		// tokio::task::spawn_blocking({
+		// 	let path = arg.path.clone();
+		// 	move || {
+		// 		let epoch = filetime::FileTime::from_system_time(std::time::SystemTime::UNIX_EPOCH);
+		// 		filetime::set_symlink_file_times(path, epoch, epoch)
+		// 			.map_err(|source| tg::error!(!source, "failed to set the modified time"))?;
+		// 		Ok::<_, tg::Error>(())
+		// 	}
+		// })
+		// .await
+		// .unwrap()?;
 
 		// Update the state.
+		let visited = state.visited.lock().unwrap();
+		let output = visited.get(&arg.path).unwrap();
 		if let Some(count) = output.count {
 			state.count.current.fetch_add(count, Ordering::Relaxed);
 		}
@@ -268,7 +311,7 @@ impl Server {
 			state.weight.current.fetch_add(weight, Ordering::Relaxed);
 		}
 
-		Ok(output)
+		Ok(())
 	}
 
 	fn check_in_directory<'a>(
@@ -276,7 +319,7 @@ impl Server {
 		arg: &'a tg::artifact::checkin::Arg,
 		metadata: &'a std::fs::Metadata,
 		state: &'a State,
-	) -> BoxFuture<'a, tg::Result<InnerOutput>> {
+	) -> BoxFuture<'a, tg::Result<()>> {
 		Box::pin(self.check_in_directory_inner(arg, metadata, state))
 	}
 
@@ -285,7 +328,7 @@ impl Server {
 		arg: &tg::artifact::checkin::Arg,
 		_metadata: &std::fs::Metadata,
 		state: &State,
-	) -> tg::Result<InnerOutput> {
+	) -> tg::Result<()> {
 		// If a root module path exists, check in as a file.
 		'a: {
 			if !arg.dependencies {
@@ -338,60 +381,74 @@ impl Server {
 		};
 
 		// Recurse into the directory's entries.
-		let children = names
+		let entries = names
 			.iter()
 			.map(|name| async {
 				let mut arg = arg.clone();
 				arg.path = arg.path.clone().join(name.clone());
-				self.check_in_artifact_inner(&arg, state).await
+				self.check_in_artifact_inner(&arg, state).await?;
+				let id = state
+					.visited
+					.lock()
+					.unwrap()
+					.get(&arg.path)
+					.ok_or_else(|| tg::error!("invalid graph"))?
+					.artifact_id
+					.clone()
+					.ok_or_else(|| tg::error!("cycle detected when checking in directory"))?;
+				Ok::<_, tg::Error>((name.clone(), id))
 			})
 			.collect::<FuturesUnordered<_>>()
-			.try_collect::<Vec<_>>()
+			.try_collect::<BTreeMap<_, _>>()
 			.await?;
 
-		// Create the entries.
-		let entries = children
-			.iter()
-			.map(|output: &InnerOutput| {
-				let name = output.path.components().last().unwrap().to_string();
-				(name.clone(), output.id.clone())
-			})
-			.collect();
+		// Compute the count.
+		let count = std::iter::empty()
+			.chain(std::iter::once(Some(1)))
+			.chain(entries.iter().map(|(name, _)| {
+				let path = arg.path.clone().join(name.clone());
+				state.visited.lock().unwrap().get(&path)?.count
+			}))
+			.sum::<Option<u64>>();
+
+		// Compute the weight of the children.
+		let weight = std::iter::empty()
+			.chain(entries.iter().map(|(name, _)| {
+				let path = arg.path.clone().join(name.clone());
+				state.visited.lock().unwrap().get(&path)?.weight
+			}))
+			.sum::<Option<u64>>();
 
 		// Create the directory.
 		let data = tg::directory::Data { entries };
 		let bytes = data.serialize()?;
 		let id = tg::artifact::Id::from(tg::directory::Id::new(&bytes));
+		let data = Arc::new(data.into());
 
-		// Compute the count and weight.
-		let count = std::iter::empty()
-			.chain(std::iter::once(Some(1)))
-			.chain(children.iter().map(|child| child.count))
-			.sum::<Option<u64>>();
-		let weight = std::iter::empty()
-			.chain(std::iter::once(Some(bytes.len().to_u64().unwrap())))
-			.chain(children.iter().map(|child| child.weight))
-			.sum::<Option<u64>>();
+		// Add the length of this directory to the weight.
+		let weight = weight.map(|w| w + bytes.len().to_u64().unwrap());
 
-		// Create the output.
-		let output = InnerOutput {
-			id,
-			path: arg.path.clone(),
-			bytes,
-			count,
-			weight,
-			children,
-		};
+		// Get the output.
+		let mut visited = state.visited.lock().unwrap();
+		let output = visited
+			.get_mut(&arg.path)
+			.ok_or_else(|| tg::error!("invalid check in state"))?;
 
-		Ok(output)
+		// Update the state.
+		output.artifact_id.replace(id);
+		output.data.replace(data);
+		output.count = count;
+		output.weight = weight;
+
+		Ok(())
 	}
 
 	async fn check_in_file(
 		&self,
 		arg: &tg::artifact::checkin::Arg,
 		metadata: &std::fs::Metadata,
-		_state: &State,
-	) -> tg::Result<InnerOutput> {
+		state: &State,
+	) -> tg::Result<()> {
 		// Create the blob without writing to disk/database.
 		let _permit = self.file_descriptor_semaphore.acquire().await;
 		let file = tokio::fs::File::open(&arg.path)
@@ -408,11 +465,7 @@ impl Server {
 		let executable = (metadata.permissions().mode() & 0o111) != 0;
 
 		// Get the dependencies.
-		let dependencies = self
-			.try_get_file_dependencies(&arg)
-			.await
-			.map_err(|source| tg::error!(!source, "failed to get the file's dependencies"))?;
-
+		let dependencies: Option<tg::file::data::Dependencies> = None;
 		let dependencies_metadata = if let Some(dependencies) = &dependencies {
 			Some(
 				dependencies
@@ -431,11 +484,12 @@ impl Server {
 		let data = tg::file::Data {
 			contents: output.blob.clone(),
 			executable,
-			dependencies,
+			dependencies: dependencies.clone(),
 			metadata: None,
 		};
 		let bytes = data.serialize()?;
 		let id = tg::artifact::Id::from(tg::file::Id::new(&bytes));
+		let data = Arc::new(data.into());
 
 		// Install a symlink in the blobs directory.
 		let src = PathBuf::from("../checkouts").join(id.to_string());
@@ -471,25 +525,27 @@ impl Server {
 			.chain(dependencies_weight)
 			.sum::<Option<u64>>();
 
-		// Create the output
-		let output = InnerOutput {
-			id,
-			path: arg.path.clone(),
-			bytes,
-			count,
-			weight,
-			children: Vec::new(),
-		};
+		// Get the output.
+		let mut visited = state.visited.lock().unwrap();
+		let output = visited
+			.get_mut(&arg.path)
+			.ok_or_else(|| tg::error!("invalid check in state"))?;
 
-		Ok(output)
+		// Update the state.
+		output.artifact_id.replace(id);
+		output.data.replace(data);
+		output.count = count;
+		output.weight = weight;
+
+		Ok(())
 	}
 
 	async fn check_in_symlink(
 		&self,
 		arg: &tg::artifact::checkin::Arg,
 		_metadata: &std::fs::Metadata,
-		_state: &State,
-	) -> tg::Result<InnerOutput> {
+		state: &State,
+	) -> tg::Result<()> {
 		// Read the target from the symlink.
 		let target = tokio::fs::read_link(&arg.path).await.map_err(
 			|source| tg::error!(!source, %path = arg.path, r#"failed to read the symlink at path"#,),
@@ -537,12 +593,14 @@ impl Server {
 		};
 
 		// Create the symlink.
-		let symlink = tg::symlink::Data {
+		let data = tg::symlink::Data {
 			artifact: artifact.clone(),
 			path,
 		};
-		let bytes = symlink.serialize()?;
+		let bytes = data.serialize()?;
 		let id = tg::artifact::Id::from(tg::symlink::Id::new(&bytes));
+		let data = Arc::new(data.into());
+
 		let count = if let Some(artifact) = &artifact {
 			let metadata = self.get_object_metadata(&artifact.clone().into()).await?;
 			metadata.count.map(|count| 1 + count)
@@ -558,64 +616,19 @@ impl Server {
 			Some(bytes.len().to_u64().unwrap())
 		};
 
-		// Create the output.
-		let output = InnerOutput {
-			id,
-			path: arg.path.clone(),
-			bytes,
-			count,
-			weight,
-			children: Vec::new(),
-		};
+		// Get the output.
+		let mut visited = state.visited.lock().unwrap();
+		let output = visited
+			.get_mut(&arg.path)
+			.ok_or_else(|| tg::error!("invalid check in state"))?;
 
-		Ok(output)
-	}
+		// Update the state.
+		output.artifact_id.replace(id);
+		output.data.replace(data);
+		output.count = count;
+		output.weight = weight;
 
-	async fn try_get_file_dependencies(
-		&self,
-		arg: &tg::artifact::checkin::Arg,
-	) -> tg::Result<Option<tg::file::data::Dependencies>> {
-		// Attempt to read dependencies from the xattrs, if they exist.
-		if let Some(dependencies) =
-			xattr::get(&arg.path, tg::file::TANGRAM_FILE_DEPENDENCIES_XATTR_NAME)
-				.ok()
-				.flatten()
-				.and_then(|bytes| serde_json::from_slice(&bytes).ok())
-		{
-			return Ok(Some(dependencies));
-		}
-
-		// If this is not a module path, then there are no dependencies.
-		if !tg::artifact::module::is_module_path(arg.path.as_ref()) {
-			return Ok(None);
-		}
-
-		// Get or create the lock.
-		let (lock, node) = self.get_or_create_lock(arg).await.map_err(
-			|source| tg::error!(!source, %path = arg.path, "failed to get or create lock"),
-		)?;
-
-		// Try to inline.
-		if let Some(map) = lock
-			.try_inline(self, node)
-			.await
-			.map_err(|source| tg::error!(!source, "failed to inline lock"))?
-		{
-			let map = map
-				.into_iter()
-				.map(|(reference, object)| async move {
-					let id = object.id(self).await?;
-					Ok::<_, tg::Error>((reference, id))
-				})
-				.collect::<FuturesUnordered<_>>()
-				.try_collect()
-				.await?;
-			return Ok(Some(tg::file::data::Dependencies::Map(map)));
-		}
-
-		// Otherwise creat the data.
-		let id = lock.id(self).await?;
-		Ok(Some(tg::file::data::Dependencies::Lock(id, node)))
+		Ok(())
 	}
 
 	pub(crate) fn try_store_artifact_future(
@@ -648,7 +661,14 @@ impl Server {
 			current: AtomicU64::new(0),
 			total: None,
 		};
-		let state = Arc::new(State { count, weight });
+		let graph = Mutex::new(graph::Graph::default());
+		let visited = Mutex::new(BTreeMap::new());
+		let state = Arc::new(State {
+			count,
+			weight,
+			graph,
+			visited,
+		});
 
 		// Check in the artifact.
 		let arg = tg::artifact::checkin::Arg {
@@ -657,8 +677,18 @@ impl Server {
 			dependencies: true,
 			path: path.try_into()?,
 		};
-		let output = self.check_in_artifact_inner(&arg, &state).await?;
-		if &output.id != id {
+		self.check_in_artifact_inner(&arg, &state).await?;
+		let artifact_id = state
+			.visited
+			.lock()
+			.unwrap()
+			.get(&arg.path)
+			.ok_or_else(|| tg::error!("invalid graph"))?
+			.artifact_id
+			.clone()
+			.ok_or_else(|| tg::error!("invalid graph"))?;
+
+		if &artifact_id != id {
 			return Err(tg::error!("corrupted internal checkout"));
 		}
 
@@ -675,9 +705,27 @@ impl Server {
 			.await
 			.map_err(|source| tg::error!(!source, "failed to begin a transaction"))?;
 
-		// Insert the objects.
-		let mut stack = vec![output];
-		while let Some(output) = stack.pop() {
+		// Collect the output.
+		let output = state
+			.visited
+			.lock()
+			.unwrap()
+			.values()
+			.cloned()
+			.collect::<Vec<_>>();
+
+		// Insert into the database.
+		for output in output {
+			// Validate output.
+			let id = output
+				.artifact_id
+				.ok_or_else(|| tg::error!("invalid graph"))?;
+			let data = output.data.ok_or_else(|| tg::error!("invalid graph"))?;
+			let bytes = data.serialize()?;
+			let count = output.count;
+			let weight = output.weight;
+
+			// Insert.
 			let p = transaction.p();
 			let statement = formatdoc!(
 				"
@@ -687,14 +735,13 @@ impl Server {
 				"
 			);
 			let now = time::OffsetDateTime::now_utc().format(&Rfc3339).unwrap();
-			let params = db::params![output.id, output.bytes, 1, output.count, output.weight, now];
+			let params = db::params![id, bytes, 1, count, weight, now];
 			transaction
 				.execute(statement, params)
 				.await
 				.map_err(|source| {
 					tg::error!(!source, "failed to put the artifact into the database")
 				})?;
-			stack.extend(output.children);
 		}
 
 		// Commit the transaction.
