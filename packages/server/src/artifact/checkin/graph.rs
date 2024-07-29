@@ -57,6 +57,9 @@ pub struct Node {
 
 	// The tag of this node, if it exists.
 	pub tag: Option<tg::Tag>,
+
+	// The path of the underlying thing on disk.
+	pub path: Option<tg::Path>,
 }
 
 pub(super) type Id = Either<tg::Reference, usize>;
@@ -241,6 +244,7 @@ impl Server {
 			is_package_node: false,
 			object: Some(Object::Directory(entries)),
 			tag: None,
+			path: Some(arg.path.clone()),
 		};
 
 		// Add the node to the graph.
@@ -285,6 +289,7 @@ impl Server {
 				executable,
 			}),
 			tag: None,
+			path: Some(arg.path.clone()),
 		};
 
 		// Add the node to the graph.
@@ -338,6 +343,7 @@ impl Server {
 							is_package_node: false,
 							object: Some(Object::Object(object)),
 							tag: None,
+							path: Some(arg.path.clone()),
 						};
 
 						// Update the graph
@@ -401,6 +407,7 @@ impl Server {
 					is_package_node: false,
 					object: Some(Object::Object(object.clone())),
 					tag: None,
+					path: None,
 				};
 
 				// Update the graph
@@ -512,6 +519,7 @@ impl Server {
 			is_package_node: false,
 			object: Some(Object::Symlink(symlink_id)),
 			tag: None,
+			path: None,
 		};
 
 		// Add the node to the graph.
@@ -623,6 +631,7 @@ impl Server {
 			is_package_node: false,
 			object: Some(Object::Object(object.id(self).await?)),
 			tag,
+			path: None,
 		};
 
 		graph.nodes.insert(id.clone(), node);
