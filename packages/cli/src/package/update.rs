@@ -29,7 +29,6 @@ impl Cli {
 		let arg = tg::artifact::checkin::Arg {
 			path,
 			destructive: false,
-			dependencies: true,
 			locked: false,
 		};
 		handle.check_in_artifact(arg).await?;
