@@ -24,7 +24,6 @@ impl Server {
 				let arg = tg::artifact::checkin::Arg {
 					destructive: false,
 					locked: false,
-					dependencies: true,
 					path: path.clone(),
 				};
 				let mut stream = self.check_in_artifact(arg).await?;

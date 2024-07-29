@@ -1,3 +1,4 @@
+use bytes::Bytes;
 use futures::{
 	stream::{FuturesOrdered, FuturesUnordered},
 	TryStreamExt as _,
@@ -246,6 +247,16 @@ impl Artifact {
 		let output = Arc::new(Mutex::new(HashSet::default()));
 		recursive_dependencies_inner(handle, self, output.clone()).await?;
 		Ok(Arc::into_inner(output).unwrap().into_inner().unwrap())
+	}
+}
+
+impl Data {
+	pub fn serialize(&self) -> tg::Result<Bytes> {
+		match self {
+			Self::Directory(artifact) => artifact.serialize(),
+			Self::File(artifact) => artifact.serialize(),
+			Self::Symlink(artifact) => artifact.serialize(),
+		}
 	}
 }
 

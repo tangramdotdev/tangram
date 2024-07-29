@@ -180,7 +180,6 @@ impl Server {
 				let arg = tg::artifact::checkin::Arg {
 					destructive: false,
 					locked: true,
-					dependencies: true,
 					path: path.clone(),
 				};
 				let artifact = tg::Artifact::check_in(self, arg).await?;

@@ -36,7 +36,6 @@ impl Cli {
 			destructive: args.destructive,
 			locked: args.locked,
 			path: path.try_into()?,
-			dependencies: true,
 		};
 		let mut stream = handle
 			.check_in_artifact(arg)

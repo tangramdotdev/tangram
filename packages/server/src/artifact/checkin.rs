@@ -331,9 +331,6 @@ impl Server {
 	) -> tg::Result<()> {
 		// If a root module path exists, check in as a file.
 		'a: {
-			if !arg.dependencies {
-				break 'a;
-			}
 			let permit = self.file_descriptor_semaphore.acquire().await;
 			let Ok(Some(path)) =
 				tg::artifact::module::try_get_root_module_path_for_path(arg.path.as_ref()).await
@@ -674,7 +671,6 @@ impl Server {
 		let arg = tg::artifact::checkin::Arg {
 			destructive: false,
 			locked: true,
-			dependencies: true,
 			path: path.try_into()?,
 		};
 		self.check_in_artifact_inner(&arg, &state).await?;
