@@ -463,6 +463,27 @@ impl TryFrom<crate::Id> for Id {
 	}
 }
 
+impl TryFrom<data::Dependencies> for Dependencies {
+	type Error = tg::Error;
+
+	fn try_from(value: data::Dependencies) -> Result<Self, Self::Error> {
+		match value {
+			data::Dependencies::Set(dependencies) => Ok(Dependencies::Set(
+				dependencies.into_iter().map(tg::Object::with_id).collect(),
+			)),
+			data::Dependencies::Map(dependencies) => Ok(Dependencies::Map(
+				dependencies
+					.into_iter()
+					.map(|(reference, object)| (reference, tg::Object::with_id(object)))
+					.collect(),
+			)),
+			data::Dependencies::Lock(lock, node) => {
+				Ok(Dependencies::Lock(tg::Lock::with_id(lock), node))
+			},
+		}
+	}
+}
+
 impl std::str::FromStr for Id {
 	type Err = tg::Error;
 
