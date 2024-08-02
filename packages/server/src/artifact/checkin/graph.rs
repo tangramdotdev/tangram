@@ -117,6 +117,7 @@ impl Server {
 			lock: None,
 			move_to_checkouts: true,
 			data: None,
+			lock_data: None,
 		};
 		input
 			.state
@@ -133,9 +134,11 @@ impl Server {
 					|source| tg::error!(!source, %path = input.arg.path, "failed to check in the directory"),
 				)?
 		} else if metadata.is_file() {
-			self.add_file_to_graph(&graph_id, &input).await.map_err(
-				|source| tg::error!(!source, %path = input.arg.path, "failed to check in the file"),
-			)?
+			self.add_file_to_graph(&graph_id, &input, input.arg.path.clone())
+				.await
+				.map_err(
+					|source| tg::error!(!source, %path = input.arg.path, "failed to check in the file"),
+				)?
 		} else if metadata.is_symlink() {
 			self.add_symlink_to_graph(&graph_id, &input).await.map_err(
 				|source| tg::error!(!source, %path = input.arg.path, "failed to check in the symlink"),
@@ -176,9 +179,8 @@ impl Server {
 				return Err(tg::error!(%path, "expected a file"));
 			}
 			let mut input = input.clone();
-			input.arg.path = path;
 			input.metadata.replace(metadata);
-			return self.add_file_to_graph(id, &input).await;
+			return self.add_file_to_graph(id, &input, path).await;
 		}
 
 		// Read the directory.
@@ -248,10 +250,11 @@ impl Server {
 		&self,
 		id: &Id,
 		input: &super::InnerInput<'_>,
+		path: tg::Path,
 	) -> tg::Result<()> {
 		// Create the blob without writing to disk/database.
 		let _permit = self.file_descriptor_semaphore.acquire().await;
-		let file = tokio::fs::File::open(&input.arg.path)
+		let file = tokio::fs::File::open(&path)
 			.await
 			.map_err(|source| tg::error!(!source, "failed to open the file"))?;
 
