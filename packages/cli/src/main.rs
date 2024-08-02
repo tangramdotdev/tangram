@@ -847,11 +847,14 @@ impl Cli {
 	where
 		H: tg::Handle,
 	{
-		// let options = config
-		// 	.as_ref()
-		// 	.and_then(|config| config.advanced.as_ref())
-		// 	.and_then(|advanced| advanced.error_trace_options.clone())
-		// 	.unwrap_or_default();
+		let options = config
+			.as_ref()
+			.and_then(|config| config.advanced.as_ref())
+			.and_then(|advanced| advanced.error_trace_options.clone())
+			.unwrap_or_default();
+		let trace = error.trace(&options);
+		println!("{trace}");
+
 		// let trace = error.trace(&options);
 		// let mut errors = vec![trace.error];
 		// while let Some(next) = errors.last().unwrap().source.as_ref() {
@@ -929,7 +932,6 @@ impl Cli {
 		// 		}
 		// 	}
 		// }
-		todo!()
 	}
 
 	async fn print_diagnostic<H>(&self, handle: &H, diagnostic: &tg::Diagnostic)

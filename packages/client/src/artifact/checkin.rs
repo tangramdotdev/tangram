@@ -14,14 +14,6 @@ pub struct Arg {
 	pub path: tg::Path,
 }
 
-fn true_() -> bool {
-	true
-}
-
-fn is_true(b: &bool) -> bool {
-	!b
-}
-
 #[derive(Clone, Debug)]
 pub enum Event {
 	Progress(Progress),

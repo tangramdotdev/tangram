@@ -1,4 +1,4 @@
-use crate::{tmp::Tmp, Server};
+use crate::Server;
 use either::Either;
 use futures::{
 	future::BoxFuture,
@@ -43,12 +43,11 @@ struct InnerOutput {
 	count: Option<u64>,
 	weight: Option<u64>,
 	lock: Option<Lock>,
-	create_lock: bool,
 	move_to_checkouts: bool,
 	data: Option<tg::artifact::Data>,
 }
 
-#[derive(Clone, Debug)]
+#[derive(Copy, Clone, Debug)]
 enum Lock {
 	File,
 	Xattr,
@@ -58,7 +57,8 @@ enum Lock {
 struct InnerInput<'a> {
 	arg: tg::artifact::checkin::Arg,
 	metadata: Option<std::fs::Metadata>,
-	referrer: Option<(tg::Path, tg::file::Dependencies)>,
+	reference: tg::Reference,
+	lock: Option<(tg::lock::Object, usize)>,
 	state: &'a State,
 }
 
@@ -187,7 +187,6 @@ impl Server {
 			.ok_or_else(|| tg::error!("invalid object graph"))?;
 
 		// Move any outputs to the checkouts directory.
-		let graph = state.graph.lock().unwrap().clone();
 		let outputs = state
 			.visited
 			.lock()
@@ -202,12 +201,22 @@ impl Server {
 					return None;
 				}
 				let server = self.clone();
+				let fut = async move { server.move_to_checkouts(output, arg.destructive).await };
+				Some(fut)
+			})
+			.collect::<FuturesUnordered<_>>()
+			.try_collect::<Vec<_>>()
+			.await?;
+
+		// Write locks
+		let graph = state.graph.lock().unwrap().clone();
+		outputs
+			.iter()
+			.filter_map(|output| {
+				let lock = output.lock?;
+				let server = self.clone();
 				let graph = graph.clone();
-				let fut = async move {
-					server
-						.move_to_checkouts(graph, output, arg.destructive)
-						.await
-				};
+				let fut = async move { server.write_lock(output, &graph, lock).await };
 				Some(fut)
 			})
 			.collect::<FuturesUnordered<_>>()
@@ -219,7 +228,7 @@ impl Server {
 			let artifact_id = output
 				.artifact_id
 				.as_ref()
-				.ok_or_else(|| tg::error!("incomplete object graph"))?;
+				.ok_or_else(|| tg::error!(%path = output.path, "missing artifact in graph"))?;
 
 			// If this is a file, create a hard link to it.
 			if matches!(artifact_id, tg::artifact::Id::File(_)) {
@@ -232,34 +241,54 @@ impl Server {
 		Ok(artifact)
 	}
 
-	async fn move_to_checkouts(
-		&self,
-		graph: graph::Graph,
-		output: &InnerOutput,
-		destructive: bool,
-	) -> tg::Result<()> {
-		// Create a temp.
-		let tmp = Tmp::new(self);
+	async fn move_to_checkouts(&self, output: &InnerOutput, destructive: bool) -> tg::Result<()> {
+		// Get the artifact id.
 		let artifact = output
 			.artifact_id
 			.as_ref()
 			.ok_or_else(|| tg::error!("incomplete output"))?;
 
-		// Copy or rename to the temp.
-		todo!();
-
-		// Rename from the temp path to the checkout path.
+		// Get the path to the root in the checkouts directory.
 		let root_path = self.checkouts_path().join(artifact.to_string());
-		match tokio::fs::rename(&tmp.path, &root_path).await {
-			Ok(()) => (),
-			Err(error) if matches!(error.raw_os_error(), Some(libc::EEXIST | libc::ENOTEMPTY)) => {
-				()
-			},
-			Err(source) => {
-				return Err(tg::error!(!source, "failed to rename the temp"));
-			},
+
+		// If the artifact already exists, exit early.
+		if tokio::fs::try_exists(&root_path)
+			.await
+			.map_err(|source| tg::error!(!source, "failed to check if file exists"))?
+		{
+			return Ok(());
 		}
+
+		// Rename or move the input to the temps directory.
+		if destructive {
+			match tokio::fs::rename(&output.path, &root_path).await {
+				Ok(()) => (),
+				Err(error) if error.raw_os_error() == Some(libc::EXDEV) => {
+					copy_all(output.path.as_ref(), &root_path).await.map_err(
+						|source| tg::error!(!source, %path = output.path, "failed to copy file"),
+					)?;
+				},
+				Err(source) => {
+					return Err(tg::error!(!source, %path = output.path, "failed to rename file"));
+				},
+			}
+		} else {
+			copy_all(output.path.as_ref(), &root_path).await.map_err(
+				|source| tg::error!(!source, %path = output.path, "failed to copy file"),
+			)?;
+		}
+
 		Ok(())
+	}
+
+	async fn write_lock(
+		&self,
+		_output: &InnerOutput,
+		_graph: &graph::Graph,
+		_lock: Lock,
+	) -> tg::Result<()> {
+		// todo!()
+		return Ok(());
 	}
 
 	async fn check_in_artifact_inner(
@@ -273,19 +302,26 @@ impl Server {
 		}
 
 		// Create the input.
+		let reference = tg::Reference::with_path(&arg.path);
 		let input = InnerInput {
 			arg,
 			metadata: None,
-			referrer: None,
+			reference,
 			state,
+			lock: None,
 		};
 
-		// Create the graph and return the root node ID.
+		// Create the graph and get the root node ID.
 		let root = self.add_path_to_graph(input).await?;
 
-		// Unify.
+		// Check if there is an existing lockfile.
 		let graph = state.graph.lock().unwrap().clone();
+
+		// Unify.
 		let graph = self.unify_dependencies(graph, &root).await?;
+
+		// Validate.
+		graph.validate(self)?;
 
 		// Create locks.
 		let (assignments, mut locks) = self.create_locks(&graph, &root).await?;
@@ -320,16 +356,27 @@ impl Server {
 		let mut indices = BTreeMap::new();
 		let mut ids = BTreeMap::new();
 		while let Some(node) = stack.pop() {
+			// Skip previously visited nodes.
 			if indices.contains_key(node) {
 				continue;
 			};
+
+			// Create a node index for this node.
 			let index = counter;
 			counter += 1;
 			indices.insert(node.clone(), index);
 			ids.insert(index, node.clone());
 			let node = graph.nodes.get(node).unwrap();
-			for (_reference, neighbor) in &node.outgoing {
-				let _node = graph.nodes.get(neighbor).unwrap();
+
+			// Add directory children to the stack.
+			if let Some(graph::Object::Directory(directory)) = &node.object {
+				for neighbor in directory.values() {
+					stack.push(neighbor);
+				}
+			}
+
+			// Add outgoing edges to the stack.
+			for neighbor in node.outgoing.values() {
 				stack.push(neighbor);
 			}
 		}
@@ -400,7 +447,7 @@ impl Server {
 					let lock: &tg::lock::Id = lock_ids
 						.get(lock_index_)
 						.ok_or_else(|| tg::error!("invalid graph"))?;
-					let graph::Object::File { blob, executable } = &graph
+					let Some(graph::Object::File { blob, executable }) = &graph
 						.nodes
 						.get(ids.get(&old_index).unwrap())
 						.unwrap()
@@ -455,7 +502,11 @@ impl Server {
 		}
 
 		let node = graph.nodes.get(node).unwrap();
-		let (data, id): (tg::artifact::Data, tg::artifact::Id) = match &node.object {
+		let object = node
+			.object
+			.as_ref()
+			.ok_or_else(|| tg::error!("incomplete lock"))?;
+		let (data, id): (tg::artifact::Data, tg::artifact::Id) = match object {
 			graph::Object::Object(object) => {
 				let data = &mut locks[lock_index].nodes[node_index];
 				data.object.replace(object.clone());
