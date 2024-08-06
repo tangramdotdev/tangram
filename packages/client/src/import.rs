@@ -126,7 +126,7 @@ impl std::str::FromStr for Kind {
 			"symlink" => Ok(Kind::Symlink),
 			"lock" => Ok(Kind::Lock),
 			"target" => Ok(Kind::Target),
-			_ => Err(tg::error!("invalid kind")),
+			kind => Err(tg::error!(%kind, "invalid kind")),
 		}
 	}
 }

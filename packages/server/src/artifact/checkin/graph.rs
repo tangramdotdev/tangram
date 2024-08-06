@@ -269,7 +269,7 @@ impl Server {
 
 		// Get the outgoing references
 		let outgoing = self
-			.get_outgoing_references_for_path(id, input)
+			.get_outgoing_references_for_path(id, input, &path)
 			.await
 			.map_err(|source| tg::error!(!source, "failed to find outgoing references for file"))?;
 
@@ -330,23 +330,23 @@ impl Server {
 		&self,
 		_id: &Id,
 		input: &super::InnerInput<'_>,
+		path: &tg::Path,
 	) -> tg::Result<BTreeMap<tg::Reference, Id>> {
 		// Attempt to read dependencies from the xattrs, if they exist.
-		if let Some(dependencies) = xattr::get(
-			&input.arg.path,
-			tg::file::TANGRAM_FILE_DEPENDENCIES_XATTR_NAME,
-		)
-		.ok()
-		.flatten()
-		.and_then(|bytes| serde_json::from_slice::<tg::file::data::Dependencies>(&bytes).ok())
-		{
+		if let Some(dependencies) =
+			xattr::get(&path, tg::file::TANGRAM_FILE_DEPENDENCIES_XATTR_NAME)
+				.ok()
+				.flatten()
+				.and_then(|bytes| {
+					serde_json::from_slice::<tg::file::data::Dependencies>(&bytes).ok()
+				}) {
 			// Mark that we need to update xattrs.
 			input
 				.state
 				.visited
 				.lock()
 				.unwrap()
-				.get_mut(&input.arg.path)
+				.get_mut(&path)
 				.unwrap()
 				.lock
 				.replace(super::Lock::Xattr);
@@ -367,14 +367,14 @@ impl Server {
 		}
 
 		// If this is not a module path, then there are no dependencies.
-		if !tg::artifact::module::is_module_path(input.arg.path.as_ref()) {
+		if !tg::artifact::module::is_module_path(path.as_ref()) {
 			return Ok(BTreeMap::new());
 		}
 
 		// Read the file.
-		let text = tokio::fs::read_to_string(&input.arg.path)
+		let text = tokio::fs::read_to_string(&path)
 			.await
-			.map_err(|source| tg::error!(!source, %path = input.arg.path, "failed to read file"))?;
+			.map_err(|source| tg::error!(!source, %path, "failed to read file"))?;
 
 		// Compile the file.
 		let analysis = crate::compiler::Compiler::analyze_module(text)
@@ -385,7 +385,7 @@ impl Server {
 		// TODO: reuse lock
 		let lock = self.search_for_lock(input).await?;
 		for import in analysis.imports {
-			if let Some(path) = import
+			if let Some(module_path) = import
 				.reference
 				.path()
 				.try_unwrap_path_ref()
@@ -393,19 +393,13 @@ impl Server {
 				.or_else(|| import.reference.query()?.path.as_ref())
 			{
 				// Handle path dependencies.
-				let path = input
-					.arg
-					.path
-					.clone()
-					.parent()
-					.join(path.clone())
-					.normalize();
+				let path = path.clone().parent().join(module_path.clone()).normalize();
 				let mut input = input.clone();
 				input.arg.path = path.clone();
 				input.reference = import.reference.clone();
 				input.lock = lock.clone();
 				let id = Box::pin(self.add_path_to_graph(input)).await.map_err(
-					|source| tg::error!(!source, %path, "failed to add dependency to graph"),
+					|source| tg::error!(!source, %path = module_path, "failed to add module to graph"),
 				)?;
 				outgoing.insert(import.reference.clone(), id);
 			} else if let Ok(object) = import.reference.path().try_unwrap_object_ref() {

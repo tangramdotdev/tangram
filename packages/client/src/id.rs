@@ -152,7 +152,7 @@ impl std::fmt::Display for Kind {
 			Kind::Directory => "dir",
 			Kind::File => "fil",
 			Kind::Symlink => "sym",
-			Kind::Lock => "pkg",
+			Kind::Lock => "lok",
 			Kind::Target => "tgt",
 			Kind::Build => "bld",
 			Kind::User => "usr",
