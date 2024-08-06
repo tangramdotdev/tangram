@@ -26,6 +26,7 @@ impl Cli {
 
 		// Check in the package.
 		let arg = tg::artifact::checkin::Arg {
+			dependencies: true,
 			destructive: false,
 			deterministic: false,
 			locked: false,

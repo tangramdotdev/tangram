@@ -178,8 +178,9 @@ impl Server {
 			// Check in an existing artifact at the path.
 			let existing_artifact = if exists {
 				let arg = tg::artifact::checkin::Arg {
+					dependencies: true,
 					destructive: false,
-					deterministic: false,
+					deterministic: true,
 					locked: true,
 					path: path.clone(),
 				};

@@ -1,10 +1,15 @@
-use crate::{self as tg, util::serde::is_false};
+use crate::{
+	self as tg,
+	util::serde::{is_false, is_true, return_true},
+};
 use futures::{Stream, StreamExt as _, TryStreamExt as _};
 use std::pin::pin;
 use tangram_http::{incoming::response::Ext as _, outgoing::request::Ext as _};
-
 #[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
 pub struct Arg {
+	#[serde(default = "return_true", skip_serializing_if = "is_true")]
+	pub dependencies: bool,
+
 	#[serde(default, skip_serializing_if = "is_false")]
 	pub destructive: bool,
 
