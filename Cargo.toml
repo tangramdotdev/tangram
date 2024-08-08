@@ -100,7 +100,7 @@ scopeguard = "1"
 serde = { version = "1", features = ["rc", "derive"] }
 serde_json = "1"
 serde_urlencoded = "0.7"
-serde_v8 = { version = "0.204" }
+serde_v8 = { version = "0.212" }
 serde_with = { version = "3", features = ["time_0_3"] }
 serde_yaml = { version = "0.9" }
 sha2 = "0.10"
@@ -147,7 +147,7 @@ unicode-width = "0.1"
 url = { version = "2", features = ["serde"] }
 urlencoding = "2"
 uuid = { version = "1", features = ["v7"] }
-v8 = { version = "0.98" }
+v8 = { version = "0.102" }
 webbrowser = "1"
 webpki-roots = "0.26"
 winnow = "0.6"

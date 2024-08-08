@@ -196,7 +196,7 @@ fn create_snapshot(path: impl AsRef<Path>) -> v8::StartupData {
 	{
 		// Create a context.
 		let handle_scope = &mut v8::HandleScope::new(&mut isolate);
-		let context = v8::Context::new(handle_scope);
+		let context = v8::Context::new(handle_scope, v8::ContextOptions::default());
 		handle_scope.set_default_context(context);
 		let scope = &mut v8::ContextScope::new(handle_scope, context);
 
@@ -209,10 +209,11 @@ fn create_snapshot(path: impl AsRef<Path>) -> v8::StartupData {
 		let resource_column_offset = 0;
 		let resource_is_shared_cross_origin = false;
 		let script_id = 0;
-		let source_map_url = v8::undefined(scope).into();
+		let source_map_url = None;
 		let resource_is_opaque = true;
 		let is_wasm = false;
 		let is_module = false;
+		let host_defined_options = None;
 		let origin = v8::ScriptOrigin::new(
 			scope,
 			resource_name.into(),
@@ -224,6 +225,7 @@ fn create_snapshot(path: impl AsRef<Path>) -> v8::StartupData {
 			resource_is_opaque,
 			is_wasm,
 			is_module,
+			host_defined_options,
 		);
 		let script = v8::Script::compile(scope, script, Some(&origin)).unwrap();
 

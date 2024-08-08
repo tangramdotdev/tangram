@@ -139,7 +139,7 @@ pub fn capture_stack_trace(scope: &mut v8::HandleScope<'_>) -> Option<Vec<tg::er
 	let context = scope.get_current_context();
 
 	// Get the state.
-	let state = context.get_slot::<Rc<State>>(scope).unwrap().clone();
+	let state = context.get_slot::<Rc<State>>().unwrap().clone();
 
 	// Get the current stack trace.
 	let stack = v8::StackTrace::current_stack_trace(scope, 1024 * 1024)?;

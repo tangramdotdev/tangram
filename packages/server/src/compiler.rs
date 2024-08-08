@@ -563,11 +563,11 @@ impl Compiler {
 
 		// Create the context.
 		let scope = &mut v8::HandleScope::new(&mut isolate);
-		let context = v8::Context::new(scope);
+		let context = v8::Context::new(scope, v8::ContextOptions::default());
 		let scope = &mut v8::ContextScope::new(scope, context);
 
 		// Set the server on the context.
-		context.set_slot(scope, self);
+		context.set_slot(self);
 
 		// Add the syscall function to the global.
 		let syscall_string =

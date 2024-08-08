@@ -196,11 +196,11 @@ impl Runtime {
 		let context = {
 			// Create the context.
 			let scope = &mut v8::HandleScope::new(isolate.as_mut());
-			let context = v8::Context::new(scope);
+			let context = v8::Context::new(scope, v8::ContextOptions::default());
 			let scope = &mut v8::ContextScope::new(scope, context);
 
 			// Set the state on the context.
-			context.set_slot(scope, state.clone());
+			context.set_slot(state.clone());
 
 			// Create the syscall function.
 			let syscall_string =
@@ -448,7 +448,7 @@ fn resolve_module_callback<'s>(
 	let scope = unsafe { &mut v8::CallbackScope::new(context) };
 
 	// Get the state.
-	let state = context.get_slot::<Rc<State>>(scope).unwrap().clone();
+	let state = context.get_slot::<Rc<State>>().unwrap().clone();
 
 	// Get the module.
 	let identity_hash = referrer.get_identity_hash();
@@ -487,7 +487,7 @@ fn resolve_module(
 	import: &tg::Import,
 ) -> Option<tg::Module> {
 	let context = scope.get_current_context();
-	let state = context.get_slot::<Rc<State>>(scope).unwrap().clone();
+	let state = context.get_slot::<Rc<State>>().unwrap().clone();
 
 	let (sender, receiver) = std::sync::mpsc::channel();
 	state.main_runtime_handle.spawn({
@@ -525,7 +525,7 @@ fn load_module<'s>(
 ) -> Option<v8::Local<'s, v8::Module>> {
 	// Get the context and state.
 	let context = scope.get_current_context();
-	let state = context.get_slot::<Rc<State>>(scope).unwrap().clone();
+	let state = context.get_slot::<Rc<State>>().unwrap().clone();
 
 	// Return a cached module if this module has already been loaded.
 	if let Some(module) = state
@@ -544,10 +544,11 @@ fn load_module<'s>(
 	let resource_column_offset = 0;
 	let resource_is_shared_cross_origin = false;
 	let script_id = state.modules.borrow().len().to_i32().unwrap() + 1;
-	let source_map_url = v8::undefined(scope).into();
+	let source_map_url = None;
 	let resource_is_opaque = true;
 	let is_wasm = false;
 	let is_module = true;
+	let host_defined_options = None;
 	let origin = v8::ScriptOrigin::new(
 		scope,
 		resource_name.into(),
@@ -559,6 +560,7 @@ fn load_module<'s>(
 		resource_is_opaque,
 		is_wasm,
 		is_module,
+		host_defined_options,
 	);
 
 	// Load the module.
@@ -613,8 +615,8 @@ fn load_module<'s>(
 
 	// Compile the module.
 	let source = v8::String::new(scope, &transpiled_text).unwrap();
-	let source = v8::script_compiler::Source::new(source, Some(&origin));
-	let v8_module = v8::script_compiler::compile_module(scope, source)?;
+	let mut source = v8::script_compiler::Source::new(source, Some(&origin));
+	let v8_module = v8::script_compiler::compile_module(scope, &mut source)?;
 
 	// Cache the module.
 	state.modules.borrow_mut().push(Module {
@@ -637,7 +639,7 @@ extern "C" fn host_initialize_import_meta_object_callback(
 	let scope = unsafe { &mut v8::CallbackScope::new(context) };
 
 	// Get the state.
-	let state = context.get_slot::<Rc<State>>(scope).unwrap().clone();
+	let state = context.get_slot::<Rc<State>>().unwrap().clone();
 
 	// Get the module.
 	let identity_hash = module.get_identity_hash();
@@ -666,7 +668,7 @@ extern "C" fn promise_reject_callback(message: v8::PromiseRejectMessage) {
 	let context = scope.get_current_context();
 
 	// Get the state.
-	let state = context.get_slot::<Rc<State>>(scope).unwrap().clone();
+	let state = context.get_slot::<Rc<State>>().unwrap().clone();
 
 	match message.get_event() {
 		v8::PromiseRejectEvent::PromiseRejectWithNoHandler => {
