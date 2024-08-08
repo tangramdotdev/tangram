@@ -1,17 +1,135 @@
 use crate::Server;
+<<<<<<< HEAD
 use futures::{
 	future::{self, BoxFuture},
 	stream, Stream, StreamExt as _,
 };
 use tangram_client as tg;
 use tangram_http::{incoming::request::Ext as _, outgoing::response::Ext as _, Incoming, Outgoing};
+=======
+use futures::{future::BoxFuture, stream, FutureExt as _, Stream, StreamExt as _};
+use std::sync::{atomic::AtomicU64, Arc};
+use tangram_client as tg;
+use tangram_http::{incoming::request::Ext as _, outgoing::response::Ext as _, Incoming, Outgoing};
+use tokio_stream::wrappers::IntervalStream;
+
+mod graph;
+
+struct State {
+	count: ProgressState,
+	weight: ProgressState,
+}
+
+struct ProgressState {
+	current: AtomicU64,
+	total: Option<AtomicU64>,
+}
+>>>>>>> 40f41287 (wip: new graph impl)
 
 impl Server {
 	pub async fn check_in_artifact(
 		&self,
 		_arg: tg::artifact::checkin::Arg,
 	) -> tg::Result<impl Stream<Item = tg::Result<tg::artifact::checkin::Event>>> {
+<<<<<<< HEAD
 		Ok(stream::once(future::ready(todo!())))
+=======
+		// Create the state.
+		let count = ProgressState {
+			current: AtomicU64::new(0),
+			total: None,
+		};
+		let weight = ProgressState {
+			current: AtomicU64::new(0),
+			total: None,
+		};
+		let state = Arc::new(State { count, weight });
+
+		// Spawn the task.
+		let (result_sender, result_receiver) = tokio::sync::oneshot::channel();
+		tokio::spawn({
+			let server = self.clone();
+			let arg = arg.clone();
+			let state = state.clone();
+			async move {
+				let result = server.check_in_artifact_task(arg, &state).await;
+				result_sender.send(result).ok();
+			}
+		});
+
+		// Create the stream.
+		let interval = std::time::Duration::from_millis(100);
+		let interval = tokio::time::interval(interval);
+		let result = result_receiver.map(Result::unwrap).shared();
+		let stream = IntervalStream::new(interval)
+			.map(move |_| {
+				let current = state
+					.count
+					.current
+					.load(std::sync::atomic::Ordering::Relaxed);
+				let total = state
+					.count
+					.total
+					.as_ref()
+					.map(|total| total.load(std::sync::atomic::Ordering::Relaxed));
+				let count = tg::Progress { current, total };
+				let current = state
+					.weight
+					.current
+					.load(std::sync::atomic::Ordering::Relaxed);
+				let total = state
+					.weight
+					.total
+					.as_ref()
+					.map(|total| total.load(std::sync::atomic::Ordering::Relaxed));
+				let weight = tg::Progress { current, total };
+				let progress = tg::artifact::checkin::Progress { count, weight };
+				Ok(tg::artifact::checkin::Event::Progress(progress))
+			})
+			.take_until(result.clone())
+			.chain(stream::once(result.map(|result| match result {
+				Ok(id) => Ok(tg::artifact::checkin::Event::End(id)),
+				Err(error) => Err(error),
+			})));
+
+		Ok(stream)
+	}
+
+	/// Attempt to store an artifact in the database.
+	async fn check_in_artifact_task(
+		&self,
+		arg: tg::artifact::checkin::Arg,
+		_state: &State,
+	) -> tg::Result<tg::artifact::Id> {
+		// If this is a checkin of a path in the checkouts directory, then retrieve the corresponding artifact.
+		let checkouts_path = self.checkouts_path().try_into()?;
+		if let Some(path) = arg.path.diff(&checkouts_path).filter(tg::Path::is_internal) {
+			let id = path
+				.components()
+				.get(1)
+				.ok_or_else(|| tg::error!("cannot check in the checkouts directory"))?
+				.try_unwrap_normal_ref()
+				.ok()
+				.ok_or_else(|| tg::error!("invalid path"))?
+				.parse::<tg::artifact::Id>()?;
+			let path = tg::Path::with_components(path.components().iter().skip(2).cloned());
+			if path.components().len() == 1 {
+				return Ok(id);
+			}
+			let artifact = tg::Artifact::with_id(id);
+			let directory = artifact
+				.try_unwrap_directory()
+				.ok()
+				.ok_or_else(|| tg::error!("invalid path"))?;
+			let artifact = directory.get(self, &path).await?;
+			let id = artifact.id(self).await?;
+			return Ok(id);
+		}
+
+		// Check in the artifact.
+		self.check_in_or_store_artifact_inner(arg.clone(), None)
+			.await
+>>>>>>> 40f41287 (wip: new graph impl)
 	}
 
 	pub(crate) fn try_store_artifact_future(
@@ -35,105 +153,17 @@ impl Server {
 		}
 		drop(permit);
 
-		// Create the state.
-		let count = ProgressState {
-			current: AtomicU64::new(0),
-			total: None,
-		};
-		let weight = ProgressState {
-			current: AtomicU64::new(0),
-			total: None,
-		};
-		let graph = Mutex::new(graph::Graph::default());
-		let visited = Mutex::new(BTreeMap::new());
-		let state = Arc::new(State {
-			count,
-			weight,
-			graph,
-			visited,
-		});
-
 		// Check in the artifact.
 		let arg = tg::artifact::checkin::Arg {
 			dependencies: true,
-			deterministic: true,
+			deterministic: false,
 			destructive: false,
 			locked: true,
 			path: path.try_into()?,
 		};
-		self.check_in_artifact_inner(arg.clone(), &state).await?;
-		let artifact_id = state
-			.visited
-			.lock()
-			.unwrap()
-			.get(&arg.path)
-			.ok_or_else(|| tg::error!("invalid graph"))?
-			.artifact_id
-			.clone()
-			.ok_or_else(|| tg::error!("invalid graph"))?;
-
-		if &artifact_id != id {
-			return Err(tg::error!("corrupted internal checkout"));
-		}
-
-		// Get a database connection.
-		let mut connection = self
-			.database
-			.connection(db::Priority::Low)
-			.await
-			.map_err(|source| tg::error!(!source, "failed to get a database connection"))?;
-
-		// Begin a transaction.
-		let transaction = connection
-			.transaction()
-			.await
-			.map_err(|source| tg::error!(!source, "failed to begin a transaction"))?;
-
-		// Collect the output.
-		let output = state
-			.visited
-			.lock()
-			.unwrap()
-			.values()
-			.cloned()
-			.collect::<Vec<_>>();
-
-		// Insert into the database.
-		for output in output {
-			// Validate output.
-			let id = output
-				.artifact_id
-				.ok_or_else(|| tg::error!("invalid graph"))?;
-			let data = output.data.ok_or_else(|| tg::error!("invalid graph"))?;
-			let bytes = data.serialize()?;
-			let count = output.count;
-			let weight = output.weight;
-
-			// Insert.
-			let p = transaction.p();
-			let statement = formatdoc!(
-				"
-					insert into objects (id, bytes, complete, count, weight, touched_at)
-					values ({p}1, {p}2, {p}3, {p}4, {p}5, {p}6)
-					on conflict (id) do update set touched_at = {p}6;
-				"
-			);
-			let now = time::OffsetDateTime::now_utc().format(&Rfc3339).unwrap();
-			let params = db::params![id, bytes, 1, count, weight, now];
-			transaction
-				.execute(statement, params)
-				.await
-				.map_err(|source| {
-					tg::error!(!source, "failed to put the artifact into the database")
-				})?;
-		}
-
-		// Commit the transaction.
-		transaction
-			.commit()
-			.await
-			.map_err(|source| tg::error!(!source, "failed to commit the transaction"))?;
-
+		let _artifact = self
+			.check_in_or_store_artifact_inner(arg.clone(), Some(id))
+			.await?;
 		Ok(true)
 	}
 }
