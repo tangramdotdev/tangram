@@ -8,6 +8,7 @@ use indoc::formatdoc;
 use std::{
 	collections::{BTreeMap, BTreeSet},
 	os::unix::fs::PermissionsExt,
+	path::PathBuf,
 	sync::RwLock,
 };
 use tangram_client as tg;
@@ -96,7 +97,7 @@ struct Input {
 struct Output {
 	data: tg::artifact::Data,
 	lock_index: usize,
-	children: Vec<Self>,
+	dependencies: BTreeMap<tg::Reference, Self>,
 }
 
 // Artifact checkin
@@ -107,7 +108,7 @@ impl Server {
 		store_as: Option<&tg::artifact::Id>,
 	) -> tg::Result<tg::artifact::Id> {
 		// Collect the input.
-		let input: Input = self.collect_input(arg.clone()).await.map_err(
+		let input = self.collect_input(arg.clone()).await.map_err(
 			|source| tg::error!(!source, %path = arg.path, "failed to collect check-in input"),
 		)?;
 
@@ -142,7 +143,7 @@ impl Server {
 				let id = tg::file::Id::new(&file.serialize()?);
 				old_files.insert(id, file.clone());
 			}
-			stack.extend(output.children.iter());
+			stack.extend(output.dependencies.values());
 		}
 
 		// Split up locks.
@@ -155,7 +156,7 @@ impl Server {
 			if let Some(data) = new_files.get(&output.lock_index) {
 				output.data = data.clone().into();
 			}
-			stack.extend(output.children.iter_mut());
+			stack.extend(output.dependencies.values_mut());
 		}
 
 		// Write the lockfile if necessary.
@@ -179,12 +180,15 @@ impl Server {
 			_ => return Err(tg::error!("expected an artifact")),
 		};
 
-		// Store if requested.
 		if let Some(store_as) = store_as {
+			// Store if requested.
 			if store_as != &id {
 				return Err(tg::error!("checkouts directory is corrupted"));
 			}
 			self.write_output_to_database(&output).await?;
+		} else {
+			// Otherwise, update hardlinks and xattrs.
+			self.write_hardlinks_and_xattrs(&input, &output).await?;
 		}
 
 		Ok(id)
@@ -253,7 +257,7 @@ impl Server {
 				"
 					insert into objects (id, bytes, complete, touched_at)
 					values ({p}1, {p}2, {p}3, {p}4)
-					on conflict (id) do update set touched_at = {p}6;
+					on conflict (id) do update set touched_at = {p}4;
 				"
 			);
 			let id = output.data.id()?;
@@ -267,7 +271,7 @@ impl Server {
 					tg::error!(!source, "failed to put the artifact into the database")
 				})?;
 
-			stack.extend(output.children.iter());
+			stack.extend(output.dependencies.values());
 		}
 
 		transaction
@@ -413,7 +417,7 @@ impl Server {
 		// Create the input.
 		let input = Input {
 			arg: arg.clone(),
-			metadata,
+			metadata: metadata.clone(),
 			write_lock,
 			lock_data: lock_data.clone(),
 			dependencies: BTreeMap::new(),
@@ -436,7 +440,11 @@ impl Server {
 				let parent = lock_data
 					.clone()
 					.map(|(lock, node)| (lock, node, arg.path.clone()));
-				let path = arg.path.clone().parent().join(path.clone()).normalize();
+				let path = if metadata.is_dir() {
+					arg.path.clone().join(path.clone()).normalize()
+				} else {
+					arg.path.clone().parent().join(path.clone()).normalize()
+				};
 				let arg = tg::artifact::checkin::Arg {
 					path,
 					..arg.clone()
@@ -1193,12 +1201,15 @@ impl Server {
 			.iter()
 			.filter_map(|(name, output)| Some((name.clone(), output.data.id().ok()?)))
 			.collect();
-		let children = children.into_iter().map(|(_, output)| output).collect();
+		let dependencies = children
+			.into_iter()
+			.map(|(name, output)| (tg::Reference::with_path(&name.into()), output))
+			.collect();
 		let data = tg::artifact::Data::Directory(tg::directory::Data { entries });
 
 		let output = Output {
 			data,
-			children,
+			dependencies,
 			lock_index: node,
 		};
 
@@ -1253,7 +1264,7 @@ impl Server {
 		});
 
 		// Get the children.
-		let children = input
+		let dependencies = input
 			.dependencies
 			.iter()
 			.filter_map(|(reference, input)| {
@@ -1264,18 +1275,20 @@ impl Server {
 					.as_ref()
 					.left()?;
 				let input = input.as_ref()?.clone();
-				let fut =
-					async move { Box::pin(self.collect_output_inner(&input, node, state)).await };
+				let fut = async move {
+					let output = Box::pin(self.collect_output_inner(&input, node, state)).await?;
+					Ok::<_, tg::Error>((reference.clone(), output))
+				};
 				Some(fut)
 			})
 			.collect::<FuturesUnordered<_>>()
-			.try_collect::<Vec<_>>()
+			.try_collect::<BTreeMap<_, _>>()
 			.await?;
 
 		// Create the output.
 		Ok(Output {
 			data,
-			children,
+			dependencies,
 			lock_index: node,
 		})
 	}
@@ -1340,7 +1353,7 @@ impl Server {
 
 		let output = Output {
 			data,
-			children: Vec::new(),
+			dependencies: BTreeMap::new(),
 			lock_index: node,
 		};
 
@@ -1352,17 +1365,31 @@ impl Server {
 		arg: &tg::artifact::checkin::Arg,
 		id: &tg::artifact::Id,
 	) -> tg::Result<()> {
+		// Skip copying anything in the checkouts directory.
+		let checkouts_directory: tg::Path = self.checkouts_path().try_into()?;
+		if let Some(path) = arg.path.diff(&checkouts_directory) {
+			if matches!(
+				path.components().first(),
+				Some(tg::path::Component::Current)
+			) {
+				return Ok(());
+			}
+		}
+
 		let destination = self.checkouts_path().join(id.to_string());
 		if arg.destructive {
 			match tokio::fs::rename(&arg.path, &destination).await {
-				Ok(()) => Ok(()),
-				Err(error) if error.raw_os_error() == Some(libc::ENODEV) => {
-					copy_all(arg.path.as_ref(), &destination).await
-				},
-				Err(source) => Err(tg::error!(!source, "failed to copy or move file")),
-			}
-		} else {
-			copy_all(arg.path.as_ref(), &destination).await
+				Ok(()) => return Ok(()),
+				Err(error) if error.raw_os_error() == Some(libc::EEXIST) => return Ok(()),
+				Err(error) if error.raw_os_error() == Some(libc::ENODEV) => (),
+				Err(source) => return Err(tg::error!(!source, "failed to rename file")),
+			};
+		}
+
+		match copy_all(arg.path.as_ref(), &destination).await {
+			Ok(()) => Ok(()),
+			Err(error) if error.raw_os_error() == Some(libc::EEXIST) => Ok(()),
+			Err(source) => Err(tg::error!(!source, "failed to copy file")),
 		}
 	}
 }
@@ -1400,7 +1427,7 @@ impl Server {
 				};
 
 				let mut dependencies = BTreeMap::new();
-				for (reference, either) in old_dependencies {
+				'b: for (reference, either) in old_dependencies {
 					let either = match either {
 						Either::Left(index) => 'a: {
 							let (lock_, node_) = indices.get(index).copied().unwrap();
@@ -1411,7 +1438,8 @@ impl Server {
 							let Some(tg::object::Id::File(file)) =
 								lock.nodes[old_index].object.as_ref()
 							else {
-								return Err(tg::error!("expected a file"));
+								continue 'b;
+								// return Err(tg::error!("expected a file"));
 							};
 
 							let mut data = old_files
@@ -1455,6 +1483,110 @@ impl Server {
 			.collect();
 
 		Ok((locks, new_files))
+	}
+}
+
+impl Server {
+	async fn write_hardlinks_and_xattrs(&self, input: &Input, output: &Output) -> tg::Result<()> {
+		let path = self
+			.checkouts_path()
+			.join(output.data.id()?.to_string())
+			.try_into()?;
+		let mut visited = BTreeSet::new();
+		self.write_hardlinks_and_xattrs_inner(&path, input, output, &mut visited)
+			.await?;
+		Ok(())
+	}
+
+	async fn write_hardlinks_and_xattrs_inner(
+		&self,
+		path: &tg::Path,
+		input: &Input,
+		output: &Output,
+		visited: &mut BTreeSet<tg::Path>,
+	) -> tg::Result<()> {
+		if visited.contains(path) {
+			return Ok(());
+		};
+		visited.insert(path.clone());
+
+		if let tg::artifact::Data::File(file) = &output.data {
+			let _permit = self.file_descriptor_semaphore.acquire().await.unwrap();
+
+			let dst: tg::Path = self
+				.checkouts_path()
+				.join(output.data.id()?.to_string())
+				.try_into()?;
+
+			if let Some(dependencies) = &file.dependencies {
+				let data = serde_json::to_vec(dependencies)
+					.map_err(|source| tg::error!(!source, "failed to serialize dependencies"))?;
+				xattr::set(&dst, tg::file::TANGRAM_FILE_DEPENDENCIES_XATTR_NAME, &data)
+					.map_err(|source| tg::error!(!source, "failed to set xattrs"))?;
+			}
+
+			// Create hard link to the file.
+			match tokio::fs::hard_link(path, &dst).await {
+				Ok(()) => (),
+				Err(error) if error.raw_os_error() == Some(libc::EEXIST) => (),
+				Err(source) => {
+					return Err(tg::error!(!source, %src = path, %dst, "failed to create hardlink"))
+				},
+			}
+
+			// Create a symlink to the file in the blobs directory.
+			let symlink_target = PathBuf::from("../checkouts").join(output.data.id()?.to_string());
+			let symlink_path = self.blobs_path().join(file.contents.to_string());
+			match tokio::fs::symlink(&symlink_target, &symlink_path).await {
+				Ok(()) => (),
+				Err(error) if error.raw_os_error() == Some(libc::EEXIST) => (),
+				Err(source) => {
+					return Err(
+						tg::error!(!source, %src = symlink_target.display(), %dst = symlink_path.display(), "failed to create blob symlink"),
+					)
+				},
+			}
+		}
+
+		for (reference, child_input) in input
+			.dependencies
+			.iter()
+			.filter_map(|(reference, input)| Some((reference, input.as_ref()?)))
+		{
+			let child_output = output.dependencies.get(reference).ok_or_else(
+				|| tg::error!(%referrer = path, %reference, "missing output reference"),
+			)?;
+
+			let path = if child_input.is_root {
+				self.checkouts_path()
+					.join(child_output.data.id()?.to_string())
+					.try_into()?
+			} else {
+				let path_ = reference
+					.path()
+					.try_unwrap_path_ref()
+					.ok()
+					.or_else(|| reference.query()?.path.as_ref())
+					.cloned()
+					.ok_or_else(|| tg::error!("expected a path dependency"))?;
+
+				if input.metadata.is_dir() {
+					path.clone().join(path_)
+				} else {
+					path.clone().parent().join(path_).normalize()
+				}
+			};
+
+			Box::pin(self.write_hardlinks_and_xattrs_inner(
+				&path,
+				child_input,
+				child_output,
+				visited,
+			))
+			.await?;
+		}
+
+		Ok(())
 	}
 }
 
@@ -1603,42 +1735,26 @@ impl<'a> petgraph::visit::IntoNodeIdentifiers for GraphImpl<'a> {
 	}
 }
 
-async fn copy_all(from: &std::path::Path, to: &std::path::Path) -> tg::Result<()> {
+async fn copy_all(from: &std::path::Path, to: &std::path::Path) -> std::io::Result<()> {
 	let mut stack = vec![(from.to_owned(), to.to_owned())];
 	while let Some((from, to)) = stack.pop() {
-		let metadata = tokio::fs::symlink_metadata(&from).await.map_err(
-			|source| tg::error!(!source, %path = from.display(), "failed to get file metadata"),
-		)?;
+		let metadata = tokio::fs::symlink_metadata(&from).await?;
 		let file_type = metadata.file_type();
 		if file_type.is_dir() {
-			tokio::fs::create_dir_all(&to).await.map_err(
-				|source| tg::error!(!source, %path = to.display(), "failed to create directory"),
-			)?;
-			let mut entries = tokio::fs::read_dir(&from).await.map_err(
-				|source| tg::error!(!source, %path = from.display(), "failed to read directory"),
-			)?;
-			while let Some(entry) = entries
-				.next_entry()
-				.await
-				.map_err(|source| tg::error!(!source, "failed to get directory entry"))?
-			{
+			tokio::fs::create_dir_all(&to).await?;
+			let mut entries = tokio::fs::read_dir(&from).await?;
+			while let Some(entry) = entries.next_entry().await? {
 				let from = from.join(entry.file_name());
 				let to = to.join(entry.file_name());
 				stack.push((from, to));
 			}
 		} else if file_type.is_file() {
-			tokio::fs::copy(&from, &to).await.map_err(
-				|source| tg::error!(!source, %from = from.display(), %to = to.display(), "failed to copy file"),
-			)?;
+			tokio::fs::copy(&from, &to).await?;
 		} else if file_type.is_symlink() {
-			let target = tokio::fs::read_link(&from).await.map_err(
-				|source| tg::error!(!source, %path = from.display(), "failed to read link"),
-			)?;
-			tokio::fs::symlink(&target, &to)
-				.await
-				.map_err(|source| tg::error!(!source, %src = target.display(), %dst = to.display(), "failed to create symlink"))?;
+			let target = tokio::fs::read_link(&from).await?;
+			tokio::fs::symlink(&target, &to).await?;
 		} else {
-			return Err(tg::error!(%path = from.display(), "invalid file type"))?;
+			return Err(std::io::Error::other("invalid file type"));
 		}
 	}
 	Ok(())
