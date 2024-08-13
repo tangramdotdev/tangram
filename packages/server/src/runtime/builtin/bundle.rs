@@ -50,7 +50,7 @@ impl Runtime {
 			.collect::<FuturesOrdered<_>>()
 			.try_collect()
 			.await?;
-		let artifacts_directory = tg::Directory::new(entries);
+		let artifacts_directory = tg::Directory::with_entries(entries);
 
 		// Create the bundle directory.
 		let output: tg::Artifact = match artifact {
@@ -122,7 +122,7 @@ impl Runtime {
 				})
 				.await?;
 
-				let directory = tg::Directory::new(entries);
+				let directory = tg::Directory::with_entries(entries);
 				Ok(directory.into())
 			},
 
@@ -153,7 +153,7 @@ impl Runtime {
 				if let Some(path) = path.as_ref() {
 					target = target.join(path.clone());
 				}
-				let symlink = tg::Symlink::new(None, Some(target));
+				let symlink = tg::Symlink::with_artifact_and_path(None, Some(target));
 				Ok(symlink.into())
 			},
 		}

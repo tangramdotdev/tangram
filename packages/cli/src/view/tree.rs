@@ -711,7 +711,7 @@ where
 			},
 
 			NodeKind::Value {
-				value: tg::Value::Object(tg::Object::Lock(package)),
+				value: tg::Value::Object(tg::Object::Graph(package)),
 				..
 			} => {
 				let object = package.object(&self.handle).await?;

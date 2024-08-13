@@ -65,7 +65,7 @@ impl Compiler {
 							}
 						},
 						tg::Object::Symlink(_) => tg::module::Kind::Symlink,
-						tg::Object::Lock(_) => tg::module::Kind::Lock,
+						tg::Object::Graph(_) => tg::module::Kind::Lock,
 						tg::Object::Target(_) => tg::module::Kind::Target,
 					}
 				};

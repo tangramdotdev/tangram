@@ -1,10 +1,15 @@
-use crate::{self as tg, util::arc::Ext as _};
+use crate as tg;
 use bytes::Bytes;
 use futures::{stream::FuturesOrdered, TryStreamExt as _};
+use itertools::Itertools as _;
 use std::{
 	collections::{BTreeMap, BTreeSet},
 	sync::Arc,
 };
+
+pub use self::builder::Builder;
+
+pub mod builder;
 
 #[derive(
 	Clone,
@@ -30,13 +35,26 @@ pub struct Directory {
 pub type State = tg::object::State<Id, Object>;
 
 #[derive(Clone, Debug)]
-pub struct Object {
-	pub entries: BTreeMap<String, tg::Artifact>,
+pub enum Object {
+	Normal {
+		entries: BTreeMap<String, tg::Artifact>,
+	},
+	Graph {
+		graph: tg::Graph,
+		node: usize,
+	},
 }
 
 #[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
-pub struct Data {
-	pub entries: BTreeMap<String, tg::artifact::Id>,
+#[serde(untagged)]
+pub enum Data {
+	Normal {
+		entries: BTreeMap<String, tg::artifact::Id>,
+	},
+	Graph {
+		graph: tg::graph::Id,
+		node: usize,
+	},
 }
 
 impl Id {
@@ -141,40 +159,65 @@ impl Directory {
 		H: tg::Handle,
 	{
 		let object = self.object(handle).await?;
-		let entries = object
-			.entries
-			.iter()
-			.map(|(name, artifact)| async move {
-				Ok::<_, tg::Error>((name.clone(), artifact.id(handle).await?))
-			})
-			.collect::<FuturesOrdered<_>>()
-			.try_collect()
-			.await?;
-		Ok(Data { entries })
+		match object.as_ref() {
+			Object::Normal { entries } => {
+				let entries = entries
+					.iter()
+					.map(|(name, artifact)| async move {
+						Ok::<_, tg::Error>((name.clone(), artifact.id(handle).await?))
+					})
+					.collect::<FuturesOrdered<_>>()
+					.try_collect()
+					.await?;
+				Ok(Data::Normal { entries })
+			},
+			Object::Graph { graph, node } => {
+				let graph = graph.id(handle).await?;
+				let node = *node;
+				Ok(Data::Graph { graph, node })
+			},
+		}
 	}
 }
 
 impl Directory {
 	#[must_use]
-	pub fn new(entries: BTreeMap<String, tg::Artifact>) -> Self {
-		Self::with_object(Object { entries })
+	pub fn with_entries(entries: BTreeMap<String, tg::Artifact>) -> Self {
+		Self::with_object(Object::Normal { entries })
+	}
+
+	pub fn with_graph_and_node(graph: tg::Graph, node: usize) -> Self {
+		Self::with_object(Object::Graph { graph, node })
 	}
 
 	pub async fn builder<H>(&self, handle: &H) -> tg::Result<Builder>
 	where
 		H: tg::Handle,
 	{
-		Ok(Builder::new(self.object(handle).await?.entries.clone()))
+		let entries = self.entries(handle).await?;
+		let builder = Builder::with_entries(entries);
+		Ok(builder)
 	}
 
-	pub async fn entries<H>(
-		&self,
-		handle: &H,
-	) -> tg::Result<impl std::ops::Deref<Target = BTreeMap<String, tg::Artifact>>>
+	pub async fn entries<H>(&self, handle: &H) -> tg::Result<BTreeMap<String, tg::Artifact>>
 	where
 		H: tg::Handle,
 	{
-		Ok(self.object(handle).await?.map(|object| &object.entries))
+		let object = self.object(handle).await?;
+		let entries = match object.as_ref() {
+			Object::Normal { entries } => entries.clone(),
+			Object::Graph { graph, node } => {
+				todo!()
+			},
+		};
+		Ok(entries)
+	}
+
+	pub async fn try_get_entry<H>(&self, handle: &H, name: &str) -> tg::Result<Option<tg::Artifact>>
+	where
+		H: tg::Handle,
+	{
+		todo!()
 	}
 
 	pub async fn get<H>(&self, handle: &H, path: &tg::Path) -> tg::Result<tg::Artifact>
@@ -212,7 +255,7 @@ impl Directory {
 				.try_unwrap_normal_ref()
 				.ok()
 				.ok_or_else(|| tg::error!("the path must contain only normal components"))?;
-			let Some(entry) = directory.entries(handle).await?.get(name).cloned() else {
+			let Some(entry) = directory.try_get_entry(handle, name).await? else {
 				return Ok(None);
 			};
 
@@ -221,7 +264,10 @@ impl Directory {
 
 			// If the artifact is a symlink, then resolve it.
 			if let tg::Artifact::Symlink(symlink) = &artifact {
-				let from = tg::Symlink::new(Some(self.clone().into()), Some(current_path.clone()));
+				let from = tg::Symlink::with_artifact_and_path(
+					Some(self.clone().into()),
+					Some(current_path.clone()),
+				);
 				match Box::pin(symlink.resolve_from(handle, Some(from)))
 					.await
 					.map_err(|source| tg::error!(!source, "failed to resolve the symlink"))?
@@ -250,7 +296,10 @@ impl Data {
 
 	#[must_use]
 	pub fn children(&self) -> BTreeSet<tg::object::Id> {
-		self.entries.values().cloned().map(Into::into).collect()
+		match self {
+			Self::Normal { entries } => entries.values().cloned().map(Into::into).collect(),
+			Self::Graph { graph, .. } => [graph.clone()].into_iter().map_into().collect(),
+		}
 	}
 }
 
@@ -258,12 +307,19 @@ impl TryFrom<Data> for Object {
 	type Error = tg::Error;
 
 	fn try_from(data: Data) -> std::result::Result<Self, Self::Error> {
-		let entries = data
-			.entries
-			.into_iter()
-			.map(|(name, id)| (name, tg::Artifact::with_id(id)))
-			.collect();
-		Ok(Self { entries })
+		match data {
+			Data::Normal { entries } => {
+				let entries = entries
+					.into_iter()
+					.map(|(name, id)| (name, tg::Artifact::with_id(id)))
+					.collect();
+				Ok(Self::Normal { entries })
+			},
+			Data::Graph { graph, node } => {
+				let graph = tg::Graph::with_id(graph);
+				Ok(Self::Graph { graph, node })
+			},
+		}
 	}
 }
 
@@ -283,116 +339,5 @@ impl std::str::FromStr for Id {
 
 	fn from_str(s: &str) -> tg::Result<Self, Self::Err> {
 		crate::Id::from_str(s)?.try_into()
-	}
-}
-
-#[derive(Clone, Debug, Default)]
-pub struct Builder {
-	entries: BTreeMap<String, tg::Artifact>,
-}
-
-impl Builder {
-	#[must_use]
-	pub fn new(entries: BTreeMap<String, tg::Artifact>) -> Self {
-		Self { entries }
-	}
-
-	pub async fn add<H>(
-		mut self,
-		handle: &H,
-		path: &tg::Path,
-		artifact: tg::Artifact,
-	) -> tg::Result<Self>
-	where
-		H: tg::Handle,
-	{
-		// Get the first component.
-		let name = path
-			.components()
-			.get(1)
-			.ok_or_else(|| tg::error!("expected the path to have at least one component"))?
-			.try_unwrap_normal_ref()
-			.ok()
-			.ok_or_else(|| tg::error!("the path must contain only normal components"))?;
-
-		// Collect the trailing path.
-		let trailing_path: tg::Path = path.components().iter().skip(2).cloned().collect();
-
-		let artifact = if trailing_path.components().len() == 1 {
-			artifact
-		} else {
-			// Get or create a child directory.
-			let builder = if let Some(child) = self.entries.get(name) {
-				child
-					.try_unwrap_directory_ref()
-					.ok()
-					.ok_or_else(|| tg::error!("expected the artifact to be a directory"))?
-					.builder(handle)
-					.await?
-			} else {
-				Self::default()
-			};
-
-			// Recurse.
-			Box::pin(builder.add(handle, &trailing_path, artifact))
-				.await?
-				.build()
-				.into()
-		};
-
-		// Add the artifact.
-		self.entries.insert(name.clone(), artifact);
-
-		Ok(self)
-	}
-
-	pub async fn remove<H>(mut self, handle: &H, path: &tg::Path) -> tg::Result<Self>
-	where
-		H: tg::Handle,
-	{
-		// Get the first component.
-		let name = path
-			.components()
-			.first()
-			.ok_or_else(|| tg::error!("expected the path to have at least one component"))?
-			.try_unwrap_normal_ref()
-			.ok()
-			.ok_or_else(|| tg::error!("the path must contain only normal components"))?;
-
-		// Collect the trailing path.
-		let trailing_path: tg::Path = path.components().iter().skip(1).cloned().collect();
-
-		if trailing_path.components().is_empty() {
-			// Remove the entry.
-			self.entries.remove(name);
-		} else {
-			// Get a child directory.
-			let builder = if let Some(child) = self.entries.get(name) {
-				child
-					.try_unwrap_directory_ref()
-					.ok()
-					.ok_or_else(|| tg::error!("expected the artifact to be a directory"))?
-					.builder(handle)
-					.await?
-			} else {
-				return Err(tg::error!(%path, "the path does not exist"));
-			};
-
-			// Recurse.
-			let artifact = Box::pin(builder.remove(handle, &trailing_path))
-				.await?
-				.build()
-				.into();
-
-			// Add the new artifact.
-			self.entries.insert(name.clone(), artifact);
-		};
-
-		Ok(self)
-	}
-
-	#[must_use]
-	pub fn build(self) -> Directory {
-		Directory::new(self.entries)
 	}
 }

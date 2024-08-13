@@ -472,7 +472,7 @@ impl Server {
 	async fn search_for_lock(
 		&self,
 		input: &super::InnerInput<'_>,
-	) -> tg::Result<Option<(tg::lock::Object, usize)>> {
+	) -> tg::Result<Option<(tg::graph::Object, usize)>> {
 		// Return the existing lock if it is set.
 		let (lock, root) = if let Some((lock, root)) = input.lock.as_ref() {
 			(lock.clone(), *root)
@@ -501,7 +501,7 @@ impl Server {
 			)?;
 
 			// Deserialize
-			let data = serde_json::from_str::<tg::lock::Data>(&contents)
+			let data = serde_json::from_str::<tg::graph::Data>(&contents)
 				.map_err(|source| tg::error!(!source, "failed to deserialize lock file"))?;
 			let lock = data.try_into()?;
 			(lock, 0)
@@ -635,7 +635,7 @@ impl Server {
 	async fn add_lock_to_graph(
 		&self,
 		graph: &mut Graph,
-		lock: &tg::Lock,
+		lock: &tg::Graph,
 		root: usize,
 	) -> tg::Result<Id> {
 		let object = lock.object(self).await?;
@@ -647,7 +647,7 @@ impl Server {
 	async fn add_lock_to_graph_inner(
 		&self,
 		graph: &mut Graph,
-		lock: &tg::lock::Object,
+		lock: &tg::graph::Object,
 		node: usize,
 		visited: &mut BTreeMap<usize, Id>,
 	) -> tg::Result<Id> {

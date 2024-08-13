@@ -167,7 +167,7 @@ fn version(input: &mut &str) -> PResult<Component> {
 
 fn dot_separated_identifier<'a>(input: &mut &'a str) -> PResult<&'a str> {
 	separated::<_, _, Vec<_>, _, _, _, _>(1.., alphanumeric1, ".")
-		.recognize()
+		.take()
 		.parse_next(input)
 }
 

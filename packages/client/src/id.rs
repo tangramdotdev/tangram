@@ -29,7 +29,7 @@ pub enum Kind {
 	Directory,
 	File,
 	Symlink,
-	Lock,
+	Graph,
 	Target,
 	Build,
 	User,
@@ -147,17 +147,17 @@ impl std::str::FromStr for Id {
 impl std::fmt::Display for Kind {
 	fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
 		let kind = match self {
-			Kind::Leaf => "lef",
-			Kind::Branch => "bch",
-			Kind::Directory => "dir",
-			Kind::File => "fil",
-			Kind::Symlink => "sym",
-			Kind::Lock => "lok",
-			Kind::Target => "tgt",
-			Kind::Build => "bld",
-			Kind::User => "usr",
-			Kind::Token => "tok",
-			Kind::Request => "req",
+			Self::Leaf => "lef",
+			Self::Branch => "bch",
+			Self::Directory => "dir",
+			Self::File => "fil",
+			Self::Symlink => "sym",
+			Self::Graph => "gph",
+			Self::Target => "tgt",
+			Self::Build => "bld",
+			Self::User => "usr",
+			Self::Token => "tok",
+			Self::Request => "req",
 		};
 		write!(f, "{kind}")?;
 		Ok(())
@@ -169,19 +169,19 @@ impl std::str::FromStr for Kind {
 
 	fn from_str(s: &str) -> tg::Result<Self, Self::Err> {
 		Ok(match s {
-			"lef" | "leaf" => Kind::Leaf,
-			"bch" | "branch" => Kind::Branch,
-			"dir" | "directory" => Kind::Directory,
-			"fil" | "file" => Kind::File,
-			"sym" | "symlink" => Kind::Symlink,
-			"lok" | "lock" => Kind::Lock,
-			"tgt" | "target" => Kind::Target,
-			"bld" | "build" => Kind::Build,
-			"usr" | "user" => Kind::User,
-			"tok" | "token" => Kind::Token,
-			"req" | "request" => Kind::Request,
-			kind => {
-				return Err(tg::error!(%kind, "invalid kind"));
+			"lef" | "leaf" => Self::Leaf,
+			"bch" | "branch" => Self::Branch,
+			"dir" | "directory" => Self::Directory,
+			"fil" | "file" => Self::File,
+			"sym" | "symlink" => Self::Symlink,
+			"gph" | "graph" => Self::Graph,
+			"tgt" | "target" => Self::Target,
+			"bld" | "build" => Self::Build,
+			"usr" | "user" => Self::User,
+			"tok" | "token" => Self::Token,
+			"req" | "request" => Self::Request,
+			_ => {
+				return Err(tg::error!(%s, "invalid kind"));
 			},
 		})
 	}

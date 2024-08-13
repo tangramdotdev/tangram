@@ -139,7 +139,7 @@ fn id_kind(input: &mut Input) -> PResult<tg::id::Kind, Error> {
 		alt(("dir", "directory")).value(tg::id::Kind::Directory),
 		alt(("fil", "file")).value(tg::id::Kind::File),
 		alt(("sym", "symlink")).value(tg::id::Kind::Symlink),
-		alt(("lok", "lock")).value(tg::id::Kind::Lock),
+		alt(("gph", "graph")).value(tg::id::Kind::Graph),
 		alt(("tgt", "target")).value(tg::id::Kind::Target),
 		alt(("bld", "build")).value(tg::id::Kind::Build),
 		alt(("usr", "user")).value(tg::id::Kind::User),
@@ -208,7 +208,7 @@ fn object_arg(input: &mut Input) -> PResult<tg::Object, Error> {
 		directory.map(|object| tg::object::Object::Directory(Arc::new(object))),
 		file.map(|object| tg::object::Object::File(Arc::new(object))),
 		symlink.map(|object| tg::object::Object::Symlink(Arc::new(object))),
-		lock.map(|object| tg::object::Object::Lock(Arc::new(object))),
+		graph.map(|object| tg::object::Object::Graph(Arc::new(object))),
 		target.map(|object| tg::object::Object::Target(Arc::new(object))),
 	))
 	.map(tg::Object::with_object)
@@ -270,7 +270,7 @@ fn directory_arg(input: &mut Input) -> PResult<tg::directory::Object, Error> {
 			.into_iter()
 			.map(|(name, artifact)| Some((name, artifact.try_into().ok()?)))
 			.collect::<Option<_>>()?;
-		Some(tg::directory::Object { entries })
+		Some(tg::directory::Object::Normal { entries })
 	})
 	.parse_next(input)
 }
@@ -289,18 +289,18 @@ fn file_arg(input: &mut Input) -> PResult<tg::file::Object, Error> {
 		let contents = map.get("contents")?.clone().try_into().ok()?;
 		let dependencies = if let Some(dependencies) = map.get("dependencies") {
 			match dependencies {
-				tg::Value::String(string) => {
-					let lock = tg::Lock::with_id(string.parse().ok()?);
-					Some(tg::file::Dependencies::Lock(lock, 0))
-				},
 				tg::Value::Array(array) => {
-					let id = array.first()?.try_unwrap_string_ref().ok()?.parse().ok()?;
-					let lock = tg::Lock::with_id(id);
-					let index = array.get(1)?.try_unwrap_number_ref().ok()?.to_usize()?;
-					Some(tg::file::Dependencies::Lock(lock, index))
+					let dependencies = array
+						.iter()
+						.map(|value| {
+							let object = value.try_unwrap_object_ref().ok()?.clone();
+							Some(object)
+						})
+						.collect::<Option<_>>()?;
+					Some(Either::Left(dependencies))
 				},
 				tg::Value::Map(map) => {
-					let map = map
+					let dependencies = map
 						.iter()
 						.map(|(key, value)| {
 							let key = key.parse().ok()?;
@@ -308,7 +308,7 @@ fn file_arg(input: &mut Input) -> PResult<tg::file::Object, Error> {
 							Some((key, object))
 						})
 						.collect::<Option<_>>()?;
-					Some(tg::file::Dependencies::Map(map))
+					Some(Either::Right(dependencies))
 				},
 				_ => return None,
 			}
@@ -320,16 +320,16 @@ fn file_arg(input: &mut Input) -> PResult<tg::file::Object, Error> {
 		} else {
 			false
 		};
-		let metadata = if let Some(metadata) = map.get("metadata") {
-			Some(metadata.clone().try_into().ok()?)
+		let module = if let Some(module) = map.get("module") {
+			Some(module.try_unwrap_string_ref().ok()?.parse().ok()?)
 		} else {
 			None
 		};
-		Some(tg::file::Object {
+		Some(tg::file::Object::Normal {
 			contents,
 			dependencies,
 			executable,
-			metadata,
+			module,
 		})
 	})
 	.parse_next(input)
@@ -359,60 +359,22 @@ fn symlink_arg(input: &mut Input) -> PResult<tg::symlink::Object, Error> {
 		if path.is_none() && artifact.is_none() {
 			return None;
 		};
-		Some(tg::symlink::Object { artifact, path })
+		Some(tg::symlink::Object::Normal { artifact, path })
 	})
 	.parse_next(input)
 }
 
-fn lock(input: &mut Input) -> PResult<tg::lock::Object, Error> {
+fn graph(input: &mut Input) -> PResult<tg::graph::Object, Error> {
 	delimited(
-		("tg.lock", whitespace, "(", whitespace),
-		lock_arg,
+		("tg.graph", whitespace, "(", whitespace),
+		graph_arg,
 		(whitespace, ")"),
 	)
 	.parse_next(input)
 }
 
-fn lock_arg(input: &mut Input) -> PResult<tg::lock::Object, Error> {
-	map.verify_map(|map| {
-		let nodes = map.get("nodes")?.try_unwrap_array_ref().ok()?;
-		let nodes = nodes
-			.iter()
-			.map(|node| {
-				let node = node.try_unwrap_map_ref().ok()?;
-				let dependencies = if let Some(dependencies) = node.get("dependencies") {
-					let dependencies = dependencies.try_unwrap_map_ref().ok()?;
-					Some(
-						dependencies
-							.iter()
-							.map(|(key, value)| {
-								let reference = key.parse().ok()?;
-								let either = match value {
-									tg::Value::Number(number) => Either::Left(number.to_usize()?),
-									tg::Value::Object(object) => Either::Right(object.clone()),
-									_ => return None,
-								};
-								Some((reference, either))
-							})
-							.collect::<Option<_>>()?,
-					)
-				} else {
-					None
-				};
-				let object = if let Some(object) = node.get("object") {
-					Some(object.clone().try_into().ok()?)
-				} else {
-					None
-				};
-				Some(tg::lock::Node {
-					dependencies,
-					object,
-				})
-			})
-			.collect::<Option<_>>()?;
-		Some(tg::lock::Object { nodes })
-	})
-	.parse_next(input)
+fn graph_arg(input: &mut Input) -> PResult<tg::graph::Object, Error> {
+	todo!()
 }
 
 fn target(input: &mut Input) -> PResult<tg::target::Object, Error> {

@@ -798,7 +798,7 @@ impl ToV8 for tg::Object {
 			tg::Object::Directory(directory) => directory.to_v8(scope),
 			tg::Object::File(file) => file.to_v8(scope),
 			tg::Object::Symlink(symlink) => symlink.to_v8(scope),
-			tg::Object::Lock(lock) => lock.to_v8(scope),
+			tg::Object::Graph(lock) => lock.to_v8(scope),
 			tg::Object::Target(target) => target.to_v8(scope),
 		}
 	}
@@ -855,7 +855,7 @@ impl FromV8 for tg::Object {
 		} else if value.instance_of(scope, symlink.into()).unwrap() {
 			Ok(Self::Symlink(from_v8(scope, value)?))
 		} else if value.instance_of(scope, lock.into()).unwrap() {
-			Ok(Self::Lock(from_v8(scope, value)?))
+			Ok(Self::Graph(from_v8(scope, value)?))
 		} else if value.instance_of(scope, target.into()).unwrap() {
 			Ok(Self::Target(from_v8(scope, value)?))
 		} else {
@@ -887,7 +887,7 @@ impl ToV8 for tg::object::Object {
 			Self::Directory(directory) => ("directory", directory.to_v8(scope)?),
 			Self::File(file) => ("file", file.to_v8(scope)?),
 			Self::Symlink(symlink) => ("symlink", symlink.to_v8(scope)?),
-			Self::Lock(lock) => ("lock", lock.to_v8(scope)?),
+			Self::Graph(lock) => ("lock", lock.to_v8(scope)?),
 			Self::Target(target) => ("target", target.to_v8(scope)?),
 		};
 		let object = v8::Object::new(scope);
@@ -917,7 +917,7 @@ impl FromV8 for tg::object::Object {
 			"directory" => Self::Directory(from_v8(scope, value)?),
 			"file" => Self::File(from_v8(scope, value)?),
 			"symlink" => Self::Symlink(from_v8(scope, value)?),
-			"lock" => Self::Lock(from_v8(scope, value)?),
+			"lock" => Self::Graph(from_v8(scope, value)?),
 			"target" => Self::Target(from_v8(scope, value)?),
 			_ => unreachable!(),
 		};
@@ -1515,21 +1515,6 @@ impl FromV8 for tg::file::Object {
 	}
 }
 
-impl ToV8 for tg::file::Dependencies {
-	fn to_v8<'a>(&self, scope: &mut v8::HandleScope<'a>) -> tg::Result<v8::Local<'a, v8::Value>> {
-		todo!()
-	}
-}
-
-impl FromV8 for tg::file::Dependencies {
-	fn from_v8<'a>(
-		scope: &mut v8::HandleScope<'a>,
-		value: v8::Local<'a, v8::Value>,
-	) -> tg::Result<Self> {
-		todo!()
-	}
-}
-
 impl ToV8 for tg::Symlink {
 	fn to_v8<'a>(&self, scope: &mut v8::HandleScope<'a>) -> tg::Result<v8::Local<'a, v8::Value>> {
 		let context = scope.get_current_context();
@@ -1634,7 +1619,7 @@ impl FromV8 for tg::symlink::Object {
 	}
 }
 
-impl ToV8 for tg::Lock {
+impl ToV8 for tg::Graph {
 	fn to_v8<'a>(&self, scope: &mut v8::HandleScope<'a>) -> tg::Result<v8::Local<'a, v8::Value>> {
 		let context = scope.get_current_context();
 		let global = context.global(scope);
@@ -1656,7 +1641,7 @@ impl ToV8 for tg::Lock {
 	}
 }
 
-impl FromV8 for tg::Lock {
+impl FromV8 for tg::Graph {
 	fn from_v8<'a>(
 		scope: &mut v8::HandleScope<'a>,
 		value: v8::Local<'a, v8::Value>,
@@ -1685,13 +1670,13 @@ impl FromV8 for tg::Lock {
 	}
 }
 
-impl ToV8 for tg::lock::Id {
+impl ToV8 for tg::graph::Id {
 	fn to_v8<'a>(&self, scope: &mut v8::HandleScope<'a>) -> tg::Result<v8::Local<'a, v8::Value>> {
 		self.to_string().to_v8(scope)
 	}
 }
 
-impl FromV8 for tg::lock::Id {
+impl FromV8 for tg::graph::Id {
 	fn from_v8<'a>(
 		scope: &mut v8::HandleScope<'a>,
 		value: v8::Local<'a, v8::Value>,
@@ -1700,7 +1685,7 @@ impl FromV8 for tg::lock::Id {
 	}
 }
 
-impl ToV8 for tg::lock::Object {
+impl ToV8 for tg::graph::Object {
 	fn to_v8<'a>(&self, scope: &mut v8::HandleScope<'a>) -> tg::Result<v8::Local<'a, v8::Value>> {
 		let object = v8::Object::new(scope);
 
@@ -1712,7 +1697,7 @@ impl ToV8 for tg::lock::Object {
 	}
 }
 
-impl FromV8 for tg::lock::Object {
+impl FromV8 for tg::graph::Object {
 	fn from_v8<'a>(
 		scope: &mut v8::HandleScope<'a>,
 		value: v8::Local<'a, v8::Value>,
@@ -1728,7 +1713,7 @@ impl FromV8 for tg::lock::Object {
 	}
 }
 
-impl ToV8 for tg::lock::Node {
+impl ToV8 for tg::graph::Node {
 	fn to_v8<'a>(&self, scope: &mut v8::HandleScope<'a>) -> tg::Result<v8::Local<'a, v8::Value>> {
 		let object = v8::Object::new(scope);
 
@@ -1751,7 +1736,7 @@ impl ToV8 for tg::lock::Node {
 	}
 }
 
-impl FromV8 for tg::lock::Node {
+impl FromV8 for tg::graph::Node {
 	fn from_v8<'a>(
 		scope: &mut v8::HandleScope<'a>,
 		value: v8::Local<'a, v8::Value>,

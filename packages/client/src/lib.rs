@@ -18,12 +18,12 @@ pub use self::{
 	directory::Directory,
 	error::{ok, Error, Result},
 	file::File,
+	graph::Graph,
 	handle::Handle,
 	id::Id,
 	import::Import,
 	leaf::Leaf,
 	location::Location,
-	lock::Lock,
 	module::Module,
 	mutation::Mutation,
 	object::Handle as Object,
@@ -31,7 +31,6 @@ pub use self::{
 	position::Position,
 	range::Range,
 	reference::Reference,
-	server::Health,
 	symlink::Symlink,
 	tag::Tag,
 	target::Target,
@@ -50,12 +49,12 @@ pub mod diagnostic;
 pub mod directory;
 pub mod error;
 pub mod file;
+pub mod graph;
 pub mod handle;
 pub mod id;
 pub mod import;
 pub mod leaf;
 pub mod location;
-pub mod lock;
 pub mod module;
 pub mod mutation;
 pub mod object;
@@ -851,7 +850,7 @@ impl tg::Handle for Client {
 		self.get_js_runtime_doc()
 	}
 
-	fn health(&self) -> impl Future<Output = tg::Result<tg::Health>> {
+	fn health(&self) -> impl Future<Output = tg::Result<tg::server::Health>> {
 		self.health()
 	}
 

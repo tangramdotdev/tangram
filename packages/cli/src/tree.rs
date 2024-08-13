@@ -131,7 +131,7 @@ impl Cli {
 					.await?;
 				(title, children)
 			},
-			tg::Value::Object(tg::Object::Lock(lock)) => {
+			tg::Value::Object(tg::Object::Graph(lock)) => {
 				// let title = lock.id(&handle).await?.to_string();
 				// let metadata = lock.metadata(&handle).await?;
 				// let value = tg::Value::Map(metadata.clone());

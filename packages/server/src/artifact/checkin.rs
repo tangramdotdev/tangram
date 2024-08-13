@@ -46,7 +46,7 @@ struct InnerOutput {
 	lock: Option<Lock>,
 	move_to_checkouts: bool,
 	data: Option<tg::artifact::Data>,
-	lock_data: Option<(tg::lock::Data, usize)>,
+	lock_data: Option<(tg::graph::Data, usize)>,
 }
 
 #[derive(Copy, Clone, Debug)]
@@ -60,12 +60,12 @@ struct InnerInput<'a> {
 	arg: tg::artifact::checkin::Arg,
 	metadata: Option<std::fs::Metadata>,
 	reference: tg::Reference,
-	lock: Option<(tg::lock::Object, usize)>,
+	lock: Option<(tg::graph::Object, usize)>,
 	state: &'a State,
 }
 
 #[derive(Copy, Clone, Debug)]
-struct GraphImpl<'a>(&'a [tg::lock::data::Node]);
+struct GraphImpl<'a>(&'a [tg::graph::data::Node]);
 
 impl Server {
 	pub async fn check_in_artifact(
@@ -309,7 +309,7 @@ impl Server {
 		};
 
 		// Write to the database.
-		tg::Lock::with_object(Arc::new(data.clone().try_into()?))
+		tg::Graph::with_object(Arc::new(data.clone().try_into()?))
 			.store(self)
 			.await
 			.map_err(|source| tg::error!(!source, "failed to store lock"))?;
@@ -424,7 +424,7 @@ impl Server {
 		graph: &graph::Graph,
 		root: &graph::Id,
 		state: &State,
-	) -> tg::Result<(BTreeMap<graph::Id, (usize, usize)>, Vec<tg::lock::Data>)> {
+	) -> tg::Result<(BTreeMap<graph::Id, (usize, usize)>, Vec<tg::graph::Data>)> {
 		// Create objects for every node in the graph (without dependencies).
 		let objects = self.create_objects(graph, root, state);
 
@@ -478,7 +478,7 @@ impl Server {
 
 				let object = objects.get(id).cloned();
 
-				let node = tg::lock::data::Node {
+				let node = tg::graph::data::Node {
 					object,
 					dependencies: Some(dependencies),
 				};
@@ -487,7 +487,7 @@ impl Server {
 			.collect::<Vec<_>>();
 
 		// Split into sub-locks.
-		let mut locks: Vec<tg::lock::Data> = Vec::with_capacity(nodes.len());
+		let mut locks: Vec<tg::graph::Data> = Vec::with_capacity(nodes.len());
 		let mut lock_indices = BTreeMap::new();
 		let mut lock_ids = BTreeMap::new();
 
@@ -499,7 +499,7 @@ impl Server {
 			.enumerate()
 		{
 			// Create an empty lock object.
-			let mut lock = tg::lock::Data {
+			let mut lock = tg::graph::Data {
 				nodes: Vec::with_capacity(node_indices.len()),
 			};
 
@@ -527,7 +527,7 @@ impl Server {
 					}
 
 					// Otherwise create a new file.
-					let lock: &tg::lock::Id = lock_ids
+					let lock: &tg::graph::Id = lock_ids
 						.get(lock_index_)
 						.ok_or_else(|| tg::error!("invalid graph"))?;
 					let Some(graph::Object::File { blob, executable }) = &graph
@@ -562,7 +562,7 @@ impl Server {
 			}
 
 			// Get the lock ID by storing it in the database.
-			let id = tg::Lock::with_object(Arc::new(lock.clone().try_into()?))
+			let id = tg::Graph::with_object(Arc::new(lock.clone().try_into()?))
 				.id(self)
 				.await?;
 
@@ -656,7 +656,7 @@ impl Server {
 		graph: &graph::Graph,
 		node: &graph::Id,
 		assignments: &BTreeMap<graph::Id, (usize, usize)>,
-		locks: &[tg::lock::Data],
+		locks: &[tg::graph::Data],
 		state: &State,
 	) -> tg::Result<()> {
 		let (lock_index, node_index) = assignments.get(node).copied().unwrap();
@@ -682,7 +682,7 @@ impl Server {
 				let Some(graph::Object::File { blob, executable }) = &graph_node.object else {
 					unreachable!()
 				};
-				let lock = tg::lock::Id::new(&locks[lock_index].serialize()?);
+				let lock = tg::graph::Id::new(&locks[lock_index].serialize()?);
 				let node = node_index;
 				let dependencies = tg::file::data::Dependencies::Lock(lock, node);
 				let data = tg::file::Data {

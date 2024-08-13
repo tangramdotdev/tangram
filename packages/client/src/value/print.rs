@@ -114,7 +114,7 @@ impl Printer {
 			tg::Object::Directory(v) => self.directory(v),
 			tg::Object::File(v) => self.file(v),
 			tg::Object::Symlink(v) => self.symlink(v),
-			tg::Object::Lock(v) => self.lock(v),
+			tg::Object::Graph(v) => self.graph(v),
 			tg::Object::Target(v) => self.target(v),
 		}
 	}
@@ -159,20 +159,7 @@ impl Printer {
 	}
 
 	fn directory(&mut self, value: &tg::Directory) {
-		let state = value.state().read().unwrap();
-		if let Some(id) = state.id() {
-			self.string += &id.to_string();
-			return;
-		}
-		let object = state.object().unwrap();
-		let entries = object
-			.entries
-			.iter()
-			.map(|(name, artifact)| (name.clone(), artifact.clone().into()))
-			.collect();
-		self.string += "tg.directory(";
-		self.map(&entries);
-		self.string.push(')');
+		todo!()
 	}
 
 	fn file(&mut self, value: &tg::File) {
@@ -183,93 +170,53 @@ impl Printer {
 		}
 		let object = state.object().unwrap();
 		let mut map = BTreeMap::new();
-		let contents = object.contents.clone().into();
-		map.insert("contents".to_owned(), contents);
-		if let Some(dependencies) = &object.dependencies {
-			let dependencies = match dependencies {
-				tg::file::Dependencies::Set(set) => set
-					.iter()
-					.cloned()
-					.map(tg::Value::from)
-					.collect::<Vec<_>>()
-					.into(),
-				tg::file::Dependencies::Map(map) => map
-					.iter()
-					.map(|(reference, object)| (reference.to_string(), object.clone().into()))
-					.collect::<tg::value::Map>()
-					.into(),
-				tg::file::Dependencies::Lock(lock, index) => {
-					if *index == 0 {
-						lock.clone().into()
-					} else {
-						vec![lock.clone().into(), index.to_f64().into()].into()
-					}
-				},
-			};
-			map.insert("dependencies".to_owned(), dependencies);
+		match object.as_ref() {
+			tg::file::Object::Normal {
+				contents,
+				dependencies,
+				executable,
+				module,
+			} => {
+				let contents = contents.clone().into();
+				map.insert("contents".to_owned(), contents);
+				if let Some(dependencies) = dependencies {
+					let dependencies = match dependencies {
+						Either::Left(dependencies) => dependencies
+							.iter()
+							.cloned()
+							.map(tg::Value::from)
+							.collect::<Vec<_>>()
+							.into(),
+						Either::Right(dependencies) => dependencies
+							.iter()
+							.map(|(reference, object)| {
+								(reference.to_string(), object.clone().into())
+							})
+							.collect::<tg::value::Map>()
+							.into(),
+					};
+					map.insert("dependencies".to_owned(), dependencies);
+				}
+				if *executable {
+					map.insert("executable".to_owned(), (*executable).into());
+				}
+				if let Some(module) = module {
+					map.insert("module".to_owned(), module.to_string().into());
+				}
+			},
+			tg::file::Object::Graph { graph, node } => todo!(),
 		}
-		let executable = object.executable.into();
-		map.insert("executable".to_owned(), executable);
 		self.string += "tg.file(";
 		self.map(&map);
 		self.string.push(')');
 	}
 
 	fn symlink(&mut self, value: &tg::Symlink) {
-		let state = value.state().read().unwrap();
-		if let Some(id) = state.id() {
-			self.string += &id.to_string();
-			return;
-		}
-		let object = state.object().unwrap();
-		let mut map = BTreeMap::new();
-		if let Some(artifact) = &object.artifact {
-			map.insert("artifact".to_owned(), artifact.clone().into());
-		}
-		if let Some(path) = &object.path {
-			map.insert("path".to_owned(), path.clone().into());
-		}
-		self.string += "tg.symlink(";
-		self.map(&map);
-		self.string.push(')');
+		todo!()
 	}
 
-	fn lock(&mut self, value: &tg::Lock) {
-		let state = value.state().read().unwrap();
-		if let Some(id) = state.id() {
-			self.string += &id.to_string();
-			return;
-		}
-		let object = state.object().unwrap();
-		let mut map = BTreeMap::new();
-		let nodes = object
-			.nodes
-			.iter()
-			.map(|node| {
-				let mut map = BTreeMap::new();
-				if let Some(dependencies) = &node.dependencies {
-					let dependencies = dependencies
-						.iter()
-						.map(|(dependency, either)| {
-							let either = match either {
-								Either::Left(index) => index.to_f64().unwrap().into(),
-								Either::Right(object) => object.clone().into(),
-							};
-							(dependency.to_string(), either)
-						})
-						.collect::<BTreeMap<String, tg::Value>>();
-					map.insert("dependencies".to_owned(), dependencies.into());
-				}
-				if let Some(object) = &node.object {
-					map.insert("object".to_owned(), object.clone().into());
-				}
-				map.into()
-			})
-			.collect::<Vec<_>>();
-		map.insert("nodes".to_owned(), nodes.into());
-		self.string += "tg.lock(";
-		self.map(&map);
-		self.string.push(')');
+	fn graph(&mut self, value: &tg::Graph) {
+		todo!()
 	}
 
 	fn target(&mut self, value: &tg::Target) {

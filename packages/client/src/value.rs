@@ -450,8 +450,8 @@ impl From<tg::Symlink> for Value {
 	}
 }
 
-impl From<tg::Lock> for Value {
-	fn from(value: tg::Lock) -> Self {
+impl From<tg::Graph> for Value {
+	fn from(value: tg::Graph) -> Self {
 		tg::Object::from(value).into()
 	}
 }

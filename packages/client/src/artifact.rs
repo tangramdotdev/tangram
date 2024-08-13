@@ -1,10 +1,10 @@
+use crate as tg;
 use bytes::Bytes;
+use either::Either;
 use futures::{
 	stream::{FuturesOrdered, FuturesUnordered},
 	TryStreamExt as _,
 };
-
-use crate as tg;
 use std::{
 	collections::HashSet,
 	sync::{Arc, Mutex},
@@ -194,11 +194,14 @@ impl Artifact {
 				.await?
 				.as_ref()
 				.map(|dependencies| match dependencies {
-					tg::file::Dependencies::Set(dependencies) => dependencies
+					Either::Left(dependencies) => dependencies
 						.iter()
 						.filter_map(|object| tg::Artifact::try_from(object.clone()).ok())
 						.collect(),
-					_ => todo!(),
+					Either::Right(dependencies) => dependencies
+						.values()
+						.filter_map(|object| tg::Artifact::try_from(object.clone()).ok())
+						.collect(),
 				})
 				.unwrap_or_default()),
 
