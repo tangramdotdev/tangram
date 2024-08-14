@@ -55,6 +55,7 @@ pub mod id;
 pub mod import;
 pub mod leaf;
 pub mod location;
+pub mod lockfile;
 pub mod module;
 pub mod mutation;
 pub mod object;
