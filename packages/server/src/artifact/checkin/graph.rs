@@ -169,21 +169,18 @@ impl Server {
 		let (graph, node) = graphs
 			.get(&0usize)
 			.ok_or_else(|| tg::error!("corupted locks"))?;
-		let artifact: tg::artifact::Id =
-			match tg::Graph::with_id(graph.clone()).load(self).await?.nodes[*node]
-				.data(self)
-				.await?
-			{
-				tg::graph::data::Node::Directory(directory) => {
-					todo!()
-				},
-				tg::graph::data::Node::File(file) => {
-					todo!()
-				},
-				tg::graph::data::Node::Symlink(symlink) => {
-					todo!()
-				},
-			};
+		let graph = tg::Graph::with_id(graph.clone());
+		let artifact: tg::artifact::Id = match graph
+			.load(self)
+			.await?
+			.nodes[*node]
+			.data(self)
+			.await?
+		{
+			tg::graph::data::Node::Directory(_) => tg::Directory::with_graph_and_node(graph, *node).id(self).await?.into(),
+			tg::graph::data::Node::File(_) => tg::File::with_graph_and_node(graph, *node).id(self).await?.into(),
+			tg::graph::data::Node::Symlink(_) => tg::Symlink::with_graph_and_node(graph, *node).id(self).await?.into(),
+		};
 
 		if let Some(store_as) = store_as {
 			// Store if requested.
