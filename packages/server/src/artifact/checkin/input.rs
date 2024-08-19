@@ -219,7 +219,10 @@ impl Server {
 			if let Some(root_module_path) =
 				tg::artifact::module::try_get_root_module_path_for_path(path.as_ref()).await?
 			{
-				return self.get_file_dependencies(&root_module_path).await;
+				let mut dependencies = self.get_file_dependencies(&root_module_path).await?;
+				dependencies.push(tg::Reference::with_path(&root_module_path));
+				return Ok(dependencies);
+
 			}
 			self.get_directory_dependencies(path).await
 		} else if metadata.is_file() {
