@@ -81,6 +81,7 @@ impl Runtime {
 		let path = path.try_into()?;
 		let arg = tg::artifact::checkin::Arg {
 			destructive: true,
+			deterministic: true,
 			locked: true,
 			path,
 		};

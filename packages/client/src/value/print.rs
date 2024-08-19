@@ -1,7 +1,7 @@
 use crate as tg;
 use bytes::Bytes;
 use either::Either;
-use num::ToPrimitive as _;
+use num::ToPrimitive;
 use std::collections::BTreeMap;
 
 pub fn print(value: &tg::Value, pretty: bool) -> String {
@@ -159,7 +159,27 @@ impl Printer {
 	}
 
 	fn directory(&mut self, value: &tg::Directory) {
-		todo!()
+		let state = value.state().read().unwrap();
+		if let Some(id) = state.id() {
+			self.string += &id.to_string();
+			return;
+		}
+		let object = state.object().unwrap();
+		let mut map = BTreeMap::new();
+		match object.as_ref() {
+			tg::directory::Object::Normal { entries } => {
+				for (name, artifact) in entries {
+					map.insert(name.clone(), artifact.clone().into());
+				}
+			},
+			tg::directory::Object::Graph { graph, node } => {
+				map.insert("graph".to_owned(), graph.clone().into());
+				map.insert("node".to_owned(), node.to_f64().unwrap().into());
+			},
+		}
+		self.string += "tg.directory(";
+		self.map(&map);
+		self.string.push(')');
 	}
 
 	fn file(&mut self, value: &tg::File) {
@@ -198,13 +218,16 @@ impl Printer {
 					map.insert("dependencies".to_owned(), dependencies);
 				}
 				if *executable {
-					map.insert("executable".to_owned(), (*executable).into());
+					map.insert("executable".to_owned(), true.into());
 				}
 				if let Some(module) = module {
 					map.insert("module".to_owned(), module.to_string().into());
 				}
 			},
-			tg::file::Object::Graph { graph, node } => todo!(),
+			tg::file::Object::Graph { graph, node } => {
+				map.insert("graph".to_owned(), graph.clone().into());
+				map.insert("node".to_owned(), node.to_f64().unwrap().into());
+			},
 		}
 		self.string += "tg.file(";
 		self.map(&map);
@@ -212,11 +235,109 @@ impl Printer {
 	}
 
 	fn symlink(&mut self, value: &tg::Symlink) {
-		todo!()
+		let state = value.state().read().unwrap();
+		if let Some(id) = state.id() {
+			self.string += &id.to_string();
+			return;
+		}
+		let object = state.object().unwrap();
+		let mut map = BTreeMap::new();
+		match object.as_ref() {
+			tg::symlink::Object::Normal { artifact, path } => {
+				if let Some(artifact) = &artifact {
+					map.insert("artifact".to_owned(), artifact.clone().into());
+				}
+				if let Some(path) = &path {
+					map.insert("path".to_owned(), path.clone().into());
+				}
+			},
+			tg::symlink::Object::Graph { graph, node } => {
+				map.insert("graph".to_owned(), graph.clone().into());
+				map.insert("node".to_owned(), node.to_f64().unwrap().into());
+			},
+		}
+		self.string += "tg.symlink(";
+		self.map(&map);
+		self.string.push(')');
 	}
 
 	fn graph(&mut self, value: &tg::Graph) {
-		todo!()
+		let state = value.state().read().unwrap();
+		if let Some(id) = state.id() {
+			self.string += &id.to_string();
+			return;
+		}
+		let object = state.object().unwrap();
+		let mut map = BTreeMap::new();
+		let nodes = object
+			.nodes
+			.iter()
+			.map(|node| {
+				let mut map = BTreeMap::new();
+				match node {
+					tg::graph::Node::Directory(directory) => {
+						let tg::graph::node::Directory { entries } = directory;
+						let entries = entries
+							.iter()
+							.map(|(name, either)| {
+								let either = match either {
+									Either::Left(index) => index.to_f64().unwrap().into(),
+									Either::Right(artifact) => artifact.clone().into(),
+								};
+								(name.to_string(), either)
+							})
+							.collect::<BTreeMap<String, tg::Value>>();
+						map.insert("entries".to_owned(), entries.into());
+					},
+					tg::graph::Node::File(file) => {
+						let tg::graph::node::File {
+							contents,
+							dependencies,
+							executable,
+							module,
+						} = file;
+						map.insert("contents".to_owned(), contents.clone().into());
+						if let Some(dependencies) = &dependencies {
+							let dependencies = dependencies
+								.iter()
+								.map(|(dependency, either)| {
+									let either = match either {
+										Either::Left(index) => index.to_f64().unwrap().into(),
+										Either::Right(object) => object.clone().into(),
+									};
+									(dependency.to_string(), either)
+								})
+								.collect::<BTreeMap<String, tg::Value>>();
+							map.insert("dependencies".to_owned(), dependencies.into());
+						}
+						if *executable {
+							map.insert("executable".to_owned(), true.into());
+						}
+						if let Some(module) = module {
+							map.insert("module".to_owned(), module.to_string().into());
+						}
+					},
+					tg::graph::Node::Symlink(symlink) => {
+						let tg::graph::node::Symlink { artifact, path } = symlink;
+						if let Some(either) = &artifact {
+							let either = match either {
+								Either::Left(index) => index.to_f64().unwrap().into(),
+								Either::Right(artifact) => artifact.clone().into(),
+							};
+							map.insert("artifact".to_owned(), either);
+						}
+						if let Some(path) = &path {
+							map.insert("path".to_owned(), path.clone().into());
+						}
+					},
+				}
+				map.into()
+			})
+			.collect::<Vec<_>>();
+		map.insert("nodes".to_owned(), nodes.into());
+		self.string += "tg.graph(";
+		self.map(&map);
+		self.string.push(')');
 	}
 
 	fn target(&mut self, value: &tg::Target) {

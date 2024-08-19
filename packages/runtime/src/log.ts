@@ -3,8 +3,8 @@ import { Branch } from "./branch.ts";
 import { Directory } from "./directory.ts";
 import * as encoding from "./encoding.ts";
 import { File } from "./file.ts";
+import { Graph } from "./graph.ts";
 import { Leaf } from "./leaf.ts";
-import { Lock } from "./lock.ts";
 import { Mutation } from "./mutation.ts";
 import type { Object_ } from "./object.ts";
 import { Path } from "./path.ts";
@@ -77,8 +77,8 @@ let stringifyObject = (value: object, visited: WeakSet<object>): string => {
 		return stringifyState("file", value.state, visited);
 	} else if (value instanceof Symlink) {
 		return stringifyState("symlink", value.state, visited);
-	} else if (value instanceof Lock) {
-		return stringifyState("lock", value.state, visited);
+	} else if (value instanceof Graph) {
+		return stringifyState("graph", value.state, visited);
 	} else if (value instanceof Target) {
 		return stringifyState("target", value.state, visited);
 	} else if (value instanceof Uint8Array) {

@@ -239,110 +239,10 @@ impl InfoViewExt for tg::Error {
 	}
 }
 
-impl InfoViewExt for tg::file::Data {
-	fn render(&self, scroll: usize, area: Rect, buf: &mut Buffer) -> usize {
-		let rows = vec![
-			("contents", self.contents.to_string()),
-			("dependencies", String::new()),
-			("executable", self.executable.to_string()),
-		];
-		let len = rows.len();
-		let rows = rows
-			.into_iter()
-			.map(|(name, value)| {
-				let cells = vec![
-					tui::widgets::Cell::new(Text::raw(name).left_aligned()),
-					tui::widgets::Cell::new(Text::raw(value).left_aligned()),
-				];
-				tui::widgets::Row::new(cells)
-			})
-			.skip(scroll);
-		let widths = [Constraint::Percentage(20), Constraint::Percentage(80)];
-		let table = tui::widgets::Table::new(rows, widths);
-		<tui::widgets::Table as tui::widgets::Widget>::render(table, area, buf);
-		len
-	}
-}
-
-impl InfoViewExt for tg::directory::Data {
-	fn render(&self, scroll: usize, area: Rect, buf: &mut Buffer) -> usize {
-		let mut rows = Vec::new();
-		for (name, artifact) in &self.entries {
-			rows.push((name, artifact.to_string()));
-		}
-		let len = rows.len();
-		let rows = rows
-			.into_iter()
-			.map(|(name, value)| {
-				let cells = vec![
-					tui::widgets::Cell::new(Text::raw(name).left_aligned()),
-					tui::widgets::Cell::new(Text::raw(value).left_aligned()),
-				];
-				tui::widgets::Row::new(cells)
-			})
-			.skip(scroll);
-		let widths = [Constraint::Percentage(50), Constraint::Percentage(50)];
-		let table = tui::widgets::Table::new(rows, widths);
-		<tui::widgets::Table as tui::widgets::Widget>::render(table, area, buf);
-		len
-	}
-}
-
-impl InfoViewExt for tg::symlink::Data {
-	fn render(&self, scroll: usize, area: Rect, buf: &mut Buffer) -> usize {
-		let mut rows = vec![];
-		if let Some(artifact) = &self.artifact {
-			rows.push(("artifact", artifact.to_string()));
-		}
-		if let Some(path) = &self.path {
-			rows.push(("path", path.to_string()));
-		}
-		let len = rows.len();
-		let rows = rows
-			.into_iter()
-			.map(|(name, value)| {
-				let cells = vec![
-					tui::widgets::Cell::new(Text::raw(name).left_aligned()),
-					tui::widgets::Cell::new(Text::raw(value).left_aligned()),
-				];
-				tui::widgets::Row::new(cells)
-			})
-			.skip(scroll);
-		let widths = [Constraint::Percentage(20), Constraint::Percentage(80)];
-		let table = tui::widgets::Table::new(rows, widths);
-		<tui::widgets::Table as tui::widgets::Widget>::render(table, area, buf);
-		len
-	}
-}
-
-impl InfoViewExt for tg::target::Data {
-	fn render(&self, scroll: usize, area: Rect, buf: &mut Buffer) -> usize {
-		let mut rows = vec![
-			("host", self.host.clone()),
-			("args", serde_json::to_string(&self.args).unwrap()),
-			("env", serde_json::to_string(&self.env).unwrap()),
-		];
-		if let Some(executable) = &self.executable {
-			rows.push(("executable", executable.to_string()));
-		}
-		if let Some(checksum) = &self.checksum {
-			rows.push(("checksum", checksum.to_string()));
-		}
-		let len = rows.len();
-		let rows = rows
-			.into_iter()
-			.map(|(name, value)| {
-				let cells = vec![
-					tui::widgets::Cell::new(Text::raw(name).left_aligned()),
-					tui::widgets::Cell::new(Text::raw(value).left_aligned()),
-				];
-				tui::widgets::Row::new(cells)
-			})
-			.skip(scroll);
-		let widths = [Constraint::Percentage(20), Constraint::Percentage(80)];
-		let table = tui::widgets::Table::new(rows, widths);
-		<tui::widgets::Table as tui::widgets::Widget>::render(table, area, buf);
-		len
+impl InfoViewExt for tg::leaf::Data {
+	fn render(&self, _scroll: usize, area: Rect, buf: &mut Buffer) -> usize {
+		tui::widgets::Paragraph::new("(bytes)").render(area, buf);
+		1
 	}
 }
 
@@ -370,10 +270,105 @@ impl InfoViewExt for tg::branch::Data {
 	}
 }
 
-impl InfoViewExt for tg::leaf::Data {
-	fn render(&self, _scroll: usize, area: Rect, buf: &mut Buffer) -> usize {
-		tui::widgets::Paragraph::new("(bytes)").render(area, buf);
-		1
+impl InfoViewExt for tg::directory::Data {
+	fn render(&self, scroll: usize, area: Rect, buf: &mut Buffer) -> usize {
+		let rows = match self {
+			tg::directory::Data::Normal { entries } => {
+				let mut rows = Vec::new();
+				for (name, artifact) in entries {
+					rows.push((name.as_str(), artifact.to_string()));
+				}
+				rows
+			},
+			tg::directory::Data::Graph { graph, .. } => {
+				vec![("graph", graph.to_string())]
+			},
+		};
+		let len = rows.len();
+		let rows = rows
+			.into_iter()
+			.map(|(name, value)| {
+				let cells = vec![
+					tui::widgets::Cell::new(Text::raw(name).left_aligned()),
+					tui::widgets::Cell::new(Text::raw(value).left_aligned()),
+				];
+				tui::widgets::Row::new(cells)
+			})
+			.skip(scroll);
+		let widths = [Constraint::Percentage(50), Constraint::Percentage(50)];
+		let table = tui::widgets::Table::new(rows, widths);
+		<tui::widgets::Table as tui::widgets::Widget>::render(table, area, buf);
+		len
+	}
+}
+
+impl InfoViewExt for tg::file::Data {
+	fn render(&self, scroll: usize, area: Rect, buf: &mut Buffer) -> usize {
+		let rows = match self {
+			tg::file::Data::Normal {
+				contents,
+				executable,
+				..
+			} => {
+				vec![
+					("contents", contents.to_string()),
+					("executable", executable.to_string()),
+				]
+			},
+			tg::file::Data::Graph { graph, .. } => {
+				vec![("graph", graph.to_string())]
+			},
+		};
+		let len = rows.len();
+		let rows = rows
+			.into_iter()
+			.map(|(name, value)| {
+				let cells = vec![
+					tui::widgets::Cell::new(Text::raw(name).left_aligned()),
+					tui::widgets::Cell::new(Text::raw(value).left_aligned()),
+				];
+				tui::widgets::Row::new(cells)
+			})
+			.skip(scroll);
+		let widths = [Constraint::Percentage(20), Constraint::Percentage(80)];
+		let table = tui::widgets::Table::new(rows, widths);
+		<tui::widgets::Table as tui::widgets::Widget>::render(table, area, buf);
+		len
+	}
+}
+
+impl InfoViewExt for tg::symlink::Data {
+	fn render(&self, scroll: usize, area: Rect, buf: &mut Buffer) -> usize {
+		let rows = match self {
+			tg::symlink::Data::Normal { artifact, path, .. } => {
+				let mut rows = vec![];
+				if let Some(artifact) = artifact {
+					rows.push(("artifact", artifact.to_string()));
+				}
+				if let Some(path) = path {
+					rows.push(("path", path.to_string()));
+				}
+				rows
+			},
+			tg::symlink::Data::Graph { graph, .. } => {
+				vec![("graph", graph.to_string())]
+			},
+		};
+		let len = rows.len();
+		let rows = rows
+			.into_iter()
+			.map(|(name, value)| {
+				let cells = vec![
+					tui::widgets::Cell::new(Text::raw(name).left_aligned()),
+					tui::widgets::Cell::new(Text::raw(value).left_aligned()),
+				];
+				tui::widgets::Row::new(cells)
+			})
+			.skip(scroll);
+		let widths = [Constraint::Percentage(20), Constraint::Percentage(80)];
+		let table = tui::widgets::Table::new(rows, widths);
+		<tui::widgets::Table as tui::widgets::Widget>::render(table, area, buf);
+		len
 	}
 }
 
@@ -389,6 +384,36 @@ impl InfoViewExt for tg::graph::Data {
 		tui::widgets::Paragraph::new(lines)
 			.wrap(tui::widgets::Wrap { trim: false })
 			.render(area, buf);
+		len
+	}
+}
+impl InfoViewExt for tg::target::Data {
+	fn render(&self, scroll: usize, area: Rect, buf: &mut Buffer) -> usize {
+		let mut rows = vec![
+			("host", self.host.clone()),
+			("args", serde_json::to_string(&self.args).unwrap()),
+			("env", serde_json::to_string(&self.env).unwrap()),
+		];
+		if let Some(executable) = &self.executable {
+			rows.push(("executable", executable.to_string()));
+		}
+		if let Some(checksum) = &self.checksum {
+			rows.push(("checksum", checksum.to_string()));
+		}
+		let len = rows.len();
+		let rows = rows
+			.into_iter()
+			.map(|(name, value)| {
+				let cells = vec![
+					tui::widgets::Cell::new(Text::raw(name).left_aligned()),
+					tui::widgets::Cell::new(Text::raw(value).left_aligned()),
+				];
+				tui::widgets::Row::new(cells)
+			})
+			.skip(scroll);
+		let widths = [Constraint::Percentage(20), Constraint::Percentage(80)];
+		let table = tui::widgets::Table::new(rows, widths);
+		<tui::widgets::Table as tui::widgets::Widget>::render(table, area, buf);
 		len
 	}
 }

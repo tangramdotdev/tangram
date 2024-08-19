@@ -12,7 +12,7 @@ pub enum Outcome {
 }
 
 #[derive(Clone, Debug, derive_more::TryUnwrap, serde::Deserialize, serde::Serialize)]
-#[serde(rename_all = "snake_case", tag = "kind", content = "value")]
+#[serde(tag = "kind", content = "value", rename_all = "snake_case")]
 #[try_unwrap(ref)]
 pub enum Data {
 	Canceled,

@@ -2,7 +2,6 @@ use lsp_types as lsp;
 
 /// A position in a string, identified by zero-indexed line and character offsets. This type maps cleanly to the `Position` type in the Language Server Protocol. For maximum compatibility with the Language Server Protocol, character offsets use UTF-16 code units.
 #[derive(Clone, Copy, Debug, Eq, PartialEq, serde::Deserialize, serde::Serialize)]
-#[serde(rename_all = "camelCase")]
 pub struct Position {
 	pub line: u32,
 	pub character: u32,

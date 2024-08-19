@@ -39,7 +39,7 @@ impl Server {
 				})
 				.wait()
 				.await
-				.map_err(|source| tg::error!(!source, "failed to wait for task"))??;
+				.map_err(|source| tg::error!(!source, "failed to wait for the task"))??;
 			if stored {
 				let output = self
 					.try_get_object_local_database(id)
@@ -59,7 +59,7 @@ impl Server {
 				})
 				.wait()
 				.await
-				.map_err(|source| tg::error!(!source, "failed to wait for task"))??;
+				.map_err(|source| tg::error!(!source, "failed to wait for the task"))??;
 			if stored {
 				let output = self
 					.try_get_object_local_database(id)

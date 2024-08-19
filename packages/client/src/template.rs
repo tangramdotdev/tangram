@@ -211,7 +211,7 @@ pub mod component {
 	)]
 	#[try_unwrap(ref)]
 	#[unwrap(ref)]
-	#[serde(rename_all = "snake_case", tag = "kind", content = "value")]
+	#[serde(tag = "kind", content = "value", rename_all = "snake_case")]
 	pub enum Data {
 		String(String),
 		Artifact(tg::artifact::Id),

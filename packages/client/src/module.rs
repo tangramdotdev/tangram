@@ -49,7 +49,7 @@ pub enum Kind {
 	Directory,
 	File,
 	Symlink,
-	Lock,
+	Graph,
 	Target,
 }
 
@@ -134,19 +134,19 @@ impl std::str::FromStr for Object {
 impl std::fmt::Display for Kind {
 	fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
 		match self {
-			Kind::Js => write!(f, "js"),
-			Kind::Ts => write!(f, "ts"),
-			Kind::Dts => write!(f, "dts"),
-			Kind::Object => write!(f, "object"),
-			Kind::Artifact => write!(f, "artifact"),
-			Kind::Blob => write!(f, "blob"),
-			Kind::Leaf => write!(f, "leaf"),
-			Kind::Branch => write!(f, "branch"),
-			Kind::Directory => write!(f, "directory"),
-			Kind::File => write!(f, "file"),
-			Kind::Symlink => write!(f, "symlink"),
-			Kind::Lock => write!(f, "lock"),
-			Kind::Target => write!(f, "target"),
+			Self::Js => write!(f, "js"),
+			Self::Ts => write!(f, "ts"),
+			Self::Dts => write!(f, "dts"),
+			Self::Object => write!(f, "object"),
+			Self::Artifact => write!(f, "artifact"),
+			Self::Blob => write!(f, "blob"),
+			Self::Leaf => write!(f, "leaf"),
+			Self::Branch => write!(f, "branch"),
+			Self::Directory => write!(f, "directory"),
+			Self::File => write!(f, "file"),
+			Self::Symlink => write!(f, "symlink"),
+			Self::Graph => write!(f, "graph"),
+			Self::Target => write!(f, "target"),
 		}
 	}
 }
@@ -156,19 +156,19 @@ impl std::str::FromStr for Kind {
 
 	fn from_str(s: &str) -> Result<Self, Self::Err> {
 		match s {
-			"js" => Ok(Kind::Js),
-			"ts" => Ok(Kind::Ts),
-			"dts" => Ok(Kind::Dts),
-			"object" => Ok(Kind::Object),
-			"artifact" => Ok(Kind::Artifact),
-			"blob" => Ok(Kind::Blob),
-			"leaf" => Ok(Kind::Leaf),
-			"branch" => Ok(Kind::Branch),
-			"directory" => Ok(Kind::Directory),
-			"file" => Ok(Kind::File),
-			"symlink" => Ok(Kind::Symlink),
-			"lock" => Ok(Kind::Lock),
-			"target" => Ok(Kind::Target),
+			"js" => Ok(Self::Js),
+			"ts" => Ok(Self::Ts),
+			"dts" => Ok(Self::Dts),
+			"object" => Ok(Self::Object),
+			"artifact" => Ok(Self::Artifact),
+			"blob" => Ok(Self::Blob),
+			"leaf" => Ok(Self::Leaf),
+			"branch" => Ok(Self::Branch),
+			"directory" => Ok(Self::Directory),
+			"file" => Ok(Self::File),
+			"symlink" => Ok(Self::Symlink),
+			"graph" => Ok(Self::Graph),
+			"target" => Ok(Self::Target),
 			_ => Err(tg::error!(%kind = s, "invalid kind")),
 		}
 	}

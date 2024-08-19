@@ -1,8 +1,8 @@
 import { Branch } from "./branch.ts";
 import { Directory } from "./directory.ts";
 import { File } from "./file.ts";
+import { Graph } from "./graph.ts";
 import { Leaf } from "./leaf.ts";
-import { Lock } from "./lock.ts";
 import { Mutation } from "./mutation.ts";
 import type { Object_ } from "./object.ts";
 import { Path } from "./path.ts";
@@ -64,7 +64,7 @@ export let resolve = async <T extends Unresolved<Value>>(
 		value instanceof Directory ||
 		value instanceof File ||
 		value instanceof Symlink ||
-		value instanceof Lock ||
+		value instanceof Graph ||
 		value instanceof Target ||
 		value instanceof Uint8Array ||
 		value instanceof Path ||

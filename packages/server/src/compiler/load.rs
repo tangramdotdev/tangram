@@ -69,7 +69,7 @@ impl Compiler {
 					| tg::module::Kind::Directory
 					| tg::module::Kind::File
 					| tg::module::Kind::Symlink
-					| tg::module::Kind::Lock
+					| tg::module::Kind::Graph
 					| tg::module::Kind::Target,
 				object,
 			} => {
@@ -82,7 +82,7 @@ impl Compiler {
 					tg::module::Kind::Directory => "Directory",
 					tg::module::Kind::File => "File",
 					tg::module::Kind::Symlink => "Symlink",
-					tg::module::Kind::Lock => "Lock",
+					tg::module::Kind::Graph => "Lock",
 					tg::module::Kind::Target => "Target",
 					_ => unreachable!(),
 				};

@@ -4,30 +4,30 @@ import type { Object_ as Object__ } from "./object.ts";
 import { resolve } from "./resolve.ts";
 import { flatten } from "./util.ts";
 
-export let lock = async (...args: Args<Lock.Arg>): Promise<Lock> => {
-	return await Lock.new(...args);
+export let graph = async (...args: Args<Graph.Arg>): Promise<Graph> => {
+	return await Graph.new(...args);
 };
 
-export class Lock {
-	#state: Lock.State;
+export class Graph {
+	#state: Graph.State;
 
-	constructor(state: Lock.State) {
+	constructor(state: Graph.State) {
 		this.#state = state;
 	}
 
-	get state(): Lock.State {
+	get state(): Graph.State {
 		return this.#state;
 	}
 
-	static withId(id: Lock.Id): Lock {
-		return new Lock({ id });
+	static withId(id: Graph.Id): Graph {
+		return new Graph({ id });
 	}
 
-	static async new(...args: Args<Lock.Arg>): Promise<Lock> {
-		let arg = await Lock.arg(...args);
+	static async new(...args: Args<Graph.Arg>): Promise<Graph> {
+		let arg = await Graph.arg(...args);
 		let nodes = await Promise.all(
 			(arg.nodes ?? []).map(async (node) => {
-				let dependencies: { [reference: string]: Lock | number } = {};
+				let dependencies: { [reference: string]: Graph | number } = {};
 				let keys = Object.keys(node.dependencies ?? {});
 				for (let key of keys) {
 					let dependency = node.dependencies![key];
@@ -35,7 +35,7 @@ export class Lock {
 						if (typeof dependency === "number") {
 							dependencies[key] = dependency;
 						} else {
-							dependencies[key] = await Lock.new(dependency);
+							dependencies[key] = await Graph.new(dependency);
 						}
 					}
 				}
@@ -43,18 +43,17 @@ export class Lock {
 				return { dependencies, object };
 			}),
 		);
-		let root = arg.root ?? 0;
-		return new Lock({ object: { nodes, root } });
+		return new Graph({ object: { nodes } });
 	}
 
-	static async arg(...args: Args<Lock.Arg>): Promise<Lock.ArgObject> {
+	static async arg(...args: Args<Graph.Arg>): Promise<Graph.ArgObject> {
 		let resolved = await Promise.all(args.map(resolve));
 		let flattened = flatten(resolved);
 		let objects = await Promise.all(
 			flattened.map(async (arg) => {
 				if (arg === undefined) {
 					return {};
-				} else if (arg instanceof Lock) {
+				} else if (arg instanceof Graph) {
 					return arg.object();
 				} else {
 					return arg;
@@ -68,21 +67,21 @@ export class Lock {
 		return arg;
 	}
 
-	static expect(value: unknown): Lock {
-		assert_(value instanceof Lock);
+	static expect(value: unknown): Graph {
+		assert_(value instanceof Graph);
 		return value;
 	}
 
-	static assert(value: unknown): asserts value is Lock {
-		assert_(value instanceof Lock);
+	static assert(value: unknown): asserts value is Graph {
+		assert_(value instanceof Graph);
 	}
 
-	async id(): Promise<Lock.Id> {
+	async id(): Promise<Graph.Id> {
 		await this.store();
 		return this.#state.id!;
 	}
 
-	async object(): Promise<Lock.Object_> {
+	async object(): Promise<Graph.Object_> {
 		await this.load();
 		return this.#state.object!;
 	}
@@ -90,7 +89,7 @@ export class Lock {
 	async load() {
 		if (this.#state.object === undefined) {
 			let object = await syscall("load", this.#state.id!);
-			assert_(object.kind === "lock");
+			assert_(object.kind === "graph");
 			this.#state.object = object.value;
 		}
 	}
@@ -98,27 +97,26 @@ export class Lock {
 	async store() {
 		if (this.#state.id === undefined) {
 			this.#state.id = await syscall("store", {
-				kind: "lock",
+				kind: "graph",
 				value: this.#state.object!,
 			});
 		}
 	}
 
-	async nodes(): Promise<Array<Lock.Node>> {
+	async nodes(): Promise<Array<Graph.Node>> {
 		return (await this.object()).nodes;
 	}
 }
 
-export namespace Lock {
-	export type Arg = Lock | ArgObject;
+export namespace Graph {
+	export type Arg = Graph | ArgObject;
 
 	export type ArgObject = {
 		nodes?: Array<NodeArg> | undefined;
-		root?: number | undefined;
 	};
 
 	export type NodeArg = {
-		dependencies?: { [reference: string]: number | Lock.Arg };
+		dependencies?: { [reference: string]: number | Graph.Arg };
 		object?: Object__ | undefined;
 	};
 
@@ -126,13 +124,11 @@ export namespace Lock {
 
 	export type Object_ = {
 		nodes: Array<Node>;
-		root: number;
 	};
 
 	export type Node = {
-		dependencies: { [reference: string]: number | Lock };
-		object: Object__ | undefined;
+		dependencies: { [reference: string]: number | Graph };
 	};
 
-	export type State = Object__.State<Lock.Id, Lock.Object_>;
+	export type State = Object__.State<Graph.Id, Graph.Object_>;
 }

@@ -1,5 +1,6 @@
 use crate as tg;
 use bytes::Bytes;
+use either::Either;
 use futures::{stream::FuturesOrdered, TryStreamExt as _};
 use itertools::Itertools as _;
 use std::{
@@ -186,6 +187,7 @@ impl Directory {
 		Self::with_object(Object::Normal { entries })
 	}
 
+	#[must_use]
 	pub fn with_graph_and_node(graph: tg::Graph, node: usize) -> Self {
 		Self::with_object(Object::Graph { graph, node })
 	}
@@ -207,7 +209,45 @@ impl Directory {
 		let entries = match object.as_ref() {
 			Object::Normal { entries } => entries.clone(),
 			Object::Graph { graph, node } => {
-				todo!()
+				let object = graph.object(handle).await?;
+				let node = object
+					.nodes
+					.get(*node)
+					.ok_or_else(|| tg::error!("invalid index"))?;
+				let directory = node
+					.try_unwrap_directory_ref()
+					.ok()
+					.ok_or_else(|| tg::error!("expected a directory"))?;
+				directory
+					.entries
+					.iter()
+					.map(|(name, either)| {
+						let artifact = match either {
+							Either::Left(node) => {
+								let kind = object
+									.nodes
+									.get(*node)
+									.ok_or_else(|| tg::error!("invalid index"))?
+									.kind();
+								match kind {
+									tg::artifact::Kind::Directory => {
+										tg::Directory::with_graph_and_node(graph.clone(), *node)
+											.into()
+									},
+									tg::artifact::Kind::File => {
+										tg::File::with_graph_and_node(graph.clone(), *node).into()
+									},
+									tg::artifact::Kind::Symlink => {
+										tg::Symlink::with_graph_and_node(graph.clone(), *node)
+											.into()
+									},
+								}
+							},
+							Either::Right(artifact) => artifact.clone(),
+						};
+						Ok((name.clone(), artifact))
+					})
+					.collect::<tg::Result<_>>()?
 			},
 		};
 		Ok(entries)
@@ -217,7 +257,45 @@ impl Directory {
 	where
 		H: tg::Handle,
 	{
-		todo!()
+		let object = self.object(handle).await?;
+		let artifact = match object.as_ref() {
+			Object::Normal { entries } => entries.get(name).cloned(),
+			Object::Graph { graph, node } => {
+				let object = graph.object(handle).await?;
+				let node = object
+					.nodes
+					.get(*node)
+					.ok_or_else(|| tg::error!("invalid index"))?;
+				let directory = node
+					.try_unwrap_directory_ref()
+					.ok()
+					.ok_or_else(|| tg::error!("expected a directory"))?;
+				match directory.entries.get(name) {
+					None => None,
+					Some(Either::Left(node)) => {
+						let kind = object
+							.nodes
+							.get(*node)
+							.ok_or_else(|| tg::error!("invalid index"))?
+							.kind();
+						let artifact = match kind {
+							tg::artifact::Kind::Directory => {
+								tg::Directory::with_graph_and_node(graph.clone(), *node).into()
+							},
+							tg::artifact::Kind::File => {
+								tg::File::with_graph_and_node(graph.clone(), *node).into()
+							},
+							tg::artifact::Kind::Symlink => {
+								tg::Symlink::with_graph_and_node(graph.clone(), *node).into()
+							},
+						};
+						Some(artifact)
+					},
+					Some(Either::Right(artifact)) => Some(artifact.clone()),
+				}
+			},
+		};
+		Ok(artifact)
 	}
 
 	pub async fn get<H>(&self, handle: &H, path: &tg::Path) -> tg::Result<tg::Artifact>

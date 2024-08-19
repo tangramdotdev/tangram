@@ -365,11 +365,11 @@ impl vfs::Provider for Provider {
 		let Some(tg::Artifact::File(_)) = artifact else {
 			return Ok(Vec::new());
 		};
-		let var_name = vec![tg::file::TANGRAM_FILE_DEPENDENCIES_XATTR_NAME.to_owned()];
+		let var_name = vec![tg::file::XATTR_NAME.to_owned()];
 		Ok(var_name)
 	}
 
-	async fn getxattr(&self, id: u64, name: &str) -> std::io::Result<Option<String>> {
+	async fn getxattr(&self, id: u64, name: &str) -> std::io::Result<Option<Bytes>> {
 		// Get the node.
 		let Node { artifact, .. } = self.get(id).await?;
 
@@ -379,7 +379,7 @@ impl vfs::Provider for Provider {
 		};
 
 		// Ensure the xattr name is supported.
-		if name != tg::file::TANGRAM_FILE_DEPENDENCIES_XATTR_NAME {
+		if name != tg::file::XATTR_NAME {
 			return Ok(None);
 		}
 
@@ -389,10 +389,13 @@ impl vfs::Provider for Provider {
 			std::io::Error::from_raw_os_error(libc::EIO)
 		})?;
 
-		// Create the output.
-		let output = serde_json::to_string(&data.dependencies).unwrap();
+		// Serialize the data.
+		let data = data.serialize().map_err(|e| {
+			tracing::error!(?e, ?file, "failed to serialize the file data");
+			std::io::Error::from_raw_os_error(libc::EIO)
+		})?;
 
-		Ok(Some(output))
+		Ok(Some(data))
 	}
 
 	async fn opendir(&self, id: u64) -> std::io::Result<u64> {

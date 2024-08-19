@@ -23,6 +23,7 @@ impl Server {
 			tg::reference::Path::Path(path) => {
 				let arg = tg::artifact::checkin::Arg {
 					destructive: false,
+					deterministic: false,
 					locked: false,
 					path: path.clone(),
 				};

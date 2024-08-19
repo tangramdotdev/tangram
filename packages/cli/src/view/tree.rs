@@ -714,33 +714,34 @@ where
 				value: tg::Value::Object(tg::Object::Graph(package)),
 				..
 			} => {
-				let object = package.object(&self.handle).await?;
-				let mut children = Vec::new();
-				for node in &object.nodes {
-					if let Some(object) = &node.object {
-						let parent = Some(self);
-						let index = children.len();
-						let kind = NodeKind::Value {
-							name: Some("object".into()),
-							value: tg::Value::Object(object.clone()),
-						};
-						let child = Self::new(&self.handle, parent, index, kind);
-						children.push(child);
-					}
-					for (reference, object) in node.dependencies.iter().flatten() {
-						if let Either::Right(object) = object {
-							let parent = Some(self);
-							let index = children.len();
-							let kind = NodeKind::Value {
-								name: Some(reference.to_string()),
-								value: tg::Value::Object(object.clone()),
-							};
-							let child = Self::new(&self.handle, parent, index, kind);
-							children.push(child);
-						}
-					}
-				}
-				Ok(children)
+				// let object = package.object(&self.handle).await?;
+				// let mut children = Vec::new();
+				// for node in &object.nodes {
+				// 	if let Some(object) = &node.object {
+				// 		let parent = Some(self);
+				// 		let index = children.len();
+				// 		let kind = NodeKind::Value {
+				// 			name: Some("object".into()),
+				// 			value: tg::Value::Object(object.clone()),
+				// 		};
+				// 		let child = Self::new(&self.handle, parent, index, kind);
+				// 		children.push(child);
+				// 	}
+				// 	for (reference, object) in node.dependencies.iter().flatten() {
+				// 		if let Either::Right(object) = object {
+				// 			let parent = Some(self);
+				// 			let index = children.len();
+				// 			let kind = NodeKind::Value {
+				// 				name: Some(reference.to_string()),
+				// 				value: tg::Value::Object(object.clone()),
+				// 			};
+				// 			let child = Self::new(&self.handle, parent, index, kind);
+				// 			children.push(child);
+				// 		}
+				// 	}
+				// }
+				// Ok(children)
+				todo!()
 			},
 
 			NodeKind::Value {

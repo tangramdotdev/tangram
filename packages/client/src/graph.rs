@@ -6,12 +6,9 @@ use futures::{
 	TryStreamExt as _,
 };
 use itertools::Itertools as _;
-use std::{
-	collections::{BTreeMap, BTreeSet},
-	sync::Arc,
-};
+use std::{collections::BTreeSet, sync::Arc};
 
-pub use self::data::Data;
+pub use self::{data::Data, node::Node};
 
 #[derive(
 	Clone,
@@ -41,84 +38,102 @@ pub struct Object {
 	pub nodes: Vec<Node>,
 }
 
-#[derive(Clone, Debug, derive_more::TryUnwrap)]
-#[try_unwrap(ref)]
-pub enum Node {
-	Directory(Directory),
-	File(File),
-	Symlink(Symlink),
-}
-
-#[derive(Clone, Debug)]
-pub struct Directory {
-	pub entries: BTreeMap<String, Either<usize, tg::Artifact>>,
-}
-
-#[derive(Clone, Debug)]
-pub struct File {
-	pub contents: Option<tg::Blob>,
-	pub dependencies: Option<BTreeMap<tg::Reference, Either<usize, tg::Object>>>,
-	pub executable: bool,
-	pub module: Option<tg::file::Module>,
-}
-
-#[derive(Clone, Debug)]
-pub struct Symlink {
-	pub artifact: Option<Either<usize, tg::Artifact>>,
-	pub path: Option<tg::Path>,
-}
-
-pub mod data {
-	use crate::{
-		self as tg,
-		util::serde::{is_false, EitherUntagged},
-	};
+pub mod node {
+	use crate as tg;
 	use either::Either;
-	use serde_with::{serde_as, FromInto};
 	use std::collections::BTreeMap;
 
-	#[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
-	pub struct Data {
-		pub nodes: Vec<Node>,
-	}
-
-	#[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
-	#[serde(untagged)]
+	#[derive(Clone, Debug, derive_more::TryUnwrap)]
+	#[try_unwrap(ref)]
 	pub enum Node {
 		Directory(Directory),
 		File(File),
 		Symlink(Symlink),
 	}
 
-	#[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
-	pub struct Directory {
-		pub entries: BTreeMap<String, Either<usize, tg::artifact::Id>>,
+	#[derive(Clone, Debug)]
+	pub enum Kind {
+		Directory,
+		File,
+		Symlink,
 	}
 
-	#[serde_as]
-	#[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
+	#[derive(Clone, Debug)]
+	pub struct Directory {
+		pub entries: BTreeMap<String, Either<usize, tg::Artifact>>,
+	}
+
+	#[derive(Clone, Debug)]
 	pub struct File {
-		#[serde(default, skip_serializing_if = "Option::is_none")]
-		pub contents: Option<tg::blob::Id>,
-
-		#[serde_as(as = "Option<BTreeMap<_, FromInto<EitherUntagged<usize, tg::object::Id>>>>")]
-		#[serde(default, skip_serializing_if = "Option::is_none")]
-		pub dependencies: Option<BTreeMap<tg::Reference, Either<usize, tg::object::Id>>>,
-
-		#[serde(default, skip_serializing_if = "is_false")]
+		pub contents: tg::Blob,
+		pub dependencies: Option<BTreeMap<tg::Reference, Either<usize, tg::Object>>>,
 		pub executable: bool,
-
-		#[serde(default, skip_serializing_if = "Option::is_none")]
 		pub module: Option<tg::file::Module>,
 	}
 
-	#[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
+	#[derive(Clone, Debug)]
 	pub struct Symlink {
-		#[serde(default, skip_serializing_if = "Option::is_none")]
-		pub artifact: Option<Either<usize, tg::artifact::Id>>,
-
-		#[serde(default, skip_serializing_if = "Option::is_none")]
+		pub artifact: Option<Either<usize, tg::Artifact>>,
 		pub path: Option<tg::Path>,
+	}
+}
+
+pub mod data {
+	pub use self::node::Node;
+
+	#[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
+	pub struct Data {
+		pub nodes: Vec<Node>,
+	}
+
+	pub mod node {
+		use crate::{
+			self as tg,
+			util::serde::{is_false, EitherUntagged},
+		};
+		use either::Either;
+		use serde_with::{serde_as, FromInto};
+		use std::collections::BTreeMap;
+
+		#[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
+		#[serde(tag = "kind", rename_all = "snake_case")]
+		pub enum Node {
+			Directory(Directory),
+			File(File),
+			Symlink(Symlink),
+		}
+
+		#[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
+		pub struct Directory {
+			pub entries: BTreeMap<String, Either<usize, tg::artifact::Id>>,
+		}
+
+		#[serde_as]
+		#[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
+		pub struct File {
+			pub contents: tg::blob::Id,
+
+			#[serde_as(
+				as = "Option<BTreeMap<_, FromInto<EitherUntagged<usize, tg::object::Id>>>>"
+			)]
+			#[serde(default, skip_serializing_if = "Option::is_none")]
+			pub dependencies: Option<BTreeMap<tg::Reference, Either<usize, tg::object::Id>>>,
+
+			#[serde(default, skip_serializing_if = "is_false")]
+			pub executable: bool,
+
+			#[serde(default, skip_serializing_if = "Option::is_none")]
+			pub module: Option<tg::file::Module>,
+		}
+
+		#[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
+		pub struct Symlink {
+			#[serde(default, skip_serializing_if = "Option::is_none")]
+			pub artifact: Option<Either<usize, tg::artifact::Id>>,
+
+			#[serde(default, skip_serializing_if = "Option::is_none")]
+			pub path: Option<tg::Path>,
+		}
 	}
 }
 
@@ -241,7 +256,7 @@ impl Node {
 		H: tg::Handle,
 	{
 		match self {
-			Self::Directory(Directory { entries }) => {
+			Self::Directory(tg::graph::node::Directory { entries }) => {
 				let entries = entries
 					.iter()
 					.map(|(name, either)| async move {
@@ -254,20 +269,18 @@ impl Node {
 					.collect::<FuturesUnordered<_>>()
 					.try_collect()
 					.await?;
-				Ok(data::Node::Directory(data::Directory { entries }))
+				Ok(data::Node::Directory(tg::graph::data::node::Directory {
+					entries,
+				}))
 			},
 
-			Self::File(File {
+			Self::File(tg::graph::node::File {
 				contents,
 				dependencies,
 				executable,
 				module,
 			}) => {
-				let contents = if let Some(contents) = contents {
-					Some(contents.id(handle).await?)
-				} else {
-					None
-				};
+				let contents = contents.id(handle).await?;
 				let dependencies = if let Some(dependencies) = &dependencies {
 					Some(
 						dependencies
@@ -291,7 +304,7 @@ impl Node {
 				};
 				let executable = *executable;
 				let module = *module;
-				Ok(data::Node::File(data::File {
+				Ok(data::Node::File(tg::graph::data::node::File {
 					contents,
 					dependencies,
 					executable,
@@ -299,23 +312,27 @@ impl Node {
 				}))
 			},
 
-			Self::Symlink(Symlink { artifact, path }) => {
+			Self::Symlink(tg::graph::node::Symlink { artifact, path }) => {
 				let artifact = if let Some(artifact) = artifact {
 					Some(match artifact {
 						Either::Left(index) => Either::Left(*index),
-						Either::Right(artifact) => Either::Right(artifact.id(handle).await?.into()),
+						Either::Right(artifact) => Either::Right(artifact.id(handle).await?),
 					})
 				} else {
 					None
 				};
 				let path = path.clone();
-				Ok(data::Node::Symlink(data::Symlink { artifact, path }))
+				Ok(data::Node::Symlink(tg::graph::data::node::Symlink {
+					artifact,
+					path,
+				}))
 			},
 		}
 	}
 }
 
 impl Node {
+	#[must_use]
 	pub fn kind(&self) -> tg::artifact::Kind {
 		match self {
 			Self::Directory(_) => tg::artifact::Kind::Directory,
@@ -342,21 +359,19 @@ impl Data {
 		let mut children = BTreeSet::new();
 		for node in &self.nodes {
 			match node {
-				data::Node::Directory(data::Directory { entries }) => {
+				data::Node::Directory(tg::graph::data::node::Directory { entries }) => {
 					for either in entries.values() {
 						if let Either::Right(id) = either {
 							children.insert(id.clone().into());
 						}
 					}
 				},
-				data::Node::File(data::File {
+				data::Node::File(tg::graph::data::node::File {
 					contents,
 					dependencies,
 					..
 				}) => {
-					if let Some(contents) = contents {
-						children.insert(contents.clone().into());
-					}
+					children.insert(contents.clone().into());
 					if let Some(dependencies) = dependencies {
 						for either in dependencies.values() {
 							if let Either::Right(id) = either {
@@ -365,11 +380,9 @@ impl Data {
 						}
 					}
 				},
-				data::Node::Symlink(data::Symlink { artifact, .. }) => {
-					if let Some(artifact) = artifact {
-						if let Either::Right(id) = artifact {
-							children.insert(id.clone().into());
-						}
+				data::Node::Symlink(tg::graph::data::node::Symlink { artifact, .. }) => {
+					if let Some(Either::Right(id)) = artifact {
+						children.insert(id.clone().into());
 					}
 				},
 			}
@@ -396,19 +409,23 @@ impl TryFrom<data::Node> for Node {
 
 	fn try_from(value: data::Node) -> std::result::Result<Self, Self::Error> {
 		match value {
-			data::Node::Directory(directory) => {
-				let entries = directory
-					.entries
+			data::Node::Directory(tg::graph::data::node::Directory { entries }) => {
+				let entries = entries
 					.into_iter()
 					.map(|(name, either)| (name, either.map_right(tg::Artifact::with_id)))
 					.collect();
-				let directory = Directory { entries };
+				let directory = tg::graph::node::Directory { entries };
 				let node = Node::Directory(directory);
 				Ok(node)
 			},
-			data::Node::File(file) => {
-				let contents = file.contents.map(tg::Blob::with_id);
-				let dependencies = file.dependencies.map(|dependencies| {
+			data::Node::File(tg::graph::data::node::File {
+				contents,
+				dependencies,
+				executable,
+				module,
+			}) => {
+				let contents = tg::Blob::with_id(contents);
+				let dependencies = dependencies.map(|dependencies| {
 					dependencies
 						.into_iter()
 						.map(|(reference, either)| {
@@ -416,9 +433,7 @@ impl TryFrom<data::Node> for Node {
 						})
 						.collect()
 				});
-				let executable = file.executable;
-				let module = file.module;
-				let file = File {
+				let file = tg::graph::node::File {
 					contents,
 					dependencies,
 					executable,
@@ -427,28 +442,13 @@ impl TryFrom<data::Node> for Node {
 				let node = Node::File(file);
 				Ok(node)
 			},
-			data::Node::Symlink(symlink) => {
-				let artifact = symlink
-					.artifact
-					.map(|either| either.map_right(tg::Artifact::with_id));
-				let path = symlink.path;
-				let symlink = Symlink { artifact, path };
+			data::Node::Symlink(tg::graph::data::node::Symlink { artifact, path }) => {
+				let artifact = artifact.map(|either| either.map_right(tg::Artifact::with_id));
+				let symlink = tg::graph::node::Symlink { artifact, path };
 				let node = Node::Symlink(symlink);
 				Ok(node)
 			},
 		}
-	}
-}
-
-impl Default for Graph {
-	fn default() -> Self {
-		Self::with_object(Object::default())
-	}
-}
-
-impl Default for Object {
-	fn default() -> Self {
-		Self { nodes: vec![] }
 	}
 }
 
@@ -468,5 +468,28 @@ impl std::str::FromStr for Id {
 
 	fn from_str(s: &str) -> tg::Result<Self, Self::Err> {
 		crate::Id::from_str(s)?.try_into()
+	}
+}
+
+impl std::fmt::Display for tg::graph::node::Kind {
+	fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+		match self {
+			Self::Directory => write!(f, "directory"),
+			Self::File => write!(f, "file"),
+			Self::Symlink => write!(f, "symlink"),
+		}
+	}
+}
+
+impl std::str::FromStr for tg::graph::node::Kind {
+	type Err = tg::Error;
+
+	fn from_str(s: &str) -> Result<Self, Self::Err> {
+		match s {
+			"directory" => Ok(Self::Directory),
+			"file" => Ok(Self::File),
+			"symlink" => Ok(Self::Symlink),
+			_ => Err(tg::error!(%kind = s, "invalid kind")),
+		}
 	}
 }

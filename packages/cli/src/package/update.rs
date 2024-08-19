@@ -14,10 +14,9 @@ impl Cli {
 		let handle = self.handle().await?;
 
 		// Canonicalize the path.
-		let path = args.path;
-		let path: tg::Path = tokio::fs::canonicalize(&path)
+		let path: tg::Path = tokio::fs::canonicalize(&args.path)
 			.await
-			.map_err(|source| tg::error!(!source, %path, "failed to canonicalize the path"))?
+			.map_err(|source| tg::error!(!source, "failed to canonicalize the path"))?
 			.try_into()?;
 
 		// Remove an existing lockfile.
@@ -27,9 +26,10 @@ impl Cli {
 
 		// Check in the package.
 		let arg = tg::artifact::checkin::Arg {
-			path,
 			destructive: false,
+			deterministic: false,
 			locked: false,
+			path,
 		};
 		handle.check_in_artifact(arg).await?;
 

@@ -179,6 +179,7 @@ impl Server {
 			let existing_artifact = if exists {
 				let arg = tg::artifact::checkin::Arg {
 					destructive: false,
+					deterministic: false,
 					locked: true,
 					path: path.clone(),
 				};
@@ -361,8 +362,8 @@ impl Server {
 				existing_directory
 					.entries(self)
 					.await?
-					.iter()
-					.map(|(name, _)| async move {
+					.keys()
+					.map(|name| async move {
 						if !directory.entries(self).await?.contains_key(name) {
 							let entry_path = path.clone().join(name);
 							remove(&entry_path).await.ok();
@@ -547,24 +548,14 @@ impl Server {
 				.map_err(|source| tg::error!(!source, "failed to set the permissions"))?;
 		}
 
-		// Set the dependencies with extended attributes if necessary.
-		if !dependencies.is_empty() {
-			let dependencies = serde_json::to_vec(&dependencies)
-				.map_err(|source| tg::error!(!source, "failed to serialize the dependencies"))?;
-			xattr::set(
-				path,
-				tg::file::TANGRAM_FILE_DEPENDENCIES_XATTR_NAME,
-				&dependencies,
-			)
-			.map_err(|source| {
-				tg::error!(
-					!source,
-					"failed to set the extended attribute for the dependencies"
-				)
-			})?;
-		}
+		// Set the extended attributes.
+		let name = tg::file::XATTR_NAME;
+		let value = file.data(self).await?.serialize()?;
+		xattr::set(path, name, &value).map_err(|source| {
+			tg::error!(!source, "failed to set the extended attribute for the file")
+		})?;
 
-		// Add the path the files map.
+		// Add the path to the files map.
 		files.insert(id.clone(), path.clone());
 
 		Ok(())

@@ -1,4 +1,4 @@
-use crate::{self as tg, util::serde::is_zero};
+use crate as tg;
 use bytes::Bytes;
 use either::Either;
 use itertools::Itertools as _;
@@ -52,8 +52,6 @@ pub enum Data {
 
 	Graph {
 		graph: tg::graph::Id,
-
-		#[serde(default, skip_serializing_if = "is_zero")]
 		node: usize,
 	},
 }
@@ -185,6 +183,7 @@ impl Symlink {
 		Self::with_object(Object::Normal { artifact, path })
 	}
 
+	#[must_use]
 	pub fn with_graph_and_node(graph: tg::Graph, node: usize) -> Self {
 		Self::with_object(Object::Graph { graph, node })
 	}

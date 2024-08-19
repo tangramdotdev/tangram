@@ -42,7 +42,7 @@ impl Compiler {
 						tg::import::Kind::Directory => tg::module::Kind::Directory,
 						tg::import::Kind::File => tg::module::Kind::File,
 						tg::import::Kind::Symlink => tg::module::Kind::Symlink,
-						tg::import::Kind::Lock => tg::module::Kind::Lock,
+						tg::import::Kind::Lock => tg::module::Kind::Graph,
 						tg::import::Kind::Target => tg::module::Kind::Target,
 					}
 				} else {
@@ -51,21 +51,13 @@ impl Compiler {
 						tg::Object::Leaf(_) => tg::module::Kind::Leaf,
 						tg::Object::Branch(_) => tg::module::Kind::Branch,
 						tg::Object::Directory(_) => tg::module::Kind::Directory,
-						tg::Object::File(file) => {
-							let metadata = file.metadata(&self.server).await?;
-							let kind = metadata.as_ref().and_then(|metadata| {
-								metadata.get("kind").and_then(|value| {
-									value.try_unwrap_string_ref().map(String::as_str).ok()
-								})
-							});
-							match kind {
-								Some("js") => tg::module::Kind::Js,
-								Some("ts") => tg::module::Kind::Ts,
-								_ => tg::module::Kind::File,
-							}
+						tg::Object::File(file) => match file.module(&self.server).await? {
+							Some(tg::file::Module::Js) => tg::module::Kind::Js,
+							Some(tg::file::Module::Ts) => tg::module::Kind::Ts,
+							_ => tg::module::Kind::File,
 						},
 						tg::Object::Symlink(_) => tg::module::Kind::Symlink,
-						tg::Object::Graph(_) => tg::module::Kind::Lock,
+						tg::Object::Graph(_) => tg::module::Kind::Graph,
 						tg::Object::Target(_) => tg::module::Kind::Target,
 					}
 				};
