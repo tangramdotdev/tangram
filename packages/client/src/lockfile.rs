@@ -2,6 +2,7 @@ use std::collections::BTreeMap;
 use tokio::io::AsyncWriteExt;
 
 use crate as tg;
+pub const TANGRAM_LOCKFILE_FILE_NAME: &'static str = "tangram.lock";
 
 #[derive(Clone, Debug, serde::Serialize, serde::Deserialize)]
 pub struct Lockfile {
@@ -12,18 +13,10 @@ pub struct Lockfile {
 
 impl Lockfile {
 	pub async fn try_read(path: &tg::Path) -> tg::Result<Option<Self>> {
-		let Some(root_module_path) =
-			tg::artifact::module::try_get_root_module_path_for_path(path.as_ref()).await?
-		else {
-			return Ok(None);
-		};
-		let lockfile_path = root_module_path.parent().normalize();
-		let contents = match tokio::fs::read_to_string(&lockfile_path).await {
+		let contents = match tokio::fs::read_to_string(&path).await {
 			Ok(contents) => contents,
 			Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(None),
-			Err(source) => {
-				return Err(tg::error!(!source, %path = lockfile_path, "failed to read lockfile"))?
-			},
+			Err(source) => return Err(tg::error!(!source, %path, "failed to read lockfile"))?,
 		};
 		let lockfile = serde_json::from_str(&contents)
 			.map_err(|source| tg::error!(!source, "failed to deserialize lockfile"))?;

@@ -487,6 +487,10 @@ impl File {
 }
 
 impl Data {
+	pub fn id(&self) -> tg::Result<Id> {
+		Ok(Id::new(&self.serialize()?))
+	}
+
 	pub fn serialize(&self) -> tg::Result<Bytes> {
 		serde_json::to_vec(self)
 			.map(Into::into)

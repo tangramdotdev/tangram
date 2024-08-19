@@ -64,3 +64,58 @@ pub async fn try_get_root_module_path_for_path(path: &Path) -> tg::Result<Option
 	}
 	Ok(root_module_path)
 }
+
+pub fn is_root_module_path(path: &Path) -> bool {
+	let Some(last) = path.components().last() else {
+		return false;
+	};
+	let last = last.as_os_str().to_string_lossy();
+	ROOT_MODULE_FILE_NAMES.iter().any(|name| &last == *name)
+}
+
+pub fn is_module_path(path: &Path) -> bool {
+	let Some(last) = path.components().last() else {
+		return false;
+	};
+
+	let last = last.as_os_str().to_string_lossy();
+	ROOT_MODULE_FILE_NAMES.iter().any(|name| &last == *name)
+		|| last.ends_with(".tg.js")
+		|| last.ends_with(".tg.ts")
+}
+
+pub async fn try_get_lock_path_for_path(path: &Path) -> tg::Result<Option<tg::Path>> {
+	// Canonicalize the path.
+	let path = tokio::fs::canonicalize(path).await.map_err(
+		|source| tg::error!(!source, %path = path.display(), "failed to canonicalize the path"),
+	)?;
+
+	// Check if this is a module path.
+	if !is_module_path(path.as_ref()) {
+		return Ok(None);
+	}
+
+	// Walk up to find a lockfile.
+	let mut path_: &Path = path.as_ref();
+	while let Some(parent) = path_.parent() {
+		let lock = parent.join(LOCKFILE_FILE_NAME);
+		if tokio::fs::try_exists(&lock).await.map_err(
+			|source| tg::error!(!source, %path = lock.display(), "failed to check if file exists"),
+		)? {
+			let path = path
+				.try_into()
+				.map_err(|source| tg::error!(!source, "invalid path"))?;
+			return Ok(Some(path));
+		}
+		path_ = parent;
+	}
+
+	// If no existing lockfile was found, compute the path to the new lockfile.
+	let path = path
+		.parent()
+		.unwrap()
+		.join(LOCKFILE_FILE_NAME)
+		.try_into()
+		.map_err(|source| tg::error!(!source, "invalid path"))?;
+	Ok(Some(path))
+}

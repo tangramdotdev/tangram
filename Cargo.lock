@@ -5475,6 +5475,7 @@ dependencies = [
  "tangram_futures",
  "tangram_http",
  "tangram_messenger",
+ "tangram_semver",
  "tangram_vfs",
  "tar",
  "time",

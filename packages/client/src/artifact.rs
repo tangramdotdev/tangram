@@ -254,6 +254,14 @@ impl Artifact {
 }
 
 impl Data {
+	pub fn id(&self) -> tg::Result<Id> {
+		match self {
+			Self::Directory(artifact) => Ok(artifact.id()?.into()),
+			Self::File(artifact) => Ok(artifact.id()?.into()),
+			Self::Symlink(artifact) => Ok(artifact.id()?.into()),
+		}
+	}
+
 	pub fn serialize(&self) -> tg::Result<Bytes> {
 		match self {
 			Self::Directory(artifact) => artifact.serialize(),
