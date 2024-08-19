@@ -232,7 +232,7 @@ impl Server {
 	}
 
 	async fn get_file_dependencies(&self, path: &tg::Path) -> tg::Result<Vec<tg::Reference>> {
-		if let Some(data) = xattr::get(path, tg::file::TANGRAM_FILE_XATTR_NAME)
+		if let Some(data) = xattr::get(path, tg::file::XATTR_NAME)
 			.map_err(|source| tg::error!(!source, "failed to read file xattr"))?
 		{
 			let dependencies: Either<Vec<tg::object::Id>, BTreeMap<tg::Reference, tg::object::Id>> =

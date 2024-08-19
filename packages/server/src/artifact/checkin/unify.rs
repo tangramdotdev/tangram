@@ -1,12 +1,10 @@
 use crate::Server;
 use either::Either;
-use itertools::Itertools;
 use std::{
 	collections::BTreeMap,
 	sync::{Arc, RwLock},
 };
 use tangram_client as tg;
-use tangram_semver::Version;
 
 use super::input::Input;
 
@@ -182,7 +180,7 @@ impl Server {
 		Ok(id)
 	}
 
-	async fn create_unification_node_from_graph_node(
+	async fn _create_unification_node_from_graph_node(
 		&self,
 		input_graph: &mut Graph,
 		output_graph: &tg::Graph,
@@ -205,7 +203,7 @@ impl Server {
 			for (dependency, either) in file.dependencies.iter().flatten() {
 				match either {
 					Either::Left(node) => {
-						let id = Box::pin(self.create_unification_node_from_graph_node(
+						let id = Box::pin(self._create_unification_node_from_graph_node(
 							input_graph,
 							output_graph,
 							*node,
@@ -322,17 +320,8 @@ fn get_reference_from_pattern(pattern: &tg::tag::Pattern) -> tg::Reference {
 	}
 }
 
-fn try_get_id(reference: &tg::Reference) -> Option<Id> {
-	reference
-		.path()
-		.try_unwrap_tag_ref()
-		.ok()
-		.map(get_reference_from_pattern)
-		.map(Either::Left)
-}
-
 impl Server {
-	pub async fn unify_dependencies(&self, mut graph: Graph, root: &Id) -> tg::Result<Graph> {
+	pub (super) async fn unify_dependencies(&self, mut graph: Graph, root: &Id) -> tg::Result<Graph> {
 		// Get the overrides.
 		let mut overrides: BTreeMap<Id, BTreeMap<String, tg::Reference>> = BTreeMap::new();
 		let root_node = graph.nodes.get_mut(root).unwrap();

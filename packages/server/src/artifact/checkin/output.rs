@@ -76,7 +76,7 @@ impl Server {
 }
 
 impl Server {
-	pub async fn create_output_graph(
+	pub (super) async fn create_output_graph(
 		&self,
 		graph: &Graph,
 		root: &Id,
@@ -136,6 +136,7 @@ impl Server {
 
 		// Get the index of this node.
 		let index = output_graph_nodes.len();
+		output_graph_nodes.push(None);
 
 		// Update the visited table.
 		visited.insert(id.clone(), Either::Left(index));
@@ -181,13 +182,14 @@ impl Server {
 						Ok::<_, tg::Error>((name, id))
 					})
 					.try_collect()?;
-				let directory = tg::graph::data::Directory { entries };
+				let directory = tg::graph::data::node::Directory { entries };
 				tg::graph::data::Node::Directory(directory)
 			},
 			tg::artifact::Kind::File => {
 				let mut file = match &graph_node.object {
 					Either::Left(input) => {
-						self.get_file_data_from_input(input.read().unwrap().clone())
+						let input = input.read().unwrap().clone();
+						self.get_file_data_from_input(input)
 							.await?
 					},
 					Either::Right(tg::object::Id::File(file)) => {
@@ -200,9 +202,10 @@ impl Server {
 				tg::graph::data::Node::File(file)
 			},
 			tg::artifact::Kind::Symlink => {
-				let mut symlink = match &graph_node.object {
+				let symlink = match &graph_node.object {
 					Either::Left(input) => {
-						self.get_symlink_data_from_input(input.read().unwrap().clone())
+						let input = input.read().unwrap().clone();
+						self.get_symlink_data_from_input(input)
 							.await?
 					},
 					Either::Right(tg::object::Id::Symlink(symlink)) => {
@@ -220,7 +223,7 @@ impl Server {
 		Ok(Either::Left(index))
 	}
 
-	async fn get_file_data_from_input(&self, input: Input) -> tg::Result<tg::graph::data::File> {
+	async fn get_file_data_from_input(&self, input: Input) -> tg::Result<tg::graph::data::node::File> {
 		let super::input::Input { arg, metadata, .. } = input;
 
 		// Create the blob.
@@ -233,23 +236,23 @@ impl Server {
 			.map_err(|source| tg::error!(!source, "failed to create blob"))?;
 
 		// Create the data.
-		Ok(tg::graph::data::File {
-			contents: Some(output.blob),
+		Ok(tg::graph::data::node::File {
+			contents: output.blob,
 			dependencies: None,
-			executable: metadata.permissions() | 0b111 != 0,
+			executable: metadata.permissions().mode() | 0b111 != 0,
 			module: None, /* todo: modules */
 		})
 	}
 
-	async fn get_file_data_from_object(&self, file: tg::File) -> tg::Result<tg::graph::data::File> {
+	async fn get_file_data_from_object(&self, file: tg::File) -> tg::Result<tg::graph::data::node::File> {
 		match file.data(self).await? {
 			tg::file::Data::Normal {
 				contents,
 				executable,
 				module,
 				..
-			} => Ok(tg::graph::data::File {
-				contents: Some(contents),
+			} => Ok(tg::graph::data::node::File {
+				contents,
 				dependencies: None,
 				executable,
 				module,
@@ -267,13 +270,13 @@ impl Server {
 	async fn get_symlink_data_from_input(
 		&self,
 		input: Input,
-	) -> tg::Result<tg::graph::data::Symlink> {
+	) -> tg::Result<tg::graph::data::node::Symlink> {
 		let Input { arg, .. } = input;
-		let mut path: tg::Path = tokio::fs::read_link(&arg.path)
+		let path: tg::Path = tokio::fs::read_link(&arg.path)
 			.await
 			.map_err(|source| tg::error!(!source, %path = arg.path, "failed to read link"))?
-			.try_into::<tg::Path>()
-			.or_else(|| tg::error!("invalid string"))?;
+			.try_into()
+			.map_err(|source| tg::error!(!source, "invalid string"))?;
 
 		let artifact = 'a: {
 			let Some(tg::path::Component::Normal(string)) = path.components().first() else {
@@ -284,15 +287,15 @@ impl Server {
 		};
 
 		let path = (!(artifact.is_some() && path.components().len() == 1)).then_some(path);
-		Ok(tg::graph::data::Symlink { artifact, path })
+		Ok(tg::graph::data::node::Symlink { artifact, path })
 	}
 
 	async fn get_symlink_data_from_object(
 		&self,
 		symlink: tg::Symlink,
-	) -> tg::Result<tg::graph::data::Symlink> {
+	) -> tg::Result<tg::graph::data::node::Symlink> {
 		match symlink.data(self).await? {
-			tg::symlink::Data::Normal { artifact, path } => Ok(tg::graph::data::Symlink {
+			tg::symlink::Data::Normal { artifact, path } => Ok(tg::graph::data::node::Symlink {
 				artifact: artifact.map(Either::Right),
 				path,
 			}),
@@ -467,7 +470,7 @@ impl Server {
 		let contents = blob.blob;
 		let executable = (input.read().unwrap().metadata.permissions().mode() & 0o111) != 0;
 		let dependencies = if let Some(dependencies) =
-			xattr::get(&path, tg::file::TANGRAM_FILE_XATTR_NAME)
+			xattr::get(&path, tg::file::XATTR_NAME)
 				.map_err(|source| tg::error!(!source, %path, "failed to read xattrs"))?
 		{
 			let dependencies = serde_json::from_slice(&dependencies)
@@ -625,7 +628,7 @@ impl Server {
 		&self,
 		graph: &tg::graph::Data,
 		_old_files: &BTreeMap<tg::file::Id, tg::file::Data>,
-	) -> tg::Result<(BTreeMap<usize, (tg::graph::Id, usize)>)> {
+	) -> tg::Result<BTreeMap<usize, (tg::graph::Id, usize)>> {
 		let mut graphs: Vec<tg::graph::Id> = Vec::new();
 		let mut indices = BTreeMap::new();
 
@@ -667,13 +670,15 @@ impl Server {
 							let Either::Left(old_index) = artifact else {
 								continue;
 							};
-							let (graph_index_, new_index) =
+							let (new_graph_index, new_index) =
 								indices.get(old_index).copied().unwrap();
-							if graph_index_ == graph_index {
+							eprintln!("graph_index {graph_index}, new_index {new_index}, new_graph_index {new_graph_index}");
+							if new_graph_index == graph_index {
 								*old_index = new_index;
 								continue;
 							}
-							let graph_ = tg::Graph::with_id(graphs[graph_index].clone());
+
+							let graph_ = tg::Graph::with_id(graphs[new_graph_index].clone());
 							let new_artifact: tg::Artifact = match graph_.object(self).await?.nodes
 								[new_index]
 								.kind()
@@ -698,26 +703,26 @@ impl Server {
 							let Either::Left(old_index) = object else {
 								continue;
 							};
-							let (graph_index_, new_index) =
+							let (new_graph_index, new_index) =
 								indices.get(old_index).copied().unwrap();
-							if graph_index_ == graph_index {
+							if new_graph_index == graph_index {
 								*old_index = new_index;
 								continue;
 							}
-							let graph_ = tg::Graph::with_id(graphs[graph_index].clone());
-							let new_artifact: tg::Object = match graph_.object(self).await?.nodes
+							let new_graph = tg::Graph::with_id(graphs[new_graph_index].clone());
+							let new_artifact: tg::Object = match new_graph.object(self).await?.nodes
 								[new_index]
 								.kind()
 							{
 								tg::artifact::Kind::Directory => {
-									tg::Directory::with_graph_and_node(graph_.clone(), new_index)
+									tg::Directory::with_graph_and_node(new_graph.clone(), new_index)
 										.into()
 								},
 								tg::artifact::Kind::File => {
-									tg::File::with_graph_and_node(graph_.clone(), new_index).into()
+									tg::File::with_graph_and_node(new_graph.clone(), new_index).into()
 								},
 								tg::artifact::Kind::Symlink => {
-									tg::Symlink::with_graph_and_node(graph_.clone(), new_index)
+									tg::Symlink::with_graph_and_node(new_graph.clone(), new_index)
 										.into()
 								},
 							};

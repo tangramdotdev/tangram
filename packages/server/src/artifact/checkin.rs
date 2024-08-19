@@ -1,12 +1,4 @@
 use crate::Server;
-<<<<<<< HEAD
-use futures::{
-	future::{self, BoxFuture},
-	stream, Stream, StreamExt as _,
-};
-use tangram_client as tg;
-use tangram_http::{incoming::request::Ext as _, outgoing::response::Ext as _, Incoming, Outgoing};
-=======
 use futures::{future::BoxFuture, stream, FutureExt as _, Stream, StreamExt as _};
 use std::{
 	collections::BTreeMap,
@@ -29,16 +21,12 @@ struct ProgressState {
 	current: AtomicU64,
 	total: Option<AtomicU64>,
 }
->>>>>>> 40f41287 (wip: new graph impl)
 
 impl Server {
 	pub async fn check_in_artifact(
 		&self,
-		_arg: tg::artifact::checkin::Arg,
+		arg: tg::artifact::checkin::Arg,
 	) -> tg::Result<impl Stream<Item = tg::Result<tg::artifact::checkin::Event>>> {
-<<<<<<< HEAD
-		Ok(stream::once(future::ready(todo!())))
-=======
 		// Create the state.
 		let count = ProgressState {
 			current: AtomicU64::new(0),
@@ -134,7 +122,6 @@ impl Server {
 		// Check in the artifact.
 		self.check_in_or_store_artifact_inner(arg.clone(), None)
 			.await
->>>>>>> 40f41287 (wip: new graph impl)
 	}
 
 	// Check in the artifact.
@@ -239,7 +226,7 @@ impl Server {
 
 	pub(crate) fn try_store_artifact_future(
 		&self,
-		_id: &tg::artifact::Id,
+		id: &tg::artifact::Id,
 	) -> BoxFuture<'static, tg::Result<bool>> {
 		let server = self.clone();
 		let id = id.clone();
