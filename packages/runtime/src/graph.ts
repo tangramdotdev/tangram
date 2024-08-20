@@ -1,5 +1,5 @@
-import { todo } from "./assert.ts";
 import * as tg from "./index.ts";
+import { flatten } from "./util.ts";
 
 export let graph = async (...args: tg.Args<Graph.Arg>): Promise<Graph> => {
 	return await Graph.new(...args);
@@ -20,12 +20,76 @@ export class Graph {
 		return new Graph({ id });
 	}
 
-	static async new(..._args: tg.Args<Graph.Arg>): Promise<Graph> {
-		return todo();
+	static async new(...args: tg.Args<Graph.Arg>): Promise<Graph> {
+		// Combine incoming arguments.
+		let arg = await Graph.arg(...args);
+
+		// Make all optional argument fields explicit.
+		let nodes: Array<Graph.Node> = await Promise.all(
+			(arg.nodes ?? []).map(async (node) => {
+				if (node.kind === "directory") {
+					return {
+						kind: "directory",
+						entries: node.entries ?? {},
+					};
+				} else if (node.kind === "file") {
+					return {
+						kind: "file",
+						contents: await tg.blob(node.contents),
+						dependencies: node.dependencies ?? undefined,
+						executable: node.executable ?? false,
+					};
+				} else if (node.kind === "symlink") {
+					return {
+						kind: "symlink",
+						artifact: node.artifact ?? undefined,
+						path: node.path ? tg.path(node.path) : undefined,
+					};
+				} else {
+					return tg.unreachable(node);
+				}
+			})
+		);
+
+		// Construct the object and return a new instance.
+		return new Graph({ object: { nodes } });
 	}
 
-	static async arg(..._args: tg.Args<Graph.Arg>): Promise<Graph.ArgObject> {
-		return todo();
+	static async arg(...args: tg.Args<Graph.Arg>): Promise<Graph.ArgObject> {
+		// Resolve and flatten the incoming arguments.
+		let resolved = await Promise.all(args.map(tg.resolve));
+		let flattened = flatten(resolved);
+
+		// Add the given offset to all indices in the object.
+		let addOffset = (obj: any, offset: number): any => {
+			if (typeof obj === "number") return obj + offset;
+			if (Array.isArray(obj)) return obj.map((item) => addOffset(item, offset));
+			if (obj && typeof obj === "object") {
+				return Object.fromEntries(
+					Object.entries(obj).map(([key, value]) => [
+						key,
+						addOffset(value, offset),
+					])
+				);
+			}
+			return obj;
+		};
+
+		// Process all arguments, renumbering all indices.
+		let nodes: Array<Graph.NodeArg> = [];
+		let offset = 0;
+
+		for (let arg of flattened) {
+			let argNodes =
+				arg instanceof Graph
+					? ((await arg.nodes()) as Array<Graph.NodeArg>)
+					: arg.nodes || [];
+			let renumberedNodes = argNodes.map((node) => addOffset(node, offset));
+			nodes.push(...renumberedNodes);
+			offset += renumberedNodes.length;
+		}
+
+		return { nodes };
 	}
 
 	static expect(value: unknown): Graph {
@@ -116,8 +180,8 @@ export namespace Graph {
 		kind: "file";
 		contents: tg.Blob;
 		dependencies:
-			| Array<number | Object>
-			| { [reference: string]: number | Object }
+			| Array<number | tg.Object>
+			| { [reference: string]: number | tg.Object }
 			| undefined;
 		executable: boolean;
 	};
@@ -128,5 +192,5 @@ export namespace Graph {
 		path: tg.Path | undefined;
 	};
 
-	export type State = tg.Object.State<Graph.Id, Object>;
+	export type State = tg.Object.State<Graph.Id, Graph.Object>;
 }
