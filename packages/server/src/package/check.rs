@@ -3,10 +3,10 @@ use tangram_client as tg;
 use tangram_http::{incoming::request::Ext as _, outgoing::response::Ext as _, Incoming, Outgoing};
 
 impl Server {
-	pub async fn check_artifact(
+	pub async fn check_package(
 		&self,
-		arg: tg::artifact::check::Arg,
-	) -> tg::Result<tg::artifact::check::Output> {
+		arg: tg::package::check::Arg,
+	) -> tg::Result<tg::package::check::Output> {
 		// Handle the remote.
 		let remote = arg.remote.as_ref();
 		if let Some(remote) = remote {
@@ -15,18 +15,18 @@ impl Server {
 				.get(remote)
 				.ok_or_else(|| tg::error!("the remote does not exist"))?
 				.clone();
-			let arg = tg::artifact::check::Arg {
+			let arg = tg::package::check::Arg {
 				remote: None,
 				..arg
 			};
-			let output = remote.check_artifact(arg).await?;
+			let output = remote.check_package(arg).await?;
 			return Ok(output);
 		}
 
 		// Create the module.
 		let module = tg::Module {
 			kind: tg::module::Kind::Ts,
-			object: tg::module::Object::Object(arg.artifact.clone().into()),
+			object: tg::module::Object::Object(arg.package.clone().into()),
 		};
 
 		// Create the compiler.
@@ -36,14 +36,14 @@ impl Server {
 		let diagnostics = compiler.check(vec![module]).await?;
 
 		// Create the output.
-		let output = tg::artifact::check::Output { diagnostics };
+		let output = tg::package::check::Output { diagnostics };
 
 		Ok(output)
 	}
 }
 
 impl Server {
-	pub(crate) async fn handle_check_artifact_request<H>(
+	pub(crate) async fn handle_check_package_request<H>(
 		handle: &H,
 		request: http::Request<Incoming>,
 	) -> tg::Result<http::Response<Outgoing>>
@@ -51,7 +51,7 @@ impl Server {
 		H: tg::Handle,
 	{
 		let arg = request.json().await?;
-		let output = handle.check_artifact(arg).await?;
+		let output = handle.check_package(arg).await?;
 		let response = http::Response::builder().json(output).unwrap();
 		Ok(response)
 	}

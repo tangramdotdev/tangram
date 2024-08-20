@@ -42,18 +42,18 @@ impl Cli {
 		// Get the reference.
 		let item = self.get_reference(&args.reference).await?;
 
-		// Get the file.
-		let Either::Right(tg::Object::File(file)) = item else {
-			return Err(tg::error!("expected a file"));
+		// Get the package.
+		let Either::Right(tg::Object::Directory(package)) = item else {
+			return Err(tg::error!("expected a package"));
 		};
 
-		// Document the file.
-		let file = file.id(&handle).await?;
-		let arg = tg::artifact::document::Arg {
-			artifact: file.into(),
+		// Document the package.
+		let package = package.id(&handle).await?;
+		let arg = tg::package::document::Arg {
+			package: package.into(),
 			remote,
 		};
-		let doc = handle.document_artifact(arg).await?;
+		let doc = handle.document_package(arg).await?;
 
 		// Serialize the output.
 		let output = serde_json::to_string_pretty(&doc)

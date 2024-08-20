@@ -44,18 +44,11 @@ pub enum Object {
 		contents: tg::Blob,
 		dependencies: Option<Either<Vec<tg::Object>, BTreeMap<tg::Reference, tg::Object>>>,
 		executable: bool,
-		module: Option<Module>,
 	},
 	Graph {
 		graph: tg::Graph,
 		node: usize,
 	},
-}
-
-#[derive(Clone, Copy, Debug, serde::Deserialize, serde::Serialize)]
-pub enum Module {
-	Js,
-	Ts,
 }
 
 #[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
@@ -70,9 +63,6 @@ pub enum Data {
 
 		#[serde(default, skip_serializing_if = "is_false")]
 		executable: bool,
-
-		#[serde(default, skip_serializing_if = "Option::is_none")]
-		module: Option<tg::file::Module>,
 	},
 
 	Graph {
@@ -188,7 +178,6 @@ impl File {
 				contents,
 				dependencies,
 				executable,
-				module,
 			} => {
 				let contents = contents.id(handle).await?.clone();
 				let dependencies = if let Some(dependencies) = &dependencies {
@@ -219,12 +208,10 @@ impl File {
 					None
 				};
 				let executable = *executable;
-				let module = *module;
 				Ok(Data::Normal {
 					contents,
 					dependencies,
 					executable,
-					module,
 				})
 			},
 			Object::Graph { graph, node } => {
@@ -297,8 +284,9 @@ impl File {
 					.ok_or_else(|| tg::error!("expected a file"))?;
 				file.dependencies
 					.as_ref()
-					.map(|dependencies| {
-						dependencies
+					.map(|dependencies| match dependencies {
+						Either::Left(dependencies) => todo!(),
+						Either::Right(dependencies) => dependencies
 							.iter()
 							.map(|(reference, either)| {
 								let object = match either {
@@ -333,7 +321,7 @@ impl File {
 								};
 								Ok((reference.clone(), object))
 							})
-							.collect::<tg::Result<_>>()
+							.collect::<tg::Result<_>>(),
 					})
 					.transpose()?
 					.map(Either::Right)
@@ -384,8 +372,10 @@ impl File {
 				match file
 					.dependencies
 					.as_ref()
-					.and_then(|dependencies| dependencies.get(reference))
-				{
+					.and_then(|dependencies| match dependencies {
+						Either::Left(_) => None,
+						Either::Right(dependencies) => dependencies.get(reference),
+					}) {
 					None => None,
 					Some(Either::Left(node)) => {
 						let kind = object
@@ -431,28 +421,6 @@ impl File {
 					.ok()
 					.ok_or_else(|| tg::error!("expected a file"))?;
 				Ok(file.executable)
-			},
-		}
-	}
-
-	pub async fn module<H>(&self, handle: &H) -> tg::Result<Option<tg::file::Module>>
-	where
-		H: tg::Handle,
-	{
-		let object = self.object(handle).await?;
-		match object.as_ref() {
-			Object::Normal { module, .. } => Ok(*module),
-			Object::Graph { graph, node } => {
-				let object = graph.object(handle).await?;
-				let node = object
-					.nodes
-					.get(*node)
-					.ok_or_else(|| tg::error!("invalid index"))?;
-				let file = node
-					.try_unwrap_file_ref()
-					.ok()
-					.ok_or_else(|| tg::error!("expected a file"))?;
-				Ok(file.module)
 			},
 		}
 	}
@@ -524,31 +492,6 @@ impl Data {
 	}
 }
 
-impl std::fmt::Display for Module {
-	fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-		let kind = match self {
-			Self::Js => "js",
-			Self::Ts => "ts",
-		};
-		write!(f, "{kind}")?;
-		Ok(())
-	}
-}
-
-impl std::str::FromStr for Module {
-	type Err = tg::Error;
-
-	fn from_str(s: &str) -> tg::Result<Self, Self::Err> {
-		Ok(match s {
-			"js" => Self::Js,
-			"ts" => Self::Ts,
-			_ => {
-				return Err(tg::error!(%s, "invalid kind"));
-			},
-		})
-	}
-}
-
 impl TryFrom<Data> for Object {
 	type Error = tg::Error;
 
@@ -558,7 +501,6 @@ impl TryFrom<Data> for Object {
 				contents,
 				dependencies,
 				executable,
-				module,
 			} => {
 				let contents = tg::Blob::with_id(contents);
 				let dependencies = dependencies.map(|dependencies| match dependencies {
@@ -576,7 +518,6 @@ impl TryFrom<Data> for Object {
 					contents,
 					dependencies,
 					executable,
-					module,
 				})
 			},
 			Data::Graph { graph, node } => {

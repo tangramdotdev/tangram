@@ -1,15 +1,11 @@
-import type { Blob } from "./blob.ts";
-import type { Checksum } from "./checksum.ts";
-import type { Object_ } from "./object.ts";
-import type { Target } from "./target.ts";
-import type { Value } from "./value.ts";
+import type * as tg from "./index.ts";
 
 declare global {
 	function syscall(
 		syscall: "checksum",
 		input: string | Uint8Array,
-		algorithm: Checksum.Algorithm,
-	): Checksum;
+		algorithm: tg.Checksum.Algorithm,
+	): tg.Checksum;
 
 	function syscall(
 		syscall: "encoding_base64_decode",
@@ -41,18 +37,21 @@ declare global {
 
 	function syscall(syscall: "encoding_yaml_encode", value: unknown): string;
 
-	function syscall(syscall: "load", id: Object_.Id): Promise<Object_.Object_>;
+	function syscall(
+		syscall: "load",
+		id: tg.Object.Id,
+	): Promise<tg.Object.Object>;
 
 	function syscall(syscall: "log", value: string): void;
 
-	function syscall(syscall: "output", target: Target): Promise<Value>;
+	function syscall(syscall: "output", target: tg.Target): Promise<tg.Value>;
 
-	function syscall(syscall: "read", blob: Blob): Promise<Uint8Array>;
+	function syscall(syscall: "read", blob: tg.Blob): Promise<Uint8Array>;
 
 	function syscall(syscall: "sleep", duration: number): Promise<void>;
 
 	function syscall(
 		syscall: "store",
-		object: Object_.Object_,
-	): Promise<Object_.Id>;
+		object: tg.Object.Object,
+	): Promise<tg.Object.Id>;
 }

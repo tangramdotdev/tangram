@@ -4,9 +4,9 @@ use tangram_client as tg;
 use tangram_http::{incoming::request::Ext as _, outgoing::response::Ext as _, Incoming, Outgoing};
 
 impl Server {
-	pub async fn format_artifact(&self, arg: tg::artifact::format::Arg) -> tg::Result<()> {
+	pub async fn format_package(&self, arg: tg::package::format::Arg) -> tg::Result<()> {
 		// Get the root module path.
-		let path = tg::artifact::module::get_root_module_path_for_path(arg.path.as_ref()).await?;
+		let path = tg::module::get_root_module_path_for_path(arg.path.as_ref()).await?;
 
 		// Format the modules recursively.
 		let mut visited = HashSet::default();
@@ -63,7 +63,7 @@ impl Server {
 }
 
 impl Server {
-	pub(crate) async fn handle_format_artifact_request<H>(
+	pub(crate) async fn handle_format_package_request<H>(
 		handle: &H,
 		request: http::Request<Incoming>,
 	) -> tg::Result<http::Response<Outgoing>>
@@ -71,7 +71,7 @@ impl Server {
 		H: tg::Handle,
 	{
 		let arg = request.json().await?;
-		handle.format_artifact(arg).await?;
+		handle.format_package(arg).await?;
 		let response = http::Response::builder().empty().unwrap();
 		Ok(response)
 	}

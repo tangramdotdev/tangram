@@ -195,7 +195,6 @@ impl Printer {
 				contents,
 				dependencies,
 				executable,
-				module,
 			} => {
 				let contents = contents.clone().into();
 				map.insert("contents".to_owned(), contents);
@@ -219,9 +218,6 @@ impl Printer {
 				}
 				if *executable {
 					map.insert("executable".to_owned(), true.into());
-				}
-				if let Some(module) = module {
-					map.insert("module".to_owned(), module.to_string().into());
 				}
 			},
 			tg::file::Object::Graph { graph, node } => {
@@ -294,27 +290,26 @@ impl Printer {
 							contents,
 							dependencies,
 							executable,
-							module,
 						} = file;
 						map.insert("contents".to_owned(), contents.clone().into());
 						if let Some(dependencies) = &dependencies {
-							let dependencies = dependencies
-								.iter()
-								.map(|(dependency, either)| {
-									let either = match either {
-										Either::Left(index) => index.to_f64().unwrap().into(),
-										Either::Right(object) => object.clone().into(),
-									};
-									(dependency.to_string(), either)
-								})
-								.collect::<BTreeMap<String, tg::Value>>();
+							let dependencies = match dependencies {
+								Either::Left(_) => todo!(),
+								Either::Right(dependencies) => dependencies
+									.iter()
+									.map(|(dependency, either)| {
+										let either = match either {
+											Either::Left(index) => index.to_f64().unwrap().into(),
+											Either::Right(object) => object.clone().into(),
+										};
+										(dependency.to_string(), either)
+									})
+									.collect::<BTreeMap<String, tg::Value>>(),
+							};
 							map.insert("dependencies".to_owned(), dependencies.into());
 						}
 						if *executable {
 							map.insert("executable".to_owned(), true.into());
-						}
-						if let Some(module) = module {
-							map.insert("module".to_owned(), module.to_string().into());
 						}
 					},
 					tg::graph::Node::Symlink(symlink) => {

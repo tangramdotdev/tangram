@@ -27,21 +27,6 @@ pub trait Handle: Clone + Unpin + Send + Sync + 'static {
 		>,
 	> + Send;
 
-	fn check_artifact(
-		&self,
-		arg: tg::artifact::check::Arg,
-	) -> impl Future<Output = tg::Result<tg::artifact::check::Output>> + Send;
-
-	fn document_artifact(
-		&self,
-		arg: tg::artifact::document::Arg,
-	) -> impl Future<Output = tg::Result<serde_json::Value>> + Send;
-
-	fn format_artifact(
-		&self,
-		arg: tg::artifact::format::Arg,
-	) -> impl Future<Output = tg::Result<()>> + Send;
-
 	fn create_blob(
 		&self,
 		reader: impl AsyncRead + Send + 'static,
@@ -210,6 +195,21 @@ pub trait Handle: Clone + Unpin + Send + Sync + 'static {
 			impl Stream<Item = tg::Result<tg::object::pull::Event>> + Send + 'static,
 		>,
 	> + Send;
+
+	fn check_package(
+		&self,
+		arg: tg::package::check::Arg,
+	) -> impl Future<Output = tg::Result<tg::package::check::Output>> + Send;
+
+	fn document_package(
+		&self,
+		arg: tg::package::document::Arg,
+	) -> impl Future<Output = tg::Result<serde_json::Value>> + Send;
+
+	fn format_package(
+		&self,
+		arg: tg::package::format::Arg,
+	) -> impl Future<Output = tg::Result<()>> + Send;
 
 	fn try_get_reference(
 		&self,

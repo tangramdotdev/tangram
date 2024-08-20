@@ -66,9 +66,13 @@ pub mod node {
 	#[derive(Clone, Debug)]
 	pub struct File {
 		pub contents: tg::Blob,
-		pub dependencies: Option<BTreeMap<tg::Reference, Either<usize, tg::Object>>>,
+		pub dependencies: Option<
+			Either<
+				Vec<Either<usize, tg::Object>>,
+				BTreeMap<tg::Reference, Either<usize, tg::Object>>,
+			>,
+		>,
 		pub executable: bool,
-		pub module: Option<tg::file::Module>,
 	}
 
 	#[derive(Clone, Debug)]
@@ -121,9 +125,6 @@ pub mod data {
 
 			#[serde(default, skip_serializing_if = "is_false")]
 			pub executable: bool,
-
-			#[serde(default, skip_serializing_if = "Option::is_none")]
-			pub module: Option<tg::file::Module>,
 		}
 
 		#[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
@@ -278,37 +279,37 @@ impl Node {
 				contents,
 				dependencies,
 				executable,
-				module,
 			}) => {
 				let contents = contents.id(handle).await?;
 				let dependencies = if let Some(dependencies) = &dependencies {
-					Some(
-						dependencies
-							.iter()
-							.map(|(dependency, either)| async move {
-								let dependency = dependency.clone();
-								let option = match either {
-									Either::Left(index) => Either::Left(*index),
-									Either::Right(object) => {
-										Either::Right(object.id(handle).await?)
-									},
-								};
-								Ok::<_, tg::Error>((dependency, option))
-							})
-							.collect::<FuturesUnordered<_>>()
-							.try_collect()
-							.await?,
-					)
+					match dependencies {
+						Either::Left(dependencies) => todo!(),
+						Either::Right(dependencies) => Some(
+							dependencies
+								.iter()
+								.map(|(dependency, either)| async move {
+									let dependency = dependency.clone();
+									let option = match either {
+										Either::Left(index) => Either::Left(*index),
+										Either::Right(object) => {
+											Either::Right(object.id(handle).await?)
+										},
+									};
+									Ok::<_, tg::Error>((dependency, option))
+								})
+								.collect::<FuturesUnordered<_>>()
+								.try_collect()
+								.await?,
+						),
+					}
 				} else {
 					None
 				};
 				let executable = *executable;
-				let module = *module;
 				Ok(data::Node::File(tg::graph::data::node::File {
 					contents,
 					dependencies,
 					executable,
-					module,
 				}))
 			},
 
@@ -422,22 +423,22 @@ impl TryFrom<data::Node> for Node {
 				contents,
 				dependencies,
 				executable,
-				module,
 			}) => {
 				let contents = tg::Blob::with_id(contents);
 				let dependencies = dependencies.map(|dependencies| {
-					dependencies
-						.into_iter()
-						.map(|(reference, either)| {
-							(reference, either.map_right(tg::Object::with_id))
-						})
-						.collect()
+					Either::Right(
+						dependencies
+							.into_iter()
+							.map(|(reference, either)| {
+								(reference, either.map_right(tg::Object::with_id))
+							})
+							.collect(),
+					)
 				});
 				let file = tg::graph::node::File {
 					contents,
 					dependencies,
 					executable,
-					module,
 				};
 				let node = Node::File(file);
 				Ok(node)

@@ -51,11 +51,7 @@ impl Compiler {
 						tg::Object::Leaf(_) => tg::module::Kind::Leaf,
 						tg::Object::Branch(_) => tg::module::Kind::Branch,
 						tg::Object::Directory(_) => tg::module::Kind::Directory,
-						tg::Object::File(file) => match file.module(&self.server).await? {
-							Some(tg::file::Module::Js) => tg::module::Kind::Js,
-							Some(tg::file::Module::Ts) => tg::module::Kind::Ts,
-							_ => tg::module::Kind::File,
-						},
+						tg::Object::File(_) => todo!(),
 						tg::Object::Symlink(_) => tg::module::Kind::Symlink,
 						tg::Object::Graph(_) => tg::module::Kind::Graph,
 						tg::Object::Target(_) => tg::module::Kind::Target,

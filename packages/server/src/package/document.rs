@@ -3,9 +3,9 @@ use tangram_client as tg;
 use tangram_http::{incoming::request::Ext as _, outgoing::response::Ext as _, Incoming, Outgoing};
 
 impl Server {
-	pub async fn document_artifact(
+	pub async fn document_package(
 		&self,
-		arg: tg::artifact::document::Arg,
+		arg: tg::package::document::Arg,
 	) -> tg::Result<serde_json::Value> {
 		// Handle the remote.
 		let remote = arg.remote.as_ref();
@@ -15,18 +15,18 @@ impl Server {
 				.get(remote)
 				.ok_or_else(|| tg::error!("the remote does not exist"))?
 				.clone();
-			let arg = tg::artifact::document::Arg {
+			let arg = tg::package::document::Arg {
 				remote: None,
 				..arg
 			};
-			let output = remote.document_artifact(arg).await?;
+			let output = remote.document_package(arg).await?;
 			return Ok(output);
 		}
 
 		// Create the module.
 		let module = tg::Module {
 			kind: tg::module::Kind::Ts,
-			object: tg::module::Object::Object(arg.artifact.clone().into()),
+			object: tg::module::Object::Object(arg.package.clone().into()),
 		};
 
 		// Create the compiler.
@@ -40,7 +40,7 @@ impl Server {
 }
 
 impl Server {
-	pub(crate) async fn handle_document_artifact_request<H>(
+	pub(crate) async fn handle_document_package_request<H>(
 		handle: &H,
 		request: http::Request<Incoming>,
 	) -> tg::Result<http::Response<Outgoing>>
@@ -48,7 +48,7 @@ impl Server {
 		H: tg::Handle,
 	{
 		let arg = request.json().await?;
-		let output = handle.document_artifact(arg).await?;
+		let output = handle.document_package(arg).await?;
 		let response = http::Response::builder().json(output).unwrap();
 		Ok(response)
 	}

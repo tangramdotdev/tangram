@@ -12,14 +12,10 @@ use std::{
 
 pub mod archive;
 pub mod bundle;
-pub mod check;
 pub mod checkin;
 pub mod checkout;
 pub mod checksum;
-pub mod document;
 pub mod extract;
-pub mod format;
-pub mod module;
 
 /// An artifact kind.
 #[derive(Clone, Copy, Debug)]

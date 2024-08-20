@@ -60,6 +60,7 @@ pub mod lockfile;
 pub mod module;
 pub mod mutation;
 pub mod object;
+pub mod package;
 pub mod path;
 pub mod position;
 pub mod range;
@@ -581,27 +582,6 @@ impl tg::Handle for Client {
 		self.check_out_artifact(id, arg)
 	}
 
-	fn check_artifact(
-		&self,
-		arg: tg::artifact::check::Arg,
-	) -> impl Future<Output = tg::Result<tg::artifact::check::Output>> {
-		self.check_artifact(arg)
-	}
-
-	fn document_artifact(
-		&self,
-		arg: tg::artifact::document::Arg,
-	) -> impl Future<Output = tg::Result<serde_json::Value>> {
-		self.document_artifact(arg)
-	}
-
-	fn format_artifact(
-		&self,
-		arg: tg::artifact::format::Arg,
-	) -> impl Future<Output = tg::Result<()>> {
-		self.format_artifact(arg)
-	}
-
 	fn create_blob(
 		&self,
 		reader: impl AsyncRead + Send + 'static,
@@ -813,6 +793,27 @@ impl tg::Handle for Client {
 		>,
 	> {
 		self.pull_object(id, arg)
+	}
+
+	fn check_package(
+		&self,
+		arg: tg::package::check::Arg,
+	) -> impl Future<Output = tg::Result<tg::package::check::Output>> {
+		self.check_package(arg)
+	}
+
+	fn document_package(
+		&self,
+		arg: tg::package::document::Arg,
+	) -> impl Future<Output = tg::Result<serde_json::Value>> {
+		self.document_package(arg)
+	}
+
+	fn format_package(
+		&self,
+		arg: tg::package::format::Arg,
+	) -> impl Future<Output = tg::Result<()>> {
+		self.format_package(arg)
 	}
 
 	fn try_get_reference(

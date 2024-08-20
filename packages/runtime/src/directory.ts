@@ -1,15 +1,8 @@
-import type { Artifact } from "./artifact.ts";
-import { assert as assert_, unreachable } from "./assert.ts";
-import { Blob } from "./blob.ts";
-import { File, file } from "./file.ts";
-import type { Object_ } from "./object.ts";
-import { Path } from "./path.ts";
-import { type Unresolved, resolve } from "./resolve.ts";
-import { Symlink } from "./symlink.ts";
+import * as tg from "./index.ts";
 import type { MaybeNestedArray } from "./util.ts";
 
 export let directory = async (
-	...args: Array<Unresolved<MaybeNestedArray<Directory.Arg>>>
+	...args: Array<tg.Unresolved<MaybeNestedArray<Directory.Arg>>>
 ) => {
 	return await Directory.new(...args);
 };
@@ -30,10 +23,10 @@ export class Directory {
 	}
 
 	static async new(
-		...args: Array<Unresolved<MaybeNestedArray<Directory.Arg>>>
+		...args: Array<tg.Unresolved<MaybeNestedArray<Directory.Arg>>>
 	): Promise<Directory> {
-		let entries = await (await Promise.all(args.map(resolve))).reduce<
-			Promise<{ [key: string]: Artifact }>
+		let entries = await (await Promise.all(args.map(tg.resolve))).reduce<
+			Promise<{ [key: string]: tg.Artifact }>
 		>(async function reduce(promiseEntries, arg) {
 			let entries = await promiseEntries;
 			if (arg === undefined) {
@@ -64,11 +57,11 @@ export class Directory {
 				for (let [key, value] of Object.entries(arg)) {
 					// Separate the first normal path component from the trailing path components.
 					let [_, firstComponent, ...trailingComponents] =
-						Path.new(key).components;
+						tg.Path.new(key).components;
 					if (firstComponent === undefined) {
 						throw new Error("the path must have at least one component");
 					}
-					if (!Path.Component.isNormal(firstComponent)) {
+					if (!tg.Path.Component.isNormal(firstComponent)) {
 						throw new Error("all path components must be normal");
 					}
 					let name = firstComponent;
@@ -83,7 +76,7 @@ export class Directory {
 
 					if (trailingComponents.length > 0) {
 						// If there are trailing path components, then recurse.
-						let trailingPath = Path.new(trailingComponents).toString();
+						let trailingPath = tg.Path.new(trailingComponents).toString();
 
 						// Merge the entry with the trailing path.
 						let newEntry = await Directory.new(existingEntry, {
@@ -99,11 +92,14 @@ export class Directory {
 						} else if (
 							typeof value === "string" ||
 							value instanceof Uint8Array ||
-							Blob.is(value)
+							tg.Blob.is(value)
 						) {
-							let newEntry = await file(value);
+							let newEntry = await tg.file(value);
 							entries[name] = newEntry;
-						} else if (value instanceof File || value instanceof Symlink) {
+						} else if (
+							value instanceof tg.File ||
+							value instanceof tg.Symlink
+						) {
 							entries[name] = value;
 						} else {
 							entries[name] = await Directory.new(existingEntry, value);
@@ -111,7 +107,7 @@ export class Directory {
 					}
 				}
 			} else {
-				return unreachable();
+				return tg.unreachable();
 			}
 			return entries;
 		}, Promise.resolve({}));
@@ -119,12 +115,12 @@ export class Directory {
 	}
 
 	static expect(value: unknown): Directory {
-		assert_(value instanceof Directory);
+		tg.assert(value instanceof Directory);
 		return value;
 	}
 
 	static assert(value: unknown): asserts value is Directory {
-		assert_(value instanceof Directory);
+		tg.assert(value instanceof Directory);
 	}
 
 	async id(): Promise<Directory.Id> {
@@ -132,7 +128,7 @@ export class Directory {
 		return this.#state.id!;
 	}
 
-	async object(): Promise<Directory.Object_> {
+	async object(): Promise<Directory.Object> {
 		await this.load();
 		return this.#state.object!;
 	}
@@ -140,7 +136,7 @@ export class Directory {
 	async load() {
 		if (this.#state.object === undefined) {
 			let object = await syscall("load", this.#state.id!);
-			assert_(object.kind === "directory");
+			tg.assert(object.kind === "directory");
 			this.#state.object = object.value;
 		}
 	}
@@ -154,29 +150,31 @@ export class Directory {
 		}
 	}
 
-	async get(arg: Path.Arg): Promise<Directory | File> {
+	async get(arg: tg.Path.Arg): Promise<Directory | tg.File> {
 		let artifact = await this.tryGet(arg);
-		assert_(artifact, `Failed to get the directory entry "${arg}".`);
+		tg.assert(artifact, `Failed to get the directory entry "${arg}".`);
 		return artifact;
 	}
 
-	async tryGet(arg: Path.Arg): Promise<Directory | File | undefined> {
-		let artifact: Directory | File = this;
-		let currentPath = Path.new();
-		let components = Path.new(arg).components;
+	async tryGet(arg: tg.Path.Arg): Promise<Directory | tg.File | undefined> {
+		let artifact: Directory | tg.File = this;
+		let currentPath = tg.Path.new();
+		let components = tg.Path.new(arg).components;
 		for (let i = 1; i < components.length; i++) {
 			let component = components[i]!;
-			if (!Path.Component.isNormal(component)) {
+			if (!tg.Path.Component.isNormal(component)) {
 				throw new Error("all path components must be normal");
 			}
 			if (!(artifact instanceof Directory)) {
 				return undefined;
 			}
 			currentPath.push(component);
-			let entry: Artifact | undefined = (await artifact.entries())[component];
+			let entry: tg.Artifact | undefined = (await artifact.entries())[
+				component
+			];
 			if (entry === undefined) {
 				return undefined;
-			} else if (entry instanceof Symlink) {
+			} else if (entry instanceof tg.Symlink) {
 				let resolved = await entry.resolve({
 					artifact: this,
 					path: currentPath,
@@ -192,26 +190,26 @@ export class Directory {
 		return artifact;
 	}
 
-	async entries(): Promise<{ [key: string]: Artifact }> {
-		let entries: { [key: string]: Artifact } = {};
+	async entries(): Promise<{ [key: string]: tg.Artifact }> {
+		let entries: { [key: string]: tg.Artifact } = {};
 		for await (let [name, artifact] of this) {
 			entries[name] = artifact;
 		}
 		return entries;
 	}
 
-	async *walk(): AsyncIterableIterator<[Path, Artifact]> {
+	async *walk(): AsyncIterableIterator<[tg.Path, tg.Artifact]> {
 		for await (let [name, artifact] of this) {
-			yield [Path.new(name), artifact];
+			yield [tg.Path.new(name), artifact];
 			if (artifact instanceof Directory) {
 				for await (let [entryName, entryArtifact] of artifact.walk()) {
-					yield [Path.new(name).join(entryName), entryArtifact];
+					yield [tg.Path.new(name).join(entryName), entryArtifact];
 				}
 			}
 		}
 	}
 
-	async *[Symbol.asyncIterator](): AsyncIterator<[string, Artifact]> {
+	async *[Symbol.asyncIterator](): AsyncIterator<[string, tg.Artifact]> {
 		let object = await this.object();
 		for (let [name, artifact] of Object.entries(object.entries)) {
 			yield [name, artifact];
@@ -227,16 +225,16 @@ export namespace Directory {
 			| undefined
 			| string
 			| Uint8Array
-			| Blob
-			| Artifact
+			| tg.Blob
+			| tg.Artifact
 			| ArgObject;
 	};
 
 	export type Id = string;
 
-	export type Object_ = {
-		entries: { [key: string]: Artifact };
+	export type Object = {
+		entries: { [key: string]: tg.Artifact };
 	};
 
-	export type State = Object_.State<Directory.Id, Directory.Object_>;
+	export type State = tg.Object.State<Directory.Id, Directory.Object>;
 }

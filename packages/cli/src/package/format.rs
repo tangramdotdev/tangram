@@ -20,8 +20,8 @@ impl Cli {
 			.try_into()?;
 
 		// Format the package.
-		let arg = tg::artifact::format::Arg { path };
-		handle.format_artifact(arg).await?;
+		let arg = tg::package::format::Arg { path };
+		handle.format_package(arg).await?;
 
 		Ok(())
 	}

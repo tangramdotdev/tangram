@@ -6,7 +6,6 @@ pub struct Builder {
 	contents: tg::Blob,
 	dependencies: Option<Either<Vec<tg::Object>, BTreeMap<tg::Reference, tg::Object>>>,
 	executable: bool,
-	module: Option<tg::file::Module>,
 }
 
 impl Builder {
@@ -16,7 +15,6 @@ impl Builder {
 			contents: contents.into(),
 			dependencies: None,
 			executable: false,
-			module: None,
 		}
 	}
 
@@ -42,18 +40,11 @@ impl Builder {
 	}
 
 	#[must_use]
-	pub fn module(mut self, module: impl Into<Option<tg::file::Module>>) -> Self {
-		self.module = module.into();
-		self
-	}
-
-	#[must_use]
 	pub fn build(self) -> tg::File {
 		tg::File::with_object(tg::file::Object::Normal {
 			contents: self.contents,
 			dependencies: self.dependencies,
 			executable: self.executable,
-			module: self.module,
 		})
 	}
 }

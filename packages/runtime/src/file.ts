@@ -1,13 +1,7 @@
-import { Args } from "./args.ts";
-import type { Artifact } from "./artifact.ts";
-import { assert as assert_ } from "./assert.ts";
-import { Blob, blob } from "./blob.ts";
-import type { Object_ } from "./object.ts";
-import { resolve } from "./resolve.ts";
+import * as tg from "./index.ts";
 import { flatten } from "./util.ts";
-import type { Value } from "./value.ts";
 
-export let file = async (...args: Args<File.Arg>) => {
+export let file = async (...args: tg.Args<File.Arg>) => {
 	return await File.new(...args);
 };
 
@@ -26,18 +20,18 @@ export class File {
 		return new File({ id });
 	}
 
-	static async new(...args: Args<File.Arg>): Promise<File> {
+	static async new(...args: tg.Args<File.Arg>): Promise<File> {
 		let arg = await File.arg(...args);
-		let contents = await blob(arg.contents);
+		let contents = await tg.blob(arg.contents);
 		let dependencies = arg.dependencies ?? [];
 		let executable = arg.executable ?? false;
 		return new File({
-			object: { contents, dependencies, executable, metadata },
+			object: { contents, dependencies, executable },
 		});
 	}
 
-	static async arg(...args: Args<File.Arg>): Promise<File.ArgObject> {
-		let resolved = await Promise.all(args.map(resolve));
+	static async arg(...args: tg.Args<File.Arg>): Promise<File.ArgObject> {
+		let resolved = await Promise.all(args.map(tg.resolve));
 		let flattened = flatten(resolved);
 		let objects = await Promise.all(
 			flattened.map(async (arg) => {
@@ -46,7 +40,7 @@ export class File {
 				} else if (
 					typeof arg === "string" ||
 					arg instanceof Uint8Array ||
-					Blob.is(arg)
+					tg.Blob.is(arg)
 				) {
 					return { contents: arg };
 				} else if (arg instanceof File) {
@@ -60,21 +54,21 @@ export class File {
 				}
 			}),
 		);
-		let mutations = await Args.createMutations(objects, {
+		let mutations = await tg.Args.createMutations(objects, {
 			contents: "append",
 			dependencies: "append",
 		});
-		let arg = await Args.applyMutations(mutations);
+		let arg = await tg.Args.applyMutations(mutations);
 		return arg;
 	}
 
 	static expect(value: unknown): File {
-		assert_(value instanceof File);
+		tg.assert(value instanceof File);
 		return value;
 	}
 
 	static assert(value: unknown): asserts value is File {
-		assert_(value instanceof File);
+		tg.assert(value instanceof File);
 	}
 
 	async id(): Promise<File.Id> {
@@ -82,7 +76,7 @@ export class File {
 		return this.#state.id!;
 	}
 
-	async object(): Promise<File.Object_> {
+	async object(): Promise<File.Object> {
 		await this.load();
 		return this.#state.object!;
 	}
@@ -90,7 +84,7 @@ export class File {
 	async load() {
 		if (this.#state.object === undefined) {
 			let object = await syscall("load", this.#state.id!);
-			assert_(object.kind === "file");
+			tg.assert(object.kind === "file");
 			this.#state.object = object.value;
 		}
 	}
@@ -104,11 +98,11 @@ export class File {
 		}
 	}
 
-	async contents(): Promise<Blob> {
+	async contents(): Promise<tg.Blob> {
 		return (await this.object()).contents;
 	}
 
-	async dependencies(): Promise<Array<Artifact>> {
+	async dependencies(): Promise<Array<tg.Artifact>> {
 		return (await this.object()).dependencies;
 	}
 
@@ -130,23 +124,27 @@ export class File {
 }
 
 export namespace File {
-	export type Arg = undefined | string | Uint8Array | Blob | File | ArgObject;
+	export type Arg =
+		| undefined
+		| string
+		| Uint8Array
+		| tg.Blob
+		| tg.File
+		| ArgObject;
 
 	export type ArgObject = {
-		contents?: Blob.Arg | undefined;
-		dependencies?: Array<Artifact> | undefined;
+		contents?: tg.Blob.Arg | undefined;
+		dependencies?: Array<tg.Artifact> | undefined;
 		executable?: boolean | undefined;
-		metadata: { [key: string]: Value };
 	};
 
 	export type Id = string;
 
-	export type Object_ = {
-		contents: Blob;
-		dependencies: Array<Artifact>;
+	export type Object = {
+		contents: tg.Blob;
+		dependencies: Array<tg.Artifact>;
 		executable: boolean;
-		metadata: { [key: string]: Value };
 	};
 
-	export type State = Object_.State<File.Id, File.Object_>;
+	export type State = tg.Object.State<File.Id, File.Object>;
 }

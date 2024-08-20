@@ -1,20 +1,11 @@
-import { Args } from "./args.ts";
-import { Artifact } from "./artifact.ts";
-import { assert as assert_ } from "./assert.ts";
-import type { Checksum } from "./checksum.ts";
-import { File } from "./file.ts";
+import * as tg from "./index.ts";
 import { Module } from "./module.ts";
-import type { Object_ } from "./object.ts";
-import { type Unresolved, resolve } from "./resolve.ts";
-import { symlink } from "./symlink.ts";
-import { Template } from "./template.ts";
 import {
 	type MaybeMutationMap,
 	type MaybeNestedArray,
 	type MaybePromise,
 	flatten,
 } from "./util.ts";
-import type { Value } from "./value.ts";
 
 let currentTarget: Target;
 
@@ -27,26 +18,28 @@ export let setCurrentTarget = (target: Target) => {
 };
 
 type FunctionArg<
-	A extends Array<Value> = Array<Value>,
-	R extends Value = Value,
+	A extends Array<tg.Value> = Array<tg.Value>,
+	R extends tg.Value = tg.Value,
 > = {
 	url: string;
 	name: string;
-	function: (...args: A) => Unresolved<R>;
+	function: (...args: A) => tg.Unresolved<R>;
 };
 
 export function target<
-	A extends Array<Value> = Array<Value>,
-	R extends Value = Value,
+	A extends Array<tg.Value> = Array<tg.Value>,
+	R extends tg.Value = tg.Value,
 >(arg: FunctionArg): Target<A, R>;
 export function target<
-	A extends Array<Value> = Array<Value>,
-	R extends Value = Value,
->(...args: Args<Target.Arg>): Promise<Target<A, R>>;
+	A extends Array<tg.Value> = Array<tg.Value>,
+	R extends tg.Value = tg.Value,
+>(...args: tg.Args<Target.Arg>): Promise<Target<A, R>>;
 export function target<
-	A extends Array<Value> = Array<Value>,
-	R extends Value = Value,
->(...args: [FunctionArg<A, R>] | Args<Target.Arg>): MaybePromise<Target<A, R>> {
+	A extends Array<tg.Value> = Array<tg.Value>,
+	R extends tg.Value = tg.Value,
+>(
+	...args: [FunctionArg<A, R>] | tg.Args<Target.Arg>
+): MaybePromise<Target<A, R>> {
 	if (
 		args.length === 1 &&
 		typeof args[0] === "object" &&
@@ -62,7 +55,7 @@ export function target<
 			args: [arg.name],
 			checksum: undefined,
 			env: getCurrentTarget().expectObject().env,
-			executable: File.withId(module_.object),
+			executable: tg.File.withId(module_.object),
 			host: "js",
 		};
 		let state = {
@@ -70,21 +63,21 @@ export function target<
 		};
 		return new Target(state, arg.function);
 	} else {
-		return Target.new(...(args as Args<Target.Arg>));
+		return Target.new(...(args as tg.Args<Target.Arg>));
 	}
 }
 
 export interface Target<
-	A extends Array<Value> = Array<Value>,
-	R extends Value = Value,
+	A extends Array<tg.Value> = Array<tg.Value>,
+	R extends tg.Value = tg.Value,
 > extends globalThis.Function {
-	(...args: { [K in keyof A]: Unresolved<A[K]> }): Promise<R>;
+	(...args: { [K in keyof A]: tg.Unresolved<A[K]> }): Promise<R>;
 }
 
 // biome-ignore lint/suspicious/noUnsafeDeclarationMerging: This is necessary to make targets callable.
 export class Target<
-	A extends Array<Value> = Array<Value>,
-	R extends Value = Value,
+	A extends Array<tg.Value> = Array<tg.Value>,
+	R extends tg.Value = tg.Value,
 > extends globalThis.Function {
 	#state: Target.State;
 	#f: Function | undefined;
@@ -121,13 +114,13 @@ export class Target<
 	}
 
 	static async new<
-		A extends Array<Value> = Array<Value>,
-		R extends Value = Value,
-	>(...args: Args<Target.Arg>): Promise<Target<A, R>> {
+		A extends Array<tg.Value> = Array<tg.Value>,
+		R extends tg.Value = tg.Value,
+	>(...args: tg.Args<Target.Arg>): Promise<Target<A, R>> {
 		let arg = await Target.arg(...args);
 		let args_ = arg.args ?? [];
 		let checksum = arg.checksum;
-		let env = await Args.applyMutations(flatten(arg.env ?? []));
+		let env = await tg.Args.applyMutations(flatten(arg.env ?? []));
 		let executable = arg.executable;
 		let host = arg.host;
 		if (!host) {
@@ -143,8 +136,8 @@ export class Target<
 		return new Target({ object });
 	}
 
-	static async arg(...args: Args<Target.Arg>): Promise<Target.ArgObject> {
-		let resolved = await Promise.all(args.map(resolve));
+	static async arg(...args: tg.Args<Target.Arg>): Promise<Target.ArgObject> {
+		let resolved = await Promise.all(args.map(tg.resolve));
 		let flattened = flatten(resolved);
 		let objects = await Promise.all(
 			flattened.map(async (arg) => {
@@ -152,12 +145,12 @@ export class Target<
 					return {};
 				} else if (
 					typeof arg === "string" ||
-					Artifact.is(arg) ||
-					arg instanceof Template
+					tg.Artifact.is(arg) ||
+					arg instanceof tg.Template
 				) {
 					return {
 						args: ["-c", arg],
-						executable: await symlink("/bin/sh"),
+						executable: await tg.symlink("/bin/sh"),
 						host: (await getCurrentTarget().env()).TANGRAM_HOST as string,
 					};
 				} else if (arg instanceof Target) {
@@ -167,21 +160,21 @@ export class Target<
 				}
 			}),
 		);
-		let mutations = await Args.createMutations(objects, {
+		let mutations = await tg.Args.createMutations(objects, {
 			args: "append",
 			env: "append",
 		});
-		let arg = await Args.applyMutations(mutations);
+		let arg = await tg.Args.applyMutations(mutations);
 		return arg;
 	}
 
 	static expect(value: unknown): Target {
-		assert_(value instanceof Target);
+		tg.assert(value instanceof Target);
 		return value;
 	}
 
 	static assert(value: unknown): asserts value is Target {
-		assert_(value instanceof Target);
+		tg.assert(value instanceof Target);
 	}
 
 	async id(): Promise<Target.Id> {
@@ -189,7 +182,7 @@ export class Target<
 		return this.#state.id!;
 	}
 
-	async object(): Promise<Target.Object_> {
+	async object(): Promise<Target.Object> {
 		await this.load();
 		return this.#state.object!;
 	}
@@ -201,7 +194,7 @@ export class Target<
 		return this.#state.id;
 	}
 
-	expectObject(): Target.Object_ {
+	expectObject(): Target.Object {
 		if (!this.#state.object) {
 			throw new Error("expected the object to be loaded");
 		}
@@ -211,7 +204,7 @@ export class Target<
 	async load() {
 		if (this.#state.object === undefined) {
 			let object = await syscall("load", this.#state.id!);
-			assert_(object.kind === "target");
+			tg.assert(object.kind === "target");
 			this.#state.object = object.value;
 		}
 	}
@@ -225,19 +218,19 @@ export class Target<
 		}
 	}
 
-	async args(): Promise<Array<Value>> {
+	async args(): Promise<Array<tg.Value>> {
 		return (await this.object()).args;
 	}
 
-	async checksum(): Promise<Checksum | undefined> {
+	async checksum(): Promise<tg.Checksum | undefined> {
 		return (await this.object()).checksum;
 	}
 
-	async env(): Promise<{ [key: string]: Value }> {
+	async env(): Promise<{ [key: string]: tg.Value }> {
 		return (await this.object()).env;
 	}
 
-	async executable(): Promise<File | undefined> {
+	async executable(): Promise<tg.File | undefined> {
 		return (await this.object()).executable;
 	}
 
@@ -258,28 +251,28 @@ export namespace Target {
 	export type Arg =
 		| undefined
 		| string
-		| Artifact
-		| Template
+		| tg.Artifact
+		| tg.Template
 		| Target
 		| ArgObject;
 
 	export type ArgObject = {
-		args?: Array<Value> | undefined;
-		checksum?: Checksum | undefined;
+		args?: Array<tg.Value> | undefined;
+		checksum?: tg.Checksum | undefined;
 		env?: MaybeNestedArray<MaybeMutationMap> | undefined;
-		executable?: File | undefined;
+		executable?: tg.File | undefined;
 		host?: string | undefined;
 	};
 
 	export type Id = string;
 
-	export type Object_ = {
-		args: Array<Value>;
-		checksum: Checksum | undefined;
-		env: { [key: string]: Value };
-		executable: File | undefined;
+	export type Object = {
+		args: Array<tg.Value>;
+		checksum: tg.Checksum | undefined;
+		env: { [key: string]: tg.Value };
+		executable: tg.File | undefined;
 		host: string;
 	};
 
-	export type State = Object_.State<Target.Id, Target.Object_>;
+	export type State = tg.Object.State<Target.Id, Target.Object>;
 }

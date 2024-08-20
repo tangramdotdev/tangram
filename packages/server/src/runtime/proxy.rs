@@ -138,24 +138,6 @@ impl tg::Handle for Proxy {
 		Ok(stream)
 	}
 
-	async fn check_artifact(
-		&self,
-		_arg: tg::artifact::check::Arg,
-	) -> tg::Result<tg::artifact::check::Output> {
-		Err(tg::error!("forbidden"))
-	}
-
-	async fn document_artifact(
-		&self,
-		_arg: tg::artifact::document::Arg,
-	) -> tg::Result<serde_json::Value> {
-		Err(tg::error!("forbidden"))
-	}
-
-	async fn format_artifact(&self, _arg: tg::artifact::format::Arg) -> tg::Result<()> {
-		Err(tg::error!("forbidden"))
-	}
-
 	fn create_blob(
 		&self,
 		reader: impl AsyncRead + Send + 'static,
@@ -355,6 +337,24 @@ impl tg::Handle for Proxy {
 		_arg: tg::object::pull::Arg,
 	) -> tg::Result<impl Stream<Item = tg::Result<tg::object::pull::Event>> + Send + 'static> {
 		Err::<stream::Empty<_>, _>(tg::error!("forbidden"))
+	}
+
+	async fn check_package(
+		&self,
+		_arg: tg::package::check::Arg,
+	) -> tg::Result<tg::package::check::Output> {
+		Err(tg::error!("forbidden"))
+	}
+
+	async fn document_package(
+		&self,
+		_arg: tg::package::document::Arg,
+	) -> tg::Result<serde_json::Value> {
+		Err(tg::error!("forbidden"))
+	}
+
+	async fn format_package(&self, _arg: tg::package::format::Arg) -> tg::Result<()> {
+		Err(tg::error!("forbidden"))
 	}
 
 	async fn try_get_reference(

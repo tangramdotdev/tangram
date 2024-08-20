@@ -1,10 +1,3 @@
-use std::{
-	collections::{BTreeMap, BTreeSet},
-	os::unix::fs::PermissionsExt,
-	path::PathBuf,
-	sync::{Arc, RwLock},
-};
-
 use super::{
 	input::Input,
 	unify::{Graph, Id},
@@ -14,6 +7,12 @@ use either::Either;
 use futures::{stream::FuturesUnordered, TryStreamExt};
 use indoc::formatdoc;
 use itertools::Itertools;
+use std::{
+	collections::{BTreeMap, BTreeSet},
+	os::unix::fs::PermissionsExt,
+	path::PathBuf,
+	sync::{Arc, RwLock},
+};
 use tangram_client as tg;
 use tangram_database::{self as db, Connection as _, Database as _, Query as _, Transaction as _};
 use time::format_description::well_known::Rfc3339;
@@ -76,7 +75,7 @@ impl Server {
 }
 
 impl Server {
-	pub (super) async fn create_output_graph(
+	pub(super) async fn create_output_graph(
 		&self,
 		graph: &Graph,
 		root: &Id,
@@ -189,8 +188,7 @@ impl Server {
 				let mut file = match &graph_node.object {
 					Either::Left(input) => {
 						let input = input.read().unwrap().clone();
-						self.get_file_data_from_input(input)
-							.await?
+						self.get_file_data_from_input(input).await?
 					},
 					Either::Right(tg::object::Id::File(file)) => {
 						self.get_file_data_from_object(tg::File::with_id(file.clone()))
@@ -205,8 +203,7 @@ impl Server {
 				let symlink = match &graph_node.object {
 					Either::Left(input) => {
 						let input = input.read().unwrap().clone();
-						self.get_symlink_data_from_input(input)
-							.await?
+						self.get_symlink_data_from_input(input).await?
 					},
 					Either::Right(tg::object::Id::Symlink(symlink)) => {
 						self.get_symlink_data_from_object(tg::Symlink::with_id(symlink.clone()))
@@ -223,7 +220,10 @@ impl Server {
 		Ok(Either::Left(index))
 	}
 
-	async fn get_file_data_from_input(&self, input: Input) -> tg::Result<tg::graph::data::node::File> {
+	async fn get_file_data_from_input(
+		&self,
+		input: Input,
+	) -> tg::Result<tg::graph::data::node::File> {
 		let super::input::Input { arg, metadata, .. } = input;
 
 		// Create the blob.
@@ -239,23 +239,23 @@ impl Server {
 		Ok(tg::graph::data::node::File {
 			contents: output.blob,
 			dependencies: None,
-			executable: metadata.permissions().mode() | 0b111 != 0,
-			module: None, /* todo: modules */
+			executable: metadata.permissions().mode() & 0o111 != 0,
 		})
 	}
 
-	async fn get_file_data_from_object(&self, file: tg::File) -> tg::Result<tg::graph::data::node::File> {
+	async fn get_file_data_from_object(
+		&self,
+		file: tg::File,
+	) -> tg::Result<tg::graph::data::node::File> {
 		match file.data(self).await? {
 			tg::file::Data::Normal {
 				contents,
 				executable,
-				module,
 				..
 			} => Ok(tg::graph::data::node::File {
 				contents,
 				dependencies: None,
 				executable,
-				module,
 			}),
 			tg::file::Data::Graph { graph, node } => {
 				let graph = tg::Graph::with_id(graph).data(self).await?;
@@ -469,9 +469,8 @@ impl Server {
 		// Create the file data.
 		let contents = blob.blob;
 		let executable = (input.read().unwrap().metadata.permissions().mode() & 0o111) != 0;
-		let dependencies = if let Some(dependencies) =
-			xattr::get(&path, tg::file::XATTR_NAME)
-				.map_err(|source| tg::error!(!source, %path, "failed to read xattrs"))?
+		let dependencies = if let Some(dependencies) = xattr::get(&path, tg::file::XATTR_NAME)
+			.map_err(|source| tg::error!(!source, %path, "failed to read xattrs"))?
 		{
 			let dependencies = serde_json::from_slice(&dependencies)
 				.map_err(|source| tg::error!(!source, %path, "failed to deserialize xattr"))?;
@@ -483,7 +482,6 @@ impl Server {
 			contents,
 			dependencies,
 			executable,
-			module: None, // todo
 		});
 
 		// Get the children.
@@ -719,7 +717,8 @@ impl Server {
 										.into()
 								},
 								tg::artifact::Kind::File => {
-									tg::File::with_graph_and_node(new_graph.clone(), new_index).into()
+									tg::File::with_graph_and_node(new_graph.clone(), new_index)
+										.into()
 								},
 								tg::artifact::Kind::Symlink => {
 									tg::Symlink::with_graph_and_node(new_graph.clone(), new_index)

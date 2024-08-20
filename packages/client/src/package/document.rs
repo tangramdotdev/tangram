@@ -3,16 +3,16 @@ use tangram_http::{incoming::response::Ext as _, outgoing::request::Ext as _};
 
 #[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
 pub struct Arg {
-	pub artifact: tg::artifact::Id,
+	pub package: tg::artifact::Id,
 
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub remote: Option<String>,
 }
 
 impl tg::Client {
-	pub async fn document_artifact(&self, arg: Arg) -> tg::Result<serde_json::Value> {
+	pub async fn document_package(&self, arg: Arg) -> tg::Result<serde_json::Value> {
 		let method = http::Method::POST;
-		let uri = "/artifacts/document";
+		let uri = "/packages/document";
 		let request = http::request::Builder::default()
 			.method(method)
 			.uri(uri)

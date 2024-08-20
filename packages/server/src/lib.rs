@@ -33,6 +33,7 @@ mod database;
 mod messenger;
 mod migrations;
 mod object;
+mod package;
 mod reference;
 mod remote;
 mod runtime;
@@ -620,15 +621,6 @@ impl Server {
 			(http::Method::POST, ["artifacts", artifact, "checkout"]) => {
 				Self::handle_check_out_artifact_request(handle, request, artifact).boxed()
 			},
-			(http::Method::POST, ["artifacts", "check"]) => {
-				Self::handle_check_artifact_request(handle, request).boxed()
-			},
-			(http::Method::POST, ["artifacts", "document"]) => {
-				Self::handle_document_artifact_request(handle, request).boxed()
-			},
-			(http::Method::POST, ["artifacts", "format"]) => {
-				Self::handle_format_artifact_request(handle, request).boxed()
-			},
 
 			// Blobs.
 			(http::Method::POST, ["blobs"]) => {
@@ -703,6 +695,17 @@ impl Server {
 			},
 			(http::Method::POST, ["objects", object, "pull"]) => {
 				Self::handle_pull_object_request(handle, request, object).boxed()
+			},
+
+			// Packages.
+			(http::Method::POST, ["packages", "check"]) => {
+				Self::handle_check_package_request(handle, request).boxed()
+			},
+			(http::Method::POST, ["packages", "document"]) => {
+				Self::handle_document_package_request(handle, request).boxed()
+			},
+			(http::Method::POST, ["packages", "format"]) => {
+				Self::handle_format_package_request(handle, request).boxed()
 			},
 
 			// References.
@@ -819,27 +822,6 @@ impl tg::Handle for Server {
 		>,
 	> {
 		self.check_out_artifact(id, arg)
-	}
-
-	fn check_artifact(
-		&self,
-		arg: tg::artifact::check::Arg,
-	) -> impl Future<Output = tg::Result<tg::artifact::check::Output>> {
-		self.check_artifact(arg)
-	}
-
-	fn document_artifact(
-		&self,
-		arg: tg::artifact::document::Arg,
-	) -> impl Future<Output = tg::Result<serde_json::Value>> {
-		self.document_artifact(arg)
-	}
-
-	fn format_artifact(
-		&self,
-		arg: tg::artifact::format::Arg,
-	) -> impl Future<Output = tg::Result<()>> {
-		self.format_artifact(arg)
 	}
 
 	fn create_blob(
@@ -1055,6 +1037,27 @@ impl tg::Handle for Server {
 		>,
 	> {
 		self.pull_object(id, arg)
+	}
+
+	fn check_package(
+		&self,
+		arg: tg::package::check::Arg,
+	) -> impl Future<Output = tg::Result<tg::package::check::Output>> {
+		self.check_package(arg)
+	}
+
+	fn document_package(
+		&self,
+		arg: tg::package::document::Arg,
+	) -> impl Future<Output = tg::Result<serde_json::Value>> {
+		self.document_package(arg)
+	}
+
+	fn format_package(
+		&self,
+		arg: tg::package::format::Arg,
+	) -> impl Future<Output = tg::Result<()>> {
+		self.format_package(arg)
 	}
 
 	fn try_get_reference(

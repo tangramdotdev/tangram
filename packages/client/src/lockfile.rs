@@ -1,13 +1,14 @@
-use std::collections::BTreeMap;
-use tokio::io::AsyncWriteExt;
-
 use crate as tg;
-pub const TANGRAM_LOCKFILE_FILE_NAME: &'static str = "tangram.lock";
+use std::collections::BTreeMap;
+use tokio::io::AsyncWriteExt as _;
+
+pub const TANGRAM_LOCKFILE_FILE_NAME: &str = "tangram.lock";
 
 #[derive(Clone, Debug, serde::Serialize, serde::Deserialize)]
 pub struct Lockfile {
 	#[serde(skip_serializing_if = "BTreeMap::is_empty")]
 	pub paths: BTreeMap<tg::Path, usize>,
+
 	pub nodes: Vec<tg::graph::data::Node>,
 }
 
@@ -24,8 +25,7 @@ impl Lockfile {
 	}
 
 	pub async fn write(&self, path: &tg::Path) -> tg::Result<()> {
-		let root_module_path =
-			tg::artifact::module::get_root_module_path_for_path(path.as_ref()).await?;
+		let root_module_path = tg::module::get_root_module_path_for_path(path.as_ref()).await?;
 		let lockfile_path = root_module_path.parent().normalize();
 		let contents = serde_json::to_vec_pretty(self)
 			.map_err(|source| tg::error!(!source, "failed to serialize lockfile"))?;
@@ -49,6 +49,7 @@ impl Lockfile {
 
 impl TryFrom<Lockfile> for tg::graph::Data {
 	type Error = tg::Error;
+
 	fn try_from(value: Lockfile) -> tg::Result<Self> {
 		Ok(Self { nodes: value.nodes })
 	}

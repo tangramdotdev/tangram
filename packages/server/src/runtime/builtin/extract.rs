@@ -80,7 +80,6 @@ impl Runtime {
 		// Check in the extracted artifact.
 		let path = path.try_into()?;
 		let arg = tg::artifact::checkin::Arg {
-			dependencies: true,
 			destructive: true,
 			deterministic: true,
 			locked: true,

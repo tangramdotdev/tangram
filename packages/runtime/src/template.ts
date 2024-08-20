@@ -1,10 +1,7 @@
-import type { Args } from "./args.ts";
-import { Artifact } from "./artifact.ts";
-import { assert as assert_ } from "./assert.ts";
-import { type Unresolved, resolve } from "./resolve.ts";
+import * as tg from "./index.ts";
 import { flatten } from "./util.ts";
 
-export let template = (...args: Args<Template.Arg>): Promise<Template> => {
+export let template = (...args: tg.Args<Template.Arg>): Promise<Template> => {
 	return Template.new(...args);
 };
 
@@ -15,15 +12,15 @@ export class Template {
 		this.#components = components;
 	}
 
-	static async new(...args: Args<Template.Arg>): Promise<Template> {
-		let resolved = await Promise.all(args.map(resolve));
+	static async new(...args: tg.Args<Template.Arg>): Promise<Template> {
+		let resolved = await Promise.all(args.map(tg.resolve));
 		let flattened = flatten(resolved);
 		let components = (
 			await Promise.all(
 				flattened.map(async (arg) => {
 					if (arg === undefined) {
 						return [];
-					} else if (typeof arg === "string" || Artifact.is(arg)) {
+					} else if (typeof arg === "string" || tg.Artifact.is(arg)) {
 						return [arg];
 					} else {
 						return arg.components;
@@ -53,18 +50,18 @@ export class Template {
 	}
 
 	static expect(value: unknown): Template {
-		assert_(value instanceof Template);
+		tg.assert(value instanceof Template);
 		return value;
 	}
 
 	static assert(value: unknown): asserts value is Template {
-		assert_(value instanceof Template);
+		tg.assert(value instanceof Template);
 	}
 
 	/** Join an array of templates with a separator. */
 	static async join(
-		separator: Unresolved<Template.Arg>,
-		...args: Args<Template.Arg>
+		separator: tg.Unresolved<Template.Arg>,
+		...args: tg.Args<Template.Arg>
 	): Promise<Template> {
 		let separatorTemplate = await template(separator);
 		let argTemplates = await Promise.all(args.map((arg) => template(arg)));
@@ -75,7 +72,7 @@ export class Template {
 				templates.push(separatorTemplate);
 			}
 			let argTemplate = argTemplates[i];
-			assert_(argTemplate);
+			tg.assert(argTemplate);
 			templates.push(argTemplate);
 		}
 		return template(...templates);
@@ -89,5 +86,5 @@ export class Template {
 export namespace Template {
 	export type Arg = undefined | Component | Template;
 
-	export type Component = string | Artifact;
+	export type Component = string | tg.Artifact;
 }

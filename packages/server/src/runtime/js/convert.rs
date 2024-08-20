@@ -1495,7 +1495,6 @@ impl ToV8 for tg::file::Object {
 				contents,
 				dependencies,
 				executable,
-				module,
 			} => {
 				let key =
 					v8::String::new_external_onebyte_static(scope, "contents".as_bytes()).unwrap();
@@ -1510,11 +1509,6 @@ impl ToV8 for tg::file::Object {
 				let key = v8::String::new_external_onebyte_static(scope, "executable".as_bytes())
 					.unwrap();
 				let value = executable.to_v8(scope)?;
-				object.set(scope, key.into(), value);
-
-				let key =
-					v8::String::new_external_onebyte_static(scope, "module".as_bytes()).unwrap();
-				let value = module.to_v8(scope)?;
 				object.set(scope, key.into(), value);
 			},
 
@@ -1572,16 +1566,10 @@ impl FromV8 for tg::file::Object {
 		let executable = from_v8(scope, executable)
 			.map_err(|source| tg::error!(!source, "failed to deserialize the executable"))?;
 
-		let module = v8::String::new_external_onebyte_static(scope, "module".as_bytes()).unwrap();
-		let module = value.get(scope, module.into()).unwrap();
-		let module = from_v8(scope, module)
-			.map_err(|source| tg::error!(!source, "failed to deserialize the module"))?;
-
 		Ok(Self::Normal {
 			contents,
 			dependencies,
 			executable,
-			module,
 		})
 	}
 }
@@ -1836,7 +1824,6 @@ impl ToV8 for tg::graph::Node {
 				contents,
 				dependencies,
 				executable,
-				module,
 			}) => {
 				let key =
 					v8::String::new_external_onebyte_static(scope, "kind".as_bytes()).unwrap();
@@ -1859,11 +1846,6 @@ impl ToV8 for tg::graph::Node {
 				let key = v8::String::new_external_onebyte_static(scope, "executable".as_bytes())
 					.unwrap();
 				let value = executable.to_v8(scope)?;
-				object.set(scope, key.into(), value);
-
-				let key =
-					v8::String::new_external_onebyte_static(scope, "module".as_bytes()).unwrap();
-				let value = module.to_v8(scope)?;
 				object.set(scope, key.into(), value);
 			},
 
@@ -1936,17 +1918,10 @@ impl FromV8 for tg::graph::Node {
 					tg::error!(!source, "failed to deserialize the executable")
 				})?;
 
-				let module =
-					v8::String::new_external_onebyte_static(scope, "module".as_bytes()).unwrap();
-				let module = value.get(scope, module.into()).unwrap();
-				let module = from_v8(scope, module)
-					.map_err(|source| tg::error!(!source, "failed to deserialize the module"))?;
-
 				Ok(Self::File(tg::graph::node::File {
 					contents,
 					dependencies,
 					executable,
-					module,
 				}))
 			},
 
@@ -2736,21 +2711,6 @@ impl FromV8 for tg::error::Source {
 	) -> tg::Result<Self> {
 		serde_v8::from_v8(scope, value)
 			.map_err(|source| tg::error!(!source, "failed to deserialize the value"))
-	}
-}
-
-impl ToV8 for tg::file::Module {
-	fn to_v8<'a>(&self, scope: &mut v8::HandleScope<'a>) -> tg::Result<v8::Local<'a, v8::Value>> {
-		self.to_string().to_v8(scope)
-	}
-}
-
-impl FromV8 for tg::file::Module {
-	fn from_v8<'a>(
-		scope: &mut v8::HandleScope<'a>,
-		value: v8::Local<'a, v8::Value>,
-	) -> tg::Result<Self> {
-		String::from_v8(scope, value)?.parse()
 	}
 }
 

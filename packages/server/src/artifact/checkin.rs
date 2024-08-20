@@ -247,7 +247,6 @@ impl Server {
 
 		// Check in the artifact.
 		let arg = tg::artifact::checkin::Arg {
-			dependencies: true,
 			deterministic: false,
 			destructive: false,
 			locked: true,

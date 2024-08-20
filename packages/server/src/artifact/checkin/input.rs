@@ -177,14 +177,13 @@ impl Server {
 		path: &tg::Path,
 		metadata: &std::fs::Metadata,
 	) -> tg::Result<Option<(tg::Lockfile, tg::Path)>> {
-		let mut root =
-			if metadata.is_file() || tg::artifact::module::is_root_module_path(path.as_ref()) {
-				path.clone().parent().clone().normalize()
-			} else if metadata.is_dir() {
-				path.clone()
-			} else {
-				return Ok(None);
-			};
+		let mut root = if metadata.is_file() || tg::module::is_root_module_path(path.as_ref()) {
+			path.clone().parent().clone().normalize()
+		} else if metadata.is_dir() {
+			path.clone()
+		} else {
+			return Ok(None);
+		};
 
 		// Search
 		let permit = self.file_descriptor_semaphore.acquire().await.unwrap();
@@ -217,12 +216,11 @@ impl Server {
 		let _permit = self.file_descriptor_semaphore.acquire().await.unwrap();
 		if metadata.is_dir() {
 			if let Some(root_module_path) =
-				tg::artifact::module::try_get_root_module_path_for_path(path.as_ref()).await?
+				tg::module::try_get_root_module_path_for_path(path.as_ref()).await?
 			{
 				let mut dependencies = self.get_file_dependencies(&root_module_path).await?;
 				dependencies.push(tg::Reference::with_path(&root_module_path));
 				return Ok(dependencies);
-
 			}
 			self.get_directory_dependencies(path).await
 		} else if metadata.is_file() {
@@ -248,7 +246,7 @@ impl Server {
 			return Ok(dependencies);
 		}
 
-		if tg::artifact::module::is_module_path(path.as_ref()) {
+		if tg::module::is_module_path(path.as_ref()) {
 			let text = tokio::fs::read_to_string(path)
 				.await
 				.map_err(|source| tg::error!(!source, "failed to read file contents"))?;

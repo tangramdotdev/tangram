@@ -7,10 +7,6 @@ use tangram_client::{self as tg, Handle as _};
 #[derive(Clone, Debug, clap::Args)]
 #[group(skip)]
 pub struct Args {
-	/// Check in the artifact's dependencies.
-	#[arg(long)]
-	pub dependencies: bool,
-
 	/// Check in the artifact faster by allowing it to be destroyed.
 	#[arg(long)]
 	pub destructive: bool,
@@ -41,7 +37,6 @@ impl Cli {
 
 		// Check in the artifact.
 		let arg = tg::artifact::checkin::Arg {
-			dependencies: args.dependencies,
 			destructive: args.destructive,
 			deterministic: false,
 			locked: args.locked,

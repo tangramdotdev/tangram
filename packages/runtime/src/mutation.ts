@@ -1,32 +1,29 @@
-import { assert as assert_ } from "./assert.ts";
-import { type Unresolved, resolve } from "./resolve.ts";
-import { type Template, template } from "./template.ts";
+import * as tg from "./index.ts";
 import { type MaybeNestedArray, flatten } from "./util.ts";
-import type { Value } from "./value.ts";
 
-export async function mutation<T extends Value = Value>(
-	arg: Unresolved<Mutation.Arg<T>>,
+export async function mutation<T extends tg.Value = tg.Value>(
+	arg: tg.Unresolved<Mutation.Arg<T>>,
 ): Promise<Mutation<T>> {
 	return await Mutation.new(arg);
 }
 
-export class Mutation<T extends Value = Value> {
+export class Mutation<T extends tg.Value = tg.Value> {
 	#inner: Mutation.Inner;
 
 	constructor(inner: Mutation.Inner) {
 		this.#inner = inner;
 	}
 
-	static async new<T extends Value = Value>(
-		unresolved: Unresolved<Mutation.Arg<T>>,
+	static async new<T extends tg.Value = tg.Value>(
+		unresolved: tg.Unresolved<Mutation.Arg<T>>,
 	): Promise<Mutation<T>> {
-		let arg = await resolve(unresolved);
+		let arg = await tg.resolve(unresolved);
 		if (arg.kind === "prepend" || arg.kind === "append") {
 			return new Mutation({ kind: arg.kind, values: flatten(arg.values) });
 		} else if (arg.kind === "prefix" || arg.kind === "suffix") {
 			return new Mutation({
 				kind: arg.kind,
-				template: await template(arg.template),
+				template: await tg.template(arg.template),
 				separator: arg.separator,
 			});
 		} else if (arg.kind === "unset") {
@@ -36,8 +33,8 @@ export class Mutation<T extends Value = Value> {
 		}
 	}
 
-	static set<T extends Value = Value>(
-		value: Unresolved<T>,
+	static set<T extends tg.Value = tg.Value>(
+		value: tg.Unresolved<T>,
 	): Promise<Mutation<T>> {
 		return Mutation.new({ kind: "set", value } as any);
 	}
@@ -46,14 +43,14 @@ export class Mutation<T extends Value = Value> {
 		return new Mutation({ kind: "unset" });
 	}
 
-	static setIfUnset<T extends Value = Value>(
-		value: Unresolved<T>,
+	static setIfUnset<T extends tg.Value = tg.Value>(
+		value: tg.Unresolved<T>,
 	): Promise<Mutation<T>> {
 		return Mutation.new({ kind: "set_if_unset", value } as any);
 	}
 
-	static prepend<T extends Value = Value>(
-		values: Unresolved<MaybeNestedArray<T>>,
+	static prepend<T extends tg.Value = tg.Value>(
+		values: tg.Unresolved<MaybeNestedArray<T>>,
 	): Promise<Mutation<Array<T>>> {
 		return Mutation.new({
 			kind: "prepend",
@@ -61,8 +58,8 @@ export class Mutation<T extends Value = Value> {
 		} as any);
 	}
 
-	static append<T extends Value = Value>(
-		values: Unresolved<MaybeNestedArray<T>>,
+	static append<T extends tg.Value = tg.Value>(
+		values: tg.Unresolved<MaybeNestedArray<T>>,
 	): Promise<Mutation<Array<T>>> {
 		return Mutation.new({
 			kind: "append",
@@ -71,9 +68,9 @@ export class Mutation<T extends Value = Value> {
 	}
 
 	static prefix(
-		template: Unresolved<Template.Arg>,
+		template: tg.Unresolved<tg.Template.Arg>,
 		separator?: string | undefined,
-	): Promise<Mutation<Template>> {
+	): Promise<Mutation<tg.Template>> {
 		return Mutation.new({
 			kind: "prefix",
 			template,
@@ -82,9 +79,9 @@ export class Mutation<T extends Value = Value> {
 	}
 
 	static suffix(
-		template: Unresolved<Template.Arg>,
+		template: tg.Unresolved<tg.Template.Arg>,
 		separator?: string | undefined,
-	): Promise<Mutation<Template>> {
+	): Promise<Mutation<tg.Template>> {
 		return Mutation.new({
 			kind: "suffix",
 			template,
@@ -93,12 +90,12 @@ export class Mutation<T extends Value = Value> {
 	}
 
 	static expect(value: unknown): Mutation {
-		assert_(value instanceof Mutation);
+		tg.assert(value instanceof Mutation);
 		return value;
 	}
 
 	static assert(value: unknown): asserts value is Mutation {
-		assert_(value instanceof Mutation);
+		tg.assert(value instanceof Mutation);
 	}
 
 	get inner() {
@@ -107,7 +104,7 @@ export class Mutation<T extends Value = Value> {
 }
 
 export namespace Mutation {
-	export type Arg<T extends Value = Value> =
+	export type Arg<T extends tg.Value = tg.Value> =
 		| { kind: "unset" }
 		| { kind: "set"; value: T }
 		| { kind: "set_if_unset"; value: T }
@@ -121,35 +118,35 @@ export namespace Mutation {
 		  }
 		| {
 				kind: "prefix";
-				template: T extends Template ? Template.Arg : never;
+				template: T extends tg.Template ? tg.Template.Arg : never;
 				separator?: string | undefined;
 		  }
 		| {
 				kind: "suffix";
-				template: T extends Template ? Template.Arg : never;
+				template: T extends tg.Template ? tg.Template.Arg : never;
 				separator?: string | undefined;
 		  };
 
 	export type Inner =
 		| { kind: "unset" }
-		| { kind: "set"; value: Value }
-		| { kind: "set_if_unset"; value: Value }
+		| { kind: "set"; value: tg.Value }
+		| { kind: "set_if_unset"; value: tg.Value }
 		| {
 				kind: "prepend";
-				values: Array<Value>;
+				values: Array<tg.Value>;
 		  }
 		| {
 				kind: "append";
-				values: Array<Value>;
+				values: Array<tg.Value>;
 		  }
 		| {
 				kind: "prefix";
-				template: Template;
+				template: tg.Template;
 				separator: string | undefined;
 		  }
 		| {
 				kind: "suffix";
-				template: Template;
+				template: tg.Template;
 				separator: string | undefined;
 		  };
 

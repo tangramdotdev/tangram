@@ -305,16 +305,10 @@ fn file_arg(input: &mut Input) -> PResult<tg::file::Object> {
 		} else {
 			false
 		};
-		let module = if let Some(module) = map.get("module") {
-			Some(module.try_unwrap_string_ref().ok()?.parse().ok()?)
-		} else {
-			None
-		};
 		Some(tg::file::Object::Normal {
 			contents,
 			dependencies,
 			executable,
-			module,
 		})
 	})
 	.parse_next(input)
@@ -400,10 +394,10 @@ fn graph_arg(input: &mut Input) -> PResult<tg::graph::Object> {
 					tg::graph::node::Kind::File => {
 						let contents = map.get("contents")?.clone().try_into().ok()?;
 						let dependencies = if let Some(value) = map.get("dependencies") {
-							Some(
-								value
-									.try_unwrap_map_ref()
-									.ok()?
+							let either = if let Ok(array) = value.try_unwrap_array_ref() {
+								todo!()
+							} else if let Ok(map) = value.try_unwrap_map_ref() {
+								let dependencies = map
 									.iter()
 									.map(|(key, value)| {
 										let reference = key.parse().ok()?;
@@ -416,8 +410,12 @@ fn graph_arg(input: &mut Input) -> PResult<tg::graph::Object> {
 										};
 										Some((reference, either))
 									})
-									.collect::<Option<_>>()?,
-							)
+									.collect::<Option<_>>()?;
+								Either::Right(dependencies)
+							} else {
+								return None;
+							};
+							Some(either)
 						} else {
 							None
 						};
@@ -426,16 +424,10 @@ fn graph_arg(input: &mut Input) -> PResult<tg::graph::Object> {
 						} else {
 							false
 						};
-						let module = if let Some(value) = map.get("module") {
-							Some(value.try_unwrap_string_ref().ok()?.parse().ok()?)
-						} else {
-							None
-						};
 						Some(tg::graph::Node::File(tg::graph::node::File {
 							contents,
 							dependencies,
 							executable,
-							module,
 						}))
 					},
 

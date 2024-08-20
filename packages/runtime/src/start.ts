@@ -1,10 +1,8 @@
-import { assert } from "./assert.ts";
+import * as tg from "./index.ts";
 import { Module } from "./module.ts";
-import { resolve } from "./resolve.ts";
-import { Target, setCurrentTarget } from "./target.ts";
-import type { Value } from "./value.ts";
+import { setCurrentTarget } from "./target.ts";
 
-export let start = async (target: Target): Promise<Value> => {
+export let start = async (target: tg.Target): Promise<tg.Value> => {
 	// Load the target.
 	await target.load();
 
@@ -21,7 +19,7 @@ export let start = async (target: Target): Promise<Value> => {
 	if (!("kind" in metadata)) {
 		throw new Error("the kind must be set");
 	}
-	assert(
+	tg.assert(
 		metadata.kind === ("js" as const) || metadata.kind === ("ts" as const),
 		"invalid kind",
 	);
@@ -50,12 +48,12 @@ export let start = async (target: Target): Promise<Value> => {
 
 	// Get the target.
 	let target_ = namespace[name];
-	if (!(target_ instanceof Target)) {
+	if (!(target_ instanceof tg.Target)) {
 		throw new Error(`failed to find the export named "${name}"`);
 	}
 
 	// Call the function.
-	let output = await resolve(target_.function()!(...args.slice(1)));
+	let output = await tg.resolve(target_.function()!(...args.slice(1)));
 
 	return output;
 };
