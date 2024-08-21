@@ -244,7 +244,7 @@ impl Server {
 		Ok(tg::lockfile::Node::File {
 			contents: Some(output.blob),
 			dependencies: (!dependencies.is_empty()).then_some(dependencies),
-			executable: metadata.permissions().mode() & 0b111 != 0,
+			executable: metadata.permissions().mode() & 0o111 != 0,
 		})
 	}
 
@@ -520,10 +520,7 @@ impl Server {
 				},
 				tg::graph::data::Node::Symlink(symlink) => {
 					if graph.nodes.len() == 1 {
-						let artifact = symlink
-							.artifact
-							.clone()
-							.map(Either::unwrap_right);
+						let artifact = symlink.artifact.clone().map(Either::unwrap_right);
 						tg::symlink::Data::Normal {
 							artifact,
 							path: symlink.path.clone(),
