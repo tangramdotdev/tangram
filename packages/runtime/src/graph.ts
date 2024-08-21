@@ -127,8 +127,24 @@ export class Graph {
 
 				return ret;
 			} else if (nodeArg.kind === "symlink") {
-				// NOTE: There are no indices to update in a symlink.
-				return nodeArg;
+				let ret: Graph.SymlinkNodeArg = {
+					kind: "symlink",
+				};
+
+				// Handle artifact if present.
+				if (nodeArg.artifact !== undefined) {
+					ret.artifact =
+						typeof nodeArg.artifact === "number"
+							? nodeArg.artifact + offset
+							: nodeArg.artifact;
+				}
+
+				// Handle path if present.
+				if (nodeArg.path !== undefined) {
+					ret.path = nodeArg.path;
+				}
+
+				return ret;
 			} else {
 				return tg.unreachable(nodeArg);
 			}
@@ -141,7 +157,7 @@ export class Graph {
 		for (let arg of flattened) {
 			let argNodes = arg instanceof Graph ? await arg.nodes() : arg.nodes || [];
 			let renumberedNodes = argNodes.map((node) => addOffset(node, offset));
-			nodes.push(...renumberedNodes);
+			nodes = nodes.concat(renumberedNodes);
 			offset += renumberedNodes.length;
 		}
 
@@ -217,7 +233,7 @@ export namespace Graph {
 
 	export type SymlinkNodeArg = {
 		kind: "symlink";
-		artifact?: tg.Artifact | undefined;
+		artifact?: number | tg.Artifact | undefined;
 		path?: tg.Path.Arg | undefined;
 	};
 
@@ -244,7 +260,7 @@ export namespace Graph {
 
 	export type SymlinkNode = {
 		kind: "symlink";
-		artifact: tg.Artifact | undefined;
+		artifact: number | tg.Artifact | undefined;
 		path: tg.Path | undefined;
 	};
 
