@@ -127,8 +127,10 @@ impl Server {
 				let node = *lockfile.paths.get(&input.read().unwrap().arg.path).unwrap();
 				let node = &lockfile.nodes[node];
 				if let tg::lockfile::Node::File { dependencies, .. } = node {
+					#[allow(clippy::collapsible_match)]
 					if let Some(entry) = dependencies.as_ref().and_then(|map| map.get(&dependency))
 					{
+						#[allow(clippy::single_match)]
 						match entry {
 							Some(Either::Right(object)) => {
 								let id = self

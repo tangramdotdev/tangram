@@ -4,8 +4,7 @@ use futures::{
 	TryStreamExt,
 };
 use std::{
-	collections::{BTreeMap, BTreeSet},
-	future::Future,
+	collections::BTreeMap,
 	sync::{Arc, RwLock},
 };
 use tangram_client as tg;
@@ -25,39 +24,6 @@ pub struct Input {
 struct State {
 	roots: Vec<tg::Path>,
 	visited: BTreeMap<tg::Path, Arc<RwLock<Input>>>,
-}
-
-impl Input {
-	fn children(&self) -> impl Iterator<Item = Arc<RwLock<Self>>> + '_ {
-		self.dependencies
-			.values()
-			.filter_map(Option::as_ref)
-			.cloned()
-	}
-
-	pub async fn visit_with<F, Fut>(&self, mut visit: F) -> tg::Result<()>
-	where
-		F: FnMut(&Self) -> Fut,
-		Fut: Future<Output = tg::Result<()>>,
-	{
-		let mut visited = BTreeSet::new();
-
-		// Visit the root.
-		visited.insert(self.arg.path.clone());
-		(&mut visit)(self);
-
-		let mut stack = self.children().collect::<Vec<_>>();
-		while let Some(input) = stack.pop() {
-			let input_ = input.read().unwrap();
-			if visited.contains(&input_.arg.path) {
-				continue;
-			}
-			visited.insert(input_.arg.path.clone());
-			(&mut visit)(&input_).await?;
-			stack.extend(input_.children());
-		}
-		Ok(())
-	}
 }
 
 impl Server {

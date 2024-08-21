@@ -148,7 +148,7 @@ impl Server {
 			// Otherwise, create a node.
 			Either::Right(tg::object::Id::Directory(_)) => tg::artifact::Kind::Directory,
 			Either::Right(tg::object::Id::File(_)) => tg::artifact::Kind::File,
-			_ => return Err(tg::error!("invalid input graph")),
+			Either::Right(_) => return Err(tg::error!("invalid input graph")),
 		};
 
 		// Get the index of this node.
@@ -198,7 +198,7 @@ impl Server {
 							},
 							Either::Right(tg::object::Id::File(id)) => Either::Right(id.into()),
 							Either::Right(tg::object::Id::Symlink(id)) => Either::Right(id.into()),
-							_ => return Err(tg::error!("invalid input graph")),
+							Either::Right(_) => return Err(tg::error!("invalid input graph")),
 						};
 						Ok::<_, tg::Error>((name, Some(id)))
 					})
@@ -466,7 +466,7 @@ impl Server {
 				.store(self)
 				.await?;
 
-			graphs.push(graph)
+			graphs.push(graph);
 		}
 
 		// Create artifact data.
@@ -523,7 +523,7 @@ impl Server {
 						let artifact = symlink
 							.artifact
 							.clone()
-							.map(|artifact| artifact.unwrap_right());
+							.map(Either::unwrap_right);
 						tg::symlink::Data::Normal {
 							artifact,
 							path: symlink.path.clone(),

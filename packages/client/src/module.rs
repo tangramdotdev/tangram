@@ -239,21 +239,23 @@ pub async fn try_get_root_module_path_for_path(path: &Path) -> tg::Result<Option
 	Ok(root_module_path)
 }
 
+#[must_use]
 pub fn is_root_module_path(path: &Path) -> bool {
 	let Some(last) = path.components().last() else {
 		return false;
 	};
 	let last = last.as_os_str().to_string_lossy();
-	ROOT_MODULE_FILE_NAMES.iter().any(|name| &last == *name)
+	ROOT_MODULE_FILE_NAMES.iter().any(|name| last == *name)
 }
 
+#[must_use]
 pub fn is_module_path(path: &Path) -> bool {
 	let Some(last) = path.components().last() else {
 		return false;
 	};
 
 	let last = last.as_os_str().to_string_lossy();
-	ROOT_MODULE_FILE_NAMES.iter().any(|name| &last == *name)
+	ROOT_MODULE_FILE_NAMES.iter().any(|name| last == *name)
 		|| last.ends_with(".tg.js")
 		|| last.ends_with(".tg.ts")
 }
