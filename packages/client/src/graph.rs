@@ -135,6 +135,17 @@ pub mod data {
 			#[serde(default, skip_serializing_if = "Option::is_none")]
 			pub path: Option<tg::Path>,
 		}
+
+		impl Node {
+			#[must_use]
+			pub fn kind(&self) -> tg::artifact::Kind {
+				match self {
+					Self::Directory(_) => tg::artifact::Kind::Directory,
+					Self::File(_) => tg::artifact::Kind::File,
+					Self::Symlink(_) => tg::artifact::Kind::Symlink,
+				}
+			}
+		}
 	}
 }
 
@@ -389,6 +400,10 @@ impl Data {
 			}
 		}
 		children
+	}
+
+	pub fn id(&self) -> tg::Result<Id> {
+		Ok(Id::new(&self.serialize()?))
 	}
 }
 

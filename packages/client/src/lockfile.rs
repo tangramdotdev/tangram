@@ -1,16 +1,43 @@
-use crate as tg;
+use crate::{self as tg, util::serde::is_false};
+use either::Either;
 use std::collections::BTreeMap;
-use tokio::io::AsyncWriteExt as _;
-
+use tokio::io::AsyncWriteExt;
 pub const TANGRAM_LOCKFILE_FILE_NAME: &str = "tangram.lock";
 
 #[derive(Clone, Debug, serde::Serialize, serde::Deserialize)]
 pub struct Lockfile {
 	#[serde(skip_serializing_if = "BTreeMap::is_empty")]
 	pub paths: BTreeMap<tg::Path, usize>,
-
-	pub nodes: Vec<tg::graph::data::Node>,
+	pub nodes: Vec<Node>,
 }
+
+#[derive(Clone, Debug, serde::Serialize, serde::Deserialize)]
+#[serde(tag = "kind", rename_all = "snake_case")]
+pub enum Node {
+	Directory(BTreeMap<String, Entry>),
+	File {
+		#[serde(default, skip_serializing_if = "Option::is_none")]
+		contents: Option<tg::blob::Id>,
+
+		#[serde(default, skip_serializing_if = "Option::is_none")]
+		dependencies: Option<BTreeMap<tg::Reference, Entry>>,
+
+		#[serde(default, skip_serializing_if = "is_false")]
+		executable: bool,
+
+		#[serde(default, skip_serializing_if = "Option::is_none")]
+		module: Option<tg::file::Module>,
+	},
+	Symlink {
+		#[serde(default, skip_serializing_if = "Option::is_none")]
+		artifact: Option<Entry>,
+
+		#[serde(default, skip_serializing_if = "Option::is_none")]
+		path: Option<tg::Path>,
+	},
+}
+
+pub type Entry = Option<Either<usize, tg::object::Id>>;
 
 impl Lockfile {
 	pub async fn try_read(path: &tg::Path) -> tg::Result<Option<Self>> {
@@ -20,7 +47,7 @@ impl Lockfile {
 			Err(source) => return Err(tg::error!(!source, %path, "failed to read lockfile"))?,
 		};
 		let lockfile = serde_json::from_str(&contents)
-			.map_err(|source| tg::error!(!source, "failed to deserialize lockfile"))?;
+			.map_err(|source| tg::error!(!source, %path, "failed to deserialize lockfile"))?;
 		Ok(Some(lockfile))
 	}
 
@@ -44,13 +71,5 @@ impl Lockfile {
 				|source| tg::error!(!source, %path = lockfile_path, "failed to write lockfile"),
 			)?;
 		Ok(())
-	}
-}
-
-impl TryFrom<Lockfile> for tg::graph::Data {
-	type Error = tg::Error;
-
-	fn try_from(value: Lockfile) -> tg::Result<Self> {
-		Ok(Self { nodes: value.nodes })
 	}
 }
