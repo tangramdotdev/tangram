@@ -24,9 +24,6 @@ pub enum Node {
 
 		#[serde(default, skip_serializing_if = "is_false")]
 		executable: bool,
-
-		#[serde(default, skip_serializing_if = "Option::is_none")]
-		module: Option<tg::file::Module>,
 	},
 	Symlink {
 		#[serde(default, skip_serializing_if = "Option::is_none")]

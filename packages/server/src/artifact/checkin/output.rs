@@ -245,7 +245,6 @@ impl Server {
 			contents: Some(output.blob),
 			dependencies: (!dependencies.is_empty()).then_some(dependencies),
 			executable: metadata.permissions().mode() & 0b111 != 0,
-			module: None, /* todo: modules */
 		})
 	}
 
@@ -509,7 +508,6 @@ impl Server {
 							contents: file.contents.clone(),
 							dependencies,
 							executable: file.executable,
-							module: file.module.clone(),
 						}
 						.into()
 					} else {
@@ -594,7 +592,6 @@ impl Server {
 			contents: contents.ok_or_else(|| tg::error!("incomplete lockfile"))?,
 			dependencies,
 			executable,
-			module: None,
 		})
 	}
 
