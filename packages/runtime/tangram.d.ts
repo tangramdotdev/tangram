@@ -462,12 +462,12 @@ declare namespace tg {
 				| Array<number | tg.Object>
 				| { [reference: string]: number | tg.Object }
 				| undefined;
-			executable?: boolean;
+			executable?: boolean | undefined;
 		};
 
 		type SymlinkNodeArg = {
 			kind: "symlink";
-			artifact?: tg.Artifact | undefined;
+			artifact?: number | tg.Artifact | undefined;
 			path?: tg.Path.Arg | undefined;
 		};
 
@@ -487,7 +487,7 @@ declare namespace tg {
 
 		type SymlinkNode = {
 			kind: "symlink";
-			artifact: tg.Artifact | undefined;
+			artifact: number | tg.Artifact | undefined;
 			path: tg.Path | undefined;
 		};
 	}

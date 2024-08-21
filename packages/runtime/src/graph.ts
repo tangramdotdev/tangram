@@ -21,146 +21,88 @@ export class Graph {
 	}
 
 	static async new(...args: tg.Args<Graph.Arg>): Promise<Graph> {
-		// Combine incoming arguments.
 		let arg = await Graph.arg(...args);
-
-		// Make all optional argument fields explicit.
-		let nodes: Array<Graph.Node> = await Promise.all(
+		let nodes = await Promise.all(
 			(arg.nodes ?? []).map(async (node) => {
 				if (node.kind === "directory") {
 					return {
-						kind: "directory",
+						kind: "directory" as const,
 						entries: node.entries ?? {},
 					};
 				} else if (node.kind === "file") {
 					return {
-						kind: "file",
+						kind: "file" as const,
 						contents: await tg.blob(node.contents),
 						dependencies: node.dependencies ?? undefined,
 						executable: node.executable ?? false,
 					};
 				} else if (node.kind === "symlink") {
 					return {
-						kind: "symlink",
+						kind: "symlink" as const,
 						artifact: node.artifact ?? undefined,
 						path: node.path !== undefined ? tg.path(node.path) : undefined,
 					};
 				} else {
 					return tg.unreachable(node);
 				}
-			})
+			}),
 		);
-
-		// Construct the object and return a new instance.
 		return new Graph({ object: { nodes } });
 	}
 
 	static async arg(...args: tg.Args<Graph.Arg>): Promise<Graph.ArgObject> {
-		// Resolve and flatten the incoming arguments.
 		let resolved = await Promise.all(args.map(tg.resolve));
 		let flattened = flatten(resolved);
-
-		/** Add the given offset to all indices in the object. */
-		let addOffset = (nodeArg: Graph.NodeArg, offset: number): Graph.NodeArg => {
-			// Define utilities for updating indices in various node types.
-
-			/** Utility to add an offset to all values in an object with type "number". */
-			let addOffsetToObjectValues = <
-				O extends { [key: string]: number | tg.Artifact | tg.Object }
-			>(
-				obj: O
-			): O =>
-				Object.fromEntries(
-					Object.entries(obj.entries ?? {}).map(([key, value]) => [
-						key,
-						typeof value === "number" ? value + offset : value,
-					])
-				) as O;
-
-			/** Type-constrained wrapper to update directory entries. */
-			let addOffsetToEntries = (
-				entries: Graph.DirectoryNode["entries"]
-			): Graph.DirectoryNode["entries"] => addOffsetToObjectValues(entries);
-
-			/** Type-constrained wrapper to update file dependencies. */
-			let addOffsetToDependencies = (
-				dependencies: Graph.FileNode["dependencies"]
-			): Graph.FileNode["dependencies"] => {
-				if (dependencies === undefined) {
-					return undefined;
-				} else if (Array.isArray(dependencies)) {
-					return dependencies.map((dep) =>
-						typeof dep === "number" ? dep + offset : dep
-					);
-				} else {
-					return addOffsetToObjectValues(dependencies);
-				}
-			};
-
-			// Process arg.
-			if (nodeArg.kind === "directory") {
-				let ret: Graph.DirectoryNodeArg = {
-					kind: "directory",
-				};
-
-				// Handle entries if present.
-				if (nodeArg.entries !== undefined) {
-					ret.entries = addOffsetToEntries(nodeArg.entries);
-				}
-
-				return ret;
-			} else if (nodeArg.kind === "file") {
-				let ret: Graph.FileNodeArg = {
-					kind: "file",
-					contents: nodeArg.contents,
-				};
-
-				// Handle dependencies if present.
-				if (nodeArg.dependencies !== undefined) {
-					ret.dependencies = addOffsetToDependencies(nodeArg.dependencies);
-				}
-
-				// Handle executable if present.
-				if (nodeArg.executable !== undefined) {
-					ret.executable = nodeArg.executable;
-				}
-
-				return ret;
-			} else if (nodeArg.kind === "symlink") {
-				let ret: Graph.SymlinkNodeArg = {
-					kind: "symlink",
-				};
-
-				// Handle artifact if present.
-				if (nodeArg.artifact !== undefined) {
-					ret.artifact =
-						typeof nodeArg.artifact === "number"
-							? nodeArg.artifact + offset
-							: nodeArg.artifact;
-				}
-
-				// Handle path if present.
-				if (nodeArg.path !== undefined) {
-					ret.path = nodeArg.path;
-				}
-
-				return ret;
-			} else {
-				return tg.unreachable(nodeArg);
-			}
-		};
-
-		// Process all arguments, renumbering all indices.
-		let nodes: Array<Graph.NodeArg> = [];
+		let nodes = [];
 		let offset = 0;
-
 		for (let arg of flattened) {
 			let argNodes = arg instanceof Graph ? await arg.nodes() : arg.nodes || [];
-			let renumberedNodes = argNodes.map((node) => addOffset(node, offset));
-			nodes = nodes.concat(renumberedNodes);
-			offset += renumberedNodes.length;
+			for (let node of argNodes) {
+				if (node.kind === "directory") {
+					for (let name in node.entries) {
+						if (typeof node.entries[name] === "number") {
+							node.entries[name] += offset;
+						}
+					}
+					nodes.push({
+						kind: "directory" as const,
+						entries: node.entries ?? {},
+					});
+				} else if (node.kind === "file") {
+					if (
+						node.dependencies !== undefined &&
+						!Array.isArray(node.dependencies)
+					) {
+						for (let reference in node.dependencies) {
+							if (typeof node.dependencies[reference] === "number") {
+								node.dependencies[reference] += offset;
+							}
+						}
+					}
+					nodes.push({
+						kind: "file" as const,
+						contents: node.contents,
+						dependencies: node.dependencies,
+						executable: node.executable,
+					});
+				} else if (node.kind === "symlink") {
+					if (
+						node.artifact !== undefined &&
+						typeof node.artifact === "number"
+					) {
+						node.artifact += offset;
+					}
+					nodes.push({
+						kind: "symlink" as const,
+						artifact: node.artifact,
+						path: node.path,
+					});
+				} else {
+					return tg.unreachable();
+				}
+			}
+			offset += argNodes.length;
 		}
-
 		return { nodes };
 	}
 
@@ -228,7 +170,7 @@ export namespace Graph {
 			| Array<number | tg.Object>
 			| { [reference: string]: number | tg.Object }
 			| undefined;
-		executable?: boolean;
+		executable?: boolean | undefined;
 	};
 
 	export type SymlinkNodeArg = {
