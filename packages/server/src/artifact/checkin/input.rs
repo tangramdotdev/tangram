@@ -155,8 +155,13 @@ impl Server {
 				else {
 					return Ok((reference, None));
 				};
+				let parent_path = if metadata.is_dir() {
+					arg.path.clone()
+				} else {
+					arg.path.clone().parent()
+				};
 				let arg = tg::artifact::checkin::Arg {
-					path: arg.path.clone().join(path.clone()).normalize(),
+					path: parent_path.join(path.clone()).normalize(),
 					..arg.clone()
 				};
 				let child =

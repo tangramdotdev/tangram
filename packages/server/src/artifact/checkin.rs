@@ -1,9 +1,6 @@
 use crate::Server;
 use futures::{future::BoxFuture, stream, FutureExt as _, Stream, StreamExt as _};
-use std::{
-	collections::BTreeMap,
-	sync::{atomic::AtomicU64, Arc},
-};
+use std::sync::{atomic::AtomicU64, Arc};
 use tangram_client as tg;
 use tangram_http::{incoming::request::Ext as _, outgoing::response::Ext as _, Incoming, Outgoing};
 use tokio_stream::wrappers::IntervalStream;
@@ -153,72 +150,26 @@ impl Server {
 		unification_graph.validate(self)?;
 
 		// Create the lock that is written to disk.
-		let output_graph = self.create_output_graph(&unification_graph, &root).await?;
+		let lockfile = self
+			.create_lockfile(&unification_graph, &root)
+			.await
+			.map_err(|source| tg::error!(!source, "failed to create lockfile"))?;
 
 		// Get the output.
-		let (output, lock_with_objects) = self.collect_output(input.clone(), &output_graph).await?;
+		let output = self.collect_output(input.clone(), &lockfile).await?;
 
-		// Collect all the file output.
-		let mut old_files = BTreeMap::new();
-		let mut stack = vec![&output];
-		while let Some(output) = stack.pop() {
-			if let tg::artifact::Data::File(file) = &output.data {
-				let id = tg::file::Id::new(&file.serialize()?);
-				old_files.insert(id, file.clone());
-			}
-			stack.extend(output.dependencies.values());
-		}
-
-		// Split up locks.
-		let graphs = self.split_graphs(&lock_with_objects, &old_files).await?;
-
-		// Replace files.
-		// let mut output = output.clone();
-		// let mut stack = vec![&mut output];
-		// while let Some(output) = stack.pop() {
-		// 	if let Some(data) = new_files.get(&output.lock_index) {
-		// 		output.data = data.clone().into();
-		// 	}
-		// 	stack.extend(output.dependencies.values_mut());
-		// }
-
-		// Write the lockfile if necessary.
-		// if input.write_lock {
-		// 	self.write_lockfile(&input.arg.path, &output_graph).await?;
-		// }
-
-		// Get the root object. TODO this is garbage, don't do it.
-		let (graph, node) = graphs
-			.get(&0usize)
-			.ok_or_else(|| tg::error!("corupted locks"))?;
-		let graph = tg::Graph::with_id(graph.clone());
-		let artifact: tg::artifact::Id = match graph.load(self).await?.nodes[*node]
-			.data(self)
-			.await?
-		{
-			tg::graph::data::Node::Directory(_) => tg::Directory::with_graph_and_node(graph, *node)
-				.id(self)
-				.await?
-				.into(),
-			tg::graph::data::Node::File(_) => tg::File::with_graph_and_node(graph, *node)
-				.id(self)
-				.await?
-				.into(),
-			tg::graph::data::Node::Symlink(_) => tg::Symlink::with_graph_and_node(graph, *node)
-				.id(self)
-				.await?
-				.into(),
-		};
+		// Get the artifact ID
+		let artifact = output.read().unwrap().data.id()?;
 
 		if let Some(store_as) = store_as {
 			// Store if requested.
 			if store_as != &artifact {
 				return Err(tg::error!("checkouts directory is corrupted"));
 			}
-			self.write_output_to_database(&output).await?;
+			self.write_output_to_database(output).await?;
 		} else {
 			// Otherwise, update hardlinks and xattrs.
-			self.write_hardlinks_and_xattrs(input, &output).await?;
+			self.write_hardlinks_and_xattrs(input, output).await?;
 		}
 
 		Ok(artifact)

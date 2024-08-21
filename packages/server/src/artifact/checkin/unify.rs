@@ -126,21 +126,18 @@ impl Server {
 			if let Some((lockfile, _)) = lockfile {
 				let node = *lockfile.paths.get(&input.read().unwrap().arg.path).unwrap();
 				let node = &lockfile.nodes[node];
-				if let tg::graph::data::Node::File(file) = node {
-					if let Some(entry) = file
-						.dependencies
-						.as_ref()
-						.and_then(|map| map.get(&dependency))
+				if let tg::lockfile::Node::File { dependencies, .. } = node {
+					if let Some(entry) = dependencies.as_ref().and_then(|map| map.get(&dependency))
 					{
 						match entry {
-							Either::Left(_index) => (), // if referenced by index it will be in the input. todo: verify this.
-							Either::Right(object) => {
+							Some(Either::Right(object)) => {
 								let id = self
 									.create_unification_node_from_object(graph, object.clone())
 									.await?;
 								outgoing.insert(dependency.clone(), id);
 								continue;
 							},
+							_ => (), // if referenced by index or path it will be in the input. todo: verify this.
 						}
 					}
 				}
@@ -566,12 +563,13 @@ impl Server {
 
 		let id = tag
 			.as_ref()
-			.map(|tag| Either::Left(get_reference_from_tag(tag)))
-			.unwrap_or_else(|| {
-				let id = Either::Right(graph.counter);
-				graph.counter += 1;
-				id
-			});
+			.map_or_else(
+				|| {
+					let id = Either::Right(graph.counter);
+					graph.counter += 1;
+					id
+				},
+				|tag| Either::Left(get_reference_from_tag(tag)));
 
 		visited.insert(object_id.clone(), id.clone());
 
