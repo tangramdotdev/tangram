@@ -452,7 +452,7 @@ declare namespace tg {
 
 		type DirectoryNodeArg = {
 			kind: "directory";
-			entries?: { [name: string]: number | tg.Artifact };
+			entries?: { [name: string]: number | tg.Artifact } | undefined;
 		};
 
 		type FileNodeArg = {

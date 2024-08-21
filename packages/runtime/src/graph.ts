@@ -57,46 +57,65 @@ export class Graph {
 		let offset = 0;
 		for (let arg of flattened) {
 			let argNodes = arg instanceof Graph ? await arg.nodes() : arg.nodes || [];
-			for (let node of argNodes) {
-				if (node.kind === "directory") {
-					for (let name in node.entries) {
-						if (typeof node.entries[name] === "number") {
-							node.entries[name] += offset;
-						}
-					}
-					nodes.push({
-						kind: "directory" as const,
-						entries: node.entries ?? {},
-					});
-				} else if (node.kind === "file") {
-					if (
-						node.dependencies !== undefined &&
-						!Array.isArray(node.dependencies)
-					) {
-						for (let reference in node.dependencies) {
-							if (typeof node.dependencies[reference] === "number") {
-								node.dependencies[reference] += offset;
+			for (let argNode of argNodes) {
+				if (argNode.kind === "directory") {
+					let node: tg.Graph.DirectoryNodeArg = { kind: "directory" as const };
+					if ("entries" in argNode) {
+						if (argNode.entries !== undefined) {
+							node.entries = {};
+							for (let name in argNode.entries) {
+								if (typeof argNode.entries[name] === "number") {
+									node.entries[name] = argNode.entries[name] + offset;
+								}
 							}
+						} else {
+							node.entries = argNode.entries;
 						}
 					}
-					nodes.push({
+					nodes.push(node);
+				} else if (argNode.kind === "file") {
+					let node: tg.Graph.FileNodeArg = {
 						kind: "file" as const,
-						contents: node.contents,
-						dependencies: node.dependencies,
-						executable: node.executable,
-					});
-				} else if (node.kind === "symlink") {
-					if (
-						node.artifact !== undefined &&
-						typeof node.artifact === "number"
-					) {
-						node.artifact += offset;
+						contents: argNode.contents,
+					};
+					if ("dependencies" in argNode) {
+						if (
+							argNode.dependencies !== undefined &&
+							!Array.isArray(argNode.dependencies)
+						) {
+							node.dependencies = {};
+							for (let reference in argNode.dependencies) {
+								if (typeof argNode.dependencies[reference] === "number") {
+									node.dependencies[reference] =
+										argNode.dependencies[reference] + offset;
+								}
+							}
+						} else {
+							node.dependencies = argNode.dependencies;
+						}
 					}
-					nodes.push({
+					if ("executable" in argNode) {
+						node.executable = argNode.executable;
+					}
+					nodes.push(node);
+				} else if (argNode.kind === "symlink") {
+					let node: tg.Graph.SymlinkNodeArg = {
 						kind: "symlink" as const,
-						artifact: node.artifact,
-						path: node.path,
-					});
+					};
+					if ("artifact" in argNode) {
+						if (
+							argNode.artifact !== undefined &&
+							typeof argNode.artifact === "number"
+						) {
+							node.artifact = argNode.artifact + offset;
+						} else {
+							node.artifact = argNode.artifact;
+						}
+					}
+					if ("path" in argNode) {
+						node.path = argNode.path;
+					}
+					nodes.push(node);
 				} else {
 					return tg.unreachable();
 				}
@@ -160,7 +179,7 @@ export namespace Graph {
 
 	export type DirectoryNodeArg = {
 		kind: "directory";
-		entries?: { [name: string]: number | tg.Artifact };
+		entries?: { [name: string]: number | tg.Artifact } | undefined;
 	};
 
 	export type FileNodeArg = {
