@@ -45,7 +45,7 @@ export class Graph {
 				} else {
 					return tg.unreachable(node);
 				}
-			}),
+			})
 		);
 		return new Graph({ object: { nodes } });
 	}
@@ -66,6 +66,8 @@ export class Graph {
 							for (let name in argNode.entries) {
 								if (typeof argNode.entries[name] === "number") {
 									node.entries[name] = argNode.entries[name] + offset;
+								} else if (tg.Artifact.is(argNode.entries[name])) {
+									node.entries[name] = argNode.entries[name];
 								}
 							}
 						} else {
@@ -79,15 +81,23 @@ export class Graph {
 						contents: argNode.contents,
 					};
 					if ("dependencies" in argNode) {
-						if (
-							argNode.dependencies !== undefined &&
-							!Array.isArray(argNode.dependencies)
-						) {
-							node.dependencies = {};
-							for (let reference in argNode.dependencies) {
-								if (typeof argNode.dependencies[reference] === "number") {
-									node.dependencies[reference] =
-										argNode.dependencies[reference] + offset;
+						if (argNode.dependencies !== undefined) {
+							if (Array.isArray(argNode.dependencies)) {
+								node.dependencies = argNode.dependencies.map((dependency) =>
+									typeof dependency === "number"
+										? dependency + offset
+										: dependency
+								);
+							} else {
+								node.dependencies = {};
+								for (let reference in argNode.dependencies) {
+									if (typeof argNode.dependencies[reference] === "number") {
+										node.dependencies[reference] =
+											argNode.dependencies[reference] + offset;
+									} else if (tg.Object.is(argNode.dependencies[reference])) {
+										node.dependencies[reference] =
+											argNode.dependencies[reference];
+									}
 								}
 							}
 						} else {
