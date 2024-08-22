@@ -108,16 +108,26 @@ impl Server {
 		let dependencies = input.read().unwrap().dependencies.clone();
 		for (dependency, child) in dependencies {
 			// Recurse on existing input.
-			if let Some(input) = child {
-				let id = Box::pin(self.create_unification_graph_from_input(
-					input,
-					graph,
-					visited_graph_nodes,
-				))
-				.await?;
-				outgoing.insert(dependency.clone(), id);
-				continue;
-			}
+			match child {
+				Some(Either::Left(object)) => {
+					let id = self
+						.create_unification_node_from_object(graph, object)
+						.await?;
+					outgoing.insert(dependency.clone(), id);
+					continue;
+				},
+				Some(Either::Right(input)) => {
+					let id = Box::pin(self.create_unification_graph_from_input(
+						input,
+						graph,
+						visited_graph_nodes,
+					))
+					.await?;
+					outgoing.insert(dependency.clone(), id);
+					continue;
+				},
+				None => (),
+			};
 
 			// Check if there is a solution in the lock file.
 			let lockfile = input.read().unwrap().lockfile.clone();

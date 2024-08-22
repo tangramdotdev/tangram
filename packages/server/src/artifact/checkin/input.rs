@@ -14,11 +14,14 @@ use crate::Server;
 #[derive(Clone, Debug)]
 pub struct Input {
 	pub arg: tg::artifact::checkin::Arg,
-	pub dependencies: BTreeMap<tg::Reference, Option<Arc<RwLock<Self>>>>,
+	pub dependencies: BTreeMap<tg::Reference, Dependency>,
 	pub is_root: bool,
+	pub is_direct_dependency: bool,
 	pub metadata: std::fs::Metadata,
 	pub lockfile: Option<(Arc<tg::Lockfile>, tg::Path)>,
 }
+
+pub type Dependency = Option<Either<tg::object::Id, Arc<RwLock<Input>>>>;
 
 #[derive(Default)]
 struct State {
@@ -32,7 +35,7 @@ impl Server {
 		arg: tg::artifact::checkin::Arg,
 	) -> tg::Result<Arc<RwLock<Input>>> {
 		let state = RwLock::new(State::default());
-		self.collect_input_inner(arg, 0, None, &state).await
+		self.collect_input_inner(arg, 0, None, false, &state).await
 	}
 
 	async fn collect_input_inner(
@@ -40,6 +43,7 @@ impl Server {
 		arg: tg::artifact::checkin::Arg,
 		root: usize,
 		lockfile: Option<(Arc<tg::Lockfile>, tg::Path)>,
+		is_direct_dependency: bool,
 		state: &RwLock<State>,
 	) -> tg::Result<Arc<RwLock<Input>>> {
 		if let Some(visited) = state.read().unwrap().visited.get(&arg.path).cloned() {
@@ -95,6 +99,7 @@ impl Server {
 			arg: arg.clone(),
 			dependencies: BTreeMap::new(),
 			is_root,
+			is_direct_dependency,
 			lockfile: lockfile.clone(),
 			metadata: metadata.clone(),
 		}));
@@ -112,7 +117,7 @@ impl Server {
 			.await
 			.map_err(|source| tg::error!(!source, %path = arg.path, "failed to get dependencies"))?
 			.into_iter()
-			.map(|reference| async {
+			.map(|(reference, object)| async {
 				let Some(path) = reference
 					.path()
 					.try_unwrap_path_ref()
@@ -121,18 +126,28 @@ impl Server {
 				else {
 					return Ok((reference, None));
 				};
+				if let Some(object) = object {
+					return Ok((reference, Some(Either::Left(object))));
+				}
 				let parent_path = if metadata.is_dir() {
 					arg.path.clone()
 				} else {
 					arg.path.clone().parent()
 				};
+				let is_direct_dependency = tg::module::is_module_path(arg.path.as_ref());
 				let arg = tg::artifact::checkin::Arg {
 					path: parent_path.join(path.clone()).normalize(),
 					..arg.clone()
 				};
-				let child =
-					Box::pin(self.collect_input_inner(arg, root, lockfile.clone(), state)).await?;
-				Ok::<_, tg::Error>((reference, Some(child)))
+				let child = Box::pin(self.collect_input_inner(
+					arg,
+					root,
+					lockfile.clone(),
+					is_direct_dependency,
+					state,
+				))
+				.await?;
+				Ok::<_, tg::Error>((reference, Some(Either::Right(child))))
 			})
 			.collect::<FuturesUnordered<_>>()
 			.try_collect()
@@ -183,15 +198,13 @@ impl Server {
 		&self,
 		path: &tg::Path,
 		metadata: &std::fs::Metadata,
-	) -> tg::Result<Vec<tg::Reference>> {
+	) -> tg::Result<Vec<(tg::Reference, Option<tg::object::Id>)>> {
 		let _permit = self.file_descriptor_semaphore.acquire().await.unwrap();
 		if metadata.is_dir() {
 			if let Some(root_module_path) =
 				tg::module::try_get_root_module_path_for_path(path.as_ref()).await?
 			{
-				let mut dependencies = self.get_file_dependencies(&root_module_path).await?;
-				dependencies.push(tg::Reference::with_path(&root_module_path));
-				return Ok(dependencies);
+				return Ok(vec![(tg::Reference::with_path(&root_module_path), None)]);
 			}
 			self.get_directory_dependencies(path).await
 		} else if metadata.is_file() {
@@ -203,7 +216,10 @@ impl Server {
 		}
 	}
 
-	async fn get_file_dependencies(&self, path: &tg::Path) -> tg::Result<Vec<tg::Reference>> {
+	async fn get_file_dependencies(
+		&self,
+		path: &tg::Path,
+	) -> tg::Result<Vec<(tg::Reference, Option<tg::object::Id>)>> {
 		if let Some(data) = xattr::get(path, tg::file::XATTR_NAME)
 			.map_err(|source| tg::error!(!source, "failed to read file xattr"))?
 		{
@@ -211,8 +227,11 @@ impl Server {
 				serde_json::from_slice(&data)
 					.map_err(|source| tg::error!(!source, "failed to deserialize xattr"))?;
 			let dependencies = match dependencies {
-				Either::Left(set) => set.iter().map(tg::Reference::with_object).collect(),
-				Either::Right(map) => map.keys().cloned().collect(),
+				Either::Left(set) => set
+					.into_iter()
+					.map(|v| (tg::Reference::with_object(&v), None))
+					.collect(),
+				Either::Right(map) => map.into_iter().map(|(k, v)| (k, Some(v))).collect(),
 			};
 			return Ok(dependencies);
 		}
@@ -226,7 +245,7 @@ impl Server {
 			let dependencies = analysis
 				.imports
 				.into_iter()
-				.map(|import| import.reference)
+				.map(|import| (import.reference, None))
 				.collect();
 			return Ok(dependencies);
 		}
@@ -234,7 +253,10 @@ impl Server {
 		Ok(Vec::new())
 	}
 
-	async fn get_directory_dependencies(&self, path: &tg::Path) -> tg::Result<Vec<tg::Reference>> {
+	async fn get_directory_dependencies(
+		&self,
+		path: &tg::Path,
+	) -> tg::Result<Vec<(tg::Reference, Option<tg::object::Id>)>> {
 		let entries = tokio::fs::read_dir(path)
 			.await
 			.map_err(|source| tg::error!(!source, "failed to get directory entries"))?;
@@ -252,7 +274,7 @@ impl Server {
 				.ok_or_else(|| tg::error!("invalid file name"))?
 				.parse()?;
 			let reference = tg::Reference::with_path(&path);
-			Ok::<_, tg::Error>(Some((reference, entries)))
+			Ok::<_, tg::Error>(Some(((reference, None), entries)))
 		})
 		.try_collect()
 		.await

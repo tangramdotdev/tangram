@@ -348,9 +348,16 @@ impl Server {
 
 		// Recurse.
 		let mut output_dependencies = BTreeMap::new();
-		let input_dependencies = input.read().unwrap().dependencies.clone();
+		let input_dependencies = input
+			.read()
+			.unwrap()
+			.dependencies
+			.iter()
+			.filter_map(|(reference, child)| {
+				Some((reference.clone(), child.as_ref()?.clone().right()?))
+			})
+			.collect::<Vec<_>>();
 		for (reference, input) in input_dependencies {
-			let input = input.ok_or_else(|| tg::error!("invalid input graph"))?;
 			let output =
 				Box::pin(self.collect_output_inner(input, artifacts, lockfile, visited)).await?;
 			output_dependencies.insert(reference, output);
@@ -702,11 +709,14 @@ impl Server {
 		}) = data
 		{
 			let _permit = self.file_descriptor_semaphore.acquire().await.unwrap();
-
 			let dst: tg::Path = self.checkouts_path().join(id.to_string()).try_into()?;
 
-			if let Some(_dependencies) = dependencies {
-				todo!(); // write xattr
+			if let Some(dependencies) = dependencies {
+				let json = serde_json::to_vec(&dependencies)
+					.map_err(|source| tg::error!(!source, "failed to serialize dependencies"))?;
+				xattr::set(path, tg::file::XATTR_NAME, &json).map_err(|source| {
+					tg::error!(!source, "failed to write dependencies as an xattr")
+				})?;
 			}
 
 			// Create hard link to the file.
@@ -732,22 +742,29 @@ impl Server {
 			}
 		}
 
-		let dependencies = input.read().unwrap().dependencies.clone();
-		for (reference, child_input) in dependencies
+		let dependencies = input
+			.read()
+			.unwrap()
+			.dependencies
 			.iter()
-			.filter_map(|(reference, input)| Some((reference, input.as_ref()?)))
-		{
+			.filter_map(|(reference, child)| {
+				Some((reference.clone(), child.as_ref()?.clone().right()?))
+			})
+			.collect::<Vec<_>>();
+		for (reference, child_input) in dependencies {
 			let child_output = output
 				.read()
 				.unwrap()
 				.dependencies
-				.get(reference)
+				.get(&reference)
 				.ok_or_else(
 					|| tg::error!(%referrer = path, %reference, "missing output reference"),
 				)?
 				.clone();
 
-			let path = if child_input.read().unwrap().is_root {
+			let path = if child_input.read().unwrap().is_root
+				|| child_input.read().unwrap().is_direct_dependency
+			{
 				self.checkouts_path()
 					.join(child_output.read().unwrap().data.id()?.to_string())
 					.try_into()?
@@ -846,7 +863,11 @@ impl Server {
 		let mut visited = BTreeSet::new();
 		let mut stack = vec![(input, output)];
 		while let Some((input, output)) = stack.pop() {
-			if input.read().unwrap().is_root {
+			let should_copy = {
+				let input = input.read().unwrap();
+				input.is_root || input.is_direct_dependency
+			};
+			if should_copy {
 				let artifact = output.read().unwrap().data.id()?;
 				let dest = self
 					.checkouts_path()
@@ -860,8 +881,7 @@ impl Server {
 			let children = input
 				.dependencies
 				.values()
-				.cloned()
-				.map(Option::unwrap)
+				.filter_map(|child| child.as_ref()?.clone().right())
 				.zip(output.dependencies.values().cloned());
 			stack.extend(children);
 		}
@@ -884,15 +904,15 @@ impl Server {
 			tokio::fs::create_dir_all(&dest)
 				.await
 				.map_err(|source| tg::error!(!source, "failed to create directory"))?;
-			let children = input.dependencies.values().cloned();
-			for input_ in children {
-				let Some(input_) = input_ else {
-					continue;
-				};
-				if input_.read().unwrap().is_root {
+			let children = input
+				.dependencies
+				.values()
+				.filter_map(|child| child.as_ref()?.clone().right());
+			for child in children {
+				if child.read().unwrap().is_root {
 					continue;
 				}
-				let diff = input_
+				let diff = child
 					.read()
 					.unwrap()
 					.arg
@@ -900,7 +920,7 @@ impl Server {
 					.diff(&input.arg.path)
 					.unwrap();
 				let dest = dest.clone().join(diff).normalize();
-				Box::pin(self.copy_or_move_to_checkouts_directory_inner(dest, input_, visited))
+				Box::pin(self.copy_or_move_to_checkouts_directory_inner(dest, child, visited))
 					.await?;
 			}
 		} else if input.metadata.is_symlink() {
