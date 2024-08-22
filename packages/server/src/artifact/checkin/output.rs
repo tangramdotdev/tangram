@@ -338,15 +338,6 @@ impl Server {
 			.ok_or_else(|| tg::error!("missing artifact data"))?
 			.clone();
 
-		// Get the artifact ID.
-		let id = data.id()?;
-
-		// Copy or move the file.
-		if input.read().unwrap().is_root {
-			self.copy_or_move_to_checkouts_directory(input.clone(), id.clone())
-				.await?;
-		}
-
 		// Create the output
 		let output = Arc::new(RwLock::new(Output {
 			data,
@@ -606,22 +597,64 @@ impl Server {
 			return Ok(Either::Left(node_index));
 		}
 
-		let graph_id = graphs[graph_index].id()?;
-		let object_id = match &graphs[graph_index].nodes[node_index].kind() {
+		let graph = &graphs[graph_index];
+		if graph.nodes.len() == 1 {
+			let id = match &graph.nodes[node_index] {
+				tg::graph::data::Node::Directory(node) => tg::directory::Data::Normal {
+					entries: node
+						.entries
+						.clone()
+						.into_iter()
+						.map(|(name, either)| (name, either.unwrap_right()))
+						.collect(),
+				}
+				.id()?
+				.into(),
+				tg::graph::data::Node::File(node) => {
+					let dependencies =
+						node.dependencies
+							.clone()
+							.map(|dependencies| match dependencies {
+								Either::Left(d) => {
+									Either::Left(d.into_iter().map(Either::unwrap_right).collect())
+								},
+								Either::Right(d) => Either::Right(
+									d.into_iter().map(|(k, v)| (k, v.unwrap_right())).collect(),
+								),
+							});
+					tg::file::Data::Normal {
+						contents: node.contents.clone(),
+						dependencies,
+						executable: node.executable,
+					}
+					.id()?
+					.into()
+				},
+				tg::graph::data::Node::Symlink(node) => tg::symlink::Data::Normal {
+					artifact: node.artifact.clone().map(Either::unwrap_right),
+					path: node.path.clone(),
+				}
+				.id()?
+				.into(),
+			};
+			return Ok(Either::Right(id));
+		}
+
+		let object_id = match &graph.nodes[node_index].kind() {
 			tg::artifact::Kind::Directory => tg::directory::Data::Graph {
-				graph: graph_id,
+				graph: graph.id()?,
 				node: node_index,
 			}
 			.id()?
 			.into(),
 			tg::artifact::Kind::File => tg::file::Data::Graph {
-				graph: graph_id,
+				graph: graph.id()?,
 				node: node_index,
 			}
 			.id()?
 			.into(),
 			tg::artifact::Kind::Symlink => tg::symlink::Data::Graph {
-				graph: graph_id,
+				graph: graph.id()?,
 				node: node_index,
 			}
 			.id()?
@@ -661,6 +694,7 @@ impl Server {
 		visited.insert(path.clone());
 		let data = output.read().unwrap().data.clone();
 		let id = data.id()?;
+
 		if let tg::artifact::Data::File(tg::file::Data::Normal {
 			contents,
 			dependencies,
@@ -807,15 +841,31 @@ impl Server {
 	pub(super) async fn copy_or_move_to_checkouts_directory(
 		&self,
 		input: Arc<RwLock<Input>>,
-		artifact: tg::artifact::Id,
+		output: Arc<RwLock<Output>>,
 	) -> tg::Result<()> {
-		let dest = self
-			.checkouts_path()
-			.join(artifact.to_string())
-			.try_into()?;
 		let mut visited = BTreeSet::new();
-		self.copy_or_move_to_checkouts_directory_inner(dest, input, &mut visited)
-			.await
+		let mut stack = vec![(input, output)];
+		while let Some((input, output)) = stack.pop() {
+			if input.read().unwrap().is_root {
+				let artifact = output.read().unwrap().data.id()?;
+				let dest = self
+					.checkouts_path()
+					.join(artifact.to_string())
+					.try_into()?;
+				self.copy_or_move_to_checkouts_directory_inner(dest, input.clone(), &mut visited)
+					.await?;
+			}
+			let input = input.read().unwrap();
+			let output = output.read().unwrap();
+			let children = input
+				.dependencies
+				.values()
+				.cloned()
+				.map(Option::unwrap)
+				.zip(output.dependencies.values().cloned());
+			stack.extend(children);
+		}
+		Ok(())
 	}
 
 	async fn copy_or_move_to_checkouts_directory_inner(

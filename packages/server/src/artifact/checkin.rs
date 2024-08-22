@@ -168,6 +168,10 @@ impl Server {
 			}
 			self.write_output_to_database(output).await?;
 		} else {
+			// Copy or move files.
+			self.copy_or_move_to_checkouts_directory(input.clone(), output.clone())
+				.await?;
+
 			// Otherwise, update hardlinks and xattrs.
 			self.write_hardlinks_and_xattrs(input, output).await?;
 		}
