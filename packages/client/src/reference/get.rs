@@ -1,11 +1,10 @@
 use crate as tg;
-use either::Either;
+use tangram_either::Either;
 use tangram_http::{incoming::response::Ext as _, outgoing::request::Ext as _};
 
 #[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
 #[serde(transparent)]
 pub struct Output {
-	#[serde(with = "either::serde_untagged")]
 	pub item: Either<tg::build::Id, tg::object::Id>,
 }
 

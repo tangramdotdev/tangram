@@ -1,7 +1,7 @@
 use crate::Message;
 use async_nats as nats;
-use either::Either;
 use futures::prelude::*;
+use tangram_either::Either;
 
 pub struct Messenger {
 	client: nats::Client,

@@ -1,12 +1,12 @@
 use crate as tg;
 use bytes::Bytes;
-use either::Either;
 use futures::{stream::FuturesOrdered, TryStreamExt as _};
 use itertools::Itertools as _;
 use std::{
 	collections::{BTreeMap, BTreeSet},
 	sync::Arc,
 };
+use tangram_either::Either;
 
 pub use self::builder::Builder;
 

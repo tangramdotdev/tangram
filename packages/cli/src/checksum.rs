@@ -1,6 +1,6 @@
 use crate::Cli;
-use either::Either;
 use tangram_client as tg;
+use tangram_either::Either;
 
 /// Compute a checksum.
 #[derive(Clone, Debug, clap::Args)]
@@ -11,7 +11,7 @@ pub struct Args {
 	pub algorithm: tg::checksum::Algorithm,
 
 	/// The artifact, blob, or URL to checksum.
-	#[arg(index = 1, default_value = ".?kind=package")]
+	#[arg(index = 1, default_value = ".")]
 	pub reference: tg::Reference,
 }
 

@@ -1,6 +1,6 @@
 use crate::Cli;
-use either::Either;
 use tangram_client as tg;
+use tangram_either::Either;
 
 /// Concatenate blobs and artifacts.
 #[derive(Clone, Debug, clap::Args)]

@@ -1,6 +1,6 @@
 use crate::Cli;
-use either::Either;
 use tangram_client as tg;
+use tangram_either::Either;
 
 /// Get a reference.
 #[derive(Clone, Debug, clap::Args)]

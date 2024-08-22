@@ -1,6 +1,6 @@
 use crate::{self as tg, handle::Ext as _};
-use either::Either;
 use std::collections::BTreeMap;
+use tangram_either::Either;
 use tangram_uri as uri;
 
 pub mod get;
@@ -100,6 +100,11 @@ impl Reference {
 	#[must_use]
 	pub fn uri(&self) -> &uri::Reference {
 		&self.uri
+	}
+
+	#[must_use]
+	pub fn as_str(&self) -> &str {
+		self.uri.as_str()
 	}
 
 	#[must_use]

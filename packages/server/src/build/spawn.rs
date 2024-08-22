@@ -1,10 +1,10 @@
 use crate::{BuildPermit, Server};
-use either::Either;
 use futures::{
 	future, stream::FuturesUnordered, FutureExt as _, TryFutureExt as _, TryStreamExt as _,
 };
 use std::sync::Arc;
 use tangram_client::{self as tg, handle::Ext as _};
+use tangram_either::Either;
 use tangram_futures::task::Task;
 
 impl Server {

@@ -1,6 +1,6 @@
 use crate::Cli;
-use either::Either;
 use tangram_client::{self as tg, Handle as _};
+use tangram_either::Either;
 
 /// Pull a build or an object.
 #[derive(Clone, Debug, clap::Args)]

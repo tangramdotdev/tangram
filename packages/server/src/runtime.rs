@@ -38,10 +38,9 @@ impl Runtime {
 impl Server {
 	pub async fn get_js_runtime_doc(&self) -> tg::Result<serde_json::Value> {
 		// Create the module.
-		let module = tg::Module {
-			kind: tg::module::Kind::Dts,
-			object: tg::module::Object::Path("tangram.d.ts".parse().unwrap()),
-		};
+		let kind = tg::module::Kind::Dts;
+		let object = tg::module::Source::Path("tangram.d.ts".parse().unwrap());
+		let module = tg::module::Reference::with_kind_and_source(kind, object);
 
 		// Create the compiler.
 		let compiler = crate::compiler::Compiler::new(self, tokio::runtime::Handle::current());

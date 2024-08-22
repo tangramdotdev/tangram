@@ -4,6 +4,7 @@ members = [
   "packages/cli",
   "packages/client",
   "packages/database",
+  "packages/either",
   "packages/futures",
   "packages/http",
   "packages/messenger",
@@ -57,7 +58,6 @@ data-encoding-macro = "0.1"
 deno_core_icudata = "0.73"
 derive_more = { version = "1.0.0-beta.6", features = ["full"] }
 dialoguer = "0.11"
-either = { version = "1", features = ["serde"] }
 erased-serde = "0.4"
 fastcdc = { version = "3", features = ["tokio"] }
 filetime = "0.2"
@@ -121,6 +121,7 @@ sync_wrapper = "1"
 tangram_cli = { path = "packages/cli" }
 tangram_client = { path = "packages/client" }
 tangram_database = { path = "packages/database" }
+tangram_either = { path = "packages/either" }
 tangram_futures = { path = "packages/futures" }
 tangram_http = { path = "packages/http" }
 tangram_messenger = { path = "packages/messenger" }

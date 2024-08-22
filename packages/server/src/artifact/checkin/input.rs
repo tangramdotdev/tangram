@@ -1,4 +1,3 @@
-use either::Either;
 use futures::{
 	stream::{self, FuturesUnordered},
 	TryStreamExt,
@@ -8,6 +7,7 @@ use std::{
 	sync::{Arc, RwLock},
 };
 use tangram_client as tg;
+use tangram_either::Either;
 
 use crate::Server;
 

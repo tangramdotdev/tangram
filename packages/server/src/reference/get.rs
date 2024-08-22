@@ -1,7 +1,7 @@
 use crate::Server;
-use either::Either;
 use futures::TryStreamExt as _;
 use tangram_client as tg;
+use tangram_either::Either;
 use tangram_http::{incoming::request::Ext as _, outgoing::response::Ext as _, Incoming, Outgoing};
 
 impl Server {

@@ -1,12 +1,12 @@
 use crate as tg;
 use bytes::Bytes;
-use either::Either;
 use futures::{
 	stream::{FuturesOrdered, FuturesUnordered},
 	TryStreamExt as _,
 };
 use itertools::Itertools as _;
 use std::{collections::BTreeSet, sync::Arc};
+use tangram_either::Either;
 
 pub use self::{data::Data, node::Node};
 
@@ -40,8 +40,8 @@ pub struct Object {
 
 pub mod node {
 	use crate as tg;
-	use either::Either;
 	use std::collections::BTreeMap;
+	use tangram_either::Either;
 
 	#[derive(Clone, Debug, derive_more::TryUnwrap)]
 	#[try_unwrap(ref)]
@@ -66,14 +66,13 @@ pub mod node {
 	#[derive(Clone, Debug)]
 	pub struct File {
 		pub contents: tg::Blob,
-		pub dependencies: Option<
-			Either<
-				Vec<Either<usize, tg::Object>>,
-				BTreeMap<tg::Reference, Either<usize, tg::Object>>,
-			>,
-		>,
+		pub dependencies: Option<Either<DependenciesArray, DependenciesMap>>,
 		pub executable: bool,
 	}
+
+	type DependenciesArray = Vec<Either<usize, tg::Object>>;
+
+	type DependenciesMap = BTreeMap<tg::Reference, Either<usize, tg::Object>>;
 
 	#[derive(Clone, Debug)]
 	pub struct Symlink {
@@ -91,13 +90,9 @@ pub mod data {
 	}
 
 	pub mod node {
-		use crate::{
-			self as tg,
-			util::serde::{is_false, EitherUntagged},
-		};
-		use either::Either;
-		use serde_with::{serde_as, FromInto};
+		use crate::{self as tg, util::serde::is_false};
 		use std::collections::BTreeMap;
+		use tangram_either::Either;
 
 		#[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
 		#[serde(tag = "kind", rename_all = "snake_case")]
@@ -112,20 +107,20 @@ pub mod data {
 			pub entries: BTreeMap<String, Either<usize, tg::artifact::Id>>,
 		}
 
-		#[serde_as]
 		#[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
 		pub struct File {
 			pub contents: tg::blob::Id,
 
-			#[serde_as(
-				as = "Option<BTreeMap<_, FromInto<EitherUntagged<usize, tg::object::Id>>>>"
-			)]
 			#[serde(default, skip_serializing_if = "Option::is_none")]
-			pub dependencies: Option<BTreeMap<tg::Reference, Either<usize, tg::object::Id>>>,
+			pub dependencies: Option<Either<DependenciesArray, DependenciesMap>>,
 
 			#[serde(default, skip_serializing_if = "is_false")]
 			pub executable: bool,
 		}
+
+		type DependenciesArray = Vec<Either<usize, tg::object::Id>>;
+
+		type DependenciesMap = BTreeMap<tg::Reference, Either<usize, tg::object::Id>>;
 
 		#[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
 		pub struct Symlink {
@@ -294,23 +289,40 @@ impl Node {
 				let contents = contents.id(handle).await?;
 				let dependencies = if let Some(dependencies) = &dependencies {
 					match dependencies {
-						Either::Left(dependencies) => todo!(),
-						Either::Right(dependencies) => Some(
+						Either::Left(dependencies) => Some(
 							dependencies
 								.iter()
-								.map(|(dependency, either)| async move {
-									let dependency = dependency.clone();
-									let option = match either {
+								.map(|either| async move {
+									let either = match either {
 										Either::Left(index) => Either::Left(*index),
 										Either::Right(object) => {
 											Either::Right(object.id(handle).await?)
 										},
 									};
-									Ok::<_, tg::Error>((dependency, option))
+									Ok::<_, tg::Error>(either)
 								})
 								.collect::<FuturesUnordered<_>>()
 								.try_collect()
-								.await?,
+								.await
+								.map(Either::Left)?,
+						),
+						Either::Right(dependencies) => Some(
+							dependencies
+								.iter()
+								.map(|(reference, either)| async move {
+									let reference = reference.clone();
+									let either = match either {
+										Either::Left(index) => Either::Left(*index),
+										Either::Right(object) => {
+											Either::Right(object.id(handle).await?)
+										},
+									};
+									Ok::<_, tg::Error>((reference, either))
+								})
+								.collect::<FuturesUnordered<_>>()
+								.try_collect()
+								.await
+								.map(Either::Right)?,
 						),
 					}
 				} else {
@@ -385,10 +397,21 @@ impl Data {
 				}) => {
 					children.insert(contents.clone().into());
 					if let Some(dependencies) = dependencies {
-						for either in dependencies.values() {
-							if let Either::Right(id) = either {
-								children.insert(id.clone());
-							}
+						match dependencies {
+							Either::Left(dependencies) => {
+								for either in dependencies {
+									if let Either::Right(id) = either {
+										children.insert(id.clone());
+									}
+								}
+							},
+							Either::Right(dependencies) => {
+								for either in dependencies.values() {
+									if let Either::Right(id) = either {
+										children.insert(id.clone());
+									}
+								}
+							},
 						}
 					}
 				},
@@ -440,15 +463,30 @@ impl TryFrom<data::Node> for Node {
 				executable,
 			}) => {
 				let contents = tg::Blob::with_id(contents);
-				let dependencies = dependencies.map(|dependencies| {
-					Either::Right(
+				let dependencies = dependencies.map(|dependencies| match dependencies {
+					Either::Left(dependencies) => Either::Left(
+						dependencies
+							.into_iter()
+							.map(|either| match either {
+								Either::Left(index) => Either::Left(index),
+								Either::Right(object) => Either::Right(tg::Object::with_id(object)),
+							})
+							.collect(),
+					),
+					Either::Right(dependencies) => Either::Right(
 						dependencies
 							.into_iter()
 							.map(|(reference, either)| {
-								(reference, either.map_right(tg::Object::with_id))
+								let either = match either {
+									Either::Left(index) => Either::Left(index),
+									Either::Right(object) => {
+										Either::Right(tg::Object::with_id(object))
+									},
+								};
+								(reference, either)
 							})
 							.collect(),
-					)
+					),
 				});
 				let file = tg::graph::node::File {
 					contents,

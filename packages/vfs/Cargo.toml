@@ -21,10 +21,10 @@ tracing-subscriber = { workspace = true }
 async-channel = { workspace = true }
 bytes = { workspace = true }
 dashmap = { workspace = true }
-either = { workspace = true }
 futures = { workspace = true }
 libc = { workspace = true }
 num = { workspace = true }
+tangram_either = { workspace = true }
 tangram_futures = { workspace = true }
 tokio = { workspace = true }
 tokio-util = { workspace = true }

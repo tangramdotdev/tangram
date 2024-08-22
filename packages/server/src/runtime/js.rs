@@ -16,7 +16,6 @@ use std::{
 };
 use tangram_client as tg;
 use tokio::io::AsyncWriteExt as _;
-use url::Url;
 
 mod convert;
 mod error;
@@ -53,7 +52,7 @@ struct FutureOutput {
 
 #[allow(clippy::struct_field_names)]
 struct Module {
-	module: tg::Module,
+	module: tg::module::Reference,
 	source_map: Option<SourceMap>,
 	v8_identity_hash: NonZeroI32,
 	v8_module: v8::Global<v8::Module>,
@@ -483,9 +482,9 @@ fn resolve_module_callback<'s>(
 /// Resolve a module.
 fn resolve_module(
 	scope: &mut v8::HandleScope,
-	module: &tg::Module,
+	module: &tg::module::Reference,
 	import: &tg::Import,
-) -> Option<tg::Module> {
+) -> Option<tg::module::Reference> {
 	let context = scope.get_current_context();
 	let state = context.get_slot::<Rc<State>>().unwrap().clone();
 
@@ -521,7 +520,7 @@ fn resolve_module(
 /// Load a module.
 fn load_module<'s>(
 	scope: &mut v8::HandleScope<'s>,
-	module: &tg::Module,
+	module: &tg::module::Reference,
 ) -> Option<v8::Local<'s, v8::Module>> {
 	// Get the context and state.
 	let context = scope.get_current_context();
@@ -654,8 +653,7 @@ extern "C" fn host_initialize_import_meta_object_callback(
 
 	// Set import.meta.url.
 	let key = v8::String::new_external_onebyte_static(scope, "url".as_bytes()).unwrap();
-	let module = Url::from(module);
-	let value = v8::String::new(scope, module.as_str()).unwrap();
+	let value = v8::String::new(scope, module.uri().as_str()).unwrap();
 	meta.set(scope, key.into(), value.into()).unwrap();
 }
 

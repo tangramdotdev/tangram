@@ -1,7 +1,6 @@
 use self::{database::Database, messenger::Messenger, runtime::Runtime, util::fs::remove};
 use async_nats as nats;
 use dashmap::DashMap;
-use either::Either;
 use futures::{future, Future, FutureExt as _, Stream};
 use http_body_util::BodyExt as _;
 use hyper_util::rt::{TokioExecutor, TokioIo};
@@ -16,6 +15,7 @@ use std::{
 };
 use tangram_client as tg;
 use tangram_database as db;
+use tangram_either::Either;
 use tangram_futures::task::{Stop, Task, TaskMap};
 use tangram_http::{outgoing::response::Ext as _, Incoming, Outgoing};
 use tokio::{

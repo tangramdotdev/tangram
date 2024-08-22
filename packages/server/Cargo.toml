@@ -40,7 +40,6 @@ dashmap = { workspace = true }
 data-encoding = { workspace = true }
 data-encoding-macro = { workspace = true }
 derive_more = { workspace = true }
-either = { workspace = true }
 fastcdc = { workspace = true }
 filetime = { workspace = true }
 fnv = { workspace = true }
@@ -78,6 +77,7 @@ swc_core = { workspace = true }
 sync_wrapper = { workspace = true }
 tangram_client = { workspace = true }
 tangram_database = { workspace = true }
+tangram_either = { workspace = true }
 tangram_futures = { workspace = true }
 tangram_http = { workspace = true }
 tangram_messenger  = { workspace = true }

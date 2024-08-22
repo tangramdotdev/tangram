@@ -1,4 +1,5 @@
 use crate::Cli;
+use futures::TryStreamExt as _;
 use tangram_client::{self as tg, Handle as _};
 
 /// Update a package's lockfile.
@@ -31,7 +32,8 @@ impl Cli {
 			locked: false,
 			path,
 		};
-		handle.check_in_artifact(arg).await?;
+		let stream = handle.check_in_artifact(arg).await?;
+		stream.map_ok(|_| ()).try_collect().await?;
 
 		Ok(())
 	}

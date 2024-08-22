@@ -1,6 +1,5 @@
 use crate as tg;
-use std::path::Path;
-use url::Url;
+use tangram_uri as uri;
 
 /// The possible file names for the root module in a package.
 pub const ROOT_MODULE_FILE_NAMES: &[&str] =
@@ -8,14 +7,6 @@ pub const ROOT_MODULE_FILE_NAMES: &[&str] =
 
 /// The file name of the lockfile in a package.
 pub const LOCKFILE_FILE_NAME: &str = "tangram.lock";
-
-#[derive(
-	Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd, serde::Deserialize, serde::Serialize,
-)]
-pub struct Module {
-	pub kind: Kind,
-	pub object: Object,
-}
 
 #[derive(
 	Clone,
@@ -28,9 +19,17 @@ pub struct Module {
 	serde_with::DeserializeFromStr,
 	serde_with::SerializeDisplay,
 )]
-pub enum Object {
-	Object(tg::object::Id),
-	Path(tg::Path),
+pub struct Reference {
+	uri: uri::Reference,
+	path: Path,
+}
+
+#[derive(
+	Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd, serde::Deserialize, serde::Serialize,
+)]
+pub struct Path {
+	pub kind: Kind,
+	pub source: Source,
 }
 
 #[derive(
@@ -50,8 +49,8 @@ pub enum Kind {
 	Ts,
 	Dts,
 	Object,
-	Artifact,
 	Blob,
+	Artifact,
 	Leaf,
 	Branch,
 	Directory,
@@ -61,30 +60,80 @@ pub enum Kind {
 	Target,
 }
 
-impl From<Module> for Url {
-	fn from(value: Module) -> Self {
-		// Serialize and encode the module.
-		let json = serde_json::to_string(&value).unwrap();
-		let hex = data_encoding::HEXLOWER.encode(json.as_bytes());
+#[derive(
+	Clone,
+	Debug,
+	Eq,
+	Hash,
+	Ord,
+	PartialEq,
+	PartialOrd,
+	derive_more::From,
+	derive_more::TryUnwrap,
+	serde_with::DeserializeFromStr,
+	serde_with::SerializeDisplay,
+)]
+#[try_unwrap(ref)]
+pub enum Source {
+	Path(tg::Path),
+	Object(tg::object::Id),
+}
 
-		// Create the URL.
-		format!("tg://{hex}").parse().unwrap()
+impl Reference {
+	pub fn with_kind_and_source(kind: Kind, source: impl Into<Source>) -> Self {
+		let path = Path {
+			kind,
+			source: source.into(),
+		};
+		let json = serde_json::to_string(&path).unwrap();
+		let hex = data_encoding::HEXLOWER.encode(json.as_bytes());
+		let string = format!("tg:{hex}");
+		let uri = string.parse().unwrap();
+		Self { uri, path }
+	}
+
+	#[must_use]
+	pub fn uri(&self) -> &uri::Reference {
+		&self.uri
+	}
+
+	#[must_use]
+	pub fn as_str(&self) -> &str {
+		self.uri.as_str()
+	}
+
+	#[must_use]
+	pub fn kind(&self) -> Kind {
+		self.path.kind
+	}
+
+	#[must_use]
+	pub fn source(&self) -> &Source {
+		&self.path.source
 	}
 }
 
-impl TryFrom<Url> for Module {
-	type Error = tg::Error;
+impl std::fmt::Display for Reference {
+	fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+		write!(f, "{}", self.uri)
+	}
+}
 
-	fn try_from(url: Url) -> tg::Result<Self, Self::Error> {
+impl std::str::FromStr for Reference {
+	type Err = tg::Error;
+
+	fn from_str(s: &str) -> tg::Result<Self, Self::Err> {
+		let reference: uri::Reference = s
+			.parse()
+			.map_err(|source| tg::error!(!source, "failed to parse the reference"))?;
+
 		// Ensure the scheme is "tg".
-		if url.scheme() != "tg" {
-			return Err(tg::error!(%url, "the URL has an invalid scheme"));
+		if !matches!(reference.scheme(), Some("tg")) {
+			return Err(tg::error!("the URI has an invalid scheme"));
 		}
 
-		// Get the domain.
-		let hex = url
-			.domain()
-			.ok_or_else(|| tg::error!(%url, "the URL must have a domain"))?;
+		// Get the path.
+		let hex = reference.path();
 
 		// Decode.
 		let json = data_encoding::HEXLOWER
@@ -92,50 +141,13 @@ impl TryFrom<Url> for Module {
 			.map_err(|source| tg::error!(!source, "failed to deserialize the path"))?;
 
 		// Deserialize.
-		let module = serde_json::from_slice(&json)
-			.map_err(|source| tg::error!(!source, "failed to deserialize the module"))?;
+		let path = serde_json::from_slice(&json)
+			.map_err(|source| tg::error!(!source, "failed to deserialize the path"))?;
 
-		Ok(module)
-	}
-}
-
-impl std::fmt::Display for Module {
-	fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-		write!(f, "{}", Url::from(self.clone()))
-	}
-}
-
-impl std::str::FromStr for Module {
-	type Err = tg::Error;
-
-	fn from_str(s: &str) -> tg::Result<Self, Self::Err> {
-		let url: Url = s
-			.parse()
-			.map_err(|source| tg::error!(!source, "failed to parse the URL"))?;
-		let module = url.try_into()?;
-		Ok(module)
-	}
-}
-
-impl std::fmt::Display for Object {
-	fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-		match self {
-			Self::Object(object) => write!(f, "{object}"),
-			Self::Path(path) => write!(f, "{path}"),
-		}
-	}
-}
-
-impl std::str::FromStr for Object {
-	type Err = tg::Error;
-
-	fn from_str(s: &str) -> tg::Result<Self, Self::Err> {
-		if s.starts_with("./") || s.starts_with("../") || s.starts_with('/') {
-			let path = s.parse()?;
-			Ok(Self::Path(path))
-		} else {
-			Ok(Self::Object(s.parse()?))
-		}
+		Ok(Self {
+			uri: reference,
+			path,
+		})
 	}
 }
 
@@ -182,6 +194,28 @@ impl std::str::FromStr for Kind {
 	}
 }
 
+impl std::fmt::Display for Source {
+	fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+		match self {
+			Self::Path(path) => write!(f, "{path}"),
+			Self::Object(object) => write!(f, "{object}"),
+		}
+	}
+}
+
+impl std::str::FromStr for Source {
+	type Err = tg::Error;
+
+	fn from_str(s: &str) -> tg::Result<Self, Self::Err> {
+		if s.starts_with("./") || s.starts_with("../") || s.starts_with('/') {
+			let path = s.parse()?;
+			Ok(Self::Path(path))
+		} else {
+			Ok(Self::Object(s.parse()?))
+		}
+	}
+}
+
 pub async fn get_root_module_path<H>(handle: &H, artifact: &tg::Artifact) -> tg::Result<tg::Path>
 where
 	H: tg::Handle,
@@ -217,13 +251,15 @@ where
 	Ok(root_module_path)
 }
 
-pub async fn get_root_module_path_for_path(path: &Path) -> tg::Result<tg::Path> {
+pub async fn get_root_module_path_for_path(path: &std::path::Path) -> tg::Result<tg::Path> {
 	try_get_root_module_path_for_path(path).await?.ok_or_else(
 		|| tg::error!(%path = path.display(), "failed to find the package's root module"),
 	)
 }
 
-pub async fn try_get_root_module_path_for_path(path: &Path) -> tg::Result<Option<tg::Path>> {
+pub async fn try_get_root_module_path_for_path(
+	path: &std::path::Path,
+) -> tg::Result<Option<tg::Path>> {
 	let mut root_module_path = None;
 	for module_file_name in ROOT_MODULE_FILE_NAMES {
 		if tokio::fs::try_exists(path.join(module_file_name))
@@ -240,7 +276,7 @@ pub async fn try_get_root_module_path_for_path(path: &Path) -> tg::Result<Option
 }
 
 #[must_use]
-pub fn is_root_module_path(path: &Path) -> bool {
+pub fn is_root_module_path(path: &std::path::Path) -> bool {
 	let Some(last) = path.components().last() else {
 		return false;
 	};
@@ -249,7 +285,7 @@ pub fn is_root_module_path(path: &Path) -> bool {
 }
 
 #[must_use]
-pub fn is_module_path(path: &Path) -> bool {
+pub fn is_module_path(path: &std::path::Path) -> bool {
 	let Some(last) = path.components().last() else {
 		return false;
 	};
@@ -258,40 +294,4 @@ pub fn is_module_path(path: &Path) -> bool {
 	ROOT_MODULE_FILE_NAMES.iter().any(|name| last == *name)
 		|| last.ends_with(".tg.js")
 		|| last.ends_with(".tg.ts")
-}
-
-pub async fn try_get_lock_path_for_path(path: &Path) -> tg::Result<Option<tg::Path>> {
-	// Canonicalize the path.
-	let path = tokio::fs::canonicalize(path).await.map_err(
-		|source| tg::error!(!source, %path = path.display(), "failed to canonicalize the path"),
-	)?;
-
-	// Check if this is a module path.
-	if !is_module_path(path.as_ref()) {
-		return Ok(None);
-	}
-
-	// Walk up to find a lockfile.
-	let mut path_: &Path = path.as_ref();
-	while let Some(parent) = path_.parent() {
-		let lock = parent.join(LOCKFILE_FILE_NAME);
-		if tokio::fs::try_exists(&lock).await.map_err(
-			|source| tg::error!(!source, %path = lock.display(), "failed to check if file exists"),
-		)? {
-			let path = path
-				.try_into()
-				.map_err(|source| tg::error!(!source, "invalid path"))?;
-			return Ok(Some(path));
-		}
-		path_ = parent;
-	}
-
-	// If no existing lockfile was found, compute the path to the new lockfile.
-	let path = path
-		.parent()
-		.unwrap()
-		.join(LOCKFILE_FILE_NAME)
-		.try_into()
-		.map_err(|source| tg::error!(!source, "invalid path"))?;
-	Ok(Some(path))
 }

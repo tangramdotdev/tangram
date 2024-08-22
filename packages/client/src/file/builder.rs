@@ -1,6 +1,6 @@
 use crate as tg;
-use either::Either;
 use std::collections::BTreeMap;
+use tangram_either::Either;
 
 pub struct Builder {
 	contents: tg::Blob,

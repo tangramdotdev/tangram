@@ -1,13 +1,11 @@
 use crate::Cli;
-use either::Either;
-use futures::{stream::FuturesOrdered, TryStreamExt as _};
-use tangram_client::{self as tg, handle::Ext as _};
+use tangram_client as tg;
 
 /// Display a tree for a build or value.
 #[derive(Clone, Debug, clap::Args)]
 #[group(skip)]
 pub struct Args {
-	/// The tree depth.
+	/// The maximum depth to render.
 	#[arg(long)]
 	pub depth: Option<u32>,
 

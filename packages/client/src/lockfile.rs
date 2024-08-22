@@ -1,6 +1,6 @@
 use crate::{self as tg, util::serde::is_false};
-use either::Either;
 use std::collections::BTreeMap;
+use tangram_either::Either;
 use tokio::io::AsyncWriteExt;
 pub const TANGRAM_LOCKFILE_FILE_NAME: &str = "tangram.lock";
 
@@ -14,7 +14,10 @@ pub struct Lockfile {
 #[derive(Clone, Debug, serde::Serialize, serde::Deserialize)]
 #[serde(tag = "kind", rename_all = "snake_case")]
 pub enum Node {
-	Directory(BTreeMap<String, Entry>),
+	Directory {
+		entries: BTreeMap<String, Entry>,
+	},
+
 	File {
 		#[serde(default, skip_serializing_if = "Option::is_none")]
 		contents: Option<tg::blob::Id>,
@@ -25,6 +28,7 @@ pub enum Node {
 		#[serde(default, skip_serializing_if = "is_false")]
 		executable: bool,
 	},
+
 	Symlink {
 		#[serde(default, skip_serializing_if = "Option::is_none")]
 		artifact: Option<Entry>,

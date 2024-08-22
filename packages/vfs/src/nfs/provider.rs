@@ -1,12 +1,12 @@
 use crate::Attrs;
 use bytes::Bytes;
 use dashmap::DashMap;
-use either::Either;
 use num::ToPrimitive;
 use std::{
 	io::{Error, Result},
 	sync::atomic::{AtomicU64, Ordering},
 };
+use tangram_either::Either;
 
 pub(super) struct Provider<P> {
 	inner: P,

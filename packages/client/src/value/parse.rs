@@ -1,8 +1,8 @@
 use crate as tg;
 use bytes::Bytes;
-use either::Either;
 use num::ToPrimitive;
 use std::{collections::BTreeMap, sync::Arc};
+use tangram_either::Either;
 use winnow::{
 	ascii::float,
 	combinator::{alt, cut_err, delimited, opt, preceded, repeat, separated, separated_pair},
@@ -395,7 +395,20 @@ fn graph_arg(input: &mut Input) -> PResult<tg::graph::Object> {
 						let contents = map.get("contents")?.clone().try_into().ok()?;
 						let dependencies = if let Some(value) = map.get("dependencies") {
 							let either = if let Ok(array) = value.try_unwrap_array_ref() {
-								todo!()
+								let dependencies = array
+									.iter()
+									.map(|value| {
+										let either = if let tg::Value::Number(number) = value {
+											Either::Left(number.to_usize()?)
+										} else if let Ok(artifact) = value.clone().try_into() {
+											Either::Right(artifact)
+										} else {
+											return None;
+										};
+										Some(either)
+									})
+									.collect::<Option<_>>()?;
+								Either::Left(dependencies)
 							} else if let Ok(map) = value.try_unwrap_map_ref() {
 								let dependencies = map
 									.iter()

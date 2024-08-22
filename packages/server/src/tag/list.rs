@@ -1,10 +1,9 @@
 use crate::Server;
-use either::Either;
 use indoc::formatdoc;
 use num::ToPrimitive;
-use serde_with::{serde_as, FromInto};
-use tangram_client::{self as tg, util::serde::EitherUntagged};
+use tangram_client as tg;
 use tangram_database::{self as db, prelude::*};
+use tangram_either::Either;
 use tangram_http::{incoming::request::Ext as _, outgoing::response::Ext as _, Incoming, Outgoing};
 
 impl Server {
@@ -32,12 +31,10 @@ impl Server {
 			.await
 			.map_err(|source| tg::error!(!source, "failed to get database connection"))?;
 
-		#[serde_as]
 		#[derive(Debug, serde::Deserialize)]
 		struct Row {
 			id: u64,
 			name: String,
-			#[serde_as(as = "Option<FromInto<EitherUntagged<tg::build::Id, tg::object::Id>>>")]
 			item: Option<Either<tg::build::Id, tg::object::Id>>,
 		}
 		let mut rows: Vec<Row> = Vec::new();

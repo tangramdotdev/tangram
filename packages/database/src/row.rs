@@ -1,6 +1,6 @@
 use crate::Value;
-use either::Either;
 use indexmap::IndexMap;
+use tangram_either::Either;
 
 pub struct Row {
 	entries: IndexMap<String, Value>,

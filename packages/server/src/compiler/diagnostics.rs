@@ -14,11 +14,13 @@ pub struct Request {}
 #[serde(rename_all = "camelCase")]
 pub struct Response {
 	#[serde_as(as = "BTreeMap<DisplayFromStr, _>")]
-	pub diagnostics: BTreeMap<tg::Module, Vec<tg::Diagnostic>>,
+	pub diagnostics: BTreeMap<tg::module::Reference, Vec<tg::Diagnostic>>,
 }
 
 impl Compiler {
-	pub async fn get_diagnostics(&self) -> tg::Result<BTreeMap<tg::Module, Vec<tg::Diagnostic>>> {
+	pub async fn get_diagnostics(
+		&self,
+	) -> tg::Result<BTreeMap<tg::module::Reference, Vec<tg::Diagnostic>>> {
 		// Create the request.
 		let request = super::Request::Diagnostics(Request {});
 

@@ -1,12 +1,12 @@
 use crate::{self as tg, util::serde::is_false};
 use bytes::Bytes;
-use either::Either;
 use futures::{stream::FuturesUnordered, TryStreamExt as _};
 use itertools::Itertools as _;
 use std::{
 	collections::{BTreeMap, BTreeSet},
 	sync::Arc,
 };
+use tangram_either::Either;
 
 pub use self::builder::Builder;
 
@@ -285,7 +285,43 @@ impl File {
 				file.dependencies
 					.as_ref()
 					.map(|dependencies| match dependencies {
-						Either::Left(dependencies) => todo!(),
+						Either::Left(dependencies) => dependencies
+							.iter()
+							.map(|either| {
+								let object = match either {
+									Either::Left(node) => {
+										let kind = object
+											.nodes
+											.get(*node)
+											.ok_or_else(|| tg::error!("invalid index"))?
+											.kind();
+										match kind {
+											tg::artifact::Kind::Directory => {
+												tg::Directory::with_graph_and_node(
+													graph.clone(),
+													*node,
+												)
+												.into()
+											},
+											tg::artifact::Kind::File => {
+												tg::File::with_graph_and_node(graph.clone(), *node)
+													.into()
+											},
+											tg::artifact::Kind::Symlink => {
+												tg::Symlink::with_graph_and_node(
+													graph.clone(),
+													*node,
+												)
+												.into()
+											},
+										}
+									},
+									Either::Right(object) => object.clone(),
+								};
+								Ok(object)
+							})
+							.collect::<tg::Result<_>>()
+							.map(Either::Left),
 						Either::Right(dependencies) => dependencies
 							.iter()
 							.map(|(reference, either)| {
@@ -321,10 +357,10 @@ impl File {
 								};
 								Ok((reference.clone(), object))
 							})
-							.collect::<tg::Result<_>>(),
+							.collect::<tg::Result<_>>()
+							.map(Either::Right),
 					})
 					.transpose()?
-					.map(Either::Right)
 			},
 		};
 		Ok(entries)

@@ -4,7 +4,7 @@ use tangram_client as tg;
 #[derive(Debug, serde::Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Request {
-	pub modules: Vec<tg::Module>,
+	pub modules: Vec<tg::module::Reference>,
 }
 
 #[derive(Debug, serde::Deserialize)]
@@ -15,7 +15,10 @@ pub struct Response {
 
 impl Compiler {
 	/// Get all diagnostics for the provided modules.
-	pub async fn check(&self, modules: Vec<tg::Module>) -> tg::Result<Vec<tg::Diagnostic>> {
+	pub async fn check(
+		&self,
+		modules: Vec<tg::module::Reference>,
+	) -> tg::Result<Vec<tg::Diagnostic>> {
 		// Create the request.
 		let request = super::Request::Check(Request { modules });
 

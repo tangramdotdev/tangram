@@ -1,6 +1,6 @@
 use crate::{self as tg, handle::Ext as _};
-use either::Either;
 use futures::{Future, FutureExt as _, Stream};
+use tangram_either::Either;
 use tokio::io::{AsyncBufRead, AsyncRead, AsyncWrite};
 
 impl<L, R> tg::Handle for Either<L, R>

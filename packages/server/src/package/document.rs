@@ -24,10 +24,9 @@ impl Server {
 		}
 
 		// Create the module.
-		let module = tg::Module {
-			kind: tg::module::Kind::Ts,
-			object: tg::module::Object::Object(arg.package.clone().into()),
-		};
+		let kind = tg::module::Kind::Ts;
+		let object = tg::module::Source::Object(arg.package.clone().into());
+		let module = tg::module::Reference::with_kind_and_source(kind, object);
 
 		// Create the compiler.
 		let compiler = crate::compiler::Compiler::new(self, tokio::runtime::Handle::current());

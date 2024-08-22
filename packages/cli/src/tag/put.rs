@@ -1,6 +1,6 @@
 use crate::Cli;
-use either::Either;
 use tangram_client::{self as tg, Handle as _};
+use tangram_either::Either;
 
 /// Put a tag.
 #[derive(Clone, Debug, clap::Args)]
@@ -9,7 +9,7 @@ pub struct Args {
 	#[arg(short, long)]
 	pub force: bool,
 
-	#[arg(index = 2, default_value = ".?kind=package")]
+	#[arg(index = 2, default_value = ".")]
 	pub reference: tg::Reference,
 
 	#[allow(clippy::option_option)]

@@ -5,21 +5,15 @@ impl Compiler {
 	/// Resolve an import from a module.
 	pub async fn resolve_module(
 		&self,
-		referrer: &tg::Module,
+		referrer: &tg::module::Reference,
 		import: &tg::Import,
-	) -> tg::Result<tg::Module> {
-		match referrer {
-			tg::Module {
-				object: tg::module::Object::Path(_path),
-				..
-			} => {
+	) -> tg::Result<tg::module::Reference> {
+		match referrer.source() {
+			tg::module::Source::Path(_path) => {
 				todo!()
 			},
 
-			tg::Module {
-				object: tg::module::Object::Object(object),
-				..
-			} => {
+			tg::module::Source::Object(object) => {
 				// Get the file.
 				let object = tg::Object::with_id(object.clone());
 				let tg::Object::File(file) = object else {
@@ -58,12 +52,10 @@ impl Compiler {
 					}
 				};
 
-				// Create the module.
+				// Create the module reference.
 				let object = object.id(&self.server).await?;
-				let module = tg::Module {
-					kind,
-					object: tg::module::Object::Object(object),
-				};
+				let object = tg::module::Source::Object(object);
+				let module = tg::module::Reference::with_kind_and_source(kind, object);
 
 				Ok(module)
 			},

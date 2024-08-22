@@ -1,5 +1,4 @@
 use super::commands::Commands;
-use either::Either;
 use futures::{future, StreamExt};
 use num::ToPrimitive;
 use ratatui::{self as tui, prelude::*};
@@ -10,6 +9,7 @@ use std::{
 	sync::{Arc, RwLock, Weak},
 };
 use tangram_client as tg;
+use tangram_either::Either;
 use tangram_futures::task::Task;
 
 pub struct Tree<H> {
@@ -711,37 +711,91 @@ where
 			},
 
 			NodeKind::Value {
-				value: tg::Value::Object(tg::Object::Graph(package)),
+				value: tg::Value::Object(tg::Object::Graph(graph)),
 				..
 			} => {
-				// let object = package.object(&self.handle).await?;
-				// let mut children = Vec::new();
-				// for node in &object.nodes {
-				// 	if let Some(object) = &node.object {
-				// 		let parent = Some(self);
-				// 		let index = children.len();
-				// 		let kind = NodeKind::Value {
-				// 			name: Some("object".into()),
-				// 			value: tg::Value::Object(object.clone()),
-				// 		};
-				// 		let child = Self::new(&self.handle, parent, index, kind);
-				// 		children.push(child);
-				// 	}
-				// 	for (reference, object) in node.dependencies.iter().flatten() {
-				// 		if let Either::Right(object) = object {
-				// 			let parent = Some(self);
-				// 			let index = children.len();
-				// 			let kind = NodeKind::Value {
-				// 				name: Some(reference.to_string()),
-				// 				value: tg::Value::Object(object.clone()),
-				// 			};
-				// 			let child = Self::new(&self.handle, parent, index, kind);
-				// 			children.push(child);
-				// 		}
-				// 	}
-				// }
-				// Ok(children)
-				todo!()
+				let object = graph.object(&self.handle).await?;
+				let mut children = Vec::new();
+				for node in &object.nodes {
+					match node {
+						tg::graph::Node::Directory(directory) => {
+							for (name, either) in &directory.entries {
+								if let Either::Right(object) = either {
+									let parent = Some(self);
+									let index = children.len();
+									let kind = NodeKind::Value {
+										name: Some(name.to_string()),
+										value: object.clone().into(),
+									};
+									let child = Self::new(&self.handle, parent, index, kind);
+									children.push(child);
+								}
+							}
+						},
+
+						tg::graph::Node::File(file) => {
+							let parent = Some(self);
+							let index = children.len();
+							let kind = NodeKind::Value {
+								name: Some("contents".into()),
+								value: file.contents.clone().into(),
+							};
+							let child = Self::new(&self.handle, parent, index, kind);
+							children.push(child);
+
+							if let Some(dependencies) = &file.dependencies {
+								match dependencies {
+									Either::Left(dependencies) => {
+										for either in dependencies {
+											if let Either::Right(object) = either {
+												let parent = Some(self);
+												let index = children.len();
+												let kind = NodeKind::Value {
+													name: Some(
+														object.id(&self.handle).await?.to_string(),
+													),
+													value: object.clone().into(),
+												};
+												let child =
+													Self::new(&self.handle, parent, index, kind);
+												children.push(child);
+											}
+										}
+									},
+									Either::Right(dependencies) => {
+										for (reference, either) in dependencies {
+											if let Either::Right(object) = either {
+												let parent = Some(self);
+												let index = children.len();
+												let kind = NodeKind::Value {
+													name: Some(reference.to_string()),
+													value: object.clone().into(),
+												};
+												let child =
+													Self::new(&self.handle, parent, index, kind);
+												children.push(child);
+											}
+										}
+									},
+								}
+							}
+						},
+
+						tg::graph::Node::Symlink(symlink) => {
+							if let Some(Either::Right(artifact)) = &symlink.artifact {
+								let parent = Some(self);
+								let index = children.len();
+								let kind = NodeKind::Value {
+									name: Some("artifact".into()),
+									value: artifact.clone().into(),
+								};
+								let child = Self::new(&self.handle, parent, index, kind);
+								children.push(child);
+							}
+						},
+					}
+				}
+				Ok(children)
 			},
 
 			NodeKind::Value {
@@ -951,47 +1005,23 @@ where
 	}
 
 	async fn set_build_title(&self, build: tg::Build) -> tg::Result<()> {
-		// let target = build.target(&self.handle).await?;
-		// let host = target.host(&self.handle).await?;
-		// let (package, repository, version) =
-		// 	if let Some(executable) = target.executable(&self.handle).await?.as_ref() {
-		// 		let object = executable.object(&self.handle).await?;
-		// 		let metadata = &object.nodes[object.root].metadata;
-		// 		let package = executable.id(&self.handle).await?;
-		// 		let repository = metadata
-		// 			.get("repository")
-		// 			.and_then(|value| value.try_unwrap_string_ref().ok())
-		// 			.cloned();
-		// 		let version = metadata
-		// 			.get("version")
-		// 			.and_then(|value| value.try_unwrap_string_ref().ok())
-		// 			.cloned();
-		// 		(Some(package), repository, version)
-		// 	} else {
-		// 		(None, None, None)
-		// 	};
-		// let mut title = String::new();
-		// if let (Some(repository), Some(version)) = (repository, version) {
-		// 	write!(title, "{repository}@{version}").unwrap();
-		// } else if let Some(package) = package {
-		// 	write!(title, "{package}").unwrap();
-		// } else {
-		// 	write!(title, "<unknown>").unwrap();
-		// }
-		// if host.as_str() == "js" {
-		// 	let name = target
-		// 		.args(&self.handle)
-		// 		.await?
-		// 		.first()
-		// 		.and_then(|arg| arg.try_unwrap_string_ref().ok())
-		// 		.cloned();
-		// 	if let Some(name) = name {
-		// 		write!(title, ":{name}").unwrap();
-		// 	}
-		// }
-		// self.state.write().unwrap().title.replace(title);
-		// Ok(())
-		todo!()
+		let target = build.target(&self.handle).await?;
+		let _executable = target.executable(&self.handle).await?;
+		let host = target.host(&self.handle).await?;
+		let mut title = String::new();
+		if host.as_str() == "js" {
+			let name = target
+				.args(&self.handle)
+				.await?
+				.first()
+				.and_then(|arg| arg.try_unwrap_string_ref().ok())
+				.cloned();
+			if let Some(name) = name {
+				write!(title, ":{name}").unwrap();
+			}
+		}
+		self.state.write().unwrap().title.replace(title);
+		Ok(())
 	}
 
 	async fn set_value_title(&self, name: Option<String>, value: tg::Value) -> tg::Result<()> {

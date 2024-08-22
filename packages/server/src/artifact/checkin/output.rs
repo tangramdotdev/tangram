@@ -3,7 +3,6 @@ use super::{
 	unify::{Graph, Id},
 };
 use crate::Server;
-use either::Either;
 use indoc::formatdoc;
 use itertools::Itertools;
 use std::{
@@ -14,6 +13,7 @@ use std::{
 };
 use tangram_client as tg;
 use tangram_database::{self as db, Connection as _, Database as _, Query as _, Transaction as _};
+use tangram_either::Either;
 use time::format_description::well_known::Rfc3339;
 
 #[derive(Clone, Debug)]
@@ -203,7 +203,7 @@ impl Server {
 						Ok::<_, tg::Error>((name, Some(id)))
 					})
 					.try_collect()?;
-				tg::lockfile::Node::Directory(entries)
+				tg::lockfile::Node::Directory { entries }
 			},
 			tg::artifact::Kind::File => {
 				let input = input.read().unwrap().clone();
@@ -426,7 +426,7 @@ impl Server {
 			// Convert nodes.
 			for lockfile_index in scc {
 				match &lockfile.nodes[lockfile_index] {
-					tg::lockfile::Node::Directory(entries) => {
+					tg::lockfile::Node::Directory { entries } => {
 						let node = self
 							.create_directory_node(entries.clone(), &graphs, &indices)
 							.await?;
@@ -494,13 +494,23 @@ impl Server {
 				tg::graph::data::Node::File(file) => {
 					if graph.nodes.len() == 1 {
 						let dependencies = if let Some(dependencies) = &file.dependencies {
-							let dependencies = dependencies
-								.iter()
-								.map(|(reference, either)| {
-									(reference.clone(), either.clone().unwrap_right())
-								})
-								.collect();
-							Some(Either::Right(dependencies))
+							let dependencies = match dependencies {
+								Either::Left(dependencies) => Either::Left(
+									dependencies
+										.iter()
+										.map(|either| either.clone().unwrap_right())
+										.collect(),
+								),
+								Either::Right(dependencies) => Either::Right(
+									dependencies
+										.iter()
+										.map(|(reference, either)| {
+											(reference.clone(), either.clone().unwrap_right())
+										})
+										.collect(),
+								),
+							};
+							Some(dependencies)
 						} else {
 							None
 						};
@@ -581,7 +591,7 @@ impl Server {
 					.await?;
 				dependencies_.insert(reference, entry);
 			}
-			Some(dependencies_)
+			Some(Either::Right(dependencies_))
 		} else {
 			None
 		};
@@ -800,7 +810,7 @@ impl<'a> petgraph::visit::IntoNeighbors for GraphImpl<'a> {
 	type Neighbors = Box<dyn Iterator<Item = usize> + 'a>;
 	fn neighbors(self, a: Self::NodeId) -> Self::Neighbors {
 		match &self.0.nodes[a] {
-			tg::lockfile::Node::Directory(entries) => Box::new(
+			tg::lockfile::Node::Directory { entries } => Box::new(
 				entries
 					.values()
 					.filter_map(|entry| entry.as_ref()?.as_ref().left().copied()),

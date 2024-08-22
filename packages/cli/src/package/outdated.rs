@@ -9,7 +9,7 @@ pub struct Args {
 	#[arg(long)]
 	pub locked: bool,
 
-	#[arg(index = 1, default_value = ".?kind=package")]
+	#[arg(index = 1, default_value = ".")]
 	pub package: tg::Reference,
 }
 

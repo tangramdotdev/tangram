@@ -1,8 +1,8 @@
 use crate as tg;
 use bytes::Bytes;
-use either::Either;
 use num::ToPrimitive;
 use std::collections::BTreeMap;
+use tangram_either::Either;
 
 pub fn print(value: &tg::Value, pretty: bool) -> String {
 	Printer::print(value, pretty)
@@ -294,17 +294,29 @@ impl Printer {
 						map.insert("contents".to_owned(), contents.clone().into());
 						if let Some(dependencies) = &dependencies {
 							let dependencies = match dependencies {
-								Either::Left(_) => todo!(),
-								Either::Right(dependencies) => dependencies
-									.iter()
-									.map(|(dependency, either)| {
-										let either = match either {
+								Either::Left(dependencies) => Either::Left(
+									dependencies
+										.iter()
+										.map(|either| match either {
 											Either::Left(index) => index.to_f64().unwrap().into(),
 											Either::Right(object) => object.clone().into(),
-										};
-										(dependency.to_string(), either)
-									})
-									.collect::<BTreeMap<String, tg::Value>>(),
+										})
+										.collect::<Vec<tg::Value>>(),
+								),
+								Either::Right(dependencies) => Either::Right(
+									dependencies
+										.iter()
+										.map(|(dependency, either)| {
+											let either = match either {
+												Either::Left(index) => {
+													index.to_f64().unwrap().into()
+												},
+												Either::Right(object) => object.clone().into(),
+											};
+											(dependency.to_string(), either)
+										})
+										.collect::<BTreeMap<String, tg::Value>>(),
+								),
 							};
 							map.insert("dependencies".to_owned(), dependencies.into());
 						}

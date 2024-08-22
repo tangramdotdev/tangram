@@ -1,12 +1,12 @@
 use self::config::Config;
 use clap::{CommandFactory as _, Parser as _};
 use crossterm::{style::Stylize as _, tty::IsTty as _};
-use either::Either;
 use futures::FutureExt as _;
 use itertools::Itertools as _;
 use num::ToPrimitive as _;
 use std::{collections::BTreeMap, fmt::Write as _, path::PathBuf, sync::Mutex};
 use tangram_client::{self as tg, Client};
+use tangram_either::Either;
 use tangram_server::Server;
 use tokio::io::AsyncWriteExt as _;
 use tracing_subscriber::prelude::*;
@@ -853,148 +853,87 @@ impl Cli {
 			.and_then(|advanced| advanced.error_trace_options.clone())
 			.unwrap_or_default();
 		let trace = error.trace(&options);
-		println!("{trace}");
-
-		// let trace = error.trace(&options);
-		// let mut errors = vec![trace.error];
-		// while let Some(next) = errors.last().unwrap().source.as_ref() {
-		// 	errors.push(next);
-		// }
-		// if !trace.options.reverse {
-		// 	errors.reverse();
-		// }
-		// for error in errors {
-		// 	let message = error.message.as_deref().unwrap_or("an error occurred");
-		// 	eprintln!("{} {message}", "->".red());
-		// 	if let Some(location) = &error.location {
-		// 		if !location.source.is_internal() || trace.options.internal {
-		// 			let source = match &location.source {
-		// 				tg::error::Source::Internal(path) => {
-		// 					path.components().iter().skip(1).join("/")
-		// 				},
-		// 				tg::error::Source::Module(module) => {
-		// 					if let Some(handle) = handle.as_ref() {
-		// 						if let tg::module::Object::Object(tg::object::Id::Lock(package)) =
-		// 							&module.object
-		// 						{
-		// 							let package = tg::Lock::with_id(package.clone());
-		// 							if let Ok(object) = package.object(handle).await {
-		// 								let node = &object.nodes[object.root];
-		// 								let repository = node
-		// 									.metadata
-		// 									.get("repository")
-		// 									.and_then(|value| value.try_unwrap_string_ref().ok());
-		// 								let version = node
-		// 									.metadata
-		// 									.get("version")
-		// 									.and_then(|value| value.try_unwrap_string_ref().ok());
-		// 								if let (Some(repository), Some(version)) =
-		// 									(repository, version)
-		// 								{
-		// 									format!("{repository}@{version}")
-		// 								} else {
-		// 									package.to_string()
-		// 								}
-		// 							} else {
-		// 								package.to_string()
-		// 							}
-		// 						} else {
-		// 							module.to_string()
-		// 						}
-		// 					} else {
-		// 						module.to_string()
-		// 					}
-		// 				},
-		// 			};
-		// 			let mut string = String::new();
-		// 			let line = location.line + 1;
-		// 			let column = location.column + 1;
-		// 			write!(string, "{source}:{line}:{column}").unwrap();
-		// 			if let Some(symbol) = &location.symbol {
-		// 				write!(string, " {symbol}").unwrap();
-		// 			}
-		// 			eprintln!("   {}", string.yellow());
-		// 		}
-		// 	}
-		// 	for (name, value) in &error.values {
-		// 		let name = name.as_str().blue();
-		// 		let value = value.as_str().green();
-		// 		eprintln!("   {name} = {value}");
-		// 	}
-		// 	let mut stack = error.stack.iter().flatten().collect::<Vec<_>>();
-		// 	if !trace.options.reverse {
-		// 		stack.reverse();
-		// 	}
-		// 	for location in stack {
-		// 		if !location.source.is_internal() || trace.options.internal {
-		// 			let location = location.to_string().yellow();
-		// 			eprintln!("   {location}");
-		// 		}
-		// 	}
-		// }
+		let mut errors = vec![trace.error];
+		while let Some(next) = errors.last().unwrap().source.as_ref() {
+			errors.push(next);
+		}
+		if !trace.options.reverse {
+			errors.reverse();
+		}
+		for error in errors {
+			let message = error.message.as_deref().unwrap_or("an error occurred");
+			eprintln!("{} {message}", "->".red());
+			if let Some(location) = &error.location {
+				if !location.source.is_internal() || trace.options.internal {
+					let source = match &location.source {
+						tg::error::Source::Internal(path) => {
+							path.components().iter().skip(1).join("/")
+						},
+						tg::error::Source::Module(module) => module.to_string(),
+					};
+					let mut string = String::new();
+					let line = location.line + 1;
+					let column = location.column + 1;
+					write!(string, "{source}:{line}:{column}").unwrap();
+					if let Some(symbol) = &location.symbol {
+						write!(string, " {symbol}").unwrap();
+					}
+					eprintln!("   {}", string.yellow());
+				}
+			}
+			for (name, value) in &error.values {
+				let name = name.as_str().blue();
+				let value = value.as_str().green();
+				eprintln!("   {name} = {value}");
+			}
+			let mut stack = error.stack.iter().flatten().collect::<Vec<_>>();
+			if !trace.options.reverse {
+				stack.reverse();
+			}
+			for location in stack {
+				if !location.source.is_internal() || trace.options.internal {
+					let location = location.to_string().yellow();
+					eprintln!("   {location}");
+				}
+			}
+		}
 	}
 
 	async fn print_diagnostic<H>(&self, handle: &H, diagnostic: &tg::Diagnostic)
 	where
 		H: tg::Handle,
 	{
-		// let title = match diagnostic.severity {
-		// 	tg::diagnostic::Severity::Error => "error".red().bold(),
-		// 	tg::diagnostic::Severity::Warning => "warning".yellow().bold(),
-		// 	tg::diagnostic::Severity::Info => "info".blue().bold(),
-		// 	tg::diagnostic::Severity::Hint => "hint".cyan().bold(),
-		// };
-		// eprintln!("{title}: {}", diagnostic.message);
-		// let mut string = String::new();
-		// if let Some(location) = &diagnostic.location {
-		// 	match &location.module {
-		// 		tg::Module {
-		// 			object: tg::module::Object::Path(path),
-		// 			..
-		// 		} => {
-		// 			write!(string, "{path}").unwrap();
-		// 		},
-
-		// 		tg::Module {
-		// 			object: tg::module::Object::Object(object),
-		// 			..
-		// 		} => {
-		// 			let mut printed = false;
-		// 			if let tg::object::Id::Lock(package) = object {
-		// 				let package = tg::Lock::with_id(package.clone());
-		// 				if let Ok(object) = package.object(handle).await {
-		// 					let node = &object.nodes[object.root];
-		// 					let repository = node
-		// 						.metadata
-		// 						.get("repository")
-		// 						.and_then(|value| value.try_unwrap_string_ref().ok());
-		// 					let version = node
-		// 						.metadata
-		// 						.get("version")
-		// 						.and_then(|value| value.try_unwrap_string_ref().ok());
-		// 					if let (Some(repository), Some(version)) = (repository, version) {
-		// 						write!(string, "{repository}@{version}").unwrap();
-		// 						printed = true;
-		// 					}
-		// 				}
-		// 			}
-		// 			if !printed {
-		// 				write!(string, "{object}").unwrap();
-		// 			}
-		// 		},
-		// 	}
-		// 	let mut string = if string.is_empty() {
-		// 		"<unknown>".to_owned()
-		// 	} else {
-		// 		string
-		// 	};
-		// 	let line = location.range.start.line + 1;
-		// 	let character = location.range.start.character + 1;
-		// 	write!(string, ":{line}:{character}").unwrap();
-		// 	eprint!("   {}", string.yellow());
-		// }
-		// eprintln!();
-		todo!()
+		let title = match diagnostic.severity {
+			tg::diagnostic::Severity::Error => "error".red().bold(),
+			tg::diagnostic::Severity::Warning => "warning".yellow().bold(),
+			tg::diagnostic::Severity::Info => "info".blue().bold(),
+			tg::diagnostic::Severity::Hint => "hint".cyan().bold(),
+		};
+		eprintln!("{title}: {}", diagnostic.message);
+		let mut string = String::new();
+		if let Some(location) = &diagnostic.location {
+			match location.module.source() {
+				tg::module::Source::Path(path) => {
+					write!(string, "{path}").unwrap();
+				},
+				tg::module::Source::Object(object) => {
+					let printed = false;
+					if !printed {
+						write!(string, "{object}").unwrap();
+					}
+				},
+			}
+			let mut string = if string.is_empty() {
+				"<unknown>".to_owned()
+			} else {
+				string
+			};
+			let line = location.range.start.line + 1;
+			let character = location.range.start.character + 1;
+			write!(string, ":{line}:{character}").unwrap();
+			eprint!("   {}", string.yellow());
+		}
+		eprintln!();
 	}
 
 	async fn output_json<T>(output: &T) -> tg::Result<()>

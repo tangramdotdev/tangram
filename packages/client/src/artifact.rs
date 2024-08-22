@@ -1,6 +1,5 @@
 use crate as tg;
 use bytes::Bytes;
-use either::Either;
 use futures::{
 	stream::{FuturesOrdered, FuturesUnordered},
 	TryStreamExt as _,
@@ -9,6 +8,7 @@ use std::{
 	collections::HashSet,
 	sync::{Arc, Mutex},
 };
+use tangram_either::Either;
 
 pub mod archive;
 pub mod bundle;

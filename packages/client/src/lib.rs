@@ -25,7 +25,6 @@ pub use self::{
 	leaf::Leaf,
 	location::Location,
 	lockfile::Lockfile,
-	module::Module,
 	mutation::Mutation,
 	object::Handle as Object,
 	path::Path,

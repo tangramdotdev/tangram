@@ -1,6 +1,5 @@
 use crate::Cli;
 use crossterm::style::Stylize as _;
-use either::Either;
 use futures::TryStreamExt as _;
 use itertools::Itertools as _;
 use num::ToPrimitive;
@@ -10,6 +9,7 @@ use std::{
 	sync::{Arc, Mutex, Weak},
 };
 use tangram_client::{self as tg, handle::Ext as _, Handle as _};
+use tangram_either::Either;
 
 /// Build a target.
 #[allow(clippy::struct_excessive_bools)]
@@ -114,9 +114,7 @@ impl Cli {
 		let handle = self.handle().await?;
 
 		// Get the reference.
-		let reference = args
-			.reference
-			.unwrap_or_else(|| ".?kind=package".parse().unwrap());
+		let reference = args.reference.unwrap_or_else(|| ".".parse().unwrap());
 
 		// Get the remote.
 		let remote = args
@@ -557,46 +555,22 @@ where
 	}
 
 	async fn title(&self) -> tg::Result<()> {
-		// let target = self.build.target(&self.handle).await?;
-		// let host = target.host(&self.handle).await?;
-		// let (package, repository, version) =
-		// 	if let Some(executable) = target.executable(&self.handle).await?.as_ref() {
-		// 		let object = executable.object(&self.handle).await?;
-		// 		let metadata = &object.nodes[object.root].metadata;
-		// 		let package = executable.id(&self.handle).await?;
-		// 		let repository = metadata
-		// 			.get("repository")
-		// 			.and_then(|value| value.try_unwrap_string_ref().ok())
-		// 			.cloned();
-		// 		let version = metadata
-		// 			.get("version")
-		// 			.and_then(|value| value.try_unwrap_string_ref().ok())
-		// 			.cloned();
-		// 		(Some(package), repository, version)
-		// 	} else {
-		// 		(None, None, None)
-		// 	};
-		// let mut title = String::new();
-		// if let (Some(repository), Some(version)) = (repository, version) {
-		// 	write!(title, "{repository}@{version}").unwrap();
-		// } else if let Some(package) = package {
-		// 	write!(title, "{package}").unwrap();
-		// } else {
-		// 	write!(title, "<unknown>").unwrap();
-		// }
-		// if host.as_str() == "js" {
-		// 	let name = target
-		// 		.args(&self.handle)
-		// 		.await?
-		// 		.first()
-		// 		.and_then(|arg| arg.try_unwrap_string_ref().ok())
-		// 		.cloned();
-		// 	if let Some(name) = name {
-		// 		write!(title, ":{name}").unwrap();
-		// 	}
-		// }
-		// self.state.lock().unwrap().title = title;
-		// Ok(())
-		todo!()
+		let target = self.build.target(&self.handle).await?;
+		let _executable = target.executable(&self.handle).await?;
+		let host = target.host(&self.handle).await?;
+		let mut title = String::new();
+		if host.as_str() == "js" {
+			let name = target
+				.args(&self.handle)
+				.await?
+				.first()
+				.and_then(|arg| arg.try_unwrap_string_ref().ok())
+				.cloned();
+			if let Some(name) = name {
+				write!(title, ":{name}").unwrap();
+			}
+		}
+		self.state.lock().unwrap().title = title;
+		Ok(())
 	}
 }

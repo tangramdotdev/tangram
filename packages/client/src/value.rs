@@ -8,6 +8,7 @@ use futures::{
 use itertools::Itertools as _;
 use num::ToPrimitive as _;
 use std::collections::BTreeMap;
+use tangram_either::Either;
 
 pub use self::data::*;
 
@@ -504,6 +505,19 @@ impl TryFrom<Value> for serde_json::Value {
 					.collect::<tg::Result<_>>()?,
 			)),
 			_ => Err(tg::error!("invalid value")),
+		}
+	}
+}
+
+impl<L, R> From<Either<L, R>> for Value
+where
+	L: Into<Value>,
+	R: Into<Value>,
+{
+	fn from(value: Either<L, R>) -> Self {
+		match value {
+			Either::Left(value) => value.into(),
+			Either::Right(value) => value.into(),
 		}
 	}
 }

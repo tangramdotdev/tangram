@@ -1,10 +1,10 @@
 use self::app::App;
 use crate::Cli;
 use crossterm as ct;
-use either::Either;
 use ratatui as tui;
 use std::sync::Arc;
 use tangram_client as tg;
+use tangram_either::Either;
 
 mod app;
 mod commands;
@@ -24,7 +24,7 @@ pub struct Args {
 	pub locked: bool,
 
 	/// The reference to the build or value to view.
-	#[arg(index = 1, default_value = ".?kind=package")]
+	#[arg(index = 1, default_value = ".")]
 	pub reference: tg::Reference,
 }
 

@@ -26,7 +26,6 @@ bytes = { workspace = true }
 data-encoding = { workspace = true }
 data-encoding-macro = { workspace = true }
 derive_more = { workspace = true }
-either = { workspace = true }
 fnv = { workspace = true }
 futures = { workspace = true }
 http = { workspace = true }
@@ -45,6 +44,7 @@ serde_urlencoded = { workspace = true }
 serde_with = { workspace = true }
 sha2 = { workspace = true }
 sync_wrapper = { workspace = true }
+tangram_either = { workspace = true }
 tangram_http = { workspace = true }
 tangram_semver = { workspace = true }
 tangram_uri = { workspace = true }

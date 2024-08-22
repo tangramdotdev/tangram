@@ -1,12 +1,11 @@
+use super::input::Input;
 use crate::Server;
-use either::Either;
 use std::{
 	collections::BTreeMap,
 	sync::{Arc, RwLock},
 };
 use tangram_client as tg;
-
-use super::input::Input;
+use tangram_either::Either;
 
 #[derive(Clone, Debug)]
 struct State {
@@ -38,7 +37,6 @@ pub(super) struct Graph {
 
 // A node within the package graph.
 #[derive(Clone, Debug)]
-#[allow(clippy::struct_field_names)]
 pub struct Node {
 	// A unique identifier of the node within the package graph.
 	pub id: Id,
@@ -563,15 +561,14 @@ impl Server {
 			return Ok(id.clone());
 		}
 
-		let id = tag
-			.as_ref()
-			.map_or_else(
-				|| {
-					let id = Either::Right(graph.counter);
-					graph.counter += 1;
-					id
-				},
-				|tag| Either::Left(get_reference_from_tag(tag)));
+		let id = tag.as_ref().map_or_else(
+			|| {
+				let id = Either::Right(graph.counter);
+				graph.counter += 1;
+				id
+			},
+			|tag| Either::Left(get_reference_from_tag(tag)),
+		);
 
 		visited.insert(object_id.clone(), id.clone());
 

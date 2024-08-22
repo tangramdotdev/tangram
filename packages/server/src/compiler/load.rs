@@ -6,12 +6,9 @@ const LIB: include_dir::Dir = include_dir!("$OUT_DIR/lib");
 
 impl Compiler {
 	/// Load a module.
-	pub async fn load_module(&self, module: &tg::Module) -> tg::Result<String> {
-		match module {
-			tg::Module {
-				kind: tg::module::Kind::Js | tg::module::Kind::Ts,
-				object: tg::module::Object::Path(path),
-			} => {
+	pub async fn load_module(&self, module: &tg::module::Reference) -> tg::Result<String> {
+		match (module.kind(), module.source()) {
+			(tg::module::Kind::Js | tg::module::Kind::Ts, tg::module::Source::Path(path)) => {
 				// If there is an opened document, then return its contents.
 				if let Some(document) = self.documents.get(module) {
 					if document.open {
@@ -27,10 +24,7 @@ impl Compiler {
 				Ok(text)
 			},
 
-			tg::Module {
-				kind: tg::module::Kind::Js | tg::module::Kind::Ts,
-				object: tg::module::Object::Object(object),
-			} => {
+			(tg::module::Kind::Js | tg::module::Kind::Ts, tg::module::Source::Object(object)) => {
 				let file = object
 					.clone()
 					.try_into()
@@ -40,11 +34,8 @@ impl Compiler {
 				Ok(text)
 			},
 
-			tg::Module {
-				kind: tg::module::Kind::Dts,
-				object,
-			} => {
-				let tg::module::Object::Path(path) = object else {
+			(tg::module::Kind::Dts, object) => {
+				let tg::module::Source::Path(path) = object else {
 					return Err(tg::error!("dts module must have a path"));
 				};
 				let path = path
@@ -59,21 +50,20 @@ impl Compiler {
 				Ok(text)
 			},
 
-			tg::Module {
-				kind:
-					tg::module::Kind::Object
-					| tg::module::Kind::Artifact
-					| tg::module::Kind::Blob
-					| tg::module::Kind::Leaf
-					| tg::module::Kind::Branch
-					| tg::module::Kind::Directory
-					| tg::module::Kind::File
-					| tg::module::Kind::Symlink
-					| tg::module::Kind::Graph
-					| tg::module::Kind::Target,
+			(
+				tg::module::Kind::Object
+				| tg::module::Kind::Artifact
+				| tg::module::Kind::Blob
+				| tg::module::Kind::Leaf
+				| tg::module::Kind::Branch
+				| tg::module::Kind::Directory
+				| tg::module::Kind::File
+				| tg::module::Kind::Symlink
+				| tg::module::Kind::Graph
+				| tg::module::Kind::Target,
 				object,
-			} => {
-				let class = match module.kind {
+			) => {
+				let class = match module.kind() {
 					tg::module::Kind::Object => "Object",
 					tg::module::Kind::Artifact => "Artifact",
 					tg::module::Kind::Blob => "Blob",
@@ -87,8 +77,8 @@ impl Compiler {
 					_ => unreachable!(),
 				};
 				let object = match object {
-					tg::module::Object::Path(_) => String::new(),
-					tg::module::Object::Object(object) => object.to_string(),
+					tg::module::Source::Object(object) => object.to_string(),
+					tg::module::Source::Path(_) => String::new(),
 				};
 				Ok(format!(r#"export default tg.{class}.withId("{object}");"#))
 			},

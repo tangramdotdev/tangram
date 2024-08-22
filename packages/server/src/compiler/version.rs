@@ -2,7 +2,7 @@ use super::{document::Document, Compiler};
 use tangram_client as tg;
 
 impl Compiler {
-	pub async fn get_module_version(&self, module: &tg::Module) -> tg::Result<i32> {
+	pub async fn get_module_version(&self, module: &tg::module::Reference) -> tg::Result<i32> {
 		// Get the entry for the document.
 		let entry = self.documents.entry(module.clone());
 
@@ -15,17 +15,15 @@ impl Compiler {
 		}
 
 		// Get the path.
-		let tg::Module {
-			kind:
-				tg::module::Kind::Js
-				| tg::module::Kind::Ts
-				| tg::module::Kind::Artifact
-				| tg::module::Kind::Directory
-				| tg::module::Kind::File
-				| tg::module::Kind::Symlink,
-			object: tg::module::Object::Path(path),
-			..
-		} = module
+		let (
+			tg::module::Kind::Js
+			| tg::module::Kind::Ts
+			| tg::module::Kind::Artifact
+			| tg::module::Kind::Directory
+			| tg::module::Kind::File
+			| tg::module::Kind::Symlink,
+			tg::module::Source::Path(path),
+		) = (module.kind(), module.source())
 		else {
 			return Ok(0);
 		};

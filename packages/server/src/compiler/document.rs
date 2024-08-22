@@ -5,7 +5,7 @@ use tangram_client as tg;
 #[derive(Debug, serde::Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Request {
-	pub module: tg::Module,
+	pub module: tg::module::Reference,
 }
 
 pub type Response = serde_json::Value;
@@ -21,7 +21,7 @@ pub struct Document {
 
 impl Compiler {
 	/// Document a module.
-	pub async fn document(&self, module: &tg::Module) -> tg::Result<Response> {
+	pub async fn document(&self, module: &tg::module::Reference) -> tg::Result<Response> {
 		// Create the request.
 		let request = super::Request::Document(Request {
 			module: module.clone(),
@@ -41,7 +41,7 @@ impl Compiler {
 
 impl Compiler {
 	/// List the documents.
-	pub async fn list_documents(&self) -> Vec<tg::Module> {
+	pub async fn list_documents(&self) -> Vec<tg::module::Reference> {
 		self.documents
 			.iter()
 			.filter(|entry| entry.open)
@@ -52,7 +52,7 @@ impl Compiler {
 	/// Open a document.
 	pub async fn open_document(
 		&self,
-		module: &tg::Module,
+		module: &tg::module::Reference,
 		version: i32,
 		text: String,
 	) -> tg::Result<()> {
@@ -69,7 +69,7 @@ impl Compiler {
 	/// Update a document.
 	pub async fn update_document(
 		&self,
-		module: &tg::Module,
+		module: &tg::module::Reference,
 		range: Option<tg::Range>,
 		version: i32,
 		text: String,
@@ -101,7 +101,7 @@ impl Compiler {
 	}
 
 	/// Close a document.
-	pub async fn close_document(&self, module: &tg::Module) -> tg::Result<()> {
+	pub async fn close_document(&self, module: &tg::module::Reference) -> tg::Result<()> {
 		// Get the document.
 		let Some(mut document) = self.documents.get_mut(module) else {
 			return Err(tg::error!("could not find the document"));
@@ -119,14 +119,11 @@ impl Compiler {
 		document.text = None;
 
 		// Set the document's modified time.
-		let path = match module {
-			tg::Module {
-				object: tg::module::Object::Path(path),
-				..
-			} => path.clone(),
-
-			_ => return Err(tg::error!("invalid module")),
-		};
+		let path = module
+			.source()
+			.try_unwrap_path_ref()
+			.ok()
+			.ok_or_else(|| tg::error!("invalid module"))?;
 		let metadata = tokio::fs::metadata(&path)
 			.await
 			.map_err(|source| tg::error!(!source, "failed to get the metadata"))?;

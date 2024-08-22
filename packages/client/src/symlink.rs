@@ -1,8 +1,8 @@
 use crate as tg;
 use bytes::Bytes;
-use either::Either;
 use itertools::Itertools as _;
 use std::{collections::BTreeSet, sync::Arc};
+use tangram_either::Either;
 
 #[derive(
 	Clone,

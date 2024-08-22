@@ -1,8 +1,8 @@
 use crate::{Connection, Database, Priority, Query, Row, Transaction, Value};
-use either::Either;
 use futures::{
 	Future, FutureExt as _, Stream, StreamExt as _, TryFutureExt as _, TryStreamExt as _,
 };
+use tangram_either::Either;
 
 #[derive(Debug, derive_more::Display, derive_more::Error, derive_more::From)]
 pub enum Error<L, R> {

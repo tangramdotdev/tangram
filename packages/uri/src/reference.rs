@@ -67,6 +67,11 @@ impl Reference {
 	pub fn fragment(&self) -> Option<&str> {
 		self.fragment.clone().map(|range| &self.string[range])
 	}
+
+	#[must_use]
+	pub fn as_str(&self) -> &str {
+		self.string.as_str()
+	}
 }
 
 impl std::fmt::Display for Reference {

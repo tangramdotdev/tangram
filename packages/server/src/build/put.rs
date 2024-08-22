@@ -1,10 +1,10 @@
 use crate::Server;
-use either::Either;
 use futures::{stream::FuturesUnordered, TryStreamExt as _};
 use indoc::formatdoc;
 use std::sync::Arc;
 use tangram_client as tg;
 use tangram_database::{self as db, prelude::*};
+use tangram_either::Either;
 use tangram_http::{incoming::request::Ext as _, outgoing::response::Ext as _, Incoming, Outgoing};
 use time::format_description::well_known::Rfc3339;
 

@@ -1,6 +1,6 @@
 use crate::{Message, Messenger};
-use either::Either;
 use futures::{Future, FutureExt as _, Stream, TryFutureExt as _};
+use tangram_either::Either;
 
 impl<L, R> Messenger for Either<L, R>
 where

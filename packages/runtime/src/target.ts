@@ -1,5 +1,4 @@
 import * as tg from "./index.ts";
-import { Module } from "./module.ts";
 import {
 	type MaybeMutationMap,
 	type MaybeNestedArray,
@@ -21,7 +20,7 @@ type FunctionArg<
 	A extends Array<tg.Value> = Array<tg.Value>,
 	R extends tg.Value = tg.Value,
 > = {
-	url: string;
+	executable: tg.File | tg.Symlink;
 	name: string;
 	function: (...args: A) => tg.Unresolved<R>;
 };
@@ -47,15 +46,12 @@ export function target<
 	) {
 		let arg = args[0];
 
-		// Get the module.
-		let module_ = Module.fromUrl(arg.url);
-
 		// Create the target.
 		let object = {
 			args: [arg.name],
 			checksum: undefined,
 			env: getCurrentTarget().expectObject().env,
-			executable: tg.File.withId(module_.object),
+			executable: arg.executable,
 			host: "js",
 		};
 		let state = {

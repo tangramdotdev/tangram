@@ -1,8 +1,8 @@
 use bytes::Bytes;
-use either::Either;
 use num::ToPrimitive as _;
 use std::{collections::BTreeMap, sync::Arc};
 use tangram_client as tg;
+use tangram_either::Either;
 use url::Url;
 
 pub fn _to_v8<'a, T>(

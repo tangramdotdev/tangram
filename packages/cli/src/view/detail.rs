@@ -2,10 +2,10 @@ use super::{
 	app::Focus, commands::Commands, data::Data, info::Info, log::Log, tree::NodeKind,
 	util::render_block_and_get_area,
 };
-use either::Either;
 use ratatui::prelude::*;
 use std::sync::{Arc, RwLock};
 use tangram_client as tg;
+use tangram_either::Either;
 
 #[allow(clippy::type_complexity)]
 pub struct Detail<H> {

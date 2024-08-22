@@ -49,10 +49,10 @@ pub struct Compiler(Arc<Inner>);
 
 pub struct Inner {
 	/// The published diagnostics.
-	diagnostics: tokio::sync::RwLock<BTreeMap<tg::Module, Vec<tg::Diagnostic>>>,
+	diagnostics: tokio::sync::RwLock<BTreeMap<tg::module::Reference, Vec<tg::Diagnostic>>>,
 
 	/// The documents.
-	documents: DashMap<tg::Module, Document, fnv::FnvBuildHasher>,
+	documents: DashMap<tg::module::Reference, Document, fnv::FnvBuildHasher>,
 
 	/// A handle to the main tokio runtime.
 	main_runtime_handle: tokio::runtime::Handle,
@@ -630,7 +630,7 @@ impl Compiler {
 		}
 	}
 
-	async fn module_for_uri(&self, uri: &lsp::Uri) -> tg::Result<tg::Module> {
+	async fn module_for_uri(&self, uri: &lsp::Uri) -> tg::Result<tg::module::Reference> {
 		match uri.scheme().unwrap().as_str() {
 			"file" => {
 				let path = uri.path().as_str().parse::<tg::Path>()?;
@@ -644,8 +644,8 @@ impl Compiler {
 				} else {
 					tg::module::Kind::Artifact
 				};
-				let object = tg::module::Object::Path(path);
-				Ok(tg::Module { kind, object })
+				let object = tg::module::Source::Path(path);
+				Ok(tg::module::Reference::with_kind_and_source(kind, object))
 			},
 
 			_ => uri.as_str().parse(),
@@ -654,20 +654,18 @@ impl Compiler {
 
 	#[allow(clippy::unused_self)]
 	#[must_use]
-	fn uri_for_module(&self, module: &tg::Module) -> lsp::Uri {
-		match module {
-			tg::Module {
-				kind:
-					tg::module::Kind::Js
-					| tg::module::Kind::Ts
-					| tg::module::Kind::Artifact
-					| tg::module::Kind::Directory
-					| tg::module::Kind::File
-					| tg::module::Kind::Symlink,
-				object: tg::module::Object::Path(path),
-				..
-			} => format!("file://{path}").parse().unwrap(),
-			module => module.to_string().parse().unwrap(),
+	fn uri_for_module(&self, module: &tg::module::Reference) -> lsp::Uri {
+		match (module.kind(), module.source()) {
+			(
+				tg::module::Kind::Js
+				| tg::module::Kind::Ts
+				| tg::module::Kind::Artifact
+				| tg::module::Kind::Directory
+				| tg::module::Kind::File
+				| tg::module::Kind::Symlink,
+				tg::module::Source::Path(path),
+			) => format!("file://{path}").parse().unwrap(),
+			_ => module.to_string().parse().unwrap(),
 		}
 	}
 }
