@@ -343,10 +343,8 @@ impl Server {
 
 		// Copy or move the file.
 		if input.read().unwrap().is_root {
-			let arg = input.read().unwrap().arg.clone();
-			self.copy_or_move_file(&arg, &id).await.map_err(|source| {
-				tg::error!(!source, "failed to copy or move file to checkouts")
-			})?;
+			self.copy_or_move_to_checkouts_directory(input.clone(), id.clone())
+				.await?;
 		}
 
 		// Create the output
@@ -368,39 +366,6 @@ impl Server {
 		}
 		output.write().unwrap().dependencies = output_dependencies;
 		Ok(output)
-	}
-
-	async fn copy_or_move_file(
-		&self,
-		arg: &tg::artifact::checkin::Arg,
-		id: &tg::artifact::Id,
-	) -> tg::Result<()> {
-		// Skip copying anything in the checkouts directory.
-		let checkouts_directory: tg::Path = self.checkouts_path().try_into()?;
-		if let Some(path) = arg.path.diff(&checkouts_directory) {
-			if matches!(
-				path.components().first(),
-				Some(tg::path::Component::Current)
-			) {
-				return Ok(());
-			}
-		}
-
-		let destination = self.checkouts_path().join(id.to_string());
-		if arg.destructive {
-			match tokio::fs::rename(&arg.path, &destination).await {
-				Ok(()) => return Ok(()),
-				Err(error) if error.raw_os_error() == Some(libc::EEXIST) => return Ok(()),
-				Err(error) if error.raw_os_error() == Some(libc::ENODEV) => (),
-				Err(source) => return Err(tg::error!(!source, "failed to rename file")),
-			};
-		}
-
-		match copy_all(arg.path.as_ref(), &destination).await {
-			Ok(()) => Ok(()),
-			Err(error) if error.raw_os_error() == Some(libc::EEXIST) => Ok(()),
-			Err(source) => Err(tg::error!(!source, "failed to copy file")),
-		}
 	}
 }
 
@@ -838,27 +803,82 @@ impl<'a> petgraph::visit::IntoNodeIdentifiers for GraphImpl<'a> {
 	}
 }
 
-async fn copy_all(from: &std::path::Path, to: &std::path::Path) -> std::io::Result<()> {
-	let mut stack = vec![(from.to_owned(), to.to_owned())];
-	while let Some((from, to)) = stack.pop() {
-		let metadata = tokio::fs::symlink_metadata(&from).await?;
-		let file_type = metadata.file_type();
-		if file_type.is_dir() {
-			tokio::fs::create_dir_all(&to).await?;
-			let mut entries = tokio::fs::read_dir(&from).await?;
-			while let Some(entry) = entries.next_entry().await? {
-				let from = from.join(entry.file_name());
-				let to = to.join(entry.file_name());
-				stack.push((from, to));
-			}
-		} else if file_type.is_file() {
-			tokio::fs::copy(&from, &to).await?;
-		} else if file_type.is_symlink() {
-			let target = tokio::fs::read_link(&from).await?;
-			tokio::fs::symlink(&target, &to).await?;
-		} else {
-			return Err(std::io::Error::other("invalid file type"));
-		}
+impl Server {
+	pub(super) async fn copy_or_move_to_checkouts_directory(
+		&self,
+		input: Arc<RwLock<Input>>,
+		artifact: tg::artifact::Id,
+	) -> tg::Result<()> {
+		let dest = self
+			.checkouts_path()
+			.join(artifact.to_string())
+			.try_into()?;
+		let mut visited = BTreeSet::new();
+		self.copy_or_move_to_checkouts_directory_inner(dest, input, &mut visited)
+			.await
 	}
-	Ok(())
+
+	async fn copy_or_move_to_checkouts_directory_inner(
+		&self,
+		dest: tg::Path,
+		input: Arc<RwLock<Input>>,
+		visited: &mut BTreeSet<tg::Path>,
+	) -> tg::Result<()> {
+		let input = input.read().unwrap().clone();
+		if visited.contains(&input.arg.path) {
+			return Ok(());
+		}
+		visited.insert(input.arg.path.clone());
+
+		if input.metadata.is_dir() {
+			tokio::fs::create_dir_all(&dest)
+				.await
+				.map_err(|source| tg::error!(!source, "failed to create directory"))?;
+			let children = input.dependencies.values().cloned();
+			for input_ in children {
+				let Some(input_) = input_ else {
+					continue;
+				};
+				if input_.read().unwrap().is_root {
+					continue;
+				}
+				let diff = input_
+					.read()
+					.unwrap()
+					.arg
+					.path
+					.diff(&input.arg.path)
+					.unwrap();
+				let dest = dest.clone().join(diff).normalize();
+				Box::pin(self.copy_or_move_to_checkouts_directory_inner(dest, input_, visited))
+					.await?;
+			}
+		} else if input.metadata.is_symlink() {
+			let target = tokio::fs::read_link(&input.arg.path)
+				.await
+				.map_err(|source| tg::error!(!source, "expected a symlink"))?;
+			tokio::fs::symlink(&target, &dest)
+				.await
+				.map_err(|source| tg::error!(!source, "failed to create symlink"))?;
+		} else if input.metadata.is_file() {
+			if input.arg.destructive {
+				match tokio::fs::rename(&input.arg.path, &dest).await {
+					Ok(()) => return Ok(()),
+					Err(error) if error.raw_os_error() == Some(libc::EEXIST) => return Ok(()),
+					Err(error) if error.raw_os_error() == Some(libc::ENODEV) => (),
+					Err(source) => {
+						return Err(
+							tg::error!(!source, %path = input.arg.path, "failed to rename file"),
+						)
+					},
+				}
+			}
+			tokio::fs::copy(&input.arg.path, &dest).await.map_err(
+				|source| tg::error!(!source, %path = input.arg.path, "failed to copy file"),
+			)?;
+		} else {
+			return Err(tg::error!(%path = input.arg.path, "invalid file type"));
+		}
+		Ok(())
+	}
 }
