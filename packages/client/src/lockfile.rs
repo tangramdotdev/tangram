@@ -4,9 +4,9 @@ use tangram_either::Either;
 use tokio::io::AsyncWriteExt;
 pub const TANGRAM_LOCKFILE_FILE_NAME: &str = "tangram.lock";
 
-#[derive(Clone, Debug, serde::Serialize, serde::Deserialize)]
+#[derive(Default, Clone, Debug, serde::Serialize, serde::Deserialize)]
 pub struct Lockfile {
-	#[serde(skip_serializing_if = "BTreeMap::is_empty")]
+	#[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
 	pub paths: BTreeMap<tg::Path, usize>,
 	pub nodes: Vec<Node>,
 }
@@ -72,5 +72,25 @@ impl Lockfile {
 				|source| tg::error!(!source, %path = lockfile_path, "failed to write lockfile"),
 			)?;
 		Ok(())
+	}
+}
+
+impl Node {
+	#[must_use]
+	pub fn children(&self) -> Vec<Either<usize, tg::object::Id>> {
+		match self {
+			Self::Directory { entries } => entries.values().flatten().cloned().collect(),
+			Self::File { dependencies, .. } => dependencies
+				.iter()
+				.flatten()
+				.filter_map(|(_, e)| e.clone())
+				.collect(),
+			Self::Symlink { artifact, .. } => {
+				let Some(Some(artifact)) = artifact else {
+					return Vec::new();
+				};
+				vec![artifact.clone()]
+			},
+		}
 	}
 }

@@ -6,6 +6,7 @@ use tangram_http::{incoming::request::Ext as _, outgoing::response::Ext as _, In
 use tokio_stream::wrappers::IntervalStream;
 
 mod input;
+mod lockfile;
 mod output;
 mod unify;
 
@@ -166,14 +167,18 @@ impl Server {
 			if store_as != &artifact {
 				return Err(tg::error!("checkouts directory is corrupted"));
 			}
-			self.write_output_to_database(output).await?;
+			self.write_output_to_database(output, &lockfile).await?;
 		} else {
 			// Copy or move files.
 			self.copy_or_move_to_checkouts_directory(input.clone(), output.clone())
 				.await?;
 
 			// Otherwise, update hardlinks and xattrs.
-			self.write_hardlinks_and_xattrs(input, output).await?;
+			self.write_hardlinks_and_xattrs(input.clone(), output)
+				.await?;
+
+			// Write lockfiles.
+			self.write_lockfiles(input.clone(), &lockfile).await?;
 		}
 
 		Ok(artifact)

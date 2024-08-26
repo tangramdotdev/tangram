@@ -106,7 +106,7 @@ impl Server {
 
 		// Add dependencies.
 		let dependencies = input.read().unwrap().dependencies.clone();
-		for (dependency, child) in dependencies {
+		'outer: for (dependency, child) in dependencies.into_iter().flatten() {
 			// Recurse on existing input.
 			match child {
 				Some(Either::Left(object)) => {
@@ -131,26 +131,40 @@ impl Server {
 
 			// Check if there is a solution in the lock file.
 			let lockfile = input.read().unwrap().lockfile.clone();
-			if let Some((lockfile, _)) = lockfile {
-				let node = *lockfile.paths.get(&input.read().unwrap().arg.path).unwrap();
-				let node = &lockfile.nodes[node];
-				if let tg::lockfile::Node::File { dependencies, .. } = node {
-					#[allow(clippy::collapsible_match)]
-					if let Some(entry) = dependencies.as_ref().and_then(|map| map.get(&dependency))
-					{
-						#[allow(clippy::single_match)]
-						match entry {
-							Some(Either::Right(object)) => {
-								let id = self
-									.create_unification_node_from_object(graph, object.clone())
-									.await?;
-								outgoing.insert(dependency.clone(), id);
-								continue;
-							},
-							_ => (), // if referenced by index or path it will be in the input. todo: verify this.
-						}
-					}
-				}
+			'a: {
+				let Some((lockfile, root)) = lockfile else {
+					break 'a;
+				};
+				let path = input
+					.read()
+					.unwrap()
+					.arg
+					.path
+					.diff(&root)
+					.unwrap_or(".".into());
+				let Some(node) = lockfile.paths.get(&path) else {
+					if input.read().unwrap().arg.locked {
+						return Err(tg::error!("lockfile is out of data"))?;
+					};
+					break 'a;
+				};
+				let tg::lockfile::Node::File { dependencies, .. } = &lockfile.nodes[*node] else {
+					break 'a;
+				};
+				let Some(entry) = dependencies.as_ref().and_then(|map| map.get(&dependency)) else {
+					if input.read().unwrap().arg.locked {
+						return Err(tg::error!("lockfile is out of data"))?;
+					};
+					break 'a;
+				};
+				let Some(Either::Right(object)) = entry else {
+					break 'a;
+				};
+				let id = self
+					.create_unification_node_from_object(graph, object.clone())
+					.await?;
+				outgoing.insert(dependency.clone(), id);
+				continue 'outer;
 			}
 
 			// Otherwise, create partial nodes.
