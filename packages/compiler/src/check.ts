@@ -1,10 +1,9 @@
 import ts from "typescript";
 import type { Diagnostic } from "./diagnostics.ts";
-import type { Module } from "./module.ts";
 import * as typescript from "./typescript.ts";
 
 export type Request = {
-	modules: Array<Module>;
+	modules: Array<string>;
 };
 
 export type Response = {
@@ -16,7 +15,7 @@ export let handle = (request: Request): Response => {
 
 	// Create a typescript program.
 	let program = ts.createProgram({
-		rootNames: request.modules.map(typescript.fileNameFromModule),
+		rootNames: request.modules.map(typescript.fileNameFromModuleReference),
 		options: typescript.compilerOptions,
 		host: typescript.host,
 	});

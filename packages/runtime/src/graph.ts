@@ -45,7 +45,7 @@ export class Graph {
 				} else {
 					return tg.unreachable(node);
 				}
-			})
+			}),
 		);
 		return new Graph({ object: { nodes } });
 	}
@@ -86,7 +86,7 @@ export class Graph {
 								node.dependencies = argNode.dependencies.map((dependency) =>
 									typeof dependency === "number"
 										? dependency + offset
-										: dependency
+										: dependency,
 								);
 							} else {
 								node.dependencies = {};

@@ -1,11 +1,10 @@
 import ts from "typescript";
 import type { Location } from "./location.ts";
-import type { Module } from "./module.ts";
 import type { Position } from "./position.ts";
 import * as typescript from "./typescript.ts";
 
 export type Request = {
-	module: Module;
+	module: string;
 	position: Position;
 };
 
@@ -16,7 +15,7 @@ export type Response = {
 export let handle = (request: Request): Response => {
 	// Get the source file and position.
 	let sourceFile = typescript.host.getSourceFile(
-		typescript.fileNameFromModule(request.module),
+		typescript.fileNameFromModuleReference(request.module),
 		ts.ScriptTarget.ESNext,
 	);
 	if (sourceFile === undefined) {
@@ -30,7 +29,7 @@ export let handle = (request: Request): Response => {
 
 	// Get the definitions.
 	let definitions = typescript.languageService.getDefinitionAtPosition(
-		typescript.fileNameFromModule(request.module),
+		typescript.fileNameFromModuleReference(request.module),
 		position,
 	);
 
@@ -52,7 +51,7 @@ export let handle = (request: Request): Response => {
 			definition.textSpan.start + definition.textSpan.length,
 		);
 		let location = {
-			module: typescript.moduleFromFileName(definition.fileName),
+			module: typescript.moduleReferenceFromFileName(definition.fileName),
 			range: { start, end },
 		};
 
@@ -67,7 +66,7 @@ export let handle = (request: Request): Response => {
 export let handleType = (request: Request): Response => {
 	// Get the source file and position.
 	let sourceFile = typescript.host.getSourceFile(
-		typescript.fileNameFromModule(request.module),
+		typescript.fileNameFromModuleReference(request.module),
 		ts.ScriptTarget.ESNext,
 	);
 	if (sourceFile === undefined) {
@@ -81,7 +80,7 @@ export let handleType = (request: Request): Response => {
 
 	// Get the definitions.
 	let definitions = typescript.languageService.getTypeDefinitionAtPosition(
-		typescript.fileNameFromModule(request.module),
+		typescript.fileNameFromModuleReference(request.module),
 		position,
 	);
 
@@ -103,7 +102,7 @@ export let handleType = (request: Request): Response => {
 			definition.textSpan.start + definition.textSpan.length,
 		);
 		let location = {
-			module: typescript.moduleFromFileName(definition.fileName),
+			module: typescript.moduleReferenceFromFileName(definition.fileName),
 			range: { start, end },
 		};
 

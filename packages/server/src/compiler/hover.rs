@@ -22,7 +22,7 @@ impl Compiler {
 	) -> tg::Result<Option<lsp::Hover>> {
 		// Get the module.
 		let module = self
-			.module_for_uri(&params.text_document_position_params.text_document.uri)
+			.module_reference_for_lsp_uri(&params.text_document_position_params.text_document.uri)
 			.await?;
 
 		// Get the position for the request.

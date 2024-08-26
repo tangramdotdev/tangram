@@ -1,8 +1,12 @@
 import { assert } from "./assert.ts";
 
-export type Module = {
+let scheme = "tg";
+
+export type Reference = string;
+
+export type Path = {
 	kind: Kind;
-	object: string;
+	source: Source;
 };
 
 export type Kind =
@@ -20,22 +24,24 @@ export type Kind =
 	| "lock"
 	| "target";
 
-export namespace Module {
-	export let toUrl = (module: Module): string => {
-		let prefix = "tg://";
-		let json = syscall("encoding_json_encode", module);
+export type Source = string;
+
+export type Parsed = { path: Path };
+
+export namespace Reference {
+	export let print = (parsed: Parsed): Reference => {
+		let json = syscall("encoding_json_encode", parsed.path);
 		let utf8 = syscall("encoding_utf8_encode", json);
-		let hex = syscall("encoding_hex_encode", utf8);
-		return `${prefix}${hex}`;
+		let path = syscall("encoding_hex_encode", utf8);
+		return `${scheme}:${path}`;
 	};
 
-	export let fromUrl = (url: string): Module => {
-		let prefix = "tg://";
-		assert(url.startsWith(prefix));
-		let hex = url.slice(prefix.length);
-		let utf8 = syscall("encoding_hex_decode", hex);
+	export let parse = (module: Reference): Parsed => {
+		assert(module.startsWith(`${scheme}:`));
+		let path_ = module.slice(scheme.length + 1);
+		let utf8 = syscall("encoding_hex_decode", path_);
 		let json = syscall("encoding_utf8_decode", utf8);
-		let module = syscall("encoding_json_decode", json) as Module;
-		return module;
+		let path = syscall("encoding_json_decode", json) as Path;
+		return { path };
 	};
 }

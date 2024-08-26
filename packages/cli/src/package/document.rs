@@ -49,10 +49,7 @@ impl Cli {
 
 		// Document the package.
 		let package = package.id(&handle).await?;
-		let arg = tg::package::document::Arg {
-			package: package.into(),
-			remote,
-		};
+		let arg = tg::package::document::Arg { package, remote };
 		let doc = handle.document_package(arg).await?;
 
 		// Serialize the output.

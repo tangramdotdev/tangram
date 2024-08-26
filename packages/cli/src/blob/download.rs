@@ -29,7 +29,7 @@ impl Cli {
 			args.checksum.map(|checksum| checksum.to_string()).into(),
 		];
 		let target = tg::Target::builder(host)
-			.executable(executable)
+			.executable(Some(executable.into()))
 			.args(args)
 			.build();
 		let target = target.id(&handle).await?;

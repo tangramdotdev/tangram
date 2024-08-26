@@ -23,7 +23,7 @@ impl Compiler {
 	) -> tg::Result<Option<lsp::WorkspaceEdit>> {
 		// Get the module.
 		let module = self
-			.module_for_uri(&params.text_document_position.text_document.uri)
+			.module_reference_for_lsp_uri(&params.text_document_position.text_document.uri)
 			.await?;
 
 		// Get the position for the request.
@@ -43,7 +43,7 @@ impl Compiler {
 		let mut edit = HashMap::<lsp::Uri, lsp::TextDocumentEdit>::new();
 		for location in locations {
 			// Create the URI.
-			let uri = self.uri_for_module(&location.module);
+			let uri = self.lsp_uri_for_module_reference(&location.module);
 
 			// Get the version.
 			let version = self.get_module_version(&location.module).await?;

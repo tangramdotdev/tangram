@@ -1,4 +1,5 @@
 import * as tg from "./index.ts";
+import * as module_ from "./module.ts";
 import {
 	type MaybeMutationMap,
 	type MaybeNestedArray,
@@ -8,10 +9,6 @@ import {
 
 let currentTarget: Target;
 
-export let getCurrentTarget = (): Target => {
-	return currentTarget;
-};
-
 export let setCurrentTarget = (target: Target) => {
 	currentTarget = target;
 };
@@ -20,7 +17,7 @@ type FunctionArg<
 	A extends Array<tg.Value> = Array<tg.Value>,
 	R extends tg.Value = tg.Value,
 > = {
-	executable: tg.File | tg.Symlink;
+	module: string;
 	name: string;
 	function: (...args: A) => tg.Unresolved<R>;
 };
@@ -47,11 +44,17 @@ export function target<
 		let arg = args[0];
 
 		// Create the target.
+		let args_ = [arg.name];
+		let checksum = undefined;
+		let executable = tg.Artifact.withId(
+			module_.Reference.parse(arg.module).path.source,
+		);
+		const env = currentTarget.state.object!.env;
 		let object = {
-			args: [arg.name],
-			checksum: undefined,
-			env: getCurrentTarget().expectObject().env,
-			executable: arg.executable,
+			args: args_,
+			checksum,
+			env,
+			executable,
 			host: "js",
 		};
 		let state = {
@@ -132,6 +135,10 @@ export class Target<
 		return new Target({ object });
 	}
 
+	static get current(): Target {
+		return currentTarget;
+	}
+
 	static async arg(...args: tg.Args<Target.Arg>): Promise<Target.ArgObject> {
 		let resolved = await Promise.all(args.map(tg.resolve));
 		let flattened = flatten(resolved);
@@ -147,7 +154,7 @@ export class Target<
 					return {
 						args: ["-c", arg],
 						executable: await tg.symlink("/bin/sh"),
-						host: (await getCurrentTarget().env()).TANGRAM_HOST as string,
+						host: (await currentTarget.env()).TANGRAM_HOST as string,
 					};
 				} else if (arg instanceof Target) {
 					return await arg.object();
@@ -183,20 +190,6 @@ export class Target<
 		return this.#state.object!;
 	}
 
-	expectId(): Target.Id {
-		if (!this.#state.id) {
-			throw new Error("expected the object to be stored");
-		}
-		return this.#state.id;
-	}
-
-	expectObject(): Target.Object {
-		if (!this.#state.object) {
-			throw new Error("expected the object to be loaded");
-		}
-		return this.#state.object;
-	}
-
 	async load() {
 		if (this.#state.object === undefined) {
 			let object = await syscall("load", this.#state.id!);
@@ -226,7 +219,7 @@ export class Target<
 		return (await this.object()).env;
 	}
 
-	async executable(): Promise<tg.File | undefined> {
+	async executable(): Promise<tg.Artifact | undefined> {
 		return (await this.object()).executable;
 	}
 
@@ -256,7 +249,7 @@ export namespace Target {
 		args?: Array<tg.Value> | undefined;
 		checksum?: tg.Checksum | undefined;
 		env?: MaybeNestedArray<MaybeMutationMap> | undefined;
-		executable?: tg.File | undefined;
+		executable?: tg.Artifact | undefined;
 		host?: string | undefined;
 	};
 
@@ -266,7 +259,7 @@ export namespace Target {
 		args: Array<tg.Value>;
 		checksum: tg.Checksum | undefined;
 		env: { [key: string]: tg.Value };
-		executable: tg.File | undefined;
+		executable: tg.Artifact | undefined;
 		host: string;
 	};
 

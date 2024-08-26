@@ -102,7 +102,7 @@ export class File {
 		return (await this.object()).contents;
 	}
 
-	async dependencies(): Promise<Array<tg.Artifact>> {
+	async dependencies(): Promise<File.Dependencies | undefined> {
 		return (await this.object()).dependencies;
 	}
 
@@ -142,9 +142,13 @@ export namespace File {
 
 	export type Object = {
 		contents: tg.Blob;
-		dependencies: Array<tg.Artifact>;
+		dependencies: Dependencies | undefined;
 		executable: boolean;
 	};
+
+	export type Dependencies =
+		| Array<tg.Object>
+		| { [reference: string]: tg.Object };
 
 	export type State = tg.Object.State<File.Id, File.Object>;
 }

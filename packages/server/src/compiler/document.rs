@@ -142,7 +142,7 @@ impl Compiler {
 		params: lsp::DidOpenTextDocumentParams,
 	) -> tg::Result<()> {
 		// Get the module.
-		let module = self.module_for_uri(&params.text_document.uri).await?;
+		let module = self.module_reference_for_lsp_uri(&params.text_document.uri).await?;
 
 		// Open the document.
 		let version = params.text_document.version;
@@ -160,7 +160,7 @@ impl Compiler {
 		params: lsp::DidChangeTextDocumentParams,
 	) -> tg::Result<()> {
 		// Get the module.
-		let module = self.module_for_uri(&params.text_document.uri).await?;
+		let module = self.module_reference_for_lsp_uri(&params.text_document.uri).await?;
 
 		// Apply the changes.
 		for change in params.content_changes {
@@ -184,7 +184,7 @@ impl Compiler {
 		params: lsp::DidCloseTextDocumentParams,
 	) -> tg::Result<()> {
 		// Get the module.
-		let module = self.module_for_uri(&params.text_document.uri).await?;
+		let module = self.module_reference_for_lsp_uri(&params.text_document.uri).await?;
 
 		// Close the document.
 		self.close_document(&module).await?;

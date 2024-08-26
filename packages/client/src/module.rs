@@ -2,8 +2,7 @@ use crate as tg;
 use tangram_uri as uri;
 
 /// The possible file names for the root module in a package.
-pub const ROOT_MODULE_FILE_NAMES: &[&str] =
-	&["tangram.js", "tangram.tg.js", "tangram.tg.ts", "tangram.ts"];
+pub const ROOT_MODULE_FILE_NAMES: &[&str] = &["tangram.js", "tangram.ts"];
 
 /// The file name of the lockfile in a package.
 pub const LOCKFILE_FILE_NAME: &str = "tangram.lock";
@@ -90,6 +89,50 @@ impl Reference {
 		let string = format!("tg:{hex}");
 		let uri = string.parse().unwrap();
 		Self { uri, path }
+	}
+
+	pub async fn with_package<H>(handle: &H, package: &tg::Directory) -> tg::Result<Self>
+	where
+		H: tg::Handle,
+	{
+		Self::try_with_package(handle, package)
+			.await?
+			.ok_or_else(|| tg::error!("the package does not contain a root module"))
+	}
+
+	pub async fn try_with_package<H>(
+		handle: &H,
+		package: &tg::Directory,
+	) -> tg::Result<Option<Self>>
+	where
+		H: tg::Handle,
+	{
+		let mut name = None;
+		for n in ROOT_MODULE_FILE_NAMES {
+			if package.try_get_entry(handle, n).await?.is_some() {
+				if name.is_some() {
+					return Err(tg::error!("package contains multiple root modules"));
+				}
+				name = Some(*n);
+			}
+		}
+		let Some(name) = name else {
+			return Ok(None);
+		};
+		let kind = if name.ends_with("js") {
+			tg::module::Kind::Js
+		} else if name.ends_with("ts") {
+			tg::module::Kind::Ts
+		} else {
+			unreachable!()
+		};
+		let artifact = package.clone().into();
+		let path = name.into();
+		let symlink = tg::Symlink::with_artifact_and_path(Some(artifact), Some(path));
+		let symlink = symlink.id(handle).await?.into();
+		let source = tg::module::Source::Object(symlink);
+		let module = tg::module::Reference::with_kind_and_source(kind, source);
+		Ok(Some(module))
 	}
 
 	#[must_use]
@@ -207,7 +250,7 @@ impl std::str::FromStr for Source {
 	type Err = tg::Error;
 
 	fn from_str(s: &str) -> tg::Result<Self, Self::Err> {
-		if s.starts_with("./") || s.starts_with("../") || s.starts_with('/') {
+		if s == "." || s.starts_with("./") || s.starts_with("../") || s.starts_with('/') {
 			let path = s.parse()?;
 			Ok(Self::Path(path))
 		} else {
@@ -235,20 +278,20 @@ where
 	let Ok(artifact) = artifact.try_unwrap_directory_ref() else {
 		return Ok(None);
 	};
-	let mut root_module_path = None;
-	for module_file_name in ROOT_MODULE_FILE_NAMES {
+	let mut output = None;
+	for name in ROOT_MODULE_FILE_NAMES {
 		if artifact
-			.try_get(handle, &module_file_name.parse().unwrap())
+			.try_get(handle, &name.parse().unwrap())
 			.await?
 			.is_some()
 		{
-			if root_module_path.is_some() {
+			if output.is_some() {
 				return Err(tg::error!("found multiple root modules"));
 			}
-			root_module_path = Some(module_file_name.parse().unwrap());
+			output = Some(name.parse().unwrap());
 		}
 	}
-	Ok(root_module_path)
+	Ok(output)
 }
 
 pub async fn get_root_module_path_for_path(path: &std::path::Path) -> tg::Result<tg::Path> {
@@ -260,38 +303,37 @@ pub async fn get_root_module_path_for_path(path: &std::path::Path) -> tg::Result
 pub async fn try_get_root_module_path_for_path(
 	path: &std::path::Path,
 ) -> tg::Result<Option<tg::Path>> {
-	let mut root_module_path = None;
-	for module_file_name in ROOT_MODULE_FILE_NAMES {
-		if tokio::fs::try_exists(path.join(module_file_name))
+	let mut output = None;
+	for name in ROOT_MODULE_FILE_NAMES {
+		if tokio::fs::try_exists(path.join(name))
 			.await
 			.map_err(|source| tg::error!(!source, "failed to get the metadata"))?
 		{
-			if root_module_path.is_some() {
+			if output.is_some() {
 				return Err(tg::error!("found multiple root modules"));
 			}
-			root_module_path = Some(module_file_name.parse().unwrap());
+			output = Some(name.parse().unwrap());
 		}
 	}
-	Ok(root_module_path)
+	Ok(output)
 }
 
 #[must_use]
 pub fn is_root_module_path(path: &std::path::Path) -> bool {
-	let Some(last) = path.components().last() else {
+	let Some(name) = path.file_name() else {
 		return false;
 	};
-	let last = last.as_os_str().to_string_lossy();
-	ROOT_MODULE_FILE_NAMES.iter().any(|name| last == *name)
+	let name = name.to_string_lossy();
+	ROOT_MODULE_FILE_NAMES.iter().any(|n| name == *n)
 }
 
 #[must_use]
 pub fn is_module_path(path: &std::path::Path) -> bool {
-	let Some(last) = path.components().last() else {
+	let Some(name) = path.file_name() else {
 		return false;
 	};
-
-	let last = last.as_os_str().to_string_lossy();
-	ROOT_MODULE_FILE_NAMES.iter().any(|name| last == *name)
-		|| last.ends_with(".tg.js")
-		|| last.ends_with(".tg.ts")
+	let name = name.to_string_lossy();
+	ROOT_MODULE_FILE_NAMES.iter().any(|n| name == *n)
+		|| name.ends_with(".tg.js")
+		|| name.ends_with(".tg.ts")
 }

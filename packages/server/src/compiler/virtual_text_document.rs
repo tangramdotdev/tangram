@@ -22,7 +22,7 @@ impl Compiler {
 		params: Params,
 	) -> tg::Result<Option<String>> {
 		// Get the module.
-		let module = self.module_for_uri(&params.text_document.uri).await?;
+		let module = self.module_reference_for_lsp_uri(&params.text_document.uri).await?;
 
 		// Load the file.
 		let text = self.load_module(&module).await?;

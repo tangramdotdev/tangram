@@ -29,7 +29,7 @@ pub struct Tree {
 }
 
 impl Cli {
-	pub async fn command_tree(&self, args: Args) -> tg::Result<()> {
+	pub async fn command_tree(&self, _args: Args) -> tg::Result<()> {
 		todo!()
 	}
 }

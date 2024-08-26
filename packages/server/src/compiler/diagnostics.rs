@@ -55,7 +55,7 @@ impl Compiler {
 			let version = self.get_module_version(module).await?;
 			let diagnostics = diagnostics.iter().cloned().map_into().collect();
 			let params = lsp::PublishDiagnosticsParams {
-				uri: self.uri_for_module(module),
+				uri: self.lsp_uri_for_module_reference(module),
 				diagnostics,
 				version: Some(version),
 			};

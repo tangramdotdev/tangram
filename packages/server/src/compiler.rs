@@ -630,7 +630,10 @@ impl Compiler {
 		}
 	}
 
-	async fn module_for_uri(&self, uri: &lsp::Uri) -> tg::Result<tg::module::Reference> {
+	async fn module_reference_for_lsp_uri(
+		&self,
+		uri: &lsp::Uri,
+	) -> tg::Result<tg::module::Reference> {
 		match uri.scheme().unwrap().as_str() {
 			"file" => {
 				let path = uri.path().as_str().parse::<tg::Path>()?;
@@ -644,8 +647,8 @@ impl Compiler {
 				} else {
 					tg::module::Kind::Artifact
 				};
-				let object = tg::module::Source::Path(path);
-				Ok(tg::module::Reference::with_kind_and_source(kind, object))
+				let source = tg::module::Source::Path(path);
+				Ok(tg::module::Reference::with_kind_and_source(kind, source))
 			},
 
 			_ => uri.as_str().parse(),
@@ -654,7 +657,7 @@ impl Compiler {
 
 	#[allow(clippy::unused_self)]
 	#[must_use]
-	fn uri_for_module(&self, module: &tg::module::Reference) -> lsp::Uri {
+	fn lsp_uri_for_module_reference(&self, module: &tg::module::Reference) -> lsp::Uri {
 		match (module.kind(), module.source()) {
 			(
 				tg::module::Kind::Js
@@ -665,6 +668,7 @@ impl Compiler {
 				| tg::module::Kind::Symlink,
 				tg::module::Source::Path(path),
 			) => format!("file://{path}").parse().unwrap(),
+
 			_ => module.to_string().parse().unwrap(),
 		}
 	}
@@ -672,7 +676,7 @@ impl Compiler {
 
 impl crate::Server {
 	pub async fn format(&self, text: String) -> tg::Result<String> {
-		let compiler = crate::compiler::Compiler::new(self, tokio::runtime::Handle::current());
+		let compiler = Compiler::new(self, tokio::runtime::Handle::current());
 		let text = compiler.format(text).await?;
 		Ok(text)
 	}
@@ -682,7 +686,7 @@ impl crate::Server {
 		input: impl AsyncBufRead + Send + Unpin + 'static,
 		output: impl AsyncWrite + Send + Unpin + 'static,
 	) -> tg::Result<()> {
-		let compiler = crate::compiler::Compiler::new(self, tokio::runtime::Handle::current());
+		let compiler = Compiler::new(self, tokio::runtime::Handle::current());
 		compiler.serve(input, output).await?;
 		Ok(())
 	}

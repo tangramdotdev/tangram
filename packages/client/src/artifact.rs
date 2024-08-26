@@ -56,7 +56,14 @@ pub enum Id {
 }
 
 /// An artifact.
-#[derive(Clone, Debug, derive_more::From, derive_more::TryUnwrap, derive_more::Unwrap)]
+#[derive(
+	Clone,
+	Debug,
+	derive_more::From,
+	derive_more::TryInto,
+	derive_more::TryUnwrap,
+	derive_more::Unwrap,
+)]
 #[try_unwrap(ref)]
 #[unwrap(ref)]
 pub enum Artifact {

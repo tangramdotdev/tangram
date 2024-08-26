@@ -21,6 +21,14 @@ import { start } from "./start.ts";
 import { Symlink, symlink } from "./symlink.ts";
 import { Target, target } from "./target.ts";
 import { Template, template } from "./template.ts";
+import type {
+	MaybeMutation,
+	MaybeMutationMap,
+	MaybeNestedArray,
+	MaybePromise,
+	MutationMap,
+	ValueOrMaybeMutationMap,
+} from "./util.ts";
 import { Value } from "./value.ts";
 
 let archive = Artifact.archive;
@@ -41,14 +49,14 @@ export {
 	File,
 	Graph,
 	Leaf,
+	type MaybeNestedArray,
+	type MaybePromise,
 	Mutation,
 	Object_ as Object,
 	Path,
-	type Resolved,
 	Symlink,
 	Target,
 	Template,
-	type Unresolved,
 	Value,
 	archive,
 	assert,
@@ -74,6 +82,12 @@ export {
 	symlink,
 	target,
 	template,
+	type MaybeMutation,
+	type MaybeMutationMap,
+	type MutationMap,
+	type Resolved,
+	type Unresolved,
+	type ValueOrMaybeMutationMap,
 	unimplemented,
 	unreachable,
 };

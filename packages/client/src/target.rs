@@ -40,7 +40,7 @@ pub struct Object {
 	pub args: tg::value::Array,
 	pub checksum: Option<tg::Checksum>,
 	pub env: tg::value::Map,
-	pub executable: Option<tg::File>,
+	pub executable: Option<tg::Artifact>,
 	pub host: String,
 }
 
@@ -56,7 +56,7 @@ pub struct Data {
 	pub env: tg::value::data::Map,
 
 	#[serde(default, skip_serializing_if = "Option::is_none")]
-	pub executable: Option<tg::file::Id>,
+	pub executable: Option<tg::artifact::Id>,
 
 	pub host: String,
 }
@@ -236,7 +236,7 @@ impl Target {
 	pub async fn executable<H>(
 		&self,
 		handle: &H,
-	) -> tg::Result<impl std::ops::Deref<Target = Option<tg::File>>>
+	) -> tg::Result<impl std::ops::Deref<Target = Option<tg::Artifact>>>
 	where
 		H: tg::Handle,
 	{
@@ -284,7 +284,7 @@ impl TryFrom<Data> for Object {
 			.into_iter()
 			.map(|(key, data)| Ok::<_, tg::Error>((key, data.try_into()?)))
 			.try_collect()?;
-		let executable = data.executable.map(tg::File::with_id);
+		let executable = data.executable.map(tg::Artifact::with_id);
 		let host = data.host;
 		Ok(Self {
 			args,
@@ -320,7 +320,7 @@ pub struct Builder {
 	args: Vec<tg::Value>,
 	checksum: Option<tg::Checksum>,
 	env: BTreeMap<String, tg::Value>,
-	executable: Option<tg::File>,
+	executable: Option<tg::Artifact>,
 	host: String,
 }
 
@@ -355,7 +355,7 @@ impl Builder {
 	}
 
 	#[must_use]
-	pub fn executable(mut self, executable: impl Into<Option<tg::File>>) -> Self {
+	pub fn executable(mut self, executable: impl Into<Option<tg::Artifact>>) -> Self {
 		self.executable = executable.into();
 		self
 	}

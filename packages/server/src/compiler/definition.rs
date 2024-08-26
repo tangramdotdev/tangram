@@ -68,7 +68,7 @@ impl Compiler {
 	) -> tg::Result<Option<lsp::GotoDefinitionResponse>> {
 		// Get the module.
 		let module = self
-			.module_for_uri(&params.text_document_position_params.text_document.uri)
+			.module_reference_for_lsp_uri(&params.text_document_position_params.text_document.uri)
 			.await?;
 
 		// Get the position for the request.
@@ -85,7 +85,7 @@ impl Compiler {
 		let locations = locations
 			.into_iter()
 			.map(|location| lsp::Location {
-				uri: self.uri_for_module(&location.module),
+				uri: self.lsp_uri_for_module_reference(&location.module),
 				range: location.range.into(),
 			})
 			.collect();
@@ -101,7 +101,7 @@ impl Compiler {
 	) -> tg::Result<Option<lsp::GotoDefinitionResponse>> {
 		// Get the module.
 		let module = self
-			.module_for_uri(&params.text_document_position_params.text_document.uri)
+			.module_reference_for_lsp_uri(&params.text_document_position_params.text_document.uri)
 			.await?;
 
 		// Get the position for the request.
@@ -118,7 +118,7 @@ impl Compiler {
 		let locations = locations
 			.into_iter()
 			.map(|location| lsp::Location {
-				uri: self.uri_for_module(&location.module),
+				uri: self.lsp_uri_for_module_reference(&location.module),
 				range: location.range.into(),
 			})
 			.collect();

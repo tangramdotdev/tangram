@@ -304,41 +304,41 @@ declare namespace tg {
 	export namespace Directory {
 		export type Id = string;
 
-		export type Arg = undefined | Directory | ArgObject;
+		export type Arg = undefined | tg.Directory | ArgObject;
 
 		type ArgObject = {
 			[key: string]:
 				| undefined
 				| string
 				| Uint8Array
-				| Blob
-				| Artifact
+				| tg.Blob
+				| tg.Artifact
 				| ArgObject;
 		};
 	}
 
 	/** Create a file. */
-	export let file: (...args: Args<File.Arg>) => Promise<File>;
+	export let file: (...args: tg.Args<tg.File.Arg>) => Promise<tg.File>;
 
 	/** A file. */
 	export class File {
 		/** Get a file with an ID. */
-		static withId(id: File.Id): File;
+		static withId(id: tg.File.Id): tg.File;
 
 		/** Create a file. */
-		static new(...args: Args<File.Arg>): Promise<File>;
+		static new(...args: tg.Args<tg.File.Arg>): Promise<tg.File>;
 
 		/** Expect that a value is a `tg.File`. */
-		static expect(value: unknown): File;
+		static expect(value: unknown): tg.File;
 
 		/** Assert that a value is a `tg.File`. */
-		static assert(value: unknown): asserts value is File;
+		static assert(value: unknown): asserts value is tg.File;
 
 		/** Get this file's ID. */
-		id(): Promise<File.Id>;
+		id(): Promise<tg.File.Id>;
 
 		/** Get this file's contents. */
-		contents(): Promise<Blob>;
+		contents(): Promise<tg.Blob>;
 
 		/** Get the size of this file's contents. */
 		size(): Promise<number>;
@@ -350,7 +350,7 @@ declare namespace tg {
 		text(): Promise<string>;
 
 		/** Get this file's dependencies. */
-		dependencies(): Promise<File.Dependencies>;
+		dependencies(): Promise<tg.File.Dependencies | undefined>;
 
 		/** Get this file's executable bit. */
 		executable(): Promise<boolean>;
@@ -359,45 +359,51 @@ declare namespace tg {
 	export namespace File {
 		export type Id = string;
 
-		export type Arg = undefined | string | Uint8Array | Blob | File | ArgObject;
+		export type Arg =
+			| undefined
+			| string
+			| Uint8Array
+			| tg.Blob
+			| tg.File
+			| ArgObject;
 
 		type ArgObject = {
-			contents?: Blob.Arg | undefined;
+			contents?: tg.Blob.Arg | undefined;
 			dependencies?: Dependencies | undefined;
 			executable?: boolean | undefined;
 		};
 
-		type Dependencies = Array<Object> | { [reference: string]: Object };
+		type Dependencies = Array<tg.Object> | { [reference: string]: tg.Object };
 	}
 
 	/** Create a symlink. */
-	export let symlink: (...args: Args<Symlink.Arg>) => Promise<Symlink>;
+	export let symlink: (...args: tg.Args<tg.Symlink.Arg>) => Promise<tg.Symlink>;
 
 	/** A symlink. */
 	export class Symlink {
 		/** Get a symlink with an ID. */
-		static withId(id: Symlink.Id): Symlink;
+		static withId(id: tg.Symlink.Id): tg.Symlink;
 
 		/** Create a symlink. */
-		static new(...args: Args<Symlink.Arg>): Promise<Symlink>;
+		static new(...args: Args<tg.Symlink.Arg>): Promise<tg.Symlink>;
 
 		/** Expect that a value is a `tg.Symlink`. */
-		static expect(value: unknown): Symlink;
+		static expect(value: unknown): tg.Symlink;
 
 		/** Assert that a value is a `tg.Symlink`. */
-		static assert(value: unknown): asserts value is Symlink;
+		static assert(value: unknown): asserts value is tg.Symlink;
 
 		/** Get this symlink's ID. */
-		id(): Promise<Symlink.Id>;
+		id(): Promise<tg.Symlink.Id>;
 
 		/** Get this symlink's artifact. */
-		artifact(): Promise<Artifact | undefined>;
+		artifact(): Promise<tg.Artifact | undefined>;
 
 		/** Get this symlink's path. */
-		path(): Promise<Path | undefined>;
+		path(): Promise<tg.Path | undefined>;
 
 		/** Resolve this symlink to the directory or file it refers to, or return undefined if none is found. */
-		resolve(): Promise<Directory | File | undefined>;
+		resolve(): Promise<tg.Directory | tg.File | undefined>;
 	}
 
 	export namespace Symlink {
@@ -406,15 +412,15 @@ declare namespace tg {
 		export type Arg =
 			| undefined
 			| string
-			| Path
-			| Artifact
-			| Template
-			| Symlink
+			| tg.Path
+			| tg.Artifact
+			| tg.Template
+			| tg.Symlink
 			| ArgObject;
 
 		type ArgObject = {
-			artifact?: Artifact | undefined;
-			path?: Path | undefined;
+			artifact?: tg.Artifact | undefined;
+			path?: tg.Path | undefined;
 		};
 	}
 
@@ -494,60 +500,61 @@ declare namespace tg {
 
 	/** Create a target. */
 	export function target<
-		A extends Array<Value> = Array<Value>,
-		R extends Value = Value,
-	>(function_: (...args: A) => Unresolved<R>): Target<A, R>;
+		A extends Array<tg.Value> = Array<tg.Value>,
+		R extends tg.Value = tg.Value,
+	>(function_: (...args: A) => tg.Unresolved<R>): tg.Target<A, R>;
 	export function target<
-		A extends Array<Value> = Array<Value>,
-		R extends Value = Value,
-	>(...args: Args<Target.Arg>): Promise<Target<A, R>>;
-
-	/** The currently building target. */
-	export let current: Target;
+		A extends Array<tg.Value> = Array<tg.Value>,
+		R extends tg.Value = tg.Value,
+	>(...args: tg.Args<tg.Target.Arg>): Promise<tg.Target<A, R>>;
 
 	/** A target. */
 	export interface Target<
-		A extends Array<Value> = Array<Value>,
-		R extends Value = Value,
+		A extends Array<tg.Value> = Array<tg.Value>,
+		R extends tg.Value = tg.Value,
 	> {
 		/** Build this target. */
 		// biome-ignore lint/style/useShorthandFunctionType: interface is necessary .
-		(...args: { [K in keyof A]: Unresolved<A[K]> }): Promise<R>;
+		(...args: { [K in keyof A]: tg.Unresolved<A[K]> }): Promise<R>;
 	}
 
 	/** A target. */
 	export class Target<
-		A extends Array<Value> = Array<Value>,
-		R extends Value = Value,
+		A extends Array<tg.Value> = Array<tg.Value>,
+		R extends tg.Value = tg.Value,
 	> extends globalThis.Function {
 		/** Get a target with an ID. */
-		static withId(id: Target.Id): Target;
+		static withId(id: tg.Target.Id): tg.Target;
 
 		/** Create a target. */
-		static new<A extends Array<Value> = Array<Value>, R extends Value = Value>(
-			...args: Args<Target.Arg>
-		): Promise<Target<A, R>>;
+		static new<
+			A extends Array<tg.Value> = Array<tg.Value>,
+			R extends tg.Value = tg.Value,
+		>(...args: tg.Args<tg.Target.Arg>): Promise<tg.Target<A, R>>;
+
+		/** The currently building target. */
+		static get current(): tg.Target;
 
 		/** Expect that a value is a `tg.Target`. */
-		static expect(value: unknown): Target;
+		static expect(value: unknown): tg.Target;
 
 		/** Assert that a value is a `tg.Target`. */
-		static assert(value: unknown): asserts value is Target;
+		static assert(value: unknown): asserts value is tg.Target;
 
 		/** Get this target's ID. */
-		id(): Promise<Target.Id>;
+		id(): Promise<tg.Target.Id>;
 
 		/** Get this target's arguments. */
-		args(): Promise<Array<Value>>;
+		args(): Promise<Array<tg.Value>>;
 
 		/** Get this target's checksum. */
-		checksum(): Promise<Checksum | undefined>;
+		checksum(): Promise<tg.Checksum | undefined>;
 
 		/** Get this target's environment. */
-		env(): Promise<{ [key: string]: Value }>;
+		env(): Promise<{ [key: string]: tg.Value }>;
 
 		/** Get this target's executable. */
-		executable(): Promise<Graph | undefined>;
+		executable(): Promise<tg.Graph | undefined>;
 
 		/** Get this target's host. */
 		host(): Promise<string>;
@@ -562,23 +569,23 @@ declare namespace tg {
 		export type Arg =
 			| undefined
 			| string
-			| Artifact
-			| Template
-			| Target
+			| tg.Artifact
+			| tg.Template
+			| tg.Target
 			| ArgObject;
 
 		type ArgObject = {
 			/** The target's command line arguments. */
-			args?: Array<Value> | undefined;
+			args?: Array<tg.Value> | undefined;
 
 			/** If a checksum of the target's output is provided, then the target will have access to the network. */
-			checksum?: Checksum | undefined;
+			checksum?: tg.Checksum | undefined;
 
 			/** The target's environment variables. */
-			env?: MaybeNestedArray<MaybeMutationMap> | undefined;
+			env?: tg.MaybeNestedArray<tg.MaybeMutationMap> | undefined;
 
 			/** The target's executable. */
-			executable?: File | undefined;
+			executable?: tg.Artifact | undefined;
 
 			/** The system to build the target on. */
 			host?: string | undefined;
@@ -586,34 +593,33 @@ declare namespace tg {
 	}
 
 	/** Create a path. **/
-	export let path: (...args: Array<Path.Arg>) => Path;
+	export let path: (...args: Array<tg.Path.Arg>) => tg.Path;
 
 	/** A path. **/
 	export class Path {
 		/** Create a path. **/
-		// biome-ignore lint/suspicious/noMisleadingInstantiator:
-		static new(...args: Array<MaybeNestedArray<Path.Arg>>): Path;
+		static new(...args: Array<tg.MaybeNestedArray<tg.Path.Arg>>): tg.Path;
 
 		/** Get this path's components. **/
-		components(): Array<Path.Component>;
+		components(): Array<tg.Path.Component>;
 
 		/** Push a component on to this path. **/
-		push(component: Path.Component): void;
+		push(component: tg.Path.Component): void;
 
 		/** Push a parent component on to this path. **/
-		parent(): Path;
+		parent(): tg.Path;
 
 		/** Join this path with another path. **/
-		join(other: Path.Arg): Path;
+		join(other: tg.Path.Arg): tg.Path;
 
 		/** Expect that a value is a `Path`. */
-		static expect(value: unknown): Path;
+		static expect(value: unknown): tg.Path;
 
 		/** Assert that a value is a `Path`. */
-		static assert(value: unknown): asserts value is Path;
+		static assert(value: unknown): asserts value is tg.Path;
 
 		/** Normalize this path. **/
-		normalize(): Path;
+		normalize(): tg.Path;
 
 		/** Return true if this path begins with a current component. **/
 		isInternal(): boolean;
@@ -629,7 +635,7 @@ declare namespace tg {
 	}
 
 	export namespace Path {
-		export type Arg = undefined | Component | Path;
+		export type Arg = undefined | Component | tg.Path;
 
 		/** A path component. **/
 		export type Component =
@@ -658,102 +664,102 @@ declare namespace tg {
 	}
 
 	/** Create a mutation. */
-	export function mutation<T extends Value = Value>(
-		arg: Unresolved<Mutation.Arg<T>>,
-	): Promise<Mutation<T>>;
+	export function mutation<T extends tg.Value = tg.Value>(
+		arg: tg.Unresolved<tg.Mutation.Arg<T>>,
+	): Promise<tg.Mutation<T>>;
 
-	export class Mutation<T extends Value = Value> {
+	export class Mutation<T extends tg.Value = tg.Value> {
 		/** Create a mutation. */
-		static new<T extends Value = Value>(
-			arg: Unresolved<Mutation.Arg<T>>,
-		): Promise<Mutation<T>>;
+		static new<T extends tg.Value = tg.Value>(
+			arg: tg.Unresolved<tg.Mutation.Arg<T>>,
+		): Promise<tg.Mutation<T>>;
 
 		/** Create an unset mutation. */
-		static unset(): Mutation;
+		static unset(): tg.Mutation;
 
 		/** Create a set mutation. */
-		static set<T extends Value = Value>(
-			value: Unresolved<T>,
-		): Promise<Mutation<T>>;
+		static set<T extends tg.Value = tg.Value>(
+			value: tg.Unresolved<T>,
+		): Promise<tg.Mutation<T>>;
 
 		/** Create a set if unset mutation. */
-		static setIfUnset<T extends Value = Value>(
-			value: Unresolved<T>,
-		): Promise<Mutation<T>>;
+		static setIfUnset<T extends tg.Value = tg.Value>(
+			value: tg.Unresolved<T>,
+		): Promise<tg.Mutation<T>>;
 
 		/** Create an prepend mutation. */
-		static prepend<T extends Value = Value>(
-			values: Unresolved<MaybeNestedArray<T>>,
-		): Promise<Mutation<Array<T>>>;
+		static prepend<T extends tg.Value = tg.Value>(
+			values: tg.Unresolved<tg.MaybeNestedArray<T>>,
+		): Promise<tg.Mutation<Array<T>>>;
 
 		/** Create an append mutation. */
-		static append<T extends Value = Value>(
-			values: Unresolved<MaybeNestedArray<T>>,
-		): Promise<Mutation<Array<T>>>;
+		static append<T extends tg.Value = tg.Value>(
+			values: tg.Unresolved<tg.MaybeNestedArray<T>>,
+		): Promise<tg.Mutation<Array<T>>>;
 
 		/** Create a prefix mutation. */
 		static prefix(
-			template: Unresolved<Template.Arg>,
+			template: tg.Unresolved<tg.Template.Arg>,
 			separator?: string | undefined,
-		): Promise<Mutation<Template>>;
+		): Promise<tg.Mutation<tg.Template>>;
 
 		/** Create a suffix mutation. */
 		static suffix(
-			template: Unresolved<Template.Arg>,
+			template: tg.Unresolved<tg.Template.Arg>,
 			separator?: string | undefined,
-		): Promise<Mutation<Template>>;
+		): Promise<tg.Mutation<tg.Template>>;
 
-		static expect(value: unknown): Mutation;
+		static expect(value: unknown): tg.Mutation;
 
-		static assert(value: unknown): asserts value is Mutation;
+		static assert(value: unknown): asserts value is tg.Mutation;
 
-		get inner(): Mutation.Inner;
+		get inner(): tg.Mutation.Inner;
 	}
 
 	export namespace Mutation {
-		export type Arg<T extends Value = Value> =
+		export type Arg<T extends tg.Value = tg.Value> =
 			| { kind: "unset" }
 			| { kind: "set"; value: T }
 			| { kind: "set_if_unset"; value: T }
 			| {
 					kind: "prepend";
-					values: T extends Array<infer U> ? MaybeNestedArray<U> : never;
+					values: T extends Array<infer U> ? tg.MaybeNestedArray<U> : never;
 			  }
 			| {
 					kind: "append";
-					values: T extends Array<infer U> ? MaybeNestedArray<U> : never;
+					values: T extends Array<infer U> ? tg.MaybeNestedArray<U> : never;
 			  }
 			| {
 					kind: "prefix";
-					template: T extends Template ? Template.Arg : never;
+					template: T extends tg.Template ? tg.Template.Arg : never;
 					separator?: string | undefined;
 			  }
 			| {
 					kind: "suffix";
-					template: T extends Template ? Template.Arg : never;
+					template: T extends tg.Template ? tg.Template.Arg : never;
 					separator?: string | undefined;
 			  };
 
 		export type Inner =
 			| { kind: "unset" }
-			| { kind: "set"; value: Value }
-			| { kind: "set_if_unset"; value: Value }
+			| { kind: "set"; value: tg.Value }
+			| { kind: "set_if_unset"; value: tg.Value }
 			| {
 					kind: "prepend";
-					values: Array<Value>;
+					values: Array<tg.Value>;
 			  }
 			| {
 					kind: "append";
-					values: Array<Value>;
+					values: Array<tg.Value>;
 			  }
 			| {
 					kind: "prefix";
-					template: Template;
+					template: tg.Template;
 					separator: string | undefined;
 			  }
 			| {
 					kind: "suffix";
-					template: Template;
+					template: tg.Template;
 					separator: string | undefined;
 			  };
 
@@ -768,43 +774,45 @@ declare namespace tg {
 	}
 
 	/** Create a template. */
-	export let template: (...args: Args<Template.Arg>) => Promise<Template>;
+	export let template: (
+		...args: tg.Args<tg.Template.Arg>
+	) => Promise<tg.Template>;
 
 	/** A template. */
 	export class Template {
-		static new(...args: Args<Template.Arg>): Promise<Template>;
+		static new(...args: tg.Args<tg.Template.Arg>): Promise<tg.Template>;
 
 		/** Expect that a value is a `tg.Template`. */
-		static expect(value: unknown): Template;
+		static expect(value: unknown): tg.Template;
 
 		/** Assert that a value is a `tg.Template`. */
-		static assert(value: unknown): asserts value is Template;
+		static assert(value: unknown): asserts value is tg.Template;
 
 		/** Join an array of templates with a separator. */
 		static join(
-			separator: Template.Arg,
-			...args: Args<Template.Arg>
-		): Promise<Template>;
+			separator: tg.Template.Arg,
+			...args: tg.Args<tg.Template.Arg>
+		): Promise<tg.Template>;
 
 		/** Get this template's components. */
-		get components(): Array<Template.Component>;
+		get components(): Array<tg.Template.Component>;
 	}
 
 	export namespace Template {
-		export type Arg = undefined | Component | Template;
+		export type Arg = undefined | Component | tg.Template;
 
-		export type Component = string | Artifact;
+		export type Component = string | tg.Artifact;
 	}
 
-	type Args<T extends Value = Value> = Array<
-		Unresolved<MaybeNestedArray<ValueOrMaybeMutationMap<T>>>
+	type Args<T extends tg.Value = tg.Value> = Array<
+		tg.Unresolved<tg.MaybeNestedArray<tg.ValueOrMaybeMutationMap<T>>>
 	>;
 
 	/* Compute a checksum. */
 	export let checksum: (
-		input: string | Uint8Array | Blob | Artifact,
-		algorithm: Algorithm,
-	) => Promise<Checksum>;
+		input: string | Uint8Array | tg.Blob | tg.Artifact,
+		algorithm: tg.Checksum.Algorithm,
+	) => Promise<tg.Checksum>;
 
 	/** A checksum. */
 	export type Checksum = string;
@@ -813,9 +821,9 @@ declare namespace tg {
 		export type Algorithm = "blake3" | "sha256" | "sha512" | "unsafe";
 
 		export let new_: (
-			input: string | Uint8Array | Blob | Artifact,
-			algorithm: Algorithm,
-		) => Checksum;
+			input: string | Uint8Array | tg.Blob | tg.Artifact,
+			algorithm: tg.Checksum.Algorithm,
+		) => tg.Checksum;
 		export { new_ as new };
 	}
 
@@ -867,9 +875,9 @@ declare namespace tg {
 	export let log: (...args: Array<unknown>) => void;
 
 	/** Resolve all deeply nested promises in an unresolved value. */
-	export let resolve: <T extends Unresolved<Value>>(
+	export let resolve: <T extends tg.Unresolved<tg.Value>>(
 		value: T,
-	) => Promise<Resolved<T>>;
+	) => Promise<tg.Resolved<T>>;
 
 	/**
 	 * This computed type takes a type `T` and returns the union of all possible types that will return `T` by calling `resolve`. Here are some examples:
@@ -880,22 +888,22 @@ declare namespace tg {
 	 * Unresolved<Array<{ key: string }>> = MaybePromise<Array<MaybePromise<{ key: MaybePromise<string> }>>>
 	 * ```
 	 */
-	export type Unresolved<T extends Value> = MaybePromise<
+	export type Unresolved<T extends tg.Value> = tg.MaybePromise<
 		T extends
 			| undefined
 			| boolean
 			| number
 			| string
-			| Object
+			| tg.Object
 			| Uint8Array
-			| Path
-			| Mutation
-			| Template
+			| tg.Path
+			| tg.Mutation
+			| tg.Template
 			? T
-			: T extends Array<infer U extends Value>
-				? Array<Unresolved<U>>
-				: T extends { [key: string]: Value }
-					? { [K in keyof T]: Unresolved<T[K]> }
+			: T extends Array<infer U extends tg.Value>
+				? Array<tg.Unresolved<U>>
+				: T extends { [key: string]: tg.Value }
+					? { [K in keyof T]: tg.Unresolved<T[K]> }
 					: never
 	>;
 
@@ -911,63 +919,59 @@ declare namespace tg {
 	 * Resolved<Promise<Array<Promise<string>>>> = Array<string>
 	 * ```
 	 */
-	export type Resolved<T extends Unresolved<Value>> = T extends
+	export type Resolved<T extends tg.Unresolved<tg.Value>> = T extends
+		| undefined
+		| boolean
+		| number
+		| string
+		| tg.Object
+		| Uint8Array
+		| tg.Path
+		| tg.Mutation
+		| tg.Template
+		? T
+		: T extends Array<infer U extends tg.Unresolved<tg.Value>>
+			? Array<Resolved<U>>
+			: T extends { [key: string]: tg.Unresolved<tg.Value> }
+				? { [K in keyof T]: tg.Resolved<T[K]> }
+				: T extends Promise<infer U extends tg.Unresolved<tg.Value>>
+					? tg.Resolved<U>
+					: never;
+
+	/** Sleep for the specified duration in seconds. */
+	export let sleep: (duration: number) => Promise<void>;
+
+	type MaybeNestedArray<T> = T | Array<tg.MaybeNestedArray<T>>;
+
+	type MaybePromise<T> = T | Promise<T>;
+
+	type MaybeMutation<T extends Value = Value> = T | tg.Mutation<T>;
+
+	type MutationMap<
+		T extends { [key: string]: tg.Value } = { [key: string]: tg.Value },
+	> = {
+		[K in keyof T]?: tg.Mutation<T[K]>;
+	};
+
+	type MaybeMutationMap<
+		T extends { [key: string]: tg.Value } = { [key: string]: tg.Value },
+	> = {
+		[K in keyof T]?: tg.MaybeMutation<T[K]>;
+	};
+
+	export type ValueOrMaybeMutationMap<T extends tg.Value = tg.Value> = T extends
 		| undefined
 		| boolean
 		| number
 		| string
 		| Object
 		| Uint8Array
-		| Path
-		| Mutation
-		| Template
+		| tg.Path
+		| tg.Mutation
+		| tg.Template
+		| Array<infer _U extends tg.Value>
 		? T
-		: T extends Array<infer U extends Unresolved<Value>>
-			? Array<Resolved<U>>
-			: T extends { [key: string]: Unresolved<Value> }
-				? { [K in keyof T]: Resolved<T[K]> }
-				: T extends Promise<infer U extends Unresolved<Value>>
-					? Resolved<U>
-					: never;
-
-	/** Sleep for the specified duration in seconds. */
-	export let sleep: (duration: number) => Promise<void>;
-
-	type MaybeNestedArray<T> = T | Array<MaybeNestedArray<T>>;
-
-	type MaybePromise<T> = T | Promise<T>;
-
-	type MaybeMutation<T extends Value = Value> = T | Mutation<T>;
-
-	type MutationMap<
-		T extends { [key: string]: Value } = { [key: string]: Value },
-	> = {
-		[K in keyof T]?: Mutation<T[K]>;
-	};
-
-	type MaybeMutationMap<
-		T extends { [key: string]: Value } = { [key: string]: Value },
-	> = {
-		[K in keyof T]?: MaybeMutation<T[K]>;
-	};
-
-	type ValueOrMaybeMutationMap<T extends Value = Value> = T extends
-		| undefined
-		| boolean
-		| number
-		| string
-		| Uint8Array
-		| Blob
-		| Directory
-		| File
-		| Symlink
-		| Graph
-		| Target
-		| Mutation
-		| Template
-		| Array<infer _U extends Value>
-		? T
-		: T extends { [key: string]: Value }
+		: T extends { [key: string]: tg.Value }
 			? MaybeMutationMap<T>
 			: never;
 }

@@ -1,4 +1,4 @@
-use crate::Server;
+use crate::{compiler::Compiler, Server};
 use tangram_client as tg;
 use tangram_http::{incoming::request::Ext as _, outgoing::response::Ext as _, Incoming, Outgoing};
 
@@ -23,13 +23,12 @@ impl Server {
 			return Ok(output);
 		}
 
-		// Create the module.
-		let kind = tg::module::Kind::Ts;
-		let object = tg::module::Source::Object(arg.package.clone().into());
-		let module = tg::module::Reference::with_kind_and_source(kind, object);
+		// Get a reference to the package's root module.
+		let package = tg::Directory::with_id(arg.package.clone());
+		let module = tg::module::Reference::with_package(self, &package).await?;
 
 		// Create the compiler.
-		let compiler = crate::compiler::Compiler::new(self, tokio::runtime::Handle::current());
+		let compiler = Compiler::new(self, tokio::runtime::Handle::current());
 
 		// Document the package.
 		let output = compiler.document(&module).await?;

@@ -1,4 +1,4 @@
-use crate::Server;
+use crate::{compiler::Compiler, Server};
 use std::collections::HashSet;
 use tangram_client as tg;
 use tangram_http::{incoming::request::Ext as _, outgoing::response::Ext as _, Incoming, Outgoing};
@@ -42,7 +42,7 @@ impl Server {
 			.map_err(|source| tg::error!(!source, %path, "failed to write formatted module"))?;
 
 		// Attempt to analyze the module.
-		let Ok(analysis) = crate::compiler::Compiler::analyze_module(text) else {
+		let Ok(analysis) = Compiler::analyze_module(text) else {
 			return Ok(());
 		};
 

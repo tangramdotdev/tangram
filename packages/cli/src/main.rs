@@ -865,19 +865,8 @@ impl Cli {
 			eprintln!("{} {message}", "->".red());
 			if let Some(location) = &error.location {
 				if !location.source.is_internal() || trace.options.internal {
-					let source = match &location.source {
-						tg::error::Source::Internal(path) => {
-							path.components().iter().skip(1).join("/")
-						},
-						tg::error::Source::Module(module) => module.to_string(),
-					};
 					let mut string = String::new();
-					let line = location.line + 1;
-					let column = location.column + 1;
-					write!(string, "{source}:{line}:{column}").unwrap();
-					if let Some(symbol) = &location.symbol {
-						write!(string, " {symbol}").unwrap();
-					}
+					write!(string, "{location}").unwrap();
 					eprintln!("   {}", string.yellow());
 				}
 			}

@@ -129,9 +129,27 @@ impl Cli {
 			// If the object is a target, then use it.
 			target
 		} else {
-			// Otherwise, the object must be a file.
-			let Either::Right(tg::Object::File(executable)) = item else {
-				return Err(tg::error!("expected a file"));
+			// Otherwise, the object must be a directory containing a root module or a file.
+			let executable = match item {
+				Either::Right(tg::Object::Directory(package)) => {
+					let mut executable = None;
+					for name in tg::module::ROOT_MODULE_FILE_NAMES {
+						if package.try_get_entry(&handle, name).await?.is_some() {
+							let artifact = Some(package.clone().into());
+							let path = Some(name.parse().unwrap());
+							executable =
+								Some(tg::Symlink::with_artifact_and_path(artifact, path).into());
+							break;
+						}
+					}
+					executable.ok_or_else(|| {
+						tg::error!("expected the directory to contain a root module")
+					})?
+				},
+				Either::Right(tg::Object::File(executable)) => executable.into(),
+				_ => {
+					return Err(tg::error!("expected a directory or a file"));
+				},
 			};
 
 			// Get the target.
@@ -186,7 +204,7 @@ impl Cli {
 
 			// Create the target.
 			tg::target::Builder::new(host)
-				.executable(executable)
+				.executable(Some(executable))
 				.args(args_)
 				.env(env)
 				.build()

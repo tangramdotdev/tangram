@@ -1,10 +1,9 @@
 import ts from "typescript";
-import type { Module } from "./module.ts";
 import type { Position } from "./position.ts";
 import * as typescript from "./typescript.ts";
 
 export type Request = {
-	module: Module;
+	module: string;
 	position: Position;
 };
 
@@ -15,7 +14,7 @@ export type Response = {
 export let handle = (request: Request): Response => {
 	// Get the source file.
 	let sourceFile = typescript.host.getSourceFile(
-		typescript.fileNameFromModule(request.module),
+		typescript.fileNameFromModuleReference(request.module),
 		ts.ScriptTarget.ESNext,
 	);
 	if (sourceFile === undefined) {
@@ -31,7 +30,7 @@ export let handle = (request: Request): Response => {
 
 	// Get the quick info at the position.
 	let quickInfo = typescript.languageService.getQuickInfoAtPosition(
-		typescript.fileNameFromModule(request.module),
+		typescript.fileNameFromModuleReference(request.module),
 		position,
 	);
 

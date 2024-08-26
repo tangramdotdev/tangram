@@ -2,7 +2,7 @@ use self::{
 	convert::{from_v8, ToV8},
 	syscall::syscall,
 };
-use crate::Server;
+use crate::{compiler::Compiler, Server};
 use futures::{
 	future::{self, LocalBoxFuture},
 	stream::FuturesUnordered,
@@ -34,7 +34,7 @@ struct State {
 	build: tg::Build,
 	futures: RefCell<Futures>,
 	global_source_map: Option<SourceMap>,
-	compiler: crate::compiler::Compiler,
+	compiler: Compiler,
 	log_sender: RefCell<Option<tokio::sync::mpsc::UnboundedSender<String>>>,
 	main_runtime_handle: tokio::runtime::Handle,
 	modules: RefCell<Vec<Module>>,
@@ -151,7 +151,7 @@ impl Runtime {
 			build: build.clone(),
 			futures: RefCell::new(FuturesUnordered::new()),
 			global_source_map: Some(SourceMap::from_slice(SOURCE_MAP).unwrap()),
-			compiler: crate::compiler::Compiler::new(server, main_runtime_handle.clone()),
+			compiler: Compiler::new(server, main_runtime_handle.clone()),
 			log_sender: RefCell::new(Some(log_sender)),
 			main_runtime_handle,
 			modules: RefCell::new(Vec::new()),

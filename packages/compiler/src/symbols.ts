@@ -1,10 +1,9 @@
 import ts from "typescript";
-import type { Module } from "./module.ts";
 import type { Range } from "./range.ts";
 import * as typescript from "./typescript.ts";
 
 export type Request = {
-	module: Module;
+	module: string;
 };
 
 export type Response = {
@@ -52,7 +51,7 @@ export type Tag = "deprecated";
 
 export let handle = (request: Request): Response => {
 	// Get the module's filename and source.
-	let fileName = typescript.fileNameFromModule(request.module);
+	let fileName = typescript.fileNameFromModuleReference(request.module);
 	let sourceFile = typescript.host.getSourceFile(
 		fileName,
 		ts.ScriptTarget.ESNext,

@@ -25,11 +25,20 @@ impl Compiler {
 			},
 
 			(tg::module::Kind::Js | tg::module::Kind::Ts, tg::module::Source::Object(object)) => {
-				let file = object
-					.clone()
-					.try_into()
-					.map_err(|source| tg::error!(!source, "module object must be a file"))?;
-				let file = tg::File::with_id(file);
+				let object = tg::Object::with_id(object.clone());
+				let file = match object {
+					tg::Object::File(file) => file,
+					tg::Object::Symlink(symlink) => symlink
+						.resolve(&self.server)
+						.await?
+						.ok_or_else(|| tg::error!("the symlink is dangling"))?
+						.try_into()
+						.ok()
+						.ok_or_else(|| tg::error!("the symlink must point to a file"))?,
+					_ => {
+						return Err(tg::error!("module object must be a file or symlink"));
+					},
+				};
 				let text = file.text(&self.server).await?;
 				Ok(text)
 			},
@@ -52,33 +61,33 @@ impl Compiler {
 
 			(
 				tg::module::Kind::Object
-				| tg::module::Kind::Artifact
 				| tg::module::Kind::Blob
 				| tg::module::Kind::Leaf
 				| tg::module::Kind::Branch
+				| tg::module::Kind::Artifact
 				| tg::module::Kind::Directory
 				| tg::module::Kind::File
 				| tg::module::Kind::Symlink
 				| tg::module::Kind::Graph
 				| tg::module::Kind::Target,
-				object,
+				source,
 			) => {
 				let class = match module.kind() {
 					tg::module::Kind::Object => "Object",
-					tg::module::Kind::Artifact => "Artifact",
 					tg::module::Kind::Blob => "Blob",
 					tg::module::Kind::Leaf => "Leaf",
 					tg::module::Kind::Branch => "Branch",
+					tg::module::Kind::Artifact => "Artifact",
 					tg::module::Kind::Directory => "Directory",
 					tg::module::Kind::File => "File",
 					tg::module::Kind::Symlink => "Symlink",
-					tg::module::Kind::Graph => "Lock",
+					tg::module::Kind::Graph => "Graph",
 					tg::module::Kind::Target => "Target",
 					_ => unreachable!(),
 				};
-				let object = match object {
-					tg::module::Source::Object(object) => object.to_string(),
+				let object = match source {
 					tg::module::Source::Path(_) => String::new(),
+					tg::module::Source::Object(object) => object.to_string(),
 				};
 				Ok(format!(r#"export default tg.{class}.withId("{object}");"#))
 			},

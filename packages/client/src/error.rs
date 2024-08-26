@@ -194,7 +194,11 @@ impl std::fmt::Display for Source {
 	fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
 		match self {
 			Source::Internal(path) => {
-				write!(f, "{path}")?;
+				let path = path
+					.as_str()
+					.strip_prefix("./")
+					.unwrap_or_else(|| path.as_str());
+				write!(f, "internal:{path}")?;
 			},
 			Source::Module(module) => {
 				write!(f, "{module}")?;

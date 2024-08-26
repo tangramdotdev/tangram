@@ -1,3 +1,4 @@
+use crate::{compiler::Compiler, Server};
 use futures::{
 	stream::{self, FuturesUnordered},
 	TryStreamExt,
@@ -8,8 +9,6 @@ use std::{
 };
 use tangram_client as tg;
 use tangram_either::Either;
-
-use crate::Server;
 
 #[derive(Clone, Debug)]
 pub struct Input {

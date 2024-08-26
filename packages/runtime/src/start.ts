@@ -1,5 +1,5 @@
 import * as tg from "./index.ts";
-import { Module } from "./module.ts";
+import * as module_ from "./module.ts";
 import { setCurrentTarget } from "./target.ts";
 
 export let start = async (target: tg.Target): Promise<tg.Value> => {
@@ -9,41 +9,33 @@ export let start = async (target: tg.Target): Promise<tg.Value> => {
 	// Set the current target.
 	setCurrentTarget(target);
 
-	// Create the module.
+	// Create the module reference for the executable.
 	let executable = await target.executable();
 	if (executable === undefined) {
 		throw new Error("invalid target");
 	}
-	let object = await executable.object();
-	let metadata = object.metadata;
-	if (!("kind" in metadata)) {
-		throw new Error("the kind must be set");
-	}
-	tg.assert(
-		metadata.kind === ("js" as const) || metadata.kind === ("ts" as const),
-		"invalid kind",
-	);
-	let module = {
-		kind: metadata.kind,
-		object: await executable.id(),
-	};
-
-	// Create the URL.
-	let url = Module.toUrl(module);
+	let kind = "js" as const;
+	const source = await executable.id();
+	let module = module_.Reference.print({
+		path: {
+			kind,
+			source,
+		},
+	});
 
 	// Import the module.
-	let namespace = await import(url);
+	let namespace = await import(module);
 
 	// Get the args.
 	let args = await target.args();
 
 	// Get the target name.
 	if (args.length < 1) {
-		throw new Error("the target must have at least one arg");
+		throw new Error("the target must have at least one argument");
 	}
 	let name = args.at(0);
 	if (typeof name !== "string") {
-		throw new Error("the target's first arg must be a string");
+		throw new Error("the target's first argument must be a string");
 	}
 
 	// Get the target.
@@ -52,7 +44,7 @@ export let start = async (target: tg.Target): Promise<tg.Value> => {
 		throw new Error(`failed to find the export named "${name}"`);
 	}
 
-	// Call the function.
+	// Call the function and resolve its output.
 	let output = await tg.resolve(target_.function()!(...args.slice(1)));
 
 	return output;
