@@ -1,1 +1,1 @@
-export default tg.target(() => import("./README.md"));
+export default tg.target(() => "Hello, World!");

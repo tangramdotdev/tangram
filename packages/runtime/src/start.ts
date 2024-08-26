@@ -15,11 +15,12 @@ export let start = async (target: tg.Target): Promise<tg.Value> => {
 		throw new Error("invalid target");
 	}
 	let kind = "js" as const;
-	const source = await executable.id();
+	const object = await executable.id();
 	let module = module_.Reference.print({
 		path: {
 			kind,
-			source,
+			object,
+			path: undefined,
 		},
 	});
 

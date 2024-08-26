@@ -37,10 +37,10 @@ impl Runtime {
 
 impl Server {
 	pub async fn get_js_runtime_doc(&self) -> tg::Result<serde_json::Value> {
-		// Create the module.
+		// Create the module reference.
 		let kind = tg::module::Kind::Dts;
-		let source = tg::module::Source::Path("tangram.d.ts".parse().unwrap());
-		let module = tg::module::Reference::with_kind_and_source(kind, source);
+		let path = "tangram.d.ts".into();
+		let module = tg::module::Reference::new(kind, None, Some(path));
 
 		// Create the compiler.
 		let compiler = Compiler::new(self, tokio::runtime::Handle::current());

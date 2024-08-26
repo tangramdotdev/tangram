@@ -2,7 +2,6 @@ use self::config::Config;
 use clap::{CommandFactory as _, Parser as _};
 use crossterm::{style::Stylize as _, tty::IsTty as _};
 use futures::FutureExt as _;
-use itertools::Itertools as _;
 use num::ToPrimitive as _;
 use std::{collections::BTreeMap, fmt::Write as _, path::PathBuf, sync::Mutex};
 use tangram_client::{self as tg, Client};
@@ -901,16 +900,20 @@ impl Cli {
 		eprintln!("{title}: {}", diagnostic.message);
 		let mut string = String::new();
 		if let Some(location) = &diagnostic.location {
-			match location.module.source() {
-				tg::module::Source::Path(path) => {
+			match location.module.object() {
+				Some(Either::Left(object)) => {
+					write!(string, "{object}").unwrap();
+				},
+				Some(Either::Right(path)) => {
 					write!(string, "{path}").unwrap();
 				},
-				tg::module::Source::Object(object) => {
-					let printed = false;
-					if !printed {
-						write!(string, "{object}").unwrap();
-					}
+				None => {},
+			}
+			match location.module.path() {
+				Some(path) => {
+					write!(string, ":{path}").unwrap();
 				},
+				None => {},
 			}
 			let mut string = if string.is_empty() {
 				"<unknown>".to_owned()

@@ -1,4 +1,5 @@
 use crate as tg;
+use tangram_either::Either;
 use tangram_uri as uri;
 
 /// The possible file names for the root module in a package.
@@ -28,7 +29,8 @@ pub struct Reference {
 )]
 pub struct Path {
 	pub kind: Kind,
-	pub source: Source,
+	pub object: Option<Either<tg::object::Id, tg::Path>>,
+	pub path: Option<tg::Path>,
 }
 
 #[derive(
@@ -59,31 +61,14 @@ pub enum Kind {
 	Target,
 }
 
-#[derive(
-	Clone,
-	Debug,
-	Eq,
-	Hash,
-	Ord,
-	PartialEq,
-	PartialOrd,
-	derive_more::From,
-	derive_more::TryUnwrap,
-	serde_with::DeserializeFromStr,
-	serde_with::SerializeDisplay,
-)]
-#[try_unwrap(ref)]
-pub enum Source {
-	Path(tg::Path),
-	Object(tg::object::Id),
-}
-
 impl Reference {
-	pub fn with_kind_and_source(kind: Kind, source: impl Into<Source>) -> Self {
-		let path = Path {
-			kind,
-			source: source.into(),
-		};
+	#[must_use]
+	pub fn new(
+		kind: Kind,
+		object: Option<Either<tg::object::Id, tg::Path>>,
+		path: Option<tg::Path>,
+	) -> Self {
+		let path = Path { kind, object, path };
 		let json = serde_json::to_string(&path).unwrap();
 		let hex = data_encoding::HEXLOWER.encode(json.as_bytes());
 		let string = format!("tg:{hex}");
@@ -126,12 +111,9 @@ impl Reference {
 		} else {
 			unreachable!()
 		};
-		let artifact = package.clone().into();
+		let object = Either::Left(package.id(handle).await?.into());
 		let path = name.into();
-		let symlink = tg::Symlink::with_artifact_and_path(Some(artifact), Some(path));
-		let symlink = symlink.id(handle).await?.into();
-		let source = tg::module::Source::Object(symlink);
-		let module = tg::module::Reference::with_kind_and_source(kind, source);
+		let module = Self::new(kind, Some(object), Some(path));
 		Ok(Some(module))
 	}
 
@@ -151,8 +133,13 @@ impl Reference {
 	}
 
 	#[must_use]
-	pub fn source(&self) -> &Source {
-		&self.path.source
+	pub fn object(&self) -> &Option<Either<tg::object::Id, tg::Path>> {
+		&self.path.object
+	}
+
+	#[must_use]
+	pub fn path(&self) -> &Option<tg::Path> {
+		&self.path.path
 	}
 }
 
@@ -235,63 +222,6 @@ impl std::str::FromStr for Kind {
 			_ => Err(tg::error!(%kind = s, "invalid kind")),
 		}
 	}
-}
-
-impl std::fmt::Display for Source {
-	fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-		match self {
-			Self::Path(path) => write!(f, "{path}"),
-			Self::Object(object) => write!(f, "{object}"),
-		}
-	}
-}
-
-impl std::str::FromStr for Source {
-	type Err = tg::Error;
-
-	fn from_str(s: &str) -> tg::Result<Self, Self::Err> {
-		if s == "." || s.starts_with("./") || s.starts_with("../") || s.starts_with('/') {
-			let path = s.parse()?;
-			Ok(Self::Path(path))
-		} else {
-			Ok(Self::Object(s.parse()?))
-		}
-	}
-}
-
-pub async fn get_root_module_path<H>(handle: &H, artifact: &tg::Artifact) -> tg::Result<tg::Path>
-where
-	H: tg::Handle,
-{
-	try_get_root_module_path(handle, artifact)
-		.await?
-		.ok_or_else(|| tg::error!("failed to find the package's root module"))
-}
-
-pub async fn try_get_root_module_path<H>(
-	handle: &H,
-	artifact: &tg::Artifact,
-) -> tg::Result<Option<tg::Path>>
-where
-	H: tg::Handle,
-{
-	let Ok(artifact) = artifact.try_unwrap_directory_ref() else {
-		return Ok(None);
-	};
-	let mut output = None;
-	for name in ROOT_MODULE_FILE_NAMES {
-		if artifact
-			.try_get(handle, &name.parse().unwrap())
-			.await?
-			.is_some()
-		{
-			if output.is_some() {
-				return Err(tg::error!("found multiple root modules"));
-			}
-			output = Some(name.parse().unwrap());
-		}
-	}
-	Ok(output)
 }
 
 pub async fn get_root_module_path_for_path(path: &std::path::Path) -> tg::Result<tg::Path> {

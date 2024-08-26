@@ -187,10 +187,10 @@ let getImportAttributesFromImportExpression = (
 /** Convert a module reference to a TypeScript file name. */
 export let fileNameFromModuleReference = (module: string): string => {
 	let {
-		path: { kind, source },
+		path: { kind, path },
 	} = module_.Reference.parse(module);
 	if (kind === "dts") {
-		return `/library/${source.slice(2)}`;
+		return `/library/${path!.slice(2)}`;
 	}
 	let hex = module.slice(3);
 	let extension: string;
@@ -208,7 +208,9 @@ export let fileNameFromModuleReference = (module: string): string => {
 export let moduleReferenceFromFileName = (fileName: string): string => {
 	if (fileName.startsWith("/library/")) {
 		let path = `./${fileName.slice(9)}`;
-		return module_.Reference.print({ path: { kind: "dts", source: path } });
+		return module_.Reference.print({
+			path: { kind: "dts", object: undefined, path },
+		});
 	}
 	let hex = fileName.slice(1, -3);
 	return `tg:${hex}`;

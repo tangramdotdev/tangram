@@ -47,7 +47,7 @@ export function target<
 		let args_ = [arg.name];
 		let checksum = undefined;
 		let executable = tg.Artifact.withId(
-			module_.Reference.parse(arg.module).path.source,
+			module_.Reference.parse(arg.module).path.object!,
 		);
 		const env = currentTarget.state.object!.env;
 		let object = {

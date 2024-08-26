@@ -6,7 +6,8 @@ export type Reference = string;
 
 export type Path = {
 	kind: Kind;
-	source: Source;
+	object: string | undefined;
+	path: string | undefined;
 };
 
 export type Kind =
@@ -23,8 +24,6 @@ export type Kind =
 	| "symlink"
 	| "lock"
 	| "target";
-
-export type Source = string;
 
 export type Parsed = { path: Path };
 

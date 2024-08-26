@@ -11,6 +11,7 @@ use std::{
 	sync::{Arc, Mutex},
 };
 use tangram_client as tg;
+use tangram_either::Either;
 use tangram_futures::task::Stop;
 use tangram_http::{outgoing::response::Ext as _, Incoming, Outgoing};
 use tokio::io::{
@@ -638,17 +639,23 @@ impl Compiler {
 			"file" => {
 				let path = uri.path().as_str().parse::<tg::Path>()?;
 				#[allow(clippy::case_sensitive_file_extension_comparisons)]
-				let kind = if path.as_str().ends_with(".d.ts") {
-					tg::module::Kind::Dts
-				} else if path.as_str().ends_with(".js") {
+				let kind = if path.as_str().ends_with(".js") {
 					tg::module::Kind::Js
 				} else if path.as_str().ends_with(".ts") {
 					tg::module::Kind::Ts
 				} else {
 					tg::module::Kind::Artifact
 				};
-				let source = tg::module::Source::Path(path);
-				Ok(tg::module::Reference::with_kind_and_source(kind, source))
+				let package = tg::module::try_get_root_module_path_for_path(path.as_ref())
+					.await?
+					.map(Either::Right);
+				let path = if let Some(Either::Right(package)) = &package {
+					path.diff(package)
+						.ok_or_else(|| tg::error!("invalid path"))?
+				} else {
+					path
+				};
+				Ok(tg::module::Reference::new(kind, package, Some(path)))
 			},
 
 			_ => uri.as_str().parse(),
@@ -658,7 +665,7 @@ impl Compiler {
 	#[allow(clippy::unused_self)]
 	#[must_use]
 	fn lsp_uri_for_module_reference(&self, module: &tg::module::Reference) -> lsp::Uri {
-		match (module.kind(), module.source()) {
+		match (module.kind(), module.object(), module.path()) {
 			(
 				tg::module::Kind::Js
 				| tg::module::Kind::Ts
@@ -666,8 +673,12 @@ impl Compiler {
 				| tg::module::Kind::Directory
 				| tg::module::Kind::File
 				| tg::module::Kind::Symlink,
-				tg::module::Source::Path(path),
-			) => format!("file://{path}").parse().unwrap(),
+				Some(Either::Right(package)),
+				Some(path),
+			) => {
+				let path = package.clone().join(path.clone());
+				format!("file://{path}").parse().unwrap()
+			},
 
 			_ => module.to_string().parse().unwrap(),
 		}

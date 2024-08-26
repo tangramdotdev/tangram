@@ -1,6 +1,7 @@
 use super::Compiler;
 use lsp_types as lsp;
 use tangram_client as tg;
+use tangram_either::Either;
 
 #[derive(Debug, serde::Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -119,11 +120,14 @@ impl Compiler {
 		document.text = None;
 
 		// Set the document's modified time.
-		let path = module
-			.source()
-			.try_unwrap_path_ref()
-			.ok()
-			.ok_or_else(|| tg::error!("invalid module"))?;
+		let Some(Either::Right(object)) = module.object() else {
+			return Err(tg::error!("invalid module"));
+		};
+		let path = if let Some(path) = module.path() {
+			object.clone().join(path.clone())
+		} else {
+			object.clone()
+		};
 		let metadata = tokio::fs::metadata(&path)
 			.await
 			.map_err(|source| tg::error!(!source, "failed to get the metadata"))?;
@@ -142,7 +146,9 @@ impl Compiler {
 		params: lsp::DidOpenTextDocumentParams,
 	) -> tg::Result<()> {
 		// Get the module.
-		let module = self.module_reference_for_lsp_uri(&params.text_document.uri).await?;
+		let module = self
+			.module_reference_for_lsp_uri(&params.text_document.uri)
+			.await?;
 
 		// Open the document.
 		let version = params.text_document.version;
@@ -160,7 +166,9 @@ impl Compiler {
 		params: lsp::DidChangeTextDocumentParams,
 	) -> tg::Result<()> {
 		// Get the module.
-		let module = self.module_reference_for_lsp_uri(&params.text_document.uri).await?;
+		let module = self
+			.module_reference_for_lsp_uri(&params.text_document.uri)
+			.await?;
 
 		// Apply the changes.
 		for change in params.content_changes {
@@ -184,7 +192,9 @@ impl Compiler {
 		params: lsp::DidCloseTextDocumentParams,
 	) -> tg::Result<()> {
 		// Get the module.
-		let module = self.module_reference_for_lsp_uri(&params.text_document.uri).await?;
+		let module = self
+			.module_reference_for_lsp_uri(&params.text_document.uri)
+			.await?;
 
 		// Close the document.
 		self.close_document(&module).await?;
