@@ -22,9 +22,9 @@ pub struct Input {
 
 pub type Dependency = Option<Either<tg::object::Id, Arc<RwLock<Input>>>>;
 
-#[derive(Default)]
 struct State {
 	roots: Vec<tg::Path>,
+	progress: super::Progress,
 	visited: BTreeMap<tg::Path, Arc<RwLock<Input>>>,
 }
 
@@ -32,8 +32,13 @@ impl Server {
 	pub(super) async fn collect_input(
 		&self,
 		arg: tg::artifact::checkin::Arg,
+		progress: super::Progress,
 	) -> tg::Result<Arc<RwLock<Input>>> {
-		let state = RwLock::new(State::default());
+		let state = RwLock::new(State {
+			roots: Vec::new(),
+			progress,
+			visited: BTreeMap::new(),
+		});
 		self.collect_input_inner(arg, 0, None, false, &state).await
 	}
 
@@ -48,6 +53,12 @@ impl Server {
 		if let Some(visited) = state.read().unwrap().visited.get(&arg.path).cloned() {
 			return Ok(visited);
 		}
+		state
+			.read()
+			.unwrap()
+			.progress
+			.set_info(format!("collecting {}", arg.path));
+		state.read().unwrap().progress.scan_objects(1);
 
 		// Detect if this is a root or not.
 		let is_root = state.read().unwrap().roots.iter().all(|root| {
@@ -156,7 +167,7 @@ impl Server {
 				.await?;
 			input.write().unwrap().dependencies = Some(dependencies);
 		}
-
+		state.read().unwrap().progress.commit_objects(1);
 		Ok(input)
 	}
 

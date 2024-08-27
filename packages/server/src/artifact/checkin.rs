@@ -1,6 +1,6 @@
 use crate::Server;
 use futures::{future::BoxFuture, stream, FutureExt as _, Stream, StreamExt as _};
-use std::sync::{atomic::AtomicU64, Arc};
+use std::sync::{Arc, RwLock};
 use tangram_client as tg;
 use tangram_http::{incoming::request::Ext as _, outgoing::response::Ext as _, Incoming, Outgoing};
 use tokio_stream::wrappers::IntervalStream;
@@ -10,14 +10,48 @@ mod lockfile;
 mod output;
 mod unify;
 
-struct State {
-	count: ProgressState,
-	weight: ProgressState,
+#[derive(Debug)]
+struct Progress {
+	inner: Arc<RwLock<ProgressInner>>,
 }
 
-struct ProgressState {
-	current: AtomicU64,
-	total: Option<AtomicU64>,
+#[derive(Debug)]
+struct ProgressInner {
+	info: String,
+	current_objects: u64,
+	total_objects: u64,
+	current_bytes: u64,
+	total_bytes: u64,
+}
+
+impl Progress {
+	fn scan_objects(&self, count: u64) {
+		self.inner.write().unwrap().total_objects += count;
+	}
+
+	fn commit_objects(&self, count: u64) {
+		self.inner.write().unwrap().current_objects += count;
+	}
+
+	fn scan_bytes(&self, count: u64) {
+		self.inner.write().unwrap().total_bytes += count;
+	}
+
+	fn commit_bytes(&self, count: u64) {
+		self.inner.write().unwrap().current_bytes += count;
+	}
+
+	fn set_info(&self, info: String) {
+		self.inner.write().unwrap().info = info;
+	}
+}
+
+impl Clone for Progress {
+	fn clone(&self) -> Self {
+		Self {
+			inner: self.inner.clone(),
+		}
+	}
 }
 
 impl Server {
@@ -26,24 +60,25 @@ impl Server {
 		arg: tg::artifact::checkin::Arg,
 	) -> tg::Result<impl Stream<Item = tg::Result<tg::artifact::checkin::Event>>> {
 		// Create the state.
-		let count = ProgressState {
-			current: AtomicU64::new(0),
-			total: None,
+		let inner = ProgressInner {
+			info: format!("Checking in {}.", arg.path),
+			current_objects: 0,
+			current_bytes: 0,
+			total_bytes: 0,
+			total_objects: 0,
 		};
-		let weight = ProgressState {
-			current: AtomicU64::new(0),
-			total: None,
+		let progress = Progress {
+			inner: Arc::new(RwLock::new(inner)),
 		};
-		let state = Arc::new(State { count, weight });
 
 		// Spawn the task.
 		let (result_sender, result_receiver) = tokio::sync::oneshot::channel();
 		tokio::spawn({
 			let server = self.clone();
 			let arg = arg.clone();
-			let state = state.clone();
+			let progress = progress.clone();
 			async move {
-				let result = server.check_in_artifact_task(arg, &state).await;
+				let result = server.check_in_artifact_task(arg, progress).await;
 				result_sender.send(result).ok();
 			}
 		});
@@ -54,27 +89,21 @@ impl Server {
 		let result = result_receiver.map(Result::unwrap).shared();
 		let stream = IntervalStream::new(interval)
 			.map(move |_| {
-				let current = state
-					.count
-					.current
-					.load(std::sync::atomic::Ordering::Relaxed);
-				let total = state
-					.count
-					.total
-					.as_ref()
-					.map(|total| total.load(std::sync::atomic::Ordering::Relaxed));
-				let count = tg::Progress { current, total };
-				let current = state
-					.weight
-					.current
-					.load(std::sync::atomic::Ordering::Relaxed);
-				let total = state
-					.weight
-					.total
-					.as_ref()
-					.map(|total| total.load(std::sync::atomic::Ordering::Relaxed));
-				let weight = tg::Progress { current, total };
-				let progress = tg::artifact::checkin::Progress { count, weight };
+				let progress = progress.inner.read().unwrap();
+				let info = progress.info.clone();
+				let objects = tg::Progress {
+					current: progress.current_objects,
+					total: Some(progress.total_objects),
+				};
+				let bytes = tg::Progress {
+					current: progress.current_bytes,
+					total: Some(progress.total_bytes),
+				};
+				let progress = tg::artifact::checkin::Progress {
+					info,
+					objects,
+					bytes,
+				};
 				Ok(tg::artifact::checkin::Event::Progress(progress))
 			})
 			.take_until(result.clone())
@@ -90,7 +119,7 @@ impl Server {
 	async fn check_in_artifact_task(
 		&self,
 		arg: tg::artifact::checkin::Arg,
-		_state: &State,
+		progress: Progress,
 	) -> tg::Result<tg::artifact::Id> {
 		// If this is a checkin of a path in the checkouts directory, then retrieve the corresponding artifact.
 		let checkouts_path = self.checkouts_path().try_into()?;
@@ -118,20 +147,24 @@ impl Server {
 		}
 
 		// Check in the artifact.
-		self.check_in_or_store_artifact_inner(arg.clone(), None)
+		self.check_in_or_store_artifact_inner(arg.clone(), None, progress)
 			.await
 	}
 
 	// Check in the artifact.
-	pub async fn check_in_or_store_artifact_inner(
+	async fn check_in_or_store_artifact_inner(
 		&self,
 		arg: tg::artifact::checkin::Arg,
 		store_as: Option<&tg::artifact::Id>,
+		progress: Progress,
 	) -> tg::Result<tg::artifact::Id> {
 		// Collect the input.
-		let input = self.collect_input(arg.clone()).await.map_err(
-			|source| tg::error!(!source, %path = arg.path, "failed to collect check-in input"),
-		)?;
+		let input = self
+			.collect_input(arg.clone(), progress.clone())
+			.await
+			.map_err(
+				|source| tg::error!(!source, %path = arg.path, "failed to collect check-in input"),
+			)?;
 
 		// Construct the graph for unification.
 		let (mut unification_graph, root) = self
@@ -142,7 +175,7 @@ impl Server {
 		// Unify.
 		if !arg.deterministic {
 			unification_graph = self
-				.unify_dependencies(unification_graph, &root)
+				.unify_dependencies(unification_graph, &root, progress.clone())
 				.await
 				.map_err(|source| tg::error!(!source, "failed to unify object graph"))?;
 		}
@@ -157,7 +190,9 @@ impl Server {
 			.map_err(|source| tg::error!(!source, "failed to create lockfile"))?;
 
 		// Get the output.
-		let output = self.collect_output(input.clone(), &lockfile).await?;
+		let output = self
+			.collect_output(input.clone(), lockfile.clone(), progress.clone())
+			.await?;
 
 		// Get the artifact ID
 		let artifact = output.read().unwrap().data.id()?;
@@ -194,6 +229,18 @@ impl Server {
 	}
 
 	pub(crate) async fn try_store_artifact_inner(&self, id: &tg::artifact::Id) -> tg::Result<bool> {
+		// Create the state.
+		let inner = ProgressInner {
+			info: format!("Storing {id}."),
+			current_objects: 0,
+			current_bytes: 0,
+			total_bytes: 0,
+			total_objects: 0,
+		};
+		let progress = Progress {
+			inner: Arc::new(RwLock::new(inner)),
+		};
+
 		// Check if the artifact exists in the checkouts directory.
 		let permit = self.file_descriptor_semaphore.acquire().await.unwrap();
 		let path = self.checkouts_path().join(id.to_string());
@@ -213,7 +260,7 @@ impl Server {
 			path: path.try_into()?,
 		};
 		let _artifact = self
-			.check_in_or_store_artifact_inner(arg.clone(), Some(id))
+			.check_in_or_store_artifact_inner(arg.clone(), Some(id), progress)
 			.await?;
 		Ok(true)
 	}

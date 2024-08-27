@@ -20,6 +20,9 @@ struct State {
 
 	// A lazily-initialized set of packages to try.
 	objects: Option<im::Vector<(tg::Tag, tg::Object)>>,
+
+	// Progress reporting
+	_progress: super::Progress,
 }
 
 // A graph of packages.
@@ -354,6 +357,7 @@ impl Server {
 		&self,
 		mut graph: Graph,
 		root: &Id,
+		progress: super::Progress,
 	) -> tg::Result<Graph> {
 		// Get the overrides.
 		let mut overrides: BTreeMap<Id, BTreeMap<String, tg::Reference>> = BTreeMap::new();
@@ -383,12 +387,13 @@ impl Server {
 		};
 
 		// Construct the initial state.
-		let packages = None;
+		let objects = None;
 		let mut current = State {
 			graph,
 			edge,
 			queue,
-			objects: packages,
+			objects,
+			_progress: progress,
 		};
 
 		// Create a vec of checkpoints to support backtracking.
