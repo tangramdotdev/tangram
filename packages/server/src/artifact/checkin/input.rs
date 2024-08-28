@@ -57,8 +57,7 @@ impl Server {
 			.read()
 			.unwrap()
 			.progress
-			.set_info(format!("collecting {}", arg.path));
-		state.read().unwrap().progress.scan_objects(1);
+			.reset(format!("collecting {}", arg.path));
 
 		// Detect if this is a root or not.
 		let is_root = state.read().unwrap().roots.iter().all(|root| {
@@ -167,7 +166,6 @@ impl Server {
 				.await?;
 			input.write().unwrap().dependencies = Some(dependencies);
 		}
-		state.read().unwrap().progress.commit_objects(1);
 		Ok(input)
 	}
 

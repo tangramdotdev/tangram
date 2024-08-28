@@ -12,25 +12,12 @@ pub struct Arg {
 	pub targets: bool,
 }
 
-#[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
-pub enum Event {
-	Progress(Progress),
-	End,
-}
-
-#[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
-pub struct Progress {
-	pub build_count: tg::Progress,
-	pub object_count: tg::Progress,
-	pub object_weight: tg::Progress,
-}
-
 impl tg::Build {
 	pub async fn push<H>(
 		&self,
 		handle: &H,
 		arg: tg::build::push::Arg,
-	) -> tg::Result<impl Stream<Item = tg::Result<tg::build::push::Event>> + Send + 'static>
+	) -> tg::Result<impl Stream<Item = tg::Result<tg::Progress<()>>> + Send + 'static>
 	where
 		H: tg::Handle,
 	{
@@ -45,7 +32,7 @@ impl tg::Client {
 		&self,
 		id: &tg::build::Id,
 		arg: tg::build::push::Arg,
-	) -> tg::Result<impl Stream<Item = tg::Result<tg::build::push::Event>> + Send + 'static> {
+	) -> tg::Result<impl Stream<Item = tg::Result<tg::Progress<()>>> + Send + 'static> {
 		let method = http::Method::POST;
 		let uri = format!("/builds/{id}/push");
 		let request = http::request::Builder::default()
@@ -62,11 +49,12 @@ impl tg::Client {
 			let event = result.map_err(|source| tg::error!(!source, "failed to read an event"))?;
 			match event.event.as_deref() {
 				None => {
-					let progress = serde_json::from_str(&event.data)
+					let report = serde_json::from_str(&event.data)
 						.map_err(|source| tg::error!(!source, "failed to deserialize the data"))?;
-					Ok(tg::build::push::Event::Progress(progress))
+					Ok(tg::Progress::Report(report))
 				},
-				Some("end") => Ok(tg::build::push::Event::End),
+				Some("begin") => Ok(tg::Progress::Begin),
+				Some("end") => Ok(tg::Progress::End(())),
 				Some("error") => {
 					let error = serde_json::from_str(&event.data)
 						.map_err(|source| tg::error!(!source, "failed to deserialize the error"))?;

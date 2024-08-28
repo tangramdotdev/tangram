@@ -1,7 +1,6 @@
 use super::input::Input;
 use crate::Server;
 use indoc::formatdoc;
-use num::ToPrimitive;
 use std::{
 	collections::{BTreeMap, BTreeSet},
 	path::PathBuf,
@@ -195,9 +194,6 @@ impl Server {
 			.clone();
 
 		// TODO Get the weight.
-		let bytes = data.serialize()?.len().to_u64().unwrap();
-		state.progress.scan_bytes(bytes);
-		state.progress.commit_bytes(bytes);
 
 		// Create the output
 		let output = Arc::new(RwLock::new(Output {
@@ -231,12 +227,12 @@ impl Server {
 }
 
 impl Server {
-	async fn create_artifact_data(
+	pub async fn create_artifact_data(
 		&self,
 		lockfile: &tg::lockfile::Lockfile,
 		progress: &super::Progress,
 	) -> tg::Result<BTreeMap<usize, tg::artifact::Data>> {
-		progress.set_info("Creating artifact data".into());
+		progress.reset("Creating artifact data".into());
 
 		let mut graphs = Vec::new();
 		let mut indices = BTreeMap::new();
@@ -254,7 +250,6 @@ impl Server {
 
 			// Convert nodes.
 			for lockfile_index in scc {
-				progress.scan_objects(1);
 				match &lockfile.nodes[lockfile_index] {
 					tg::lockfile::Node::Directory { entries } => {
 						let node = self
@@ -293,7 +288,6 @@ impl Server {
 						nodes.push(tg::graph::data::Node::Symlink(node));
 					},
 				}
-				progress.commit_objects(1);
 			}
 
 			// Create the graph.
@@ -389,7 +383,7 @@ impl Server {
 		Ok(artifacts)
 	}
 
-	async fn create_directory_node(
+	pub async fn create_directory_node(
 		&self,
 		entries: BTreeMap<String, tg::lockfile::Entry>,
 		graphs: &[tg::graph::Data],
@@ -399,6 +393,7 @@ impl Server {
 		let mut entries_ = BTreeMap::new();
 		for (name, entry) in entries {
 			let entry = entry.ok_or_else(|| tg::error!("incomplete lockfile"))?;
+			progress.scan_objects(1);
 			let entry = self
 				.resolve_lockfile_dependency(entry, graphs, indices)
 				.await?
@@ -408,12 +403,9 @@ impl Server {
 					tg::object::Id::Symlink(id) => id.into(),
 					_ => unreachable!(),
 				});
-			if entry.is_right() {
-				progress.scan_objects(1);
-				progress.commit_objects(1);
-			}
 			entries_.insert(name, entry);
 		}
+		progress.commit_objects(1);
 		Ok(tg::graph::data::node::Directory { entries: entries_ })
 	}
 
@@ -433,16 +425,13 @@ impl Server {
 				let entry = self
 					.resolve_lockfile_dependency(entry, graphs, indices)
 					.await?;
-				if entry.is_right() {
-					progress.scan_objects(1);
-					progress.commit_objects(1);
-				}
 				dependencies_.insert(reference, entry);
 			}
 			Some(Either::Right(dependencies_))
 		} else {
 			None
 		};
+		progress.commit_objects(1);
 		Ok(tg::graph::data::node::File {
 			contents: contents.ok_or_else(|| tg::error!("incomplete lockfile"))?,
 			dependencies,
@@ -450,13 +439,13 @@ impl Server {
 		})
 	}
 
-	async fn create_symlink_node(
+	pub async fn create_symlink_node(
 		&self,
 		artifact: Option<tg::lockfile::Entry>,
 		path: Option<tg::Path>,
 		graphs: &[tg::graph::Data],
 		indices: &BTreeMap<usize, (usize, usize)>,
-		_progress: &super::Progress,
+		progress: &super::Progress,
 	) -> tg::Result<tg::graph::data::node::Symlink> {
 		let artifact = if let Some(artifact) = artifact {
 			let artifact = artifact.ok_or_else(|| tg::error!("incomplete lockfile"))?;
@@ -473,6 +462,7 @@ impl Server {
 		} else {
 			None
 		};
+		progress.commit_objects(1);
 		Ok(tg::graph::data::node::Symlink { artifact, path })
 	}
 

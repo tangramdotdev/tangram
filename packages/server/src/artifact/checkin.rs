@@ -1,56 +1,39 @@
-use crate::Server;
-use futures::{future::BoxFuture, stream, FutureExt as _, Stream, StreamExt as _};
-use std::sync::{Arc, RwLock};
+use crate::{util, Server};
+use futures::{future::BoxFuture, Stream};
 use tangram_client as tg;
-use tangram_http::{incoming::request::Ext as _, outgoing::response::Ext as _, Incoming, Outgoing};
-use tokio_stream::wrappers::IntervalStream;
-
+use tangram_http::{incoming::request::Ext as _,  Incoming, Outgoing};
 mod input;
 mod lockfile;
 mod output;
 mod unify;
 
-#[derive(Debug)]
-struct Progress {
-	inner: Arc<RwLock<ProgressInner>>,
-}
-
-#[derive(Debug)]
-struct ProgressInner {
-	info: String,
-	current_objects: u64,
-	total_objects: u64,
-	current_bytes: u64,
-	total_bytes: u64,
-}
+#[derive(Debug, Clone)]
+struct Progress(Option<tg::progress::State>);
 
 impl Progress {
 	fn scan_objects(&self, count: u64) {
-		self.inner.write().unwrap().total_objects += count;
+		// self.inner.write().unwrap().total_objects += count;
 	}
 
 	fn commit_objects(&self, count: u64) {
-		self.inner.write().unwrap().current_objects += count;
+		// self.inner.write().unwrap().current_objects += count;
 	}
 
 	fn scan_bytes(&self, count: u64) {
-		self.inner.write().unwrap().total_bytes += count;
+		// self.inner.write().unwrap().total_bytes += count;
 	}
 
 	fn commit_bytes(&self, count: u64) {
-		self.inner.write().unwrap().current_bytes += count;
+		// self.inner.write().unwrap().current_bytes += count;
 	}
 
-	fn set_info(&self, info: String) {
-		self.inner.write().unwrap().info = info;
-	}
-}
-
-impl Clone for Progress {
-	fn clone(&self) -> Self {
-		Self {
-			inner: self.inner.clone(),
-		}
+	fn reset(&self, info: String) {
+		// let mut inner = self.inner.write().unwrap();
+		// inner.info = info;
+		// inner.current_objects = 0;
+		// inner.total_objects = 0;
+		// inner.current_bytes = 0;
+		// inner.total_bytes = 0;
 	}
 }
 
@@ -58,59 +41,16 @@ impl Server {
 	pub async fn check_in_artifact(
 		&self,
 		arg: tg::artifact::checkin::Arg,
-	) -> tg::Result<impl Stream<Item = tg::Result<tg::artifact::checkin::Event>>> {
-		// Create the state.
-		let inner = ProgressInner {
-			info: format!("Checking in {}.", arg.path),
-			current_objects: 0,
-			current_bytes: 0,
-			total_bytes: 0,
-			total_objects: 0,
-		};
-		let progress = Progress {
-			inner: Arc::new(RwLock::new(inner)),
-		};
-
-		// Spawn the task.
-		let (result_sender, result_receiver) = tokio::sync::oneshot::channel();
-		tokio::spawn({
+	) -> tg::Result<impl Stream<Item = tg::Result<tg::Progress<tg::artifact::Id>>>> {
+		let stream = tg::progress::progress_stream({
 			let server = self.clone();
-			let arg = arg.clone();
-			let progress = progress.clone();
-			async move {
-				let result = server.check_in_artifact_task(arg, progress).await;
-				result_sender.send(result).ok();
+			|state| async move {
+				server
+					.clone()
+					.check_in_artifact_task(arg, Progress(Some(state)))
+					.await
 			}
 		});
-
-		// Create the stream.
-		let interval = std::time::Duration::from_millis(100);
-		let interval = tokio::time::interval(interval);
-		let result = result_receiver.map(Result::unwrap).shared();
-		let stream = IntervalStream::new(interval)
-			.map(move |_| {
-				let progress = progress.inner.read().unwrap();
-				let info = progress.info.clone();
-				let objects = tg::Progress {
-					current: progress.current_objects,
-					total: Some(progress.total_objects),
-				};
-				let bytes = tg::Progress {
-					current: progress.current_bytes,
-					total: Some(progress.total_bytes),
-				};
-				let progress = tg::artifact::checkin::Progress {
-					info,
-					objects,
-					bytes,
-				};
-				Ok(tg::artifact::checkin::Event::Progress(progress))
-			})
-			.take_until(result.clone())
-			.chain(stream::once(result.map(|result| match result {
-				Ok(id) => Ok(tg::artifact::checkin::Event::End(id)),
-				Err(error) => Err(error),
-			})));
 
 		Ok(stream)
 	}
@@ -229,18 +169,6 @@ impl Server {
 	}
 
 	pub(crate) async fn try_store_artifact_inner(&self, id: &tg::artifact::Id) -> tg::Result<bool> {
-		// Create the state.
-		let inner = ProgressInner {
-			info: format!("Storing {id}."),
-			current_objects: 0,
-			current_bytes: 0,
-			total_bytes: 0,
-			total_objects: 0,
-		};
-		let progress = Progress {
-			inner: Arc::new(RwLock::new(inner)),
-		};
-
 		// Check if the artifact exists in the checkouts directory.
 		let permit = self.file_descriptor_semaphore.acquire().await.unwrap();
 		let path = self.checkouts_path().join(id.to_string());
@@ -260,7 +188,7 @@ impl Server {
 			path: path.try_into()?,
 		};
 		let _artifact = self
-			.check_in_or_store_artifact_inner(arg.clone(), Some(id), progress)
+			.check_in_or_store_artifact_inner(arg.clone(), Some(id), Progress(None))
 			.await?;
 		Ok(true)
 	}
@@ -276,38 +204,6 @@ impl Server {
 	{
 		let arg = request.json().await?;
 		let stream = handle.check_in_artifact(arg).await?;
-		let sse = stream.map(|result| match result {
-			Ok(tg::artifact::checkin::Event::Progress(progress)) => {
-				let data = serde_json::to_string(&progress).unwrap();
-				let event = tangram_http::sse::Event {
-					data,
-					..Default::default()
-				};
-				Ok::<_, tg::Error>(event)
-			},
-			Ok(tg::artifact::checkin::Event::End(artifact)) => {
-				let event = "end".to_owned();
-				let data = serde_json::to_string(&artifact).unwrap();
-				let event = tangram_http::sse::Event {
-					event: Some(event),
-					data,
-					..Default::default()
-				};
-				Ok::<_, tg::Error>(event)
-			},
-			Err(error) => {
-				let data = serde_json::to_string(&error).unwrap();
-				let event = "error".to_owned();
-				let event = tangram_http::sse::Event {
-					data,
-					event: Some(event),
-					..Default::default()
-				};
-				Ok::<_, tg::Error>(event)
-			},
-		});
-		let body = Outgoing::sse(sse);
-		let response = http::Response::builder().ok().body(body).unwrap();
-		Ok(response)
+		Ok(util::progress::sse(stream))
 	}
 }

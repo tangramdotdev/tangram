@@ -1,13 +1,9 @@
-use crate::Server;
-use futures::{
-	stream::{self, FuturesUnordered},
-	FutureExt as _, Stream, StreamExt as _, TryStreamExt as _,
-};
+use crate::{util, Server};
+use futures::{stream::FuturesUnordered, Stream, TryStreamExt as _};
 use num::ToPrimitive as _;
 use std::sync::{atomic::AtomicU64, Arc};
 use tangram_client::{self as tg, handle::Ext as _};
-use tangram_http::{incoming::request::Ext as _, outgoing::response::Ext as _, Incoming, Outgoing};
-use tokio_stream::wrappers::IntervalStream;
+use tangram_http::{incoming::request::Ext as _, Incoming, Outgoing};
 
 struct State {
 	count: ProgressState,
@@ -29,7 +25,7 @@ impl Server {
 		&self,
 		object: &tg::object::Id,
 		arg: tg::object::push::Arg,
-	) -> tg::Result<impl Stream<Item = tg::Result<tg::object::push::Event>> + Send + 'static> {
+	) -> tg::Result<impl Stream<Item = tg::Result<tg::Progress<()>>> + Send + 'static> {
 		let remote = self
 			.remotes
 			.get(&arg.remote)
@@ -42,7 +38,7 @@ impl Server {
 		src: &impl tg::Handle,
 		dst: &impl tg::Handle,
 		object: &tg::object::Id,
-	) -> tg::Result<impl Stream<Item = tg::Result<tg::object::push::Event>> + Send + 'static> {
+	) -> tg::Result<impl Stream<Item = tg::Result<tg::Progress<()>>> + Send + 'static> {
 		// Get the metadata.
 		let metadata = src.get_object_metadata(object).await?;
 
@@ -57,55 +53,16 @@ impl Server {
 		};
 		let state = Arc::new(State { count, weight });
 
-		// Spawn the task.
-		let (result_sender, result_receiver) = tokio::sync::oneshot::channel();
-		tokio::spawn({
+		let stream = tg::progress::progress_stream({
 			let src = src.clone();
 			let dst = dst.clone();
 			let object = object.clone();
 			let state = state.clone();
-			async move {
-				let result = Self::push_or_pull_object_inner(&src, &dst, &object, &state)
-					.await
-					.map(|_| ());
-				result_sender.send(result).ok();
+			|_state| async move {
+				Self::push_or_pull_object_inner(&src, &dst, &object, &state).await?;
+				Ok(())
 			}
 		});
-
-		// Create the stream.
-		let interval = std::time::Duration::from_millis(100);
-		let interval = tokio::time::interval(interval);
-		let result = result_receiver.map(Result::unwrap).shared();
-		let stream = IntervalStream::new(interval)
-			.map(move |_| {
-				let current = state
-					.count
-					.current
-					.load(std::sync::atomic::Ordering::Relaxed);
-				let total = state
-					.count
-					.total
-					.as_ref()
-					.map(|total| total.load(std::sync::atomic::Ordering::Relaxed));
-				let count = tg::Progress { current, total };
-				let current = state
-					.weight
-					.current
-					.load(std::sync::atomic::Ordering::Relaxed);
-				let total = state
-					.weight
-					.total
-					.as_ref()
-					.map(|total| total.load(std::sync::atomic::Ordering::Relaxed));
-				let weight = tg::Progress { current, total };
-				let progress = tg::object::push::Progress { count, weight };
-				Ok(tg::object::push::Event::Progress(progress))
-			})
-			.take_until(result.clone())
-			.chain(stream::once(result.map(|result| match result {
-				Ok(()) => Ok(tg::object::push::Event::End),
-				Err(error) => Err(error),
-			})));
 
 		Ok(stream)
 	}
@@ -191,36 +148,6 @@ impl Server {
 		let id = id.parse()?;
 		let arg = request.json().await?;
 		let stream = handle.push_object(&id, arg).await?;
-		let sse = stream.map(|result| match result {
-			Ok(tg::object::push::Event::Progress(progress)) => {
-				let data = serde_json::to_string(&progress).unwrap();
-				let event = tangram_http::sse::Event {
-					data,
-					..Default::default()
-				};
-				Ok::<_, tg::Error>(event)
-			},
-			Ok(tg::object::push::Event::End) => {
-				let event = "end".to_owned();
-				let event = tangram_http::sse::Event {
-					event: Some(event),
-					..Default::default()
-				};
-				Ok::<_, tg::Error>(event)
-			},
-			Err(error) => {
-				let data = serde_json::to_string(&error).unwrap();
-				let event = "error".to_owned();
-				let event = tangram_http::sse::Event {
-					data,
-					event: Some(event),
-					..Default::default()
-				};
-				Ok::<_, tg::Error>(event)
-			},
-		});
-		let body = Outgoing::sse(sse);
-		let response = http::Response::builder().ok().body(body).unwrap();
-		Ok(response)
+		Ok(util::progress::sse(stream))
 	}
 }

@@ -22,7 +22,7 @@ struct State {
 	objects: Option<im::Vector<(tg::Tag, tg::Object)>>,
 
 	// Progress reporting
-	_progress: super::Progress,
+	progress: super::Progress,
 }
 
 // A graph of packages.
@@ -393,7 +393,7 @@ impl Server {
 			edge,
 			queue,
 			objects,
-			_progress: progress,
+			progress,
 		};
 
 		// Create a vec of checkpoints to support backtracking.

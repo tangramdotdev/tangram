@@ -1,12 +1,8 @@
-use crate::Server;
-use futures::{
-	stream::{self, FuturesUnordered},
-	FutureExt as _, Stream, StreamExt as _, TryStreamExt,
-};
+use crate::{util, Server};
+use futures::{stream::FuturesUnordered, Stream, StreamExt as _, TryStreamExt};
 use std::sync::{atomic::AtomicU64, Arc};
 use tangram_client::{self as tg, handle::Ext as _};
-use tangram_http::{incoming::request::Ext as _, outgoing::response::Ext as _, Incoming, Outgoing};
-use tokio_stream::wrappers::IntervalStream;
+use tangram_http::{incoming::request::Ext as _, Incoming, Outgoing};
 
 struct State {
 	build_count: ProgressState,
@@ -36,7 +32,7 @@ impl Server {
 		&self,
 		build: &tg::build::Id,
 		arg: tg::build::push::Arg,
-	) -> tg::Result<impl Stream<Item = tg::Result<tg::build::push::Event>> + Send + 'static> {
+	) -> tg::Result<impl Stream<Item = tg::Result<tg::Progress<()>>> + Send + 'static> {
 		let remote = self
 			.remotes
 			.get(&arg.remote)
@@ -50,7 +46,7 @@ impl Server {
 		dst: &impl tg::Handle,
 		build: &tg::build::Id,
 		arg: tg::build::push::Arg,
-	) -> tg::Result<impl Stream<Item = tg::Result<tg::build::push::Event>> + Send + 'static> {
+	) -> tg::Result<impl Stream<Item = tg::Result<tg::Progress<()>>> + Send + 'static> {
 		// Get the build.
 		let output = src.get_build(build).await?;
 
@@ -77,68 +73,16 @@ impl Server {
 		});
 
 		// Spawn the task.
-		let (result_sender, result_receiver) = tokio::sync::oneshot::channel();
-		tokio::spawn({
+		let stream = tg::progress::progress_stream({
 			let src = src.clone();
 			let dst = dst.clone();
 			let build = build.clone();
 			let state = state.clone();
-			async move {
-				let result = Self::push_or_pull_build_inner(&src, &dst, &build, arg, &state)
-					.await
-					.map(|_| ());
-				result_sender.send(result).ok();
+			|_state| async move {
+				Self::push_or_pull_build_inner(&src, &dst, &build, arg, &state).await?;
+				Ok(())
 			}
 		});
-
-		// Create the stream.
-		let interval = std::time::Duration::from_millis(100);
-		let interval = tokio::time::interval(interval);
-		let result = result_receiver.map(Result::unwrap).shared();
-		let stream = IntervalStream::new(interval)
-			.map(move |_| {
-				let current = state
-					.build_count
-					.current
-					.load(std::sync::atomic::Ordering::Relaxed);
-				let total = state
-					.build_count
-					.total
-					.as_ref()
-					.map(|total| total.load(std::sync::atomic::Ordering::Relaxed));
-				let build_count = tg::Progress { current, total };
-				let current = state
-					.object_count
-					.current
-					.load(std::sync::atomic::Ordering::Relaxed);
-				let total = state
-					.object_count
-					.total
-					.as_ref()
-					.map(|total| total.load(std::sync::atomic::Ordering::Relaxed));
-				let object_count = tg::Progress { current, total };
-				let current = state
-					.object_weight
-					.current
-					.load(std::sync::atomic::Ordering::Relaxed);
-				let total = state
-					.object_weight
-					.total
-					.as_ref()
-					.map(|total| total.load(std::sync::atomic::Ordering::Relaxed));
-				let object_weight = tg::Progress { current, total };
-				let progress = tg::build::push::Progress {
-					build_count,
-					object_count,
-					object_weight,
-				};
-				Ok(tg::build::push::Event::Progress(progress))
-			})
-			.take_until(result.clone())
-			.chain(stream::once(result.map(|result| match result {
-				Ok(()) => Ok(tg::build::push::Event::End),
-				Err(error) => Err(error),
-			})));
 
 		Ok(stream)
 	}
@@ -215,18 +159,27 @@ impl Server {
 				let mut stream = Self::push_or_pull_object(src, dst, object).await?.boxed();
 				let mut count = 0;
 				let mut weight = 0;
-				while let Some(tg::object::push::Event::Progress(event)) = stream.try_next().await?
-				{
-					count = event.count.current;
-					weight = event.weight.current;
-					state
-						.object_count
-						.current
-						.store(count, std::sync::atomic::Ordering::Relaxed);
-					state
-						.object_weight
-						.current
-						.store(weight, std::sync::atomic::Ordering::Relaxed);
+				while let Some(event) = stream.try_next().await? {
+					match event {
+						tg::Progress::Begin => continue,
+						tg::Progress::Report(report) => {
+							let Some(tg::progress::Data::Ratio(count_, weight_)) = report.data
+							else {
+								continue;
+							};
+							count += count_;
+							weight += weight_;
+							state
+								.object_count
+								.current
+								.store(count, std::sync::atomic::Ordering::Relaxed);
+							state
+								.object_weight
+								.current
+								.store(weight, std::sync::atomic::Ordering::Relaxed);
+						},
+						tg::Progress::End(()) => break,
+					}
 				}
 				Ok::<_, tg::Error>((count, weight))
 			})
@@ -443,36 +396,6 @@ impl Server {
 		let id = id.parse()?;
 		let arg = request.json().await?;
 		let stream = handle.push_build(&id, arg).await?;
-		let sse = stream.map(|result| match result {
-			Ok(tg::build::push::Event::Progress(progress)) => {
-				let data = serde_json::to_string(&progress).unwrap();
-				let event = tangram_http::sse::Event {
-					data,
-					..Default::default()
-				};
-				Ok::<_, tg::Error>(event)
-			},
-			Ok(tg::build::push::Event::End) => {
-				let event = "end".to_owned();
-				let event = tangram_http::sse::Event {
-					event: Some(event),
-					..Default::default()
-				};
-				Ok::<_, tg::Error>(event)
-			},
-			Err(error) => {
-				let data = serde_json::to_string(&error).unwrap();
-				let event = "error".to_owned();
-				let event = tangram_http::sse::Event {
-					data,
-					event: Some(event),
-					..Default::default()
-				};
-				Ok::<_, tg::Error>(event)
-			},
-		});
-		let body = Outgoing::sse(sse);
-		let response = http::Response::builder().ok().body(body).unwrap();
-		Ok(response)
+		Ok(util::progress::sse(stream))
 	}
 }

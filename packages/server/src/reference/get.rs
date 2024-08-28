@@ -1,5 +1,6 @@
 use crate::Server;
 use futures::TryStreamExt as _;
+use std::pin::pin;
 use tangram_client as tg;
 use tangram_either::Either;
 use tangram_http::{incoming::request::Ext as _, outgoing::response::Ext as _, Incoming, Outgoing};
@@ -29,8 +30,9 @@ impl Server {
 				};
 				let mut stream = self.check_in_artifact(arg).await?;
 				let mut artifact = None;
+				let mut stream = pin!(stream);
 				while let Some(event) = stream.try_next().await? {
-					if let tg::artifact::checkin::Event::End(output) = event {
+					if let tg::Progress::End(output) = event {
 						artifact = Some(output);
 					}
 				}

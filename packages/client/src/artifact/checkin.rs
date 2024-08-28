@@ -18,19 +18,6 @@ pub struct Arg {
 	pub path: tg::Path,
 }
 
-#[derive(Clone, Debug)]
-pub enum Event {
-	Progress(Progress),
-	End(tg::artifact::Id),
-}
-
-#[derive(Clone, Debug, serde::Serialize, serde::Deserialize)]
-pub struct Progress {
-	pub info: String,
-	pub objects: tg::Progress,
-	pub bytes: tg::Progress,
-}
-
 impl tg::Artifact {
 	pub async fn check_in<H>(handle: &H, arg: tg::artifact::checkin::Arg) -> tg::Result<Self>
 	where
@@ -39,7 +26,7 @@ impl tg::Artifact {
 		let stream = handle.check_in_artifact(arg).await?;
 		let mut stream = pin!(stream);
 		while let Some(event) = stream.try_next().await? {
-			if let Event::End(artifact) = event {
+			if let tg::Progress::End(artifact) = event {
 				return Ok(Self::with_id(artifact));
 			}
 		}
@@ -51,7 +38,7 @@ impl tg::Client {
 	pub async fn check_in_artifact(
 		&self,
 		arg: tg::artifact::checkin::Arg,
-	) -> tg::Result<impl Stream<Item = tg::Result<tg::artifact::checkin::Event>>> {
+	) -> tg::Result<impl Stream<Item = tg::Result<tg::Progress<tg::artifact::Id>>>> {
 		let method = http::Method::POST;
 		let uri = "/artifacts/checkin";
 		let request = http::request::Builder::default()
@@ -68,14 +55,15 @@ impl tg::Client {
 			let event = result.map_err(|source| tg::error!(!source, "failed to read an event"))?;
 			match event.event.as_deref() {
 				None => {
-					let progress = serde_json::from_str(&event.data)
+					let report = serde_json::from_str(&event.data)
 						.map_err(|source| tg::error!(!source, "failed to deserialize the data"))?;
-					Ok(tg::artifact::checkin::Event::Progress(progress))
+					Ok(tg::Progress::Report(report))
 				},
+				Some("begin") => Ok(tg::Progress::Begin),
 				Some("end") => {
 					let artifact = serde_json::from_str(&event.data)
 						.map_err(|source| tg::error!(!source, "failed to deserialize the data"))?;
-					Ok(tg::artifact::checkin::Event::End(artifact))
+					Ok(tg::Progress::End(artifact))
 				},
 				Some("error") => {
 					let error = serde_json::from_str(&event.data)

@@ -806,7 +806,7 @@ impl tg::Handle for Server {
 		arg: tg::artifact::checkin::Arg,
 	) -> impl Future<
 		Output = tg::Result<
-			impl Stream<Item = tg::Result<tg::artifact::checkin::Event>> + Send + 'static,
+			impl Stream<Item = tg::Result<tg::Progress<tg::artifact::Id>>> + Send + 'static,
 		>,
 	> {
 		self.check_in_artifact(arg)
@@ -818,7 +818,7 @@ impl tg::Handle for Server {
 		arg: tg::artifact::checkout::Arg,
 	) -> impl Future<
 		Output = tg::Result<
-			impl Stream<Item = tg::Result<tg::artifact::checkout::Event>> + Send + 'static,
+			impl Stream<Item = tg::Result<tg::Progress<tg::Path>>> + Send + 'static,
 		>,
 	> {
 		self.check_out_artifact(id, arg)
@@ -863,9 +863,7 @@ impl tg::Handle for Server {
 		id: &tg::build::Id,
 		arg: tg::build::push::Arg,
 	) -> impl Future<
-		Output = tg::Result<
-			impl Stream<Item = tg::Result<tg::build::push::Event>> + Send + 'static,
-		>,
+		Output = tg::Result<impl Stream<Item = tg::Result<tg::Progress<()>>> + Send + 'static>,
 	> {
 		self.push_build(id, arg)
 	}
@@ -875,9 +873,7 @@ impl tg::Handle for Server {
 		id: &tg::build::Id,
 		arg: tg::build::pull::Arg,
 	) -> impl Future<
-		Output = tg::Result<
-			impl Stream<Item = tg::Result<tg::build::pull::Event>> + Send + 'static,
-		>,
+		Output = tg::Result<impl Stream<Item = tg::Result<tg::Progress<()>>> + Send + 'static>,
 	> {
 		self.pull_build(id, arg)
 	}
@@ -1020,9 +1016,7 @@ impl tg::Handle for Server {
 		id: &tg::object::Id,
 		arg: tg::object::push::Arg,
 	) -> impl Future<
-		Output = tg::Result<
-			impl Stream<Item = tg::Result<tg::object::push::Event>> + Send + 'static,
-		>,
+		Output = tg::Result<impl Stream<Item = tg::Result<tg::Progress<()>>> + Send + 'static>,
 	> {
 		self.push_object(id, arg)
 	}
@@ -1032,9 +1026,7 @@ impl tg::Handle for Server {
 		id: &tg::object::Id,
 		arg: tg::object::pull::Arg,
 	) -> impl Future<
-		Output = tg::Result<
-			impl Stream<Item = tg::Result<tg::object::pull::Event>> + Send + 'static,
-		>,
+		Output = tg::Result<impl Stream<Item = tg::Result<tg::Progress<()>>> + Send + 'static>,
 	> {
 		self.pull_object(id, arg)
 	}

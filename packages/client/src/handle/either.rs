@@ -13,7 +13,7 @@ where
 		arg: tg::artifact::checkin::Arg,
 	) -> impl Future<
 		Output = tg::Result<
-			impl Stream<Item = tg::Result<tg::artifact::checkin::Event>> + Send + 'static,
+			impl Stream<Item = tg::Result<tg::Progress<tg::artifact::Id>>> + Send + 'static,
 		>,
 	> {
 		match self {
@@ -34,7 +34,7 @@ where
 		arg: tg::artifact::checkout::Arg,
 	) -> impl Future<
 		Output = tg::Result<
-			impl Stream<Item = tg::Result<tg::artifact::checkout::Event>> + Send + 'static,
+			impl Stream<Item = tg::Result<tg::Progress<tg::Path>>> + Send + 'static,
 		>,
 	> {
 		match self {
@@ -106,9 +106,7 @@ where
 		id: &tg::build::Id,
 		arg: tg::build::push::Arg,
 	) -> impl Future<
-		Output = tg::Result<
-			impl Stream<Item = tg::Result<tg::build::push::Event>> + Send + 'static,
-		>,
+		Output = tg::Result<impl Stream<Item = tg::Result<tg::Progress<()>>> + Send + 'static>,
 	> {
 		match self {
 			Either::Left(s) => s
@@ -127,9 +125,7 @@ where
 		id: &tg::build::Id,
 		arg: tg::build::pull::Arg,
 	) -> impl Future<
-		Output = tg::Result<
-			impl Stream<Item = tg::Result<tg::build::pull::Event>> + Send + 'static,
-		>,
+		Output = tg::Result<impl Stream<Item = tg::Result<tg::Progress<()>>> + Send + 'static>,
 	> {
 		match self {
 			Either::Left(s) => s
@@ -348,9 +344,7 @@ where
 		id: &tg::object::Id,
 		arg: tg::object::push::Arg,
 	) -> impl Future<
-		Output = tg::Result<
-			impl Stream<Item = tg::Result<tg::object::push::Event>> + Send + 'static,
-		>,
+		Output = tg::Result<impl Stream<Item = tg::Result<tg::Progress<()>>> + Send + 'static>,
 	> + Send {
 		match self {
 			Either::Left(s) => s
@@ -369,9 +363,7 @@ where
 		id: &tg::object::Id,
 		arg: tg::object::pull::Arg,
 	) -> impl Future<
-		Output = tg::Result<
-			impl Stream<Item = tg::Result<tg::object::pull::Event>> + Send + 'static,
-		>,
+		Output = tg::Result<impl Stream<Item = tg::Result<tg::Progress<()>>> + Send + 'static>,
 	> + Send {
 		match self {
 			Either::Left(s) => s

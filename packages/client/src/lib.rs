@@ -29,6 +29,7 @@ pub use self::{
 	object::Handle as Object,
 	path::Path,
 	position::Position,
+	progress::Progress,
 	range::Range,
 	reference::Reference,
 	symlink::Symlink,
@@ -62,6 +63,7 @@ pub mod object;
 pub mod package;
 pub mod path;
 pub mod position;
+pub mod progress;
 pub mod range;
 pub mod reference;
 pub mod remote;
@@ -82,12 +84,6 @@ pub struct Client(Arc<Inner>);
 pub struct Inner {
 	url: Url,
 	sender: tokio::sync::Mutex<Option<hyper::client::conn::http2::SendRequest<Outgoing>>>,
-}
-
-#[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
-pub struct Progress {
-	pub current: u64,
-	pub total: Option<u64>,
 }
 
 impl Client {
@@ -563,7 +559,7 @@ impl tg::Handle for Client {
 		arg: tg::artifact::checkin::Arg,
 	) -> impl Future<
 		Output = tg::Result<
-			impl Stream<Item = tg::Result<tg::artifact::checkin::Event>> + Send + 'static,
+			impl Stream<Item = tg::Result<tg::Progress<tg::artifact::Id>>> + Send + 'static,
 		>,
 	> {
 		self.check_in_artifact(arg)
@@ -575,7 +571,7 @@ impl tg::Handle for Client {
 		arg: tg::artifact::checkout::Arg,
 	) -> impl Future<
 		Output = tg::Result<
-			impl Stream<Item = tg::Result<tg::artifact::checkout::Event>> + 'static,
+			impl Stream<Item = tg::Result<tg::Progress<tg::Path>>> + Send + 'static,
 		>,
 	> {
 		self.check_out_artifact(id, arg)
@@ -620,9 +616,7 @@ impl tg::Handle for Client {
 		id: &tg::build::Id,
 		arg: tg::build::push::Arg,
 	) -> impl Future<
-		Output = tg::Result<
-			impl Stream<Item = tg::Result<tg::build::push::Event>> + Send + 'static,
-		>,
+		Output = tg::Result<impl Stream<Item = tg::Result<tg::Progress<()>>> + Send + 'static>,
 	> {
 		self.push_build(id, arg)
 	}
@@ -632,9 +626,7 @@ impl tg::Handle for Client {
 		id: &tg::build::Id,
 		arg: tg::build::pull::Arg,
 	) -> impl Future<
-		Output = tg::Result<
-			impl Stream<Item = tg::Result<tg::build::pull::Event>> + Send + 'static,
-		>,
+		Output = tg::Result<impl Stream<Item = tg::Result<tg::Progress<()>>> + Send + 'static>,
 	> {
 		self.pull_build(id, arg)
 	}
@@ -775,9 +767,7 @@ impl tg::Handle for Client {
 		id: &tg::object::Id,
 		arg: tg::object::push::Arg,
 	) -> impl Future<
-		Output = tg::Result<
-			impl Stream<Item = tg::Result<tg::object::push::Event>> + Send + 'static,
-		>,
+		Output = tg::Result<impl Stream<Item = tg::Result<tg::Progress<()>>> + Send + 'static>,
 	> {
 		self.push_object(id, arg)
 	}
@@ -787,9 +777,7 @@ impl tg::Handle for Client {
 		id: &tg::object::Id,
 		arg: tg::object::pull::Arg,
 	) -> impl Future<
-		Output = tg::Result<
-			impl Stream<Item = tg::Result<tg::object::pull::Event>> + Send + 'static,
-		>,
+		Output = tg::Result<impl Stream<Item = tg::Result<tg::Progress<()>>> + Send + 'static>,
 	> {
 		self.pull_object(id, arg)
 	}

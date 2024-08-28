@@ -1,5 +1,4 @@
 use crate::Cli;
-use futures::StreamExt as _;
 use std::path::PathBuf;
 use tangram_client::{self as tg, Handle as _};
 
@@ -63,43 +62,13 @@ impl Cli {
 			path,
 			dependencies: true,
 		};
-		let mut stream = handle
+		let stream = handle
 			.check_out_artifact(&args.artifact, arg)
 			.await
-			.map_err(|source| tg::error!(!source, "failed to create check out stream"))?
-			.boxed();
+			.map_err(|source| tg::error!(!source, "failed to create check out stream"))?;
 
-		// Create the progress bar.
-		let objects_progress_bar = indicatif::ProgressBar::new_spinner();
-		let bytes_progress_bar = indicatif::ProgressBar::new_spinner();
-		let progress_bar = indicatif::MultiProgress::new();
-		progress_bar.add(objects_progress_bar.clone());
-		progress_bar.add(bytes_progress_bar.clone());
-
-		while let Some(event) = stream.next().await {
-			match event {
-				Ok(tg::artifact::checkout::Event::Progress(progress)) => {
-					objects_progress_bar.set_position(progress.count.current);
-					if let Some(total) = progress.count.total {
-						objects_progress_bar.set_style(indicatif::ProgressStyle::default_bar());
-						objects_progress_bar.set_length(total);
-					}
-					bytes_progress_bar.set_position(progress.weight.current);
-					if let Some(total) = progress.weight.total {
-						bytes_progress_bar.set_style(indicatif::ProgressStyle::default_bar());
-						bytes_progress_bar.set_length(total);
-					}
-				},
-				Ok(tg::artifact::checkout::Event::End(id)) => {
-					progress_bar.clear().unwrap();
-					println!("{id}");
-				},
-				Err(error) => {
-					progress_bar.clear().unwrap();
-					return Err(error);
-				},
-			}
-		}
+		let path = self.drain_progress_stream(stream).await?;
+		println!("{path}");
 
 		Ok(())
 	}

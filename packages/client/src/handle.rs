@@ -13,7 +13,7 @@ pub trait Handle: Clone + Unpin + Send + Sync + 'static {
 		arg: tg::artifact::checkin::Arg,
 	) -> impl Future<
 		Output = tg::Result<
-			impl Stream<Item = tg::Result<tg::artifact::checkin::Event>> + Send + 'static,
+			impl Stream<Item = tg::Result<tg::Progress<tg::artifact::Id>>> + Send + 'static,
 		>,
 	> + Send;
 
@@ -23,7 +23,7 @@ pub trait Handle: Clone + Unpin + Send + Sync + 'static {
 		arg: tg::artifact::checkout::Arg,
 	) -> impl Future<
 		Output = tg::Result<
-			impl Stream<Item = tg::Result<tg::artifact::checkout::Event>> + Send + 'static,
+			impl Stream<Item = tg::Result<tg::Progress<tg::Path>>> + Send + 'static,
 		>,
 	> + Send;
 
@@ -58,9 +58,7 @@ pub trait Handle: Clone + Unpin + Send + Sync + 'static {
 		id: &tg::build::Id,
 		arg: tg::build::push::Arg,
 	) -> impl Future<
-		Output = tg::Result<
-			impl Stream<Item = tg::Result<tg::build::push::Event>> + Send + 'static,
-		>,
+		Output = tg::Result<impl Stream<Item = tg::Result<tg::Progress<()>>> + Send + 'static>,
 	> + Send;
 
 	fn pull_build(
@@ -68,9 +66,7 @@ pub trait Handle: Clone + Unpin + Send + Sync + 'static {
 		id: &tg::build::Id,
 		arg: tg::build::pull::Arg,
 	) -> impl Future<
-		Output = tg::Result<
-			impl Stream<Item = tg::Result<tg::build::pull::Event>> + Send + 'static,
-		>,
+		Output = tg::Result<impl Stream<Item = tg::Result<tg::Progress<()>>> + Send + 'static>,
 	> + Send;
 
 	fn try_dequeue_build(
@@ -181,9 +177,7 @@ pub trait Handle: Clone + Unpin + Send + Sync + 'static {
 		id: &tg::object::Id,
 		arg: tg::object::push::Arg,
 	) -> impl Future<
-		Output = tg::Result<
-			impl Stream<Item = tg::Result<tg::object::push::Event>> + Send + 'static,
-		>,
+		Output = tg::Result<impl Stream<Item = tg::Result<tg::Progress<()>>> + Send + 'static>,
 	> + Send;
 
 	fn pull_object(
@@ -191,9 +185,7 @@ pub trait Handle: Clone + Unpin + Send + Sync + 'static {
 		id: &tg::object::Id,
 		arg: tg::object::pull::Arg,
 	) -> impl Future<
-		Output = tg::Result<
-			impl Stream<Item = tg::Result<tg::object::pull::Event>> + Send + 'static,
-		>,
+		Output = tg::Result<impl Stream<Item = tg::Result<tg::Progress<()>>> + Send + 'static>,
 	> + Send;
 
 	fn check_package(

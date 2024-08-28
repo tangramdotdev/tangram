@@ -21,6 +21,7 @@ mod get;
 mod lsp;
 mod object;
 mod package;
+mod progress;
 mod pull;
 mod push;
 mod remote;
