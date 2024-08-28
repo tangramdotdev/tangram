@@ -24,7 +24,6 @@ pub type Dependency = Option<Either<tg::object::Id, Arc<RwLock<Input>>>>;
 
 struct State {
 	roots: Vec<tg::Path>,
-	progress: super::Progress,
 	visited: BTreeMap<tg::Path, Arc<RwLock<Input>>>,
 }
 
@@ -32,14 +31,14 @@ impl Server {
 	pub(super) async fn collect_input(
 		&self,
 		arg: tg::artifact::checkin::Arg,
-		progress: super::Progress,
+		progress: &super::ProgressState,
 	) -> tg::Result<Arc<RwLock<Input>>> {
 		let state = RwLock::new(State {
 			roots: Vec::new(),
-			progress,
 			visited: BTreeMap::new(),
 		});
-		self.collect_input_inner(arg, 0, None, false, &state).await
+		self.collect_input_inner(arg, 0, None, false, &state, progress)
+			.await
 	}
 
 	async fn collect_input_inner(
@@ -49,15 +48,11 @@ impl Server {
 		lockfile: Option<(Arc<tg::Lockfile>, tg::Path)>,
 		is_direct_dependency: bool,
 		state: &RwLock<State>,
+		progress: &super::ProgressState,
 	) -> tg::Result<Arc<RwLock<Input>>> {
 		if let Some(visited) = state.read().unwrap().visited.get(&arg.path).cloned() {
 			return Ok(visited);
 		}
-		state
-			.read()
-			.unwrap()
-			.progress
-			.reset(format!("collecting {}", arg.path));
 
 		// Detect if this is a root or not.
 		let is_root = state.read().unwrap().roots.iter().all(|root| {
@@ -157,6 +152,7 @@ impl Server {
 						lockfile.clone(),
 						is_direct_dependency,
 						state,
+						progress,
 					))
 					.await?;
 					Ok::<_, tg::Error>((reference, Some(Either::Right(child))))
@@ -166,6 +162,10 @@ impl Server {
 				.await?;
 			input.write().unwrap().dependencies = Some(dependencies);
 		}
+
+		// Send a new progress report.
+		progress.report_input_progress();
+
 		Ok(input)
 	}
 

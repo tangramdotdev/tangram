@@ -18,9 +18,9 @@ use tangram_futures::task::Task;
 use tangram_http::{incoming::request::Ext as _, Incoming, Outgoing};
 
 struct State {
-	// state: tg::progress::State,
-	count: ProgressState,
-	weight: ProgressState,
+	state: tg::progress::State,
+	objects: ProgressState,
+	bytes: ProgressState,
 }
 
 struct ProgressState {
@@ -38,6 +38,31 @@ struct InnerArg<'a> {
 	state: &'a State,
 }
 
+impl State {
+	fn report_progress(&self) {
+		let current = self.objects.current.load(Ordering::Relaxed);
+		let objects = self
+			.objects
+			.total
+			.as_ref()
+			.map_or(tg::progress::Data::Count(current), |total| {
+				tg::progress::Data::Ratio(current, total.load(Ordering::Relaxed))
+			});
+
+		let current = self.bytes.current.load(Ordering::Relaxed);
+		let bytes = self
+			.bytes
+			.total
+			.as_ref()
+			.map_or(tg::progress::Data::Count(current), |total| {
+				tg::progress::Data::Ratio(current, total.load(Ordering::Relaxed))
+			});
+
+		let data = [("objects", objects), ("bytes", bytes)];
+		self.state.report_progress(data);
+	}
+}
+
 impl Server {
 	pub async fn check_out_artifact(
 		&self,
@@ -47,23 +72,26 @@ impl Server {
 		// Get the metadata.
 		let metadata = self.get_object_metadata(&id.clone().into()).await?;
 
-		// Create the state.
-		let count = ProgressState {
-			current: AtomicU64::new(0),
-			total: metadata.count.map(AtomicU64::new),
-		};
-		let weight = ProgressState {
-			current: AtomicU64::new(0),
-			total: metadata.weight.map(AtomicU64::new),
-		};
-		let state = Arc::new(State { count, weight });
-
 		// Create the stream.
 		let stream = tg::progress::progress_stream({
 			let server = self.clone();
 			let id = id.clone();
-			let state = state.clone();
-			|_state| async move { server.check_out_artifact_task(&id, arg, state).await }
+			let objects = ProgressState {
+				current: AtomicU64::new(0),
+				total: metadata.count.map(AtomicU64::new),
+			};
+			let bytes = ProgressState {
+				current: AtomicU64::new(0),
+				total: metadata.weight.map(AtomicU64::new),
+			};
+			|state| async move {
+				let state = Arc::new(State {
+					state,
+					objects,
+					bytes,
+				});
+				server.check_out_artifact_task(&id, arg, state).await
+			}
 		});
 
 		Ok(stream)
@@ -240,11 +268,12 @@ impl Server {
 				if id == existing_artifact.id(self).await? {
 					let metadata = self.get_object_metadata(&id.clone().into()).await?;
 					if let Some(count) = metadata.count {
-						state.count.current.fetch_add(count, Ordering::Relaxed);
+						state.objects.current.fetch_add(count, Ordering::Relaxed);
 					}
 					if let Some(weight) = metadata.weight {
-						state.weight.current.fetch_add(weight, Ordering::Relaxed);
+						state.bytes.current.fetch_add(weight, Ordering::Relaxed);
 					}
+					state.report_progress();
 					return Ok(());
 				}
 			},
@@ -297,7 +326,8 @@ impl Server {
 		}
 
 		// Update the state.
-		state.count.current.fetch_add(1, Ordering::Relaxed);
+		state.objects.current.fetch_add(1, Ordering::Relaxed);
+		state.report_progress();
 
 		Ok(())
 	}

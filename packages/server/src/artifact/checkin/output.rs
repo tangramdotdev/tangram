@@ -1,10 +1,12 @@
-use super::input::Input;
+use super::{input::Input, ProgressState};
 use crate::Server;
 use indoc::formatdoc;
+use num::ToPrimitive;
 use std::{
 	collections::{BTreeMap, BTreeSet},
+	os::unix::fs::MetadataExt,
 	path::PathBuf,
-	sync::{Arc, RwLock},
+	sync::{atomic::Ordering, Arc, RwLock},
 };
 use tangram_client as tg;
 use tangram_database::{self as db, Connection as _, Database as _, Query as _, Transaction as _};
@@ -24,7 +26,6 @@ struct State {
 	artifacts: BTreeMap<usize, tg::artifact::Data>,
 	visited: BTreeMap<tg::Path, Arc<RwLock<Output>>>,
 	lockfile: tg::Lockfile,
-	progress: super::Progress,
 }
 
 impl Server {
@@ -154,24 +155,24 @@ impl Server {
 		&self,
 		input: Arc<RwLock<Input>>,
 		lockfile: tg::Lockfile,
-		progress: super::Progress,
+		progress: &super::ProgressState,
 	) -> tg::Result<Arc<RwLock<Output>>> {
 		let root = input.read().unwrap().arg.path.clone();
-		let artifacts = self.create_artifact_data(&lockfile, &progress).await?;
+		let artifacts = self.create_artifact_data(&lockfile).await?;
 		let mut state = State {
 			root,
 			artifacts,
 			lockfile,
 			visited: BTreeMap::new(),
-			progress,
 		};
-		self.collect_output_inner(input, &mut state).await
+		self.collect_output_inner(input, &mut state, progress).await
 	}
 
 	async fn collect_output_inner(
 		&self,
 		input: Arc<RwLock<Input>>,
 		state: &mut State,
+		progress: &super::ProgressState,
 	) -> tg::Result<Arc<RwLock<Output>>> {
 		let path = input.read().unwrap().arg.path.clone();
 		let path = path.diff(&state.root).unwrap();
@@ -193,7 +194,13 @@ impl Server {
 			.ok_or_else(|| tg::error!("missing artifact data"))?
 			.clone();
 
-		// TODO Get the weight.
+		// Update the total bytes that will be copied.
+		if input.read().unwrap().metadata.is_file() {
+			let size = input.read().unwrap().metadata.size().to_u64().unwrap();
+			progress
+				.output_bytes_total
+				.fetch_add(size, Ordering::Relaxed);
+		}
 
 		// Create the output
 		let output = Arc::new(RwLock::new(Output {
@@ -217,7 +224,7 @@ impl Server {
 			})
 			.collect::<Vec<_>>();
 		for (reference, input) in input_dependencies {
-			let output = Box::pin(self.collect_output_inner(input, state)).await?;
+			let output = Box::pin(self.collect_output_inner(input, state, progress)).await?;
 			output_dependencies.insert(reference, output);
 		}
 
@@ -230,10 +237,7 @@ impl Server {
 	pub async fn create_artifact_data(
 		&self,
 		lockfile: &tg::lockfile::Lockfile,
-		progress: &super::Progress,
 	) -> tg::Result<BTreeMap<usize, tg::artifact::Data>> {
-		progress.reset("Creating artifact data".into());
-
 		let mut graphs = Vec::new();
 		let mut indices = BTreeMap::new();
 
@@ -253,7 +257,7 @@ impl Server {
 				match &lockfile.nodes[lockfile_index] {
 					tg::lockfile::Node::Directory { entries } => {
 						let node = self
-							.create_directory_node(entries.clone(), &graphs, &indices, &progress)
+							.create_directory_node(entries.clone(), &graphs, &indices)
 							.await?;
 						nodes.push(tg::graph::data::Node::Directory(node));
 					},
@@ -270,20 +274,13 @@ impl Server {
 								*executable,
 								&graphs,
 								&indices,
-								&progress,
 							)
 							.await?;
 						nodes.push(tg::graph::data::Node::File(node));
 					},
 					tg::lockfile::Node::Symlink { artifact, path } => {
 						let node = self
-							.create_symlink_node(
-								artifact.clone(),
-								path.clone(),
-								&graphs,
-								&indices,
-								&progress,
-							)
+							.create_symlink_node(artifact.clone(), path.clone(), &graphs, &indices)
 							.await?;
 						nodes.push(tg::graph::data::Node::Symlink(node));
 					},
@@ -392,12 +389,10 @@ impl Server {
 		entries: BTreeMap<String, tg::lockfile::Entry>,
 		graphs: &[tg::graph::Data],
 		indices: &BTreeMap<usize, (usize, usize)>,
-		progress: &super::Progress,
 	) -> tg::Result<tg::graph::data::node::Directory> {
 		let mut entries_ = BTreeMap::new();
 		for (name, entry) in entries {
 			let entry = entry.ok_or_else(|| tg::error!("incomplete lockfile"))?;
-			progress.scan_objects(1);
 			let entry = self
 				.resolve_lockfile_dependency(entry, graphs, indices)
 				.await?
@@ -409,7 +404,6 @@ impl Server {
 				});
 			entries_.insert(name, entry);
 		}
-		progress.commit_objects(1);
 		Ok(tg::graph::data::node::Directory { entries: entries_ })
 	}
 
@@ -420,7 +414,6 @@ impl Server {
 		executable: bool,
 		graphs: &[tg::graph::Data],
 		indices: &BTreeMap<usize, (usize, usize)>,
-		progress: &super::Progress,
 	) -> tg::Result<tg::graph::data::node::File> {
 		let dependencies = if let Some(dependencies) = dependencies {
 			let mut dependencies_ = BTreeMap::new();
@@ -435,7 +428,6 @@ impl Server {
 		} else {
 			None
 		};
-		progress.commit_objects(1);
 		Ok(tg::graph::data::node::File {
 			contents: contents.ok_or_else(|| tg::error!("incomplete lockfile"))?,
 			dependencies,
@@ -449,7 +441,6 @@ impl Server {
 		path: Option<tg::Path>,
 		graphs: &[tg::graph::Data],
 		indices: &BTreeMap<usize, (usize, usize)>,
-		progress: &super::Progress,
 	) -> tg::Result<tg::graph::data::node::Symlink> {
 		let artifact = if let Some(artifact) = artifact {
 			let artifact = artifact.ok_or_else(|| tg::error!("incomplete lockfile"))?;
@@ -466,7 +457,6 @@ impl Server {
 		} else {
 			None
 		};
-		progress.commit_objects(1);
 		Ok(tg::graph::data::node::Symlink { artifact, path })
 	}
 
@@ -739,6 +729,7 @@ impl Server {
 		&self,
 		input: Arc<RwLock<Input>>,
 		output: Arc<RwLock<Output>>,
+		progress: &super::ProgressState,
 	) -> tg::Result<()> {
 		let mut visited = BTreeSet::new();
 		let mut stack = vec![(input, output)];
@@ -753,9 +744,16 @@ impl Server {
 					.checkouts_path()
 					.join(artifact.to_string())
 					.try_into()?;
-				self.copy_or_move_to_checkouts_directory_inner(dest, input.clone(), &mut visited)
-					.await?;
+				self.copy_or_move_to_checkouts_directory_inner(
+					dest,
+					input.clone(),
+					&mut visited,
+					progress,
+				)
+				.await?;
 			}
+
+			// Recurse.
 			let input = input.read().unwrap();
 			let output = output.read().unwrap();
 			let children = input
@@ -776,6 +774,7 @@ impl Server {
 		dest: tg::Path,
 		input: Arc<RwLock<Input>>,
 		visited: &mut BTreeSet<tg::Path>,
+		progress: &ProgressState,
 	) -> tg::Result<()> {
 		let input = input.read().unwrap().clone();
 		if visited.contains(&input.arg.path) {
@@ -803,8 +802,10 @@ impl Server {
 					.diff(&input.arg.path)
 					.unwrap();
 				let dest = dest.clone().join(diff).normalize();
-				Box::pin(self.copy_or_move_to_checkouts_directory_inner(dest, child, visited))
-					.await?;
+				Box::pin(
+					self.copy_or_move_to_checkouts_directory_inner(dest, child, visited, progress),
+				)
+				.await?;
 			}
 		} else if input.metadata.is_symlink() {
 			let target = tokio::fs::read_link(&input.arg.path)
@@ -831,6 +832,11 @@ impl Server {
 			)?;
 		} else {
 			return Err(tg::error!(%path = input.arg.path, "invalid file type"));
+		}
+
+		// Send a new progress report.
+		if input.metadata.is_file() {
+			progress.report_output_progress(input.metadata.size().to_u64().unwrap());
 		}
 		Ok(())
 	}

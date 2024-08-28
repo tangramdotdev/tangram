@@ -20,9 +20,6 @@ struct State {
 
 	// A lazily-initialized set of packages to try.
 	objects: Option<im::Vector<(tg::Tag, tg::Object)>>,
-
-	// Progress reporting
-	progress: super::Progress,
 }
 
 // A graph of packages.
@@ -357,7 +354,7 @@ impl Server {
 		&self,
 		mut graph: Graph,
 		root: &Id,
-		progress: super::Progress,
+		progress: &super::ProgressState,
 	) -> tg::Result<Graph> {
 		// Get the overrides.
 		let mut overrides: BTreeMap<Id, BTreeMap<String, tg::Reference>> = BTreeMap::new();
@@ -393,7 +390,6 @@ impl Server {
 			edge,
 			queue,
 			objects,
-			progress,
 		};
 
 		// Create a vec of checkpoints to support backtracking.
@@ -401,7 +397,7 @@ impl Server {
 
 		// Walk the graph until we have no more edges to solve.
 		loop {
-			self.walk_edge(&mut checkpoints, &mut current, &overrides)
+			self.walk_edge(&mut checkpoints, &mut current, &overrides, progress)
 				.await;
 
 			// Changing this to pop_back() would convert the algorithm from breadth-first to depth-first. The algorithm should be correct regardless of traversel order. However, using BFS to walk the graph allows us to propogate constraints when backtracking to shrink the search sapce.
@@ -421,6 +417,7 @@ impl Server {
 		state: &mut Vec<State>,
 		current: &mut State,
 		overrides: &BTreeMap<Id, BTreeMap<String, tg::Reference>>,
+		progress: &super::ProgressState,
 	) {
 		// Check if an override exists.
 		let reference = overrides
@@ -473,6 +470,9 @@ impl Server {
 				tg::error!("could not solve {reference} because the dependency contains errors");
 			current.graph.add_error(&current.edge.src, error);
 		}
+
+		// Send a progress report.
+		progress.report_dependency_progress();
 
 		// If there is no tag it is not a tag dependency, so return.
 		if current.edge.dst.is_right() {

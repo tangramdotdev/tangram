@@ -1,11 +1,15 @@
 use crate::{util, Server};
 use futures::{stream::FuturesUnordered, Stream, TryStreamExt as _};
 use num::ToPrimitive as _;
-use std::sync::{atomic::AtomicU64, Arc};
+use std::sync::{
+	atomic::{AtomicU64, Ordering},
+	Arc,
+};
 use tangram_client::{self as tg, handle::Ext as _};
 use tangram_http::{incoming::request::Ext as _, Incoming, Outgoing};
 
 struct State {
+	state: tg::progress::State,
 	count: ProgressState,
 	weight: ProgressState,
 }
@@ -18,6 +22,31 @@ struct ProgressState {
 struct InnerOutput {
 	count: u64,
 	weight: u64,
+}
+
+impl State {
+	pub fn report_progress(&self) {
+		let current = self.count.current.load(Ordering::Relaxed);
+		let objects = self
+			.count
+			.total
+			.as_ref()
+			.map_or(tg::progress::Data::Count(current), |total| {
+				tg::progress::Data::Ratio(current, total.load(Ordering::Relaxed))
+			});
+
+		let current = self.weight.current.load(Ordering::Relaxed);
+		let bytes = self
+			.weight
+			.total
+			.as_ref()
+			.map_or(tg::progress::Data::Count(current), |total| {
+				tg::progress::Data::Ratio(current, total.load(Ordering::Relaxed))
+			});
+
+		self.state
+			.report_progress([("objects", objects), ("bytes", bytes)]);
+	}
 }
 
 impl Server {
@@ -42,23 +71,24 @@ impl Server {
 		// Get the metadata.
 		let metadata = src.get_object_metadata(object).await?;
 
-		// Create the state.
-		let count = ProgressState {
-			current: AtomicU64::new(0),
-			total: metadata.count.map(AtomicU64::new),
-		};
-		let weight = ProgressState {
-			current: AtomicU64::new(0),
-			total: metadata.weight.map(AtomicU64::new),
-		};
-		let state = Arc::new(State { count, weight });
-
 		let stream = tg::progress::progress_stream({
 			let src = src.clone();
 			let dst = dst.clone();
 			let object = object.clone();
-			let state = state.clone();
-			|_state| async move {
+			let count = ProgressState {
+				current: AtomicU64::new(0),
+				total: metadata.count.map(AtomicU64::new),
+			};
+			let weight = ProgressState {
+				current: AtomicU64::new(0),
+				total: metadata.weight.map(AtomicU64::new),
+			};
+			|state| async move {
+				let state = Arc::new(State {
+					state,
+					count,
+					weight,
+				});
 				Self::push_or_pull_object_inner(&src, &dst, &object, &state).await?;
 				Ok(())
 			}
@@ -131,6 +161,9 @@ impl Server {
 		// Compute the count and weight from this call.
 		let count = metadata.count.unwrap_or_else(|| 1 + incomplete_count);
 		let weight = metadata.weight.unwrap_or_else(|| size + incomplete_weight);
+
+		// Send a new progress report.
+		state.report_progress();
 
 		Ok(InnerOutput { count, weight })
 	}

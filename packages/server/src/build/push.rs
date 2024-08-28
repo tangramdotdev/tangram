@@ -1,10 +1,14 @@
 use crate::{util, Server};
 use futures::{stream::FuturesUnordered, Stream, StreamExt as _, TryStreamExt};
-use std::sync::{atomic::AtomicU64, Arc};
+use std::sync::{
+	atomic::{AtomicU64, Ordering},
+	Arc,
+};
 use tangram_client::{self as tg, handle::Ext as _};
 use tangram_http::{incoming::request::Ext as _, Incoming, Outgoing};
 
 struct State {
+	state: tg::progress::State,
 	build_count: ProgressState,
 	object_count: ProgressState,
 	object_weight: ProgressState,
@@ -25,6 +29,40 @@ struct Metadata {
 	build_count: Option<u64>,
 	object_count: Option<u64>,
 	object_weight: Option<u64>,
+}
+
+impl State {
+	fn report_progress(&self) {
+		let current = self.build_count.current.load(Ordering::Relaxed);
+		let builds = self
+			.build_count
+			.total
+			.as_ref()
+			.map_or(tg::progress::Data::Count(current), |total| {
+				tg::progress::Data::Ratio(current, total.load(Ordering::Relaxed))
+			});
+
+		let current = self.object_count.current.load(Ordering::Relaxed);
+		let objects = self
+			.object_count
+			.total
+			.as_ref()
+			.map_or(tg::progress::Data::Count(current), |total| {
+				tg::progress::Data::Ratio(current, total.load(Ordering::Relaxed))
+			});
+
+		let current = self.object_weight.current.load(Ordering::Relaxed);
+		let bytes = self
+			.object_weight
+			.total
+			.as_ref()
+			.map_or(tg::progress::Data::Count(current), |total| {
+				tg::progress::Data::Ratio(current, total.load(Ordering::Relaxed))
+			});
+
+		self.state
+			.report_progress([("builds", builds), ("objects", objects), ("bytes", bytes)]);
+	}
 }
 
 impl Server {
@@ -53,32 +91,32 @@ impl Server {
 		// Get the metadata.
 		let metadata = Self::get_build_metadata(src, &output, &arg).await?;
 
-		// Create the state.
-		let build_count_progress_state = ProgressState {
-			current: AtomicU64::new(0),
-			total: metadata.build_count.map(AtomicU64::new),
-		};
-		let object_count_progress_state = ProgressState {
-			current: AtomicU64::new(0),
-			total: metadata.object_count.map(AtomicU64::new),
-		};
-		let object_weight_progress_state = ProgressState {
-			current: AtomicU64::new(0),
-			total: metadata.object_weight.map(AtomicU64::new),
-		};
-		let state = Arc::new(State {
-			build_count: build_count_progress_state,
-			object_count: object_count_progress_state,
-			object_weight: object_weight_progress_state,
-		});
-
 		// Spawn the task.
 		let stream = tg::progress::progress_stream({
 			let src = src.clone();
 			let dst = dst.clone();
 			let build = build.clone();
-			let state = state.clone();
-			|_state| async move {
+			let build_count_progress_state = ProgressState {
+				current: AtomicU64::new(0),
+				total: metadata.build_count.map(AtomicU64::new),
+			};
+			let object_count_progress_state = ProgressState {
+				current: AtomicU64::new(0),
+				total: metadata.object_count.map(AtomicU64::new),
+			};
+			let object_weight_progress_state = ProgressState {
+				current: AtomicU64::new(0),
+				total: metadata.object_weight.map(AtomicU64::new),
+			};
+			|state| async move {
+				// Create the state.
+				let state = Arc::new(State {
+					state,
+					build_count: build_count_progress_state,
+					object_count: object_count_progress_state,
+					object_weight: object_weight_progress_state,
+				});
+
 				Self::push_or_pull_build_inner(&src, &dst, &build, arg, &state).await?;
 				Ok(())
 			}
@@ -163,20 +201,31 @@ impl Server {
 					match event {
 						tg::Progress::Begin => continue,
 						tg::Progress::Report(report) => {
-							let Some(tg::progress::Data::Ratio(count_, weight_)) = report.data
-							else {
-								continue;
-							};
-							count += count_;
-							weight += weight_;
-							state
-								.object_count
-								.current
-								.store(count, std::sync::atomic::Ordering::Relaxed);
-							state
-								.object_weight
-								.current
-								.store(weight, std::sync::atomic::Ordering::Relaxed);
+							if let Some(count_) = report.get("objects") {
+								let current = match count_ {
+									tg::progress::Data::Count(count) => count,
+									tg::progress::Data::Ratio(count, _) => count,
+								};
+								count += current;
+								state
+									.object_count
+									.current
+									.store(count, std::sync::atomic::Ordering::Relaxed);
+							}
+							if let Some(weight_) = report.get("bytes") {
+								let current = match weight_ {
+									tg::progress::Data::Count(count) => count,
+									tg::progress::Data::Ratio(count, _) => count,
+								};
+								weight += current;
+								state
+									.object_weight
+									.current
+									.store(weight, std::sync::atomic::Ordering::Relaxed);
+							}
+
+							// Send a new progress report.
+							state.report_progress();
 						},
 						tg::Progress::End(()) => break,
 					}
@@ -194,6 +243,9 @@ impl Server {
 			.iter()
 			.map(|(_, weight)| weight)
 			.sum::<u64>();
+
+		// Send a new progress report.
+		state.report_progress();
 
 		// Handle the incomplete children.
 		let InnerOutput {

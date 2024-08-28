@@ -1,40 +1,20 @@
+use std::sync::atomic::{AtomicU64, Ordering};
+
 use crate::{util, Server};
 use futures::{future::BoxFuture, Stream};
 use tangram_client as tg;
-use tangram_http::{incoming::request::Ext as _,  Incoming, Outgoing};
+use tangram_http::{incoming::request::Ext as _, Incoming, Outgoing};
 mod input;
 mod lockfile;
 mod output;
 mod unify;
 
-#[derive(Debug, Clone)]
-struct Progress(Option<tg::progress::State>);
-
-impl Progress {
-	fn scan_objects(&self, count: u64) {
-		// self.inner.write().unwrap().total_objects += count;
-	}
-
-	fn commit_objects(&self, count: u64) {
-		// self.inner.write().unwrap().current_objects += count;
-	}
-
-	fn scan_bytes(&self, count: u64) {
-		// self.inner.write().unwrap().total_bytes += count;
-	}
-
-	fn commit_bytes(&self, count: u64) {
-		// self.inner.write().unwrap().current_bytes += count;
-	}
-
-	fn reset(&self, info: String) {
-		// let mut inner = self.inner.write().unwrap();
-		// inner.info = info;
-		// inner.current_objects = 0;
-		// inner.total_objects = 0;
-		// inner.current_bytes = 0;
-		// inner.total_bytes = 0;
-	}
+struct ProgressState {
+	state: Option<tg::progress::State>,
+	input_files: AtomicU64,
+	dependencies: AtomicU64,
+	output_bytes_current: AtomicU64,
+	output_bytes_total: AtomicU64,
 }
 
 impl Server {
@@ -47,11 +27,10 @@ impl Server {
 			|state| async move {
 				server
 					.clone()
-					.check_in_artifact_task(arg, Progress(Some(state)))
+					.check_in_artifact_task(arg, ProgressState::new(Some(state)))
 					.await
 			}
 		});
-
 		Ok(stream)
 	}
 
@@ -59,7 +38,7 @@ impl Server {
 	async fn check_in_artifact_task(
 		&self,
 		arg: tg::artifact::checkin::Arg,
-		progress: Progress,
+		progress: ProgressState,
 	) -> tg::Result<tg::artifact::Id> {
 		// If this is a checkin of a path in the checkouts directory, then retrieve the corresponding artifact.
 		let checkouts_path = self.checkouts_path().try_into()?;
@@ -87,7 +66,7 @@ impl Server {
 		}
 
 		// Check in the artifact.
-		self.check_in_or_store_artifact_inner(arg.clone(), None, progress)
+		self.check_in_or_store_artifact_inner(arg.clone(), None, &progress)
 			.await
 	}
 
@@ -96,15 +75,12 @@ impl Server {
 		&self,
 		arg: tg::artifact::checkin::Arg,
 		store_as: Option<&tg::artifact::Id>,
-		progress: Progress,
+		progress: &ProgressState,
 	) -> tg::Result<tg::artifact::Id> {
 		// Collect the input.
-		let input = self
-			.collect_input(arg.clone(), progress.clone())
-			.await
-			.map_err(
-				|source| tg::error!(!source, %path = arg.path, "failed to collect check-in input"),
-			)?;
+		let input = self.collect_input(arg.clone(), progress).await.map_err(
+			|source| tg::error!(!source, %path = arg.path, "failed to collect check-in input"),
+		)?;
 
 		// Construct the graph for unification.
 		let (mut unification_graph, root) = self
@@ -115,7 +91,7 @@ impl Server {
 		// Unify.
 		if !arg.deterministic {
 			unification_graph = self
-				.unify_dependencies(unification_graph, &root, progress.clone())
+				.unify_dependencies(unification_graph, &root, progress)
 				.await
 				.map_err(|source| tg::error!(!source, "failed to unify object graph"))?;
 		}
@@ -131,7 +107,7 @@ impl Server {
 
 		// Get the output.
 		let output = self
-			.collect_output(input.clone(), lockfile.clone(), progress.clone())
+			.collect_output(input.clone(), lockfile.clone(), progress)
 			.await?;
 
 		// Get the artifact ID
@@ -145,7 +121,7 @@ impl Server {
 			self.write_output_to_database(output, &lockfile).await?;
 		} else {
 			// Copy or move files.
-			self.copy_or_move_to_checkouts_directory(input.clone(), output.clone())
+			self.copy_or_move_to_checkouts_directory(input.clone(), output.clone(), progress)
 				.await?;
 
 			// Otherwise, update hardlinks and xattrs.
@@ -187,8 +163,9 @@ impl Server {
 			locked: true,
 			path: path.try_into()?,
 		};
+		let progress = ProgressState::new(None);
 		let _artifact = self
-			.check_in_or_store_artifact_inner(arg.clone(), Some(id), Progress(None))
+			.check_in_or_store_artifact_inner(arg.clone(), Some(id), &progress)
 			.await?;
 		Ok(true)
 	}
@@ -205,5 +182,44 @@ impl Server {
 		let arg = request.json().await?;
 		let stream = handle.check_in_artifact(arg).await?;
 		Ok(util::progress::sse(stream))
+	}
+}
+
+impl ProgressState {
+	fn new(state: Option<tg::progress::State>) -> Self {
+		Self {
+			state,
+			input_files: AtomicU64::new(0),
+			dependencies: AtomicU64::new(0),
+			output_bytes_current: AtomicU64::new(0),
+			output_bytes_total: AtomicU64::new(0),
+		}
+	}
+}
+
+impl ProgressState {
+	fn report_input_progress(&self) {
+		let Some(state) = &self.state else {
+			return;
+		};
+		let count = self.input_files.fetch_add(1, Ordering::Relaxed);
+		state.report_progress([("input files", tg::progress::Data::Count(count))]);
+	}
+
+	fn report_dependency_progress(&self) {
+		let Some(state) = &self.state else {
+			return;
+		};
+		let count = self.dependencies.fetch_add(1, Ordering::Relaxed);
+		state.report_progress([("dependencies", tg::progress::Data::Count(count))]);
+	}
+
+	fn report_output_progress(&self, count: u64) {
+		let Some(state) = &self.state else {
+			return;
+		};
+		let count = self.output_bytes_current.fetch_add(count, Ordering::Relaxed);
+		let total = self.output_bytes_total.load(Ordering::Relaxed);
+		state.report_progress([("dependencies", tg::progress::Data::Ratio(count, total))]);
 	}
 }
