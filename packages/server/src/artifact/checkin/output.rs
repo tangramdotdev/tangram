@@ -294,9 +294,13 @@ impl Server {
 			let graph = tg::graph::data::Data { nodes };
 
 			// Store the graph.
-			tg::Graph::with_object(Arc::new(graph.clone().try_into()?))
-				.store(self)
-				.await?;
+			self.put_object(
+				&graph.id()?.into(),
+				tg::object::put::Arg {
+					bytes: graph.serialize()?,
+				},
+			)
+			.await?;
 
 			graphs.push(graph);
 		}
