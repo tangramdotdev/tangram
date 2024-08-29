@@ -28,10 +28,12 @@ async fn consume_progress_stream<T>(
                         bar
                     });
                     bar.set_position(data.current);
-                    bar.set_message(name);
+                    bar.set_message(format!("{name} {}", data.current));
                     if let Some(total) = data.total {
-                        bar.set_style(indicatif::ProgressStyle::default_bar());
-                        bar.set_length(total);
+                        if total > 0 {
+                            bar.set_style(indicatif::ProgressStyle::default_bar());
+                            bar.set_length(total);
+                        }
                     }
                 }
             },
