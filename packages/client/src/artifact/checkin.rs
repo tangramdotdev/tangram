@@ -59,7 +59,6 @@ impl tg::Client {
 						.map_err(|source| tg::error!(!source, "failed to deserialize the data"))?;
 					Ok(tg::Progress::Report(report))
 				},
-				Some("begin") => Ok(tg::Progress::Begin),
 				Some("end") => {
 					let artifact = serde_json::from_str(&event.data)
 						.map_err(|source| tg::error!(!source, "failed to deserialize the data"))?;

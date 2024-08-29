@@ -67,7 +67,7 @@ impl Cli {
 			.await
 			.map_err(|source| tg::error!(!source, "failed to create check out stream"))?;
 
-		let path = self.drain_progress_stream(stream).await?;
+		let path = self.consume_progress_stream(stream).await?;
 		println!("{path}");
 
 		Ok(())

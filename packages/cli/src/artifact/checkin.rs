@@ -45,7 +45,7 @@ impl Cli {
 			.check_in_artifact(arg)
 			.await
 			.map_err(|source| tg::error!(!source, "failed to create check in stream"))?;
-		let id = self.drain_progress_stream(stream).await?;
+		let id = self.consume_progress_stream(stream).await?;
 		println!("{id}");
 		Ok(())
 	}

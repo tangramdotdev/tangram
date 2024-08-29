@@ -47,21 +47,7 @@ impl tg::Client {
 		}
 		let output = response.sse().map(|result| {
 			let event = result.map_err(|source| tg::error!(!source, "failed to read an event"))?;
-			match event.event.as_deref() {
-				None => {
-					let report = serde_json::from_str(&event.data)
-						.map_err(|source| tg::error!(!source, "failed to deserialize the data"))?;
-					Ok(tg::Progress::Report(report))
-				},
-				Some("begin") => Ok(tg::Progress::Begin),
-				Some("end") => Ok(tg::Progress::End(())),
-				Some("error") => {
-					let error = serde_json::from_str(&event.data)
-						.map_err(|source| tg::error!(!source, "failed to deserialize the error"))?;
-					Err(error)
-				},
-				_ => Err(tg::error!("invalid event")),
-			}
+			event.try_into()
 		});
 		Ok(output)
 	}

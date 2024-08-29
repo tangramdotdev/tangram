@@ -256,7 +256,7 @@ impl serde::de::Error for Error {
 /// let stack_trace = vec![
 ///     tg::error::Location {
 ///         symbol: Some("my_cool_function".into()),
-///         source: tg::error::Source::Internal { path: "foo.rs".parse().unwrap() },
+///         source: tg::error::Source::Internal("foo.rs".parse().unwrap()),
 ///         line: 123,
 ///         column: 456,
 ///     }

@@ -1,23 +1,7 @@
 use crate::{util, Server};
 use futures::{stream::FuturesUnordered, Stream, StreamExt as _, TryStreamExt};
-use std::sync::{
-	atomic::{AtomicU64, Ordering},
-	Arc,
-};
 use tangram_client::{self as tg, handle::Ext as _};
 use tangram_http::{incoming::request::Ext as _, Incoming, Outgoing};
-
-struct State {
-	state: tg::progress::State,
-	build_count: ProgressState,
-	object_count: ProgressState,
-	object_weight: ProgressState,
-}
-
-struct ProgressState {
-	current: AtomicU64,
-	total: Option<AtomicU64>,
-}
 
 struct InnerOutput {
 	build_count: u64,
@@ -29,40 +13,6 @@ struct Metadata {
 	build_count: Option<u64>,
 	object_count: Option<u64>,
 	object_weight: Option<u64>,
-}
-
-impl State {
-	fn report_progress(&self) {
-		let current = self.build_count.current.load(Ordering::Relaxed);
-		let builds = self
-			.build_count
-			.total
-			.as_ref()
-			.map_or(tg::progress::Data::Count(current), |total| {
-				tg::progress::Data::Ratio(current, total.load(Ordering::Relaxed))
-			});
-
-		let current = self.object_count.current.load(Ordering::Relaxed);
-		let objects = self
-			.object_count
-			.total
-			.as_ref()
-			.map_or(tg::progress::Data::Count(current), |total| {
-				tg::progress::Data::Ratio(current, total.load(Ordering::Relaxed))
-			});
-
-		let current = self.object_weight.current.load(Ordering::Relaxed);
-		let bytes = self
-			.object_weight
-			.total
-			.as_ref()
-			.map_or(tg::progress::Data::Count(current), |total| {
-				tg::progress::Data::Ratio(current, total.load(Ordering::Relaxed))
-			});
-
-		self.state
-			.report_progress([("builds", builds), ("objects", objects), ("bytes", bytes)]);
-	}
 }
 
 impl Server {
@@ -91,36 +41,25 @@ impl Server {
 		// Get the metadata.
 		let metadata = Self::get_build_metadata(src, &output, &arg).await?;
 
-		// Spawn the task.
-		let stream = tg::progress::progress_stream({
-			let src = src.clone();
-			let dst = dst.clone();
-			let build = build.clone();
-			let build_count_progress_state = ProgressState {
-				current: AtomicU64::new(0),
-				total: metadata.build_count.map(AtomicU64::new),
-			};
-			let object_count_progress_state = ProgressState {
-				current: AtomicU64::new(0),
-				total: metadata.object_count.map(AtomicU64::new),
-			};
-			let object_weight_progress_state = ProgressState {
-				current: AtomicU64::new(0),
-				total: metadata.object_weight.map(AtomicU64::new),
-			};
-			|state| async move {
-				// Create the state.
-				let state = Arc::new(State {
-					state,
-					build_count: build_count_progress_state,
-					object_count: object_count_progress_state,
-					object_weight: object_weight_progress_state,
-				});
+		let bars = [
+			("builds", metadata.build_count),
+			("objects", metadata.object_count),
+			("bytes", metadata.object_weight),
+		];
 
-				Self::push_or_pull_build_inner(&src, &dst, &build, arg, &state).await?;
-				Ok(())
-			}
-		});
+		// Spawn the task.
+		let stream = tg::progress::stream(
+			{
+				let src = src.clone();
+				let dst = dst.clone();
+				let build = build.clone();
+				|state| async move {
+					Self::push_or_pull_build_inner(&src, &dst, &build, arg, &state).await?;
+					Ok(())
+				}
+			},
+			bars,
+		);
 
 		Ok(stream)
 	}
@@ -130,7 +69,7 @@ impl Server {
 		dst: &impl tg::Handle,
 		build: &tg::build::Id,
 		arg: tg::build::push::Arg,
-		state: &State,
+		state: &tg::progress::State,
 	) -> tg::Result<InnerOutput> {
 		// Get the build.
 		let output = src
@@ -173,10 +112,7 @@ impl Server {
 			.map_err(|source| tg::error!(!source, "failed to put the object"))?;
 
 		// Update the state.
-		state
-			.build_count
-			.current
-			.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+		state.report_progress("builds", 1).ok();
 
 		// Handle the incomplete objects.
 		let mut incomplete_objects: Vec<tg::object::Id> = Vec::new();
@@ -199,33 +135,13 @@ impl Server {
 				let mut weight = 0;
 				while let Some(event) = stream.try_next().await? {
 					match event {
-						tg::Progress::Begin => continue,
 						tg::Progress::Report(report) => {
 							if let Some(count_) = report.get("objects") {
-								let current = match count_ {
-									tg::progress::Data::Count(count) => count,
-									tg::progress::Data::Ratio(count, _) => count,
-								};
-								count += current;
-								state
-									.object_count
-									.current
-									.store(count, std::sync::atomic::Ordering::Relaxed);
+								count += count_.current;
 							}
 							if let Some(weight_) = report.get("bytes") {
-								let current = match weight_ {
-									tg::progress::Data::Count(count) => count,
-									tg::progress::Data::Ratio(count, _) => count,
-								};
-								weight += current;
-								state
-									.object_weight
-									.current
-									.store(weight, std::sync::atomic::Ordering::Relaxed);
+								weight += weight_.current;
 							}
-
-							// Send a new progress report.
-							state.report_progress();
 						},
 						tg::Progress::End(()) => break,
 					}
@@ -243,9 +159,6 @@ impl Server {
 			.iter()
 			.map(|(_, weight)| weight)
 			.sum::<u64>();
-
-		// Send a new progress report.
-		state.report_progress();
 
 		// Handle the incomplete children.
 		let InnerOutput {
@@ -285,10 +198,7 @@ impl Server {
 			|| 1 + incomplete_children_build_count,
 			|build_count| build_count - 1 - incomplete_children_build_count,
 		);
-		state
-			.build_count
-			.current
-			.fetch_add(build_count, std::sync::atomic::Ordering::Relaxed);
+		state.report_progress("builds", build_count).ok();
 
 		// Update the object count.
 		let object_count = metadata.object_count.map_or_else(
@@ -297,10 +207,7 @@ impl Server {
 				object_count - incomplete_object_count - incomplete_children_object_count
 			},
 		);
-		state
-			.object_count
-			.current
-			.fetch_add(object_count, std::sync::atomic::Ordering::Relaxed);
+		state.report_progress("objects", object_count).ok();
 
 		// Update the object count.
 		let object_weight = metadata.object_weight.map_or_else(
@@ -309,10 +216,7 @@ impl Server {
 				object_weight - incomplete_object_weight - incomplete_children_object_weight
 			},
 		);
-		state
-			.object_weight
-			.current
-			.fetch_add(object_weight, std::sync::atomic::Ordering::Relaxed);
+		state.report_progress("bytes", object_weight).ok();
 
 		Ok(InnerOutput {
 			build_count,

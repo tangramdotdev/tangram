@@ -1,27 +1,66 @@
 use crate::Cli;
 use futures::{stream::TryStreamExt as _, Stream};
-use std::pin::pin;
+use std::{collections::BTreeMap, pin::pin};
 use tangram_client as tg;
 
 impl Cli {
-	pub async fn drain_progress_stream<T>(
+	pub async fn consume_progress_stream<T>(
 		&self,
-		mut stream: impl Stream<Item = tg::Result<tg::Progress<T>>>,
+		stream: impl Stream<Item = tg::Result<tg::Progress<T>>>,
 	) -> tg::Result<T> {
-		let mut stream = pin!(stream);
-		// TODO: spin while waiting for the response from the server.
-		let Some(tg::Progress::Begin) = stream.try_next().await? else {
-			return Err(tg::error!("invalid stream"));
-		};
-		while let Some(progress) = stream.try_next().await? {
-			match progress {
-				tg::Progress::Begin => return Err(tg::error!("invalid stream")),
-				tg::Progress::Report(_report) => {
-					todo!()
-				},
-				tg::Progress::End(value) => return Ok(value),
-			}
-		}
-		Err(tg::error!("stream closed early"))
+		consume_progress_stream(stream).await
 	}
+}
+
+async fn consume_progress_stream<T>(
+    mut stream: impl Stream<Item = tg::Result<tg::Progress<T>>>,
+) -> tg::Result<T> {
+    let mut stream = pin!(stream);
+    let mut bars = BTreeMap::new();
+    let progress_bar = indicatif::MultiProgress::new();
+    while let Some(progress) = stream.try_next().await? {
+        match progress {
+            tg::Progress::Report(report) => {
+                for (name, data) in report {
+                    let bar = bars.entry(name.clone()).or_insert_with(|| {
+                        let bar = indicatif::ProgressBar::new_spinner();
+                        progress_bar.add(bar.clone());
+                        bar
+                    });
+                    bar.set_position(data.current);
+                    bar.set_message(name);
+                    if let Some(total) = data.total {
+                        bar.set_style(indicatif::ProgressStyle::default_bar());
+                        bar.set_length(total);
+                    }
+                }
+            },
+            tg::Progress::End(value) => return Ok(value),
+        }
+    }
+    Err(tg::error!("stream closed early"))
+}
+#[cfg(test)]
+mod tests {
+    use tangram_client as tg;
+
+    #[tokio::test]
+    async fn progress() {
+        let bars = [
+            ("dingbats", Some(10)),
+            ("scoops", None),
+        ];
+
+        let stream = tg::progress::stream({
+            |state| async move {
+                for _ in 0..10 {
+                    tokio::time::sleep(std::time::Duration::from_millis(500)).await;
+                    state.report_progress("dingbats", 1).ok();
+                    state.report_progress("scoops", 1).ok();
+                }
+                Ok(())
+            }
+        }, bars);
+        super::consume_progress_stream(stream).await.expect("failed to drain stream");
+    }
 }

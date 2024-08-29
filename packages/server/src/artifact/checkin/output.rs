@@ -6,7 +6,7 @@ use std::{
 	collections::{BTreeMap, BTreeSet},
 	os::unix::fs::MetadataExt,
 	path::PathBuf,
-	sync::{atomic::Ordering, Arc, RwLock},
+	sync::{Arc, RwLock},
 };
 use tangram_client as tg;
 use tangram_database::{self as db, Connection as _, Database as _, Query as _, Transaction as _};
@@ -197,9 +197,7 @@ impl Server {
 		// Update the total bytes that will be copied.
 		if input.read().unwrap().metadata.is_file() {
 			let size = input.read().unwrap().metadata.size().to_u64().unwrap();
-			progress
-				.output_bytes_total
-				.fetch_add(size, Ordering::Relaxed);
+			progress.update_output_total(size);
 		}
 
 		// Create the output

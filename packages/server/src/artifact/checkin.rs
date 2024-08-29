@@ -1,5 +1,3 @@
-use std::sync::atomic::{AtomicU64, Ordering};
-
 use crate::{util, Server};
 use futures::{future::BoxFuture, Stream};
 use tangram_client as tg;
@@ -11,10 +9,6 @@ mod unify;
 
 struct ProgressState {
 	state: Option<tg::progress::State>,
-	input_files: AtomicU64,
-	dependencies: AtomicU64,
-	output_bytes_current: AtomicU64,
-	output_bytes_total: AtomicU64,
 }
 
 impl Server {
@@ -22,15 +16,24 @@ impl Server {
 		&self,
 		arg: tg::artifact::checkin::Arg,
 	) -> tg::Result<impl Stream<Item = tg::Result<tg::Progress<tg::artifact::Id>>>> {
-		let stream = tg::progress::progress_stream({
-			let server = self.clone();
-			|state| async move {
-				server
-					.clone()
-					.check_in_artifact_task(arg, ProgressState::new(Some(state)))
-					.await
-			}
-		});
+		let bars = [
+			("input files", None),
+			("dependencies", None),
+			("output bytes", Some(0)),
+		];
+
+		let stream = tg::progress::stream(
+			{
+				let server = self.clone();
+				|state| async move {
+					server
+						.clone()
+						.check_in_artifact_task(arg, ProgressState::new(Some(state)))
+						.await
+				}
+			},
+			bars,
+		);
 		Ok(stream)
 	}
 
@@ -187,13 +190,7 @@ impl Server {
 
 impl ProgressState {
 	fn new(state: Option<tg::progress::State>) -> Self {
-		Self {
-			state,
-			input_files: AtomicU64::new(0),
-			dependencies: AtomicU64::new(0),
-			output_bytes_current: AtomicU64::new(0),
-			output_bytes_total: AtomicU64::new(0),
-		}
+		Self { state }
 	}
 }
 
@@ -202,24 +199,27 @@ impl ProgressState {
 		let Some(state) = &self.state else {
 			return;
 		};
-		let count = self.input_files.fetch_add(1, Ordering::Relaxed);
-		state.report_progress([("input files", tg::progress::Data::Count(count))]);
+		state.report_progress("input files", 1).ok();
 	}
 
 	fn report_dependency_progress(&self) {
 		let Some(state) = &self.state else {
 			return;
 		};
-		let count = self.dependencies.fetch_add(1, Ordering::Relaxed);
-		state.report_progress([("dependencies", tg::progress::Data::Count(count))]);
+		state.report_progress("dependencies", 1).ok();
+	}
+
+	fn update_output_total(&self, count: u64) {
+		let Some(state) = &self.state else {
+			return;
+		};
+		state.update_total("output bytes", count).ok();
 	}
 
 	fn report_output_progress(&self, count: u64) {
 		let Some(state) = &self.state else {
 			return;
 		};
-		let count = self.output_bytes_current.fetch_add(count, Ordering::Relaxed);
-		let total = self.output_bytes_total.load(Ordering::Relaxed);
-		state.report_progress([("dependencies", tg::progress::Data::Ratio(count, total))]);
+		state.report_progress("output bytes", count).ok();
 	}
 }

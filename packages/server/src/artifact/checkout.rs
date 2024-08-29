@@ -5,28 +5,10 @@ use crate::{
 };
 use dashmap::DashMap;
 use futures::{stream::FuturesUnordered, Stream, TryStreamExt as _};
-use std::{
-	collections::BTreeSet,
-	os::unix::fs::PermissionsExt as _,
-	sync::{
-		atomic::{AtomicU64, Ordering},
-		Arc,
-	},
-};
+use std::{collections::BTreeSet, os::unix::fs::PermissionsExt as _, sync::Arc};
 use tangram_client::{self as tg, handle::Ext as _};
 use tangram_futures::task::Task;
 use tangram_http::{incoming::request::Ext as _, Incoming, Outgoing};
-
-struct State {
-	state: tg::progress::State,
-	objects: ProgressState,
-	bytes: ProgressState,
-}
-
-struct ProgressState {
-	current: AtomicU64,
-	total: Option<AtomicU64>,
-}
 
 struct InnerArg<'a> {
 	path: &'a tg::Path,
@@ -35,32 +17,7 @@ struct InnerArg<'a> {
 	arg: &'a tg::artifact::checkout::Arg,
 	depth: usize,
 	files: Arc<DashMap<tg::file::Id, tg::Path, fnv::FnvBuildHasher>>,
-	state: &'a State,
-}
-
-impl State {
-	fn report_progress(&self) {
-		let current = self.objects.current.load(Ordering::Relaxed);
-		let objects = self
-			.objects
-			.total
-			.as_ref()
-			.map_or(tg::progress::Data::Count(current), |total| {
-				tg::progress::Data::Ratio(current, total.load(Ordering::Relaxed))
-			});
-
-		let current = self.bytes.current.load(Ordering::Relaxed);
-		let bytes = self
-			.bytes
-			.total
-			.as_ref()
-			.map_or(tg::progress::Data::Count(current), |total| {
-				tg::progress::Data::Ratio(current, total.load(Ordering::Relaxed))
-			});
-
-		let data = [("objects", objects), ("bytes", bytes)];
-		self.state.report_progress(data);
-	}
+	state: &'a tg::progress::State,
 }
 
 impl Server {
@@ -73,26 +30,16 @@ impl Server {
 		let metadata = self.get_object_metadata(&id.clone().into()).await?;
 
 		// Create the stream.
-		let stream = tg::progress::progress_stream({
-			let server = self.clone();
-			let id = id.clone();
-			let objects = ProgressState {
-				current: AtomicU64::new(0),
-				total: metadata.count.map(AtomicU64::new),
-			};
-			let bytes = ProgressState {
-				current: AtomicU64::new(0),
-				total: metadata.weight.map(AtomicU64::new),
-			};
-			|state| async move {
-				let state = Arc::new(State {
-					state,
-					objects,
-					bytes,
-				});
-				server.check_out_artifact_task(&id, arg, state).await
-			}
-		});
+		let bars = [("objects", metadata.count), ("bytes", metadata.weight)];
+		let stream = tg::progress::stream(
+			{
+				let server = self.clone();
+				let id = id.clone();
+
+				|state| async move { server.check_out_artifact_task(&id, arg, state).await }
+			},
+			bars,
+		);
 
 		Ok(stream)
 	}
@@ -101,7 +48,7 @@ impl Server {
 		&self,
 		id: &tg::artifact::Id,
 		arg: tg::artifact::checkout::Arg,
-		state: Arc<State>,
+		state: tg::progress::State,
 	) -> tg::Result<tg::Path> {
 		// Get or spawn the task.
 		let spawn = |_| {
@@ -137,7 +84,7 @@ impl Server {
 		id: &tg::artifact::Id,
 		arg: &tg::artifact::checkout::Arg,
 		files: Arc<DashMap<tg::file::Id, tg::Path, fnv::FnvBuildHasher>>,
-		state: &State,
+		state: &tg::progress::State,
 	) -> tg::Result<tg::Path> {
 		let artifact = tg::Artifact::with_id(id.clone());
 
@@ -268,12 +215,11 @@ impl Server {
 				if id == existing_artifact.id(self).await? {
 					let metadata = self.get_object_metadata(&id.clone().into()).await?;
 					if let Some(count) = metadata.count {
-						state.objects.current.fetch_add(count, Ordering::Relaxed);
+						state.report_progress("objects", count).ok();
 					}
 					if let Some(weight) = metadata.weight {
-						state.bytes.current.fetch_add(weight, Ordering::Relaxed);
+						state.report_progress("bytes", weight).ok();
 					}
-					state.report_progress();
 					return Ok(());
 				}
 			},
@@ -325,9 +271,8 @@ impl Server {
 			.unwrap()?;
 		}
 
-		// Update the state.
-		state.objects.current.fetch_add(1, Ordering::Relaxed);
-		state.report_progress();
+		// Send a new progress report.
+		state.report_progress("objects", 1).ok();
 
 		Ok(())
 	}
