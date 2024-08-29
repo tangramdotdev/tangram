@@ -213,13 +213,14 @@ impl Server {
 			if let Some(root_module_path) =
 				tg::module::try_get_root_module_path_for_path(path.as_ref()).await?
 			{
-				// let module_path = path.clone().join(root_module_path.clone()).normalize();
-				// let _module_dependencies =
-				// 	self.get_module_dependencies(&module_path).await?;
-				return Ok(Some(vec![(
-					tg::Reference::with_path(&root_module_path),
-					None,
-				)]));
+				let module_path = path.clone().join(root_module_path.clone()).normalize();
+				let mut module_dependencies =
+					self.get_module_dependencies(&module_path).await?;
+				module_dependencies.insert(
+					0,
+					(tg::Reference::with_path(&root_module_path), None)
+				);
+				return Ok(Some(module_dependencies));
 			}
 			self.get_directory_dependencies(path).await.map(Some)
 		} else if metadata.is_file() {
