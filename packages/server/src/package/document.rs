@@ -1,5 +1,6 @@
 use crate::{compiler::Compiler, Server};
 use tangram_client as tg;
+use tangram_either::Either;
 use tangram_http::{incoming::request::Ext as _, outgoing::response::Ext as _, Incoming, Outgoing};
 
 impl Server {
@@ -23,9 +24,9 @@ impl Server {
 			return Ok(output);
 		}
 
-		// Get a reference to the package's root module.
+		// Create the root module.
 		let package = tg::Directory::with_id(arg.package.clone());
-		let module = tg::module::Reference::with_package(self, &package).await?;
+		let module = tg::Module::with_package(self, Either::Left(package)).await?;
 
 		// Create the compiler.
 		let compiler = Compiler::new(self, tokio::runtime::Handle::current());

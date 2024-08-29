@@ -15,7 +15,7 @@ export type Response = {
 export let handle = (request: Request): Response => {
 	// Get the source file and position.
 	let sourceFile = typescript.host.getSourceFile(
-		typescript.fileNameFromModuleReference(request.module),
+		typescript.fileNameFromModule(request.module),
 		ts.ScriptTarget.ESNext,
 	);
 	if (sourceFile === undefined) {
@@ -29,7 +29,7 @@ export let handle = (request: Request): Response => {
 
 	// Get the rename locations.
 	let renameLocations = typescript.languageService.findRenameLocations(
-		typescript.fileNameFromModuleReference(request.module),
+		typescript.fileNameFromModule(request.module),
 		position,
 		false,
 		false,
@@ -53,7 +53,7 @@ export let handle = (request: Request): Response => {
 			renameLocation.textSpan.start + renameLocation.textSpan.length,
 		);
 		let location = {
-			module: typescript.moduleReferenceFromFileName(renameLocation.fileName),
+			module: typescript.moduleFromFileName(renameLocation.fileName),
 			range: { start, end },
 		};
 		return location;

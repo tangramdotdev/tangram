@@ -15,7 +15,7 @@ export let handle = (request: Request): Response => {
 
 	// Create a typescript program.
 	let program = ts.createProgram({
-		rootNames: request.modules.map(typescript.fileNameFromModuleReference),
+		rootNames: request.modules.map(typescript.fileNameFromModule),
 		options: typescript.compilerOptions,
 		host: typescript.host,
 	});

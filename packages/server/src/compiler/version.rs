@@ -3,7 +3,7 @@ use tangram_client as tg;
 use tangram_either::Either;
 
 impl Compiler {
-	pub async fn get_module_version(&self, module: &tg::module::Reference) -> tg::Result<i32> {
+	pub async fn get_module_version(&self, module: &tg::Module) -> tg::Result<i32> {
 		// Get the entry for the document.
 		let entry = self.documents.entry(module.clone());
 

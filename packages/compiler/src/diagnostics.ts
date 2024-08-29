@@ -22,7 +22,7 @@ export let handle = (_request: Request): Response => {
 	// Collect the diagnostics.
 	let diagnostics = Object.fromEntries(
 		documents.map((module) => {
-			let fileName = typescript.fileNameFromModuleReference(module);
+			let fileName = typescript.fileNameFromModule(module);
 			let diagnostics = [
 				...typescript.languageService.getSyntacticDiagnostics(fileName),
 				...typescript.languageService.getSemanticDiagnostics(fileName),

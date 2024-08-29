@@ -50,10 +50,10 @@ pub struct Compiler(Arc<Inner>);
 
 pub struct Inner {
 	/// The published diagnostics.
-	diagnostics: tokio::sync::RwLock<BTreeMap<tg::module::Reference, Vec<tg::Diagnostic>>>,
+	diagnostics: tokio::sync::RwLock<BTreeMap<tg::Module, Vec<tg::Diagnostic>>>,
 
 	/// The documents.
-	documents: DashMap<tg::module::Reference, Document, fnv::FnvBuildHasher>,
+	documents: DashMap<tg::Module, Document, fnv::FnvBuildHasher>,
 
 	/// A handle to the main tokio runtime.
 	main_runtime_handle: tokio::runtime::Handle,
@@ -631,10 +631,10 @@ impl Compiler {
 		}
 	}
 
-	async fn module_reference_for_lsp_uri(
+	async fn module_for_lsp_uri(
 		&self,
 		uri: &lsp::Uri,
-	) -> tg::Result<tg::module::Reference> {
+	) -> tg::Result<tg::Module> {
 		match uri.scheme().unwrap().as_str() {
 			"file" => {
 				let path = uri.path().as_str().parse::<tg::Path>()?;
@@ -655,7 +655,7 @@ impl Compiler {
 				} else {
 					path
 				};
-				Ok(tg::module::Reference::new(kind, package, Some(path)))
+				Ok(tg::Module::new(kind, package, Some(path)))
 			},
 
 			_ => uri.as_str().parse(),
@@ -664,7 +664,7 @@ impl Compiler {
 
 	#[allow(clippy::unused_self)]
 	#[must_use]
-	fn lsp_uri_for_module_reference(&self, module: &tg::module::Reference) -> lsp::Uri {
+	fn lsp_uri_for_module(&self, module: &tg::Module) -> lsp::Uri {
 		match (module.kind(), module.object(), module.path()) {
 			(
 				tg::module::Kind::Js

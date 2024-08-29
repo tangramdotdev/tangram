@@ -14,13 +14,13 @@ pub struct Request {}
 #[serde(rename_all = "camelCase")]
 pub struct Response {
 	#[serde_as(as = "BTreeMap<DisplayFromStr, _>")]
-	pub diagnostics: BTreeMap<tg::module::Reference, Vec<tg::Diagnostic>>,
+	pub diagnostics: BTreeMap<tg::Module, Vec<tg::Diagnostic>>,
 }
 
 impl Compiler {
 	pub async fn get_diagnostics(
 		&self,
-	) -> tg::Result<BTreeMap<tg::module::Reference, Vec<tg::Diagnostic>>> {
+	) -> tg::Result<BTreeMap<tg::Module, Vec<tg::Diagnostic>>> {
 		// Create the request.
 		let request = super::Request::Diagnostics(Request {});
 
@@ -55,7 +55,7 @@ impl Compiler {
 			let version = self.get_module_version(module).await?;
 			let diagnostics = diagnostics.iter().cloned().map_into().collect();
 			let params = lsp::PublishDiagnosticsParams {
-				uri: self.lsp_uri_for_module_reference(module),
+				uri: self.lsp_uri_for_module(module),
 				diagnostics,
 				version: Some(version),
 			};

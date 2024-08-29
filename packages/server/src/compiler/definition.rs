@@ -5,7 +5,7 @@ use tangram_client as tg;
 #[derive(Debug, serde::Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Request {
-	pub module: tg::module::Reference,
+	pub module: tg::Module,
 	pub position: tg::Position,
 }
 
@@ -18,7 +18,7 @@ pub struct Response {
 impl Compiler {
 	pub async fn definition(
 		&self,
-		module: &tg::module::Reference,
+		module: &tg::Module,
 		position: tg::Position,
 	) -> tg::Result<Option<Vec<tg::Location>>> {
 		// Create the request.
@@ -40,7 +40,7 @@ impl Compiler {
 
 	pub async fn type_definition(
 		&self,
-		module: &tg::module::Reference,
+		module: &tg::Module,
 		position: tg::Position,
 	) -> tg::Result<Option<Vec<tg::Location>>> {
 		// Create the request.
@@ -68,7 +68,7 @@ impl Compiler {
 	) -> tg::Result<Option<lsp::GotoDefinitionResponse>> {
 		// Get the module.
 		let module = self
-			.module_reference_for_lsp_uri(&params.text_document_position_params.text_document.uri)
+			.module_for_lsp_uri(&params.text_document_position_params.text_document.uri)
 			.await?;
 
 		// Get the position for the request.
@@ -85,7 +85,7 @@ impl Compiler {
 		let locations = locations
 			.into_iter()
 			.map(|location| lsp::Location {
-				uri: self.lsp_uri_for_module_reference(&location.module),
+				uri: self.lsp_uri_for_module(&location.module),
 				range: location.range.into(),
 			})
 			.collect();
@@ -101,7 +101,7 @@ impl Compiler {
 	) -> tg::Result<Option<lsp::GotoDefinitionResponse>> {
 		// Get the module.
 		let module = self
-			.module_reference_for_lsp_uri(&params.text_document_position_params.text_document.uri)
+			.module_for_lsp_uri(&params.text_document_position_params.text_document.uri)
 			.await?;
 
 		// Get the position for the request.
@@ -118,7 +118,7 @@ impl Compiler {
 		let locations = locations
 			.into_iter()
 			.map(|location| lsp::Location {
-				uri: self.lsp_uri_for_module_reference(&location.module),
+				uri: self.lsp_uri_for_module(&location.module),
 				range: location.range.into(),
 			})
 			.collect();

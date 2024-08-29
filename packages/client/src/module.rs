@@ -19,7 +19,7 @@ pub const LOCKFILE_FILE_NAME: &str = "tangram.lock";
 	serde_with::DeserializeFromStr,
 	serde_with::SerializeDisplay,
 )]
-pub struct Reference {
+pub struct Module {
 	uri: uri::Reference,
 	path: Path,
 }
@@ -61,7 +61,7 @@ pub enum Kind {
 	Target,
 }
 
-impl Reference {
+impl Module {
 	#[must_use]
 	pub fn new(
 		kind: Kind,
@@ -76,7 +76,10 @@ impl Reference {
 		Self { uri, path }
 	}
 
-	pub async fn with_package<H>(handle: &H, package: &tg::Directory) -> tg::Result<Self>
+	pub async fn with_package<H>(
+		handle: &H,
+		package: Either<tg::Directory, tg::Path>,
+	) -> tg::Result<Self>
 	where
 		H: tg::Handle,
 	{
@@ -87,14 +90,20 @@ impl Reference {
 
 	pub async fn try_with_package<H>(
 		handle: &H,
-		package: &tg::Directory,
+		package: Either<tg::Directory, tg::Path>,
 	) -> tg::Result<Option<Self>>
 	where
 		H: tg::Handle,
 	{
 		let mut name = None;
 		for n in ROOT_MODULE_FILE_NAMES {
-			if package.try_get_entry(handle, n).await?.is_some() {
+			let exists = match &package {
+				Either::Left(package) => package.try_get_entry(handle, n).await?.is_some(),
+				Either::Right(package) => tokio::fs::try_exists(package.clone().join(*n))
+					.await
+					.map_err(|source| tg::error!(!source, "failed to get the path metadata"))?,
+			};
+			if exists {
 				if name.is_some() {
 					return Err(tg::error!("package contains multiple root modules"));
 				}
@@ -111,7 +120,10 @@ impl Reference {
 		} else {
 			unreachable!()
 		};
-		let object = Either::Left(package.id(handle).await?.into());
+		let object = match package {
+			Either::Left(package) => Either::Left(package.id(handle).await?.into()),
+			Either::Right(package) => Either::Right(package),
+		};
 		let path = name.into();
 		let module = Self::new(kind, Some(object), Some(path));
 		Ok(Some(module))
@@ -133,23 +145,23 @@ impl Reference {
 	}
 
 	#[must_use]
-	pub fn object(&self) -> &Option<Either<tg::object::Id, tg::Path>> {
-		&self.path.object
+	pub fn object(&self) -> Option<&Either<tg::object::Id, tg::Path>> {
+		self.path.object.as_ref()
 	}
 
 	#[must_use]
-	pub fn path(&self) -> &Option<tg::Path> {
-		&self.path.path
+	pub fn path(&self) -> Option<&tg::Path> {
+		self.path.path.as_ref()
 	}
 }
 
-impl std::fmt::Display for Reference {
+impl std::fmt::Display for Module {
 	fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
 		write!(f, "{}", self.uri)
 	}
 }
 
-impl std::str::FromStr for Reference {
+impl std::str::FromStr for Module {
 	type Err = tg::Error;
 
 	fn from_str(s: &str) -> tg::Result<Self, Self::Err> {

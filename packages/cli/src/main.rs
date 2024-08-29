@@ -910,11 +910,8 @@ impl Cli {
 				},
 				None => {},
 			}
-			match location.module.path() {
-				Some(path) => {
-					write!(string, ":{path}").unwrap();
-				},
-				None => {},
+			if let Some(path) = location.module.path() {
+				write!(string, ":{path}").unwrap();
 			}
 			let mut string = if string.is_empty() {
 				"<unknown>".to_owned()

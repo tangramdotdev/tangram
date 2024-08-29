@@ -2,7 +2,7 @@ import ts from "typescript";
 import { assert, unreachable } from "./assert.ts";
 import type { Diagnostic, Severity } from "./diagnostics.ts";
 import { log } from "./log.ts";
-import * as module_ from "./module.ts";
+import { Module } from "./module.ts";
 
 // Create the TypeScript compiler options.
 export let compilerOptions: ts.CompilerOptions = {
@@ -44,13 +44,13 @@ export let host: ts.LanguageServiceHost & ts.CompilerHost = {
 	},
 
 	getScriptFileNames: () => {
-		return syscall("document_list").map(fileNameFromModuleReference);
+		return syscall("document_list").map(fileNameFromModule);
 	},
 
 	getScriptSnapshot: (fileName) => {
 		let text: string | undefined;
 		try {
-			text = syscall("module_load", moduleReferenceFromFileName(fileName));
+			text = syscall("module_load", moduleFromFileName(fileName));
 		} catch (error) {
 			log(error);
 			return undefined;
@@ -59,13 +59,13 @@ export let host: ts.LanguageServiceHost & ts.CompilerHost = {
 	},
 
 	getScriptVersion: (fileName) => {
-		return syscall("module_version", moduleReferenceFromFileName(fileName));
+		return syscall("module_version", moduleFromFileName(fileName));
 	},
 
 	getSourceFile: (fileName, languageVersion) => {
 		let text: string | undefined;
 		try {
-			text = syscall("module_load", moduleReferenceFromFileName(fileName));
+			text = syscall("module_load", moduleFromFileName(fileName));
 		} catch (error) {
 			log(error);
 			return undefined;
@@ -99,10 +99,10 @@ export let host: ts.LanguageServiceHost & ts.CompilerHost = {
 			}
 			let resolvedFileName: string | undefined;
 			try {
-				resolvedFileName = fileNameFromModuleReference(
+				resolvedFileName = fileNameFromModule(
 					syscall(
 						"module_resolve",
-						moduleReferenceFromFileName(module),
+						moduleFromFileName(module),
 						specifier,
 						attributes,
 					),
@@ -184,11 +184,11 @@ let getImportAttributesFromImportExpression = (
 	return attributes;
 };
 
-/** Convert a module reference to a TypeScript file name. */
-export let fileNameFromModuleReference = (module: string): string => {
+/** Convert a module to a TypeScript file name. */
+export let fileNameFromModule = (module: string): string => {
 	let {
 		path: { kind, path },
-	} = module_.Reference.parse(module);
+	} = Module.parse(module);
 	if (kind === "dts") {
 		return `/library/${path!.slice(2)}`;
 	}
@@ -204,11 +204,11 @@ export let fileNameFromModuleReference = (module: string): string => {
 	return `/${hex}${extension}`;
 };
 
-/** Convert a TypeScript file name to a module reference. */
-export let moduleReferenceFromFileName = (fileName: string): string => {
+/** Convert a TypeScript file name to a module. */
+export let moduleFromFileName = (fileName: string): string => {
 	if (fileName.startsWith("/library/")) {
 		let path = `./${fileName.slice(9)}`;
-		return module_.Reference.print({
+		return Module.print({
 			path: { kind: "dts", object: undefined, path },
 		});
 	}
@@ -226,7 +226,7 @@ export let convertDiagnostic = (diagnostic: ts.Diagnostic): Diagnostic => {
 		diagnostic.length !== undefined
 	) {
 		// Get the diagnostic's module.
-		let module_ = moduleReferenceFromFileName(diagnostic.file.fileName);
+		let module_ = moduleFromFileName(diagnostic.file.fileName);
 
 		// Get the diagnostic's range.
 		let start = ts.getLineAndCharacterOfPosition(

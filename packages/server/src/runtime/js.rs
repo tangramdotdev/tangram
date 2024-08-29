@@ -52,7 +52,7 @@ struct FutureOutput {
 
 #[allow(clippy::struct_field_names)]
 struct Module {
-	module: tg::module::Reference,
+	module: tg::Module,
 	source_map: Option<SourceMap>,
 	v8_identity_hash: NonZeroI32,
 	v8_module: v8::Global<v8::Module>,
@@ -482,9 +482,9 @@ fn resolve_module_callback<'s>(
 /// Resolve a module.
 fn resolve_module(
 	scope: &mut v8::HandleScope,
-	module: &tg::module::Reference,
+	module: &tg::Module,
 	import: &tg::Import,
-) -> Option<tg::module::Reference> {
+) -> Option<tg::Module> {
 	let context = scope.get_current_context();
 	let state = context.get_slot::<Rc<State>>().unwrap().clone();
 
@@ -520,7 +520,7 @@ fn resolve_module(
 /// Load a module.
 fn load_module<'s>(
 	scope: &mut v8::HandleScope<'s>,
-	module: &tg::module::Reference,
+	module: &tg::Module,
 ) -> Option<v8::Local<'s, v8::Module>> {
 	// Get the context and state.
 	let context = scope.get_current_context();

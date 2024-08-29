@@ -4,27 +4,11 @@ use std::collections::BTreeMap;
 /// An import in a module.
 #[derive(Clone, Debug, Eq, Hash, PartialEq)]
 pub struct Import {
-	/// The kind of the import.
-	pub kind: Option<Kind>,
+	/// The kind.
+	pub kind: Option<tg::module::Kind>,
 
 	/// The reference.
 	pub reference: tg::Reference,
-}
-
-#[derive(Debug, Clone, Copy, Eq, Hash, PartialEq)]
-pub enum Kind {
-	Js,
-	Ts,
-	Object,
-	Artifact,
-	Blob,
-	Leaf,
-	Branch,
-	Directory,
-	File,
-	Symlink,
-	Lock,
-	Target,
 }
 
 impl Import {
@@ -87,46 +71,5 @@ impl Import {
 		};
 
 		Ok(Import { kind, reference })
-	}
-}
-
-impl std::fmt::Display for Kind {
-	fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-		match self {
-			Kind::Js => write!(f, "js"),
-			Kind::Ts => write!(f, "ts"),
-			Kind::Object => write!(f, "object"),
-			Kind::Artifact => write!(f, "artifact"),
-			Kind::Blob => write!(f, "blob"),
-			Kind::Leaf => write!(f, "leaf"),
-			Kind::Branch => write!(f, "branch"),
-			Kind::Directory => write!(f, "directory"),
-			Kind::File => write!(f, "file"),
-			Kind::Symlink => write!(f, "symlink"),
-			Kind::Lock => write!(f, "lock"),
-			Kind::Target => write!(f, "target"),
-		}
-	}
-}
-
-impl std::str::FromStr for Kind {
-	type Err = tg::Error;
-
-	fn from_str(s: &str) -> Result<Self, Self::Err> {
-		match s {
-			"js" => Ok(Kind::Js),
-			"ts" => Ok(Kind::Ts),
-			"object" => Ok(Kind::Object),
-			"artifact" => Ok(Kind::Artifact),
-			"blob" => Ok(Kind::Blob),
-			"leaf" => Ok(Kind::Leaf),
-			"branch" => Ok(Kind::Branch),
-			"directory" => Ok(Kind::Directory),
-			"file" => Ok(Kind::File),
-			"symlink" => Ok(Kind::Symlink),
-			"lock" => Ok(Kind::Lock),
-			"target" => Ok(Kind::Target),
-			kind => Err(tg::error!(%kind, "invalid kind")),
-		}
 	}
 }

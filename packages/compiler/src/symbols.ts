@@ -51,7 +51,7 @@ export type Tag = "deprecated";
 
 export let handle = (request: Request): Response => {
 	// Get the module's filename and source.
-	let fileName = typescript.fileNameFromModuleReference(request.module);
+	let fileName = typescript.fileNameFromModule(request.module);
 	let sourceFile = typescript.host.getSourceFile(
 		fileName,
 		ts.ScriptTarget.ESNext,

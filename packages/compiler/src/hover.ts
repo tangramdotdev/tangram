@@ -14,7 +14,7 @@ export type Response = {
 export let handle = (request: Request): Response => {
 	// Get the source file.
 	let sourceFile = typescript.host.getSourceFile(
-		typescript.fileNameFromModuleReference(request.module),
+		typescript.fileNameFromModule(request.module),
 		ts.ScriptTarget.ESNext,
 	);
 	if (sourceFile === undefined) {
@@ -30,7 +30,7 @@ export let handle = (request: Request): Response => {
 
 	// Get the quick info at the position.
 	let quickInfo = typescript.languageService.getQuickInfoAtPosition(
-		typescript.fileNameFromModuleReference(request.module),
+		typescript.fileNameFromModule(request.module),
 		position,
 	);
 

@@ -18,7 +18,7 @@ export type CompletionEntry = {
 export let handle = (request: Request): Response => {
 	// Get the source file and position.
 	let sourceFile = typescript.host.getSourceFile(
-		typescript.fileNameFromModuleReference(request.module),
+		typescript.fileNameFromModule(request.module),
 		ts.ScriptTarget.ESNext,
 	);
 	if (sourceFile === undefined) {
@@ -32,7 +32,7 @@ export let handle = (request: Request): Response => {
 
 	// Get the completions.
 	let info = typescript.languageService.getCompletionsAtPosition(
-		typescript.fileNameFromModuleReference(request.module),
+		typescript.fileNameFromModule(request.module),
 		position,
 		undefined,
 	);

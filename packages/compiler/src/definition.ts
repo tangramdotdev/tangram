@@ -15,7 +15,7 @@ export type Response = {
 export let handle = (request: Request): Response => {
 	// Get the source file and position.
 	let sourceFile = typescript.host.getSourceFile(
-		typescript.fileNameFromModuleReference(request.module),
+		typescript.fileNameFromModule(request.module),
 		ts.ScriptTarget.ESNext,
 	);
 	if (sourceFile === undefined) {
@@ -29,7 +29,7 @@ export let handle = (request: Request): Response => {
 
 	// Get the definitions.
 	let definitions = typescript.languageService.getDefinitionAtPosition(
-		typescript.fileNameFromModuleReference(request.module),
+		typescript.fileNameFromModule(request.module),
 		position,
 	);
 
@@ -51,7 +51,7 @@ export let handle = (request: Request): Response => {
 			definition.textSpan.start + definition.textSpan.length,
 		);
 		let location = {
-			module: typescript.moduleReferenceFromFileName(definition.fileName),
+			module: typescript.moduleFromFileName(definition.fileName),
 			range: { start, end },
 		};
 
@@ -66,7 +66,7 @@ export let handle = (request: Request): Response => {
 export let handleType = (request: Request): Response => {
 	// Get the source file and position.
 	let sourceFile = typescript.host.getSourceFile(
-		typescript.fileNameFromModuleReference(request.module),
+		typescript.fileNameFromModule(request.module),
 		ts.ScriptTarget.ESNext,
 	);
 	if (sourceFile === undefined) {
@@ -80,7 +80,7 @@ export let handleType = (request: Request): Response => {
 
 	// Get the definitions.
 	let definitions = typescript.languageService.getTypeDefinitionAtPosition(
-		typescript.fileNameFromModuleReference(request.module),
+		typescript.fileNameFromModule(request.module),
 		position,
 	);
 
@@ -102,7 +102,7 @@ export let handleType = (request: Request): Response => {
 			definition.textSpan.start + definition.textSpan.length,
 		);
 		let location = {
-			module: typescript.moduleReferenceFromFileName(definition.fileName),
+			module: typescript.moduleFromFileName(definition.fileName),
 			range: { start, end },
 		};
 

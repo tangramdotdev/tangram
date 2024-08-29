@@ -1,5 +1,5 @@
 import * as tg from "./index.ts";
-import * as module_ from "./module.ts";
+import { Module } from "./module.ts";
 import { setCurrentTarget } from "./target.ts";
 
 export let start = async (target: tg.Target): Promise<tg.Value> => {
@@ -9,18 +9,29 @@ export let start = async (target: tg.Target): Promise<tg.Value> => {
 	// Set the current target.
 	setCurrentTarget(target);
 
-	// Create the module reference for the executable.
+	// Create the module for the executable.
 	let executable = await target.executable();
 	if (executable === undefined) {
 		throw new Error("invalid target");
 	}
 	let kind = "js" as const;
-	const object = await executable.id();
-	let module = module_.Reference.print({
+	let object: string;
+	let path: string | undefined;
+	if (executable instanceof tg.File) {
+		object = await executable.id();
+	} else if (executable instanceof tg.Symlink) {
+		let artifact = await executable.artifact();
+		tg.assert(artifact);
+		object = await artifact.id();
+		path = (await executable.path())?.toString();
+	} else {
+		throw new Error("invalid executable");
+	}
+	let module = Module.print({
 		path: {
 			kind,
 			object,
-			path: undefined,
+			path,
 		},
 	});
 

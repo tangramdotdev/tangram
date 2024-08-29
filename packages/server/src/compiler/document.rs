@@ -6,7 +6,7 @@ use tangram_either::Either;
 #[derive(Debug, serde::Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Request {
-	pub module: tg::module::Reference,
+	pub module: tg::Module,
 }
 
 pub type Response = serde_json::Value;
@@ -22,7 +22,7 @@ pub struct Document {
 
 impl Compiler {
 	/// Document a module.
-	pub async fn document(&self, module: &tg::module::Reference) -> tg::Result<Response> {
+	pub async fn document(&self, module: &tg::Module) -> tg::Result<Response> {
 		// Create the request.
 		let request = super::Request::Document(Request {
 			module: module.clone(),
@@ -42,7 +42,7 @@ impl Compiler {
 
 impl Compiler {
 	/// List the documents.
-	pub async fn list_documents(&self) -> Vec<tg::module::Reference> {
+	pub async fn list_documents(&self) -> Vec<tg::Module> {
 		self.documents
 			.iter()
 			.filter(|entry| entry.open)
@@ -53,7 +53,7 @@ impl Compiler {
 	/// Open a document.
 	pub async fn open_document(
 		&self,
-		module: &tg::module::Reference,
+		module: &tg::Module,
 		version: i32,
 		text: String,
 	) -> tg::Result<()> {
@@ -70,7 +70,7 @@ impl Compiler {
 	/// Update a document.
 	pub async fn update_document(
 		&self,
-		module: &tg::module::Reference,
+		module: &tg::Module,
 		range: Option<tg::Range>,
 		version: i32,
 		text: String,
@@ -102,7 +102,7 @@ impl Compiler {
 	}
 
 	/// Close a document.
-	pub async fn close_document(&self, module: &tg::module::Reference) -> tg::Result<()> {
+	pub async fn close_document(&self, module: &tg::Module) -> tg::Result<()> {
 		// Get the document.
 		let Some(mut document) = self.documents.get_mut(module) else {
 			return Err(tg::error!("could not find the document"));
@@ -146,9 +146,7 @@ impl Compiler {
 		params: lsp::DidOpenTextDocumentParams,
 	) -> tg::Result<()> {
 		// Get the module.
-		let module = self
-			.module_reference_for_lsp_uri(&params.text_document.uri)
-			.await?;
+		let module = self.module_for_lsp_uri(&params.text_document.uri).await?;
 
 		// Open the document.
 		let version = params.text_document.version;
@@ -166,9 +164,7 @@ impl Compiler {
 		params: lsp::DidChangeTextDocumentParams,
 	) -> tg::Result<()> {
 		// Get the module.
-		let module = self
-			.module_reference_for_lsp_uri(&params.text_document.uri)
-			.await?;
+		let module = self.module_for_lsp_uri(&params.text_document.uri).await?;
 
 		// Apply the changes.
 		for change in params.content_changes {
@@ -192,9 +188,7 @@ impl Compiler {
 		params: lsp::DidCloseTextDocumentParams,
 	) -> tg::Result<()> {
 		// Get the module.
-		let module = self
-			.module_reference_for_lsp_uri(&params.text_document.uri)
-			.await?;
+		let module = self.module_for_lsp_uri(&params.text_document.uri).await?;
 
 		// Close the document.
 		self.close_document(&module).await?;

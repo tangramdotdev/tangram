@@ -1,5 +1,5 @@
 import * as tg from "./index.ts";
-import * as module_ from "./module.ts";
+import { Module } from "./module.ts";
 import {
 	type MaybeMutationMap,
 	type MaybeNestedArray,
@@ -46,9 +46,7 @@ export function target<
 		// Create the target.
 		let args_ = [arg.name];
 		let checksum = undefined;
-		let executable = tg.Artifact.withId(
-			module_.Reference.parse(arg.module).path.object!,
-		);
+		let executable = tg.Artifact.withId(Module.parse(arg.module).path.object!);
 		const env = currentTarget.state.object!.env;
 		let object = {
 			args: args_,

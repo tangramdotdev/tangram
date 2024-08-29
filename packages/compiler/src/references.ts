@@ -15,7 +15,7 @@ export type Response = {
 export let handle = (request: Request): Response => {
 	// Get the source file and position.
 	let sourceFile = typescript.host.getSourceFile(
-		typescript.fileNameFromModuleReference(request.module),
+		typescript.fileNameFromModule(request.module),
 		ts.ScriptTarget.ESNext,
 	);
 	if (sourceFile === undefined) {
@@ -29,7 +29,7 @@ export let handle = (request: Request): Response => {
 
 	// Get the references.
 	let references = typescript.languageService.getReferencesAtPosition(
-		typescript.fileNameFromModuleReference(request.module),
+		typescript.fileNameFromModule(request.module),
 		position,
 	);
 
@@ -52,7 +52,7 @@ export let handle = (request: Request): Response => {
 				reference.textSpan.start + reference.textSpan.length,
 			);
 			let location = {
-				module: typescript.moduleReferenceFromFileName(reference.fileName),
+				module: typescript.moduleFromFileName(reference.fileName),
 				range: { start, end },
 			};
 			return location;

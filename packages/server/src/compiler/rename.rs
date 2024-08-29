@@ -6,7 +6,7 @@ use tangram_client as tg;
 #[derive(Debug, serde::Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Request {
-	pub module: tg::module::Reference,
+	pub module: tg::Module,
 	pub position: tg::Position,
 }
 
@@ -23,7 +23,7 @@ impl Compiler {
 	) -> tg::Result<Option<lsp::WorkspaceEdit>> {
 		// Get the module.
 		let module = self
-			.module_reference_for_lsp_uri(&params.text_document_position.text_document.uri)
+			.module_for_lsp_uri(&params.text_document_position.text_document.uri)
 			.await?;
 
 		// Get the position for the request.
@@ -43,7 +43,7 @@ impl Compiler {
 		let mut edit = HashMap::<lsp::Uri, lsp::TextDocumentEdit>::new();
 		for location in locations {
 			// Create the URI.
-			let uri = self.lsp_uri_for_module_reference(&location.module);
+			let uri = self.lsp_uri_for_module(&location.module);
 
 			// Get the version.
 			let version = self.get_module_version(&location.module).await?;
@@ -83,7 +83,7 @@ impl Compiler {
 
 	pub async fn rename(
 		&self,
-		module: &tg::module::Reference,
+		module: &tg::Module,
 		position: tg::Position,
 	) -> tg::Result<Option<Vec<tg::Location>>> {
 		// Create the request.

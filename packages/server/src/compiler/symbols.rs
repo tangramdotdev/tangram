@@ -5,7 +5,7 @@ use tangram_client as tg;
 #[derive(Debug, serde::Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Request {
-	pub module: tg::module::Reference,
+	pub module: tg::Module,
 }
 
 #[derive(Debug, serde::Deserialize)]
@@ -63,7 +63,7 @@ pub enum Tag {
 }
 
 impl Compiler {
-	pub async fn symbols(&self, module: &tg::module::Reference) -> tg::Result<Option<Vec<Symbol>>> {
+	pub async fn symbols(&self, module: &tg::Module) -> tg::Result<Option<Vec<Symbol>>> {
 		// Create the request.
 		let request = super::Request::Symbols(Request {
 			module: module.clone(),
@@ -170,7 +170,7 @@ impl Compiler {
 		params: lsp::DocumentSymbolParams,
 	) -> tg::Result<Option<lsp::DocumentSymbolResponse>> {
 		// Get the module.
-		let module = self.module_reference_for_lsp_uri(&params.text_document.uri).await?;
+		let module = self.module_for_lsp_uri(&params.text_document.uri).await?;
 
 		// Get the document symbols.
 		let symbols = self.symbols(&module).await?;

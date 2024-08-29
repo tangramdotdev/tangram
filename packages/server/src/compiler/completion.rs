@@ -5,7 +5,7 @@ use tangram_client as tg;
 #[derive(Debug, serde::Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Request {
-	pub module: tg::module::Reference,
+	pub module: tg::Module,
 	pub position: tg::Position,
 }
 
@@ -24,7 +24,7 @@ pub struct Entry {
 impl Compiler {
 	pub async fn completion(
 		&self,
-		module: &tg::module::Reference,
+		module: &tg::Module,
 		position: tg::Position,
 	) -> tg::Result<Option<Vec<Entry>>> {
 		// Create the request.
@@ -52,7 +52,7 @@ impl Compiler {
 	) -> tg::Result<Option<lsp::CompletionResponse>> {
 		// Get the module.
 		let module = self
-			.module_reference_for_lsp_uri(&params.text_document_position.text_document.uri)
+			.module_for_lsp_uri(&params.text_document_position.text_document.uri)
 			.await?;
 
 		// Get the position for the request.

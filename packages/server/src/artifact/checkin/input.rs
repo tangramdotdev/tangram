@@ -1,4 +1,4 @@
-use crate::{compiler::Compiler, Server};
+use crate::Server;
 use futures::{
 	stream::{self, FuturesUnordered},
 	TryStreamExt,
