@@ -37,11 +37,8 @@ impl Server {
 				let dst = dst.clone();
 				let object = object.clone();
 				|state| async move {
-					// let state = Arc::new(State {
-					// 	state,
-					// 	count,
-					// 	weight,
-					// });
+					state.begin("objects").await;
+					state.begin("bytes").await;
 					Self::push_or_pull_object_inner(&src, &dst, &object, &state).await?;
 					Ok(())
 				}

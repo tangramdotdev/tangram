@@ -18,9 +18,7 @@ pub struct Response {
 }
 
 impl Compiler {
-	pub async fn get_diagnostics(
-		&self,
-	) -> tg::Result<BTreeMap<tg::Module, Vec<tg::Diagnostic>>> {
+	pub async fn get_diagnostics(&self) -> tg::Result<BTreeMap<tg::Module, Vec<tg::Diagnostic>>> {
 		// Create the request.
 		let request = super::Request::Diagnostics(Request {});
 

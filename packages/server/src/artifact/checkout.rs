@@ -36,7 +36,11 @@ impl Server {
 				let server = self.clone();
 				let id = id.clone();
 
-				|state| async move { server.check_out_artifact_task(&id, arg, state).await }
+				|state| async move {
+					state.begin("objects").await;
+					state.begin("bytes").await;
+					server.check_out_artifact_task(&id, arg, state).await
+				}
 			},
 			bars,
 		);

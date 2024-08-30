@@ -20,11 +20,7 @@ pub fn load(
 pub fn resolve(
 	_scope: &mut v8::HandleScope,
 	compiler: Compiler,
-	args: (
-		tg::Module,
-		String,
-		Option<BTreeMap<String, String>>,
-	),
+	args: (tg::Module, String, Option<BTreeMap<String, String>>),
 ) -> tg::Result<tg::Module> {
 	let (module, specifier, attributes) = args;
 	let import = tg::Import::with_specifier_and_attributes(&specifier, attributes)

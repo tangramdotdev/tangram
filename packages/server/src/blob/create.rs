@@ -154,6 +154,7 @@ impl Server {
 							let data = tg::branch::Data { children };
 							let bytes = data.serialize()?;
 							let id = tg::branch::Id::new(&bytes);
+
 							let count = count + 1;
 							let weight = weight + bytes.len().to_u64().unwrap();
 

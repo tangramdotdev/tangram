@@ -17,9 +17,10 @@ impl Server {
 		arg: tg::artifact::checkin::Arg,
 	) -> tg::Result<impl Stream<Item = tg::Result<tg::Progress<tg::artifact::Id>>>> {
 		let bars = [
-			("input files", None),
-			("dependencies", None),
-			("output bytes", Some(0)),
+			("collecting input files", None),
+			("creating blobs", None),
+			("resolving dependencies", None),
+			("writing output", Some(0)),
 		];
 
 		let stream = tg::progress::stream(
@@ -81,9 +82,11 @@ impl Server {
 		progress: &ProgressState,
 	) -> tg::Result<tg::artifact::Id> {
 		// Collect the input.
+		progress.begin_input().await;
 		let input = self.collect_input(arg.clone(), progress).await.map_err(
 			|source| tg::error!(!source, %path = arg.path, "failed to collect check-in input"),
 		)?;
+		progress.finish_input().await;
 
 		// Construct the graph for unification.
 		let (mut unification_graph, root) = self
@@ -93,22 +96,27 @@ impl Server {
 
 		// Unify.
 		if !arg.deterministic {
+			progress.begin_dependencies().await;
 			unification_graph = self
 				.unify_dependencies(unification_graph, &root, progress)
 				.await
 				.map_err(|source| tg::error!(!source, "failed to unify object graph"))?;
+			progress.finish_dependencies().await;
 		}
 
 		// Validate.
 		unification_graph.validate(self)?;
 
 		// Create the lock that is written to disk.
+		progress.begin_blobs().await;
 		let lockfile = self
-			.create_lockfile(&unification_graph, &root)
+			.create_lockfile(&unification_graph, &root, progress)
 			.await
 			.map_err(|source| tg::error!(!source, "failed to create lockfile"))?;
+		progress.finish_blobs().await;
 
 		// Get the output.
+		progress.begin_output().await;
 		let output = self
 			.collect_output(input.clone(), lockfile.clone(), progress)
 			.await?;
@@ -127,13 +135,14 @@ impl Server {
 			self.copy_or_move_to_checkouts_directory(input.clone(), output.clone(), progress)
 				.await?;
 
-			// Otherwise, update hardlinks and xattrs.
+			// Update hardlinks and xattrs.
 			self.write_hardlinks_and_xattrs(input.clone(), output)
 				.await?;
 
 			// Write lockfiles.
 			self.write_lockfiles(input.clone(), &lockfile).await?;
 		}
+		progress.finish_output().await;
 
 		Ok(artifact)
 	}
@@ -195,31 +204,94 @@ impl ProgressState {
 }
 
 impl ProgressState {
+	async fn begin_input(&self) {
+		let Some(state) = &self.state else {
+			return;
+		};
+		state.begin("collecting input files").await;
+	}
+
+	async fn finish_input(&self) {
+		let Some(state) = &self.state else {
+			return;
+		};
+		state.finish("collecting input files").await;
+	}
+
 	fn report_input_progress(&self) {
 		let Some(state) = &self.state else {
 			return;
 		};
-		state.report_progress("input files", 1).ok();
+		state.report_progress("collecting input files", 1).ok();
 	}
 
-	fn report_dependency_progress(&self) {
+	async fn begin_dependencies(&self) {
 		let Some(state) = &self.state else {
 			return;
 		};
-		state.report_progress("dependencies", 1).ok();
+		state.begin("resolving dependencies").await;
+	}
+
+	async fn finish_dependencies(&self) {
+		let Some(state) = &self.state else {
+			return;
+		};
+		state.finish("resolving dependencies").await;
+	}
+
+	fn report_dependencies_progress(&self) {
+		let Some(state) = &self.state else {
+			return;
+		};
+		state.report_progress("resolving dependencies", 1).ok();
+	}
+
+	async fn begin_blobs(&self) {
+		let Some(state) = &self.state else {
+			return;
+		};
+		state.begin("creating blobs").await;
+	}
+
+	async fn finish_blobs(&self) {
+		let Some(state) = &self.state else {
+			return;
+		};
+		state.finish("creating blobs").await;
+	}
+
+	fn report_blobs_progress(&self) {
+		let Some(state) = &self.state else {
+			return;
+		};
+		state.report_progress("creating blobs", 1).ok();
+	}
+
+	async fn begin_output(&self) {
+		let Some(state) = &self.state else {
+			return;
+		};
+		state.begin("writing output").await;
+	}
+
+	async fn finish_output(&self) {
+		let Some(state) = &self.state else {
+			return;
+		};
+		state.finish("writing output").await;
 	}
 
 	fn update_output_total(&self, count: u64) {
 		let Some(state) = &self.state else {
 			return;
 		};
-		state.update_total("output bytes", count).ok();
+		state.update_total("writing output", count).ok();
 	}
 
 	fn report_output_progress(&self, count: u64) {
 		let Some(state) = &self.state else {
 			return;
 		};
-		state.report_progress("output bytes", count).ok();
+		state.report_progress("writing output", count).ok();
 	}
 }

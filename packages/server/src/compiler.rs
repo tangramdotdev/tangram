@@ -631,10 +631,7 @@ impl Compiler {
 		}
 	}
 
-	async fn module_for_lsp_uri(
-		&self,
-		uri: &lsp::Uri,
-	) -> tg::Result<tg::Module> {
+	async fn module_for_lsp_uri(&self, uri: &lsp::Uri) -> tg::Result<tg::Module> {
 		match uri.scheme().unwrap().as_str() {
 			"file" => {
 				let path = uri.path().as_str().parse::<tg::Path>()?;

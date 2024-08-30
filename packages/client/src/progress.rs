@@ -1,5 +1,5 @@
 use crate as tg;
-use futures::{stream, FutureExt, StreamExt};
+use futures::{stream, FutureExt, StreamExt, TryStreamExt};
 use serde::Serialize;
 use std::{
 	collections::BTreeMap,
@@ -11,7 +11,9 @@ use std::{
 };
 
 pub enum Progress<T> {
+	Begin(String),
 	Report(BTreeMap<String, Data>),
+	Finish(String),
 	End(T),
 }
 
@@ -23,6 +25,7 @@ pub struct Data {
 
 #[derive(Clone, Debug)]
 pub struct State {
+	sender: tokio::sync::mpsc::Sender<(String, BarState)>,
 	inner: Arc<BTreeMap<String, ProgressState>>,
 }
 
@@ -30,6 +33,12 @@ pub struct State {
 struct ProgressState {
 	current: AtomicU64,
 	total: Option<AtomicU64>,
+}
+
+#[derive(Copy, Clone, Debug)]
+enum BarState {
+	Started,
+	Finished,
 }
 
 pub fn stream<F, Fut, T, K>(
@@ -51,8 +60,10 @@ where
 			};
 			(name.into(), bar)
 		})
-		.collect();
+		.collect::<BTreeMap<_, _>>();
+	let (state_sender, state_receiver) = tokio::sync::mpsc::channel(bars.len());
 	let state = State {
+		sender: state_sender,
 		inner: Arc::new(bars),
 	};
 
@@ -85,10 +96,44 @@ where
 		.take_until(result.clone())
 		.chain(stream::once(result.map(|result| result.map(Progress::End))));
 
+	let stream = stream::try_unfold(
+		(stream, state_receiver),
+		|(mut stream, mut receiver)| async move {
+			let s = stream.try_next();
+			let r = receiver.recv();
+			let progress = tokio::select! {
+				progress = s => match progress {
+					Ok(Some(progress)) => progress,
+					Ok(None) => return Ok(None),
+					Err(error) => return Err(error),
+				},
+				msg = r => match msg {
+					Some((name, BarState::Started)) => tg::Progress::Begin(name),
+					Some((name, BarState::Finished)) => tg::Progress::Finish(name),
+					None => return Ok(None),
+				},
+			};
+			Ok::<_, tg::Error>(Some((progress, (stream, receiver))))
+		},
+	);
 	stream
 }
 
 impl State {
+	pub async fn begin(&self, name: &str) {
+		self.sender
+			.send((name.to_owned(), BarState::Started))
+			.await
+			.ok();
+	}
+
+	pub async fn finish(&self, name: &str) {
+		self.sender
+			.send((name.to_owned(), BarState::Finished))
+			.await
+			.ok();
+	}
+
 	pub fn report_progress(&self, name: &str, additional: u64) -> tg::Result<()> {
 		let bar = self
 			.inner
@@ -118,10 +163,28 @@ where
 	type Error = tg::Error;
 	fn try_into(self) -> Result<tangram_http::sse::Event, Self::Error> {
 		let event = match self {
+			Self::Begin(name) => {
+				let data = serde_json::to_string(&name)
+					.map_err(|source| tg::error!(!source, "failed to serialize progress"))?;
+				tangram_http::sse::Event {
+					event: Some("begin".to_owned()),
+					data,
+					..Default::default()
+				}
+			},
 			Self::Report(report) => {
 				let data = serde_json::to_string(&report)
 					.map_err(|source| tg::error!(!source, "failed to serialize progress"))?;
 				tangram_http::sse::Event {
+					data,
+					..Default::default()
+				}
+			},
+			Self::Finish(name) => {
+				let data = serde_json::to_string(&name)
+					.map_err(|source| tg::error!(!source, "failed to serialize progress"))?;
+				tangram_http::sse::Event {
+					event: Some("finish".to_owned()),
 					data,
 					..Default::default()
 				}
@@ -152,12 +215,27 @@ where
 					.map_err(|source| tg::error!(!source, "failed to deserialize progress"))?;
 				Ok(Self::Report(report))
 			},
+			Some("begin") => {
+				let name = serde_json::from_str(&value.data)
+					.map_err(|source| tg::error!(!source, "expected a string"))?;
+				Ok(Self::Begin(name))
+			},
+			Some("finish") => {
+				let name = serde_json::from_str(&value.data)
+					.map_err(|source| tg::error!(!source, "expected a string"))?;
+				Ok(Self::Finish(name))
+			},
 			Some("end") => {
-				let value: T = serde_json::from_str(&value.data)
+				let value = serde_json::from_str(&value.data)
 					.map_err(|source| tg::error!(!source, "failed to deserialize progress"))?;
 				Ok(Self::End(value))
 			},
-			_ => Err(tg::error!("unknown sse event")),
+			Some("error") => {
+				let error = serde_json::from_str(&value.data)
+					.map_err(|source| tg::error!(!source, "failed to deserialize the error"))?;
+				Err(error)
+			},
+			Some(event) => Err(tg::error!(%event, "invalid event")),
 		}
 	}
 }

@@ -472,7 +472,7 @@ impl Server {
 		}
 
 		// Send a progress report.
-		progress.report_dependency_progress();
+		progress.report_dependencies_progress();
 
 		// If there is no tag it is not a tag dependency, so return.
 		if current.edge.dst.is_right() {

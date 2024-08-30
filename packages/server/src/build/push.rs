@@ -54,6 +54,9 @@ impl Server {
 				let dst = dst.clone();
 				let build = build.clone();
 				|state| async move {
+					state.begin("builds").await;
+					state.begin("objects").await;
+					state.begin("bytes").await;
 					Self::push_or_pull_build_inner(&src, &dst, &build, arg, &state).await?;
 					Ok(())
 				}
@@ -144,6 +147,7 @@ impl Server {
 							}
 						},
 						tg::Progress::End(()) => break,
+						_ => (),
 					}
 				}
 				Ok::<_, tg::Error>((count, weight))
