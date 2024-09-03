@@ -72,7 +72,7 @@ where
 		let state = state.clone();
 		let fut = f(state);
 		async move {
-			result_sender.send(result).ok();
+			result_sender.send(fut.await).ok();
 		}
 	});
 
@@ -95,12 +95,9 @@ where
 				.collect();
 			Ok(Progress::Report(data))
 		})
-		.take_until({
-			result.clone()
-		})
-		.chain(stream::once(result.map(|result| {
-			result.map(Progress::End)
-		})));
+		.take_until(result.clone())
+		.chain(stream::once(result.map(|result| result.map(Progress::End))));
+
 
 	let stream = stream::try_unfold(
 		(stream, state_receiver),
