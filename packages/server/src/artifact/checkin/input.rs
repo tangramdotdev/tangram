@@ -214,8 +214,29 @@ impl Server {
 				tg::module::try_get_root_module_path_for_path(path.as_ref()).await?
 			{
 				let module_path = path.clone().join(root_module_path.clone()).normalize();
-				let mut module_dependencies = self.get_module_dependencies(&module_path).await?;
-				module_dependencies.insert(0, (tg::Reference::with_path(&root_module_path), None));
+				let module_dependencies = self
+					.get_module_dependencies(&module_path)
+					.await?
+					.into_iter()
+					.filter(|(reference, _)| {
+						let Some(path) = reference
+							.path()
+							.try_unwrap_path_ref()
+							.ok()
+							.or_else(|| reference.query()?.path.as_ref())
+						else {
+							return true;
+						};
+						matches!(
+							path.components().first(),
+							Some(tg::path::Component::Current)
+						)
+					})
+					.chain(std::iter::once((
+						tg::Reference::with_path(&root_module_path),
+						None,
+					)))
+					.collect();
 				return Ok(Some(module_dependencies));
 			}
 			self.get_directory_dependencies(path).await.map(Some)

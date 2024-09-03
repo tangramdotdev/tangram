@@ -55,9 +55,10 @@ impl Server {
 					let index = counter;
 					counter += 1;
 
-					let path = input.read().unwrap().arg.path.clone();
-					let path = path.diff(&root_path).unwrap();
+					let input = input.read().unwrap();
+					let path = input.arg.path.diff(&root_path).unwrap();
 					paths.insert(path, index);
+
 					ids.insert(old_id, Either::Left(index));
 				},
 				Either::Right(object) => {
@@ -88,7 +89,7 @@ impl Server {
 		let mut nodes = dependencies
 			.into_iter()
 			.map(|(old_id, dependencies)| async {
-				let node = graph.nodes.get(old_id).clone().unwrap();
+				let node = graph.nodes.get(old_id).unwrap();
 				let input = node.object.as_ref().unwrap_left().read().unwrap().clone();
 
 				let node = if input.metadata.is_dir() {
@@ -241,61 +242,71 @@ impl Server {
 		lockfile: &tg::Lockfile,
 	) -> tg::Result<()> {
 		let mut visited = BTreeSet::new();
-		let root = input.read().unwrap().arg.path.clone();
-		self.write_lockfiles_inner(&root, input, lockfile, &mut visited)
+		self.write_lockfiles_inner(input, lockfile, &mut visited)
 			.await
 	}
 
 	pub(super) async fn write_lockfiles_inner(
 		&self,
-		root: &tg::Path,
 		input: Arc<RwLock<Input>>,
 		lockfile: &tg::Lockfile,
 		visited: &mut BTreeSet<tg::Path>,
 	) -> tg::Result<()> {
-		// Handle the lockfile if needed.
-		'a: {
-			let Some((_, root_module_path)) = input.read().unwrap().lockfile.clone() else {
-				break 'a;
-			};
-			if visited.contains(&root_module_path) {
-				break 'a;
+		let Input {
+			arg,
+			metadata,
+			dependencies,
+			..
+		} = input.read().unwrap().clone();
+
+		if visited.contains(&arg.path) {
+			return Ok(());
+		}
+		visited.insert(arg.path.clone());
+
+		if metadata.is_dir() {
+			if let Some(_root_module_path) =
+				tg::module::try_get_root_module_path_for_path(arg.path.as_ref()).await?
+			{
+				let root = *lockfile
+					.paths
+					.get(&".".parse().unwrap())
+					.ok_or_else(|| tg::error!("missing workspace root in lockfile"))?;
+				let stripped_lockfile = self.strip_lockfile(lockfile, root).await?;
+				let contents = serde_json::to_string_pretty(&stripped_lockfile)
+					.map_err(|source| tg::error!(!source, "failed to serialize lockfile"))?;
+				let _permit = self.file_descriptor_semaphore.acquire().await.unwrap();
+				let lockfile_path = arg
+					.path
+					.join(tg::lockfile::TANGRAM_LOCKFILE_FILE_NAME)
+					.normalize();
+				tokio::fs::write(&lockfile_path, &contents)
+					.await
+					.map_err(|source| tg::error!(!source, "failed to write lockfile"))?;
+				tokio::fs::write(&lockfile_path, &contents)
+					.await
+					.map_err(|source| tg::error!(!source, "failed to write lockfile"))?;
+				return Ok(());
 			}
-			visited.insert(root_module_path.clone());
-			let diff = root_module_path.diff(root).unwrap();
-
-			let root = *lockfile
-				.paths
-				.get(&diff)
-				.ok_or_else(|| tg::error!("invalid lockfile"))?;
-
-			// Strip the lockfile.
-			let stripped_lockfile = self.strip_lockfile(lockfile, root).await?;
-			let contents = serde_json::to_string_pretty(&stripped_lockfile)
-				.map_err(|source| tg::error!(!source, "failed to serialize lockfile"))?;
-			let _permit = self.file_descriptor_semaphore.acquire().await.unwrap();
-			let lockfile_path = root_module_path
-				.parent()
-				.join(tg::lockfile::TANGRAM_LOCKFILE_FILE_NAME)
-				.normalize();
-
-			tokio::fs::write(&lockfile_path, &contents)
-				.await
-				.map_err(|source| tg::error!(!source, "failed to write lockfile"))?;
 		}
-		// Recurse.
-		let children = input
-			.read()
-			.unwrap()
-			.dependencies
+
+		let children = dependencies
 			.iter()
-			.flat_map(|map| map.values().flatten())
+			.flat_map(|map| {
+				map.values()
+					.filter_map(|v| v.as_ref().and_then(|e| e.as_ref().right()))
+			})
 			.cloned()
-			.filter_map(Either::right)
 			.collect::<Vec<_>>();
+
 		for child in children {
-			Box::pin(self.write_lockfiles_inner(root, child, lockfile, visited)).await?;
+			// Skip any paths outside the workspace. TODO: recurse over them if they do not contain cycles.
+			if child.read().unwrap().is_root {
+				continue;
+			}
+			Box::pin(self.write_lockfiles_inner(child, lockfile, visited)).await?;
 		}
+
 		Ok(())
 	}
 
@@ -361,9 +372,16 @@ impl Server {
 				visited.insert(node, Some(new_node));
 				nodes.push(tg::lockfile::Node::Directory { entries: entries_ });
 
-				// Add the path.
+				// Add to the paths if this is a package directory.
 				if let Some(path) = old_paths.get(&node) {
-					paths.insert((*path).clone(), new_node);
+					let is_package_dir = entries.keys().any(|name| {
+						tg::module::ROOT_MODULE_FILE_NAMES
+							.iter()
+							.any(|root| *root == name)
+					});
+					if is_package_dir {
+						paths.insert((*path).clone(), new_node);
+					}
 				}
 
 				Ok(Some(new_node))
@@ -382,11 +400,6 @@ impl Server {
 						dependencies: None,
 						executable: *executable,
 					});
-
-					// Add the path.
-					if let Some(path) = old_paths.get(&node) {
-						paths.insert((*path).clone(), new_node);
-					}
 
 					// Recurse and collect new dependencies.
 					let mut dependencies_ = BTreeMap::new();
@@ -440,11 +453,6 @@ impl Server {
 					path: path.clone(),
 				});
 				visited.insert(node, Some(new_node));
-
-				// Add the path.
-				if let Some(path) = old_paths.get(&node) {
-					paths.insert((*path).clone(), new_node);
-				}
 
 				Ok(Some(new_node))
 			},

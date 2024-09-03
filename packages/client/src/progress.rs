@@ -98,7 +98,6 @@ where
 		.take_until(result.clone())
 		.chain(stream::once(result.map(|result| result.map(Progress::End))));
 
-
 	let stream = stream::try_unfold(
 		(stream, state_receiver),
 		|(mut stream, mut receiver)| async move {
