@@ -71,7 +71,9 @@ where
 	tokio::task::spawn({
 		let state = state.clone();
 		let fut = f(state);
-		async move { result_sender.send(fut.await).ok() }
+		async move {
+			result_sender.send(result).ok();
+		}
 	});
 
 	// Create the progress stream.
@@ -93,25 +95,32 @@ where
 				.collect();
 			Ok(Progress::Report(data))
 		})
-		.take_until(result.clone())
-		.chain(stream::once(result.map(|result| result.map(Progress::End))));
+		.take_until({
+			result.clone()
+		})
+		.chain(stream::once(result.map(|result| {
+			result.map(Progress::End)
+		})));
 
 	let stream = stream::try_unfold(
 		(stream, state_receiver),
 		|(mut stream, mut receiver)| async move {
-			let s = stream.try_next();
-			let r = receiver.recv();
-			let progress = tokio::select! {
-				progress = s => match progress {
-					Ok(Some(progress)) => progress,
-					Ok(None) => return Ok(None),
-					Err(error) => return Err(error),
-				},
-				msg = r => match msg {
-					Some((name, BarState::Started)) => tg::Progress::Begin(name),
-					Some((name, BarState::Finished)) => tg::Progress::Finish(name),
-					None => return Ok(None),
-				},
+			// This select! is in a loop to guarantee that all progress messages are drained.
+			let progress = loop {
+				let s = stream.try_next();
+				let r = receiver.recv();
+				tokio::select! {
+					progress = s => match progress {
+						Ok(Some(progress)) => break progress,
+						Ok(None) => return Ok(None),
+						Err(error) => return Err(error),
+					},
+					msg = r => match msg {
+						Some((name, BarState::Started)) => break tg::Progress::Begin(name),
+						Some((name, BarState::Finished)) => break tg::Progress::Finish(name),
+						None => continue,
+					},
+				};
 			};
 			Ok::<_, tg::Error>(Some((progress, (stream, receiver))))
 		},
