@@ -44,6 +44,12 @@ impl Server {
 		arg: tg::artifact::checkin::Arg,
 		progress: ProgressState,
 	) -> tg::Result<tg::artifact::Id> {
+		// Normalize the path.
+		let arg = tg::artifact::checkin::Arg {
+			path: arg.path.clone().normalize(),
+			..arg
+		};
+
 		// If this is a checkin of a path in the checkouts directory, then retrieve the corresponding artifact.
 		let checkouts_path = self.checkouts_path().try_into()?;
 		if let Some(path) = arg.path.diff(&checkouts_path).filter(tg::Path::is_internal) {
