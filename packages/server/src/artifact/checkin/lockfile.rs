@@ -96,14 +96,17 @@ impl Server {
 					let entries = dependencies
 						.into_iter()
 						.map(|(reference, id)| {
-							eprintln!("{reference}");
 							let name = reference
 								.path()
 								.try_unwrap_path_ref()
-								.map_err(|_| tg::error!(%reference, "invalid input graph, expected a path"))?
+								.map_err(
+									|_| tg::error!(%reference, "invalid input graph, expected a path"),
+								)?
 								.components()
 								.last()
-								.ok_or_else(|| tg::error!("invalid input graph, expected a non-empty path"))?
+								.ok_or_else(|| {
+									tg::error!("invalid input graph, expected a non-empty path")
+								})?
 								.try_unwrap_normal_ref()
 								.map_err(|_| tg::error!("invalid input graph, expected a string"))?
 								.clone();
@@ -118,7 +121,11 @@ impl Server {
 								Some(Either::Right(tg::object::Id::Symlink(id))) => {
 									Either::Right(id.into())
 								},
-								_ => return Err(tg::error!("invalid input graph, expected an artifact")),
+								_ => {
+									return Err(tg::error!(
+										"invalid input graph, expected an artifact"
+									))
+								},
 							};
 							Ok::<_, tg::Error>((name, Some(id)))
 						})

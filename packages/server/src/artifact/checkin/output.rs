@@ -616,7 +616,17 @@ impl Server {
 			.iter()
 			.flatten()
 			.filter_map(|(reference, child)| {
-				Some((reference.clone(), child.as_ref()?.clone().right()?))
+				let child = child.as_ref()?.clone().right()?;
+				let path = reference
+					.path()
+					.try_unwrap_path_ref()
+					.ok()
+					.or_else(|| reference.query()?.path.as_ref())?;
+				matches!(
+					path.components().first(),
+					Some(tg::path::Component::Current)
+				)
+				.then_some((reference.clone(), child))
 			})
 			.collect::<Vec<_>>();
 		for (reference, child_input) in dependencies {
@@ -732,12 +742,18 @@ impl Server {
 		let mut visited = BTreeSet::new();
 		let mut stack = vec![(input, output)];
 		while let Some((input, output)) = stack.pop() {
+			let path = input.read().unwrap().arg.path.clone();
+			if visited.contains(&path) {
+				continue;
+			}
+			visited.insert(path);
 			let should_copy = {
 				let input = input.read().unwrap();
 				input.is_root || input.is_direct_dependency
 			};
 			if should_copy {
 				let artifact = output.read().unwrap().data.id()?;
+				let mut visited = BTreeSet::new();
 				let dest = self
 					.checkouts_path()
 					.join(artifact.to_string())

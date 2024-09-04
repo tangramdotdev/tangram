@@ -601,30 +601,12 @@ impl Server {
 
 		visited.insert(object_id.clone(), id.clone());
 
-		// If this is a file, get the outgoing edges.
-		let mut outgoing = BTreeMap::new();
-		if let tg::Object::File(file) = object {
-			let dependencies = file.dependencies(self).await?;
-			if let Some(Either::Right(dependencies)) = dependencies {
-				for (reference, object) in dependencies {
-					if let Ok(pattern) = reference.path().try_unwrap_tag_ref() {
-						let id = get_reference_from_pattern(pattern);
-						outgoing.insert(reference, Either::Left(id));
-					} else {
-						let id = Box::pin(self.create_unification_node_from_tagged_object_inner(
-							graph, &object, None, visited,
-						))
-						.await?;
-						outgoing.insert(reference, id);
-					}
-				}
-			}
-		}
+		// TODO: unify: true.
 
 		let node = Node {
 			id: id.clone(),
 			errors: Vec::new(),
-			outgoing,
+			outgoing: BTreeMap::new(),
 			_inline_object: false,
 			object: Either::Right(object_id),
 			tag,

@@ -4,7 +4,8 @@ use futures::{
 	TryStreamExt,
 };
 use std::{
-	collections::BTreeMap, sync::{Arc, Weak, RwLock}
+	collections::BTreeMap,
+	sync::{Arc, RwLock, Weak},
 };
 use tangram_client as tg;
 use tangram_either::Either;
@@ -17,7 +18,7 @@ pub struct Input {
 	pub is_direct_dependency: bool,
 	pub metadata: std::fs::Metadata,
 	pub lockfile: Option<(Arc<tg::Lockfile>, tg::Path)>,
-	pub parent: Option<Weak<RwLock<Self>>>
+	pub parent: Option<Weak<RwLock<Self>>>,
 }
 
 pub type Dependency = Option<Either<tg::object::Id, Arc<RwLock<Input>>>>;
