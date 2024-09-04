@@ -4,8 +4,7 @@ use futures::{
 	TryStreamExt,
 };
 use std::{
-	collections::BTreeMap,
-	sync::{Arc, RwLock},
+	collections::BTreeMap, sync::{Arc, Weak, RwLock}
 };
 use tangram_client as tg;
 use tangram_either::Either;
@@ -18,6 +17,7 @@ pub struct Input {
 	pub is_direct_dependency: bool,
 	pub metadata: std::fs::Metadata,
 	pub lockfile: Option<(Arc<tg::Lockfile>, tg::Path)>,
+	pub parent: Option<Weak<RwLock<Self>>>
 }
 
 pub type Dependency = Option<Either<tg::object::Id, Arc<RwLock<Input>>>>;
@@ -37,7 +37,7 @@ impl Server {
 			roots: Vec::new(),
 			visited: BTreeMap::new(),
 		});
-		self.collect_input_inner(arg, 0, None, false, &state, progress)
+		self.collect_input_inner(arg, 0, None, false, &state, progress, None)
 			.await
 	}
 
@@ -49,6 +49,7 @@ impl Server {
 		is_direct_dependency: bool,
 		state: &RwLock<State>,
 		progress: &super::ProgressState,
+		parent: Option<Weak<RwLock<Input>>>,
 	) -> tg::Result<Arc<RwLock<Input>>> {
 		if let Some(visited) = state.read().unwrap().visited.get(&arg.path).cloned() {
 			return Ok(visited);
@@ -106,6 +107,7 @@ impl Server {
 			is_direct_dependency,
 			lockfile: lockfile.clone(),
 			metadata: metadata.clone(),
+			parent,
 		}));
 
 		// Update state.
@@ -153,6 +155,7 @@ impl Server {
 						is_direct_dependency,
 						state,
 						progress,
+						Some(Arc::downgrade(&input)),
 					))
 					.await?;
 					Ok::<_, tg::Error>((reference, Some(Either::Right(child))))
@@ -225,7 +228,7 @@ impl Server {
 							.ok()
 							.or_else(|| reference.query()?.path.as_ref())
 						else {
-							return true;
+							return false;
 						};
 						matches!(
 							path.components().first(),

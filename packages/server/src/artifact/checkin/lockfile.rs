@@ -96,15 +96,16 @@ impl Server {
 					let entries = dependencies
 						.into_iter()
 						.map(|(reference, id)| {
+							eprintln!("{reference}");
 							let name = reference
 								.path()
 								.try_unwrap_path_ref()
-								.map_err(|_| tg::error!("invalid input graph"))?
+								.map_err(|_| tg::error!(%reference, "invalid input graph, expected a path"))?
 								.components()
 								.last()
-								.ok_or_else(|| tg::error!("invalid input graph"))?
+								.ok_or_else(|| tg::error!("invalid input graph, expected a non-empty path"))?
 								.try_unwrap_normal_ref()
-								.map_err(|_| tg::error!("invalid input graph"))?
+								.map_err(|_| tg::error!("invalid input graph, expected a string"))?
 								.clone();
 							let id = match id {
 								Some(Either::Left(id)) => Either::Left(id),
@@ -117,7 +118,7 @@ impl Server {
 								Some(Either::Right(tg::object::Id::Symlink(id))) => {
 									Either::Right(id.into())
 								},
-								_ => return Err(tg::error!("invalid input graph")),
+								_ => return Err(tg::error!("invalid input graph, expected an artifact")),
 							};
 							Ok::<_, tg::Error>((name, Some(id)))
 						})
@@ -128,7 +129,7 @@ impl Server {
 				} else if input.metadata.is_symlink() {
 					self.create_symlink_data(input).await?
 				} else {
-					return Err(tg::error!("invalid input graph"));
+					return Err(tg::error!("unknown file type"));
 				};
 				let index = *ids.get(old_id).unwrap().as_ref().unwrap_left();
 				Ok::<_, tg::Error>((index, node))
