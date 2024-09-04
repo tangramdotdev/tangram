@@ -9,6 +9,8 @@ impl Compiler {
 		referrer: &tg::Module,
 		import: &tg::Import,
 	) -> tg::Result<tg::Module> {
+		let mut kind = import.kind;
+
 		// Get the dependency.
 		let (object, path) = 'a: {
 			if let Some(Either::Left(tg::object::Id::Directory(package))) = referrer.object() {
@@ -65,8 +67,8 @@ impl Compiler {
 			}
 		};
 
-		// If the kind was not specified and the object is a package, then return its root module.
-		if import.kind.is_none() {
+		// If the kind is not known and the object is a package, then return its root module.
+		if kind.is_none() {
 			match &object {
 				Either::Left(object) => {
 					let object = if let Some(path) = &path {
@@ -114,8 +116,20 @@ impl Compiler {
 			}
 		}
 
-		// Determine the module's kind.
-		let kind = if let Some(kind) = import.kind {
+		// If the kind was not specified and the path ends in a well known extension, then use it.
+		if kind.is_none() {
+			if let Some(path) = &path {
+				#[allow(clippy::case_sensitive_file_extension_comparisons)]
+				if path.as_str().ends_with(".js") {
+					kind = Some(tg::module::Kind::Js);
+				} else if path.as_str().ends_with(".ts") {
+					kind = Some(tg::module::Kind::Ts);
+				}
+			}
+		}
+
+		// If the kind is not known, then infer it.
+		let kind = if let Some(kind) = kind {
 			kind
 		} else {
 			match &object {

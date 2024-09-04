@@ -43,10 +43,18 @@ export function target<
 	) {
 		let arg = args[0];
 
+		let module = Module.parse(arg.module);
+
 		// Create the target.
 		let args_ = [arg.name];
 		let checksum = undefined;
-		let executable = tg.Artifact.withId(Module.parse(arg.module).path.object!);
+		let executable = tg.Artifact.withId(module.path.object!);
+		if (module.path.path !== undefined) {
+			let path = tg.path(module.path.path);
+			executable = new tg.Symlink({
+				object: { artifact: executable, path: path },
+			});
+		}
 		const env = currentTarget.state.object!.env;
 		let object = {
 			args: args_,
