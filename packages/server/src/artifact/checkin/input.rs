@@ -4,7 +4,7 @@ use futures::{
 	TryStreamExt,
 };
 use std::{
-	collections::BTreeMap,
+	collections::{BTreeMap, BTreeSet, VecDeque},
 	sync::{Arc, RwLock, Weak},
 };
 use tangram_client as tg;
@@ -38,8 +38,13 @@ impl Server {
 			roots: Vec::new(),
 			visited: BTreeMap::new(),
 		});
-		self.collect_input_inner(arg, 0, None, false, &state, progress, None)
-			.await
+		let input = self
+			.collect_input_inner(arg, 0, None, false, &state, progress, None)
+			.await?;
+		if input.read().unwrap().metadata.is_dir() {
+			self.reparent_file_path_dependencies(input.clone()).await?;
+		}
+		Ok(input)
 	}
 
 	async fn collect_input_inner(
@@ -217,31 +222,10 @@ impl Server {
 			if let Some(root_module_path) =
 				tg::module::try_get_root_module_path_for_path(path.as_ref()).await?
 			{
-				let module_path = path.clone().join(root_module_path.clone()).normalize();
-				let module_dependencies = self
-					.get_module_dependencies(&module_path)
-					.await?
-					.into_iter()
-					.filter(|(reference, _)| {
-						let Some(path) = reference
-							.path()
-							.try_unwrap_path_ref()
-							.ok()
-							.or_else(|| reference.query()?.path.as_ref())
-						else {
-							return false;
-						};
-						matches!(
-							path.components().first(),
-							Some(tg::path::Component::Current)
-						)
-					})
-					.chain(std::iter::once((
-						tg::Reference::with_path(&root_module_path),
-						None,
-					)))
-					.collect();
-				return Ok(Some(module_dependencies));
+				return Ok(Some(vec![(
+					tg::Reference::with_path(&root_module_path),
+					None,
+				)]));
 			}
 			self.get_directory_dependencies(path).await.map(Some)
 		} else if metadata.is_file() {
@@ -268,7 +252,19 @@ impl Server {
 					.into_iter()
 					.map(|v| (tg::Reference::with_object(&v), None))
 					.collect(),
-				Either::Right(map) => map.into_iter().map(|(k, v)| (k, Some(v))).collect(),
+				Either::Right(map) => map
+					.into_iter()
+					.map(|(reference, id)| {
+						let id = reference
+							.path()
+							.try_unwrap_path_ref()
+							.ok()
+							.or_else(|| reference.query()?.path.as_ref())
+							.is_none()
+							.then_some(id);
+						(reference, id)
+					})
+					.collect(),
 			};
 			return Ok(Some(dependencies));
 		}
@@ -324,5 +320,175 @@ impl Server {
 		})
 		.try_collect()
 		.await
+	}
+
+	async fn reparent_file_path_dependencies(&self, input: Arc<RwLock<Input>>) -> tg::Result<()> {
+		let mut visited = BTreeSet::new();
+		let mut queue: VecDeque<_> = vec![input].into();
+
+		// We explicitly use breadth-first traversal here as a heuristic, to ensure that most nodes' parents are already reparented.
+		while let Some(input) = queue.pop_front() {
+			// Check if we've visited this node.
+			let absolute_path = input.read().unwrap().arg.path.clone();
+			if visited.contains(&absolute_path) {
+				continue;
+			}
+			visited.insert(absolute_path.clone());
+
+			// Get the dependencies.
+			let Some(dependencies) = input.read().unwrap().dependencies.clone() else {
+				continue;
+			};
+
+			// If this input is a file, reparent its children.
+			if input.read().unwrap().metadata.is_file() {
+				let dependencies = dependencies.iter().filter_map(|(reference, child)| {
+					let child = child.as_ref()?.as_ref().right()?.clone();
+					reference
+						.path()
+						.try_unwrap_path_ref()
+						.ok()
+						.or_else(|| reference.query()?.path.as_ref())
+						.is_some()
+						.then_some(child)
+				});
+				for child in dependencies {
+					self.reparent_file_path_dependency(child).await?;
+				}
+			}
+
+			// Add its children to the stack.
+			let children = dependencies
+				.values()
+				.filter_map(|either| either.as_ref()?.as_ref().right())
+				.cloned();
+			queue.extend(children);
+		}
+		Ok(())
+	}
+
+	async fn reparent_file_path_dependency(&self, child: Arc<RwLock<Input>>) -> tg::Result<()> {
+		let Some(parent) = child.read().unwrap().parent.as_ref().map(Weak::upgrade) else {
+			return Ok(());
+		};
+		let parent = parent.unwrap();
+
+		// Check if this node has already been reparented.
+		if parent.read().unwrap().metadata.is_dir() {
+			return Ok(());
+		}
+
+		// Reparent the parent. This short circuits if the parent is already re-parented.
+		Box::pin(self.reparent_file_path_dependency(parent.clone())).await?;
+
+		// Otherwise get the grandparent.
+		let grandparent = parent
+			.read()
+			.unwrap()
+			.parent
+			.clone()
+			.ok_or_else(|| tg::error!("invalid path"))?
+			.upgrade()
+			.unwrap();
+		if !grandparent.read().unwrap().metadata.is_dir() {
+			return Err(
+				tg::error!(%parent = parent.read().unwrap().arg.path, %grandparent = grandparent.read().unwrap().arg.path, "expected a directory"),
+			);
+		}
+		let mut parent = grandparent;
+
+		// Get the path to the child relative to the parent.
+		let mut components: VecDeque<_> = child
+			.read()
+			.unwrap()
+			.arg
+			.path
+			.diff(&parent.read().unwrap().arg.path)
+			.unwrap()
+			.into_components()
+			.into();
+
+		// Walk up.
+		while let Some(tg::path::Component::Parent) = components.front() {
+			components.pop_front();
+			let new_parent = parent
+				.read()
+				.unwrap()
+				.parent
+				.clone()
+				.ok_or_else(|| tg::error!("invalid path"))?
+				.upgrade()
+				.unwrap();
+			if !new_parent.read().unwrap().metadata.is_dir() {
+				return Err(
+					tg::error!(%path = new_parent.read().unwrap().arg.path, "expected a directory"),
+				);
+			}
+			parent = new_parent;
+		}
+
+		// Walk down.
+		while let Some(component) = components.pop_front() {
+			match component {
+				tg::path::Component::Current => (),
+				tg::path::Component::Normal(name) if components.is_empty() => {
+					let reference = tg::Reference::with_path(&name.parse()?);
+					parent
+						.write()
+						.unwrap()
+						.dependencies
+						.as_mut()
+						.unwrap()
+						.insert(reference, Some(Either::Right(child.clone())));
+					child
+						.write()
+						.unwrap()
+						.parent
+						.replace(Arc::downgrade(&parent));
+					return Ok(());
+				},
+				tg::path::Component::Normal(name) => {
+					let reference = tg::Reference::with_path(&name.parse()?);
+					let input = parent
+						.read()
+						.unwrap()
+						.dependencies
+						.as_ref()
+						.unwrap()
+						.get(&reference)
+						.and_then(|inner| inner.as_ref()?.as_ref().right().cloned());
+					if let Some(input) = input {
+						parent = input;
+						continue;
+					}
+					let arg = parent.read().unwrap().arg.clone();
+					let path = arg.path.clone().join(&name);
+					let metadata = tokio::fs::metadata(&path).await.map_err(|source| {
+						tg::error!(!source, "failed to get directory metadata")
+					})?;
+					let arg = tg::artifact::checkin::Arg { path, ..arg };
+					let child = Arc::new(RwLock::new(Input {
+						arg,
+						dependencies: Some(BTreeMap::new()),
+						is_root: false,
+						is_direct_dependency: false,
+						metadata,
+						lockfile: parent.read().unwrap().lockfile.clone(),
+						parent: Some(Arc::downgrade(&parent)),
+					}));
+					parent
+						.write()
+						.unwrap()
+						.dependencies
+						.as_mut()
+						.unwrap()
+						.insert(reference, Some(Either::Right(child.clone())));
+					parent = child;
+				},
+				_ => return Err(tg::error!("unepxected path component")),
+			}
+		}
+
+		Err(tg::error!("failed to reparent orphaned input node"))
 	}
 }

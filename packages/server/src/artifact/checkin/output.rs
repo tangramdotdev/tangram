@@ -842,7 +842,7 @@ impl Server {
 				}
 			}
 			tokio::fs::copy(&input.arg.path, &dest).await.map_err(
-				|source| tg::error!(!source, %path = input.arg.path, "failed to copy file"),
+				|source| tg::error!(!source, %path = input.arg.path, %dest, "failed to copy file"),
 			)?;
 		} else {
 			return Err(tg::error!(%path = input.arg.path, "invalid file type"));
