@@ -1,12 +1,19 @@
 {
   "paths": {
-    "./tangram.ts": 0
+    ".": 1
   },
   "nodes": [
     {
       "kind": "file",
       "dependencies": {
         "./README.md": null
+      }
+    },
+    {
+      "kind": "directory",
+      "entries": {
+        "README.md": null,
+        "tangram.ts": 0
       }
     }
   ]

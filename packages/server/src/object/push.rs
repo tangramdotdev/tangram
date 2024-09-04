@@ -28,7 +28,6 @@ impl Server {
 		dst: &impl tg::Handle,
 		object: &tg::object::Id,
 	) -> tg::Result<impl Stream<Item = tg::Result<tg::Progress<()>>> + Send + 'static> {
-		// Get the metadata.
 		let metadata = src.get_object_metadata(object).await?;
 		let bars = [("objects", metadata.count), ("bytes", metadata.weight)];
 		let stream = tg::progress::stream(
@@ -45,7 +44,6 @@ impl Server {
 			},
 			bars,
 		);
-
 		Ok(stream)
 	}
 

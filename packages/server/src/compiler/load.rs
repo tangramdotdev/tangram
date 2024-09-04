@@ -86,7 +86,7 @@ impl Compiler {
 				| tg::module::Kind::Graph
 				| tg::module::Kind::Target,
 				Some(object),
-				_,
+				path,
 			) => {
 				let class = match module.kind() {
 					tg::module::Kind::Object => "Object",
@@ -103,7 +103,16 @@ impl Compiler {
 				};
 				match object {
 					Either::Left(object) => {
-						let object = object.to_string();
+						let object = tg::Object::with_id(object.clone());
+						let object = if let Some(path) = path {
+							let tg::Object::Directory(directory) = object else {
+								return Err(tg::error!("expected a directory"));
+							};
+							directory.get(&self.server, path).await?.into()
+						} else {
+							object
+						};
+						let object = object.id(&self.server).await?;
 						Ok(format!(r#"export default tg.{class}.withId("{object}");"#))
 					},
 					Either::Right(_) => Ok(format!(

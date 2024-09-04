@@ -138,6 +138,7 @@ impl Server {
 			.await?;
 		nodes.sort_unstable_by_key(|(k, _)| *k);
 		let nodes = nodes.into_iter().map(|(_, n)| n).collect();
+
 		Ok(tg::Lockfile { paths, nodes })
 	}
 
@@ -231,6 +232,7 @@ impl Server {
 		} else {
 			return Err(tg::error!("invalid symlink"));
 		};
+
 		Ok(tg::lockfile::Node::Symlink { artifact, path })
 	}
 }
@@ -319,7 +321,6 @@ impl Server {
 		let mut nodes = Vec::with_capacity(lockfile.nodes.len());
 		let mut paths = BTreeMap::new();
 		let mut visited = BTreeMap::new();
-
 		let old_paths = lockfile
 			.paths
 			.iter()

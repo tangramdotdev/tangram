@@ -20,7 +20,7 @@ impl Compiler {
 				// Handle a path import.
 				if let tg::reference::Path::Path(import_path) = import.reference.path() {
 					let object = Either::Left(package.clone().into());
-					let path = path.clone().join(import_path.clone());
+					let path = path.clone().parent().join(import_path.clone()).normalize();
 
 					// If the import is internal to the package, then use the imported path in the existing package.
 					if path.is_internal() {
@@ -47,7 +47,7 @@ impl Compiler {
 				// Handle a path import.
 				if let tg::reference::Path::Path(import_path) = import.reference.path() {
 					let object = package.clone();
-					let path = path.clone().join(import_path.clone());
+					let path = path.clone().parent().join(import_path.clone()).normalize();
 
 					// If the import is internal to the package, then use the imported path in the existing package.
 					if path.is_internal() {
@@ -74,8 +74,15 @@ impl Compiler {
 							.try_unwrap_directory_ref()
 							.ok()
 							.ok_or_else(|| tg::error!("expected a directory"))?
-							.get(&self.server, path)
+							.try_get(&self.server, path)
 							.await?
+							.ok_or_else(|| {
+								tg::error!(
+									?object,
+									?path,
+									"expected the directory to contain the path"
+								)
+							})?
 							.into()
 					} else {
 						object.clone()

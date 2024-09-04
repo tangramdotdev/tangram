@@ -46,11 +46,14 @@ async fn consume_progress_stream<T>(
 					}
 				}
 			},
-			tg::Progress::End(value) => return Ok(value),
+			tg::Progress::End(value) => {
+				return Ok(value);
+			},
 		}
 	}
 	Err(tg::error!("stream closed early"))
 }
+
 #[cfg(test)]
 mod tests {
 	use tangram_client as tg;
