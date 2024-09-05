@@ -1,7 +1,6 @@
 use crate::{self as tg, util::serde::is_false};
 use std::collections::BTreeMap;
 use tangram_either::Either;
-use tokio::io::AsyncWriteExt;
 pub const TANGRAM_LOCKFILE_FILE_NAME: &str = "tangram.lock";
 
 #[derive(Default, Clone, Debug, serde::Serialize, serde::Deserialize)]
@@ -51,28 +50,6 @@ impl Lockfile {
 			.map_err(|source| tg::error!(!source, %path, "failed to deserialize lockfile"))?;
 		Ok(Some(lockfile))
 	}
-
-	// pub async fn write(&self, path: &tg::Path) -> tg::Result<()> {
-	// 	let root_module_path = get_root_module_path_for_path(path.as_ref()).await?;
-	// 	let lockfile_path = root_module_path.parent().normalize();
-	// 	let contents = serde_json::to_vec_pretty(self)
-	// 		.map_err(|source| tg::error!(!source, "failed to serialize lockfile"))?;
-	// 	tokio::fs::File::options()
-	// 		.create(true)
-	// 		.append(false)
-	// 		.truncate(true)
-	// 		.open(&lockfile_path)
-	// 		.await
-	// 		.map_err(
-	// 			|source| tg::error!(!source, %path = lockfile_path, "failed to open lockfile"),
-	// 		)?
-	// 		.write_all(&contents)
-	// 		.await
-	// 		.map_err(
-	// 			|source| tg::error!(!source, %path = lockfile_path, "failed to write lockfile"),
-	// 		)?;
-	// 	Ok(())
-	// }
 }
 
 impl Node {
