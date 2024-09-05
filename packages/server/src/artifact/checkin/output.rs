@@ -1,4 +1,4 @@
-use super::{input, ProgressState};
+use super::{ProgressState, input};
 use crate::{tmp::Tmp, Server};
 use indoc::formatdoc;
 use itertools::Itertools;
@@ -15,7 +15,7 @@ use tangram_either::Either;
 use time::format_description::well_known::Rfc3339;
 
 #[derive(Clone, Debug)]
-pub struct Output {
+pub struct Graph {
 	pub data: tg::artifact::Data,
 	pub lock_index: usize,
 	pub weight: usize,
@@ -25,14 +25,14 @@ pub struct Output {
 struct State {
 	root: tg::Path,
 	artifacts: BTreeMap<usize, tg::artifact::Data>,
-	visited: BTreeMap<tg::Path, Arc<RwLock<Output>>>,
+	visited: BTreeMap<tg::Path, Arc<RwLock<Graph>>>,
 	lockfile: tg::Lockfile,
 }
 
 impl Server {
 	pub async fn compute_count_and_weight(
 		&self,
-		output: Arc<RwLock<Output>>,
+		output: Arc<RwLock<Graph>>,
 		lockfile: &tg::Lockfile,
 	) -> tg::Result<BTreeMap<tg::artifact::Id, (usize, usize)>> {
 		// Get the output in reverse-topological order. TODO: is this really necessary?
@@ -81,7 +81,7 @@ impl Server {
 
 	pub async fn write_output_to_database(
 		&self,
-		output: Arc<RwLock<Output>>,
+		output: Arc<RwLock<Graph>>,
 		lockfile: &tg::Lockfile,
 	) -> tg::Result<()> {
 		// Compute count and weight.
@@ -157,7 +157,7 @@ impl Server {
 		input: Arc<RwLock<input::Graph>>,
 		lockfile: tg::Lockfile,
 		progress: &super::ProgressState,
-	) -> tg::Result<Arc<RwLock<Output>>> {
+	) -> tg::Result<Arc<RwLock<Graph>>> {
 		let root = input.read().unwrap().arg.path.clone();
 		let artifacts = self.create_artifact_data(&lockfile).await?;
 		let mut state = State {
@@ -174,7 +174,7 @@ impl Server {
 		input: Arc<RwLock<input::Graph>>,
 		state: &mut State,
 		progress: &super::ProgressState,
-	) -> tg::Result<Arc<RwLock<Output>>> {
+	) -> tg::Result<Arc<RwLock<Graph>>> {
 		let path = input.read().unwrap().arg.path.clone();
 		let path = path.diff(&state.root).unwrap();
 		if let Some(output) = state.visited.get(&path) {
@@ -202,7 +202,7 @@ impl Server {
 		}
 
 		// Create the output
-		let output = Arc::new(RwLock::new(Output {
+		let output = Arc::new(RwLock::new(Graph {
 			data,
 			weight: 0,
 			lock_index,
@@ -545,7 +545,7 @@ impl Server {
 	pub async fn write_links(
 		&self,
 		input: Arc<RwLock<input::Graph>>,
-		output: Arc<RwLock<Output>>,
+		output: Arc<RwLock<Graph>>,
 	) -> tg::Result<()> {
 		let path = self
 			.checkouts_path()
@@ -561,7 +561,7 @@ impl Server {
 		&self,
 		path: &tg::Path,
 		input: Arc<RwLock<input::Graph>>,
-		output: Arc<RwLock<Output>>,
+		output: Arc<RwLock<Graph>>,
 		visited: &mut BTreeSet<tg::Path>,
 	) -> tg::Result<()> {
 		if visited.contains(path) {
@@ -739,7 +739,7 @@ impl Server {
 	pub(super) async fn copy_or_move_to_checkouts_directory(
 		&self,
 		input: Arc<RwLock<input::Graph>>,
-		output: Arc<RwLock<Output>>,
+		output: Arc<RwLock<Graph>>,
 		progress: &super::ProgressState,
 	) -> tg::Result<()> {
 		let mut visited = BTreeSet::new();
@@ -804,7 +804,7 @@ impl Server {
 		&self,
 		dest: tg::Path,
 		input: Arc<RwLock<input::Graph>>,
-		output: Arc<RwLock<Output>>,
+		output: Arc<RwLock<Graph>>,
 		visited: &mut BTreeSet<tg::Path>,
 		progress: &ProgressState,
 	) -> tg::Result<()> {
@@ -902,7 +902,7 @@ impl Server {
 		Ok(())
 	}
 
-	async fn write_xattrs(&self, dest: tg::Path, output: Arc<RwLock<Output>>) -> tg::Result<()> {
+	async fn write_xattrs(&self, dest: tg::Path, output: Arc<RwLock<Graph>>) -> tg::Result<()> {
 		let mut visited = BTreeSet::new();
 		self.write_xattrs_inner(dest, &output, &mut visited).await
 	}
@@ -910,7 +910,7 @@ impl Server {
 	async fn write_xattrs_inner(
 		&self,
 		dest: tg::Path,
-		output: &Arc<RwLock<Output>>,
+		output: &Arc<RwLock<Graph>>,
 		visited: &mut BTreeSet<tg::Path>,
 	) -> tg::Result<()> {
 		if visited.contains(&dest) {
