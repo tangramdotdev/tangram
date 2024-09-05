@@ -1,6 +1,7 @@
 use super::{input::Input, ProgressState};
 use crate::Server;
 use indoc::formatdoc;
+use itertools::Itertools;
 use num::ToPrimitive;
 use std::{
 	collections::{BTreeMap, BTreeSet},
@@ -569,15 +570,9 @@ impl Server {
 		visited.insert(path.clone());
 		let data = output.read().unwrap().data.clone();
 		let id = data.id()?;
-
-		if let tg::artifact::Data::File(tg::file::Data::Normal {
-			contents,
-			dependencies,
-			..
-		}) = data
-		{
-			let _permit = self.file_descriptor_semaphore.acquire().await.unwrap();
+		if let tg::artifact::Data::File(file) = data {
 			let dst: tg::Path = self.checkouts_path().join(id.to_string()).try_into()?;
+			let _permit = self.file_descriptor_semaphore.acquire().await.unwrap();
 
 			// Create hard link to the file.
 			match tokio::fs::hard_link(path, &dst).await {
@@ -587,6 +582,49 @@ impl Server {
 					return Err(tg::error!(!source, %src = path, %dst, "failed to create hardlink"))
 				},
 			}
+
+			// Get the contents.
+			let (contents, dependencies) = match file {
+				tg::file::Data::Normal {
+					contents,
+					dependencies,
+					..
+				} => (contents, dependencies),
+				tg::file::Data::Graph { graph, node } => {
+					let graph = tg::Graph::with_id(graph).data(self).await?;
+					let tg::graph::data::Node::File(file) = &graph.nodes[node] else {
+						return Err(tg::error!("expected a file"));
+					};
+					let contents = file.contents.clone();
+					let dependencies = match &file.dependencies {
+						Some(Either::Left(set)) => {
+							let set = set
+								.iter()
+								.map(|either| match either {
+									Either::Left(node) => Ok(graph.id_of_node(*node)?.into()),
+									Either::Right(id) => Ok::<_, tg::Error>(id.clone()),
+								})
+								.try_collect()?;
+							Some(Either::Left(set))
+						},
+						Some(Either::Right(map)) => {
+							let map = map
+								.iter()
+								.map(|(reference, either)| {
+									let id = match either {
+										Either::Left(node) => graph.id_of_node(*node)?.into(),
+										Either::Right(id) => id.clone(),
+									};
+									Ok::<_, tg::Error>((reference.clone(), id))
+								})
+								.try_collect()?;
+							Some(Either::Right(map))
+						},
+						None => None,
+					};
+					(contents, dependencies)
+				},
+			};
 
 			// Create a symlink to the file in the blobs directory.
 			let symlink_target = PathBuf::from("../checkouts").join(id.to_string());

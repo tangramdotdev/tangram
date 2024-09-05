@@ -47,6 +47,7 @@ impl Server {
 		Ok(input)
 	}
 
+	#[allow(clippy::too_many_arguments)]
 	async fn collect_input_inner(
 		&self,
 		arg: tg::artifact::checkin::Arg,
