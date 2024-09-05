@@ -3,22 +3,21 @@ use std::{
 	os::unix::fs::PermissionsExt,
 	sync::{Arc, RwLock},
 };
-
+use super::{
+	input,
+	unify::{self, Id},
+};
+use crate::util::module::try_get_root_module_path_for_path;
 use crate::Server;
 use futures::{stream::FuturesUnordered, TryStreamExt};
 use itertools::Itertools;
 use tangram_client as tg;
 use tangram_either::Either;
 
-use super::{
-	input::Input,
-	unify::{Graph, Id},
-};
-
 impl Server {
 	pub(super) async fn create_lockfile(
 		&self,
-		graph: &Graph,
+		graph: &unify::Graph,
 		root: &Id,
 		progress: &super::ProgressState,
 	) -> tg::Result<tg::Lockfile> {
@@ -152,11 +151,11 @@ impl Server {
 
 	async fn create_file_data(
 		&self,
-		input: Input,
+		input: input::Graph,
 		dependencies: BTreeMap<tg::Reference, tg::lockfile::Entry>,
 		progress: &super::ProgressState,
 	) -> tg::Result<tg::lockfile::Node> {
-		let super::input::Input { arg, metadata, .. } = input;
+		let input::Graph { arg, metadata, .. } = input;
 
 		// Read the file contents.
 		let permit = self.file_descriptor_semaphore.acquire().await.unwrap();
@@ -189,8 +188,8 @@ impl Server {
 		})
 	}
 
-	async fn create_symlink_data(&self, input: Input) -> tg::Result<tg::lockfile::Node> {
-		let Input { arg, .. } = input;
+	async fn create_symlink_data(&self, input: input::Graph) -> tg::Result<tg::lockfile::Node> {
+		let input::Graph { arg, .. } = input;
 		let path = arg.path.clone();
 
 		// Read the target from the symlink.
@@ -248,7 +247,7 @@ impl Server {
 impl Server {
 	pub(super) async fn write_lockfiles(
 		&self,
-		input: Arc<RwLock<Input>>,
+		input: Arc<RwLock<input::Graph>>,
 		lockfile: &tg::Lockfile,
 	) -> tg::Result<()> {
 		let mut visited = BTreeSet::new();
@@ -258,11 +257,11 @@ impl Server {
 
 	pub(super) async fn write_lockfiles_inner(
 		&self,
-		input: Arc<RwLock<Input>>,
+		input: Arc<RwLock<input::Graph>>,
 		lockfile: &tg::Lockfile,
 		visited: &mut BTreeSet<tg::Path>,
 	) -> tg::Result<()> {
-		let Input {
+		let input::Graph {
 			arg,
 			metadata,
 			dependencies,
@@ -276,7 +275,7 @@ impl Server {
 
 		if metadata.is_dir() {
 			if let Some(_root_module_path) =
-				tg::module::try_get_root_module_path_for_path(arg.path.as_ref()).await?
+				try_get_root_module_path_for_path(arg.path.as_ref()).await?
 			{
 				let root = *lockfile
 					.paths

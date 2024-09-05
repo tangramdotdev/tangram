@@ -1,4 +1,4 @@
-use crate::{compiler::Compiler, Server};
+use crate::{compiler::Compiler, util, Server};
 use std::collections::HashSet;
 use tangram_client as tg;
 use tangram_http::{incoming::request::Ext as _, outgoing::response::Ext as _, Incoming, Outgoing};
@@ -6,7 +6,7 @@ use tangram_http::{incoming::request::Ext as _, outgoing::response::Ext as _, In
 impl Server {
 	pub async fn format_package(&self, arg: tg::package::format::Arg) -> tg::Result<()> {
 		// Get the root module path.
-		let path = tg::module::get_root_module_path_for_path(arg.path.as_ref()).await?;
+		let path = util::module::get_root_module_path_for_path(arg.path.as_ref()).await?;
 
 		// Format the modules recursively.
 		let mut visited = HashSet::default();

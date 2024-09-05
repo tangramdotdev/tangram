@@ -1,4 +1,4 @@
-use super::{input::Input, ProgressState};
+use super::{input, ProgressState};
 use crate::{tmp::Tmp, Server};
 use indoc::formatdoc;
 use itertools::Itertools;
@@ -154,7 +154,7 @@ impl Server {
 impl Server {
 	pub(super) async fn collect_output(
 		&self,
-		input: Arc<RwLock<Input>>,
+		input: Arc<RwLock<input::Graph>>,
 		lockfile: tg::Lockfile,
 		progress: &super::ProgressState,
 	) -> tg::Result<Arc<RwLock<Output>>> {
@@ -171,7 +171,7 @@ impl Server {
 
 	async fn collect_output_inner(
 		&self,
-		input: Arc<RwLock<Input>>,
+		input: Arc<RwLock<input::Graph>>,
 		state: &mut State,
 		progress: &super::ProgressState,
 	) -> tg::Result<Arc<RwLock<Output>>> {
@@ -544,7 +544,7 @@ impl Server {
 impl Server {
 	pub async fn write_links(
 		&self,
-		input: Arc<RwLock<Input>>,
+		input: Arc<RwLock<input::Graph>>,
 		output: Arc<RwLock<Output>>,
 	) -> tg::Result<()> {
 		let path = self
@@ -560,7 +560,7 @@ impl Server {
 	async fn write_links_inner(
 		&self,
 		path: &tg::Path,
-		input: Arc<RwLock<Input>>,
+		input: Arc<RwLock<input::Graph>>,
 		output: Arc<RwLock<Output>>,
 		visited: &mut BTreeSet<tg::Path>,
 	) -> tg::Result<()> {
@@ -738,7 +738,7 @@ impl<'a> petgraph::visit::IntoNodeIdentifiers for GraphImpl<'a> {
 impl Server {
 	pub(super) async fn copy_or_move_to_checkouts_directory(
 		&self,
-		input: Arc<RwLock<Input>>,
+		input: Arc<RwLock<input::Graph>>,
 		output: Arc<RwLock<Output>>,
 		progress: &super::ProgressState,
 	) -> tg::Result<()> {
@@ -803,7 +803,7 @@ impl Server {
 	async fn copy_or_move_all(
 		&self,
 		dest: tg::Path,
-		input: Arc<RwLock<Input>>,
+		input: Arc<RwLock<input::Graph>>,
 		output: Arc<RwLock<Output>>,
 		visited: &mut BTreeSet<tg::Path>,
 		progress: &ProgressState,

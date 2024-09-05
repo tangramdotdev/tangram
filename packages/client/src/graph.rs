@@ -430,17 +430,29 @@ impl Data {
 	}
 
 	pub fn id_of_node(&self, node: usize) -> tg::Result<tg::artifact::Id> {
-		let data = self.nodes.get(node).ok_or_else(|| tg::error!("index out of bounds"))?;
+		let data = self
+			.nodes
+			.get(node)
+			.ok_or_else(|| tg::error!("index out of bounds"))?;
 		match data {
-			data::Node::Directory(_) => {
-				Ok(tg::directory::Data::Graph { graph: self.id()?, node }.id()?.into())
-			},
-			data::Node::File(_) => {
-				Ok(tg::file::Data::Graph { graph: self.id()?, node }.id()?.into())
-			},
-			data::Node::Symlink(_) => {
-				Ok(tg::symlink::Data::Graph { graph: self.id()?, node }.id()?.into())
-			},
+			data::Node::Directory(_) => Ok(tg::directory::Data::Graph {
+				graph: self.id()?,
+				node,
+			}
+			.id()?
+			.into()),
+			data::Node::File(_) => Ok(tg::file::Data::Graph {
+				graph: self.id()?,
+				node,
+			}
+			.id()?
+			.into()),
+			data::Node::Symlink(_) => Ok(tg::symlink::Data::Graph {
+				graph: self.id()?,
+				node,
+			}
+			.id()?
+			.into()),
 		}
 	}
 }

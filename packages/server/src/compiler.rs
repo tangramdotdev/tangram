@@ -1,5 +1,5 @@
 use self::{document::Document, syscall::syscall};
-use crate::Server;
+use crate::{util, Server};
 use dashmap::DashMap;
 use futures::{future, Future, FutureExt as _, TryFutureExt as _};
 use lsp::{notification::Notification as _, request::Request as _};
@@ -643,7 +643,7 @@ impl Compiler {
 				} else {
 					tg::module::Kind::Artifact
 				};
-				let package = tg::module::try_get_root_module_path_for_path(path.as_ref())
+				let package = util::module::try_get_root_module_path_for_path(path.as_ref())
 					.await?
 					.map(Either::Right);
 				let path = if let Some(Either::Right(package)) = &package {

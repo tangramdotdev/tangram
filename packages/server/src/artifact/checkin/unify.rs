@@ -1,4 +1,4 @@
-use super::input::Input;
+use super::input;
 use crate::Server;
 use std::{
 	collections::BTreeMap,
@@ -52,7 +52,7 @@ pub struct Node {
 	pub _inline_object: bool,
 
 	// The underlying object.
-	pub object: Either<Arc<RwLock<Input>>, tg::object::Id>,
+	pub object: Either<Arc<RwLock<input::Graph>>, tg::object::Id>,
 
 	// The tag of this node, if it exists.
 	pub tag: Option<tg::Tag>,
@@ -75,7 +75,7 @@ pub(super) struct Edge {
 impl Server {
 	pub(super) async fn create_unification_graph(
 		&self,
-		input: Arc<RwLock<Input>>,
+		input: Arc<RwLock<input::Graph>>,
 	) -> tg::Result<(Graph, Id)> {
 		let mut graph: Graph = Graph::default();
 		let mut visited_graph_nodes = BTreeMap::new();
@@ -88,7 +88,7 @@ impl Server {
 
 	async fn create_unification_graph_from_input(
 		&self,
-		input: Arc<RwLock<Input>>,
+		input: Arc<RwLock<input::Graph>>,
 		graph: &mut Graph,
 		visited_graph_nodes: &mut BTreeMap<(tg::graph::Id, usize), Id>,
 	) -> tg::Result<Id> {

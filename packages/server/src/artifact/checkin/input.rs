@@ -10,8 +10,10 @@ use std::{
 use tangram_client as tg;
 use tangram_either::Either;
 
+use crate::util::module::{is_module_path, is_root_module_path, try_get_root_module_path_for_path};
+
 #[derive(Clone, Debug)]
-pub struct Input {
+pub struct Graph {
 	pub arg: tg::artifact::checkin::Arg,
 	pub dependencies: Option<BTreeMap<tg::Reference, Dependency>>,
 	pub is_root: bool,
@@ -21,11 +23,11 @@ pub struct Input {
 	pub parent: Option<Weak<RwLock<Self>>>,
 }
 
-pub type Dependency = Option<Either<tg::object::Id, Arc<RwLock<Input>>>>;
+pub type Dependency = Option<Either<tg::object::Id, Arc<RwLock<Graph>>>>;
 
 struct State {
 	roots: Vec<tg::Path>,
-	visited: BTreeMap<tg::Path, Arc<RwLock<Input>>>,
+	visited: BTreeMap<tg::Path, Arc<RwLock<Graph>>>,
 }
 
 impl Server {
@@ -33,7 +35,7 @@ impl Server {
 		&self,
 		arg: tg::artifact::checkin::Arg,
 		progress: &super::ProgressState,
-	) -> tg::Result<Arc<RwLock<Input>>> {
+	) -> tg::Result<Arc<RwLock<Graph>>> {
 		let state = RwLock::new(State {
 			roots: Vec::new(),
 			visited: BTreeMap::new(),
@@ -56,8 +58,8 @@ impl Server {
 		is_direct_dependency: bool,
 		state: &RwLock<State>,
 		progress: &super::ProgressState,
-		parent: Option<Weak<RwLock<Input>>>,
-	) -> tg::Result<Arc<RwLock<Input>>> {
+		parent: Option<Weak<RwLock<Graph>>>,
+	) -> tg::Result<Arc<RwLock<Graph>>> {
 		if let Some(visited) = state.read().unwrap().visited.get(&arg.path).cloned() {
 			return Ok(visited);
 		}
@@ -99,7 +101,7 @@ impl Server {
 				break 'a Some((Arc::new(lockfile), root));
 			}
 
-			if tg::module::is_root_module_path(arg.path.as_ref()) {
+			if is_root_module_path(arg.path.as_ref()) {
 				break 'a Some((Arc::new(tg::Lockfile::default()), arg.path.clone()));
 			}
 
@@ -107,7 +109,7 @@ impl Server {
 		};
 
 		// Create the input, without its dependencies.
-		let input = Arc::new(RwLock::new(Input {
+		let input = Arc::new(RwLock::new(Graph {
 			arg: arg.clone(),
 			dependencies: None,
 			is_root,
@@ -150,7 +152,7 @@ impl Server {
 					} else {
 						arg.path.clone().parent()
 					};
-					let is_direct_dependency = tg::module::is_module_path(arg.path.as_ref());
+					let is_direct_dependency = is_module_path(arg.path.as_ref());
 					let arg = tg::artifact::checkin::Arg {
 						path: parent_path.join(path.clone()).normalize(),
 						..arg.clone()
@@ -184,7 +186,7 @@ impl Server {
 		path: &tg::Path,
 		metadata: &std::fs::Metadata,
 	) -> tg::Result<Option<(tg::Lockfile, tg::Path)>> {
-		let mut root = if metadata.is_file() && tg::module::is_root_module_path(path.as_ref()) {
+		let mut root = if metadata.is_file() && is_root_module_path(path.as_ref()) {
 			path.clone().parent().clone().normalize()
 		} else {
 			return Ok(None);
@@ -220,8 +222,7 @@ impl Server {
 	) -> tg::Result<Option<Vec<(tg::Reference, Option<tg::object::Id>)>>> {
 		let _permit = self.file_descriptor_semaphore.acquire().await.unwrap();
 		if metadata.is_dir() {
-			if let Some(root_module_path) =
-				tg::module::try_get_root_module_path_for_path(path.as_ref()).await?
+			if let Some(root_module_path) = try_get_root_module_path_for_path(path.as_ref()).await?
 			{
 				return Ok(Some(vec![(
 					tg::Reference::with_path(&root_module_path),
@@ -270,9 +271,7 @@ impl Server {
 			return Ok(Some(dependencies));
 		}
 
-		if tg::module::is_module_path(path.as_ref())
-			|| tg::module::is_root_module_path(path.as_ref())
-		{
+		if is_module_path(path.as_ref()) || is_root_module_path(path.as_ref()) {
 			return Ok(Some(self.get_module_dependencies(path).await?));
 		}
 
@@ -323,7 +322,7 @@ impl Server {
 		.await
 	}
 
-	async fn reparent_file_path_dependencies(&self, input: Arc<RwLock<Input>>) -> tg::Result<()> {
+	async fn reparent_file_path_dependencies(&self, input: Arc<RwLock<Graph>>) -> tg::Result<()> {
 		let mut visited = BTreeSet::new();
 		let mut queue: VecDeque<_> = vec![input].into();
 
@@ -368,7 +367,7 @@ impl Server {
 		Ok(())
 	}
 
-	async fn reparent_file_path_dependency(&self, child: Arc<RwLock<Input>>) -> tg::Result<()> {
+	async fn reparent_file_path_dependency(&self, child: Arc<RwLock<Graph>>) -> tg::Result<()> {
 		let Some(parent) = child.read().unwrap().parent.as_ref().map(Weak::upgrade) else {
 			return Ok(());
 		};
@@ -468,7 +467,7 @@ impl Server {
 						tg::error!(!source, "failed to get directory metadata")
 					})?;
 					let arg = tg::artifact::checkin::Arg { path, ..arg };
-					let child = Arc::new(RwLock::new(Input {
+					let child = Arc::new(RwLock::new(Graph {
 						arg,
 						dependencies: Some(BTreeMap::new()),
 						is_root: false,
