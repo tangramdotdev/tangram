@@ -776,9 +776,12 @@ impl Server {
 				// Rename to the checkouts directory.
 				let artifact = output.read().unwrap().data.id()?;
 				let dest = self.checkouts_path().join(artifact.to_string());
-				tokio::fs::rename(&temp, &dest).await.map_err(
-					|source| tg::error!(!source, %src = temp, %dst = dest.display(), "failed to rename"),
-				)?;
+				match tokio::fs::rename(&temp, &dest).await {
+					Ok(()) => (),
+					Err(error) if error.raw_os_error() == Some(libc::EEXIST) => (),
+					Err(error) if error.raw_os_error() == Some(libc::ENOTEMPTY) => (),
+					Err(source) => return Err(tg::error!(!source, "failed to rename")),
+				}
 			}
 
 			// Recurse.
@@ -814,7 +817,7 @@ impl Server {
 			if input.arg.destructive {
 				match tokio::fs::rename(&input.arg.path, &dest).await {
 					Ok(()) => return Ok(()),
-					Err(error) if error.raw_os_error() == Some(libc::EEXIST) => return Ok(()),
+					Err(error) if error.raw_os_error() == Some(libc::ENOTEMPTY) => return Ok(()),
 					Err(error) if error.raw_os_error() == Some(libc::ENODEV) => (),
 					Err(source) => return Err(tg::error!(!source, "failed to rename directory")),
 				}
