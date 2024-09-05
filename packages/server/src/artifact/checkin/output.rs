@@ -1,5 +1,5 @@
 use super::{input::Input, ProgressState};
-use crate::Server;
+use crate::{tmp::Tmp, Server};
 use indoc::formatdoc;
 use itertools::Itertools;
 use num::ToPrimitive;
@@ -542,7 +542,7 @@ impl Server {
 }
 
 impl Server {
-	pub async fn write_hardlinks_and_xattrs(
+	pub async fn write_links(
 		&self,
 		input: Arc<RwLock<Input>>,
 		output: Arc<RwLock<Output>>,
@@ -552,12 +552,12 @@ impl Server {
 			.join(output.read().unwrap().data.id()?.to_string())
 			.try_into()?;
 		let mut visited = BTreeSet::new();
-		self.write_hardlinks_and_xattrs_inner(&path, input, output, &mut visited)
+		self.write_links_inner(&path, input, output, &mut visited)
 			.await?;
 		Ok(())
 	}
 
-	async fn write_hardlinks_and_xattrs_inner(
+	async fn write_links_inner(
 		&self,
 		path: &tg::Path,
 		input: Arc<RwLock<Input>>,
@@ -570,9 +570,14 @@ impl Server {
 		visited.insert(path.clone());
 		let data = output.read().unwrap().data.clone();
 		let id = data.id()?;
+
+		// If this is a file, we need to create a hardlink at checkouts/<file id> and create a symlink for its contents in blobs/<content id> -> ../checkouts/<file id>
 		if let tg::artifact::Data::File(file) = data {
-			let dst: tg::Path = self.checkouts_path().join(id.to_string()).try_into()?;
+			// Get a file descriptor permit.
 			let _permit = self.file_descriptor_semaphore.acquire().await.unwrap();
+
+			// Get the destination of the hardlink.
+			let dst: tg::Path = self.checkouts_path().join(id.to_string()).try_into()?;
 
 			// Create hard link to the file.
 			match tokio::fs::hard_link(path, &dst).await {
@@ -583,46 +588,18 @@ impl Server {
 				},
 			}
 
-			// Get the contents.
-			let (contents, dependencies) = match file {
-				tg::file::Data::Normal {
-					contents,
-					dependencies,
-					..
-				} => (contents, dependencies),
+			// Get the contents' blob ID.
+			let contents = match file {
+				// If this is a normal file we have no work to do.
+				tg::file::Data::Normal { contents, .. } => contents,
+
+				// If the file is a pointer into a graph, we need to fetch the graph and convert its data.
 				tg::file::Data::Graph { graph, node } => {
 					let graph = tg::Graph::with_id(graph).data(self).await?;
 					let tg::graph::data::Node::File(file) = &graph.nodes[node] else {
 						return Err(tg::error!("expected a file"));
 					};
-					let contents = file.contents.clone();
-					let dependencies = match &file.dependencies {
-						Some(Either::Left(set)) => {
-							let set = set
-								.iter()
-								.map(|either| match either {
-									Either::Left(node) => Ok(graph.id_of_node(*node)?.into()),
-									Either::Right(id) => Ok::<_, tg::Error>(id.clone()),
-								})
-								.try_collect()?;
-							Some(Either::Left(set))
-						},
-						Some(Either::Right(map)) => {
-							let map = map
-								.iter()
-								.map(|(reference, either)| {
-									let id = match either {
-										Either::Left(node) => graph.id_of_node(*node)?.into(),
-										Either::Right(id) => id.clone(),
-									};
-									Ok::<_, tg::Error>((reference.clone(), id))
-								})
-								.try_collect()?;
-							Some(Either::Right(map))
-						},
-						None => None,
-					};
-					(contents, dependencies)
+					file.contents.clone()
 				},
 			};
 
@@ -638,15 +615,12 @@ impl Server {
 					)
 				},
 			}
-			if let Some(dependencies) = dependencies {
-				let json = serde_json::to_vec(&dependencies)
-					.map_err(|source| tg::error!(!source, "failed to serialize dependencies"))?;
-				xattr::set(&dst, tg::file::XATTR_NAME, &json).map_err(
-					|source| tg::error!(!source, %path = dst, "failed to write dependencies as an xattr"),
-				)?;
-			}
+
+			// Since every file is a child of a directory we do not need to recurse over file dependencies and can bail early.
+			return Ok(());
 		}
 
+		// Recurse over path dependencies.
 		let dependencies = input
 			.read()
 			.unwrap()
@@ -655,16 +629,12 @@ impl Server {
 			.flatten()
 			.filter_map(|(reference, child)| {
 				let child = child.as_ref()?.clone().right()?;
-				let path = reference
+				reference
 					.path()
 					.try_unwrap_path_ref()
 					.ok()
-					.or_else(|| reference.query()?.path.as_ref())?;
-				matches!(
-					path.components().first(),
-					Some(tg::path::Component::Current)
-				)
-				.then_some((reference.clone(), child))
+					.or_else(|| reference.query()?.path.as_ref())
+					.map(|_| (reference.clone(), child))
 			})
 			.collect::<Vec<_>>();
 		for (reference, child_input) in dependencies {
@@ -700,13 +670,8 @@ impl Server {
 				}
 			};
 
-			Box::pin(self.write_hardlinks_and_xattrs_inner(
-				&path,
-				child_input.clone(),
-				child_output,
-				visited,
-			))
-			.await?;
+			Box::pin(self.write_links_inner(&path, child_input.clone(), child_output, visited))
+				.await?;
 		}
 
 		Ok(())
@@ -790,19 +755,30 @@ impl Server {
 				input.is_root || input.is_direct_dependency
 			};
 			if should_copy {
-				let artifact = output.read().unwrap().data.id()?;
+				// Create a temp.
+				let temp = Tmp::new(self);
+				let temp: tg::Path = temp.path.clone().try_into()?;
+
+				// Copy or move to the temp.
 				let mut visited = BTreeSet::new();
-				let dest = self
-					.checkouts_path()
-					.join(artifact.to_string())
-					.try_into()?;
-				self.copy_or_move_to_checkouts_directory_inner(
-					dest,
+				self.copy_or_move_all(
+					temp.clone(),
 					input.clone(),
+					output.clone(),
 					&mut visited,
 					progress,
 				)
 				.await?;
+
+				// Write xattrs.
+				self.write_xattrs(temp.clone(), output.clone()).await?;
+
+				// Rename to the checkouts directory.
+				let artifact = output.read().unwrap().data.id()?;
+				let dest = self.checkouts_path().join(artifact.to_string());
+				tokio::fs::rename(&temp, &dest).await.map_err(
+					|source| tg::error!(!source, %src = temp, %dst = dest.display(), "failed to rename"),
+				)?;
 			}
 
 			// Recurse.
@@ -821,10 +797,11 @@ impl Server {
 		Ok(())
 	}
 
-	async fn copy_or_move_to_checkouts_directory_inner(
+	async fn copy_or_move_all(
 		&self,
 		dest: tg::Path,
 		input: Arc<RwLock<Input>>,
+		output: Arc<RwLock<Output>>,
 		visited: &mut BTreeSet<tg::Path>,
 		progress: &ProgressState,
 	) -> tg::Result<()> {
@@ -834,19 +811,50 @@ impl Server {
 		}
 		visited.insert(input.arg.path.clone());
 		if input.metadata.is_dir() {
+			if input.arg.destructive {
+				match tokio::fs::rename(&input.arg.path, &dest).await {
+					Ok(()) => return Ok(()),
+					Err(error) if error.raw_os_error() == Some(libc::EEXIST) => return Ok(()),
+					Err(error) if error.raw_os_error() == Some(libc::ENODEV) => (),
+					Err(source) => return Err(tg::error!(!source, "failed to rename directory")),
+				}
+			}
+
 			tokio::fs::create_dir_all(&dest)
 				.await
 				.map_err(|source| tg::error!(!source, "failed to create directory"))?;
-			let children = input
+			let dependencies = input
 				.dependencies
-				.clone()
-				.into_iter()
-				.flat_map(|map| map.into_values().filter_map(|child| child?.right()));
-			for child in children {
-				if child.read().unwrap().is_root {
+				.iter()
+				.flatten()
+				.filter_map(|(reference, child)| {
+					let child = child.as_ref()?.clone().right()?;
+					let path = reference
+						.path()
+						.try_unwrap_path_ref()
+						.ok()
+						.or_else(|| reference.query()?.path.as_ref())?;
+					matches!(
+						path.components().first(),
+						Some(tg::path::Component::Current)
+					)
+					.then_some((reference.clone(), child))
+				})
+				.collect::<Vec<_>>();
+			for (reference, child_input) in dependencies {
+				let child_output = output
+					.read()
+					.unwrap()
+					.dependencies
+					.get(&reference)
+					.ok_or_else(
+						|| tg::error!(%referrer = dest, %reference, "missing output reference"),
+					)?
+					.clone();
+				if child_input.read().unwrap().is_root {
 					continue;
 				}
-				let diff = child
+				let diff = child_input
 					.read()
 					.unwrap()
 					.arg
@@ -854,10 +862,8 @@ impl Server {
 					.diff(&input.arg.path)
 					.unwrap();
 				let dest = dest.clone().join(diff).normalize();
-				Box::pin(
-					self.copy_or_move_to_checkouts_directory_inner(dest, child, visited, progress),
-				)
-				.await?;
+				Box::pin(self.copy_or_move_all(dest, child_input, child_output, visited, progress))
+					.await?;
 			}
 		} else if input.metadata.is_symlink() {
 			let target = tokio::fs::read_link(&input.arg.path)
@@ -890,6 +896,103 @@ impl Server {
 		if input.metadata.is_file() {
 			progress.report_output_progress(input.metadata.size().to_u64().unwrap());
 		}
+		Ok(())
+	}
+
+	async fn write_xattrs(&self, dest: tg::Path, output: Arc<RwLock<Output>>) -> tg::Result<()> {
+		let mut visited = BTreeSet::new();
+		self.write_xattrs_inner(dest, &output, &mut visited).await
+	}
+
+	async fn write_xattrs_inner(
+		&self,
+		dest: tg::Path,
+		output: &Arc<RwLock<Output>>,
+		visited: &mut BTreeSet<tg::Path>,
+	) -> tg::Result<()> {
+		if visited.contains(&dest) {
+			return Ok(());
+		}
+		visited.insert(dest.clone());
+
+		// If this is a file, write xattrs.
+		let data = output.read().unwrap().data.clone();
+		if let tg::artifact::Data::File(file) = data {
+			// Get the dependencies.
+			let dependencies = match file {
+				// If this is a normal file we have no work to do.
+				tg::file::Data::Normal { dependencies, .. } => dependencies,
+
+				// If the file is a pointer into a graph, we need to fetch the graph and convert its data.
+				tg::file::Data::Graph { graph, node } => {
+					let graph = tg::Graph::with_id(graph).data(self).await?;
+					let tg::graph::data::Node::File(file) = &graph.nodes[node] else {
+						return Err(tg::error!("expected a file"));
+					};
+					match &file.dependencies {
+						Some(Either::Left(set)) => {
+							let set = set
+								.iter()
+								.map(|either| match either {
+									Either::Left(node) => Ok(graph.id_of_node(*node)?.into()),
+									Either::Right(id) => Ok::<_, tg::Error>(id.clone()),
+								})
+								.try_collect()?;
+							Some(Either::Left(set))
+						},
+						Some(Either::Right(map)) => {
+							let map = map
+								.iter()
+								.map(|(reference, either)| {
+									let id = match either {
+										Either::Left(node) => graph.id_of_node(*node)?.into(),
+										Either::Right(id) => id.clone(),
+									};
+									Ok::<_, tg::Error>((reference.clone(), id))
+								})
+								.try_collect()?;
+							Some(Either::Right(map))
+						},
+						None => None,
+					}
+				},
+			};
+
+			// Serialize the dependencies and write the xattr.
+			let Some(dependencies) = dependencies else {
+				return Ok(());
+			};
+			let json = serde_json::to_vec(&dependencies)
+				.map_err(|source| tg::error!(!source, "failed to serialize dependencies"))?;
+			xattr::set(&dest, tg::file::XATTR_NAME, &json).map_err(
+				|source| tg::error!(!source, %path = dest, "failed to write dependencies as an xattr"),
+			)?;
+
+			// Exit early. Since every file is the child of a directory and all directories are walked, we don't need to recurse over file dependencies.
+			return Ok(());
+		}
+
+		// Recurse over path dependencies.
+		let dependencies = output
+			.read()
+			.unwrap()
+			.dependencies
+			.iter()
+			.filter_map(|(reference, child)| {
+				let path = reference
+					.path()
+					.try_unwrap_path_ref()
+					.ok()
+					.or_else(|| reference.query()?.path.as_ref())?;
+				Some((path.clone(), child.clone()))
+			})
+			.collect::<Vec<_>>();
+
+		for (subpath, output) in dependencies {
+			let dest = dest.clone().join(subpath);
+			Box::pin(self.write_xattrs(dest, output)).await?;
+		}
+
 		Ok(())
 	}
 }

@@ -142,8 +142,7 @@ impl Server {
 				.await?;
 
 			// Update hardlinks and xattrs.
-			self.write_hardlinks_and_xattrs(input.clone(), output)
-				.await?;
+			self.write_links(input.clone(), output).await?;
 
 			// Write lockfiles.
 			self.write_lockfiles(input.clone(), &lockfile).await?;
