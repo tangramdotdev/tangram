@@ -8,6 +8,8 @@ use tokio::{
 };
 use url::Url;
 
+pub use tangram_either::{for_both, Either};
+
 pub use self::{
 	artifact::Artifact,
 	blob::Blob,
