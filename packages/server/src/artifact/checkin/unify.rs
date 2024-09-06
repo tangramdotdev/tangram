@@ -105,29 +105,26 @@ impl Server {
 		let mut outgoing = BTreeMap::new();
 
 		// Add dependencies.
-		let dependencies = input.read().unwrap().dependencies.clone();
-		'outer: for (dependency, child) in dependencies.into_iter().flatten() {
-			// Recurse on existing input.
-			match child {
-				Some(Either::Left(object)) => {
-					let id = self
-						.create_unification_node_from_object(graph, object)
-						.await?;
-					outgoing.insert(dependency.clone(), id);
-					continue;
-				},
-				Some(Either::Right(input)) => {
-					let id = Box::pin(self.create_unification_graph_from_input(
-						input,
-						graph,
-						visited_graph_nodes,
-					))
+		let edges = input.read().unwrap().edges.clone();
+		'outer: for edge in edges {
+			if let Some(input) = &edge.graph {
+				let id = Box::pin(self.create_unification_graph_from_input(
+					input.clone(),
+					graph,
+					visited_graph_nodes,
+				))
+				.await?;
+				outgoing.insert(edge.reference.clone(), id);
+				continue;
+			}
+
+			if let Some(id) = &edge.object {
+				let id = self
+					.create_unification_node_from_object(graph, id.clone())
 					.await?;
-					outgoing.insert(dependency.clone(), id);
-					continue;
-				},
-				None => (),
-			};
+				outgoing.insert(edge.reference.clone(), id);
+				continue;
+			}
 
 			// Check if there is a solution in the lock file.
 			let lockfile = input.read().unwrap().lockfile.clone();
@@ -151,7 +148,10 @@ impl Server {
 				let tg::lockfile::Node::File { dependencies, .. } = &lockfile.nodes[*node] else {
 					break 'a;
 				};
-				let Some(entry) = dependencies.as_ref().and_then(|map| map.get(&dependency)) else {
+				let Some(entry) = dependencies
+					.as_ref()
+					.and_then(|map| map.get(&edge.reference))
+				else {
 					if input.read().unwrap().arg.locked {
 						return Err(tg::error!("lockfile is out of data"))?;
 					};
@@ -163,24 +163,24 @@ impl Server {
 				let id = self
 					.create_unification_node_from_object(graph, object.clone())
 					.await?;
-				outgoing.insert(dependency.clone(), id);
+				outgoing.insert(edge.reference.clone(), id);
 				continue 'outer;
 			}
 
 			// Otherwise, create partial nodes.
-			match dependency.path() {
+			match edge.reference.path() {
 				tg::reference::Path::Build(_) => {
-					return Err(tg::error!(%dependency, "invalid reference"))
+					return Err(tg::error!(%reference = edge.reference, "invalid reference"))
 				},
 				tg::reference::Path::Object(object) => {
 					let id = self
 						.create_unification_node_from_object(graph, object.clone())
 						.await?;
-					outgoing.insert(dependency.clone(), id);
+					outgoing.insert(edge.reference.clone(), id);
 				},
 				tg::reference::Path::Tag(pattern) => {
 					let id = get_reference_from_pattern(pattern);
-					outgoing.insert(dependency.clone(), Either::Left(id));
+					outgoing.insert(edge.reference.clone(), Either::Left(id));
 				},
 				tg::reference::Path::Path(_) => return Err(tg::error!("unimplemented")),
 			}

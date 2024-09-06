@@ -1,4 +1,4 @@
-use super::{ProgressState, input};
+use super::{input, ProgressState};
 use crate::{tmp::Tmp, Server};
 use indoc::formatdoc;
 use itertools::Itertools;
@@ -16,6 +16,8 @@ use time::format_description::well_known::Rfc3339;
 
 #[derive(Clone, Debug)]
 pub struct Graph {
+	pub input: Arc<RwLock<input::Graph>>,
+	pub id: tg::artifact::Id,
 	pub data: tg::artifact::Data,
 	pub lock_index: usize,
 	pub weight: usize,
@@ -195,6 +197,9 @@ impl Server {
 			.ok_or_else(|| tg::error!("missing artifact data"))?
 			.clone();
 
+		// Compute the ID.
+		let id = data.id()?;
+
 		// Update the total bytes that will be copied.
 		if input.read().unwrap().metadata.is_file() {
 			let size = input.read().unwrap().metadata.size().to_u64().unwrap();
@@ -203,6 +208,8 @@ impl Server {
 
 		// Create the output
 		let output = Arc::new(RwLock::new(Graph {
+			input: input.clone(),
+			id,
 			data,
 			weight: 0,
 			lock_index,
@@ -215,11 +222,11 @@ impl Server {
 		let input_dependencies = input
 			.read()
 			.unwrap()
-			.dependencies
+			.edges
 			.iter()
-			.flatten()
-			.filter_map(|(reference, child)| {
-				Some((reference.clone(), child.as_ref()?.clone().right()?))
+			.filter_map(|edge| {
+				let child = edge.graph.clone()?;
+				Some((edge.reference.clone(), child))
 			})
 			.collect::<Vec<_>>();
 		for (reference, input) in input_dependencies {
@@ -542,25 +549,19 @@ impl Server {
 }
 
 impl Server {
-	pub async fn write_links(
-		&self,
-		input: Arc<RwLock<input::Graph>>,
-		output: Arc<RwLock<Graph>>,
-	) -> tg::Result<()> {
+	pub async fn write_links(&self, output: Arc<RwLock<Graph>>) -> tg::Result<()> {
 		let path = self
 			.checkouts_path()
-			.join(output.read().unwrap().data.id()?.to_string())
+			.join(output.read().unwrap().id.to_string())
 			.try_into()?;
 		let mut visited = BTreeSet::new();
-		self.write_links_inner(&path, input, output, &mut visited)
-			.await?;
+		self.write_links_inner(&path, output, &mut visited).await?;
 		Ok(())
 	}
 
 	async fn write_links_inner(
 		&self,
 		path: &tg::Path,
-		input: Arc<RwLock<input::Graph>>,
 		output: Arc<RwLock<Graph>>,
 		visited: &mut BTreeSet<tg::Path>,
 	) -> tg::Result<()> {
@@ -568,8 +569,10 @@ impl Server {
 			return Ok(());
 		};
 		visited.insert(path.clone());
-		let data = output.read().unwrap().data.clone();
-		let id = data.id()?;
+		let (data, id) = {
+			let output = output.read().unwrap();
+			(output.data.clone(), output.id.clone())
+		};
 
 		// If this is a file, we need to create a hardlink at checkouts/<file id> and create a symlink for its contents in blobs/<content id> -> ../checkouts/<file id>
 		if let tg::artifact::Data::File(file) = data {
@@ -620,37 +623,11 @@ impl Server {
 			return Ok(());
 		}
 
-		// Recurse over path dependencies.
-		let dependencies = input
-			.read()
-			.unwrap()
-			.dependencies
-			.iter()
-			.flatten()
-			.filter_map(|(reference, child)| {
-				let child = child.as_ref()?.clone().right()?;
-				reference
-					.path()
-					.try_unwrap_path_ref()
-					.ok()
-					.or_else(|| reference.query()?.path.as_ref())
-					.map(|_| (reference.clone(), child))
-			})
-			.collect::<Vec<_>>();
-		for (reference, child_input) in dependencies {
-			let child_output = output
-				.read()
-				.unwrap()
-				.dependencies
-				.get(&reference)
-				.ok_or_else(
-					|| tg::error!(%referrer = path, %reference, "missing output reference"),
-				)?
-				.clone();
-
-			let path = if child_input.read().unwrap().is_root
-				|| child_input.read().unwrap().is_direct_dependency
-			{
+		// Recurse.
+		let dependencies = output.read().unwrap().dependencies.clone();
+		for (reference, child_output) in dependencies {
+			let input = child_output.read().unwrap().input.clone();
+			let path = if input.read().unwrap().is_root {
 				self.checkouts_path()
 					.join(child_output.read().unwrap().data.id()?.to_string())
 					.try_into()?
@@ -662,16 +639,15 @@ impl Server {
 					.or_else(|| reference.query()?.path.as_ref())
 					.cloned()
 					.ok_or_else(|| tg::error!("expected a path dependency"))?;
-
-				if input.read().unwrap().metadata.is_dir() {
+				// We could use metadata from the input, or the data, this avoids having to acquire a lock.
+				if matches!(id, tg::artifact::Id::Directory(_)) {
 					path.clone().join(path_)
 				} else {
 					path.clone().parent().join(path_).normalize()
 				}
 			};
 
-			Box::pin(self.write_links_inner(&path, child_input.clone(), child_output, visited))
-				.await?;
+			Box::pin(self.write_links_inner(&path, child_output, visited)).await?;
 		}
 
 		Ok(())
@@ -738,37 +714,27 @@ impl<'a> petgraph::visit::IntoNodeIdentifiers for GraphImpl<'a> {
 impl Server {
 	pub(super) async fn copy_or_move_to_checkouts_directory(
 		&self,
-		input: Arc<RwLock<input::Graph>>,
 		output: Arc<RwLock<Graph>>,
 		progress: &super::ProgressState,
 	) -> tg::Result<()> {
 		let mut visited = BTreeSet::new();
-		let mut stack = vec![(input, output)];
-		while let Some((input, output)) = stack.pop() {
-			let path = input.read().unwrap().arg.path.clone();
-			if visited.contains(&path) {
+		let mut stack = vec![output];
+		while let Some(output) = stack.pop() {
+			let id = output.read().unwrap().id.clone();
+			if visited.contains(&id) {
 				continue;
 			}
-			visited.insert(path);
-			let should_copy = {
-				let input = input.read().unwrap();
-				input.is_root || input.is_direct_dependency
-			};
-			if should_copy {
+			visited.insert(id);
+
+			if output.read().unwrap().input.read().unwrap().is_root {
 				// Create a temp.
 				let temp = Tmp::new(self);
 				let temp: tg::Path = temp.path.clone().try_into()?;
 
 				// Copy or move to the temp.
 				let mut visited = BTreeSet::new();
-				self.copy_or_move_all(
-					temp.clone(),
-					input.clone(),
-					output.clone(),
-					&mut visited,
-					progress,
-				)
-				.await?;
+				self.copy_or_move_all(temp.clone(), output.clone(), &mut visited, progress)
+					.await?;
 
 				// Write xattrs.
 				self.write_xattrs(temp.clone(), output.clone()).await?;
@@ -785,17 +751,7 @@ impl Server {
 			}
 
 			// Recurse.
-			let input = input.read().unwrap();
-			let output = output.read().unwrap();
-			let children = input
-				.dependencies
-				.iter()
-				.flat_map(|map| {
-					map.values()
-						.filter_map(|child| child.as_ref()?.clone().right())
-				})
-				.zip(output.dependencies.values().cloned());
-			stack.extend(children);
+			stack.extend(output.read().unwrap().dependencies.values().cloned());
 		}
 		Ok(())
 	}
@@ -803,12 +759,11 @@ impl Server {
 	async fn copy_or_move_all(
 		&self,
 		dest: tg::Path,
-		input: Arc<RwLock<input::Graph>>,
 		output: Arc<RwLock<Graph>>,
 		visited: &mut BTreeSet<tg::Path>,
 		progress: &ProgressState,
 	) -> tg::Result<()> {
-		let input = input.read().unwrap().clone();
+		let input = output.read().unwrap().input.read().unwrap().clone();
 		if visited.contains(&input.arg.path) {
 			return Ok(());
 		}
@@ -826,38 +781,15 @@ impl Server {
 			tokio::fs::create_dir_all(&dest)
 				.await
 				.map_err(|source| tg::error!(!source, "failed to create directory"))?;
-			let dependencies = input
-				.dependencies
-				.iter()
-				.flatten()
-				.filter_map(|(reference, child)| {
-					let child = child.as_ref()?.clone().right()?;
-					let path = reference
-						.path()
-						.try_unwrap_path_ref()
-						.ok()
-						.or_else(|| reference.query()?.path.as_ref())?;
-					matches!(
-						path.components().first(),
-						Some(tg::path::Component::Current)
-					)
-					.then_some((reference.clone(), child))
-				})
-				.collect::<Vec<_>>();
-			for (reference, child_input) in dependencies {
-				let child_output = output
-					.read()
-					.unwrap()
-					.dependencies
-					.get(&reference)
-					.ok_or_else(
-						|| tg::error!(%referrer = dest, %reference, "missing output reference"),
-					)?
-					.clone();
-				if child_input.read().unwrap().is_root {
+			let dependencies = output.read().unwrap().dependencies.clone();
+			for (_, output) in dependencies {
+				if output.read().unwrap().input.read().unwrap().is_root {
 					continue;
 				}
-				let diff = child_input
+				let diff = output
+					.read()
+					.unwrap()
+					.input
 					.read()
 					.unwrap()
 					.arg
@@ -865,8 +797,7 @@ impl Server {
 					.diff(&input.arg.path)
 					.unwrap();
 				let dest = dest.clone().join(diff).normalize();
-				Box::pin(self.copy_or_move_all(dest, child_input, child_output, visited, progress))
-					.await?;
+				Box::pin(self.copy_or_move_all(dest, output, visited, progress)).await?;
 			}
 		} else if input.metadata.is_symlink() {
 			let target = tokio::fs::read_link(&input.arg.path)

@@ -1,8 +1,3 @@
-use std::{
-	collections::{BTreeMap, BTreeSet},
-	os::unix::fs::PermissionsExt,
-	sync::{Arc, RwLock},
-};
 use super::{
 	input,
 	unify::{self, Id},
@@ -11,6 +6,11 @@ use crate::util::module::try_get_root_module_path_for_path;
 use crate::Server;
 use futures::{stream::FuturesUnordered, TryStreamExt};
 use itertools::Itertools;
+use std::{
+	collections::{BTreeMap, BTreeSet},
+	os::unix::fs::PermissionsExt,
+	sync::{Arc, RwLock},
+};
 use tangram_client as tg;
 use tangram_either::Either;
 
@@ -169,12 +169,12 @@ impl Server {
 		drop(permit);
 
 		// Sanity check.
-		if !dependencies.is_empty() && input.dependencies.is_none() {
+		if !dependencies.is_empty() && input.edges.is_empty() {
 			return Err(tg::error!("invalid input"));
 		}
 
 		let contents = Some(output.blob);
-		let dependencies = input.dependencies.is_some().then_some(dependencies);
+		let dependencies = (!input.edges.is_empty()).then_some(dependencies);
 		let executable = metadata.permissions().mode() & 0o111 != 0;
 
 		// Update state.
@@ -264,7 +264,7 @@ impl Server {
 		let input::Graph {
 			arg,
 			metadata,
-			dependencies,
+			edges,
 			..
 		} = input.read().unwrap().clone();
 
@@ -299,13 +299,9 @@ impl Server {
 			}
 		}
 
-		let children = dependencies
+		let children = edges
 			.iter()
-			.flat_map(|map| {
-				map.values()
-					.filter_map(|v| v.as_ref().and_then(|e| e.as_ref().right()))
-			})
-			.cloned()
+			.filter_map(|edge| edge.graph.clone())
 			.collect::<Vec<_>>();
 
 		for child in children {

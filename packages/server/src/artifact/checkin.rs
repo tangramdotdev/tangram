@@ -1,3 +1,5 @@
+use std::sync::{Arc, RwLock};
+
 use crate::{util, Server};
 use futures::{future::BoxFuture, Stream};
 use tangram_client as tg;
@@ -87,11 +89,29 @@ impl Server {
 		store_as: Option<&tg::artifact::Id>,
 		progress: &ProgressState,
 	) -> tg::Result<tg::artifact::Id> {
+		// Overview :
+		//
+		// - Collect Input (arg) -> input::Graph
+		// - Analyze (input::Graph -> unify::Graph)
+		// - Unify (unify::Graph -> unify::Graph)
+		// - Validate
+		// - Split into strongly connected components and create tg::object::Data
+		// - Collect Output (input::Graph, tg::Lockfile) -> output::Graph
+		// - if store:
+		// 		- validate IDs and write to database
+		// - else :
+		// 	- copy or move to checkouts directory
+		//  - write hard links for files, symlinks to files for their content blobs
+		//  - write lockfile(s).
+
 		// Collect the input.
 		progress.begin_input().await;
-		let input = self.collect_input(arg.clone(), progress).await.map_err(
-			|source| tg::error!(!source, %path = arg.path, "failed to collect check-in input"),
-		)?;
+		let input = self
+			.create_input_graph(arg.clone(), progress)
+			.await
+			.map_err(
+				|source| tg::error!(!source, %path = arg.path, "failed to collect check-in input"),
+			)?;
 		progress.finish_input().await;
 
 		// Construct the graph for unification.
@@ -128,7 +148,9 @@ impl Server {
 			.await?;
 
 		// Get the artifact ID
-		let artifact = output.read().unwrap().data.id()?;
+		let artifact = self
+			.find_output_from_input(&arg.path, input.clone(), output.clone())?
+			.ok_or_else(|| tg::error!(%path = arg.path, "missing path in output"))?;
 
 		if let Some(store_as) = store_as {
 			// Store if requested.
@@ -138,11 +160,11 @@ impl Server {
 			self.write_output_to_database(output, &lockfile).await?;
 		} else {
 			// Copy or move files.
-			self.copy_or_move_to_checkouts_directory(input.clone(), output.clone(), progress)
+			self.copy_or_move_to_checkouts_directory(output.clone(), progress)
 				.await?;
 
 			// Update hardlinks and xattrs.
-			self.write_links(input.clone(), output).await?;
+			self.write_links(output).await?;
 
 			// Write lockfiles.
 			self.write_lockfiles(input.clone(), &lockfile).await?;
@@ -150,6 +172,47 @@ impl Server {
 		progress.finish_output().await;
 
 		Ok(artifact)
+	}
+	fn find_output_from_input(
+		&self,
+		path: &tg::Path,
+		input: Arc<RwLock<input::Graph>>,
+		output: Arc<RwLock<output::Graph>>,
+	) -> tg::Result<Option<tg::artifact::Id>> {
+		if &input.read().unwrap().arg.path == path {
+			return Ok(Some(output.read().unwrap().data.id()?));
+		}
+		// Recurse over path dependencies.
+		let dependencies = input
+			.read()
+			.unwrap()
+			.edges
+			.iter()
+			.filter_map(|edge| {
+				let child = edge.graph.clone()?;
+				edge.reference
+					.path()
+					.try_unwrap_path_ref()
+					.ok()
+					.or_else(|| edge.reference.query()?.path.as_ref())
+					.map(|_| (edge.reference.clone(), child))
+			})
+			.collect::<Vec<_>>();
+		for (reference, child_input) in dependencies {
+			let child_output = output
+				.read()
+				.unwrap()
+				.dependencies
+				.get(&reference)
+				.ok_or_else(
+					|| tg::error!(%referrer = path, %reference, "missing output reference"),
+				)?
+				.clone();
+			if let Some(id) = self.find_output_from_input(path, child_input, child_output)? {
+				return Ok(Some(id));
+			}
+		}
+		Ok(None)
 	}
 
 	pub(crate) fn try_store_artifact_future(
