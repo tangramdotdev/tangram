@@ -21,8 +21,8 @@ pub enum Node {
 		#[serde(default, skip_serializing_if = "Option::is_none")]
 		contents: Option<tg::blob::Id>,
 
-		#[serde(default, skip_serializing_if = "Option::is_none")]
-		dependencies: Option<BTreeMap<tg::Reference, Entry>>,
+		#[serde(default, skip_serializing_if = "Vec::is_empty")]
+		dependencies: Vec<Edge>,
 
 		#[serde(default, skip_serializing_if = "is_false")]
 		executable: bool,
@@ -38,6 +38,13 @@ pub enum Node {
 }
 
 pub type Entry = Option<Either<usize, tg::object::Id>>;
+
+#[derive(Clone, Debug, serde::Serialize, serde::Deserialize)]
+pub struct Edge {
+	pub reference: tg::Reference,
+	pub tag: Option<tg::Tag>,
+	pub object: Entry,
+}
 
 impl Lockfile {
 	pub async fn try_read(path: &tg::Path) -> tg::Result<Option<Self>> {
@@ -59,8 +66,7 @@ impl Node {
 			Self::Directory { entries } => entries.values().flatten().cloned().collect(),
 			Self::File { dependencies, .. } => dependencies
 				.iter()
-				.flatten()
-				.filter_map(|(_, e)| e.clone())
+				.filter_map(|edge| edge.object.clone())
 				.collect(),
 			Self::Symlink { artifact, .. } => {
 				let Some(Some(artifact)) = artifact else {

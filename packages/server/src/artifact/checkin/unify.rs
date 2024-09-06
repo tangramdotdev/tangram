@@ -148,21 +148,36 @@ impl Server {
 				let tg::lockfile::Node::File { dependencies, .. } = &lockfile.nodes[*node] else {
 					break 'a;
 				};
-				let Some(entry) = dependencies
-					.as_ref()
-					.and_then(|map| map.get(&edge.reference))
+				let Some(edge) = dependencies
+					.iter()
+					.find(|edge_| &edge_.reference == &edge.reference)
 				else {
 					if input.read().unwrap().arg.locked {
 						return Err(tg::error!("lockfile is out of data"))?;
 					};
 					break 'a;
 				};
-				let Some(Either::Right(object)) = entry else {
+				let Some(Either::Right(object)) = &edge.object else {
 					break 'a;
 				};
-				let id = self
-					.create_unification_node_from_object(graph, object.clone())
-					.await?;
+
+				let id = if let Some(tag) = &edge.tag {
+					let unify = edge
+						.reference
+						.query()
+						.and_then(|q| q.unify)
+						.unwrap_or(false);
+					self.create_unification_node_from_tagged_object(
+						graph,
+						&tg::Object::with_id(object.clone()),
+						tag.clone(),
+						unify,
+					)
+					.await?
+				} else {
+					self.create_unification_node_from_object(graph, object.clone())
+						.await?
+				};
 				outgoing.insert(edge.reference.clone(), id);
 				continue 'outer;
 			}

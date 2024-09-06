@@ -416,19 +416,21 @@ impl Server {
 	async fn create_file_node(
 		&self,
 		contents: Option<tg::blob::Id>,
-		dependencies: Option<BTreeMap<tg::Reference, tg::lockfile::Entry>>,
+		dependencies: Vec<tg::lockfile::Edge>,
 		executable: bool,
 		graphs: &[tg::graph::Data],
 		indices: &BTreeMap<usize, (usize, usize)>,
 	) -> tg::Result<tg::graph::data::node::File> {
-		let dependencies = if let Some(dependencies) = dependencies {
+		let dependencies = if !dependencies.is_empty() {
 			let mut dependencies_ = BTreeMap::new();
-			for (reference, entry) in dependencies {
-				let entry = entry.ok_or_else(|| tg::error!("incomplete lockfile"))?;
+			for edge in dependencies {
+				let entry = edge
+					.object
+					.ok_or_else(|| tg::error!("incomplete lockfile"))?;
 				let entry = self
 					.resolve_lockfile_dependency(entry, graphs, indices)
 					.await?;
-				dependencies_.insert(reference, entry);
+				dependencies_.insert(edge.reference.clone(), entry);
 			}
 			Some(Either::Right(dependencies_))
 		} else {
@@ -688,13 +690,11 @@ impl<'a> petgraph::visit::IntoNeighbors for GraphImpl<'a> {
 					.values()
 					.filter_map(|entry| entry.as_ref()?.as_ref().left().copied()),
 			),
-			tg::lockfile::Node::File { dependencies, .. } => {
-				Box::new(dependencies.iter().flat_map(|entries| {
-					entries
-						.values()
-						.filter_map(|entry| entry.as_ref()?.as_ref().left().copied())
-				}))
-			},
+			tg::lockfile::Node::File { dependencies, .. } => Box::new(
+				dependencies
+					.iter()
+					.filter_map(|edge| edge.object.as_ref()?.as_ref().left().copied()),
+			),
 			tg::lockfile::Node::Symlink { artifact, .. } => Box::new(
 				artifact
 					.iter()
