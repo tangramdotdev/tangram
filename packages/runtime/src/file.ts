@@ -106,6 +106,17 @@ export class File {
 		return (await this.object()).dependencies;
 	}
 
+	async dependencyObjects(): Promise<Array<tg.Object>> {
+		let dependencies = await this.dependencies();
+		if (dependencies === undefined) {
+			return [];
+		} else if (Array.isArray(dependencies)) {
+			return dependencies;
+		} else {
+			return Object.values(dependencies);
+		}
+	}
+
 	async executable(): Promise<boolean> {
 		return (await this.object()).executable;
 	}
@@ -134,7 +145,7 @@ export namespace File {
 
 	export type ArgObject = {
 		contents?: tg.Blob.Arg | undefined;
-		dependencies?: Array<tg.Artifact> | undefined;
+		dependencies?: File.Dependencies | undefined;
 		executable?: boolean | undefined;
 	};
 
@@ -142,7 +153,7 @@ export namespace File {
 
 	export type Object = {
 		contents: tg.Blob;
-		dependencies: Dependencies | undefined;
+		dependencies: File.Dependencies | undefined;
 		executable: boolean;
 	};
 

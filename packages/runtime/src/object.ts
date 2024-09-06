@@ -10,7 +10,14 @@ export type Object =
 	| tg.Target;
 
 export namespace Object {
-	export type Id = string;
+	export type Id =
+		| tg.Leaf.Id
+		| tg.Branch.Id
+		| tg.Directory.Id
+		| tg.File.Id
+		| tg.Symlink.Id
+		| tg.Graph.Id
+		| tg.Target.Id;
 
 	export type Kind =
 		| "leaf"
@@ -34,6 +41,27 @@ export namespace Object {
 		id?: I | undefined;
 		object?: O | undefined;
 	};
+
+	export let withId = (id: tg.Object.Id): tg.Object => {
+		let prefix = id.substring(0, 3);
+		if (prefix === "lef") {
+			return tg.Leaf.withId(id);
+		} else if (prefix === "bch") {
+			return tg.Branch.withId(id);
+		} else if (prefix === "dir") {
+			return tg.Directory.withId(id);
+		} else if (prefix === "fil") {
+			return tg.File.withId(id);
+		} else if (prefix === "sym") {
+			return tg.Symlink.withId(id);
+		} else if (prefix === "gph") {
+			return tg.Graph.withId(id);
+		} else if (prefix === "tgt") {
+			return tg.Target.withId(id);
+		} else {
+			throw new Error(`invalid object id: ${id}`);
+		}
+	}
 
 	export let is = (value: unknown): value is Object => {
 		return (

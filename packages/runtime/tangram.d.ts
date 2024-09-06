@@ -63,6 +63,29 @@ declare namespace tg {
 		| tg.Graph
 		| tg.Target;
 
+	export namespace Object {
+		export type Id =
+			| tg.Leaf.Id
+			| tg.Branch.Id
+			| tg.Directory.Id
+			| tg.File.Id
+			| tg.Symlink.Id
+			| tg.Graph.Id
+			| tg.Target.Id;
+
+		/** Get an object with an ID. */
+		export let withId: (id: tg.Object.Id) => tg.Object;
+
+		/** Check if a value is an `Object`. */
+		export let is: (value: unknown) => value is tg.Object;
+
+		/** Expect that a value is an `Object`. */
+		export let expect: (value: unknown) => tg.Object;
+
+		/** Assert that a value is an `Object`. */
+		export let assert: (value: unknown) => asserts value is tg.Object;
+	}
+
 	/** Create a blob. */
 	export let blob: (...args: tg.Args<tg.Blob.Arg>) => Promise<tg.Blob>;
 
@@ -353,6 +376,9 @@ declare namespace tg {
 		/** Get this file's dependencies. */
 		dependencies(): Promise<tg.File.Dependencies | undefined>;
 
+		/** Get this file's dependencies as an array. */
+		dependencyObjects(): Promise<Array<tg.Object>>;
+
 		/** Get this file's executable bit. */
 		executable(): Promise<boolean>;
 	}
@@ -441,6 +467,9 @@ declare namespace tg {
 
 		/** Assert that a value is a `tg.Graph`. */
 		static assert(value: unknown): asserts value is tg.Graph;
+
+		/** Get this graph's id. */
+		id(): Promise<tg.Graph.Id>;
 
 		/** Get this graph's nodes. */
 		nodes(): Promise<Array<tg.Graph.Node>>;
