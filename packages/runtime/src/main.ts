@@ -10,6 +10,7 @@ Object.defineProperties(globalThis, {
 	},
 });
 
+Object.assign(tg.template, tg);
 Object.defineProperties(globalThis, {
-	tg: { value: tg },
+	tg: { value: tg.template },
 });

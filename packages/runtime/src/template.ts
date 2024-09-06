@@ -1,9 +1,30 @@
 import * as tg from "./index.ts";
 import { flatten } from "./util.ts";
 
-export let template = (...args: tg.Args<Template.Arg>): Promise<Template> => {
-	return Template.new(...args);
-};
+export async function template(
+	...args: tg.Args<Template.Arg>
+): Promise<Template>;
+export async function template(
+	strings: TemplateStringsArray,
+	...placeholders: tg.Args<Template.Arg>
+): Promise<Template>;
+export async function template(...args: any): Promise<Template> {
+	if (Array.isArray(args[0]) && "raw" in args[0]) {
+		let strings = args[0] as TemplateStringsArray;
+		let placeholders = args.slice(1) as tg.Args<Template>;
+		let components = [];
+		for (let i = 0; i < strings.length - 1; i++) {
+			let string = strings[i]!;
+			components.push(string);
+			let placeholder = placeholders[i]!;
+			components.push(placeholder);
+		}
+		components.push(strings[strings.length - 1]!);
+		return await Template.new(...components);
+	} else {
+		return await Template.new(...(args as tg.Args<Template>));
+	}
+}
 
 export class Template {
 	#components: Array<Template.Component>;

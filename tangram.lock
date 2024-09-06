@@ -5,14 +5,11 @@
   "nodes": [
     {
       "kind": "file",
-      "dependencies": {
-        "./README.md": null
-      }
+      "dependencies": {}
     },
     {
       "kind": "directory",
       "entries": {
-        "README.md": null,
         "tangram.ts": 0
       }
     }

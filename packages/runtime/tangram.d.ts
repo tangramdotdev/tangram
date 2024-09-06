@@ -17,6 +17,7 @@ declare let console: {
 /**
  * Create a Tangram template with a JavaScript tagged template.
  */
+declare function tg(...args: tg.Args<tg.Template.Arg>): Promise<tg.Template>;
 declare function tg(
 	strings: TemplateStringsArray,
 	...placeholders: tg.Args<tg.Template.Arg>
@@ -84,7 +85,7 @@ declare namespace tg {
 	export type Blob = tg.Leaf | tg.Branch;
 
 	export namespace Blob {
-		export type Id = string;
+		export type Id = tg.Leaf.Id | tg.Branch.Id;
 
 		export type Arg = undefined | string | Uint8Array | tg.Blob;
 
@@ -223,7 +224,7 @@ declare namespace tg {
 
 	export namespace Artifact {
 		/** An artifact ID. */
-		export type Id = string;
+		export type Id = tg.Directory.Id | tg.File.Id | tg.Symlink.Id;
 
 		export type ArchiveFormat = "tar" | "zip";
 
@@ -774,9 +775,13 @@ declare namespace tg {
 	}
 
 	/** Create a template. */
-	export let template: (
+	export function template(
 		...args: tg.Args<tg.Template.Arg>
-	) => Promise<tg.Template>;
+	): Promise<tg.Template>;
+	export function template(
+		strings: TemplateStringsArray,
+		...placeholders: tg.Args<tg.Template.Arg>
+	): Promise<tg.Template>;
 
 	/** A template. */
 	export class Template {
