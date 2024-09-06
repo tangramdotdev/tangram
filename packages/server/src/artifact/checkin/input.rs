@@ -465,8 +465,12 @@ impl Server {
 			.map(|import| {
 				let arg = arg.clone();
 				async move {
-					let follow_symlinks = import.follow.unwrap_or(arg.follow_symlinks);
-					let unify_tags = import.unify.unwrap_or(arg.unify_tags);
+					let follow_symlinks = true; // TODO: where to put follow symlinks?
+					let unify_tags = import
+						.reference
+						.query()
+						.and_then(|query| query.unify)
+						.unwrap_or(arg.unify_tags);
 
 					// Follow path dependencies.
 					let path = import

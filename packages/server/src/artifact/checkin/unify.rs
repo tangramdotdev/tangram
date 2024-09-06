@@ -558,7 +558,8 @@ impl Server {
 			.pop_back()
 			.ok_or_else(|| tg::error!(%reference, "no solution exists"))?;
 
-		self.create_unification_node_from_tagged_object(graph, &object, tag)
+		let unify = reference.query().and_then(|q| q.unify).unwrap_or(false);
+		self.create_unification_node_from_tagged_object(graph, &object, tag, unify)
 			.await
 	}
 
@@ -567,12 +568,14 @@ impl Server {
 		graph: &mut Graph,
 		object: &tg::Object,
 		tag: tg::Tag,
+		unify: bool,
 	) -> tg::Result<Id> {
 		let mut visited = BTreeMap::new();
 		self.create_unification_node_from_tagged_object_inner(
 			graph,
 			object,
 			Some(tag),
+			unify,
 			&mut visited,
 		)
 		.await
@@ -583,6 +586,7 @@ impl Server {
 		graph: &mut Graph,
 		object: &tg::Object,
 		tag: Option<tg::Tag>,
+		unify: bool,
 		visited: &mut BTreeMap<tg::object::Id, Id>,
 	) -> tg::Result<Id> {
 		let object_id = object.id(self).await?;
@@ -600,13 +604,15 @@ impl Server {
 		);
 
 		visited.insert(object_id.clone(), id.clone());
-
-		// TODO: unify: true.
+		let outgoing = BTreeMap::new();
+		if unify {
+			todo!()
+		}
 
 		let node = Node {
 			id: id.clone(),
 			errors: Vec::new(),
-			outgoing: BTreeMap::new(),
+			outgoing,
 			_inline_object: false,
 			object: Either::Right(object_id),
 			tag,
