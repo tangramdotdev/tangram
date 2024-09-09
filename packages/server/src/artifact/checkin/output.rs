@@ -785,19 +785,6 @@ impl Server {
 		visited: &mut BTreeSet<tg::Path>,
 		progress: &ProgressState,
 	) -> tg::Result<()> {
-		self.copy_or_move_all_inner(&dest,  output, visited, progress)
-			.await?;
-		self.set_file_times_to_epoch(dest).await?;
-		Ok(())
-	}
-
-	async fn copy_or_move_all_inner(
-		&self,
-		dest: &tg::Path,
-		output: Arc<RwLock<Graph>>,
-		visited: &mut BTreeSet<tg::Path>,
-		progress: &ProgressState,
-	) -> tg::Result<()> {
 		let input = output.read().unwrap().input.read().unwrap().clone();
 		if visited.contains(&input.arg.path) {
 			return Ok(());
