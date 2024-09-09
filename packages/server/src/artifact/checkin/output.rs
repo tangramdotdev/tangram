@@ -767,6 +767,9 @@ impl Server {
 					Err(error) if error.raw_os_error() == Some(libc::ENOTEMPTY) => (),
 					Err(source) => return Err(tg::error!(!source, "failed to rename")),
 				}
+
+				// Reset the file times to epoch post-rename.
+				self.set_file_times_to_epoch(&dest).await?;
 			}
 
 			// Recurse.
@@ -778,6 +781,32 @@ impl Server {
 	async fn copy_or_move_all(
 		&self,
 		dest: tg::Path,
+		output: Arc<RwLock<Graph>>,
+		visited: &mut BTreeSet<tg::Path>,
+		progress: &ProgressState,
+	) -> tg::Result<()> {
+		self.copy_or_move_all_inner(&dest,  output, visited, progress)
+			.await?;
+		self.set_file_times_to_epoch(dest).await?;
+		Ok(())
+	}
+
+	async fn copy_or_move_all_inner(
+		&self,
+		dest: &tg::Path,
+		output: Arc<RwLock<Graph>>,
+		visited: &mut BTreeSet<tg::Path>,
+		progress: &ProgressState,
+	) -> tg::Result<()> {
+		self.copy_or_move_all_inner(&dest, output, visited, progress)
+			.await?;
+		self.set_file_times_to_epoch(dest).await?;
+		Ok(())
+	}
+
+	async fn copy_or_move_all_inner(
+		&self,
+		dest: &tg::Path,
 		output: Arc<RwLock<Graph>>,
 		visited: &mut BTreeSet<tg::Path>,
 		progress: &ProgressState,
@@ -796,7 +825,6 @@ impl Server {
 					Err(source) => return Err(tg::error!(!source, "failed to rename directory")),
 				}
 			}
-
 			tokio::fs::create_dir_all(&dest)
 				.await
 				.map_err(|source| tg::error!(!source, "failed to create directory"))?;
@@ -850,6 +878,25 @@ impl Server {
 			progress.report_output_progress(input.metadata.size().to_u64().unwrap());
 		}
 		Ok(())
+	}
+
+	async fn set_file_times_to_epoch(&self, dest: impl AsRef<std::path::Path>) -> tg::Result<()> {
+		let dest = dest.as_ref();
+		tokio::task::spawn_blocking({
+			let dest = dest.to_path_buf();
+			move || {
+				set_file_times_to_epoch_inner(&dest)?;
+				Ok::<_, tg::Error>(())
+			}
+		})
+		.await
+		.map_err(|error| {
+			tg::error!(
+				source = error,
+				"failed to set file times to epoch for {:?}",
+				dest
+			)
+		})?
 	}
 
 	async fn write_xattrs(&self, dest: tg::Path, output: Arc<RwLock<Graph>>) -> tg::Result<()> {
@@ -941,4 +988,24 @@ impl Server {
 
 		Ok(())
 	}
+}
+
+fn set_file_times_to_epoch_inner(path: &std::path::Path) -> tg::Result<()> {
+	let epoch = filetime::FileTime::from_system_time(std::time::SystemTime::UNIX_EPOCH);
+	if path.is_dir() {
+		for entry in std::fs::read_dir(path).map_err(|error| tg::error!(source = error, "could not read dir"))? {
+			let entry = entry.map_err(|error| tg::error!(source = error, "could not read entry"))?;
+			set_file_times_to_epoch_inner(&entry.path())?;
+		}
+	}
+
+	filetime::set_symlink_file_times(path, epoch, epoch).map_err(|source| {
+		tg::error!(
+			source = source,
+			"failed to set the modified time for {:?}",
+			path
+		)
+	})?;
+
+	Ok(())
 }
