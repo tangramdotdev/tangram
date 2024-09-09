@@ -10,7 +10,7 @@ use std::{
 	os::unix::fs::PermissionsExt as _,
 	sync::Arc,
 };
-use tangram_client::{self as tg, handle::Ext as _, Reference};
+use tangram_client::{self as tg, handle::Ext as _};
 use tangram_futures::task::Task;
 use tangram_http::{incoming::request::Ext as _, Incoming, Outgoing};
 
@@ -494,29 +494,21 @@ impl Server {
 		}
 
 		// Set the extended attributes.
-		if let Some(dependencies) = file.dependencies(self).await? {
-			let dependencies = match dependencies {
-				tg::Either::Left(set) => {
-					let vec = futures::future::try_join_all(set.iter().map(|handle| async {
-						let id = handle.id(self).await?;
-						Ok::<_, tg::Error>(id)
-					}))
-					.await?;
-					tg::Either::Left(vec)
-				},
-				tg::Either::Right(map) => {
-					let map = futures::future::try_join_all(map.iter().map(
-						|(reference, handle)| async {
-							let id = handle.id(self).await?;
-							Ok::<_, tg::Error>((reference.clone(), id))
-						},
-					))
-					.await?
-					.into_iter()
-					.collect::<BTreeMap<Reference, tg::object::Id>>();
-					tg::Either::Right(map)
-				},
-			};
+		let dependencies = file.dependencies(self).await?;
+		if !dependencies.is_empty() {
+			let dependencies: BTreeMap<tg::Reference, tg::file::data::Dependency> = dependencies
+				.into_iter()
+				.map(|(reference, dependency)| async move {
+					let object = dependency.object.id(self).await?;
+					let dependency = tg::file::data::Dependency {
+						object,
+						tag: dependency.tag,
+					};
+					Ok::<_, tg::Error>((reference, dependency))
+				})
+				.collect::<FuturesUnordered<_>>()
+				.try_collect()
+				.await?;
 
 			let name = tg::file::XATTR_NAME;
 			let json = serde_json::to_vec(&dependencies).map_err(|error| {
@@ -525,7 +517,7 @@ impl Server {
 			xattr::set(path, name, &json).map_err(|source| {
 				tg::error!(!source, "failed to set the extended attribute for the file")
 			})?;
-		};
+		}
 
 		// Add the path to the files map.
 		files.insert(id.clone(), path.clone());

@@ -79,16 +79,12 @@ impl Server {
 					.outgoing
 					.iter()
 					.map(|(reference, old_id)| {
-						let reference = reference.clone();
 						let object = ids.get(old_id).cloned();
 						let tag = graph.nodes.get(old_id).unwrap().tag.clone();
-						tg::lockfile::Edge {
-							reference,
-							tag,
-							object,
-						}
+						let dependency = tg::lockfile::Dependency { object, tag };
+						(reference.clone(), dependency)
 					})
-					.collect::<Vec<_>>();
+					.collect::<BTreeMap<_, _>>();
 				Some((*old_id, dependencies))
 			})
 			.collect::<BTreeMap<_, _>>();
@@ -103,46 +99,40 @@ impl Server {
 				let node = if input.metadata.is_dir() {
 					let entries = dependencies
 						.iter()
-						.map(
-							|tg::lockfile::Edge {
-							     reference, object, ..
-							 }| {
-								let name = reference
-									.path()
-									.try_unwrap_path_ref()
-									.map_err(
-										|_| tg::error!(%reference, "invalid input graph, expected a path"),
-									)?
-									.components()
-									.last()
-									.ok_or_else(|| {
-										tg::error!("invalid input graph, expected a non-empty path")
-									})?
-									.try_unwrap_normal_ref()
-									.map_err(|_| {
-										tg::error!("invalid input graph, expected a string")
-									})?
-									.clone();
-								let id = match object {
-									Some(Either::Left(id)) => Either::Left(*id),
-									Some(Either::Right(tg::object::Id::Directory(id))) => {
-										Either::Right(id.clone().into())
-									},
-									Some(Either::Right(tg::object::Id::File(id))) => {
-										Either::Right(id.clone().into())
-									},
-									Some(Either::Right(tg::object::Id::Symlink(id))) => {
-										Either::Right(id.clone().into())
-									},
-									_ => {
-										return Err(tg::error!(
-											"invalid input graph, expected an artifact"
-										))
-									},
-								};
-								Ok::<_, tg::Error>((name, Some(id)))
-							},
-						)
+						.map(|(reference, dependency)| {
+							let name = reference
+								.path()
+								.try_unwrap_path_ref()
+								.map_err(
+									|_| tg::error!(%reference, "invalid input graph, expected a path"),
+								)?
+								.components()
+								.last()
+								.ok_or_else(|| {
+									tg::error!("invalid input graph, expected a non-empty path")
+								})?
+								.try_unwrap_normal_ref()
+								.map_err(|_| tg::error!("invalid input graph, expected a string"))?
+								.clone();
+							let id = match &dependency.object {
+								Some(Either::Left(id)) => Either::Left(*id),
+								Some(Either::Right(tg::object::Id::Directory(id))) => {
+									Either::Right(id.clone().into())
+								},
+								Some(Either::Right(tg::object::Id::File(id))) => {
+									Either::Right(id.clone().into())
+								},
+								Some(Either::Right(tg::object::Id::Symlink(id))) => {
+									Either::Right(id.clone().into())
+								},
+								_ => {
+									return Err(tg::error!(
+										"invalid input graph, expected an artifact"
+									))
+								},
+							};
+							Ok::<_, tg::Error>((name, Some(id)))
+						})
 						.try_collect()?;
 					tg::lockfile::Node::Directory { entries }
 				} else if input.metadata.is_file() {
@@ -160,14 +150,13 @@ impl Server {
 			.await?;
 		nodes.sort_unstable_by_key(|(k, _)| *k);
 		let nodes = nodes.into_iter().map(|(_, n)| n).collect();
-
 		Ok(tg::Lockfile { paths, nodes })
 	}
 
 	async fn create_file_data(
 		&self,
 		input: input::Graph,
-		dependencies: Vec<tg::lockfile::Edge>,
+		dependencies: BTreeMap<tg::Reference, tg::lockfile::Dependency>,
 		progress: &super::ProgressState,
 	) -> tg::Result<tg::lockfile::Node> {
 		let input::Graph { arg, metadata, .. } = input;
@@ -409,34 +398,40 @@ impl Server {
 				executable,
 				..
 			} => {
-				if !dependencies.is_empty() {
+				if dependencies.is_empty() {
+					visited.insert(node, None);
+					Ok(None)
+				} else {
 					// Create the node.
 					let new_node = nodes.len();
 					visited.insert(node, Some(new_node));
 					nodes.push(tg::lockfile::Node::File {
 						contents: None,
-						dependencies: Vec::new(),
+						dependencies: BTreeMap::new(),
 						executable: *executable,
 					});
 
 					// Recurse and collect new dependencies.
-					let mut dependencies_ = Vec::new();
-					for edge in dependencies {
-						let object = match &edge.object {
-							Some(Either::Left(node)) => {
-								let entry = self.strip_lockfile_inner(
-									lockfile, old_paths, *node, nodes, paths, visited,
-								)?;
-								entry.map(Either::Left)
-							},
-							Some(Either::Right(object)) => Some(Either::Right(object.clone())),
-							None => return Err(tg::error!("invalid lockfile")),
-						};
-						dependencies_.push(tg::lockfile::Edge {
-							object,
-							..edge.clone()
-						});
-					}
+					let dependencies_ = dependencies
+						.iter()
+						.map(|(reference, dependency)| {
+							let object = match &dependency.object {
+								Some(Either::Left(node)) => {
+									let entry = self.strip_lockfile_inner(
+										lockfile, old_paths, *node, nodes, paths, visited,
+									)?;
+									entry.map(Either::Left)
+								},
+								Some(Either::Right(object)) => Some(Either::Right(object.clone())),
+								None => return Err(tg::error!("invalid lockfile")),
+							};
+							let dependency = tg::lockfile::Dependency {
+								object,
+								tag: dependency.tag.clone(),
+							};
+							Ok::<_, tg::Error>((reference.clone(), dependency))
+						})
+						.try_collect()?;
 
 					// Update dependencies.
 					let tg::lockfile::Node::File { dependencies, .. } = &mut nodes[new_node] else {
@@ -445,9 +440,6 @@ impl Server {
 					*dependencies = dependencies_;
 
 					Ok(Some(new_node))
-				} else {
-					visited.insert(node, None);
-					Ok(None)
 				}
 			},
 

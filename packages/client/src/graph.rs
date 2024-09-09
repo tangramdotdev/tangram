@@ -66,18 +66,20 @@ pub mod node {
 	#[derive(Clone, Debug)]
 	pub struct File {
 		pub contents: tg::Blob,
-		pub dependencies: Option<Either<DependenciesArray, DependenciesMap>>,
+		pub dependencies: BTreeMap<tg::Reference, Dependency>,
 		pub executable: bool,
 	}
-
-	type DependenciesArray = Vec<Either<usize, tg::Object>>;
-
-	type DependenciesMap = BTreeMap<tg::Reference, Either<usize, tg::Object>>;
 
 	#[derive(Clone, Debug)]
 	pub struct Symlink {
 		pub artifact: Option<Either<usize, tg::Artifact>>,
 		pub path: Option<tg::Path>,
+	}
+
+	#[derive(Clone, Debug)]
+	pub struct Dependency {
+		pub object: Either<usize, tg::Object>,
+		pub tag: Option<tg::Tag>,
 	}
 }
 
@@ -111,16 +113,12 @@ pub mod data {
 		pub struct File {
 			pub contents: tg::blob::Id,
 
-			#[serde(default, skip_serializing_if = "Option::is_none")]
-			pub dependencies: Option<Either<DependenciesArray, DependenciesMap>>,
+			#[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+			pub dependencies: BTreeMap<tg::Reference, Dependency>,
 
 			#[serde(default, skip_serializing_if = "is_false")]
 			pub executable: bool,
 		}
-
-		type DependenciesArray = Vec<Either<usize, tg::object::Id>>;
-
-		type DependenciesMap = BTreeMap<tg::Reference, Either<usize, tg::object::Id>>;
 
 		#[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
 		pub struct Symlink {
@@ -129,6 +127,12 @@ pub mod data {
 
 			#[serde(default, skip_serializing_if = "Option::is_none")]
 			pub path: Option<tg::Path>,
+		}
+
+		#[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
+		pub struct Dependency {
+			pub object: Either<usize, tg::object::Id>,
+			pub tag: Option<tg::Tag>,
 		}
 
 		impl Node {
@@ -287,47 +291,22 @@ impl Node {
 				executable,
 			}) => {
 				let contents = contents.id(handle).await?;
-				let dependencies = if let Some(dependencies) = &dependencies {
-					match dependencies {
-						Either::Left(dependencies) => Some(
-							dependencies
-								.iter()
-								.map(|either| async move {
-									let either = match either {
-										Either::Left(index) => Either::Left(*index),
-										Either::Right(object) => {
-											Either::Right(object.id(handle).await?)
-										},
-									};
-									Ok::<_, tg::Error>(either)
-								})
-								.collect::<FuturesUnordered<_>>()
-								.try_collect()
-								.await
-								.map(Either::Left)?,
-						),
-						Either::Right(dependencies) => Some(
-							dependencies
-								.iter()
-								.map(|(reference, either)| async move {
-									let reference = reference.clone();
-									let either = match either {
-										Either::Left(index) => Either::Left(*index),
-										Either::Right(object) => {
-											Either::Right(object.id(handle).await?)
-										},
-									};
-									Ok::<_, tg::Error>((reference, either))
-								})
-								.collect::<FuturesUnordered<_>>()
-								.try_collect()
-								.await
-								.map(Either::Right)?,
-						),
-					}
-				} else {
-					None
-				};
+				let dependencies = dependencies
+					.iter()
+					.map(|(reference, dependency)| async move {
+						let object = match &dependency.object {
+							Either::Left(index) => Either::Left(*index),
+							Either::Right(object) => Either::Right(object.id(handle).await?),
+						};
+						let dependency = data::node::Dependency {
+							object,
+							tag: dependency.tag.clone(),
+						};
+						Ok::<_, tg::Error>((reference.clone(), dependency))
+					})
+					.collect::<FuturesUnordered<_>>()
+					.try_collect()
+					.await?;
 				let executable = *executable;
 				Ok(data::Node::File(tg::graph::data::node::File {
 					contents,
@@ -396,22 +375,9 @@ impl Data {
 					..
 				}) => {
 					children.insert(contents.clone().into());
-					if let Some(dependencies) = dependencies {
-						match dependencies {
-							Either::Left(dependencies) => {
-								for either in dependencies {
-									if let Either::Right(id) = either {
-										children.insert(id.clone());
-									}
-								}
-							},
-							Either::Right(dependencies) => {
-								for either in dependencies.values() {
-									if let Either::Right(id) = either {
-										children.insert(id.clone());
-									}
-								}
-							},
+					for dependency in dependencies.values() {
+						if let Either::Right(id) = &dependency.object {
+							children.insert(id.clone());
 						}
 					}
 				},
@@ -490,31 +456,16 @@ impl TryFrom<data::Node> for Node {
 				executable,
 			}) => {
 				let contents = tg::Blob::with_id(contents);
-				let dependencies = dependencies.map(|dependencies| match dependencies {
-					Either::Left(dependencies) => Either::Left(
-						dependencies
-							.into_iter()
-							.map(|either| match either {
-								Either::Left(index) => Either::Left(index),
-								Either::Right(object) => Either::Right(tg::Object::with_id(object)),
-							})
-							.collect(),
-					),
-					Either::Right(dependencies) => Either::Right(
-						dependencies
-							.into_iter()
-							.map(|(reference, either)| {
-								let either = match either {
-									Either::Left(index) => Either::Left(index),
-									Either::Right(object) => {
-										Either::Right(tg::Object::with_id(object))
-									},
-								};
-								(reference, either)
-							})
-							.collect(),
-					),
-				});
+				let dependencies = dependencies
+					.iter()
+					.map(|(reference, dependency)| {
+						let dependency = node::Dependency {
+							object: dependency.object.clone().map_right(tg::Object::with_id),
+							tag: dependency.tag.clone(),
+						};
+						(reference.clone(), dependency)
+					})
+					.collect();
 				let file = tg::graph::node::File {
 					contents,
 					dependencies,

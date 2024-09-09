@@ -33,6 +33,9 @@ pub enum Path {
 #[derive(Clone, Debug, Default, serde::Deserialize, serde::Serialize)]
 pub struct Query {
 	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub follow: Option<bool>,
+
+	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub name: Option<String>,
 
 	#[serde(default, skip_serializing_if = "Option::is_none")]

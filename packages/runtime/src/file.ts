@@ -23,7 +23,7 @@ export class File {
 	static async new(...args: tg.Args<File.Arg>): Promise<File> {
 		let arg = await File.arg(...args);
 		let contents = await tg.blob(arg.contents);
-		let dependencies = arg.dependencies ?? [];
+		let dependencies = arg.dependencies ?? {};
 		let executable = arg.executable ?? false;
 		return new File({
 			object: { contents, dependencies, executable },
@@ -102,7 +102,7 @@ export class File {
 		return (await this.object()).contents;
 	}
 
-	async dependencies(): Promise<File.Dependencies | undefined> {
+	async dependencies(): Promise<{ [reference: string]: File.Dependency } | undefined> {
 		return (await this.object()).dependencies;
 	}
 
@@ -110,10 +110,8 @@ export class File {
 		let dependencies = await this.dependencies();
 		if (dependencies === undefined) {
 			return [];
-		} else if (Array.isArray(dependencies)) {
-			return dependencies;
 		} else {
-			return Object.values(dependencies);
+			return Object.values(dependencies).map((d) => d.object);
 		}
 	}
 
@@ -145,7 +143,7 @@ export namespace File {
 
 	export type ArgObject = {
 		contents?: tg.Blob.Arg | undefined;
-		dependencies?: File.Dependencies | undefined;
+		dependencies?: { [reference: string]: Dependency } | undefined;
 		executable?: boolean | undefined;
 	};
 
@@ -153,13 +151,14 @@ export namespace File {
 
 	export type Object = {
 		contents: tg.Blob;
-		dependencies: File.Dependencies | undefined;
+		dependencies: { [reference: string]: Dependency } | undefined;
 		executable: boolean;
 	};
 
-	export type Dependencies =
-		| Array<tg.Object>
-		| { [reference: string]: tg.Object };
+	export type Dependency = {
+		object: tg.Object;
+		tag?: string | undefined;
+	};
 
 	export type State = tg.Object.State<File.Id, File.Object>;
 }

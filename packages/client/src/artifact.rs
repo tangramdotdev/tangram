@@ -8,7 +8,6 @@ use std::{
 	collections::HashSet,
 	sync::{Arc, Mutex},
 };
-use tangram_either::Either;
 
 pub mod archive;
 pub mod bundle;
@@ -195,19 +194,9 @@ impl Artifact {
 			Self::File(file) => Ok(file
 				.dependencies(handle)
 				.await?
-				.as_ref()
-				.map(|dependencies| match dependencies {
-					Either::Left(dependencies) => dependencies
-						.iter()
-						.filter_map(|object| tg::Artifact::try_from(object.clone()).ok())
-						.collect(),
-					Either::Right(dependencies) => dependencies
-						.values()
-						.filter_map(|object| tg::Artifact::try_from(object.clone()).ok())
-						.collect(),
-				})
-				.unwrap_or_default()),
-
+				.into_values()
+				.filter_map(|dependency| dependency.object.try_into().ok())
+				.collect()),
 			Self::Symlink(symlink) => Ok(symlink
 				.artifact(handle)
 				.await?

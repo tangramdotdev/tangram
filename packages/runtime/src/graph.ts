@@ -82,22 +82,15 @@ export class Graph {
 					};
 					if ("dependencies" in argNode) {
 						if (argNode.dependencies !== undefined) {
-							if (Array.isArray(argNode.dependencies)) {
-								node.dependencies = argNode.dependencies.map((dependency) =>
-									typeof dependency === "number"
-										? dependency + offset
-										: dependency,
-								);
-							} else {
-								node.dependencies = {};
-								for (let reference in argNode.dependencies) {
-									if (typeof argNode.dependencies[reference] === "number") {
-										node.dependencies[reference] =
-											argNode.dependencies[reference] + offset;
-									} else if (tg.Object.is(argNode.dependencies[reference])) {
-										node.dependencies[reference] =
-											argNode.dependencies[reference];
-									}
+							node.dependencies = {};
+							for (let reference in argNode.dependencies) {
+								if (typeof argNode.dependencies[reference]?.object === "number") {
+									node.dependencies[reference] = {
+										object: argNode.dependencies[reference].object + offset,
+										tag: argNode.dependencies[reference].tag
+									};
+								} else if (tg.Object.is(argNode.dependencies[reference]?.object)) {
+									node.dependencies[reference] = argNode.dependencies[reference];
 								}
 							}
 						} else {
@@ -196,10 +189,14 @@ export namespace Graph {
 		kind: "file";
 		contents: tg.Blob.Arg;
 		dependencies?:
-			| Array<number | tg.Object>
-			| { [reference: string]: number | tg.Object }
+			| { [reference: string]: Dependency }
 			| undefined;
 		executable?: boolean | undefined;
+	};
+
+	export type Dependency = {
+		object: number | tg.Object;
+		tag?: string | undefined
 	};
 
 	export type SymlinkNodeArg = {
@@ -223,8 +220,7 @@ export namespace Graph {
 		kind: "file";
 		contents: tg.Blob;
 		dependencies:
-			| Array<number | tg.Object>
-			| { [reference: string]: number | tg.Object }
+			| { [reference: string]: Dependency }
 			| undefined;
 		executable: boolean;
 	};

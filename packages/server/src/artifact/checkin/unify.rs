@@ -148,20 +148,17 @@ impl Server {
 				let tg::lockfile::Node::File { dependencies, .. } = &lockfile.nodes[*node] else {
 					break 'a;
 				};
-				let Some(edge) = dependencies
-					.iter()
-					.find(|edge_| &edge_.reference == &edge.reference)
-				else {
+				let Some(dependency) = dependencies.get(&edge.reference) else {
 					if input.read().unwrap().arg.locked {
 						return Err(tg::error!("lockfile is out of data"))?;
 					};
 					break 'a;
 				};
-				let Some(Either::Right(object)) = &edge.object else {
+				let Some(Either::Right(object)) = &dependency.object else {
 					break 'a;
 				};
 
-				let id = if let Some(tag) = &edge.tag {
+				let id = if let Some(tag) = &dependency.tag {
 					let unify = edge
 						.reference
 						.query()
@@ -222,6 +219,8 @@ impl Server {
 		output_graph: &tg::Graph,
 		node: usize,
 		visited: &mut BTreeMap<(tg::graph::Id, usize), Id>,
+		tag: Option<&tg::Tag>,
+		unify: bool,
 	) -> tg::Result<Id> {
 		let key = (output_graph.id(self).await?, node);
 		if let Some(id) = visited.get(&key) {
@@ -236,35 +235,43 @@ impl Server {
 
 		let mut outgoing = BTreeMap::new();
 		if let tg::graph::Node::File(file) = &object.nodes[node] {
-			if let Some(dependencies) = &file.dependencies {
-				match dependencies {
-					Either::Left(_) => todo!(),
-					Either::Right(dependencies) => {
-						for (dependency, either) in dependencies {
-							match either {
-								Either::Left(node) => {
-									let id =
-										Box::pin(self._create_unification_node_from_graph_node(
-											input_graph,
-											output_graph,
-											*node,
-											visited,
-										))
-										.await?;
-									outgoing.insert(dependency.clone(), id);
-								},
-								// TODO: unify
-								// Either::Right(tg::Object::File(file)) => {
-								// },
-								Either::Right(object) => {
-									let id = object.id(self).await?;
-									let id = self
-										.create_unification_node_from_object(input_graph, id)
-										.await?;
-									outgoing.insert(dependency.clone(), id);
-								},
-							}
-						}
+			for (reference, dependency) in &file.dependencies {
+				if unify && dependency.tag.is_some() {
+					let id = get_reference_from_tag(dependency.tag.as_ref().unwrap());
+					outgoing.insert(reference.clone(), Either::Left(id));
+					continue;
+				}
+
+				match &dependency.object {
+					Either::Left(node) => {
+						let id = Box::pin(self._create_unification_node_from_graph_node(
+							input_graph,
+							output_graph,
+							*node,
+							visited,
+							dependency.tag.as_ref(),
+							unify,
+						))
+						.await?;
+						outgoing.insert(reference.clone(), id);
+					},
+					Either::Right(object) => {
+						let id = if let Some(tag) = tag {
+							self.create_unification_node_from_tagged_object(
+								input_graph,
+								object,
+								tag.clone(),
+								unify,
+							)
+							.await?
+						} else {
+							self.create_unification_node_from_object(
+								input_graph,
+								object.id(self).await?,
+							)
+							.await?
+						};
+						outgoing.insert(reference.clone(), id);
 					},
 				}
 			}

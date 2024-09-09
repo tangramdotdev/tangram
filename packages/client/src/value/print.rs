@@ -198,23 +198,8 @@ impl Printer {
 			} => {
 				let contents = contents.clone().into();
 				map.insert("contents".to_owned(), contents);
-				if let Some(dependencies) = dependencies {
-					let dependencies = match dependencies {
-						Either::Left(dependencies) => dependencies
-							.iter()
-							.cloned()
-							.map(tg::Value::from)
-							.collect::<Vec<_>>()
-							.into(),
-						Either::Right(dependencies) => dependencies
-							.iter()
-							.map(|(reference, object)| {
-								(reference.to_string(), object.clone().into())
-							})
-							.collect::<tg::value::Map>()
-							.into(),
-					};
-					map.insert("dependencies".to_owned(), dependencies);
+				if !dependencies.is_empty() {
+					todo!()
 				}
 				if *executable {
 					map.insert("executable".to_owned(), true.into());
@@ -292,34 +277,11 @@ impl Printer {
 							executable,
 						} = file;
 						map.insert("contents".to_owned(), contents.clone().into());
-						if let Some(dependencies) = &dependencies {
-							let dependencies = match dependencies {
-								Either::Left(dependencies) => Either::Left(
-									dependencies
-										.iter()
-										.map(|either| match either {
-											Either::Left(index) => index.to_f64().unwrap().into(),
-											Either::Right(object) => object.clone().into(),
-										})
-										.collect::<Vec<tg::Value>>(),
-								),
-								Either::Right(dependencies) => Either::Right(
-									dependencies
-										.iter()
-										.map(|(dependency, either)| {
-											let either = match either {
-												Either::Left(index) => {
-													index.to_f64().unwrap().into()
-												},
-												Either::Right(object) => object.clone().into(),
-											};
-											(dependency.to_string(), either)
-										})
-										.collect::<BTreeMap<String, tg::Value>>(),
-								),
-							};
-							map.insert("dependencies".to_owned(), dependencies.into());
+
+						if !dependencies.is_empty() {
+							todo!()
 						}
+
 						if *executable {
 							map.insert("executable".to_owned(), true.into());
 						}

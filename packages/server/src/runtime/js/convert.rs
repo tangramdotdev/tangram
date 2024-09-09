@@ -1573,6 +1573,46 @@ impl FromV8 for tg::file::Object {
 	}
 }
 
+impl ToV8 for tg::file::Dependency {
+	fn to_v8<'a>(&self, scope: &mut v8::HandleScope<'a>) -> tg::Result<v8::Local<'a, v8::Value>> {
+		let object = v8::Object::new(scope);
+		let key = v8::String::new_external_onebyte_static(scope, "object".as_bytes()).unwrap();
+		let value = self.object.to_v8(scope)?;
+		object.set(scope, key.into(), value);
+
+		if let Some(tag) = &self.tag {
+			let key = v8::String::new_external_onebyte_static(scope, "tag".as_bytes()).unwrap();
+			let value = tag.to_string().to_v8(scope)?;
+			object.set(scope, key.into(), value);
+		}
+
+		Ok(value)
+	}
+}
+
+impl FromV8 for tg::file::Dependency {
+	fn from_v8<'a>(
+		scope: &mut v8::HandleScope<'a>,
+		value: v8::Local<'a, v8::Value>,
+	) -> tg::Result<Self> {
+		let value = value.to_object(scope).unwrap();
+		let object = v8::String::new_external_onebyte_static(scope, "object".as_bytes()).unwrap();
+		let object = value.get(scope, object.into()).unwrap();
+		let object = from_v8(scope, object)
+			.map_err(|source| tg::error!(!source, "failed to deserialize the object"))?;
+
+		let tag = v8::String::new_external_onebyte_static(scope, "tag".as_bytes()).unwrap();
+		let tag = value.get(scope, tag.into()).unwrap();
+		let tag: Option<String> = from_v8(scope, tag)
+			.map_err(|source| tg::error!(!source, "failed to deserialize the graph"))?;
+		let tag = tag
+			.map(|tag| tag.parse())
+			.transpose()
+			.map_err(|source| tg::error!(!source, "failed to parse tag"))?;
+		Ok(Self { object, tag })
+	}
+}
+
 impl ToV8 for tg::Symlink {
 	fn to_v8<'a>(&self, scope: &mut v8::HandleScope<'a>) -> tg::Result<v8::Local<'a, v8::Value>> {
 		let context = scope.get_current_context();
@@ -1837,10 +1877,9 @@ impl ToV8 for tg::graph::Node {
 
 				let key = v8::String::new_external_onebyte_static(scope, "dependencies".as_bytes())
 					.unwrap();
-				if let Some(dependencies) = dependencies {
-					let value = dependencies.to_v8(scope)?;
-					object.set(scope, key.into(), value);
-				}
+
+				let value = dependencies.to_v8(scope)?;
+				object.set(scope, key.into(), value);
 
 				let key = v8::String::new_external_onebyte_static(scope, "executable".as_bytes())
 					.unwrap();
@@ -1940,6 +1979,49 @@ impl FromV8 for tg::graph::Node {
 				Ok(Self::Symlink(tg::graph::node::Symlink { artifact, path }))
 			},
 		}
+	}
+}
+
+impl ToV8 for tg::graph::node::Dependency {
+	fn to_v8<'a>(
+		&self,
+		scope: &mut v8::HandleScope<'a>,
+	) -> tangram_client::Result<v8::Local<'a, v8::Value>> {
+		let object = v8::Object::new(scope);
+		let key = v8::String::new_external_onebyte_static(scope, "object".as_bytes()).unwrap();
+		let value = self.object.to_v8(scope)?;
+		object.set(scope, key.into(), value);
+
+		if let Some(tag) = &self.tag {
+			let key = v8::String::new_external_onebyte_static(scope, "tag".as_bytes()).unwrap();
+			let value = tag.to_string().to_v8(scope)?;
+			object.set(scope, key.into(), value);
+		}
+
+		Ok(value)
+	}
+}
+
+impl FromV8 for tg::graph::node::Dependency {
+	fn from_v8<'a>(
+		scope: &mut v8::HandleScope<'a>,
+		value: v8::Local<'a, v8::Value>,
+	) -> tangram_client::Result<Self> {
+		let value = value.to_object(scope).unwrap();
+		let object = v8::String::new_external_onebyte_static(scope, "object".as_bytes()).unwrap();
+		let object = value.get(scope, object.into()).unwrap();
+		let object = from_v8(scope, object)
+			.map_err(|source| tg::error!(!source, "failed to deserialize the object"))?;
+
+		let tag = v8::String::new_external_onebyte_static(scope, "tag".as_bytes()).unwrap();
+		let tag = value.get(scope, tag.into()).unwrap();
+		let tag: Option<String> = from_v8(scope, tag)
+			.map_err(|source| tg::error!(!source, "failed to deserialize the graph"))?;
+		let tag = tag
+			.map(|tag| tag.parse())
+			.transpose()
+			.map_err(|source| tg::error!(!source, "failed to parse tag"))?;
+		Ok(Self { object, tag })
 	}
 }
 

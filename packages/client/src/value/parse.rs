@@ -1,5 +1,6 @@
 use crate as tg;
 use bytes::Bytes;
+use itertools::Itertools;
 use num::ToPrimitive;
 use std::{collections::BTreeMap, sync::Arc};
 use tangram_either::Either;
@@ -273,32 +274,25 @@ fn file_arg(input: &mut Input) -> PResult<tg::file::Object> {
 	map.verify_map(|map| {
 		let contents = map.get("contents")?.clone().try_into().ok()?;
 		let dependencies = if let Some(dependencies) = map.get("dependencies") {
-			match dependencies {
-				tg::Value::Array(array) => {
-					let dependencies = array
-						.iter()
-						.map(|value| {
-							let object = value.try_unwrap_object_ref().ok()?.clone();
-							Some(object)
-						})
-						.collect::<Option<_>>()?;
-					Some(Either::Left(dependencies))
-				},
-				tg::Value::Map(map) => {
-					let dependencies = map
-						.iter()
-						.map(|(key, value)| {
-							let key = key.parse().ok()?;
-							let object = value.try_unwrap_object_ref().ok()?.clone();
-							Some((key, object))
-						})
-						.collect::<Option<_>>()?;
-					Some(Either::Right(dependencies))
-				},
-				_ => return None,
-			}
+			dependencies
+				.try_unwrap_map_ref()
+				.ok()?
+				.iter()
+				.map(|(key, value)| {
+					let reference: tg::Reference = key.parse().ok()?;
+					let value = value.try_unwrap_map_ref().ok()?;
+					let object = value.get("object")?.try_unwrap_object_ref().ok()?.clone();
+					let tag = if let Some(tag) = value.get("tag") {
+						Some(tag.try_unwrap_string_ref().ok()?.parse().ok()?)
+					} else {
+						None
+					};
+					let dependency = tg::file::Dependency { object, tag };
+					Some((reference, dependency))
+				})
+				.collect::<Option<_>>()?
 		} else {
-			None
+			BTreeMap::new()
 		};
 		let executable = if let Some(executable) = map.get("executable") {
 			*executable.try_unwrap_bool_ref().ok()?
@@ -394,43 +388,18 @@ fn graph_arg(input: &mut Input) -> PResult<tg::graph::Object> {
 					tg::graph::node::Kind::File => {
 						let contents = map.get("contents")?.clone().try_into().ok()?;
 						let dependencies = if let Some(value) = map.get("dependencies") {
-							let either = if let Ok(array) = value.try_unwrap_array_ref() {
-								let dependencies = array
-									.iter()
-									.map(|value| {
-										let either = if let tg::Value::Number(number) = value {
-											Either::Left(number.to_usize()?)
-										} else if let Ok(artifact) = value.clone().try_into() {
-											Either::Right(artifact)
-										} else {
-											return None;
-										};
-										Some(either)
-									})
-									.collect::<Option<_>>()?;
-								Either::Left(dependencies)
-							} else if let Ok(map) = value.try_unwrap_map_ref() {
-								let dependencies = map
-									.iter()
-									.map(|(key, value)| {
-										let reference = key.parse().ok()?;
-										let either = if let tg::Value::Number(number) = value {
-											Either::Left(number.to_usize()?)
-										} else if let Ok(artifact) = value.clone().try_into() {
-											Either::Right(artifact)
-										} else {
-											return None;
-										};
-										Some((reference, either))
-									})
-									.collect::<Option<_>>()?;
-								Either::Right(dependencies)
-							} else {
-								return None;
-							};
-							Some(either)
+							value
+								.try_unwrap_map_ref()
+								.ok()?
+								.iter()
+								.map(|(key, value)| {
+									let reference: tg::Reference = key.parse().ok()?;
+									let dependency = todo!();
+									Some((reference, dependency))
+								})
+								.collect::<Option<_>>()?
 						} else {
-							None
+							BTreeMap::new()
 						};
 						let executable = if let Some(value) = map.get("executable") {
 							*value.try_unwrap_bool_ref().ok()?

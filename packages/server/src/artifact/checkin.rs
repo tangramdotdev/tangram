@@ -173,6 +173,8 @@ impl Server {
 
 		Ok(artifact)
 	}
+
+	#[allow(clippy::only_used_in_recursion, clippy::needless_pass_by_value)]
 	fn find_output_from_input(
 		&self,
 		path: &tg::Path,

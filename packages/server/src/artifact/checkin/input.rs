@@ -13,7 +13,6 @@ use std::{
 	sync::{Arc, RwLock, Weak},
 };
 use tangram_client as tg;
-use tangram_either::Either;
 
 #[derive(Clone, Debug)]
 pub struct Graph {
@@ -42,6 +41,7 @@ struct State {
 
 #[derive(Clone)]
 struct Arg {
+	#[allow(clippy::struct_field_names)]
 	arg: tg::artifact::checkin::Arg,
 	follow_symlinks: bool,
 	is_direct_dependency: bool,
@@ -373,68 +373,62 @@ impl Server {
 		if let Some(data) = xattr::get(&arg.arg.path, tg::file::XATTR_NAME)
 			.map_err(|source| tg::error!(!source, "failed to read file xattr"))?
 		{
-			let dependencies: Either<Vec<tg::object::Id>, BTreeMap<tg::Reference, tg::object::Id>> =
+			let dependencies: BTreeMap<tg::Reference, tg::file::data::Dependency> =
 				serde_json::from_slice(&data)
 					.map_err(|source| tg::error!(!source, "failed to deserialize xattr"))?;
-			let edges = match dependencies {
-				Either::Left(set) => set
-					.into_iter()
-					.map(|id| Edge {
-						reference: tg::Reference::with_object(&id),
-						follow_symlinks: arg.follow_symlinks,
-						unify_tags: arg.unify_tags,
-						graph: None,
-						object: Some(id),
-					})
-					.collect(),
-				Either::Right(map) => {
-					map.into_iter()
-						.map(|(reference, id)| async {
-							let path = reference
-								.path()
-								.try_unwrap_path_ref()
-								.ok()
-								.or_else(|| reference.query()?.path.as_ref());
-							let graph = if let Some(path) = path {
-								// TODO: once path.parent() is implemented correctly, use it.
-								let mut components = arg.arg.path.components().to_vec();
-								components.pop();
-								components.extend(path.clone().into_components());
-								let path = tg::Path::with_components(components);
+			let edges = dependencies
+				.into_iter()
+				.map(|(reference, dependency)| {
+					let arg = arg.clone();
+					async move {
+						let id = dependency.object;
+						let path = reference
+							.path()
+							.try_unwrap_path_ref()
+							.ok()
+							.or_else(|| reference.query()?.path.as_ref());
+						let follow_symlinks =
+							reference.query().and_then(|q| q.follow).unwrap_or(false);
+						let unify_tags = reference.query().and_then(|q| q.unify).unwrap_or(false);
+						let graph = if let Some(path) = path {
+							// TODO: once path.parent() is implemented correctly, use it.
+							let mut components = arg.arg.path.components().to_vec();
+							components.pop();
+							components.extend(path.clone().into_components());
+							let path = tg::Path::with_components(components);
 
-								// Follow the path.
-								let mut arg_ = arg.arg.clone();
-								arg_.path = path;
-								let arg = Arg {
-									arg: arg_,
-									follow_symlinks: arg.follow_symlinks,
-									unify_tags: arg.unify_tags,
-									is_direct_dependency: true,
-									..arg.clone()
-								};
-								let graph =
-									Box::pin(self.collect_input_inner(arg, state, progress))
-										.await?;
-
-								Some(graph)
-							} else {
-								None
+							// Follow the path.
+							let mut arg_ = arg.arg.clone();
+							arg_.path = path;
+							let arg = Arg {
+								arg: arg_,
+								follow_symlinks,
+								unify_tags,
+								is_direct_dependency: true,
+								..arg.clone()
 							};
-							let edge = Edge {
-								reference,
-								follow_symlinks: arg.follow_symlinks,
-								unify_tags: arg.unify_tags,
-								graph,
-								object: Some(id),
-							};
+							let graph =
+								Box::pin(self.collect_input_inner(arg, state, progress)).await?;
 
-							Ok::<_, tg::Error>(edge)
-						})
-						.collect::<FuturesUnordered<_>>()
-						.try_collect()
-						.await?
-				},
-			};
+							Some(graph)
+						} else {
+							None
+						};
+						let edge = Edge {
+							reference,
+							follow_symlinks,
+							unify_tags,
+							graph,
+							object: Some(id),
+						};
+
+						Ok::<_, tg::Error>(edge)
+					}
+				})
+				.collect::<FuturesUnordered<_>>()
+				.try_collect()
+				.await?;
+
 			return Ok(edges);
 		}
 
@@ -465,12 +459,17 @@ impl Server {
 			.map(|import| {
 				let arg = arg.clone();
 				async move {
-					let follow_symlinks = true; // TODO: where to put follow symlinks?
+					let follow_symlinks = import
+						.reference
+						.query()
+						.and_then(|query| query.follow)
+						.unwrap_or(true);
+
 					let unify_tags = import
 						.reference
 						.query()
 						.and_then(|query| query.unify)
-						.unwrap_or(arg.unify_tags);
+						.unwrap_or(false);
 
 					// Follow path dependencies.
 					let path = import
@@ -481,7 +480,7 @@ impl Server {
 						.or_else(|| import.reference.query()?.path.as_ref());
 					if let Some(path) = path {
 						// Create the reference
-						let reference = tg::Reference::with_path(&path);
+						let reference = tg::Reference::with_path(path);
 
 						// TODO: once path.parent() is implemented correctly, use it.
 						let mut components = arg.arg.path.components().to_vec();
@@ -664,7 +663,7 @@ impl Server {
 						.unwrap()
 						.edges
 						.iter()
-						.find(|edge| &edge.reference == &reference)
+						.find(|edge| edge.reference == reference)
 						.and_then(|edge| edge.graph.clone());
 					if let Some(input) = input {
 						parent = input;

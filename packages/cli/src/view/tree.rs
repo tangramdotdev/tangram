@@ -743,40 +743,16 @@ where
 							let child = Self::new(&self.handle, parent, index, kind);
 							children.push(child);
 
-							if let Some(dependencies) = &file.dependencies {
-								match dependencies {
-									Either::Left(dependencies) => {
-										for either in dependencies {
-											if let Either::Right(object) = either {
-												let parent = Some(self);
-												let index = children.len();
-												let kind = NodeKind::Value {
-													name: Some(
-														object.id(&self.handle).await?.to_string(),
-													),
-													value: object.clone().into(),
-												};
-												let child =
-													Self::new(&self.handle, parent, index, kind);
-												children.push(child);
-											}
-										}
-									},
-									Either::Right(dependencies) => {
-										for (reference, either) in dependencies {
-											if let Either::Right(object) = either {
-												let parent = Some(self);
-												let index = children.len();
-												let kind = NodeKind::Value {
-													name: Some(reference.to_string()),
-													value: object.clone().into(),
-												};
-												let child =
-													Self::new(&self.handle, parent, index, kind);
-												children.push(child);
-											}
-										}
-									},
+							for (reference, dependency) in &file.dependencies {
+								if let Either::Right(object) = &dependency.object {
+									let parent = Some(self);
+									let index = children.len();
+									let kind = NodeKind::Value {
+										name: Some(reference.to_string()),
+										value: object.clone().into(),
+									};
+									let child = Self::new(&self.handle, parent, index, kind);
+									children.push(child);
 								}
 							}
 						},

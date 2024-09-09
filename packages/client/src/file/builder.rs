@@ -1,10 +1,9 @@
 use crate as tg;
 use std::collections::BTreeMap;
-use tangram_either::Either;
 
 pub struct Builder {
 	contents: tg::Blob,
-	dependencies: Option<Either<Vec<tg::Object>, BTreeMap<tg::Reference, tg::Object>>>,
+	dependencies: BTreeMap<tg::Reference, tg::file::Dependency>,
 	executable: bool,
 }
 
@@ -13,7 +12,7 @@ impl Builder {
 	pub fn new(contents: impl Into<tg::Blob>) -> Self {
 		Self {
 			contents: contents.into(),
-			dependencies: None,
+			dependencies: BTreeMap::new(),
 			executable: false,
 		}
 	}
@@ -27,9 +26,9 @@ impl Builder {
 	#[must_use]
 	pub fn dependencies(
 		mut self,
-		dependencies: impl Into<Option<Either<Vec<tg::Object>, BTreeMap<tg::Reference, tg::Object>>>>,
+		dependencies: impl IntoIterator<Item = (tg::Reference, tg::file::Dependency)>,
 	) -> Self {
-		self.dependencies = dependencies.into();
+		self.dependencies = dependencies.into_iter().collect();
 		self
 	}
 

@@ -42,7 +42,7 @@ pub type State = tg::object::State<Id, Object>;
 pub enum Object {
 	Normal {
 		contents: tg::Blob,
-		dependencies: Option<Either<Vec<tg::Object>, BTreeMap<tg::Reference, tg::Object>>>,
+		dependencies: BTreeMap<tg::Reference, Dependency>,
 		executable: bool,
 	},
 	Graph {
@@ -57,9 +57,8 @@ pub enum Data {
 	Normal {
 		contents: tg::blob::Id,
 
-		#[serde(default, skip_serializing_if = "Option::is_none")]
-		dependencies:
-			Option<Either<BTreeSet<tg::object::Id>, BTreeMap<tg::Reference, tg::object::Id>>>,
+		#[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+		dependencies: BTreeMap<tg::Reference, data::Dependency>,
 
 		#[serde(default, skip_serializing_if = "is_false")]
 		executable: bool,
@@ -69,6 +68,22 @@ pub enum Data {
 		graph: tg::graph::Id,
 		node: usize,
 	},
+}
+
+#[derive(Clone, Debug)]
+pub struct Dependency {
+	pub object: tg::Object,
+	pub tag: Option<tg::Tag>,
+}
+
+pub mod data {
+	use crate as tg;
+
+	#[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
+	pub struct Dependency {
+		pub object: tg::object::Id,
+		pub tag: Option<tg::Tag>,
+	}
 }
 
 impl Id {
@@ -180,33 +195,19 @@ impl File {
 				executable,
 			} => {
 				let contents = contents.id(handle).await?.clone();
-				let dependencies = if let Some(dependencies) = &dependencies {
-					match dependencies {
-						Either::Left(dependencies) => Some(Either::Left(
-							dependencies
-								.iter()
-								.map(|object| object.id(handle))
-								.collect::<FuturesUnordered<_>>()
-								.try_collect()
-								.await?,
-						)),
-						Either::Right(dependencies) => Some(Either::Right(
-							dependencies
-								.iter()
-								.map(|(reference, object)| async {
-									Ok::<_, tg::Error>((
-										reference.clone(),
-										object.id(handle).await?,
-									))
-								})
-								.collect::<FuturesUnordered<_>>()
-								.try_collect()
-								.await?,
-						)),
-					}
-				} else {
-					None
-				};
+				let dependencies = dependencies
+					.iter()
+					.map(|(reference, dependency)| async move {
+						let object = dependency.object.id(handle).await?;
+						let dependency = data::Dependency {
+							object,
+							tag: dependency.tag.clone(),
+						};
+						Ok::<_, tg::Error>((reference.clone(), dependency))
+					})
+					.collect::<FuturesUnordered<_>>()
+					.try_collect()
+					.await?;
 				let executable = *executable;
 				Ok(Data::Normal {
 					contents,
@@ -265,7 +266,7 @@ impl File {
 	pub async fn dependencies<H>(
 		&self,
 		handle: &H,
-	) -> tg::Result<Option<Either<Vec<tg::Object>, BTreeMap<tg::Reference, tg::Object>>>>
+	) -> tg::Result<BTreeMap<tg::Reference, Dependency>>
 	where
 		H: tg::Handle,
 	{
@@ -283,84 +284,37 @@ impl File {
 					.ok()
 					.ok_or_else(|| tg::error!("expected a file"))?;
 				file.dependencies
-					.as_ref()
-					.map(|dependencies| match dependencies {
-						Either::Left(dependencies) => dependencies
-							.iter()
-							.map(|either| {
-								let object = match either {
-									Either::Left(node) => {
-										let kind = object
-											.nodes
-											.get(*node)
-											.ok_or_else(|| tg::error!("invalid index"))?
-											.kind();
-										match kind {
-											tg::artifact::Kind::Directory => {
-												tg::Directory::with_graph_and_node(
-													graph.clone(),
-													*node,
-												)
-												.into()
-											},
-											tg::artifact::Kind::File => {
-												tg::File::with_graph_and_node(graph.clone(), *node)
-													.into()
-											},
-											tg::artifact::Kind::Symlink => {
-												tg::Symlink::with_graph_and_node(
-													graph.clone(),
-													*node,
-												)
-												.into()
-											},
-										}
+					.iter()
+					.map(|(reference, dependency)| {
+						let object = match &dependency.object {
+							Either::Left(index) => {
+								let node = object
+									.nodes
+									.get(*index)
+									.ok_or_else(|| tg::error!("invalid index"))?;
+								match node {
+									tg::graph::Node::Directory(_) => {
+										tg::Directory::with_graph_and_node(graph.clone(), *index)
+											.into()
 									},
-									Either::Right(object) => object.clone(),
-								};
-								Ok(object)
-							})
-							.collect::<tg::Result<_>>()
-							.map(Either::Left),
-						Either::Right(dependencies) => dependencies
-							.iter()
-							.map(|(reference, either)| {
-								let object = match either {
-									Either::Left(node) => {
-										let kind = object
-											.nodes
-											.get(*node)
-											.ok_or_else(|| tg::error!("invalid index"))?
-											.kind();
-										match kind {
-											tg::artifact::Kind::Directory => {
-												tg::Directory::with_graph_and_node(
-													graph.clone(),
-													*node,
-												)
-												.into()
-											},
-											tg::artifact::Kind::File => {
-												tg::File::with_graph_and_node(graph.clone(), *node)
-													.into()
-											},
-											tg::artifact::Kind::Symlink => {
-												tg::Symlink::with_graph_and_node(
-													graph.clone(),
-													*node,
-												)
-												.into()
-											},
-										}
+									tg::graph::Node::File(_) => {
+										tg::File::with_graph_and_node(graph.clone(), *index).into()
 									},
-									Either::Right(object) => object.clone(),
-								};
-								Ok((reference.clone(), object))
-							})
-							.collect::<tg::Result<_>>()
-							.map(Either::Right),
+									tg::graph::Node::Symlink(_) => {
+										tg::Symlink::with_graph_and_node(graph.clone(), *index)
+											.into()
+									},
+								}
+							},
+							Either::Right(object) => object.clone(),
+						};
+						let dependency = Dependency {
+							object,
+							tag: dependency.tag.clone(),
+						};
+						Ok::<_, tg::Error>((reference.clone(), dependency))
 					})
-					.transpose()?
+					.try_collect()?
 			},
 		};
 		Ok(entries)
@@ -389,12 +343,9 @@ impl File {
 	{
 		let object = self.object(handle).await?;
 		let object = match object.as_ref() {
-			Object::Normal { dependencies, .. } => dependencies.as_ref().and_then(|dependencies| {
-				dependencies
-					.as_ref()
-					.right()
-					.and_then(|dependencies| dependencies.get(reference).cloned())
-			}),
+			Object::Normal { dependencies, .. } => dependencies
+				.get(reference)
+				.map(|dependency| dependency.object.clone()),
 			Object::Graph { graph, node } => {
 				let object = graph.object(handle).await?;
 				let node = object
@@ -405,34 +356,23 @@ impl File {
 					.try_unwrap_file_ref()
 					.ok()
 					.ok_or_else(|| tg::error!("expected a file"))?;
-				match file
-					.dependencies
-					.as_ref()
-					.and_then(|dependencies| match dependencies {
-						Either::Left(_) => None,
-						Either::Right(dependencies) => dependencies.get(reference),
-					}) {
-					None => None,
-					Some(Either::Left(node)) => {
-						let kind = object
-							.nodes
-							.get(*node)
-							.ok_or_else(|| tg::error!("invalid index"))?
-							.kind();
-						let object = match kind {
-							tg::artifact::Kind::Directory => {
-								tg::Directory::with_graph_and_node(graph.clone(), *node).into()
-							},
-							tg::artifact::Kind::File => {
-								tg::File::with_graph_and_node(graph.clone(), *node).into()
-							},
-							tg::artifact::Kind::Symlink => {
-								tg::Symlink::with_graph_and_node(graph.clone(), *node).into()
-							},
-						};
-						Some(object)
+				let Some(dependency) = file.dependencies.get(reference) else {
+					return Ok(None);
+				};
+				match &dependency.object {
+					Either::Left(index) => match object.nodes.get(*index) {
+						Some(tg::graph::Node::Directory(_)) => {
+							Some(tg::Directory::with_graph_and_node(graph.clone(), *index).into())
+						},
+						Some(tg::graph::Node::File(_)) => {
+							Some(tg::File::with_graph_and_node(graph.clone(), *index).into())
+						},
+						Some(tg::graph::Node::Symlink(_)) => {
+							Some(tg::Symlink::with_graph_and_node(graph.clone(), *index).into())
+						},
+						None => return Err(tg::error!("invalid index")),
 					},
-					Some(Either::Right(object)) => Some(object.clone()),
+					Either::Right(object) => Some(object.clone()),
 				}
 			},
 		};
@@ -515,13 +455,10 @@ impl Data {
 				..
 			} => {
 				let contents = contents.clone().into();
-				let dependencies = dependencies.as_ref().map(|either| match either {
-					Either::Left(dependencies) => Either::Left(dependencies.iter().cloned()),
-					Either::Right(dependencies) => Either::Right(dependencies.values().cloned()),
-				});
-				std::iter::once(contents)
-					.chain(dependencies.into_iter().flatten())
-					.collect()
+				let dependencies = dependencies
+					.values()
+					.map(|dependency| dependency.object.clone());
+				std::iter::once(contents).chain(dependencies).collect()
 			},
 			Self::Graph { graph, .. } => [graph.clone()].into_iter().map_into().collect(),
 		}
@@ -539,17 +476,16 @@ impl TryFrom<Data> for Object {
 				executable,
 			} => {
 				let contents = tg::Blob::with_id(contents);
-				let dependencies = dependencies.map(|dependencies| match dependencies {
-					Either::Left(dependencies) => {
-						Either::Left(dependencies.into_iter().map(tg::Object::with_id).collect())
-					},
-					Either::Right(dependencies) => Either::Right(
-						dependencies
-							.into_iter()
-							.map(|(reference, object)| (reference, tg::Object::with_id(object)))
-							.collect(),
-					),
-				});
+				let dependencies = dependencies
+					.into_iter()
+					.map(|(reference, dependency)| {
+						let dependency = Dependency {
+							object: tg::Object::with_id(dependency.object),
+							tag: dependency.tag.clone(),
+						};
+						(reference, dependency)
+					})
+					.collect();
 				Ok(Self::Normal {
 					contents,
 					dependencies,

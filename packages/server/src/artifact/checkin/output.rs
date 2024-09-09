@@ -1,5 +1,6 @@
 use super::{input, ProgressState};
 use crate::{tmp::Tmp, Server};
+use futures::{stream::FuturesUnordered, TryStreamExt};
 use indoc::formatdoc;
 use itertools::Itertools;
 use num::ToPrimitive;
@@ -332,27 +333,23 @@ impl Server {
 				},
 				tg::graph::data::Node::File(file) => {
 					if graph.nodes.len() == 1 {
-						let dependencies = if let Some(dependencies) = &file.dependencies {
-							let dependencies = match dependencies {
-								Either::Left(dependencies) => Either::Left(
-									dependencies
-										.iter()
-										.map(|either| either.clone().unwrap_right())
-										.collect(),
-								),
-								Either::Right(dependencies) => Either::Right(
-									dependencies
-										.iter()
-										.map(|(reference, either)| {
-											(reference.clone(), either.clone().unwrap_right())
-										})
-										.collect(),
-								),
-							};
-							Some(dependencies)
-						} else {
-							None
-						};
+						let dependencies = file
+							.dependencies
+							.iter()
+							.map(|(reference, dependency)| {
+								let object = match &dependency.object {
+									Either::Left(_node) => {
+										return Err(tg::error!("invalid graph"));
+									},
+									Either::Right(object) => object.clone(),
+								};
+								let dependency = tg::file::data::Dependency {
+									object,
+									tag: dependency.tag.clone(),
+								};
+								Ok::<_, tg::Error>((reference.clone(), dependency))
+							})
+							.try_collect()?;
 						tg::file::Data::Normal {
 							contents: file.contents.clone(),
 							dependencies,
@@ -416,28 +413,33 @@ impl Server {
 	async fn create_file_node(
 		&self,
 		contents: Option<tg::blob::Id>,
-		dependencies: Vec<tg::lockfile::Edge>,
+		dependencies: BTreeMap<tg::Reference, tg::lockfile::Dependency>,
 		executable: bool,
 		graphs: &[tg::graph::Data],
 		indices: &BTreeMap<usize, (usize, usize)>,
 	) -> tg::Result<tg::graph::data::node::File> {
-		let dependencies = if !dependencies.is_empty() {
-			let mut dependencies_ = BTreeMap::new();
-			for edge in dependencies {
-				let entry = edge
+		let contents = contents.ok_or_else(|| tg::error!("incomplete lockfile"))?;
+		let dependencies = dependencies
+			.into_iter()
+			.map(|(reference, dependency)| async move {
+				let object = dependency
 					.object
+					.clone()
 					.ok_or_else(|| tg::error!("incomplete lockfile"))?;
-				let entry = self
-					.resolve_lockfile_dependency(entry, graphs, indices)
+				let object = self
+					.resolve_lockfile_dependency(object, graphs, indices)
 					.await?;
-				dependencies_.insert(edge.reference.clone(), entry);
-			}
-			Some(Either::Right(dependencies_))
-		} else {
-			None
-		};
+				let dependency = tg::graph::data::node::Dependency {
+					object,
+					tag: dependency.tag,
+				};
+				Ok::<_, tg::Error>((reference, dependency))
+			})
+			.collect::<FuturesUnordered<_>>()
+			.try_collect()
+			.await?;
 		Ok(tg::graph::data::node::File {
-			contents: contents.ok_or_else(|| tg::error!("incomplete lockfile"))?,
+			contents,
 			dependencies,
 			executable,
 		})
@@ -490,23 +492,32 @@ impl Server {
 						.entries
 						.clone()
 						.into_iter()
-						.map(|(name, either)| (name, either.unwrap_right()))
-						.collect(),
+						.map(|(name, either)| {
+							let object = either
+								.right()
+								.ok_or_else(|| tg::error!("expected an object id"))?;
+							Ok::<_, tg::Error>((name, object))
+						})
+						.try_collect()?,
 				}
 				.id()?
 				.into(),
 				tg::graph::data::Node::File(node) => {
-					let dependencies =
-						node.dependencies
-							.clone()
-							.map(|dependencies| match dependencies {
-								Either::Left(d) => {
-									Either::Left(d.into_iter().map(Either::unwrap_right).collect())
-								},
-								Either::Right(d) => Either::Right(
-									d.into_iter().map(|(k, v)| (k, v.unwrap_right())).collect(),
-								),
-							});
+					let dependencies = node
+						.dependencies
+						.iter()
+						.map(|(reference, dependency)| {
+							let dependency = tg::file::data::Dependency {
+								object: dependency
+									.object
+									.clone()
+									.right()
+									.ok_or_else(|| tg::error!("expected an object id"))?,
+								tag: dependency.tag.clone(),
+							};
+							Ok::<_, tg::Error>((reference.clone(), dependency))
+						})
+						.try_collect()?;
 					tg::file::Data::Normal {
 						contents: node.contents.clone(),
 						dependencies,
@@ -516,7 +527,15 @@ impl Server {
 					.into()
 				},
 				tg::graph::data::Node::Symlink(node) => tg::symlink::Data::Normal {
-					artifact: node.artifact.clone().map(Either::unwrap_right),
+					artifact: node
+						.artifact
+						.clone()
+						.map(|object| {
+							object
+								.right()
+								.ok_or_else(|| tg::error!("expected an artifact ID"))
+						})
+						.transpose()?,
 					path: node.path.clone(),
 				}
 				.id()?
@@ -692,8 +711,8 @@ impl<'a> petgraph::visit::IntoNeighbors for GraphImpl<'a> {
 			),
 			tg::lockfile::Node::File { dependencies, .. } => Box::new(
 				dependencies
-					.iter()
-					.filter_map(|edge| edge.object.as_ref()?.as_ref().left().copied()),
+					.values()
+					.filter_map(|dependency| dependency.object.as_ref()?.as_ref().left().copied()),
 			),
 			tg::lockfile::Node::Symlink { artifact, .. } => Box::new(
 				artifact
@@ -863,39 +882,32 @@ impl Server {
 					let tg::graph::data::Node::File(file) = &graph.nodes[node] else {
 						return Err(tg::error!("expected a file"));
 					};
-					match &file.dependencies {
-						Some(Either::Left(set)) => {
-							let set = set
-								.iter()
-								.map(|either| match either {
-									Either::Left(node) => Ok(graph.id_of_node(*node)?.into()),
-									Either::Right(id) => Ok::<_, tg::Error>(id.clone()),
-								})
-								.try_collect()?;
-							Some(Either::Left(set))
-						},
-						Some(Either::Right(map)) => {
-							let map = map
-								.iter()
-								.map(|(reference, either)| {
-									let id = match either {
-										Either::Left(node) => graph.id_of_node(*node)?.into(),
-										Either::Right(id) => id.clone(),
-									};
-									Ok::<_, tg::Error>((reference.clone(), id))
-								})
-								.try_collect()?;
-							Some(Either::Right(map))
-						},
-						None => None,
-					}
+					file.dependencies
+						.iter()
+						.map(|(reference, dependency)| {
+							let object = match &dependency.object {
+								Either::Left(node) => match graph.id_of_node(*node)? {
+									tg::artifact::Id::Directory(id) => id.into(),
+									tg::artifact::Id::File(id) => id.into(),
+									tg::artifact::Id::Symlink(id) => id.into(),
+								},
+								Either::Right(id) => id.clone(),
+							};
+							let dependency = tg::file::data::Dependency {
+								object,
+								tag: dependency.tag.clone(),
+							};
+							Ok::<_, tg::Error>((reference.clone(), dependency))
+						})
+						.try_collect()?
 				},
 			};
 
 			// Serialize the dependencies and write the xattr.
-			let Some(dependencies) = dependencies else {
+			if dependencies.is_empty() {
 				return Ok(());
-			};
+			}
+
 			let json = serde_json::to_vec(&dependencies)
 				.map_err(|source| tg::error!(!source, "failed to serialize dependencies"))?;
 			xattr::set(&dest, tg::file::XATTR_NAME, &json).map_err(
