@@ -5,8 +5,12 @@ use crate::{
 };
 use dashmap::DashMap;
 use futures::{stream::FuturesUnordered, Stream, TryStreamExt as _};
-use std::{collections::BTreeSet, os::unix::fs::PermissionsExt as _, sync::Arc};
-use tangram_client::{self as tg, handle::Ext as _};
+use std::{
+	collections::{BTreeMap, BTreeSet},
+	os::unix::fs::PermissionsExt as _,
+	sync::Arc,
+};
+use tangram_client::{self as tg, handle::Ext as _, Reference};
 use tangram_futures::task::Task;
 use tangram_http::{incoming::request::Ext as _, Incoming, Outgoing};
 
@@ -490,11 +494,38 @@ impl Server {
 		}
 
 		// Set the extended attributes.
-		let name = tg::file::XATTR_NAME;
-		let value = file.data(self).await?.serialize()?;
-		xattr::set(path, name, &value).map_err(|source| {
-			tg::error!(!source, "failed to set the extended attribute for the file")
-		})?;
+		if let Some(dependencies) = file.dependencies(self).await? {
+			let dependencies = match dependencies {
+				tg::Either::Left(set) => {
+					let vec = futures::future::try_join_all(set.iter().map(|handle| async {
+						let id = handle.id(self).await?;
+						Ok::<_, tg::Error>(id)
+					}))
+					.await?;
+					tg::Either::Left(vec)
+				},
+				tg::Either::Right(map) => {
+					let map = futures::future::try_join_all(map.iter().map(
+						|(reference, handle)| async {
+							let id = handle.id(self).await?;
+							Ok::<_, tg::Error>((reference.clone(), id))
+						},
+					))
+					.await?
+					.into_iter()
+					.collect::<BTreeMap<Reference, tg::object::Id>>();
+					tg::Either::Right(map)
+				},
+			};
+
+			let name = tg::file::XATTR_NAME;
+			let json = serde_json::to_vec(&dependencies).map_err(|error| {
+				tg::error!(source = error, "failed to serialize the dependencies")
+			})?;
+			xattr::set(path, name, &json).map_err(|source| {
+				tg::error!(!source, "failed to set the extended attribute for the file")
+			})?;
+		};
 
 		// Add the path to the files map.
 		files.insert(id.clone(), path.clone());
