@@ -97,6 +97,9 @@ impl Server {
 		store_as: Option<&tg::artifact::Id>,
 		progress: &ProgressState,
 	) -> tg::Result<tg::artifact::Id> {
+		if !arg.path.is_absolute() {
+			return Err(tg::error!(%path = arg.path.display(), "expected an absolute path"));
+		}
 		// Overview :
 		//
 		// - Collect Input (arg) -> input::Graph

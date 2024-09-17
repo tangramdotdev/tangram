@@ -141,6 +141,21 @@ impl Server {
 		state: &RwLock<State>,
 		progress: &super::ProgressState,
 	) -> tg::Result<Node> {
+		if !arg.arg.path.is_absolute() {
+			let referrer = arg.parent.as_ref().map(|p| {
+				p.upgrade()
+					.unwrap()
+					.read()
+					.unwrap()
+					.arg
+					.path
+					.display()
+					.to_string()
+			});
+			return Err(
+				tg::error!(%path = arg.arg.path.display(), ?referrer, "expected an absolute path"),
+			);
+		}
 		let canonical_path = if arg.follow_symlinks {
 			tokio::fs::canonicalize(&arg.arg.path).await.map_err(
 				|source| tg::error!(!source, %path = arg.arg.path.display(), "failed to canonicalize path"),
@@ -388,11 +403,11 @@ impl Server {
 							.try_unwrap_path_ref()
 							.ok()
 							.or_else(|| reference.query()?.path.as_ref())
-							.map(|path| path.as_std().parent().unwrap_or(path.as_std()).to_owned());
+							.map(|path| arg.arg.path.parent().unwrap().join(path));
 
 						let follow_symlinks =
 							reference.query().and_then(|q| q.follow).unwrap_or(false);
-						let unify_tags = reference.query().and_then(|q| q.unify).unwrap_or(false);
+						let unify_tags = true;
 
 						// Don't follow paths that point outside the root.
 						let is_external_path = path
@@ -477,11 +492,7 @@ impl Server {
 						.and_then(|query| query.follow)
 						.unwrap_or(true);
 
-					let unify_tags = import
-						.reference
-						.query()
-						.and_then(|query| query.unify)
-						.unwrap_or(false);
+					let unify_tags = true;
 
 					// Follow path dependencies.
 					let path = import
@@ -787,7 +798,11 @@ impl Graph {
 		self.contains_path_inner(path, &mut visited)
 	}
 
-	fn contains_path_inner<'a>(&self, path: &'a std::path::Path, visited: &mut BTreeSet<&'a std::path::Path>) -> bool {
+	fn contains_path_inner<'a>(
+		&self,
+		path: &'a std::path::Path,
+		visited: &mut BTreeSet<&'a std::path::Path>,
+	) -> bool {
 		if visited.contains(&path) {
 			return false;
 		}

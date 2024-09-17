@@ -147,11 +147,7 @@ impl Server {
 				};
 
 				let id = if let Some(tag) = &dependency.tag {
-					let unify = edge
-						.reference
-						.query()
-						.and_then(|q| q.unify)
-						.unwrap_or(false);
+					let unify = true;
 					self.create_unification_node_from_tagged_object(
 						graph,
 						&tg::Object::with_id(object.clone()),
@@ -198,107 +194,6 @@ impl Server {
 
 		graph.nodes.insert(id.clone(), node);
 
-		Ok(id)
-	}
-
-	async fn _create_unification_node_from_graph_node(
-		&self,
-		input_graph: &mut Graph,
-		output_graph: &tg::Graph,
-		node: usize,
-		visited: &mut BTreeMap<(tg::graph::Id, usize), Id>,
-		tag: Option<&tg::Tag>,
-		unify: bool,
-	) -> tg::Result<Id> {
-		let key = (output_graph.id(self).await?, node);
-		if let Some(id) = visited.get(&key) {
-			return Ok(id.clone());
-		}
-		let id = Either::Right(input_graph.counter);
-		input_graph.counter += 1;
-		visited.insert(key, id.clone());
-
-		let object = output_graph.object(self).await?;
-		let output_graph_node = &object.nodes[node];
-
-		let mut outgoing = BTreeMap::new();
-		if let tg::graph::Node::File(file) = &object.nodes[node] {
-			for (reference, dependency) in &file.dependencies {
-				if unify && dependency.tag.is_some() {
-					let id = get_reference_from_tag(dependency.tag.as_ref().unwrap());
-					outgoing.insert(reference.clone(), Either::Left(id));
-					continue;
-				}
-
-				match &dependency.object {
-					Either::Left(node) => {
-						let id = Box::pin(self._create_unification_node_from_graph_node(
-							input_graph,
-							output_graph,
-							*node,
-							visited,
-							dependency.tag.as_ref(),
-							unify,
-						))
-						.await?;
-						outgoing.insert(reference.clone(), id);
-					},
-					Either::Right(object) => {
-						let id = if let Some(tag) = tag {
-							self.create_unification_node_from_tagged_object(
-								input_graph,
-								object,
-								tag.clone(),
-								unify,
-							)
-							.await?
-						} else {
-							self.create_unification_node_from_object(
-								input_graph,
-								object.id(self).await?,
-							)
-							.await?
-						};
-						outgoing.insert(reference.clone(), id);
-					},
-				}
-			}
-		}
-
-		// Create the underlying object.
-		let object: tg::Object = match output_graph_node.kind() {
-			tg::artifact::Kind::Directory => {
-				tg::Directory::with_object(Arc::new(tg::directory::Object::Graph {
-					graph: output_graph.clone(),
-					node,
-				}))
-				.into()
-			},
-			tg::artifact::Kind::File => tg::File::with_object(Arc::new(tg::file::Object::Graph {
-				graph: output_graph.clone(),
-				node,
-			}))
-			.into(),
-			tg::artifact::Kind::Symlink => {
-				tg::Symlink::with_object(Arc::new(tg::symlink::Object::Graph {
-					graph: output_graph.clone(),
-					node,
-				}))
-				.into()
-			},
-		};
-
-		// Create thenode.
-		let node = Node {
-			id: id.clone(),
-			errors: Vec::new(),
-			outgoing,
-			_inline_object: false,
-			object: Either::Right(object.id(self).await?),
-			tag: None,
-		};
-
-		input_graph.nodes.insert(id.clone(), node);
 		Ok(id)
 	}
 
@@ -568,7 +463,7 @@ impl Server {
 			.pop_back()
 			.ok_or_else(|| tg::error!(%reference, "no solution exists"))?;
 
-		let unify = reference.query().and_then(|q| q.unify).unwrap_or(false);
+		let unify = true;
 		self.create_unification_node_from_tagged_object(graph, &object, tag, unify)
 			.await
 	}
@@ -614,10 +509,20 @@ impl Server {
 		);
 
 		visited.insert(object_id.clone(), id.clone());
-		let outgoing = BTreeMap::new();
-		if unify {
-			todo!()
-		}
+		let outgoing = match object {
+			tg::Object::Directory(directory) if unify => {
+				self.get_unify_directory_edges(graph, directory, visited)
+					.await?
+			},
+			tg::Object::File(file) if unify => {
+				self.get_unify_file_edges(graph, file, visited).await?
+			},
+			tg::Object::Symlink(symlink) if unify => {
+				self.get_unify_symlink_edges(graph, symlink, visited)
+					.await?
+			},
+			_ => BTreeMap::new(),
+		};
 
 		let node = Node {
 			id: id.clone(),
@@ -630,6 +535,76 @@ impl Server {
 		graph.nodes.insert(id.clone(), node);
 
 		Ok(id)
+	}
+
+	async fn get_unify_directory_edges(
+		&self,
+		graph: &mut Graph,
+		directory: &tg::Directory,
+		visited: &mut BTreeMap<tg::object::Id, Id>,
+	) -> tg::Result<BTreeMap<tg::Reference, Id>> {
+		let mut outgoing = BTreeMap::new();
+		for (name, object) in directory.entries(self).await? {
+			let reference = tg::Reference::with_path(&name.into());
+			let id = Box::pin(self.create_unification_node_from_tagged_object_inner(
+				graph,
+				&object.into(),
+				None,
+				true,
+				visited,
+			))
+			.await?;
+			outgoing.insert(reference, id);
+		}
+		Ok(outgoing)
+	}
+
+	async fn get_unify_file_edges(
+		&self,
+		graph: &mut Graph,
+		file: &tg::File,
+		visited: &mut BTreeMap<tg::object::Id, Id>,
+	) -> tg::Result<BTreeMap<tg::Reference, Id>> {
+		let mut outgoing = BTreeMap::new();
+		for (reference, dependency) in file.dependencies(self).await? {
+			if let Ok(pat) = reference.path().try_unwrap_tag_ref() {
+				let id = Either::Left(get_reference_from_pattern(pat));
+				outgoing.insert(reference, id);
+			} else {
+				let id = Box::pin(self.create_unification_node_from_tagged_object_inner(
+					graph,
+					&dependency.object,
+					dependency.tag,
+					true,
+					visited,
+				))
+				.await?;
+				outgoing.insert(reference, id);
+			}
+		}
+		Ok(outgoing)
+	}
+
+	async fn get_unify_symlink_edges(
+		&self,
+		graph: &mut Graph,
+		symlink: &tg::Symlink,
+		visited: &mut BTreeMap<tg::object::Id, Id>,
+	) -> tg::Result<BTreeMap<tg::Reference, Id>> {
+		let mut outgoing = BTreeMap::new();
+		if let Some(artifact) = symlink.artifact(self).await? {
+			let reference = tg::Reference::with_object(&artifact.id(self).await?.into());
+			let id = Box::pin(self.create_unification_node_from_tagged_object_inner(
+				graph,
+				&artifact.into(),
+				None,
+				true,
+				visited,
+			))
+			.await?;
+			outgoing.insert(reference, id);
+		}
+		Ok(outgoing)
 	}
 }
 
