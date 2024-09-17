@@ -22,7 +22,7 @@ edition = "2021"
 homepage = "https://www.tangram.dev"
 license = "MIT"
 repository = "https://github.com/tangramdotdev/tangram"
-rust-version = "1.79"
+rust-version = "1.80"
 version = "0.0.0"
 
 [workspace.lints.clippy]
