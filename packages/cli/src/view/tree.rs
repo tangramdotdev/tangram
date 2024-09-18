@@ -1,5 +1,5 @@
 use super::commands::Commands;
-use futures::{future, StreamExt};
+use futures::{future, stream::FuturesUnordered, StreamExt, TryStreamExt};
 use num::ToPrimitive;
 use ratatui::{self as tui, prelude::*};
 use std::{
@@ -981,10 +981,89 @@ where
 	}
 
 	async fn set_build_title(&self, build: tg::Build) -> tg::Result<()> {
-		let target = build.target(&self.handle).await?;
-		let _executable = target.executable(&self.handle).await?;
-		let host = target.host(&self.handle).await?;
 		let mut title = String::new();
+
+		// Get the target.
+		let target = build.target(&self.handle).await?;
+
+		// Get the referrer if this is not a root.
+		if let Some(parent) = self.parent() {
+			let NodeKind::Build { build, .. } = parent.state.read().unwrap().kind.clone() else {
+				return Err(tg::error!("expected a build"));
+			};
+
+			// Get the referrer.
+			let referrer = build
+				.target(&self.handle)
+				.await?
+				.executable(&self.handle)
+				.await?
+				.clone()
+				.ok_or_else(|| tg::error!("expected an object"))?;
+			let referrer = match referrer {
+				tg::Artifact::Directory(_) => return Err(tg::error!("expected a file or symlink")),
+				tg::Artifact::File(file) => file,
+				tg::Artifact::Symlink(symlink) => {
+					let directory = symlink
+						.artifact(&self.handle)
+						.await?
+						.ok_or_else(|| tg::error!("expected an object"))?
+						.clone()
+						.try_unwrap_directory()
+						.map_err(|_| tg::error!("expected a directory"))?;
+					let path = symlink
+						.path(&self.handle)
+						.await?
+						.ok_or_else(|| tg::error!("expected a path"))?;
+					directory
+						.get(&self.handle, &path)
+						.await?
+						.try_unwrap_file()
+						.map_err(|_| tg::error!("expected a file"))?
+				},
+			};
+
+			// Get the object.
+			let executable = target
+				.executable(&self.handle)
+				.await?
+				.clone()
+				.ok_or_else(|| tg::error!("expected an object"))?;
+			let object: tg::object::Id = match executable {
+				tg::Artifact::Directory(_) => return Err(tg::error!("expected a file or symlink")),
+				tg::Artifact::File(file) => file.id(&self.handle).await?.into(),
+				tg::Artifact::Symlink(symlink) => symlink
+					.artifact(&self.handle)
+					.await?
+					.ok_or_else(|| tg::error!("expected an object"))?
+					.id(&self.handle)
+					.await?
+					.into(),
+			};
+
+			// Get the referrer's dependencies.
+			let dependencies: Vec<_> = referrer
+				.dependencies(&self.handle)
+				.await?
+				.into_iter()
+				.map(|(reference, dependency)| async move {
+					let id = dependency.object.id(&self.handle).await?;
+					Ok::<_, tg::Error>((reference, id))
+				})
+				.collect::<FuturesUnordered<_>>()
+				.try_collect()
+				.await?;
+
+			// Find the object in the dependencies.
+			if let Some(reference) = dependencies
+				.iter()
+				.find_map(|(reference, id)| (id == &object).then_some(reference))
+			{
+				write!(title, "{reference}").unwrap();
+			}
+		}
+
+		let host = target.host(&self.handle).await?;
 		if host.as_str() == "js" {
 			let name = target
 				.args(&self.handle)
