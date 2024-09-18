@@ -38,7 +38,8 @@ impl Server {
 			item: Option<Either<tg::build::Id, tg::object::Id>>,
 		}
 		let mut rows: Vec<Row> = Vec::new();
-		for component in arg.pattern.components() {
+		let mut prefix = Vec::new();
+		for (idx, component) in arg.pattern.components().into_iter().enumerate() {
 			match component {
 				tg::tag::pattern::Component::Normal(component) => {
 					let p = connection.p();
@@ -55,6 +56,11 @@ impl Server {
 						.query_all_into(statement, params)
 						.await
 						.map_err(|source| tg::error!(!source, "failed to execute the statement"))?;
+
+					// Add the leading components to the tag prefix.
+					if idx != arg.pattern.components().len() - 1 {
+						prefix.push(component.clone());
+					}
 				},
 
 				tg::tag::pattern::Component::Semver(pattern) => {
@@ -99,21 +105,40 @@ impl Server {
 			}
 		}
 
+		// If the last component is normal, check if there are any children beneath it.
+		if matches!(arg.pattern.components().last(), Some(tg::tag::pattern::Component::Normal(_))) {
+			let p = connection.p();
+			let statement = formatdoc!(
+				"
+					select id, name, item
+					from tags
+					where parent = {p}1
+				"
+			);
+			let parent = rows.first().map_or(0, |row| row.id);
+			let params = db::params![parent];
+			let rows_ = connection
+				.query_all_into::<Row>(statement, params)
+				.await
+				.map_err(|source| tg::error!(!source, "failed to execute the statement"))?;
+			if !rows_.is_empty() {
+				prefix.push(tg::tag::Component::new(rows.first().unwrap().name.clone()));
+				rows = rows_;
+			}
+		}
+
 		// Create the output.
 		let length = arg
 			.length
 			.map_or(usize::MAX, |length| length.to_usize().unwrap());
+
 		let data = rows
 			.into_iter()
 			.take(length)
 			.map(|row| {
-				let mut components = arg.pattern.components().clone();
-				components.pop();
-				components.push(tg::tag::pattern::Component::Normal(
-					tg::tag::Component::new(row.name),
-				));
-				let pattern = tg::tag::Pattern::with_components(components);
-				let tag = pattern.try_into().unwrap();
+				let mut components = prefix.clone();
+				components.push(tg::tag::Component::new(row.name));
+				let tag = tg::Tag::with_components(components);
 				let item = row.item;
 				tg::tag::get::Output { tag, item }
 			})
