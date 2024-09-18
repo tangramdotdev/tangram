@@ -129,6 +129,7 @@ tangram_server = { path = "packages/server" }
 tangram_uri = { path = "packages/uri" }
 tangram_vfs = { path = "packages/vfs" }
 tar = { version = "0.4" }
+tempfile = { version = "3" }
 time = { version = "0.3", features = ["formatting", "parsing", "serde"] }
 tokio = { version = "1", features = ["full", "tracing"] }
 tokio-postgres = { version = "0.7", features = [

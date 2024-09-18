@@ -40,6 +40,7 @@ tangram_client = { workspace = true }
 tangram_futures = { workspace = true }
 tangram_either = { workspace = true }
 tangram_server = { workspace = true }
+tempfile = { workspace = true }
 tokio = { workspace = true }
 tokio-util = { workspace = true }
 tracing = { workspace = true }

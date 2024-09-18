@@ -6,9 +6,10 @@ use num::ToPrimitive;
 use std::{
 	fmt::Write as _,
 	path::PathBuf,
+	str::FromStr,
 	sync::{Arc, Mutex, Weak},
 };
-use tangram_client::{self as tg, handle::Ext as _, Handle as _};
+use tangram_client::{self as tg, handle::Ext as _, Handle};
 use tangram_either::Either;
 
 /// Build a target.
@@ -142,10 +143,10 @@ impl Cli {
 							break;
 						}
 					}
-					let package = package.id(&handle).await?;
-					executable.ok_or_else(
-						|| tg::error!(%package, "expected the directory to contain a root module"),
-					)?
+					match executable {
+						Some(executable) => executable,
+						None => magic_executable(&handle, package).await?,
+					}
 				},
 				Either::Right(tg::Object::File(executable)) => executable.into(),
 				_ => {
@@ -667,4 +668,63 @@ where
 		self.state.lock().unwrap().title = title;
 		Ok(())
 	}
+}
+
+/// Create a root module that attempts to build a directory using the magic package.
+async fn magic_executable(
+	tg: &impl tg::Handle,
+	incoming_directory: tg::Directory,
+) -> tg::Result<tg::Artifact> {
+	// Configure magic package import.
+	tracing::info!("No root module found, using magic executable");
+	// FIXME - this import needs to come from the registry, not a path.
+	let magic_path = "/Users/benlovy/code/packages/packages/magic";
+
+	// Configure source directory.
+	let incoming_id = incoming_directory.id(tg).await?;
+	let incoming_id_str = incoming_id.to_string();
+	tracing::info!(?incoming_id_str, "passing in dir");
+
+	// Generate module contents.
+	let text = indoc::formatdoc! {r#"
+		import magic from "tg:magic" with {{ path: "{magic_path}" }};
+		import source from "tg:{incoming_id_str}" with {{ type: "directory" }};
+		export default tg.target(() => magic({{ source }}));
+		"#};
+	tracing::info!(?text, "magic entrypoint");
+
+	// Create the module in a tempdir.
+	let tmpdir =
+		tempfile::tempdir().map_err(|source| tg::error!(!source, "unable to create tempdir"))?;
+	let module_path = tmpdir.path().join("tangram.ts");
+	tokio::fs::write(&module_path, text)
+		.await
+		.map_err(|source| tg::error!(!source, "unable to write module contents to tempdir"))?;
+
+	// Check it in.
+	let directory = tg::Artifact::check_in(
+		tg,
+		tg::artifact::checkin::Arg {
+			destructive: false,
+			deterministic: true,
+			locked: false,
+			path: tmpdir.path().into(),
+		},
+	)
+	.await?
+	.try_unwrap_directory()
+	.map_err(|source| tg::error!(!source, "expected a file"))?;
+	tmpdir
+		.close()
+		.map_err(|source| tg::error!(!source, "unable to close tempdir"))?;
+
+	let dir_id = directory.id(tg).await?;
+	tracing::info!(?dir_id, "checked in package");
+
+	// Return a symlink pointing to the module.
+	let symlink = tg::Symlink::with_artifact_and_path(
+		Some(directory.into()),
+		Some(tg::Path::from_str("tangram.ts").unwrap()),
+	);
+	Ok(symlink.into())
 }

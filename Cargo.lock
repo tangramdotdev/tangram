@@ -5285,6 +5285,7 @@ dependencies = [
  "tangram_either",
  "tangram_futures",
  "tangram_server",
+ "tempfile",
  "tokio",
  "tokio-util",
  "tracing",
