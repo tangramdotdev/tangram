@@ -1,7 +1,7 @@
 use self::builder::Builder;
 use once_cell::sync::Lazy;
 use regex::Regex;
-use std::ops::Range;
+use std::{borrow::Cow, ops::Range};
 use tangram_either::Either;
 
 pub mod builder;
@@ -97,10 +97,9 @@ impl std::str::FromStr for Reference {
 			.map(|m| m.range())
 			.ok_or(ParseError::Invalid)?;
 		let decoded = urlencoding::decode(&s[path.clone()]).map_err(ParseError::Utf8)?;
-		let path = if decoded.len() == path.len() {
-			Either::Left(path)
-		} else {
-			Either::Right(decoded.as_ref().to_owned())
+		let path = match decoded {
+			Cow::Borrowed(_) => Either::Left(path),
+			Cow::Owned(path) => Either::Right(path),
 		};
 		let query = captures.get(7).map(|m| m.range());
 		let fragment = captures.get(9).map(|m| m.range());

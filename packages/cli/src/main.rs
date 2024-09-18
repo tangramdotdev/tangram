@@ -1048,8 +1048,10 @@ impl Cli {
 		let file_descriptor_limit = match (semaphore_size, file_descriptor_limit) {
 			// If neither is provided, set to twice the default semaphore size.
 			(None, None) => u64::try_from(DEFAULT_FILE_DESCRIPTOR_SEMAPHORE_SIZE).unwrap() * 2,
+
 			// If just the semaphore size is set, use twice the limit.
 			(Some(semaphore_size), None) => u64::try_from(semaphore_size).unwrap() * 2,
+
 			(None, Some(file_descriptor_limit)) => {
 				let default_semaphore_size =
 					u64::try_from(DEFAULT_FILE_DESCRIPTOR_SEMAPHORE_SIZE).unwrap();
@@ -1058,6 +1060,7 @@ impl Cli {
 				}
 				file_descriptor_limit
 			},
+
 			(Some(semaphore_size), Some(file_descriptor_limit)) => {
 				if !Cli::is_at_most_half(semaphore_size.try_into().unwrap(), file_descriptor_limit)
 				{

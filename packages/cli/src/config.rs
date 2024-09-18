@@ -2,6 +2,9 @@ use std::{collections::BTreeMap, path::PathBuf};
 use tangram_client::{self as tg, util::serde::is_false};
 use url::Url;
 
+/// The value to use for the file descriptor semaphore if none is provided.
+pub(crate) const DEFAULT_FILE_DESCRIPTOR_SEMAPHORE_SIZE: usize = 1024;
+
 #[derive(Clone, Debug, Default, serde::Deserialize, serde::Serialize)]
 pub struct Config {
 	/// Advanced configuration.
@@ -261,6 +264,3 @@ pub struct Vfs {
 	pub cache_size: Option<u64>,
 	pub database_connections: Option<usize>,
 }
-
-/// The value to use for the file descriptor semaphore if none is provided.
-pub(crate) const DEFAULT_FILE_DESCRIPTOR_SEMAPHORE_SIZE: usize = 1024;

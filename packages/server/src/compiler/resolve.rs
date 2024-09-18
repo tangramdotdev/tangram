@@ -104,7 +104,7 @@ impl Compiler {
 		};
 
 		// If the kind is not known and the object is a package, then return its root module.
-		let (object, path) = if kind.is_none() {
+		let (object, path) = if kind.is_some() {
 			(object, path)
 		} else {
 			match object {

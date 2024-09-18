@@ -88,13 +88,13 @@
 	"description": "Tangram extension for Visual Studio Code.",
 	"devDependencies": {
 		"@types/node": "^22.5.4",
-		"@types/vscode": "^1.93.0",
+		"@types/vscode": "^1.92.0",
 		"@vscode/vsce": "^3.1.0",
 		"esbuild": "^0.23.1"
 	},
 	"displayName": "Tangram",
 	"engines": {
-		"vscode": "^1.75.0"
+		"vscode": "^1.92.0"
 	},
 	"icon": "tangram.png",
 	"license": "MIT",
