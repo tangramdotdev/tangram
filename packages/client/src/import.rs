@@ -42,7 +42,7 @@ impl Import {
 				let follow = reference
 					.query()
 					.and_then(|query| query.follow)
-					.or(attributes.unify);
+					.or(attributes.follow);
 				let name = reference
 					.query()
 					.and_then(|query| query.name.clone())
@@ -59,17 +59,12 @@ impl Import {
 					.query()
 					.and_then(|query| query.remote.clone())
 					.or(attributes.remote);
-				let unify = reference
-					.query()
-					.and_then(|query| query.unify)
-					.or(attributes.unify);
 				let query = tg::reference::Query {
 					follow,
 					name,
 					overrides,
 					path,
 					remote,
-					unify,
 				};
 				let query = serde_urlencoded::to_string(query)
 					.map_err(|source| tg::error!(!source, "failed to serialize the query"))?;
