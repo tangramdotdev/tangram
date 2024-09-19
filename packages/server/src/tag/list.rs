@@ -106,7 +106,10 @@ impl Server {
 		}
 
 		// If the last component is normal, check if there are any children beneath it.
-		if matches!(arg.pattern.components().last(), Some(tg::tag::pattern::Component::Normal(_))) {
+		if matches!(
+			arg.pattern.components().last(),
+			Some(tg::tag::pattern::Component::Normal(_))
+		) {
 			let p = connection.p();
 			let statement = formatdoc!(
 				"
@@ -121,7 +124,7 @@ impl Server {
 				.query_all_into::<Row>(statement, params)
 				.await
 				.map_err(|source| tg::error!(!source, "failed to execute the statement"))?;
-			if !rows_.is_empty() {
+			if !rows_.is_empty() && !rows.is_empty() {
 				prefix.push(tg::tag::Component::new(rows.first().unwrap().name.clone()));
 				rows = rows_;
 			}
