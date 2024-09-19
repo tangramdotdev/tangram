@@ -13,6 +13,7 @@ use std::{
 };
 use tangram_client as tg;
 use tangram_either::Either;
+use tg::path::Ext as _;
 
 impl Server {
 	pub(super) async fn create_lockfile(
@@ -55,7 +56,7 @@ impl Server {
 					counter += 1;
 
 					let input = input.read().unwrap();
-					let path = crate::util::path::diff(&input.arg.path, &root_path).unwrap();
+					let path = input.arg.path.diff(&root_path).unwrap();
 					paths.entry(path).or_default().push(index);
 
 					ids.insert(old_id, Either::Left(index));
@@ -108,14 +109,18 @@ impl Server {
 								)?
 								.components()
 								.last()
-								.ok_or_else(|| {
-									tg::error!("invalid input graph, expected a non-empty path")
-								})?
-								.try_unwrap_normal_ref()
-								.map_err(
-									|_| tg::error!(%path = input.arg.path.display(), %reference, "invalid input graph, expected a string"),
-								)?
-								.clone();
+								.ok_or_else(
+									|| tg::error!(%reference, "invalid input graph, expected a non-empty path"),
+								)?;
+							let std::path::Component::Normal(name) = name else {
+								return Err(
+									tg::error!(%reference, "expected a normal path component"),
+								);
+							};
+							let name = name
+								.to_str()
+								.ok_or_else(|| tg::error!("invalid path"))?
+								.to_owned();
 							let id = match &dependency.object {
 								Some(Either::Left(id)) => Either::Left(*id),
 								Some(Either::Right(tg::object::Id::Directory(id))) => {
@@ -266,7 +271,7 @@ impl Server {
 		&self,
 		input: Arc<RwLock<input::Graph>>,
 		lockfile: &tg::Lockfile,
-		visited: &mut BTreeSet<std::path::PathBuf>,
+		visited: &mut BTreeSet<PathBuf>,
 	) -> tg::Result<()> {
 		let input::Graph {
 			arg,
@@ -287,7 +292,7 @@ impl Server {
 		{
 			let root = *lockfile
 				.paths
-				.get(&std::path::PathBuf::from("."))
+				.get(&PathBuf::from("."))
 				.ok_or_else(|| tg::error!("missing workspace root in lockfile"))?
 				.first()
 				.unwrap();
@@ -295,8 +300,7 @@ impl Server {
 			let contents = serde_json::to_string_pretty(&stripped_lockfile)
 				.map_err(|source| tg::error!(!source, "failed to serialize lockfile"))?;
 			let _permit = self.file_descriptor_semaphore.acquire().await.unwrap();
-			let lockfile_path =
-				crate::util::path::normalize(arg.path.join(tg::package::LOCKFILE_FILE_NAME));
+			let lockfile_path = arg.path.join(tg::package::LOCKFILE_FILE_NAME).normalize();
 			tokio::fs::write(&lockfile_path, &contents)
 				.await
 				.map_err(|source| tg::error!(!source, "failed to write lockfile"))?;
@@ -351,7 +355,7 @@ impl Server {
 	fn strip_lockfile_inner(
 		&self,
 		lockfile: &tg::Lockfile,
-		old_paths: &BTreeMap<usize, &std::path::PathBuf>,
+		old_paths: &BTreeMap<usize, &PathBuf>,
 		node: usize,
 		nodes: &mut Vec<tg::lockfile::Node>,
 		paths: &mut BTreeMap<PathBuf, Vec<usize>>,

@@ -31,7 +31,6 @@ fn value_inner(input: &mut Input) -> PResult<tg::Value> {
 		map.map(tg::Value::Map),
 		object.map(tg::Value::Object),
 		bytes.map(tg::Value::Bytes),
-		path.map(tg::Value::Path),
 		mutation.map(tg::Value::Mutation),
 		template.map(tg::Value::Template),
 	))
@@ -324,7 +323,7 @@ fn symlink_arg(input: &mut Input) -> PResult<tg::symlink::Object> {
 			None
 		};
 		let path = if let Some(path) = map.get("path") {
-			Some(path.try_unwrap_path_ref().ok()?.clone())
+			Some(path.try_unwrap_string_ref().ok()?.clone())
 		} else {
 			None
 		};
@@ -444,7 +443,7 @@ fn graph_arg(input: &mut Input) -> PResult<tg::graph::Object> {
 							None
 						};
 						let path = if let Some(path) = map.get("path") {
-							Some(path.try_unwrap_path_ref().ok()?.clone())
+							Some(path.try_unwrap_string_ref().ok()?.clone())
 						} else {
 							None
 						};
@@ -530,15 +529,6 @@ fn bytes_arg(input: &mut Input) -> PResult<Bytes> {
 			Some(bytes.into())
 		})
 		.parse_next(input)
-}
-
-fn path(input: &mut Input) -> PResult<tg::Path> {
-	delimited(
-		("tg.path", whitespace, "(", whitespace),
-		string.verify_map(|string| string.parse().ok()),
-		(whitespace, ")"),
-	)
-	.parse_next(input)
 }
 
 fn mutation(input: &mut Input) -> PResult<tg::Mutation> {

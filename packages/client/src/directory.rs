@@ -4,6 +4,7 @@ use futures::{stream::FuturesOrdered, TryStreamExt as _};
 use itertools::Itertools as _;
 use std::{
 	collections::{BTreeMap, BTreeSet},
+	path::{Path, PathBuf},
 	sync::Arc,
 };
 use tangram_either::Either;
@@ -298,7 +299,7 @@ impl Directory {
 		Ok(artifact)
 	}
 
-	pub async fn get<H>(&self, handle: &H, path: &tg::Path) -> tg::Result<tg::Artifact>
+	pub async fn get<H>(&self, handle: &H, path: impl AsRef<Path>) -> tg::Result<tg::Artifact>
 	where
 		H: tg::Handle,
 	{
@@ -309,30 +310,38 @@ impl Directory {
 		Ok(artifact)
 	}
 
-	pub async fn try_get<H>(&self, handle: &H, path: &tg::Path) -> tg::Result<Option<tg::Artifact>>
+	pub async fn try_get<H>(
+		&self,
+		handle: &H,
+		path: impl AsRef<Path>,
+	) -> tg::Result<Option<tg::Artifact>>
 	where
 		H: tg::Handle,
 	{
 		let mut artifact: tg::Artifact = self.clone().into();
 
 		// Track the current path.
-		let mut current_path = tg::Path::new();
+		let mut current_path = PathBuf::new();
 
 		// Handle each path component.
-		for component in path.components().iter().skip(1) {
+		for component in path.as_ref().components() {
 			// The artifact must be a directory.
 			let Some(directory) = artifact.try_unwrap_directory_ref().ok() else {
 				return Ok(None);
 			};
 
 			// Update the current path.
-			current_path = current_path.join(component.clone());
+			current_path.push(component);
 
 			// Get the entry. If it doesn't exist, return `None`.
-			let name = component
-				.try_unwrap_normal_ref()
-				.ok()
-				.ok_or_else(|| tg::error!("the path must contain only normal components"))?;
+			let std::path::Component::Normal(name) = component else {
+				return Err(tg::error!("the path must contain only normal components"));
+			};
+
+			let name = name
+				.to_str()
+				.ok_or_else(|| tg::error!("expected a utf-8 encoded path"))?;
+
 			let Some(entry) = directory.try_get_entry(handle, name).await? else {
 				return Ok(None);
 			};
@@ -344,7 +353,7 @@ impl Directory {
 			if let tg::Artifact::Symlink(symlink) = &artifact {
 				let from = tg::Symlink::with_artifact_and_path(
 					Some(self.clone().into()),
-					Some(current_path.clone()),
+					Some(current_path.to_str().unwrap().to_owned()),
 				);
 				match Box::pin(symlink.resolve_from(handle, Some(from)))
 					.await

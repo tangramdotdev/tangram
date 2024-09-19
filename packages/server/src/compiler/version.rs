@@ -29,7 +29,7 @@ impl Compiler {
 		else {
 			return Ok(0);
 		};
-		let path = package.clone().join(path.clone());
+		let path = package.join(path);
 
 		// Get the modified time.
 		let metadata = tokio::fs::metadata(&path)

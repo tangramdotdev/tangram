@@ -72,8 +72,6 @@ let stringifyObject = (value: object, visited: WeakSet<object>): string => {
 	} else if (value instanceof Uint8Array) {
 		let bytes = tg.encoding.hex.encode(value);
 		return `(bytes ${bytes})`;
-	} else if (value instanceof tg.Path) {
-		return `(path "${value}")`;
 	} else if (value instanceof tg.Mutation) {
 		return `(mutation ${stringifyObject(value.inner, visited)})`;
 	} else if (value instanceof tg.Template) {

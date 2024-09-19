@@ -42,7 +42,6 @@ impl Printer {
 			tg::Value::Map(v) => self.map(v),
 			tg::Value::Object(v) => self.object(v),
 			tg::Value::Bytes(v) => self.bytes(v),
-			tg::Value::Path(v) => self.path(v),
 			tg::Value::Mutation(v) => self.mutation(v),
 			tg::Value::Template(v) => self.template(v),
 		}
@@ -374,12 +373,6 @@ impl Printer {
 		self.string += "tg.bytes(\"";
 		self.string += &data_encoding::BASE64.encode(value);
 		self.string += "\")";
-	}
-
-	fn path(&mut self, value: &tg::Path) {
-		self.string += "tg.path(";
-		self.string(value.as_ref());
-		self.string.push(')');
 	}
 
 	fn mutation(&mut self, value: &tg::Mutation) {

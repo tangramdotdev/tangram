@@ -34,7 +34,6 @@ export type ValueOrMaybeMutationMap<T extends tg.Value = tg.Value> = T extends
 	| string
 	| Object
 	| Uint8Array
-	| tg.Path
 	| tg.Mutation
 	| tg.Template
 	| Array<infer _U extends tg.Value>

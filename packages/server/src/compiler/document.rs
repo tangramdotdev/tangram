@@ -124,7 +124,7 @@ impl Compiler {
 			return Err(tg::error!("invalid module"));
 		};
 		let path = if let Some(path) = &module.path {
-			object.clone().join(path.clone())
+			object.join(path.clone())
 		} else {
 			object.clone()
 		};

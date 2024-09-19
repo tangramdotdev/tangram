@@ -206,7 +206,6 @@ impl InfoViewExt for tg::value::Data {
 			tg::value::Data::Map(value) => serde_json::to_string_pretty(value).unwrap(),
 			tg::value::Data::Object(value) => serde_json::to_string_pretty(value).unwrap(),
 			tg::value::Data::Bytes(value) => serde_json::to_string_pretty(value).unwrap(),
-			tg::value::Data::Path(value) => serde_json::to_string_pretty(value).unwrap(),
 			tg::value::Data::Mutation(value) => serde_json::to_string_pretty(value).unwrap(),
 			tg::value::Data::Template(value) => serde_json::to_string_pretty(value).unwrap(),
 		};

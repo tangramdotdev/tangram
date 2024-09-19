@@ -1,9 +1,11 @@
+use std::path::PathBuf;
+
 use crate as tg;
 use tangram_http::{incoming::response::Ext as _, outgoing::request::Ext as _};
 
 #[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
 pub struct Arg {
-	pub path: tg::Path,
+	pub path: PathBuf,
 }
 
 impl tg::Client {

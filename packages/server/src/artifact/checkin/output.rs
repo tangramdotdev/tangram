@@ -1,18 +1,19 @@
 use super::{input, ProgressState};
 use crate::{tmp::Tmp, Server};
-use futures::{stream::FuturesUnordered, TryStreamExt};
+use futures::{stream::FuturesUnordered, TryStreamExt as _};
 use indoc::formatdoc;
 use itertools::Itertools;
 use num::ToPrimitive;
 use std::{
 	collections::{BTreeMap, BTreeSet},
-	os::unix::fs::{MetadataExt, PermissionsExt},
-	path::PathBuf,
+	os::unix::fs::{MetadataExt as _, PermissionsExt as _},
+	path::{Path, PathBuf},
 	sync::{Arc, RwLock, Weak},
 };
 use tangram_client as tg;
 use tangram_database::{self as db, Connection as _, Database as _, Query as _, Transaction as _};
 use tangram_either::Either;
+use tg::path::Ext as _;
 use time::format_description::well_known::Rfc3339;
 
 #[derive(Clone, Debug)]
@@ -29,9 +30,9 @@ pub struct Graph {
 pub struct Edge(Either<Arc<RwLock<Graph>>, Weak<RwLock<Graph>>>);
 
 struct State {
-	root: std::path::PathBuf,
+	root: PathBuf,
 	artifacts: BTreeMap<usize, tg::artifact::Data>,
-	visited: BTreeMap<std::path::PathBuf, Arc<RwLock<Graph>>>,
+	visited: BTreeMap<PathBuf, Arc<RwLock<Graph>>>,
 	lockfile: tg::Lockfile,
 }
 
@@ -41,7 +42,6 @@ impl Server {
 		output: Arc<RwLock<Graph>>,
 		lockfile: &tg::Lockfile,
 	) -> tg::Result<BTreeMap<tg::artifact::Id, (usize, usize)>> {
-		// Get the output in reverse-topological order. TODO: is this really necessary?
 		let mut stack = vec![output];
 		let mut visited = BTreeSet::new();
 		let mut order = Vec::new();
@@ -218,7 +218,7 @@ impl Server {
 		progress: &super::ProgressState,
 	) -> tg::Result<Edge> {
 		let path = input.read().unwrap().arg.path.clone();
-		let path = crate::util::path::diff(&path, &state.root).unwrap();
+		let path = path.diff(&state.root).unwrap();
 		if let Some(output) = state.visited.get(&path) {
 			let edge = Edge(Either::Right(Arc::downgrade(output)));
 			return Ok(edge);
@@ -489,7 +489,7 @@ impl Server {
 	async fn create_symlink_node(
 		&self,
 		artifact: Option<tg::lockfile::Entry>,
-		path: Option<std::path::PathBuf>,
+		path: Option<PathBuf>,
 		graphs: &[tg::graph::Data],
 		indices: &BTreeMap<usize, (usize, usize)>,
 	) -> tg::Result<tg::graph::data::node::Symlink> {
@@ -508,7 +508,13 @@ impl Server {
 		} else {
 			None
 		};
-		let path = path.map(TryInto::try_into).transpose()?;
+		let path = path
+			.map(|path| {
+				path.to_str()
+					.map(ToOwned::to_owned)
+					.ok_or_else(|| tg::error!(%path = path.display(), "invalid path"))
+			})
+			.transpose()?;
 		Ok(tg::graph::data::node::Symlink { artifact, path })
 	}
 
@@ -623,9 +629,9 @@ impl Server {
 
 	async fn write_links_inner(
 		&self,
-		path: &std::path::PathBuf,
+		path: &PathBuf,
 		output: Arc<RwLock<Graph>>,
-		visited: &mut BTreeSet<std::path::PathBuf>,
+		visited: &mut BTreeSet<PathBuf>,
 	) -> tg::Result<()> {
 		if visited.contains(path) {
 			return Ok(());
@@ -830,9 +836,9 @@ impl Server {
 
 	async fn copy_or_move_all(
 		&self,
-		dest: std::path::PathBuf,
+		dest: PathBuf,
 		output: Arc<RwLock<Graph>>,
-		visited: &mut BTreeSet<std::path::PathBuf>,
+		visited: &mut BTreeSet<PathBuf>,
 		progress: &ProgressState,
 	) -> tg::Result<()> {
 		let input = output.read().unwrap().input.read().unwrap().clone();
@@ -858,12 +864,17 @@ impl Server {
 				if output.read().unwrap().input.read().unwrap().is_root {
 					continue;
 				}
-				let diff = crate::util::path::diff(
-					&output.read().unwrap().input.read().unwrap().arg.path,
-					&input.arg.path,
-				)
-				.unwrap();
-				let dest = crate::util::path::normalize(dest.join(diff));
+				let diff = output
+					.read()
+					.unwrap()
+					.input
+					.read()
+					.unwrap()
+					.arg
+					.path
+					.diff(&input.arg.path)
+					.unwrap();
+				let dest = dest.join(diff).normalize();
 				Box::pin(self.copy_or_move_all(dest, output, visited, progress)).await?;
 			}
 		} else if input.metadata.is_symlink() {
@@ -902,7 +913,7 @@ impl Server {
 
 	async fn set_file_times_to_epoch(
 		&self,
-		dest: impl AsRef<std::path::Path>,
+		dest: impl AsRef<Path>,
 		recursive: bool,
 	) -> tg::Result<()> {
 		let dest = dest.as_ref();
@@ -925,7 +936,7 @@ impl Server {
 
 	async fn update_xattrs_and_permissions(
 		&self,
-		dest: std::path::PathBuf,
+		dest: PathBuf,
 		output: Arc<RwLock<Graph>>,
 	) -> tg::Result<()> {
 		let mut visited = BTreeSet::new();
@@ -935,9 +946,9 @@ impl Server {
 
 	async fn update_xattrs_and_permissions_inner(
 		&self,
-		dest: std::path::PathBuf,
+		dest: PathBuf,
 		output: &Arc<RwLock<Graph>>,
-		visited: &mut BTreeSet<std::path::PathBuf>,
+		visited: &mut BTreeSet<PathBuf>,
 	) -> tg::Result<()> {
 		if visited.contains(&dest) {
 			return Ok(());
@@ -1007,7 +1018,7 @@ impl Server {
 
 		for (subpath, output_) in dependencies {
 			let dest_ = if matches!(&data, tg::artifact::Data::File(_)) {
-				crate::util::path::normalize(dest.parent().unwrap().join(&subpath))
+				dest.parent().unwrap().join(&subpath).normalize()
 			} else {
 				dest.join(subpath.clone())
 			};
@@ -1018,7 +1029,7 @@ impl Server {
 	}
 }
 
-fn set_file_times_to_epoch_inner(path: &std::path::Path, recursive: bool) -> tg::Result<()> {
+fn set_file_times_to_epoch_inner(path: &Path, recursive: bool) -> tg::Result<()> {
 	let epoch = filetime::FileTime::from_system_time(std::time::SystemTime::UNIX_EPOCH);
 	if recursive && path.is_dir() {
 		for entry in std::fs::read_dir(path)

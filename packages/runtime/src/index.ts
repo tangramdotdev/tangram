@@ -13,7 +13,7 @@ import { Leaf, leaf } from "./leaf.ts";
 import { log } from "./log.ts";
 import { Mutation, mutation } from "./mutation.ts";
 import { Object as Object_ } from "./object.ts";
-import { path, Path } from "./path.ts";
+import { path } from "./path.ts";
 import type { Resolved, Unresolved } from "./resolve.ts";
 import { resolve } from "./resolve.ts";
 import { sleep } from "./sleep.ts";
@@ -53,7 +53,6 @@ export {
 	type MaybePromise,
 	Mutation,
 	Object_ as Object,
-	Path,
 	Symlink,
 	Target,
 	Template,

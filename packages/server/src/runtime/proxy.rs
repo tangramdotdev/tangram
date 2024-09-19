@@ -1,7 +1,8 @@
-use crate::{util::path, Server};
+use crate::Server;
 use futures::{stream, Future, Stream, TryStreamExt as _};
 use std::{path::PathBuf, sync::Arc};
 use tangram_client as tg;
+use tg::path::Ext as _;
 use tokio::io::{AsyncBufRead, AsyncRead, AsyncWrite};
 
 #[derive(Clone)]
@@ -44,13 +45,15 @@ impl Proxy {
 		};
 
 		// Map the path.
-		if let Some(path) = path::diff(&path, &path_map.output_guest)
+		if let Some(path) = path
+			.diff(&path_map.output_guest)
 			.filter(|path| matches!(path.components().next(), Some(std::path::Component::CurDir)))
 		{
 			Ok(path_map.output_host.join(path))
 		} else {
-			let path =
-				path::diff(&path, "/").ok_or_else(|| tg::error!("the path must be absolute"))?;
+			let path = path
+				.diff("/")
+				.ok_or_else(|| tg::error!("the path must be absolute"))?;
 			Ok(path_map.root_host.join(path))
 		}
 	}
@@ -63,27 +66,15 @@ impl Proxy {
 
 		// Map the path.
 		let result = if path.starts_with(&path_map.output_host) {
-			let suffix: tg::Path = path
-				.strip_prefix(&path_map.output_host)
-				.unwrap()
-				.to_owned()
-				.try_into()?;
+			let suffix = path.strip_prefix(&path_map.output_host).unwrap();
 			path_map.output_guest.join(suffix)
 		} else if path.starts_with(&self.server.path) {
-			let suffix: tg::Path = path
-				.strip_prefix(&self.server.path)
-				.unwrap()
-				.to_owned()
-				.try_into()?;
+			let suffix = path.strip_prefix(&self.server.path).unwrap();
 			PathBuf::from("/.tangram").join(suffix)
 		} else {
-			let suffix: tg::Path = path
-				.strip_prefix(&path_map.root_host)
-				.map_err(|error| {
-					tg::error!(source = error, "cannot map path outside of host root")
-				})?
-				.to_owned()
-				.try_into()?;
+			let suffix = path.strip_prefix(&path_map.root_host).map_err(|error| {
+				tg::error!(source = error, "cannot map path outside of host root")
+			})?;
 			PathBuf::from("/").join(suffix)
 		};
 

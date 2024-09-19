@@ -87,8 +87,7 @@ struct BuildPermit(
 
 type BuildTaskMap = TaskMap<tg::build::Id, (), fnv::FnvBuildHasher>;
 
-type CheckoutTaskMap =
-	TaskMap<tg::artifact::Id, tg::Result<std::path::PathBuf>, fnv::FnvBuildHasher>;
+type CheckoutTaskMap = TaskMap<tg::artifact::Id, tg::Result<PathBuf>, fnv::FnvBuildHasher>;
 
 impl Server {
 	pub async fn start(options: Options) -> tg::Result<Server> {

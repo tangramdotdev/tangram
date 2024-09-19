@@ -1,5 +1,5 @@
 use crate as tg;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use tangram_either::Either;
 
 #[derive(
@@ -8,7 +8,7 @@ use tangram_either::Either;
 pub struct Module {
 	pub kind: Kind,
 	pub object: Option<Either<tg::object::Id, PathBuf>>,
-	pub path: Option<tg::Path>,
+	pub path: Option<PathBuf>,
 }
 
 #[derive(
@@ -87,7 +87,8 @@ impl Module {
 		Ok(Some(module))
 	}
 
-	pub async fn with_path(path: &std::path::Path) -> tg::Result<Self> {
+	pub async fn with_path(path: impl AsRef<Path>) -> tg::Result<Self> {
+		let path = path.as_ref();
 		#[allow(clippy::case_sensitive_file_extension_comparisons)]
 		let kind = if path.extension().is_some_and(|extension| extension == "js") {
 			tg::module::Kind::Js
@@ -113,12 +114,11 @@ impl Module {
 		} else {
 			path
 		};
-		let path = path.try_into()?;
 		let package = package.map(|package| Either::Right(package.to_owned()));
 		let module = Self {
 			kind,
 			object: package,
-			path: Some(path),
+			path: Some(path.to_owned()),
 		};
 
 		Ok(module)

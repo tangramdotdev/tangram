@@ -1,12 +1,9 @@
 use crate::Server;
-use std::{collections::BTreeMap, os::unix::fs::PermissionsExt};
+use std::{collections::BTreeMap, os::unix::fs::PermissionsExt, path::Path};
 use tangram_client as tg;
 
 impl Server {
-	pub(super) async fn create_file_data(
-		&self,
-		path: &std::path::Path,
-	) -> tg::Result<tg::file::Data> {
+	pub(super) async fn create_file_data(&self, path: &Path) -> tg::Result<tg::file::Data> {
 		if let Some(data) = xattr::get(path, tg::file::XATTR_NAME)
 			.map_err(|source| tg::error!(!source, %path = path.display(), "failed to read xattr"))?
 		{
@@ -46,10 +43,7 @@ impl Server {
 		})
 	}
 
-	pub(super) async fn create_symlink_data(
-		&self,
-		path: &std::path::Path,
-	) -> tg::Result<tg::symlink::Data> {
+	pub(super) async fn create_symlink_data(&self, path: &Path) -> tg::Result<tg::symlink::Data> {
 		// Read the target from the symlink.
 		let permit = self.file_descriptor_semaphore.acquire().await.unwrap();
 		let target = tokio::fs::read_link(path).await.map_err(

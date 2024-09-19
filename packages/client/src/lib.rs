@@ -1,6 +1,10 @@
 use crate as tg;
 use futures::{Future, FutureExt as _, Stream};
-use std::{collections::VecDeque, path::PathBuf, sync::Arc};
+use std::{
+	collections::VecDeque,
+	path::{Path, PathBuf},
+	sync::Arc,
+};
 use tangram_http::{Incoming, Outgoing};
 use tokio::{
 	io::{AsyncBufRead, AsyncRead, AsyncWrite},
@@ -30,7 +34,6 @@ pub use self::{
 	module::Module,
 	mutation::Mutation,
 	object::Handle as Object,
-	path::Path,
 	position::Position,
 	progress::Progress,
 	range::Range,
@@ -235,7 +238,7 @@ impl Client {
 
 	async fn connect_unix_h1(
 		&self,
-		path: &std::path::Path,
+		path: &Path,
 	) -> tg::Result<hyper::client::conn::http1::SendRequest<Outgoing>> {
 		// Connect via UNIX.
 		let stream = UnixStream::connect(path)
@@ -270,7 +273,7 @@ impl Client {
 
 	async fn connect_unix_h2(
 		&self,
-		path: &std::path::Path,
+		path: &Path,
 	) -> tg::Result<hyper::client::conn::http2::SendRequest<Outgoing>> {
 		// Connect via UNIX.
 		let stream = UnixStream::connect(path)

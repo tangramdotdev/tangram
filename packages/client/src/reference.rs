@@ -1,5 +1,5 @@
 use crate::{self as tg, handle::Ext as _};
-use std::collections::BTreeMap;
+use std::{collections::BTreeMap, os::unix::ffi::OsStrExt, path::PathBuf};
 use tangram_either::Either;
 use tangram_uri as uri;
 
@@ -15,7 +15,6 @@ pub struct Reference {
 #[derive(
 	Clone,
 	Debug,
-	derive_more::Display,
 	derive_more::From,
 	derive_more::TryInto,
 	derive_more::TryUnwrap,
@@ -26,7 +25,7 @@ pub struct Reference {
 pub enum Path {
 	Build(tg::build::Id),
 	Object(tg::object::Id),
-	Path(tg::Path),
+	Path(PathBuf),
 	Tag(tg::tag::Pattern),
 }
 
@@ -42,7 +41,7 @@ pub struct Query {
 	pub overrides: Option<BTreeMap<String, tg::Reference>>,
 
 	#[serde(default, skip_serializing_if = "Option::is_none")]
-	pub path: Option<tg::Path>,
+	pub path: Option<PathBuf>,
 
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub remote: Option<String>,
@@ -87,18 +86,21 @@ impl Reference {
 	}
 
 	#[must_use]
-	pub fn with_path(path: &tg::Path) -> Self {
-		let components = path
-			.components()
-			.iter()
-			.map(|component| match component {
-				tg::path::Component::Normal(string) => {
-					tg::path::Component::Normal(urlencoding::encode(string).as_ref().to_owned())
+	pub fn with_path(path: impl AsRef<std::path::Path>) -> Self {
+		let mut buf = PathBuf::new();
+		for (idx, component) in path.as_ref().components().enumerate() {
+			match component {
+				std::path::Component::Normal(string) => {
+					if idx == 0 {
+						buf.push(".");
+					}
+					let encoded = urlencoding::encode_binary(string.as_bytes());
+					buf.push(encoded.as_ref());
 				},
-				component => component.clone(),
-			})
-			.collect::<Vec<_>>();
-		let string = tg::Path::with_components(components).to_string();
+				component => buf.push(component),
+			}
+		}
+		let string = buf.to_str().unwrap();
 		Self::with_uri(string.parse().unwrap()).unwrap()
 	}
 
@@ -161,6 +163,17 @@ impl std::str::FromStr for Reference {
 	}
 }
 
+impl std::fmt::Display for Path {
+	fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+		match self {
+			Path::Build(build) => write!(f, "{build}"),
+			Path::Object(object) => write!(f, "{object}"),
+			Path::Path(path) => write!(f, "{}", path.display()),
+			Path::Tag(tag) => write!(f, "{tag}"),
+		}
+	}
+}
+
 impl std::str::FromStr for Path {
 	type Err = tg::Error;
 
@@ -172,13 +185,13 @@ impl std::str::FromStr for Path {
 			return Ok(Self::Object(object));
 		}
 		if s.starts_with('.') || s.starts_with('/') {
-			let path = s.parse()?;
+			let path = s.into();
 			return Ok(Self::Path(path));
 		}
 		if let Ok(tag) = s.parse() {
 			return Ok(Self::Tag(tag));
 		}
-		Err(tg::error!("invalid path"))
+		Err(tg::error!(%s, "invalid path"))
 	}
 }
 

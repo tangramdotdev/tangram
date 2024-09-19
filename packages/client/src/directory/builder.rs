@@ -1,5 +1,8 @@
 use crate as tg;
-use std::collections::BTreeMap;
+use std::{
+	collections::BTreeMap,
+	path::{Path, PathBuf},
+};
 
 #[derive(Clone, Debug, Default)]
 pub struct Builder {
@@ -15,29 +18,37 @@ impl Builder {
 	pub async fn add<H>(
 		mut self,
 		handle: &H,
-		path: &tg::Path,
+		path: &Path,
 		artifact: tg::Artifact,
 	) -> tg::Result<Self>
 	where
 		H: tg::Handle,
 	{
 		// Get the first component.
-		let name = path
-			.components()
-			.get(1)
-			.ok_or_else(|| tg::error!("expected the path to have at least one component"))?
-			.try_unwrap_normal_ref()
-			.ok()
-			.ok_or_else(|| tg::error!("the path must contain only normal components"))?;
+		let mut components = path.components();
+
+		let Some(std::path::Component::Normal(name)) = components.next() else {
+			return Err(tg::error!(
+				"expected the path to have at least one component"
+			));
+		};
+
+		let name = name
+			.to_str()
+			.ok_or_else(|| tg::error!("expected a utf-8 encoded path"))?
+			.to_owned();
 
 		// Collect the trailing path.
-		let trailing_path: tg::Path = path.components().iter().skip(2).cloned().collect();
+		let mut trailing_path = PathBuf::new();
+		for component in components {
+			trailing_path.push(component);
+		}
 
-		let artifact = if trailing_path.components().len() == 1 {
+		let artifact = if trailing_path.components().next().is_none() {
 			artifact
 		} else {
 			// Get or create a child directory.
-			let builder = if let Some(child) = self.entries.get(name) {
+			let builder = if let Some(child) = self.entries.get(&name) {
 				child
 					.try_unwrap_directory_ref()
 					.ok()
@@ -56,33 +67,41 @@ impl Builder {
 		};
 
 		// Add the artifact.
-		self.entries.insert(name.clone(), artifact);
+		self.entries.insert(name, artifact);
 
 		Ok(self)
 	}
 
-	pub async fn remove<H>(mut self, handle: &H, path: &tg::Path) -> tg::Result<Self>
+	pub async fn remove<H>(mut self, handle: &H, path: &Path) -> tg::Result<Self>
 	where
 		H: tg::Handle,
 	{
 		// Get the first component.
-		let name = path
-			.components()
-			.first()
-			.ok_or_else(|| tg::error!("expected the path to have at least one component"))?
-			.try_unwrap_normal_ref()
-			.ok()
-			.ok_or_else(|| tg::error!("the path must contain only normal components"))?;
+		let mut components = path.components();
+
+		let Some(std::path::Component::Normal(name)) = components.next() else {
+			return Err(tg::error!(
+				"expected the path to have at least one component"
+			));
+		};
+
+		let name = name
+			.to_str()
+			.ok_or_else(|| tg::error!("expected a utf-8 encoded path"))?
+			.to_owned();
 
 		// Collect the trailing path.
-		let trailing_path: tg::Path = path.components().iter().skip(1).cloned().collect();
+		let mut trailing_path = PathBuf::new();
+		for component in components {
+			trailing_path.push(component);
+		}
 
-		if trailing_path.components().is_empty() {
+		if trailing_path.components().next().is_none() {
 			// Remove the entry.
-			self.entries.remove(name);
+			self.entries.remove(&name);
 		} else {
 			// Get a child directory.
-			let builder = if let Some(child) = self.entries.get(name) {
+			let builder = if let Some(child) = self.entries.get(&name) {
 				child
 					.try_unwrap_directory_ref()
 					.ok()
@@ -90,7 +109,7 @@ impl Builder {
 					.builder(handle)
 					.await?
 			} else {
-				return Err(tg::error!(%path, "the path does not exist"));
+				return Err(tg::error!(%path = path.display(), "the path does not exist"));
 			};
 
 			// Recurse.
@@ -100,7 +119,7 @@ impl Builder {
 				.into();
 
 			// Add the new artifact.
-			self.entries.insert(name.clone(), artifact);
+			self.entries.insert(name, artifact);
 		};
 
 		Ok(self)

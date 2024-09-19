@@ -6,11 +6,12 @@ use futures::{
 use itertools::Itertools;
 use std::{
 	collections::{BTreeMap, BTreeSet, VecDeque},
-	path::PathBuf,
+	path::{Path, PathBuf},
 	sync::{Arc, RwLock, Weak},
 };
 use tangram_client as tg;
 use tangram_either::Either;
+use tg::path::Ext as _;
 
 #[derive(Clone, Debug)]
 pub struct Graph {
@@ -36,7 +37,7 @@ pub struct Edge {
 pub type Node = Either<Arc<RwLock<Graph>>, Weak<RwLock<Graph>>>;
 
 struct State {
-	roots: Vec<std::path::PathBuf>,
+	roots: Vec<PathBuf>,
 	visited: BTreeMap<PathBuf, Weak<RwLock<Graph>>>,
 }
 
@@ -84,7 +85,7 @@ impl Server {
 		self.collect_input(arg_, progress).await
 	}
 
-	async fn find_root(&self, path: &std::path::Path) -> tg::Result<std::path::PathBuf> {
+	async fn find_root(&self, path: &Path) -> tg::Result<PathBuf> {
 		if !path.is_absolute() {
 			return Err(tg::error!(%path = path.display(), "expected an absolute path"));
 		}
@@ -162,8 +163,7 @@ impl Server {
 				|source| tg::error!(!source, %path = arg.arg.path.display(), "failed to canonicalize path"),
 			)?
 		} else {
-			// normalize_path
-			crate::util::path::normalize(&arg.arg.path)
+			arg.arg.path.normalize()
 		};
 
 		if let Some(visited) = state.read().unwrap().visited.get(&canonical_path).cloned() {
@@ -172,7 +172,7 @@ impl Server {
 
 		// Detect if this is a root or not.
 		let is_root = !state.read().unwrap().roots.iter().any(|root| {
-			let diff = crate::util::path::diff(&canonical_path, root).unwrap();
+			let diff = canonical_path.diff(root).unwrap();
 			matches!(
 				diff.components().next(),
 				Some(std::path::Component::CurDir | std::path::Component::Normal(_))
@@ -260,11 +260,10 @@ impl Server {
 				let follow_symlinks = arg.follow_symlinks;
 				let unify_tags = arg.unify_tags;
 				let mut arg = arg.clone();
-				arg.arg.path =
-					crate::util::path::normalize(arg.arg.path.join(root_module_file_name));
+				arg.arg.path = arg.arg.path.join(root_module_file_name).normalize();
 				let graph = Box::pin(self.collect_input_inner(arg, state, progress)).await?;
 				let edge = Edge {
-					reference: tg::Reference::with_path(&root_module_file_name.parse().unwrap()),
+					reference: tg::Reference::with_path(root_module_file_name),
 					follow_symlinks,
 					unify_tags,
 					graph: Some(graph),
@@ -311,7 +310,7 @@ impl Server {
 			let path = arg.arg.path.clone().join(&name);
 
 			// Create edge metadata.
-			let reference = tg::Reference::with_path(&name.into());
+			let reference = tg::Reference::with_path(&name);
 			let follow_symlinks = arg.follow_symlinks;
 			let unify_tags = arg.unify_tags;
 
@@ -416,7 +415,7 @@ impl Server {
 						// Don't follow paths that point outside the root.
 						let is_external_path = path
 							.as_ref()
-							.and_then(|path| crate::util::path::diff(path, &root_path))
+							.and_then(|path| path.diff(&root_path))
 							.map_or(false, |path| {
 								matches!(
 									path.components().next(),
@@ -515,7 +514,7 @@ impl Server {
 
 						// Check if the import points outside the package.
 						let root_path = state.read().unwrap().roots[arg.root].clone();
-						if crate::util::path::diff(&path, &root_path).map_or(false, |path| {
+						if path.diff(&root_path).map_or(false, |path| {
 							matches!(
 								path.components().next(),
 								Some(std::path::Component::ParentDir)
@@ -643,11 +642,13 @@ impl Server {
 		let mut parent = grandparent;
 
 		// Get the path to the child relative to the parent.
-		let diff = crate::util::path::diff(
-			&child.read().unwrap().arg.path,
-			&parent.read().unwrap().arg.path,
-		)
-		.unwrap();
+		let diff = child
+			.read()
+			.unwrap()
+			.arg
+			.path
+			.diff(&parent.read().unwrap().arg.path)
+			.unwrap();
 		let mut components = diff.components().collect::<VecDeque<_>>();
 
 		// Walk up.
@@ -675,7 +676,7 @@ impl Server {
 				std::path::Component::CurDir => (),
 				std::path::Component::Normal(name) if components.is_empty() => {
 					let name = name.to_str().ok_or_else(|| tg::error!("non-utf8 path"))?;
-					let reference = tg::Reference::with_path(&name.parse()?);
+					let reference = tg::Reference::with_path(name);
 					let edge = Edge {
 						reference,
 						follow_symlinks: true,
@@ -694,7 +695,7 @@ impl Server {
 				},
 				std::path::Component::Normal(name) => {
 					let name = name.to_str().ok_or_else(|| tg::error!("non-utf8 path"))?;
-					let reference = tg::Reference::with_path(&name.parse()?);
+					let reference = tg::Reference::with_path(name);
 					let input = parent
 						.read()
 						.unwrap()
@@ -707,7 +708,7 @@ impl Server {
 						continue;
 					}
 					let arg = parent.read().unwrap().arg.clone();
-					let path = crate::util::path::normalize(arg.path.clone().join(name));
+					let path = arg.path.clone().join(name).normalize();
 					let metadata = tokio::fs::metadata(&path).await.map_err(|source| {
 						tg::error!(!source, "failed to get directory metadata")
 					})?;
@@ -750,7 +751,7 @@ impl Server {
 	async fn select_lockfiles_inner(
 		&self,
 		input: Arc<RwLock<Graph>>,
-		visited: &RwLock<BTreeSet<std::path::PathBuf>>,
+		visited: &RwLock<BTreeSet<PathBuf>>,
 	) -> tg::Result<()> {
 		// Check if this path is visited or not.
 		let path = input.read().unwrap().arg.path.clone();
@@ -802,16 +803,12 @@ impl Server {
 }
 
 impl Graph {
-	fn contains_path(&self, path: &std::path::Path) -> bool {
+	fn contains_path(&self, path: &Path) -> bool {
 		let mut visited = BTreeSet::new();
 		self.contains_path_inner(path, &mut visited)
 	}
 
-	fn contains_path_inner<'a>(
-		&self,
-		path: &'a std::path::Path,
-		visited: &mut BTreeSet<&'a std::path::Path>,
-	) -> bool {
+	fn contains_path_inner<'a>(&self, path: &'a Path, visited: &mut BTreeSet<&'a Path>) -> bool {
 		if visited.contains(&path) {
 			return false;
 		}

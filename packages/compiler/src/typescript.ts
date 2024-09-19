@@ -206,7 +206,7 @@ export let fileNameFromModule = (module: Module): string => {
 /** Convert a TypeScript file name to a module. */
 export let moduleFromFileName = (fileName: string): Module => {
 	if (fileName.startsWith("/library/")) {
-		let path = `./${fileName.slice(9)}`;
+		let path = `${fileName.slice(9)}`;
 		return {
 			kind: "dts",
 			object: undefined,

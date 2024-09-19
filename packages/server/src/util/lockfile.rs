@@ -5,13 +5,14 @@ use futures::{
 };
 use std::{
 	collections::{BTreeMap, BTreeSet, VecDeque},
+	path::{Path, PathBuf},
 	sync::{Arc, RwLock},
 };
 use tangram_client as tg;
 use tangram_either::Either;
 
 pub async fn try_get_lockfile_node_for_module_path(
-	path: &std::path::Path,
+	path: &Path,
 ) -> tg::Result<Option<(tg::Lockfile, usize)>> {
 	if !tg::package::is_module_path(path) || !path.is_absolute() {
 		return Err(tg::error!(%path = path.display(), "expected an absolute module path"));
@@ -42,9 +43,9 @@ pub async fn try_get_lockfile_node_for_module_path(
 }
 
 pub async fn try_get_node_for_module_path(
-	path: &std::path::Path,
+	path: &Path,
 	lockfile: &tg::Lockfile,
-	lockfile_path: &std::path::Path,
+	lockfile_path: &Path,
 ) -> tg::Result<Option<usize>> {
 	let root_path = lockfile_path
 		.parent()
@@ -111,7 +112,7 @@ pub async fn try_get_node_for_module_path(
 	Ok(None)
 }
 
-async fn read_link(path: &std::path::Path) -> tg::Result<std::path::PathBuf> {
+async fn read_link(path: &Path) -> tg::Result<PathBuf> {
 	match tokio::fs::read_link(path).await {
 		Ok(path) => Ok(path),
 		Err(error) if error.raw_os_error() == Some(libc::EINVAL) => Ok(path.to_owned()),

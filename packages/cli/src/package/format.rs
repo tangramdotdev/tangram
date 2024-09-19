@@ -17,8 +17,7 @@ impl Cli {
 		// Canonicalize the path.
 		let path = tokio::fs::canonicalize(&args.path)
 			.await
-			.map_err(|source| tg::error!(!source, "failed to canonicalize the path"))?
-			.try_into()?;
+			.map_err(|source| tg::error!(!source, "failed to canonicalize the path"))?;
 
 		// Format the package.
 		let arg = tg::package::format::Arg { path };

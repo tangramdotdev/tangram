@@ -1,175 +1,4 @@
-import * as tg from "./index.ts";
-import type { MaybeNestedArray } from "./util.ts";
-
-export let path = (...args: Array<MaybeNestedArray<Path.Arg>>): Path => {
-	return Path.new(args);
-};
-
-export class Path {
-	#components: Array<Path.Component>;
-
-	static new(...args: Array<MaybeNestedArray<Path.Arg>>): Path {
-		return args.reduce(function reduce(
-			path: Path,
-			arg: MaybeNestedArray<Path.Arg>,
-		): Path {
-			if (arg === undefined) {
-				return path;
-			} else if (typeof arg === "string") {
-				if (arg.startsWith("/")) {
-					path.push(Path.Component.Root);
-					arg = arg.slice(1);
-				}
-				for (let component of arg.split("/")) {
-					if (component === "") {
-						continue;
-					} else if (component === Path.Component.Current) {
-						path.push(Path.Component.Current);
-					} else if (component === Path.Component.Parent) {
-						path.push(Path.Component.Parent);
-					} else {
-						path.push(component);
-					}
-				}
-				return path;
-			} else if (arg instanceof Path) {
-				for (let component of arg.#components) {
-					path.push(component);
-				}
-				return path;
-			} else if (arg instanceof Array) {
-				for (let arg_ of arg) {
-					path = reduce(path, arg_);
-				}
-				return path;
-			} else {
-				return tg.unreachable();
-			}
-		}, new Path());
-	}
-
-	private constructor(components: Array<Path.Component> = []) {
-		this.#components = [Path.Component.Current];
-		for (let component of components) {
-			this.push(component);
-		}
-	}
-
-	get components(): Array<Path.Component> {
-		return this.#components;
-	}
-
-	push(component: Path.Component) {
-		let last = this.#components.at(-1)!;
-		if (
-			component === Path.Component.Current ||
-			(component === Path.Component.Parent && last === Path.Component.Root)
-		) {
-			// If the component is a current component, or is a parent component and follows a root component, then ignore it.
-			return;
-		} else if (
-			component === Path.Component.Parent &&
-			(Path.Component.isNormal(last) || last === Path.Component.Parent)
-		) {
-			// If the component is a parent component and follows a normal or parent component, then add it.
-			this.#components.push(component);
-		} else if (
-			component === Path.Component.Parent &&
-			last === Path.Component.Current
-		) {
-			// If the component is a parent component and follows a current component, then replace the path with a parent component.
-			this.#components = [Path.Component.Parent];
-		} else if (component === Path.Component.Root) {
-			// If the component is a root component, then replace the path with a root component.
-			this.#components = [Path.Component.Root];
-		} else if (Path.Component.isNormal(component)) {
-			// If the component is a normal component, then add it.
-			this.#components.push(component);
-		}
-	}
-
-	parent(): Path {
-		return this.join(Path.Component.Parent);
-	}
-
-	join(other: Path.Arg): Path {
-		let path = new Path(this.components);
-		for (let component of Path.new(other).components) {
-			path.push(component);
-		}
-		return path;
-	}
-
-	normalize(): Path {
-		let path = new Path();
-		for (let component of this.components) {
-			let last = path.components.at(-1);
-			if (
-				component === Path.Component.Parent &&
-				last !== undefined &&
-				Path.Component.isNormal(last)
-			) {
-				// If the component is a parent component following a normal component, then remove the normal component.
-				path.#components.pop();
-			} else {
-				// Otherwise, add the component.
-				path.push(component);
-			}
-		}
-		return path;
-	}
-
-	isInternal(): boolean {
-		return this.components.at(0)! === Path.Component.Current;
-	}
-
-	isExternal(): boolean {
-		return this.components.at(0)! === Path.Component.Parent;
-	}
-
-	isAbsolute(): boolean {
-		return this.components.at(0)! === Path.Component.Root;
-	}
-
-	static expect(value: unknown): Path {
-		tg.assert(value instanceof Path);
-		return value;
-	}
-
-	static assert(value: unknown): asserts value is Path {
-		tg.assert(value instanceof Path);
-	}
-
-	toString(): string {
-		let string = "";
-		for (let i = 0; i < this.#components.length; i++) {
-			let component = this.#components[i]!;
-			if (component === Path.Component.Current) {
-				if (i !== 0) {
-					string += "/";
-				}
-				string += ".";
-			} else if (component === Path.Component.Parent) {
-				if (i !== 0) {
-					string += "/";
-				}
-				string += "..";
-			} else if (component === Path.Component.Root) {
-				string += "/";
-			} else {
-				if (i !== 0) {
-					string += "/";
-				}
-				string += component;
-			}
-		}
-		return string;
-	}
-}
-
-export namespace Path {
-	export type Arg = undefined | Component | Path;
-
+export namespace path {
 	export type Component =
 		| Component.Normal
 		| Component.Current
@@ -200,4 +29,101 @@ export namespace Path {
 			);
 		};
 	}
+
+	export let components = (path: string): Array<Component> => {
+		let subComponents = path.split("/");
+		if ((subComponents.at(-1) as string).length === 0) {
+			subComponents.pop();
+		}
+		return path.startsWith("/")
+			? [Component.Root, ...subComponents.slice(1)]
+			: subComponents;
+	};
+
+	export let normalize = (path: string): string => {
+		let oldComponents = components(path);
+		let newComponents: Array<string> = [];
+
+		for (let component of oldComponents) {
+			let last = newComponents.at(-1);
+			if (
+				component === Component.Parent &&
+				last !== undefined &&
+				Component.isNormal(last)
+			) {
+				newComponents.pop();
+			} else {
+				newComponents.push(component);
+			}
+		}
+
+		let newpath = newComponents.join("/");
+		if (isAbsolute(newpath)) {
+			return newpath.slice(1);
+		} else {
+			return newpath;
+		}
+	};
+
+	export let parent = (path: string): string | undefined => {
+		if (path.length === 0) {
+			throw new Error("expected a non-empty string");
+		}
+		let pathComponents = components(path);
+		if (pathComponents.length === 0) {
+			return undefined;
+		}
+		return pathComponents.slice(0, -1).join("/");
+	};
+
+	export let isAbsolute = (path: string): boolean => {
+		if (path.length === 0) {
+			throw new Error("expected a non-empty string");
+		}
+		let component = components(path)[0];
+		return component === Component.Root;
+	};
+
+	export let isExternal = (path: string): boolean => {
+		if (path.length === 0) {
+			throw new Error("expected a non-empty string");
+		}
+		let component = components(path)[0];
+		return component === Component.Parent;
+	};
+
+	export let isInternal = (path: string): boolean => {
+		if (path.length === 0) {
+			throw new Error("expected a non-empty string");
+		}
+		let component = components(path)[0] as Component;
+		return (
+			Component.isNormal(component) || component === Component.Current
+		);
+	};
+
+	export let join = (...paths: Array<string | undefined>): string => {
+		let allComponents: Array<string> = [];
+		for (let path of paths) {
+			if (path === undefined) {
+				continue;
+			}
+			if (isAbsolute(path)) {
+				allComponents = components(path);
+			} else {
+				allComponents = allComponents.concat(components(path));
+			}
+		}
+		return path.fromComponents(allComponents);
+	};
+
+	export let fromComponents = (components: Array<Component>): string => {
+		if (components.length === 0) {
+			return "";
+		} else if (components[0] === Component.Root) {
+			return "/" + components.slice(1).join("/");
+		} else {
+			return components.join("/");
+		}
+	};
 }

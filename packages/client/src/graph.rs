@@ -73,7 +73,7 @@ pub mod node {
 	#[derive(Clone, Debug)]
 	pub struct Symlink {
 		pub artifact: Option<Either<usize, tg::Artifact>>,
-		pub path: Option<tg::Path>,
+		pub path: Option<String>,
 	}
 
 	#[derive(Clone, Debug)]
@@ -126,7 +126,7 @@ pub mod data {
 			pub artifact: Option<Either<usize, tg::artifact::Id>>,
 
 			#[serde(default, skip_serializing_if = "Option::is_none")]
-			pub path: Option<tg::Path>,
+			pub path: Option<String>,
 		}
 
 		#[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]

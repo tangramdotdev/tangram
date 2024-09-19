@@ -1,7 +1,8 @@
 use crate::{compiler::Compiler, Server};
-use std::collections::HashSet;
+use std::{collections::HashSet, path::PathBuf};
 use tangram_client as tg;
 use tangram_http::{incoming::request::Ext as _, outgoing::response::Ext as _, Incoming, Outgoing};
+use tg::path::Ext as _;
 
 impl Server {
 	pub async fn format_package(&self, arg: tg::package::format::Arg) -> tg::Result<()> {
@@ -21,8 +22,8 @@ impl Server {
 
 	async fn format_module(
 		&self,
-		path: tg::Path,
-		visited: &mut HashSet<tg::Path, fnv::FnvBuildHasher>,
+		path: PathBuf,
+		visited: &mut HashSet<PathBuf, fnv::FnvBuildHasher>,
 	) -> tg::Result<()> {
 		if visited.contains(&path) {
 			return Ok(());
@@ -35,26 +36,32 @@ impl Server {
 			.map_err(|source| tg::error!(!source, "failed to read the module"))?;
 
 		// Format the text.
-		let text = self
-			.format(text)
-			.await
-			.map_err(|source| tg::error!(!source, %path, "failed to format module"))?;
+		let text = self.format(text).await.map_err(
+			|source| tg::error!(!source, %path = path.display(), "failed to format module"),
+		)?;
 
 		// Write the text.
-		tokio::fs::write(&path, text.as_bytes())
-			.await
-			.map_err(|source| tg::error!(!source, %path, "failed to write formatted module"))?;
+		tokio::fs::write(&path, text.as_bytes()).await.map_err(
+			|source| tg::error!(!source, %path = path.display(), "failed to write formatted module"),
+		)?;
 
 		// Attempt to analyze the module.
 		let Ok(analysis) = Compiler::analyze_module(text) else {
 			return Ok(());
 		};
 
+		// Recurse over path dependencies.
 		for import in analysis.imports {
-			if let tg::reference::Path::Path(path_) = &import.reference.path() {
-				let path = path.clone().parent().normalize().join(path_.clone());
+			let import_path = import
+				.reference
+				.path()
+				.try_unwrap_path_ref()
+				.ok()
+				.or_else(|| import.reference.query()?.path.as_ref());
+			if let Some(import_path) = import_path {
+				let path = path.join(import_path).normalize();
 				let exists = tokio::fs::try_exists(&path).await.map_err(
-					|source| tg::error!(!source, %path, "failed to check if module exists"),
+					|source| tg::error!(!source, %path = path.display(), "failed to check if file exists"),
 				)?;
 				if exists {
 					Box::pin(self.format_module(path, visited)).await?;
