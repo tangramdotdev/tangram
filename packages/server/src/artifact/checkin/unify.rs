@@ -123,9 +123,19 @@ impl Server {
 			}
 
 			if let Some(id) = &edge.object {
-				let id = self
-					.create_unification_node_from_object(graph, id.clone())
-					.await?;
+				let id = if let Some(tag) = &edge.tag {
+					let unify = false;
+					self.create_unification_node_from_tagged_object(
+						graph,
+						&tg::Object::with_id(id.clone()),
+						tag.clone(),
+						unify,
+					)
+					.await?
+				} else {
+					self.create_unification_node_from_object(graph, id.clone())
+						.await?
+				};
 				outgoing.insert(edge.reference.clone(), id);
 				continue;
 			}

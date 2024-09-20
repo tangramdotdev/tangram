@@ -30,6 +30,7 @@ pub struct Edge {
 	pub unify_tags: bool,
 	pub graph: Option<Node>,
 	pub object: Option<tg::object::Id>,
+	pub tag: Option<tg::Tag>,
 }
 
 pub type Node = Either<Arc<RwLock<Graph>>, Weak<RwLock<Graph>>>;
@@ -268,6 +269,7 @@ impl Server {
 					unify_tags,
 					graph: Some(graph),
 					object: None,
+					tag: None,
 				};
 				return Ok(vec![edge]);
 			}
@@ -325,6 +327,7 @@ impl Server {
 				unify_tags,
 				graph: Some(graph),
 				object: None,
+				tag: None,
 			};
 			Ok::<_, tg::Error>(Some((edge, entries)))
 		})
@@ -346,6 +349,7 @@ impl Server {
 		{
 			let xattr = serde_json::from_slice(&data)
 				.map_err(|source| tg::error!(!source, "failed to deserialize xattr"))?;
+
 			let dependencies = match xattr {
 				tg::file::Data::Normal { dependencies, .. } => dependencies,
 				tg::file::Data::Graph { graph, node } => {
@@ -447,6 +451,7 @@ impl Server {
 							unify_tags,
 							graph,
 							object: Some(id),
+							tag: dependency.tag,
 						};
 
 						Ok::<_, tg::Error>(edge)
@@ -542,6 +547,7 @@ impl Server {
 							unify_tags,
 							graph: Some(graph),
 							object: None,
+							tag: None,
 						};
 
 						return Ok(edge);
@@ -553,6 +559,7 @@ impl Server {
 						unify_tags,
 						graph: None,
 						object: None,
+						tag: None,
 					})
 				}
 			})
@@ -675,6 +682,7 @@ impl Server {
 						unify_tags: false,
 						graph: Some(Either::Right(Arc::downgrade(&child))),
 						object: None,
+						tag: None,
 					};
 					parent.write().unwrap().edges.push(edge);
 					child
@@ -719,6 +727,7 @@ impl Server {
 						unify_tags: false,
 						graph: Some(Either::Left(graph.clone())),
 						object: None,
+						tag: None,
 					};
 					parent.write().unwrap().edges.push(edge);
 					parent = graph;

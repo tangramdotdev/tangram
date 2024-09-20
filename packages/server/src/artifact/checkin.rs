@@ -194,7 +194,7 @@ impl Server {
 		output: Arc<RwLock<output::Graph>>,
 	) -> tg::Result<Option<tg::artifact::Id>> {
 		if &input.read().unwrap().arg.path == path {
-			return Ok(Some(output.read().unwrap().data.id()?));
+			return Ok(Some(output.read().unwrap().id.clone()));
 		}
 		// Recurse over path dependencies.
 		let dependencies = input
