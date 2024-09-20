@@ -11,9 +11,9 @@ use std::{
 	sync::{Arc, RwLock, Weak},
 };
 use tangram_client as tg;
+use tangram_client::path::Ext as _;
 use tangram_database::{self as db, Connection as _, Database as _, Query as _, Transaction as _};
 use tangram_either::Either;
-use tg::path::Ext as _;
 use time::format_description::well_known::Rfc3339;
 
 #[derive(Clone, Debug)]
@@ -649,7 +649,7 @@ impl Server {
 		let hardlink_prohibited = if cfg!(target_os = "macos") {
 			static APP_DIR_RE: std::sync::LazyLock<regex::Regex> =
 				std::sync::LazyLock::new(|| regex::Regex::new(r"\.app/Contents/.+$").unwrap());
-			let path_string = path.display().to_string();
+			let path_string = path.normalize().display().to_string();
 			APP_DIR_RE.is_match(&path_string)
 		} else {
 			false
