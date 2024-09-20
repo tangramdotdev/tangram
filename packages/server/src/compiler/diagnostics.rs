@@ -1,24 +1,23 @@
 use super::Compiler;
+use futures::{stream, TryStreamExt as _};
 use itertools::Itertools as _;
 use lsp_types as lsp;
-use serde_with::{serde_as, DisplayFromStr};
 use std::collections::BTreeMap;
 use tangram_client as tg;
+use tokio_stream::StreamExt as _;
 
 #[derive(Debug, serde::Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Request {}
 
-#[serde_as]
 #[derive(Debug, serde::Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Response {
-	#[serde_as(as = "BTreeMap<DisplayFromStr, _>")]
-	pub diagnostics: BTreeMap<tg::Module, Vec<tg::Diagnostic>>,
+	pub diagnostics: Vec<tg::Diagnostic>,
 }
 
 impl Compiler {
-	pub async fn get_diagnostics(&self) -> tg::Result<BTreeMap<tg::Module, Vec<tg::Diagnostic>>> {
+	pub async fn get_diagnostics(&self) -> tg::Result<Vec<tg::Diagnostic>> {
 		// Create the request.
 		let request = super::Request::Diagnostics(Request {});
 
@@ -46,14 +45,39 @@ impl Compiler {
 		}
 
 		// Update the diagnostics.
-		diagnostics.extend(self.get_diagnostics().await?);
+		diagnostics.extend(
+			stream::iter(self.get_diagnostics().await?)
+				.map(Ok::<_, tg::Error>)
+				.try_fold(BTreeMap::default(), {
+					move |mut map: BTreeMap<lsp::Uri, Vec<tg::Diagnostic>>, diagnostic| {
+						let compiler = self.clone();
+						async move {
+							let Some(location) = diagnostic.location.clone() else {
+								return Ok(map);
+							};
+							let uri = compiler.lsp_uri_for_module(&location.module).await?;
+							map.entry(uri).or_default().push(diagnostic.clone());
+							Ok(map)
+						}
+					}
+				})
+				.await?,
+		);
 
 		// Publish the diagnostics.
-		for (module, diagnostics) in diagnostics.iter() {
+		for (uri, diagnostics) in diagnostics.iter() {
+			let uri = uri.clone();
+			let module = &diagnostics
+				.first()
+				.unwrap()
+				.location
+				.as_ref()
+				.unwrap()
+				.module;
 			let version = self.get_module_version(module).await?;
 			let diagnostics = diagnostics.iter().cloned().map_into().collect();
 			let params = lsp::PublishDiagnosticsParams {
-				uri: self.lsp_uri_for_module(module),
+				uri,
 				diagnostics,
 				version: Some(version),
 			};

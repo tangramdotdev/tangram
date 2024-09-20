@@ -1,4 +1,5 @@
 use super::Compiler;
+use futures::{stream::FuturesOrdered, TryStreamExt as _};
 use lsp_types as lsp;
 use tangram_client as tg;
 
@@ -74,21 +75,28 @@ impl Compiler {
 		// Get the position for the request.
 		let position = params.text_document_position_params.position;
 
-		// Get the definitions.
+		// Get the locations.
 		let locations = self.definition(&module, position.into()).await?;
 
 		let Some(locations) = locations else {
 			return Ok(None);
 		};
 
-		// Convert the definitions.
+		// Convert the locations.
 		let locations = locations
 			.into_iter()
-			.map(|location| lsp::Location {
-				uri: self.lsp_uri_for_module(&location.module),
-				range: location.range.into(),
+			.map(|location| {
+				let compiler = self.clone();
+				async move {
+					Ok::<_, tg::Error>(lsp::Location {
+						uri: compiler.lsp_uri_for_module(&location.module).await?,
+						range: location.range.into(),
+					})
+				}
 			})
-			.collect();
+			.collect::<FuturesOrdered<_>>()
+			.try_collect()
+			.await?;
 
 		let response = lsp::GotoDefinitionResponse::Array(locations);
 
@@ -107,21 +115,28 @@ impl Compiler {
 		// Get the position for the request.
 		let position = params.text_document_position_params.position;
 
-		// Get the definitions.
+		// Get the locations.
 		let locations = self.type_definition(&module, position.into()).await?;
 
 		let Some(locations) = locations else {
 			return Ok(None);
 		};
 
-		// Convert the definitions.
+		// Convert the locations.
 		let locations = locations
 			.into_iter()
-			.map(|location| lsp::Location {
-				uri: self.lsp_uri_for_module(&location.module),
-				range: location.range.into(),
+			.map(|location| {
+				let compiler = self.clone();
+				async move {
+					Ok::<_, tg::Error>(lsp::Location {
+						uri: compiler.lsp_uri_for_module(&location.module).await?,
+						range: location.range.into(),
+					})
+				}
 			})
-			.collect();
+			.collect::<FuturesOrdered<_>>()
+			.try_collect()
+			.await?;
 
 		let response = lsp::GotoDefinitionResponse::Array(locations);
 

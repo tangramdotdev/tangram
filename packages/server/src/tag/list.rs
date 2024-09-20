@@ -39,7 +39,7 @@ impl Server {
 		}
 		let mut rows: Vec<Row> = Vec::new();
 		let mut prefix = Vec::new();
-		for (idx, component) in arg.pattern.components().into_iter().enumerate() {
+		for (idx, component) in arg.pattern.components().iter().enumerate() {
 			match component {
 				tg::tag::pattern::Component::Normal(component) => {
 					let p = connection.p();

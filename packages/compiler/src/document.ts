@@ -1,7 +1,8 @@
 import { todo } from "./assert.ts";
+import type { Module } from "./module.ts";
 
 export type Request = {
-	module: string;
+	module: Module;
 };
 
 export type Response = {

@@ -1,28 +1,11 @@
 use crate as tg;
 use std::path::PathBuf;
 use tangram_either::Either;
-use tangram_uri as uri;
-
-#[derive(
-	Clone,
-	Debug,
-	Eq,
-	Hash,
-	Ord,
-	PartialEq,
-	PartialOrd,
-	serde_with::DeserializeFromStr,
-	serde_with::SerializeDisplay,
-)]
-pub struct Module {
-	uri: uri::Reference,
-	path: Path,
-}
 
 #[derive(
 	Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd, serde::Deserialize, serde::Serialize,
 )]
-pub struct Path {
+pub struct Module {
 	pub kind: Kind,
 	pub object: Option<Either<tg::object::Id, PathBuf>>,
 	pub path: Option<tg::Path>,
@@ -57,20 +40,6 @@ pub enum Kind {
 }
 
 impl Module {
-	#[must_use]
-	pub fn new(
-		kind: Kind,
-		object: Option<Either<tg::object::Id, PathBuf>>,
-		path: Option<tg::Path>,
-	) -> Self {
-		let path = Path { kind, object, path };
-		let json = serde_json::to_string(&path).unwrap();
-		let hex = data_encoding::HEXLOWER.encode(json.as_bytes());
-		let string = format!("tg:{hex}");
-		let uri = string.parse().unwrap();
-		Self { uri, path }
-	}
-
 	pub async fn with_package<H>(
 		handle: &H,
 		package: Either<tg::Object, PathBuf>,
@@ -110,7 +79,11 @@ impl Module {
 			Either::Right(path) => Either::Right(path),
 		};
 		let path = name.into();
-		let module = Self::new(kind, Some(object), Some(path));
+		let module = Self {
+			kind,
+			object: Some(object),
+			path: Some(path),
+		};
 		Ok(Some(module))
 	}
 
@@ -142,71 +115,13 @@ impl Module {
 		};
 		let path = path.try_into()?;
 		let package = package.map(|package| Either::Right(package.to_owned()));
-		let module = Self::new(kind, package, Some(path));
+		let module = Self {
+			kind,
+			object: package,
+			path: Some(path),
+		};
+
 		Ok(module)
-	}
-
-	#[must_use]
-	pub fn uri(&self) -> &uri::Reference {
-		&self.uri
-	}
-
-	#[must_use]
-	pub fn as_str(&self) -> &str {
-		self.uri.as_str()
-	}
-
-	#[must_use]
-	pub fn kind(&self) -> Kind {
-		self.path.kind
-	}
-
-	#[must_use]
-	pub fn object(&self) -> Option<&Either<tg::object::Id, PathBuf>> {
-		self.path.object.as_ref()
-	}
-
-	#[must_use]
-	pub fn path(&self) -> Option<&tg::Path> {
-		self.path.path.as_ref()
-	}
-}
-
-impl std::fmt::Display for Module {
-	fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-		write!(f, "{}", self.uri)
-	}
-}
-
-impl std::str::FromStr for Module {
-	type Err = tg::Error;
-
-	fn from_str(s: &str) -> tg::Result<Self, Self::Err> {
-		let reference: uri::Reference = s
-			.parse()
-			.map_err(|source| tg::error!(!source, "failed to parse the reference"))?;
-
-		// Ensure the scheme is "tg".
-		if !matches!(reference.scheme(), Some("tg")) {
-			return Err(tg::error!("the URI has an invalid scheme"));
-		}
-
-		// Get the path.
-		let hex = reference.path();
-
-		// Decode.
-		let json = data_encoding::HEXLOWER
-			.decode(hex.as_bytes())
-			.map_err(|source| tg::error!(!source, "failed to deserialize the path"))?;
-
-		// Deserialize.
-		let path = serde_json::from_slice(&json)
-			.map_err(|source| tg::error!(!source, "failed to deserialize the path"))?;
-
-		Ok(Self {
-			uri: reference,
-			path,
-		})
 	}
 }
 

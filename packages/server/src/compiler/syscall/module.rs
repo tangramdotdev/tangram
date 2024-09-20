@@ -12,7 +12,7 @@ pub fn load(
 		let text = compiler
 			.load_module(&module)
 			.await
-			.map_err(|source| tg::error!(!source, %module, "failed to load the module"))?;
+			.map_err(|source| tg::error!(!source, ?module, "failed to load the module"))?;
 		Ok(text)
 	})
 }
@@ -22,18 +22,18 @@ pub fn resolve(
 	compiler: Compiler,
 	args: (tg::Module, String, Option<BTreeMap<String, String>>),
 ) -> tg::Result<tg::Module> {
-	let (module, specifier, attributes) = args;
+	let (referrer, specifier, attributes) = args;
 	let import = tg::Import::with_specifier_and_attributes(&specifier, attributes)
 		.map_err(|source| tg::error!(!source, "failed to create the import"))?;
 	compiler.main_runtime_handle.clone().block_on(async move {
 		let module = compiler
-			.resolve_module(&module, &import)
+			.resolve_module(Some(&referrer), &import)
 			.await
 			.map_err(|error| {
 				tg::error!(
 					source = error,
+					?referrer,
 					%specifier,
-					%module,
 					"failed to resolve specifier relative to the module"
 				)
 			})?;

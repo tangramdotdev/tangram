@@ -4,9 +4,7 @@ interface ImportAttributes {
 	path?: string;
 }
 
-interface ImportMeta {
-	url: string;
-}
+interface ImportMeta {}
 
 // @ts-ignore
 declare let console: {

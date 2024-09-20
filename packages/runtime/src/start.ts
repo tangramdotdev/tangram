@@ -1,5 +1,5 @@
 import * as tg from "./index.ts";
-import { Module } from "./module.ts";
+import type { Module } from "./module.ts";
 import { setCurrentTarget } from "./target.ts";
 
 export let start = async (target: tg.Target): Promise<tg.Value> => {
@@ -9,34 +9,21 @@ export let start = async (target: tg.Target): Promise<tg.Value> => {
 	// Set the current target.
 	setCurrentTarget(target);
 
-	// Create the module for the executable.
+	// Import the executable.
 	let executable = await target.executable();
 	if (executable === undefined) {
 		throw new Error("invalid target");
 	}
-	let kind = "js" as const;
-	let object: string;
-	let path: string | undefined;
-	if (executable instanceof tg.File) {
-		object = await executable.id();
-	} else if (executable instanceof tg.Symlink) {
-		let artifact = await executable.artifact();
-		tg.assert(artifact);
-		object = await artifact.id();
-		path = (await executable.path())?.toString();
-	} else {
-		throw new Error("invalid executable");
+	let kind: Module.Kind = "js";
+	if (executable instanceof tg.Symlink) {
+		const path = await executable.path();
+		if (path?.toString().endsWith(".ts")) {
+			kind = "ts";
+		}
 	}
-	let module = Module.print({
-		path: {
-			kind,
-			object,
-			path,
-		},
-	});
-
-	// Import the module.
-	let namespace = await import(module);
+	let id = await executable.id();
+	// biome-ignore lint/security/noGlobalEval: workaround for https://github.com/oven-sh/bun/issues/14064.
+	let namespace = await eval(`import("${id}", { with: { kind: "${kind}" } })`);
 
 	// Get the args.
 	let args = await target.args();

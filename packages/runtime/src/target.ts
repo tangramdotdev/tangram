@@ -1,5 +1,5 @@
 import * as tg from "./index.ts";
-import { Module } from "./module.ts";
+import type { Module } from "./module.ts";
 import {
 	type MaybeMutationMap,
 	type MaybeNestedArray,
@@ -17,9 +17,9 @@ type FunctionArg<
 	A extends Array<tg.Value> = Array<tg.Value>,
 	R extends tg.Value = tg.Value,
 > = {
-	module: string;
-	name: string;
 	function: (...args: A) => tg.Unresolved<R>;
+	module: Module;
+	name: string;
 };
 
 export function target<
@@ -43,14 +43,12 @@ export function target<
 	) {
 		let arg = args[0];
 
-		let module = Module.parse(arg.module);
-
 		// Create the target.
 		let args_ = [arg.name];
 		let checksum = undefined;
-		let executable = tg.Artifact.withId(module.path.object!);
-		if (module.path.path !== undefined) {
-			let path = tg.path(module.path.path);
+		let executable = tg.Artifact.withId(arg.module.object!);
+		if (arg.module.path !== undefined) {
+			let path = tg.path(arg.module.path);
 			executable = new tg.Symlink({
 				object: { artifact: executable, path: path },
 			});

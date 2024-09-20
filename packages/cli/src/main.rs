@@ -895,7 +895,7 @@ impl Cli {
 		eprintln!("{title}: {}", diagnostic.message);
 		let mut string = String::new();
 		if let Some(location) = &diagnostic.location {
-			match location.module.object() {
+			match &location.module.object {
 				Some(Either::Left(object)) => {
 					write!(string, "{object}").unwrap();
 				},
@@ -904,7 +904,7 @@ impl Cli {
 				},
 				None => {},
 			}
-			if let Some(path) = location.module.path() {
+			if let Some(path) = &location.module.path {
 				write!(string, ":{path}").unwrap();
 			}
 			let mut string = if string.is_empty() {

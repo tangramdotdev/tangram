@@ -1,9 +1,10 @@
 import ts from "typescript";
+import type { Module } from "./module.ts";
 import type { Range } from "./range.ts";
 import * as typescript from "./typescript.ts";
 
 export type Request = {
-	module: string;
+	module: Module;
 };
 
 export type Response = {

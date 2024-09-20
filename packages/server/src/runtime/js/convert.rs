@@ -2810,6 +2810,23 @@ impl FromV8 for tg::graph::node::Kind {
 	}
 }
 
+impl ToV8 for tg::Module {
+	fn to_v8<'a>(&self, scope: &mut v8::HandleScope<'a>) -> tg::Result<v8::Local<'a, v8::Value>> {
+		serde_v8::to_v8(scope, self)
+			.map_err(|source| tg::error!(!source, "failed to serialize the value"))
+	}
+}
+
+impl FromV8 for tg::Module {
+	fn from_v8<'a>(
+		scope: &mut v8::HandleScope<'a>,
+		value: v8::Local<'a, v8::Value>,
+	) -> tg::Result<Self> {
+		serde_v8::from_v8(scope, value)
+			.map_err(|source| tg::error!(!source, "failed to deserialize the value"))
+	}
+}
+
 impl ToV8 for tg::Reference {
 	fn to_v8<'a>(&self, scope: &mut v8::HandleScope<'a>) -> tg::Result<v8::Local<'a, v8::Value>> {
 		self.to_string().to_v8(scope)

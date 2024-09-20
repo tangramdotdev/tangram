@@ -8,7 +8,7 @@ const LIB: include_dir::Dir = include_dir!("$OUT_DIR/lib");
 impl Compiler {
 	/// Load a module.
 	pub async fn load_module(&self, module: &tg::Module) -> tg::Result<String> {
-		match (module.kind(), module.object(), module.path()) {
+		match (module.kind, &module.object, &module.path) {
 			// Handle a declaration.
 			(tg::module::Kind::Dts, None, Some(path)) => {
 				let path = path
@@ -88,7 +88,7 @@ impl Compiler {
 				Some(object),
 				path,
 			) => {
-				let class = match module.kind() {
+				let class = match module.kind {
 					tg::module::Kind::Object => "Object",
 					tg::module::Kind::Blob => "Blob",
 					tg::module::Kind::Leaf => "Leaf",

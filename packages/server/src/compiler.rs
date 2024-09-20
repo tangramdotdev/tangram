@@ -6,6 +6,7 @@ use lsp::{notification::Notification as _, request::Request as _};
 use lsp_types as lsp;
 use std::{
 	collections::{BTreeMap, BTreeSet, HashMap},
+	os::unix::ffi::OsStrExt,
 	path::{Path, PathBuf},
 	pin::pin,
 	sync::{Arc, Mutex},
@@ -38,7 +39,6 @@ pub mod symbols;
 pub mod syscall;
 pub mod transpile;
 pub mod version;
-pub mod virtual_text_document;
 pub mod workspace;
 
 const SNAPSHOT: &[u8] = include_bytes!(concat!(env!("OUT_DIR"), "/compiler.heapsnapshot"));
@@ -49,8 +49,8 @@ const SOURCE_MAP: &[u8] = include_bytes!(concat!(env!("OUT_DIR"), "/compiler.js.
 pub struct Compiler(Arc<Inner>);
 
 pub struct Inner {
-	/// The published diagnostics.
-	diagnostics: tokio::sync::RwLock<BTreeMap<tg::Module, Vec<tg::Diagnostic>>>,
+	/// The diagnostics.
+	diagnostics: tokio::sync::RwLock<BTreeMap<lsp::Uri, Vec<tg::Diagnostic>>>,
 
 	/// The documents.
 	documents: DashMap<tg::Module, Document, fnv::FnvBuildHasher>,
@@ -112,7 +112,7 @@ type _ResponseReceiver = tokio::sync::oneshot::Receiver<tg::Result<Response>>;
 impl Compiler {
 	#[must_use]
 	pub fn new(server: &crate::Server, main_runtime_handle: tokio::runtime::Handle) -> Self {
-		// Create the published diagnostics.
+		// Create the diagnostics.
 		let diagnostics = tokio::sync::RwLock::new(BTreeMap::new());
 
 		// Create the documents.
@@ -345,13 +345,6 @@ impl Compiler {
 				.handle_request_with::<lsp::request::Shutdown, _, _>(request, |()| async move {
 					Ok::<_, tg::Error>(())
 				})
-				.boxed(),
-
-			self::virtual_text_document::VirtualTextDocument::METHOD => self
-				.handle_request_with::<self::virtual_text_document::VirtualTextDocument, _, _>(
-					request,
-					|params| self.handle_virtual_text_document_request(params),
-				)
 				.boxed(),
 
 			// If the request method does not have a handler, then send a method not found response.
@@ -632,31 +625,75 @@ impl Compiler {
 	}
 
 	async fn module_for_lsp_uri(&self, uri: &lsp::Uri) -> tg::Result<tg::Module> {
-		match uri.scheme().unwrap().as_str() {
-			"file" => tg::Module::with_path(Path::new(uri.path().as_str())).await,
-			_ => uri.as_str().parse(),
+		// Verify the scheme and get the path.
+		if uri.scheme().unwrap().as_str() != "file" {
+			return Err(tg::error!("invalid scheme"));
 		}
+		let path = Path::new(uri.path().as_str());
+
+		// Handle a path in the checkouts directory.
+		if let Ok(path) = path.strip_prefix(self.server.checkouts_path()) {
+			#[allow(clippy::case_sensitive_file_extension_comparisons)]
+			let kind = if path.extension().is_some_and(|extension| extension == "js") {
+				tg::module::Kind::Js
+			} else if path.extension().is_some_and(|extension| extension == "ts") {
+				tg::module::Kind::Ts
+			} else {
+				let metadata = tokio::fs::symlink_metadata(path)
+					.await
+					.map_err(|source| tg::error!(!source, "failed to get the metadata"))?;
+				if metadata.is_dir() {
+					tg::module::Kind::Directory
+				} else if metadata.is_file() {
+					tg::module::Kind::File
+				} else if metadata.is_symlink() {
+					tg::module::Kind::Symlink
+				} else {
+					return Err(tg::error!("expected a directory, file, or symlink"));
+				}
+			};
+			let object = path
+				.components()
+				.next()
+				.ok_or_else(|| tg::error!("invalid path"))?
+				.as_os_str()
+				.to_str()
+				.ok_or_else(|| tg::error!("invalid path"))?
+				.parse()
+				.ok()
+				.ok_or_else(|| tg::error!("invalid path"))?;
+			let object = Some(Either::Left(object));
+			let path = path.components().skip(1).collect::<PathBuf>();
+			let path = if path.as_os_str().is_empty() {
+				None
+			} else {
+				Some(path.try_into()?)
+			};
+			return Ok(tg::Module { kind, object, path });
+		}
+
+		tg::Module::with_path(path).await
 	}
 
-	#[allow(clippy::unused_self)]
-	#[must_use]
-	fn lsp_uri_for_module(&self, module: &tg::Module) -> lsp::Uri {
-		match (module.kind(), module.object(), module.path()) {
-			(
-				tg::module::Kind::Js
-				| tg::module::Kind::Ts
-				| tg::module::Kind::Artifact
-				| tg::module::Kind::Directory
-				| tg::module::Kind::File
-				| tg::module::Kind::Symlink,
-				Some(Either::Right(package)),
-				Some(path),
-			) => {
-				let path = package.clone().join(path.clone());
-				format!("file://{}", path.display()).parse().unwrap()
+	async fn lsp_uri_for_module(&self, module: &tg::Module) -> tg::Result<lsp::Uri> {
+		match module {
+			tg::Module {
+				kind:
+					tg::module::Kind::Js
+					| tg::module::Kind::Ts
+					| tg::module::Kind::Artifact
+					| tg::module::Kind::Directory
+					| tg::module::Kind::File
+					| tg::module::Kind::Symlink,
+				object: Some(Either::Right(object)),
+				path: Some(path),
+			} => {
+				let path = object.clone().join(path.clone());
+				let path = path.display();
+				Ok(format!("file://{path}").parse().unwrap())
 			},
 
-			_ => module.to_string().parse().unwrap(),
+			_ => Err(tg::error!("unimplemented")),
 		}
 	}
 }

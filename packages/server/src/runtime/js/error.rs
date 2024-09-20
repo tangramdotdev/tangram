@@ -19,7 +19,7 @@ struct CallSite {
 	type_name: Option<String>,
 	function_name: Option<String>,
 	method_name: Option<String>,
-	file_name: Option<String>,
+	file_name: Option<usize>,
 	line_number: Option<u32>,
 	column_number: Option<u32>,
 	is_eval: bool,
@@ -64,23 +64,21 @@ pub(super) fn from_exception<'s>(
 	let message = Some(message_.get(scope).to_rust_string_lossy(scope));
 
 	// Get the location.
-	let resource_name = message_
+	let id = message_
 		.get_script_resource_name(scope)
-		.and_then(|resource_name| <v8::Local<v8::String>>::try_from(resource_name).ok())
-		.map(|resource_name| resource_name.to_rust_string_lossy(scope));
-
-	let line = if resource_name.is_some() {
+		.and_then(|resource_name| <v8::Local<v8::Integer>>::try_from(resource_name).ok())
+		.map(|resource_name| resource_name.value().to_usize().unwrap());
+	let line = if id.is_some() {
 		Some(message_.get_line_number(scope).unwrap().to_u32().unwrap() - 1)
 	} else {
 		None
 	};
-	let column = if resource_name.is_some() {
+	let column = if id.is_some() {
 		Some(message_.get_start_column().to_u32().unwrap())
 	} else {
 		None
 	};
-
-	let location = get_location(state, None, resource_name.as_deref(), line, column);
+	let location = get_location(state, None, id, line, column);
 
 	// Get the stack trace.
 	let stack = v8::String::new_external_onebyte_static(scope, "stack".as_bytes()).unwrap();
@@ -102,7 +100,7 @@ pub(super) fn from_exception<'s>(
 						function_name.clone()
 					}
 				});
-				let file_name = call_site.file_name.as_deref();
+				let file_name = call_site.file_name;
 				let line: u32 = call_site.line_number? - 1;
 				let column: u32 = call_site.column_number?;
 				let location = get_location(state, symbol, file_name, Some(line), Some(column))?;
@@ -149,21 +147,13 @@ pub fn capture_stack_trace(scope: &mut v8::HandleScope<'_>) -> Option<Vec<tg::er
 		.rev()
 		.filter_map(|index| {
 			let frame = stack.get_frame(scope, index)?;
-			let file = frame
-				.get_script_name_or_source_url(scope)
-				.map(|name| name.to_rust_string_lossy(scope))?;
+			let id = frame.get_script_id();
 			let line = frame.get_line_number().to_u32().unwrap() - 1;
 			let column = frame.get_column().to_u32().unwrap() - 1;
 			let symbol = frame
 				.get_function_name(scope)
 				.map(|name| name.to_rust_string_lossy(scope));
-			get_location(
-				state.as_ref(),
-				symbol,
-				Some(&file),
-				Some(line),
-				Some(column),
-			)
+			get_location(state.as_ref(), symbol, Some(id), Some(line), Some(column))
 		})
 		.collect();
 
@@ -173,58 +163,60 @@ pub fn capture_stack_trace(scope: &mut v8::HandleScope<'_>) -> Option<Vec<tg::er
 fn get_location(
 	state: &State,
 	symbol: Option<String>,
-	file: Option<&str>,
+	id: Option<usize>,
 	line: Option<u32>,
 	column: Option<u32>,
 ) -> Option<tg::error::Location> {
-	if file.map_or(false, |resource_name| resource_name == "[global]") {
-		let line = line?;
-		let column = column?;
-		let global_source_map = state.global_source_map.as_ref()?;
-		let token = global_source_map.lookup_token(line, column)?;
-		let line = token.get_src_line();
-		let column = token.get_src_col();
-		let symbol = token.get_name().map(String::from);
-		let source = tg::error::Source::Internal(token.get_source().unwrap().parse().unwrap());
-		let location = tg::error::Location {
-			symbol,
-			source,
-			line,
-			column,
-		};
-		return Some(location);
-	}
+	match id {
+		Some(0) => {
+			let line = line?;
+			let column = column?;
+			let global_source_map = state.global_source_map.as_ref()?;
+			let token = global_source_map.lookup_token(line, column)?;
+			let line = token.get_src_line();
+			let column = token.get_src_col();
+			let symbol = token.get_name().map(String::from);
+			let source = tg::error::Source::Internal(token.get_source().unwrap().parse().unwrap());
+			let location = tg::error::Location {
+				symbol,
+				source,
+				line,
+				column,
+			};
+			Some(location)
+		},
 
-	if let Some(module) = file.and_then(|resource_name| resource_name.parse().ok()) {
-		// Get the module.
-		let modules = state.modules.borrow();
-		let module = modules.iter().find(|m| m.module == module)?;
+		Some(id) => {
+			// Get the module.
+			let modules = state.modules.borrow();
+			let module = modules.get(id - 1).unwrap();
 
-		// Get the source.
-		let source = tg::error::Source::Module(module.module.clone());
+			// Get the source.
+			let source = tg::error::Source::Module(module.module.clone());
 
-		// Get the line and column and apply a source map if one is available.
-		let mut line = line?;
-		let mut column = column?;
-		if let Some(source_map) = module.source_map.as_ref() {
-			if let Some(token) = source_map.lookup_token(line, column) {
-				line = token.get_src_line();
-				column = token.get_src_col();
+			// Get the line and column and apply a source map if one is available.
+			let mut line = line?;
+			let mut column = column?;
+			if let Some(source_map) = module.source_map.as_ref() {
+				if let Some(token) = source_map.lookup_token(line, column) {
+					line = token.get_src_line();
+					column = token.get_src_col();
+				}
 			}
-		}
 
-		// Create the location.
-		let location = tg::error::Location {
-			symbol,
-			source,
-			line,
-			column,
-		};
+			// Create the location.
+			let location = tg::error::Location {
+				symbol,
+				source,
+				line,
+				column,
+			};
 
-		return Some(location);
+			Some(location)
+		},
+
+		None => None,
 	}
-
-	None
 }
 
 pub fn prepare_stack_trace_callback<'s>(

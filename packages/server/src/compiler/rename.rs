@@ -43,7 +43,7 @@ impl Compiler {
 		let mut edit = HashMap::<lsp::Uri, lsp::TextDocumentEdit>::new();
 		for location in locations {
 			// Create the URI.
-			let uri = self.lsp_uri_for_module(&location.module);
+			let uri = self.lsp_uri_for_module(&location.module).await?;
 
 			// Get the version.
 			let version = self.get_module_version(&location.module).await?;

@@ -25,7 +25,7 @@ impl Compiler {
 			| tg::module::Kind::Symlink,
 			Some(Either::Right(package)),
 			Some(path),
-		) = (module.kind(), module.object(), module.path())
+		) = (module.kind, &module.object, &module.path)
 		else {
 			return Ok(0);
 		};

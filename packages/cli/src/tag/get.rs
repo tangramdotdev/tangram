@@ -16,7 +16,7 @@ impl Cli {
 		let item = tag
 			.item
 			.ok_or_else(|| tg::error!("the tag does not have an item"))?;
-		println!("{item}",);
+		println!("{item}");
 		Ok(())
 	}
 }

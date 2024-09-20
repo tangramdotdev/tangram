@@ -3119,9 +3119,9 @@ checksum = "830b246a0e5f20af87141b25c173cd1b609bd7779a4617d6ec582abaf90870f3"
 
 [[package]]
 name = "oauth2"
-version = "5.0.0-alpha.4"
+version = "5.0.0-rc.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "098af5a5110b4deacf3200682963713b143ae9d28762b739bdb7b98429dfaf68"
+checksum = "23d385da3c602d29036d2f70beed71c36604df7570be17fed4c5b839616785bf"
 dependencies = [
  "base64 0.22.1",
  "chrono",
@@ -4416,9 +4416,9 @@ dependencies = [
 
 [[package]]
 name = "serde_v8"
-version = "0.217.0"
+version = "0.219.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "467c0a7bfc67cd918f1f7ab7a5ab70a9e744e466ff428cd728ff2c03bc77874c"
+checksum = "0b4de773ce668166fe0a77291cf90a7740be7997c954103c8125892597c0e98b"
 dependencies = [
  "num-bigint",
  "serde",

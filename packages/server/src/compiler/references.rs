@@ -1,4 +1,5 @@
 use super::Compiler;
+use futures::{stream::FuturesOrdered, TryStreamExt as _};
 use lsp_types as lsp;
 use tangram_client as tg;
 
@@ -37,11 +38,18 @@ impl Compiler {
 		// Convert the reference.
 		let locations = locations
 			.into_iter()
-			.map(|location| lsp::Location {
-				uri: self.lsp_uri_for_module(&location.module),
-				range: location.range.into(),
+			.map(|location| {
+				let compiler = self.clone();
+				async move {
+					Ok::<_, tg::Error>(lsp::Location {
+						uri: compiler.lsp_uri_for_module(&location.module).await?,
+						range: location.range.into(),
+					})
+				}
 			})
-			.collect();
+			.collect::<FuturesOrdered<_>>()
+			.try_collect()
+			.await?;
 
 		Ok(Some(locations))
 	}

@@ -4,7 +4,7 @@ import * as typescript from "./typescript.ts";
 export type Request = unknown;
 
 export type Response = {
-	diagnostics: { [key: string]: Array<Diagnostic> };
+	diagnostics: Array<Diagnostic>;
 };
 
 export type Diagnostic = {
@@ -20,17 +20,16 @@ export let handle = (_request: Request): Response => {
 	let documents = syscall("document_list");
 
 	// Collect the diagnostics.
-	let diagnostics = Object.fromEntries(
-		documents.map((module) => {
+	let diagnostics = documents
+		.flatMap((module) => {
 			let fileName = typescript.fileNameFromModule(module);
-			let diagnostics = [
+			return [
 				...typescript.languageService.getSyntacticDiagnostics(fileName),
 				...typescript.languageService.getSemanticDiagnostics(fileName),
 				...typescript.languageService.getSuggestionDiagnostics(fileName),
-			].map(typescript.convertDiagnostic);
-			return [module, diagnostics];
-		}),
-	);
+			];
+		})
+		.map(typescript.convertDiagnostic);
 
 	return {
 		diagnostics,

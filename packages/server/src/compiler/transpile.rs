@@ -272,15 +272,15 @@ impl TargetVisitor {
 			span: swc::common::DUMMY_SP,
 			kind: swc::ecma::ast::MetaPropKind::ImportMeta,
 		});
-		let import_meta_url = ast::MemberExpr {
+		let import_meta_module = ast::MemberExpr {
 			span: swc::common::DUMMY_SP,
 			obj: Box::new(import_meta),
-			prop: ast::IdentName::new("url".into(), n.span).into(),
+			prop: ast::IdentName::new("module".into(), n.span).into(),
 		};
 		let module_prop =
 			ast::PropOrSpread::Prop(Box::new(ast::Prop::KeyValue(ast::KeyValueProp {
 				key: ast::IdentName::new("module".into(), n.span).into(),
-				value: Box::new(import_meta_url.into()),
+				value: Box::new(import_meta_module.into()),
 			})));
 
 		// Create the name property.

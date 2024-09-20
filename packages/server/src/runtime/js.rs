@@ -8,7 +8,7 @@ use futures::{
 	stream::FuturesUnordered,
 	FutureExt as _, StreamExt as _, TryFutureExt as _,
 };
-use num::ToPrimitive as _;
+use num::ToPrimitive;
 use sourcemap::SourceMap;
 use std::{
 	cell::RefCell, collections::BTreeMap, future::poll_fn, num::NonZeroI32, pin::pin, rc::Rc,
@@ -51,6 +51,7 @@ struct FutureOutput {
 }
 
 #[allow(clippy::struct_field_names)]
+#[derive(Debug)]
 struct Module {
 	module: tg::Module,
 	source_map: Option<SourceMap>,
@@ -372,38 +373,31 @@ fn host_import_module_dynamically_callback<'s>(
 	specifier: v8::Local<'s, v8::String>,
 	attributes: v8::Local<'s, v8::FixedArray>,
 ) -> Option<v8::Local<'s, v8::Promise>> {
-	// Get the resource name.
-	let resource_name = resource_name.to_string(scope).unwrap();
-	let resource_name = resource_name.to_rust_string_lossy(scope);
+	// Get the context.
+	let context = scope.get_current_context();
 
-	// Get the module.
-	let module = if resource_name == "[global]" {
-		let module: String = specifier.to_rust_string_lossy(scope);
-		match module.parse() {
-			Ok(module) => module,
-			Err(error) => {
-				let exception = error::to_exception(scope, &error);
-				scope.throw_exception(exception);
-				return None;
-			},
-		}
-	} else {
-		// Get the module.
-		let module = match resource_name.parse() {
-			Ok(module) => module,
-			Err(error) => {
-				let exception = error::to_exception(scope, &error);
-				scope.throw_exception(exception);
-				return None;
-			},
-		};
+	// Get the state.
+	let state = context.get_slot::<Rc<State>>().unwrap().clone();
 
-		// Parse the import.
-		let import = parse_import(scope, specifier, attributes, ImportKind::Dynamic)?;
+	// Get the referrer's ID.
+	let id = resource_name
+		.to_integer(scope)
+		.unwrap()
+		.value()
+		.to_usize()
+		.unwrap();
 
-		// Resolve the module.
-		resolve_module(scope, &module, &import)?
+	// Get the referrer.
+	let referrer = match id {
+		0 => None,
+		_ => Some(state.modules.borrow().get(id - 1).unwrap().module.clone()),
 	};
+
+	// Parse the import.
+	let import = parse_import(scope, specifier, attributes, ImportKind::Dynamic)?;
+
+	// Resolve the module.
+	let module = resolve_module(scope, referrer.as_ref(), &import)?;
 
 	// Load the module.
 	let module = load_module(scope, &module)?;
@@ -457,7 +451,7 @@ fn resolve_module_callback<'s>(
 		.iter()
 		.find(|module| module.v8_identity_hash == identity_hash)
 		.map(|module| module.module.clone())
-		.ok_or_else(|| tg::error!(%identity_hash, "unable to find the module with identity hash"))
+		.ok_or_else(|| tg::error!(%identity_hash, "unable to find the module"))
 	{
 		Ok(module) => module,
 		Err(error) => {
@@ -471,7 +465,7 @@ fn resolve_module_callback<'s>(
 	let import = parse_import(scope, specifier, attributes, ImportKind::Static)?;
 
 	// Resolve the module.
-	let module = resolve_module(scope, &module, &import)?;
+	let module = resolve_module(scope, Some(&module), &import)?;
 
 	// Load the module.
 	let module = load_module(scope, &module)?;
@@ -482,30 +476,26 @@ fn resolve_module_callback<'s>(
 /// Resolve a module.
 fn resolve_module(
 	scope: &mut v8::HandleScope,
-	module: &tg::Module,
+	referrer: Option<&tg::Module>,
 	import: &tg::Import,
 ) -> Option<tg::Module> {
 	let context = scope.get_current_context();
 	let state = context.get_slot::<Rc<State>>().unwrap().clone();
-
 	let (sender, receiver) = std::sync::mpsc::channel();
 	state.main_runtime_handle.spawn({
 		let compiler = state.compiler.clone();
-		let module = module.clone();
+		let referrer = referrer.cloned();
 		let import = import.clone();
 		async move {
-			let module = compiler.resolve_module(&module, &import).await;
+			let module = compiler.resolve_module(referrer.as_ref(), &import).await;
 			sender.send(module).unwrap();
 		}
 	});
-	let module = match receiver.recv().unwrap().map_err(|source| {
-		tg::error!(
-			!source,
-			?import,
-			?module,
-			"failed to resolve import relative to module"
-		)
-	}) {
+	let module = match receiver
+		.recv()
+		.unwrap()
+		.map_err(|source| tg::error!(!source, ?referrer, ?import, "failed to resolve"))
+	{
 		Ok(module) => module,
 		Err(error) => {
 			let exception = error::to_exception(scope, &error);
@@ -513,7 +503,6 @@ fn resolve_module(
 			return None;
 		},
 	};
-
 	Some(module)
 }
 
@@ -537,12 +526,15 @@ fn load_module<'s>(
 		return Some(module);
 	}
 
+	// Create an ID for the module.
+	let id = state.modules.borrow().len() + 1;
+
 	// Define the module's origin.
-	let resource_name = v8::String::new(scope, &module.to_string()).unwrap();
+	let resource_name = v8::Integer::new(scope, id.to_i32().unwrap()).into();
 	let resource_line_offset = 0;
 	let resource_column_offset = 0;
 	let resource_is_shared_cross_origin = false;
-	let script_id = state.modules.borrow().len().to_i32().unwrap() + 1;
+	let script_id = id.to_i32().unwrap();
 	let source_map_url = None;
 	let resource_is_opaque = true;
 	let is_wasm = false;
@@ -550,7 +542,7 @@ fn load_module<'s>(
 	let host_defined_options = None;
 	let origin = v8::ScriptOrigin::new(
 		scope,
-		resource_name.into(),
+		resource_name,
 		resource_line_offset,
 		resource_column_offset,
 		resource_is_shared_cross_origin,
@@ -575,7 +567,7 @@ fn load_module<'s>(
 	let result = receiver
 		.recv()
 		.unwrap()
-		.map_err(|source| tg::error!(!source, %module, "failed to load the module"));
+		.map_err(|source| tg::error!(!source, ?module, "failed to load the module"));
 	let text = match result {
 		Ok(text) => text,
 		Err(error) => {
@@ -651,10 +643,10 @@ extern "C" fn host_initialize_import_meta_object_callback(
 		.module
 		.clone();
 
-	// Set import.meta.url.
-	let key = v8::String::new_external_onebyte_static(scope, "url".as_bytes()).unwrap();
-	let value = v8::String::new(scope, module.uri().as_str()).unwrap();
-	meta.set(scope, key.into(), value.into()).unwrap();
+	// Set import.meta.module.
+	let key = v8::String::new_external_onebyte_static(scope, "module".as_bytes()).unwrap();
+	let value = module.to_v8(scope).unwrap();
+	meta.set(scope, key.into(), value).unwrap();
 }
 
 /// Implement V8's promise rejection callback.

@@ -120,10 +120,10 @@ impl Compiler {
 		document.text = None;
 
 		// Set the document's modified time.
-		let Some(Either::Right(object)) = module.object() else {
+		let Some(Either::Right(object)) = &module.object else {
 			return Err(tg::error!("invalid module"));
 		};
-		let path = if let Some(path) = module.path() {
+		let path = if let Some(path) = &module.path {
 			object.clone().join(path.clone())
 		} else {
 			object.clone()

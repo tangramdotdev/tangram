@@ -6,110 +6,143 @@ impl Compiler {
 	/// Resolve an import from a module.
 	pub async fn resolve_module(
 		&self,
-		referrer: &tg::Module,
+		referrer: Option<&tg::Module>,
 		import: &tg::Import,
 	) -> tg::Result<tg::Module> {
 		let kind = import.kind;
 
-		// Get the dependency.
+		// Get the object and path.
 		let (object, path) = 'a: {
-			if let Some(Either::Left(tg::object::Id::Directory(package))) = referrer.object() {
-				let package = tg::Directory::with_id(package.clone());
-				let path = referrer
-					.path()
-					.ok_or_else(|| tg::error!("the referrer must have a path"))?;
+			if let Some(referrer) = referrer {
+				if let Some(Either::Left(tg::object::Id::Directory(package))) = &referrer.object {
+					let package = tg::Directory::with_id(package.clone());
+					let path = referrer
+						.path
+						.as_ref()
+						.ok_or_else(|| tg::error!("the referrer must have a path"))?;
 
-				// Handle a path import.
-				if let tg::reference::Path::Path(import_path) = import.reference.path() {
-					let object = Either::Left(package.clone().into());
-					let path = path.clone().parent().join(import_path.clone()).normalize();
+					// Handle a path import.
+					if let tg::reference::Path::Path(import_path) = import.reference.path() {
+						let object = Either::Left(package.clone().into());
+						let path = path.clone().parent().join(import_path.clone()).normalize();
 
-					// If the import is internal to the package, then use the imported path in the existing package.
-					if path.is_internal() {
-						break 'a (object, Some(path));
-					}
-				}
-
-				// Otherwise, get the dependency from the referrer's file.
-				let file = package
-					.get(&self.server, path)
-					.await?
-					.try_unwrap_file()
-					.ok()
-					.ok_or_else(|| tg::error!("expected a file"))?;
-				let object = file.get_dependency(&self.server, &import.reference).await?;
-				let object = Either::Left(object);
-				let path = None;
-
-				(object, path)
-			} else if let Some(Either::Right(package)) = referrer.object() {
-				let path = referrer
-					.path()
-					.ok_or_else(|| tg::error!("the referrer must have a path"))?;
-
-				// Handle a path import.
-				let import_path = import
-					.reference
-					.path()
-					.try_unwrap_path_ref()
-					.ok()
-					.or_else(|| import.reference.query()?.path.as_ref());
-				if let Some(import_path) = import_path {
-					let object = package.clone();
-					let path = path.clone().parent().join(import_path.clone()).normalize();
-
-					// If the import is internal to the package, then use the imported path in the existing package.
-					if path.is_internal() {
-						break 'a (Either::Right(object), Some(path));
+						// If the import is internal to the package, then use the imported path in the existing package.
+						if path.is_internal() {
+							break 'a (object, Some(path));
+						}
 					}
 
-					// Otherwise, return the path.
-					break 'a (Either::Right(object.join(path)), None);
-				}
-
-				// Try to find this module in an existing lockfile.
-				let Some((lockfile, node)) =
-					crate::util::lockfile::try_get_lockfile_node_for_module_path(path.as_ref())
+					// Otherwise, get the dependency from the referrer's file.
+					let file = package
+						.get(&self.server, path)
 						.await?
-				else {
-					return Err(tg::error!("failed to resolve module"));
-				};
-				let tg::lockfile::Node::File { dependencies, .. } = &lockfile.nodes[node] else {
-					return Err(tg::error!("expected a file node"));
-				};
+						.try_unwrap_file()
+						.ok()
+						.ok_or_else(|| tg::error!("expected a file"))?;
+					let object = file.get_dependency(&self.server, &import.reference).await?;
+					let object = Either::Left(object);
+					let path = None;
 
-				// Try to resolve using the node in the lockfile.
-				let Some(object) = dependencies
-					.get(&import.reference)
-					.and_then(|dependency| dependency.object.as_ref())
-				else {
-					return Err(tg::error!("failed to resolve module"));
-				};
+					(object, path)
+				} else if let Some(Either::Right(package)) = &referrer.object {
+					let path = referrer
+						.path
+						.as_ref()
+						.ok_or_else(|| tg::error!("the referrer must have a path"))?;
 
-				let object = match object {
-					Either::Left(node) => crate::util::lockfile::create_artifact_for_lockfile_node(
-						&self.server,
-						&lockfile,
-						*node,
-					)
-					.await?
-					.into(),
-					Either::Right(object) => tg::Object::with_id(object.clone()),
-				};
+					// Handle a path import.
+					let import_path = import
+						.reference
+						.path()
+						.try_unwrap_path_ref()
+						.ok()
+						.or_else(|| import.reference.query()?.path.as_ref());
+					if let Some(import_path) = import_path {
+						let object = package.clone();
+						let path = path.clone().parent().join(import_path.clone()).normalize();
 
-				(Either::Left(object), None)
+						// If the import is internal to the package, then use the imported path in the existing package.
+						if path.is_internal() {
+							break 'a (Either::Right(object), Some(path));
+						}
+
+						// Otherwise, return the path.
+						break 'a (Either::Right(object.join(path)), None);
+					}
+
+					// Try to find this module in an existing lockfile.
+					let Some((lockfile, node)) =
+						crate::util::lockfile::try_get_lockfile_node_for_module_path(path.as_ref())
+							.await?
+					else {
+						return Err(tg::error!("failed to resolve module"));
+					};
+					let tg::lockfile::Node::File { dependencies, .. } = &lockfile.nodes[node]
+					else {
+						return Err(tg::error!("expected a file node"));
+					};
+
+					// Try to resolve using the node in the lockfile.
+					let Some(object) = dependencies
+						.get(&import.reference)
+						.and_then(|dependency| dependency.object.as_ref())
+					else {
+						return Err(tg::error!("failed to resolve module"));
+					};
+
+					let object = match object {
+						Either::Left(node) => {
+							crate::util::lockfile::create_artifact_for_lockfile_node(
+								&self.server,
+								&lockfile,
+								*node,
+							)
+							.await?
+							.into()
+						},
+						Either::Right(object) => tg::Object::with_id(object.clone()),
+					};
+
+					(Either::Left(object), None)
+				} else {
+					return Err(tg::error!("the referrer must have an object"));
+				}
 			} else {
-				return Err(tg::error!("the referrer must have an object"));
+				let object = tg::Object::with_id(
+					import
+						.reference
+						.path()
+						.try_unwrap_object_ref()
+						.ok()
+						.ok_or_else(|| tg::error!("invalid import"))?
+						.clone(),
+				);
+				let (object, path) = if let tg::Object::Symlink(symlink) = object.clone() {
+					let object = tg::Object::with_id(
+						symlink
+							.artifact(&self.server)
+							.await?
+							.ok_or_else(|| tg::error!("invalid symlink"))?
+							.id(&self.server)
+							.await?
+							.into(),
+					);
+					let path = symlink.path(&self.server).await?;
+					(object, path)
+				} else {
+					(object, None)
+				};
+				(Either::Left(object), path)
 			}
 		};
 
-		// If the kind is not known and the object is a package, then return its root module.
+		// If the kind is not known and the object and path refer to a package, then return its root module.
 		let (object, path) = if kind.is_some() {
 			(object, path)
 		} else {
 			match object {
 				Either::Left(object) => {
-					let object = if let Some(path) = &path {
+					let object_ = if let Some(path) = &path {
 						object
 							.try_unwrap_directory_ref()
 							.ok()
@@ -127,14 +160,19 @@ impl Compiler {
 					} else {
 						object.clone()
 					};
-					if let Some(root_module_file_name) = tg::package::try_get_root_module_file_name(
-						&self.server,
-						Either::Left(&object),
-					)
-					.await?
-					{
-						let path = root_module_file_name.into();
-						(Either::Left(object), Some(path))
+					if object_.try_unwrap_directory_ref().is_ok() {
+						if let Some(root_module_file_name) =
+							tg::package::try_get_root_module_file_name(
+								&self.server,
+								Either::Left(&object_),
+							)
+							.await?
+						{
+							let path = root_module_file_name.into();
+							(Either::Left(object_), Some(path))
+						} else {
+							(Either::Left(object), path)
+						}
 					} else {
 						(Either::Left(object), path)
 					}
@@ -241,7 +279,7 @@ impl Compiler {
 			Either::Left(object) => Either::Left(object.id(&self.server).await?),
 			Either::Right(object) => Either::Right(object),
 		});
-		let module = tg::Module::new(kind, object, path);
+		let module = tg::Module { kind, object, path };
 
 		Ok(module)
 	}
