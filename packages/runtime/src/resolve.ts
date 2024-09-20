@@ -9,7 +9,6 @@ export type Unresolved<T extends tg.Value> = MaybePromise<
 		| string
 		| tg.Object
 		| Uint8Array
-		| tg.Path
 		| tg.Mutation
 		| tg.Template
 		? T
@@ -27,7 +26,6 @@ export type Resolved<T extends Unresolved<tg.Value>> = T extends
 	| string
 	| tg.Object
 	| Uint8Array
-	| tg.Path
 	| tg.Mutation
 	| tg.Template
 	? T
@@ -56,7 +54,6 @@ export let resolve = async <T extends Unresolved<tg.Value>>(
 		value instanceof tg.Graph ||
 		value instanceof tg.Target ||
 		value instanceof Uint8Array ||
-		value instanceof tg.Path ||
 		value instanceof tg.Mutation ||
 		value instanceof tg.Template
 	) {

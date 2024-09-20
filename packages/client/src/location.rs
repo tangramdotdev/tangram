@@ -14,7 +14,7 @@ impl std::fmt::Display for Location {
 			write!(f, ":{object}")?;
 		}
 		if let Some(path) = &self.module.path {
-			write!(f, ":{path}")?;
+			write!(f, ":{}", path.display())?;
 		}
 		let line = self.range.start.line + 1;
 		let character = self.range.start.character + 1;

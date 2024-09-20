@@ -1,7 +1,4 @@
-use crate::{
-	util::{self, path},
-	Server,
-};
+use crate::{util, Server};
 use futures::{future::BoxFuture, Stream};
 use std::{
 	path::PathBuf,
@@ -9,6 +6,7 @@ use std::{
 };
 use tangram_client as tg;
 use tangram_http::{incoming::request::Ext as _, Incoming, Outgoing};
+use tg::path::Ext as _;
 
 mod data;
 mod input;
@@ -54,7 +52,9 @@ impl Server {
 		progress: ProgressState,
 	) -> tg::Result<tg::artifact::Id> {
 		// If this is a checkin of a path in the checkouts directory, then retrieve the corresponding artifact.
-		if let Some(path) = path::diff(&arg.path, self.checkouts_path())
+		if let Some(path) = arg
+			.path
+			.diff(self.checkouts_path())
 			.filter(|path| matches!(path.components().next(), Some(std::path::Component::CurDir)))
 		{
 			let components = path.components().collect::<Vec<_>>();
@@ -71,7 +71,7 @@ impl Server {
 			if components.len() < 2 {
 				return Ok(id);
 			}
-			let mut path = std::path::PathBuf::new();
+			let mut path = PathBuf::new();
 			for component in &components[2..] {
 				path.push(component);
 			}
@@ -80,7 +80,7 @@ impl Server {
 				.try_unwrap_directory()
 				.ok()
 				.ok_or_else(|| tg::error!("invalid path"))?;
-			let artifact = directory.get(self, &path.try_into()?).await?;
+			let artifact = directory.get(self, path).await?;
 			let id = artifact.id(self).await?;
 			return Ok(id);
 		}
@@ -116,7 +116,7 @@ impl Server {
 		//  - write lockfile(s).
 
 		// Make sure the input path is normalized.
-		arg.path = crate::util::path::normalize(&arg.path);
+		arg.path = arg.path.normalize();
 
 		// Collect the input.
 		progress.begin_input().await;

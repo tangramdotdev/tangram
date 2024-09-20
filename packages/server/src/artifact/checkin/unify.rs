@@ -589,7 +589,7 @@ impl Server {
 	) -> tg::Result<BTreeMap<tg::Reference, Id>> {
 		let mut outgoing = BTreeMap::new();
 		for (name, object) in directory.entries(self).await? {
-			let reference = tg::Reference::with_path(&name.into());
+			let reference = tg::Reference::with_path(name);
 			let id = Box::pin(self.create_unification_node_from_tagged_object_inner(
 				graph,
 				&object.into(),

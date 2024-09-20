@@ -905,7 +905,7 @@ impl Cli {
 				None => {},
 			}
 			if let Some(path) = &location.module.path {
-				write!(string, ":{path}").unwrap();
+				write!(string, ":{}", path.display()).unwrap();
 			}
 			let mut string = if string.is_empty() {
 				"<unknown>".to_owned()
@@ -958,9 +958,7 @@ impl Cli {
 			let path = tokio::fs::canonicalize(&path)
 				.await
 				.map_err(|source| tg::error!(!source, "failed to canonicalize the path"))?;
-			let path = tg::Path::try_from(path)?;
-			let uri = reference.uri().to_builder().path(path).build().unwrap();
-			tg::Reference::with_uri(uri)?
+			tg::Reference::with_path(path)
 		} else {
 			reference.clone()
 		};

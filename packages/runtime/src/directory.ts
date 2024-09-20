@@ -56,8 +56,7 @@ export class Directory {
 				// If the arg is an object, then apply each entry.
 				for (let [key, value] of Object.entries(arg)) {
 					// Separate the first normal path component from the trailing path components.
-					let [_, firstComponent, ...trailingComponents] =
-						tg.Path.new(key).components;
+					let [firstComponent, ...trailingComponents] = tg.Path.components(key);
 					if (firstComponent === undefined) {
 						throw new Error("the path must have at least one component");
 					}
@@ -76,7 +75,7 @@ export class Directory {
 
 					if (trailingComponents.length > 0) {
 						// If there are trailing path components, then recurse.
-						let trailingPath = tg.Path.new(trailingComponents).toString();
+						let trailingPath = tg.Path.fromComponents(trailingComponents);
 
 						// Merge the entry with the trailing path.
 						let newEntry = await Directory.new(existingEntry, {
@@ -150,25 +149,23 @@ export class Directory {
 		}
 	}
 
-	async get(arg: tg.Path.Arg): Promise<Directory | tg.File> {
+	async get(arg: string): Promise<Directory | tg.File> {
 		let artifact = await this.tryGet(arg);
 		tg.assert(artifact, `Failed to get the directory entry "${arg}".`);
 		return artifact;
 	}
 
-	async tryGet(arg: tg.Path.Arg): Promise<Directory | tg.File | undefined> {
+	async tryGet(arg: string): Promise<Directory | tg.File | undefined> {
 		let artifact: Directory | tg.File = this;
-		let currentPath = tg.Path.new();
-		let components = tg.Path.new(arg).components;
-		for (let i = 1; i < components.length; i++) {
-			let component = components[i]!;
+		let currentPath = "";
+		for (let component of tg.Path.components(arg)) {
 			if (!tg.Path.Component.isNormal(component)) {
 				throw new Error("all path components must be normal");
 			}
 			if (!(artifact instanceof Directory)) {
 				return undefined;
 			}
-			currentPath.push(component);
+			currentPath = tg.Path.join(currentPath, component);
 			let entry: tg.Artifact | undefined = (await artifact.entries())[
 				component
 			];
@@ -198,12 +195,12 @@ export class Directory {
 		return entries;
 	}
 
-	async *walk(): AsyncIterableIterator<[tg.Path, tg.Artifact]> {
+	async *walk(): AsyncIterableIterator<[string, tg.Artifact]> {
 		for await (let [name, artifact] of this) {
-			yield [tg.Path.new(name), artifact];
+			yield [name, artifact];
 			if (artifact instanceof Directory) {
 				for await (let [entryName, entryArtifact] of artifact.walk()) {
-					yield [tg.Path.new(name).join(entryName), entryArtifact];
+					yield [tg.Path.join(name, entryName), entryArtifact];
 				}
 			}
 		}

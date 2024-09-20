@@ -1,6 +1,9 @@
+use std::{ffi::OsStr, path::PathBuf};
+
 use super::Compiler;
 use tangram_client as tg;
 use tangram_either::Either;
+use tg::path::Ext as _;
 
 impl Compiler {
 	/// Resolve an import from a module.
@@ -24,7 +27,12 @@ impl Compiler {
 					// Handle a path import.
 					if let tg::reference::Path::Path(import_path) = import.reference.path() {
 						let object = Either::Left(package.clone().into());
-						let path = path.clone().parent().join(import_path.clone()).normalize();
+						let path = path
+							.clone()
+							.parent()
+							.unwrap()
+							.join(import_path.clone())
+							.normalize();
 
 						// If the import is internal to the package, then use the imported path in the existing package.
 						if path.is_internal() {
@@ -59,7 +67,7 @@ impl Compiler {
 						.or_else(|| import.reference.query()?.path.as_ref());
 					if let Some(import_path) = import_path {
 						let object = package.clone();
-						let path = path.clone().parent().join(import_path.clone()).normalize();
+						let path = path.parent().unwrap().join(import_path).normalize();
 
 						// If the import is internal to the package, then use the imported path in the existing package.
 						if path.is_internal() {
@@ -127,7 +135,7 @@ impl Compiler {
 							.await?
 							.into(),
 					);
-					let path = symlink.path(&self.server).await?;
+					let path = symlink.path(&self.server).await?.map(PathBuf::from);
 					(object, path)
 				} else {
 					(object, None)
@@ -180,7 +188,7 @@ impl Compiler {
 
 				Either::Right(object) => {
 					let path_ = if let Some(path) = &path {
-						object.clone().join(path.clone())
+						object.join(path)
 					} else {
 						object.clone()
 					};
@@ -212,10 +220,10 @@ impl Compiler {
 		let kind = if let Some(kind) = kind {
 			Some(kind)
 		} else if let Some(path) = &path {
-			#[allow(clippy::case_sensitive_file_extension_comparisons)]
-			if path.as_str().ends_with(".js") {
+			let extension = path.extension().and_then(OsStr::to_str);
+			if extension == Some("js") {
 				Some(tg::module::Kind::Js)
-			} else if path.as_str().ends_with(".ts") {
+			} else if extension == Some("ts") {
 				Some(tg::module::Kind::Ts)
 			} else {
 				None
@@ -254,7 +262,7 @@ impl Compiler {
 
 				Either::Right(object) => {
 					let path = if let Some(path) = &path {
-						object.clone().join(path.clone())
+						object.join(path)
 					} else {
 						object.clone()
 					};

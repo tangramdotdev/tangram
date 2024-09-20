@@ -25,7 +25,7 @@ export class Symlink {
 	static async new(...args: tg.Args<Symlink.Arg>): Promise<Symlink> {
 		let arg = await Symlink.arg(...args);
 		let artifact = arg.artifact;
-		let path = arg.path !== undefined ? tg.Path.new(arg.path) : undefined;
+		let path = arg.path !== undefined ? arg.path : undefined;
 		let object = { artifact, path };
 		return new Symlink({ object });
 	}
@@ -38,7 +38,7 @@ export class Symlink {
 				if (arg === undefined) {
 					return {};
 				} else if (typeof arg === "string") {
-					return { path: tg.Path.new(arg) };
+					return { path: arg };
 				} else if (tg.Artifact.is(arg)) {
 					return { artifact: arg, path: tg.Mutation.unset() };
 				} else if (arg instanceof tg.Template) {
@@ -48,7 +48,7 @@ export class Symlink {
 						typeof firstComponent === "string" &&
 						secondComponent === undefined
 					) {
-						return { path: tg.Path.new(firstComponent) };
+						return { path: firstComponent };
 					} else if (
 						tg.Artifact.is(firstComponent) &&
 						secondComponent === undefined
@@ -61,7 +61,7 @@ export class Symlink {
 						tg.assert(secondComponent.startsWith("/"));
 						return {
 							artifact: firstComponent,
-							path: tg.Path.new(secondComponent.slice(1)),
+							path: secondComponent.slice(1),
 						};
 					} else {
 						throw new Error("invalid template");
@@ -122,7 +122,7 @@ export class Symlink {
 		return object.artifact;
 	}
 
-	async path(): Promise<tg.Path | undefined> {
+	async path(): Promise<string | undefined> {
 		let object = await this.object();
 		return object.path;
 	}
@@ -152,8 +152,9 @@ export class Symlink {
 			if (!(fromArtifact instanceof tg.Directory)) {
 				throw new Error("expected a directory");
 			}
+
 			return await fromArtifact.tryGet(
-				tg.Path.new(fromPath).join("..").join(path).normalize().toString(),
+				tg.Path.normalize(tg.Path.join(fromPath, "..", path)),
 			);
 		} else if (artifact !== undefined && path) {
 			if (!(artifact instanceof tg.Directory)) {
@@ -177,14 +178,14 @@ export namespace Symlink {
 
 	export type ArgObject = {
 		artifact?: tg.Artifact | undefined;
-		path?: tg.Path | undefined;
+		path?: string | undefined;
 	};
 
 	export type Id = string;
 
 	export type Object = {
 		artifact: tg.Artifact | undefined;
-		path: tg.Path | undefined;
+		path: string | undefined;
 	};
 
 	export type State = tg.Object.State<Symlink.Id, Symlink.Object>;

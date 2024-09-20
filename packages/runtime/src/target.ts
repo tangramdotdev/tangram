@@ -48,7 +48,7 @@ export function target<
 		let checksum = undefined;
 		let executable = tg.Artifact.withId(arg.module.object!);
 		if (arg.module.path !== undefined) {
-			let path = tg.path(arg.module.path);
+			let path = arg.module.path;
 			executable = new tg.Symlink({
 				object: { artifact: executable, path: path },
 			});

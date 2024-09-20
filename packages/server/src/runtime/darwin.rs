@@ -106,9 +106,8 @@ impl Runtime {
 
 		// Create the proxy server URL.
 		let proxy_server_socket_path = home_directory_path.join(".tangram/socket");
-		let proxy_server_socket_path = tg::Path::try_from(proxy_server_socket_path)
-			.map_err(|source| tg::error!(!source, "invalid path"))?;
-		let proxy_server_socket_path = urlencoding::encode(proxy_server_socket_path.as_str());
+		let proxy_server_socket_path = proxy_server_socket_path.display().to_string();
+		let proxy_server_socket_path = urlencoding::encode(&proxy_server_socket_path);
 		let proxy_server_url = format!("http+unix://{proxy_server_socket_path}");
 		let proxy_server_url = Url::parse(&proxy_server_url)
 			.map_err(|source| tg::error!(!source, "failed to parse the proxy server url"))?;

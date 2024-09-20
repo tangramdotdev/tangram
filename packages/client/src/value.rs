@@ -53,9 +53,6 @@ pub enum Value {
 	/// A bytes value.
 	Bytes(Bytes),
 
-	/// A path value.
-	Path(tg::Path),
-
 	/// A mutation value.
 	Mutation(tg::Mutation),
 
@@ -87,7 +84,6 @@ pub mod data {
 		Map(BTreeMap<String, Data>),
 		Object(tg::object::Id),
 		Bytes(Bytes),
-		Path(tg::Path),
 		Mutation(tg::mutation::Data),
 		Template(tg::template::Data),
 	}
@@ -137,7 +133,6 @@ impl Value {
 			),
 			Self::Object(object) => Data::Object(object.id(handle).await?),
 			Self::Bytes(bytes) => Data::Bytes(bytes.clone()),
-			Self::Path(path) => Data::Path(path.clone()),
 			Self::Mutation(mutation) => Data::Mutation(mutation.data(handle).await?),
 			Self::Template(template) => Data::Template(template.data(handle).await?),
 		};
@@ -164,12 +159,7 @@ impl Data {
 	#[must_use]
 	pub fn children(&self) -> Vec<tg::object::Id> {
 		match self {
-			Self::Null
-			| Self::Bool(_)
-			| Self::Number(_)
-			| Self::String(_)
-			| Self::Bytes(_)
-			| Self::Path(_) => {
+			Self::Null | Self::Bool(_) | Self::Number(_) | Self::String(_) | Self::Bytes(_) => {
 				vec![]
 			},
 			Self::Array(array) => array.iter().flat_map(Self::children).collect(),
@@ -214,7 +204,6 @@ impl TryFrom<Data> for Value {
 			),
 			Data::Object(id) => Self::Object(tg::object::Handle::with_id(id)),
 			Data::Bytes(bytes) => Self::Bytes(bytes),
-			Data::Path(path) => Self::Path(path),
 			Data::Mutation(mutation) => Self::Mutation(mutation.try_into()?),
 			Data::Template(template) => Self::Template(template.try_into()?),
 		})
@@ -249,12 +238,6 @@ impl serde::Serialize for Data {
 				let mut map = serializer.serialize_map(Some(2))?;
 				map.serialize_entry("kind", "bytes")?;
 				map.serialize_entry("value", &data_encoding::BASE64.encode(value))?;
-				map.end()
-			},
-			Self::Path(value) => {
-				let mut map = serializer.serialize_map(Some(2))?;
-				map.serialize_entry("kind", "path")?;
-				map.serialize_entry("value", value)?;
 				map.end()
 			},
 			Self::Mutation(value) => {
@@ -384,7 +367,6 @@ impl<'de> serde::Deserialize<'de> for Data {
 										.map_err(serde::de::Error::custom)?
 										.into(),
 								),
-								"path" => Data::Path(map.next_value()?),
 								"mutation" => Data::Mutation(map.next_value()?),
 								"template" => Data::Template(map.next_value()?),
 								_ => {

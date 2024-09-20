@@ -11,14 +11,9 @@ impl Compiler {
 		match (module.kind, &module.object, &module.path) {
 			// Handle a declaration.
 			(tg::module::Kind::Dts, None, Some(path)) => {
-				let path = path
-					.components()
-					.get(1)
-					.ok_or_else(|| tg::error!("invalid path"))?
-					.to_string();
-				let file = LIB
-					.get_file(&path)
-					.ok_or_else(|| tg::error!(%path, "failed to find the library module"))?;
+				let file = LIB.get_file(path).ok_or_else(
+					|| tg::error!(%path = path.display(), "failed to find the library module"),
+				)?;
 				let text = file.contents_utf8().unwrap().to_owned();
 				Ok(text)
 			},
@@ -34,7 +29,7 @@ impl Compiler {
 
 				// Otherwise, load from the path.
 				let path = if let Some(path) = path {
-					object.clone().join(path.clone())
+					object.clone().join(path)
 				} else {
 					object.clone()
 				};

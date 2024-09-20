@@ -6,7 +6,6 @@ use lsp::{notification::Notification as _, request::Request as _};
 use lsp_types as lsp;
 use std::{
 	collections::{BTreeMap, BTreeSet, HashMap},
-	os::unix::ffi::OsStrExt,
 	path::{Path, PathBuf},
 	pin::pin,
 	sync::{Arc, Mutex},
@@ -667,7 +666,7 @@ impl Compiler {
 			let path = if path.as_os_str().is_empty() {
 				None
 			} else {
-				Some(path.try_into()?)
+				Some(path)
 			};
 			return Ok(tg::Module { kind, object, path });
 		}

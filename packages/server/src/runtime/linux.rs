@@ -172,20 +172,20 @@ impl Runtime {
 
 		// Create the proxy server host URL.
 		let proxy_server_socket_guest_path = home_directory_guest_path.join(".tangram/socket");
-		let proxy_server_socket_guest_path = tg::Path::try_from(proxy_server_socket_guest_path)
-			.map_err(|source| tg::error!(!source, "invalid path"))?;
 		let proxy_server_socket_guest_path =
-			urlencoding::encode(proxy_server_socket_guest_path.as_str());
+			urlencoding::encode(proxy_server_socket_guest_path.to_str().ok_or_else(
+				|| tg::error!(%path = proxy_server_socket_guest_path.display(), "invalid path"),
+			)?);
 		let proxy_server_guest_url = format!("http+unix://{proxy_server_socket_guest_path}");
 		let proxy_server_guest_url = Url::parse(&proxy_server_guest_url)
 			.map_err(|source| tg::error!(!source, "failed to parse the proxy server url"))?;
 
 		// Create the proxy server guest URL.
 		let proxy_server_socket_host_path = home_directory_host_path.join(".tangram/socket");
-		let proxy_server_socket_host_path = tg::Path::try_from(proxy_server_socket_host_path)
-			.map_err(|source| tg::error!(!source, "invalid path"))?;
 		let proxy_server_socket_host_path =
-			urlencoding::encode(proxy_server_socket_host_path.as_str());
+			urlencoding::encode(proxy_server_socket_host_path.to_str().ok_or_else(
+				|| tg::error!(%path = proxy_server_socket_host_path.display(), "invalid path"),
+			)?);
 		let proxy_server_host_url = format!("http+unix://{proxy_server_socket_host_path}");
 		let proxy_server_host_url = Url::parse(&proxy_server_host_url)
 			.map_err(|source| tg::error!(!source, "failed to parse the proxy server url"))?;

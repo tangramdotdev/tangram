@@ -40,7 +40,7 @@ export class Graph {
 					return {
 						kind: "symlink" as const,
 						artifact: node.artifact ?? undefined,
-						path: node.path !== undefined ? tg.path(node.path) : undefined,
+						path: node.path !== undefined ? node.path : undefined,
 					};
 				} else {
 					return tg.unreachable(node);
@@ -200,7 +200,7 @@ export namespace Graph {
 	export type SymlinkNodeArg = {
 		kind: "symlink";
 		artifact?: number | tg.Artifact | undefined;
-		path?: tg.Path.Arg | undefined;
+		path?: string | undefined;
 	};
 
 	export type Object = {
@@ -224,7 +224,7 @@ export namespace Graph {
 	export type SymlinkNode = {
 		kind: "symlink";
 		artifact: number | tg.Artifact | undefined;
-		path: tg.Path | undefined;
+		path: string | undefined;
 	};
 
 	export type Dependency = {

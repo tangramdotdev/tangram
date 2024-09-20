@@ -1,12 +1,12 @@
 use super::Runtime;
 use crate::database::Transaction;
 use futures::{stream::FuturesOrdered, TryStreamExt as _};
-use once_cell::sync::Lazy;
+use std::path::PathBuf;
 use tangram_client as tg;
 
-static TANGRAM_ARTIFACTS_PATH: Lazy<tg::Path> = Lazy::new(|| ".tangram/artifacts".parse().unwrap());
+static TANGRAM_ARTIFACTS_PATH: &str = ".tangram/artifacts";
 
-static TANGRAM_RUN_PATH: Lazy<tg::Path> = Lazy::new(|| ".tangram/run".parse().unwrap());
+static TANGRAM_RUN_PATH: &str = ".tangram/run";
 
 impl Runtime {
 	pub async fn bundle(
@@ -60,7 +60,7 @@ impl Runtime {
 			// If the artifact is an executable file, then create a directory and place the executable at `.tangram/run`.
 			tg::Artifact::File(file) if file.executable(server).await? => {
 				tg::directory::Builder::default()
-					.add(server, &TANGRAM_RUN_PATH, file.clone().into())
+					.add(server, TANGRAM_RUN_PATH.as_ref(), file.clone().into())
 					.await?
 					.build()
 					.into()
@@ -87,7 +87,11 @@ impl Runtime {
 		let output = output
 			.builder(server)
 			.await?
-			.add(server, &TANGRAM_ARTIFACTS_PATH, artifacts_directory.into())
+			.add(
+				server,
+				TANGRAM_ARTIFACTS_PATH.as_ref(),
+				artifacts_directory.into(),
+			)
 			.await?
 			.build();
 
@@ -137,23 +141,23 @@ impl Runtime {
 			// If the artifact is a symlink, then replace it with a symlink pointing to `.tangram/artifacts/<id>`.
 			tg::Artifact::Symlink(symlink) => {
 				// Render the target.
-				let mut target = tg::Path::new();
+				let mut target = PathBuf::new();
 				let artifact = symlink.artifact(server).await?;
 				let path = symlink.path(server).await?;
 				if let Some(artifact) = artifact.as_ref() {
 					for _ in 0..depth - 1 {
-						target.push(tg::path::Component::Parent);
+						target.push("..");
 					}
-					target = target.join(
-						TANGRAM_ARTIFACTS_PATH
-							.clone()
-							.join(artifact.id(server).await?.to_string()),
-					);
+					target.push(TANGRAM_ARTIFACTS_PATH);
+					target.push(artifact.id(server).await?.to_string());
 				}
 				if let Some(path) = path.as_ref() {
-					target = target.join(path.clone());
+					target.push(path);
 				}
-				let symlink = tg::Symlink::with_artifact_and_path(None, Some(target));
+				let target = target
+					.to_str()
+					.ok_or_else(|| tg::error!(%target = target.display(), "invalid path"))?;
+				let symlink = tg::Symlink::with_artifact_and_path(None, Some(target.to_owned()));
 				Ok(symlink.into())
 			},
 		}

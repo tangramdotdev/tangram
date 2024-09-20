@@ -1,7 +1,7 @@
-use crate as tg;
+use crate::{self as tg, path::Ext as _};
 use bytes::Bytes;
 use itertools::Itertools as _;
-use std::{collections::BTreeSet, sync::Arc};
+use std::{collections::BTreeSet, path::PathBuf, sync::Arc};
 use tangram_either::Either;
 
 #[derive(
@@ -31,7 +31,7 @@ pub type State = tg::object::State<Id, Object>;
 pub enum Object {
 	Normal {
 		artifact: Option<tg::Artifact>,
-		path: Option<tg::Path>,
+		path: Option<String>,
 	},
 	Graph {
 		graph: tg::Graph,
@@ -47,7 +47,7 @@ pub enum Data {
 		artifact: Option<tg::artifact::Id>,
 
 		#[serde(default, skip_serializing_if = "Option::is_none")]
-		path: Option<tg::Path>,
+		path: Option<String>,
 	},
 
 	Graph {
@@ -179,7 +179,7 @@ impl Symlink {
 
 impl Symlink {
 	#[must_use]
-	pub fn with_artifact_and_path(artifact: Option<tg::Artifact>, path: Option<tg::Path>) -> Self {
+	pub fn with_artifact_and_path(artifact: Option<tg::Artifact>, path: Option<String>) -> Self {
 		Self::with_object(Object::Normal { artifact, path })
 	}
 
@@ -236,7 +236,7 @@ impl Symlink {
 		}
 	}
 
-	pub async fn path<H>(&self, handle: &H) -> tg::Result<Option<tg::Path>>
+	pub async fn path<H>(&self, handle: &H) -> tg::Result<Option<String>>
 	where
 		H: tg::Handle,
 	{
@@ -300,10 +300,8 @@ impl Symlink {
 			return Ok(artifact);
 		} else if artifact.is_none() && path.is_some() {
 			if let Some(tg::artifact::Artifact::Directory(directory)) = from_artifact {
-				let path = from_path
-					.unwrap_or_default()
-					.join(tg::Path::with_components([tg::path::Component::Parent]))
-					.join(path.unwrap_or_default())
+				let path = PathBuf::from("..")
+					.join(from_path.as_ref().unwrap())
 					.normalize();
 				return directory.try_get(handle, &path).await;
 			}

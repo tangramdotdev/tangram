@@ -5,7 +5,8 @@ use futures::TryStreamExt as _;
 use indoc::formatdoc;
 use num::ToPrimitive;
 use std::{
-	os::unix::fs::MetadataExt as _,
+	os::unix::{ffi::OsStrExt, fs::MetadataExt as _},
+	path::PathBuf,
 	sync::{
 		atomic::{AtomicU64, Ordering},
 		Arc,
@@ -318,10 +319,11 @@ impl vfs::Provider for Provider {
 				tracing::error!(%error, "failed to get artifact id");
 				std::io::Error::from_raw_os_error(libc::EIO)
 			})?;
-			let target = tg::Path::from("..")
-				.join("checkouts")
+			let target = PathBuf::from("../checkouts")
 				.join(id.to_string())
-				.to_string()
+				.as_os_str()
+				.as_bytes()
+				.to_vec()
 				.into();
 			return Ok(target);
 		}
@@ -333,7 +335,7 @@ impl vfs::Provider for Provider {
 		};
 
 		// Render the target.
-		let mut target = tg::Path::new();
+		let mut target = PathBuf::new();
 		let Ok(artifact) = symlink.artifact(&self.server).await else {
 			tracing::error!("failed to get the symlink's artifact");
 			return Err(std::io::Error::from_raw_os_error(libc::EIO));
@@ -344,18 +346,18 @@ impl vfs::Provider for Provider {
 		};
 		if let Some(artifact) = artifact.as_ref() {
 			for _ in 0..depth - 1 {
-				target.push(tg::path::Component::Parent);
+				target.push("..");
 			}
 			let Ok(artifact) = artifact.id(&self.server).await else {
 				tracing::error!("failed to get the symlink's artifact id");
 				return Err(std::io::Error::from_raw_os_error(libc::EIO));
 			};
-			target.push(tg::path::Component::Normal(artifact.to_string()));
+			target.push(artifact.to_string());
 		}
 		if let Some(path) = path.as_ref() {
-			target = target.join(path.clone());
+			target.push(path);
 		}
-		let target = target.to_string().into_bytes().into();
+		let target = target.as_os_str().as_bytes().to_vec().into();
 
 		Ok(target)
 	}

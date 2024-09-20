@@ -6,7 +6,11 @@ use crate::{
 use dashmap::DashMap;
 use futures::{stream::FuturesUnordered, Stream, TryStreamExt as _};
 use std::{
-	collections::BTreeSet, ffi::OsStr, os::unix::fs::PermissionsExt as _, path::PathBuf, sync::Arc,
+	collections::BTreeSet,
+	ffi::OsStr,
+	os::unix::fs::PermissionsExt as _,
+	path::{Path, PathBuf},
+	sync::Arc,
 };
 use tangram_client::{self as tg, handle::Ext as _};
 use tangram_futures::task::Task;
@@ -91,7 +95,7 @@ impl Server {
 		arg: &tg::artifact::checkout::Arg,
 		files: Arc<DashMap<tg::file::Id, PathBuf, fnv::FnvBuildHasher>>,
 		state: &tg::progress::State,
-	) -> tg::Result<std::path::PathBuf> {
+	) -> tg::Result<PathBuf> {
 		let artifact = tg::Artifact::with_id(id.clone());
 
 		// Bundle the artifact if requested.
@@ -116,7 +120,7 @@ impl Server {
 					tg::error!(%path = path.display(), "there is already a file system object at the path"),
 				);
 			}
-			if (path.as_ref() as &std::path::Path).starts_with(self.checkouts_path()) {
+			if (path.as_ref() as &Path).starts_with(self.checkouts_path()) {
 				return Err(
 					tg::error!(%path = path.display(), "cannot check out into the checkouts directory"),
 				);
@@ -152,7 +156,7 @@ impl Server {
 		} else {
 			// Get the path in the checkouts directory.
 			let id = artifact.id(self).await?;
-			let path: std::path::PathBuf = self.checkouts_path().join(id.to_string());
+			let path: PathBuf = self.checkouts_path().join(id.to_string());
 			let artifact_path = self.artifacts_path().join(id.to_string());
 
 			// If there is already a file system object at the path, then return.
@@ -350,10 +354,7 @@ impl Server {
 					// Retrieve an existing artifact.
 					let existing_artifact = match existing_artifact {
 						Some(tg::Artifact::Directory(existing_directory)) => {
-							let name = name
-								.parse()
-								.map_err(|source| tg::error!(!source, "invalid entry name"))?;
-							existing_directory.try_get(self, &name).await?
+							existing_directory.try_get(self, name).await?
 						},
 						_ => None,
 					};
@@ -551,7 +552,7 @@ impl Server {
 		}
 
 		// Render the target.
-		let mut target = std::path::PathBuf::new();
+		let mut target = PathBuf::new();
 		let artifact = symlink.artifact(self).await?;
 		let path_ = symlink.path(self).await?;
 		if let Some(artifact) = artifact.as_ref() {

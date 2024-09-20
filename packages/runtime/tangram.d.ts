@@ -29,7 +29,6 @@ declare namespace tg {
 		| { [key: string]: tg.Value }
 		| tg.Object
 		| Uint8Array
-		| tg.Path
 		| tg.Mutation
 		| tg.Template;
 
@@ -308,10 +307,10 @@ declare namespace tg {
 		entries(): Promise<{ [key: string]: tg.Artifact }>;
 
 		/** Get the child at the specified path. This method throws an error if the path does not exist. */
-		get(arg: tg.Path.Arg): Promise<tg.Artifact>;
+		get(arg: string): Promise<tg.Artifact>;
 
 		/** Try to get the child at the specified path. This method returns `undefined` if the path does not exist. */
-		tryGet(arg: tg.Path.Arg): Promise<tg.Artifact | undefined>;
+		tryGet(arg: string): Promise<tg.Artifact | undefined>;
 
 		/** Get an async iterator of this directory's recursive entries. */
 		walk(): AsyncIterableIterator<[string, tg.Artifact]>;
@@ -427,7 +426,7 @@ declare namespace tg {
 		artifact(): Promise<tg.Artifact | undefined>;
 
 		/** Get this symlink's path. */
-		path(): Promise<tg.Path | undefined>;
+		path(): Promise<string | undefined>;
 
 		/** Resolve this symlink to the directory or file it refers to, or return undefined if none is found. */
 		resolve(): Promise<tg.Directory | tg.File | undefined>;
@@ -439,7 +438,6 @@ declare namespace tg {
 		export type Arg =
 			| undefined
 			| string
-			| tg.Path
 			| tg.Artifact
 			| tg.Template
 			| tg.Symlink
@@ -447,7 +445,7 @@ declare namespace tg {
 
 		type ArgObject = {
 			artifact?: tg.Artifact | undefined;
-			path?: tg.Path | undefined;
+			path?: string | undefined;
 		};
 	}
 
@@ -504,7 +502,7 @@ declare namespace tg {
 		type SymlinkNodeArg = {
 			kind: "symlink";
 			artifact?: number | tg.Artifact | undefined;
-			path?: tg.Path.Arg | undefined;
+			path?: string | undefined;
 		};
 
 		type Node = DirectoryNode | FileNode | SymlinkNode;
@@ -524,7 +522,7 @@ declare namespace tg {
 		type SymlinkNode = {
 			kind: "symlink";
 			artifact: number | tg.Artifact | undefined;
-			path: tg.Path | undefined;
+			path: string | undefined;
 		};
 
 		export type Dependency = {
@@ -627,51 +625,8 @@ declare namespace tg {
 		};
 	}
 
-	/** Create a path. **/
-	export let path: (...args: Array<tg.Path.Arg>) => tg.Path;
 
-	/** A path. **/
-	export class Path {
-		/** Create a path. **/
-		static new(...args: Array<tg.MaybeNestedArray<tg.Path.Arg>>): tg.Path;
-
-		/** Get this path's components. **/
-		components(): Array<tg.Path.Component>;
-
-		/** Push a component on to this path. **/
-		push(component: tg.Path.Component): void;
-
-		/** Push a parent component on to this path. **/
-		parent(): tg.Path;
-
-		/** Join this path with another path. **/
-		join(other: tg.Path.Arg): tg.Path;
-
-		/** Expect that a value is a `Path`. */
-		static expect(value: unknown): tg.Path;
-
-		/** Assert that a value is a `Path`. */
-		static assert(value: unknown): asserts value is tg.Path;
-
-		/** Normalize this path. **/
-		normalize(): tg.Path;
-
-		/** Return true if this path begins with a current component. **/
-		isInternal(): boolean;
-
-		/** Return true if this path begins with a parent component. **/
-		isExternal(): boolean;
-
-		/** Return true if this path begins with a root component. **/
-		isAbsolute(): boolean;
-
-		/** Render this path to a string. **/
-		toString(): string;
-	}
-
-	export namespace Path {
-		export type Arg = undefined | Component | tg.Path;
-
+	export namespace path {
 		/** A path component. **/
 		export type Component =
 			| Component.Normal
@@ -696,6 +651,30 @@ declare namespace tg {
 
 			export let isNormal: (component: Component) => component is Normal;
 		}
+
+		/** Split into path components */
+		export let components:  (path: string) => Array<Component>
+	
+		/** Normalize the path. */
+		export let normalize: (path: string) => string
+
+		/** Return the parent path. */
+		export let parent: (path: string) => string | undefined
+
+		/** Returns true if the path is absolute.  */
+		export let isAbsolute: (path: string) => boolean
+
+		/** Returns true if the path points outside the current directory. */
+		export let isExternal: (path: string) => boolean
+
+		/** Returns true if the path points inside the current directory. */
+		export let isInternal: (path: string) => boolean
+
+		/** Join a list of paths together. */
+		export let join: (...paths: Array<string|undefined>) => string
+
+		/** Convert an array of components into a path. */
+		export let fromComponents: (components: Array<path.Component>) => string
 	}
 
 	/** Create a mutation. */
@@ -705,22 +684,7 @@ declare namespace tg {
 
 	export class Mutation<T extends tg.Value = tg.Value> {
 		/** Create a mutation. */
-		static new<T extends tg.Value = tg.Value>(
-			arg: tg.Unresolved<tg.Mutation.Arg<T>>,
-		): Promise<tg.Mutation<T>>;
-
-		/** Create an unset mutation. */
-		static unset(): tg.Mutation;
-
-		/** Create a set mutation. */
-		static set<T extends tg.Value = tg.Value>(
-			value: tg.Unresolved<T>,
-		): Promise<tg.Mutation<T>>;
-
-		/** Create a set if unset mutation. */
-		static setIfUnset<T extends tg.Value = tg.Value>(
-			value: tg.Unresolved<T>,
-		): Promise<tg.Mutation<T>>;
+		static new<T extends tg.Value = tg.Value>(): Promise<tg.Mutation<T>>;
 
 		/** Create an prepend mutation. */
 		static prepend<T extends tg.Value = tg.Value>(
@@ -935,7 +899,6 @@ declare namespace tg {
 			| string
 			| tg.Object
 			| Uint8Array
-			| tg.Path
 			| tg.Mutation
 			| tg.Template
 			? T
@@ -965,7 +928,6 @@ declare namespace tg {
 		| string
 		| tg.Object
 		| Uint8Array
-		| tg.Path
 		| tg.Mutation
 		| tg.Template
 		? T
@@ -1005,7 +967,6 @@ declare namespace tg {
 		| string
 		| Object
 		| Uint8Array
-		| tg.Path
 		| tg.Mutation
 		| tg.Template
 		| Array<infer _U extends tg.Value>

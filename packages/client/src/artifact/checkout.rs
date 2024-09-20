@@ -3,7 +3,7 @@ use crate::{
 	util::serde::{is_false, is_true, return_true},
 };
 use futures::{Stream, StreamExt as _, TryStreamExt as _};
-use std::pin::pin;
+use std::{path::PathBuf, pin::pin};
 use tangram_http::{incoming::response::Ext as _, outgoing::request::Ext as _};
 
 #[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
@@ -18,11 +18,11 @@ pub struct Arg {
 	pub force: bool,
 
 	#[serde(default, skip_serializing_if = "Option::is_none")]
-	pub path: Option<std::path::PathBuf>,
+	pub path: Option<PathBuf>,
 }
 
 impl tg::Artifact {
-	pub async fn check_out<H>(&self, handle: &H, arg: Arg) -> tg::Result<std::path::PathBuf>
+	pub async fn check_out<H>(&self, handle: &H, arg: Arg) -> tg::Result<PathBuf>
 	where
 		H: tg::Handle,
 	{
@@ -43,7 +43,7 @@ impl tg::Client {
 		&self,
 		id: &tg::artifact::Id,
 		arg: tg::artifact::checkout::Arg,
-	) -> tg::Result<impl Stream<Item = tg::Result<tg::Progress<std::path::PathBuf>>>> {
+	) -> tg::Result<impl Stream<Item = tg::Result<tg::Progress<PathBuf>>>> {
 		let method = http::Method::POST;
 		let uri = format!("/artifacts/{id}/checkout");
 		let request = http::request::Builder::default()

@@ -26,7 +26,7 @@ impl Server {
 					destructive: false,
 					deterministic: false,
 					locked: false,
-					path: path.as_std().to_owned(),
+					path: path.clone(),
 				};
 				let mut stream = self.check_in_artifact(arg).await?;
 				let mut artifact = None;

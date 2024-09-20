@@ -11,7 +11,7 @@ pub struct Args {
 
 	/// The path to the executable in the artifact to run.
 	#[arg(short = 'x', long)]
-	pub executable: Option<tg::Path>,
+	pub executable: Option<std::path::PathBuf>,
 
 	/// Arguments to pass to the executable.
 	#[arg(index = 1, trailing_var_arg = true)]

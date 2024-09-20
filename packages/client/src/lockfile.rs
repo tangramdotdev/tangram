@@ -1,5 +1,8 @@
 use crate::{self as tg, util::serde::is_false};
-use std::{collections::BTreeMap, path::PathBuf};
+use std::{
+	collections::BTreeMap,
+	path::{Path, PathBuf},
+};
 use tangram_either::Either;
 
 #[derive(Default, Clone, Debug, serde::Serialize, serde::Deserialize)]
@@ -32,7 +35,7 @@ pub enum Node {
 		artifact: Option<Entry>,
 
 		#[serde(default, skip_serializing_if = "Option::is_none")]
-		path: Option<std::path::PathBuf>,
+		path: Option<PathBuf>,
 	},
 }
 
@@ -48,7 +51,7 @@ pub struct Dependency {
 }
 
 impl Lockfile {
-	pub async fn try_read(path: &std::path::Path) -> tg::Result<Option<Self>> {
+	pub async fn try_read(path: &Path) -> tg::Result<Option<Self>> {
 		let contents = match tokio::fs::read_to_string(&path).await {
 			Ok(contents) => contents,
 			Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(None),

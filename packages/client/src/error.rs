@@ -1,6 +1,6 @@
 use crate::{self as tg, util::serde::is_false};
 use serde_with::serde_as;
-use std::{collections::BTreeMap, fmt::Debug, sync::Arc};
+use std::{collections::BTreeMap, fmt::Debug, path::PathBuf, sync::Arc};
 
 /// A result alias that defaults to `Error` as the error type.
 pub type Result<T, E = Error> = std::result::Result<T, E>;
@@ -43,7 +43,7 @@ pub struct Location {
 #[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
 #[serde(tag = "kind", content = "value", rename_all = "snake_case")]
 pub enum Source {
-	Internal(tg::Path),
+	Internal(PathBuf),
 	Module(tg::Module),
 }
 
@@ -194,11 +194,8 @@ impl std::fmt::Display for Source {
 	fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
 		match self {
 			Source::Internal(path) => {
-				let path = path
-					.as_str()
-					.strip_prefix("./")
-					.unwrap_or_else(|| path.as_str());
-				write!(f, "internal:{path}")?;
+				let path = path.strip_prefix("./").unwrap_or_else(|_| path.as_ref());
+				write!(f, "internal:{}", path.display())?;
 			},
 			Source::Module(module) => {
 				write!(f, "{}", module.kind)?;
@@ -207,7 +204,7 @@ impl std::fmt::Display for Source {
 					write!(f, ":{object}")?;
 				}
 				if let Some(path) = &module.path {
-					write!(f, ":{path}")?;
+					write!(f, ":{}", path.display())?;
 				}
 			},
 		}
