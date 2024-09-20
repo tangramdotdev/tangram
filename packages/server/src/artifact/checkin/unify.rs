@@ -21,6 +21,9 @@ struct State {
 
 	// A lazily-initialized set of packages to try.
 	objects: Option<im::Vector<(tg::Tag, tg::Object)>>,
+
+	// A list of visited edges.
+	visited: im::HashSet<Edge>,
 }
 
 // A graph of packages.
@@ -225,15 +228,25 @@ fn get_reference_from_tag(tag: &tg::Tag) -> tg::Reference {
 	let mut components = tag
 		.components()
 		.iter()
-		.map(|component| component.as_str().parse().unwrap())
+		.map(|component| {
+			component
+				.as_str()
+				.parse::<tg::tag::pattern::Component>()
+				.unwrap()
+		})
 		.collect::<Vec<_>>();
+
 	let is_semver = components.last().map_or(false, |component| {
-		matches!(component, tg::tag::pattern::Component::Semver(_))
+		component
+			.to_string()
+			.parse::<tangram_semver::Version>()
+			.is_ok()
 	});
+
 	if is_semver {
-		let last = components.last_mut().unwrap();
-		*last = tg::tag::pattern::Component::Glob;
+		*components.last_mut().unwrap() = tg::tag::pattern::Component::Glob;
 	}
+
 	let pattern = tg::tag::Pattern::with_components(components);
 	tg::Reference::with_tag(&pattern).unwrap()
 }
@@ -278,9 +291,21 @@ impl Server {
 				.extend(overrides_);
 		}
 
+		// Get the list of unsolved edges from the root.
 		let mut queue = graph
 			.outgoing(root.clone())
-			.filter(|edge| !graph.nodes.contains_key(&edge.dst))
+			.filter(|edge| {
+				let Some(node) = graph.nodes.get(&edge.dst) else {
+					return false;
+				};
+
+				let solved = node
+					.outgoing
+					.values()
+					.all(|dst| graph.nodes.contains_key(dst));
+
+				!solved
+			})
 			.collect::<im::Vector<_>>();
 
 		// Get the first edge to solve.
@@ -290,11 +315,13 @@ impl Server {
 
 		// Construct the initial state.
 		let objects = None;
+		let visited = im::HashSet::new();
 		let mut current = State {
 			graph,
 			edge,
 			queue,
 			objects,
+			visited,
 		};
 
 		// Create a vec of checkpoints to support backtracking.
@@ -305,7 +332,6 @@ impl Server {
 			self.walk_edge(&mut checkpoints, &mut current, &overrides, progress)
 				.await;
 
-			// Changing this to pop_back() would convert the algorithm from breadth-first to depth-first. The algorithm should be correct regardless of traversel order. However, using BFS to walk the graph allows us to propogate constraints when backtracking to shrink the search sapce.
 			let Some(next) = current.queue.pop_front() else {
 				break;
 			};
@@ -324,6 +350,12 @@ impl Server {
 		overrides: &BTreeMap<Id, BTreeMap<String, tg::Reference>>,
 		progress: &super::ProgressState,
 	) {
+		// Check if this edge has already been visited.
+		if current.visited.contains(&current.edge) {
+			return;
+		}
+		current.visited.insert(current.edge.clone());
+
 		// Check if an override exists.
 		let reference = overrides
 			.get(&current.edge.src)
@@ -336,21 +368,17 @@ impl Server {
 
 		// If the graph doesn't contain the destination node, attempt to select a version.
 		if !current.graph.nodes.contains_key(&current.edge.dst) {
+			// Save the current state that we will return to later.
+			state.push(current.clone());
+
+			// Attempt to resolve a dependency.
 			match self
 				.resolve_dependency(&mut current.graph, &reference, &mut current.objects)
 				.await
 			{
-				Ok(node) => {
-					// Save the current state that we will return to later.
-					state.push(current.clone());
-
-					// Add this edge to the top of the stack.
-					current.queue.push_back(current.edge.clone());
-
-					// Add the direct dependencies to the stack and increment their counters.
-					let edges = std::iter::once(current.edge.clone())
-						.chain(current.graph.outgoing(node.clone()))
-						.collect::<Vec<_>>();
+				Ok(dst) => {
+					// Add the direct dependencies to the queue.
+					let edges = current.graph.outgoing(dst.clone());
 					current.queue.extend(edges);
 				},
 				Err(error) => {
@@ -381,6 +409,12 @@ impl Server {
 
 		// If there is no tag it is not a tag dependency, so return.
 		if current.edge.dst.is_right() {
+			// Add any un-walked edges.
+			let edges = current
+				.graph
+				.outgoing(current.edge.dst.clone())
+				.filter(|edge| !current.visited.contains(edge));
+			current.queue.extend(edges);
 			return;
 		}
 
@@ -618,26 +652,8 @@ fn try_backtrack(state: &mut Vec<State>, edge: &Edge) -> Option<State> {
 	state.truncate(position);
 	let mut state = state.pop()?;
 
-	// This bit is a little weird. TODO don't make this so jank.
-	state.queue.push_front(edge.clone());
-
-	// If the edge we failed at is still in the graph, it means that we can use the dependency as an additional heuristic to inform the next selection.
-	let edge_in_graph = state
-		.graph
-		.nodes
-		.get(&edge.src)
-		.map_or(false, |src| src.outgoing.contains_key(&edge.reference));
-	if edge_in_graph {
-		let packages = state
-			.objects
-			.as_ref()
-			.unwrap()
-			.iter()
-			.filter(|(version, _)| edge.reference.path().unwrap_tag_ref().matches(version))
-			.cloned()
-			.collect();
-		state.objects.replace(packages);
-	}
+	// Make sure to retry the edge.
+	state.queue.push_front(state.edge.clone());
 
 	Some(state)
 }
