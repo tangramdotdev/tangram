@@ -647,9 +647,8 @@ impl Server {
 		// Perform a copy instead in these cases.
 		// See <https://github.com/NixOS/nix/blob/95f2b2beabc1ab0447bb4683516598265d71b695/src/libstore/optimise-store.cc#L100>
 		let hardlink_prohibited = if cfg!(target_os = "macos") {
-			static APP_DIR_RE: std::sync::LazyLock<regex::Regex> = std::sync::LazyLock::new(|| {
-				regex::Regex::new(r"\.app/(?:\./)*Contents/.+$").unwrap()
-			});
+			static APP_DIR_RE: std::sync::LazyLock<regex::Regex> =
+				std::sync::LazyLock::new(|| regex::Regex::new(r"\.app/Contents/.+$").unwrap());
 			let path_string = path.display().to_string();
 			APP_DIR_RE.is_match(&path_string)
 		} else {
