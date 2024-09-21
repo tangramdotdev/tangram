@@ -106,7 +106,7 @@ impl Server {
 			.await
 			.map_err(|source| tg::error!(!source, "failed to create a transaction"))?;
 
-		// Get the output in reverse-topological order. TODO: is this really necessary?
+		// Get the output in reverse-topological order.
 		let mut stack = vec![output];
 		let mut visited = BTreeSet::new();
 		while let Some(output) = stack.pop() {

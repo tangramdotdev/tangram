@@ -3,7 +3,7 @@ use include_dir::include_dir;
 use tangram_client as tg;
 use tangram_either::Either;
 
-const LIB: include_dir::Dir = include_dir!("$OUT_DIR/lib");
+pub const LIBRARY: include_dir::Dir = include_dir!("$OUT_DIR/lib");
 
 impl Compiler {
 	/// Load a module.
@@ -11,7 +11,7 @@ impl Compiler {
 		match (module.kind, &module.object, &module.path) {
 			// Handle a declaration.
 			(tg::module::Kind::Dts, None, Some(path)) => {
-				let file = LIB.get_file(path).ok_or_else(
+				let file = LIBRARY.get_file(path).ok_or_else(
 					|| tg::error!(%path = path.display(), "failed to find the library module"),
 				)?;
 				let text = file.contents_utf8().unwrap().to_owned();

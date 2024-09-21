@@ -97,9 +97,6 @@ impl Server {
 		store_as: Option<&tg::artifact::Id>,
 		progress: &ProgressState,
 	) -> tg::Result<tg::artifact::Id> {
-		if !arg.path.is_absolute() {
-			return Err(tg::error!(%path = arg.path.display(), "expected an absolute path"));
-		}
 		// Overview :
 		//
 		// - Collect Input (arg) -> input::Graph
@@ -114,6 +111,10 @@ impl Server {
 		// 	- copy or move to checkouts directory
 		//  - write hard links for files, symlinks to files for their content blobs
 		//  - write lockfile(s).
+
+		if !arg.path.is_absolute() {
+			return Err(tg::error!(%path = arg.path.display(), "expected an absolute path"));
+		}
 
 		// Make sure the input path is normalized.
 		arg.path = arg.path.normalize();
@@ -260,6 +261,7 @@ impl Server {
 					|source| tg::error!(!source, %id, "failed to write file to database"),
 				)?;
 			},
+
 			tg::artifact::Id::Symlink(_) => {
 				let data = self
 					.create_symlink_data(path.as_ref())
@@ -269,8 +271,8 @@ impl Server {
 					|source| tg::error!(!source, %id, "failed to write symlink to database"),
 				)?;
 			},
+
 			tg::artifact::Id::Directory(_) => {
-				// Check in the artifact.
 				let arg = tg::artifact::checkin::Arg {
 					deterministic: false,
 					destructive: false,
@@ -284,6 +286,7 @@ impl Server {
 					.map_err(|source| tg::error!(!source, %id, "failed to store directory"))?;
 			},
 		}
+
 		Ok(true)
 	}
 }

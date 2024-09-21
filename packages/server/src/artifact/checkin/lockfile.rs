@@ -316,7 +316,7 @@ impl Server {
 			.collect::<Vec<_>>();
 
 		for child in children {
-			// Skip any paths outside the workspace. TODO: recurse over them if they do not contain cycles.
+			// Skip any paths outside the workspace.
 			if child.read().unwrap().is_root {
 				continue;
 			}

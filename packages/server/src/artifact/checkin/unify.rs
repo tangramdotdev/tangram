@@ -51,10 +51,6 @@ pub struct Node {
 	// Direct dependencies.
 	pub outgoing: BTreeMap<tg::Reference, Id>,
 
-	// Whether to inline the object in the output.
-	// TODO: inline objects
-	pub _inline_object: bool,
-
 	// The underlying object.
 	pub object: Either<Arc<RwLock<input::Graph>>, tg::object::Id>,
 
@@ -200,7 +196,6 @@ impl Server {
 			id: id.clone(),
 			errors: Vec::new(),
 			outgoing,
-			_inline_object: false,
 			object: Either::Left(input.clone()),
 			tag: None,
 		};
@@ -225,7 +220,6 @@ impl Server {
 			id: id.clone(),
 			errors: Vec::new(),
 			outgoing: BTreeMap::new(),
-			_inline_object: true,
 			object: Either::Right(object),
 			tag: None,
 		};
@@ -572,7 +566,6 @@ impl Server {
 			id: id.clone(),
 			errors: Vec::new(),
 			outgoing,
-			_inline_object: false,
 			object: Either::Right(object_id),
 			tag,
 		};

@@ -1,7 +1,7 @@
 use self::{document::Document, syscall::syscall};
-use crate::Server;
+use crate::{tmp::Tmp, Server};
 use dashmap::DashMap;
-use futures::{future, Future, FutureExt as _, TryFutureExt as _};
+use futures::{future, Future, FutureExt as _, TryFutureExt as _, TryStreamExt};
 use lsp::{notification::Notification as _, request::Request as _};
 use lsp_types as lsp;
 use std::{
@@ -53,6 +53,9 @@ pub struct Inner {
 
 	/// The documents.
 	documents: DashMap<tg::Module, Document, fnv::FnvBuildHasher>,
+
+	/// The library tmp.
+	library_tmp: Tmp,
 
 	/// A handle to the main tokio runtime.
 	main_runtime_handle: tokio::runtime::Handle,
@@ -111,28 +114,17 @@ type _ResponseReceiver = tokio::sync::oneshot::Receiver<tg::Result<Response>>;
 impl Compiler {
 	#[must_use]
 	pub fn new(server: &crate::Server, main_runtime_handle: tokio::runtime::Handle) -> Self {
-		// Create the diagnostics.
 		let diagnostics = tokio::sync::RwLock::new(BTreeMap::new());
-
-		// Create the documents.
 		let documents = DashMap::default();
-
-		// Create the request sender.
+		let library_tmp = Tmp::new(server);
 		let request_sender = Mutex::new(None);
-
-		// Create the request thread.
 		let request_thread = Mutex::new(None);
-
-		// Create the sender.
 		let sender = std::sync::RwLock::new(None);
-
-		// Create the workspaces.
 		let workspaces = tokio::sync::RwLock::new(BTreeSet::new());
-
-		// Create the server.
 		Self(Arc::new(Inner {
 			diagnostics,
 			documents,
+			library_tmp,
 			main_runtime_handle,
 			request_sender,
 			request_thread,
@@ -630,6 +622,14 @@ impl Compiler {
 		}
 		let path = Path::new(uri.path().as_str());
 
+		// Handle a path in the library tmp.
+		if let Ok(path) = path.strip_prefix(&self.library_tmp.path) {
+			let kind = tg::module::Kind::Dts;
+			let object = None;
+			let path = Some(path.to_owned());
+			return Ok(tg::Module { kind, object, path });
+		}
+
 		// Handle a path in the checkouts directory.
 		if let Ok(path) = path.strip_prefix(self.server.checkouts_path()) {
 			#[allow(clippy::case_sensitive_file_extension_comparisons)]
@@ -677,22 +677,74 @@ impl Compiler {
 	async fn lsp_uri_for_module(&self, module: &tg::Module) -> tg::Result<lsp::Uri> {
 		match module {
 			tg::Module {
-				kind:
-					tg::module::Kind::Js
-					| tg::module::Kind::Ts
-					| tg::module::Kind::Artifact
-					| tg::module::Kind::Directory
-					| tg::module::Kind::File
-					| tg::module::Kind::Symlink,
-				object: Some(Either::Right(object)),
+				kind: tg::module::Kind::Dts,
 				path: Some(path),
+				..
 			} => {
-				let path = object.clone().join(path.clone());
+				let contents = self::load::LIBRARY
+					.get_file(path)
+					.ok_or_else(|| tg::error!("invalid path"))?
+					.contents();
+				let path = self.library_tmp.path.join(path);
+				let exists = tokio::fs::try_exists(&path)
+					.await
+					.map_err(|source| tg::error!(!source, "failed to stat the path"))?;
+				if !exists {
+					tokio::fs::create_dir_all(&self.library_tmp.path)
+						.await
+						.map_err(|source| {
+							tg::error!(!source, "failed create the library tmp directory")
+						})?;
+					tokio::fs::write(&path, contents)
+						.await
+						.map_err(|source| tg::error!(!source, "failed to write the library"))?;
+				}
 				let path = path.display();
 				Ok(format!("file://{path}").parse().unwrap())
 			},
 
-			_ => Err(tg::error!("unimplemented")),
+			tg::Module {
+				object: Some(Either::Left(object)),
+				path,
+				..
+			} => {
+				let artifact = tg::artifact::Id::try_from(object.clone())
+					.map_err(|_| tg::error!("module must be an artifact"))?;
+				if self.server.vfs.lock().unwrap().is_none() {
+					self.server
+						.check_out_artifact(&artifact, tg::artifact::checkout::Arg::default())
+						.await?
+						.map_ok(|_| ())
+						.try_collect::<()>()
+						.await?;
+				}
+				let path = if let Some(path) = path {
+					self.server
+						.checkouts_path()
+						.join(object.to_string())
+						.join(path)
+				} else {
+					self.server.checkouts_path().join(object.to_string())
+				};
+				let path = path.display();
+				Ok(format!("file://{path}").parse().unwrap())
+			},
+
+			tg::Module {
+				object: Some(Either::Right(object)),
+				path,
+				..
+			} => {
+				let path = if let Some(path) = path {
+					object.clone().join(path.clone())
+				} else {
+					object.clone()
+				};
+				let path = path.display();
+				Ok(format!("file://{path}").parse().unwrap())
+			},
+
+			_ => Err(tg::error!("invalid module")),
 		}
 	}
 }
