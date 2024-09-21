@@ -11,9 +11,9 @@ use std::{
 	sync::{Arc, RwLock, Weak},
 };
 use tangram_client as tg;
+use tangram_client::path::Ext as _;
 use tangram_database::{self as db, Connection as _, Database as _, Query as _, Transaction as _};
 use tangram_either::Either;
-use tg::path::Ext as _;
 use time::format_description::well_known::Rfc3339;
 
 #[derive(Clone, Debug)]
@@ -637,9 +637,22 @@ impl Server {
 			return Ok(());
 		};
 		visited.insert(path.clone());
+
 		let (data, id) = {
 			let output = output.read().unwrap();
 			(output.data.clone(), output.id.clone())
+		};
+
+		// macOS disables hardlinking for some files within .app dirs, such as *.app/Contents/{PkgInfo,Resources/\*.lproj,_CodeSignature} and .DS_Store.
+		// Perform a copy instead in these cases.
+		// See <https://github.com/NixOS/nix/blob/95f2b2beabc1ab0447bb4683516598265d71b695/src/libstore/optimise-store.cc#L100>
+		let hardlink_prohibited = if cfg!(target_os = "macos") {
+			static APP_DIR_RE: std::sync::LazyLock<regex::Regex> =
+				std::sync::LazyLock::new(|| regex::Regex::new(r"\.app/Contents/.+$").unwrap());
+			let path_string = path.normalize().display().to_string();
+			APP_DIR_RE.is_match(&path_string)
+		} else {
+			false
 		};
 
 		// If this is a file, we need to create a hardlink at checkouts/<file id> and create a symlink for its contents in blobs/<content id> -> ../checkouts/<file id>
@@ -650,14 +663,24 @@ impl Server {
 			// Get the destination of the hardlink.
 			let dst = self.checkouts_path().join(id.to_string());
 
-			// Create hard link to the file.
-			match tokio::fs::hard_link(path, &dst).await {
+			// Create hard link to the file or copy as needed.
+			let result = if hardlink_prohibited {
+				tokio::fs::copy(path, &dst).await.map(|_| ())
+			} else {
+				tokio::fs::hard_link(path, &dst).await
+			};
+			match result {
 				Ok(()) => (),
 				Err(error) if error.raw_os_error() == Some(libc::EEXIST) => (),
 				Err(source) => {
-					return Err(
-						tg::error!(!source, %src = path.display(), %dst = dst.display(), "failed to create hardlink"),
-					)
+					let src = path.display();
+					let dst = dst.display();
+					let error = if hardlink_prohibited {
+						tg::error!(!source, %src, %dst, "failed to copy file")
+					} else {
+						tg::error!(!source, %src, %dst, "failed to create hardlink")
+					};
+					return Err(error);
 				},
 			}
 
