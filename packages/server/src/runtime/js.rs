@@ -55,8 +55,8 @@ struct FutureOutput {
 struct Module {
 	module: tg::Module,
 	source_map: Option<SourceMap>,
-	v8_identity_hash: NonZeroI32,
-	v8_module: v8::Global<v8::Module>,
+	v8_identity_hash: Option<NonZeroI32>,
+	v8_module: Option<v8::Global<v8::Module>>,
 }
 
 #[derive(Clone, Copy, Eq, PartialEq)]
@@ -449,7 +449,7 @@ fn resolve_module_callback<'s>(
 		.modules
 		.borrow()
 		.iter()
-		.find(|module| module.v8_identity_hash == identity_hash)
+		.find(|module| module.v8_identity_hash.unwrap() == identity_hash)
 		.map(|module| module.module.clone())
 		.ok_or_else(|| tg::error!(%identity_hash, "unable to find the module"))
 	{
@@ -522,37 +522,12 @@ fn load_module<'s>(
 		.iter()
 		.find(|cached_module| &cached_module.module == module)
 	{
-		let module = v8::Local::new(scope, &module.v8_module);
+		let module = v8::Local::new(scope, module.v8_module.as_ref().unwrap());
 		return Some(module);
 	}
 
 	// Create an ID for the module.
 	let id = state.modules.borrow().len() + 1;
-
-	// Define the module's origin.
-	let resource_name = v8::Integer::new(scope, id.to_i32().unwrap()).into();
-	let resource_line_offset = 0;
-	let resource_column_offset = 0;
-	let resource_is_shared_cross_origin = false;
-	let script_id = id.to_i32().unwrap();
-	let source_map_url = None;
-	let resource_is_opaque = true;
-	let is_wasm = false;
-	let is_module = true;
-	let host_defined_options = None;
-	let origin = v8::ScriptOrigin::new(
-		scope,
-		resource_name,
-		resource_line_offset,
-		resource_column_offset,
-		resource_is_shared_cross_origin,
-		script_id,
-		source_map_url,
-		resource_is_opaque,
-		is_wasm,
-		is_module,
-		host_defined_options,
-	);
 
 	// Load the module.
 	let (sender, receiver) = std::sync::mpsc::channel();
@@ -604,18 +579,54 @@ fn load_module<'s>(
 		},
 	};
 
+	// Set the module.
+	state.modules.borrow_mut().push(Module {
+		module: module.clone(),
+		source_map: Some(source_map),
+		v8_identity_hash: None,
+		v8_module: None,
+	});
+
+	// Define the module's origin.
+	let resource_name = v8::Integer::new(scope, id.to_i32().unwrap()).into();
+	let resource_line_offset = 0;
+	let resource_column_offset = 0;
+	let resource_is_shared_cross_origin = false;
+	let script_id = id.to_i32().unwrap();
+	let source_map_url = None;
+	let resource_is_opaque = true;
+	let is_wasm = false;
+	let is_module = true;
+	let host_defined_options = None;
+	let origin = v8::ScriptOrigin::new(
+		scope,
+		resource_name,
+		resource_line_offset,
+		resource_column_offset,
+		resource_is_shared_cross_origin,
+		script_id,
+		source_map_url,
+		resource_is_opaque,
+		is_wasm,
+		is_module,
+		host_defined_options,
+	);
+
 	// Compile the module.
 	let source = v8::String::new(scope, &transpiled_text).unwrap();
 	let mut source = v8::script_compiler::Source::new(source, Some(&origin));
 	let v8_module = v8::script_compiler::compile_module(scope, &mut source)?;
+	let v8_module_global = v8::Global::new(scope, v8_module);
+	let v8_identity_hash = v8_module.get_identity_hash();
 
-	// Cache the module.
-	state.modules.borrow_mut().push(Module {
-		module: module.clone(),
-		source_map: Some(source_map),
-		v8_identity_hash: v8_module.get_identity_hash(),
-		v8_module: v8::Global::new(scope, v8_module),
-	});
+	// Update the module.
+	state
+		.modules
+		.borrow_mut()
+		.get_mut(id)
+		.unwrap()
+		.v8_identity_hash = Some(v8_identity_hash);
+	state.modules.borrow_mut().get_mut(id).unwrap().v8_module = Some(v8_module_global);
 
 	Some(v8_module)
 }
@@ -638,7 +649,7 @@ extern "C" fn host_initialize_import_meta_object_callback(
 		.modules
 		.borrow()
 		.iter()
-		.find(|module| module.v8_identity_hash == identity_hash)
+		.find(|module| module.v8_identity_hash.unwrap() == identity_hash)
 		.unwrap()
 		.module
 		.clone();
