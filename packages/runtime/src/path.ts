@@ -45,6 +45,11 @@ export namespace path {
 		let newComponents: Array<string> = [];
 
 		for (let component of oldComponents) {
+			// Skip any current dir components.
+			if (component === Component.Current) {
+				continue;
+			}
+
 			let last = newComponents.at(-1);
 			if (
 				component === Component.Parent &&
