@@ -686,6 +686,19 @@ declare namespace tg {
 		/** Create a mutation. */
 		static new<T extends tg.Value = tg.Value>(): Promise<tg.Mutation<T>>;
 
+		/** Create an unset mutation. */
+		static unset(): tg.Mutation;
+
+		/** Create a set mutation. */
+		static set<T extends tg.Value = tg.Value>(
+			value: tg.Unresolved<T>,
+		): Promise<tg.Mutation<T>>;
+
+		/** Create a set if unset mutation. */
+		static setIfUnset<T extends tg.Value = tg.Value>(
+			value: tg.Unresolved<T>,
+		): Promise<tg.Mutation<T>>;
+
 		/** Create an prepend mutation. */
 		static prepend<T extends tg.Value = tg.Value>(
 			values: tg.Unresolved<tg.MaybeNestedArray<T>>,
