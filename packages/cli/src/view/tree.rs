@@ -987,9 +987,13 @@ where
 		let target = build.target(&self.handle).await?;
 
 		// Get the referrer if this is not a root.
-		if let Some(parent) = self.parent() {
+		'a: {
+			let Some(parent) = self.parent() else {
+				break 'a;
+			};
+
 			let NodeKind::Build { build, .. } = parent.state.read().unwrap().kind.clone() else {
-				return Err(tg::error!("expected a build"));
+				break 'a;
 			};
 
 			// Get the referrer.
