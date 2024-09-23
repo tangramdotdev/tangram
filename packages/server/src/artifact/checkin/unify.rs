@@ -42,9 +42,6 @@ pub(super) struct Graph {
 // A node within the package graph.
 #[derive(Clone, Debug)]
 pub struct Node {
-	// A unique identifier of the node within the package graph.
-	pub id: Id,
-
 	// The result of this node (None if we do not know if it is successful or not).
 	pub errors: Vec<tg::Error>,
 
@@ -193,7 +190,6 @@ impl Server {
 
 		// Create the node.
 		let node = Node {
-			id: id.clone(),
 			errors: Vec::new(),
 			outgoing,
 			object: Either::Left(input.clone()),
@@ -217,7 +213,6 @@ impl Server {
 
 		// Create a node.
 		let node = Node {
-			id: id.clone(),
 			errors: Vec::new(),
 			outgoing: BTreeMap::new(),
 			object: Either::Right(object),
@@ -490,6 +485,10 @@ impl Server {
 				})
 				.collect();
 
+			if objects_.is_empty() {
+				return Err(tg::error!(%reference, "no tagged items match the reference"));
+			}
+
 			// Update the remaining packages.
 			objects.replace(objects_);
 		}
@@ -563,7 +562,6 @@ impl Server {
 		};
 
 		let node = Node {
-			id: id.clone(),
 			errors: Vec::new(),
 			outgoing,
 			object: Either::Right(object_id),
@@ -662,18 +660,18 @@ fn try_backtrack(state: &mut Vec<State>, edge: &Edge) -> Option<State> {
 }
 
 impl Graph {
-	pub fn validate(&self, server: &Server) -> tg::Result<()> {
+	pub fn validate(&self) -> tg::Result<()> {
 		let mut errors = Vec::new();
 		for node in self.nodes.values() {
-			let errors_ = node
-				.errors
-				.iter()
-				.map(|error| tg::error!(%error, %node = node.id, "node contains error"));
+			let errors_ = node.errors.iter().map(|error| error.clone());
 			errors.extend(errors_);
 			for (reference, id) in &node.outgoing {
 				if !self.nodes.contains_key(id) {
-					let error =
-						tg::error!(%reference, %node = node.id, "failed to resolve dependency");
+					let referrer = match &node.object {
+						Either::Left(input) => input.read().unwrap().arg.path.display().to_string(),
+						Either::Right(object) => object.to_string(),
+					};
+					let error = tg::error!(%reference, %referrer, "failed to resolve dependency");
 					errors.push(error);
 				}
 			}
@@ -681,11 +679,13 @@ impl Graph {
 		if errors.is_empty() {
 			return Ok(());
 		}
-		for error in errors {
-			let trace = error.trace(&server.options.advanced.error_trace_options);
-			tracing::error!("{trace}");
+
+		let mut last_error = errors.pop();
+		while let Some(mut error) = errors.pop() {
+			error.source.replace(Arc::new(last_error.take().unwrap()));
+			last_error.replace(error);
 		}
-		Err(tg::error!("invalid graph"))
+		Err(last_error.unwrap())
 	}
 
 	pub fn outgoing(&self, src: Id) -> impl Iterator<Item = Edge> + '_ {

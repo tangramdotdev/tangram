@@ -147,7 +147,7 @@ impl Server {
 		}
 
 		// Validate.
-		unification_graph.validate(self)?;
+		unification_graph.validate()?;
 
 		// Create the lock that is written to disk.
 		progress.begin_blobs().await;
