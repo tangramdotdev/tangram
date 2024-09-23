@@ -74,9 +74,7 @@ export class Symlink {
 				}
 			}),
 		);
-		let mutations = await tg.Args.createMutations(objects, {
-			path: "append",
-		});
+		let mutations = await tg.Args.createMutations(objects);
 		let arg = await tg.Args.applyMutations(mutations);
 		return arg;
 	}
