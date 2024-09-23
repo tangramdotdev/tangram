@@ -68,6 +68,24 @@ impl Server {
 			.await
 			.map_err(|source| tg::error!(!source, "failed to commit the transaction"))?;
 
+		if let Some(remote) = arg.remote {
+			// Get the remote.
+			let remote = self
+				.remotes
+				.get(&remote)
+				.ok_or_else(|| tg::error!("failed to find the remote"))?
+				.clone();
+			remote
+				.put_tag(
+					tag,
+					tg::tag::put::Arg {
+						remote: None,
+						..arg
+					},
+				)
+				.await?;
+		}
+
 		Ok(())
 	}
 }
