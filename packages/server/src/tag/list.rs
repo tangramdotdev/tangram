@@ -1,10 +1,12 @@
 use crate::Server;
 use indoc::formatdoc;
+use itertools::Itertools;
 use num::ToPrimitive;
 use tangram_client as tg;
 use tangram_database::{self as db, prelude::*};
 use tangram_either::Either;
 use tangram_http::{incoming::request::Ext as _, outgoing::response::Ext as _, Incoming, Outgoing};
+use tangram_semver::Version;
 
 impl Server {
 	pub async fn list_tags(&self, arg: tg::tag::list::Arg) -> tg::Result<tg::tag::list::Output> {
@@ -31,7 +33,7 @@ impl Server {
 			.await
 			.map_err(|source| tg::error!(!source, "failed to get database connection"))?;
 
-		#[derive(Debug, serde::Deserialize)]
+		#[derive(Clone, Debug, serde::Deserialize)]
 		struct Row {
 			id: u64,
 			name: String,
@@ -105,30 +107,22 @@ impl Server {
 			}
 		}
 
-		// If the last component is normal, check if there are any children beneath it.
-		if matches!(
-			arg.pattern.components().last(),
-			Some(tg::tag::pattern::Component::Normal(_))
-		) {
-			let p = connection.p();
-			let statement = formatdoc!(
-				"
-					select id, name, item
-					from tags
-					where parent = {p}1
-				"
-			);
-			let parent = rows.first().map_or(0, |row| row.id);
-			let params = db::params![parent];
-			let rows_ = connection
-				.query_all_into::<Row>(statement, params)
-				.await
-				.map_err(|source| tg::error!(!source, "failed to execute the statement"))?;
-			if !rows_.is_empty() && !rows.is_empty() {
-				prefix.push(tg::tag::Component::new(rows.first().unwrap().name.clone()));
-				rows = rows_;
-			}
-		}
+		// Sort the result.
+		let non_semver = rows
+			.iter()
+			.filter(|row| row.name.parse::<Version>().is_err())
+			.sorted_by_key(|row| &row.name)
+			.cloned();
+		let semver = rows
+			.iter()
+			.filter(|row| row.name.parse::<Version>().is_ok())
+			.sorted_by(|l, r| {
+				let l = l.name.parse::<Version>().unwrap();
+				let r = r.name.parse::<Version>().unwrap();
+				l.cmp(&r)
+			})
+			.cloned();
+		let rows = non_semver.chain(semver);
 
 		// Create the output.
 		let length = arg
@@ -136,7 +130,6 @@ impl Server {
 			.map_or(usize::MAX, |length| length.to_usize().unwrap());
 
 		let data = rows
-			.into_iter()
 			.take(length)
 			.map(|row| {
 				let mut components = prefix.clone();
