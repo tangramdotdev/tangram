@@ -30,18 +30,18 @@ export namespace path {
 		};
 	}
 
-	export let components = (path: string): Array<Component> => {
-		let subComponents = path.split("/");
+	export let components = (pathArg: string): Array<Component> => {
+		let subComponents = pathArg.split("/");
 		if ((subComponents.at(-1) as string).length === 0) {
 			subComponents.pop();
 		}
-		return path.startsWith("/")
+		return pathArg.startsWith("/")
 			? [Component.Root, ...subComponents.slice(1)]
 			: subComponents;
 	};
 
-	export let normalize = (path: string): string => {
-		let oldComponents = components(path);
+	export let normalize = (pathArg: string): string => {
+		let oldComponents = path.components(pathArg);
 		let newComponents: Array<string> = [];
 
 		for (let component of oldComponents) {
@@ -65,38 +65,38 @@ export namespace path {
 		}
 	};
 
-	export let parent = (path: string): string | undefined => {
-		if (path.length === 0) {
+	export let parent = (pathArg: string): string | undefined => {
+		if (pathArg.length === 0) {
 			throw new Error("expected a non-empty string");
 		}
-		let pathComponents = components(path);
+		let pathComponents = path.components(pathArg);
 		if (pathComponents.length === 0) {
 			return undefined;
 		}
 		return pathComponents.slice(0, -1).join("/");
 	};
 
-	export let isAbsolute = (path: string): boolean => {
-		if (path.length === 0) {
-			throw new Error("expected a non-empty string");
+	export let isAbsolute = (pathArg: string): boolean => {
+		if (pathArg.length === 0) {
+			return false;
 		}
-		let component = components(path)[0];
+		let component = path.components(pathArg)[0];
 		return component === Component.Root;
 	};
 
-	export let isExternal = (path: string): boolean => {
-		if (path.length === 0) {
+	export let isExternal = (pathArg: string): boolean => {
+		if (pathArg.length === 0) {
 			throw new Error("expected a non-empty string");
 		}
-		let component = components(path)[0];
+		let component = path.components(pathArg)[0];
 		return component === Component.Parent;
 	};
 
-	export let isInternal = (path: string): boolean => {
-		if (path.length === 0) {
+	export let isInternal = (pathArg: string): boolean => {
+		if (pathArg.length === 0) {
 			throw new Error("expected a non-empty string");
 		}
-		let component = components(path)[0] as Component;
+		let component = path.components(pathArg)[0] as Component;
 		return (
 			Component.isNormal(component) || component === Component.Current
 		);
@@ -104,14 +104,14 @@ export namespace path {
 
 	export let join = (...paths: Array<string | undefined>): string => {
 		let allComponents: Array<string> = [];
-		for (let path of paths) {
-			if (path === undefined) {
+		for (let path_ of paths) {
+			if (path_ === undefined) {
 				continue;
 			}
-			if (isAbsolute(path)) {
-				allComponents = components(path);
+			if (isAbsolute(path_)) {
+				allComponents = path.components(path_);
 			} else {
-				allComponents = allComponents.concat(components(path));
+				allComponents = allComponents.concat(path.components(path_));
 			}
 		}
 		return path.fromComponents(allComponents);
