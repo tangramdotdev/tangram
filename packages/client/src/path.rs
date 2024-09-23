@@ -83,6 +83,9 @@ where
 		let mut components = Vec::new();
 		for component in self.as_ref().components() {
 			match (component, components.last()) {
+				// Skip any current dir components.
+				(std::path::Component::CurDir, _) => continue,
+
 				// If the component is a parent component following a normal component, then remove the normal component.
 				(std::path::Component::ParentDir, Some(std::path::Component::Normal(_))) => {
 					components.pop();
