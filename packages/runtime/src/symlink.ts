@@ -154,7 +154,7 @@ export class Symlink {
 			}
 
 			return await fromArtifact.tryGet(
-				tg.Path.normalize(tg.Path.join(fromPath, "..", path)),
+				tg.path.normalize(tg.path.join(fromPath, "..", path)),
 			);
 		} else if (artifact !== undefined && path) {
 			if (!(artifact instanceof tg.Directory)) {
