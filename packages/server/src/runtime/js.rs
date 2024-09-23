@@ -623,10 +623,15 @@ fn load_module<'s>(
 	state
 		.modules
 		.borrow_mut()
-		.get_mut(id)
+		.get_mut(id - 1)
 		.unwrap()
 		.v8_identity_hash = Some(v8_identity_hash);
-	state.modules.borrow_mut().get_mut(id).unwrap().v8_module = Some(v8_module_global);
+	state
+		.modules
+		.borrow_mut()
+		.get_mut(id - 1)
+		.unwrap()
+		.v8_module = Some(v8_module_global);
 
 	Some(v8_module)
 }
