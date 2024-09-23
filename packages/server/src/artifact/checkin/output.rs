@@ -32,7 +32,7 @@ pub struct Edge(Either<Arc<RwLock<Graph>>, Weak<RwLock<Graph>>>);
 struct State {
 	root: PathBuf,
 	artifacts: BTreeMap<usize, tg::artifact::Data>,
-	visited: BTreeMap<PathBuf, Arc<RwLock<Graph>>>,
+	visited: BTreeMap<PathBuf, Weak<RwLock<Graph>>>,
 	lockfile: tg::Lockfile,
 }
 
@@ -220,7 +220,7 @@ impl Server {
 		let path = input.read().unwrap().arg.path.clone();
 		let path = path.diff(&state.root).unwrap();
 		if let Some(output) = state.visited.get(&path) {
-			let edge = Edge(Either::Right(Arc::downgrade(output)));
+			let edge = Edge(Either::Right(output.clone()));
 			return Ok(edge);
 		}
 
@@ -251,13 +251,13 @@ impl Server {
 		// Create the output
 		let output = Arc::new(RwLock::new(Graph {
 			input: input.clone(),
-			id,
+			id: id.clone(),
 			data,
 			weight: 0,
 			lock_index,
 			dependencies: BTreeMap::new(),
 		}));
-		state.visited.insert(path.clone(), output.clone());
+		state.visited.insert(path.clone(), Arc::downgrade(&output));
 
 		// Recurse.
 		let mut output_dependencies = BTreeMap::new();

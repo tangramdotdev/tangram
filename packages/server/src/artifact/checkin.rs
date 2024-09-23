@@ -173,7 +173,8 @@ impl Server {
 			if store_as != &artifact {
 				return Err(tg::error!("checkouts directory is corrupted"));
 			}
-			self.write_output_to_database(output, &lockfile).await?;
+			self.write_output_to_database(output.clone(), &lockfile)
+				.await?;
 		} else {
 			// Copy or move files.
 			self.copy_or_move_to_checkouts_directory(output.clone(), progress)
