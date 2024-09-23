@@ -88,15 +88,24 @@ impl Server {
 
 		// If the count is set, then add the count not yet added.
 		if let Some(count) = metadata.count {
+			tracing::trace!(?count, ?incomplete_count, "progress report");
 			state
-				.report_progress("objects", count - 1 - incomplete_count)
+				.report_progress(
+					"objects",
+					count.saturating_sub(1).saturating_sub(incomplete_count),
+				)
 				.ok();
 		}
 
 		// If the weight is set, then add the weight not yet added.
 		if let Some(weight) = metadata.weight {
 			state
-				.report_progress("bytes", weight - size - incomplete_weight)
+				.report_progress(
+					"bytes",
+					weight
+						.saturating_sub(size)
+						.saturating_sub(incomplete_weight),
+				)
 				.ok();
 		}
 
