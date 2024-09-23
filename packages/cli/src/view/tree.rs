@@ -985,6 +985,21 @@ where
 
 		// Get the target.
 		let target = build.target(&self.handle).await?;
+		let host = target.host(&self.handle).await?;
+
+		// If this is a builtin, use the first arg.
+		if host.as_str() == "builtin" {
+			let name = target
+				.args(&self.handle)
+				.await?
+				.first()
+				.and_then(|arg| arg.try_unwrap_string_ref().ok())
+				.cloned()
+				.ok_or_else(|| tg::error!("expected a string"))?;
+			write!(title, "{name}").unwrap();
+			self.state.write().unwrap().title.replace(title);
+			return Ok(());
+		}
 
 		// Get the referrer if this is not a root.
 		'a: {
@@ -1067,7 +1082,6 @@ where
 			}
 		}
 
-		let host = target.host(&self.handle).await?;
 		if host.as_str() == "js" {
 			let name = target
 				.args(&self.handle)
@@ -1076,7 +1090,7 @@ where
 				.and_then(|arg| arg.try_unwrap_string_ref().ok())
 				.cloned();
 			if let Some(name) = name {
-				write!(title, ":{name}").unwrap();
+				write!(title, "#{name}").unwrap();
 			}
 		}
 		self.state.write().unwrap().title.replace(title);
