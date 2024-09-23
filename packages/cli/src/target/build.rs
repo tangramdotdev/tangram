@@ -595,11 +595,15 @@ where
 		}
 
 		// Get the referrer if this is not a root.
-		let parent = self.state.lock().unwrap().parent.clone();
+		let parent = self
+			.state
+			.lock()
+			.unwrap()
+			.parent
+			.as_ref()
+			.and_then(Weak::upgrade);
 		if let Some(parent) = parent {
 			let referrer = parent
-				.upgrade()
-				.unwrap()
 				.build
 				.target(&self.handle)
 				.await?
