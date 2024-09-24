@@ -6,6 +6,21 @@ use tangram_http::{incoming::request::Ext as _, outgoing::response::Ext as _, In
 
 impl Server {
 	pub async fn put_tag(&self, tag: &tg::Tag, arg: tg::tag::put::Arg) -> tg::Result<()> {
+		// Handle the remote.
+		let remote = arg.remote.as_ref();
+		if let Some(remote) = remote {
+			let remote = self
+				.remotes
+				.get(remote)
+				.ok_or_else(|| tg::error!("failed to find the remote"))?
+				.clone();
+			let arg = tg::tag::put::Arg {
+				remote: None,
+				..arg.clone()
+			};
+			remote.put_tag(tag, arg).await?;
+		}
+
 		// Get a database connection.
 		let mut connection = self
 			.database
