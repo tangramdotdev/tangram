@@ -3,9 +3,13 @@ use tangram_client::{self as tg, Handle as _};
 use tangram_either::Either;
 
 /// Push a build or an object.
+#[allow(clippy::struct_excessive_bools)]
 #[derive(Clone, Debug, clap::Args)]
 #[group(skip)]
 pub struct Args {
+	#[arg(short, long)]
+	pub force: bool,
+
 	#[arg(long)]
 	pub logs: bool,
 
@@ -42,7 +46,7 @@ impl Cli {
 					build,
 					logs: args.logs,
 					recursive: args.recursive,
-					remote: args.remote,
+					remote: args.remote.clone(),
 					targets: args.targets,
 				})
 				.await?;
@@ -50,7 +54,7 @@ impl Cli {
 			Either::Right(object) => {
 				self.command_object_push(crate::object::push::Args {
 					object,
-					remote: args.remote,
+					remote: args.remote.clone(),
 				})
 				.await?;
 			},
@@ -60,9 +64,9 @@ impl Cli {
 		if let tg::reference::Path::Tag(pattern) = args.reference.path() {
 			if let Ok(tag) = pattern.clone().try_into() {
 				let arg = tg::tag::put::Arg {
-					force: false,
+					force: args.force,
 					item,
-					remote: None,
+					remote: args.remote,
 				};
 				handle.put_tag(&tag, arg).await?;
 			}
