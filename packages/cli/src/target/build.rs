@@ -601,7 +601,7 @@ where
 			.unwrap()
 			.parent
 			.as_ref()
-			.map(|p| p.upgrade().unwrap());
+			.and_then(Weak::upgrade);
 		if let Some(parent) = parent {
 			let referrer = parent
 				.build
