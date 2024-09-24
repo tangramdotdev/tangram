@@ -663,7 +663,7 @@ impl Graph {
 	pub fn validate(&self) -> tg::Result<()> {
 		let mut errors = Vec::new();
 		for node in self.nodes.values() {
-			let errors_ = node.errors.iter().map(|error| error.clone());
+			let errors_ = node.errors.iter().cloned();
 			errors.extend(errors_);
 			for (reference, id) in &node.outgoing {
 				if !self.nodes.contains_key(id) {

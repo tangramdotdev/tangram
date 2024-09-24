@@ -67,21 +67,19 @@ impl Compiler {
 		// Publish the diagnostics.
 		for (uri, diagnostics) in diagnostics.iter() {
 			let uri = uri.clone();
-			let module = &diagnostics
+			if let Some(module) = diagnostics
 				.first()
-				.unwrap()
-				.location
-				.as_ref()
-				.unwrap()
-				.module;
-			let version = self.get_module_version(module).await?;
-			let diagnostics = diagnostics.iter().cloned().map_into().collect();
-			let params = lsp::PublishDiagnosticsParams {
-				uri,
-				diagnostics,
-				version: Some(version),
-			};
-			self.send_notification::<lsp::notification::PublishDiagnostics>(params);
+				.map(|diagnostic| &diagnostic.location.as_ref().unwrap().module)
+			{
+				let version = self.get_module_version(module).await?;
+				let diagnostics = diagnostics.iter().cloned().map_into().collect();
+				let params = lsp::PublishDiagnosticsParams {
+					uri,
+					diagnostics,
+					version: Some(version),
+				};
+				self.send_notification::<lsp::notification::PublishDiagnostics>(params);
+			}
 		}
 
 		// Remove the modules with no diagnostics.
