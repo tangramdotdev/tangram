@@ -601,7 +601,7 @@ where
 			.unwrap()
 			.parent
 			.as_ref()
-			.and_then(Weak::upgrade);
+			.map(|p| p.upgrade().unwrap());
 		if let Some(parent) = parent {
 			let referrer = parent
 				.build
@@ -642,13 +642,25 @@ where
 			let object: tg::object::Id = match executable {
 				tg::Artifact::Directory(_) => return Err(tg::error!("expected a file or symlink")),
 				tg::Artifact::File(file) => file.id(&self.handle).await?.into(),
-				tg::Artifact::Symlink(symlink) => symlink
-					.artifact(&self.handle)
-					.await?
-					.ok_or_else(|| tg::error!("expected an object"))?
-					.id(&self.handle)
-					.await?
-					.into(),
+				tg::Artifact::Symlink(symlink) => {
+					let artifact = symlink
+						.artifact(&self.handle)
+						.await?
+						.ok_or_else(|| tg::error!("expected an object"))?;
+					let path = symlink.path(&self.handle).await?;
+					if let Some(path) = path {
+						artifact
+							.try_unwrap_directory_ref()
+							.map_err(|_| tg::error!("expected a directory"))?
+							.get(&self.handle, path)
+							.await?
+							.id(&self.handle)
+							.await?
+							.into()
+					} else {
+						artifact.id(&self.handle).await?.into()
+					}
+				},
 			};
 
 			let dependencies: Vec<_> = referrer

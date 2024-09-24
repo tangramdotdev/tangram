@@ -335,7 +335,9 @@ impl Directory {
 
 			// Get the entry. If it doesn't exist, return `None`.
 			let std::path::Component::Normal(name) = component else {
-				return Err(tg::error!(%path = path.as_ref().display(), "the path must contain only normal components"));
+				return Err(
+					tg::error!(%path = path.as_ref().display(), "the path must contain only normal components"),
+				);
 			};
 
 			let name = name
