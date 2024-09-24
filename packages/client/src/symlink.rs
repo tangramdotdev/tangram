@@ -1,7 +1,7 @@
 use crate::{self as tg, path::Ext as _};
 use bytes::Bytes;
 use itertools::Itertools as _;
-use std::{collections::BTreeSet, path::PathBuf, sync::Arc};
+use std::{collections::BTreeSet, path::PathBuf, str::FromStr, sync::Arc};
 use tangram_either::Either;
 
 #[derive(
@@ -300,8 +300,10 @@ impl Symlink {
 			return Ok(artifact);
 		} else if artifact.is_none() && path.is_some() {
 			if let Some(tg::artifact::Artifact::Directory(directory)) = from_artifact {
-				let path = PathBuf::from("..")
-					.join(from_path.as_ref().unwrap())
+				let path = PathBuf::from_str(&from_path.unwrap_or_default())
+					.unwrap()
+					.join("..")
+					.join(path.as_ref().unwrap())
 					.normalize();
 				return directory.try_get(handle, &path).await;
 			}
