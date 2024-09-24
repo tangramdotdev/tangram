@@ -1,0 +1,20 @@
+[package]
+name = "tangram_ignore"
+authors.workspace = true
+description.workspace = true
+edition.workspace = true
+homepage.workspace = true
+license.workspace = true
+repository.workspace = true
+rust-version.workspace = true
+version.workspace = true
+
+[dependencies]
+globset = { workspace = true }
+tokio = { workspace = true }
+futures = { workspace = true }
+itertools = { workspace = true }
+libc = { workspace = true }
+
+[lints]
+workspace = true

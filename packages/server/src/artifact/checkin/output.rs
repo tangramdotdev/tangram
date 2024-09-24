@@ -1,6 +1,6 @@
 use super::{input, ProgressState};
 use crate::{tmp::Tmp, Server};
-use futures::{stream::FuturesUnordered, TryStreamExt as _};
+use futures::{future, stream::FuturesUnordered, StreamExt, TryStreamExt as _};
 use indoc::formatdoc;
 use itertools::Itertools;
 use num::ToPrimitive;
@@ -18,7 +18,7 @@ use time::format_description::well_known::Rfc3339;
 
 #[derive(Clone, Debug)]
 pub struct Graph {
-	pub input: Arc<RwLock<input::Graph>>,
+	pub input: Arc<tokio::sync::RwLock<input::Graph>>,
 	pub id: tg::artifact::Id,
 	pub data: tg::artifact::Data,
 	pub lock_index: usize,
@@ -191,11 +191,11 @@ impl Server {
 impl Server {
 	pub(super) async fn collect_output(
 		&self,
-		input: Arc<RwLock<input::Graph>>,
+		input: Arc<tokio::sync::RwLock<input::Graph>>,
 		lockfile: tg::Lockfile,
 		progress: &super::ProgressState,
 	) -> tg::Result<Arc<RwLock<Graph>>> {
-		let root = input.read().unwrap().arg.path.clone();
+		let root = input.read().await.arg.path.clone();
 		let artifacts = self.create_artifact_data_for_lockfile(&lockfile).await?;
 		let mut state = State {
 			root,
@@ -213,11 +213,11 @@ impl Server {
 
 	async fn collect_output_inner(
 		&self,
-		input: Arc<RwLock<input::Graph>>,
+		input: Arc<tokio::sync::RwLock<input::Graph>>,
 		state: &mut State,
 		progress: &super::ProgressState,
 	) -> tg::Result<Edge> {
-		let path = input.read().unwrap().arg.path.clone();
+		let path = input.read().await.arg.path.clone();
 		let path = path.diff(&state.root).unwrap();
 		if let Some(output) = state.visited.get(&path) {
 			let edge = Edge(Either::Right(output.clone()));
@@ -243,8 +243,8 @@ impl Server {
 		let id = data.id()?;
 
 		// Update the total bytes that will be copied.
-		if input.read().unwrap().metadata.is_file() {
-			let size = input.read().unwrap().metadata.size().to_u64().unwrap();
+		if input.read().await.metadata.is_file() {
+			let size = input.read().await.metadata.size().to_u64().unwrap();
 			progress.update_output_total(size);
 		}
 
@@ -263,7 +263,7 @@ impl Server {
 		let mut output_dependencies = BTreeMap::new();
 		let input_dependencies = input
 			.read()
-			.unwrap()
+			.await
 			.edges
 			.iter()
 			.filter_map(|edge| {
@@ -721,7 +721,7 @@ impl Server {
 		for (reference, child_output) in dependencies {
 			let child_output = child_output.node();
 			let input = child_output.read().unwrap().input.clone();
-			let path = if input.read().unwrap().is_root {
+			let path = if input.read().await.is_root {
 				self.checkouts_path()
 					.join(child_output.read().unwrap().data.id()?.to_string())
 			} else {
@@ -817,7 +817,8 @@ impl Server {
 			}
 			visited.insert(id);
 
-			if output.read().unwrap().input.read().unwrap().is_root {
+			let input = output.read().unwrap().input.clone();
+			if input.read().await.is_root {
 				// Create a temp.
 				let temp = Tmp::new(self);
 
@@ -864,7 +865,8 @@ impl Server {
 		visited: &mut BTreeSet<PathBuf>,
 		progress: &ProgressState,
 	) -> tg::Result<()> {
-		let input = output.read().unwrap().input.read().unwrap().clone();
+		let input = output.read().unwrap().input.clone();
+		let input = input.read().await.clone();
 		if visited.contains(&input.arg.path) {
 			return Ok(());
 		}
@@ -884,19 +886,11 @@ impl Server {
 			let dependencies = output.read().unwrap().dependencies.clone();
 			for (_, output) in dependencies {
 				let output = output.node();
-				if output.read().unwrap().input.read().unwrap().is_root {
+				let input_ = output.read().unwrap().input.clone();
+				if input_.read().await.is_root {
 					continue;
 				}
-				let diff = output
-					.read()
-					.unwrap()
-					.input
-					.read()
-					.unwrap()
-					.arg
-					.path
-					.diff(&input.arg.path)
-					.unwrap();
+				let diff = input_.read().await.arg.path.diff(&input.arg.path).unwrap();
 				let dest = dest.join(diff).normalize();
 				Box::pin(self.copy_or_move_all(dest, output, visited, progress)).await?;
 			}
@@ -1020,14 +1014,13 @@ impl Server {
 		}
 
 		// Recurse over path dependencies.
-		let dependencies = output
-			.read()
-			.unwrap()
-			.dependencies
-			.iter()
-			.filter_map(|(reference, child)| {
+		let dependencies = output.read().unwrap().dependencies.clone();
+		let dependencies = dependencies
+			.into_iter()
+			.map(|(reference, child)| async move {
 				let child = child.node();
-				if child.read().unwrap().input.read().unwrap().is_root {
+				let input = child.read().unwrap().input.clone();
+				if input.read().await.is_root {
 					return None;
 				}
 				let path = reference
@@ -1037,8 +1030,10 @@ impl Server {
 					.or_else(|| reference.query()?.path.as_ref())?;
 				Some((path.clone(), child.clone()))
 			})
-			.collect::<Vec<_>>();
-
+			.collect::<FuturesUnordered<_>>()
+			.filter_map(future::ready)
+			.collect::<Vec<_>>()
+			.await;
 		for (subpath, output_) in dependencies {
 			let dest_ = if matches!(&data, tg::artifact::Data::File(_)) {
 				dest.parent().unwrap().join(&subpath).normalize()

@@ -147,7 +147,7 @@ impl Server {
 		}
 
 		// Validate.
-		unification_graph.validate()?;
+		unification_graph.validate().await?;
 
 		// Create the lock that is written to disk.
 		progress.begin_blobs().await;
@@ -165,7 +165,8 @@ impl Server {
 
 		// Get the artifact ID
 		let artifact = self
-			.find_output_from_input(&arg.path, input.clone(), output.clone())?
+			.find_output_from_input(&arg.path, input.clone(), output.clone())
+			.await?
 			.ok_or_else(|| tg::error!(%path = arg.path.display(), "missing path in output"))?;
 
 		if let Some(store_as) = store_as {
@@ -189,19 +190,19 @@ impl Server {
 	}
 
 	#[allow(clippy::only_used_in_recursion, clippy::needless_pass_by_value)]
-	fn find_output_from_input(
+	async fn find_output_from_input(
 		&self,
 		path: &PathBuf,
-		input: Arc<RwLock<input::Graph>>,
+		input: Arc<tokio::sync::RwLock<input::Graph>>,
 		output: Arc<RwLock<output::Graph>>,
 	) -> tg::Result<Option<tg::artifact::Id>> {
-		if &input.read().unwrap().arg.path == path {
+		if &input.read().await.arg.path == path {
 			return Ok(Some(output.read().unwrap().id.clone()));
 		}
 		// Recurse over path dependencies.
 		let dependencies = input
 			.read()
-			.unwrap()
+			.await
 			.edges
 			.iter()
 			.filter_map(|edge| {
@@ -224,7 +225,9 @@ impl Server {
 					|| tg::error!(%referrer = path.display(), %reference, "missing output reference"),
 				)?
 				.node();
-			if let Some(id) = self.find_output_from_input(path, child_input, child_output)? {
+			if let Some(id) =
+				Box::pin(self.find_output_from_input(path, child_input, child_output)).await?
+			{
 				return Ok(Some(id));
 			}
 		}
