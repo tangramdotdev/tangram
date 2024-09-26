@@ -43,10 +43,10 @@ impl Server {
 			"
 				update builds
 				set
-					started_parent_count = 1,
-					status = 'started',
+					heartbeat_at = {p}1,
 					started_at = {p}1,
-					heartbeat_at = {p}1
+					started_parent_count = 1,
+					status = 'started'
 				where id = {p}2 and (status = 'created' or status = 'dequeued')
 				returning 1;
 			"
