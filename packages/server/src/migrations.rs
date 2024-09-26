@@ -84,6 +84,7 @@ async fn migration_0000(path: &Path) -> tg::Result<()> {
 				outcomes_count integer,
 				outcomes_weight integer,
 				retry text not null,
+				started_parent_count integer,
 				status text not null,
 				target text not null,
 				targets_complete integer not null default 0,

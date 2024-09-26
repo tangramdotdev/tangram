@@ -139,15 +139,9 @@ impl Server {
 		loop {
 			// Get the build's status.
 			let status = self
-				.try_get_build_status_local(id)
+				.try_get_current_build_status_local(id)
 				.await?
-				.unwrap()
-				.boxed()
-				.try_next()
-				.await?
-				.unwrap()
-				.try_unwrap_status()
-				.unwrap();
+				.ok_or_else(|| tg::error!(%build = id, "build does not exist"))?;
 
 			// Send as many data events as possible.
 			loop {
@@ -568,7 +562,7 @@ async fn poll_read_inner(
 	let rows = connection
 		.query_all_into::<Row>(statement, params)
 		.await
-		.map_err(|source| tg::error!(!source, "the query failed"))?;
+		.map_err(|source| tg::error!(!source, "failed to execute the statement"))?;
 
 	// Drop the database connection.
 	drop(connection);

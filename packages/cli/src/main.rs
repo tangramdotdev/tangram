@@ -1038,33 +1038,34 @@ impl Cli {
 			.as_ref()
 			.and_then(|config| config.advanced.as_ref())
 			.and_then(|advanced| advanced.file_descriptor_limit);
-		let semaphore_size = config
+		let file_descriptor_semaphore_size = config
 			.as_ref()
 			.and_then(|config| config.advanced.as_ref())
 			.and_then(|advanced| advanced.file_descriptor_semaphore_size);
 
-		let file_descriptor_limit = match (semaphore_size, file_descriptor_limit) {
-			// If neither is provided, set to twice the default semaphore size.
-			(None, None) => u64::try_from(DEFAULT_FILE_DESCRIPTOR_SEMAPHORE_SIZE).unwrap() * 2,
+		let file_descriptor_limit = match (file_descriptor_semaphore_size, file_descriptor_limit) {
+			// If neither is provided, use double the default size.
+			(None, None) => DEFAULT_FILE_DESCRIPTOR_SEMAPHORE_SIZE.to_u64().unwrap() * 2,
 
-			// If just the semaphore size is set, use twice the limit.
-			(Some(semaphore_size), None) => u64::try_from(semaphore_size).unwrap() * 2,
+			// If just the size is set, use double the size.
+			(Some(size), None) => size.to_u64().unwrap() * 2,
 
-			(None, Some(file_descriptor_limit)) => {
-				let default_semaphore_size =
-					u64::try_from(DEFAULT_FILE_DESCRIPTOR_SEMAPHORE_SIZE).unwrap();
-				if !Cli::is_at_most_half(default_semaphore_size, file_descriptor_limit) {
-					tracing::warn!(?default_semaphore_size, file_descriptor_limit, "file descriptor size is less than twice the default file descriptor semaphore size");
+			// If the limit is set, use it.
+			(None, Some(limit)) => {
+				let size = DEFAULT_FILE_DESCRIPTOR_SEMAPHORE_SIZE.to_u64().unwrap();
+				if limit < size * 2 {
+					tracing::warn!(?size, limit, "the file descriptor limit is less than double the default file descriptor semaphore size");
 				}
-				file_descriptor_limit
+				limit
 			},
 
-			(Some(semaphore_size), Some(file_descriptor_limit)) => {
-				if !Cli::is_at_most_half(semaphore_size.try_into().unwrap(), file_descriptor_limit)
-				{
-					tracing::warn!(?semaphore_size, file_descriptor_limit, "file descriptor semaphore size is greater than 50% of the configured limit.");
+			// If both are set, use the limit.
+			(Some(size), Some(limit)) => {
+				let size = size.to_u64().unwrap();
+				if size > limit / 2 {
+					tracing::warn!(?size, limit, "file descriptor semaphore size is greater than 50% of the file descriptor limit.");
 				}
-				file_descriptor_limit
+				limit
 			},
 		};
 
@@ -1079,13 +1080,8 @@ impl Cli {
 				"failed to set the file descriptor limit"
 			));
 		}
-		Ok(())
-	}
 
-	/// Determine whether value a is at most half of value b.
-	fn is_at_most_half(a: u64, b: u64) -> bool {
-		// A bitwise right shift will divide the number by 2.
-		a <= (b >> 1)
+		Ok(())
 	}
 
 	// Get the host.

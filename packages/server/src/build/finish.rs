@@ -3,7 +3,6 @@ use crate::Server;
 use bytes::Bytes;
 use futures::{stream::FuturesUnordered, TryStreamExt as _};
 use indoc::formatdoc;
-use std::pin::pin;
 use tangram_client as tg;
 use tangram_database::{self as db, prelude::*};
 use tangram_http::{incoming::request::Ext as _, outgoing::response::Ext as _, Incoming, Outgoing};
@@ -39,17 +38,11 @@ impl Server {
 
 		// If the build is finished, then return.
 		let status = self
-			.try_get_build_status_local(id)
+			.try_get_current_build_status_local(id)
 			.await?
-			.ok_or_else(|| tg::error!("expected the build to exist"))?;
-		let status = pin!(status)
-			.try_next()
-			.await?
-			.ok_or_else(|| tg::error!("failed to get the status"))?;
-		if matches!(
-			status,
-			tg::build::status::Event::Status(tg::build::Status::Finished)
-		) {
+			.ok_or_else(|| tg::error!(%build = id, "build does not exist"))?;
+
+		if matches!(status, tg::build::Status::Finished) {
 			return Ok(false);
 		}
 
@@ -59,6 +52,33 @@ impl Server {
 			.connection(db::Priority::Low)
 			.await
 			.map_err(|source| tg::error!(!source, "failed to get a database connection"))?;
+
+		// Decrement the started parent count if the build is started.
+		if matches!(status, tg::build::Status::Started) {
+			#[derive(serde::Deserialize)]
+			struct Row {
+				started_parent_count: u64,
+			}
+			let p = connection.p();
+			let statement = formatdoc!(
+				"
+					update builds
+					set started_parent_count = started_parent_count - 1
+					where id = {p}1 and started_parent_count > 0
+					returning started_parent_count;
+				"
+			);
+			let params = db::params![id];
+			let row = connection
+				.query_one_into::<Row>(statement, params)
+				.await
+				.map_err(|source| tg::error!(!source, "failed to execute the statement"))?;
+
+			// Do nothing if the started parent count is nonzero.
+			if row.started_parent_count > 0 {
+				return Ok(false);
+			}
+		}
 
 		// Get the children.
 		let p = connection.p();
@@ -102,19 +122,29 @@ impl Server {
 		let outcomes = children
 			.iter()
 			.map(|child_id| async move {
+				// Check if the child is finished before awaiting its outcome.
+				let Some(tg::build::Status::Finished) =
+					self.try_get_current_build_status_local(child_id).await?
+				else {
+					return Ok(None);
+				};
+
+				// Get the outcome.
 				let outcome = self
 					.try_get_build_outcome_future(child_id)
 					.await?
 					.ok_or_else(|| tg::error!(%child_id, "failed to get the build"))?
 					.await?
-					.ok_or_else(|| tg::error!(%child_id, "expected the build to be finished"))?;
-				Ok::<_, tg::Error>(outcome)
+					.ok_or_else(|| tg::error!(%child_id, "expected an outcome"))?;
+				Ok::<_, tg::Error>(Some(outcome))
 			})
 			.collect::<FuturesUnordered<_>>()
 			.try_collect::<Vec<_>>()
 			.await?;
+
 		if outcomes
 			.iter()
+			.filter_map(Option::as_ref)
 			.any(|outcome| outcome.try_unwrap_canceled_ref().is_ok())
 		{
 			outcome = tg::build::outcome::Data::Canceled;
@@ -240,6 +270,7 @@ impl Server {
 					heartbeat_at = null,
 					log = {p}1,
 					outcome = {p}2,
+					started_parent_count = null,
 					status = {p}3,
 					finished_at = {p}4
 				where id = {p}5;
