@@ -175,7 +175,7 @@ impl Node {
 					}
 					Ok::<_, Error>(())
 				})
-				.try_collect()?;
+				.try_collect::<_, (), _>()?;
 			let patterns = PatternSet { allow, deny };
 			return Ok(Some(patterns));
 		}

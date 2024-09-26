@@ -698,6 +698,14 @@ impl Compiler {
 					tokio::fs::write(&path, contents)
 						.await
 						.map_err(|source| tg::error!(!source, "failed to write the library"))?;
+					let metadata = tokio::fs::metadata(&path)
+						.await
+						.map_err(|source| tg::error!(!source, "failed to write the library"))?;
+					let mut permissions = metadata.permissions();
+					permissions.set_readonly(true);
+					tokio::fs::set_permissions(&path, permissions)
+						.await
+						.map_err(|source| tg::error!(!source, "failed to write the library"))?;
 				}
 				let path = path.display();
 				Ok(format!("file://{path}").parse().unwrap())
