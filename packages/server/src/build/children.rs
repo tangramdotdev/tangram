@@ -287,13 +287,13 @@ impl Server {
 		Ok(Some(stream))
 	}
 
-	pub async fn add_build_child(
+	pub(crate) async fn add_build_child(
 		&self,
-		id: &tg::build::Id,
-		arg: tg::build::children::post::Arg,
+		parent: &tg::build::Id,
+		child: &tg::build::Id,
 	) -> tg::Result<()> {
 		// Verify the build is local.
-		if !self.get_build_exists_local(id).await? {
+		if !self.get_build_exists_local(parent).await? {
 			return Err(tg::error!("failed to find the build"));
 		}
 
@@ -313,7 +313,7 @@ impl Server {
 				on conflict (build, child) do nothing;
 			"
 		);
-		let params = db::params![id, arg.child];
+		let params = db::params![parent, child];
 		connection
 			.execute(statement, params)
 			.await
@@ -325,7 +325,7 @@ impl Server {
 		// Publish the message.
 		tokio::spawn({
 			let server = self.clone();
-			let id = id.clone();
+			let id = parent.clone();
 			async move {
 				let subject = format!("builds.{id}.children");
 				let payload = Bytes::new();
@@ -442,21 +442,6 @@ impl Server {
 			.body(body)
 			.unwrap();
 
-		Ok(response)
-	}
-
-	pub(crate) async fn handle_add_build_child_request<H>(
-		handle: &H,
-		request: http::Request<Incoming>,
-		id: &str,
-	) -> tg::Result<http::Response<Outgoing>>
-	where
-		H: tg::Handle,
-	{
-		let id = id.parse()?;
-		let arg = request.json().await?;
-		handle.add_build_child(&id, arg).await?;
-		let response = http::Response::builder().empty().unwrap();
 		Ok(response)
 	}
 }

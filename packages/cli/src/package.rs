@@ -32,7 +32,7 @@ impl Cli {
 	pub async fn command_package(&self, args: Args) -> tg::Result<()> {
 		match args.command {
 			Command::Check(args) => self.command_package_check(args).await,
-			Command::Doc(args) => self.command_package_doc(args).await,
+			Command::Doc(args) => self.command_package_document(args).await,
 			Command::Format(args) => self.command_package_format(args).await,
 			Command::Init(args) => self.command_package_init(args).await,
 			Command::New(args) => self.command_package_new(args).await,

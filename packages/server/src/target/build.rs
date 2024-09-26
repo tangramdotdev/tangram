@@ -30,6 +30,14 @@ impl Server {
 			return Ok(output);
 		}
 
+		// Check if building this target with the specified parent would cause a cycle.
+		if let Some(parent) = arg.parent.as_ref() {
+			let cycle = self.detect_build_cycle(parent, id).await?;
+			if cycle {
+				return Err(tg::error!("cycle detected"));
+			}
+		}
+
 		// Get a local build if one exists that satisfies the retry constraint.
 		'a: {
 			// Get a database connection.
@@ -81,11 +89,9 @@ impl Server {
 
 			// Add the build as a child of the parent.
 			if let Some(parent) = arg.parent.as_ref() {
-				let arg = tg::build::children::post::Arg {
-					child: build.id().clone(),
-					remote: None,
-				};
-				self.add_build_child(parent, arg).await?;
+				self.add_build_child(parent, build.id()).await.map_err(
+					|source| tg::error!(!source, %parent, %child = build.id(), "failed to add build as a child"),
+				)?;
 			}
 
 			// Touch the build.
@@ -134,17 +140,15 @@ impl Server {
 			if futures.is_empty() {
 				break 'a;
 			}
-			let Ok((Some((build, remote)), _)) = future::select_ok(futures).await else {
+			let Ok((Some((build, _remote)), _)) = future::select_ok(futures).await else {
 				break 'a;
 			};
 
 			// Add the build as a child of the parent.
 			if let Some(parent) = arg.parent.as_ref() {
-				let arg = tg::build::children::post::Arg {
-					child: build.id().clone(),
-					remote: Some(remote),
-				};
-				self.add_build_child(parent, arg).await?;
+				self.add_build_child(parent, build.id()).await.map_err(
+					|source| tg::error!(!source, %parent, %child = build.id(), "failed to add build as a child"),
+				)?;
 			}
 
 			// Touch the build.
@@ -207,11 +211,9 @@ impl Server {
 
 		// Add the build to the parent.
 		if let Some(parent) = arg.parent.as_ref() {
-			let arg = tg::build::children::post::Arg {
-				child: build.id().clone(),
-				remote: None,
-			};
-			self.add_build_child(parent, arg).await?;
+			self.add_build_child(parent, build.id()).await.map_err(
+				|source| tg::error!(!source, %parent, %child = build.id(), "failed to add build as a child"),
+			)?;
 		}
 
 		// Publish the message.
@@ -253,6 +255,69 @@ impl Server {
 		let output = tg::target::build::Output { build: build_id };
 
 		Ok(Some(output))
+	}
+
+	async fn detect_build_cycle(
+		&self,
+		parent: &tg::build::Id,
+		target: &tg::target::Id,
+	) -> tg::Result<bool> {
+		let connection = self
+			.database
+			.connection(db::Priority::Low)
+			.await
+			.map_err(|source| tg::error!(!source, "failed to get a connection"))?;
+
+		// First check for a self-cycle.
+		let p = connection.p();
+		let statement = formatdoc!(
+			"
+				select exists (
+					select 1 from builds
+					where id = {p}1 and target = {p}2
+				);
+			"
+		);
+
+		let params = db::params![parent, target];
+		let cycle = connection
+			.query_one_value_into(statement, params)
+			.await
+			.map_err(|source| tg::error!(!source, "failed to execute the statement"))?;
+		if cycle {
+			return Ok(true);
+		}
+
+		// Otherwise, recurse.
+		let statement = formatdoc!(
+			"
+				with recursive ancestors as (
+					select b.id, b.target
+					from builds b
+					join build_children c on b.id = c.child
+					where c.child = {p}1
+
+					union all
+
+					select b.id, b.target
+					from ancestors a
+					join build_children c on a.id = c.child
+					join builds b on c.build = b.id
+				)
+				select exists (
+					select 1
+					from ancestors
+					where target = {p}2
+				);
+			"
+		);
+		let params = db::params![parent, target];
+		let cycle = connection
+			.query_one_value_into(statement, params)
+			.await
+			.map_err(|source| tg::error!(!source, "failed to execute statement"))?;
+
+		Ok(cycle)
 	}
 }
 

@@ -187,7 +187,7 @@ impl tg::Handle for Proxy {
 		&self,
 		_id: &tg::build::Id,
 		_arg: tg::build::start::Arg,
-	) -> tg::Result<Option<bool>> {
+	) -> tg::Result<bool> {
 		Err(tg::error!("forbidden"))
 	}
 
@@ -215,14 +215,6 @@ impl tg::Handle for Proxy {
 	> {
 		arg.remote = self.remote.clone();
 		self.server.try_get_build_children_stream(id, arg)
-	}
-
-	async fn add_build_child(
-		&self,
-		_id: &tg::build::Id,
-		_arg: tg::build::children::post::Arg,
-	) -> tg::Result<()> {
-		Err(tg::error!("forbidden"))
 	}
 
 	fn try_get_build_log_stream(
@@ -261,7 +253,7 @@ impl tg::Handle for Proxy {
 		&self,
 		_id: &tg::build::Id,
 		_arg: tg::build::finish::Arg,
-	) -> tg::Result<Option<bool>> {
+	) -> tg::Result<bool> {
 		Err(tg::error!("forbidden"))
 	}
 

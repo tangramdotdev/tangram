@@ -60,10 +60,7 @@ impl Server {
 		let arg = tg::build::start::Arg {
 			remote: remote.clone(),
 		};
-		let started = self
-			.try_start_build(build.id(), arg)
-			.await?
-			.ok_or_else(|| tg::error!("failed to find the build"))?;
+		let started = self.try_start_build(build.id(), arg).await?;
 		if !started {
 			return Ok(());
 		}

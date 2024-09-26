@@ -45,7 +45,7 @@ struct Cli {
 	arg_required_else_help = true,
 	before_help = before_help(),
 	disable_help_subcommand = true,
-	name = "Tangram",
+	name = "tangram",
 	version = version(),
 )]
 struct Args {
@@ -105,7 +105,7 @@ enum Command {
 	Checkout(self::artifact::checkout::Args),
 	Checksum(self::checksum::Args),
 	Clean(self::server::clean::Args),
-	Doc(self::package::document::Args),
+	Document(self::package::document::Args),
 	Download(self::blob::download::Args),
 	Format(self::package::format::Args),
 	Get(self::get::Args),
@@ -784,7 +784,7 @@ impl Cli {
 			Command::Checkout(args) => self.command_artifact_checkout(args).boxed(),
 			Command::Checksum(args) => self.command_checksum(args).boxed(),
 			Command::Clean(args) => self.command_server_clean(args).boxed(),
-			Command::Doc(args) => self.command_package_doc(args).boxed(),
+			Command::Document(args) => self.command_package_document(args).boxed(),
 			Command::Download(args) => self.command_blob_download(args).boxed(),
 			Command::Format(args) => self.command_package_format(args).boxed(),
 			Command::Get(args) => self.command_get(args).boxed(),

@@ -25,7 +25,7 @@ impl tg::Client {
 		&self,
 		id: &tg::build::Id,
 		arg: tg::build::finish::Arg,
-	) -> tg::Result<Option<bool>> {
+	) -> tg::Result<bool> {
 		let method = http::Method::POST;
 		let uri = format!("/builds/{id}/finish");
 		let request = http::request::Builder::default()
