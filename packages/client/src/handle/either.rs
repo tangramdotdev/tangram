@@ -152,7 +152,7 @@ where
 		&self,
 		id: &tg::build::Id,
 		arg: tg::build::start::Arg,
-	) -> impl Future<Output = tg::Result<Option<bool>>> + Send {
+	) -> impl Future<Output = tg::Result<bool>> + Send {
 		match self {
 			Either::Left(s) => s.try_start_build(id, arg).left_future(),
 			Either::Right(s) => s.try_start_build(id, arg).right_future(),
@@ -256,7 +256,7 @@ where
 		&self,
 		id: &tg::build::Id,
 		arg: tg::build::finish::Arg,
-	) -> impl Future<Output = tg::Result<Option<bool>>> {
+	) -> impl Future<Output = tg::Result<bool>> {
 		match self {
 			Either::Left(s) => s.finish_build(id, arg).left_future(),
 			Either::Right(s) => s.finish_build(id, arg).right_future(),

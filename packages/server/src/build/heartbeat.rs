@@ -13,7 +13,7 @@ impl Server {
 		id: &tg::build::Id,
 		arg: tg::build::heartbeat::Arg,
 	) -> tg::Result<tg::build::heartbeat::Output> {
-		// Handle the remote.
+		// If the remote arg is set, then forward the request.
 		let remote = arg.remote.as_ref();
 		if let Some(remote) = remote {
 			let remote = self
@@ -24,6 +24,11 @@ impl Server {
 			let arg = tg::build::heartbeat::Arg { remote: None };
 			let output = remote.heartbeat_build(id, arg).await?;
 			return Ok(output);
+		}
+
+		// Verify the build is local.
+		if !self.get_build_exists_local(id).await? {
+			return Err(tg::error!("failed to find the build"));
 		}
 
 		// Get a database connection.
@@ -46,13 +51,10 @@ impl Server {
 		let now = time::OffsetDateTime::now_utc().format(&Rfc3339).unwrap();
 		let params = db::params![now, id];
 		let status = connection
-			.query_optional_value_into(statement, params)
+			.query_one_value_into(statement, params)
 			.await
 			.inspect_err(|error| tracing::error!(%error, "failed to perform heartbeat query"))
-			.map_err(|source| tg::error!(!source, "failed to perform query"))?;
-		let Some(status) = status else {
-			return Err(tg::error!("failed to find the build"));
-		};
+			.map_err(|source| tg::error!(!source, "the query failed"))?;
 
 		// Drop the database connection.
 		drop(connection);

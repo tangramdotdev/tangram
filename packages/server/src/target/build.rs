@@ -30,11 +30,11 @@ impl Server {
 			return Ok(output);
 		}
 
-		// Walk the local build graph to check for cycles.
+		// Check if building this target with the specified parent would cause a cycle.
 		if let Some(parent) = arg.parent.as_ref() {
-			let cycle_exists = self.cycle_exists(parent, id).await?;
-			if cycle_exists {
-				return Err(tg::error!("detected a build cycle."));
+			let cycle = self.detect_build_cycle(parent, id).await?;
+			if cycle {
+				return Err(tg::error!("cycle detected"));
 			}
 		}
 
@@ -145,7 +145,6 @@ impl Server {
 			};
 
 			// Add the build as a child of the parent.
-			// TODO: this is a change in semantics from the earlier code, since we're adding the build child locally.
 			if let Some(parent) = arg.parent.as_ref() {
 				self.add_build_child(parent, build.id()).await.map_err(
 					|source| tg::error!(!source, %parent, %child = build.id(), "failed to add build as a child"),
@@ -258,7 +257,7 @@ impl Server {
 		Ok(Some(output))
 	}
 
-	async fn cycle_exists(
+	async fn detect_build_cycle(
 		&self,
 		parent: &tg::build::Id,
 		target: &tg::target::Id,
@@ -270,58 +269,55 @@ impl Server {
 			.map_err(|source| tg::error!(!source, "failed to get a connection"))?;
 
 		// First check for a self-cycle.
-		#[derive(serde::Deserialize)]
-		struct Row {
-			cycle_exists: bool,
-		}
 		let p = connection.p();
 		let statement = formatdoc!(
 			"
 				select exists (
 					select 1 from builds
 					where id = {p}1 and target = {p}2
-				) as cycle_exists;
+				);
 			"
 		);
 
 		let params = db::params![parent, target];
-		let row = connection
-			.query_one_into::<Row>(statement, params)
+		let cycle = connection
+			.query_one_value_into(statement, params)
 			.await
 			.map_err(|source| tg::error!(!source, "failed to execute the statement"))?;
-		if row.cycle_exists {
-			return Ok(row.cycle_exists);
+		if cycle {
+			return Ok(true);
 		}
 
 		// Otherwise, recurse.
 		let statement = formatdoc!(
 			"
-			with recursive ancestors as (
-				select b.id, b.target
-				from builds b
-				join build_children c on b.id = c.child
-				where c.child = {p}1
+				with recursive ancestors as (
+					select b.id, b.target
+					from builds b
+					join build_children c on b.id = c.child
+					where c.child = {p}1
 
-				union all
+					union all
 
-				select b.id, b.target
-				from ancestors a
-				join build_children c on a.id = c.child
-				join builds b on c.build = b.id
-			)
-			select exists (
-				select 1
-				from ancestors
-				where target = {p}2
-			) as cycle_exists;
+					select b.id, b.target
+					from ancestors a
+					join build_children c on a.id = c.child
+					join builds b on c.build = b.id
+				)
+				select exists (
+					select 1
+					from ancestors
+					where target = {p}2
+				);
 			"
 		);
 		let params = db::params![parent, target];
-		let row = connection
-			.query_one_into::<Row>(statement, params)
+		let cycle = connection
+			.query_one_value_into(statement, params)
 			.await
 			.map_err(|source| tg::error!(!source, "failed to execute statement"))?;
-		Ok(row.cycle_exists)
+
+		Ok(cycle)
 	}
 }
 
@@ -338,7 +334,6 @@ impl Server {
 		let arg = request.json().await?;
 		let output = handle.try_build_target(&id, arg).await?;
 		let response = http::Response::builder().json(output).unwrap();
-
 		Ok(response)
 	}
 }

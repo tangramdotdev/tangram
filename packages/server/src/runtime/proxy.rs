@@ -187,7 +187,7 @@ impl tg::Handle for Proxy {
 		&self,
 		_id: &tg::build::Id,
 		_arg: tg::build::start::Arg,
-	) -> tg::Result<Option<bool>> {
+	) -> tg::Result<bool> {
 		Err(tg::error!("forbidden"))
 	}
 
@@ -253,7 +253,7 @@ impl tg::Handle for Proxy {
 		&self,
 		_id: &tg::build::Id,
 		_arg: tg::build::finish::Arg,
-	) -> tg::Result<Option<bool>> {
+	) -> tg::Result<bool> {
 		Err(tg::error!("forbidden"))
 	}
 

@@ -10,7 +10,7 @@ use tangram_semver::Version;
 
 impl Server {
 	pub async fn list_tags(&self, arg: tg::tag::list::Arg) -> tg::Result<tg::tag::list::Output> {
-		// Handle the remote.
+		// If the remote arg is set, then forward the request.
 		let remote = arg.remote.as_ref();
 		if let Some(remote) = remote {
 			let remote = self

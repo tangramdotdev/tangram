@@ -15,8 +15,8 @@ impl Server {
 		&self,
 		id: &tg::build::Id,
 		arg: tg::build::finish::Arg,
-	) -> tg::Result<Option<bool>> {
-		// Handle the remote.
+	) -> tg::Result<bool> {
+		// If the remote arg is set, then forward the request.
 		let remote = arg.remote.as_ref();
 		if let Some(remote) = remote {
 			let remote = self
@@ -34,7 +34,7 @@ impl Server {
 
 		// Get the build.
 		let Some(output) = self.try_get_build_local(id).await? else {
-			return Ok(None);
+			return Err(tg::error!("failed to find the build"));
 		};
 
 		// If the build is finished, then return.
@@ -50,7 +50,7 @@ impl Server {
 			status,
 			tg::build::status::Event::Status(tg::build::Status::Finished)
 		) {
-			return Ok(Some(false));
+			return Ok(false);
 		}
 
 		// Get a database connection.
@@ -283,7 +283,7 @@ impl Server {
 			}
 		});
 
-		Ok(Some(true))
+		Ok(true)
 	}
 }
 

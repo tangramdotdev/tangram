@@ -568,7 +568,7 @@ async fn poll_read_inner(
 	let rows = connection
 		.query_all_into::<Row>(statement, params)
 		.await
-		.map_err(|source| tg::error!(!source, "failed to perform query"))?;
+		.map_err(|source| tg::error!(!source, "the query failed"))?;
 
 	// Drop the database connection.
 	drop(connection);

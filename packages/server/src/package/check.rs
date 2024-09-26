@@ -8,7 +8,7 @@ impl Server {
 		&self,
 		arg: tg::package::check::Arg,
 	) -> tg::Result<tg::package::check::Output> {
-		// Handle the remote.
+		// If the remote arg is set, then forward the request.
 		let remote = arg.remote.as_ref();
 		if let Some(remote) = remote {
 			let remote = self

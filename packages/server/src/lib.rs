@@ -884,7 +884,7 @@ impl tg::Handle for Server {
 		&self,
 		id: &tg::build::Id,
 		arg: tg::build::start::Arg,
-	) -> impl Future<Output = tg::Result<Option<bool>>> {
+	) -> impl Future<Output = tg::Result<bool>> {
 		self.try_start_build(id, arg)
 	}
 
@@ -948,7 +948,7 @@ impl tg::Handle for Server {
 		&self,
 		id: &tg::build::Id,
 		arg: tg::build::finish::Arg,
-	) -> impl Future<Output = tg::Result<Option<bool>>> {
+	) -> impl Future<Output = tg::Result<bool>> {
 		self.finish_build(id, arg)
 	}
 

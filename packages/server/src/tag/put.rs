@@ -6,7 +6,7 @@ use tangram_http::{incoming::request::Ext as _, outgoing::response::Ext as _, In
 
 impl Server {
 	pub async fn put_tag(&self, tag: &tg::Tag, arg: tg::tag::put::Arg) -> tg::Result<()> {
-		// Handle the remote.
+		// If the remote arg is set, then forward the request.
 		let remote = arg.remote.as_ref();
 		if let Some(remote) = remote {
 			let remote = self
