@@ -38,7 +38,7 @@ impl Server {
 
 		// If the build is finished, then return.
 		let status = self
-			.try_get_build_status_local(id)
+			.try_get_current_build_status_local(id)
 			.await?
 			.ok_or_else(|| tg::error!(%build = id, "build does not exist"))?;
 
@@ -124,7 +124,7 @@ impl Server {
 			.map(|child_id| async move {
 				// Check if the child is finished before awaiting its outcome.
 				let Some(tg::build::Status::Finished) =
-					self.try_get_build_status_local(child_id).await?
+					self.try_get_current_build_status_local(child_id).await?
 				else {
 					return Ok(None);
 				};

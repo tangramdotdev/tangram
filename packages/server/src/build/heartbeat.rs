@@ -54,7 +54,7 @@ impl Server {
 			.query_one_value_into(statement, params)
 			.await
 			.inspect_err(|error| tracing::error!(%error, "failed to perform heartbeat query"))
-			.map_err(|source| tg::error!(!source, "the query failed"))?;
+			.map_err(|source| tg::error!(!source, "failed to execute the statement"))?;
 
 		// Drop the database connection.
 		drop(connection);

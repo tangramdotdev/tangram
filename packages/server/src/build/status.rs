@@ -89,7 +89,7 @@ impl Server {
 		Ok(Some(stream))
 	}
 
-	pub(crate) async fn try_get_build_status_local(
+	pub(crate) async fn try_get_current_build_status_local(
 		&self,
 		id: &tg::build::Id,
 	) -> tg::Result<Option<tg::build::Status>> {
@@ -98,8 +98,9 @@ impl Server {
 			return Ok(None);
 		}
 
-		// Get the status.
+		// Get the current status.
 		let status = self.try_get_build_status_local_inner(id).await?;
+
 		Ok(Some(status))
 	}
 
