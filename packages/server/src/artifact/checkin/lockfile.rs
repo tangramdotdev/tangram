@@ -9,7 +9,7 @@ use std::{
 	collections::{BTreeMap, BTreeSet},
 	os::unix::fs::PermissionsExt,
 	path::PathBuf,
-	sync::{Arc, RwLock},
+	sync::Arc,
 };
 use tangram_client as tg;
 use tangram_either::Either;
@@ -31,7 +31,7 @@ impl Server {
 			.as_ref()
 			.unwrap_left()
 			.read()
-			.unwrap()
+			.await
 			.arg
 			.path
 			.clone();
@@ -55,7 +55,7 @@ impl Server {
 					let index = counter;
 					counter += 1;
 
-					let input = input.read().unwrap();
+					let input = input.read().await;
 					let path = input.arg.path.diff(&root_path).unwrap();
 					paths.entry(path).or_default().push(index);
 
@@ -95,7 +95,7 @@ impl Server {
 			.into_iter()
 			.map(|(old_id, dependencies)| async {
 				let node = graph.nodes.get(old_id).unwrap();
-				let input = node.object.as_ref().unwrap_left().read().unwrap().clone();
+				let input = node.object.as_ref().unwrap_left().read().await.clone();
 
 				let node = if input.metadata.is_dir() {
 					let entries = dependencies
@@ -259,7 +259,7 @@ impl Server {
 
 	pub(super) async fn write_lockfiles(
 		&self,
-		input: Arc<RwLock<input::Graph>>,
+		input: Arc<tokio::sync::RwLock<input::Graph>>,
 		lockfile: &tg::Lockfile,
 	) -> tg::Result<()> {
 		let mut visited = BTreeSet::new();
@@ -269,7 +269,7 @@ impl Server {
 
 	pub(super) async fn write_lockfiles_inner(
 		&self,
-		input: Arc<RwLock<input::Graph>>,
+		input: Arc<tokio::sync::RwLock<input::Graph>>,
 		lockfile: &tg::Lockfile,
 		visited: &mut BTreeSet<PathBuf>,
 	) -> tg::Result<()> {
@@ -278,7 +278,7 @@ impl Server {
 			metadata,
 			edges,
 			..
-		} = input.read().unwrap().clone();
+		} = input.read().await.clone();
 
 		if visited.contains(&arg.path) {
 			return Ok(());
@@ -317,7 +317,7 @@ impl Server {
 
 		for child in children {
 			// Skip any paths outside the workspace.
-			if child.read().unwrap().is_root {
+			if child.read().await.is_root {
 				continue;
 			}
 			Box::pin(self.write_lockfiles_inner(child, lockfile, visited)).await?;

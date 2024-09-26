@@ -1,5 +1,6 @@
 use crate::Server;
 use futures::{
+	future,
 	stream::{self, FuturesUnordered},
 	StreamExt, TryStreamExt,
 };
@@ -7,11 +8,15 @@ use itertools::Itertools;
 use std::{
 	collections::{BTreeMap, BTreeSet, VecDeque},
 	path::{Path, PathBuf},
-	sync::{Arc, RwLock, Weak},
+	sync::{Arc, Weak},
 };
 use tangram_client as tg;
 use tangram_either::Either;
+use tangram_ignore::Ignore;
 use tg::path::Ext as _;
+use tokio::sync::RwLock;
+
+const IGNORE_FILES: [&str; 2] = [".tgignore", ".gitignore"];
 
 #[derive(Clone, Debug)]
 pub struct Graph {
@@ -37,6 +42,7 @@ pub struct Edge {
 pub type Node = Either<Arc<RwLock<Graph>>, Weak<RwLock<Graph>>>;
 
 struct State {
+	ignore: Ignore,
 	roots: Vec<PathBuf>,
 	visited: BTreeMap<PathBuf, Weak<RwLock<Graph>>>,
 }
@@ -71,7 +77,7 @@ impl Server {
 		let graph = self.collect_input(arg_, progress).await?;
 
 		// Check if the graph contains the path.
-		if graph.read().unwrap().contains_path(&arg.path) {
+		if graph.read().await.contains_path(&arg.path).await {
 			return Ok(graph);
 		}
 
@@ -94,7 +100,7 @@ impl Server {
 			return Ok(path.to_owned());
 		}
 
-		// Look for a tangram.ts
+		// Look for a `tangram.ts`.
 		let path = path.parent().unwrap();
 		for path in path.ancestors() {
 			for root_module_name in tg::package::ROOT_MODULE_FILE_NAMES {
@@ -114,7 +120,12 @@ impl Server {
 		arg: tg::artifact::checkin::Arg,
 		progress: &super::ProgressState,
 	) -> tg::Result<Arc<RwLock<Graph>>> {
+		let ignore = Ignore::new(IGNORE_FILES)
+			.await
+			.map_err(|source| tg::error!(!source, "failed to create ignore tree"))?;
+
 		let state = RwLock::new(State {
+			ignore,
 			roots: Vec::new(),
 			visited: BTreeMap::new(),
 		});
@@ -130,7 +141,7 @@ impl Server {
 			.collect_input_inner(arg.clone(), &state, progress)
 			.await?
 			.unwrap_left();
-		if input.read().unwrap().metadata.is_dir() {
+		if input.read().await.metadata.is_dir() {
 			self.reparent_file_path_dependencies(input.clone()).await?;
 		}
 		Ok(input)
@@ -144,19 +155,7 @@ impl Server {
 		progress: &super::ProgressState,
 	) -> tg::Result<Node> {
 		if !arg.arg.path.is_absolute() {
-			let referrer = arg.parent.as_ref().map(|p| {
-				p.upgrade()
-					.unwrap()
-					.read()
-					.unwrap()
-					.arg
-					.path
-					.display()
-					.to_string()
-			});
-			return Err(
-				tg::error!(%path = arg.arg.path.display(), ?referrer, "expected an absolute path"),
-			);
+			return Err(tg::error!(%path = arg.arg.path.display(), "expected an absolute path"));
 		}
 		let canonical_path = if arg.follow_symlinks {
 			tokio::fs::canonicalize(&arg.arg.path).await.map_err(
@@ -166,12 +165,12 @@ impl Server {
 			arg.arg.path.normalize()
 		};
 
-		if let Some(visited) = state.read().unwrap().visited.get(&canonical_path).cloned() {
+		if let Some(visited) = state.read().await.visited.get(&canonical_path).cloned() {
 			return Ok(Either::Right(visited));
 		}
 
 		// Detect if this is a root or not.
-		let is_root = !state.read().unwrap().roots.iter().any(|root| {
+		let is_root = !state.read().await.roots.iter().any(|root| {
 			let diff = canonical_path.diff(root).unwrap();
 			matches!(
 				diff.components().next(),
@@ -181,7 +180,7 @@ impl Server {
 
 		// Add to the roots if necessary.
 		let root = if is_root {
-			let mut state_ = state.write().unwrap();
+			let mut state_ = state.write().await;
 			let root = state_.roots.len();
 			state_.roots.push(canonical_path.clone());
 			root
@@ -219,7 +218,7 @@ impl Server {
 		// Update state.
 		state
 			.write()
-			.unwrap()
+			.await
 			.visited
 			.insert(canonical_path.clone(), Arc::downgrade(&input));
 
@@ -237,7 +236,7 @@ impl Server {
 		let mut edges = self.get_edges(arg_, state, progress, &metadata).await?;
 		edges.sort_unstable_by_key(|edge| edge.reference.clone());
 
-		input.write().unwrap().edges = edges;
+		input.write().await.edges = edges;
 
 		// Send a new progress report.
 		progress.report_input_progress();
@@ -292,7 +291,7 @@ impl Server {
 		let entries = tokio::fs::read_dir(&arg.arg.path)
 			.await
 			.map_err(|source| tg::error!(!source, "failed to read directory"))?;
-		let vec = stream::try_unfold(entries, |mut entries| async {
+		let vec: Vec<_> = stream::try_unfold(entries, |mut entries| async {
 			let Some(entry) = entries
 				.next_entry()
 				.await
@@ -308,6 +307,23 @@ impl Server {
 				.ok_or_else(|| tg::error!("non-utf8 file name"))?
 				.to_owned();
 			let path = arg.arg.path.clone().join(&name);
+
+			// Check if we should ignore it.
+			let metadata = entry
+				.metadata()
+				.await
+				.map_err(|source| tg::error!(!source, "failed to get metadata"))?;
+			if state
+				.write()
+				.await
+				.ignore
+				.should_ignore(&path, &metadata)
+				.await
+				.map_err(|source| {
+					tg::error!(!source, "failed to check if the path should be ignored")
+				})? {
+				return Ok(Some((None, entries)));
+			}
 
 			// Create edge metadata.
 			let reference = tg::Reference::with_path(&name);
@@ -328,13 +344,13 @@ impl Server {
 				object: None,
 				tag: None,
 			};
-			Ok::<_, tg::Error>(Some((edge, entries)))
+			Ok::<_, tg::Error>(Some((Some(edge), entries)))
 		})
 		.collect::<FuturesUnordered<_>>()
 		.await
 		.into_iter()
 		.try_collect()?;
-		Ok(vec)
+		Ok(vec.into_iter().flatten().collect())
 	}
 
 	async fn get_file_edges(
@@ -398,8 +414,8 @@ impl Server {
 				.into_iter()
 				.map(|(reference, dependency)| {
 					let arg = arg.clone();
-					let root_path = state.read().unwrap().roots[arg.root].clone();
 					async move {
+						let root_path = state.read().await.roots[arg.root].clone();
 						let id = dependency.object;
 						let path = reference
 							.path()
@@ -506,14 +522,14 @@ impl Server {
 						.ok()
 						.or_else(|| import.reference.query()?.path.as_ref());
 					if let Some(path) = path {
-						// Create the reference
+						// Create the reference.
 						let reference = import.reference.clone();
 
 						// Create the path.
 						let path = arg.arg.path.parent().unwrap().to_owned().join(path);
 
 						// Check if the import points outside the package.
-						let root_path = state.read().unwrap().roots[arg.root].clone();
+						let root_path = state.read().await.roots[arg.root].clone();
 						if path.diff(&root_path).map_or(false, |path| {
 							matches!(
 								path.components().next(),
@@ -576,17 +592,17 @@ impl Server {
 		// We explicitly use breadth-first traversal here as a heuristic, to ensure that most nodes' parents are already reparented.
 		while let Some(input) = queue.pop_front() {
 			// Check if we've visited this node.
-			let absolute_path = input.read().unwrap().arg.path.clone();
+			let absolute_path = input.read().await.arg.path.clone();
 			if visited.contains(&absolute_path) {
 				continue;
 			}
 			visited.insert(absolute_path.clone());
 
 			// Get the dependencies.
-			let edges = input.read().unwrap().edges.clone();
+			let edges = input.read().await.edges.clone();
 
 			// If this input is a file, reparent its children.
-			if input.read().unwrap().metadata.is_file() {
+			if input.read().await.metadata.is_file() {
 				let dependencies = edges.iter().filter_map(|edge| {
 					let child = edge.node()?;
 					edge.reference
@@ -609,16 +625,16 @@ impl Server {
 	}
 
 	async fn reparent_file_path_dependency(&self, child: Arc<RwLock<Graph>>) -> tg::Result<()> {
-		if child.read().unwrap().is_root {
+		if child.read().await.is_root {
 			return Ok(());
 		}
-		let Some(parent) = child.read().unwrap().parent.as_ref().map(Weak::upgrade) else {
+		let Some(parent) = child.read().await.parent.as_ref().map(Weak::upgrade) else {
 			return Ok(());
 		};
 		let parent = parent.unwrap();
 
 		// Check if this node has already been reparented.
-		if parent.read().unwrap().metadata.is_dir() {
+		if parent.read().await.metadata.is_dir() {
 			return Ok(());
 		}
 
@@ -628,15 +644,15 @@ impl Server {
 		// Otherwise get the grandparent.
 		let grandparent = parent
 			.read()
-			.unwrap()
+			.await
 			.parent
 			.clone()
 			.ok_or_else(|| tg::error!("invalid path"))?
 			.upgrade()
 			.unwrap();
-		if !grandparent.read().unwrap().metadata.is_dir() {
+		if !grandparent.read().await.metadata.is_dir() {
 			return Err(
-				tg::error!(%parent = parent.read().unwrap().arg.path.display(), %grandparent = grandparent.read().unwrap().arg.path.display(), "expected a directory"),
+				tg::error!(%parent = parent.read().await.arg.path.display(), %grandparent = grandparent.read().await.arg.path.display(), "expected a directory"),
 			);
 		}
 		let mut parent = grandparent;
@@ -644,10 +660,10 @@ impl Server {
 		// Get the path to the child relative to the parent.
 		let diff = child
 			.read()
-			.unwrap()
+			.await
 			.arg
 			.path
-			.diff(&parent.read().unwrap().arg.path)
+			.diff(&parent.read().await.arg.path)
 			.unwrap();
 		let mut components = diff.components().collect::<VecDeque<_>>();
 
@@ -656,15 +672,15 @@ impl Server {
 			components.pop_front();
 			let new_parent = parent
 				.read()
-				.unwrap()
+				.await
 				.parent
 				.clone()
 				.ok_or_else(|| tg::error!("invalid path"))?
 				.upgrade()
 				.unwrap();
-			if !new_parent.read().unwrap().metadata.is_dir() {
+			if !new_parent.read().await.metadata.is_dir() {
 				return Err(
-					tg::error!(%path = new_parent.read().unwrap().arg.path.display(), "expected a directory"),
+					tg::error!(%path = new_parent.read().await.arg.path.display(), "expected a directory"),
 				);
 			}
 			parent = new_parent;
@@ -685,12 +701,8 @@ impl Server {
 						object: None,
 						tag: None,
 					};
-					parent.write().unwrap().edges.push(edge);
-					child
-						.write()
-						.unwrap()
-						.parent
-						.replace(Arc::downgrade(&parent));
+					parent.write().await.edges.push(edge);
+					child.write().await.parent.replace(Arc::downgrade(&parent));
 					return Ok(());
 				},
 				std::path::Component::Normal(name) => {
@@ -698,7 +710,7 @@ impl Server {
 					let reference = tg::Reference::with_path(name);
 					let input = parent
 						.read()
-						.unwrap()
+						.await
 						.edges
 						.iter()
 						.find(|edge| edge.reference == reference)
@@ -707,7 +719,7 @@ impl Server {
 						parent = input;
 						continue;
 					}
-					let arg = parent.read().unwrap().arg.clone();
+					let arg = parent.read().await.arg.clone();
 					let path = arg.path.clone().join(name).normalize();
 					let metadata = tokio::fs::metadata(&path).await.map_err(|source| {
 						tg::error!(!source, "failed to get directory metadata")
@@ -719,7 +731,7 @@ impl Server {
 						is_root: false,
 						is_direct_dependency: false,
 						metadata,
-						lockfile: parent.read().unwrap().lockfile.clone(),
+						lockfile: parent.read().await.lockfile.clone(),
 						parent: Some(Arc::downgrade(&parent)),
 					}));
 					let edge = Edge {
@@ -730,7 +742,7 @@ impl Server {
 						object: None,
 						tag: None,
 					};
-					parent.write().unwrap().edges.push(edge);
+					parent.write().await.edges.push(edge);
 					parent = graph;
 				},
 				_ => return Err(tg::error!(%diff = diff.display(), "unexpected path component")),
@@ -754,13 +766,13 @@ impl Server {
 		visited: &RwLock<BTreeSet<PathBuf>>,
 	) -> tg::Result<()> {
 		// Check if this path is visited or not.
-		let path = input.read().unwrap().arg.path.clone();
-		if visited.read().unwrap().contains(&path) {
+		let path = input.read().await.arg.path.clone();
+		if visited.read().await.contains(&path) {
 			return Ok(());
 		}
 
 		// Mark this node as visited.
-		visited.write().unwrap().insert(path.clone());
+		visited.write().await.insert(path.clone());
 
 		// If this is not a root module, inherit the lockfile of the referrer.
 		let lockfile = if tg::package::is_root_module_path(path.as_ref()) {
@@ -775,18 +787,22 @@ impl Server {
 				.transpose()?
 		} else {
 			// Otherwise inherit from the referrer.
-			input
+			let parent = input
 				.read()
-				.unwrap()
+				.await
 				.parent
 				.as_ref()
-				.map(|parent| parent.upgrade().unwrap())
-				.and_then(|parent| parent.read().unwrap().lockfile.clone())
+				.map(|parent| parent.upgrade().unwrap());
+			if let Some(parent) = parent {
+				parent.read().await.lockfile.clone()
+			} else {
+				None
+			}
 		};
-		input.write().unwrap().lockfile = lockfile;
+		input.write().await.lockfile = lockfile;
 
-		// Recurse
-		let edges = input.read().unwrap().edges.clone();
+		// Recurse.
+		let edges = input.read().await.edges.clone();
 		edges
 			.into_iter()
 			.filter_map(|edge| {
@@ -803,23 +819,33 @@ impl Server {
 }
 
 impl Graph {
-	fn contains_path(&self, path: &Path) -> bool {
-		let mut visited = BTreeSet::new();
-		self.contains_path_inner(path, &mut visited)
+	async fn contains_path(&self, path: &Path) -> bool {
+		let visited = std::sync::RwLock::new(BTreeSet::new());
+		self.contains_path_inner(path, &visited).await
 	}
 
-	fn contains_path_inner<'a>(&self, path: &'a Path, visited: &mut BTreeSet<&'a Path>) -> bool {
-		if visited.contains(&path) {
+	async fn contains_path_inner<'a>(
+		&self,
+		path: &'a Path,
+		visited: &std::sync::RwLock<BTreeSet<&'a Path>>,
+	) -> bool {
+		if visited.read().unwrap().contains(&path) {
 			return false;
 		}
 		if self.arg.path == path {
 			return true;
 		}
-		visited.insert(path);
+		visited.write().unwrap().insert(path);
 		self.edges
 			.iter()
 			.filter_map(Edge::node)
-			.any(|child| child.read().unwrap().contains_path(path))
+			.map(|child| async move {
+				let child = child.read().await;
+				Box::pin(child.contains_path_inner(path, visited)).await
+			})
+			.collect::<FuturesUnordered<_>>()
+			.any(future::ready)
+			.await
 	}
 }
 

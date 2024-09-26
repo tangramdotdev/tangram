@@ -376,7 +376,7 @@ where
 			..
 		} = args;
 
-		// Create the context
+		// Create the context.
 		let mut ctx = Context {
 			minor_version: minorversion,
 			current_file_handle: None,

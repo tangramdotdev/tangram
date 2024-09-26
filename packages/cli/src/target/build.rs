@@ -388,7 +388,7 @@ where
 				break;
 			}
 
-			// Get the spinner
+			// Get the spinner.
 			const SPINNER: [char; 10] = ['⠋', '⠙', '⠹', '⠸', '⠼', '⠴', '⠦', '⠧', '⠇', '⠏'];
 			let now = std::time::SystemTime::now()
 				.duration_since(std::time::UNIX_EPOCH)
@@ -576,7 +576,7 @@ where
 	async fn title(&self) -> tg::Result<()> {
 		let mut title = String::new();
 
-		// Get the target
+		// Get the target.
 		let target = self.build.target(&self.handle).await?;
 		let host = target.host(&self.handle).await?;
 

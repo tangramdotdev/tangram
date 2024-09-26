@@ -29,7 +29,7 @@ impl Cli {
 			.remote
 			.map(|option| option.unwrap_or_else(|| "default".to_owned()));
 
-		// Get the reference
+		// Get the reference.
 		let item = self.get_reference(&args.reference).await?;
 
 		// Get the item.

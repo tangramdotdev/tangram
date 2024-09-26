@@ -623,7 +623,7 @@ impl Provider {
 			std::io::Error::from_raw_os_error(libc::EIO)
 		})?;
 
-		// Get a node ID
+		// Get a node ID.
 		let id = self.node_count.fetch_add(1, Ordering::Relaxed);
 
 		// Add the node to the cache.
