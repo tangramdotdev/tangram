@@ -192,7 +192,7 @@ where
 		task_tracker.close();
 		task_tracker.wait().await;
 
-		// Unmount
+		// Unmount.
 		self.unmount()
 			.await
 			.inspect_err(|error| tracing::error!(%error, "failed to unmount"))

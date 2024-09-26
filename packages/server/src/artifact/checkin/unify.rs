@@ -55,10 +55,10 @@ pub(super) type Id = Either<tg::Reference, usize>;
 
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
 pub(super) struct Edge {
-	// The source node of the edge (referrer)
+	// The source node of the edge.
 	pub src: Id,
 
-	// The destination of the edge (dependency)
+	// The destination of the edge.
 	pub dst: Id,
 
 	// The constraint the referrer places on the dependency.

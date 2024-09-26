@@ -125,7 +125,7 @@ impl Server {
 	}
 
 	async fn index_object(&self, id: &tg::object::Id) -> tg::Result<()> {
-		// Get a short lived connection
+		// Get a short lived database connection.
 		let connection = self
 			.database
 			.connection(db::Priority::Low)
@@ -178,7 +178,7 @@ impl Server {
 			.try_collect()
 			.await?;
 
-		// Get a connection
+		// Get a database connection.
 		let mut connection = self
 			.database
 			.connection(db::Priority::Low)

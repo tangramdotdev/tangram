@@ -187,7 +187,7 @@ impl Server {
 	}
 }
 
-// Output
+// Output.
 impl Server {
 	pub(super) async fn collect_output(
 		&self,
@@ -248,7 +248,7 @@ impl Server {
 			progress.update_output_total(size);
 		}
 
-		// Create the output
+		// Create the output.
 		let output = Arc::new(RwLock::new(Graph {
 			input: input.clone(),
 			id: id.clone(),
@@ -643,9 +643,7 @@ impl Server {
 			(output.data.clone(), output.id.clone())
 		};
 
-		// macOS disables hardlinking for some files within .app dirs, such as *.app/Contents/{PkgInfo,Resources/\*.lproj,_CodeSignature} and .DS_Store.
-		// Perform a copy instead in these cases.
-		// See <https://github.com/NixOS/nix/blob/95f2b2beabc1ab0447bb4683516598265d71b695/src/libstore/optimise-store.cc#L100>
+		// macOS disables hardlinking for some files within .app dirs, such as *.app/Contents/{PkgInfo,Resources/\*.lproj,_CodeSignature} and .DS_Store. Perform a copy instead in these cases. See <https://github.com/NixOS/nix/blob/95f2b2beabc1ab0447bb4683516598265d71b695/src/libstore/optimise-store.cc#L100>.
 		let hardlink_prohibited = if cfg!(target_os = "macos") {
 			static APP_DIR_RE: std::sync::LazyLock<regex::Regex> =
 				std::sync::LazyLock::new(|| regex::Regex::new(r"\.app/Contents/.+$").unwrap());
@@ -655,7 +653,7 @@ impl Server {
 			false
 		};
 
-		// If this is a file, we need to create a hardlink at checkouts/<file id> and create a symlink for its contents in blobs/<content id> -> ../checkouts/<file id>
+		// If this is a file, we need to create a hardlink at checkouts/<file id> and create a symlink for its contents in blobs/<content id> -> ../checkouts/<file id>.
 		if let tg::artifact::Data::File(file) = data {
 			// Get a file descriptor permit.
 			let _permit = self.file_descriptor_semaphore.acquire().await.unwrap();

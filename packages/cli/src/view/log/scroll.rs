@@ -568,7 +568,7 @@ mod tests {
 			&["1——👍👌👉👈——", "2——👍👌👉👈——", "3——👍👌👉👈——",]
 		);
 
-		// Tailing case
+		// Tailing case.
 		let chunks = vec![
 			tg::build::log::get::Chunk {
 				position: 0,

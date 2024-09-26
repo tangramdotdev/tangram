@@ -97,7 +97,7 @@ impl Server {
 		store_as: Option<&tg::artifact::Id>,
 		progress: &ProgressState,
 	) -> tg::Result<tg::artifact::Id> {
-		// Overview :
+		// Overview:
 		//
 		// - Collect Input (arg) -> input::Graph
 		// - Analyze (input::Graph -> unify::Graph)
@@ -163,7 +163,7 @@ impl Server {
 			.collect_output(input.clone(), lockfile.clone(), progress)
 			.await?;
 
-		// Get the artifact ID
+		// Get the artifact ID.
 		let artifact = self
 			.find_output_from_input(&arg.path, input.clone(), output.clone())
 			.await?

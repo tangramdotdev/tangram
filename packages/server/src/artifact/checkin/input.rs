@@ -100,7 +100,7 @@ impl Server {
 			return Ok(path.to_owned());
 		}
 
-		// Look for a tangram.ts
+		// Look for a `tangram.ts`.
 		let path = path.parent().unwrap();
 		for path in path.ancestors() {
 			for root_module_name in tg::package::ROOT_MODULE_FILE_NAMES {
@@ -522,7 +522,7 @@ impl Server {
 						.ok()
 						.or_else(|| import.reference.query()?.path.as_ref());
 					if let Some(path) = path {
-						// Create the reference
+						// Create the reference.
 						let reference = import.reference.clone();
 
 						// Create the path.
@@ -801,7 +801,7 @@ impl Server {
 		};
 		input.write().await.lockfile = lockfile;
 
-		// Recurse
+		// Recurse.
 		let edges = input.read().await.edges.clone();
 		edges
 			.into_iter()

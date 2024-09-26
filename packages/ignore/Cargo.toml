@@ -10,11 +10,11 @@ rust-version.workspace = true
 version.workspace = true
 
 [dependencies]
-globset = { workspace = true }
-tokio = { workspace = true }
 futures = { workspace = true }
+globset = { workspace = true }
 itertools = { workspace = true }
 libc = { workspace = true }
+tokio = { workspace = true }
 
 [lints]
 workspace = true

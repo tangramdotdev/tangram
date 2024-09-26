@@ -104,7 +104,7 @@ where
 			})
 			.collect::<Vec<_>>();
 
-		// Select the first item
+		// Select the first item.
 		let selected = build_children
 			.first()
 			.cloned()

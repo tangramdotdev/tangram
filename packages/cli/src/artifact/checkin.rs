@@ -10,7 +10,7 @@ pub struct Args {
 	#[arg(long)]
 	pub destructive: bool,
 
-	/// Check in the artifact determnistically (disable tag unification)
+	/// Check in the artifact determnistically.
 	#[arg(long)]
 	pub deterministic: bool,
 

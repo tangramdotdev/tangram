@@ -73,7 +73,7 @@ impl Ignore {
 				}
 			}
 
-			// Otherwise keep searching
+			// Otherwise keep searching.
 			let std::path::Component::Normal(name) = component else {
 				return Err(Error::NonNormalizedPath(path.to_owned()));
 			};

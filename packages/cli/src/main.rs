@@ -178,7 +178,7 @@ fn main() -> std::process::ExitCode {
 			..
 		} => Mode::Server,
 
-		// If the command is anything else under `tg server`, then set the mode to `client.`
+		// If the command is anything else under `tg server`, then set the mode to `client`.
 		Args {
 			command: Command::Server(_),
 			..
@@ -772,7 +772,7 @@ impl Cli {
 		Err(tg::error!("failed to terminate the server"))
 	}
 
-	// Run the command
+	// Run the command.
 	async fn command(&self, command: Command) -> tg::Result<()> {
 		match command {
 			Command::Artifact(args) => self.command_artifact(args).boxed(),
