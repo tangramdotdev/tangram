@@ -1,5 +1,5 @@
 use crate::Cli;
-use tangram_client::{self as tg, Handle as _};
+use tangram_client::{self as tg, Handle};
 use tangram_either::Either;
 
 /// Push a build or an object.
@@ -30,6 +30,9 @@ impl Cli {
 	pub async fn command_push(&self, args: Args) -> tg::Result<()> {
 		let handle = self.handle().await?;
 
+		// Get the remote.
+		let remote = Some(args.remote.unwrap_or_else(|| "default".to_owned()));
+
 		// Get the reference.
 		let item = self.get_reference(&args.reference).await?;
 
@@ -46,7 +49,7 @@ impl Cli {
 					build,
 					logs: args.logs,
 					recursive: args.recursive,
-					remote: args.remote.clone(),
+					remote: remote.clone(),
 					targets: args.targets,
 				})
 				.await?;
@@ -54,7 +57,7 @@ impl Cli {
 			Either::Right(object) => {
 				self.command_object_push(crate::object::push::Args {
 					object,
-					remote: args.remote.clone(),
+					remote: remote.clone(),
 				})
 				.await?;
 			},
@@ -66,7 +69,7 @@ impl Cli {
 				let arg = tg::tag::put::Arg {
 					force: args.force,
 					item,
-					remote: args.remote,
+					remote,
 				};
 				handle.put_tag(&tag, arg).await?;
 			}
