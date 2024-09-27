@@ -1,9 +1,8 @@
+use super::tree::NodeKind;
 use num::ToPrimitive;
 use ratatui::{self as tui, prelude::*};
 use std::sync::{Arc, RwLock};
 use tangram_client::{self as tg, handle::Ext as _};
-
-use super::tree::NodeKind;
 
 pub struct Info<H> {
 	handle: H,

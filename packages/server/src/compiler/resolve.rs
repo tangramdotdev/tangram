@@ -1,6 +1,5 @@
-use std::{ffi::OsStr, path::PathBuf};
-
 use super::Compiler;
+use std::{ffi::OsStr, path::PathBuf};
 use tangram_client as tg;
 use tangram_either::Either;
 use tg::path::Ext as _;

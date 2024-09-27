@@ -1,8 +1,7 @@
 #![allow(clippy::match_same_arms, dead_code, non_camel_case_types)]
 
-use crate::TimeSpec;
-
 use super::xdr;
+use crate::TimeSpec;
 use num::ToPrimitive as _;
 
 // RPC constants.
