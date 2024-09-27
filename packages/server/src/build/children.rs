@@ -313,21 +313,6 @@ impl Server {
 			.await
 			.map_err(|source| tg::error!(!source, "failed to execute the statement"))?;
 
-		// Increment the started parent count.
-		let p = connection.p();
-		let statement = formatdoc!(
-			"
-				update builds
-				set started_parent_count = started_parent_count + 1
-				where id = {p}1 and status = 'started';
-			"
-		);
-		let params = db::params![child];
-		connection
-			.execute(statement, params)
-			.await
-			.map_err(|source| tg::error!(!source, "failed to execute the statement"))?;
-
 		// Drop the database connection.
 		drop(connection);
 

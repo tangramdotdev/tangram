@@ -53,33 +53,6 @@ impl Server {
 			.await
 			.map_err(|source| tg::error!(!source, "failed to get a database connection"))?;
 
-		// Decrement the started parent count if the build is started.
-		if matches!(status, tg::build::Status::Started) {
-			#[derive(serde::Deserialize)]
-			struct Row {
-				started_parent_count: u64,
-			}
-			let p = connection.p();
-			let statement = formatdoc!(
-				"
-					update builds
-					set started_parent_count = started_parent_count - 1
-					where id = {p}1 and started_parent_count > 0
-					returning started_parent_count;
-				"
-			);
-			let params = db::params![id];
-			let row = connection
-				.query_one_into::<Row>(statement, params)
-				.await
-				.map_err(|source| tg::error!(!source, "failed to execute the statement"))?;
-
-			// Do nothing if the started parent count is nonzero.
-			if row.started_parent_count > 0 {
-				return Ok(false);
-			}
-		}
-
 		// Get the children.
 		let p = connection.p();
 		let statement = formatdoc!(
@@ -270,7 +243,6 @@ impl Server {
 					heartbeat_at = null,
 					log = {p}1,
 					outcome = {p}2,
-					started_parent_count = null,
 					status = {p}3,
 					finished_at = {p}4
 				where id = {p}5;

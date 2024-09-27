@@ -33,9 +33,6 @@ pub struct Output {
 
 	pub retry: tg::build::Retry,
 
-	#[serde(default, skip_serializing_if = "Option::is_none")]
-	pub started_parent_count: Option<u64>,
-
 	pub status: tg::build::Status,
 
 	pub target: tg::target::Id,

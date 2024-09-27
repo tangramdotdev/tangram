@@ -45,7 +45,6 @@ impl Server {
 				set
 					heartbeat_at = {p}1,
 					started_at = {p}1,
-					started_parent_count = 1,
 					status = 'started'
 				where id = {p}2 and (status = 'created' or status = 'dequeued')
 				returning 1;
