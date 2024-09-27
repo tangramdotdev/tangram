@@ -7,6 +7,7 @@ use std::{
 		atomic::{AtomicBool, AtomicU64, Ordering},
 		Arc, Mutex,
 	},
+	time::Duration,
 };
 use tangram_client as tg;
 mod scroll;
@@ -127,7 +128,7 @@ where
 		// Get at least one chunk.
 		let position = Some(std::io::SeekFrom::End(0));
 		let length = Some(0);
-		let timeout = std::time::Duration::from_millis(16);
+		let timeout = Duration::from_millis(16);
 		let timeout = tokio::time::sleep(timeout);
 		let arg = tg::build::log::get::Arg {
 			length,

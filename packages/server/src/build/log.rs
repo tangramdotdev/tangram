@@ -7,7 +7,7 @@ use futures::{
 use indoc::formatdoc;
 use itertools::Itertools as _;
 use num::ToPrimitive;
-use std::io::Cursor;
+use std::{io::Cursor, time::Duration};
 use sync_wrapper::SyncWrapper;
 use tangram_client::{self as tg, handle::Ext as _};
 use tangram_database::{self as db, prelude::*};
@@ -110,10 +110,9 @@ impl Server {
 			.boxed();
 
 		// Create the interval.
-		let interval =
-			IntervalStream::new(tokio::time::interval(std::time::Duration::from_secs(60)))
-				.map(|_| ())
-				.boxed();
+		let interval = IntervalStream::new(tokio::time::interval(Duration::from_secs(60)))
+			.map(|_| ())
+			.boxed();
 
 		// Create the events stream.
 		let mut events = stream::select_all([log, status, interval]).boxed();

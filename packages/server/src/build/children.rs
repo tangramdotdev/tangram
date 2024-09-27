@@ -4,6 +4,7 @@ use futures::{future, stream, FutureExt as _, Stream, StreamExt as _, TryStreamE
 use indoc::formatdoc;
 use itertools::Itertools as _;
 use num::ToPrimitive as _;
+use std::time::Duration;
 use tangram_client::{self as tg, handle::Ext as _};
 use tangram_database::{self as db, prelude::*};
 use tangram_futures::task::Stop;
@@ -100,10 +101,9 @@ impl Server {
 			.boxed();
 
 		// Create the interval.
-		let interval =
-			IntervalStream::new(tokio::time::interval(std::time::Duration::from_secs(60)))
-				.map(|_| ())
-				.boxed();
+		let interval = IntervalStream::new(tokio::time::interval(Duration::from_secs(60)))
+			.map(|_| ())
+			.boxed();
 
 		// Create the events stream.
 		let mut events = stream::select_all([children, status, interval]).boxed();

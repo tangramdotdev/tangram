@@ -2,6 +2,7 @@ use crate::Server;
 use futures::{stream::FuturesUnordered, StreamExt as _};
 use hyper::body::Incoming;
 use num::ToPrimitive;
+use std::time::Duration;
 use tangram_client as tg;
 use tangram_database::{self as db, prelude::*};
 use tangram_http::{incoming::request::Ext as _, outgoing::response::Ext as _, Outgoing};
@@ -83,7 +84,7 @@ impl Server {
 
 	pub(crate) async fn build_monitor_heartbeat_task_inner(
 		&self,
-		timeout: std::time::Duration,
+		timeout: Duration,
 		limit: u64,
 	) -> tg::Result<u64> {
 		// Get a database connection.

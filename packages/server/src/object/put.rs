@@ -70,7 +70,7 @@ impl Server {
 		// Drop the connection.
 		drop(connection);
 
-		// If the object is not complete, then enqueue the object for indexing.
+		// If the object is not complete, then spawn a task to enqueue the object for indexing.
 		if !complete {
 			tokio::spawn({
 				let server = self.clone();

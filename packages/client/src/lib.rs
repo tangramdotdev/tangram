@@ -3,7 +3,7 @@ use futures::{Future, FutureExt as _, Stream};
 use std::{
 	collections::VecDeque,
 	path::{Path, PathBuf},
-	sync::Arc,
+	sync::Arc, time::Duration,
 };
 use tangram_http::{Incoming, Outgoing};
 use tokio::{
@@ -537,7 +537,7 @@ impl Client {
 				matches!(&result, Ok(response) if response.status().is_server_error());
 			if is_error || is_server_error {
 				if let Some(duration) = retries.pop_front() {
-					let duration = std::time::Duration::from_millis(duration);
+					let duration = Duration::from_millis(duration);
 					tokio::time::sleep(duration).await;
 					continue;
 				}

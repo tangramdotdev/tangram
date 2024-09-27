@@ -2,7 +2,7 @@ use self::app::App;
 use crate::Cli;
 use crossterm as ct;
 use ratatui as tui;
-use std::sync::Arc;
+use std::{sync::Arc, time::Duration};
 use tangram_client as tg;
 use tangram_either::Either;
 
@@ -143,7 +143,7 @@ where
 				.ok();
 
 			// Wait for and handle an event, swallowing any errors.
-			let Ok(has_event) = ct::event::poll(std::time::Duration::from_millis(10)) else {
+			let Ok(has_event) = ct::event::poll(Duration::from_millis(10)) else {
 				break;
 			};
 			if !has_event {

@@ -8,6 +8,7 @@ use std::{
 		atomic::{AtomicU64, Ordering},
 		Arc,
 	},
+	time::Duration,
 };
 
 pub enum Progress<T> {
@@ -78,7 +79,7 @@ where
 
 	// Create the progress stream.
 	let result = result_receiver.map(Result::unwrap).shared();
-	let interval = tokio::time::interval(std::time::Duration::from_millis(100));
+	let interval = tokio::time::interval(Duration::from_millis(100));
 	let stream = tokio_stream::wrappers::IntervalStream::new(interval)
 		.map(move |_| {
 			let data = state

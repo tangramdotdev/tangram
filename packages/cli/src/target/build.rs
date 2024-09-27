@@ -6,7 +6,7 @@ use num::ToPrimitive;
 use std::{
 	fmt::Write as _,
 	path::PathBuf,
-	sync::{Arc, Mutex, Weak},
+	sync::{Arc, Mutex, Weak}, time::Duration,
 };
 use tangram_client::{self as tg, handle::Ext as _, Handle as _};
 use tangram_either::Either;
@@ -415,7 +415,7 @@ where
 			tree.print();
 
 			// Sleep.
-			tokio::time::sleep(std::time::Duration::from_millis(100)).await;
+			tokio::time::sleep(Duration::from_millis(100)).await;
 
 			// Restore the cursor position.
 			crossterm::execute!(std::io::stdout(), crossterm::cursor::RestorePosition).unwrap();

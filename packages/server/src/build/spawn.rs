@@ -2,7 +2,7 @@ use crate::{BuildPermit, Server};
 use futures::{
 	future, stream::FuturesUnordered, FutureExt as _, TryFutureExt as _, TryStreamExt as _,
 };
-use std::sync::Arc;
+use std::{sync::Arc, time::Duration};
 use tangram_client::{self as tg, handle::Ext as _};
 use tangram_either::Either;
 use tangram_futures::task::Task;
@@ -39,7 +39,7 @@ impl Server {
 				Ok(((output, remote), _)) => (output, remote),
 				Err(error) => {
 					tracing::error!(?error, "failed to dequeue a build");
-					tokio::time::sleep(std::time::Duration::from_secs(1)).await;
+					tokio::time::sleep(Duration::from_secs(1)).await;
 					continue;
 				},
 			};

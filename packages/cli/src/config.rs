@@ -1,4 +1,4 @@
-use std::{collections::BTreeMap, path::PathBuf};
+use std::{collections::BTreeMap, path::PathBuf, time::Duration};
 use tangram_client::{self as tg, util::serde::is_false};
 use url::Url;
 
@@ -94,7 +94,7 @@ pub struct Config {
 pub struct Advanced {
 	/// The duration after which a build that is dequeued but not started may be dequeued again.
 	#[serde(default, skip_serializing_if = "Option::is_none")]
-	pub build_dequeue_timeout: Option<std::time::Duration>,
+	pub build_dequeue_timeout: Option<Duration>,
 
 	/// Whether to duplicate build logs to the server's stderr.
 	#[serde(default, skip_serializing_if = "Option::is_none")]

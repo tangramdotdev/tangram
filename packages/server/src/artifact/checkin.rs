@@ -97,26 +97,12 @@ impl Server {
 		store_as: Option<&tg::artifact::Id>,
 		progress: &ProgressState,
 	) -> tg::Result<tg::artifact::Id> {
-		// Overview:
-		//
-		// - Collect Input (arg) -> input::Graph
-		// - Analyze (input::Graph -> unify::Graph)
-		// - Unify (unify::Graph -> unify::Graph)
-		// - Validate
-		// - Split into strongly connected components and create tg::object::Data
-		// - Collect Output (input::Graph, tg::Lockfile) -> output::Graph
-		// - if store:
-		// 		- validate IDs and write to database
-		// - else :
-		// 	- copy or move to checkouts directory
-		//  - write hard links for files, symlinks to files for their content blobs
-		//  - write lockfile(s).
-
+		// Verify the path is absolute.
 		if !arg.path.is_absolute() {
 			return Err(tg::error!(%path = arg.path.display(), "expected an absolute path"));
 		}
 
-		// Make sure the input path is normalized.
+		// Normalize the path.
 		arg.path = arg.path.normalize();
 
 		// Collect the input.

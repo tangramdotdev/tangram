@@ -1,7 +1,10 @@
 use super::Runtime;
 use futures::TryStreamExt as _;
 use num::ToPrimitive as _;
-use std::sync::{atomic::AtomicU64, Arc};
+use std::{
+	sync::{atomic::AtomicU64, Arc},
+	time::Duration,
+};
 use tangram_client as tg;
 use tokio_util::io::StreamReader;
 use url::Url;
@@ -72,7 +75,7 @@ impl Runtime {
 					if result.is_err() {
 						break;
 					}
-					tokio::time::sleep(std::time::Duration::from_secs(1)).await;
+					tokio::time::sleep(Duration::from_secs(1)).await;
 				}
 			}
 		});

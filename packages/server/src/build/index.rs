@@ -2,7 +2,7 @@ use crate::Server;
 use futures::{future, stream::FuturesUnordered, StreamExt as _, TryStreamExt as _};
 use indoc::formatdoc;
 use itertools::Itertools as _;
-use std::pin::pin;
+use std::{pin::pin, time::Duration};
 use tangram_client::{self as tg, handle::Ext as _};
 use tangram_database::{self as db, prelude::*, Error};
 use tangram_either::Either;
@@ -25,7 +25,7 @@ impl Server {
 				Ok(connection) => connection,
 				Err(error) => {
 					tracing::error!(?error, "failed to get a database connection");
-					let duration = std::time::Duration::from_secs(1);
+					let duration = Duration::from_secs(1);
 					tokio::time::sleep(duration).await;
 					continue;
 				},
@@ -49,7 +49,7 @@ impl Server {
 				"
 			);
 			let now = (time::OffsetDateTime::now_utc()).format(&Rfc3339).unwrap();
-			let time = (time::OffsetDateTime::now_utc() - std::time::Duration::from_secs(60))
+			let time = (time::OffsetDateTime::now_utc() - Duration::from_secs(60))
 				.format(&Rfc3339)
 				.unwrap();
 			let params = db::params![now, time];
@@ -63,7 +63,7 @@ impl Server {
 
 				// If there are no builds enqueued for indexing, then wait to receive a build indexing event or for a timeout to pass.
 				Ok(None) => {
-					let timeout = std::time::Duration::from_secs(60);
+					let timeout = Duration::from_secs(60);
 					let timeout = tokio::time::sleep(timeout);
 					future::select(events.next(), pin!(timeout)).await;
 					continue;
@@ -71,7 +71,7 @@ impl Server {
 
 				Err(error) => {
 					tracing::error!(?error, "failed to get a build to index");
-					let duration = std::time::Duration::from_secs(1);
+					let duration = Duration::from_secs(1);
 					tokio::time::sleep(duration).await;
 					continue;
 				},

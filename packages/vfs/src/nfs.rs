@@ -38,6 +38,7 @@ use std::{
 	path::{Path, PathBuf},
 	pin::pin,
 	sync::{atomic::AtomicU64, Arc, Mutex},
+	time::Duration,
 };
 use tangram_futures::task::{Stop, Task};
 use tokio::net::{TcpListener, TcpStream};
@@ -388,7 +389,7 @@ where
 		for arg in argarray {
 			let opnum = arg.opnum();
 			let result = tokio::time::timeout(
-				std::time::Duration::from_secs(2),
+				Duration::from_secs(2),
 				self.handle_arg(&mut ctx, arg.clone()),
 			)
 			.await

@@ -1,3 +1,4 @@
+use std::time::Duration;
 use crate::Server;
 use futures::{stream, StreamExt as _};
 use indoc::formatdoc;
@@ -21,7 +22,7 @@ impl Server {
 			.map_err(|source| tg::error!(!source, "failed to subscribe"))?
 			.map(|_| ());
 		let interval =
-			IntervalStream::new(tokio::time::interval(std::time::Duration::from_secs(60)))
+			IntervalStream::new(tokio::time::interval(Duration::from_secs(60)))
 				.map(|_| ());
 		let mut events = stream::select(created, interval);
 
@@ -54,7 +55,7 @@ impl Server {
 				.options
 				.advanced
 				.build_dequeue_timeout
-				.unwrap_or(std::time::Duration::from_secs(3600));
+				.unwrap_or(Duration::from_secs(3600));
 			let time = (time::OffsetDateTime::now_utc() - timeout)
 				.format(&Rfc3339)
 				.unwrap();

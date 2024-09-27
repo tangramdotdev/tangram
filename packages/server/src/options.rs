@@ -1,4 +1,4 @@
-use std::{collections::BTreeMap, path::PathBuf};
+use std::{collections::BTreeMap, path::PathBuf, time::Duration};
 use tangram_client as tg;
 use url::Url;
 
@@ -21,7 +21,7 @@ pub struct Options {
 
 #[derive(Clone, Debug)]
 pub struct Advanced {
-	pub build_dequeue_timeout: Option<std::time::Duration>,
+	pub build_dequeue_timeout: Option<Duration>,
 	pub error_trace_options: tg::error::TraceOptions,
 	pub file_descriptor_semaphore_size: usize,
 	pub preserve_temp_directories: bool,
@@ -51,14 +51,14 @@ pub struct Oauth {
 #[derive(Clone, Debug)]
 pub struct Build {
 	pub concurrency: usize,
-	pub heartbeat_interval: std::time::Duration,
+	pub heartbeat_interval: Duration,
 }
 
 #[derive(Clone, Debug)]
 pub struct BuildHeartbeatMonitor {
-	pub interval: std::time::Duration,
+	pub interval: Duration,
 	pub limit: u64,
-	pub timeout: std::time::Duration,
+	pub timeout: Duration,
 }
 
 #[derive(Clone, Debug)]
@@ -66,9 +66,9 @@ pub struct BuildIndexer {}
 
 #[derive(Clone, Debug)]
 pub struct BuildDequeueMonitor {
-	pub interval: std::time::Duration,
+	pub interval: Duration,
 	pub limit: u64,
-	pub timeout: std::time::Duration,
+	pub timeout: Duration,
 }
 
 #[derive(Clone, Debug)]

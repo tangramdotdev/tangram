@@ -1,3 +1,4 @@
+use std::time::Duration;
 use crate::Server;
 use futures::{future, stream, FutureExt as _, Stream, StreamExt as _, TryStreamExt as _};
 use indoc::formatdoc;
@@ -46,7 +47,7 @@ impl Server {
 
 		// Create the interval.
 		let interval =
-			IntervalStream::new(tokio::time::interval(std::time::Duration::from_secs(60)))
+			IntervalStream::new(tokio::time::interval(Duration::from_secs(60)))
 				.map(|_| ());
 
 		// Create the stream.

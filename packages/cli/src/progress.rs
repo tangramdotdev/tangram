@@ -56,7 +56,8 @@ async fn consume_progress_stream<T>(
 
 #[cfg(test)]
 mod tests {
-	use tangram_client as tg;
+	use std::time::Duration;
+use tangram_client as tg;
 
 	#[tokio::test]
 	async fn progress() {
@@ -66,7 +67,7 @@ mod tests {
 			{
 				|state| async move {
 					for _ in 0..10 {
-						tokio::time::sleep(std::time::Duration::from_millis(500)).await;
+						tokio::time::sleep(Duration::from_millis(500)).await;
 						state.report_progress("dingbats", 1).ok();
 						state.report_progress("scoops", 1).ok();
 					}

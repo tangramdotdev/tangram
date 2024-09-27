@@ -3,7 +3,7 @@ use bytes::Bytes;
 use futures::{future, stream::FuturesUnordered, StreamExt as _, TryStreamExt as _};
 use indoc::formatdoc;
 use num::ToPrimitive as _;
-use std::{pin::pin, sync::Arc};
+use std::{pin::pin, sync::Arc, time::Duration};
 use tangram_client as tg;
 use tangram_database::{self as db, prelude::*, Error};
 use tangram_messenger::Messenger as _;
@@ -32,7 +32,7 @@ impl Server {
 		loop {
 			// Sleep until we can do some work.
 			if semaphore.available_permits() == 0 {
-				tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+				tokio::time::sleep(Duration::from_millis(50)).await;
 				continue;
 			}
 
@@ -41,7 +41,7 @@ impl Server {
 				Ok(connection) => connection,
 				Err(error) => {
 					tracing::error!(?error, "failed to get a database connection");
-					let duration = std::time::Duration::from_secs(1);
+					let duration = Duration::from_secs(1);
 					tokio::time::sleep(duration).await;
 					continue;
 				},
@@ -73,10 +73,9 @@ impl Server {
 			let limit = semaphore.available_permits();
 			let timeout = self.options.object_indexer.as_ref().unwrap().timeout;
 			let now = (time::OffsetDateTime::now_utc()).format(&Rfc3339).unwrap();
-			let time = (time::OffsetDateTime::now_utc()
-				- std::time::Duration::from_secs_f64(timeout))
-			.format(&Rfc3339)
-			.unwrap();
+			let time = (time::OffsetDateTime::now_utc() - Duration::from_secs_f64(timeout))
+				.format(&Rfc3339)
+				.unwrap();
 			let params = db::params![now, time, limit];
 			let result = connection
 				.query_all_into::<Row>(statement, params)
@@ -88,7 +87,7 @@ impl Server {
 
 				// If there are no objects enqueued for indexing, then wait to receive an object indexing event or for a timeout to pass.
 				Ok(_) => {
-					let timeout = std::time::Duration::from_secs_f64(timeout);
+					let timeout = Duration::from_secs_f64(timeout);
 					let timeout = tokio::time::sleep(timeout);
 					future::select(events.next(), pin!(timeout)).await;
 					continue;
@@ -96,7 +95,7 @@ impl Server {
 
 				Err(error) => {
 					tracing::error!(?error, "failed to get an object to index");
-					let duration = std::time::Duration::from_secs(1);
+					let duration = Duration::from_secs(1);
 					tokio::time::sleep(duration).await;
 					continue;
 				},
@@ -332,7 +331,8 @@ impl Server {
 				.query_all_value_into::<tg::object::Id>(statement, params)
 				.await
 				.map_err(|source| tg::error!(!source, "failed to execute the statement"))?;
-			// Index the incomplete parents.
+
+			// Spawn a task to enqueue the incomplete parents for indexing.
 			tokio::spawn({
 				let server = self.clone();
 				async move {

@@ -12,7 +12,7 @@ use std::{
 };
 use tangram_client as tg;
 use tangram_client::path::Ext as _;
-use tangram_database::{self as db, Connection as _, Database as _, Query as _, Transaction as _};
+use tangram_database::{self as db, prelude::*};
 use tangram_either::Either;
 use time::format_description::well_known::Rfc3339;
 
@@ -90,17 +90,19 @@ impl Server {
 		output: Arc<RwLock<Graph>>,
 		lockfile: &tg::Lockfile,
 	) -> tg::Result<()> {
-		// Compute count and weight.
+		// Compute the count and weight.
 		let count_and_weight = self
 			.compute_count_and_weight(output.clone(), lockfile)
 			.await?;
 
-		// Get a database connection/transaction.
+		// Get a database connection.
 		let mut connection = self
 			.database
 			.connection(db::Priority::Low)
 			.await
-			.map_err(|source| tg::error!(!source, "failed to get database connection"))?;
+			.map_err(|source| tg::error!(!source, "failed to get a database connection"))?;
+
+		// Begin a transaction.
 		let transaction = connection
 			.transaction()
 			.await
@@ -150,19 +152,17 @@ impl Server {
 		transaction
 			.commit()
 			.await
-			.map_err(|source| tg::error!(!source, "failed to commit transaction"))?;
+			.map_err(|source| tg::error!(!source, "failed to commit the transaction"))?;
 
 		Ok(())
 	}
 
 	pub(super) async fn write_data_to_database(&self, data: tg::artifact::Data) -> tg::Result<()> {
-		// Get a database connection/transaction.
 		let connection = self
 			.database
 			.connection(db::Priority::Low)
 			.await
 			.map_err(|source| tg::error!(!source, "failed to get database connection"))?;
-
 		let p = connection.p();
 		let statement = formatdoc!(
 			"
@@ -171,7 +171,6 @@ impl Server {
 				on conflict (id) do update set touched_at = {p}4;
 			"
 		);
-
 		let id = data.id()?;
 		let bytes = data.serialize()?;
 		let now = time::OffsetDateTime::now_utc().format(&Rfc3339).unwrap();
@@ -182,7 +181,6 @@ impl Server {
 			.map_err(|source| {
 				tg::error!(!source, "failed to put the artifact into the database")
 			})?;
-
 		Ok(())
 	}
 }
@@ -339,13 +337,10 @@ impl Server {
 			let graph = tg::graph::data::Data { nodes };
 
 			// Store the graph.
-			self.put_object(
-				&graph.id()?.into(),
-				tg::object::put::Arg {
-					bytes: graph.serialize()?,
-				},
-			)
-			.await?;
+			let id = graph.id()?;
+			let bytes = graph.serialize()?;
+			let arg = tg::object::put::Arg { bytes };
+			self.put_object(&id.into(), arg).await?;
 
 			graphs.push(graph);
 		}

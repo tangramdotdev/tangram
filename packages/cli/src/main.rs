@@ -3,7 +3,7 @@ use clap::{CommandFactory as _, Parser as _};
 use crossterm::{style::Stylize as _, tty::IsTty as _};
 use futures::FutureExt as _;
 use num::ToPrimitive as _;
-use std::{collections::BTreeMap, fmt::Write as _, path::PathBuf, sync::Mutex};
+use std::{collections::BTreeMap, fmt::Write as _, path::PathBuf, sync::Mutex, time::Duration};
 use tangram_client::{self as tg, Client};
 use tangram_either::Either;
 use tangram_server::Server;
@@ -281,7 +281,7 @@ impl Cli {
 				if client.connect().await.is_ok() {
 					break;
 				}
-				tokio::time::sleep(std::time::Duration::from_millis(100)).await;
+				tokio::time::sleep(Duration::from_millis(100)).await;
 			}
 
 			// If the client is not connected, then return an error.
@@ -318,7 +318,7 @@ impl Cli {
 				if client.connect().await.is_ok() {
 					break;
 				}
-				tokio::time::sleep(std::time::Duration::from_millis(100)).await;
+				tokio::time::sleep(Duration::from_millis(100)).await;
 			}
 
 			// If the client is not connected, then return an error.
@@ -461,10 +461,9 @@ impl Cli {
 			let concurrency = build
 				.concurrency
 				.unwrap_or_else(|| std::thread::available_parallelism().unwrap().get());
-			let heartbeat_interval = build.heartbeat_interval.map_or(
-				std::time::Duration::from_secs(1),
-				std::time::Duration::from_secs_f64,
-			);
+			let heartbeat_interval = build
+				.heartbeat_interval
+				.map_or(Duration::from_secs(1), Duration::from_secs_f64);
 			tangram_server::options::Build {
 				concurrency,
 				heartbeat_interval,
@@ -485,8 +484,8 @@ impl Cli {
 			let interval = config.interval.unwrap_or(1);
 			let limit = config.limit.unwrap_or(100);
 			let timeout = config.timeout.unwrap_or(60);
-			let interval = std::time::Duration::from_secs(interval);
-			let timeout = std::time::Duration::from_secs(timeout);
+			let interval = Duration::from_secs(interval);
+			let timeout = Duration::from_secs(timeout);
 			tangram_server::options::BuildHeartbeatMonitor {
 				interval,
 				limit,
@@ -745,7 +744,7 @@ impl Cli {
 			}
 
 			// Otherwise, sleep.
-			let duration = std::time::Duration::from_millis(100);
+			let duration = Duration::from_millis(100);
 			tokio::time::sleep(duration).await;
 		}
 
@@ -764,7 +763,7 @@ impl Cli {
 			}
 
 			// Otherwise, sleep.
-			let duration = std::time::Duration::from_millis(100);
+			let duration = Duration::from_millis(100);
 			tokio::time::sleep(duration).await;
 		}
 
